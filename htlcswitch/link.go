@@ -389,6 +389,21 @@ type channelLink struct {
 	// respect to the quiescence protocol.
 	quiescer quiescer
 
+	// activeQuiescenceRequest is a possibly nil channel that we should
+	// send on when we complete quiescence. We close the channel (causing
+	// None to be read) if the process fails. Otherwise the inner boolean
+	// indicates whether we are the definitive initiator for subsequent
+	// protocol execution.
+	activeQuiescenceReq fn.Option[fn.Req[
+		fn.Unit,
+		fn.Option[lntypes.ChannelParty],
+	]]
+
+	// quiescenceRequests is a queue of requests to quiesce this link.
+	// The members of the queue are send-only channels we should call back
+	// with the result.
+	quiescenceReqs chan fn.Req[fn.Unit, fn.Option[lntypes.ChannelParty]]
+
 	// stateQueries is a channel that is used to query the current state of
 	// the channelLink in a thread-safe manner by delegating the state reads
 	// to the main event loop.
@@ -473,6 +488,10 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		channelInitiator: channel.Initiator(),
 	}
 
+	quiescenceReqs := make(
+		chan fn.Req[fn.Unit, fn.Option[lntypes.ChannelParty]], 1,
+	)
+
 	return &channelLink{
 		cfg:                 cfg,
 		channel:             channel,
@@ -483,6 +502,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		outgoingCommitHooks: newHookMap(),
 		incomingCommitHooks: newHookMap(),
 		quiescer:            qsm,
+		quiescenceReqs:      quiescenceReqs,
 		stateQueries:        make(chan func(), 1),
 		quit:                make(chan struct{}),
 	}
@@ -750,10 +770,17 @@ func (l *channelLink) OnCommitOnce(direction LinkDirection, hook func()) {
 // may be removed or reworked in the future as RPC initiated quiescence is a
 // holdover until we have downstream protocols that use it.
 func (l *channelLink) InitStfu() <-chan fn.Option[lntypes.ChannelParty] {
-	// TODO(proofofkeags): Implement
-	c := make(chan fn.Option[lntypes.ChannelParty])
-	close(c) // Fail always for now
-	return c
+	req, out := fn.NewReq[fn.Unit, fn.Option[lntypes.ChannelParty]](
+		fn.Unit{},
+	)
+
+	select {
+	case l.quiescenceReqs <- req:
+	case <-l.quit:
+		req.Resolve(fn.None[lntypes.ChannelParty]())
+	}
+
+	return out
 }
 
 // isReestablished returns true if the link has successfully completed the
@@ -1513,6 +1540,23 @@ func (l *channelLink) htlcManager() {
 						"unable to update commitment:"+
 						" %v", err),
 				)
+			}
+		case qReq := <-l.quiescenceReqs:
+			if l.activeQuiescenceReq.IsNone() {
+				qReq.Resolve(fn.None[lntypes.ChannelParty]())
+				continue
+			}
+
+			l.activeQuiescenceReq = fn.Some(qReq)
+			err := l.quiescer.initStfu()
+			if err != nil {
+				qReq.Resolve(fn.None[lntypes.ChannelParty]())
+				l.log.Errorf("%v", err)
+			}
+
+			if err := l.drivePendingStfuSends(); err != nil {
+				l.log.Errorf("%v", err)
+				l.stfuFailf(err.Error())
 			}
 
 		case runQuery := <-l.stateQueries:
@@ -2618,6 +2662,7 @@ func (l *channelLink) handleStfu(stfu *lnwire.Stfu) error {
 	if err != nil {
 		return err
 	}
+	l.tryResolveQuiescenceRequests()
 
 	// If we can immediately send an Stfu response back, we will.
 	return l.drivePendingStfuSends()
@@ -2643,10 +2688,36 @@ func (l *channelLink) drivePendingStfuSends() error {
 			return err
 		}
 
-		return l.cfg.Peer.SendMessage(false, &stfu)
+		err = l.cfg.Peer.SendMessage(false, &stfu)
+		if err != nil {
+			return err
+		}
+
+		l.tryResolveQuiescenceRequests()
+
+		return nil
 	}
 
 	return nil
+}
+
+// tryResolveQuiescenceRequests checks whether the quiescence protocol has
+// successfully completed. If it has, it completes the outstanding asynchronous
+// request, if there is one.
+func (l *channelLink) tryResolveQuiescenceRequests() {
+	type StfuReq = fn.Req[fn.Unit, fn.Option[lntypes.ChannelParty]]
+
+	resolve := func(req StfuReq) {
+		if l.quiescer.isQuiescent() {
+			// Resolve the request.
+			req.Resolve(l.quiescer.downstreamLeader())
+
+			// Reset the active request.
+			l.activeQuiescenceReq = fn.None[StfuReq]()
+		}
+	}
+
+	l.activeQuiescenceReq.WhenSome(resolve)
 }
 
 // stfuFailf fails the link in the case where the requirements of the quiescence

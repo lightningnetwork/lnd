@@ -54,6 +54,14 @@
     "devrpcImportGraphResponse": {
       "type": "object"
     },
+    "devrpcQuiescenceResponse": {
+      "type": "object",
+      "properties": {
+        "initiator": {
+          "type": "boolean"
+        }
+      }
+    },
     "lnrpcChannelEdge": {
       "type": "object",
       "properties": {
@@ -115,6 +123,25 @@
         }
       },
       "description": "Returns a new instance of the directed channel graph."
+    },
+    "lnrpcChannelPoint": {
+      "type": "object",
+      "properties": {
+        "funding_txid_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "Txid of the funding transaction. When using REST, this field must be\nencoded as base64."
+        },
+        "funding_txid_str": {
+          "type": "string",
+          "description": "Hex-encoded string representing the byte-reversed hash of the funding\ntransaction."
+        },
+        "output_index": {
+          "type": "integer",
+          "format": "int64",
+          "title": "The index of the output of the funding transaction"
+        }
+      }
     },
     "lnrpcFeature": {
       "type": "object",

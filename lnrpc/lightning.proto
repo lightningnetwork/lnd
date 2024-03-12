@@ -1940,10 +1940,11 @@ message GetInfoResponse {
     reserved 11;
 
     /*
-    Deprecated. The only active chain is bitcoin.
-    A list of active chains the node is connected to
+    A list of active chains the node is connected to. This will only
+    ever contain a single entry since LND will only ever have a single
+    chain backend during its lifetime.
     */
-    repeated Chain chains = 16 [deprecated = true];
+    repeated Chain chains = 16;
 
     // The URIs of the current node.
     repeated string uris = 12;

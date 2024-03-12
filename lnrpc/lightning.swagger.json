@@ -5003,7 +5003,7 @@
           "items": {
             "$ref": "#/definitions/lnrpcChain"
           },
-          "title": "Deprecated. The only active chain is bitcoin.\nA list of active chains the node is connected to"
+          "description": "A list of active chains the node is connected to. This will only\never contain a single entry since LND will only ever have a single\nchain backend during its lifetime."
         },
         "uris": {
           "type": "array",

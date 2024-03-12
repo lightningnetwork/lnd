@@ -6059,6 +6059,23 @@ func marshalExtraOpaqueData(data []byte) map[uint64][]byte {
 	return records
 }
 
+// extractInboundFeeSafe tries to extract the inbound fee from the given extra
+// opaque data tlv block. If parsing fails, a zero inbound fee is returned. This
+// function is typically used on unvalidated data coming stored in the database.
+// There is not much we can do other than ignoring errors here.
+func extractInboundFeeSafe(data lnwire.ExtraOpaqueData) lnwire.Fee {
+	var inboundFee lnwire.Fee
+
+	_, err := data.ExtractRecords(&inboundFee)
+	if err != nil {
+		// Return zero fee. Do not return the inboundFee variable
+		// because it may be undefined.
+		return lnwire.Fee{}
+	}
+
+	return inboundFee
+}
+
 func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
 	c1, c2 *models.ChannelEdgePolicy) *lnrpc.ChannelEdge {
 
@@ -6108,6 +6125,7 @@ func marshalDBRoutingPolicy(
 	disabled := policy.ChannelFlags&lnwire.ChanUpdateDisabled != 0
 
 	customRecords := marshalExtraOpaqueData(policy.ExtraOpaqueData)
+	inboundFee := extractInboundFeeSafe(policy.ExtraOpaqueData)
 
 	return &lnrpc.RoutingPolicy{
 		TimeLockDelta:    uint32(policy.TimeLockDelta),
@@ -6118,6 +6136,9 @@ func marshalDBRoutingPolicy(
 		Disabled:         disabled,
 		LastUpdate:       uint32(policy.LastUpdate.Unix()),
 		CustomRecords:    customRecords,
+
+		InboundFeeBaseMsat:      inboundFee.BaseFee,
+		InboundFeeRateMilliMsat: inboundFee.FeeRate,
 	}
 }
 
@@ -6856,6 +6877,15 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 				edgePolicy.FeeProportionalMillionths
 			feeRate := float64(feeRateFixedPoint) / feeBase
 
+			// Decode inbound fee from extra data.
+			var inboundFee lnwire.Fee
+			_, err := edgePolicy.ExtraOpaqueData.ExtractRecords(
+				&inboundFee,
+			)
+			if err != nil {
+				return err
+			}
+
 			// TODO(roasbeef): also add stats for revenue for each
 			// channel
 			feeReports = append(feeReports, &lnrpc.ChannelFeeReport{
@@ -6864,6 +6894,9 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 				BaseFeeMsat:  int64(edgePolicy.FeeBaseMSat),
 				FeePerMil:    int64(feeRateFixedPoint),
 				FeeRate:      feeRate,
+
+				InboundBaseFeeMsat: inboundFee.BaseFee,
+				InboundFeePerMil:   inboundFee.FeeRate,
 			})
 
 			return nil
@@ -7050,6 +7083,10 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	feeSchema := routing.FeeSchema{
 		BaseFee: baseFeeMsat,
 		FeeRate: feeRateFixed,
+		InboundFee: models.InboundFee{
+			Base: req.InboundBaseFeeMsat,
+			Rate: req.InboundFeeRatePpm,
+		},
 	}
 
 	maxHtlc := lnwire.MilliSatoshi(req.MaxHtlcMsat)

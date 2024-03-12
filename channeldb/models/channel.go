@@ -115,6 +115,9 @@ type ForwardingPolicy struct {
 	// used to compute the required fee for a given HTLC.
 	FeeRate lnwire.MilliSatoshi
 
+	// InboundFee is the fee that must be paid for incoming HTLCs.
+	InboundFee InboundFee
+
 	// TimeLockDelta is the absolute time-lock value, expressed in blocks,
 	// that will be subtracted from an incoming HTLC's timelock value to
 	// create the time-lock value for the forwarded outgoing HTLC. The

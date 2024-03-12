@@ -39,6 +39,8 @@ var (
 	)
 )
 
+type StfuReq = fn.Req[fn.Unit, fn.Result[lntypes.ChannelParty]]
+
 type quiescerCfg struct {
 	// chanID marks what channel we are managing the state machine for. This
 	// is important because the quiescer is responsible for constructing the
@@ -83,6 +85,10 @@ type quiescer struct {
 
 	// received tracks whether or not we have received Stfu from our peer.
 	received bool
+
+	// activeQuiescenceRequest is a possibly None Request that we should
+	// resolve when we complete quiescence.
+	activeQuiescenceReq fn.Option[StfuReq]
 }
 
 // newQuiescer creates a new quiescer for the given channel.
@@ -115,6 +121,10 @@ func (q *quiescer) recvStfu(msg lnwire.Stfu) error {
 	// does not necessarily mean they will get it, though.
 	q.remoteInit = msg.Initiator
 
+	// Since we just received an Stfu, we may have a newly quiesced state.
+	// If so, we will try to resolve any outstanding StfuReqs.
+	q.tryResolveStfuReq()
+
 	return nil
 }
 
@@ -143,7 +153,7 @@ func (q *quiescer) makeStfu() fn.Result[lnwire.Stfu] {
 // Stfu when we have received but not yet sent an Stfu, or we are the initiator
 // but have not yet sent an Stfu.
 func (q *quiescer) oweStfu() bool {
-	return q.received && !q.sent
+	return (q.received || q.localInit) && !q.sent
 }
 
 // needStfu returns true if the remote owes us an Stfu. They owe us an Stfu when
@@ -229,5 +239,38 @@ func (q *quiescer) drive() error {
 
 	q.sent = true
 
+	// Since we just sent an Stfu, we may have a newly quiesced state.
+	// If so, we will try to resolve any outstanding StfuReqs.
+	q.tryResolveStfuReq()
+
 	return nil
+}
+
+// tryResolveStfuReq attempts to resolve the active quiescence request if the
+// state machine has reached a quiescent state.
+func (q *quiescer) tryResolveStfuReq() {
+	q.activeQuiescenceReq.WhenSome(
+		func(req StfuReq) {
+			if q.isQuiescent() {
+				req.Resolve(q.quiescenceInitiator())
+				q.activeQuiescenceReq = fn.None[StfuReq]()
+			}
+		},
+	)
+}
+
+// initStfu instructs the quiescer that we intend to begin a quiescence
+// negotiation where we are the initiator. We don't yet send stfu yet because
+// we need to wait for the link to give us a valid opportunity to do so.
+func (q *quiescer) initStfu(req StfuReq) {
+	if q.localInit {
+		req.Resolve(fn.Errf[lntypes.ChannelParty](
+			"quiescence already requested",
+		))
+
+		return
+	}
+
+	q.localInit = true
+	q.activeQuiescenceReq = fn.Some(req)
 }

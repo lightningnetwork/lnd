@@ -205,6 +205,9 @@
   for blinded path payloads to allow fuzzing before LND fully supports 
   blinded payment relay.
 
+* Allow `healthcheck` package users to provide [custom callbacks](https://github.com/lightningnetwork/lnd/pull/8504)
+  which will execute whenever a healthcheck succeeds/fails.
+
 ### Logging
 * [Add the htlc amount](https://github.com/lightningnetwork/lnd/pull/8156) to
   contract court logs in case of timed-out htlcs in order to easily spot dust

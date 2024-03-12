@@ -40,6 +40,10 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/devrpc.Dev/Quiesce": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
 	}
 )
 
@@ -341,4 +345,26 @@ func (s *Server) ImportGraph(ctx context.Context,
 	}
 
 	return &ImportGraphResponse{}, nil
+}
+
+// Quiesce initiates the quiescence process for the channel with the given
+// channel ID. This method will block until the channel is fully quiesced.
+func (s *Server) Quiesce(_ context.Context, in *QuiescenceRequest) (
+	*QuiescenceResponse, error) {
+
+	txid, err := lnrpc.GetChanPointFundingTxid(in.ChanId)
+	if err != nil {
+		return nil, err
+	}
+
+	op := wire.NewOutPoint(txid, in.ChanId.OutputIndex)
+	cid := lnwire.NewChanIDFromOutPoint(*op)
+	_, err = s.cfg.Switch.GetLink(cid)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(proofofkeags): Add Link operation for initiating quiescence and
+	// implement the rest of this in those terms
+	return nil, fmt.Errorf("TODO(proofofkeags): Implement")
 }

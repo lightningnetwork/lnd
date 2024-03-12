@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -160,6 +161,16 @@ type ChannelUpdateHandler interface {
 	// will only ever be called once. If no CommitSig is owed in the
 	// argument's LinkDirection, then we will call this hook immediately.
 	OnCommitOnce(LinkDirection, func())
+
+	// InitStfu allows us to initiate quiescence on this link. It returns
+	// a receive only channel that will block until quiescence has been
+	// achieved, or definitively fails.
+	//
+	// This operation has been added to allow channels to be quiesced via
+	// RPC. It may be removed or reworked in the future as RPC initiated
+	// quiescence is a holdover until we have downstream protocols that use
+	// it.
+	InitStfu() <-chan fn.Option[bool]
 }
 
 // CommitHookID is a value that is used to uniquely identify hooks in the

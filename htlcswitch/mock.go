@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -939,6 +940,12 @@ func (f *mockChannelLink) OnFlushedOnce(func()) {
 }
 func (f *mockChannelLink) OnCommitOnce(LinkDirection, func()) {
 	// TODO(proofofkeags): Implement
+}
+func (f *mockChannelLink) InitStfu() <-chan fn.Option[bool] {
+	// TODO(proofofkeags): Implement
+	c := make(chan fn.Option[bool])
+	close(c) // This indicates the attempt failed
+	return c
 }
 
 var _ ChannelLink = (*mockChannelLink)(nil)

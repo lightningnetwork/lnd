@@ -950,6 +950,14 @@ func (f *mockChannelLink) OnFlushedOnce(func()) {
 func (f *mockChannelLink) OnCommitOnce(LinkDirection, func()) {
 	// TODO(proofofkeags): Implement
 }
+func (f *mockChannelLink) InitStfu() <-chan fn.Result[lntypes.ChannelParty] {
+	// TODO(proofofkeags): Implement
+	c := make(chan fn.Result[lntypes.ChannelParty], 1)
+
+	c <- fn.Errf[lntypes.ChannelParty]("InitStfu not implemented")
+
+	return c
+}
 
 func (f *mockChannelLink) FundingCustomBlob() fn.Option[tlv.Blob] {
 	return fn.None[tlv.Blob]()

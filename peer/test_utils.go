@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -472,6 +473,14 @@ func (m *mockUpdateHandler) OnCommitOnce(
 ) {
 
 	hook()
+}
+func (m *mockUpdateHandler) InitStfu() <-chan fn.Result[lntypes.ChannelParty] {
+	// TODO(proofofkeags): Implement
+	c := make(chan fn.Result[lntypes.ChannelParty], 1)
+
+	c <- fn.Errf[lntypes.ChannelParty]("InitStfu not yet implemented")
+
+	return c
 }
 
 func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {

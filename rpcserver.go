@@ -45,6 +45,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -8229,7 +8230,13 @@ func (r *rpcServer) Quiesce(ctx context.Context, in *lnrpc.QuiescenceRequest) (
 		return nil, err
 	}
 
-	// TODO(proofofkeags): Add Link operation for initiating quiescence and
-	// implement the rest of this in those terms
-	return nil, fmt.Errorf("TODO(proofofkeags): Implement")
+	select {
+	case opt := <-ln.InitStfu():
+		trans := fn.MapOption(func(b bool) *lnrpc.QuiescenceResponse{
+			return &lnrpc.QuiescenceResponse{Initiator: b}
+		})
+		return trans(opt).UnwrapOrErr(fmt.Errorf("Quiescence Failed"))
+	case <-r.quit:
+		return nil, fmt.Errorf("Server Shutting Down")
+	}
 }

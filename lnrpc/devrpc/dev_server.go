@@ -365,7 +365,7 @@ func (s *Server) AddAliases(_ context.Context,
 			aliasScid := lnwire.NewShortChanIDFromInt(alias)
 
 			err := s.cfg.AliasMgr.AddLocalAlias(
-				aliasScid, baseScid, false,
+				aliasScid, baseScid, false, true,
 			)
 			if err != nil {
 				log.Warnf("Could not create scid alias, "+

@@ -23,7 +23,11 @@ func TestAliasStorePeerAlias(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	aliasStore, err := NewManager(db)
+	linkUpdater := func(shortID lnwire.ShortChannelID) error {
+		return nil
+	}
+
+	aliasStore, err := NewManager(db, linkUpdater)
 	require.NoError(t, err)
 
 	var chanID1 [32]byte
@@ -52,7 +56,11 @@ func TestAliasStoreRequest(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	aliasStore, err := NewManager(db)
+	linkUpdater := func(shortID lnwire.ShortChannelID) error {
+		return nil
+	}
+
+	aliasStore, err := NewManager(db, linkUpdater)
 	require.NoError(t, err)
 
 	// We'll assert that the very first alias we receive is StartingAlias.

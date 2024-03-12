@@ -346,6 +346,10 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				reflect.ValueOf(graphDB),
 			)
 
+			subCfgValue.FieldByName("Switch").Set(
+				reflect.ValueOf(htlcSwitch),
+			)
+
 		case *peersrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)
 

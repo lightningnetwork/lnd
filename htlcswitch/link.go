@@ -379,6 +379,18 @@ type channelLink struct {
 	// respect to the quiescence protocol.
 	quiescer
 
+	// activeQuiescenceRequest is a possibly nil channel that we should
+	// send on when we complete quiescence. We close the channel (causing
+	// None to be read) if the process fails. Otherwise the inner boolean
+	// indicates whether we are the definitive initiator for subsequent
+	// protocol execution.
+	activeQuiescenceRequest chan<- fn.Option[bool]
+
+	// newQuiescenceRequests is a queue of requests to quiesce this link.
+	// The members of the queue are send-only channels we should call back
+	// with the result.
+	newQuiescenceRequests chan chan<- fn.Option[bool]
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -452,16 +464,17 @@ func NewChannelLink(cfg ChannelLinkConfig,
 	}
 
 	return &channelLink{
-		cfg:                 cfg,
-		channel:             channel,
-		hodlMap:             make(map[models.CircuitKey]hodlHtlc),
-		hodlQueue:           queue.NewConcurrentQueue(10),
-		log:                 build.NewPrefixLog(logPrefix, log),
-		flushHooks:          newHookMap(),
-		outgoingCommitHooks: newHookMap(),
-		incomingCommitHooks: newHookMap(),
-		quiescer:            qsm,
-		quit:                make(chan struct{}),
+		cfg:                   cfg,
+		channel:               channel,
+		hodlMap:               make(map[models.CircuitKey]hodlHtlc),
+		hodlQueue:             queue.NewConcurrentQueue(10),
+		log:                   build.NewPrefixLog(logPrefix, log),
+		flushHooks:            newHookMap(),
+		outgoingCommitHooks:   newHookMap(),
+		incomingCommitHooks:   newHookMap(),
+		quiescer:              qsm,
+		newQuiescenceRequests: make(chan chan<- fn.Option[bool], 1),
+		quit:                  make(chan struct{}),
 	}
 }
 
@@ -695,9 +708,13 @@ func (l *channelLink) OnCommitOnce(direction LinkDirection, hook func()) {
 // may be removed or reworked in the future as RPC initiated quiescence is a
 // holdover until we have downstream protocols that use it.
 func (l *channelLink) InitStfu() <-chan fn.Option[bool] {
-	// TODO(proofofkeags): Implement
-	c := make(chan fn.Option[bool])
-	close(c) // Fail always for now
+	c := make(chan fn.Option[bool], 1)
+	select {
+	case l.newQuiescenceRequests <- c:
+	case <-l.quit:
+		close(c)
+	}
+
 	return c
 }
 
@@ -1459,6 +1476,14 @@ func (l *channelLink) htlcManager() {
 						" %v", err),
 				)
 			}
+		case qReq := <-l.newQuiescenceRequests:
+			l.activeQuiescenceRequest = qReq
+			err := l.quiescer.initStfu()
+			if err != nil {
+				close(qReq)
+				l.log.Errorf("%v", err)
+			}
+			l.drivePendingStfuSends()
 
 		case <-l.quit:
 			return
@@ -2449,6 +2474,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			handleErr(err)
 			return
 		}
+		l.tryResolveQuiescenceRequests()
 
 		// If we can immediately send an Stfu response back , we will.
 		l.drivePendingStfuSends()
@@ -2516,7 +2542,25 @@ func (l *channelLink) drivePendingStfuSends() {
 				handleErr(err)
 				return
 			}
+			l.tryResolveQuiescenceRequests()
 		})
+	}
+}
+
+// tryResolveQuiescenceRequests checks whether the quiescence protocol has
+// successfully completed. If it has, it completes the outstanding asynchronous
+// request, if there is one.
+func (l *channelLink) tryResolveQuiescenceRequests() {
+	if l.quiescer.isQuiescent() {
+		if resp := l.activeQuiescenceRequest; resp != nil {
+			ourTurn := l.quiescer.isLocallyInitiatedFinal()
+			ourTurn.WhenSome(func(ourTurn bool) {
+				select {
+				case resp <- fn.Some(ourTurn):
+				case <-l.quit:
+				}
+			})
+		}
 	}
 }
 

@@ -75,7 +75,7 @@ func (q *quiescer) sendStfu() (fn.Option[lnwire.Stfu], error) {
 // oweStfu returns true if we owe the other party an Stfu. We owe the remote an
 // Stfu when we have received but not yet sent an Stfu.
 func (q *quiescer) oweStfu() bool {
-	return q.received && !q.sent
+	return (q.received || q.localInit) && !q.sent
 }
 
 // needStfu returns true if the remote owes us an Stfu. They owe us an Stfu when
@@ -113,11 +113,24 @@ func (q *quiescer) isLocallyInitiatedFinal() fn.Option[bool] {
 // canSendUpdates returns true if we haven't yet sent an Stfu which would mark
 // the end of our ability to send updates.
 func (q *quiescer) canSendUpdates() bool {
-	return !q.sent
+	return !q.sent && !q.localInit
 }
 
 // canRecvUpdates returns true if we haven't yet received an Stfu which would
 // mark the end of the remote's ability to send updates.
 func (q *quiescer) canRecvUpdates() bool {
 	return !q.received
+}
+
+// initStfu instructs the quiescer that we intend to begin a quiescence
+// negotiation where we are the initiator. We don't yet send stfu yet because
+// we need to wait for the link to give us a valid opportunity to do so.
+func (q *quiescer) initStfu() error {
+	if q.localInit {
+		return fmt.Errorf("quiescence already requested")
+	}
+
+	q.localInit = true
+
+	return nil
 }

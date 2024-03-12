@@ -692,6 +692,20 @@ func (l *channelLink) OnCommitOnce(direction LinkDirection, hook func()) {
 	}
 }
 
+// InitStfu allows us to initiate quiescence on this link. It returns a receive
+// only channel that will block until quiescence has been achieved, or
+// definitively fails.
+//
+// This operation has been added to allow channels to be quiesced via RPC. It
+// may be removed or reworked in the future as RPC initiated quiescence is a
+// holdover until we have downstream protocols that use it.
+func (l *channelLink) InitStfu() <-chan fn.Option[bool] {
+	// TODO(proofofkeags): Implement
+	c := make(chan fn.Option[bool])
+	close(c) // Fail always for now
+	return c
+}
+
 // isReestablished returns true if the link has successfully completed the
 // channel reestablishment dance.
 func (l *channelLink) isReestablished() bool {

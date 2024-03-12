@@ -574,6 +574,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/Quiesce": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
 	}
 }
 
@@ -8430,4 +8434,24 @@ func rpcInitiator(isInitiator bool) lnrpc.Initiator {
 	}
 
 	return lnrpc.Initiator_INITIATOR_REMOTE
+}
+
+func (r *rpcServer) Quiesce(_ context.Context, in *lnrpc.QuiescenceRequest) (
+	*lnrpc.QuiescenceResponse, error) {
+
+	txid, err := lnrpc.GetChanPointFundingTxid(in.ChanId)
+	if err != nil {
+		return nil, err
+	}
+
+	op := wire.NewOutPoint(txid, in.ChanId.OutputIndex)
+	cid := lnwire.NewChanIDFromOutPoint(*op)
+	_, err = r.server.htlcSwitch.GetLink(cid)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(proofofkeags): Add Link operation for initiating quiescence and
+	// implement the rest of this in those terms
+	return nil, fmt.Errorf("TODO(proofofkeags): Implement")
 }

@@ -162,7 +162,7 @@ func (m *mockAliasMgr) GetPeerAlias(lnwire.ChannelID) (lnwire.ShortChannelID,
 }
 
 func (m *mockAliasMgr) AddLocalAlias(lnwire.ShortChannelID,
-	lnwire.ShortChannelID, bool) error {
+	lnwire.ShortChannelID, bool, bool) error {
 
 	return nil
 }

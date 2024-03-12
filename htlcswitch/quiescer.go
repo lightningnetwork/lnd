@@ -10,9 +10,10 @@ import (
 // quiescer is a state machine that tracks progression through the quiescence
 // protocol.
 type quiescer struct {
-	chanID   lnwire.ChannelID
-	sent     bool
-	received bool
+	chanID    lnwire.ChannelID
+	sent      bool
+	received  bool
+	localInit bool
 }
 
 // recvStfu is called when we receive an Stfu message from the remote. It
@@ -45,7 +46,7 @@ func (q *quiescer) sendStfu() (fn.Option[lnwire.Stfu], error) {
 
 	stfu := lnwire.Stfu{
 		ChanID:    q.chanID,
-		Initiator: !q.received,
+		Initiator: q.localInit,
 	}
 
 	q.sent = true
@@ -56,7 +57,7 @@ func (q *quiescer) sendStfu() (fn.Option[lnwire.Stfu], error) {
 // oweStfu returns true if we owe the other party an Stfu. We owe the remote an
 // Stfu when we have received but not yet sent an Stfu.
 func (q *quiescer) oweStfu() bool {
-	return q.received && !q.sent
+	return (q.received || q.localInit) && !q.sent
 }
 
 // needStfu returns true if the remote owes us an Stfu. They owe us an Stfu when
@@ -75,11 +76,21 @@ func (q *quiescer) isQuiescent() bool {
 // canSendUpdates returns true if we haven't yet sent an Stfu which would mark
 // the end of our ability to send updates.
 func (q *quiescer) canSendUpdates() bool {
-	return !q.sent
+	return !q.sent && !q.localInit
 }
 
 // canRecvUpdates returns true if we haven't yet received an Stfu which would
 // mark the end of the remote's ability to send updates.
 func (q *quiescer) canRecvUpdates() bool {
 	return !q.received
+}
+
+func (q *quiescer) initStfu() error {
+	if q.localInit {
+		return fmt.Errorf("quiescence already requested")
+	}
+
+	q.localInit = true
+
+	return nil
 }

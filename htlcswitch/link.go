@@ -378,6 +378,8 @@ type channelLink struct {
 	// quiescer is the state machine that tracks where this channel is with
 	// respect to the quiescence protocol.
 	quiescer
+	activeQuiescenceRequest chan<- fn.Option[bool]
+	newQuiescenceRequests chan chan<- fn.Option[bool]
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -451,16 +453,17 @@ func NewChannelLink(cfg ChannelLinkConfig,
 	}
 
 	return &channelLink{
-		cfg:                 cfg,
-		channel:             channel,
-		hodlMap:             make(map[models.CircuitKey]hodlHtlc),
-		hodlQueue:           queue.NewConcurrentQueue(10),
-		log:                 build.NewPrefixLog(logPrefix, log),
-		flushHooks:          newHookMap(),
-		outgoingCommitHooks: newHookMap(),
-		incomingCommitHooks: newHookMap(),
-		quiescer:            qsm,
-		quit:                make(chan struct{}),
+		cfg:                    cfg,
+		channel:                channel,
+		hodlMap:                make(map[models.CircuitKey]hodlHtlc),
+		hodlQueue:              queue.NewConcurrentQueue(10),
+		log:                    build.NewPrefixLog(logPrefix, log),
+		flushHooks:             newHookMap(),
+		outgoingCommitHooks:    newHookMap(),
+		incomingCommitHooks:    newHookMap(),
+		quiescer:               qsm,
+		newQuiescenceRequests:  make(chan chan<- fn.Option[bool], 1),
+		quit:                   make(chan struct{}),
 	}
 }
 
@@ -694,9 +697,13 @@ func (l *channelLink) OnCommitOnce(direction LinkDirection, hook func()) {
 // may be removed or reworked in the future as RPC initiated quiescence is a
 // holdover until we have downstream protocols that use it.
 func (l *channelLink) InitStfu() <-chan fn.Option[bool] {
-	//TODO(proofofkeags): Implement
-	c := make(chan fn.Option[bool])
-	close(c) // Fail always for now
+	c := make(chan fn.Option[bool], 1)
+	select {
+	case l.newQuiescenceRequests<-c:
+	case <-l.quit:
+		close(c)
+	}
+
 	return c
 }
 
@@ -1458,6 +1465,14 @@ func (l *channelLink) htlcManager() {
 						" %v", err),
 				)
 			}
+		case qReq := <-l.newQuiescenceRequests:
+			l.activeQuiescenceRequest = qReq
+			err := l.quiescer.initStfu()
+			if err != nil {
+				close(qReq)
+				l.log.Errorf("%v", err)
+			}
+			l.drivePendingStfuSends()
 
 		case <-l.quit:
 			return
@@ -2454,6 +2469,9 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 		if finished {
+			if resp := l.activeQuiescenceRequest; resp != nil {
+				resp<-fn.Some(true)
+			}
 			return
 		}
 

@@ -24,7 +24,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/discovery"
-	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -2900,7 +2899,7 @@ func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
 	if channel.ChanType.IsTaproot() {
 		pkScript, _, err := input.GenTaprootFundingScript(
 			localKey, remoteKey, int64(channel.Capacity),
-			fn.None[chainhash.Hash](),
+			channel.TapscriptRoot,
 		)
 		if err != nil {
 			return nil, err

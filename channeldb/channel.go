@@ -236,6 +236,8 @@ type chanAuxData struct {
 	realScid tlv.RecordT[tlv.TlvType4, lnwire.ShortChannelID]
 
 	memo tlv.OptionalRecordT[tlv.TlvType5, []byte]
+
+	tapscriptRoot tlv.OptionalRecordT[tlv.TlvType6, [32]byte]
 }
 
 // toOpeChan converts the chanAuxData to an OpenChannel by setting the relevant
@@ -247,6 +249,9 @@ func (c *chanAuxData) toOpenChan(o *OpenChannel) {
 	o.confirmedScid = c.realScid.Val
 	c.memo.WhenSomeV(func(memo []byte) {
 		o.Memo = memo
+	})
+	c.tapscriptRoot.WhenSomeV(func(h [32]byte) {
+		o.TapscriptRoot = fn.Some(chainhash.Hash(h))
 	})
 }
 
@@ -267,11 +272,16 @@ func newChanAuxDataFromChan(openChan *OpenChannel) *chanAuxData {
 		),
 	}
 
-	if len(openChan.Memo) == 0 {
+	if len(openChan.Memo) != 0 {
 		c.memo = tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType5](openChan.Memo),
 		)
 	}
+	openChan.TapscriptRoot.WhenSome(func(h chainhash.Hash) {
+		c.tapscriptRoot = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType6]([32]byte(h)),
+		)
+	})
 
 	return c
 }
@@ -353,6 +363,11 @@ const (
 	// SimpleTaprootFeatureBit indicates that the simple-taproot-chans
 	// feature bit was negotiated during the lifetime of the channel.
 	SimpleTaprootFeatureBit ChannelType = 1 << 10
+
+	// TapscriptRootBit indicates that this is a musig2 channel with a top
+	// level tapscript commitment. This MUST be set along with the
+	// SimpleTaprootFeatureBit.
+	TapscriptRootBit ChannelType = 1 << 11
 )
 
 // IsSingleFunder returns true if the channel type if one of the known single
@@ -421,6 +436,12 @@ func (c ChannelType) HasScidAliasFeature() bool {
 // IsTaproot returns true if the channel is using taproot features.
 func (c ChannelType) IsTaproot() bool {
 	return c&SimpleTaprootFeatureBit == SimpleTaprootFeatureBit
+}
+
+// HasTapscriptRoot returns true if the channel is using a top level tapscript
+// root commmitment.
+func (c ChannelType) HasTapscriptRoot() bool {
+	return c&TapscriptRootBit == TapscriptRootBit
 }
 
 // ChannelConstraints represents a set of constraints meant to allow a node to
@@ -3980,6 +4001,9 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	auxData.memo.WhenSome(func(memo tlv.RecordT[tlv.TlvType5, []byte]) {
 		tlvRecords = append(tlvRecords, memo.Record())
 	})
+	auxData.tapscriptRoot.WhenSome(func(root tlv.RecordT[tlv.TlvType6, [32]byte]) { //nolint:lll
+		tlvRecords = append(tlvRecords, root.Record())
+	})
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(tlvRecords...)
@@ -4178,7 +4202,8 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	}
 
 	var auxData chanAuxData
-	zeroMemo := auxData.memo.Zero()
+	memo := auxData.memo.Zero()
+	tapscriptRoot := auxData.tapscriptRoot.Zero()
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(
@@ -4186,14 +4211,23 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 		auxData.initialLocalBalance.Record(),
 		auxData.initialRemoteBalance.Record(),
 		auxData.realScid.Record(),
-		zeroMemo.Record(),
+		memo.Record(),
+		tapscriptRoot.Record(),
 	)
 	if err != nil {
 		return err
 	}
 
-	if err := tlvStream.Decode(r); err != nil {
+	tlvs, err := tlvStream.DecodeWithParsedTypes(r)
+	if err != nil {
 		return err
+	}
+
+	if _, ok := tlvs[memo.TlvType()]; ok {
+		auxData.memo = tlv.SomeRecordT(memo)
+	}
+	if _, ok := tlvs[tapscriptRoot.TlvType()]; ok {
+		auxData.tapscriptRoot = tlv.SomeRecordT(tapscriptRoot)
 	}
 
 	// Assign all the relevant fields from the aux data into the actual

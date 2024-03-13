@@ -386,6 +386,12 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		)
 	})
 
+	t.Run("taproot with tapscript root", func(t *testing.T) {
+		flags := channeldb.SimpleTaprootFeatureBit |
+			channeldb.TapscriptRootBit
+		testAddSettleWorkflow(t, true, flags, false)
+	})
+
 	t.Run("storeFinalHtlcResolutions=true", func(t *testing.T) {
 		testAddSettleWorkflow(t, false, 0, true)
 	})
@@ -824,6 +830,16 @@ func TestForceClose(t *testing.T) {
 			chanType: channeldb.SingleFunderTweaklessBit |
 				channeldb.AnchorOutputsBit |
 				channeldb.SimpleTaprootFeatureBit,
+			expectedCommitWeight: input.TaprootCommitWeight,
+			anchorAmt:            anchorSize * 2,
+		})
+	})
+	t.Run("taproot with tapscript root", func(t *testing.T) {
+		testForceClose(t, &forceCloseTestCase{
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.SimpleTaprootFeatureBit |
+				channeldb.TapscriptRootBit,
 			expectedCommitWeight: input.TaprootCommitWeight,
 			anchorAmt:            anchorSize * 2,
 		})

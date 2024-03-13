@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
@@ -1192,6 +1193,7 @@ func deriveFundingShim(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 
 		_, fundingOutput, err = input.GenTaprootFundingScript(
 			carolKey, daveKey, int64(chanSize),
+			fn.None[chainhash.Hash](),
 		)
 		require.NoError(ht, err)
 

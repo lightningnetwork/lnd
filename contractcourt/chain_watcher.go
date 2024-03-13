@@ -308,7 +308,7 @@ func (c *chainWatcher) Start() error {
 	)
 	if chanState.ChanType.IsTaproot() {
 		c.fundingPkScript, _, err = input.GenTaprootFundingScript(
-			localKey, remoteKey, 0,
+			localKey, remoteKey, 0, fn.None[chainhash.Hash](),
 		)
 		if err != nil {
 			return err

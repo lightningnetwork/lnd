@@ -11,12 +11,14 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -1138,7 +1140,7 @@ func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte,
 		}
 
 		fundingScript, _, err := input.GenTaprootFundingScript(
-			pubKey1, pubKey2, 0,
+			pubKey1, pubKey2, 0, fn.None[chainhash.Hash](),
 		)
 		if err != nil {
 			return nil, err

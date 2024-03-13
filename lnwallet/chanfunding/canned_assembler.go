@@ -5,7 +5,9 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -76,9 +78,8 @@ func (s *ShimIntent) FundingOutput() ([]byte, *wire.TxOut, error) {
 		// Similar to the existing p2wsh script, we'll always ensure
 		// the keys are sorted before use.
 		return input.GenTaprootFundingScript(
-			s.localKey.PubKey,
-			s.remoteKey,
-			int64(totalAmt),
+			s.localKey.PubKey, s.remoteKey, int64(totalAmt),
+			fn.None[chainhash.Hash](),
 		)
 	}
 

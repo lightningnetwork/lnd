@@ -1013,6 +1013,7 @@ func (lc *LightningChannel) createSignDesc() error {
 	if chanState.ChanType.IsTaproot() {
 		fundingPkScript, _, err = input.GenTaprootFundingScript(
 			localKey, remoteKey, int64(lc.channelState.Capacity),
+			fn.None[chainhash.Hash](),
 		)
 		if err != nil {
 			return err

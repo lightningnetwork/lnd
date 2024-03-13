@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -175,8 +176,9 @@ func (m *mockChannel) RemoteUpfrontShutdownScript() lnwire.DeliveryAddress {
 }
 
 func (m *mockChannel) CreateCloseProposal(fee btcutil.Amount,
-	localScript, remoteScript []byte, _ ...lnwallet.ChanCloseOpt,
-) (input.Signature, *chainhash.Hash, btcutil.Amount, error) {
+	localScript, remoteScript []byte,
+	_ ...lnwallet.ChanCloseOpt) (input.Signature, *chainhash.Hash,
+	btcutil.Amount, error) {
 
 	if m.chanType.IsTaproot() {
 		return lnwallet.NewMusigPartialSig(
@@ -185,6 +187,7 @@ func (m *mockChannel) CreateCloseProposal(fee btcutil.Amount,
 				R: new(btcec.PublicKey),
 			},
 			lnwire.Musig2Nonce{}, lnwire.Musig2Nonce{}, nil,
+			fn.None[chainhash.Hash](),
 		), nil, 0, nil
 	}
 

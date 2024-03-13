@@ -11,8 +11,10 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"golang.org/x/crypto/ripemd160"
 )
@@ -197,27 +199,59 @@ func GenFundingPkScript(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, erro
 	return witnessScript, wire.NewTxOut(amt, pkScript), nil
 }
 
+// fundingScriptOpts is a functional option that can be used to modify the way
+// the funding pkScript is created.
+type fundingScriptOpts struct {
+	tapscriptRoot fn.Option[chainhash.Hash]
+}
+
+// FundingScriptOpt is a functional option that can be used to modify the way
+// the funding script is created.
+type FundingScriptOpt func(*fundingScriptOpts)
+
+// defaultFundingScriptOpts returns a new instance of the default
+// fundingScriptOpts.
+func defaultFundingScriptOpts() *fundingScriptOpts {
+	return &fundingScriptOpts{}
+}
+
+// WithTapscriptRoot is a functional option that can be used to specify the
+// tapscript root for a MuSig2 funding output.
+func WithTapscriptRoot(root chainhash.Hash) FundingScriptOpt {
+	return func(o *fundingScriptOpts) {
+		o.tapscriptRoot = fn.Some(root)
+	}
+}
+
 // GenTaprootFundingScript constructs the taproot-native funding output that
-// uses musig2 to create a single aggregated key to anchor the channel.
+// uses MuSig2 to create a single aggregated key to anchor the channel.
 func GenTaprootFundingScript(aPub, bPub *btcec.PublicKey,
-	amt int64) ([]byte, *wire.TxOut, error) {
+	amt int64, opts ...FundingScriptOpt) ([]byte, *wire.TxOut, error) {
+
+	options := defaultFundingScriptOpts()
+	for _, optFunc := range opts {
+		optFunc(options)
+	}
+
+	muSig2Opt := musig2.WithBIP86KeyTweak()
+	options.tapscriptRoot.WhenSome(func(scriptRoot chainhash.Hash) {
+		muSig2Opt = musig2.WithTaprootKeyTweak(scriptRoot[:])
+	})
 
 	// Similar to the existing p2wsh funding script, we'll always make sure
 	// we sort the keys before any major operations. In order to ensure
 	// that there's no other way this output can be spent, we'll use a BIP
-	// 86 tweak here during aggregation.
-	//
-	// TODO(roasbeef): revisit if BIP 86 is needed here?
+	// 86 tweak here during aggregation, unless the user has explicitly
+	// specified a tapscript root.
 	combinedKey, _, _, err := musig2.AggregateKeys(
-		[]*btcec.PublicKey{aPub, bPub}, true,
-		musig2.WithBIP86KeyTweak(),
+		[]*btcec.PublicKey{aPub, bPub}, true, muSig2Opt,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to combine keys: %w", err)
 	}
 
 	// Now that we have the combined key, we can create a taproot pkScript
-	// from this, and then make the txout given the amount.
+	// from this, and then make the txOut given the amount.
 	pkScript, err := PayToTaprootScript(combinedKey.FinalKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to make taproot "+
@@ -227,7 +261,7 @@ func GenTaprootFundingScript(aPub, bPub *btcec.PublicKey,
 	txOut := wire.NewTxOut(amt, pkScript)
 
 	// For the "witness program" we just return the raw pkScript since the
-	// output we create can _only_ be spent with a musig2 signature.
+	// output we create can _only_ be spent with a MuSig2 signature.
 	return pkScript, txOut, nil
 }
 

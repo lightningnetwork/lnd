@@ -2445,6 +2445,12 @@ func initStateHints(commit1, commit2 *wire.MsgTx,
 	return nil
 }
 
+// TapscriptRootToOpt is a helper function that converts a tapscript root into
+// the functional option we can use to pass into GenTaprootFundingScript.
+func TapscriptRootToOpt(root chainhash.Hash) []input.FundingScriptOpt {
+	return []input.FundingScriptOpt{input.WithTapscriptRoot(root)}
+}
+
 // ValidateChannel will attempt to fully validate a newly mined channel, given
 // its funding transaction and existing channel state. If this method returns
 // an error, then the mined channel is invalid, and shouldn't be used.

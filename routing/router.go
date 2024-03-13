@@ -1557,6 +1557,8 @@ func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte,
 			return nil, err
 		}
 
+		// TODO(roasbeef): add tapscript root to gossip v1.5
+
 		return fundingScript, nil
 	}
 

@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -341,6 +342,21 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		RemoteCommitment:        bobRemoteCommit,
 		Db:                      dbBob.ChannelStateDB(),
 		Packager:                channeldb.NewChannelPackager(shortChanID),
+	}
+
+	// If the channel type has a tapscript root, then we'll also specify
+	// one here to apply to both the channels.
+	if chanType.HasTapscriptRoot() {
+		var tapscriptRoot chainhash.Hash
+		_, err := io.ReadFull(rand.Reader, tapscriptRoot[:])
+		if err != nil {
+			return nil, nil, err
+		}
+
+		someRoot := fn.Some(tapscriptRoot)
+
+		aliceChannelState.TapscriptRoot = someRoot
+		bobChannelState.TapscriptRoot = someRoot
 	}
 
 	aliceSigner := input.NewMockSigner(aliceKeys, nil)

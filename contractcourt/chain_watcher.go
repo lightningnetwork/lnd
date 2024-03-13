@@ -16,6 +16,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
@@ -301,8 +302,11 @@ func (c *chainWatcher) Start() error {
 		err error
 	)
 	if chanState.ChanType.IsTaproot() {
+		fundingOpts := fn.MapOptionZ(
+			chanState.TapscriptRoot, lnwallet.TapscriptRootToOpt,
+		)
 		c.fundingPkScript, _, err = input.GenTaprootFundingScript(
-			localKey, remoteKey, 0,
+			localKey, remoteKey, 0, fundingOpts...,
 		)
 		if err != nil {
 			return err

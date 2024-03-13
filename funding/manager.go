@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/labels"
@@ -2853,8 +2854,12 @@ func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
 	remoteKey := channel.RemoteChanCfg.MultiSigKey.PubKey
 
 	if channel.ChanType.IsTaproot() {
+		fundingOpts := fn.MapOptionZ(
+			channel.TapscriptRoot, lnwallet.TapscriptRootToOpt,
+		)
 		pkScript, _, err := input.GenTaprootFundingScript(
 			localKey, remoteKey, int64(channel.Capacity),
+			fundingOpts...,
 		)
 		if err != nil {
 			return nil, err

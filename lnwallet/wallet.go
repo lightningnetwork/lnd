@@ -23,6 +23,7 @@ import (
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -2102,6 +2103,7 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 		if res.musigSessions == nil {
 			_, fundingOutput, err := input.GenTaprootFundingScript(
 				localKey, remoteKey, channelValue,
+				fn.None[chainhash.Hash](),
 			)
 			if err != nil {
 				return err
@@ -2341,11 +2343,14 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		fundingTxOut         *wire.TxOut
 	)
 	if chanType.IsTaproot() {
-		fundingWitnessScript, fundingTxOut, err = input.GenTaprootFundingScript( //nolint:lll
+		//nolint:lll
+		fundingWitnessScript, fundingTxOut, err = input.GenTaprootFundingScript(
 			ourKey.PubKey, theirKey.PubKey, channelValue,
+			fn.None[chainhash.Hash](),
 		)
 	} else {
-		fundingWitnessScript, fundingTxOut, err = input.GenFundingPkScript( //nolint:lll
+		//nolint:lll
+		fundingWitnessScript, fundingTxOut, err = input.GenFundingPkScript(
 			ourKey.PubKey.SerializeCompressed(),
 			theirKey.PubKey.SerializeCompressed(), channelValue,
 		)
@@ -2482,6 +2487,7 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 	if channelState.ChanType.IsTaproot() {
 		fundingScript, _, err = input.GenTaprootFundingScript(
 			localKey, remoteKey, int64(channel.Capacity),
+			fn.None[chainhash.Hash](),
 		)
 		if err != nil {
 			return err

@@ -67,6 +67,11 @@
 
 * [Properly handle un-acked updates for exhausted watchtower 
   sessions](https://github.com/lightningnetwork/lnd/pull/8233)
+ 
+* [Add a timeout](https://github.com/lightningnetwork/lnd/pull/8367) to the 
+  context of a batch channel opening to prevent unresponsive peers from blocking 
+  the process indefinitely. During the timeout window the user can manually 
+  abort the funding process with Ctrl+C.
 
 * [Allow `shutdown`s while HTLCs are in-flight](https://github.com/lightningnetwork/lnd/pull/8167).
   This change fixes an issue where we would force-close channels when receiving

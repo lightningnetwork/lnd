@@ -211,6 +211,11 @@ type InitFundingReserveMsg struct {
 	// channel that will be useful to our future selves.
 	Memo []byte
 
+	// TapscriptRoot is the root of the tapscript tree that will be used to
+	// create the funding output. This is an optional field that should
+	// only be set for taproot channels.
+	TapscriptRoot fn.Option[chainhash.Hash]
+
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
 	//
@@ -2103,7 +2108,7 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 		if res.musigSessions == nil {
 			_, fundingOutput, err := input.GenTaprootFundingScript(
 				localKey, remoteKey, channelValue,
-				fn.None[chainhash.Hash](),
+				res.partialState.TapscriptRoot,
 			)
 			if err != nil {
 				return err
@@ -2346,7 +2351,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		//nolint:lll
 		fundingWitnessScript, fundingTxOut, err = input.GenTaprootFundingScript(
 			ourKey.PubKey, theirKey.PubKey, channelValue,
-			fn.None[chainhash.Hash](),
+			pendingReservation.partialState.TapscriptRoot,
 		)
 	} else {
 		//nolint:lll
@@ -2487,7 +2492,7 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 	if channelState.ChanType.IsTaproot() {
 		fundingScript, _, err = input.GenTaprootFundingScript(
 			localKey, remoteKey, int64(channel.Capacity),
-			fn.None[chainhash.Hash](),
+			channelState.TapscriptRoot,
 		)
 		if err != nil {
 			return err

@@ -5,7 +5,9 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -56,6 +58,14 @@ type ShimIntent struct {
 	// generate an aggregate key to use as the taproot-native multi-sig
 	// output.
 	musig2 bool
+
+	// tapscriptRoot is the root of the tapscript tree that will be used to
+	// create the funding output. This field will only be utilized if the
+	// musig2 flag above is set to true.
+	//
+	// TODO(roasbeef): fold above into new chan type? sum type like thing,
+	// includes the tapscript root, etc
+	tapscriptRoot fn.Option[chainhash.Hash]
 }
 
 // FundingOutput returns the witness script, and the output that creates the
@@ -73,12 +83,18 @@ func (s *ShimIntent) FundingOutput() ([]byte, *wire.TxOut, error) {
 	// If musig2 is active, then we'll return a single aggregated key
 	// rather than using the "existing" funding script.
 	if s.musig2 {
+		var scriptOpts []input.FundingScriptOpt
+		s.tapscriptRoot.WhenSome(func(root chainhash.Hash) {
+			scriptOpts = append(
+				scriptOpts, input.WithTapscriptRoot(root),
+			)
+		})
+
 		// Similar to the existing p2wsh script, we'll always ensure
 		// the keys are sorted before use.
 		return input.GenTaprootFundingScript(
-			s.localKey.PubKey,
-			s.remoteKey,
-			int64(totalAmt),
+			s.localKey.PubKey, s.remoteKey, int64(totalAmt),
+			scriptOpts...,
 		)
 	}
 

@@ -296,6 +296,9 @@
 * Watchtower client DB migration to massively [improve the start-up 
   performance](https://github.com/lightningnetwork/lnd/pull/8222) of a client.
 
+* Mission Control Store [improved performance during DB
+  flushing](https://github.com/lightningnetwork/lnd/pull/8549) stage.
+
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 

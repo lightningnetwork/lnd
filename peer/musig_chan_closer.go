@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
@@ -43,10 +44,15 @@ func (m *MusigChanCloser) ProposalClosingOpts() (
 	}
 
 	localKey, remoteKey := m.channel.MultiSigKeys()
+
+	tapscriptTweak := fn.MapOption(lnwallet.TapscriptRootToTweak)(
+		m.channel.State().TapscriptRoot,
+	)
+
 	m.musigSession = lnwallet.NewPartialMusigSession(
 		*m.remoteNonce, localKey, remoteKey,
 		m.channel.Signer, m.channel.FundingTxOut(),
-		lnwallet.RemoteMusigCommit,
+		lnwallet.RemoteMusigCommit, tapscriptTweak,
 	)
 
 	err := m.musigSession.FinalizeSession(*m.localNonce)

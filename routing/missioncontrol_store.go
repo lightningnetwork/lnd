@@ -96,6 +96,8 @@ func newMissionControlStore(db kvdb.Backend, maxRecords int,
 		return nil, err
 	}
 
+	log.Infof("Loaded %d mission control entries", len(keysMap))
+
 	return &missionControlStore{
 		done:          make(chan struct{}),
 		db:            db,
@@ -302,14 +304,24 @@ func (b *missionControlStore) run() {
 
 // storeResults stores all accumulated results.
 func (b *missionControlStore) storeResults() error {
+	// We copy a reference to the queue and clear the original queue to be
+	// able to release the lock.
 	b.queueMx.Lock()
 	l := b.queue
+
+	if l.Len() == 0 {
+		b.queueMx.Unlock()
+
+		return nil
+	}
 	b.queue = list.New()
 	b.queueMx.Unlock()
 
 	var (
-		keys    *list.List
-		keysMap map[string]struct{}
+		keys       *list.List
+		keysMap    map[string]struct{}
+		storeCount int
+		pruneCount int
 	)
 
 	err := kvdb.Update(b.db, func(tx kvdb.RwTx) error {
@@ -337,6 +349,7 @@ func (b *missionControlStore) storeResults() error {
 
 			keys.PushBack(string(k))
 			keysMap[string(k)] = struct{}{}
+			storeCount++
 		}
 
 		// Prune oldest entries.
@@ -354,6 +367,7 @@ func (b *missionControlStore) storeResults() error {
 
 			keys.Remove(front)
 			delete(keysMap, key)
+			pruneCount++
 		}
 
 		return nil
@@ -365,11 +379,16 @@ func (b *missionControlStore) storeResults() error {
 		for k := range b.keysMap {
 			keysMap[k] = struct{}{}
 		}
+
+		storeCount, pruneCount = 0, 0
 	})
 
 	if err != nil {
 		return err
 	}
+
+	log.Debugf("Stored mission control results: %d added, %d deleted",
+		storeCount, pruneCount)
 
 	b.keys = keys
 	b.keysMap = keysMap

@@ -17,6 +17,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnmock"
@@ -172,7 +173,7 @@ func fundingPointOption(chanPoint wire.OutPoint) testChannelOption {
 }
 
 // channelIDOption is an option which sets the short channel ID of the channel.
-var channelIDOption = func(chanID lnwire.ShortChannelID) testChannelOption {
+func channelIDOption(chanID lnwire.ShortChannelID) testChannelOption {
 	return func(params *testChannelParams) {
 		params.channel.ShortChannelID = chanID
 	}
@@ -312,6 +313,9 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 	uniqueOutputIndex.Add(1)
 	op := wire.OutPoint{Hash: key, Index: uniqueOutputIndex.Load()}
 
+	var tapscriptRoot chainhash.Hash
+	copy(tapscriptRoot[:], bytes.Repeat([]byte{1}, 32))
+
 	return &OpenChannel{
 		ChanType:          SingleFunderBit | FrozenBit,
 		ChainHash:         key,
@@ -354,6 +358,8 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 		ThawHeight:              uint32(defaultPendingHeight),
 		InitialLocalBalance:     lnwire.MilliSatoshi(9000),
 		InitialRemoteBalance:    lnwire.MilliSatoshi(3000),
+		Memo:                    []byte("test"),
+		TapscriptRoot:           fn.Some(tapscriptRoot),
 	}
 }
 

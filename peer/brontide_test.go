@@ -48,10 +48,13 @@ func TestPeerChannelClosureShutdownResponseLinkRemoved(t *testing.T) {
 
 	mockSwitch := &mockMessageSwitch{}
 
-	alicePeer, bobChan, err := createTestPeerWithChannel(
+	returnParams, err := createTestPeerWithChannel(
 		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
 	)
 	require.NoError(t, err, "unable to create test channels")
+
+	alicePeer := returnParams.alicePeer
+	bobChan := returnParams.bobChannel
 
 	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
 
@@ -95,10 +98,13 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 
 	mockSwitch := &mockMessageSwitch{}
 
-	alicePeer, bobChan, err := createTestPeerWithChannel(
+	params, err := createTestPeerWithChannel(
 		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
 	)
 	require.NoError(t, err, "unable to create test channels")
+
+	alicePeer := params.alicePeer
+	bobChan := params.bobChannel
 
 	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
 
@@ -199,10 +205,13 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 
 	mockSwitch := &mockMessageSwitch{}
 
-	alicePeer, bobChan, err := createTestPeerWithChannel(
+	params, err := createTestPeerWithChannel(
 		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
 	)
 	require.NoError(t, err, "unable to create test channels")
+
+	bobChan := params.bobChannel
+	alicePeer := params.alicePeer
 
 	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
 	mockLink := newMockUpdateHandler(chanID)
@@ -322,10 +331,13 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 
 	mockSwitch := &mockMessageSwitch{}
 
-	alicePeer, bobChan, err := createTestPeerWithChannel(
+	params, err := createTestPeerWithChannel(
 		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
 	)
 	require.NoError(t, err, "unable to create test channels")
+
+	bobChan := params.bobChannel
+	alicePeer := params.alicePeer
 
 	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
 
@@ -508,10 +520,13 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 
 	mockSwitch := &mockMessageSwitch{}
 
-	alicePeer, bobChan, err := createTestPeerWithChannel(
+	params, err := createTestPeerWithChannel(
 		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
 	)
 	require.NoError(t, err, "unable to create test channels")
+
+	alicePeer := params.alicePeer
+	bobChan := params.bobChannel
 
 	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
 	mockLink := newMockUpdateHandler(chanID)
@@ -835,21 +850,25 @@ func TestCustomShutdownScript(t *testing.T) {
 			mockSwitch := &mockMessageSwitch{}
 
 			// Open a channel.
-			alicePeer, bobChan, err := createTestPeerWithChannel(
+			params, err := createTestPeerWithChannel(
 				t, notifier, broadcastTxChan, test.update,
 				mockSwitch,
 			)
 			if err != nil {
-				t.Fatalf("unable to create test channels: %v", err)
+				t.Fatalf("unable to create test "+
+					"channels: %v", err)
 			}
+
+			alicePeer := params.alicePeer
+			bobChan := params.bobChannel
 
 			chanPoint := bobChan.ChannelPoint()
 			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 			mockLink := newMockUpdateHandler(chanID)
 			mockSwitch.links = append(mockSwitch.links, mockLink)
 
-			// Request initiator to cooperatively close the channel, with
-			// a specified delivery address.
+			// Request initiator to cooperatively close the channel,
+			// with a specified delivery address.
 			updateChan := make(chan interface{}, 1)
 			errChan := make(chan error, 1)
 			closeCommand := htlcswitch.ChanClose{
@@ -1193,10 +1212,13 @@ func TestUpdateNextRevocation(t *testing.T) {
 	broadcastTxChan := make(chan *wire.MsgTx)
 	mockSwitch := &mockMessageSwitch{}
 
-	alicePeer, bobChan, err := createTestPeerWithChannel(
+	params, err := createTestPeerWithChannel(
 		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
 	)
 	require.NoError(err, "unable to create test channels")
+
+	bobChan := params.bobChannel
+	alicePeer := params.alicePeer
 
 	// testChannel is used to test the updateNextRevocation function.
 	testChannel := bobChan.State()
@@ -1430,11 +1452,12 @@ func TestStartupWriteMessageRace(t *testing.T) {
 
 	// createTestPeerWithChannel creates a peer and a channel with that
 	// peer.
-	peer, _, err := createTestPeerWithChannel(
+	params, err := createTestPeerWithChannel(
 		t, notifier, broadcastTxChan, getChannels, mockSwitch,
 	)
 	require.NoError(t, err, "unable to create test channel")
 
+	peer := params.alicePeer
 	// Avoid the need to mock the channel graph by marking the channel
 	// borked. Borked channels still get a reestablish message sent on
 	// reconnect, while skipping channel graph checks and link creation.
@@ -1526,11 +1549,12 @@ func TestRemovePendingChannel(t *testing.T) {
 
 	// createTestPeerWithChannel creates a peer and a channel with that
 	// peer.
-	peer, _, err := createTestPeerWithChannel(
+	params, err := createTestPeerWithChannel(
 		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
 	)
 	require.NoError(t, err, "unable to create test channel")
 
+	peer := params.alicePeer
 	// Add a pending channel to the peer Alice.
 	errChan := make(chan error, 1)
 	pendingChanID := lnwire.ChannelID{1}

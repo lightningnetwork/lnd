@@ -163,18 +163,22 @@ func breachRetributionTestCase(ht *lntest.HarnessTest,
 	// again.
 	ht.RestartNode(carol)
 
-	// Now mine a block, this transaction should include Carol's justice
-	// transaction which was just accepted into the mempool.
-	expectedNumTxes := 1
-
-	// For anchor channels, we'd also create the sweeping transaction.
+	// For anchor channels, we'd offer the anchor output to the sweeper.
 	if lntest.CommitTypeHasAnchors(commitType) {
-		expectedNumTxes = 2
+		ht.AssertNumPendingSweeps(carol, 1)
 	}
 
-	block = ht.MineBlocksAndAssertNumTxes(1, expectedNumTxes)[0]
+	// Now mine a block, this transaction should include Carol's justice
+	// transaction which was just accepted into the mempool.
+	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	justiceTxid := justiceTx.TxHash()
 	ht.Miner.AssertTxInBlock(block, &justiceTxid)
+
+	// The above mined block should trigger the sweeper to sweep the
+	// anchor.
+	if lntest.CommitTypeHasAnchors(commitType) {
+		ht.MineBlocksAndAssertNumTxes(1, 1)
+	}
 
 	ht.AssertNodeNumChannels(carol, 0)
 
@@ -354,19 +358,24 @@ func revokedCloseRetributionZeroValueRemoteOutputCase(ht *lntest.HarnessTest,
 	// the justice transaction to confirm again.
 	ht.RestartNode(dave)
 
-	// Now mine a block, this transaction should include Dave's justice
-	// transaction which was just accepted into the mempool.
-	expectedNumTxes := 1
-
 	// For anchor channels, we'd also create the sweeping transaction.
 	if lntest.CommitTypeHasAnchors(commitType) {
-		expectedNumTxes = 2
+		ht.AssertNumPendingSweeps(dave, 1)
 	}
 
-	block := ht.MineBlocksAndAssertNumTxes(1, expectedNumTxes)[0]
+	// Now mine a block, this transaction should include Dave's justice
+	// transaction which was just accepted into the mempool.
+	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	justiceTxid := justiceTx.TxHash()
 	ht.Miner.AssertTxInBlock(block, &justiceTxid)
 
+	// The above mined block should trigger the sweeper to sweep the
+	// anchor.
+	if lntest.CommitTypeHasAnchors(commitType) {
+		ht.MineBlocksAndAssertNumTxes(1, 1)
+	}
+
+	// At this point, Dave should have no pending channels.
 	ht.AssertNodeNumChannels(dave, 0)
 }
 
@@ -676,16 +685,20 @@ func revokedCloseRetributionRemoteHodlCase(ht *lntest.HarnessTest,
 	// waiting for the justice transaction to confirm again.
 	ht.RestartNode(dave)
 
-	// Now mine a block, this transaction should include Dave's justice
-	// transaction which was just accepted into the mempool.
-	expectedNumTxes := 1
-
 	// For anchor channels, we'd also create the sweeping transaction.
 	if lntest.CommitTypeHasAnchors(commitType) {
-		expectedNumTxes = 2
+		ht.AssertNumPendingSweeps(dave, 1)
 	}
 
-	ht.MineBlocksAndAssertNumTxes(1, expectedNumTxes)
+	// Now mine a block, this transaction should include Dave's justice
+	// transaction which was just accepted into the mempool.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// The above mined block should trigger the sweeper to sweep the
+	// anchor.
+	if lntest.CommitTypeHasAnchors(commitType) {
+		ht.MineBlocksAndAssertNumTxes(1, 1)
+	}
 
 	// Dave should have no open channels.
 	ht.AssertNodeNumChannels(dave, 0)

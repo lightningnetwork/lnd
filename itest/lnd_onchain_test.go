@@ -280,6 +280,8 @@ func runCPFP(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 		// We use a higher fee rate than the default max and expect the
 		// sweeper to cap the fee rate at the max value.
 		SatPerVbyte: maxFeeRate * 2,
+		// We use a force param to create the sweeping tx immediately.
+		Force: true,
 	}
 	bob.RPC.BumpFee(bumpFeeReq)
 
@@ -900,10 +902,14 @@ func testListSweeps(ht *lntest.HarnessTest) {
 	)
 
 	// Mine enough blocks for the node to sweep its funds from the force
-	// closed channel. The commit sweep resolver is able to broadcast the
-	// sweep tx up to one block before the CSV elapses, so wait until
+	// closed channel. The commit sweep resolver offers the outputs to the
+	// sweeper up to one block before the CSV elapses, so wait until
 	// defaulCSV-1.
 	ht.MineEmptyBlocks(node.DefaultCSV - 1)
+	ht.AssertNumPendingSweeps(alice, 1)
+
+	// Mine a block to trigger the sweep.
+	ht.MineBlocks(1)
 
 	// Now we can expect that the sweep has been broadcast.
 	pendingTxHash := ht.Miner.AssertNumTxsInMempool(1)

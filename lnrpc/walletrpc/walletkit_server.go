@@ -1043,7 +1043,10 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 		op, witnessType, signDesc, uint32(currentHeight),
 	)
 
-	sweepParams := sweep.Params{Fee: feePreference}
+	sweepParams := sweep.Params{
+		Fee:   feePreference,
+		Force: in.Force,
+	}
 	if _, err = w.cfg.Sweeper.SweepInput(inp, sweepParams); err != nil {
 		return nil, err
 	}

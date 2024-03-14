@@ -581,6 +581,12 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 
 	// If this is an anchor channel, Dave would sweep the anchor.
 	if lntest.CommitTypeHasAnchors(commitType) {
+		ht.AssertNumPendingSweeps(dave, 1)
+
+		// Mine a block to trigger the sweep.
+		ht.MineBlocks(1)
+
+		// Mine a block to confirm the sweep.
 		ht.MineBlocksAndAssertNumTxes(1, 1)
 	}
 

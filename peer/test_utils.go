@@ -48,15 +48,16 @@ var (
 	testKeyLoc = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
 )
 
-// noUpdate is a function which can be used as a parameter in createTestPeer to
-// call the setup code with no custom values on the channels set up.
+// noUpdate is a function which can be used as a parameter in
+// createTestPeerWithChannel to call the setup code with no custom values on
+// the channels set up.
 var noUpdate = func(a, b *channeldb.OpenChannel) {}
 
-// createTestPeer creates a channel between two nodes, and returns a peer for
-// one of the nodes, together with the channel seen from both nodes. It takes
-// an updateChan function which can be used to modify the default values on
-// the channel states for each peer.
-func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
+// createTestPeerWithChannel creates a channel between two nodes, and returns a
+// peer for one of the nodes, together with the channel seen from both nodes.
+// It takes an updateChan function which can be used to modify the default
+// values on the channel states for each peer.
+func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 	publTx chan *wire.MsgTx, updateChan func(a, b *channeldb.OpenChannel),
 	mockSwitch *mockMessageSwitch) (
 	*Brontide, *lnwallet.LightningChannel, error) {

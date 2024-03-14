@@ -154,6 +154,7 @@ jobs:
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
+          key-prefix: cross-compile
 
       - name: build release for all architectures
         run: make release
@@ -211,6 +212,7 @@ jobs:
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
+          key-prefix: unit-test
 
       - name: install bitcoind
         run: ./scripts/install_bitcoind.sh
@@ -266,6 +268,7 @@ jobs:
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
+          key-prefix: integration-test
 
       - name: install bitcoind
         run: ./scripts/install_bitcoind.sh
@@ -302,6 +305,7 @@ jobs:
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
+          key-prefix: integration-test
 
       - name: run itest
         run: make itest-parallel windows=1

@@ -52,3 +52,66 @@ func TestConfigToFlatMap(t *testing.T) {
 	require.Equal(t, redactedPassword, result["db.etcd.pass"])
 	require.Equal(t, redactedPassword, result["db.postgres.dsn"])
 }
+
+// TestSupplyEnvValue tests that the supplyEnvValue function works as
+// expected on the passed inputs.
+func TestSupplyEnvValue(t *testing.T) {
+	// Mock environment variables for testing.
+	t.Setenv("EXISTING_VAR", "existing_value")
+	t.Setenv("EMPTY_VAR", "")
+
+	tests := []struct {
+		input       string
+		expected    string
+		description string
+	}{
+		{
+			input:    "$EXISTING_VAR",
+			expected: "existing_value",
+			description: "Valid environment variable without " +
+				"default value",
+		},
+		{
+			input:    "${EXISTING_VAR:-default_value}",
+			expected: "existing_value",
+			description: "Valid environment variable with " +
+				"default value",
+		},
+		{
+			input:    "$NON_EXISTENT_VAR",
+			expected: "",
+			description: "Non-existent environment variable " +
+				"without default value",
+		},
+		{
+			input:    "${NON_EXISTENT_VAR:-default_value}",
+			expected: "default_value",
+			description: "Non-existent environment variable " +
+				"with default value",
+		},
+		{
+			input:    "$EMPTY_VAR",
+			expected: "",
+			description: "Empty environment variable without " +
+				"default value",
+		},
+		{
+			input:    "${EMPTY_VAR:-default_value}",
+			expected: "default_value",
+			description: "Empty environment variable with " +
+				"default value",
+		},
+		{
+			input:       "raw_input",
+			expected:    "raw_input",
+			description: "Raw input - no matching format",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.description, func(t *testing.T) {
+			result := supplyEnvValue(test.input)
+			require.Equal(t, test.expected, result)
+		})
+	}
+}

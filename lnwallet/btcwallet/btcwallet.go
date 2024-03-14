@@ -29,7 +29,6 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
-	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -1191,6 +1190,32 @@ func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32,
 	return witnessOutputs, nil
 }
 
+// mapRpcclientError maps an error from the rpcclient package to defined error
+// in this package.
+//
+// NOTE: we are mapping the errors returned from `sendrawtransaction` RPC or
+// the reject reason from `testmempoolaccept` RPC.
+func mapRpcclientError(err error) error {
+	// If we failed to publish the transaction, check whether we got an
+	// error of known type.
+	switch {
+	// If the wallet reports a double spend, convert it to our internal
+	// ErrDoubleSpend and return.
+	case errors.Is(err, rpcclient.ErrMempoolConflict),
+		errors.Is(err, rpcclient.ErrMissingInputs):
+
+		return lnwallet.ErrDoubleSpend
+
+	// If the wallet reports that fee requirements for accepting the tx
+	// into mempool are not met, convert it to our internal ErrMempoolFee
+	// and return.
+	case errors.Is(err, rpcclient.ErrMempoolMinFeeNotMet):
+		return fmt.Errorf("%w: %v", lnwallet.ErrMempoolFee, err.Error())
+	}
+
+	return err
+}
+
 // PublishTransaction performs cursory validation (dust checks, etc), then
 // finally broadcasts the passed transaction to the Bitcoin network. If
 // publishing the transaction fails, an error describing the reason is returned
@@ -1198,40 +1223,12 @@ func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32,
 // already published to the network (either in the mempool or chain) no error
 // will be returned.
 func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
-	// handleErr is a helper closure that handles the error from
-	// PublishTransaction and TestMempoolAccept.
-	handleErr := func(err error) error {
-		// If we failed to publish the transaction, check whether we
-		// got an error of known type.
-		switch {
-		// If the wallet reports a double spend, convert it to our
-		// internal ErrDoubleSpend and return.
-		case lnutils.ErrorAs[*base.ErrDoubleSpend](err):
-			return lnwallet.ErrDoubleSpend
-
-		// If the wallet reports a replacement error, return
-		// ErrDoubleSpend, as we currently are never attempting to
-		// replace transactions.
-		case lnutils.ErrorAs[*base.ErrReplacement](err):
-			return lnwallet.ErrDoubleSpend
-
-		// If the wallet reports that fee requirements for accepting
-		// the tx into mempool are not met, convert it to our internal
-		// ErrMempoolFee and return.
-		case lnutils.ErrorAs[*base.ErrMempoolFee](err):
-			return fmt.Errorf("%w: %v", lnwallet.ErrMempoolFee,
-				err.Error())
-		}
-
-		return err
-	}
-
 	// For neutrino backend there's no mempool, so we return early by
 	// publishing the transaction.
 	if b.chain.BackEnd() == "neutrino" {
 		err := b.wallet.PublishTransaction(tx, label)
 
-		return handleErr(err)
+		return mapRpcclientError(err)
 	}
 
 	// For non-neutrino nodes, we will first check whether the transaction
@@ -1250,7 +1247,7 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 
 			err := b.wallet.PublishTransaction(tx, label)
 
-			return handleErr(err)
+			return mapRpcclientError(err)
 		}
 
 		return err
@@ -1269,7 +1266,7 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	if result.Allowed {
 		err = b.wallet.PublishTransaction(tx, label)
 
-		return handleErr(err)
+		return mapRpcclientError(err)
 	}
 
 	// If the check failed, there's no need to publish it. We'll handle the
@@ -1279,7 +1276,7 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 
 	// We need to use the string to create an error type and map it to a
 	// btcwallet error.
-	err = base.MapBroadcastBackendError(errors.New(result.RejectReason))
+	err = rpcclient.MapRPCErr(errors.New(result.RejectReason))
 
 	//nolint:lll
 	// These two errors are ignored inside `PublishTransaction`:
@@ -1288,24 +1285,24 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	// returned from TestMempoolAccept.
 	//
 	// TODO(yy): since `LightningWallet.PublishTransaction` always publish
-	// the same tx twice, we'd always get ErrInMempool. We should instead
-	// create a new rebroadcaster that monitors the mempool, and only
-	// rebroadcast when the tx is evicted. This way we don't need to
+	// the same tx twice, we'd always get ErrTxAlreadyInMempool. We should
+	// instead create a new rebroadcaster that monitors the mempool, and
+	// only rebroadcast when the tx is evicted. This way we don't need to
 	// broadcast twice, and can instead return these errors here.
 	switch {
 	// NOTE: In addition to ignoring these errors, we need to call
 	// `PublishTransaction` again because we need to mark the label in the
 	// wallet. We can remove this exception once we have the above TODO
 	// fixed.
-	case lnutils.ErrorAs[*base.ErrInMempool](err),
-		lnutils.ErrorAs[*base.ErrAlreadyConfirmed](err):
+	case errors.Is(err, rpcclient.ErrTxAlreadyInMempool),
+		errors.Is(err, rpcclient.ErrTxAlreadyKnown),
+		errors.Is(err, rpcclient.ErrTxAlreadyConfirmed):
 
 		err := b.wallet.PublishTransaction(tx, label)
-
-		return handleErr(err)
+		return mapRpcclientError(err)
 	}
 
-	return handleErr(err)
+	return mapRpcclientError(err)
 }
 
 // LabelTransaction adds a label to a transaction. If the tx already

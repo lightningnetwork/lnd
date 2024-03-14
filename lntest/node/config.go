@@ -199,7 +199,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 
 	nodeArgs := []string{
 		"--nobootstrap",
-		"--debuglevel=debug,DISC=trace",
+		"--debuglevel=debug",
 		"--bitcoin.defaultchanconfs=1",
 		"--accept-keysend",
 		"--keep-failed-payment-attempts",
@@ -216,10 +216,6 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath),
 		fmt.Sprintf("--trickledelay=%v", trickleDelay),
 		fmt.Sprintf("--profile=%d", cfg.ProfilePort),
-
-		// Use a small batch window so we can broadcast our sweep
-		// transactions faster.
-		"--sweeper.batchwindowduration=5s",
 
 		// Use a small batch delay so we can broadcast the
 		// announcements quickly in the tests.

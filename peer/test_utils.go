@@ -53,6 +53,11 @@ var (
 // the channels set up.
 var noUpdate = func(a, b *channeldb.OpenChannel) {}
 
+type peerTestCtx struct {
+	peer    *Brontide
+	channel *lnwallet.LightningChannel
+}
+
 // createTestPeerWithChannel creates a channel between two nodes, and returns a
 // peer for one of the nodes, together with the channel seen from both nodes.
 // It takes an updateChan function which can be used to modify the default
@@ -60,7 +65,7 @@ var noUpdate = func(a, b *channeldb.OpenChannel) {}
 func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 	publTx chan *wire.MsgTx, updateChan func(a, b *channeldb.OpenChannel),
 	mockSwitch *mockMessageSwitch) (
-	*Brontide, *lnwallet.LightningChannel, error) {
+	*peerTestCtx, error) {
 
 	nodeKeyLocator := keychain.KeyLocator{
 		Family: keychain.KeyFamilyNodeKey,
@@ -142,23 +147,23 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 
 	bobRoot, err := chainhash.NewHash(bobKeyPriv.Serialize())
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	bobPreimageProducer := shachain.NewRevocationProducer(*bobRoot)
 	bobFirstRevoke, err := bobPreimageProducer.AtIndex(0)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	bobCommitPoint := input.ComputeCommitmentPoint(bobFirstRevoke[:])
 
 	aliceRoot, err := chainhash.NewHash(aliceKeyPriv.Serialize())
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	alicePreimageProducer := shachain.NewRevocationProducer(*aliceRoot)
 	aliceFirstRevoke, err := alicePreimageProducer.AtIndex(0)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
@@ -168,12 +173,12 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 		isAliceInitiator, 0,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	dbAlice, err := channeldb.Open(t.TempDir())
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	t.Cleanup(func() {
 		require.NoError(t, dbAlice.Close())
@@ -181,7 +186,7 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 
 	dbBob, err := channeldb.Open(t.TempDir())
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	t.Cleanup(func() {
 		require.NoError(t, dbBob.Close())
@@ -190,7 +195,7 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 	estimator := chainfee.NewStaticEstimator(12500, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// TODO(roasbeef): need to factor in commit fee?
@@ -215,7 +220,7 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 
 	var chanIDBytes [8]byte
 	if _, err := io.ReadFull(crand.Reader, chanIDBytes[:]); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	shortChanID := lnwire.NewShortChanIDFromInt(
@@ -266,7 +271,7 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 	}
 
 	if err := aliceChannelState.SyncPending(aliceAddr, 0); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	bobAddr := &net.TCPAddr{
@@ -275,7 +280,7 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 	}
 
 	if err := bobChannelState.SyncPending(bobAddr, 0); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	aliceSigner := input.NewMockSigner(
@@ -290,7 +295,7 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 		aliceSigner, aliceChannelState, alicePool,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	_ = alicePool.Start()
 	t.Cleanup(func() {
@@ -302,7 +307,7 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 		bobSigner, bobChannelState, bobPool,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	_ = bobPool.Start()
 	t.Cleanup(func() {
@@ -346,15 +351,15 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 		},
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if err = chanStatusMgr.Start(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	errBuffer, err := queue.NewCircularBuffer(ErrorBufferSize)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	var pubKey [33]byte
@@ -381,7 +386,7 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 		},
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// TODO(yy): change ChannelNotifier to be an interface.
@@ -419,7 +424,10 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 	alicePeer.wg.Add(1)
 	go alicePeer.channelManager()
 
-	return alicePeer, channelBob, nil
+	return &peerTestCtx{
+		peer:    alicePeer,
+		channel: channelBob,
+	}, nil
 }
 
 // mockMessageSwitch is a mock implementation of the messageSwitch interface

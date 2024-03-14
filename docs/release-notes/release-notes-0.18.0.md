@@ -194,6 +194,10 @@
 * The [`closeallchannels` command now asks for confirmation before closing 
   all channels](https://github.com/lightningnetwork/lnd/pull/8526).
 
+* [Man pages](https://github.com/lightningnetwork/lnd/pull/8525) Generate man
+  pages automatically using `lncli generatemanpage` command for both `lncli`
+  and `lnd` commands when running `make install` in the Makefile.
+
 # Improvements
 ## Functional Updates
 ### Tlv
@@ -367,6 +371,7 @@
 * Keagan McClelland
 * Marcos Fernandez Perez
 * Matt Morehouse
+* Mohamed Awnallah
 * Ononiwu Maureen Chiamaka
 * Slyghtning
 * Tee8z

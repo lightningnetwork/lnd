@@ -18,6 +18,8 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/jessevdk/go-flags"
+	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -1407,6 +1409,41 @@ func channelBalance(ctx *cli.Context) error {
 	}
 
 	printRespJSON(resp)
+	return nil
+}
+
+var generateManPageCommand = cli.Command{
+	Name: "generatemanpage",
+	Usage: "Generates a man page for lncli and lnd as " +
+		"lncli.1 and lnd.1 respectively.",
+	Hidden: true,
+	Action: actionDecorator(generateManPage),
+}
+
+func generateManPage(ctx *cli.Context) error {
+	// Generate the man pages for lncli as lncli.1.
+	manpages, err := ctx.App.ToMan()
+	if err != nil {
+		return err
+	}
+	err = os.WriteFile("lncli.1", []byte(manpages), 0644)
+	if err != nil {
+		return err
+	}
+
+	// Generate the man pages for lnd as lnd.1.
+	config := lnd.DefaultConfig()
+	fileParser := flags.NewParser(&config, flags.Default)
+	fileParser.Name = "lnd"
+
+	var buf bytes.Buffer
+	fileParser.WriteManPage(&buf)
+
+	err = os.WriteFile("lnd.1", buf.Bytes(), 0644)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

@@ -4,6 +4,9 @@ inputs:
   go-version:
     description: "The version of Golang to set up"
     required: true
+  key-prefix:
+    description: "A prefix to use for the cache key, to separate cache entries from other workflows"
+    required: false
 
 runs:
   using: "composite"
@@ -27,10 +30,10 @@ runs:
           ~/.cache/go-build
           ~/Library/Caches/go-build
           ~\AppData\Local\go-build
-        key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ inputs.key-prefix }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
-          ${{ runner.os }}-go-${{ inputs.go-version }}-${{ github.job }}-
-          ${{ runner.os }}-go-${{ inputs.go-version }}-
+          ${{ runner.os }}-go-${{ inputs.go-version }}-${{ inputs.key-prefix }}-${{ github.job }}-
+          ${{ runner.os }}-go-${{ inputs.go-version }}-${{ inputs.key-prefix }}-
 
     - name: set GOPATH
       shell: bash

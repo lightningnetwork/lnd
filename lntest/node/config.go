@@ -292,7 +292,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	}
 
 	if cfg.FeeURL != "" {
-		args = append(args, "--feeurl="+cfg.FeeURL)
+		args = append(args, "--fee.url="+cfg.FeeURL)
 	}
 
 	// Put extra args in the end so the args can be overwritten.

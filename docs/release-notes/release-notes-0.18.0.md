@@ -103,20 +103,22 @@
   estimator used(for instance `bitcoind`), and this value is a cap on the max
   allowed value. So it's expected that this cap is rarely hit unless there's
   mempool congestion.
+
 * Support for [pathfinding]((https://github.com/lightningnetwork/lnd/pull/7267)
   and payment to blinded paths has been added via the `QueryRoutes` (and 
   SendToRouteV2) APIs. This functionality is surfaced in `lncli queryroutes` 
   where the required flags are tagged with `(blinded paths)`. Updates to mission
   control to [handle pathfinding errors](https://github.com/lightningnetwork/lnd/pull/8095)
   for blinded paths are also included.
+
 * A new config value,
   [http-header-timeout](https://github.com/lightningnetwork/lnd/pull/7715), is 
   added so users can specify the amount of time the http server will wait for a 
   request to complete before closing the connection. The default value is 5 
   seconds.
+
 * Update [watchtowers to be Taproot
   ready](https://github.com/lightningnetwork/lnd/pull/7733)
-
 
 * [`routerrpc.usestatusinitiated` is
   introduced](https://github.com/lightningnetwork/lnd/pull/8177) to signal that
@@ -144,6 +146,17 @@
 * The `coin-selection-strategy` config option [now also applies to channel
   funding operations and the new `PsbtCoinSelect` option of the `FundPsbt`
   RPC](https://github.com/lightningnetwork/lnd/pull/8378).
+
+* Web fee estimator settings have been movedd into a new `fee` config group.
+  A new `fee.url` option has been added within this group that replaces the old
+  `feeurl` option, which is now deprecated. Additionally, [two new config values,
+  fee.min-update-timeout and fee.max-update-timeout](https://github.com/lightningnetwork/lnd/pull/8484)
+  are added to allow users to specify the minimum and maximum time between fee
+  updates from the web fee estimator. The default values are 5 minutes and 20
+  minutes respectively. These values are used to prevent the fee estimator from
+  being queried too frequently. This replaces previously hardcoded values that
+  were set to the same values as the new defaults. The previously deprecated
+  `neutrino.feeurl` option has been removed.
 
 ## RPC Additions
 
@@ -297,6 +310,10 @@
   instances](https://github.com/lightningnetwork/lnd/pull/8503)
 
 ## Breaking Changes
+
+* Removed deprecated `neutrino.feeurl` option. Please use the newer `fee.url`
+  option instead.
+
 ## Performance Improvements
 
 * Watchtower client DB migration to massively [improve the start-up 

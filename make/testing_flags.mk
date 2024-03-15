@@ -93,6 +93,14 @@ else
 TEST_FLAGS += -test.timeout=180m
 endif
 
+ifneq ($(verbose),)
+TEST_FLAGS += -test.v
+endif
+
+ifneq ($(nocache),)
+TEST_FLAGS += -test.count=1
+endif
+
 GOLIST := go list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -tags="$(DEV_TAGS)" -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
 

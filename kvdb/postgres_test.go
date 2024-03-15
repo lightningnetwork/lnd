@@ -203,7 +203,7 @@ func TestPostgres(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			f, err := postgres.NewFixture("")
+			f, err := postgres.NewFixture(t, "")
 			require.NoError(t, err)
 
 			test.test(t, f.Db)

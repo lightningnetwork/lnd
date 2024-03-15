@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -59,7 +60,7 @@ func StartEmbeddedPostgres() (func() error, error) {
 
 // NewFixture returns a new postgres test database. The database name is
 // randomly generated.
-func NewFixture(dbName string) (*fixture, error) {
+func NewFixture(t testing.TB, dbName string) (*fixture, error) {
 	if dbName == "" {
 		// Create random database name.
 		randBytes := make([]byte, 8)

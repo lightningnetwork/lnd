@@ -3,12 +3,16 @@
 
 package kvdb
 
-import "github.com/lightningnetwork/lnd/kvdb/postgres"
+import (
+	"testing"
+
+	"github.com/lightningnetwork/lnd/kvdb/postgres"
+)
 
 const PostgresBackend = true
 
-func NewPostgresFixture(dbName string) (postgres.Fixture, error) {
-	return postgres.NewFixture(dbName)
+func NewPostgresFixture(t testing.TB, dbName string) (postgres.Fixture, error) {
+	return postgres.NewFixture(t, dbName)
 }
 
 func StartEmbeddedPostgres() (func() error, error) {

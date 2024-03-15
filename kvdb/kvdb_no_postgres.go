@@ -5,13 +5,14 @@ package kvdb
 
 import (
 	"errors"
+	"testing"
 
 	"github.com/lightningnetwork/lnd/kvdb/postgres"
 )
 
 const PostgresBackend = false
 
-func NewPostgresFixture(dbName string) (postgres.Fixture, error) {
+func NewPostgresFixture(_ testing.TB, _ string) (postgres.Fixture, error) {
 	return nil, errors.New("postgres backend not available")
 }
 

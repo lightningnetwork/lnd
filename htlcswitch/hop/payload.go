@@ -54,8 +54,57 @@ func (v PayloadViolation) String() string {
 	}
 }
 
+// RouteRole represents the different types of roles a node can have as a
+// recipient of a HTLC.
+type RouteRole uint8
+
+const (
+	// RouteRoleCleartext represents a regular route hop.
+	RouteRoleCleartext RouteRole = iota
+
+	// RouteRoleIntroduction represents an introduction node in a blinded
+	// path, characterized by a blinding point in the onion payload.
+	RouteRoleIntroduction
+
+	// RouteRoleRelaying represents a relaying node in a blinded path,
+	// characterized by a blinding point in update_add_htlc.
+	RouteRoleRelaying
+)
+
+// String representation of a role in a route.
+func (h RouteRole) String() string {
+	switch h {
+	case RouteRoleCleartext:
+		return "cleartext"
+
+	case RouteRoleRelaying:
+		return "blinded relay"
+
+	case RouteRoleIntroduction:
+		return "introduction node"
+
+	default:
+		return fmt.Sprintf("unknown route role: %d", h)
+	}
+}
+
+// NewRouteRole returns the appropriate route role based on the presence of
+// blinding points.
+func NewRouteRole(payloadBlindingPoint, updateAddBlindingPoint bool) RouteRole {
+	switch {
+	case payloadBlindingPoint:
+		return RouteRoleIntroduction
+
+	case updateAddBlindingPoint:
+		return RouteRoleRelaying
+
+	default:
+		return RouteRoleCleartext
+	}
+}
+
 // ErrInvalidPayload is an error returned when a parsed onion payload either
-// included or omitted incorrect records for a particular hop type.
+// included or omitted incorrect records for a particular route role.
 type ErrInvalidPayload struct {
 	// Type the record's type that cause the violation.
 	Type tlv.Type
@@ -68,17 +117,20 @@ type ErrInvalidPayload struct {
 	// in the route (identified by next hop id), otherwise the violation is
 	// for an intermediate hop.
 	FinalHop bool
+
+	// RouteRole provides information about the type of hop that failed.
+	RouteRole RouteRole
 }
 
 // Error returns a human-readable description of the invalid payload error.
 func (e ErrInvalidPayload) Error() string {
-	hopType := "intermediate"
+	hopPosition := "intermediate"
 	if e.FinalHop {
-		hopType = "final"
+		hopPosition = "final"
 	}
 
-	return fmt.Sprintf("onion payload for %s hop %v record with type %d",
-		hopType, e.Violation, e.Type)
+	return fmt.Sprintf("onion payload for %s hop (%v) %v record with "+
+		"type %d", hopPosition, e.RouteRole, e.Violation, e.Type)
 }
 
 // Payload encapsulates all information delivered to a hop in an onion payload.
@@ -315,6 +367,8 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap, isFinalHop,
 	// in blinded paths.
 	hasBlindingPoint := hasPayloadBlinding || updateAddBlindingPoint
 
+	hopType := NewRouteRole(hasPayloadBlinding, updateAddBlindingPoint)
+
 	switch {
 	// Fail blinded payloads if we've disabled the feature.
 	case (updateAddBlindingPoint || hasPayloadBlinding) && disableBlinding:
@@ -322,6 +376,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap, isFinalHop,
 			Type:      record.BlindingPointOnionType,
 			Violation: IncludedViolation,
 			FinalHop:  isFinalHop,
+			RouteRole: hopType,
 		}
 
 	// If a blinding point is provided, we expect encrypted data.
@@ -330,6 +385,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap, isFinalHop,
 			Type:      record.EncryptedDataOnionType,
 			Violation: OmittedViolation,
 			FinalHop:  isFinalHop,
+			RouteRole: hopType,
 		}
 
 	// A blinding point should not be set in both update_add_htlc and the
@@ -339,6 +395,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap, isFinalHop,
 			Type:      record.BlindingPointOnionType,
 			Violation: IncludedViolation,
 			FinalHop:  isFinalHop,
+			RouteRole: hopType,
 		}
 
 	// Hops that need forwarding info must include an amount to forward.
@@ -347,6 +404,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap, isFinalHop,
 			Type:      record.AmtOnionType,
 			Violation: OmittedViolation,
 			FinalHop:  isFinalHop,
+			RouteRole: hopType,
 		}
 
 	// Hops that need forwarding info must include a cltv expiry.
@@ -355,6 +413,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap, isFinalHop,
 			Type:      record.LockTimeOnionType,
 			Violation: OmittedViolation,
 			FinalHop:  isFinalHop,
+			RouteRole: hopType,
 		}
 
 	// Hops that don't need forwarding info shouldn't have an amount TLV.
@@ -363,6 +422,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap, isFinalHop,
 			Type:      record.AmtOnionType,
 			Violation: IncludedViolation,
 			FinalHop:  isFinalHop,
+			RouteRole: hopType,
 		}
 
 	// Hops that don't need forwarding info shouldn't have a cltv TLV.
@@ -371,6 +431,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap, isFinalHop,
 			Type:      record.LockTimeOnionType,
 			Violation: IncludedViolation,
 			FinalHop:  isFinalHop,
+			RouteRole: hopType,
 		}
 
 	// The exit hop and all blinded hops should omit the next hop id.
@@ -379,6 +440,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap, isFinalHop,
 			Type:      record.NextHopOnionType,
 			Violation: IncludedViolation,
 			FinalHop:  isFinalHop,
+			RouteRole: hopType,
 		}
 
 	// Require that the next hop is set for intermediate hops in regular
@@ -388,6 +450,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap, isFinalHop,
 			Type:      record.NextHopOnionType,
 			Violation: OmittedViolation,
 			FinalHop:  isFinalHop,
+			RouteRole: hopType,
 		}
 
 	// Intermediate nodes should never receive MPP fields.
@@ -396,6 +459,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap, isFinalHop,
 			Type:      record.MPPOnionType,
 			Violation: IncludedViolation,
 			FinalHop:  isFinalHop,
+			RouteRole: hopType,
 		}
 
 	// Intermediate nodes should never receive AMP fields.
@@ -404,6 +468,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap, isFinalHop,
 			Type:      record.AMPOnionType,
 			Violation: IncludedViolation,
 			FinalHop:  isFinalHop,
+			RouteRole: hopType,
 		}
 
 	// Blinded routes restrict the presence of TLVs more strictly than
@@ -430,6 +495,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap, isFinalHop,
 				Type:      tlvType,
 				Violation: IncludedViolation,
 				FinalHop:  isFinalHop,
+				RouteRole: hopType,
 			}
 		}
 	}
@@ -523,7 +589,13 @@ func getMinRequiredViolation(set tlv.TypeMap) *tlv.Type {
 // nodes, as LND does not yet support receiving via a blinded route (which has
 // different validation rules).
 func ValidateBlindedRouteData(blindedData *record.BlindedRouteData,
-	incomingAmount lnwire.MilliSatoshi, incomingTimelock uint32) error {
+	incomingAmount lnwire.MilliSatoshi, incomingTimelock uint32,
+	relayingNode bool) error {
+
+	hopType := RouteRoleIntroduction
+	if relayingNode {
+		hopType = RouteRoleRelaying
+	}
 
 	// Bolt 04 notes that we should enforce payment constraints _if_ they
 	// are present, so we do not fail if not provided.
@@ -536,6 +608,7 @@ func ValidateBlindedRouteData(blindedData *record.BlindedRouteData,
 				err = ErrInvalidPayload{
 					Type:      record.LockTimeOnionType,
 					Violation: InsufficientViolation,
+					RouteRole: hopType,
 				}
 			}
 
@@ -544,6 +617,7 @@ func ValidateBlindedRouteData(blindedData *record.BlindedRouteData,
 				err = ErrInvalidPayload{
 					Type:      record.AmtOnionType,
 					Violation: InsufficientViolation,
+					RouteRole: hopType,
 				}
 			}
 		},
@@ -568,6 +642,7 @@ func ValidateBlindedRouteData(blindedData *record.BlindedRouteData,
 				err = ErrInvalidPayload{
 					Type:      14,
 					Violation: IncludedViolation,
+					RouteRole: hopType,
 				}
 			}
 		},

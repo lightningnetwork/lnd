@@ -458,6 +458,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Type:      record.BlindingPointOnionType,
 			Violation: hop.IncludedViolation,
 			FinalHop:  false,
+			RouteRole: hop.RouteRoleIntroduction,
 		},
 	},
 	{
@@ -477,6 +478,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Type:      record.EncryptedDataOnionType,
 			Violation: hop.OmittedViolation,
 			FinalHop:  false,
+			RouteRole: hop.RouteRoleRelaying,
 		},
 	},
 	{
@@ -500,6 +502,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Type:      record.EncryptedDataOnionType,
 			Violation: hop.OmittedViolation,
 			FinalHop:  false,
+			RouteRole: hop.RouteRoleIntroduction,
 		},
 	},
 	{
@@ -516,6 +519,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Type:      tlv.Type(65536),
 			Violation: hop.IncludedViolation,
 			FinalHop:  false,
+			RouteRole: hop.RouteRoleRelaying,
 		},
 	},
 	{
@@ -536,6 +540,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Type:      tlv.Type(65536),
 			Violation: hop.IncludedViolation,
 			FinalHop:  true,
+			RouteRole: hop.RouteRoleRelaying,
 		},
 	},
 	{
@@ -551,6 +556,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Type:      record.BlindingPointOnionType,
 			Violation: hop.IncludedViolation,
 			FinalHop:  false,
+			RouteRole: hop.RouteRoleRelaying,
 		},
 	},
 	{
@@ -570,6 +576,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Type:      record.BlindingPointOnionType,
 			Violation: hop.IncludedViolation,
 			FinalHop:  false,
+			RouteRole: hop.RouteRoleIntroduction,
 		},
 	},
 }
@@ -711,6 +718,7 @@ func TestValidateBlindedRouteData(t *testing.T) {
 	tests := []struct {
 		name             string
 		data             *record.BlindedRouteData
+		relayingNode     bool
 		incomingAmount   lnwire.MilliSatoshi
 		incomingTimelock uint32
 		err              error
@@ -727,9 +735,11 @@ func TestValidateBlindedRouteData(t *testing.T) {
 				nil,
 			),
 			incomingTimelock: 200,
+			relayingNode:     true,
 			err: hop.ErrInvalidPayload{
 				Type:      record.LockTimeOnionType,
 				Violation: hop.InsufficientViolation,
+				RouteRole: hop.RouteRoleRelaying,
 			},
 		},
 		{
@@ -749,6 +759,7 @@ func TestValidateBlindedRouteData(t *testing.T) {
 			err: hop.ErrInvalidPayload{
 				Type:      record.LockTimeOnionType,
 				Violation: hop.InsufficientViolation,
+				RouteRole: hop.RouteRoleIntroduction,
 			},
 		},
 		{
@@ -766,6 +777,7 @@ func TestValidateBlindedRouteData(t *testing.T) {
 			err: hop.ErrInvalidPayload{
 				Type:      record.AmtOnionType,
 				Violation: hop.InsufficientViolation,
+				RouteRole: hop.RouteRoleIntroduction,
 			},
 		},
 		{
@@ -805,6 +817,7 @@ func TestValidateBlindedRouteData(t *testing.T) {
 			err: hop.ErrInvalidPayload{
 				Type:      14,
 				Violation: hop.IncludedViolation,
+				RouteRole: hop.RouteRoleIntroduction,
 			},
 		},
 		{
@@ -835,6 +848,7 @@ func TestValidateBlindedRouteData(t *testing.T) {
 			err := hop.ValidateBlindedRouteData(
 				testCase.data, testCase.incomingAmount,
 				testCase.incomingTimelock,
+				testCase.relayingNode,
 			)
 			require.Equal(t, testCase.err, err)
 		})

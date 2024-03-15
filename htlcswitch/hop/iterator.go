@@ -191,6 +191,10 @@ func MakeBlindingKit(processor BlindingProcessor,
 
 			if err := ValidateBlindedRouteData(
 				routeData, incomingAmount, incomingCltv,
+				// If the blinding kit has a non-nil blinding
+				// point, then we got it from update_add_htlc
+				// and we're a relaying node.
+				blindingPoint != nil,
 			); err != nil {
 				return nil, err
 			}

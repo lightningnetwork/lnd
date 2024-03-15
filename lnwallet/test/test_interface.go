@@ -1819,8 +1819,7 @@ func testPublishTransaction(r *rpctest.Harness,
 			require.NoError(t, err, "unable to obtain public key")
 
 			// Create a new transaction that spends the output from
-			// tx3, and that pays to a different address. We expect
-			// this to be rejected because it is a double spend.
+			// tx3, and that pays to a different address.
 			tx5, err := txFromOutput(
 				tx3, alice.Cfg.Signer, keyDesc.PubKey,
 				keyDesc2.PubKey, txFee, rbf,
@@ -1828,7 +1827,19 @@ func testPublishTransaction(r *rpctest.Harness,
 			require.NoError(t, err)
 
 			err = alice.PublishTransaction(tx5, labels.External)
-			require.ErrorIs(t, err, lnwallet.ErrDoubleSpend)
+
+			// If RBF is not enabled, we expect this to be rejected
+			// because it is a double spend.
+			expectedErr := lnwallet.ErrDoubleSpend
+
+			// If RBF is enabled, we expect it to be rejected
+			// because it doesn't pay enough fees.
+			if rbf {
+				expectedErr = rpcclient.ErrInsufficientFee
+			}
+
+			// Assert the expected error.
+			require.ErrorIsf(t, err, expectedErr, "has rbf=%v", rbf)
 
 			// Create another transaction that spends the same
 			// output, but has a higher fee. We expect also this tx
@@ -1906,21 +1917,8 @@ func testPublishTransaction(r *rpctest.Harness,
 
 		// Now broadcast the transaction, we should get an error that
 		// the weight is too large.
-		//
-		// TODO(roasbeef): we can't use Unwrap() here as TxRuleError
-		// doesn't define it
 		err := alice.PublishTransaction(testTx, labels.External)
-
-		errStr := "bad-txns-oversize"
-
-		// For neutrino backend, the error string in not mapped.
-		//
-		// TODO(yy): unify error matching in neutrino too.
-		if alice.BackEnd() == "neutrino" {
-			errStr = "serialized transaction is too big"
-		}
-
-		require.Contains(t, err.Error(), errStr)
+		require.ErrorIs(t, err, rpcclient.ErrOversizeTx)
 	})
 }
 

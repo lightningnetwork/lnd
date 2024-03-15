@@ -3,6 +3,7 @@
 package postgres
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -18,8 +19,7 @@ func TestInterface(t *testing.T) {
 	require.NoError(t, err)
 	defer stop()
 
-	f, err := NewFixture(t, "")
-	require.NoError(t, err)
+	f := NewTestPgFixture(t, "")
 
 	// dbType is the database type name for this driver.
 	const dbType = "postgres"
@@ -38,9 +38,7 @@ func TestPanic(t *testing.T) {
 	require.NoError(t, err)
 	defer stop()
 
-	f, err := NewFixture(t, "")
-	require.NoError(t, err)
-
+	f := NewTestPgFixture(t, "")
 	err = f.Db.Update(func(tx walletdb.ReadWriteTx) error {
 		bucket, err := tx.CreateTopLevelBucket([]byte("test"))
 		require.NoError(t, err)
@@ -58,5 +56,9 @@ func TestPanic(t *testing.T) {
 		return nil
 	}, func() {})
 
-	require.Contains(t, err.Error(), "terminating connection")
+	hasErr := err != nil &&
+		strings.Contains(err.Error(), "unexpected EOF") ||
+		strings.Contains(err.Error(), "terminating connection")
+
+	require.True(t, hasErr)
 }

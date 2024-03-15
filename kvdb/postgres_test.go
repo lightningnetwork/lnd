@@ -203,13 +203,12 @@ func TestPostgres(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			f, err := postgres.NewFixture(t, "")
-			require.NoError(t, err)
+			fixture := postgres.NewTestPgFixture(t, "")
 
-			test.test(t, f.Db)
+			test.test(t, fixture.Db)
 
 			if test.expectedDb != nil {
-				dump, err := f.Dump()
+				dump, err := fixture.Dump()
 				require.NoError(t, err)
 				require.Equal(t, test.expectedDb, dump)
 			}

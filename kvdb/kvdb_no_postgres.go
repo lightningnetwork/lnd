@@ -12,8 +12,9 @@ import (
 
 const PostgresBackend = false
 
-func NewPostgresFixture(_ testing.TB, _ string) (postgres.Fixture, error) {
-	return nil, errors.New("postgres backend not available")
+func NewPostgresFixture(t testing.TB, _ string) postgres.Fixture {
+	t.Fatalf("postgres backend not available")
+	return nil
 }
 
 func StartEmbeddedPostgres() (func() error, error) {

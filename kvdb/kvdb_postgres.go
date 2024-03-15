@@ -11,8 +11,8 @@ import (
 
 const PostgresBackend = true
 
-func NewPostgresFixture(t testing.TB, dbName string) (postgres.Fixture, error) {
-	return postgres.NewFixture(t, dbName)
+func NewPostgresFixture(t testing.TB, dbName string) postgres.Fixture {
+	return postgres.NewTestPgFixture(t, dbName)
 }
 
 func StartEmbeddedPostgres() (func() error, error) {

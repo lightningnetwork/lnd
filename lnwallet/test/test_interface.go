@@ -40,6 +40,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
+	"github.com/lightningnetwork/lnd/lntest/unittest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
@@ -2120,7 +2121,7 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 
 	// Now we cause a reorganization as follows.
 	// Step 1: create a new miner and start it.
-	r2 := chainntnfs.NewMiner(
+	r2 := unittest.NewMiner(
 		t, r.ActiveNet, []string{"--txindex"}, false, 0,
 	)
 	newBalance, err := w.ConfirmedBalance(1, lnwallet.DefaultAccountName)
@@ -3101,7 +3102,7 @@ func TestLightningWallet(t *testing.T, targetBackEnd string) {
 	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set
 	// up this node with a chain length of 125, so we have plenty of BTC
 	// to play around with.
-	miningNode := chainntnfs.NewMiner(
+	miningNode := unittest.NewMiner(
 		t, netParams, []string{"--txindex"}, true, 25,
 	)
 

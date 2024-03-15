@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lntest/unittest"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/stretchr/testify/require"
 )
@@ -1043,8 +1044,8 @@ func testReorgConf(miner *rpctest.Harness,
 	notifier chainntnfs.TestChainNotifier, scriptDispatch bool, t *testing.T) {
 
 	// Set up a new miner that we can use to cause a reorg.
-	miner2 := chainntnfs.NewMiner(
-		t, chainntnfs.NetParams, []string{"--txindex"}, false, 0,
+	miner2 := unittest.NewMiner(
+		t, unittest.NetParams, []string{"--txindex"}, false, 0,
 	)
 
 	// We start by connecting the new miner to our original miner,
@@ -1199,8 +1200,8 @@ func testReorgSpend(miner *rpctest.Harness,
 	require.NoError(t, err, "unable to register for spend")
 
 	// Set up a new miner that we can use to cause a reorg.
-	miner2 := chainntnfs.NewMiner(
-		t, chainntnfs.NetParams, []string{"--txindex"}, false, 0,
+	miner2 := unittest.NewMiner(
+		t, unittest.NetParams, []string{"--txindex"}, false, 0,
 	)
 
 	// We start by connecting the new miner to our original miner, in order
@@ -1517,8 +1518,8 @@ func testCatchUpOnMissedBlocksWithReorg(miner1 *rpctest.Harness,
 	var wg sync.WaitGroup
 
 	// Set up a new miner that we can use to cause a reorg.
-	miner2 := chainntnfs.NewMiner(
-		t, chainntnfs.NetParams, []string{"--txindex"}, false, 0,
+	miner2 := unittest.NewMiner(
+		t, unittest.NetParams, []string{"--txindex"}, false, 0,
 	)
 
 	// We start by connecting the new miner to our original miner,
@@ -1890,7 +1891,7 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set up
 	// this node with a chain length of 125, so we have plenty of BTC to
 	// play around with.
-	miner := chainntnfs.NewMiner(t, chainntnfs.NetParams, nil, true, 25)
+	miner := unittest.NewMiner(t, unittest.NetParams, nil, true, 25)
 
 	rpcConfig := miner.RPCConfig()
 	p2pAddr := miner.P2PAddress()
@@ -1929,24 +1930,24 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 		switch notifierType {
 		case "bitcoind":
 			var bitcoindConn *chain.BitcoindConn
-			bitcoindConn = chainntnfs.NewBitcoindBackend(
-				t, chainntnfs.NetParams, p2pAddr, true, false,
+			bitcoindConn = unittest.NewBitcoindBackend(
+				t, unittest.NetParams, p2pAddr, true, false,
 			)
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return bitcoindnotify.New(
-					bitcoindConn, chainntnfs.NetParams,
+					bitcoindConn, unittest.NetParams,
 					hintCache, hintCache, blockCache,
 				), nil
 			}
 
 		case "bitcoind-rpc-polling":
 			var bitcoindConn *chain.BitcoindConn
-			bitcoindConn = chainntnfs.NewBitcoindBackend(
-				t, chainntnfs.NetParams, p2pAddr, true, true,
+			bitcoindConn = unittest.NewBitcoindBackend(
+				t, unittest.NetParams, p2pAddr, true, true,
 			)
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return bitcoindnotify.New(
-					bitcoindConn, chainntnfs.NetParams,
+					bitcoindConn, unittest.NetParams,
 					hintCache, hintCache, blockCache,
 				), nil
 			}
@@ -1954,15 +1955,15 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 		case "btcd":
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return btcdnotify.New(
-					&rpcConfig, chainntnfs.NetParams,
+					&rpcConfig, unittest.NetParams,
 					hintCache, hintCache, blockCache,
 				)
 			}
 
 		case "neutrino":
 			var spvNode *neutrino.ChainService
-			spvNode = chainntnfs.NewNeutrinoBackend(
-				t, chainntnfs.NetParams, p2pAddr,
+			spvNode = unittest.NewNeutrinoBackend(
+				t, unittest.NetParams, p2pAddr,
 			)
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return neutrinonotify.New(

@@ -18,8 +18,8 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/blockcache"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntest/unittest"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 )
@@ -326,7 +326,7 @@ func newTestWallet(t *testing.T, netParams *chaincfg.Params,
 func getChainBackend(t *testing.T, netParams *chaincfg.Params) (chain.Interface,
 	*rpctest.Harness) {
 
-	miningNode := chainntnfs.NewMiner(
+	miningNode := unittest.NewMiner(
 		t, netParams, []string{"--txindex"}, true, 25,
 	)
 

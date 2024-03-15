@@ -3260,18 +3260,32 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// received invalid onion payload failure, then we
 			// should send an error back to the caller so the HTLC
 			// can be canceled.
-			var failedType uint64
+			var failure lnwire.FailureMessage
+			failure = lnwire.NewInvalidOnionPayload(0, 0)
+
 			if e, ok := err.(hop.ErrInvalidPayload); ok {
-				failedType = uint64(e.Type)
+				// TODO: currently none of the test unit
+				// infrastructure is setup to handle TLV
+				// payloads, so testing this would require
+				// implementing a separate mock iterator
+				// for TLV payloads that also supports
+				// injecting invalid payloads. Deferring
+				// this non-trival effort till a
+				// later date
+				if e.RouteRole == hop.RouteRoleCleartext {
+					failure = lnwire.NewInvalidOnionPayload(
+						uint64(e.Type), 0,
+					)
+				} else {
+					l.log.Debugf("HTLC in blinded route "+
+						"failed replaced with %v.",
+						e.Type,
+						lnwire.CodeInvalidBlinding)
+
+					failure = &lnwire.FailInvalidBlinding{}
+				}
 			}
 
-			// TODO: currently none of the test unit infrastructure
-			// is setup to handle TLV payloads, so testing this
-			// would require implementing a separate mock iterator
-			// for TLV payloads that also supports injecting invalid
-			// payloads. Deferring this non-trival effort till a
-			// later date
-			failure := lnwire.NewInvalidOnionPayload(failedType, 0)
 			l.sendHTLCError(
 				pd, NewLinkError(failure), obfuscator, false,
 			)

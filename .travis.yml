@@ -26,7 +26,7 @@ go:
 env:
   global:
     - GOCACHE=$HOME/.go-build
-    - BITCOIN_VERSION="22.0"
+    - BITCOIN_VERSION="26"
 
 sudo: required
 
@@ -35,7 +35,7 @@ jobs:
     - stage: Integration Test
       name: Bitcoind Integration ARM
       script:
-        - bash ./scripts/install_bitcoind.sh
+        - bash ./scripts/install_bitcoind.sh $BITCOIN_VERSION
         - GOMEMLIMIT=1024MiB GOARM=7 GOARCH=arm GOOS=linux travis_wait 120 make itest-parallel backend=bitcoind tranches=8
       arch: arm64
 

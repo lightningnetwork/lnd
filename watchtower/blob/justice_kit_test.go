@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -304,7 +305,9 @@ func TestJusticeKitRemoteWitnessConstruction(t *testing.T) {
 			name:     "taproot commitment",
 			blobType: TypeAltruistTaprootCommit,
 			expWitnessScript: func(pk *btcec.PublicKey) []byte {
-				tree, _ := input.NewRemoteCommitScriptTree(pk)
+				tree, _ := input.NewRemoteCommitScriptTree(
+					pk, fn.None[txscript.TapLeaf](),
+				)
 
 				return tree.SettleLeaf.Script
 			},
@@ -460,7 +463,7 @@ func TestJusticeKitToLocalWitnessConstruction(t *testing.T) {
 				rev *btcec.PublicKey) []byte {
 
 				script, _ := input.NewLocalCommitScriptTree(
-					csvDelay, delay, rev,
+					csvDelay, delay, rev, fn.None[txscript.TapLeaf](),
 				)
 
 				return script.RevocationLeaf.Script

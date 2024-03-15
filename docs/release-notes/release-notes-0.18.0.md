@@ -335,6 +335,9 @@
 * Added fuzz tests for [onion
   errors](https://github.com/lightningnetwork/lnd/pull/7669).
 
+* Fixed stability and [compatibility of unit tests with `bitcoind
+  v26.0`](https://github.com/lightningnetwork/lnd/pull/8273).
+
 ## Database
 
 * [Add context to InvoiceDB

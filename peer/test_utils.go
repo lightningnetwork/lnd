@@ -54,18 +54,31 @@ var (
 var noUpdate = func(a, b *channeldb.OpenChannel) {}
 
 type testPeerChanEnv struct {
-	alicePeer  *Brontide
-	bobChannel *lnwallet.LightningChannel
+	alicePeer       *Brontide
+	bobChannel      *lnwallet.LightningChannel
+	notifier        *mock.ChainNotifier
+	broadcastTxChan chan *wire.MsgTx
+	mockSwitch      *mockMessageSwitch
 }
 
 // createTestPeerWithChannel creates a channel between two nodes, and returns a
 // peer for one of the nodes, together with the channel seen from both nodes.
 // It takes an updateChan function which can be used to modify the default
 // values on the channel states for each peer.
-func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
-	publTx chan *wire.MsgTx, updateChan func(a, b *channeldb.OpenChannel),
-	mockSwitch *mockMessageSwitch) (
-	*testPeerChanEnv, error) {
+func createTestPeerWithChannel(t *testing.T, updateChan func(a,
+	b *channeldb.OpenChannel)) (*testPeerChanEnv, error) {
+
+	// TODO(yy): create interface for lnwallet.LightningChannel so we can
+	// easily mock it without the following setups.
+	notifier := &mock.ChainNotifier{
+		SpendChan: make(chan *chainntnfs.SpendDetail),
+		EpochChan: make(chan *chainntnfs.BlockEpoch),
+		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+	}
+
+	mockSwitch := &mockMessageSwitch{}
+
+	publishTx := make(chan *wire.MsgTx)
 
 	nodeKeyLocator := keychain.KeyLocator{
 		Family: keychain.KeyFamilyNodeKey,
@@ -320,7 +333,7 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 	wallet := &lnwallet.LightningWallet{
 		WalletController: &mock.WalletController{
 			RootKey:               aliceKeyPriv,
-			PublishedTransactions: publTx,
+			PublishedTransactions: publishTx,
 		},
 	}
 
@@ -425,8 +438,11 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 	go alicePeer.channelManager()
 
 	return &testPeerChanEnv{
-		alicePeer:  alicePeer,
-		bobChannel: channelBob,
+		alicePeer:       alicePeer,
+		bobChannel:      channelBob,
+		notifier:        notifier,
+		broadcastTxChan: publishTx,
+		mockSwitch:      mockSwitch,
 	}, nil
 }
 

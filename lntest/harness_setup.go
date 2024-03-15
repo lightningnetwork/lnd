@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,8 +42,15 @@ func SetupHarness(t *testing.T, binaryPath, dbBackendName string,
 	ht.stopChainBackend = cleanUp
 
 	// Connect our chainBackend to our miner.
-	t.Log("Connecting the miner with the chain backend...")
-	require.NoError(t, chainBackend.ConnectMiner(), "connect miner")
+	t.Logf("Connecting the miner at %v with the chain backend...",
+		miner.P2PAddress())
+
+	// Give the chain backend some time to fully start up, re-trying if any
+	// errors in connecting to the miner are encountered.
+	err := wait.NoError(func() error {
+		return chainBackend.ConnectMiner()
+	}, DefaultTimeout)
+	require.NoError(t, err, "connect miner")
 
 	// Start the HarnessTest with the chainBackend and miner.
 	ht.Start(chainBackend, miner)

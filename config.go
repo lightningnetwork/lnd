@@ -1779,6 +1779,11 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 	var daemonName, confDir, confFile, confFileBase string
 	switch conf := nodeConfig.(type) {
 	case *lncfg.Btcd:
+		// Resolves environment variable references in RPCUser and
+		// RPCPass fields.
+		conf.RPCUser = supplyEnvValue(conf.RPCUser)
+		conf.RPCPass = supplyEnvValue(conf.RPCPass)
+
 		// If both RPCUser and RPCPass are set, we assume those
 		// credentials are good to use.
 		if conf.RPCUser != "" && conf.RPCPass != "" {
@@ -1823,6 +1828,11 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 		confDir = conf.Dir
 		confFile = conf.ConfigPath
 		confFileBase = BitcoinChainName
+
+		// Resolves environment variable references in RPCUser
+		// and RPCPass fields.
+		conf.RPCUser = supplyEnvValue(conf.RPCUser)
+		conf.RPCPass = supplyEnvValue(conf.RPCPass)
 
 		// Check that cookie and credentials don't contradict each
 		// other.
@@ -1919,6 +1929,70 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 	return nil
 }
 
+// supplyEnvValue supplies the value of an environment variable from a string.
+// It supports the following formats:
+// 1) $ENV_VAR
+// 2) ${ENV_VAR}
+// 3) ${ENV_VAR:-DEFAULT}
+//
+// Standard environment variable naming conventions:
+// - ENV_VAR contains letters, digits, and underscores, and does
+// not start with a digit.
+// - DEFAULT follows the rule that it can contain any characters except
+// whitespace.
+//
+// Parameters:
+// - value: The input string containing references to environment variables
+// (if any).
+//
+// Returns:
+// - string: The value of the specified environment variable, the default
+// value if provided, or the original input string if no matching variable is
+// found or set.
+func supplyEnvValue(value string) string {
+	// Regex for $ENV_VAR format.
+	var reEnvVar = regexp.MustCompile(`^\$([a-zA-Z_][a-zA-Z0-9_]*)$`)
+
+	// Regex for ${ENV_VAR} format.
+	var reEnvVarWithBrackets = regexp.MustCompile(
+		`^\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}$`,
+	)
+
+	// Regex for ${ENV_VAR:-DEFAULT} format.
+	var reEnvVarWithDefault = regexp.MustCompile(
+		`^\$\{([a-zA-Z_][a-zA-Z0-9_]*):-([\S]+)\}$`,
+	)
+
+	// Match against supported formats.
+	switch {
+	case reEnvVarWithDefault.MatchString(value):
+		matches := reEnvVarWithDefault.FindStringSubmatch(value)
+		envVariable := matches[1]
+		defaultValue := matches[2]
+		if envValue := os.Getenv(envVariable); envValue != "" {
+			return envValue
+		}
+
+		return defaultValue
+
+	case reEnvVarWithBrackets.MatchString(value):
+		matches := reEnvVarWithBrackets.FindStringSubmatch(value)
+		envVariable := matches[1]
+		envValue := os.Getenv(envVariable)
+
+		return envValue
+
+	case reEnvVar.MatchString(value):
+		matches := reEnvVar.FindStringSubmatch(value)
+		envVariable := matches[1]
+		envValue := os.Getenv(envVariable)
+
+		return envValue
+	}
+
+	return value
+}
+
 // extractBtcdRPCParams attempts to extract the RPC credentials for an existing
 // btcd instance. The passed path is expected to be the location of btcd's
 // application data directory on the target system.
@@ -1962,7 +2036,8 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 		return "", "", fmt.Errorf("unable to find rpcuser in config")
 	}
 
-	return string(userSubmatches[1]), string(passSubmatches[1]), nil
+	return supplyEnvValue(string(userSubmatches[1])),
+		supplyEnvValue(string(passSubmatches[1])), nil
 }
 
 // extractBitcoindRPCParams attempts to extract the RPC credentials for an
@@ -2087,7 +2162,8 @@ func extractBitcoindRPCParams(networkName, bitcoindDataDir, bitcoindConfigPath,
 			"in config")
 	}
 
-	return string(userSubmatches[1]), string(passSubmatches[1]),
+	return supplyEnvValue(string(userSubmatches[1])),
+		supplyEnvValue(string(passSubmatches[1])),
 		zmqBlockHost, zmqTxHost, nil
 }
 

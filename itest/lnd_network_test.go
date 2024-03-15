@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -111,7 +112,7 @@ func testReconnectAfterIPChange(ht *lntest.HarnessTest) {
 
 	// We derive an extra port for Dave, and we initialise his node with
 	// the port advertised as `--externalip` arguments.
-	ip2 := node.NextAvailablePort()
+	ip2 := port.NextAvailablePort()
 
 	// Create a new node, Dave, which will initialize a P2P port for him.
 	daveArgs := []string{fmt.Sprintf("--externalip=127.0.0.1:%d", ip2)}
@@ -190,7 +191,7 @@ func testReconnectAfterIPChange(ht *lntest.HarnessTest) {
 	// address.
 
 	// Change Dave's listening port and restart.
-	dave.Cfg.P2PPort = node.NextAvailablePort()
+	dave.Cfg.P2PPort = port.NextAvailablePort()
 	dave.Cfg.ExtraArgs = []string{
 		fmt.Sprintf(
 			"--externalip=127.0.0.1:%d", dave.Cfg.P2PPort,

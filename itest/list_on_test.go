@@ -575,6 +575,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testIntroductionNodeError,
 	},
 	{
+		Name:     "disable introduction node",
+		TestFunc: testDisableIntroductionNode,
+	},
+	{
 		Name:     "removetx",
 		TestFunc: testRemoveTx,
 	},

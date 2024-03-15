@@ -940,3 +940,23 @@ func testIntroductionNodeError(ht *lntest.HarnessTest) {
 	// Send the payment, but do not expect it to reach Carol at all.
 	sendAndResumeBlindedPayment(ctx, ht, testCase, route, false)
 }
+
+// testDisableIntroductionNode tests disabling of blinded forwards for the
+// introduction node.
+func testDisableIntroductionNode(ht *lntest.HarnessTest) {
+	// Disable route blinding for Bob, then re-connect to Alice.
+	ht.RestartNodeWithExtraArgs(ht.Bob, []string{
+		"--protocol.no-route-blinding",
+	})
+	ht.EnsureConnected(ht.Alice, ht.Bob)
+
+	ctx, testCase := newBlindedForwardTest(ht)
+	defer testCase.cleanup()
+	route := testCase.setup(ctx)
+	// We always expect failures to look like they originated at Bob
+	// because blinded errors are converted. However, our tests intercepts
+	// all of Carol's forwards and we're not providing it any interceptor
+	// instructions. This means that the test will hang/timeout at Carol
+	// if Bob _doesn't_ fail the HTLC back as expected.
+	sendAndResumeBlindedPayment(ctx, ht, testCase, route, false)
+}

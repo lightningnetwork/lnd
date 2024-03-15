@@ -120,11 +120,11 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 
 func testHistoricalConfDetailsTxIndex(t *testing.T, rpcPolling bool) {
 	miner := chainntnfs.NewMiner(
-		t, []string{"--txindex"}, true, 25,
+		t, chainntnfs.NetParams, []string{"--txindex"}, true, 25,
 	)
 
 	bitcoindConn := chainntnfs.NewBitcoindBackend(
-		t, miner.P2PAddress(), true, rpcPolling,
+		t, chainntnfs.NetParams, miner.P2PAddress(), true, rpcPolling,
 	)
 
 	hintCache := initHintCache(t)
@@ -217,10 +217,10 @@ func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 }
 
 func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcpolling bool) {
-	miner := chainntnfs.NewMiner(t, nil, true, 25)
+	miner := chainntnfs.NewMiner(t, chainntnfs.NetParams, nil, true, 25)
 
 	bitcoindConn := chainntnfs.NewBitcoindBackend(
-		t, miner.P2PAddress(), false, rpcpolling,
+		t, chainntnfs.NetParams, miner.P2PAddress(), false, rpcpolling,
 	)
 
 	hintCache := initHintCache(t)

@@ -74,7 +74,7 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 	t.Parallel()
 
 	harness := chainntnfs.NewMiner(
-		t, []string{"--txindex"}, true, 25,
+		t, chainntnfs.NetParams, []string{"--txindex"}, true, 25,
 	)
 
 	notifier := setUpNotifier(t, harness)
@@ -145,7 +145,7 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 	t.Parallel()
 
-	harness := chainntnfs.NewMiner(t, nil, true, 25)
+	harness := chainntnfs.NewMiner(t, chainntnfs.NetParams, nil, true, 25)
 
 	notifier := setUpNotifier(t, harness)
 

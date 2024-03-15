@@ -54,18 +54,29 @@ var (
 var noUpdate = func(a, b *channeldb.OpenChannel) {}
 
 type ctpReturnParams struct {
-	alicePeer  *Brontide
-	bobChannel *lnwallet.LightningChannel
+	alicePeer       *Brontide
+	bobChannel      *lnwallet.LightningChannel
+	notifier        *mock.ChainNotifier
+	broadcastTxChan chan *wire.MsgTx
+	mockSwitch      *mockMessageSwitch
 }
 
 // createTestPeerWithChannel creates a channel between two nodes, and returns a
 // peer for one of the nodes, together with the channel seen from both nodes.
 // It takes an updateChan function which can be used to modify the default
 // values on the channel states for each peer.
-func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
-	publTx chan *wire.MsgTx, updateChan func(a, b *channeldb.OpenChannel),
-	mockSwitch *mockMessageSwitch) (
-	*ctpReturnParams, error) {
+func createTestPeerWithChannel(t *testing.T, updateChan func(a,
+	b *channeldb.OpenChannel)) (*ctpReturnParams, error) {
+
+	notifier := &mock.ChainNotifier{
+		SpendChan: make(chan *chainntnfs.SpendDetail),
+		EpochChan: make(chan *chainntnfs.BlockEpoch),
+		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+	}
+
+	mockSwitch := &mockMessageSwitch{}
+
+	publTx := make(chan *wire.MsgTx)
 
 	nodeKeyLocator := keychain.KeyLocator{
 		Family: keychain.KeyFamilyNodeKey,
@@ -428,8 +439,11 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 	go alicePeer.channelManager()
 
 	return &ctpReturnParams{
-		alicePeer:  alicePeer,
-		bobChannel: channelBob,
+		alicePeer:       alicePeer,
+		bobChannel:      channelBob,
+		notifier:        notifier,
+		broadcastTxChan: publTx,
+		mockSwitch:      mockSwitch,
 	}, nil
 }
 

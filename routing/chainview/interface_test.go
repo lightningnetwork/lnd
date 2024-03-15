@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"net"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sync/atomic"
@@ -20,7 +19,6 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/walletdb"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
 	"github.com/lightninglabs/neutrino"
@@ -700,71 +698,11 @@ var interfaceImpls = []struct {
 			p2pAddr string, bestHeight int32) (FilteredChainView, error) {
 
 			// Start a bitcoind instance.
-			tempBitcoindDir := t.TempDir()
-			zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
-			zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
-
-			rpcPort := getFreePort()
-			bitcoind := exec.Command(
-				"bitcoind",
-				"-datadir="+tempBitcoindDir,
-				"-regtest",
-				"-connect="+p2pAddr,
-				"-txindex",
-				"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f"+
-					"d$507c670e800a95284294edb5773b05544b"+
-					"220110063096c221be9933c82d38e1",
-				fmt.Sprintf("-rpcport=%d", rpcPort),
-				"-disablewallet",
-				"-zmqpubrawblock="+zmqBlockHost,
-				"-zmqpubrawtx="+zmqTxHost,
+			chainConn := unittest.NewBitcoindBackend(
+				t, unittest.NetParams, p2pAddr, true, false,
 			)
-			err := bitcoind.Start()
-			if err != nil {
-				return nil, err
-			}
 
-			// Sanity check to ensure that the process did in fact
-			// start.
-			if bitcoind.Process == nil {
-				return nil, fmt.Errorf("bitcoind cmd " +
-					"Process is not set after Start")
-			}
-
-			t.Cleanup(func() {
-				_ = bitcoind.Process.Kill()
-				_ = bitcoind.Wait()
-			})
-
-			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
-			cfg := &chain.BitcoindConfig{
-				ChainParams: &chaincfg.RegressionNetParams,
-				Host:        host,
-				User:        "weks",
-				Pass:        "weks",
-				ZMQConfig: &chain.ZMQConfig{
-					ZMQBlockHost:    zmqBlockHost,
-					ZMQTxHost:       zmqTxHost,
-					ZMQReadDeadline: 5 * time.Second,
-				},
-				// Fields only required for pruned nodes, not
-				// needed for these tests.
-				Dialer:             nil,
-				PrunedModeMaxPeers: 0,
-			}
-
-			var chainConn *chain.BitcoindConn
-			err = wait.NoError(func() error {
-				chainConn, err = chain.NewBitcoindConn(cfg)
-				if err != nil {
-					return err
-				}
-
-				err = chainConn.Start()
-				if err != nil {
-					return err
-				}
-
+			err := wait.NoError(func() error {
 				client := chainConn.NewBitcoindClient()
 				_, currentHeight, err := client.GetBestBlock()
 				if err != nil {
@@ -782,9 +720,6 @@ var interfaceImpls = []struct {
 					"establish connection to bitcoind: %v",
 					err)
 			}
-			t.Cleanup(func() {
-				chainConn.Stop()
-			})
 
 			blockCache := blockcache.NewBlockCache(10000)
 
@@ -800,68 +735,12 @@ var interfaceImpls = []struct {
 		chainViewInit: func(t *testing.T, _ rpcclient.ConnConfig,
 			p2pAddr string, bestHeight int32) (FilteredChainView, error) {
 
-			// Start a bitcoind instance.
-			tempBitcoindDir := t.TempDir()
-
-			rpcPort := getFreePort()
-			bitcoind := exec.Command(
-				"bitcoind",
-				"-datadir="+tempBitcoindDir,
-				"-regtest",
-				"-connect="+p2pAddr,
-				"-txindex",
-				"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f"+
-					"d$507c670e800a95284294edb5773b05544b"+
-					"220110063096c221be9933c82d38e1",
-				fmt.Sprintf("-rpcport=%d", rpcPort),
-				"-disablewallet",
+			chainConn := unittest.NewBitcoindBackend(
+				t, unittest.NetParams, p2pAddr, true, true,
 			)
-			err := bitcoind.Start()
-			if err != nil {
-				return nil, err
-			}
-
-			// Sanity check to ensure that the process did in fact
-			// start.
-			if bitcoind.Process == nil {
-				return nil, fmt.Errorf("bitcoind cmd " +
-					"Process is not set after Start")
-			}
-
-			t.Cleanup(func() {
-				_ = bitcoind.Process.Kill()
-				_ = bitcoind.Wait()
-			})
-
-			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
-			cfg := &chain.BitcoindConfig{
-				ChainParams: &chaincfg.RegressionNetParams,
-				Host:        host,
-				User:        "weks",
-				Pass:        "weks",
-				PollingConfig: &chain.PollingConfig{
-					BlockPollingInterval: time.Millisecond * 100,
-					TxPollingInterval:    time.Millisecond * 100,
-				},
-				// Fields only required for pruned nodes, not
-				// needed for these tests.
-				Dialer:             nil,
-				PrunedModeMaxPeers: 0,
-			}
 
 			// Wait for the bitcoind instance to start up.
-			var chainConn *chain.BitcoindConn
-			err = wait.NoError(func() error {
-				chainConn, err = chain.NewBitcoindConn(cfg)
-				if err != nil {
-					return err
-				}
-
-				err = chainConn.Start()
-				if err != nil {
-					return err
-				}
-
+			err := wait.NoError(func() error {
 				client := chainConn.NewBitcoindClient()
 				_, currentHeight, err := client.GetBestBlock()
 				if err != nil {
@@ -879,9 +758,6 @@ var interfaceImpls = []struct {
 					"establish connection to bitcoind: %v",
 					err)
 			}
-			t.Cleanup(func() {
-				chainConn.Stop()
-			})
 
 			blockCache := blockcache.NewBlockCache(10000)
 

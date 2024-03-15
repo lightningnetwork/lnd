@@ -6,12 +6,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,7 +39,6 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lntest/unittest"
-	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -96,35 +93,6 @@ var (
 
 	defaultMaxLocalCsvDelay uint16 = 10000
 )
-
-var (
-	// lastPort is the last port determined to be free for use by a new
-	// bitcoind server. It should be used atomically.
-	lastPort uint32 = 1024
-)
-
-// getFreePort returns the first port that is available for listening by a new
-// embedded etcd server. It panics if no port is found and the maximum available
-// TCP port is reached.
-func getFreePort() int {
-	port := atomic.AddUint32(&lastPort, 1)
-	for port < 65535 {
-		// If there are no errors while attempting to listen on this
-		// port, close the socket and return it as available.
-		addr := fmt.Sprintf("127.0.0.1:%d", port)
-		l, err := net.Listen("tcp4", addr)
-		if err == nil {
-			err := l.Close()
-			if err == nil {
-				return int(port)
-			}
-		}
-		port = atomic.AddUint32(&lastPort, 1)
-	}
-
-	// No ports available? Must be a mistake.
-	panic("no ports available for listening")
-}
 
 // assertProperBalance asserts than the total value of the unspent outputs
 // within the wallet are *exactly* amount. If unable to retrieve the current
@@ -3182,15 +3150,19 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 		var aliceClient, bobClient chain.Interface
 		switch backEnd {
 		case "btcd":
-			aliceClient, err = chain.NewRPCClient(netParams,
-				rpcConfig.Host, rpcConfig.User, rpcConfig.Pass,
-				rpcConfig.Certificates, false, 20)
+			aliceClient, err = chain.NewRPCClient(
+				netParams, rpcConfig.Host, rpcConfig.User,
+				rpcConfig.Pass, rpcConfig.Certificates, false,
+				20,
+			)
 			if err != nil {
 				t.Fatalf("unable to make chain rpc: %v", err)
 			}
-			bobClient, err = chain.NewRPCClient(netParams,
-				rpcConfig.Host, rpcConfig.User, rpcConfig.Pass,
-				rpcConfig.Certificates, false, 20)
+			bobClient, err = chain.NewRPCClient(
+				netParams, rpcConfig.Host, rpcConfig.User,
+				rpcConfig.Pass, rpcConfig.Certificates, false,
+				20,
+			)
 			if err != nil {
 				t.Fatalf("unable to make chain rpc: %v", err)
 			}
@@ -3262,78 +3234,10 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 
 		case "bitcoind":
 			// Start a bitcoind instance.
-			tempBitcoindDir := t.TempDir()
-
-			rpcPort := getFreePort()
-			zmqBlockPort := getFreePort()
-			zmqTxPort := getFreePort()
-			zmqBlockHost := fmt.Sprintf("tcp://127.0.0.1:%d",
-				zmqBlockPort)
-			zmqTxHost := fmt.Sprintf("tcp://127.0.0.1:%d",
-				zmqTxPort)
-
-			bitcoind := exec.Command(
-				"bitcoind",
-				"-datadir="+tempBitcoindDir,
-				"-regtest",
-				"-connect="+miningNode.P2PAddress(),
-				"-txindex",
-				"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f"+
-					"d$507c670e800a95284294edb5773b05544b"+
-					"220110063096c221be9933c82d38e1",
-				fmt.Sprintf("-rpcport=%d", rpcPort),
-				"-disablewallet",
-				"-zmqpubrawblock="+zmqBlockHost,
-				"-zmqpubrawtx="+zmqTxHost,
+			chainConn := unittest.NewBitcoindBackend(
+				t, unittest.NetParams, miningNode.P2PAddress(),
+				true, false,
 			)
-			err = bitcoind.Start()
-			if err != nil {
-				t.Fatalf("couldn't start bitcoind: %v", err)
-			}
-
-			// Sanity check to ensure that the process did in fact
-			// start.
-			if bitcoind.Process == nil {
-				t.Fatalf("bitcoind cmd Process is not set " +
-					"after Start")
-			}
-
-			defer func() {
-				_ = bitcoind.Process.Kill()
-				_ = bitcoind.Wait()
-			}()
-
-			// Wait for the bitcoind instance to start up.
-
-			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
-			var chainConn *chain.BitcoindConn
-			err = wait.NoError(func() error {
-				chainConn, err = chain.NewBitcoindConn(&chain.BitcoindConfig{
-					ChainParams: netParams,
-					Host:        host,
-					User:        "weks",
-					Pass:        "weks",
-					ZMQConfig: &chain.ZMQConfig{
-						ZMQBlockHost:    zmqBlockHost,
-						ZMQTxHost:       zmqTxHost,
-						ZMQReadDeadline: 5 * time.Second,
-					},
-					// Fields only required for pruned nodes, not
-					// needed for these tests.
-					Dialer:             nil,
-					PrunedModeMaxPeers: 0,
-				})
-				if err != nil {
-					return err
-				}
-
-				return chainConn.Start()
-			}, 10*time.Second)
-			if err != nil {
-				t.Fatalf("unable to establish connection to "+
-					"bitcoind: %v", err)
-			}
-			defer chainConn.Stop()
 
 			// Create a btcwallet bitcoind client for both Alice and
 			// Bob.
@@ -3342,65 +3246,10 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 
 		case "bitcoind-rpc-polling":
 			// Start a bitcoind instance.
-			tempBitcoindDir := t.TempDir()
-			rpcPort := getFreePort()
-			bitcoind := exec.Command(
-				"bitcoind",
-				"-datadir="+tempBitcoindDir,
-				"-regtest",
-				"-connect="+miningNode.P2PAddress(),
-				"-txindex",
-				"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f"+
-					"d$507c670e800a95284294edb5773b05544b"+
-					"220110063096c221be9933c82d38e1",
-				fmt.Sprintf("-rpcport=%d", rpcPort),
-				"-disablewallet",
+			chainConn := unittest.NewBitcoindBackend(
+				t, unittest.NetParams, miningNode.P2PAddress(),
+				true, true,
 			)
-			err = bitcoind.Start()
-			if err != nil {
-				t.Fatalf("couldn't start bitcoind: %v", err)
-			}
-			defer func() {
-				_ = bitcoind.Process.Kill()
-				_ = bitcoind.Wait()
-			}()
-
-			// Sanity check to ensure that the process did in fact
-			// start.
-			if bitcoind.Process == nil {
-				t.Fatalf("bitcoind cmd Process is not set " +
-					"after Start")
-			}
-
-			// Wait for the bitcoind instance to start up.
-			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
-			var chainConn *chain.BitcoindConn
-			err = wait.NoError(func() error {
-				chainConn, err = chain.NewBitcoindConn(&chain.BitcoindConfig{
-					ChainParams: netParams,
-					Host:        host,
-					User:        "weks",
-					Pass:        "weks",
-					PollingConfig: &chain.PollingConfig{
-						BlockPollingInterval: time.Millisecond * 20,
-						TxPollingInterval:    time.Millisecond * 20,
-					},
-					// Fields only required for pruned nodes, not
-					// needed for these tests.
-					Dialer:             nil,
-					PrunedModeMaxPeers: 0,
-				})
-				if err != nil {
-					return err
-				}
-
-				return chainConn.Start()
-			}, 10*time.Second)
-			if err != nil {
-				t.Fatalf("unable to establish connection to "+
-					"bitcoind: %v", err)
-			}
-			defer chainConn.Stop()
 
 			// Create a btcwallet bitcoind client for both Alice and
 			// Bob.

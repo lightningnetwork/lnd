@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/blockcache"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
@@ -294,8 +295,7 @@ func TestScriptImport(t *testing.T) {
 func newTestWallet(t *testing.T, netParams *chaincfg.Params,
 	seedBytes []byte) (*BtcWallet, *rpctest.Harness) {
 
-	chainBackend, miner, backendCleanup := getChainBackend(t, netParams)
-	t.Cleanup(backendCleanup)
+	chainBackend, miner := getChainBackend(t, netParams)
 
 	loaderOpt := LoaderWithLocalWalletDB(t.TempDir(), false, time.Minute)
 	config := Config{
@@ -324,16 +324,16 @@ func newTestWallet(t *testing.T, netParams *chaincfg.Params,
 
 // getChainBackend returns a simple btcd based chain backend to back the wallet.
 func getChainBackend(t *testing.T, netParams *chaincfg.Params) (chain.Interface,
-	*rpctest.Harness, func()) {
+	*rpctest.Harness) {
 
-	miningNode, err := rpctest.New(netParams, nil, nil, "")
-	require.NoError(t, err)
-	require.NoError(t, miningNode.SetUp(true, 25))
+	miningNode := chainntnfs.NewMiner(
+		t, netParams, []string{"--txindex"}, true, 25,
+	)
 
 	// Next, mine enough blocks in order for SegWit and the CSV package
 	// soft-fork to activate on RegNet.
 	numBlocks := netParams.MinerConfirmationWindow * 2
-	_, err = miningNode.Client.Generate(numBlocks)
+	_, err := miningNode.Client.Generate(numBlocks)
 	require.NoError(t, err)
 
 	rpcConfig := miningNode.RPCConfig()
@@ -343,9 +343,7 @@ func getChainBackend(t *testing.T, netParams *chaincfg.Params) (chain.Interface,
 	)
 	require.NoError(t, err)
 
-	return chainClient, miningNode, func() {
-		_ = miningNode.TearDown()
-	}
+	return chainClient, miningNode
 }
 
 // hardenedKey returns a key of a hardened derivation key path.

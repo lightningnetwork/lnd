@@ -2120,11 +2120,9 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 
 	// Now we cause a reorganization as follows.
 	// Step 1: create a new miner and start it.
-	r2, err := rpctest.New(r.ActiveNet, nil, []string{"--txindex"}, "")
-	require.NoError(t, err, "unable to create mining node")
-	err = r2.SetUp(false, 0)
-	require.NoError(t, err, "unable to set up mining node")
-	defer r2.TearDown()
+	r2 := chainntnfs.NewMiner(
+		t, r.ActiveNet, []string{"--txindex"}, false, 0,
+	)
 	newBalance, err := w.ConfirmedBalance(1, lnwallet.DefaultAccountName)
 	require.NoError(t, err, "unable to query for balance")
 	if origBalance != newBalance {
@@ -3103,14 +3101,9 @@ func TestLightningWallet(t *testing.T, targetBackEnd string) {
 	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set
 	// up this node with a chain length of 125, so we have plenty of BTC
 	// to play around with.
-	miningNode, err := rpctest.New(
-		netParams, nil, []string{"--txindex"}, "",
+	miningNode := chainntnfs.NewMiner(
+		t, netParams, []string{"--txindex"}, true, 25,
 	)
-	require.NoError(t, err, "unable to create mining node")
-	defer miningNode.TearDown()
-	if err := miningNode.SetUp(true, 25); err != nil {
-		t.Fatalf("unable to set up mining node: %v", err)
-	}
 
 	// Next mine enough blocks in order for segwit and the CSV package
 	// soft-fork to activate on RegNet.

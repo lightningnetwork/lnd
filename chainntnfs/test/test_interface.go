@@ -1043,14 +1043,9 @@ func testReorgConf(miner *rpctest.Harness,
 	notifier chainntnfs.TestChainNotifier, scriptDispatch bool, t *testing.T) {
 
 	// Set up a new miner that we can use to cause a reorg.
-	miner2, err := rpctest.New(
-		chainntnfs.NetParams, nil, []string{"--txindex"}, "",
+	miner2 := chainntnfs.NewMiner(
+		t, chainntnfs.NetParams, []string{"--txindex"}, false, 0,
 	)
-	require.NoError(t, err, "unable to create mining node")
-	if err := miner2.SetUp(false, 0); err != nil {
-		t.Fatalf("unable to set up mining node: %v", err)
-	}
-	defer miner2.TearDown()
 
 	// We start by connecting the new miner to our original miner,
 	// such that it will sync to our original chain.
@@ -1204,14 +1199,9 @@ func testReorgSpend(miner *rpctest.Harness,
 	require.NoError(t, err, "unable to register for spend")
 
 	// Set up a new miner that we can use to cause a reorg.
-	miner2, err := rpctest.New(
-		chainntnfs.NetParams, nil, []string{"--txindex"}, "",
+	miner2 := chainntnfs.NewMiner(
+		t, chainntnfs.NetParams, []string{"--txindex"}, false, 0,
 	)
-	require.NoError(t, err, "unable to create mining node")
-	if err := miner2.SetUp(false, 0); err != nil {
-		t.Fatalf("unable to set up mining node: %v", err)
-	}
-	defer miner2.TearDown()
 
 	// We start by connecting the new miner to our original miner, in order
 	// to have a consistent view of the chain from both miners. They should
@@ -1527,14 +1517,9 @@ func testCatchUpOnMissedBlocksWithReorg(miner1 *rpctest.Harness,
 	var wg sync.WaitGroup
 
 	// Set up a new miner that we can use to cause a reorg.
-	miner2, err := rpctest.New(
-		chainntnfs.NetParams, nil, []string{"--txindex"}, "",
+	miner2 := chainntnfs.NewMiner(
+		t, chainntnfs.NetParams, []string{"--txindex"}, false, 0,
 	)
-	require.NoError(t, err, "unable to create mining node")
-	if err := miner2.SetUp(false, 0); err != nil {
-		t.Fatalf("unable to set up mining node: %v", err)
-	}
-	defer miner2.TearDown()
 
 	// We start by connecting the new miner to our original miner,
 	// such that it will sync to our original chain.

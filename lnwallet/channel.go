@@ -7105,6 +7105,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		//nolint:lll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
+			fn.None[txscript.TapLeaf](),
 		)
 		if err != nil {
 			return nil, err
@@ -7349,6 +7350,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 		//nolint:lll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
+			fn.None[txscript.TapLeaf](),
 		)
 		if err != nil {
 			return nil, err

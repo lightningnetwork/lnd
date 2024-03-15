@@ -181,6 +181,14 @@ func NewMiner(t *testing.T, netParams *chaincfg.Params, extraArgs []string,
 		require.NoError(t, node.TearDown())
 	})
 
+	// We want to overwrite some of the connection settings to make the
+	// tests more robust. We might need to restart the backend while there
+	// are already blocks present, which will take a bit longer than the
+	// 1 second the default settings amount to. Doubling both values will
+	// give us retries up to 4 seconds.
+	node.MaxConnRetries = rpctest.DefaultMaxConnectionRetries * 2
+	node.ConnectionRetryTimeout = rpctest.DefaultConnectionRetryTimeout * 2
+
 	if err := node.SetUp(createChain, spendableOutputs); err != nil {
 		t.Fatalf("unable to set up backend node: %v", err)
 	}

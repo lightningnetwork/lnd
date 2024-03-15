@@ -6,8 +6,6 @@ package chainntnfs
 import (
 	"errors"
 	"fmt"
-	"math/rand"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -25,6 +23,7 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -207,15 +206,13 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 
 	t.Helper()
 
-	// We use ioutil.TempDir here instead of t.TempDir because some versions
-	// of bitcoind complain about the zmq connection string formats when the
-	// t.TempDir directory string is used.
-	tempBitcoindDir, err := os.MkdirTemp("", "bitcoind")
-	require.NoError(t, err, "unable to create temp dir")
+	tempBitcoindDir := t.TempDir()
 
-	rpcPort := rand.Intn(65536-1024) + 1024
-	zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
-	zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
+	rpcPort := port.NextAvailablePort()
+	zmqBlockPort := port.NextAvailablePort()
+	zmqTxPort := port.NextAvailablePort()
+	zmqBlockHost := fmt.Sprintf("tcp://127.0.0.1:%d", zmqBlockPort)
+	zmqTxHost := fmt.Sprintf("tcp://127.0.0.1:%d", zmqTxPort)
 
 	args := []string{
 		"-connect=" + minerAddr,
@@ -268,7 +265,7 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 	}
 
 	var conn *chain.BitcoindConn
-	err = wait.NoError(func() error {
+	err := wait.NoError(func() error {
 		var err error
 		conn, err = chain.NewBitcoindConn(cfg)
 		if err != nil {
@@ -278,7 +275,8 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 		return conn.Start()
 	}, 10*time.Second)
 	if err != nil {
-		t.Fatalf("unable to establish connection to bitcoind: %v", err)
+		t.Fatalf("unable to establish connection to bitcoind at %v: "+
+			"%v", tempBitcoindDir, err)
 	}
 	t.Cleanup(conn.Stop)
 

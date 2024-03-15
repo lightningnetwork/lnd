@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -595,7 +596,7 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 func setUpNewTower(ht *lntest.HarnessTest, name, externalIP string) ([]byte,
 	string, *rpc.HarnessRPC) {
 
-	port := node.NextAvailablePort()
+	port := port.NextAvailablePort()
 
 	listenAddr := fmt.Sprintf("0.0.0.0:%d", port)
 

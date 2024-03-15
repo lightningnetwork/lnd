@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lntest/unittest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -61,7 +62,7 @@ func setUpNotifier(t *testing.T, bitcoindConn *chain.BitcoindConn,
 	t.Helper()
 
 	notifier := New(
-		bitcoindConn, chainntnfs.NetParams, spendHintCache,
+		bitcoindConn, unittest.NetParams, spendHintCache,
 		confirmHintCache, blockCache,
 	)
 	if err := notifier.Start(); err != nil {
@@ -119,12 +120,12 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 }
 
 func testHistoricalConfDetailsTxIndex(t *testing.T, rpcPolling bool) {
-	miner := chainntnfs.NewMiner(
-		t, chainntnfs.NetParams, []string{"--txindex"}, true, 25,
+	miner := unittest.NewMiner(
+		t, unittest.NetParams, []string{"--txindex"}, true, 25,
 	)
 
-	bitcoindConn := chainntnfs.NewBitcoindBackend(
-		t, chainntnfs.NetParams, miner.P2PAddress(), true, rpcPolling,
+	bitcoindConn := unittest.NewBitcoindBackend(
+		t, unittest.NetParams, miner.P2PAddress(), true, rpcPolling,
 	)
 
 	hintCache := initHintCache(t)
@@ -217,10 +218,10 @@ func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 }
 
 func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcpolling bool) {
-	miner := chainntnfs.NewMiner(t, chainntnfs.NetParams, nil, true, 25)
+	miner := unittest.NewMiner(t, unittest.NetParams, nil, true, 25)
 
-	bitcoindConn := chainntnfs.NewBitcoindBackend(
-		t, chainntnfs.NetParams, miner.P2PAddress(), false, rpcpolling,
+	bitcoindConn := unittest.NewBitcoindBackend(
+		t, unittest.NetParams, miner.P2PAddress(), false, rpcpolling,
 	)
 
 	hintCache := initHintCache(t)

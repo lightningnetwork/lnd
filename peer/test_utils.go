@@ -4,6 +4,7 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"encoding/binary"
+	"errors"
 	"io"
 	"math/rand"
 	"net"
@@ -725,4 +726,80 @@ func createTestPeer(t *testing.T) *testPeerParams {
 		customChan:    receivedCustomChan,
 		chanStatusMgr: chanStatusMgr,
 	}
+}
+
+func startPeer(t *testing.T, mockConn *mockMessageConn,
+	peer *Brontide, extraChecks ...func() error) {
+
+	errChan := make(chan error)
+	go func() {
+		select {
+		case rawMsg := <-mockConn.writtenMessages:
+			msgReader := bytes.NewReader(rawMsg)
+
+			nextMsg, err := lnwire.ReadMessage(msgReader, 0)
+			if err != nil {
+				errChan <- err
+
+				return
+			}
+
+			_, ok := nextMsg.(*lnwire.Init)
+			if !ok {
+				errChan <- errors.New("expected lnwire.Init " +
+					"type, got something else")
+
+				return
+			}
+
+		case <-time.After(timeout):
+			errChan <- errors.New("did not receive init message " +
+				"as expected")
+
+			return
+		}
+
+		// Write the init reply message.
+		initReplyMsg := lnwire.NewInitMessage(
+			lnwire.NewRawFeatureVector(
+				lnwire.DataLossProtectRequired,
+				lnwire.GossipQueriesOptional,
+			),
+			lnwire.NewRawFeatureVector(),
+		)
+
+		var b bytes.Buffer
+		_, err := lnwire.WriteMessage(&b, initReplyMsg, 0)
+		if err != nil {
+			errChan <- err
+
+			return
+		}
+
+		select {
+		case mockConn.readMessages <- b.Bytes():
+		case <-time.After(timeout):
+			errChan <- errors.New("could not reply init message " +
+				"as expected")
+
+			return
+		}
+
+		for _, f := range extraChecks {
+			err = f()
+
+			if err != nil {
+				errChan <- err
+
+				return
+			}
+		}
+
+		errChan <- nil
+	}()
+
+	require.NoError(t, peer.Start())
+
+	err := <-errChan
+	require.NoError(t, err)
 }

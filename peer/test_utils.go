@@ -4,6 +4,7 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"encoding/binary"
+	"errors"
 	"io"
 	"math/rand"
 	"net"
@@ -754,4 +755,50 @@ func createTestPeer(t *testing.T) *testReturnParams {
 		customChan:    receivedCustomChan,
 		chanStatusMgr: chanStatusMgr,
 	}
+}
+
+func setUpInitSequence(mockConn *mockMessageConn) error {
+	select {
+	case rawMsg := <-mockConn.writtenMessages:
+		msgReader := bytes.NewReader(rawMsg)
+
+		nextMsg, err := lnwire.ReadMessage(msgReader, 0)
+		if err != nil {
+			return err
+		}
+
+		_, ok := nextMsg.(*lnwire.Init)
+		if !ok {
+			return errors.New("expected lnwire.Init type, " +
+				"got something else")
+		}
+
+	case <-time.After(timeout):
+		return errors.New("did not receive init message " +
+			"as expected")
+	}
+
+	// Write the init reply message.
+	initReplyMsg := lnwire.NewInitMessage(
+		lnwire.NewRawFeatureVector(
+			lnwire.DataLossProtectRequired,
+			lnwire.GossipQueriesOptional,
+		),
+		lnwire.NewRawFeatureVector(),
+	)
+
+	var b bytes.Buffer
+	_, err := lnwire.WriteMessage(&b, initReplyMsg, 0)
+	if err != nil {
+		return err
+	}
+
+	select {
+	case mockConn.readMessages <- b.Bytes():
+	case <-time.After(timeout):
+		return errors.New("could not reply init message as " +
+			"expected")
+	}
+
+	return nil
 }

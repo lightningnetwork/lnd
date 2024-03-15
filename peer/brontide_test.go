@@ -1018,27 +1018,17 @@ func TestPeerCustomMessage(t *testing.T) {
 	remoteKey := alicePeer.PubKey()
 
 	// Set up the init sequence.
+	errChan := make(chan error)
 	go func() {
-		// Read init message.
-		<-mockConn.writtenMessages
-
-		// Write the init reply message.
-		initReplyMsg := lnwire.NewInitMessage(
-			lnwire.NewRawFeatureVector(
-				lnwire.DataLossProtectRequired,
-				lnwire.GossipQueriesOptional,
-			),
-			lnwire.NewRawFeatureVector(),
-		)
-		var b bytes.Buffer
-		_, err := lnwire.WriteMessage(&b, initReplyMsg, 0)
-		require.NoError(t, err)
-
-		mockConn.readMessages <- b.Bytes()
+		err := setUpInitSequence(mockConn)
+		errChan <- err
 	}()
 
 	// Start the peer.
 	require.NoError(t, alicePeer.Start())
+
+	err := <-errChan
+	require.NoError(t, err)
 
 	// Send a custom message.
 	customMsg, err := lnwire.NewCustom(
@@ -1330,27 +1320,19 @@ func TestStartupWriteMessageRace(t *testing.T) {
 		close(sendPingDone)
 	}()
 
-	// Handle init messages.
+	// Set up the init sequence.
+	errChan := make(chan error)
 	go func() {
-		// Read init message.
-		<-mockConn.writtenMessages
+		err = setUpInitSequence(mockConn)
 
-		// Write the init reply message.
-		initReplyMsg := lnwire.NewInitMessage(
-			lnwire.NewRawFeatureVector(
-				lnwire.DataLossProtectRequired,
-			),
-			lnwire.NewRawFeatureVector(),
-		)
-		var b bytes.Buffer
-		_, err = lnwire.WriteMessage(&b, initReplyMsg, 0)
-		require.NoError(t, err)
-
-		mockConn.readMessages <- b.Bytes()
+		errChan <- err
 	}()
 
-	// Start the peer. No data race should occur.
+	// Start the peer.
 	require.NoError(t, peer.Start())
+
+	err = <-errChan
+	require.NoError(t, err)
 
 	// Ensure messages were sent during startup.
 	<-sendPingDone

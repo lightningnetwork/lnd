@@ -25,6 +25,7 @@ import (
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/blockcache"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -481,22 +482,9 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 
 	// Create a node that has a shorter chain than the main chain, so we
 	// can trigger a reorg.
-	reorgNode, err := rpctest.New(netParams, nil, []string{"--txindex"}, "")
-	require.NoError(t, err, "unable to create mining node")
-	defer reorgNode.TearDown()
-
-	// We want to overwrite some of the connection settings to make the
-	// tests more robust. We might need to restart the backend while there
-	// are already blocks present, which will take a bit longer than the
-	// 1 second the default settings amount to. Doubling both values will
-	// give us retries up to 4 seconds.
-	reorgNode.MaxConnRetries = rpctest.DefaultMaxConnectionRetries * 2
-	reorgNode.ConnectionRetryTimeout = rpctest.DefaultConnectionRetryTimeout * 2
-
-	// This node's chain will be 105 blocks.
-	if err := reorgNode.SetUp(true, 5); err != nil {
-		t.Fatalf("unable to set up mining node: %v", err)
-	}
+	reorgNode := chainntnfs.NewMiner(
+		t, netParams, []string{"--txindex"}, true, 5,
+	)
 
 	_, bestHeight, err := reorgNode.Client.GetBestBlock()
 	require.NoError(t, err, "error getting best block")
@@ -996,12 +984,9 @@ func TestFilteredChainView(t *testing.T) {
 	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set up
 	// this node with a chain length of 125, so we have plenty of BTC to
 	// play around with.
-	miner, err := rpctest.New(netParams, nil, []string{"--txindex"}, "")
-	require.NoError(t, err, "unable to create mining node")
-	defer miner.TearDown()
-	if err := miner.SetUp(true, 25); err != nil {
-		t.Fatalf("unable to set up mining node: %v", err)
-	}
+	miner := chainntnfs.NewMiner(
+		t, netParams, []string{"--txindex"}, true, 25,
+	)
 
 	rpcConfig := miner.RPCConfig()
 	p2pAddr := miner.P2PAddress()

@@ -54,18 +54,31 @@ var (
 var noUpdate = func(a, b *channeldb.OpenChannel) {}
 
 type peerTestCtx struct {
-	peer    *Brontide
-	channel *lnwallet.LightningChannel
+	peer       *Brontide
+	channel    *lnwallet.LightningChannel
+	notifier   *mock.ChainNotifier
+	publishTx  <-chan *wire.MsgTx
+	mockSwitch *mockMessageSwitch
 }
 
 // createTestPeerWithChannel creates a channel between two nodes, and returns a
 // peer for one of the nodes, together with the channel seen from both nodes.
 // It takes an updateChan function which can be used to modify the default
 // values on the channel states for each peer.
-func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
-	publTx chan *wire.MsgTx, updateChan func(a, b *channeldb.OpenChannel),
-	mockSwitch *mockMessageSwitch) (
-	*peerTestCtx, error) {
+func createTestPeerWithChannel(t *testing.T, updateChan func(a,
+	b *channeldb.OpenChannel)) (*peerTestCtx, error) {
+
+	// TODO(yy): create interface for lnwallet.LightningChannel so we can
+	// easily mock it without the following setups.
+	notifier := &mock.ChainNotifier{
+		SpendChan: make(chan *chainntnfs.SpendDetail),
+		EpochChan: make(chan *chainntnfs.BlockEpoch),
+		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+	}
+
+	var mockSwitch *mockMessageSwitch
+
+	publishTx := make(chan *wire.MsgTx)
 
 	nodeKeyLocator := keychain.KeyLocator{
 		Family: keychain.KeyFamilyNodeKey,
@@ -320,7 +333,7 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 	wallet := &lnwallet.LightningWallet{
 		WalletController: &mock.WalletController{
 			RootKey:               aliceKeyPriv,
-			PublishedTransactions: publTx,
+			PublishedTransactions: publishTx,
 		},
 	}
 
@@ -425,8 +438,11 @@ func createTestPeerWithChannel(t *testing.T, notifier chainntnfs.ChainNotifier,
 	go alicePeer.channelManager()
 
 	return &peerTestCtx{
-		peer:    alicePeer,
-		channel: channelBob,
+		peer:       alicePeer,
+		channel:    channelBob,
+		notifier:   notifier,
+		publishTx:  publishTx,
+		mockSwitch: mockSwitch,
 	}, nil
 }
 

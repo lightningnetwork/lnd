@@ -2,6 +2,7 @@ package kvdb
 
 import (
 	"fmt"
+	"testing"
 	"time"
 )
 
@@ -43,6 +44,7 @@ func GetBoltBackend(cfg *BoltBackendConfig) (Backend, error) {
 	return nil, fmt.Errorf("bolt backend not supported in WebAssembly")
 }
 
-func GetTestBackend(path, name string) (Backend, func(), error) {
-	return nil, nil, fmt.Errorf("bolt backend not supported in WebAssembly")
+func GetTestBackend(t testing.TB, path, name string) Backend {
+	t.Fatalf("bolt backend not supported in WebAssembly")
+	return nil
 }

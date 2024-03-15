@@ -12,9 +12,11 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"testing"
 	"time"
 
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Import to register backend.
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -244,9 +246,7 @@ func updateLastCompactionDate(dbFile string) error {
 // on the TestBackend constant which is conditionally compiled with build tag.
 // The passed path is used to hold all db files, while the name is only used
 // for bbolt.
-func GetTestBackend(path, name string) (Backend, func(), error) {
-	empty := func() {}
-
+func GetTestBackend(t testing.TB, path, name string) Backend {
 	// Note that for tests, we expect only one db backend build flag
 	// (or none) to be set at a time and thus one of the following switch
 	// cases should ever be true
@@ -255,25 +255,26 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 		key := filepath.Join(path, name)
 		keyHash := sha256.Sum256([]byte(key))
 
-		f, err := NewPostgresFixture("test_" + hex.EncodeToString(
+		f, err := NewPostgresFixture(t, "test_"+hex.EncodeToString(
 			keyHash[:]),
 		)
-		if err != nil {
-			return nil, func() {}, err
-		}
-		return f.DB(), func() {
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
 			_ = f.DB().Close()
-		}, nil
+		})
+
+		return f.DB()
 
 	case EtcdBackend:
 		etcdConfig, cancel, err := StartEtcdTestBackend(path, 0, 0, "")
-		if err != nil {
-			return nil, empty, err
-		}
+		require.NoError(t, err, "unable to start etcd test backend")
 		backend, err := Open(
 			EtcdBackendName, context.TODO(), etcdConfig,
 		)
-		return backend, cancel, err
+		t.Cleanup(cancel)
+
+		return backend
 
 	case SqliteBackend:
 		dbPath := filepath.Join(path, name)
@@ -281,13 +282,13 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 		sqliteDb, err := StartSqliteTestBackend(
 			path, name, "test_"+hex.EncodeToString(keyHash[:]),
 		)
-		if err != nil {
-			return nil, empty, err
-		}
+		require.NoError(t, err, "unable to start sqlite test backend")
 
-		return sqliteDb, func() {
+		t.Cleanup(func() {
 			_ = sqliteDb.Close()
-		}, nil
+		})
+
+		return sqliteDb
 
 	default:
 		db, err := GetBoltBackend(&BoltBackendConfig{
@@ -296,11 +297,10 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 			NoFreelistSync: true,
 			DBTimeout:      DefaultDBTimeout,
 		})
-		if err != nil {
-			return nil, nil, err
-		}
-		return db, empty, nil
+		require.NoError(t, err, "unable to start bbolt test backend")
+		return db
 	}
 
-	return nil, nil, fmt.Errorf("unknown backend")
+	require.Fail(t, "unknown backend")
+	return nil
 }

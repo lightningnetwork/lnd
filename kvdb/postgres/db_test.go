@@ -18,7 +18,7 @@ func TestInterface(t *testing.T) {
 	require.NoError(t, err)
 	defer stop()
 
-	f, err := NewFixture("")
+	f, err := NewFixture(t, "")
 	require.NoError(t, err)
 
 	// dbType is the database type name for this driver.
@@ -38,7 +38,7 @@ func TestPanic(t *testing.T) {
 	require.NoError(t, err)
 	defer stop()
 
-	f, err := NewFixture("")
+	f, err := NewFixture(t, "")
 	require.NoError(t, err)
 
 	err = f.Db.Update(func(tx walletdb.ReadWriteTx) error {

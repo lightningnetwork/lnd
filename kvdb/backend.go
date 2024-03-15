@@ -255,11 +255,9 @@ func GetTestBackend(t testing.TB, path, name string) Backend {
 		key := filepath.Join(path, name)
 		keyHash := sha256.Sum256([]byte(key))
 
-		f, err := NewPostgresFixture(t, "test_"+hex.EncodeToString(
+		f := NewPostgresFixture(t, "test_"+hex.EncodeToString(
 			keyHash[:]),
 		)
-		require.NoError(t, err)
-
 		t.Cleanup(func() {
 			_ = f.DB().Close()
 		})

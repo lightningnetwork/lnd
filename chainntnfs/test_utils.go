@@ -6,8 +6,8 @@ package chainntnfs
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -166,8 +166,8 @@ func CreateSpendTx(t *testing.T, prevOutPoint *wire.OutPoint,
 
 // NewMiner spawns testing harness backed by a btcd node that can serve as a
 // miner.
-func NewMiner(t *testing.T, extraArgs []string, createChain bool,
-	spendableOutputs uint32) *rpctest.Harness {
+func NewMiner(t *testing.T, netParams *chaincfg.Params, extraArgs []string,
+	createChain bool, spendableOutputs uint32) *rpctest.Harness {
 
 	t.Helper()
 
@@ -175,7 +175,7 @@ func NewMiner(t *testing.T, extraArgs []string, createChain bool,
 	trickle := fmt.Sprintf("--trickleinterval=%v", TrickleInterval)
 	extraArgs = append(extraArgs, trickle)
 
-	node, err := rpctest.New(NetParams, nil, extraArgs, "")
+	node, err := rpctest.New(netParams, nil, extraArgs, "")
 	require.NoError(t, err, "unable to create backend node")
 	t.Cleanup(func() {
 		require.NoError(t, node.TearDown())
@@ -194,15 +194,15 @@ func NewMiner(t *testing.T, extraArgs []string, createChain bool,
 // can be set to determine whether bitcoind's RPC polling interface should be
 // used for block and tx notifications or if its ZMQ interface should be used.
 // A connection to the newly spawned bitcoind node is returned.
-func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
-	rpcpolling bool) *chain.BitcoindConn {
+func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
+	minerAddr string, txindex, rpcpolling bool) *chain.BitcoindConn {
 
 	t.Helper()
 
 	// We use ioutil.TempDir here instead of t.TempDir because some versions
 	// of bitcoind complain about the zmq connection string formats when the
 	// t.TempDir directory string is used.
-	tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
+	tempBitcoindDir, err := os.MkdirTemp("", "bitcoind")
 	require.NoError(t, err, "unable to create temp dir")
 
 	rpcPort := rand.Intn(65536-1024) + 1024
@@ -236,7 +236,7 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 	// Wait for the bitcoind instance to start up.
 	host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
 	cfg := &chain.BitcoindConfig{
-		ChainParams: NetParams,
+		ChainParams: netParams,
 		Host:        host,
 		User:        "weks",
 		Pass:        "weks",
@@ -279,7 +279,9 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 
 // NewNeutrinoBackend spawns a new neutrino node that connects to a miner at
 // the specified address.
-func NewNeutrinoBackend(t *testing.T, minerAddr string) *neutrino.ChainService {
+func NewNeutrinoBackend(t *testing.T, netParams *chaincfg.Params,
+	minerAddr string) *neutrino.ChainService {
+
 	t.Helper()
 
 	spvDir := t.TempDir()
@@ -300,7 +302,7 @@ func NewNeutrinoBackend(t *testing.T, minerAddr string) *neutrino.ChainService {
 	spvConfig := neutrino.Config{
 		DataDir:      spvDir,
 		Database:     spvDatabase,
-		ChainParams:  *NetParams,
+		ChainParams:  *netParams,
 		ConnectPeers: []string{minerAddr},
 	}
 	spvNode, err := neutrino.NewChainService(spvConfig)

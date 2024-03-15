@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -723,4 +724,53 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 		customChan:    receivedCustomChan,
 		chanStatusMgr: chanStatusMgr,
 	}
+}
+
+// startPeer invokes the `Start` method on the specified peer and handles any
+// initial startup messages for testing.
+func startPeer(t *testing.T, mockConn *mockMessageConn,
+	peer *Brontide) <-chan struct{} {
+
+	// Start the peer in a goroutine so that we can handle and test for
+	// startup messages. Successfully sending and receiving init message,
+	// indicates a successful startup.
+	done := make(chan struct{})
+	go func() {
+		require.NoError(t, peer.Start())
+		close(done)
+	}()
+
+	// Receive the init message that should be the first message received on
+	// startup.
+	rawMsg, err := fn.RecvOrTimeout[[]byte](
+		mockConn.writtenMessages, timeout,
+	)
+	require.NoError(t, err)
+
+	msgReader := bytes.NewReader(rawMsg)
+	nextMsg, err := lnwire.ReadMessage(msgReader, 0)
+	require.NoError(t, err)
+
+	_, ok := nextMsg.(*lnwire.Init)
+	require.True(t, ok)
+
+	// Write the reply for the init message to complete the startup.
+	initReplyMsg := lnwire.NewInitMessage(
+		lnwire.NewRawFeatureVector(
+			lnwire.DataLossProtectRequired,
+			lnwire.GossipQueriesOptional,
+		),
+		lnwire.NewRawFeatureVector(),
+	)
+
+	var b bytes.Buffer
+	_, err = lnwire.WriteMessage(&b, initReplyMsg, 0)
+	require.NoError(t, err)
+
+	ok = fn.SendOrQuit[[]byte, struct{}](
+		mockConn.readMessages, b.Bytes(), make(chan struct{}),
+	)
+	require.True(t, ok)
+
+	return done
 }

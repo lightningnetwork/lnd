@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -1024,31 +1025,13 @@ func TestPeerCustomMessage(t *testing.T) {
 		mockConn           = params.mockConn
 		alicePeer          = params.peer
 		receivedCustomChan = params.customChan
+		remoteKey          = alicePeer.PubKey()
 	)
 
-	remoteKey := alicePeer.PubKey()
-
-	// Set up the init sequence.
-	go func() {
-		// Read init message.
-		<-mockConn.writtenMessages
-
-		// Write the init reply message.
-		initReplyMsg := lnwire.NewInitMessage(
-			lnwire.NewRawFeatureVector(
-				lnwire.DataLossProtectRequired,
-			),
-			lnwire.NewRawFeatureVector(),
-		)
-		var b bytes.Buffer
-		_, err := lnwire.WriteMessage(&b, initReplyMsg, 0)
-		require.NoError(t, err)
-
-		mockConn.readMessages <- b.Bytes()
-	}()
-
-	// Start the peer.
-	require.NoError(t, alicePeer.Start())
+	// Start peer.
+	startPeerDone := startPeer(t, mockConn, alicePeer)
+	_, err := fn.RecvOrTimeout(startPeerDone, 2*timeout)
+	require.NoError(t, err)
 
 	// Send a custom message.
 	customMsg, err := lnwire.NewCustom(
@@ -1330,33 +1313,18 @@ func TestStartupWriteMessageRace(t *testing.T) {
 	// Send a message while starting the peer. As the peer starts up, it
 	// should not trigger a data race between the sending of this message
 	// and the sending of the channel reestablish message.
-	sendPingDone := make(chan struct{})
+	var sendPingDone = make(chan struct{})
 	go func() {
 		require.NoError(t, peer.SendMessage(true, lnwire.NewPing(0)))
 		close(sendPingDone)
 	}()
 
-	// Handle init messages.
-	go func() {
-		// Read init message.
-		<-mockConn.writtenMessages
-
-		// Write the init reply message.
-		initReplyMsg := lnwire.NewInitMessage(
-			lnwire.NewRawFeatureVector(
-				lnwire.DataLossProtectRequired,
-			),
-			lnwire.NewRawFeatureVector(),
-		)
-		var b bytes.Buffer
-		_, err = lnwire.WriteMessage(&b, initReplyMsg, 0)
-		require.NoError(t, err)
-
-		mockConn.readMessages <- b.Bytes()
-	}()
-
 	// Start the peer. No data race should occur.
-	require.NoError(t, peer.Start())
+	startPeerDone := startPeer(t, mockConn, peer)
+
+	// Ensure startup is complete.
+	_, err = fn.RecvOrTimeout(startPeerDone, 2*timeout)
+	require.NoError(t, err)
 
 	// Ensure messages were sent during startup.
 	<-sendPingDone

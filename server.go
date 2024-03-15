@@ -586,7 +586,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
-		sphinx: hop.NewOnionProcessor(sphinxRouter),
+		sphinx: hop.NewOnionProcessor(
+			sphinxRouter, cfg.ProtocolOptions.NoRouteBlinding(),
+		),
 
 		torController: torController,
 

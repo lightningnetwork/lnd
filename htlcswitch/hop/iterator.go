@@ -169,11 +169,18 @@ func calculateForwardingAmount(incomingAmount lnwire.MilliSatoshi, baseFee,
 // tests dependent from the sphinx internal parts.
 type OnionProcessor struct {
 	router *sphinx.Router
+
+	// Adds the option to disable forwarding payments in blinded routes
+	// by failing back any blinding-related payloads as if they were
+	// invalid.
+	disallowRouteBlinding bool
 }
 
 // NewOnionProcessor creates new instance of decoder.
-func NewOnionProcessor(router *sphinx.Router) *OnionProcessor {
-	return &OnionProcessor{router}
+func NewOnionProcessor(router *sphinx.Router,
+	disallowRouteBlinding bool) *OnionProcessor {
+
+	return &OnionProcessor{router, disallowRouteBlinding}
 }
 
 // Start spins up the onion processor's sphinx router.

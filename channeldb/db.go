@@ -32,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -1842,21 +1843,13 @@ func MakeTestDB(t *testing.T, modifiers ...OptionModifier) (*DB, error) {
 	tempDirName := t.TempDir()
 
 	// Next, create channeldb for the first time.
-	backend, backendCleanup, err := kvdb.GetTestBackend(tempDirName, "cdb")
-	if err != nil {
-		backendCleanup()
-		return nil, err
-	}
+	backend := kvdb.GetTestBackend(t, tempDirName, "cdb")
 
 	cdb, err := CreateWithBackend(backend, modifiers...)
-	if err != nil {
-		backendCleanup()
-		return nil, err
-	}
+	require.NoError(t, err)
 
 	t.Cleanup(func() {
 		cdb.Close()
-		backendCleanup()
 	})
 
 	return cdb, nil

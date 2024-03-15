@@ -158,12 +158,7 @@ func makeTestGraph(t *testing.T, useCache bool) (*channeldb.ChannelGraph,
 	kvdb.Backend, error) {
 
 	// Create channelgraph for the first time.
-	backend, backendCleanup, err := kvdb.GetTestBackend(t.TempDir(), "cgr")
-	if err != nil {
-		return nil, nil, err
-	}
-
-	t.Cleanup(backendCleanup)
+	backend := kvdb.GetTestBackend(t, t.TempDir(), "cgr")
 
 	opts := channeldb.DefaultOptions()
 	graph, err := channeldb.NewChannelGraph(

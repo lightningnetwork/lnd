@@ -421,14 +421,10 @@ func TestMigrationReversion(t *testing.T) {
 
 	tempDirName := t.TempDir()
 
-	backend, cleanup, err := kvdb.GetTestBackend(tempDirName, "cdb")
-	require.NoError(t, err, "unable to get test db backend")
+	backend := kvdb.GetTestBackend(t, tempDirName, "cdb")
 
 	cdb, err := CreateWithBackend(backend)
-	if err != nil {
-		cleanup()
-		t.Fatalf("unable to open channeldb: %v", err)
-	}
+	require.NoError(t, err, "unable to open channeldb")
 
 	// Update the database metadata to point to one more than the highest
 	// known version.
@@ -442,13 +438,10 @@ func TestMigrationReversion(t *testing.T) {
 
 	// Close the database. Even if we succeeded, our next step is to reopen.
 	cdb.Close()
-	cleanup()
 
 	require.NoError(t, err, "unable to increase db version")
 
-	backend, cleanup, err = kvdb.GetTestBackend(tempDirName, "cdb")
-	require.NoError(t, err, "unable to get test db backend")
-	t.Cleanup(cleanup)
+	backend = kvdb.GetTestBackend(t, tempDirName, "cdb")
 
 	_, err = CreateWithBackend(backend)
 	if err != ErrDBReversion {

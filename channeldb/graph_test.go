@@ -61,11 +61,7 @@ func MakeTestGraph(t testing.TB, modifiers ...OptionModifier) (*ChannelGraph, er
 	}
 
 	// Next, create channelgraph for the first time.
-	backend, backendCleanup, err := kvdb.GetTestBackend(t.TempDir(), "cgr")
-	if err != nil {
-		backendCleanup()
-		return nil, err
-	}
+	backend := kvdb.GetTestBackend(t, t.TempDir(), "cgr")
 
 	graph, err := NewChannelGraph(
 		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
@@ -73,13 +69,11 @@ func MakeTestGraph(t testing.TB, modifiers ...OptionModifier) (*ChannelGraph, er
 		true, false,
 	)
 	if err != nil {
-		backendCleanup()
 		return nil, err
 	}
 
 	t.Cleanup(func() {
 		_ = backend.Close()
-		backendCleanup()
 	})
 
 	return graph, nil
@@ -3957,10 +3951,8 @@ func TestGraphLoading(t *testing.T) {
 	tempDirName := t.TempDir()
 
 	// Next, create the graph for the first time.
-	backend, backendCleanup, err := kvdb.GetTestBackend(tempDirName, "cgr")
-	require.NoError(t, err)
+	backend := kvdb.GetTestBackend(t, tempDirName, "cgr")
 	defer backend.Close()
-	defer backendCleanup()
 
 	opts := DefaultOptions()
 	graph, err := NewChannelGraph(

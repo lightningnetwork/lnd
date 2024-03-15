@@ -33,9 +33,7 @@ func TestOpenWithCreate(t *testing.T) {
 
 	// Next, open thereby creating channeldb for the first time.
 	dbPath := filepath.Join(tempDirName, "cdb")
-	backend, cleanup, err := kvdb.GetTestBackend(dbPath, "cdb")
-	require.NoError(t, err, "unable to get test db backend")
-	t.Cleanup(cleanup)
+	backend := kvdb.GetTestBackend(t, dbPath, "cdb")
 
 	cdb, err := CreateWithBackend(backend)
 	require.NoError(t, err, "unable to create channeldb")
@@ -69,9 +67,7 @@ func TestWipe(t *testing.T) {
 
 	// Next, open thereby creating channeldb for the first time.
 	dbPath := filepath.Join(tempDirName, "cdb")
-	backend, cleanup, err := kvdb.GetTestBackend(dbPath, "cdb")
-	require.NoError(t, err, "unable to get test db backend")
-	t.Cleanup(cleanup)
+	backend := kvdb.GetTestBackend(t, dbPath, "cdb")
 
 	fullDB, err := CreateWithBackend(backend)
 	require.NoError(t, err, "unable to create channeldb")

@@ -1,13 +1,16 @@
 package input
 
 import (
+	"bytes"
 	"crypto/rand"
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
@@ -31,7 +34,9 @@ type testSenderHtlcScriptTree struct {
 	htlcAmt int64
 }
 
-func newTestSenderHtlcScriptTree(t *testing.T) *testSenderHtlcScriptTree {
+func newTestSenderHtlcScriptTree(t *testing.T,
+	auxLeaf fn.Option[txscript.TapLeaf]) *testSenderHtlcScriptTree {
+
 	var preImage lntypes.Preimage
 	_, err := rand.Read(preImage[:])
 	require.NoError(t, err)
@@ -48,7 +53,7 @@ func newTestSenderHtlcScriptTree(t *testing.T) *testSenderHtlcScriptTree {
 	payHash := preImage.Hash()
 	htlcScriptTree, err := SenderHTLCScriptTaproot(
 		senderKey.PubKey(), receiverKey.PubKey(), revokeKey.PubKey(),
-		payHash[:], false,
+		payHash[:], false, auxLeaf,
 	)
 	require.NoError(t, err)
 
@@ -207,13 +212,11 @@ func htlcSenderTimeoutWitnessGen(sigHash txscript.SigHashType,
 	}
 }
 
-// TestTaprootSenderHtlcSpend tests that all the positive and negative paths
-// for the sender HTLC tapscript tree work as expected.
-func TestTaprootSenderHtlcSpend(t *testing.T) {
-	t.Parallel()
+func testTaprootSenderHtlcSpend(t *testing.T,
+	auxLeaf fn.Option[txscript.TapLeaf]) {
 
 	// First, create a new test script tree.
-	htlcScriptTree := newTestSenderHtlcScriptTree(t)
+	htlcScriptTree := newTestSenderHtlcScriptTree(t, auxLeaf)
 
 	spendTx := wire.NewMsgTx(2)
 	spendTx.AddTxIn(&wire.TxIn{})
@@ -432,6 +435,29 @@ func TestTaprootSenderHtlcSpend(t *testing.T) {
 	}
 }
 
+// TestTaprootSenderHtlcSpend tests that all the positive and negative paths
+// for the sender HTLC tapscript tree work as expected.
+func TestTaprootSenderHtlcSpend(t *testing.T) {
+	t.Parallel()
+
+	for _, hasAuxLeaf := range []bool{true, false} {
+		name := fmt.Sprintf("aux_leaf=%v", hasAuxLeaf)
+		t.Run(name, func(t *testing.T) {
+			var auxLeaf fn.Option[txscript.TapLeaf]
+			if hasAuxLeaf {
+				auxLeaf = fn.Some(
+					txscript.NewBaseTapLeaf(
+						bytes.Repeat([]byte{0x01}, 32),
+					),
+				)
+
+			}
+
+			testTaprootSenderHtlcSpend(t, auxLeaf)
+		})
+	}
+}
+
 type testReceiverHtlcScriptTree struct {
 	preImage lntypes.Preimage
 
@@ -452,7 +478,9 @@ type testReceiverHtlcScriptTree struct {
 	lockTime int32
 }
 
-func newTestReceiverHtlcScriptTree(t *testing.T) *testReceiverHtlcScriptTree {
+func newTestReceiverHtlcScriptTree(t *testing.T,
+	auxLeaf fn.Option[txscript.TapLeaf]) *testReceiverHtlcScriptTree {
+
 	var preImage lntypes.Preimage
 	_, err := rand.Read(preImage[:])
 	require.NoError(t, err)
@@ -471,7 +499,7 @@ func newTestReceiverHtlcScriptTree(t *testing.T) *testReceiverHtlcScriptTree {
 	payHash := preImage.Hash()
 	htlcScriptTree, err := ReceiverHTLCScriptTaproot(
 		cltvExpiry, senderKey.PubKey(), receiverKey.PubKey(),
-		revokeKey.PubKey(), payHash[:], false,
+		revokeKey.PubKey(), payHash[:], false, auxLeaf,
 	)
 	require.NoError(t, err)
 
@@ -629,15 +657,13 @@ func htlcReceiverSuccessWitnessGen(sigHash txscript.SigHashType,
 	}
 }
 
-// TestTaprootReceiverHtlcSpend tests that all possible paths for redeeming an
-// accepted HTLC (on the commitment transaction) of the receiver work properly.
-func TestTaprootReceiverHtlcSpend(t *testing.T) {
-	t.Parallel()
+func testTaprootReceiverHtlcSpend(t *testing.T,
+	auxLeaf fn.Option[txscript.TapLeaf]) {
 
 	// We'll start by creating the HTLC script tree (contains all 3 valid
 	// spend paths), and also a mock spend transaction that we'll be
 	// signing below.
-	htlcScriptTree := newTestReceiverHtlcScriptTree(t)
+	htlcScriptTree := newTestReceiverHtlcScriptTree(t, auxLeaf)
 
 	// TODO(roasbeef): issue with revoke key??? ctrl block even/odd
 
@@ -889,6 +915,30 @@ func TestTaprootReceiverHtlcSpend(t *testing.T) {
 			assertEngineExecution(t, i, testCase.valid, newEngine)
 		})
 	}
+
+}
+
+// TestTaprootReceiverHtlcSpend tests that all possible paths for redeeming an
+// accepted HTLC (on the commitment transaction) of the receiver work properly.
+func TestTaprootReceiverHtlcSpend(t *testing.T) {
+	t.Parallel()
+
+	for _, hasAuxLeaf := range []bool{true, false} {
+		name := fmt.Sprintf("aux_leaf=%v", hasAuxLeaf)
+		t.Run(name, func(t *testing.T) {
+			var auxLeaf fn.Option[txscript.TapLeaf]
+			if hasAuxLeaf {
+				auxLeaf = fn.Some(
+					txscript.NewBaseTapLeaf(
+						bytes.Repeat([]byte{0x01}, 32),
+					),
+				)
+
+			}
+
+			testTaprootReceiverHtlcSpend(t, auxLeaf)
+		})
+	}
 }
 
 type testCommitScriptTree struct {
@@ -905,7 +955,9 @@ type testCommitScriptTree struct {
 	*CommitScriptTree
 }
 
-func newTestCommitScriptTree(local bool) (*testCommitScriptTree, error) {
+func newTestCommitScriptTree(local bool,
+	auxLeaf fn.Option[txscript.TapLeaf]) (*testCommitScriptTree, error) {
+
 	selfKey, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, err
@@ -925,10 +977,11 @@ func newTestCommitScriptTree(local bool) (*testCommitScriptTree, error) {
 	if local {
 		commitScriptTree, err = NewLocalCommitScriptTree(
 			csvDelay, selfKey.PubKey(), revokeKey.PubKey(),
+			auxLeaf,
 		)
 	} else {
 		commitScriptTree, err = NewRemoteCommitScriptTree(
-			selfKey.PubKey(),
+			selfKey.PubKey(), auxLeaf,
 		)
 	}
 	if err != nil {
@@ -1020,12 +1073,10 @@ func localCommitRevokeWitGen(sigHash txscript.SigHashType,
 	}
 }
 
-// TestTaprootCommitScriptToSelf tests that the taproot script for redeeming
-// one's output after a force close behaves as expected.
-func TestTaprootCommitScriptToSelf(t *testing.T) {
-	t.Parallel()
+func testTaprootCommitScriptToSelf(t *testing.T,
+	auxLeaf fn.Option[txscript.TapLeaf]) {
 
-	commitScriptTree, err := newTestCommitScriptTree(true)
+	commitScriptTree, err := newTestCommitScriptTree(true, auxLeaf)
 	require.NoError(t, err)
 
 	spendTx := wire.NewMsgTx(2)
@@ -1187,6 +1238,29 @@ func TestTaprootCommitScriptToSelf(t *testing.T) {
 	}
 }
 
+// TestTaprootCommitScriptToSelf tests that the taproot script for redeeming
+// one's output after a force close behaves as expected.
+func TestTaprootCommitScriptToSelf(t *testing.T) {
+	t.Parallel()
+
+	for _, hasAuxLeaf := range []bool{true, false} {
+		name := fmt.Sprintf("aux_leaf=%v", hasAuxLeaf)
+		t.Run(name, func(t *testing.T) {
+			var auxLeaf fn.Option[txscript.TapLeaf]
+			if hasAuxLeaf {
+				auxLeaf = fn.Some(
+					txscript.NewBaseTapLeaf(
+						bytes.Repeat([]byte{0x01}, 32),
+					),
+				)
+
+			}
+
+			testTaprootCommitScriptToSelf(t, auxLeaf)
+		})
+	}
+}
+
 func remoteCommitSweepWitGen(sigHash txscript.SigHashType,
 	commitScriptTree *testCommitScriptTree) witnessGen {
 
@@ -1220,12 +1294,9 @@ func remoteCommitSweepWitGen(sigHash txscript.SigHashType,
 	}
 }
 
-// TestTaprootCommitScriptRemote tests that the remote party can properly sweep
-// their output after force close.
-func TestTaprootCommitScriptRemote(t *testing.T) {
-	t.Parallel()
+func testTaprootCommitScriptRemote(t *testing.T, auxLeaf fn.Option[txscript.TapLeaf]) {
 
-	commitScriptTree, err := newTestCommitScriptTree(false)
+	commitScriptTree, err := newTestCommitScriptTree(false, auxLeaf)
 	require.NoError(t, err)
 
 	spendTx := wire.NewMsgTx(2)
@@ -1360,6 +1431,29 @@ func TestTaprootCommitScriptRemote(t *testing.T) {
 				)
 			}
 			assertEngineExecution(t, i, testCase.valid, newEngine)
+		})
+	}
+}
+
+// TestTaprootCommitScriptRemote tests that the remote party can properly sweep
+// their output after force close.
+func TestTaprootCommitScriptRemote(t *testing.T) {
+	t.Parallel()
+
+	for _, hasAuxLeaf := range []bool{true, false} {
+		name := fmt.Sprintf("aux_leaf=%v", hasAuxLeaf)
+		t.Run(name, func(t *testing.T) {
+			var auxLeaf fn.Option[txscript.TapLeaf]
+			if hasAuxLeaf {
+				auxLeaf = fn.Some(
+					txscript.NewBaseTapLeaf(
+						bytes.Repeat([]byte{0x01}, 32),
+					),
+				)
+
+			}
+
+			testTaprootCommitScriptRemote(t, auxLeaf)
 		})
 	}
 }
@@ -1599,25 +1693,21 @@ type testSecondLevelHtlcTree struct {
 	tapScriptRoot []byte
 }
 
-func newTestSecondLevelHtlcTree() (*testSecondLevelHtlcTree, error) {
+func newTestSecondLevelHtlcTree(t *testing.T,
+	auxLeaf fn.Option[txscript.TapLeaf]) *testSecondLevelHtlcTree {
+
 	delayKey, err := btcec.NewPrivateKey()
-	if err != nil {
-		return nil, err
-	}
+	require.NoError(t, err)
 
 	revokeKey, err := btcec.NewPrivateKey()
-	if err != nil {
-		return nil, err
-	}
+	require.NoError(t, err)
 
 	const csvDelay = 6
 
 	scriptTree, err := SecondLevelHtlcTapscriptTree(
-		delayKey.PubKey(), csvDelay,
+		delayKey.PubKey(), csvDelay, auxLeaf,
 	)
-	if err != nil {
-		return nil, err
-	}
+	require.NoError(t, err)
 
 	tapScriptRoot := scriptTree.RootNode.TapHash()
 
@@ -1626,9 +1716,7 @@ func newTestSecondLevelHtlcTree() (*testSecondLevelHtlcTree, error) {
 	)
 
 	pkScript, err := PayToTaprootScript(htlcKey)
-	if err != nil {
-		return nil, err
-	}
+	require.NoError(t, err)
 
 	const amt = 100
 
@@ -1643,7 +1731,7 @@ func newTestSecondLevelHtlcTree() (*testSecondLevelHtlcTree, error) {
 		amt:           amt,
 		scriptTree:    scriptTree,
 		tapScriptRoot: tapScriptRoot[:],
-	}, nil
+	}
 }
 
 func secondLevelHtlcSuccessWitGen(sigHash txscript.SigHashType,
@@ -1713,13 +1801,10 @@ func secondLevelHtlcRevokeWitnessgen(sigHash txscript.SigHashType,
 	}
 }
 
-// TestTaprootSecondLevelHtlcScript tests that a channel peer can properly
-// spend the second level HTLC script to resolve HTLCs.
-func TestTaprootSecondLevelHtlcScript(t *testing.T) {
-	t.Parallel()
+func testTaprootSecondLevelHtlcScript(t *testing.T,
+	auxLeaf fn.Option[txscript.TapLeaf]) {
 
-	htlcScriptTree, err := newTestSecondLevelHtlcTree()
-	require.NoError(t, err)
+	htlcScriptTree := newTestSecondLevelHtlcTree(t, auxLeaf)
 
 	spendTx := wire.NewMsgTx(2)
 	spendTx.AddTxIn(&wire.TxIn{})
@@ -1876,6 +1961,29 @@ func TestTaprootSecondLevelHtlcScript(t *testing.T) {
 				)
 			}
 			assertEngineExecution(t, i, testCase.valid, newEngine)
+		})
+	}
+}
+
+// TestTaprootSecondLevelHtlcScript tests that a channel peer can properly
+// spend the second level HTLC script to resolve HTLCs.
+func TestTaprootSecondLevelHtlcScript(t *testing.T) {
+	t.Parallel()
+
+	for _, hasAuxLeaf := range []bool{true, false} {
+		name := fmt.Sprintf("aux_leaf=%v", hasAuxLeaf)
+		t.Run(name, func(t *testing.T) {
+			var auxLeaf fn.Option[txscript.TapLeaf]
+			if hasAuxLeaf {
+				auxLeaf = fn.Some(
+					txscript.NewBaseTapLeaf(
+						bytes.Repeat([]byte{0x01}, 32),
+					),
+				)
+
+			}
+
+			testTaprootSecondLevelHtlcScript(t, auxLeaf)
 		})
 	}
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -7095,6 +7096,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		//nolint:lll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
+			fn.None[txscript.TapLeaf](),
 		)
 		if err != nil {
 			return nil, err
@@ -7339,6 +7341,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 		//nolint:lll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
+			fn.None[txscript.TapLeaf](),
 		)
 		if err != nil {
 			return nil, err

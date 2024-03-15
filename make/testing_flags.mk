@@ -93,6 +93,14 @@ else
 TEST_FLAGS += -test.timeout=180m
 endif
 
+ifneq ($(verbose),)
+TEST_FLAGS += -test.v
+endif
+
+ifneq ($(nocache),)
+TEST_FLAGS += -test.count=1
+endif
+
 GOLIST := go list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
 GOLISTCOVER := $(shell go list -tags="$(DEV_TAGS)" -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
 
@@ -111,11 +119,11 @@ UNIT_BENCH := $(GOTEST) -tags="$(DEV_TAGS) $(LOG_TAGS)" -test.bench=. -test.run=
 endif
 
 ifeq ($(UNIT_TARGETED), no)
-UNIT := $(GOLIST) | $(XARGS) env $(GOTEST) -tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
-UNIT_DEBUG := $(GOLIST) | $(XARGS) env $(GOTEST) -v -tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
+UNIT := $(GOLIST) | xargs env $(GOTEST) -tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
+UNIT_DEBUG := $(GOLIST) | xargs env $(GOTEST) -v -tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
 UNIT_RACE := $(UNIT) -race
 # NONE is a special value which selects no other tests but only executes the benchmark tests here.
-UNIT_BENCH := $(GOLIST) | $(XARGS) env $(GOTEST) -tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS)" -test.bench=. -test.run=NONE
+UNIT_BENCH := $(GOLIST) | xargs env $(GOTEST) -tags="$(DEV_TAGS) $(RPC_TAGS) $(LOG_TAGS)" -test.bench=. -test.run=NONE
 endif
 
 

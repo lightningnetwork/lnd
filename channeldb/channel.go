@@ -240,6 +240,67 @@ type chanAuxData struct {
 	tapscriptRoot tlv.OptionalRecordT[tlv.TlvType6, [32]byte]
 }
 
+// encode serializes the chanAuxData to the given io.Writer.
+func (c *chanAuxData) encode(w io.Writer) error {
+	tlvRecords := []tlv.Record{
+		c.revokeKeyLoc.Record(),
+		c.initialLocalBalance.Record(),
+		c.initialRemoteBalance.Record(),
+		c.realScid.Record(),
+	}
+	c.memo.WhenSome(func(memo tlv.RecordT[tlv.TlvType5, []byte]) {
+		tlvRecords = append(tlvRecords, memo.Record())
+	})
+	c.tapscriptRoot.WhenSome(func(root tlv.RecordT[tlv.TlvType6, [32]byte]) { //nolint:lll
+		tlvRecords = append(tlvRecords, root.Record())
+	})
+
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(tlvRecords...)
+	if err != nil {
+		return err
+	}
+
+	if err := tlvStream.Encode(w); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// decode deserializes the chanAuxData from the given io.Reader.
+func (c *chanAuxData) decode(r io.Reader) error {
+	memo := c.memo.Zero()
+	tapscriptRoot := c.tapscriptRoot.Zero()
+
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(
+		c.revokeKeyLoc.Record(),
+		c.initialLocalBalance.Record(),
+		c.initialRemoteBalance.Record(),
+		c.realScid.Record(),
+		memo.Record(),
+		tapscriptRoot.Record(),
+	)
+	if err != nil {
+		return err
+	}
+
+	tlvs, err := tlvStream.DecodeWithParsedTypes(r)
+	if err != nil {
+		return err
+	}
+
+	if _, ok := tlvs[memo.TlvType()]; ok {
+		c.memo = tlv.SomeRecordT(memo)
+	}
+	if _, ok := tlvs[tapscriptRoot.TlvType()]; ok {
+		c.tapscriptRoot = tlv.SomeRecordT(tapscriptRoot)
+	}
+
+	return nil
+}
+
 // toOpeChan converts the chanAuxData to an OpenChannel by setting the relevant
 // fields in the OpenChannel struct.
 func (c *chanAuxData) toOpenChan(o *OpenChannel) {
@@ -3991,28 +4052,8 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	}
 
 	auxData := newChanAuxDataFromChan(channel)
-
-	tlvRecords := []tlv.Record{
-		auxData.revokeKeyLoc.Record(),
-		auxData.initialLocalBalance.Record(),
-		auxData.initialRemoteBalance.Record(),
-		auxData.realScid.Record(),
-	}
-	auxData.memo.WhenSome(func(memo tlv.RecordT[tlv.TlvType5, []byte]) {
-		tlvRecords = append(tlvRecords, memo.Record())
-	})
-	auxData.tapscriptRoot.WhenSome(func(root tlv.RecordT[tlv.TlvType6, [32]byte]) { //nolint:lll
-		tlvRecords = append(tlvRecords, root.Record())
-	})
-
-	// Create the tlv stream.
-	tlvStream, err := tlv.NewStream(tlvRecords...)
-	if err != nil {
-		return err
-	}
-
-	if err := tlvStream.Encode(&w); err != nil {
-		return err
+	if err := auxData.encode(&w); err != nil {
+		return fmt.Errorf("unable to encode aux data: %w", err)
 	}
 
 	if err := chanBucket.Put(chanInfoKey, w.Bytes()); err != nil {
@@ -4202,32 +4243,8 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	}
 
 	var auxData chanAuxData
-	memo := auxData.memo.Zero()
-	tapscriptRoot := auxData.tapscriptRoot.Zero()
-
-	// Create the tlv stream.
-	tlvStream, err := tlv.NewStream(
-		auxData.revokeKeyLoc.Record(),
-		auxData.initialLocalBalance.Record(),
-		auxData.initialRemoteBalance.Record(),
-		auxData.realScid.Record(),
-		memo.Record(),
-		tapscriptRoot.Record(),
-	)
-	if err != nil {
-		return err
-	}
-
-	tlvs, err := tlvStream.DecodeWithParsedTypes(r)
-	if err != nil {
-		return err
-	}
-
-	if _, ok := tlvs[memo.TlvType()]; ok {
-		auxData.memo = tlv.SomeRecordT(memo)
-	}
-	if _, ok := tlvs[tapscriptRoot.TlvType()]; ok {
-		auxData.tapscriptRoot = tlv.SomeRecordT(tapscriptRoot)
+	if err := auxData.decode(r); err != nil {
+		return fmt.Errorf("unable to decode aux data: %w", err)
 	}
 
 	// Assign all the relevant fields from the aux data into the actual

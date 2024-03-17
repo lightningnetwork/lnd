@@ -256,6 +256,10 @@ type openChannelTlvData struct {
 	// tapscriptRoot is the optional Tapscript root the channel funding
 	// output commits to.
 	tapscriptRoot tlv.OptionalRecordT[tlv.TlvType6, [32]byte]
+
+	// customBlob is an optional TLV encoded blob of data representing
+	// custom channel funding information.
+	customBlob tlv.OptionalRecordT[tlv.TlvType7, tlv.Blob]
 }
 
 // encode serializes the openChannelTlvData to the given io.Writer.
@@ -274,6 +278,9 @@ func (c *openChannelTlvData) encode(w io.Writer) error {
 			tlvRecords = append(tlvRecords, root.Record())
 		},
 	)
+	c.customBlob.WhenSome(func(blob tlv.RecordT[tlv.TlvType7, tlv.Blob]) {
+		tlvRecords = append(tlvRecords, blob.Record())
+	})
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(tlvRecords...)
@@ -288,6 +295,7 @@ func (c *openChannelTlvData) encode(w io.Writer) error {
 func (c *openChannelTlvData) decode(r io.Reader) error {
 	memo := c.memo.Zero()
 	tapscriptRoot := c.tapscriptRoot.Zero()
+	blob := c.customBlob.Zero()
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(
@@ -297,6 +305,7 @@ func (c *openChannelTlvData) decode(r io.Reader) error {
 		c.realScid.Record(),
 		memo.Record(),
 		tapscriptRoot.Record(),
+		blob.Record(),
 	)
 	if err != nil {
 		return err
@@ -312,6 +321,9 @@ func (c *openChannelTlvData) decode(r io.Reader) error {
 	}
 	if _, ok := tlvs[tapscriptRoot.TlvType()]; ok {
 		c.tapscriptRoot = tlv.SomeRecordT(tapscriptRoot)
+	}
+	if _, ok := tlvs[c.customBlob.TlvType()]; ok {
+		c.customBlob = tlv.SomeRecordT(blob)
 	}
 
 	return nil
@@ -576,6 +588,53 @@ type ChannelConfig struct {
 	HtlcBasePoint keychain.KeyDescriptor
 }
 
+// commitTlvData stores all the optional data that may be stored as a TLV stream
+// at the _end_ of the normal serialized commit on disk.
+type commitTlvData struct {
+	// customBlob is a custom blob that may store extra data for custom
+	// channels.
+	customBlob tlv.OptionalRecordT[tlv.TlvType1, tlv.Blob]
+}
+
+// encode encodes the aux data into the passed io.Writer.
+func (c *commitTlvData) encode(w io.Writer) error {
+	var tlvRecords []tlv.Record
+	c.customBlob.WhenSome(func(blob tlv.RecordT[tlv.TlvType1, tlv.Blob]) {
+		tlvRecords = append(tlvRecords, blob.Record())
+	})
+
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(tlvRecords...)
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Encode(w)
+}
+
+// decode attempts to decode the aux data from the passed io.Reader.
+func (c *commitTlvData) decode(r io.Reader) error {
+	blob := c.customBlob.Zero()
+
+	tlvStream, err := tlv.NewStream(
+		blob.Record(),
+	)
+	if err != nil {
+		return err
+	}
+
+	tlvs, err := tlvStream.DecodeWithParsedTypes(r)
+	if err != nil {
+		return err
+	}
+
+	if _, ok := tlvs[c.customBlob.TlvType()]; ok {
+		c.customBlob = tlv.SomeRecordT(blob)
+	}
+
+	return nil
+}
+
 // ChannelCommitment is a snapshot of the commitment state at a particular
 // point in the commitment chain. With each state transition, a snapshot of the
 // current state along with all non-settled HTLCs are recorded. These snapshots
@@ -642,6 +701,11 @@ type ChannelCommitment struct {
 	// able by us.
 	CommitTx *wire.MsgTx
 
+	// CustomBlob is an optional blob that can be used to store information
+	// specific to a custom channel type. This may track some custom
+	// specific state for this given commitment.
+	CustomBlob fn.Option[tlv.Blob]
+
 	// CommitSig is one half of the signature required to fully complete
 	// the script for the commitment transaction above. This is the
 	// signature signed by the remote party for our version of the
@@ -651,9 +715,26 @@ type ChannelCommitment struct {
 	// Htlcs is the set of HTLC's that are pending at this particular
 	// commitment height.
 	Htlcs []HTLC
+}
 
-	// TODO(roasbeef): pending commit pointer?
-	//  * lets just walk through
+// amendTlvData updates the channel with the given auxiliary TLV data.
+func (c *ChannelCommitment) amendTlvData(auxData commitTlvData) {
+	auxData.customBlob.WhenSomeV(func(blob tlv.Blob) {
+		c.CustomBlob = fn.Some(blob)
+	})
+}
+
+// extractTlvData creates a new commitTlvData from the given commitment.
+func (c *ChannelCommitment) extractTlvData() commitTlvData {
+	var auxData commitTlvData
+
+	c.CustomBlob.WhenSome(func(blob tlv.Blob) {
+		auxData.customBlob = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType1](blob),
+		)
+	})
+
+	return auxData
 }
 
 // ChannelStatus is a bit vector used to indicate whether an OpenChannel is in
@@ -951,6 +1032,12 @@ type OpenChannel struct {
 	// funding output.
 	TapscriptRoot fn.Option[chainhash.Hash]
 
+	// CustomBlob is an optional blob that can be used to store information
+	// specific to a custom channel type. This information is only created
+	// at channel funding time, and after wards is to be considered
+	// immutable.
+	CustomBlob fn.Option[tlv.Blob]
+
 	// TODO(roasbeef): eww
 	Db *ChannelStateDB
 
@@ -1126,6 +1213,9 @@ func (c *OpenChannel) amendTlvData(auxData openChannelTlvData) {
 	auxData.tapscriptRoot.WhenSomeV(func(h [32]byte) {
 		c.TapscriptRoot = fn.Some[chainhash.Hash](h)
 	})
+	auxData.customBlob.WhenSomeV(func(blob tlv.Blob) {
+		c.CustomBlob = fn.Some(blob)
+	})
 }
 
 // extractTlvData creates a new openChannelTlvData from the given channel.
@@ -1153,6 +1243,11 @@ func (c *OpenChannel) extractTlvData() openChannelTlvData {
 	c.TapscriptRoot.WhenSome(func(h chainhash.Hash) {
 		auxData.tapscriptRoot = tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType6, [32]byte](h),
+		)
+	})
+	c.CustomBlob.WhenSome(func(blob tlv.Blob) {
+		auxData.customBlob = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType7](blob),
 		)
 	})
 
@@ -2824,6 +2919,14 @@ func serializeCommitDiff(w io.Writer, diff *CommitDiff) error { // nolint: dupl
 		}
 	}
 
+	// We'll also encode the commit aux data stream here. We do this here
+	// rather than above (at the call to serializeChanCommit), to ensure
+	// backwards compat for reads to existing non-custom channels.
+	auxData := diff.Commitment.extractTlvData()
+	if err := auxData.encode(w); err != nil {
+		return fmt.Errorf("unable to write aux data: %w", err)
+	}
+
 	return nil
 }
 
@@ -2883,6 +2986,17 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 			return nil, err
 		}
 	}
+
+	// As a final step, we'll read out any aux commit data that we have at
+	// the end of this byte stream. We do this here to ensure backward
+	// compatibility, as otherwise we risk erroneously reading into the
+	// wrong field.
+	var auxData commitTlvData
+	if err := auxData.decode(r); err != nil {
+		return nil, fmt.Errorf("unable to decode aux data: %w", err)
+	}
+
+	d.Commitment.amendTlvData(auxData)
 
 	return &d, nil
 }
@@ -3862,6 +3976,13 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 		},
 	}
 
+	localCommit.CustomBlob.WhenSome(func(blob tlv.Blob) {
+		blobCopy := make([]byte, len(blob))
+		copy(blobCopy, blob)
+
+		snapshot.ChannelCommitment.CustomBlob = fn.Some(blobCopy)
+	})
+
 	// Copy over the current set of HTLCs to ensure the caller can't mutate
 	// our internal state.
 	snapshot.Htlcs = make([]HTLC, len(localCommit.Htlcs))
@@ -4253,6 +4374,12 @@ func putChanCommitment(chanBucket kvdb.RwBucket, c *ChannelCommitment,
 		return err
 	}
 
+	// Before we write to disk, we'll also write our aux data as well.
+	auxData := c.extractTlvData()
+	if err := auxData.encode(&b); err != nil {
+		return fmt.Errorf("unable to write aux data: %w", err)
+	}
+
 	return chanBucket.Put(commitKey, b.Bytes())
 }
 
@@ -4398,7 +4525,9 @@ func deserializeChanCommit(r io.Reader) (ChannelCommitment, error) {
 	return c, nil
 }
 
-func fetchChanCommitment(chanBucket kvdb.RBucket, local bool) (ChannelCommitment, error) {
+func fetchChanCommitment(chanBucket kvdb.RBucket,
+	local bool) (ChannelCommitment, error) {
+
 	var commitKey []byte
 	if local {
 		commitKey = append(chanCommitmentKey, byte(0x00))
@@ -4412,7 +4541,23 @@ func fetchChanCommitment(chanBucket kvdb.RBucket, local bool) (ChannelCommitment
 	}
 
 	r := bytes.NewReader(commitBytes)
-	return deserializeChanCommit(r)
+	chanCommit, err := deserializeChanCommit(r)
+	if err != nil {
+		return ChannelCommitment{}, fmt.Errorf("unable to decode "+
+			"chan commit: %w", err)
+	}
+
+	// We'll also check to see if we have any aux data stored as the end of
+	// the stream.
+	var auxData commitTlvData
+	if err := auxData.decode(r); err != nil {
+		return ChannelCommitment{}, fmt.Errorf("unable to decode "+
+			"chan aux data: %w", err)
+	}
+
+	chanCommit.amendTlvData(auxData)
+
+	return chanCommit, nil
 }
 
 func fetchChanCommitments(chanBucket kvdb.RBucket, channel *OpenChannel) error {

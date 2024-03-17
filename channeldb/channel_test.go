@@ -351,6 +351,7 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 			FeePerKw:      btcutil.Amount(5000),
 			CommitTx:      channels.TestFundingTx,
 			CommitSig:     bytes.Repeat([]byte{1}, 71),
+			CustomBlob:    fn.Some([]byte{1, 2, 3}),
 		},
 		RemoteCommitment: ChannelCommitment{
 			CommitHeight:  0,
@@ -360,6 +361,7 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 			FeePerKw:      btcutil.Amount(5000),
 			CommitTx:      channels.TestFundingTx,
 			CommitSig:     bytes.Repeat([]byte{1}, 71),
+			CustomBlob:    fn.Some([]byte{4, 5, 6}),
 		},
 		NumConfsRequired:        4,
 		RemoteCurrentRevocation: privKey.PubKey(),
@@ -374,6 +376,7 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 		InitialRemoteBalance:    lnwire.MilliSatoshi(3000),
 		Memo:                    []byte("test"),
 		TapscriptRoot:           fn.Some(tapscriptRoot),
+		CustomBlob:              fn.Some([]byte{1, 2, 3}),
 	}
 }
 
@@ -663,6 +666,7 @@ func TestChannelStateTransition(t *testing.T) {
 		CommitTx:        newTx,
 		CommitSig:       newSig,
 		Htlcs:           htlcs,
+		CustomBlob:      fn.Some([]byte{4, 5, 6}),
 	}
 
 	// First update the local node's broadcastable state and also add a
@@ -700,9 +704,14 @@ func TestChannelStateTransition(t *testing.T) {
 	// have been updated.
 	updatedChannel, err := cdb.FetchOpenChannels(channel.IdentityPub)
 	require.NoError(t, err, "unable to fetch updated channel")
-	assertCommitmentEqual(t, &commitment, &updatedChannel[0].LocalCommitment)
+
+	assertCommitmentEqual(
+		t, &commitment, &updatedChannel[0].LocalCommitment,
+	)
+
 	numDiskUpdates, err := updatedChannel[0].CommitmentHeight()
 	require.NoError(t, err, "unable to read commitment height from disk")
+
 	if numDiskUpdates != uint64(commitment.CommitHeight) {
 		t.Fatalf("num disk updates doesn't match: %v vs %v",
 			numDiskUpdates, commitment.CommitHeight)

@@ -198,6 +198,9 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   for forwarding blinded payments. Forwarding of blinded payments is disabled 
   by default, and the feature is not yet advertised to the network.
 
+* Introduced [fee bumper](https://github.com/lightningnetwork/lnd/pull/8424) to
+  handle bumping the fees of sweeping transactions properly.
+
 ## RPC Additions
 
 * [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)

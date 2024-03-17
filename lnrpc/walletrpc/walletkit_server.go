@@ -863,27 +863,27 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 
 	// Retrieve all of the outputs the UtxoSweeper is currently trying to
 	// sweep.
-	pendingInputs, err := w.cfg.Sweeper.PendingInputs()
+	inputsMap, err := w.cfg.Sweeper.PendingInputs()
 	if err != nil {
 		return nil, err
 	}
 
 	// Convert them into their respective RPC format.
-	rpcPendingSweeps := make([]*PendingSweep, 0, len(pendingInputs))
-	for _, pendingInput := range pendingInputs {
-		witnessType, ok := allWitnessTypes[pendingInput.WitnessType]
+	rpcPendingSweeps := make([]*PendingSweep, 0, len(inputsMap))
+	for _, sweeperInput := range inputsMap {
+		witnessType, ok := allWitnessTypes[sweeperInput.WitnessType]
 		if !ok {
 			return nil, fmt.Errorf("unhandled witness type %v for "+
-				"input %v", pendingInput.WitnessType,
-				pendingInput.OutPoint)
+				"input %v", sweeperInput.WitnessType,
+				sweeperInput.OutPoint)
 		}
 
-		op := lnrpc.MarshalOutPoint(&pendingInput.OutPoint)
-		amountSat := uint32(pendingInput.Amount)
-		satPerVbyte := uint64(pendingInput.LastFeeRate.FeePerVByte())
-		broadcastAttempts := uint32(pendingInput.BroadcastAttempts)
+		op := lnrpc.MarshalOutPoint(&sweeperInput.OutPoint)
+		amountSat := uint32(sweeperInput.Amount)
+		satPerVbyte := uint64(sweeperInput.LastFeeRate.FeePerVByte())
+		broadcastAttempts := uint32(sweeperInput.BroadcastAttempts)
 
-		feePref := pendingInput.Params.Fee
+		feePref := sweeperInput.Params.Fee
 		requestedFee, ok := feePref.(sweep.FeeEstimateInfo)
 		if !ok {
 			return nil, fmt.Errorf("unknown fee preference type: "+
@@ -900,7 +900,7 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 			BroadcastAttempts:    broadcastAttempts,
 			RequestedSatPerVbyte: requestedFeeRate,
 			RequestedConfTarget:  requestedFee.ConfTarget,
-			Force:                pendingInput.Params.Force,
+			Force:                sweeperInput.Params.Force,
 		})
 	}
 

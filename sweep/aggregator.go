@@ -29,7 +29,7 @@ const (
 type inputCluster struct {
 	lockTime     *uint32
 	sweepFeeRate chainfee.SatPerKWeight
-	inputs       pendingInputs
+	inputs       InputsMap
 }
 
 // createInputSets goes through the cluster's inputs and constructs sets of
@@ -41,7 +41,7 @@ func (c *inputCluster) createInputSets(maxFeeRate chainfee.SatPerKWeight,
 	maxInputs uint32) []InputSet {
 
 	// Turn the inputs into a slice so we can sort them.
-	inputList := make([]*pendingInput, 0, len(c.inputs))
+	inputList := make([]*SweeperInput, 0, len(c.inputs))
 	for _, input := range c.inputs {
 		inputList = append(inputList, input)
 	}
@@ -53,7 +53,7 @@ func (c *inputCluster) createInputSets(maxFeeRate chainfee.SatPerKWeight,
 	//
 	// For witness size, the upper limit is taken. The actual size depends
 	// on the signature length, which is not known yet at this point.
-	calcYield := func(input *pendingInput) int64 {
+	calcYield := func(input *SweeperInput) int64 {
 		size, _, err := input.WitnessType().SizeUpperBound()
 		if err != nil {
 			log.Errorf("Failed to get input weight: %v", err)
@@ -123,7 +123,7 @@ func (c *inputCluster) createInputSets(maxFeeRate chainfee.SatPerKWeight,
 type UtxoAggregator interface {
 	// ClusterInputs takes a list of inputs and groups them into input
 	// sets. Each input set will be used to create a sweeping transaction.
-	ClusterInputs(pendingInputs) []InputSet
+	ClusterInputs(InputsMap) []InputSet
 }
 
 // SimpleAggregator aggregates inputs known by the Sweeper based on each
@@ -175,7 +175,7 @@ func NewSimpleUtxoAggregator(estimator chainfee.Estimator,
 // inputs known by the UtxoSweeper. It clusters inputs by
 // 1) Required tx locktime
 // 2) Similar fee rates.
-func (s *SimpleAggregator) ClusterInputs(inputs pendingInputs) []InputSet {
+func (s *SimpleAggregator) ClusterInputs(inputs InputsMap) []InputSet {
 	// We start by getting the inputs clusters by locktime. Since the
 	// inputs commit to the locktime, they can only be clustered together
 	// if the locktime is equal.
@@ -212,10 +212,10 @@ func (s *SimpleAggregator) ClusterInputs(inputs pendingInputs) []InputSet {
 // cluster. In addition to the created clusters, inputs that did not specify a
 // required locktime are returned.
 func (s *SimpleAggregator) clusterByLockTime(
-	inputs pendingInputs) ([]inputCluster, pendingInputs) {
+	inputs InputsMap) ([]inputCluster, InputsMap) {
 
-	locktimes := make(map[uint32]pendingInputs)
-	rem := make(pendingInputs)
+	locktimes := make(map[uint32]InputsMap)
+	rem := make(InputsMap)
 
 	// Go through all inputs and check if they require a certain locktime.
 	for op, input := range inputs {
@@ -228,7 +228,7 @@ func (s *SimpleAggregator) clusterByLockTime(
 		// Check if we already have inputs with this locktime.
 		cluster, ok := locktimes[lt]
 		if !ok {
-			cluster = make(pendingInputs)
+			cluster = make(InputsMap)
 		}
 
 		// Get the fee rate based on the fee preference. If an error is
@@ -281,7 +281,7 @@ func (s *SimpleAggregator) clusterByLockTime(
 // sweep fee rate, which is determined by calculating the average fee rate of
 // all inputs within that cluster.
 func (s *SimpleAggregator) clusterBySweepFeeRate(
-	inputs pendingInputs) []inputCluster {
+	inputs InputsMap) []inputCluster {
 
 	bucketInputs := make(map[int]*bucketList)
 	inputFeeRates := make(map[wire.OutPoint]chainfee.SatPerKWeight)
@@ -399,7 +399,7 @@ func mergeClusters(a, b inputCluster) []inputCluster {
 		newCluster.sweepFeeRate = b.sweepFeeRate
 	}
 
-	newCluster.inputs = make(pendingInputs)
+	newCluster.inputs = make(InputsMap)
 
 	for op, in := range a.inputs {
 		newCluster.inputs[op] = in
@@ -492,7 +492,7 @@ func NewBudgetAggregator(estimator chainfee.Estimator,
 }
 
 // clusterGroup defines an alias for a set of inputs that are to be grouped.
-type clusterGroup map[fn.Option[int32]][]pendingInput
+type clusterGroup map[fn.Option[int32]][]SweeperInput
 
 // ClusterInputs creates a list of input sets from pending inputs.
 // 1. filter out inputs whose budget cannot cover min relay fee.
@@ -500,7 +500,7 @@ type clusterGroup map[fn.Option[int32]][]pendingInput
 // 3. sort the inputs in each cluster by their budget.
 // 4. optionally split a cluster if it exceeds the max input limit.
 // 5. create input sets from each of the clusters.
-func (b *BudgetAggregator) ClusterInputs(inputs pendingInputs) []InputSet {
+func (b *BudgetAggregator) ClusterInputs(inputs InputsMap) []InputSet {
 	// Filter out inputs that have a budget below min relay fee.
 	filteredInputs := b.filterInputs(inputs)
 
@@ -513,7 +513,7 @@ func (b *BudgetAggregator) ClusterInputs(inputs pendingInputs) []InputSet {
 		height := input.params.DeadlineHeight
 		cluster, ok := clusters[height]
 		if !ok {
-			cluster = make([]pendingInput, 0)
+			cluster = make([]SweeperInput, 0)
 		}
 
 		cluster = append(cluster, *input)
@@ -540,12 +540,12 @@ func (b *BudgetAggregator) ClusterInputs(inputs pendingInputs) []InputSet {
 // createInputSet takes a set of inputs which share the same deadline height
 // and turns them into a list of `InputSet`, each set is then used to create a
 // sweep transaction.
-func (b *BudgetAggregator) createInputSets(inputs []pendingInput) []InputSet {
+func (b *BudgetAggregator) createInputSets(inputs []SweeperInput) []InputSet {
 	// sets holds the InputSets that we will return.
 	sets := make([]InputSet, 0)
 
 	// Copy the inputs to a new slice so we can modify it.
-	remainingInputs := make([]pendingInput, len(inputs))
+	remainingInputs := make([]SweeperInput, len(inputs))
 	copy(remainingInputs, inputs)
 
 	// If the number of inputs is greater than the max inputs allowed, we
@@ -556,7 +556,7 @@ func (b *BudgetAggregator) createInputSets(inputs []pendingInput) []InputSet {
 
 		// Copy the inputs to be put into the new set, and update the
 		// remaining inputs by removing currentInputs.
-		currentInputs := make([]pendingInput, b.maxInputs)
+		currentInputs := make([]SweeperInput, b.maxInputs)
 		copy(currentInputs, remainingInputs[:b.maxInputs])
 		remainingInputs = remainingInputs[b.maxInputs:]
 
@@ -587,13 +587,13 @@ func (b *BudgetAggregator) createInputSets(inputs []pendingInput) []InputSet {
 
 // filterInputs filters out inputs that have a budget below the min relay fee
 // or have a required output that's below the dust.
-func (b *BudgetAggregator) filterInputs(inputs pendingInputs) pendingInputs {
+func (b *BudgetAggregator) filterInputs(inputs InputsMap) InputsMap {
 	// Get the current min relay fee for this round.
 	minFeeRate := b.estimator.RelayFeePerKW()
 
 	// filterInputs stores a map of inputs that has a budget that at least
 	// can pay the minimal fee.
-	filteredInputs := make(pendingInputs, len(inputs))
+	filteredInputs := make(InputsMap, len(inputs))
 
 	// Iterate all the inputs and filter out the ones whose budget cannot
 	// cover the min fee.
@@ -647,10 +647,10 @@ func (b *BudgetAggregator) filterInputs(inputs pendingInputs) pendingInputs {
 // number of inputs exceeds the maxInputs limit, it requires us to split them
 // into smaller clusters. In that case, the sorting will make a difference as
 // the budgets of the clusters will be different.
-func (b *BudgetAggregator) sortInputs(inputs []pendingInput) []pendingInput {
+func (b *BudgetAggregator) sortInputs(inputs []SweeperInput) []SweeperInput {
 	// sortedInputs is the final list of inputs sorted by their economical
 	// value.
-	sortedInputs := make([]pendingInput, 0, len(inputs))
+	sortedInputs := make([]SweeperInput, 0, len(inputs))
 
 	// Copy the inputs.
 	sortedInputs = append(sortedInputs, inputs...)

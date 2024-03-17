@@ -2145,7 +2145,7 @@ func TestMarkInputsPendingPublish(t *testing.T) {
 	inputInit.On("OutPoint").Return(&wire.OutPoint{Index: 1})
 
 	s.pendingInputs[*inputInit.OutPoint()] = &pendingInput{
-		state: StateInit,
+		state: Init,
 	}
 
 	// inputPendingPublish specifies an input that's about to be published.
@@ -2155,7 +2155,7 @@ func TestMarkInputsPendingPublish(t *testing.T) {
 	inputPendingPublish.On("OutPoint").Return(&wire.OutPoint{Index: 2})
 
 	s.pendingInputs[*inputPendingPublish.OutPoint()] = &pendingInput{
-		state: StatePendingPublish,
+		state: PendingPublish,
 	}
 
 	// inputTerminated specifies an input that's terminated.
@@ -2165,7 +2165,7 @@ func TestMarkInputsPendingPublish(t *testing.T) {
 	inputTerminated.On("OutPoint").Return(&wire.OutPoint{Index: 3})
 
 	s.pendingInputs[*inputTerminated.OutPoint()] = &pendingInput{
-		state: StateExcluded,
+		state: Excluded,
 	}
 
 	// Mark the test inputs. We expect the non-exist input and the
@@ -2180,20 +2180,20 @@ func TestMarkInputsPendingPublish(t *testing.T) {
 	require.Len(s.pendingInputs, 3)
 
 	// We expect the init input's state to become pending publish.
-	require.Equal(StatePendingPublish,
+	require.Equal(PendingPublish,
 		s.pendingInputs[*inputInit.OutPoint()].state)
 
 	// We expect the pending-publish to stay unchanged.
-	require.Equal(StatePendingPublish,
+	require.Equal(PendingPublish,
 		s.pendingInputs[*inputPendingPublish.OutPoint()].state)
 
 	// We expect the terminated to stay unchanged.
-	require.Equal(StateExcluded,
+	require.Equal(Excluded,
 		s.pendingInputs[*inputTerminated.OutPoint()].state)
 }
 
 // TestMarkInputsPublished checks that given a list of inputs with different
-// states, only the state `StatePendingPublish` will be marked as `Published`.
+// states, only the state `PendingPublish` will be marked as `Published`.
 func TestMarkInputsPublished(t *testing.T) {
 	t.Parallel()
 
@@ -2226,7 +2226,7 @@ func TestMarkInputsPublished(t *testing.T) {
 		PreviousOutPoint: wire.OutPoint{Index: 2},
 	}
 	s.pendingInputs[inputInit.PreviousOutPoint] = &pendingInput{
-		state: StateInit,
+		state: Init,
 	}
 
 	// inputPendingPublish specifies an input that's about to be published.
@@ -2234,7 +2234,7 @@ func TestMarkInputsPublished(t *testing.T) {
 		PreviousOutPoint: wire.OutPoint{Index: 3},
 	}
 	s.pendingInputs[inputPendingPublish.PreviousOutPoint] = &pendingInput{
-		state: StatePendingPublish,
+		state: PendingPublish,
 	}
 
 	// First, check that when an error is returned from db, it's properly
@@ -2264,11 +2264,11 @@ func TestMarkInputsPublished(t *testing.T) {
 	require.Len(s.pendingInputs, 2)
 
 	// We expect the init input's state to stay unchanged.
-	require.Equal(StateInit,
+	require.Equal(Init,
 		s.pendingInputs[inputInit.PreviousOutPoint].state)
 
 	// We expect the pending-publish input's is now marked as published.
-	require.Equal(StatePublished,
+	require.Equal(Published,
 		s.pendingInputs[inputPendingPublish.PreviousOutPoint].state)
 
 	// Assert mocked statements are executed as expected.
@@ -2276,7 +2276,7 @@ func TestMarkInputsPublished(t *testing.T) {
 }
 
 // TestMarkInputsPublishFailed checks that given a list of inputs with
-// different states, only the state `StatePendingPublish` will be marked as
+// different states, only the state `PendingPublish` will be marked as
 // `PublishFailed`.
 func TestMarkInputsPublishFailed(t *testing.T) {
 	t.Parallel()
@@ -2306,7 +2306,7 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 		PreviousOutPoint: wire.OutPoint{Index: 2},
 	}
 	s.pendingInputs[inputInit.PreviousOutPoint] = &pendingInput{
-		state: StateInit,
+		state: Init,
 	}
 
 	// inputPendingPublish specifies an input that's about to be published.
@@ -2314,7 +2314,7 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 		PreviousOutPoint: wire.OutPoint{Index: 3},
 	}
 	s.pendingInputs[inputPendingPublish.PreviousOutPoint] = &pendingInput{
-		state: StatePendingPublish,
+		state: PendingPublish,
 	}
 
 	// Mark the test inputs. We expect the non-exist input and the
@@ -2330,12 +2330,12 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	require.Len(s.pendingInputs, 2)
 
 	// We expect the init input's state to stay unchanged.
-	require.Equal(StateInit,
+	require.Equal(Init,
 		s.pendingInputs[inputInit.PreviousOutPoint].state)
 
 	// We expect the pending-publish input's is now marked as publish
 	// failed.
-	require.Equal(StatePublishFailed,
+	require.Equal(PublishFailed,
 		s.pendingInputs[inputPendingPublish.PreviousOutPoint].state)
 
 	// Assert mocked statements are executed as expected.
@@ -2343,7 +2343,7 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 }
 
 // TestMarkInputsSwept checks that given a list of inputs with different
-// states, only the non-terminal state will be marked as `StateSwept`.
+// states, only the non-terminal state will be marked as `Swept`.
 func TestMarkInputsSwept(t *testing.T) {
 	t.Parallel()
 
@@ -2372,7 +2372,7 @@ func TestMarkInputsSwept(t *testing.T) {
 		PreviousOutPoint: wire.OutPoint{Index: 2},
 	}
 	s.pendingInputs[inputInit.PreviousOutPoint] = &pendingInput{
-		state: StateInit,
+		state: Init,
 		Input: mockInput,
 	}
 
@@ -2381,7 +2381,7 @@ func TestMarkInputsSwept(t *testing.T) {
 		PreviousOutPoint: wire.OutPoint{Index: 3},
 	}
 	s.pendingInputs[inputPendingPublish.PreviousOutPoint] = &pendingInput{
-		state: StatePendingPublish,
+		state: PendingPublish,
 		Input: mockInput,
 	}
 
@@ -2390,7 +2390,7 @@ func TestMarkInputsSwept(t *testing.T) {
 		PreviousOutPoint: wire.OutPoint{Index: 4},
 	}
 	s.pendingInputs[inputTerminated.PreviousOutPoint] = &pendingInput{
-		state: StateExcluded,
+		state: Excluded,
 		Input: mockInput,
 	}
 
@@ -2409,15 +2409,15 @@ func TestMarkInputsSwept(t *testing.T) {
 	require.Len(s.pendingInputs, 3)
 
 	// We expect the init input's state to become swept.
-	require.Equal(StateSwept,
+	require.Equal(Swept,
 		s.pendingInputs[inputInit.PreviousOutPoint].state)
 
 	// We expect the pending-publish becomes swept.
-	require.Equal(StateSwept,
+	require.Equal(Swept,
 		s.pendingInputs[inputPendingPublish.PreviousOutPoint].state)
 
 	// We expect the terminated to stay unchanged.
-	require.Equal(StateExcluded,
+	require.Equal(Excluded,
 		s.pendingInputs[inputTerminated.PreviousOutPoint].state)
 }
 
@@ -2481,13 +2481,13 @@ func TestUpdateSweeperInputs(t *testing.T) {
 	s := New(nil)
 
 	// Create a list of inputs using all the states.
-	input0 := &pendingInput{state: StateInit}
-	input1 := &pendingInput{state: StatePendingPublish}
-	input2 := &pendingInput{state: StatePublished}
-	input3 := &pendingInput{state: StatePublishFailed}
-	input4 := &pendingInput{state: StateSwept}
-	input5 := &pendingInput{state: StateExcluded}
-	input6 := &pendingInput{state: StateFailed}
+	input0 := &pendingInput{state: Init}
+	input1 := &pendingInput{state: PendingPublish}
+	input2 := &pendingInput{state: Published}
+	input3 := &pendingInput{state: PublishFailed}
+	input4 := &pendingInput{state: Swept}
+	input5 := &pendingInput{state: Excluded}
+	input6 := &pendingInput{state: Failed}
 
 	// Add the inputs to the sweeper. After the update, we should see the
 	// terminated inputs being removed.
@@ -2501,8 +2501,8 @@ func TestUpdateSweeperInputs(t *testing.T) {
 		{Index: 6}: input6,
 	}
 
-	// We expect the inputs with `StateSwept`, `StateExcluded`, and
-	// `StateFailed` to be removed.
+	// We expect the inputs with `Swept`, `Excluded`, and `Failed` to be
+	// removed.
 	expectedInputs := map[wire.OutPoint]*pendingInput{
 		{Index: 0}: input0,
 		{Index: 1}: input1,
@@ -2510,8 +2510,8 @@ func TestUpdateSweeperInputs(t *testing.T) {
 		{Index: 3}: input3,
 	}
 
-	// We expect only the inputs with `StateInit` and `StatePendingPublish`
-	// to be returned.
+	// We expect only the inputs with `Init` and `PendingPublish` to be
+	// returned.
 	expectedReturn := map[wire.OutPoint]*pendingInput{
 		{Index: 0}: input0,
 		{Index: 3}: input3,
@@ -2558,7 +2558,7 @@ func TestAttachAvailableRBFInfo(t *testing.T) {
 	// RBFInfo.
 	state, rbf := s.decideStateAndRBFInfo(op)
 	require.True(rbf.IsNone())
-	require.Equal(StateInit, state)
+	require.Equal(Init, state)
 
 	// Mock the mempool lookup to return a tx three times as we are calling
 	// attachAvailableRBFInfo three times.
@@ -2572,7 +2572,7 @@ func TestAttachAvailableRBFInfo(t *testing.T) {
 	// Although the db lookup failed, we expect the state to be Published.
 	state, rbf = s.decideStateAndRBFInfo(op)
 	require.True(rbf.IsNone())
-	require.Equal(StatePublished, state)
+	require.Equal(Published, state)
 
 	// Mock the store to return a db error.
 	dummyErr := errors.New("dummy error")
@@ -2581,7 +2581,7 @@ func TestAttachAvailableRBFInfo(t *testing.T) {
 	// Although the db lookup failed, we expect the state to be Published.
 	state, rbf = s.decideStateAndRBFInfo(op)
 	require.True(rbf.IsNone())
-	require.Equal(StatePublished, state)
+	require.Equal(Published, state)
 
 	// Mock the store to return a record.
 	tr := &TxRecord{
@@ -2602,7 +2602,7 @@ func TestAttachAvailableRBFInfo(t *testing.T) {
 	require.Equal(rbfInfo, rbf)
 
 	// Assert the state is updated.
-	require.Equal(StatePublished, state)
+	require.Equal(Published, state)
 }
 
 // TestMarkInputFailed checks that the input is marked as failed as expected.
@@ -2621,7 +2621,7 @@ func TestMarkInputFailed(t *testing.T) {
 
 	// Create a testing pending input.
 	pi := &pendingInput{
-		state: StateInit,
+		state: Init,
 		Input: mockInput,
 	}
 
@@ -2629,7 +2629,7 @@ func TestMarkInputFailed(t *testing.T) {
 	s.markInputFailed(pi, errors.New("dummy error"))
 
 	// Assert the state is updated.
-	require.Equal(t, StateFailed, pi.state)
+	require.Equal(t, Failed, pi.state)
 }
 
 // TestSweepPendingInputs checks that `sweepPendingInputs` correctly executes
@@ -2732,9 +2732,9 @@ func TestHandleBumpEventTxFailed(t *testing.T) {
 
 	// Construct the initial state for the sweeper.
 	s.pendingInputs = pendingInputs{
-		op1: &pendingInput{Input: input1, state: StatePendingPublish},
-		op2: &pendingInput{Input: input2, state: StatePendingPublish},
-		op3: &pendingInput{Input: input3, state: StatePendingPublish},
+		op1: &pendingInput{Input: input1, state: PendingPublish},
+		op2: &pendingInput{Input: input2, state: PendingPublish},
+		op3: &pendingInput{Input: input3, state: PendingPublish},
 	}
 
 	// Create a testing tx that spends the first two inputs.
@@ -2758,11 +2758,11 @@ func TestHandleBumpEventTxFailed(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assert the states of the first two inputs are updated.
-	require.Equal(t, StatePublishFailed, s.pendingInputs[op1].state)
-	require.Equal(t, StatePublishFailed, s.pendingInputs[op2].state)
+	require.Equal(t, PublishFailed, s.pendingInputs[op1].state)
+	require.Equal(t, PublishFailed, s.pendingInputs[op2].state)
 
 	// Assert the state of the third input is not updated.
-	require.Equal(t, StatePendingPublish, s.pendingInputs[op3].state)
+	require.Equal(t, PendingPublish, s.pendingInputs[op3].state)
 
 	// Assert the non-existing input is not added to the pending inputs.
 	require.NotContains(t, s.pendingInputs, opNotExist)
@@ -2791,7 +2791,7 @@ func TestHandleBumpEventTxReplaced(t *testing.T) {
 
 	// Construct the initial state for the sweeper.
 	s.pendingInputs = pendingInputs{
-		op: &pendingInput{Input: inp, state: StatePendingPublish},
+		op: &pendingInput{Input: inp, state: PendingPublish},
 	}
 
 	// Create a testing tx that spends the input.
@@ -2855,7 +2855,7 @@ func TestHandleBumpEventTxReplaced(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assert the state of the input is updated.
-	require.Equal(t, StatePublished, s.pendingInputs[op].state)
+	require.Equal(t, Published, s.pendingInputs[op].state)
 }
 
 // TestHandleBumpEventTxPublished checks that the sweeper correctly handles the
@@ -2881,7 +2881,7 @@ func TestHandleBumpEventTxPublished(t *testing.T) {
 
 	// Construct the initial state for the sweeper.
 	s.pendingInputs = pendingInputs{
-		op: &pendingInput{Input: inp, state: StatePendingPublish},
+		op: &pendingInput{Input: inp, state: PendingPublish},
 	}
 
 	// Create a testing tx that spends the input.
@@ -2909,7 +2909,7 @@ func TestHandleBumpEventTxPublished(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assert the state of the input is updated.
-	require.Equal(t, StatePublished, s.pendingInputs[op].state)
+	require.Equal(t, Published, s.pendingInputs[op].state)
 }
 
 // TestMonitorFeeBumpResult checks that the fee bump monitor loop correctly
@@ -2933,7 +2933,7 @@ func TestMonitorFeeBumpResult(t *testing.T) {
 
 	// Construct the initial state for the sweeper.
 	s.pendingInputs = pendingInputs{
-		op: &pendingInput{Input: inp, state: StatePendingPublish},
+		op: &pendingInput{Input: inp, state: PendingPublish},
 	}
 
 	// Create a testing tx that spends the input.

@@ -35,7 +35,7 @@ type testSenderHtlcScriptTree struct {
 }
 
 func newTestSenderHtlcScriptTree(t *testing.T,
-	auxLeaf fn.Option[txscript.TapLeaf]) *testSenderHtlcScriptTree {
+	auxLeaf AuxTapLeaf) *testSenderHtlcScriptTree {
 
 	var preImage lntypes.Preimage
 	_, err := rand.Read(preImage[:])
@@ -212,8 +212,7 @@ func htlcSenderTimeoutWitnessGen(sigHash txscript.SigHashType,
 	}
 }
 
-func testTaprootSenderHtlcSpend(t *testing.T,
-	auxLeaf fn.Option[txscript.TapLeaf]) {
+func testTaprootSenderHtlcSpend(t *testing.T, auxLeaf AuxTapLeaf) {
 
 	// First, create a new test script tree.
 	htlcScriptTree := newTestSenderHtlcScriptTree(t, auxLeaf)
@@ -443,7 +442,7 @@ func TestTaprootSenderHtlcSpend(t *testing.T) {
 	for _, hasAuxLeaf := range []bool{true, false} {
 		name := fmt.Sprintf("aux_leaf=%v", hasAuxLeaf)
 		t.Run(name, func(t *testing.T) {
-			var auxLeaf fn.Option[txscript.TapLeaf]
+			var auxLeaf AuxTapLeaf
 			if hasAuxLeaf {
 				auxLeaf = fn.Some(
 					txscript.NewBaseTapLeaf(
@@ -479,7 +478,7 @@ type testReceiverHtlcScriptTree struct {
 }
 
 func newTestReceiverHtlcScriptTree(t *testing.T,
-	auxLeaf fn.Option[txscript.TapLeaf]) *testReceiverHtlcScriptTree {
+	auxLeaf AuxTapLeaf) *testReceiverHtlcScriptTree {
 
 	var preImage lntypes.Preimage
 	_, err := rand.Read(preImage[:])
@@ -657,8 +656,7 @@ func htlcReceiverSuccessWitnessGen(sigHash txscript.SigHashType,
 	}
 }
 
-func testTaprootReceiverHtlcSpend(t *testing.T,
-	auxLeaf fn.Option[txscript.TapLeaf]) {
+func testTaprootReceiverHtlcSpend(t *testing.T, auxLeaf AuxTapLeaf) {
 
 	// We'll start by creating the HTLC script tree (contains all 3 valid
 	// spend paths), and also a mock spend transaction that we'll be
@@ -926,7 +924,7 @@ func TestTaprootReceiverHtlcSpend(t *testing.T) {
 	for _, hasAuxLeaf := range []bool{true, false} {
 		name := fmt.Sprintf("aux_leaf=%v", hasAuxLeaf)
 		t.Run(name, func(t *testing.T) {
-			var auxLeaf fn.Option[txscript.TapLeaf]
+			var auxLeaf AuxTapLeaf
 			if hasAuxLeaf {
 				auxLeaf = fn.Some(
 					txscript.NewBaseTapLeaf(
@@ -956,7 +954,7 @@ type testCommitScriptTree struct {
 }
 
 func newTestCommitScriptTree(local bool,
-	auxLeaf fn.Option[txscript.TapLeaf]) (*testCommitScriptTree, error) {
+	auxLeaf AuxTapLeaf) (*testCommitScriptTree, error) {
 
 	selfKey, err := btcec.NewPrivateKey()
 	if err != nil {
@@ -1073,8 +1071,7 @@ func localCommitRevokeWitGen(sigHash txscript.SigHashType,
 	}
 }
 
-func testTaprootCommitScriptToSelf(t *testing.T,
-	auxLeaf fn.Option[txscript.TapLeaf]) {
+func testTaprootCommitScriptToSelf(t *testing.T, auxLeaf AuxTapLeaf) {
 
 	commitScriptTree, err := newTestCommitScriptTree(true, auxLeaf)
 	require.NoError(t, err)
@@ -1246,7 +1243,7 @@ func TestTaprootCommitScriptToSelf(t *testing.T) {
 	for _, hasAuxLeaf := range []bool{true, false} {
 		name := fmt.Sprintf("aux_leaf=%v", hasAuxLeaf)
 		t.Run(name, func(t *testing.T) {
-			var auxLeaf fn.Option[txscript.TapLeaf]
+			var auxLeaf AuxTapLeaf
 			if hasAuxLeaf {
 				auxLeaf = fn.Some(
 					txscript.NewBaseTapLeaf(
@@ -1294,7 +1291,7 @@ func remoteCommitSweepWitGen(sigHash txscript.SigHashType,
 	}
 }
 
-func testTaprootCommitScriptRemote(t *testing.T, auxLeaf fn.Option[txscript.TapLeaf]) {
+func testTaprootCommitScriptRemote(t *testing.T, auxLeaf AuxTapLeaf) {
 
 	commitScriptTree, err := newTestCommitScriptTree(false, auxLeaf)
 	require.NoError(t, err)
@@ -1443,7 +1440,7 @@ func TestTaprootCommitScriptRemote(t *testing.T) {
 	for _, hasAuxLeaf := range []bool{true, false} {
 		name := fmt.Sprintf("aux_leaf=%v", hasAuxLeaf)
 		t.Run(name, func(t *testing.T) {
-			var auxLeaf fn.Option[txscript.TapLeaf]
+			var auxLeaf AuxTapLeaf
 			if hasAuxLeaf {
 				auxLeaf = fn.Some(
 					txscript.NewBaseTapLeaf(
@@ -1694,7 +1691,7 @@ type testSecondLevelHtlcTree struct {
 }
 
 func newTestSecondLevelHtlcTree(t *testing.T,
-	auxLeaf fn.Option[txscript.TapLeaf]) *testSecondLevelHtlcTree {
+	auxLeaf AuxTapLeaf) *testSecondLevelHtlcTree {
 
 	delayKey, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
@@ -1801,8 +1798,7 @@ func secondLevelHtlcRevokeWitnessgen(sigHash txscript.SigHashType,
 	}
 }
 
-func testTaprootSecondLevelHtlcScript(t *testing.T,
-	auxLeaf fn.Option[txscript.TapLeaf]) {
+func testTaprootSecondLevelHtlcScript(t *testing.T, auxLeaf AuxTapLeaf) {
 
 	htlcScriptTree := newTestSecondLevelHtlcTree(t, auxLeaf)
 
@@ -1973,7 +1969,7 @@ func TestTaprootSecondLevelHtlcScript(t *testing.T) {
 	for _, hasAuxLeaf := range []bool{true, false} {
 		name := fmt.Sprintf("aux_leaf=%v", hasAuxLeaf)
 		t.Run(name, func(t *testing.T) {
-			var auxLeaf fn.Option[txscript.TapLeaf]
+			var auxLeaf AuxTapLeaf
 			if hasAuxLeaf {
 				auxLeaf = fn.Some(
 					txscript.NewBaseTapLeaf(

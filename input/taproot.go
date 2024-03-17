@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/lightningnetwork/lnd/fn"
 )
 
 const (
@@ -20,6 +21,10 @@ const (
 	// incompatible crypto primitives) the package.
 	PubKeyFormatCompressedOdd byte = 0x03
 )
+
+// AuxTapLeaf is a type alias for an optional tapscript leaf that may be added
+// to the tapscript tree of HTLC and commitment outputs.
+type AuxTapLeaf = fn.Option[txscript.TapLeaf]
 
 // NewTxSigHashesV0Only returns a new txscript.TxSigHashes instance that will
 // only calculate the sighash midstate values for segwit v0 inputs and can

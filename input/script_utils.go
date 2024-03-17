@@ -677,7 +677,7 @@ type HtlcScriptTree struct {
 	// HTLC script tree with new spend paths, or just as extra commitment
 	// space. When present, this leaf will always be in the left-most or
 	// right-most area of the tapscript tree.
-	AuxLeaf fn.Option[txscript.TapLeaf]
+	AuxLeaf AuxTapLeaf
 
 	htlcType htlcType
 }
@@ -755,8 +755,7 @@ var _ TapscriptDescriptor = (*HtlcScriptTree)(nil)
 // the HTLC key for HTLCs on the sender's commitment.
 func senderHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 	revokeKey *btcec.PublicKey, payHash []byte,
-	hType htlcType,
-	auxLeaf fn.Option[txscript.TapLeaf]) (*HtlcScriptTree, error) {
+	hType htlcType, auxLeaf AuxTapLeaf) (*HtlcScriptTree, error) {
 
 	// First, we'll obtain the tap leaves for both the success and timeout
 	// path.
@@ -836,8 +835,7 @@ func senderHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 // unilaterally spend the created output.
 func SenderHTLCScriptTaproot(senderHtlcKey, receiverHtlcKey,
 	revokeKey *btcec.PublicKey, payHash []byte,
-	localCommit bool,
-	auxLeaf fn.Option[txscript.TapLeaf]) (*HtlcScriptTree, error) {
+	localCommit bool, auxLeaf AuxTapLeaf) (*HtlcScriptTree, error) {
 
 	var hType htlcType
 	if localCommit {
@@ -1321,9 +1319,8 @@ func ReceiverHtlcTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
 // receiverHtlcTapScriptTree builds the tapscript tree which is used to anchor
 // the HTLC key for HTLCs on the receiver's commitment.
 func receiverHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
-	revokeKey *btcec.PublicKey, payHash []byte,
-	cltvExpiry uint32, hType htlcType,
-	auxLeaf fn.Option[txscript.TapLeaf]) (*HtlcScriptTree, error) {
+	revokeKey *btcec.PublicKey, payHash []byte, cltvExpiry uint32,
+	hType htlcType, auxLeaf AuxTapLeaf) (*HtlcScriptTree, error) {
 
 	// First, we'll obtain the tap leaves for both the success and timeout
 	// path.
@@ -1404,7 +1401,7 @@ func receiverHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 func ReceiverHTLCScriptTaproot(cltvExpiry uint32,
 	senderHtlcKey, receiverHtlcKey, revocationKey *btcec.PublicKey,
 	payHash []byte, ourCommit bool,
-	auxLeaf fn.Option[txscript.TapLeaf]) (*HtlcScriptTree, error) {
+	auxLeaf AuxTapLeaf) (*HtlcScriptTree, error) {
 
 	var hType htlcType
 	if ourCommit {
@@ -1650,7 +1647,7 @@ func TaprootSecondLevelTapLeaf(delayKey *btcec.PublicKey,
 // generate the taptweak to create the final output and also control block.
 func SecondLevelHtlcTapscriptTree(delayKey *btcec.PublicKey,
 	csvDelay uint32,
-	auxLeaf fn.Option[txscript.TapLeaf]) (*txscript.IndexedTapScriptTree, error) {
+	auxLeaf AuxTapLeaf) (*txscript.IndexedTapScriptTree, error) {
 
 	// First grab the second level leaf script we need to create the top
 	// level output.
@@ -1686,8 +1683,7 @@ func SecondLevelHtlcTapscriptTree(delayKey *btcec.PublicKey,
 //
 // The keyspend path require knowledge of the top level revocation private key.
 func TaprootSecondLevelHtlcScript(revokeKey, delayKey *btcec.PublicKey,
-	csvDelay uint32,
-	auxLeaf fn.Option[txscript.TapLeaf]) (*btcec.PublicKey, error) {
+	csvDelay uint32, auxLeaf AuxTapLeaf) (*btcec.PublicKey, error) {
 
 	// First, we'll make the tapscript tree that commits to the redemption
 	// path.
@@ -1720,14 +1716,13 @@ type SecondLevelScriptTree struct {
 
 	// AuxLeaf is an optional leaf that can be used to extend the script
 	// tree.
-	AuxLeaf fn.Option[txscript.TapLeaf]
+	AuxLeaf AuxTapLeaf
 }
 
 // TaprootSecondLevelScriptTree constructs the tapscript tree used to spend the
 // second level HTLC output.
 func TaprootSecondLevelScriptTree(revokeKey, delayKey *btcec.PublicKey,
-	csvDelay uint32,
-	auxLeaf fn.Option[txscript.TapLeaf]) (*SecondLevelScriptTree, error) {
+	csvDelay uint32, auxLeaf AuxTapLeaf) (*SecondLevelScriptTree, error) {
 
 	// First, we'll make the tapscript tree that commits to the redemption
 	// path.
@@ -2137,7 +2132,7 @@ type CommitScriptTree struct {
 	// left-most or right-most area of the tapscript tree.
 	//
 	// TODO(roasbeeF): need to ensure commitment position...
-	AuxLeaf fn.Option[txscript.TapLeaf]
+	AuxLeaf AuxTapLeaf
 }
 
 // A compile time check to ensure CommitScriptTree implements the
@@ -2199,7 +2194,7 @@ func (c *CommitScriptTree) CtrlBlockForPath(path ScriptPath,
 // create and spend the commitment output for the local party.
 func NewLocalCommitScriptTree(csvTimeout uint32,
 	selfKey, revokeKey *btcec.PublicKey,
-	auxLeaf fn.Option[txscript.TapLeaf]) (*CommitScriptTree, error) {
+	auxLeaf AuxTapLeaf) (*CommitScriptTree, error) {
 
 	// First, we'll need to construct the tapLeaf that'll be our delay CSV
 	// clause.
@@ -2644,7 +2639,7 @@ func CommitScriptToRemoteConfirmed(key *btcec.PublicKey) ([]byte, error) {
 // NewRemoteCommitScriptTree constructs a new script tree for the remote party
 // to sweep their funds after a hard coded 1 block delay.
 func NewRemoteCommitScriptTree(remoteKey *btcec.PublicKey,
-	auxLeaf fn.Option[txscript.TapLeaf]) (*CommitScriptTree, error) {
+	auxLeaf AuxTapLeaf) (*CommitScriptTree, error) {
 
 	// First, construct the remote party's tapscript they'll use to sweep
 	// their outputs.
@@ -2703,7 +2698,7 @@ func NewRemoteCommitScriptTree(remoteKey *btcec.PublicKey,
 //	<remotepubkey> OP_CHECKSIG
 //	1 OP_CHECKSEQUENCEVERIFY OP_DROP
 func TaprootCommitScriptToRemote(remoteKey *btcec.PublicKey,
-	auxLeaf fn.Option[txscript.TapLeaf]) (*btcec.PublicKey, error) {
+	auxLeaf AuxTapLeaf) (*btcec.PublicKey, error) {
 
 	commitScriptTree, err := NewRemoteCommitScriptTree(remoteKey, auxLeaf)
 	if err != nil {

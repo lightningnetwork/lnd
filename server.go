@@ -1063,9 +1063,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	aggregator := sweep.NewSimpleUtxoAggregator(
-		cc.FeeEstimator, cfg.Sweeper.MaxFeeRate.FeePerKWeight(),
-		sweep.DefaultMaxInputsPerTx,
+	aggregator := sweep.NewBudgetAggregator(
+		cc.FeeEstimator, sweep.DefaultMaxInputsPerTx,
 	)
 
 	s.txPublisher = sweep.NewTxPublisher(sweep.TxPublisherConfig{

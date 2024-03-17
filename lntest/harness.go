@@ -396,7 +396,7 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	st.resetStandbyNodes(t)
 
 	// Reset fee estimator.
-	st.SetFeeEstimate(DefaultFeeRateSatPerKw)
+	st.feeService.Reset()
 
 	// Record block height.
 	_, startHeight := h.Miner.GetBestBlock()

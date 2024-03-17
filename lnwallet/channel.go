@@ -1255,6 +1255,10 @@ type LightningChannel struct {
 	// machine.
 	Signer input.Signer
 
+	// leafStore is used to retrieve extra tapscript leaves for special
+	// custom channel types.
+	leafStore fn.Option[AuxLeafStore]
+
 	// signDesc is the primary sign descriptor that is capable of signing
 	// the commitment transaction that spends the multi-sig output.
 	signDesc *input.SignDescriptor
@@ -1330,6 +1334,8 @@ type channelOpts struct {
 	localNonce  *musig2.Nonces
 	remoteNonce *musig2.Nonces
 
+	leafStore fn.Option[AuxLeafStore]
+
 	skipNonceInit bool
 }
 
@@ -1357,6 +1363,13 @@ func WithRemoteMusigNonces(nonces *musig2.Nonces) ChannelOpt {
 func WithSkipNonceInit() ChannelOpt {
 	return func(o *channelOpts) {
 		o.skipNonceInit = true
+	}
+}
+
+// WithLeafStore is used to specify a custom leaf store for the channel.
+func WithLeafStore(store AuxLeafStore) ChannelOpt {
+	return func(o *channelOpts) {
+		o.leafStore = fn.Some[AuxLeafStore](store)
 	}
 }
 
@@ -1401,13 +1414,16 @@ func NewLightningChannel(signer input.Signer,
 	}
 
 	lc := &LightningChannel{
-		Signer:               signer,
-		sigPool:              sigPool,
-		currentHeight:        localCommit.CommitHeight,
-		remoteCommitChain:    newCommitmentChain(),
-		localCommitChain:     newCommitmentChain(),
-		channelState:         state,
-		commitBuilder:        NewCommitmentBuilder(state),
+		Signer:            signer,
+		leafStore:         opts.leafStore,
+		sigPool:           sigPool,
+		currentHeight:     localCommit.CommitHeight,
+		remoteCommitChain: newCommitmentChain(),
+		localCommitChain:  newCommitmentChain(),
+		channelState:      state,
+		commitBuilder: NewCommitmentBuilder(
+			state, opts.leafStore,
+		),
 		localUpdateLog:       localUpdateLog,
 		remoteUpdateLog:      remoteUpdateLog,
 		Capacity:             state.Capacity,
@@ -2448,12 +2464,14 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		leaseExpiry = chanState.ThawHeight
 	}
 
+	// TODO(roasbeef): fetch aux leave
+
 	// Since it is the remote breach we are reconstructing, the output
 	// going to us will be a to-remote script with our local params.
 	isRemoteInitiator := !chanState.IsInitiator
 	ourScript, ourDelay, err := CommitScriptToRemote(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
-		leaseExpiry,
+		leaseExpiry, fn.None[txscript.TapLeaf](),
 	)
 	if err != nil {
 		return nil, err
@@ -2463,6 +2481,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	theirScript, err := CommitScriptToSelf(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToLocalKey,
 		keyRing.RevocationKey, theirDelay, leaseExpiry,
+		fn.None[txscript.TapLeaf](),
 	)
 	if err != nil {
 		return nil, err
@@ -5802,7 +5821,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// before the change since the indexes are meant for the current,
 	// revoked remote commitment.
 	ourOutputIndex, theirOutputIndex, err := findOutputIndexesFromRemote(
-		revocation, lc.channelState,
+		revocation, lc.channelState, lc.leafStore,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -6682,12 +6701,14 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 
 	commitTxBroadcast := commitSpend.SpendingTx
 
+	// TODO(roasbeef): fetch aux leave
+
 	// Before we can generate the proper sign descriptor, we'll need to
 	// locate the output index of our non-delayed output on the commitment
 	// transaction.
 	selfScript, maturityDelay, err := CommitScriptToRemote(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
-		leaseExpiry,
+		leaseExpiry, fn.None[txscript.TapLeaf](),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create self commit "+
@@ -7629,6 +7650,8 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
 	)
 
+	// TODO(roasbeef): fetch aux leave
+
 	var leaseExpiry uint32
 	if chanState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = chanState.ThawHeight
@@ -7636,6 +7659,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	toLocalScript, err := CommitScriptToSelf(
 		chanState.ChanType, chanState.IsInitiator, keyRing.ToLocalKey,
 		keyRing.RevocationKey, csvTimeout, leaseExpiry,
+		fn.None[txscript.TapLeaf](),
 	)
 	if err != nil {
 		return nil, err

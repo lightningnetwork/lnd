@@ -690,6 +690,8 @@ type ChannelCommitment struct {
 	// commitment height.
 	Htlcs []HTLC
 
+	// TODO(roasbeef): custom blob
+
 	// TODO(roasbeef): pending commit pointer?
 	//  * lets just walk through
 }
@@ -993,6 +995,8 @@ type OpenChannel struct {
 	// specific to a custom channel type. This information is only created
 	// at channel funding time, and after wards is to be considered
 	// immutable.
+	//
+	// TODO(roasbeef): move to each commit?
 	CustomBlob fn.Option[tlv.Blob]
 
 	// TODO(roasbeef): eww
@@ -2737,6 +2741,8 @@ func serializeCommitDiff(w io.Writer, diff *CommitDiff) error { // nolint: dupl
 			return err
 		}
 	}
+
+	// TODO(roasbeef): add TLV space
 
 	return nil
 }

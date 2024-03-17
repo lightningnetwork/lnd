@@ -496,10 +496,12 @@ type clusterGroup map[fn.Option[int32]][]SweeperInput
 
 // ClusterInputs creates a list of input sets from pending inputs.
 // 1. filter out inputs whose budget cannot cover min relay fee.
-// 2. group the inputs into clusters based on their deadline height.
-// 3. sort the inputs in each cluster by their budget.
-// 4. optionally split a cluster if it exceeds the max input limit.
-// 5. create input sets from each of the clusters.
+// 2. filter a list of exclusive inputs.
+// 3. group the inputs into clusters based on their deadline height.
+// 4. sort the inputs in each cluster by their budget.
+// 5. optionally split a cluster if it exceeds the max input limit.
+// 6. create input sets from each of the clusters.
+// 7. create input sets for each of the exclusive inputs.
 func (b *BudgetAggregator) ClusterInputs(inputs InputsMap) []InputSet {
 	// Filter out inputs that have a budget below min relay fee.
 	filteredInputs := b.filterInputs(inputs)
@@ -507,9 +509,22 @@ func (b *BudgetAggregator) ClusterInputs(inputs InputsMap) []InputSet {
 	// Create clusters to group inputs based on their deadline height.
 	clusters := make(clusterGroup, len(filteredInputs))
 
+	// exclusiveInputs is a set of inputs that are not to be included in
+	// any cluster. These inputs can only be swept independently as there's
+	// no guarantee which input will be confirmed first, which means
+	// grouping exclusive inputs may jeopardize non-exclusive inputs.
+	exclusiveInputs := make(InputsMap)
+
 	// Iterate all the inputs and group them based on their specified
 	// deadline heights.
 	for _, input := range filteredInputs {
+		// Put exclusive inputs in their own set.
+		if input.params.ExclusiveGroup != nil {
+			log.Tracef("Input %v is exclusive", input.OutPoint())
+			exclusiveInputs[*input.OutPoint()] = input
+			continue
+		}
+
 		height := input.params.DeadlineHeight
 		cluster, ok := clusters[height]
 		if !ok {
@@ -531,6 +546,12 @@ func (b *BudgetAggregator) ClusterInputs(inputs InputsMap) []InputSet {
 
 		// Create input sets from the cluster.
 		sets := b.createInputSets(sortedInputs)
+		inputSets = append(inputSets, sets...)
+	}
+
+	// Create input sets from the exclusive inputs.
+	for _, input := range exclusiveInputs {
+		sets := b.createInputSets([]SweeperInput{*input})
 		inputSets = append(inputSets, sets...)
 	}
 

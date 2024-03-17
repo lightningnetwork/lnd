@@ -451,7 +451,8 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Allow some deviation because weight estimates during tx generation
 	// are estimates.
-	require.InEpsilon(ht, expectedFeeRate, feeRate, 0.005)
+	require.InEpsilonf(ht, expectedFeeRate, feeRate, 0.005, "fee rate not "+
+		"match: want %v, got %v", expectedFeeRate, feeRate)
 
 	// Find alice's commit sweep and anchor sweep (if present) in the
 	// mempool.

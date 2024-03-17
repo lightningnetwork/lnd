@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -631,6 +632,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	commitmentTx, err := CreateCommitTx(
 		channelType, *fakeFundingTxIn, keyRing, aliceChanCfg,
 		bobChanCfg, channelBalance, channelBalance, 0, true, 0,
+		fn.None[CommitAuxLeaves](),
 	)
 	if err != nil {
 		t.Fatalf("unable to create commitment transaction: %v", nil)

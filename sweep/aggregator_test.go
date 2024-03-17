@@ -762,10 +762,10 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	wt := &input.MockWitnessType{}
 	defer wt.AssertExpectations(t)
 
-	// Mock the `SizeUpperBound` method to return the size six times since
-	// we are using nine inputs.
+	// Mock the `SizeUpperBound` method to return the size 10 times since
+	// we are using ten inputs.
 	const wtSize = 100
-	wt.On("SizeUpperBound").Return(wtSize, true, nil).Times(9)
+	wt.On("SizeUpperBound").Return(wtSize, true, nil).Times(10)
 	wt.On("String").Return("mock witness type")
 
 	// Mock the estimator to return a constant fee rate.
@@ -787,6 +787,36 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 
 	// Create testing pending inputs.
 	inputs := make(InputsMap)
+
+	// Create a mock input that is exclusive.
+	inpExclusive := &input.MockInput{}
+	defer inpExclusive.AssertExpectations(t)
+
+	// We expect the high budget input to call this method three times,
+	// 1. in `filterInputs`
+	// 2. in `createInputSet`
+	// 3. when assigning the input to the exclusiveInputs.
+	// 4. when iterating the exclusiveInputs.
+	opExclusive := wire.OutPoint{Hash: chainhash.Hash{1, 2, 3, 4, 5}}
+	inpExclusive.On("OutPoint").Return(&opExclusive).Times(4)
+
+	// Mock the `WitnessType` method to return the witness type.
+	inpExclusive.On("WitnessType").Return(wt)
+
+	// Mock the `RequiredTxOut` to return nil.
+	inpExclusive.On("RequiredTxOut").Return(nil)
+
+	// Add the exclusive input to the inputs map. We expect this input to
+	// be in its own input set although it has deadline1.
+	exclusiveGroup := uint64(123)
+	inputs[opExclusive] = &SweeperInput{
+		Input: inpExclusive,
+		params: Params{
+			Budget:         budgetHigh,
+			DeadlineHeight: deadline1,
+			ExclusiveGroup: &exclusiveGroup,
+		},
+	}
 
 	// For each deadline height, create two inputs with different budgets,
 	// one below the min fee rate and one above it. We should see the lower
@@ -871,12 +901,17 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	// Call the method under test.
 	result := b.ClusterInputs(inputs)
 
-	// We expect three input sets to be returned, one for each deadline.
-	require.Len(t, result, 3)
+	// We expect four input sets to be returned, one for each deadline and
+	// extra one for the exclusive input.
+	require.Len(t, result, 4)
 
-	// Check each input set has exactly two inputs.
+	// The last set should be the exclusive input that has only one input.
+	setExclusive := result[3]
+	require.Len(t, setExclusive.Inputs(), 1)
+
+	// Check the each of rest has exactly two inputs.
 	deadlines := make(map[fn.Option[int32]]struct{})
-	for _, set := range result {
+	for _, set := range result[:3] {
 		// We expect two inputs in each set.
 		require.Len(t, set.Inputs(), 2)
 

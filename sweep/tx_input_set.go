@@ -402,7 +402,7 @@ func (t *txInputSet) add(input input.Input, constraints addConstraints) bool {
 // up the utxo set even if it costs us some fees up front.  In the spirit of
 // minimizing any negative externalities we cause for the Bitcoin system as a
 // whole.
-func (t *txInputSet) addPositiveYieldInputs(sweepableInputs []*pendingInput) {
+func (t *txInputSet) addPositiveYieldInputs(sweepableInputs []*SweeperInput) {
 	for i, inp := range sweepableInputs {
 		// Apply relaxed constraints for force sweeps.
 		constraints := constraintsRegular
@@ -549,7 +549,7 @@ func createWalletTxInput(utxo *lnwallet.Utxo) (input.Input, error) {
 type BudgetInputSet struct {
 	// inputs is the set of inputs that have been added to the set after
 	// considering their economical contribution.
-	inputs []*pendingInput
+	inputs []*SweeperInput
 
 	// deadlineHeight is the height which the inputs in this set must be
 	// confirmed by.
@@ -561,7 +561,7 @@ var _ InputSet = (*BudgetInputSet)(nil)
 
 // validateInputs is used when creating new BudgetInputSet to ensure there are
 // no duplicate inputs and they all share the same deadline heights, if set.
-func validateInputs(inputs []pendingInput) error {
+func validateInputs(inputs []SweeperInput) error {
 	// Sanity check the input slice to ensure it's non-empty.
 	if len(inputs) == 0 {
 		return fmt.Errorf("inputs slice is empty")
@@ -597,7 +597,7 @@ func validateInputs(inputs []pendingInput) error {
 }
 
 // NewBudgetInputSet creates a new BudgetInputSet.
-func NewBudgetInputSet(inputs []pendingInput) (*BudgetInputSet, error) {
+func NewBudgetInputSet(inputs []SweeperInput) (*BudgetInputSet, error) {
 	// Validate the supplied inputs.
 	if err := validateInputs(inputs); err != nil {
 		return nil, err
@@ -611,7 +611,7 @@ func NewBudgetInputSet(inputs []pendingInput) (*BudgetInputSet, error) {
 	deadlineHeight := inputs[0].params.DeadlineHeight
 	bi := &BudgetInputSet{
 		deadlineHeight: deadlineHeight,
-		inputs:         make([]*pendingInput, 0, len(inputs)),
+		inputs:         make([]*SweeperInput, 0, len(inputs)),
 	}
 
 	for _, input := range inputs {
@@ -640,7 +640,7 @@ func (b *BudgetInputSet) String() string {
 }
 
 // addInput adds an input to the input set.
-func (b *BudgetInputSet) addInput(input pendingInput) {
+func (b *BudgetInputSet) addInput(input SweeperInput) {
 	b.inputs = append(b.inputs, &input)
 }
 
@@ -695,8 +695,8 @@ func (b *BudgetInputSet) NeedWalletInput() bool {
 }
 
 // copyInputs returns a copy of the slice of the inputs in the set.
-func (b *BudgetInputSet) copyInputs() []*pendingInput {
-	inputs := make([]*pendingInput, len(b.inputs))
+func (b *BudgetInputSet) copyInputs() []*SweeperInput {
+	inputs := make([]*SweeperInput, len(b.inputs))
 	copy(inputs, b.inputs)
 	return inputs
 }
@@ -745,7 +745,7 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 			return err
 		}
 
-		pi := pendingInput{
+		pi := SweeperInput{
 			Input: input,
 			params: Params{
 				// Inherit the deadline height from the input

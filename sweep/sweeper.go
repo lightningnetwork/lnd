@@ -307,9 +307,9 @@ type UtxoSweeper struct {
 	// callers who wish to bump the fee rate of a given input.
 	updateReqs chan *updateReq
 
-	// pendingInputs is the total set of inputs the UtxoSweeper has been
-	// requested to sweep.
-	pendingInputs pendingInputs
+	// inputs is the total set of inputs the UtxoSweeper has been requested
+	// to sweep.
+	inputs pendingInputs
 
 	currentOutputScript []byte
 
@@ -408,7 +408,7 @@ func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 		updateReqs:        make(chan *updateReq),
 		pendingSweepsReqs: make(chan *pendingSweepsReq),
 		quit:              make(chan struct{}),
-		pendingInputs:     make(pendingInputs),
+		inputs:            make(pendingInputs),
 		bumpResultChan:    make(chan *BumpResult, 100),
 	}
 }
@@ -724,7 +724,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 // them from being part of future sweep transactions that would fail. In
 // addition sweep transactions of those inputs will be removed from the wallet.
 func (s *UtxoSweeper) removeExclusiveGroup(group uint64) {
-	for outpoint, input := range s.pendingInputs {
+	for outpoint, input := range s.inputs {
 		outpoint := outpoint
 
 		// Skip inputs that aren't exclusive.
@@ -860,7 +860,7 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 func (s *UtxoSweeper) markInputsPendingPublish(set InputSet) {
 	// Reschedule sweep.
 	for _, input := range set.Inputs() {
-		pi, ok := s.pendingInputs[*input.OutPoint()]
+		pi, ok := s.inputs[*input.OutPoint()]
 		if !ok {
 			// It could be that this input is an additional wallet
 			// input that was attached. In that case there also
@@ -909,7 +909,7 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord,
 
 	// Reschedule sweep.
 	for _, input := range inputs {
-		pi, ok := s.pendingInputs[input.PreviousOutPoint]
+		pi, ok := s.inputs[input.PreviousOutPoint]
 		if !ok {
 			// It could be that this input is an additional wallet
 			// input that was attached. In that case there also
@@ -941,7 +941,7 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord,
 func (s *UtxoSweeper) markInputsPublishFailed(outpoints []wire.OutPoint) {
 	// Reschedule sweep.
 	for _, op := range outpoints {
-		pi, ok := s.pendingInputs[op]
+		pi, ok := s.inputs[op]
 		if !ok {
 			// It could be that this input is an additional wallet
 			// input that was attached. In that case there also
@@ -1039,8 +1039,8 @@ func (s *UtxoSweeper) PendingInputs() (map[wire.OutPoint]*PendingInput, error) {
 func (s *UtxoSweeper) handlePendingSweepsReq(
 	req *pendingSweepsReq) map[wire.OutPoint]*PendingInput {
 
-	pendingInputs := make(map[wire.OutPoint]*PendingInput, len(s.pendingInputs))
-	for _, pendingInput := range s.pendingInputs {
+	pendingInputs := make(map[wire.OutPoint]*PendingInput, len(s.inputs))
+	for _, pendingInput := range s.inputs {
 		// Only the exported fields are set, as we expect the response
 		// to only be consumed externally.
 		op := *pendingInput.OutPoint()
@@ -1117,7 +1117,7 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 	// batched with others which also have a similar fee rate, creating a
 	// higher fee rate transaction that replaces the original input's
 	// sweeping transaction.
-	pendingInput, ok := s.pendingInputs[req.input]
+	pendingInput, ok := s.inputs[req.input]
 	if !ok {
 		return nil, lnwallet.ErrNotMine
 	}
@@ -1212,7 +1212,7 @@ func (s *UtxoSweeper) mempoolLookup(op wire.OutPoint) fn.Option[wire.MsgTx] {
 // scheduling sweeping for it.
 func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 	outpoint := *input.input.OutPoint()
-	pi, pending := s.pendingInputs[outpoint]
+	pi, pending := s.inputs[outpoint]
 	if pending {
 		log.Debugf("Already has pending input %v received", outpoint)
 
@@ -1237,9 +1237,8 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 		rbf:       rbfInfo,
 	}
 
-	s.pendingInputs[outpoint] = pi
-	log.Tracef("input %v, state=%v, added to pendingInputs", outpoint,
-		pi.state)
+	s.inputs[outpoint] = pi
+	log.Tracef("input %v, state=%v, added to inputs", outpoint, pi.state)
 
 	// Start watching for spend of this input, either by us or the remote
 	// party.
@@ -1416,7 +1415,7 @@ func (s *UtxoSweeper) markInputsSwept(tx *wire.MsgTx, isOurTx bool) {
 		// unknown if we canceled the registration, deleted from
 		// pendingInputs but the ntfn was in-flight already. Or this
 		// could be not one of our inputs.
-		input, ok := s.pendingInputs[outpoint]
+		input, ok := s.inputs[outpoint]
 		if !ok {
 			// It's very likely that a spending tx contains inputs
 			// that we don't know.
@@ -1487,7 +1486,7 @@ func (s *UtxoSweeper) updateSweeperInputs() pendingInputs {
 	// locks are needed to access the map. However, it'd be safer if we
 	// turn this pendingInputs into a SyncMap in case we wanna add
 	// concurrent access to the map in the future.
-	for op, input := range s.pendingInputs {
+	for op, input := range s.inputs {
 		// If the input has reached a final state, that it's either
 		// been swept, or failed, or excluded, we will remove it from
 		// our sweeper.
@@ -1495,7 +1494,7 @@ func (s *UtxoSweeper) updateSweeperInputs() pendingInputs {
 			log.Debugf("Removing input(State=%v) %v from sweeper",
 				input.state, op)
 
-			delete(s.pendingInputs, op)
+			delete(s.inputs, op)
 
 			continue
 		}

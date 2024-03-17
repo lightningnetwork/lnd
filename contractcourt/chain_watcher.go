@@ -431,7 +431,7 @@ func (c *chainWatcher) handleUnknownLocalState(
 	}
 	remoteScript, _, err := lnwallet.CommitScriptToRemote(
 		c.cfg.chanState.ChanType, c.cfg.chanState.IsInitiator,
-		commitKeyRing.ToRemoteKey, leaseExpiry,
+		commitKeyRing.ToRemoteKey, leaseExpiry, input.NoneTapLeaf(),
 	)
 	if err != nil {
 		return false, err
@@ -444,6 +444,7 @@ func (c *chainWatcher) handleUnknownLocalState(
 		c.cfg.chanState.ChanType, c.cfg.chanState.IsInitiator,
 		commitKeyRing.ToLocalKey, commitKeyRing.RevocationKey,
 		uint32(c.cfg.chanState.LocalChanCfg.CsvDelay), leaseExpiry,
+		input.NoneTapLeaf(),
 	)
 	if err != nil {
 		return false, err

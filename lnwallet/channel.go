@@ -804,6 +804,10 @@ type LightningChannel struct {
 	// machine.
 	Signer input.Signer
 
+	// leafStore is used to retrieve extra tapscript leaves for special
+	// custom channel types.
+	leafStore fn.Option[AuxLeafStore]
+
 	// signDesc is the primary sign descriptor that is capable of signing
 	// the commitment transaction that spends the multi-sig output.
 	signDesc *input.SignDescriptor
@@ -879,6 +883,8 @@ type channelOpts struct {
 	localNonce  *musig2.Nonces
 	remoteNonce *musig2.Nonces
 
+	leafStore fn.Option[AuxLeafStore]
+
 	skipNonceInit bool
 }
 
@@ -906,6 +912,13 @@ func WithRemoteMusigNonces(nonces *musig2.Nonces) ChannelOpt {
 func WithSkipNonceInit() ChannelOpt {
 	return func(o *channelOpts) {
 		o.skipNonceInit = true
+	}
+}
+
+// WithLeafStore is used to specify a custom leaf store for the channel.
+func WithLeafStore(store AuxLeafStore) ChannelOpt {
+	return func(o *channelOpts) {
+		o.leafStore = fn.Some[AuxLeafStore](store)
 	}
 }
 
@@ -950,13 +963,16 @@ func NewLightningChannel(signer input.Signer,
 	}
 
 	lc := &LightningChannel{
-		Signer:               signer,
-		sigPool:              sigPool,
-		currentHeight:        localCommit.CommitHeight,
-		remoteCommitChain:    newCommitmentChain(),
-		localCommitChain:     newCommitmentChain(),
-		channelState:         state,
-		commitBuilder:        NewCommitmentBuilder(state),
+		Signer:            signer,
+		leafStore:         opts.leafStore,
+		sigPool:           sigPool,
+		currentHeight:     localCommit.CommitHeight,
+		remoteCommitChain: newCommitmentChain(),
+		localCommitChain:  newCommitmentChain(),
+		channelState:      state,
+		commitBuilder: NewCommitmentBuilder(
+			state, opts.leafStore,
+		),
 		localUpdateLog:       localUpdateLog,
 		remoteUpdateLog:      remoteUpdateLog,
 		Capacity:             state.Capacity,
@@ -1988,12 +2004,14 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		leaseExpiry = chanState.ThawHeight
 	}
 
+	// TODO(roasbeef): Actually fetch aux leaves (later commits in this PR).
+
 	// Since it is the remote breach we are reconstructing, the output
 	// going to us will be a to-remote script with our local params.
 	isRemoteInitiator := !chanState.IsInitiator
 	ourScript, ourDelay, err := CommitScriptToRemote(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
-		leaseExpiry,
+		leaseExpiry, input.NoneTapLeaf(),
 	)
 	if err != nil {
 		return nil, err
@@ -2003,6 +2021,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	theirScript, err := CommitScriptToSelf(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToLocalKey,
 		keyRing.RevocationKey, theirDelay, leaseExpiry,
+		input.NoneTapLeaf(),
 	)
 	if err != nil {
 		return nil, err
@@ -2560,7 +2579,8 @@ func (lc *LightningChannel) fetchCommitmentView(
 	// Actually generate unsigned commitment transaction for this view.
 	commitTx, err := lc.commitBuilder.createUnsignedCommitmentTx(
 		ourBalance, theirBalance, whoseCommitChain, feePerKw,
-		nextHeight, filteredHTLCView, keyRing,
+		nextHeight, htlcView, filteredHTLCView, keyRing,
+		commitChain.tip(),
 	)
 	if err != nil {
 		return nil, err
@@ -2595,6 +2615,23 @@ func (lc *LightningChannel) fetchCommitmentView(
 			effFeeRate, spew.Sdump(commitTx))
 	}
 
+	// Given the custom blob of the past state, and this new HTLC view,
+	// we'll generate a new blob for the latest commitment.
+	newCommitBlob, err := fn.MapOptionZ(
+		lc.leafStore,
+		func(s AuxLeafStore) fn.Result[fn.Option[tlv.Blob]] {
+			return updateAuxBlob(
+				s, lc.channelState,
+				commitChain.tip().customBlob, htlcView,
+				whoseCommitChain, ourBalance, theirBalance,
+				*keyRing,
+			)
+		},
+	).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
+
 	// With the commitment view created, store the resulting balances and
 	// transaction with the other parameters for this height.
 	c := &commitment{
@@ -2610,6 +2647,7 @@ func (lc *LightningChannel) fetchCommitmentView(
 		feePerKw:          feePerKw,
 		dustLimit:         dustLimit,
 		whoseCommit:       whoseCommitChain,
+		customBlob:        newCommitBlob,
 	}
 
 	// In order to ensure _none_ of the HTLC's associated with this new
@@ -2703,6 +2741,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 		if mutateState && entry.EntryType == Settle &&
 			whoseCommitChain.IsLocal() &&
 			entry.removeCommitHeightLocal == 0 {
+
 			lc.channelState.TotalMSatReceived += entry.Amount
 		}
 
@@ -5398,7 +5437,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// before the change since the indexes are meant for the current,
 	// revoked remote commitment.
 	ourOutputIndex, theirOutputIndex, err := findOutputIndexesFromRemote(
-		revocation, lc.channelState,
+		revocation, lc.channelState, lc.leafStore,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -6286,12 +6325,14 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 
 	commitTxBroadcast := commitSpend.SpendingTx
 
+	// TODO(roasbeef): Actually fetch aux leaves (later commits in this PR).
+
 	// Before we can generate the proper sign descriptor, we'll need to
 	// locate the output index of our non-delayed output on the commitment
 	// transaction.
 	selfScript, maturityDelay, err := CommitScriptToRemote(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
-		leaseExpiry,
+		leaseExpiry, input.NoneTapLeaf(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create self commit "+
@@ -7236,6 +7277,8 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
 	)
 
+	// TODO(roasbeef): Actually fetch aux leaves (later commits in this PR).
+
 	var leaseExpiry uint32
 	if chanState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = chanState.ThawHeight
@@ -7243,6 +7286,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	toLocalScript, err := CommitScriptToSelf(
 		chanState.ChanType, chanState.IsInitiator, keyRing.ToLocalKey,
 		keyRing.RevocationKey, csvTimeout, leaseExpiry,
+		input.NoneTapLeaf(),
 	)
 	if err != nil {
 		return nil, err

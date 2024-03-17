@@ -32,6 +32,9 @@ type WebFeeService interface {
 	// SetFeeRate sets the estimated fee rate for a given confirmation
 	// target.
 	SetFeeRate(feeRate chainfee.SatPerKWeight, conf uint32)
+
+	// Reset resets the fee rate map to the default value.
+	Reset()
 }
 
 const (
@@ -138,6 +141,16 @@ func (f *FeeService) SetFeeRate(fee chainfee.SatPerKWeight, conf uint32) {
 	defer f.lock.Unlock()
 
 	f.feeRateMap[conf] = uint32(fee.FeePerKVByte())
+}
+
+// Reset resets the fee rate map to the default value.
+func (f *FeeService) Reset() {
+	f.lock.Lock()
+	f.feeRateMap = make(map[uint32]uint32)
+	f.lock.Unlock()
+
+	// Initialize default fee estimate.
+	f.SetFeeRate(DefaultFeeRateSatPerKw, 1)
 }
 
 // URL returns the service endpoint.

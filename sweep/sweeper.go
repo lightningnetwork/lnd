@@ -104,62 +104,61 @@ func (p Params) String() string {
 type SweepState uint8
 
 const (
-	// StateInit is the initial state of a pending input. This is set when
-	// a new sweeping request for a given input is made.
-	StateInit SweepState = iota
+	// Init is the initial state of a pending input. This is set when a new
+	// sweeping request for a given input is made.
+	Init SweepState = iota
 
-	// StatePendingPublish specifies an input's state where it's already
-	// been included in a sweeping tx but the tx is not published yet.
-	// Inputs in this state should not be used for grouping again.
-	StatePendingPublish
+	// PendingPublish specifies an input's state where it's already been
+	// included in a sweeping tx but the tx is not published yet.  Inputs
+	// in this state should not be used for grouping again.
+	PendingPublish
 
-	// StatePublished is the state where the input's sweeping tx has
+	// Published is the state where the input's sweeping tx has
 	// successfully been published. Inputs in this state can only be
 	// updated via RBF.
-	StatePublished
+	Published
 
-	// StatePublishFailed is the state when an error is returned from
-	// publishing the sweeping tx. Inputs in this state can be re-grouped
-	// in to a new sweeping tx.
-	StatePublishFailed
+	// PublishFailed is the state when an error is returned from publishing
+	// the sweeping tx. Inputs in this state can be re-grouped in to a new
+	// sweeping tx.
+	PublishFailed
 
-	// StateSwept is the final state of a pending input. This is set when
-	// the input has been successfully swept.
-	StateSwept
+	// Swept is the final state of a pending input. This is set when the
+	// input has been successfully swept.
+	Swept
 
-	// StateExcluded is the state of a pending input that has been excluded
-	// and can no longer be swept. For instance, when one of the three
-	// anchor sweeping transactions confirmed, the remaining two will be
-	// excluded.
-	StateExcluded
+	// Excluded is the state of a pending input that has been excluded and
+	// can no longer be swept. For instance, when one of the three anchor
+	// sweeping transactions confirmed, the remaining two will be excluded.
+	Excluded
 
-	// StateFailed is the state when a pending input has too many failed
-	// publish atttempts or unknown broadcast error is returned.
-	StateFailed
+	// Failed is the state when a pending input has too many failed publish
+	// atttempts or unknown broadcast error is returned.
+	Failed
 )
 
 // String gives a human readable text for the sweep states.
 func (s SweepState) String() string {
 	switch s {
-	case StateInit:
+	case Init:
 		return "Init"
 
-	case StatePendingPublish:
+	case PendingPublish:
 		return "PendingPublish"
 
-	case StatePublished:
+	case Published:
 		return "Published"
 
-	case StatePublishFailed:
+	case PublishFailed:
 		return "PublishFailed"
 
-	case StateSwept:
+	case Swept:
 		return "Swept"
 
-	case StateExcluded:
+	case Excluded:
 		return "Excluded"
 
-	case StateFailed:
+	case Failed:
 		return "Failed"
 
 	default:
@@ -231,7 +230,7 @@ func (p *pendingInput) terminated() bool {
 	// If the input has reached a final state, that it's either
 	// been swept, or failed, or excluded, we will remove it from
 	// our sweeper.
-	case StateFailed, StateSwept, StateExcluded:
+	case Failed, Swept, Excluded:
 		return true
 
 	default:
@@ -752,7 +751,7 @@ func (s *UtxoSweeper) removeExclusiveGroup(group uint64) {
 		})
 
 		// Update the input's state as it can no longer be swept.
-		input.state = StateExcluded
+		input.state = Excluded
 
 		// Remove all unconfirmed transactions from the wallet which
 		// spend the passed outpoint of the same exclusive group.
@@ -886,7 +885,7 @@ func (s *UtxoSweeper) markInputsPendingPublish(set InputSet) {
 		}
 
 		// Update the input's state.
-		pi.state = StatePendingPublish
+		pi.state = PendingPublish
 
 		// Record another publish attempt.
 		pi.publishAttempts++
@@ -923,16 +922,16 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord,
 		}
 
 		// Valdiate that the input is in an expected state.
-		if pi.state != StatePendingPublish {
+		if pi.state != PendingPublish {
 			log.Errorf("Expect input %v to have %v, instead it "+
 				"has %v", input.PreviousOutPoint,
-				StatePendingPublish, pi.state)
+				PendingPublish, pi.state)
 
 			continue
 		}
 
 		// Update the input's state.
-		pi.state = StatePublished
+		pi.state = Published
 	}
 
 	return nil
@@ -954,9 +953,9 @@ func (s *UtxoSweeper) markInputsPublishFailed(outpoints []wire.OutPoint) {
 		}
 
 		// Valdiate that the input is in an expected state.
-		if pi.state != StatePendingPublish {
+		if pi.state != PendingPublish {
 			log.Errorf("Expect input %v to have %v, instead it "+
-				"has %v", op, StatePendingPublish, pi.state)
+				"has %v", op, PendingPublish, pi.state)
 
 			continue
 		}
@@ -964,7 +963,7 @@ func (s *UtxoSweeper) markInputsPublishFailed(outpoints []wire.OutPoint) {
 		log.Warnf("Failed to publish input %v", op)
 
 		// Update the input's state.
-		pi.state = StatePublishFailed
+		pi.state = PublishFailed
 	}
 }
 
@@ -1138,7 +1137,7 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 	// our sweeper.
 	//
 	// TODO(yy): a dedicated state?
-	pendingInput.state = StateInit
+	pendingInput.state = Init
 
 	resultChan := make(chan Result, 1)
 	pendingInput.listeners = append(pendingInput.listeners, resultChan)
@@ -1282,11 +1281,11 @@ func (s *UtxoSweeper) decideStateAndRBFInfo(op wire.OutPoint) (
 	// - for neutrino we don't have a mempool.
 	// - for btcd below v0.24.1 we don't have `gettxspendingprevout`.
 	if tx == nil {
-		return StateInit, fn.None[RBFInfo]()
+		return Init, fn.None[RBFInfo]()
 	}
 
 	// Otherwise the input is already spent in the mempool, so eventually
-	// we will return StatePublished.
+	// we will return Published.
 	//
 	// We also need to update the RBF info for this input. If the sweeping
 	// transaction is broadcast by us, we can find the fee info in the
@@ -1300,7 +1299,7 @@ func (s *UtxoSweeper) decideStateAndRBFInfo(op wire.OutPoint) (
 	// pendingInputs.
 	if errors.Is(err, ErrTxNotFound) {
 		log.Warnf("Spending tx %v not found in sweeper store", txid)
-		return StatePublished, fn.None[RBFInfo]()
+		return Published, fn.None[RBFInfo]()
 	}
 
 	// Exit if we get an db error.
@@ -1308,7 +1307,7 @@ func (s *UtxoSweeper) decideStateAndRBFInfo(op wire.OutPoint) (
 		log.Errorf("Unable to get tx %v from sweeper store: %v",
 			txid, err)
 
-		return StatePublished, fn.None[RBFInfo]()
+		return Published, fn.None[RBFInfo]()
 	}
 
 	// Prepare the fee info and return it.
@@ -1318,7 +1317,7 @@ func (s *UtxoSweeper) decideStateAndRBFInfo(op wire.OutPoint) (
 		FeeRate: chainfee.SatPerKWeight(tr.FeeRate),
 	})
 
-	return StatePublished, rbf
+	return Published, rbf
 }
 
 // handleExistingInput processes an input that is already known to the sweeper.
@@ -1437,7 +1436,7 @@ func (s *UtxoSweeper) markInputsSwept(tx *wire.MsgTx, isOurTx bool) {
 			continue
 		}
 
-		input.state = StateSwept
+		input.state = Swept
 
 		// Return either a nil or a remote spend result.
 		var err error
@@ -1465,7 +1464,7 @@ func (s *UtxoSweeper) markInputsSwept(tx *wire.MsgTx, isOurTx bool) {
 func (s *UtxoSweeper) markInputFailed(pi *pendingInput, err error) {
 	log.Errorf("Failed to sweep input: %v, error: %v", pi, err)
 
-	pi.state = StateFailed
+	pi.state = Failed
 
 	// Remove all other inputs in this exclusive group.
 	if pi.params.ExclusiveGroup != nil {
@@ -1477,8 +1476,7 @@ func (s *UtxoSweeper) markInputFailed(pi *pendingInput, err error) {
 
 // updateSweeperInputs updates the sweeper's internal state and returns a map
 // of inputs to be swept. It will remove the inputs that are in final states,
-// and returns a map of inputs that have either StateInit or
-// StatePublishFailed.
+// and returns a map of inputs that have either state Init or PublishFailed.
 func (s *UtxoSweeper) updateSweeperInputs() pendingInputs {
 	// Create a map of inputs to be swept.
 	inputs := make(pendingInputs)
@@ -1505,13 +1503,13 @@ func (s *UtxoSweeper) updateSweeperInputs() pendingInputs {
 		// If this input has been included in a sweep tx that's not
 		// published yet, we'd skip this input and wait for the sweep
 		// tx to be published.
-		if input.state == StatePendingPublish {
+		if input.state == PendingPublish {
 			continue
 		}
 
 		// If this input has already been published, we will need to
 		// check the RBF condition before attempting another sweeping.
-		if input.state == StatePublished {
+		if input.state == Published {
 			continue
 		}
 
@@ -1666,7 +1664,7 @@ func (s *UtxoSweeper) handleBumpEventTxReplaced(r *BumpResult) error {
 	//
 	// TODO(yy): we may also need to update the inputs in this tx to a new
 	// state. Suppose a replacing tx only spends a subset of the inputs
-	// here, we'd end up with the rest being marked as `StatePublished` and
+	// here, we'd end up with the rest being marked as `Published` and
 	// won't be aggregated in the next sweep. Atm it's fine as we always
 	// RBF the same input set.
 	if err := s.cfg.Store.DeleteTx(oldTxid); err != nil {

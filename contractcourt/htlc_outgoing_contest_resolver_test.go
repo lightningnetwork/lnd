@@ -152,6 +152,7 @@ func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 				return nil
 			},
 			OnionProcessor: onionProcessor,
+			Budget:         *DefaultBudgetConfig(),
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {

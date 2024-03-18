@@ -390,6 +390,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 
 			return nil
 		},
+		Budget: *DefaultBudgetConfig(),
 	}
 
 	// We'll use the resolvedChan to synchronize on call to

@@ -36,11 +36,6 @@ var (
 	// it is/has already been stopped.
 	ErrSweeperShuttingDown = errors.New("utxo sweeper shutting down")
 
-	// DefaultMaxSweepAttempts specifies the default maximum number of times
-	// an input is included in a publish attempt before giving up and
-	// returning an error to the caller.
-	DefaultMaxSweepAttempts = 10
-
 	// DefaultDeadlineDelta defines a default deadline delta (1 week) to be
 	// used when sweeping inputs with no deadline pressure.
 	//
@@ -360,11 +355,6 @@ type UtxoSweeperConfig struct {
 	// in a single sweep tx. If more need to be swept, multiple txes are
 	// created and published.
 	MaxInputsPerTx uint32
-
-	// MaxSweepAttempts specifies the maximum number of times an input is
-	// included in a publish attempt before giving up and returning an error
-	// to the caller.
-	MaxSweepAttempts int
 
 	// MaxFeeRate is the maximum fee rate allowed within the UtxoSweeper.
 	MaxFeeRate chainfee.SatPerVByte

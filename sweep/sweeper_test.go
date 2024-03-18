@@ -159,12 +159,11 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 			script[1] = 20
 			return script, nil
 		},
-		FeeEstimator:     estimator,
-		MaxInputsPerTx:   testMaxInputsPerTx,
-		MaxSweepAttempts: testMaxSweepAttempts,
-		MaxFeeRate:       DefaultMaxFeeRate,
-		Aggregator:       aggregator,
-		Publisher:        mockBumper,
+		FeeEstimator:   estimator,
+		MaxInputsPerTx: testMaxInputsPerTx,
+		MaxFeeRate:     DefaultMaxFeeRate,
+		Aggregator:     aggregator,
+		Publisher:      mockBumper,
 	})
 
 	ctx.sweeper.Start()

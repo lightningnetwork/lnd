@@ -1076,18 +1076,17 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	})
 
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{
-		FeeEstimator:     cc.FeeEstimator,
-		GenSweepScript:   newSweepPkScriptGen(cc.Wallet),
-		Signer:           cc.Wallet.Cfg.Signer,
-		Wallet:           newSweeperWallet(cc.Wallet),
-		Mempool:          cc.MempoolNotifier,
-		Notifier:         cc.ChainNotifier,
-		Store:            sweeperStore,
-		MaxInputsPerTx:   sweep.DefaultMaxInputsPerTx,
-		MaxSweepAttempts: sweep.DefaultMaxSweepAttempts,
-		MaxFeeRate:       cfg.Sweeper.MaxFeeRate,
-		Aggregator:       aggregator,
-		Publisher:        s.txPublisher,
+		FeeEstimator:   cc.FeeEstimator,
+		GenSweepScript: newSweepPkScriptGen(cc.Wallet),
+		Signer:         cc.Wallet.Cfg.Signer,
+		Wallet:         newSweeperWallet(cc.Wallet),
+		Mempool:        cc.MempoolNotifier,
+		Notifier:       cc.ChainNotifier,
+		Store:          sweeperStore,
+		MaxInputsPerTx: sweep.DefaultMaxInputsPerTx,
+		MaxFeeRate:     cfg.Sweeper.MaxFeeRate,
+		Aggregator:     aggregator,
+		Publisher:      s.txPublisher,
 	})
 
 	s.utxoNursery = contractcourt.NewUtxoNursery(&contractcourt.NurseryConfig{

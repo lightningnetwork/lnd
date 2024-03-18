@@ -6,6 +6,7 @@ import (
 	prand "math/rand"
 	"time"
 
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
@@ -255,4 +256,19 @@ func (s *BaseDB) BeginTx(ctx context.Context, opts TxOptions) (*sql.Tx, error) {
 	}
 
 	return s.DB.BeginTx(ctx, &sqlOptions)
+}
+
+// DatabaseBackend...
+type DatabaseBackend interface {
+	BatchedQuerier
+	WithTx(tx *sql.Tx) *sqlc.Queries
+}
+
+// Store is a generic store that's used by other modules...
+type Store[Querier any] struct {
+	// DB...
+	DB *TransactionExecutor[Querier]
+
+	// Clock...
+	Clock clock.Clock
 }

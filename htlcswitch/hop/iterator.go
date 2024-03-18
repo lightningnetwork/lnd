@@ -55,16 +55,24 @@ type sphinxHopIterator struct {
 	// includes the information required to properly forward the packet to
 	// the next hop.
 	processedPacket *sphinx.ProcessedPacket
+
+	// blindingKit contains the elements required to process hops that are
+	// part of a blinded route.
+	blindingKit *BlindingKit
 }
 
 // makeSphinxHopIterator converts a processed packet returned from a sphinx
-// router and converts it into an hop iterator for usage in the link.
+// router and converts it into an hop iterator for usage in the link. A
+// blinding kit is passed through for the link to obtain forwarding information
+// for blinded routes.
 func makeSphinxHopIterator(ogPacket *sphinx.OnionPacket,
-	packet *sphinx.ProcessedPacket) *sphinxHopIterator {
+	packet *sphinx.ProcessedPacket,
+	blindingKit *BlindingKit) *sphinxHopIterator {
 
 	return &sphinxHopIterator{
 		ogPacket:        ogPacket,
 		processedPacket: packet,
+		blindingKit:     blindingKit,
 	}
 }
 
@@ -101,6 +109,7 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 		return NewPayloadFromReader(
 			bytes.NewReader(r.processedPacket.Payload.Payload),
 			r.processedPacket.Action == sphinx.ExitNode,
+			r.blindingKit,
 		)
 
 	default:
@@ -322,11 +331,12 @@ func (p *OnionProcessor) Stop() error {
 	return nil
 }
 
-// ReconstructHopIterator attempts to decode a valid sphinx packet from the passed io.Reader
-// instance using the rHash as the associated data when checking the relevant
-// MACs during the decoding process.
+// ReconstructHopIterator attempts to decode a valid sphinx packet from the
+// passed io.Reader instance using the rHash as the associated data when
+// checking the relevant MACs during the decoding process.
 func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte,
-	blindingPoint *btcec.PublicKey) (Iterator, error) {
+	blindingPoint *btcec.PublicKey, incomingAmt lnwire.MilliSatoshi,
+	incomingExpiry uint32) (Iterator, error) {
 
 	onionPkt := &sphinx.OnionPacket{}
 	if err := onionPkt.Decode(r); err != nil {
@@ -350,7 +360,10 @@ func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte,
 		return nil, err
 	}
 
-	return makeSphinxHopIterator(onionPkt, sphinxPacket), nil
+	return makeSphinxHopIterator(onionPkt, sphinxPacket, MakeBlindingKit(
+		p.router, blindingPoint, incomingAmt, incomingExpiry,
+		p.disallowRouteBlinding,
+	)), nil
 }
 
 // DecodeHopIteratorRequest encapsulates all date necessary to process an onion
@@ -525,7 +538,13 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 
 		// Finally, construct a hop iterator from our processed sphinx
 		// packet, simultaneously caching the original onion packet.
-		resp.HopIterator = makeSphinxHopIterator(&onionPkts[i], &packets[i])
+		resp.HopIterator = makeSphinxHopIterator(
+			&onionPkts[i], &packets[i], MakeBlindingKit(
+				p.router, reqs[i].BlindingPoint,
+				reqs[i].IncomingAmount, reqs[i].IncomingCltv,
+				p.disallowRouteBlinding,
+			),
+		)
 	}
 
 	return resps, nil

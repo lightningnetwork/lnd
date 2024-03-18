@@ -480,6 +480,7 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 
 	p, err := hop.NewPayloadFromReader(
 		bytes.NewReader(test.payload), test.isFinalHop,
+		&hop.BlindingKit{},
 	)
 	if !reflect.DeepEqual(test.expErr, err) {
 		t.Fatalf("expected error mismatch, want: %v, got: %v",

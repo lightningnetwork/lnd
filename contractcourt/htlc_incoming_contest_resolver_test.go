@@ -290,7 +290,8 @@ type mockOnionProcessor struct {
 }
 
 func (o *mockOnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte,
-	blindingPoint *btcec.PublicKey) (hop.Iterator, error) {
+	blindingPoint *btcec.PublicKey, _ lnwire.MilliSatoshi, _ uint32) (
+	hop.Iterator, error) {
 
 	data, err := ioutil.ReadAll(r)
 	if err != nil {

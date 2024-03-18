@@ -136,8 +136,11 @@ func NewLegacyPayload(f *sphinx.HopData) *Payload {
 // NewPayloadFromReader builds a new Hop from the passed io.Reader. The reader
 // should correspond to the bytes encapsulated in a TLV onion payload. The
 // final hop bool signals that this payload was the final packet parsed by
-// sphinx.
-func NewPayloadFromReader(r io.Reader, finalHop bool) (*Payload, error) {
+// sphinx. A blinding kit is passed in to help handle payloads that are part
+// of a blinded route.
+func NewPayloadFromReader(r io.Reader, finalHop bool,
+	blindingKit *BlindingKit) (*Payload, error) {
+
 	var (
 		cid           uint64
 		amt           uint64

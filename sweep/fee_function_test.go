@@ -54,8 +54,8 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 	//
 	// Mock the fee estimator to return the fee rate.
 	estimator.On("EstimateFeePerKW", confTarget).Return(
-		// The starting fee rate is 1 sat/kw less than the max fee rate.
-		maxFeeRate-1, nil).Once()
+		// The starting fee rate is the max fee rate.
+		maxFeeRate, nil).Once()
 	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
 
 	f, err = NewLinearFeeFunction(maxFeeRate, confTarget, estimator)
@@ -96,7 +96,7 @@ func TestLinearFeeFunctionFeeRateAtPosition(t *testing.T) {
 		startingFeeRate: 1000,
 		endingFeeRate:   3000,
 		position:        0,
-		deltaFeeRate:    1000,
+		deltaFeeRate:    1_000_000,
 		width:           3,
 	}
 

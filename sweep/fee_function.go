@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 var (
@@ -13,6 +14,17 @@ var (
 	// the fee function while it's already at its max.
 	ErrMaxPosition = errors.New("position already at max")
 )
+
+// mSatPerKWeight represents a fee rate in msat/kw.
+//
+// TODO(yy): unify all the units to be virtual bytes.
+type mSatPerKWeight lnwire.MilliSatoshi
+
+// String returns a human-readable string of the fee rate.
+func (m mSatPerKWeight) String() string {
+	s := lnwire.MilliSatoshi(m)
+	return fmt.Sprintf("%v/kw", s)
+}
 
 // FeeFunction defines an interface that is used to calculate fee rates for
 // transactions. It's expected the implementations use three params, the
@@ -80,8 +92,10 @@ type LinearFeeFunction struct {
 	// and the current block height.
 	position uint32
 
-	// deltaFeeRate is the fee rate increase per block.
-	deltaFeeRate chainfee.SatPerKWeight
+	// deltaFeeRate is the fee rate (msat/kw) increase per block.
+	//
+	// NOTE: this is used to increase precision.
+	deltaFeeRate mSatPerKWeight
 
 	// estimator is the fee estimator used to estimate the fee rate. We use
 	// it to get the initial fee rate and, use it as a benchmark to decide
@@ -121,21 +135,28 @@ func NewLinearFeeFunction(maxFeeRate chainfee.SatPerKWeight, confTarget uint32,
 
 	// Calculate how much fee rate should be increased per block.
 	end := l.endingFeeRate
-	delta := btcutil.Amount(end - start).MulF64(1 / float64(confTarget))
+
+	// The starting and ending fee rates are in sat/kw, so we need to
+	// convert them to msat/kw by multiplying by 1000.
+	delta := btcutil.Amount(end - start).MulF64(1000 / float64(confTarget))
+	l.deltaFeeRate = mSatPerKWeight(delta)
 
 	// We only allow the delta to be zero if the width is one - when the
 	// delta is zero, it means the starting and ending fee rates are the
 	// same, which means there's nothing to increase, so any width greater
 	// than 1 doesn't provide any utility. This could happen when the
 	// sweeper is offered to sweep an input that has passed its deadline.
-	if delta == 0 && l.width != 1 {
+	if l.deltaFeeRate == 0 && l.width != 1 {
+		log.Errorf("Failed to init fee function: startingFeeRate=%v, "+
+			"endingFeeRate=%v, width=%v, delta=%v", start, end,
+			confTarget, l.deltaFeeRate)
+
 		return nil, fmt.Errorf("fee rate delta is zero")
 	}
 
 	// Attach the calculated values to the fee function.
 	l.startingFeeRate = start
 	l.currentFeeRate = start
-	l.deltaFeeRate = chainfee.SatPerKWeight(delta)
 
 	log.Debugf("Linear fee function initialized with startingFeeRate=%v, "+
 		"endingFeeRate=%v, width=%v, delta=%v", start, end,
@@ -234,7 +255,9 @@ func (l *LinearFeeFunction) feeRateAtPosition(p uint32) chainfee.SatPerKWeight {
 		return l.endingFeeRate
 	}
 
-	feeRateDelta := btcutil.Amount(l.deltaFeeRate).MulF64(float64(p))
+	// deltaFeeRate is in msat/kw, so we need to divide by 1000 to get the
+	// fee rate in sat/kw.
+	feeRateDelta := btcutil.Amount(l.deltaFeeRate).MulF64(float64(p) / 1000)
 
 	feeRate := l.startingFeeRate + chainfee.SatPerKWeight(feeRateDelta)
 	if feeRate > l.endingFeeRate {

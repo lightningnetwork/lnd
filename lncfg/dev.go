@@ -4,6 +4,8 @@ package lncfg
 
 import (
 	"time"
+
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 )
 
 // IsDevBuild returns a bool to indicate whether we are in a development
@@ -37,7 +39,7 @@ func (d *DevConfig) GetUnsafeDisconnect() bool {
 
 // GetReservationTimeout returns the config value for `ReservationTimeout`.
 func (d *DevConfig) GetReservationTimeout() time.Duration {
-	return DefaultReservationTimeout
+	return chanfunding.DefaultReservationTimeout
 }
 
 // GetZombieSweeperInterval returns the config value for`ZombieSweeperInterval`.

@@ -90,6 +90,11 @@
   precision issue when querying payments and invoices using the start and end
   date filters.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8496) an issue where
+  `locked_balance` is not updated in `WalletBalanceResponse` when outputs are
+  reserved for `OpenChannel` by using non-volatile leases instead of volatile
+  locks.
+
 # New Features
 ## Functional Enhancements
 
@@ -364,6 +369,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Alex Akselrod
 * Amin Bashiri
 * Andras Banki-Horvath
 * BitcoinerCoderBob

@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -151,25 +153,34 @@ func (m *mockCoinSelectionLocker) WithCoinSelectLock(f func() error) error {
 
 }
 
-type mockOutpointLocker struct {
-	lockedOutpoints map[wire.OutPoint]struct{}
+type mockOutputLeaser struct {
+	leasedOutputs map[wire.OutPoint]struct{}
 
-	unlockedOutpoints map[wire.OutPoint]struct{}
+	releasedOutputs map[wire.OutPoint]struct{}
 }
 
-func newMockOutpointLocker() *mockOutpointLocker {
-	return &mockOutpointLocker{
-		lockedOutpoints: make(map[wire.OutPoint]struct{}),
+func newMockOutputLeaser() *mockOutputLeaser {
+	return &mockOutputLeaser{
+		leasedOutputs: make(map[wire.OutPoint]struct{}),
 
-		unlockedOutpoints: make(map[wire.OutPoint]struct{}),
+		releasedOutputs: make(map[wire.OutPoint]struct{}),
 	}
 }
 
-func (m *mockOutpointLocker) LockOutpoint(o wire.OutPoint) {
-	m.lockedOutpoints[o] = struct{}{}
+func (m *mockOutputLeaser) LeaseOutput(_ wtxmgr.LockID, o wire.OutPoint,
+	t time.Duration) (time.Time, []byte, btcutil.Amount, error) {
+
+	m.leasedOutputs[o] = struct{}{}
+
+	return time.Now().Add(t), nil, 0, nil
 }
-func (m *mockOutpointLocker) UnlockOutpoint(o wire.OutPoint) {
-	m.unlockedOutpoints[o] = struct{}{}
+
+func (m *mockOutputLeaser) ReleaseOutput(_ wtxmgr.LockID,
+	o wire.OutPoint) error {
+
+	m.releasedOutputs[o] = struct{}{}
+
+	return nil
 }
 
 var sweepScript = []byte{
@@ -234,53 +245,53 @@ var testUtxos = []*lnwallet.Utxo{
 	},
 }
 
-func assertUtxosLocked(t *testing.T, utxoLocker *mockOutpointLocker,
+func assertUtxosLeased(t *testing.T, utxoLeaser *mockOutputLeaser,
 	utxos []*lnwallet.Utxo) {
 
 	t.Helper()
 
 	for _, utxo := range utxos {
-		if _, ok := utxoLocker.lockedOutpoints[utxo.OutPoint]; !ok {
-			t.Fatalf("utxo %v was never locked", utxo.OutPoint)
+		if _, ok := utxoLeaser.leasedOutputs[utxo.OutPoint]; !ok {
+			t.Fatalf("utxo %v was never leased", utxo.OutPoint)
 		}
 	}
 
 }
 
-func assertNoUtxosUnlocked(t *testing.T, utxoLocker *mockOutpointLocker,
+func assertNoUtxosReleased(t *testing.T, utxoLeaser *mockOutputLeaser,
 	utxos []*lnwallet.Utxo) {
 
 	t.Helper()
 
-	if len(utxoLocker.unlockedOutpoints) != 0 {
-		t.Fatalf("outputs have been locked, but shouldn't have been")
+	if len(utxoLeaser.releasedOutputs) != 0 {
+		t.Fatalf("outputs have been released, but shouldn't have been")
 	}
 }
 
-func assertUtxosUnlocked(t *testing.T, utxoLocker *mockOutpointLocker,
-	utxos []*lnwallet.Utxo) {
-
-	t.Helper()
-
-	for _, utxo := range utxos {
-		if _, ok := utxoLocker.unlockedOutpoints[utxo.OutPoint]; !ok {
-			t.Fatalf("utxo %v was never unlocked", utxo.OutPoint)
-		}
-	}
-}
-
-func assertUtxosLockedAndUnlocked(t *testing.T, utxoLocker *mockOutpointLocker,
+func assertUtxosReleased(t *testing.T, utxoLeaser *mockOutputLeaser,
 	utxos []*lnwallet.Utxo) {
 
 	t.Helper()
 
 	for _, utxo := range utxos {
-		if _, ok := utxoLocker.lockedOutpoints[utxo.OutPoint]; !ok {
-			t.Fatalf("utxo %v was never locked", utxo.OutPoint)
+		if _, ok := utxoLeaser.releasedOutputs[utxo.OutPoint]; !ok {
+			t.Fatalf("utxo %v was never released", utxo.OutPoint)
+		}
+	}
+}
+
+func assertUtxosLeasedAndReleased(t *testing.T, utxoLeaser *mockOutputLeaser,
+	utxos []*lnwallet.Utxo) {
+
+	t.Helper()
+
+	for _, utxo := range utxos {
+		if _, ok := utxoLeaser.leasedOutputs[utxo.OutPoint]; !ok {
+			t.Fatalf("utxo %v was never leased", utxo.OutPoint)
 		}
 
-		if _, ok := utxoLocker.unlockedOutpoints[utxo.OutPoint]; !ok {
-			t.Fatalf("utxo %v was never unlocked", utxo.OutPoint)
+		if _, ok := utxoLeaser.releasedOutputs[utxo.OutPoint]; !ok {
+			t.Fatalf("utxo %v was never released", utxo.OutPoint)
 		}
 	}
 }
@@ -294,10 +305,10 @@ func TestCraftSweepAllTxCoinSelectFail(t *testing.T) {
 	coinSelectLocker := &mockCoinSelectionLocker{
 		fail: true,
 	}
-	utxoLocker := newMockOutpointLocker()
+	utxoLeaser := newMockOutputLeaser()
 
 	_, err := CraftSweepAllTx(
-		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker,
+		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLeaser,
 		nil, 0,
 	)
 
@@ -309,7 +320,7 @@ func TestCraftSweepAllTxCoinSelectFail(t *testing.T) {
 
 	// At this point, we'll now verify that all outputs were initially
 	// locked, and then also unlocked due to the failure.
-	assertUtxosLockedAndUnlocked(t, utxoLocker, testUtxos)
+	assertUtxosLeasedAndReleased(t, utxoLeaser, testUtxos)
 }
 
 // TestCraftSweepAllTxUnknownWitnessType tests that if one of the inputs we
@@ -320,10 +331,10 @@ func TestCraftSweepAllTxUnknownWitnessType(t *testing.T) {
 
 	utxoSource := newMockUtxoSource(testUtxos)
 	coinSelectLocker := &mockCoinSelectionLocker{}
-	utxoLocker := newMockOutpointLocker()
+	utxoLeaser := newMockOutputLeaser()
 
 	_, err := CraftSweepAllTx(
-		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker,
+		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLeaser,
 		nil, 0,
 	)
 
@@ -336,7 +347,7 @@ func TestCraftSweepAllTxUnknownWitnessType(t *testing.T) {
 	// At this point, we'll now verify that all outputs were initially
 	// locked, and then also unlocked since we weren't able to find a
 	// witness type for the last output.
-	assertUtxosLockedAndUnlocked(t, utxoLocker, testUtxos)
+	assertUtxosLeasedAndReleased(t, utxoLeaser, testUtxos)
 }
 
 // TestCraftSweepAllTx tests that we'll properly lock all available outputs
@@ -354,18 +365,18 @@ func TestCraftSweepAllTx(t *testing.T) {
 	targetUTXOs := testUtxos[:2]
 	utxoSource := newMockUtxoSource(targetUTXOs)
 	coinSelectLocker := &mockCoinSelectionLocker{}
-	utxoLocker := newMockOutpointLocker()
+	utxoLeaser := newMockOutputLeaser()
 
 	sweepPkg, err := CraftSweepAllTx(
 		0, 0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
-		utxoLocker, signer, 0,
+		utxoLeaser, signer, 0,
 	)
 	require.NoError(t, err, "unable to make sweep tx")
 
 	// At this point, all of the UTXOs that we made above should be locked
 	// and none of them unlocked.
-	assertUtxosLocked(t, utxoLocker, testUtxos[:2])
-	assertNoUtxosUnlocked(t, utxoLocker, testUtxos[:2])
+	assertUtxosLeased(t, utxoLeaser, testUtxos[:2])
+	assertNoUtxosReleased(t, utxoLeaser, testUtxos[:2])
 
 	// Now that we have our sweep transaction, we should find that we have
 	// a UTXO for each input, and also that our final output value is the
@@ -397,5 +408,5 @@ func TestCraftSweepAllTx(t *testing.T) {
 	// If we cancel the sweep attempt, then we should find that all the
 	// UTXOs within the sweep transaction are now unlocked.
 	sweepPkg.CancelSweepAttempt()
-	assertUtxosUnlocked(t, utxoLocker, testUtxos[:2])
+	assertUtxosReleased(t, utxoLeaser, testUtxos[:2])
 }

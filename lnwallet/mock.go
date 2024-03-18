@@ -192,12 +192,6 @@ func (w *mockWalletController) ListTransactionDetails(int32, int32,
 	return nil, nil
 }
 
-// LockOutpoint currently does nothing.
-func (w *mockWalletController) LockOutpoint(o wire.OutPoint) {}
-
-// UnlockOutpoint currently does nothing.
-func (w *mockWalletController) UnlockOutpoint(o wire.OutPoint) {}
-
 // LeaseOutput returns the current time and a nil error.
 func (w *mockWalletController) LeaseOutput(wtxmgr.LockID, wire.OutPoint,
 	time.Duration) (time.Time, []byte, btcutil.Amount, error) {

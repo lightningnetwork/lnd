@@ -2990,7 +2990,7 @@ func testSingleFunderExternalFundingTx(miner *rpctest.Harness,
 		chanfunding.WalletConfig{
 			CoinSource:            lnwallet.NewCoinSource(alice),
 			CoinSelectLocker:      alice,
-			CoinLocker:            alice,
+			CoinLeaser:            alice,
 			Signer:                alice.Cfg.Signer,
 			DustLimit:             600,
 			CoinSelectionStrategy: wallet.CoinSelectionLargest,

@@ -588,7 +588,7 @@ func (l *LightningWallet) ResetReservations() {
 	l.reservationIDs = make(map[[32]byte]uint64)
 
 	for outpoint := range l.lockedOutPoints {
-		l.UnlockOutpoint(outpoint)
+		_ = l.ReleaseOutput(chanfunding.LndInternalLockID, outpoint)
 	}
 	l.lockedOutPoints = make(map[wire.OutPoint]struct{})
 }
@@ -851,7 +851,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		cfg := chanfunding.WalletConfig{
 			CoinSource:       &CoinSource{l},
 			CoinSelectLocker: l,
-			CoinLocker:       l,
+			CoinLeaser:       l,
 			Signer:           l.Cfg.Signer,
 			DustLimit: DustLimitForSize(
 				input.P2WSHSize,
@@ -1425,7 +1425,10 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	// requests.
 	for _, unusedInput := range pendingReservation.ourContribution.Inputs {
 		delete(l.lockedOutPoints, unusedInput.PreviousOutPoint)
-		l.UnlockOutpoint(unusedInput.PreviousOutPoint)
+		_ = l.ReleaseOutput(
+			chanfunding.LndInternalLockID,
+			unusedInput.PreviousOutPoint,
+		)
 	}
 
 	// TODO(roasbeef): is it even worth it to keep track of unused keys?

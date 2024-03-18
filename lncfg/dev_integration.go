@@ -4,6 +4,8 @@ package lncfg
 
 import (
 	"time"
+
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 )
 
 // IsDevBuild returns a bool to indicate whether we are in a development
@@ -33,7 +35,7 @@ func (d *DevConfig) ChannelReadyWait() time.Duration {
 // GetReservationTimeout returns the config value for `ReservationTimeout`.
 func (d *DevConfig) GetReservationTimeout() time.Duration {
 	if d.ReservationTimeout == 0 {
-		return DefaultReservationTimeout
+		return chanfunding.DefaultReservationTimeout
 	}
 
 	return d.ReservationTimeout

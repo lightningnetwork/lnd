@@ -53,6 +53,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
@@ -1279,7 +1280,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// For the reservationTimeout and the zombieSweeperInterval different
 	// values are set in case we are in a dev environment so enhance test
 	// capacilities.
-	reservationTimeout := lncfg.DefaultReservationTimeout
+	reservationTimeout := chanfunding.DefaultReservationTimeout
 	zombieSweeperInterval := lncfg.DefaultZombieSweeperInterval
 
 	// Get the development config for funding manager. If we are not in

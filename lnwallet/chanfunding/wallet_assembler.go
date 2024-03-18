@@ -3,6 +3,7 @@ package chanfunding
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -10,8 +11,32 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+)
+
+const (
+	// DefaultReservationTimeout is the default time we wait until we remove
+	// an unfinished (zombiestate) open channel flow from memory.
+	DefaultReservationTimeout = 10 * time.Minute
+
+	// DefaultLockDuration is the default duration used to lock outputs.
+	DefaultLockDuration = 10 * time.Minute
+)
+
+var (
+	// LndInternalLockID is the binary representation of the SHA256 hash of
+	// the string "lnd-internal-lock-id" and is used for UTXO lock leases to
+	// identify that we ourselves are locking an UTXO, for example when
+	// giving out a funded PSBT. The ID corresponds to the hex value of
+	// ede19a92ed321a4705f8a1cccc1d4f6182545d4bb4fae08bd5937831b7e38f98.
+	LndInternalLockID = wtxmgr.LockID{
+		0xed, 0xe1, 0x9a, 0x92, 0xed, 0x32, 0x1a, 0x47,
+		0x05, 0xf8, 0xa1, 0xcc, 0xcc, 0x1d, 0x4f, 0x61,
+		0x82, 0x54, 0x5d, 0x4b, 0xb4, 0xfa, 0xe0, 0x8b,
+		0xd5, 0x93, 0x78, 0x31, 0xb7, 0xe3, 0x8f, 0x98,
+	}
 )
 
 // FullIntent is an intent that is fully backed by the internal wallet. This
@@ -37,9 +62,9 @@ type FullIntent struct {
 	// change from the main funding transaction.
 	ChangeOutputs []*wire.TxOut
 
-	// coinLocker is the Assembler's instance of the OutpointLocker
+	// coinLeaser is the Assembler's instance of the OutputLeaser
 	// interface.
-	coinLocker OutpointLocker
+	coinLeaser OutputLeaser
 
 	// coinSource is the Assembler's instance of the CoinSource interface.
 	coinSource CoinSource
@@ -194,7 +219,13 @@ func (f *FullIntent) Outputs() []*wire.TxOut {
 // NOTE: Part of the chanfunding.Intent interface.
 func (f *FullIntent) Cancel() {
 	for _, coin := range f.InputCoins {
-		f.coinLocker.UnlockOutpoint(coin.OutPoint)
+		err := f.coinLeaser.ReleaseOutput(
+			LndInternalLockID, coin.OutPoint,
+		)
+		if err != nil {
+			log.Warnf("Failed to release UTXO %s (%v))",
+				coin.OutPoint, err)
+		}
 	}
 
 	f.ShimIntent.Cancel()
@@ -216,9 +247,9 @@ type WalletConfig struct {
 	// access to the current set of coins returned by the CoinSource.
 	CoinSelectLocker CoinSelectionLocker
 
-	// CoinLocker is what the WalletAssembler uses to lock coins that may
+	// CoinLeaser is what the WalletAssembler uses to lease coins that may
 	// be used as inputs for a new funding transaction.
-	CoinLocker OutpointLocker
+	CoinLeaser OutputLeaser
 
 	// Signer allows the WalletAssembler to sign inputs on any potential
 	// funding transactions.
@@ -493,7 +524,13 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 		for _, coin := range selectedCoins {
 			outpoint := coin.OutPoint
 
-			w.cfg.CoinLocker.LockOutpoint(outpoint)
+			_, _, _, err = w.cfg.CoinLeaser.LeaseOutput(
+				LndInternalLockID, outpoint,
+				DefaultReservationTimeout,
+			)
+			if err != nil {
+				return err
+			}
 		}
 
 		newIntent := &FullIntent{
@@ -503,7 +540,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 				musig2:           r.Musig2,
 			},
 			InputCoins: selectedCoins,
-			coinLocker: w.cfg.CoinLocker,
+			coinLeaser: w.cfg.CoinLeaser,
 			coinSource: w.cfg.CoinSource,
 			signer:     w.cfg.Signer,
 		}

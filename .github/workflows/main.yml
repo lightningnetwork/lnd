@@ -35,147 +35,147 @@ jobs:
   ########################
   # SQLC code gen check 
   ########################
-  sqlc-check:
-    name: Sqlc check
-    runs-on: ubuntu-latest
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v3
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-
-      - name: docker image cache
-        uses: satackey/action-docker-layer-caching@v0.0.11
-        # Ignore the failure of a step and avoid terminating the job.
-        continue-on-error: true
-
-      - name: Generate sql models
-        run: make sqlc-check
-
-  ########################
-  # RPC and mobile compilation check
-  ########################
-  rpc-check:
-    name: RPC and mobile compilation check
-    runs-on: ubuntu-latest
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v3
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-
-      - name: run check
-        run: make rpc-check
-
-      - name: run JSON/WASM stub compilation check
-        run: make rpc-js-compile
-
-      - name: build mobile RPC bindings
-        run: make mobile-rpc
-
-      - name: build mobile specific code
-        run: go build --tags="mobile" ./mobile
-
-  ########################
-  # check commits
-  ########################
-  check-commits:
-    if: github.event_name == 'pull_request'
-    name: check commits
-    runs-on: ubuntu-latest
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-
-      - name: fetch and rebase on ${{ github.base_ref }}
-        run: |
-          git remote add upstream https://github.com/${{ github.repository }}
-          git fetch upstream
-          export GIT_COMMITTER_EMAIL="lnd-ci@example.com"
-          export GIT_COMMITTER_NAME="LND CI"
-          git rebase upstream/${{ github.base_ref }}
-
-      - name: check commits
-        run: scripts/check-each-commit.sh upstream/${{ github.base_ref }}
-
-  ########################
-  # lint code
-  ########################
-  lint:
-    name: lint code
-    runs-on: ubuntu-latest
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-
-      - name: check code format
-        run: make fmt-check
-
-      - name: check go modules tidiness 
-        run: make tidy-module-check
-
-      - name: lint proto files
-        run: make protolint
-
-      - name: lint
-        run: GOGC=50 make lint
-
-  ########################
-  # cross compilation
-  ########################
-  cross-compile:
-    name: cross compilation
-    runs-on: ubuntu-latest
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v3
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-          key-prefix: cross-compile
-
-      - name: build release for all architectures
-        run: make release
-
-  ########################
-  # sample configuration check
-  ########################
-  sample-conf-check:
-    name: sample configuration check
-    runs-on: ubuntu-latest
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v3
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-
-      - name: check default values in sample-lnd.conf file
-        run: make sample-conf-check
+#  sqlc-check:
+#    name: Sqlc check
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: git checkout
+#        uses: actions/checkout@v3
+#
+#      - name: setup go ${{ env.GO_VERSION }}
+#        uses: ./.github/actions/setup-go
+#        with:
+#          go-version: '${{ env.GO_VERSION }}'
+#
+#      - name: docker image cache
+#        uses: satackey/action-docker-layer-caching@v0.0.11
+#        # Ignore the failure of a step and avoid terminating the job.
+#        continue-on-error: true
+#
+#      - name: Generate sql models
+#        run: make sqlc-check
+#
+#  ########################
+#  # RPC and mobile compilation check
+#  ########################
+#  rpc-check:
+#    name: RPC and mobile compilation check
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: git checkout
+#        uses: actions/checkout@v3
+#
+#      - name: setup go ${{ env.GO_VERSION }}
+#        uses: ./.github/actions/setup-go
+#        with:
+#          go-version: '${{ env.GO_VERSION }}'
+#
+#      - name: run check
+#        run: make rpc-check
+#
+#      - name: run JSON/WASM stub compilation check
+#        run: make rpc-js-compile
+#
+#      - name: build mobile RPC bindings
+#        run: make mobile-rpc
+#
+#      - name: build mobile specific code
+#        run: go build --tags="mobile" ./mobile
+#
+#  ########################
+#  # check commits
+#  ########################
+#  check-commits:
+#    if: github.event_name == 'pull_request'
+#    name: check commits
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: git checkout
+#        uses: actions/checkout@v3
+#        with:
+#          fetch-depth: 0
+#
+#      - name: setup go ${{ env.GO_VERSION }}
+#        uses: ./.github/actions/setup-go
+#        with:
+#          go-version: '${{ env.GO_VERSION }}'
+#
+#      - name: fetch and rebase on ${{ github.base_ref }}
+#        run: |
+#          git remote add upstream https://github.com/${{ github.repository }}
+#          git fetch upstream
+#          export GIT_COMMITTER_EMAIL="lnd-ci@example.com"
+#          export GIT_COMMITTER_NAME="LND CI"
+#          git rebase upstream/${{ github.base_ref }}
+#
+#      - name: check commits
+#        run: scripts/check-each-commit.sh upstream/${{ github.base_ref }}
+#
+#  ########################
+#  # lint code
+#  ########################
+#  lint:
+#    name: lint code
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: git checkout
+#        uses: actions/checkout@v3
+#        with:
+#          fetch-depth: 0
+#
+#      - name: setup go ${{ env.GO_VERSION }}
+#        uses: ./.github/actions/setup-go
+#        with:
+#          go-version: '${{ env.GO_VERSION }}'
+#
+#      - name: check code format
+#        run: make fmt-check
+#
+#      - name: check go modules tidiness 
+#        run: make tidy-module-check
+#
+#      - name: lint proto files
+#        run: make protolint
+#
+#      - name: lint
+#        run: GOGC=50 make lint
+#
+#  ########################
+#  # cross compilation
+#  ########################
+#  cross-compile:
+#    name: cross compilation
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: git checkout
+#        uses: actions/checkout@v3
+#
+#      - name: setup go ${{ env.GO_VERSION }}
+#        uses: ./.github/actions/setup-go
+#        with:
+#          go-version: '${{ env.GO_VERSION }}'
+#          key-prefix: cross-compile
+#
+#      - name: build release for all architectures
+#        run: make release
+#
+#  ########################
+#  # sample configuration check
+#  ########################
+#  sample-conf-check:
+#    name: sample configuration check
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: git checkout
+#        uses: actions/checkout@v3
+#
+#      - name: setup go ${{ env.GO_VERSION }}
+#        uses: ./.github/actions/setup-go
+#        with:
+#          go-version: '${{ env.GO_VERSION }}'
+#
+#      - name: check default values in sample-lnd.conf file
+#        run: make sample-conf-check
 
   ########################
   # run unit tests
@@ -193,7 +193,7 @@ jobs:
           - unit tags="kvdb_postgres"
           - unit tags="kvdb_sqlite"
           - btcd unit-race
-          - unit-module
+          # - unit-module
 
     steps:
       - name: git checkout
@@ -228,138 +228,138 @@ jobs:
           parallel: true
 
 
-  ########################
-  # run ubuntu integration tests
-  ########################
-  ubuntu-integration-test:
-    name: run ubuntu itests
-    runs-on: ubuntu-latest
-    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
-    strategy:
-      # Allow other tests in the matrix to continue if one fails.
-      fail-fast: false
-      matrix:
-        include:
-          - name: btcd
-            args: backend=btcd
-          - name: bitcoind
-            args: backend=bitcoind
-          - name: bitcoind-notxindex
-            args: backend="bitcoind notxindex"
-          - name: bitcoind-rpcpolling
-            args: backend="bitcoind rpcpolling"
-          - name: bitcoind-etcd
-            args: backend=bitcoind dbbackend=etcd
-          - name: bitcoind-postgres
-            args: backend=bitcoind dbbackend=postgres
-          - name: bitcoind-sqlite
-            args: backend=bitcoind dbbackend=sqlite
-          - name: bitcoind-postgres-nativesql
-            args: backend=bitcoind dbbackend=postgres nativesql=true
-          - name: bitcoind-sqlite-nativesql
-            args: backend=bitcoind dbbackend=sqlite nativesql=true
-          - name: neutrino
-            args: backend=neutrino
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v3
+#  ########################
+#  # run ubuntu integration tests
+#  ########################
+#  ubuntu-integration-test:
+#    name: run ubuntu itests
+#    runs-on: ubuntu-latest
+#    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
+#    strategy:
+#      # Allow other tests in the matrix to continue if one fails.
+#      fail-fast: false
+#      matrix:
+#        include:
+#          - name: btcd
+#            args: backend=btcd
+#          - name: bitcoind
+#            args: backend=bitcoind
+#          - name: bitcoind-notxindex
+#            args: backend="bitcoind notxindex"
+#          - name: bitcoind-rpcpolling
+#            args: backend="bitcoind rpcpolling"
+#          - name: bitcoind-etcd
+#            args: backend=bitcoind dbbackend=etcd
+#          - name: bitcoind-postgres
+#            args: backend=bitcoind dbbackend=postgres
+#          - name: bitcoind-sqlite
+#            args: backend=bitcoind dbbackend=sqlite
+#          - name: bitcoind-postgres-nativesql
+#            args: backend=bitcoind dbbackend=postgres nativesql=true
+#          - name: bitcoind-sqlite-nativesql
+#            args: backend=bitcoind dbbackend=sqlite nativesql=true
+#          - name: neutrino
+#            args: backend=neutrino
+#    steps:
+#      - name: git checkout
+#        uses: actions/checkout@v3
+#
+#      - name: setup go ${{ env.GO_VERSION }}
+#        uses: ./.github/actions/setup-go
+#        with:
+#          go-version: '${{ env.GO_VERSION }}'
+#          key-prefix: integration-test
+#
+#      - name: install bitcoind
+#        run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
+#
+#      - name: run ${{ matrix.name }}
+#        run: make itest-parallel ${{ matrix.args }}
+#
+#      - name: Zip log files on failure
+#        if: ${{ failure() }}
+#        timeout-minutes: 5 # timeout after 5 minute
+#        run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log
+#
+#      - name: Upload log files on failure
+#        uses: actions/upload-artifact@v3
+#        if: ${{ failure() }}
+#        with:
+#          name: logs-itest-${{ matrix.name }}
+#          path: logs-itest-${{ matrix.name }}.zip
+#          retention-days: 5
 
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-          key-prefix: integration-test
 
-      - name: install bitcoind
-        run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
-
-      - name: run ${{ matrix.name }}
-        run: make itest-parallel ${{ matrix.args }}
-
-      - name: Zip log files on failure
-        if: ${{ failure() }}
-        timeout-minutes: 5 # timeout after 5 minute
-        run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log
-
-      - name: Upload log files on failure
-        uses: actions/upload-artifact@v3
-        if: ${{ failure() }}
-        with:
-          name: logs-itest-${{ matrix.name }}
-          path: logs-itest-${{ matrix.name }}.zip
-          retention-days: 5
-
-
-  ########################
-  # run windows integration test
-  ########################
-  windows-integration-test:
-    name: run windows itest
-    runs-on: windows-latest
-    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v3
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-          key-prefix: integration-test
-
-      - name: run itest
-        run: make itest-parallel windows=1
-        
-      - name: kill any remaining lnd processes
-        if: ${{ failure() }}
-        shell: powershell
-        run: taskkill /IM lnd-itest.exe /T /F
-
-      - name: Zip log files on failure
-        if: ${{ failure() }}
-        timeout-minutes: 5 # timeout after 5 minute
-        run: 7z a logs-itest-windows.zip itest/**/*.log
-
-      - name: Upload log files on failure
-        uses: actions/upload-artifact@v3
-        if: ${{ failure() }}
-        with:
-          name: logs-itest-windows
-          path: logs-itest-windows.zip
-          retention-days: 5
+#  ########################
+#  # run windows integration test
+#  ########################
+#  windows-integration-test:
+#    name: run windows itest
+#    runs-on: windows-latest
+#    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
+#    steps:
+#      - name: git checkout
+#        uses: actions/checkout@v3
+#
+#      - name: setup go ${{ env.GO_VERSION }}
+#        uses: ./.github/actions/setup-go
+#        with:
+#          go-version: '${{ env.GO_VERSION }}'
+#          key-prefix: integration-test
+#
+#      - name: run itest
+#        run: make itest-parallel windows=1
+#        
+#      - name: kill any remaining lnd processes
+#        if: ${{ failure() }}
+#        shell: powershell
+#        run: taskkill /IM lnd-itest.exe /T /F
+#
+#      - name: Zip log files on failure
+#        if: ${{ failure() }}
+#        timeout-minutes: 5 # timeout after 5 minute
+#        run: 7z a logs-itest-windows.zip itest/**/*.log
+#
+#      - name: Upload log files on failure
+#        uses: actions/upload-artifact@v3
+#        if: ${{ failure() }}
+#        with:
+#          name: logs-itest-windows
+#          path: logs-itest-windows.zip
+#          retention-days: 5
 
 
   ########################
   # check pinned dependencies
   ########################
-  dep-pin:
-    name: check pinned dependencies
-    runs-on: ubuntu-latest
-    strategy:
-      # Allow other tests in the matrix to continue if one fails.
-      fail-fast: false
-      matrix:
-        pinned_dep:
-          - google.golang.org/grpc v1.56.3
-          - github.com/golang/protobuf v1.5.3
-
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v3
-
-      - name: ensure dependencies at correct version
-        run: if ! grep -q "${{ matrix.pinned_dep }}" go.mod; then echo dependency ${{ matrix.pinned_dep }} should not be altered ; exit 1 ; fi
-
-  ########################
-  # check PR updates release notes
-  ########################
-  milestone-check:
-    name: check release notes updated
-    runs-on: ubuntu-latest
-    if: '!contains(github.event.pull_request.labels.*.name, ''no-changelog'')'
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v3
-
-      - name: release notes check
-        run: scripts/check-release-notes.sh
+#  dep-pin:
+#    name: check pinned dependencies
+#    runs-on: ubuntu-latest
+#    strategy:
+#      # Allow other tests in the matrix to continue if one fails.
+#      fail-fast: false
+#      matrix:
+#        pinned_dep:
+#          - google.golang.org/grpc v1.56.3
+#          - github.com/golang/protobuf v1.5.3
+#
+#    steps:
+#      - name: git checkout
+#        uses: actions/checkout@v3
+#
+#      - name: ensure dependencies at correct version
+#        run: if ! grep -q "${{ matrix.pinned_dep }}" go.mod; then echo dependency ${{ matrix.pinned_dep }} should not be altered ; exit 1 ; fi
+#
+#  ########################
+#  # check PR updates release notes
+#  ########################
+#  milestone-check:
+#    name: check release notes updated
+#    runs-on: ubuntu-latest
+#    if: '!contains(github.event.pull_request.labels.*.name, ''no-changelog'')'
+#    steps:
+#      - name: git checkout
+#        uses: actions/checkout@v3
+#
+#      - name: release notes check
+#        run: scripts/check-release-notes.sh

@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -239,10 +240,6 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 		h.htlcResolution.SweepSignDesc.Output.PkScript,
 	)
 	if !h.outputIncubating {
-		log.Infof("%T(%x): offering second-layer transition tx to "+
-			"sweeper: %v", h, h.htlc.RHash[:],
-			spew.Sdump(h.htlcResolution.SignedSuccessTx))
-
 		var secondLevelInput input.HtlcSecondLevelAnchorInput
 		if isTaproot {
 			//nolint:lll
@@ -260,12 +257,33 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 			)
 		}
 
+		// Calculate the budget for this sweep.
+		value := btcutil.Amount(
+			secondLevelInput.SignDesc().Output.Value,
+		)
+		budget := calculateBudget(
+			value, h.Budget.DeadlineHTLCRatio,
+			h.Budget.DeadlineHTLC,
+		)
+
+		// The deadline would be the CLTV in this HTLC output. If we
+		// are the initiator of this force close, with the default
+		// `IncomingBroadcastDelta`, it means we have 10 blocks left
+		// when going onchain. Given we need to mine one block to
+		// confirm the force close tx, and one more block to trigger
+		// the sweep, we have 8 blocks left to sweep the HTLC.
+		deadline := fn.Some(int32(h.htlc.RefundTimeout))
+
+		log.Infof("%T(%x): offering first-level success HTLC to "+
+			"sweeper with deadline=%v, budget=%v", h,
+			h.htlc.RHash[:], h.htlc.RefundTimeout, budget)
+
+		// We'll now offer the second-level transaction to the sweeper.
 		_, err := h.Sweeper.SweepInput(
 			&secondLevelInput,
 			sweep.Params{
-				Fee: sweep.FeeEstimateInfo{
-					ConfTarget: secondLevelConfTarget,
-				},
+				Budget:         budget,
+				DeadlineHeight: deadline,
 			},
 		)
 		if err != nil {
@@ -371,13 +389,26 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 		h.htlcResolution.CsvDelay, h.broadcastHeight,
 		h.htlc.RHash,
 	)
+
+	// Calculate the budget for this sweep.
+	budget := calculateBudget(
+		btcutil.Amount(inp.SignDesc().Output.Value),
+		h.Budget.NoDeadlineHTLCRatio,
+		h.Budget.NoDeadlineHTLC,
+	)
+
+	log.Infof("%T(%x): offering second-level success HTLC to sweeper with "+
+		"no deadline and budget=%v", h, h.htlc.RHash[:], budget)
+
 	// TODO(roasbeef): need to update above for leased types
 	_, err = h.Sweeper.SweepInput(
 		inp,
 		sweep.Params{
-			Fee: sweep.FeeEstimateInfo{
-				ConfTarget: sweepConfTarget,
-			},
+			Budget: budget,
+
+			// For second level success tx, there's no rush to get
+			// it confirmed, so we use a nil deadline.
+			DeadlineHeight: fn.None[int32](),
 		},
 	)
 	if err != nil {

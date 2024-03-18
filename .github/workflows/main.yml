@@ -328,6 +328,44 @@ jobs:
           path: logs-itest-windows.zip
           retention-days: 5
 
+  ########################
+  # run macOS integration test
+  ########################
+  macos-integration-test:
+    name: run macOS itest
+    runs-on: macos-14
+    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v3
+
+      - name: setup go ${{ env.GO_VERSION }}
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+          key-prefix: integration-test
+
+      - name: install bitcoind
+        run: |
+          wget https://bitcoincore.org/bin/bitcoin-core-${BITCOIN_VERSION}.0/bitcoin-${BITCOIN_VERSION}.0-arm64-apple-darwin.tar.gz
+          tar zxvf bitcoin-${BITCOIN_VERSION}.0-arm64-apple-darwin.tar.gz
+          mv bitcoin-${BITCOIN_VERSION}.0 /tmp/bitcoin
+
+      - name: run itest
+        run: PATH=$PATH:/tmp/bitcoin/bin make itest-parallel backend=bitcoind
+
+      - name: Zip log files on failure
+        if: ${{ failure() }}
+        timeout-minutes: 5 # timeout after 5 minute
+        run: 7z a logs-itest-macos.zip itest/**/*.log
+
+      - name: Upload log files on failure
+        uses: actions/upload-artifact@v3
+        if: ${{ failure() }}
+        with:
+          name: logs-itest-macos
+          path: logs-itest-macos.zip
+          retention-days: 5
 
   ########################
   # check pinned dependencies

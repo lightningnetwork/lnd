@@ -88,6 +88,7 @@ func newHtlcResolverTestContext(t *testing.T,
 				return nil
 			},
 			HtlcNotifier: htlcNotifier,
+			Budget:       DefaultBudgetConfig(),
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			report *channeldb.ResolverReport) error {

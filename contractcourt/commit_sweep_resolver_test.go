@@ -42,6 +42,7 @@ func newCommitSweepResolverTestContext(t *testing.T,
 		ChainArbitratorConfig: ChainArbitratorConfig{
 			Notifier: notifier,
 			Sweeper:  sweeper,
+			Budget:   DefaultBudgetConfig(),
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {

@@ -472,6 +472,17 @@ func TestQueryPayments(t *testing.T) {
 			lastIndex:      5,
 			expectedSeqNrs: []uint64{3, 4, 5},
 		},
+		{
+			name: "query max transcation with start and end creation time",
+			query: PaymentsQuery{
+				CreationDateStart: 3,
+				CreationDateEnd:   5,
+				CountTotal: true,
+			},
+			firstIndex:     3,
+			lastIndex:      5,
+			expectedSeqNrs: []uint64{3, 4, 5},
+		},
 	}
 
 	for _, tt := range tests {

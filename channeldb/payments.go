@@ -596,7 +596,8 @@ func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 		// Counting the total number of payments is expensive, since we
 		// literally have to traverse the cursor linearly, which can
 		// take quite a while. So it's an optional query parameter.
-		if query.CountTotal {
+		if query.CountTotal && query.CreationDateStart != 0 &&
+			query.CreationDateEnd != 0 {
 			var (
 				totalPayments uint64
 				err           error

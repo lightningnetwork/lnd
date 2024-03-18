@@ -86,7 +86,8 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 			published[tx.TxHash()]++
 			return nil
 		},
-		Clock: clock.NewDefaultClock(),
+		Clock:  clock.NewDefaultClock(),
+		Budget: *DefaultBudgetConfig(),
 	}
 	chainArb := NewChainArbitrator(
 		chainArbCfg, db,
@@ -169,7 +170,8 @@ func TestResolveContract(t *testing.T) {
 		PublishTx: func(tx *wire.MsgTx, _ string) error {
 			return nil
 		},
-		Clock: clock.NewDefaultClock(),
+		Clock:  clock.NewDefaultClock(),
+		Budget: *DefaultBudgetConfig(),
 	}
 	chainArb := NewChainArbitrator(
 		chainArbCfg, db,

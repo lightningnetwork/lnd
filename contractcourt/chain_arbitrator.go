@@ -199,6 +199,9 @@ type ChainArbitratorConfig struct {
 
 	// HtlcNotifier is an interface that htlc events are sent to.
 	HtlcNotifier HtlcNotifier
+
+	// Budget is the configured budget for the arbitrator.
+	Budget *BudgetConfig
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all
@@ -497,7 +500,8 @@ func (c *ChainArbitrator) Start() error {
 		return nil
 	}
 
-	log.Info("ChainArbitrator starting")
+	log.Infof("ChainArbitrator starting with config: budget=[%v]",
+		c.cfg.Budget)
 
 	// First, we'll fetch all the channels that are still open, in order to
 	// collect them within our set of active contracts.

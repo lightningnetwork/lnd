@@ -1768,8 +1768,8 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 			continue
 		}
 
-		toChain := c.shouldGoOnChain(htlc, c.cfg.IncomingBroadcastDelta,
-			height,
+		toChain := c.shouldGoOnChain(
+			htlc, c.cfg.IncomingBroadcastDelta, height,
 		)
 
 		if toChain {

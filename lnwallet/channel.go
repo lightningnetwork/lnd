@@ -6844,6 +6844,11 @@ type IncomingHtlcResolution struct {
 	// necessary items required to spend the sole output of the above
 	// transaction.
 	SweepSignDesc input.SignDescriptor
+
+	// RemoteExpiry is the absolute timeout of the HTLC. This value is
+	// expressed in block height, meaning after this height the HLTC can be
+	// swept by the remote via the timeout path.
+	RemoteExpiry uint32
 }
 
 // OutgoingHtlcResolution houses the information necessary to sweep any
@@ -7237,6 +7242,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 			ClaimOutpoint: op,
 			SweepSignDesc: signDesc,
 			CsvDelay:      HtlcSecondLevelInputSequence(chanType),
+			RemoteExpiry:  htlc.RefundTimeout,
 		}, nil
 	}
 
@@ -7397,6 +7403,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 			SignMethod:   signMethod,
 			ControlBlock: ctrlBlock,
 		},
+		RemoteExpiry: htlc.RefundTimeout,
 	}, nil
 }
 

@@ -1768,8 +1768,12 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 			continue
 		}
 
-		toChain := c.shouldGoOnChain(htlc, c.cfg.IncomingBroadcastDelta,
-			height,
+		// TODO(yy): we shoud not go on chain if there's no
+		// corresponding outgoing HTLC, which means we are the final
+		// hop. Instead, we should cancel the incoming HTLC and fail
+		// the invoice.
+		toChain := c.shouldGoOnChain(
+			htlc, c.cfg.IncomingBroadcastDelta, height,
 		)
 
 		if toChain {

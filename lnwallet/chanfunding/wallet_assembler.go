@@ -362,10 +362,10 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 		// we will call the specialized coin selection function for
 		// that.
 		case r.FundUpToMaxAmt != 0 && r.MinFundAmt != 0:
-
-			// We need to ensure that manually selected coins, which
-			// are spent entirely on the channel funding, leave
-			// enough funds in the wallet to cover for a reserve.
+			// We need to ensure that manually selected coins,
+			// which are spent entirely on the channel funding,
+			// leave enough funds in the wallet to cover for a
+			// reserve.
 			reserve := r.WalletReserve
 			if len(manuallySelectedCoins) > 0 {
 				sumCoins := func(
@@ -386,8 +386,8 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 
 				// If sufficient reserve funds are available we
 				// don't have to provide for it during coin
-				// selection. The manually selected coins can be
-				// spent entirely on the channel funding. If
+				// selection. The manually selected coins can
+				// be spent entirely on the channel funding. If
 				// the excess of coins cover the reserve
 				// partially then we have to provide for the
 				// rest during coin selection.
@@ -501,6 +501,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 				localFundingAmt:  localContributionAmt,
 				remoteFundingAmt: r.RemoteAmt,
 				musig2:           r.Musig2,
+				tapscriptRoot:    r.TapscriptRoot,
 			},
 			InputCoins: selectedCoins,
 			coinLocker: w.cfg.CoinLocker,

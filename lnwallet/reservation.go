@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
@@ -212,6 +213,11 @@ type ChannelReservation struct {
 	// commitment state.
 	pushMSat lnwire.MilliSatoshi
 
+	// tapscriptRoot is the root of the tapscript tree that will be used to
+	// create the musig2 funding output. This is only used for taproot
+	// channels.
+	tapscriptRoot fn.Option[chainhash.Hash]
+
 	wallet     *LightningWallet
 	chanFunder chanfunding.Assembler
 
@@ -412,6 +418,10 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		chanType |= channeldb.ScidAliasFeatureBit
 	}
 
+	if req.TapscriptRoot.IsSome() {
+		chanType |= channeldb.TapscriptRootBit
+	}
+
 	return &ChannelReservation{
 		ourContribution: &ChannelContribution{
 			FundingAmount: ourBalance.ToSatoshis(),
@@ -445,6 +455,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 			InitialLocalBalance:  ourBalance,
 			InitialRemoteBalance: theirBalance,
 			Memo:                 req.Memo,
+			TapscriptRoot:        req.TapscriptRoot,
 		},
 		pushMSat:      req.PushMSat,
 		pendingChanID: req.PendingChanID,

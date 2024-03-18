@@ -514,11 +514,15 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 	}
 
 	// Ensure the client provided a sane fee preference.
-	_, err := params.Fee.Estimate(
-		s.cfg.FeeEstimator, s.cfg.MaxFeeRate.FeePerKWeight(),
-	)
-	if err != nil {
-		return nil, err
+	//
+	// TODO(yy): remove this check?
+	if params.Fee != nil {
+		_, err := params.Fee.Estimate(
+			s.cfg.FeeEstimator, s.cfg.MaxFeeRate.FeePerKWeight(),
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	absoluteTimeLock, _ := input.RequiredLockTime()
@@ -1580,7 +1584,7 @@ func (s *UtxoSweeper) sweepPendingInputs(inputs InputsMap) {
 		}
 
 		if err != nil {
-			log.Errorf("Sweep new inputs: %v", err)
+			log.Errorf("Failed to sweep %v: %v", set, err)
 		}
 	}
 }

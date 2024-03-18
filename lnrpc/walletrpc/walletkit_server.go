@@ -876,25 +876,34 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 		satPerVbyte := uint64(sweeperInput.LastFeeRate.FeePerVByte())
 		broadcastAttempts := uint32(sweeperInput.BroadcastAttempts)
 
-		feePref := sweeperInput.Params.Fee
-		requestedFee, ok := feePref.(sweep.FeeEstimateInfo)
-		if !ok {
-			return nil, fmt.Errorf("unknown fee preference type: "+
-				"%v", feePref)
+		ps := &PendingSweep{
+			Outpoint:          op,
+			WitnessType:       witnessType,
+			AmountSat:         amountSat,
+			SatPerVbyte:       satPerVbyte,
+			BroadcastAttempts: broadcastAttempts,
+			Force:             sweeperInput.Params.Force,
 		}
 
+		feePref := sweeperInput.Params.Fee
+
+		// If there's no fee preference specified, we can move to the
+		// next record.
+		if feePref == nil {
+			rpcPendingSweeps = append(rpcPendingSweeps, ps)
+			continue
+		}
+
+		requestedFee, ok := feePref.(sweep.FeeEstimateInfo)
+		if !ok {
+			return nil, fmt.Errorf("unknown fee "+
+				"preference type: "+"%v", feePref)
+		}
 		requestedFeeRate := uint64(requestedFee.FeeRate.FeePerVByte())
 
-		rpcPendingSweeps = append(rpcPendingSweeps, &PendingSweep{
-			Outpoint:             op,
-			WitnessType:          witnessType,
-			AmountSat:            amountSat,
-			SatPerVbyte:          satPerVbyte,
-			BroadcastAttempts:    broadcastAttempts,
-			RequestedSatPerVbyte: requestedFeeRate,
-			RequestedConfTarget:  requestedFee.ConfTarget,
-			Force:                sweeperInput.Params.Force,
-		})
+		ps.RequestedSatPerVbyte = requestedFeeRate
+		ps.RequestedConfTarget = requestedFee.ConfTarget
+		rpcPendingSweeps = append(rpcPendingSweeps, ps)
 	}
 
 	return &PendingSweepsResponse{

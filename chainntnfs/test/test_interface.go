@@ -1953,9 +1953,10 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 			}
 
 		case "btcd":
+			configCopy := rpcConfig
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return btcdnotify.New(
-					&rpcConfig, unittest.NetParams,
+					&configCopy, unittest.NetParams,
 					hintCache, hintCache, blockCache,
 				)
 			}

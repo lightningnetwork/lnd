@@ -42,7 +42,8 @@ type OnionProcessor interface {
 	// ReconstructHopIterator attempts to decode a valid sphinx packet from
 	// the passed io.Reader instance.
 	ReconstructHopIterator(r io.Reader, rHash []byte,
-		blindingKey *btcec.PublicKey) (hop.Iterator, error)
+		blindingKey *btcec.PublicKey, incomingAmt lnwire.MilliSatoshi,
+		incomingExpiry uint32) (hop.Iterator, error)
 }
 
 // UtxoSweeper defines the sweep functions that contract court requires.

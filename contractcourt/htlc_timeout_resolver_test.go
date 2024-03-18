@@ -301,6 +301,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 					resolutionChan <- msgs[0]
 					return nil
 				},
+				Budget: *DefaultBudgetConfig(),
 			},
 			PutResolverReport: func(_ kvdb.RwTx,
 				_ *channeldb.ResolverReport) error {

@@ -351,6 +351,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 				return nil
 			},
 			HtlcNotifier: htlcNotifier,
+			Budget:       *DefaultBudgetConfig(),
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {

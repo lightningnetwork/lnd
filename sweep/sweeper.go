@@ -38,8 +38,6 @@ var (
 
 	// DefaultDeadlineDelta defines a default deadline delta (1 week) to be
 	// used when sweeping inputs with no deadline pressure.
-	//
-	// TODO(yy): make this configurable.
 	DefaultDeadlineDelta = int32(1008)
 )
 
@@ -372,6 +370,10 @@ type UtxoSweeperConfig struct {
 	// Publisher is used to publish the sweep tx crafted here and monitors
 	// it for potential fee bumps.
 	Publisher Bumper
+
+	// NoDeadlineConfTarget is the conf target to use when sweeping
+	// non-time-sensitive outputs.
+	NoDeadlineConfTarget uint32
 }
 
 // Result is the struct that is pushed through the result channel. Callers can
@@ -811,7 +813,7 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 
 	// Create a default deadline height, and replace it with set's
 	// DeadlineHeight if it's set.
-	deadlineHeight := s.currentHeight + DefaultDeadlineDelta
+	deadlineHeight := s.currentHeight + int32(s.cfg.NoDeadlineConfTarget)
 	deadlineHeight = set.DeadlineHeight().UnwrapOr(deadlineHeight)
 
 	// Create a fee bump request and ask the publisher to broadcast it. The

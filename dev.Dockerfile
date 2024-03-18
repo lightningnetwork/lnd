@@ -14,6 +14,7 @@ ENV GODEBUG netdns=cgo
 
 # Install dependencies.
 RUN apk add --no-cache --update alpine-sdk \
+    bash \
     git \
     make 
 

@@ -2677,6 +2677,7 @@ func TestSweepPendingInputs(t *testing.T) {
 		GenSweepScript: func() ([]byte, error) {
 			return testPubKey.SerializeCompressed(), nil
 		},
+		NoDeadlineConfTarget: uint32(DefaultDeadlineDelta),
 	})
 
 	// Set a current height to test the deadline override.

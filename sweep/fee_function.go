@@ -276,6 +276,16 @@ func (l *LinearFeeFunction) estimateFeeRate(
 		ConfTarget: confTarget,
 	}
 
+	// If the conf target is greater or equal to the max allowed value
+	// (1008), we will use the min relay fee instead.
+	if confTarget >= chainfee.MaxBlockTarget {
+		minFeeRate := l.estimator.RelayFeePerKW()
+		log.Debugf("Conf target %v is greater than max block target, "+
+			"using min relay fee rate %v", confTarget, minFeeRate)
+
+		return minFeeRate, nil
+	}
+
 	// endingFeeRate comes from budget/txWeight, which means the returned
 	// fee rate will always be capped by this value, hence we don't need to
 	// worry about overpay.

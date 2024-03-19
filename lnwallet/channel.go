@@ -200,14 +200,14 @@ const (
 	Add updateType = iota
 
 	// Fail is an update type which removes a prior HTLC entry from the
-	// log. Adding a Fail entry to ones log will modify the _remote_
-	// parties update log once a new commitment view has been evaluated
+	// log. Adding a Fail entry to one's log will modify the _remote_
+	// party's update log once a new commitment view has been evaluated
 	// which contains the Fail entry.
 	Fail
 
 	// MalformedFail is an update type which removes a prior HTLC entry
-	// from the log. Adding a MalformedFail entry to ones log will modify
-	// the _remote_ parties update log once a new commitment view has been
+	// from the log. Adding a MalformedFail entry to one's log will modify
+	// the _remote_ party's update log once a new commitment view has been
 	// evaluated which contains the MalformedFail entry. The difference
 	// from Fail type lie in the different data we have to store.
 	MalformedFail
@@ -401,7 +401,7 @@ type PaymentDescriptor struct {
 // PayDescsFromRemoteLogUpdates converts a slice of LogUpdates received from the
 // remote peer into PaymentDescriptors to inform a link's forwarding decisions.
 //
-// NOTE: The provided `logUpdates` MUST corresponding exactly to either the Adds
+// NOTE: The provided `logUpdates` MUST correspond exactly to either the Adds
 // or SettleFails in this channel's forwarding package at `height`.
 func PayDescsFromRemoteLogUpdates(chanID lnwire.ShortChannelID, height uint64,
 	logUpdates []channeldb.LogUpdate) ([]*PaymentDescriptor, error) {
@@ -514,9 +514,9 @@ type commitment struct {
 	ourMessageIndex   uint64
 	theirMessageIndex uint64
 
-	// [our|their]HtlcIndex are the current running counters for the HTLC's
+	// [our|their]HtlcIndex are the current running counters for the HTLCs
 	// offered by either party. This value is incremented each time a party
-	// offers a new HTLC. The log update methods that consume HTLC's will
+	// offers a new HTLC. The log update methods that consume HTLCs will
 	// reference these counters, rather than the running cumulative message
 	// counters.
 	ourHtlcIndex   uint64
@@ -580,7 +580,7 @@ type commitment struct {
 // locateOutputIndex is a small helper function to locate the output index of a
 // particular HTLC within the current commitment transaction. The duplicate map
 // massed in is to be retained for each output within the commitment
-// transition.  This ensures that we don't assign multiple HTLC's to the same
+// transition.  This ensures that we don't assign multiple HTLCs to the same
 // index within the commitment transaction.
 func locateOutputIndex(p *PaymentDescriptor, tx *wire.MsgTx, ourCommit bool,
 	dups map[PaymentHash][]int32, cltvs []uint32) (int32, error) {
@@ -595,7 +595,7 @@ func locateOutputIndex(p *PaymentDescriptor, tx *wire.MsgTx, ourCommit bool,
 		return false
 	}
 
-	// If this their commitment transaction, we'll be trying to locate
+	// If this is their commitment transaction, we'll be trying to locate
 	// their pkScripts, otherwise we'll be looking for ours. This is
 	// required as the commitment states are asymmetric in order to ascribe
 	// blame in the case of a contract breach.
@@ -628,7 +628,7 @@ func locateOutputIndex(p *PaymentDescriptor, tx *wire.MsgTx, ourCommit bool,
 		"cltv=%v", pkScript, p.Amount, p.Timeout)
 }
 
-// populateHtlcIndexes modifies the set of HTLC's locked-into the target view
+// populateHtlcIndexes modifies the set of HTLCs locked-into the target view
 // to have full indexing information populated. This information is required as
 // we need to keep track of the indexes of each HTLC in order to properly write
 // the current state to disk, and also to locate the PaymentDescriptor
@@ -637,7 +637,7 @@ func (c *commitment) populateHtlcIndexes(chanType channeldb.ChannelType,
 	cltvs []uint32) error {
 
 	// First, we'll set up some state to allow us to locate the output
-	// index of the all the HTLC's within the commitment transaction. We
+	// index of the all the HTLCs within the commitment transaction. We
 	// must keep this index so we can validate the HTLC signatures sent to
 	// us.
 	dups := make(map[PaymentHash][]int32)
@@ -799,7 +799,7 @@ func (c *commitment) toDiskCommit(ourCommit bool) *channeldb.ChannelCommitment {
 // diskHtlcToPayDesc converts an HTLC previously written to disk within a
 // commitment state to the form required to manipulate in memory within the
 // commitment struct and updateLog. This function is used when we need to
-// restore commitment state written do disk back into memory once we need to
+// restore commitment state written to disk back into memory once we need to
 // restart a channel session.
 func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 	commitHeight uint64, htlc *channeldb.HTLC, localCommitKeys,
@@ -816,7 +816,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 		chanType                             = lc.channelState.ChanType
 	)
 
-	// If the either outputs is dust from the local or remote node's
+	// If the either output is dust from the local or remote node's
 	// perspective, then we don't need to generate the scripts as we only
 	// generate them in order to locate the outputs within the commitment
 	// transaction. As we'll mark dust with a special output index in the
@@ -1259,8 +1259,8 @@ func compactLogs(ourLog, theirLog *updateLog,
 //
 // The state machine has for main methods:
 //   - .SignNextCommitment()
-//   - Called one one wishes to sign the next commitment, either initiating a
-//     new state update, or responding to a received commitment.
+//   - Called once when one wishes to sign the next commitment, either
+//     initiating a new state update, or responding to a received commitment.
 //   - .ReceiveNewCommitment()
 //   - Called upon receipt of a new commitment from the remote party. If the
 //     new commitment is valid, then a revocation should immediately be
@@ -2919,7 +2919,7 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 // HtlcIsDust determines if an HTLC output is dust or not depending on two
 // bits: if the HTLC is incoming and if the HTLC will be placed on our
 // commitment transaction, or theirs. These two pieces of information are
-// require as we currently used second-level HTLC transactions as off-chain
+// required as we currently used second-level HTLC transactions as off-chain
 // covenants. Depending on the two bits, we'll either be using a timeout or
 // success transaction which have different weights.
 func HtlcIsDust(chanType channeldb.ChannelType,

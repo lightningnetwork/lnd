@@ -376,7 +376,7 @@ func SenderHTLCScript(senderHtlcKey, receiverHtlcKey,
 
 	// We'll drop the OP_IF return value off the top of the stack so we can
 	// reconstruct the multi-sig script used as an off-chain covenant. If
-	// two valid signatures are provided, ten then output will be deemed as
+	// two valid signatures are provided, then the output will be deemed as
 	// spendable.
 	builder.AddOp(txscript.OP_DROP)
 	builder.AddOp(txscript.OP_2)
@@ -391,8 +391,9 @@ func SenderHTLCScript(senderHtlcKey, receiverHtlcKey,
 
 	// Hash the top item of the stack and compare it with the hash160 of
 	// the payment hash, which is already the sha256 of the payment
-	// pre-image. By using this little trick we're able save space on-chain
-	// as the witness includes a 20-byte hash rather than a 32-byte hash.
+	// pre-image. By using this little trick we're able to save space
+	// on-chain as the witness includes a 20-byte hash rather than a
+	// 32-byte hash.
 	builder.AddOp(txscript.OP_HASH160)
 	builder.AddData(Ripemd160H(paymentHash))
 	builder.AddOp(txscript.OP_EQUALVERIFY)
@@ -2009,7 +2010,7 @@ func LockTimeToSequence(isSeconds bool, locktime uint32) uint32 {
 //	    <revokeKey>
 //	OP_ELSE
 //	    <numRelativeBlocks> OP_CHECKSEQUENCEVERIFY OP_DROP
-//	    <timeKey>
+//	    <selfKey>
 //	OP_ENDIF
 //	OP_CHECKSIG
 func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) ([]byte, error) {
@@ -2358,7 +2359,7 @@ func TaprootCommitSpendRevoke(signer Signer, signDesc *SignDescriptor,
 //	OP_ELSE
 //	    <absoluteLeaseExpiry> OP_CHECKLOCKTIMEVERIFY OP_DROP
 //	    <numRelativeBlocks> OP_CHECKSEQUENCEVERIFY OP_DROP
-//	    <timeKey>
+//	    <selfKey>
 //	OP_ENDIF
 //	OP_CHECKSIG
 func LeaseCommitScriptToSelf(selfKey, revokeKey *btcec.PublicKey,
@@ -2961,7 +2962,7 @@ func CommitSpendAnchorAnyone(script []byte) (wire.TxWitness, error) {
 // SingleTweakBytes computes set of bytes we call the single tweak. The purpose
 // of the single tweak is to randomize all regular delay and payment base
 // points. To do this, we generate a hash that binds the commitment point to
-// the pay/delay base point. The end end results is that the basePoint is
+// the pay/delay base point. The end result is that the basePoint is
 // tweaked as follows:
 //
 //   - key = basePoint + sha256(commitPoint || basePoint)*G

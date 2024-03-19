@@ -1021,7 +1021,7 @@ func genSegwitV0HtlcScript(chanType channeldb.ChannelType,
 	// being applied to their commitment transaction or ours.
 	switch {
 	// The HTLC is paying to us, and being applied to our commitment
-	// transaction. So we need to use the receiver's version of HTLC the
+	// transaction. So we need to use the receiver's version of the HTLC
 	// script.
 	case isIncoming && ourCommit:
 		witnessScript, err = input.ReceiverHTLCScript(

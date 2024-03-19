@@ -360,6 +360,10 @@
   for SQL backends enabling new users to optionally use  an experimental native
   SQL invoices database.
 
+* [Ensure that LND won't
+  start](https://github.com/lightningnetwork/lnd/pull/8568) if native SQL is
+  enabled but the channeldb already has any KV invoices stored.
+
 ## Code Health
 
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 

@@ -65,7 +65,9 @@ func testTowerClientTowerAndSessionManagement(ht *lntest.HarnessTest) {
 	}
 	dave.RPC.AddTower(addWallisReq)
 
-	assertNumSessions := func(towerPk []byte, expectedNum int) {
+	assertNumSessions := func(towerPk []byte, expectedNum int,
+		mineOnFail bool) {
+
 		err := wait.NoError(func() error {
 			info := dave.RPC.GetTowerInfo(
 				&wtclientrpc.GetTowerInfoRequest{
@@ -82,6 +84,10 @@ func testTowerClientTowerAndSessionManagement(ht *lntest.HarnessTest) {
 				return nil
 			}
 
+			if mineOnFail {
+				ht.Miner.MineBlocksSlow(1)
+			}
+
 			return fmt.Errorf("expected %d sessions, got %d",
 				expectedNum, numSessions)
 		}, defaultTimeout)
@@ -91,7 +97,7 @@ func testTowerClientTowerAndSessionManagement(ht *lntest.HarnessTest) {
 	// Assert that there are a few sessions between Dave and Wallis. There
 	// should be one per client. There are currently 3 types of clients, so
 	// we expect 3 sessions.
-	assertNumSessions(wallisPk, 3)
+	assertNumSessions(wallisPk, 3, false)
 
 	// Before we make a channel, we'll load up Dave with some coins sent
 	// directly from the miner.
@@ -145,7 +151,7 @@ func testTowerClientTowerAndSessionManagement(ht *lntest.HarnessTest) {
 		Pubkey:  wilmaPk,
 		Address: wilmaListener,
 	})
-	assertNumSessions(wilmaPk, 3)
+	assertNumSessions(wilmaPk, 3, false)
 
 	// The updates from before should now appear on the new watchtower.
 	assertNumBackups(ht, dave.RPC, wilmaPk, 4, false)
@@ -163,7 +169,7 @@ func testTowerClientTowerAndSessionManagement(ht *lntest.HarnessTest) {
 	// number of sessions with Wallis has not changed - in other words, the
 	// previously used session was re-used.
 	assertNumBackups(ht, dave.RPC, wallisPk, 8, false)
-	assertNumSessions(wallisPk, 3)
+	assertNumSessions(wallisPk, 3, false)
 
 	findSession := func(towerPk []byte, numBackups uint32) []byte {
 		info := dave.RPC.GetTowerInfo(&wtclientrpc.GetTowerInfoRequest{
@@ -196,7 +202,7 @@ func testTowerClientTowerAndSessionManagement(ht *lntest.HarnessTest) {
 	// This should force the client to negotiate a new session. The old
 	// session still remains in our session list since the channel for which
 	// it has updates for is still open.
-	assertNumSessions(wallisPk, 4)
+	assertNumSessions(wallisPk, 4, false)
 
 	// Any new back-ups should now be backed up on a different session.
 	generateBackups(ht, dave, ht.Alice, 2)
@@ -212,8 +218,12 @@ func testTowerClientTowerAndSessionManagement(ht *lntest.HarnessTest) {
 	// The session that was previously terminated now gets deleted since
 	// the channel for which it has updates has now been closed. All the
 	// remaining sessions are not yet closable since they are not yet
-	// exhausted and are all still active.
-	assertNumSessions(wallisPk, 3)
+	// exhausted and are all still active. We set mineOnFail to true here
+	// so that we can ensure that the closable session queue continues to
+	// be checked on each new block. It could have been the case that all
+	// checks with the above mined blocks were completed before the
+	// closable session was queued.
+	assertNumSessions(wallisPk, 3, true)
 
 	// For the sake of completion, we call RemoveTower here for both towers
 	// to show that this should never error.

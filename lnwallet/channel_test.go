@@ -7515,67 +7515,146 @@ func TestForceCloseBorkedState(t *testing.T) {
 }
 
 // TestChannelMaxFeeRate ensures we correctly compute a channel initiator's max
-// fee rate based on an allocation and its available balance. It should never
-// dip below the established fee floor.
+// fee rate based on an allocation and its available balance. When a very low
+// fee allocation value is selected the max fee rate is always floored at the
+// current fee rate of the channel.
 func TestChannelMaxFeeRate(t *testing.T) {
 	t.Parallel()
-
-	assertMaxFeeRate := func(c *LightningChannel, maxAlloc float64,
-		expFeeRate chainfee.SatPerKWeight) {
-
-		maxFeeRate := c.MaxFeeRate(maxAlloc)
-		if maxFeeRate != expFeeRate {
-			t.Fatalf("expected max fee rate of %v with max "+
-				"allocation of %v, got %v", expFeeRate,
-				maxAlloc, maxFeeRate)
-		}
-
-		if err := c.validateFeeRate(maxFeeRate); err != nil {
-			t.Fatalf("fee rate validation failed: %v", err)
-		}
-	}
 
 	// propertyTest tests that the validateFeeRate function always passes
 	// for the output returned by MaxFeeRate for any valid random inputs
 	// fed to MaxFeeRate.
 	propertyTest := func(c *LightningChannel) func(alloc maxAlloc) bool {
 		return func(ma maxAlloc) bool {
-			maxFeeRate := c.MaxFeeRate(float64(ma))
+			maxFeeRate, _ := c.MaxFeeRate(float64(ma))
 			return c.validateFeeRate(maxFeeRate) == nil
 		}
 	}
 
-	aliceChannel, _, err := CreateTestChannels(
+	// Create a non-anchor and an anchor channel setup.
+	nonAnchorChannel, _, err := CreateTestChannels(
 		t, channeldb.SingleFunderTweaklessBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
-	if err := quick.Check(propertyTest(aliceChannel), nil); err != nil {
-		t.Fatal(err)
-	}
-
-	assertMaxFeeRate(aliceChannel, 1.0, 676794154)
-	assertMaxFeeRate(aliceChannel, 0.001, 676794)
-	assertMaxFeeRate(aliceChannel, 0.000001, 676)
-	assertMaxFeeRate(aliceChannel, 0.0000001, chainfee.FeePerKwFloor)
-
-	// Check that anchor channels are capped at their max fee rate.
 	anchorChannel, _, err := CreateTestChannels(
 		t, channeldb.SingleFunderTweaklessBit|
 			channeldb.AnchorOutputsBit|channeldb.ZeroHtlcTxFeeBit,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
-	if err = quick.Check(propertyTest(anchorChannel), nil); err != nil {
-		t.Fatal(err)
+	// Run the property tests for both channel types.
+	err = quick.Check(propertyTest(nonAnchorChannel), nil)
+	require.NoError(t, err)
+
+	err = quick.Check(propertyTest(anchorChannel), nil)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name               string
+		channel            *LightningChannel
+		maxFeeAlloc        float64
+		expectedFeeAlloc   float64
+		expectedMinFeeRate bool
+	}{
+		{
+			name:             "non-anchor-channel high fee alloc",
+			channel:          nonAnchorChannel,
+			maxFeeAlloc:      1.0,
+			expectedFeeAlloc: 1.0,
+		},
+		{
+			name: "non-anchor-channel chan low fee " +
+				"alloc",
+			channel:          nonAnchorChannel,
+			maxFeeAlloc:      1e-3,
+			expectedFeeAlloc: 1e-3,
+		},
+		{
+			name:             "anchor-channel high chan fee alloc",
+			channel:          anchorChannel,
+			maxFeeAlloc:      1.0,
+			expectedFeeAlloc: 1.0,
+		},
+		{
+			name:             "anchor-channel low fee alloc",
+			channel:          anchorChannel,
+			maxFeeAlloc:      1e-3,
+			expectedFeeAlloc: 1e-3,
+		},
+		{
+			// The fee rate is capped at the current fee rate if the
+			// fee allocation is too low.
+			name: "non-anchor-channel current fee rate " +
+				"cap",
+			channel:            nonAnchorChannel,
+			maxFeeAlloc:        1e-6,
+			expectedMinFeeRate: true,
+		},
+		{
+			name: "non-anchor-channel current fee rate " +
+				"cap",
+			channel:            nonAnchorChannel,
+			maxFeeAlloc:        1e-8,
+			expectedMinFeeRate: true,
+		},
+		{
+			name: "anchor-channel current fee rate " +
+				"cap",
+			channel:            anchorChannel,
+			maxFeeAlloc:        1e-6,
+			expectedMinFeeRate: true,
+		},
+		{
+			name: "anchor-channel current fee rate " +
+				"cap",
+			channel:            anchorChannel,
+			maxFeeAlloc:        1e-8,
+			expectedMinFeeRate: true,
+		},
 	}
 
-	// Anchor commitments are heavier, hence will the same allocation lead
-	// to slightly lower fee rates.
-	assertMaxFeeRate(anchorChannel, 1.0, 435941555)
-	assertMaxFeeRate(anchorChannel, 0.001, 435941)
-	assertMaxFeeRate(anchorChannel, 0.000001, 435)
-	assertMaxFeeRate(anchorChannel, 0.0000001, chainfee.FeePerKwFloor)
+	for _, testCase := range testCases {
+		tc := testCase
+
+		maxFeeRate, feeAllocation := tc.channel.MaxFeeRate(
+			tc.maxFeeAlloc,
+		)
+
+		currentFeeRate := chainfee.SatPerKWeight(
+			tc.channel.channelState.LocalCommitment.FeePerKw,
+		)
+
+		// When the fee allocation would push our max fee rate below our
+		// current commitment fee rate of the channel we cap the max fee
+		// rate at the current fee rate of the channel. There might be
+		// some rounding inaccuracies due to the fee rate calculation
+		// therefore we accept a relative error of 0.1%.
+		if tc.expectedMinFeeRate {
+			require.InEpsilonf(
+				t, float64(currentFeeRate), float64(maxFeeRate),
+				1e-3, "expected max fee rate:%d, got max "+
+					"fee rate :%d", currentFeeRate,
+				maxFeeRate,
+			)
+		} else {
+			// When the max fee rate is not capped because there
+			// is enough balance to allocate funds from we compare
+			// the fee allocation rather then the max fee rate so
+			// that we can reason more easily about the test values.
+			// Because of floating point operations we accept
+			// a relative error of 0.1%.
+			require.InEpsilonf(
+				t, tc.expectedFeeAlloc, feeAllocation, 1e-3,
+				"expected fee allocation:%f, got fee "+
+					"allocation:%f", tc.expectedFeeAlloc,
+				feeAllocation,
+			)
+		}
+
+		err := tc.channel.validateFeeRate(maxFeeRate)
+		require.NoErrorf(t, err, "fee rate validation failed")
+	}
 }
 
 // TestIdealCommitFeeRate tests that we correctly compute the ideal commitment
@@ -7583,23 +7662,6 @@ func TestChannelMaxFeeRate(t *testing.T) {
 // fee allocation and whether the channel has anchor outputs.
 func TestIdealCommitFeeRate(t *testing.T) {
 	t.Parallel()
-
-	assertIdealFeeRate := func(c *LightningChannel, netFee, minRelay,
-		maxAnchorCommit chainfee.SatPerKWeight,
-		maxFeeAlloc float64, expectedFeeRate chainfee.SatPerKWeight) {
-
-		feeRate := c.IdealCommitFeeRate(
-			netFee, minRelay, maxAnchorCommit, maxFeeAlloc,
-		)
-		if feeRate != expectedFeeRate {
-			t.Fatalf("expected fee rate of %v got %v",
-				expectedFeeRate, feeRate)
-		}
-
-		if err := c.validateFeeRate(feeRate); err != nil {
-			t.Fatalf("fee rate validation failed: %v", err)
-		}
-	}
 
 	// propertyTest tests that the validateFeeRate function always passes
 	// for the output returned by IdealCommitFeeRate for any valid random
@@ -7621,115 +7683,251 @@ func TestIdealCommitFeeRate(t *testing.T) {
 		}
 	}
 
-	// Test ideal fee rates for a non-anchor channel
+	// Create a non-anchor channel and an anchor test channel.
+	nonAnchorChannel, _, err := CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
+	)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+
+	anchorChannel, _, err := CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit|
+			channeldb.AnchorOutputsBit|
+			channeldb.ZeroHtlcTxFeeBit,
+	)
+	if err != nil {
+		t.Fatalf("unable to create test channels: %v", err)
+	}
+
+	// Run the property tests for both channel types (non-anchor and
+	// anchor).
+	err = quick.Check(propertyTest(nonAnchorChannel), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = quick.Check(propertyTest(anchorChannel), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// maxFeeRate is a helper function which calculates the maximum fee rate
+	// a channel is allowed to allocate to fees. It does not take a minimum
+	// fee rate into account.
+	maxFeeRate := func(c *LightningChannel,
+		maxFeeAlloc float64) chainfee.SatPerKWeight {
+
+		balance, weight := c.availableBalance(AdditionalHtlc)
+		feeRate := c.localCommitChain.tip().feePerKw
+		currentFee := feeRate.FeeForWeight(weight)
+
+		maxBalance := balance.ToSatoshis() + currentFee
+
+		maxFee := float64(maxBalance) * maxFeeAlloc
+
+		maxFeeRate := chainfee.SatPerKWeight(
+			maxFee / (float64(weight) / 1000),
+		)
+
+		return maxFeeRate
+	}
+
+	// currentFeeRate calculates the current fee rate of the channel. The
+	// ideal fee rate is floored at the current fee rate of the channel.
+	currentFeeRate := func(c *LightningChannel) chainfee.SatPerKWeight {
+		return c.localCommitChain.tip().feePerKw
+	}
+
+	// testCase definies the test cases when calculating the ideal fee rate
+	// for both channel types (non-anchor and anchor channel).
+	type testCase struct {
+		name               string
+		channel            *LightningChannel
+		maxFeeAlloc        float64
+		networkFeeRate     chainfee.SatPerKWeight
+		minRelayFee        chainfee.SatPerKWeight
+		maxAnchorCommitFee chainfee.SatPerKWeight
+		expectedFeeRate    chainfee.SatPerKWeight
+	}
+
+	nonAnchorCases := []testCase{
+		{
+			name: "ideal fee rate capped at the max " +
+				"available fee rate which is smaller than " +
+				"the network fee rate",
+			channel:        nonAnchorChannel,
+			networkFeeRate: 7e8,
+			maxFeeAlloc:    1.0,
+			// There is not enough balance to pay the network fee so
+			// the maximum available fee rate is expected.
+			expectedFeeRate: maxFeeRate(nonAnchorChannel, 1.0),
+		},
+		{
+			name: "enough balance for the ideal network " +
+				"fee rate",
+			channel:         nonAnchorChannel,
+			networkFeeRate:  5e8,
+			maxFeeAlloc:     1.0,
+			expectedFeeRate: 5e8,
+		},
+		{
+			name: "min relay fee rate is greater than " +
+				"the ideal network fee rate",
+			channel:        nonAnchorChannel,
+			networkFeeRate: 5e8,
+			maxFeeAlloc:    1.0,
+			minRelayFee:    6e8,
+			// The min relay fee rate is used as ideal fee rate
+			// because we can afford it and it's greater than the
+			// network fee rate.
+			expectedFeeRate: 6e8,
+		},
+		{
+			name: "max available fee rate is smaller than the " +
+				"min relay fee rate",
+			channel:        nonAnchorChannel,
+			networkFeeRate: 8e8,
+			maxFeeAlloc:    1e-3,
+			minRelayFee:    7e8,
+			// Using 100% of the available balance (fee alloc) for
+			// the fee rate but this is still not enough to pay for
+			// the min relay fee rate.
+			expectedFeeRate: maxFeeRate(nonAnchorChannel, 1.0),
+		},
+		{
+			name: "current fee rate of the channel is used as a" +
+				"fee floor because fee alloc is too small " +
+				"(fee ratcheting)",
+			channel:        nonAnchorChannel,
+			networkFeeRate: 8e8,
+			maxFeeAlloc:    1e-7,
+			// The fee allocation is too small so we floor the ideal
+			// fee rate at the current fee rate of the channel.
+			expectedFeeRate: currentFeeRate(anchorChannel),
+		},
+	}
+
+	anchorCases := []testCase{
+		{
+			name: "fee rate is capped at the max anchor commit " +
+				"fee rate, which is equal to the fee floor",
+			channel:            anchorChannel,
+			networkFeeRate:     7e8,
+			maxFeeAlloc:        0.1,
+			maxAnchorCommitFee: chainfee.FeePerKwFloor,
+			expectedFeeRate:    chainfee.FeePerKwFloor,
+		},
+		{
+			name: "fee rate capped at the max anchor commit fee " +
+				"rate",
+			channel:            anchorChannel,
+			networkFeeRate:     7e8,
+			maxFeeAlloc:        1e-6,
+			maxAnchorCommitFee: 700,
+			expectedFeeRate:    700,
+		},
+		{
+			name: "fee rate is capped at the max commit anchor" +
+				"fee rate",
+			channel:            anchorChannel,
+			networkFeeRate:     7e8,
+			maxFeeAlloc:        1e-3,
+			maxAnchorCommitFee: 1e5,
+			expectedFeeRate:    1e5,
+		},
+		{
+			name: "min relay fee rate is used when " +
+				"the max commit anchor fee rate is smaller",
+			channel:            anchorChannel,
+			networkFeeRate:     7e8,
+			maxFeeAlloc:        1e-4,
+			minRelayFee:        4e5,
+			maxAnchorCommitFee: 3e5,
+			expectedFeeRate:    4e5,
+		},
+		{
+			name: "min relay fee rate is used when " +
+				"we can still can pay for it using 100% of " +
+				"our balance neglecting the initial fee alloc",
+			channel:            anchorChannel,
+			networkFeeRate:     7e8,
+			maxFeeAlloc:        1e-3,
+			minRelayFee:        5e5,
+			maxAnchorCommitFee: 3e5,
+			expectedFeeRate:    5e5,
+		},
+		{
+			name: "max fee rate using 100% of our balance, " +
+				"neglecting the initial fee alloc, but still " +
+				"not able to account for the min relay fee " +
+				"rate",
+			channel:            anchorChannel,
+			networkFeeRate:     7e8,
+			maxFeeAlloc:        1e-3,
+			minRelayFee:        4.5e8,
+			maxAnchorCommitFee: 3e5,
+			// This is the absolute maximum balance which can be
+			// used for the commitment fee.
+			expectedFeeRate: maxFeeRate(anchorChannel, 1.0),
+		},
+		{
+			name: "current fee rate of the " +
+				"commitment channel is used as the max " +
+				"commit anchor fee rate because the fee " +
+				"alloc. is too small (fee ratcheting)",
+			channel:            anchorChannel,
+			networkFeeRate:     7e8,
+			maxFeeAlloc:        1e-7,
+			maxAnchorCommitFee: 1e6,
+			expectedFeeRate:    currentFeeRate(anchorChannel),
+		},
+	}
+
+	assertIdealFeeRate := func(c *LightningChannel, netFee, minRelay,
+		maxAnchorCommit chainfee.SatPerKWeight,
+		maxFeeAlloc float64, expectedFeeRate chainfee.SatPerKWeight) {
+
+		feeRate := c.IdealCommitFeeRate(
+			netFee, minRelay, maxAnchorCommit, maxFeeAlloc,
+		)
+
+		// Due to rounding inaccuracies when calculating the fee rate a
+		// relative error of 0.1% is tolerated.
+		require.InEpsilonf(
+			t, float64(expectedFeeRate), float64(feeRate),
+			1e-3, "expected max fee rate:%d, got max "+
+				"fee rate :%d", currentFeeRate,
+			maxFeeRate,
+		)
+
+		if err := c.validateFeeRate(feeRate); err != nil {
+			t.Fatalf("fee rate validation failed: %v", err)
+		}
+	}
+
 	t.Run("non-anchor-channel", func(t *testing.T) {
-		aliceChannel, _, err := CreateTestChannels(
-			t, channeldb.SingleFunderTweaklessBit,
-		)
-		if err != nil {
-			t.Fatalf("unable to create test channels: %v", err)
+		for _, testCase := range nonAnchorCases {
+			tc := testCase
+
+			assertIdealFeeRate(
+				tc.channel, tc.networkFeeRate, tc.minRelayFee,
+				tc.maxAnchorCommitFee, tc.maxFeeAlloc,
+				tc.expectedFeeRate,
+			)
 		}
-
-		err = quick.Check(propertyTest(aliceChannel), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// If the maximum fee is lower than the network fee and above
-		// the min relay fee, use the maximum fee.
-		assertIdealFeeRate(
-			aliceChannel, 700000000, 0, 0, 1.0, 676794154,
-		)
-
-		// If the network fee is lower than the max fee and above the
-		// min relay fee, use the network fee.
-		assertIdealFeeRate(
-			aliceChannel, 500000000, 0, 0, 1.0, 500000000,
-		)
-
-		// If the fee is below the minimum relay fee, and the min relay
-		// fee is less than our max fee, use the minimum relay fee.
-		assertIdealFeeRate(
-			aliceChannel, 500000000, 600000000, 0, 1.0, 600000000,
-		)
-
-		// The absolute maximum fee rate we can pay (ie, using a max
-		// allocation of 1) is still below the minimum relay fee. In
-		// this case, use the absolute max fee.
-		assertIdealFeeRate(
-			aliceChannel, 800000000, 700000000, 0, 0.001,
-			676794154,
-		)
 	})
 
-	// Test ideal fee rates for an anchor channel
 	t.Run("anchor-channel", func(t *testing.T) {
-		anchorChannel, _, err := CreateTestChannels(
-			t, channeldb.SingleFunderTweaklessBit|
-				channeldb.AnchorOutputsBit|
-				channeldb.ZeroHtlcTxFeeBit,
-		)
-		if err != nil {
-			t.Fatalf("unable to create test channels: %v", err)
+		for _, testCase := range anchorCases {
+			tc := testCase
+
+			assertIdealFeeRate(
+				tc.channel, tc.networkFeeRate, tc.minRelayFee,
+				tc.maxAnchorCommitFee, tc.maxFeeAlloc,
+				tc.expectedFeeRate,
+			)
 		}
-
-		err = quick.Check(propertyTest(anchorChannel), nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Anchor commitments are heavier, hence the same allocation
-		// leads to slightly lower fee rates.
-		assertIdealFeeRate(
-			anchorChannel, 700000000, 0, chainfee.FeePerKwFloor,
-			0.1, chainfee.FeePerKwFloor,
-		)
-
-		// If the maximum fee is lower than the network fee, use the
-		// maximum fee.
-		assertIdealFeeRate(
-			anchorChannel, 700000000, 0, 1000000, 0.001, 435941,
-		)
-
-		assertIdealFeeRate(
-			anchorChannel, 700000000, 0, 700, 0.000001, 435,
-		)
-
-		assertIdealFeeRate(
-			anchorChannel, 700000000, 0, 1000000, 0.0000001,
-			chainfee.FeePerKwFloor,
-		)
-
-		// If the maximum anchor commit fee rate is less than the
-		// maximum fee, use the max anchor commit fee since this is an
-		// anchor channel.
-		assertIdealFeeRate(
-			anchorChannel, 700000000, 0, 400000, 0.001, 400000,
-		)
-
-		// If the minimum relay fee is above the max anchor commitment
-		// fee rate but still below our max fee rate then use the min
-		// relay fee.
-		assertIdealFeeRate(
-			anchorChannel, 700000000, 400000, 300000, 0.001,
-			400000,
-		)
-
-		// If the min relay fee is above the ideal max fee rate but is
-		// below the max fee rate when the max fee allocation is set to
-		// 1, the minimum relay fee is used.
-		assertIdealFeeRate(
-			anchorChannel, 700000000, 500000, 300000, 0.001,
-			500000,
-		)
-
-		// The absolute maximum fee rate we can pay (ie, using a max
-		// allocation of 1) is still below the minimum relay fee. In
-		// this case, use the absolute max fee.
-		assertIdealFeeRate(
-			anchorChannel, 700000000, 450000000, 300000, 0.001,
-			435941555,
-		)
 	})
 }
 

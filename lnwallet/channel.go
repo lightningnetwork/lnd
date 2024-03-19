@@ -7128,6 +7128,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	localDelayTweak := input.SingleTweakBytes(
 		keyRing.CommitPoint, localChanCfg.DelayBasePoint.PubKey,
 	)
+
 	return &OutgoingHtlcResolution{
 		Expiry:          htlc.RefundTimeout,
 		SignedTimeoutTx: timeoutTx,
@@ -8663,10 +8664,17 @@ func (lc *LightningChannel) CalcFee(feeRate chainfee.SatPerKWeight) btcutil.Amou
 // initiator's spendable balance along with the local reserve amount. This can
 // be useful to determine when we should stop proposing fee updates that exceed
 // our maximum allocation.
+// Moreover it returns the share of the total balance in the range of [0,1]
+// which can be allocated to fees. When our desired fee allocation would lead to
+// a maximum fee rate below the current commitment fee rate we floor the maximum
+// at the current fee rate which leads to different fee allocations than
+// initially requested via `maxAllocation`.
 //
 // NOTE: This should only be used for channels in which the local commitment is
 // the initiator.
-func (lc *LightningChannel) MaxFeeRate(maxAllocation float64) chainfee.SatPerKWeight {
+func (lc *LightningChannel) MaxFeeRate(
+	maxAllocation float64) (chainfee.SatPerKWeight, float64) {
+
 	lc.RLock()
 	defer lc.RUnlock()
 
@@ -8676,18 +8684,25 @@ func (lc *LightningChannel) MaxFeeRate(maxAllocation float64) chainfee.SatPerKWe
 	// exactly why it was introduced to react for sharp fee changes.
 	availableBalance, weight := lc.availableBalance(AdditionalHtlc)
 
-	oldFee := lc.localCommitChain.tip().feePerKw.FeeForWeight(weight)
+	currentFee := lc.localCommitChain.tip().feePerKw.FeeForWeight(weight)
 
 	// baseBalance is the maximum amount available for us to spend on fees.
-	baseBalance := availableBalance.ToSatoshis() + oldFee
+	baseBalance := availableBalance.ToSatoshis() + currentFee
 
-	maxFee := float64(baseBalance) * maxAllocation
+	// In case our local channel balance is drained, we make sure we do not
+	// decrease the fee rate below the current fee rate. This could lead to
+	// a scenario where we lower the commitment fee rate as low as the fee
+	// floor although current fee rates are way higher. The maximum fee
+	// we allow should not be smaller then the current fee. The decrease
+	// in fee rate should happen when the mempool reports lower fee levels
+	// rather than us decreasing in local balance. The max fee rate is
+	// always floored by the current fee rate of the channel.
+	idealMaxFee := float64(baseBalance) * maxAllocation
+	maxFee := math.Max(float64(currentFee), idealMaxFee)
+	maxFeeAllocation := maxFee / float64(baseBalance)
+	maxFeeRate := chainfee.SatPerKWeight(maxFee / (float64(weight) / 1000))
 
-	// Ensure the fee rate doesn't dip below the fee floor.
-	maxFeeRate := maxFee / (float64(weight) / 1000)
-	return chainfee.SatPerKWeight(
-		math.Max(maxFeeRate, float64(chainfee.FeePerKwFloor)),
-	)
+	return maxFeeRate, maxFeeAllocation
 }
 
 // IdealCommitFeeRate uses the current network fee, the minimum relay fee,
@@ -8699,7 +8714,7 @@ func (lc *LightningChannel) IdealCommitFeeRate(netFeeRate, minRelayFeeRate,
 
 	// Get the maximum fee rate that we can use given our max fee allocation
 	// and given the local reserve balance that we must preserve.
-	maxFeeRate := lc.MaxFeeRate(maxFeeAlloc)
+	maxFeeRate, _ := lc.MaxFeeRate(maxFeeAlloc)
 
 	var commitFeeRate chainfee.SatPerKWeight
 
@@ -8738,7 +8753,7 @@ func (lc *LightningChannel) IdealCommitFeeRate(netFeeRate, minRelayFeeRate,
 	// use. If it is, then we use the minimum relay fee rate and we log a
 	// warning to indicate that the max channel fee allocation option was
 	// ignored.
-	absoluteMaxFee := lc.MaxFeeRate(1)
+	absoluteMaxFee, _ := lc.MaxFeeRate(1)
 	if minRelayFeeRate <= absoluteMaxFee {
 		lc.log.Warn("Ignoring max channel fee allocation to " +
 			"ensure that the commitment fee is above the " +

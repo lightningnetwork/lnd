@@ -688,9 +688,12 @@ func TestChannelStateTransition(t *testing.T) {
 	// have been updated.
 	updatedChannel, err := cdb.FetchOpenChannels(channel.IdentityPub)
 	require.NoError(t, err, "unable to fetch updated channel")
+
 	assertCommitmentEqual(t, &commitment, &updatedChannel[0].LocalCommitment)
+
 	numDiskUpdates, err := updatedChannel[0].CommitmentHeight()
 	require.NoError(t, err, "unable to read commitment height from disk")
+
 	if numDiskUpdates != uint64(commitment.CommitHeight) {
 		t.Fatalf("num disk updates doesn't match: %v vs %v",
 			numDiskUpdates, commitment.CommitHeight)

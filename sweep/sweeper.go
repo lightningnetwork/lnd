@@ -1159,47 +1159,6 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 	return resultChan, nil
 }
 
-// CreateSweepTx accepts a list of inputs and signs and generates a txn that
-// spends from them. This method also makes an accurate fee estimate before
-// generating the required witnesses.
-//
-// The created transaction has a single output sending all the funds back to
-// the source wallet, after accounting for the fee estimate.
-//
-// The value of currentBlockHeight argument will be set as the tx locktime.
-// This function assumes that all CLTV inputs will be unlocked after
-// currentBlockHeight. Reasons not to use the maximum of all actual CLTV expiry
-// values of the inputs:
-//
-// - Make handling re-orgs easier.
-// - Thwart future possible fee sniping attempts.
-// - Make us blend in with the bitcoind wallet.
-//
-// TODO(yy): remove this method and only allow sweeping via requests.
-func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input,
-	feePref FeeEstimateInfo) (*wire.MsgTx, error) {
-
-	feePerKw, err := feePref.Estimate(
-		s.cfg.FeeEstimator, s.cfg.MaxFeeRate.FeePerKWeight(),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Generate the receiving script to which the funds will be swept.
-	pkScript, err := s.cfg.GenSweepScript()
-	if err != nil {
-		return nil, err
-	}
-
-	tx, _, err := createSweepTx(
-		inputs, nil, pkScript, uint32(s.currentHeight), feePerKw,
-		s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
-	)
-
-	return tx, err
-}
-
 // ListSweeps returns a list of the sweeps recorded by the sweep store.
 func (s *UtxoSweeper) ListSweeps() ([]chainhash.Hash, error) {
 	return s.cfg.Store.ListSweeps()

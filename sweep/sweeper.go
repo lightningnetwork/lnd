@@ -335,7 +335,7 @@ type UtxoSweeperConfig struct {
 	// MaxInputsPerTx specifies the default maximum number of inputs allowed
 	// in a single sweep tx. If more need to be swept, multiple txes are
 	// created and published.
-	MaxInputsPerTx int
+	MaxInputsPerTx uint32
 
 	// MaxSweepAttempts specifies the maximum number of times an input is
 	// included in a publish attempt before giving up and returning an error

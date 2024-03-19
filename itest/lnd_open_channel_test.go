@@ -829,11 +829,18 @@ func testSimpleTaprootChannelActivation(ht *lntest.HarnessTest) {
 // up as locked balance in the WalletBalance response.
 func testOpenChannelLockedBalance(ht *lntest.HarnessTest) {
 	var (
-		alice = ht.Alice
-		bob   = ht.Bob
-		req   *lnrpc.ChannelAcceptRequest
-		err   error
+		bob = ht.Bob
+		req *lnrpc.ChannelAcceptRequest
+		err error
 	)
+
+	// Create a new node so we can assert exactly how much fund has been
+	// locked later.
+	alice := ht.NewNode("alice", nil)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+
+	// Connect the nodes.
+	ht.EnsureConnected(alice, bob)
 
 	// We first make sure Alice has no locked wallet balance.
 	balance := alice.RPC.WalletBalance()
@@ -851,6 +858,7 @@ func testOpenChannelLockedBalance(ht *lntest.HarnessTest) {
 	openChannelReq := &lnrpc.OpenChannelRequest{
 		NodePubkey:         bob.PubKey[:],
 		LocalFundingAmount: int64(funding.MaxBtcFundingAmount),
+		TargetConf:         6,
 	}
 	_ = alice.RPC.OpenChannel(openChannelReq)
 
@@ -862,8 +870,7 @@ func testOpenChannelLockedBalance(ht *lntest.HarnessTest) {
 	}, defaultTimeout)
 	require.NoError(ht, err)
 
-	balance = alice.RPC.WalletBalance()
-	require.NotEqualValues(ht, 0, balance.LockedBalance)
+	ht.AssertWalletLockedBalance(alice, btcutil.SatoshiPerBitcoin)
 
 	// Next, we let Bob deny the request.
 	resp := &lnrpc.ChannelAcceptResponse{
@@ -876,6 +883,5 @@ func testOpenChannelLockedBalance(ht *lntest.HarnessTest) {
 	require.NoError(ht, err)
 
 	// Finally, we check to make sure the balance is unlocked again.
-	balance = alice.RPC.WalletBalance()
-	require.EqualValues(ht, 0, balance.LockedBalance)
+	ht.AssertWalletLockedBalance(alice, 0)
 }

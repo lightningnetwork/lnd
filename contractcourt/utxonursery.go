@@ -15,6 +15,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -204,6 +205,9 @@ type NurseryConfig struct {
 
 	// Sweep sweeps an input back to the wallet.
 	SweepInput func(input.Input, sweep.Params) (chan sweep.Result, error)
+
+	// Budget is the configured budget for the nursery.
+	Budget *BudgetConfig
 }
 
 // UtxoNursery is a system dedicated to incubating time-locked outputs created
@@ -387,6 +391,7 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 		htlcOutput := makeKidOutput(
 			&htlcRes.ClaimOutpoint, &chanPoint, htlcRes.CsvDelay,
 			witType, &htlcRes.SweepSignDesc, 0,
+			htlcRes.RemoteExpiry,
 		)
 
 		if htlcOutput.Amount() > 0 {
@@ -432,7 +437,7 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 		// accordingly.
 		htlcOutput := makeKidOutput(
 			&htlcRes.ClaimOutpoint, &chanPoint, htlcRes.CsvDelay,
-			witType, &htlcRes.SweepSignDesc, htlcRes.Expiry,
+			witType, &htlcRes.SweepSignDesc, htlcRes.Expiry, 0,
 		)
 		kidOutputs = append(kidOutputs, htlcOutput)
 	}
@@ -813,6 +818,45 @@ func (u *UtxoNursery) graduateClass(classHeight uint32) error {
 	return nil
 }
 
+// calculateDeadlineAndBudget returns the deadline and budget for a given
+// output.
+func (u *UtxoNursery) calculateDeadlineAndBudget(k kidOutput) (fn.Option[int32],
+	btcutil.Amount) {
+
+	// Assume this is a to_lcoal output and use a None deadline.
+	deadline := fn.None[int32]()
+
+	// Exit early if this is not HTLC.
+	if !k.isHtlc {
+		budget := calculateBudget(
+			k.amt, u.cfg.Budget.ToLocalRatio, u.cfg.Budget.ToLocal,
+		)
+
+		return deadline, budget
+	}
+
+	// If absoluteMaturity is set, it's an outgoing HTLC.
+	if k.absoluteMaturity != 0 {
+		// For an outgoing HTLC, it must be swept before the
+		// RefundTimeout of its incoming HTLC is reached.
+		//
+		// TODO(yy): remove UtxoNursery in 0.18.1?
+		deadline = fn.Some(int32(k.absoluteMaturity + 80))
+	}
+
+	// If remoteAbsoluteMaturity is set, it's an incoming HTLC.
+	if k.remoteAbsoluteMaturity != 0 {
+		deadline = fn.Some(int32(k.remoteAbsoluteMaturity))
+	}
+
+	budget := calculateBudget(
+		k.amt, u.cfg.Budget.DeadlineHTLCRatio,
+		u.cfg.Budget.DeadlineHTLC,
+	)
+
+	return deadline, budget
+}
+
 // sweepMatureOutputs generates and broadcasts the transaction that transfers
 // control of funds from a prior channel commitment transaction to the user's
 // wallet. The outputs swept were previously time locked (either absolute or
@@ -823,15 +867,17 @@ func (u *UtxoNursery) sweepMatureOutputs(classHeight uint32,
 	utxnLog.Infof("Sweeping %v CSV-delayed outputs with sweep tx for "+
 		"height %v", len(kgtnOutputs), classHeight)
 
-	feePref := sweep.FeeEstimateInfo{ConfTarget: kgtnOutputConfTarget}
 	for _, output := range kgtnOutputs {
 		// Create local copy to prevent pointer to loop variable to be
 		// passed in with disastrous consequences.
 		local := output
 
+		// Calculate the deadline height and budget for this output.
+		deadline, budget := u.calculateDeadlineAndBudget(local)
+
 		resultChan, err := u.cfg.SweepInput(&local, sweep.Params{
-			Fee:   feePref,
-			Force: true,
+			DeadlineHeight: deadline,
+			Budget:         budget,
 		})
 		if err != nil {
 			return err
@@ -1286,7 +1332,7 @@ func makeBabyOutput(chanPoint *wire.OutPoint,
 
 	kid := makeKidOutput(
 		&htlcOutpoint, chanPoint, blocksToMaturity, witnessType,
-		&htlcResolution.SweepSignDesc, 0,
+		&htlcResolution.SweepSignDesc, 0, 0,
 	)
 
 	return babyOutput{
@@ -1359,12 +1405,19 @@ type kidOutput struct {
 	// NOTE: This will only be set for: outgoing HTLC's on the commitment
 	// transaction of the remote party.
 	absoluteMaturity uint32
+
+	// remoteAbsoluteMaturity is the absolute height that this output will
+	// be mature at. Once this height is reached, the remote can spend this
+	// otuput via the timeout path.
+	//
+	// NOTE: This will only be set for incoming HTLCs.
+	remoteAbsoluteMaturity uint32
 }
 
 func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
 	blocksToMaturity uint32, witnessType input.StandardWitnessType,
-	signDescriptor *input.SignDescriptor,
-	absoluteMaturity uint32) kidOutput {
+	signDescriptor *input.SignDescriptor, absoluteMaturity,
+	remoteAbsoluteMaturity uint32) kidOutput {
 
 	// This is an HTLC either if it's an incoming HTLC on our commitment
 	// transaction, or is an outgoing HTLC on the commitment transaction of
@@ -1383,10 +1436,11 @@ func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
 		breachedOutput: makeBreachedOutput(
 			outpoint, witnessType, nil, signDescriptor, heightHint,
 		),
-		isHtlc:           isHtlc,
-		originChanPoint:  *originChanPoint,
-		blocksToMaturity: blocksToMaturity,
-		absoluteMaturity: absoluteMaturity,
+		isHtlc:                 isHtlc,
+		originChanPoint:        *originChanPoint,
+		blocksToMaturity:       blocksToMaturity,
+		absoluteMaturity:       absoluteMaturity,
+		remoteAbsoluteMaturity: remoteAbsoluteMaturity,
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -194,6 +195,12 @@ func (h *htlcOutgoingContestResolver) IsResolved() bool {
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcOutgoingContestResolver) Encode(w io.Writer) error {
 	return h.htlcTimeoutResolver.Encode(w)
+}
+
+// SupplementDeadline does nothing for an incoming htlc resolver.
+//
+// NOTE: Part of the htlcContractResolver interface.
+func (h *htlcOutgoingContestResolver) SupplementDeadline(_ fn.Option[int32]) {
 }
 
 // newOutgoingContestResolverFromReader attempts to decode an encoded ContractResolver

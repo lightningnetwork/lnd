@@ -331,7 +331,6 @@ func TestContractInsertionRetrieval(t *testing.T) {
 		htlc: channeldb.HTLC{
 			RHash: testPreimage,
 		},
-		sweepTx: nil,
 	}
 	resolvers := []ContractResolver{
 		&timeoutResolver,

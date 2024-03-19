@@ -304,6 +304,9 @@
 * [Correct `fmt.Errorf` error wrapping 
   instances](https://github.com/lightningnetwork/lnd/pull/8503)
 
+* Bump sqlite version to [fix a data 
+  race](https://github.com/lightningnetwork/lnd/pull/8567).
+
 ## Breaking Changes
 ## Performance Improvements
 

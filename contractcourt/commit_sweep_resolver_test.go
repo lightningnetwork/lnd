@@ -156,14 +156,6 @@ func (s *mockSweeper) SweepInput(input input.Input, params sweep.Params) (
 	return result, nil
 }
 
-func (s *mockSweeper) CreateSweepTx(inputs []input.Input,
-	feePref sweep.FeeEstimateInfo) (*wire.MsgTx, error) {
-
-	// We will wait for the test to supply the sweep tx to return.
-	sweepTx := <-s.createSweepTxChan
-	return sweepTx, nil
-}
-
 func (s *mockSweeper) RelayFeePerKW() chainfee.SatPerKWeight {
 	return 253
 }

@@ -37,12 +37,6 @@ var (
 )
 
 const (
-	// anchorSweepConfTarget is the conf target used when sweeping
-	// commitment anchors. This value is only used when the commitment
-	// transaction has no valid HTLCs for determining a confirmation
-	// deadline.
-	anchorSweepConfTarget = 144
-
 	// arbitratorBlockBufferSize is the size of the buffer we give to each
 	// channel arbitrator.
 	arbitratorBlockBufferSize = 20
@@ -1314,35 +1308,22 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 		htlcs htlcSet, anchorPath string) error {
 
 		// Find the deadline for this specific anchor.
-		deadlineOpt, _, err := c.findCommitmentDeadlineAndValue(
+		deadline, value, err := c.findCommitmentDeadlineAndValue(
 			heightHint, htlcs,
 		)
 		if err != nil {
 			return err
 		}
 
-		deadline := uint32(1)
-		deadlineOpt.WhenSome(func(d int32) {
-			deadline = uint32(d)
-		})
+		// If we cannot find a deadline, it means there's no HTLCs at
+		// stake, which means we can relax our anchor sweeping as we
+		// don't have any time sensitive outputs to sweep.
+		if deadline.IsNone() {
+			log.Infof("ChannelArbitrator(%v): no HTLCs at stake, "+
+				"skipped anchor CPFP", c.cfg.ChanPoint)
 
-		// Create a force flag that's used to indicate whether we
-		// should force sweeping this anchor.
-		var force bool
-
-		// Check the deadline against the default value. If it's less
-		// than the default value of 144, it means there is a deadline
-		// and we will perform a CPFP for this commitment tx.
-		if deadline < anchorSweepConfTarget {
-			// Signal that this is a force sweep, so that the
-			// anchor will be swept even if it isn't economical
-			// purely based on the anchor value.
-			force = true
+			return nil
 		}
-
-		log.Debugf("ChannelArbitrator(%v): pre-confirmation sweep of "+
-			"anchor of %s commit tx %v, force=%v", c.cfg.ChanPoint,
-			anchorPath, anchor.CommitAnchor, force)
 
 		witnessType := input.CommitmentAnchor
 
@@ -1367,6 +1348,28 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 			},
 		)
 
+		// Define a deadline height that's default to none.
+		deadlineHeight := fn.None[int32]()
+		deadlineDesc := "None"
+
+		// If we have a deadline, we'll use it to calculate the
+		// deadline height.
+		deadline.WhenSome(func(d int32) {
+			deadlineHeight = fn.Some(d + int32(heightHint))
+			deadlineDesc = fmt.Sprintf("%d", d)
+		})
+
+		// Calculate the budget.
+		budget := calculateBudget(
+			value, c.cfg.Budget.AnchorCPFPRatio,
+			c.cfg.Budget.AnchorCPFP,
+		)
+
+		log.Infof("ChannelArbitrator(%v): offering anchor from %s "+
+			"commitment %v to sweeper with deadline=%v, budget=%v",
+			c.cfg.ChanPoint, anchorPath, anchor.CommitAnchor,
+			deadlineDesc, budget)
+
 		// Sweep anchor output with a confirmation target fee
 		// preference. Because this is a cpfp-operation, the anchor
 		// will only be attempted to sweep when the current fee
@@ -1375,11 +1378,9 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 		_, err = c.cfg.Sweeper.SweepInput(
 			&anchorInput,
 			sweep.Params{
-				Fee: sweep.FeeEstimateInfo{
-					ConfTarget: deadline,
-				},
-				Force:          force,
 				ExclusiveGroup: &exclusiveGroup,
+				Budget:         budget,
+				DeadlineHeight: deadlineHeight,
 			},
 		)
 		if err != nil {

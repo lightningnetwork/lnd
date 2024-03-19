@@ -181,17 +181,14 @@ func TestHtlcSuccessSingleStage(t *testing.T) {
 			// that our sweep succeeded.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
 				_ bool) error {
-				// The resolver will create and publish a sweep
-				// tx.
-				resolver := ctx.resolver.(*htlcSuccessResolver)
-				resolver.Sweeper.(*mockSweeper).
-					createSweepTxChan <- sweepTx
 
-				// Confirm the sweep, which should resolve it.
-				ctx.notifier.ConfChan <- &chainntnfs.TxConfirmation{
-					Tx:          sweepTx,
-					BlockHeight: testInitialBlockHeight - 1,
+				// The resolver will offer the input to the
+				// sweeper.
+				details := &chainntnfs.SpendDetail{
+					SpendingTx:    sweepTx,
+					SpenderTxHash: &sweepTxid,
 				}
+				ctx.notifier.SpendChan <- details
 
 				return nil
 			},

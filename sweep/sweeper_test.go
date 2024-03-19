@@ -2399,26 +2399,16 @@ func TestUpdateSweeperInputs(t *testing.T) {
 	require.Equal(expectedInputs, s.pendingInputs)
 }
 
-// TestAttachAvailableRBFInfo checks that the RBF info is attached to the
-// pending input, along with the state being marked as published, when this
-// input can be found both in mempool and the sweeper store.
-func TestAttachAvailableRBFInfo(t *testing.T) {
+// TestDecideStateAndRBFInfo checks that the expected state and RBFInfo are
+// returned based on whether this input can be found both in mempool and the
+// sweeper store.
+func TestDecideStateAndRBFInfo(t *testing.T) {
 	t.Parallel()
 
 	require := require.New(t)
 
 	// Create a test outpoint.
 	op := wire.OutPoint{Index: 1}
-
-	// Create a mock input.
-	testInput := &input.MockInput{}
-	defer testInput.AssertExpectations(t)
-
-	testInput.On("OutPoint").Return(&op)
-	pi := &pendingInput{
-		Input: testInput,
-		state: StateInit,
-	}
 
 	// Create a mock mempool watcher and a mock sweeper store.
 	mockMempool := chainntnfs.NewMockMempoolWatcher()
@@ -2436,11 +2426,11 @@ func TestAttachAvailableRBFInfo(t *testing.T) {
 	mockMempool.On("LookupInputMempoolSpend", op).Return(
 		fn.None[wire.MsgTx]()).Once()
 
-	// Since the mempool lookup failed, we exepect the original pending
-	// input to stay unchanged.
-	result := s.attachAvailableRBFInfo(pi)
-	require.True(result.rbf.IsNone())
-	require.Equal(StateInit, result.state)
+	// Since the mempool lookup failed, we exepect state Init and no
+	// RBFInfo.
+	state, rbf := s.decideStateAndRBFInfo(op)
+	require.True(rbf.IsNone())
+	require.Equal(StateInit, state)
 
 	// Mock the mempool lookup to return a tx three times as we are calling
 	// attachAvailableRBFInfo three times.
@@ -2451,21 +2441,19 @@ func TestAttachAvailableRBFInfo(t *testing.T) {
 	// Mock the store to return an error saying the tx cannot be found.
 	mockStore.On("GetTx", tx.TxHash()).Return(nil, ErrTxNotFound).Once()
 
-	// Although the db lookup failed, the pending input should have been
-	// marked as published without attaching any RBF info.
-	result = s.attachAvailableRBFInfo(pi)
-	require.True(result.rbf.IsNone())
-	require.Equal(StatePublished, result.state)
+	// Although the db lookup failed, we expect the state to be Published.
+	state, rbf = s.decideStateAndRBFInfo(op)
+	require.True(rbf.IsNone())
+	require.Equal(StatePublished, state)
 
 	// Mock the store to return a db error.
 	dummyErr := errors.New("dummy error")
 	mockStore.On("GetTx", tx.TxHash()).Return(nil, dummyErr).Once()
 
-	// Although the db lookup failed, the pending input should have been
-	// marked as published without attaching any RBF info.
-	result = s.attachAvailableRBFInfo(pi)
-	require.True(result.rbf.IsNone())
-	require.Equal(StatePublished, result.state)
+	// Although the db lookup failed, we expect the state to be Published.
+	state, rbf = s.decideStateAndRBFInfo(op)
+	require.True(rbf.IsNone())
+	require.Equal(StatePublished, state)
 
 	// Mock the store to return a record.
 	tr := &TxRecord{
@@ -2475,18 +2463,18 @@ func TestAttachAvailableRBFInfo(t *testing.T) {
 	mockStore.On("GetTx", tx.TxHash()).Return(tr, nil).Once()
 
 	// Call the method again.
-	result = s.attachAvailableRBFInfo(pi)
+	state, rbf = s.decideStateAndRBFInfo(op)
 
-	// Assert that the RBF info is attached to the pending input.
+	// Assert that the RBF info is returned.
 	rbfInfo := fn.Some(RBFInfo{
 		Txid:    tx.TxHash(),
 		Fee:     btcutil.Amount(tr.Fee),
 		FeeRate: chainfee.SatPerKWeight(tr.FeeRate),
 	})
-	require.Equal(rbfInfo, result.rbf)
+	require.Equal(rbfInfo, rbf)
 
 	// Assert the state is updated.
-	require.Equal(StatePublished, result.state)
+	require.Equal(StatePublished, state)
 }
 
 // TestMarkInputFailed checks that the input is marked as failed as expected.

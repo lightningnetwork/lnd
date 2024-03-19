@@ -35,7 +35,7 @@ type inputCluster struct {
 // inputs are skipped.  No input sets with a total value after fees below the
 // dust limit are returned.
 func (c *inputCluster) createInputSets(maxFeeRate chainfee.SatPerKWeight,
-	maxInputs int) []InputSet {
+	maxInputs uint32) []InputSet {
 
 	// Turn the inputs into a slice so we can sort them.
 	inputList := make([]*pendingInput, 0, len(c.inputs))
@@ -138,7 +138,7 @@ type SimpleAggregator struct {
 	// MaxInputsPerTx specifies the default maximum number of inputs allowed
 	// in a single sweep tx. If more need to be swept, multiple txes are
 	// created and published.
-	MaxInputsPerTx int
+	MaxInputsPerTx uint32
 
 	// FeeRateBucketSize is the default size of fee rate buckets we'll use
 	// when clustering inputs into buckets with similar fee rates within
@@ -158,7 +158,7 @@ var _ UtxoAggregator = (*SimpleAggregator)(nil)
 
 // NewSimpleUtxoAggregator creates a new instance of a SimpleAggregator.
 func NewSimpleUtxoAggregator(estimator chainfee.Estimator,
-	max chainfee.SatPerKWeight, maxTx int) *SimpleAggregator {
+	max chainfee.SatPerKWeight, maxTx uint32) *SimpleAggregator {
 
 	return &SimpleAggregator{
 		FeeEstimator:      estimator,

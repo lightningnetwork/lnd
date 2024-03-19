@@ -19,7 +19,7 @@ var (
 	// DefaultMaxInputsPerTx specifies the default maximum number of inputs
 	// allowed in a single sweep tx. If more need to be swept, multiple txes
 	// are created and published.
-	DefaultMaxInputsPerTx = 100
+	DefaultMaxInputsPerTx = uint32(100)
 
 	// ErrLocktimeConflict is returned when inputs with different
 	// transaction nLockTime values are included in the same transaction.

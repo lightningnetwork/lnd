@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/mock"
@@ -424,6 +425,11 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 		},
 		FetchHistoricalChannel: func() (*channeldb.OpenChannel, error) {
 			return &channeldb.OpenChannel{}, nil
+		},
+		FindOutgoingHTLCDeadline: func(
+			rHash chainhash.Hash) fn.Option[int32] {
+
+			return fn.None[int32]()
 		},
 	}
 

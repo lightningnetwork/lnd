@@ -737,6 +737,12 @@ func (h *htlcSuccessResolver) HtlcPoint() wire.OutPoint {
 	return h.htlcResolution.HtlcPoint()
 }
 
+// SupplementDeadline does nothing for an incoming htlc resolver.
+//
+// NOTE: Part of the htlcContractResolver interface.
+func (h *htlcSuccessResolver) SupplementDeadline(_ fn.Option[int32]) {
+}
+
 // A compile time assertion to ensure htlcSuccessResolver meets the
 // ContractResolver interface.
 var _ htlcContractResolver = (*htlcSuccessResolver)(nil)

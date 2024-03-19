@@ -629,7 +629,7 @@ func (hn *HarnessNode) cleanup() error {
 
 // waitForProcessExit Launch a new goroutine which that bubbles up any
 // potential fatal process errors to the goroutine running the tests.
-func (hn *HarnessNode) waitForProcessExit() error {
+func (hn *HarnessNode) WaitForProcessExit() error {
 	var err error
 
 	errChan := make(chan error, 1)
@@ -752,7 +752,7 @@ func (hn *HarnessNode) Stop() error {
 	}
 
 	// Wait for lnd process to exit in the end.
-	return hn.waitForProcessExit()
+	return hn.WaitForProcessExit()
 }
 
 // CloseConn closes the grpc connection.

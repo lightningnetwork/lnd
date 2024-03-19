@@ -578,4 +578,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "open channel locked balance",
 		TestFunc: testOpenChannelLockedBalance,
 	},
+	{
+		Name:     "nativesql no migration",
+		TestFunc: testNativeSQLNoMigration,
+	},
 }

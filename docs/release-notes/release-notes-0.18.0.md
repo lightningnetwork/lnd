@@ -365,6 +365,8 @@
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 
   from channeldb schema structs.
 
+* Deprecated Endpoints Removal Preparation: In preparation for the next release (0.19.0), deprecated endpoints (`sendpayment`, `sendtoroute`, `sendtoroutesync`, and `sendpaymentsync`) will be removed. Developers are encouraged to update their implementations accordingly (if any). See PR (https://github.com/lightningnetwork/lnd/pull/8348) for more details.
+
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)

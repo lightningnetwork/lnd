@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/mock"
@@ -2220,9 +2221,10 @@ func TestRemoteCloseInitiator(t *testing.T) {
 	}
 }
 
-// TestFindCommitmentDeadline tests the logic used to determine confirmation
-// deadline is implemented as expected.
-func TestFindCommitmentDeadline(t *testing.T) {
+// TestFindCommitmentDeadlineAndValue tests the logic used to determine
+// confirmation deadline and total time-sensitive value is implemented as
+// expected.
+func TestFindCommitmentDeadlineAndValue(t *testing.T) {
 	// Create a testing channel arbitrator.
 	log := &mockArbitratorLog{
 		state:     StateDefault,
@@ -2245,29 +2247,36 @@ func TestFindCommitmentDeadline(t *testing.T) {
 	heightHint := uint32(1000)
 	htlcExpiryBase := heightHint + uint32(10)
 
+	htlcAmt := lnwire.MilliSatoshi(1000_000)
+
 	// Create four testing HTLCs.
 	htlcDust := channeldb.HTLC{
 		HtlcIndex:     htlcIndexBase + 1,
 		RefundTimeout: htlcExpiryBase + 1,
 		OutputIndex:   -1,
+		Amt:           htlcAmt,
 	}
 	htlcSmallExipry := channeldb.HTLC{
 		HtlcIndex:     htlcIndexBase + 2,
 		RefundTimeout: htlcExpiryBase + 2,
+		Amt:           htlcAmt,
 	}
 
 	htlcPreimage := channeldb.HTLC{
 		HtlcIndex:     htlcIndexBase + 3,
 		RefundTimeout: htlcExpiryBase + 3,
 		RHash:         rHash,
+		Amt:           htlcAmt,
 	}
 	htlcLargeExpiry := channeldb.HTLC{
 		HtlcIndex:     htlcIndexBase + 4,
 		RefundTimeout: htlcExpiryBase + 100,
+		Amt:           htlcAmt,
 	}
 	htlcExpired := channeldb.HTLC{
 		HtlcIndex:     htlcIndexBase + 5,
 		RefundTimeout: heightHint,
+		Amt:           htlcAmt,
 	}
 
 	makeHTLCSet := func(incoming, outgoing channeldb.HTLC) htlcSet {
@@ -2282,51 +2291,68 @@ func TestFindCommitmentDeadline(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name     string
-		htlcs    htlcSet
-		err      error
-		deadline uint32
+		name           string
+		htlcs          htlcSet
+		err            error
+		deadline       fn.Option[int32]
+		expectedBudget btcutil.Amount
 	}{
 		{
 			// When we have no HTLCs, the default value should be
 			// used.
-			name:     "use default conf target",
-			htlcs:    htlcSet{},
-			err:      nil,
-			deadline: anchorSweepConfTarget,
+			name:           "use default conf target",
+			htlcs:          htlcSet{},
+			err:            nil,
+			deadline:       fn.None[int32](),
+			expectedBudget: 0,
 		},
 		{
 			// When we have a preimage available in the local HTLC
-			// set, its CLTV should be used.
-			name:     "use htlc with preimage available",
-			htlcs:    makeHTLCSet(htlcPreimage, htlcLargeExpiry),
-			err:      nil,
-			deadline: htlcPreimage.RefundTimeout - heightHint,
+			// set, its CLTV should be used. And the value left
+			// should be the sum of the HTLCs minus their budgets,
+			// which is exactly htlcAmt.
+			name:  "use htlc with preimage available",
+			htlcs: makeHTLCSet(htlcPreimage, htlcLargeExpiry),
+			err:   nil,
+			deadline: fn.Some(int32(
+				htlcPreimage.RefundTimeout - heightHint,
+			)),
+			expectedBudget: htlcAmt.ToSatoshis(),
 		},
 		{
 			// When the HTLC in the local set is not preimage
 			// available, we should not use its CLTV even its value
-			// is smaller.
-			name:     "use htlc with no preimage available",
-			htlcs:    makeHTLCSet(htlcSmallExipry, htlcLargeExpiry),
-			err:      nil,
-			deadline: htlcLargeExpiry.RefundTimeout - heightHint,
+			// is smaller. And the value left should be half of
+			// htlcAmt.
+			name:  "use htlc with no preimage available",
+			htlcs: makeHTLCSet(htlcSmallExipry, htlcLargeExpiry),
+			err:   nil,
+			deadline: fn.Some(int32(
+				htlcLargeExpiry.RefundTimeout - heightHint,
+			)),
+			expectedBudget: htlcAmt.ToSatoshis() / 2,
 		},
 		{
 			// When we have dust HTLCs, their CLTVs should NOT be
-			// used even the values are smaller.
-			name:     "ignore dust HTLCs",
-			htlcs:    makeHTLCSet(htlcPreimage, htlcDust),
-			err:      nil,
-			deadline: htlcPreimage.RefundTimeout - heightHint,
+			// used even the values are smaller. And the value left
+			// should be half of htlcAmt.
+			name:  "ignore dust HTLCs",
+			htlcs: makeHTLCSet(htlcPreimage, htlcDust),
+			err:   nil,
+			deadline: fn.Some(int32(
+				htlcPreimage.RefundTimeout - heightHint,
+			)),
+			expectedBudget: htlcAmt.ToSatoshis() / 2,
 		},
 		{
 			// When we've reached our deadline, use conf target of
-			// 1 as our deadline.
-			name:     "use conf target 1",
-			htlcs:    makeHTLCSet(htlcPreimage, htlcExpired),
-			err:      nil,
-			deadline: 1,
+			// 1 as our deadline. And the value left should be
+			// htlcAmt.
+			name:           "use conf target 1",
+			htlcs:          makeHTLCSet(htlcPreimage, htlcExpired),
+			err:            nil,
+			deadline:       fn.Some(int32(1)),
+			expectedBudget: htlcAmt.ToSatoshis(),
 		},
 	}
 
@@ -2334,12 +2360,14 @@ func TestFindCommitmentDeadline(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			deadline, err := chanArb.findCommitmentDeadline(
-				heightHint, tc.htlcs,
-			)
+			deadline, budget, err := chanArb.
+				findCommitmentDeadlineAndValue(
+					heightHint, tc.htlcs,
+				)
 
 			require.Equal(t, tc.err, err)
 			require.Equal(t, tc.deadline, deadline)
+			require.Equal(t, tc.expectedBudget, budget)
 		})
 	}
 }

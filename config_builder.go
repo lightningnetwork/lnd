@@ -1022,6 +1022,34 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 	// Instantiate a native SQL invoice store if the flag is set.
 	if d.cfg.DB.UseNativeSQL {
+		// KV invoice db resides in the same database as the graph and
+		// channel state DB. Let's query the database to see if we have
+		// any invoices there. If we do, we won't allow the user to
+		// start lnd with native SQL enabled, as we don't currently
+		// migrate the invoices to the new database schema.
+		invoiceSlice, err := dbs.GraphDB.QueryInvoices(
+			ctx, invoices.InvoiceQuery{
+				NumMaxInvoices: 1,
+			},
+		)
+		if err != nil {
+			cleanUp()
+			d.logger.Errorf("Unable to query KV invoice DB: %v",
+				err)
+
+			return nil, nil, err
+		}
+
+		if len(invoiceSlice.Invoices) > 0 {
+			cleanUp()
+			err := fmt.Errorf("found invoices in the KV invoice " +
+				"DB, migration to native SQL is not yet " +
+				"supported")
+			d.logger.Error(err)
+
+			return nil, nil, err
+		}
+
 		executor := sqldb.NewTransactionExecutor(
 			dbs.NativeSQLStore,
 			func(tx *sql.Tx) sqldb.InvoiceQueries {

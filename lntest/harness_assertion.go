@@ -2572,3 +2572,22 @@ func (h *HarnessTest) MineClosingTx(cp *lnrpc.ChannelPoint,
 
 	return closeTx
 }
+
+// AssertWalletLockedBalance asserts the expected amount has been marked as
+// locked in the node's WalletBalance response.
+func (h *HarnessTest) AssertWalletLockedBalance(hn *node.HarnessNode,
+	balance int64) {
+
+	err := wait.NoError(func() error {
+		balanceResp := hn.RPC.WalletBalance()
+		got := balanceResp.LockedBalance
+
+		if got != balance {
+			return fmt.Errorf("want %d, got %d", balance, got)
+		}
+
+		return nil
+	}, wait.DefaultTimeout)
+	require.NoError(h, err, "%s: timeout checking locked balance",
+		hn.Name())
+}

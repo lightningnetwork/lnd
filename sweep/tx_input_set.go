@@ -139,7 +139,7 @@ type txInputSet struct {
 
 	// maxInputs is the maximum number of inputs that will be accepted in
 	// the set.
-	maxInputs int
+	maxInputs uint32
 }
 
 // Compile-time constraint to ensure txInputSet implements InputSet.
@@ -147,7 +147,7 @@ var _ InputSet = (*txInputSet)(nil)
 
 // newTxInputSet constructs a new, empty input set.
 func newTxInputSet(feePerKW, maxFeeRate chainfee.SatPerKWeight,
-	maxInputs int) *txInputSet {
+	maxInputs uint32) *txInputSet {
 
 	state := txInputSetState{
 		feeRate:    feePerKW,
@@ -215,7 +215,7 @@ func (t *txInputSet) addToState(inp input.Input,
 	// Stop if max inputs is reached. Do not count additional wallet inputs,
 	// because we don't know in advance how many we may need.
 	if constraints != constraintsWallet &&
-		len(t.inputs) >= t.maxInputs {
+		uint32(len(t.inputs)) >= t.maxInputs {
 
 		return nil
 	}

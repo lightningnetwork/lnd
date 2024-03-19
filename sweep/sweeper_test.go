@@ -30,7 +30,7 @@ var (
 
 	testMaxSweepAttempts = 3
 
-	testMaxInputsPerTx = 3
+	testMaxInputsPerTx = uint32(3)
 
 	defaultFeePref = Params{Fee: FeeEstimateInfo{ConfTarget: 1}}
 )

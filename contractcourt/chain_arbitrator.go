@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
@@ -384,6 +386,11 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 			chanStateDB := c.chanSource.ChannelStateDB()
 			return chanStateDB.FetchHistoricalChannel(&chanPoint)
 		},
+		FindOutgoingHTLCDeadline: func(
+			rHash chainhash.Hash) fn.Option[int32] {
+
+			return c.FindOutgoingHTLCDeadline(chanPoint, rHash)
+		},
 	}
 
 	// The final component needed is an arbitrator log that the arbitrator
@@ -578,6 +585,7 @@ func (c *ChainArbitrator) Start() error {
 	// corresponding more restricted resolver, as we don't have to watch
 	// the chain any longer, only resolve the contracts on the confirmed
 	// commitment.
+	//nolint:lll
 	for _, closeChanInfo := range closingChannels {
 		// We can leave off the CloseContract and ForceCloseChan
 		// methods as the channel is already closed at this point.
@@ -600,6 +608,11 @@ func (c *ChainArbitrator) Start() error {
 			FetchHistoricalChannel: func() (*channeldb.OpenChannel, error) {
 				chanStateDB := c.chanSource.ChannelStateDB()
 				return chanStateDB.FetchHistoricalChannel(&chanPoint)
+			},
+			FindOutgoingHTLCDeadline: func(
+				rHash chainhash.Hash) fn.Option[int32] {
+
+				return c.FindOutgoingHTLCDeadline(chanPoint, rHash)
 			},
 		}
 		chanLog, err := newBoltArbitratorLog(
@@ -1202,6 +1215,64 @@ func (c *ChainArbitrator) SubscribeChannelEvents(
 	// With the watcher located, we'll request for it to create a new chain
 	// event subscription client.
 	return watcher.SubscribeChannelEvents(), nil
+}
+
+// FindOutgoingHTLCDeadline returns the deadline in absolute block height for
+// the specified outgoing HTLC. For an outgoing HTLC, its deadline is defined
+// by the timeout height of its corresponding incoming HTLC - this is the
+// expiry height the that remote peer can spend his/her outgoing HTLC via the
+// timeout path.
+func (c *ChainArbitrator) FindOutgoingHTLCDeadline(chanPoint wire.OutPoint,
+	rHash chainhash.Hash) fn.Option[int32] {
+
+	// minRefundTimeout tracks the minimal refund timeout found using the
+	// rHash. It's possible that we find multiple HTLCs living in different
+	// channels sharing the same rHash if an MPP is routed by us. In this
+	// case, we'll use the smallest refund timeout as the deadline.
+	//
+	// TODO(yy): can instead query the circuit map to find the exact HTLC.
+	minRefundTimeout := uint32(math.MaxInt32)
+
+	// Iterate over all active channels to find the HTLC with the matching
+	// rHash.
+	for cp, channelArb := range c.activeChannels {
+		// Skip the targeted channel as the incoming HTLC is not here.
+		if cp == chanPoint {
+			continue
+		}
+
+		// Iterate all the known HTLCs to find the targeted incoming
+		// HTLC.
+		for _, htlcs := range channelArb.activeHTLCs {
+			for _, htlc := range htlcs.incomingHTLCs {
+				if htlc.RHash != rHash {
+					continue
+				}
+
+				log.Debugf("ChannelArbitrator(%v): found "+
+					"incoming HTLC in channel=%v using "+
+					"rHash=%v, refundTimeout=%v", chanPoint,
+					cp, rHash, htlc.RefundTimeout)
+
+				// Update the value if it's smaller.
+				if minRefundTimeout > htlc.RefundTimeout {
+					minRefundTimeout = htlc.RefundTimeout
+				}
+			}
+		}
+	}
+
+	// Return the refund timeout value if found.
+	if minRefundTimeout != math.MaxInt32 {
+		return fn.Some(int32(minRefundTimeout))
+	}
+
+	// If there's no incoming HTLC found, it means we are the first hop. In
+	// this case, we can relax the deadline.
+	log.Infof("ChannelArbitrator(%v): incoming HTLC not found for "+
+		"rHash=%v, using default deadline instead", chanPoint, rHash)
+
+	return fn.None[int32]()
 }
 
 // TODO(roasbeef): arbitration reports

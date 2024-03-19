@@ -17,6 +17,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -169,6 +170,13 @@ type ChannelArbitratorConfig struct {
 	// This is mostly used to supplement the ContractResolvers with
 	// additional information required for proper contract resolution.
 	FetchHistoricalChannel func() (*channeldb.OpenChannel, error)
+
+	// FindOutgoingHTLCDeadline returns the deadline in absolute block
+	// height for the specified outgoing HTLC. For an outgoing HTLC, its
+	// deadline is defined by the timeout height of its corresponding
+	// incoming HTLC - this is the expiry height the that remote peer can
+	// spend his/her outgoing HTLC via the timeout path.
+	FindOutgoingHTLCDeadline func(rHash chainhash.Hash) fn.Option[int32]
 
 	ChainArbitratorConfig
 }
@@ -757,6 +765,14 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 		}
 
 		htlcResolver.Supplement(*htlc)
+
+		// If this is an outgoing HTLC, we will also need to supplement
+		// the resolver with the expiry block height of its
+		// corresponding incoming HTLC.
+		if !htlc.Incoming {
+			deadline := c.cfg.FindOutgoingHTLCDeadline(htlc.RHash)
+			htlcResolver.SupplementDeadline(deadline)
+		}
 	}
 
 	// The anchor resolver is stateless and can always be re-instantiated.
@@ -1733,8 +1749,15 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 	for _, htlc := range htlcs.outgoingHTLCs {
 		// We'll need to go on-chain for an outgoing HTLC if it was
 		// never resolved downstream, and it's "close" to timing out.
-		toChain := c.shouldGoOnChain(htlc, c.cfg.OutgoingBroadcastDelta,
-			height,
+		//
+		// TODO(yy): If there's no corresponding incoming HTLC, it
+		// means we are the first hop, hence the payer. This is a
+		// tricky case - unlike a forwarding hop, we don't have an
+		// incoming HTLC that will time out, which means as long as we
+		// can learn the preimage, we can settle the invoice (before it
+		// expires?).
+		toChain := c.shouldGoOnChain(
+			htlc, c.cfg.OutgoingBroadcastDelta, height,
 		)
 
 		if toChain {
@@ -2349,6 +2372,16 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				if chanState != nil {
 					resolver.SupplementState(chanState)
 				}
+
+				// For outgoing HTLCs, we will also need to
+				// supplement the resolver with the expiry
+				// block height of its corresponding incoming
+				// HTLC.
+				deadline := c.cfg.FindOutgoingHTLCDeadline(
+					htlc.RHash,
+				)
+				resolver.SupplementDeadline(deadline)
+
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 
@@ -2441,6 +2474,16 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				if chanState != nil {
 					resolver.SupplementState(chanState)
 				}
+
+				// For outgoing HTLCs, we will also need to
+				// supplement the resolver with the expiry
+				// block height of its corresponding incoming
+				// HTLC.
+				deadline := c.cfg.FindOutgoingHTLCDeadline(
+					htlc.RHash,
+				)
+				resolver.SupplementDeadline(deadline)
+
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 		}

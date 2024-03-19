@@ -1733,8 +1733,15 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 	for _, htlc := range htlcs.outgoingHTLCs {
 		// We'll need to go on-chain for an outgoing HTLC if it was
 		// never resolved downstream, and it's "close" to timing out.
-		toChain := c.shouldGoOnChain(htlc, c.cfg.OutgoingBroadcastDelta,
-			height,
+		//
+		// TODO(yy): If there's no corresponding incoming HTLC, it
+		// means we are the first hop, hence the payer. This is a
+		// tricky case - unlike a forwarding hop, we don't have an
+		// incoming HTLC that will time out, which means as long as we
+		// can learn the preimage, we can settle the invoice (before it
+		// expires?).
+		toChain := c.shouldGoOnChain(
+			htlc, c.cfg.OutgoingBroadcastDelta, height,
 		)
 
 		if toChain {

@@ -1365,19 +1365,21 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 		return
 	}
 
+	// This is a new input, and we want to query the mempool to see if this
+	// input has already been spent. If so, we'll start the input with
+	// state Published and attach the RBFInfo.
+	state, rbfInfo := s.decideStateAndRBFInfo(*input.input.OutPoint())
+
 	// Create a new pendingInput and initialize the listeners slice with
 	// the passed in result channel. If this input is offered for sweep
 	// again, the result channel will be appended to this slice.
 	pi = &pendingInput{
-		state:     StateInit,
+		state:     state,
 		listeners: []chan Result{input.resultChan},
 		Input:     input.input,
 		params:    input.params,
+		rbf:       rbfInfo,
 	}
-
-	// Try to find fee info for possible RBF if this input has already been
-	// spent.
-	pi = s.attachAvailableRBFInfo(pi)
 
 	s.pendingInputs[outpoint] = pi
 	log.Tracef("input %v, state=%v, added to pendingInputs", outpoint,
@@ -1399,12 +1401,22 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 	pi.ntfnRegCancel = cancel
 }
 
-// attachAvailableRBFInfo queries the mempool to see whether the given input
-// has already been spent. If so, it will query the sweeper store to fetch the
-// fee info of the spending transction, hence preparing for possible RBF.
-func (s *UtxoSweeper) attachAvailableRBFInfo(pi *pendingInput) *pendingInput {
+// decideStateAndRBFInfo queries the mempool to see whether the given input has
+// already been spent. If so, the state Published will be returned, otherwise
+// state Init. When spent, it will query the sweeper store to fetch the fee
+// info of the spending transction, and construct an RBFInfo based on it.
+// Suppose an error occurs, fn.None is returned.
+func (s *UtxoSweeper) decideStateAndRBFInfo(op wire.OutPoint) (
+	SweepState, fn.Option[RBFInfo]) {
+
 	// Check if we can find the spending tx of this input in mempool.
-	txOption := s.mempoolLookup(*pi.OutPoint())
+	txOption := s.mempoolLookup(op)
+
+	// Extract the spending tx from the option.
+	var tx *wire.MsgTx
+	txOption.WhenSome(func(t wire.MsgTx) {
+		tx = &t
+	})
 
 	// Exit early if it's not found.
 	//
@@ -1412,18 +1424,13 @@ func (s *UtxoSweeper) attachAvailableRBFInfo(pi *pendingInput) *pendingInput {
 	// lookup:
 	// - for neutrino we don't have a mempool.
 	// - for btcd below v0.24.1 we don't have `gettxspendingprevout`.
-	if txOption.IsNone() {
-		return pi
+	if tx == nil {
+		return StateInit, fn.None[RBFInfo]()
 	}
 
-	// NOTE: we use UnsafeFromSome for here because we are sure this option
-	// is NOT none.
-	tx := txOption.UnsafeFromSome()
-
-	// Otherwise the input is already spent in the mempool, update its
-	// state to StatePublished.
-	pi.state = StatePublished
-
+	// Otherwise the input is already spent in the mempool, so eventually
+	// we will return StatePublished.
+	//
 	// We also need to update the RBF info for this input. If the sweeping
 	// transaction is broadcast by us, we can find the fee info in the
 	// sweeper store.
@@ -1436,7 +1443,7 @@ func (s *UtxoSweeper) attachAvailableRBFInfo(pi *pendingInput) *pendingInput {
 	// pendingInputs.
 	if errors.Is(err, ErrTxNotFound) {
 		log.Warnf("Spending tx %v not found in sweeper store", txid)
-		return pi
+		return StatePublished, fn.None[RBFInfo]()
 	}
 
 	// Exit if we get an db error.
@@ -1444,17 +1451,17 @@ func (s *UtxoSweeper) attachAvailableRBFInfo(pi *pendingInput) *pendingInput {
 		log.Errorf("Unable to get tx %v from sweeper store: %v",
 			txid, err)
 
-		return pi
+		return StatePublished, fn.None[RBFInfo]()
 	}
 
-	// Attach the fee info and return it.
-	pi.rbf = fn.Some(RBFInfo{
+	// Prepare the fee info and return it.
+	rbf := fn.Some(RBFInfo{
 		Txid:    txid,
 		Fee:     btcutil.Amount(tr.Fee),
 		FeeRate: chainfee.SatPerKWeight(tr.FeeRate),
 	})
 
-	return pi
+	return StatePublished, rbf
 }
 
 // handleExistingInput processes an input that is already known to the sweeper.

@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/sweep"
 )
@@ -118,6 +119,14 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 			Fee: sweep.FeeEstimateInfo{
 				FeeRate: relayFeeRate,
 			},
+			// For normal anchor sweeping, the budget is 330 sats.
+			Budget: btcutil.Amount(
+				anchorInput.SignDesc().Output.Value,
+			),
+
+			// There's no rush to sweep the anchor, so we use a nil
+			// deadline here.
+			DeadlineHeight: fn.None[int32](),
 		},
 	)
 	if err != nil {

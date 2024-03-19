@@ -143,6 +143,11 @@ func (s *mockSweeper) SweepInput(input input.Input, params sweep.Params) (
 		}
 	}
 
+	// Update the deadlines used if it's set.
+	params.DeadlineHeight.WhenSome(func(d int32) {
+		s.deadlines = append(s.deadlines, int(d))
+	})
+
 	result := make(chan sweep.Result, 1)
 	result <- sweep.Result{
 		Tx:  s.sweepTx,

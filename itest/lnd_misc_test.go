@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
+	"math"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
@@ -22,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1241,4 +1243,55 @@ func testSignVerifyMessageWithAddr(ht *lntest.HarnessTest) {
 	)
 
 	require.False(ht, respValid.Valid, "external signature did validate")
+}
+
+// testInvoiceCltvExpiryFlag ensures that the CltvExpiry option passed to the
+// AddInvoice RPC interface sets `min_final_cltv_expiry_delta` in the invoice
+// and that it fails when a cltv too small or too large is passed.
+func testInvoiceCltvExpiryFlag(ht *lntest.HarnessTest) {
+	// Set up a node.
+	alice := ht.Alice
+
+	// Create an invoice with a CltvExpiry set.
+	const paymentAmt = 1000
+	minCltvDelta := uint64(100)
+	invoice := &lnrpc.Invoice{
+		Value:      paymentAmt,
+		CltvExpiry: minCltvDelta,
+	}
+
+	// Add the invoice and use the decodepayreq rpc to parse it.
+	invoiceResp := alice.RPC.AddInvoice(invoice)
+	payReq := alice.RPC.DecodePayReq(invoiceResp.PaymentRequest)
+
+	// Requested CltvExpiry must equal what decodepayreq reports as the
+	// cltv_expiry of the invoice.
+	require.Equal(ht, uint64(payReq.CltvExpiry), minCltvDelta)
+
+	// Set the min_cltv delta to a value lower than routing.MinCLTVDelta
+	// which is the minimum value permitted. (18 in February 2024) and
+	// assert an error when adding the invoice.
+	minCltvDelta = routing.MinCLTVDelta - 1
+	invoice = &lnrpc.Invoice{
+		Value:      paymentAmt,
+		CltvExpiry: minCltvDelta,
+	}
+	err := alice.RPC.AddInvoiceAssertErr(invoice)
+	expectedErr := fmt.Sprintf("CLTV delta of %v must be greater than "+
+		"minimum of %v", minCltvDelta, routing.MinCLTVDelta)
+
+	require.ErrorContains(ht, err, expectedErr)
+
+	// Set the min_cltv delta to a value greater than math.MaxUint16
+	// which is the maximum value permitted and assert an error when
+	// adding the invoice.
+	minCltvDelta = uint64(math.MaxUint16 + 1)
+	invoice = &lnrpc.Invoice{
+		Value:      paymentAmt,
+		CltvExpiry: minCltvDelta,
+	}
+	err = alice.RPC.AddInvoiceAssertErr(invoice)
+	expectedErr = fmt.Sprintf("CLTV delta of %v is too large, max "+
+		"accepted is: %v", minCltvDelta, math.MaxUint16)
+	require.ErrorContains(ht, err, expectedErr)
 }

@@ -367,7 +367,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		if invoice.CltvExpiry < routing.MinCLTVDelta {
 			return nil, nil, fmt.Errorf("CLTV delta of %v must be "+
 				"greater than minimum of %v",
-				routing.MinCLTVDelta, invoice.CltvExpiry)
+				invoice.CltvExpiry, routing.MinCLTVDelta)
 		}
 
 		options = append(options,

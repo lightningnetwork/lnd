@@ -854,10 +854,14 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 
 		// Using the next height, request a manual block pruning from
 		// the chainview for the particular block hash.
+		log.Infof("Filtering block for closed channels, at height: %v",
+			int64(nextHeight))
 		nextHash, err := r.cfg.Chain.GetBlockHash(int64(nextHeight))
 		if err != nil {
 			return err
 		}
+		log.Tracef("Running block filter on block with hash: %v",
+			nextHash)
 		filterBlock, err := r.cfg.ChainView.FilterBlock(nextHash)
 		if err != nil {
 			return err

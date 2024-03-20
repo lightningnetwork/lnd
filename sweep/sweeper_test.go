@@ -2478,14 +2478,40 @@ func TestUpdateSweeperInputs(t *testing.T) {
 	// Create a test sweeper.
 	s := New(nil)
 
+	// Create mock inputs.
+	inp1 := &input.MockInput{}
+	defer inp1.AssertExpectations(t)
+	inp2 := &input.MockInput{}
+	defer inp2.AssertExpectations(t)
+
 	// Create a list of inputs using all the states.
-	input0 := &SweeperInput{state: Init}
-	input1 := &SweeperInput{state: PendingPublish}
-	input2 := &SweeperInput{state: Published}
-	input3 := &SweeperInput{state: PublishFailed}
-	input4 := &SweeperInput{state: Swept}
-	input5 := &SweeperInput{state: Excluded}
-	input6 := &SweeperInput{state: Failed}
+	//
+	// Mock the input to have a locktime that's matured so it will be
+	// returned.
+	inp1.On("RequiredLockTime").Return(
+		uint32(s.currentHeight), false).Once()
+	input0 := &SweeperInput{state: Init, Input: inp1}
+
+	// These inputs won't hit RequiredLockTime so we won't mock.
+	input1 := &SweeperInput{state: PendingPublish, Input: inp1}
+	input2 := &SweeperInput{state: Published, Input: inp1}
+
+	// Mock the input to have a locktime that's matured so it will be
+	// returned.
+	inp1.On("RequiredLockTime").Return(
+		uint32(s.currentHeight), false).Once()
+	input3 := &SweeperInput{state: PublishFailed, Input: inp1}
+
+	// These inputs won't hit RequiredLockTime so we won't mock.
+	input4 := &SweeperInput{state: Swept, Input: inp1}
+	input5 := &SweeperInput{state: Excluded, Input: inp1}
+	input6 := &SweeperInput{state: Failed, Input: inp1}
+
+	// Mock the input to have a locktime in the future so it will NOT be
+	// returned.
+	inp2.On("RequiredLockTime").Return(
+		uint32(s.currentHeight+1), true).Once()
+	input7 := &SweeperInput{state: Init, Input: inp2}
 
 	// Add the inputs to the sweeper. After the update, we should see the
 	// terminated inputs being removed.
@@ -2497,6 +2523,7 @@ func TestUpdateSweeperInputs(t *testing.T) {
 		{Index: 4}: input4,
 		{Index: 5}: input5,
 		{Index: 6}: input6,
+		{Index: 7}: input7,
 	}
 
 	// We expect the inputs with `Swept`, `Excluded`, and `Failed` to be
@@ -2506,6 +2533,7 @@ func TestUpdateSweeperInputs(t *testing.T) {
 		{Index: 1}: input1,
 		{Index: 2}: input2,
 		{Index: 3}: input3,
+		{Index: 7}: input7,
 	}
 
 	// We expect only the inputs with `Init` and `PublishFailed` to be

@@ -122,13 +122,24 @@ func DefaultDB() *DB {
 // Validate validates the DB config.
 func (db *DB) Validate() error {
 	switch db.Backend {
-	case BoltBackend, SqliteBackend:
+	case BoltBackend:
+		if db.UseNativeSQL {
+			return fmt.Errorf("cannot use native SQL with bolt " +
+				"backend")
+		}
+
+	case SqliteBackend:
 	case PostgresBackend:
 		if err := db.Postgres.Validate(); err != nil {
 			return err
 		}
 
 	case EtcdBackend:
+		if db.UseNativeSQL {
+			return fmt.Errorf("cannot use native SQL with etcd " +
+				"backend")
+		}
+
 		if !db.Etcd.Embedded && db.Etcd.Host == "" {
 			return fmt.Errorf("etcd host must be set")
 		}

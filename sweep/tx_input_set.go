@@ -222,7 +222,7 @@ func (t *txInputSet) enoughInput() bool {
 	// We did not have enough input for a change output. Check if we have
 	// enough input to pay the fees for a transaction with no change
 	// output.
-	fee := t.weightEstimate(false).fee()
+	fee := t.weightEstimate(false).feeWithParent()
 	if t.inputTotal < t.requiredOutput+fee {
 		return false
 	}
@@ -289,7 +289,7 @@ func (t *txInputSet) addToState(inp input.Input,
 	newSet.inputTotal += value
 
 	// Recalculate the tx fee.
-	fee := newSet.weightEstimate(true).fee()
+	fee := newSet.weightEstimate(true).feeWithParent()
 
 	// Calculate the new output value.
 	if reqOut != nil {

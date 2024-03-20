@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd"
-	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 )
@@ -60,11 +60,11 @@ type FeeService struct {
 // Compile-time check for the WebFeeService interface.
 var _ WebFeeService = (*FeeService)(nil)
 
-// Start spins up a go-routine to serve fee estimates.
+// NewFeeService spins up a go-routine to serve fee estimates.
 func NewFeeService(t *testing.T) *FeeService {
 	t.Helper()
 
-	port := node.NextAvailablePort()
+	port := port.NextAvailablePort()
 	f := FeeService{
 		T: t,
 		url: fmt.Sprintf(

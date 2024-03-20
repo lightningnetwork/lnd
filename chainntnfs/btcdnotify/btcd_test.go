@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lntest/unittest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -55,7 +56,7 @@ func setUpNotifier(t *testing.T, h *rpctest.Harness) *BtcdNotifier {
 
 	rpcCfg := h.RPCConfig()
 	notifier, err := New(
-		&rpcCfg, chainntnfs.NetParams, hintCache, hintCache, blockCache,
+		&rpcCfg, unittest.NetParams, hintCache, hintCache, blockCache,
 	)
 	require.NoError(t, err, "unable to create notifier")
 	if err := notifier.Start(); err != nil {
@@ -73,8 +74,8 @@ func setUpNotifier(t *testing.T, h *rpctest.Harness) *BtcdNotifier {
 func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 	t.Parallel()
 
-	harness := chainntnfs.NewMiner(
-		t, []string{"--txindex"}, true, 25,
+	harness := unittest.NewMiner(
+		t, unittest.NetParams, []string{"--txindex"}, true, 25,
 	)
 
 	notifier := setUpNotifier(t, harness)
@@ -145,7 +146,7 @@ func TestHistoricalConfDetailsTxIndex(t *testing.T) {
 func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
 	t.Parallel()
 
-	harness := chainntnfs.NewMiner(t, nil, true, 25)
+	harness := unittest.NewMiner(t, unittest.NetParams, nil, true, 25)
 
 	notifier := setUpNotifier(t, harness)
 

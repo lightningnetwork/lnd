@@ -6,26 +6,17 @@ package chainntnfs
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
-	"math/rand"
-	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcwallet/chain"
-	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/lightninglabs/neutrino"
-	"github.com/lightningnetwork/lnd/kvdb"
-	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntest/unittest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,10 +25,6 @@ var (
 	// transactions to its peers. We'll set it small to ensure the miner
 	// propagates transactions quickly in the tests.
 	TrickleInterval = 10 * time.Millisecond
-)
-
-var (
-	NetParams = &chaincfg.RegressionNetParams
 )
 
 // randPubKeyHashScript generates a P2PKH script that pays to the public key of
@@ -49,7 +36,9 @@ func randPubKeyHashScript() ([]byte, *btcec.PrivateKey, error) {
 	}
 
 	pubKeyHash := btcutil.Hash160(privKey.PubKey().SerializeCompressed())
-	addrScript, err := btcutil.NewAddressPubKeyHash(pubKeyHash, NetParams)
+	addrScript, err := btcutil.NewAddressPubKeyHash(
+		pubKeyHash, unittest.NetParams,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -162,161 +151,4 @@ func CreateSpendTx(t *testing.T, prevOutPoint *wire.OutPoint,
 	spendingTx.TxIn[0].SignatureScript = sigScript
 
 	return spendingTx
-}
-
-// NewMiner spawns testing harness backed by a btcd node that can serve as a
-// miner.
-func NewMiner(t *testing.T, extraArgs []string, createChain bool,
-	spendableOutputs uint32) *rpctest.Harness {
-
-	t.Helper()
-
-	// Add the trickle interval argument to the extra args.
-	trickle := fmt.Sprintf("--trickleinterval=%v", TrickleInterval)
-	extraArgs = append(extraArgs, trickle)
-
-	node, err := rpctest.New(NetParams, nil, extraArgs, "")
-	require.NoError(t, err, "unable to create backend node")
-	t.Cleanup(func() {
-		require.NoError(t, node.TearDown())
-	})
-
-	if err := node.SetUp(createChain, spendableOutputs); err != nil {
-		t.Fatalf("unable to set up backend node: %v", err)
-	}
-
-	return node
-}
-
-// NewBitcoindBackend spawns a new bitcoind node that connects to a miner at the
-// specified address. The txindex boolean can be set to determine whether the
-// backend node should maintain a transaction index. The rpcpolling boolean
-// can be set to determine whether bitcoind's RPC polling interface should be
-// used for block and tx notifications or if its ZMQ interface should be used.
-// A connection to the newly spawned bitcoind node is returned.
-func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
-	rpcpolling bool) *chain.BitcoindConn {
-
-	t.Helper()
-
-	// We use ioutil.TempDir here instead of t.TempDir because some versions
-	// of bitcoind complain about the zmq connection string formats when the
-	// t.TempDir directory string is used.
-	tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
-	require.NoError(t, err, "unable to create temp dir")
-
-	rpcPort := rand.Intn(65536-1024) + 1024
-	zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
-	zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
-
-	args := []string{
-		"-connect=" + minerAddr,
-		"-datadir=" + tempBitcoindDir,
-		"-regtest",
-		"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6fd$507c670e800a952" +
-			"84294edb5773b05544b220110063096c221be9933c82d38e1",
-		fmt.Sprintf("-rpcport=%d", rpcPort),
-		"-disablewallet",
-		"-zmqpubrawblock=" + zmqBlockHost,
-		"-zmqpubrawtx=" + zmqTxHost,
-	}
-	if txindex {
-		args = append(args, "-txindex")
-	}
-
-	bitcoind := exec.Command("bitcoind", args...)
-	if err := bitcoind.Start(); err != nil {
-		t.Fatalf("unable to start bitcoind: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = bitcoind.Process.Kill()
-		_ = bitcoind.Wait()
-	})
-
-	// Wait for the bitcoind instance to start up.
-	host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
-	cfg := &chain.BitcoindConfig{
-		ChainParams: NetParams,
-		Host:        host,
-		User:        "weks",
-		Pass:        "weks",
-		// Fields only required for pruned nodes, not needed for these
-		// tests.
-		Dialer:             nil,
-		PrunedModeMaxPeers: 0,
-	}
-
-	if rpcpolling {
-		cfg.PollingConfig = &chain.PollingConfig{
-			BlockPollingInterval: time.Millisecond * 20,
-			TxPollingInterval:    time.Millisecond * 20,
-		}
-	} else {
-		cfg.ZMQConfig = &chain.ZMQConfig{
-			ZMQBlockHost:    zmqBlockHost,
-			ZMQTxHost:       zmqTxHost,
-			ZMQReadDeadline: 5 * time.Second,
-		}
-	}
-
-	var conn *chain.BitcoindConn
-	err = wait.NoError(func() error {
-		var err error
-		conn, err = chain.NewBitcoindConn(cfg)
-		if err != nil {
-			return err
-		}
-
-		return conn.Start()
-	}, 10*time.Second)
-	if err != nil {
-		t.Fatalf("unable to establish connection to bitcoind: %v", err)
-	}
-	t.Cleanup(conn.Stop)
-
-	return conn
-}
-
-// NewNeutrinoBackend spawns a new neutrino node that connects to a miner at
-// the specified address.
-func NewNeutrinoBackend(t *testing.T, minerAddr string) *neutrino.ChainService {
-	t.Helper()
-
-	spvDir := t.TempDir()
-
-	dbName := filepath.Join(spvDir, "neutrino.db")
-	spvDatabase, err := walletdb.Create(
-		"bdb", dbName, true, kvdb.DefaultDBTimeout,
-	)
-	if err != nil {
-		t.Fatalf("unable to create walletdb: %v", err)
-	}
-	t.Cleanup(func() {
-		spvDatabase.Close()
-	})
-
-	// Create an instance of neutrino connected to the running btcd
-	// instance.
-	spvConfig := neutrino.Config{
-		DataDir:      spvDir,
-		Database:     spvDatabase,
-		ChainParams:  *NetParams,
-		ConnectPeers: []string{minerAddr},
-	}
-	spvNode, err := neutrino.NewChainService(spvConfig)
-	if err != nil {
-		t.Fatalf("unable to create neutrino: %v", err)
-	}
-
-	// We'll also wait for the instance to sync up fully to the chain
-	// generated by the btcd instance.
-	spvNode.Start()
-	for !spvNode.IsCurrent() {
-		time.Sleep(time.Millisecond * 100)
-	}
-	t.Cleanup(func() {
-		spvNode.Stop()
-	})
-
-	return spvNode
 }

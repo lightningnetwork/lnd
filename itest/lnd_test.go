@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/grpclog"
@@ -90,7 +91,6 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 	// Get the test cases to be run in this tranche.
 	testCases, trancheIndex, trancheOffset := getTestCaseSplitTranche()
-	node.ApplyPortOffset(uint32(trancheIndex) * 1000)
 
 	// Create a simple fee service.
 	feeService := lntest.NewFeeService(t)
@@ -216,9 +216,10 @@ func init() {
 	// Before we start any node, we need to make sure that any btcd node
 	// that is started through the RPC harness uses a unique port as well
 	// to avoid any port collisions.
-	rpctest.ListenAddressGenerator = node.GenerateBtcdListenerAddresses
+	rpctest.ListenAddressGenerator =
+		port.GenerateSystemUniqueListenerAddresses
 
-	// Swap out grpc's default logger with out fake logger which drops the
+	// Swap out grpc's default logger with our fake logger which drops the
 	// statements on the floor.
 	fakeLogger := grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard)
 	grpclog.SetLoggerV2(fakeLogger)

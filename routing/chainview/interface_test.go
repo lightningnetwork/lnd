@@ -3,11 +3,8 @@ package chainview
 import (
 	"bytes"
 	"fmt"
-	"net"
-	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,13 +17,13 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/walletdb"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lntest/unittest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -48,35 +45,6 @@ var (
 
 	testScript, _ = txscript.PayToAddrScript(testAddr)
 )
-
-var (
-	// lastPort is the last port determined to be free for use by a new
-	// bitcoind server. It should be used atomically.
-	lastPort uint32 = 1024
-)
-
-// getFreePort returns the first port that is available for listening by a new
-// embedded etcd server. It panics if no port is found and the maximum available
-// TCP port is reached.
-func getFreePort() int {
-	port := atomic.AddUint32(&lastPort, 1)
-	for port < 65535 {
-		// If there are no errors while attempting to listen on this
-		// port, close the socket and return it as available.
-		addr := fmt.Sprintf("127.0.0.1:%d", port)
-		l, err := net.Listen("tcp4", addr)
-		if err == nil {
-			err := l.Close()
-			if err == nil {
-				return int(port)
-			}
-		}
-		port = atomic.AddUint32(&lastPort, 1)
-	}
-
-	// No ports available? Must be a mistake.
-	panic("no ports available for listening")
-}
 
 func waitForMempoolTx(r *rpctest.Harness, txid *chainhash.Hash) error {
 	var found bool
@@ -220,8 +188,10 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	// filtered transaction as the filter hasn't been update.
 	select {
 	case filteredBlock := <-blockChan:
-		assertFilteredBlock(t, filteredBlock, currentHeight,
-			newBlockHashes[0], []*chainhash.Hash{})
+		assertFilteredBlock(
+			t, filteredBlock, currentHeight,
+			newBlockHashes[0], []*chainhash.Hash{},
+		)
 	case <-time.After(time.Second * 20):
 		t.Fatalf("filtered block notification didn't arrive")
 	}
@@ -481,22 +451,9 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 
 	// Create a node that has a shorter chain than the main chain, so we
 	// can trigger a reorg.
-	reorgNode, err := rpctest.New(netParams, nil, []string{"--txindex"}, "")
-	require.NoError(t, err, "unable to create mining node")
-	defer reorgNode.TearDown()
-
-	// We want to overwrite some of the connection settings to make the
-	// tests more robust. We might need to restart the backend while there
-	// are already blocks present, which will take a bit longer than the
-	// 1 second the default settings amount to. Doubling both values will
-	// give us retries up to 4 seconds.
-	reorgNode.MaxConnRetries = rpctest.DefaultMaxConnectionRetries * 2
-	reorgNode.ConnectionRetryTimeout = rpctest.DefaultConnectionRetryTimeout * 2
-
-	// This node's chain will be 105 blocks.
-	if err := reorgNode.SetUp(true, 5); err != nil {
-		t.Fatalf("unable to set up mining node: %v", err)
-	}
+	reorgNode := unittest.NewMiner(
+		t, netParams, []string{"--txindex"}, true, 5,
+	)
 
 	_, bestHeight, err := reorgNode.Client.GetBestBlock()
 	require.NoError(t, err, "error getting best block")
@@ -709,95 +666,14 @@ var interfaceImpls = []struct {
 	{
 		name: "bitcoind_zmq",
 		chainViewInit: func(t *testing.T, _ rpcclient.ConnConfig,
-			p2pAddr string, bestHeight int32) (FilteredChainView, error) {
+			p2pAddr string, bestHeight int32) (FilteredChainView,
+			error) {
 
 			// Start a bitcoind instance.
-			tempBitcoindDir := t.TempDir()
-			zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
-			zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
-
-			rpcPort := getFreePort()
-			bitcoind := exec.Command(
-				"bitcoind",
-				"-datadir="+tempBitcoindDir,
-				"-regtest",
-				"-connect="+p2pAddr,
-				"-txindex",
-				"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f"+
-					"d$507c670e800a95284294edb5773b05544b"+
-					"220110063096c221be9933c82d38e1",
-				fmt.Sprintf("-rpcport=%d", rpcPort),
-				"-disablewallet",
-				"-zmqpubrawblock="+zmqBlockHost,
-				"-zmqpubrawtx="+zmqTxHost,
+			chainConn := unittest.NewBitcoindBackend(
+				t, unittest.NetParams, p2pAddr, true,
+				false,
 			)
-			err := bitcoind.Start()
-			if err != nil {
-				return nil, err
-			}
-
-			// Sanity check to ensure that the process did in fact
-			// start.
-			if bitcoind.Process == nil {
-				return nil, fmt.Errorf("bitcoind cmd " +
-					"Process is not set after Start")
-			}
-
-			t.Cleanup(func() {
-				_ = bitcoind.Process.Kill()
-				_ = bitcoind.Wait()
-			})
-
-			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
-			cfg := &chain.BitcoindConfig{
-				ChainParams: &chaincfg.RegressionNetParams,
-				Host:        host,
-				User:        "weks",
-				Pass:        "weks",
-				ZMQConfig: &chain.ZMQConfig{
-					ZMQBlockHost:    zmqBlockHost,
-					ZMQTxHost:       zmqTxHost,
-					ZMQReadDeadline: 5 * time.Second,
-				},
-				// Fields only required for pruned nodes, not
-				// needed for these tests.
-				Dialer:             nil,
-				PrunedModeMaxPeers: 0,
-			}
-
-			var chainConn *chain.BitcoindConn
-			err = wait.NoError(func() error {
-				chainConn, err = chain.NewBitcoindConn(cfg)
-				if err != nil {
-					return err
-				}
-
-				err = chainConn.Start()
-				if err != nil {
-					return err
-				}
-
-				client := chainConn.NewBitcoindClient()
-				_, currentHeight, err := client.GetBestBlock()
-				if err != nil {
-					return err
-				}
-
-				if currentHeight < bestHeight {
-					return fmt.Errorf("not synced yet")
-				}
-
-				return nil
-			}, 10*time.Second)
-			if err != nil {
-				return nil, fmt.Errorf("unable to "+
-					"establish connection to bitcoind: %v",
-					err)
-			}
-			t.Cleanup(func() {
-				chainConn.Stop()
-			})
-
 			blockCache := blockcache.NewBlockCache(10000)
 
 			chainView := NewBitcoindFilteredChainView(
@@ -810,91 +686,14 @@ var interfaceImpls = []struct {
 	{
 		name: "bitcoind_polling",
 		chainViewInit: func(t *testing.T, _ rpcclient.ConnConfig,
-			p2pAddr string, bestHeight int32) (FilteredChainView, error) {
-
-			// Start a bitcoind instance.
-			tempBitcoindDir := t.TempDir()
-
-			rpcPort := getFreePort()
-			bitcoind := exec.Command(
-				"bitcoind",
-				"-datadir="+tempBitcoindDir,
-				"-regtest",
-				"-connect="+p2pAddr,
-				"-txindex",
-				"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6f"+
-					"d$507c670e800a95284294edb5773b05544b"+
-					"220110063096c221be9933c82d38e1",
-				fmt.Sprintf("-rpcport=%d", rpcPort),
-				"-disablewallet",
-			)
-			err := bitcoind.Start()
-			if err != nil {
-				return nil, err
-			}
-
-			// Sanity check to ensure that the process did in fact
-			// start.
-			if bitcoind.Process == nil {
-				return nil, fmt.Errorf("bitcoind cmd " +
-					"Process is not set after Start")
-			}
-
-			t.Cleanup(func() {
-				_ = bitcoind.Process.Kill()
-				_ = bitcoind.Wait()
-			})
-
-			host := fmt.Sprintf("127.0.0.1:%d", rpcPort)
-			cfg := &chain.BitcoindConfig{
-				ChainParams: &chaincfg.RegressionNetParams,
-				Host:        host,
-				User:        "weks",
-				Pass:        "weks",
-				PollingConfig: &chain.PollingConfig{
-					BlockPollingInterval: time.Millisecond * 100,
-					TxPollingInterval:    time.Millisecond * 100,
-				},
-				// Fields only required for pruned nodes, not
-				// needed for these tests.
-				Dialer:             nil,
-				PrunedModeMaxPeers: 0,
-			}
+			p2pAddr string, bestHeight int32) (FilteredChainView,
+			error) {
 
 			// Wait for the bitcoind instance to start up.
-			var chainConn *chain.BitcoindConn
-			err = wait.NoError(func() error {
-				chainConn, err = chain.NewBitcoindConn(cfg)
-				if err != nil {
-					return err
-				}
-
-				err = chainConn.Start()
-				if err != nil {
-					return err
-				}
-
-				client := chainConn.NewBitcoindClient()
-				_, currentHeight, err := client.GetBestBlock()
-				if err != nil {
-					return err
-				}
-
-				if currentHeight < bestHeight {
-					return fmt.Errorf("not synced yet")
-				}
-
-				return nil
-			}, 10*time.Second)
-			if err != nil {
-				return nil, fmt.Errorf("unable to "+
-					"establish connection to bitcoind: %v",
-					err)
-			}
-			t.Cleanup(func() {
-				chainConn.Stop()
-			})
-
+			chainConn := unittest.NewBitcoindBackend(
+				t, unittest.NetParams, p2pAddr, true,
+				true,
+			)
 			blockCache := blockcache.NewBlockCache(10000)
 
 			chainView := NewBitcoindFilteredChainView(
@@ -907,7 +706,8 @@ var interfaceImpls = []struct {
 	{
 		name: "p2p_neutrino",
 		chainViewInit: func(t *testing.T, _ rpcclient.ConnConfig,
-			p2pAddr string, bestHeight int32) (FilteredChainView, error) {
+			p2pAddr string, bestHeight int32) (FilteredChainView,
+			error) {
 
 			spvDir := t.TempDir()
 
@@ -976,7 +776,8 @@ var interfaceImpls = []struct {
 	{
 		name: "btcd_websockets",
 		chainViewInit: func(_ *testing.T, config rpcclient.ConnConfig,
-			p2pAddr string, bestHeight int32) (FilteredChainView, error) {
+			p2pAddr string, bestHeight int32) (FilteredChainView,
+			error) {
 
 			blockCache := blockcache.NewBlockCache(10000)
 			chainView, err := NewBtcdFilteredChainView(
@@ -996,12 +797,9 @@ func TestFilteredChainView(t *testing.T) {
 	// dedicated miner to generate blocks, cause re-orgs, etc. We'll set up
 	// this node with a chain length of 125, so we have plenty of BTC to
 	// play around with.
-	miner, err := rpctest.New(netParams, nil, []string{"--txindex"}, "")
-	require.NoError(t, err, "unable to create mining node")
-	defer miner.TearDown()
-	if err := miner.SetUp(true, 25); err != nil {
-		t.Fatalf("unable to set up mining node: %v", err)
-	}
+	miner := unittest.NewMiner(
+		t, netParams, []string{"--txindex"}, true, 25,
+	)
 
 	rpcConfig := miner.RPCConfig()
 	p2pAddr := miner.P2PAddress()

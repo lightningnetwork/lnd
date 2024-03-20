@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/port"
 )
 
 // logDirPattern is the pattern of the name of the temporary log directory.
@@ -111,11 +112,10 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 	}
 
 	zmqBlockAddr := fmt.Sprintf("tcp://127.0.0.1:%d",
-		node.NextAvailablePort())
-	zmqTxAddr := fmt.Sprintf("tcp://127.0.0.1:%d",
-		node.NextAvailablePort())
-	rpcPort := node.NextAvailablePort()
-	p2pPort := node.NextAvailablePort()
+		port.NextAvailablePort())
+	zmqTxAddr := fmt.Sprintf("tcp://127.0.0.1:%d", port.NextAvailablePort())
+	rpcPort := port.NextAvailablePort()
+	p2pPort := port.NextAvailablePort()
 
 	cmdArgs := []string{
 		"-datadir=" + tempBitcoindDir,

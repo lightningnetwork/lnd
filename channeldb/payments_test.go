@@ -477,7 +477,7 @@ func TestQueryPayments(t *testing.T) {
 			query: PaymentsQuery{
 				CreationDateStart: 3,
 				CreationDateEnd:   5,
-				CountTotal: true,
+				CountTotal:        true,
 			},
 			firstIndex:     3,
 			lastIndex:      5,

@@ -35,7 +35,7 @@ func TestTxInputSet(t *testing.T) {
 		t.Fatal("expected add of positively yielding input to succeed")
 	}
 
-	fee := set.weightEstimate(true).fee()
+	fee := set.weightEstimate(true).feeWithParent()
 	require.Equal(t, btcutil.Amount(487), fee)
 
 	// The tx output should now be 700-487 = 213 sats. The dust limit isn't
@@ -164,13 +164,13 @@ func TestTxInputSetRequiredOutput(t *testing.T) {
 	require.True(t, set.add(inp, constraintsRegular), "failed adding input")
 
 	// The fee needed to pay for this input and output should be 439 sats.
-	fee := set.weightEstimate(false).fee()
+	fee := set.weightEstimate(false).feeWithParent()
 	require.Equal(t, btcutil.Amount(439), fee)
 
 	// Since the tx set currently pays no fees, we expect the current
 	// change to actually be negative, since this is what it would cost us
 	// in fees to add a change output.
-	feeWithChange := set.weightEstimate(true).fee()
+	feeWithChange := set.weightEstimate(true).feeWithParent()
 	if set.changeOutput != -feeWithChange {
 		t.Fatalf("expected negative change of %v, had %v",
 			-feeWithChange, set.changeOutput)
@@ -188,9 +188,10 @@ func TestTxInputSetRequiredOutput(t *testing.T) {
 	// Now we add a an input that is large enough to pay the fee for the
 	// transaction without a change output, but not large enough to afford
 	// adding a change output.
-	extraInput1 := weight.fee() + 100
-	require.True(t, set.add(createP2WKHInput(extraInput1), constraintsRegular),
-		"expected add of positively yielding input to succeed")
+	extraInput1 := weight.feeWithParent() + 100
+	require.True(t, set.add(
+		createP2WKHInput(extraInput1), constraintsRegular,
+	), "expected add of positively yielding input to succeed")
 
 	// The change should be negative, since we would have to add a change
 	// output, which we cannot yet afford.
@@ -208,10 +209,12 @@ func TestTxInputSetRequiredOutput(t *testing.T) {
 	require.NoError(t, weight.add(dummyInput))
 
 	// We add what is left to reach this value.
-	extraInput2 := weight.fee() - extraInput1 + 100
+	extraInput2 := weight.feeWithParent() - extraInput1 + 100
 
 	// Add this input, which should result in the change now being 100 sats.
-	require.True(t, set.add(createP2WKHInput(extraInput2), constraintsRegular))
+	require.True(t, set.add(
+		createP2WKHInput(extraInput2), constraintsRegular,
+	))
 
 	// The change should be 100, since this is what is left after paying
 	// fees in case of a change output.
@@ -232,7 +235,7 @@ func TestTxInputSetRequiredOutput(t *testing.T) {
 
 	// We expect the change to everything that is left after paying the tx
 	// fee.
-	extraInput3 := weight.fee() - extraInput1 - extraInput2 + 1000
+	extraInput3 := weight.feeWithParent() - extraInput1 - extraInput2 + 1000
 	require.True(t, set.add(createP2WKHInput(extraInput3), constraintsRegular))
 
 	change = set.changeOutput

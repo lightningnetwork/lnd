@@ -106,9 +106,9 @@ func (w *weightEstimator) weight() int {
 	return w.estimator.Weight()
 }
 
-// fee returns the tx fee to use for the aggregated inputs and outputs, taking
-// into account unconfirmed parent transactions (cpfp).
-func (w *weightEstimator) fee() btcutil.Amount {
+// feeWithParent returns the tx fee to use for the aggregated inputs and
+// outputs, taking into account unconfirmed parent transactions (cpfp).
+func (w *weightEstimator) feeWithParent() btcutil.Amount {
 	// Calculate fee and weight for just this tx.
 	childWeight := int64(w.estimator.Weight())
 

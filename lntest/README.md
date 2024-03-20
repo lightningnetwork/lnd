@@ -68,7 +68,7 @@ This package has four major components, `HarnessTest`, `HarnessMiner`,
   authentication of the gRPC connection, topology subscription(`NodeWatcher`)
   and maintains an internal state(`NodeState`).
 
-- `HarnessMiner` builds on top of `btcd`’s `rcptest.Harness` and is responsilbe
+- `HarnessMiner` builds on top of `btcd`’s `rcptest.Harness` and is responsible
   for managing blocks and the mempool.
 
 - `HarnessTest` builds on top of `testing.T` and can be viewed as the assertion

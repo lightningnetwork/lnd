@@ -672,7 +672,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 		// A new external request has been received to retrieve all of
 		// the inputs we're currently attempting to sweep.
 		case req := <-s.pendingSweepsReqs:
-			req.respChan <- s.handlePendingSweepsReq(req)
+			s.handlePendingSweepsReq(req)
 
 		// A new external request has been received to bump the fee rate
 		// of a given input.
@@ -1056,6 +1056,13 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 			BroadcastAttempts: SweeperInput.publishAttempts,
 			Params:            SweeperInput.params,
 		}
+	}
+
+	select {
+	case req.respChan <- resps:
+	case <-s.quit:
+		log.Debug("Skipped sending pending sweep response due to " +
+			"UtxoSweeper shutting down")
 	}
 
 	return resps

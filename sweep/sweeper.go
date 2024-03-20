@@ -1520,6 +1520,17 @@ func (s *UtxoSweeper) updateSweeperInputs() InputsMap {
 			continue
 		}
 
+		// If the input has a locktime that's not yet reached, we will
+		// skip this input and wait for the locktime to be reached.
+		locktime, _ := input.RequiredLockTime()
+		if uint32(s.currentHeight) < locktime {
+			log.Warnf("Skipping input %v due to locktime=%v not "+
+				"reached, current height is %v", op, locktime,
+				s.currentHeight)
+
+			continue
+		}
+
 		// If this input is new or has been failed to be published,
 		// we'd retry it. The assumption here is that when an error is
 		// returned from `PublishTransaction`, it means the tx has

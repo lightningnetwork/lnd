@@ -44,7 +44,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 		return nil, 0, err
 	}
 
-	txFee := estimator.fee()
+	txFee := estimator.feeWithParent()
 
 	var (
 		// Create the sweep transaction that we will be building. We

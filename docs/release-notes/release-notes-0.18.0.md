@@ -28,8 +28,8 @@
   that when sweeping inputs with locktime, an unexpected lower fee rate is
   applied.
 
-* LND will now [enforce pong responses
-  ](https://github.com/lightningnetwork/lnd/pull/7828) from its peers
+* LND will now [enforce pong
+  responses](https://github.com/lightningnetwork/lnd/pull/7828) from its peers.
 
 * [Fixed a possible unintended RBF
   attempt](https://github.com/lightningnetwork/lnd/pull/8091) when sweeping new
@@ -50,25 +50,26 @@
   When using neutrino as a backend unconfirmed transactions have to be
   removed from the wallet when a conflicting tx is confirmed. For other backends
   these unconfirmed transactions are already removed. In addition, a new 
-  walletrpc endpoint `RemoveTransaction` is introduced which let one easily
+  `walletrpc` endpoint `RemoveTransaction` is introduced which let one easily
   remove unconfirmed transaction manually.
   
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/8096) a case where `lnd`
-  might dip below its channel reserve when htlcs are added concurrently. A
+  might dip below its channel reserve when HTLCs are added concurrently. A
   fee buffer (additional balance) is now always kept on the local side ONLY
   if the channel was opened locally. This is in accordance with the BOLT 02
   specification and protects against sharp fee changes because there is always
-  this buffer which can be used to increase the commitment fee and it also
-  protects against the case where htlcs are added asynchronously resulting in
+  this buffer which can be used to increase the commitment fee, and it also
+  protects against the case where HTLCs are added asynchronously resulting in
   stuck channels.
  
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/8377) a watchtower client
   test flake that prevented new tasks from overflowing to disk. 
 
 * [Properly handle un-acked updates for exhausted watchtower 
-  sessions](https://github.com/lightningnetwork/lnd/pull/8233)
+  sessions](https://github.com/lightningnetwork/lnd/pull/8233).
 
-* [Allow `shutdown`s while HTLCs are in-flight](https://github.com/lightningnetwork/lnd/pull/8167).
+* [Allow `shutdown`s while HTLCs are
+  in-flight](https://github.com/lightningnetwork/lnd/pull/8167).
   This change fixes an issue where we would force-close channels when receiving
   a `shutdown` message if there were currently HTLCs on the channel. After this
   change, the shutdown procedure should be compliant with BOLT2 requirements.
@@ -76,12 +77,14 @@
 * If HTLCs are in-flight at the same time that a `shutdown` is sent and then 
   a re-connect happens before the coop-close is completed we now [ensure that 
   we re-init the `shutdown` 
-  exchange](https://github.com/lightningnetwork/lnd/pull/8464)
+  exchange](https://github.com/lightningnetwork/lnd/pull/8464).
 
-* The AMP struct in payment hops will [now be populated](https://github.com/lightningnetwork/lnd/pull/7976) when the AMP TLV is set.
+* The AMP struct in payment hops will [now be
+  populated](https://github.com/lightningnetwork/lnd/pull/7976) when the AMP TLV
+  is set.
 
 * [Add Taproot witness types
-  to rpc](https://github.com/lightningnetwork/lnd/pull/8431)
+  to rpc](https://github.com/lightningnetwork/lnd/pull/8431).
   
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/7852) the payload size
   calculation in our pathfinder because blinded hops introduced new tlv records.
@@ -90,46 +93,47 @@
   precision issue when querying payments and invoices using the start and end
   date filters.
 
-<<<<<<< HEAD
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/8496) an issue where
   `locked_balance` is not updated in `WalletBalanceResponse` when outputs are
   reserved for `OpenChannel` by using non-volatile leases instead of volatile
   locks.
-=======
+
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/7805) a case where `lnd`
   might propose a low fee rate for the channel (when initiator) due to the
   mempool not having enough data yet or the channel might be drained locally
   which with the default fee allocation in place will eventually lead to the
-  downsizing to the fee floor (1 sat/vbyte) in the worst case.
->>>>>>> ae6f11c56 (docs: add release-notes.)
+  downsizing to the fee floor (1 sat/vByte) in the worst case.
 
 # New Features
 ## Functional Enhancements
 
 * A new config value,
   [sweeper.maxfeerate](https://github.com/lightningnetwork/lnd/pull/7823), is
-  added so users can specify the max allowed fee rate when sweeping onchain
+  added so users can specify the max allowed fee rate when sweeping on-chain
   funds. The default value is 1000 sat/vb. Setting this value below 100 sat/vb
   is not allowed, as low fee rate can cause transactions not confirming in
   time, which could result in fund loss.
-  Please note that the actual fee rate to be used is deteremined by the fee
+  Please note that the actual fee rate to be used is determined by the fee
   estimator used(for instance `bitcoind`), and this value is a cap on the max
   allowed value. So it's expected that this cap is rarely hit unless there's
   mempool congestion.
+
 * Support for [pathfinding]((https://github.com/lightningnetwork/lnd/pull/7267)
   and payment to blinded paths has been added via the `QueryRoutes` (and 
-  SendToRouteV2) APIs. This functionality is surfaced in `lncli queryroutes` 
+  `SendToRouteV2`) APIs. This functionality is surfaced in `lncli queryroutes` 
   where the required flags are tagged with `(blinded paths)`. Updates to mission
-  control to [handle pathfinding errors](https://github.com/lightningnetwork/lnd/pull/8095)
-  for blinded paths are also included.
+  control to [handle pathfinding
+  errors](https://github.com/lightningnetwork/lnd/pull/8095) for blinded paths
+  are also included.
+
 * A new config value,
   [http-header-timeout](https://github.com/lightningnetwork/lnd/pull/7715), is 
   added so users can specify the amount of time the http server will wait for a 
   request to complete before closing the connection. The default value is 5 
   seconds.
-* Update [watchtowers to be Taproot
-  ready](https://github.com/lightningnetwork/lnd/pull/7733)
 
+* Update [watchtowers to be Taproot
+  ready](https://github.com/lightningnetwork/lnd/pull/7733).
 
 * [`routerrpc.usestatusinitiated` is
   introduced](https://github.com/lightningnetwork/lnd/pull/8177) to signal that
@@ -149,17 +153,19 @@
   through [mempool acceptance
   check](https://github.com/lightningnetwork/lnd/pull/8345) before being
   broadcast. This means when a transaction has failed the `testmempoolaccept`
-  check by bitcoind or btcd, the broadcast won't be attempted. This check will
-  be performed if the version of the chain backend supports it - for bitcoind
-  it's v22.0.0 and above, for btcd it's v0.24.1 and above. Otherwise, the check
-  will be [skipped](https://github.com/lightningnetwork/lnd/pull/8505)
+  check by `bitcoind` or `btcd`, the broadcast won't be attempted. This check
+  will be performed if the version of the chain backend supports it - for
+  `bitcoind` it's `v22.0.0` and above, for `btcd` it's `v0.24.1` and above.
+  Otherwise, the check will be
+  [skipped](https://github.com/lightningnetwork/lnd/pull/8505).
 
 * The `coin-selection-strategy` config option [now also applies to channel
   funding operations and the new `PsbtCoinSelect` option of the `FundPsbt`
   RPC](https://github.com/lightningnetwork/lnd/pull/8378).
 
-* [Env Variables in lnd.conf](https://github.com/lightningnetwork/lnd/pull/8310)
-  Support utilizing the usage of environment variables in `lnd.conf` for `rpcuser` and `rpcpass` fields to better protect the secrets.
+* [Environment variables can now be used in
+  `lnd.conf`](https://github.com/lightningnetwork/lnd/pull/8310)
+  for the `rpcuser` and `rpcpass` fields to better protect the secrets.
 
 ## RPC Additions
 
@@ -169,8 +175,8 @@
   running this new version, please make sure to upgrade your client application
   to include this new status so it can understand the RPC response properly.
   
-* Adds a new rpc endpoint gettx to the walletrpc sub-server to [fetch 
-  transaction details](https://github.com/lightningnetwork/lnd/pull/7654).
+* Adds a new RPC endpoint `GetTransaction` to the `walletrpc` sub-server to
+  [fetch transaction details](https://github.com/lightningnetwork/lnd/pull/7654).
 
 * [The new `GetDebugInfo` RPC method was added that returns the full runtime
   configuration of the node as well as the complete log
@@ -180,7 +186,7 @@
 * Add a [new flag](https://github.com/lightningnetwork/lnd/pull/8167) to the
   `CloseChannel` RPC method that instructs the client to not wait for the
   closing transaction to be negotiated. This should be used if you don't care
-  about the txid and don't want the calling code to block while the channel
+  about the TXID and don't want the calling code to block while the channel
   drains the active HTLCs.
 
 * [New watchtower client DeactivateTower and 
@@ -217,20 +223,23 @@
 # Improvements
 ## Functional Updates
 ### Tlv
+
 * [Bool was added](https://github.com/lightningnetwork/lnd/pull/8057) to the
   primitive type of the tlv package.
 
 ## Misc
+
 * [Added](https://github.com/lightningnetwork/lnd/pull/8142) full validation 
   for blinded path payloads to allow fuzzing before LND fully supports 
   blinded payment relay.
 
-* Allow `healthcheck` package users to provide [custom callbacks](https://github.com/lightningnetwork/lnd/pull/8504)
-  which will execute whenever a healthcheck succeeds/fails.
+* Allow `healthcheck` package users to provide [custom
+  callbacks](https://github.com/lightningnetwork/lnd/pull/8504) which will
+  execute whenever a healthcheck succeeds/fails.
 
 ### Logging
 * [Add the htlc amount](https://github.com/lightningnetwork/lnd/pull/8156) to
-  contract court logs in case of timed-out htlcs in order to easily spot dust
+  contract court logs in case of timed-out HTLCs in order to easily spot dust
   outputs.
 
 * [Add warning logs](https://github.com/lightningnetwork/lnd/pull/8446) during
@@ -241,13 +250,14 @@
 * [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)
   `StatusUnknown` from the payment's rpc response in its status and replaced it
   with `StatusInitiated` to explicitly report its current state.
+
 * [Add an option to sign/verify a tagged
   hash](https://github.com/lightningnetwork/lnd/pull/8106) to the
-  signer.SignMessage/signer.VerifyMessage RPCs.
+  `signer.SignMessage`/`signer.VerifyMessage` RPCs.
 
 * `sendtoroute` will return an error when it's called using the flag
-  `--skip_temp_err` on a payment that's not a MPP. This is needed as a temp
-  error is defined as a routing error found in one of a MPP's HTLC attempts.
+  `--skip_temp_err` on a payment that's not an MPP. This is needed as a temp
+  error is defined as a routing error found in one of an MPP's HTLC attempts.
   If, however, there's only one HTLC attempt, when it's failed, this payment is
   considered failed, thus there's no such thing as temp error for a non-MPP.
 
@@ -264,29 +274,30 @@
   [raw hex of the closing tx](https://github.com/lightningnetwork/lnd/pull/8426)
   in `waiting_close_channels`.
 
-* [Allow callers of ListSweeps to specify the start height](
-  https://github.com/lightningnetwork/lnd/pull/7372).
+* [Allow callers of `ListSweeps` to specify the start
+  height](https://github.com/lightningnetwork/lnd/pull/7372).
 
 ## lncli Updates
 
-* [Documented all available lncli commands](https://github.com/lightningnetwork/lnd/pull/8181).
-  This change makes all existing lncli commands have the appropriate doc tag
-  in the rpc definition to ensure that the autogenerated API documentation
-  properly specifies how to use the lncli command.
+* [Documented all available `lncli`
+  commands](https://github.com/lightningnetwork/lnd/pull/8181).
+  This change makes all existing `lncli` commands have the appropriate doc tag
+  in the RPC definition to ensure that the autogenerated API documentation
+  properly specifies how to use the `lncli` command.
 
 * [Enable multiple outgoing channel ids for the payment
   command](https://github.com/lightningnetwork/lnd/pull/8261). This change adds
   the ability to specify multiple outgoing channel ids for the `sendpayment`
   command.
 
-* [Use the default LND value in the buildroute rpc command for the
-  final cltv delta](https://github.com/lightningnetwork/lnd/pull/8387).
+* [Use the default LND value in the `buildroute` RPC command for the
+  `final cltv delta`](https://github.com/lightningnetwork/lnd/pull/8387).
 
 * `pendingchannels` now optionally returns the 
   [raw hex of the closing tx](https://github.com/lightningnetwork/lnd/pull/8426)
   in `waiting_close_channels`.
  
-* The [estimateroutefee](https://github.com/lightningnetwork/lnd/pull/8136)
+* The [`estimateroutefee`](https://github.com/lightningnetwork/lnd/pull/8136)
   subcommand now gives access to graph based and payment probe fee estimation.
 
 ## Code Health
@@ -296,7 +307,7 @@
   Bitcoin is now the only supported chain. The `chain` field in the
   `lnrpc.Chain` message has also been deprecated for the same reason.
 
-* The payment lifecycle code has been refactored to improve its maintainablity.
+* The payment lifecycle code has been refactored to improve its maintainability.
   In particular, the complexity involved in the lifecycle loop has been
   decoupled into logical steps, with each step having its own responsibility,
   making it easier to reason about the payment flow.
@@ -310,7 +321,7 @@
   code. 
 
 * [Correct `fmt.Errorf` error wrapping 
-  instances](https://github.com/lightningnetwork/lnd/pull/8503)
+  instances](https://github.com/lightningnetwork/lnd/pull/8503).
 
 * Bump sqlite version to [fix a data 
   race](https://github.com/lightningnetwork/lnd/pull/8567).
@@ -324,7 +335,8 @@
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 
-* [Add Dynamic Commitment Wire Types](https://github.com/lightningnetwork/lnd/pull/8026).
+* [Add Dynamic Commitment Wire
+  Types](https://github.com/lightningnetwork/lnd/pull/8026).
   This change begins the development of Dynamic Commitments allowing for the
   negotiation of new channel parameters and the upgrading of channel types.
  
@@ -335,16 +347,18 @@
   be switched off using the new `protocol.no-timestamp-query-option` config 
   option. 
 
-* [Update min_final_cltv_expiry_delta](https://github.com/lightningnetwork/lnd/pull/8308).
+* [Update `min_final_cltv_expiry_delta`](https://github.com/lightningnetwork/lnd/pull/8308).
   This only affects external invoices which do not supply the 
-  min_final_cltv_expiry parameter. LND has NOT allowed the creation of invoices
-  with a lower min_final_cltv_expiry_delta value than 18 blocks since
-  LND 0.11.0.
+  `min_final_cltv_expiry` parameter. LND has NOT allowed the creation of
+  invoices with a lower `min_final_cltv_expiry_delta` value than 18 blocks since
+  LND v0.11.0.
 
-* [Make Legacy Features Compulsory](https://github.com/lightningnetwork/lnd/pull/8275).
-  This change implements changes codified in [bolts#1092](https://github.com/lightning/bolts/pull/1092)
-  and makes TLV Onions, Static Remote Keys, Gossip Queries, compulsory features for
-  LND's peers. Data Loss Protection has been compulsory for years.
+* [Make Legacy Features
+  Compulsory](https://github.com/lightningnetwork/lnd/pull/8275).
+  This change implements changes codified in
+  [bolts#1092](https://github.com/lightning/bolts/pull/1092)
+  and makes TLV Onions, Static Remote Keys, Gossip Queries, compulsory features
+  for LND's peers. Data Loss Protection has been compulsory for years.
 
 ## Testing
 
@@ -374,7 +388,7 @@
 ## Code Health
 
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 
-  from channeldb schema structs.
+  from `channeldb` schema structs.
 
 ## Tooling and Documentation
 

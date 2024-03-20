@@ -136,6 +136,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		graphInstance.graphBackend, route.Vertex{}, mcConfig,
 	)
 	require.NoError(t, err, "failed to create missioncontrol")
+	drainMCStoreQueueChan(t, mc.store)
 
 	sourceNode, err := graphInstance.graph.SourceNode()
 	require.NoError(t, err)

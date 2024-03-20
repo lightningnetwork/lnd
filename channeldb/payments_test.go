@@ -247,6 +247,10 @@ func TestQueryPayments(t *testing.T) {
 		// expectedSeqNrs contains the set of sequence numbers we expect
 		// our query to return.
 		expectedSeqNrs []uint64
+		// totalCount corresponds to the PaymentsResponse's TotalCount
+		// This will only be set if the
+		// CountTotal field in the query was set to true.
+		totalCount uint64
 	}{
 		{
 			name: "IndexOffset at the end of the payments range",
@@ -259,6 +263,7 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     0,
 			lastIndex:      0,
 			expectedSeqNrs: nil,
+			totalCount:     0,
 		},
 		{
 			name: "query in forwards order, start at beginning",
@@ -271,6 +276,7 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     1,
 			lastIndex:      3,
 			expectedSeqNrs: []uint64{1, 3},
+			totalCount:     0,
 		},
 		{
 			name: "query in forwards order, start at end, overflow",
@@ -283,6 +289,7 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     7,
 			lastIndex:      7,
 			expectedSeqNrs: []uint64{7},
+			totalCount:     0,
 		},
 		{
 			name: "start at offset index outside of payments",
@@ -307,6 +314,7 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     5,
 			lastIndex:      7,
 			expectedSeqNrs: []uint64{5, 6, 7},
+			totalCount:     0,
 		},
 		{
 			name: "start at offset index outside of payments, " +
@@ -320,6 +328,7 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     6,
 			lastIndex:      7,
 			expectedSeqNrs: []uint64{6, 7},
+			totalCount:     0,
 		},
 		{
 			name: "query in reverse order, start at end",
@@ -332,6 +341,7 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     6,
 			lastIndex:      7,
 			expectedSeqNrs: []uint64{6, 7},
+			totalCount:     0,
 		},
 		{
 			name: "query in reverse order, starting in middle",
@@ -344,6 +354,7 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     1,
 			lastIndex:      3,
 			expectedSeqNrs: []uint64{1, 3},
+			totalCount:     0,
 		},
 		{
 			name: "query in reverse order, starting in middle, " +
@@ -357,6 +368,7 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     1,
 			lastIndex:      3,
 			expectedSeqNrs: []uint64{1, 3},
+			totalCount:     0,
 		},
 		{
 			name: "all payments in reverse, order maintained",
@@ -369,6 +381,7 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     1,
 			lastIndex:      7,
 			expectedSeqNrs: []uint64{1, 3, 4, 5, 6, 7},
+			totalCount:     0,
 		},
 		{
 			name: "exclude incomplete payments",
@@ -381,6 +394,7 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     7,
 			lastIndex:      7,
 			expectedSeqNrs: []uint64{7},
+			totalCount:     0,
 		},
 		{
 			name: "query payments at index gap",
@@ -405,6 +419,7 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     1,
 			lastIndex:      1,
 			expectedSeqNrs: []uint64{1},
+			totalCount:     0,
 		},
 		{
 			name: "query payments reverse on index gap",
@@ -417,6 +432,7 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     1,
 			lastIndex:      1,
 			expectedSeqNrs: []uint64{1},
+			totalCount:     0,
 		},
 		{
 			name: "query payments forward on index gap",
@@ -429,6 +445,7 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     3,
 			lastIndex:      4,
 			expectedSeqNrs: []uint64{3, 4},
+			totalCount:     0,
 		},
 		{
 			name: "query in forwards order, with start creation " +
@@ -443,6 +460,7 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     5,
 			lastIndex:      6,
 			expectedSeqNrs: []uint64{5, 6},
+			totalCount:     0,
 		},
 		{
 			name: "query in forwards order, with start creation " +
@@ -457,6 +475,7 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     7,
 			lastIndex:      7,
 			expectedSeqNrs: []uint64{7},
+			totalCount:     0,
 		},
 		{
 			name: "query with start and end creation time",
@@ -471,17 +490,33 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     3,
 			lastIndex:      5,
 			expectedSeqNrs: []uint64{3, 4, 5},
+			totalCount:     0,
 		},
 		{
-			name: "query max transcation with start and end creation time",
+			name: "query count total with start and end creation",
 			query: PaymentsQuery{
-				CreationDateStart: 3,
-				CreationDateEnd:   5,
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+				CreationDateStart: 5,
+				CreationDateEnd:   6,
 				CountTotal:        true,
 			},
-			firstIndex:     3,
-			lastIndex:      5,
-			expectedSeqNrs: []uint64{3, 4, 5},
+			firstIndex:     5,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{5, 6},
+			totalCount:     0,
+		},
+		{
+			name: "query count total only",
+			query: PaymentsQuery{
+				CountTotal: true,
+			},
+			firstIndex:     0,
+			lastIndex:      0,
+			expectedSeqNrs: nil,
+			totalCount:     6,
 		},
 	}
 
@@ -589,6 +624,13 @@ func TestQueryPayments(t *testing.T) {
 			if len(querySlice.Payments) != len(tt.expectedSeqNrs) {
 				t.Errorf("expected: %v payments, got: %v",
 					len(tt.expectedSeqNrs), len(querySlice.Payments))
+			}
+
+			if tt.totalCount != querySlice.TotalCount {
+				t.Errorf("Total Count does not match "+
+					"expected total count. Want %d, got %d",
+					tt.totalCount,
+					querySlice.TotalCount)
 			}
 
 			for i, seqNr := range tt.expectedSeqNrs {

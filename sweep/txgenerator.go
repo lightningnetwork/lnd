@@ -273,7 +273,11 @@ func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
 
 		err := weightEstimate.add(inp)
 		if err != nil {
-			log.Warn(err)
+			// TODO(yy): check if this is even possible? If so, we
+			// should return the error here instead of filtering!
+			log.Errorf("Failed to get weight estimate for "+
+				"input=%v, witnessType=%v: %v ", inp.OutPoint(),
+				inp.WitnessType(), err)
 
 			// Skip inputs for which no weight estimate can be
 			// given.

@@ -277,6 +277,9 @@
 * [Allow callers of `ListSweeps` to specify the start
   height](https://github.com/lightningnetwork/lnd/pull/7372).
 
+* `BumpFeeResponse` now optionally returns the
+  [raw hex of the sweep tx](https://github.com/lightningnetwork/lnd/pull/8528).
+
 ## lncli Updates
 
 * [Documented all available `lncli`
@@ -299,6 +302,9 @@
  
 * The [`estimateroutefee`](https://github.com/lightningnetwork/lnd/pull/8136)
   subcommand now gives access to graph based and payment probe fee estimation.
+
+* `bumpfee` now optionally returns the
+  [raw hex of the sweep tx](https://github.com/lightningnetwork/lnd/pull/8528).
 
 ## Code Health
 

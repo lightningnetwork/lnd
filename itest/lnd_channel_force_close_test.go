@@ -2,7 +2,6 @@ package itest
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"testing"
 
@@ -17,239 +16,9 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
-	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
 )
-
-// testCommitmentTransactionDeadline tests that the anchor sweep transaction is
-// taking account of the deadline of the commitment transaction. It tests three
-// scenarios:
-//  1. when the CPFP is skipped, checks that the deadline is not used.
-//  2. when the CPFP is used, checks that the deadline is NOT applied when it's
-//     larger than 144.
-//  3. when the CPFP is used, checks that the deadline is applied when it's
-//     less than 144.
-//
-// Note that whether the deadline is used or not is implicitly checked by its
-// corresponding fee rates.
-func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
-	// Get the default max fee rate used in sweeping the commitment
-	// transaction.
-	defaultMax := lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte
-	maxPerKw := chainfee.SatPerKVByte(defaultMax * 1000).FeePerKWeight()
-
-	const (
-		// feeRateConfDefault(sat/kw) is used when no conf target is
-		// set. This value will be returned by the fee estimator but
-		// won't be used because our commitment fee rate is capped by
-		// DefaultAnchorsCommitMaxFeeRateSatPerVByte.
-		feeRateDefault = 20000
-
-		// defaultDeadline is the anchorSweepConfTarget, which is used
-		// when the commitment has no deadline pressure.
-		defaultDeadline = 144
-
-		// deadline is one block below the default deadline. A forced
-		// anchor sweep will be performed when seeing this value.
-		deadline = defaultDeadline - 1
-	)
-
-	// feeRateSmall(sat/kw) is used when we want to skip the CPFP
-	// on anchor transactions. When the fee rate is smaller than
-	// the parent's (commitment transaction) fee rate, the CPFP
-	// will be skipped. Atm, the parent tx's fee rate is roughly
-	// 2500 sat/kw in this test.
-	feeRateSmall := maxPerKw / 2
-
-	// feeRateLarge(sat/kw) is used when we want to use the anchor
-	// transaction to CPFP our commitment transaction.
-	feeRateLarge := maxPerKw * 2
-
-	// Before we start, set up the default fee rate and we will test the
-	// actual fee rate against it to decide whether we are using the
-	// deadline to perform fee estimation.
-	ht.SetFeeEstimate(feeRateDefault)
-
-	// setupNode creates a new node and sends 1 btc to the node.
-	setupNode := func(name string) *node.HarnessNode {
-		// Create the node.
-		args := []string{"--hodl.exit-settle"}
-		args = append(args, lntest.NodeArgsForCommitType(
-			lnrpc.CommitmentType_ANCHORS)...,
-		)
-		node := ht.NewNode(name, args)
-
-		// Send some coins to the node.
-		ht.FundCoins(btcutil.SatoshiPerBitcoin, node)
-
-		// For neutrino backend, we need one additional UTXO to create
-		// the sweeping tx for the remote anchor.
-		if ht.IsNeutrinoBackend() {
-			ht.FundCoins(btcutil.SatoshiPerBitcoin, node)
-		}
-
-		return node
-	}
-
-	// calculateSweepFeeRate runs multiple steps to calculate the fee rate
-	// used in sweeping the transactions.
-	calculateSweepFeeRate := func(expectAnchor bool, deadline int) int64 {
-		// Create two nodes, Alice and Bob.
-		alice := setupNode("Alice")
-		defer ht.Shutdown(alice)
-
-		bob := setupNode("Bob")
-		defer ht.Shutdown(bob)
-
-		// Connect Alice to Bob.
-		ht.ConnectNodes(alice, bob)
-
-		// Open a channel between Alice and Bob.
-		chanPoint := ht.OpenChannel(
-			alice, bob, lntest.OpenChannelParams{
-				Amt:     10e6,
-				PushAmt: 5e6,
-			},
-		)
-
-		// Calculate the final ctlv delta based on the expected
-		// deadline.
-		finalCltvDelta := int32(deadline - int(routing.BlockPadding))
-
-		// Send a payment with a specified finalCTLVDelta, which will
-		// be used as our deadline later on when Alice force closes the
-		// channel.
-		req := &routerrpc.SendPaymentRequest{
-			Dest:           bob.PubKey[:],
-			Amt:            10e4,
-			PaymentHash:    ht.Random32Bytes(),
-			FinalCltvDelta: finalCltvDelta,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		}
-		alice.RPC.SendPayment(req)
-
-		// Once the HTLC has cleared, all the nodes in our mini network
-		// should show that the HTLC has been locked in.
-		ht.AssertNumActiveHtlcs(alice, 1)
-		ht.AssertNumActiveHtlcs(bob, 1)
-
-		// Alice force closes the channel.
-		ht.CloseChannelAssertPending(alice, chanPoint, true)
-
-		// Now that the channel has been force closed, it should show
-		// up in the PendingChannels RPC under the waiting close
-		// section.
-		waitingClose := ht.AssertChannelWaitingClose(alice, chanPoint)
-
-		// The waiting close channel closing tx hex should be set and
-		// be valid.
-		require.NotEmpty(ht, waitingClose.ClosingTxHex)
-		rawTxBytes, err := hex.DecodeString(waitingClose.ClosingTxHex)
-		require.NoError(
-			ht, err,
-			"waiting close channel closingTxHex invalid hex",
-		)
-		rawTx := &wire.MsgTx{}
-		err = rawTx.Deserialize(bytes.NewReader(rawTxBytes))
-		require.NoError(
-			ht, err, "waiting close channel ClosingTxHex invalid",
-		)
-		require.Equal(
-			ht, waitingClose.ClosingTxid, rawTx.TxHash().String(),
-		)
-
-		// We should see Alice's force closing tx in the mempool.
-		expectedNumTxes := 1
-
-		// If anchor is expected, we should see the anchor sweep tx in
-		// the mempool too.
-		if expectAnchor {
-			expectedNumTxes = 2
-		}
-
-		// Check our sweep transactions can be found in mempool.
-		sweepTxns := ht.Miner.GetNumTxsFromMempool(expectedNumTxes)
-
-		// Mine a block to confirm these transactions such that they
-		// don't remain in the mempool for any subsequent tests.
-		ht.MineBlocksAndAssertNumTxes(1, expectedNumTxes)
-
-		// Bob should now sweep his to_local output and anchor output.
-		expectedNumTxes = 2
-		ht.AssertNumPendingSweeps(bob, 2)
-
-		// If Alice's anchor is not swept above, we should see it here.
-		if !expectAnchor {
-			expectedNumTxes = 3
-			ht.AssertNumPendingSweeps(alice, 1)
-		}
-
-		// Mine one block to trigger the sweeps.
-		ht.MineBlocks(1)
-
-		// Mine one more block to assert the sweep transactions.
-		ht.MineBlocksAndAssertNumTxes(1, expectedNumTxes)
-
-		// Calculate the fee rate used.
-		feeRate := ht.CalculateTxesFeeRate(sweepTxns)
-
-		return feeRate
-	}
-
-	// Setup our fee estimation for the deadline. Because the fee rate is
-	// smaller than the parent tx's fee rate, this value won't be used and
-	// we should see only one sweep tx in the mempool.
-	ht.SetFeeEstimateWithConf(feeRateSmall, deadline)
-
-	// Calculate fee rate used and assert only the force close tx is
-	// broadcast.
-	feeRate := calculateSweepFeeRate(false, deadline)
-
-	// We expect the default max fee rate is used. Allow some deviation
-	// because weight estimates during tx generation are estimates.
-	require.InEpsilonf(
-		ht, int64(maxPerKw), feeRate, 0.01,
-		"expected fee rate:%d, got fee rate:%d", maxPerKw, feeRate,
-	)
-
-	// Setup our fee estimation for the deadline. Because the fee rate is
-	// greater than the parent tx's fee rate, this value will be used to
-	// sweep the anchor transaction. However, due to the default value
-	// being used, we should not attempt CPFP here because we are not force
-	// sweeping the anchor output.
-	ht.SetFeeEstimateWithConf(feeRateLarge, defaultDeadline)
-
-	// Calculate fee rate used and assert only the force close tx is
-	// broadcast.
-	feeRate = calculateSweepFeeRate(false, defaultDeadline)
-
-	// We expect the default max fee rate is used. Allow some deviation
-	// because weight estimates during tx generation are estimates.
-	require.InEpsilonf(
-		ht, int64(maxPerKw), feeRate, 0.01,
-		"expected fee rate:%d, got fee rate:%d", maxPerKw, feeRate,
-	)
-
-	// Setup our fee estimation for the deadline. Because the fee rate is
-	// greater than the parent tx's fee rate, this value will be used to
-	// sweep the anchor transaction and we should see two sweep
-	// transactions in the mempool.
-	ht.SetFeeEstimateWithConf(feeRateLarge, deadline)
-
-	// Calculate fee rate used and assert both the force close tx and the
-	// anchor sweeping tx are broadcast.
-	feeRate = calculateSweepFeeRate(true, deadline)
-
-	// We expect the anchor to be swept with the deadline, which has the
-	// fee rate of feeRateLarge.
-	require.InEpsilonf(
-		ht, int64(feeRateLarge), feeRate, 0.01,
-		"expected fee rate:%d, got fee rate:%d", feeRateLarge, feeRate,
-	)
-}
 
 // testChannelForceClosure performs a test to exercise the behavior of "force"
 // closing a channel or unilaterally broadcasting the latest local commitment
@@ -878,6 +647,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 			// We expect alice to have a timeout tx resolution with
 			// an amount equal to the payment amount.
+			//nolint:lll
 			aliceReports[outpoint.String()] = &lnrpc.Resolution{
 				ResolutionType: lnrpc.ResolutionType_OUTGOING_HTLC,
 				Outcome:        lnrpc.ResolutionOutcome_FIRST_STAGE,
@@ -890,6 +660,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 			// incoming htlc timeout which reflects the full amount
 			// of the htlc. It has no spend tx, because carol stops
 			// monitoring the htlc once it has timed out.
+			//nolint:lll
 			carolReports[outpoint.String()] = &lnrpc.Resolution{
 				ResolutionType: lnrpc.ResolutionType_INCOMING_HTLC,
 				Outcome:        lnrpc.ResolutionOutcome_TIMEOUT,

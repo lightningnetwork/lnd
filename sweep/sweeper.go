@@ -84,13 +84,19 @@ type ParamsUpdate struct {
 
 // String returns a human readable interpretation of the sweep parameters.
 func (p Params) String() string {
+	deadline := "none"
+	p.DeadlineHeight.WhenSome(func(d int32) {
+		deadline = fmt.Sprintf("%d", d)
+	})
+
+	exclusiveGroup := "none"
 	if p.ExclusiveGroup != nil {
-		return fmt.Sprintf("fee=%v, force=%v, exclusive_group=%v",
-			p.Fee, p.Force, *p.ExclusiveGroup)
+		exclusiveGroup = fmt.Sprintf("%d", *p.ExclusiveGroup)
 	}
 
-	return fmt.Sprintf("fee=%v, force=%v, exclusive_group=nil",
-		p.Fee, p.Force)
+	return fmt.Sprintf("fee=%v, force=%v, exclusive_group=%v, budget=%v, "+
+		"deadline=%v", p.Fee, p.Force, exclusiveGroup, p.Budget,
+		deadline)
 }
 
 // SweepState represents the current state of a pending input.
@@ -518,10 +524,10 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 	absoluteTimeLock, _ := input.RequiredLockTime()
 	log.Infof("Sweep request received: out_point=%v, witness_type=%v, "+
 		"relative_time_lock=%v, absolute_time_lock=%v, amount=%v, "+
-		"parent=(%v), params=(%v)", input.OutPoint(),
+		"parent=(%v), params=(%v), currentHeight=%v", input.OutPoint(),
 		input.WitnessType(), input.BlocksToMaturity(), absoluteTimeLock,
 		btcutil.Amount(input.SignDesc().Output.Value),
-		input.UnconfParent(), params)
+		input.UnconfParent(), params, s.currentHeight)
 
 	sweeperInput := &sweepInputMessage{
 		input:      input,
@@ -1667,9 +1673,9 @@ func (s *UtxoSweeper) handleBumpEventTxReplaced(r *BumpResult) error {
 		return err
 	}
 
-	log.Infof("RBFed tx=%v(fee=%v, feerate=%v) with new tx=%v(fee=%v, "+
-		"feerate=%v)", record.Txid, record.Fee, record.FeeRate,
-		tr.Txid, tr.Fee, tr.FeeRate)
+	log.Infof("RBFed tx=%v(fee=%v sats, feerate=%v sats/kw) with new "+
+		"tx=%v(fee=%v, "+"feerate=%v)", record.Txid, record.Fee,
+		record.FeeRate, tr.Txid, tr.Fee, tr.FeeRate)
 
 	// The old sweeping tx has been replaced by a new one, we will update
 	// the tx record in the sweeper db.

@@ -132,13 +132,14 @@ func (r *BumpRequest) MaxFeeRateAllowed() (chainfee.SatPerKWeight, error) {
 	maxFeeRateAllowed := chainfee.NewSatPerKWeight(r.Budget, size)
 	if maxFeeRateAllowed > r.MaxFeeRate {
 		log.Debugf("Budget feerate %v exceeds MaxFeeRate %v, use "+
-			"MaxFeeRate instead", maxFeeRateAllowed, r.MaxFeeRate)
+			"MaxFeeRate instead, txWeight=%v", maxFeeRateAllowed,
+			r.MaxFeeRate, size)
 
 		return r.MaxFeeRate, nil
 	}
 
 	log.Debugf("Budget feerate %v below MaxFeeRate %v, use budget feerate "+
-		"instead", maxFeeRateAllowed, r.MaxFeeRate)
+		"instead, txWeight=%v", maxFeeRateAllowed, r.MaxFeeRate, size)
 
 	return maxFeeRateAllowed, nil
 }
@@ -360,6 +361,10 @@ func (t *TxPublisher) initializeFeeFunction(
 
 	// Get the initial conf target.
 	confTarget := calcCurrentConfTarget(t.currentHeight, req.DeadlineHeight)
+
+	log.Debugf("Initializing fee function with conf target=%v, budget=%v, "+
+		"maxFeeRateAllowed=%v", confTarget, req.Budget,
+		maxFeeRateAllowed)
 
 	// Initialize the fee function and return it.
 	//

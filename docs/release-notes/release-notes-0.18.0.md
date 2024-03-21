@@ -240,6 +240,10 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   callbacks](https://github.com/lightningnetwork/lnd/pull/8504) which will
   execute whenever a healthcheck succeeds/fails.
 
+* `PublishTransaction` now [returns the error
+  types](https://github.com/lightningnetwork/lnd/pull/8554) defined in
+  `btcd/rpcclient`.
+
 ### Logging
 * [Add the htlc amount](https://github.com/lightningnetwork/lnd/pull/8156) to
   contract court logs in case of timed-out HTLCs in order to easily spot dust

@@ -18,6 +18,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/btcwallet/waddrmgr"
@@ -1470,18 +1471,16 @@ func parseHeaderStateAssertion(state string) (*headerfs.FilterHeader, error) {
 // the neutrino BroadcastError which allows the Rebroadcaster which currently
 // resides in the neutrino package to use all of its functionalities.
 func broadcastErrorMapper(err error) error {
-	returnErr := wallet.MapBroadcastBackendError(err)
+	returnErr := rpcclient.MapRPCErr(err)
 
 	// We only filter for specific backend errors which are relevant for the
 	// Rebroadcaster.
-	var errAlreadyConfirmed *wallet.ErrAlreadyConfirmed
-	var errInMempool *wallet.ErrInMempool
-	var errMempoolFee *wallet.ErrMempoolFee
-
 	switch {
 	// This makes sure the tx is removed from the rebroadcaster once it is
 	// confirmed.
-	case errors.As(returnErr, &errAlreadyConfirmed):
+	case errors.Is(returnErr, rpcclient.ErrTxAlreadyKnown),
+		errors.Is(err, rpcclient.ErrTxAlreadyConfirmed):
+
 		returnErr = &pushtx.BroadcastError{
 			Code:   pushtx.Confirmed,
 			Reason: returnErr.Error(),
@@ -1489,7 +1488,7 @@ func broadcastErrorMapper(err error) error {
 
 	// Transactions which are still in mempool but might fall out because
 	// of low fees are rebroadcasted despite of their backend error.
-	case errors.As(returnErr, &errInMempool):
+	case errors.Is(returnErr, rpcclient.ErrTxAlreadyInMempool):
 		returnErr = &pushtx.BroadcastError{
 			Code:   pushtx.Mempool,
 			Reason: returnErr.Error(),
@@ -1500,7 +1499,7 @@ func broadcastErrorMapper(err error) error {
 	// Mempool conditions change over time so it makes sense to retry
 	// publishing the transaction. Moreover we log the detailed error so the
 	// user can intervene and increase the size of his mempool.
-	case errors.As(returnErr, &errMempoolFee):
+	case errors.Is(err, rpcclient.ErrMempoolMinFeeNotMet):
 		ltndLog.Warnf("Error while broadcasting transaction: %v",
 			returnErr)
 

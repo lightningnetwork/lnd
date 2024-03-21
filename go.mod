@@ -200,6 +200,8 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display
 
+replace github.com/btcsuite/btcd => github.com/YusukeShimizu/btcd v0.0.0-20240321040818-c85b1e4e56a0
+
 // If you change this please also update .github/pull_request_template.md and
 // docs/INSTALL.md.
 go 1.19

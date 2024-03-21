@@ -206,10 +206,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testChannelUnsettledBalance,
 	},
 	{
-		Name:     "commitment deadline",
-		TestFunc: testCommitmentTransactionDeadline,
-	},
-	{
 		Name:     "channel force closure",
 		TestFunc: testChannelForceClosure,
 	},

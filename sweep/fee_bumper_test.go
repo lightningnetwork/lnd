@@ -1169,7 +1169,11 @@ func TestHandleTxConfirmed(t *testing.T) {
 	//
 	// NOTE: must be called in a goroutine in case it blocks.
 	tp.wg.Add(1)
-	go tp.handleTxConfirmed(record, requestID)
+	done := make(chan struct{})
+	go func() {
+		tp.handleTxConfirmed(record, requestID)
+		close(done)
+	}()
 
 	select {
 	case <-time.After(time.Second):
@@ -1183,6 +1187,12 @@ func TestHandleTxConfirmed(t *testing.T) {
 		require.Equal(t, requestID, result.requestID)
 		require.Equal(t, record.fee, result.Fee)
 		require.Equal(t, feerate, result.FeeRate)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for handleTxConfirmed to return")
 	}
 
 	// We expect the record to be removed from the maps.

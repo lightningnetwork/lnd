@@ -1,12 +1,14 @@
 package lnrpc
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -263,4 +265,18 @@ func CalculateFeeRate(satPerByte, satPerVByte uint64, targetConf uint32,
 	}
 
 	return feeRate, nil
+}
+
+// SerializeAndHexEncodeTx serializes the given wire transaction and returns
+// its hexadecimal representation. If serialization fails, an error is
+// returned.
+func SerializeAndHexEncodeTx(tx *wire.MsgTx) (string, error) {
+	var txBuf bytes.Buffer
+	err := tx.Serialize(&txBuf)
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize transaction: "+
+			"%w", err)
+	}
+
+	return hex.EncodeToString(txBuf.Bytes()), nil
 }

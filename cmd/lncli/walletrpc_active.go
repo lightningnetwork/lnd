@@ -228,6 +228,16 @@ var bumpFeeCommand = cli.Command{
 			Name:  "force",
 			Usage: "sweep even if the yield is negative",
 		},
+		cli.BoolFlag{
+			Name: "include_raw_tx",
+			Usage: "include the raw transaction hex for the " +
+				"sweep transaction on success. " +
+				"It waits for the batcher to create a " +
+				"transaction, which might take a while. " +
+				"The duration is at least as long as " +
+				"the configured sweeper.batchwindowduration, " +
+				"with the default set to 30 seconds",
+		},
 	},
 	Action: actionDecorator(bumpFee),
 }
@@ -260,10 +270,11 @@ func bumpFee(ctx *cli.Context) error {
 	defer cleanUp()
 
 	resp, err := client.BumpFee(ctxc, &walletrpc.BumpFeeRequest{
-		Outpoint:    protoOutPoint,
-		TargetConf:  uint32(ctx.Uint64("conf_target")),
-		SatPerVbyte: ctx.Uint64(feeRateFlag),
-		Force:       ctx.Bool("force"),
+		Outpoint:     protoOutPoint,
+		TargetConf:   uint32(ctx.Uint64("conf_target")),
+		SatPerVbyte:  ctx.Uint64(feeRateFlag),
+		Force:        ctx.Bool("force"),
+		IncludeRawTx: ctx.Bool("include_raw_tx"),
 	})
 	if err != nil {
 		return err

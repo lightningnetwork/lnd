@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -31,7 +30,7 @@ func (e *ExtraOpaqueData) Encode(w *bytes.Buffer) error {
 func (e *ExtraOpaqueData) Decode(r io.Reader) error {
 	// First, we'll attempt to read a set of bytes contained within the
 	// passed io.Reader (if any exist).
-	rawBytes, err := ioutil.ReadAll(r)
+	rawBytes, err := io.ReadAll(r)
 	if err != nil {
 		return err
 	}

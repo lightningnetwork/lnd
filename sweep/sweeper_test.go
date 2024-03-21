@@ -2802,9 +2802,14 @@ func TestHandleBumpEventTxReplaced(t *testing.T) {
 	store := &MockSweeperStore{}
 	defer store.AssertExpectations(t)
 
+	// Create a mock wallet.
+	wallet := &MockWallet{}
+	defer wallet.AssertExpectations(t)
+
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{
-		Store: store,
+		Store:  store,
+		Wallet: wallet,
 	})
 
 	// Create a testing outpoint.
@@ -2855,6 +2860,9 @@ func TestHandleBumpEventTxReplaced(t *testing.T) {
 		Txid: tx.TxHash(),
 	}, nil).Once()
 
+	// We expect to cancel rebroadcasting the replaced tx.
+	wallet.On("CancelRebroadcast", tx.TxHash()).Once()
+
 	// Mock an error returned when deleting the old tx record.
 	store.On("DeleteTx", tx.TxHash()).Return(dummyErr).Once()
 
@@ -2874,6 +2882,9 @@ func TestHandleBumpEventTxReplaced(t *testing.T) {
 		Txid:      replacementTx.TxHash(),
 		Published: true,
 	}).Return(nil).Once()
+
+	// We expect to cancel rebroadcasting the replaced tx.
+	wallet.On("CancelRebroadcast", tx.TxHash()).Once()
 
 	// Call the method under test.
 	err = s.handleBumpEventTxReplaced(br)
@@ -2944,9 +2955,14 @@ func TestMonitorFeeBumpResult(t *testing.T) {
 	store := &MockSweeperStore{}
 	defer store.AssertExpectations(t)
 
+	// Create a mock wallet.
+	wallet := &MockWallet{}
+	defer wallet.AssertExpectations(t)
+
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{
-		Store: store,
+		Store:  store,
+		Wallet: wallet,
 	})
 
 	// Create a testing outpoint.
@@ -2990,6 +3006,11 @@ func TestMonitorFeeBumpResult(t *testing.T) {
 					FeeRate: 100,
 				}
 
+				// We expect to cancel rebroadcasting the tx
+				// once confirmed.
+				wallet.On("CancelRebroadcast",
+					tx.TxHash()).Once()
+
 				return resultChan
 			},
 			shouldExit: true,
@@ -3008,6 +3029,11 @@ func TestMonitorFeeBumpResult(t *testing.T) {
 					Event: TxFailed,
 					Err:   errDummy,
 				}
+
+				// We expect to cancel rebroadcasting the tx
+				// once failed.
+				wallet.On("CancelRebroadcast",
+					tx.TxHash()).Once()
 
 				return resultChan
 			},

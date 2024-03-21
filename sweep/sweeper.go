@@ -1622,6 +1622,9 @@ func (s *UtxoSweeper) monitorFeeBumpResult(resultChan <-chan *BumpResult) {
 					"fee bump monitor", r.Event,
 					r.Tx.TxHash())
 
+				// Cancel the rebroadcasting of the failed tx.
+				s.cfg.Wallet.CancelRebroadcast(r.Tx.TxHash())
+
 				return
 			}
 
@@ -1672,6 +1675,9 @@ func (s *UtxoSweeper) handleBumpEventTxReplaced(r *BumpResult) error {
 		log.Errorf("Fetch tx record for %v: %v", oldTxid, err)
 		return err
 	}
+
+	// Cancel the rebroadcasting of the replaced tx.
+	s.cfg.Wallet.CancelRebroadcast(oldTxid)
 
 	log.Infof("RBFed tx=%v(fee=%v sats, feerate=%v sats/kw) with new "+
 		"tx=%v(fee=%v, "+"feerate=%v)", record.Txid, record.Fee,

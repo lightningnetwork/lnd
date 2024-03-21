@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/davecgh/go-spew/spew"
@@ -28,6 +29,14 @@ var (
 	// ErrNotEnoughBudget is returned when the fee bumper decides the
 	// current budget cannot cover the fee.
 	ErrNotEnoughBudget = errors.New("not enough budget")
+
+	// ErrLocktimeImmature is returned when sweeping an input whose
+	// locktime is not reached.
+	ErrLocktimeImmature = errors.New("immature input")
+
+	// ErrTxNoOutput is returned when an output cannot be created during tx
+	// preparation, usually due to the output being dust.
+	ErrTxNoOutput = errors.New("tx has no output")
 )
 
 // Bumper defines an interface that can be used by other subsystems for fee
@@ -458,11 +467,8 @@ func (t *TxPublisher) createAndCheckTx(req *BumpRequest, f FeeFunction) (
 
 	// Create the sweep tx with max fee rate of 0 as the fee function
 	// guarantees the fee rate used here won't exceed the max fee rate.
-	//
-	// TODO(yy): refactor this function to not require a max fee rate.
-	tx, fee, err := createSweepTx(
-		req.Inputs, nil, req.DeliveryAddress, uint32(t.currentHeight),
-		f.FeeRate(), 0, t.cfg.Signer,
+	tx, fee, err := t.createSweepTx(
+		req.Inputs, req.DeliveryAddress, f.FeeRate(),
 	)
 	if err != nil {
 		return nil, 0, fmt.Errorf("create sweep tx: %w", err)
@@ -950,4 +956,236 @@ func calcCurrentConfTarget(currentHeight, deadline int32) uint32 {
 	}
 
 	return confTarget
+}
+
+// createSweepTx creates a sweeping tx based on the given inputs, change
+// address and fee rate.
+func (t *TxPublisher) createSweepTx(inputs []input.Input, changePkScript []byte,
+	feeRate chainfee.SatPerKWeight) (*wire.MsgTx, btcutil.Amount, error) {
+
+	// Validate and calculate the fee and change amount.
+	txFee, changeAmtOpt, locktimeOpt, err := prepareSweepTx(
+		inputs, changePkScript, feeRate, t.currentHeight,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var (
+		// Create the sweep transaction that we will be building. We
+		// use version 2 as it is required for CSV.
+		sweepTx = wire.NewMsgTx(2)
+
+		// We'll add the inputs as we go so we know the final ordering
+		// of inputs to sign.
+		idxs []input.Input
+	)
+
+	// We start by adding all inputs that commit to an output. We do this
+	// since the input and output index must stay the same for the
+	// signatures to be valid.
+	for _, o := range inputs {
+		if o.RequiredTxOut() == nil {
+			continue
+		}
+
+		idxs = append(idxs, o)
+		sweepTx.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: *o.OutPoint(),
+			Sequence:         o.BlocksToMaturity(),
+		})
+		sweepTx.AddTxOut(o.RequiredTxOut())
+	}
+
+	// Sum up the value contained in the remaining inputs, and add them to
+	// the sweep transaction.
+	for _, o := range inputs {
+		if o.RequiredTxOut() != nil {
+			continue
+		}
+
+		idxs = append(idxs, o)
+		sweepTx.AddTxIn(&wire.TxIn{
+			PreviousOutPoint: *o.OutPoint(),
+			Sequence:         o.BlocksToMaturity(),
+		})
+	}
+
+	// If there's a change amount, add it to the transaction.
+	changeAmtOpt.WhenSome(func(changeAmt btcutil.Amount) {
+		sweepTx.AddTxOut(&wire.TxOut{
+			PkScript: changePkScript,
+			Value:    int64(changeAmt),
+		})
+	})
+
+	// We'll default to using the current block height as locktime, if none
+	// of the inputs commits to a different locktime.
+	sweepTx.LockTime = uint32(t.currentHeight)
+	locktimeOpt.WhenSome(func(locktime int32) {
+		sweepTx.LockTime = uint32(locktime)
+	})
+
+	prevInputFetcher, err := input.MultiPrevOutFetcher(inputs)
+	if err != nil {
+		return nil, 0, fmt.Errorf("error creating prev input fetcher "+
+			"for hash cache: %v", err)
+	}
+	hashCache := txscript.NewTxSigHashes(sweepTx, prevInputFetcher)
+
+	// With all the inputs in place, use each output's unique input script
+	// function to generate the final witness required for spending.
+	addInputScript := func(idx int, tso input.Input) error {
+		inputScript, err := tso.CraftInputScript(
+			t.cfg.Signer, sweepTx, hashCache, prevInputFetcher, idx,
+		)
+		if err != nil {
+			return err
+		}
+
+		sweepTx.TxIn[idx].Witness = inputScript.Witness
+
+		if len(inputScript.SigScript) == 0 {
+			return nil
+		}
+
+		sweepTx.TxIn[idx].SignatureScript = inputScript.SigScript
+
+		return nil
+	}
+
+	for idx, inp := range idxs {
+		if err := addInputScript(idx, inp); err != nil {
+			return nil, 0, err
+		}
+	}
+
+	log.Debugf("Created sweep tx %v for %v inputs", sweepTx.TxHash(),
+		len(inputs))
+
+	return sweepTx, txFee, nil
+}
+
+// prepareSweepTx returns the tx fee, an optional change amount and an optional
+// locktime after a series of validations:
+// 1. check the locktime has been reached.
+// 2. check the locktimes are the same.
+// 3. check the inputs cover the outputs.
+//
+// NOTE: if the change amount is below dust, it will be added to the tx fee.
+func prepareSweepTx(inputs []input.Input, changePkScript []byte,
+	feeRate chainfee.SatPerKWeight, currentHeight int32) (
+	btcutil.Amount, fn.Option[btcutil.Amount], fn.Option[int32], error) {
+
+	noChange := fn.None[btcutil.Amount]()
+	noLocktime := fn.None[int32]()
+
+	// Creating a weight estimator with nil outputs and zero max fee rate.
+	// We don't allow adding customized outputs in the sweeping tx, and the
+	// fee rate is already being managed before we get here.
+	inputs, estimator, err := getWeightEstimate(
+		inputs, nil, feeRate, 0, changePkScript,
+	)
+	if err != nil {
+		return 0, noChange, noLocktime, err
+	}
+
+	txFee := estimator.fee()
+
+	var (
+		// Track whether any of the inputs require a certain locktime.
+		locktime = int32(-1)
+
+		// We keep track of total input amount, and required output
+		// amount to use for calculating the change amount below.
+		totalInput     btcutil.Amount
+		requiredOutput btcutil.Amount
+	)
+
+	// Go through each input and check if the required lock times have
+	// reached and are the same.
+	for _, o := range inputs {
+		// If the input has a required output, we'll add it to the
+		// required output amount.
+		if o.RequiredTxOut() != nil {
+			requiredOutput += btcutil.Amount(
+				o.RequiredTxOut().Value,
+			)
+		}
+
+		// Update the total input amount.
+		totalInput += btcutil.Amount(o.SignDesc().Output.Value)
+
+		lt, ok := o.RequiredLockTime()
+
+		// Skip if the input doesn't require a lock time.
+		if !ok {
+			continue
+		}
+
+		// Check if the lock time has reached
+		if lt > uint32(currentHeight) {
+			return 0, noChange, noLocktime, ErrLocktimeImmature
+		}
+
+		// If another input commits to a different locktime, they
+		// cannot be combined in the same transaction.
+		if locktime != -1 && locktime != int32(lt) {
+			return 0, noChange, noLocktime, ErrLocktimeConflict
+		}
+
+		// Update the locktime for next iteration.
+		locktime = int32(lt)
+	}
+
+	// Make sure total output amount is less than total input amount.
+	if requiredOutput+txFee > totalInput {
+		return 0, noChange, noLocktime, fmt.Errorf("insufficient "+
+			"input to create sweep tx: input_sum=%v, "+
+			"output_sum=%v", totalInput, requiredOutput+txFee)
+	}
+
+	// The value remaining after the required output and fees is the
+	// change output.
+	changeAmt := totalInput - requiredOutput - txFee
+	changeAmtOpt := fn.Some(changeAmt)
+
+	// We'll calculate the dust limit for the given changePkScript since it
+	// is variable.
+	changeFloor := lnwallet.DustLimitForSize(len(changePkScript))
+
+	// If the change amount is dust, we'll move it into the fees.
+	if changeAmt < changeFloor {
+		log.Infof("Change amt %v below dustlimit %v, not adding "+
+			"change output", changeAmt, changeFloor)
+
+		// If there's no required output, and the change output is a
+		// dust, it means we are creating a tx without any outputs. In
+		// this case we'll return an error. This could happen when
+		// creating a tx that has an anchor as the only input.
+		if requiredOutput == 0 {
+			return 0, noChange, noLocktime, ErrTxNoOutput
+		}
+
+		// The dust amount is added to the fee.
+		txFee += changeAmt
+
+		// Set the change amount to none.
+		changeAmtOpt = fn.None[btcutil.Amount]()
+	}
+
+	// Optionally set the locktime.
+	locktimeOpt := fn.Some(locktime)
+	if locktime == -1 {
+		locktimeOpt = noLocktime
+	}
+
+	log.Debugf("Creating sweep tx for %v inputs (%s) using %v, "+
+		"tx_weight=%v, tx_fee=%v, locktime=%v, parents_count=%v, "+
+		"parents_fee=%v, parents_weight=%v, current_height=%v",
+		len(inputs), inputTypeSummary(inputs), feeRate,
+		estimator.weight(), txFee, locktimeOpt, len(estimator.parents),
+		estimator.parentsFee, estimator.parentsWeight, currentHeight)
+
+	return txFee, changeAmtOpt, locktimeOpt, nil
 }

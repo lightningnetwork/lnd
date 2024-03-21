@@ -204,4 +204,12 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 // docs/INSTALL.md.
 go 1.19
 
+replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
+
+replace github.com/btcsuite/btcwallet => github.com/roasbeef/btcwallet v0.11.1-0.20240307225634-ff180237e5ad
+
+replace github.com/btcsuite/btcwallet/walletdb => github.com/roasbeef/btcwallet/walletdb v1.1.1-0.20240307225634-ff180237e5ad
+
+replace github.com/btcsuite/btcwallet/wtxmgr => github.com/roasbeef/btcwallet/wtxmgr v1.0.1-0.20240307225634-ff180237e5ad
+
 retract v0.0.2

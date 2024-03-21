@@ -361,7 +361,7 @@ func printMacaroon(ctx *cli.Context) error {
 	case args.Present():
 		macBytes, err = hex.DecodeString(args.First())
 		if err != nil {
-			return fmt.Errorf("unable to hex decode macaroon: %v",
+			return fmt.Errorf("unable to hex decode macaroon: %w",
 				err)
 		}
 

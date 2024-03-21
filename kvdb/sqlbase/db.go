@@ -24,7 +24,7 @@ const (
 	// DefaultNumTxRetries is the default number of times we'll retry a
 	// transaction if it fails with an error that permits transaction
 	// repetition.
-	DefaultNumTxRetries = 10
+	DefaultNumTxRetries = 50
 
 	// DefaultInitialRetryDelay is the default initial delay between
 	// retries. This will be used to generate a random delay between -50%
@@ -35,7 +35,7 @@ const (
 	DefaultInitialRetryDelay = time.Millisecond * 50
 
 	// DefaultMaxRetryDelay is the default maximum delay between retries.
-	DefaultMaxRetryDelay = time.Second * 5
+	DefaultMaxRetryDelay = time.Second
 )
 
 // Config holds a set of configuration options of a sql database connection.
@@ -66,10 +66,6 @@ type Config struct {
 	// commands. Note that the sqlite keywords to be replaced are
 	// case-sensitive.
 	SQLiteCmdReplacements SQLiteCmdReplacements
-
-	// WithTxLevelLock when set will ensure that there is a transaction
-	// level lock.
-	WithTxLevelLock bool
 }
 
 // db holds a reference to the sql db connection.
@@ -89,10 +85,6 @@ type db struct {
 
 	// db is the underlying database connection instance.
 	db *sql.DB
-
-	// lock is the global write lock that ensures single writer. This is
-	// only used if cfg.WithTxLevelLock is set.
-	lock sync.RWMutex
 
 	// table is the name of the table that contains the data for all
 	// top-level buckets that have keys that cannot be mapped to a distinct
@@ -181,7 +173,6 @@ func (db *db) getPrefixedTableName(table string) string {
 func catchPanic(f func() error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Criticalf("Caught unhandled error: %v", r)
 
 			switch data := r.(type) {
 			case error:
@@ -189,6 +180,18 @@ func catchPanic(f func() error) (err error) {
 
 			default:
 				err = errors.New(fmt.Sprintf("%v", data))
+			}
+
+			// Before we issue a critical log which'll cause the
+			// daemon to shut down, we'll first check if this is a
+			// DB serialization error. If so, then we don't need to
+			// log as we can retry safely and avoid tearing
+			// everything down.
+			if IsSerializationError(MapSQLError(err)) {
+				log.Tracef("Detected db serialization error "+
+					"via panic: %v", err)
+			} else {
+				log.Criticalf("Caught unhandled error: %v", r)
 			}
 		}
 	}()
@@ -308,26 +311,43 @@ func (db *db) executeTransaction(f func(tx walletdb.ReadWriteTx) error,
 			return dbErr
 		}
 
-		err = catchPanic(func() error { return f(tx) })
-		if err != nil {
-			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				log.Errorf("Error rolling back tx: %v",
-					rollbackErr)
+		fnErr := catchPanic(func() error { return f(tx) })
+		if fnErr != nil {
+			if err := attemptRollback(tx); err != nil {
+				return err
 			}
 
-			return err
-		}
-
-		dbErr := tx.Commit()
-		if IsSerializationError(dbErr) {
-			_ = tx.Rollback()
-
-			if waitBeforeRetry(i) {
-				continue
+			dbErr := MapSQLError(fnErr)
+			if IsSerializationError(dbErr) {
+				// Nothing to roll back here, since we didn't
+				// even get a transaction yet.
+				if waitBeforeRetry(i) {
+					continue
+				}
 			}
+
+			return fnErr
 		}
 
-		return dbErr
+		commitErr := tx.Commit()
+		if commitErr != nil {
+			if err := attemptRollback(tx); err != nil {
+				return err
+			}
+
+			dbErr := MapSQLError(commitErr)
+			if IsSerializationError(dbErr) {
+				// The transaction failed due to a
+				// serialization problem, so we can retry.
+				if waitBeforeRetry(i) {
+					continue
+				}
+			}
+
+			return commitErr
+		}
+
+		return nil
 	}
 
 	// If we get to this point, then we weren't able to successfully commit
@@ -366,4 +386,16 @@ func (db *db) Close() error {
 	log.Infof("Closing database %v", db.prefix)
 
 	return dbConns.Close(db.cfg.Dsn)
+}
+
+// attemptRollback attempts to roll back the transaction, and if it fails, it
+// will return the error. If the transaction was already closed, it will return
+// nil.
+func attemptRollback(tx *readWriteTx) error {
+	rollbackErr := tx.Rollback()
+	if rollbackErr != nil && !errors.Is(rollbackErr, walletdb.ErrTxClosed) {
+		return fmt.Errorf("error rolling back tx: %w", rollbackErr)
+	}
+
+	return nil
 }

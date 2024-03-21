@@ -93,7 +93,7 @@ func findOpenChannels(openChanBucket kvdb.RBucket) ([]*OpenChannel, error) {
 		// open channels as they don't have any revocation logs and
 		// their current commitments reflect the initial balances.
 		if err := FetchChanCommitments(chanBucket, c); err != nil {
-			return fmt.Errorf("unable to fetch chan commits: %v",
+			return fmt.Errorf("unable to fetch chan commits: %w",
 				err)
 		}
 

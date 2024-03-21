@@ -75,7 +75,7 @@ func newMissionControlStore(db kvdb.Backend, maxRecords int,
 	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		resultsBucket, err := tx.CreateTopLevelBucket(resultsKey)
 		if err != nil {
-			return fmt.Errorf("cannot create results bucket: %v",
+			return fmt.Errorf("cannot create results bucket: %w",
 				err)
 		}
 

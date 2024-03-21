@@ -567,7 +567,7 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 	)
 	cleanUpTasks = append(cleanUpTasks, pccCleanup)
 	if err != nil {
-		err := fmt.Errorf("unable to create partial chain control: %v",
+		err := fmt.Errorf("unable to create partial chain control: %w",
 			err)
 		d.logger.Error(err)
 		return nil, nil, nil, err
@@ -1072,7 +1072,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		if err != nil {
 			cleanUp()
 
-			err := fmt.Errorf("unable to open %s database: %v",
+			err := fmt.Errorf("unable to open %s database: %w",
 				lncfg.NSTowerClientDB, err)
 			d.logger.Error(err)
 			return nil, nil, err
@@ -1087,7 +1087,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		if err != nil {
 			cleanUp()
 
-			err := fmt.Errorf("unable to open %s database: %v",
+			err := fmt.Errorf("unable to open %s database: %w",
 				lncfg.NSTowerServerDB, err)
 			d.logger.Error(err)
 			return nil, nil, err
@@ -1302,7 +1302,7 @@ func importWatchOnlyAccounts(wallet *wallet.Wallet,
 			addrSchema,
 		)
 		if err != nil {
-			return fmt.Errorf("could not import account %v: %v",
+			return fmt.Errorf("could not import account %v: %w",
 				name, err)
 		}
 	}

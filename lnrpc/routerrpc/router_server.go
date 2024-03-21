@@ -1140,7 +1140,7 @@ func toPairSnapshot(pairResult *PairHistory) (*routing.MissionControlPairSnapsho
 		pairResult.History.FailTime,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("%v invalid failure: %v", pairPrefix,
+		return nil, fmt.Errorf("%v invalid failure: %w", pairPrefix,
 			err)
 	}
 
@@ -1150,7 +1150,7 @@ func toPairSnapshot(pairResult *PairHistory) (*routing.MissionControlPairSnapsho
 		pairResult.History.SuccessTime,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("%v invalid success: %v", pairPrefix,
+		return nil, fmt.Errorf("%v invalid success: %w", pairPrefix,
 			err)
 	}
 
@@ -1265,7 +1265,7 @@ func (s *Server) subscribePayment(identifier lntypes.Hash) (
 	sub, err := router.Tower.SubscribePayment(identifier)
 
 	switch {
-	case err == channeldb.ErrPaymentNotInitiated:
+	case errors.Is(err, channeldb.ErrPaymentNotInitiated):
 		return nil, status.Error(codes.NotFound, err.Error())
 	case err != nil:
 		return nil, err

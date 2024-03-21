@@ -181,7 +181,7 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 	// Attempt a final payment, which should now fail since the prior
 	// payment succeed.
 	err = pControl.InitPayment(info.PaymentIdentifier, info)
-	if err != ErrAlreadyPaid {
+	if !errors.Is(err, ErrAlreadyPaid) {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 }
@@ -216,9 +216,7 @@ func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 	// payment hash, should result in error indicating that payment has
 	// already been sent.
 	err = pControl.InitPayment(info.PaymentIdentifier, info)
-	require.Equal(t, ErrPaymentExists, err, "payment control wrong "+
-		"behaviour: init payment again must trigger ErrPaymentExists "+
-		"error")
+	require.ErrorIs(t, err, ErrPaymentExists)
 
 	// Record an attempt.
 	_, err = pControl.RegisterAttempt(info.PaymentIdentifier, attempt)
@@ -234,7 +232,7 @@ func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 
 	// Sends base htlc message which initiate StatusInFlight.
 	err = pControl.InitPayment(info.PaymentIdentifier, info)
-	if err != ErrPaymentInFlight {
+	if !errors.Is(err, ErrPaymentInFlight) {
 		t.Fatalf("payment control wrong behaviour: " +
 			"double sending must trigger ErrPaymentInFlight error")
 	}
@@ -253,7 +251,7 @@ func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 	assertPaymentInfo(t, pControl, info.PaymentIdentifier, info, nil, htlc)
 
 	err = pControl.InitPayment(info.PaymentIdentifier, info)
-	if err != ErrAlreadyPaid {
+	if !errors.Is(err, ErrAlreadyPaid) {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 }

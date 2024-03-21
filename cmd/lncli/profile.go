@@ -224,7 +224,7 @@ func loadProfileFile(file string) (*profileFile, error) {
 
 	content, err := ioutil.ReadFile(file)
 	if err != nil {
-		return nil, fmt.Errorf("could not load profile file %s: %v",
+		return nil, fmt.Errorf("could not load profile file %s: %w",
 			file, err)
 	}
 	f := &profileFile{}
@@ -262,7 +262,7 @@ func (f *profileFile) unmarshalJSON(content []byte) error {
 func (f *profileFile) marshalJSON() ([]byte, error) {
 	b, err := json.Marshal(f)
 	if err != nil {
-		return nil, fmt.Errorf("error JSON marshalling profile: %v",
+		return nil, fmt.Errorf("error JSON marshalling profile: %w",
 			err)
 	}
 

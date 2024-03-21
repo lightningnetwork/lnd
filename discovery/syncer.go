@@ -1252,7 +1252,7 @@ func (g *GossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error 
 		query.ChainHash, query.ShortChanIDs,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to fetch chan anns for %v..., %v",
+		return fmt.Errorf("unable to fetch chan anns for %v..., %w",
 			query.ShortChanIDs[0].ToUint64(), err)
 	}
 

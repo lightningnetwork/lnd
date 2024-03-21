@@ -72,7 +72,7 @@ func NewMessageStore(db kvdb.Backend) (*MessageStore, error) {
 		return err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("unable to create required buckets: %v",
+		return nil, fmt.Errorf("unable to create required buckets: %w",
 			err)
 	}
 

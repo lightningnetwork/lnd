@@ -516,7 +516,7 @@ func MigratePruneEdgeUpdateIndex(tx kvdb.RwTx) error {
 	// well.
 	edgeIndex, err := edges.CreateBucketIfNotExists(edgeIndexBucket)
 	if err != nil {
-		return fmt.Errorf("error creating edge index bucket: %s", err)
+		return fmt.Errorf("error creating edge index bucket: %w", err)
 	}
 	if edgeIndex == nil {
 		return fmt.Errorf("unable to create/fetch edge index " +
@@ -546,7 +546,7 @@ func MigratePruneEdgeUpdateIndex(tx kvdb.RwTx) error {
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("unable to gather existing edge policies: %v",
+		return fmt.Errorf("unable to gather existing edge policies: %w",
 			err)
 	}
 
@@ -560,7 +560,7 @@ func MigratePruneEdgeUpdateIndex(tx kvdb.RwTx) error {
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("unable to gather existing edge updates: %v",
+		return fmt.Errorf("unable to gather existing edge updates: %w",
 			err)
 	}
 

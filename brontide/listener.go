@@ -91,7 +91,7 @@ func (l *Listener) listen() {
 // rejectedConnErr is a helper function that prepends the remote address of the
 // failed connection attempt to the original error message.
 func rejectedConnErr(err error, remoteAddr string) error {
-	return fmt.Errorf("unable to accept connection from %v: %v", remoteAddr,
+	return fmt.Errorf("unable to accept connection from %v: %w", remoteAddr,
 		err)
 }
 

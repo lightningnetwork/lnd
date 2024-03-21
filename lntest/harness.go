@@ -1979,9 +1979,9 @@ func (h *HarnessTest) CalculateTxFee(tx *wire.MsgTx) btcutil.Amount {
 		parentHash := in.PreviousOutPoint.Hash
 		rawTx := h.Miner.GetRawTransaction(&parentHash)
 		parent := rawTx.MsgTx()
-		balance += btcutil.Amount(
-			parent.TxOut[in.PreviousOutPoint.Index].Value,
-		)
+		value := parent.TxOut[in.PreviousOutPoint.Index].Value
+
+		balance += btcutil.Amount(value)
 	}
 
 	for _, out := range tx.TxOut {
@@ -1989,6 +1989,24 @@ func (h *HarnessTest) CalculateTxFee(tx *wire.MsgTx) btcutil.Amount {
 	}
 
 	return balance
+}
+
+// CalculateTxWeight calculates the weight for a given tx.
+//
+// TODO(yy): use weight estimator to get more accurate result.
+func (h *HarnessTest) CalculateTxWeight(tx *wire.MsgTx) int64 {
+	utx := btcutil.NewTx(tx)
+	return blockchain.GetTransactionWeight(utx)
+}
+
+// CalculateTxFeeRate calculates the fee rate for a given tx.
+func (h *HarnessTest) CalculateTxFeeRate(
+	tx *wire.MsgTx) chainfee.SatPerKWeight {
+
+	w := h.CalculateTxWeight(tx)
+	fee := h.CalculateTxFee(tx)
+
+	return chainfee.NewSatPerKWeight(fee, uint64(w))
 }
 
 // CalculateTxesFeeRate takes a list of transactions and estimates the fee rate

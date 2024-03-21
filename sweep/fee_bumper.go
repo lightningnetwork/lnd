@@ -498,7 +498,8 @@ func (t *TxPublisher) createAndCheckTx(req *BumpRequest, f FeeFunction) (
 		return tx, fee, nil
 	}
 
-	return nil, 0, err
+	return nil, 0, fmt.Errorf("tx=%v failed mempool check: %w", tx.TxHash(),
+		err)
 }
 
 // broadcast takes a monitored tx and publishes it to the network. Prior to the
@@ -816,7 +817,7 @@ func (t *TxPublisher) handleFeeBumpTx(requestID uint64, r *monitorRecord) {
 	// fee of the tx.
 	result, err := t.createAndPublishTx(requestID, r)
 	if err != nil {
-		log.Errorf("Failed to bump tx %v: %v", oldTxid, err)
+		log.Warnf("Failed to bump tx %v: %v", oldTxid, err)
 
 		return
 	}

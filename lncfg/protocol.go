@@ -59,14 +59,6 @@ type ProtocolOptions struct {
 	NoRouteBlindingOption bool `long:"no-route-blinding" description:"do not forward payments that are a part of a blinded route"`
 }
 
-// DefaultProtocol returns a protocol config with route blinding turned off,
-// temporarily in place until full handling of blinded route errors is merged.
-func DefaultProtocol() *ProtocolOptions {
-	return &ProtocolOptions{
-		NoRouteBlindingOption: true,
-	}
-}
-
 // Wumbo returns true if lnd should permit the creation and acceptance of wumbo
 // channels.
 func (l *ProtocolOptions) Wumbo() bool {

@@ -55,6 +55,9 @@ type Config struct {
 	// BtcdMode defines settings for connecting to a btcd node.
 	BtcdMode *lncfg.Btcd
 
+	// RPC client connection configuration for the chain backend.
+	RPCConfig rpcclient.ConnConfig
+
 	// HeightHintDB is a pointer to the database that stores the height
 	// hints.
 	HeightHintDB kvdb.Backend
@@ -380,6 +383,8 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			DisableTLS:           true,
 			HTTPPostMode:         true,
 		}
+		cfg.RPCConfig = *rpcConfig
+
 		if !cfg.Bitcoin.RegTest {
 			log.Infof("Initializing bitcoind backed fee estimator "+
 				"in %s mode", bitcoindMode.EstimateMode)
@@ -561,6 +566,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			DisableConnectOnNew:  true,
 			DisableAutoReconnect: false,
 		}
+		cfg.RPCConfig = *rpcConfig
 
 		chainNotifier, err := btcdnotify.New(
 			rpcConfig, cfg.ActiveNetParams.Params, hintCache,

@@ -333,9 +333,6 @@ tryNextCandidate:
 
 			goto retryWithBackoff
 		}
-
-		// Success.
-		return
 	}
 }
 
@@ -393,8 +390,6 @@ func (n *sessionNegotiator) createSession(tower *Tower, keyIndex uint32) error {
 			return nil
 		}
 	}
-
-	return ErrFailedNegotiation
 }
 
 // tryAddress executes a single create session dance using the given address.

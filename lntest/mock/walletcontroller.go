@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -279,4 +280,14 @@ func (w *WalletController) FetchTx(chainhash.Hash) (*wire.MsgTx, error) {
 
 func (w *WalletController) RemoveDescendants(*wire.MsgTx) error {
 	return nil
+}
+
+func (w *WalletController) FetchTxLabel(hash chainhash.Hash) (string, error) {
+	return "", nil
+}
+
+func (w *WalletController) GetMempoolEntry(hash string) (
+	*btcjson.GetMempoolEntryResult, error) {
+
+	return nil, nil
 }

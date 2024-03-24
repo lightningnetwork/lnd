@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -4581,6 +4582,13 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		scidFeatureVal = true
 	}
 
+	// filterLabel is the label of a transaction related to a channel
+	// opening. Unconfirmed transactions labeled by it will be considered
+	// safe to be reused for further channel openings as well.
+	filterLabel := labels.MakeLabel(
+		labels.LabelTypeChannelOpen, nil,
+	)
+
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:         &msg.ChainHash,
 		PendingChanID:     chanID,
@@ -4600,10 +4608,50 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		MinConfs:          msg.MinConfs,
 		CommitType:        commitType,
 		ChanFunder:        msg.ChanFunder,
-		ZeroConf:          zeroConf,
-		OptionScidAlias:   scid,
-		ScidAliasFeature:  scidFeatureVal,
-		Memo:              msg.Memo,
+		FilterUtxo: func(u lnwallet.Utxo) bool {
+			// Utxos with at least 1 confirmation are safe to use
+			// for channel openings because they don't bare the risk
+			// of being replaced (BIP 125 RBF).
+			if u.Confirmations > 0 {
+				return true
+			}
+
+			// For unconfirmed utxos we make some exceptions where
+			// we consider utxos safe to use for subsequent channel
+			// openings.
+			label, err := f.cfg.Wallet.FetchTxLabel(u.Hash)
+			if err != nil {
+				return false
+			}
+
+			// When the corresponding utxo has no transaction label
+			// or resulted from another channel opening (channel
+			// opening label) we consider it safe to use.
+			if label == "" || strings.Contains(label, filterLabel) {
+				return true
+			}
+
+			// In case the transaction is labeled by antoher sub
+			// system we will still consider the utxo safe to use
+			// for channel openings when its signaling no implicit
+			// or explicit BIP 125 RBF replaceability.
+			//
+			// NOTE: Only applicable for bitcoind backends for now.
+			// For backends which do not support this lookup we
+			// don't consider this utxo.
+			entry, err := f.cfg.Wallet.GetMempoolEntry(
+				u.Hash.String(),
+			)
+			if err == nil && !entry.Bip125Replaceable {
+				return true
+			}
+
+			return false
+		},
+		ZeroConf:         zeroConf,
+		OptionScidAlias:  scid,
+		ScidAliasFeature: scidFeatureVal,
+		Memo:             msg.Memo,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)

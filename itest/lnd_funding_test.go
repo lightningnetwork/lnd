@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1248,4 +1249,141 @@ func deriveFundingShim(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	fundingShim.GetChanPointShim().RemoteKey = daveFundingKey.RawKeyBytes
 
 	return fundingShim, chanPoint
+}
+
+// testChannelFundingWithLabeledTxns tests that a channel opening fails if the
+// internal wallet utxo is labeld by a different subsystem. Unconfirmed utxos
+// labeled by another subsystem than the channel manager are not final and can
+// still be RBFed therefore these utxos are excluded when funding a channel
+// with the internal wallet. However for the bitcoind backend unconfirmed
+// transactions which signal no replaceability are also considered final.
+func testChannelFundingWithLabeledTxns(ht *lntest.HarnessTest) {
+	if ht.IsNeutrinoBackend() {
+		ht.Skipf("skipping test for neutrino backend because it " +
+			"does not support unconfirmed transactions")
+	}
+	// First, we'll create two new nodes that we'll use to open channel
+	// between for this test.
+	carol := ht.NewNode("carol", nil)
+	// We'll attempt two channels, so Dave will need to accept two pending
+	// ones.
+	dave := ht.NewNode("dave", []string{"--maxpendingchannels=2"})
+	ht.EnsureConnected(carol, dave)
+
+	// Fund Carol's wallet with an unconfirmed utxo.
+	ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, carol)
+
+	req := &walletrpc.ListUnspentRequest{}
+	resp := carol.RPC.ListUnspent(req)
+
+	// Verify that Carol only has a single utxo in her internal wallet.
+	utxos := resp.Utxos
+	require.EqualValues(ht, 1, len(utxos))
+
+	// We label this unconfirmed transaction with a sweeper label which in
+	// the btcd backend case will signal to the channel manager to not
+	// consider this unstable input (could be RBFed by another subsystem).
+	sweepLabel := labels.MakeLabel(
+		labels.LabelTypeSweepTransaction, nil,
+	)
+
+	carol.RPC.LabelTransaction(&walletrpc.LabelTransactionRequest{
+		Txid:  utxos[0].Outpoint.GetTxidBytes(),
+		Label: sweepLabel,
+	})
+
+	// The channel opening fails because the only wallet input Carol has is
+	// marked with the sweep label and is unconfirmed. Therefore our
+	// internal will not use this input to open a channel because it might
+	// get RBFed by another subsystem.
+	if ht.ChainBackendName() == "btcd" {
+		expectedErr := fmt.Errorf("not enough witness outputs to " +
+			"create funding transaction")
+
+		ht.OpenChannelAssertErr(
+			carol, dave, lntest.OpenChannelParams{
+				Amt:              funding.MaxBtcFundingAmount,
+				SpendUnconfirmed: true,
+			}, expectedErr,
+		)
+
+		// Change the label so that this utxo becomes available to fund
+		// a channel opening with the only unconfirmed utxo available in
+		// the internal wallet. The utxo selection when funding a
+		// channel with the internal wallet will only exclude utxos
+		// which have the specific sweeper label other utxos which are
+		// labeled differently are still available and are not excluded.
+		openChanLabel := labels.MakeLabel(
+			labels.LabelTypeChannelOpen, nil,
+		)
+
+		// We need to overwrite the label because it was already set
+		// before.
+		carol.RPC.LabelTransaction(&walletrpc.LabelTransactionRequest{
+			Txid:      utxos[0].Outpoint.GetTxidBytes(),
+			Label:     openChanLabel,
+			Overwrite: true,
+		})
+
+		update := ht.OpenChannelAssertPending(carol, dave,
+			lntest.OpenChannelParams{
+				Amt:              funding.MaxBtcFundingAmount,
+				SpendUnconfirmed: true,
+			})
+
+		// Verify that both nodes know about the channel.
+		ht.AssertNumPendingOpenChannels(carol, 1)
+		ht.AssertNumPendingOpenChannels(dave, 1)
+
+		// Mine a block and compare that the initial funding transaction
+		// of Carol's wallet and the channel opening are part of the
+		// included transactions.
+		ht.MineBlocksAndAssertNumTxes(1, 2)
+
+		// Finally, immediately close the channel. This function will
+		// also block until the channel is closed and will additionally
+		// assert the relevant channel closing post conditions.
+		chanPoint := lntest.ChanPointFromPendingUpdate(update)
+		ht.CloseChannel(carol, chanPoint)
+	}
+
+	// For the bitcoind backend the opening is successful because the
+	// unconfirmed transaction signals no replaceability according BIP 125
+	// rule 1.
+	if ht.ChainBackendName() == "bitcoind" {
+		update := ht.OpenChannelAssertPending(carol, dave,
+			lntest.OpenChannelParams{
+				Amt:              funding.MaxBtcFundingAmount,
+				SpendUnconfirmed: true,
+			})
+
+		chanPoint1 := lntest.ChanPointFromPendingUpdate(update)
+
+		// Verify that both nodes know about the channel.
+		ht.AssertNumPendingOpenChannels(carol, 1)
+		ht.AssertNumPendingOpenChannels(dave, 1)
+
+		update = ht.OpenChannelAssertPending(carol, dave,
+			lntest.OpenChannelParams{
+				Amt:              funding.MaxBtcFundingAmount,
+				SpendUnconfirmed: true,
+			})
+
+		// Verify that both nodes know about the channels.
+		ht.AssertNumPendingOpenChannels(carol, 2)
+		ht.AssertNumPendingOpenChannels(dave, 2)
+
+		// Mine a block and compare that the initial funding transaction
+		// of Carol's wallet and the channel opening are part of the
+		// included transactions.
+		ht.MineBlocksAndAssertNumTxes(1, 3)
+
+		// Finally, immediately close the channels. This function will
+		// also block until the channel is closed and will additionally
+		// assert the relevant channel closing post conditions.
+		chanPoint2 := lntest.ChanPointFromPendingUpdate(update)
+
+		ht.CloseChannel(carol, chanPoint1)
+		ht.CloseChannel(carol, chanPoint2)
+	}
 }

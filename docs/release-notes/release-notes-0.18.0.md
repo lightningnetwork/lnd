@@ -104,6 +104,12 @@
   which with the default fee allocation in place will eventually lead to the
   downsizing to the fee floor (1 sat/vByte) in the worst case.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8545) utxo selection
+  for the internal channel funding flow. Now utxos which are unconfirmed and
+  labeled by a different subsystem are not selected. For the bitcoind backend 
+  utxos which don't signal BIP-125 RBF replaceability (rule 1) will also be 
+  considered when unconfirmed because we anticipate them to not be replaced.
+
 # New Features
 ## Functional Enhancements
 

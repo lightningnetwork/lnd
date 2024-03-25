@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -443,6 +444,15 @@ type WalletController interface {
 	// created by the passed transaction. This remove propagates
 	// recursively down the chain of descendent transactions.
 	RemoveDescendants(*wire.MsgTx) error
+
+	// FetchTxLabel fetches the label of a transaction from the wallet's
+	// tx store.
+	FetchTxLabel(hash chainhash.Hash) (string, error)
+
+	// GetMempoolEntry fetches the mempool information of a specific
+	// transaction.
+	GetMempoolEntry(hash string) (
+		*btcjson.GetMempoolEntryResult, error)
 
 	// FundPsbt creates a fully populated PSBT packet that contains enough
 	// inputs to fund the outputs specified in the passed in packet with the

@@ -118,6 +118,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testBatchChanFunding,
 	},
 	{
+		Name:     "open channel with labeled txns",
+		TestFunc: testChannelFundingWithLabeledTxns,
+	},
+	{
 		Name:     "update channel policy",
 		TestFunc: testUpdateChannelPolicy,
 	},

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -1896,4 +1897,40 @@ func (b *BtcWallet) RemoveDescendants(tx *wire.MsgTx) error {
 		wtxmgrNs := tx.ReadWriteBucket(wtxmgrNamespaceKey)
 		return b.wallet.TxStore.RemoveUnminedTx(wtxmgrNs, txRecord)
 	})
+}
+
+// FetchTxLabel fetches the label of a transaction from the internal wallet
+// transaction store. In case no label bucket still exist in our wallet store
+// or the transaction does not have a label we silence the error.
+func (b *BtcWallet) FetchTxLabel(hash chainhash.Hash) (string, error) {
+	var label string
+	var err error
+	err = walletdb.View(b.db, func(tx walletdb.ReadTx) error {
+		txmgrNs := tx.ReadBucket(wtxmgrNamespaceKey)
+
+		label, err = wtxmgr.FetchTxLabel(txmgrNs, hash)
+		// If no labels have been written yet, we can silence the error.
+		// Likewise if there is no label.
+		if err != nil && !errors.Is(err, wtxmgr.ErrNoLabelBucket) &&
+			!errors.Is(err, wtxmgr.ErrTxLabelNotFound) {
+
+			return err
+		}
+
+		return nil
+	})
+
+	return label, err
+}
+
+// GetMempoolEntry fetches the mempool information of a specific transaction.
+func (b *BtcWallet) GetMempoolEntry(hash string) (
+	*btcjson.GetMempoolEntryResult, error) {
+
+	entry, err := b.chain.GetMempoolEntry(hash)
+	if err != nil {
+		return nil, err
+	}
+
+	return entry, nil
 }

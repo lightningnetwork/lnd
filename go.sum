@@ -71,8 +71,6 @@ github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6r
 github.com/btcsuite/btcd v0.20.1-beta/go.mod h1:wVuoA8VJLEcwgqHBwHmzLRazpKxTv13Px/pDuV7OomQ=
 github.com/btcsuite/btcd v0.22.0-beta.0.20220111032746-97732e52810c/go.mod h1:tjmYdS6MLJ5/s0Fj4DbLgSbDHbEqLJrtnHecBFkdz5M=
 github.com/btcsuite/btcd v0.23.5-0.20231215221805-96c9fd8078fd/go.mod h1:nm3Bko6zh6bWP60UxwoT5LzdGJsQJaPo6HjduXq9p6A=
-github.com/btcsuite/btcd v0.24.1-0.20240318151728-2fc99e0496d2 h1:b7EiiYEZypI2id3516ptqjzhUfFAgNfF4YVtxikAg6Y=
-github.com/btcsuite/btcd v0.24.1-0.20240318151728-2fc99e0496d2/go.mod h1:5C8ChTkl5ejr3WHj8tkQSCmydiMEPB0ZhQhehpq7Dgg=
 github.com/btcsuite/btcd/btcec/v2 v2.1.0/go.mod h1:2VzYrv4Gm4apmbVVsSq5bqf1Ec8v56E48Vt0Y/umPgA=
 github.com/btcsuite/btcd/btcec/v2 v2.1.3/go.mod h1:ctjw4H1kknNJmRN4iP1R7bTQ+v3GJkZBd6mui8ZsAZE=
 github.com/btcsuite/btcd/btcec/v2 v2.3.2 h1:5n0X6hX0Zk+6omWcihdYvdAlGf2DfasC0GMf7DClJ3U=
@@ -90,8 +88,6 @@ github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0/go.mod h1:7SFka0XMvUgj3hfZtyd
 github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f h1:bAs4lUbRJpnnkd9VhRV3jjAVU7DJVjMaK+IsvSeZvFo=
 github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f/go.mod h1:TdznJufoqS23FtqVCzL0ZqgP5MqXbb4fg/WgDys70nA=
 github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d/go.mod h1:+5NJ2+qvTyV9exUAL/rxXi3DcLg2Ts+ymUAY5y4NvMg=
-github.com/btcsuite/btcwallet v0.16.10-0.20240318155207-9a7dd2416f4d h1:ikEYkMZEEOwOEpp3DR3EwV6DbZRDPshNw0uJn7W8v7I=
-github.com/btcsuite/btcwallet v0.16.10-0.20240318155207-9a7dd2416f4d/go.mod h1:2C3Q/MhYAKmk7F+Tey6LfKtKRTdQsrCf8AAAzzDPmH4=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.4 h1:poyHFf7+5+RdxNp5r2T6IBRD7RyraUsYARYbp/7t4D8=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.4/go.mod h1:GETGDQuyq+VFfH1S/+/7slLM/9aNa4l7P4ejX6dJfb0=
 github.com/btcsuite/btcwallet/wallet/txrules v1.2.1 h1:UZo7YRzdHbwhK7Rhv3PO9bXgTxiOH45edK5qdsdiatk=
@@ -587,6 +583,10 @@ github.com/yuin/goldmark v1.1.32/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9de
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.3.5/go.mod h1:mwnBkeHKe2W/ZEtQ+71ViKU8L12m81fl3OWwC1Zlc8k=
 github.com/zenazn/goji v0.9.0/go.mod h1:7S9M489iMyHBNxwZnk9/EHS098H4/F6TATF2mIxtB1Q=
+github.com/ziggie1984/btcd v0.23.5-0.20240324162431-8a36bb76a43d h1:+UM0iSLdkkRCAXdv80s/7f/YItK8WABCy1yZZdfYyzw=
+github.com/ziggie1984/btcd v0.23.5-0.20240324162431-8a36bb76a43d/go.mod h1:5C8ChTkl5ejr3WHj8tkQSCmydiMEPB0ZhQhehpq7Dgg=
+github.com/ziggie1984/btcwallet v0.16.10-0.20240324171117-e9ea49993217 h1:95QV7L01Jzj9Ju/LumRG7HciySBxXp3KUUthmk6ytuI=
+github.com/ziggie1984/btcwallet v0.16.10-0.20240324171117-e9ea49993217/go.mod h1:15+Zm3RgOCT43Q0+MWg/Eu9J5s70migUS/t8ndJ7fVc=
 gitlab.com/yawning/bsaes.git v0.0.0-20190805113838-0a714cd429ec h1:FpfFs4EhNehiVfzQttTuxanPIT43FtkkCFypIod8LHo=
 gitlab.com/yawning/bsaes.git v0.0.0-20190805113838-0a714cd429ec/go.mod h1:BZ1RAoRPbCxum9Grlv5aeksu2H8BiKehBYooU2LFiOQ=
 go.etcd.io/bbolt v1.3.7 h1:j+zJOnnEjF/kyHlDDgGnVL/AIqIJPq8UoB2GSNfkUfQ=

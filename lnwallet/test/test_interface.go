@@ -2953,7 +2953,9 @@ func testSingleFunderExternalFundingTx(miner *rpctest.Harness,
 	// we'll create a new chanfunding.Assembler hacked by Alice's wallet.
 	aliceChanFunder := chanfunding.NewWalletAssembler(
 		chanfunding.WalletConfig{
-			CoinSource:            lnwallet.NewCoinSource(alice),
+			CoinSource: lnwallet.NewCoinSource(
+				alice, nil,
+			),
 			CoinSelectLocker:      alice,
 			CoinLeaser:            alice,
 			Signer:                alice.Cfg.Signer,

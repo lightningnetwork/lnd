@@ -220,4 +220,10 @@ func (n *NoChainSource) TestMempoolAccept([]*wire.MsgTx,
 	return nil, nil
 }
 
+func (n *NoChainSource) GetMempoolEntry(string) (
+	*btcjson.GetMempoolEntryResult, error) {
+
+	return nil, nil
+}
+
 var _ chain.Interface = (*NoChainSource)(nil)

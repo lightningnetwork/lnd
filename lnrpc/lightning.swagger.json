@@ -319,6 +319,15 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "with_close_tx_inputs",
+            "description": "If specified, then a backup will include inputs of the latest force\nclose transaction.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          }
+        ],
         "tags": [
           "Lightning"
         ]
@@ -384,6 +393,15 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "with_close_tx_inputs",
+            "description": "If specified, then a backup will include inputs of the latest force\nclose transaction.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          }
+        ],
         "tags": [
           "Lightning"
         ]
@@ -463,6 +481,13 @@
             "required": false,
             "type": "string",
             "format": "byte"
+          },
+          {
+            "name": "with_close_tx_inputs",
+            "description": "If specified, then a backup will include inputs of the latest force\nclose transaction.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [

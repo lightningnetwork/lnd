@@ -4529,6 +4529,10 @@ message ForwardingHistoryResponse {
 message ExportChannelBackupRequest {
     // The target channel point to obtain a back up for.
     ChannelPoint chan_point = 1;
+
+    // If specified, then a backup will include inputs of the latest force
+    // close transaction.
+    bool with_close_tx_inputs = 2;
 }
 
 message ChannelBackup {
@@ -4562,7 +4566,11 @@ message MultiChanBackup {
 }
 
 message ChanBackupExportRequest {
+    // If specified, then a backup will include inputs of the latest force
+    // close transaction.
+    bool with_close_tx_inputs = 1;
 }
+
 message ChanBackupSnapshot {
     /*
     The set of new channels that have been added since the last channel backup
@@ -4602,6 +4610,9 @@ message RestoreBackupResponse {
 }
 
 message ChannelBackupSubscription {
+    // If specified, then a backup will include inputs of the latest force
+    // close transaction.
+    bool with_close_tx_inputs = 1;
 }
 
 message VerifyChanBackupResponse {

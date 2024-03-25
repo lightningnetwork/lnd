@@ -2492,7 +2492,8 @@ var exportChanBackupCommand = cli.Command{
 	Category: "Channels",
 	Usage: "Obtain a static channel back up for a selected channels, " +
 		"or all known channels.",
-	ArgsUsage: "[chan_point] [--all] [--output_file]",
+	ArgsUsage: "[chan_point] [--all] [--with_close_tx_inputs] "+
+		"[--output_file]",
 	Description: `
 	This command allows a user to export a Static Channel Backup (SCB) for
 	a selected channel. SCB's are encrypted backups of a channel's initial
@@ -2514,6 +2515,10 @@ var exportChanBackupCommand = cli.Command{
 	     hex encoding) that contains several channels in a single cipher
 	     text.
 
+	   * If the --with_close_tx_inputs flag is passed, then the backup
+	     will include inputs sufficient to produce the latest force close
+	     transaction given private key is available.
+
 	Both of the backup types can be restored using the restorechanbackup
 	command.
 	`,
@@ -2526,6 +2531,11 @@ var exportChanBackupCommand = cli.Command{
 			Name: "all",
 			Usage: "if specified, then a multi backup of all " +
 				"active channels will be returned",
+		},
+		cli.BoolFlag{
+			Name: "with_close_tx_inputs",
+			Usage: "if specified, then a backup will include " +
+				"inputs of the latest force close transaction",
 		},
 		cli.StringFlag{
 			Name: "output_file",
@@ -2573,6 +2583,8 @@ func exportChanBackup(ctx *cli.Context) error {
 		outputFileName = ctx.String("output_file")
 	}
 
+	closeTx := ctx.IsSet("with_close_tx_inputs")
+
 	if chanPointStr != "" {
 		chanPointRPC, err := parseChanPoint(chanPointStr)
 		if err != nil {
@@ -2581,7 +2593,8 @@ func exportChanBackup(ctx *cli.Context) error {
 
 		chanBackup, err := client.ExportChannelBackup(
 			ctxc, &lnrpc.ExportChannelBackupRequest{
-				ChanPoint: chanPointRPC,
+				ChanPoint:         chanPointRPC,
+				WithCloseTxInputs: closeTx,
 			},
 		)
 		if err != nil {
@@ -2623,7 +2636,9 @@ func exportChanBackup(ctx *cli.Context) error {
 	}
 
 	chanBackup, err := client.ExportAllChannelBackups(
-		ctxc, &lnrpc.ChanBackupExportRequest{},
+		ctxc, &lnrpc.ChanBackupExportRequest{
+			WithCloseTxInputs: closeTx,
+		},
 	)
 	if err != nil {
 		return err

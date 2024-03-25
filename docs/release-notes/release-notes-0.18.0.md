@@ -104,6 +104,8 @@
   which with the default fee allocation in place will eventually lead to the
   downsizing to the fee floor (1 sat/vByte) in the worst case.
 
+* [Removed](https://github.com/lightningnetwork/lnd/pull/8577) some unreachable code
+
 # New Features
 ## Functional Enhancements
 
@@ -424,6 +426,7 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * Slyghtning
 * Tee8z
 * Turtle
+* Hao Wang
 * w3irdrobot
 * Yong Yu
 * Ziggie

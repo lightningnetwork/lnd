@@ -301,6 +301,4 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 		}
 		return db, empty, nil
 	}
-
-	return nil, nil, fmt.Errorf("unknown backend")
 }

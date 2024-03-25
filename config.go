@@ -351,6 +351,8 @@ type Config struct {
 	MaxPendingChannels int    `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 	BackupFilePath     string `long:"backupfilepath" description:"The target location of the channel backup file"`
 
+	BackupCloseTxInputs bool `long:"backupclosetxinputs" description:"Causes the backup to include inputs sufficient to produce the latest force close transaction given private key is available. Causes one additional update of the file, at shutdown time."`
+
 	FeeURL string `long:"feeurl" description:"DEPRECATED: Use 'fee.url' option. Optional URL for external fee estimation. If no URL is specified, the method for fee estimation will depend on the chosen backend and network. Must be set for neutrino on mainnet." hidden:"true"`
 
 	Bitcoin      *lncfg.Chain    `group:"Bitcoin" namespace:"bitcoin"`

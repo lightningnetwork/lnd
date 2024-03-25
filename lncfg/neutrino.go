@@ -1,6 +1,20 @@
 package lncfg
 
-import "time"
+import (
+	"time"
+)
+
+// SideloadOpt holds the configuration options for sideloading headers in
+// neutrino.
+//
+//nolint:lll
+type SideloadOpt struct {
+	Enable        bool   `long:"enable" description:"Indicates sideloading is enabled"`
+	SourceType    string `long:"sourceType" description:"Indicates the encoding format of the sideload source" choice:"binary"`
+	SourcePath    string `long:"sourcePath" description:"Indicates the path to the sideload source"`
+	SkipVerify    bool   `long:"skipVerify" description:"Indicates if to verify headers while sideleoading"`
+	SideloadRange uint32 `long:"range" description:"Indicates how much headers should be read from the source at a time"`
+}
 
 // Neutrino holds the configuration options for the daemon's connection to
 // neutrino.
@@ -19,4 +33,5 @@ type Neutrino struct {
 	ValidateChannels   bool          `long:"validatechannels" description:"Validate every channel in the graph during sync by downloading the containing block. This is the inverse of routing.assumechanvalid, meaning that for Neutrino the validation is turned off by default for massively increased graph sync performance. This speedup comes at the risk of using an unvalidated view of the network for routing. Overwrites the value of routing.assumechanvalid if Neutrino is used. (default: false)"`
 	BroadcastTimeout   time.Duration `long:"broadcasttimeout" description:"The amount of time to wait before giving up on a transaction broadcast attempt."`
 	PersistFilters     bool          `long:"persistfilters" description:"Whether compact filters fetched from the P2P network should be persisted to disk."`
+	BlkHdrSideloadOpt  *SideloadOpt  `group:"sideload" namespace:"sideload"`
 }

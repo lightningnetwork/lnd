@@ -225,6 +225,7 @@ jobs:
         if: matrix.unit_type == 'btcd unit-cover'
         with:
           path-to-profile: coverage.txt
+          flag-name: 'unit'
           parallel: true
 
 
@@ -281,6 +282,7 @@ jobs:
         uses: shogo82148/actions-goveralls@v1
         with:
           path-to-profile: coverage.txt
+          flag-name: 'itest-${{ matrix.name }}'
           parallel: true
 
       - name: Zip log files on failure

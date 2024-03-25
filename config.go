@@ -1260,8 +1260,10 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 				"credentials for bitcoind: %v", err)
 		}
 	case neutrinoBackendName:
-		// No need to get RPC parameters.
-
+		err = cfg.NeutrinoMode.Validate()
+		if err != nil {
+			return nil, mkErr(err.Error())
+		}
 	case "nochainbackend":
 		// Nothing to configure, we're running without any chain
 		// backend whatsoever (pure signing mode).

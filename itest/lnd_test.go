@@ -14,7 +14,9 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/lightninglabs/neutrino/sideload"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/port"
@@ -102,6 +104,14 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	)
 	defer harnessTest.Stop()
 
+	if harnessTest.IsNeutrinoSideloadTest() {
+		t.Run("test neutrino sideload", func(t *testing.T) {
+			testNeutrinoSideload(t, harnessTest)
+		})
+
+		return
+	}
+
 	// Setup standby nodes, Alice and Bob, which will be alive and shared
 	// among all the test cases.
 	harnessTest.SetupStandbyNodes()
@@ -154,6 +164,63 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	_, height := harnessTest.Miner.GetBestBlock()
 	t.Logf("=========> tests finished for tranche: %v, tested %d "+
 		"cases, end height: %d\n", trancheIndex, len(testCases), height)
+}
+
+func testNeutrinoSideload(t *testing.T, harness *lntest.HarnessTest) {
+	if !harness.IsNeutrinoSideloadTest() {
+		return
+	}
+
+	testCfg := &sideload.TestCfg{
+		StartHeight: 0,
+		EndHeight:   1000,
+		Net:         harnessNetParams.Net,
+		DataType:    sideload.BlockHeaders,
+	}
+
+	headers := lntest.GenerateBlockHeaderBytes(
+		uint32(testCfg.EndHeight-testCfg.StartHeight),
+		harness.Miner.Harness, t,
+	)
+
+	reader := sideload.GenerateEncodedBinaryReader(
+		t, testCfg, headers,
+	)
+
+	tempFile, err := os.CreateTemp("", "neutrino")
+	require.NoError(t, err)
+
+	defer func() {
+		err = tempFile.Close()
+		require.NoError(t, err)
+
+		err = os.Remove(tempFile.Name())
+		require.NoError(t, err)
+	}()
+
+	_, err = io.Copy(tempFile, reader)
+	require.NoError(t, err)
+
+	_, err = reader.Seek(0, io.SeekStart)
+	require.NoError(t, err)
+
+	extraArgs := []string{
+		"--neutrino.sideload.enable",
+		"--neutrino.sideload.sourceType=binary",
+		"--neutrino.sideload.sourcePath=" + tempFile.Name(),
+		"--neutrino.sideload.skipVerify",
+	}
+
+	obiNode := harness.NewNode("obi", extraArgs)
+	d
+
+	request := chainrpc.GetBlockHashRequest{
+		BlockHeight: int64(testCfg.EndHeight),
+	}
+
+	resp := obiNode.RPC.GetBlockHash(&request)
+
+	require.NotZero(t, len(resp.BlockHash))
 }
 
 // getTestCaseSplitTranche returns the sub slice of the test cases that should

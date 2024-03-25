@@ -2,6 +2,9 @@ package lncfg
 
 import (
 	"time"
+
+	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
 // SideloadOpt holds the configuration options for sideloading headers in
@@ -34,4 +37,63 @@ type Neutrino struct {
 	BroadcastTimeout   time.Duration `long:"broadcasttimeout" description:"The amount of time to wait before giving up on a transaction broadcast attempt."`
 	PersistFilters     bool          `long:"persistfilters" description:"Whether compact filters fetched from the P2P network should be persisted to disk."`
 	BlkHdrSideloadOpt  *SideloadOpt  `group:"sideload" namespace:"sideload"`
+}
+
+// Validate checks a Neutrino instance's config for correctness, returning nil
+// if the instance is uninitialized or its sideload options are valid. Errors
+// from sideload option validation are returned.
+func (n *Neutrino) Validate() error {
+	if n == nil {
+		// Consider nil instance as uninitialized; no validation needed.
+		return nil
+	}
+
+	// Validate sideload options.
+	err := n.BlkHdrSideloadOpt.Validate()
+	if err != nil {
+		return err // Return validation errors.
+	}
+
+	return nil
+}
+
+// Validate checks SideloadOpt for required source type and path, returning
+// errors if they're missing or invalid.
+func (s *SideloadOpt) Validate() error {
+	if !s.Enable {
+		return nil
+	}
+
+	// Require source type for sideloading.
+	if s.SourceType == "" {
+		return errors.New("source type required for sideloading " +
+			"headers.")
+	}
+
+	// Require source path for sideloading.
+	if s.SourcePath == "" {
+		return errors.New("source path required for sideloading " +
+			"headers.")
+	}
+
+	// Check source path validity.
+	if !validatePath(s.SourcePath) {
+		return errors.New("invalid source path")
+	}
+
+	return nil
+}
+
+// validatePath verifies if a path is a valid URL or an existing file, returning
+// true if valid.
+func validatePath(path string) bool {
+	// Check path validity as URL.
+	if lnrpc.IsValidURL(path) {
+		return true
+	}
+
+	// Clean/expand the path; check file existence.
+	path = CleanAndExpandPath(path)
+
+	return lnrpc.FileExists(path)
 }

@@ -172,6 +172,10 @@
 * When computing a minimum fee for transaction construction, `lnd` [now takes our
 bitcoin peers' feefilter values into account](https://github.com/lightningnetwork/lnd/pull/8418).
 
+* A new flag [`--memprofile`](https://github.com/lightningnetwork/lnd/pull/8365)
+  was added to lnd to perform memory profiling directly to a file. This allows
+  consistently recording the final state of the app to the profile.
+
 ## RPC Additions
 
 * [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)
@@ -420,6 +424,7 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * Jesse de Wit
 * Keagan McClelland
 * Marcos Fernandez Perez
+* Matheus Degiovani
 * Matt Morehouse
 * Mohamed Awnallah
 * Ononiwu Maureen Chiamaka

@@ -147,11 +147,13 @@ func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
 		// The waiting close channel closing tx hex should be set and
 		// be valid.
 		require.NotEmpty(ht, waitingClose.ClosingTxHex)
+
 		rawTxBytes, err := hex.DecodeString(waitingClose.ClosingTxHex)
 		require.NoError(
 			ht, err,
 			"waiting close channel closingTxHex invalid hex",
 		)
+
 		rawTx := &wire.MsgTx{}
 		err = rawTx.Deserialize(bytes.NewReader(rawTxBytes))
 		require.NoError(

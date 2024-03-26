@@ -1365,6 +1365,10 @@
           "type": "string",
           "format": "uint64",
           "description": "The fee rate, expressed in sat/vbyte, that should be used to spend the input\nwith."
+        },
+        "include_raw_tx": {
+          "type": "boolean",
+          "description": "Indicates whether to include the raw transaction hex for\nthe sweep transaction. Note that this will wait for the batcher to create a\ntransaction, which might take a while. The duration is at least as long as\nthe configured sweeper.batchwindowduration value, with the default set to 30\nseconds."
         }
       }
     },
@@ -1374,6 +1378,10 @@
         "status": {
           "type": "string",
           "description": "The status of the bump fee operation."
+        },
+        "sweep_tx_hex": {
+          "type": "string",
+          "description": "The raw hex encoded bytes of the sweep transaction. Included if\ninclude_raw_tx in the request is true."
         }
       }
     },

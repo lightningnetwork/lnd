@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/lightninglabs/neutrino/sideload"
+	"io"
 	"io/ioutil"
 	"net"
 	"os"
@@ -1410,6 +1412,15 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 		PersistToDisk:      cfg.NeutrinoMode.PersistFilters,
 	}
 
+	blkHdrSideload, err := parseSideloadOpt(
+		cfg.NeutrinoMode.BlkHdrSideloadOpt,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	config.BlkHdrSideload = blkHdrSideload
+
 	neutrino.MaxPeers = 8
 	neutrino.BanDuration = time.Hour * 48
 	neutrino.UserAgentName = cfg.NeutrinoMode.UserAgentName
@@ -1436,6 +1447,49 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 	}
 
 	return neutrinoCS, cleanUp, nil
+}
+
+// parseSideloadOpt converts lncfg.SideloadOpt to neutrino.SideloadOpt.
+func parseSideloadOpt(opt *lncfg.SideloadOpt) (*neutrino.SideloadOpt, error) {
+	if !opt.Enable {
+		return nil, nil
+	}
+
+	var reader io.ReadSeeker
+	if lnrpc.IsValidURL(opt.SourcePath) {
+		resp, err := lnrpc.FetchURL(opt.SourcePath)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to fetch URL source path for "+
+					"sideloading: %v", err)
+		}
+
+		// Create a bytes.Reader over the response body,
+		// which implements io.ReadSeeker.
+		reader = bytes.NewReader(resp)
+	} else {
+		file, err := os.Open(opt.SourcePath)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to open file for sideloading: %v", err)
+		}
+
+		reader = file
+	}
+
+	var source sideload.SourceType
+
+	err := source.UnmarshalText([]byte(opt.SourceType))
+	if err != nil {
+		return nil, err
+	}
+
+	return &neutrino.SideloadOpt{
+		SourceType:    source,
+		Reader:        reader,
+		SkipVerify:    opt.SkipVerify,
+		SideloadRange: opt.SideloadRange,
+	}, nil
 }
 
 // parseHeaderStateAssertion parses the user-specified neutrino header state

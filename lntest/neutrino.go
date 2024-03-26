@@ -14,6 +14,7 @@ import (
 // backed by a neutrino node.
 type NeutrinoBackendConfig struct {
 	minerAddr string
+	sideload  bool
 }
 
 // A compile time assertion to ensure NeutrinoBackendConfig meets the
@@ -25,7 +26,9 @@ var _ node.BackendConfig = (*NeutrinoBackendConfig)(nil)
 func (b NeutrinoBackendConfig) GenArgs() []string {
 	var args []string
 	args = append(args, "--bitcoin.node=neutrino")
-	args = append(args, "--neutrino.connect="+b.minerAddr)
+	if !b.sideload {
+		args = append(args, "--neutrino.connect="+b.minerAddr)
+	}
 	// We enable validating channels so that we can obtain the outpoint for
 	// channels within the graph and make certain assertions based on them.
 	args = append(args, "--neutrino.validatechannels")
@@ -54,12 +57,13 @@ func (b NeutrinoBackendConfig) Name() string {
 	return NeutrinoBackendName
 }
 
-// NewBackend starts and returns a NeutrinoBackendConfig for the node.
-func NewBackend(miner string, _ *chaincfg.Params) (
+// newBackend starts and returns a NeutrinoBackendConfig for the node.
+func newBackend(miner string, sideload bool, _ *chaincfg.Params) (
 	*NeutrinoBackendConfig, func() error, error) {
 
 	bd := &NeutrinoBackendConfig{
 		minerAddr: miner,
+		sideload:  sideload,
 	}
 
 	cleanUp := func() error { return nil }

@@ -1,6 +1,9 @@
 package fn
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 // Option[A] represents a value which may or may not be there. This is very
 // often preferable to nil-able pointers.
@@ -212,4 +215,13 @@ func (o Option[A]) UnsafeFromSome() A {
 		return o.some
 	}
 	panic("Option was None()")
+}
+
+// String returns a string representation of the Option.
+func (o Option[A]) String() string {
+	if o.isSome {
+		return fmt.Sprintf("%v", o.some)
+	}
+
+	return "[none]"
 }

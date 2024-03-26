@@ -2087,17 +2087,24 @@ func (h *HarnessTest) FindCommitAndAnchor(sweepTxns []*wire.MsgTx,
 func (h *HarnessTest) AssertSweepFound(hn *node.HarnessNode,
 	sweep string, verbose bool, startHeight int32) {
 
-	// List all sweeps that alice's node had broadcast.
-	sweepResp := hn.RPC.ListSweeps(verbose, startHeight)
+	err := wait.NoError(func() error {
+		// List all sweeps that alice's node had broadcast.
+		sweepResp := hn.RPC.ListSweeps(verbose, startHeight)
 
-	var found bool
-	if verbose {
-		found = findSweepInDetails(h, sweep, sweepResp)
-	} else {
-		found = findSweepInTxids(h, sweep, sweepResp)
-	}
+		var found bool
+		if verbose {
+			found = findSweepInDetails(h, sweep, sweepResp)
+		} else {
+			found = findSweepInTxids(h, sweep, sweepResp)
+		}
 
-	require.Truef(h, found, "%s: sweep: %v not found", sweep, hn.Name())
+		if found {
+			return nil
+		}
+
+		return fmt.Errorf("sweep tx %v not found", sweep)
+	}, wait.DefaultTimeout)
+	require.NoError(h, err, "%s: timeout checking sweep tx", hn.Name())
 }
 
 func findSweepInTxids(ht *HarnessTest, sweepTxid string,

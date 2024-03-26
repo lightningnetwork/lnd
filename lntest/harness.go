@@ -42,6 +42,10 @@ const (
 	// lndErrorChanSize specifies the buffer size used to receive errors
 	// from lnd process.
 	lndErrorChanSize = 10
+
+	// maxBlocksAllowed specifies the max allowed value to be used when
+	// mining blocks.
+	maxBlocksAllowed = 100
 )
 
 // TestCase defines a test case that's been used in the integration test.
@@ -1701,6 +1705,9 @@ func (h *HarnessTest) RestartNodeAndRestoreDB(hn *node.HarnessNode) {
 // NOTE: this differs from miner's `MineBlocks` as it requires the nodes to be
 // synced.
 func (h *HarnessTest) MineBlocks(num uint32) []*wire.MsgBlock {
+	require.Less(h, num, uint32(maxBlocksAllowed),
+		"too many blocks to mine")
+
 	// Mining the blocks slow to give `lnd` more time to sync.
 	blocks := h.Miner.MineBlocksSlow(num)
 
@@ -1789,6 +1796,8 @@ func (h *HarnessTest) CleanShutDown() {
 // NOTE: this differs from miner's `MineEmptyBlocks` as it requires the nodes
 // to be synced.
 func (h *HarnessTest) MineEmptyBlocks(num int) []*wire.MsgBlock {
+	require.Less(h, num, maxBlocksAllowed, "too many blocks to mine")
+
 	blocks := h.Miner.MineEmptyBlocks(num)
 
 	// Finally, make sure all the active nodes are synced.
@@ -2087,17 +2096,24 @@ func (h *HarnessTest) FindCommitAndAnchor(sweepTxns []*wire.MsgTx,
 func (h *HarnessTest) AssertSweepFound(hn *node.HarnessNode,
 	sweep string, verbose bool, startHeight int32) {
 
-	// List all sweeps that alice's node had broadcast.
-	sweepResp := hn.RPC.ListSweeps(verbose, startHeight)
+	err := wait.NoError(func() error {
+		// List all sweeps that alice's node had broadcast.
+		sweepResp := hn.RPC.ListSweeps(verbose, startHeight)
 
-	var found bool
-	if verbose {
-		found = findSweepInDetails(h, sweep, sweepResp)
-	} else {
-		found = findSweepInTxids(h, sweep, sweepResp)
-	}
+		var found bool
+		if verbose {
+			found = findSweepInDetails(h, sweep, sweepResp)
+		} else {
+			found = findSweepInTxids(h, sweep, sweepResp)
+		}
 
-	require.Truef(h, found, "%s: sweep: %v not found", sweep, hn.Name())
+		if found {
+			return nil
+		}
+
+		return fmt.Errorf("sweep tx %v not found", sweep)
+	}, wait.DefaultTimeout)
+	require.NoError(h, err, "%s: timeout checking sweep tx", hn.Name())
 }
 
 func findSweepInTxids(ht *HarnessTest, sweepTxid string,

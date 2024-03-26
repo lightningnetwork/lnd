@@ -1893,7 +1893,6 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 	// play around with.
 	miner := unittest.NewMiner(t, unittest.NetParams, nil, true, 25)
 
-	rpcConfig := miner.RPCConfig()
 	p2pAddr := miner.P2PAddress()
 
 	log.Printf("Running %v ChainNotifier interface tests",
@@ -1953,10 +1952,10 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 			}
 
 		case "btcd":
-			configCopy := rpcConfig
+			rpcConfig := miner.RPCConfig()
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return btcdnotify.New(
-					&configCopy, unittest.NetParams,
+					&rpcConfig, unittest.NetParams,
 					hintCache, hintCache, blockCache,
 				)
 			}

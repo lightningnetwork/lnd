@@ -262,9 +262,6 @@ type PaymentDescriptor struct {
 
 	// SourceRef points to an Add update in a forwarding package owned by
 	// this channel.
-	//
-	// NOTE: This field will only be populated if EntryType is Fail or
-	// Settle.
 	SourceRef *channeldb.AddRef
 
 	// DestRef points to a Fail/Settle update in another link's forwarding

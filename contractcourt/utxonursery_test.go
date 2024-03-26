@@ -462,6 +462,7 @@ func createNurseryTestContext(t *testing.T,
 		PublishTransaction: func(tx *wire.MsgTx, _ string) error {
 			return publishFunc(tx, "nursery")
 		},
+		Budget: DefaultBudgetConfig(),
 	}
 
 	nursery := NewUtxoNursery(&nurseryCfg)

@@ -42,6 +42,7 @@ func newCommitSweepResolverTestContext(t *testing.T,
 		ChainArbitratorConfig: ChainArbitratorConfig{
 			Notifier: notifier,
 			Sweeper:  sweeper,
+			Budget:   DefaultBudgetConfig(),
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {
@@ -128,16 +129,24 @@ func (s *mockSweeper) SweepInput(input input.Input, params sweep.Params) (
 
 	s.sweptInputs <- input
 
-	// TODO(yy): use `mock.Mock` to avoid the conversion.
-	fee, ok := params.Fee.(sweep.FeeEstimateInfo)
-	if !ok {
-		return nil, fmt.Errorf("unexpected fee type: %T", params.Fee)
+	// TODO(yy): replace mockSweeper with `mock.Mock`.
+	if params.Fee != nil {
+		fee, ok := params.Fee.(sweep.FeeEstimateInfo)
+		if !ok {
+			return nil, fmt.Errorf("unexpected fee type: %T",
+				params.Fee)
+		}
+
+		// Update the deadlines used if it's set.
+		if fee.ConfTarget != 0 {
+			s.deadlines = append(s.deadlines, int(fee.ConfTarget))
+		}
 	}
 
 	// Update the deadlines used if it's set.
-	if fee.ConfTarget != 0 {
-		s.deadlines = append(s.deadlines, int(fee.ConfTarget))
-	}
+	params.DeadlineHeight.WhenSome(func(d int32) {
+		s.deadlines = append(s.deadlines, int(d))
+	})
 
 	result := make(chan sweep.Result, 1)
 	result <- sweep.Result{
@@ -145,14 +154,6 @@ func (s *mockSweeper) SweepInput(input input.Input, params sweep.Params) (
 		Err: s.sweepErr,
 	}
 	return result, nil
-}
-
-func (s *mockSweeper) CreateSweepTx(inputs []input.Input,
-	feePref sweep.FeeEstimateInfo) (*wire.MsgTx, error) {
-
-	// We will wait for the test to supply the sweep tx to return.
-	sweepTx := <-s.createSweepTxChan
-	return sweepTx, nil
 }
 
 func (s *mockSweeper) RelayFeePerKW() chainfee.SatPerKWeight {

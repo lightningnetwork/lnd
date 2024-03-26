@@ -1063,9 +1063,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	aggregator := sweep.NewSimpleUtxoAggregator(
-		cc.FeeEstimator, cfg.Sweeper.MaxFeeRate.FeePerKWeight(),
-		sweep.DefaultMaxInputsPerTx,
+	aggregator := sweep.NewBudgetAggregator(
+		cc.FeeEstimator, sweep.DefaultMaxInputsPerTx,
 	)
 
 	s.txPublisher = sweep.NewTxPublisher(sweep.TxPublisherConfig{
@@ -1076,17 +1075,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	})
 
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{
-		FeeEstimator:   cc.FeeEstimator,
-		GenSweepScript: newSweepPkScriptGen(cc.Wallet),
-		Signer:         cc.Wallet.Cfg.Signer,
-		Wallet:         newSweeperWallet(cc.Wallet),
-		Mempool:        cc.MempoolNotifier,
-		Notifier:       cc.ChainNotifier,
-		Store:          sweeperStore,
-		MaxInputsPerTx: sweep.DefaultMaxInputsPerTx,
-		MaxFeeRate:     cfg.Sweeper.MaxFeeRate,
-		Aggregator:     aggregator,
-		Publisher:      s.txPublisher,
+		FeeEstimator:         cc.FeeEstimator,
+		GenSweepScript:       newSweepPkScriptGen(cc.Wallet),
+		Signer:               cc.Wallet.Cfg.Signer,
+		Wallet:               newSweeperWallet(cc.Wallet),
+		Mempool:              cc.MempoolNotifier,
+		Notifier:             cc.ChainNotifier,
+		Store:                sweeperStore,
+		MaxInputsPerTx:       sweep.DefaultMaxInputsPerTx,
+		MaxFeeRate:           cfg.Sweeper.MaxFeeRate,
+		Aggregator:           aggregator,
+		Publisher:            s.txPublisher,
+		NoDeadlineConfTarget: cfg.Sweeper.NoDeadlineConfTarget,
 	})
 
 	s.utxoNursery = contractcourt.NewUtxoNursery(&contractcourt.NurseryConfig{
@@ -1098,6 +1098,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PublishTransaction:  cc.Wallet.PublishTransaction,
 		Store:               utxnStore,
 		SweepInput:          s.sweeper.SweepInput,
+		Budget:              s.cfg.Sweeper.Budget,
 	})
 
 	// Construct a closure that wraps the htlcswitch's CloseLink method.
@@ -1235,6 +1236,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		SubscribeBreachComplete:       s.breachArbitrator.SubscribeBreachComplete, //nolint:lll
 		PutFinalHtlcOutcome:           s.chanStateDB.PutOnchainFinalHtlcOutcome,   //nolint: lll
 		HtlcNotifier:                  s.htlcNotifier,
+		Budget:                        s.cfg.Sweeper.Budget,
 	}, dbs.ChanStateDB)
 
 	// Select the configuration and funding parameters for Bitcoin.

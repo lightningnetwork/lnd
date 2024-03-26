@@ -12,6 +12,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -483,13 +484,56 @@ func (h *htlcTimeoutResolver) sweepSecondLevelTx() error {
 			h.broadcastHeight,
 		))
 	}
+
+	nLocktime, required := inp.RequiredLockTime()
+	if !required {
+		log.Errorf("%T(%x): second level tx not timelocked", h,
+			h.htlc.RHash[:])
+	}
+
+	// Calculate the budget.
+	//
+	// TODO(yy): the budget is twice the output's value, which is needed as
+	// we don't force sweep the output now. To prevent cascading force
+	// closes, we use all its output value plus a wallet input as the
+	// budget. This is a temporary solution until we can optionally cancel
+	// the incoming HTLC, more details in,
+	// - https://github.com/lightningnetwork/lnd/issues/7969
+	budget := calculateBudget(
+		btcutil.Amount(inp.SignDesc().Output.Value), 2, 0,
+	)
+
+	// For an outgoing HTLC, it must be swept before the RefundTimeout of
+	// its incoming HTLC is reached.
+	//
+	// TODO(yy): find out the corresponding incoming HTLC's refund timeout.
+	// Here we just use `chainreg.DefaultBitcoinTimeLockDelta` as a
+	// starting point, and fix it in 0.18.1.
+	//
+	// TODO(yy): we may end up mixing inputs with different time locks.
+	// Suppose we have two outgoing HTLCs,
+	// - HTLC1: nLocktime is 800000, CLTV delta is 80.
+	// - HTLC2: nLocktime is 800001, CLTV delta is 79.
+	// This means they would both have an incoming HTLC that expires at
+	// 800080, hence they share the same deadline but different locktimes.
+	// However, with current design, when we are at block 800000, HTLC1 is
+	// offered to the sweeper. When block 800001 is reached, HTLC1's
+	// sweeping process is already started, while HTLC2 is being offered to
+	// the sweeper, so they won't be mixed. This can become an issue tho,
+	// if we decide to sweep per X blocks. Or the contractcourt sees the
+	// block first while the sweeper is only aware of the last block. To
+	// properly fix it, we need `blockbeat` to make sure subsystems are in
+	// sync.
+	deadline := nLocktime + 80
+
+	log.Infof("%T(%x): offering first-level timeout HTLC to sweeper with "+
+		"deadline=%v, budget=%v", h, h.htlc.RHash[:], nLocktime, budget)
+
 	_, err := h.Sweeper.SweepInput(
 		inp,
 		sweep.Params{
-			Fee: sweep.FeeEstimateInfo{
-				ConfTarget: secondLevelConfTarget,
-			},
-			Force: true,
+			Budget:         budget,
+			DeadlineHeight: fn.Some(int32(deadline)),
 		},
 	)
 	if err != nil {
@@ -699,12 +743,26 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 			h.htlcResolution.CsvDelay, h.broadcastHeight,
 			h.htlc.RHash,
 		)
+		// Calculate the budget for this sweep.
+		budget := calculateBudget(
+			btcutil.Amount(inp.SignDesc().Output.Value),
+			h.Budget.NoDeadlineHTLCRatio,
+			h.Budget.NoDeadlineHTLC,
+		)
+
+		log.Infof("%T(%x): offering second-level timeout HTLC to "+
+			"sweeper with no deadline and budget=%v", h,
+			h.htlc.RHash[:], budget)
+
 		_, err = h.Sweeper.SweepInput(
 			inp,
 			sweep.Params{
-				Fee: sweep.FeeEstimateInfo{
-					ConfTarget: sweepConfTarget,
-				},
+				Budget: budget,
+
+				// For second level success tx, there's no rush
+				// to get it confirmed, so we use a nil
+				// deadline.
+				DeadlineHeight: fn.None[int32](),
 			},
 		)
 		if err != nil {

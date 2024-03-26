@@ -369,6 +369,8 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   and makes TLV Onions, Static Remote Keys, Gossip Queries, compulsory features
   for LND's peers. Data Loss Protection has been compulsory for years.
 
+* Make sure to [set the dont_forward msg flag in the channel update msg 
+  for unannounced channels](https://github.com/lightningnetwork/lnd/pull/8582).
 ## Testing
 
 * Added fuzz tests for [onion
@@ -429,4 +431,9 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * Hao Wang
 * w3irdrobot
 * Yong Yu
+<<<<<<< HEAD
 * Ziggie
+=======
+* ziggie1984
+
+>>>>>>> c5603f93a (docs: add release-notes.)

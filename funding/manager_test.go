@@ -398,7 +398,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	aliasMgr := &mockAliasMgr{}
 
 	sentMessages := make(chan lnwire.Message)
-	sentAnnouncements := make(chan lnwire.Message)
+	// sentAnnouncements is a buffered channel because we sent the
+	// NodeAnnouncement and ChannelUpdate sequentially.
+	sentAnnouncements := make(chan lnwire.Message, 3)
 	publTxChan := make(chan *wire.MsgTx, 1)
 	shutdownChan := make(chan struct{})
 	reportScidChan := make(chan struct{})
@@ -600,7 +602,9 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 	}
 
 	aliceMsgChan := make(chan lnwire.Message)
-	aliceAnnounceChan := make(chan lnwire.Message)
+	// sentAnnouncements is a buffered channel because we sent the
+	// NodeAnnouncement and ChannelUpdate sequentially.
+	aliceAnnounceChan := make(chan lnwire.Message, 1)
 	shutdownChan := make(chan struct{})
 	publishChan := make(chan *wire.MsgTx, 10)
 
@@ -1154,7 +1158,7 @@ func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
 func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 	capacity btcutil.Amount, customMinHtlc []lnwire.MilliSatoshi,
 	customMaxHtlc []lnwire.MilliSatoshi, baseFees []lnwire.MilliSatoshi,
-	feeRates []lnwire.MilliSatoshi) {
+	feeRates []lnwire.MilliSatoshi, announcedChannel bool) {
 
 	t.Helper()
 
@@ -1181,9 +1185,10 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 	// The ChannelAnnouncement is kept locally, while the ChannelUpdate is
 	// sent directly to the other peer, so the edge policies are known to
 	// both peers.
+	expectedMessages := 2
 	nodes := []*testNode{alice, bob}
 	for j, node := range nodes {
-		announcements := make([]lnwire.Message, 2)
+		announcements := make([]lnwire.Message, expectedMessages)
 		for i := 0; i < len(announcements); i++ {
 			select {
 			case announcements[i] = <-node.announceChan:
@@ -1213,7 +1218,11 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 				baseFee := aliceCfg.DefaultRoutingPolicy.BaseFee
 				feeRate := aliceCfg.DefaultRoutingPolicy.FeeRate
 
-				require.EqualValues(t, 1, m.MessageFlags)
+				msgflags := lnwire.ChanUpdateRequiredMaxHtlc
+				if !announcedChannel {
+					msgflags |= lnwire.ChanUpdateDontForward
+				}
+				require.EqualValues(t, msgflags, m.MessageFlags)
 
 				// We might expect a custom MinHTLC value.
 				if len(customMinHtlc) > 0 {
@@ -1247,14 +1256,19 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 			t, gotChannelAnnouncement,
 			"ChannelAnnouncement from %d", j,
 		)
+
 		require.Truef(t, gotChannelUpdate, "ChannelUpdate from %d", j)
 
-		// Make sure no other message is sent.
-		select {
-		case <-node.announceChan:
-			t.Fatalf("received unexpected announcement")
-		case <-time.After(300 * time.Millisecond):
-			// Expected
+		// Only when a channel is still unannounced we do not anticipate
+		// any further messages.
+		if !announcedChannel {
+			// Make sure no other message is sent.
+			select {
+			case <-node.announceChan:
+				t.Fatalf("received unexpected announcement")
+			case <-time.After(300 * time.Millisecond):
+				// Expected
+			}
 		}
 	}
 }
@@ -1515,7 +1529,11 @@ func testNormalWorkflow(t *testing.T, chanType *lnwire.ChannelType) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	// This channel is unannounced until the min depth height of six blocks
+	// is reached.
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -1545,6 +1563,12 @@ func testNormalWorkflow(t *testing.T, chanType *lnwire.ChannelType) {
 	case chanType == nil:
 		fallthrough
 	default:
+		// A public channel needs to send the ChanUpdate again after the
+		// min depth of six blocks is reached. We also send the
+		// ChanAnnouncement.
+		assertChannelAnnouncements(
+			t, alice, bob, capacity, nil, nil, nil, nil, true,
+		)
 		assertAnnouncementSignatures(t, alice, bob)
 	}
 
@@ -1869,7 +1893,9 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -1888,6 +1914,13 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
 	}
+
+	// A public channel needs to send the ChanUpdate again after the
+	// min depth of six blocks is reached. We also send the
+	// ChanAnnouncement.
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, true,
+	)
 
 	// Make sure the fundingManagers exchange announcement signatures.
 	assertAnnouncementSignatures(t, alice, bob)
@@ -2034,7 +2067,9 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -2051,6 +2086,13 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
 	}
+
+	// A public channel needs to send the ChanUpdate again after the
+	// min depth of six blocks is reached. We also send the
+	// ChanAnnouncement.
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, true,
+	)
 
 	// Make sure both fundingManagers send the expected announcement
 	// signatures.
@@ -2493,7 +2535,9 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -2510,6 +2554,13 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
 	}
+
+	// A public channel needs to send the ChanUpdate again after the
+	// min depth of six blocks is reached. We also send the
+	// ChanAnnouncement.
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, true,
+	)
 
 	// Make sure the fundingManagers exchange announcement signatures.
 	assertAnnouncementSignatures(t, alice, bob)
@@ -2586,7 +2637,9 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -2608,6 +2661,10 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
 	}
+
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, true,
+	)
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
@@ -2690,7 +2747,9 @@ func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -2703,6 +2762,10 @@ func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
 	}
+
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, true,
+	)
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
@@ -2780,7 +2843,9 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, false,
+	)
 
 	// The funding transaction is now confirmed, wait for the
 	// OpenStatusUpdate_ChanOpen update
@@ -2905,7 +2970,9 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, false,
+	)
 
 	// Note: We don't check for the addedToRouterGraph state because in
 	// the private channel mode, the state is quickly changed from
@@ -3390,7 +3457,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	)
 	assertChannelAnnouncements(
 		t, alice, bob, capacity, minHtlcArr, maxHtlcArr, baseFees,
-		feeRates,
+		feeRates, false,
 	)
 
 	// The funding transaction is now confirmed, wait for the
@@ -3405,6 +3472,11 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
 	}
+
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, minHtlcArr, maxHtlcArr, baseFees,
+		feeRates, true,
+	)
 
 	assertAnnouncementSignatures(t, alice, bob)
 
@@ -4552,7 +4624,7 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 	// We'll now assert that both sides send ChannelAnnouncement and
 	// ChannelUpdate messages.
 	assertChannelAnnouncements(
-		t, alice, bob, fundingAmt, nil, nil, nil, nil,
+		t, alice, bob, fundingAmt, nil, nil, nil, nil, false,
 	)
 
 	// We'll now wait for the OpenStatusUpdate_ChanOpen update.
@@ -4582,7 +4654,7 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 	// For taproot channels, we don't expect them to be announced atm.
 	if !isTaprootChanType(chanType) {
 		assertChannelAnnouncements(
-			t, alice, bob, fundingAmt, nil, nil, nil, nil,
+			t, alice, bob, fundingAmt, nil, nil, nil, nil, true,
 		)
 	}
 

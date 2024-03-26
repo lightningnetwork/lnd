@@ -16,6 +16,10 @@ const (
 	// ChanUpdateRequiredMaxHtlc is a bit that indicates whether the
 	// required htlc_maximum_msat field is present in this ChannelUpdate.
 	ChanUpdateRequiredMaxHtlc ChanUpdateMsgFlags = 1 << iota
+
+	// ChanUpdateDontForward is a bit that indicates whether the ChanUpdate
+	// msg should be forwarded to other peers when received.
+	ChanUpdateDontForward
 )
 
 // String returns the bitfield flags as a string.
@@ -27,6 +31,12 @@ func (c ChanUpdateMsgFlags) String() string {
 // message flags.
 func (c ChanUpdateMsgFlags) HasMaxHtlc() bool {
 	return c&ChanUpdateRequiredMaxHtlc != 0
+}
+
+// HasDontForward returns true if the dont_forward option bit is set in the
+// message flags.
+func (c ChanUpdateMsgFlags) HasDontForward() bool {
+	return c&ChanUpdateDontForward != 0
 }
 
 // ChanUpdateChanFlags is a bitfield that signals various options concerning a

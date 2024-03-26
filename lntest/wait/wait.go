@@ -3,10 +3,40 @@ package wait
 import (
 	"fmt"
 	"time"
+
+	"github.com/lightningnetwork/lnd/fn"
 )
 
 // PollInterval is a constant specifying a 200 ms interval.
 const PollInterval = 200 * time.Millisecond
+
+// predicateOptions holds the options for the Predicate function.
+type predicateOptions struct {
+	// MaxCallAttempts is the maximum number of target function call
+	// attempts possible before returning an error.
+	MaxCallAttempts fn.Option[uint64]
+}
+
+// defaultPredicateOptions returns the default options for the Predicate
+// function.
+func defaultPredicateOptions() *predicateOptions {
+	return &predicateOptions{
+		MaxCallAttempts: fn.None[uint64](),
+	}
+}
+
+// PredicateOpt is a functional option that can be passed to the Predicate
+// function.
+type PredicateOpt func(*predicateOptions)
+
+// WithPredicateMaxCallAttempts is a functional option that can be passed to the
+// Predicate function to set the maximum number of target function call
+// attempts.
+func WithPredicateMaxCallAttempts(attempts uint64) PredicateOpt {
+	return func(o *predicateOptions) {
+		o.MaxCallAttempts = fn.Some(attempts)
+	}
+}
 
 // Predicate is a helper test function that will wait for a timeout period of
 // time until the passed predicate returns true. This function is helpful as
@@ -16,19 +46,33 @@ const PollInterval = 200 * time.Millisecond
 //
 // TODO(yy): build a counter here so we know how many times we've tried the
 // `pred`.
-func Predicate(pred func() bool, timeout time.Duration) error {
+func Predicate(pred func() bool, timeout time.Duration,
+	opts ...PredicateOpt) error {
+
+	options := defaultPredicateOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	exitTimer := time.After(timeout)
 	result := make(chan bool, 1)
 
+	// We'll keep track of the number of times we've called the predicate.
+	callAttemptsCounter := uint64(0)
+
 	for {
 		<-time.After(PollInterval)
+
+		// We'll increment the call attempts counter each time we call
+		// the predicate.
+		callAttemptsCounter += 1
 
 		go func() {
 			result <- pred()
 		}()
 
 		// Each time we call the pred(), we expect a result to be
-		// returned otherwise it will timeout.
+		// returned otherwise it will time out.
 		select {
 		case <-exitTimer:
 			return fmt.Errorf("predicate not satisfied after " +
@@ -37,6 +81,17 @@ func Predicate(pred func() bool, timeout time.Duration) error {
 		case succeed := <-result:
 			if succeed {
 				return nil
+			}
+
+			// If we have a max call attempts set, we'll check if
+			// we've exceeded it and return an error if so.
+			maxCallAttempts := options.MaxCallAttempts.UnwrapOr(
+				callAttemptsCounter + 1,
+			)
+			if callAttemptsCounter >= maxCallAttempts {
+				return fmt.Errorf("predicate not satisfied "+
+					"after max call attempts: %d",
+					maxCallAttempts)
 			}
 		}
 	}

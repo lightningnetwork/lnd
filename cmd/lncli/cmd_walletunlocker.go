@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -478,13 +477,12 @@ var unlockCommand = cli.Command{
 
 func unlock(ctx *cli.Context) error {
 	ctxc := getContext()
-	client, cleanUp := getWalletUnlockerClient(ctx)
-	defer cleanUp()
 
 	var (
 		pw  []byte
 		err error
 	)
+
 	switch {
 	// Read the password from standard in as if it were a file. This should
 	// only be used if the password is piped into lncli from some sort of
@@ -506,6 +504,18 @@ func unlock(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// Wait for the wallet to reach the "LOCKED" state using a wait loop.
+	err = waitUntilStatus(ctxc, ctx, lnrpc.WalletState_LOCKED)
+	if err != nil {
+		return fmt.Errorf("error waiting for lnd RPC to become ready: "+
+			"%w", err)
+	}
+
+	// Get the wallet unlocker client and defer the cleanup function to
+	// close the connections.
+	client, cleanUp := getWalletUnlockerClient(ctx)
+	defer cleanUp()
 
 	args := ctx.Args()
 
@@ -712,7 +722,7 @@ func createWatchOnly(ctx *cli.Context) error {
 	}
 
 	jsonFile := lncfg.CleanAndExpandPath(ctx.Args().First())
-	jsonBytes, err := ioutil.ReadFile(jsonFile)
+	jsonBytes, err := os.ReadFile(jsonFile)
 	if err != nil {
 		return fmt.Errorf("error reading JSON from file %v: %v",
 			jsonFile, err)

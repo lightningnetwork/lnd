@@ -564,3 +564,31 @@ func networkParams(ctx *cli.Context) (*chaincfg.Params, error) {
 		return nil, fmt.Errorf("unknown network: %v", network)
 	}
 }
+
+// parseCoinSelectionStrategy parses a coin selection strategy string
+// from the CLI to its lnrpc.CoinSelectionStrategy counterpart proto type.
+func parseCoinSelectionStrategy(ctx *cli.Context) (
+	lnrpc.CoinSelectionStrategy, error) {
+
+	strategy := ctx.String(coinSelectionStrategyFlag.Name)
+	if !ctx.IsSet(coinSelectionStrategyFlag.Name) {
+		return lnrpc.CoinSelectionStrategy_STRATEGY_USE_GLOBAL_CONFIG,
+			nil
+	}
+
+	switch strategy {
+	case "global-config":
+		return lnrpc.CoinSelectionStrategy_STRATEGY_USE_GLOBAL_CONFIG,
+			nil
+
+	case "largest":
+		return lnrpc.CoinSelectionStrategy_STRATEGY_LARGEST, nil
+
+	case "random":
+		return lnrpc.CoinSelectionStrategy_STRATEGY_RANDOM, nil
+
+	default:
+		return 0, fmt.Errorf("unknown coin selection strategy "+
+			"%v", strategy)
+	}
+}

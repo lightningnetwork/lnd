@@ -817,6 +817,7 @@ var batchOpenChannelCommand = cli.Command{
 				"transaction when storing it to the local " +
 				"wallet after publishing it",
 		},
+		coinSelectionStrategyFlag,
 	},
 	Action: actionDecorator(batchOpenChannel),
 }
@@ -845,13 +846,19 @@ func batchOpenChannel(ctx *cli.Context) error {
 		return nil
 	}
 
+	coinSelectionStrategy, err := parseCoinSelectionStrategy(ctx)
+	if err != nil {
+		return err
+	}
+
 	minConfs := int32(ctx.Uint64("min_confs"))
 	req := &lnrpc.BatchOpenChannelRequest{
-		TargetConf:       int32(ctx.Int64("conf_target")),
-		SatPerVbyte:      int64(ctx.Uint64("sat_per_vbyte")),
-		MinConfs:         minConfs,
-		SpendUnconfirmed: minConfs == 0,
-		Label:            ctx.String("label"),
+		TargetConf:            int32(ctx.Int64("conf_target")),
+		SatPerVbyte:           int64(ctx.Uint64("sat_per_vbyte")),
+		MinConfs:              minConfs,
+		SpendUnconfirmed:      minConfs == 0,
+		Label:                 ctx.String("label"),
+		CoinSelectionStrategy: coinSelectionStrategy,
 	}
 
 	// Let's try and parse the JSON part of the CLI now. Fortunately we can

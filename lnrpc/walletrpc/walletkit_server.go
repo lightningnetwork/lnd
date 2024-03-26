@@ -799,12 +799,19 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 		return nil, err
 	}
 
+	coinSelectionStrategy, err := lnrpc.UnmarshallCoinSelectionStrategy(
+		req.CoinSelectionStrategy, w.cfg.CoinSelectionStrategy,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// Now that we have the outputs mapped and checked for the reserve
 	// requirement, we can request that the wallet attempts to create this
 	// transaction.
 	tx, err := w.cfg.Wallet.SendOutputs(
 		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw), minConfs,
-		label,
+		label, coinSelectionStrategy,
 	)
 	if err != nil {
 		return nil, err
@@ -1173,12 +1180,15 @@ func (w *WalletKit) LabelTransaction(ctx context.Context,
 func (w *WalletKit) FundPsbt(_ context.Context,
 	req *FundPsbtRequest) (*FundPsbtResponse, error) {
 
-	var (
-		err         error
-		feeSatPerKW chainfee.SatPerKWeight
+	coinSelectionStrategy, err := lnrpc.UnmarshallCoinSelectionStrategy(
+		req.CoinSelectionStrategy, w.cfg.CoinSelectionStrategy,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	// Determine the desired transaction fee.
+	var feeSatPerKW chainfee.SatPerKWeight
 	switch {
 	// Estimate the fee by the target number of blocks to confirmation.
 	case req.GetTargetConf() != 0:
@@ -1241,7 +1251,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		// wallet.
 		return w.fundPsbtInternalWallet(
 			account, keyScopeFromChangeAddressType(req.ChangeType),
-			packet, minConfs, feeSatPerKW,
+			packet, minConfs, feeSatPerKW, coinSelectionStrategy,
 		)
 
 	// The template is specified as a PSBT with the intention to perform
@@ -1317,7 +1327,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		// coin selection algorithm.
 		return w.fundPsbtCoinSelect(
 			account, changeIndex, packet, minConfs, changeType,
-			feeSatPerKW,
+			feeSatPerKW, coinSelectionStrategy,
 		)
 
 	// The template is specified as a RPC message. We need to create a new
@@ -1374,7 +1384,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		// wallet.
 		return w.fundPsbtInternalWallet(
 			account, keyScopeFromChangeAddressType(req.ChangeType),
-			packet, minConfs, feeSatPerKW,
+			packet, minConfs, feeSatPerKW, coinSelectionStrategy,
 		)
 
 	default:
@@ -1387,7 +1397,8 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 // wallet that does not allow specifying custom inputs while selecting coins.
 func (w *WalletKit) fundPsbtInternalWallet(account string,
 	keyScope *waddrmgr.KeyScope, packet *psbt.Packet, minConfs int32,
-	feeSatPerKW chainfee.SatPerKWeight) (*FundPsbtResponse, error) {
+	feeSatPerKW chainfee.SatPerKWeight,
+	strategy base.CoinSelectionStrategy) (*FundPsbtResponse, error) {
 
 	// The RPC parsing part is now over. Several of the following operations
 	// require us to hold the global coin selection lock, so we do the rest
@@ -1419,7 +1430,8 @@ func (w *WalletKit) fundPsbtInternalWallet(account string,
 		// lock any coins but might still change the wallet DB by
 		// generating a new change address.
 		changeIndex, err := w.cfg.Wallet.FundPsbt(
-			packet, minConfs, feeSatPerKW, account, keyScope,
+			packet, minConfs, feeSatPerKW, account,
+			keyScope, strategy,
 		)
 		if err != nil {
 			return fmt.Errorf("wallet couldn't fund PSBT: %w", err)
@@ -1454,10 +1466,13 @@ func (w *WalletKit) fundPsbtInternalWallet(account string,
 // fundPsbtCoinSelect uses the "new" PSBT funding method using the channel
 // funding coin selection algorithm that allows specifying custom inputs while
 // selecting coins.
+//
+//nolint:funlen
 func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 	packet *psbt.Packet, minConfs int32,
 	changeType chanfunding.ChangeAddressType,
-	feeRate chainfee.SatPerKWeight) (*FundPsbtResponse, error) {
+	feeRate chainfee.SatPerKWeight, strategy base.CoinSelectionStrategy) (
+	*FundPsbtResponse, error) {
 
 	// We want to make sure we don't select any inputs that are already
 	// specified in the template. To do that, we require those inputs to
@@ -1603,7 +1618,7 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 
 		selectedCoins, changeAmount, err := chanfunding.CoinSelect(
 			feeRate, fundingAmount, changeDustLimit, coins,
-			w.cfg.CoinSelectionStrategy, estimator, changeType,
+			strategy, estimator, changeType,
 		)
 		if err != nil {
 			return fmt.Errorf("error selecting coins: %w", err)

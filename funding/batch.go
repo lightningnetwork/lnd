@@ -340,9 +340,10 @@ func (b *Batcher) BatchFund(ctx context.Context,
 		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
 			SatPerVbyte: uint64(feeRateSatPerVByte),
 		},
-		MinConfs:         firstReq.MinConfs,
-		SpendUnconfirmed: firstReq.MinConfs == 0,
-		ChangeType:       changeType,
+		MinConfs:              firstReq.MinConfs,
+		SpendUnconfirmed:      firstReq.MinConfs == 0,
+		ChangeType:            changeType,
+		CoinSelectionStrategy: req.CoinSelectionStrategy,
 	}
 	fundPsbtResp, err := b.cfg.WalletKitServer.FundPsbt(ctx, fundPsbtReq)
 	if err != nil {

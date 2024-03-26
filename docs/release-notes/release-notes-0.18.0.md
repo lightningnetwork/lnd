@@ -21,6 +21,11 @@
 - [Contributors (Alphabetical Order)](#contributors-alphabetical-order)
 
 # Bug Fixes
+* [Fix a bug](https://github.com/lightningnetwork/lnd/pull/8565) where 
+  `listpayments --count_total_payments` flag disregarded `--creation_date_start`
+  and `--creation_date_end`. The payments between the dates would be queried
+  instead of the total payments if the dates were supplied.
+
 * [Fix a bug](https://github.com/lightningnetwork/lnd/pull/8097) where
   `sendcoins` command with `--sweepall` flag would not show the correct amount.
 

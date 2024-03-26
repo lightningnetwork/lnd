@@ -97,10 +97,50 @@ func Predicate(pred func() bool, timeout time.Duration,
 	}
 }
 
+// noErrorOptions holds the options for the NoError function.
+type noErrorOptions struct {
+	// maxCallAttempts is the maximum number of target function call
+	// attempts possible before returning an error.
+	maxCallAttempts fn.Option[uint64]
+}
+
+// defaultNoErrorOptions returns the default options for the NoError function.
+func defaultNoErrorOptions() *noErrorOptions {
+	return &noErrorOptions{
+		maxCallAttempts: fn.None[uint64](),
+	}
+}
+
+// NoErrorOpt is a functional option that can be passed to the NoError function.
+type NoErrorOpt func(*noErrorOptions)
+
+// WithNoErrorMaxCallAttempts is a functional option that can be passed to the
+// NoError function to set the maximum number of target function call attempts.
+func WithNoErrorMaxCallAttempts(attempts uint64) NoErrorOpt {
+	return func(o *noErrorOptions) {
+		o.maxCallAttempts = fn.Some(attempts)
+	}
+}
+
 // NoError is a wrapper around Predicate that waits for the passed method f to
 // execute without error, and returns the last error encountered if this doesn't
 // happen within the timeout.
-func NoError(f func() error, timeout time.Duration) error {
+func NoError(f func() error, timeout time.Duration,
+	opts ...NoErrorOpt) error {
+
+	options := defaultNoErrorOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	// Formulate the options for the predicate function.
+	withPredicateMaxAttempts := func(*predicateOptions) {}
+	options.maxCallAttempts.WhenSome(func(attempts uint64) {
+		withPredicateMaxAttempts = WithPredicateMaxCallAttempts(
+			attempts,
+		)
+	})
+
 	var predErr error
 	pred := func() bool {
 		if err := f(); err != nil {
@@ -112,7 +152,8 @@ func NoError(f func() error, timeout time.Duration) error {
 
 	// If f() doesn't succeed within the timeout, return the last
 	// encountered error.
-	if err := Predicate(pred, timeout); err != nil {
+	err := Predicate(pred, timeout, withPredicateMaxAttempts)
+	if err != nil {
 		// Handle the case where the passed in method, f, hangs for the
 		// full timeout
 		if predErr == nil {

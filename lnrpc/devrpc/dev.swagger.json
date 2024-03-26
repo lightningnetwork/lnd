@@ -16,6 +16,72 @@
     "application/json"
   ],
   "paths": {
+    "/v2/dev/addaliases": {
+      "post": {
+        "summary": "AddAliases creates a set of new alias mappings. The list of successfully\ncreated mappings is returned. This is only a locally stored alias, and will\nnot be communicated to the channel peer via any message.",
+        "operationId": "Dev_AddAliases",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/devrpcAddAliasesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/devrpcAddAliasesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Dev"
+        ]
+      }
+    },
+    "/v2/dev/deletealiases": {
+      "post": {
+        "summary": "DeleteAliases deletes a set of new alias mappings. The list of successfully\ndeleted mappings is returned.",
+        "operationId": "Dev_DeleteAliases",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/devrpcDeleteAliasesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/devrpcDeleteAliasesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Dev"
+        ]
+      }
+    },
     "/v2/dev/importgraph": {
       "post": {
         "summary": "lncli: `importgraph`\nImportGraph imports a ChannelGraph into the graph database. Should only be\nused for development.",
@@ -51,8 +117,70 @@
     }
   },
   "definitions": {
+    "devrpcAddAliasesRequest": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
+        }
+      }
+    },
+    "devrpcAddAliasesResponse": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
+        }
+      }
+    },
+    "devrpcDeleteAliasesRequest": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
+        }
+      }
+    },
+    "devrpcDeleteAliasesResponse": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
+        }
+      }
+    },
     "devrpcImportGraphResponse": {
       "type": "object"
+    },
+    "lnrpcAliasMap": {
+      "type": "object",
+      "properties": {
+        "base_scid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "For non-zero-conf channels, this is the confirmed SCID. Otherwise, this is\nthe first assigned \"base\" alias."
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "The set of all aliases stored for the base SCID."
+        }
+      }
     },
     "lnrpcChannelEdge": {
       "type": "object",

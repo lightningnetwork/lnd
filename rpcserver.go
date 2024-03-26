@@ -563,6 +563,14 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/devrpc.Dev/AddAliases": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/devrpc.Dev/DeleteAliases": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 	}
 }
 
@@ -762,7 +770,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		s.sweeper, tower, s.towerClientMgr, r.cfg.net.ResolveTCPAddr,
 		genInvoiceFeatures, genAmpInvoiceFeatures,
 		s.getNodeAnnouncement, s.updateAndBrodcastSelfNode, parseAddr,
-		rpcsLog, s.aliasMgr.GetPeerAlias,
+		rpcsLog, s.aliasMgr,
 	)
 	if err != nil {
 		return err
@@ -8187,17 +8195,8 @@ func (r *rpcServer) ListAliases(ctx context.Context,
 		AliasMaps: make([]*lnrpc.AliasMap, 0),
 	}
 
-	for base, set := range mapAliases {
-		rpcMap := &lnrpc.AliasMap{
-			BaseScid: base.ToUint64(),
-		}
-		for _, alias := range set {
-			rpcMap.Aliases = append(
-				rpcMap.Aliases, alias.ToUint64(),
-			)
-		}
-		resp.AliasMaps = append(resp.AliasMaps, rpcMap)
-	}
+	// Now we need to parse the created mappings into an rpc response.
+	resp.AliasMaps = lnrpc.MarshalAliasMap(mapAliases)
 
 	return resp, nil
 }

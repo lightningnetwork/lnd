@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -290,6 +291,15 @@ func (h *HarnessRPC) AddInvoice(req *lnrpc.Invoice) *lnrpc.AddInvoiceResponse {
 	h.NoError(err, "AddInvoice")
 
 	return invoice
+}
+
+// AddAliases adds a list of aliases to the node's alias map.
+func (h *HarnessRPC) AddAliases(req *devrpc.AddAliasesRequest) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.DevRPC.AddAliases(ctxt, req)
+	h.NoError(err, "AddAliases")
 }
 
 // AbandonChannel makes a RPC call to AbandonChannel and asserts.

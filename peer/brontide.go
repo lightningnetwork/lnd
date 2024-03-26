@@ -356,7 +356,7 @@ type Config struct {
 
 	// AddLocalAlias persists an alias to an underlying alias store.
 	AddLocalAlias func(alias, base lnwire.ShortChannelID,
-		gossip bool) error
+		gossip, liveUpdate bool) error
 
 	// PongBuf is a slice we'll reuse instead of allocating memory on the
 	// heap. Since only reads will occur and no writes, there is no need
@@ -828,6 +828,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 
 				err = p.cfg.AddLocalAlias(
 					aliasScid, dbChan.ShortChanID(), false,
+					false,
 				)
 				if err != nil {
 					return nil, err

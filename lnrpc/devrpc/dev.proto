@@ -30,7 +30,36 @@ service Dev {
     used for development.
     */
     rpc ImportGraph (lnrpc.ChannelGraph) returns (ImportGraphResponse);
+
+    /*
+    AddAliases creates a set of new alias mappings. The list of successfully
+    created mappings is returned. This is only a locally stored alias, and will
+    not be communicated to the channel peer via any message.
+    */
+    rpc AddAliases (AddAliasesRequest) returns (AddAliasesResponse);
+
+    /*
+    DeleteAliases deletes a set of new alias mappings. The list of successfully
+    deleted mappings is returned.
+    */
+    rpc DeleteAliases (DeleteAliasesRequest) returns (DeleteAliasesResponse);
 }
 
 message ImportGraphResponse {
+}
+
+message AddAliasesRequest {
+    repeated lnrpc.AliasMap alias_maps = 1;
+}
+
+message AddAliasesResponse {
+    repeated lnrpc.AliasMap alias_maps = 1;
+}
+
+message DeleteAliasesRequest {
+    repeated lnrpc.AliasMap alias_maps = 1;
+}
+
+message DeleteAliasesResponse {
+    repeated lnrpc.AliasMap alias_maps = 1;
 }

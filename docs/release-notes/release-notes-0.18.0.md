@@ -210,6 +210,11 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   change. And the fee estimation is correct even if no change output is
   required.
 
+* Some new [RPCs for managing SCID 
+  aliases](https://github.com/lightningnetwork/lnd/pull/8509) were added under
+  the devrpc package. These methods allow manually adding and deleting scid 
+  aliases.
+
 ## lncli Additions
 
 * Deprecate `bumpclosefee` for `bumpforceclosefee` to accommodate for the fact 

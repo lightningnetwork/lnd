@@ -23,6 +23,13 @@ type DevClient interface {
 	// ImportGraph imports a ChannelGraph into the graph database. Should only be
 	// used for development.
 	ImportGraph(ctx context.Context, in *lnrpc.ChannelGraph, opts ...grpc.CallOption) (*ImportGraphResponse, error)
+	// AddAliases creates a set of new alias mappings. The list of successfully
+	// created mappings is returned. This is only a locally stored alias, and will
+	// not be communicated to the channel peer via any message.
+	AddAliases(ctx context.Context, in *AddAliasesRequest, opts ...grpc.CallOption) (*AddAliasesResponse, error)
+	// DeleteAliases deletes a set of new alias mappings. The list of successfully
+	// deleted mappings is returned.
+	DeleteAliases(ctx context.Context, in *DeleteAliasesRequest, opts ...grpc.CallOption) (*DeleteAliasesResponse, error)
 }
 
 type devClient struct {
@@ -42,6 +49,24 @@ func (c *devClient) ImportGraph(ctx context.Context, in *lnrpc.ChannelGraph, opt
 	return out, nil
 }
 
+func (c *devClient) AddAliases(ctx context.Context, in *AddAliasesRequest, opts ...grpc.CallOption) (*AddAliasesResponse, error) {
+	out := new(AddAliasesResponse)
+	err := c.cc.Invoke(ctx, "/devrpc.Dev/AddAliases", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *devClient) DeleteAliases(ctx context.Context, in *DeleteAliasesRequest, opts ...grpc.CallOption) (*DeleteAliasesResponse, error) {
+	out := new(DeleteAliasesResponse)
+	err := c.cc.Invoke(ctx, "/devrpc.Dev/DeleteAliases", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DevServer is the server API for Dev service.
 // All implementations must embed UnimplementedDevServer
 // for forward compatibility
@@ -50,6 +75,13 @@ type DevServer interface {
 	// ImportGraph imports a ChannelGraph into the graph database. Should only be
 	// used for development.
 	ImportGraph(context.Context, *lnrpc.ChannelGraph) (*ImportGraphResponse, error)
+	// AddAliases creates a set of new alias mappings. The list of successfully
+	// created mappings is returned. This is only a locally stored alias, and will
+	// not be communicated to the channel peer via any message.
+	AddAliases(context.Context, *AddAliasesRequest) (*AddAliasesResponse, error)
+	// DeleteAliases deletes a set of new alias mappings. The list of successfully
+	// deleted mappings is returned.
+	DeleteAliases(context.Context, *DeleteAliasesRequest) (*DeleteAliasesResponse, error)
 	mustEmbedUnimplementedDevServer()
 }
 
@@ -59,6 +91,12 @@ type UnimplementedDevServer struct {
 
 func (UnimplementedDevServer) ImportGraph(context.Context, *lnrpc.ChannelGraph) (*ImportGraphResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ImportGraph not implemented")
+}
+func (UnimplementedDevServer) AddAliases(context.Context, *AddAliasesRequest) (*AddAliasesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddAliases not implemented")
+}
+func (UnimplementedDevServer) DeleteAliases(context.Context, *DeleteAliasesRequest) (*DeleteAliasesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteAliases not implemented")
 }
 func (UnimplementedDevServer) mustEmbedUnimplementedDevServer() {}
 
@@ -91,6 +129,42 @@ func _Dev_ImportGraph_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Dev_AddAliases_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddAliasesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DevServer).AddAliases(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/devrpc.Dev/AddAliases",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DevServer).AddAliases(ctx, req.(*AddAliasesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Dev_DeleteAliases_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteAliasesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DevServer).DeleteAliases(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/devrpc.Dev/DeleteAliases",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DevServer).DeleteAliases(ctx, req.(*DeleteAliasesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Dev_ServiceDesc is the grpc.ServiceDesc for Dev service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -101,6 +175,14 @@ var Dev_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ImportGraph",
 			Handler:    _Dev_ImportGraph_Handler,
+		},
+		{
+			MethodName: "AddAliases",
+			Handler:    _Dev_AddAliases_Handler,
+		},
+		{
+			MethodName: "DeleteAliases",
+			Handler:    _Dev_DeleteAliases_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

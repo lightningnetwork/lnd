@@ -141,14 +141,16 @@ func (w *WalletController) ImportTaprootScript(waddrmgr.KeyScope,
 
 // SendOutputs currently returns dummy values.
 func (w *WalletController) SendOutputs([]*wire.TxOut,
-	chainfee.SatPerKWeight, int32, string) (*wire.MsgTx, error) {
+	chainfee.SatPerKWeight, int32, string,
+	base.CoinSelectionStrategy) (*wire.MsgTx, error) {
 
 	return nil, nil
 }
 
 // CreateSimpleTx currently returns dummy values.
 func (w *WalletController) CreateSimpleTx([]*wire.TxOut,
-	chainfee.SatPerKWeight, int32, bool) (*txauthor.AuthoredTx, error) {
+	chainfee.SatPerKWeight, int32, base.CoinSelectionStrategy,
+	bool) (*txauthor.AuthoredTx, error) {
 
 	return nil, nil
 }
@@ -206,7 +208,7 @@ func (w *WalletController) ListLeasedOutputs() ([]*base.ListLeasedOutputResult,
 
 // FundPsbt currently does nothing.
 func (w *WalletController) FundPsbt(*psbt.Packet, int32, chainfee.SatPerKWeight,
-	string, *waddrmgr.KeyScope) (int32, error) {
+	string, *waddrmgr.KeyScope, base.CoinSelectionStrategy) (int32, error) {
 
 	return 0, nil
 }

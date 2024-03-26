@@ -813,6 +813,9 @@ message SendOutputsRequest {
 
     // Whether unconfirmed outputs should be used as inputs for the transaction.
     bool spend_unconfirmed = 5;
+
+    // The strategy to use for selecting coins during sending the outputs.
+    lnrpc.CoinSelectionStrategy coin_selection_strategy = 6;
 }
 message SendOutputsResponse {
     /*
@@ -1308,6 +1311,9 @@ message FundPsbtRequest {
     // accounts, no change type should be provided as the coin selection key
     // scope will always be used to generate the change address.
     ChangeAddressType change_type = 8;
+
+    // The strategy to use for selecting coins during funding the PSBT.
+    lnrpc.CoinSelectionStrategy coin_selection_strategy = 10;
 }
 message FundPsbtResponse {
     /*

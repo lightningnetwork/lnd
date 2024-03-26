@@ -30,6 +30,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -1067,8 +1068,8 @@ func allowCORS(handler http.Handler, origins []string) http.Handler {
 // more addresses specified in the passed payment map. The payment map maps an
 // address to a specified output value to be sent to that address.
 func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
-	feeRate chainfee.SatPerKWeight, minConfs int32,
-	label string) (*chainhash.Hash, error) {
+	feeRate chainfee.SatPerKWeight, minConfs int32, label string,
+	strategy wallet.CoinSelectionStrategy) (*chainhash.Hash, error) {
 
 	outputs, err := addrPairsToOutputs(paymentMap, r.cfg.ActiveNetParams.Params)
 	if err != nil {
@@ -1078,7 +1079,7 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 	// We first do a dry run, to sanity check we won't spend our wallet
 	// balance below the reserved amount.
 	authoredTx, err := r.server.cc.Wallet.CreateSimpleTx(
-		outputs, feeRate, minConfs, true,
+		outputs, feeRate, minConfs, strategy, true,
 	)
 	if err != nil {
 		return nil, err
@@ -1099,7 +1100,7 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 	// If that checks out, we're fairly confident that creating sending to
 	// these outputs will keep the wallet balance above the reserve.
 	tx, err := r.server.cc.Wallet.SendOutputs(
-		outputs, feeRate, minConfs, label,
+		outputs, feeRate, minConfs, label, strategy,
 	)
 	if err != nil {
 		return nil, err
@@ -1192,12 +1193,23 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 		return nil, err
 	}
 
+	coinSelectionStrategy, err := lnrpc.UnmarshallCoinSelectionStrategy(
+		in.CoinSelectionStrategy,
+		r.server.cc.Wallet.Cfg.CoinSelectionStrategy,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// We will ask the wallet to create a tx using this fee rate. We set
 	// dryRun=true to avoid inflating the change addresses in the db.
 	var tx *txauthor.AuthoredTx
 	wallet := r.server.cc.Wallet
 	err = wallet.WithCoinSelectLock(func() error {
-		tx, err = wallet.CreateSimpleTx(outputs, feePerKw, minConfs, true)
+		tx, err = wallet.CreateSimpleTx(
+			outputs, feePerKw, minConfs, coinSelectionStrategy,
+			true,
+		)
 		return err
 	})
 	if err != nil {
@@ -1277,6 +1289,14 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 	}
 
 	label, err := labels.ValidateAPI(in.Label)
+	if err != nil {
+		return nil, err
+	}
+
+	coinSelectionStrategy, err := lnrpc.UnmarshallCoinSelectionStrategy(
+		in.CoinSelectionStrategy,
+		r.server.cc.Wallet.Cfg.CoinSelectionStrategy,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1417,7 +1437,8 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		paymentMap := map[string]int64{targetAddr.String(): in.Amount}
 		err := wallet.WithCoinSelectLock(func() error {
 			newTXID, err := r.sendCoinsOnChain(
-				paymentMap, feePerKw, minConfs, label,
+				paymentMap, feePerKw, minConfs,
+				label, coinSelectionStrategy,
 			)
 			if err != nil {
 				return err
@@ -1463,6 +1484,14 @@ func (r *rpcServer) SendMany(ctx context.Context,
 		return nil, err
 	}
 
+	coinSelectionStrategy, err := lnrpc.UnmarshallCoinSelectionStrategy(
+		in.CoinSelectionStrategy,
+		r.server.cc.Wallet.Cfg.CoinSelectionStrategy,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	rpcsLog.Infof("[sendmany] outputs=%v, sat/kw=%v",
 		spew.Sdump(in.AddrToAmount), int64(feePerKw))
 
@@ -1474,7 +1503,8 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	wallet := r.server.cc.Wallet
 	err = wallet.WithCoinSelectLock(func() error {
 		sendManyTXID, err := r.sendCoinsOnChain(
-			in.AddrToAmount, feePerKw, minConfs, label,
+			in.AddrToAmount, feePerKw, minConfs,
+			label, coinSelectionStrategy,
 		)
 		if err != nil {
 			return err

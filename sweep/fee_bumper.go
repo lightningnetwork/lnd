@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -805,22 +806,20 @@ func (t *TxPublisher) handleFeeBumpTx(requestID uint64, r *monitorRecord,
 
 	// The fee function now has a new fee rate, we will use it to bump the
 	// fee of the tx.
-	result, err := t.createAndPublishTx(requestID, r)
-	if err != nil {
-		log.Errorf("Failed to bump tx %v: %v", oldTxid, err)
+	resultOpt := t.createAndPublishTx(requestID, r)
 
-		return
-	}
-
-	// Notify the new result.
-	t.handleResult(result)
+	// If there's a result, we will notify the caller about the result.
+	resultOpt.WhenSome(func(result *BumpResult) {
+		// Notify the new result.
+		t.handleResult(result)
+	})
 }
 
 // createAndPublishTx creates a new tx with a higher fee rate and publishes it
 // to the network. It will update the record with the new tx and fee rate if
 // successfully created, and return the result when published successfully.
 func (t *TxPublisher) createAndPublishTx(requestID uint64,
-	r *monitorRecord) (*BumpResult, error) {
+	r *monitorRecord) fn.Option[*BumpResult] {
 
 	// Fetch the old tx.
 	oldTx := r.tx
@@ -832,21 +831,8 @@ func (t *TxPublisher) createAndPublishTx(requestID uint64,
 	// directly here.
 	tx, fee, err := t.createAndCheckTx(r.req, r.feeFunction)
 
-	// If the tx doesn't not have enought budget, we will return a result
-	// so the sweeper can handle it by re-clustering the utxos.
-	if errors.Is(err, ErrNotEnoughBudget) {
-		log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(), err)
-
-		return &BumpResult{
-			Event:     TxFailed,
-			Tx:        oldTx,
-			Err:       err,
-			requestID: requestID,
-		}, nil
-	}
-
-	// If the error is not budget related, we will return an error and let
-	// the fee bumper retry it at next block.
+	// If the error is fee related, we will return an error and let the fee
+	// bumper retry it at next block.
 	//
 	// NOTE: we can check the RBF error here and ask the fee function to
 	// recalculate the fee rate. However, this would defeat the purpose of
@@ -855,12 +841,40 @@ func (t *TxPublisher) createAndPublishTx(requestID uint64,
 	// - if the deadline is close, we expect the fee function to give us a
 	//   higher fee rate. If the fee rate cannot satisfy the RBF rules, it
 	//   means the budget is not enough.
-	if err != nil {
-		log.Infof("Failed to bump tx %v: %v", oldTx.TxHash(), err)
-		return nil, err
+	if errors.Is(err, rpcclient.ErrInsufficientFee) ||
+		errors.Is(err, lnwallet.ErrMempoolFee) {
+
+		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
+		return fn.None[*BumpResult]()
 	}
 
-	// Register a new record by overwriting the same requestID.
+	// If the error is not fee related, we will return a `TxFailed` event
+	// so this input can be retried.
+	if err != nil {
+		// If the tx doesn't not have enought budget, we will return a
+		// result so the sweeper can handle it by re-clustering the
+		// utxos.
+		if errors.Is(err, ErrNotEnoughBudget) {
+			log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(),
+				err)
+		} else {
+			// Otherwise, an unexpected error occurred, we will
+			// fail the tx and let the sweeper retry the whole
+			// process.
+			log.Errorf("Failed to bump tx %v: %v", oldTx.TxHash(),
+				err)
+		}
+
+		return fn.Some(&BumpResult{
+			Event:     TxFailed,
+			Tx:        oldTx,
+			Err:       err,
+			requestID: requestID,
+		})
+	}
+
+	// The tx has been created without any errors, we now register a new
+	// record by overwriting the same requestID.
 	t.records.Store(requestID, &monitorRecord{
 		tx:          tx,
 		req:         r.req,
@@ -871,7 +885,10 @@ func (t *TxPublisher) createAndPublishTx(requestID uint64,
 	// Attempt to broadcast this new tx.
 	result, err := t.broadcast(requestID)
 	if err != nil {
-		return nil, err
+		log.Infof("Failed to broadcast replacement tx %v: %v",
+			tx.TxHash(), err)
+
+		return fn.None[*BumpResult]()
 	}
 
 	// A successful replacement tx is created, attach the old tx.
@@ -880,7 +897,7 @@ func (t *TxPublisher) createAndPublishTx(requestID uint64,
 	// If the new tx failed to be published, we will return the result so
 	// the caller can handle it.
 	if result.Event == TxFailed {
-		return result, nil
+		return fn.Some(result)
 	}
 
 	log.Infof("Replaced tx=%v with new tx=%v", oldTx.TxHash(), tx.TxHash())
@@ -888,7 +905,7 @@ func (t *TxPublisher) createAndPublishTx(requestID uint64,
 	// Otherwise, it's a successful RBF, set the event and return.
 	result.Event = TxReplaced
 
-	return result, nil
+	return fn.Some(result)
 }
 
 // isConfirmed checks the btcwallet to see whether the tx is confirmed.

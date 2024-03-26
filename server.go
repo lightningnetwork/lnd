@@ -1754,6 +1754,20 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl) {
 		chainHealthCheck, diskCheck, tlsHealthCheck,
 	}
 
+	outboundPeersCheck := healthcheck.NewObservation(
+		"outbound peers count",
+		func() error {
+			return healthcheck.CheckOutboundPeers(
+				cfg.Bitcoin.Node, cc.Cfg.RPCConfig,
+			)
+		},
+		cfg.HealthChecks.ChainCheck.Interval,
+		cfg.HealthChecks.ChainCheck.Timeout,
+		cfg.HealthChecks.ChainCheck.Backoff,
+		chainBackendAttempts,
+	)
+	checks = append(checks, outboundPeersCheck)
+
 	// If Tor is enabled, add the healthcheck for tor connection.
 	if s.torController != nil {
 		torConnectionCheck := healthcheck.NewObservation(

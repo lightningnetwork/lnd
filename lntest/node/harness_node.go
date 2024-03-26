@@ -97,7 +97,12 @@ type HarnessNode struct {
 func NewHarnessNode(t *testing.T, cfg *BaseNodeConfig) (*HarnessNode, error) {
 	if cfg.BaseDir == "" {
 		var err error
-		cfg.BaseDir, err = ioutil.TempDir("", "lndtest-node")
+
+		// Create a temporary directory for the node's data and logs.
+		// Use dash suffix as a separator between base name and random
+		// suffix.
+		dirBaseName := fmt.Sprintf("lndtest-node-%s-", cfg.Name)
+		cfg.BaseDir, err = os.MkdirTemp("", dirBaseName)
 		if err != nil {
 			return nil, err
 		}

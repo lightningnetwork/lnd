@@ -1027,8 +1027,8 @@ func TestCreateAnPublishFail(t *testing.T) {
 		mock.Anything).Return(script, nil)
 
 	// Call the createAndPublish method.
-	result, err := tp.createAndPublishTx(requestID, record)
-	require.NoError(t, err)
+	resultOpt := tp.createAndPublishTx(requestID, record)
+	result := resultOpt.UnwrapOrFail(t)
 
 	// We expect the result to be TxFailed and the error is set in the
 	// result.
@@ -1040,14 +1040,23 @@ func TestCreateAnPublishFail(t *testing.T) {
 	// error to be returned from CheckMempoolAcceptance.
 	req.Budget = 1000
 
-	// Mock the testmempoolaccept to return an error.
+	// Mock the testmempoolaccept to return a fee related error that should
+	// be ignored.
 	m.wallet.On("CheckMempoolAcceptance",
 		mock.Anything).Return(lnwallet.ErrMempoolFee).Once()
 
-	// Call the createAndPublish method and expect an error.
-	result, err = tp.createAndPublishTx(requestID, record)
-	require.ErrorIs(t, err, lnwallet.ErrMempoolFee)
-	require.Nil(t, result)
+	// Call the createAndPublish method and expect a none option.
+	resultOpt = tp.createAndPublishTx(requestID, record)
+	require.True(t, resultOpt.IsNone())
+
+	// Mock the testmempoolaccept to return a fee related error that should
+	// be ignored.
+	m.wallet.On("CheckMempoolAcceptance",
+		mock.Anything).Return(rpcclient.ErrInsufficientFee).Once()
+
+	// Call the createAndPublish method and expect a none option.
+	resultOpt = tp.createAndPublishTx(requestID, record)
+	require.True(t, resultOpt.IsNone())
 }
 
 // TestCreateAnPublishSuccess checks the expected result is returned from the
@@ -1090,8 +1099,8 @@ func TestCreateAnPublishSuccess(t *testing.T) {
 		mock.Anything, mock.Anything).Return(errDummy).Once()
 
 	// Call the createAndPublish method and expect a failure result.
-	result, err := tp.createAndPublishTx(requestID, record)
-	require.NoError(t, err)
+	resultOpt := tp.createAndPublishTx(requestID, record)
+	result := resultOpt.UnwrapOrFail(t)
 
 	// We expect the result to be TxFailed and the error is set.
 	require.Equal(t, TxFailed, result.Event)
@@ -1111,8 +1120,9 @@ func TestCreateAnPublishSuccess(t *testing.T) {
 		mock.Anything, mock.Anything).Return(nil).Once()
 
 	// Call the createAndPublish method and expect a success result.
-	result, err = tp.createAndPublishTx(requestID, record)
-	require.NoError(t, err)
+	resultOpt = tp.createAndPublishTx(requestID, record)
+	result = resultOpt.UnwrapOrFail(t)
+	require.True(t, resultOpt.IsSome())
 
 	// We expect the result to be TxReplaced and the error is nil.
 	require.Equal(t, TxReplaced, result.Event)

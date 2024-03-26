@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
 )
@@ -168,9 +169,6 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// immediately execute a force closure of the channel. This will also
 	// assert that the commitment transaction was immediately broadcast in
 	// order to fulfill the force closure request.
-	const actualFeeRate = 30000
-	ht.SetFeeEstimate(actualFeeRate)
-
 	ht.CloseChannelAssertPending(alice, chanPoint, true)
 
 	// Now that the channel has been force closed, it should show up in the
@@ -197,54 +195,43 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// transaction has been broadcast but not yet confirmed in a block.
 	ht.RestartNode(alice)
 
-	// To give the neutrino backend some time to catch up with the chain, we
-	// wait here until we have enough UTXOs to actually sweep the local and
-	// remote anchor.
+	// To give the neutrino backend some time to catch up with the chain,
+	// we wait here until we have enough UTXOs to actually sweep the local
+	// and remote anchor.
 	const expectedUtxos = 2
 	ht.AssertNumUTXOs(alice, expectedUtxos)
 
+	// We expect to see Alice's force close tx in the mempool.
+	ht.Miner.GetNumTxsFromMempool(1)
+
+	// Assert Alice's has the pending anchor outputs - one for local and
+	// the other for remote (invalid).
+	sweeps := ht.AssertNumPendingSweeps(alice, 2)
+	aliceAnchor := sweeps[0]
+	if aliceAnchor.Outpoint.TxidStr != waitingClose.Commitments.LocalTxid {
+		aliceAnchor = sweeps[1]
+	}
+	require.Equal(ht, aliceAnchor.Outpoint.TxidStr,
+		waitingClose.Commitments.LocalTxid)
+
 	// Mine a block which should confirm the commitment transaction
-	// broadcast as a result of the force closure. If there are anchors, we
-	// also expect the anchor sweep tx to be in the mempool.
-	expectedTxes := 1
-	expectedFeeRate := commitFeeRate
-	if lntest.CommitTypeHasAnchors(channelType) {
-		expectedTxes = 2
-		expectedFeeRate = actualFeeRate
+	// broadcast as a result of the force closure. Once mined, we also
+	// expect Alice's anchor sweeping tx being published.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Assert Alice's anchor sweeping tx is found in the mempool.
+	aliceSweepTxid := ht.Miner.AssertNumTxsInMempool(1)[0]
+
+	// Add alice's anchor to our expected set of reports.
+	op := fmt.Sprintf("%v:%v", aliceAnchor.Outpoint.TxidStr,
+		aliceAnchor.Outpoint.OutputIndex)
+	aliceReports[op] = &lnrpc.Resolution{
+		ResolutionType: lnrpc.ResolutionType_ANCHOR,
+		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
+		SweepTxid:      aliceSweepTxid.String(),
+		Outpoint:       aliceAnchor.Outpoint,
+		AmountSat:      uint64(anchorSize),
 	}
-
-	sweepTxns := ht.Miner.GetNumTxsFromMempool(expectedTxes)
-
-	// Verify fee rate of the commitment tx plus anchor if present.
-	feeRate := ht.CalculateTxesFeeRate(sweepTxns)
-
-	// Allow some deviation because weight estimates during tx generation
-	// are estimates.
-	require.InEpsilonf(ht, expectedFeeRate, feeRate, 0.005, "fee rate not "+
-		"match: want %v, got %v", expectedFeeRate, feeRate)
-
-	// Find alice's commit sweep and anchor sweep (if present) in the
-	// mempool.
-	aliceCloseTx := waitingClose.Commitments.LocalTxid
-	_, aliceAnchor := ht.FindCommitAndAnchor(sweepTxns, aliceCloseTx)
-
-	// If we expect anchors, add alice's anchor to our expected set of
-	// reports.
-	if lntest.CommitTypeHasAnchors(channelType) {
-		aliceReports[aliceAnchor.OutPoint.String()] = &lnrpc.Resolution{
-			ResolutionType: lnrpc.ResolutionType_ANCHOR,
-			Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
-			SweepTxid:      aliceAnchor.SweepTx.TxHash().String(),
-			Outpoint: &lnrpc.OutPoint{
-				TxidBytes:   aliceAnchor.OutPoint.Hash[:],
-				TxidStr:     aliceAnchor.OutPoint.Hash.String(),
-				OutputIndex: aliceAnchor.OutPoint.Index,
-			},
-			AmountSat: uint64(anchorSize),
-		}
-	}
-
-	ht.MineBlocks(1)
 
 	// Now that the commitment has been confirmed, the channel should be
 	// marked as force closed.
@@ -262,20 +249,13 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 			return err
 		}
 
-		// None of our outputs have been swept, so they should all be in
-		// limbo. For anchors, we expect the anchor amount to be
-		// recovered.
+		// None of our outputs have been swept, so they should all be
+		// in limbo.
 		if forceClose.LimboBalance == 0 {
-			return errors.New("all funds should still be in " +
-				"limbo")
+			return errors.New("all funds should still be in limbo")
 		}
-		expectedRecoveredBalance := int64(0)
-		if lntest.CommitTypeHasAnchors(channelType) {
-			expectedRecoveredBalance = anchorSize
-		}
-		if forceClose.RecoveredBalance != expectedRecoveredBalance {
-			return errors.New("no funds should yet be shown " +
-				"as recovered")
+		if forceClose.RecoveredBalance != 0 {
+			return errors.New("no funds should be recovered")
 		}
 
 		return nil
@@ -288,51 +268,62 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// (the "kindergarten" bucket.)
 	ht.RestartNode(alice)
 
-	// Carol should have pending sweeps now.
-	ht.AssertNumPendingSweeps(carol, expectedTxes)
+	// Carol should offer her commit and anchor outputs to the sweeper.
+	sweepTxns := ht.AssertNumPendingSweeps(carol, 2)
 
-	// Mine a block to trigger the sweep transactions.
-	blocksMined := int32(1)
-	ht.MineBlocks(1)
-
-	// Carol's sweep tx should be in the mempool already, as her output is
-	// not timelocked. If there are anchors, we also expect Carol's anchor
-	// sweep now.
-	sweepTxns = ht.Miner.GetNumTxsFromMempool(expectedTxes)
-
-	// Calculate the total fee Carol paid.
-	var totalFeeCarol btcutil.Amount
-	for _, tx := range sweepTxns {
-		fee := ht.CalculateTxFee(tx)
-		totalFeeCarol += fee
+	// Find Carol's anchor sweep.
+	var carolAnchor, carolCommit = sweepTxns[0], sweepTxns[1]
+	if carolAnchor.AmountSat != uint32(anchorSize) {
+		carolAnchor, carolCommit = carolCommit, carolAnchor
 	}
 
-	// We look up the sweep txns we have found in mempool and create
-	// expected resolutions for carol.
-	carolCommit, carolAnchor := ht.FindCommitAndAnchor(
-		sweepTxns, aliceCloseTx,
-	)
+	// Mine a block to trigger Carol's sweeper to make decisions on the
+	// anchor sweeping. This block will also confirm Alice's anchor
+	// sweeping tx as her anchor is used for CPFP due to there are
+	// time-sensitive HTLCs.
+	blocksMined := int32(1)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Carol's sweep tx should be in the mempool already, as her output is
+	// not timelocked.
+	carolTx := ht.Miner.GetNumTxsFromMempool(1)[0]
+
+	// Carol's sweeping tx should have 2-input-1-output shape.
+	require.Len(ht, carolTx.TxIn, 2)
+	require.Len(ht, carolTx.TxOut, 1)
+
+	// Calculate the total fee Carol paid.
+	totalFeeCarol := ht.CalculateTxFee(carolTx)
 
 	// If we have anchors, add an anchor resolution for carol.
-	if lntest.CommitTypeHasAnchors(channelType) {
-		carolReports[carolAnchor.OutPoint.String()] = &lnrpc.Resolution{
-			ResolutionType: lnrpc.ResolutionType_ANCHOR,
-			Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
-			SweepTxid:      carolAnchor.SweepTx.TxHash().String(),
-			AmountSat:      anchorSize,
-			Outpoint: &lnrpc.OutPoint{
-				TxidBytes:   carolAnchor.OutPoint.Hash[:],
-				TxidStr:     carolAnchor.OutPoint.Hash.String(),
-				OutputIndex: carolAnchor.OutPoint.Index,
-			},
-		}
+	op = fmt.Sprintf("%v:%v", carolAnchor.Outpoint.TxidStr,
+		carolAnchor.Outpoint.OutputIndex)
+	carolReports[op] = &lnrpc.Resolution{
+		ResolutionType: lnrpc.ResolutionType_ANCHOR,
+		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
+		SweepTxid:      carolTx.TxHash().String(),
+		AmountSat:      anchorSize,
+		Outpoint:       carolAnchor.Outpoint,
+	}
+
+	op = fmt.Sprintf("%v:%v", carolCommit.Outpoint.TxidStr,
+		carolCommit.Outpoint.OutputIndex)
+	carolReports[op] = &lnrpc.Resolution{
+		ResolutionType: lnrpc.ResolutionType_COMMIT,
+		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
+		Outpoint:       carolCommit.Outpoint,
+		AmountSat:      uint64(pushAmt),
+		SweepTxid:      carolTx.TxHash().String(),
 	}
 
 	// Currently within the codebase, the default CSV is 4 relative blocks.
-	// For the persistence test, we generate two blocks, then trigger
-	// a restart and then generate the final block that should trigger
-	// the creation of the sweep transaction.
-	ht.MineBlocks(1)
+	// For the persistence test, we generate two blocks, then trigger a
+	// restart and then generate the final block that should trigger the
+	// creation of the sweep transaction.
+	//
+	// We also expect Carol to broadcast her sweeping tx which spends her
+	// commit and anchor outputs.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 	blocksMined++
 
 	// The following restart checks to ensure that outputs in the
@@ -377,13 +368,9 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 			return errors.New("all funds should still be in " +
 				"limbo")
 		}
-		expectedRecoveredBalance := int64(0)
-		if lntest.CommitTypeHasAnchors(channelType) {
-			expectedRecoveredBalance = anchorSize
-		}
-		if forceClose.RecoveredBalance != expectedRecoveredBalance {
-			return errors.New("no funds should yet be shown " +
-				"as recovered")
+		if forceClose.RecoveredBalance != anchorSize {
+			return fmt.Errorf("expected %v to be recovered",
+				anchorSize)
 		}
 
 		return nil
@@ -392,16 +379,16 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Generate an additional block, which should cause the CSV delayed
 	// output from the commitment txn to expire.
-	ht.MineBlocks(1)
+	ht.MineEmptyBlocks(1)
 
 	// At this point, the CSV will expire in the next block, meaning that
 	// the output should be offered to the sweeper.
-	ht.AssertNumPendingSweeps(alice, 1)
+	aliceCommit := ht.AssertNumPendingSweeps(alice, 1)[0]
 
 	// Mine one block and the sweeping transaction should now be broadcast.
 	// So we fetch the node's mempool to ensure it has been properly
 	// broadcast.
-	ht.MineBlocks(1)
+	ht.MineEmptyBlocks(1)
 	sweepingTXID := ht.Miner.AssertNumTxsInMempool(1)[0]
 
 	// Fetch the sweep transaction, all input it's spending should be from
@@ -413,29 +400,14 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	}
 
 	// We expect a resolution which spends our commit output.
-	output := sweepTx.MsgTx().TxIn[0].PreviousOutPoint
-	aliceReports[output.String()] = &lnrpc.Resolution{
+	op = fmt.Sprintf("%v:%v", aliceCommit.Outpoint.TxidStr,
+		aliceCommit.Outpoint.OutputIndex)
+	aliceReports[op] = &lnrpc.Resolution{
 		ResolutionType: lnrpc.ResolutionType_COMMIT,
 		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
 		SweepTxid:      sweepingTXID.String(),
-		Outpoint: &lnrpc.OutPoint{
-			TxidBytes:   output.Hash[:],
-			TxidStr:     output.Hash.String(),
-			OutputIndex: output.Index,
-		},
-		AmountSat: uint64(aliceBalance),
-	}
-
-	carolReports[carolCommit.OutPoint.String()] = &lnrpc.Resolution{
-		ResolutionType: lnrpc.ResolutionType_COMMIT,
-		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
-		Outpoint: &lnrpc.OutPoint{
-			TxidBytes:   carolCommit.OutPoint.Hash[:],
-			TxidStr:     carolCommit.OutPoint.Hash.String(),
-			OutputIndex: carolCommit.OutPoint.Index,
-		},
-		AmountSat: uint64(pushAmt),
-		SweepTxid: carolCommit.SweepTx.TxHash().String(),
+		Outpoint:       aliceCommit.Outpoint,
+		AmountSat:      uint64(aliceBalance),
 	}
 
 	// Check that we can find the commitment sweep in our set of known
@@ -499,8 +471,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 		return nil
 	}, defaultTimeout)
-	require.NoError(ht, err, "timeout checking pending "+
-		"force close channel")
+	require.NoError(ht, err, "timeout checking pending force close channel")
 
 	// Compute the height preceding that which will cause the htlc CLTV
 	// timeouts will expire. The outputs entered at the same height as the
@@ -510,22 +481,13 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// the expiry height, and add the block padding.
 	cltvHeightDelta := padCLTV(defaultCLTV - defaultCSV - 1 - 1 - 1)
 
-	// NOTE: this rest of the test would only pass if we remove the `Force`
-	// flag used in sweeping HTLCs, otherwise an immediate sweep will be
-	// attempted due to being forced. This flag will be removed once we can
-	// conditionally cancel back upstream htlcs to avoid cascading FCs.
-	ht.Shutdown(alice)
-	ht.Shutdown(carol)
-	ht.MineBlocksAndAssertNumTxes(1, 0)
-	ht.Skip("Skipping due until force flags are removed")
-
 	// Advance the blockchain until just before the CLTV expires, nothing
 	// exciting should have happened during this time.
-	ht.MineBlocks(cltvHeightDelta)
+	ht.MineEmptyBlocks(int(cltvHeightDelta))
 
-	// We now restart Alice, to ensure that she will broadcast the presigned
-	// htlc timeout txns after the delay expires after experiencing a while
-	// waiting for the htlc outputs to incubate.
+	// We now restart Alice, to ensure that she will broadcast the
+	// presigned htlc timeout txns after the delay expires after
+	// experiencing a while waiting for the htlc outputs to incubate.
 	ht.RestartNode(alice)
 
 	// Alice should now see the channel in her set of pending force closed
@@ -553,8 +515,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 		// All htlc outputs are still left in limbo, so it should be
 		// non-zero as well.
 		if forceClose.LimboBalance == 0 {
-			return errors.New("htlc funds should still be in " +
-				"limbo")
+			return errors.New("htlc funds should still be in limbo")
 		}
 
 		return nil
@@ -563,34 +524,26 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Now, generate the block which will cause Alice to offer the
 	// presigned htlc timeout txns to the sweeper.
-	ht.MineBlocks(1)
+	ht.MineEmptyBlocks(1)
 
 	// Since Alice had numInvoices (6) htlcs extended to Carol before force
 	// closing, we expect Alice to broadcast an htlc timeout txn for each
 	// one.
-	expectedTxes = numInvoices
 	ht.AssertNumPendingSweeps(alice, numInvoices)
 
-	// In case of anchors, the timeout txs will be aggregated into one.
-	if lntest.CommitTypeHasAnchors(channelType) {
-		expectedTxes = 1
-	}
-
 	// Mine a block to trigger the sweeps.
-	ht.MineBlocks(1)
+	ht.MineEmptyBlocks(1)
 
-	// Wait for them all to show up in the mempool.
-	htlcTxIDs := ht.Miner.AssertNumTxsInMempool(expectedTxes)
+	// Wait for them all to show up in the mempool and expect the timeout
+	// txs to be aggregated into one.
+	htlcTxIDs := ht.Miner.AssertNumTxsInMempool(1)
 
 	// Retrieve each htlc timeout txn from the mempool, and ensure it is
 	// well-formed. This entails verifying that each only spends from
 	// output, and that output is from the commitment txn. In case this is
 	// an anchor channel, the transactions are aggregated by the sweeper
 	// into one.
-	numInputs := 1
-	if lntest.CommitTypeHasAnchors(channelType) {
-		numInputs = numInvoices + 1
-	}
+	numInputs := numInvoices + 1
 
 	// Construct a map of the already confirmed htlc timeout outpoints,
 	// that will count the number of times each is spent by the sweep txn.
@@ -691,7 +644,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Generate a block that mines the htlc timeout txns. Doing so now
 	// activates the 2nd-stage CSV delayed outputs.
-	ht.MineBlocks(1)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Alice is restarted here to ensure that she promptly moved the crib
 	// outputs to the kindergarten bucket after the htlc timeout txns were
@@ -700,11 +653,9 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Advance the chain until just before the 2nd-layer CSV delays expire.
 	// For anchor channels this is one block earlier.
-	numBlocks := uint32(defaultCSV - 1)
-	if lntest.CommitTypeHasAnchors(channelType) {
-		numBlocks = defaultCSV - 2
-	}
-	ht.MineBlocks(numBlocks)
+	_, currentHeight := ht.Miner.GetBestBlock()
+	numBlocks := int(htlcCsvMaturityHeight - uint32(currentHeight) - 1)
+	ht.MineEmptyBlocks(numBlocks)
 
 	// Restart Alice to ensure that she can recover from a failure before
 	// having graduated the htlc outputs in the kindergarten bucket.
@@ -728,11 +679,11 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Generate a block that causes Alice to sweep the htlc outputs in the
 	// kindergarten bucket.
-	ht.MineBlocks(1)
-	ht.AssertNumPendingSweeps(alice, 6)
+	ht.MineEmptyBlocks(1)
+	ht.AssertNumPendingSweeps(alice, numInvoices)
 
 	// Mine a block to trigger the sweep.
-	ht.MineBlocks(1)
+	ht.MineEmptyBlocks(1)
 
 	// Wait for the single sweep txn to appear in the mempool.
 	htlcSweepTxID := ht.Miner.AssertNumTxsInMempool(1)[0]
@@ -926,21 +877,31 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 	ht.AssertNumPendingForceClose(carol, 1)
 
 	// Carol will use the correct preimage to resolve the HTLC on-chain.
+	ht.AssertNumPendingSweeps(carol, 1)
+
+	// Bring down the fee rate estimation, otherwise the following sweep
+	// won't happen.
+	ht.SetFeeEstimate(chainfee.FeePerKwFloor)
+
+	// Mine a block to trigger Carol's sweeper to broadcast the sweeping
+	// tx.
+	ht.MineEmptyBlocks(1)
+
+	// Carol should have broadcast her sweeping tx.
 	ht.Miner.AssertNumTxsInMempool(1)
 
-	// Mine enough blocks for Alice to sweep her funds from the force
-	// closed channel.
-	ht.MineBlocks(defaultCSV - 1)
+	// Mine two blocks to confirm Carol's sweeping tx, which will by now
+	// Alice's commit output should be offered to her sweeper.
+	ht.MineBlocksAndAssertNumTxes(2, 1)
+
+	// Alice's should have one pending sweep request for her commit output.
 	ht.AssertNumPendingSweeps(alice, 1)
 
 	// Mine a block to trigger the sweep.
-	ht.MineBlocks(1)
+	ht.MineEmptyBlocks(1)
 
-	// Wait for the sweeping tx to be broadcast.
-	ht.Miner.AssertNumTxsInMempool(1)
-
-	// Mine the sweep.
-	ht.MineBlocks(1)
+	// Mine Alice's sweeping tx.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// No pending channels should be left.
 	ht.AssertNumPendingForceClose(alice, 0)
@@ -966,18 +927,26 @@ func assertReports(ht *lntest.HarnessTest, hn *node.HarnessNode,
 			break
 		}
 	}
-
 	require.NotNil(ht, resolutions)
-	require.Equal(ht, len(expected), len(resolutions))
+
+	// Copy the expected resolutions so we can remove them as we find them.
+	notFound := make(map[string]*lnrpc.Resolution)
+	for k, v := range expected {
+		notFound[k] = v
+	}
 
 	for _, res := range resolutions {
 		outPointStr := fmt.Sprintf("%v:%v", res.Outpoint.TxidStr,
 			res.Outpoint.OutputIndex)
 
-		expected, ok := expected[outPointStr]
-		require.True(ht, ok)
-		require.Equal(ht, expected, res)
+		require.Contains(ht, expected, outPointStr)
+		require.Equal(ht, expected[outPointStr], res)
+
+		delete(notFound, outPointStr)
 	}
+
+	// We should have found all the resolutions.
+	require.Empty(ht, notFound)
 }
 
 // checkCommitmentMaturity checks that both the maturity height and blocks

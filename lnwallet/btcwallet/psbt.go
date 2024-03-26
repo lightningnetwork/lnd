@@ -73,7 +73,8 @@ var (
 // This is a part of the WalletController interface.
 func (b *BtcWallet) FundPsbt(packet *psbt.Packet, minConfs int32,
 	feeRate chainfee.SatPerKWeight, accountName string,
-	changeScope *waddrmgr.KeyScope) (int32, error) {
+	changeScope *waddrmgr.KeyScope,
+	strategy wallet.CoinSelectionStrategy) (int32, error) {
 
 	// The fee rate is passed in using units of sat/kw, so we'll convert
 	// this to sat/KB as the CreateSimpleTx method requires this unit.
@@ -134,7 +135,7 @@ func (b *BtcWallet) FundPsbt(packet *psbt.Packet, minConfs int32,
 	// the partial TX information in the packet.
 	return b.wallet.FundPsbt(
 		packet, keyScope, minConfs, accountNum, feeSatPerKB,
-		b.cfg.CoinSelectionStrategy, opts...,
+		strategy, opts...,
 	)
 }
 

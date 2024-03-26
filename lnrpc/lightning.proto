@@ -1091,6 +1091,18 @@ message LightningAddress {
     string host = 2;
 }
 
+enum CoinSelectionStrategy {
+    // Use the coin selection strategy defined in the global configuration
+    // (lnd.conf).
+    STRATEGY_USE_GLOBAL_CONFIG = 0;
+
+    // Select the largest available coins first during coin selection.
+    STRATEGY_LARGEST = 1;
+
+    // Randomly select the available coins during coin selection.
+    STRATEGY_RANDOM = 2;
+}
+
 message EstimateFeeRequest {
     // The map from addresses to amounts for the transaction.
     map<string, int64> AddrToAmount = 1;
@@ -1105,6 +1117,9 @@ message EstimateFeeRequest {
 
     // Whether unconfirmed outputs should be used as inputs for the transaction.
     bool spend_unconfirmed = 4;
+
+    // The strategy to use for selecting coins during fees estimation.
+    CoinSelectionStrategy coin_selection_strategy = 5;
 }
 
 message EstimateFeeResponse {
@@ -1145,6 +1160,9 @@ message SendManyRequest {
 
     // Whether unconfirmed outputs should be used as inputs for the transaction.
     bool spend_unconfirmed = 8;
+
+    // The strategy to use for selecting coins during sending many requests.
+    CoinSelectionStrategy coin_selection_strategy = 9;
 }
 message SendManyResponse {
     // The id of the transaction
@@ -1187,6 +1205,9 @@ message SendCoinsRequest {
 
     // Whether unconfirmed outputs should be used as inputs for the transaction.
     bool spend_unconfirmed = 9;
+
+    // The strategy to use for selecting coins.
+    CoinSelectionStrategy coin_selection_strategy = 10;
 }
 message SendCoinsResponse {
     // The transaction ID of the transaction
@@ -2115,6 +2136,9 @@ message BatchOpenChannelRequest {
 
     // An optional label for the batch transaction, limited to 500 characters.
     string label = 6;
+
+    // The strategy to use for selecting coins during batch opening channels.
+    CoinSelectionStrategy coin_selection_strategy = 7;
 }
 
 message BatchOpenChannel {

@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -177,5 +178,32 @@ func MarshalOutPoint(op *wire.OutPoint) *OutPoint {
 		TxidBytes:   op.Hash[:],
 		TxidStr:     op.Hash.String(),
 		OutputIndex: op.Index,
+	}
+}
+
+// UnmarshallCoinSelectionStrategy converts a lnrpc.CoinSelectionStrategy proto
+// type to its wallet.CoinSelectionStrategy counterpart type, considering
+// a global default strategy if necessary.
+//
+// The globalStrategy parameter specifies the default coin selection strategy
+// to use if the strategy is set to STRATEGY_USE_GLOBAL_CONFIG. This allows
+// flexibility in defining a default strategy at a global level.
+func UnmarshallCoinSelectionStrategy(strategy CoinSelectionStrategy,
+	globalStrategy wallet.CoinSelectionStrategy) (
+	wallet.CoinSelectionStrategy, error) {
+
+	switch strategy {
+	case CoinSelectionStrategy_STRATEGY_USE_GLOBAL_CONFIG:
+		return globalStrategy, nil
+
+	case CoinSelectionStrategy_STRATEGY_LARGEST:
+		return wallet.CoinSelectionLargest, nil
+
+	case CoinSelectionStrategy_STRATEGY_RANDOM:
+		return wallet.CoinSelectionRandom, nil
+
+	default:
+		return nil, fmt.Errorf("unknown coin selection strategy "+
+			"%v", strategy)
 	}
 }

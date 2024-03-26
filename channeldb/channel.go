@@ -1157,7 +1157,13 @@ func fetchFinalHtlcsBucketRw(tx kvdb.RwTx,
 func (c *OpenChannel) fullSync(tx kvdb.RwTx) error {
 	// Fetch the outpoint bucket and check if the outpoint already exists.
 	opBucket := tx.ReadWriteBucket(outpointBucket)
+	if opBucket == nil {
+		return ErrNoChanDBExists
+	}
 	cidBucket := tx.ReadWriteBucket(chanIDBucket)
+	if cidBucket == nil {
+		return ErrNoChanDBExists
+	}
 
 	var chanPointBuf bytes.Buffer
 	if err := writeOutpoint(&chanPointBuf, &c.FundingOutpoint); err != nil {
@@ -3513,6 +3519,9 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 		// Fetch the outpoint bucket to see if the outpoint exists or
 		// not.
 		opBucket := tx.ReadWriteBucket(outpointBucket)
+		if opBucket == nil {
+			return ErrNoChanDBExists
+		}
 
 		// Add the closed outpoint to our outpoint index. This should
 		// replace an open outpoint in the index.

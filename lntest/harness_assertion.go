@@ -2594,12 +2594,17 @@ func (h *HarnessTest) AssertWalletLockedBalance(hn *node.HarnessNode,
 
 // AssertNumPendingSweeps asserts the number of pending sweeps for the given
 // node.
-func (h *HarnessTest) AssertNumPendingSweeps(hn *node.HarnessNode, n int) {
+func (h *HarnessTest) AssertNumPendingSweeps(hn *node.HarnessNode,
+	n int) []*walletrpc.PendingSweep {
+
+	results := make([]*walletrpc.PendingSweep, 0, n)
+
 	err := wait.NoError(func() error {
 		resp := hn.RPC.PendingSweeps()
 		num := len(resp.PendingSweeps)
 
 		if num == n {
+			results = resp.PendingSweeps
 			return nil
 		}
 
@@ -2607,6 +2612,8 @@ func (h *HarnessTest) AssertNumPendingSweeps(hn *node.HarnessNode, n int) {
 	}, DefaultTimeout)
 
 	require.NoErrorf(h, err, "%s: check pending sweeps timeout", hn.Name())
+
+	return results
 }
 
 // FindSweepingTxns asserts the expected number of sweeping txns are found in

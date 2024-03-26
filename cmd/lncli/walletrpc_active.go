@@ -849,6 +849,7 @@ var fundTemplatePsbtCommand = cli.Command{
 				"if required",
 			Value: -1,
 		},
+		coinSelectionStrategyFlag,
 	},
 	Action: actionDecorator(fundTemplatePsbt),
 }
@@ -997,6 +998,11 @@ func fundTemplatePsbt(ctx *cli.Context) error {
 			"inputs/outputs flag")
 	}
 
+	coinSelectionStrategy, err := parseCoinSelectionStrategy(ctx)
+	if err != nil {
+		return err
+	}
+
 	minConfs := int32(ctx.Uint64("min_confs"))
 	req := &walletrpc.FundPsbtRequest{
 		Account:          ctx.String("account"),
@@ -1005,6 +1011,7 @@ func fundTemplatePsbt(ctx *cli.Context) error {
 		Template: &walletrpc.FundPsbtRequest_CoinSelect{
 			CoinSelect: coinSelect,
 		},
+		CoinSelectionStrategy: coinSelectionStrategy,
 	}
 
 	// Parse fee flags.
@@ -1167,6 +1174,7 @@ var fundPsbtCommand = cli.Command{
 				"transaction must satisfy",
 			Value: defaultUtxoMinConf,
 		},
+		coinSelectionStrategyFlag,
 	},
 	Action: actionDecorator(fundPsbt),
 }
@@ -1180,11 +1188,17 @@ func fundPsbt(ctx *cli.Context) error {
 		return cli.ShowCommandHelp(ctx, "fund")
 	}
 
+	coinSelectionStrategy, err := parseCoinSelectionStrategy(ctx)
+	if err != nil {
+		return err
+	}
+
 	minConfs := int32(ctx.Uint64("min_confs"))
 	req := &walletrpc.FundPsbtRequest{
-		Account:          ctx.String("account"),
-		MinConfs:         minConfs,
-		SpendUnconfirmed: minConfs == 0,
+		Account:               ctx.String("account"),
+		MinConfs:              minConfs,
+		SpendUnconfirmed:      minConfs == 0,
+		CoinSelectionStrategy: coinSelectionStrategy,
 	}
 
 	// Parse template flags.

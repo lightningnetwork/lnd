@@ -200,6 +200,16 @@ func newAddress(ctx *cli.Context) error {
 	return nil
 }
 
+var coinSelectionStrategyFlag = cli.StringFlag{
+	Name: "coin_selection_strategy",
+	Usage: "(optional) the strategy to use for selecting " +
+		"coins. Possible values are 'largest', 'random', or " +
+		"'global-config'. If either 'largest' or 'random' is " +
+		"specified, it will override the globally configured " +
+		"strategy in lnd.conf",
+	Value: "global-config",
+}
+
 var estimateFeeCommand = cli.Command{
 	Name:      "estimatefee",
 	Category:  "On-chain",
@@ -215,9 +225,10 @@ var estimateFeeCommand = cli.Command{
 	Flags: []cli.Flag{
 		cli.Int64Flag{
 			Name: "conf_target",
-			Usage: "(optional) the number of blocks that the transaction *should* " +
-				"confirm in",
+			Usage: "(optional) the number of blocks that the " +
+				"transaction *should* confirm in",
 		},
+		coinSelectionStrategyFlag,
 	},
 	Action: actionDecorator(estimateFees),
 }
@@ -231,12 +242,18 @@ func estimateFees(ctx *cli.Context) error {
 		return err
 	}
 
+	coinSelectionStrategy, err := parseCoinSelectionStrategy(ctx)
+	if err != nil {
+		return err
+	}
+
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
 	resp, err := client.EstimateFee(ctxc, &lnrpc.EstimateFeeRequest{
-		AddrToAmount: amountToAddr,
-		TargetConf:   int32(ctx.Int64("conf_target")),
+		AddrToAmount:          amountToAddr,
+		TargetConf:            int32(ctx.Int64("conf_target")),
+		CoinSelectionStrategy: coinSelectionStrategy,
 	})
 	if err != nil {
 		return err
@@ -313,6 +330,7 @@ var sendCoinsCommand = cli.Command{
 				"terminal avoid breaking existing shell " +
 				"scripts",
 		},
+		coinSelectionStrategyFlag,
 		txLabelFlag,
 	},
 	Action: actionDecorator(sendCoins),
@@ -375,6 +393,11 @@ func sendCoins(ctx *cli.Context) error {
 			"sweep all coins out of the wallet")
 	}
 
+	coinSelectionStrategy, err := parseCoinSelectionStrategy(ctx)
+	if err != nil {
+		return err
+	}
+
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 	minConfs := int32(ctx.Uint64("min_confs"))
@@ -409,14 +432,15 @@ func sendCoins(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.SendCoinsRequest{
-		Addr:             addr,
-		Amount:           amt,
-		TargetConf:       int32(ctx.Int64("conf_target")),
-		SatPerVbyte:      ctx.Uint64(feeRateFlag),
-		SendAll:          ctx.Bool("sweepall"),
-		Label:            ctx.String(txLabelFlag.Name),
-		MinConfs:         minConfs,
-		SpendUnconfirmed: minConfs == 0,
+		Addr:                  addr,
+		Amount:                amt,
+		TargetConf:            int32(ctx.Int64("conf_target")),
+		SatPerVbyte:           ctx.Uint64(feeRateFlag),
+		SendAll:               ctx.Bool("sweepall"),
+		Label:                 ctx.String(txLabelFlag.Name),
+		MinConfs:              minConfs,
+		SpendUnconfirmed:      minConfs == 0,
+		CoinSelectionStrategy: coinSelectionStrategy,
 	}
 	txid, err := client.SendCoins(ctxc, req)
 	if err != nil {
@@ -585,6 +609,7 @@ var sendManyCommand = cli.Command{
 				"must satisfy",
 			Value: defaultUtxoMinConf,
 		},
+		coinSelectionStrategyFlag,
 		txLabelFlag,
 	},
 	Action: actionDecorator(sendMany),
@@ -615,17 +640,23 @@ func sendMany(ctx *cli.Context) error {
 		return err
 	}
 
+	coinSelectionStrategy, err := parseCoinSelectionStrategy(ctx)
+	if err != nil {
+		return err
+	}
+
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
 	minConfs := int32(ctx.Uint64("min_confs"))
 	txid, err := client.SendMany(ctxc, &lnrpc.SendManyRequest{
-		AddrToAmount:     amountToAddr,
-		TargetConf:       int32(ctx.Int64("conf_target")),
-		SatPerVbyte:      ctx.Uint64(feeRateFlag),
-		Label:            ctx.String(txLabelFlag.Name),
-		MinConfs:         minConfs,
-		SpendUnconfirmed: minConfs == 0,
+		AddrToAmount:          amountToAddr,
+		TargetConf:            int32(ctx.Int64("conf_target")),
+		SatPerVbyte:           ctx.Uint64(feeRateFlag),
+		Label:                 ctx.String(txLabelFlag.Name),
+		MinConfs:              minConfs,
+		SpendUnconfirmed:      minConfs == 0,
+		CoinSelectionStrategy: coinSelectionStrategy,
 	})
 	if err != nil {
 		return err

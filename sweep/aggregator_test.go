@@ -657,19 +657,19 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 	pi1 := SweeperInput{
 		Input: mockInput1,
 		params: Params{
-			DeadlineHeight: fn.Some(int32(1)),
+			DeadlineHeight: fn.Some(testHeight),
 		},
 	}
 	pi2 := SweeperInput{
 		Input: mockInput2,
 		params: Params{
-			DeadlineHeight: fn.Some(int32(1)),
+			DeadlineHeight: fn.Some(testHeight),
 		},
 	}
 	pi3 := SweeperInput{
 		Input: mockInput3,
 		params: Params{
-			DeadlineHeight: fn.Some(int32(1)),
+			DeadlineHeight: fn.Some(testHeight),
 		},
 	}
 	pi4 := SweeperInput{
@@ -678,7 +678,7 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 			// This input has a deadline height that is different
 			// from the other inputs. When grouped with other
 			// inputs, it will cause an error to be returned.
-			DeadlineHeight: fn.Some(int32(2)),
+			DeadlineHeight: fn.Some(testHeight + 1),
 		},
 	}
 

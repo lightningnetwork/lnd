@@ -248,8 +248,8 @@ type mppOpenChannelRequest struct {
 // openChannels is a helper to open channels that sets up a network topology
 // with three different paths Alice <-> Bob as following,
 //
-//		 _ Eve _
-//		/       \
+//		      _ Eve _
+//		     /       \
 //	 Alice -- Carol ---- Bob
 //		\              /
 //		 \__ Dave ____/

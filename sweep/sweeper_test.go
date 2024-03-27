@@ -2679,6 +2679,9 @@ func TestSweepPendingInputs(t *testing.T) {
 		},
 	})
 
+	// Set a current height to test the deadline override.
+	s.currentHeight = testHeight
+
 	// Create an input set that needs wallet inputs.
 	setNeedWallet := &MockInputSet{}
 	defer setNeedWallet.AssertExpectations(t)
@@ -2699,10 +2702,10 @@ func TestSweepPendingInputs(t *testing.T) {
 	// Mock the methods used in `sweep`. This is not important for this
 	// unit test.
 	setNeedWallet.On("Inputs").Return(nil).Times(4)
-	setNeedWallet.On("DeadlineHeight").Return(fn.None[int32]()).Once()
+	setNeedWallet.On("DeadlineHeight").Return(testHeight).Once()
 	setNeedWallet.On("Budget").Return(btcutil.Amount(1)).Once()
 	normalSet.On("Inputs").Return(nil).Times(4)
-	normalSet.On("DeadlineHeight").Return(fn.None[int32]()).Once()
+	normalSet.On("DeadlineHeight").Return(testHeight).Once()
 	normalSet.On("Budget").Return(btcutil.Amount(1)).Once()
 
 	// Make pending inputs for testing. We don't need real values here as
@@ -2710,7 +2713,9 @@ func TestSweepPendingInputs(t *testing.T) {
 	pis := make(InputsMap)
 
 	// Mock the aggregator to return the mocked input sets.
-	aggregator.On("ClusterInputs", pis).Return([]InputSet{
+	expectedDeadlineUsed := testHeight + DefaultDeadlineDelta
+	aggregator.On("ClusterInputs", pis,
+		expectedDeadlineUsed).Return([]InputSet{
 		setNeedWallet, normalSet,
 	})
 

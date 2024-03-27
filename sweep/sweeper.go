@@ -817,18 +817,13 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 		s.currentOutputScript = pkScript
 	}
 
-	// Create a default deadline height, and replace it with set's
-	// DeadlineHeight if it's set.
-	deadlineHeight := s.currentHeight + DefaultDeadlineDelta
-	deadlineHeight = set.DeadlineHeight().UnwrapOr(deadlineHeight)
-
 	// Create a fee bump request and ask the publisher to broadcast it. The
 	// publisher will then take over and start monitoring the tx for
 	// potential fee bump.
 	req := &BumpRequest{
 		Inputs:          set.Inputs(),
 		Budget:          set.Budget(),
-		DeadlineHeight:  deadlineHeight,
+		DeadlineHeight:  set.DeadlineHeight(),
 		DeliveryAddress: s.currentOutputScript,
 		MaxFeeRate:      s.cfg.MaxFeeRate.FeePerKWeight(),
 		// TODO(yy): pass the strategy here.
@@ -1554,8 +1549,12 @@ func (s *UtxoSweeper) updateSweeperInputs() InputsMap {
 // sweepPendingInputs is called when the ticker fires. It will create clusters
 // and attempt to create and publish the sweeping transactions.
 func (s *UtxoSweeper) sweepPendingInputs(inputs InputsMap) {
+	// Create a default deadline height, which will be used when there's no
+	// DeadlineHeight specified for a given input.
+	defaultDeadline := s.currentHeight + DefaultDeadlineDelta
+
 	// Cluster all of our inputs based on the specific Aggregator.
-	sets := s.cfg.Aggregator.ClusterInputs(inputs)
+	sets := s.cfg.Aggregator.ClusterInputs(inputs, defaultDeadline)
 
 	// sweepWithLock is a helper closure that executes the sweep within a
 	// coin select lock to prevent the coins being selected for other

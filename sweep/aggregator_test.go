@@ -39,6 +39,8 @@ var (
 		wire.OutPoint{Hash: chainhash.Hash{}, Index: 11}: &SweeperInput{},
 		wire.OutPoint{Hash: chainhash.Hash{}, Index: 12}: &SweeperInput{},
 	}
+
+	testHeight = int32(800000)
 )
 
 // TestMergeClusters check that we properly can merge clusters together,
@@ -740,7 +742,7 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 			tc.setupMock()
 
 			// Call the method under test.
-			result := b.createInputSets(tc.inputs)
+			result := b.createInputSets(tc.inputs, testHeight)
 
 			// Validate the expected number of input sets are
 			// returned.
@@ -899,7 +901,8 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	b := NewBudgetAggregator(estimator, DefaultMaxInputsPerTx)
 
 	// Call the method under test.
-	result := b.ClusterInputs(inputs)
+	defaultDeadline := testHeight + DefaultDeadlineDelta
+	result := b.ClusterInputs(inputs, defaultDeadline)
 
 	// We expect four input sets to be returned, one for each deadline and
 	// extra one for the exclusive input.
@@ -910,7 +913,7 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	require.Len(t, setExclusive.Inputs(), 1)
 
 	// Check the each of rest has exactly two inputs.
-	deadlines := make(map[fn.Option[int32]]struct{})
+	deadlines := make(map[int32]struct{})
 	for _, set := range result[:3] {
 		// We expect two inputs in each set.
 		require.Len(t, set.Inputs(), 2)
@@ -923,7 +926,7 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	}
 
 	// We expect to see all three deadlines.
-	require.Contains(t, deadlines, deadlineNone)
-	require.Contains(t, deadlines, deadline1)
-	require.Contains(t, deadlines, deadline2)
+	require.Contains(t, deadlines, defaultDeadline)
+	require.Contains(t, deadlines, deadline1.UnsafeFromSome())
+	require.Contains(t, deadlines, deadline2.UnsafeFromSome())
 }

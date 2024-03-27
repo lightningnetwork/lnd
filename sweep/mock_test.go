@@ -8,7 +8,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -342,8 +341,10 @@ type mockUtxoAggregator struct {
 var _ UtxoAggregator = (*mockUtxoAggregator)(nil)
 
 // ClusterInputs takes a list of inputs and groups them into clusters.
-func (m *mockUtxoAggregator) ClusterInputs(inputs InputsMap) []InputSet {
-	args := m.Called(inputs)
+func (m *mockUtxoAggregator) ClusterInputs(inputs InputsMap,
+	defaultDeadline int32) []InputSet {
+
+	args := m.Called(inputs, defaultDeadline)
 
 	return args.Get(0).([]InputSet)
 }
@@ -484,10 +485,10 @@ func (m *MockInputSet) NeedWalletInput() bool {
 }
 
 // DeadlineHeight returns the deadline height for the set.
-func (m *MockInputSet) DeadlineHeight() fn.Option[int32] {
+func (m *MockInputSet) DeadlineHeight() int32 {
 	args := m.Called()
 
-	return args.Get(0).(fn.Option[int32])
+	return args.Get(0).(int32)
 }
 
 // Budget givens the total amount that can be used as fees by this input set.

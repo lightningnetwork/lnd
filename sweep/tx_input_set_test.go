@@ -253,7 +253,7 @@ func TestNewBudgetInputSet(t *testing.T) {
 	rt := require.New(t)
 
 	// Pass an empty slice and expect an error.
-	set, err := NewBudgetInputSet([]SweeperInput{})
+	set, err := NewBudgetInputSet([]SweeperInput{}, testHeight)
 	rt.ErrorContains(err, "inputs slice is empty")
 	rt.Nil(set)
 
@@ -284,17 +284,17 @@ func TestNewBudgetInputSet(t *testing.T) {
 	}
 
 	// Pass a slice of inputs with different deadline heights.
-	set, err = NewBudgetInputSet([]SweeperInput{input1, input2})
+	set, err = NewBudgetInputSet([]SweeperInput{input1, input2}, testHeight)
 	rt.ErrorContains(err, "inputs have different deadline heights")
 	rt.Nil(set)
 
 	// Pass a slice of inputs that only one input has the deadline height.
-	set, err = NewBudgetInputSet([]SweeperInput{input0, input2})
+	set, err = NewBudgetInputSet([]SweeperInput{input0, input2}, testHeight)
 	rt.NoError(err)
 	rt.NotNil(set)
 
 	// Pass a slice of inputs that are duplicates.
-	set, err = NewBudgetInputSet([]SweeperInput{input1, input1})
+	set, err = NewBudgetInputSet([]SweeperInput{input1, input1}, testHeight)
 	rt.ErrorContains(err, "duplicate inputs")
 	rt.Nil(set)
 }
@@ -314,7 +314,7 @@ func TestBudgetInputSetAddInput(t *testing.T) {
 	}
 
 	// Initialize an input set, which adds the above input.
-	set, err := NewBudgetInputSet([]SweeperInput{*pi})
+	set, err := NewBudgetInputSet([]SweeperInput{*pi}, testHeight)
 	require.NoError(t, err)
 
 	// Add the input to the set again.
@@ -646,7 +646,7 @@ func TestAddWalletInputSuccess(t *testing.T) {
 		min, max).Return([]*lnwallet.Utxo{utxo, utxo}, nil).Once()
 
 	// Initialize an input set with the pending input.
-	set, err := NewBudgetInputSet([]SweeperInput{*pi})
+	set, err := NewBudgetInputSet([]SweeperInput{*pi}, deadline)
 	require.NoError(t, err)
 
 	// Add wallet inputs to the input set, which should give us an error as
@@ -669,7 +669,7 @@ func TestAddWalletInputSuccess(t *testing.T) {
 
 	// Finally, check the interface methods.
 	require.EqualValues(t, budget, set.Budget())
-	require.Equal(t, deadline, set.DeadlineHeight().UnsafeFromSome())
+	require.Equal(t, deadline, set.DeadlineHeight())
 	// Weak check, a strong check is to open the slice and check each item.
 	require.Len(t, set.inputs, 3)
 }

@@ -521,7 +521,7 @@ func (b *BudgetAggregator) ClusterInputs(inputs InputsMap) []InputSet {
 		// Put exclusive inputs in their own set.
 		if input.params.ExclusiveGroup != nil {
 			log.Tracef("Input %v is exclusive", input.OutPoint())
-			exclusiveInputs[*input.OutPoint()] = input
+			exclusiveInputs[input.OutPoint()] = input
 			continue
 		}
 
@@ -655,7 +655,7 @@ func (b *BudgetAggregator) filterInputs(inputs InputsMap) InputsMap {
 			}
 		}
 
-		filteredInputs[*op] = pi
+		filteredInputs[op] = pi
 	}
 
 	return filteredInputs

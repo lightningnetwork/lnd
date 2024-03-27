@@ -212,7 +212,7 @@ func prefixChainKey(sysPrefix []byte, hash *chainhash.Hash) ([]byte, error) {
 // outpoint with the provided state prefix. The returned bytes will be of the
 // form <prefix><outpoint>.
 func prefixOutputKey(statePrefix []byte,
-	outpoint *wire.OutPoint) ([]byte, error) {
+	outpoint wire.OutPoint) ([]byte, error) {
 
 	// Create a buffer to which we will first write the state prefix,
 	// followed by the outpoint.
@@ -221,7 +221,7 @@ func prefixOutputKey(statePrefix []byte,
 		return nil, err
 	}
 
-	err := writeOutpoint(&pfxOutputBuffer, outpoint)
+	err := writeOutpoint(&pfxOutputBuffer, &outpoint)
 	if err != nil {
 		return nil, err
 	}

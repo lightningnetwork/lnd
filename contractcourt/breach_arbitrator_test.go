@@ -1202,8 +1202,13 @@ func TestBreachCreateJusticeTx(t *testing.T) {
 	for i, wt := range outputTypes {
 		// Create a fake breached output for each type, ensuring they
 		// have different outpoints for our logic to accept them.
+		//
+		// NOTE: although they are fake, we need to make sure the
+		// outputs are not empty values, otherwise they will be equal
+		// to `EmptyOutPoint` and `MultiPrevOutFetcher` will return an
+		// error.
 		op := breachedOutputs[0].outpoint
-		op.Index = uint32(i)
+		op.Index = uint32(1000 + i)
 		breachedOutputs[i] = makeBreachedOutput(
 			&op,
 			wt,

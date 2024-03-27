@@ -580,10 +580,10 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 	// task's inputs() method.
 	expInputs := make(map[wire.OutPoint]input.Input)
 	if task.toLocalInput != nil {
-		expInputs[*task.toLocalInput.OutPoint()] = task.toLocalInput
+		expInputs[task.toLocalInput.OutPoint()] = task.toLocalInput
 	}
 	if task.toRemoteInput != nil {
-		expInputs[*task.toRemoteInput.OutPoint()] = task.toRemoteInput
+		expInputs[task.toRemoteInput.OutPoint()] = task.toRemoteInput
 	}
 
 	// Assert that the inputs method returns the correct slice of

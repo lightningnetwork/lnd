@@ -611,10 +611,11 @@ func (i *InvoiceStore) LookupInvoice(ctx context.Context,
 func (i *InvoiceStore) FetchPendingInvoices(ctx context.Context) (
 	map[lntypes.Hash]invpkg.Invoice, error) {
 
-	invoices := make(map[lntypes.Hash]invpkg.Invoice)
+	var invoices map[lntypes.Hash]invpkg.Invoice
 
 	readTxOpt := NewInvoiceQueryReadTx()
 	err := i.db.ExecTx(ctx, &readTxOpt, func(db InvoiceQueries) error {
+		invoices = make(map[lntypes.Hash]invpkg.Invoice)
 		limit := queryPaginationLimit
 
 		return queryWithLimit(func(offset int) (int, error) {
@@ -671,6 +672,7 @@ func (i *InvoiceStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 
 	readTxOpt := NewInvoiceQueryReadTx()
 	err := i.db.ExecTx(ctx, &readTxOpt, func(db InvoiceQueries) error {
+		invoices = nil
 		settleIdx := idx
 		limit := queryPaginationLimit
 
@@ -784,6 +786,7 @@ func (i *InvoiceStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 
 	readTxOpt := NewInvoiceQueryReadTx()
 	err := i.db.ExecTx(ctx, &readTxOpt, func(db InvoiceQueries) error {
+		result = nil
 		addIdx := idx
 		limit := queryPaginationLimit
 
@@ -840,6 +843,7 @@ func (i *InvoiceStore) QueryInvoices(ctx context.Context,
 
 	readTxOpt := NewInvoiceQueryReadTx()
 	err := i.db.ExecTx(ctx, &readTxOpt, func(db InvoiceQueries) error {
+		invoices = nil
 		limit := queryPaginationLimit
 
 		return queryWithLimit(func(offset int) (int, error) {

@@ -5,7 +5,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -123,7 +122,7 @@ func (c *inputCluster) createInputSets(maxFeeRate chainfee.SatPerKWeight,
 type UtxoAggregator interface {
 	// ClusterInputs takes a list of inputs and groups them into input
 	// sets. Each input set will be used to create a sweeping transaction.
-	ClusterInputs(InputsMap) []InputSet
+	ClusterInputs(inputs InputsMap, defaultDeadline int32) []InputSet
 }
 
 // SimpleAggregator aggregates inputs known by the Sweeper based on each
@@ -175,7 +174,7 @@ func NewSimpleUtxoAggregator(estimator chainfee.Estimator,
 // inputs known by the UtxoSweeper. It clusters inputs by
 // 1) Required tx locktime
 // 2) Similar fee rates.
-func (s *SimpleAggregator) ClusterInputs(inputs InputsMap) []InputSet {
+func (s *SimpleAggregator) ClusterInputs(inputs InputsMap, _ int32) []InputSet {
 	// We start by getting the inputs clusters by locktime. Since the
 	// inputs commit to the locktime, they can only be clustered together
 	// if the locktime is equal.
@@ -492,7 +491,7 @@ func NewBudgetAggregator(estimator chainfee.Estimator,
 }
 
 // clusterGroup defines an alias for a set of inputs that are to be grouped.
-type clusterGroup map[fn.Option[int32]][]SweeperInput
+type clusterGroup map[int32][]SweeperInput
 
 // ClusterInputs creates a list of input sets from pending inputs.
 // 1. filter out inputs whose budget cannot cover min relay fee.
@@ -502,7 +501,9 @@ type clusterGroup map[fn.Option[int32]][]SweeperInput
 // 5. optionally split a cluster if it exceeds the max input limit.
 // 6. create input sets from each of the clusters.
 // 7. create input sets for each of the exclusive inputs.
-func (b *BudgetAggregator) ClusterInputs(inputs InputsMap) []InputSet {
+func (b *BudgetAggregator) ClusterInputs(inputs InputsMap,
+	defaultDeadline int32) []InputSet {
+
 	// Filter out inputs that have a budget below min relay fee.
 	filteredInputs := b.filterInputs(inputs)
 
@@ -513,19 +514,25 @@ func (b *BudgetAggregator) ClusterInputs(inputs InputsMap) []InputSet {
 	// any cluster. These inputs can only be swept independently as there's
 	// no guarantee which input will be confirmed first, which means
 	// grouping exclusive inputs may jeopardize non-exclusive inputs.
-	exclusiveInputs := make(InputsMap)
+	exclusiveInputs := make(map[wire.OutPoint]clusterGroup)
 
 	// Iterate all the inputs and group them based on their specified
 	// deadline heights.
 	for _, input := range filteredInputs {
+		// Get deadline height, and use the specified default deadline
+		// height if it's not set.
+		height := input.params.DeadlineHeight.UnwrapOr(defaultDeadline)
+
 		// Put exclusive inputs in their own set.
 		if input.params.ExclusiveGroup != nil {
 			log.Tracef("Input %v is exclusive", input.OutPoint())
-			exclusiveInputs[input.OutPoint()] = input
+			exclusiveInputs[input.OutPoint()] = clusterGroup{
+				height: []SweeperInput{*input},
+			}
+
 			continue
 		}
 
-		height := input.params.DeadlineHeight
 		cluster, ok := clusters[height]
 		if !ok {
 			cluster = make([]SweeperInput, 0)
@@ -540,19 +547,21 @@ func (b *BudgetAggregator) ClusterInputs(inputs InputsMap) []InputSet {
 	// NOTE: cannot pre-allocate the slice since we don't know the number
 	// of input sets in advance.
 	inputSets := make([]InputSet, 0)
-	for _, cluster := range clusters {
+	for height, cluster := range clusters {
 		// Sort the inputs by their economical value.
 		sortedInputs := b.sortInputs(cluster)
 
 		// Create input sets from the cluster.
-		sets := b.createInputSets(sortedInputs)
+		sets := b.createInputSets(sortedInputs, height)
 		inputSets = append(inputSets, sets...)
 	}
 
 	// Create input sets from the exclusive inputs.
-	for _, input := range exclusiveInputs {
-		sets := b.createInputSets([]SweeperInput{*input})
-		inputSets = append(inputSets, sets...)
+	for _, cluster := range exclusiveInputs {
+		for height, input := range cluster {
+			sets := b.createInputSets(input, height)
+			inputSets = append(inputSets, sets...)
+		}
 	}
 
 	return inputSets
@@ -561,7 +570,9 @@ func (b *BudgetAggregator) ClusterInputs(inputs InputsMap) []InputSet {
 // createInputSet takes a set of inputs which share the same deadline height
 // and turns them into a list of `InputSet`, each set is then used to create a
 // sweep transaction.
-func (b *BudgetAggregator) createInputSets(inputs []SweeperInput) []InputSet {
+func (b *BudgetAggregator) createInputSets(inputs []SweeperInput,
+	deadlineHeight int32) []InputSet {
+
 	// sets holds the InputSets that we will return.
 	sets := make([]InputSet, 0)
 
@@ -576,7 +587,9 @@ func (b *BudgetAggregator) createInputSets(inputs []SweeperInput) []InputSet {
 			len(inputs), b.maxInputs)
 
 		// Create an InputSet using the max allowed number of inputs.
-		set, err := NewBudgetInputSet(inputs[:b.maxInputs])
+		set, err := NewBudgetInputSet(
+			inputs[:b.maxInputs], deadlineHeight,
+		)
 		if err != nil {
 			log.Errorf("unable to create input set: %v", err)
 			return nil
@@ -590,7 +603,9 @@ func (b *BudgetAggregator) createInputSets(inputs []SweeperInput) []InputSet {
 
 	// Create an InputSet from the remaining inputs.
 	if len(remainingInputs) > 0 {
-		set, err := NewBudgetInputSet(remainingInputs)
+		set, err := NewBudgetInputSet(
+			remainingInputs, deadlineHeight,
+		)
 		if err != nil {
 			log.Errorf("unable to create input set: %v", err)
 			return nil

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -117,7 +118,15 @@ func fuzzPayload(f *testing.F, finalPayload bool) {
 
 		r := bytes.NewReader(data)
 
-		payload1, err := NewPayloadFromReader(r, finalPayload)
+		payload1, err := NewPayloadFromReader(
+			r, finalPayload, &BlindingKit{
+				ForwardingInfo: func(*btcec.PublicKey,
+					[]byte) (*ForwardingInfo, error) {
+
+					return &ForwardingInfo{}, nil
+				},
+			},
+		)
 		if err != nil {
 			return
 		}
@@ -146,7 +155,15 @@ func fuzzPayload(f *testing.F, finalPayload bool) {
 			require.NoError(t, err)
 		}
 
-		payload2, err := NewPayloadFromReader(&b, finalPayload)
+		payload2, err := NewPayloadFromReader(
+			&b, finalPayload, &BlindingKit{
+				ForwardingInfo: func(*btcec.PublicKey,
+					[]byte) (*ForwardingInfo, error) {
+
+					return &ForwardingInfo{}, nil
+				},
+			},
+		)
 		require.NoError(t, err)
 
 		require.Equal(t, payload1, payload2)

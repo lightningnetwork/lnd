@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
@@ -371,6 +372,12 @@ type PaymentDescriptor struct {
 	// isForwarded denotes if an incoming HTLC has been forwarded to any
 	// possible upstream peers in the route.
 	isForwarded bool
+
+	// BlindingPoint is an optional ephemeral key used in route blinding.
+	// This value is set for nodes that are relaying payments inside of a
+	// blinded route (ie, not the introduction node) from update_add_htlc's
+	// TLVs.
+	BlindingPoint *btcec.PublicKey
 }
 
 // PayDescsFromRemoteLogUpdates converts a slice of LogUpdates received from the
@@ -411,6 +418,7 @@ func PayDescsFromRemoteLogUpdates(chanID lnwire.ShortChannelID, height uint64,
 					Height: height,
 					Index:  uint16(i),
 				},
+				BlindingPoint: wireMsg.BlingingPointOrNil(),
 			}
 			pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
 			copy(pd.OnionBlob[:], wireMsg.OnionBlob[:])
@@ -736,6 +744,14 @@ func (c *commitment) toDiskCommit(ourCommit bool) *channeldb.ChannelCommitment {
 			Incoming:      false,
 		}
 		copy(h.OnionBlob[:], htlc.OnionBlob)
+		if htlc.BlindingPoint != nil {
+			h.BlindingPoint = tlv.SomeRecordT(
+				//nolint:lll
+				tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](
+					htlc.BlindingPoint,
+				),
+			)
+		}
 
 		if ourCommit && htlc.sig != nil {
 			h.Signature = htlc.sig.Serialize()
@@ -760,7 +776,14 @@ func (c *commitment) toDiskCommit(ourCommit bool) *channeldb.ChannelCommitment {
 			Incoming:      true,
 		}
 		copy(h.OnionBlob[:], htlc.OnionBlob)
-
+		if htlc.BlindingPoint != nil {
+			h.BlindingPoint = tlv.SomeRecordT(
+				//nolint:lll
+				tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](
+					htlc.BlindingPoint,
+				),
+			)
+		}
 		if ourCommit && htlc.sig != nil {
 			h.Signature = htlc.sig.Serialize()
 		}
@@ -858,6 +881,12 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 		theirPkScript:      theirP2WSH,
 		theirWitnessScript: theirWitnessScript,
 	}
+
+	htlc.BlindingPoint.WhenSome(func(b tlv.RecordT[
+		lnwire.BlindingPointTlvType, *btcec.PublicKey]) {
+
+		pd.BlindingPoint = b.Val
+	})
 
 	return pd, nil
 }
@@ -1548,6 +1577,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 			HtlcIndex:             wireMsg.ID,
 			LogIndex:              logUpdate.LogIndex,
 			addCommitHeightRemote: commitHeight,
+			BlindingPoint:         wireMsg.BlingingPointOrNil(),
 		}
 		pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
 		copy(pd.OnionBlob[:], wireMsg.OnionBlob[:])
@@ -1745,6 +1775,7 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 			HtlcIndex:            wireMsg.ID,
 			LogIndex:             logUpdate.LogIndex,
 			addCommitHeightLocal: commitHeight,
+			BlindingPoint:        wireMsg.BlingingPointOrNil(),
 		}
 		pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
 		copy(pd.OnionBlob, wireMsg.OnionBlob[:])
@@ -3607,6 +3638,14 @@ func (lc *LightningChannel) createCommitDiff(
 				PaymentHash: pd.RHash,
 			}
 			copy(htlc.OnionBlob[:], pd.OnionBlob)
+			if pd.BlindingPoint != nil {
+				htlc.BlindingPoint = tlv.SomeRecordT(
+					//nolint:lll
+					tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](
+						pd.BlindingPoint,
+					),
+				)
+			}
 			logUpdate.UpdateMsg = htlc
 
 			// Gather any references for circuits opened by this Add
@@ -3736,12 +3775,21 @@ func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
 		// four messages that it corresponds to.
 		switch pd.EntryType {
 		case Add:
+			var b lnwire.BlindingPointRecord
+			if pd.BlindingPoint != nil {
+				tlv.SomeRecordT(
+					//nolint:lll
+					tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](pd.BlindingPoint),
+				)
+			}
+
 			htlc := &lnwire.UpdateAddHTLC{
-				ChanID:      chanID,
-				ID:          pd.HtlcIndex,
-				Amount:      pd.Amount,
-				Expiry:      pd.Timeout,
-				PaymentHash: pd.RHash,
+				ChanID:        chanID,
+				ID:            pd.HtlcIndex,
+				Amount:        pd.Amount,
+				Expiry:        pd.Timeout,
+				PaymentHash:   pd.RHash,
+				BlindingPoint: b,
 			}
 			copy(htlc.OnionBlob[:], pd.OnionBlob)
 			logUpdate.UpdateMsg = htlc
@@ -5742,6 +5790,14 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 				Expiry:      pd.Timeout,
 				PaymentHash: pd.RHash,
 			}
+			if pd.BlindingPoint != nil {
+				htlc.BlindingPoint = tlv.SomeRecordT(
+					//nolint:lll
+					tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](
+						pd.BlindingPoint,
+					),
+				)
+			}
 			copy(htlc.OnionBlob[:], pd.OnionBlob)
 			logUpdate.UpdateMsg = htlc
 			addUpdates = append(addUpdates, logUpdate)
@@ -6079,6 +6135,7 @@ func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
 		HtlcIndex:      lc.localUpdateLog.htlcCounter,
 		OnionBlob:      htlc.OnionBlob[:],
 		OpenCircuitKey: openKey,
+		BlindingPoint:  htlc.BlingingPointOrNil(),
 	}
 }
 
@@ -6129,13 +6186,14 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 	}
 
 	pd := &PaymentDescriptor{
-		EntryType: Add,
-		RHash:     PaymentHash(htlc.PaymentHash),
-		Timeout:   htlc.Expiry,
-		Amount:    htlc.Amount,
-		LogIndex:  lc.remoteUpdateLog.logIndex,
-		HtlcIndex: lc.remoteUpdateLog.htlcCounter,
-		OnionBlob: htlc.OnionBlob[:],
+		EntryType:     Add,
+		RHash:         PaymentHash(htlc.PaymentHash),
+		Timeout:       htlc.Expiry,
+		Amount:        htlc.Amount,
+		LogIndex:      lc.remoteUpdateLog.logIndex,
+		HtlcIndex:     lc.remoteUpdateLog.htlcCounter,
+		OnionBlob:     htlc.OnionBlob[:],
+		BlindingPoint: htlc.BlingingPointOrNil(),
 	}
 
 	localACKedIndex := lc.remoteCommitChain.tail().ourMessageIndex
@@ -6272,8 +6330,9 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 
 // FailHTLC attempts to fail a targeted HTLC by its payment hash, inserting an
 // entry which will remove the target log entry within the next commitment
-// update. This method is intended to be called in order to cancel in
-// _incoming_ HTLC.
+// update. This method is intended to be called in order to cancel an
+// incoming HTLC. The incoming HTLC's payment descriptor is returned by the
+// function call.
 //
 // The additional arguments correspond to:
 //
@@ -6296,20 +6355,20 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 // testing the wallet.
 func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte,
 	sourceRef *channeldb.AddRef, destRef *channeldb.SettleFailRef,
-	closeKey *models.CircuitKey) error {
+	closeKey *models.CircuitKey) (*PaymentDescriptor, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
 
 	htlc := lc.remoteUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
-		return ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex}
+		return nil, ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex}
 	}
 
 	// Now that we know the HTLC exists, we'll ensure that we haven't
 	// already attempted to fail the HTLC.
 	if lc.remoteUpdateLog.htlcHasModification(htlcIndex) {
-		return ErrHtlcIndexAlreadyFailed(htlcIndex)
+		return nil, ErrHtlcIndexAlreadyFailed(htlcIndex)
 	}
 
 	pd := &PaymentDescriptor{
@@ -6331,7 +6390,7 @@ func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte,
 	// duplicate fail.
 	lc.remoteUpdateLog.markHtlcModified(htlcIndex)
 
-	return nil
+	return htlc, nil
 }
 
 // MalformedFailHTLC attempts to fail a targeted HTLC by its payment hash,
@@ -6421,6 +6480,22 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
 	lc.localUpdateLog.markHtlcModified(htlcIndex)
 
 	return nil
+}
+
+// LookupBlindingPoint performs a lookup in our update log, returning the
+// blinding point associated with the htlc add (if any).
+func (lc *LightningChannel) LookupBlindingPoint(htlcIndex uint64) (
+	*btcec.PublicKey, error) {
+
+	lc.Lock()
+	defer lc.Unlock()
+
+	htlc := lc.localUpdateLog.lookupHtlc(htlcIndex)
+	if htlc == nil {
+		return nil, ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex}
+	}
+
+	return htlc.BlindingPoint, nil
 }
 
 // ChannelPoint returns the outpoint of the original funding transaction which

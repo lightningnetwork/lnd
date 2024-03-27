@@ -60,6 +60,9 @@ type Config struct {
 	// segwit witness versions for co-op closes.
 	NoAnySegwit bool
 
+	// NoRouteBlinding unsets route blinding feature bits.
+	NoRouteBlinding bool
+
 	// CustomFeatures is a set of custom features to advertise in each
 	// set.
 	CustomFeatures map[Set][]lnwire.FeatureBit
@@ -123,6 +126,8 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.PaymentAddrRequired)
 			raw.Unset(lnwire.MPPOptional)
 			raw.Unset(lnwire.MPPRequired)
+			raw.Unset(lnwire.RouteBlindingOptional)
+			raw.Unset(lnwire.RouteBlindingRequired)
 			raw.Unset(lnwire.AMPOptional)
 			raw.Unset(lnwire.AMPRequired)
 			raw.Unset(lnwire.KeysendOptional)
@@ -179,7 +184,10 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.SimpleTaprootChannelsOptionalStaging)
 			raw.Unset(lnwire.SimpleTaprootChannelsRequiredStaging)
 		}
-
+		if cfg.NoRouteBlinding {
+			raw.Unset(lnwire.RouteBlindingOptional)
+			raw.Unset(lnwire.RouteBlindingRequired)
+		}
 		for _, custom := range cfg.CustomFeatures[set] {
 			if custom > set.Maximum() {
 				return nil, fmt.Errorf("feature bit: %v "+

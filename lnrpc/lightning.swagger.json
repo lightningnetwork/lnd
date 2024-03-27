@@ -1470,6 +1470,8 @@
                 "ANCHORS_OPT",
                 "ANCHORS_ZERO_FEE_HTLC_REQ",
                 "ANCHORS_ZERO_FEE_HTLC_OPT",
+                "ROUTE_BLINDING_REQUIRED",
+                "ROUTE_BLINDING_OPTIONAL",
                 "AMP_REQ",
                 "AMP_OPT"
               ]
@@ -3523,10 +3525,10 @@
           "format": "uint64",
           "description": "The base fee for the blinded path provided, expressed in msat."
         },
-        "proportional_fee_msat": {
-          "type": "string",
-          "format": "uint64",
-          "description": "The proportional fee for the blinded path provided, expressed in msat."
+        "proportional_fee_rate": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The proportional fee for the blinded path provided, expressed in parts\nper million."
         },
         "total_cltv_delta": {
           "type": "integer",
@@ -4650,6 +4652,8 @@
         "ANCHORS_OPT",
         "ANCHORS_ZERO_FEE_HTLC_REQ",
         "ANCHORS_ZERO_FEE_HTLC_OPT",
+        "ROUTE_BLINDING_REQUIRED",
+        "ROUTE_BLINDING_OPTIONAL",
         "AMP_REQ",
         "AMP_OPT"
       ],

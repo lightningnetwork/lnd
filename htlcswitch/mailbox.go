@@ -703,6 +703,23 @@ func (m *memoryMailBox) FailAdd(pkt *htlcPacket) {
 		pkt.originalOutgoingChanID, m.cfg.shortChanID,
 	)
 
+	// Get the update add, critically failing if we have the wrong type of
+	// htlc message.
+	htlc, ok := pkt.htlc.(*lnwire.UpdateAddHTLC)
+	if !ok {
+		log.Criticalf("fail add packet with htlc: %T", pkt.htlc)
+		return
+	}
+
+	// If we had a blinding point set in the update, it is a part of a
+	// blinded route so we switch out the temporary channel failure for
+	// a more vague invalid onion blinding error. We may be the
+	// introduction point _or_ a relaying node, because either would be
+	// expected to set a blinding point for the outgoing HTLC.
+	if htlc.BlindingPoint.IsSome() {
+		failure = lnwire.NewInvalidBlinding(htlc.OnionBlob[:])
+	}
+
 	// If the payment was locally initiated (which is indicated by a nil
 	// obfuscator), we do not need to encrypt it back to the sender.
 	if pkt.obfuscator == nil {

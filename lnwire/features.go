@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
@@ -138,6 +140,14 @@ const (
 	// that the node supports channels having zero-fee second-level HTLC
 	// transactions, which also imply anchor commitments.
 	AnchorsZeroFeeHtlcTxOptional FeatureBit = 23
+
+	// RouteBlindingRequired is a required feature bit that signals that
+	// the node supports blinded payments.
+	RouteBlindingRequired FeatureBit = 24
+
+	// RouteBlindingOptional is an optional feature bit that signals that
+	// the node supports blinded payments.
+	RouteBlindingOptional FeatureBit = 25
 
 	// ShutdownAnySegwitRequired is an required feature bit that signals
 	// that the sender is able to properly handle/parse segwit witness
@@ -313,6 +323,8 @@ var Features = map[FeatureBit]string{
 	ScidAliasOptional:                    "scid-alias",
 	ZeroConfRequired:                     "zero-conf",
 	ZeroConfOptional:                     "zero-conf",
+	RouteBlindingRequired:                "route-blinding",
+	RouteBlindingOptional:                "route-blinding",
 	ShutdownAnySegwitRequired:            "shutdown-any-segwit",
 	ShutdownAnySegwitOptional:            "shutdown-any-segwit",
 	SimpleTaprootChannelsRequiredFinal:   "simple-taproot-chans",
@@ -612,6 +624,41 @@ func (fv *RawFeatureVector) decode(r io.Reader, length, width int) error {
 	return nil
 }
 
+// sizeFunc returns the length required to encode the feature vector.
+func (fv *RawFeatureVector) sizeFunc() uint64 {
+	return uint64(fv.SerializeSize())
+}
+
+// Record returns a TLV record that can be used to encode/decode raw feature
+// vectors. Note that the length of the feature vector is not included, because
+// it is covered by the TLV record's length field.
+func (fv *RawFeatureVector) Record(recordType tlv.Type) tlv.Record {
+	return tlv.MakeDynamicRecord(
+		recordType, fv, fv.sizeFunc, rawFeatureEncoder,
+		rawFeatureDecoder,
+	)
+}
+
+// rawFeatureEncoder is a custom TLV encoder for raw feature vectors.
+func rawFeatureEncoder(w io.Writer, val interface{}, _ *[8]byte) error {
+	if f, ok := val.(*RawFeatureVector); ok {
+		return f.encode(w, f.SerializeSize(), 8)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "*lnwire.RawFeatureVector")
+}
+
+// rawFeatureDecoder is a custom TLV decoder for raw feature vectors.
+func rawFeatureDecoder(r io.Reader, val interface{}, _ *[8]byte,
+	l uint64) error {
+
+	if f, ok := val.(*RawFeatureVector); ok {
+		return f.decode(r, int(l), 8)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "*lnwire.RawFeatureVector")
+}
+
 // FeatureVector represents a set of enabled features. The set stores
 // information on enabled flags and metadata about the feature names. A feature
 // vector is serializable to a compact byte representation that is included in
@@ -639,6 +686,50 @@ func NewFeatureVector(featureVector *RawFeatureVector,
 // EmptyFeatureVector returns a feature vector with no bits set.
 func EmptyFeatureVector() *FeatureVector {
 	return NewFeatureVector(nil, Features)
+}
+
+// Record implements the RecordProducer interface for FeatureVector. Note that
+// it uses a zero-value type is used to produce the record, as we expect this
+// type value to be overwritten when used in generic TLV record production.
+// This allows a single Record function to serve in the many different contexts
+// in which feature vectors are encoded. This record wraps the encoding/
+// decoding for our raw feature vectors so that we can directly parse fully
+// formed feature vector types.
+func (fv *FeatureVector) Record() tlv.Record {
+	return tlv.MakeDynamicRecord(0, fv, fv.sizeFunc,
+		func(w io.Writer, val interface{}, buf *[8]byte) error {
+			if f, ok := val.(*FeatureVector); ok {
+				return rawFeatureEncoder(
+					w, f.RawFeatureVector, buf,
+				)
+			}
+
+			return tlv.NewTypeForEncodingErr(
+				val, "*lnwire.FeatureVector",
+			)
+		},
+		func(r io.Reader, val interface{}, buf *[8]byte,
+			l uint64) error {
+
+			if f, ok := val.(*FeatureVector); ok {
+				features := NewFeatureVector(nil, Features)
+				err := rawFeatureDecoder(
+					r, features.RawFeatureVector, buf, l,
+				)
+				if err != nil {
+					return err
+				}
+
+				*f = *features
+
+				return nil
+			}
+
+			return tlv.NewTypeForDecodingErr(
+				val, "*lnwire.FeatureVector", l, l,
+			)
+		},
+	)
 }
 
 // HasFeature returns whether a particular feature is included in the set. The
@@ -676,6 +767,18 @@ func (fv *FeatureVector) UnknownRequiredFeatures() []FeatureBit {
 		}
 	}
 	return unknown
+}
+
+// UnknownFeatures returns a boolean if a feature vector contains *any*
+// unknown features (even if they are odd).
+func (fv *FeatureVector) UnknownFeatures() bool {
+	for feature := range fv.features {
+		if !fv.IsKnown(feature) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Name returns a string identifier for the feature represented by this bit. If

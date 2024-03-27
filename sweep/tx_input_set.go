@@ -568,7 +568,7 @@ func validateInputs(inputs []SweeperInput) error {
 	}
 
 	// dedupInputs is a map used to track unique outpoints of the inputs.
-	dedupInputs := make(map[*wire.OutPoint]struct{})
+	dedupInputs := make(map[wire.OutPoint]struct{})
 
 	// deadlineSet stores unique deadline heights.
 	deadlineSet := make(map[fn.Option[int32]]struct{})

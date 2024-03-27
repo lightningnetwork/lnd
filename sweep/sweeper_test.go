@@ -264,7 +264,7 @@ func (ctx *sweeperTestContext) assertPendingInputs(inputs ...input.Input) {
 
 	inputSet := make(map[wire.OutPoint]struct{}, len(inputs))
 	for _, input := range inputs {
-		inputSet[*input.OutPoint()] = struct{}{}
+		inputSet[input.OutPoint()] = struct{}{}
 	}
 
 	inputsMap, err := ctx.sweeper.PendingInputs()
@@ -295,7 +295,7 @@ func assertTxSweepsInputs(t *testing.T, sweepTx *wire.MsgTx,
 	}
 	m := make(map[wire.OutPoint]struct{}, len(inputs))
 	for _, input := range inputs {
-		m[*input.OutPoint()] = struct{}{}
+		m[input.OutPoint()] = struct{}{}
 	}
 	for _, txIn := range sweepTx.TxIn {
 		if _, ok := m[txIn.PreviousOutPoint]; !ok {
@@ -322,7 +322,7 @@ func assertTxFeeRate(t *testing.T, tx *wire.MsgTx,
 
 	m := make(map[wire.OutPoint]input.Input, len(inputs))
 	for _, input := range inputs {
-		m[*input.OutPoint()] = input
+		m[input.OutPoint()] = input
 	}
 
 	var inputAmt int64
@@ -387,7 +387,7 @@ func TestSuccess(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{{
-				PreviousOutPoint: *inp.OutPoint(),
+				PreviousOutPoint: inp.OutPoint(),
 			}},
 		}
 
@@ -473,8 +473,8 @@ func TestDust(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *largeInput.OutPoint()},
-				{PreviousOutPoint: *dustInput.OutPoint()},
+				{PreviousOutPoint: largeInput.OutPoint()},
+				{PreviousOutPoint: dustInput.OutPoint()},
 			},
 		}
 
@@ -541,7 +541,7 @@ func TestWalletUtxo(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *dustInput.OutPoint()},
+				{PreviousOutPoint: dustInput.OutPoint()},
 			},
 		}
 
@@ -615,8 +615,8 @@ func TestNegativeInput(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *largeInput.OutPoint()},
-				{PreviousOutPoint: *positiveInput.OutPoint()},
+				{PreviousOutPoint: largeInput.OutPoint()},
+				{PreviousOutPoint: positiveInput.OutPoint()},
 			},
 		}
 
@@ -675,9 +675,8 @@ func TestNegativeInput(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *negInput.OutPoint()},
-				{PreviousOutPoint: *secondLargeInput.
-					OutPoint()},
+				{PreviousOutPoint: negInput.OutPoint()},
+				{PreviousOutPoint: secondLargeInput.OutPoint()},
 			},
 		}
 
@@ -735,9 +734,9 @@ func TestChunks(t *testing.T) {
 		//nolint:lll
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *spendableInputs[0].OutPoint()},
-				{PreviousOutPoint: *spendableInputs[1].OutPoint()},
-				{PreviousOutPoint: *spendableInputs[2].OutPoint()},
+				{PreviousOutPoint: spendableInputs[0].OutPoint()},
+				{PreviousOutPoint: spendableInputs[1].OutPoint()},
+				{PreviousOutPoint: spendableInputs[2].OutPoint()},
 			},
 		}
 
@@ -764,8 +763,8 @@ func TestChunks(t *testing.T) {
 		//nolint:lll
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *spendableInputs[3].OutPoint()},
-				{PreviousOutPoint: *spendableInputs[4].OutPoint()},
+				{PreviousOutPoint: spendableInputs[3].OutPoint()},
+				{PreviousOutPoint: spendableInputs[4].OutPoint()},
 			},
 		}
 
@@ -838,7 +837,7 @@ func testRemoteSpend(t *testing.T, postSweep bool) {
 	// will be spent by the remote.
 	tx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
-			{PreviousOutPoint: *spendableInputs[1].OutPoint()},
+			{PreviousOutPoint: spendableInputs[1].OutPoint()},
 		},
 	}
 
@@ -874,7 +873,7 @@ func testRemoteSpend(t *testing.T, postSweep bool) {
 	// Spend the input with an unknown tx.
 	remoteTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
-			{PreviousOutPoint: *(spendableInputs[0].OutPoint())},
+			{PreviousOutPoint: spendableInputs[0].OutPoint()},
 		},
 	}
 	err = ctx.backend.publishTransaction(remoteTx)
@@ -954,7 +953,7 @@ func TestIdempotency(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *input.OutPoint()},
+				{PreviousOutPoint: input.OutPoint()},
 			},
 		}
 
@@ -1039,7 +1038,7 @@ func TestRestart(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *input1.OutPoint()},
+				{PreviousOutPoint: input1.OutPoint()},
 			},
 		}
 
@@ -1082,7 +1081,7 @@ func TestRestart(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *input2.OutPoint()},
+				{PreviousOutPoint: input2.OutPoint()},
 			},
 		}
 
@@ -1170,7 +1169,7 @@ func TestRestartRemoteSpend(t *testing.T) {
 	// will be spent by the remote.
 	tx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
-			{PreviousOutPoint: *input2.OutPoint()},
+			{PreviousOutPoint: input2.OutPoint()},
 		},
 	}
 
@@ -1213,7 +1212,7 @@ func TestRestartRemoteSpend(t *testing.T) {
 
 	remoteTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
-			{PreviousOutPoint: *input1.OutPoint()},
+			{PreviousOutPoint: input1.OutPoint()},
 		},
 	}
 	err = ctx.backend.publishTransaction(remoteTx)
@@ -1280,7 +1279,7 @@ func TestRestartConfirmed(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *input.OutPoint()},
+				{PreviousOutPoint: input.OutPoint()},
 			},
 		}
 
@@ -1349,7 +1348,7 @@ func TestRetry(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *inp0.OutPoint()},
+				{PreviousOutPoint: inp0.OutPoint()},
 			},
 		}
 
@@ -1384,7 +1383,7 @@ func TestRetry(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *inp1.OutPoint()},
+				{PreviousOutPoint: inp1.OutPoint()},
 			},
 		}
 
@@ -1464,8 +1463,8 @@ func TestDifferentFeePreferences(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *input1.OutPoint()},
-				{PreviousOutPoint: *input2.OutPoint()},
+				{PreviousOutPoint: input1.OutPoint()},
+				{PreviousOutPoint: input2.OutPoint()},
 			},
 		}
 
@@ -1491,7 +1490,7 @@ func TestDifferentFeePreferences(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *input3.OutPoint()},
+				{PreviousOutPoint: input3.OutPoint()},
 			},
 		}
 
@@ -1596,8 +1595,8 @@ func TestPendingInputs(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *input1.OutPoint()},
-				{PreviousOutPoint: *input2.OutPoint()},
+				{PreviousOutPoint: input1.OutPoint()},
+				{PreviousOutPoint: input2.OutPoint()},
 			},
 		}
 
@@ -1623,7 +1622,7 @@ func TestPendingInputs(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *input3.OutPoint()},
+				{PreviousOutPoint: input3.OutPoint()},
 			},
 		}
 
@@ -1707,7 +1706,7 @@ func TestExclusiveGroup(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *input1.OutPoint()},
+				{PreviousOutPoint: input1.OutPoint()},
 			},
 		}
 
@@ -1733,7 +1732,7 @@ func TestExclusiveGroup(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *input2.OutPoint()},
+				{PreviousOutPoint: input2.OutPoint()},
 			},
 		}
 
@@ -1759,7 +1758,7 @@ func TestExclusiveGroup(t *testing.T) {
 		// Create a fake sweep tx.
 		tx := &wire.MsgTx{
 			TxIn: []*wire.TxIn{
-				{PreviousOutPoint: *input3.OutPoint()},
+				{PreviousOutPoint: input3.OutPoint()},
 			},
 		}
 
@@ -1954,7 +1953,7 @@ func TestLockTimes(t *testing.T) {
 		}
 
 		op := inp.OutPoint()
-		inputs[*op] = inp
+		inputs[op] = inp
 
 		cluster, ok := clusters[lt]
 		if !ok {
@@ -1966,7 +1965,7 @@ func TestLockTimes(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		inp := spendableInputs[i+numSweeps*2]
-		inputs[*inp.OutPoint()] = inp
+		inputs[inp.OutPoint()] = inp
 
 		lt := uint32(10 + (i % numSweeps))
 		clusters[lt] = append(clusters[lt], inp)
@@ -1982,7 +1981,7 @@ func TestLockTimes(t *testing.T) {
 		// Append the inputs.
 		for _, inp := range cluster {
 			txIn := &wire.TxIn{
-				PreviousOutPoint: *inp.OutPoint(),
+				PreviousOutPoint: inp.OutPoint(),
 			}
 			tx.TxIn = append(tx.TxIn, txIn)
 		}
@@ -2137,15 +2136,15 @@ func TestMarkInputsPendingPublish(t *testing.T) {
 	inputNotExist := &input.MockInput{}
 	defer inputNotExist.AssertExpectations(t)
 
-	inputNotExist.On("OutPoint").Return(&wire.OutPoint{Index: 0})
+	inputNotExist.On("OutPoint").Return(wire.OutPoint{Index: 0})
 
 	// inputInit specifies a newly created input.
 	inputInit := &input.MockInput{}
 	defer inputInit.AssertExpectations(t)
 
-	inputInit.On("OutPoint").Return(&wire.OutPoint{Index: 1})
+	inputInit.On("OutPoint").Return(wire.OutPoint{Index: 1})
 
-	s.inputs[*inputInit.OutPoint()] = &SweeperInput{
+	s.inputs[inputInit.OutPoint()] = &SweeperInput{
 		state: Init,
 	}
 
@@ -2153,9 +2152,9 @@ func TestMarkInputsPendingPublish(t *testing.T) {
 	inputPendingPublish := &input.MockInput{}
 	defer inputPendingPublish.AssertExpectations(t)
 
-	inputPendingPublish.On("OutPoint").Return(&wire.OutPoint{Index: 2})
+	inputPendingPublish.On("OutPoint").Return(wire.OutPoint{Index: 2})
 
-	s.inputs[*inputPendingPublish.OutPoint()] = &SweeperInput{
+	s.inputs[inputPendingPublish.OutPoint()] = &SweeperInput{
 		state: PendingPublish,
 	}
 
@@ -2163,9 +2162,9 @@ func TestMarkInputsPendingPublish(t *testing.T) {
 	inputTerminated := &input.MockInput{}
 	defer inputTerminated.AssertExpectations(t)
 
-	inputTerminated.On("OutPoint").Return(&wire.OutPoint{Index: 3})
+	inputTerminated.On("OutPoint").Return(wire.OutPoint{Index: 3})
 
-	s.inputs[*inputTerminated.OutPoint()] = &SweeperInput{
+	s.inputs[inputTerminated.OutPoint()] = &SweeperInput{
 		state: Excluded,
 	}
 
@@ -2181,16 +2180,14 @@ func TestMarkInputsPendingPublish(t *testing.T) {
 	require.Len(s.inputs, 3)
 
 	// We expect the init input's state to become pending publish.
-	require.Equal(PendingPublish,
-		s.inputs[*inputInit.OutPoint()].state)
+	require.Equal(PendingPublish, s.inputs[inputInit.OutPoint()].state)
 
 	// We expect the pending-publish to stay unchanged.
 	require.Equal(PendingPublish,
-		s.inputs[*inputPendingPublish.OutPoint()].state)
+		s.inputs[inputPendingPublish.OutPoint()].state)
 
 	// We expect the terminated to stay unchanged.
-	require.Equal(Excluded,
-		s.inputs[*inputTerminated.OutPoint()].state)
+	require.Equal(Excluded, s.inputs[inputTerminated.OutPoint()].state)
 }
 
 // TestMarkInputsPublished checks that given a list of inputs with different
@@ -2355,7 +2352,7 @@ func TestMarkInputsSwept(t *testing.T) {
 	defer mockInput.AssertExpectations(t)
 
 	// Mock the `OutPoint` to return a dummy outpoint.
-	mockInput.On("OutPoint").Return(&wire.OutPoint{Hash: chainhash.Hash{1}})
+	mockInput.On("OutPoint").Return(wire.OutPoint{Hash: chainhash.Hash{1}})
 
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{})
@@ -2639,7 +2636,7 @@ func TestMarkInputFailed(t *testing.T) {
 	defer mockInput.AssertExpectations(t)
 
 	// Mock the `OutPoint` to return a dummy outpoint.
-	mockInput.On("OutPoint").Return(&wire.OutPoint{Hash: chainhash.Hash{1}})
+	mockInput.On("OutPoint").Return(wire.OutPoint{Hash: chainhash.Hash{1}})
 
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{})

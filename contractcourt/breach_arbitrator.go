@@ -1102,8 +1102,8 @@ func (bo *breachedOutput) Amount() btcutil.Amount {
 
 // OutPoint returns the breached output's identifier that is to be included as a
 // transaction input.
-func (bo *breachedOutput) OutPoint() *wire.OutPoint {
-	return &bo.outpoint
+func (bo *breachedOutput) OutPoint() wire.OutPoint {
+	return bo.outpoint
 }
 
 // RequiredTxOut returns a non-nil TxOut if input commits to a certain
@@ -1547,7 +1547,7 @@ func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight int64,
 	// transaction.
 	for _, inp := range inputs {
 		txn.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: *inp.OutPoint(),
+			PreviousOutPoint: inp.OutPoint(),
 			Sequence:         inp.BlocksToMaturity(),
 		})
 	}
@@ -1641,7 +1641,7 @@ func taprootBriefcaseFromRetInfo(retInfo *retributionInfo) *taprootBriefcase {
 		case input.TaprootHtlcAcceptedRevoke:
 			fallthrough
 		case input.TaprootHtlcOfferedRevoke:
-			resID := newResolverID(*bo.OutPoint())
+			resID := newResolverID(bo.OutPoint())
 
 			var firstLevelTweak [32]byte
 			copy(firstLevelTweak[:], bo.signDesc.TapTweak)
@@ -1684,7 +1684,7 @@ func applyTaprootRetInfo(tapCase *taprootBriefcase,
 		case input.TaprootHtlcAcceptedRevoke:
 			fallthrough
 		case input.TaprootHtlcOfferedRevoke:
-			resID := newResolverID(*bo.OutPoint())
+			resID := newResolverID(bo.OutPoint())
 
 			tap1, ok := tapCase.TapTweaks.BreachedHtlcTweaks[resID]
 			if !ok {

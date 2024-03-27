@@ -1134,7 +1134,7 @@ func (c *ContractMaturityReport) AddLimboStage1TimeoutHtlc(baby *babyOutput) {
 
 	// TODO(roasbeef): bool to indicate stage 1 vs stage 2?
 	c.Htlcs = append(c.Htlcs, HtlcMaturityReport{
-		Outpoint:       *baby.OutPoint(),
+		Outpoint:       baby.OutPoint(),
 		Amount:         baby.Amount(),
 		MaturityHeight: baby.expiry,
 		Stage:          1,
@@ -1148,7 +1148,7 @@ func (c *ContractMaturityReport) AddLimboDirectHtlc(kid *kidOutput) {
 	c.LimboBalance += kid.Amount()
 
 	htlcReport := HtlcMaturityReport{
-		Outpoint:       *kid.OutPoint(),
+		Outpoint:       kid.OutPoint(),
 		Amount:         kid.Amount(),
 		MaturityHeight: kid.absoluteMaturity,
 		Stage:          2,
@@ -1164,7 +1164,7 @@ func (c *ContractMaturityReport) AddLimboStage1SuccessHtlc(kid *kidOutput) {
 	c.LimboBalance += kid.Amount()
 
 	c.Htlcs = append(c.Htlcs, HtlcMaturityReport{
-		Outpoint: *kid.OutPoint(),
+		Outpoint: kid.OutPoint(),
 		Amount:   kid.Amount(),
 		Stage:    1,
 	})
@@ -1176,7 +1176,7 @@ func (c *ContractMaturityReport) AddLimboStage2Htlc(kid *kidOutput) {
 	c.LimboBalance += kid.Amount()
 
 	htlcReport := HtlcMaturityReport{
-		Outpoint: *kid.OutPoint(),
+		Outpoint: kid.OutPoint(),
 		Amount:   kid.Amount(),
 		Stage:    2,
 	}
@@ -1197,7 +1197,7 @@ func (c *ContractMaturityReport) AddRecoveredHtlc(kid *kidOutput) {
 	c.RecoveredBalance += kid.Amount()
 
 	c.Htlcs = append(c.Htlcs, HtlcMaturityReport{
-		Outpoint:       *kid.OutPoint(),
+		Outpoint:       kid.OutPoint(),
 		Amount:         kid.Amount(),
 		MaturityHeight: kid.ConfHeight() + kid.BlocksToMaturity(),
 	})
@@ -1421,7 +1421,8 @@ func (k *kidOutput) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := writeOutpoint(w, k.OutPoint()); err != nil {
+	op := k.OutPoint()
+	if err := writeOutpoint(w, &op); err != nil {
 		return err
 	}
 	if err := writeOutpoint(w, k.OriginChanPoint()); err != nil {

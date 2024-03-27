@@ -23,15 +23,11 @@ var _ Input = (*MockInput)(nil)
 
 // Outpoint returns the reference to the output being spent, used to construct
 // the corresponding transaction input.
-func (m *MockInput) OutPoint() *wire.OutPoint {
+func (m *MockInput) OutPoint() wire.OutPoint {
 	args := m.Called()
 	op := args.Get(0)
 
-	if op == nil {
-		return nil
-	}
-
-	return op.(*wire.OutPoint)
+	return op.(wire.OutPoint)
 }
 
 // RequiredTxOut returns a non-nil TxOut if input commits to a certain

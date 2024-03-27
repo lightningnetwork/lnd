@@ -1030,7 +1030,7 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 				resolver := ctx.resolver.(*htlcTimeoutResolver)
 				inp := <-resolver.Sweeper.(*mockSweeper).sweptInputs
 				op := inp.OutPoint()
-				if *op != commitOutpoint {
+				if op != commitOutpoint {
 					return fmt.Errorf("outpoint %v swept, "+
 						"expected %v", op,
 						commitOutpoint)
@@ -1095,7 +1095,7 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 					Hash:  reSignedHash,
 					Index: 1,
 				}
-				if *op != exp {
+				if op != exp {
 					return fmt.Errorf("wrong outpoint swept")
 				}
 
@@ -1205,7 +1205,7 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 				resolver := ctx.resolver.(*htlcTimeoutResolver)
 				inp := <-resolver.Sweeper.(*mockSweeper).sweptInputs
 				op := inp.OutPoint()
-				if *op != commitOutpoint {
+				if op != commitOutpoint {
 					return fmt.Errorf("outpoint %v swept, "+
 						"expected %v", op,
 						commitOutpoint)

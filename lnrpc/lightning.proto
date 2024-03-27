@@ -3545,8 +3545,11 @@ message BlindedPaymentPath {
     // The base fee for the blinded path provided, expressed in msat.
     uint64 base_fee_msat = 2;
 
-    // The proportional fee for the blinded path provided, expressed in msat.
-    uint64 proportional_fee_msat = 3;
+    /*
+    The proportional fee for the blinded path provided, expressed in parts
+    per million.
+    */
+    uint32 proportional_fee_rate = 3;
 
     /*
     The total CLTV delta for the blinded path provided, including the

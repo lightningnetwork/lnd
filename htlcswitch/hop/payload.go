@@ -28,6 +28,10 @@ const (
 	// RequiredViolation indicates that an unknown even type was found in
 	// the payload that we could not process.
 	RequiredViolation
+
+	// InsufficientViolation indicates that the provided type does
+	// not satisfy constraints.
+	InsufficientViolation
 )
 
 // String returns a human-readable description of the violation as a verb.
@@ -41,6 +45,9 @@ func (v PayloadViolation) String() string {
 
 	case RequiredViolation:
 		return "required"
+
+	case InsufficientViolation:
+		return "insufficient"
 
 	default:
 		return "unknown violation"
@@ -406,6 +413,73 @@ func getMinRequiredViolation(set tlv.TypeMap) *tlv.Type {
 
 	if requiredViolation {
 		return &minRequiredViolationType
+	}
+
+	return nil
+}
+
+// ValidateBlindedRouteData performs the additional validation that is
+// required for payments that rely on data provided in an encrypted blob to
+// be forwarded. We enforce the blinded route's maximum expiry height so that
+// the route "expires" and a malicious party does not have endless opportunity
+// to probe the blinded route and compare it to updated channel policies in
+// the network.
+//
+// Note that this function only validates blinded route data for forwarding
+// nodes, as LND does not yet support receiving via a blinded route (which has
+// different validation rules).
+func ValidateBlindedRouteData(blindedData *record.BlindedRouteData,
+	incomingAmount lnwire.MilliSatoshi, incomingTimelock uint32) error {
+
+	// Bolt 04 notes that we should enforce payment constraints _if_ they
+	// are present, so we do not fail if not provided.
+	var err error
+	blindedData.Constraints.WhenSome(
+		func(c tlv.RecordT[tlv.TlvType12, record.PaymentConstraints]) {
+			// MUST fail if the expiry is greater than
+			// max_cltv_expiry.
+			if incomingTimelock > c.Val.MaxCltvExpiry {
+				err = ErrInvalidPayload{
+					Type:      record.LockTimeOnionType,
+					Violation: InsufficientViolation,
+				}
+			}
+
+			// MUST fail if the amount is below htlc_minimum_msat.
+			if incomingAmount < c.Val.HtlcMinimumMsat {
+				err = ErrInvalidPayload{
+					Type:      record.AmtOnionType,
+					Violation: InsufficientViolation,
+				}
+			}
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	// Fail if we don't understand any features (even or odd), because we
+	// expect the features to have been set from our announcement. If the
+	// feature vector TLV is not included, it's interpreted as an empty
+	// vector (no validation required).
+	// expect the features to have been set from our announcement.
+	//
+	// Note that we do not yet check the features that the blinded payment
+	// is using against our own features, because there are currently no
+	// payment-related features that they utilize other than tlv-onion,
+	// which is implicitly supported.
+	blindedData.Features.WhenSome(
+		func(f tlv.RecordT[tlv.TlvType14, lnwire.FeatureVector]) {
+			if f.Val.UnknownFeatures() {
+				err = ErrInvalidPayload{
+					Type:      14,
+					Violation: IncludedViolation,
+				}
+			}
+		},
+	)
+	if err != nil {
+		return err
 	}
 
 	return nil

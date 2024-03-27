@@ -121,12 +121,12 @@ func TestBlindedPaymentToHints(t *testing.T) {
 				{},
 			},
 		},
-		BaseFee:         baseFee,
-		ProportionalFee: ppmFee,
-		CltvExpiryDelta: cltvDelta,
-		HtlcMinimum:     htlcMin,
-		HtlcMaximum:     htlcMax,
-		Features:        features,
+		BaseFee:             baseFee,
+		ProportionalFeeRate: ppmFee,
+		CltvExpiryDelta:     cltvDelta,
+		HtlcMinimum:         htlcMin,
+		HtlcMaximum:         htlcMax,
+		Features:            features,
 	}
 	require.Nil(t, blindedPayment.toRouteHints())
 

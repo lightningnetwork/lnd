@@ -147,67 +147,30 @@ func (p *OnionProcessor) Stop() error {
 	return nil
 }
 
-// DecodeHopIterator attempts to decode a valid sphinx packet from the passed io.Reader
-// instance using the rHash as the associated data when checking the relevant
-// MACs during the decoding process.
-func (p *OnionProcessor) DecodeHopIterator(r io.Reader, rHash []byte,
-	incomingCltv uint32) (Iterator, lnwire.FailCode) {
-
-	onionPkt := &sphinx.OnionPacket{}
-	if err := onionPkt.Decode(r); err != nil {
-		switch err {
-		case sphinx.ErrInvalidOnionVersion:
-			return nil, lnwire.CodeInvalidOnionVersion
-		case sphinx.ErrInvalidOnionKey:
-			return nil, lnwire.CodeInvalidOnionKey
-		default:
-			log.Errorf("unable to decode onion packet: %v", err)
-			return nil, lnwire.CodeInvalidOnionKey
-		}
-	}
-
-	// Attempt to process the Sphinx packet. We include the payment hash of
-	// the HTLC as it's authenticated within the Sphinx packet itself as
-	// associated data in order to thwart attempts a replay attacks. In the
-	// case of a replay, an attacker is *forced* to use the same payment
-	// hash twice, thereby losing their money entirely.
-	sphinxPacket, err := p.router.ProcessOnionPacket(
-		onionPkt, rHash, incomingCltv,
-	)
-	if err != nil {
-		switch err {
-		case sphinx.ErrInvalidOnionVersion:
-			return nil, lnwire.CodeInvalidOnionVersion
-		case sphinx.ErrInvalidOnionHMAC:
-			return nil, lnwire.CodeInvalidOnionHmac
-		case sphinx.ErrInvalidOnionKey:
-			return nil, lnwire.CodeInvalidOnionKey
-		default:
-			log.Errorf("unable to process onion packet: %v", err)
-			return nil, lnwire.CodeInvalidOnionKey
-		}
-	}
-
-	return makeSphinxHopIterator(onionPkt, sphinxPacket), lnwire.CodeNone
-}
-
 // ReconstructHopIterator attempts to decode a valid sphinx packet from the passed io.Reader
 // instance using the rHash as the associated data when checking the relevant
 // MACs during the decoding process.
-func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte) (
-	Iterator, error) {
+func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte,
+	blindingPoint *btcec.PublicKey) (Iterator, error) {
 
 	onionPkt := &sphinx.OnionPacket{}
 	if err := onionPkt.Decode(r); err != nil {
 		return nil, err
 	}
 
+	var opts []sphinx.ProcessOnionOpt
+	if blindingPoint != nil {
+		opts = append(opts, sphinx.WithBlindingPoint(blindingPoint))
+	}
+
 	// Attempt to process the Sphinx packet. We include the payment hash of
 	// the HTLC as it's authenticated within the Sphinx packet itself as
 	// associated data in order to thwart attempts a replay attacks. In the
 	// case of a replay, an attacker is *forced* to use the same payment
 	// hash twice, thereby losing their money entirely.
-	sphinxPacket, err := p.router.ReconstructOnionPacket(onionPkt, rHash)
+	sphinxPacket, err := p.router.ReconstructOnionPacket(
+		onionPkt, rHash, opts...,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -219,9 +182,11 @@ func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte) (
 // packet, perform sphinx replay detection, and schedule the entry for garbage
 // collection.
 type DecodeHopIteratorRequest struct {
-	OnionReader  io.Reader
-	RHash        []byte
-	IncomingCltv uint32
+	OnionReader    io.Reader
+	RHash          []byte
+	IncomingCltv   uint32
+	IncomingAmount lnwire.MilliSatoshi
+	BlindingPoint  *btcec.PublicKey
 }
 
 // DecodeHopIteratorResponse encapsulates the outcome of a batched sphinx onion
@@ -277,8 +242,15 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 			return lnwire.CodeInvalidOnionKey
 		}
 
+		var opts []sphinx.ProcessOnionOpt
+		if req.BlindingPoint != nil {
+			opts = append(opts, sphinx.WithBlindingPoint(
+				req.BlindingPoint,
+			))
+		}
+
 		err = tx.ProcessOnionPacket(
-			seqNum, onionPkt, req.RHash, req.IncomingCltv,
+			seqNum, onionPkt, req.RHash, req.IncomingCltv, opts...,
 		)
 		switch err {
 		case nil:

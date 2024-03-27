@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -40,7 +41,8 @@ type Registry interface {
 type OnionProcessor interface {
 	// ReconstructHopIterator attempts to decode a valid sphinx packet from
 	// the passed io.Reader instance.
-	ReconstructHopIterator(r io.Reader, rHash []byte) (hop.Iterator, error)
+	ReconstructHopIterator(r io.Reader, rHash []byte,
+		blindingKey *btcec.PublicKey) (hop.Iterator, error)
 }
 
 // UtxoSweeper defines the sweep functions that contract court requires.

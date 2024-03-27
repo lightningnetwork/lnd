@@ -535,6 +535,13 @@ func (r *ChannelRouter) Start() error {
 		return nil
 	}
 
+	defer func() {
+		if err := recover(); err != nil {
+			log.Errorf("Channel Router failed to start: %v", err)
+			close(r.quit)
+		}
+	}()
+
 	log.Info("Channel Router starting")
 
 	bestHash, bestHeight, err := r.cfg.Chain.GetBestBlock()

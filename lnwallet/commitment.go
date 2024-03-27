@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -237,6 +238,7 @@ func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
 	case chanType.IsTaproot():
 		return input.NewLocalCommitScriptTree(
 			csvDelay, selfKey, revokeKey,
+			fn.None[txscript.TapLeaf](),
 		)
 
 	// If we are the initiator of a leased channel, then we have an
@@ -320,7 +322,7 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 	// with the sole tap leaf enforcing the 1 CSV delay.
 	case chanType.IsTaproot():
 		toRemoteScriptTree, err := input.NewRemoteCommitScriptTree(
-			remoteKey,
+			remoteKey, fn.None[txscript.TapLeaf](),
 		)
 		if err != nil {
 			return nil, 0, err
@@ -427,6 +429,7 @@ func SecondLevelHtlcScript(chanType channeldb.ChannelType, initiator bool,
 	case chanType.IsTaproot():
 		return input.TaprootSecondLevelScriptTree(
 			revocationKey, delayKey, csvDelay,
+			fn.None[txscript.TapLeaf](),
 		)
 
 	// If we are the initiator of a leased channel, then we have an
@@ -1095,6 +1098,7 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 		htlcScriptTree, err = input.ReceiverHTLCScriptTaproot(
 			timeout, keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
 			keyRing.RevocationKey, rHash[:], ourCommit,
+			fn.None[txscript.TapLeaf](),
 		)
 
 	// We're being paid via an HTLC by the remote party, and the HTLC is
@@ -1104,6 +1108,7 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 		htlcScriptTree, err = input.SenderHTLCScriptTaproot(
 			keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
 			keyRing.RevocationKey, rHash[:], ourCommit,
+			fn.None[txscript.TapLeaf](),
 		)
 
 	// We're sending an HTLC which is being added to our commitment
@@ -1113,6 +1118,7 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 		htlcScriptTree, err = input.SenderHTLCScriptTaproot(
 			keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
 			keyRing.RevocationKey, rHash[:], ourCommit,
+			fn.None[txscript.TapLeaf](),
 		)
 
 	// Finally, we're paying the remote party via an HTLC, which is being
@@ -1122,6 +1128,7 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 		htlcScriptTree, err = input.ReceiverHTLCScriptTaproot(
 			timeout, keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
 			keyRing.RevocationKey, rHash[:], ourCommit,
+			fn.None[txscript.TapLeaf](),
 		)
 	}
 

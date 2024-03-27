@@ -2,6 +2,7 @@ package hop
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -9,6 +10,13 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/tlv"
+)
+
+var (
+	// ErrDecodeFailed is returned when we can't decode blinded data.
+	ErrDecodeFailed = errors.New("could not decode blinded data")
 )
 
 // Iterator is an interface that abstracts away the routing information
@@ -47,16 +55,24 @@ type sphinxHopIterator struct {
 	// includes the information required to properly forward the packet to
 	// the next hop.
 	processedPacket *sphinx.ProcessedPacket
+
+	// blindingKit contains the elements required to process hops that are
+	// part of a blinded route.
+	blindingKit *BlindingKit
 }
 
 // makeSphinxHopIterator converts a processed packet returned from a sphinx
-// router and converts it into an hop iterator for usage in the link.
+// router and converts it into an hop iterator for usage in the link. A
+// blinding kit is passed through for the link to obtain forwarding information
+// for blinded routes.
 func makeSphinxHopIterator(ogPacket *sphinx.OnionPacket,
-	packet *sphinx.ProcessedPacket) *sphinxHopIterator {
+	packet *sphinx.ProcessedPacket,
+	blindingKit *BlindingKit) *sphinxHopIterator {
 
 	return &sphinxHopIterator{
 		ogPacket:        ogPacket,
 		processedPacket: packet,
+		blindingKit:     blindingKit,
 	}
 }
 
@@ -93,6 +109,7 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 		return NewPayloadFromReader(
 			bytes.NewReader(r.processedPacket.Payload.Payload),
 			r.processedPacket.Action == sphinx.ExitNode,
+			r.blindingKit,
 		)
 
 	default:
@@ -113,6 +130,166 @@ func (r *sphinxHopIterator) ExtractErrorEncrypter(
 	return extracter(r.ogPacket.EphemeralKey)
 }
 
+// BlindingProcessor is an interface that provides the cryptographic operations
+// required for processing blinded hops.
+type BlindingProcessor interface {
+	// DecryptBlindedHopData decrypts a blinded blob of data using the
+	// ephemeral key provided.
+	DecryptBlindedHopData(ephemPub *btcec.PublicKey,
+		encryptedData []byte) ([]byte, error)
+
+	// NextEphemeral returns the next hop's ephemeral key, calculated
+	// from the current ephemeral key provided.
+	NextEphemeral(*btcec.PublicKey) (*btcec.PublicKey, error)
+}
+
+// BlindingKit contains the components required to extract forwarding
+// information for hops in a blinded route.
+type BlindingKit struct {
+	// BlindingPoint holds a blinding point that was passed to the node via
+	// update_add_htlc's TLVs.
+	BlindingPoint *btcec.PublicKey
+
+	// ForwardingInfo uses the ephemeral blinding key provided to decrypt
+	// a blob of encrypted data provided in the onion and obtain the
+	// forwarding information for the blinded hop.
+	ForwardingInfo func(*btcec.PublicKey, []byte) (*ForwardingInfo,
+		error)
+
+	// DisableBlindedFwd provides the ability to optionally disable blinded
+	// route forwarding. Payloads will simply be rejected as invalid if
+	// they contain blinding points, as our node does not want to forward
+	// them.
+	DisableBlindedFwd bool
+}
+
+// MakeBlindingKit produces a kit that is used to decrypt and decode
+// forwarding information for hops in blinded routes.
+func MakeBlindingKit(processor BlindingProcessor,
+	blindingPoint *btcec.PublicKey, incomingAmount lnwire.MilliSatoshi,
+	incomingCltv uint32, disableBlinding bool) *BlindingKit {
+
+	return &BlindingKit{
+		BlindingPoint: blindingPoint,
+		ForwardingInfo: func(blinding *btcec.PublicKey,
+			data []byte) (*ForwardingInfo, error) {
+
+			decrypted, err := processor.DecryptBlindedHopData(
+				blinding, data,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("decrypt blinded "+
+					"data: %w", err)
+			}
+
+			b := bytes.NewBuffer(decrypted)
+			routeData, err := record.DecodeBlindedRouteData(b)
+			if err != nil {
+				return nil, fmt.Errorf("%w: %w",
+					ErrDecodeFailed, err)
+			}
+
+			if err := ValidateBlindedRouteData(
+				routeData, incomingAmount, incomingCltv,
+			); err != nil {
+				return nil, err
+			}
+
+			// If we have an override for the blinding point for
+			// the next node, we'll just use it without tweaking
+			// (the sender intended to switch out directly for
+			// this blinding point). Otherwise, we'll tweak our
+			// blinding point to get the next ephemeral key.
+			nextEph, err := processor.NextEphemeral(blinding)
+			if err != nil {
+				return nil, err
+			}
+			routeData.NextBlindingOverride.WhenSome(
+				func(o tlv.RecordT[tlv.TlvType8,
+					*btcec.PublicKey]) {
+
+					nextEph = o.Val
+				},
+			)
+
+			return deriveForwardingInfo(
+				routeData, incomingAmount, incomingCltv,
+				nextEph,
+			)
+		},
+		DisableBlindedFwd: disableBlinding,
+	}
+}
+
+// deriveForwardingInfo calculates forwarding information from the (valid)
+// blinded route data provided and the incoming htlc's information.
+func deriveForwardingInfo(data *record.BlindedRouteData,
+	incomingAmt lnwire.MilliSatoshi, incomingCltv uint32,
+	nextEph *btcec.PublicKey) (*ForwardingInfo, error) {
+
+	fwdAmt, err := calculateForwardingAmount(
+		incomingAmt, data.RelayInfo.Val.BaseFee,
+		data.RelayInfo.Val.FeeRate,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ForwardingInfo{
+		NextHop:         data.ShortChannelID.Val,
+		AmountToForward: fwdAmt,
+		OutgoingCTLV: incomingCltv - uint32(
+			data.RelayInfo.Val.CltvExpiryDelta,
+		),
+		NextBlinding: nextEph,
+	}, nil
+}
+
+// calculateForwardingAmount calculates the amount to forward for a blinded
+// hop based on the incoming amount and forwarding parameters.
+//
+// When forwarding a payment, the fee we take is calculated, not on the
+// incoming amount, but rather on the amount we forward. We charge fees based
+// on our own liquidity we are forwarding downstream.
+//
+// With route blinding, we are NOT given the amount to forward.  This
+// unintuitive looking formula comes from the fact that without the amount to
+// forward, we cannot compute the fees taken directly.
+//
+// The amount to be forwarded can be computed as follows:
+//
+// amt_to_forward = incoming_amount - total_fees
+// total_fees = base_fee + amt_to_forward*(fee_rate/1000000)
+//
+// Solving for amount_to_forward:
+// amt_to_forward = incoming_amount - base_fee - (amount_to_forward * fee_rate)/1e6
+// amt_to_forward + (amount_to_forward * fee_rate) / 1e6 = incoming_amount - base_fee
+// amt_to_forward * 1e6 + (amount_to_forward * fee_rate) = (incoming_amount - base_fee) * 1e6
+// amt_to_forward * (1e6 + fee_rate) = (incoming_amount - base_fee) * 1e6
+// amt_to_forward = ((incoming_amount - base_fee) * 1e6) / (1e6 + fee_rate)
+//
+// From there we use a ceiling formula for integer division so that we always
+// round up, otherwise the sender may receive slightly less than intended:
+//
+// ceil(a/b) = (a + b - 1)/(b).
+//
+//nolint:lll,dupword
+func calculateForwardingAmount(incomingAmount lnwire.MilliSatoshi, baseFee,
+	proportionalFee uint32) (lnwire.MilliSatoshi, error) {
+
+	// Sanity check to prevent overflow.
+	if incomingAmount < lnwire.MilliSatoshi(baseFee) {
+		return 0, fmt.Errorf("incoming amount: %v < base fee: %v",
+			incomingAmount, baseFee)
+	}
+	numerator := (uint64(incomingAmount) - uint64(baseFee)) * 1e6
+	denominator := 1e6 + uint64(proportionalFee)
+
+	ceiling := (numerator + denominator - 1) / denominator
+
+	return lnwire.MilliSatoshi(ceiling), nil
+}
+
 // OnionProcessor is responsible for keeping all sphinx dependent parts inside
 // and expose only decoding function. With such approach we give freedom for
 // subsystems which wants to decode sphinx path to not be dependable from
@@ -124,11 +301,18 @@ func (r *sphinxHopIterator) ExtractErrorEncrypter(
 // tests dependent from the sphinx internal parts.
 type OnionProcessor struct {
 	router *sphinx.Router
+
+	// Adds the option to disable forwarding payments in blinded routes
+	// by failing back any blinding-related payloads as if they were
+	// invalid.
+	disallowRouteBlinding bool
 }
 
 // NewOnionProcessor creates new instance of decoder.
-func NewOnionProcessor(router *sphinx.Router) *OnionProcessor {
-	return &OnionProcessor{router}
+func NewOnionProcessor(router *sphinx.Router,
+	disallowRouteBlinding bool) *OnionProcessor {
+
+	return &OnionProcessor{router, disallowRouteBlinding}
 }
 
 // Start spins up the onion processor's sphinx router.
@@ -147,23 +331,21 @@ func (p *OnionProcessor) Stop() error {
 	return nil
 }
 
-// DecodeHopIterator attempts to decode a valid sphinx packet from the passed io.Reader
-// instance using the rHash as the associated data when checking the relevant
-// MACs during the decoding process.
-func (p *OnionProcessor) DecodeHopIterator(r io.Reader, rHash []byte,
-	incomingCltv uint32) (Iterator, lnwire.FailCode) {
+// ReconstructHopIterator attempts to decode a valid sphinx packet from the
+// passed io.Reader instance using the rHash as the associated data when
+// checking the relevant MACs during the decoding process.
+func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte,
+	blindingPoint *btcec.PublicKey, incomingAmt lnwire.MilliSatoshi,
+	incomingExpiry uint32) (Iterator, error) {
 
 	onionPkt := &sphinx.OnionPacket{}
 	if err := onionPkt.Decode(r); err != nil {
-		switch err {
-		case sphinx.ErrInvalidOnionVersion:
-			return nil, lnwire.CodeInvalidOnionVersion
-		case sphinx.ErrInvalidOnionKey:
-			return nil, lnwire.CodeInvalidOnionKey
-		default:
-			log.Errorf("unable to decode onion packet: %v", err)
-			return nil, lnwire.CodeInvalidOnionKey
-		}
+		return nil, err
+	}
+
+	var opts []sphinx.ProcessOnionOpt
+	if blindingPoint != nil {
+		opts = append(opts, sphinx.WithBlindingPoint(blindingPoint))
 	}
 
 	// Attempt to process the Sphinx packet. We include the payment hash of
@@ -171,57 +353,28 @@ func (p *OnionProcessor) DecodeHopIterator(r io.Reader, rHash []byte,
 	// associated data in order to thwart attempts a replay attacks. In the
 	// case of a replay, an attacker is *forced* to use the same payment
 	// hash twice, thereby losing their money entirely.
-	sphinxPacket, err := p.router.ProcessOnionPacket(
-		onionPkt, rHash, incomingCltv,
+	sphinxPacket, err := p.router.ReconstructOnionPacket(
+		onionPkt, rHash, opts...,
 	)
 	if err != nil {
-		switch err {
-		case sphinx.ErrInvalidOnionVersion:
-			return nil, lnwire.CodeInvalidOnionVersion
-		case sphinx.ErrInvalidOnionHMAC:
-			return nil, lnwire.CodeInvalidOnionHmac
-		case sphinx.ErrInvalidOnionKey:
-			return nil, lnwire.CodeInvalidOnionKey
-		default:
-			log.Errorf("unable to process onion packet: %v", err)
-			return nil, lnwire.CodeInvalidOnionKey
-		}
-	}
-
-	return makeSphinxHopIterator(onionPkt, sphinxPacket), lnwire.CodeNone
-}
-
-// ReconstructHopIterator attempts to decode a valid sphinx packet from the passed io.Reader
-// instance using the rHash as the associated data when checking the relevant
-// MACs during the decoding process.
-func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte) (
-	Iterator, error) {
-
-	onionPkt := &sphinx.OnionPacket{}
-	if err := onionPkt.Decode(r); err != nil {
 		return nil, err
 	}
 
-	// Attempt to process the Sphinx packet. We include the payment hash of
-	// the HTLC as it's authenticated within the Sphinx packet itself as
-	// associated data in order to thwart attempts a replay attacks. In the
-	// case of a replay, an attacker is *forced* to use the same payment
-	// hash twice, thereby losing their money entirely.
-	sphinxPacket, err := p.router.ReconstructOnionPacket(onionPkt, rHash)
-	if err != nil {
-		return nil, err
-	}
-
-	return makeSphinxHopIterator(onionPkt, sphinxPacket), nil
+	return makeSphinxHopIterator(onionPkt, sphinxPacket, MakeBlindingKit(
+		p.router, blindingPoint, incomingAmt, incomingExpiry,
+		p.disallowRouteBlinding,
+	)), nil
 }
 
 // DecodeHopIteratorRequest encapsulates all date necessary to process an onion
 // packet, perform sphinx replay detection, and schedule the entry for garbage
 // collection.
 type DecodeHopIteratorRequest struct {
-	OnionReader  io.Reader
-	RHash        []byte
-	IncomingCltv uint32
+	OnionReader    io.Reader
+	RHash          []byte
+	IncomingCltv   uint32
+	IncomingAmount lnwire.MilliSatoshi
+	BlindingPoint  *btcec.PublicKey
 }
 
 // DecodeHopIteratorResponse encapsulates the outcome of a batched sphinx onion
@@ -277,8 +430,15 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 			return lnwire.CodeInvalidOnionKey
 		}
 
+		var opts []sphinx.ProcessOnionOpt
+		if req.BlindingPoint != nil {
+			opts = append(opts, sphinx.WithBlindingPoint(
+				req.BlindingPoint,
+			))
+		}
+
 		err = tx.ProcessOnionPacket(
-			seqNum, onionPkt, req.RHash, req.IncomingCltv,
+			seqNum, onionPkt, req.RHash, req.IncomingCltv, opts...,
 		)
 		switch err {
 		case nil:
@@ -378,7 +538,13 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 
 		// Finally, construct a hop iterator from our processed sphinx
 		// packet, simultaneously caching the original onion packet.
-		resp.HopIterator = makeSphinxHopIterator(&onionPkts[i], &packets[i])
+		resp.HopIterator = makeSphinxHopIterator(
+			&onionPkts[i], &packets[i], MakeBlindingKit(
+				p.router, reqs[i].BlindingPoint,
+				reqs[i].IncomingAmount, reqs[i].IncomingCltv,
+				p.disallowRouteBlinding,
+			),
+		)
 	}
 
 	return resps, nil

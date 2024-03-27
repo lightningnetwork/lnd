@@ -94,7 +94,7 @@ func newOnionProcessor(t *testing.T) *hop.OnionProcessor {
 		t.Fatalf("unable to start sphinx router: %v", err)
 	}
 
-	return hop.NewOnionProcessor(sphinxRouter)
+	return hop.NewOnionProcessor(sphinxRouter, false)
 }
 
 // newCircuitMap creates a new htlcswitch.CircuitMap using a temp db and a

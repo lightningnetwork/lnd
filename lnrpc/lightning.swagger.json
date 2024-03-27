@@ -3523,10 +3523,10 @@
           "format": "uint64",
           "description": "The base fee for the blinded path provided, expressed in msat."
         },
-        "proportional_fee_msat": {
-          "type": "string",
-          "format": "uint64",
-          "description": "The proportional fee for the blinded path provided, expressed in msat."
+        "proportional_fee_rate": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The proportional fee for the blinded path provided, expressed in parts\nper million."
         },
         "total_cltv_delta": {
           "type": "integer",

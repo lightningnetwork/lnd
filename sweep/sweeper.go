@@ -657,7 +657,13 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 		// we are already trying to sweep this input and if not, set up
 		// a listener to spend and schedule a sweep.
 		case input := <-s.newInputs:
-			s.handleNewInput(input)
+			err := s.handleNewInput(input)
+			if err != nil {
+				log.Criticalf("Unable to handle new input: %v",
+					err)
+
+				return
+			}
 
 			// If this input is forced, we perform an sweep
 			// immediately.
@@ -1221,7 +1227,7 @@ func (s *UtxoSweeper) mempoolLookup(op wire.OutPoint) fn.Option[wire.MsgTx] {
 
 // handleNewInput processes a new input by registering spend notification and
 // scheduling sweeping for it.
-func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
+func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 	outpoint := input.input.OutPoint()
 	pi, pending := s.inputs[outpoint]
 	if pending {
@@ -1229,7 +1235,7 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 
 		s.handleExistingInput(input, pi)
 
-		return
+		return nil
 	}
 
 	// This is a new input, and we want to query the mempool to see if this
@@ -1261,10 +1267,12 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 		err := fmt.Errorf("wait for spend: %w", err)
 		s.markInputFailed(pi, err)
 
-		return
+		return err
 	}
 
 	pi.ntfnRegCancel = cancel
+
+	return nil
 }
 
 // decideStateAndRBFInfo queries the mempool to see whether the given input has

@@ -394,7 +394,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				resolver := ctx.resolver.(*htlcSuccessResolver)
 				inp := <-resolver.Sweeper.(*mockSweeper).sweptInputs
 				op := inp.OutPoint()
-				if *op != commitOutpoint {
+				if op != commitOutpoint {
 					return fmt.Errorf("outpoint %v swept, "+
 						"expected %v", op,
 						commitOutpoint)
@@ -443,7 +443,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 					Hash:  reSignedHash,
 					Index: 1,
 				}
-				if *op != exp {
+				if op != exp {
 					return fmt.Errorf("swept outpoint %v, expected %v",
 						op, exp)
 				}

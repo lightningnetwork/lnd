@@ -326,6 +326,10 @@ type server struct {
 
 	customMessageServer *subscribe.Server
 
+	// peerStorageProvider offers a structure for storing peer's backup
+	// data.
+	peerStorageProvider *peer.PeerStorageProducer
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -545,6 +549,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoAnySegwit:              cfg.ProtocolOptions.NoAnySegwit(),
 		CustomFeatures:           cfg.ProtocolOptions.ExperimentalProtocol.CustomFeatures(),
 		NoTaprootChans:           !cfg.ProtocolOptions.TaprootChans,
+		NoPeerStorage:            !cfg.ProtocolOptions.PeerStorage(),
 	})
 	if err != nil {
 		return nil, err
@@ -1496,8 +1501,17 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	// Assemble a peer notifier which will provide clients with subscriptions
-	// to peer online and offline events.
+	if s.cfg.ProtocolOptions.OptionPeerStorage {
+		s.peerStorageProvider, err = peer.NewPeerStorageProducer(
+			dbs.PeerStorageDB,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Assemble a peer notifier which will provide clients with
+	// subscriptions to peer online and offline events.
 	s.peerNotifier = peernotifier.New()
 
 	// Create a channel event store which monitors all open channels.
@@ -3765,6 +3779,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	brontideConn := conn.(*brontide.Conn)
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
+	pubKeyBytes := pubKey.SerializeCompressed()
 
 	srvrLog.Infof("Finalizing connection to %x@%s, inbound=%v",
 		pubKey.SerializeCompressed(), addr, inbound)
@@ -3793,15 +3808,21 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		}
 	}
 
-	// If we directly set the peer.Config TowerClient member to the
-	// s.towerClientMgr then in the case that the s.towerClientMgr is nil,
-	// the peer.Config's TowerClient member will not evaluate to nil even
-	// though the underlying value is nil. To avoid this gotcha which can
-	// cause a panic, we need to explicitly pass nil to the peer.Config's
-	// TowerClient if needed.
+	// To prevent panics with interface types, explicitly check for nil
+	// before assignment. A direct assignment of a nil struct to an
+	// interface results in a non-nil interface with a nil underlying value,
+	// which can cause runtime errors during interface method calls.
 	var towerClient wtclient.ClientManager
 	if s.towerClientMgr != nil {
 		towerClient = s.towerClientMgr
+	}
+
+	var peerStore peer.PeerDataStore
+	peerStorageDB := s.peerStorageProvider.NewPeerStorageDB(
+		pubKeyBytes,
+	)
+	if peerStorageDB != nil {
+		peerStore = peerStorageDB
 	}
 
 	// Now that we've established a connection, create a peer, and it to the
@@ -3872,6 +3893,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		GetAliases:             s.aliasMgr.GetAliases,
 		RequestAlias:           s.aliasMgr.RequestAlias,
 		AddLocalAlias:          s.aliasMgr.AddLocalAlias,
+		PeerDataStore:          peerStore,
 		Quit:                   s.quit,
 	}
 

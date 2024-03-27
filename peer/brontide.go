@@ -138,6 +138,21 @@ type TimestampedError struct {
 	Timestamp time.Time
 }
 
+// PeerDataStore is an interface representing the struture enabling the peer
+// to carry out operations to store other peer's data.
+//
+//nolint:revive
+type PeerDataStore interface {
+	// Store saves backup data received from peers.
+	Store(data []byte) error
+
+	// Delete eliminates a peer's data from the store.
+	Delete() error
+
+	// Retrieve fetches the data of a peer from the store.
+	Retrieve() ([]byte, error)
+}
+
 // Config defines configuration fields that are necessary for a peer object
 // to function.
 type Config struct {
@@ -366,6 +381,10 @@ type Config struct {
 
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
+
+	// PeerDataStore is the storage layer that helps us store other peer's
+	// backup data.
+	PeerDataStore PeerDataStore
 }
 
 // Brontide is an active peer on the Lightning Network. This struct is responsible
@@ -714,6 +733,25 @@ func (p *Brontide) Start() error {
 			if err := p.writeMessage(msg); err != nil {
 				return fmt.Errorf("unable to send "+
 					"reestablish msg: %v", err)
+			}
+		}
+	}
+
+	// Send this peer its backup data, if we have it.
+	if p.cfg.PeerDataStore != nil {
+		data, err := p.cfg.PeerDataStore.Retrieve()
+		if err != nil {
+			return fmt.Errorf("unable to retrieve peer "+
+				"backup data: %v", err)
+		}
+
+		if data != nil {
+			if err := p.writeMessage(
+				lnwire.NewYourPeerStorageMsg(data),
+			); err != nil {
+				return fmt.Errorf("unable to send "+
+					"YourPeerStorage msg to peer on "+
+					"connection: %v", err)
 			}
 		}
 	}
@@ -1779,6 +1817,13 @@ out:
 
 		case *lnwire.Custom:
 			err := p.handleCustomMessage(msg)
+			if err != nil {
+				p.storeError(err)
+				p.log.Errorf("%v", err)
+			}
+
+		case *lnwire.PeerStorage:
+			err = p.handlePeerStorageMessage(msg)
 			if err != nil {
 				p.storeError(err)
 				p.log.Errorf("%v", err)
@@ -4090,6 +4135,29 @@ func (p *Brontide) handleRemovePendingChannel(req *newChannelMsg) {
 	// Remove the record of this pending channel.
 	p.activeChannels.Delete(chanID)
 	p.addedChannels.Delete(chanID)
+}
+
+// handlePeerStorageMessage handles `PeerStorage` message, it stores the message
+// and sends it back to the peer as an ack.
+func (p *Brontide) handlePeerStorageMessage(msg *lnwire.PeerStorage) error {
+	// Check if we have the feature to store peer backup enabled.
+	if p.cfg.PeerDataStore != nil {
+		// Store the data.
+		err := p.cfg.PeerDataStore.Store(msg.Blob)
+		if err != nil {
+			return err
+		}
+
+		// Send back the data as an ack.
+		err = p.SendMessage(false, lnwire.NewYourPeerStorageMsg(
+			msg.Blob),
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // sendLinkUpdateMsg sends a message that updates the channel to the

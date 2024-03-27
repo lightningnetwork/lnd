@@ -651,8 +651,7 @@ func TestChannelStateTransition(t *testing.T) {
 		{
 			LogIndex: 2,
 			UpdateMsg: &lnwire.UpdateAddHTLC{
-				ChanID:    lnwire.ChannelID{1, 2, 3},
-				ExtraData: make([]byte, 0),
+				ChanID: lnwire.ChannelID{1, 2, 3},
 			},
 		},
 	}
@@ -710,25 +709,22 @@ func TestChannelStateTransition(t *testing.T) {
 				wireSig,
 				wireSig,
 			},
-			ExtraData: make([]byte, 0),
 		},
 		LogUpdates: []LogUpdate{
 			{
 				LogIndex: 1,
 				UpdateMsg: &lnwire.UpdateAddHTLC{
-					ID:        1,
-					Amount:    lnwire.NewMSatFromSatoshis(100),
-					Expiry:    25,
-					ExtraData: make([]byte, 0),
+					ID:     1,
+					Amount: lnwire.NewMSatFromSatoshis(100),
+					Expiry: 25,
 				},
 			},
 			{
 				LogIndex: 2,
 				UpdateMsg: &lnwire.UpdateAddHTLC{
-					ID:        2,
-					Amount:    lnwire.NewMSatFromSatoshis(200),
-					Expiry:    50,
-					ExtraData: make([]byte, 0),
+					ID:     2,
+					Amount: lnwire.NewMSatFromSatoshis(200),
+					Expiry: 50,
 				},
 			},
 		},

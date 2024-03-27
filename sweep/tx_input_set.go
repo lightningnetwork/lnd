@@ -60,9 +60,9 @@ type InputSet interface {
 	// inputs.
 	NeedWalletInput() bool
 
-	// DeadlineHeight returns an optional absolute block height to express
-	// the time-sensitivity of the input set. The outputs from a force
-	// close tx have different time preferences:
+	// DeadlineHeight returns an absolute block height to express the
+	// time-sensitivity of the input set. The outputs from a force close tx
+	// have different time preferences:
 	// - to_local: no time pressure as it can only be swept by us.
 	// - first level outgoing HTLC: must be swept before its corresponding
 	//   incoming HTLC's CLTV is reached.
@@ -72,7 +72,7 @@ type InputSet interface {
 	// - anchor: for CPFP-purpose anchor, it must be swept before any of
 	//   the above CLTVs is reached. For non-CPFP purpose anchor, there's
 	//   no time pressure.
-	DeadlineHeight() fn.Option[int32]
+	DeadlineHeight() int32
 
 	// Budget givens the total amount that can be used as fees by this
 	// input set.
@@ -201,8 +201,8 @@ func (t *txInputSet) Budget() btcutil.Amount {
 // DeadlineHeight gives the block height that this set must be confirmed by.
 //
 // NOTE: this field is only used for `BudgetInputSet`.
-func (t *txInputSet) DeadlineHeight() fn.Option[int32] {
-	return fn.None[int32]()
+func (t *txInputSet) DeadlineHeight() int32 {
+	return 0
 }
 
 // NeedWalletInput returns true if the input set needs more wallet inputs.
@@ -553,7 +553,7 @@ type BudgetInputSet struct {
 
 	// deadlineHeight is the height which the inputs in this set must be
 	// confirmed by.
-	deadlineHeight fn.Option[int32]
+	deadlineHeight int32
 }
 
 // Compile-time constraint to ensure budgetInputSet implements InputSet.
@@ -597,18 +597,14 @@ func validateInputs(inputs []SweeperInput) error {
 }
 
 // NewBudgetInputSet creates a new BudgetInputSet.
-func NewBudgetInputSet(inputs []SweeperInput) (*BudgetInputSet, error) {
+func NewBudgetInputSet(inputs []SweeperInput,
+	deadlineHeight int32) (*BudgetInputSet, error) {
+
 	// Validate the supplied inputs.
 	if err := validateInputs(inputs); err != nil {
 		return nil, err
 	}
 
-	// TODO(yy): all the inputs share the same deadline height, which means
-	// there exists an opportunity to refactor the deadline height to be
-	// tracked on the set-level, not per input. This would allow us to
-	// avoid the overhead of tracking the same height for each input in the
-	// set.
-	deadlineHeight := inputs[0].params.DeadlineHeight
 	bi := &BudgetInputSet{
 		deadlineHeight: deadlineHeight,
 		inputs:         make([]*SweeperInput, 0, len(inputs)),
@@ -625,18 +621,13 @@ func NewBudgetInputSet(inputs []SweeperInput) (*BudgetInputSet, error) {
 
 // String returns a human-readable description of the input set.
 func (b *BudgetInputSet) String() string {
-	deadlineDesc := "none"
-	b.deadlineHeight.WhenSome(func(h int32) {
-		deadlineDesc = fmt.Sprintf("%d", h)
-	})
-
 	inputsDesc := ""
 	for _, input := range b.inputs {
 		inputsDesc += fmt.Sprintf("\n%v", input)
 	}
 
 	return fmt.Sprintf("BudgetInputSet(budget=%v, deadline=%v, "+
-		"inputs=[%v])", b.Budget(), deadlineDesc, inputsDesc)
+		"inputs=[%v])", b.Budget(), b.DeadlineHeight(), inputsDesc)
 }
 
 // addInput adds an input to the input set.
@@ -748,12 +739,9 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 		pi := SweeperInput{
 			Input: input,
 			params: Params{
-				// Inherit the deadline height from the input
-				// set.
-				DeadlineHeight: b.deadlineHeight,
+				DeadlineHeight: fn.Some(b.deadlineHeight),
 			},
 		}
-
 		b.addInput(pi)
 
 		// Return if we've reached the minimum output amount.
@@ -784,7 +772,7 @@ func (b *BudgetInputSet) Budget() btcutil.Amount {
 // DeadlineHeight returns the deadline height of the set.
 //
 // NOTE: part of the InputSet interface.
-func (b *BudgetInputSet) DeadlineHeight() fn.Option[int32] {
+func (b *BudgetInputSet) DeadlineHeight() int32 {
 	return b.deadlineHeight
 }
 

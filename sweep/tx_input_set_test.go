@@ -282,21 +282,34 @@ func TestNewBudgetInputSet(t *testing.T) {
 			DeadlineHeight: fn.Some(int32(2)),
 		},
 	}
+	input3 := SweeperInput{
+		Input: inp2,
+		params: Params{
+			Budget:         100,
+			DeadlineHeight: fn.Some(testHeight),
+		},
+	}
 
 	// Pass a slice of inputs with different deadline heights.
 	set, err = NewBudgetInputSet([]SweeperInput{input1, input2}, testHeight)
-	rt.ErrorContains(err, "inputs have different deadline heights")
+	rt.ErrorContains(err, "input deadline height not matched")
 	rt.Nil(set)
 
-	// Pass a slice of inputs that only one input has the deadline height.
+	// Pass a slice of inputs that only one input has the deadline height,
+	// but it has a different value than the specified testHeight.
 	set, err = NewBudgetInputSet([]SweeperInput{input0, input2}, testHeight)
-	rt.NoError(err)
-	rt.NotNil(set)
+	rt.ErrorContains(err, "input deadline height not matched")
+	rt.Nil(set)
 
 	// Pass a slice of inputs that are duplicates.
-	set, err = NewBudgetInputSet([]SweeperInput{input1, input1}, testHeight)
+	set, err = NewBudgetInputSet([]SweeperInput{input3, input3}, testHeight)
 	rt.ErrorContains(err, "duplicate inputs")
 	rt.Nil(set)
+
+	// Pass a slice of inputs that only one input has the deadline height,
+	set, err = NewBudgetInputSet([]SweeperInput{input0, input3}, testHeight)
+	rt.NoError(err)
+	rt.NotNil(set)
 }
 
 // TestBudgetInputSetAddInput checks that `addInput` correctly updates the

@@ -561,30 +561,43 @@ var _ InputSet = (*BudgetInputSet)(nil)
 
 // validateInputs is used when creating new BudgetInputSet to ensure there are
 // no duplicate inputs and they all share the same deadline heights, if set.
-func validateInputs(inputs []SweeperInput) error {
+func validateInputs(inputs []SweeperInput, deadlineHeight int32) error {
 	// Sanity check the input slice to ensure it's non-empty.
 	if len(inputs) == 0 {
 		return fmt.Errorf("inputs slice is empty")
 	}
 
-	// dedupInputs is a map used to track unique outpoints of the inputs.
-	dedupInputs := make(map[wire.OutPoint]struct{})
+	// inputDeadline tracks the input's deadline height. It will be updated
+	// if the input has a different deadline than the specified
+	// deadlineHeight.
+	inputDeadline := deadlineHeight
 
-	// deadlineSet stores unique deadline heights.
-	deadlineSet := make(map[fn.Option[int32]]struct{})
+	// dedupInputs is a set used to track unique outpoints of the inputs.
+	dedupInputs := fn.NewSet(
+		// Iterate all the inputs and map the function.
+		fn.Map(func(inp SweeperInput) wire.OutPoint {
+			// If the input has a deadline height, we'll check if
+			// it's the same as the specified.
+			inp.params.DeadlineHeight.WhenSome(func(h int32) {
+				// Exit early if the deadlines matched.
+				if h == deadlineHeight {
+					return
+				}
 
-	for _, input := range inputs {
-		input.params.DeadlineHeight.WhenSome(func(h int32) {
-			deadlineSet[input.params.DeadlineHeight] = struct{}{}
-		})
+				// Update the deadline height if it's
+				// different.
+				inputDeadline = h
+			})
 
-		dedupInputs[input.OutPoint()] = struct{}{}
-	}
+			return inp.OutPoint()
+		}, inputs)...,
+	)
 
 	// Make sure the inputs share the same deadline height when there is
 	// one.
-	if len(deadlineSet) > 1 {
-		return fmt.Errorf("inputs have different deadline heights")
+	if inputDeadline != deadlineHeight {
+		return fmt.Errorf("input deadline height not matched: want "+
+			"%d, got %d", deadlineHeight, inputDeadline)
 	}
 
 	// Provide a defensive check to ensure that we don't have any duplicate
@@ -601,7 +614,7 @@ func NewBudgetInputSet(inputs []SweeperInput,
 	deadlineHeight int32) (*BudgetInputSet, error) {
 
 	// Validate the supplied inputs.
-	if err := validateInputs(inputs); err != nil {
+	if err := validateInputs(inputs, deadlineHeight); err != nil {
 		return nil, err
 	}
 

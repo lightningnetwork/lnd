@@ -460,7 +460,7 @@ func TestBudgetAggregatorFilterInputs(t *testing.T) {
 
 	// Mock the `OutPoint` method to return a unique outpoint.
 	opErr := wire.OutPoint{Hash: chainhash.Hash{1}}
-	inpErr.On("OutPoint").Return(&opErr).Once()
+	inpErr.On("OutPoint").Return(opErr).Once()
 
 	// Mock the estimator to return a constant fee rate.
 	const minFeeRate = chainfee.SatPerKWeight(1000)
@@ -502,10 +502,10 @@ func TestBudgetAggregatorFilterInputs(t *testing.T) {
 	inpDust.On("WitnessType").Return(wt)
 
 	// Mock the `OutPoint` method to return the unique outpoint.
-	inpLow.On("OutPoint").Return(&opLow)
-	inpEqual.On("OutPoint").Return(&opEqual)
-	inpHigh.On("OutPoint").Return(&opHigh)
-	inpDust.On("OutPoint").Return(&opDust)
+	inpLow.On("OutPoint").Return(opLow)
+	inpEqual.On("OutPoint").Return(opEqual)
+	inpHigh.On("OutPoint").Return(opHigh)
+	inpDust.On("OutPoint").Return(opDust)
 
 	// Mock the `RequiredTxOut` to return nil.
 	inpEqual.On("RequiredTxOut").Return(nil)
@@ -683,7 +683,7 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 				mockInput1.On("WitnessType").Return(
 					input.CommitmentAnchor)
 				mockInput1.On("OutPoint").Return(
-					&wire.OutPoint{Hash: chainhash.Hash{1}})
+					wire.OutPoint{Hash: chainhash.Hash{1}})
 			},
 			expectedNumSets: 1,
 		},
@@ -700,9 +700,9 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 					input.CommitmentAnchor)
 
 				mockInput1.On("OutPoint").Return(
-					&wire.OutPoint{Hash: chainhash.Hash{1}})
+					wire.OutPoint{Hash: chainhash.Hash{1}})
 				mockInput2.On("OutPoint").Return(
-					&wire.OutPoint{Hash: chainhash.Hash{2}})
+					wire.OutPoint{Hash: chainhash.Hash{2}})
 			},
 			expectedNumSets: 1,
 		},
@@ -721,11 +721,11 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 					input.CommitmentAnchor)
 
 				mockInput1.On("OutPoint").Return(
-					&wire.OutPoint{Hash: chainhash.Hash{1}})
+					wire.OutPoint{Hash: chainhash.Hash{1}})
 				mockInput2.On("OutPoint").Return(
-					&wire.OutPoint{Hash: chainhash.Hash{2}})
+					wire.OutPoint{Hash: chainhash.Hash{2}})
 				mockInput3.On("OutPoint").Return(
-					&wire.OutPoint{Hash: chainhash.Hash{3}})
+					wire.OutPoint{Hash: chainhash.Hash{3}})
 			},
 			expectedNumSets: 2,
 		},
@@ -798,7 +798,7 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	// 3. when assigning the input to the exclusiveInputs.
 	// 4. when iterating the exclusiveInputs.
 	opExclusive := wire.OutPoint{Hash: chainhash.Hash{1, 2, 3, 4, 5}}
-	inpExclusive.On("OutPoint").Return(&opExclusive).Times(4)
+	inpExclusive.On("OutPoint").Return(opExclusive).Times(4)
 
 	// Mock the `WitnessType` method to return the witness type.
 	inpExclusive.On("WitnessType").Return(wt)
@@ -852,13 +852,13 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 		//
 		// We expect the low budget input to call this method once in
 		// `filterInputs`.
-		inpLow.On("OutPoint").Return(&opLow).Once()
+		inpLow.On("OutPoint").Return(opLow).Once()
 
 		// We expect the high budget input to call this method three
 		// times, one in `filterInputs` and one in `createInputSet`,
 		// and one in `NewBudgetInputSet`.
-		inpHigh1.On("OutPoint").Return(&opHigh1).Times(3)
-		inpHigh2.On("OutPoint").Return(&opHigh2).Times(3)
+		inpHigh1.On("OutPoint").Return(opHigh1).Times(3)
+		inpHigh2.On("OutPoint").Return(opHigh2).Times(3)
 
 		// Mock the `WitnessType` method to return the witness type.
 		inpLow.On("WitnessType").Return(wt)

@@ -996,7 +996,7 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input, changePkScript []byte,
 
 		idxs = append(idxs, o)
 		sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: *o.OutPoint(),
+			PreviousOutPoint: o.OutPoint(),
 			Sequence:         o.BlocksToMaturity(),
 		})
 		sweepTx.AddTxOut(o.RequiredTxOut())
@@ -1011,7 +1011,7 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input, changePkScript []byte,
 
 		idxs = append(idxs, o)
 		sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: *o.OutPoint(),
+			PreviousOutPoint: o.OutPoint(),
 			Sequence:         o.BlocksToMaturity(),
 		})
 	}

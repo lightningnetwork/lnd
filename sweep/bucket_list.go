@@ -28,7 +28,7 @@ func (b bucket) tryAdd(input *SweeperInput) bool {
 		}
 	}
 
-	b[*input.OutPoint()] = input
+	b[input.OutPoint()] = input
 
 	return true
 }

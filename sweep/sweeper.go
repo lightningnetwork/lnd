@@ -502,10 +502,12 @@ func (s *UtxoSweeper) Stop() error {
 // cannot make a local copy in sweeper.
 //
 // TODO(yy): make sure the caller is using the Result chan.
-func (s *UtxoSweeper) SweepInput(input input.Input,
+func (s *UtxoSweeper) SweepInput(inp input.Input,
 	params Params) (chan Result, error) {
 
-	if input == nil || input.OutPoint() == nil || input.SignDesc() == nil {
+	if inp == nil || inp.OutPoint() == input.EmptyOutPoint ||
+		inp.SignDesc() == nil {
+
 		return nil, errors.New("nil input received")
 	}
 
@@ -521,16 +523,16 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 		}
 	}
 
-	absoluteTimeLock, _ := input.RequiredLockTime()
+	absoluteTimeLock, _ := inp.RequiredLockTime()
 	log.Infof("Sweep request received: out_point=%v, witness_type=%v, "+
 		"relative_time_lock=%v, absolute_time_lock=%v, amount=%v, "+
-		"parent=(%v), params=(%v), currentHeight=%v", input.OutPoint(),
-		input.WitnessType(), input.BlocksToMaturity(), absoluteTimeLock,
-		btcutil.Amount(input.SignDesc().Output.Value),
-		input.UnconfParent(), params, s.currentHeight)
+		"parent=(%v), params=(%v)", inp.OutPoint(), inp.WitnessType(),
+		inp.BlocksToMaturity(), absoluteTimeLock,
+		btcutil.Amount(inp.SignDesc().Output.Value),
+		inp.UnconfParent(), params)
 
 	sweeperInput := &sweepInputMessage{
-		input:      input,
+		input:      inp,
 		params:     params,
 		resultChan: make(chan Result, 1),
 	}
@@ -837,7 +839,7 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 	if err != nil {
 		outpoints := make([]wire.OutPoint, len(set.Inputs()))
 		for i, inp := range set.Inputs() {
-			outpoints[i] = *inp.OutPoint()
+			outpoints[i] = inp.OutPoint()
 		}
 
 		// TODO(yy): find out which input is causing the failure.
@@ -860,7 +862,7 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 func (s *UtxoSweeper) markInputsPendingPublish(set InputSet) {
 	// Reschedule sweep.
 	for _, input := range set.Inputs() {
-		pi, ok := s.inputs[*input.OutPoint()]
+		pi, ok := s.inputs[input.OutPoint()]
 		if !ok {
 			// It could be that this input is an additional wallet
 			// input that was attached. In that case there also
@@ -1045,7 +1047,7 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 	for _, SweeperInput := range s.inputs {
 		// Only the exported fields are set, as we expect the response
 		// to only be consumed externally.
-		op := *SweeperInput.OutPoint()
+		op := SweeperInput.OutPoint()
 		resps[op] = &PendingInputResponse{
 			OutPoint:    op,
 			WitnessType: SweeperInput.WitnessType(),
@@ -1220,7 +1222,7 @@ func (s *UtxoSweeper) mempoolLookup(op wire.OutPoint) fn.Option[wire.MsgTx] {
 // handleNewInput processes a new input by registering spend notification and
 // scheduling sweeping for it.
 func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
-	outpoint := *input.input.OutPoint()
+	outpoint := input.input.OutPoint()
 	pi, pending := s.inputs[outpoint]
 	if pending {
 		log.Debugf("Already has pending input %v received", outpoint)
@@ -1233,7 +1235,7 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 	// This is a new input, and we want to query the mempool to see if this
 	// input has already been spent. If so, we'll start the input with
 	// state Published and attach the RBFInfo.
-	state, rbfInfo := s.decideStateAndRBFInfo(*input.input.OutPoint())
+	state, rbfInfo := s.decideStateAndRBFInfo(input.input.OutPoint())
 
 	// Create a new pendingInput and initialize the listeners slice with
 	// the passed in result channel. If this input is offered for sweep

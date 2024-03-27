@@ -411,7 +411,7 @@ func TestNeedWalletInput(t *testing.T) {
 				// These two methods are only invoked when the
 				// unit test is running with a logger.
 				mockInput.On("OutPoint").Return(
-					&wire.OutPoint{Hash: chainhash.Hash{1}},
+					wire.OutPoint{Hash: chainhash.Hash{1}},
 				).Maybe()
 				mockInput.On("WitnessType").Return(
 					input.CommitmentAnchor,
@@ -632,7 +632,7 @@ func TestAddWalletInputSuccess(t *testing.T) {
 	//
 	// NOTE: these methods are not functional as they are only used for
 	// loggings in debug or trace mode so we use arbitrary values.
-	mockInput.On("OutPoint").Return(&wire.OutPoint{Hash: chainhash.Hash{1}})
+	mockInput.On("OutPoint").Return(wire.OutPoint{Hash: chainhash.Hash{1}})
 	mockInput.On("WitnessType").Return(input.CommitmentAnchor)
 
 	// Create a wallet utxo that cannot cover the budget.

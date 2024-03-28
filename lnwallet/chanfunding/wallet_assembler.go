@@ -435,7 +435,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 				r.FeeRate, r.MinFundAmt, r.FundUpToMaxAmt,
 				reserve, w.cfg.DustLimit, coins,
 				w.cfg.CoinSelectionStrategy,
-				fundingOutputWeight, changeType,
+				fundingOutputWeight, changeType, false,
 			)
 			if err != nil {
 				return err
@@ -484,7 +484,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 			selectedCoins, changeAmt, err = CoinSelect(
 				r.FeeRate, r.LocalAmt, dustLimit, coins,
 				w.cfg.CoinSelectionStrategy,
-				fundingOutputWeight, changeType,
+				fundingOutputWeight, changeType, false,
 			)
 			if err != nil {
 				return err

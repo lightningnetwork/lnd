@@ -210,6 +210,12 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   change. And the fee estimation is correct even if no change output is
   required.
 
+* [Add sat_per_kweight option for more fine granular control of transaction 
+  fees](https://github.com/lightningnetwork/lnd/pull/7454). For the commands
+  SendCoins, SendMany, OpenChannel, BatchOpenChannel, CloseChannel this option
+  is added. Also the walletrpc calls FundPsbt, BumpFee and PendingSweeps 
+  support the new fee rate option.
+  
 ## lncli Additions
 
 * Deprecate `bumpclosefee` for `bumpforceclosefee` to accommodate for the fact 

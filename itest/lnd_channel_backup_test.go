@@ -55,7 +55,7 @@ type chanRestoreScenario struct {
 // newChanRestoreScenario creates a new scenario that has two nodes, Carol and
 // Dave, connected and funded.
 func newChanRestoreScenario(ht *lntest.HarnessTest, ct lnrpc.CommitmentType,
-	zeroConf bool) *chanRestoreScenario {
+	zeroConf, backupclosetxinputs bool) *chanRestoreScenario {
 
 	const (
 		chanAmt = btcutil.Amount(10000000)
@@ -78,6 +78,10 @@ func newChanRestoreScenario(ht *lntest.HarnessTest, ct lnrpc.CommitmentType,
 			nodeArgs, "--protocol.option-scid-alias",
 			"--protocol.zero-conf",
 		)
+	}
+
+	if backupclosetxinputs {
+		nodeArgs = append(nodeArgs, "--backupclosetxinputs")
 	}
 
 	// First, we'll create a brand new node we'll use within the test. If
@@ -411,13 +415,22 @@ func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
 
 	for _, testCase := range testCases {
 		tc := testCase
-		success := ht.Run(tc.name, func(t *testing.T) {
-			h := ht.Subtest(t)
 
-			runChanRestoreScenarioBasic(h, tc.restoreMethod)
-		})
-		if !success {
-			break
+		for _, backupclosetxinputs := range []bool{false, true} {
+			name := fmt.Sprintf("%s,backupclosetxinputs=%v",
+				tc.name, backupclosetxinputs)
+
+			success := ht.Run(name, func(t *testing.T) {
+				h := ht.Subtest(t)
+
+				runChanRestoreScenarioBasic(
+					h, tc.restoreMethod,
+					backupclosetxinputs,
+				)
+			})
+			if !success {
+				return
+			}
 		}
 	}
 }
@@ -427,11 +440,12 @@ func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
 // testCase, the DLP protocol is executed properly and both nodes are made
 // whole.
 func runChanRestoreScenarioBasic(ht *lntest.HarnessTest,
-	restoreMethod restoreMethodType) {
+	restoreMethod restoreMethodType, backupclosetxinputs bool) {
 
 	// Create a new restore scenario.
 	crs := newChanRestoreScenario(
 		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
+		backupclosetxinputs,
 	)
 	carol, dave := crs.carol, crs.dave
 
@@ -452,27 +466,45 @@ func runChanRestoreScenarioBasic(ht *lntest.HarnessTest,
 // testChannelBackupRestoreUnconfirmed tests that we're able to restore from
 // disk file and the exported RPC command for unconfirmed channel.
 func testChannelBackupRestoreUnconfirmed(ht *lntest.HarnessTest) {
-	// Use the channel backup file that contains an unconfirmed channel and
-	// make sure recovery works as well.
-	ht.Run("restore unconfirmed channel file", func(t *testing.T) {
-		st := ht.Subtest(t)
-		runChanRestoreScenarioUnConfirmed(st, true)
-	})
+	for _, backupclosetxinputs := range []bool{false, true} {
+		name := fmt.Sprintf(",backupclosetxinputs=%v",
+			backupclosetxinputs)
 
-	// Create a backup using RPC that contains an unconfirmed channel and
-	// make sure recovery works as well.
-	ht.Run("restore unconfirmed channel RPC", func(t *testing.T) {
-		st := ht.Subtest(t)
-		runChanRestoreScenarioUnConfirmed(st, false)
-	})
+		// Use the channel backup file that contains an unconfirmed
+		// channel and make sure recovery works as well.
+		ht.Run(
+			"restore unconfirmed channel file"+name,
+			func(t *testing.T) {
+				st := ht.Subtest(t)
+				runChanRestoreScenarioUnConfirmed(
+					st, true, backupclosetxinputs,
+				)
+			},
+		)
+
+		// Create a backup using RPC that contains an unconfirmed
+		// channel and make sure recovery works as well.
+		ht.Run(
+			"restore unconfirmed channel RPC"+name,
+			func(t *testing.T) {
+				st := ht.Subtest(t)
+				runChanRestoreScenarioUnConfirmed(
+					st, false, backupclosetxinputs,
+				)
+			},
+		)
+	}
 }
 
 // runChanRestoreScenarioUnConfirmed checks that Dave is able to restore for an
 // unconfirmed channel.
-func runChanRestoreScenarioUnConfirmed(ht *lntest.HarnessTest, useFile bool) {
+func runChanRestoreScenarioUnConfirmed(ht *lntest.HarnessTest,
+	useFile, backupclosetxinputs bool) {
+
 	// Create a new restore scenario.
 	crs := newChanRestoreScenario(
 		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
+		backupclosetxinputs,
 	)
 	carol, dave := crs.carol, crs.dave
 
@@ -590,15 +622,22 @@ func testChannelBackupRestoreCommitTypes(ht *lntest.HarnessTest) {
 
 	for _, testCase := range testCases {
 		tc := testCase
-		success := ht.Run(tc.name, func(t *testing.T) {
-			h := ht.Subtest(t)
 
-			runChanRestoreScenarioCommitTypes(
-				h, tc.ct, tc.zeroConf,
-			)
-		})
-		if !success {
-			break
+		for _, backupclosetxinputs := range []bool{false, true} {
+			name := fmt.Sprintf("%s,backupclosetxinputs=%v",
+				tc.name, backupclosetxinputs)
+
+			success := ht.Run(name, func(t *testing.T) {
+				h := ht.Subtest(t)
+
+				runChanRestoreScenarioCommitTypes(
+					h, tc.ct, tc.zeroConf,
+					backupclosetxinputs,
+				)
+			})
+			if !success {
+				return
+			}
 		}
 	}
 }
@@ -606,10 +645,10 @@ func testChannelBackupRestoreCommitTypes(ht *lntest.HarnessTest) {
 // runChanRestoreScenarioCommitTypes tests that the DLP is applied for
 // different channel commitment types and zero-conf channel.
 func runChanRestoreScenarioCommitTypes(ht *lntest.HarnessTest,
-	ct lnrpc.CommitmentType, zeroConf bool) {
+	ct lnrpc.CommitmentType, zeroConf, backupclosetxinputs bool) {
 
 	// Create a new restore scenario.
-	crs := newChanRestoreScenario(ht, ct, zeroConf)
+	crs := newChanRestoreScenario(ht, ct, zeroConf, backupclosetxinputs)
 	carol, dave := crs.carol, crs.dave
 
 	// If we are testing zero-conf channels, setup a ChannelAcceptor for
@@ -670,7 +709,7 @@ func runChanRestoreScenarioCommitTypes(ht *lntest.HarnessTest,
 func testChannelBackupRestoreLegacy(ht *lntest.HarnessTest) {
 	// Create a new restore scenario.
 	crs := newChanRestoreScenario(
-		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
+		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false, false,
 	)
 	carol, dave := crs.carol, crs.dave
 
@@ -697,31 +736,48 @@ func testChannelBackupRestoreLegacy(ht *lntest.HarnessTest) {
 // testChannelBackupRestoreForceClose checks that Dave can restore from force
 // closed channels.
 func testChannelBackupRestoreForceClose(ht *lntest.HarnessTest) {
-	// Restore a channel that was force closed by dave just before going
-	// offline.
-	success := ht.Run("from backup file anchors", func(t *testing.T) {
-		st := ht.Subtest(t)
-		runChanRestoreScenarioForceClose(st, false)
-	})
+	for _, backupclosetxinputs := range []bool{false, true} {
+		name := fmt.Sprintf(",backupclosetxinputs=%v",
+			backupclosetxinputs)
 
-	// Only run the second test if the first passed.
-	if !success {
-		return
+		// Restore a channel that was force closed by dave just before
+		// going offline.
+		success := ht.Run(
+			"from backup file anchors"+name,
+			func(t *testing.T) {
+				st := ht.Subtest(t)
+				runChanRestoreScenarioForceClose(
+					st, false, backupclosetxinputs,
+				)
+			},
+		)
+
+		// Only run the second test if the first passed.
+		if !success {
+			return
+		}
+
+		// Restore a zero-conf anchors channel that was force closed by
+		// dave just before going offline.
+		ht.Run(
+			"from backup file anchors w/ zero-conf"+name,
+			func(t *testing.T) {
+				st := ht.Subtest(t)
+				runChanRestoreScenarioForceClose(
+					st, true, backupclosetxinputs,
+				)
+			},
+		)
 	}
-
-	// Restore a zero-conf anchors channel that was force closed by dave
-	// just before going offline.
-	ht.Run("from backup file anchors w/ zero-conf", func(t *testing.T) {
-		st := ht.Subtest(t)
-		runChanRestoreScenarioForceClose(st, true)
-	})
 }
 
 // runChanRestoreScenarioForceClose creates anchor-enabled force close channels
 // and checks that Dave is able to restore from them.
-func runChanRestoreScenarioForceClose(ht *lntest.HarnessTest, zeroConf bool) {
+func runChanRestoreScenarioForceClose(ht *lntest.HarnessTest,
+	zeroConf, backupclosetxinputs bool) {
+
 	crs := newChanRestoreScenario(
-		ht, lnrpc.CommitmentType_ANCHORS, zeroConf,
+		ht, lnrpc.CommitmentType_ANCHORS, zeroConf, backupclosetxinputs,
 	)
 	carol, dave := crs.carol, crs.dave
 
@@ -1115,8 +1171,23 @@ func testExportChannelBackup(ht *lntest.HarnessTest) {
 // testDataLossProtection tests that if one of the nodes in a channel
 // relationship lost state, they will detect this during channel sync, and the
 // up-to-date party will force close the channel, giving the outdated party the
-// opportunity to sweep its output.
+// opportunity to sweep its output. This function runs the test for both
+// backupclosetxinputs disabled and enabled.
 func testDataLossProtection(ht *lntest.HarnessTest) {
+	ht.Run("backupclosetxinputs=false", func(t *testing.T) {
+		runDataLossProtection(ht.Subtest(t), false)
+	})
+
+	ht.Run("backupclosetxinputs=true", func(t *testing.T) {
+		runDataLossProtection(ht.Subtest(t), true)
+	})
+}
+
+// runDataLossProtection tests that if one of the nodes in a channel
+// relationship lost state, they will detect this during channel sync, and the
+// up-to-date party will force close the channel, giving the outdated party the
+// opportunity to sweep its output.
+func runDataLossProtection(ht *lntest.HarnessTest, backupclosetxinputs bool) {
 	const (
 		chanAmt     = funding.MaxBtcFundingAmount
 		paymentAmt  = 10000
@@ -1131,7 +1202,11 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 	carol := ht.NewNode("Carol", []string{"--nolisten", "--minbackoff=1h"})
 
 	// Dave will be the party losing his state.
-	dave := ht.NewNode("Dave", nil)
+	var daveArgs []string
+	if backupclosetxinputs {
+		daveArgs = append(daveArgs, "--backupclosetxinputs")
+	}
+	dave := ht.NewNode("Dave", daveArgs)
 
 	// Before we make a channel, we'll load up Carol with some coins sent
 	// directly from the miner.

@@ -233,6 +233,7 @@ func (b *Batcher) BatchFund(ctx context.Context,
 		//nolint:lll
 		fundingReq, err := b.cfg.RequestParser(&lnrpc.OpenChannelRequest{
 			SatPerVbyte:                uint64(req.SatPerVbyte),
+			SatPerKweight:              req.SatPerKweight,
 			TargetConf:                 req.TargetConf,
 			MinConfs:                   req.MinConfs,
 			SpendUnconfirmed:           req.SpendUnconfirmed,

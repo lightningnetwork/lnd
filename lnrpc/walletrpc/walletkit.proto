@@ -1110,9 +1110,15 @@ message PendingSweep {
     // The requested confirmation target for this output.
     uint32 requested_conf_target = 8;
 
-    // Deprecated, use requested_sat_per_vbyte.
-    // The requested fee rate, expressed in sat/vbyte, for this output.
-    uint32 requested_sat_per_byte = 9 [deprecated = true];
+    // The requested fee rate, expressed in sat/kweight, for this output.
+    uint32 requested_sat_per_kweight = 9;
+
+    /*
+    The fee rate we'll use to sweep the output, expressed in sat/kweight. The
+    fee rate is only determined once a sweeping transaction for the output is
+    created, so it's possible for this to be 0 before this.
+    */
+    uint64 sat_per_kweight = 12;
 
     /*
     The fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee
@@ -1149,11 +1155,10 @@ message BumpFeeRequest {
     uint32 target_conf = 2;
 
     /*
-    Deprecated, use sat_per_vbyte.
-    The fee rate, expressed in sat/vbyte, that should be used to spend the input
-    with.
+    The fee rate, expressed in sat/kweight, that should be used to spend the
+    input with.
     */
-    uint32 sat_per_byte = 3 [deprecated = true];
+    uint64 sat_per_kweight = 3;
 
     /*
     Whether this input must be force-swept. This means that it is swept even
@@ -1288,6 +1293,12 @@ message FundPsbtRequest {
         input with.
         */
         uint64 sat_per_vbyte = 4;
+
+        /*
+        The fee rate, expressed in sat/kweight, that should be used to spend the
+        input with.
+        */
+        uint64 sat_per_kweight = 10;
     }
 
     /*

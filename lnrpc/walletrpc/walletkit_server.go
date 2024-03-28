@@ -874,6 +874,7 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 		op := lnrpc.MarshalOutPoint(&pendingInput.OutPoint)
 		amountSat := uint32(pendingInput.Amount)
 		satPerVbyte := uint64(pendingInput.LastFeeRate.FeePerVByte())
+		satPerKWeight := uint64(pendingInput.LastFeeRate)
 		broadcastAttempts := uint32(pendingInput.BroadcastAttempts)
 		nextBroadcastHeight := uint32(pendingInput.NextBroadcastHeight)
 
@@ -881,15 +882,17 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 		requestedFeeRate := uint64(requestedFee.FeeRate.FeePerVByte())
 
 		rpcPendingSweeps = append(rpcPendingSweeps, &PendingSweep{
-			Outpoint:             op,
-			WitnessType:          witnessType,
-			AmountSat:            amountSat,
-			SatPerVbyte:          satPerVbyte,
-			BroadcastAttempts:    broadcastAttempts,
-			NextBroadcastHeight:  nextBroadcastHeight,
-			RequestedSatPerVbyte: requestedFeeRate,
-			RequestedConfTarget:  requestedFee.ConfTarget,
-			Force:                pendingInput.Params.Force,
+			Outpoint:               op,
+			WitnessType:            witnessType,
+			AmountSat:              amountSat,
+			SatPerVbyte:            satPerVbyte,
+			SatPerKweight:          satPerKWeight,
+			BroadcastAttempts:      broadcastAttempts,
+			NextBroadcastHeight:    nextBroadcastHeight,
+			RequestedSatPerVbyte:   requestedFeeRate,
+			RequestedSatPerKweight: uint32(requestedFee.FeeRate),
+			RequestedConfTarget:    requestedFee.ConfTarget,
+			Force:                  pendingInput.Params.Force,
 		})
 	}
 
@@ -946,17 +949,15 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	}
 
 	// We only allow using either the deprecated field or the new field.
-	if in.SatPerByte != 0 && in.SatPerVbyte != 0 {
-		return nil, fmt.Errorf("either SatPerByte or " +
+	if in.SatPerKweight != 0 && in.SatPerVbyte != 0 {
+		return nil, fmt.Errorf("either SatPerKweight or " +
 			"SatPerVbyte should be set, but not both")
 	}
 
 	// Construct the request's fee preference.
 	satPerKw := chainfee.SatPerKVByte(in.SatPerVbyte * 1000).FeePerKWeight()
-	if in.SatPerByte != 0 {
-		satPerKw = chainfee.SatPerKVByte(
-			in.SatPerByte * 1000,
-		).FeePerKWeight()
+	if in.SatPerKweight != 0 {
+		satPerKw = chainfee.SatPerKWeight(in.SatPerKweight)
 	}
 	feePreference := sweep.FeePreference{
 		ConfTarget: uint32(in.TargetConf),
@@ -1201,6 +1202,9 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		feeSatPerKW = chainfee.SatPerKVByte(
 			req.GetSatPerVbyte() * 1000,
 		).FeePerKWeight()
+
+	case req.GetSatPerKweight() != 0:
+		feeSatPerKW = chainfee.SatPerKWeight(req.GetSatPerKweight())
 
 	default:
 		return nil, fmt.Errorf("fee definition missing, need to " +

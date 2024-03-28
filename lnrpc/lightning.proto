@@ -1111,9 +1111,8 @@ message EstimateFeeResponse {
     // The total fee in satoshis.
     int64 fee_sat = 1;
 
-    // Deprecated, use sat_per_vbyte.
-    // The fee rate in satoshi/vbyte.
-    int64 feerate_sat_per_byte = 2 [deprecated = true];
+    // The fee rate in satoshi/kweight.
+    int64 sat_per_kweight = 2;
 
     // The fee rate in satoshi/vbyte.
     uint64 sat_per_vbyte = 3;
@@ -1131,10 +1130,11 @@ message SendManyRequest {
     // transaction.
     uint64 sat_per_vbyte = 4;
 
-    // Deprecated, use sat_per_vbyte.
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
-    // transaction.
-    int64 sat_per_byte = 5 [deprecated = true];
+    /*
+    A manual fee rate set in sat/kweight that should be used when crafting the
+    transaction.
+    */
+    uint64 sat_per_kweight = 5;
 
     // An optional label for the transaction, limited to 500 characters.
     string label = 6;
@@ -1166,10 +1166,11 @@ message SendCoinsRequest {
     // transaction.
     uint64 sat_per_vbyte = 4;
 
-    // Deprecated, use sat_per_vbyte.
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
-    // transaction.
-    int64 sat_per_byte = 5 [deprecated = true];
+    /*
+    A manual fee rate set in sat/kweight that should be used when crafting the
+    transaction.
+    */
+    uint64 sat_per_kweight = 5;
 
     /*
     If set, then the amount field will be ignored, and lnd will attempt to
@@ -2027,10 +2028,13 @@ message CloseChannelRequest {
     // confirmed by.
     int32 target_conf = 3;
 
-    // Deprecated, use sat_per_vbyte.
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
-    // closure transaction.
-    int64 sat_per_byte = 4 [deprecated = true];
+    /*
+    A manual fee rate set in sat/kweight that should be used when crafting the
+    transaction.
+    //
+    NOTE: This field is only respected if we're the initiator of the channel.
+    */
+    uint64 sat_per_kweight = 4;
 
     /*
     An optional address to send funds to in the case of a cooperative close.
@@ -2115,6 +2119,12 @@ message BatchOpenChannelRequest {
 
     // An optional label for the batch transaction, limited to 500 characters.
     string label = 6;
+
+    /*
+    A manual fee rate set in sat/kweight that should be used when crafting the
+    transaction.
+    */
+    uint64 sat_per_kweight = 7;
 }
 
 message BatchOpenChannel {
@@ -2269,10 +2279,11 @@ message OpenChannelRequest {
     // confirmed by.
     int32 target_conf = 6;
 
-    // Deprecated, use sat_per_vbyte.
-    // A manual fee rate set in sat/vbyte that should be used when crafting the
-    // funding transaction.
-    int64 sat_per_byte = 7 [deprecated = true];
+    /*
+    A manual fee rate set in sat/kweight that should be used when crafting the
+    funding transaction.
+    */
+    uint64 sat_per_kweight = 7;
 
     // Whether this channel should be private, not announced to the greater
     // network.

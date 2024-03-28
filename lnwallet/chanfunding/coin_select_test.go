@@ -316,7 +316,7 @@ func TestCoinSelect(t *testing.T) {
 			selected, changeAmt, err := CoinSelect(
 				feeRate, test.outputValue, dustLimit,
 				test.coins, wallet.CoinSelectionLargest,
-				fundingOutputEstimate, test.changeType,
+				fundingOutputEstimate, test.changeType, false,
 			)
 
 			if test.expectErr {
@@ -871,7 +871,7 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 				test.reserved, dustLimit, test.coins,
 				wallet.CoinSelectionLargest,
 				fundingOutputEstimate,
-				defaultChanFundingChangeType,
+				defaultChanFundingChangeType, false,
 			)
 			if len(test.expectErr) == 0 && err != nil {
 				t.Fatalf(err.Error())

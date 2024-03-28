@@ -1546,7 +1546,7 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 
 		changeAmt, needMore, err := chanfunding.CalculateChangeAmount(
 			inputSum, outputSum, packetFeeNoChange,
-			packetFeeWithChange, changeDustLimit, changeType,
+			packetFeeWithChange, changeDustLimit, changeType, true,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error calculating change "+
@@ -1604,6 +1604,7 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 		selectedCoins, changeAmount, err := chanfunding.CoinSelect(
 			feeRate, fundingAmount, changeDustLimit, coins,
 			w.cfg.CoinSelectionStrategy, estimator, changeType,
+			true,
 		)
 		if err != nil {
 			return fmt.Errorf("error selecting coins: %w", err)

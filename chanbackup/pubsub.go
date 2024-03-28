@@ -97,6 +97,10 @@ type SubSwapper struct {
 
 	quit chan struct{}
 	wg   sync.WaitGroup
+
+	// Whether to put CloseTxInputs into a backup. A backup with this data
+	// can be used by "chantools scbforceclose" command.
+	includeCloseTxInputs bool
 }
 
 // NewSubSwapper creates a new instance of the SubSwapper given the starting
@@ -104,7 +108,13 @@ type SubSwapper struct {
 // updates, pack a multi backup, and swap the current best backup from its
 // storage location.
 func NewSubSwapper(startingChans []Single, chanNotifier ChannelNotifier,
-	keyRing keychain.KeyRing, backupSwapper Swapper) (*SubSwapper, error) {
+	keyRing keychain.KeyRing, backupSwapper Swapper,
+	options ...BackupOption) (*SubSwapper, error) {
+
+	var config BackupConfig
+	for _, opt := range options {
+		opt(&config)
+	}
 
 	// First, we'll subscribe to the latest set of channel updates given
 	// the set of channels we already know of.
@@ -130,6 +140,8 @@ func NewSubSwapper(startingChans []Single, chanNotifier ChannelNotifier,
 		keyRing:     keyRing,
 		Swapper:     backupSwapper,
 		quit:        make(chan struct{}),
+
+		includeCloseTxInputs: config.includeCloseTxInputs,
 	}, nil
 }
 
@@ -266,9 +278,17 @@ func (s *SubSwapper) backupUpdater() {
 				log.Debugf("Adding channel %v to backup state",
 					newChan.FundingOutpoint)
 
-				s.backupState[newChan.FundingOutpoint] = NewSingle(
-					newChan.OpenChannel, newChan.Addrs,
+				single := NewSingle(
+					newChan.OpenChannel,
+					newChan.Addrs,
 				)
+				if s.includeCloseTxInputs {
+					inputs := buildCloseTxInputs(
+						newChan.OpenChannel,
+					)
+					single.CloseTxInputs = inputs
+				}
+				s.backupState[newChan.FundingOutpoint] = single
 			}
 
 			// For all closed channels, we'll remove the prior

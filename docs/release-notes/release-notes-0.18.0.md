@@ -172,6 +172,9 @@
 * When computing a minimum fee for transaction construction, `lnd` [now takes our
 bitcoin peers' feefilter values into account](https://github.com/lightningnetwork/lnd/pull/8418).
 
+* [Preparatory work](https://github.com/lightningnetwork/lnd/pull/8159) for 
+  forwarding of blinded routes was added.
+
 ## RPC Additions
 
 * [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)

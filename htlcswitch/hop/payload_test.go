@@ -557,3 +557,141 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 		t.Fatalf("invalid custom records")
 	}
 }
+
+// TestValidateBlindedRouteData tests validation of the values provided in a
+// blinded route.
+func TestValidateBlindedRouteData(t *testing.T) {
+	scid := lnwire.NewShortChanIDFromInt(1)
+
+	tests := []struct {
+		name             string
+		data             *record.BlindedRouteData
+		incomingAmount   lnwire.MilliSatoshi
+		incomingTimelock uint32
+		err              error
+	}{
+		{
+			name: "max cltv expired",
+			data: record.NewBlindedRouteData(
+				scid,
+				nil,
+				record.PaymentRelayInfo{},
+				&record.PaymentConstraints{
+					MaxCltvExpiry: 100,
+				},
+				nil,
+			),
+			incomingTimelock: 200,
+			err: hop.ErrInvalidPayload{
+				Type:      record.LockTimeOnionType,
+				Violation: hop.InsufficientViolation,
+			},
+		},
+		{
+			name: "zero max cltv",
+			data: record.NewBlindedRouteData(
+				scid,
+				nil,
+				record.PaymentRelayInfo{},
+				&record.PaymentConstraints{
+					MaxCltvExpiry:   0,
+					HtlcMinimumMsat: 10,
+				},
+				nil,
+			),
+			incomingAmount:   100,
+			incomingTimelock: 10,
+			err: hop.ErrInvalidPayload{
+				Type:      record.LockTimeOnionType,
+				Violation: hop.InsufficientViolation,
+			},
+		},
+		{
+			name: "amount below minimum",
+			data: record.NewBlindedRouteData(
+				scid,
+				nil,
+				record.PaymentRelayInfo{},
+				&record.PaymentConstraints{
+					HtlcMinimumMsat: 15,
+				},
+				nil,
+			),
+			incomingAmount: 10,
+			err: hop.ErrInvalidPayload{
+				Type:      record.AmtOnionType,
+				Violation: hop.InsufficientViolation,
+			},
+		},
+		{
+			name: "valid, no features",
+			data: record.NewBlindedRouteData(
+				scid,
+				nil,
+				record.PaymentRelayInfo{},
+				&record.PaymentConstraints{
+					MaxCltvExpiry:   100,
+					HtlcMinimumMsat: 20,
+				},
+				nil,
+			),
+			incomingAmount:   40,
+			incomingTimelock: 80,
+		},
+		{
+			name: "unknown features",
+			data: record.NewBlindedRouteData(
+				scid,
+				nil,
+				record.PaymentRelayInfo{},
+				&record.PaymentConstraints{
+					MaxCltvExpiry:   100,
+					HtlcMinimumMsat: 20,
+				},
+				lnwire.NewFeatureVector(
+					lnwire.NewRawFeatureVector(
+						lnwire.FeatureBit(9999),
+					),
+					lnwire.Features,
+				),
+			),
+			incomingAmount:   40,
+			incomingTimelock: 80,
+			err: hop.ErrInvalidPayload{
+				Type:      14,
+				Violation: hop.IncludedViolation,
+			},
+		},
+		{
+			name: "valid data",
+			data: record.NewBlindedRouteData(
+				scid,
+				nil,
+				record.PaymentRelayInfo{
+					CltvExpiryDelta: 10,
+					FeeRate:         10,
+					BaseFee:         100,
+				},
+				&record.PaymentConstraints{
+					MaxCltvExpiry:   100,
+					HtlcMinimumMsat: 20,
+				},
+				nil,
+			),
+			incomingAmount:   40,
+			incomingTimelock: 80,
+		},
+	}
+
+	for _, testCase := range tests {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			err := hop.ValidateBlindedRouteData(
+				testCase.data, testCase.incomingAmount,
+				testCase.incomingTimelock,
+			)
+			require.Equal(t, testCase.err, err)
+		})
+	}
+}

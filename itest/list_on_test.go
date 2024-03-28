@@ -6,6 +6,10 @@ import "github.com/lightningnetwork/lnd/lntest"
 
 var allTestCases = []*lntest.TestCase{
 	{
+		Name:     "max new nodes",
+		TestFunc: testMaxNewNodes,
+	},
+	{
 		Name:     "update channel status",
 		TestFunc: testUpdateChanStatus,
 	},

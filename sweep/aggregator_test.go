@@ -19,26 +19,28 @@ import (
 
 //nolint:lll
 var (
-	testInputsA = pendingInputs{
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 0}: &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 1}: &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 2}: &pendingInput{},
+	testInputsA = InputsMap{
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 0}: &SweeperInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 1}: &SweeperInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 2}: &SweeperInput{},
 	}
 
-	testInputsB = pendingInputs{
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 10}: &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 11}: &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 12}: &pendingInput{},
+	testInputsB = InputsMap{
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 10}: &SweeperInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 11}: &SweeperInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 12}: &SweeperInput{},
 	}
 
-	testInputsC = pendingInputs{
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 0}:  &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 1}:  &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 2}:  &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 10}: &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 11}: &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 12}: &pendingInput{},
+	testInputsC = InputsMap{
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 0}:  &SweeperInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 1}:  &SweeperInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 2}:  &SweeperInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 10}: &SweeperInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 11}: &SweeperInput{},
+		wire.OutPoint{Hash: chainhash.Hash{}, Index: 12}: &SweeperInput{},
 	}
+
+	testHeight = int32(800000)
 )
 
 // TestMergeClusters check that we properly can merge clusters together,
@@ -132,7 +134,7 @@ func TestMergeClusters(t *testing.T) {
 func TestZipClusters(t *testing.T) {
 	t.Parallel()
 
-	createCluster := func(inp pendingInputs,
+	createCluster := func(inp InputsMap,
 		f chainfee.SatPerKWeight) inputCluster {
 
 		return inputCluster{
@@ -275,19 +277,19 @@ func TestClusterByLockTime(t *testing.T) {
 
 	// With the inner Input being mocked, we can now create the pending
 	// inputs.
-	input1 := &pendingInput{Input: input1LockTime1, params: param}
-	input2 := &pendingInput{Input: input2LockTime1, params: param}
-	input3 := &pendingInput{Input: input3LockTime2, params: param}
-	input4 := &pendingInput{Input: input4LockTime2, params: param}
-	input5 := &pendingInput{Input: input5NoLockTime, params: param}
-	input6 := &pendingInput{Input: input6NoLockTime, params: param}
+	input1 := &SweeperInput{Input: input1LockTime1, params: param}
+	input2 := &SweeperInput{Input: input2LockTime1, params: param}
+	input3 := &SweeperInput{Input: input3LockTime2, params: param}
+	input4 := &SweeperInput{Input: input4LockTime2, params: param}
+	input5 := &SweeperInput{Input: input5NoLockTime, params: param}
+	input6 := &SweeperInput{Input: input6NoLockTime, params: param}
 
 	// Create the pending inputs map, which will be passed to the method
 	// under test.
 	//
 	// NOTE: we don't care the actual outpoint values as long as they are
 	// unique.
-	inputs := pendingInputs{
+	inputs := InputsMap{
 		wire.OutPoint{Index: 1}: input1,
 		wire.OutPoint{Index: 2}: input2,
 		wire.OutPoint{Index: 3}: input3,
@@ -298,18 +300,18 @@ func TestClusterByLockTime(t *testing.T) {
 
 	// Create expected clusters so we can shorten the line length in the
 	// test cases below.
-	cluster1 := pendingInputs{
+	cluster1 := InputsMap{
 		wire.OutPoint{Index: 1}: input1,
 		wire.OutPoint{Index: 2}: input2,
 	}
-	cluster2 := pendingInputs{
+	cluster2 := InputsMap{
 		wire.OutPoint{Index: 3}: input3,
 		wire.OutPoint{Index: 4}: input4,
 	}
 
 	// cluster3 should be the remaining inputs since they don't have
 	// locktime.
-	cluster3 := pendingInputs{
+	cluster3 := InputsMap{
 		wire.OutPoint{Index: 5}: input5,
 		wire.OutPoint{Index: 6}: input6,
 	}
@@ -332,7 +334,7 @@ func TestClusterByLockTime(t *testing.T) {
 		setupMocker             func()
 		testFeeRate             chainfee.SatPerKWeight
 		expectedClusters        []inputCluster
-		expectedRemainingInputs pendingInputs
+		expectedRemainingInputs InputsMap
 	}{
 		{
 			// Test a successful case where the locktime clusters
@@ -460,7 +462,7 @@ func TestBudgetAggregatorFilterInputs(t *testing.T) {
 
 	// Mock the `OutPoint` method to return a unique outpoint.
 	opErr := wire.OutPoint{Hash: chainhash.Hash{1}}
-	inpErr.On("OutPoint").Return(&opErr).Once()
+	inpErr.On("OutPoint").Return(opErr).Once()
 
 	// Mock the estimator to return a constant fee rate.
 	const minFeeRate = chainfee.SatPerKWeight(1000)
@@ -502,10 +504,10 @@ func TestBudgetAggregatorFilterInputs(t *testing.T) {
 	inpDust.On("WitnessType").Return(wt)
 
 	// Mock the `OutPoint` method to return the unique outpoint.
-	inpLow.On("OutPoint").Return(&opLow)
-	inpEqual.On("OutPoint").Return(&opEqual)
-	inpHigh.On("OutPoint").Return(&opHigh)
-	inpDust.On("OutPoint").Return(&opDust)
+	inpLow.On("OutPoint").Return(opLow)
+	inpEqual.On("OutPoint").Return(opEqual)
+	inpHigh.On("OutPoint").Return(opHigh)
+	inpDust.On("OutPoint").Return(opDust)
 
 	// Mock the `RequiredTxOut` to return nil.
 	inpEqual.On("RequiredTxOut").Return(nil)
@@ -518,33 +520,33 @@ func TestBudgetAggregatorFilterInputs(t *testing.T) {
 	})
 
 	// Create testing pending inputs.
-	inputs := pendingInputs{
+	inputs := InputsMap{
 		// The first input will be filtered out due to the error.
-		opErr: &pendingInput{
+		opErr: &SweeperInput{
 			Input: inpErr,
 		},
 
 		// The second input will be filtered out due to the budget.
-		opLow: &pendingInput{
+		opLow: &SweeperInput{
 			Input:  inpLow,
 			params: Params{Budget: budgetLow},
 		},
 
 		// The third input will be included.
-		opEqual: &pendingInput{
+		opEqual: &SweeperInput{
 			Input:  inpEqual,
 			params: Params{Budget: budgetEqual},
 		},
 
 		// The fourth input will be included.
-		opHigh: &pendingInput{
+		opHigh: &SweeperInput{
 			Input:  inpHigh,
 			params: Params{Budget: budgetHigh},
 		},
 
 		// The fifth input will be filtered out due to the dust
 		// required.
-		opDust: &pendingInput{
+		opDust: &SweeperInput{
 			Input:  inpDust,
 			params: Params{Budget: budgetHigh},
 		},
@@ -578,7 +580,7 @@ func TestBudgetAggregatorSortInputs(t *testing.T) {
 	)
 
 	// Create an input with the low budget but forced.
-	inputLowForce := pendingInput{
+	inputLowForce := SweeperInput{
 		params: Params{
 			Budget: budgetLow,
 			Force:  true,
@@ -586,14 +588,14 @@ func TestBudgetAggregatorSortInputs(t *testing.T) {
 	}
 
 	// Create an input with the low budget.
-	inputLow := pendingInput{
+	inputLow := SweeperInput{
 		params: Params{
 			Budget: budgetLow,
 		},
 	}
 
 	// Create an input with the high budget and forced.
-	inputHighForce := pendingInput{
+	inputHighForce := SweeperInput{
 		params: Params{
 			Budget: budgetHight,
 			Force:  true,
@@ -601,14 +603,14 @@ func TestBudgetAggregatorSortInputs(t *testing.T) {
 	}
 
 	// Create an input with the high budget.
-	inputHigh := pendingInput{
+	inputHigh := SweeperInput{
 		params: Params{
 			Budget: budgetHight,
 		},
 	}
 
 	// Create a testing pending inputs.
-	inputs := []pendingInput{
+	inputs := []SweeperInput{
 		inputLowForce,
 		inputLow,
 		inputHighForce,
@@ -650,15 +652,15 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 	defer mockInput3.AssertExpectations(t)
 
 	// Create testing pending inputs.
-	pi1 := pendingInput{
+	pi1 := SweeperInput{
 		Input:  mockInput1,
 		params: Params{},
 	}
-	pi2 := pendingInput{
+	pi2 := SweeperInput{
 		Input:  mockInput2,
 		params: Params{},
 	}
-	pi3 := pendingInput{
+	pi3 := SweeperInput{
 		Input:  mockInput3,
 		params: Params{},
 	}
@@ -669,7 +671,7 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 	// Create test cases.
 	testCases := []struct {
 		name            string
-		inputs          []pendingInput
+		inputs          []SweeperInput
 		setupMock       func()
 		expectedNumSets int
 	}{
@@ -677,13 +679,13 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 			// When the number of inputs is below the max, a single
 			// input set is returned.
 			name:   "num inputs below max",
-			inputs: []pendingInput{pi1},
+			inputs: []SweeperInput{pi1},
 			setupMock: func() {
 				// Mock methods used in loggings.
 				mockInput1.On("WitnessType").Return(
 					input.CommitmentAnchor)
 				mockInput1.On("OutPoint").Return(
-					&wire.OutPoint{Hash: chainhash.Hash{1}})
+					wire.OutPoint{Hash: chainhash.Hash{1}})
 			},
 			expectedNumSets: 1,
 		},
@@ -691,7 +693,7 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 			// When the number of inputs is equal to the max, a
 			// single input set is returned.
 			name:   "num inputs equal to max",
-			inputs: []pendingInput{pi1, pi2},
+			inputs: []SweeperInput{pi1, pi2},
 			setupMock: func() {
 				// Mock methods used in loggings.
 				mockInput1.On("WitnessType").Return(
@@ -700,9 +702,9 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 					input.CommitmentAnchor)
 
 				mockInput1.On("OutPoint").Return(
-					&wire.OutPoint{Hash: chainhash.Hash{1}})
+					wire.OutPoint{Hash: chainhash.Hash{1}})
 				mockInput2.On("OutPoint").Return(
-					&wire.OutPoint{Hash: chainhash.Hash{2}})
+					wire.OutPoint{Hash: chainhash.Hash{2}})
 			},
 			expectedNumSets: 1,
 		},
@@ -710,7 +712,7 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 			// When the number of inputs is above the max, multiple
 			// input sets are returned.
 			name:   "num inputs above max",
-			inputs: []pendingInput{pi1, pi2, pi3},
+			inputs: []SweeperInput{pi1, pi2, pi3},
 			setupMock: func() {
 				// Mock methods used in loggings.
 				mockInput1.On("WitnessType").Return(
@@ -721,11 +723,11 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 					input.CommitmentAnchor)
 
 				mockInput1.On("OutPoint").Return(
-					&wire.OutPoint{Hash: chainhash.Hash{1}})
+					wire.OutPoint{Hash: chainhash.Hash{1}})
 				mockInput2.On("OutPoint").Return(
-					&wire.OutPoint{Hash: chainhash.Hash{2}})
+					wire.OutPoint{Hash: chainhash.Hash{2}})
 				mockInput3.On("OutPoint").Return(
-					&wire.OutPoint{Hash: chainhash.Hash{3}})
+					wire.OutPoint{Hash: chainhash.Hash{3}})
 			},
 			expectedNumSets: 2,
 		},
@@ -740,7 +742,7 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 			tc.setupMock()
 
 			// Call the method under test.
-			result := b.createInputSets(tc.inputs)
+			result := b.createInputSets(tc.inputs, testHeight)
 
 			// Validate the expected number of input sets are
 			// returned.
@@ -762,10 +764,10 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	wt := &input.MockWitnessType{}
 	defer wt.AssertExpectations(t)
 
-	// Mock the `SizeUpperBound` method to return the size six times since
-	// we are using nine inputs.
+	// Mock the `SizeUpperBound` method to return the size 10 times since
+	// we are using ten inputs.
 	const wtSize = 100
-	wt.On("SizeUpperBound").Return(wtSize, true, nil).Times(9)
+	wt.On("SizeUpperBound").Return(wtSize, true, nil).Times(10)
 	wt.On("String").Return("mock witness type")
 
 	// Mock the estimator to return a constant fee rate.
@@ -786,7 +788,37 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	)
 
 	// Create testing pending inputs.
-	inputs := make(pendingInputs)
+	inputs := make(InputsMap)
+
+	// Create a mock input that is exclusive.
+	inpExclusive := &input.MockInput{}
+	defer inpExclusive.AssertExpectations(t)
+
+	// We expect the high budget input to call this method three times,
+	// 1. in `filterInputs`
+	// 2. in `createInputSet`
+	// 3. when assigning the input to the exclusiveInputs.
+	// 4. when iterating the exclusiveInputs.
+	opExclusive := wire.OutPoint{Hash: chainhash.Hash{1, 2, 3, 4, 5}}
+	inpExclusive.On("OutPoint").Return(opExclusive).Times(4)
+
+	// Mock the `WitnessType` method to return the witness type.
+	inpExclusive.On("WitnessType").Return(wt)
+
+	// Mock the `RequiredTxOut` to return nil.
+	inpExclusive.On("RequiredTxOut").Return(nil)
+
+	// Add the exclusive input to the inputs map. We expect this input to
+	// be in its own input set although it has deadline1.
+	exclusiveGroup := uint64(123)
+	inputs[opExclusive] = &SweeperInput{
+		Input: inpExclusive,
+		params: Params{
+			Budget:         budgetHigh,
+			DeadlineHeight: deadline1,
+			ExclusiveGroup: &exclusiveGroup,
+		},
+	}
 
 	// For each deadline height, create two inputs with different budgets,
 	// one below the min fee rate and one above it. We should see the lower
@@ -822,13 +854,13 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 		//
 		// We expect the low budget input to call this method once in
 		// `filterInputs`.
-		inpLow.On("OutPoint").Return(&opLow).Once()
+		inpLow.On("OutPoint").Return(opLow).Once()
 
 		// We expect the high budget input to call this method three
 		// times, one in `filterInputs` and one in `createInputSet`,
 		// and one in `NewBudgetInputSet`.
-		inpHigh1.On("OutPoint").Return(&opHigh1).Times(3)
-		inpHigh2.On("OutPoint").Return(&opHigh2).Times(3)
+		inpHigh1.On("OutPoint").Return(opHigh1).Times(3)
+		inpHigh2.On("OutPoint").Return(opHigh2).Times(3)
 
 		// Mock the `WitnessType` method to return the witness type.
 		inpLow.On("WitnessType").Return(wt)
@@ -840,7 +872,7 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 		inpHigh2.On("RequiredTxOut").Return(nil)
 
 		// Add the low input, which should be filtered out.
-		inputs[opLow] = &pendingInput{
+		inputs[opLow] = &SweeperInput{
 			Input: inpLow,
 			params: Params{
 				Budget:         budgetLow,
@@ -849,14 +881,14 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 		}
 
 		// Add the high inputs, which should be included.
-		inputs[opHigh1] = &pendingInput{
+		inputs[opHigh1] = &SweeperInput{
 			Input: inpHigh1,
 			params: Params{
 				Budget:         budgetHigh,
 				DeadlineHeight: deadline,
 			},
 		}
-		inputs[opHigh2] = &pendingInput{
+		inputs[opHigh2] = &SweeperInput{
 			Input: inpHigh2,
 			params: Params{
 				Budget:         budgetHigh,
@@ -869,14 +901,20 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	b := NewBudgetAggregator(estimator, DefaultMaxInputsPerTx)
 
 	// Call the method under test.
-	result := b.ClusterInputs(inputs)
+	defaultDeadline := testHeight + DefaultDeadlineDelta
+	result := b.ClusterInputs(inputs, defaultDeadline)
 
-	// We expect three input sets to be returned, one for each deadline.
-	require.Len(t, result, 3)
+	// We expect four input sets to be returned, one for each deadline and
+	// extra one for the exclusive input.
+	require.Len(t, result, 4)
 
-	// Check each input set has exactly two inputs.
-	deadlines := make(map[fn.Option[int32]]struct{})
-	for _, set := range result {
+	// The last set should be the exclusive input that has only one input.
+	setExclusive := result[3]
+	require.Len(t, setExclusive.Inputs(), 1)
+
+	// Check the each of rest has exactly two inputs.
+	deadlines := make(map[int32]struct{})
+	for _, set := range result[:3] {
 		// We expect two inputs in each set.
 		require.Len(t, set.Inputs(), 2)
 
@@ -888,7 +926,7 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	}
 
 	// We expect to see all three deadlines.
-	require.Contains(t, deadlines, deadlineNone)
-	require.Contains(t, deadlines, deadline1)
-	require.Contains(t, deadlines, deadline2)
+	require.Contains(t, deadlines, defaultDeadline)
+	require.Contains(t, deadlines, deadline1.UnsafeFromSome())
+	require.Contains(t, deadlines, deadline2.UnsafeFromSome())
 }

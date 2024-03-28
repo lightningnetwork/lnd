@@ -30,7 +30,8 @@ func TestWeightEstimator(t *testing.T) {
 	// The expectations is that this input is added.
 	const expectedWeight1 = 322
 	require.Equal(t, expectedWeight1, w.weight())
-	require.Equal(t, testFeeRate.FeeForWeight(expectedWeight1), w.fee())
+	require.Equal(t, testFeeRate.FeeForWeight(expectedWeight1),
+		w.feeWithParent())
 
 	// Define a parent transaction that pays a fee of 30000 sat/kw.
 	parentTxHighFee := &input.TxInfo{
@@ -51,7 +52,8 @@ func TestWeightEstimator(t *testing.T) {
 	// rate than the child. We expect no additional fee on the child.
 	const expectedWeight2 = expectedWeight1 + 280
 	require.Equal(t, expectedWeight2, w.weight())
-	require.Equal(t, testFeeRate.FeeForWeight(expectedWeight2), w.fee())
+	require.Equal(t, testFeeRate.FeeForWeight(expectedWeight2),
+		w.feeWithParent())
 
 	// Define a parent transaction that pays a fee of 10000 sat/kw.
 	parentTxLowFee := &input.TxInfo{
@@ -78,7 +80,7 @@ func TestWeightEstimator(t *testing.T) {
 		expectedWeight3+parentTxLowFee.Weight,
 	) - parentTxLowFee.Fee
 
-	require.Equal(t, expectedFee, w.fee())
+	require.Equal(t, expectedFee, w.feeWithParent())
 }
 
 // TestWeightEstimatorMaxFee tests that the weight estimator correctly caps the
@@ -118,7 +120,7 @@ func TestWeightEstimatorMaxFee(t *testing.T) {
 	//
 	// Thus we cap at the maxFee.
 	expectedFee := maxFeeRate.FeeForWeight(childWeight)
-	require.Equal(t, expectedFee, w.fee())
+	require.Equal(t, expectedFee, w.feeWithParent())
 }
 
 // TestWeightEstimatorAddOutput tests that adding the raw P2WKH output to the

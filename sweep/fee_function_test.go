@@ -19,6 +19,7 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 	// Create testing params.
 	maxFeeRate := chainfee.SatPerKWeight(10000)
 	estimatedFeeRate := chainfee.SatPerKWeight(500)
+	minRelayFeeRate := chainfee.SatPerKWeight(100)
 	confTarget := uint32(6)
 
 	// Assert init fee function with zero conf value returns an error.
@@ -61,6 +62,23 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 	f, err = NewLinearFeeFunction(maxFeeRate, confTarget, estimator)
 	rt.ErrorContains(err, "fee rate delta is zero")
 	rt.Nil(f)
+
+	// When the conf target is >= 1008, the min relay fee should be used.
+	//
+	// Mock the fee estimator to reutrn the fee rate.
+	estimator.On("RelayFeePerKW").Return(minRelayFeeRate).Once()
+
+	largeConf := uint32(1008)
+	f, err = NewLinearFeeFunction(maxFeeRate, largeConf, estimator)
+	rt.NoError(err)
+	rt.NotNil(f)
+
+	// Assert the internal state.
+	rt.Equal(minRelayFeeRate, f.startingFeeRate)
+	rt.Equal(maxFeeRate, f.endingFeeRate)
+	rt.Equal(minRelayFeeRate, f.currentFeeRate)
+	rt.NotZero(f.deltaFeeRate)
+	rt.Equal(largeConf, f.width)
 
 	// Check a successfully created fee function.
 	//

@@ -44,7 +44,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 		return nil, 0, err
 	}
 
-	txFee := estimator.fee()
+	txFee := estimator.feeWithParent()
 
 	var (
 		// Create the sweep transaction that we will be building. We
@@ -74,7 +74,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 
 		idxs = append(idxs, o)
 		sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: *o.OutPoint(),
+			PreviousOutPoint: o.OutPoint(),
 			Sequence:         o.BlocksToMaturity(),
 		})
 		sweepTx.AddTxOut(o.RequiredTxOut())
@@ -102,7 +102,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 
 		idxs = append(idxs, o)
 		sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: *o.OutPoint(),
+			PreviousOutPoint: o.OutPoint(),
 			Sequence:         o.BlocksToMaturity(),
 		})
 
@@ -273,7 +273,11 @@ func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
 
 		err := weightEstimate.add(inp)
 		if err != nil {
-			log.Warn(err)
+			// TODO(yy): check if this is even possible? If so, we
+			// should return the error here instead of filtering!
+			log.Errorf("Failed to get weight estimate for "+
+				"input=%v, witnessType=%v: %v ", inp.OutPoint(),
+				inp.WitnessType(), err)
 
 			// Skip inputs for which no weight estimate can be
 			// given.
@@ -305,9 +309,7 @@ func inputTypeSummary(inputs []input.Input) string {
 
 	var parts []string
 	for _, i := range sortedInputs {
-		part := fmt.Sprintf("%v (%v)",
-			*i.OutPoint(), i.WitnessType())
-
+		part := fmt.Sprintf("%v (%v)", i.OutPoint(), i.WitnessType())
 		parts = append(parts, part)
 	}
 	return strings.Join(parts, ", ")

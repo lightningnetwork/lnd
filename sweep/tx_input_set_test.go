@@ -35,7 +35,7 @@ func TestTxInputSet(t *testing.T) {
 		t.Fatal("expected add of positively yielding input to succeed")
 	}
 
-	fee := set.weightEstimate(true).fee()
+	fee := set.weightEstimate(true).feeWithParent()
 	require.Equal(t, btcutil.Amount(487), fee)
 
 	// The tx output should now be 700-487 = 213 sats. The dust limit isn't
@@ -164,13 +164,13 @@ func TestTxInputSetRequiredOutput(t *testing.T) {
 	require.True(t, set.add(inp, constraintsRegular), "failed adding input")
 
 	// The fee needed to pay for this input and output should be 439 sats.
-	fee := set.weightEstimate(false).fee()
+	fee := set.weightEstimate(false).feeWithParent()
 	require.Equal(t, btcutil.Amount(439), fee)
 
 	// Since the tx set currently pays no fees, we expect the current
 	// change to actually be negative, since this is what it would cost us
 	// in fees to add a change output.
-	feeWithChange := set.weightEstimate(true).fee()
+	feeWithChange := set.weightEstimate(true).feeWithParent()
 	if set.changeOutput != -feeWithChange {
 		t.Fatalf("expected negative change of %v, had %v",
 			-feeWithChange, set.changeOutput)
@@ -188,9 +188,10 @@ func TestTxInputSetRequiredOutput(t *testing.T) {
 	// Now we add a an input that is large enough to pay the fee for the
 	// transaction without a change output, but not large enough to afford
 	// adding a change output.
-	extraInput1 := weight.fee() + 100
-	require.True(t, set.add(createP2WKHInput(extraInput1), constraintsRegular),
-		"expected add of positively yielding input to succeed")
+	extraInput1 := weight.feeWithParent() + 100
+	require.True(t, set.add(
+		createP2WKHInput(extraInput1), constraintsRegular,
+	), "expected add of positively yielding input to succeed")
 
 	// The change should be negative, since we would have to add a change
 	// output, which we cannot yet afford.
@@ -208,10 +209,12 @@ func TestTxInputSetRequiredOutput(t *testing.T) {
 	require.NoError(t, weight.add(dummyInput))
 
 	// We add what is left to reach this value.
-	extraInput2 := weight.fee() - extraInput1 + 100
+	extraInput2 := weight.feeWithParent() - extraInput1 + 100
 
 	// Add this input, which should result in the change now being 100 sats.
-	require.True(t, set.add(createP2WKHInput(extraInput2), constraintsRegular))
+	require.True(t, set.add(
+		createP2WKHInput(extraInput2), constraintsRegular,
+	))
 
 	// The change should be 100, since this is what is left after paying
 	// fees in case of a change output.
@@ -232,7 +235,7 @@ func TestTxInputSetRequiredOutput(t *testing.T) {
 
 	// We expect the change to everything that is left after paying the tx
 	// fee.
-	extraInput3 := weight.fee() - extraInput1 - extraInput2 + 1000
+	extraInput3 := weight.feeWithParent() - extraInput1 - extraInput2 + 1000
 	require.True(t, set.add(createP2WKHInput(extraInput3), constraintsRegular))
 
 	change = set.changeOutput
@@ -250,7 +253,7 @@ func TestNewBudgetInputSet(t *testing.T) {
 	rt := require.New(t)
 
 	// Pass an empty slice and expect an error.
-	set, err := NewBudgetInputSet([]pendingInput{})
+	set, err := NewBudgetInputSet([]SweeperInput{}, testHeight)
 	rt.ErrorContains(err, "inputs slice is empty")
 	rt.Nil(set)
 
@@ -258,42 +261,55 @@ func TestNewBudgetInputSet(t *testing.T) {
 	inp0 := createP2WKHInput(1000)
 	inp1 := createP2WKHInput(1000)
 	inp2 := createP2WKHInput(1000)
-	input0 := pendingInput{
+	input0 := SweeperInput{
 		Input: inp0,
 		params: Params{
 			Budget:         100,
 			DeadlineHeight: fn.None[int32](),
 		},
 	}
-	input1 := pendingInput{
+	input1 := SweeperInput{
 		Input: inp1,
 		params: Params{
 			Budget:         100,
 			DeadlineHeight: fn.Some(int32(1)),
 		},
 	}
-	input2 := pendingInput{
+	input2 := SweeperInput{
 		Input: inp2,
 		params: Params{
 			Budget:         100,
 			DeadlineHeight: fn.Some(int32(2)),
 		},
 	}
+	input3 := SweeperInput{
+		Input: inp2,
+		params: Params{
+			Budget:         100,
+			DeadlineHeight: fn.Some(testHeight),
+		},
+	}
 
 	// Pass a slice of inputs with different deadline heights.
-	set, err = NewBudgetInputSet([]pendingInput{input1, input2})
-	rt.ErrorContains(err, "inputs have different deadline heights")
+	set, err = NewBudgetInputSet([]SweeperInput{input1, input2}, testHeight)
+	rt.ErrorContains(err, "input deadline height not matched")
 	rt.Nil(set)
 
-	// Pass a slice of inputs that only one input has the deadline height.
-	set, err = NewBudgetInputSet([]pendingInput{input0, input2})
-	rt.NoError(err)
-	rt.NotNil(set)
+	// Pass a slice of inputs that only one input has the deadline height,
+	// but it has a different value than the specified testHeight.
+	set, err = NewBudgetInputSet([]SweeperInput{input0, input2}, testHeight)
+	rt.ErrorContains(err, "input deadline height not matched")
+	rt.Nil(set)
 
 	// Pass a slice of inputs that are duplicates.
-	set, err = NewBudgetInputSet([]pendingInput{input1, input1})
+	set, err = NewBudgetInputSet([]SweeperInput{input3, input3}, testHeight)
 	rt.ErrorContains(err, "duplicate inputs")
 	rt.Nil(set)
+
+	// Pass a slice of inputs that only one input has the deadline height,
+	set, err = NewBudgetInputSet([]SweeperInput{input0, input3}, testHeight)
+	rt.NoError(err)
+	rt.NotNil(set)
 }
 
 // TestBudgetInputSetAddInput checks that `addInput` correctly updates the
@@ -303,7 +319,7 @@ func TestBudgetInputSetAddInput(t *testing.T) {
 
 	// Create a testing input with a budget of 100 satoshis.
 	input := createP2WKHInput(1000)
-	pi := &pendingInput{
+	pi := &SweeperInput{
 		Input: input,
 		params: Params{
 			Budget: 100,
@@ -311,7 +327,7 @@ func TestBudgetInputSetAddInput(t *testing.T) {
 	}
 
 	// Initialize an input set, which adds the above input.
-	set, err := NewBudgetInputSet([]pendingInput{*pi})
+	set, err := NewBudgetInputSet([]SweeperInput{*pi}, testHeight)
 	require.NoError(t, err)
 
 	// Add the input to the set again.
@@ -345,20 +361,20 @@ func TestNeedWalletInput(t *testing.T) {
 	const budget = 100
 
 	// Create the pending input that doesn't have a required output.
-	piBudget := &pendingInput{
+	piBudget := &SweeperInput{
 		Input:  mockInput,
 		params: Params{Budget: budget},
 	}
 
 	// Create the pending input that has a required output.
-	piRequireOutput := &pendingInput{
+	piRequireOutput := &SweeperInput{
 		Input:  mockInputRequireOutput,
 		params: Params{Budget: budget},
 	}
 
 	testCases := []struct {
 		name        string
-		setupInputs func() []*pendingInput
+		setupInputs func() []*SweeperInput
 		need        bool
 	}{
 		{
@@ -366,7 +382,7 @@ func TestNeedWalletInput(t *testing.T) {
 			// wallet input. Technically this should be an invalid
 			// state.
 			name: "no inputs",
-			setupInputs: func() []*pendingInput {
+			setupInputs: func() []*SweeperInput {
 				return nil
 			},
 			need: false,
@@ -375,7 +391,7 @@ func TestNeedWalletInput(t *testing.T) {
 			// When there's no required output, we don't need a
 			// wallet input.
 			name: "no required outputs",
-			setupInputs: func() []*pendingInput {
+			setupInputs: func() []*SweeperInput {
 				// Create a sign descriptor to be used in the
 				// pending input when calculating budgets can
 				// be borrowed.
@@ -386,7 +402,7 @@ func TestNeedWalletInput(t *testing.T) {
 				}
 				mockInput.On("SignDesc").Return(sd).Once()
 
-				return []*pendingInput{piBudget}
+				return []*SweeperInput{piBudget}
 			},
 			need: false,
 		},
@@ -394,7 +410,7 @@ func TestNeedWalletInput(t *testing.T) {
 			// When the output value cannot cover the budget, we
 			// need a wallet input.
 			name: "output value cannot cover budget",
-			setupInputs: func() []*pendingInput {
+			setupInputs: func() []*SweeperInput {
 				// Create a sign descriptor to be used in the
 				// pending input when calculating budgets can
 				// be borrowed.
@@ -408,13 +424,13 @@ func TestNeedWalletInput(t *testing.T) {
 				// These two methods are only invoked when the
 				// unit test is running with a logger.
 				mockInput.On("OutPoint").Return(
-					&wire.OutPoint{Hash: chainhash.Hash{1}},
+					wire.OutPoint{Hash: chainhash.Hash{1}},
 				).Maybe()
 				mockInput.On("WitnessType").Return(
 					input.CommitmentAnchor,
 				).Maybe()
 
-				return []*pendingInput{piBudget}
+				return []*SweeperInput{piBudget}
 			},
 			need: true,
 		},
@@ -422,8 +438,8 @@ func TestNeedWalletInput(t *testing.T) {
 			// When there's only inputs that require outputs, we
 			// need wallet inputs.
 			name: "only required outputs",
-			setupInputs: func() []*pendingInput {
-				return []*pendingInput{piRequireOutput}
+			setupInputs: func() []*SweeperInput {
+				return []*SweeperInput{piRequireOutput}
 			},
 			need: true,
 		},
@@ -432,7 +448,7 @@ func TestNeedWalletInput(t *testing.T) {
 			// budget cannot cover the required, we need a wallet
 			// input.
 			name: "not enough budget to be borrowed",
-			setupInputs: func() []*pendingInput {
+			setupInputs: func() []*SweeperInput {
 				// Create a sign descriptor to be used in the
 				// pending input when calculating budgets can
 				// be borrowed.
@@ -446,7 +462,7 @@ func TestNeedWalletInput(t *testing.T) {
 				}
 				mockInput.On("SignDesc").Return(sd).Once()
 
-				return []*pendingInput{
+				return []*SweeperInput{
 					piBudget, piRequireOutput,
 				}
 			},
@@ -457,7 +473,7 @@ func TestNeedWalletInput(t *testing.T) {
 			// borrowed covers the required, we don't need wallet
 			// inputs.
 			name: "enough budget to be borrowed",
-			setupInputs: func() []*pendingInput {
+			setupInputs: func() []*SweeperInput {
 				// Create a sign descriptor to be used in the
 				// pending input when calculating budgets can
 				// be borrowed.
@@ -472,7 +488,7 @@ func TestNeedWalletInput(t *testing.T) {
 				mockInput.On("SignDesc").Return(sd).Once()
 				piBudget.Input = mockInput
 
-				return []*pendingInput{
+				return []*SweeperInput{
 					piBudget, piRequireOutput,
 				}
 			},
@@ -567,7 +583,7 @@ func TestAddWalletInputNotEnoughInputs(t *testing.T) {
 	defer mockInput.AssertExpectations(t)
 
 	// Create a pending input that requires 10k satoshis.
-	pi := &pendingInput{
+	pi := &SweeperInput{
 		Input:  mockInput,
 		params: Params{Budget: budget},
 	}
@@ -583,7 +599,7 @@ func TestAddWalletInputNotEnoughInputs(t *testing.T) {
 		min, max).Return([]*lnwallet.Utxo{utxo}, nil).Once()
 
 	// Initialize an input set with the pending input.
-	set := BudgetInputSet{inputs: []*pendingInput{pi}}
+	set := BudgetInputSet{inputs: []*SweeperInput{pi}}
 
 	// Add wallet inputs to the input set, which should give us an error as
 	// the wallet cannot cover the budget.
@@ -617,7 +633,7 @@ func TestAddWalletInputSuccess(t *testing.T) {
 
 	// Create a pending input that requires 10k satoshis.
 	deadline := int32(1000)
-	pi := &pendingInput{
+	pi := &SweeperInput{
 		Input: mockInput,
 		params: Params{
 			Budget:         budget,
@@ -629,7 +645,7 @@ func TestAddWalletInputSuccess(t *testing.T) {
 	//
 	// NOTE: these methods are not functional as they are only used for
 	// loggings in debug or trace mode so we use arbitrary values.
-	mockInput.On("OutPoint").Return(&wire.OutPoint{Hash: chainhash.Hash{1}})
+	mockInput.On("OutPoint").Return(wire.OutPoint{Hash: chainhash.Hash{1}})
 	mockInput.On("WitnessType").Return(input.CommitmentAnchor)
 
 	// Create a wallet utxo that cannot cover the budget.
@@ -643,7 +659,7 @@ func TestAddWalletInputSuccess(t *testing.T) {
 		min, max).Return([]*lnwallet.Utxo{utxo, utxo}, nil).Once()
 
 	// Initialize an input set with the pending input.
-	set, err := NewBudgetInputSet([]pendingInput{*pi})
+	set, err := NewBudgetInputSet([]SweeperInput{*pi}, deadline)
 	require.NoError(t, err)
 
 	// Add wallet inputs to the input set, which should give us an error as
@@ -666,7 +682,7 @@ func TestAddWalletInputSuccess(t *testing.T) {
 
 	// Finally, check the interface methods.
 	require.EqualValues(t, budget, set.Budget())
-	require.Equal(t, deadline, set.DeadlineHeight().UnsafeFromSome())
+	require.Equal(t, deadline, set.DeadlineHeight())
 	// Weak check, a strong check is to open the slice and check each item.
 	require.Len(t, set.inputs, 3)
 }

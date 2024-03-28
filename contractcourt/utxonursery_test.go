@@ -1065,7 +1065,7 @@ func newMockSweeperFull(t *testing.T) *mockSweeperFull {
 func (s *mockSweeperFull) sweepInput(input input.Input,
 	_ sweep.Params) (chan sweep.Result, error) {
 
-	log.Debugf("mockSweeper sweepInput called for %v", *input.OutPoint())
+	log.Debugf("mockSweeper sweepInput called for %v", input.OutPoint())
 
 	select {
 	case s.sweepChan <- input:
@@ -1077,7 +1077,7 @@ func (s *mockSweeperFull) sweepInput(input input.Input,
 	defer s.lock.Unlock()
 
 	c := make(chan sweep.Result, 1)
-	s.resultChans[*input.OutPoint()] = c
+	s.resultChans[input.OutPoint()] = c
 
 	return c, nil
 }

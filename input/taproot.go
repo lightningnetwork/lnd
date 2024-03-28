@@ -43,7 +43,7 @@ func MultiPrevOutFetcher(inputs []Input) (*txscript.MultiPrevOutFetcher, error) 
 		op := inp.OutPoint()
 		desc := inp.SignDesc()
 
-		if op == nil {
+		if op == EmptyOutPoint {
 			return nil, fmt.Errorf("missing input outpoint")
 		}
 
@@ -51,7 +51,7 @@ func MultiPrevOutFetcher(inputs []Input) (*txscript.MultiPrevOutFetcher, error) 
 			return nil, fmt.Errorf("missing input utxo information")
 		}
 
-		fetcher.AddPrevOut(*op, desc.Output)
+		fetcher.AddPrevOut(op, desc.Output)
 	}
 
 	return fetcher, nil

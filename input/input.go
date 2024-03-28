@@ -9,6 +9,9 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 )
 
+// EmptyOutPoint is a zeroed outpoint.
+var EmptyOutPoint wire.OutPoint
+
 // Input represents an abstract UTXO which is to be spent using a sweeping
 // transaction. The method provided give the caller all information needed to
 // construct a valid input within a sweeping transaction to sweep this
@@ -16,7 +19,7 @@ import (
 type Input interface {
 	// Outpoint returns the reference to the output being spent, used to
 	// construct the corresponding transaction input.
-	OutPoint() *wire.OutPoint
+	OutPoint() wire.OutPoint
 
 	// RequiredTxOut returns a non-nil TxOut if input commits to a certain
 	// transaction output. This is used in the SINGLE|ANYONECANPAY case to
@@ -107,8 +110,8 @@ type inputKit struct {
 
 // OutPoint returns the breached output's identifier that is to be included as
 // a transaction input.
-func (i *inputKit) OutPoint() *wire.OutPoint {
-	return &i.outpoint
+func (i *inputKit) OutPoint() wire.OutPoint {
+	return i.outpoint
 }
 
 // RequiredTxOut returns a nil for the base input type.

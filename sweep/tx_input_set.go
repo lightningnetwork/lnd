@@ -60,9 +60,9 @@ type InputSet interface {
 	// inputs.
 	NeedWalletInput() bool
 
-	// DeadlineHeight returns an optional absolute block height to express
-	// the time-sensitivity of the input set. The outputs from a force
-	// close tx have different time preferences:
+	// DeadlineHeight returns an absolute block height to express the
+	// time-sensitivity of the input set. The outputs from a force close tx
+	// have different time preferences:
 	// - to_local: no time pressure as it can only be swept by us.
 	// - first level outgoing HTLC: must be swept before its corresponding
 	//   incoming HTLC's CLTV is reached.
@@ -72,7 +72,7 @@ type InputSet interface {
 	// - anchor: for CPFP-purpose anchor, it must be swept before any of
 	//   the above CLTVs is reached. For non-CPFP purpose anchor, there's
 	//   no time pressure.
-	DeadlineHeight() fn.Option[int32]
+	DeadlineHeight() int32
 
 	// Budget givens the total amount that can be used as fees by this
 	// input set.
@@ -201,8 +201,8 @@ func (t *txInputSet) Budget() btcutil.Amount {
 // DeadlineHeight gives the block height that this set must be confirmed by.
 //
 // NOTE: this field is only used for `BudgetInputSet`.
-func (t *txInputSet) DeadlineHeight() fn.Option[int32] {
-	return fn.None[int32]()
+func (t *txInputSet) DeadlineHeight() int32 {
+	return 0
 }
 
 // NeedWalletInput returns true if the input set needs more wallet inputs.
@@ -222,7 +222,7 @@ func (t *txInputSet) enoughInput() bool {
 	// We did not have enough input for a change output. Check if we have
 	// enough input to pay the fees for a transaction with no change
 	// output.
-	fee := t.weightEstimate(false).fee()
+	fee := t.weightEstimate(false).feeWithParent()
 	if t.inputTotal < t.requiredOutput+fee {
 		return false
 	}
@@ -289,7 +289,7 @@ func (t *txInputSet) addToState(inp input.Input,
 	newSet.inputTotal += value
 
 	// Recalculate the tx fee.
-	fee := newSet.weightEstimate(true).fee()
+	fee := newSet.weightEstimate(true).feeWithParent()
 
 	// Calculate the new output value.
 	if reqOut != nil {
@@ -402,7 +402,7 @@ func (t *txInputSet) add(input input.Input, constraints addConstraints) bool {
 // up the utxo set even if it costs us some fees up front.  In the spirit of
 // minimizing any negative externalities we cause for the Bitcoin system as a
 // whole.
-func (t *txInputSet) addPositiveYieldInputs(sweepableInputs []*pendingInput) {
+func (t *txInputSet) addPositiveYieldInputs(sweepableInputs []*SweeperInput) {
 	for i, inp := range sweepableInputs {
 		// Apply relaxed constraints for force sweeps.
 		constraints := constraintsRegular
@@ -549,11 +549,11 @@ func createWalletTxInput(utxo *lnwallet.Utxo) (input.Input, error) {
 type BudgetInputSet struct {
 	// inputs is the set of inputs that have been added to the set after
 	// considering their economical contribution.
-	inputs []*pendingInput
+	inputs []*SweeperInput
 
 	// deadlineHeight is the height which the inputs in this set must be
 	// confirmed by.
-	deadlineHeight fn.Option[int32]
+	deadlineHeight int32
 }
 
 // Compile-time constraint to ensure budgetInputSet implements InputSet.
@@ -561,30 +561,43 @@ var _ InputSet = (*BudgetInputSet)(nil)
 
 // validateInputs is used when creating new BudgetInputSet to ensure there are
 // no duplicate inputs and they all share the same deadline heights, if set.
-func validateInputs(inputs []pendingInput) error {
+func validateInputs(inputs []SweeperInput, deadlineHeight int32) error {
 	// Sanity check the input slice to ensure it's non-empty.
 	if len(inputs) == 0 {
 		return fmt.Errorf("inputs slice is empty")
 	}
 
-	// dedupInputs is a map used to track unique outpoints of the inputs.
-	dedupInputs := make(map[*wire.OutPoint]struct{})
+	// inputDeadline tracks the input's deadline height. It will be updated
+	// if the input has a different deadline than the specified
+	// deadlineHeight.
+	inputDeadline := deadlineHeight
 
-	// deadlineSet stores unique deadline heights.
-	deadlineSet := make(map[fn.Option[int32]]struct{})
+	// dedupInputs is a set used to track unique outpoints of the inputs.
+	dedupInputs := fn.NewSet(
+		// Iterate all the inputs and map the function.
+		fn.Map(func(inp SweeperInput) wire.OutPoint {
+			// If the input has a deadline height, we'll check if
+			// it's the same as the specified.
+			inp.params.DeadlineHeight.WhenSome(func(h int32) {
+				// Exit early if the deadlines matched.
+				if h == deadlineHeight {
+					return
+				}
 
-	for _, input := range inputs {
-		input.params.DeadlineHeight.WhenSome(func(h int32) {
-			deadlineSet[input.params.DeadlineHeight] = struct{}{}
-		})
+				// Update the deadline height if it's
+				// different.
+				inputDeadline = h
+			})
 
-		dedupInputs[input.OutPoint()] = struct{}{}
-	}
+			return inp.OutPoint()
+		}, inputs)...,
+	)
 
 	// Make sure the inputs share the same deadline height when there is
 	// one.
-	if len(deadlineSet) > 1 {
-		return fmt.Errorf("inputs have different deadline heights")
+	if inputDeadline != deadlineHeight {
+		return fmt.Errorf("input deadline height not matched: want "+
+			"%d, got %d", deadlineHeight, inputDeadline)
 	}
 
 	// Provide a defensive check to ensure that we don't have any duplicate
@@ -597,21 +610,17 @@ func validateInputs(inputs []pendingInput) error {
 }
 
 // NewBudgetInputSet creates a new BudgetInputSet.
-func NewBudgetInputSet(inputs []pendingInput) (*BudgetInputSet, error) {
+func NewBudgetInputSet(inputs []SweeperInput,
+	deadlineHeight int32) (*BudgetInputSet, error) {
+
 	// Validate the supplied inputs.
-	if err := validateInputs(inputs); err != nil {
+	if err := validateInputs(inputs, deadlineHeight); err != nil {
 		return nil, err
 	}
 
-	// TODO(yy): all the inputs share the same deadline height, which means
-	// there exists an opportunity to refactor the deadline height to be
-	// tracked on the set-level, not per input. This would allow us to
-	// avoid the overhead of tracking the same height for each input in the
-	// set.
-	deadlineHeight := inputs[0].params.DeadlineHeight
 	bi := &BudgetInputSet{
 		deadlineHeight: deadlineHeight,
-		inputs:         make([]*pendingInput, 0, len(inputs)),
+		inputs:         make([]*SweeperInput, 0, len(inputs)),
 	}
 
 	for _, input := range inputs {
@@ -625,22 +634,17 @@ func NewBudgetInputSet(inputs []pendingInput) (*BudgetInputSet, error) {
 
 // String returns a human-readable description of the input set.
 func (b *BudgetInputSet) String() string {
-	deadlineDesc := "none"
-	b.deadlineHeight.WhenSome(func(h int32) {
-		deadlineDesc = fmt.Sprintf("%d", h)
-	})
-
 	inputsDesc := ""
 	for _, input := range b.inputs {
 		inputsDesc += fmt.Sprintf("\n%v", input)
 	}
 
 	return fmt.Sprintf("BudgetInputSet(budget=%v, deadline=%v, "+
-		"inputs=[%v])", b.Budget(), deadlineDesc, inputsDesc)
+		"inputs=[%v])", b.Budget(), b.DeadlineHeight(), inputsDesc)
 }
 
 // addInput adds an input to the input set.
-func (b *BudgetInputSet) addInput(input pendingInput) {
+func (b *BudgetInputSet) addInput(input SweeperInput) {
 	b.inputs = append(b.inputs, &input)
 }
 
@@ -695,8 +699,8 @@ func (b *BudgetInputSet) NeedWalletInput() bool {
 }
 
 // copyInputs returns a copy of the slice of the inputs in the set.
-func (b *BudgetInputSet) copyInputs() []*pendingInput {
-	inputs := make([]*pendingInput, len(b.inputs))
+func (b *BudgetInputSet) copyInputs() []*SweeperInput {
+	inputs := make([]*SweeperInput, len(b.inputs))
 	copy(inputs, b.inputs)
 	return inputs
 }
@@ -745,15 +749,12 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 			return err
 		}
 
-		pi := pendingInput{
+		pi := SweeperInput{
 			Input: input,
 			params: Params{
-				// Inherit the deadline height from the input
-				// set.
-				DeadlineHeight: b.deadlineHeight,
+				DeadlineHeight: fn.Some(b.deadlineHeight),
 			},
 		}
-
 		b.addInput(pi)
 
 		// Return if we've reached the minimum output amount.
@@ -784,7 +785,7 @@ func (b *BudgetInputSet) Budget() btcutil.Amount {
 // DeadlineHeight returns the deadline height of the set.
 //
 // NOTE: part of the InputSet interface.
-func (b *BudgetInputSet) DeadlineHeight() fn.Option[int32] {
+func (b *BudgetInputSet) DeadlineHeight() int32 {
 	return b.deadlineHeight
 }
 

@@ -5,8 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -42,6 +44,10 @@ func newMockBackend(t *testing.T, notifier *MockNotifier) *mockBackend {
 		unconfirmedSpendInputs: make(map[wire.OutPoint]struct{}),
 		publishChan:            make(chan wire.MsgTx, 2),
 	}
+}
+
+func (b *mockBackend) CheckMempoolAcceptance(tx *wire.MsgTx) error {
+	return nil
 }
 
 func (b *mockBackend) publishTransaction(tx *wire.MsgTx) error {
@@ -167,6 +173,14 @@ func (b *mockBackend) FetchTx(chainhash.Hash) (*wire.MsgTx, error) {
 }
 
 func (b *mockBackend) CancelRebroadcast(tx chainhash.Hash) {
+}
+
+// GetTransactionDetails returns a detailed description of a tx given its
+// transaction hash.
+func (b *mockBackend) GetTransactionDetails(txHash *chainhash.Hash) (
+	*lnwallet.TransactionDetail, error) {
+
+	return nil, nil
 }
 
 // mockFeeEstimator implements a mock fee estimator. It closely resembles
@@ -342,6 +356,14 @@ type MockWallet struct {
 // Compile-time constraint to ensure MockWallet implements Wallet.
 var _ Wallet = (*MockWallet)(nil)
 
+// CheckMempoolAcceptance checks if the transaction can be accepted to the
+// mempool.
+func (m *MockWallet) CheckMempoolAcceptance(tx *wire.MsgTx) error {
+	args := m.Called(tx)
+
+	return args.Error(0)
+}
+
 // PublishTransaction performs cursory validation (dust checks, etc) and
 // broadcasts the passed transaction to the Bitcoin network.
 func (m *MockWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
@@ -404,6 +426,20 @@ func (m *MockWallet) CancelRebroadcast(tx chainhash.Hash) {
 	m.Called(tx)
 }
 
+// GetTransactionDetails returns a detailed description of a tx given its
+// transaction hash.
+func (m *MockWallet) GetTransactionDetails(txHash *chainhash.Hash) (
+	*lnwallet.TransactionDetail, error) {
+
+	args := m.Called(txHash)
+
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).(*lnwallet.TransactionDetail), args.Error(1)
+}
+
 // MockInputSet is a mock implementation of the InputSet interface.
 type MockInputSet struct {
 	mock.Mock
@@ -445,4 +481,66 @@ func (m *MockInputSet) NeedWalletInput() bool {
 	args := m.Called()
 
 	return args.Bool(0)
+}
+
+// DeadlineHeight returns the deadline height for the set.
+func (m *MockInputSet) DeadlineHeight() fn.Option[int32] {
+	args := m.Called()
+
+	return args.Get(0).(fn.Option[int32])
+}
+
+// Budget givens the total amount that can be used as fees by this input set.
+func (m *MockInputSet) Budget() btcutil.Amount {
+	args := m.Called()
+
+	return args.Get(0).(btcutil.Amount)
+}
+
+// MockBumper is a mock implementation of the interface Bumper.
+type MockBumper struct {
+	mock.Mock
+}
+
+// Compile-time constraint to ensure MockBumper implements Bumper.
+var _ Bumper = (*MockBumper)(nil)
+
+// Broadcast broadcasts the transaction to the network.
+func (m *MockBumper) Broadcast(req *BumpRequest) (<-chan *BumpResult, error) {
+	args := m.Called(req)
+
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).(chan *BumpResult), args.Error(1)
+}
+
+// MockFeeFunction is a mock implementation of the FeeFunction interface.
+type MockFeeFunction struct {
+	mock.Mock
+}
+
+// Compile-time constraint to ensure MockFeeFunction implements FeeFunction.
+var _ FeeFunction = (*MockFeeFunction)(nil)
+
+// FeeRate returns the current fee rate calculated by the fee function.
+func (m *MockFeeFunction) FeeRate() chainfee.SatPerKWeight {
+	args := m.Called()
+
+	return args.Get(0).(chainfee.SatPerKWeight)
+}
+
+// Increment adds one delta to the current fee rate.
+func (m *MockFeeFunction) Increment() (bool, error) {
+	args := m.Called()
+
+	return args.Bool(0), args.Error(1)
+}
+
+// IncreaseFeeRate increases the fee rate by one step.
+func (m *MockFeeFunction) IncreaseFeeRate(confTarget uint32) (bool, error) {
+	args := m.Called(confTarget)
+
+	return args.Bool(0), args.Error(1)
 }

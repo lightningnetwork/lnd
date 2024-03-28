@@ -3,8 +3,12 @@ package btcwallet
 import (
 	"testing"
 
+	"github.com/btcsuite/btcd/btcjson"
+	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 )
@@ -131,4 +135,90 @@ func TestPreviousOutpoints(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCheckMempoolAcceptance asserts the CheckMempoolAcceptance behaves as
+// expected.
+func TestCheckMempoolAcceptance(t *testing.T) {
+	t.Parallel()
+
+	rt := require.New(t)
+
+	// Create a mock chain.Interface.
+	mockChain := &lnmock.MockChain{}
+	defer mockChain.AssertExpectations(t)
+
+	// Create a test tx and a test max feerate.
+	tx := wire.NewMsgTx(2)
+	maxFeeRate := float64(0)
+
+	// Create a test wallet.
+	wallet := &BtcWallet{
+		chain: mockChain,
+	}
+
+	// Assert that when the chain backend doesn't support
+	// `TestMempoolAccept`, an error is returned.
+	//
+	// Mock the chain backend to not support `TestMempoolAccept`.
+	mockChain.On("TestMempoolAccept", []*wire.MsgTx{tx}, maxFeeRate).Return(
+		nil, rpcclient.ErrBackendVersion).Once()
+
+	err := wallet.CheckMempoolAcceptance(tx)
+	rt.ErrorIs(err, rpcclient.ErrBackendVersion)
+
+	// Assert that when the chain backend doesn't implement
+	// `TestMempoolAccept`, an error is returned.
+	//
+	// Mock the chain backend to not support `TestMempoolAccept`.
+	mockChain.On("TestMempoolAccept", []*wire.MsgTx{tx}, maxFeeRate).Return(
+		nil, chain.ErrUnimplemented).Once()
+
+	// Now call the method under test.
+	err = wallet.CheckMempoolAcceptance(tx)
+	rt.ErrorIs(err, chain.ErrUnimplemented)
+
+	// Assert that when the returned results are not as expected, an error
+	// is returned.
+	//
+	// Mock the chain backend to return more than one result.
+	results := []*btcjson.TestMempoolAcceptResult{
+		{Txid: "txid1", Allowed: true},
+		{Txid: "txid2", Allowed: false},
+	}
+	mockChain.On("TestMempoolAccept", []*wire.MsgTx{tx}, maxFeeRate).Return(
+		results, nil).Once()
+
+	// Now call the method under test.
+	err = wallet.CheckMempoolAcceptance(tx)
+	rt.ErrorContains(err, "expected 1 result from TestMempoolAccept")
+
+	// Assert that when the tx is rejected, the reason is converted to an
+	// RPC error and returned.
+	//
+	// Mock the chain backend to return one result.
+	results = []*btcjson.TestMempoolAcceptResult{{
+		Txid:         tx.TxHash().String(),
+		Allowed:      false,
+		RejectReason: "insufficient fee",
+	}}
+	mockChain.On("TestMempoolAccept", []*wire.MsgTx{tx}, maxFeeRate).Return(
+		results, nil).Once()
+
+	// Now call the method under test.
+	err = wallet.CheckMempoolAcceptance(tx)
+	rt.ErrorIs(err, rpcclient.ErrInsufficientFee)
+
+	// Assert that when the tx is accepted, no error is returned.
+	//
+	// Mock the chain backend to return one result.
+	results = []*btcjson.TestMempoolAcceptResult{
+		{Txid: tx.TxHash().String(), Allowed: true},
+	}
+	mockChain.On("TestMempoolAccept", []*wire.MsgTx{tx}, maxFeeRate).Return(
+		results, nil).Once()
+
+	// Now call the method under test.
+	err = wallet.CheckMempoolAcceptance(tx)
+	rt.NoError(err)
 }

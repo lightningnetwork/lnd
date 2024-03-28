@@ -1,14 +1,17 @@
 package sweep
 
 import (
+	"bytes"
 	"errors"
 	"reflect"
 	"sort"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
@@ -420,4 +423,472 @@ func TestClusterByLockTime(t *testing.T) {
 			input6NoLockTime.AssertExpectations(t)
 		})
 	}
+}
+
+// TestBudgetAggregatorFilterInputs checks that inputs with low budget are
+// filtered out.
+func TestBudgetAggregatorFilterInputs(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock fee estimator.
+	estimator := &chainfee.MockEstimator{}
+	defer estimator.AssertExpectations(t)
+
+	// Create a mock WitnessType that always return an error when trying to
+	// get its size upper bound.
+	wtErr := &input.MockWitnessType{}
+	defer wtErr.AssertExpectations(t)
+
+	// Mock the `SizeUpperBound` method to return an error exactly once.
+	dummyErr := errors.New("dummy error")
+	wtErr.On("SizeUpperBound").Return(0, false, dummyErr).Once()
+
+	// Create a mock WitnessType that gives the size.
+	wt := &input.MockWitnessType{}
+	defer wt.AssertExpectations(t)
+
+	// Mock the `SizeUpperBound` method to return the size four times.
+	const wtSize = 100
+	wt.On("SizeUpperBound").Return(wtSize, true, nil).Times(4)
+
+	// Create a mock input that will be filtered out due to error.
+	inpErr := &input.MockInput{}
+	defer inpErr.AssertExpectations(t)
+
+	// Mock the `WitnessType` method to return the erroring witness type.
+	inpErr.On("WitnessType").Return(wtErr).Once()
+
+	// Mock the `OutPoint` method to return a unique outpoint.
+	opErr := wire.OutPoint{Hash: chainhash.Hash{1}}
+	inpErr.On("OutPoint").Return(&opErr).Once()
+
+	// Mock the estimator to return a constant fee rate.
+	const minFeeRate = chainfee.SatPerKWeight(1000)
+	estimator.On("RelayFeePerKW").Return(minFeeRate).Once()
+
+	var (
+		// Define three budget values, one below the min fee rate, one
+		// above and one equal to it.
+		budgetLow   = minFeeRate.FeeForWeight(wtSize) - 1
+		budgetEqual = minFeeRate.FeeForWeight(wtSize)
+		budgetHigh  = minFeeRate.FeeForWeight(wtSize) + 1
+
+		// Define three outpoints with different budget values.
+		opLow   = wire.OutPoint{Hash: chainhash.Hash{2}}
+		opEqual = wire.OutPoint{Hash: chainhash.Hash{3}}
+		opHigh  = wire.OutPoint{Hash: chainhash.Hash{4}}
+
+		// Define an outpoint that has a dust required output.
+		opDust = wire.OutPoint{Hash: chainhash.Hash{5}}
+	)
+
+	// Create three mock inputs.
+	inpLow := &input.MockInput{}
+	defer inpLow.AssertExpectations(t)
+
+	inpEqual := &input.MockInput{}
+	defer inpEqual.AssertExpectations(t)
+
+	inpHigh := &input.MockInput{}
+	defer inpHigh.AssertExpectations(t)
+
+	inpDust := &input.MockInput{}
+	defer inpDust.AssertExpectations(t)
+
+	// Mock the `WitnessType` method to return the witness type.
+	inpLow.On("WitnessType").Return(wt)
+	inpEqual.On("WitnessType").Return(wt)
+	inpHigh.On("WitnessType").Return(wt)
+	inpDust.On("WitnessType").Return(wt)
+
+	// Mock the `OutPoint` method to return the unique outpoint.
+	inpLow.On("OutPoint").Return(&opLow)
+	inpEqual.On("OutPoint").Return(&opEqual)
+	inpHigh.On("OutPoint").Return(&opHigh)
+	inpDust.On("OutPoint").Return(&opDust)
+
+	// Mock the `RequiredTxOut` to return nil.
+	inpEqual.On("RequiredTxOut").Return(nil)
+	inpHigh.On("RequiredTxOut").Return(nil)
+
+	// Mock the dust required output.
+	inpDust.On("RequiredTxOut").Return(&wire.TxOut{
+		Value:    0,
+		PkScript: bytes.Repeat([]byte{0}, input.P2WSHSize),
+	})
+
+	// Create testing pending inputs.
+	inputs := pendingInputs{
+		// The first input will be filtered out due to the error.
+		opErr: &pendingInput{
+			Input: inpErr,
+		},
+
+		// The second input will be filtered out due to the budget.
+		opLow: &pendingInput{
+			Input:  inpLow,
+			params: Params{Budget: budgetLow},
+		},
+
+		// The third input will be included.
+		opEqual: &pendingInput{
+			Input:  inpEqual,
+			params: Params{Budget: budgetEqual},
+		},
+
+		// The fourth input will be included.
+		opHigh: &pendingInput{
+			Input:  inpHigh,
+			params: Params{Budget: budgetHigh},
+		},
+
+		// The fifth input will be filtered out due to the dust
+		// required.
+		opDust: &pendingInput{
+			Input:  inpDust,
+			params: Params{Budget: budgetHigh},
+		},
+	}
+
+	// Init the budget aggregator with the mocked estimator and zero max
+	// num of inputs.
+	b := NewBudgetAggregator(estimator, 0)
+
+	// Call the method under test.
+	result := b.filterInputs(inputs)
+
+	// Validate the expected inputs are returned.
+	require.Len(t, result, 2)
+
+	// We expect only the inputs with budget equal or above the min fee to
+	// be included.
+	require.Contains(t, result, opEqual)
+	require.Contains(t, result, opHigh)
+}
+
+// TestBudgetAggregatorSortInputs checks that inputs are sorted by based on
+// their budgets and force flag.
+func TestBudgetAggregatorSortInputs(t *testing.T) {
+	t.Parallel()
+
+	var (
+		// Create two budgets.
+		budgetLow   = btcutil.Amount(1000)
+		budgetHight = budgetLow + btcutil.Amount(1000)
+	)
+
+	// Create an input with the low budget but forced.
+	inputLowForce := pendingInput{
+		params: Params{
+			Budget: budgetLow,
+			Force:  true,
+		},
+	}
+
+	// Create an input with the low budget.
+	inputLow := pendingInput{
+		params: Params{
+			Budget: budgetLow,
+		},
+	}
+
+	// Create an input with the high budget and forced.
+	inputHighForce := pendingInput{
+		params: Params{
+			Budget: budgetHight,
+			Force:  true,
+		},
+	}
+
+	// Create an input with the high budget.
+	inputHigh := pendingInput{
+		params: Params{
+			Budget: budgetHight,
+		},
+	}
+
+	// Create a testing pending inputs.
+	inputs := []pendingInput{
+		inputLowForce,
+		inputLow,
+		inputHighForce,
+		inputHigh,
+	}
+
+	// Init the budget aggregator with zero max num of inputs.
+	b := NewBudgetAggregator(nil, 0)
+
+	// Call the method under test.
+	result := b.sortInputs(inputs)
+	require.Len(t, result, 4)
+
+	// The first input should be the forced input with the high budget.
+	require.Equal(t, inputHighForce, result[0])
+
+	// The second input should be the forced input with the low budget.
+	require.Equal(t, inputLowForce, result[1])
+
+	// The third input should be the input with the high budget.
+	require.Equal(t, inputHigh, result[2])
+
+	// The fourth input should be the input with the low budget.
+	require.Equal(t, inputLow, result[3])
+}
+
+// TestBudgetAggregatorFilterInputsMaxNum checks that the budget aggregator
+// creates input sets when the number of inputs exceeds the max number
+// configed.
+func TestBudgetAggregatorCreateInputSets(t *testing.T) {
+	t.Parallel()
+
+	// Create mocks input that doesn't have required outputs.
+	mockInput1 := &input.MockInput{}
+	defer mockInput1.AssertExpectations(t)
+	mockInput2 := &input.MockInput{}
+	defer mockInput2.AssertExpectations(t)
+	mockInput3 := &input.MockInput{}
+	defer mockInput3.AssertExpectations(t)
+
+	// Create testing pending inputs.
+	pi1 := pendingInput{
+		Input:  mockInput1,
+		params: Params{},
+	}
+	pi2 := pendingInput{
+		Input:  mockInput2,
+		params: Params{},
+	}
+	pi3 := pendingInput{
+		Input:  mockInput3,
+		params: Params{},
+	}
+
+	// Create a budget aggregator with max number of inputs set to 2.
+	b := NewBudgetAggregator(nil, 2)
+
+	// Create test cases.
+	testCases := []struct {
+		name            string
+		inputs          []pendingInput
+		setupMock       func()
+		expectedNumSets int
+	}{
+		{
+			// When the number of inputs is below the max, a single
+			// input set is returned.
+			name:   "num inputs below max",
+			inputs: []pendingInput{pi1},
+			setupMock: func() {
+				// Mock methods used in loggings.
+				mockInput1.On("WitnessType").Return(
+					input.CommitmentAnchor)
+				mockInput1.On("OutPoint").Return(
+					&wire.OutPoint{Hash: chainhash.Hash{1}})
+			},
+			expectedNumSets: 1,
+		},
+		{
+			// When the number of inputs is equal to the max, a
+			// single input set is returned.
+			name:   "num inputs equal to max",
+			inputs: []pendingInput{pi1, pi2},
+			setupMock: func() {
+				// Mock methods used in loggings.
+				mockInput1.On("WitnessType").Return(
+					input.CommitmentAnchor)
+				mockInput2.On("WitnessType").Return(
+					input.CommitmentAnchor)
+
+				mockInput1.On("OutPoint").Return(
+					&wire.OutPoint{Hash: chainhash.Hash{1}})
+				mockInput2.On("OutPoint").Return(
+					&wire.OutPoint{Hash: chainhash.Hash{2}})
+			},
+			expectedNumSets: 1,
+		},
+		{
+			// When the number of inputs is above the max, multiple
+			// input sets are returned.
+			name:   "num inputs above max",
+			inputs: []pendingInput{pi1, pi2, pi3},
+			setupMock: func() {
+				// Mock methods used in loggings.
+				mockInput1.On("WitnessType").Return(
+					input.CommitmentAnchor)
+				mockInput2.On("WitnessType").Return(
+					input.CommitmentAnchor)
+				mockInput3.On("WitnessType").Return(
+					input.CommitmentAnchor)
+
+				mockInput1.On("OutPoint").Return(
+					&wire.OutPoint{Hash: chainhash.Hash{1}})
+				mockInput2.On("OutPoint").Return(
+					&wire.OutPoint{Hash: chainhash.Hash{2}})
+				mockInput3.On("OutPoint").Return(
+					&wire.OutPoint{Hash: chainhash.Hash{3}})
+			},
+			expectedNumSets: 2,
+		},
+	}
+
+	// Iterate over the test cases.
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			// Setup the mocks.
+			tc.setupMock()
+
+			// Call the method under test.
+			result := b.createInputSets(tc.inputs)
+
+			// Validate the expected number of input sets are
+			// returned.
+			require.Len(t, result, tc.expectedNumSets)
+		})
+	}
+}
+
+// TestBudgetInputSetClusterInputs checks that the budget aggregator clusters
+// inputs into input sets based on their deadline heights.
+func TestBudgetInputSetClusterInputs(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock fee estimator.
+	estimator := &chainfee.MockEstimator{}
+	defer estimator.AssertExpectations(t)
+
+	// Create a mock WitnessType that gives the size.
+	wt := &input.MockWitnessType{}
+	defer wt.AssertExpectations(t)
+
+	// Mock the `SizeUpperBound` method to return the size six times since
+	// we are using nine inputs.
+	const wtSize = 100
+	wt.On("SizeUpperBound").Return(wtSize, true, nil).Times(9)
+	wt.On("String").Return("mock witness type")
+
+	// Mock the estimator to return a constant fee rate.
+	const minFeeRate = chainfee.SatPerKWeight(1000)
+	estimator.On("RelayFeePerKW").Return(minFeeRate).Once()
+
+	var (
+		// Define two budget values, one below the min fee rate and one
+		// above it.
+		budgetLow  = minFeeRate.FeeForWeight(wtSize) - 1
+		budgetHigh = minFeeRate.FeeForWeight(wtSize) + 1
+
+		// Create three deadline heights, which means there are three
+		// groups of inputs to be expected.
+		deadlineNone = fn.None[int32]()
+		deadline1    = fn.Some(int32(1))
+		deadline2    = fn.Some(int32(2))
+	)
+
+	// Create testing pending inputs.
+	inputs := make(pendingInputs)
+
+	// For each deadline height, create two inputs with different budgets,
+	// one below the min fee rate and one above it. We should see the lower
+	// one being filtered out.
+	for i, deadline := range []fn.Option[int32]{
+		deadlineNone, deadline1, deadline2,
+	} {
+		// Define three outpoints.
+		opLow := wire.OutPoint{
+			Hash:  chainhash.Hash{byte(i)},
+			Index: uint32(i),
+		}
+		opHigh1 := wire.OutPoint{
+			Hash:  chainhash.Hash{byte(i + 1000)},
+			Index: uint32(i + 1000),
+		}
+		opHigh2 := wire.OutPoint{
+			Hash:  chainhash.Hash{byte(i + 2000)},
+			Index: uint32(i + 2000),
+		}
+
+		// Create mock inputs.
+		inpLow := &input.MockInput{}
+		defer inpLow.AssertExpectations(t)
+
+		inpHigh1 := &input.MockInput{}
+		defer inpHigh1.AssertExpectations(t)
+
+		inpHigh2 := &input.MockInput{}
+		defer inpHigh2.AssertExpectations(t)
+
+		// Mock the `OutPoint` method to return the unique outpoint.
+		//
+		// We expect the low budget input to call this method once in
+		// `filterInputs`.
+		inpLow.On("OutPoint").Return(&opLow).Once()
+
+		// We expect the high budget input to call this method three
+		// times, one in `filterInputs` and one in `createInputSet`,
+		// and one in `NewBudgetInputSet`.
+		inpHigh1.On("OutPoint").Return(&opHigh1).Times(3)
+		inpHigh2.On("OutPoint").Return(&opHigh2).Times(3)
+
+		// Mock the `WitnessType` method to return the witness type.
+		inpLow.On("WitnessType").Return(wt)
+		inpHigh1.On("WitnessType").Return(wt)
+		inpHigh2.On("WitnessType").Return(wt)
+
+		// Mock the `RequiredTxOut` to return nil.
+		inpHigh1.On("RequiredTxOut").Return(nil)
+		inpHigh2.On("RequiredTxOut").Return(nil)
+
+		// Add the low input, which should be filtered out.
+		inputs[opLow] = &pendingInput{
+			Input: inpLow,
+			params: Params{
+				Budget:         budgetLow,
+				DeadlineHeight: deadline,
+			},
+		}
+
+		// Add the high inputs, which should be included.
+		inputs[opHigh1] = &pendingInput{
+			Input: inpHigh1,
+			params: Params{
+				Budget:         budgetHigh,
+				DeadlineHeight: deadline,
+			},
+		}
+		inputs[opHigh2] = &pendingInput{
+			Input: inpHigh2,
+			params: Params{
+				Budget:         budgetHigh,
+				DeadlineHeight: deadline,
+			},
+		}
+	}
+
+	// Create a budget aggregator with a max number of inputs set to 100.
+	b := NewBudgetAggregator(estimator, DefaultMaxInputsPerTx)
+
+	// Call the method under test.
+	result := b.ClusterInputs(inputs)
+
+	// We expect three input sets to be returned, one for each deadline.
+	require.Len(t, result, 3)
+
+	// Check each input set has exactly two inputs.
+	deadlines := make(map[fn.Option[int32]]struct{})
+	for _, set := range result {
+		// We expect two inputs in each set.
+		require.Len(t, set.Inputs(), 2)
+
+		// We expect each set to have the expected budget.
+		require.Equal(t, budgetHigh*2, set.Budget())
+
+		// Save the deadlines.
+		deadlines[set.DeadlineHeight()] = struct{}{}
+	}
+
+	// We expect to see all three deadlines.
+	require.Contains(t, deadlines, deadlineNone)
+	require.Contains(t, deadlines, deadline1)
+	require.Contains(t, deadlines, deadline2)
 }

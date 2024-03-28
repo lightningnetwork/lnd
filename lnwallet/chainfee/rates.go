@@ -58,6 +58,11 @@ func (s SatPerKVByte) String() string {
 // SatPerKWeight represents a fee rate in sat/kw.
 type SatPerKWeight btcutil.Amount
 
+// NewSatPerKWeight creates a new fee rate in sat/kw.
+func NewSatPerKWeight(fee btcutil.Amount, weight uint64) SatPerKWeight {
+	return SatPerKWeight(fee.MulF64(1000 / float64(weight)))
+}
+
 // FeeForWeight calculates the fee resulting from this fee rate and the given
 // weight in weight units (wu).
 func (s SatPerKWeight) FeeForWeight(wu int64) btcutil.Amount {

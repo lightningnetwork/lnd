@@ -291,6 +291,10 @@ func (w *mockWalletController) RemoveDescendants(*wire.MsgTx) error {
 	return nil
 }
 
+func (w *mockWalletController) CheckMempoolAcceptance(tx *wire.MsgTx) error {
+	return nil
+}
+
 // mockChainNotifier is a mock implementation of the ChainNotifier interface.
 type mockChainNotifier struct {
 	SpendChan chan *chainntnfs.SpendDetail

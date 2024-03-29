@@ -8,7 +8,7 @@ import "time"
 const (
 	// MinerMempoolTimeout is the max time we will wait for a transaction
 	// to propagate to the mining node's mempool.
-	MinerMempoolTimeout = time.Minute
+	MinerMempoolTimeout = time.Second * 5
 
 	// ChannelOpenTimeout is the max time we will wait before a channel to
 	// be considered opened.
@@ -20,7 +20,7 @@ const (
 
 	// DefaultTimeout is a timeout that will be used for various wait
 	// scenarios where no custom timeout value is defined.
-	DefaultTimeout = time.Second * 30
+	DefaultTimeout = time.Second * 5
 
 	// AsyncBenchmarkTimeout is the timeout used when running the async
 	// payments benchmark. This timeout takes considerably longer on darwin

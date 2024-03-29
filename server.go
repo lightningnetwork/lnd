@@ -1099,6 +1099,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PublishTransaction:  cc.Wallet.PublishTransaction,
 		Store:               utxnStore,
 		SweepInput:          s.sweeper.SweepInput,
+		Budget:              s.cfg.Sweeper.Budget,
 	})
 
 	// Construct a closure that wraps the htlcswitch's CloseLink method.
@@ -1151,11 +1152,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		IncubateOutputs: func(chanPoint wire.OutPoint,
 			outHtlcRes fn.Option[lnwallet.OutgoingHtlcResolution],
 			inHtlcRes fn.Option[lnwallet.IncomingHtlcResolution],
-			broadcastHeight uint32) error {
+			broadcastHeight uint32,
+			deadlineHeight fn.Option[int32]) error {
 
 			return s.utxoNursery.IncubateOutputs(
 				chanPoint, outHtlcRes, inHtlcRes,
-				broadcastHeight,
+				broadcastHeight, deadlineHeight,
 			)
 		},
 		PreimageDB:   s.witnessBeacon,

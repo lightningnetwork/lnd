@@ -464,6 +464,7 @@ func createNurseryTestContext(t *testing.T,
 		PublishTransaction: func(tx *wire.MsgTx, _ string) error {
 			return publishFunc(tx, "nursery")
 		},
+		Budget: DefaultBudgetConfig(),
 	}
 
 	nursery := NewUtxoNursery(&nurseryCfg)
@@ -628,9 +629,8 @@ func incubateTestOutput(t *testing.T, nursery *UtxoNursery,
 
 	// Hand off to nursery.
 	err := nursery.IncubateOutputs(
-		testChanPoint,
-		fn.Some(*outgoingRes),
-		fn.None[lnwallet.IncomingHtlcResolution](), 0,
+		testChanPoint, fn.Some(*outgoingRes),
+		fn.None[lnwallet.IncomingHtlcResolution](), 0, fn.None[int32](),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -710,9 +710,9 @@ func TestRejectedCribTransaction(t *testing.T) {
 
 			// Hand off to nursery.
 			err := ctx.nursery.IncubateOutputs(
-				testChanPoint,
-				fn.Some(*outgoingRes),
+				testChanPoint, fn.Some(*outgoingRes),
 				fn.None[lnwallet.IncomingHtlcResolution](), 0,
+				fn.None[int32](),
 			)
 			if test.expectErr {
 				require.ErrorIs(t, err, test.broadcastErr)

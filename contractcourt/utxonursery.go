@@ -205,6 +205,9 @@ type NurseryConfig struct {
 
 	// Sweep sweeps an input back to the wallet.
 	SweepInput func(input.Input, sweep.Params) (chan sweep.Result, error)
+
+	// Budget is the configured budget for the nursery.
+	Budget *BudgetConfig
 }
 
 // UtxoNursery is a system dedicated to incubating time-locked outputs created
@@ -336,7 +339,7 @@ func (u *UtxoNursery) Stop() error {
 func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	outgoingHtlc fn.Option[lnwallet.OutgoingHtlcResolution],
 	incomingHtlc fn.Option[lnwallet.IncomingHtlcResolution],
-	broadcastHeight uint32) error {
+	broadcastHeight uint32, deadlineHeight fn.Option[int32]) error {
 
 	// Add to wait group because nursery might shut down during execution of
 	// this function. Otherwise it could happen that nursery thinks it is
@@ -386,7 +389,7 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 
 		htlcOutput := makeKidOutput(
 			&htlcRes.ClaimOutpoint, &chanPoint, htlcRes.CsvDelay,
-			witType, &htlcRes.SweepSignDesc, 0,
+			witType, &htlcRes.SweepSignDesc, 0, deadlineHeight,
 		)
 
 		if htlcOutput.Amount() > 0 {
@@ -403,7 +406,9 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 		// a baby output as we need to go to the second level to sweep
 		// it.
 		if htlcRes.SignedTimeoutTx != nil {
-			htlcOutput := makeBabyOutput(&chanPoint, &htlcRes)
+			htlcOutput := makeBabyOutput(
+				&chanPoint, &htlcRes, deadlineHeight,
+			)
 
 			if htlcOutput.Amount() > 0 {
 				babyOutputs = append(babyOutputs, htlcOutput)
@@ -434,6 +439,7 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 		htlcOutput := makeKidOutput(
 			&htlcRes.ClaimOutpoint, &chanPoint, htlcRes.CsvDelay,
 			witType, &htlcRes.SweepSignDesc, htlcRes.Expiry,
+			deadlineHeight,
 		)
 		kidOutputs = append(kidOutputs, htlcOutput)
 	})
@@ -815,6 +821,32 @@ func (u *UtxoNursery) graduateClass(classHeight uint32) error {
 	return nil
 }
 
+// decideDeadlineAndBudget returns the deadline and budget for a given output.
+func (u *UtxoNursery) decideDeadlineAndBudget(k kidOutput) (fn.Option[int32],
+	btcutil.Amount) {
+
+	// Assume this is a to_local output and use a None deadline.
+	deadline := fn.None[int32]()
+
+	// Exit early if this is not HTLC.
+	if !k.isHtlc {
+		budget := calculateBudget(
+			k.amt, u.cfg.Budget.ToLocalRatio, u.cfg.Budget.ToLocal,
+		)
+
+		return deadline, budget
+	}
+
+	// Otherwise it's the first-level HTLC output, we'll use the
+	// time-sensitive settings for it.
+	budget := calculateBudget(
+		k.amt, u.cfg.Budget.DeadlineHTLCRatio,
+		u.cfg.Budget.DeadlineHTLC,
+	)
+
+	return k.deadlineHeight, budget
+}
+
 // sweepMatureOutputs generates and broadcasts the transaction that transfers
 // control of funds from a prior channel commitment transaction to the user's
 // wallet. The outputs swept were previously time locked (either absolute or
@@ -825,15 +857,17 @@ func (u *UtxoNursery) sweepMatureOutputs(classHeight uint32,
 	utxnLog.Infof("Sweeping %v CSV-delayed outputs with sweep tx for "+
 		"height %v", len(kgtnOutputs), classHeight)
 
-	feePref := sweep.FeeEstimateInfo{ConfTarget: kgtnOutputConfTarget}
 	for _, output := range kgtnOutputs {
 		// Create local copy to prevent pointer to loop variable to be
 		// passed in with disastrous consequences.
 		local := output
 
+		// Calculate the deadline height and budget for this output.
+		deadline, budget := u.decideDeadlineAndBudget(local)
+
 		resultChan, err := u.cfg.SweepInput(&local, sweep.Params{
-			Fee:   feePref,
-			Force: true,
+			DeadlineHeight: deadline,
+			Budget:         budget,
 		})
 		if err != nil {
 			return err
@@ -1270,7 +1304,8 @@ type babyOutput struct {
 // provided sign descriptors and witness types will be used once the output
 // reaches the delay and claim stage.
 func makeBabyOutput(chanPoint *wire.OutPoint,
-	htlcResolution *lnwallet.OutgoingHtlcResolution) babyOutput {
+	htlcResolution *lnwallet.OutgoingHtlcResolution,
+	deadlineHeight fn.Option[int32]) babyOutput {
 
 	htlcOutpoint := htlcResolution.ClaimOutpoint
 	blocksToMaturity := htlcResolution.CsvDelay
@@ -1288,7 +1323,7 @@ func makeBabyOutput(chanPoint *wire.OutPoint,
 
 	kid := makeKidOutput(
 		&htlcOutpoint, chanPoint, blocksToMaturity, witnessType,
-		&htlcResolution.SweepSignDesc, 0,
+		&htlcResolution.SweepSignDesc, 0, deadlineHeight,
 	)
 
 	return babyOutput{
@@ -1361,12 +1396,18 @@ type kidOutput struct {
 	// NOTE: This will only be set for: outgoing HTLC's on the commitment
 	// transaction of the remote party.
 	absoluteMaturity uint32
+
+	// deadlineHeight is the absolute height that this output should be
+	// confirmed at. For an incoming HTLC, this is the CLTV expiry height.
+	// For outgoing HTLC, this is its corresponding incoming HTLC's CLTV
+	// expiry height.
+	deadlineHeight fn.Option[int32]
 }
 
 func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
 	blocksToMaturity uint32, witnessType input.StandardWitnessType,
-	signDescriptor *input.SignDescriptor,
-	absoluteMaturity uint32) kidOutput {
+	signDescriptor *input.SignDescriptor, absoluteMaturity uint32,
+	deadlineHeight fn.Option[int32]) kidOutput {
 
 	// This is an HTLC either if it's an incoming HTLC on our commitment
 	// transaction, or is an outgoing HTLC on the commitment transaction of
@@ -1389,6 +1430,7 @@ func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
 		originChanPoint:  *originChanPoint,
 		blocksToMaturity: blocksToMaturity,
 		absoluteMaturity: absoluteMaturity,
+		deadlineHeight:   deadlineHeight,
 	}
 }
 

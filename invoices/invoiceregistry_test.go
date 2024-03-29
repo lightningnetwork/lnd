@@ -136,14 +136,14 @@ func TestInvoiceRegistry(t *testing.T) {
 		}
 
 		executor := sqldb.NewTransactionExecutor(
-			db, func(tx *sql.Tx) sqldb.InvoiceQueries {
+			db, func(tx *sql.Tx) invpkg.SQLInvoiceQueries {
 				return db.WithTx(tx)
 			},
 		)
 
 		testClock := clock.NewTestClock(testNow)
 
-		return sqldb.NewInvoiceStore(executor, testClock), testClock
+		return invpkg.NewSQLStore(executor, testClock), testClock
 	}
 
 	for _, test := range testList {

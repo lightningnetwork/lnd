@@ -1053,12 +1053,12 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 		executor := sqldb.NewTransactionExecutor(
 			dbs.NativeSQLStore,
-			func(tx *sql.Tx) sqldb.InvoiceQueries {
+			func(tx *sql.Tx) invoices.SQLInvoiceQueries {
 				return dbs.NativeSQLStore.WithTx(tx)
 			},
 		)
 
-		dbs.InvoiceDB = sqldb.NewInvoiceStore(
+		dbs.InvoiceDB = invoices.NewSQLStore(
 			executor, clock.NewDefaultClock(),
 		)
 	} else {

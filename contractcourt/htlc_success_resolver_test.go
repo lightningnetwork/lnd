@@ -12,6 +12,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnmock"
@@ -65,8 +66,10 @@ func newHtlcResolverTestContext(t *testing.T,
 				return nil
 			},
 			Sweeper: newMockSweeper(),
-			IncubateOutputs: func(wire.OutPoint, *lnwallet.OutgoingHtlcResolution,
-				*lnwallet.IncomingHtlcResolution, uint32) error {
+			IncubateOutputs: func(wire.OutPoint,
+				fn.Option[lnwallet.OutgoingHtlcResolution],
+				fn.Option[lnwallet.IncomingHtlcResolution],
+				uint32) error {
 
 				return nil
 			},

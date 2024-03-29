@@ -117,6 +117,15 @@ func (t *OptionalRecordT[T, V]) WhenSomeV(f func(V)) {
 	})
 }
 
+// ValOpt returns an Option of the underlying value. This can be used to chain
+// other option related methods to avoid needing to first go through the outter
+// record.
+func (t *OptionalRecordT[T, V]) ValOpt() fn.Option[V] {
+	return fn.MapOption(func(record RecordT[T, V]) V {
+		return record.Val
+	})(t.Option)
+}
+
 // UnwrapOrFailV is used to extract a value from an option within a test
 // context. If the option is None, then the test fails. This gives the
 // underlying value of the record, rather then the record itself.

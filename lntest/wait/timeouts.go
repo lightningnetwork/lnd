@@ -20,7 +20,7 @@ const (
 
 	// DefaultTimeout is a timeout that will be used for various wait
 	// scenarios where no custom timeout value is defined.
-	DefaultTimeout = time.Second * 30
+	DefaultTimeout = time.Second * 5
 
 	// AsyncBenchmarkTimeout is the timeout used when running the async
 	// payments benchmark.
@@ -35,5 +35,5 @@ const (
 	SqliteBusyTimeout = time.Second * 10
 
 	// PaymentTimeout is the timeout used when sending payments.
-	PaymentTimeout = time.Second * 60
+	PaymentTimeout = time.Second * 5
 )

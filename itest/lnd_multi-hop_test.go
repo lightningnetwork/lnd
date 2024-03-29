@@ -454,34 +454,48 @@ func runMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 	ht.MineBlocks(numBlocks)
 
 	// At this point, Carol should broadcast her active commitment
-	// transaction in order to go to the chain and sweep her HTLC. If there
-	// are anchors, Carol also sweeps hers as it's a forced sweep.
-	expectedTxes := 1
-	hasAnchors := lntest.CommitTypeHasAnchors(c)
-	if hasAnchors {
-		expectedTxes = 2
-	}
-	ht.Miner.AssertNumTxsInMempool(expectedTxes)
+	// transaction in order to go to the chain and sweep her HTLC.
+	ht.Miner.AssertNumTxsInMempool(1)
 
 	closingTx := ht.Miner.AssertOutpointInMempool(
 		ht.OutPointFromChannelPoint(bobChanPoint),
 	)
 	closingTxid := closingTx.TxHash()
 
+	// Carol's anchor should have been offered to her sweeper as she has
+	// time-sensitive HTLCs. Assert that we have two anchors - one for the
+	// anchor on the local commitment and the other for the anchor on the
+	// remote commitment (invalid).
+	ht.AssertNumPendingSweeps(carol, 2)
+
 	// Confirm the commitment.
-	ht.MineBlocksAndAssertNumTxes(1, expectedTxes)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// The above mined block will trigger Carol's sweeper to publish the
+	// anchor sweeping tx.
+	//
+	// TODO(yy): should instead cancel the broadcast of the anchor sweeping
+	// tx to save fees since we know the force close tx has been confirmed?
+	// This is very difficult as it introduces more complicated RBF
+	// scenarios, as we are using a wallet utxo, which means any txns using
+	// that wallet utxo must pay more fees. On the other hand, there's no
+	// way to remove that anchor-CPFP tx from the mempool.
+	ht.Miner.AssertNumTxsInMempool(1)
 
 	// After the force close transaction is mined, Carol should offer her
-	// second level HTLC tx to the sweeper.
-	ht.AssertNumPendingSweeps(carol, 1)
+	// second level HTLC tx to the sweeper, which means we should see two
+	// pending inputs now - the anchor and the htlc.
+	ht.AssertNumPendingSweeps(carol, 2)
 
 	// Restart bob again.
 	require.NoError(ht, restartBob())
 
+	var expectedTxes int
+
 	// After the force close transaction is mined, a series of transactions
-	// should be broadcast by Bob and Carol. When Bob notices Carol's second
-	// level transaction in the mempool, he will extract the preimage and
-	// settle the HTLC back off-chain.
+	// should be broadcast by Bob and Carol. When Bob notices Carol's
+	// second level transaction in the mempool, he will extract the
+	// preimage and settle the HTLC back off-chain.
 	switch c {
 	// Carol should broadcast her second level HTLC transaction and Bob
 	// should broadcast a sweep tx to sweep his output in the channel with
@@ -492,17 +506,18 @@ func runMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 
 	// Carol should broadcast her second level HTLC transaction and Bob
 	// should broadcast a sweep tx to sweep his output in the channel with
-	// Carol, and another sweep tx to sweep his anchor output.
+	// Carol, and in the same sweep tx to sweep his anchor output.
 	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
-		expectedTxes = 3
+		expectedTxes = 2
 		ht.AssertNumPendingSweeps(bob, 2)
 
 	// Carol should broadcast her second level HTLC transaction and Bob
-	// should broadcast a sweep tx to sweep his anchor output. Bob's commit
-	// output can't be swept yet as he's incurring an additional CLTV from
-	// being the channel initiator of a script-enforced leased channel.
+	// should offer his anchor output to his sweeper, but it cannot be
+	// swept due to it being uneconomical. Bob's commit output can't be
+	// swept yet as he's incurring an additional CLTV from being the
+	// channel initiator of a script-enforced leased channel.
 	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
-		expectedTxes = 2
+		expectedTxes = 1
 		ht.AssertNumPendingSweeps(bob, 1)
 
 	default:

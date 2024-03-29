@@ -206,7 +206,8 @@ func (h *htlcSuccessResolver) broadcastSuccessTx() (*wire.OutPoint, error) {
 			h, h.htlc.RHash[:])
 
 		err := h.IncubateOutputs(
-			h.ChanPoint, nil, &h.htlcResolution,
+			h.ChanPoint, fn.None[lnwallet.OutgoingHtlcResolution](),
+			fn.Some(h.htlcResolution),
 			h.broadcastHeight,
 		)
 		if err != nil {

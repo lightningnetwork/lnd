@@ -16,7 +16,9 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -627,8 +629,8 @@ func incubateTestOutput(t *testing.T, nursery *UtxoNursery,
 	// Hand off to nursery.
 	err := nursery.IncubateOutputs(
 		testChanPoint,
-		[]lnwallet.OutgoingHtlcResolution{*outgoingRes},
-		nil, 0,
+		fn.Some(*outgoingRes),
+		fn.None[lnwallet.IncomingHtlcResolution](), 0,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -709,8 +711,8 @@ func TestRejectedCribTransaction(t *testing.T) {
 			// Hand off to nursery.
 			err := ctx.nursery.IncubateOutputs(
 				testChanPoint,
-				[]lnwallet.OutgoingHtlcResolution{*outgoingRes},
-				nil, 0,
+				fn.Some(*outgoingRes),
+				fn.None[lnwallet.IncomingHtlcResolution](), 0,
 			)
 			if test.expectErr {
 				require.ErrorIs(t, err, test.broadcastErr)
@@ -758,7 +760,8 @@ func assertNurseryReport(t *testing.T, nursery *UtxoNursery,
 
 	if len(report.Htlcs) != expectedNofHtlcs {
 		t.Fatalf("expected %v outputs to be reported, but report "+
-			"only contains %v", expectedNofHtlcs, len(report.Htlcs))
+			"contains %s", expectedNofHtlcs,
+			spew.Sdump(report.Htlcs))
 	}
 
 	if expectedNofHtlcs != 0 {

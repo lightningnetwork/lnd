@@ -547,7 +547,7 @@ func (h *htlcTimeoutResolver) sendSecondLevelTxLegacy() error {
 	err := h.IncubateOutputs(
 		h.ChanPoint, fn.Some(h.htlcResolution),
 		fn.None[lnwallet.IncomingHtlcResolution](),
-		h.broadcastHeight,
+		h.broadcastHeight, h.incomingHTLCExpiryHeight,
 	)
 	if err != nil {
 		return err

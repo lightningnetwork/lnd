@@ -208,7 +208,7 @@ func (h *htlcSuccessResolver) broadcastSuccessTx() (*wire.OutPoint, error) {
 		err := h.IncubateOutputs(
 			h.ChanPoint, fn.None[lnwallet.OutgoingHtlcResolution](),
 			fn.Some(h.htlcResolution),
-			h.broadcastHeight,
+			h.broadcastHeight, fn.Some(int32(h.htlc.RefundTimeout)),
 		)
 		if err != nil {
 			return nil, err

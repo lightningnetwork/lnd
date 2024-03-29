@@ -196,13 +196,13 @@ func (i *InvoiceStore) AddInvoice(ctx context.Context,
 	err := i.db.ExecTx(ctx, &writeTxOpts, func(db InvoiceQueries) error {
 		params := sqlc.InsertInvoiceParams{
 			Hash:       paymentHash[:],
-			Memo:       sqlStr(string(newInvoice.Memo)),
+			Memo:       SQLStr(string(newInvoice.Memo)),
 			AmountMsat: int64(newInvoice.Terms.Value),
 			// Note: BOLT12 invoices don't have a final cltv delta.
-			CltvDelta: sqlInt32(newInvoice.Terms.FinalCltvDelta),
+			CltvDelta: SQLInt32(newInvoice.Terms.FinalCltvDelta),
 			Expiry:    int32(newInvoice.Terms.Expiry),
 			// Note: keysend invoices don't have a payment request.
-			PaymentRequest: sqlStr(string(
+			PaymentRequest: SQLStr(string(
 				newInvoice.PaymentRequest),
 			),
 			PaymentRequestHash: paymentRequestHash,
@@ -678,7 +678,7 @@ func (i *InvoiceStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 
 		err := queryWithLimit(func(offset int) (int, error) {
 			params := sqlc.FilterInvoicesParams{
-				SettleIndexGet: sqlInt64(settleIdx + 1),
+				SettleIndexGet: SQLInt64(settleIdx + 1),
 				NumLimit:       int32(limit),
 				NumOffset:      int32(offset),
 			}
@@ -715,7 +715,7 @@ func (i *InvoiceStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 		// the provided index.
 		ampInvoices, err := i.db.FetchSettledAMPSubInvoices(
 			ctx, sqlc.FetchSettledAMPSubInvoicesParams{
-				SettleIndexGet: sqlInt64(idx + 1),
+				SettleIndexGet: SQLInt64(idx + 1),
 			},
 		)
 		if err != nil {
@@ -792,7 +792,7 @@ func (i *InvoiceStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 
 		return queryWithLimit(func(offset int) (int, error) {
 			params := sqlc.FilterInvoicesParams{
-				AddIndexGet: sqlInt64(addIdx + 1),
+				AddIndexGet: SQLInt64(addIdx + 1),
 				NumLimit:    int32(limit),
 				NumOffset:   int32(offset),
 			}
@@ -856,7 +856,7 @@ func (i *InvoiceStore) QueryInvoices(ctx context.Context,
 			if !q.Reversed {
 				// The invoice with index offset id must not be
 				// included in the results.
-				params.AddIndexGet = sqlInt64(
+				params.AddIndexGet = SQLInt64(
 					q.IndexOffset + uint64(offset) + 1,
 				)
 			}
@@ -867,13 +867,13 @@ func (i *InvoiceStore) QueryInvoices(ctx context.Context,
 				// If the index offset was not set, we want to
 				// fetch from the lastest invoice.
 				if idx == 0 {
-					params.AddIndexLet = sqlInt64(
+					params.AddIndexLet = SQLInt64(
 						int64(math.MaxInt64),
 					)
 				} else {
 					// The invoice with index offset id must
 					// not be included in the results.
-					params.AddIndexLet = sqlInt64(
+					params.AddIndexLet = SQLInt64(
 						idx - int32(offset) - 1,
 					)
 				}
@@ -882,13 +882,13 @@ func (i *InvoiceStore) QueryInvoices(ctx context.Context,
 			}
 
 			if q.CreationDateStart != 0 {
-				params.CreatedAfter = sqlTime(
+				params.CreatedAfter = SQLTime(
 					time.Unix(q.CreationDateStart, 0).UTC(),
 				)
 			}
 
 			if q.CreationDateEnd != 0 {
-				params.CreatedBefore = sqlTime(
+				params.CreatedBefore = SQLTime(
 					time.Unix(q.CreationDateEnd, 0).UTC(),
 				)
 			}
@@ -1081,7 +1081,7 @@ func (s *sqlInvoiceUpdater) ResolveHtlc(circuitKey models.CircuitKey,
 		),
 		InvoiceID:   int64(s.invoice.AddIndex),
 		State:       int16(state),
-		ResolveTime: sqlTime(resolveTime.UTC()),
+		ResolveTime: SQLTime(resolveTime.UTC()),
 	})
 }
 
@@ -1129,10 +1129,10 @@ func (s *sqlInvoiceUpdater) UpdateInvoiceState(
 			return err
 		}
 
-		settleIndex = sqlInt64(nextSettleIndex)
+		settleIndex = SQLInt64(nextSettleIndex)
 
 		// If the invoice is settled, we'll also update the settle time.
-		settledAt = sqlTime(s.updateTime.UTC())
+		settledAt = SQLTime(s.updateTime.UTC())
 
 		err = s.db.OnInvoiceSettled(
 			s.ctx, sqlc.OnInvoiceSettledParams{
@@ -1219,10 +1219,10 @@ func (s *sqlInvoiceUpdater) UpdateAmpState(setID [32]byte,
 			return err
 		}
 
-		settleIndex = sqlInt64(nextSettleIndex)
+		settleIndex = SQLInt64(nextSettleIndex)
 
 		// If the invoice is settled, we'll also update the settle time.
-		settledAt = sqlTime(s.updateTime.UTC())
+		settledAt = SQLTime(s.updateTime.UTC())
 
 		err = s.db.OnAMPSubInvoiceSettled(
 			s.ctx, sqlc.OnAMPSubInvoiceSettledParams{
@@ -1338,11 +1338,11 @@ func (i *InvoiceStore) DeleteInvoice(ctx context.Context,
 	err := i.db.ExecTx(ctx, &writeTxOpt, func(db InvoiceQueries) error {
 		for _, ref := range invoicesToDelete {
 			params := sqlc.DeleteInvoiceParams{
-				AddIndex: sqlInt64(ref.AddIndex),
+				AddIndex: SQLInt64(ref.AddIndex),
 			}
 
 			if ref.SettleIndex != 0 {
-				params.SettleIndex = sqlInt64(ref.SettleIndex)
+				params.SettleIndex = SQLInt64(ref.SettleIndex)
 			}
 
 			if ref.PayHash != lntypes.ZeroHash {

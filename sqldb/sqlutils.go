@@ -7,33 +7,33 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
-// sqlInt32 turns a numerical integer type into the NullInt32 that sql/sqlc
+// SQLInt32 turns a numerical integer type into the NullInt32 that sql/sqlc
 // uses when an integer field can be permitted to be NULL.
 //
 // We use this constraints.Integer constraint here which maps to all signed and
 // unsigned integer types.
-func sqlInt32[T constraints.Integer](num T) sql.NullInt32 {
+func SQLInt32[T constraints.Integer](num T) sql.NullInt32 {
 	return sql.NullInt32{
 		Int32: int32(num),
 		Valid: true,
 	}
 }
 
-// sqlInt64 turns a numerical integer type into the NullInt64 that sql/sqlc
+// SQLInt64 turns a numerical integer type into the NullInt64 that sql/sqlc
 // uses when an integer field can be permitted to be NULL.
 //
 // We use this constraints.Integer constraint here which maps to all signed and
 // unsigned integer types.
-func sqlInt64[T constraints.Integer](num T) sql.NullInt64 {
+func SQLInt64[T constraints.Integer](num T) sql.NullInt64 {
 	return sql.NullInt64{
 		Int64: int64(num),
 		Valid: true,
 	}
 }
 
-// sqlStr turns a string into the NullString that sql/sqlc uses when a string
+// SQLStr turns a string into the NullString that sql/sqlc uses when a string
 // can be permitted to be NULL.
-func sqlStr(s string) sql.NullString {
+func SQLStr(s string) sql.NullString {
 	if s == "" {
 		return sql.NullString{}
 	}
@@ -44,9 +44,9 @@ func sqlStr(s string) sql.NullString {
 	}
 }
 
-// sqlTime turns a time.Time into the NullTime that sql/sqlc uses when a time
+// SQLTime turns a time.Time into the NullTime that sql/sqlc uses when a time
 // can be permitted to be NULL.
-func sqlTime(t time.Time) sql.NullTime {
+func SQLTime(t time.Time) sql.NullTime {
 	return sql.NullTime{
 		Time:  t,
 		Valid: true,

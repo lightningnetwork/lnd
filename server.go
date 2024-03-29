@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -1148,23 +1149,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			return nil
 		},
 		IncubateOutputs: func(chanPoint wire.OutPoint,
-			outHtlcRes *lnwallet.OutgoingHtlcResolution,
-			inHtlcRes *lnwallet.IncomingHtlcResolution,
+			outHtlcRes fn.Option[lnwallet.OutgoingHtlcResolution],
+			inHtlcRes fn.Option[lnwallet.IncomingHtlcResolution],
 			broadcastHeight uint32) error {
 
-			var (
-				inRes  []lnwallet.IncomingHtlcResolution
-				outRes []lnwallet.OutgoingHtlcResolution
-			)
-			if inHtlcRes != nil {
-				inRes = append(inRes, *inHtlcRes)
-			}
-			if outHtlcRes != nil {
-				outRes = append(outRes, *outHtlcRes)
-			}
-
 			return s.utxoNursery.IncubateOutputs(
-				chanPoint, outRes, inRes,
+				chanPoint, outHtlcRes, inHtlcRes,
 				broadcastHeight,
 			)
 		},

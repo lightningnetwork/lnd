@@ -122,7 +122,8 @@ type ChainArbitratorConfig struct {
 	// absolute/relative item block.
 	IncubateOutputs func(wire.OutPoint,
 		fn.Option[lnwallet.OutgoingHtlcResolution],
-		fn.Option[lnwallet.IncomingHtlcResolution], uint32) error
+		fn.Option[lnwallet.IncomingHtlcResolution],
+		uint32, fn.Option[int32]) error
 
 	// PreimageDB is a global store of all known pre-images. We'll use this
 	// to decide if we should broadcast a commitment transaction to claim

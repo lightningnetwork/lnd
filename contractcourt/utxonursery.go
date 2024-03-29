@@ -15,6 +15,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -333,8 +334,8 @@ func (u *UtxoNursery) Stop() error {
 // they're CLTV absolute time locked, or if they're CSV relative time locked.
 // Once all outputs reach maturity, they'll be swept back into the wallet.
 func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
-	outgoingHtlcs []lnwallet.OutgoingHtlcResolution,
-	incomingHtlcs []lnwallet.IncomingHtlcResolution,
+	outgoingHtlc fn.Option[lnwallet.OutgoingHtlcResolution],
+	incomingHtlc fn.Option[lnwallet.IncomingHtlcResolution],
 	broadcastHeight uint32) error {
 
 	// Add to wait group because nursery might shut down during execution of
@@ -352,14 +353,14 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	default:
 	}
 
-	numHtlcs := len(incomingHtlcs) + len(outgoingHtlcs)
+	numHtlcs := 0
 	var (
 		// Kid outputs can be swept after an initial confirmation
 		// followed by a maturity period.Baby outputs are two stage and
 		// will need to wait for an absolute time out to reach a
 		// confirmation, then require a relative confirmation delay.
-		kidOutputs  = make([]kidOutput, 0, 1+len(incomingHtlcs))
-		babyOutputs = make([]babyOutput, 0, len(outgoingHtlcs))
+		kidOutputs  = make([]kidOutput, 0)
+		babyOutputs = make([]babyOutput, 0)
 	)
 
 	// 1. Build all the spendable outputs that we will try to incubate.
@@ -369,7 +370,7 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	// For each incoming HTLC, we'll register a kid output marked as a
 	// second-layer HTLC output. We effectively skip the baby stage (as the
 	// timelock is zero), and enter the kid stage.
-	for _, htlcRes := range incomingHtlcs {
+	incomingHtlc.WhenSome(func(htlcRes lnwallet.IncomingHtlcResolution) {
 		// Based on the input pk script of the sign descriptor, we can
 		// determine if this is a taproot output or not. This'll
 		// determine the witness type we try to set below.
@@ -391,14 +392,16 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 
 		if htlcOutput.Amount() > 0 {
 			kidOutputs = append(kidOutputs, htlcOutput)
+
+			numHtlcs++
 		}
-	}
+	})
 
 	// For each outgoing HTLC, we'll create a baby output. If this is our
 	// commitment transaction, then we'll broadcast a second-layer
 	// transaction to transition to a kid output. Otherwise, we'll directly
 	// spend once the CLTV delay us up.
-	for _, htlcRes := range outgoingHtlcs {
+	outgoingHtlc.WhenSome(func(htlcRes lnwallet.OutgoingHtlcResolution) {
 		// If this HTLC is on our commitment transaction, then it'll be
 		// a baby output as we need to go to the second level to sweep
 		// it.
@@ -407,8 +410,11 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 
 			if htlcOutput.Amount() > 0 {
 				babyOutputs = append(babyOutputs, htlcOutput)
+
+				numHtlcs++
 			}
-			continue
+
+			return
 		}
 
 		// Based on the input pk script of the sign descriptor, we can
@@ -435,7 +441,9 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 			witType, &htlcRes.SweepSignDesc, htlcRes.Expiry,
 		)
 		kidOutputs = append(kidOutputs, htlcOutput)
-	}
+
+		numHtlcs++
+	})
 
 	// TODO(roasbeef): if want to handle outgoing on remote commit
 	//  * need ability to cancel in the case that we learn of pre-image or

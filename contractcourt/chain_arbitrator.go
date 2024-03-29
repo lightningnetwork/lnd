@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
@@ -112,14 +113,15 @@ type ChainArbitratorConfig struct {
 	// returned.
 	IsOurAddress func(btcutil.Address) bool
 
-	// IncubateOutput sends either an incoming HTLC, an outgoing HTLC, or
+	// IncubateOutputs sends either an incoming HTLC, an outgoing HTLC, or
 	// both to the utxo nursery. Once this function returns, the nursery
 	// should have safely persisted the outputs to disk, and should start
 	// the process of incubation. This is used when a resolver wishes to
 	// pass off the output to the nursery as we're only waiting on an
 	// absolute/relative item block.
-	IncubateOutputs func(wire.OutPoint, *lnwallet.OutgoingHtlcResolution,
-		*lnwallet.IncomingHtlcResolution, uint32) error
+	IncubateOutputs func(wire.OutPoint,
+		fn.Option[lnwallet.OutgoingHtlcResolution],
+		fn.Option[lnwallet.IncomingHtlcResolution], uint32) error
 
 	// PreimageDB is a global store of all known pre-images. We'll use this
 	// to decide if we should broadcast a commitment transaction to claim

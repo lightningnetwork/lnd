@@ -362,8 +362,9 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 			ConfChan:  make(chan *chainntnfs.TxConfirmation),
 		},
 		IncubateOutputs: func(wire.OutPoint,
-			*lnwallet.OutgoingHtlcResolution,
-			*lnwallet.IncomingHtlcResolution, uint32) error {
+			fn.Option[lnwallet.OutgoingHtlcResolution],
+			fn.Option[lnwallet.IncomingHtlcResolution],
+			uint32) error {
 
 			incubateChan <- struct{}{}
 			return nil

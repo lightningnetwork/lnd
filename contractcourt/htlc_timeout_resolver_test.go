@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -279,13 +280,14 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		resolutionChan := make(chan ResolutionMsg, 1)
 		reportChan := make(chan *channeldb.ResolverReport)
 
+		//nolint:lll
 		chainCfg := ChannelArbitratorConfig{
 			ChainArbitratorConfig: ChainArbitratorConfig{
 				Notifier:   notifier,
 				PreimageDB: witnessBeacon,
 				IncubateOutputs: func(wire.OutPoint,
-					*lnwallet.OutgoingHtlcResolution,
-					*lnwallet.IncomingHtlcResolution,
+					fn.Option[lnwallet.OutgoingHtlcResolution],
+					fn.Option[lnwallet.IncomingHtlcResolution],
 					uint32) error {
 
 					incubateChan <- struct{}{}

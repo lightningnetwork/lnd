@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -60,6 +61,9 @@ var (
 // imported public keys. For custom account, no key scope should be provided
 // as the coin selection key scope will always be used to generate the change
 // address.
+// The function argument `allowUtxo` specifies a filter function for utxos
+// during coin selection. It should return true for utxos that can be used and
+// false for those that should be excluded.
 //
 // NOTE: If the packet doesn't contain any inputs, coin selection is performed
 // automatically. The account parameter must be non-empty as it determines which
@@ -74,7 +78,8 @@ var (
 func (b *BtcWallet) FundPsbt(packet *psbt.Packet, minConfs int32,
 	feeRate chainfee.SatPerKWeight, accountName string,
 	changeScope *waddrmgr.KeyScope,
-	strategy wallet.CoinSelectionStrategy) (int32, error) {
+	strategy wallet.CoinSelectionStrategy,
+	allowUtxo func(wtxmgr.Credit) bool) (int32, error) {
 
 	// The fee rate is passed in using units of sat/kw, so we'll convert
 	// this to sat/KB as the CreateSimpleTx method requires this unit.
@@ -129,6 +134,9 @@ func (b *BtcWallet) FundPsbt(packet *psbt.Packet, minConfs int32,
 	var opts []wallet.TxCreateOption
 	if changeScope != nil {
 		opts = append(opts, wallet.WithCustomChangeScope(changeScope))
+	}
+	if allowUtxo != nil {
+		opts = append(opts, wallet.WithUtxoFilter(allowUtxo))
 	}
 
 	// Let the wallet handle coin selection and/or fee estimation based on

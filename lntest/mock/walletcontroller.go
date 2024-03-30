@@ -208,7 +208,8 @@ func (w *WalletController) ListLeasedOutputs() ([]*base.ListLeasedOutputResult,
 
 // FundPsbt currently does nothing.
 func (w *WalletController) FundPsbt(*psbt.Packet, int32, chainfee.SatPerKWeight,
-	string, *waddrmgr.KeyScope, base.CoinSelectionStrategy) (int32, error) {
+	string, *waddrmgr.KeyScope, base.CoinSelectionStrategy,
+	func(utxo wtxmgr.Credit) bool) (int32, error) {
 
 	return 0, nil
 }

@@ -468,7 +468,8 @@ type WalletController interface {
 	FundPsbt(packet *psbt.Packet, minConfs int32,
 		feeRate chainfee.SatPerKWeight, account string,
 		changeScope *waddrmgr.KeyScope,
-		strategy base.CoinSelectionStrategy) (int32, error)
+		strategy base.CoinSelectionStrategy,
+		allowUtxo func(wtxmgr.Credit) bool) (int32, error)
 
 	// SignPsbt expects a partial transaction with all inputs and outputs
 	// fully declared and tries to sign all unsigned inputs that have all

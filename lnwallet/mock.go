@@ -217,7 +217,8 @@ func (w *mockWalletController) ListLeasedOutputs() (
 // FundPsbt currently does nothing.
 func (w *mockWalletController) FundPsbt(*psbt.Packet, int32,
 	chainfee.SatPerKWeight, string, *waddrmgr.KeyScope,
-	base.CoinSelectionStrategy) (int32, error) {
+	base.CoinSelectionStrategy, func(utxo wtxmgr.Credit) bool) (int32,
+	error) {
 
 	return 0, nil
 }

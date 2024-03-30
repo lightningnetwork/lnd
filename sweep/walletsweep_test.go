@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wtxmgr"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -339,7 +340,7 @@ func TestCraftSweepAllTxCoinSelectFail(t *testing.T) {
 
 	_, err := CraftSweepAllTx(
 		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLeaser,
-		nil, 0,
+		nil, 0, nil,
 	)
 
 	// Since we instructed the coin select locker to fail above, we should
@@ -365,7 +366,7 @@ func TestCraftSweepAllTxUnknownWitnessType(t *testing.T) {
 
 	_, err := CraftSweepAllTx(
 		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLeaser,
-		nil, 0,
+		nil, 0, nil,
 	)
 
 	// Since passed in a p2wsh output, which is unknown, we should fail to
@@ -399,7 +400,7 @@ func TestCraftSweepAllTx(t *testing.T) {
 
 	sweepPkg, err := CraftSweepAllTx(
 		0, 0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
-		utxoLeaser, signer, 0,
+		utxoLeaser, signer, 0, nil,
 	)
 	require.NoError(t, err, "unable to make sweep tx")
 
@@ -439,4 +440,59 @@ func TestCraftSweepAllTx(t *testing.T) {
 	// UTXOs within the sweep transaction are now unlocked.
 	sweepPkg.CancelSweepAttempt()
 	assertUtxosReleased(t, utxoLeaser, testUtxos[:2])
+}
+
+// TestCraftSweepAllTxWithSelectedUTXO tests that we'll properly lock the
+// selected outputs within the wallet, and craft a single sweep transaction
+// that pays to the target output.
+func TestCraftSweepAllTxWithSelectedUTXO(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll make a mock signer along with a fee estimator, We'll
+	// use zero fees to we can assert a precise output value.
+	signer := &mock.DummySigner{}
+
+	// Grab the first UTXO from the test UTXOs.
+	utxo1 := testUtxos[0]
+	utxoSource := newMockUtxoSource([]*lnwallet.Utxo{utxo1})
+	coinSelectLocker := &mockCoinSelectionLocker{}
+	utxoLeaser := newMockOutputLeaser()
+
+	// Create an unknown utxo.
+	outpointUknown := wire.OutPoint{Index: 4}
+
+	// Sweep using the uknnown utxo and expect an error.
+	sweepPkg, err := CraftSweepAllTx(
+		0, 0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
+		utxoLeaser, signer, 0, fn.NewSet(outpointUknown),
+	)
+	require.ErrorIs(t, err, ErrUnknownUTXO)
+	require.Nil(t, sweepPkg)
+
+	// Sweep again using the known utxo and expect no error.
+	sweepPkg, err = CraftSweepAllTx(
+		0, 0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
+		utxoLeaser, signer, 0, fn.NewSet(utxo1.OutPoint),
+	)
+	require.NoError(t, err)
+
+	// At this point utxo1 should be locked.
+	assertUtxosLeased(t, utxoLeaser, []*lnwallet.Utxo{utxo1})
+	assertNoUtxosReleased(t, utxoLeaser, []*lnwallet.Utxo{utxo1})
+
+	// Validate the sweeping tx has the expected shape.
+	sweepTx := sweepPkg.SweepTx
+	require.Len(t, sweepTx.TxIn, 1)
+	require.Len(t, sweepTx.TxOut, 1)
+
+	// We should have a single output that pays to our sweep script
+	// generated above.
+	expectedSweepValue := utxo1.Value
+	require.Equal(t, sweepScript, sweepTx.TxOut[0].PkScript)
+	require.EqualValues(t, expectedSweepValue, sweepTx.TxOut[0].Value)
+
+	// If we cancel the sweep attempt, then we should find utxo1 to be
+	// unlocked.
+	sweepPkg.CancelSweepAttempt()
+	assertUtxosReleased(t, utxoLeaser, []*lnwallet.Utxo{utxo1})
 }

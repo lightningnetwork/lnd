@@ -184,6 +184,15 @@ type InitFundingReserveMsg struct {
 	// used.
 	ChanFunder chanfunding.Assembler
 
+	// AllowUtxoForFunding enables the channel funding workflow to restrict
+	// the selection of utxos when selecting the inputs for the channel
+	// opening. This does ONLY apply for the internal wallet backed channel
+	// opening case.
+	//
+	// NOTE: This is very useful when opening channels with unconfirmed
+	// inputs to make sure stable non-replaceable inputs are used.
+	AllowUtxoForFunding func(Utxo) bool
+
 	// ZeroConf is a boolean that is true if a zero-conf channel was
 	// negotiated.
 	ZeroConf bool
@@ -849,7 +858,9 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		// P2WPKH dust limit and to avoid threading through two
 		// different dust limits.
 		cfg := chanfunding.WalletConfig{
-			CoinSource:       &CoinSource{l},
+			CoinSource: NewCoinSource(
+				l, req.AllowUtxoForFunding,
+			),
 			CoinSelectLocker: l,
 			CoinLeaser:       l,
 			Signer:           l.Cfg.Signer,
@@ -2525,12 +2536,16 @@ func (l *LightningWallet) CancelRebroadcast(txid chainhash.Hash) {
 // CoinSource is a wrapper around the wallet that implements the
 // chanfunding.CoinSource interface.
 type CoinSource struct {
-	wallet *LightningWallet
+	wallet    *LightningWallet
+	allowUtxo func(Utxo) bool
 }
 
 // NewCoinSource creates a new instance of the CoinSource wrapper struct.
-func NewCoinSource(w *LightningWallet) *CoinSource {
-	return &CoinSource{wallet: w}
+func NewCoinSource(w *LightningWallet, allowUtxo func(Utxo) bool) *CoinSource {
+	return &CoinSource{
+		wallet:    w,
+		allowUtxo: allowUtxo,
+	}
 }
 
 // ListCoins returns all UTXOs from the source that have between
@@ -2546,7 +2561,18 @@ func (c *CoinSource) ListCoins(minConfs int32,
 	}
 
 	var coins []wallet.Coin
+
 	for _, utxo := range utxos {
+		// If there is a filter function supplied all utxos not adhering
+		// to these conditions will be discared.
+		if c.allowUtxo != nil && !c.allowUtxo(*utxo) {
+			walletLog.Infof("Cannot use unconfirmed "+
+				"utxo=%v because it is unstable and could be "+
+				"replaced", utxo.OutPoint)
+
+			continue
+		}
+
 		coins = append(coins, wallet.Coin{
 			TxOut: wire.TxOut{
 				Value:    int64(utxo.Value),

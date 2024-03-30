@@ -537,6 +537,12 @@ type Config struct {
 	// AliasManager is an implementation of the aliasHandler interface that
 	// abstracts away the handling of many alias functions.
 	AliasManager aliasHandler
+
+	// IsSweeperOutpoint queries the sweeper store for successfully
+	// published sweeps. This is useful to decide for the internal wallet
+	// backed funding flow to not use utxos still being swept by the sweeper
+	// subsystem.
+	IsSweeperOutpoint func(wire.OutPoint) bool
 }
 
 // Manager acts as an orchestrator/bridge between the wallet's
@@ -4600,10 +4606,26 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		MinConfs:          msg.MinConfs,
 		CommitType:        commitType,
 		ChanFunder:        msg.ChanFunder,
-		ZeroConf:          zeroConf,
-		OptionScidAlias:   scid,
-		ScidAliasFeature:  scidFeatureVal,
-		Memo:              msg.Memo,
+		// Unconfirmed Utxos which are marked by the sweeper subsystem
+		// are excluded from the coin selection because they are not
+		// final and can be RBFed by the sweeper subsystem.
+		AllowUtxoForFunding: func(u lnwallet.Utxo) bool {
+			// Utxos with at least 1 confirmation are safe to use
+			// for channel openings because they don't bare the risk
+			// of being replaced (BIP 125 RBF).
+			if u.Confirmations > 0 {
+				return true
+			}
+
+			// Query the sweeper storage to make sure we don't use
+			// an unconfirmed utxo still in use by the sweeper
+			// subsystem.
+			return !f.cfg.IsSweeperOutpoint(u.OutPoint)
+		},
+		ZeroConf:         zeroConf,
+		OptionScidAlias:  scid,
+		ScidAliasFeature: scidFeatureVal,
+		Memo:             msg.Memo,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)

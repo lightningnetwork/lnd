@@ -504,7 +504,19 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 
 		cc.HealthCheck = func() error {
 			_, err := chainConn.RawRequest(cmd, nil)
-			return err
+			if err != nil {
+				return err
+			}
+
+			// Make sure the bitcoind chain backend maintains a
+			// healthy connection to the network by checking the
+			// number of outbound peers.
+			err = checkOutboundPeers(chainConn)
+			if err != nil {
+				return err
+			}
+
+			return nil
 		}
 
 	case "btcd":
@@ -613,7 +625,19 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		// Use a query for our best block as a health check.
 		cc.HealthCheck = func() error {
 			_, _, err := cc.ChainSource.GetBestBlock()
-			return err
+			if err != nil {
+				return err
+			}
+
+			// Make sure the btcd chain backend maintains a
+			// healthy connection to the network by checking the
+			// number of outbound peers.
+			err = checkOutboundPeers(chainRPC.Client)
+			if err != nil {
+				return err
+			}
+
+			return nil
 		}
 
 		// If we're not in simnet or regtest mode, then we'll attempt
@@ -840,3 +864,31 @@ var (
 		},
 	}
 )
+
+// checkOutboundPeers checks the number of outbound peers connected to the
+// provided RPC client. If the number of outbound peers is below 6, a warning
+// is logged. This function is intended to ensure that the chain backend
+// maintains a healthy connection to the network.
+func checkOutboundPeers(client *rpcclient.Client) error {
+	peers, err := client.GetPeerInfo()
+	if err != nil {
+		return err
+	}
+
+	var outboundPeers int
+	for _, peer := range peers {
+		if !peer.Inbound {
+			outboundPeers++
+		}
+	}
+
+	if outboundPeers < 6 {
+		log.Warnf("The chain backend has an insufficient number "+
+			"of connected outbound peers (%d connected, expected "+
+			"minimum is 6) which can be a security issue. Connect "+
+			"to more trusted nodes manually if necessary.",
+			outboundPeers)
+	}
+
+	return nil
+}

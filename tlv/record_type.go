@@ -159,3 +159,30 @@ func ZeroRecordT[T TlvType, V any]() RecordT[T, V] {
 		Val: v,
 	}
 }
+
+// BigSizeT is a high-order type that represents a TLV record that encodes an
+// integer as a BigSize value in the stream.
+type BigSizeT[T constraints.Integer] struct {
+	// We'll store the base value in the struct as a uin64, but then expose
+	// a public method to cast to the specified type.
+	v uint64
+}
+
+// NewBigSizeT creates a new BigSizeT type from a given integer type.
+func NewBigSizeT[T constraints.Integer](val T) BigSizeT[T] {
+	return BigSizeT[T]{
+		v: uint64(val),
+	}
+}
+
+// Int returns the underlying integer value of the BigSize record.
+func (b BigSizeT[T]) Int() T {
+	return T(b.v)
+}
+
+// Record returns the underlying record interface for the record type.
+func (t *BigSizeT[T]) Record() Record {
+	// We use a zero value for the type here as this should be used with
+	// the higher order RecordT type.
+	return MakeBigSizeRecord(0, &t.v)
+}

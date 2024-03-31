@@ -34,12 +34,18 @@ var (
 	}
 
 	testHTLCEntry = HTLCEntry{
-		RefundTimeout: 740_000,
-		OutputIndex:   10,
-		Incoming:      true,
-		Amt:           1000_000,
-		amtTlv:        1000_000,
-		incomingTlv:   1,
+		RefundTimeout: tlv.NewPrimitiveRecord[tlv.TlvType1, uint32](
+			740_000,
+		),
+		OutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType2, uint16](
+			10,
+		),
+		Incoming: tlv.NewPrimitiveRecord[tlv.TlvType3, bool](
+			true,
+		),
+		Amt: tlv.NewRecordT[tlv.TlvType4, tlv.BigSizeT[btcutil.Amount]](
+			tlv.NewBigSizeT(btcutil.Amount(1_000_000)),
+		),
 	}
 	testHTLCEntryBytes = []byte{
 		// Body length 23.
@@ -68,11 +74,11 @@ var (
 		CommitTx:      channels.TestFundingTx,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 		Htlcs: []HTLC{{
-			RefundTimeout: testHTLCEntry.RefundTimeout,
-			OutputIndex:   int32(testHTLCEntry.OutputIndex),
-			Incoming:      testHTLCEntry.Incoming,
+			RefundTimeout: testHTLCEntry.RefundTimeout.Val,
+			OutputIndex:   int32(testHTLCEntry.OutputIndex.Val),
+			Incoming:      testHTLCEntry.Incoming.Val,
 			Amt: lnwire.NewMSatFromSatoshis(
-				testHTLCEntry.Amt,
+				testHTLCEntry.Amt.Val.Int(),
 			),
 		}},
 	}
@@ -193,11 +199,6 @@ func TestSerializeHTLCEntriesEmptyRHash(t *testing.T) {
 	// Copy the testHTLCEntry.
 	entry := testHTLCEntry
 
-	// Set the internal fields to empty values so we can test the bytes are
-	// padded.
-	entry.incomingTlv = 0
-	entry.amtTlv = 0
-
 	// Write the tlv stream.
 	buf := bytes.NewBuffer([]byte{})
 	err := serializeHTLCEntries(buf, []*HTLCEntry{&entry})
@@ -215,7 +216,7 @@ func TestSerializeHTLCEntries(t *testing.T) {
 
 	// Create a fake rHash.
 	rHashBytes := bytes.Repeat([]byte{10}, 32)
-	copy(entry.RHash[:], rHashBytes)
+	copy(entry.RHash.Val[:], rHashBytes)
 
 	// Construct the serialized bytes.
 	//
@@ -330,7 +331,7 @@ func TestDerializeHTLCEntries(t *testing.T) {
 
 	// Create a fake rHash.
 	rHashBytes := bytes.Repeat([]byte{10}, 32)
-	copy(entry.RHash[:], rHashBytes)
+	copy(entry.RHash.Val[:], rHashBytes)
 
 	// Construct the serialized bytes.
 	//

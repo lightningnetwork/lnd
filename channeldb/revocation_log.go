@@ -7,6 +7,7 @@ import (
 	"math"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -54,6 +55,82 @@ var (
 	ErrOutputIndexTooBig = errors.New("output index is over uint16")
 )
 
+// SparseRHash is a type alias for a 32 byte array, which when serialized is
+// able to save some space by not including an empty payment hash on disk.
+type SparsePayHash [32]byte
+
+// NewSparsePayHash creates a new SparsePayHash from a 32 byte array.
+func NewSparsePayHash(rHash [32]byte) SparsePayHash {
+	return SparsePayHash(rHash)
+}
+
+// Record returns a tlv record for the SparsePayHash.
+func (s *SparsePayHash) Record() tlv.Record {
+	// We use a zero for the type here, as this'll be used along with the
+	// RecordT type.
+	return tlv.MakeDynamicRecord(
+		0, s, s.hashLen,
+		sparseHashEncoder, sparseHashDecoder,
+	)
+}
+
+// hashLen is used by MakeDynamicRecord to return the size of the RHash.
+//
+// NOTE: for zero hash, we return a length 0.
+func (s *SparsePayHash) hashLen() uint64 {
+	if bytes.Equal(s[:], lntypes.ZeroHash[:]) {
+		return 0
+	}
+
+	return 32
+}
+
+// sparseHashEncoder is the customized encoder which skips encoding the empty
+// hash.
+func sparseHashEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
+	v, ok := val.(*SparsePayHash)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(val, "SparsePayHash")
+	}
+
+	// If the value is an empty hash, we will skip encoding it.
+	if bytes.Equal(v[:], lntypes.ZeroHash[:]) {
+		return nil
+	}
+
+	vArray := (*[32]byte)(v)
+
+	return tlv.EBytes32(w, vArray, buf)
+}
+
+// sparseHashDecoder is the customized decoder which skips decoding the empty
+// hash.
+func sparseHashDecoder(r io.Reader, val interface{}, buf *[8]byte,
+	l uint64) error {
+
+	v, ok := val.(*SparsePayHash)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(val, "SparsePayHash")
+	}
+
+	// If the length is zero, we will skip encoding the empty hash.
+	if l == 0 {
+		return nil
+	}
+
+	vArray := (*[32]byte)(v)
+
+	if err := tlv.DBytes32(r, vArray, buf, 32); err != nil {
+		return err
+	}
+
+	vHash := SparsePayHash(*vArray)
+
+	v = &vHash
+
+	return nil
+}
+
 // HTLCEntry specifies the minimal info needed to be stored on disk for ALL the
 // historical HTLCs, which is useful for constructing RevocationLog when a
 // breach is detected.
@@ -72,116 +149,62 @@ var (
 // made into tlv records without further conversion.
 type HTLCEntry struct {
 	// RHash is the payment hash of the HTLC.
-	RHash [32]byte
+	RHash tlv.RecordT[tlv.TlvType0, SparsePayHash]
 
 	// RefundTimeout is the absolute timeout on the HTLC that the sender
 	// must wait before reclaiming the funds in limbo.
-	RefundTimeout uint32
+	RefundTimeout tlv.RecordT[tlv.TlvType1, uint32]
 
 	// OutputIndex is the output index for this particular HTLC output
 	// within the commitment transaction.
 	//
 	// NOTE: we use uint16 instead of int32 here to save us 2 bytes, which
 	// gives us a max number of HTLCs of 65K.
-	OutputIndex uint16
+	OutputIndex tlv.RecordT[tlv.TlvType2, uint16]
 
 	// Incoming denotes whether we're the receiver or the sender of this
 	// HTLC.
 	//
 	// NOTE: this field is the memory representation of the field
 	// incomingUint.
-	Incoming bool
+	Incoming tlv.RecordT[tlv.TlvType3, bool]
 
 	// Amt is the amount of satoshis this HTLC escrows.
 	//
 	// NOTE: this field is the memory representation of the field amtUint.
-	Amt btcutil.Amount
-
-	// amtTlv is the uint64 format of Amt. This field is created so we can
-	// easily make it into a tlv record and save it to disk.
-	//
-	// NOTE: we keep this field for accounting purpose only. If the disk
-	// space becomes an issue, we could delete this field to save us extra
-	// 8 bytes.
-	amtTlv uint64
-
-	// incomingTlv is the uint8 format of Incoming. This field is created
-	// so we can easily make it into a tlv record and save it to disk.
-	incomingTlv uint8
-}
-
-// RHashLen is used by MakeDynamicRecord to return the size of the RHash.
-//
-// NOTE: for zero hash, we return a length 0.
-func (h *HTLCEntry) RHashLen() uint64 {
-	if h.RHash == lntypes.ZeroHash {
-		return 0
-	}
-	return 32
-}
-
-// RHashEncoder is the customized encoder which skips encoding the empty hash.
-func RHashEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
-	v, ok := val.(*[32]byte)
-	if !ok {
-		return tlv.NewTypeForEncodingErr(val, "RHash")
-	}
-
-	// If the value is an empty hash, we will skip encoding it.
-	if *v == lntypes.ZeroHash {
-		return nil
-	}
-
-	return tlv.EBytes32(w, v, buf)
-}
-
-// RHashDecoder is the customized decoder which skips decoding the empty hash.
-func RHashDecoder(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
-	v, ok := val.(*[32]byte)
-	if !ok {
-		return tlv.NewTypeForEncodingErr(val, "RHash")
-	}
-
-	// If the length is zero, we will skip encoding the empty hash.
-	if l == 0 {
-		return nil
-	}
-
-	return tlv.DBytes32(r, v, buf, 32)
+	Amt tlv.RecordT[tlv.TlvType4, tlv.BigSizeT[btcutil.Amount]]
 }
 
 // toTlvStream converts an HTLCEntry record into a tlv representation.
 func (h *HTLCEntry) toTlvStream() (*tlv.Stream, error) {
-	const (
-		// A set of tlv type definitions used to serialize htlc entries
-		// to the database. We define it here instead of the head of
-		// the file to avoid naming conflicts.
-		//
-		// NOTE: A migration should be added whenever this list
-		// changes.
-		rHashType         tlv.Type = 0
-		refundTimeoutType tlv.Type = 1
-		outputIndexType   tlv.Type = 2
-		incomingType      tlv.Type = 3
-		amtType           tlv.Type = 4
-	)
-
 	return tlv.NewStream(
-		tlv.MakeDynamicRecord(
-			rHashType, &h.RHash, h.RHashLen,
-			RHashEncoder, RHashDecoder,
-		),
-		tlv.MakePrimitiveRecord(
-			refundTimeoutType, &h.RefundTimeout,
-		),
-		tlv.MakePrimitiveRecord(
-			outputIndexType, &h.OutputIndex,
-		),
-		tlv.MakePrimitiveRecord(incomingType, &h.incomingTlv),
-		// We will save 3 bytes if the amount is less or equal to
-		// 4,294,967,295 msat, or roughly 0.043 bitcoin.
-		tlv.MakeBigSizeRecord(amtType, &h.amtTlv),
+		h.RHash.Record(),
+		h.RefundTimeout.Record(),
+		h.OutputIndex.Record(),
+		h.Incoming.Record(),
+		h.Amt.Record(),
 	)
+}
+
+// NewHTLCEntryFromHTLC creates a new HTLCEntry from an HTLC.
+func NewHTLCEntryFromHTLC(htlc HTLC) *HTLCEntry {
+	return &HTLCEntry{
+		RHash: tlv.NewRecordT[tlv.TlvType0, SparsePayHash](
+			NewSparsePayHash(htlc.RHash),
+		),
+		RefundTimeout: tlv.NewPrimitiveRecord[tlv.TlvType1, uint32](
+			htlc.RefundTimeout,
+		),
+		OutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType2, uint16](
+			uint16(htlc.OutputIndex),
+		),
+		Incoming: tlv.NewPrimitiveRecord[tlv.TlvType3, bool](
+			htlc.Incoming,
+		),
+		Amt: tlv.NewRecordT[tlv.TlvType4, tlv.BigSizeT[btcutil.Amount]](
+			tlv.NewBigSizeT(htlc.Amt.ToSatoshis()),
+		),
+	}
 }
 
 // RevocationLog stores the info needed to construct a breach retribution. Its
@@ -265,13 +288,7 @@ func putRevocationLog(bucket kvdb.RwBucket, commit *ChannelCommitment,
 			return ErrOutputIndexTooBig
 		}
 
-		entry := &HTLCEntry{
-			RHash:         htlc.RHash,
-			RefundTimeout: htlc.RefundTimeout,
-			Incoming:      htlc.Incoming,
-			OutputIndex:   uint16(htlc.OutputIndex),
-			Amt:           htlc.Amt.ToSatoshis(),
-		}
+		entry := NewHTLCEntryFromHTLC(htlc)
 		rl.HTLCEntries = append(rl.HTLCEntries, entry)
 	}
 
@@ -351,14 +368,6 @@ func serializeRevocationLog(w io.Writer, rl *RevocationLog) error {
 // format.
 func serializeHTLCEntries(w io.Writer, htlcs []*HTLCEntry) error {
 	for _, htlc := range htlcs {
-		// Patch the incomingTlv field.
-		if htlc.Incoming {
-			htlc.incomingTlv = 1
-		}
-
-		// Patch the amtTlv field.
-		htlc.amtTlv = uint64(htlc.Amt)
-
 		// Create the tlv stream.
 		tlvStream, err := htlc.toTlvStream()
 		if err != nil {
@@ -447,14 +456,6 @@ func deserializeHTLCEntries(r io.Reader) ([]*HTLCEntry, error) {
 			return nil, err
 		}
 
-		// Patch the Incoming field.
-		if htlc.incomingTlv == 1 {
-			htlc.Incoming = true
-		}
-
-		// Patch the Amt field.
-		htlc.Amt = btcutil.Amount(htlc.amtTlv)
-
 		// Append the entry.
 		htlcs = append(htlcs, &htlc)
 	}
@@ -469,6 +470,7 @@ func writeTlvStream(w io.Writer, s *tlv.Stream) error {
 	if err := s.Encode(&b); err != nil {
 		return err
 	}
+
 	// Write the stream's length as a varint.
 	err := tlv.WriteVarInt(w, uint64(b.Len()), &[8]byte{})
 	if err != nil {

@@ -10124,22 +10124,19 @@ func TestCreateBreachRetribution(t *testing.T) {
 	// Create a dummy revocation log.
 	ourAmtMsat := lnwire.MilliSatoshi(ourAmt * 1000)
 	theirAmtMsat := lnwire.MilliSatoshi(theirAmt * 1000)
-	revokedLog := channeldb.RevocationLog{
-		CommitTxHash:     commitHash,
-		OurOutputIndex:   uint16(localIndex),
-		TheirOutputIndex: uint16(remoteIndex),
-		HTLCEntries:      []*channeldb.HTLCEntry{htlc},
-		TheirBalance:     &theirAmtMsat,
-		OurBalance:       &ourAmtMsat,
-	}
+	revokedLog := channeldb.NewRevocationLog(
+		uint16(localIndex), uint16(remoteIndex), commitHash,
+		fn.Some(ourAmtMsat), fn.Some(theirAmtMsat),
+		[]*channeldb.HTLCEntry{htlc},
+	)
 
 	// Create a log with an empty local output index.
 	revokedLogNoLocal := revokedLog
-	revokedLogNoLocal.OurOutputIndex = channeldb.OutputIndexEmpty
+	revokedLogNoLocal.OurOutputIndex.Val = channeldb.OutputIndexEmpty
 
 	// Create a log with an empty remote output index.
 	revokedLogNoRemote := revokedLog
-	revokedLogNoRemote.TheirOutputIndex = channeldb.OutputIndexEmpty
+	revokedLogNoRemote.TheirOutputIndex.Val = channeldb.OutputIndexEmpty
 
 	testCases := []struct {
 		name             string
@@ -10169,14 +10166,20 @@ func TestCreateBreachRetribution(t *testing.T) {
 		{
 			name: "fail due to our index too big",
 			revocationLog: &channeldb.RevocationLog{
-				OurOutputIndex: uint16(htlcIndex + 1),
+				//nolint:lll
+				OurOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType0](
+					uint16(htlcIndex + 1),
+				),
 			},
 			expectedErr: ErrOutputIndexOutOfRange,
 		},
 		{
 			name: "fail due to their index too big",
 			revocationLog: &channeldb.RevocationLog{
-				TheirOutputIndex: uint16(htlcIndex + 1),
+				//nolint:lll
+				TheirOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType1](
+					uint16(htlcIndex + 1),
+				),
 			},
 			expectedErr: ErrOutputIndexOutOfRange,
 		},

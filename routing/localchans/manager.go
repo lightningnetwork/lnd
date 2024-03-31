@@ -112,6 +112,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 			TimeLockDelta: uint32(edge.TimeLockDelta),
 			MinHTLCOut:    edge.MinHTLC,
 			MaxHTLC:       edge.MaxHTLC,
+			InboundFee:    newSchema.InboundFee,
 		}
 
 		return nil
@@ -180,6 +181,12 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	edge.FeeProportionalMillionths = lnwire.MilliSatoshi(
 		newSchema.FeeRate,
 	)
+
+	inboundFee := newSchema.InboundFee.ToWire()
+	if err := edge.ExtraOpaqueData.PackRecords(&inboundFee); err != nil {
+		return err
+	}
+
 	edge.TimeLockDelta = uint16(newSchema.TimeLockDelta)
 
 	// Retrieve negotiated channel htlc amt limits.

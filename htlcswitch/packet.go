@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -103,6 +104,9 @@ type htlcPacket struct {
 	// but receives a channel_update with the alias SCID. Instead, the
 	// payer should receive a channel_update with the public SCID.
 	originalOutgoingChanID lnwire.ShortChannelID
+
+	// inboundFee is the fee schedule of the incoming channel.
+	inboundFee models.InboundFee
 }
 
 // inKey returns the circuit key used to identify the incoming htlc.

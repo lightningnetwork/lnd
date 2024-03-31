@@ -1,4 +1,5 @@
 # Release Notes
+- [Release Notes](#release-notes)
 - [Bug Fixes](#bug-fixes)
 - [New Features](#new-features)
   - [Functional Enhancements](#functional-enhancements)
@@ -6,12 +7,14 @@
   - [lncli Additions](#lncli-additions)
 - [Improvements](#improvements)
   - [Functional Updates](#functional-updates)
+    - [Tlv](#tlv)
+  - [Misc](#misc)
+    - [Logging](#logging)
   - [RPC Updates](#rpc-updates)
   - [lncli Updates](#lncli-updates)
   - [Code Health](#code-health)
   - [Breaking Changes](#breaking-changes)
   - [Performance Improvements](#performance-improvements)
-  - [Misc](#misc)
 - [Technical and Architectural Updates](#technical-and-architectural-updates)
   - [BOLT Spec Updates](#bolt-spec-updates)
   - [Testing](#testing)
@@ -108,6 +111,15 @@
 
 # New Features
 ## Functional Enhancements
+
+* Experimental support for [inbound routing
+  fees](https://github.com/lightningnetwork/lnd/pull/6703) is added. This allows
+  node operators to require senders to pay an inbound fee for forwards and
+  payments. It is recommended to only use negative fees (an inbound "discount")
+  initially to keep the channels open for senders that do not recognize inbound
+  fees. In this release, no send support for pathfinding and route building is
+  added yet. We first want to learn more about the impact that inbound fees have
+  on the routing economy.
 
 * A new config value,
   [sweeper.maxfeerate](https://github.com/lightningnetwork/lnd/pull/7823), is
@@ -421,6 +433,7 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * Elle Mouton
 * ErikEk
 * Jesse de Wit
+* Joost Jager
 * Keagan McClelland
 * Marcos Fernandez Perez
 * Matt Morehouse

@@ -10053,9 +10053,11 @@ func TestCreateHtlcRetribution(t *testing.T) {
 		aliceChannel.channelState,
 	)
 	htlc := &channeldb.HTLCEntry{
-		Amt:         testAmt,
-		Incoming:    true,
-		OutputIndex: 1,
+		Amt: tlv.NewRecordT[tlv.TlvType4](
+			tlv.NewBigSizeT(testAmt),
+		),
+		Incoming:    tlv.NewPrimitiveRecord[tlv.TlvType3](true),
+		OutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType2, uint16](1),
 	}
 
 	// Create the htlc retribution.
@@ -10069,8 +10071,8 @@ func TestCreateHtlcRetribution(t *testing.T) {
 	// Check the fields have expected values.
 	require.EqualValues(t, testAmt, hr.SignDesc.Output.Value)
 	require.Equal(t, commitHash, hr.OutPoint.Hash)
-	require.EqualValues(t, htlc.OutputIndex, hr.OutPoint.Index)
-	require.Equal(t, htlc.Incoming, hr.IsIncoming)
+	require.EqualValues(t, htlc.OutputIndex.Val, hr.OutPoint.Index)
+	require.Equal(t, htlc.Incoming.Val, hr.IsIncoming)
 }
 
 // TestCreateBreachRetribution checks that `createBreachRetribution` behaves as
@@ -10110,9 +10112,13 @@ func TestCreateBreachRetribution(t *testing.T) {
 		aliceChannel.channelState,
 	)
 	htlc := &channeldb.HTLCEntry{
-		Amt:         btcutil.Amount(testAmt),
-		Incoming:    true,
-		OutputIndex: uint16(htlcIndex),
+		Amt: tlv.NewRecordT[tlv.TlvType4](
+			tlv.NewBigSizeT(btcutil.Amount(testAmt)),
+		),
+		Incoming: tlv.NewPrimitiveRecord[tlv.TlvType3](true),
+		OutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType2](
+			uint16(htlcIndex),
+		),
 	}
 
 	// Create a dummy revocation log.
@@ -10239,11 +10245,12 @@ func TestCreateBreachRetribution(t *testing.T) {
 		require.Equal(t, remote, br.RemoteOutpoint)
 
 		for _, hr := range br.HtlcRetributions {
-			require.EqualValues(t, testAmt,
-				hr.SignDesc.Output.Value)
+			require.EqualValues(
+				t, testAmt, hr.SignDesc.Output.Value,
+			)
 			require.Equal(t, commitHash, hr.OutPoint.Hash)
 			require.EqualValues(t, htlcIndex, hr.OutPoint.Index)
-			require.Equal(t, htlc.Incoming, hr.IsIncoming)
+			require.Equal(t, htlc.Incoming.Val, hr.IsIncoming)
 		}
 	}
 

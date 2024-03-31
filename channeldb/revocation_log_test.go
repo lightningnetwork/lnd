@@ -34,18 +34,56 @@ var (
 	}
 
 	testHTLCEntry = HTLCEntry{
-		RefundTimeout: 740_000,
-		OutputIndex:   10,
-		Incoming:      true,
-		Amt:           1000_000,
-		amtTlv:        1000_000,
-		incomingTlv:   1,
+		RefundTimeout: tlv.NewPrimitiveRecord[tlv.TlvType1, uint32](
+			740_000,
+		),
+		OutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType2, uint16](
+			10,
+		),
+		Incoming: tlv.NewPrimitiveRecord[tlv.TlvType3](true),
+		Amt: tlv.NewRecordT[tlv.TlvType4](
+			tlv.NewBigSizeT(btcutil.Amount(1_000_000)),
+		),
 	}
 	testHTLCEntryBytes = []byte{
 		// Body length 23.
 		0x16,
 		// Rhash tlv.
 		0x0, 0x0,
+		// RefundTimeout tlv.
+		0x1, 0x4, 0x0, 0xb, 0x4a, 0xa0,
+		// OutputIndex tlv.
+		0x2, 0x2, 0x0, 0xa,
+		// Incoming tlv.
+		0x3, 0x1, 0x1,
+		// Amt tlv.
+		0x4, 0x5, 0xfe, 0x0, 0xf, 0x42, 0x40,
+	}
+
+	testHTLCEntryHash = HTLCEntry{
+		RHash: tlv.NewPrimitiveRecord[tlv.TlvType0](NewSparsePayHash(
+			[32]byte{0x33, 0x44, 0x55},
+		)),
+		RefundTimeout: tlv.NewPrimitiveRecord[tlv.TlvType1, uint32](
+			740_000,
+		),
+		OutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType2, uint16](
+			10,
+		),
+		Incoming: tlv.NewPrimitiveRecord[tlv.TlvType3](true),
+		Amt: tlv.NewRecordT[tlv.TlvType4](
+			tlv.NewBigSizeT(btcutil.Amount(1_000_000)),
+		),
+	}
+	testHTLCEntryHashBytes = []byte{
+		// Body length 54.
+		0x36,
+		// Rhash tlv.
+		0x0, 0x20,
+		0x33, 0x44, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		// RefundTimeout tlv.
 		0x1, 0x4, 0x0, 0xb, 0x4a, 0xa0,
 		// OutputIndex tlv.
@@ -68,11 +106,11 @@ var (
 		CommitTx:      channels.TestFundingTx,
 		CommitSig:     bytes.Repeat([]byte{1}, 71),
 		Htlcs: []HTLC{{
-			RefundTimeout: testHTLCEntry.RefundTimeout,
-			OutputIndex:   int32(testHTLCEntry.OutputIndex),
-			Incoming:      testHTLCEntry.Incoming,
+			RefundTimeout: testHTLCEntry.RefundTimeout.Val,
+			OutputIndex:   int32(testHTLCEntry.OutputIndex.Val),
+			Incoming:      testHTLCEntry.Incoming.Val,
 			Amt: lnwire.NewMSatFromSatoshis(
-				testHTLCEntry.Amt,
+				testHTLCEntry.Amt.Val.Int(),
 			),
 		}},
 	}
@@ -193,11 +231,6 @@ func TestSerializeHTLCEntriesEmptyRHash(t *testing.T) {
 	// Copy the testHTLCEntry.
 	entry := testHTLCEntry
 
-	// Set the internal fields to empty values so we can test the bytes are
-	// padded.
-	entry.incomingTlv = 0
-	entry.amtTlv = 0
-
 	// Write the tlv stream.
 	buf := bytes.NewBuffer([]byte{})
 	err := serializeHTLCEntries(buf, []*HTLCEntry{&entry})
@@ -205,6 +238,21 @@ func TestSerializeHTLCEntriesEmptyRHash(t *testing.T) {
 
 	// Check the bytes are read as expected.
 	require.Equal(t, testHTLCEntryBytes, buf.Bytes())
+}
+
+func TestSerializeHTLCEntriesWithRHash(t *testing.T) {
+	t.Parallel()
+
+	// Copy the testHTLCEntry.
+	entry := testHTLCEntryHash
+
+	// Write the tlv stream.
+	buf := bytes.NewBuffer([]byte{})
+	err := serializeHTLCEntries(buf, []*HTLCEntry{&entry})
+	require.NoError(t, err)
+
+	// Check the bytes are read as expected.
+	require.Equal(t, testHTLCEntryHashBytes, buf.Bytes())
 }
 
 func TestSerializeHTLCEntries(t *testing.T) {
@@ -215,7 +263,7 @@ func TestSerializeHTLCEntries(t *testing.T) {
 
 	// Create a fake rHash.
 	rHashBytes := bytes.Repeat([]byte{10}, 32)
-	copy(entry.RHash[:], rHashBytes)
+	copy(entry.RHash.Val[:], rHashBytes)
 
 	// Construct the serialized bytes.
 	//
@@ -269,7 +317,7 @@ func TestSerializeAndDeserializeRevLog(t *testing.T) {
 				t, &test.revLog, test.revLogBytes,
 			)
 
-			testDerializeRevocationLog(
+			testDeserializeRevocationLog(
 				t, &test.revLog, test.revLogBytes,
 			)
 		})
@@ -293,7 +341,7 @@ func testSerializeRevocationLog(t *testing.T, rl *RevocationLog,
 	require.Equal(t, revLogBytes, buf.Bytes()[:bodyIndex])
 }
 
-func testDerializeRevocationLog(t *testing.T, revLog *RevocationLog,
+func testDeserializeRevocationLog(t *testing.T, revLog *RevocationLog,
 	revLogBytes []byte) {
 
 	// Construct the full bytes.
@@ -309,7 +357,7 @@ func testDerializeRevocationLog(t *testing.T, revLog *RevocationLog,
 	require.Equal(t, *revLog, rl)
 }
 
-func TestDerializeHTLCEntriesEmptyRHash(t *testing.T) {
+func TestDeserializeHTLCEntriesEmptyRHash(t *testing.T) {
 	t.Parallel()
 
 	// Read the tlv stream.
@@ -322,7 +370,7 @@ func TestDerializeHTLCEntriesEmptyRHash(t *testing.T) {
 	require.Equal(t, &testHTLCEntry, htlcs[0])
 }
 
-func TestDerializeHTLCEntries(t *testing.T) {
+func TestDeserializeHTLCEntries(t *testing.T) {
 	t.Parallel()
 
 	// Copy the testHTLCEntry.
@@ -330,7 +378,7 @@ func TestDerializeHTLCEntries(t *testing.T) {
 
 	// Create a fake rHash.
 	rHashBytes := bytes.Repeat([]byte{10}, 32)
-	copy(entry.RHash[:], rHashBytes)
+	copy(entry.RHash.Val[:], rHashBytes)
 
 	// Construct the serialized bytes.
 	//
@@ -398,11 +446,11 @@ func TestDeleteLogBucket(t *testing.T) {
 
 	err = kvdb.Update(backend, func(tx kvdb.RwTx) error {
 		// Create the buckets.
-		chanBucket, _, err := createTestRevocatoinLogBuckets(tx)
+		chanBucket, _, err := createTestRevocationLogBuckets(tx)
 		require.NoError(t, err)
 
 		// Create the buckets again should give us an error.
-		_, _, err = createTestRevocatoinLogBuckets(tx)
+		_, _, err = createTestRevocationLogBuckets(tx)
 		require.ErrorIs(t, err, kvdb.ErrBucketExists)
 
 		// Delete both buckets.
@@ -410,7 +458,7 @@ func TestDeleteLogBucket(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create the buckets again should give us NO error.
-		_, _, err = createTestRevocatoinLogBuckets(tx)
+		_, _, err = createTestRevocationLogBuckets(tx)
 		return err
 	}, func() {})
 	require.NoError(t, err)
@@ -516,7 +564,7 @@ func TestPutRevocationLog(t *testing.T) {
 		// Construct the testing db transaction.
 		dbTx := func(tx kvdb.RwTx) (RevocationLog, error) {
 			// Create the buckets.
-			_, bucket, err := createTestRevocatoinLogBuckets(tx)
+			_, bucket, err := createTestRevocationLogBuckets(tx)
 			require.NoError(t, err)
 
 			// Save the log.
@@ -686,7 +734,7 @@ func TestFetchRevocationLogCompatible(t *testing.T) {
 	}
 }
 
-func createTestRevocatoinLogBuckets(tx kvdb.RwTx) (kvdb.RwBucket,
+func createTestRevocationLogBuckets(tx kvdb.RwTx) (kvdb.RwBucket,
 	kvdb.RwBucket, error) {
 
 	chanBucket, err := tx.CreateTopLevelBucket(openChannelBucket)

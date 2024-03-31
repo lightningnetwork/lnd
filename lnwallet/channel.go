@@ -2747,7 +2747,7 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 	htlcRetributions := make([]HtlcRetribution, len(revokedLog.HTLCEntries))
 	for i, htlc := range revokedLog.HTLCEntries {
 		hr, err := createHtlcRetribution(
-			chanState, keyRing, commitHash,
+			chanState, keyRing, commitHash.Val,
 			commitmentSecret, leaseExpiry, htlc,
 		)
 		if err != nil {
@@ -2760,10 +2760,10 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 
 	// Construct the our outpoint.
 	ourOutpoint := wire.OutPoint{
-		Hash: commitHash,
+		Hash: commitHash.Val,
 	}
-	if revokedLog.OurOutputIndex != channeldb.OutputIndexEmpty {
-		ourOutpoint.Index = uint32(revokedLog.OurOutputIndex)
+	if revokedLog.OurOutputIndex.Val != channeldb.OutputIndexEmpty {
+		ourOutpoint.Index = uint32(revokedLog.OurOutputIndex.Val)
 
 		// If the spend transaction is provided, then we use it to get
 		// the value of our output.
@@ -2786,26 +2786,29 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 			// contains our output amount. Due to a previous
 			// migration, this field may be empty in which case an
 			// error will be returned.
-			if revokedLog.OurBalance == nil {
-				return nil, 0, 0, ErrRevLogDataMissing
+			b, err := revokedLog.OurBalance.ValOpt().UnwrapOrErr(
+				ErrRevLogDataMissing,
+			)
+			if err != nil {
+				return nil, 0, 0, err
 			}
 
-			ourAmt = int64(revokedLog.OurBalance.ToSatoshis())
+			ourAmt = int64(b.Int().ToSatoshis())
 		}
 	}
 
 	// Construct the their outpoint.
 	theirOutpoint := wire.OutPoint{
-		Hash: commitHash,
+		Hash: commitHash.Val,
 	}
-	if revokedLog.TheirOutputIndex != channeldb.OutputIndexEmpty {
-		theirOutpoint.Index = uint32(revokedLog.TheirOutputIndex)
+	if revokedLog.TheirOutputIndex.Val != channeldb.OutputIndexEmpty {
+		theirOutpoint.Index = uint32(revokedLog.TheirOutputIndex.Val)
 
 		// If the spend transaction is provided, then we use it to get
 		// the value of the remote parties' output.
 		if spendTx != nil {
 			// Sanity check that TheirOutputIndex is within range.
-			if int(revokedLog.TheirOutputIndex) >=
+			if int(revokedLog.TheirOutputIndex.Val) >=
 				len(spendTx.TxOut) {
 
 				return nil, 0, 0, fmt.Errorf("%w: theirs=%v, "+
@@ -2823,16 +2826,19 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 			// contains remote parties' output amount. Due to a
 			// previous migration, this field may be empty in which
 			// case an error will be returned.
-			if revokedLog.TheirBalance == nil {
-				return nil, 0, 0, ErrRevLogDataMissing
+			b, err := revokedLog.TheirBalance.ValOpt().UnwrapOrErr(
+				ErrRevLogDataMissing,
+			)
+			if err != nil {
+				return nil, 0, 0, err
 			}
 
-			theirAmt = int64(revokedLog.TheirBalance.ToSatoshis())
+			theirAmt = int64(b.Int().ToSatoshis())
 		}
 	}
 
 	return &BreachRetribution{
-		BreachTxHash:     commitHash,
+		BreachTxHash:     commitHash.Val,
 		ChainHash:        chanState.ChainHash,
 		LocalOutpoint:    ourOutpoint,
 		RemoteOutpoint:   theirOutpoint,

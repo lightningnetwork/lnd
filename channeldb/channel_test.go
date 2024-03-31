@@ -570,9 +570,11 @@ func assertCommitmentEqual(t *testing.T, a, b *ChannelCommitment) {
 func assertRevocationLogEntryEqual(t *testing.T, c *ChannelCommitment,
 	r *RevocationLog) {
 
+	t.Helper()
+
 	// Check the common fields.
 	require.EqualValues(
-		t, r.CommitTxHash, c.CommitTx.TxHash(), "CommitTx mismatch",
+		t, r.CommitTxHash.Val, c.CommitTx.TxHash(), "CommitTx mismatch",
 	)
 
 	// Now check the common fields from the HTLCs.
@@ -806,10 +808,10 @@ func TestChannelStateTransition(t *testing.T) {
 
 	// Check the output indexes are saved as expected.
 	require.EqualValues(
-		t, dummyLocalOutputIndex, diskPrevCommit.OurOutputIndex,
+		t, dummyLocalOutputIndex, diskPrevCommit.OurOutputIndex.Val,
 	)
 	require.EqualValues(
-		t, dummyRemoteOutIndex, diskPrevCommit.TheirOutputIndex,
+		t, dummyRemoteOutIndex, diskPrevCommit.TheirOutputIndex.Val,
 	)
 
 	// The two deltas (the original vs the on-disk version) should
@@ -851,10 +853,10 @@ func TestChannelStateTransition(t *testing.T) {
 
 	// Check the output indexes are saved as expected.
 	require.EqualValues(
-		t, dummyLocalOutputIndex, diskPrevCommit.OurOutputIndex,
+		t, dummyLocalOutputIndex, diskPrevCommit.OurOutputIndex.Val,
 	)
 	require.EqualValues(
-		t, dummyRemoteOutIndex, diskPrevCommit.TheirOutputIndex,
+		t, dummyRemoteOutIndex, diskPrevCommit.TheirOutputIndex.Val,
 	)
 
 	assertRevocationLogEntryEqual(t, &oldRemoteCommit, prevCommit)

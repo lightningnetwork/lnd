@@ -140,6 +140,15 @@ func (o *OptionalRecordT[T, V]) UnwrapOrErrV(err error) (V, error) {
 	return inner.Val, nil
 }
 
+// ValOpt returns an Option of the underlying value. This can be used to chain
+// other option related methods to avoid needing to first go through the outter
+// record.
+func (t *OptionalRecordT[T, V]) ValOpt() fn.Option[V] {
+	return fn.MapOption(func(record RecordT[T, V]) V {
+		return record.Val
+	})(t.Option)
+}
+
 // Zero returns a zero value of the record type.
 func (t *OptionalRecordT[T, V]) Zero() RecordT[T, V] {
 	return ZeroRecordT[T, V]()

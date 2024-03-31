@@ -579,15 +579,21 @@ func assertRevocationLogEntryEqual(t *testing.T, c *ChannelCommitment,
 	require.Equal(t, len(r.HTLCEntries), len(c.Htlcs), "HTLCs len mismatch")
 	for i, rHtlc := range r.HTLCEntries {
 		cHtlc := c.Htlcs[i]
-		require.Equal(t, rHtlc.RHash, cHtlc.RHash, "RHash mismatch")
-		require.Equal(t, rHtlc.Amt, cHtlc.Amt.ToSatoshis(),
-			"Amt mismatch")
-		require.Equal(t, rHtlc.RefundTimeout, cHtlc.RefundTimeout,
-			"RefundTimeout mismatch")
-		require.EqualValues(t, rHtlc.OutputIndex, cHtlc.OutputIndex,
-			"OutputIndex mismatch")
-		require.Equal(t, rHtlc.Incoming, cHtlc.Incoming,
-			"Incoming mismatch")
+		require.Equal(t, rHtlc.RHash.Val[:], cHtlc.RHash[:], "RHash")
+		require.Equal(
+			t, rHtlc.Amt.Val.Int(), cHtlc.Amt.ToSatoshis(), "Amt",
+		)
+		require.Equal(
+			t, rHtlc.RefundTimeout.Val, cHtlc.RefundTimeout,
+			"RefundTimeout",
+		)
+		require.EqualValues(
+			t, rHtlc.OutputIndex.Val, cHtlc.OutputIndex,
+			"OutputIndex",
+		)
+		require.Equal(
+			t, rHtlc.Incoming.Val, cHtlc.Incoming, "Incoming",
+		)
 	}
 }
 

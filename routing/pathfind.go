@@ -50,7 +50,7 @@ const (
 type pathFinder = func(g *graphParams, r *RestrictParams,
 	cfg *PathFindingConfig, source, target route.Vertex,
 	amt lnwire.MilliSatoshi, timePref float64, finalHtlcExpiry int32) (
-	[]*models.CachedEdgePolicy, float64, error)
+	[]*unifiedEdge, float64, error)
 
 var (
 	// DefaultEstimator is the default estimator used for computing
@@ -119,14 +119,14 @@ type finalHopParams struct {
 // makes calculating the totals during route construction difficult if we
 // include blinded paths on the first pass).
 //
-// NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
+// NOTE: The passed slice of unified edges MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt. It is assumed that
 // any feature vectors on all hops have been validated for transitive
 // dependencies.
 // NOTE: If a non-nil blinded path is provided it is assumed to have been
 // validated by the caller.
 func newRoute(sourceVertex route.Vertex,
-	pathEdges []*models.CachedEdgePolicy, currentHeight uint32,
+	pathEdges []*unifiedEdge, currentHeight uint32,
 	finalHop finalHopParams, blindedPath *sphinx.BlindedPath) (
 	*route.Route, error) {
 
@@ -149,7 +149,7 @@ func newRoute(sourceVertex route.Vertex,
 	for i := pathLength - 1; i >= 0; i-- {
 		// Now we'll start to calculate the items within the per-hop
 		// payload for the hop this edge is leading to.
-		edge := pathEdges[i]
+		edge := pathEdges[i].policy
 
 		// We'll calculate the amounts, timelocks, and fees for each hop
 		// in the route. The base case is the final hop which includes
@@ -158,7 +158,7 @@ func newRoute(sourceVertex route.Vertex,
 		// we compute the route in reverse.
 		var (
 			amtToForward        lnwire.MilliSatoshi
-			fee                 lnwire.MilliSatoshi
+			fee                 int64
 			totalAmtMsatBlinded lnwire.MilliSatoshi
 			outgoingTimeLock    uint32
 			tlvPayload          bool
@@ -196,7 +196,7 @@ func newRoute(sourceVertex route.Vertex,
 
 			// Fee is not part of the hop payload, but only used for
 			// reporting through RPC. Set to zero for the final hop.
-			fee = lnwire.MilliSatoshi(0)
+			fee = 0
 
 			// As this is the last hop, we'll use the specified
 			// final CLTV delta value instead of the value from the
@@ -245,13 +245,26 @@ func newRoute(sourceVertex route.Vertex,
 			// and its policy for the outgoing channel. This policy
 			// is stored as part of the incoming channel of
 			// the next hop.
-			fee = pathEdges[i+1].ComputeFee(amtToForward)
+			outboundFee := pathEdges[i+1].policy.ComputeFee(
+				amtToForward,
+			)
+
+			inboundFee := pathEdges[i].inboundFees.CalcFee(
+				amtToForward + outboundFee,
+			)
+
+			fee = int64(outboundFee) + inboundFee
+			if fee < 0 {
+				fee = 0
+			}
 
 			// We'll take the total timelock of the preceding hop as
 			// the outgoing timelock or this hop. Then we'll
 			// increment the total timelock incurred by this hop.
 			outgoingTimeLock = totalTimeLock
-			totalTimeLock += uint32(pathEdges[i+1].TimeLockDelta)
+			totalTimeLock += uint32(
+				pathEdges[i+1].policy.TimeLockDelta,
+			)
 		}
 
 		// Since we're traversing the path backwards atm, we prepend
@@ -274,7 +287,7 @@ func newRoute(sourceVertex route.Vertex,
 		// Finally, we update the amount that needs to flow into the
 		// *next* hop, which is the amount this hop needs to forward,
 		// accounting for the fee that it takes.
-		nextIncomingAmount = amtToForward + fee
+		nextIncomingAmount = amtToForward + lnwire.MilliSatoshi(fee)
 	}
 
 	// If we are creating a route to a blinded path, we need to add some
@@ -504,7 +517,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 // available bandwidth.
 func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
-	finalHtlcExpiry int32) ([]*models.CachedEdgePolicy, float64, error) {
+	finalHtlcExpiry int32) ([]*unifiedEdge, float64, error) {
 
 	// Pathfinding can be a significant portion of the total payment
 	// latency, especially on low-powered devices. Log several metrics to
@@ -659,13 +672,13 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// Don't record the initial partial path in the distance map and reserve
 	// that key for the source key in the case we route to ourselves.
 	partialPath := &nodeWithDist{
-		dist:            0,
-		weight:          0,
-		node:            target,
-		amountToReceive: amt,
-		incomingCltv:    finalHtlcExpiry,
-		probability:     1,
-		routingInfoSize: lastHopPayloadSize,
+		dist:              0,
+		weight:            0,
+		node:              target,
+		netAmountReceived: amt,
+		incomingCltv:      finalHtlcExpiry,
+		probability:       1,
+		routingInfoSize:   lastHopPayloadSize,
 	}
 
 	// Calculate the absolute cltv limit. Use uint64 to prevent an overflow
@@ -702,9 +715,27 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 		edgesExpanded++
 
+		// Calculate inbound fee charged by "to" node. The exit hop
+		// doesn't charge inbound fees. If the "to" node is the exit
+		// hop, its inbound fees have already been set to zero by
+		// nodeEdgeUnifier.
+		inboundFee := edge.inboundFees.CalcFee(
+			toNodeDist.netAmountReceived,
+		)
+
+		// Make sure that the node total fee is never negative.
+		// Routing nodes treat a total fee that turns out
+		// negative as a zero fee and pathfinding should do the
+		// same.
+		minInboundFee := -int64(toNodeDist.outboundFee)
+		if inboundFee < minInboundFee {
+			inboundFee = minInboundFee
+		}
+
 		// Calculate amount that the candidate node would have to send
 		// out.
-		amountToSend := toNodeDist.amountToReceive
+		amountToSend := toNodeDist.netAmountReceived +
+			lnwire.MilliSatoshi(inboundFee)
 
 		// Request the success probability for this edge.
 		edgeProbability := r.ProbabilitySource(
@@ -734,10 +765,15 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// Also determine the time lock delta that will be added to the
 		// route if fromVertex is selected. If fromVertex is the source
 		// node, no additional timelock is required.
-		var fee lnwire.MilliSatoshi
-		var timeLockDelta uint16
+		var (
+			timeLockDelta uint16
+			outboundFee   int64
+		)
+
 		if fromVertex != source {
-			fee = edge.policy.ComputeFee(amountToSend)
+			outboundFee = int64(
+				edge.policy.ComputeFee(amountToSend),
+			)
 			timeLockDelta = edge.policy.TimeLockDelta
 		}
 
@@ -748,17 +784,19 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			return
 		}
 
-		// amountToReceive is the amount that the node that is added to
-		// the distance map needs to receive from a (to be found)
-		// previous node in the route. That previous node will need to
-		// pay the amount that this node forwards plus the fee it
-		// charges.
-		amountToReceive := amountToSend + fee
+		// netAmountToReceive is the amount that the node that is added
+		// to the distance map needs to receive from a (to be found)
+		// previous node in the route. The inbound fee of the receiving
+		// node is already subtracted from this value. The previous node
+		// will need to pay the amount that this node forwards plus the
+		// fee it charges plus this node's inbound fee.
+		netAmountToReceive := amountToSend +
+			lnwire.MilliSatoshi(outboundFee)
 
 		// Check if accumulated fees would exceed fee limit when this
 		// node would be added to the path.
-		totalFee := amountToReceive - amt
-		if totalFee > r.FeeLimit {
+		totalFee := int64(netAmountToReceive) - int64(amt)
+		if totalFee > 0 && lnwire.MilliSatoshi(totalFee) > r.FeeLimit {
 			return
 		}
 
@@ -774,11 +812,21 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			return
 		}
 
+		// Calculate the combined fee for this edge. Dijkstra does not
+		// support negative edge weights. Because this fee feeds into
+		// the edge weight calculation, we don't allow it to be
+		// negative.
+		signedFee := inboundFee + outboundFee
+		fee := lnwire.MilliSatoshi(0)
+		if signedFee > 0 {
+			fee = lnwire.MilliSatoshi(signedFee)
+		}
+
 		// By adding fromVertex in the route, there will be an extra
 		// weight composed of the fee that this node will charge and
 		// the amount that will be locked for timeLockDelta blocks in
 		// the HTLC that is handed out to fromVertex.
-		weight := edgeWeight(amountToReceive, fee, timeLockDelta)
+		weight := edgeWeight(netAmountToReceive, fee, timeLockDelta)
 
 		// Compute the tentative weight to this new channel/edge
 		// which is the weight from our toNode to the target node
@@ -786,7 +834,10 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		tempWeight := toNodeDist.weight + weight
 
 		// Add an extra factor to the weight to take into account the
-		// probability.
+		// probability. Another reason why we rounded the fee up to zero
+		// is to prevent a highly negative fee from cancelling out the
+		// extra factor. We don't want an always-failing node to attract
+		// traffic using a highly negative fee and escape penalization.
 		tempDist := getProbabilityBasedDist(
 			tempWeight, probability,
 			absoluteAttemptCost,
@@ -853,14 +904,15 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// The new better distance is recorded, and also our "next hop"
 		// map is populated with this edge.
 		withDist := &nodeWithDist{
-			dist:            tempDist,
-			weight:          tempWeight,
-			node:            fromVertex,
-			amountToReceive: amountToReceive,
-			incomingCltv:    incomingCltv,
-			probability:     probability,
-			nextHop:         edge.policy,
-			routingInfoSize: routingInfoSize,
+			dist:              tempDist,
+			weight:            tempWeight,
+			node:              fromVertex,
+			netAmountReceived: netAmountToReceive,
+			outboundFee:       lnwire.MilliSatoshi(outboundFee),
+			incomingCltv:      incomingCltv,
+			probability:       probability,
+			nextHop:           edge,
+			routingInfoSize:   routingInfoSize,
 		}
 		distance[fromVertex] = withDist
 
@@ -919,9 +971,13 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		nodesVisited++
 
 		pivot := partialPath.node
+		isExitHop := partialPath.nextHop == nil
 
-		// Create unified edges for all incoming connections.
-		u := newNodeEdgeUnifier(self, pivot, outgoingChanMap)
+		// Create unified policies for all incoming connections. Don't
+		// use inbound fees for the exit hop.
+		u := newNodeEdgeUnifier(
+			self, pivot, !isExitHop, outgoingChanMap,
+		)
 
 		err := u.addGraphPolicies(g.graph)
 		if err != nil {
@@ -930,6 +986,11 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 		// We add hop hints that were supplied externally.
 		for _, reverseEdge := range additionalEdgesWithSrc[pivot] {
+			// Assume zero inbound fees for route hints. If inbound
+			// fees would apply, they couldn't be communicated in
+			// bolt11 invoices currently.
+			inboundFee := models.InboundFee{}
+
 			// Hop hints don't contain a capacity. We set one here,
 			// since a capacity is needed for probability
 			// calculations. We set a high capacity to act as if
@@ -941,12 +1002,13 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			u.addPolicy(
 				reverseEdge.sourceNode,
 				reverseEdge.edge.EdgePolicy(),
+				inboundFee,
 				fakeHopHintCapacity,
 				reverseEdge.edge.IntermediatePayloadSize,
 			)
 		}
 
-		amtToSend := partialPath.amountToReceive
+		netAmountReceived := partialPath.netAmountReceived
 
 		// Expand all connections using the optimal policy for each
 		// connection.
@@ -968,7 +1030,8 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			}
 
 			edge := edgeUnifier.getEdge(
-				amtToSend, g.bandwidthHints,
+				netAmountReceived, g.bandwidthHints,
+				partialPath.outboundFee,
 			)
 
 			if edge == nil {
@@ -1009,7 +1072,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// Use the distance map to unravel the forward path from source to
 	// target.
-	var pathEdges []*models.CachedEdgePolicy
+	var pathEdges []*unifiedEdge
 	currentNode := source
 	for {
 		// Determine the next hop forward using the next map.
@@ -1024,7 +1087,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		pathEdges = append(pathEdges, currentNodeWithDist.nextHop)
 
 		// Advance current node.
-		currentNode = currentNodeWithDist.nextHop.ToNodePubKey()
+		currentNode = currentNodeWithDist.nextHop.policy.ToNodePubKey()
 
 		// Check stop condition at the end of this loop. This prevents
 		// breaking out too soon for self-payments that have target set
@@ -1045,11 +1108,11 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// route construction does not care where the features are actually
 	// taken from. In the future we may wish to do route construction within
 	// findPath, and avoid using ChannelEdgePolicy altogether.
-	pathEdges[len(pathEdges)-1].ToNodeFeatures = features
+	pathEdges[len(pathEdges)-1].policy.ToNodeFeatures = features
 
 	log.Debugf("Found route: probability=%v, hops=%v, fee=%v",
 		distance[source].probability, len(pathEdges),
-		distance[source].amountToReceive-amt)
+		distance[source].netAmountReceived-amt)
 
 	return pathEdges, distance[source].probability, nil
 }

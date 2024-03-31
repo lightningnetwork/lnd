@@ -117,9 +117,8 @@
   node operators to require senders to pay an inbound fee for forwards and
   payments. It is recommended to only use negative fees (an inbound "discount")
   initially to keep the channels open for senders that do not recognize inbound
-  fees. In this release, no send support for pathfinding and route building is
-  added yet. We first want to learn more about the impact that inbound fees have
-  on the routing economy.
+  fees. [Send support](https://github.com/lightningnetwork/lnd/pull/6934) is
+  implemented as well.
 
 * A new config value,
   [sweeper.maxfeerate](https://github.com/lightningnetwork/lnd/pull/7823), is

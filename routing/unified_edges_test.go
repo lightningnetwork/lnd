@@ -18,10 +18,15 @@ func TestNodeEdgeUnifier(t *testing.T) {
 	source := route.Vertex{1}
 	toNode := route.Vertex{2}
 	fromNode := route.Vertex{3}
-	bandwidthHints := &mockBandwidthHints{}
+	bandwidthHints := &mockBandwidthHints{
+		hints: map[uint64]lnwire.MilliSatoshi{
+			100: 150,
+		},
+	}
 
 	// Add two channels between the pair of nodes.
 	p1 := models.CachedEdgePolicy{
+		ChannelID:                 100,
 		FeeProportionalMillionths: 100000,
 		FeeBaseMSat:               30,
 		TimeLockDelta:             60,
@@ -30,6 +35,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		MinHTLC:                   100,
 	}
 	p2 := models.CachedEdgePolicy{
+		ChannelID:                 101,
 		FeeProportionalMillionths: 190000,
 		FeeBaseMSat:               10,
 		TimeLockDelta:             40,
@@ -40,28 +46,75 @@ func TestNodeEdgeUnifier(t *testing.T) {
 	c1 := btcutil.Amount(7)
 	c2 := btcutil.Amount(8)
 
-	unifierFilled := newNodeEdgeUnifier(source, toNode, nil)
-	unifierFilled.addPolicy(fromNode, &p1, c1, defaultHopPayloadSize)
-	unifierFilled.addPolicy(fromNode, &p2, c2, defaultHopPayloadSize)
+	inboundFee1 := models.InboundFee{
+		Base: 5,
+		Rate: 10000,
+	}
 
-	unifierNoCapacity := newNodeEdgeUnifier(source, toNode, nil)
-	unifierNoCapacity.addPolicy(fromNode, &p1, 0, defaultHopPayloadSize)
-	unifierNoCapacity.addPolicy(fromNode, &p2, 0, defaultHopPayloadSize)
+	inboundFee2 := models.InboundFee{
+		Base: 10,
+		Rate: 10000,
+	}
 
-	unifierNoInfo := newNodeEdgeUnifier(source, toNode, nil)
+	unifierFilled := newNodeEdgeUnifier(source, toNode, false, nil)
+
+	unifierFilled.addPolicy(
+		fromNode, &p1, inboundFee1, c1, defaultHopPayloadSize,
+	)
+	unifierFilled.addPolicy(
+		fromNode, &p2, inboundFee2, c2, defaultHopPayloadSize,
+	)
+
+	unifierNoCapacity := newNodeEdgeUnifier(source, toNode, false, nil)
+	unifierNoCapacity.addPolicy(
+		fromNode, &p1, inboundFee1, 0, defaultHopPayloadSize,
+	)
+	unifierNoCapacity.addPolicy(
+		fromNode, &p2, inboundFee2, 0, defaultHopPayloadSize,
+	)
+
+	unifierNoInfo := newNodeEdgeUnifier(source, toNode, false, nil)
 	unifierNoInfo.addPolicy(
-		fromNode, &models.CachedEdgePolicy{}, 0, defaultHopPayloadSize,
+		fromNode, &models.CachedEdgePolicy{}, models.InboundFee{},
+		0, defaultHopPayloadSize,
+	)
+
+	unifierInboundFee := newNodeEdgeUnifier(source, toNode, true, nil)
+	unifierInboundFee.addPolicy(
+		fromNode, &p1, inboundFee1, c1, defaultHopPayloadSize,
+	)
+	unifierInboundFee.addPolicy(
+		fromNode, &p2, inboundFee2, c2, defaultHopPayloadSize,
+	)
+
+	unifierLocal := newNodeEdgeUnifier(fromNode, toNode, true, nil)
+	unifierLocal.addPolicy(
+		fromNode, &p1, inboundFee1, c1, defaultHopPayloadSize,
+	)
+
+	inboundFeeZero := models.InboundFee{}
+	inboundFeeNegative := models.InboundFee{
+		Base: -150,
+	}
+	unifierNegInboundFee := newNodeEdgeUnifier(source, toNode, true, nil)
+	unifierNegInboundFee.addPolicy(
+		fromNode, &p1, inboundFeeZero, c1, defaultHopPayloadSize,
+	)
+	unifierNegInboundFee.addPolicy(
+		fromNode, &p2, inboundFeeNegative, c2, defaultHopPayloadSize,
 	)
 
 	tests := []struct {
-		name             string
-		unifier          *nodeEdgeUnifier
-		amount           lnwire.MilliSatoshi
-		expectedFeeBase  lnwire.MilliSatoshi
-		expectedFeeRate  lnwire.MilliSatoshi
-		expectedTimeLock uint16
-		expectNoPolicy   bool
-		expectedCapacity btcutil.Amount
+		name               string
+		unifier            *nodeEdgeUnifier
+		amount             lnwire.MilliSatoshi
+		expectedFeeBase    lnwire.MilliSatoshi
+		expectedFeeRate    lnwire.MilliSatoshi
+		expectedInboundFee models.InboundFee
+		expectedTimeLock   uint16
+		expectNoPolicy     bool
+		expectedCapacity   btcutil.Amount
+		nextOutFee         lnwire.MilliSatoshi
 	}{
 		{
 			name:           "amount below min htlc",
@@ -116,6 +169,57 @@ func TestNodeEdgeUnifier(t *testing.T) {
 			unifier:          unifierNoInfo,
 			expectedCapacity: 0,
 		},
+		{
+			name:           "local insufficient bandwidth",
+			unifier:        unifierLocal,
+			amount:         200,
+			expectNoPolicy: true,
+		},
+		{
+			name:               "local",
+			unifier:            unifierLocal,
+			amount:             100,
+			expectedFeeBase:    p1.FeeBaseMSat,
+			expectedFeeRate:    p1.FeeProportionalMillionths,
+			expectedTimeLock:   p1.TimeLockDelta,
+			expectedCapacity:   c1,
+			expectedInboundFee: inboundFee1,
+		},
+		{
+			name: "use p2 with highest fee " +
+				"including inbound",
+			unifier:            unifierInboundFee,
+			amount:             200,
+			expectedFeeBase:    p2.FeeBaseMSat,
+			expectedFeeRate:    p2.FeeProportionalMillionths,
+			expectedInboundFee: inboundFee2,
+			expectedTimeLock:   p1.TimeLockDelta,
+			expectedCapacity:   c2,
+		},
+		// Choose inbound fee exactly so that max htlc is just exceeded.
+		// In this test, the amount that must be sent is 5001 msat.
+		{
+			name:           "inbound fee exceeds max htlc",
+			unifier:        unifierInboundFee,
+			amount:         4947,
+			expectNoPolicy: true,
+		},
+		// The outbound fee of p2 is higher than p1, but because of the
+		// inbound fee on p2 it is brought down to 0. Purely based on
+		// total channel fee, p1 would be selected as the highest fee
+		// channel. However, because the total node fee can never be
+		// negative and the next outgoing fee is zero, the effect of the
+		// inbound discount is cancelled out.
+		{
+			name:               "inbound fee that is rounded up",
+			unifier:            unifierNegInboundFee,
+			amount:             500,
+			expectedFeeBase:    p2.FeeBaseMSat,
+			expectedFeeRate:    p2.FeeProportionalMillionths,
+			expectedInboundFee: inboundFeeNegative,
+			expectedTimeLock:   p1.TimeLockDelta,
+			expectedCapacity:   c2,
+		},
 	}
 
 	for _, test := range tests {
@@ -125,7 +229,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 			t.Parallel()
 
 			edge := test.unifier.edgeUnifiers[fromNode].getEdge(
-				test.amount, bandwidthHints,
+				test.amount, bandwidthHints, test.nextOutFee,
 			)
 
 			if test.expectNoPolicy {
@@ -139,6 +243,8 @@ func TestNodeEdgeUnifier(t *testing.T) {
 				policy.FeeBaseMSat, "base fee")
 			require.Equal(t, test.expectedFeeRate,
 				policy.FeeProportionalMillionths, "fee rate")
+			require.Equal(t, test.expectedInboundFee,
+				edge.inboundFees, "inbound fee")
 			require.Equal(t, test.expectedTimeLock,
 				policy.TimeLockDelta, "timelock")
 			require.Equal(t, test.expectedCapacity, edge.capacity,

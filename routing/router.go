@@ -3161,9 +3161,13 @@ func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
 
 		localChan := i == 0
 
-		// Build unified edges for this hop based on the channels known
-		// in the graph.
-		u := newNodeEdgeUnifier(source, toNode, outgoingChans)
+		// Build unified policies for this hop based on the channels
+		// known in the graph. Don't use inbound fees.
+		//
+		// TODO: Add inbound fees support for BuildRoute.
+		u := newNodeEdgeUnifier(
+			source, toNode, false, outgoingChans,
+		)
 
 		err := u.addGraphPolicies(graph)
 		if err != nil {
@@ -3189,7 +3193,7 @@ func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
 		}
 
 		// Get an edge for the specific amount that we want to forward.
-		edge := edgeUnifier.getEdge(runningAmt, bandwidthHints)
+		edge := edgeUnifier.getEdge(runningAmt, bandwidthHints, 0)
 		if edge == nil {
 			log.Errorf("Cannot find policy with amt=%v for node %v",
 				runningAmt, fromNode)
@@ -3218,16 +3222,16 @@ func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
 // including fees, to send the payment.
 func getPathEdges(source route.Vertex, receiverAmt lnwire.MilliSatoshi,
 	unifiers []*edgeUnifier, bandwidthHints *bandwidthManager,
-	hops []route.Vertex) ([]*models.CachedEdgePolicy,
+	hops []route.Vertex) ([]*unifiedEdge,
 	lnwire.MilliSatoshi, error) {
 
 	// Now that we arrived at the start of the route and found out the route
 	// total amount, we make a forward pass. Because the amount may have
 	// been increased in the backward pass, fees need to be recalculated and
 	// amount ranges re-checked.
-	var pathEdges []*models.CachedEdgePolicy
+	var pathEdges []*unifiedEdge
 	for i, unifier := range unifiers {
-		edge := unifier.getEdge(receiverAmt, bandwidthHints)
+		edge := unifier.getEdge(receiverAmt, bandwidthHints, 0)
 		if edge == nil {
 			fromNode := source
 			if i > 0 {
@@ -3247,7 +3251,7 @@ func getPathEdges(source route.Vertex, receiverAmt lnwire.MilliSatoshi,
 			)
 		}
 
-		pathEdges = append(pathEdges, edge.policy)
+		pathEdges = append(pathEdges, edge)
 	}
 
 	return pathEdges, receiverAmt, nil

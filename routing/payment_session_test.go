@@ -212,7 +212,7 @@ func TestRequestRoute(t *testing.T) {
 	// Override pathfinder with a mock.
 	session.pathFinder = func(_ *graphParams, r *RestrictParams,
 		_ *PathFindingConfig, _, _ route.Vertex, _ lnwire.MilliSatoshi,
-		_ float64, _ int32) ([]*models.CachedEdgePolicy, float64,
+		_ float64, _ int32) ([]*unifiedEdge, float64,
 		error) {
 
 		// We expect find path to receive a cltv limit excluding the
@@ -221,14 +221,16 @@ func TestRequestRoute(t *testing.T) {
 			t.Fatal("wrong cltv limit")
 		}
 
-		path := []*models.CachedEdgePolicy{
+		path := []*unifiedEdge{
 			{
-				ToNodePubKey: func() route.Vertex {
-					return route.Vertex{}
+				policy: &models.CachedEdgePolicy{
+					ToNodePubKey: func() route.Vertex {
+						return route.Vertex{}
+					},
+					ToNodeFeatures: lnwire.NewFeatureVector(
+						nil, nil,
+					),
 				},
-				ToNodeFeatures: lnwire.NewFeatureVector(
-					nil, nil,
-				),
 			},
 		}
 

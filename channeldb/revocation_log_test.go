@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -83,12 +84,11 @@ var (
 		}},
 	}
 
-	testRevocationLogNoAmts = RevocationLog{
-		OurOutputIndex:   0,
-		TheirOutputIndex: 1,
-		CommitTxHash:     testChannelCommit.CommitTx.TxHash(),
-		HTLCEntries:      []*HTLCEntry{&testHTLCEntry},
-	}
+	testRevocationLogNoAmts = NewRevocationLog(
+		0, 1, testChannelCommit.CommitTx.TxHash(),
+		fn.None[lnwire.MilliSatoshi](), fn.None[lnwire.MilliSatoshi](),
+		[]*HTLCEntry{&testHTLCEntry},
+	)
 	testRevocationLogNoAmtsBytes = []byte{
 		// Body length 42.
 		0x2a,
@@ -104,14 +104,11 @@ var (
 		0xc8, 0x22, 0x51, 0xb1, 0x5b, 0xa0, 0xbf, 0xd,
 	}
 
-	testRevocationLogWithAmts = RevocationLog{
-		OurOutputIndex:   0,
-		TheirOutputIndex: 1,
-		CommitTxHash:     testChannelCommit.CommitTx.TxHash(),
-		HTLCEntries:      []*HTLCEntry{&testHTLCEntry},
-		OurBalance:       &localBalance,
-		TheirBalance:     &remoteBalance,
-	}
+	testRevocationLogWithAmts = NewRevocationLog(
+		0, 1, testChannelCommit.CommitTx.TxHash(),
+		fn.Some(localBalance), fn.Some(remoteBalance),
+		[]*HTLCEntry{&testHTLCEntry},
+	)
 	testRevocationLogWithAmtsBytes = []byte{
 		// Body length 52.
 		0x34,

@@ -17,16 +17,6 @@ import (
 const (
 	// OutputIndexEmpty is used when the output index doesn't exist.
 	OutputIndexEmpty = math.MaxUint16
-
-	// A set of tlv type definitions used to serialize the body of
-	// revocation logs to the database.
-	//
-	// NOTE: A migration should be added whenever this list changes.
-	revLogOurOutputIndexType   tlv.Type = 0
-	revLogTheirOutputIndexType tlv.Type = 1
-	revLogCommitTxHashType     tlv.Type = 2
-	revLogOurBalanceType       tlv.Type = 3
-	revLogTheirBalanceType     tlv.Type = 4
 )
 
 var (
@@ -214,15 +204,15 @@ func NewHTLCEntryFromHTLC(htlc HTLC) *HTLCEntry {
 type RevocationLog struct {
 	// OurOutputIndex specifies our output index in this commitment. In a
 	// remote commitment transaction, this is the to remote output index.
-	OurOutputIndex uint16
+	OurOutputIndex tlv.RecordT[tlv.TlvType0, uint16]
 
 	// TheirOutputIndex specifies their output index in this commitment. In
 	// a remote commitment transaction, this is the to local output index.
-	TheirOutputIndex uint16
+	TheirOutputIndex tlv.RecordT[tlv.TlvType1, uint16]
 
 	// CommitTxHash is the hash of the latest version of the commitment
 	// state, broadcast able by us.
-	CommitTxHash [32]byte
+	CommitTxHash tlv.RecordT[tlv.TlvType2, [32]byte]
 
 	// HTLCEntries is the set of HTLCEntry's that are pending at this
 	// particular commitment height.
@@ -232,21 +222,60 @@ type RevocationLog struct {
 	// directly spendable by us. In other words, it is the value of the
 	// to_remote output on the remote parties' commitment transaction.
 	//
-	// NOTE: this is a pointer so that it is clear if the value is zero or
+	// NOTE: this is an option so that it is clear if the value is zero or
 	// nil. Since migration 30 of the channeldb initially did not include
 	// this field, it could be the case that the field is not present for
 	// all revocation logs.
-	OurBalance *lnwire.MilliSatoshi
+	OurBalance tlv.OptionalRecordT[tlv.TlvType3, tlv.BigSizeT[lnwire.MilliSatoshi]] //nolint:lll
 
 	// TheirBalance is the current available balance within the channel
 	// directly spendable by the remote node. In other words, it is the
 	// value of the to_local output on the remote parties' commitment.
 	//
-	// NOTE: this is a pointer so that it is clear if the value is zero or
+	// NOTE: this is an option so that it is clear if the value is zero or
 	// nil. Since migration 30 of the channeldb initially did not include
 	// this field, it could be the case that the field is not present for
 	// all revocation logs.
-	TheirBalance *lnwire.MilliSatoshi
+	TheirBalance tlv.OptionalRecordT[tlv.TlvType4, tlv.BigSizeT[lnwire.MilliSatoshi]] //nolint:lll
+
+}
+
+// NewRevocationLog creates a new RevocationLog from the given parameters.
+func NewRevocationLog(ourOutputIndex uint16, theirOutputIndex uint16,
+	commitHash [32]byte,
+	ourBalance, theirBalance fn.Option[lnwire.MilliSatoshi],
+	htlcs []*HTLCEntry) RevocationLog {
+
+	rl := RevocationLog{
+		OurOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType0, uint16](
+			uint16(ourOutputIndex),
+		),
+		TheirOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType1, uint16](
+			uint16(theirOutputIndex),
+		),
+		CommitTxHash: tlv.NewPrimitiveRecord[tlv.TlvType2, [32]byte](
+			commitHash,
+		),
+		HTLCEntries: htlcs,
+	}
+
+	ourBalance.WhenSome(func(balance lnwire.MilliSatoshi) {
+		rl.OurBalance = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType3, tlv.BigSizeT[lnwire.MilliSatoshi]](
+				tlv.NewBigSizeT(balance),
+			),
+		)
+	})
+
+	theirBalance.WhenSome(func(balance lnwire.MilliSatoshi) {
+		rl.TheirBalance = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType4, tlv.BigSizeT[lnwire.MilliSatoshi]](
+				tlv.NewBigSizeT(balance),
+			),
+		)
+	})
+
+	return rl
 }
 
 // putRevocationLog uses the fields `CommitTx` and `Htlcs` from a
@@ -265,15 +294,30 @@ func putRevocationLog(bucket kvdb.RwBucket, commit *ChannelCommitment,
 	}
 
 	rl := &RevocationLog{
-		OurOutputIndex:   uint16(ourOutputIndex),
-		TheirOutputIndex: uint16(theirOutputIndex),
-		CommitTxHash:     commit.CommitTx.TxHash(),
-		HTLCEntries:      make([]*HTLCEntry, 0, len(commit.Htlcs)),
+		OurOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType0, uint16](
+			uint16(ourOutputIndex),
+		),
+		TheirOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType1, uint16](
+			uint16(theirOutputIndex),
+		),
+		CommitTxHash: tlv.NewPrimitiveRecord[tlv.TlvType2, [32]byte](
+			commit.CommitTx.TxHash(),
+		),
+		HTLCEntries: make([]*HTLCEntry, 0, len(commit.Htlcs)),
 	}
 
 	if !noAmtData {
-		rl.OurBalance = &commit.LocalBalance
-		rl.TheirBalance = &commit.RemoteBalance
+		rl.OurBalance = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType3, tlv.BigSizeT[lnwire.MilliSatoshi]](
+				tlv.NewBigSizeT(commit.LocalBalance),
+			),
+		)
+
+		rl.TheirBalance = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType4, tlv.BigSizeT[lnwire.MilliSatoshi]](
+				tlv.NewBigSizeT(commit.RemoteBalance),
+			),
+		)
 	}
 
 	for _, htlc := range commit.Htlcs {
@@ -323,31 +367,19 @@ func fetchRevocationLog(log kvdb.RBucket,
 func serializeRevocationLog(w io.Writer, rl *RevocationLog) error {
 	// Add the tlv records for all non-optional fields.
 	records := []tlv.Record{
-		tlv.MakePrimitiveRecord(
-			revLogOurOutputIndexType, &rl.OurOutputIndex,
-		),
-		tlv.MakePrimitiveRecord(
-			revLogTheirOutputIndexType, &rl.TheirOutputIndex,
-		),
-		tlv.MakePrimitiveRecord(
-			revLogCommitTxHashType, &rl.CommitTxHash,
-		),
+		rl.OurOutputIndex.Record(),
+		rl.TheirOutputIndex.Record(),
+		rl.CommitTxHash.Record(),
 	}
 
 	// Now we add any optional fields that are non-nil.
-	if rl.OurBalance != nil {
-		lb := uint64(*rl.OurBalance)
-		records = append(records, tlv.MakeBigSizeRecord(
-			revLogOurBalanceType, &lb,
-		))
-	}
+	rl.OurBalance.WhenSome(func(r tlv.RecordT[tlv.TlvType3, tlv.BigSizeT[lnwire.MilliSatoshi]]) { //nolint:lll
+		records = append(records, r.Record())
+	})
 
-	if rl.TheirBalance != nil {
-		rb := uint64(*rl.TheirBalance)
-		records = append(records, tlv.MakeBigSizeRecord(
-			revLogTheirBalanceType, &rb,
-		))
-	}
+	rl.TheirBalance.WhenSome(func(r tlv.RecordT[tlv.TlvType4, tlv.BigSizeT[lnwire.MilliSatoshi]]) { //nolint:lll
+		records = append(records, r.Record())
+	})
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(records...)
@@ -385,27 +417,18 @@ func serializeHTLCEntries(w io.Writer, htlcs []*HTLCEntry) error {
 
 // deserializeRevocationLog deserializes a RevocationLog based on tlv format.
 func deserializeRevocationLog(r io.Reader) (RevocationLog, error) {
-	var (
-		rl           RevocationLog
-		ourBalance   uint64
-		theirBalance uint64
-	)
+	var rl RevocationLog
+
+	ourBalance := rl.OurBalance.Zero()
+	theirBalance := rl.TheirBalance.Zero()
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(
-		tlv.MakePrimitiveRecord(
-			revLogOurOutputIndexType, &rl.OurOutputIndex,
-		),
-		tlv.MakePrimitiveRecord(
-			revLogTheirOutputIndexType, &rl.TheirOutputIndex,
-		),
-		tlv.MakePrimitiveRecord(
-			revLogCommitTxHashType, &rl.CommitTxHash,
-		),
-		tlv.MakeBigSizeRecord(revLogOurBalanceType, &ourBalance),
-		tlv.MakeBigSizeRecord(
-			revLogTheirBalanceType, &theirBalance,
-		),
+		rl.OurOutputIndex.Record(),
+		rl.TheirOutputIndex.Record(),
+		rl.CommitTxHash.Record(),
+		ourBalance.Record(),
+		theirBalance.Record(),
 	)
 	if err != nil {
 		return rl, err
@@ -417,14 +440,12 @@ func deserializeRevocationLog(r io.Reader) (RevocationLog, error) {
 		return rl, err
 	}
 
-	if t, ok := parsedTypes[revLogOurBalanceType]; ok && t == nil {
-		lb := lnwire.MilliSatoshi(ourBalance)
-		rl.OurBalance = &lb
+	if t, ok := parsedTypes[ourBalance.TlvType()]; ok && t == nil {
+		rl.OurBalance = tlv.SomeRecordT(ourBalance)
 	}
 
-	if t, ok := parsedTypes[revLogTheirBalanceType]; ok && t == nil {
-		rb := lnwire.MilliSatoshi(theirBalance)
-		rl.TheirBalance = &rb
+	if t, ok := parsedTypes[theirBalance.TlvType()]; ok && t == nil {
+		rl.TheirBalance = tlv.SomeRecordT(theirBalance)
 	}
 
 	// Read the HTLC entries.

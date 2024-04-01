@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1421,6 +1422,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 				announcement.msg,
 				sourceToPub(announcement.source),
 			) {
+				peer := sourceToPub(announcement.source)
+				log.Tracef("Throttling messages from peer=%v "+
+					"(recently rejected)", peer)
 
 				announcement.err <- fmt.Errorf("recently " +
 					"rejected")
@@ -1777,7 +1781,7 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 			remotePubKey := remotePubFromChanInfo(
 				edgeInfo.Info, chanUpdate.ChannelFlags,
 			)
-			err := d.reliableSender.sendMessage(
+			err = d.reliableSender.sendMessage(
 				chanUpdate, remotePubKey,
 			)
 			if err != nil {
@@ -1888,17 +1892,24 @@ func (d *AuthenticatedGossiper) processRejectedEdge(
 		msg:    chanAnn,
 	})
 	if e1Ann != nil {
-		announcements = append(announcements, networkMsg{
-			source: d.selfKey,
-			msg:    e1Ann,
-		})
+		// Only add the ChanUpdate to the gossiper if the
+		// __dont_forward__ bit signals it.
+		if !e1Ann.MessageFlags.HasDontForward() {
+			announcements = append(announcements, networkMsg{
+				source: d.selfKey,
+				msg:    e1Ann,
+			})
+		}
 	}
 	if e2Ann != nil {
-		announcements = append(announcements, networkMsg{
-			source: d.selfKey,
-			msg:    e2Ann,
-		})
-
+		// Only add the ChanUpdate to the gossiper if the
+		// __dont_forward__ bit signals it.
+		if !e2Ann.MessageFlags.HasDontForward() {
+			announcements = append(announcements, networkMsg{
+				source: d.selfKey,
+				msg:    e2Ann,
+			})
+		}
 	}
 
 	return announcements, nil
@@ -2297,6 +2308,16 @@ func IsKeepAliveUpdate(update *lnwire.ChannelUpdate,
 		return false
 	}
 	if update.MessageFlags.HasMaxHtlc() && !prev.MessageFlags.HasMaxHtlc() {
+		return false
+	}
+	// Every public channel starts with the dont_forward bit set before the
+	// mandatory six confirmations are reached. We will see 2 different
+	// ChanUpdates before a public channel is announced to the broader
+	// network. We need to make sure we don't consider the second one as a
+	// keepalive msg.
+	if !update.MessageFlags.HasDontForward() &&
+		prev.MessageFlags.HasDontForward() {
+
 		return false
 	}
 	if update.HtlcMaximumMsat != prev.MaxHTLC {
@@ -2776,7 +2797,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		// If the edge corresponding to this ChannelUpdate was not
 		// found in the graph, this might be a channel in the process
 		// of being opened, and we haven't processed our own
-		// ChannelAnnouncement yet, hence it is not not found in the
+		// ChannelAnnouncement yet, hence it is not found in the
 		// graph. This usually gets resolved after the channel proofs
 		// are exchanged and the channel is broadcasted to the rest of
 		// the network, but in case this is a private channel this
@@ -2954,6 +2975,23 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 
 			log.Debugf("Update edge for short_chan_id(%v) got: %v",
 				shortChanID, err)
+		} else if strings.Contains(err.Error(),
+			channeldb.ErrEdgeNotFound.Error()) {
+
+			// TODO(ziggie): Remove this case when the deletion and
+			// addition for alias channels is atomic.
+			// For now we have to handle this case to prevent a race
+			// condition where the peer sends us a ChanUpdate but
+			// we are in the process of removing/adding the edge to
+			// our db (for scid alias channels). Otherwise we would
+			// throttle ChanUpdates where the peer sends us the
+			// ChanUpdate with the __dont_forward__ bit unset.
+			// This does not introduce a DoS vector because we are
+			// already checking for the __ErrEdgeNotFound__ earlier
+			// in this function so this is just an edge case
+			// prevention for now.
+			log.Debugf("Update edge for short_chan_id(%v) got: %v",
+				shortChanID, err)
 		} else {
 			// Since we know the stored SCID in the graph, we'll
 			// cache that SCID.
@@ -2963,6 +3001,10 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 			)
 			_, _ = d.recentRejects.Put(key, &cachedReject{})
 
+			log.Debugf("Adding msg short_chan_id(%v) from "+
+				"peer=%x to RejectCache", key.chanID,
+				key.pubkey)
+
 			log.Errorf("Update edge for short_chan_id(%v) got: %v",
 				shortChanID, err)
 		}
@@ -2970,6 +3012,11 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		nMsg.err <- err
 		return nil, false
 	}
+
+	// Get our peer's public key.
+	remotePubKey := remotePubFromChanInfo(
+		chanInfo, upd.ChannelFlags,
+	)
 
 	// If this is a local ChannelUpdate without an AuthProof, it means it
 	// is an update to a channel that is not (yet) supposed to be announced
@@ -3006,18 +3053,13 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 			}
 		}
 
-		// Get our peer's public key.
-		remotePubKey := remotePubFromChanInfo(
-			chanInfo, upd.ChannelFlags,
-		)
-
 		log.Debugf("The message %v has no AuthProof, sending the "+
 			"update to remote peer %x", upd.MsgType(), remotePubKey)
 
 		// Now we'll attempt to send the channel update message
 		// reliably to the remote peer in the background, so that we
 		// don't block if the peer happens to be offline at the moment.
-		err := d.reliableSender.sendMessage(upd, remotePubKey)
+		err = d.reliableSender.sendMessage(upd, remotePubKey)
 		if err != nil {
 			err := fmt.Errorf("unable to reliably send %v for "+
 				"channel=%v to peer=%x: %v", upd.MsgType(),
@@ -3034,12 +3076,29 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 	// contains an alias because the network would reject this.
 	var announcements []networkMsg
 	if chanInfo.AuthProof != nil && !d.cfg.IsAlias(upd.ShortChannelID) {
-		announcements = append(announcements, networkMsg{
-			peer:     nMsg.peer,
-			source:   nMsg.source,
-			isRemote: nMsg.isRemote,
-			msg:      upd,
-		})
+		// We log the case where the dont_forward bit is set although
+		// the channel is already announced to the network because we
+		// already have a AuthProof for it. In addition we do not add
+		// this msg to the gossiper msg queue to make sure we follow the
+		// network rules.
+		if upd.MessageFlags.HasDontForward() {
+			log.Warnf("Received %v with the dont_forward bit set "+
+				"(msgflags=%s) for channel=%v from peer=%x "+
+				"for an announced channel, not forwarding to "+
+				"the broader network",
+				upd.MsgType().String(),
+				upd.MessageFlags.String(),
+				upd.ShortChannelID.ToUint64(),
+				remotePubKey,
+			)
+		} else {
+			announcements = append(announcements, networkMsg{
+				peer:     nMsg.peer,
+				source:   nMsg.source,
+				isRemote: nMsg.isRemote,
+				msg:      upd,
+			})
+		}
 	}
 
 	nMsg.err <- nil
@@ -3314,18 +3373,26 @@ func (d *AuthenticatedGossiper) handleAnnSig(nMsg *networkMsg,
 		msg:    chanAnn,
 	})
 	if src, err := chanInfo.NodeKey1(); err == nil && e1Ann != nil {
-		announcements = append(announcements, networkMsg{
-			peer:   nMsg.peer,
-			source: src,
-			msg:    e1Ann,
-		})
+		// Only add the ChanUpdate to the gossiper if the
+		// __dont_forward__ bit signals it.
+		if !e1Ann.MessageFlags.HasDontForward() {
+			announcements = append(announcements, networkMsg{
+				peer:   nMsg.peer,
+				source: src,
+				msg:    e1Ann,
+			})
+		}
 	}
 	if src, err := chanInfo.NodeKey2(); err == nil && e2Ann != nil {
-		announcements = append(announcements, networkMsg{
-			peer:   nMsg.peer,
-			source: src,
-			msg:    e2Ann,
-		})
+		// Only add the ChanUpdate to the gossiper if the
+		// __dont_forward__ bit signals it.
+		if !e2Ann.MessageFlags.HasDontForward() {
+			announcements = append(announcements, networkMsg{
+				peer:   nMsg.peer,
+				source: src,
+				msg:    e2Ann,
+			})
+		}
 	}
 
 	// We'll also send along the node announcements for each channel

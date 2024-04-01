@@ -109,6 +109,9 @@
 
 * [Removed](https://github.com/lightningnetwork/lnd/pull/8577) some unreachable code
 
+[Fixed](https://github.com/lightningnetwork/lnd/pull/8609) fixed a function
+call where arguments were swapped.
+
 # New Features
 ## Functional Enhancements
 

@@ -2603,8 +2603,32 @@ func (h *HarnessTest) AssertNumPendingSweeps(hn *node.HarnessNode, n int) {
 			return nil
 		}
 
-		return fmt.Errorf("want %d , got %d", n, num)
+		desc := "\n"
+		for _, s := range resp.PendingSweeps {
+			desc += fmt.Sprintf("op=%v:%v, amt=%v, type=%v\n",
+				s.Outpoint.TxidStr, s.Outpoint.OutputIndex,
+				s.AmountSat, s.WitnessType)
+		}
+
+		return fmt.Errorf("want %d , got %d, sweeps: %s", n, num, desc)
 	}, DefaultTimeout)
 
 	require.NoErrorf(h, err, "%s: check pending sweeps timeout", hn.Name())
+}
+
+// FindSweepingTxns asserts the expected number of sweeping txns are found in
+// the txns specified and return them.
+func (h *HarnessTest) FindSweepingTxns(txns []*wire.MsgTx,
+	expectedNumSweeps int, closeTxid chainhash.Hash) []*wire.MsgTx {
+
+	var sweepTxns []*wire.MsgTx
+
+	for _, tx := range txns {
+		if tx.TxIn[0].PreviousOutPoint.Hash == closeTxid {
+			sweepTxns = append(sweepTxns, tx)
+		}
+	}
+	require.Len(h, sweepTxns, expectedNumSweeps, "unexpected num of sweeps")
+
+	return sweepTxns
 }

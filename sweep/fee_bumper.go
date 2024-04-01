@@ -853,7 +853,7 @@ func (t *TxPublisher) createAndPublishTx(requestID uint64,
 	// directly here.
 	tx, fee, err := t.createAndCheckTx(r.req, r.feeFunction)
 
-	// If the error is fee related, we will return an error and let the fee
+	// If the error is fee related, we will return no error and let the fee
 	// bumper retry it at next block.
 	//
 	// NOTE: we can check the RBF error here and ask the fee function to
@@ -910,6 +910,18 @@ func (t *TxPublisher) createAndPublishTx(requestID uint64,
 		log.Infof("Failed to broadcast replacement tx %v: %v",
 			tx.TxHash(), err)
 
+		return fn.None[BumpResult]()
+	}
+
+	// If the result error is fee related, we will return no error and let
+	// the fee bumper retry it at next block.
+	//
+	// NOTE: we may get this error if we've bypassed the mempool check,
+	// which means we are suing neutrino backend.
+	if errors.Is(result.Err, rpcclient.ErrInsufficientFee) ||
+		errors.Is(result.Err, lnwallet.ErrMempoolFee) {
+
+		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
 		return fn.None[BumpResult]()
 	}
 

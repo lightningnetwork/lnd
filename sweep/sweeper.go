@@ -931,7 +931,8 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord,
 
 		// Valdiate that the input is in an expected state.
 		if pi.state != PendingPublish {
-			log.Errorf("Expect input %v to have %v, instead it "+
+			// We may get a Published if this is a replacement tx.
+			log.Debugf("Expect input %v to have %v, instead it "+
 				"has %v", input.PreviousOutPoint,
 				PendingPublish, pi.state)
 

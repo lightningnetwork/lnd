@@ -586,4 +586,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "nativesql no migration",
 		TestFunc: testNativeSQLNoMigration,
 	},
+	{
+		Name:     "sweep anchor cpfp local force close",
+		TestFunc: testSweepAnchorCPFPLocalForceClose,
+	},
 }

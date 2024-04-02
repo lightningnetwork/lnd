@@ -574,6 +574,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 			resp, err := rpcServer.fundPsbtCoinSelect(
 				"", tc.changeIndex, copiedPacket, 0,
 				tc.changeType, tc.feeRate,
+				rpcServer.cfg.CoinSelectionStrategy,
 			)
 
 			switch {

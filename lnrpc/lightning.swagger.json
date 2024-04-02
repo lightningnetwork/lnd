@@ -2655,6 +2655,19 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "coin_selection_strategy",
+            "description": "The strategy to use for selecting coins during fees estimation.\n\n - STRATEGY_USE_GLOBAL_CONFIG: Use the coin selection strategy defined in the global configuration\n(lnd.conf).\n - STRATEGY_LARGEST: Select the largest available coins first during coin selection.\n - STRATEGY_RANDOM: Randomly select the available coins during coin selection.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "STRATEGY_USE_GLOBAL_CONFIG",
+              "STRATEGY_LARGEST",
+              "STRATEGY_RANDOM"
+            ],
+            "default": "STRATEGY_USE_GLOBAL_CONFIG"
           }
         ],
         "tags": [
@@ -3460,6 +3473,10 @@
         "label": {
           "type": "string",
           "description": "An optional label for the batch transaction, limited to 500 characters."
+        },
+        "coin_selection_strategy": {
+          "$ref": "#/definitions/lnrpcCoinSelectionStrategy",
+          "description": "The strategy to use for selecting coins during batch opening channels."
         }
       }
     },
@@ -4434,6 +4451,16 @@
           }
         }
       }
+    },
+    "lnrpcCoinSelectionStrategy": {
+      "type": "string",
+      "enum": [
+        "STRATEGY_USE_GLOBAL_CONFIG",
+        "STRATEGY_LARGEST",
+        "STRATEGY_RANDOM"
+      ],
+      "default": "STRATEGY_USE_GLOBAL_CONFIG",
+      "description": " - STRATEGY_USE_GLOBAL_CONFIG: Use the coin selection strategy defined in the global configuration\n(lnd.conf).\n - STRATEGY_LARGEST: Select the largest available coins first during coin selection.\n - STRATEGY_RANDOM: Randomly select the available coins during coin selection."
     },
     "lnrpcCommitmentType": {
       "type": "string",
@@ -6912,6 +6939,10 @@
         "spend_unconfirmed": {
           "type": "boolean",
           "description": "Whether unconfirmed outputs should be used as inputs for the transaction."
+        },
+        "coin_selection_strategy": {
+          "$ref": "#/definitions/lnrpcCoinSelectionStrategy",
+          "description": "The strategy to use for selecting coins."
         }
       }
     },
@@ -6985,6 +7016,10 @@
         "spend_unconfirmed": {
           "type": "boolean",
           "description": "Whether unconfirmed outputs should be used as inputs for the transaction."
+        },
+        "coin_selection_strategy": {
+          "$ref": "#/definitions/lnrpcCoinSelectionStrategy",
+          "description": "The strategy to use for selecting coins during sending many requests."
         }
       }
     },

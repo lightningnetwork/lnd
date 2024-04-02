@@ -303,6 +303,10 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * [Allow callers of `ListSweeps` to specify the start
   height](https://github.com/lightningnetwork/lnd/pull/7372).
 
+* [Coin Selection Strategy](https://github.com/lightningnetwork/lnd/pull/8515)
+  add coin selection strategy option to the following on-chain RPC calls
+  `EstimateFee`, `SendMany`, `SendCoins`, `BatchOpenChannel`, `SendOutputs`, and `FundPsbt`.
+
 ## lncli Updates
 
 * [Documented all available `lncli`

@@ -949,6 +949,16 @@
       "description": "- `p2wkh`: Pay to witness key hash (`WITNESS_PUBKEY_HASH` = 0)\n- `np2wkh`: Pay to nested witness key hash (`NESTED_PUBKEY_HASH` = 1)\n- `p2tr`: Pay to taproot pubkey (`TAPROOT_PUBKEY` = 4)",
       "title": "`AddressType` has to be one of:"
     },
+    "lnrpcCoinSelectionStrategy": {
+      "type": "string",
+      "enum": [
+        "STRATEGY_USE_GLOBAL_CONFIG",
+        "STRATEGY_LARGEST",
+        "STRATEGY_RANDOM"
+      ],
+      "default": "STRATEGY_USE_GLOBAL_CONFIG",
+      "description": " - STRATEGY_USE_GLOBAL_CONFIG: Use the coin selection strategy defined in the global configuration\n(lnd.conf).\n - STRATEGY_LARGEST: Select the largest available coins first during coin selection.\n - STRATEGY_RANDOM: Randomly select the available coins during coin selection."
+    },
     "lnrpcOutPoint": {
       "type": "object",
       "properties": {
@@ -1467,6 +1477,10 @@
         "change_type": {
           "$ref": "#/definitions/walletrpcChangeAddressType",
           "description": "The address type for the change. If empty, P2WPKH addresses will be used\nfor default accounts and single imported public keys. For custom\naccounts, no change type should be provided as the coin selection key\nscope will always be used to generate the change address."
+        },
+        "coin_selection_strategy": {
+          "$ref": "#/definitions/lnrpcCoinSelectionStrategy",
+          "description": "The strategy to use for selecting coins during funding the PSBT."
         }
       }
     },
@@ -1909,6 +1923,10 @@
         "spend_unconfirmed": {
           "type": "boolean",
           "description": "Whether unconfirmed outputs should be used as inputs for the transaction."
+        },
+        "coin_selection_strategy": {
+          "$ref": "#/definitions/lnrpcCoinSelectionStrategy",
+          "description": "The strategy to use for selecting coins during sending the outputs."
         }
       }
     },

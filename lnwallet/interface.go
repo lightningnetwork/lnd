@@ -345,7 +345,8 @@ type WalletController interface {
 	//
 	// NOTE: This method requires the global coin selection lock to be held.
 	SendOutputs(outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
-		minConfs int32, label string) (*wire.MsgTx, error)
+		minConfs int32, label string,
+		strategy base.CoinSelectionStrategy) (*wire.MsgTx, error)
 
 	// CreateSimpleTx creates a Bitcoin transaction paying to the specified
 	// outputs. The transaction is not broadcasted to the network. In the
@@ -360,7 +361,8 @@ type WalletController interface {
 	//
 	// NOTE: This method requires the global coin selection lock to be held.
 	CreateSimpleTx(outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
-		minConfs int32, dryRun bool) (*txauthor.AuthoredTx, error)
+		minConfs int32, strategy base.CoinSelectionStrategy,
+		dryRun bool) (*txauthor.AuthoredTx, error)
 
 	// GetTransactionDetails returns a detailed description of a transaction
 	// given its transaction hash.
@@ -465,7 +467,8 @@ type WalletController interface {
 	// to lock the inputs before handing them out.
 	FundPsbt(packet *psbt.Packet, minConfs int32,
 		feeRate chainfee.SatPerKWeight, account string,
-		changeScope *waddrmgr.KeyScope) (int32, error)
+		changeScope *waddrmgr.KeyScope,
+		strategy base.CoinSelectionStrategy) (int32, error)
 
 	// SignPsbt expects a partial transaction with all inputs and outputs
 	// fully declared and tries to sign all unsigned inputs that have all

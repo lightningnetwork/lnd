@@ -177,56 +177,78 @@ var bumpFeeCommand = cli.Command{
 	Usage:     "Bumps the fee of an arbitrary input/transaction.",
 	ArgsUsage: "outpoint",
 	Description: `
-	This command takes a different approach than bitcoind's bumpfee command.
-	lnd has a central batching engine in which inputs with similar fee rates
-	are batched together to save on transaction fees. Due to this, we cannot
-	rely on bumping the fee on a specific transaction, since transactions
-	can change at any point with the addition of new inputs. The list of
-	inputs that currently exist within lnd's central batching engine can be
-	retrieved through lncli wallet pendingsweeps.
+	BumpFee is an endpoint that allows users to interact with lnd's sweeper
+	directly. It takes an outpoint from an unconfirmed transaction and
+	sends it to the sweeper for potential fee bumping. Depending on whether
+	the outpoint has been registered in the sweeper (an existing input,
+	e.g., an anchor output) or not (a new input, e.g., an unconfirmed
+	wallet utxo), this will either be an RBF or CPFP attempt.
 
-	When bumping the fee of an input that currently exists within lnd's
-	central batching engine, a higher fee transaction will be created that
-	replaces the lower fee transaction through the Replace-By-Fee (RBF)
-	policy.
+	When receiving an input, lnd’s sweeper needs to understand its time
+	sensitivity to make economical fee bumps - internally a fee function is
+	created using the deadline and budget to guide the process. When the
+	deadline is approaching, the fee function will increase the fee rate
+	and perform an RBF.
 
-	This command also serves useful when wanting to perform a
+	When a force close happens, all the outputs from the force closing
+	transaction will be registered in the sweeper. The sweeper will then
+	handle the creation, publish, and fee bumping of the sweeping
+	transactions. Everytime a new block comes in, unless the sweeping
+	transaction is confirmed, an RBF is attempted. To interfere with this
+	automatic process, users can use BumpFee to specify customized fee
+	rate, budget, deadline, and whether the sweep should happen
+	immediately. It's recommended to call listsweeps to understand the
+	shape of the existing sweeping transaction first - depending on the
+	number of inputs in this transaction, the RBF requirements can be quite
+	different.
+
+	This RPC also serves useful when wanting to perform a
 	Child-Pays-For-Parent (CPFP), where the child transaction pays for its
 	parent's fee. This can be done by specifying an outpoint within the low
 	fee transaction that is under the control of the wallet.
-
-	A fee preference must be provided, either through the conf_target or
-	sat_per_vbyte parameters.
-
-	Note that this command currently doesn't perform any validation checks
-	on the fee preference being provided. For now, the responsibility of
-	ensuring that the new fee preference is sufficient is delegated to the
-	user.
-
-	The force flag enables sweeping of inputs that are negatively yielding.
-	Normally it does not make sense to lose money on sweeping, unless a
-	parent transaction needs to get confirmed and there is only a small
-	output available to attach the child transaction to.
 	`,
 	Flags: []cli.Flag{
 		cli.Uint64Flag{
 			Name: "conf_target",
-			Usage: "the number of blocks that the output should " +
-				"be swept on-chain within",
+			Usage: `
+	The deadline in number of blocks that the input should be spent within.
+	When not set, for new inputs, the default value (1008) is used; for
+	exiting inputs, their current values will be retained.`,
 		},
 		cli.Uint64Flag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
+		cli.BoolFlag{
+			Name:   "force",
+			Usage:  "Deprecated, use immediate instead.",
+			Hidden: true,
+		},
 		cli.Uint64Flag{
 			Name: "sat_per_vbyte",
-			Usage: "a manual fee expressed in sat/vbyte that " +
-				"should be used when sweeping the output",
+			Usage: `
+	The starting fee rate, expressed in sat/vbyte, that will be used to
+	spend the input with initially. This value will be used by the
+	sweeper's fee function as its starting fee rate. When not set, the
+	sweeper will use the estimated fee rate using the target_conf as the
+	starting fee rate.`,
 		},
 		cli.BoolFlag{
-			Name:  "force",
-			Usage: "sweep even if the yield is negative",
+			Name: "immediate",
+			Usage: `
+	Whether this input will be swept immediately. When set to true, the
+	sweeper will sweep this input without waiting for the next batch.`,
+		},
+		cli.Uint64Flag{
+			Name: "budget",
+			Usage: `
+	The max amount in sats that can be used as the fees. Setting this value
+	greater than the input's value may result in CPFP - one or more wallet
+	utxos will be used to pay the fees specified by the budget. If not set,
+	for new inputs, by default 50% of the input's value will be treated as
+	the budget for fee bumping; for existing inputs, their current budgets
+	will be retained.`,
 		},
 	},
 	Action: actionDecorator(bumpFee),
@@ -241,15 +263,6 @@ func bumpFee(ctx *cli.Context) error {
 		return cli.ShowCommandHelp(ctx, "bumpfee")
 	}
 
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
-	)
-	if err != nil {
-		return err
-	}
-
 	// Validate and parse the relevant arguments/flags.
 	protoOutPoint, err := NewProtoOutPoint(ctx.Args().Get(0))
 	if err != nil {
@@ -260,10 +273,10 @@ func bumpFee(ctx *cli.Context) error {
 	defer cleanUp()
 
 	resp, err := client.BumpFee(ctxc, &walletrpc.BumpFeeRequest{
-		Outpoint:    protoOutPoint,
-		TargetConf:  uint32(ctx.Uint64("conf_target")),
-		SatPerVbyte: ctx.Uint64(feeRateFlag),
-		Force:       ctx.Bool("force"),
+		Outpoint:   protoOutPoint,
+		TargetConf: uint32(ctx.Uint64("conf_target")),
+		Immediate:  ctx.Bool("force"),
+		Budget:     ctx.Uint64("budget"),
 	})
 	if err != nil {
 		return err
@@ -291,18 +304,45 @@ var bumpCloseFeeCommand = cli.Command{
 	Flags: []cli.Flag{
 		cli.Uint64Flag{
 			Name: "conf_target",
-			Usage: "the number of blocks that the output should " +
-				"be swept on-chain within",
+			Usage: `
+	The deadline in number of blocks that the input should be spent within.
+	When not set, for new inputs, the default value (1008) is used; for
+	exiting inputs, their current values will be retained.`,
 		},
 		cli.Uint64Flag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
+		cli.BoolFlag{
+			Name:   "force",
+			Usage:  "Deprecated, use immediate instead.",
+			Hidden: true,
+		},
 		cli.Uint64Flag{
 			Name: "sat_per_vbyte",
-			Usage: "a manual fee expressed in sat/vbyte that " +
-				"should be used when sweeping the output",
+			Usage: `
+	The starting fee rate, expressed in sat/vbyte, that will be used to
+	spend the input with initially. This value will be used by the
+	sweeper's fee function as its starting fee rate. When not set, the
+	sweeper will use the estimated fee rate using the target_conf as the
+	starting fee rate.`,
+		},
+		cli.BoolFlag{
+			Name: "immediate",
+			Usage: `
+	Whether this input will be swept immediately. When set to true, the
+	sweeper will sweep this input without waiting for the next batch.`,
+		},
+		cli.Uint64Flag{
+			Name: "budget",
+			Usage: `
+	The max amount in sats that can be used as the fees. Setting this value
+	greater than the input's value may result in CPFP - one or more wallet
+	utxos will be used to pay the fees specified by the budget. If not set,
+	for new inputs, by default 50% of the input's value will be treated as
+	the budget for fee bumping; for existing inputs, their current budgets
+	will be retained.`,
 		},
 	},
 	Action: actionDecorator(bumpForceCloseFee),
@@ -323,18 +363,45 @@ var bumpForceCloseFeeCommand = cli.Command{
 	Flags: []cli.Flag{
 		cli.Uint64Flag{
 			Name: "conf_target",
-			Usage: "the number of blocks that the output should " +
-				"be swept on-chain within",
+			Usage: `
+	The deadline in number of blocks that the input should be spent within.
+	When not set, for new inputs, the default value (1008) is used; for
+	exiting inputs, their current values will be retained.`,
 		},
 		cli.Uint64Flag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
+		cli.BoolFlag{
+			Name:   "force",
+			Usage:  "Deprecated, use immediate instead.",
+			Hidden: true,
+		},
 		cli.Uint64Flag{
 			Name: "sat_per_vbyte",
-			Usage: "a manual fee expressed in sat/vbyte that " +
-				"should be used when sweeping the output",
+			Usage: `
+	The starting fee rate, expressed in sat/vbyte, that will be used to
+	spend the input with initially. This value will be used by the
+	sweeper's fee function as its starting fee rate. When not set, the
+	sweeper will use the estimated fee rate using the target_conf as the
+	starting fee rate.`,
+		},
+		cli.BoolFlag{
+			Name: "immediate",
+			Usage: `
+	Whether this input will be swept immediately. When set to true, the
+	sweeper will sweep this input without waiting for the next batch.`,
+		},
+		cli.Uint64Flag{
+			Name: "budget",
+			Usage: `
+	The max amount in sats that can be used as the fees. Setting this value
+	greater than the input's value may result in CPFP - one or more wallet
+	utxos will be used to pay the fees specified by the budget. If not set,
+	for new inputs, by default 50% of the input's value will be treated as
+	the budget for fee bumping; for existing inputs, their current budgets
+	will be retained.`,
 		},
 	},
 	Action: actionDecorator(bumpForceCloseFee),
@@ -349,18 +416,9 @@ func bumpForceCloseFee(ctx *cli.Context) error {
 		return cli.ShowCommandHelp(ctx, "bumpclosefee")
 	}
 
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
-	)
-	if err != nil {
-		return err
-	}
-
 	// Validate the channel point.
 	channelPoint := ctx.Args().Get(0)
-	_, err = NewProtoOutPoint(channelPoint)
+	_, err := NewProtoOutPoint(channelPoint)
 	if err != nil {
 		return err
 	}
@@ -415,10 +473,10 @@ func bumpForceCloseFee(ctx *cli.Context) error {
 
 		resp, err := walletClient.BumpFee(
 			ctxc, &walletrpc.BumpFeeRequest{
-				Outpoint:    sweep.Outpoint,
-				TargetConf:  uint32(ctx.Uint64("conf_target")),
-				SatPerVbyte: ctx.Uint64(feeRateFlag),
-				Force:       true,
+				Outpoint:   sweep.Outpoint,
+				TargetConf: uint32(ctx.Uint64("conf_target")),
+				Budget:     ctx.Uint64("budget"),
+				Immediate:  ctx.Bool("immediate"),
 			})
 		if err != nil {
 			return err

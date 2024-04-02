@@ -155,19 +155,17 @@ type HTLCEntry struct {
 
 	// Incoming denotes whether we're the receiver or the sender of this
 	// HTLC.
-	//
-	// NOTE: this field is the memory representation of the field
-	// incomingUint.
 	Incoming tlv.RecordT[tlv.TlvType3, bool]
 
 	// Amt is the amount of satoshis this HTLC escrows.
-	//
-	// NOTE: this field is the memory representation of the field amtUint.
 	Amt tlv.RecordT[tlv.TlvType4, tlv.BigSizeT[btcutil.Amount]]
 
 	// CustomBlob is an optional blob that can be used to store information
 	// specific to revocation handling for a custom channel type.
 	CustomBlob tlv.OptionalRecordT[tlv.TlvType5, tlv.Blob]
+
+	// HtlcIndex is the index of the HTLC in the channel.
+	HtlcIndex tlv.OptionalRecordT[tlv.TlvType6, uint16]
 }
 
 // toTlvStream converts an HTLCEntry record into a tlv representation.
@@ -183,6 +181,12 @@ func (h *HTLCEntry) toTlvStream() (*tlv.Stream, error) {
 	h.CustomBlob.WhenSome(func(r tlv.RecordT[tlv.TlvType5, tlv.Blob]) {
 		records = append(records, r.Record())
 	})
+
+	h.HtlcIndex.WhenSome(func(r tlv.RecordT[tlv.TlvType6, uint16]) {
+		records = append(records, r.Record())
+	})
+
+	tlv.SortRecords(records)
 
 	return tlv.NewStream(records...)
 }
@@ -203,6 +207,9 @@ func NewHTLCEntryFromHTLC(htlc HTLC) (*HTLCEntry, error) {
 		Amt: tlv.NewRecordT[tlv.TlvType4](
 			tlv.NewBigSizeT(htlc.Amt.ToSatoshis()),
 		),
+		HtlcIndex: tlv.SomeRecordT(tlv.NewPrimitiveRecord[tlv.TlvType6](
+			uint16(htlc.HtlcIndex),
+		)),
 	}
 
 	if len(htlc.CustomRecords) != 0 {
@@ -509,6 +516,7 @@ func deserializeHTLCEntries(r io.Reader) ([]*HTLCEntry, error) {
 		var htlc HTLCEntry
 
 		customBlob := htlc.CustomBlob.Zero()
+		htlcIndex := htlc.HtlcIndex.Zero()
 
 		// Create the tlv stream.
 		records := []tlv.Record{
@@ -518,6 +526,7 @@ func deserializeHTLCEntries(r io.Reader) ([]*HTLCEntry, error) {
 			htlc.Incoming.Record(),
 			htlc.Amt.Record(),
 			customBlob.Record(),
+			htlcIndex.Record(),
 		}
 
 		tlvStream, err := tlv.NewStream(records...)
@@ -537,6 +546,10 @@ func deserializeHTLCEntries(r io.Reader) ([]*HTLCEntry, error) {
 
 		if t, ok := parsedTypes[customBlob.TlvType()]; ok && t == nil {
 			htlc.CustomBlob = tlv.SomeRecordT(customBlob)
+		}
+
+		if t, ok := parsedTypes[htlcIndex.TlvType()]; ok && t == nil {
+			htlc.HtlcIndex = tlv.SomeRecordT(htlcIndex)
 		}
 
 		// Append the entry.

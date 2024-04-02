@@ -2,6 +2,7 @@ package lnwallet
 
 import (
 	"bytes"
+	crand "crypto/rand"
 	"crypto/sha256"
 	"fmt"
 	"math/rand"
@@ -10527,19 +10528,26 @@ func assertPayDescMatchHTLC(t *testing.T, pd PaymentDescriptor,
 // the `Incoming`.
 func createRandomHTLC(t *testing.T, incoming bool) channeldb.HTLC {
 	var onionBlob [lnwire.OnionPacketSize]byte
-	_, err := rand.Read(onionBlob[:])
+	_, err := crand.Read(onionBlob[:])
 	require.NoError(t, err)
 
 	var rHash [lntypes.HashSize]byte
-	_, err = rand.Read(rHash[:])
+	_, err = crand.Read(rHash[:])
 	require.NoError(t, err)
 
 	sig := make([]byte, 64)
-	_, err = rand.Read(sig)
+	_, err = crand.Read(sig)
 	require.NoError(t, err)
 
+	randCustomData := make([]byte, 32)
+	_, err = crand.Read(randCustomData)
+	require.NoError(t, err)
+
+	randCustomType := rand.Intn(255) + lnwire.MinCustomRecordsTlvType
+
 	blinding, err := pubkeyFromHex(
-		"0228f2af0abe322403480fb3ee172f7f1601e67d1da6cad40b54c4468d48236c39", //nolint:lll
+		"0228f2af0abe322403480fb3ee172f7f1601e67d1da6cad40b54c4468d48" +
+			"236c39",
 	)
 	require.NoError(t, err)
 
@@ -10554,9 +10562,13 @@ func createRandomHTLC(t *testing.T, incoming bool) channeldb.HTLC {
 		HtlcIndex:     rand.Uint64(),
 		LogIndex:      rand.Uint64(),
 		BlindingPoint: tlv.SomeRecordT(
-			//nolint:lll
-			tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](blinding),
+			tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](
+				blinding,
+			),
 		),
+		CustomRecords: map[uint64][]byte{
+			uint64(randCustomType): randCustomData,
+		},
 	}
 }
 

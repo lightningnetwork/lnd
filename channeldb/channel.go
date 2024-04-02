@@ -2580,6 +2580,12 @@ type HTLC struct {
 	// HTLC. It is stored in the ExtraData field, which is used to store
 	// a TLV stream of additional information associated with the HTLC.
 	BlindingPoint lnwire.BlindingPointRecord
+
+	// CustomRecords is a set of custom TLV records that are associated with
+	// this HTLC. These records are used to store additional information
+	// about the HTLC that is not part of the standard HTLC fields. This
+	// field is encoded within the ExtraData field.
+	CustomRecords lnwire.CustomRecords
 }
 
 // serializeExtraData encodes a TLV stream of extra data to be stored with a
@@ -2597,6 +2603,11 @@ func (h *HTLC) serializeExtraData() error {
 
 		records = append(records, &b)
 	})
+
+	records, err := h.CustomRecords.ExtendRecordProducers(records)
+	if err != nil {
+		return err
+	}
 
 	return h.ExtraData.PackRecords(records...)
 }
@@ -2619,7 +2630,18 @@ func (h *HTLC) deserializeExtraData() error {
 
 	if val, ok := tlvMap[h.BlindingPoint.TlvType()]; ok && val == nil {
 		h.BlindingPoint = tlv.SomeRecordT(blindingPoint)
+
+		// Remove the entry from the TLV map. Anything left in the map
+		// will be included in the custom records field.
+		delete(tlvMap, h.BlindingPoint.TlvType())
 	}
+
+	// Set the custom records field to the remaining TLV records.
+	customRecords, err := lnwire.NewCustomRecords(tlvMap)
+	if err != nil {
+		return err
+	}
+	h.CustomRecords = customRecords
 
 	return nil
 }
@@ -2758,6 +2780,8 @@ func (h *HTLC) Copy() HTLC {
 	copy(clone.Signature[:], h.Signature)
 	copy(clone.RHash[:], h.RHash[:])
 	copy(clone.ExtraData, h.ExtraData)
+	clone.BlindingPoint = h.BlindingPoint
+	clone.CustomRecords = h.CustomRecords.Copy()
 
 	return clone
 }

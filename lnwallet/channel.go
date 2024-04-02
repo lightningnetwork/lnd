@@ -335,6 +335,10 @@ type PaymentDescriptor struct {
 	// NOTE: Populated only on add payment descriptor entry types.
 	OnionBlob []byte
 
+	// CustomRecrods also stores the set of optional custom records that
+	// may have been attached to a sent HTLC.
+	CustomRecords fn.Option[tlv.Blob]
+
 	// ShaOnionBlob is a sha of the onion blob.
 	//
 	// NOTE: Populated only in payment descriptor with MalformedFail type.
@@ -752,6 +756,12 @@ func (c *commitment) toDiskCommit(ourCommit bool) *channeldb.ChannelCommitment {
 		}
 		copy(h.OnionBlob[:], htlc.OnionBlob)
 
+		// If the HTLC had custom records, then we'll copy that over so
+		// we restore with the same information.
+		htlc.CustomRecords.WhenSome(func(b tlv.Blob) {
+			copy(h.ExtraData, b)
+		})
+
 		if ourCommit && htlc.sig != nil {
 			h.Signature = htlc.sig.Serialize()
 		}
@@ -776,6 +786,13 @@ func (c *commitment) toDiskCommit(ourCommit bool) *channeldb.ChannelCommitment {
 			BlindingPoint: htlc.BlindingPoint,
 		}
 		copy(h.OnionBlob[:], htlc.OnionBlob)
+
+		// If the HTLC had custom records, then we'll copy that over so
+		// we restore with the same information.
+		htlc.CustomRecords.WhenSome(func(b tlv.Blob) {
+			copy(h.ExtraData, b)
+		})
+
 		if ourCommit && htlc.sig != nil {
 			h.Signature = htlc.sig.Serialize()
 		}
@@ -858,7 +875,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 	// With the scripts reconstructed (depending on if this is our commit
 	// vs theirs or a pending commit for the remote party), we can now
 	// re-create the original payment descriptor.
-	return PaymentDescriptor{
+	pd = PaymentDescriptor{
 		RHash:              htlc.RHash,
 		Timeout:            htlc.RefundTimeout,
 		Amount:             htlc.Amt,
@@ -873,7 +890,15 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 		theirPkScript:      theirP2WSH,
 		theirWitnessScript: theirWitnessScript,
 		BlindingPoint:      htlc.BlindingPoint,
-	}, nil
+	}
+
+	// Ensure that we'll restore any custom records which were stored as
+	// extra data on disk.
+	if len(htlc.ExtraData) != 0 {
+		pd.CustomRecords = fn.Some[tlv.Blob](htlc.ExtraData)
+	}
+
+	return pd, nil
 }
 
 // extractPayDescs will convert all HTLC's present within a disk commit state
@@ -6159,7 +6184,7 @@ func (lc *LightningChannel) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
 	openKey *models.CircuitKey) *PaymentDescriptor {
 
-	return &PaymentDescriptor{
+	pd := &PaymentDescriptor{
 		EntryType:      Add,
 		RHash:          PaymentHash(htlc.PaymentHash),
 		Timeout:        htlc.Expiry,
@@ -6170,6 +6195,14 @@ func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
 		OpenCircuitKey: openKey,
 		BlindingPoint:  htlc.BlindingPoint,
 	}
+
+	// Copy over any extra data included to ensure we can forward and
+	// process this HTLC properly.
+	if len(htlc.ExtraData) != 0 {
+		pd.CustomRecords = fn.Some[tlv.Blob](htlc.ExtraData[:])
+	}
+
+	return pd
 }
 
 // validateAddHtlc validates the addition of an outgoing htlc to our local and
@@ -6227,6 +6260,12 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 		HtlcIndex:     lc.remoteUpdateLog.htlcCounter,
 		OnionBlob:     htlc.OnionBlob[:],
 		BlindingPoint: htlc.BlindingPoint,
+	}
+
+	// Copy over any extra data included to ensure we can forward and
+	// process this HTLC properly.
+	if htlc.ExtraData != nil {
+		pd.CustomRecords = fn.Some(tlv.Blob(htlc.ExtraData[:]))
 	}
 
 	localACKedIndex := lc.remoteCommitChain.tail().ourMessageIndex

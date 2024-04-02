@@ -6,8 +6,6 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/fergusstrange/embedded-postgres v1.25.0
 	github.com/google/btree v1.0.1
-	github.com/jackc/pgconn v1.14.3
-	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jackc/pgx/v4 v4.18.1
 	github.com/lightningnetwork/lnd/healthcheck v1.0.0
 	github.com/lightningnetwork/lnd/sqldb v0.0.0-00010101000000-000000000000
@@ -51,6 +49,8 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/imdario/mergo v0.3.12 // indirect
 	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
+	github.com/jackc/pgconn v1.14.3 // indirect
+	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438 // indirect
 	github.com/jackc/pgio v1.0.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgproto3/v2 v2.3.3 // indirect

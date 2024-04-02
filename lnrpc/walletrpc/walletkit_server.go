@@ -973,11 +973,28 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 		Force: in.Force,
 	}
 
-	_, err = w.cfg.Sweeper.UpdateParams(*op, params)
+	sweepChan, err := w.cfg.Sweeper.UpdateParams(*op, params)
 	switch err {
 	case nil:
+		var sweepTxHex string
+		if in.IncludeRawTx {
+			select {
+			case sweepResult := <-sweepChan:
+				sweepTxHex, err = lnrpc.SerializeAndHexEncodeTx(
+					sweepResult.Tx,
+				)
+				if err != nil {
+					return nil, err
+				}
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
 		return &BumpFeeResponse{
-			Status: "Successfully registered rbf-tx with sweeper",
+			Status: "Successfully registered rbf-tx with " +
+				"the sweeper",
+			SweepTxHex: sweepTxHex,
 		}, nil
 	case lnwallet.ErrNotMine:
 		break
@@ -1040,12 +1057,30 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	)
 
 	sweepParams := sweep.Params{Fee: feePreference}
-	if _, err = w.cfg.Sweeper.SweepInput(inp, sweepParams); err != nil {
+	sweepChan, err = w.cfg.Sweeper.SweepInput(inp, sweepParams)
+	if err != nil {
 		return nil, err
 	}
 
+	var sweepTxHex string
+	if in.IncludeRawTx {
+		select {
+		case sweepResult := <-sweepChan:
+			sweepTxHex, err = lnrpc.SerializeAndHexEncodeTx(
+				sweepResult.Tx,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
 	return &BumpFeeResponse{
-		Status: "Successfully registered cpfp-tx with the sweeper",
+		Status:     "Successfully registered cpfp-tx with the sweeper",
+		SweepTxHex: sweepTxHex,
 	}, nil
 }
 

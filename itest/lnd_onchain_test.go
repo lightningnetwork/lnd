@@ -278,9 +278,14 @@ func runCPFP(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 		Outpoint: op,
 		// We use a higher fee rate than the default max and expect the
 		// sweeper to cap the fee rate at the max value.
-		SatPerVbyte: maxFeeRate * 2,
+		SatPerVbyte:  maxFeeRate * 2,
+		IncludeRawTx: true,
 	}
-	bob.RPC.BumpFee(bumpFeeReq)
+
+	go func() {
+		bumpFeeResp := bob.RPC.BumpFee(bumpFeeReq)
+		require.NotEmpty(ht, bumpFeeResp.SweepTxHex)
+	}()
 
 	// We should now expect to see two transactions within the mempool, a
 	// parent and its child.

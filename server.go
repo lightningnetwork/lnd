@@ -1556,7 +1556,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			}
 
 			br, err := lnwallet.NewBreachRetribution(
-				channel, commitHeight, 0, nil,
+				channel, commitHeight, 0, nil, dbs.AuxLeafStore,
 			)
 			if err != nil {
 				return nil, 0, err

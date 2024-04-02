@@ -33,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -877,6 +878,10 @@ type DatabaseInstances struct {
 	// for native SQL queries for tables that already support it. This may
 	// be nil if the use-native-sql flag was not set.
 	NativeSQLStore *sqldb.BaseDB
+
+	// AuxLeafStore is an optional data source that can be used by custom
+	// channels to fetch+store various data.
+	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
 }
 
 // DefaultDatabaseBuilder is a type that builds the default database backends

@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 )
 
 const (
@@ -50,8 +51,8 @@ var (
 //   - <sender sig> <receiver sig> <preimage> <success_script> <control_block>
 func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 	htlcOutput wire.OutPoint, htlcAmt btcutil.Amount, csvDelay,
-	leaseExpiry uint32, revocationKey, delayKey *btcec.PublicKey) (
-	*wire.MsgTx, error) {
+	leaseExpiry uint32, revocationKey, delayKey *btcec.PublicKey,
+	auxLeaf input.AuxTapLeaf) (*wire.MsgTx, error) {
 
 	// Create a version two transaction (as the success version of this
 	// spends an output with a CSV timeout).
@@ -71,7 +72,7 @@ func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 	// HTLC outputs.
 	scriptInfo, err := SecondLevelHtlcScript(
 		chanType, initiator, revocationKey, delayKey, csvDelay,
-		leaseExpiry,
+		leaseExpiry, auxLeaf,
 	)
 	if err != nil {
 		return nil, err
@@ -110,7 +111,8 @@ func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 func CreateHtlcTimeoutTx(chanType channeldb.ChannelType, initiator bool,
 	htlcOutput wire.OutPoint, htlcAmt btcutil.Amount,
 	cltvExpiry, csvDelay, leaseExpiry uint32,
-	revocationKey, delayKey *btcec.PublicKey) (*wire.MsgTx, error) {
+	revocationKey, delayKey *btcec.PublicKey,
+	auxLeaf input.AuxTapLeaf) (*wire.MsgTx, error) {
 
 	// Create a version two transaction (as the success version of this
 	// spends an output with a CSV timeout), and set the lock-time to the
@@ -134,7 +136,7 @@ func CreateHtlcTimeoutTx(chanType channeldb.ChannelType, initiator bool,
 	// HTLC outputs.
 	scriptInfo, err := SecondLevelHtlcScript(
 		chanType, initiator, revocationKey, delayKey, csvDelay,
-		leaseExpiry,
+		leaseExpiry, auxLeaf,
 	)
 	if err != nil {
 		return nil, err

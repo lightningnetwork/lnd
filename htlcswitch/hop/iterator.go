@@ -106,10 +106,27 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 	// Otherwise, if this is the TLV payload, then we'll make a new stream
 	// to decode only what we need to make routing decisions.
 	case sphinx.PayloadTLV:
-		payload, _, err := NewPayloadFromReader(
+		isFinal := r.processedPacket.Action == sphinx.ExitNode
+		payload, parsed, err := NewPayloadFromReader(
 			bytes.NewReader(r.processedPacket.Payload.Payload),
-			r.processedPacket.Action == sphinx.ExitNode,
+			isFinal,
 		)
+		if err != nil {
+			return nil, err
+		}
+
+		// If we had an encrypted data payload present, pull out our
+		// forwarding info from the blob.
+		if payload.encryptedData != nil {
+			fwdInfo, err := r.blindingKit.DecryptAndValidateFwdInfo(
+				payload, isFinal, parsed,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			payload.FwdInfo = *fwdInfo
+		}
 
 		return payload, err
 

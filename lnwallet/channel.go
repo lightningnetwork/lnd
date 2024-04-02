@@ -33,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
@@ -333,6 +334,10 @@ type commitment struct {
 	// on this commitment transaction.
 	incomingHTLCs []PaymentDescriptor
 
+	// customBlob stores opaque bytes that may be used by custom channels
+	// to store extra data for a given commitment state.
+	customBlob fn.Option[tlv.Blob]
+
 	// [outgoing|incoming]HTLCIndex is an index that maps an output index
 	// on the commitment transaction to the payment descriptor that
 	// represents the HTLC output.
@@ -506,6 +511,7 @@ func (c *commitment) toDiskCommit(
 		CommitTx:        c.txn,
 		CommitSig:       c.sig,
 		Htlcs:           make([]channeldb.HTLC, 0, numHtlcs),
+		CustomBlob:      c.customBlob,
 	}
 
 	for _, htlc := range c.outgoingHTLCs {
@@ -753,6 +759,7 @@ func (lc *LightningChannel) diskCommitToMemCommit(
 		feePerKw:          chainfee.SatPerKWeight(diskCommit.FeePerKw),
 		incomingHTLCs:     incomingHtlcs,
 		outgoingHTLCs:     outgoingHtlcs,
+		customBlob:        diskCommit.CustomBlob,
 	}
 	if whoseCommit.IsLocal() {
 		commit.dustLimit = lc.channelState.LocalChanCfg.DustLimit

@@ -1574,12 +1574,12 @@ func (w *WalletKit) fundPsbtInternalWallet(account string,
 				return true
 			}
 
-			eligible := fn.Filter(filterFn, utxos)
+			eligibleUtxos := fn.Filter(filterFn, utxos)
 
 			// Validate all inputs against our known list of UTXOs
 			// now.
 			err = verifyInputsUnspent(
-				packet.UnsignedTx.TxIn, eligible,
+				packet.UnsignedTx.TxIn, eligibleUtxos,
 			)
 			if err != nil {
 				return err

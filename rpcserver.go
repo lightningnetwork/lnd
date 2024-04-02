@@ -1890,7 +1890,7 @@ func newFundingShimAssembler(chanPointShim *lnrpc.ChanPointShim, initiator bool,
 
 // newFundingShimAssembler returns a new fully populated
 // chanfunding.PsbtAssembler using a FundingShim obtained from an RPC caller.
-func newPsbtAssembler(req *lnrpc.OpenChannelRequest, normalizedMinConfs int32,
+func newPsbtAssembler(req *lnrpc.OpenChannelRequest,
 	psbtShim *lnrpc.PsbtShim, netParams *chaincfg.Params) (
 	chanfunding.Assembler, error) {
 
@@ -1903,11 +1903,6 @@ func newPsbtAssembler(req *lnrpc.OpenChannelRequest, normalizedMinConfs int32,
 	// fields are populated and none of the incompatible fields are.
 	if len(psbtShim.PendingChanId) != 32 {
 		return nil, fmt.Errorf("pending chan ID not set")
-	}
-	if normalizedMinConfs != 1 {
-		return nil, fmt.Errorf("setting non-default values for " +
-			"minimum confirmation is not supported for PSBT " +
-			"funding")
 	}
 	if req.SatPerByte != 0 || req.SatPerVbyte != 0 || req.TargetConf != 0 { // nolint:staticcheck
 		return nil, fmt.Errorf("specifying fee estimation parameters " +
@@ -2351,8 +2346,12 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 			// chanfunding.PsbtAssembler to construct the funding
 			// transaction.
 			copy(req.PendingChanID[:], psbtShim.PendingChanId)
+
+			// NOTE: For the PSBT case we do also allow unconfirmed
+			// utxos to fund the psbt transaction because we make
+			// sure we only use stable utxos.
 			req.ChanFunder, err = newPsbtAssembler(
-				in, req.MinConfs, psbtShim,
+				in, psbtShim,
 				&r.server.cc.Wallet.Cfg.NetParams,
 			)
 			if err != nil {

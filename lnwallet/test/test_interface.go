@@ -2947,6 +2947,11 @@ func waitForWalletSync(r *rpctest.Harness, w *lnwallet.LightningWallet) error {
 func testSingleFunderExternalFundingTx(miner *rpctest.Harness,
 	alice, bob *lnwallet.LightningWallet, t *testing.T) {
 
+	// Define a filter function without any restrictions.
+	allowUtxo := func(lnwallet.Utxo) bool {
+		return true
+	}
+
 	// First, we'll obtain multi-sig keys from both Alice and Bob which
 	// simulates them exchanging keys on a higher level.
 	aliceFundingKey, err := alice.DeriveNextKey(keychain.KeyFamilyMultiSig)
@@ -2964,7 +2969,7 @@ func testSingleFunderExternalFundingTx(miner *rpctest.Harness,
 	aliceChanFunder := chanfunding.NewWalletAssembler(
 		chanfunding.WalletConfig{
 			CoinSource: lnwallet.NewCoinSource(
-				alice, nil,
+				alice, allowUtxo,
 			),
 			CoinSelectLocker:      alice,
 			CoinLeaser:            alice,

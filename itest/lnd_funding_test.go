@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
@@ -1249,4 +1250,212 @@ func deriveFundingShim(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	fundingShim.GetChanPointShim().RemoteKey = daveFundingKey.RawKeyBytes
 
 	return fundingShim, chanPoint
+}
+
+// testChannelFundingWithUnstableUtxos tests channel openings with restricted
+// utxo selection. Internal wallet utxos might be restricted due to another
+// subsystems still using it therefore it would be unsecure to use them for
+// channel openings. This test focuses on unconfirmed utxos which are still
+// being used by the sweeper subsystem hence should only be used when confirmed.
+func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
+	// Select funding amt below wumbo size because we later use fundMax to
+	// open a channel with the total balance.
+	fundingAmt := btcutil.Amount(3_000_000)
+
+	// We use STATIC_REMOTE_KEY channels because anchor sweeps would
+	// interfere and create additional utxos.
+	// Although its the current default we explicitly signal it.
+	cType := lnrpc.CommitmentType_STATIC_REMOTE_KEY
+
+	// First, we'll create two new nodes that we'll use to open channel
+	// between for this test.
+	carol := ht.NewNode("carol", nil)
+	// We'll attempt at max 2 pending channels, so Dave will need to accept
+	// two pending ones.
+	dave := ht.NewNode("dave", []string{
+		"--maxpendingchannels=2",
+	})
+	ht.EnsureConnected(carol, dave)
+
+	// Fund Carol's wallet with a confirmed utxo.
+	ht.FundCoins(fundingAmt, carol)
+
+	// Now spend the coins to create an unconfirmed transaction. This is
+	// necessary to test also the neutrino behaviour. For neutrino nodes
+	// only unconfirmed transactions originating from this node will be
+	// recognized as unconfirmed.
+	req := &lnrpc.NewAddressRequest{Type: AddrTypeTaprootPubkey}
+	resp := carol.RPC.NewAddress(req)
+
+	sendCoinsResp := carol.RPC.SendCoins(&lnrpc.SendCoinsRequest{
+		Addr:        resp.Address,
+		SendAll:     true,
+		SatPerVbyte: 1,
+	})
+
+	walletUtxo := ht.AssertNumUTXOsUnconfirmed(carol, 1)[0]
+	require.EqualValues(ht, sendCoinsResp.Txid, walletUtxo.Outpoint.TxidStr)
+
+	// We will attempt to open 2 channels at a time.
+	chanSize := btcutil.Amount(walletUtxo.AmountSat / 3)
+
+	// Open a channel to dave with an unconfirmed utxo. Although this utxo
+	// is unconfirmed it can be used to open a channel because it did not
+	// originated from the sweeper subsystem.
+	update := ht.OpenChannelAssertPending(carol, dave,
+		lntest.OpenChannelParams{
+			Amt:              chanSize,
+			SpendUnconfirmed: true,
+			CommitmentType:   cType,
+		})
+	chanPoint1 := lntest.ChanPointFromPendingUpdate(update)
+
+	// Verify that both nodes know about the channel.
+	ht.AssertNumPendingOpenChannels(carol, 1)
+	ht.AssertNumPendingOpenChannels(dave, 1)
+
+	// We open another channel on the fly, funds are unconfirmed but because
+	// the tx was not created by the sweeper we can use it and open another
+	// channel. This is a common use case when opening zeroconf channels,
+	// so unconfirmed utxos originated from prior channel opening are safe
+	// to use because channel opening should not be RBFed, at least not for
+	// now.
+	update = ht.OpenChannelAssertPending(carol, dave,
+		lntest.OpenChannelParams{
+			Amt:              chanSize,
+			SpendUnconfirmed: true,
+			CommitmentType:   cType,
+		})
+
+	chanPoint2 := lntest.ChanPointFromPendingUpdate(update)
+
+	ht.AssertNumPendingOpenChannels(carol, 2)
+	ht.AssertNumPendingOpenChannels(dave, 2)
+
+	// We expect the initial funding tx to confirm and also the two
+	// unconfirmed channel openings.
+	ht.MineBlocksAndAssertNumTxes(1, 3)
+
+	// Now we create an unconfirmed utxo which originated from the sweeper
+	// subsystem and hence is not safe to use for channel openings. We do
+	// that by dave force-closing the channel. Which let's carol sweep its
+	// to_remote output which is not encumbered by any relative locktime.
+	ht.CloseChannelAssertPending(dave, chanPoint2, true)
+	// Mine the force close commitment transaction.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Mine one block to trigger the sweep transaction.
+	ht.MineEmptyBlocks(1)
+
+	// We need to wait for carol initiating the sweep of the to_remote
+	// output of chanPoint2.
+	utxos := ht.AssertNumUTXOsUnconfirmed(carol, 1)
+
+	// We filter for the unconfirmed utxo and try to open a channel with
+	// that utxo.
+	utxoOpt := fn.Find(func(u *lnrpc.Utxo) bool {
+		return u.Confirmations == 0
+	}, utxos)
+	fundingUtxo := utxoOpt.UnwrapOrFail(ht.T)
+
+	// Now try to open the channel with this utxo and expect an error.
+	expectedErr := fmt.Errorf("outpoint already spent or "+
+		"locked by another subsystem: %s:%d",
+		fundingUtxo.Outpoint.TxidStr,
+		fundingUtxo.Outpoint.OutputIndex)
+
+	ht.OpenChannelAssertErr(carol, dave,
+		lntest.OpenChannelParams{
+			FundMax:          true,
+			SpendUnconfirmed: true,
+			Outpoints: []*lnrpc.OutPoint{
+				fundingUtxo.Outpoint,
+			},
+		}, expectedErr)
+
+	// The channel opening failed because the utxo was unconfirmed and
+	// originated from the sweeper subsystem. Now we confirm the
+	// to_remote sweep and expect the channel opening to work.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Try opening the channel with the same utxo (now confirmed) again.
+	update = ht.OpenChannelAssertPending(carol, dave,
+		lntest.OpenChannelParams{
+			FundMax:          true,
+			SpendUnconfirmed: true,
+			Outpoints: []*lnrpc.OutPoint{
+				fundingUtxo.Outpoint,
+			},
+		})
+
+	chanPoint3 := lntest.ChanPointFromPendingUpdate(update)
+	ht.AssertNumPendingOpenChannels(carol, 1)
+	ht.AssertNumPendingOpenChannels(dave, 1)
+
+	// We expect chanPoint3 to confirm.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Force Close the channel and test the opening flow without preselected
+	// utxos.
+	// Before we tested the channel funding with a selected coin, now we
+	// want to make sure that our internal coin selection also adheres to
+	// the restictions of unstable utxos.
+	// We create the unconfirmed sweeper originating utxo just like before
+	// by force-closing a channel from dave's side.
+	ht.CloseChannelAssertPending(dave, chanPoint3, true)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Mine one block to trigger the sweep transaction.
+	ht.MineEmptyBlocks(1)
+
+	// Wait for the to_remote sweep tx to show up in carol's wallet.
+	ht.AssertNumUTXOsUnconfirmed(carol, 1)
+
+	// Calculate the maximum amount our wallet has for the channel funding
+	// so that we will use all utxos.
+	carolBalance := carol.RPC.WalletBalance()
+
+	// Now calculate the fee for the channel opening transaction. We don't
+	// have to keep a channel reserve because we are using STATIC_REMOTE_KEY
+	// channels.
+	// NOTE: The TotalBalance includes the unconfirmed balance as well.
+	chanSize = btcutil.Amount(carolBalance.TotalBalance) -
+		fundingFee(2, false)
+
+	// We are trying to open a channel with the maximum amount and expect it
+	// to fail because one of the utxos cannot be used because it is
+	// unstable.
+	expectedErr = fmt.Errorf("not enough witness outputs to create " +
+		"funding transaction")
+
+	ht.OpenChannelAssertErr(carol, dave,
+		lntest.OpenChannelParams{
+			Amt:              chanSize,
+			SpendUnconfirmed: true,
+			CommitmentType:   cType,
+		}, expectedErr)
+
+	// Confirm the to_remote sweep utxo.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	ht.AssertNumUTXOsConfirmed(carol, 2)
+
+	// Now after the sweep utxo is confirmed it is stable and can be used
+	// for channel openings again.
+	update = ht.OpenChannelAssertPending(carol, dave,
+		lntest.OpenChannelParams{
+			Amt:              chanSize,
+			SpendUnconfirmed: true,
+			CommitmentType:   cType,
+		})
+	chanPoint4 := lntest.ChanPointFromPendingUpdate(update)
+
+	// Verify that both nodes know about the channel.
+	ht.AssertNumPendingOpenChannels(carol, 1)
+	ht.AssertNumPendingOpenChannels(dave, 1)
+
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	ht.CloseChannel(carol, chanPoint1)
+	ht.CloseChannel(carol, chanPoint4)
 }

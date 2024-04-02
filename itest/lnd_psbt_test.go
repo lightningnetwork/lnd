@@ -1592,3 +1592,321 @@ func testPsbtChanFundingFailFlow(ht *lntest.HarnessTest) {
 	// funding workflow with an internal error.
 	ht.ReceiveOpenChannelError(chanUpdates, chanfunding.ErrRemoteCanceled)
 }
+
+// testPsbtChanFundingWithUnstableUtxos tests that channel openings with
+// unstable utxos, in this case in particular unconfirmed utxos still in use by
+// the sweeper subsystem, are not considered when opening a channel. They bear
+// the risk of being RBFed and are therefore not safe to open a channel with.
+func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
+	fundingAmt := btcutil.Amount(2_000_000)
+
+	// First, we'll create two new nodes that we'll use to open channel
+	// between for this test.
+	carol := ht.NewNode("carol", nil)
+	dave := ht.NewNode("dave", nil)
+	ht.EnsureConnected(carol, dave)
+
+	// Fund Carol's wallet with a confirmed utxo.
+	ht.FundCoins(fundingAmt, carol)
+
+	ht.AssertNumUTXOs(carol, 1)
+
+	// Now spend the coins to create an unconfirmed transaction. This is
+	// necessary to test also the neutrino behaviour. For neutrino nodes
+	// only unconfirmed transactions originating from this node will be
+	// recognized as unconfirmed.
+	req := &lnrpc.NewAddressRequest{Type: AddrTypeTaprootPubkey}
+	resp := carol.RPC.NewAddress(req)
+
+	sendCoinsResp := carol.RPC.SendCoins(&lnrpc.SendCoinsRequest{
+		Addr:        resp.Address,
+		SendAll:     true,
+		SatPerVbyte: 1,
+	})
+
+	walletUtxo := ht.AssertNumUTXOsUnconfirmed(carol, 1)[0]
+	require.EqualValues(ht, sendCoinsResp.Txid, walletUtxo.Outpoint.TxidStr)
+
+	chanSize := btcutil.Amount(walletUtxo.AmountSat / 2)
+
+	// We use STATIC_REMOTE_KEY channels to easily generate sweeps without
+	// anchor sweeps interfering.
+	cType := lnrpc.CommitmentType_STATIC_REMOTE_KEY
+
+	// We open a normal channel so that we can force-close it and produce
+	// a sweeper originating utxo.
+	update := ht.OpenChannelAssertPending(carol, dave,
+		lntest.OpenChannelParams{
+			Amt:              chanSize,
+			SpendUnconfirmed: true,
+		})
+	channelPoint := lntest.ChanPointFromPendingUpdate(update)
+	ht.MineBlocksAndAssertNumTxes(1, 2)
+
+	// Now force close the channel by dave to generate a utxo which is
+	// swept by the sweeper. We have STATIC_REMOTE_KEY Channel Types.
+	ht.CloseChannelAssertPending(dave, channelPoint, true)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Mine one block to trigger the sweep transaction.
+	ht.MineEmptyBlocks(1)
+
+	// We wait for the to_remote sweep tx.
+	ht.AssertNumUTXOsUnconfirmed(carol, 1)
+
+	// We need the maximum funding amount to ensure we are opening the next
+	// channel with all available utxos.
+	carolBalance := carol.RPC.WalletBalance()
+
+	// The max chan size needs to account for the fee opening the channel
+	// itself.
+	// NOTE: We need to always account for a change here, because their is
+	// an inaccurarcy in the backend code.
+	chanSize = btcutil.Amount(carolBalance.TotalBalance) -
+		fundingFee(2, true)
+
+	// Now open a channel of this amount via a psbt workflow.
+	// At this point, we can begin our PSBT channel funding workflow. We'll
+	// start by generating a pending channel ID externally that will be used
+	// to track this new funding type.
+	pendingChanID := ht.Random32Bytes()
+
+	// Now that we have the pending channel ID, Carol will open the channel
+	// by specifying a PSBT shim. We expect it to fail because we try to
+	// fund a channel with the maximum amount of our wallet, which also
+	// includes an unstable utxo originating from the sweeper.
+	chanUpdates, tempPsbt := ht.OpenChannelPsbt(
+		carol, dave, lntest.OpenChannelParams{
+			Amt: chanSize,
+			FundingShim: &lnrpc.FundingShim{
+				Shim: &lnrpc.FundingShim_PsbtShim{
+					PsbtShim: &lnrpc.PsbtShim{
+						PendingChanId: pendingChanID,
+					},
+				},
+			},
+			CommitmentType:   cType,
+			SpendUnconfirmed: true,
+		},
+	)
+
+	fundReq := &walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_Psbt{
+			Psbt: tempPsbt,
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: 50,
+		},
+		MinConfs:         0,
+		SpendUnconfirmed: true,
+	}
+	carol.RPC.FundPsbtAssertErr(fundReq)
+
+	// We confirm the sweep transaction and make sure we see it as confirmed
+	// from the perspective of the underlying wallet.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// We expect 2 confirmed utxos, the change of the prior successful
+	// channel opening and the confirmed to_remote output.
+	ht.AssertNumUTXOsConfirmed(carol, 2)
+
+	// We fund the psbt request again and now all utxo are stable and can
+	// finally be used to fund the channel.
+	fundResp := carol.RPC.FundPsbt(fundReq)
+
+	// We verify the psbt before finalizing it.
+	carol.RPC.FundingStateStep(&lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
+			PsbtVerify: &lnrpc.FundingPsbtVerify{
+				PendingChanId: pendingChanID,
+				FundedPsbt:    fundResp.FundedPsbt,
+			},
+		},
+	})
+
+	// Now we'll ask Carol's wallet to sign the PSBT so we can finish the
+	// funding flow.
+	finalizeReq := &walletrpc.FinalizePsbtRequest{
+		FundedPsbt: fundResp.FundedPsbt,
+	}
+	finalizeRes := carol.RPC.FinalizePsbt(finalizeReq)
+
+	// We've signed our PSBT now, let's pass it to the intent again.
+	carol.RPC.FundingStateStep(&lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_PsbtFinalize{
+			PsbtFinalize: &lnrpc.FundingPsbtFinalize{
+				PendingChanId: pendingChanID,
+				SignedPsbt:    finalizeRes.SignedPsbt,
+			},
+		},
+	})
+
+	// Consume the "channel pending" update. This waits until the funding
+	// transaction was fully compiled.
+	updateResp := ht.ReceiveOpenChannelUpdate(chanUpdates)
+	upd, ok := updateResp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	require.True(ht, ok)
+	channelPoint2 := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: upd.ChanPending.Txid,
+		},
+		OutputIndex: upd.ChanPending.OutputIndex,
+	}
+
+	var finalTx wire.MsgTx
+	err := finalTx.Deserialize(bytes.NewReader(finalizeRes.RawFinalTx))
+	require.NoError(ht, err)
+
+	txHash := finalTx.TxHash()
+	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	ht.Miner.AssertTxInBlock(block, &txHash)
+
+	// Now we do the same but instead use preselected utxos to verify that
+	// these utxos respects the utxo restrictions on sweeper unconfirmed
+	// inputs as well.
+
+	// Now force close the channel by dave to generate a utxo which is
+	// swept by the sweeper. We have STATIC_REMOTE_KEY Channel Types.
+	ht.CloseChannelAssertPending(dave, channelPoint2, true)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Mine one block to trigger the sweep transaction.
+	ht.MineEmptyBlocks(1)
+
+	// We wait for the to_remote sweep tx of channelPoint2.
+	utxos := ht.AssertNumUTXOsUnconfirmed(carol, 1)
+
+	// We need the maximum funding amount to ensure we are opening the next
+	// channel with all available utxos.
+	carolBalance = carol.RPC.WalletBalance()
+
+	// The max chan size needs to account for the fee opening the channel
+	// itself.
+	// NOTE: We need to always account for a change here, because their is
+	// an inaccurarcy in the backend code calculating the fee of a 1 input
+	// one output transaction, it always account for a channge in that case
+	// as well.
+	chanSize = btcutil.Amount(carolBalance.TotalBalance) -
+		fundingFee(2, true)
+
+	// Now open a channel of this amount via a psbt workflow.
+	// At this point, we can begin our PSBT channel funding workflow. We'll
+	// start by generating a pending channel ID externally that will be used
+	// to track this new funding type.
+	pendingChanID = ht.Random32Bytes()
+
+	// Now that we have the pending channel ID, Carol will open the channel
+	// by specifying a PSBT shim. We expect it to fail because we try to
+	// fund a channel with the maximum amount of our wallet, which also
+	// includes an unstable utxo originating from the sweeper.
+	chanUpdates, tempPsbt = ht.OpenChannelPsbt(
+		carol, dave, lntest.OpenChannelParams{
+			Amt: chanSize,
+			FundingShim: &lnrpc.FundingShim{
+				Shim: &lnrpc.FundingShim_PsbtShim{
+					PsbtShim: &lnrpc.PsbtShim{
+						PendingChanId: pendingChanID,
+					},
+				},
+			},
+			CommitmentType:   cType,
+			SpendUnconfirmed: true,
+		},
+	)
+	// Add selected utxos to the funding intent.
+	decodedPsbt, err := psbt.NewFromRawBytes(
+		bytes.NewReader(tempPsbt), false,
+	)
+	require.NoError(ht, err)
+
+	for _, input := range utxos {
+		txHash, err := chainhash.NewHashFromStr(input.Outpoint.TxidStr)
+		require.NoError(ht, err)
+		decodedPsbt.UnsignedTx.TxIn = append(
+			decodedPsbt.UnsignedTx.TxIn, &wire.TxIn{
+				PreviousOutPoint: wire.OutPoint{
+					Hash:  *txHash,
+					Index: input.Outpoint.OutputIndex,
+				},
+			})
+
+		// The inputs we are using to fund the transaction are known to
+		// the internal wallet that's why we just append an empty input
+		// element so that the parsing of the psbt package succeeds.
+		decodedPsbt.Inputs = append(decodedPsbt.Inputs, psbt.PInput{})
+	}
+
+	var psbtBytes bytes.Buffer
+	err = decodedPsbt.Serialize(&psbtBytes)
+	require.NoError(ht, err)
+
+	fundReq = &walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_Psbt{
+			Psbt: psbtBytes.Bytes(),
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: 50,
+		},
+		MinConfs:         0,
+		SpendUnconfirmed: true,
+	}
+	carol.RPC.FundPsbtAssertErr(fundReq)
+
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// We expect 2 confirmed utxos, the change of the last successful
+	// channel opening and the confirmed to_remote output of channelPoint2.
+	ht.AssertNumUTXOsConfirmed(carol, 2)
+
+	// After the confirmation of the sweep to_remote output the funding
+	// will now proceed.
+	fundResp = carol.RPC.FundPsbt(fundReq)
+
+	// We verify the funded psbt.
+	carol.RPC.FundingStateStep(&lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
+			PsbtVerify: &lnrpc.FundingPsbtVerify{
+				PendingChanId: pendingChanID,
+				FundedPsbt:    fundResp.FundedPsbt,
+			},
+		},
+	})
+
+	// Now we'll ask Carol's wallet to sign the PSBT so we can finish the
+	// funding flow.
+	finalizeReq = &walletrpc.FinalizePsbtRequest{
+		FundedPsbt: fundResp.FundedPsbt,
+	}
+	finalizeRes = carol.RPC.FinalizePsbt(finalizeReq)
+
+	// We've signed our PSBT now, let's pass it to the intent again.
+	carol.RPC.FundingStateStep(&lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_PsbtFinalize{
+			PsbtFinalize: &lnrpc.FundingPsbtFinalize{
+				PendingChanId: pendingChanID,
+				SignedPsbt:    finalizeRes.SignedPsbt,
+			},
+		},
+	})
+
+	// Consume the "channel pending" update. This waits until the funding
+	// transaction was fully compiled.
+	updateResp = ht.ReceiveOpenChannelUpdate(chanUpdates)
+	upd, ok = updateResp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	require.True(ht, ok)
+	channelPoint3 := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: upd.ChanPending.Txid,
+		},
+		OutputIndex: upd.ChanPending.OutputIndex,
+	}
+
+	err = finalTx.Deserialize(bytes.NewReader(finalizeRes.RawFinalTx))
+	require.NoError(ht, err)
+
+	txHash = finalTx.TxHash()
+	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	ht.Miner.AssertTxInBlock(block, &txHash)
+
+	ht.CloseChannel(carol, channelPoint3)
+}

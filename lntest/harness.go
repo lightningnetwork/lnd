@@ -1205,6 +1205,7 @@ func (h *HarnessTest) OpenChannelAssertErr(srcNode, destNode *node.HarnessNode,
 
 	// Receive an error to be sent from the stream.
 	_, err := h.receiveOpenChannelUpdate(respStream)
+	require.NotNil(h, err, "expected channel opening to fail")
 
 	// Use string comparison here as we haven't codified all the RPC errors
 	// yet.

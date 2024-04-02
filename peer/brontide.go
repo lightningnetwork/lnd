@@ -365,6 +365,11 @@ type Config struct {
 	// this across multiple Peer struct instances.
 	PongBuf []byte
 
+	// Adds the option to disable forwarding payments in blinded routes
+	// by failing back any blinding-related payloads as if they were
+	// invalid.
+	DisallowRouteBlinding bool
+
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
 }
@@ -1155,6 +1160,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		HtlcNotifier:            p.cfg.HtlcNotifier,
 		GetAliases:              p.cfg.GetAliases,
 		PreviouslySentShutdown:  shutdownMsg,
+		DisallowRouteBlinding:   p.cfg.DisallowRouteBlinding,
 	}
 
 	// Before adding our new link, purge the switch of any pending or live

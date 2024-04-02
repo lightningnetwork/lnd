@@ -273,6 +273,11 @@ type ChannelLinkConfig struct {
 	// re-establish and should not allow anymore HTLC adds on the outgoing
 	// direction of the link.
 	PreviouslySentShutdown fn.Option[lnwire.Shutdown]
+
+	// Adds the option to disable forwarding payments in blinded routes
+	// by failing back any blinding-related payloads as if they were
+	// invalid.
+	DisallowRouteBlinding bool
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -1924,6 +1929,19 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				},
 				"received add while link is flushing",
 			)
+
+			return
+		}
+
+		// Disallow htlcs with blinding points set if we haven't
+		// enabled the feature. This saves us from having to process
+		// the onion at all, but will only catch blinded payments
+		// where we are a relaying node (as the blinding point will
+		// be in the payload when we're the introduction node).
+		if msg.BlindingPoint.IsSome() && l.cfg.DisallowRouteBlinding {
+			l.fail(LinkFailureError{code: ErrInvalidUpdate},
+				"blinding point included when route blinding "+
+					"is disabled")
 
 			return
 		}

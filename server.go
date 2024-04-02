@@ -3872,6 +3872,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		GetAliases:             s.aliasMgr.GetAliases,
 		RequestAlias:           s.aliasMgr.RequestAlias,
 		AddLocalAlias:          s.aliasMgr.AddLocalAlias,
+		DisallowRouteBlinding:  s.cfg.ProtocolOptions.NoRouteBlinding(),
 		Quit:                   s.quit,
 	}
 

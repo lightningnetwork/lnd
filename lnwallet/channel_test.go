@@ -10127,7 +10127,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 	revokedLog := channeldb.NewRevocationLog(
 		uint16(localIndex), uint16(remoteIndex), commitHash,
 		fn.Some(ourAmtMsat), fn.Some(theirAmtMsat),
-		[]*channeldb.HTLCEntry{htlc},
+		[]*channeldb.HTLCEntry{htlc}, fn.None[tlv.Blob](),
 	)
 
 	// Create a log with an empty local output index.

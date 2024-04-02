@@ -406,7 +406,7 @@ func (t *txInputSet) addPositiveYieldInputs(sweepableInputs []*SweeperInput) {
 	for i, inp := range sweepableInputs {
 		// Apply relaxed constraints for force sweeps.
 		constraints := constraintsRegular
-		if inp.parameters().Force {
+		if inp.parameters().Immediate {
 			constraints = constraintsForce
 		}
 

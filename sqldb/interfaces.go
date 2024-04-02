@@ -52,7 +52,7 @@ type BatchedTx[Q any] interface {
 	// specify if a transaction should be read-only and optionally what
 	// type of concurrency control should be used.
 	ExecTx(ctx context.Context, txOptions TxOptions,
-		txBody func(Q) error) error
+		txBody func(Q) error, reset func()) error
 }
 
 // Tx represents a database transaction that can be committed or rolled back.
@@ -317,7 +317,7 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 // type of query and options run, in order to have access to batched operations
 // related to a storage object.
 func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
-	txOptions TxOptions, txBody func(Q) error) error {
+	txOptions TxOptions, txBody func(Q) error, reset func()) error {
 
 	makeTx := func() (Tx, error) {
 		return t.BatchedQuerier.BeginTx(ctx, txOptions)
@@ -328,6 +328,8 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 		if !ok {
 			return fmt.Errorf("expected *sql.Tx, got %T", tx)
 		}
+
+		reset()
 		return txBody(t.createQuery(sqlTx))
 	}
 

@@ -154,19 +154,17 @@ type HTLCEntry struct {
 
 	// Incoming denotes whether we're the receiver or the sender of this
 	// HTLC.
-	//
-	// NOTE: this field is the memory representation of the field
-	// incomingUint.
 	Incoming tlv.RecordT[tlv.TlvType3, bool]
 
 	// Amt is the amount of satoshis this HTLC escrows.
-	//
-	// NOTE: this field is the memory representation of the field amtUint.
 	Amt tlv.RecordT[tlv.TlvType4, tlv.BigSizeT[btcutil.Amount]]
 
 	// CustomBlob is an optional blob that can be used to store information
 	// specific to revocation handling for a custom channel type.
 	CustomBlob tlv.OptionalRecordT[tlv.TlvType5, tlv.Blob]
+
+	// HltcIndex is the index of the HTLC in the channel.
+	HtlcIndex tlv.RecordT[tlv.TlvType6, uint16]
 }
 
 // toTlvStream converts an HTLCEntry record into a tlv representation.
@@ -177,11 +175,14 @@ func (h *HTLCEntry) toTlvStream() (*tlv.Stream, error) {
 		h.OutputIndex.Record(),
 		h.Incoming.Record(),
 		h.Amt.Record(),
+		h.HtlcIndex.Record(),
 	}
 
 	h.CustomBlob.WhenSome(func(r tlv.RecordT[tlv.TlvType5, tlv.Blob]) {
 		records = append(records, r.Record())
 	})
+
+	tlv.SortRecords(records)
 
 	return tlv.NewStream(records...)
 }
@@ -203,6 +204,9 @@ func NewHTLCEntryFromHTLC(htlc HTLC) *HTLCEntry {
 		),
 		Amt: tlv.NewRecordT[tlv.TlvType4, tlv.BigSizeT[btcutil.Amount]](
 			tlv.NewBigSizeT(htlc.Amt.ToSatoshis()),
+		),
+		HtlcIndex: tlv.NewPrimitiveRecord[tlv.TlvType6, uint16](
+			uint16(htlc.HtlcIndex),
 		),
 	}
 
@@ -519,6 +523,7 @@ func deserializeHTLCEntries(r io.Reader) ([]*HTLCEntry, error) {
 			htlc.Incoming.Record(),
 			htlc.Amt.Record(),
 			customBlob.Record(),
+			htlc.HtlcIndex.Record(),
 		}
 
 		tlvStream, err := tlv.NewStream(records...)

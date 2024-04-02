@@ -172,6 +172,7 @@ func pendingSweeps(ctx *cli.Context) error {
 	return nil
 }
 
+// TODO(yy): update the docs.
 var bumpFeeCommand = cli.Command{
 	Name:      "bumpfee",
 	Usage:     "Bumps the fee of an arbitrary input/transaction.",
@@ -214,6 +215,17 @@ var bumpFeeCommand = cli.Command{
 			Usage: "the number of blocks that the output should " +
 				"be swept on-chain within",
 		},
+		cli.BoolFlag{
+			Name:  "immediate",
+			Usage: "sweep immediately",
+		},
+		cli.Uint64Flag{
+			Name: "budget",
+			Usage: "the max amount in sats that can be used as " +
+				"fees for the sweep, setting this value " +
+				"greater than the input's value will result " +
+				"in wallet UTXOs being used for CPFP",
+		},
 		cli.Uint64Flag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
@@ -223,10 +235,12 @@ var bumpFeeCommand = cli.Command{
 			Name: "sat_per_vbyte",
 			Usage: "a manual fee expressed in sat/vbyte that " +
 				"should be used when sweeping the output",
+			Hidden: true,
 		},
 		cli.BoolFlag{
-			Name:  "force",
-			Usage: "sweep even if the yield is negative",
+			Name:   "force",
+			Usage:  "sweep even if the yield is negative",
+			Hidden: true,
 		},
 	},
 	Action: actionDecorator(bumpFee),
@@ -241,15 +255,6 @@ func bumpFee(ctx *cli.Context) error {
 		return cli.ShowCommandHelp(ctx, "bumpfee")
 	}
 
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
-	)
-	if err != nil {
-		return err
-	}
-
 	// Validate and parse the relevant arguments/flags.
 	protoOutPoint, err := NewProtoOutPoint(ctx.Args().Get(0))
 	if err != nil {
@@ -260,10 +265,10 @@ func bumpFee(ctx *cli.Context) error {
 	defer cleanUp()
 
 	resp, err := client.BumpFee(ctxc, &walletrpc.BumpFeeRequest{
-		Outpoint:    protoOutPoint,
-		TargetConf:  uint32(ctx.Uint64("conf_target")),
-		SatPerVbyte: ctx.Uint64(feeRateFlag),
-		Force:       ctx.Bool("force"),
+		Outpoint:   protoOutPoint,
+		TargetConf: uint32(ctx.Uint64("conf_target")),
+		Immediate:  ctx.Bool("force"),
+		Budget:     ctx.Uint64("budget"),
 	})
 	if err != nil {
 		return err
@@ -274,6 +279,7 @@ func bumpFee(ctx *cli.Context) error {
 	return nil
 }
 
+// TODO(yy): update the docs.
 var bumpCloseFeeCommand = cli.Command{
 	Name:      "bumpclosefee",
 	Usage:     "Bumps the fee of a channel force closing transaction.",
@@ -294,6 +300,17 @@ var bumpCloseFeeCommand = cli.Command{
 			Usage: "the number of blocks that the output should " +
 				"be swept on-chain within",
 		},
+		cli.BoolFlag{
+			Name:  "immediate",
+			Usage: "sweep immediately",
+		},
+		cli.Uint64Flag{
+			Name: "budget",
+			Usage: "the max amount in sats that can be used as " +
+				"fees for the sweep, setting this value " +
+				"greater than the input's value will result " +
+				"in wallet UTXOs being used for CPFP",
+		},
 		cli.Uint64Flag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
@@ -303,11 +320,13 @@ var bumpCloseFeeCommand = cli.Command{
 			Name: "sat_per_vbyte",
 			Usage: "a manual fee expressed in sat/vbyte that " +
 				"should be used when sweeping the output",
+			Hidden: true,
 		},
 	},
 	Action: actionDecorator(bumpForceCloseFee),
 }
 
+// TODO(yy): update the docs.
 var bumpForceCloseFeeCommand = cli.Command{
 	Name:      "bumpforceclosefee",
 	Usage:     "Bumps the fee of a channel force closing transaction.",
@@ -326,6 +345,17 @@ var bumpForceCloseFeeCommand = cli.Command{
 			Usage: "the number of blocks that the output should " +
 				"be swept on-chain within",
 		},
+		cli.BoolFlag{
+			Name:  "immediate",
+			Usage: "sweep immediately",
+		},
+		cli.Uint64Flag{
+			Name: "budget",
+			Usage: "the max amount in sats that can be used as " +
+				"fees for the sweep, setting this value " +
+				"greater than the input's value will result " +
+				"in wallet UTXOs being used for CPFP",
+		},
 		cli.Uint64Flag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
@@ -335,6 +365,7 @@ var bumpForceCloseFeeCommand = cli.Command{
 			Name: "sat_per_vbyte",
 			Usage: "a manual fee expressed in sat/vbyte that " +
 				"should be used when sweeping the output",
+			Hidden: true,
 		},
 	},
 	Action: actionDecorator(bumpForceCloseFee),
@@ -349,18 +380,9 @@ func bumpForceCloseFee(ctx *cli.Context) error {
 		return cli.ShowCommandHelp(ctx, "bumpclosefee")
 	}
 
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
-	)
-	if err != nil {
-		return err
-	}
-
 	// Validate the channel point.
 	channelPoint := ctx.Args().Get(0)
-	_, err = NewProtoOutPoint(channelPoint)
+	_, err := NewProtoOutPoint(channelPoint)
 	if err != nil {
 		return err
 	}
@@ -415,10 +437,10 @@ func bumpForceCloseFee(ctx *cli.Context) error {
 
 		resp, err := walletClient.BumpFee(
 			ctxc, &walletrpc.BumpFeeRequest{
-				Outpoint:    sweep.Outpoint,
-				TargetConf:  uint32(ctx.Uint64("conf_target")),
-				SatPerVbyte: ctx.Uint64(feeRateFlag),
-				Force:       true,
+				Outpoint:   sweep.Outpoint,
+				TargetConf: uint32(ctx.Uint64("conf_target")),
+				Budget:     ctx.Uint64("budget"),
+				Immediate:  ctx.Bool("immediate"),
 			})
 		if err != nil {
 			return err

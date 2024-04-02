@@ -115,7 +115,9 @@ func (h *htlcSuccessResolver) ResolverKey() []byte {
 // TODO(roasbeef): create multi to batch
 //
 // NOTE: Part of the ContractResolver interface.
-func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
+func (h *htlcSuccessResolver) Resolve(
+	immediate bool) (ContractResolver, error) {
+
 	// If we're already resolved, then we can exit early.
 	if h.resolved {
 		return nil, nil
@@ -129,7 +131,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 
 	// Otherwise this an output on our own commitment, and we must start by
 	// broadcasting the second-level success transaction.
-	secondLevelOutpoint, err := h.broadcastSuccessTx()
+	secondLevelOutpoint, err := h.broadcastSuccessTx(immediate)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +165,9 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 // broadcasting the second-level success transaction. It returns the ultimate
 // outpoint of the second-level tx, that we must wait to be spent for the
 // resolver to be fully resolved.
-func (h *htlcSuccessResolver) broadcastSuccessTx() (*wire.OutPoint, error) {
+func (h *htlcSuccessResolver) broadcastSuccessTx(
+	immediate bool) (*wire.OutPoint, error) {
+
 	// If we have non-nil SignDetails, this means that have a 2nd level
 	// HTLC transaction that is signed using sighash SINGLE|ANYONECANPAY
 	// (the case for anchor type channels). In this case we can re-sign it
@@ -171,7 +175,7 @@ func (h *htlcSuccessResolver) broadcastSuccessTx() (*wire.OutPoint, error) {
 	// the checkpointed outputIncubating field to determine if we already
 	// swept the HTLC output into the second level transaction.
 	if h.htlcResolution.SignDetails != nil {
-		return h.broadcastReSignedSuccessTx()
+		return h.broadcastReSignedSuccessTx(immediate)
 	}
 
 	// Otherwise we'll publish the second-level transaction directly and
@@ -221,7 +225,7 @@ func (h *htlcSuccessResolver) broadcastSuccessTx() (*wire.OutPoint, error) {
 // broadcastReSignedSuccessTx handles the case where we have non-nil
 // SignDetails, and offers the second level transaction to the Sweeper, that
 // will re-sign it and attach fees at will.
-func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
+func (h *htlcSuccessResolver) broadcastReSignedSuccessTx(immediate bool) (
 	*wire.OutPoint, error) {
 
 	// Keep track of the tx spending the HTLC output on the commitment, as
@@ -278,6 +282,7 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 			sweep.Params{
 				Budget:         budget,
 				DeadlineHeight: deadline,
+				Immediate:      immediate,
 			},
 		)
 		if err != nil {
@@ -403,6 +408,7 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 			// For second level success tx, there's no rush to get
 			// it confirmed, so we use a nil deadline.
 			DeadlineHeight: fn.None[int32](),
+			Immediate:      immediate,
 		},
 	)
 	if err != nil {

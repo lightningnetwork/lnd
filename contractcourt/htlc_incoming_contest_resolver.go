@@ -92,7 +92,9 @@ func (h *htlcIncomingContestResolver) processFinalHtlcFail() error {
 //     as we have no remaining actions left at our disposal.
 //
 // NOTE: Part of the ContractResolver interface.
-func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
+func (h *htlcIncomingContestResolver) Resolve(
+	immediate bool) (ContractResolver, error) {
+
 	// If we're already full resolved, then we don't have anything further
 	// to do.
 	if h.resolved {

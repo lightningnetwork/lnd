@@ -418,7 +418,9 @@ func checkSizeAndIndex(witness wire.TxWitness, size, index int) bool {
 // see a direct sweep via the timeout clause.
 //
 // NOTE: Part of the ContractResolver interface.
-func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
+func (h *htlcTimeoutResolver) Resolve(
+	immediate bool) (ContractResolver, error) {
+
 	// If we're already resolved, then we can exit early.
 	if h.resolved {
 		return nil, nil
@@ -427,7 +429,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	// Start by spending the HTLC output, either by broadcasting the
 	// second-level timeout transaction, or directly if this is the remote
 	// commitment.
-	commitSpend, err := h.spendHtlcOutput()
+	commitSpend, err := h.spendHtlcOutput(immediate)
 	if err != nil {
 		return nil, err
 	}
@@ -470,7 +472,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 
 // sweepSecondLevelTx sends a second level timeout transaction to the sweeper.
 // This transaction uses the SINLGE|ANYONECANPAY flag.
-func (h *htlcTimeoutResolver) sweepSecondLevelTx() error {
+func (h *htlcTimeoutResolver) sweepSecondLevelTx(immediate bool) error {
 	log.Infof("%T(%x): offering second-layer timeout tx to sweeper: %v",
 		h, h.htlc.RHash[:],
 		spew.Sdump(h.htlcResolution.SignedTimeoutTx))
@@ -528,6 +530,7 @@ func (h *htlcTimeoutResolver) sweepSecondLevelTx() error {
 		sweep.Params{
 			Budget:         budget,
 			DeadlineHeight: h.incomingHTLCExpiryHeight,
+			Immediate:      immediate,
 		},
 	)
 	if err != nil {
@@ -563,14 +566,16 @@ func (h *htlcTimeoutResolver) sendSecondLevelTxLegacy() error {
 // used to spend the output into the next stage. If this is the remote
 // commitment, the output will be swept directly without the timeout
 // transaction.
-func (h *htlcTimeoutResolver) spendHtlcOutput() (*chainntnfs.SpendDetail, error) {
+func (h *htlcTimeoutResolver) spendHtlcOutput(
+	immediate bool) (*chainntnfs.SpendDetail, error) {
+
 	switch {
 	// If we have non-nil SignDetails, this means that have a 2nd level
 	// HTLC transaction that is signed using sighash SINGLE|ANYONECANPAY
 	// (the case for anchor type channels). In this case we can re-sign it
 	// and attach fees at will. We let the sweeper handle this job.
 	case h.htlcResolution.SignDetails != nil && !h.outputIncubating:
-		if err := h.sweepSecondLevelTx(); err != nil {
+		if err := h.sweepSecondLevelTx(immediate); err != nil {
 			log.Errorf("Sending timeout tx to sweeper: %v", err)
 
 			return nil, err

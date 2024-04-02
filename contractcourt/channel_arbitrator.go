@@ -787,7 +787,7 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 		// TODO(roasbeef): this isn't re-launched?
 	}
 
-	c.launchResolvers(unresolvedContracts)
+	c.launchResolvers(unresolvedContracts, true)
 
 	return nil
 }
@@ -1245,7 +1245,7 @@ func (c *ChannelArbitrator) stateStep(
 
 		// Finally, we'll launch all the required contract resolvers.
 		// Once they're all resolved, we're no longer needed.
-		c.launchResolvers(resolvers)
+		c.launchResolvers(resolvers, false)
 
 		nextState = StateWaitingFullResolution
 
@@ -1553,14 +1553,16 @@ func (c *ChannelArbitrator) findCommitmentDeadlineAndValue(heightHint uint32,
 }
 
 // launchResolvers updates the activeResolvers list and starts the resolvers.
-func (c *ChannelArbitrator) launchResolvers(resolvers []ContractResolver) {
+func (c *ChannelArbitrator) launchResolvers(resolvers []ContractResolver,
+	immediate bool) {
+
 	c.activeResolversLock.Lock()
 	defer c.activeResolversLock.Unlock()
 
 	c.activeResolvers = resolvers
 	for _, contract := range resolvers {
 		c.wg.Add(1)
-		go c.resolveContract(contract)
+		go c.resolveContract(contract, immediate)
 	}
 }
 
@@ -2563,7 +2565,9 @@ func (c *ChannelArbitrator) replaceResolver(oldResolver,
 // contracts.
 //
 // NOTE: This MUST be run as a goroutine.
-func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
+func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver,
+	immediate bool) {
+
 	defer c.wg.Done()
 
 	log.Debugf("ChannelArbitrator(%v): attempting to resolve %T",
@@ -2584,7 +2588,7 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 		default:
 			// Otherwise, we'll attempt to resolve the current
 			// contract.
-			nextContract, err := currentContract.Resolve()
+			nextContract, err := currentContract.Resolve(immediate)
 			if err != nil {
 				if err == errResolverShuttingDown {
 					return

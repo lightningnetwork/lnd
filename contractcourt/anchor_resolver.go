@@ -84,7 +84,7 @@ func (c *anchorResolver) ResolverKey() []byte {
 }
 
 // Resolve offers the anchor output to the sweeper and waits for it to be swept.
-func (c *anchorResolver) Resolve() (ContractResolver, error) {
+func (c *anchorResolver) Resolve(immediate bool) (ContractResolver, error) {
 	// Attempt to update the sweep parameters to the post-confirmation
 	// situation. We don't want to force sweep anymore, because the anchor
 	// lost its special purpose to get the commitment confirmed. It is just
@@ -127,6 +127,8 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 			// There's no rush to sweep the anchor, so we use a nil
 			// deadline here.
 			DeadlineHeight: fn.None[int32](),
+
+			Immediate: immediate,
 		},
 	)
 	if err != nil {

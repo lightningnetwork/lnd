@@ -184,7 +184,9 @@ func (c *commitSweepResolver) getCommitTxConfHeight() (uint32, error) {
 // returned.
 //
 // NOTE: This function MUST be run as a goroutine.
-func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
+func (c *commitSweepResolver) Resolve(
+	immediate bool) (ContractResolver, error) {
+
 	// If we're already resolved, then we can exit early.
 	if c.resolved {
 		return nil, nil
@@ -357,6 +359,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 			// Specify a nil deadline here as there's no time
 			// pressure.
 			DeadlineHeight: fn.None[int32](),
+			Immediate:      immediate,
 		},
 	)
 	if err != nil {

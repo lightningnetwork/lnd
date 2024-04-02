@@ -415,6 +415,9 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   start](https://github.com/lightningnetwork/lnd/pull/8568) if native SQL is
   enabled but the channeldb already has any KV invoices stored.
 
+* [Fix a bug](https://github.com/lightningnetwork/lnd/pull/8595) when retrying
+  SQL InvoiceDB transactions due to database errors.
+
 ## Code Health
 
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 

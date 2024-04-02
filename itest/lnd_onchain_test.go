@@ -281,7 +281,7 @@ func runCPFP(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 		// sweeper to cap the fee rate at the max value.
 		SatPerVbyte: maxFeeRate * 2,
 		// We use a force param to create the sweeping tx immediately.
-		Force: true,
+		Immediate: true,
 	}
 	bob.RPC.BumpFee(bumpFeeReq)
 

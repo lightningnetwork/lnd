@@ -1369,12 +1369,16 @@
         },
         "force": {
           "type": "boolean",
-          "description": "Whether this input must be force-swept. This means that it is swept even\nif it has a negative yield."
+          "description": "Deprecated, use immediate.\nWhether this input must be force-swept. This means that it is swept\nimmediately."
         },
         "sat_per_vbyte": {
           "type": "string",
           "format": "uint64",
           "description": "The fee rate, expressed in sat/vbyte, that should be used to spend the input\nwith."
+        },
+        "immediate": {
+          "type": "boolean",
+          "description": "Whether this input will be swept immediately."
         }
       }
     },
@@ -1794,6 +1798,10 @@
           "format": "int64",
           "description": "The next height of the chain at which we'll attempt to broadcast the\nsweep transaction of the output."
         },
+        "force": {
+          "type": "boolean",
+          "description": "Deprecated, use immediate.\nWhether this input must be force-swept. This means that it is swept\nimmediately."
+        },
         "requested_conf_target": {
           "type": "integer",
           "format": "int64",
@@ -1814,9 +1822,9 @@
           "format": "uint64",
           "description": "The requested fee rate, expressed in sat/vbyte, for this output."
         },
-        "force": {
+        "immediate": {
           "type": "boolean",
-          "description": "Whether this input must be force-swept. This means that it is swept even\nif it has a negative yield."
+          "description": "Whether this input will be swept immediately."
         }
       }
     },

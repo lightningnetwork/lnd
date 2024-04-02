@@ -48,12 +48,6 @@ type Params struct {
 	// a fee rate whenever we attempt to cluster inputs for a sweep.
 	Fee FeePreference
 
-	// Force indicates whether the input should be swept regardless of
-	// whether it is economical to do so.
-	//
-	// TODO(yy): Remove this param once deadline based sweeping is in place.
-	Force bool
-
 	// ExclusiveGroup is an identifier that, if set, prevents other inputs
 	// with the same identifier from being batched together.
 	ExclusiveGroup *uint64
@@ -66,6 +60,10 @@ type Params struct {
 	// Budget specifies the maximum amount of satoshis that can be spent on
 	// fees for this sweep.
 	Budget btcutil.Amount
+
+	// Immediate indicates that the input should be swept immediately
+	// without waiting for blocks to come.
+	Immediate bool
 }
 
 // ParamsUpdate contains a new set of parameters to update a pending sweep with.
@@ -75,9 +73,9 @@ type ParamsUpdate struct {
 	// a fee rate whenever we attempt to cluster inputs for a sweep.
 	Fee FeePreference
 
-	// Force indicates whether the input should be swept regardless of
-	// whether it is economical to do so.
-	Force bool
+	// Immediate indicates that the input should be swept immediately
+	// without waiting for blocks to come.
+	Immediate bool
 }
 
 // String returns a human readable interpretation of the sweep parameters.
@@ -92,8 +90,8 @@ func (p Params) String() string {
 		exclusiveGroup = fmt.Sprintf("%d", *p.ExclusiveGroup)
 	}
 
-	return fmt.Sprintf("fee=%v, force=%v, exclusive_group=%v, budget=%v, "+
-		"deadline=%v", p.Fee, p.Force, exclusiveGroup, p.Budget,
+	return fmt.Sprintf("fee=%v, immediate=%v, exclusive_group=%v, budget=%v, "+
+		"deadline=%v", p.Fee, p.Immediate, exclusiveGroup, p.Budget,
 		deadline)
 }
 
@@ -669,7 +667,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 
 			// If this input is forced, we perform an sweep
 			// immediately.
-			if input.params.Force {
+			if input.params.Immediate {
 				inputs = s.updateSweeperInputs()
 				s.sweepPendingInputs(inputs)
 			}
@@ -1141,7 +1139,7 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 	// unchanged.
 	newParams := sweeperInput.params
 	newParams.Fee = req.params.Fee
-	newParams.Force = req.params.Force
+	newParams.Immediate = req.params.Immediate
 
 	log.Debugf("Updating parameters for %v(state=%v) from (%v) to (%v)",
 		req.input, sweeperInput.state, sweeperInput.params, newParams)

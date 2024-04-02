@@ -287,6 +287,7 @@ func TestDecryptAndValidateFwdInfo(t *testing.T) {
 					encryptedData: testCase.data,
 					blindingPoint: testCase.payloadBlinding,
 				}, false,
+				make(map[tlv.Type][]byte),
 			)
 			require.ErrorIs(t, err, testCase.expectedErr)
 		})

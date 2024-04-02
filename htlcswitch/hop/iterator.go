@@ -200,7 +200,8 @@ func (b *BlindingKit) validateBlindingPoint(payloadBlinding *btcec.PublicKey,
 // DecryptAndValidateFwdInfo performs all operations required to decrypt and
 // validate a blinded route.
 func (b *BlindingKit) DecryptAndValidateFwdInfo(payload *Payload,
-	isFinalHop bool) (*ForwardingInfo, error) {
+	isFinalHop bool, payloadParsed map[tlv.Type][]byte) (
+	*ForwardingInfo, error) {
 
 	// We expect this function to be called when we have encrypted data
 	// present, and a blinding key is set either in the payload or the
@@ -227,6 +228,14 @@ func (b *BlindingKit) DecryptAndValidateFwdInfo(payload *Payload,
 			ErrDecodeFailed, err)
 	}
 
+	// Validate the contents of the payload against the values we've
+	// just pulled out of the encrypted data blob.
+	err = ValidatePayloadWithBlinded(isFinalHop, payloadParsed)
+	if err != nil {
+		return nil, err
+	}
+	// Validate the data in the blinded route against our incoming htlc's
+	// information.
 	if err := ValidateBlindedRouteData(
 		routeData, b.IncomingAmount, b.IncomingCltv,
 	); err != nil {

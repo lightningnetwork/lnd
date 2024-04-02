@@ -484,3 +484,37 @@ func ValidateBlindedRouteData(blindedData *record.BlindedRouteData,
 
 	return nil
 }
+
+// ValidatePayloadWithBlinded validates a payload against the contents of
+// its encrypted data blob.
+func ValidatePayloadWithBlinded(isFinalHop bool,
+	payloadParsed map[tlv.Type][]byte) error {
+
+	// Blinded routes restrict the presence of TLVs more strictly than
+	// regular routes, check that intermediate and final hops only have
+	// the TLVs the spec allows them to have.
+	allowedTLVs := map[tlv.Type]bool{
+		record.EncryptedDataOnionType: true,
+		record.BlindingPointOnionType: true,
+	}
+
+	if isFinalHop {
+		allowedTLVs[record.AmtOnionType] = true
+		allowedTLVs[record.LockTimeOnionType] = true
+		allowedTLVs[record.TotalAmtMsatBlindedType] = true
+	}
+
+	for tlvType := range payloadParsed {
+		if _, ok := allowedTLVs[tlvType]; ok {
+			continue
+		}
+
+		return ErrInvalidPayload{
+			Type:      tlvType,
+			Violation: IncludedViolation,
+			FinalHop:  isFinalHop,
+		}
+	}
+
+	return nil
+}

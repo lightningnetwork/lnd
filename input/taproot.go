@@ -31,6 +31,24 @@ func NoneTapLeaf() AuxTapLeaf {
 	return fn.None[txscript.TapLeaf]()
 }
 
+// HtlcIndex represents the monotonically increasing counter that is used to
+// identify HTLCs created by a peer.
+type HtlcIndex = uint64
+
+// HtlcAuxLeaf is a type that represents an auxiliary leaf for an HTLC output.
+// An HTLC may have up to two aux leaves: one for the output on the commitment
+// transaction, and one for the second level HTLC.
+type HtlcAuxLeaf struct {
+	AuxTapLeaf
+
+	// SecondLevelLeaf is the auxiliary leaf for the second level HTLC
+	// success or timeout transaction.
+	SecondLevelLeaf AuxTapLeaf
+}
+
+// HtlcAuxLeaves is a type alias for a map of optional tapscript leaves.
+type HtlcAuxLeaves = map[HtlcIndex]HtlcAuxLeaf
+
 // NewTxSigHashesV0Only returns a new txscript.TxSigHashes instance that will
 // only calculate the sighash midstate values for segwit v0 inputs and can
 // therefore never be used for transactions that want to spend segwit v1

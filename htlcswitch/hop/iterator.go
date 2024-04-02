@@ -55,16 +55,24 @@ type sphinxHopIterator struct {
 	// includes the information required to properly forward the packet to
 	// the next hop.
 	processedPacket *sphinx.ProcessedPacket
+
+	// blindingKit contains the elements required to process hops that are
+	// part of a blinded route.
+	blindingKit BlindingKit
 }
 
 // makeSphinxHopIterator converts a processed packet returned from a sphinx
-// router and converts it into an hop iterator for usage in the link.
+// router and converts it into an hop iterator for usage in the link. A
+// blinding kit is passed through for the link to obtain forwarding information
+// for blinded routes.
 func makeSphinxHopIterator(ogPacket *sphinx.OnionPacket,
-	packet *sphinx.ProcessedPacket) *sphinxHopIterator {
+	packet *sphinx.ProcessedPacket,
+	blindingKit BlindingKit) *sphinxHopIterator {
 
 	return &sphinxHopIterator{
 		ogPacket:        ogPacket,
 		processedPacket: packet,
+		blindingKit:     blindingKit,
 	}
 }
 
@@ -370,11 +378,24 @@ func (p *OnionProcessor) Stop() error {
 	return nil
 }
 
-// ReconstructHopIterator attempts to decode a valid sphinx packet from the passed io.Reader
-// instance using the rHash as the associated data when checking the relevant
-// MACs during the decoding process.
+// ReconstructBlindingInfo contains the information required to reconstruct a
+// blinded onion.
+type ReconstructBlindingInfo struct {
+	// BlindingKey is the blinding point set in UpdateAddHTLC.
+	BlindingKey lnwire.BlindingPointRecord
+
+	// IncomingAmt is the amount for the incoming HTLC.
+	IncomingAmt lnwire.MilliSatoshi
+
+	// IncomingExpiry is the expiry height of the incoming HTLC.
+	IncomingExpiry uint32
+}
+
+// ReconstructHopIterator attempts to decode a valid sphinx packet from the
+// passed io.Reader instance using the rHash as the associated data when
+// checking the relevant MACs during the decoding process.
 func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte,
-	blindingPoint *btcec.PublicKey) (Iterator, error) {
+	blindingInfo ReconstructBlindingInfo) (Iterator, error) {
 
 	onionPkt := &sphinx.OnionPacket{}
 	if err := onionPkt.Decode(r); err != nil {
@@ -382,9 +403,11 @@ func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte,
 	}
 
 	var opts []sphinx.ProcessOnionOpt
-	if blindingPoint != nil {
-		opts = append(opts, sphinx.WithBlindingPoint(blindingPoint))
-	}
+	blindingInfo.BlindingKey.WhenSome(func(
+		r tlv.RecordT[lnwire.BlindingPointTlvType, *btcec.PublicKey]) {
+
+		opts = append(opts, sphinx.WithBlindingPoint(r.Val))
+	})
 
 	// Attempt to process the Sphinx packet. We include the payment hash of
 	// the HTLC as it's authenticated within the Sphinx packet itself as
@@ -398,7 +421,12 @@ func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte,
 		return nil, err
 	}
 
-	return makeSphinxHopIterator(onionPkt, sphinxPacket), nil
+	return makeSphinxHopIterator(onionPkt, sphinxPacket, BlindingKit{
+		Processor:         p.router,
+		UpdateAddBlinding: blindingInfo.BlindingKey,
+		IncomingAmount:    blindingInfo.IncomingAmt,
+		IncomingCltv:      blindingInfo.IncomingExpiry,
+	}), nil
 }
 
 // DecodeHopIteratorRequest encapsulates all date necessary to process an onion
@@ -575,7 +603,14 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 
 		// Finally, construct a hop iterator from our processed sphinx
 		// packet, simultaneously caching the original onion packet.
-		resp.HopIterator = makeSphinxHopIterator(&onionPkts[i], &packets[i])
+		resp.HopIterator = makeSphinxHopIterator(
+			&onionPkts[i], &packets[i], BlindingKit{
+				Processor:         p.router,
+				UpdateAddBlinding: reqs[i].BlindingPoint,
+				IncomingAmount:    reqs[i].IncomingAmount,
+				IncomingCltv:      reqs[i].IncomingCltv,
+			},
+		)
 	}
 
 	return resps, nil

@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -290,7 +289,7 @@ type mockOnionProcessor struct {
 }
 
 func (o *mockOnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte,
-	blindingPoint *btcec.PublicKey) (hop.Iterator, error) {
+	_ hop.ReconstructBlindingInfo) (hop.Iterator, error) {
 
 	data, err := ioutil.ReadAll(r)
 	if err != nil {

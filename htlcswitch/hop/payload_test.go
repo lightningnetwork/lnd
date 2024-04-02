@@ -479,7 +479,7 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 		testChildIndex = uint32(9)
 	)
 
-	p, err := hop.NewPayloadFromReader(
+	p, _, err := hop.NewPayloadFromReader(
 		bytes.NewReader(test.payload), test.isFinalHop,
 	)
 	if !reflect.DeepEqual(test.expErr, err) {

@@ -133,11 +133,14 @@ func NewLegacyPayload(f *sphinx.HopData) *Payload {
 	}
 }
 
-// NewPayloadFromReader builds a new Hop from the passed io.Reader. The reader
+// NewPayloadFromReader builds a new Hop from the passed io.Reader and returns
+// a map of all the types that were found in the payload. The reader
 // should correspond to the bytes encapsulated in a TLV onion payload. The
 // final hop bool signals that this payload was the final packet parsed by
 // sphinx.
-func NewPayloadFromReader(r io.Reader, finalHop bool) (*Payload, error) {
+func NewPayloadFromReader(r io.Reader, finalHop bool) (*Payload,
+	map[tlv.Type][]byte, error) {
+
 	var (
 		cid           uint64
 		amt           uint64
@@ -162,27 +165,27 @@ func NewPayloadFromReader(r io.Reader, finalHop bool) (*Payload, error) {
 		record.NewTotalAmtMsatBlinded(&totalAmtMsat),
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Since this data is provided by a potentially malicious peer, pass it
 	// into the P2P decoding variant.
 	parsedTypes, err := tlvStream.DecodeWithParsedTypesP2P(r)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Validate whether the sender properly included or omitted tlv records
 	// in accordance with BOLT 04.
 	err = ValidateParsedPayloadTypes(parsedTypes, finalHop)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Check for violation of the rules for mandatory fields.
 	violatingType := getMinRequiredViolation(parsedTypes)
 	if violatingType != nil {
-		return nil, ErrInvalidPayload{
+		return nil, nil, ErrInvalidPayload{
 			Type:      *violatingType,
 			Violation: RequiredViolation,
 			FinalHop:  finalHop,
@@ -229,7 +232,7 @@ func NewPayloadFromReader(r io.Reader, finalHop bool) (*Payload, error) {
 		blindingPoint: blindingPoint,
 		customRecords: customRecords,
 		totalAmtMsat:  lnwire.MilliSatoshi(totalAmtMsat),
-	}, nil
+	}, nil, nil
 }
 
 // ForwardingInfo returns the basic parameters required for HTLC forwarding,

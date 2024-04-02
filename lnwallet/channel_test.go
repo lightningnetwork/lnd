@@ -8541,10 +8541,10 @@ func TestEvaluateView(t *testing.T) {
 				}
 			}
 
-			view := &htlcView{
-				ourUpdates:   test.ourHtlcs,
-				theirUpdates: test.theirHtlcs,
-				feePerKw:     feePerKw,
+			view := &HtlcView{
+				OurUpdates:   test.ourHtlcs,
+				TheirUpdates: test.theirHtlcs,
+				FeePerKw:     feePerKw,
 			}
 
 			var (
@@ -8565,17 +8565,17 @@ func TestEvaluateView(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			if result.feePerKw != test.expectedFee {
+			if result.FeePerKw != test.expectedFee {
 				t.Fatalf("expected fee: %v, got: %v",
-					test.expectedFee, result.feePerKw)
+					test.expectedFee, result.FeePerKw)
 			}
 
 			checkExpectedHtlcs(
-				t, result.ourUpdates, test.ourExpectedHtlcs,
+				t, result.OurUpdates, test.ourExpectedHtlcs,
 			)
 
 			checkExpectedHtlcs(
-				t, result.theirUpdates, test.theirExpectedHtlcs,
+				t, result.TheirUpdates, test.theirExpectedHtlcs,
 			)
 
 			if lc.channelState.TotalMSatSent != test.expectSent {
@@ -8798,15 +8798,15 @@ func TestProcessFeeUpdate(t *testing.T) {
 				EntryType:                FeeUpdate,
 			}
 
-			view := &htlcView{
-				feePerKw: chainfee.SatPerKWeight(feePerKw),
+			view := &HtlcView{
+				FeePerKw: chainfee.SatPerKWeight(feePerKw),
 			}
 			processFeeUpdate(
 				update, nextHeight, test.whoseCommitChain,
 				test.mutate, view,
 			)
 
-			if view.feePerKw != test.expectedFee {
+			if view.FeePerKw != test.expectedFee {
 				t.Fatalf("expected fee: %v, got: %v",
 					test.expectedFee, feePerKw)
 			}

@@ -622,14 +622,24 @@ type CommitAuxLeaves struct {
 
 	// RemoteAuxLeaf is the remote party's auxiliary leaf.
 	RemoteAuxLeaf input.AuxTapLeaf
+
+	// OutgoingHTLCLeaves is the set of aux leaves for the outgoing HTLCs
+	// on this commitment transaction.
+	OutgoingHtlcLeaves input.AuxTapLeaves
+
+	// IncomingHTLCLeaves is the set of aux leaves for the incoming HTLCs
+	// on this commitment transaction.
+	IncomingHtlcLeaves input.AuxTapLeaves
 }
 
 // ForRemoteCommit returns the local+remote aux leaves from the PoV of the
 // remote party's commitment.
 func (c *CommitAuxLeaves) ForRemoteCommit() CommitAuxLeaves {
 	return CommitAuxLeaves{
-		LocalAuxLeaf:  c.RemoteAuxLeaf,
-		RemoteAuxLeaf: c.LocalAuxLeaf,
+		LocalAuxLeaf:       c.RemoteAuxLeaf,
+		RemoteAuxLeaf:      c.LocalAuxLeaf,
+		OutgoingHtlcLeaves: c.IncomingHtlcLeaves,
+		IncomingHtlcLeaves: c.OutgoingHtlcLeaves,
 	}
 }
 

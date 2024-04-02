@@ -449,8 +449,6 @@ github.com/lightningnetwork/lnd/fn v1.0.5 h1:ffDgMSn83avw6rNzxhbt6w5/2oIrwQKTPGf
 github.com/lightningnetwork/lnd/fn v1.0.5/go.mod h1:P027+0CyELd92H9gnReUkGGAqbFA1HwjHWdfaDFD51U=
 github.com/lightningnetwork/lnd/healthcheck v1.2.3 h1:oqhOOy8WmIEa6RBkYKC0mmYZkhl8T2kGD97n9jpML8o=
 github.com/lightningnetwork/lnd/healthcheck v1.2.3/go.mod h1:eDxH3dEwV9DeBW/6inrmlVh1qBOFV0AI14EEPnGt9gc=
-github.com/lightningnetwork/lnd/kvdb v1.4.5 h1:wwX3hbFTsnxEIL5X2Pszq1o3Fd2OZGdyWIMr9QrMxL8=
-github.com/lightningnetwork/lnd/kvdb v1.4.5/go.mod h1:oaGL6R/qwazM7hPurg8jSPYsWw3cGEOt6YJDs5TUNos=
 github.com/lightningnetwork/lnd/queue v1.1.1 h1:99ovBlpM9B0FRCGYJo6RSFDlt8/vOkQQZznVb18iNMI=
 github.com/lightningnetwork/lnd/queue v1.1.1/go.mod h1:7A6nC1Qrm32FHuhx/mi1cieAiBZo5O6l8IBIoQxvkz4=
 github.com/lightningnetwork/lnd/ticker v1.1.1 h1:J/b6N2hibFtC7JLV77ULQp++QLtCwT6ijJlbdiZFbSM=

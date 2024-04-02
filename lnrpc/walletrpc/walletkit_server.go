@@ -889,7 +889,7 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 			AmountSat:         amountSat,
 			SatPerVbyte:       satPerVbyte,
 			BroadcastAttempts: broadcastAttempts,
-			Force:             sweeperInput.Params.Force,
+			Immediate:         sweeperInput.Params.Immediate,
 		}
 
 		feePref := sweeperInput.Params.Fee
@@ -989,8 +989,8 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	// being broadcast. If it is not aware of the input however,
 	// lnwallet.ErrNotMine is returned.
 	params := sweep.ParamsUpdate{
-		Fee:   feePreference,
-		Force: in.Force,
+		Fee:       feePreference,
+		Immediate: in.Immediate,
 	}
 
 	_, err = w.cfg.Sweeper.UpdateParams(*op, params)
@@ -1060,8 +1060,8 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	)
 
 	sweepParams := sweep.Params{
-		Fee:   feePreference,
-		Force: in.Force,
+		Fee:       feePreference,
+		Immediate: in.Immediate,
 	}
 	if _, err = w.cfg.Sweeper.SweepInput(inp, sweepParams); err != nil {
 		return nil, err

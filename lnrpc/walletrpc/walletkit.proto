@@ -1110,6 +1110,13 @@ message PendingSweep {
     */
     uint32 next_broadcast_height = 6;
 
+    /*
+    Deprecated, use immediate.
+    Whether this input must be force-swept. This means that it is swept
+    immediately.
+    */
+    bool force = 7 [deprecated = true];
+
     // The requested confirmation target for this output.
     uint32 requested_conf_target = 8;
 
@@ -1128,10 +1135,9 @@ message PendingSweep {
     uint64 requested_sat_per_vbyte = 11;
 
     /*
-    Whether this input must be force-swept. This means that it is swept even
-    if it has a negative yield.
+    Whether this input will be swept immediately.
     */
-    bool force = 7;
+    bool immediate = 12;
 }
 
 message PendingSweepsRequest {
@@ -1159,16 +1165,22 @@ message BumpFeeRequest {
     uint32 sat_per_byte = 3 [deprecated = true];
 
     /*
-    Whether this input must be force-swept. This means that it is swept even
-    if it has a negative yield.
+    Deprecated, use immediate.
+    Whether this input must be force-swept. This means that it is swept
+    immediately.
     */
-    bool force = 4;
+    bool force = 4 [deprecated = true];
 
     /*
     The fee rate, expressed in sat/vbyte, that should be used to spend the input
     with.
     */
     uint64 sat_per_vbyte = 5;
+
+    /*
+    Whether this input will be swept immediately.
+    */
+    bool immediate = 6;
 }
 
 message BumpFeeResponse {

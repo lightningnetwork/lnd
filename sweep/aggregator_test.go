@@ -582,8 +582,8 @@ func TestBudgetAggregatorSortInputs(t *testing.T) {
 	// Create an input with the low budget but forced.
 	inputLowForce := SweeperInput{
 		params: Params{
-			Budget: budgetLow,
-			Force:  true,
+			Budget:    budgetLow,
+			Immediate: true,
 		},
 	}
 
@@ -597,8 +597,8 @@ func TestBudgetAggregatorSortInputs(t *testing.T) {
 	// Create an input with the high budget and forced.
 	inputHighForce := SweeperInput{
 		params: Params{
-			Budget: budgetHight,
-			Force:  true,
+			Budget:    budgetHight,
+			Immediate: true,
 		},
 	}
 

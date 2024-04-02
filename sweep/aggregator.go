@@ -77,7 +77,7 @@ func (c *inputCluster) createInputSets(maxFeeRate chainfee.SatPerKWeight,
 		// that is described above, we place force sweeps at the start
 		// of the list. Otherwise we can't be sure that they will be
 		// included in an input set.
-		if inputList[i].parameters().Force {
+		if inputList[i].parameters().Immediate {
 			return true
 		}
 
@@ -701,8 +701,8 @@ func (b *BudgetAggregator) sortInputs(inputs []SweeperInput) []SweeperInput {
 		right := sortedInputs[j].params.Budget
 
 		// Make sure forced inputs are always put in the front.
-		leftForce := sortedInputs[i].params.Force
-		rightForce := sortedInputs[j].params.Force
+		leftForce := sortedInputs[i].params.Immediate
+		rightForce := sortedInputs[j].params.Immediate
 
 		// If both are forced inputs, we return the one with the higher
 		// budget. If neither are forced inputs, we also return the one

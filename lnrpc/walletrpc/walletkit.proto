@@ -1175,12 +1175,19 @@ message BumpFeeRequest {
     The fee rate, expressed in sat/vbyte, that should be used to spend the input
     with.
     */
-    uint64 sat_per_vbyte = 5;
+    uint64 sat_per_vbyte = 5 [deprecated = true];
 
     /*
     Whether this input will be swept immediately.
     */
     bool immediate = 6;
+
+    /*
+    The max amount in sats that can be used as the fees. Setting this value
+    greater than the input value will result in CPFP - one or more wallet utxos
+    will be used to pay the fees specified by the budget.
+    */
+    uint64 budget = 7;
 }
 
 message BumpFeeResponse {

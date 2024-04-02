@@ -1379,6 +1379,11 @@
         "immediate": {
           "type": "boolean",
           "description": "Whether this input will be swept immediately."
+        },
+        "budget": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The max amount in sats that can be used as the fees. Setting this value\ngreater than the input value will result in CPFP - one or more wallet utxos\nwill be used to pay the fees specified by the budget."
         }
       }
     },

@@ -30,6 +30,7 @@ import (
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/labels"
@@ -951,6 +952,33 @@ func UnmarshallOutPoint(op *lnrpc.OutPoint) (*wire.OutPoint, error) {
 	}, nil
 }
 
+// validateBumpFeeRequest makes sure the deprecated fields are not used and the
+// params are sane.
+func validateBumpFeeRequest(in *BumpFeeRequest) error {
+	// We don't allow using deprecated fields as they have no effects.
+	if in.SatPerByte != 0 {
+		return fmt.Errorf("field SatPerByte is deprecated")
+	}
+
+	if in.SatPerVbyte != 0 {
+		return fmt.Errorf("field SatPerVbyte is deprecated")
+	}
+
+	if in.Force {
+		return fmt.Errorf("field Force is deprecated")
+	}
+
+	if in.TargetConf == 0 {
+		return fmt.Errorf("TargetConf must be at least 1")
+	}
+
+	if in.Budget == 0 {
+		return fmt.Errorf("must specify the budget")
+	}
+
+	return nil
+}
+
 // BumpFee allows bumping the fee rate of an arbitrary input. A fee preference
 // can be expressed either as a specific fee rate or a delta of blocks in which
 // the output should be swept on-chain within. If a fee preference is not
@@ -965,53 +993,50 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 		return nil, err
 	}
 
-	// We only allow using either the deprecated field or the new field.
-	if in.SatPerByte != 0 && in.SatPerVbyte != 0 {
-		return nil, fmt.Errorf("either SatPerByte or " +
-			"SatPerVbyte should be set, but not both")
-	}
-
-	// Construct the request's fee preference.
-	satPerKw := chainfee.SatPerKVByte(in.SatPerVbyte * 1000).FeePerKWeight()
-	if in.SatPerByte != 0 {
-		satPerKw = chainfee.SatPerKVByte(
-			in.SatPerByte * 1000,
-		).FeePerKWeight()
-	}
-	feePreference := sweep.FeeEstimateInfo{
-		ConfTarget: uint32(in.TargetConf),
-		FeeRate:    satPerKw,
-	}
-
-	// We'll attempt to bump the fee of the input through the UtxoSweeper.
-	// If it is currently attempting to sweep the input, then it'll simply
-	// bump its fee, which will result in a replacement transaction (RBF)
-	// being broadcast. If it is not aware of the input however,
-	// lnwallet.ErrNotMine is returned.
-	params := sweep.ParamsUpdate{
-		Fee:       feePreference,
-		Immediate: in.Immediate,
-	}
-
-	_, err = w.cfg.Sweeper.UpdateParams(*op, params)
-	switch err {
-	case nil:
-		return &BumpFeeResponse{
-			Status: "Successfully registered rbf-tx with sweeper",
-		}, nil
-	case lnwallet.ErrNotMine:
-		break
-	default:
+	// Return an error if deprecated fields are used.
+	if err := validateBumpFeeRequest(in); err != nil {
 		return nil, err
 	}
 
-	log.Debugf("Attempting to CPFP outpoint %s", op)
+	// Get the current height so we can calculate the deadline height.
+	_, currentHeight, err := w.cfg.Chain.GetBestBlock()
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve current height: %v",
+			err)
+	}
 
-	// Since we're unable to perform a bump through RBF, we'll assume the
-	// user is attempting to bump an unconfirmed transaction's fee rate by
+	// We now create a new sweeping params and update it in the sweeper.
+	// This will complicate the RBF conditions if this input has already
+	// been offered to sweeper before and it has already been included in a
+	// tx with other inputs. If this is the case, two results are possible:
+	// - either this input successfully RBFed the existing tx, or,
+	// - the budget of this input was not enough to RBF the existing tx.
+	params := sweep.Params{
+		Immediate:      in.Immediate,
+		DeadlineHeight: fn.Some(int32(in.TargetConf) + currentHeight),
+		Budget:         btcutil.Amount(in.Budget),
+	}
+	_, err = w.cfg.Sweeper.UpdateParams(*op, params)
+
+	// Exit early if there's no error.
+	if err == nil {
+		return &BumpFeeResponse{
+			Status: "Successfully registered rbf-tx with sweeper",
+		}, nil
+	}
+
+	// If there's an error but it's not ErrNotMine, we will exit with it.
+	if err != nil && !errors.Is(err, lnwallet.ErrNotMine) {
+		return nil, err
+	}
+
+	log.Debugf("Attempting to sweep outpoint %s", op)
+
+	// Since the sweeper is not aware of the input, we'll assume the user
+	// is attempting to bump an unconfirmed transaction's fee rate by
 	// sweeping an output within it under control of the wallet with a
-	// higher fee rate, essentially performing a Child-Pays-For-Parent
-	// (CPFP).
+	// higher fee rate. Based on the budget chosen, this may be an RBF or
+	// CPFP.
 	//
 	// We'll gather all of the information required by the UtxoSweeper in
 	// order to sweep the output.
@@ -1047,28 +1072,21 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 		return nil, fmt.Errorf("unknown input witness %v", op)
 	}
 
-	// We'll use the current height as the height hint since we're dealing
-	// with an unconfirmed transaction.
-	_, currentHeight, err := w.cfg.Chain.GetBestBlock()
-	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve current height: %v",
-			err)
-	}
-
 	inp := input.NewBaseInput(
 		op, witnessType, signDesc, uint32(currentHeight),
 	)
 
 	sweepParams := sweep.Params{
-		Fee:       feePreference,
-		Immediate: in.Immediate,
+		Immediate:      in.Immediate,
+		DeadlineHeight: fn.Some(int32(in.TargetConf) + currentHeight),
+		Budget:         btcutil.Amount(in.Budget),
 	}
 	if _, err = w.cfg.Sweeper.SweepInput(inp, sweepParams); err != nil {
 		return nil, err
 	}
 
 	return &BumpFeeResponse{
-		Status: "Successfully registered cpfp-tx with the sweeper",
+		Status: "Successfully registered sweeping tx with the sweeper",
 	}, nil
 }
 

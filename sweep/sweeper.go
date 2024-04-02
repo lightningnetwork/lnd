@@ -274,7 +274,7 @@ type PendingInputResponse struct {
 // intent to update the sweep parameters of a given input.
 type updateReq struct {
 	input        wire.OutPoint
-	params       ParamsUpdate
+	params       Params
 	responseChan chan *updateResp
 }
 
@@ -691,6 +691,12 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 				err:        err,
 			}
 
+			// Perform an sweep immediately if asked.
+			if req.params.Immediate {
+				inputs = s.updateSweeperInputs()
+				s.sweepPendingInputs(inputs)
+			}
+
 		case result := <-s.bumpResultChan:
 			// Handle the bump event.
 			err := s.handleBumpEvent(result)
@@ -1082,7 +1088,7 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 // is actually successful. The responsibility of doing so should be handled by
 // the caller.
 func (s *UtxoSweeper) UpdateParams(input wire.OutPoint,
-	params ParamsUpdate) (chan Result, error) {
+	params Params) (chan Result, error) {
 
 	// Ensure the client provided a sane fee preference.
 	_, err := params.Fee.Estimate(

@@ -650,13 +650,29 @@ func (c *CommitAuxLeaves) ForRemoteCommit() CommitAuxLeaves {
 //
 // TODO(roasbeef): move into pkg for custom chans?
 type AuxLeafStore interface {
-	// FetchLeaves attempts to fetch the auxiliary leaves for the
-	// commitment.
-	FetchLeaves(chanPoint wire.OutPoint,
-		auxBlob tlv.Blob) fn.Option[CommitAuxLeaves]
+	// FetchLeavesFromView attempts to fetch the auxiliary leaves that
+	// correspond to the passed aux blob, and pending fully evaluated HTLC
+	// view.
+	FetchLeavesFromView(prevBlob tlv.Blob,
+		view *HtlcView,
+		keyRing CommitmentKeyRing) fn.Option[CommitAuxLeaves]
 
-	// RefreshBlob is used to refresh the blob with the new commitment.
-	RefreshBlob(newCommitTx *wire.MsgTx, oldBlob tlv.Blob) tlv.Blob
+	// FetchLeavesFromCommit attempts to fetch the auxiliary leaves that
+	// correspond to the passed aux blob, and an existing channel
+	// commitment.
+	FetchLeavesFromCommit(c channeldb.ChannelCommitment,
+		keyRing CommitmentKeyRing) fn.Option[CommitAuxLeaves]
+
+	// FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
+	// from a channel revocation that stores balance + blob information.
+	FetchLeavesFromRevocation(r *channeldb.RevocationLog,
+		keyRing CommitmentKeyRing) fn.Option[CommitAuxLeaves]
+
+	// ApplyHtlcView serves as the state transition function for the custom
+	// channel's blob. Given the old blob, and an HTLC view, then a new
+	// blob should be returned that reflects the pending updates.
+	ApplyHtlcView(oldBlob tlv.Blob, view *HtlcView,
+		keyRing CommitmentKeyRing) fn.Option[tlv.Blob]
 }
 
 // CommitmentBuilder is a type that wraps the type of channel we are dealing
@@ -736,23 +752,77 @@ type unsignedCommitmentTx struct {
 	cltvs []uint32
 }
 
-// auxLeavesFromBlob is a helper function that attempts to fetch the auxiliary
-// leaves given an option of a blob, and a leaf store.
-func auxLeavesFromBlob(chanPoint wire.OutPoint,
-	blob fn.Option[tlv.Blob],
-	leafStore fn.Option[AuxLeafStore]) fn.Option[CommitAuxLeaves] {
+// AuxLeavesFromCommit is a helper function that attempts to fetch the
+// auxiliary leaves given a finalized channel commitment, and a leaf store.
+func AuxLeavesFromCommit(commit channeldb.ChannelCommitment,
+	leafStore fn.Option[AuxLeafStore],
+	keyRing CommitmentKeyRing) fn.Option[CommitAuxLeaves] {
+
+	tapscriptLeaves := fn.MapOption(
+		func(s AuxLeafStore) fn.Option[CommitAuxLeaves] {
+			return s.FetchLeavesFromCommit(commit, keyRing)
+		},
+	)(leafStore)
+
+	return fn.FlattenOption(tapscriptLeaves)
+}
+
+// auxLeavesFromView is used to derive the set of commit aux leaves (if any),
+// that are needed to create a new commitment transaction using the new htlc
+// view.
+func auxLeavesFromView(prevBlob fn.Option[tlv.Blob], nextView *HtlcView,
+	leafStore fn.Option[AuxLeafStore],
+	keyRing CommitmentKeyRing) fn.Option[CommitAuxLeaves] {
 
 	leaves := fn.MapOption(func(b tlv.Blob) fn.Option[CommitAuxLeaves] {
 		tapscriptLeaves := fn.MapOption(
 			func(s AuxLeafStore) fn.Option[CommitAuxLeaves] {
-				return s.FetchLeaves(chanPoint, b)
+				return s.FetchLeavesFromView(
+					b, nextView, keyRing,
+				)
 			},
 		)(leafStore)
 
 		return fn.FlattenOption(tapscriptLeaves)
-	})(blob)
+	})(prevBlob)
 
 	return fn.FlattenOption(leaves)
+}
+
+// auxLeavesFromRevocation is a helper function that attempts to fetch the aux
+// leaves given a revoked state.
+func auxLeavesFromRevocation(revocation *channeldb.RevocationLog,
+	leafStore fn.Option[AuxLeafStore],
+	keyRing CommitmentKeyRing) fn.Option[CommitAuxLeaves] {
+
+	tapscriptLeaves := fn.MapOption(
+		func(s AuxLeafStore) fn.Option[CommitAuxLeaves] {
+			return s.FetchLeavesFromRevocation(revocation, keyRing)
+		},
+	)(leafStore)
+
+	return fn.FlattenOption(tapscriptLeaves)
+}
+
+// updateAuxBlob is a helper function that attempts to update the aux blob
+// given the prior and current state information.
+func updateAuxBlob(prevBlob fn.Option[tlv.Blob], nextView *HtlcView,
+	leafStore fn.Option[AuxLeafStore],
+	keyRing CommitmentKeyRing) fn.Option[tlv.Blob] {
+
+	blob := fn.MapOption(func(b tlv.Blob) fn.Option[tlv.Blob] {
+		tapscriptLeaves := fn.MapOption(
+			func(s AuxLeafStore) fn.Option[tlv.Blob] {
+				return s.ApplyHtlcView(
+					b, nextView, keyRing,
+				)
+			},
+		)(leafStore)
+
+		return fn.FlattenOption(tapscriptLeaves)
+	})(prevBlob)
+
+	return fn.FlattenOption(blob)
 }
 
 // createUnsignedCommitmentTx generates the unsigned commitment transaction for
@@ -771,7 +841,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	}
 
 	numHTLCs := int64(0)
-	for _, htlc := range filteredHTLCView.ourUpdates {
+	for _, htlc := range filteredHTLCView.OurUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, isOurs, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
@@ -782,7 +852,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 
 		numHTLCs++
 	}
-	for _, htlc := range filteredHTLCView.theirUpdates {
+	for _, htlc := range filteredHTLCView.TheirUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, isOurs, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
@@ -832,9 +902,9 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// Before we create the commitment transaction below, we'll try to see
 	// if there're any aux leave that need to be a part of the tapscript
 	// tree. We'll only do this if we have a custom blob defined though.
-	auxLeaves := auxLeavesFromBlob(
-		cb.chanState.FundingOutpoint, cb.chanState.CustomBlob,
-		cb.auxLeafStore,
+	auxLeaves := auxLeavesFromView(
+		prevCommit.customBlob, filteredHTLCView, cb.auxLeafStore,
+		*keyRing,
 	)
 
 	// Depending on whether the transaction is ours or not, we call
@@ -881,7 +951,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// commitment outputs and should correspond to zero values for the
 	// purposes of sorting.
 	cltvs := make([]uint32, len(commitTx.TxOut))
-	for _, htlc := range filteredHTLCView.ourUpdates {
+	for _, htlc := range filteredHTLCView.OurUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, isOurs, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
@@ -899,7 +969,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		}
 		cltvs = append(cltvs, htlc.Timeout) // nolint:makezero
 	}
-	for _, htlc := range filteredHTLCView.theirUpdates {
+	for _, htlc := range filteredHTLCView.TheirUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, isOurs, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
@@ -1336,9 +1406,7 @@ func findOutputIndexesFromRemote(revocationPreimage *chainhash.Hash,
 
 	// If we have a custom blob, then we'll attempt to fetch the aux leaves
 	// for this state.
-	auxLeaves := auxLeavesFromBlob(
-		chanState.FundingOutpoint, chanState.CustomBlob, leafStore,
-	)
+	auxLeaves := AuxLeavesFromCommit(chanCommit, leafStore, *keyRing)
 
 	// Map the scripts from our PoV. When facing a local commitment, the to
 	// local output belongs to us and the to remote output belongs to them.

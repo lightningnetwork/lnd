@@ -1657,6 +1657,24 @@ func TestHTLCsExtraData(t *testing.T) {
 		),
 	}
 
+	// Custom channel data htlc with a blinding point.
+	customDataHTLC := HTLC{
+		Signature:     testSig.Serialize(),
+		Incoming:      false,
+		Amt:           10,
+		RHash:         key,
+		RefundTimeout: 1,
+		OnionBlob:     lnmock.MockOnion(),
+		BlindingPoint: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](
+				pubKey,
+			),
+		),
+		CustomRecords: map[uint64][]byte{
+			uint64(lnwire.MinCustomRecordsTlvType + 3): {1, 2, 3},
+		},
+	}
+
 	testCases := []struct {
 		name        string
 		htlcs       []HTLC
@@ -1678,6 +1696,7 @@ func TestHTLCsExtraData(t *testing.T) {
 				mockHtlc,
 				blindingPointHTLC,
 				mockHtlc,
+				customDataHTLC,
 			},
 		},
 	}

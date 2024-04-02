@@ -163,22 +163,32 @@ type HTLCEntry struct {
 	//
 	// NOTE: this field is the memory representation of the field amtUint.
 	Amt tlv.RecordT[tlv.TlvType4, tlv.BigSizeT[btcutil.Amount]]
+
+	// CustomBlob is an optional blob that can be used to store information
+	// specific to revocation handling for a custom channel type.
+	CustomBlob tlv.OptionalRecordT[tlv.TlvType5, tlv.Blob]
 }
 
 // toTlvStream converts an HTLCEntry record into a tlv representation.
 func (h *HTLCEntry) toTlvStream() (*tlv.Stream, error) {
-	return tlv.NewStream(
+	records := []tlv.Record{
 		h.RHash.Record(),
 		h.RefundTimeout.Record(),
 		h.OutputIndex.Record(),
 		h.Incoming.Record(),
 		h.Amt.Record(),
-	)
+	}
+
+	h.CustomBlob.WhenSome(func(r tlv.RecordT[tlv.TlvType5, tlv.Blob]) {
+		records = append(records, r.Record())
+	})
+
+	return tlv.NewStream(records...)
 }
 
 // NewHTLCEntryFromHTLC creates a new HTLCEntry from an HTLC.
 func NewHTLCEntryFromHTLC(htlc HTLC) *HTLCEntry {
-	return &HTLCEntry{
+	h := &HTLCEntry{
 		RHash: tlv.NewRecordT[tlv.TlvType0, SparsePayHash](
 			NewSparsePayHash(htlc.RHash),
 		),
@@ -195,6 +205,16 @@ func NewHTLCEntryFromHTLC(htlc HTLC) *HTLCEntry {
 			tlv.NewBigSizeT(htlc.Amt.ToSatoshis()),
 		),
 	}
+
+	if len(htlc.ExtraData) != 0 {
+		h.CustomBlob = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType5, tlv.Blob](
+				htlc.ExtraData,
+			),
+		)
+	}
+
+	return h
 }
 
 // RevocationLog stores the info needed to construct a breach retribution. Its
@@ -238,13 +258,18 @@ type RevocationLog struct {
 	// all revocation logs.
 	TheirBalance tlv.OptionalRecordT[tlv.TlvType4, tlv.BigSizeT[lnwire.MilliSatoshi]] //nolint:lll
 
+	// CustomBlob is an optional blob that can be used to store information
+	// specific to a custom channel type. This information is only created
+	// at channel funding time, and after wards is to be considered
+	// immutable.
+	CustomBlob tlv.OptionalRecordT[tlv.TlvType5, tlv.Blob]
 }
 
 // NewRevocationLog creates a new RevocationLog from the given parameters.
 func NewRevocationLog(ourOutputIndex uint16, theirOutputIndex uint16,
 	commitHash [32]byte,
 	ourBalance, theirBalance fn.Option[lnwire.MilliSatoshi],
-	htlcs []*HTLCEntry) RevocationLog {
+	htlcs []*HTLCEntry, customBlob fn.Option[tlv.Blob]) RevocationLog {
 
 	rl := RevocationLog{
 		OurOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType0, uint16](
@@ -272,6 +297,12 @@ func NewRevocationLog(ourOutputIndex uint16, theirOutputIndex uint16,
 			tlv.NewRecordT[tlv.TlvType4, tlv.BigSizeT[lnwire.MilliSatoshi]](
 				tlv.NewBigSizeT(balance),
 			),
+		)
+	})
+
+	customBlob.WhenSome(func(blob tlv.Blob) {
+		rl.CustomBlob = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType5, tlv.Blob](blob),
 		)
 	})
 
@@ -305,6 +336,12 @@ func putRevocationLog(bucket kvdb.RwBucket, commit *ChannelCommitment,
 		),
 		HTLCEntries: make([]*HTLCEntry, 0, len(commit.Htlcs)),
 	}
+
+	commit.CustomBlob.WhenSome(func(blob tlv.Blob) {
+		rl.CustomBlob = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType5, tlv.Blob](blob),
+		)
+	})
 
 	if !noAmtData {
 		rl.OurBalance = tlv.SomeRecordT(
@@ -381,6 +418,10 @@ func serializeRevocationLog(w io.Writer, rl *RevocationLog) error {
 		records = append(records, r.Record())
 	})
 
+	rl.CustomBlob.WhenSome(func(r tlv.RecordT[tlv.TlvType5, tlv.Blob]) {
+		records = append(records, r.Record())
+	})
+
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(records...)
 	if err != nil {
@@ -421,6 +462,7 @@ func deserializeRevocationLog(r io.Reader) (RevocationLog, error) {
 
 	ourBalance := rl.OurBalance.Zero()
 	theirBalance := rl.TheirBalance.Zero()
+	customBlob := rl.CustomBlob.Zero()
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(
@@ -429,6 +471,7 @@ func deserializeRevocationLog(r io.Reader) (RevocationLog, error) {
 		rl.CommitTxHash.Record(),
 		ourBalance.Record(),
 		theirBalance.Record(),
+		customBlob.Record(),
 	)
 	if err != nil {
 		return rl, err
@@ -448,6 +491,10 @@ func deserializeRevocationLog(r io.Reader) (RevocationLog, error) {
 		rl.TheirBalance = tlv.SomeRecordT(theirBalance)
 	}
 
+	if t, ok := parsedTypes[customBlob.TlvType()]; ok && t == nil {
+		rl.CustomBlob = tlv.SomeRecordT(customBlob)
+	}
+
 	// Read the HTLC entries.
 	rl.HTLCEntries, err = deserializeHTLCEntries(r)
 
@@ -462,19 +509,35 @@ func deserializeHTLCEntries(r io.Reader) ([]*HTLCEntry, error) {
 	for {
 		var htlc HTLCEntry
 
+		customBlob := htlc.CustomBlob.Zero()
+
 		// Create the tlv stream.
-		tlvStream, err := htlc.toTlvStream()
+		records := []tlv.Record{
+			htlc.RHash.Record(),
+			htlc.RefundTimeout.Record(),
+			htlc.OutputIndex.Record(),
+			htlc.Incoming.Record(),
+			htlc.Amt.Record(),
+			customBlob.Record(),
+		}
+
+		tlvStream, err := tlv.NewStream(records...)
 		if err != nil {
 			return nil, err
 		}
 
 		// Read the HTLC entry.
-		if _, err := readTlvStream(r, tlvStream); err != nil {
+		parsedTypes, err := readTlvStream(r, tlvStream)
+		if err != nil {
 			// We've reached the end when hitting an EOF.
 			if err == io.ErrUnexpectedEOF {
 				break
 			}
 			return nil, err
+		}
+
+		if t, ok := parsedTypes[customBlob.TlvType()]; ok && t == nil {
+			htlc.CustomBlob = tlv.SomeRecordT(customBlob)
 		}
 
 		// Append the entry.

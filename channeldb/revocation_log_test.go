@@ -34,6 +34,10 @@ var (
 		0xff, // value = 255
 	}
 
+	blobBytes = tlv.Blob{
+		0x01, 0x02, 0x03, 0x04,
+	}
+
 	testHTLCEntry = HTLCEntry{
 		RefundTimeout: tlv.NewPrimitiveRecord[tlv.TlvType1, uint32](
 			740_000,
@@ -47,10 +51,13 @@ var (
 		Amt: tlv.NewRecordT[tlv.TlvType4, tlv.BigSizeT[btcutil.Amount]](
 			tlv.NewBigSizeT(btcutil.Amount(1_000_000)),
 		),
+		CustomBlob: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType5, tlv.Blob](blobBytes),
+		),
 	}
 	testHTLCEntryBytes = []byte{
-		// Body length 23.
-		0x16,
+		// Body length 28.
+		0x1c,
 		// Rhash tlv.
 		0x0, 0x0,
 		// RefundTimeout tlv.
@@ -61,6 +68,8 @@ var (
 		0x3, 0x1, 0x1,
 		// Amt tlv.
 		0x4, 0x5, 0xfe, 0x0, 0xf, 0x42, 0x40,
+		// Custom blob tlv.
+		0x5, 0x4, 0x1, 0x2, 0x3, 0x4,
 	}
 
 	localBalance  = lnwire.MilliSatoshi(9000)
@@ -81,17 +90,19 @@ var (
 			Amt: lnwire.NewMSatFromSatoshis(
 				testHTLCEntry.Amt.Val.Int(),
 			),
+			ExtraData: blobBytes,
 		}},
+		CustomBlob: fn.Some(blobBytes),
 	}
 
 	testRevocationLogNoAmts = NewRevocationLog(
 		0, 1, testChannelCommit.CommitTx.TxHash(),
 		fn.None[lnwire.MilliSatoshi](), fn.None[lnwire.MilliSatoshi](),
-		[]*HTLCEntry{&testHTLCEntry},
+		[]*HTLCEntry{&testHTLCEntry}, fn.Some(blobBytes),
 	)
 	testRevocationLogNoAmtsBytes = []byte{
-		// Body length 42.
-		0x2a,
+		// Body length 48.
+		0x30,
 		// OurOutputIndex tlv.
 		0x0, 0x2, 0x0, 0x0,
 		// TheirOutputIndex tlv.
@@ -102,16 +113,18 @@ var (
 		0x6e, 0x60, 0x29, 0x23, 0x1d, 0x5e, 0xc5, 0xe6,
 		0xbd, 0xf7, 0xd3, 0x9b, 0x16, 0x7d, 0x0, 0xff,
 		0xc8, 0x22, 0x51, 0xb1, 0x5b, 0xa0, 0xbf, 0xd,
+		// Custom blob tlv.
+		0x5, 0x4, 0x1, 0x2, 0x3, 0x4,
 	}
 
 	testRevocationLogWithAmts = NewRevocationLog(
 		0, 1, testChannelCommit.CommitTx.TxHash(),
 		fn.Some(localBalance), fn.Some(remoteBalance),
-		[]*HTLCEntry{&testHTLCEntry},
+		[]*HTLCEntry{&testHTLCEntry}, fn.Some(blobBytes),
 	)
 	testRevocationLogWithAmtsBytes = []byte{
-		// Body length 52.
-		0x34,
+		// Body length 58.
+		0x3a,
 		// OurOutputIndex tlv.
 		0x0, 0x2, 0x0, 0x0,
 		// TheirOutputIndex tlv.
@@ -126,6 +139,8 @@ var (
 		0x3, 0x3, 0xfd, 0x23, 0x28,
 		// Remote Balance.
 		0x4, 0x3, 0xfd, 0x0b, 0xb8,
+		// Custom blob tlv.
+		0x5, 0x4, 0x1, 0x2, 0x3, 0x4,
 	}
 )
 
@@ -222,7 +237,7 @@ func TestSerializeHTLCEntries(t *testing.T) {
 	partialBytes := testHTLCEntryBytes[3:]
 
 	// Write the total length and RHash tlv.
-	expectedBytes := []byte{0x36, 0x0, 0x20}
+	expectedBytes := []byte{0x3c, 0x0, 0x20}
 	expectedBytes = append(expectedBytes, rHashBytes...)
 
 	// Append the rest.
@@ -337,7 +352,7 @@ func TestDerializeHTLCEntries(t *testing.T) {
 	partialBytes := testHTLCEntryBytes[3:]
 
 	// Write the total length and RHash tlv.
-	testBytes := append([]byte{0x36, 0x0, 0x20}, rHashBytes...)
+	testBytes := append([]byte{0x3c, 0x0, 0x20}, rHashBytes...)
 
 	// Append the rest.
 	testBytes = append(testBytes, partialBytes...)

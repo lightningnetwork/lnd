@@ -360,6 +360,7 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 		InitialLocalBalance:     lnwire.MilliSatoshi(9000),
 		InitialRemoteBalance:    lnwire.MilliSatoshi(3000),
 		TapscriptRoot:           fn.Some(tapscriptRoot),
+		CustomBlob:              fn.Some([]byte{1, 2, 3}),
 	}
 }
 

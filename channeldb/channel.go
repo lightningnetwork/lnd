@@ -320,6 +320,9 @@ func (c *chanAuxData) toOpenChan(o *OpenChannel) {
 	c.tapscriptRoot.WhenSomeV(func(h [32]byte) {
 		o.TapscriptRoot = fn.Some(chainhash.Hash(h))
 	})
+	c.customBlob.WhenSomeV(func(blob tlv.Blob) {
+		o.CustomBlob = fn.Some(blob)
+	})
 }
 
 // newChanAuxDataFromChan creates a new chanAuxData from the given channel.
@@ -347,6 +350,11 @@ func newChanAuxDataFromChan(openChan *OpenChannel) *chanAuxData {
 	openChan.TapscriptRoot.WhenSome(func(h chainhash.Hash) {
 		c.tapscriptRoot = tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType6]([32]byte(h)),
+		)
+	})
+	openChan.CustomBlob.WhenSome(func(blob tlv.Blob) {
+		c.customBlob = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType7](blob),
 		)
 	})
 
@@ -1046,6 +1054,12 @@ type OpenChannel struct {
 	// TapscriptRoot is an optional tapscript root used to derive the
 	// musig2 funding output.
 	TapscriptRoot fn.Option[chainhash.Hash]
+
+	// CustomBlob is an optional blob that can be used to store information
+	// specific to a custom channel type. This information is only created
+	// at channel funding time, and after wards is to be considered
+	// immutable.
+	CustomBlob fn.Option[tlv.Blob]
 
 	// TODO(roasbeef): eww
 	Db *ChannelStateDB

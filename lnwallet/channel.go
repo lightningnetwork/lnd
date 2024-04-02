@@ -544,6 +544,10 @@ type commitment struct {
 	// on this commitment transaction.
 	incomingHTLCs []PaymentDescriptor
 
+	// customBlob stores opaque bytes that may be used by custom channels
+	// to store extra data for a given commitment state.
+	customBlob fn.Option[tlv.Blob]
+
 	// [outgoing|incoming]HTLCIndex is an index that maps an output index
 	// on the commitment transaction to the payment descriptor that
 	// represents the HTLC output.
@@ -724,6 +728,7 @@ func (c *commitment) toDiskCommit(ourCommit bool) *channeldb.ChannelCommitment {
 		CommitTx:        c.txn,
 		CommitSig:       c.sig,
 		Htlcs:           make([]channeldb.HTLC, 0, numHtlcs),
+		CustomBlob:      c.customBlob,
 	}
 
 	for _, htlc := range c.outgoingHTLCs {
@@ -3083,6 +3088,12 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 			effFeeRate, spew.Sdump(commitTx))
 	}
 
+	// Given the custom blob of the past state, and this new HTLC view,
+	// we'll generate a new blob for the latest commitment.
+	newCommitBlob := updateAuxBlob(
+		commitChain.tip().customBlob, htlcView, lc.leafStore, *keyRing,
+	)
+
 	// With the commitment view created, store the resulting balances and
 	// transaction with the other parameters for this height.
 	c := &commitment{
@@ -3098,6 +3109,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 		feePerKw:          feePerKw,
 		dustLimit:         dustLimit,
 		isOurs:            !remoteChain,
+		customBlob:        newCommitBlob,
 	}
 
 	// In order to ensure _none_ of the HTLC's associated with this new

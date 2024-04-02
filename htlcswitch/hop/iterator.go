@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // Iterator is an interface that abstracts away the routing information
@@ -186,7 +187,7 @@ type DecodeHopIteratorRequest struct {
 	RHash          []byte
 	IncomingCltv   uint32
 	IncomingAmount lnwire.MilliSatoshi
-	BlindingPoint  *btcec.PublicKey
+	BlindingPoint  lnwire.BlindingPointRecord
 }
 
 // DecodeHopIteratorResponse encapsulates the outcome of a batched sphinx onion
@@ -243,12 +244,14 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 		}
 
 		var opts []sphinx.ProcessOnionOpt
-		if req.BlindingPoint != nil {
-			opts = append(opts, sphinx.WithBlindingPoint(
-				req.BlindingPoint,
-			))
-		}
+		req.BlindingPoint.WhenSome(func(
+			b tlv.RecordT[lnwire.BlindingPointTlvType,
+				*btcec.PublicKey]) {
 
+			opts = append(opts, sphinx.WithBlindingPoint(
+				b.Val,
+			))
+		})
 		err = tx.ProcessOnionPacket(
 			seqNum, onionPkt, req.RHash, req.IncomingCltv, opts...,
 		)

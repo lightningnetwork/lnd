@@ -11045,7 +11045,8 @@ func TestBlindingPointPersistence(t *testing.T) {
 	// Assert that the blinding point is restored from disk.
 	remoteCommit := aliceChannel.remoteCommitChain.tip()
 	require.Len(t, remoteCommit.outgoingHTLCs, 1)
-	require.Equal(t, blinding, remoteCommit.outgoingHTLCs[0].BlindingPoint)
+	require.Equal(t, blinding,
+		remoteCommit.outgoingHTLCs[0].BlindingPoint.UnwrapOrFailV(t))
 
 	// Next, update bob's commitment and assert that we can still retrieve
 	// his incoming blinding point after restart.
@@ -11061,5 +11062,6 @@ func TestBlindingPointPersistence(t *testing.T) {
 	// Assert that Bob is able to recover the blinding point from disk.
 	bobCommit := bobChannel.localCommitChain.tip()
 	require.Len(t, bobCommit.incomingHTLCs, 1)
-	require.Equal(t, blinding, bobCommit.incomingHTLCs[0].BlindingPoint)
+	require.Equal(t, blinding,
+		bobCommit.incomingHTLCs[0].BlindingPoint.UnwrapOrFailV(t))
 }

@@ -131,6 +131,10 @@ type BlindingProcessor interface {
 	// ephemeral key provided.
 	DecryptBlindedHopData(ephemPub *btcec.PublicKey,
 		encryptedData []byte) ([]byte, error)
+
+	// NextEphemeral returns the next hop's ephemeral key, calculated
+	// from the current ephemeral key provided.
+	NextEphemeral(*btcec.PublicKey) (*btcec.PublicKey, error)
 }
 
 // BlindingKit contains the components required to extract forwarding
@@ -250,11 +254,39 @@ func (b *BlindingKit) DecryptAndValidateFwdInfo(payload *Payload,
 		return nil, err
 	}
 
+	// If we have an override for the blinding point for the next node,
+	// we'll just use it without tweaking (the sender intended to switch
+	// out directly for this blinding point). Otherwise, we'll tweak our
+	// blinding point to get the next ephemeral key.
+	nextEph, err := routeData.NextBlindingOverride.UnwrapOrFuncErr(
+		func() (tlv.RecordT[tlv.TlvType8,
+			*btcec.PublicKey], error) {
+
+			next, err := b.Processor.NextEphemeral(blindingPoint)
+			if err != nil {
+				// Return a zero record because we expect the
+				// error to be checked.
+				return routeData.NextBlindingOverride.Zero(),
+					err
+			}
+
+			return tlv.NewPrimitiveRecord[tlv.TlvType8](next), nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &ForwardingInfo{
 		NextHop:         routeData.ShortChannelID.Val,
 		AmountToForward: fwdAmt,
 		OutgoingCTLV: b.IncomingCltv - uint32(
 			routeData.RelayInfo.Val.CltvExpiryDelta,
+		),
+		// Remap from blinding override type to blinding point type.
+		NextBlinding: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](
+				nextEph.Val),
 		),
 	}, nil
 }

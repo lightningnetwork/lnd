@@ -6,8 +6,10 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -676,4 +678,125 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// Mine a block to confirm both sweeping txns, this is needed to clean
 	// up the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
+}
+
+// testSweepCommitOutputAndAnchor checks when a channel is force closed without
+// any time-sensitive HTLCs, the anchor output is swept without any CPFP
+// attempts. In addition, the to_local output should be swept using the
+// specified deadline and budget.
+//
+// Setup:
+//  1. Fund Alice with 1 UTXOs - she only needs one for the funding process,
+//     and no wallet utxos are needed for her sweepings.
+//  2. Fund Bob with no UTXOs - his sweeping txns don't need wallet utxos as he
+//     doesn't need to sweep anyt time-sensitive outputs.
+//  3. Alice opens a channel with Bob, and successfully sends him an HTLC.
+//  4. Alice force closes the channel.
+//
+// Test:
+//  1. Alice's anchor sweeping is not attempted, instead, it should be swept
+//     together with her to_local output using the no deadline path.
+//  2. Bob would also sweep his anchor and to_local outputs in a single
+//     sweeping tx using the no deadline path.
+//  3. Both Alice and Bob's RBF attempts are using the fee rates calculated
+//     from the deadline and budget.
+//  4. Wallet UTXOs requirements are met - neither Alice nor Bob needs wallet
+//     utxos to finish their sweeps.
+func testSweepHTLCs(ht *lntest.HarnessTest) {
+	// Setup testing params.
+	//
+	// Invoice is 10k sats.
+	invoiceAmt := btcutil.Amount(10_000)
+
+	// Create two preimages, one that will be settled, the other be hold.
+	var preimageSettled, preimageHold lntypes.Preimage
+	copy(preimageSettled[:], ht.Random32Bytes())
+	copy(preimageHold[:], ht.Random32Bytes())
+	payHashSettled := preimageSettled.Hash()
+	payHashHold := preimageHold.Hash()
+
+	// We now set up the force close scenario. We will create a network
+	// from Alice -> Bob -> Carol, where Alice will send two payments to
+	// Carol via Bob, Alice goes offline, then Carol settles the first
+	// payment, goes offline. We expect Bob to sweep his incoming and
+	// outgoing HTLCs.
+	//
+	// Create two nodes, Alice and Bob.
+	alice := ht.NewNode("Alice", []string{"--protocol.anchors"})
+	bob := ht.NewNode("Bob", []string{"--protocol.anchors"})
+
+	// Create a three hop network: Alice -> Bob -> Carol.
+	abChanPoint, bcChanPoint, carol := createThreeHopNetwork(
+		ht, alice, bob, false, lnrpc.CommitmentType_ANCHORS, false,
+	)
+
+	// Subscribe the invoices.
+	stream1 := carol.RPC.SubscribeSingleInvoice(payHashSettled[:])
+	stream2 := carol.RPC.SubscribeSingleInvoice(payHashHold[:])
+
+	// With the network active, we'll now add two hodl invoices at Carol's
+	// end.
+	invoiceReq1 := &invoicesrpc.AddHoldInvoiceRequest{
+		Value:      int64(invoiceAmt),
+		CltvExpiry: finalCltvDelta,
+		Hash:       payHashSettled[:],
+	}
+	invoiceSettle := carol.RPC.AddHoldInvoice(invoiceReq1)
+
+	invoiceReq2 := &invoicesrpc.AddHoldInvoiceRequest{
+		Value:      int64(invoiceAmt),
+		CltvExpiry: finalCltvDelta,
+		Hash:       payHashHold[:],
+	}
+	invoiceHold := carol.RPC.AddHoldInvoice(invoiceReq2)
+
+	// Let Alice pay the invoices.
+	req1 := &routerrpc.SendPaymentRequest{
+		PaymentRequest: invoiceSettle.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
+	}
+	req2 := &routerrpc.SendPaymentRequest{
+		PaymentRequest: invoiceHold.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
+	}
+
+	// Assert the payments are inflight.
+	ht.SendPaymentAndAssertStatus(alice, req1, lnrpc.Payment_IN_FLIGHT)
+	ht.SendPaymentAndAssertStatus(alice, req2, lnrpc.Payment_IN_FLIGHT)
+
+	// Wait for Carol to mark invoice as accepted. There is a small gap to
+	// bridge between adding the htlc to the channel and executing the exit
+	// hop logic.
+	ht.AssertInvoiceState(stream1, lnrpc.Invoice_ACCEPTED)
+	ht.AssertInvoiceState(stream2, lnrpc.Invoice_ACCEPTED)
+
+	// At this point, all 3 nodes should now have an active channel with
+	// the created HTLCs pending on all of them.
+	//
+	// Alice should have two outgoing HTLCs on channel Alice -> Bob.
+	ht.AssertOutgoingHTLCActive(alice, abChanPoint, payHashSettled[:])
+	ht.AssertOutgoingHTLCActive(alice, abChanPoint, payHashHold[:])
+
+	// Bob should have two incoming HTLCs on channel Alice -> Bob, and two
+	// outgoing HTLCs on channel Bob -> Carol.
+	ht.AssertIncomingHTLCActive(bob, abChanPoint, payHashSettled[:])
+	ht.AssertIncomingHTLCActive(bob, abChanPoint, payHashHold[:])
+	ht.AssertOutgoingHTLCActive(bob, bcChanPoint, payHashSettled[:])
+	ht.AssertOutgoingHTLCActive(bob, bcChanPoint, payHashHold[:])
+
+	// Carol should have two incoming HTLCs on channel Bob -> Carol.
+	ht.AssertIncomingHTLCActive(carol, bcChanPoint, payHashSettled[:])
+	ht.AssertIncomingHTLCActive(carol, bcChanPoint, payHashHold[:])
+
+	// Let Alice go offline. Once Bob later learns the preimage, he
+	// couldn't settle it with Alice so he has to go onchain to collect it.
+	ht.Shutdown(alice)
+
+	// Carol settles the first invoice.
+	carol.RPC.SettleInvoice(preimageSettled[:])
+
+	// Bob should settle his outgoing HTLC with Carol.
+	ht.AssertHTLCNotActive(bob, bcChanPoint, payHashSettled[:])
 }

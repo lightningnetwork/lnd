@@ -45,7 +45,9 @@ func (b *breachResolver) ResolverKey() []byte {
 
 // Resolve queries the BreachArbitrator to see if the justice transaction has
 // been broadcast.
-func (b *breachResolver) Resolve() (ContractResolver, error) {
+//
+// TODO(yy): let sweeper handle the breach inputs.
+func (b *breachResolver) Resolve(_ bool) (ContractResolver, error) {
 	if !b.subscribed {
 		complete, err := b.SubscribeBreachComplete(
 			&b.ChanPoint, b.replyChan,

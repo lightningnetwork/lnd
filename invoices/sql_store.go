@@ -624,6 +624,7 @@ func (i *SQLStore) FetchPendingInvoices(ctx context.Context) (
 				PendingOnly: true,
 				NumOffset:   int32(offset),
 				NumLimit:    int32(limit),
+				Reverse:     false,
 			}
 
 			rows, err := db.FilterInvoices(ctx, params)
@@ -683,6 +684,7 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 				SettleIndexGet: sqldb.SQLInt64(settleIdx + 1),
 				NumLimit:       int32(limit),
 				NumOffset:      int32(offset),
+				Reverse:        false,
 			}
 
 			rows, err := db.FilterInvoices(ctx, params)
@@ -798,6 +800,7 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 				AddIndexGet: sqldb.SQLInt64(addIdx + 1),
 				NumLimit:    int32(limit),
 				NumOffset:   int32(offset),
+				Reverse:     false,
 			}
 
 			rows, err := db.FilterInvoices(ctx, params)
@@ -857,14 +860,6 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 				PendingOnly: q.PendingOnly,
 			}
 
-			if !q.Reversed {
-				// The invoice with index offset id must not be
-				// included in the results.
-				params.AddIndexGet = sqldb.SQLInt64(
-					q.IndexOffset + uint64(offset) + 1,
-				)
-			}
-
 			if q.Reversed {
 				idx := int32(q.IndexOffset)
 
@@ -883,6 +878,14 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 				}
 
 				params.Reverse = true
+			} else {
+				// The invoice with index offset id must not be
+				// included in the results.
+				params.AddIndexGet = sqldb.SQLInt64(
+					q.IndexOffset + uint64(offset) + 1,
+				)
+
+				params.Reverse = false
 			}
 
 			if q.CreationDateStart != 0 {

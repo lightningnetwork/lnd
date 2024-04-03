@@ -73,19 +73,19 @@ WHERE (
     sqlc.narg('created_before') IS NULL
 ) AND (
     CASE
-        WHEN sqlc.narg('pending_only')=TRUE THEN (state = 0 OR state = 3)
+        WHEN sqlc.narg('pending_only') = TRUE THEN (state = 0 OR state = 3)
         ELSE TRUE 
     END
 )
 ORDER BY
-    CASE
-        WHEN sqlc.narg('reverse') = FALSE THEN id  
-        ELSE NULL
+CASE
+    WHEN sqlc.narg('reverse') = FALSE OR sqlc.narg('reverse') IS NULL THEN id
+    ELSE NULL
     END ASC,
-    CASE
-        WHEN sqlc.narg('reverse') = TRUE  THEN id  
-        ELSE NULL
-    END DESC
+CASE
+    WHEN sqlc.narg('reverse') = TRUE THEN id
+    ELSE NULL
+END DESC
 LIMIT @num_limit OFFSET @num_offset;
 
 -- name: UpdateInvoiceState :execresult

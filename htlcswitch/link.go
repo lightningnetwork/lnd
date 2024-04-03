@@ -3309,6 +3309,27 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 		fwdInfo := pld.ForwardingInfo()
 
+		// Check whether the payload we've just processed uses our
+		// node as the introduction point (gave us a blinding key in
+		// the payload itself) and fail it back if we don't support
+		// route blinding.
+		if fwdInfo.NextBlinding.IsSome() &&
+			l.cfg.DisallowRouteBlinding {
+
+			failure := lnwire.NewInvalidBlinding(
+				onionBlob[:],
+			)
+			l.sendHTLCError(
+				pd, NewLinkError(failure), obfuscator, false,
+			)
+
+			l.log.Error("rejected htlc that uses use as an " +
+				"introduction point when we do not support " +
+				"route blinding")
+
+			continue
+		}
+
 		switch fwdInfo.NextHop {
 		case hop.Exit:
 			err := l.processExitHop(

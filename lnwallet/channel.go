@@ -885,7 +885,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 	// Ensure that we'll restore any custom records which were stored as
 	// extra data on disk.
 	if len(htlc.ExtraData) != 0 {
-		pd.CustomRecords = fn.Some(htlc.ExtraData)
+		pd.CustomRecords = fn.Some[[]byte](htlc.ExtraData)
 	}
 
 	return pd, nil

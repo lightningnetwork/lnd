@@ -1537,14 +1537,14 @@ func TestKeyLocatorEncoding(t *testing.T) {
 		buf [8]byte
 	)
 
-	err := eKeyLocator(&b, &keyLoc, &buf)
+	err := EKeyLocator(&b, &keyLoc, &buf)
 	require.NoError(t, err, "unable to encode key locator")
 
 	// Next, we'll attempt to decode the bytes into a new KeyLocator.
 	r := bytes.NewReader(b.Bytes())
 	var decodedKeyLoc keychain.KeyLocator
 
-	err = dKeyLocator(r, &decodedKeyLoc, &buf, 8)
+	err = DKeyLocator(r, &decodedKeyLoc, &buf, 8)
 	require.NoError(t, err, "unable to decode key locator")
 
 	// Finally, we'll compare that the original KeyLocator and the decoded

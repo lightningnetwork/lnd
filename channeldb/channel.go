@@ -4561,12 +4561,12 @@ func (k *keyLocRecord) Record() tlv.Record {
 	// Note that we set the type here as zero, as when used with a
 	// tlv.RecordT, the type param will be used as the type.
 	return tlv.MakeStaticRecord(
-		0, &k.KeyLocator, 8, eKeyLocator, dKeyLocator,
+		0, &k.KeyLocator, 8, EKeyLocator, DKeyLocator,
 	)
 }
 
-// eKeyLocator is an encoder for keychain.KeyLocator.
-func eKeyLocator(w io.Writer, val interface{}, buf *[8]byte) error {
+// EKeyLocator is an encoder for keychain.KeyLocator.
+func EKeyLocator(w io.Writer, val interface{}, buf *[8]byte) error {
 	if v, ok := val.(*keychain.KeyLocator); ok {
 		err := tlv.EUint32T(w, uint32(v.Family), buf)
 		if err != nil {
@@ -4578,8 +4578,8 @@ func eKeyLocator(w io.Writer, val interface{}, buf *[8]byte) error {
 	return tlv.NewTypeForEncodingErr(val, "keychain.KeyLocator")
 }
 
-// dKeyLocator is a decoder for keychain.KeyLocator.
-func dKeyLocator(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
+// DKeyLocator is a decoder for keychain.KeyLocator.
+func DKeyLocator(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 	if v, ok := val.(*keychain.KeyLocator); ok {
 		var family uint32
 		err := tlv.DUint32(r, &family, buf, 4)

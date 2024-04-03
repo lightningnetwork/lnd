@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -478,7 +479,7 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 		testChildIndex = uint32(9)
 	)
 
-	p, err := hop.NewPayloadFromReader(
+	p, _, err := hop.NewPayloadFromReader(
 		bytes.NewReader(test.payload), test.isFinalHop,
 	)
 	if !reflect.DeepEqual(test.expErr, err) {
@@ -692,6 +693,70 @@ func TestValidateBlindedRouteData(t *testing.T) {
 				testCase.incomingTimelock,
 			)
 			require.Equal(t, testCase.err, err)
+		})
+	}
+}
+
+// TestValidatePayloadWithBlinded tests validation of the contents of a
+// payload when it's for a blinded payment.
+func TestValidatePayloadWithBlinded(t *testing.T) {
+	t.Parallel()
+
+	finalHopMap := map[tlv.Type][]byte{
+		record.AmtOnionType:            nil,
+		record.LockTimeOnionType:       nil,
+		record.TotalAmtMsatBlindedType: nil,
+	}
+
+	tests := []struct {
+		name    string
+		isFinal bool
+		parsed  map[tlv.Type][]byte
+		err     bool
+	}{
+		{
+			name:    "final hop, valid",
+			isFinal: true,
+			parsed:  finalHopMap,
+		},
+		{
+			name:    "intermediate hop, invalid",
+			isFinal: false,
+			parsed:  finalHopMap,
+			err:     true,
+		},
+		{
+			name:    "intermediate hop, invalid",
+			isFinal: false,
+			parsed: map[tlv.Type][]byte{
+				record.EncryptedDataOnionType: nil,
+				record.BlindingPointOnionType: nil,
+			},
+		},
+		{
+			name:    "unknown record, invalid",
+			isFinal: false,
+			parsed: map[tlv.Type][]byte{
+				tlv.Type(99): nil,
+			},
+			err: true,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := hop.ValidatePayloadWithBlinded(
+				testCase.isFinal, testCase.parsed,
+			)
+
+			// We can't determine our exact error because we
+			// iterate through a map (non-deterministic) in the
+			// function.
+			if testCase.err {
+				require.NotNil(t, err)
+			} else {
+				require.Nil(t, err)
+			}
 		})
 	}
 }

@@ -22,4 +22,9 @@ type ForwardingInfo struct {
 	// OutgoingCTLV is the specified value of the CTLV timelock to be used
 	// in the outgoing HTLC.
 	OutgoingCTLV uint32
+
+	// NextBlinding is an optional blinding point to be passed to the next
+	// node in UpdateAddHtlc. This field is set if the htlc is part of a
+	// blinded route.
+	NextBlinding lnwire.BlindingPointRecord
 }

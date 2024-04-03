@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -18,7 +17,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
-	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // htlcIncomingContestResolver is a ContractResolver that's able to resolve an
@@ -522,18 +520,15 @@ func (h *htlcIncomingContestResolver) Supplement(htlc channeldb.HTLC) {
 func (h *htlcIncomingContestResolver) decodePayload() (*hop.Payload,
 	[]byte, error) {
 
-	var blindingPoint *btcec.PublicKey
-	h.htlc.BlindingPoint.WhenSome(
-		func(b tlv.RecordT[lnwire.BlindingPointTlvType,
-			*btcec.PublicKey]) {
-
-			blindingPoint = b.Val
-		},
-	)
+	blindingInfo := hop.ReconstructBlindingInfo{
+		IncomingAmt:    h.htlc.Amt,
+		IncomingExpiry: h.htlc.RefundTimeout,
+		BlindingKey:    h.htlc.BlindingPoint,
+	}
 
 	onionReader := bytes.NewReader(h.htlc.OnionBlob[:])
 	iterator, err := h.OnionProcessor.ReconstructHopIterator(
-		onionReader, h.htlc.RHash[:], blindingPoint,
+		onionReader, h.htlc.RHash[:], blindingInfo,
 	)
 	if err != nil {
 		return nil, nil, err

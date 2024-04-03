@@ -57,6 +57,16 @@ type ProtocolOptions struct {
 	// also mean that we won't respond with timestamps if requested by our
 	// peers.
 	NoTimestampQueryOption bool `long:"no-timestamp-query-option" description:"do not query syncing peers for announcement timestamps and do not respond with timestamps if requested"`
+
+	// NoRouteBlindingOption disables forwarding of payments in blinded routes.
+	NoRouteBlindingOption bool `long:"no-route-blinding" description:"do not forward payments that are a part of a blinded route"`
+}
+
+// DefaultProtocol returns a protocol config with route blinding turned on,
+// so that itests can run against route blinding features even while we've
+// got it turned off for the daemon (pending completion of error handling).
+func DefaultProtocol() *ProtocolOptions {
+	return &ProtocolOptions{}
 }
 
 // Wumbo returns true if lnd should permit the creation and acceptance of wumbo
@@ -91,4 +101,9 @@ func (l *ProtocolOptions) ZeroConf() bool {
 // segwit witness versions for co-op close addresses.
 func (l *ProtocolOptions) NoAnySegwit() bool {
 	return l.NoOptionAnySegwit
+}
+
+// NoRouteBlinding returns true if forwarding of blinded payments is disabled.
+func (l *ProtocolOptions) NoRouteBlinding() bool {
+	return l.NoRouteBlindingOption
 }

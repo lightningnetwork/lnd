@@ -273,6 +273,11 @@ type ChannelLinkConfig struct {
 	// re-establish and should not allow anymore HTLC adds on the outgoing
 	// direction of the link.
 	PreviouslySentShutdown fn.Option[lnwire.Shutdown]
+
+	// Adds the option to disable forwarding payments in blinded routes
+	// by failing back any blinding-related payloads as if they were
+	// invalid.
+	DisallowRouteBlinding bool
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -1928,6 +1933,19 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
+		// Disallow htlcs with blinding points set if we haven't
+		// enabled the feature. This saves us from having to process
+		// the onion at all, but will only catch blinded payments
+		// where we are a relaying node (as the blinding point will
+		// be in the payload when we're the introduction node).
+		if msg.BlindingPoint.IsSome() && l.cfg.DisallowRouteBlinding {
+			l.fail(LinkFailureError{code: ErrInvalidUpdate},
+				"blinding point included when route blinding "+
+					"is disabled")
+
+			return
+		}
+
 		// We just received an add request from an upstream peer, so we
 		// add it to our state machine, then add the HTLC to our
 		// "settle" list in the event that we know the preimage.
@@ -3291,6 +3309,27 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 		fwdInfo := pld.ForwardingInfo()
 
+		// Check whether the payload we've just processed uses our
+		// node as the introduction point (gave us a blinding key in
+		// the payload itself) and fail it back if we don't support
+		// route blinding.
+		if fwdInfo.NextBlinding.IsSome() &&
+			l.cfg.DisallowRouteBlinding {
+
+			failure := lnwire.NewInvalidBlinding(
+				onionBlob[:],
+			)
+			l.sendHTLCError(
+				pd, NewLinkError(failure), obfuscator, false,
+			)
+
+			l.log.Error("rejected htlc that uses use as an " +
+				"introduction point when we do not support " +
+				"route blinding")
+
+			continue
+		}
+
 		switch fwdInfo.NextHop {
 		case hop.Exit:
 			err := l.processExitHop(
@@ -3330,9 +3369,10 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				// Otherwise, it was already processed, we can
 				// can collect it and continue.
 				addMsg := &lnwire.UpdateAddHTLC{
-					Expiry:      fwdInfo.OutgoingCTLV,
-					Amount:      fwdInfo.AmountToForward,
-					PaymentHash: pd.RHash,
+					Expiry:        fwdInfo.OutgoingCTLV,
+					Amount:        fwdInfo.AmountToForward,
+					PaymentHash:   pd.RHash,
+					BlindingPoint: fwdInfo.NextBlinding,
 				}
 
 				// Finally, we'll encode the onion packet for
@@ -3375,9 +3415,10 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// create the outgoing HTLC using the parameters as
 			// specified in the forwarding info.
 			addMsg := &lnwire.UpdateAddHTLC{
-				Expiry:      fwdInfo.OutgoingCTLV,
-				Amount:      fwdInfo.AmountToForward,
-				PaymentHash: pd.RHash,
+				Expiry:        fwdInfo.OutgoingCTLV,
+				Amount:        fwdInfo.AmountToForward,
+				PaymentHash:   pd.RHash,
+				BlindingPoint: fwdInfo.NextBlinding,
 			}
 
 			// Finally, we'll encode the onion packet for the

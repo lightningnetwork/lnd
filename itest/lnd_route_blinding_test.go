@@ -785,6 +785,6 @@ func testForwardBlindedRoute(ht *lntest.HarnessTest) {
 
 	// Assert that the HTLC has settled before test cleanup runs so that
 	// we can cooperatively close all channels.
-	ht.AssertHLTCNotActive(ht.Bob, testCase.channels[1], hash[:])
-	ht.AssertHLTCNotActive(ht.Alice, testCase.channels[0], hash[:])
+	ht.AssertHTLCNotActive(ht.Bob, testCase.channels[1], hash[:])
+	ht.AssertHTLCNotActive(ht.Alice, testCase.channels[0], hash[:])
 }

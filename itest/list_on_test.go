@@ -590,4 +590,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "sweep anchor cpfp local force close",
 		TestFunc: testSweepAnchorCPFPLocalForceClose,
 	},
+	{
+		Name:     "sweep htlcs",
+		TestFunc: testSweepHTLCs,
+	},
 }

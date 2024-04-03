@@ -22,10 +22,16 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 	minRelayFeeRate := chainfee.SatPerKWeight(100)
 	confTarget := uint32(6)
 
-	// Assert init fee function with zero conf value returns an error.
+	// Assert init fee function with zero conf value will end up using the
+	// max fee rate.
 	f, err := NewLinearFeeFunction(maxFeeRate, 0, estimator)
-	rt.ErrorContains(err, "width must be greater than zero")
-	rt.Nil(f)
+	rt.NoError(err)
+	rt.NotNil(f)
+
+	// Assert the internal state.
+	rt.Equal(maxFeeRate, f.startingFeeRate)
+	rt.Equal(maxFeeRate, f.endingFeeRate)
+	rt.Equal(maxFeeRate, f.currentFeeRate)
 
 	// When the fee estimator returns an error, it's returned.
 	//
@@ -240,11 +246,6 @@ func TestLinearFeeFunctionIncreaseFeeRate(t *testing.T) {
 	rt.NoError(err)
 	rt.False(increased)
 
-	// Test that when we use a conf target of 0, we get an error.
-	increased, err = f.IncreaseFeeRate(0)
-	rt.ErrorIs(err, ErrMaxPosition)
-	rt.False(increased)
-
 	// We now increase the fee rate from conf target 8 to 1 and assert we
 	// get no error and true.
 	for i := uint32(1); i < confTarget; i++ {
@@ -262,4 +263,12 @@ func TestLinearFeeFunctionIncreaseFeeRate(t *testing.T) {
 		// Check public method returns the expected fee rate.
 		rt.Equal(estimatedFeeRate+delta, f.FeeRate())
 	}
+
+	// Test that when we use a conf target of 0, we get the ending fee
+	// rate.
+	increased, err = f.IncreaseFeeRate(0)
+	rt.NoError(err)
+	rt.True(increased)
+	rt.Equal(confTarget, f.position)
+	rt.Equal(maxFeeRate, f.currentFeeRate)
 }

@@ -189,9 +189,9 @@ func TestCalcCurrentConfTarget(t *testing.T) {
 	require.EqualValues(t, 100, conf)
 
 	// When the current block height is 200 and deadline height is 100, the
-	// conf target should be 1 since the deadline has passed.
+	// conf target should be 0 since the deadline has passed.
 	conf = calcCurrentConfTarget(int32(200), int32(100))
-	require.EqualValues(t, 1, conf)
+	require.EqualValues(t, 0, conf)
 }
 
 // TestInitializeFeeFunction tests the initialization of the fee function.
@@ -218,7 +218,8 @@ func TestInitializeFeeFunction(t *testing.T) {
 		DeliveryAddress: changePkScript,
 		Inputs:          []input.Input{&inp},
 		Budget:          btcutil.Amount(1000),
-		MaxFeeRate:      feerate,
+		MaxFeeRate:      feerate * 10,
+		DeadlineHeight:  10,
 	}
 
 	// Mock the fee estimator to return an error.
@@ -889,7 +890,8 @@ func TestBroadcastSuccess(t *testing.T) {
 		DeliveryAddress: changePkScript,
 		Inputs:          []input.Input{&inp},
 		Budget:          btcutil.Amount(1000),
-		MaxFeeRate:      feerate,
+		MaxFeeRate:      feerate * 10,
+		DeadlineHeight:  10,
 	}
 
 	// Send the req and expect no error.
@@ -930,7 +932,8 @@ func TestBroadcastFail(t *testing.T) {
 		DeliveryAddress: changePkScript,
 		Inputs:          []input.Input{&inp},
 		Budget:          btcutil.Amount(1000),
-		MaxFeeRate:      feerate,
+		MaxFeeRate:      feerate * 10,
+		DeadlineHeight:  10,
 	}
 
 	// Mock the fee estimator to return the testing fee rate.

@@ -951,11 +951,11 @@ func calcCurrentConfTarget(currentHeight, deadline int32) uint32 {
 
 	// If we are already past the deadline, we will set the conf target to
 	// be 1.
-	if deadlineDelta <= 0 {
+	if deadlineDelta < 0 {
 		log.Warnf("Deadline is %d blocks behind current height %v",
 			-deadlineDelta, currentHeight)
 
-		confTarget = 1
+		confTarget = 0
 	} else {
 		confTarget = uint32(deadlineDelta)
 	}

@@ -476,6 +476,11 @@ func (h *HarnessMiner) MineBlockWithTxes(txes []*btcutil.Tx) *wire.MsgBlock {
 	block, err := h.Client.GetBlock(b.Hash())
 	require.NoError(h, err, "unable to get block")
 
+	// Make sure the mempool has been updated.
+	for _, tx := range txes {
+		h.AssertTxNotInMempool(*tx.Hash())
+	}
+
 	return block
 }
 

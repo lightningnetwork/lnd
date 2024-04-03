@@ -1328,7 +1328,7 @@ func (h *HarnessTest) AssertActiveHtlcs(hn *node.HarnessNode,
 func (h *HarnessTest) AssertIncomingHTLCActive(hn *node.HarnessNode,
 	cp *lnrpc.ChannelPoint, payHash []byte) *lnrpc.HTLC {
 
-	return h.assertHLTCActive(hn, cp, payHash, true)
+	return h.assertHTLCActive(hn, cp, payHash, true)
 }
 
 // AssertOutgoingHTLCActive asserts the node has a pending outgoing HTLC in the
@@ -1336,12 +1336,12 @@ func (h *HarnessTest) AssertIncomingHTLCActive(hn *node.HarnessNode,
 func (h *HarnessTest) AssertOutgoingHTLCActive(hn *node.HarnessNode,
 	cp *lnrpc.ChannelPoint, payHash []byte) *lnrpc.HTLC {
 
-	return h.assertHLTCActive(hn, cp, payHash, false)
+	return h.assertHTLCActive(hn, cp, payHash, false)
 }
 
 // assertHLTCActive asserts the node has a pending HTLC in the given channel.
 // Returns the HTLC if found and active.
-func (h *HarnessTest) assertHLTCActive(hn *node.HarnessNode,
+func (h *HarnessTest) assertHTLCActive(hn *node.HarnessNode,
 	cp *lnrpc.ChannelPoint, payHash []byte, incoming bool) *lnrpc.HTLC {
 
 	var result *lnrpc.HTLC
@@ -1378,7 +1378,7 @@ func (h *HarnessTest) assertHLTCActive(hn *node.HarnessNode,
 				"have: %s", hn.Name(), payHash, want, have)
 		}
 
-		return fmt.Errorf("node [%s:%x] didn't have: the payHash %v",
+		return fmt.Errorf("node [%s:%x] didn't have: the payHash %x",
 			hn.Name(), hn.PubKey[:], payHash)
 	}, DefaultTimeout)
 	require.NoError(h, err, "timeout checking pending HTLC")
@@ -1392,7 +1392,7 @@ func (h *HarnessTest) assertHLTCActive(hn *node.HarnessNode,
 //
 // NOTE: to check a pending HTLC becoming settled, first use AssertHLTCActive
 // then follow this check.
-func (h *HarnessTest) AssertHLTCNotActive(hn *node.HarnessNode,
+func (h *HarnessTest) AssertHTLCNotActive(hn *node.HarnessNode,
 	cp *lnrpc.ChannelPoint, payHash []byte) *lnrpc.HTLC {
 
 	var result *lnrpc.HTLC

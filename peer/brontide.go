@@ -757,6 +757,13 @@ func (p *Brontide) initGossipSync() {
 	if p.remoteFeatures.HasFeature(lnwire.GossipQueriesOptional) {
 		p.log.Info("Negotiated chan series queries")
 
+		if p.cfg.AuthGossiper == nil {
+			// This should only ever be hit in the unit tests.
+			p.log.Warn("No AuthGossiper configured. Abandoning " +
+				"gossip sync.")
+			return
+		}
+
 		// Register the peer's gossip syncer with the gossiper.
 		// This blocks synchronously to ensure the gossip syncer is
 		// registered with the gossiper before attempting to read

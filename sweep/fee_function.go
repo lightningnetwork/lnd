@@ -113,9 +113,15 @@ var _ FeeFunction = (*LinearFeeFunction)(nil)
 func NewLinearFeeFunction(maxFeeRate chainfee.SatPerKWeight, confTarget uint32,
 	estimator chainfee.Estimator) (*LinearFeeFunction, error) {
 
-	// Sanity check conf target.
+	// If the deadline has already been reached, there's nothing the fee
+	// function can do. In this case, we'll use the max fee rate
+	// immediately.
 	if confTarget == 0 {
-		return nil, fmt.Errorf("width must be greater than zero")
+		return &LinearFeeFunction{
+			startingFeeRate: maxFeeRate,
+			endingFeeRate:   maxFeeRate,
+			currentFeeRate:  maxFeeRate,
+		}, nil
 	}
 
 	l := &LinearFeeFunction{
@@ -193,11 +199,6 @@ func (l *LinearFeeFunction) Increment() (bool, error) {
 //
 // NOTE: part of the FeeFunction interface.
 func (l *LinearFeeFunction) IncreaseFeeRate(confTarget uint32) (bool, error) {
-	// If the new position is already at the end, we return an error.
-	if confTarget == 0 {
-		return false, ErrMaxPosition
-	}
-
 	newPosition := uint32(0)
 
 	// Only calculate the new position when the conf target is less than

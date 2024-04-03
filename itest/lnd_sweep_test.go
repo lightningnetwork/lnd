@@ -4,11 +4,16 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -692,6 +697,490 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 
 	// Mine a block to confirm both sweeping txns, this is needed to clean
 	// up the mempool.
+	ht.MineBlocksAndAssertNumTxes(1, 2)
+}
+
+// testSweepHTLCs checks the sweeping behavior for HTLC outputs. Since HTLCs
+// are time-sensitive, we expect to see both the incoming and outgoing HTLCs
+// are fee bumped properly based on their budgets and deadlines.
+//
+// Setup:
+//  1. Fund Alice with 1 UTXOs - she only needs one for the funding process,
+//  2. Fund Bob with 3 UTXOs - he needs one for the funding process, one for
+//     his CPFP anchor sweeping, and one for sweeping his outgoing HTLC.
+//  3. Create a linear network from Alice -> Bob -> Carol.
+//  4. Alice pays two invoices to Carol, with Carol holding the settlement.
+//  5. Alice goes offline.
+//  7. Carol settles one of the invoices with Bob, so Bob has an incoming HTLC
+//     that he can claim onchain since he has the preimage.
+//  8. Carol goes offline.
+//  9. Assert Bob sweeps his incoming and outgoing HTLCs with the expected fee
+//     rates.
+//
+// Test:
+//  1. Bob's outgoing HTLC is swept and fee bumped based on its deadline and
+//     budget.
+//  2. Bob's incoming HTLC is swept and fee bumped based on its deadline and
+//     budget.
+func testSweepHTLCs(ht *lntest.HarnessTest) {
+	// Setup testing params.
+	//
+	// Invoice is 100k sats.
+	invoiceAmt := btcutil.Amount(100_000)
+
+	// Use the smallest CLTV so we can mine fewer blocks.
+	cltvDelta := routing.MinCLTVDelta
+
+	// Start tracking the deadline delta of Bob's HTLCs. We need one block
+	// for the CSV lock, and another block to trigger the sweeper to sweep.
+	outgoingHTLCDeadline := int32(cltvDelta - 2)
+	incomingHTLCDeadline := int32(lncfg.DefaultIncomingBroadcastDelta - 2)
+
+	// startFeeRate1 and startFeeRate2 are returned by the fee estimator in
+	// sat/kw. They will be used as the starting fee rate for the linear
+	// fee func used by Bob. The values are chosen from calling the cli in
+	// bitcoind:
+	// - `estimatesmartfee 18 conservative`.
+	// - `estimatesmartfee 10 conservative`.
+	startFeeRate1 := chainfee.SatPerKWeight(2500)
+	startFeeRate2 := chainfee.SatPerKWeight(3000)
+
+	// Set up the fee estimator to return the testing fee rate when the
+	// conf target is the deadline.
+	ht.SetFeeEstimateWithConf(startFeeRate1, uint32(outgoingHTLCDeadline))
+	ht.SetFeeEstimateWithConf(startFeeRate2, uint32(incomingHTLCDeadline))
+
+	// Create two preimages, one that will be settled, the other be hold.
+	var preimageSettled, preimageHold lntypes.Preimage
+	copy(preimageSettled[:], ht.Random32Bytes())
+	copy(preimageHold[:], ht.Random32Bytes())
+	payHashSettled := preimageSettled.Hash()
+	payHashHold := preimageHold.Hash()
+
+	// We now set up the force close scenario. We will create a network
+	// from Alice -> Bob -> Carol, where Alice will send two payments to
+	// Carol via Bob, Alice goes offline, then Carol settles the first
+	// payment, goes offline. We expect Bob to sweep his incoming and
+	// outgoing HTLCs.
+	//
+	// Prepare params.
+	cfg := []string{
+		"--protocol.anchors",
+		// Use a small CLTV to mine less blocks.
+		fmt.Sprintf("--bitcoin.timelockdelta=%d", cltvDelta),
+		// Use a very large CSV, this way to_local outputs are never
+		// swept so we can focus on testing HTLCs.
+		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", cltvDelta*10),
+	}
+	openChannelParams := lntest.OpenChannelParams{
+		Amt: invoiceAmt * 10,
+	}
+
+	// Create a three hop network: Alice -> Bob -> Carol.
+	chanPoints, nodes := createSimpleNetwork(ht, cfg, 3, openChannelParams)
+
+	// Unwrap the results.
+	abChanPoint, bcChanPoint := chanPoints[0], chanPoints[1]
+	alice, bob, carol := nodes[0], nodes[1], nodes[2]
+
+	// Bob needs two more wallet utxos:
+	// - when sweeping anchors, he needs one utxo for each sweep.
+	// - when sweeping HTLCs, he needs one utxo for each sweep.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+
+	// Subscribe the invoices.
+	stream1 := carol.RPC.SubscribeSingleInvoice(payHashSettled[:])
+	stream2 := carol.RPC.SubscribeSingleInvoice(payHashHold[:])
+
+	// With the network active, we'll now add two hodl invoices at Carol's
+	// end.
+	invoiceReqSettle := &invoicesrpc.AddHoldInvoiceRequest{
+		Value:      int64(invoiceAmt),
+		CltvExpiry: finalCltvDelta,
+		Hash:       payHashSettled[:],
+	}
+	invoiceSettle := carol.RPC.AddHoldInvoice(invoiceReqSettle)
+
+	invoiceReqHold := &invoicesrpc.AddHoldInvoiceRequest{
+		Value:      int64(invoiceAmt),
+		CltvExpiry: finalCltvDelta,
+		Hash:       payHashHold[:],
+	}
+	invoiceHold := carol.RPC.AddHoldInvoice(invoiceReqHold)
+
+	// Let Alice pay the invoices.
+	req1 := &routerrpc.SendPaymentRequest{
+		PaymentRequest: invoiceSettle.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
+	}
+	req2 := &routerrpc.SendPaymentRequest{
+		PaymentRequest: invoiceHold.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
+	}
+
+	// Assert the payments are inflight.
+	ht.SendPaymentAndAssertStatus(alice, req1, lnrpc.Payment_IN_FLIGHT)
+	ht.SendPaymentAndAssertStatus(alice, req2, lnrpc.Payment_IN_FLIGHT)
+
+	// Wait for Carol to mark invoice as accepted. There is a small gap to
+	// bridge between adding the htlc to the channel and executing the exit
+	// hop logic.
+	ht.AssertInvoiceState(stream1, lnrpc.Invoice_ACCEPTED)
+	ht.AssertInvoiceState(stream2, lnrpc.Invoice_ACCEPTED)
+
+	// At this point, all 3 nodes should now have an active channel with
+	// the created HTLCs pending on all of them.
+	//
+	// Alice should have two outgoing HTLCs on channel Alice -> Bob.
+	ht.AssertOutgoingHTLCActive(alice, abChanPoint, payHashSettled[:])
+	ht.AssertOutgoingHTLCActive(alice, abChanPoint, payHashHold[:])
+
+	// Bob should have two incoming HTLCs on channel Alice -> Bob, and two
+	// outgoing HTLCs on channel Bob -> Carol.
+	ht.AssertIncomingHTLCActive(bob, abChanPoint, payHashSettled[:])
+	ht.AssertIncomingHTLCActive(bob, abChanPoint, payHashHold[:])
+	ht.AssertOutgoingHTLCActive(bob, bcChanPoint, payHashSettled[:])
+	ht.AssertOutgoingHTLCActive(bob, bcChanPoint, payHashHold[:])
+
+	// Carol should have two incoming HTLCs on channel Bob -> Carol.
+	ht.AssertIncomingHTLCActive(carol, bcChanPoint, payHashSettled[:])
+	ht.AssertIncomingHTLCActive(carol, bcChanPoint, payHashHold[:])
+
+	// Let Alice go offline. Once Bob later learns the preimage, he
+	// couldn't settle it with Alice so he has to go onchain to collect it.
+	ht.Shutdown(alice)
+
+	// Carol settles the first invoice.
+	carol.RPC.SettleInvoice(preimageSettled[:])
+
+	// Let Carol go offline so we can focus on testing Bob's sweeping
+	// behavior.
+	ht.Shutdown(carol)
+
+	// Bob should have settled his outgoing HTLC with Carol.
+	ht.AssertHTLCNotActive(bob, bcChanPoint, payHashSettled[:])
+
+	// We'll now mine enough blocks to trigger Bob to force close channel
+	// Bob->Carol due to his outgoing HTLC is about to timeout. With the
+	// default outgoing broadcast delta of zero, this will be the same
+	// height as the htlc expiry height.
+	numBlocks := padCLTV(uint32(
+		invoiceReqHold.CltvExpiry - lncfg.DefaultOutgoingBroadcastDelta,
+	))
+	ht.MineBlocks(numBlocks)
+
+	// Bob force closes the channel.
+	// ht.CloseChannelAssertPending(bob, bcChanPoint, true)
+
+	// Before we mine empty blocks to check the RBF behavior, we need to be
+	// aware that Bob's incoming HTLC will expire before his outgoing HTLC
+	// deadline is reached. This happens because the incoming HTLC is sent
+	// onchain at CLTVDelta-BroadcastDelta=18-10=8, which means after 8
+	// blocks are mined, we expect Bob force closes the channel Alice->Bob.
+	blocksTillIncomingSweep := cltvDelta -
+		lncfg.DefaultIncomingBroadcastDelta
+
+	// Bob should now have two pending sweeps, one for the anchor on the
+	// local commitment, the other on the remote commitment.
+	ht.AssertNumPendingSweeps(bob, 2)
+
+	// Assert Bob's force closing tx has been broadcast.
+	ht.Miner.AssertNumTxsInMempool(1)
+
+	// Mine the force close tx, which triggers Bob's contractcourt to offer
+	// his outgoing HTLC to his sweeper.
+	//
+	// NOTE: HTLC outputs are only offered to sweeper when the force close
+	// tx is confirmed and the CSV has reached.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Update the blocks left till Bob force closes Alice->Bob.
+	blocksTillIncomingSweep--
+
+	// Bob should have two pending sweeps, one for the anchor sweeping, the
+	// other for the outgoing HTLC.
+	ht.AssertNumPendingSweeps(bob, 2)
+
+	// Mine one block to confirm Bob's anchor sweeping tx, which will
+	// trigger his sweeper to publish the HTLC sweeping tx.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Update the blocks left till Bob force closes Alice->Bob.
+	blocksTillIncomingSweep--
+
+	// Bob should now have one sweep and one sweeping tx in the mempool.
+	ht.AssertNumPendingSweeps(bob, 1)
+	outgoingSweep := ht.Miner.GetNumTxsFromMempool(1)[0]
+
+	// Check the shape of the sweeping tx - we expect it to be
+	// 2-input-2-output as a wallet utxo is used and a required output is
+	// made.
+	require.Len(ht, outgoingSweep.TxIn, 2)
+	require.Len(ht, outgoingSweep.TxOut, 2)
+
+	// Calculate the ending fee rate.
+	//
+	// TODO(yy): the budget we use to sweep the first-level outgoing HTLC
+	// is twice its value. This is a temporary mitigation to prevent
+	// cascading FCs and the test should be updated once it's properly
+	// fixed.
+	outgoingBudget := 2 * invoiceAmt
+	outgoingTxSize := ht.CalculateTxWeight(outgoingSweep)
+	outgoingEndFeeRate := chainfee.NewSatPerKWeight(
+		outgoingBudget, uint64(outgoingTxSize),
+	)
+
+	// Assert the initial sweeping tx is using the start fee rate.
+	outgoingStartFeeRate := ht.CalculateTxFeeRate(outgoingSweep)
+	require.InEpsilonf(ht, uint64(startFeeRate1),
+		uint64(outgoingStartFeeRate), 0.01, "want %d, got %d",
+		startFeeRate1, outgoingStartFeeRate)
+
+	// Now the start fee rate is checked, we can calculate the fee rate
+	// delta.
+	outgoingFeeRateDelta := (outgoingEndFeeRate - outgoingStartFeeRate) /
+		chainfee.SatPerKWeight(outgoingHTLCDeadline)
+
+	// outgoingFuncPosition records the position of Bob's fee function used
+	// for his outgoing HTLC sweeping tx.
+	outgoingFuncPosition := int32(0)
+
+	// assertSweepFeeRate is a helper closure that asserts the expected fee
+	// rate is used at the given position for a sweeping tx.
+	assertSweepFeeRate := func(sweepTx *wire.MsgTx,
+		startFeeRate, delta chainfee.SatPerKWeight, txSize int64,
+		deadline, position int32, desc string) {
+
+		// Bob's HTLC sweeping tx should be fee bumped.
+		feeRate := ht.CalculateTxFeeRate(sweepTx)
+		expectedFeeRate := startFeeRate + delta*chainfee.SatPerKWeight(
+			position,
+		)
+
+		ht.Logf("Bob's %s HTLC (deadline=%v): txWeight=%v, want "+
+			"feerate=%v, got feerate=%v, delta=%v", desc,
+			deadline-position, txSize, expectedFeeRate,
+			feeRate, delta)
+
+		require.InEpsilonf(ht, uint64(expectedFeeRate), uint64(feeRate),
+			0.01, "want %v, got %v in tx=%v", expectedFeeRate,
+			feeRate, sweepTx.TxHash())
+	}
+
+	// We now mine enough blocks to trigger Bob to force close channel
+	// Alice->Bob. Along the way, we will check his outgoing HTLC sweeping
+	// tx is RBFed as expected.
+	for i := 0; i < blocksTillIncomingSweep-1; i++ {
+		// Mine an empty block. Since the sweeping tx is not confirmed,
+		// Bob's fee bumper should increase its fees.
+		ht.MineEmptyBlocks(1)
+
+		// Update Bob's fee function position.
+		outgoingFuncPosition++
+
+		// We should see Bob's sweeping tx in the mempool.
+		ht.Miner.AssertNumTxsInMempool(1)
+
+		// Make sure Bob's old sweeping tx has been removed from the
+		// mempool.
+		ht.Miner.AssertTxNotInMempool(outgoingSweep.TxHash())
+
+		// Bob should still have the outgoing HTLC sweep.
+		ht.AssertNumPendingSweeps(bob, 1)
+
+		// We should see Bob's replacement tx in the mempool.
+		outgoingSweep = ht.Miner.GetNumTxsFromMempool(1)[0]
+
+		// Bob's outgoing HTLC sweeping tx should be fee bumped.
+		assertSweepFeeRate(
+			outgoingSweep, outgoingStartFeeRate,
+			outgoingFeeRateDelta, outgoingTxSize,
+			outgoingHTLCDeadline, outgoingFuncPosition, "Outgoing",
+		)
+	}
+
+	// Once exited the above loop and mine one more block, we'd have mined
+	// enough blocks to trigger Bob to force close his channel with Alice.
+	ht.MineEmptyBlocks(1)
+
+	// Update Bob's fee function position.
+	outgoingFuncPosition++
+
+	// Bob should now have three pending sweeps:
+	// 1. the outgoing HTLC output.
+	// 2. the anchor output from his local commitment.
+	// 3. the anchor output from his remote commitment.
+	ht.AssertNumPendingSweeps(bob, 3)
+
+	// We should see two txns in the mempool:
+	// 1. Bob's outgoing HTLC sweeping tx.
+	// 2. Bob's force close tx for Alice->Bob.
+	txns := ht.Miner.GetNumTxsFromMempool(2)
+
+	// Find the force close tx - we expect it to have a single input.
+	closeTx := txns[0]
+	if len(closeTx.TxIn) != 1 {
+		closeTx = txns[1]
+	}
+
+	// We don't care the behavior of the anchor sweep in this test, so we
+	// mine the force close tx to trigger Bob's contractcourt to offer his
+	// incoming HTLC to his sweeper.
+	ht.Miner.MineBlockWithTx(closeTx)
+
+	// Update Bob's fee function position.
+	outgoingFuncPosition++
+
+	// Bob should now have three pending sweeps:
+	// 1. the outgoing HTLC output on Bob->Carol.
+	// 2. the incoming HTLC output on Alice->Bob.
+	// 3. the anchor sweeping on Alice-> Bob.
+	ht.AssertNumPendingSweeps(bob, 3)
+
+	// Mine one block, which will trigger his sweeper to publish his
+	// incoming HTLC sweeping tx.
+	ht.MineEmptyBlocks(1)
+
+	// Update the fee function's positions.
+	outgoingFuncPosition++
+
+	// We should see three txns in the mempool:
+	// 1. the outgoing HTLC sweeping tx.
+	// 2. the incoming HTLC sweeping tx.
+	// 3. the anchor sweeping tx.
+	txns = ht.Miner.GetNumTxsFromMempool(3)
+
+	abCloseTxid := closeTx.TxHash()
+
+	// Identify the sweeping txns spent from Alice->Bob.
+	txns = ht.FindSweepingTxns(txns, 2, abCloseTxid)
+
+	// Identify the anchor and incoming HTLC sweeps - if the tx has 1
+	// output, then it's the anchor sweeping tx.
+	var incomingSweep, anchorSweep = txns[0], txns[1]
+	if len(anchorSweep.TxOut) != 1 {
+		incomingSweep, anchorSweep = anchorSweep, incomingSweep
+	}
+
+	// Calculate the ending fee rate for the incoming HTLC sweep.
+	incomingBudget := invoiceAmt.MulF64(contractcourt.DefaultBudgetRatio)
+	incomingTxSize := ht.CalculateTxWeight(incomingSweep)
+	incomingEndFeeRate := chainfee.NewSatPerKWeight(
+		incomingBudget, uint64(incomingTxSize),
+	)
+
+	// Assert the initial sweeping tx is using the start fee rate.
+	incomingStartFeeRate := ht.CalculateTxFeeRate(incomingSweep)
+	require.InEpsilonf(ht, uint64(startFeeRate2),
+		uint64(incomingStartFeeRate), 0.01, "want %d, got %d in tx=%v",
+		startFeeRate2, incomingStartFeeRate, incomingSweep.TxHash())
+
+	// Now the start fee rate is checked, we can calculate the fee rate
+	// delta.
+	incomingFeeRateDelta := (incomingEndFeeRate - incomingStartFeeRate) /
+		chainfee.SatPerKWeight(incomingHTLCDeadline)
+
+	// incomingFuncPosition records the position of Bob's fee function used
+	// for his incoming HTLC sweeping tx.
+	incomingFuncPosition := int32(0)
+
+	// Mine the anchor sweeping tx to reduce noise in this test.
+	ht.Miner.MineBlockWithTxes([]*btcutil.Tx{btcutil.NewTx(anchorSweep)})
+
+	// Update the fee function's positions.
+	outgoingFuncPosition++
+	incomingFuncPosition++
+
+	// identifySweepTxns is a helper closure that identifies the incoming
+	// and outgoing HTLC sweeping txns. It always assumes there are two
+	// sweeping txns in the mempool, and returns the incoming HTLC sweep
+	// first.
+	identifySweepTxns := func() (*wire.MsgTx, *wire.MsgTx) {
+		// We should see two txns in the mempool:
+		// 1. the outgoing HTLC sweeping tx.
+		// 2. the incoming HTLC sweeping tx.
+		txns = ht.Miner.GetNumTxsFromMempool(2)
+
+		var incoming, outgoing *wire.MsgTx
+
+		// The sweeping tx has two inputs, one from wallet, the other
+		// from the force close tx. We now check whether the first tx
+		// spends from the force close tx of Alice->Bob.
+		found := fn.Any(func(inp *wire.TxIn) bool {
+			return inp.PreviousOutPoint.Hash == abCloseTxid
+		}, txns[0].TxIn)
+
+		// If the first tx spends an outpoint from the force close tx
+		// of Alice->Bob, then it must be the incoming HTLC sweeping
+		// tx.
+		if found {
+			incoming, outgoing = txns[0], txns[1]
+		} else {
+			// Otherwise the second tx must be the incoming HTLC
+			// sweep.
+			incoming, outgoing = txns[1], txns[0]
+		}
+
+		return incoming, outgoing
+	}
+
+	// We now mine enough blocks till we reach the end of the outgoing
+	// HTLC's deadline. Along the way, we check the expected fee rates are
+	// used for both incoming and outgoing HTLC sweeping txns.
+	blocksLeft := outgoingHTLCDeadline - outgoingFuncPosition
+	for i := int32(0); i < blocksLeft; i++ {
+		// Mine an empty block.
+		ht.MineEmptyBlocks(1)
+
+		// Update Bob's fee function position.
+		outgoingFuncPosition++
+		incomingFuncPosition++
+
+		// We should see two txns in the mempool,
+		// - the incoming HTLC sweeping tx.
+		// - the outgoing HTLC sweeping tx.
+		ht.Miner.AssertNumTxsInMempool(2)
+
+		// Make sure Bob's old sweeping txns have been removed from the
+		// mempool.
+		ht.Miner.AssertTxNotInMempool(outgoingSweep.TxHash())
+		ht.Miner.AssertTxNotInMempool(incomingSweep.TxHash())
+
+		// Bob should have two pending sweeps:
+		// 1. the outgoing HTLC output on Bob->Carol.
+		// 2. the incoming HTLC output on Alice->Bob.
+		ht.AssertNumPendingSweeps(bob, 2)
+
+		// We should see Bob's replacement txns in the mempool.
+		incomingSweep, outgoingSweep = identifySweepTxns()
+
+		// Bob's outgoing HTLC sweeping tx should be fee bumped.
+		assertSweepFeeRate(
+			outgoingSweep, outgoingStartFeeRate,
+			outgoingFeeRateDelta, outgoingTxSize,
+			outgoingHTLCDeadline, outgoingFuncPosition, "Outgoing",
+		)
+
+		// Bob's incoming HTLC sweeping tx should be fee bumped.
+		assertSweepFeeRate(
+			incomingSweep, incomingStartFeeRate,
+			incomingFeeRateDelta, incomingTxSize,
+			incomingHTLCDeadline, incomingFuncPosition, "Incoming",
+		)
+	}
+
+	// Mine an empty block.
+	ht.MineEmptyBlocks(1)
+
+	// We should see Bob's old txns in the mempool.
+	currentIncomingSweep, currentOutgoingSweep := identifySweepTxns()
+	require.Equal(ht, incomingSweep.TxHash(), currentIncomingSweep.TxHash())
+	require.Equal(ht, outgoingSweep.TxHash(), currentOutgoingSweep.TxHash())
+
+	// Mine a block to confirm the HTLC sweeps.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
 }
 

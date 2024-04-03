@@ -134,7 +134,7 @@ call where arguments were swapped.
   allowed value. So it's expected that this cap is rarely hit unless there's
   mempool congestion.
 
-* Support for [pathfinding]((https://github.com/lightningnetwork/lnd/pull/7267)
+* Support for [pathfinding](https://github.com/lightningnetwork/lnd/pull/7267)
   and payment to blinded paths has been added via the `QueryRoutes` (and 
   `SendToRouteV2`) APIs. This functionality is surfaced in `lncli queryroutes` 
   where the required flags are tagged with `(blinded paths)`. Updates to mission

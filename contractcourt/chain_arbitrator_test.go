@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -172,6 +173,11 @@ func TestResolveContract(t *testing.T) {
 		},
 		Clock:  clock.NewDefaultClock(),
 		Budget: *DefaultBudgetConfig(),
+		QueryIncomingCircuit: func(
+			circuit models.CircuitKey) *models.CircuitKey {
+
+			return nil
+		},
 	}
 	chainArb := NewChainArbitrator(
 		chainArbCfg, db,

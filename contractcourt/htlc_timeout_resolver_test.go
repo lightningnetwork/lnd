@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
@@ -304,6 +305,9 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 					return nil
 				},
 				Budget: *DefaultBudgetConfig(),
+				QueryIncomingCircuit: func(circuit models.CircuitKey) *models.CircuitKey {
+					return nil
+				},
 			},
 			PutResolverReport: func(_ kvdb.RwTx,
 				_ *channeldb.ResolverReport) error {

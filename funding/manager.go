@@ -287,7 +287,7 @@ type InitFundingMsg struct {
 	// PendingChanID is not all zeroes (the default value), then this will
 	// be the pending channel ID used for the funding flow within the wire
 	// protocol.
-	PendingChanID [32]byte
+	PendingChanID PendingChanID
 
 	// ChannelType allows the caller to use an explicit channel type for the
 	// funding negotiation. This type will only be observed if BOTH sides
@@ -317,7 +317,7 @@ type fundingMsg struct {
 // pendingChannels is a map instantiated per-peer which tracks all active
 // pending single funded channels indexed by their pending channel identifier,
 // which is a set of 32-bytes generated via a CSPRNG.
-type pendingChannels map[[32]byte]*reservationWithCtx
+type pendingChannels map[PendingChanID]*reservationWithCtx
 
 // serializedPubKey is used within the FundingManager's activeReservations list
 // to identify the nodes with which the FundingManager is actively working to
@@ -591,7 +591,7 @@ type Manager struct {
 	// required as mid funding flow, we switch to referencing the channel
 	// by its full channel ID once the commitment transactions have been
 	// signed by both parties.
-	signedReservations map[lnwire.ChannelID][32]byte
+	signedReservations map[lnwire.ChannelID]PendingChanID
 
 	// resMtx guards both of the maps above to ensure that all access is
 	// goroutine safe.
@@ -798,9 +798,13 @@ func (f *Manager) rebroadcastFundingTx(c *channeldb.OpenChannel) {
 	}
 }
 
+// PendingChanID is a type that represents a pending channel ID. This might be
+// selected by the caller, but if not, will be automatically selected.
+type PendingChanID = [32]byte
+
 // nextPendingChanID returns the next free pending channel ID to be used to
 // identify a particular future channel funding workflow.
-func (f *Manager) nextPendingChanID() [32]byte {
+func (f *Manager) nextPendingChanID() PendingChanID {
 	// Obtain a fresh nonce. We do this by encoding the current nonce
 	// counter, then incrementing it by one.
 	f.nonceMtx.Lock()
@@ -812,7 +816,7 @@ func (f *Manager) nextPendingChanID() [32]byte {
 	// We'll generate the next pending channelID by "encrypting" 32-bytes
 	// of zeroes which'll extract 32 random bytes from our stream cipher.
 	var (
-		nextChanID [32]byte
+		nextChanID PendingChanID
 		zeroes     [32]byte
 	)
 	salsa20.XORKeyStream(nextChanID[:], zeroes[:], nonce[:], &f.chanIDKey)
@@ -1045,7 +1049,8 @@ func (f *Manager) reservationCoordinator() {
 //
 // NOTE: This MUST be run as a goroutine.
 func (f *Manager) advanceFundingState(channel *channeldb.OpenChannel,
-	pendingChanID [32]byte, updateChan chan<- *lnrpc.OpenStatusUpdate) {
+	pendingChanID PendingChanID,
+	updateChan chan<- *lnrpc.OpenStatusUpdate) {
 
 	defer f.wg.Done()
 
@@ -1115,7 +1120,7 @@ func (f *Manager) advanceFundingState(channel *channeldb.OpenChannel,
 // updateChan can be set non-nil to get OpenStatusUpdates.
 func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 	lnChannel *lnwallet.LightningChannel,
-	shortChanID *lnwire.ShortChannelID, pendingChanID [32]byte,
+	shortChanID *lnwire.ShortChannelID, pendingChanID PendingChanID,
 	channelState channelOpeningState,
 	updateChan chan<- *lnrpc.OpenStatusUpdate) error {
 
@@ -1239,7 +1244,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 // advancePendingChannelState waits for a pending channel's funding tx to
 // confirm, and marks it open in the database when that happens.
 func (f *Manager) advancePendingChannelState(
-	channel *channeldb.OpenChannel, pendingChanID [32]byte) error {
+	channel *channeldb.OpenChannel, pendingChanID PendingChanID) error {
 
 	if channel.IsZeroConf() {
 		// Persist the alias to the alias database.
@@ -2770,7 +2775,7 @@ type confirmedChannel struct {
 // channel as closed. The error is only returned for the responder of the
 // channel flow.
 func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
-	pendingID [32]byte) error {
+	pendingID PendingChanID) error {
 
 	// We'll get a timeout if the number of blocks mined since the channel
 	// was initiated reaches MaxWaitNumBlocksFundingConf and we are not the
@@ -3995,7 +4000,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 // channel is now active, thus we change its state to `addedToGraph` to
 // let the channel start handling routing.
 func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
-	scid *lnwire.ShortChannelID, pendingChanID [32]byte,
+	scid *lnwire.ShortChannelID, pendingChanID PendingChanID,
 	updateChan chan<- *lnrpc.OpenStatusUpdate) error {
 
 	chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
@@ -4519,7 +4524,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// If the caller specified their own channel ID, then we'll use that.
 	// Otherwise we'll generate a fresh one as normal.  This will be used
 	// to track this reservation throughout its lifetime.
-	var chanID [32]byte
+	var chanID PendingChanID
 	if msg.PendingChanID == zeroID {
 		chanID = f.nextPendingChanID()
 	} else {
@@ -4942,7 +4947,8 @@ func (f *Manager) pruneZombieReservations() {
 // cancelReservationCtx does all needed work in order to securely cancel the
 // reservation.
 func (f *Manager) cancelReservationCtx(peerKey *btcec.PublicKey,
-	pendingChanID [32]byte, byRemote bool) (*reservationWithCtx, error) {
+	pendingChanID PendingChanID,
+	byRemote bool) (*reservationWithCtx, error) {
 
 	log.Infof("Cancelling funding reservation for node_key=%x, "+
 		"chan_id=%x", peerKey.SerializeCompressed(), pendingChanID[:])
@@ -4990,7 +4996,7 @@ func (f *Manager) cancelReservationCtx(peerKey *btcec.PublicKey,
 // deleteReservationCtx deletes the reservation uniquely identified by the
 // target public key of the peer, and the specified pending channel ID.
 func (f *Manager) deleteReservationCtx(peerKey *btcec.PublicKey,
-	pendingChanID [32]byte) {
+	pendingChanID PendingChanID) {
 
 	peerIDKey := newSerializedKey(peerKey)
 	f.resMtx.Lock()
@@ -5013,7 +5019,7 @@ func (f *Manager) deleteReservationCtx(peerKey *btcec.PublicKey,
 // getReservationCtx returns the reservation context for a particular pending
 // channel ID for a target peer.
 func (f *Manager) getReservationCtx(peerKey *btcec.PublicKey,
-	pendingChanID [32]byte) (*reservationWithCtx, error) {
+	pendingChanID PendingChanID) (*reservationWithCtx, error) {
 
 	peerIDKey := newSerializedKey(peerKey)
 	f.resMtx.RLock()
@@ -5033,7 +5039,7 @@ func (f *Manager) getReservationCtx(peerKey *btcec.PublicKey,
 // of being funded. After the funding transaction has been confirmed, the
 // channel will receive a new, permanent channel ID, and will no longer be
 // considered pending.
-func (f *Manager) IsPendingChannel(pendingChanID [32]byte,
+func (f *Manager) IsPendingChannel(pendingChanID PendingChanID,
 	peer lnpeer.Peer) bool {
 
 	peerIDKey := newSerializedKey(peer.IdentityKey())

@@ -375,6 +375,11 @@ type Config struct {
 	// invalid.
 	DisallowRouteBlinding bool
 
+	// MsgRouter is an optional instance of the main message router that
+	// the peer will use. If None, then a new default version will be used
+	// in place.
+	MsgRouter fn.Option[protofsm.MsgRouter]
+
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
 }
@@ -513,6 +518,12 @@ var _ lnpeer.Peer = (*Brontide)(nil)
 func NewBrontide(cfg Config) *Brontide {
 	logPrefix := fmt.Sprintf("Peer(%x):", cfg.PubKeyBytes)
 
+	// We'll either use the msg router instance passed in, or create a new
+	// blank instance.
+	msgRouter := cfg.MsgRouter.Alt(fn.Some[protofsm.MsgRouter](
+		protofsm.NewMultiMsgRouter(),
+	))
+
 	p := &Brontide{
 		cfg:           cfg,
 		activeSignal:  make(chan struct{}),
@@ -535,9 +546,7 @@ func NewBrontide(cfg Config) *Brontide {
 		startReady:         make(chan struct{}),
 		quit:               make(chan struct{}),
 		log:                build.NewPrefixLog(logPrefix, peerLog),
-		msgRouter: fn.Some[protofsm.MsgRouter](
-			protofsm.NewMultiMsgRouter(),
-		),
+		msgRouter:          msgRouter,
 	}
 
 	var (

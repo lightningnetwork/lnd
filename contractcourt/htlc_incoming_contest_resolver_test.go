@@ -353,6 +353,11 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 			},
 			HtlcNotifier: htlcNotifier,
 			Budget:       *DefaultBudgetConfig(),
+			QueryIncomingCircuit: func(rHash [32]byte,
+				circuit models.CircuitKey) *models.CircuitKey {
+
+				return nil
+			},
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {

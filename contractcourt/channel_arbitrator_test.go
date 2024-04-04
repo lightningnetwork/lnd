@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
@@ -395,6 +396,11 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 		Budget:     *DefaultBudgetConfig(),
 		PreimageDB: newMockWitnessBeacon(),
 		Registry:   &mockRegistry{},
+		QueryIncomingCircuit: func(rHash [32]byte,
+			circuit models.CircuitKey) *models.CircuitKey {
+
+			return nil
+		},
 	}
 
 	// We'll use the resolvedChan to synchronize on call to
@@ -430,7 +436,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 			return &channeldb.OpenChannel{}, nil
 		},
 		FindOutgoingHTLCDeadline: func(
-			rHash chainhash.Hash) fn.Option[int32] {
+			htlc channeldb.HTLC) fn.Option[int32] {
 
 			return fn.None[int32]()
 		},

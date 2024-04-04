@@ -1134,6 +1134,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		},
 	)
 
+	//noline:lll
 	s.chainArb = contractcourt.NewChainArbitrator(contractcourt.ChainArbitratorConfig{
 		ChainHash:              *s.cfg.ActiveNetParams.GenesisHash,
 		IncomingBroadcastDelta: lncfg.DefaultIncomingBroadcastDelta,
@@ -1224,10 +1225,26 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PaymentsExpirationGracePeriod: cfg.PaymentsExpirationGracePeriod,
 		IsForwardedHTLC:               s.htlcSwitch.IsForwardedHTLC,
 		Clock:                         clock.NewDefaultClock(),
-		SubscribeBreachComplete:       s.breachArbitrator.SubscribeBreachComplete, //nolint:lll
-		PutFinalHtlcOutcome:           s.chanStateDB.PutOnchainFinalHtlcOutcome,   //nolint: lll
+		SubscribeBreachComplete:       s.breachArbitrator.SubscribeBreachComplete,
+		PutFinalHtlcOutcome:           s.chanStateDB.PutOnchainFinalHtlcOutcome,
 		HtlcNotifier:                  s.htlcNotifier,
 		Budget:                        *s.cfg.Sweeper.Budget,
+
+		// TODO(yy): remove this hack once PaymentCircuit is interfaced.
+		QueryIncomingCircuit: func(
+			circuit models.CircuitKey) *models.CircuitKey {
+
+			// Get the circuit map.
+			circuits := s.htlcSwitch.CircuitLookup()
+
+			// Lookup the outgoing circuit.
+			pc := circuits.LookupOpenCircuit(circuit)
+			if pc == nil {
+				return nil
+			}
+
+			return &pc.Incoming
+		},
 	}, dbs.ChanStateDB)
 
 	// Select the configuration and funding parameters for Bitcoin.

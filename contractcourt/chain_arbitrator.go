@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
@@ -206,6 +207,17 @@ type ChainArbitratorConfig struct {
 
 	// Budget is the configured budget for the arbitrator.
 	Budget BudgetConfig
+
+	// QueryIncomingCircuit is used to find the outgoing HTLC's
+	// corresponding incoming HTLC circuit. It queries the circuit map for
+	// a given payment hash and returns the incoming circuit key.
+	//
+	// TODO(yy): this is a hacky way to get around the cycling import issue
+	// as we cannot import `htlcswitch` here. A proper way is to define an
+	// interface here that asks for method `LookupByPaymentHash`,
+	// meanwhile, turn `PaymentCircuit` into an interface or bring it to a
+	// lower package.
+	QueryIncomingCircuit func(circuit models.CircuitKey) *models.CircuitKey
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all
@@ -389,9 +401,11 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 			return chanStateDB.FetchHistoricalChannel(&chanPoint)
 		},
 		FindOutgoingHTLCDeadline: func(
-			rHash chainhash.Hash) fn.Option[int32] {
+			htlc channeldb.HTLC) fn.Option[int32] {
 
-			return c.FindOutgoingHTLCDeadline(chanPoint, rHash)
+			return c.FindOutgoingHTLCDeadline(
+				channel.ShortChanID(), htlc,
+			)
 		},
 	}
 
@@ -612,9 +626,11 @@ func (c *ChainArbitrator) Start() error {
 				return chanStateDB.FetchHistoricalChannel(&chanPoint)
 			},
 			FindOutgoingHTLCDeadline: func(
-				rHash chainhash.Hash) fn.Option[int32] {
+				htlc channeldb.HTLC) fn.Option[int32] {
 
-				return c.FindOutgoingHTLCDeadline(chanPoint, rHash)
+				return c.FindOutgoingHTLCDeadline(
+					closeChanInfo.ShortChanID, htlc,
+				)
 			},
 		}
 		chanLog, err := newBoltArbitratorLog(
@@ -1224,8 +1240,8 @@ func (c *ChainArbitrator) SubscribeChannelEvents(
 // by the timeout height of its corresponding incoming HTLC - this is the
 // expiry height the that remote peer can spend his/her outgoing HTLC via the
 // timeout path.
-func (c *ChainArbitrator) FindOutgoingHTLCDeadline(chanPoint wire.OutPoint,
-	rHash chainhash.Hash) fn.Option[int32] {
+func (c *ChainArbitrator) FindOutgoingHTLCDeadline(scid lnwire.ShortChannelID,
+	outgoingHTLC channeldb.HTLC) fn.Option[int32] {
 
 	// minRefundTimeout tracks the minimal refund timeout found using the
 	// rHash. It's possible that we find multiple HTLCs living in different
@@ -1235,11 +1251,45 @@ func (c *ChainArbitrator) FindOutgoingHTLCDeadline(chanPoint wire.OutPoint,
 	// TODO(yy): can instead query the circuit map to find the exact HTLC.
 	minRefundTimeout := uint32(math.MaxInt32)
 
-	// Iterate over all active channels to find the HTLC with the matching
-	// rHash.
+	// Find the outgoing HTLC's corresponding incoming HTLC in the circuit
+	// map.
+	rHash := outgoingHTLC.RHash
+	circuit := models.CircuitKey{
+		ChanID: scid,
+		HtlcID: outgoingHTLC.HtlcIndex,
+	}
+	incomingCircuit := c.cfg.QueryIncomingCircuit(circuit)
+
+	// If there's no incoming circuit found, we will use the default
+	// deadline.
+	if incomingCircuit == nil {
+		log.Warnf("ChannelArbitrator(%v): incoming circuit key not "+
+			"found for rHash=%x, using default deadline instead",
+			scid, rHash)
+
+		return fn.None[int32]()
+	}
+
+	// If this is a locally initiated HTLC, it means we are the first hop.
+	// In this case, we can relax the deadline.
+	if incomingCircuit.ChanID.IsDefault() {
+		log.Infof("ChannelArbitrator(%v): using default deadline for "+
+			"locally initiated HTLC for rHash=%x", scid, rHash)
+
+		return fn.None[int32]()
+	}
+
+	log.Debugf("Found incoming circuit %v for rHash=%x using outgoing "+
+		"circuit %v", incomingCircuit, rHash, circuit)
+
+	c.Lock()
+	defer c.Unlock()
+
+	// Iterate over all active channels to find the incoming HTLC specified
+	// by its circuit key.
 	for cp, channelArb := range c.activeChannels {
-		// Skip the targeted channel as the incoming HTLC is not here.
-		if cp == chanPoint {
+		// Skip if the SCID doesn't match.
+		if channelArb.cfg.ShortChanID != incomingCircuit.ChanID {
 			continue
 		}
 
@@ -1247,13 +1297,14 @@ func (c *ChainArbitrator) FindOutgoingHTLCDeadline(chanPoint wire.OutPoint,
 		// HTLC.
 		for _, htlcs := range channelArb.activeHTLCs {
 			for _, htlc := range htlcs.incomingHTLCs {
-				if htlc.RHash != rHash {
+				// Skip if the index doesn't match.
+				if htlc.HtlcIndex != incomingCircuit.HtlcID {
 					continue
 				}
 
 				log.Debugf("ChannelArbitrator(%v): found "+
 					"incoming HTLC in channel=%v using "+
-					"rHash=%v, refundTimeout=%v", chanPoint,
+					"rHash=%x, refundTimeout=%v", scid,
 					cp, rHash, htlc.RefundTimeout)
 
 				// Update the value if it's smaller.
@@ -1269,10 +1320,10 @@ func (c *ChainArbitrator) FindOutgoingHTLCDeadline(chanPoint wire.OutPoint,
 		return fn.Some(int32(minRefundTimeout))
 	}
 
-	// If there's no incoming HTLC found, it means we are the first hop. In
-	// this case, we can relax the deadline.
-	log.Infof("ChannelArbitrator(%v): incoming HTLC not found for "+
-		"rHash=%v, using default deadline instead", chanPoint, rHash)
+	// If there's no incoming HTLC found, yet we have the incoming circuit,
+	// something is wrong - in this case, we return the none deadline.
+	log.Errorf("ChannelArbitrator(%v): incoming HTLC not found for "+
+		"rHash=%x, using default deadline instead", scid, rHash)
 
 	return fn.None[int32]()
 }

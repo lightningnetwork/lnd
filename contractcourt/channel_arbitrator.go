@@ -170,7 +170,7 @@ type ChannelArbitratorConfig struct {
 	// deadline is defined by the timeout height of its corresponding
 	// incoming HTLC - this is the expiry height the that remote peer can
 	// spend his/her outgoing HTLC via the timeout path.
-	FindOutgoingHTLCDeadline func(rHash chainhash.Hash) fn.Option[int32]
+	FindOutgoingHTLCDeadline func(htlc channeldb.HTLC) fn.Option[int32]
 
 	ChainArbitratorConfig
 }
@@ -764,7 +764,7 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 		// the resolver with the expiry block height of its
 		// corresponding incoming HTLC.
 		if !htlc.Incoming {
-			deadline := c.cfg.FindOutgoingHTLCDeadline(htlc.RHash)
+			deadline := c.cfg.FindOutgoingHTLCDeadline(*htlc)
 			htlcResolver.SupplementDeadline(deadline)
 		}
 	}
@@ -2423,9 +2423,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				// supplement the resolver with the expiry
 				// block height of its corresponding incoming
 				// HTLC.
-				deadline := c.cfg.FindOutgoingHTLCDeadline(
-					htlc.RHash,
-				)
+				deadline := c.cfg.FindOutgoingHTLCDeadline(htlc)
 				resolver.SupplementDeadline(deadline)
 
 				htlcResolvers = append(htlcResolvers, resolver)
@@ -2525,9 +2523,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				// supplement the resolver with the expiry
 				// block height of its corresponding incoming
 				// HTLC.
-				deadline := c.cfg.FindOutgoingHTLCDeadline(
-					htlc.RHash,
-				)
+				deadline := c.cfg.FindOutgoingHTLCDeadline(htlc)
 				resolver.SupplementDeadline(deadline)
 
 				htlcResolvers = append(htlcResolvers, resolver)

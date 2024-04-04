@@ -42,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/pool"
+	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -377,7 +378,7 @@ type Config struct {
 	// MsgRouter is an optional instance of the main message router that
 	// the peer will use. If None, then a new default version will be used
 	// in place.
-	MsgRouter fn.Option[MsgRouter]
+	MsgRouter fn.Option[protofsm.MsgRouter]
 
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
@@ -500,7 +501,7 @@ type Brontide struct {
 
 	// msgRouter is an instance of the MsgRouter which is used to send off
 	// new wire messages for handing.
-	msgRouter fn.Option[MsgRouter]
+	msgRouter fn.Option[protofsm.MsgRouter]
 
 	startReady chan struct{}
 	quit       chan struct{}
@@ -522,7 +523,7 @@ func NewBrontide(cfg Config) *Brontide {
 	//
 	// TODO(roasbeef): extend w/ source peer info?
 	msgRouter := cfg.MsgRouter.Alt(
-		fn.Some[MsgRouter](NewMultiMsgRouter()),
+		fn.Some[protofsm.MsgRouter](protofsm.NewMultiMsgRouter()),
 	)
 
 	p := &Brontide{
@@ -724,7 +725,7 @@ func (p *Brontide) Start() error {
 
 	// Register the message router now as we may need to register some
 	// endpoints while loading the channels below.
-	p.msgRouter.WhenSome(func(router MsgRouter) {
+	p.msgRouter.WhenSome(func(router protofsm.MsgRouter) {
 		router.Start()
 	})
 
@@ -1294,7 +1295,7 @@ func (p *Brontide) Disconnect(reason error) {
 			err)
 	}
 
-	p.msgRouter.WhenSome(func(router MsgRouter) {
+	p.msgRouter.WhenSome(func(router protofsm.MsgRouter) {
 		router.Stop()
 	})
 }
@@ -1739,7 +1740,7 @@ out:
 		// If a message router is active, then we'll try to have it
 		// handle this message. If it can, then we're able to skip the
 		// rest of the message handling logic.
-		ok := fn.MapOptionZ(p.msgRouter, func(r MsgRouter) error {
+		ok := fn.MapOptionZ(p.msgRouter, func(r protofsm.MsgRouter) error {
 			return r.RouteMsg(nextMsg)
 		})
 

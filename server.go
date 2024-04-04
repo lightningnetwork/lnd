@@ -3912,6 +3912,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		DisallowRouteBlinding:  s.cfg.ProtocolOptions.NoRouteBlinding(),
 		Quit:                   s.quit,
 		AuxLeafStore:           s.implCfg.AuxLeafStore,
+		MsgRouter:              s.implCfg.MsgRouter,
 	}
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())

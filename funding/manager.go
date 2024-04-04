@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -561,10 +562,11 @@ type Manager struct {
 	// temporary channel ID's.
 	chanIDKey [32]byte
 
+	nonceMtx sync.RWMutex
+
 	// chanIDNonce is a nonce that's incremented for each new funding
 	// reservation created.
-	nonceMtx    sync.RWMutex
-	chanIDNonce uint64
+	chanIDNonce atomic.Uint64
 
 	// pendingMusigNonces is used to store the musig2 nonce we generate to
 	// send funding locked until we receive a funding locked message from
@@ -802,11 +804,10 @@ type PendingChanID = [32]byte
 func (f *Manager) nextPendingChanID() PendingChanID {
 	// Obtain a fresh nonce. We do this by encoding the current nonce
 	// counter, then incrementing it by one.
-	f.nonceMtx.Lock()
-	var nonce [8]byte
-	binary.LittleEndian.PutUint64(nonce[:], f.chanIDNonce)
-	f.chanIDNonce++
-	f.nonceMtx.Unlock()
+	nextNonce := f.chanIDNonce.Add(1)
+
+	var nonceBytes [8]byte
+	binary.LittleEndian.PutUint64(nonceBytes[:], nextNonce)
 
 	// We'll generate the next pending channelID by "encrypting" 32-bytes
 	// of zeroes which'll extract 32 random bytes from our stream cipher.
@@ -814,7 +815,9 @@ func (f *Manager) nextPendingChanID() PendingChanID {
 		nextChanID PendingChanID
 		zeroes     [32]byte
 	)
-	salsa20.XORKeyStream(nextChanID[:], zeroes[:], nonce[:], &f.chanIDKey)
+	salsa20.XORKeyStream(
+		nextChanID[:], zeroes[:], nonceBytes[:], &f.chanIDKey,
+	)
 
 	return nextChanID
 }

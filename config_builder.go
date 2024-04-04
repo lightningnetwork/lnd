@@ -43,6 +43,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sqldb"
@@ -145,6 +146,10 @@ type ImplementationCfg struct {
 	// ChainControlBuilder is a type that can provide a custom wallet
 	// implementation.
 	ChainControlBuilder
+
+	// MsgRouter is an optional message router that if set will be used in
+	// place of a new balnk default message router.
+	MsgRouter fn.Option[peer.MsgRouter]
 }
 
 // DefaultWalletImpl is the default implementation of our normal, btcwallet

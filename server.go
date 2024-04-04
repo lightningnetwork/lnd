@@ -155,6 +155,8 @@ type server struct {
 
 	cfg *Config
 
+	implCfg *ImplementationCfg
+
 	// identityECDH is an ECDH capable wrapper for the private key used
 	// to authenticate any incoming connections.
 	identityECDH keychain.SingleKeyECDH
@@ -475,8 +477,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	nodeKeyDesc *keychain.KeyDescriptor,
 	chansToRestore walletunlocker.ChannelsToRecover,
 	chanPredicate chanacceptor.ChannelAcceptor,
-	torController *tor.Controller, tlsManager *TLSManager) (*server,
-	error) {
+	torController *tor.Controller, tlsManager *TLSManager,
+	implCfg *ImplementationCfg) (*server, error) {
 
 	var (
 		err         error
@@ -562,6 +564,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s := &server{
 		cfg:            cfg,
+		implCfg:        implCfg, // TODO(roasbeef): access dbs this way as well?
 		graphDB:        dbs.GraphDB.ChannelGraph(),
 		chanStateDB:    dbs.ChanStateDB.ChannelStateDB(),
 		addrSource:     dbs.ChanStateDB,
@@ -3872,6 +3875,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		RequestAlias:           s.aliasMgr.RequestAlias,
 		AddLocalAlias:          s.aliasMgr.AddLocalAlias,
 		Quit:                   s.quit,
+		MsgRouter:              s.implCfg.MsgRouter,
 	}
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())

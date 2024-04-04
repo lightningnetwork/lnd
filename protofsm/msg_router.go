@@ -1,4 +1,4 @@
-package peer
+package protofsm
 
 import (
 	"fmt"
@@ -152,7 +152,7 @@ func NewMultiMsgRouter() *MultiMsgRouter {
 
 // Start starts the peer message router.
 func (p *MultiMsgRouter) Start() {
-	peerLog.Infof("Starting MsgRouter")
+	log.Infof("Starting MsgRouter")
 
 	p.startOnce.Do(func() {
 		p.wg.Add(1)
@@ -162,7 +162,7 @@ func (p *MultiMsgRouter) Start() {
 
 // Stop stops the peer message router.
 func (p *MultiMsgRouter) Stop() {
-	peerLog.Infof("Stopping MsgRouter")
+	log.Infof("Stopping MsgRouter")
 
 	p.stopOnce.Do(func() {
 		close(p.quit)
@@ -214,13 +214,13 @@ func (p *MultiMsgRouter) msgRouter() {
 		case newEndpointMsg := <-p.registerChan:
 			endpoint := newEndpointMsg.query
 
-			peerLog.Infof("MsgRouter: registering new "+
+			log.Infof("MsgRouter: registering new "+
 				"MsgEndpoint(%s)", endpoint.Name())
 
 			// If this endpoint already exists, then we'll return
 			// an error as we require unique names.
 			if _, ok := endpoints[endpoint.Name()]; ok {
-				peerLog.Errorf("MsgRouter: rejecting "+
+				log.Errorf("MsgRouter: rejecting "+
 					"duplicate endpoint: %v",
 					endpoint.Name())
 
@@ -243,7 +243,7 @@ func (p *MultiMsgRouter) msgRouter() {
 		case endpointName := <-p.unregisterChan:
 			delete(endpoints, endpointName.query)
 
-			peerLog.Infof("MsgRouter: unregistering "+
+			log.Infof("MsgRouter: unregistering "+
 				"MsgEndpoint(%s)", endpointName.query)
 
 			endpointName.respChan <- fn.NewRight[error, error](
@@ -260,7 +260,7 @@ func (p *MultiMsgRouter) msgRouter() {
 			var couldSend bool
 			for _, endpoint := range endpoints {
 				if endpoint.CanHandle(msg) {
-					peerLog.Tracef("MsgRouter: sending "+
+					log.Tracef("MsgRouter: sending "+
 						"msg %T to endpoint %s", msg,
 						endpoint.Name())
 
@@ -271,7 +271,7 @@ func (p *MultiMsgRouter) msgRouter() {
 
 			var err error
 			if !couldSend {
-				peerLog.Tracef("MsgRouter: unable to route "+
+				log.Tracef("MsgRouter: unable to route "+
 					"msg %T", msg)
 
 				err = ErrUnableToRouteMsg

@@ -129,6 +129,10 @@
 
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/8685) lncli "bumpfee"
   parsing of the immediate/force flag.
+  
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8621) the behaviour of
+  neutrino LND nodes which would loose sync in case they had very unstable
+  peer connection.
 
 # New Features
 ## Functional Enhancements

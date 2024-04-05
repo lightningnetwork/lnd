@@ -392,6 +392,11 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   and makes TLV Onions, Static Remote Keys, Gossip Queries, compulsory features
   for LND's peers. Data Loss Protection has been compulsory for years.
 
+* [Don't Require Gossip Queries](https://github.com/lightningnetwork/lnd/pull/8615)
+  This change undoes a portion of what was introduced in #8275 due to a subsequent
+  [spec change](https://github.com/lightning/bolts/pull/1092/commits/e0ee59f3c92b7c98be8dfc47b7db358b45baf9de)
+  that meant we shouldn't require it.
+
 ## Testing
 
 * Added fuzz tests for [onion

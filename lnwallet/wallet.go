@@ -229,9 +229,8 @@ type InitFundingReserveMsg struct {
 	// channel that will be useful to our future selves.
 	Memo []byte
 
-	// TapscriptRoot is the root of the tapscript tree that will be used to
-	// create the funding output. This is an optional field that should
-	// only be set for taproot channels.
+	// TapscriptRoot is an optional tapscript root that if provided, will
+	// be used to create the combined key for musig2 based channels.
 	TapscriptRoot fn.Option[chainhash.Hash]
 
 	// err is a channel in which all errors will be sent across. Will be
@@ -281,6 +280,10 @@ type addContributionMsg struct {
 // finalized transaction is now available.
 type continueContributionMsg struct {
 	pendingFundingID uint64
+
+	// auxFundingDesc is an optional descriptor that contains information
+	// about the custom channel funding flow.
+	auxFundingDesc fn.Option[AuxFundingDesc]
 
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
 	err chan error
@@ -336,6 +339,10 @@ type addCounterPartySigsMsg struct {
 // transactions, signing the remote party's version.
 type addSingleFunderSigsMsg struct {
 	pendingFundingID uint64
+
+	// auxFundingDesc is an optional descriptor that contains information
+	// about the custom channel funding flow.
+	auxFundingDesc fn.Option[AuxFundingDesc]
 
 	// fundingOutpoint is the outpoint of the completed funding
 	// transaction as assembled by the workflow initiator.
@@ -1489,12 +1496,24 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 // createCommitOpts is a struct that holds the options for creating a new
 // commitment transaction.
 type createCommitOpts struct {
-	auxLeaves fn.Option[CommitAuxLeaves]
+	localAuxLeaves  fn.Option[CommitAuxLeaves]
+	remoteAuxLeaves fn.Option[CommitAuxLeaves]
 }
 
 // defaultCommitOpts returns a new createCommitOpts with default values.
 func defaultCommitOpts() createCommitOpts {
 	return createCommitOpts{}
+}
+
+// WithAuxLeaves is a functional option that can be used to set the aux leaves
+// for a new commitment transaction.
+func WithAuxLeaves(localLeaves,
+	remoteLeaves fn.Option[CommitAuxLeaves]) CreateCommitOpt {
+
+	return func(o *createCommitOpts) {
+		o.localAuxLeaves = localLeaves
+		o.remoteAuxLeaves = remoteLeaves
+	}
 }
 
 // CreateCommitOpt is a functional option that can be used to modify the way a
@@ -1528,7 +1547,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	ourCommitTx, err := CreateCommitTx(
 		chanType, fundingTxIn, localCommitmentKeys, ourChanCfg,
 		theirChanCfg, localBalance, remoteBalance, 0, initiator,
-		leaseExpiry, options.auxLeaves,
+		leaseExpiry, options.localAuxLeaves,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1542,7 +1561,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	theirCommitTx, err := CreateCommitTx(
 		chanType, fundingTxIn, remoteCommitmentKeys, theirChanCfg,
 		ourChanCfg, remoteBalance, localBalance, 0, !initiator,
-		leaseExpiry, options.auxLeaves,
+		leaseExpiry, options.remoteAuxLeaves,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1885,6 +1904,18 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	if pendingReservation.partialState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = pendingReservation.partialState.ThawHeight
 	}
+
+	localAuxLeaves := fn.MapOption(
+		func(desc AuxFundingDesc) CommitAuxLeaves {
+			return desc.LocalInitAuxLeaves
+		},
+	)(req.auxFundingDesc)
+	remoteAuxLeaves := fn.MapOption(
+		func(desc AuxFundingDesc) CommitAuxLeaves {
+			return desc.RemoteInitAuxLeaves
+		},
+	)(req.auxFundingDesc)
+
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
 		localBalance, remoteBalance, ourContribution.ChannelConfig,
 		theirContribution.ChannelConfig,
@@ -1892,6 +1923,7 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 		theirContribution.FirstCommitmentPoint, fundingTxIn,
 		pendingReservation.partialState.ChanType,
 		pendingReservation.partialState.IsInitiator, leaseExpiry,
+		WithAuxLeaves(localAuxLeaves, remoteAuxLeaves),
 	)
 	if err != nil {
 		req.err <- err
@@ -2323,6 +2355,18 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	if pendingReservation.partialState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = pendingReservation.partialState.ThawHeight
 	}
+
+	localAuxLeaves := fn.MapOption(
+		func(desc AuxFundingDesc) CommitAuxLeaves {
+			return desc.LocalInitAuxLeaves
+		},
+	)(req.auxFundingDesc)
+	remoteAuxLeaves := fn.MapOption(
+		func(desc AuxFundingDesc) CommitAuxLeaves {
+			return desc.RemoteInitAuxLeaves
+		},
+	)(req.auxFundingDesc)
+
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
 		localBalance, remoteBalance,
 		pendingReservation.ourContribution.ChannelConfig,
@@ -2331,6 +2375,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		pendingReservation.theirContribution.FirstCommitmentPoint,
 		*fundingTxIn, chanType,
 		pendingReservation.partialState.IsInitiator, leaseExpiry,
+		WithAuxLeaves(localAuxLeaves, remoteAuxLeaves),
 	)
 	if err != nil {
 		req.err <- err

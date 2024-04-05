@@ -229,10 +229,9 @@ type InitFundingReserveMsg struct {
 	// channel that will be useful to our future selves.
 	Memo []byte
 
-	// TapscriptRoot is the root of the tapscript tree that will be used to
-	// create the funding output. This is an optional field that should
-	// only be set for taproot channels,
-	TapscriptRoot fn.Option[chainhash.Hash]
+	// AuxFundingDesc is an optional descriptor that can be used to modify
+	// the way channel funding occurs.
+	AuxFundingDesc fn.Option[AuxFundingDesc]
 
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
@@ -1494,6 +1493,14 @@ func defaultCommitOpts() createCommitOpts {
 	return createCommitOpts{}
 }
 
+// WithAuxLeaves is a functional option that can be used to set the aux leaves
+// for a new commitment transaction.
+func WithAuxLeaves(leaves fn.Option[CommitAuxLeaves]) CreateCommitOpt {
+	return func(o *createCommitOpts) {
+		o.auxLeaves = leaves
+	}
+}
+
 // CreateCommitOpt is a functional option that can be used to modify the way a
 // new commitment transaction is created.
 type CreateCommitOpt func(*createCommitOpts)
@@ -1881,6 +1888,7 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	if pendingReservation.partialState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = pendingReservation.partialState.ThawHeight
 	}
+
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
 		localBalance, remoteBalance, ourContribution.ChannelConfig,
 		theirContribution.ChannelConfig,
@@ -1888,6 +1896,7 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 		theirContribution.FirstCommitmentPoint, fundingTxIn,
 		pendingReservation.partialState.ChanType,
 		pendingReservation.partialState.IsInitiator, leaseExpiry,
+		WithAuxLeaves(pendingReservation.initAuxLeaves),
 	)
 	if err != nil {
 		req.err <- err
@@ -2327,6 +2336,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		pendingReservation.theirContribution.FirstCommitmentPoint,
 		*fundingTxIn, chanType,
 		pendingReservation.partialState.IsInitiator, leaseExpiry,
+		WithAuxLeaves(pendingReservation.initAuxLeaves),
 	)
 	if err != nil {
 		req.err <- err

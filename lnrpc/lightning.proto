@@ -1590,6 +1590,8 @@ message Channel {
     the channel's operation.
     */
     string memo = 36;
+
+    bytes custom_channel_data = 37;
 }
 
 message ListChannelsRequest {
@@ -2426,6 +2428,8 @@ message OpenChannelRequest {
     A list of selected outpoints that are allocated for channel funding.
     */
     repeated OutPoint outpoints = 28;
+
+    bytes custom_channel_data = 29;
 }
 message OpenStatusUpdate {
     oneof update {

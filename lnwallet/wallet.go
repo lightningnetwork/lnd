@@ -229,6 +229,8 @@ type InitFundingReserveMsg struct {
 	// channel that will be useful to our future selves.
 	Memo []byte
 
+	CustomChannelData []byte
+
 	// TapscriptRoot is an optional tapscript root that if provided, will
 	// be used to create the combined key for musig2 based channels.
 	TapscriptRoot fn.Option[chainhash.Hash]

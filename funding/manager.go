@@ -543,6 +543,12 @@ type Config struct {
 	// AuxLeafStore is an optional store that can be used to store auxiliary
 	// leaves for certain custom channel types.
 	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
+
+	// AuxFundingController is an optional controller that can be used to
+	// modify the way we handle certain custom chanenl types. It's also
+	// able to automatically handle new custom protocol messages related to
+	// the funding process.
+	AuxFundingController fn.Option[AuxFundingController]
 }
 
 // Manager acts as an orchestrator/bridge between the wallet's
@@ -1613,6 +1619,15 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		return
 	}
 
+	// At this point, if we have an AuxFundingController active, we'll
+	// check to see if we have any aux info that we should carry along for
+	// this pid.
+	auxFundingDesc := fn.MapOption(
+		func(a AuxFundingController) fn.Option[lnwallet.AuxFundingDesc] {
+			return a.DescFromPendingChanID(msg.PendingChannelID)
+		},
+	)(f.cfg.AuxFundingController)
+
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:        &msg.ChainHash,
 		PendingChanID:    msg.PendingChannelID,
@@ -1629,6 +1644,7 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		ZeroConf:         zeroConf,
 		OptionScidAlias:  scid,
 		ScidAliasFeature: scidFeatureVal,
+		AuxFundingDesc:   fn.FlattenOption(auxFundingDesc),
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
@@ -4603,6 +4619,15 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		scidFeatureVal = true
 	}
 
+	// At this point, if we have an AuxFundingController active, we'll
+	// check to see if we have any aux info that we should carry along for
+	// this pid.
+	auxFundingDesc := fn.MapOption(
+		func(a AuxFundingController) fn.Option[lnwallet.AuxFundingDesc] {
+			return a.DescFromPendingChanID(chanID)
+		},
+	)(f.cfg.AuxFundingController)
+
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:         &msg.ChainHash,
 		PendingChanID:     chanID,
@@ -4626,6 +4651,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		OptionScidAlias:   scid,
 		ScidAliasFeature:  scidFeatureVal,
 		Memo:              msg.Memo,
+		AuxFundingDesc:    fn.FlattenOption(auxFundingDesc),
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)

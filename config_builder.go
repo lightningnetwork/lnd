@@ -34,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -167,6 +168,12 @@ type AuxComponents struct {
 	// MsgRouter is an optional message router that if set will be used in
 	// place of a new blank default message router.
 	MsgRouter fn.Option[msgmux.Router]
+
+	// AuxFundingController is an optional controller that can be used to
+	// modify the way we handle certain custom channel types. It's also
+	// able to automatically handle new custom protocol messages related to
+	// the funding process.
+	AuxFundingController fn.Option[funding.AuxFundingController]
 }
 
 // DefaultWalletImpl is the default implementation of our normal, btcwallet

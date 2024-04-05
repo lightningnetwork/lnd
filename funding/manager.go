@@ -299,6 +299,8 @@ type InitFundingMsg struct {
 	// channel that will be useful to our future selves.
 	Memo []byte
 
+	CustomChannelData []byte
+
 	// Updates is a channel which updates to the opening status of the
 	// channel are sent on.
 	Updates chan *lnrpc.OpenStatusUpdate
@@ -4697,6 +4699,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		ScidAliasFeature:  scidFeatureVal,
 		Memo:              msg.Memo,
 		TapscriptRoot:     tapscriptRoot,
+		CustomChannelData: msg.CustomChannelData,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)

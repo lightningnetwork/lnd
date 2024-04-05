@@ -11,10 +11,12 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // CommitmentType is an enum indicating the commitment type we should use for
@@ -217,6 +219,11 @@ type ChannelReservation struct {
 
 	fundingIntent chanfunding.Intent
 
+	// initAuxLeaves is an optional set of aux commitment leaves that'll
+	// modify the way we construct the commitment transaction, in
+	// particular the tapscript leaves.
+	initAuxLeaves fn.Option[CommitAuxLeaves]
+
 	// nextRevocationKeyLoc stores the key locator information for this
 	// channel.
 	nextRevocationKeyLoc keychain.KeyLocator
@@ -412,7 +419,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		chanType |= channeldb.ScidAliasFeatureBit
 	}
 
-	if req.TapscriptRoot.IsSome() {
+	if req.AuxFundingDesc.IsSome() {
 		chanType |= channeldb.TapscriptRootBit
 	}
 
@@ -437,25 +444,39 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 				RemoteBalance: theirBalance,
 				FeePerKw:      btcutil.Amount(req.CommitFeePerKw),
 				CommitFee:     commitFee,
+				CustomBlob: fn.MapOption(func(desc AuxFundingDesc) tlv.Blob {
+					return desc.CustomLocalCommitBlob
+				})(req.AuxFundingDesc),
 			},
 			RemoteCommitment: channeldb.ChannelCommitment{
 				LocalBalance:  ourBalance,
 				RemoteBalance: theirBalance,
 				FeePerKw:      btcutil.Amount(req.CommitFeePerKw),
 				CommitFee:     commitFee,
+				CustomBlob: fn.MapOption(func(desc AuxFundingDesc) tlv.Blob {
+					return desc.CustomRemoteCommitBlob
+				})(req.AuxFundingDesc),
 			},
 			ThawHeight:           thawHeight,
 			Db:                   wallet.Cfg.Database,
 			InitialLocalBalance:  ourBalance,
 			InitialRemoteBalance: theirBalance,
 			Memo:                 req.Memo,
-			TapscriptRoot:        req.TapscriptRoot,
+			CustomBlob: fn.MapOption(func(desc AuxFundingDesc) tlv.Blob {
+				return desc.CustomFundingBlob
+			})(req.AuxFundingDesc),
+			TapscriptRoot: fn.MapOption(func(desc AuxFundingDesc) chainhash.Hash {
+				return desc.TapscriptRoot
+			})(req.AuxFundingDesc),
 		},
 		pushMSat:      req.PushMSat,
 		pendingChanID: req.PendingChanID,
 		reservationID: id,
 		wallet:        wallet,
 		chanFunder:    req.ChanFunder,
+		initAuxLeaves: fn.MapOption(func(desc AuxFundingDesc) CommitAuxLeaves {
+			return desc.InitAuxLeaves
+		})(req.AuxFundingDesc),
 	}, nil
 }
 

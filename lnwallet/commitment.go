@@ -654,8 +654,7 @@ type AuxLeafStore interface {
 	// FetchLeavesFromView attempts to fetch the auxiliary leaves that
 	// correspond to the passed aux blob, and pending fully evaluated HTLC
 	// view.
-	FetchLeavesFromView(prevBlob tlv.Blob,
-		view *HtlcView,
+	FetchLeavesFromView(prevBlob tlv.Blob, view *HtlcView,
 		keyRing CommitmentKeyRing) fn.Option[CommitAuxLeaves]
 
 	// FetchLeavesFromCommit attempts to fetch the auxiliary leaves that

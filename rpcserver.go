@@ -2245,6 +2245,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 		FundUpToMaxAmt:    fundUpToMaxAmt,
 		MinFundAmt:        minFundAmt,
 		Memo:              []byte(in.Memo),
+		CustomChannelData: in.CustomChannelData,
 		Outpoints:         outpoints,
 	}, nil
 }
@@ -4362,6 +4363,11 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	// is returned and peerScidAlias will be an empty ShortChannelID.
 	peerScidAlias, _ := r.server.aliasMgr.GetPeerAlias(chanID)
 
+	var customChannelData []byte
+	dbChannel.CustomBlob.WhenSome(func(blob tlv.Blob) {
+		customChannelData = blob
+	})
+
 	channel := &lnrpc.Channel{
 		Active:                isActive,
 		Private:               isPrivate(dbChannel),
@@ -4394,6 +4400,7 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 		ZeroConf:              dbChannel.IsZeroConf(),
 		ZeroConfConfirmedScid: dbChannel.ZeroConfRealScid().ToUint64(),
 		Memo:                  string(dbChannel.Memo),
+		CustomChannelData:     customChannelData,
 		// TODO: remove the following deprecated fields
 		CsvDelay:             uint32(dbChannel.LocalChanCfg.CsvDelay),
 		LocalChanReserveSat:  int64(dbChannel.LocalChanCfg.ChanReserve),

@@ -229,6 +229,8 @@ type InitFundingReserveMsg struct {
 	// channel that will be useful to our future selves.
 	Memo []byte
 
+	CustomChannelData []byte
+
 	// AuxFundingDesc is an optional descriptor that can be used to modify
 	// the way channel funding occurs.
 	AuxFundingDesc fn.Option[AuxFundingDesc]

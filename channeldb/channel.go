@@ -328,16 +328,16 @@ func (c *chanAuxData) toOpenChan(o *OpenChannel) {
 // newChanAuxDataFromChan creates a new chanAuxData from the given channel.
 func newChanAuxDataFromChan(openChan *OpenChannel) *chanAuxData {
 	c := &chanAuxData{
-		revokeKeyLoc: tlv.NewRecordT[tlv.TlvType1, keyLocRecord](
+		revokeKeyLoc: tlv.NewRecordT[tlv.TlvType1](
 			keyLocRecord{openChan.RevocationKeyLocator},
 		),
-		initialLocalBalance: tlv.NewPrimitiveRecord[tlv.TlvType2, uint64](
+		initialLocalBalance: tlv.NewPrimitiveRecord[tlv.TlvType2](
 			uint64(openChan.InitialLocalBalance),
 		),
-		initialRemoteBalance: tlv.NewPrimitiveRecord[tlv.TlvType3, uint64](
+		initialRemoteBalance: tlv.NewPrimitiveRecord[tlv.TlvType3](
 			uint64(openChan.InitialRemoteBalance),
 		),
-		realScid: tlv.NewRecordT[tlv.TlvType4, lnwire.ShortChannelID](
+		realScid: tlv.NewRecordT[tlv.TlvType4](
 			openChan.confirmedScid,
 		),
 	}

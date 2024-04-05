@@ -32,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -88,6 +89,33 @@ type PsbtFundingRequired struct {
 // NOTE: This method is part of the error interface.
 func (p *PsbtFundingRequired) Error() string {
 	return ErrPsbtFundingRequired.Error()
+}
+
+// AuxFundingDesc stores a series of attributes that may be used to modify the
+// way the channel funding occurs. This struct contains information that can
+// only be derived once both sides have received and sent their contributions
+// to the channel (keys, etc.).
+type AuxFundingDesc struct {
+	// CustomFundingBlob is a custom blob that'll be stored in the database
+	// within the OpenChannel struct. This should represent information
+	// static to the channel lifetime.
+	CustomFundingBlob tlv.Blob
+
+	// CustomLocalCommitBlob is a custom blob that'll be stored in the
+	// first commitment entry for the local party.
+	CustomLocalCommitBlob tlv.Blob
+
+	// CustomRemoteCommitBlob is a custom blob that'll be stored in the
+	// first commitment entry for the remote party.
+	CustomRemoteCommitBlob tlv.Blob
+
+	// LocalInitAuxLeaves is the set of aux leaves that'll be used for our
+	// very first commitment state.
+	LocalInitAuxLeaves CommitAuxLeaves
+
+	// RemoteInitAuxLeaves is the set of aux leaves that'll be used for the
+	// very first commitment state for the remote party.
+	RemoteInitAuxLeaves CommitAuxLeaves
 }
 
 // InitFundingReserveMsg is the first message sent to initiate the workflow

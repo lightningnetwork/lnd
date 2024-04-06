@@ -4,6 +4,7 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	prand "math/rand"
 	"sync"
@@ -13,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -480,7 +480,7 @@ var _ ChannelLink = (*channelLink)(nil)
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) Start() error {
 	if !atomic.CompareAndSwapInt32(&l.started, 0, 1) {
-		err := errors.Errorf("channel link(%v): already started", l)
+		err := fmt.Errorf("channel link(%v): already started", l)
 		l.log.Warn("already started")
 		return err
 	}
@@ -4080,7 +4080,7 @@ func (l *channelLink) sendMalformedHTLCError(htlcIndex uint64,
 // remote peer.
 func (l *channelLink) fail(linkErr LinkFailureError,
 	format string, a ...interface{}) {
-	reason := errors.Errorf(format, a...)
+	reason := fmt.Errorf(format, a...)
 
 	// Return if we have already notified about a failure.
 	if l.failed {

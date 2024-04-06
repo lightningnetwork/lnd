@@ -7109,6 +7109,20 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 			MaxTimeLockDelta)
 	}
 
+	// By default, positive inbound fees are rejected.
+	if !r.cfg.AcceptPositiveInboundFees {
+		if req.InboundBaseFeeMsat > 0 {
+			return nil, fmt.Errorf("positive values for inbound "+
+				"base fee msat are not supported: %v",
+				req.InboundBaseFeeMsat)
+		}
+		if req.InboundFeeRatePpm > 0 {
+			return nil, fmt.Errorf("positive values for inbound "+
+				"fee rate ppm are not supported: %v",
+				req.InboundFeeRatePpm)
+		}
+	}
+
 	baseFeeMsat := lnwire.MilliSatoshi(req.BaseFeeMsat)
 	feeSchema := routing.FeeSchema{
 		BaseFee: baseFeeMsat,

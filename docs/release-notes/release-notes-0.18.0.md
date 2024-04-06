@@ -120,8 +120,13 @@ call where arguments were swapped.
   node operators to require senders to pay an inbound fee for forwards and
   payments. It is recommended to only use negative fees (an inbound "discount")
   initially to keep the channels open for senders that do not recognize inbound
-  fees. [Send support](https://github.com/lightningnetwork/lnd/pull/6934) is
+  fees.
+
+  [Send support](https://github.com/lightningnetwork/lnd/pull/6934) is
   implemented as well.
+
+  [Positive inbound fees](https://github.com/lightningnetwork/lnd/pull/8627) 
+  can be enabled with the option `accept-positive-inbound-fees`.
 
 * A new config value,
   [sweeper.maxfeerate](https://github.com/lightningnetwork/lnd/pull/7823), is
@@ -448,6 +453,7 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * Carla Kirk-Cohen
 * Elle Mouton
 * ErikEk
+* Feelancer21
 * Jesse de Wit
 * Joost Jager
 * Keagan McClelland

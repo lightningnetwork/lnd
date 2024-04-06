@@ -411,6 +411,8 @@ type Config struct {
 
 	RejectHTLC bool `long:"rejecthtlc" description:"If true, lnd will not forward any HTLCs that are meant as onward payments. This option will still allow lnd to send HTLCs and receive HTLCs but lnd won't be used as a hop."`
 
+	AcceptPositiveInboundFees bool `long:"accept-positive-inbound-fees" description:"If true, lnd will also allow setting positive inbound fees. By default, lnd only allows to set negative inbound fees (an inbound \"discount\") to remain backwards compatible with senders whose implementations do not yet support inbound fees."`
+
 	// RequireInterceptor determines whether the HTLC interceptor is
 	// registered regardless of whether the RPC is called or not.
 	RequireInterceptor bool `long:"requireinterceptor" description:"Whether to always intercept HTLCs, even if no stream is attached"`

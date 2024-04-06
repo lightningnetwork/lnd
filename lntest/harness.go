@@ -1717,6 +1717,10 @@ func (h *HarnessTest) MineBlocks(num uint32) []*wire.MsgBlock {
 //
 // NOTE: this differs from miner's `MineBlocks` as it requires the nodes to be
 // synced.
+//
+// TODO(yy): change the APIs to force callers to think about blocks and txns:
+// - MineBlocksAndAssertNumTxes -> MineBlocks
+// - add more APIs to mine a single tx.
 func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 	numTxs int) []*wire.MsgBlock {
 

@@ -114,6 +114,23 @@ The macaroon created by this call would only be allowed to call the `GetInfo` an
 `GetVersion` methods instead of all methods that have similar permissions (like
 `info:read` for example).
 
+If you need a macaroon file with rights similar to `admin.macaroon` for a
+custom use case, you can create one as shown in the following example.
+Note that a macaroon created in this way will have extensive rights, allowing
+it to create macaroons with more permissions than the original one.
+```shell
+$  lncli bakemacaroon --save_to lnbits.macaroon \
+   address:read address:write \
+   info:read info:write \
+   invoices:read invoices:write \
+   macaroon:generate macaroon:read macaroon:write \
+   message:read message:write \
+   offchain:read offchain:write \
+   onchain:read onchain:write \
+   peers:read peers:write \
+   signer:generate signer:read
+```
+
 A full list of available entity/action pairs and RPC method URIs can be queried
 by using the `lncli listpermissions` command.
 

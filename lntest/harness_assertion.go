@@ -27,7 +27,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -673,13 +672,15 @@ func (h *HarnessTest) AssertStreamChannelCoopClosed(hn *node.HarnessNode,
 // AssertStreamChannelForceClosed reads an update from the close channel client
 // stream and asserts that the mempool state and node's topology match a local
 // force close. In specific,
-// - assert the channel is waiting close and has the expected ChanStatusFlags.
-// - assert the mempool has the closing txes and anchor sweeps.
-// - mine a block and assert the closing txid is mined.
-// - assert the channel is pending force close.
-// - assert the node has seen the channel close update.
+//   - assert the channel is waiting close and has the expected ChanStatusFlags.
+//   - assert the mempool has the closing txes.
+//   - mine a block and assert the closing txid is mined.
+//   - assert the channel is pending force close.
+//   - assert the node has seen the channel close update.
+//   - assert there's a pending anchor sweep request once the force close tx is
+//     confirmed.
 func (h *HarnessTest) AssertStreamChannelForceClosed(hn *node.HarnessNode,
-	cp *lnrpc.ChannelPoint, anchors bool,
+	cp *lnrpc.ChannelPoint, anchorSweep bool,
 	stream rpc.CloseChanClient) *chainhash.Hash {
 
 	// Assert the channel is waiting close.
@@ -692,38 +693,13 @@ func (h *HarnessTest) AssertStreamChannelForceClosed(hn *node.HarnessNode,
 
 	// We'll now, generate a single block, wait for the final close status
 	// update, then ensure that the closing transaction was included in the
-	// block. If there are anchors, we also expect an anchor sweep.
-	expectedTxes := 1
-	if anchors {
-		expectedTxes = 2
-	}
-	block := h.MineBlocksAndAssertNumTxes(1, expectedTxes)[0]
+	// block.
+	block := h.MineBlocksAndAssertNumTxes(1, 1)[0]
 
 	// Consume one close event and assert the closing txid can be found in
 	// the block.
 	closingTxid := h.WaitForChannelCloseEvent(stream)
 	h.Miner.AssertTxInBlock(block, closingTxid)
-
-	// This makes sure that we do not have any lingering unconfirmed anchor
-	// cpfp transactions blocking some of our utxos. Especially important
-	// in case of a neutrino backend.
-	if anchors {
-		err := wait.NoError(func() error {
-			utxos := h.GetUTXOsUnconfirmed(
-				hn, lnwallet.DefaultAccountName,
-			)
-			total := len(utxos)
-			if total == 0 {
-				return nil
-			}
-
-			return fmt.Errorf("%s: assert %s failed: want %d "+
-				"got: %d", hn.Name(), "no unconfirmed cpfp "+
-				"achor sweep transactions", 0, total)
-		}, DefaultTimeout)
-		require.NoErrorf(hn, err, "expected no unconfirmed cpfp "+
-			"anchor sweep utxos")
-	}
 
 	// We should see zero waiting close channels and 1 pending force close
 	// channels now.
@@ -734,6 +710,11 @@ func (h *HarnessTest) AssertStreamChannelForceClosed(hn *node.HarnessNode,
 	// closed if it's a public channel.
 	if !resp.Channel.Private {
 		h.AssertTopologyChannelClosed(hn, cp)
+	}
+
+	// Assert there's a pending anchor sweep.
+	if anchorSweep {
+		h.AssertNumPendingSweeps(hn, 1)
 	}
 
 	return closingTxid
@@ -2549,18 +2530,9 @@ func (h *HarnessTest) AssertClosingTxInMempool(cp *lnrpc.ChannelPoint,
 // AssertClosingTxInMempool assert that the closing transaction of the given
 // channel point can be found in the mempool. If the channel has anchors, it
 // will assert the anchor sweep tx is also in the mempool.
-func (h *HarnessTest) MineClosingTx(cp *lnrpc.ChannelPoint,
-	c lnrpc.CommitmentType) *wire.MsgTx {
-
-	// Get expected number of txes to be found in the mempool.
-	expectedTxes := 1
-	hasAnchors := CommitTypeHasAnchors(c)
-	if hasAnchors {
-		expectedTxes = 2
-	}
-
+func (h *HarnessTest) MineClosingTx(cp *lnrpc.ChannelPoint) *wire.MsgTx {
 	// Wait for the expected txes to be found in the mempool.
-	h.Miner.AssertNumTxsInMempool(expectedTxes)
+	h.Miner.AssertNumTxsInMempool(1)
 
 	// Get the closing tx from the mempool.
 	op := h.OutPointFromChannelPoint(cp)
@@ -2568,7 +2540,7 @@ func (h *HarnessTest) MineClosingTx(cp *lnrpc.ChannelPoint,
 
 	// Mine a block to confirm the closing transaction and potential anchor
 	// sweep.
-	h.MineBlocksAndAssertNumTxes(1, expectedTxes)
+	h.MineBlocksAndAssertNumTxes(1, 1)
 
 	return closeTx
 }

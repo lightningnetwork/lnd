@@ -442,7 +442,8 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 
 		log.Infof("%T(%v): HTLC has been swept with pre-image by "+
 			"remote party during timeout flow! Adding pre-image to "+
-			"witness cache", h.htlcResolution.ClaimOutpoint)
+			"witness cache", h, h.htlc.RHash[:],
+			h.htlcResolution.ClaimOutpoint)
 
 		return h.claimCleanUp(commitSpend)
 	}

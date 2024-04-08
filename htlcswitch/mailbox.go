@@ -738,6 +738,7 @@ func (m *memoryMailBox) FailAdd(pkt *htlcPacket) {
 		sourceRef:      pkt.sourceRef,
 		hasSource:      true,
 		localFailure:   localFailure,
+		obfuscator:     pkt.obfuscator,
 		linkFailure:    linkError,
 		htlc: &lnwire.UpdateFailHTLC{
 			Reason: reason,

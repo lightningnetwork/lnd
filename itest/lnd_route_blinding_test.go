@@ -355,14 +355,16 @@ func (b *blindedForwardTest) setup(
 	ctx context.Context) *routing.BlindedPayment {
 
 	b.carol = b.ht.NewNode("Carol", []string{
-		"requireinterceptor",
+		"--requireinterceptor", "--bitcoin.timelockdelta=18",
 	})
 
 	var err error
 	b.carolInterceptor, err = b.carol.RPC.Router.HtlcInterceptor(ctx)
 	require.NoError(b.ht, err, "interceptor")
 
-	b.dave = b.ht.NewNode("Dave", nil)
+	b.dave = b.ht.NewNode("Dave", []string{
+		"--bitcoin.timelockdelta=18",
+	})
 
 	b.channels = setupFourHopNetwork(b.ht, b.carol, b.dave)
 
@@ -950,4 +952,107 @@ func testDisableIntroductionNode(ht *lntest.HarnessTest) {
 	// instructions. This means that the test will hang/timeout at Carol
 	// if Bob _doesn't_ fail the HTLC back as expected.
 	sendAndResumeBlindedPayment(ctx, ht, testCase, route, false)
+}
+
+// testErrorHandlingOnChainFailure tests handling of blinded errors when we're
+// resolving from an on-chain resolution. This test also tests that we're able
+// to resolve blinded HTLCs on chain between restarts, as we've got all the
+// infrastructure in place already for error testing.
+func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
+	// Setup a test case, note that we don't use its built in clean up
+	// because we're going to close a channel so we'll close out the
+	// rest manually.
+	ctx, testCase := newBlindedForwardTest(ht)
+
+	// Note that we send a larger amount here do it'll be worthwhile for
+	// the sweeper to claim.
+	route := testCase.setup(ctx)
+	blindedRoute := testCase.createRouteToBlinded(50_000_000, route)
+
+	// Once our interceptor is set up, we can send the blinded payment.
+	cancelPmt := testCase.sendBlindedPayment(ctx, blindedRoute)
+	defer cancelPmt()
+
+	// Wait for the HTLC to be active on Alice and Bob's channels.
+	hash := sha256.Sum256(testCase.preimage[:])
+	ht.AssertOutgoingHTLCActive(ht.Alice, testCase.channels[0], hash[:])
+	ht.AssertOutgoingHTLCActive(ht.Bob, testCase.channels[1], hash[:])
+
+	// Intercept the forward on Carol's link, but do not take any action
+	// so that we have the chance to force close with this HTLC in flight.
+	carolHTLC, err := testCase.carolInterceptor.Recv()
+	require.NoError(ht, err)
+
+	// Force close Bob <-> Carol.
+	closeStream, _ := ht.CloseChannelAssertPending(
+		ht.Bob, testCase.channels[1], true,
+	)
+
+	ht.AssertStreamChannelForceClosed(
+		ht.Bob, testCase.channels[1], false, closeStream,
+	)
+
+	// SuspendCarol so that she can't interfere with the resolution of the
+	// HTLC from now on.
+	restartCarol := ht.SuspendNode(testCase.carol)
+
+	// Mine blocks so that Bob will claim his CSV delayed local commitment,
+	// we've already mined 1 block so we need one less than our CSV.
+	ht.MineBlocks(node.DefaultCSV - 1)
+	ht.AssertNumPendingSweeps(ht.Bob, 1)
+	ht.MineEmptyBlocks(1)
+	ht.Miner.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Restart bob so that we can test that he's able to recover everything
+	// he needs to claim a blinded HTLC.
+	ht.RestartNode(ht.Bob)
+
+	// Mine enough blocks for Bob to trigger timeout of his outgoing HTLC.
+	// Carol's incoming expiry height is Bob's outgoing so we can use this
+	// value.
+	info := ht.Bob.RPC.GetInfo()
+	target := carolHTLC.IncomingExpiry - info.BlockHeight
+	ht.MineBlocks(target)
+
+	// Wait for Bob's timeout transaction in the mempool, since we've
+	// suspended Carol we don't need to account for her commitment output
+	// claim.
+	ht.Miner.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Assert that the HTLC has cleared.
+	ht.AssertHTLCNotActive(ht.Alice, testCase.channels[0], hash[:])
+	ht.AssertHTLCNotActive(ht.Bob, testCase.channels[0], hash[:])
+
+	// Wait for the HTLC to reflect as failed for Alice.
+	paymentStream := ht.Alice.RPC.TrackPaymentV2(hash[:])
+	htlcs := ht.ReceiveTrackPayment(paymentStream).Htlcs
+	require.Len(ht, htlcs, 1)
+	require.NotNil(ht, htlcs[0].Failure)
+	require.Equal(
+		ht, htlcs[0].Failure.Code,
+		lnrpc.Failure_INVALID_ONION_BLINDING,
+	)
+
+	// Clean up the rest of our force close: mine blocks so that Bob's CSV
+	// expires plus one block to trigger his sweep and then mine it.
+	ht.MineBlocks(node.DefaultCSV + 1)
+	ht.Miner.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Bring carol back up so that we can close out the rest of our
+	// channels cooperatively. She requires an interceptor to start up
+	// so we just re-register our interceptor.
+	require.NoError(ht, restartCarol())
+	_, err = testCase.carol.RPC.Router.HtlcInterceptor(ctx)
+	require.NoError(ht, err, "interceptor")
+
+	// Assert that Carol has started up and reconnected to dave so that
+	// we can close out channels cooperatively.
+	ht.EnsureConnected(testCase.carol, testCase.dave)
+
+	// Manually close out the rest of our channels and cancel (don't use
+	// built in cleanup which will try close the already-force-closed
+	// channel).
+	ht.CloseChannel(ht.Alice, testCase.channels[0])
+	ht.CloseChannel(testCase.carol, testCase.channels[2])
+	testCase.cancel()
 }

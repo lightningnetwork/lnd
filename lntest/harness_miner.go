@@ -323,10 +323,6 @@ func (h *HarnessMiner) AssertTxNotInMempool(txid chainhash.Hash) *wire.MsgTx {
 		// it as it's an unexpected behavior.
 		mempool := h.GetRawMempool()
 
-		if len(mempool) == 0 {
-			return fmt.Errorf("empty mempool")
-		}
-
 		for _, memTx := range mempool {
 			// Check the values are equal.
 			if txid.IsEqual(memTx) {

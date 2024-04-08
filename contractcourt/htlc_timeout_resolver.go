@@ -706,6 +706,25 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 				"height %v", h, h.htlc.RHash[:], waitHeight)
 		}
 
+		// Deduct one block so this input is offered to the sweeper one
+		// block earlier since the sweeper will wait for one block to
+		// trigger the sweeping.
+		//
+		// TODO(yy): this is done so the outputs can be aggregated
+		// properly. Suppose CSV locks of five 2nd-level outputs all
+		// expire at height 840000, there is a race in block digestion
+		// between contractcourt and sweeper:
+		// - G1: block 840000 received in contractcourt, it now offers
+		//   the outputs to the sweeper.
+		// - G2: block 840000 received in sweeper, it now starts to
+		//   sweep the received outputs - there's no guarantee all
+		//   fives have been received.
+		// To solve this, we either offer the outputs earlier, or
+		// implement `blockbeat`, and force contractcourt and sweeper
+		// to consume each block sequentially.
+		waitHeight--
+
+		// TODO(yy): let sweeper handles the wait?
 		err := waitForHeight(waitHeight, h.Notifier, h.quit)
 		if err != nil {
 			return nil, err
@@ -735,8 +754,8 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 			op, csvWitnessType,
 			input.LeaseHtlcOfferedTimeoutSecondLevel,
 			&h.htlcResolution.SweepSignDesc,
-			h.htlcResolution.CsvDelay, h.broadcastHeight,
-			h.htlc.RHash,
+			h.htlcResolution.CsvDelay,
+			uint32(commitSpend.SpendingHeight), h.htlc.RHash,
 		)
 		// Calculate the budget for this sweep.
 		budget := calculateBudget(
@@ -746,8 +765,8 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 		)
 
 		log.Infof("%T(%x): offering second-level timeout tx output to "+
-			"sweeper with no deadline and budget=%v", h,
-			h.htlc.RHash[:], budget)
+			"sweeper with no deadline and budget=%v at height=%v",
+			h, h.htlc.RHash[:], budget, waitHeight)
 
 		_, err = h.Sweeper.SweepInput(
 			inp,

@@ -22,7 +22,7 @@ var (
 	ErrMissingPreimage = errors.New("missing preimage")
 )
 
-// forwardInterceptor is a helper struct that handles the lifecycle of an rpc
+// forwardInterceptor is a helper struct that handles the lifecycle of an RPC
 // interceptor streaming session.
 // It is created when the stream opens and disconnects when the stream closes.
 type forwardInterceptor struct {
@@ -43,7 +43,7 @@ func newForwardInterceptor(htlcSwitch htlcswitch.InterceptableHtlcForwarder,
 }
 
 // run sends the intercepted packets to the client and receives the
-// corersponding responses. On one hand it registered itself as an interceptor
+// corresponding responses. On one hand it registered itself as an interceptor
 // that receives the switch packets and on the other hand launches a go routine
 // to read from the client stream.
 // To coordinate all this and make sure it is safe for concurrent access all

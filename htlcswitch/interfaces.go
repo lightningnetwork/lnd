@@ -323,7 +323,7 @@ type InterceptableHtlcForwarder interface {
 type ForwardInterceptor func(InterceptedPacket) error
 
 // InterceptedPacket contains the relevant information for the interceptor about
-// an htlc.
+// an HTLC.
 type InterceptedPacket struct {
 	// IncomingCircuit contains the incoming channel and htlc id of the
 	// packet.

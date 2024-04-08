@@ -579,15 +579,14 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 
 	ht.AssertNumPendingForceClose(dave, 0)
 
-	// If this is an anchor channel, Dave would sweep the anchor.
+	// If this is an anchor channel, Dave would offer his sweeper the
+	// anchor. However, due to no time-sensitive outputs involved, the
+	// anchor sweeping won't happen as it's uneconomical.
 	if lntest.CommitTypeHasAnchors(commitType) {
 		ht.AssertNumPendingSweeps(dave, 1)
 
 		// Mine a block to trigger the sweep.
-		ht.MineBlocks(1)
-
-		// Mine a block to confirm the sweep.
-		ht.MineBlocksAndAssertNumTxes(1, 1)
+		ht.MineEmptyBlocks(1)
 	}
 
 	// Check that Dave's wallet balance is increased.

@@ -2479,6 +2479,8 @@ func TestUpdateSweeperInputs(t *testing.T) {
 	defer inp1.AssertExpectations(t)
 	inp2 := &input.MockInput{}
 	defer inp2.AssertExpectations(t)
+	inp3 := &input.MockInput{}
+	defer inp3.AssertExpectations(t)
 
 	// Create a list of inputs using all the states.
 	//
@@ -2486,6 +2488,8 @@ func TestUpdateSweeperInputs(t *testing.T) {
 	// returned.
 	inp1.On("RequiredLockTime").Return(
 		uint32(s.currentHeight), false).Once()
+	inp1.On("BlocksToMaturity").Return(uint32(0)).Once()
+	inp1.On("HeightHint").Return(uint32(s.currentHeight)).Once()
 	input0 := &SweeperInput{state: Init, Input: inp1}
 
 	// These inputs won't hit RequiredLockTime so we won't mock.
@@ -2496,6 +2500,8 @@ func TestUpdateSweeperInputs(t *testing.T) {
 	// returned.
 	inp1.On("RequiredLockTime").Return(
 		uint32(s.currentHeight), false).Once()
+	inp1.On("BlocksToMaturity").Return(uint32(0)).Once()
+	inp1.On("HeightHint").Return(uint32(s.currentHeight)).Once()
 	input3 := &SweeperInput{state: PublishFailed, Input: inp1}
 
 	// These inputs won't hit RequiredLockTime so we won't mock.
@@ -2509,6 +2515,14 @@ func TestUpdateSweeperInputs(t *testing.T) {
 		uint32(s.currentHeight+1), true).Once()
 	input7 := &SweeperInput{state: Init, Input: inp2}
 
+	// Mock the input to have a CSV expiry in the future so it will NOT be
+	// returned.
+	inp3.On("RequiredLockTime").Return(
+		uint32(s.currentHeight), false).Once()
+	inp3.On("BlocksToMaturity").Return(uint32(2)).Once()
+	inp3.On("HeightHint").Return(uint32(s.currentHeight)).Once()
+	input8 := &SweeperInput{state: Init, Input: inp3}
+
 	// Add the inputs to the sweeper. After the update, we should see the
 	// terminated inputs being removed.
 	s.inputs = map[wire.OutPoint]*SweeperInput{
@@ -2520,6 +2534,7 @@ func TestUpdateSweeperInputs(t *testing.T) {
 		{Index: 5}: input5,
 		{Index: 6}: input6,
 		{Index: 7}: input7,
+		{Index: 8}: input8,
 	}
 
 	// We expect the inputs with `Swept`, `Excluded`, and `Failed` to be
@@ -2530,6 +2545,7 @@ func TestUpdateSweeperInputs(t *testing.T) {
 		{Index: 2}: input2,
 		{Index: 3}: input3,
 		{Index: 7}: input7,
+		{Index: 8}: input8,
 	}
 
 	// We expect only the inputs with `Init` and `PublishFailed` to be

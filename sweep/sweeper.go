@@ -1497,6 +1497,15 @@ func (s *UtxoSweeper) updateSweeperInputs() InputsMap {
 			continue
 		}
 
+		locktime = input.BlocksToMaturity() + input.HeightHint()
+		if s.currentHeight < int32(locktime)-1 {
+			log.Warnf("Skipping input %v due to CSV expiry=%v not "+
+				"reached, current height is %v", op, locktime,
+				s.currentHeight)
+
+			continue
+		}
+
 		// If this input is new or has been failed to be published,
 		// we'd retry it. The assumption here is that when an error is
 		// returned from `PublishTransaction`, it means the tx has

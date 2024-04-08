@@ -971,7 +971,7 @@ func (lc *LightningChannel) diskCommitToMemCommit(isLocal bool,
 		)
 	}
 
-	auxLeaves := AuxLeavesFromCommit(
+	auxLeaves, err := AuxLeavesFromCommit(
 		*diskCommit, lc.leafStore, func() CommitmentKeyRing {
 			if isLocal {
 				return *localCommitKeys
@@ -980,6 +980,9 @@ func (lc *LightningChannel) diskCommitToMemCommit(isLocal bool,
 			return *remoteCommitKeys
 		}(),
 	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
 
 	// With the key rings re-created, we'll now convert all the on-disk
 	// HTLC"s into PaymentDescriptor's so we can re-insert them into our
@@ -2315,9 +2318,12 @@ func (lc *LightningChannel) restorePendingLocalUpdates(
 	pendingCommit := pendingRemoteCommitDiff.Commitment
 	pendingHeight := pendingCommit.CommitHeight
 
-	auxLeaves := AuxLeavesFromCommit(
+	auxLeaves, err := AuxLeavesFromCommit(
 		pendingCommit, lc.leafStore, *pendingRemoteKeys,
 	)
+	if err != nil {
+		return fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
 
 	// If we did have a dangling commit, then we'll examine which updates
 	// we included in that state and re-insert them into our update log.
@@ -2535,7 +2541,12 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		leaseExpiry = chanState.ThawHeight
 	}
 
-	auxLeaves := auxLeavesFromRevocation(revokedLog, leafStore, *keyRing)
+	auxLeaves, err := auxLeavesFromRevocation(
+		revokedLog, leafStore, *keyRing,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
 
 	// Since it is the remote breach we are reconstructing, the output
 	// going to us will be a to-remote script with our local params.
@@ -3160,9 +3171,12 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 
 	// Given the custom blob of the past state, and this new HTLC view,
 	// we'll generate a new blob for the latest commitment.
-	newCommitBlob := updateAuxBlob(
+	newCommitBlob, err := updateAuxBlob(
 		commitChain.tip().customBlob, htlcView, lc.leafStore, *keyRing,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
 
 	// With the commitment view created, store the resulting balances and
 	// transaction with the other parameters for this height.
@@ -3553,9 +3567,13 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	var err error
 	cancelChan := make(chan struct{})
 
-	auxLeaves := AuxLeavesFromCommit(
+	auxLeaves, err := AuxLeavesFromCommit(
 		*remoteCommitView.toDiskCommit(false), leafStore, *keyRing,
 	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to fetch aux leaves: "+
+			"%w", err)
+	}
 
 	// For each outgoing and incoming HTLC, if the HTLC isn't considered a
 	// dust output after taking into account second-level HTLC fees, then a
@@ -5053,9 +5071,13 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 	verifyJobs := make([]VerifyJob, 0, numHtlcs)
 	auxVerifyJobs := make([]AuxVerifyJob, 0, numHtlcs)
 
-	auxLeaves := AuxLeavesFromCommit(
+	auxLeaves, err := AuxLeavesFromCommit(
 		*localCommitmentView.toDiskCommit(true), leafStore, *keyRing,
 	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to fetch aux leaves: %w",
+			err)
+	}
 
 	// If we have a sig blob, then we'll attempt to map that to individual
 	// blobs for each HTLC we might need a signature for.
@@ -6941,7 +6963,10 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
 	)
 
-	auxLeaves := AuxLeavesFromCommit(remoteCommit, leafStore, *keyRing)
+	auxLeaves, err := AuxLeavesFromCommit(remoteCommit, leafStore, *keyRing)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
 
 	// Next, we'll obtain HTLC resolutions for all the outgoing HTLC's we
 	// had on their commitment transaction.
@@ -8030,7 +8055,10 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	// use what we have in our latest state when extracting resolutions.
 	localCommit := chanState.LocalCommitment
 
-	auxLeaves := AuxLeavesFromCommit(localCommit, leafStore, *keyRing)
+	auxLeaves, err := AuxLeavesFromCommit(localCommit, leafStore, *keyRing)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
 
 	htlcResolutions, err := extractHtlcResolutions(
 		chainfee.SatPerKWeight(localCommit.FeePerKw), true, signer,

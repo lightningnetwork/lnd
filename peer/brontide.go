@@ -359,6 +359,8 @@ type Config struct {
 	AddLocalAlias func(alias, base lnwire.ShortChannelID,
 		gossip bool) error
 
+	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
+
 	// PongBuf is a slice we'll reuse instead of allocating memory on the
 	// heap. Since only reads will occur and no writes, there is no need
 	// for any synchronization primitives. As a result, it's safe to share
@@ -888,8 +890,12 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			}
 		}
 
+		var chanOpts []lnwallet.ChannelOpt
+		p.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
+			chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
+		})
 		lnChan, err := lnwallet.NewLightningChannel(
-			p.cfg.Signer, dbChan, p.cfg.SigPool,
+			p.cfg.Signer, dbChan, p.cfg.SigPool, chanOpts...,
 		)
 		if err != nil {
 			return nil, err
@@ -3986,6 +3992,10 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 		// by calling SkipNonceInit.
 		chanOpts = append(chanOpts, lnwallet.WithSkipNonceInit())
 	}
+
+	p.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
+		chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
+	})
 
 	// If not already active, we'll add this channel to the set of active
 	// channels, so we can look it up later easily according to its channel

@@ -250,6 +250,8 @@ type server struct {
 
 	invoicesDB invoices.InvoiceDB
 
+	dbs *DatabaseInstances
+
 	aliasMgr *aliasmgr.Manager
 
 	htlcSwitch *htlcswitch.Switch
@@ -570,6 +572,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		addrSource:     dbs.ChanStateDB,
 		miscDB:         dbs.ChanStateDB,
 		invoicesDB:     dbs.InvoiceDB,
+		dbs:            dbs,
 		cc:             cc,
 		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.Signer),
 		writePool:      writePool,
@@ -1227,6 +1230,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		SubscribeBreachComplete:       s.breachArbitrator.SubscribeBreachComplete, //nolint:lll
 		PutFinalHtlcOutcome:           s.chanStateDB.PutOnchainFinalHtlcOutcome,   //nolint: lll
 		HtlcNotifier:                  s.htlcNotifier,
+		AuxLeafStore:                  dbs.AuxLeafStore,
 	}, dbs.ChanStateDB)
 
 	// Select the configuration and funding parameters for Bitcoin.
@@ -3859,8 +3863,8 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 
 		FetchLastChanUpdate: s.fetchLastChanUpdate(),
 
-		FundingManager: s.fundingMgr,
-
+		FundingManager:          s.fundingMgr,
+		AuxLeafStore:            s.dbs.AuxLeafStore,
 		Hodl:                    s.cfg.Hodl,
 		UnsafeReplay:            s.cfg.UnsafeReplay,
 		MaxOutgoingCltvExpiry:   s.cfg.MaxOutgoingCltvExpiry,

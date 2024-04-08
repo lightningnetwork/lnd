@@ -424,9 +424,13 @@ func (c *chainWatcher) handleUnknownLocalState(
 		&c.cfg.chanState.LocalChanCfg, &c.cfg.chanState.RemoteChanCfg,
 	)
 
-	auxLeaves := lnwallet.AuxLeavesFromCommit(
-		c.cfg.chanState.LocalCommitment, c.cfg.auxLeafStore, *commitKeyRing,
+	auxLeaves, err := lnwallet.AuxLeavesFromCommit(
+		c.cfg.chanState.LocalCommitment, c.cfg.auxLeafStore,
+		*commitKeyRing,
 	)
+	if err != nil {
+		return false, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
 
 	// With the keys derived, we'll construct the remote script that'll be
 	// present if they have a non-dust balance on the commitment.

@@ -560,6 +560,7 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 		BtcdMode:                    d.cfg.BtcdMode,
 		HeightHintDB:                dbs.HeightHintDB,
 		ChanStateDB:                 dbs.ChanStateDB.ChannelStateDB(),
+		AuxLeafStore:                dbs.AuxLeafStore,
 		NeutrinoCS:                  neutrinoCS,
 		ActiveNetParams:             d.cfg.ActiveNetParams,
 		FeeURL:                      d.cfg.FeeURL,
@@ -711,6 +712,7 @@ func (d *DefaultWalletImpl) BuildChainControl(
 		ChainIO:               walletController,
 		NetParams:             *walletConfig.NetParams,
 		CoinSelectionStrategy: walletConfig.CoinSelectionStrategy,
+		AuxLeafStore:          partialChainControl.Cfg.AuxLeafStore,
 	}
 
 	// The broadcast is already always active for neutrino nodes, so we

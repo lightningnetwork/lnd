@@ -655,24 +655,24 @@ type AuxLeafStore interface {
 	// correspond to the passed aux blob, and pending fully evaluated HTLC
 	// view.
 	FetchLeavesFromView(prevBlob tlv.Blob, view *HtlcView,
-		keyRing CommitmentKeyRing) fn.Option[CommitAuxLeaves]
+		keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves], error)
 
 	// FetchLeavesFromCommit attempts to fetch the auxiliary leaves that
 	// correspond to the passed aux blob, and an existing channel
 	// commitment.
 	FetchLeavesFromCommit(c channeldb.ChannelCommitment,
-		keyRing CommitmentKeyRing) fn.Option[CommitAuxLeaves]
+		keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves], error)
 
 	// FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
 	// from a channel revocation that stores balance + blob information.
 	FetchLeavesFromRevocation(r *channeldb.RevocationLog,
-		keyRing CommitmentKeyRing) fn.Option[CommitAuxLeaves]
+		keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves], error)
 
 	// ApplyHtlcView serves as the state transition function for the custom
 	// channel's blob. Given the old blob, and an HTLC view, then a new
 	// blob should be returned that reflects the pending updates.
 	ApplyHtlcView(oldBlob tlv.Blob, view *HtlcView,
-		keyRing CommitmentKeyRing) fn.Option[tlv.Blob]
+		keyRing CommitmentKeyRing) (fn.Option[tlv.Blob], error)
 }
 
 // CommitmentBuilder is a type that wraps the type of channel we are dealing
@@ -756,15 +756,13 @@ type unsignedCommitmentTx struct {
 // auxiliary leaves given a finalized channel commitment, and a leaf store.
 func AuxLeavesFromCommit(commit channeldb.ChannelCommitment,
 	leafStore fn.Option[AuxLeafStore],
-	keyRing CommitmentKeyRing) fn.Option[CommitAuxLeaves] {
+	keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves], error) {
 
-	tapscriptLeaves := fn.MapOption(
-		func(s AuxLeafStore) fn.Option[CommitAuxLeaves] {
-			return s.FetchLeavesFromCommit(commit, keyRing)
-		},
-	)(leafStore)
+	if leafStore.IsNone() {
+		return fn.None[CommitAuxLeaves](), nil
+	}
 
-	return fn.FlattenOption(tapscriptLeaves)
+	return leafStore.UnsafeFromSome().FetchLeavesFromCommit(commit, keyRing)
 }
 
 // auxLeavesFromView is used to derive the set of commit aux leaves (if any),
@@ -772,57 +770,51 @@ func AuxLeavesFromCommit(commit channeldb.ChannelCommitment,
 // view.
 func auxLeavesFromView(prevBlob fn.Option[tlv.Blob], nextView *HtlcView,
 	leafStore fn.Option[AuxLeafStore],
-	keyRing CommitmentKeyRing) fn.Option[CommitAuxLeaves] {
+	keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves], error) {
 
-	leaves := fn.MapOption(func(b tlv.Blob) fn.Option[CommitAuxLeaves] {
-		tapscriptLeaves := fn.MapOption(
-			func(s AuxLeafStore) fn.Option[CommitAuxLeaves] {
-				return s.FetchLeavesFromView(
-					b, nextView, keyRing,
-				)
-			},
-		)(leafStore)
+	if leafStore.IsNone() {
+		return fn.None[CommitAuxLeaves](), nil
+	}
 
-		return fn.FlattenOption(tapscriptLeaves)
-	})(prevBlob)
+	if prevBlob.IsNone() {
+		return fn.None[CommitAuxLeaves](), nil
+	}
 
-	return fn.FlattenOption(leaves)
+	return leafStore.UnsafeFromSome().FetchLeavesFromView(
+		prevBlob.UnsafeFromSome(), nextView, keyRing,
+	)
 }
 
 // auxLeavesFromRevocation is a helper function that attempts to fetch the aux
 // leaves given a revoked state.
 func auxLeavesFromRevocation(revocation *channeldb.RevocationLog,
 	leafStore fn.Option[AuxLeafStore],
-	keyRing CommitmentKeyRing) fn.Option[CommitAuxLeaves] {
+	keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves], error) {
 
-	tapscriptLeaves := fn.MapOption(
-		func(s AuxLeafStore) fn.Option[CommitAuxLeaves] {
-			return s.FetchLeavesFromRevocation(revocation, keyRing)
-		},
-	)(leafStore)
+	if leafStore.IsNone() {
+		return fn.None[CommitAuxLeaves](), nil
+	}
 
-	return fn.FlattenOption(tapscriptLeaves)
+	return leafStore.UnsafeFromSome().FetchLeavesFromRevocation(revocation, keyRing)
 }
 
 // updateAuxBlob is a helper function that attempts to update the aux blob
 // given the prior and current state information.
 func updateAuxBlob(prevBlob fn.Option[tlv.Blob], nextView *HtlcView,
 	leafStore fn.Option[AuxLeafStore],
-	keyRing CommitmentKeyRing) fn.Option[tlv.Blob] {
+	keyRing CommitmentKeyRing) (fn.Option[tlv.Blob], error) {
 
-	blob := fn.MapOption(func(b tlv.Blob) fn.Option[tlv.Blob] {
-		tapscriptLeaves := fn.MapOption(
-			func(s AuxLeafStore) fn.Option[tlv.Blob] {
-				return s.ApplyHtlcView(
-					b, nextView, keyRing,
-				)
-			},
-		)(leafStore)
+	if leafStore.IsNone() {
+		return fn.None[tlv.Blob](), nil
+	}
 
-		return fn.FlattenOption(tapscriptLeaves)
-	})(prevBlob)
+	if prevBlob.IsNone() {
+		return fn.None[tlv.Blob](), nil
+	}
 
-	return fn.FlattenOption(blob)
+	return leafStore.UnsafeFromSome().ApplyHtlcView(
+		prevBlob.UnsafeFromSome(), nextView, keyRing,
+	)
 }
 
 // createUnsignedCommitmentTx generates the unsigned commitment transaction for
@@ -894,18 +886,18 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		theirBalance -= commitFeeMSat
 	}
 
-	var (
-		commitTx *wire.MsgTx
-		err      error
-	)
+	var commitTx *wire.MsgTx
 
 	// Before we create the commitment transaction below, we'll try to see
 	// if there're any aux leave that need to be a part of the tapscript
 	// tree. We'll only do this if we have a custom blob defined though.
-	auxLeaves := auxLeavesFromView(
+	auxLeaves, err := auxLeavesFromView(
 		prevCommit.customBlob, filteredHTLCView, cb.auxLeafStore,
 		*keyRing,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
 
 	// Depending on whether the transaction is ours or not, we call
 	// CreateCommitTx with parameters matching the perspective, to generate
@@ -1422,7 +1414,11 @@ func findOutputIndexesFromRemote(revocationPreimage *chainhash.Hash,
 
 	// If we have a custom blob, then we'll attempt to fetch the aux leaves
 	// for this state.
-	auxLeaves := AuxLeavesFromCommit(chanCommit, leafStore, *keyRing)
+	auxLeaves, err := AuxLeavesFromCommit(chanCommit, leafStore, *keyRing)
+	if err != nil {
+		return ourIndex, theirIndex, fmt.Errorf("unable to fetch aux "+
+			"leaves: %w", err)
+	}
 
 	// Map the scripts from our PoV. When facing a local commitment, the to
 	// local output belongs to us and the to remote output belongs to them.

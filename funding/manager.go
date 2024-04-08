@@ -547,6 +547,8 @@ type Config struct {
 	// able to automatically handle new custom protocol messages related to
 	// the funding process.
 	AuxFundingController fn.Option[AuxFundingController]
+
+	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
 }
 
 // Manager acts as an orchestrator/bridge between the wallet's
@@ -1072,9 +1074,14 @@ func (f *Manager) advanceFundingState(channel *channeldb.OpenChannel,
 		}
 	}
 
+	var chanOpts []lnwallet.ChannelOpt
+	f.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
+		chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
+	})
+
 	// We create the state-machine object which wraps the database state.
 	lnChannel, err := lnwallet.NewLightningChannel(
-		nil, channel, nil,
+		nil, channel, nil, chanOpts...,
 	)
 	if err != nil {
 		log.Errorf("Unable to create LightningChannel(%v): %v",

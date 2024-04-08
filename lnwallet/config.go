@@ -5,6 +5,7 @@ import (
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -62,4 +63,6 @@ type Config struct {
 	// CoinSelectionStrategy is the strategy that is used for selecting
 	// coins when funding a transaction.
 	CoinSelectionStrategy wallet.CoinSelectionStrategy
+
+	AuxLeafStore fn.Option[AuxLeafStore]
 }

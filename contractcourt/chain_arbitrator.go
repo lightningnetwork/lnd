@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
@@ -199,6 +200,8 @@ type ChainArbitratorConfig struct {
 
 	// HtlcNotifier is an interface that htlc events are sent to.
 	HtlcNotifier HtlcNotifier
+
+	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all
@@ -325,6 +328,11 @@ func (a *arbChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) 
 	if err != nil {
 		return nil, err
 	}
+
+	var chanOpts []lnwallet.ChannelOpt
+	a.c.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
+		chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
+	})
 
 	// Finally, we'll force close the channel completing
 	// the force close workflow.

@@ -581,10 +581,19 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 	forceCloseTxID, _ := chainhash.NewHashFromStr(aliceCloseTx)
 
+	// Alice's should have the anchor sweep request.
+	ht.AssertNumPendingSweeps(alice, 1)
+
+	// Mine 3 blocks so Alice will sweep her commit output.
+	ht.MineEmptyBlocks(defaultCSV - 1)
+
+	// Alice's should have two sweep request - one for anchor output, the
+	// other for commit output.
+	ht.AssertNumPendingSweeps(alice, 2)
+
 	// Mine one block to trigger Alice's sweeper to reconsider the anchor
-	// sweeping. Because we are now sweeping at the fee rate floor, the
-	// sweeper will consider this input has positive yield thus attempts
-	// the sweeping.
+	// sweeping - it will be swept with her commit output together in one
+	// tx.
 	ht.MineEmptyBlocks(1)
 	sweepTxns := ht.Miner.GetNumTxsFromMempool(1)
 	_, aliceAnchor := ht.FindCommitAndAnchor(sweepTxns, aliceCloseTx)
@@ -624,21 +633,20 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	ht.AssertTransactionInWallet(alice, aliceAnchor.SweepTx.TxHash())
 	ht.AssertTransactionInWallet(alice, *sweepAllTxID)
 
-	// Next, we'll shutdown Alice, and allow 16 blocks to pass so that the
-	// anchor output can be swept by anyone. Rather than use the normal API
-	// call, we'll generate a series of _empty_ blocks here.
-	aliceRestart := ht.SuspendNode(alice)
+	// Next, we mine enough blocks to pass so that the anchor output can be
+	// swept by anyone. Rather than use the normal API call, we'll generate
+	// a series of _empty_ blocks here.
+	//
+	// TODO(yy): also check the restart behavior of Alice.
 	const anchorCsv = 16
-	ht.MineEmptyBlocks(anchorCsv - 1)
-
-	// Before we sweep the anchor, we'll restart Alice.
-	require.NoErrorf(ht, aliceRestart(), "unable to restart alice")
+	ht.MineEmptyBlocks(anchorCsv - defaultCSV - 1)
 
 	// Now that the channel has been closed, and Alice has an unconfirmed
 	// transaction spending the output produced by her anchor sweep, we'll
 	// mine a transaction that double spends the output.
 	thirdPartyAnchorSweep := genAnchorSweep(ht, aliceAnchor, anchorCsv)
-	ht.Miner.MineBlockWithTxes([]*btcutil.Tx{thirdPartyAnchorSweep})
+	ht.Logf("Third party tx=%v", thirdPartyAnchorSweep.TxHash())
+	ht.Miner.MineBlockWithTx(thirdPartyAnchorSweep)
 
 	// At this point, we should no longer find Alice's transaction that
 	// tried to sweep the anchor in her wallet.
@@ -651,6 +659,11 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// The anchor should now show as being "lost", while the force close
 	// response is still present.
 	assertAnchorOutputLost(ht, alice, aliceChanPoint1)
+
+	// We now one block so Alice's commit output will be re-offered to her
+	// sweeper again.
+	ht.MineEmptyBlocks(1)
+	ht.AssertNumPendingSweeps(alice, 1)
 
 	// At this point Alice's CSV output should already be fully spent and
 	// the channel marked as being resolved. We mine a block first, as so
@@ -702,7 +715,7 @@ func assertAnchorOutputLost(ht *lntest.HarnessTest, hn *node.HarnessNode,
 // In practice, we just re-use the existing witness, and track on our own
 // output producing a 1-in-1-out transaction.
 func genAnchorSweep(ht *lntest.HarnessTest,
-	aliceAnchor *lntest.SweptOutput, anchorCsv uint32) *btcutil.Tx {
+	aliceAnchor *lntest.SweptOutput, anchorCsv uint32) *wire.MsgTx {
 
 	// At this point, we have the transaction that Alice used to try to
 	// sweep her anchor. As this is actually just something anyone can
@@ -739,7 +752,7 @@ func genAnchorSweep(ht *lntest.HarnessTest,
 		Value:    anchorSize - 1,
 	})
 
-	return btcutil.NewTx(tx)
+	return tx
 }
 
 // testRemoveTx tests that we are able to remove an unconfirmed transaction

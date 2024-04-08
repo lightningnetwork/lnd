@@ -1223,7 +1223,10 @@ func (c *ChainArbitrator) SubscribeChannelEvents(
 
 	// First, we'll attempt to look up the active watcher for this channel.
 	// If we can't find it, then we'll return an error back to the caller.
+	c.Lock()
 	watcher, ok := c.activeWatchers[chanPoint]
+	c.Unlock()
+
 	if !ok {
 		return nil, fmt.Errorf("unable to find watcher for: %v",
 			chanPoint)

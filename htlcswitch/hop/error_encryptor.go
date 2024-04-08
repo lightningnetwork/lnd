@@ -39,6 +39,12 @@ const (
 	EncrypterTypeRelaying = 4
 )
 
+// IsBlinded returns a boolean indicating whether the error encrypter belongs
+// to a blinded route.
+func (e EncrypterType) IsBlinded() bool {
+	return e == EncrypterTypeIntroduction || e == EncrypterTypeRelaying
+}
+
 // ErrorEncrypterExtracter defines a function signature that extracts an
 // ErrorEncrypter from an sphinx OnionPacket.
 type ErrorEncrypterExtracter func(*btcec.PublicKey) (ErrorEncrypter,

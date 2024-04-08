@@ -1525,7 +1525,7 @@ func (s *Server) HtlcInterceptor(stream Router_HtlcInterceptorServer) error {
 	}
 	defer atomic.CompareAndSwapInt32(&s.forwardInterceptorActive, 1, 0)
 
-	// run the forward interceptor.
+	// Run the forward interceptor.
 	return newForwardInterceptor(
 		s.cfg.RouterBackend.InterceptableForwarder, stream,
 	).run()

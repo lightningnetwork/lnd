@@ -349,6 +349,25 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 			"height %v", h, h.htlc.RHash[:], waitHeight)
 	}
 
+	// Deduct one block so this input is offered to the sweeper one block
+	// earlier since the sweeper will wait for one block to trigger the
+	// sweeping.
+	//
+	// TODO(yy): this is done so the outputs can be aggregated
+	// properly. Suppose CSV locks of five 2nd-level outputs all
+	// expire at height 840000, there is a race in block digestion
+	// between contractcourt and sweeper:
+	// - G1: block 840000 received in contractcourt, it now offers
+	//   the outputs to the sweeper.
+	// - G2: block 840000 received in sweeper, it now starts to
+	//   sweep the received outputs - there's no guarantee all
+	//   fives have been received.
+	// To solve this, we either offer the outputs earlier, or
+	// implement `blockbeat`, and force contractcourt and sweeper
+	// to consume each block sequentially.
+	waitHeight--
+
+	// TODO(yy): let sweeper handles the wait?
 	err := waitForHeight(waitHeight, h.Notifier, h.quit)
 	if err != nil {
 		return nil, err
@@ -364,10 +383,6 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 		Index: commitSpend.SpenderInputIndex,
 	}
 
-	// Finally, let the sweeper sweep the second-level output.
-	log.Infof("%T(%x): CSV lock expired, offering second-layer "+
-		"output to sweeper: %v", h, h.htlc.RHash[:], op)
-
 	// Let the sweeper sweep the second-level output now that the
 	// CSV/CLTV locks have expired.
 	var witType input.StandardWitnessType
@@ -380,7 +395,7 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 		op, witType,
 		input.LeaseHtlcAcceptedSuccessSecondLevel,
 		&h.htlcResolution.SweepSignDesc,
-		h.htlcResolution.CsvDelay, h.broadcastHeight,
+		h.htlcResolution.CsvDelay, uint32(commitSpend.SpendingHeight),
 		h.htlc.RHash,
 	)
 
@@ -392,7 +407,8 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 	)
 
 	log.Infof("%T(%x): offering second-level success tx output to sweeper "+
-		"with no deadline and budget=%v", h, h.htlc.RHash[:], budget)
+		"with no deadline and budget=%v at height=%v", h,
+		h.htlc.RHash[:], budget, waitHeight)
 
 	// TODO(roasbeef): need to update above for leased types
 	_, err = h.Sweeper.SweepInput(

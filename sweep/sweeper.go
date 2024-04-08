@@ -652,7 +652,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 		// failed, or excluded from the sweeper and return inputs that
 		// are either new or has been published but failed back, which
 		// will be retried again here.
-		inputs := s.updateSweeperInputs()
+		s.updateSweeperInputs()
 
 		select {
 		// A new inputs is offered to the sweeper. We check to see if
@@ -670,7 +670,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 			// If this input is forced, we perform an sweep
 			// immediately.
 			if input.params.Force {
-				inputs = s.updateSweeperInputs()
+				inputs := s.updateSweeperInputs()
 				s.sweepPendingInputs(inputs)
 			}
 
@@ -715,6 +715,9 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 
 			// Update the sweeper to the best height.
 			s.currentHeight = epoch.Height
+
+			// Update the inputs with the latest height.
+			inputs := s.updateSweeperInputs()
 
 			log.Debugf("Received new block: height=%v, attempt "+
 				"sweeping %d inputs", epoch.Height, len(inputs))
@@ -1491,6 +1494,17 @@ func (s *UtxoSweeper) updateSweeperInputs() InputsMap {
 		locktime, _ := input.RequiredLockTime()
 		if uint32(s.currentHeight) < locktime {
 			log.Warnf("Skipping input %v due to locktime=%v not "+
+				"reached, current height is %v", op, locktime,
+				s.currentHeight)
+
+			continue
+		}
+
+		// If the input has a CSV that's not yet reached, we will skip
+		// this input and wait for the expiry.
+		locktime = input.BlocksToMaturity() + input.HeightHint()
+		if s.currentHeight < int32(locktime)-1 {
+			log.Infof("Skipping input %v due to CSV expiry=%v not "+
 				"reached, current height is %v", op, locktime,
 				s.currentHeight)
 

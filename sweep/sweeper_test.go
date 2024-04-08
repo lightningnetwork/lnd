@@ -2274,8 +2274,8 @@ func TestMarkInputsPublished(t *testing.T) {
 }
 
 // TestMarkInputsPublishFailed checks that given a list of inputs with
-// different states, only the state `PendingPublish` will be marked as
-// `PublishFailed`.
+// different states, only the state `PendingPublish` and `Published` will be
+// marked as `PublishFailed`.
 func TestMarkInputsPublishFailed(t *testing.T) {
 	t.Parallel()
 
@@ -2315,6 +2315,14 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 		state: PendingPublish,
 	}
 
+	// inputPublished specifies an input that's published.
+	inputPublished := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 4},
+	}
+	s.inputs[inputPublished.PreviousOutPoint] = &SweeperInput{
+		state: Published,
+	}
+
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputInit to be skipped, and the final input to be marked as
 	// published.
@@ -2322,10 +2330,11 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 		inputNotExist.PreviousOutPoint,
 		inputInit.PreviousOutPoint,
 		inputPendingPublish.PreviousOutPoint,
+		inputPublished.PreviousOutPoint,
 	})
 
 	// We expect unchanged number of pending inputs.
-	require.Len(s.inputs, 2)
+	require.Len(s.inputs, 3)
 
 	// We expect the init input's state to stay unchanged.
 	require.Equal(Init,
@@ -2335,6 +2344,10 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	// failed.
 	require.Equal(PublishFailed,
 		s.inputs[inputPendingPublish.PreviousOutPoint].state)
+
+	// We expect the published input's is now marked as publish failed.
+	require.Equal(PublishFailed,
+		s.inputs[inputPublished.PreviousOutPoint].state)
 
 	// Assert mocked statements are executed as expected.
 	mockStore.AssertExpectations(t)

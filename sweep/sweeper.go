@@ -958,7 +958,7 @@ func (s *UtxoSweeper) markInputsPublishFailed(outpoints []wire.OutPoint) {
 		}
 
 		// Valdiate that the input is in an expected state.
-		if pi.state != PendingPublish {
+		if pi.state != PendingPublish && pi.state != Published {
 			log.Errorf("Expect input %v to have %v, instead it "+
 				"has %v", op, PendingPublish, pi.state)
 

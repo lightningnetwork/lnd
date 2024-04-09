@@ -3,6 +3,7 @@ package sweep
 import (
 	"testing"
 
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 )
@@ -21,10 +22,12 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 	estimatedFeeRate := chainfee.SatPerKWeight(500)
 	minRelayFeeRate := chainfee.SatPerKWeight(100)
 	confTarget := uint32(6)
+	noStartFeeRate := fn.None[chainfee.SatPerKWeight]()
+	startFeeRate := chainfee.SatPerKWeight(1000)
 
 	// Assert init fee function with zero conf value will end up using the
 	// max fee rate.
-	f, err := NewLinearFeeFunction(maxFeeRate, 0, estimator)
+	f, err := NewLinearFeeFunction(maxFeeRate, 0, estimator, noStartFeeRate)
 	rt.NoError(err)
 	rt.NotNil(f)
 
@@ -39,7 +42,9 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 	estimator.On("EstimateFeePerKW", confTarget).Return(
 		chainfee.SatPerKWeight(0), errDummy).Once()
 
-	f, err = NewLinearFeeFunction(maxFeeRate, confTarget, estimator)
+	f, err = NewLinearFeeFunction(
+		maxFeeRate, confTarget, estimator, noStartFeeRate,
+	)
 	rt.ErrorIs(err, errDummy)
 	rt.Nil(f)
 
@@ -53,7 +58,9 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 		maxFeeRate+1, nil).Once()
 	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
 
-	f, err = NewLinearFeeFunction(maxFeeRate, smallConf, estimator)
+	f, err = NewLinearFeeFunction(
+		maxFeeRate, smallConf, estimator, noStartFeeRate,
+	)
 	rt.NoError(err)
 	rt.NotNil(f)
 
@@ -65,7 +72,9 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 		maxFeeRate, nil).Once()
 	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
 
-	f, err = NewLinearFeeFunction(maxFeeRate, confTarget, estimator)
+	f, err = NewLinearFeeFunction(
+		maxFeeRate, confTarget, estimator, noStartFeeRate,
+	)
 	rt.ErrorContains(err, "fee rate delta is zero")
 	rt.Nil(f)
 
@@ -75,7 +84,9 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 	estimator.On("RelayFeePerKW").Return(minRelayFeeRate).Once()
 
 	largeConf := uint32(1008)
-	f, err = NewLinearFeeFunction(maxFeeRate, largeConf, estimator)
+	f, err = NewLinearFeeFunction(
+		maxFeeRate, largeConf, estimator, noStartFeeRate,
+	)
 	rt.NoError(err)
 	rt.NotNil(f)
 
@@ -93,7 +104,9 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 		estimatedFeeRate, nil).Once()
 	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
 
-	f, err = NewLinearFeeFunction(maxFeeRate, confTarget, estimator)
+	f, err = NewLinearFeeFunction(
+		maxFeeRate, confTarget, estimator, noStartFeeRate,
+	)
 	rt.NoError(err)
 	rt.NotNil(f)
 
@@ -103,6 +116,22 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 	rt.Equal(estimatedFeeRate, f.currentFeeRate)
 	rt.NotZero(f.deltaFeeRate)
 	rt.Equal(confTarget, f.width)
+
+	// Check a successfully created fee function using the specified
+	// starting fee rate.
+	//
+	// NOTE: by NOT mocking the the fee estimator, we assert the
+	// estimateFeeRate is NOT called.
+	f, err = NewLinearFeeFunction(
+		maxFeeRate, confTarget, estimator, fn.Some(startFeeRate),
+	)
+
+	rt.NoError(err)
+	rt.NotNil(f)
+
+	// Assert the customized starting fee rate is used.
+	rt.Equal(startFeeRate, f.startingFeeRate)
+	rt.Equal(startFeeRate, f.currentFeeRate)
 }
 
 // TestLinearFeeFunctionFeeRateAtPosition checks the expected feerate is
@@ -184,7 +213,10 @@ func TestLinearFeeFunctionIncrement(t *testing.T) {
 		estimatedFeeRate, nil).Once()
 	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
 
-	f, err := NewLinearFeeFunction(maxFeeRate, confTarget, estimator)
+	f, err := NewLinearFeeFunction(
+		maxFeeRate, confTarget, estimator,
+		fn.None[chainfee.SatPerKWeight](),
+	)
 	rt.NoError(err)
 
 	// We now increase the position from 1 to 9.
@@ -232,7 +264,10 @@ func TestLinearFeeFunctionIncreaseFeeRate(t *testing.T) {
 		estimatedFeeRate, nil).Once()
 	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
 
-	f, err := NewLinearFeeFunction(maxFeeRate, confTarget, estimator)
+	f, err := NewLinearFeeFunction(
+		maxFeeRate, confTarget, estimator,
+		fn.None[chainfee.SatPerKWeight](),
+	)
 	rt.NoError(err)
 
 	// If we are increasing the fee rate using the initial conf target, we

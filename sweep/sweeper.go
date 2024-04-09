@@ -64,6 +64,10 @@ type Params struct {
 	// Immediate indicates that the input should be swept immediately
 	// without waiting for blocks to come.
 	Immediate bool
+
+	// StartingFeeRate is an optional parameter that can be used to specify
+	// the initial fee rate to use for the fee function.
+	StartingFeeRate fn.Option[chainfee.SatPerKWeight]
 }
 
 // ParamsUpdate contains a new set of parameters to update a pending sweep with.
@@ -76,6 +80,10 @@ type ParamsUpdate struct {
 	// Immediate indicates that the input should be swept immediately
 	// without waiting for blocks to come.
 	Immediate bool
+
+	// StartingFeeRate is an optional parameter that can be used to specify
+	// the initial fee rate to use for the fee function.
+	StartingFeeRate fn.Option[chainfee.SatPerKWeight]
 }
 
 // String returns a human readable interpretation of the sweep parameters.
@@ -90,9 +98,9 @@ func (p Params) String() string {
 		exclusiveGroup = fmt.Sprintf("%d", *p.ExclusiveGroup)
 	}
 
-	return fmt.Sprintf("fee=%v, immediate=%v, exclusive_group=%v, budget=%v, "+
-		"deadline=%v", p.Fee, p.Immediate, exclusiveGroup, p.Budget,
-		deadline)
+	return fmt.Sprintf("StartingFeeRate=%v, immediate=%v, "+
+		"exclusive_group=%v, budget=%v, deadline=%v", p.StartingFeeRate,
+		p.Immediate, exclusiveGroup, p.Budget, deadline)
 }
 
 // SweepState represents the current state of a pending input.
@@ -1142,6 +1150,7 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 	// unchanged.
 	newParams := sweeperInput.params
 	newParams.Fee = req.params.Fee
+	newParams.StartingFeeRate = req.params.StartingFeeRate
 	newParams.Immediate = req.params.Immediate
 
 	log.Debugf("Updating parameters for %v(state=%v) from (%v) to (%v)",

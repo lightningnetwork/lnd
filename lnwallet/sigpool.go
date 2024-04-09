@@ -43,6 +43,8 @@ type VerifyJob struct {
 
 	// HtlcIndex is the index of the HTLC from the PoV of the remote
 	// party's update log.
+	//
+	// TODO(roasbeef): remove -- never actually used?
 	HtlcIndex uint64
 
 	// Cancel is a channel that should be closed if the caller wishes to

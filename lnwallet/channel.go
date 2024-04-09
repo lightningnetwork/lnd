@@ -3535,7 +3535,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	chanType channeldb.ChannelType, isRemoteInitiator bool,
 	leaseExpiry uint32, localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
 	remoteCommitView *commitment,
-	leafStore fn.Option[AuxLeafStore]) ([]SignJob, chan struct{}, error) {
+	leafStore fn.Option[AuxLeafStore]) ([]SignJob, []AuxSigJob, chan struct{}, error) {
 
 	txHash := remoteCommitView.txn.TxHash()
 	dustLimit := remoteChanCfg.DustLimit
@@ -3548,6 +3548,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	numSigs := (len(remoteCommitView.incomingHTLCs) +
 		len(remoteCommitView.outgoingHTLCs))
 	sigBatch := make([]SignJob, 0, numSigs)
+	auxSigBatch := make([]AuxSigJob, 0, numSigs)
 
 	var err error
 	cancelChan := make(chan struct{})
@@ -3599,10 +3600,8 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			fn.FlattenOption(auxLeaf),
 		)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
-
-		// TODO(roasbeef): hook up signer interface here
 
 		// Construct a full hash cache as we may be signing a segwit v1
 		// sighash.
@@ -3634,6 +3633,12 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		}
 
 		sigBatch = append(sigBatch, sigJob)
+
+		auxSigJob := NewAuxSigJob(
+			sigJob, *keyRing, htlc, remoteCommitView.customBlob,
+			fn.FlattenOption(auxLeaf), cancelChan,
+		)
+		auxSigBatch = append(auxSigBatch, auxSigJob)
 	}
 	for _, htlc := range remoteCommitView.outgoingHTLCs {
 		if HtlcIsDust(
@@ -3674,7 +3679,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			fn.FlattenOption(auxLeaf),
 		)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 
 		// Construct a full hash cache as we may be signing a segwit v1
@@ -3707,9 +3712,15 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		}
 
 		sigBatch = append(sigBatch, sigJob)
+
+		auxSigJob := NewAuxSigJob(
+			sigJob, *keyRing, htlc, remoteCommitView.customBlob,
+			fn.FlattenOption(auxLeaf), cancelChan,
+		)
+		auxSigBatch = append(auxSigBatch, auxSigJob)
 	}
 
-	return sigBatch, cancelChan, nil
+	return sigBatch, auxSigBatch, cancelChan, nil
 }
 
 // createCommitDiff will create a commit diff given a new pending commitment
@@ -3719,7 +3730,8 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 // information necessary for retransmission.
 func (lc *LightningChannel) createCommitDiff(
 	newCommit *commitment, commitSig lnwire.Sig,
-	htlcSigs []lnwire.Sig) (*channeldb.CommitDiff, error) {
+	htlcSigs []lnwire.Sig,
+	auxSigs []fn.Option[tlv.Blob]) (*channeldb.CommitDiff, error) {
 
 	// First, we need to convert the funding outpoint into the ID that's
 	// used on the wire to identify this channel. We'll use this shortly
@@ -3841,6 +3853,10 @@ func (lc *LightningChannel) createCommitDiff(
 	// disk.
 	diskCommit := newCommit.toDiskCommit(false)
 
+	auxSigBlob := fn.MapOptionZ(lc.auxSigner, func(a AuxSigner) tlv.Blob {
+		return a.PackSigs(auxSigs).UnwrapOr(nil)
+	})
+
 	return &channeldb.CommitDiff{
 		Commitment: *diskCommit,
 		CommitSig: &lnwire.CommitSig{
@@ -3849,6 +3865,7 @@ func (lc *LightningChannel) createCommitDiff(
 			),
 			CommitSig: commitSig,
 			HtlcSigs:  htlcSigs,
+			ExtraData: auxSigBlob,
 		},
 		LogUpdates:        logUpdates,
 		OpenedCircuitKeys: openCircuitKeys,
@@ -4297,6 +4314,10 @@ type CommitSigs struct {
 	// PartialSig is the musig2 partial signature for taproot commitment
 	// transactions.
 	PartialSig lnwire.OptPartialSigWithNonceTLV
+
+	// AuxSigBlob is the blob containing all the auxiliary signatures for
+	// this new commitment state.
+	AuxSigBlob tlv.Blob
 }
 
 // NewCommitState wraps the various signatures needed to properly
@@ -4415,7 +4436,7 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	if lc.channelState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = lc.channelState.ThawHeight
 	}
-	sigBatch, cancelChan, err := genRemoteHtlcSigJobs(
+	sigBatch, auxSigBatch, cancelChan, err := genRemoteHtlcSigJobs(
 		keyRing, lc.channelState.ChanType, !lc.channelState.IsInitiator,
 		leaseExpiry, &lc.channelState.LocalChanCfg,
 		&lc.channelState.RemoteChanCfg, newCommitView, lc.leafStore,
@@ -4424,6 +4445,10 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 		return nil, err
 	}
 	lc.sigPool.SubmitSignBatch(sigBatch)
+
+	lc.auxSigner.WhenSome(func(a AuxSigner) {
+		a.SubmitSecondLevelSigBatch(auxSigBatch)
+	})
 
 	// While the jobs are being carried out, we'll Sign their version of
 	// the new commitment transaction while we're waiting for the rest of
@@ -4468,11 +4493,16 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	sort.Slice(sigBatch, func(i, j int) bool {
 		return sigBatch[i].OutputIndex < sigBatch[j].OutputIndex
 	})
+	sort.Slice(auxSigBatch, func(i, j int) bool {
+		return auxSigBatch[i].OutputIndex < auxSigBatch[j].OutputIndex
+	})
 
 	// With the jobs sorted, we'll now iterate through all the responses to
 	// gather each of the signatures in order.
 	htlcSigs = make([]lnwire.Sig, 0, len(sigBatch))
-	for _, htlcSigJob := range sigBatch {
+	auxSigs := make([]fn.Option[tlv.Blob], 0, len(auxSigBatch))
+	for i := range sigBatch {
+		htlcSigJob := sigBatch[i]
 		jobResp := <-htlcSigJob.Resp
 
 		// If an error occurred, then we'll cancel any other active
@@ -4483,12 +4513,30 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 		}
 
 		htlcSigs = append(htlcSigs, jobResp.Sig)
+
+		if lc.auxSigner.IsNone() {
+			continue
+		}
+
+		auxHtlcSigJob := auxSigBatch[i]
+		auxJobResp := <-auxHtlcSigJob.Resp
+
+		// If an error occurred, then we'll cancel any other active
+		// jobs.
+		if auxJobResp.Err != nil {
+			close(cancelChan)
+			return nil, auxJobResp.Err
+		}
+
+		auxSigs = append(auxSigs, auxJobResp.SigBlob)
 	}
 
 	// As we're about to proposer a new commitment state for the remote
 	// party, we'll write this pending state to disk before we exit, so we
 	// can retransmit it if necessary.
-	commitDiff, err := lc.createCommitDiff(newCommitView, sig, htlcSigs)
+	commitDiff, err := lc.createCommitDiff(
+		newCommitView, sig, htlcSigs, auxSigs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -4510,6 +4558,7 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 			CommitSig:  sig,
 			HtlcSigs:   htlcSigs,
 			PartialSig: lnwire.MaybePartialSigWithNonce(partialSig),
+			AuxSigBlob: commitDiff.CommitSig.ExtraData,
 		},
 		PendingHTLCs: commitDiff.Commitment.Htlcs,
 	}, nil
@@ -4988,7 +5037,8 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 	keyRing *CommitmentKeyRing, htlcSigs []lnwire.Sig,
 	chanType channeldb.ChannelType, isLocalInitiator bool,
 	leaseExpiry uint32, localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
-	leafStore fn.Option[AuxLeafStore]) ([]VerifyJob, error) {
+	leafStore fn.Option[AuxLeafStore], auxSigner fn.Option[AuxSigner],
+	sigBlob fn.Option[tlv.Blob]) ([]VerifyJob, []AuxVerifyJob, error) {
 
 	txHash := localCommitmentView.txn.TxHash()
 	feePerKw := localCommitmentView.feePerKw
@@ -5001,9 +5051,18 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 	numHtlcs := (len(localCommitmentView.incomingHTLCs) +
 		len(localCommitmentView.outgoingHTLCs))
 	verifyJobs := make([]VerifyJob, 0, numHtlcs)
+	auxVerifyJobs := make([]AuxVerifyJob, 0, numHtlcs)
 
 	auxLeaves := AuxLeavesFromCommit(
 		*localCommitmentView.toDiskCommit(true), leafStore, *keyRing,
+	)
+
+	// If we have a sig blob, then we'll attempt to map that to individual
+	// blobs for each HTLC we might need a signature for.
+	auxHtlcSigs := fn.MapOptionZ(auxSigner,
+		func(a AuxSigner) map[input.HtlcIndex]fn.Option[tlv.Blob] {
+			return a.UnpackSigs(sigBlob)
+		},
 	)
 
 	// We'll iterate through each output in the commitment transaction,
@@ -5016,6 +5075,8 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 			htlcIndex uint64
 			sigHash   func() ([]byte, error)
 			sig       input.Signature
+			htlc      *PaymentDescriptor
+			auxLeaf   input.AuxTapLeaf
 			err       error
 		)
 
@@ -5026,7 +5087,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 		// index, then this means that we need to generate an HTLC
 		// success transaction in order to validate the signature.
 		case localCommitmentView.incomingHTLCIndex[outputIndex] != nil:
-			htlc := localCommitmentView.incomingHTLCIndex[outputIndex]
+			htlc = localCommitmentView.incomingHTLCIndex[outputIndex]
 
 			htlcIndex = htlc.HtlcIndex
 
@@ -5039,16 +5100,16 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 				htlcFee := HtlcSuccessFee(chanType, feePerKw)
 				outputAmt := htlc.Amount.ToSatoshis() - htlcFee
 
-				auxLeaf := fn.MapOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
+				leaf := fn.MapOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
 					return l.IncomingHtlcLeaves[htlc.HtlcIndex].SecondLevelLeaf
 				})(auxLeaves)
+				auxLeaf = fn.FlattenOption(leaf)
 
 				successTx, err := CreateHtlcSuccessTx(
 					chanType, isLocalInitiator, op,
 					outputAmt, uint32(localChanCfg.CsvDelay),
 					leaseExpiry, keyRing.RevocationKey,
-					keyRing.ToLocalKey,
-					fn.FlattenOption(auxLeaf),
+					keyRing.ToLocalKey, auxLeaf,
 				)
 				if err != nil {
 					return nil, err
@@ -5091,7 +5152,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 
 			// Make sure there are more signatures left.
 			if i >= len(htlcSigs) {
-				return nil, fmt.Errorf("not enough HTLC " +
+				return nil, nil, fmt.Errorf("not enough HTLC " +
 					"signatures")
 			}
 
@@ -5107,7 +5168,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 			// is valid.
 			sig, err = htlcSigs[i].ToSignature()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			htlc.sig = sig
 
@@ -5115,7 +5176,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 		// generate a timeout transaction so we can verify the
 		// signature presented.
 		case localCommitmentView.outgoingHTLCIndex[outputIndex] != nil:
-			htlc := localCommitmentView.outgoingHTLCIndex[outputIndex]
+			htlc = localCommitmentView.outgoingHTLCIndex[outputIndex]
 
 			htlcIndex = htlc.HtlcIndex
 
@@ -5128,17 +5189,17 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 				htlcFee := HtlcTimeoutFee(chanType, feePerKw)
 				outputAmt := htlc.Amount.ToSatoshis() - htlcFee
 
-				auxLeaf := fn.MapOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
+				leaf := fn.MapOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
 					return l.OutgoingHtlcLeaves[htlc.HtlcIndex].SecondLevelLeaf
 				})(auxLeaves)
+				auxLeaf = fn.FlattenOption(leaf)
 
 				timeoutTx, err := CreateHtlcTimeoutTx(
 					chanType, isLocalInitiator, op,
 					outputAmt, htlc.Timeout,
 					uint32(localChanCfg.CsvDelay),
 					leaseExpiry, keyRing.RevocationKey,
-					keyRing.ToLocalKey,
-					fn.FlattenOption(auxLeaf),
+					keyRing.ToLocalKey, auxLeaf,
 				)
 				if err != nil {
 					return nil, err
@@ -5183,7 +5244,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 
 			// Make sure there are more signatures left.
 			if i >= len(htlcSigs) {
-				return nil, fmt.Errorf("not enough HTLC " +
+				return nil, nil, fmt.Errorf("not enough HTLC " +
 					"signatures")
 			}
 
@@ -5199,7 +5260,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 			// is valid.
 			sig, err = htlcSigs[i].ToSignature()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 
 			htlc.sig = sig
@@ -5216,16 +5277,26 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 		})
 
 		i++
+
+		// TODO(roasbeef): meld aux six into tlv blob for htlc on disk?
+
+		auxSig := auxHtlcSigs[htlcIndex]
+		auxVerifyJob := NewAuxVerifyJob(
+			auxSig, *keyRing, *htlc,
+			localCommitmentView.customBlob, auxLeaf,
+		)
+
+		auxVerifyJobs = append(auxVerifyJobs, auxVerifyJob)
 	}
 
 	// If we received a number of HTLC signatures that doesn't match our
 	// commitment, we'll return an error now.
 	if len(htlcSigs) != i {
-		return nil, fmt.Errorf("number of htlc sig mismatch. "+
+		return nil, nil, fmt.Errorf("number of htlc sig mismatch. "+
 			"Expected %v sigs, got %v", i, len(htlcSigs))
 	}
 
-	return verifyJobs, nil
+	return verifyJobs, auxVerifyJobs, nil
 }
 
 // InvalidCommitSigError is a struct that implements the error interface to
@@ -5387,6 +5458,11 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 		}),
 	)
 
+	var auxSigBlob fn.Option[tlv.Blob]
+	if commitSigs.AuxSigBlob != nil {
+		auxSigBlob = fn.Some(commitSigs.AuxSigBlob)
+	}
+
 	// As an optimization, we'll generate a series of jobs for the worker
 	// pool to verify each of the HTLC signatures presented. Once
 	// generated, we'll submit these jobs to the worker pool.
@@ -5394,11 +5470,12 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 	if lc.channelState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = lc.channelState.ThawHeight
 	}
-	verifyJobs, err := genHtlcSigValidationJobs(
+	verifyJobs, auxVerifyJobs, err := genHtlcSigValidationJobs(
 		localCommitmentView, keyRing, commitSigs.HtlcSigs,
 		lc.channelState.ChanType, lc.channelState.IsInitiator,
 		leaseExpiry, &lc.channelState.LocalChanCfg,
-		&lc.channelState.RemoteChanCfg, lc.leafStore,
+		&lc.channelState.RemoteChanCfg, lc.leafStore, lc.auxSigner,
+		auxSigBlob,
 	)
 	if err != nil {
 		return err
@@ -5545,6 +5622,15 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 				commitTx:     txBytes.Bytes(),
 			}
 		}
+	}
+
+	// Now that we know all the normal sigs are valid, we'll also verify
+	// the aux jobs, if any exist.
+	err = fn.MapOptionZ(lc.auxSigner, func(a AuxSigner) error {
+		return a.VerifySecondLevelSigs(auxVerifyJobs)
+	})
+	if err != nil {
+		return fmt.Errorf("unable to validate aux sigs: %w", err)
 	}
 
 	// The signature checks out, so we can now add the new commitment to

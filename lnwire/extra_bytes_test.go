@@ -151,3 +151,25 @@ func TestExtraOpaqueDataPackUnpackRecords(t *testing.T) {
 		t.Fatalf("type2 not found in typeMap")
 	}
 }
+
+// TestPackRecordsPrepend tests that if an ExtraOpaqueData instance already a
+// set of opaque bytes, then any records passed in are prepended to the
+// existing bytes.
+func TestPackRecordsPrepend(t *testing.T) {
+	t.Parallel()
+
+	chanTypeRecord := tlv.NewPrimitiveRecord[tlv.TlvType1](uint8(2))
+
+	// Create some opaque data that is already pre-populated with some
+	// bytes.
+	existingBytes := bytes.Repeat([]byte{1}, 10)
+	extraBytes := ExtraOpaqueData(existingBytes)
+
+	// Now we'll attempt to pack the records into the existing bytes.
+	err := extraBytes.PackRecords(&chanTypeRecord)
+	require.NoError(t, err)
+
+	// After we've packed the records, the existing bytes should be at the
+	// very end.
+	require.True(t, bytes.HasSuffix(extraBytes[:], existingBytes))
+}

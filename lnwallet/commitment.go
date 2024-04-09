@@ -833,6 +833,44 @@ func updateAuxBlob(chanState *channeldb.OpenChannel,
 	)
 }
 
+// packSigs is a helper function that attempts to pack a series of aux
+// signatures and packs them into a single blob that can be sent alongside the
+// CommitSig messages.
+func packSigs(auxSigs []fn.Option[tlv.Blob],
+	signer fn.Option[AuxSigner]) (tlv.Blob, error) {
+
+	var result tlv.Blob
+	mapErr := fn.MapOptionZ(signer, func(s AuxSigner) error {
+		blobOption, err := s.PackSigs(auxSigs)
+		if err != nil {
+			return fmt.Errorf("error packing aux sigs: %w", err)
+		}
+
+		blobOption.WhenSome(func(blob tlv.Blob) {
+			result = blob
+		})
+
+		return nil
+	})
+
+	return result, mapErr
+}
+
+// unpackSigs is a helper function that takes a packed blob of signatures and
+// returns the original signatures for each HTLC, keyed by HTLC index.
+func unpackSigs(blob fn.Option[tlv.Blob],
+	signer fn.Option[AuxSigner]) ([]fn.Option[tlv.Blob], error) {
+
+	var result []fn.Option[tlv.Blob]
+	mapErr := fn.MapOptionZ(signer, func(s AuxSigner) error {
+		var err error
+		result, err = s.UnpackSigs(blob)
+		return err
+	})
+
+	return result, mapErr
+}
+
 // createUnsignedCommitmentTx generates the unsigned commitment transaction for
 // a commitment view and returns it as part of the unsignedCommitmentTx. The
 // passed in balances should be balances *before* subtracting any commitment

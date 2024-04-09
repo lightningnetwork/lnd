@@ -9,6 +9,10 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+// htlcCustomSigType is the TLV type that is used to encode the custom HTLC
+// signatures within the custom data for an existing HTLC.
+var htlcCustomSigType tlv.TlvType65543
+
 // AuxHtlcDescriptor is a struct that contains the information needed to sign or
 // verify an HTLC for custom channels.
 type AuxHtlcDescriptor struct {

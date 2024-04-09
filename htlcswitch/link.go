@@ -2554,6 +2554,7 @@ func (l *channelLink) updateCommitTx() error {
 		CommitSig:  newCommit.CommitSig,
 		HtlcSigs:   newCommit.HtlcSigs,
 		PartialSig: newCommit.PartialSig,
+		ExtraData:  newCommit.AuxSigBlob,
 	}
 	l.cfg.Peer.SendMessage(false, commitSig)
 

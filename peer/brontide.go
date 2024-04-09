@@ -364,6 +364,10 @@ type Config struct {
 	// leaves for certain custom channel types.
 	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
 
+	// AuxSigner is an optional signer that can be used to sign auxiliary
+	// leaves for certain custom channel types.
+	AuxSigner fn.Option[lnwallet.AuxSigner]
+
 	// PongBuf is a slice we'll reuse instead of allocating memory on the
 	// heap. Since only reads will occur and no writes, there is no need
 	// for any synchronization primitives. As a result, it's safe to share
@@ -901,6 +905,9 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		var chanOpts []lnwallet.ChannelOpt
 		p.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
 			chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
+		})
+		p.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
+			chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
 		})
 		lnChan, err := lnwallet.NewLightningChannel(
 			p.cfg.Signer, dbChan, p.cfg.SigPool, chanOpts...,
@@ -4029,6 +4036,9 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 
 	p.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
 		chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
+	})
+	p.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
+		chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
 	})
 
 	// If not already active, we'll add this channel to the set of active

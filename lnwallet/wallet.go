@@ -2602,6 +2602,9 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 	l.Cfg.AuxLeafStore.WhenSome(func(s AuxLeafStore) {
 		chanOpts = append(chanOpts, WithLeafStore(s))
 	})
+	l.Cfg.AuxSigner.WhenSome(func(s AuxSigner) {
+		chanOpts = append(chanOpts, WithAuxSigner(s))
+	})
 
 	// First, we'll obtain a fully signed commitment transaction so we can
 	// pass into it on the chanvalidate package for verification.

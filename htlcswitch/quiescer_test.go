@@ -129,3 +129,25 @@ func TestQuiescerTieBreaker(t *testing.T) {
 		require.Equal(t, fn.Ok(initiator), party)
 	}
 }
+
+func TestQuiescerResume(t *testing.T) {
+	harness := initQuiescerTestHarness(lntypes.Local)
+
+	msg := lnwire.Stfu{
+		ChanID:    cid,
+		Initiator: true,
+	}
+
+	require.NoError(t, harness.quiescer.recvStfu(msg))
+	require.NoError(t, harness.quiescer.drive())
+
+	require.True(t, harness.quiescer.isQuiescent())
+	var resumeHooksCalled = false
+	harness.quiescer.onResume(func() {
+		resumeHooksCalled = true
+	})
+
+	harness.quiescer.resume()
+	require.True(t, resumeHooksCalled)
+	require.False(t, harness.quiescer.isQuiescent())
+}

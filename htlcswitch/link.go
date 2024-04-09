@@ -2437,8 +2437,22 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			}
 		}
 
+		// If we can send updates then we can process adds in case we
+		// are the exit hop and need to send back resolutions, or in
+		// case there are validity issues with the packets. Otherwise
+		// we defer the action until resume.
+		//
+		// We are free to process the settles and fails without this
+		// check since processing those can't result in further updates
+		// to this channel link.
+		if l.quiescer.canSendUpdates() {
+			l.processRemoteAdds(fwdPkg, adds)
+		} else {
+			l.quiescer.onResume(func() {
+				l.processRemoteAdds(fwdPkg, adds)
+			})
+		}
 		l.processRemoteSettleFails(fwdPkg, settleFails)
-		l.processRemoteAdds(fwdPkg, adds)
 
 		// If the link failed during processing the adds, we must
 		// return to ensure we won't attempted to update the state

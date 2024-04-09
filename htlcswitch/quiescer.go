@@ -36,6 +36,9 @@ type quiescer struct {
 
 	// received tracks whether or not we have received Stfu from our peer.
 	received bool
+
+	// resumeQueue
+	resumeQueue []func()
 }
 
 // recvStfu is called when we receive an Stfu message from the remote.
@@ -133,4 +136,24 @@ func (q *quiescer) initStfu() error {
 	q.localInit = true
 
 	return nil
+}
+
+// onResume accepts a no return closure that will run when the quiescer is
+// resumed.
+func (q *quiescer) onResume(hook func()) {
+	q.resumeQueue = append(q.resumeQueue, hook)
+}
+
+// resume runs all of the deferred actions that have accumulated while the
+// channel has been quiescent and then resets the quiescer state to its initial
+// state.
+func (q *quiescer) resume() {
+	for _, hook := range q.resumeQueue {
+		hook()
+	}
+	q.localInit = false
+	q.remoteInit = false
+	q.sent = false
+	q.received = false
+	q.resumeQueue = nil
 }

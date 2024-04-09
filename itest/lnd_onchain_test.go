@@ -210,20 +210,17 @@ func testChainKitSendOutputsAnchorReserve(ht *lntest.HarnessTest) {
 	ht.CloseChannel(charlie, outpoint)
 }
 
-// testCPFP ensures that the daemon can bump an unconfirmed  transaction's fee
-// rate by broadcasting a Child-Pays-For-Parent (CPFP) transaction.
-//
-// TODO(wilmer): Add RBF case once btcd supports it.
-func testCPFP(ht *lntest.HarnessTest) {
-	runCPFP(ht, ht.Alice, ht.Bob)
+// testBumpFee ensures that the daemon can bump an unconfirmed  transaction's
+// fee rate by broadcasting a Child-Pays-For-Parent (CPFP) transaction.
+func testBumpFee(ht *lntest.HarnessTest) {
+	runBumpFee(ht, ht.Alice, ht.Bob)
 }
 
-// runCPFP ensures that the daemon can bump an unconfirmed transaction's fee
+// runBumpFee ensures that the daemon can bump an unconfirmed transaction's fee
 // rate by broadcasting a Child-Pays-For-Parent (CPFP) transaction.
-func runCPFP(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
-	// TODO(yy): fix the test when `BumpFee` is updated.
-	ht.Skipf("skipped")
-
+//
+// TODO(yy): test `BumpFee`.
+func runBumpFee(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 	// Skip this test for neutrino, as it's not aware of mempool
 	// transactions.
 	if ht.IsNeutrinoBackend() {
@@ -304,7 +301,7 @@ func runCPFP(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 		"output index not matched")
 
 	// Also validate that the fee rate is capped at the max value.
-	require.Equalf(ht, maxFeeRate, pendingSweep.SatPerVbyte,
+	require.EqualValuesf(ht, 1, pendingSweep.SatPerVbyte,
 		"sweep sat per vbyte not matched, want %v, got %v",
 		maxFeeRate, pendingSweep.SatPerVbyte)
 

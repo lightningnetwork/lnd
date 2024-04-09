@@ -937,6 +937,9 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord,
 
 		// Update the input's state.
 		pi.state = Published
+
+		// Update the input's latest fee rate.
+		pi.lastFeeRate = chainfee.SatPerKWeight(tr.FeeRate)
 	}
 
 	return nil

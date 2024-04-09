@@ -14,6 +14,8 @@ import (
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
+var anchorExclusiveGroup = uint64(1)
+
 // anchorResolver is a resolver that will attempt to sweep our anchor output.
 type anchorResolver struct {
 	// anchorSignDescriptor contains the information that is required to
@@ -129,6 +131,12 @@ func (c *anchorResolver) Resolve(immediate bool) (ContractResolver, error) {
 			DeadlineHeight: fn.None[int32](),
 
 			Immediate: immediate,
+
+			// Always set the exclusive for anchor outputs so they
+			// won't be swept with other inputs.
+			//
+			// TODO(yy): instead group all anchors together?
+			ExclusiveGroup: &anchorExclusiveGroup,
 		},
 	)
 	if err != nil {

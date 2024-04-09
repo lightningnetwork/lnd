@@ -1336,6 +1336,10 @@ type LightningChannel struct {
 	// signatures, of which there may be hundreds.
 	sigPool *SigPool
 
+	// auxSigner is a special signer used to obtain opaque signatures for
+	// custom channel variants.
+	auxSigner fn.Option[AuxSigner]
+
 	// Capacity is the total capacity of this channel.
 	Capacity btcutil.Amount
 
@@ -1400,6 +1404,7 @@ type channelOpts struct {
 	remoteNonce *musig2.Nonces
 
 	leafStore fn.Option[AuxLeafStore]
+	auxSigner fn.Option[AuxSigner]
 
 	skipNonceInit bool
 }
@@ -1435,6 +1440,13 @@ func WithSkipNonceInit() ChannelOpt {
 func WithLeafStore(store AuxLeafStore) ChannelOpt {
 	return func(o *channelOpts) {
 		o.leafStore = fn.Some[AuxLeafStore](store)
+	}
+}
+
+// WithAuxSigner is used to specify a custom aux signer for the channel.
+func WithAuxSigner(signer AuxSigner) ChannelOpt {
+	return func(o *channelOpts) {
+		o.auxSigner = fn.Some[AuxSigner](signer)
 	}
 }
 
@@ -1481,6 +1493,7 @@ func NewLightningChannel(signer input.Signer,
 	lc := &LightningChannel{
 		Signer:            signer,
 		leafStore:         opts.leafStore,
+		auxSigner:         opts.auxSigner,
 		sigPool:           sigPool,
 		currentHeight:     localCommit.CommitHeight,
 		remoteCommitChain: newCommitmentChain(),

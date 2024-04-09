@@ -77,6 +77,9 @@ type AuxSigJobResp struct {
 	// blob
 	SigBlob fn.Option[tlv.Blob]
 
+	// HtlcIndex is the index of the HTLC that was signed.
+	HtlcIndex uint64
+
 	// Err is the error that occurred when executing the specified
 	// signature job. In the case that no error occurred, this value will
 	// be nil.

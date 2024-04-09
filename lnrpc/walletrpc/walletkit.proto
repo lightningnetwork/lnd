@@ -1154,7 +1154,9 @@ message BumpFeeRequest {
     // The input we're attempting to bump the fee of.
     lnrpc.OutPoint outpoint = 1;
 
-    // The target number of blocks that the input should be spent within.
+    // Optional. The target number of blocks that the input should be spent
+    // within. The sweeper will use this value as the deadline to create a
+    // linear fee function to bump the fee.
     uint32 target_conf = 2;
 
     /*
@@ -1172,15 +1174,24 @@ message BumpFeeRequest {
     bool force = 4 [deprecated = true];
 
     /*
-    The fee rate, expressed in sat/vbyte, that should be used to spend the input
-    with.
+    Optional. The fee rate, expressed in sat/vbyte, that should be used to spend
+    the input with. This value will be used by the sweeper's fee function as its
+    starting fee rate.
     */
     uint64 sat_per_vbyte = 5;
 
     /*
-    Whether this input will be swept immediately.
+    Optional. Whether this input will be swept immediately. When set to true,
+    the sweeper will sweep this input without waiting for the next batch.
     */
     bool immediate = 6;
+
+    /*
+    Optional. The max amount in sats that can be used as the fees. Setting this
+    value greater than the input value will result in CPFP - one or more wallet
+    utxos will be used to pay the fees specified by the budget.
+    */
+    uint64 budget = 7;
 }
 
 message BumpFeeResponse {

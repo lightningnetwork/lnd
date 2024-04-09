@@ -155,6 +155,9 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	}
 
 	h.reportLock.Lock()
+	// The outpoint of this report is the spent of the second-level success
+	// transaction which was swept into our default wallet.
+	h.currentReport.Outpoint = *spend.SpentOutPoint
 	h.currentReport.RecoveredBalance = h.currentReport.LimboBalance
 	h.currentReport.LimboBalance = 0
 	h.reportLock.Unlock()
@@ -162,6 +165,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	h.resolved = true
 	return nil, h.checkpointClaim(
 		spend.SpenderTxHash, channeldb.ResolverOutcomeClaimed,
+		*spend.SpentOutPoint,
 	)
 }
 
@@ -322,8 +326,14 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 	// Now that the sweeper has broadcasted the second-level transaction,
 	// it has confirmed, and we have checkpointed our state, we'll sweep
 	// the second level output. We report the resolver has moved the next
-	// stage.
+	// stage. Moreover we update the new outpoint because the first stage
+	// sweep has succeeded. The new outpoint has always the same index as
+	// the spent input because of the sighash SINGLE precondition.
+	secondLevelOutpoint := wire.NewOutPoint(
+		commitSpend.SpenderTxHash, commitSpend.SpenderInputIndex,
+	)
 	h.reportLock.Lock()
+	h.currentReport.Outpoint = *secondLevelOutpoint
 	h.currentReport.Stage = 2
 	h.currentReport.MaturityHeight = waitHeight
 	h.reportLock.Unlock()
@@ -500,16 +510,18 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
 
 	// Checkpoint the resolver, and write the outcome to disk.
 	return nil, h.checkpointClaim(
-		&sweepTXID,
-		channeldb.ResolverOutcomeClaimed,
+		&sweepTXID, channeldb.ResolverOutcomeClaimed,
+		h.htlcResolution.ClaimOutpoint,
 	)
 }
 
 // checkpointClaim checkpoints the success resolver with the reports it needs.
 // If this htlc was claimed two stages, it will write reports for both stages,
-// otherwise it will just write for the single htlc claim.
+// otherwise it will just write for the single htlc claim. The spendOutpoint is
+// also provided because for the two stage sweep this is only know when the
+// first stage sweep transaction is confirmed.
 func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash,
-	outcome channeldb.ResolverOutcome) error {
+	outcome channeldb.ResolverOutcome, spendOutpoint wire.OutPoint) error {
 
 	// Mark the htlc as final settled.
 	err := h.ChainArbitratorConfig.PutFinalHtlcOutcome(
@@ -535,7 +547,8 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash,
 	amt := btcutil.Amount(h.htlcResolution.SweepSignDesc.Output.Value)
 	reports := []*channeldb.ResolverReport{
 		{
-			OutPoint:        h.htlcResolution.ClaimOutpoint,
+			// TODO(ziggie): I guess this needs a migration ?
+			OutPoint:        spendOutpoint,
 			Amount:          amt,
 			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 			ResolverOutcome: outcome,
@@ -550,14 +563,13 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash,
 		// in two stages, so we need to create a report for the first
 		// stage transaction as well.
 		spendTx := h.htlcResolution.SignedSuccessTx
-		spendTxID := spendTx.TxHash()
 
 		report := &channeldb.ResolverReport{
 			OutPoint:        spendTx.TxIn[0].PreviousOutPoint,
 			Amount:          h.htlc.Amt.ToSatoshis(),
 			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
 			ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
-			SpendTxID:       &spendTxID,
+			SpendTxID:       &spendOutpoint.Hash,
 		}
 		reports = append(reports, report)
 	}
@@ -599,15 +611,27 @@ func (h *htlcSuccessResolver) report() *ContractReport {
 func (h *htlcSuccessResolver) initReport() {
 	// We create the initial report. This will only be reported for
 	// resolvers not handled by the nursery.
+
+	// The ClaimOutpoint for zero fee htlcs and htlcs on our local
+	// commitment is not the final outpoint which will hit the chain
+	// therefore we use the htlc outpoint. This also effects non-anchor
+	// channels where the ClaimOutpoint does not change during the lifetime
+	// but we treat both in the same to be consistent.
+	outpoint := h.htlcResolution.ClaimOutpoint
+
 	finalAmt := h.htlc.Amt.ToSatoshis()
 	if h.htlcResolution.SignedSuccessTx != nil {
 		finalAmt = btcutil.Amount(
 			h.htlcResolution.SignedSuccessTx.TxOut[0].Value,
 		)
+
+		// We use the htlc outpoint for the report.
+		//nolint:lll
+		outpoint = h.htlcResolution.SignedSuccessTx.TxIn[0].PreviousOutPoint
 	}
 
 	h.currentReport = ContractReport{
-		Outpoint:       h.htlcResolution.ClaimOutpoint,
+		Outpoint:       outpoint,
 		Type:           ReportOutputIncomingHtlc,
 		Amount:         finalAmt,
 		MaturityHeight: h.htlcResolution.CsvDelay,

@@ -398,6 +398,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		case notifier.SpendChan <- &chainntnfs.SpendDetail{
 			SpendingTx:    spendingTx,
 			SpenderTxHash: &spendTxHash,
+			SpentOutPoint: &testChanPoint2,
 		}:
 		case <-time.After(time.Second * 5):
 			t.Fatalf("failed to request spend ntfn")
@@ -455,6 +456,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				case notifier.SpendChan <- &chainntnfs.SpendDetail{
 					SpendingTx:    spendingTx,
 					SpenderTxHash: &spendTxHash,
+					SpentOutPoint: &testChanPoint2,
 				}:
 				case <-time.After(time.Second * 5):
 					t.Fatalf("failed to request spend ntfn")
@@ -694,7 +696,7 @@ func TestHtlcTimeoutSecondStage(t *testing.T) {
 // extract the preimage.
 func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 2}
-	htlcOutpoint := wire.OutPoint{Index: 3}
+	// htlcOutpoint := wire.OutPoint{Index: 3}
 
 	spendTx := &wire.MsgTx{
 		TxIn:  []*wire.TxIn{{}},
@@ -728,6 +730,7 @@ func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 			},
 		},
 	}
+	timeoutHash := timeoutTx.TxHash()
 
 	timeoutWitness, err := input.SenderHtlcSpendTimeout(
 		&mock.DummySignature{}, txscript.SigHashAll,
@@ -739,13 +742,15 @@ func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 	// twoStageResolution is a resolution for a htlc on the local
 	// party's commitment.
 	twoStageResolution := lnwallet.OutgoingHtlcResolution{
-		ClaimOutpoint:   htlcOutpoint,
+		ClaimOutpoint: wire.OutPoint{
+			Hash:  timeoutHash,
+			Index: 0},
 		SignedTimeoutTx: timeoutTx,
 		SweepSignDesc:   testSignDesc,
 	}
 
 	claim := &channeldb.ResolverReport{
-		OutPoint:        htlcOutpoint,
+		OutPoint:        commitOutpoint,
 		Amount:          btcutil.Amount(testSignDesc.Output.Value),
 		ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
 		ResolverOutcome: channeldb.ResolverOutcomeClaimed,
@@ -770,6 +775,7 @@ func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 					SpendingTx:    spendTx,
 					SpenderTxHash: &spendTxHash,
+					SpentOutPoint: &commitOutpoint,
 				}
 
 				// We should extract the preimage.
@@ -817,7 +823,7 @@ func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 	)
 }
 
-// TestHtlcTimeoutSecondStageRemoteSpend tests that when a remite commitment
+// TestHtlcTimeoutSecondStageRemoteSpend tests that when a remote commitment
 // confirms, and the remote spends the output using the success tx, we
 // properly detect this and extract the preimage.
 func TestHtlcTimeoutSecondStageRemoteSpend(t *testing.T) {
@@ -876,6 +882,7 @@ func TestHtlcTimeoutSecondStageRemoteSpend(t *testing.T) {
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 					SpendingTx:    remoteSuccessTx,
 					SpenderTxHash: &successTxid,
+					SpentOutPoint: &commitOutpoint,
 				}
 
 				witnessBeacon := ctx.resolver.(*htlcTimeoutResolver).PreimageDB.(*mockWitnessBeacon)
@@ -1189,7 +1196,7 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 	}
 
 	claim := &channeldb.ResolverReport{
-		OutPoint:        htlcOutpoint,
+		OutPoint:        commitOutpoint,
 		Amount:          btcutil.Amount(testSignDesc.Output.Value),
 		ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
 		ResolverOutcome: channeldb.ResolverOutcomeClaimed,
@@ -1216,6 +1223,7 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 					SpendingTx:    spendTx,
 					SpenderTxHash: &spendTxHash,
+					SpentOutPoint: &commitOutpoint,
 				}
 
 				return nil
@@ -1238,6 +1246,7 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 					ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 						SpendingTx:    spendTx,
 						SpenderTxHash: &spendTxHash,
+						SpentOutPoint: &commitOutpoint,
 					}
 				}
 

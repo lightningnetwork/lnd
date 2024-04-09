@@ -89,6 +89,11 @@ type quiescer struct {
 	// activeQuiescenceRequest is a possibly None Request that we should
 	// resolve when we complete quiescence.
 	activeQuiescenceReq fn.Option[StfuReq]
+
+	// resumeQueue is a slice of hooks that will be called when the quiescer
+	// is resumed. These are actions that needed to be deferred while the
+	// channel was quiescent.
+	resumeQueue []func()
 }
 
 // newQuiescer creates a new quiescer for the given channel.
@@ -273,4 +278,24 @@ func (q *quiescer) initStfu(req StfuReq) {
 
 	q.localInit = true
 	q.activeQuiescenceReq = fn.Some(req)
+}
+
+// onResume accepts a no return closure that will run when the quiescer is
+// resumed.
+func (q *quiescer) onResume(hook func()) {
+	q.resumeQueue = append(q.resumeQueue, hook)
+}
+
+// resume runs all of the deferred actions that have accumulated while the
+// channel has been quiescent and then resets the quiescer state to its initial
+// state.
+func (q *quiescer) resume() {
+	for _, hook := range q.resumeQueue {
+		hook()
+	}
+	q.localInit = false
+	q.remoteInit = false
+	q.sent = false
+	q.received = false
+	q.resumeQueue = nil
 }

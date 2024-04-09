@@ -242,31 +242,25 @@ service WalletKit {
     rpc PendingSweeps (PendingSweepsRequest) returns (PendingSweepsResponse);
 
     /* lncli: `wallet bumpfee`
-    BumpFee bumps the fee of an arbitrary input within a transaction. This RPC
-    takes a different approach than bitcoind's bumpfee command. lnd has a
-    central batching engine in which inputs with similar fee rates are batched
-    together to save on transaction fees. Due to this, we cannot rely on
-    bumping the fee on a specific transaction, since transactions can change at
-    any point with the addition of new inputs. The list of inputs that
-    currently exist within lnd's central batching engine can be retrieved
-    through the PendingSweeps RPC.
+    BumpFee attempts to bump an existing input (e.g., an anchor sweep) or a new
+    input (e.g. an unconfirmed wallet utxo). This input is sent to lnd’s
+    sweeper and registered for potential fee bumping. Depending on whether it's
+    a new input or not, this can be either a CPFP or RBF.
 
-    When bumping the fee of an input that currently exists within lnd's central
-    batching engine, a higher fee transaction will be created that replaces the
-    lower fee transaction through the Replace-By-Fee (RBF) policy. If it
+    When receiving an input, lnd’s sweeper needs to understand its time
+    sensitivity to make economical fee bumps - internally a fee function is
+    created using the deadline and budget to guide the process. When the
+    deadline is approaching, the fee function will increase the fee rate and
+    perform an RBF.
+
+    When bumping the fee of an existing input, a higher fee transaction will be
+    created that replaces the lower fee transaction through the Replace-By-Fee
+    (RBF) policy.
 
     This RPC also serves useful when wanting to perform a Child-Pays-For-Parent
     (CPFP), where the child transaction pays for its parent's fee. This can be
     done by specifying an outpoint within the low fee transaction that is under
     the control of the wallet.
-
-    The fee preference can be expressed either as a specific fee rate or a delta
-    of blocks in which the output should be swept on-chain within. If a fee
-    preference is not explicitly specified, then an error is returned.
-
-    Note that this RPC currently doesn't perform any validation checks on the
-    fee preference being provided. For now, the responsibility of ensuring that
-    the new fee preference is sufficient is delegated to the user.
     */
     rpc BumpFee (BumpFeeRequest) returns (BumpFeeResponse);
 
@@ -1154,7 +1148,9 @@ message BumpFeeRequest {
     // The input we're attempting to bump the fee of.
     lnrpc.OutPoint outpoint = 1;
 
-    // The target number of blocks that the input should be spent within.
+    // Optional. The deadline in number of blocks that the input should be spent
+    // within. When not set, for new inputs, the default value (1008) is used;
+    // for exiting inputs, their current values will be retained.
     uint32 target_conf = 2;
 
     /*
@@ -1172,15 +1168,28 @@ message BumpFeeRequest {
     bool force = 4 [deprecated = true];
 
     /*
-    The fee rate, expressed in sat/vbyte, that should be used to spend the input
-    with.
+    Optional. The starting fee rate, expressed in sat/vbyte, that will be used
+    to spend the input with initially. This value will be used by the sweeper's
+    fee function as its starting fee rate. When not set, the sweeper will use
+    the estimated fee rate using the `target_conf` as the starting fee rate.
     */
     uint64 sat_per_vbyte = 5;
 
     /*
-    Whether this input will be swept immediately.
+    Optional. Whether this input will be swept immediately. When set to true,
+    the sweeper will sweep this input without waiting for the next batch.
     */
     bool immediate = 6;
+
+    /*
+    Optional. The max amount in sats that can be used as the fees. Setting this
+    value greater than the input's value may result in CPFP - one or more wallet
+    utxos will be used to pay the fees specified by the budget. If not set, for
+    new inputs, by default 50% of the input's value will be treated as the
+    budget for fee bumping; for existing inputs, their current budgets will be
+    retained.
+    */
+    uint64 budget = 7;
 }
 
 message BumpFeeResponse {

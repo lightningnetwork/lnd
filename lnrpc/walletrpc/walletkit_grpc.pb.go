@@ -179,31 +179,25 @@ type WalletKitClient interface {
 	// the UtxoSweeper, so things may change.
 	PendingSweeps(ctx context.Context, in *PendingSweepsRequest, opts ...grpc.CallOption) (*PendingSweepsResponse, error)
 	// lncli: `wallet bumpfee`
-	// BumpFee bumps the fee of an arbitrary input within a transaction. This RPC
-	// takes a different approach than bitcoind's bumpfee command. lnd has a
-	// central batching engine in which inputs with similar fee rates are batched
-	// together to save on transaction fees. Due to this, we cannot rely on
-	// bumping the fee on a specific transaction, since transactions can change at
-	// any point with the addition of new inputs. The list of inputs that
-	// currently exist within lnd's central batching engine can be retrieved
-	// through the PendingSweeps RPC.
+	// BumpFee attempts to bump an existing input (e.g., an anchor sweep) or a new
+	// input (e.g. an unconfirmed wallet utxo). This input is sent to lnd’s
+	// sweeper and registered for potential fee bumping. Depending on whether it's
+	// a new input or not, this can be either a CPFP or RBF.
 	//
-	// When bumping the fee of an input that currently exists within lnd's central
-	// batching engine, a higher fee transaction will be created that replaces the
-	// lower fee transaction through the Replace-By-Fee (RBF) policy. If it
+	// When receiving an input, lnd’s sweeper needs to understand its time
+	// sensitivity to make economical fee bumps - internally a fee function is
+	// created using the deadline and budget to guide the process. When the
+	// deadline is approaching, the fee function will increase the fee rate and
+	// perform an RBF.
+	//
+	// When bumping the fee of an existing input, a higher fee transaction will be
+	// created that replaces the lower fee transaction through the Replace-By-Fee
+	// (RBF) policy.
 	//
 	// This RPC also serves useful when wanting to perform a Child-Pays-For-Parent
 	// (CPFP), where the child transaction pays for its parent's fee. This can be
 	// done by specifying an outpoint within the low fee transaction that is under
 	// the control of the wallet.
-	//
-	// The fee preference can be expressed either as a specific fee rate or a delta
-	// of blocks in which the output should be swept on-chain within. If a fee
-	// preference is not explicitly specified, then an error is returned.
-	//
-	// Note that this RPC currently doesn't perform any validation checks on the
-	// fee preference being provided. For now, the responsibility of ensuring that
-	// the new fee preference is sufficient is delegated to the user.
 	BumpFee(ctx context.Context, in *BumpFeeRequest, opts ...grpc.CallOption) (*BumpFeeResponse, error)
 	// lncli: `wallet listsweeps`
 	// ListSweeps returns a list of the sweep transactions our node has produced.
@@ -687,31 +681,25 @@ type WalletKitServer interface {
 	// the UtxoSweeper, so things may change.
 	PendingSweeps(context.Context, *PendingSweepsRequest) (*PendingSweepsResponse, error)
 	// lncli: `wallet bumpfee`
-	// BumpFee bumps the fee of an arbitrary input within a transaction. This RPC
-	// takes a different approach than bitcoind's bumpfee command. lnd has a
-	// central batching engine in which inputs with similar fee rates are batched
-	// together to save on transaction fees. Due to this, we cannot rely on
-	// bumping the fee on a specific transaction, since transactions can change at
-	// any point with the addition of new inputs. The list of inputs that
-	// currently exist within lnd's central batching engine can be retrieved
-	// through the PendingSweeps RPC.
+	// BumpFee attempts to bump an existing input (e.g., an anchor sweep) or a new
+	// input (e.g. an unconfirmed wallet utxo). This input is sent to lnd’s
+	// sweeper and registered for potential fee bumping. Depending on whether it's
+	// a new input or not, this can be either a CPFP or RBF.
 	//
-	// When bumping the fee of an input that currently exists within lnd's central
-	// batching engine, a higher fee transaction will be created that replaces the
-	// lower fee transaction through the Replace-By-Fee (RBF) policy. If it
+	// When receiving an input, lnd’s sweeper needs to understand its time
+	// sensitivity to make economical fee bumps - internally a fee function is
+	// created using the deadline and budget to guide the process. When the
+	// deadline is approaching, the fee function will increase the fee rate and
+	// perform an RBF.
+	//
+	// When bumping the fee of an existing input, a higher fee transaction will be
+	// created that replaces the lower fee transaction through the Replace-By-Fee
+	// (RBF) policy.
 	//
 	// This RPC also serves useful when wanting to perform a Child-Pays-For-Parent
 	// (CPFP), where the child transaction pays for its parent's fee. This can be
 	// done by specifying an outpoint within the low fee transaction that is under
 	// the control of the wallet.
-	//
-	// The fee preference can be expressed either as a specific fee rate or a delta
-	// of blocks in which the output should be swept on-chain within. If a fee
-	// preference is not explicitly specified, then an error is returned.
-	//
-	// Note that this RPC currently doesn't perform any validation checks on the
-	// fee preference being provided. For now, the responsibility of ensuring that
-	// the new fee preference is sufficient is delegated to the user.
 	BumpFee(context.Context, *BumpFeeRequest) (*BumpFeeResponse, error)
 	// lncli: `wallet listsweeps`
 	// ListSweeps returns a list of the sweep transactions our node has produced.

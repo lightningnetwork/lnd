@@ -59,7 +59,7 @@ type UtxoSweeper interface {
 	// fee preference that will be used for a new sweep transaction of the
 	// input that will act as a replacement transaction (RBF) of the
 	// original sweeping transaction, if any.
-	UpdateParams(input wire.OutPoint, params sweep.ParamsUpdate) (
+	UpdateParams(input wire.OutPoint, params sweep.Params) (
 		chan sweep.Result, error)
 }
 

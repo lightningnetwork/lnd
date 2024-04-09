@@ -71,22 +71,6 @@ type Params struct {
 	StartingFeeRate fn.Option[chainfee.SatPerKWeight]
 }
 
-// ParamsUpdate contains a new set of parameters to update a pending sweep with.
-type ParamsUpdate struct {
-	// Fee is the fee preference of the client who requested the input to be
-	// swept. If a confirmation target is specified, then we'll map it into
-	// a fee rate whenever we attempt to cluster inputs for a sweep.
-	Fee FeePreference
-
-	// Immediate indicates that the input should be swept immediately
-	// without waiting for blocks to come.
-	Immediate bool
-
-	// StartingFeeRate is an optional parameter that can be used to specify
-	// the initial fee rate to use for the fee function.
-	StartingFeeRate fn.Option[chainfee.SatPerKWeight]
-}
-
 // String returns a human readable interpretation of the sweep parameters.
 func (p Params) String() string {
 	deadline := "none"
@@ -283,7 +267,7 @@ type PendingInputResponse struct {
 // intent to update the sweep parameters of a given input.
 type updateReq struct {
 	input        wire.OutPoint
-	params       ParamsUpdate
+	params       Params
 	responseChan chan *updateResp
 }
 
@@ -700,6 +684,12 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 				err:        err,
 			}
 
+			// Perform an sweep immediately if asked.
+			if req.params.Immediate {
+				inputs := s.updateSweeperInputs()
+				s.sweepPendingInputs(inputs)
+			}
+
 		case result := <-s.bumpResultChan:
 			// Handle the bump event.
 			err := s.handleBumpEvent(result)
@@ -1095,7 +1085,7 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 // is actually successful. The responsibility of doing so should be handled by
 // the caller.
 func (s *UtxoSweeper) UpdateParams(input wire.OutPoint,
-	params ParamsUpdate) (chan Result, error) {
+	params Params) (chan Result, error) {
 
 	// Ensure the client provided a sane fee preference.
 	_, err := params.Fee.Estimate(

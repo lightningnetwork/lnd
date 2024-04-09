@@ -554,6 +554,10 @@ type Config struct {
 	// able to automatically handle new custom protocol messages related to
 	// the funding process.
 	AuxFundingController fn.Option[AuxFundingController]
+
+	// AuxSigner is an optional signer that can be used to sign auxiliary
+	// leaves for certain custom channel types.
+	AuxSigner fn.Option[lnwallet.AuxSigner]
 }
 
 // Manager acts as an orchestrator/bridge between the wallet's
@@ -1082,6 +1086,9 @@ func (f *Manager) advanceFundingState(channel *channeldb.OpenChannel,
 	var chanOpts []lnwallet.ChannelOpt
 	f.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
 		chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
+	})
+	f.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
+		chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
 	})
 
 	// We create the state-machine object which wraps the database state.

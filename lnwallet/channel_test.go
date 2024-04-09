@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -699,6 +700,68 @@ func testCommitHTLCSigTieBreak(t *testing.T, restart bool) {
 	// expecting the signatures in the proper order.
 	err = aliceChannel.ReceiveNewCommitment(bobNewCommit.CommitSigs)
 	require.NoError(t, err, "unable to receive bob's commitment")
+}
+
+// TestCommitHTLCSigCustomRecordSize asserts that custom records produced for
+// a commitment_signed message are properly limited in size.
+func TestCommitHTLCSigCustomRecordSize(t *testing.T) {
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, channeldb.SimpleTaprootFeatureBit|
+			channeldb.TapscriptRootBit,
+	)
+	require.NoError(t, err, "unable to create test channels")
+
+	const (
+		htlcAmt  = lnwire.MilliSatoshi(20000000)
+		numHtlcs = 2
+	)
+
+	largeRecords := lnwire.CustomRecords{
+		lnwire.MinCustomRecordsTlvType: bytes.Repeat([]byte{0}, 65_500),
+	}
+	largeBlob, err := largeRecords.Serialize()
+	require.NoError(t, err)
+
+	aliceChannel.auxSigner.WhenSome(func(a AuxSigner) {
+		mockSigner, ok := a.(*MockAuxSigner)
+		require.True(t, ok, "expected MockAuxSigner")
+
+		// Replace the default PackSigs implementation to return a
+		// large custom records blob.
+		mockSigner.ExpectedCalls = fn.Filter(func(c *mock.Call) bool {
+			return c.Method != "PackSigs"
+		}, mockSigner.ExpectedCalls)
+		mockSigner.On("PackSigs", mock.Anything).
+			Return(fn.Ok(fn.Some(largeBlob)))
+	})
+
+	// Add HTLCs with identical payment hashes and amounts, but descending
+	// CLTV values. We will expect the signatures to appear in the reverse
+	// order that the HTLCs are added due to the commitment sorting.
+	for i := 0; i < numHtlcs; i++ {
+		var (
+			preimage lntypes.Preimage
+			hash     = preimage.Hash()
+		)
+
+		htlc := &lnwire.UpdateAddHTLC{
+			ID:          uint64(i),
+			PaymentHash: hash,
+			Amount:      htlcAmt,
+			Expiry:      uint32(numHtlcs - i),
+		}
+
+		if _, err := aliceChannel.AddHTLC(htlc, nil); err != nil {
+			t.Fatalf("alice unable to add htlc: %v", err)
+		}
+		if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
+			t.Fatalf("bob unable to receive htlc: %v", err)
+		}
+	}
+
+	// We expect an error because of the large custom records blob.
+	_, err = aliceChannel.SignNextCommitment()
+	require.ErrorContains(t, err, "exceeds max allowed size")
 }
 
 // TestCooperativeChannelClosure checks that the coop close process finishes
@@ -3043,6 +3106,10 @@ func restartChannel(channelOld *LightningChannel) (*LightningChannel, error) {
 	return channelNew, nil
 }
 
+// testChanSyncOweCommitment tests that if Bob restarts (and then Alice) before
+// he receives Alice's CommitSig message, then Alice concludes that she needs
+// to re-send the CommitDiff. After the diff has been sent, both nodes should
+// resynchronize and be able to complete the dangling commit.
 func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
@@ -3207,8 +3274,10 @@ func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
 				len(commitSigMsg.HtlcSigs))
 		}
 		for i, htlcSig := range commitSigMsg.HtlcSigs {
-			if !bytes.Equal(htlcSig.RawBytes(),
-				aliceNewCommit.HtlcSigs[i].RawBytes()) {
+			if !bytes.Equal(
+				htlcSig.RawBytes(),
+				aliceNewCommit.HtlcSigs[i].RawBytes(),
+			) {
 
 				t.Fatalf("htlc sig msgs don't match: "+
 					"expected %v got %v",
@@ -3379,6 +3448,100 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	}
 }
 
+type testSigBlob struct {
+	BlobInt tlv.RecordT[tlv.TlvType65634, uint16]
+}
+
+// TestChanSyncOweCommitmentAuxSigner tests that when one party owes a
+// signature after a channel reest, if an aux signer is present, then the
+// signature message sent includes the additional aux sigs as extra data.
+func TestChanSyncOweCommitmentAuxSigner(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	chanType := channeldb.SingleFunderTweaklessBit |
+		channeldb.AnchorOutputsBit | channeldb.SimpleTaprootFeatureBit |
+		channeldb.TapscriptRootBit
+
+	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
+	require.NoError(t, err, "unable to create test channels")
+
+	// We'll now manually attach an aux signer to Alice's channel.
+	auxSigner := &MockAuxSigner{}
+	aliceChannel.auxSigner = fn.Some[AuxSigner](auxSigner)
+
+	var fakeOnionBlob [lnwire.OnionPacketSize]byte
+	copy(
+		fakeOnionBlob[:],
+		bytes.Repeat([]byte{0x05}, lnwire.OnionPacketSize),
+	)
+
+	// To kick things off, we'll have Alice send a single HTLC to Bob.
+	htlcAmt := lnwire.NewMSatFromSatoshis(20000)
+	var bobPreimage [32]byte
+	copy(bobPreimage[:], bytes.Repeat([]byte{0}, 32))
+	rHash := sha256.Sum256(bobPreimage[:])
+	h := &lnwire.UpdateAddHTLC{
+		PaymentHash: rHash,
+		Amount:      htlcAmt,
+		Expiry:      uint32(10),
+		OnionBlob:   fakeOnionBlob,
+	}
+
+	_, err = aliceChannel.AddHTLC(h, nil)
+	require.NoError(t, err, "unable to recv bob's htlc: %v", err)
+
+	// We'll set up the mock to expect calls to PackSigs and also
+	// SubmitSubmitSecondLevelSigBatch.
+	var sigBlobBuf bytes.Buffer
+	sigBlob := testSigBlob{
+		BlobInt: tlv.NewPrimitiveRecord[tlv.TlvType65634, uint16](5),
+	}
+	tlvStream, err := tlv.NewStream(sigBlob.BlobInt.Record())
+	require.NoError(t, err, "unable to create tlv stream")
+	require.NoError(t, tlvStream.Encode(&sigBlobBuf))
+
+	auxSigner.On(
+		"SubmitSecondLevelSigBatch", mock.Anything, mock.Anything,
+		mock.Anything,
+	).Return(nil).Twice()
+	auxSigner.On(
+		"PackSigs", mock.Anything,
+	).Return(
+		fn.Ok(fn.Some(sigBlobBuf.Bytes())), nil,
+	)
+
+	_, err = aliceChannel.SignNextCommitment()
+	require.NoError(t, err, "unable to sign commitment")
+
+	_, err = aliceChannel.GenMusigNonces()
+	require.NoError(t, err, "unable to generate musig nonces")
+
+	// Next we'll simulate a restart, by having Bob send over a chan sync
+	// message to Alice.
+	bobSyncMsg, err := bobChannel.channelState.ChanSyncMsg()
+	require.NoError(t, err, "unable to produce chan sync msg")
+
+	aliceMsgsToSend, _, _, err := aliceChannel.ProcessChanSyncMsg(
+		bobSyncMsg,
+	)
+	require.NoError(t, err)
+	require.Len(t, aliceMsgsToSend, 2)
+
+	// The first message should be an update add HTLC.
+	require.IsType(t, &lnwire.UpdateAddHTLC{}, aliceMsgsToSend[0])
+
+	// The second should be a commit sig message.
+	sigMsg, ok := aliceMsgsToSend[1].(*lnwire.CommitSig)
+	require.True(t, ok)
+	require.True(t, sigMsg.PartialSig.IsSome())
+
+	// The signature should have the CustomRecords field set.
+	require.NotEmpty(t, sigMsg.CustomRecords)
+}
+
 func testChanSyncOweCommitmentPendingRemote(t *testing.T,
 	chanType channeldb.ChannelType,
 ) {
@@ -3388,7 +3551,10 @@ func testChanSyncOweCommitmentPendingRemote(t *testing.T,
 	require.NoError(t, err, "unable to create test channels")
 
 	var fakeOnionBlob [lnwire.OnionPacketSize]byte
-	copy(fakeOnionBlob[:], bytes.Repeat([]byte{0x05}, lnwire.OnionPacketSize))
+	copy(
+		fakeOnionBlob[:],
+		bytes.Repeat([]byte{0x05}, lnwire.OnionPacketSize),
+	)
 
 	// We'll start off the scenario where Bob send two htlcs to Alice in a
 	// single state update.
@@ -3427,7 +3593,9 @@ func testChanSyncOweCommitmentPendingRemote(t *testing.T,
 
 	// Next, Alice settles the HTLCs from Bob in distinct state updates.
 	for i := 0; i < numHtlcs; i++ {
-		err = aliceChannel.SettleHTLC(preimages[i], uint64(i), nil, nil, nil)
+		err = aliceChannel.SettleHTLC(
+			preimages[i], uint64(i), nil, nil, nil,
+		)
 		if err != nil {
 			t.Fatalf("unable to settle htlc: %v", err)
 		}
@@ -3710,7 +3878,7 @@ func testChanSyncOweRevocation(t *testing.T, chanType channeldb.ChannelType) {
 }
 
 // TestChanSyncOweRevocation tests that if Bob restarts (and then Alice) before
-// he receiver's Alice's RevokeAndAck message, then Alice concludes that she
+// he received Alice's RevokeAndAck message, then Alice concludes that she
 // needs to re-send the RevokeAndAck. After the revocation has been sent, both
 // nodes should be able to successfully complete another state transition.
 func TestChanSyncOweRevocation(t *testing.T) {

@@ -174,6 +174,10 @@ type AuxComponents struct {
 	// able to automatically handle new custom protocol messages related to
 	// the funding process.
 	AuxFundingController fn.Option[funding.AuxFundingController]
+
+	// AuxSigner is an optional signer that can be used to sign auxiliary
+	// leaves for certain custom channel types.
+	AuxSigner fn.Option[lnwallet.AuxSigner]
 }
 
 // DefaultWalletImpl is the default implementation of our normal, btcwallet
@@ -580,6 +584,7 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 		ChanStateDB:                 dbs.ChanStateDB.ChannelStateDB(),
 		NeutrinoCS:                  neutrinoCS,
 		AuxLeafStore:                aux.AuxLeafStore,
+		AuxSigner:                   aux.AuxSigner,
 		ActiveNetParams:             d.cfg.ActiveNetParams,
 		FeeURL:                      d.cfg.FeeURL,
 		Fee: &lncfg.Fee{
@@ -737,6 +742,7 @@ func (d *DefaultWalletImpl) BuildChainControl(
 		NetParams:             *walletConfig.NetParams,
 		CoinSelectionStrategy: walletConfig.CoinSelectionStrategy,
 		AuxLeafStore:          partialChainControl.Cfg.AuxLeafStore,
+		AuxSigner:             partialChainControl.Cfg.AuxSigner,
 	}
 
 	// The broadcast is already always active for neutrino nodes, so we
@@ -919,10 +925,6 @@ type DatabaseInstances struct {
 	// for native SQL queries for tables that already support it. This may
 	// be nil if the use-native-sql flag was not set.
 	NativeSQLStore *sqldb.BaseDB
-
-	// AuxLeafStore is an optional data source that can be used by custom
-	// channels to fetch+store various data.
-	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
 }
 
 // DefaultDatabaseBuilder is a type that builds the default database backends

@@ -239,8 +239,8 @@
     },
     "/v2/wallet/bumpfee": {
       "post": {
-        "summary": "lncli: `wallet bumpfee`\nBumpFee bumps the fee of an arbitrary input within a transaction. This RPC\ntakes a different approach than bitcoind's bumpfee command. lnd has a\ncentral batching engine in which inputs with similar fee rates are batched\ntogether to save on transaction fees. Due to this, we cannot rely on\nbumping the fee on a specific transaction, since transactions can change at\nany point with the addition of new inputs. The list of inputs that\ncurrently exist within lnd's central batching engine can be retrieved\nthrough the PendingSweeps RPC.",
-        "description": "When bumping the fee of an input that currently exists within lnd's central\nbatching engine, a higher fee transaction will be created that replaces the\nlower fee transaction through the Replace-By-Fee (RBF) policy. If it\n\nThis RPC also serves useful when wanting to perform a Child-Pays-For-Parent\n(CPFP), where the child transaction pays for its parent's fee. This can be\ndone by specifying an outpoint within the low fee transaction that is under\nthe control of the wallet.\n\nThe fee preference can be expressed either as a specific fee rate or a delta\nof blocks in which the output should be swept on-chain within. If a fee\npreference is not explicitly specified, then an error is returned.\n\nNote that this RPC currently doesn't perform any validation checks on the\nfee preference being provided. For now, the responsibility of ensuring that\nthe new fee preference is sufficient is delegated to the user.",
+        "summary": "lncli: `wallet bumpfee`\nBumpFee is an endpoint that allows users to interact with lnd's sweeper\ndirectly. It takes an outpoint from an unconfirmed transaction and sends it\nto the sweeper for potential fee bumping. Depending on whether the outpoint\nhas been registered in the sweeper (an existing input, e.g., an anchor\noutput) or not (a new input, e.g., an unconfirmed wallet utxo), this will\neither be an RBF or CPFP attempt.",
+        "description": "When receiving an input, lnd’s sweeper needs to understand its time\nsensitivity to make economical fee bumps - internally a fee function is\ncreated using the deadline and budget to guide the process. When the\ndeadline is approaching, the fee function will increase the fee rate and\nperform an RBF.\n\nWhen a force close happens, all the outputs from the force closing\ntransaction will be registered in the sweeper. The sweeper will then handle\nthe creation, publish, and fee bumping of the sweeping transactions.\nEverytime a new block comes in, unless the sweeping transaction is\nconfirmed, an RBF is attempted. To interfere with this automatic process,\nusers can use BumpFee to specify customized fee rate, budget, deadline, and\nwhether the sweep should happen immediately. It's recommended to call\n`ListSweeps` to understand the shape of the existing sweeping transaction\nfirst - depending on the number of inputs in this transaction, the RBF\nrequirements can be quite different.\n\nThis RPC also serves useful when wanting to perform a Child-Pays-For-Parent\n(CPFP), where the child transaction pays for its parent's fee. This can be\ndone by specifying an outpoint within the low fee transaction that is under\nthe control of the wallet.",
         "operationId": "WalletKit_BumpFee",
         "responses": {
           "200": {
@@ -1360,7 +1360,7 @@
         "target_conf": {
           "type": "integer",
           "format": "int64",
-          "description": "The target number of blocks that the input should be spent within."
+          "description": "Optional. The deadline in number of blocks that the input should be spent\nwithin. When not set, for new inputs, the default value (1008) is used;\nfor exiting inputs, their current values will be retained."
         },
         "sat_per_byte": {
           "type": "integer",
@@ -1374,11 +1374,16 @@
         "sat_per_vbyte": {
           "type": "string",
           "format": "uint64",
-          "description": "The fee rate, expressed in sat/vbyte, that should be used to spend the input\nwith."
+          "description": "Optional. The starting fee rate, expressed in sat/vbyte, that will be used\nto spend the input with initially. This value will be used by the sweeper's\nfee function as its starting fee rate. When not set, the sweeper will use\nthe estimated fee rate using the `target_conf` as the starting fee rate."
         },
         "immediate": {
           "type": "boolean",
-          "description": "Whether this input will be swept immediately."
+          "description": "Optional. Whether this input will be swept immediately. When set to true,\nthe sweeper will sweep this input without waiting for the next batch."
+        },
+        "budget": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Optional. The max amount in sats that can be used as the fees. Setting this\nvalue greater than the input's value may result in CPFP - one or more wallet\nutxos will be used to pay the fees specified by the budget. If not set, for\nnew inputs, by default 50% of the input's value will be treated as the\nbudget for fee bumping; for existing inputs, their current budgets will be\nretained."
         }
       }
     },

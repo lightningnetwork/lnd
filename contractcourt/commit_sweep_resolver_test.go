@@ -167,7 +167,7 @@ func (s *mockSweeper) RelayFeePerKW() chainfee.SatPerKWeight {
 }
 
 func (s *mockSweeper) UpdateParams(input wire.OutPoint,
-	params sweep.ParamsUpdate) (chan sweep.Result, error) {
+	params sweep.Params) (chan sweep.Result, error) {
 
 	s.updatedInputs <- input
 

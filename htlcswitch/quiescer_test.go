@@ -380,3 +380,38 @@ func TestQuiescerTieBreaker(t *testing.T) {
 		}
 	}
 }
+
+// TestQuiescerResume ensures that the hooks that are attached to the quiescer
+// are called when we call the resume method and no earlier.
+func TestQuiescerResume(t *testing.T) {
+	t.Parallel()
+
+	harness := initQuiescerTestHarness(lntypes.Local)
+
+	msg := lnwire.Stfu{
+		ChanID:    cid,
+		Initiator: true,
+	}
+
+	require.NoError(
+		t, harness.quiescer.RecvStfu(
+			msg, harness.pendingUpdates.Remote,
+		),
+	)
+	require.NoError(
+		t, harness.quiescer.SendOwedStfu(
+			harness.pendingUpdates.Local,
+		),
+	)
+
+	require.True(t, harness.quiescer.IsQuiescent())
+	var resumeHooksCalled = false
+	harness.quiescer.OnResume(func() {
+		resumeHooksCalled = true
+	})
+	require.False(t, resumeHooksCalled)
+
+	harness.quiescer.Resume()
+	require.True(t, resumeHooksCalled)
+	require.False(t, harness.quiescer.IsQuiescent())
+}

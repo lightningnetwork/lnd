@@ -3136,7 +3136,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// Actually generate unsigned commitment transaction for this view.
 	commitTx, err := lc.commitBuilder.createUnsignedCommitmentTx(
 		ourBalance, theirBalance, !remoteChain, feePerKw, nextHeight,
-		filteredHTLCView, keyRing, commitChain.tip(),
+		htlcView, filteredHTLCView, keyRing, commitChain.tip(),
 	)
 	if err != nil {
 		return nil, err

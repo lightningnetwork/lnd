@@ -613,6 +613,12 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 	return localAnchor, remoteAnchor, nil
 }
 
+// CommitSortFunc is a function type alias for a function that sorts the
+// commitment transaction outputs. The second parameter is a list of CLTV
+// timeouts that must correspond to the number of transaction outputs, with the
+// value of 0 for non-HTLC outputs.
+type CommitSortFunc func(*wire.MsgTx, []uint32) error
+
 // CommitAuxLeaves stores two potential auxiliary leaves for the remote and
 // local output that made be used to argument the final tapscript trees of the
 // commitment transaction.
@@ -652,11 +658,12 @@ func (c *CommitAuxLeaves) ForRemoteCommit() CommitAuxLeaves {
 // TODO(roasbeef): move into pkg for custom chans?
 type AuxLeafStore interface {
 	// FetchLeavesFromView attempts to fetch the auxiliary leaves that
-	// correspond to the passed aux blob, and pending fully evaluated HTLC
-	// view.
+	// correspond to the passed aux blob, and pending original (unfiltered)
+	// HTLC view.
 	FetchLeavesFromView(chanState *channeldb.OpenChannel, prevBlob tlv.Blob,
-		view *HtlcView,
-		keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves], error)
+		unfilteredView *HtlcView,
+		keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves],
+		CommitSortFunc, error)
 
 	// FetchLeavesFromCommit attempts to fetch the auxiliary leaves that
 	// correspond to the passed aux blob, and an existing channel
@@ -772,23 +779,24 @@ func AuxLeavesFromCommit(chanState *channeldb.OpenChannel,
 }
 
 // auxLeavesFromView is used to derive the set of commit aux leaves (if any),
-// that are needed to create a new commitment transaction using the new htlc
-// view.
+// that are needed to create a new commitment transaction using the original
+// (unfiltered) htlc view.
 func auxLeavesFromView(chanState *channeldb.OpenChannel,
-	prevBlob fn.Option[tlv.Blob], nextView *HtlcView,
+	prevBlob fn.Option[tlv.Blob], originalView *HtlcView,
 	leafStore fn.Option[AuxLeafStore],
-	keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves], error) {
+	keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves], CommitSortFunc,
+	error) {
 
 	if leafStore.IsNone() {
-		return fn.None[CommitAuxLeaves](), nil
+		return fn.None[CommitAuxLeaves](), nil, nil
 	}
 
 	if prevBlob.IsNone() {
-		return fn.None[CommitAuxLeaves](), nil
+		return fn.None[CommitAuxLeaves](), nil, nil
 	}
 
 	return leafStore.UnsafeFromSome().FetchLeavesFromView(
-		chanState, prevBlob.UnsafeFromSome(), nextView, keyRing,
+		chanState, prevBlob.UnsafeFromSome(), originalView, keyRing,
 	)
 }
 
@@ -833,7 +841,7 @@ func updateAuxBlob(chanState *channeldb.OpenChannel,
 // fees, but after anchor outputs.
 func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	theirBalance lnwire.MilliSatoshi, isOurs bool,
-	feePerKw chainfee.SatPerKWeight, height uint64,
+	feePerKw chainfee.SatPerKWeight, height uint64, originalHtlcView,
 	filteredHTLCView *HtlcView, keyRing *CommitmentKeyRing,
 	prevCommit *commitment) (*unsignedCommitmentTx, error) {
 
@@ -901,8 +909,8 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// Before we create the commitment transaction below, we'll try to see
 	// if there're any aux leave that need to be a part of the tapscript
 	// tree. We'll only do this if we have a custom blob defined though.
-	auxLeaves, err := auxLeavesFromView(
-		cb.chanState, prevCommit.customBlob, filteredHTLCView,
+	auxLeaves, customCommitSort, err := auxLeavesFromView(
+		cb.chanState, prevCommit.customBlob, originalHtlcView,
 		cb.auxLeafStore, *keyRing,
 	)
 	if err != nil {
@@ -1017,9 +1025,24 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	}
 
 	// Sort the transactions according to the agreed upon canonical
-	// ordering. This lets us skip sending the entire transaction over,
-	// instead we'll just send signatures.
-	InPlaceCommitSort(commitTx, cltvs)
+	// ordering (which might be customized for custom channel types, but
+	// deterministic and both parties will arrive at the same result). This
+	// lets us skip sending the entire transaction over, instead we'll just
+	// send signatures.
+	if auxLeaves.IsSome() {
+		if customCommitSort == nil {
+			return nil, fmt.Errorf("custom channel type requires " +
+				"sorting function")
+		}
+
+		err = customCommitSort(commitTx, cltvs)
+		if err != nil {
+			return nil, fmt.Errorf("unable to sort commitment "+
+				"transaction by custom order: %w", err)
+		}
+	} else {
+		InPlaceCommitSort(commitTx, cltvs)
+	}
 
 	// Next, we'll ensure that we don't accidentally create a commitment
 	// transaction which would be invalid by consensus.

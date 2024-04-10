@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +16,9 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -116,6 +117,62 @@ var (
 
 	// Must be initialized in init().
 	testDescriptionHash [32]byte
+
+	testBlindedPK1Bytes, _ = hex.DecodeString("03f3311e948feb5115242c4e39" +
+		"6c81c448ab7ee5fd24c4e24e66c73533cc4f98b8")
+	testBlindedHopPK1, _   = btcec.ParsePubKey(testBlindedPK1Bytes)
+	testBlindedPK2Bytes, _ = hex.DecodeString("03a8c97ed5cd40d474e4ef18c8" +
+		"99854b25e5070106504cb225e6d2c112d61a805e")
+	testBlindedHopPK2, _   = btcec.ParsePubKey(testBlindedPK2Bytes)
+	testBlindedPK3Bytes, _ = hex.DecodeString("0220293926219d8efe733336e2" +
+		"b674570dd96aa763acb3564e6e367b384d861a0a")
+	testBlindedHopPK3, _   = btcec.ParsePubKey(testBlindedPK3Bytes)
+	testBlindedPK4Bytes, _ = hex.DecodeString("02c75eb336a038294eaaf76015" +
+		"8b2e851c3c0937262e35401ae64a1bee71a2e40c")
+	testBlindedHopPK4, _ = btcec.ParsePubKey(testBlindedPK4Bytes)
+
+	blindedPath1 = &BlindedPaymentPath{
+		FeeBaseMsat:                 40,
+		FeeRate:                     20,
+		CltvExpiryDelta:             130,
+		HTLCMinMsat:                 2,
+		HTLCMaxMsat:                 100,
+		Features:                    lnwire.EmptyFeatureVector(),
+		FirstEphemeralBlindingPoint: testBlindedHopPK1,
+		Hops: []*sphinx.BlindedHopInfo{
+			{
+				BlindedNodePub: testBlindedHopPK2,
+				CipherText:     []byte{1, 2, 3, 4, 5},
+			},
+			{
+				BlindedNodePub: testBlindedHopPK3,
+				CipherText:     []byte{5, 4, 3, 2, 1},
+			},
+			{
+				BlindedNodePub: testBlindedHopPK4,
+				CipherText: []byte{
+					1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+					11, 12, 13, 14,
+				},
+			},
+		},
+	}
+
+	blindedPath2 = &BlindedPaymentPath{
+		FeeBaseMsat:                 4,
+		FeeRate:                     2,
+		CltvExpiryDelta:             10,
+		HTLCMinMsat:                 0,
+		HTLCMaxMsat:                 10,
+		Features:                    lnwire.EmptyFeatureVector(),
+		FirstEphemeralBlindingPoint: testBlindedHopPK4,
+		Hops: []*sphinx.BlindedHopInfo{
+			{
+				BlindedNodePub: testBlindedHopPK3,
+				CipherText:     []byte{1, 2, 3, 4, 5},
+			},
+		},
+	}
 )
 
 func init() {
@@ -125,6 +182,8 @@ func init() {
 // TestDecodeEncode tests that an encoded invoice gets decoded into the expected
 // Invoice object, and that reencoding the decoded invoice gets us back to the
 // original encoded string.
+//
+//nolint:lll
 func TestDecodeEncode(t *testing.T) {
 	t.Parallel()
 
@@ -673,52 +732,77 @@ func TestDecodeEncode(t *testing.T) {
 				i.Destination = nil
 			},
 		},
+		{
+			// Invoice with blinded payment paths.
+			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4js5fdqqqqq2qqqqqpgqyzqqqqqqqqqqqqyqqqqqqqqqqqvsqqqqlnxy0ffrlt2y2jgtzw89kgr3zg4dlwtlfycn3yuek8x5eucnuchqps82xf0m2u6sx5wnjw7xxgnxz5kf09quqsv5zvkgj7d5kpzttp4qz7q5qsyqcyq5pzq2feycsemrh7wvendc4kw3tsmkt25a36ev6kfehrv7ecfkrp5zs9q5zqxqspqtr4avek5quzjn427asptzews5wrczfhychr2sq6ue9phmn35tjqcrspqgpsgpgxquyqjzstpsxsu59zqqqqqpqqqqqqyqq2qqqqqqqqqqqqqqqqqqqqqqqqpgqqqqk8t6endgpc99824amqzk9japgu8synwf3wx4qp4ej2r0h8rghypsqsygpf8ynzr8vwleenxdhzke69wrwed2nk8t9n2e8xudnm8pxcvxs2q5qsyqcyq5y4rdlhtf84f8rgdj34275juwls2ftxtcfh035863q3p9k6s94hpxhdmzfn5gxpsazdznxs56j4vt3fdhe00g9v2l3szher50hp4xlggqkxf77f",
+			valid:          true,
+			decodedInvoice: func() *Invoice {
+				return &Invoice{
+					Net:         &chaincfg.MainNetParams,
+					MilliSat:    &testMillisat20mBTC,
+					Timestamp:   time.Unix(1496314658, 0),
+					PaymentHash: &testPaymentHash,
+					Description: &testCupOfCoffee,
+					Destination: testPubKey,
+					Features:    emptyFeatures,
+					BlindedPaymentPaths: []*BlindedPaymentPath{
+						blindedPath1,
+						blindedPath2,
+					},
+				}
+			},
+			beforeEncoding: func(i *Invoice) {
+				// Since this destination pubkey was recovered
+				// from the signature, we must set it nil before
+				// encoding to get back the same invoice string.
+				i.Destination = nil
+			},
+		},
 	}
 
 	for i, test := range tests {
-		var decodedInvoice *Invoice
-		net := &chaincfg.MainNetParams
-		if test.decodedInvoice != nil {
-			decodedInvoice = test.decodedInvoice()
-			net = decodedInvoice.Net
-		}
+		test := test
 
-		invoice, err := Decode(test.encodedInvoice, net)
-		if (err == nil) != test.valid {
-			t.Errorf("Decoding test %d failed: %v", i, err)
-			return
-		}
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			t.Parallel()
 
-		if test.valid {
-			if err := compareInvoices(decodedInvoice, invoice); err != nil {
-				t.Errorf("Invoice decoding result %d not as expected: %v", i, err)
+			var decodedInvoice *Invoice
+			net := &chaincfg.MainNetParams
+			if test.decodedInvoice != nil {
+				decodedInvoice = test.decodedInvoice()
+				net = decodedInvoice.Net
+			}
+
+			invoice, err := Decode(test.encodedInvoice, net)
+			if !test.valid {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, decodedInvoice, invoice)
+			}
+
+			if test.skipEncoding {
 				return
 			}
-		}
 
-		if test.skipEncoding {
-			continue
-		}
+			if test.beforeEncoding != nil {
+				test.beforeEncoding(decodedInvoice)
+			}
 
-		if test.beforeEncoding != nil {
-			test.beforeEncoding(decodedInvoice)
-		}
+			if decodedInvoice == nil {
+				return
+			}
 
-		if decodedInvoice != nil {
 			reencoded, err := decodedInvoice.Encode(
 				testMessageSigner,
 			)
-			if (err == nil) != test.valid {
-				t.Errorf("Encoding test %d failed: %v", i, err)
+			if !test.valid {
+				require.Error(t, err)
 				return
 			}
-
-			if test.valid && test.encodedInvoice != reencoded {
-				t.Errorf("Encoding %d failed, expected %v, got %v",
-					i, test.encodedInvoice, reencoded)
-				return
-			}
-		}
+			require.NoError(t, err)
+			require.Equal(t, test.encodedInvoice, reencoded)
+		})
 	}
 }
 
@@ -805,25 +889,42 @@ func TestNewInvoice(t *testing.T) {
 			valid:          true,
 			encodedInvoice: "lnbcrt241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdqqnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66df5c8pqjjt4z4ymmuaxfx8eh5v7hmzs3wrfas8m2sz5qz56rw2lxy8mmgm4xln0ha26qkw6u3vhu22pss2udugr9g74c3x20slpcqjgq0el4h6",
 		},
+		{
+			// Mainnet invoice with two blinded paths.
+			newInvoice: func() (*Invoice, error) {
+				return NewInvoice(&chaincfg.MainNetParams,
+					testPaymentHash,
+					time.Unix(1496314658, 0),
+					Amount(testMillisat20mBTC),
+					Description(testCupOfCoffee),
+					WithBlindedPaymentPath(blindedPath1),
+					WithBlindedPaymentPath(blindedPath2),
+				)
+			},
+			valid: true,
+			//nolint:lll
+			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4js5fdqqqqq2qqqqqpgqyzqqqqqqqqqqqqyqqqqqqqqqqqvsqqqqlnxy0ffrlt2y2jgtzw89kgr3zg4dlwtlfycn3yuek8x5eucnuchqps82xf0m2u6sx5wnjw7xxgnxz5kf09quqsv5zvkgj7d5kpzttp4qz7q5qsyqcyq5pzq2feycsemrh7wvendc4kw3tsmkt25a36ev6kfehrv7ecfkrp5zs9q5zqxqspqtr4avek5quzjn427asptzews5wrczfhychr2sq6ue9phmn35tjqcrspqgpsgpgxquyqjzstpsxsu59zqqqqqpqqqqqqyqq2qqqqqqqqqqqqqqqqqqqqqqqqpgqqqqk8t6endgpc99824amqzk9japgu8synwf3wx4qp4ej2r0h8rghypsqsygpf8ynzr8vwleenxdhzke69wrwed2nk8t9n2e8xudnm8pxcvxs2q5qsyqcyq5y4rdlhtf84f8rgdj34275juwls2ftxtcfh035863q3p9k6s94hpxhdmzfn5gxpsazdznxs56j4vt3fdhe00g9v2l3szher50hp4xlggqkxf77f",
+		},
 	}
 
 	for i, test := range tests {
+		test := test
 
-		invoice, err := test.newInvoice()
-		if err != nil && !test.valid {
-			continue
-		}
-		encoded, err := invoice.Encode(testMessageSigner)
-		if (err == nil) != test.valid {
-			t.Errorf("NewInvoice test %d failed: %v", i, err)
-			return
-		}
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			t.Parallel()
 
-		if test.valid && test.encodedInvoice != encoded {
-			t.Errorf("Encoding %d failed, expected %v, got %v",
-				i, test.encodedInvoice, encoded)
-			return
-		}
+			invoice, err := test.newInvoice()
+			if !test.valid {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			encoded, err := invoice.Encode(testMessageSigner)
+			require.NoError(t, err)
+
+			require.Equal(t, test.encodedInvoice, encoded)
+		})
 	}
 }
 
@@ -907,73 +1008,6 @@ func TestInvoiceChecksumMalleability(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Did not get expected error when decoding invoice")
 	}
-}
-
-func compareInvoices(expected, actual *Invoice) error {
-	if !reflect.DeepEqual(expected.Net, actual.Net) {
-		return fmt.Errorf("expected net %v, got %v",
-			expected.Net, actual.Net)
-	}
-
-	if !reflect.DeepEqual(expected.MilliSat, actual.MilliSat) {
-		return fmt.Errorf("expected milli sat %d, got %d",
-			*expected.MilliSat, *actual.MilliSat)
-	}
-
-	if expected.Timestamp != actual.Timestamp {
-		return fmt.Errorf("expected timestamp %v, got %v",
-			expected.Timestamp, actual.Timestamp)
-	}
-
-	if !compareHashes(expected.PaymentHash, actual.PaymentHash) {
-		return fmt.Errorf("expected payment hash %x, got %x",
-			*expected.PaymentHash, *actual.PaymentHash)
-	}
-
-	if !reflect.DeepEqual(expected.Description, actual.Description) {
-		return fmt.Errorf("expected description \"%s\", got \"%s\"",
-			*expected.Description, *actual.Description)
-	}
-
-	if !comparePubkeys(expected.Destination, actual.Destination) {
-		return fmt.Errorf("expected destination pubkey %x, got %x",
-			expected.Destination.SerializeCompressed(),
-			actual.Destination.SerializeCompressed())
-	}
-
-	if !compareHashes(expected.DescriptionHash, actual.DescriptionHash) {
-		return fmt.Errorf("expected description hash %x, got %x",
-			*expected.DescriptionHash, *actual.DescriptionHash)
-	}
-
-	if expected.Expiry() != actual.Expiry() {
-		return fmt.Errorf("expected expiry %d, got %d",
-			expected.Expiry(), actual.Expiry())
-	}
-
-	if !reflect.DeepEqual(expected.FallbackAddr, actual.FallbackAddr) {
-		return fmt.Errorf("expected FallbackAddr %v, got %v",
-			expected.FallbackAddr, actual.FallbackAddr)
-	}
-
-	if len(expected.RouteHints) != len(actual.RouteHints) {
-		return fmt.Errorf("expected %d RouteHints, got %d",
-			len(expected.RouteHints), len(actual.RouteHints))
-	}
-
-	for i, routeHint := range expected.RouteHints {
-		err := compareRouteHints(routeHint, actual.RouteHints[i])
-		if err != nil {
-			return err
-		}
-	}
-
-	if !reflect.DeepEqual(expected.Features, actual.Features) {
-		return fmt.Errorf("expected features %v, got %v",
-			expected.Features, actual.Features)
-	}
-
-	return nil
 }
 
 func comparePubkeys(a, b *btcec.PublicKey) bool {

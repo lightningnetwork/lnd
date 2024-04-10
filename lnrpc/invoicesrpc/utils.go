@@ -266,6 +266,60 @@ func CreateRPCRouteHints(routeHints [][]zpay32.HopHint) []*lnrpc.RouteHint {
 	return res
 }
 
+// CreateRPCBlindedPayments takes a set of zpay32.BlindedPaymentPath and
+// converts them into a set of lnrpc.BlindedPaymentPaths.
+func CreateRPCBlindedPayments(blindedPaths []*zpay32.BlindedPaymentPath) (
+	[]*lnrpc.BlindedPaymentPath, error) {
+
+	var res []*lnrpc.BlindedPaymentPath
+	for _, path := range blindedPaths {
+		features := path.Features.Features()
+		var featuresSlice []lnrpc.FeatureBit
+		for feature := range features {
+			featuresSlice = append(
+				featuresSlice, lnrpc.FeatureBit(feature),
+			)
+		}
+
+		if len(path.Hops) == 0 {
+			return nil, fmt.Errorf("each blinded path must " +
+				"contain at least one hop")
+		}
+
+		var hops []*lnrpc.BlindedHop
+		for _, hop := range path.Hops {
+			blindedNodeID := hop.BlindedNodePub.
+				SerializeCompressed()
+			hops = append(hops, &lnrpc.BlindedHop{
+				BlindedNode:   blindedNodeID,
+				EncryptedData: hop.CipherText,
+			})
+		}
+
+		introNode := path.Hops[0].BlindedNodePub
+		firstBlindingPoint := path.FirstEphemeralBlindingPoint
+
+		blindedPath := &lnrpc.BlindedPath{
+			IntroductionNode: introNode.SerializeCompressed(),
+			BlindingPoint: firstBlindingPoint.
+				SerializeCompressed(),
+			BlindedHops: hops,
+		}
+
+		res = append(res, &lnrpc.BlindedPaymentPath{
+			BlindedPath:         blindedPath,
+			BaseFeeMsat:         uint64(path.FeeBaseMsat),
+			ProportionalFeeRate: path.FeeRate,
+			TotalCltvDelta:      uint32(path.CltvExpiryDelta),
+			HtlcMinMsat:         path.HTLCMinMsat,
+			HtlcMaxMsat:         path.HTLCMaxMsat,
+			Features:            featuresSlice,
+		})
+	}
+
+	return res, nil
+}
+
 // CreateZpay32HopHints takes in the lnrpc form of route hints and converts them
 // into an invoice decoded form.
 func CreateZpay32HopHints(routeHints []*lnrpc.RouteHint) ([][]zpay32.HopHint, error) {

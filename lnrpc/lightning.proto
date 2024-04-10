@@ -4289,6 +4289,7 @@ message PayReq {
     bytes payment_addr = 11;
     int64 num_msat = 12;
     map<uint32, Feature> features = 13;
+    repeated BlindedPaymentPath blinded_paths = 14;
 }
 
 enum FeatureBit {

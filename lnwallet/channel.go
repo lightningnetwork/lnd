@@ -972,7 +972,8 @@ func (lc *LightningChannel) diskCommitToMemCommit(isLocal bool,
 	}
 
 	auxLeaves, err := AuxLeavesFromCommit(
-		*diskCommit, lc.leafStore, func() CommitmentKeyRing {
+		lc.channelState, *diskCommit, lc.leafStore,
+		func() CommitmentKeyRing {
 			if isLocal {
 				return *localCommitKeys
 			}
@@ -2319,7 +2320,8 @@ func (lc *LightningChannel) restorePendingLocalUpdates(
 	pendingHeight := pendingCommit.CommitHeight
 
 	auxLeaves, err := AuxLeavesFromCommit(
-		pendingCommit, lc.leafStore, *pendingRemoteKeys,
+		lc.channelState, pendingCommit, lc.leafStore,
+		*pendingRemoteKeys,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to fetch aux leaves: %w", err)
@@ -2542,7 +2544,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	}
 
 	auxLeaves, err := auxLeavesFromRevocation(
-		revokedLog, leafStore, *keyRing,
+		chanState, revokedLog, leafStore, *keyRing,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
@@ -3172,7 +3174,8 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// Given the custom blob of the past state, and this new HTLC view,
 	// we'll generate a new blob for the latest commitment.
 	newCommitBlob, err := updateAuxBlob(
-		commitChain.tip().customBlob, htlcView, lc.leafStore, *keyRing,
+		lc.channelState, commitChain.tip().customBlob, htlcView,
+		lc.leafStore, *keyRing,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
@@ -3546,10 +3549,16 @@ func processFeeUpdate(feeUpdate *PaymentDescriptor, nextHeight uint64,
 // signature can be submitted to the sigPool to generate all the signatures
 // asynchronously and in parallel.
 func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
-	chanType channeldb.ChannelType, isRemoteInitiator bool,
-	leaseExpiry uint32, localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
+	chanState *channeldb.OpenChannel, leaseExpiry uint32,
 	remoteCommitView *commitment,
 	leafStore fn.Option[AuxLeafStore]) ([]SignJob, []AuxSigJob, chan struct{}, error) {
+
+	var (
+		isRemoteInitiator = !chanState.IsInitiator
+		localChanCfg      = chanState.LocalChanCfg
+		remoteChanCfg     = chanState.RemoteChanCfg
+		chanType          = chanState.ChanType
+	)
 
 	txHash := remoteCommitView.txn.TxHash()
 	dustLimit := remoteChanCfg.DustLimit
@@ -3568,7 +3577,8 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	cancelChan := make(chan struct{})
 
 	auxLeaves, err := AuxLeavesFromCommit(
-		*remoteCommitView.toDiskCommit(false), leafStore, *keyRing,
+		chanState, *remoteCommitView.toDiskCommit(false), leafStore,
+		*keyRing,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("unable to fetch aux leaves: "+
@@ -4455,9 +4465,8 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 		leaseExpiry = lc.channelState.ThawHeight
 	}
 	sigBatch, auxSigBatch, cancelChan, err := genRemoteHtlcSigJobs(
-		keyRing, lc.channelState.ChanType, !lc.channelState.IsInitiator,
-		leaseExpiry, &lc.channelState.LocalChanCfg,
-		&lc.channelState.RemoteChanCfg, newCommitView, lc.leafStore,
+		keyRing, lc.channelState, leaseExpiry, newCommitView,
+		lc.leafStore,
 	)
 	if err != nil {
 		return nil, err
@@ -5051,12 +5060,17 @@ func (lc *LightningChannel) computeView(view *HtlcView, remoteChain bool,
 // meant to verify all the signatures for HTLC's attached to a newly created
 // commitment state. The jobs generated are fully populated, and can be sent
 // directly into the pool of workers.
-func genHtlcSigValidationJobs(localCommitmentView *commitment,
-	keyRing *CommitmentKeyRing, htlcSigs []lnwire.Sig,
-	chanType channeldb.ChannelType, isLocalInitiator bool,
-	leaseExpiry uint32, localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
+func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
+	localCommitmentView *commitment, keyRing *CommitmentKeyRing,
+	htlcSigs []lnwire.Sig, leaseExpiry uint32,
 	leafStore fn.Option[AuxLeafStore], auxSigner fn.Option[AuxSigner],
 	sigBlob fn.Option[tlv.Blob]) ([]VerifyJob, []AuxVerifyJob, error) {
+
+	var (
+		isLocalInitiator = chanState.IsInitiator
+		localChanCfg     = chanState.LocalChanCfg
+		chanType         = chanState.ChanType
+	)
 
 	txHash := localCommitmentView.txn.TxHash()
 	feePerKw := localCommitmentView.feePerKw
@@ -5072,7 +5086,8 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 	auxVerifyJobs := make([]AuxVerifyJob, 0, numHtlcs)
 
 	auxLeaves, err := AuxLeavesFromCommit(
-		*localCommitmentView.toDiskCommit(true), leafStore, *keyRing,
+		chanState, *localCommitmentView.toDiskCommit(true), leafStore,
+		*keyRing,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to fetch aux leaves: %w",
@@ -5493,10 +5508,8 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 		leaseExpiry = lc.channelState.ThawHeight
 	}
 	verifyJobs, auxVerifyJobs, err := genHtlcSigValidationJobs(
-		localCommitmentView, keyRing, commitSigs.HtlcSigs,
-		lc.channelState.ChanType, lc.channelState.IsInitiator,
-		leaseExpiry, &lc.channelState.LocalChanCfg,
-		&lc.channelState.RemoteChanCfg, lc.leafStore, lc.auxSigner,
+		lc.channelState, localCommitmentView, keyRing,
+		commitSigs.HtlcSigs, leaseExpiry, lc.leafStore, lc.auxSigner,
 		auxSigBlob,
 	)
 	if err != nil {
@@ -6963,7 +6976,9 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
 	)
 
-	auxLeaves, err := AuxLeavesFromCommit(remoteCommit, leafStore, *keyRing)
+	auxLeaves, err := AuxLeavesFromCommit(
+		chanState, remoteCommit, leafStore, *keyRing,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
 	}
@@ -8055,7 +8070,9 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	// use what we have in our latest state when extracting resolutions.
 	localCommit := chanState.LocalCommitment
 
-	auxLeaves, err := AuxLeavesFromCommit(localCommit, leafStore, *keyRing)
+	auxLeaves, err := AuxLeavesFromCommit(
+		chanState, localCommit, leafStore, *keyRing,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
 	}

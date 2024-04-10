@@ -425,8 +425,8 @@ func (c *chainWatcher) handleUnknownLocalState(
 	)
 
 	auxLeaves, err := lnwallet.AuxLeavesFromCommit(
-		c.cfg.chanState.LocalCommitment, c.cfg.auxLeafStore,
-		*commitKeyRing,
+		c.cfg.chanState, c.cfg.chanState.LocalCommitment,
+		c.cfg.auxLeafStore, *commitKeyRing,
 	)
 	if err != nil {
 		return false, fmt.Errorf("unable to fetch aux leaves: %w", err)

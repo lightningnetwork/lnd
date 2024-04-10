@@ -1622,8 +1622,13 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 		ht.AssertNumPendingSweeps(alice, 1)
 		ht.AssertNumPendingSweeps(bob, 1)
 
-		// Mine a block to trigger the sweeps.
-		ht.MineBlocks(1)
+		// Mine an empty block to trigger the sweep but NOT accidentely
+		// mine the sweep transaction. Blockheight is not synced for
+		// all subsystems so we can end up in the situation where the
+		// sweep was already initiated. So we mine an additional block
+		// to be sure Alice and Bob mine their commitment delayed
+		// output.
+		ht.MineEmptyBlocks(1)
 
 		// Both Alice and Bob should broadcast their commit sweeps.
 		aliceCommitOutpoint := wire.OutPoint{

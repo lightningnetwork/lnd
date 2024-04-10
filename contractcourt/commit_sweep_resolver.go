@@ -221,8 +221,8 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		// If we have both a csv and cltv lock, we'll need to look at
 		// both and see which expires later.
 		case c.commitResolution.MaturityDelay > 0 && c.hasCLTV():
-			c.log.Debugf("waiting for CSV and CLTV lock to expire "+
-				"at height %v", unlockHeight)
+			c.log.Debugf("waiting for CSV (%v) and CLTV (%v) lock "+
+				"to expire", unlockHeight, c.leaseExpiry)
 			// If the CSV expires after the CLTV, or there is no
 			// CLTV, then we can broadcast a sweep a block before.
 			// Otherwise, we need to broadcast at our expected

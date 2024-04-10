@@ -437,6 +437,9 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * [Fix a bug](https://github.com/lightningnetwork/lnd/pull/8595) when retrying
   SQL InvoiceDB transactions due to database errors.
 
+* [Turn `sqldb` into a separate Go
+  module](https://github.com/lightningnetwork/lnd/pull/8603).
+
 ## Code Health
 
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 

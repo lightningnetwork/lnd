@@ -729,8 +729,8 @@ func (h *HtlcScriptTree) WitnessScriptForPath(path ScriptPath) ([]byte, error) {
 
 // CtrlBlockForPath returns the control block for the given spending path. For
 // script types that don't have a control block, nil is returned.
-func (h *HtlcScriptTree) CtrlBlockForPath(path ScriptPath,
-) (*txscript.ControlBlock, error) {
+func (h *HtlcScriptTree) CtrlBlockForPath(
+	path ScriptPath) (*txscript.ControlBlock, error) {
 
 	switch path {
 	case ScriptPathSuccess:
@@ -746,6 +746,11 @@ func (h *HtlcScriptTree) CtrlBlockForPath(path ScriptPath,
 	default:
 		return nil, fmt.Errorf("unknown script path: %v", path)
 	}
+}
+
+// Tree returns the underlying ScriptTree of the HtlcScriptTree.
+func (h *HtlcScriptTree) Tree() ScriptTree {
+	return h.ScriptTree
 }
 
 // A compile time check to ensure HtlcScriptTree implements the
@@ -1748,9 +1753,9 @@ func TaprootSecondLevelScriptTree(revokeKey, delayKey *btcec.PublicKey,
 	}, nil
 }
 
-// WitnessScript returns the witness script that we'll use when signing for the
-// remote party, and also verifying signatures on our transactions. As an
-// example, when we create an outgoing HTLC for the remote party, we want to
+// WitnessScriptToSign returns the witness script that we'll use when signing
+// for the remote party, and also verifying signatures on our transactions. As
+// an example, when we create an outgoing HTLC for the remote party, we want to
 // sign their success path.
 func (s *SecondLevelScriptTree) WitnessScriptToSign() []byte {
 	return s.SuccessTapLeaf.Script
@@ -1758,8 +1763,8 @@ func (s *SecondLevelScriptTree) WitnessScriptToSign() []byte {
 
 // WitnessScriptForPath returns the witness script for the given spending path.
 // An error is returned if the path is unknown.
-func (s *SecondLevelScriptTree) WitnessScriptForPath(path ScriptPath,
-) ([]byte, error) {
+func (s *SecondLevelScriptTree) WitnessScriptForPath(
+	path ScriptPath) ([]byte, error) {
 
 	switch path {
 	case ScriptPathDelay:
@@ -1774,8 +1779,8 @@ func (s *SecondLevelScriptTree) WitnessScriptForPath(path ScriptPath,
 
 // CtrlBlockForPath returns the control block for the given spending path. For
 // script types that don't have a control block, nil is returned.
-func (s *SecondLevelScriptTree) CtrlBlockForPath(path ScriptPath,
-) (*txscript.ControlBlock, error) {
+func (s *SecondLevelScriptTree) CtrlBlockForPath(
+	path ScriptPath) (*txscript.ControlBlock, error) {
 
 	switch path {
 	case ScriptPathDelay:
@@ -1789,6 +1794,11 @@ func (s *SecondLevelScriptTree) CtrlBlockForPath(path ScriptPath,
 	default:
 		return nil, fmt.Errorf("unknown script path: %v", path)
 	}
+}
+
+// Tree returns the underlying ScriptTree of the SecondLevelScriptTree.
+func (s *SecondLevelScriptTree) Tree() ScriptTree {
+	return s.ScriptTree
 }
 
 // A compile time check to ensure SecondLevelScriptTree implements the
@@ -2133,9 +2143,9 @@ type CommitScriptTree struct {
 // TapscriptDescriptor interface.
 var _ TapscriptDescriptor = (*CommitScriptTree)(nil)
 
-// WitnessScript returns the witness script that we'll use when signing for the
-// remote party, and also verifying signatures on our transactions. As an
-// example, when we create an outgoing HTLC for the remote party, we want to
+// WitnessScriptToSign returns the witness script that we'll use when signing
+// for the remote party, and also verifying signatures on our transactions. As
+// an example, when we create an outgoing HTLC for the remote party, we want to
 // sign their success path.
 func (c *CommitScriptTree) WitnessScriptToSign() []byte {
 	// TODO(roasbeef): abstraction leak here? always dependent
@@ -2144,8 +2154,8 @@ func (c *CommitScriptTree) WitnessScriptToSign() []byte {
 
 // WitnessScriptForPath returns the witness script for the given spending path.
 // An error is returned if the path is unknown.
-func (c *CommitScriptTree) WitnessScriptForPath(path ScriptPath,
-) ([]byte, error) {
+func (c *CommitScriptTree) WitnessScriptForPath(
+	path ScriptPath) ([]byte, error) {
 
 	switch path {
 	// For the commitment output, the delay and success path are the same,
@@ -2163,8 +2173,8 @@ func (c *CommitScriptTree) WitnessScriptForPath(path ScriptPath,
 
 // CtrlBlockForPath returns the control block for the given spending path. For
 // script types that don't have a control block, nil is returned.
-func (c *CommitScriptTree) CtrlBlockForPath(path ScriptPath,
-) (*txscript.ControlBlock, error) {
+func (c *CommitScriptTree) CtrlBlockForPath(
+	path ScriptPath) (*txscript.ControlBlock, error) {
 
 	switch path {
 	case ScriptPathDelay:
@@ -2182,6 +2192,11 @@ func (c *CommitScriptTree) CtrlBlockForPath(path ScriptPath,
 	default:
 		return nil, fmt.Errorf("unknown script path: %v", path)
 	}
+}
+
+// Tree returns the underlying ScriptTree of the CommitScriptTree.
+func (c *CommitScriptTree) Tree() ScriptTree {
+	return c.ScriptTree
 }
 
 // NewLocalCommitScriptTree returns a new CommitScript tree that can be used to
@@ -2311,7 +2326,7 @@ func TaprootCommitScriptToSelf(csvTimeout uint32,
 	return commitScriptTree.TaprootKey, nil
 }
 
-// MakeTaprootSCtrlBlock takes a leaf script, the internal key (usually the
+// MakeTaprootCtrlBlock takes a leaf script, the internal key (usually the
 // revoke key), and a script tree and creates a valid control block for a spend
 // of the leaf.
 func MakeTaprootCtrlBlock(leafScript []byte, internalKey *btcec.PublicKey,
@@ -2366,9 +2381,6 @@ func TaprootCommitSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	witnessStack[0] = maybeAppendSighash(sweepSig, signDesc.HashType)
 	witnessStack[1] = signDesc.WitnessScript
 	witnessStack[2] = ctrlBlockBytes
-	if err != nil {
-		return nil, err
-	}
 
 	return witnessStack, nil
 }
@@ -2850,8 +2862,8 @@ type AnchorScriptTree struct {
 
 // NewAnchorScriptTree makes a new script tree for an anchor output with the
 // passed anchor key.
-func NewAnchorScriptTree(anchorKey *btcec.PublicKey,
-) (*AnchorScriptTree, error) {
+func NewAnchorScriptTree(
+	anchorKey *btcec.PublicKey) (*AnchorScriptTree, error) {
 
 	// The main script used is just a OP_16 CSV (anyone can sweep after 16
 	// blocks).
@@ -2887,9 +2899,9 @@ func NewAnchorScriptTree(anchorKey *btcec.PublicKey,
 	}, nil
 }
 
-// WitnessScript returns the witness script that we'll use when signing for the
-// remote party, and also verifying signatures on our transactions. As an
-// example, when we create an outgoing HTLC for the remote party, we want to
+// WitnessScriptToSign returns the witness script that we'll use when signing
+// for the remote party, and also verifying signatures on our transactions. As
+// an example, when we create an outgoing HTLC for the remote party, we want to
 // sign their success path.
 func (a *AnchorScriptTree) WitnessScriptToSign() []byte {
 	return a.SweepLeaf.Script
@@ -2897,8 +2909,8 @@ func (a *AnchorScriptTree) WitnessScriptToSign() []byte {
 
 // WitnessScriptForPath returns the witness script for the given spending path.
 // An error is returned if the path is unknown.
-func (a *AnchorScriptTree) WitnessScriptForPath(path ScriptPath,
-) ([]byte, error) {
+func (a *AnchorScriptTree) WitnessScriptForPath(
+	path ScriptPath) ([]byte, error) {
 
 	switch path {
 	case ScriptPathDelay:
@@ -2913,8 +2925,8 @@ func (a *AnchorScriptTree) WitnessScriptForPath(path ScriptPath,
 
 // CtrlBlockForPath returns the control block for the given spending path. For
 // script types that don't have a control block, nil is returned.
-func (a *AnchorScriptTree) CtrlBlockForPath(path ScriptPath,
-) (*txscript.ControlBlock, error) {
+func (a *AnchorScriptTree) CtrlBlockForPath(
+	path ScriptPath) (*txscript.ControlBlock, error) {
 
 	switch path {
 	case ScriptPathDelay:
@@ -2928,6 +2940,11 @@ func (a *AnchorScriptTree) CtrlBlockForPath(path ScriptPath,
 	default:
 		return nil, fmt.Errorf("unknown script path: %v", path)
 	}
+}
+
+// Tree returns the underlying ScriptTree of the AnchorScriptTree.
+func (a *AnchorScriptTree) Tree() ScriptTree {
+	return a.ScriptTree
 }
 
 // A compile time check to ensure AnchorScriptTree implements the

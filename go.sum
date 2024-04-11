@@ -447,10 +447,12 @@ github.com/lightningnetwork/lnd/clock v1.1.1 h1:OfR3/zcJd2RhH0RU+zX/77c0ZiOnIMsD
 github.com/lightningnetwork/lnd/clock v1.1.1/go.mod h1:mGnAhPyjYZQJmebS7aevElXKTFDuO+uNFFfMXK1W8xQ=
 github.com/lightningnetwork/lnd/fn v1.0.5 h1:ffDgMSn83avw6rNzxhbt6w5/2oIrwQKTPGfyaLupZtE=
 github.com/lightningnetwork/lnd/fn v1.0.5/go.mod h1:P027+0CyELd92H9gnReUkGGAqbFA1HwjHWdfaDFD51U=
-github.com/lightningnetwork/lnd/healthcheck v1.2.3 h1:oqhOOy8WmIEa6RBkYKC0mmYZkhl8T2kGD97n9jpML8o=
-github.com/lightningnetwork/lnd/healthcheck v1.2.3/go.mod h1:eDxH3dEwV9DeBW/6inrmlVh1qBOFV0AI14EEPnGt9gc=
+github.com/lightningnetwork/lnd/healthcheck v1.2.4 h1:lLPLac+p/TllByxGSlkCwkJlkddqMP5UCoawCj3mgFQ=
+github.com/lightningnetwork/lnd/healthcheck v1.2.4/go.mod h1:G7Tst2tVvWo7cx6mSBEToQC5L1XOGxzZTPB29g9Rv2I=
 github.com/lightningnetwork/lnd/queue v1.1.1 h1:99ovBlpM9B0FRCGYJo6RSFDlt8/vOkQQZznVb18iNMI=
 github.com/lightningnetwork/lnd/queue v1.1.1/go.mod h1:7A6nC1Qrm32FHuhx/mi1cieAiBZo5O6l8IBIoQxvkz4=
+github.com/lightningnetwork/lnd/sqldb v1.0.1 h1:lpNoJ6qRh3D02oeIUsKQLZUzjcgZ9ppMZNZnwrpBBmY=
+github.com/lightningnetwork/lnd/sqldb v1.0.1/go.mod h1:nSovU1U+gTPDWhfwmXu/kW8l8EJpwbvZQ05ijnkQzkA=
 github.com/lightningnetwork/lnd/ticker v1.1.1 h1:J/b6N2hibFtC7JLV77ULQp++QLtCwT6ijJlbdiZFbSM=
 github.com/lightningnetwork/lnd/ticker v1.1.1/go.mod h1:waPTRAAcwtu7Ji3+3k+u/xH5GHovTsCoSVpho0KDvdA=
 github.com/lightningnetwork/lnd/tlv v1.2.3 h1:If5ibokA/UoCBGuCKaY6Vn2SJU0l9uAbehCnhTZjEP8=

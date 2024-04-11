@@ -114,6 +114,10 @@ type BumpRequest struct {
 
 	// MaxFeeRate is the maximum fee rate that can be used for fee bumping.
 	MaxFeeRate chainfee.SatPerKWeight
+
+	// StartingFeeRate is an optional parameter that can be used to specify
+	// the initial fee rate to use for the fee function.
+	StartingFeeRate fn.Option[chainfee.SatPerKWeight]
 }
 
 // MaxFeeRateAllowed returns the maximum fee rate allowed for the given
@@ -380,6 +384,7 @@ func (t *TxPublisher) initializeFeeFunction(
 	// TODO(yy): return based on differet req.Strategy?
 	return NewLinearFeeFunction(
 		maxFeeRateAllowed, confTarget, t.cfg.Estimator,
+		req.StartingFeeRate,
 	)
 }
 

@@ -2,14 +2,17 @@ package sweep
 
 import (
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/mock"
@@ -25,7 +28,36 @@ var (
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	}
+
+	testInputCount atomic.Uint64
 )
+
+func createTestInput(value int64,
+	witnessType input.WitnessType) input.BaseInput {
+
+	hash := chainhash.Hash{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		byte(testInputCount.Add(1))}
+
+	input := input.MakeBaseInput(
+		&wire.OutPoint{
+			Hash: hash,
+		},
+		witnessType,
+		&input.SignDescriptor{
+			Output: &wire.TxOut{
+				Value: value,
+			},
+			KeyDesc: keychain.KeyDescriptor{
+				PubKey: testPubKey,
+			},
+		},
+		0,
+		nil,
+	)
+
+	return input
+}
 
 // TestBumpResultValidate tests the validate method of the BumpResult struct.
 func TestBumpResultValidate(t *testing.T) {

@@ -1110,10 +1110,11 @@ message PendingSweep {
     uint32 broadcast_attempts = 5;
 
     /*
+    Deprecated.
     The next height of the chain at which we'll attempt to broadcast the
     sweep transaction of the output.
     */
-    uint32 next_broadcast_height = 6;
+    uint32 next_broadcast_height = 6 [deprecated = true];
 
     /*
     Deprecated, use immediate.
@@ -1122,27 +1123,43 @@ message PendingSweep {
     */
     bool force = 7 [deprecated = true];
 
-    // The requested confirmation target for this output.
-    uint32 requested_conf_target = 8;
+    /*
+    Deprecated, use deadline.
+    The requested confirmation target for this output, which is the deadline
+    used by the sweeper.
+    */
+    uint32 requested_conf_target = 8 [deprecated = true];
 
     // Deprecated, use requested_sat_per_vbyte.
     // The requested fee rate, expressed in sat/vbyte, for this output.
     uint32 requested_sat_per_byte = 9 [deprecated = true];
 
     /*
-    The fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee
-    rate is only determined once a sweeping transaction for the output is
-    created, so it's possible for this to be 0 before this.
+    The current fee rate we'll use to sweep the output, expressed in sat/vbyte.
+    The fee rate is only determined once a sweeping transaction for the output
+    is created, so it's possible for this to be 0 before this.
     */
     uint64 sat_per_vbyte = 10;
 
-    // The requested fee rate, expressed in sat/vbyte, for this output.
+    // The requested starting fee rate, expressed in sat/vbyte, for this
+    // output. When not requested, this field will be 0.
     uint64 requested_sat_per_vbyte = 11;
 
     /*
     Whether this input will be swept immediately.
     */
     bool immediate = 12;
+
+    /*
+    The budget for this sweep, expressed in satoshis. This is the maximum amount
+    that can be spent as fees to sweep this output.
+    */
+    uint64 budget = 13;
+
+    /*
+    The deadline height used for this output when perform fee bumping.
+    */
+    uint32 deadline_height = 14;
 }
 
 message PendingSweepsRequest {

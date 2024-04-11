@@ -872,18 +872,17 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 
 	// Convert them into their respective RPC format.
 	rpcPendingSweeps := make([]*PendingSweep, 0, len(inputsMap))
-	for _, sweeperInput := range inputsMap {
-		witnessType, ok := allWitnessTypes[sweeperInput.WitnessType]
+	for _, inp := range inputsMap {
+		witnessType, ok := allWitnessTypes[inp.WitnessType]
 		if !ok {
 			return nil, fmt.Errorf("unhandled witness type %v for "+
-				"input %v", sweeperInput.WitnessType,
-				sweeperInput.OutPoint)
+				"input %v", inp.WitnessType, inp.OutPoint)
 		}
 
-		op := lnrpc.MarshalOutPoint(&sweeperInput.OutPoint)
-		amountSat := uint32(sweeperInput.Amount)
-		satPerVbyte := uint64(sweeperInput.LastFeeRate.FeePerVByte())
-		broadcastAttempts := uint32(sweeperInput.BroadcastAttempts)
+		op := lnrpc.MarshalOutPoint(&inp.OutPoint)
+		amountSat := uint32(inp.Amount)
+		satPerVbyte := uint64(inp.LastFeeRate.FeePerVByte())
+		broadcastAttempts := uint32(inp.BroadcastAttempts)
 
 		ps := &PendingSweep{
 			Outpoint:          op,
@@ -891,27 +890,18 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 			AmountSat:         amountSat,
 			SatPerVbyte:       satPerVbyte,
 			BroadcastAttempts: broadcastAttempts,
-			Immediate:         sweeperInput.Params.Immediate,
+			Immediate:         inp.Params.Immediate,
+			Budget:            uint64(inp.Params.Budget),
+			DeadlineHeight:    inp.DeadlineHeight,
 		}
 
-		feePref := sweeperInput.Params.Fee
+		inp.Params.StartingFeeRate.WhenSome(
+			func(feerate chainfee.SatPerKWeight) {
+				ps.RequestedSatPerVbyte = uint64(
+					feerate.FeePerVByte(),
+				)
+			})
 
-		// If there's no fee preference specified, we can move to the
-		// next record.
-		if feePref == nil {
-			rpcPendingSweeps = append(rpcPendingSweeps, ps)
-			continue
-		}
-
-		requestedFee, ok := feePref.(sweep.FeeEstimateInfo)
-		if !ok {
-			return nil, fmt.Errorf("unknown fee "+
-				"preference type: "+"%v", feePref)
-		}
-		requestedFeeRate := uint64(requestedFee.FeeRate.FeePerVByte())
-
-		ps.RequestedSatPerVbyte = requestedFeeRate
-		ps.RequestedConfTarget = requestedFee.ConfTarget
 		rpcPendingSweeps = append(rpcPendingSweeps, ps)
 	}
 

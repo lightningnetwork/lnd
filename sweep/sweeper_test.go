@@ -2734,9 +2734,13 @@ func TestSweepPendingInputs(t *testing.T) {
 	setNeedWallet.On("Inputs").Return(nil).Times(4)
 	setNeedWallet.On("DeadlineHeight").Return(testHeight).Once()
 	setNeedWallet.On("Budget").Return(btcutil.Amount(1)).Once()
+	setNeedWallet.On("StartingFeeRate").Return(
+		fn.None[chainfee.SatPerKWeight]()).Once()
 	normalSet.On("Inputs").Return(nil).Times(4)
 	normalSet.On("DeadlineHeight").Return(testHeight).Once()
 	normalSet.On("Budget").Return(btcutil.Amount(1)).Once()
+	normalSet.On("StartingFeeRate").Return(
+		fn.None[chainfee.SatPerKWeight]()).Once()
 
 	// Make pending inputs for testing. We don't need real values here as
 	// the returned clusters are mocked.

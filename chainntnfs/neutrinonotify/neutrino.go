@@ -582,8 +582,8 @@ func (n *NeutrinoNotifier) historicalConfDetails(confRequest chainntnfs.ConfRequ
 		// can compute the current block hash.
 		blockHash, err := n.p2pNode.GetBlockHash(int64(scanHeight))
 		if err != nil {
-			return nil, fmt.Errorf("unable to get header for height=%v: %v",
-				scanHeight, err)
+			return nil, fmt.Errorf("unable to get header for "+
+				"height=%v: %w", scanHeight, err)
 		}
 
 		// With the hash computed, we can now fetch the basic filter for this
@@ -600,8 +600,8 @@ func (n *NeutrinoNotifier) historicalConfDetails(confRequest chainntnfs.ConfRequ
 			neutrino.MaxBatchSize(int64(scanHeight-startHeight+1)),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to retrieve regular filter for "+
-				"height=%v: %v", scanHeight, err)
+			return nil, fmt.Errorf("unable to retrieve regular "+
+				"filter for height=%v: %w", scanHeight, err)
 		}
 
 		// In the case that the filter exists, we'll attempt to see if

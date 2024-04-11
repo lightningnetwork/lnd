@@ -450,7 +450,7 @@ func signSegWitV0(in *psbt.PInput, tx *wire.MsgTx,
 		in.SighashType, privKey,
 	)
 	if err != nil {
-		return fmt.Errorf("error signing input %d: %v", idx, err)
+		return fmt.Errorf("error signing input %d: %w", idx, err)
 	}
 	in.PartialSigs = append(in.PartialSigs, &psbt.PartialSig{
 		PubKey:    pubKeyBytes,
@@ -472,7 +472,7 @@ func signSegWitV1KeySpend(in *psbt.PInput, tx *wire.MsgTx,
 		privKey,
 	)
 	if err != nil {
-		return fmt.Errorf("error signing taproot input %d: %v", idx,
+		return fmt.Errorf("error signing taproot input %d: %w", idx,
 			err)
 	}
 
@@ -492,7 +492,7 @@ func signSegWitV1ScriptSpend(in *psbt.PInput, tx *wire.MsgTx,
 		in.WitnessUtxo.PkScript, leaf, in.SighashType, privKey,
 	)
 	if err != nil {
-		return fmt.Errorf("error signing taproot script input %d: %v",
+		return fmt.Errorf("error signing taproot script input %d: %w",
 			idx, err)
 	}
 

@@ -440,6 +440,10 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * [Turn `sqldb` into a separate Go
   module](https://github.com/lightningnetwork/lnd/pull/8603).
 
+* [Consolidate transaction 
+  retry](https://github.com/lightningnetwork/lnd/pull/8611) logic and isolation
+  settings between `sqldb` and `kvdb` packages.
+
 ## Code Health
 
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 

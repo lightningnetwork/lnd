@@ -602,7 +602,7 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 			// Recv blocks until a message or error arrives.
 			resp, err := stream.Recv()
 			if err == io.EOF {
-				srvErr <- fmt.Errorf("lnd shutting down: %v",
+				srvErr <- fmt.Errorf("lnd shutting down: %w",
 					err)
 				return
 			} else if err != nil {
@@ -685,7 +685,7 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 			}
 			fundedPsbt, err := decodePsbt(inputPsbt)
 			if err != nil {
-				return fmt.Errorf("psbt decode failed: %v",
+				return fmt.Errorf("psbt decode failed: %w",
 					err)
 			}
 			verifyMsg := &lnrpc.FundingTransitionMsg{
@@ -873,14 +873,14 @@ func batchOpenChannel(ctx *cli.Context) error {
 	for idx, jsonChannel := range jsonChannels {
 		pubKeyBytes, err := hex.DecodeString(jsonChannel.NodePubkey)
 		if err != nil {
-			return fmt.Errorf("error parsing node pubkey hex: %v",
+			return fmt.Errorf("error parsing node pubkey hex: %w",
 				err)
 		}
 		pendingChanBytes, err := hex.DecodeString(
 			jsonChannel.PendingChanID,
 		)
 		if err != nil {
-			return fmt.Errorf("error parsing pending chan ID: %v",
+			return fmt.Errorf("error parsing pending chan ID: %w",
 				err)
 		}
 

@@ -259,7 +259,7 @@ func (i *SQLStore) AddInvoice(ctx context.Context,
 			AddedAt:   newInvoice.CreationDate.UTC(),
 			InvoiceID: invoiceID,
 		})
-	})
+	}, func() {})
 	if err != nil {
 		mappedSQLErr := sqldb.MapSQLError(err)
 		var uniqueConstraintErr *sqldb.ErrSQLUniqueConstraintViolation
@@ -599,7 +599,7 @@ func (i *SQLStore) LookupInvoice(ctx context.Context,
 		invoice, err = i.fetchInvoice(ctx, db, ref)
 
 		return err
-	})
+	}, func() {})
 	if txErr != nil {
 		return Invoice{}, txErr
 	}
@@ -617,7 +617,6 @@ func (i *SQLStore) FetchPendingInvoices(ctx context.Context) (
 
 	readTxOpt := NewSQLInvoiceQueryReadTx()
 	err := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
-		invoices = make(map[lntypes.Hash]Invoice)
 		limit := queryPaginationLimit
 
 		return queryWithLimit(func(offset int) (int, error) {
@@ -625,6 +624,7 @@ func (i *SQLStore) FetchPendingInvoices(ctx context.Context) (
 				PendingOnly: true,
 				NumOffset:   int32(offset),
 				NumLimit:    int32(limit),
+				Reverse:     false,
 			}
 
 			rows, err := db.FilterInvoices(ctx, params)
@@ -647,6 +647,8 @@ func (i *SQLStore) FetchPendingInvoices(ctx context.Context) (
 
 			return len(rows), nil
 		}, limit)
+	}, func() {
+		invoices = make(map[lntypes.Hash]Invoice)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch pending invoices: %w",
@@ -674,7 +676,6 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 
 	readTxOpt := NewSQLInvoiceQueryReadTx()
 	err := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
-		invoices = nil
 		settleIdx := idx
 		limit := queryPaginationLimit
 
@@ -683,6 +684,7 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 				SettleIndexGet: sqldb.SQLInt64(settleIdx + 1),
 				NumLimit:       int32(limit),
 				NumOffset:      int32(offset),
+				Reverse:        false,
 			}
 
 			rows, err := db.FilterInvoices(ctx, params)
@@ -762,6 +764,8 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 		}
 
 		return nil
+	}, func() {
+		invoices = nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to get invoices settled since "+
@@ -788,7 +792,6 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 
 	readTxOpt := NewSQLInvoiceQueryReadTx()
 	err := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
-		result = nil
 		addIdx := idx
 		limit := queryPaginationLimit
 
@@ -797,6 +800,7 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 				AddIndexGet: sqldb.SQLInt64(addIdx + 1),
 				NumLimit:    int32(limit),
 				NumOffset:   int32(offset),
+				Reverse:     false,
 			}
 
 			rows, err := db.FilterInvoices(ctx, params)
@@ -821,6 +825,8 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 
 			return len(rows), nil
 		}, limit)
+	}, func() {
+		result = nil
 	})
 
 	if err != nil {
@@ -845,7 +851,6 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 
 	readTxOpt := NewSQLInvoiceQueryReadTx()
 	err := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
-		invoices = nil
 		limit := queryPaginationLimit
 
 		return queryWithLimit(func(offset int) (int, error) {
@@ -853,14 +858,6 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 				NumOffset:   int32(offset),
 				NumLimit:    int32(limit),
 				PendingOnly: q.PendingOnly,
-			}
-
-			if !q.Reversed {
-				// The invoice with index offset id must not be
-				// included in the results.
-				params.AddIndexGet = sqldb.SQLInt64(
-					q.IndexOffset + uint64(offset) + 1,
-				)
 			}
 
 			if q.Reversed {
@@ -881,6 +878,14 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 				}
 
 				params.Reverse = true
+			} else {
+				// The invoice with index offset id must not be
+				// included in the results.
+				params.AddIndexGet = sqldb.SQLInt64(
+					q.IndexOffset + uint64(offset) + 1,
+				)
+
+				params.Reverse = false
 			}
 
 			if q.CreationDateStart != 0 {
@@ -919,6 +924,8 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 
 			return len(rows), nil
 		}, limit)
+	}, func() {
+		invoices = nil
 	})
 	if err != nil {
 		return InvoiceSlice{}, fmt.Errorf("unable to query "+
@@ -1306,7 +1313,7 @@ func (i *SQLStore) UpdateInvoice(ctx context.Context, ref InvoiceRef,
 		)
 
 		return err
-	})
+	}, func() {})
 	if txErr != nil {
 		// If the invoice is already settled, we'll return the
 		// (unchanged) invoice and the ErrInvoiceAlreadySettled error.
@@ -1370,7 +1377,7 @@ func (i *SQLStore) DeleteInvoice(ctx context.Context,
 		}
 
 		return nil
-	})
+	}, func() {})
 
 	if err != nil {
 		return fmt.Errorf("unable to delete invoices: %w", err)
@@ -1390,7 +1397,7 @@ func (i *SQLStore) DeleteCanceledInvoices(ctx context.Context) error {
 		}
 
 		return nil
-	})
+	}, func() {})
 	if err != nil {
 		return fmt.Errorf("unable to delete invoices: %w", err)
 	}

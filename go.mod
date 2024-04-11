@@ -39,7 +39,7 @@ require (
 	github.com/lightningnetwork/lnd/healthcheck v1.2.3
 	github.com/lightningnetwork/lnd/kvdb v1.4.5
 	github.com/lightningnetwork/lnd/queue v1.1.1
-	github.com/lightningnetwork/lnd/sqldb v0.0.0-00010101000000-000000000000
+	github.com/lightningnetwork/lnd/sqldb v1.0.0
 	github.com/lightningnetwork/lnd/ticker v1.1.1
 	github.com/lightningnetwork/lnd/tlv v1.2.3
 	github.com/lightningnetwork/lnd/tor v1.1.2
@@ -203,7 +203,12 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display
 
-// Temporary replace rule until sqldb is tagged.
+// Temporary replace rule until kvdb is tagged with changes from
+// https://github.com/lightningnetwork/lnd/pull/8611.
+replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
+
+// Temporary replace rule until sqldb is tagged with changes from
+// https://github.com/lightningnetwork/lnd/pull/8611.
 replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
 // If you change this please also update .github/pull_request_template.md and

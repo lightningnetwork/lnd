@@ -882,7 +882,7 @@ func (u *UnlockerService) ChangePassword(ctx context.Context,
 
 	err = macaroonService.Close()
 	if err != nil {
-		return nil, fmt.Errorf("could not close macaroon service: %v",
+		return nil, fmt.Errorf("could not close macaroon service: %w",
 			err)
 	}
 

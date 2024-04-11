@@ -1235,8 +1235,8 @@ func fundPsbt(ctx *cli.Context) error {
 			// entry must be present.
 			jsonMap := []byte(ctx.String("outputs"))
 			if err := json.Unmarshal(jsonMap, &amountToAddr); err != nil {
-				return fmt.Errorf("error parsing outputs JSON: %v",
-					err)
+				return fmt.Errorf("error parsing outputs "+
+					"JSON: %w", err)
 			}
 			tpl.Outputs = amountToAddr
 		}

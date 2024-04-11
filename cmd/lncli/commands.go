@@ -1811,7 +1811,7 @@ func getChanInfo(ctx *cli.Context) error {
 	case ctx.Args().Present():
 		chanID, err = strconv.ParseUint(ctx.Args().First(), 10, 64)
 		if err != nil {
-			return fmt.Errorf("error parsing chan_id: %s", err)
+			return fmt.Errorf("error parsing chan_id: %w", err)
 		}
 	default:
 		return fmt.Errorf("chan_id argument missing")

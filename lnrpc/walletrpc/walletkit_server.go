@@ -1038,7 +1038,7 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	// with an unconfirmed transaction.
 	_, currentHeight, err := w.cfg.Chain.GetBestBlock()
 	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve current height: %v",
+		return nil, fmt.Errorf("unable to retrieve current height: %w",
 			err)
 	}
 
@@ -2607,7 +2607,7 @@ func (w *WalletKit) ImportTapscript(_ context.Context,
 	taprootScope := waddrmgr.KeyScopeBIP0086
 	addr, err := w.cfg.Wallet.ImportTaprootScript(taprootScope, tapscript)
 	if err != nil {
-		return nil, fmt.Errorf("error importing script into wallet: %v",
+		return nil, fmt.Errorf("error importing script into wallet: %w",
 			err)
 	}
 

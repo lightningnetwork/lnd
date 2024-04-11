@@ -82,19 +82,19 @@ WHERE (
     $7 IS NULL
 ) AND (
     CASE
-        WHEN $8=TRUE THEN (state = 0 OR state = 3)
+        WHEN $8 = TRUE THEN (state = 0 OR state = 3)
         ELSE TRUE 
     END
 )
 ORDER BY
-    CASE
-        WHEN $9 = FALSE THEN id  
-        ELSE NULL
+CASE
+    WHEN $9 = FALSE OR $9 IS NULL THEN id
+    ELSE NULL
     END ASC,
-    CASE
-        WHEN $9 = TRUE  THEN id  
-        ELSE NULL
-    END DESC
+CASE
+    WHEN $9 = TRUE THEN id
+    ELSE NULL
+END DESC
 LIMIT $11 OFFSET $10
 `
 

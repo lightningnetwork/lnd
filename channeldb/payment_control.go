@@ -229,7 +229,7 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		return bucket.Delete(paymentFailInfoKey)
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to init payment: %w", err)
 	}
 
 	return updateErr

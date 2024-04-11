@@ -8,12 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
-	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/sqldb"
 )
 
 const (
@@ -24,18 +24,7 @@ const (
 	// DefaultNumTxRetries is the default number of times we'll retry a
 	// transaction if it fails with an error that permits transaction
 	// repetition.
-	DefaultNumTxRetries = 10
-
-	// DefaultInitialRetryDelay is the default initial delay between
-	// retries. This will be used to generate a random delay between -50%
-	// and +50% of this value, so 20 to 60 milliseconds. The retry will be
-	// doubled after each attempt until we reach DefaultMaxRetryDelay. We
-	// start with a random value to avoid multiple goroutines that are
-	// created at the same time to effectively retry at the same time.
-	DefaultInitialRetryDelay = time.Millisecond * 50
-
-	// DefaultMaxRetryDelay is the default maximum delay between retries.
-	DefaultMaxRetryDelay = time.Second * 5
+	DefaultNumTxRetries = 50
 )
 
 // Config holds a set of configuration options of a sql database connection.
@@ -181,14 +170,24 @@ func (db *db) getPrefixedTableName(table string) string {
 func catchPanic(f func() error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Criticalf("Caught unhandled error: %v", r)
-
 			switch data := r.(type) {
 			case error:
 				err = data
 
 			default:
 				err = errors.New(fmt.Sprintf("%v", data))
+			}
+
+			// Before we issue a critical log which'll cause the
+			// daemon to shut down, we'll first check if this is a
+			// DB serialization error. If so, then we don't need to
+			// log as we can retry safely and avoid tearing
+			// everything down.
+			if sqldb.IsSerializationError(sqldb.MapSQLError(err)) {
+				log.Tracef("Detected db serialization error "+
+					"via panic: %v", err)
+			} else {
+				log.Criticalf("Caught unhandled error: %v", r)
 			}
 		}
 	}()
@@ -227,112 +226,43 @@ func (db *db) Update(f func(tx walletdb.ReadWriteTx) error,
 	return db.executeTransaction(f, reset, false)
 }
 
-// randRetryDelay returns a random retry delay between -50% and +50% of the
-// configured delay that is doubled for each attempt and capped at a max value.
-func randRetryDelay(initialRetryDelay, maxRetryDelay time.Duration,
-	attempt int) time.Duration {
-
-	halfDelay := initialRetryDelay / 2
-	randDelay := rand.Int63n(int64(initialRetryDelay)) //nolint:gosec
-
-	// 50% plus 0%-100% gives us the range of 50%-150%.
-	initialDelay := halfDelay + time.Duration(randDelay)
-
-	// If this is the first attempt, we just return the initial delay.
-	if attempt == 0 {
-		return initialDelay
-	}
-
-	// For each subsequent delay, we double the initial delay. This still
-	// gives us a somewhat random delay, but it still increases with each
-	// attempt. If we double something n times, that's the same as
-	// multiplying the value with 2^n. We limit the power to 32 to avoid
-	// overflows.
-	factor := time.Duration(math.Pow(2, math.Min(float64(attempt), 32)))
-	actualDelay := initialDelay * factor
-
-	// Cap the delay at the maximum configured value.
-	if actualDelay > maxRetryDelay {
-		return maxRetryDelay
-	}
-
-	return actualDelay
-}
-
 // executeTransaction creates a new read-only or read-write transaction and
 // executes the given function within it.
 func (db *db) executeTransaction(f func(tx walletdb.ReadWriteTx) error,
 	reset func(), readOnly bool) error {
 
-	// waitBeforeRetry is a helper function that will wait for a random
-	// interval before exiting to retry the db transaction. If false is
-	// returned, then this means that daemon is shutting down so we
-	// should abort the retries.
-	waitBeforeRetry := func(attemptNumber int) bool {
-		retryDelay := randRetryDelay(
-			DefaultInitialRetryDelay, DefaultMaxRetryDelay,
-			attemptNumber,
-		)
-
-		log.Debugf("Retrying transaction due to tx serialization "+
-			"error, attempt_number=%v, delay=%v", attemptNumber,
-			retryDelay)
-
-		select {
-		// Before we try again, we'll wait with a random backoff based
-		// on the retry delay.
-		case <-time.After(retryDelay):
-			return true
-
-		// If the daemon is shutting down, then we'll exit early.
-		case <-db.ctx.Done():
-			return false
-		}
+	makeTx := func() (sqldb.Tx, error) {
+		return newReadWriteTx(db, readOnly)
 	}
 
-	for i := 0; i < DefaultNumTxRetries; i++ {
+	execTxBody := func(tx sqldb.Tx) error {
+		kvTx, ok := tx.(*readWriteTx)
+		if !ok {
+			return fmt.Errorf("expected *readWriteTx, got %T", tx)
+		}
+
 		reset()
-
-		tx, err := newReadWriteTx(db, readOnly)
-		if err != nil {
-			dbErr := MapSQLError(err)
-
-			if IsSerializationError(dbErr) {
-				// Nothing to roll back here, since we didn't
-				// even get a transaction yet.
-				if waitBeforeRetry(i) {
-					continue
-				}
-			}
-
-			return dbErr
-		}
-
-		err = catchPanic(func() error { return f(tx) })
-		if err != nil {
-			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				log.Errorf("Error rolling back tx: %v",
-					rollbackErr)
-			}
-
-			return err
-		}
-
-		dbErr := tx.Commit()
-		if IsSerializationError(dbErr) {
-			_ = tx.Rollback()
-
-			if waitBeforeRetry(i) {
-				continue
-			}
-		}
-
-		return dbErr
+		return catchPanic(func() error { return f(kvTx) })
 	}
 
-	// If we get to this point, then we weren't able to successfully commit
-	// a tx given the max number of retries.
-	return ErrRetriesExceeded
+	onBackoff := func(retry int, delay time.Duration) {
+		log.Tracef("Retrying transaction due to tx serialization "+
+			"error, attempt_number=%v, delay=%v", retry, delay)
+	}
+
+	rollbackTx := func(tx sqldb.Tx) error {
+		kvTx, ok := tx.(*readWriteTx)
+		if !ok {
+			return fmt.Errorf("expected *readWriteTx, got %T", tx)
+		}
+
+		return attemptRollback(kvTx)
+	}
+
+	return sqldb.ExecuteSQLTransactionWithRetry(
+		db.ctx, makeTx, rollbackTx, execTxBody, onBackoff,
+		DefaultNumTxRetries,
+	)
 }
 
 // PrintStats returns all collected stats pretty printed into a string.
@@ -366,4 +296,19 @@ func (db *db) Close() error {
 	log.Infof("Closing database %v", db.prefix)
 
 	return dbConns.Close(db.cfg.Dsn)
+}
+
+// attemptRollback attempts to roll back the transaction, and if it fails, it
+// will return the error. If the transaction was already closed, it will return
+// nil.
+func attemptRollback(tx *readWriteTx) error {
+	rollbackErr := tx.Rollback()
+	if rollbackErr != nil &&
+		!errors.Is(rollbackErr, walletdb.ErrTxClosed) &&
+		!strings.Contains(rollbackErr.Error(), "conn closed") {
+
+		return fmt.Errorf("error rolling back tx: %w", rollbackErr)
+	}
+
+	return nil
 }

@@ -2289,3 +2289,27 @@ func (h *HarnessTest) GetOutputIndex(txid *chainhash.Hash, addr string) int {
 
 	return p2trOutputIndex
 }
+
+// SendCoins sends a coin from node A to node B with the given amount, returns
+// the sending tx.
+func (h *HarnessTest) SendCoins(a, b *node.HarnessNode,
+	amt btcutil.Amount) *wire.MsgTx {
+
+	// Create an address for Bob receive the coins.
+	req := &lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_TAPROOT_PUBKEY,
+	}
+	resp := b.RPC.NewAddress(req)
+
+	// Send the coins from Alice to Bob. We should expect a tx to be
+	// broadcast and seen in the mempool.
+	sendReq := &lnrpc.SendCoinsRequest{
+		Addr:       resp.Address,
+		Amount:     int64(amt),
+		TargetConf: 6,
+	}
+	a.RPC.SendCoins(sendReq)
+	tx := h.Miner.GetNumTxsFromMempool(1)[0]
+
+	return tx
+}

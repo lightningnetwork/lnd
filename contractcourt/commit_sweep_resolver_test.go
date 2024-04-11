@@ -1,7 +1,6 @@
 package contractcourt
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -134,20 +133,6 @@ func (s *mockSweeper) SweepInput(input input.Input, params sweep.Params) (
 	chan sweep.Result, error) {
 
 	s.sweptInputs <- input
-
-	// TODO(yy): replace mockSweeper with `mock.Mock`.
-	if params.Fee != nil {
-		fee, ok := params.Fee.(sweep.FeeEstimateInfo)
-		if !ok {
-			return nil, fmt.Errorf("unexpected fee type: %T",
-				params.Fee)
-		}
-
-		// Update the deadlines used if it's set.
-		if fee.ConfTarget != 0 {
-			s.deadlines = append(s.deadlines, int(fee.ConfTarget))
-		}
-	}
 
 	// Update the deadlines used if it's set.
 	params.DeadlineHeight.WhenSome(func(d int32) {

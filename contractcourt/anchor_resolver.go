@@ -99,8 +99,6 @@ func (c *anchorResolver) Resolve(_ bool) (ContractResolver, error) {
 	// After a restart or when the remote force closes, the sweeper is not
 	// yet aware of the anchor. In that case, it will be added as new input
 	// to the sweeper.
-	relayFeeRate := c.Sweeper.RelayFeePerKW()
-
 	witnessType := input.CommitmentAnchor
 
 	// For taproot channels, we need to use the proper witness type.
@@ -116,9 +114,6 @@ func (c *anchorResolver) Resolve(_ bool) (ContractResolver, error) {
 	resultChan, err := c.Sweeper.SweepInput(
 		&anchorInput,
 		sweep.Params{
-			Fee: sweep.FeeEstimateInfo{
-				FeeRate: relayFeeRate,
-			},
 			// For normal anchor sweeping, the budget is 330 sats.
 			Budget: btcutil.Amount(
 				anchorInput.SignDesc().Output.Value,

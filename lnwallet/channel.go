@@ -385,6 +385,30 @@ type PaymentDescriptor struct {
 	BlindingPoint lnwire.BlindingPointRecord
 }
 
+// AddHeight returns a pointer to the height at which the HTLC was added to the
+// commitment chain. The height is returned based on the chain the HTLC is
+// being added to (local or remote chain). It is returned as a pointer, which
+// allows the caller to mutate the underlying value if necessary.
+func AddHeight(htlc *PaymentDescriptor, remoteChain bool) *uint64 {
+	if remoteChain {
+		return &htlc.addCommitHeightRemote
+	}
+
+	return &htlc.addCommitHeightLocal
+}
+
+// RemoveHeight returns a pointer to the height at which the HTLC was removed
+// from the commitment chain. The height is returned based on the chain the HTLC
+// is being removed from (local or remote chain). It is returned as a pointer,
+// which allows the caller to mutate the underlying value if necessary.
+func RemoveHeight(htlc *PaymentDescriptor, remoteChain bool) *uint64 {
+	if remoteChain {
+		return &htlc.removeCommitHeightRemote
+	}
+
+	return &htlc.removeCommitHeightLocal
+}
+
 // PayDescsFromRemoteLogUpdates converts a slice of LogUpdates received from the
 // remote peer into PaymentDescriptors to inform a link's forwarding decisions.
 //
@@ -3530,13 +3554,7 @@ func processAddEntry(htlc *PaymentDescriptor, ourBalance, theirBalance *lnwire.M
 	// a new commitment), then we'll may be updating the height this entry
 	// was added to the chain. Otherwise, we may be updating the entry's
 	// height w.r.t the local chain.
-	var addHeight *uint64
-	if remoteChain {
-		addHeight = &htlc.addCommitHeightRemote
-	} else {
-		addHeight = &htlc.addCommitHeightLocal
-	}
-
+	addHeight := AddHeight(htlc, remoteChain)
 	if *addHeight != 0 {
 		return
 	}
@@ -3567,14 +3585,8 @@ func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
 	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
 	remoteChain bool, isIncoming, mutateState bool) {
 
-	var removeHeight *uint64
-	if remoteChain {
-		removeHeight = &htlc.removeCommitHeightRemote
-	} else {
-		removeHeight = &htlc.removeCommitHeightLocal
-	}
-
 	// Ignore any removal entries which have already been processed.
+	removeHeight := RemoveHeight(htlc, remoteChain)
 	if *removeHeight != 0 {
 		return
 	}
@@ -3618,15 +3630,8 @@ func processFeeUpdate(feeUpdate *PaymentDescriptor, nextHeight uint64,
 	// Fee updates are applied for all commitments after they are
 	// sent/received, so we consider them being added and removed at the
 	// same height.
-	var addHeight *uint64
-	var removeHeight *uint64
-	if remoteChain {
-		addHeight = &feeUpdate.addCommitHeightRemote
-		removeHeight = &feeUpdate.removeCommitHeightRemote
-	} else {
-		addHeight = &feeUpdate.addCommitHeightLocal
-		removeHeight = &feeUpdate.removeCommitHeightLocal
-	}
+	addHeight := AddHeight(feeUpdate, remoteChain)
+	removeHeight := RemoveHeight(feeUpdate, remoteChain)
 
 	if *addHeight != 0 {
 		return
@@ -5156,10 +5161,12 @@ func (lc *LightningChannel) computeView(view *HtlcView, remoteChain bool,
 	// number of outstanding HTLCs has changed.
 	if lc.channelState.IsInitiator {
 		ourBalance += lnwire.NewMSatFromSatoshis(
-			commitChain.tip().fee)
+			commitChain.tip().fee,
+		)
 	} else if !lc.channelState.IsInitiator {
 		theirBalance += lnwire.NewMSatFromSatoshis(
-			commitChain.tip().fee)
+			commitChain.tip().fee,
+		)
 	}
 	nextHeight := commitChain.tip().height + 1
 

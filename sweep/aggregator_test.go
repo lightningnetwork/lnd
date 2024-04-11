@@ -839,7 +839,7 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	// 3. when assigning the input to the exclusiveInputs.
 	// 4. when iterating the exclusiveInputs.
 	opExclusive := wire.OutPoint{Hash: chainhash.Hash{1, 2, 3, 4, 5}}
-	inpExclusive.On("OutPoint").Return(opExclusive).Times(4)
+	inpExclusive.On("OutPoint").Return(opExclusive).Maybe()
 
 	// Mock the `WitnessType` method to return the witness type.
 	inpExclusive.On("WitnessType").Return(wt)
@@ -895,11 +895,10 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 		// `filterInputs`.
 		inpLow.On("OutPoint").Return(opLow).Once()
 
-		// We expect the high budget input to call this method three
-		// times, one in `filterInputs` and one in `createInputSet`,
-		// and one in `NewBudgetInputSet`.
-		inpHigh1.On("OutPoint").Return(opHigh1).Times(3)
-		inpHigh2.On("OutPoint").Return(opHigh2).Times(3)
+		// The number of times this method is called is dependent on
+		// the log level.
+		inpHigh1.On("OutPoint").Return(opHigh1).Maybe()
+		inpHigh2.On("OutPoint").Return(opHigh2).Maybe()
 
 		// Mock the `WitnessType` method to return the witness type.
 		inpLow.On("WitnessType").Return(wt)
@@ -909,6 +908,10 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 		// Mock the `RequiredTxOut` to return nil.
 		inpHigh1.On("RequiredTxOut").Return(nil)
 		inpHigh2.On("RequiredTxOut").Return(nil)
+
+		// Mock the `RequiredLockTime` to return 0.
+		inpHigh1.On("RequiredLockTime").Return(uint32(0), false)
+		inpHigh2.On("RequiredLockTime").Return(uint32(0), false)
 
 		// Add the low input, which should be filtered out.
 		inputs[opLow] = &SweeperInput{
@@ -968,4 +971,73 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	require.Contains(t, deadlines, defaultDeadline)
 	require.Contains(t, deadlines, deadline1.UnwrapOrFail(t))
 	require.Contains(t, deadlines, deadline2.UnwrapOrFail(t))
+}
+
+// TestSplitOnLocktime asserts `splitOnLocktime` works as expected.
+func TestSplitOnLocktime(t *testing.T) {
+	t.Parallel()
+
+	// Create two locktimes.
+	lockTime1 := uint32(1)
+	lockTime2 := uint32(2)
+
+	// Create cluster one, which has a locktime of 1.
+	input1LockTime1 := &input.MockInput{}
+	input2LockTime1 := &input.MockInput{}
+	input1LockTime1.On("RequiredLockTime").Return(lockTime1, true)
+	input2LockTime1.On("RequiredLockTime").Return(lockTime1, true)
+
+	// Create cluster two, which has a locktime of 2.
+	input3LockTime2 := &input.MockInput{}
+	input4LockTime2 := &input.MockInput{}
+	input3LockTime2.On("RequiredLockTime").Return(lockTime2, true)
+	input4LockTime2.On("RequiredLockTime").Return(lockTime2, true)
+
+	// Create cluster three, which has no locktime.
+	// Create cluster three, which has no locktime.
+	input5NoLockTime := &input.MockInput{}
+	input6NoLockTime := &input.MockInput{}
+	input5NoLockTime.On("RequiredLockTime").Return(uint32(0), false)
+	input6NoLockTime.On("RequiredLockTime").Return(uint32(0), false)
+
+	// Mock `OutPoint` - it may or may not be called due to log settings.
+	input1LockTime1.On("OutPoint").Return(wire.OutPoint{Index: 1}).Maybe()
+	input2LockTime1.On("OutPoint").Return(wire.OutPoint{Index: 2}).Maybe()
+	input3LockTime2.On("OutPoint").Return(wire.OutPoint{Index: 3}).Maybe()
+	input4LockTime2.On("OutPoint").Return(wire.OutPoint{Index: 4}).Maybe()
+	input5NoLockTime.On("OutPoint").Return(wire.OutPoint{Index: 5}).Maybe()
+	input6NoLockTime.On("OutPoint").Return(wire.OutPoint{Index: 6}).Maybe()
+
+	// With the inner Input being mocked, we can now create the pending
+	// inputs.
+	input1 := SweeperInput{Input: input1LockTime1}
+	input2 := SweeperInput{Input: input2LockTime1}
+	input3 := SweeperInput{Input: input3LockTime2}
+	input4 := SweeperInput{Input: input4LockTime2}
+	input5 := SweeperInput{Input: input5NoLockTime}
+	input6 := SweeperInput{Input: input6NoLockTime}
+
+	// Call the method under test.
+	inputs := []SweeperInput{input1, input2, input3, input4, input5, input6}
+	result := splitOnLocktime(inputs)
+
+	// We expect the no locktime inputs to be grouped with locktime2.
+	expectedResult := map[uint32][]SweeperInput{
+		lockTime1: {input1, input2},
+		lockTime2: {input3, input4, input5, input6},
+	}
+	require.Len(t, result[lockTime1], 2)
+	require.Len(t, result[lockTime2], 4)
+	require.Equal(t, expectedResult, result)
+
+	// Test the case where there are no locktime inputs.
+	inputs = []SweeperInput{input5, input6}
+	result = splitOnLocktime(inputs)
+
+	// We expect the no locktime inputs to be returned as is.
+	expectedResult = map[uint32][]SweeperInput{
+		uint32(0): {input5, input6},
+	}
+	require.Len(t, result[uint32(0)], 2)
+	require.Equal(t, expectedResult, result)
 }

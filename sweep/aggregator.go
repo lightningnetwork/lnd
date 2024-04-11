@@ -551,9 +551,14 @@ func (b *BudgetAggregator) ClusterInputs(inputs InputsMap,
 		// Sort the inputs by their economical value.
 		sortedInputs := b.sortInputs(cluster)
 
+		// Split on locktimes if they are different.
+		splitClusters := splitOnLocktime(sortedInputs)
+
 		// Create input sets from the cluster.
-		sets := b.createInputSets(sortedInputs, height)
-		inputSets = append(inputSets, sets...)
+		for _, cluster := range splitClusters {
+			sets := b.createInputSets(cluster, height)
+			inputSets = append(inputSets, sets...)
+		}
 	}
 
 	// Create input sets from the exclusive inputs.
@@ -740,6 +745,62 @@ func (b *BudgetAggregator) sortInputs(inputs []SweeperInput) []SweeperInput {
 	})
 
 	return sortedInputs
+}
+
+// splitOnLocktime splits the list of inputs based on their locktime.
+//
+// TODO(yy): this is a temporary hack as the blocks are not synced among the
+// contractcourt and the sweeper.
+func splitOnLocktime(inputs []SweeperInput) map[uint32][]SweeperInput {
+	result := make(map[uint32][]SweeperInput)
+	noLocktimeInputs := make([]SweeperInput, 0, len(inputs))
+
+	// mergeLocktime is the locktime that we use to merge all the
+	// nolocktime inputs into.
+	var mergeLocktime uint32
+
+	// Iterate all inputs and split them based on their locktimes.
+	for _, inp := range inputs {
+		locktime, required := inp.RequiredLockTime()
+		if !required {
+			log.Tracef("No locktime required for input=%v",
+				inp.OutPoint())
+
+			noLocktimeInputs = append(noLocktimeInputs, inp)
+
+			continue
+		}
+
+		log.Tracef("Split input=%v on locktime=%v", inp.OutPoint(),
+			locktime)
+
+		// Get the slice - the slice will be initialized if not found.
+		inputList := result[locktime]
+
+		// Add the input to the list.
+		inputList = append(inputList, inp)
+
+		// Update the map.
+		result[locktime] = inputList
+
+		// Update the merge locktime.
+		mergeLocktime = locktime
+	}
+
+	// If there are locktime inputs, we will merge the no locktime inputs
+	// to the last locktime group found.
+	if len(result) > 0 {
+		log.Tracef("No locktime inputs has been merged to locktime=%v",
+			mergeLocktime)
+		result[mergeLocktime] = append(
+			result[mergeLocktime], noLocktimeInputs...,
+		)
+	} else {
+		// Otherwise just return the no locktime inputs.
+		result[mergeLocktime] = noLocktimeInputs
+	}
+
+	return result
 }
 
 // isDustOutput checks if the given output is considered as dust.

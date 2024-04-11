@@ -201,9 +201,9 @@ func (w *WitnessScriptDesc) PkScript() []byte {
 	return w.OutputScript
 }
 
-// WitnessScript returns the witness script that we'll use when signing for the
-// remote party, and also verifying signatures on our transactions. As an
-// example, when we create an outgoing HTLC for the remote party, we want to
+// WitnessScriptToSign returns the witness script that we'll use when signing
+// for the remote party, and also verifying signatures on our transactions. As
+// an example, when we create an outgoing HTLC for the remote party, we want to
 // sign their success path.
 func (w *WitnessScriptDesc) WitnessScriptToSign() []byte {
 	return w.WitnessScript
@@ -211,10 +211,10 @@ func (w *WitnessScriptDesc) WitnessScriptToSign() []byte {
 
 // WitnessScriptForPath returns the witness script for the given spending path.
 // An error is returned if the path is unknown. This is useful as when
-// constructing a contrl block for a given path, one also needs witness script
+// constructing a control block for a given path, one also needs witness script
 // being signed.
-func (w *WitnessScriptDesc) WitnessScriptForPath(_ input.ScriptPath,
-) ([]byte, error) {
+func (w *WitnessScriptDesc) WitnessScriptForPath(
+	_ input.ScriptPath) ([]byte, error) {
 
 	return w.WitnessScript, nil
 }
@@ -292,8 +292,7 @@ func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
 // what must be satisfied in order to spend the output.
 func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 	remoteKey *btcec.PublicKey, leaseExpiry uint32,
-	auxLeaf input.AuxTapLeaf,
-) (input.ScriptDescriptor, uint32, error) {
+	auxLeaf input.AuxTapLeaf) (input.ScriptDescriptor, uint32, error) {
 
 	switch {
 	// If we are not the initiator of a leased channel, then the remote
@@ -534,8 +533,8 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 	input.ScriptDescriptor, input.ScriptDescriptor, error) {
 
 	var (
-		anchorScript func(key *btcec.PublicKey) (
-			input.ScriptDescriptor, error)
+		anchorScript func(
+			key *btcec.PublicKey) (input.ScriptDescriptor, error)
 
 		keySelector func(*channeldb.ChannelConfig,
 			bool) *btcec.PublicKey
@@ -546,12 +545,10 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 	// level key is now the (relative) local delay and remote public key,
 	// since these are fully revealed once the commitment hits the chain.
 	case chanType.IsTaproot():
-		anchorScript = func(key *btcec.PublicKey,
-		) (input.ScriptDescriptor, error) {
+		anchorScript = func(
+			key *btcec.PublicKey) (input.ScriptDescriptor, error) {
 
-			return input.NewAnchorScriptTree(
-				key,
-			)
+			return input.NewAnchorScriptTree(key)
 		}
 
 		keySelector = func(cfg *channeldb.ChannelConfig,
@@ -569,8 +566,8 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 	default:
 		// For normal channels, we'll create a p2wsh script based on
 		// the target key.
-		anchorScript = func(key *btcec.PublicKey,
-		) (input.ScriptDescriptor, error) {
+		anchorScript = func(
+			key *btcec.PublicKey) (input.ScriptDescriptor, error) {
 
 			script, err := input.CommitScriptAnchor(key)
 			if err != nil {

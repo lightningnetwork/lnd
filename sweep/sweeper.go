@@ -1086,14 +1086,6 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 func (s *UtxoSweeper) UpdateParams(input wire.OutPoint,
 	params Params) (chan Result, error) {
 
-	// Ensure the client provided a sane fee preference.
-	_, err := params.Fee.Estimate(
-		s.cfg.FeeEstimator, s.cfg.MaxFeeRate.FeePerKWeight(),
-	)
-	if err != nil {
-		return nil, err
-	}
-
 	responseChan := make(chan *updateResp, 1)
 	select {
 	case s.updateReqs <- &updateReq{
@@ -1139,9 +1131,14 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 
 	// Create the updated parameters struct. Leave the exclusive group
 	// unchanged.
-	newParams := sweeperInput.params
-	newParams.Fee = req.params.Fee
-	newParams.Immediate = req.params.Immediate
+	newParams := Params{
+		Fee:             req.params.Fee,
+		StartingFeeRate: req.params.StartingFeeRate,
+		Immediate:       req.params.Immediate,
+		Budget:          req.params.Budget,
+		DeadlineHeight:  req.params.DeadlineHeight,
+		ExclusiveGroup:  sweeperInput.params.ExclusiveGroup,
+	}
 
 	log.Debugf("Updating parameters for %v(state=%v) from (%v) to (%v)",
 		req.input, sweeperInput.state, sweeperInput.params, newParams)

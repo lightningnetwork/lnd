@@ -481,12 +481,12 @@ func (t *TxPublisher) createAndCheckTx(req *BumpRequest, f FeeFunction) (
 		req.Inputs, req.DeliveryAddress, f.FeeRate(),
 	)
 	if err != nil {
-		return nil, 0, fmt.Errorf("create sweep tx: %w", err)
+		return nil, fee, fmt.Errorf("create sweep tx: %w", err)
 	}
 
 	// Sanity check the budget still covers the fee.
 	if fee > req.Budget {
-		return nil, 0, fmt.Errorf("%w: budget=%v, fee=%v",
+		return nil, fee, fmt.Errorf("%w: budget=%v, fee=%v",
 			ErrNotEnoughBudget, req.Budget, fee)
 	}
 
@@ -513,8 +513,8 @@ func (t *TxPublisher) createAndCheckTx(req *BumpRequest, f FeeFunction) (
 		return tx, fee, nil
 	}
 
-	return nil, 0, fmt.Errorf("tx=%v failed mempool check: %w", tx.TxHash(),
-		err)
+	return nil, fee, fmt.Errorf("tx=%v failed mempool check: %w",
+		tx.TxHash(), err)
 }
 
 // broadcast takes a monitored tx and publishes it to the network. Prior to the

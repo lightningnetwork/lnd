@@ -658,29 +658,30 @@ type AuxLeafStore interface {
 	// correspond to the passed aux blob, and pending original (unfiltered)
 	// HTLC view.
 	FetchLeavesFromView(chanState *channeldb.OpenChannel, prevBlob tlv.Blob,
-		unfilteredView *HtlcView,
+		unfilteredView *HtlcView, isOurCommit bool, ourBalance,
+		theirBalance lnwire.MilliSatoshi,
 		keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves],
 		CommitSortFunc, error)
 
 	// FetchLeavesFromCommit attempts to fetch the auxiliary leaves that
 	// correspond to the passed aux blob, and an existing channel
 	// commitment.
-	FetchLeavesFromCommit(chanState *channeldb.OpenChannel,
-		commit channeldb.ChannelCommitment,
-		keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves], error)
+	FetchLeavesFromCommit(
+		commit channeldb.ChannelCommitment) (fn.Option[CommitAuxLeaves],
+		error)
 
 	// FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
 	// from a channel revocation that stores balance + blob information.
-	FetchLeavesFromRevocation(chanState *channeldb.OpenChannel,
-		revocation *channeldb.RevocationLog,
-		keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves], error)
+	FetchLeavesFromRevocation(revocation *channeldb.RevocationLog,
+	) (fn.Option[CommitAuxLeaves], error)
 
 	// ApplyHtlcView serves as the state transition function for the custom
 	// channel's blob. Given the old blob, and an HTLC view, then a new
 	// blob should be returned that reflects the pending updates.
-	ApplyHtlcView(chanState *channeldb.OpenChannel, oldBlob tlv.Blob,
-		view *HtlcView, keyRing CommitmentKeyRing) (fn.Option[tlv.Blob],
-		error)
+	ApplyHtlcView(chanState *channeldb.OpenChannel, prevBlob tlv.Blob,
+		unfilteredView *HtlcView, isOurCommit bool, ourBalance,
+		theirBalance lnwire.MilliSatoshi,
+		keyRing CommitmentKeyRing) (fn.Option[tlv.Blob], error)
 }
 
 // CommitmentBuilder is a type that wraps the type of channel we are dealing
@@ -762,24 +763,23 @@ type unsignedCommitmentTx struct {
 
 // AuxLeavesFromCommit is a helper function that attempts to fetch the
 // auxiliary leaves given a finalized channel commitment, and a leaf store.
-func AuxLeavesFromCommit(chanState *channeldb.OpenChannel,
+func AuxLeavesFromCommit(_ *channeldb.OpenChannel,
 	commit channeldb.ChannelCommitment, leafStore fn.Option[AuxLeafStore],
-	keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves], error) {
+	_ CommitmentKeyRing) (fn.Option[CommitAuxLeaves], error) {
 
 	if leafStore.IsNone() {
 		return fn.None[CommitAuxLeaves](), nil
 	}
 
-	return leafStore.UnsafeFromSome().FetchLeavesFromCommit(
-		chanState, commit, keyRing,
-	)
+	return leafStore.UnsafeFromSome().FetchLeavesFromCommit(commit)
 }
 
 // auxLeavesFromView is used to derive the set of commit aux leaves (if any),
 // that are needed to create a new commitment transaction using the original
 // (unfiltered) htlc view.
 func auxLeavesFromView(chanState *channeldb.OpenChannel,
-	prevBlob fn.Option[tlv.Blob], originalView *HtlcView,
+	prevBlob fn.Option[tlv.Blob], originalView *HtlcView, isOurCommit bool,
+	ourBalance, theirBalance lnwire.MilliSatoshi,
 	leafStore fn.Option[AuxLeafStore],
 	keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves], CommitSortFunc,
 	error) {
@@ -793,29 +793,29 @@ func auxLeavesFromView(chanState *channeldb.OpenChannel,
 	}
 
 	return leafStore.UnsafeFromSome().FetchLeavesFromView(
-		chanState, prevBlob.UnsafeFromSome(), originalView, keyRing,
+		chanState, prevBlob.UnsafeFromSome(), originalView, isOurCommit,
+		ourBalance, theirBalance, keyRing,
 	)
 }
 
 // auxLeavesFromRevocation is a helper function that attempts to fetch the aux
 // leaves given a revoked state.
-func auxLeavesFromRevocation(chanState *channeldb.OpenChannel,
+func auxLeavesFromRevocation(_ *channeldb.OpenChannel,
 	revocation *channeldb.RevocationLog, leafStore fn.Option[AuxLeafStore],
-	keyRing CommitmentKeyRing) (fn.Option[CommitAuxLeaves], error) {
+	_ CommitmentKeyRing) (fn.Option[CommitAuxLeaves], error) {
 
 	if leafStore.IsNone() {
 		return fn.None[CommitAuxLeaves](), nil
 	}
 
-	return leafStore.UnsafeFromSome().FetchLeavesFromRevocation(
-		chanState, revocation, keyRing,
-	)
+	return leafStore.UnsafeFromSome().FetchLeavesFromRevocation(revocation)
 }
 
 // updateAuxBlob is a helper function that attempts to update the aux blob
 // given the prior and current state information.
 func updateAuxBlob(chanState *channeldb.OpenChannel,
-	prevBlob fn.Option[tlv.Blob], nextView *HtlcView,
+	prevBlob fn.Option[tlv.Blob], nextViewUnfiltered *HtlcView,
+	isOurCommit bool, ourBalance, theirBalance lnwire.MilliSatoshi,
 	leafStore fn.Option[AuxLeafStore],
 	keyRing CommitmentKeyRing) (fn.Option[tlv.Blob], error) {
 
@@ -828,7 +828,8 @@ func updateAuxBlob(chanState *channeldb.OpenChannel,
 	}
 
 	return leafStore.UnsafeFromSome().ApplyHtlcView(
-		chanState, prevBlob.UnsafeFromSome(), nextView, keyRing,
+		chanState, prevBlob.UnsafeFromSome(), nextViewUnfiltered,
+		isOurCommit, ourBalance, theirBalance, keyRing,
 	)
 }
 
@@ -908,7 +909,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// tree. We'll only do this if we have a custom blob defined though.
 	auxLeaves, customCommitSort, err := auxLeavesFromView(
 		cb.chanState, prevCommit.customBlob, originalHtlcView,
-		cb.auxLeafStore, *keyRing,
+		isOurs, ourBalance, theirBalance, cb.auxLeafStore, *keyRing,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)

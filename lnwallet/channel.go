@@ -3197,7 +3197,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// we'll generate a new blob for the latest commitment.
 	newCommitBlob, err := updateAuxBlob(
 		lc.channelState, commitChain.tip().customBlob, htlcView,
-		lc.leafStore, *keyRing,
+		!remoteChain, ourBalance, theirBalance, lc.leafStore, *keyRing,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)

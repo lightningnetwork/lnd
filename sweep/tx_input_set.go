@@ -77,6 +77,10 @@ type InputSet interface {
 	// Budget givens the total amount that can be used as fees by this
 	// input set.
 	Budget() btcutil.Amount
+
+	// StartingFeeRate returns the max starting fee rate found in the
+	// inputs.
+	StartingFeeRate() fn.Option[chainfee.SatPerKWeight]
 }
 
 type txInputSetState struct {
@@ -203,6 +207,13 @@ func (t *txInputSet) Budget() btcutil.Amount {
 // NOTE: this field is only used for `BudgetInputSet`.
 func (t *txInputSet) DeadlineHeight() int32 {
 	return 0
+}
+
+// StartingFeeRate returns the max starting fee rate found in the inputs.
+//
+// NOTE: this field is only used for `BudgetInputSet`.
+func (t *txInputSet) StartingFeeRate() fn.Option[chainfee.SatPerKWeight] {
+	return fn.None[chainfee.SatPerKWeight]()
 }
 
 // NeedWalletInput returns true if the input set needs more wallet inputs.
@@ -799,4 +810,22 @@ func (b *BudgetInputSet) Inputs() []input.Input {
 	}
 
 	return inputs
+}
+
+// StartingFeeRate returns the max starting fee rate found in the inputs.
+//
+// NOTE: part of the InputSet interface.
+func (b *BudgetInputSet) StartingFeeRate() fn.Option[chainfee.SatPerKWeight] {
+	maxFeeRate := chainfee.SatPerKWeight(0)
+	startingFeeRate := fn.None[chainfee.SatPerKWeight]()
+
+	for _, inp := range b.inputs {
+		feerate := inp.params.StartingFeeRate.UnwrapOr(0)
+		if feerate > maxFeeRate {
+			maxFeeRate = feerate
+			startingFeeRate = fn.Some(maxFeeRate)
+		}
+	}
+
+	return startingFeeRate
 }

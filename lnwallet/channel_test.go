@@ -705,7 +705,7 @@ func TestCooperativeChannelClosure(t *testing.T) {
 		testCoopClose(t, &coopCloseTestCase{
 			chanType: channeldb.SingleFunderTweaklessBit |
 				channeldb.AnchorOutputsBit,
-			anchorAmt: anchorSize * 2,
+			anchorAmt: AnchorSize * 2,
 		})
 	})
 }
@@ -815,7 +815,7 @@ func TestForceClose(t *testing.T) {
 			chanType: channeldb.SingleFunderTweaklessBit |
 				channeldb.AnchorOutputsBit,
 			expectedCommitWeight: input.AnchorCommitWeight,
-			anchorAmt:            anchorSize * 2,
+			anchorAmt:            AnchorSize * 2,
 		})
 	})
 	t.Run("taproot", func(t *testing.T) {
@@ -824,7 +824,7 @@ func TestForceClose(t *testing.T) {
 				channeldb.AnchorOutputsBit |
 				channeldb.SimpleTaprootFeatureBit,
 			expectedCommitWeight: input.TaprootCommitWeight,
-			anchorAmt:            anchorSize * 2,
+			anchorAmt:            AnchorSize * 2,
 		})
 	})
 }
@@ -910,7 +910,7 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 			t.Fatal("commit tx not referenced by anchor res")
 		}
 		if anchorRes.AnchorSignDescriptor.Output.Value !=
-			int64(anchorSize) {
+			int64(AnchorSize) {
 
 			t.Fatal("unexpected anchor size")
 		}

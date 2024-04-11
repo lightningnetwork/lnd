@@ -1801,7 +1801,7 @@
         "next_broadcast_height": {
           "type": "integer",
           "format": "int64",
-          "description": "The next height of the chain at which we'll attempt to broadcast the\nsweep transaction of the output."
+          "description": "Deprecated.\nThe next height of the chain at which we'll attempt to broadcast the\nsweep transaction of the output."
         },
         "force": {
           "type": "boolean",
@@ -1810,7 +1810,7 @@
         "requested_conf_target": {
           "type": "integer",
           "format": "int64",
-          "description": "The requested confirmation target for this output."
+          "description": "Deprecated, use deadline.\nThe requested confirmation target for this output, which is the deadline\nused by the sweeper."
         },
         "requested_sat_per_byte": {
           "type": "integer",
@@ -1820,16 +1820,26 @@
         "sat_per_vbyte": {
           "type": "string",
           "format": "uint64",
-          "description": "The fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee\nrate is only determined once a sweeping transaction for the output is\ncreated, so it's possible for this to be 0 before this."
+          "description": "The current fee rate we'll use to sweep the output, expressed in sat/vbyte.\nThe fee rate is only determined once a sweeping transaction for the output\nis created, so it's possible for this to be 0 before this."
         },
         "requested_sat_per_vbyte": {
           "type": "string",
           "format": "uint64",
-          "description": "The requested fee rate, expressed in sat/vbyte, for this output."
+          "description": "The requested starting fee rate, expressed in sat/vbyte, for this\noutput. When not requested, this field will be 0."
         },
         "immediate": {
           "type": "boolean",
           "description": "Whether this input will be swept immediately."
+        },
+        "budget": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The budget for this sweep, expressed in satoshis. This is the maximum amount\nthat can be spent as fees to sweep this output."
+        },
+        "deadline_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The deadline height used for this output when perform fee bumping."
         }
       }
     },

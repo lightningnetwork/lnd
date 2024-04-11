@@ -254,7 +254,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	commitFee := calcStaticFee(chanType, 0)
 	var anchorAmt btcutil.Amount
 	if chanType.HasAnchors() {
-		anchorAmt += 2 * anchorSize
+		anchorAmt += 2 * AnchorSize
 	}
 
 	aliceBalance := lnwire.NewMSatFromSatoshis(

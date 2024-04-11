@@ -1325,9 +1325,9 @@ func genSegwitV0HtlcScript(chanType channeldb.ChannelType,
 	}, nil
 }
 
-// genTaprootHtlcScript generates the HTLC scripts for a taproot+musig2
+// GenTaprootHtlcScript generates the HTLC scripts for a taproot+musig2
 // channel.
-func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
+func GenTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 	rHash [32]byte, keyRing *CommitmentKeyRing,
 	auxLeaf input.AuxTapLeaf) (*input.HtlcScriptTree, error) {
 
@@ -1397,7 +1397,7 @@ func genHtlcScript(chanType channeldb.ChannelType, isIncoming, ourCommit bool,
 		)
 	}
 
-	return genTaprootHtlcScript(
+	return GenTaprootHtlcScript(
 		isIncoming, ourCommit, timeout, rHash, keyRing, auxLeaf,
 	)
 }

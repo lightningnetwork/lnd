@@ -459,8 +459,8 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSignVerifyMessage,
 	},
 	{
-		Name:     "cpfp",
-		TestFunc: testCPFP,
+		Name:     "bumpfee",
+		TestFunc: testBumpFee,
 	},
 	{
 		Name:     "taproot",

@@ -16,7 +16,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/stretchr/testify/require"
 )
 
@@ -208,120 +207,6 @@ func testChainKitSendOutputsAnchorReserve(ht *lntest.HarnessTest) {
 
 	// Clean up our test setup.
 	ht.CloseChannel(charlie, outpoint)
-}
-
-// testCPFP ensures that the daemon can bump an unconfirmed  transaction's fee
-// rate by broadcasting a Child-Pays-For-Parent (CPFP) transaction.
-//
-// TODO(wilmer): Add RBF case once btcd supports it.
-func testCPFP(ht *lntest.HarnessTest) {
-	runCPFP(ht, ht.Alice, ht.Bob)
-}
-
-// runCPFP ensures that the daemon can bump an unconfirmed transaction's fee
-// rate by broadcasting a Child-Pays-For-Parent (CPFP) transaction.
-func runCPFP(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
-	// TODO(yy): fix the test when `BumpFee` is updated.
-	ht.Skipf("skipped")
-
-	// Skip this test for neutrino, as it's not aware of mempool
-	// transactions.
-	if ht.IsNeutrinoBackend() {
-		ht.Skipf("skipping CPFP test for neutrino backend")
-	}
-
-	// We'll start the test by sending Alice some coins, which she'll use
-	// to send to Bob.
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
-
-	// Create an address for Bob to send the coins to.
-	req := &lnrpc.NewAddressRequest{
-		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
-	}
-	resp := bob.RPC.NewAddress(req)
-
-	// Send the coins from Alice to Bob. We should expect a transaction to
-	// be broadcast and seen in the mempool.
-	sendReq := &lnrpc.SendCoinsRequest{
-		Addr:       resp.Address,
-		Amount:     btcutil.SatoshiPerBitcoin,
-		TargetConf: 6,
-	}
-	alice.RPC.SendCoins(sendReq)
-	txid := ht.Miner.AssertNumTxsInMempool(1)[0]
-
-	// We'll then extract the raw transaction from the mempool in order to
-	// determine the index of Bob's output.
-	tx := ht.Miner.GetRawTransaction(txid)
-	bobOutputIdx := -1
-	for i, txOut := range tx.MsgTx().TxOut {
-		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-			txOut.PkScript, ht.Miner.ActiveNet,
-		)
-		require.NoErrorf(ht, err, "unable to extract address "+
-			"from pkScript=%x: %v", txOut.PkScript, err)
-
-		if addrs[0].String() == resp.Address {
-			bobOutputIdx = i
-		}
-	}
-	require.NotEqual(ht, -1, bobOutputIdx, "bob's output was not found "+
-		"within the transaction")
-
-	// Wait until bob has seen the tx and considers it as owned.
-	op := &lnrpc.OutPoint{
-		TxidBytes:   txid[:],
-		OutputIndex: uint32(bobOutputIdx),
-	}
-	ht.AssertUTXOInWallet(bob, op, "")
-
-	// We'll attempt to bump the fee of this transaction by performing a
-	// CPFP from Alice's point of view.
-	maxFeeRate := uint64(sweep.DefaultMaxFeeRate)
-	bumpFeeReq := &walletrpc.BumpFeeRequest{
-		Outpoint: op,
-		// We use a higher fee rate than the default max and expect the
-		// sweeper to cap the fee rate at the max value.
-		SatPerVbyte: maxFeeRate * 2,
-		// We use a force param to create the sweeping tx immediately.
-		Immediate: true,
-	}
-	bob.RPC.BumpFee(bumpFeeReq)
-
-	// We should now expect to see two transactions within the mempool, a
-	// parent and its child.
-	ht.Miner.AssertNumTxsInMempool(2)
-
-	// We should also expect to see the output being swept by the
-	// UtxoSweeper. We'll ensure it's using the fee rate specified.
-	pendingSweepsResp := bob.RPC.PendingSweeps()
-	require.Len(ht, pendingSweepsResp.PendingSweeps, 1,
-		"expected to find 1 pending sweep")
-	pendingSweep := pendingSweepsResp.PendingSweeps[0]
-	require.Equal(ht, pendingSweep.Outpoint.TxidBytes, op.TxidBytes,
-		"output txid not matched")
-	require.Equal(ht, pendingSweep.Outpoint.OutputIndex, op.OutputIndex,
-		"output index not matched")
-
-	// Also validate that the fee rate is capped at the max value.
-	require.Equalf(ht, maxFeeRate, pendingSweep.SatPerVbyte,
-		"sweep sat per vbyte not matched, want %v, got %v",
-		maxFeeRate, pendingSweep.SatPerVbyte)
-
-	// Mine a block to clean up the unconfirmed transactions.
-	ht.MineBlocksAndAssertNumTxes(1, 2)
-
-	// The input used to CPFP should no longer be pending.
-	err := wait.NoError(func() error {
-		resp := bob.RPC.PendingSweeps()
-		if len(resp.PendingSweeps) != 0 {
-			return fmt.Errorf("expected 0 pending sweeps, found %d",
-				len(resp.PendingSweeps))
-		}
-
-		return nil
-	}, defaultTimeout)
-	require.NoError(ht, err, "timeout checking bob's pending sweeps")
 }
 
 // testAnchorReservedValue tests that we won't allow sending transactions when

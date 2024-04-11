@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -1243,4 +1244,290 @@ func createSimpleNetwork(ht *lntest.HarnessTest, nodeCfg []string,
 	}
 
 	return resp, nodes
+}
+
+// testBumpFee checks that when a new input is requested, it's first bumped via
+// CPFP, then RBF. Along the way, we check the `BumpFee` can properly update
+// the fee function used by supplying new params.
+func testBumpFee(ht *lntest.HarnessTest) {
+	runBumpFee(ht, ht.Alice)
+}
+
+// runBumpFee checks the `BumpFee` RPC can properly bump the fee of a given
+// input.
+func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
+	// startFeeRate is the min fee rate in sats/vbyte. This value should be
+	// used as the starting fee rate when the default no deadline is used.
+	startFeeRate := uint64(1)
+
+	// We'll start the test by sending Alice some coins, which she'll use
+	// to send to Bob.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+
+	// Alice sends a coin to herself.
+	tx := ht.SendCoins(alice, alice, btcutil.SatoshiPerBitcoin)
+	txid := tx.TxHash()
+
+	// Alice now tries to bump the first input on this tx.
+	op := &lnrpc.OutPoint{
+		TxidBytes:   txid[:],
+		OutputIndex: uint32(0),
+	}
+	value := btcutil.Amount(tx.TxOut[0].Value)
+
+	// assertPendingSweepResp is a helper closure that asserts the response
+	// from `PendingSweep` RPC is returned with expected values. It also
+	// returns the current fee rate from the response and the sweeping tx
+	// for further checks.
+	assertPendingSweepResp := func(broadcastAttempts uint32, budget uint64,
+		deadline uint32, startingFeeRate uint64) (uint64, *wire.MsgTx) {
+
+		// Alice should still have one pending sweep.
+		pendingSweep := ht.AssertNumPendingSweeps(alice, 1)[0]
+
+		// Validate all fields returned from `PendingSweeps` are as
+		// expected.
+		require.Equal(ht, op.TxidBytes, pendingSweep.Outpoint.TxidBytes)
+		require.Equal(ht, op.OutputIndex,
+			pendingSweep.Outpoint.OutputIndex)
+		require.Equal(ht, walletrpc.WitnessType_TAPROOT_PUB_KEY_SPEND,
+			pendingSweep.WitnessType)
+		require.EqualValuesf(ht, value, pendingSweep.AmountSat,
+			"amount not matched: want=%d, got=%d", value,
+			pendingSweep.AmountSat)
+		require.True(ht, pendingSweep.Immediate)
+
+		require.Equal(ht, broadcastAttempts,
+			pendingSweep.BroadcastAttempts)
+		require.EqualValuesf(ht, budget, pendingSweep.Budget,
+			"budget not matched: want=%d, got=%d", budget,
+			pendingSweep.Budget)
+
+		// Since the request doesn't specify a deadline, we expect the
+		// existing deadline to be used.
+		require.Equalf(ht, deadline, pendingSweep.DeadlineHeight,
+			"deadline height not matched: want=%d, got=%d",
+			deadline, pendingSweep.DeadlineHeight)
+
+		// Since the request specifies a starting fee rate, we expect
+		// that to be used as the starting fee rate.
+		require.Equalf(ht, startingFeeRate,
+			pendingSweep.RequestedSatPerVbyte, "requested "+
+				"starting fee rate not matched: want=%d, "+
+				"got=%d", startingFeeRate,
+			pendingSweep.RequestedSatPerVbyte)
+
+		// We expect to see Alice's original tx and her CPFP tx in the
+		// mempool.
+		txns := ht.Miner.GetNumTxsFromMempool(2)
+
+		// Find the sweeping tx - assume it's the first item, if it has
+		// the same txid as the parent tx, use the second item.
+		sweepTx := txns[0]
+		if sweepTx.TxHash() == tx.TxHash() {
+			sweepTx = txns[1]
+		}
+
+		return pendingSweep.SatPerVbyte, sweepTx
+	}
+
+	// First bump request - we'll sepcify nothing except `Immediate` to let
+	// the sweeper handles the fee, and we expect a fee func that has,
+	// - starting fee rate: 1 sat/vbyte (min relay fee rate).
+	// - deadline: 1008 (default deadline).
+	// - budget: 50% of the input value.
+	bumpFeeReq := &walletrpc.BumpFeeRequest{
+		Outpoint: op,
+		// We use a force param to create the sweeping tx immediately.
+		Immediate: true,
+	}
+	alice.RPC.BumpFee(bumpFeeReq)
+
+	// Since the request doesn't specify a deadline, we expect the default
+	// deadline to be used.
+	_, currentHeight := ht.Miner.GetBestBlock()
+	deadline := uint32(currentHeight + sweep.DefaultDeadlineDelta)
+
+	// Assert the pending sweep is created with the expected values:
+	// - broadcast attempts: 1.
+	// - starting fee rate: 1 sat/vbyte (min relay fee rate).
+	// - deadline: 1008 (default deadline).
+	// - budget: 50% of the input value.
+	feerate1, sweepTx1 := assertPendingSweepResp(
+		1, uint64(value/2), deadline, 0,
+	)
+
+	// Since the request doesn't specify a starting fee rate, we expect the
+	// min relay fee rate is used as the current fee rate.
+	require.Equal(ht, startFeeRate, feerate1, "current fee rate not match")
+
+	// testFeeRate sepcifies a starting fee rate in sat/vbyte.
+	const testFeeRate = uint64(100)
+
+	// Second bump request - we will specify the fee rate and expect a fee
+	// func that has,
+	// - starting fee rate: 100 sat/vbyte.
+	// - deadline: 1008 (default deadline).
+	// - budget: 50% of the input value.
+	bumpFeeReq = &walletrpc.BumpFeeRequest{
+		Outpoint: op,
+		// We use a force param to create the sweeping tx immediately.
+		Immediate:   true,
+		SatPerVbyte: testFeeRate,
+	}
+	alice.RPC.BumpFee(bumpFeeReq)
+
+	// Assert the pending sweep is created with the expected values:
+	// - broadcast attempts: 2.
+	// - starting fee rate: 100 sat/vbyte.
+	// - deadline: 1008 (default deadline).
+	// - budget: 50% of the input value.
+	feerate2, sweepTx2 := assertPendingSweepResp(
+		2, uint64(value/2), deadline, testFeeRate,
+	)
+
+	// We expect the requested starting fee rate to be the current fee
+	// rate.
+	require.Equalf(ht, testFeeRate, feerate2, "current fee rate not "+
+		"match: want: %d, got: %d", testFeeRate, feerate2)
+
+	// Alice's old sweeping tx should be replaced.
+	ht.Miner.AssertTxNotInMempool(sweepTx1.TxHash())
+
+	// testBudget specifies a budget in sats.
+	testBudget := uint64(float64(value) * 0.1)
+
+	// Third bump request - we will specify the budget and expect a fee
+	// func that has,
+	// - starting fee rate: 100 sat/vbyte, stays unchanged.
+	// - deadline: 1008 (default deadline).
+	// - budget: 10% of the input value.
+	bumpFeeReq = &walletrpc.BumpFeeRequest{
+		Outpoint: op,
+		// We use a force param to create the sweeping tx immediately.
+		Immediate: true,
+		Budget:    testBudget,
+	}
+	alice.RPC.BumpFee(bumpFeeReq)
+
+	// Assert the pending sweep is created with the expected values:
+	// - broadcast attempts: 3.
+	// - starting fee rate: 100 sat/vbyte, stays unchanged.
+	// - deadline: 1008 (default deadline).
+	// - budget: 10% of the input value.
+	feerate3, sweepTx3 := assertPendingSweepResp(
+		3, testBudget, deadline, 0,
+	)
+
+	// Alice's old sweeping tx should be replaced.
+	ht.Miner.AssertTxNotInMempool(sweepTx2.TxHash())
+
+	// We expect the current fee rate to be increased because we ensure the
+	// initial broadcast always succeeds.
+	require.Greater(ht, feerate3, testFeeRate, "current fee rate not "+
+		"increased")
+
+	// Create a test deadline delta to use in the next test.
+	testDeadlineDelta := uint32(100)
+	deadlineHeight := uint32(currentHeight) + testDeadlineDelta
+
+	// Fourth bump request - we will specify the deadline and expect a fee
+	// func that has,
+	// - starting fee rate: 100 sat/vbyte, stays unchanged.
+	// - deadline: 100.
+	// - budget: 10% of the input value, stays unchanged.
+	bumpFeeReq = &walletrpc.BumpFeeRequest{
+		Outpoint: op,
+		// We use a force param to create the sweeping tx immediately.
+		Immediate:  true,
+		TargetConf: testDeadlineDelta,
+	}
+	alice.RPC.BumpFee(bumpFeeReq)
+
+	// Assert the pending sweep is created with the expected values:
+	// - broadcast attempts: 4.
+	// - starting fee rate: 100 sat/vbyte, stays unchanged.
+	// - deadline: 100.
+	// - budget: 10% of the input value, stays unchanged.
+	feerate4, sweepTx4 := assertPendingSweepResp(
+		4, testBudget, deadlineHeight, 0,
+	)
+
+	// Alice's old sweeping tx should be replaced.
+	ht.Miner.AssertTxNotInMempool(sweepTx3.TxHash())
+
+	// We expect the current fee rate to be increased because we ensure the
+	// initial broadcast always succeeds.
+	require.Greater(ht, feerate4, testFeeRate, "current fee rate not "+
+		"increased")
+
+	// Fifth bump request - we test the behavior of `Immediate` - every
+	// time it's called, the fee function will keep increasing the fee rate
+	// until the broadcast can succeed. The fee func that has,
+	// - starting fee rate: 100 sat/vbyte, stays unchanged.
+	// - deadline: 100, stays unchanged.
+	// - budget: 10% of the input value, stays unchanged.
+	bumpFeeReq = &walletrpc.BumpFeeRequest{
+		Outpoint: op,
+		// We use a force param to create the sweeping tx immediately.
+		Immediate: true,
+	}
+	alice.RPC.BumpFee(bumpFeeReq)
+
+	// Assert the pending sweep is created with the expected values:
+	// - broadcast attempts: 5.
+	// - starting fee rate: 100 sat/vbyte, stays unchanged.
+	// - deadline: 100, stays unchanged.
+	// - budget: 10% of the input value, stays unchanged.
+	feerate5, sweepTx5 := assertPendingSweepResp(
+		5, testBudget, deadlineHeight, 0,
+	)
+
+	// Alice's old sweeping tx should be replaced.
+	ht.Miner.AssertTxNotInMempool(sweepTx4.TxHash())
+
+	// We expect the current fee rate to be increased because we ensure the
+	// initial broadcast always succeeds.
+	require.Greater(ht, feerate5, testFeeRate, "current fee rate not "+
+		"increased")
+
+	smallBudget := uint64(1000)
+
+	// Finally, we test the behavior of lowering the fee rate. The fee func
+	// that has,
+	// - starting fee rate: 1 sat/vbyte.
+	// - deadline: 1008.
+	// - budget: 1000 sats.
+	bumpFeeReq = &walletrpc.BumpFeeRequest{
+		Outpoint: op,
+		// We use a force param to create the sweeping tx immediately.
+		Immediate:   true,
+		SatPerVbyte: startFeeRate,
+		Budget:      smallBudget,
+		TargetConf:  uint32(sweep.DefaultDeadlineDelta),
+	}
+	alice.RPC.BumpFee(bumpFeeReq)
+
+	// Assert the pending sweep is created with the expected values:
+	// - broadcast attempts: 6.
+	// - starting fee rate: 1 sat/vbyte.
+	// - deadline: 1008.
+	// - budget: 1000 sats.
+	feerate6, sweepTx6 := assertPendingSweepResp(
+		6, smallBudget, deadline, startFeeRate,
+	)
+
+	// Since this budget is too small to cover the RBF, we expect the
+	// sweeping attempt to fail.
+	//
+	require.Equal(ht, sweepTx5.TxHash(), sweepTx6.TxHash(), "tx5 should "+
+		"not be replaced")
+
+	// We expect the current fee rate to be increased because we ensure the
+	// initial broadcast always succeeds.
+	require.Greater(ht, feerate6, testFeeRate, "current fee rate not "+
+		"increased")
+
+	// Clean up the mempol.
+	ht.MineBlocksAndAssertNumTxes(1, 2)
 }

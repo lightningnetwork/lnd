@@ -18,8 +18,8 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-// anchorSize is the constant anchor output size.
-const anchorSize = btcutil.Amount(330)
+// AnchorSize is the constant anchor output size.
+const AnchorSize = btcutil.Amount(330)
 
 // DefaultAnchorsCommitMaxFeeRateSatPerVByte is the default max fee rate in
 // sat/vbyte the initiator will use for anchor channels. This should be enough
@@ -1155,7 +1155,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 		if localOutput || numHTLCs > 0 {
 			commitTx.AddTxOut(&wire.TxOut{
 				PkScript: localAnchor.PkScript(),
-				Value:    int64(anchorSize),
+				Value:    int64(AnchorSize),
 			})
 		}
 
@@ -1164,7 +1164,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 		if remoteOutput || numHTLCs > 0 {
 			commitTx.AddTxOut(&wire.TxOut{
 				PkScript: remoteAnchor.PkScript(),
-				Value:    int64(anchorSize),
+				Value:    int64(AnchorSize),
 			})
 		}
 	}
@@ -1189,7 +1189,7 @@ func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
 	// Since the initiator's balance also is stored after subtracting the
 	// anchor values, add that back in case this was an anchor commitment.
 	if chanType.HasAnchors() {
-		initiatorDelta += 2 * anchorSize
+		initiatorDelta += 2 * AnchorSize
 	}
 
 	// The initiator will pay the full coop close fee, subtract that value

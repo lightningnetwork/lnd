@@ -199,6 +199,11 @@ type SweeperInput struct {
 
 	// rbf records the RBF constraints.
 	rbf fn.Option[RBFInfo]
+
+	// deadlineHeight is the deadline height for this input. This is
+	// different from the DeadlineHeight in its params as it's an actual
+	// value than an option.
+	deadlineHeight int32
 }
 
 // String returns a human readable interpretation of the pending input.
@@ -261,6 +266,9 @@ type PendingInputResponse struct {
 
 	// Params contains the sweep parameters for this pending request.
 	Params Params
+
+	// DeadlineHeight records the deadline height of this input.
+	DeadlineHeight uint32
 }
 
 // updateReq is an internal message we'll use to represent an external caller's
@@ -864,6 +872,10 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 // markInputsPendingPublish updates the pending inputs with the given tx
 // inputs. It also increments the `publishAttempts`.
 func (s *UtxoSweeper) markInputsPendingPublish(set InputSet) {
+	// Create a default deadline height, which will be used when there's no
+	// DeadlineHeight specified for a given input.
+	defaultDeadline := s.currentHeight + int32(s.cfg.NoDeadlineConfTarget)
+
 	// Reschedule sweep.
 	for _, input := range set.Inputs() {
 		pi, ok := s.inputs[input.OutPoint()]
@@ -895,6 +907,11 @@ func (s *UtxoSweeper) markInputsPendingPublish(set InputSet) {
 
 		// Record another publish attempt.
 		pi.publishAttempts++
+
+		// Set the acutal deadline height.
+		pi.deadlineHeight = pi.params.DeadlineHeight.UnwrapOr(
+			defaultDeadline,
+		)
 	}
 }
 
@@ -939,6 +956,9 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord,
 
 		// Update the input's state.
 		pi.state = Published
+
+		// Update the input's latest fee rate.
+		pi.lastFeeRate = chainfee.SatPerKWeight(tr.FeeRate)
 	}
 
 	return nil
@@ -1062,6 +1082,7 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 			LastFeeRate:       inp.lastFeeRate,
 			BroadcastAttempts: inp.publishAttempts,
 			Params:            inp.params,
+			DeadlineHeight:    uint32(inp.deadlineHeight),
 		}
 	}
 

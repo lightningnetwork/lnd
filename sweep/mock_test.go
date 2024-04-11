@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -508,6 +509,13 @@ func (m *MockInputSet) Budget() btcutil.Amount {
 	args := m.Called()
 
 	return args.Get(0).(btcutil.Amount)
+}
+
+// StartingFeeRate returns the max starting fee rate found in the inputs.
+func (m *MockInputSet) StartingFeeRate() fn.Option[chainfee.SatPerKWeight] {
+	args := m.Called()
+
+	return args.Get(0).(fn.Option[chainfee.SatPerKWeight])
 }
 
 // MockBumper is a mock implementation of the interface Bumper.

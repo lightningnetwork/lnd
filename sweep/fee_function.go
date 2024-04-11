@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -110,8 +111,10 @@ var _ FeeFunction = (*LinearFeeFunction)(nil)
 // NewLinearFeeFunction creates a new linear fee function and initializes it
 // with a starting fee rate which is an estimated value returned from the fee
 // estimator using the initial conf target.
-func NewLinearFeeFunction(maxFeeRate chainfee.SatPerKWeight, confTarget uint32,
-	estimator chainfee.Estimator) (*LinearFeeFunction, error) {
+func NewLinearFeeFunction(maxFeeRate chainfee.SatPerKWeight,
+	confTarget uint32, estimator chainfee.Estimator,
+	startingFeeRate fn.Option[chainfee.SatPerKWeight]) (
+	*LinearFeeFunction, error) {
 
 	// If the deadline has already been reached, there's nothing the fee
 	// function can do. In this case, we'll use the max fee rate
@@ -130,11 +133,17 @@ func NewLinearFeeFunction(maxFeeRate chainfee.SatPerKWeight, confTarget uint32,
 		estimator:     estimator,
 	}
 
-	// Estimate the initial fee rate.
-	//
-	// NOTE: estimateFeeRate guarantees the returned fee rate is capped by
-	// the ending fee rate, so we don't need to worry about overpay.
-	start, err := l.estimateFeeRate(confTarget)
+	// If the caller specifies the starting fee rate, we'll use it instead
+	// of estimating it based on the deadline.
+	start, err := startingFeeRate.UnwrapOrFuncErr(
+		func() (chainfee.SatPerKWeight, error) {
+			// Estimate the initial fee rate.
+			//
+			// NOTE: estimateFeeRate guarantees the returned fee
+			// rate is capped by the ending fee rate, so we don't
+			// need to worry about overpay.
+			return l.estimateFeeRate(confTarget)
+		})
 	if err != nil {
 		return nil, fmt.Errorf("estimate initial fee rate: %w", err)
 	}

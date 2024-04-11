@@ -570,6 +570,12 @@ func (b *BudgetAggregator) ClusterInputs(inputs InputsMap,
 // createInputSet takes a set of inputs which share the same deadline height
 // and turns them into a list of `InputSet`, each set is then used to create a
 // sweep transaction.
+//
+// TODO(yy): by the time we call this method, all the invalid/uneconomical
+// inputs have been filtered out, all the inputs have been sorted based on
+// their budgets, and we are about to create input sets. The only thing missing
+// here is, we need to group the inputs here even further based on whether
+// their budgets can cover the starting fee rate used for this input set.
 func (b *BudgetAggregator) createInputSets(inputs []SweeperInput,
 	deadlineHeight int32) []InputSet {
 
@@ -621,8 +627,10 @@ func (b *BudgetAggregator) createInputSets(inputs []SweeperInput,
 	return sets
 }
 
-// filterInputs filters out inputs that have a budget below the min relay fee
-// or have a required output that's below the dust.
+// filterInputs filters out inputs that have,
+// - a budget below the min relay fee.
+// - a budget below its requested starting fee.
+// - a required output that's below the dust.
 func (b *BudgetAggregator) filterInputs(inputs InputsMap) InputsMap {
 	// Get the current min relay fee for this round.
 	minFeeRate := b.estimator.RelayFeePerKW()
@@ -651,6 +659,19 @@ func (b *BudgetAggregator) filterInputs(inputs InputsMap) InputsMap {
 			log.Warnf("Skipped input=%v: has budget=%v, but the "+
 				"min fee requires %v", op, pi.params.Budget,
 				minFee)
+
+			continue
+		}
+
+		// Skip inputs that has cannot cover its starting fees.
+		startingFeeRate := pi.params.StartingFeeRate.UnwrapOr(
+			chainfee.SatPerKWeight(0),
+		)
+		startingFee := startingFeeRate.FeeForWeight(int64(size))
+		if pi.params.Budget < startingFee {
+			log.Errorf("Skipped input=%v: has budget=%v, but the "+
+				"starting fee requires %v", op,
+				pi.params.Budget, minFee)
 
 			continue
 		}

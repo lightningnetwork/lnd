@@ -1358,6 +1358,7 @@ func TestProcessRecords(t *testing.T) {
 			NumConfirmations: 0,
 		}, nil,
 	).Once()
+	m.wallet.On("BackEnd").Return("test-backend").Once()
 
 	// Setup the initial publisher state by adding the records to the maps.
 	subscriberConfirmed := make(chan *BumpResult, 1)

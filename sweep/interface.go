@@ -51,4 +51,9 @@ type Wallet interface {
 	// its transaction hash.
 	GetTransactionDetails(txHash *chainhash.Hash) (
 		*lnwallet.TransactionDetail, error)
+
+	// BackEnd returns a name for the wallet's backing chain service,
+	// which could be e.g. btcd, bitcoind, neutrino, or another consensus
+	// service.
+	BackEnd() string
 }

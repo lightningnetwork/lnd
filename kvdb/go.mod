@@ -7,8 +7,8 @@ require (
 	github.com/fergusstrange/embedded-postgres v1.25.0
 	github.com/google/btree v1.0.1
 	github.com/jackc/pgx/v4 v4.18.1
-	github.com/lightningnetwork/lnd/healthcheck v1.0.0
-	github.com/lightningnetwork/lnd/sqldb v0.0.0-00010101000000-000000000000
+	github.com/lightningnetwork/lnd/healthcheck v1.2.4
+	github.com/lightningnetwork/lnd/sqldb v1.0.1
 	github.com/stretchr/testify v1.9.0
 	go.etcd.io/bbolt v1.3.7
 	go.etcd.io/etcd/api/v3 v3.5.7
@@ -24,6 +24,8 @@ require (
 	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/btcsuite/btcd v0.23.2 // indirect
+	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.1.3 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/containerd/continuity v0.3.0 // indirect
@@ -58,11 +60,12 @@ require (
 	github.com/jackc/pgtype v1.14.0 // indirect
 	github.com/jonboulle/clockwork v0.2.2 // indirect
 	github.com/json-iterator/go v1.1.11 // indirect
-	github.com/kr/pretty v0.3.0 // indirect
 	github.com/lib/pq v1.10.9 // indirect
-	github.com/lightningnetwork/lnd/ticker v1.0.0 // indirect
+	github.com/lightningnetwork/lnd/ticker v1.1.0 // indirect
+	github.com/lightningnetwork/lnd/tor v1.0.0 // indirect
 	github.com/mattn/go-isatty v0.0.16 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
+	github.com/miekg/dns v1.1.43 // indirect
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
 	github.com/moby/term v0.5.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
@@ -79,7 +82,6 @@ require (
 	github.com/prometheus/common v0.26.0 // indirect
 	github.com/prometheus/procfs v0.6.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	github.com/sirupsen/logrus v1.9.2 // indirect
 	github.com/soheilhy/cmux v0.1.5 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
@@ -114,7 +116,6 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20231030173426-d783a09b4405 // indirect
 	google.golang.org/grpc v1.59.0 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
-	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
@@ -136,9 +137,5 @@ replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11
 // This replace is for
 // https://deps.dev/advisory/OSV/GO-2021-0053?from=%2Fgo%2Fgithub.com%252Fgogo%252Fprotobuf%2Fv1.3.1
 replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
-
-// Temporary replace rule until sqldb is tagged with changes from
-// https://github.com/lightningnetwork/lnd/pull/8611.
-replace github.com/lightningnetwork/lnd/sqldb => ../sqldb
 
 go 1.21.4

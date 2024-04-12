@@ -45,6 +45,10 @@ func newMockBackend(t *testing.T, notifier *MockNotifier) *mockBackend {
 	}
 }
 
+func (b *mockBackend) BackEnd() string {
+	return "mockbackend"
+}
+
 func (b *mockBackend) CheckMempoolAcceptance(tx *wire.MsgTx) error {
 	return nil
 }
@@ -356,6 +360,14 @@ type MockWallet struct {
 
 // Compile-time constraint to ensure MockWallet implements Wallet.
 var _ Wallet = (*MockWallet)(nil)
+
+// BackEnd returns a name for the wallet's backing chain service, which could
+// be e.g. btcd, bitcoind, neutrino, or another consensus service.
+func (m *MockWallet) BackEnd() string {
+	args := m.Called()
+
+	return args.String(0)
+}
 
 // CheckMempoolAcceptance checks if the transaction can be accepted to the
 // mempool.

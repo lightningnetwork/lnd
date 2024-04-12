@@ -428,7 +428,7 @@ func TestCalculateChangeAmount(t *testing.T) {
 			changeAmt, needMore, err := CalculateChangeAmount(
 				tc.totalInputAmt, tc.requiredAmt,
 				tc.feeNoChange, tc.feeWithChange, tc.dustLimit,
-				tc.changeType,
+				tc.changeType, false,
 			)
 
 			if tc.expectErr != "" {

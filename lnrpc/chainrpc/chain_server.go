@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -153,7 +152,7 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		err = ioutil.WriteFile(macFilePath, chainNotifierMacBytes, 0644)
+		err = os.WriteFile(macFilePath, chainNotifierMacBytes, 0644)
 		if err != nil {
 			_ = os.Remove(macFilePath)
 			return nil, nil, err

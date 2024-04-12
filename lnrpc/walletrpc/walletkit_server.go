@@ -10,7 +10,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"os"
 	"path/filepath"
@@ -287,7 +286,7 @@ func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		err = ioutil.WriteFile(macFilePath, walletKitMacBytes, 0644)
+		err = os.WriteFile(macFilePath, walletKitMacBytes, 0644)
 		if err != nil {
 			_ = os.Remove(macFilePath)
 			return nil, nil, err

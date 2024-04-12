@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 )
 
@@ -105,7 +104,7 @@ func (f *OnionFile) StorePrivateKey(privateKey []byte) error {
 		privateKeyContent = b.Bytes()
 	}
 
-	err := ioutil.WriteFile(
+	err := os.WriteFile(
 		f.privateKeyPath, privateKeyContent, f.privateKeyPerm,
 	)
 	if err != nil {

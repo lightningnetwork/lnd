@@ -9,7 +9,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"io/ioutil"
 	"math/big"
 	"net"
 	"os"
@@ -351,9 +350,9 @@ func writeTestCertFiles(t *testing.T, expiredCert, encryptTLSKey bool,
 		require.NoError(t, err, "failed to encrypt private key")
 	}
 
-	err = ioutil.WriteFile(tempDir+"/tls.cert", certBuf.Bytes(), 0644)
+	err = os.WriteFile(tempDir+"/tls.cert", certBuf.Bytes(), 0644)
 	require.NoError(t, err, "failed to write cert file")
-	err = ioutil.WriteFile(tempDir+"/tls.key", keyBuf.Bytes(), 0600)
+	err = os.WriteFile(tempDir+"/tls.key", keyBuf.Bytes(), 0600)
 	require.NoError(t, err, "failed to write key file")
 
 	return certPath, keyPath, parsedCert

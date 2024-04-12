@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+	"testing/quick"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -279,5 +281,62 @@ func TestHasDuplicates(t *testing.T) {
 
 			require.Equal(t, tc.want, got)
 		})
+	}
+}
+
+// TestPropForEachConcMapIsomorphism ensures the property that ForEachConc and
+// Map always yield the same results.
+func TestPropForEachConcMapIsomorphism(t *testing.T) {
+	f := func(incSize int, s []int) bool {
+		inc := func(i int) int { return i + incSize }
+		mapped := Map(inc, s)
+		conc := ForEachConc(inc, s)
+
+		return slices.Equal(mapped, conc)
+	}
+	if err := quick.Check(f, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestPropForEachConcOutperformsMapWhenExpensive ensures the property that
+// ForEachConc will beat Map in a race in circumstances where the computation in
+// the argument closure is expensive.
+func TestPropForEachConcOutperformsMapWhenExpensive(t *testing.T) {
+	f := func(incSize int, s []int) bool {
+		if len(s) < 2 {
+			// Intuitively we don't expect the extra overhead of
+			// ForEachConc to justify itself for list sizes of 1 or
+			// 0.
+			return true
+		}
+
+		inc := func(i int) int {
+			time.Sleep(time.Millisecond)
+			return i + incSize
+		}
+		c := make(chan bool, 1)
+
+		go func() {
+			Map(inc, s)
+			select {
+			case c <- false:
+			default:
+			}
+		}()
+
+		go func() {
+			ForEachConc(inc, s)
+			select {
+			case c <- true:
+			default:
+			}
+		}()
+
+		return <-c
+	}
+
+	if err := quick.Check(f, nil); err != nil {
+		t.Fatal(err)
 	}
 }

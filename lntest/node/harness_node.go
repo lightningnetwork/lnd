@@ -292,7 +292,7 @@ func (hn *HarnessNode) ReadMacaroon(macPath string, timeout time.Duration) (
 	// using it.
 	var mac *macaroon.Macaroon
 	err := wait.NoError(func() error {
-		macBytes, err := ioutil.ReadFile(macPath)
+		macBytes, err := os.ReadFile(macPath)
 		if err != nil {
 			return fmt.Errorf("error reading macaroon file: %w",
 				err)

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
+	"os"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
@@ -708,7 +708,7 @@ func testAbandonChannel(ht *lntest.HarnessTest) {
 	// To make sure the channel is removed from the backup file as well
 	// when being abandoned, grab a backup snapshot so we can compare it
 	// with the later state.
-	bkupBefore, err := ioutil.ReadFile(alice.Cfg.ChanBackupPath())
+	bkupBefore, err := os.ReadFile(alice.Cfg.ChanBackupPath())
 	require.NoError(ht, err, "channel backup before abandoning channel")
 
 	// Send request to abandon channel.
@@ -733,7 +733,7 @@ func testAbandonChannel(ht *lntest.HarnessTest) {
 
 	// Make sure the channel is no longer in the channel backup list.
 	err = wait.NoError(func() error {
-		bkupAfter, err := ioutil.ReadFile(alice.Cfg.ChanBackupPath())
+		bkupAfter, err := os.ReadFile(alice.Cfg.ChanBackupPath())
 		if err != nil {
 			return fmt.Errorf("could not get channel backup "+
 				"before abandoning channel: %v", err)

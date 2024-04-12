@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
@@ -946,7 +945,7 @@ var _ ChannelLink = (*mockChannelLink)(nil)
 func newDB() (*channeldb.DB, func(), error) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
-	tempDirName, err := ioutil.TempDir("", "channeldb")
+	tempDirName, err := os.MkdirTemp("", "channeldb")
 	if err != nil {
 		return nil, nil, err
 	}

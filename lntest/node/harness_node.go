@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -97,7 +96,7 @@ type HarnessNode struct {
 func NewHarnessNode(t *testing.T, cfg *BaseNodeConfig) (*HarnessNode, error) {
 	if cfg.BaseDir == "" {
 		var err error
-		cfg.BaseDir, err = ioutil.TempDir("", "lndtest-node")
+		cfg.BaseDir, err = os.MkdirTemp("", "lndtest-node")
 		if err != nil {
 			return nil, err
 		}
@@ -819,7 +818,7 @@ func (hn *HarnessNode) BackupDB() error {
 		}
 	} else {
 		// Backup files.
-		tempDir, err := ioutil.TempDir("", "past-state")
+		tempDir, err := os.MkdirTemp("", "past-state")
 		if err != nil {
 			return fmt.Errorf("unable to create temp db folder: %w",
 				err)

@@ -590,4 +590,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "sweep htlcs",
 		TestFunc: testSweepHTLCs,
 	},
+	{
+		Name:     "sweep commit output and anchor",
+		TestFunc: testSweepCommitOutputAndAnchor,
+	},
 }

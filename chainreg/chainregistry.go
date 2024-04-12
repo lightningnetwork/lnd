@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -547,7 +547,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			if err != nil {
 				return nil, nil, err
 			}
-			rpcCert, err = ioutil.ReadAll(certFile)
+			rpcCert, err = io.ReadAll(certFile)
 			if err != nil {
 				return nil, nil, err
 			}

@@ -3,7 +3,6 @@ package contractcourt
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
 	"testing"
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -291,7 +290,7 @@ type mockOnionProcessor struct {
 func (o *mockOnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte,
 	_ hop.ReconstructBlindingInfo) (hop.Iterator, error) {
 
-	data, err := ioutil.ReadAll(r)
+	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, err
 	}

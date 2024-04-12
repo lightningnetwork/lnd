@@ -2101,7 +2101,7 @@ func (c *ChannelArbitrator) checkRemoteChainActions(
 	// the commitments, and cancel back any that are on the pending but not
 	// the non-pending.
 	remoteDiffActions := c.checkRemoteDiffActions(
-		height, activeHTLCs, pendingConf,
+		activeHTLCs, pendingConf,
 	)
 
 	// Finally, we'll merge all the chain actions and the final set of
@@ -2114,7 +2114,7 @@ func (c *ChannelArbitrator) checkRemoteChainActions(
 // confirmed commit and remote dangling commit for HTLCS that we need to cancel
 // back. If we find any HTLCs on the remote pending but not the remote, then
 // we'll mark them to be failed immediately.
-func (c *ChannelArbitrator) checkRemoteDiffActions(height uint32,
+func (c *ChannelArbitrator) checkRemoteDiffActions(
 	activeHTLCs map[HtlcSetKey]htlcSet,
 	pendingConf bool) ChainActionMap {
 

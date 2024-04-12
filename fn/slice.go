@@ -1,6 +1,13 @@
 package fn
 
-import "golang.org/x/exp/constraints"
+import (
+	"context"
+	"runtime"
+	"sync"
+
+	"golang.org/x/exp/constraints"
+	"golang.org/x/sync/semaphore"
+)
 
 // Number is a type constraint for all numeric types in Go (integers,
 // float and complex numbers)
@@ -204,4 +211,33 @@ func Sum[B Number](items []B) B {
 // are unique), otherwise returns false.
 func HasDuplicates[A comparable](items []A) bool {
 	return len(NewSet(items...)) != len(items)
+}
+
+// ForEachConc maps the argument function over the slice, spawning a new
+// goroutine for each element in the slice and then awaits all results before
+// returning them.
+func ForEachConc[A, B any](f func(A) B,
+	as []A) []B {
+
+	var wait sync.WaitGroup
+	ctx := context.Background()
+
+	sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
+
+	bs := make([]B, len(as))
+
+	for i, a := range as {
+		i, a := i, a
+		sem.Acquire(ctx, 1)
+		wait.Add(1)
+		go func() {
+			bs[i] = f(a)
+			wait.Done()
+			sem.Release(1)
+		}()
+	}
+
+	wait.Wait()
+
+	return bs
 }

@@ -1,6 +1,8 @@
 package itest
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -338,6 +341,135 @@ func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 	case <-time.After(defaultTimeout):
 		require.Fail(ht, "timeout waiting for interceptor error")
 	}
+
+	// Finally, close channels.
+	ht.CloseChannel(alice, cpAB)
+	ht.CloseChannel(bob, cpBC)
+}
+
+// testForwardInterceptorModifiedHtlc tests that the interceptor can modify the
+// amount and custom records of an intercepted HTLC and resume it.
+func testForwardInterceptorModifiedHtlc(ht *lntest.HarnessTest) {
+	// Initialize the test context with 3 connected nodes.
+	ts := newInterceptorTestScenario(ht)
+
+	alice, bob, carol := ts.alice, ts.bob, ts.carol
+
+	// Open and wait for channels.
+	const chanAmt = btcutil.Amount(300000)
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntest.OpenChannelRequest{
+		{Local: alice, Remote: bob, Param: p},
+		{Local: bob, Remote: carol, Param: p},
+	}
+	resp := ht.OpenMultiChannelsAsync(reqs)
+	cpAB, cpBC := resp[0], resp[1]
+
+	// Make sure Alice is aware of channel Bob=>Carol.
+	ht.AssertTopologyChannelOpen(alice, cpBC)
+
+	// Connect an interceptor to Bob's node.
+	bobInterceptor, cancelBobInterceptor := bob.RPC.HtlcInterceptor()
+
+	// Prepare the test cases.
+	invoiceValueAmtMsat := int64(1000)
+	req := &lnrpc.Invoice{ValueMsat: invoiceValueAmtMsat}
+	addResponse := carol.RPC.AddInvoice(req)
+	invoice := carol.RPC.LookupInvoice(addResponse.RHash)
+	tc := &interceptorTestCase{
+		amountMsat: invoiceValueAmtMsat,
+		invoice:    invoice,
+		payAddr:    invoice.PaymentAddr,
+	}
+
+	// We initiate a payment from Alice.
+	done := make(chan struct{})
+	go func() {
+		// Signal that all the payments have been sent.
+		defer close(done)
+
+		ts.sendPaymentAndAssertAction(tc)
+	}()
+
+	// We start the htlc interceptor with a simple implementation that saves
+	// all intercepted packets. These packets are held to simulate a
+	// pending payment.
+	packet := ht.ReceiveHtlcInterceptor(bobInterceptor)
+
+	// Resume the intercepted htlc with a modified amount and custom
+	// records.
+	if packet.CustomRecords == nil {
+		packet.CustomRecords = make(map[uint64][]byte)
+	}
+	customRecords := packet.CustomRecords
+	customRecords[42] = []byte("test")
+
+	action := routerrpc.ResolveHoldForwardAction_RESUME_MODIFIED
+	newOutgoingAmountMsat := packet.OutgoingAmountMsat + 4000
+
+	err := bobInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey: packet.IncomingCircuitKey,
+		OutgoingAmountMsat: newOutgoingAmountMsat,
+		CustomRecords:      customRecords,
+		Action:             action,
+	})
+	require.NoError(ht, err, "failed to send request")
+
+	// Check that the modified fields were reported in Carol's log.
+	targetLogPrefixStr := "Received UpdateAddHTLC("
+	targetOutgoingAmountMsatStr := fmt.Sprintf(
+		"amt=%d", newOutgoingAmountMsat,
+	)
+
+	// Formulate custom records target log string.
+	var (
+		cr  record.CustomSet = packet.CustomRecords
+		buf bytes.Buffer
+	)
+	err = cr.Encode(&buf)
+	require.NoError(ht, err, "failed to encode custom records")
+	customRecordsBytes := buf.Bytes()
+
+	targetCustomRecordsStr := fmt.Sprintf(
+		"custom_records_blob=%x", customRecordsBytes,
+	)
+
+	logEntryCheck := func(logEntry string) bool {
+		return strings.Contains(logEntry, targetLogPrefixStr) &&
+			strings.Contains(logEntry, targetCustomRecordsStr) &&
+			strings.Contains(logEntry, targetOutgoingAmountMsatStr)
+	}
+
+	require.Eventually(ht, func() bool {
+		ctx := context.Background()
+		dbgInfo, err := carol.RPC.LN.GetDebugInfo(
+			ctx, &lnrpc.GetDebugInfoRequest{},
+		)
+		require.NoError(ht, err, "failed to get Carol node debug info")
+
+		for _, logEntry := range dbgInfo.Log {
+			if logEntryCheck(logEntry) {
+				return true
+			}
+		}
+
+		return false
+	}, defaultTimeout, time.Second)
+
+	// Cancel the context, which will disconnect Bob's interceptor.
+	cancelBobInterceptor()
+
+	// Make sure all goroutines are finished.
+	select {
+	case <-done:
+	case <-time.After(defaultTimeout):
+		require.Fail(ht, "timeout waiting for sending payment")
+	}
+
+	// Assert that the payment was successful.
+	var preimage lntypes.Preimage
+	copy(preimage[:], invoice.RPreimage)
+	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
 
 	// Finally, close channels.
 	ht.CloseChannel(alice, cpAB)

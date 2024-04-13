@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	crand "crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -132,6 +133,27 @@ func randPubKey() (*btcec.PublicKey, error) {
 	}
 
 	return priv.PubKey(), nil
+}
+
+// pubkeyFromHex parses a Bitcoin public key from a hex encoded string.
+func pubkeyFromHex(keyHex string) (*btcec.PublicKey, error) {
+	pubKeyBytes, err := hex.DecodeString(keyHex)
+	if err != nil {
+		return nil, err
+	}
+
+	return btcec.ParsePubKey(pubKeyBytes)
+}
+
+// generateRandomBytes returns a slice of n random bytes.
+func generateRandomBytes(n int) ([]byte, error) {
+	b := make([]byte, n)
+	_, err := crand.Read(b)
+	if err != nil {
+		return nil, err
+	}
+
+	return b, nil
 }
 
 func randRawKey() ([33]byte, error) {
@@ -387,6 +409,37 @@ func TestEmptyMessageUnknownType(t *testing.T) {
 		t.Fatalf("should not be able to make an empty message of an " +
 			"unknown type")
 	}
+}
+
+// randCustomRecords generates a random set of custom records for testing.
+func randCustomRecords(t *testing.T, r *rand.Rand) CustomRecords {
+	var (
+		customRecords = CustomRecords{}
+
+		// We'll generate a random number of records, between 1 and 10.
+		numRecords = r.Intn(9) + 1
+	)
+
+	// For each record, we'll generate a random key and value.
+	for i := 0; i < numRecords; i++ {
+		// Keys must be equal to or greater than
+		// MinCustomRecordsTlvType.
+		keyOffset := uint64(r.Intn(100))
+		key := MinCustomRecordsTlvType + keyOffset
+
+		// Values are byte slices of any length.
+		value := make([]byte, r.Intn(100))
+		_, err := r.Read(value)
+		require.NoError(t, err)
+
+		customRecords[key] = value
+	}
+
+	// Validate the custom records as a sanity check.
+	err := customRecords.Validate()
+	require.NoError(t, err)
+
+	return customRecords
 }
 
 // TestLightningWireProtocol uses the testing/quick package to create a series
@@ -1368,6 +1421,8 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			_, err = r.Read(req.OnionBlob[:])
 			require.NoError(t, err)
+
+			req.CustomRecords = randCustomRecords(t, r)
 
 			// Generate a blinding point 50% of the time, since not
 			// all update adds will use route blinding.

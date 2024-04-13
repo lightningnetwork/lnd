@@ -72,6 +72,11 @@ type UpdateAddHTLC struct {
 	// next hop for this htlc.
 	BlindingPoint BlindingPointRecord
 
+	// CustomRecords maps TLV types to byte slices, storing arbitrary data
+	// intended for inclusion in the ExtraData field of the UpdateAddHTLC
+	// message.
+	CustomRecords CustomRecords
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -92,6 +97,10 @@ var _ Message = (*UpdateAddHTLC)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
+	// msgExtraData is a temporary variable used to read the message extra
+	// data field from the reader.
+	var msgExtraData ExtraOpaqueData
+
 	if err := ReadElements(r,
 		&c.ChanID,
 		&c.ID,
@@ -99,26 +108,28 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 		c.PaymentHash[:],
 		&c.Expiry,
 		c.OnionBlob[:],
-		&c.ExtraData,
+		&msgExtraData,
 	); err != nil {
 		return err
 	}
 
+	// Extract TLV records from the extra data field.
 	blindingRecord := c.BlindingPoint.Zero()
-	tlvMap, err := c.ExtraData.ExtractRecords(&blindingRecord)
+
+	customRecords, parsed, extraData, err := ParseAndExtractCustomRecords(
+		msgExtraData, &blindingRecord,
+	)
 	if err != nil {
 		return err
 	}
 
-	if val, ok := tlvMap[c.BlindingPoint.TlvType()]; ok && val == nil {
+	// Assign the parsed records back to the message.
+	if parsed.Contains(blindingRecord.TlvType()) {
 		c.BlindingPoint = tlv.SomeRecordT(blindingRecord)
 	}
 
-	// Set extra data to nil if we didn't parse anything out of it so that
-	// we can use assert.Equal in tests.
-	if len(tlvMap) == 0 {
-		c.ExtraData = nil
-	}
+	c.CustomRecords = customRecords
+	c.ExtraData = extraData
 
 	return nil
 }
@@ -154,19 +165,18 @@ func (c *UpdateAddHTLC) Encode(w *bytes.Buffer, pver uint32) error {
 
 	// Only include blinding point in extra data if present.
 	var records []tlv.RecordProducer
+	c.BlindingPoint.WhenSome(
+		func(b tlv.RecordT[BlindingPointTlvType, *btcec.PublicKey]) {
+			records = append(records, &b)
+		},
+	)
 
-	c.BlindingPoint.WhenSome(func(b tlv.RecordT[BlindingPointTlvType,
-		*btcec.PublicKey]) {
-
-		records = append(records, &b)
-	})
-
-	err := EncodeMessageExtraData(&c.ExtraData, records...)
+	extraData, err := MergeAndEncode(records, c.ExtraData, c.CustomRecords)
 	if err != nil {
 		return err
 	}
 
-	return WriteBytes(w, c.ExtraData)
+	return WriteBytes(w, extraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

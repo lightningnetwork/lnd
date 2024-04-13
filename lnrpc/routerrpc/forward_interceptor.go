@@ -4,10 +4,12 @@ import (
 	"errors"
 
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -117,6 +119,37 @@ func (r *forwardInterceptor) resolveFromClient(
 		return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
 			Key:    circuitKey,
 			Action: htlcswitch.FwdActionResume,
+		})
+
+	case ResolveHoldForwardAction_RESUME_MODIFIED:
+		// Modify HTLC and resume forward.
+		outgoingAmtMsat := fn.None[lnwire.MilliSatoshi]()
+		if in.OutgoingAmountMsat > 0 {
+			outgoingAmtMsat = fn.Some[lnwire.MilliSatoshi](
+				lnwire.MilliSatoshi(in.OutgoingAmountMsat),
+			)
+		}
+
+		customRecords := fn.None[record.CustomSet]()
+		if in.CustomRecords != nil && len(in.CustomRecords) > 0 {
+			// Validate custom records.
+			cr := record.CustomSet(in.CustomRecords)
+			if err := cr.Validate(); err != nil {
+				return status.Errorf(
+					codes.InvalidArgument,
+					"failed to validate custom records: %v",
+					err,
+				)
+			}
+
+			customRecords = fn.Some[record.CustomSet](cr)
+		}
+
+		return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
+			Key:                circuitKey,
+			Action:             htlcswitch.FwdActionResumeModified,
+			OutgoingAmountMsat: outgoingAmtMsat,
+			CustomRecords:      customRecords,
 		})
 
 	case ResolveHoldForwardAction_FAIL:

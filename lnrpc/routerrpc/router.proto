@@ -960,6 +960,8 @@ message ForwardHtlcInterceptRequest {
 ForwardHtlcInterceptResponse enables the caller to resolve a previously hold
 forward. The caller can choose either to:
 - `Resume`: Execute the default behavior (usually forward).
+- `ResumeModified`: Execute the default behavior (usually forward) with HTLC
+                    field modifications.
 - `Reject`: Fail the htlc backwards.
 - `Settle`: Settle this htlc with a given preimage.
 */
@@ -990,12 +992,24 @@ message ForwardHtlcInterceptResponse {
     // For backwards-compatibility reasons, TEMPORARY_CHANNEL_FAILURE is the
     // default value for this field.
     lnrpc.Failure.FailureCode failure_code = 5;
+
+    // outgoing_amount_msat is used to set the p2p message outgoing amount field
+    // for resuming a HTLC.
+    uint64 outgoing_amount_msat = 6;
+
+    // custom_records is used to set the p2p message custom records field for
+    // resuming a HTLC.
+    map<uint64, bytes> custom_records = 7;
 }
 
 enum ResolveHoldForwardAction {
     SETTLE = 0;
     FAIL = 1;
     RESUME = 2;
+
+    // RESUME_MODIFIED is an action that is used to resume a hold forward HTLC
+    // with modifications specified during interception.
+    RESUME_MODIFIED = 3;
 }
 
 message UpdateChanStatusRequest {

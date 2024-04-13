@@ -4,10 +4,12 @@ import (
 	"errors"
 
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -117,6 +119,24 @@ func (r *forwardInterceptor) resolveFromClient(
 		return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
 			Key:    circuitKey,
 			Action: htlcswitch.FwdActionResume,
+		})
+
+	case ResolveHoldForwardAction_RESUME_MODIFIED:
+		// Modify HTLC and resume forward.
+		outgoingAmtMsat := lnwire.MilliSatoshi(in.OutgoingAmountMsat)
+
+		customRecords := fn.None[record.CustomSet]()
+		if in.CustomRecords != nil && len(in.CustomRecords) > 0 {
+			customRecords = fn.Some[record.CustomSet](
+				in.CustomRecords,
+			)
+		}
+
+		return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
+			Key:                circuitKey,
+			Action:             htlcswitch.FwdActionResumeModified,
+			OutgoingAmountMsat: fn.Some(outgoingAmtMsat),
+			CustomRecords:      customRecords,
 		})
 
 	case ResolveHoldForwardAction_FAIL:

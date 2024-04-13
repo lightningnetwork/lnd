@@ -22,6 +22,8 @@ import (
 var (
 	customTestKey   uint64 = 394829
 	customTestValue        = []byte{1, 3, 5}
+
+	actionResumeModify = routerrpc.ResolveHoldForwardAction_RESUME_MODIFIED
 )
 
 type interceptorTestCase struct {
@@ -338,6 +340,96 @@ func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 	case <-time.After(defaultTimeout):
 		require.Fail(ht, "timeout waiting for interceptor error")
 	}
+
+	// Finally, close channels.
+	ht.CloseChannel(alice, cpAB)
+	ht.CloseChannel(bob, cpBC)
+}
+
+// testForwardInterceptorModifiedHtlc tests that the interceptor can modify the
+// amount and custom records of an intercepted HTLC and resume it.
+func testForwardInterceptorModifiedHtlc(ht *lntest.HarnessTest) {
+	// Initialize the test context with 3 connected nodes.
+	ts := newInterceptorTestScenario(ht)
+
+	alice, bob, carol := ts.alice, ts.bob, ts.carol
+
+	// Open and wait for channels.
+	const chanAmt = btcutil.Amount(300000)
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntest.OpenChannelRequest{
+		{Local: alice, Remote: bob, Param: p},
+		{Local: bob, Remote: carol, Param: p},
+	}
+	resp := ht.OpenMultiChannelsAsync(reqs)
+	cpAB, cpBC := resp[0], resp[1]
+
+	// Make sure Alice is aware of channel Bob=>Carol.
+	ht.AssertTopologyChannelOpen(alice, cpBC)
+
+	// Connect an interceptor to Bob's node.
+	bobInterceptor, cancelBobInterceptor := bob.RPC.HtlcInterceptor()
+
+	// Prepare the test cases.
+	invoiceValueAmtMsat := int64(1000)
+	req := &lnrpc.Invoice{ValueMsat: invoiceValueAmtMsat}
+	addResponse := carol.RPC.AddInvoice(req)
+	invoice := carol.RPC.LookupInvoice(addResponse.RHash)
+	tc := &interceptorTestCase{
+		amountMsat: invoiceValueAmtMsat,
+		invoice:    invoice,
+		payAddr:    invoice.PaymentAddr,
+	}
+
+	// We initiate a payment from Alice.
+	done := make(chan struct{})
+	go func() {
+		// Signal that all the payments have been sent.
+		defer close(done)
+
+		ts.sendPaymentAndAssertAction(tc)
+	}()
+
+	// We start the htlc interceptor with a simple implementation that saves
+	// all intercepted packets. These packets are held to simulate a
+	// pending payment.
+	packet := ht.ReceiveHtlcInterceptor(bobInterceptor)
+
+	// Resume the intercepted HTLC with a modified amount and custom
+	// records.
+	customRecords := make(map[uint64][]byte)
+
+	// Add custom records entry.
+	crKey := uint64(65537)
+	crValue := []byte("custom-records-test-value")
+	customRecords[crKey] = crValue
+
+	// TODO(guggero): Actually modify the amount once we have the invoice
+	// interceptor and can accept a lower amount.
+	newOutAmountMsat := packet.OutgoingAmountMsat
+
+	err := bobInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey:   packet.IncomingCircuitKey,
+		OutAmountMsat:        newOutAmountMsat,
+		OutWireCustomRecords: customRecords,
+		Action:               actionResumeModify,
+	})
+	require.NoError(ht, err, "failed to send request")
+
+	// Cancel the context, which will disconnect Bob's interceptor.
+	cancelBobInterceptor()
+
+	// Make sure all goroutines are finished.
+	select {
+	case <-done:
+	case <-time.After(defaultTimeout):
+		require.Fail(ht, "timeout waiting for sending payment")
+	}
+
+	// Assert that the payment was successful.
+	var preimage lntypes.Preimage
+	copy(preimage[:], invoice.RPreimage)
+	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
 
 	// Finally, close channels.
 	ht.CloseChannel(alice, cpAB)

@@ -383,6 +383,11 @@ type InterceptedForward interface {
 	// this htlc which usually means forward it.
 	Resume() error
 
+	// ResumeModified notifies the intention to resume an existing hold
+	// forward with modified fields.
+	ResumeModified(outgoingAmountMsat fn.Option[lnwire.MilliSatoshi],
+		customRecords fn.Option[lnwire.CustomRecords]) error
+
 	// Settle notifies the intention to settle an existing hold
 	// forward with a given preimage.
 	Settle(lntypes.Preimage) error

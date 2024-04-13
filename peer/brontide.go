@@ -2015,10 +2015,20 @@ func messageSummary(msg lnwire.Message) string {
 			},
 		)
 
+		// Unpack the custom records blob.
+		var customRecordsBlob []byte
+		msg.CustomRecordsBlob.WhenSome(
+			func(b tlv.RecordT[lnwire.CustomRecordsBlobTlvType,
+				[]byte]) {
+
+				customRecordsBlob = b.Val
+			},
+		)
+
 		return fmt.Sprintf("chan_id=%v, id=%v, amt=%v, expiry=%v, "+
-			"hash=%x, blinding_point=%x", msg.ChanID, msg.ID,
-			msg.Amount, msg.Expiry, msg.PaymentHash[:],
-			blindingPoint)
+			"hash=%x, blinding_point=%x, custom_records_blob=%x",
+			msg.ChanID, msg.ID, msg.Amount, msg.Expiry,
+			msg.PaymentHash[:], blindingPoint, customRecordsBlob)
 
 	case *lnwire.UpdateFailHTLC:
 		return fmt.Sprintf("chan_id=%v, id=%v, reason=%x", msg.ChanID,

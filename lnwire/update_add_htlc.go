@@ -23,6 +23,17 @@ type (
 	// htlc.
 	//nolint:lll
 	BlindingPointRecord = tlv.OptionalRecordT[BlindingPointTlvType, *btcec.PublicKey]
+
+	// CustomRecordsBlobTlvType is the TLV type for a custom records blob
+	// (typically a map encoded as a byte slice) which is optionally
+	// included in the ExtraData field of the UpdateAddHTLC message.
+	CustomRecordsBlobTlvType = tlv.TlvType1
+
+	// CustomRecordsBlob is an optional custom records blob (typically a map
+	// encoded as a byte slice) that can be included in the ExtraData field
+	// of the UpdateAddHTLC message.
+	CustomRecordsBlob = tlv.OptionalRecordT[
+		CustomRecordsBlobTlvType, []byte]
 )
 
 // UpdateAddHTLC is the message sent by Alice to Bob when she wishes to add an
@@ -72,6 +83,10 @@ type UpdateAddHTLC struct {
 	// next hop for this htlc.
 	BlindingPoint BlindingPointRecord
 
+	// CustomRecordsBlob is an optional blob of custom records that can be
+	// included in the ExtraData field of the UpdateAddHTLC message.
+	CustomRecordsBlob CustomRecordsBlob
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -104,14 +119,23 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
+	// Extract TLV records from the extra data field.
 	blindingRecord := c.BlindingPoint.Zero()
-	tlvMap, err := c.ExtraData.ExtractRecords(&blindingRecord)
+	customRecordsBlob := c.CustomRecordsBlob.Zero()
+
+	tlvMap, err := c.ExtraData.ExtractRecords(
+		&blindingRecord, &customRecordsBlob,
+	)
 	if err != nil {
 		return err
 	}
 
 	if val, ok := tlvMap[c.BlindingPoint.TlvType()]; ok && val == nil {
 		c.BlindingPoint = tlv.SomeRecordT(blindingRecord)
+	}
+
+	if val, ok := tlvMap[customRecordsBlob.TlvType()]; ok && val == nil {
+		c.CustomRecordsBlob = tlv.SomeRecordT(customRecordsBlob)
 	}
 
 	// Set extra data to nil if we didn't parse anything out of it so that
@@ -152,14 +176,23 @@ func (c *UpdateAddHTLC) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	// Only include blinding point in extra data if present.
+	// Construct a slice of all the records that we should include in the
+	// extra data field.
 	var records []tlv.RecordProducer
 
+	// Only include blinding point in extra data if present.
 	c.BlindingPoint.WhenSome(func(b tlv.RecordT[BlindingPointTlvType,
 		*btcec.PublicKey]) {
 
 		records = append(records, &b)
 	})
+
+	// Only include custom records blob in extra data if present.
+	c.CustomRecordsBlob.WhenSome(
+		func(b tlv.RecordT[CustomRecordsBlobTlvType, []byte]) {
+			records = append(records, &b)
+		},
+	)
 
 	err := EncodeMessageExtraData(&c.ExtraData, records...)
 	if err != nil {

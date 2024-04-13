@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -108,7 +109,9 @@ func (r *forwardInterceptor) resolveFromClient(
 	log.Tracef("Resolving intercepted packet %v", in)
 
 	circuitKey := models.CircuitKey{
-		ChanID: lnwire.NewShortChanIDFromInt(in.IncomingCircuitKey.ChanId),
+		ChanID: lnwire.NewShortChanIDFromInt(
+			in.IncomingCircuitKey.ChanId,
+		),
 		HtlcID: in.IncomingCircuitKey.HtlcId,
 	}
 
@@ -117,6 +120,46 @@ func (r *forwardInterceptor) resolveFromClient(
 		return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
 			Key:    circuitKey,
 			Action: htlcswitch.FwdActionResume,
+		})
+
+	case ResolveHoldForwardAction_RESUME_MODIFIED:
+		// Modify HTLC and resume forward.
+		inAmtMsat := fn.None[lnwire.MilliSatoshi]()
+		if in.InAmountMsat > 0 {
+			inAmtMsat = fn.Some(lnwire.MilliSatoshi(
+				in.InAmountMsat,
+			))
+		}
+
+		outAmtMsat := fn.None[lnwire.MilliSatoshi]()
+		if in.OutAmountMsat > 0 {
+			outAmtMsat = fn.Some(lnwire.MilliSatoshi(
+				in.OutAmountMsat,
+			))
+		}
+
+		outWireCustomRecords := fn.None[lnwire.CustomRecords]()
+		if len(in.OutWireCustomRecords) > 0 {
+			// Validate custom records.
+			cr := lnwire.CustomRecords(in.OutWireCustomRecords)
+			if err := cr.Validate(); err != nil {
+				return status.Errorf(
+					codes.InvalidArgument,
+					"failed to validate custom records: %v",
+					err,
+				)
+			}
+
+			outWireCustomRecords = fn.Some[lnwire.CustomRecords](cr)
+		}
+
+		//nolint:lll
+		return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
+			Key:                  circuitKey,
+			Action:               htlcswitch.FwdActionResumeModified,
+			InAmountMsat:         inAmtMsat,
+			OutAmountMsat:        outAmtMsat,
+			OutWireCustomRecords: outWireCustomRecords,
 		})
 
 	case ResolveHoldForwardAction_FAIL:

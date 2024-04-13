@@ -198,7 +198,7 @@ type CipherSeed struct {
 	// specified passphrase.
 	salt [SaltSize]byte
 }
-
+ 
 // New generates a new CipherSeed instance from an optional source of entropy.
 // If the entropy isn't provided, then a set of random bytes will be used in
 // place. The final fixed argument should be the time at which the seed was

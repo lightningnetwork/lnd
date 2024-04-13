@@ -4,7 +4,8 @@ package aezeed
 
 import "github.com/btcsuite/btcwallet/waddrmgr"
 
-func init() {
+func init
+() {
 	// For the purposes of our itest, we'll crank down the scrypt params a
 	// bit.
 	scryptN = waddrmgr.FastScryptOptions.N

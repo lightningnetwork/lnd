@@ -538,7 +538,7 @@ func DefaultConfig() Config {
 		LndDir:            DefaultLndDir,
 		ConfigFile:        DefaultConfigFile,
 		DataDir:           defaultDataDir,
-		DebugLevel:        defaultLogLevel,
+		DebugLevel:        defaultLogLevel, 
 		TLSCertPath:       defaultTLSCertPath,
 		TLSKeyPath:        defaultTLSKeyPath,
 		TLSCertDuration:   defaultTLSCertDuration,

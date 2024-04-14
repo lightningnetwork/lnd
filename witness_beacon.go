@@ -21,7 +21,9 @@ type preimageSubscriber struct {
 	quit chan struct{}
 }
 
-type witnessCache interface {
+type 
+
+witnessCache interface {
 	// LookupSha256Witness attempts to lookup the preimage for a sha256
 	// hash. If the witness isn't found, ErrNoWitnesses will be returned.
 	LookupSha256Witness(hash lntypes.Hash) (lntypes.Preimage, error)

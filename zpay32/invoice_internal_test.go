@@ -20,7 +20,7 @@ import (
 func TestDecodeAmount(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	tests := 0]struct {
 		amount string
 		valid  bool
 		result lnwire.MilliSatoshi

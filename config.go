@@ -62,7 +62,7 @@ const (
 	defaultRPCPort            = 10009
 	defaultRESTPort           = 8080
 	defaultPeerPort           = 9735
-	defaultRPCHost            = "localhost"
+	defaultRPC            = "localhost"
 
 	defaultNoSeedBackup                  = false
 	defaultPaymentsExpirationGracePeriod = time.Duration(0)

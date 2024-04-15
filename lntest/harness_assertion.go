@@ -2575,19 +2575,28 @@ func (h *HarnessTest) AssertNumPendingSweeps(hn *node.HarnessNode,
 		resp := hn.RPC.PendingSweeps()
 		num := len(resp.PendingSweeps)
 
+		numDesc := "\n"
+		for _, s := range resp.PendingSweeps {
+			desc := fmt.Sprintf("op=%v:%v, amt=%v, type=%v, "+
+				"deadline=%v\n", s.Outpoint.TxidStr,
+				s.Outpoint.OutputIndex, s.AmountSat,
+				s.WitnessType, s.DeadlineHeight)
+			numDesc += desc
+
+			// The deadline height must be set, otherwise the
+			// pending input response is not update-to-date.
+			if s.DeadlineHeight == 0 {
+				return fmt.Errorf("input not updated: %s", desc)
+			}
+		}
+
 		if num == n {
 			results = resp.PendingSweeps
 			return nil
 		}
 
-		desc := "\n"
-		for _, s := range resp.PendingSweeps {
-			desc += fmt.Sprintf("op=%v:%v, amt=%v, type=%v\n",
-				s.Outpoint.TxidStr, s.Outpoint.OutputIndex,
-				s.AmountSat, s.WitnessType)
-		}
-
-		return fmt.Errorf("want %d , got %d, sweeps: %s", n, num, desc)
+		return fmt.Errorf("want %d , got %d, sweeps: %s", n, num,
+			numDesc)
 	}, DefaultTimeout)
 
 	require.NoErrorf(h, err, "%s: check pending sweeps timeout", hn.Name())

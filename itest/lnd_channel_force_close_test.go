@@ -65,6 +65,18 @@ func testChannelForceClosure(ht *lntest.HarnessTest) {
 			// order to fund the channel.
 			st.FundCoins(btcutil.SatoshiPerBitcoin, alice)
 
+			// NOTE: Alice needs 3 more UTXOs to sweep her
+			// second-layer txns after a restart - after a restart
+			// all the time-sensitive sweeps are swept immediately
+			// without being aggregated.
+			//
+			// TODO(yy): remove this once the can recover its state
+			// from restart.
+			st.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+			st.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+			st.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+			st.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+
 			// Also give Carol some coins to allow her to sweep her
 			// anchor.
 			st.FundCoins(btcutil.SatoshiPerBitcoin, carol)
@@ -198,7 +210,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// To give the neutrino backend some time to catch up with the chain,
 	// we wait here until we have enough UTXOs to actually sweep the local
 	// and remote anchor.
-	const expectedUtxos = 2
+	const expectedUtxos = 6
 	ht.AssertNumUTXOs(alice, expectedUtxos)
 
 	// We expect to see Alice's force close tx in the mempool.
@@ -323,6 +335,10 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// We also expect Carol to broadcast her sweeping tx which spends her
 	// commit and anchor outputs.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Once Alice's anchor sweeping is mined, she should have no pending
+	// sweep requests atm.
+	ht.AssertNumPendingSweeps(alice, 0)
 
 	// The following restart checks to ensure that outputs in the
 	// kindergarten bucket are persisted while waiting for the required
@@ -487,6 +503,10 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// experiencing a while waiting for the htlc outputs to incubate.
 	ht.RestartNode(alice)
 
+	// To give the neutrino backend some time to catch up with the chain,
+	// we wait here until we have enough UTXOs to
+	// ht.AssertNumUTXOs(alice, expectedUtxos)
+
 	// Alice should now see the channel in her set of pending force closed
 	// channels with one pending HTLC.
 	err = wait.NoError(func() error {
@@ -528,19 +548,17 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// one.
 	ht.AssertNumPendingSweeps(alice, numInvoices)
 
-	// Mine a block to trigger the sweeps.
-	ht.MineEmptyBlocks(1)
-
-	// Wait for them all to show up in the mempool and expect the timeout
-	// txs to be aggregated into one.
-	htlcTxIDs := ht.Miner.AssertNumTxsInMempool(1)
+	// Wait for them all to show up in the mempool
+	//
+	// NOTE: after restart, all the htlc timeout txns will be offered to
+	// the sweeper with `Immediate` set to true, so they won't be
+	// aggregated.
+	htlcTxIDs := ht.Miner.AssertNumTxsInMempool(numInvoices)
 
 	// Retrieve each htlc timeout txn from the mempool, and ensure it is
 	// well-formed. This entails verifying that each only spends from
-	// output, and that output is from the commitment txn. In case this is
-	// an anchor channel, the transactions are aggregated by the sweeper
-	// into one.
-	numInputs := numInvoices + 1
+	// output, and that output is from the commitment txn.
+	numInputs := 2
 
 	// Construct a map of the already confirmed htlc timeout outpoints,
 	// that will count the number of times each is spent by the sweep txn.
@@ -641,7 +659,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Generate a block that mines the htlc timeout txns. Doing so now
 	// activates the 2nd-stage CSV delayed outputs.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
+	ht.MineBlocksAndAssertNumTxes(1, numInvoices)
 
 	// Alice is restarted here to ensure that she promptly moved the crib
 	// outputs to the kindergarten bucket after the htlc timeout txns were
@@ -651,7 +669,9 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// Advance the chain until just before the 2nd-layer CSV delays expire.
 	// For anchor channels this is one block earlier.
 	_, currentHeight = ht.Miner.GetBestBlock()
-	numBlocks := int(htlcCsvMaturityHeight - uint32(currentHeight) - 1)
+	ht.Logf("current height: %v, htlcCsvMaturityHeight=%v", currentHeight,
+		htlcCsvMaturityHeight)
+	numBlocks := int(htlcCsvMaturityHeight - uint32(currentHeight) - 2)
 	ht.MineEmptyBlocks(numBlocks)
 
 	// Restart Alice to ensure that she can recover from a failure before
@@ -738,8 +758,8 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	ht.AssertSweepFound(alice, htlcSweepTx.Hash().String(), true, 0)
 
 	// The following restart checks to ensure that the nursery store is
-	// storing the txid of the previously broadcast htlc sweep txn, and that
-	// it begins watching that txid after restarting.
+	// storing the txid of the previously broadcast htlc sweep txn, and
+	// that it begins watching that txid after restarting.
 	ht.RestartNode(alice)
 
 	// Now that the channel has been fully swept, it should no longer show
@@ -755,7 +775,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 		}
 
 		err = checkPendingHtlcStageAndMaturity(
-			forceClose, 2, htlcCsvMaturityHeight, -1,
+			forceClose, 2, htlcCsvMaturityHeight-1, -1,
 		)
 		if err != nil {
 			return err

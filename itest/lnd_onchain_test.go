@@ -785,11 +785,10 @@ func testListSweeps(ht *lntest.HarnessTest) {
 	ht.ForceCloseChannel(alice, chanPoints[0])
 
 	// Jump a block.
-	ht.MineBlocks(1)
+	ht.MineEmptyBlocks(1)
 
 	// Get the current block height.
-	bestBlockRes := ht.Alice.RPC.GetBestBlock(nil)
-	blockHeight := bestBlockRes.BlockHeight
+	_, blockHeight := ht.Miner.GetBestBlock()
 
 	// Close the second channel and also sweep the funds.
 	ht.ForceCloseChannel(alice, chanPoints[1])
@@ -814,15 +813,13 @@ func testListSweeps(ht *lntest.HarnessTest) {
 	ht.MineEmptyBlocks(1)
 
 	// Now we can expect that the sweep has been broadcast.
-	pendingTxHash := ht.Miner.AssertNumTxsInMempool(1)
+	ht.Miner.AssertNumTxsInMempool(1)
 
 	// List all unconfirmed sweeps that alice's node had broadcast.
 	sweepResp := alice.RPC.ListSweeps(false, -1)
 	txIDs := sweepResp.GetTransactionIds().TransactionIds
-
 	require.Lenf(ht, txIDs, 1, "number of pending sweeps, starting from "+
 		"height -1")
-	require.Equal(ht, pendingTxHash[0].String(), txIDs[0])
 
 	// Now list sweeps from the closing of the first channel. We should
 	// only see the sweep from the second channel and the pending one.

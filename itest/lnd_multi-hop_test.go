@@ -1584,8 +1584,9 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 	// will extract the preimage and offer the HTLC to his sweeper.
 	ht.AssertNumPendingSweeps(bob, 1)
 
-	// Mine a block to trigger Bob's sweeper to sweep it.
-	ht.MineEmptyBlocks(1)
+	// NOTE: after Bob is restarted, the sweeping of the direct preimage
+	// spent will happen immediately so we don't need to mine a block to
+	// trigger Bob's sweeper to sweep it.
 	bobHtlcSweep := ht.Miner.GetNumTxsFromMempool(1)[0]
 	bobHtlcSweepTxid := bobHtlcSweep.TxHash()
 

@@ -99,6 +99,18 @@ func Find[A any](pred func(A) bool, s []A) Option[A] {
 	return None[A]()
 }
 
+// FindIdx returns the first value that passes the supplied predicate along with
+// its index in the slice. If no satisfactory value is found, None is returned.
+func FindIdx[A any](pred func(A) bool, s []A) Option[T2[int, A]] {
+	for i, val := range s {
+		if pred(val) {
+			return Some(NewT2[int, A](i, val))
+		}
+	}
+
+	return None[T2[int, A]]()
+}
+
 // Flatten takes a slice of slices and returns a concatenation of those slices.
 func Flatten[A any](s [][]A) []A {
 	sz := Foldr(

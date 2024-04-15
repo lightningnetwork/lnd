@@ -821,9 +821,9 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 
 		// Create three deadline heights, which means there are three
 		// groups of inputs to be expected.
-		deadlineNone = fn.None[int32]()
-		deadline1    = fn.Some(int32(1))
-		deadline2    = fn.Some(int32(2))
+		defaultDeadline = testHeight + DefaultDeadlineDelta
+		deadline1       = int32(1)
+		deadline2       = int32(2)
 	)
 
 	// Create testing pending inputs.
@@ -854,16 +854,16 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 		Input: inpExclusive,
 		params: Params{
 			Budget:         budgetHigh,
-			DeadlineHeight: deadline1,
 			ExclusiveGroup: &exclusiveGroup,
 		},
+		DeadlineHeight: deadline1,
 	}
 
 	// For each deadline height, create two inputs with different budgets,
 	// one below the min fee rate and one above it. We should see the lower
 	// one being filtered out.
-	for i, deadline := range []fn.Option[int32]{
-		deadlineNone, deadline1, deadline2,
+	for i, deadline := range []int32{
+		defaultDeadline, deadline1, deadline2,
 	} {
 		// Define three outpoints.
 		opLow := wire.OutPoint{
@@ -917,25 +917,25 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 		inputs[opLow] = &SweeperInput{
 			Input: inpLow,
 			params: Params{
-				Budget:         budgetLow,
-				DeadlineHeight: deadline,
+				Budget: budgetLow,
 			},
+			DeadlineHeight: deadline,
 		}
 
 		// Add the high inputs, which should be included.
 		inputs[opHigh1] = &SweeperInput{
 			Input: inpHigh1,
 			params: Params{
-				Budget:         budgetHigh,
-				DeadlineHeight: deadline,
+				Budget: budgetHigh,
 			},
+			DeadlineHeight: deadline,
 		}
 		inputs[opHigh2] = &SweeperInput{
 			Input: inpHigh2,
 			params: Params{
-				Budget:         budgetHigh,
-				DeadlineHeight: deadline,
+				Budget: budgetHigh,
 			},
+			DeadlineHeight: deadline,
 		}
 	}
 
@@ -943,8 +943,7 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	b := NewBudgetAggregator(estimator, DefaultMaxInputsPerTx)
 
 	// Call the method under test.
-	defaultDeadline := testHeight + DefaultDeadlineDelta
-	result := b.ClusterInputs(inputs, defaultDeadline)
+	result := b.ClusterInputs(inputs)
 
 	// We expect four input sets to be returned, one for each deadline and
 	// extra one for the exclusive input.
@@ -969,8 +968,8 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 
 	// We expect to see all three deadlines.
 	require.Contains(t, deadlines, defaultDeadline)
-	require.Contains(t, deadlines, deadline1.UnwrapOrFail(t))
-	require.Contains(t, deadlines, deadline2.UnwrapOrFail(t))
+	require.Contains(t, deadlines, deadline1)
+	require.Contains(t, deadlines, deadline2)
 }
 
 // TestSplitOnLocktime asserts `splitOnLocktime` works as expected.

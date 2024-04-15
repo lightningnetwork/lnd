@@ -122,7 +122,7 @@ func (c *inputCluster) createInputSets(maxFeeRate chainfee.SatPerKWeight,
 type UtxoAggregator interface {
 	// ClusterInputs takes a list of inputs and groups them into input
 	// sets. Each input set will be used to create a sweeping transaction.
-	ClusterInputs(inputs InputsMap, defaultDeadline int32) []InputSet
+	ClusterInputs(inputs InputsMap) []InputSet
 }
 
 // SimpleAggregator aggregates inputs known by the Sweeper based on each
@@ -174,7 +174,7 @@ func NewSimpleUtxoAggregator(estimator chainfee.Estimator,
 // inputs known by the UtxoSweeper. It clusters inputs by
 // 1) Required tx locktime
 // 2) Similar fee rates.
-func (s *SimpleAggregator) ClusterInputs(inputs InputsMap, _ int32) []InputSet {
+func (s *SimpleAggregator) ClusterInputs(inputs InputsMap) []InputSet {
 	// We start by getting the inputs clusters by locktime. Since the
 	// inputs commit to the locktime, they can only be clustered together
 	// if the locktime is equal.
@@ -501,9 +501,7 @@ type clusterGroup map[int32][]SweeperInput
 // 5. optionally split a cluster if it exceeds the max input limit.
 // 6. create input sets from each of the clusters.
 // 7. create input sets for each of the exclusive inputs.
-func (b *BudgetAggregator) ClusterInputs(inputs InputsMap,
-	defaultDeadline int32) []InputSet {
-
+func (b *BudgetAggregator) ClusterInputs(inputs InputsMap) []InputSet {
 	// Filter out inputs that have a budget below min relay fee.
 	filteredInputs := b.filterInputs(inputs)
 
@@ -521,7 +519,7 @@ func (b *BudgetAggregator) ClusterInputs(inputs InputsMap,
 	for _, input := range filteredInputs {
 		// Get deadline height, and use the specified default deadline
 		// height if it's not set.
-		height := input.params.DeadlineHeight.UnwrapOr(defaultDeadline)
+		height := input.DeadlineHeight
 
 		// Put exclusive inputs in their own set.
 		if input.params.ExclusiveGroup != nil {

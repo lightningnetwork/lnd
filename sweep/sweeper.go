@@ -200,10 +200,10 @@ type SweeperInput struct {
 	// rbf records the RBF constraints.
 	rbf fn.Option[RBFInfo]
 
-	// deadlineHeight is the deadline height for this input. This is
+	// DeadlineHeight is the deadline height for this input. This is
 	// different from the DeadlineHeight in its params as it's an actual
 	// value than an option.
-	deadlineHeight int32
+	DeadlineHeight int32
 }
 
 // String returns a human readable interpretation of the pending input.
@@ -872,10 +872,6 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 // markInputsPendingPublish updates the pending inputs with the given tx
 // inputs. It also increments the `publishAttempts`.
 func (s *UtxoSweeper) markInputsPendingPublish(set InputSet) {
-	// Create a default deadline height, which will be used when there's no
-	// DeadlineHeight specified for a given input.
-	defaultDeadline := s.currentHeight + int32(s.cfg.NoDeadlineConfTarget)
-
 	// Reschedule sweep.
 	for _, input := range set.Inputs() {
 		pi, ok := s.inputs[input.OutPoint()]
@@ -907,11 +903,6 @@ func (s *UtxoSweeper) markInputsPendingPublish(set InputSet) {
 
 		// Record another publish attempt.
 		pi.publishAttempts++
-
-		// Set the acutal deadline height.
-		pi.deadlineHeight = pi.params.DeadlineHeight.UnwrapOr(
-			defaultDeadline,
-		)
 	}
 }
 
@@ -1082,7 +1073,7 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 			LastFeeRate:       inp.lastFeeRate,
 			BroadcastAttempts: inp.publishAttempts,
 			Params:            inp.params,
-			DeadlineHeight:    uint32(inp.deadlineHeight),
+			DeadlineHeight:    uint32(inp.DeadlineHeight),
 		}
 	}
 
@@ -1173,6 +1164,11 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 	// TODO(yy): a dedicated state?
 	sweeperInput.state = Init
 
+	// If the new input specifies a deadline, update the deadline height.
+	sweeperInput.DeadlineHeight = req.params.DeadlineHeight.UnwrapOr(
+		sweeperInput.DeadlineHeight,
+	)
+
 	resultChan := make(chan Result, 1)
 	sweeperInput.listeners = append(sweeperInput.listeners, resultChan)
 
@@ -1204,6 +1200,10 @@ func (s *UtxoSweeper) mempoolLookup(op wire.OutPoint) fn.Option[wire.MsgTx] {
 // handleNewInput processes a new input by registering spend notification and
 // scheduling sweeping for it.
 func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
+	// Create a default deadline height, which will be used when there's no
+	// DeadlineHeight specified for a given input.
+	defaultDeadline := s.currentHeight + int32(s.cfg.NoDeadlineConfTarget)
+
 	outpoint := input.input.OutPoint()
 	pi, pending := s.inputs[outpoint]
 	if pending {
@@ -1228,6 +1228,10 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 		Input:     input.input,
 		params:    input.params,
 		rbf:       rbfInfo,
+		// Set the acutal deadline height.
+		DeadlineHeight: input.params.DeadlineHeight.UnwrapOr(
+			defaultDeadline,
+		),
 	}
 
 	s.inputs[outpoint] = pi
@@ -1342,6 +1346,11 @@ func (s *UtxoSweeper) handleExistingInput(input *sweepInputMessage,
 	// details may contain a change to the unconfirmed parent tx info.
 	oldInput.params = input.params
 	oldInput.Input = input.input
+
+	// If the new input specifies a deadline, update the deadline height.
+	oldInput.DeadlineHeight = input.params.DeadlineHeight.UnwrapOr(
+		oldInput.DeadlineHeight,
+	)
 
 	// Add additional result channel to signal spend of this input.
 	oldInput.listeners = append(oldInput.listeners, input.resultChan)
@@ -1541,12 +1550,8 @@ func (s *UtxoSweeper) updateSweeperInputs() InputsMap {
 // sweepPendingInputs is called when the ticker fires. It will create clusters
 // and attempt to create and publish the sweeping transactions.
 func (s *UtxoSweeper) sweepPendingInputs(inputs InputsMap) {
-	// Create a default deadline height, which will be used when there's no
-	// DeadlineHeight specified for a given input.
-	defaultDeadline := s.currentHeight + int32(s.cfg.NoDeadlineConfTarget)
-
 	// Cluster all of our inputs based on the specific Aggregator.
-	sets := s.cfg.Aggregator.ClusterInputs(inputs, defaultDeadline)
+	sets := s.cfg.Aggregator.ClusterInputs(inputs)
 
 	// sweepWithLock is a helper closure that executes the sweep within a
 	// coin select lock to prevent the coins being selected for other

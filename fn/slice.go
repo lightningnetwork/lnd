@@ -53,7 +53,7 @@ func Map[A, B any](f func(A) B, s []A) []B {
 
 // Filter creates a new slice of values where all the members of the returned
 // slice pass the predicate that is supplied in the argument.
-func Filter[A any](pred func(A) bool, s []A) []A {
+func Filter[A any](pred Pred[A], s []A) []A {
 	res := make([]A, 0)
 
 	for _, val := range s {
@@ -92,7 +92,7 @@ func Foldr[A, B any](f func(A, B) B, seed B, s []A) B {
 
 // Find returns the first value that passes the supplied predicate, or None if
 // the value wasn't found.
-func Find[A any](pred func(A) bool, s []A) Option[A] {
+func Find[A any](pred Pred[A], s []A) Option[A] {
 	for _, val := range s {
 		if pred(val) {
 			return Some(val)
@@ -100,6 +100,18 @@ func Find[A any](pred func(A) bool, s []A) Option[A] {
 	}
 
 	return None[A]()
+}
+
+// FindIdx returns the first value that passes the supplied predicate along with
+// its index in the slice. If no satisfactory value is found, None is returned.
+func FindIdx[A any](pred Pred[A], s []A) Option[T2[int, A]] {
+	for i, val := range s {
+		if pred(val) {
+			return Some(NewT2[int, A](i, val))
+		}
+	}
+
+	return None[T2[int, A]]()
 }
 
 // Flatten takes a slice of slices and returns a concatenation of those slices.

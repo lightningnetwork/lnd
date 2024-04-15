@@ -2747,9 +2747,7 @@ func TestSweepPendingInputs(t *testing.T) {
 	pis := make(InputsMap)
 
 	// Mock the aggregator to return the mocked input sets.
-	expectedDeadlineUsed := testHeight + DefaultDeadlineDelta
-	aggregator.On("ClusterInputs", pis,
-		expectedDeadlineUsed).Return([]InputSet{
+	aggregator.On("ClusterInputs", pis).Return([]InputSet{
 		setNeedWallet, normalSet,
 	})
 

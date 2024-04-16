@@ -1444,6 +1444,14 @@
           "type": "integer",
           "format": "int32",
           "description": "The block height at which this htlc will be auto-failed to prevent the\nchannel from force-closing."
+        },
+        "incoming_htlc_wire_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The custom records of the peer's incoming wire message."
         }
       }
     },
@@ -1482,13 +1490,13 @@
           "format": "uint64",
           "description": "outgoing_amount_msat is used to set the p2p message outgoing amount field\nfor resuming a HTLC."
         },
-        "custom_records": {
+        "outgoing_htlc_wire_custom_records": {
           "type": "object",
           "additionalProperties": {
             "type": "string",
             "format": "byte"
           },
-          "description": "custom_records is used to set the p2p message custom records field for\nresuming a HTLC."
+          "description": "Outgoing htlc wire custom records is used to set the p2p message custom\nrecords field for resuming a HTLC."
         }
       },
       "description": "*\nForwardHtlcInterceptResponse enables the caller to resolve a previously hold\nforward. The caller can choose either to:\n- `Resume`: Execute the default behavior (usually forward).\n- `ResumeModified`: Execute the default behavior (usually forward) with HTLC\nfield modifications.\n- `Reject`: Fail the htlc backwards.\n- `Settle`: Settle this htlc with a given preimage."
@@ -1950,6 +1958,14 @@
           "type": "number",
           "format": "double",
           "description": "The time preference for this payment. Set to -1 to optimize for fees\nonly, to 1 to optimize for reliability only or a value inbetween for a mix."
+        },
+        "first_hop_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto the first hop peer of this payment. This can be used to pass application\nspecific data during the payment attempt. Record types are required to be in\nthe custom range \u003e= 65536. When using REST, the values must be encoded as\nbase64."
         }
       }
     },

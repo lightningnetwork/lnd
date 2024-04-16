@@ -23,6 +23,10 @@ type CustomRecords map[uint64][]byte
 func NewCustomRecordsFromTlvTypeMap(tlvMap tlv.TypeMap) (CustomRecords,
 	error) {
 
+	if len(tlvMap) == 0 {
+		return nil, nil
+	}
+
 	customRecords := make(CustomRecords, len(tlvMap))
 	for k, v := range tlvMap {
 		customRecords[uint64(k)] = v
@@ -38,9 +42,9 @@ func NewCustomRecordsFromTlvTypeMap(tlvMap tlv.TypeMap) (CustomRecords,
 	return customRecords, nil
 }
 
-// NewCustomRecordsFromTlvBlob creates a new CustomRecords instance from a
+// ParseCustomRecords creates a new CustomRecords instance from a
 // tlv.Blob.
-func NewCustomRecordsFromTlvBlob(b tlv.Blob) (CustomRecords, error) {
+func ParseCustomRecords(b tlv.Blob) (CustomRecords, error) {
 	stream, err := tlv.NewStream()
 	if err != nil {
 		return nil, fmt.Errorf("error creating stream: %w", err)

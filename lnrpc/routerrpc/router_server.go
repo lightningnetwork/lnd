@@ -864,6 +864,11 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 		return nil, err
 	}
 
+	firstHopRecords := lnwire.CustomRecords(req.FirstHopCustomRecords)
+	if err := firstHopRecords.Validate(); err != nil {
+		return nil, err
+	}
+
 	var attempt *channeldb.HTLCAttempt
 
 	// Pass route to the router. This call returns the full htlc attempt
@@ -873,9 +878,13 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 	// case, we give precedence to the attempt information as stored in the
 	// db.
 	if req.SkipTempErr {
-		attempt, err = s.cfg.Router.SendToRouteSkipTempErr(hash, route)
+		attempt, err = s.cfg.Router.SendToRouteSkipTempErr(
+			hash, route, firstHopRecords,
+		)
 	} else {
-		attempt, err = s.cfg.Router.SendToRoute(hash, route)
+		attempt, err = s.cfg.Router.SendToRoute(
+			hash, route, firstHopRecords,
+		)
 	}
 	if attempt != nil {
 		rpcAttempt, err := s.cfg.RouterBackend.MarshalHTLCAttempt(
@@ -1458,9 +1467,26 @@ func (s *Server) BuildRoute(_ context.Context,
 		)
 	}
 
+	var firstHopBlob fn.Option[[]byte]
+	if len(req.FirstHopCustomRecords) > 0 {
+		firstHopRecords := lnwire.CustomRecords(
+			req.FirstHopCustomRecords,
+		)
+		if err := firstHopRecords.Validate(); err != nil {
+			return nil, err
+		}
+
+		firstHopData, err := firstHopRecords.Serialize()
+		if err != nil {
+			return nil, err
+		}
+		firstHopBlob = fn.Some(firstHopData)
+	}
+
 	// Build the route and return it to the caller.
 	route, err := s.cfg.Router.BuildRoute(
 		amt, hops, outgoingChan, req.FinalCltvDelta, payAddr,
+		firstHopBlob,
 	)
 	if err != nil {
 		return nil, err

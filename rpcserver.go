@@ -5452,7 +5452,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 	} else {
 		var attempt *channeldb.HTLCAttempt
 		attempt, routerErr = r.server.chanRouter.SendToRoute(
-			payIntent.rHash, payIntent.route,
+			payIntent.rHash, payIntent.route, nil,
 		)
 
 		if routerErr == nil {

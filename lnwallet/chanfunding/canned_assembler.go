@@ -92,10 +92,12 @@ func (s *ShimIntent) FundingOutput() ([]byte, *wire.TxOut, error) {
 
 		// Similar to the existing p2wsh script, we'll always ensure
 		// the keys are sorted before use.
-		return input.GenTaprootFundingScript(
+		pkScript, txOut, _, err := input.GenTaprootFundingScript(
 			s.localKey.PubKey, s.remoteKey, int64(totalAmt),
 			scriptOpts...,
 		)
+
+		return pkScript, txOut, err
 	}
 
 	return input.GenFundingPkScript(

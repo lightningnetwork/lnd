@@ -308,7 +308,7 @@ func (c *chainWatcher) Start() error {
 		fundingOpts := fn.MapOptionZ(
 			chanState.TapscriptRoot, lnwallet.TapscriptRootToOpt,
 		)
-		c.fundingPkScript, _, err = input.GenTaprootFundingScript(
+		c.fundingPkScript, _, _, err = input.GenTaprootFundingScript(
 			localKey, remoteKey, 0, fundingOpts...,
 		)
 		if err != nil {

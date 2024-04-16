@@ -2881,7 +2881,7 @@ func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
 		fundingOpts := fn.MapOptionZ(
 			channel.TapscriptRoot, lnwallet.TapscriptRootToOpt,
 		)
-		pkScript, _, err := input.GenTaprootFundingScript(
+		pkScript, _, _, err := input.GenTaprootFundingScript(
 			localKey, remoteKey, int64(channel.Capacity),
 			fundingOpts...,
 		)

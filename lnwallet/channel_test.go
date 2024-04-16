@@ -10168,9 +10168,8 @@ func TestCreateBreachRetribution(t *testing.T) {
 			}
 
 			br, our, their, err := createBreachRetribution(
-				tc.revocationLog, tx,
-				aliceChannel.channelState, keyRing,
-				dummyPrivate, leaseExpiry,
+				tc.revocationLog, tx, aliceChannel.channelState,
+				keyRing, dummyPrivate, leaseExpiry,
 				fn.None[CommitAuxLeaves](),
 			)
 

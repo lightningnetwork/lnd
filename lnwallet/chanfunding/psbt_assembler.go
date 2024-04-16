@@ -6,11 +6,13 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -208,7 +210,18 @@ func (i *PsbtIntent) FundingParams() (btcutil.Address, int64, *psbt.Packet,
 		}
 	}
 	packet.UnsignedTx.TxOut = append(packet.UnsignedTx.TxOut, out)
-	packet.Outputs = append(packet.Outputs, psbt.POutput{})
+
+	var pOut psbt.POutput
+
+	// If this is a MuSig2 channel, we also need to communicate the internal
+	// key to the caller. Otherwise, they cannot verify the construction of
+	// the P2TR output script.
+	pOut.TaprootInternalKey = fn.MapOptionZ(
+		i.TaprootInternalKey(), schnorr.SerializePubKey,
+	)
+
+	packet.Outputs = append(packet.Outputs, pOut)
+
 	return addr, out.Value, packet, nil
 }
 

@@ -476,6 +476,88 @@ func testForwardInterceptorModifiedHtlc(ht *lntest.HarnessTest) {
 	ht.CloseChannel(bob, cpBC)
 }
 
+// testForwardInterceptorFirstHopRecords
+func testForwardInterceptorFirstHopRecords(ht *lntest.HarnessTest) {
+	// Initialize the test context with 3 connected nodes.
+	ts := newInterceptorTestScenario(ht)
+
+	alice, bob, carol := ts.alice, ts.bob, ts.carol
+
+	// Open and wait for channels.
+	const chanAmt = btcutil.Amount(300000)
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntest.OpenChannelRequest{
+		{Local: alice, Remote: bob, Param: p},
+		{Local: bob, Remote: carol, Param: p},
+	}
+	resp := ht.OpenMultiChannelsAsync(reqs)
+	cpAB, cpBC := resp[0], resp[1]
+
+	// Make sure Alice is aware of channel Bob=>Carol.
+	ht.AssertTopologyChannelOpen(alice, cpBC)
+
+	req := &lnrpc.Invoice{ValueMsat: 1000}
+	addResponse := carol.RPC.AddInvoice(req)
+	invoice := carol.RPC.LookupInvoice(addResponse.RHash)
+
+	sendReq := &routerrpc.SendPaymentRequest{
+		PaymentRequest: invoice.PaymentRequest,
+		TimeoutSeconds: int32(wait.PaymentTimeout.Seconds()),
+		FeeLimitMsat:   noFeeLimitMsat,
+		FirstHopCustomRecords: map[uint64][]byte{
+			65537: []byte("test"),
+		},
+	}
+	stream := alice.RPC.SendPayment(sendReq)
+	ht.AssertPaymentStatusFromStream(stream, lnrpc.Payment_SUCCEEDED)
+
+	// Formulate custom records target log string.
+	var (
+		cr  record.CustomSet = make(record.CustomSet)
+		buf bytes.Buffer
+	)
+
+	cr[65537] = []byte("test")
+
+	err := cr.Encode(&buf)
+	require.NoError(ht, err, "failed to encode custom records")
+	customRecordsBytes := buf.Bytes()
+
+	targetCustomRecordsStr := fmt.Sprintf(
+		"custom_records_blob=%x", customRecordsBytes,
+	)
+
+	logEntryCheck := func(logEntry string) bool {
+		return strings.Contains(logEntry, "custom_records_blob") &&
+			strings.Contains(logEntry, targetCustomRecordsStr)
+	}
+
+	require.Eventually(ht, func() bool {
+		ctx := context.Background()
+		dbgInfo, err := bob.RPC.LN.GetDebugInfo(
+			ctx, &lnrpc.GetDebugInfoRequest{},
+		)
+		require.NoError(ht, err, "failed to get Barol node debug info")
+
+		for _, logEntry := range dbgInfo.Log {
+			if logEntryCheck(logEntry) {
+				return true
+			}
+		}
+
+		return false
+	}, defaultTimeout, time.Second)
+
+	// Assert that the payment was successful.
+	var preimage lntypes.Preimage
+	copy(preimage[:], invoice.RPreimage)
+	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
+
+	// Finally, close channels.
+	ht.CloseChannel(alice, cpAB)
+	ht.CloseChannel(bob, cpBC)
+}
+
 // interceptorTestScenario is a helper struct to hold the test context and
 // provide the needed functionality.
 type interceptorTestScenario struct {

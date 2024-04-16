@@ -1554,7 +1554,7 @@ func (lc *LightningChannel) createSignDesc() error {
 			chanState.TapscriptRoot, TapscriptRootToOpt,
 		)
 
-		fundingPkScript, _, err = input.GenTaprootFundingScript(
+		fundingPkScript, _, _, err = input.GenTaprootFundingScript(
 			localKey, remoteKey, int64(lc.channelState.Capacity),
 			fundingOpts...,
 		)

@@ -1164,7 +1164,7 @@ func deriveFundingShim(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 		daveKey, err = btcec.ParsePubKey(daveFundingKey.RawKeyBytes)
 		require.NoError(ht, err)
 
-		_, fundingOutput, err = input.GenTaprootFundingScript(
+		_, fundingOutput, _, err = input.GenTaprootFundingScript(
 			carolKey, daveKey, int64(chanSize),
 		)
 		require.NoError(ht, err)

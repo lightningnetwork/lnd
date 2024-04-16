@@ -224,9 +224,12 @@ func WithTapscriptRoot(root chainhash.Hash) FundingScriptOpt {
 }
 
 // GenTaprootFundingScript constructs the taproot-native funding output that
-// uses MuSig2 to create a single aggregated key to anchor the channel.
-func GenTaprootFundingScript(aPub, bPub *btcec.PublicKey,
-	amt int64, opts ...FundingScriptOpt) ([]byte, *wire.TxOut, error) {
+// uses MuSig2 to create a single aggregated key to anchor the channel. This
+// also returns the MuSig2 aggregated key to allow the callers to examine the
+// pre tweaked key as well as the final combined key.
+func GenTaprootFundingScript(aPub, bPub *btcec.PublicKey, amt int64,
+	opts ...FundingScriptOpt) ([]byte, *wire.TxOut,
+	*musig2.AggregateKey, error) {
 
 	options := defaultFundingScriptOpts()
 	for _, optFunc := range opts {
@@ -247,14 +250,15 @@ func GenTaprootFundingScript(aPub, bPub *btcec.PublicKey,
 		[]*btcec.PublicKey{aPub, bPub}, true, muSig2Opt,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to combine keys: %w", err)
+		return nil, nil, nil, fmt.Errorf("unable to combine "+
+			"keys: %w", err)
 	}
 
 	// Now that we have the combined key, we can create a taproot pkScript
 	// from this, and then make the txOut given the amount.
 	pkScript, err := PayToTaprootScript(combinedKey.FinalKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to make taproot "+
+		return nil, nil, nil, fmt.Errorf("unable to make taproot "+
 			"pkscript: %w", err)
 	}
 
@@ -262,7 +266,7 @@ func GenTaprootFundingScript(aPub, bPub *btcec.PublicKey,
 
 	// For the "witness program" we just return the raw pkScript since the
 	// output we create can _only_ be spent with a MuSig2 signature.
-	return pkScript, txOut, nil
+	return pkScript, txOut, combinedKey, nil
 }
 
 // SpendMultiSig generates the witness stack required to redeem the 2-of-2 p2wsh

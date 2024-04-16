@@ -22,6 +22,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/channels"
@@ -1585,6 +1586,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	// Notify the breach arbiter about the breach.
 	retribution, err := lnwallet.NewBreachRetribution(
 		alice.State(), height, 1, forceCloseTx,
+		fn.None[lnwallet.AuxLeafStore](),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 
@@ -1794,6 +1796,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	// Notify the breach arbiter about the breach.
 	retribution, err := lnwallet.NewBreachRetribution(
 		alice.State(), height, uint32(blockHeight), forceCloseTx,
+		fn.None[lnwallet.AuxLeafStore](),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 

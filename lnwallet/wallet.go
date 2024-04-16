@@ -2155,7 +2155,7 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 				TapscriptRootToOpt,
 			)
 
-			_, fundingOutput, err := input.GenTaprootFundingScript(
+			_, fundingOutput, _, err := input.GenTaprootFundingScript(
 				localKey, remoteKey, channelValue,
 				fundingOpts...,
 			)
@@ -2403,7 +2403,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 			TapscriptRootToOpt,
 		)
 		//nolint:lll
-		fundingWitnessScript, fundingTxOut, err = input.GenTaprootFundingScript(
+		fundingWitnessScript, fundingTxOut, _, err = input.GenTaprootFundingScript(
 			ourKey.PubKey, theirKey.PubKey, channelValue,
 			fundingOpts...,
 		)
@@ -2569,7 +2569,7 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 			channelState.TapscriptRoot, TapscriptRootToOpt,
 		)
 
-		fundingScript, _, err = input.GenTaprootFundingScript(
+		fundingScript, _, _, err = input.GenTaprootFundingScript(
 			localKey, remoteKey, int64(channel.Capacity),
 			fundingOpts...,
 		)

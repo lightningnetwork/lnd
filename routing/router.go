@@ -1550,7 +1550,7 @@ func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte,
 			return nil, err
 		}
 
-		fundingScript, _, err := input.GenTaprootFundingScript(
+		fundingScript, _, _, err := input.GenTaprootFundingScript(
 			pubKey1, pubKey2, 0,
 		)
 		if err != nil {

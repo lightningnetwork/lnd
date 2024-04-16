@@ -274,6 +274,10 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   maintain a healthy connection to the network by checking the number of
   outbound peers if they are below 6.
 
+* [Use EOF as a terminator](https://github.com/lightningnetwork/lnd/pull/8657)
+  is added to `lncli unlock --stdin` command to use EOF as a terminator instead
+  of newline.
+
 ### Logging
 * [Add the htlc amount](https://github.com/lightningnetwork/lnd/pull/8156) to
   contract court logs in case of timed-out HTLCs in order to easily spot dust

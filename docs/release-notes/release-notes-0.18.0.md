@@ -109,8 +109,12 @@
 
 * [Removed](https://github.com/lightningnetwork/lnd/pull/8577) some unreachable code
 
-[Fixed](https://github.com/lightningnetwork/lnd/pull/8609) fixed a function
-call where arguments were swapped.
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8609) a function
+  call where arguments were swapped.
+
+* [Addresses derived from imported watch-only accounts now correctly include
+  their master key's
+  fingerprint](https://github.com/lightningnetwork/lnd/pull/8630).
 
 # New Features
 ## Functional Enhancements

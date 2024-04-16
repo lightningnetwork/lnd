@@ -858,6 +858,12 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	}
 	payIntent.DestCustomRecords = customRecords
 
+	firstHopRecords := record.CustomSet(rpcPayReq.FirstHopCustomRecords)
+	if err := firstHopRecords.Validate(); err != nil {
+		return nil, err
+	}
+	payIntent.FirstHopCustomRecords = firstHopRecords
+
 	payIntent.PayAttemptTimeout = time.Second *
 		time.Duration(rpcPayReq.TimeoutSeconds)
 

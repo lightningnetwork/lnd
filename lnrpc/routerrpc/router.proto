@@ -330,6 +330,15 @@ message SendPaymentRequest {
     only, to 1 to optimize for reliability only or a value inbetween for a mix.
     */
     double time_pref = 23;
+
+    /*
+    An optional field that can be used to pass an arbitrary set of TLV records
+    to the first hop peer of this payment. This can be used to pass application
+    specific data during the payment attempt. Record types are required to be in
+    the custom range >= 65536. When using REST, the values must be encoded as
+    base64.
+    */
+    map<uint64, bytes> first_hop_custom_records = 24;
 }
 
 message TrackPaymentRequest {

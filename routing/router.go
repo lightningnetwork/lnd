@@ -1057,18 +1057,21 @@ func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 
 // SendToRoute sends a payment using the provided route and fails the payment
 // when an error is returned from the attempt.
-func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash,
-	rt *route.Route) (*channeldb.HTLCAttempt, error) {
+func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route,
+	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
+	error) {
 
-	return r.sendToRoute(htlcHash, rt, false)
+	return r.sendToRoute(htlcHash, rt, false, firstHopCustomRecords)
 }
 
 // SendToRouteSkipTempErr sends a payment using the provided route and fails
 // the payment ONLY when a terminal error is returned from the attempt.
 func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
-	rt *route.Route) (*channeldb.HTLCAttempt, error) {
+	rt *route.Route,
+	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
+	error) {
 
-	return r.sendToRoute(htlcHash, rt, true)
+	return r.sendToRoute(htlcHash, rt, true, firstHopCustomRecords)
 }
 
 // sendToRoute attempts to send a payment with the given hash through the
@@ -1078,7 +1081,9 @@ func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
 // was initiated, both return values will be non-nil. If skipTempErr is true,
 // the payment won't be failed unless a terminal error has occurred.
 func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
-	skipTempErr bool) (*channeldb.HTLCAttempt, error) {
+	skipTempErr bool,
+	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
+	error) {
 
 	log.Debugf("SendToRoute for payment %v with skipTempErr=%v",
 		htlcHash, skipTempErr)
@@ -1149,7 +1154,8 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// - no payment timeout.
 	// - no current block height.
 	p := newPaymentLifecycle(
-		r, 0, paymentIdentifier, nil, shardTracker, 0, nil,
+		r, 0, paymentIdentifier, nil, shardTracker, 0,
+		firstHopCustomRecords,
 	)
 
 	// We found a route to try, create a new HTLC attempt to try.
@@ -1318,8 +1324,9 @@ func (e ErrNoChannel) Error() string {
 // amount is nil, the minimum routable amount is used. To force a specific
 // outgoing channel, use the outgoingChan parameter.
 func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
-	hops []route.Vertex, outgoingChan *uint64,
-	finalCltvDelta int32, payAddr *[32]byte) (*route.Route, error) {
+	hops []route.Vertex, outgoingChan *uint64, finalCltvDelta int32,
+	payAddr *[32]byte, _ fn.Option[[]byte]) (*route.Route,
+	error) {
 
 	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v", len(hops), amt)
 

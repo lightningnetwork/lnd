@@ -358,6 +358,15 @@ message SendPaymentRequest {
     being sent.
     */
     bool cancelable = 24;
+
+    /*
+    An optional field that can be used to pass an arbitrary set of TLV records
+    to the first hop peer of this payment. This can be used to pass application
+    specific data during the payment attempt. Record types are required to be in
+    the custom range >= 65536. When using REST, the values must be encoded as
+    base64.
+    */
+    map<uint64, bytes> first_hop_custom_records = 25;
 }
 
 message TrackPaymentRequest {
@@ -451,6 +460,15 @@ message SendToRouteRequest {
     routes, incorrect payment details, or insufficient funds.
     */
     bool skip_temp_err = 3;
+
+    /*
+    An optional field that can be used to pass an arbitrary set of TLV records
+    to the first hop peer of this payment. This can be used to pass application
+    specific data during the payment attempt. Record types are required to be in
+    the custom range >= 65536. When using REST, the values must be encoded as
+    base64.
+    */
+    map<uint64, bytes> first_hop_custom_records = 4;
 }
 
 message SendToRouteResponse {
@@ -726,6 +744,15 @@ message BuildRouteRequest {
     This is also called payment secret in specifications (e.g. BOLT 11).
     */
     bytes payment_addr = 5;
+
+    /*
+    An optional field that can be used to pass an arbitrary set of TLV records
+    to the first hop peer of this payment. This can be used to pass application
+    specific data during the payment attempt. Record types are required to be in
+    the custom range >= 65536. When using REST, the values must be encoded as
+    base64.
+    */
+    map<uint64, bytes> first_hop_custom_records = 6;
 }
 
 message BuildRouteResponse {
@@ -982,6 +1009,9 @@ message ForwardHtlcInterceptRequest {
     // The block height at which this htlc will be auto-failed to prevent the
     // channel from force-closing.
     int32 auto_fail_height = 10;
+
+    // The custom records of the peer's incoming p2p wire message.
+    map<uint64, bytes> in_wire_custom_records = 11;
 }
 
 /**

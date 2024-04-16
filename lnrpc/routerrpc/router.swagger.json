@@ -1283,6 +1283,14 @@
           "type": "string",
           "format": "byte",
           "description": "An optional payment addr to be included within the last hop of the route.\nThis is also called payment secret in specifications (e.g. BOLT 11)."
+        },
+        "first_hop_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto the first hop peer of this payment. This can be used to pass application\nspecific data during the payment attempt. Record types are required to be in\nthe custom range \u003e= 65536. When using REST, the values must be encoded as\nbase64."
         }
       }
     },
@@ -1447,6 +1455,14 @@
           "type": "integer",
           "format": "int32",
           "description": "The block height at which this htlc will be auto-failed to prevent the\nchannel from force-closing."
+        },
+        "in_wire_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The custom records of the peer's incoming p2p wire message."
         }
       }
     },
@@ -1957,6 +1973,14 @@
         "cancelable": {
           "type": "boolean",
           "description": "If set, the payment loop can be interrupted by manually canceling the\npayment context, even before the payment timeout is reached. Note that the\npayment may still succeed after cancellation, as in-flight attempts can\nstill settle afterwards. Canceling will only prevent further attempts from\nbeing sent."
+        },
+        "first_hop_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto the first hop peer of this payment. This can be used to pass application\nspecific data during the payment attempt. Record types are required to be in\nthe custom range \u003e= 65536. When using REST, the values must be encoded as\nbase64."
         }
       }
     },
@@ -1975,6 +1999,14 @@
         "skip_temp_err": {
           "type": "boolean",
           "description": "Whether the payment should be marked as failed when a temporary error is\nreturned from the given route. Set it to true so the payment won't be\nfailed unless a terminal error is occurred, such as payment timeout, no\nroutes, incorrect payment details, or insufficient funds."
+        },
+        "first_hop_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto the first hop peer of this payment. This can be used to pass application\nspecific data during the payment attempt. Record types are required to be in\nthe custom range \u003e= 65536. When using REST, the values must be encoded as\nbase64."
         }
       }
     },

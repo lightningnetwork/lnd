@@ -122,15 +122,17 @@ func NewAuxVerifyJob(sig fn.Option[tlv.Blob], keyRing CommitmentKeyRing,
 type AuxSigner interface {
 	// SubmitSecondLevelSigBatch takes a batch of aux sign jobs and
 	// processes them asynchronously.
-	SubmitSecondLevelSigBatch(sigJob []AuxSigJob)
+	SubmitSecondLevelSigBatch(sigJob []AuxSigJob) error
 
 	// PackSigs takes a series of aux signatures and packs them into a
 	// single blob that can be sent alongside the CommitSig messages.
-	PackSigs([]fn.Option[tlv.Blob]) fn.Option[tlv.Blob]
+	PackSigs([]fn.Option[tlv.Blob]) (fn.Option[tlv.Blob], error)
 
 	// UnpackSigs takes a packed blob of signatures and returns the
 	// original signatures for each HTLC, keyed by HTLC index.
-	UnpackSigs(fn.Option[tlv.Blob]) map[input.HtlcIndex]fn.Option[tlv.Blob]
+	UnpackSigs(
+		fn.Option[tlv.Blob]) (map[input.HtlcIndex]fn.Option[tlv.Blob],
+		error)
 
 	// VerifySecondLevelSigs attemps to synchronously verify a batch of aux
 	// sig jobs.

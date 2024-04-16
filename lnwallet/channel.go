@@ -3885,9 +3885,10 @@ func (lc *LightningChannel) createCommitDiff(
 	// disk.
 	diskCommit := newCommit.toDiskCommit(false)
 
-	auxSigBlob := fn.MapOptionZ(lc.auxSigner, func(a AuxSigner) tlv.Blob {
-		return a.PackSigs(auxSigs).UnwrapOr(nil)
-	})
+	auxSigBlob, err := packSigs(auxSigs, lc.auxSigner)
+	if err != nil {
+		return nil, fmt.Errorf("error packing aux sigs: %w", err)
+	}
 
 	return &channeldb.CommitDiff{
 		Commitment: *diskCommit,
@@ -4477,9 +4478,13 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	}
 	lc.sigPool.SubmitSignBatch(sigBatch)
 
-	lc.auxSigner.WhenSome(func(a AuxSigner) {
-		a.SubmitSecondLevelSigBatch(auxSigBatch)
+	err = fn.MapOptionZ(lc.auxSigner, func(a AuxSigner) error {
+		return a.SubmitSecondLevelSigBatch(auxSigBatch)
 	})
+	if err != nil {
+		return nil, fmt.Errorf("error submitting second level sig "+
+			"batch: %w", err)
+	}
 
 	// While the jobs are being carried out, we'll Sign their version of
 	// the new commitment transaction while we're waiting for the rest of
@@ -5102,11 +5107,11 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 
 	// If we have a sig blob, then we'll attempt to map that to individual
 	// blobs for each HTLC we might need a signature for.
-	auxHtlcSigs := fn.MapOptionZ(auxSigner,
-		func(a AuxSigner) map[input.HtlcIndex]fn.Option[tlv.Blob] {
-			return a.UnpackSigs(sigBlob)
-		},
-	)
+	auxHtlcSigs, err := unpackSigs(sigBlob, auxSigner)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error unpacking aux sigs: %w",
+			err)
+	}
 
 	// We'll iterate through each output in the commitment transaction,
 	// populating the sigHash closure function if it's detected to be an

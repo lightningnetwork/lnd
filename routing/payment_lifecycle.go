@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"time"
@@ -13,8 +14,10 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/routing/shards"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // ErrPaymentLifecycleExiting is used when waiting for htlc attempt result, but
@@ -31,6 +34,7 @@ type paymentLifecycle struct {
 	shardTracker  shards.ShardTracker
 	timeoutChan   <-chan time.Time
 	currentHeight int32
+	firstHopTLVs  record.CustomSet
 
 	// quit is closed to signal the sub goroutines of the payment lifecycle
 	// to stop.
@@ -53,7 +57,7 @@ type paymentLifecycle struct {
 func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
 	identifier lntypes.Hash, paySession PaymentSession,
 	shardTracker shards.ShardTracker, timeout time.Duration,
-	currentHeight int32) *paymentLifecycle {
+	currentHeight int32, firstHopTLVs record.CustomSet) *paymentLifecycle {
 
 	p := &paymentLifecycle{
 		router:          r,
@@ -64,6 +68,7 @@ func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
 		currentHeight:   currentHeight,
 		quit:            make(chan struct{}),
 		resultCollected: make(chan error, 1),
+		firstHopTLVs:    firstHopTLVs,
 	}
 
 	// Mount the result collector.
@@ -672,6 +677,18 @@ func (p *paymentLifecycle) sendAttempt(
 		Expiry:      rt.TotalTimeLock,
 		PaymentHash: *attempt.Hash,
 	}
+
+	buffer := new(bytes.Buffer)
+	if err := p.firstHopTLVs.Encode(buffer); err != nil {
+		return p.failAttempt(attempt.AttemptID, err)
+	}
+
+	recordsBytes := buffer.Bytes()
+	tlvRecord := tlv.NewPrimitiveRecord[lnwire.CustomRecordsBlobTlvType](
+		recordsBytes,
+	)
+
+	htlcAdd.CustomRecordsBlob = tlv.SomeRecordT(tlvRecord)
 
 	// Generate the raw encoded sphinx packet to be included along
 	// with the htlcAdd message that we send directly to the

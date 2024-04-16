@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -645,15 +646,16 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 			ChanID: f.packet.incomingChanID,
 			HtlcID: f.packet.incomingHTLCID,
 		},
-		OutgoingChanID: f.packet.outgoingChanID,
-		Hash:           f.htlc.PaymentHash,
-		OutgoingExpiry: f.htlc.Expiry,
-		OutgoingAmount: f.htlc.Amount,
-		IncomingAmount: f.packet.incomingAmount,
-		IncomingExpiry: f.packet.incomingTimeout,
-		CustomRecords:  f.packet.customRecords,
-		OnionBlob:      f.htlc.OnionBlob,
-		AutoFailHeight: f.autoFailHeight,
+		OutgoingChanID:       f.packet.outgoingChanID,
+		Hash:                 f.htlc.PaymentHash,
+		OutgoingExpiry:       f.htlc.Expiry,
+		OutgoingAmount:       f.htlc.Amount,
+		IncomingAmount:       f.packet.incomingAmount,
+		IncomingExpiry:       f.packet.incomingTimeout,
+		InOnionCustomRecords: f.packet.inOnionCustomRecords,
+		OnionBlob:            f.htlc.OnionBlob,
+		AutoFailHeight:       f.autoFailHeight,
+		InWireCustomRecords:  f.packet.inWireCustomRecords,
 	}
 }
 
@@ -722,6 +724,8 @@ func (f *interceptedForward) ResumeModified(
 			htlc.CustomRecords = validatedRecords
 		}
 	}
+
+	log.Tracef("Forwarding packet %v", lnutils.SpewLogClosure(f.packet))
 
 	// Forward to the switch. A link quit channel isn't needed, because we
 	// are on a different thread now.

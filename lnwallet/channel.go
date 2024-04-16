@@ -207,6 +207,7 @@ func PayDescsFromRemoteLogUpdates(chanID lnwire.ShortChannelID, height uint64,
 					Index:  uint16(i),
 				},
 				BlindingPoint: wireMsg.BlindingPoint,
+				CustomRecords: wireMsg.CustomRecords.Copy(),
 			}
 			pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
 			copy(pd.OnionBlob[:], wireMsg.OnionBlob[:])
@@ -1154,6 +1155,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 			LogIndex:              logUpdate.LogIndex,
 			addCommitHeightRemote: commitHeight,
 			BlindingPoint:         wireMsg.BlindingPoint,
+			CustomRecords:         wireMsg.CustomRecords.Copy(),
 		}
 		pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
 		copy(pd.OnionBlob[:], wireMsg.OnionBlob[:])
@@ -1359,6 +1361,7 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 			LogIndex:             logUpdate.LogIndex,
 			addCommitHeightLocal: commitHeight,
 			BlindingPoint:        wireMsg.BlindingPoint,
+			CustomRecords:        wireMsg.CustomRecords.Copy(),
 		}
 		pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
 		copy(pd.OnionBlob, wireMsg.OnionBlob[:])
@@ -3403,6 +3406,7 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 				Expiry:        pd.Timeout,
 				PaymentHash:   pd.RHash,
 				BlindingPoint: pd.BlindingPoint,
+				CustomRecords: pd.CustomRecords.Copy(),
 			}
 			copy(htlc.OnionBlob[:], pd.OnionBlob)
 			logUpdate.UpdateMsg = htlc
@@ -3543,6 +3547,7 @@ func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
 				Expiry:        pd.Timeout,
 				PaymentHash:   pd.RHash,
 				BlindingPoint: pd.BlindingPoint,
+				CustomRecords: pd.CustomRecords.Copy(),
 			}
 			copy(htlc.OnionBlob[:], pd.OnionBlob)
 			logUpdate.UpdateMsg = htlc
@@ -5620,6 +5625,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 				Expiry:        pd.Timeout,
 				PaymentHash:   pd.RHash,
 				BlindingPoint: pd.BlindingPoint,
+				CustomRecords: pd.CustomRecords.Copy(),
 			}
 			copy(htlc.OnionBlob[:], pd.OnionBlob)
 			logUpdate.UpdateMsg = htlc
@@ -5965,9 +5971,7 @@ func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
 		OnionBlob:      htlc.OnionBlob[:],
 		OpenCircuitKey: openKey,
 		BlindingPoint:  htlc.BlindingPoint,
-		// TODO(guggero): Add custom records from HTLC here once we have
-		// the custom records in the HTLC struct (later commits in this
-		// PR).
+		CustomRecords:  htlc.CustomRecords.Copy(),
 	}
 }
 
@@ -6028,9 +6032,7 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64,
 		HtlcIndex:     lc.updateLogs.Remote.htlcCounter,
 		OnionBlob:     htlc.OnionBlob[:],
 		BlindingPoint: htlc.BlindingPoint,
-		// TODO(guggero): Add custom records from HTLC here once we have
-		// the custom records in the HTLC struct (later commits in this
-		// PR).
+		CustomRecords: htlc.CustomRecords.Copy(),
 	}
 
 	localACKedIndex := lc.commitChains.Remote.tail().messageIndices.Local

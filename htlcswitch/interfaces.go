@@ -357,12 +357,16 @@ type InterceptedPacket struct {
 	// IncomingAmount is the amount of the accepted htlc.
 	IncomingAmount lnwire.MilliSatoshi
 
-	// CustomRecords are user-defined records in the custom type range that
-	// were included in the payload.
-	CustomRecords record.CustomSet
+	// InOnionCustomRecords are user-defined records in the custom type
+	// range that were included in the payload.
+	InOnionCustomRecords record.CustomSet
 
 	// OnionBlob is the onion packet for the next hop
 	OnionBlob [lnwire.OnionPacketSize]byte
+
+	// InWireCustomRecords are user-defined p2p wire message records that
+	// were defined by the peer that forwarded this HTLC to us.
+	InWireCustomRecords lnwire.CustomRecords
 
 	// AutoFailHeight is the block height at which this intercept will be
 	// failed back automatically.

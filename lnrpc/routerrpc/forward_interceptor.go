@@ -89,7 +89,7 @@ func (r *forwardInterceptor) onIntercept(
 		OutgoingExpiry:          htlc.OutgoingExpiry,
 		IncomingAmountMsat:      uint64(htlc.IncomingAmount),
 		IncomingExpiry:          htlc.IncomingExpiry,
-		CustomRecords:           htlc.CustomRecords,
+		CustomRecords:           htlc.InOnionCustomRecords,
 		OnionBlob:               htlc.OnionBlob[:],
 		AutoFailHeight:          htlc.AutoFailHeight,
 	}

@@ -25,12 +25,13 @@ var ErrPaymentLifecycleExiting = errors.New("payment lifecycle exiting")
 // paymentLifecycle holds all information about the current state of a payment
 // needed to resume if from any point.
 type paymentLifecycle struct {
-	router        *ChannelRouter
-	feeLimit      lnwire.MilliSatoshi
-	identifier    lntypes.Hash
-	paySession    PaymentSession
-	shardTracker  shards.ShardTracker
-	currentHeight int32
+	router                *ChannelRouter
+	feeLimit              lnwire.MilliSatoshi
+	identifier            lntypes.Hash
+	paySession            PaymentSession
+	shardTracker          shards.ShardTracker
+	currentHeight         int32
+	firstHopCustomRecords lnwire.CustomRecords
 
 	// quit is closed to signal the sub goroutines of the payment lifecycle
 	// to stop.
@@ -52,18 +53,19 @@ type paymentLifecycle struct {
 // newPaymentLifecycle initiates a new payment lifecycle and returns it.
 func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
 	identifier lntypes.Hash, paySession PaymentSession,
-	shardTracker shards.ShardTracker,
-	currentHeight int32) *paymentLifecycle {
+	shardTracker shards.ShardTracker, currentHeight int32,
+	firstHopCustomRecords lnwire.CustomRecords) *paymentLifecycle {
 
 	p := &paymentLifecycle{
-		router:          r,
-		feeLimit:        feeLimit,
-		identifier:      identifier,
-		paySession:      paySession,
-		shardTracker:    shardTracker,
-		currentHeight:   currentHeight,
-		quit:            make(chan struct{}),
-		resultCollected: make(chan error, 1),
+		router:                r,
+		feeLimit:              feeLimit,
+		identifier:            identifier,
+		paySession:            paySession,
+		shardTracker:          shardTracker,
+		currentHeight:         currentHeight,
+		quit:                  make(chan struct{}),
+		resultCollected:       make(chan error, 1),
+		firstHopCustomRecords: firstHopCustomRecords,
 	}
 
 	// Mount the result collector.
@@ -677,9 +679,10 @@ func (p *paymentLifecycle) sendAttempt(
 	// this packet will be used to route the payment through the network,
 	// starting with the first-hop.
 	htlcAdd := &lnwire.UpdateAddHTLC{
-		Amount:      rt.TotalAmount,
-		Expiry:      rt.TotalTimeLock,
-		PaymentHash: *attempt.Hash,
+		Amount:        rt.TotalAmount,
+		Expiry:        rt.TotalTimeLock,
+		PaymentHash:   *attempt.Hash,
+		CustomRecords: p.firstHopCustomRecords,
 	}
 
 	// Generate the raw encoded sphinx packet to be included along

@@ -3630,7 +3630,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				}
 
 				// Otherwise, it was already processed, we can
-				// can collect it and continue.
+				// collect it and continue.
 				addMsg := &lnwire.UpdateAddHTLC{
 					Expiry:        fwdInfo.OutgoingCTLV,
 					Amount:        fwdInfo.AmountToForward,
@@ -3650,19 +3650,21 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 				inboundFee := l.cfg.FwrdingPolicy.InboundFee
 
+				//nolint:lll
 				updatePacket := &htlcPacket{
-					incomingChanID:  l.ShortChanID(),
-					incomingHTLCID:  pd.HtlcIndex,
-					outgoingChanID:  fwdInfo.NextHop,
-					sourceRef:       pd.SourceRef,
-					incomingAmount:  pd.Amount,
-					amount:          addMsg.Amount,
-					htlc:            addMsg,
-					obfuscator:      obfuscator,
-					incomingTimeout: pd.Timeout,
-					outgoingTimeout: fwdInfo.OutgoingCTLV,
-					customRecords:   pld.CustomRecords(),
-					inboundFee:      inboundFee,
+					incomingChanID:       l.ShortChanID(),
+					incomingHTLCID:       pd.HtlcIndex,
+					outgoingChanID:       fwdInfo.NextHop,
+					sourceRef:            pd.SourceRef,
+					incomingAmount:       pd.Amount,
+					amount:               addMsg.Amount,
+					htlc:                 addMsg,
+					obfuscator:           obfuscator,
+					incomingTimeout:      pd.Timeout,
+					outgoingTimeout:      fwdInfo.OutgoingCTLV,
+					inOnionCustomRecords: pld.CustomRecords(),
+					inboundFee:           inboundFee,
+					inWireCustomRecords:  pd.CustomRecords.Copy(),
 				}
 				switchPackets = append(
 					switchPackets, updatePacket,
@@ -3718,19 +3720,21 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			if fwdPkg.State == channeldb.FwdStateLockedIn {
 				inboundFee := l.cfg.FwrdingPolicy.InboundFee
 
+				//nolint:lll
 				updatePacket := &htlcPacket{
-					incomingChanID:  l.ShortChanID(),
-					incomingHTLCID:  pd.HtlcIndex,
-					outgoingChanID:  fwdInfo.NextHop,
-					sourceRef:       pd.SourceRef,
-					incomingAmount:  pd.Amount,
-					amount:          addMsg.Amount,
-					htlc:            addMsg,
-					obfuscator:      obfuscator,
-					incomingTimeout: pd.Timeout,
-					outgoingTimeout: fwdInfo.OutgoingCTLV,
-					customRecords:   pld.CustomRecords(),
-					inboundFee:      inboundFee,
+					incomingChanID:       l.ShortChanID(),
+					incomingHTLCID:       pd.HtlcIndex,
+					outgoingChanID:       fwdInfo.NextHop,
+					sourceRef:            pd.SourceRef,
+					incomingAmount:       pd.Amount,
+					amount:               addMsg.Amount,
+					htlc:                 addMsg,
+					obfuscator:           obfuscator,
+					incomingTimeout:      pd.Timeout,
+					outgoingTimeout:      fwdInfo.OutgoingCTLV,
+					inOnionCustomRecords: pld.CustomRecords(),
+					inboundFee:           inboundFee,
+					inWireCustomRecords:  pd.CustomRecords.Copy(),
 				}
 
 				fwdPkg.FwdFilter.Set(idx)

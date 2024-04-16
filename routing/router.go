@@ -865,6 +865,11 @@ type LightningPayment struct {
 	// fail.
 	DestCustomRecords record.CustomSet
 
+	// FirstHopCustomRecords are the TLV records that are to be sent to the
+	// first hop of this payment. These records will be transmitted via the
+	// wire message and therefore do not affect the onion payload size.
+	FirstHopCustomRecords lnwire.CustomRecords
+
 	// MaxParts is the maximum number of partial payments that may be used
 	// to complete the full amount.
 	MaxParts uint32
@@ -948,6 +953,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 	return r.sendPayment(
 		context.Background(), payment.FeeLimit, payment.Identifier(),
 		payment.PayAttemptTimeout, paySession, shardTracker,
+		payment.FirstHopCustomRecords,
 	)
 }
 
@@ -968,6 +974,7 @@ func (r *ChannelRouter) SendPaymentAsync(ctx context.Context,
 		_, _, err := r.sendPayment(
 			ctx, payment.FeeLimit, payment.Identifier(),
 			payment.PayAttemptTimeout, ps, st,
+			payment.FirstHopCustomRecords,
 		)
 		if err != nil {
 			log.Errorf("Payment %x failed: %v",
@@ -1141,7 +1148,9 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// - nil payment session (since we already have a route).
 	// - no payment timeout.
 	// - no current block height.
-	p := newPaymentLifecycle(r, 0, paymentIdentifier, nil, shardTracker, 0)
+	p := newPaymentLifecycle(
+		r, 0, paymentIdentifier, nil, shardTracker, 0, nil,
+	)
 
 	// We found a route to try, create a new HTLC attempt to try.
 	//
@@ -1237,7 +1246,9 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 func (r *ChannelRouter) sendPayment(ctx context.Context,
 	feeLimit lnwire.MilliSatoshi, identifier lntypes.Hash,
 	paymentAttemptTimeout time.Duration, paySession PaymentSession,
-	shardTracker shards.ShardTracker) ([32]byte, *route.Route, error) {
+	shardTracker shards.ShardTracker,
+	firstHopCustomRecords lnwire.CustomRecords) ([32]byte, *route.Route,
+	error) {
 
 	// If the user provides a timeout, we will additionally wrap the context
 	// in a deadline.
@@ -1262,7 +1273,7 @@ func (r *ChannelRouter) sendPayment(ctx context.Context,
 	// can resume the payment from the current state.
 	p := newPaymentLifecycle(
 		r, feeLimit, identifier, paySession, shardTracker,
-		currentHeight,
+		currentHeight, firstHopCustomRecords,
 	)
 
 	return p.resumePayment(ctx)
@@ -1465,7 +1476,7 @@ func (r *ChannelRouter) resumePayments() error {
 		noTimeout := time.Duration(0)
 		_, _, err := r.sendPayment(
 			context.Background(), 0, payHash, noTimeout, paySession,
-			shardTracker,
+			shardTracker, nil,
 		)
 		if err != nil {
 			log.Errorf("Resuming payment %v failed: %v", payHash,

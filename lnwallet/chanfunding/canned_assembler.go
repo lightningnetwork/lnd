@@ -107,6 +107,34 @@ func (s *ShimIntent) FundingOutput() ([]byte, *wire.TxOut, error) {
 	)
 }
 
+// TaprootInternalKey may return the internal key for a musig2 funding output,
+// but only if this is actually a musig2 channel.
+func (s *ShimIntent) TaprootInternalKey() fn.Option[*btcec.PublicKey] {
+	if !s.musig2 {
+		return fn.None[*btcec.PublicKey]()
+	}
+
+	// TODO(roasbeef): refactor
+
+	var scriptOpts []input.FundingScriptOpt
+	s.tapscriptRoot.WhenSome(func(root chainhash.Hash) {
+		scriptOpts = append(
+			scriptOpts, input.WithTapscriptRoot(root),
+		)
+	})
+
+	// Similar to the existing p2wsh script, we'll always ensure the keys
+	// are sorted before use.
+	//
+	// We ignore the eror here as this is only called afterr FundingOutput
+	// is called.
+	_, _, musig2Key, _ := input.GenTaprootFundingScript(
+		s.localKey.PubKey, s.remoteKey, 0, scriptOpts...,
+	)
+
+	return fn.Some(musig2Key.PreTweakedKey)
+}
+
 // Cancel allows the caller to cancel a funding Intent at any time.  This will
 // return any resources such as coins back to the eligible pool to be used in
 // order channel fundings.

@@ -277,6 +277,9 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   maintain a healthy connection to the network by checking the number of
   outbound peers if they are below 6.
 
+* [Shutdown Exit Handling](https://github.com/lightningnetwork/lnd/pull/8659)
+  is added to manage shutdowns with status codes. Exits with code 1 for critical errors, and code 0 for normal shutdowns (e.g., from StopDaemon RPC call).
+
 ### Logging
 * [Add the htlc amount](https://github.com/lightningnetwork/lnd/pull/8156) to
   contract court logs in case of timed-out HTLCs in order to easily spot dust

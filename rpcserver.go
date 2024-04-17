@@ -615,7 +615,7 @@ type rpcServer struct {
 	implCfg *ImplementationCfg
 
 	// interceptor is used to be able to request a shutdown
-	interceptor signal.Interceptor
+	interceptor *signal.Interceptor
 
 	graphCache        sync.RWMutex
 	describeGraphResp *lnrpc.ChannelGraph
@@ -630,7 +630,8 @@ var _ lnrpc.LightningServer = (*rpcServer)(nil)
 // dependencies are added, this will be an non-functioning RPC server only to
 // be used to register the LightningService with the gRPC server.
 func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
-	implCfg *ImplementationCfg, interceptor signal.Interceptor) *rpcServer {
+	implCfg *ImplementationCfg,
+	interceptor *signal.Interceptor) *rpcServer {
 
 	// We go trhough the list of registered sub-servers, and create a gRPC
 	// handler for each. These are used to register with the gRPC server
@@ -6521,7 +6522,7 @@ func (r *rpcServer) StopDaemon(_ context.Context,
 			"shut down, please wait until rescan finishes")
 	}
 
-	r.interceptor.RequestShutdown()
+	r.interceptor.RequestShutdown(0)
 	return &lnrpc.StopResponse{}, nil
 }
 

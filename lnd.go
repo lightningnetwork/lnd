@@ -137,7 +137,7 @@ var errStreamIsolationWithProxySkip = errors.New(
 // This function starts all main system components then blocks until a signal
 // is received on the shutdownChan at which point everything is shut down again.
 func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
-	interceptor signal.Interceptor) error {
+	interceptor *signal.Interceptor) error {
 
 	defer func() {
 		ltndLog.Info("Shutdown complete\n")

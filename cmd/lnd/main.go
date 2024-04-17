@@ -41,4 +41,9 @@ func main() {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+
+	exitCode, exited := shutdownInterceptor.GetExitCode()
+	if exited {
+		os.Exit(exitCode)
+	}
 }

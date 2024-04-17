@@ -714,7 +714,7 @@ func DefaultConfig() Config {
 //  2. Pre-parse the command line to check for an alternative config file
 //  3. Load configuration file overwriting defaults with any specified options
 //  4. Parse CLI options and overwrite/add any specified options
-func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
+func LoadConfig(interceptor *signal.Interceptor) (*Config, error) {
 	// Pre-parse the command line options to pick up an alternative config
 	// file.
 	preCfg := DefaultConfig()
@@ -834,7 +834,9 @@ func (u *usageError) Error() string {
 // ValidateConfig check the given configuration to be sane. This makes sure no
 // illegal values or combination of values are set. All file system paths are
 // normalized. The cleaned up config is returned on success.
-func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
+//
+//nolint:funlen
+func ValidateConfig(cfg Config, interceptor *signal.Interceptor, fileParser,
 	flagParser *flags.Parser) (*Config, error) {
 
 	// If the provided lnd directory is not the default, we'll modify the
@@ -1712,7 +1714,7 @@ func (c *Config) graphDatabaseDir() string {
 // ImplementationConfig returns the configuration of what actual implementations
 // should be used when creating the main lnd instance.
 func (c *Config) ImplementationConfig(
-	interceptor signal.Interceptor) *ImplementationCfg {
+	interceptor *signal.Interceptor) *ImplementationCfg {
 
 	// If we're using a remote signer, we still need the base wallet as a
 	// watch-only source of chain and address data. But we don't need any

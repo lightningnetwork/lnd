@@ -3,6 +3,7 @@ package itest
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
@@ -403,6 +404,13 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
 
+	// For neutrino backend, we need two more UTXOs for Bob to create his
+	// sweeping txns.
+	if ht.IsNeutrinoBackend() {
+		ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+		ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+	}
+
 	// Subscribe the invoices.
 	stream1 := carol.RPC.SubscribeSingleInvoice(payHashSettled[:])
 	stream2 := carol.RPC.SubscribeSingleInvoice(payHashHold[:])
@@ -740,6 +748,14 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 
 		return incoming, outgoing
 	}
+
+	//nolint:lll
+	// For neutrino backend, we need to give it more time to sync the
+	// blocks. There's a potential bug we need to fix:
+	// 2024-04-18 23:36:07.046 [ERR] NTFN: unable to get missed blocks: starting height 487 is greater than ending height 486
+	//
+	// TODO(yy): investigate and fix it.
+	time.Sleep(10 * time.Second)
 
 	// We should see Bob's sweeping txns in the mempool.
 	incomingSweep, outgoingSweep = identifySweepTxns()

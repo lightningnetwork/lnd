@@ -479,6 +479,78 @@ func testForwardInterceptorModifiedHtlc(ht *lntest.HarnessTest) {
 	ht.CloseChannel(bob, cpBC)
 }
 
+func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
+	// Initialize the test context with 3 connected nodes.
+	ts := newInterceptorTestScenario(ht)
+
+	alice, bob, carol := ts.alice, ts.bob, ts.carol
+
+	// Open and wait for channels.
+	const chanAmt = btcutil.Amount(300000)
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntest.OpenChannelRequest{
+		{Local: alice, Remote: bob, Param: p},
+		{Local: bob, Remote: carol, Param: p},
+	}
+	resp := ht.OpenMultiChannelsAsync(reqs)
+	cpAB, cpBC := resp[0], resp[1]
+
+	// Make sure Alice is aware of channel Bob=>Carol.
+	ht.AssertTopologyChannelOpen(alice, cpBC)
+
+	// Connect an interceptor to Bob's node.
+	bobInterceptor, cancelBobInterceptor := bob.RPC.HtlcInterceptor()
+
+	req := &lnrpc.Invoice{ValueMsat: 1000}
+	addResponse := carol.RPC.AddInvoice(req)
+	invoice := carol.RPC.LookupInvoice(addResponse.RHash)
+
+	sendReq := &routerrpc.SendPaymentRequest{
+		PaymentRequest: invoice.PaymentRequest,
+		TimeoutSeconds: int32(wait.PaymentTimeout.Seconds()),
+		FeeLimitMsat:   noFeeLimitMsat,
+		FirstHopCustomRecords: map[uint64][]byte{
+			65537: []byte("test"),
+		},
+	}
+
+	_ = alice.RPC.SendPayment(sendReq)
+
+	// We start the htlc interceptor with a simple implementation that saves
+	// all intercepted packets. These packets are held to simulate a
+	// pending payment.
+	packet := ht.ReceiveHtlcInterceptor(bobInterceptor)
+
+	require.Len(ht, packet.WireCustomRecords, 1)
+
+	val, ok := packet.WireCustomRecords[65537]
+	require.True(ht, ok, "expected custom record")
+	require.Equal(ht, []byte("test"), val)
+
+	action := routerrpc.ResolveHoldForwardAction_RESUME_MODIFIED
+	newOutgoingAmountMsat := packet.OutgoingAmountMsat + 800
+
+	err := bobInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey: packet.IncomingCircuitKey,
+		OutgoingAmountMsat: newOutgoingAmountMsat,
+		Action:             action,
+	})
+	require.NoError(ht, err, "failed to send request")
+
+	// Cancel the context, which will disconnect Bob's interceptor.
+	cancelBobInterceptor()
+
+	// Assert that the payment was successful.
+	var preimage lntypes.Preimage
+	copy(preimage[:], invoice.RPreimage)
+	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
+
+	// Finally, close channels.
+	ht.CloseChannel(alice, cpAB)
+	ht.CloseChannel(bob, cpBC)
+
+}
+
 // interceptorTestScenario is a helper struct to hold the test context and
 // provide the needed functionality.
 type interceptorTestScenario struct {

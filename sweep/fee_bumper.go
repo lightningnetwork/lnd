@@ -1039,13 +1039,24 @@ func (t *TxPublisher) isThirdPartySpent(txid chainhash.Hash,
 	for _, inp := range inputs {
 		op := inp.OutPoint()
 
+		// For wallet utxos, the height hint is not set - we don't need
+		// to monitor them for third party spend.
+		heightHint := inp.HeightHint()
+		if heightHint == 0 {
+			log.Debugf("Skipped third party check for wallet "+
+				"input %v", op)
+
+			continue
+		}
+
 		// If the input has already been spent after the height hint, a
 		// spend event is sent back immediately.
 		spendEvent, err := t.cfg.Notifier.RegisterSpendNtfn(
-			&op, inp.SignDesc().Output.PkScript, inp.HeightHint(),
+			&op, inp.SignDesc().Output.PkScript, heightHint,
 		)
 		if err != nil {
-			log.Criticalf("Failed to register spend ntfn: %v", err)
+			log.Criticalf("Failed to register spend ntfn for "+
+				"input=%v: %v", op, err)
 			return false
 		}
 

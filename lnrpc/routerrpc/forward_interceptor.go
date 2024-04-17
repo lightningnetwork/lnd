@@ -93,6 +93,7 @@ func (r *forwardInterceptor) onIntercept(
 		CustomRecords:           htlc.CustomRecords,
 		OnionBlob:               htlc.OnionBlob[:],
 		AutoFailHeight:          htlc.AutoFailHeight,
+		WireCustomRecords:       htlc.CustomPeerRecords,
 	}
 
 	return r.stream.Send(interceptionRequest)

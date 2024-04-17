@@ -963,6 +963,9 @@ message ForwardHtlcInterceptRequest {
     // The block height at which this htlc will be auto-failed to prevent the
     // channel from force-closing.
     int32 auto_fail_height = 10;
+
+    // The custom records of the peer's wire message.
+    map<uint64, bytes> wire_custom_records = 11;
 }
 
 /**

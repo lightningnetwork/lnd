@@ -1316,6 +1316,14 @@
           "type": "integer",
           "format": "int32",
           "description": "The block height at which this htlc will be auto-failed to prevent the\nchannel from force-closing."
+        },
+        "wire_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The custom records of the peer's wire message."
         }
       }
     },

@@ -2149,16 +2149,29 @@ func (h *HarnessTest) AssertHtlcEventTypes(client rpc.HtlcEventsClient,
 func (h *HarnessTest) AssertFeeReport(hn *node.HarnessNode,
 	day, week, month int) {
 
-	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
-	defer cancel()
+	err := wait.NoError(func() error {
+		feeReport, err := hn.RPC.LN.FeeReport(
+			h.runCtx, &lnrpc.FeeReportRequest{},
+		)
+		require.NoError(h, err, "unable to query for fee report")
 
-	feeReport, err := hn.RPC.LN.FeeReport(ctxt, &lnrpc.FeeReportRequest{})
-	require.NoError(h, err, "unable to query for fee report")
+		if uint64(day) != feeReport.DayFeeSum {
+			return fmt.Errorf("day fee mismatch, want %d, got %d",
+				day, feeReport.DayFeeSum)
+		}
 
-	require.EqualValues(h, day, feeReport.DayFeeSum, "day fee mismatch")
-	require.EqualValues(h, week, feeReport.WeekFeeSum, "day week mismatch")
-	require.EqualValues(h, month, feeReport.MonthFeeSum,
-		"day month mismatch")
+		if uint64(week) != feeReport.WeekFeeSum {
+			return fmt.Errorf("week fee mismatch, want %d, got %d",
+				week, feeReport.WeekFeeSum)
+		}
+		if uint64(month) != feeReport.MonthFeeSum {
+			return fmt.Errorf("month fee mismatch, want %d, got %d",
+				month, feeReport.MonthFeeSum)
+		}
+
+		return nil
+	}, wait.DefaultTimeout)
+	require.NoErrorf(h, err, "%s: time out checking fee report", hn.Name())
 }
 
 // AssertHtlcEvents consumes events from a client and ensures that they are of
@@ -2575,19 +2588,28 @@ func (h *HarnessTest) AssertNumPendingSweeps(hn *node.HarnessNode,
 		resp := hn.RPC.PendingSweeps()
 		num := len(resp.PendingSweeps)
 
+		numDesc := "\n"
+		for _, s := range resp.PendingSweeps {
+			desc := fmt.Sprintf("op=%v:%v, amt=%v, type=%v, "+
+				"deadline=%v\n", s.Outpoint.TxidStr,
+				s.Outpoint.OutputIndex, s.AmountSat,
+				s.WitnessType, s.DeadlineHeight)
+			numDesc += desc
+
+			// The deadline height must be set, otherwise the
+			// pending input response is not update-to-date.
+			if s.DeadlineHeight == 0 {
+				return fmt.Errorf("input not updated: %s", desc)
+			}
+		}
+
 		if num == n {
 			results = resp.PendingSweeps
 			return nil
 		}
 
-		desc := "\n"
-		for _, s := range resp.PendingSweeps {
-			desc += fmt.Sprintf("op=%v:%v, amt=%v, type=%v\n",
-				s.Outpoint.TxidStr, s.Outpoint.OutputIndex,
-				s.AmountSat, s.WitnessType)
-		}
-
-		return fmt.Errorf("want %d , got %d, sweeps: %s", n, num, desc)
+		return fmt.Errorf("want %d , got %d, sweeps: %s", n, num,
+			numDesc)
 	}, DefaultTimeout)
 
 	require.NoErrorf(h, err, "%s: check pending sweeps timeout", hn.Name())

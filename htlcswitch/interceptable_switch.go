@@ -484,6 +484,8 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 			return false, nil
 		}
 
+		packet.wireRecords = record.CustomSet(htlc.CustomRecords)
+
 		intercepted := &interceptedForward{
 			htlc:       htlc,
 			packet:     packet,
@@ -617,15 +619,16 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 			ChanID: f.packet.incomingChanID,
 			HtlcID: f.packet.incomingHTLCID,
 		},
-		OutgoingChanID: f.packet.outgoingChanID,
-		Hash:           f.htlc.PaymentHash,
-		OutgoingExpiry: f.htlc.Expiry,
-		OutgoingAmount: f.htlc.Amount,
-		IncomingAmount: f.packet.incomingAmount,
-		IncomingExpiry: f.packet.incomingTimeout,
-		CustomRecords:  f.packet.customRecords,
-		OnionBlob:      f.htlc.OnionBlob,
-		AutoFailHeight: f.autoFailHeight,
+		OutgoingChanID:    f.packet.outgoingChanID,
+		Hash:              f.htlc.PaymentHash,
+		OutgoingExpiry:    f.htlc.Expiry,
+		OutgoingAmount:    f.htlc.Amount,
+		IncomingAmount:    f.packet.incomingAmount,
+		IncomingExpiry:    f.packet.incomingTimeout,
+		CustomRecords:     f.packet.customRecords,
+		OnionBlob:         f.htlc.OnionBlob,
+		AutoFailHeight:    f.autoFailHeight,
+		CustomPeerRecords: f.packet.wireRecords,
 	}
 }
 

@@ -383,6 +383,10 @@ type PaymentDescriptor struct {
 	// blinded route (ie, not the introduction node) from update_add_htlc's
 	// TLVs.
 	BlindingPoint lnwire.BlindingPointRecord
+
+	// WireRecords contains the TLV records blob that was included in
+	// the original wire message that added this HTLC.
+	WireRecords lnwire.CustomRecords
 }
 
 // AddHeight returns a pointer to the height at which the HTLC was added to the
@@ -6531,6 +6535,7 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 		HtlcIndex:     lc.remoteUpdateLog.htlcCounter,
 		OnionBlob:     htlc.OnionBlob[:],
 		BlindingPoint: htlc.BlindingPoint,
+		WireRecords:   htlc.CustomRecords,
 	}
 
 	// Copy over any extra data included to ensure we can forward and

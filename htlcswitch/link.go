@@ -3375,6 +3375,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					Amount:        fwdInfo.AmountToForward,
 					PaymentHash:   pd.RHash,
 					BlindingPoint: fwdInfo.NextBlinding,
+					CustomRecords: pd.WireRecords,
 				}
 
 				// Finally, we'll encode the onion packet for
@@ -3421,6 +3422,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				Amount:        fwdInfo.AmountToForward,
 				PaymentHash:   pd.RHash,
 				BlindingPoint: fwdInfo.NextBlinding,
+				CustomRecords: pd.WireRecords,
 			}
 
 			// Finally, we'll encode the onion packet for the

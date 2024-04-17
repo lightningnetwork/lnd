@@ -75,7 +75,7 @@ import (
 // graduated height and finalized txes. This also prevents people downgrading
 // and surprising the downgraded nursery with missing data.
 
-// NurseryStore abstracts the persistent storage layer for the utxo nursery.
+// NurseryStorer abstracts the persistent storage layer for the utxo nursery.
 // Concretely, it stores commitment and htlc outputs until any time-bounded
 // constraints have fully matured. The store exposes methods for enumerating its
 // contents, and persisting state transitions detected by the utxo nursery.

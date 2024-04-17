@@ -213,3 +213,35 @@ func (o Option[A]) UnsafeFromSome() A {
 	}
 	panic("Option was None()")
 }
+
+// OptionToLeft can be used to convert an Option value into an Either, by
+// providing the Right value that should be used if the Option value is None.
+func OptionToLeft[O, L, R any](o Option[O], r R) Either[O, R] {
+	if o.IsSome() {
+		return Either[O, R]{
+			left:  o,
+			right: None[R](),
+		}
+	}
+
+	return Either[O, R]{
+		left:  None[O](),
+		right: Some(r),
+	}
+}
+
+// OptionToRight can be used to convert an Option value into an Either, by
+// providing the Left value that should be used if the Option value is None.
+func OptionToRight[O, L, R any](o Option[O], l L) Either[L, O] {
+	if o.IsSome() {
+		return Either[L, O]{
+			left:  None[L](),
+			right: o,
+		}
+	}
+
+	return Either[L, O]{
+		left:  Some(l),
+		right: None[O](),
+	}
+}

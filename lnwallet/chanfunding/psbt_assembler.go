@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn"
@@ -162,6 +163,13 @@ func (i *PsbtIntent) BindKeys(localKey *keychain.KeyDescriptor,
 	i.localKey = localKey
 	i.remoteKey = remoteKey
 	i.State = PsbtOutputKnown
+}
+
+// BindTapscriptRoot takes an optional tapscript root and binds it to the
+// underlying funding intent. This only applies to musig2 channels, and will be
+// used to make the musig2 funding output.
+func (i *PsbtIntent) BindTapscriptRoot(root fn.Option[chainhash.Hash]) {
+	i.tapscriptRoot = root
 }
 
 // FundingParams returns the parameters that are necessary to start funding the

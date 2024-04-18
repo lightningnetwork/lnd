@@ -1620,11 +1620,11 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	}
 
 	// At this point, if we have an AuxFundingController active, we'll
-	// check to see if we have any aux info that we should carry along for
-	// this pid.
-	auxFundingDesc := fn.MapOption(
-		func(a AuxFundingController) fn.Option[lnwallet.AuxFundingDesc] {
-			return a.DescFromPendingChanID(msg.PendingChannelID)
+	// check to see if we have a special tapscript root to use in our
+	// musig2 funding output.
+	tapscriptRoot := fn.MapOption(
+		func(a AuxFundingController) fn.Option[chainhash.Hash] {
+			return a.DeriveTapscriptRoot(msg.PendingChannelID)
 		},
 	)(f.cfg.AuxFundingController)
 
@@ -1644,7 +1644,7 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		ZeroConf:         zeroConf,
 		OptionScidAlias:  scid,
 		ScidAliasFeature: scidFeatureVal,
-		AuxFundingDesc:   fn.FlattenOption(auxFundingDesc),
+		TapscriptRoot:    fn.FlattenOption(tapscriptRoot),
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
@@ -4620,11 +4620,11 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	}
 
 	// At this point, if we have an AuxFundingController active, we'll
-	// check to see if we have any aux info that we should carry along for
-	// this pid.
-	auxFundingDesc := fn.MapOption(
-		func(a AuxFundingController) fn.Option[lnwallet.AuxFundingDesc] {
-			return a.DescFromPendingChanID(chanID)
+	// check to see if we have a special tapscript root to use in our
+	// musig2 funding output.
+	tapscriptRoot := fn.MapOption(
+		func(a AuxFundingController) fn.Option[chainhash.Hash] {
+			return a.DeriveTapscriptRoot(chanID)
 		},
 	)(f.cfg.AuxFundingController)
 
@@ -4651,7 +4651,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		OptionScidAlias:   scid,
 		ScidAliasFeature:  scidFeatureVal,
 		Memo:              msg.Memo,
-		AuxFundingDesc:    fn.FlattenOption(auxFundingDesc),
+		TapscriptRoot:     fn.FlattenOption(tapscriptRoot),
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)

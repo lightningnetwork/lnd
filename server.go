@@ -3469,7 +3469,7 @@ func (s *server) nextPeerBackoff(pubStr string,
 	return s.cfg.MinBackoff
 }
 
-// shouldDropConnection determines if our local connection to a remote peer
+// shouldDropLocalConnection determines if our local connection to a remote peer
 // should be dropped in the case of concurrent connection establishment. In
 // order to deterministically decide which connection should be dropped, we'll
 // utilize the ordering of the local and remote public key. If we didn't use

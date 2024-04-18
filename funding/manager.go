@@ -1550,6 +1550,8 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 			// Fail the funding flow.
 			flowErr := fmt.Errorf("channel acceptor blocked " +
 				"zero-conf channel negotiation")
+			log.Errorf("Cancelling funding flow for %v based on "+
+				"channel acceptor response: %v", cid, flowErr)
 			f.failFundingFlow(peer, cid, flowErr)
 			return
 		}
@@ -1564,6 +1566,9 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 				// Fail the funding flow.
 				flowErr := fmt.Errorf("scid-alias feature " +
 					"must be negotiated for zero-conf")
+				log.Errorf("Cancelling funding flow for "+
+					"zero-conf channel %v: %v", cid,
+					flowErr)
 				f.failFundingFlow(peer, cid, flowErr)
 				return
 			}
@@ -1580,7 +1585,8 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	case public && scid:
 		err = fmt.Errorf("option-scid-alias chantype for public " +
 			"channel")
-		log.Error(err)
+		log.Errorf("Cancelling funding flow for public channel %v "+
+			"with scid-alias: %v", cid, err)
 		f.failFundingFlow(peer, cid, err)
 
 		return
@@ -1589,7 +1595,8 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	// unadvertised channels for now.
 	case commitType.IsTaproot() && public:
 		err = fmt.Errorf("taproot channel type for public channel")
-		log.Error(err)
+		log.Errorf("Cancelling funding flow for public taproot "+
+			"channel %v: %v", cid, err)
 		f.failFundingFlow(peer, cid, err)
 
 		return

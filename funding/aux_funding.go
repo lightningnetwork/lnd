@@ -1,6 +1,7 @@
 package funding
 
 import (
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/protofsm"
@@ -23,4 +24,9 @@ type AuxFundingController interface {
 	// TODO(roasbeef): erorr on validation if fail due to invalid root
 	// match?
 	DescFromPendingChanID(PendingChanID) fn.Option[lnwallet.AuxFundingDesc]
+
+	// DeriveTapscriptRoot takes a pending channel ID and maybe returns a
+	// tapscript root that should be used when creating any musig2 sessions
+	// for a channel.
+	DeriveTapscriptRoot(PendingChanID) fn.Option[chainhash.Hash]
 }

@@ -91,16 +91,14 @@ func (p *PsbtFundingRequired) Error() string {
 }
 
 // AuxFundingDesc stores a series of attributes that may be used to modify the
-// way the channel funding occurs
+// way the channel funding occurs. This struct contains information that can
+// only be derived once both sides have received and sent their contributions
+// to the channel (keys, etc).
 type AuxFundingDesc struct {
 	// CustomFundingBlob is a custom blob that'll be stored in the database
 	// within the OpenChannel struct. This should represent information
 	// static to the channel lifetime.
 	CustomFundingBlob tlv.Blob
-
-	// TapscriptRoot is the root of the tapscript tree that will be used to
-	// create the funding output.
-	TapscriptRoot chainhash.Hash
 
 	// CustomLocalCommitBlob is a custom blob that'll be stored in the
 	// first commitment entry for the local party.
@@ -108,8 +106,6 @@ type AuxFundingDesc struct {
 
 	// CustomRemoteCommitBlob is a custom blob that'll be stored in the
 	// first commitment entry for the remote party.
-	//
-	// TODO(roasbeef): have this just use the leaf fetcher?
 	CustomRemoteCommitBlob tlv.Blob
 
 	// InitAuxLeaves is the set of aux leaves that'll be used for the very
@@ -229,9 +225,9 @@ type InitFundingReserveMsg struct {
 	// channel that will be useful to our future selves.
 	Memo []byte
 
-	// AuxFundingDesc is an optional descriptor that can be used to modify
-	// the way channel funding occurs.
-	AuxFundingDesc fn.Option[AuxFundingDesc]
+	// TapscriptRoot is an optional tapscript root that if provided, will
+	// be used to create the combined key for musig2 based channels.
+	TapscriptRoot fn.Option[chainhash.Hash]
 
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
@@ -268,7 +264,6 @@ type fundingReserveCancelMsg struct {
 type addContributionMsg struct {
 	pendingFundingID uint64
 
-	// TODO(roasbeef): Should also carry SPV proofs in we're in SPV mode
 	contribution *ChannelContribution
 
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
@@ -439,8 +434,6 @@ type LightningWallet struct {
 	quit chan struct{}
 
 	wg sync.WaitGroup
-
-	// TODO(roasbeef): handle wallet lock/unlock
 }
 
 // NewLightningWallet creates/opens and initializes a LightningWallet instance.
@@ -485,7 +478,6 @@ func (l *LightningWallet) Startup() error {
 	}
 
 	l.wg.Add(1)
-	// TODO(roasbeef): multiple request handlers?
 	go l.requestHandler()
 
 	return nil
@@ -1439,7 +1431,6 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 // transaction via coin selection are freed allowing future reservations to
 // include them.
 func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMsg) {
-	// TODO(roasbeef): holding lock too long
 	l.limboMtx.Lock()
 	defer l.limboMtx.Unlock()
 
@@ -1463,11 +1454,6 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 			unusedInput.PreviousOutPoint,
 		)
 	}
-
-	// TODO(roasbeef): is it even worth it to keep track of unused keys?
-
-	// TODO(roasbeef): Is it possible to mark the unused change also as
-	// available?
 
 	delete(l.fundingLimbo, req.pendingFundingID)
 
@@ -1642,14 +1628,22 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		// and remote key which will be needed to calculate the multisig
 		// funding output in a next step.
 		pendingChanID := pendingReservation.pendingChanID
+
 		walletLog.Debugf("Advancing PSBT funding flow for "+
 			"pending_id(%x), binding keys local_key=%v, "+
 			"remote_key=%x", pendingChanID,
 			&ourContribution.MultiSigKey,
 			theirContribution.MultiSigKey.PubKey.SerializeCompressed())
+
 		fundingIntent.BindKeys(
 			&ourContribution.MultiSigKey,
 			theirContribution.MultiSigKey.PubKey,
+		)
+
+		// We might have a tapscript root, so we'll bind that now to
+		// ensure we make the proper funding output.
+		fundingIntent.BindTapscriptRoot(
+			pendingReservation.partialState.TapscriptRoot,
 		)
 
 		// Exit early because we can't continue the funding flow yet.
@@ -1724,16 +1718,17 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 // the commitment transaction for the remote party, and verify their incoming
 // partial signature.
 func genMusigSession(ourContribution, theirContribution *ChannelContribution,
-	signer input.MuSig2Signer,
-	fundingOutput *wire.TxOut) *MusigPairSession {
+	signer input.MuSig2Signer, fundingOutput *wire.TxOut,
+	tapscriptRoot fn.Option[chainhash.Hash]) *MusigPairSession {
 
 	return NewMusigPairSession(&MusigSessionCfg{
-		LocalKey:    ourContribution.MultiSigKey,
-		RemoteKey:   theirContribution.MultiSigKey,
-		LocalNonce:  *ourContribution.LocalNonce,
-		RemoteNonce: *theirContribution.LocalNonce,
-		Signer:      signer,
-		InputTxOut:  fundingOutput,
+		LocalKey:       ourContribution.MultiSigKey,
+		RemoteKey:      theirContribution.MultiSigKey,
+		LocalNonce:     *ourContribution.LocalNonce,
+		RemoteNonce:    *theirContribution.LocalNonce,
+		Signer:         signer,
+		InputTxOut:     fundingOutput,
+		TapscriptTweak: tapscriptRoot,
 	})
 }
 
@@ -1783,6 +1778,7 @@ func (l *LightningWallet) signCommitTx(pendingReservation *ChannelReservation,
 			musigSessions := genMusigSession(
 				ourContribution, theirContribution,
 				l.Cfg.Signer, fundingOutput,
+				pendingReservation.partialState.TapscriptRoot,
 			)
 			pendingReservation.musigSessions = musigSessions
 		}
@@ -2166,6 +2162,7 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 			res.musigSessions = genMusigSession(
 				res.ourContribution, res.theirContribution,
 				l.Cfg.Signer, fundingOutput,
+				res.partialState.TapscriptRoot,
 			)
 		}
 
@@ -2256,9 +2253,6 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 
 	// As we're about to broadcast the funding transaction, we'll take note
 	// of the current height for record keeping purposes.
-	//
-	// TODO(roasbeef): this info can also be piped into light client's
-	// basic fee estimation?
 	_, bestHeight, err := l.Cfg.ChainIO.GetBestBlock()
 	if err != nil {
 		msg.err <- err

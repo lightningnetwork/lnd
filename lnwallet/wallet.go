@@ -108,9 +108,13 @@ type AuxFundingDesc struct {
 	// first commitment entry for the remote party.
 	CustomRemoteCommitBlob tlv.Blob
 
-	// InitAuxLeaves is the set of aux leaves that'll be used for the very
-	// first commitment state.
-	InitAuxLeaves CommitAuxLeaves
+	// LocalInitAuxLeaves is the set of aux leaves that'll be used for our
+	// very first commitment state.
+	LocalInitAuxLeaves CommitAuxLeaves
+
+	// RemoteInitAuxLeaves is the set of aux leaves that'll be used for the
+	// very first commitment state for the remote party.
+	RemoteInitAuxLeaves CommitAuxLeaves
 }
 
 // InitFundingReserveMsg is the first message sent to initiate the workflow
@@ -276,6 +280,8 @@ type addContributionMsg struct {
 type continueContributionMsg struct {
 	pendingFundingID uint64
 
+	auxFundingDesc fn.Option[AuxFundingDesc]
+
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
 	err chan error
 }
@@ -330,6 +336,8 @@ type addCounterPartySigsMsg struct {
 // transactions, signing the remote party's version.
 type addSingleFunderSigsMsg struct {
 	pendingFundingID uint64
+
+	auxFundingDesc fn.Option[AuxFundingDesc]
 
 	// fundingOutpoint is the outpoint of the completed funding
 	// transaction as assembled by the workflow initiator.
@@ -1474,7 +1482,8 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 // createCommitOpts is a struct that holds the options for creating a a new
 // commitment transaction.
 type createCommitOpts struct {
-	auxLeaves fn.Option[CommitAuxLeaves]
+	localAuxLeaves  fn.Option[CommitAuxLeaves]
+	remoteAuxLeaves fn.Option[CommitAuxLeaves]
 }
 
 // defaultCommitOpts returns a new createCommitOpts with default values.
@@ -1484,9 +1493,12 @@ func defaultCommitOpts() createCommitOpts {
 
 // WithAuxLeaves is a functional option that can be used to set the aux leaves
 // for a new commitment transaction.
-func WithAuxLeaves(leaves fn.Option[CommitAuxLeaves]) CreateCommitOpt {
+func WithAuxLeaves(localLeaves,
+	remoteLeaves fn.Option[CommitAuxLeaves]) CreateCommitOpt {
+
 	return func(o *createCommitOpts) {
-		o.auxLeaves = leaves
+		o.localAuxLeaves = localLeaves
+		o.remoteAuxLeaves = remoteLeaves
 	}
 }
 
@@ -1521,7 +1533,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	ourCommitTx, err := CreateCommitTx(
 		chanType, fundingTxIn, localCommitmentKeys, ourChanCfg,
 		theirChanCfg, localBalance, remoteBalance, 0, initiator,
-		leaseExpiry, options.auxLeaves,
+		leaseExpiry, options.localAuxLeaves,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1535,7 +1547,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	theirCommitTx, err := CreateCommitTx(
 		chanType, fundingTxIn, remoteCommitmentKeys, theirChanCfg,
 		ourChanCfg, remoteBalance, localBalance, 0, !initiator,
-		leaseExpiry, options.auxLeaves,
+		leaseExpiry, options.remoteAuxLeaves,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1814,6 +1826,24 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 		return
 	}
 
+	chanState := pendingReservation.partialState
+
+	// If we have an aux funding desc, then we can use it to populate some
+	// of the optional, but opaque TLV blobs we'll carry for the channel.
+	chanState.CustomBlob = fn.MapOption(func(desc AuxFundingDesc) tlv.Blob {
+		return desc.CustomFundingBlob
+	})(req.auxFundingDesc)
+	chanState.LocalCommitment.CustomBlob = fn.MapOption(
+		func(desc AuxFundingDesc) tlv.Blob {
+			return desc.CustomLocalCommitBlob
+		},
+	)(req.auxFundingDesc)
+	chanState.RemoteCommitment.CustomBlob = fn.MapOption(
+		func(desc AuxFundingDesc) tlv.Blob {
+			return desc.CustomRemoteCommitBlob
+		},
+	)(req.auxFundingDesc)
+
 	ourContribution := pendingReservation.ourContribution
 	theirContribution := pendingReservation.theirContribution
 	chanPoint := pendingReservation.partialState.FundingOutpoint
@@ -1872,7 +1902,6 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	// Store their current commitment point. We'll need this after the
 	// first state transition in order to verify the authenticity of the
 	// revocation.
-	chanState := pendingReservation.partialState
 	chanState.RemoteCurrentRevocation = theirContribution.FirstCommitmentPoint
 
 	// Create the txin to our commitment transaction; required to construct
@@ -1889,6 +1918,13 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 		leaseExpiry = pendingReservation.partialState.ThawHeight
 	}
 
+	localAuxLeaves := fn.MapOption(func(desc AuxFundingDesc) CommitAuxLeaves {
+		return desc.LocalInitAuxLeaves
+	})(req.auxFundingDesc)
+	remoteAuxLeaves := fn.MapOption(func(desc AuxFundingDesc) CommitAuxLeaves {
+		return desc.RemoteInitAuxLeaves
+	})(req.auxFundingDesc)
+
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
 		localBalance, remoteBalance, ourContribution.ChannelConfig,
 		theirContribution.ChannelConfig,
@@ -1896,7 +1932,7 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 		theirContribution.FirstCommitmentPoint, fundingTxIn,
 		pendingReservation.partialState.ChanType,
 		pendingReservation.partialState.IsInitiator, leaseExpiry,
-		WithAuxLeaves(pendingReservation.initAuxLeaves),
+		WithAuxLeaves(localAuxLeaves, remoteAuxLeaves),
 	)
 	if err != nil {
 		req.err <- err
@@ -2313,6 +2349,23 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	defer pendingReservation.Unlock()
 
 	chanState := pendingReservation.partialState
+
+	// If we have an aux funding desc, then we can use it to populate some
+	// of the optional, but opaque TLV blobs we'll carry for the channel.
+	chanState.CustomBlob = fn.MapOption(func(desc AuxFundingDesc) tlv.Blob {
+		return desc.CustomFundingBlob
+	})(req.auxFundingDesc)
+	chanState.LocalCommitment.CustomBlob = fn.MapOption(
+		func(desc AuxFundingDesc) tlv.Blob {
+			return desc.CustomLocalCommitBlob
+		},
+	)(req.auxFundingDesc)
+	chanState.RemoteCommitment.CustomBlob = fn.MapOption(
+		func(desc AuxFundingDesc) tlv.Blob {
+			return desc.CustomRemoteCommitBlob
+		},
+	)(req.auxFundingDesc)
+
 	chanType := pendingReservation.partialState.ChanType
 	chanState.FundingOutpoint = *req.fundingOutpoint
 	fundingTxIn := wire.NewTxIn(req.fundingOutpoint, nil, nil)
@@ -2326,6 +2379,14 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	if pendingReservation.partialState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = pendingReservation.partialState.ThawHeight
 	}
+
+	localAuxLeaves := fn.MapOption(func(desc AuxFundingDesc) CommitAuxLeaves {
+		return desc.LocalInitAuxLeaves
+	})(req.auxFundingDesc)
+	remoteAuxLeaves := fn.MapOption(func(desc AuxFundingDesc) CommitAuxLeaves {
+		return desc.RemoteInitAuxLeaves
+	})(req.auxFundingDesc)
+
 	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
 		localBalance, remoteBalance,
 		pendingReservation.ourContribution.ChannelConfig,
@@ -2334,7 +2395,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		pendingReservation.theirContribution.FirstCommitmentPoint,
 		*fundingTxIn, chanType,
 		pendingReservation.partialState.IsInitiator, leaseExpiry,
-		WithAuxLeaves(pendingReservation.initAuxLeaves),
+		WithAuxLeaves(localAuxLeaves, remoteAuxLeaves),
 	)
 	if err != nil {
 		req.err <- err

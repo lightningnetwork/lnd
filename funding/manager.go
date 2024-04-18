@@ -99,7 +99,6 @@ const (
 	// you and limitless channel size (apart from 21 million cap).
 	MaxBtcFundingAmountWumbo = btcutil.Amount(1000000000)
 
-	// TODO(roasbeef): tune.
 	msgBufferSize = 50
 
 	// MaxWaitNumBlocksFundingConf is the maximum number of blocks to wait
@@ -1622,11 +1621,14 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	// At this point, if we have an AuxFundingController active, we'll
 	// check to see if we have a special tapscript root to use in our
 	// musig2 funding output.
-	tapscriptRoot := fn.MapOption(
-		func(a AuxFundingController) fn.Option[chainhash.Hash] {
-			return a.DeriveTapscriptRoot(msg.PendingChannelID)
-		},
-	)(f.cfg.AuxFundingController)
+	tapscriptRoot, err := deriveTapscriptRoot(
+		f.cfg.AuxFundingController, msg.PendingChannelID,
+	)
+	if err != nil {
+		err = fmt.Errorf("error deriving tapscript root: %w", err)
+		log.Error(err)
+		f.failFundingFlow(peer, cid, err)
+	}
 
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:        &msg.ChainHash,
@@ -1644,7 +1646,7 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		ZeroConf:         zeroConf,
 		OptionScidAlias:  scid,
 		ScidAliasFeature: scidFeatureVal,
-		TapscriptRoot:    fn.FlattenOption(tapscriptRoot),
+		TapscriptRoot:    tapscriptRoot,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
@@ -2241,10 +2243,27 @@ func (f *Manager) waitForPsbt(intent *chanfunding.PsbtIntent,
 			return
 		}
 
+		// At this point, we'll see if there's an AuxFundingDesc we
+		// need to deliver so the funding process can continue
+		// properly.
+		chanState := resCtx.reservation.ChanState()
+		localKeys, remoteKeys := resCtx.reservation.CommitmentKeyRings()
+		auxFundingDesc, err := descFromPendingChanID(
+			f.cfg.AuxFundingController, cid.tempChanID, chanState,
+			*localKeys, *remoteKeys, true,
+		)
+		if err != nil {
+			failFlow("error continuing PSBT flow", err)
+			return
+		}
+
 		// A non-nil error means we can continue the funding flow.
 		// Notify the wallet so it can prepare everything we need to
 		// continue.
-		err = resCtx.reservation.ProcessPsbt()
+		//
+		// We'll also pass along the aux funding controller as well,
+		// which may be used to help process the finalized PSBT.
+		err = resCtx.reservation.ProcessPsbt(auxFundingDesc)
 		if err != nil {
 			failFlow("error continuing PSBT flow", err)
 			return
@@ -2253,8 +2272,8 @@ func (f *Manager) waitForPsbt(intent *chanfunding.PsbtIntent,
 		// We are now ready to continue the funding flow.
 		f.continueFundingAccept(resCtx, cid)
 
-	// Handle a server shutdown as well because the reservation won't
-	// survive a restart as it's in memory only.
+		// Handle a server shutdown as well because the reservation won't
+		// survive a restart as it's in memory only.
 	case <-f.quit:
 		log.Errorf("Unable to handle funding accept message "+
 			"for peer_key=%x, pending_chan_id=%x: funding manager "+
@@ -2307,6 +2326,10 @@ func (f *Manager) continueFundingAccept(resCtx *reservationWithCtx,
 	// chanIdentifier so this channel will be removed from Brontide if the
 	// funding flow fails.
 	cid.setChanID(channelID)
+
+	// Now that we're ready to resume the funding flow, we'll call into the
+	// aux controller with the final funding details so we can obtain the
+	// funding descs we need.
 
 	// Send the FundingCreated msg.
 	fundingCreated := &lnwire.FundingCreated{
@@ -2370,7 +2393,6 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 	// final funding transaction, as well as a signature for our version of
 	// the commitment transaction. So at this point, we can validate the
 	// initiator's commitment transaction, then send our own if it's valid.
-	// TODO(roasbeef): make case (p vs P) consistent throughout
 	fundingOut := msg.FundingPoint
 	log.Infof("completing pending_id(%x) with ChannelPoint(%v)",
 		pendingChanID[:], fundingOut)
@@ -2402,16 +2424,33 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 		}
 	}
 
+	// At this point, we'll see if there's an AuxFundingDesc we need to
+	// deliver so the funding process can continue properly.
+	chanState := resCtx.reservation.ChanState()
+	localKeys, remoteKeys := resCtx.reservation.CommitmentKeyRings()
+	auxFundingDesc, err := descFromPendingChanID(
+		f.cfg.AuxFundingController, cid.tempChanID, chanState,
+		*localKeys, *remoteKeys, true,
+	)
+	if err != nil {
+		log.Errorf("error continuing PSBT flow: %v", err)
+		f.failFundingFlow(peer, cid, err)
+		return
+	}
+
 	// With all the necessary data available, attempt to advance the
 	// funding workflow to the next stage. If this succeeds then the
 	// funding transaction will broadcast after our next message.
 	// CompleteReservationSingle will also mark the channel as 'IsPending'
 	// in the database.
+	//
+	// We'll also directly pass in the AuxFundiner controller as well,
+	// which may be used by the reservation system to finalize funding our
+	// side.
 	completeChan, err := resCtx.reservation.CompleteReservationSingle(
-		&fundingOut, commitSig,
+		&fundingOut, commitSig, auxFundingDesc,
 	)
 	if err != nil {
-		// TODO(roasbeef): better error logging: peerID, channelID, etc.
 		log.Errorf("unable to complete single reservation: %v", err)
 		f.failFundingFlow(peer, cid, err)
 		return
@@ -2722,9 +2761,6 @@ func (f *Manager) funderProcessFundingSigned(peer lnpeer.Peer,
 
 	// Send an update to the upstream client that the negotiation process
 	// is over.
-	//
-	// TODO(roasbeef): add abstraction over updates to accommodate
-	// long-polling, or SSE, etc.
 	upd := &lnrpc.OpenStatusUpdate{
 		Update: &lnrpc.OpenStatusUpdate_ChanPending{
 			ChanPending: &lnrpc.PendingUpdate{
@@ -4429,7 +4465,6 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 
 // InitFundingWorkflow sends a message to the funding manager instructing it
 // to initiate a single funder workflow with the source peer.
-// TODO(roasbeef): re-visit blocking nature..
 func (f *Manager) InitFundingWorkflow(msg *InitFundingMsg) {
 	f.fundingRequests <- msg
 }
@@ -4622,11 +4657,14 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// At this point, if we have an AuxFundingController active, we'll
 	// check to see if we have a special tapscript root to use in our
 	// musig2 funding output.
-	tapscriptRoot := fn.MapOption(
-		func(a AuxFundingController) fn.Option[chainhash.Hash] {
-			return a.DeriveTapscriptRoot(chanID)
-		},
-	)(f.cfg.AuxFundingController)
+	tapscriptRoot, err := deriveTapscriptRoot(
+		f.cfg.AuxFundingController, chanID,
+	)
+	if err != nil {
+		err = fmt.Errorf("error deriving tapscript root: %w", err)
+		msg.Err <- err
+		return
+	}
 
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:         &msg.ChainHash,
@@ -4651,7 +4689,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		OptionScidAlias:   scid,
 		ScidAliasFeature:  scidFeatureVal,
 		Memo:              msg.Memo,
-		TapscriptRoot:     fn.FlattenOption(tapscriptRoot),
+		TapscriptRoot:     tapscriptRoot,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)

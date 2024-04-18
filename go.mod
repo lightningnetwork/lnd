@@ -37,7 +37,7 @@ require (
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn v1.0.5
 	github.com/lightningnetwork/lnd/healthcheck v1.2.4
-	github.com/lightningnetwork/lnd/kvdb v1.4.5
+	github.com/lightningnetwork/lnd/kvdb v1.4.6
 	github.com/lightningnetwork/lnd/queue v1.1.1
 	github.com/lightningnetwork/lnd/sqldb v1.0.1
 	github.com/lightningnetwork/lnd/ticker v1.1.1
@@ -202,10 +202,6 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display
-
-// Temporary replace rule until kvdb is tagged with changes from
-// https://github.com/lightningnetwork/lnd/pull/8611.
-replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
 
 // If you change this please also update .github/pull_request_template.md and
 // docs/INSTALL.md.

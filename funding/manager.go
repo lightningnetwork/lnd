@@ -99,7 +99,6 @@ const (
 	// you and limitless channel size (apart from 21 million cap).
 	MaxBtcFundingAmountWumbo = btcutil.Amount(1000000000)
 
-	// TODO(roasbeef): tune.
 	msgBufferSize = 50
 
 	// MaxWaitNumBlocksFundingConf is the maximum number of blocks to wait
@@ -1256,8 +1255,8 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 
 // advancePendingChannelState waits for a pending channel's funding tx to
 // confirm, and marks it open in the database when that happens.
-func (f *Manager) advancePendingChannelState(
-	channel *channeldb.OpenChannel, pendingChanID PendingChanID) error {
+func (f *Manager) advancePendingChannelState(channel *channeldb.OpenChannel,
+	pendingChanID PendingChanID) error {
 
 	if channel.IsZeroConf() {
 		// Persist the alias to the alias database.
@@ -2244,10 +2243,27 @@ func (f *Manager) waitForPsbt(intent *chanfunding.PsbtIntent,
 			return
 		}
 
+		// At this point, we'll see if there's an AuxFundingDesc we
+		// need to deliver so the funding process can continue
+		// properly.
+		chanState := resCtx.reservation.ChanState()
+		localKeys, remoteKeys := resCtx.reservation.CommitmentKeyRings()
+		auxFundingDesc, err := descFromPendingChanID(
+			f.cfg.AuxFundingController, cid.tempChanID, chanState,
+			*localKeys, *remoteKeys, true,
+		)
+		if err != nil {
+			failFlow("error continuing PSBT flow", err)
+			return
+		}
+
 		// A non-nil error means we can continue the funding flow.
 		// Notify the wallet so it can prepare everything we need to
 		// continue.
-		err = resCtx.reservation.ProcessPsbt()
+		//
+		// We'll also pass along the aux funding controller as well,
+		// which may be used to help process the finalized PSBT.
+		err = resCtx.reservation.ProcessPsbt(auxFundingDesc)
 		if err != nil {
 			failFlow("error continuing PSBT flow", err)
 			return
@@ -2373,7 +2389,6 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 	// final funding transaction, as well as a signature for our version of
 	// the commitment transaction. So at this point, we can validate the
 	// initiator's commitment transaction, then send our own if it's valid.
-	// TODO(roasbeef): make case (p vs P) consistent throughout
 	fundingOut := msg.FundingPoint
 	log.Infof("completing pending_id(%x) with ChannelPoint(%v)",
 		pendingChanID[:], fundingOut)
@@ -2405,16 +2420,33 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 		}
 	}
 
+	// At this point, we'll see if there's an AuxFundingDesc we need to
+	// deliver so the funding process can continue properly.
+	chanState := resCtx.reservation.ChanState()
+	localKeys, remoteKeys := resCtx.reservation.CommitmentKeyRings()
+	auxFundingDesc, err := descFromPendingChanID(
+		f.cfg.AuxFundingController, cid.tempChanID, chanState,
+		*localKeys, *remoteKeys, true,
+	)
+	if err != nil {
+		log.Errorf("error continuing PSBT flow: %v", err)
+		f.failFundingFlow(peer, cid, err)
+		return
+	}
+
 	// With all the necessary data available, attempt to advance the
 	// funding workflow to the next stage. If this succeeds then the
 	// funding transaction will broadcast after our next message.
 	// CompleteReservationSingle will also mark the channel as 'IsPending'
 	// in the database.
+	//
+	// We'll also directly pass in the AuxFunding controller as well,
+	// which may be used by the reservation system to finalize funding our
+	// side.
 	completeChan, err := resCtx.reservation.CompleteReservationSingle(
-		&fundingOut, commitSig,
+		&fundingOut, commitSig, auxFundingDesc,
 	)
 	if err != nil {
-		// TODO(roasbeef): better error logging: peerID, channelID, etc.
 		log.Errorf("unable to complete single reservation: %v", err)
 		f.failFundingFlow(peer, cid, err)
 		return
@@ -2725,9 +2757,6 @@ func (f *Manager) funderProcessFundingSigned(peer lnpeer.Peer,
 
 	// Send an update to the upstream client that the negotiation process
 	// is over.
-	//
-	// TODO(roasbeef): add abstraction over updates to accommodate
-	// long-polling, or SSE, etc.
 	upd := &lnrpc.OpenStatusUpdate{
 		Update: &lnrpc.OpenStatusUpdate_ChanPending{
 			ChanPending: &lnrpc.PendingUpdate{
@@ -3634,7 +3663,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 // a zero-conf channel. This will wait for the real confirmation, add the
 // confirmed SCID to the router graph, and then announce after six confs.
 func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel,
-	pendingID PendingChanID) error {
+	_ PendingChanID) error {
 
 	// First we'll check whether the channel is confirmed on-chain. If it
 	// is already confirmed, the chainntnfs subsystem will return with the
@@ -4432,7 +4461,6 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 
 // InitFundingWorkflow sends a message to the funding manager instructing it
 // to initiate a single funder workflow with the source peer.
-// TODO(roasbeef): re-visit blocking nature..
 func (f *Manager) InitFundingWorkflow(msg *InitFundingMsg) {
 	f.fundingRequests <- msg
 }

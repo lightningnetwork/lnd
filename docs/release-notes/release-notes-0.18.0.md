@@ -116,6 +116,9 @@
   their master key's
   fingerprint](https://github.com/lightningnetwork/lnd/pull/8630).
 
+* [Fixed a bug in `btcd` that caused an incompatibility with
+  `bitcoind v27.0`](https://github.com/lightningnetwork/lnd/pull/8573).
+
 # New Features
 ## Functional Enhancements
 

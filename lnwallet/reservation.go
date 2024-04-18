@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -25,7 +26,7 @@ type CommitmentType int
 const (
 	// CommitmentTypeLegacy is the legacy commitment format with a tweaked
 	// to_remote key.
-	CommitmentTypeLegacy = iota
+	CommitmentTypeLegacy CommitmentType = iota
 
 	// CommitmentTypeTweakless is a newer commitment format where the
 	// to_remote key is static.
@@ -99,6 +100,28 @@ func (c CommitmentType) String() string {
 		return "invalid"
 	}
 }
+
+// ReservationState is a type that represents the current state of a channel
+// reservation within the funding workflow.
+type ReservationState int
+
+const (
+	// WaitingToSend is the state either the funder/fundee is in after
+	// creating a reservation, but hasn't sent a message yet.
+	WaitingToSend ReservationState = iota
+
+	// SentOpenChannel is the state the funder is in after sending the
+	// OpenChannel message.
+	SentOpenChannel
+
+	// SentAcceptChannel is the state the fundee is in after sending the
+	// AcceptChannel message.
+	SentAcceptChannel
+
+	// SentFundingCreated is the state the funder is in after sending the
+	// FundingCreated message.
+	SentFundingCreated
+)
 
 // ChannelContribution is the primary constituent of the funding workflow
 // within lnwallet. Each side first exchanges their respective contributions
@@ -223,6 +246,8 @@ type ChannelReservation struct {
 	nextRevocationKeyLoc keychain.KeyLocator
 
 	musigSessions *MusigPairSession
+
+	state ReservationState
 }
 
 // NewChannelReservation creates a new channel reservation. This function is
@@ -459,6 +484,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		reservationID: id,
 		wallet:        wallet,
 		chanFunder:    req.ChanFunder,
+		state:         WaitingToSend,
 	}, nil
 }
 
@@ -468,6 +494,22 @@ func (r *ChannelReservation) AddAlias(scid lnwire.ShortChannelID) {
 	defer r.Unlock()
 
 	r.partialState.ShortChannelID = scid
+}
+
+// SetState sets the ReservationState.
+func (r *ChannelReservation) SetState(state ReservationState) {
+	r.Lock()
+	defer r.Unlock()
+
+	r.state = state
+}
+
+// State returns the current ReservationState.
+func (r *ChannelReservation) State() ReservationState {
+	r.RLock()
+	defer r.RUnlock()
+
+	return r.state
 }
 
 // SetNumConfsRequired sets the number of confirmations that are required for
@@ -610,12 +652,15 @@ func (r *ChannelReservation) IsCannedShim() bool {
 }
 
 // ProcessPsbt continues a previously paused funding flow that involves PSBT to
-// construct the funding transaction. This method can be called once the PSBT is
-// finalized and the signed transaction is available.
-func (r *ChannelReservation) ProcessPsbt() error {
+// construct the funding transaction. This method can be called once the PSBT
+// is finalized and the signed transaction is available.
+func (r *ChannelReservation) ProcessPsbt(
+	auxFundingDesc fn.Option[AuxFundingDesc]) error {
+
 	errChan := make(chan error, 1)
 
 	r.wallet.msgChan <- &continueContributionMsg{
+		auxFundingDesc:   auxFundingDesc,
 		pendingFundingID: r.reservationID,
 		err:              errChan,
 	}
@@ -717,8 +762,10 @@ func (r *ChannelReservation) CompleteReservation(fundingInputScripts []*input.Sc
 // available via the .OurSignatures() method. As this method should only be
 // called as a response to a single funder channel, only a commitment signature
 // will be populated.
-func (r *ChannelReservation) CompleteReservationSingle(fundingPoint *wire.OutPoint,
-	commitSig input.Signature) (*channeldb.OpenChannel, error) {
+func (r *ChannelReservation) CompleteReservationSingle(
+	fundingPoint *wire.OutPoint, commitSig input.Signature,
+	auxFundingDesc fn.Option[AuxFundingDesc]) (*channeldb.OpenChannel,
+	error) {
 
 	errChan := make(chan error, 1)
 	completeChan := make(chan *channeldb.OpenChannel, 1)
@@ -728,6 +775,7 @@ func (r *ChannelReservation) CompleteReservationSingle(fundingPoint *wire.OutPoi
 		fundingOutpoint:    fundingPoint,
 		theirCommitmentSig: commitSig,
 		completeChan:       completeChan,
+		auxFundingDesc:     auxFundingDesc,
 		err:                errChan,
 	}
 
@@ -811,6 +859,42 @@ func (r *ChannelReservation) Cancel() error {
 	}
 
 	return <-errChan
+}
+
+// ChanState the current open channel state.
+func (r *ChannelReservation) ChanState() *channeldb.OpenChannel {
+	r.RLock()
+	defer r.RUnlock()
+
+	return r.partialState
+}
+
+// CommitmentKeyRings returns the local+remote key ring used for the very first
+// commitment transaction both parties.
+//
+//nolint:lll
+func (r *ChannelReservation) CommitmentKeyRings() lntypes.Dual[CommitmentKeyRing] {
+	r.RLock()
+	defer r.RUnlock()
+
+	chanType := r.partialState.ChanType
+	ourChanCfg := r.ourContribution.ChannelConfig
+	theirChanCfg := r.theirContribution.ChannelConfig
+
+	localKeys := DeriveCommitmentKeys(
+		r.ourContribution.FirstCommitmentPoint, lntypes.Local, chanType,
+		ourChanCfg, theirChanCfg,
+	)
+
+	remoteKeys := DeriveCommitmentKeys(
+		r.theirContribution.FirstCommitmentPoint, lntypes.Remote,
+		chanType, ourChanCfg, theirChanCfg,
+	)
+
+	return lntypes.Dual[CommitmentKeyRing]{
+		Local:  *localKeys,
+		Remote: *remoteKeys,
+	}
 }
 
 // VerifyConstraints is a helper function that can be used to check the sanity

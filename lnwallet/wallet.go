@@ -1844,6 +1844,26 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 		return
 	}
 
+	chanState := pendingReservation.partialState
+
+	// If we have an aux funding desc, then we can use it to populate some
+	// of the optional, but opaque TLV blobs we'll carry for the channel.
+	chanState.CustomBlob = fn.MapOption(func(desc AuxFundingDesc) tlv.Blob {
+		return desc.CustomFundingBlob
+	})(req.auxFundingDesc)
+
+	chanState.LocalCommitment.CustomBlob = fn.MapOption(
+		func(desc AuxFundingDesc) tlv.Blob {
+			return desc.CustomLocalCommitBlob
+		},
+	)(req.auxFundingDesc)
+
+	chanState.RemoteCommitment.CustomBlob = fn.MapOption(
+		func(desc AuxFundingDesc) tlv.Blob {
+			return desc.CustomRemoteCommitBlob
+		},
+	)(req.auxFundingDesc)
+
 	ourContribution := pendingReservation.ourContribution
 	theirContribution := pendingReservation.theirContribution
 	chanPoint := pendingReservation.partialState.FundingOutpoint
@@ -1902,7 +1922,6 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	// Store their current commitment point. We'll need this after the
 	// first state transition in order to verify the authenticity of the
 	// revocation.
-	chanState := pendingReservation.partialState
 	chanState.RemoteCurrentRevocation = theirContribution.FirstCommitmentPoint
 
 	// Create the txin to our commitment transaction; required to construct
@@ -2349,6 +2368,23 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	defer pendingReservation.Unlock()
 
 	chanState := pendingReservation.partialState
+
+	// If we have an aux funding desc, then we can use it to populate some
+	// of the optional, but opaque TLV blobs we'll carry for the channel.
+	chanState.CustomBlob = fn.MapOption(func(desc AuxFundingDesc) tlv.Blob {
+		return desc.CustomFundingBlob
+	})(req.auxFundingDesc)
+	chanState.LocalCommitment.CustomBlob = fn.MapOption(
+		func(desc AuxFundingDesc) tlv.Blob {
+			return desc.CustomLocalCommitBlob
+		},
+	)(req.auxFundingDesc)
+	chanState.RemoteCommitment.CustomBlob = fn.MapOption(
+		func(desc AuxFundingDesc) tlv.Blob {
+			return desc.CustomRemoteCommitBlob
+		},
+	)(req.auxFundingDesc)
+
 	chanType := pendingReservation.partialState.ChanType
 	chanState.FundingOutpoint = *req.fundingOutpoint
 	fundingTxIn := wire.NewTxIn(req.fundingOutpoint, nil, nil)

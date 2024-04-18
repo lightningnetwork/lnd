@@ -307,3 +307,10 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 func (dp *DynPropose) MsgType() MessageType {
 	return MsgDynPropose
 }
+
+// TargetChanID returns the ChannelID that this message refers to.
+//
+// NOTE: Part of the lnwire.LinkUpdater interface.
+func (dp *DynPropose) TargetChanID() ChannelID {
+	return dp.ChanID
+}

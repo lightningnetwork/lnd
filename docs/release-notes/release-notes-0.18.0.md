@@ -332,6 +332,14 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   specify either `SatPerVbyte` or `TargetConf` so the fee estimator can do a
   proper fee estimation.
 
+* `BumpFee` has been updated to take advantage of the [new budget-based
+  sweeper](https://github.com/lightningnetwork/lnd/pull/8667). The param
+  `force` has been deprecated and replaced with a new param `immediate`, and a
+  new param `budget` is added to allow specifying max fees when sweeping
+  outputs. In addition, `PendingSweep` has added new fields `immediate`,
+  `budget`, and `deadline_height`, the fields `force`, `requested_conf_target`,
+  and `next_broadcast_height` are deprecated.
+
 ## lncli Updates
 
 * [Documented all available `lncli`

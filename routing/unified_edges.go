@@ -6,9 +6,11 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // nodeEdgeUnifier holds all edge unifiers for connections towards a node.
@@ -181,12 +183,12 @@ type edgeUnifier struct {
 // specific amount to send. It differentiates between local and network
 // channels.
 func (u *edgeUnifier) getEdge(netAmtReceived lnwire.MilliSatoshi,
-	bandwidthHints bandwidthHints,
-	nextOutFee lnwire.MilliSatoshi) *unifiedEdge {
+	bandwidthHints bandwidthHints, nextOutFee lnwire.MilliSatoshi,
+	htlcBlob fn.Option[tlv.Blob]) *unifiedEdge {
 
 	if u.localChan {
 		return u.getEdgeLocal(
-			netAmtReceived, bandwidthHints, nextOutFee,
+			netAmtReceived, bandwidthHints, nextOutFee, htlcBlob,
 		)
 	}
 
@@ -213,8 +215,8 @@ func calcCappedInboundFee(edge *unifiedEdge, amt lnwire.MilliSatoshi,
 // getEdgeLocal returns the optimal unified edge to use for this local
 // connection given a specific amount to send.
 func (u *edgeUnifier) getEdgeLocal(netAmtReceived lnwire.MilliSatoshi,
-	bandwidthHints bandwidthHints,
-	nextOutFee lnwire.MilliSatoshi) *unifiedEdge {
+	bandwidthHints bandwidthHints, nextOutFee lnwire.MilliSatoshi,
+	htlcBlob fn.Option[tlv.Blob]) *unifiedEdge {
 
 	var (
 		bestEdge     *unifiedEdge
@@ -251,7 +253,7 @@ func (u *edgeUnifier) getEdgeLocal(netAmtReceived lnwire.MilliSatoshi,
 		// channel. The bandwidth hint is expected to be
 		// available.
 		bandwidth, ok := bandwidthHints.availableChanBandwidth(
-			edge.policy.ChannelID, amt,
+			edge.policy.ChannelID, amt, htlcBlob,
 		)
 		if !ok {
 			log.Debugf("Cannot get bandwidth for edge %v, use max "+

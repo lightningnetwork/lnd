@@ -13,9 +13,11 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -477,7 +479,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 		}
 
 		bandwidth, ok := bandwidthHints.availableChanBandwidth(
-			chanID, 0,
+			chanID, 0, fn.None[tlv.Blob](),
 		)
 
 		// If the bandwidth is not available, use the channel capacity.
@@ -1031,7 +1033,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 			edge := edgeUnifier.getEdge(
 				netAmountReceived, g.bandwidthHints,
-				partialPath.outboundFee,
+				partialPath.outboundFee, fn.None[tlv.Blob](),
 			)
 
 			if edge == nil {

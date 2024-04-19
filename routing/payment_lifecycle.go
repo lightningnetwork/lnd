@@ -359,7 +359,7 @@ func (p *paymentLifecycle) requestRoute(
 	// Query our payment session to construct a route.
 	rt, err := p.paySession.RequestRoute(
 		ps.RemainingAmt, remainingFees,
-		uint32(ps.NumAttemptsInFlight), uint32(p.currentHeight),
+		uint32(ps.NumAttemptsInFlight), uint32(p.currentHeight), nil,
 	)
 
 	// Exit early if there's no error.

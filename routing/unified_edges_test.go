@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -230,6 +231,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 
 			edge := test.unifier.edgeUnifiers[fromNode].getEdge(
 				test.amount, bandwidthHints, test.nextOutFee,
+				fn.None[[]byte](),
 			)
 
 			if test.expectNoPolicy {

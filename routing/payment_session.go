@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -138,7 +139,8 @@ type PaymentSession interface {
 	// A noRouteError is returned if a non-critical error is encountered
 	// during path finding.
 	RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
-		activeShards, height uint32) (*route.Route, error)
+		activeShards, height uint32,
+		firstHopTLVs record.CustomSet) (*route.Route, error)
 
 	// UpdateAdditionalEdge takes an additional channel edge policy
 	// (private channels) and applies the update from the message. Returns
@@ -228,7 +230,8 @@ func newPaymentSession(p *LightningPayment,
 // NOTE: This function is safe for concurrent access.
 // NOTE: Part of the PaymentSession interface.
 func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
-	activeShards, height uint32) (*route.Route, error) {
+	activeShards, height uint32,
+	firstHopTLVs record.CustomSet) (*route.Route, error) {
 
 	if p.empty {
 		return nil, errEmptyPaySession

@@ -46,6 +46,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/protofsm"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sqldb"
@@ -151,6 +152,12 @@ type ImplementationCfg struct {
 	// AuxComponents is a set of auxiliary components that can be used by
 	// lnd for certain custom channel types.
 	AuxComponents
+
+	TlvTrafficShaper
+}
+
+type TlvTrafficShaper struct {
+	TrafficShaper fn.Option[routing.TlvTrafficShaper]
 }
 
 // AuxComponents is a set of auxiliary components that can be used by lnd for

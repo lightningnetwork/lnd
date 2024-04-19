@@ -205,8 +205,8 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 	require.NoError(t, err, "unable to create temp dir")
 
 	rpcPort := rand.Intn(65536-1024) + 1024
-	zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
-	zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
+	zmqBlockHost := fmt.Sprintf("tcp://localhost:%d", rpcPort+1)
+	zmqTxHost := fmt.Sprintf("tcp://localhost:%d", rpcPort+2)
 
 	args := []string{
 		"-connect=" + minerAddr,

@@ -1001,6 +1001,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Clock:               clock.NewDefaultClock(),
 		StrictZombiePruning: strictPruning,
 		IsAlias:             aliasmgr.IsAlias,
+		TrafficShaper:       implCfg.TrafficShaper,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %w", err)

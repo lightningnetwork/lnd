@@ -29,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/routing/shards"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -154,7 +155,10 @@ type PaymentSessionSource interface {
 	// routes to the given target. An optional set of routing hints can be
 	// provided in order to populate additional edges to explore when
 	// finding a path to the payment's destination.
-	NewPaymentSession(p *LightningPayment) (PaymentSession, error)
+	NewPaymentSession(p *LightningPayment,
+		firstHopBlob fn.Option[tlv.Blob],
+		trafficShaper fn.Option[TlvTrafficShaper]) (PaymentSession,
+		error)
 
 	// NewPaymentSessionEmpty creates a new paymentSession instance that is
 	// empty, and will be exhausted immediately. Used for failure reporting
@@ -290,6 +294,10 @@ type Config struct {
 	//
 	// TODO(yy): remove it once the root cause of stuck payments is found.
 	ClosedSCIDs map[lnwire.ShortChannelID]struct{}
+
+	// TrafficShaper is an optional traffic shaper that can be used to
+	// control the outgoing channel of a payment.
+	TrafficShaper fn.Option[TlvTrafficShaper]
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -517,6 +525,7 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 	// eliminate certain routes early on in the path finding process.
 	bandwidthHints, err := newBandwidthManager(
 		r.cfg.RoutingGraph, r.cfg.SelfNode, r.cfg.GetLink,
+		fn.None[tlv.Blob](), r.cfg.TrafficShaper,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -1009,10 +1018,29 @@ func spewPayment(payment *LightningPayment) lnutils.LogClosure {
 func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 	PaymentSession, shards.ShardTracker, error) {
 
+	// Assemble any custom data we want to send to the first hop only.
+	var firstHopData fn.Option[tlv.Blob]
+	if len(payment.FirstHopCustomRecords) > 0 {
+		if err := payment.FirstHopCustomRecords.Validate(); err != nil {
+			return nil, nil, fmt.Errorf("invalid first hop custom "+
+				"records: %w", err)
+		}
+
+		firstHopBlob, err := payment.FirstHopCustomRecords.Serialize()
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to serialize "+
+				"first hop custom records: %w", err)
+		}
+
+		firstHopData = fn.Some(firstHopBlob)
+	}
+
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
-	paySession, err := r.cfg.SessionSource.NewPaymentSession(payment)
+	paySession, err := r.cfg.SessionSource.NewPaymentSession(
+		payment, firstHopData, r.cfg.TrafficShaper,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1277,6 +1305,11 @@ func (r *ChannelRouter) sendPayment(ctx context.Context,
 		return [32]byte{}, nil, err
 	}
 
+	// Validate the custom records before we attempt to send the payment.
+	if err := firstHopCustomRecords.Validate(); err != nil {
+		return [32]byte{}, nil, err
+	}
+
 	// Now set up a paymentLifecycle struct with these params, such that we
 	// can resume the payment from the current state.
 	p := newPaymentLifecycle(
@@ -1327,7 +1360,7 @@ func (e ErrNoChannel) Error() string {
 // outgoing channel, use the outgoingChan parameter.
 func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
 	hops []route.Vertex, outgoingChan *uint64, finalCltvDelta int32,
-	payAddr *[32]byte, _ fn.Option[[]byte]) (*route.Route,
+	payAddr *[32]byte, firstHopBlob fn.Option[[]byte]) (*route.Route,
 	error) {
 
 	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v", len(hops), amt)
@@ -1342,7 +1375,8 @@ func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
 	// We'll attempt to obtain a set of bandwidth hints that helps us select
 	// the best outgoing channel to use in case no outgoing channel is set.
 	bandwidthHints, err := newBandwidthManager(
-		r.cfg.RoutingGraph, r.cfg.SelfNode, r.cfg.GetLink,
+		r.cfg.RoutingGraph, r.cfg.SelfNode, r.cfg.GetLink, firstHopBlob,
+		r.cfg.TrafficShaper,
 	)
 	if err != nil {
 		return nil, err

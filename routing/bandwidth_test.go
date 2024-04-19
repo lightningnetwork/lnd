@@ -5,8 +5,10 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -115,6 +117,8 @@ func TestBandwidthManager(t *testing.T) {
 
 			m, err := newBandwidthManager(
 				g, sourceNode.pubkey, testCase.linkQuery,
+				fn.None[[]byte](),
+				fn.Some[TlvTrafficShaper](&mockTrafficShaper{}),
 			)
 			require.NoError(t, err)
 
@@ -125,4 +129,36 @@ func TestBandwidthManager(t *testing.T) {
 			require.Equal(t, testCase.expectFound, found)
 		})
 	}
+}
+
+type mockTrafficShaper struct{}
+
+// ShouldHandleTraffic is called in order to check if the channel identified
+// by the provided channel ID may have external mechanisms that would
+// allow it to carry out the payment.
+func (*mockTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
+	_ fn.Option[tlv.Blob]) (bool, error) {
+
+	return true, nil
+}
+
+// PaymentBandwidth returns the available bandwidth for a custom channel
+// decided by the given channel aux blob and HTLC blob. A return value
+// of 0 means there is no bandwidth available. To find out if a channel
+// is a custom channel that should be handled by the traffic shaper, the
+// HandleTraffic method should be called first.
+func (*mockTrafficShaper) PaymentBandwidth(_, _ fn.Option[tlv.Blob],
+	linkBandwidth lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
+
+	return linkBandwidth, nil
+}
+
+// ProduceHtlcExtraData is a function that, based on the previous extra
+// data blob of an HTLC, may produce a different blob or modify the
+// amount of bitcoin this htlc should carry.
+func (*mockTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
+	_ lnwire.CustomRecords) (lnwire.MilliSatoshi, lnwire.CustomRecords,
+	error) {
+
+	return totalAmount, nil, nil
 }

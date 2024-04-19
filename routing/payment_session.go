@@ -139,7 +139,9 @@ type PaymentSession interface {
 	// A noRouteError is returned if a non-critical error is encountered
 	// during path finding.
 	RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
-		activeShards, height uint32) (*route.Route, error)
+		activeShards, height uint32,
+		firstHopCustomRecords lnwire.CustomRecords) (*route.Route,
+		error)
 
 	// UpdateAdditionalEdge takes an additional channel edge policy
 	// (private channels) and applies the update from the message. Returns
@@ -243,7 +245,8 @@ func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 // NOTE: This function is safe for concurrent access.
 // NOTE: Part of the PaymentSession interface.
 func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
-	activeShards, height uint32) (*route.Route, error) {
+	activeShards, height uint32,
+	firstHopCustomRecords lnwire.CustomRecords) (*route.Route, error) {
 
 	if p.empty {
 		return nil, errEmptyPaySession
@@ -284,9 +287,9 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	// client-side MTU that we'll attempt to respect at all times.
 	maxShardActive := p.payment.MaxShardAmt != nil
 	if maxShardActive && maxAmt > *p.payment.MaxShardAmt {
-		p.log.Debug("Clamping payment attempt from %v to %v due to "+
-			"max shard size of %v", maxAmt,
-			*p.payment.MaxShardAmt, maxAmt)
+		p.log.Debugf("Clamping payment attempt from %v to %v due to "+
+			"max shard size of %v", maxAmt, *p.payment.MaxShardAmt,
+			maxAmt)
 
 		maxAmt = *p.payment.MaxShardAmt
 	}

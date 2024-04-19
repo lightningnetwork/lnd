@@ -366,8 +366,8 @@ type BlockEpoch struct {
 	// the main chain.
 	Height int32
 
-	// BlockHeader is the block header of this new height.
-	BlockHeader *wire.BlockHeader
+	// Block is the full block.
+	Block wire.MsgBlock
 }
 
 // BlockEpochEvent encapsulates an on-going stream of block epoch
@@ -471,6 +471,9 @@ type ChainConn interface {
 
 	// GetBlockHash returns the hash from a block height.
 	GetBlockHash(blockHeight int64) (*chainhash.Hash, error)
+
+	// GetBlock returns a block from the hash.
+	GetBlock(hash *chainhash.Hash) (*wire.MsgBlock, error)
 }
 
 // GetCommonBlockAncestorHeight takes in:
@@ -555,9 +558,9 @@ func RewindChain(chainConn ChainConn, txNotifier *TxNotifier,
 	currBestBlock BlockEpoch, targetHeight int32) (BlockEpoch, error) {
 
 	newBestBlock := BlockEpoch{
-		Height:      currBestBlock.Height,
-		Hash:        currBestBlock.Hash,
-		BlockHeader: currBestBlock.BlockHeader,
+		Height: currBestBlock.Height,
+		Hash:   currBestBlock.Hash,
+		Block:  currBestBlock.Block,
 	}
 
 	for height := currBestBlock.Height; height > targetHeight; height-- {
@@ -567,7 +570,7 @@ func RewindChain(chainConn ChainConn, txNotifier *TxNotifier,
 				"find blockhash for disconnected height=%d: %v",
 				height, err)
 		}
-		header, err := chainConn.GetBlockHeader(hash)
+		block, err := chainConn.GetBlock(hash)
 		if err != nil {
 			return newBestBlock, fmt.Errorf("unable to get block "+
 				"header for height=%v", height-1)
@@ -584,7 +587,7 @@ func RewindChain(chainConn ChainConn, txNotifier *TxNotifier,
 		}
 		newBestBlock.Height = height - 1
 		newBestBlock.Hash = hash
-		newBestBlock.BlockHeader = header
+		newBestBlock.Block = *block
 	}
 
 	return newBestBlock, nil
@@ -665,7 +668,7 @@ func getMissedBlocks(chainConn ChainConn, startingHeight,
 			return nil, fmt.Errorf("unable to find blockhash for "+
 				"height=%d: %v", height, err)
 		}
-		header, err := chainConn.GetBlockHeader(hash)
+		block, err := chainConn.GetBlock(hash)
 		if err != nil {
 			return nil, fmt.Errorf("unable to find block header "+
 				"for height=%d: %v", height, err)
@@ -674,9 +677,9 @@ func getMissedBlocks(chainConn ChainConn, startingHeight,
 		missedBlocks = append(
 			missedBlocks,
 			BlockEpoch{
-				Hash:        hash,
-				Height:      height,
-				BlockHeader: header,
+				Hash:   hash,
+				Height: height,
+				Block:  *block,
 			},
 		)
 	}

@@ -4,6 +4,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -42,6 +43,8 @@ type SessionSource struct {
 	// PathFindingConfig defines global parameters that control the
 	// trade-off in path finding between fees and probability.
 	PathFindingConfig PathFindingConfig
+
+	TrafficShaper fn.Option[TlvTrafficShaper]
 }
 
 // getRoutingGraph returns a routing graph and a clean-up function for
@@ -63,12 +66,14 @@ func (m *SessionSource) getRoutingGraph() (routingGraph, func(), error) {
 // view from Mission Control. An optional set of routing hints can be provided
 // in order to populate additional edges to explore when finding a path to the
 // payment's destination.
-func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
+func (m *SessionSource) NewPaymentSession(p *LightningPayment,
+	trafficShaper fn.Option[TlvTrafficShaper]) (
 	PaymentSession, error) {
 
 	getBandwidthHints := func(graph routingGraph) (bandwidthHints, error) {
 		return newBandwidthManager(
 			graph, m.SourceNode.PubKeyBytes, m.GetLink,
+			trafficShaper,
 		)
 	}
 

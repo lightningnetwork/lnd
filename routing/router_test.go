@@ -164,6 +164,9 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		Clock:              clock.NewTestClock(time.Unix(1, 0)),
 		ApplyChannelUpdate: graphBuilder.ApplyChannelUpdate,
 		ClosedSCIDs:        mockClosedSCIDs,
+		TrafficShaper: fn.Some[TlvTrafficShaper](
+			&mockTrafficShaper{},
+		),
 	})
 	require.NoError(t, router.Start(), "unable to start router")
 
@@ -2189,7 +2192,8 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
-		ClosedSCIDs: mockClosedSCIDs,
+		ClosedSCIDs:   mockClosedSCIDs,
+		TrafficShaper: fn.Some[TlvTrafficShaper](&mockTrafficShaper{}),
 	}}
 
 	// Register mockers with the expected method calls.
@@ -2273,7 +2277,8 @@ func TestSendToRouteSkipTempErrNonMPP(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
-		ClosedSCIDs: mockClosedSCIDs,
+		ClosedSCIDs:   mockClosedSCIDs,
+		TrafficShaper: fn.Some[TlvTrafficShaper](&mockTrafficShaper{}),
 	}}
 
 	// Expect an error to be returned.
@@ -2328,7 +2333,8 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
-		ClosedSCIDs: mockClosedSCIDs,
+		ClosedSCIDs:   mockClosedSCIDs,
+		TrafficShaper: fn.Some[TlvTrafficShaper](&mockTrafficShaper{}),
 	}}
 
 	// Create the error to be returned.
@@ -2411,7 +2417,8 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
-		ClosedSCIDs: mockClosedSCIDs,
+		ClosedSCIDs:   mockClosedSCIDs,
+		TrafficShaper: fn.Some[TlvTrafficShaper](&mockTrafficShaper{}),
 	}}
 
 	// Create the error to be returned.
@@ -2498,7 +2505,8 @@ func TestSendToRouteTempFailure(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
-		ClosedSCIDs: mockClosedSCIDs,
+		ClosedSCIDs:   mockClosedSCIDs,
+		TrafficShaper: fn.Some[TlvTrafficShaper](&mockTrafficShaper{}),
 	}}
 
 	// Create the error to be returned.

@@ -70,7 +70,7 @@ func (h *HarnessRPC) DeleteAllPayments() {
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
-	req := &lnrpc.DeleteAllPaymentsRequest{}
+	req := &lnrpc.DeleteAllPaymentsRequest{AllPayments: true}
 	_, err := h.LN.DeleteAllPayments(ctxt, req)
 	h.NoError(err, "DeleteAllPayments")
 }

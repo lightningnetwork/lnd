@@ -2268,6 +2268,13 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "all_payments",
+            "description": "Delete all payments. NOTE: Using this option requires careful\nconsideration as it is a destructive operation.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [

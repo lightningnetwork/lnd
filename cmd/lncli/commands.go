@@ -2376,14 +2376,14 @@ func updateChannelPolicy(ctx *cli.Context) error {
 
 	inboundBaseFeeMsat := ctx.Int64("inbound_base_fee_msat")
 	if inboundBaseFeeMsat < math.MinInt32 ||
-		inboundBaseFeeMsat > 0 {
+		inboundBaseFeeMsat > math.MaxInt32 {
 
 		return errors.New("inbound_base_fee_msat out of range")
 	}
 
 	inboundFeeRatePpm := ctx.Int64("inbound_fee_rate_ppm")
 	if inboundFeeRatePpm < math.MinInt32 ||
-		inboundFeeRatePpm > 0 {
+		inboundFeeRatePpm > math.MaxInt32 {
 
 		return errors.New("inbound_fee_rate_ppm out of range")
 	}

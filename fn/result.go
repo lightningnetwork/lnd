@@ -39,12 +39,17 @@ func Errf[T any](errString string, args ...any) Result[T] {
 // Unpack extracts the value or error from the Result.
 func (r Result[T]) Unpack() (T, error) {
 	var zero T
-	return r.left.UnwrapOr(zero), r.right.UnwrapOr(nil)
+
+	if r.IsErr() {
+		return zero, r.right
+	}
+
+	return r.left, nil
 }
 
 // Err exposes the underlying error of the result type as a normal error type.
 func (r Result[T]) Err() error {
-	return r.right.some
+	return r.right
 }
 
 // IsOk returns true if the Result is a success value.
@@ -59,66 +64,73 @@ func (r Result[T]) IsErr() bool {
 
 // Map applies a function to the success value if it exists.
 func (r Result[T]) Map(f func(T) T) Result[T] {
-	if r.IsOk() {
-		return Ok(f(r.left.some))
+	return Result[T]{
+		MapLeft[T, error](f)(r.Either),
 	}
-
-	return r
 }
 
 // MapErr applies a function to the error value if it exists.
 func (r Result[T]) MapErr(f func(error) error) Result[T] {
-	if r.IsErr() {
-		return Err[T](f(r.right.some))
+	return Result[T]{
+		MapRight[T](f)(r.Either),
 	}
-
-	return r
 }
 
 // Option returns the success value as an Option.
 func (r Result[T]) Option() Option[T] {
-	return r.left
+	return r.Either.LeftToOption()
 }
 
 // WhenResult executes the given function if the Result is a success.
 func (r Result[T]) WhenResult(f func(T)) {
-	r.left.WhenSome(func(t T) {
-		f(t)
-	})
+	r.WhenLeft(f)
 }
 
 // WhenErr executes the given function if the Result is an error.
 func (r Result[T]) WhenErr(f func(error)) {
-	r.right.WhenSome(func(e error) {
-		f(e)
-	})
+	r.WhenRight(f)
 }
 
 // UnwrapOr returns the success value or a default value if it's an error.
 func (r Result[T]) UnwrapOr(defaultValue T) T {
-	return r.left.UnwrapOr(defaultValue)
+	if r.IsErr() {
+		return defaultValue
+	}
+
+	return r.left
 }
 
 // UnwrapOrElse returns the success value or computes a value from a function
 // if it's an error.
 func (r Result[T]) UnwrapOrElse(f func() T) T {
-	return r.left.UnwrapOrFunc(f)
+	if r.IsErr() {
+		return f()
+	}
+
+	return r.left
 }
 
 // UnwrapOrFail returns the success value or fails the test if it's an error.
 func (r Result[T]) UnwrapOrFail(t *testing.T) T {
 	t.Helper()
 
-	return r.left.UnwrapOrFail(t)
+	if r.IsErr() {
+		t.Fatalf("Result[%T] contained error: %v", r.left, r.right)
+	}
+
+	var zero T
+
+	return zero
 }
 
 // FlatMap applies a function that returns a Result to the success value if it
 // exists.
 func (r Result[T]) FlatMap(f func(T) Result[T]) Result[T] {
 	if r.IsOk() {
-		return f(r.left.some)
+		return r
 	}
-	return r
+
+	return f(r.left)
 }
 
 // AndThen is an alias for FlatMap. This along with OrElse can be used to
@@ -143,10 +155,10 @@ func (r Result[T]) OrElse(f func() Result[T]) Result[T] {
 // it exists.
 func FlatMap[A, B any](r Result[A], f func(A) Result[B]) Result[B] {
 	if r.IsOk() {
-		return f(r.left.some)
+		return f(r.left)
 	}
 
-	return Err[B](r.right.some)
+	return Err[B](r.right)
 }
 
 // AndThen is an alias for FlatMap. This along with OrElse can be used to

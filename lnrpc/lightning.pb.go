@@ -4751,7 +4751,7 @@ func (x *Channel) GetChanId() uint64 {
 	return 0
 }
 
-func (x *Channel) GetRealChanId() uint64 {
+func (x *Channel) GetRealChanId() *ChannelID {
 	if x != nil {
 		return x.ChannelID
 	}

@@ -4755,7 +4755,7 @@ func (x *Channel) GetRealChanId() *ChannelID {
 	if x != nil {
 		return x.ChannelID
 	}
-	return 0
+	return nil
 }
 
 func (x *Channel) GetShortChannelIdStringX() string {

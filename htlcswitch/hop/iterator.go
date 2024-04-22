@@ -17,6 +17,11 @@ import (
 var (
 	// ErrDecodeFailed is returned when we can't decode blinded data.
 	ErrDecodeFailed = errors.New("could not decode blinded data")
+
+	// ErrNoBlindingPoint is returned when we have not provided a blinding
+	// point for a validated payload with encrypted data set.
+	ErrNoBlindingPoint = errors.New("no blinding point set for validated " +
+		"blinded hop")
 )
 
 // Iterator is an interface that abstracts away the routing information
@@ -109,7 +114,7 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 		isFinal := r.processedPacket.Action == sphinx.ExitNode
 		payload, parsed, err := NewPayloadFromReader(
 			bytes.NewReader(r.processedPacket.Payload.Payload),
-			isFinal,
+			isFinal, r.blindingKit.UpdateAddBlinding.IsSome(),
 		)
 		if err != nil {
 			return nil, err
@@ -182,35 +187,16 @@ type BlindingKit struct {
 	IncomingAmount lnwire.MilliSatoshi
 }
 
-// validateBlindingPoint validates that only one blinding point is present for
-// the hop and returns the relevant one.
-func (b *BlindingKit) validateBlindingPoint(payloadBlinding *btcec.PublicKey,
-	isFinalHop bool) (*btcec.PublicKey, error) {
+// getBlindingPoint returns either the payload or updateAddHtlc blinding point,
+// assuming that validation that these values are appropriately set has already
+// been handled elsewhere.
+func (b *BlindingKit) getBlindingPoint(payloadBlinding *btcec.PublicKey) (
+	*btcec.PublicKey, error) {
 
-	// Bolt 04: if encrypted_recipient_data is present:
-	// - if blinding_point (in update add) is set:
-	//   - MUST error if current_blinding_point is set (in payload)
-	// - otherwise:
-	//   - MUST return an error if current_blinding_point is not present
-	//     (in payload)
 	payloadBlindingSet := payloadBlinding != nil
 	updateBlindingSet := b.UpdateAddBlinding.IsSome()
 
 	switch {
-	case !(payloadBlindingSet || updateBlindingSet):
-		return nil, ErrInvalidPayload{
-			Type:      record.BlindingPointOnionType,
-			Violation: OmittedViolation,
-			FinalHop:  isFinalHop,
-		}
-
-	case payloadBlindingSet && updateBlindingSet:
-		return nil, ErrInvalidPayload{
-			Type:      record.BlindingPointOnionType,
-			Violation: IncludedViolation,
-			FinalHop:  isFinalHop,
-		}
-
 	case payloadBlindingSet:
 		return payloadBlinding, nil
 
@@ -223,9 +209,10 @@ func (b *BlindingKit) validateBlindingPoint(payloadBlinding *btcec.PublicKey,
 		}
 
 		return pk.Val, nil
-	}
 
-	return nil, fmt.Errorf("expected blinded point set")
+	default:
+		return nil, ErrNoBlindingPoint
+	}
 }
 
 // DecryptAndValidateFwdInfo performs all operations required to decrypt and
@@ -235,11 +222,10 @@ func (b *BlindingKit) DecryptAndValidateFwdInfo(payload *Payload,
 	*ForwardingInfo, error) {
 
 	// We expect this function to be called when we have encrypted data
-	// present, and a blinding key is set either in the payload or the
+	// present, and expect validation to already have ensured that a
+	// blinding key is set either in the payload or the
 	// update_add_htlc message.
-	blindingPoint, err := b.validateBlindingPoint(
-		payload.blindingPoint, isFinalHop,
-	)
+	blindingPoint, err := b.getBlindingPoint(payload.blindingPoint)
 	if err != nil {
 		return nil, err
 	}

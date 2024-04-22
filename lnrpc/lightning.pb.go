@@ -4685,10 +4685,8 @@ type Channel struct {
 	// useful information. This is only ever stored locally and in no way impacts
 	// the channel's operation.
 	Memo string `protobuf:"bytes,36,opt,name=memo,proto3" json:"memo,omitempty"`
-	// ChannelID is a series of 32-bytes that uniquely identifies all channels
-	ChannelID *ChannelID `protobuf:"bytes,37,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
 	// The short channel id as a string with x between the block height and tx index
-	ShortChannelIdStringX string `protobuf:"bytes,38,opt,name=short_channel_id_string_x,json=shortChannelIdStringX,proto3" json:"short_channel_id_string_x,omitempty"` 
+	ShortChannelIdStringX string `protobuf:"bytes,37,opt,name=short_channel_id_string_x,json=shortChannelIdStringX,proto3" json:"short_channel_id_string_x,omitempty"` 
 }
 
 func (x *Channel) Reset() {
@@ -4749,13 +4747,6 @@ func (x *Channel) GetChanId() uint64 {
 		return x.ChanId
 	}
 	return 0
-}
-
-func (x *Channel) GetRealChanId() *ChannelID {
-	if x != nil {
-		return x.ChannelID
-	}
-	return nil
 }
 
 func (x *Channel) GetShortChannelIdStringX() string {

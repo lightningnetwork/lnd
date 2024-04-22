@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"strconv"
@@ -469,7 +470,9 @@ var unlockCommand = cli.Command{
 				"a file that can be read by another user. " +
 				"This flag should only be used in " +
 				"combination with some sort of password " +
-				"manager or secrets vault.",
+				"manager or secrets vault. The password will " +
+				"be read from standard input until EOF " +
+				"(End of File) is encountered.",
 		},
 		statelessInitFlag,
 	},
@@ -491,11 +494,24 @@ func unlock(ctx *cli.Context) error {
 	// password manager. If the user types the password instead, it will be
 	// echoed in the console.
 	case ctx.IsSet("stdin"):
-		reader := bufio.NewReader(os.Stdin)
-		pw, err = reader.ReadBytes('\n')
+		// Copy the password from standard input to the buffer until
+		// EOF (End of File) is encountered.
+		var buf bytes.Buffer
+		if _, err := io.Copy(&buf, os.Stdin); err != nil {
+			return err
+		}
+		pw = buf.Bytes()
 
-		// Remove carriage return and newline characters.
-		pw = bytes.Trim(pw, "\r\n")
+		// Remove carriage return.
+		pw = bytes.Trim(pw, "\r")
+
+		// Check if the provided password has leading or trailing
+		// newline characters, then issue a warning since they will
+		// not be trimmed.
+		if !bytes.Equal(pw, bytes.Trim(pw, "\n")) {
+			fmt.Println("WARNING: Password contains leading or " +
+				"trailing newline characters.")
+		}
 
 	// Read the password from a terminal by default. This requires the
 	// terminal to be a real tty and will fail if a string is piped into

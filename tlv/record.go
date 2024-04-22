@@ -63,6 +63,15 @@ type Record struct {
 	decoder    Decoder
 }
 
+// Record (the function) is the trivial implementation of RecordProducer for
+// Record (the type). This makes it seamless to mix primitive and dynamic
+// records together in the same collections.
+//
+// NOTE: Part of the RecordProducer interface.
+func (f *Record) Record() Record {
+	return *f
+}
+
 // Size returns the size of the Record's value. If no static size is known, the
 // dynamic size will be evaluated.
 func (f *Record) Size() uint64 {

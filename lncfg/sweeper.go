@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/sweep"
 )
 
 const (
@@ -19,8 +21,12 @@ const (
 
 //nolint:lll
 type Sweeper struct {
-	BatchWindowDuration time.Duration        `long:"batchwindowduration" description:"Duration of the sweep batch window. The sweep is held back during the batch window to allow more inputs to be added and thereby lower the fee per input."`
-	MaxFeeRate          chainfee.SatPerVByte `long:"maxfeerate" description:"Maximum fee rate in sat/vb that the sweeper is allowed to use when sweeping funds. Setting this value too low can result in transactions not being confirmed in time, causing HTLCs to expire hence potentially losing funds."`
+	BatchWindowDuration time.Duration        `long:"batchwindowduration" description:"Duration of the sweep batch window. The sweep is held back during the batch window to allow more inputs to be added and thereby lower the fee per input." hidden:"true"`
+	MaxFeeRate          chainfee.SatPerVByte `long:"maxfeerate" description:"Maximum fee rate in sat/vb that the sweeper is allowed to use when sweeping funds, the fee rate derived from budgets are capped at this value. Setting this value too low can result in transactions not being confirmed in time, causing HTLCs to expire hence potentially losing funds."`
+
+	NoDeadlineConfTarget uint32 `long:"nodeadlineconftarget" description:"The conf target to use when sweeping non-time-sensitive outputs. This is useful for sweeping outputs that are not time-sensitive, and can be swept at a lower fee rate."`
+
+	Budget *contractcourt.BudgetConfig `group:"sweeper.budget" namespace:"budget" long:"budget" description:"An optional config group that's used for the automatic sweep fee estimation. The Budget config gives options to limits ones fee exposure when sweeping unilateral close outputs and the fee rate calculated from budgets is capped at sweeper.maxfeerate. Check the budget config options for more details."`
 }
 
 // Validate checks the values configured for the sweeper.
@@ -39,5 +45,24 @@ func (s *Sweeper) Validate() error {
 		return fmt.Errorf("maxfeerate must be <= 10000 sat/vb")
 	}
 
+	// Make sure the conf target is at least 144 blocks (1 day).
+	if s.NoDeadlineConfTarget < 144 {
+		return fmt.Errorf("nodeadlineconftarget must be at least 144")
+	}
+
+	// Validate the budget configuration.
+	if err := s.Budget.Validate(); err != nil {
+		return fmt.Errorf("invalid budget config: %w", err)
+	}
+
 	return nil
+}
+
+// DefaultSweeperConfig returns the default configuration for the sweeper.
+func DefaultSweeperConfig() *Sweeper {
+	return &Sweeper{
+		MaxFeeRate:           sweep.DefaultMaxFeeRate,
+		NoDeadlineConfTarget: uint32(sweep.DefaultDeadlineDelta),
+		Budget:               contractcourt.DefaultBudgetConfig(),
+	}
 }

@@ -289,8 +289,9 @@ func assertSignOutputRaw(ht *lntest.HarnessTest,
 
 	// Send some coins to the generated p2wpkh address.
 	req := &lnrpc.SendCoinsRequest{
-		Addr:   targetAddr.String(),
-		Amount: 800_000,
+		Addr:       targetAddr.String(),
+		Amount:     800_000,
+		TargetConf: 6,
 	}
 	alice.RPC.SendCoins(req)
 

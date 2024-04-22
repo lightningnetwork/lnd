@@ -19,137 +19,32 @@ var (
 	// DefaultMaxInputsPerTx specifies the default maximum number of inputs
 	// allowed in a single sweep tx. If more need to be swept, multiple txes
 	// are created and published.
-	DefaultMaxInputsPerTx = 100
+	DefaultMaxInputsPerTx = uint32(100)
+
+	// ErrLocktimeConflict is returned when inputs with different
+	// transaction nLockTime values are included in the same transaction.
+	//
+	// NOTE: due the SINGLE|ANYONECANPAY sighash flag, which is used in the
+	// second level success/timeout txns, only the txns sharing the same
+	// nLockTime can exist in the same tx.
+	ErrLocktimeConflict = errors.New("incompatible locktime")
 )
-
-// txInput is an interface that provides the input data required for tx
-// generation.
-type txInput interface {
-	input.Input
-	parameters() Params
-}
-
-// inputSet is a set of inputs that can be used as the basis to generate a tx
-// on.
-type inputSet []input.Input
-
-// generateInputPartitionings goes through all given inputs and constructs sets
-// of inputs that can be used to generate a sensible transaction. Each set
-// contains up to the configured maximum number of inputs. Negative yield
-// inputs are skipped. No input sets with a total value after fees below the
-// dust limit are returned.
-func generateInputPartitionings(sweepableInputs []txInput,
-	feePerKW, maxFeeRate chainfee.SatPerKWeight, maxInputsPerTx int,
-	wallet Wallet) ([]inputSet, error) {
-
-	// Sort input by yield. We will start constructing input sets starting
-	// with the highest yield inputs. This is to prevent the construction
-	// of a set with an output below the dust limit, causing the sweep
-	// process to stop, while there are still higher value inputs
-	// available. It also allows us to stop evaluating more inputs when the
-	// first input in this ordering is encountered with a negative yield.
-	//
-	// Yield is calculated as the difference between value and added fee
-	// for this input. The fee calculation excludes fee components that are
-	// common to all inputs, as those wouldn't influence the order. The
-	// single component that is differentiating is witness size.
-	//
-	// For witness size, the upper limit is taken. The actual size depends
-	// on the signature length, which is not known yet at this point.
-	yields := make(map[wire.OutPoint]int64)
-	for _, input := range sweepableInputs {
-		size, _, err := input.WitnessType().SizeUpperBound()
-		if err != nil {
-			return nil, fmt.Errorf(
-				"failed adding input weight: %v", err)
-		}
-
-		yields[*input.OutPoint()] = input.SignDesc().Output.Value -
-			int64(feePerKW.FeeForWeight(int64(size)))
-	}
-
-	sort.Slice(sweepableInputs, func(i, j int) bool {
-		// Because of the specific ordering and termination condition
-		// that is described above, we place force sweeps at the start
-		// of the list. Otherwise we can't be sure that they will be
-		// included in an input set.
-		if sweepableInputs[i].parameters().Force {
-			return true
-		}
-
-		return yields[*sweepableInputs[i].OutPoint()] >
-			yields[*sweepableInputs[j].OutPoint()]
-	})
-
-	// Select blocks of inputs up to the configured maximum number.
-	var sets []inputSet
-	for len(sweepableInputs) > 0 {
-		// Start building a set of positive-yield tx inputs under the
-		// condition that the tx will be published with the specified
-		// fee rate.
-		txInputs := newTxInputSet(
-			wallet, feePerKW, maxFeeRate, maxInputsPerTx,
-		)
-
-		// From the set of sweepable inputs, keep adding inputs to the
-		// input set until the tx output value no longer goes up or the
-		// maximum number of inputs is reached.
-		txInputs.addPositiveYieldInputs(sweepableInputs)
-
-		// If there are no positive yield inputs, we can stop here.
-		inputCount := len(txInputs.inputs)
-		if inputCount == 0 {
-			return sets, nil
-		}
-
-		// Check the current output value and add wallet utxos if
-		// needed to push the output value to the lower limit.
-		if err := txInputs.tryAddWalletInputsIfNeeded(); err != nil {
-			return nil, err
-		}
-
-		// If the output value of this block of inputs does not reach
-		// the dust limit, stop sweeping. Because of the sorting,
-		// continuing with the remaining inputs will only lead to sets
-		// with an even lower output value.
-		if !txInputs.enoughInput() {
-			// The change output is always a p2tr here.
-			dl := lnwallet.DustLimitForSize(input.P2TRSize)
-			log.Debugf("Input set value %v (required=%v, "+
-				"change=%v) below dust limit of %v",
-				txInputs.totalOutput(), txInputs.requiredOutput,
-				txInputs.changeOutput, dl)
-			return sets, nil
-		}
-
-		log.Infof("Candidate sweep set of size=%v (+%v wallet inputs), "+
-			"has yield=%v, weight=%v",
-			inputCount, len(txInputs.inputs)-inputCount,
-			txInputs.totalOutput()-txInputs.walletInputTotal,
-			txInputs.weightEstimate(true).weight())
-
-		sets = append(sets, txInputs.inputs)
-		sweepableInputs = sweepableInputs[inputCount:]
-	}
-
-	return sets, nil
-}
 
 // createSweepTx builds a signed tx spending the inputs to the given outputs,
 // sending any leftover change to the change script.
 func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	changePkScript []byte, currentBlockHeight uint32,
-	feePerKw, maxFeeRate chainfee.SatPerKWeight,
-	signer input.Signer) (*wire.MsgTx, error) {
+	feeRate, maxFeeRate chainfee.SatPerKWeight,
+	signer input.Signer) (*wire.MsgTx, btcutil.Amount, error) {
 
 	inputs, estimator, err := getWeightEstimate(
-		inputs, outputs, feePerKw, maxFeeRate, changePkScript,
+		inputs, outputs, feeRate, maxFeeRate, changePkScript,
 	)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	txFee := estimator.fee()
+	txFee := estimator.feeWithParent()
 
 	var (
 		// Create the sweep transaction that we will be building. We
@@ -179,7 +74,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 
 		idxs = append(idxs, o)
 		sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: *o.OutPoint(),
+			PreviousOutPoint: o.OutPoint(),
 			Sequence:         o.BlocksToMaturity(),
 		})
 		sweepTx.AddTxOut(o.RequiredTxOut())
@@ -188,7 +83,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 			// If another input commits to a different locktime,
 			// they cannot be combined in the same transaction.
 			if locktime != -1 && locktime != int32(lt) {
-				return nil, fmt.Errorf("incompatible locktime")
+				return nil, 0, ErrLocktimeConflict
 			}
 
 			locktime = int32(lt)
@@ -207,13 +102,13 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 
 		idxs = append(idxs, o)
 		sweepTx.AddTxIn(&wire.TxIn{
-			PreviousOutPoint: *o.OutPoint(),
+			PreviousOutPoint: o.OutPoint(),
 			Sequence:         o.BlocksToMaturity(),
 		})
 
 		if lt, ok := o.RequiredLockTime(); ok {
 			if locktime != -1 && locktime != int32(lt) {
-				return nil, fmt.Errorf("incompatible locktime")
+				return nil, 0, ErrLocktimeConflict
 			}
 
 			locktime = int32(lt)
@@ -229,7 +124,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	}
 
 	if requiredOutput+txFee > totalInput {
-		return nil, fmt.Errorf("insufficient input to create sweep "+
+		return nil, 0, fmt.Errorf("insufficient input to create sweep "+
 			"tx: input_sum=%v, output_sum=%v", totalInput,
 			requiredOutput+txFee)
 	}
@@ -253,6 +148,10 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	} else {
 		log.Infof("Change amt %v below dustlimit %v, not adding "+
 			"change output", changeAmt, changeLimit)
+
+		// The dust amount is added to the fee as the miner will
+		// collect it.
+		txFee += changeAmt
 	}
 
 	// We'll default to using the current block height as locktime, if none
@@ -270,12 +169,12 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	// classes if fees are too low.
 	btx := btcutil.NewTx(sweepTx)
 	if err := blockchain.CheckTransactionSanity(btx); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	prevInputFetcher, err := input.MultiPrevOutFetcher(inputs)
 	if err != nil {
-		return nil, fmt.Errorf("error creating prev input fetcher "+
+		return nil, 0, fmt.Errorf("error creating prev input fetcher "+
 			"for hash cache: %v", err)
 	}
 	hashCache := txscript.NewTxSigHashes(sweepTx, prevInputFetcher)
@@ -293,7 +192,8 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 		sweepTx.TxIn[idx].Witness = inputScript.Witness
 
 		if len(inputScript.SigScript) != 0 {
-			sweepTx.TxIn[idx].SignatureScript = inputScript.SigScript
+			sweepTx.TxIn[idx].SignatureScript =
+				inputScript.SigScript
 		}
 
 		return nil
@@ -301,29 +201,27 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 
 	for idx, inp := range idxs {
 		if err := addInputScript(idx, inp); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 
-	log.Infof("Creating sweep transaction %v for %v inputs (%s) "+
-		"using %v sat/kw, tx_weight=%v, tx_fee=%v, parents_count=%v, "+
-		"parents_fee=%v, parents_weight=%v",
+	log.Debugf("Creating sweep transaction %v for %v inputs (%s) "+
+		"using %v, tx_weight=%v, tx_fee=%v, parents_count=%v, "+
+		"parents_fee=%v, parents_weight=%v, current_height=%v",
 		sweepTx.TxHash(), len(inputs),
-		inputTypeSummary(inputs), int64(feePerKw),
+		inputTypeSummary(inputs), feeRate,
 		estimator.weight(), txFee,
 		len(estimator.parents), estimator.parentsFee,
-		estimator.parentsWeight,
-	)
+		estimator.parentsWeight, currentBlockHeight)
 
-	return sweepTx, nil
+	return sweepTx, txFee, nil
 }
 
 // getWeightEstimate returns a weight estimate for the given inputs.
 // Additionally, it returns counts for the number of csv and cltv inputs.
 func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
 	feeRate, maxFeeRate chainfee.SatPerKWeight,
-	outputPkScript []byte) ([]input.Input,
-	*weightEstimator, error) {
+	outputPkScript []byte) ([]input.Input, *weightEstimator, error) {
 
 	// We initialize a weight estimator so we can accurately asses the
 	// amount of fees we need to pay for this sweep transaction.
@@ -375,7 +273,11 @@ func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
 
 		err := weightEstimate.add(inp)
 		if err != nil {
-			log.Warn(err)
+			// TODO(yy): check if this is even possible? If so, we
+			// should return the error here instead of filtering!
+			log.Errorf("Failed to get weight estimate for "+
+				"input=%v, witnessType=%v: %v ", inp.OutPoint(),
+				inp.WitnessType(), err)
 
 			// Skip inputs for which no weight estimate can be
 			// given.
@@ -407,9 +309,7 @@ func inputTypeSummary(inputs []input.Input) string {
 
 	var parts []string
 	for _, i := range sortedInputs {
-		part := fmt.Sprintf("%v (%v)",
-			*i.OutPoint(), i.WitnessType())
-
+		part := fmt.Sprintf("%v (%v)", i.OutPoint(), i.WitnessType())
 		parts = append(parts, part)
 	}
 	return strings.Join(parts, ", ")

@@ -222,12 +222,12 @@ func CalculateFeeRate(satPerByte, satPerVByte uint64, targetConf uint32,
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for this transaction.
-	feeRate, err := sweep.DetermineFeePerKw(
-		estimator, sweep.FeePreference{
-			ConfTarget: targetConf,
-			FeeRate:    satPerKw,
-		},
-	)
+	feePref := sweep.FeeEstimateInfo{
+		ConfTarget: targetConf,
+		FeeRate:    satPerKw,
+	}
+	// TODO(yy): need to pass the configured max fee here.
+	feeRate, err := feePref.Estimate(estimator, 0)
 	if err != nil {
 		return feeRate, err
 	}

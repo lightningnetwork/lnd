@@ -1266,6 +1266,12 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 	// information Dave needs to sweep his funds.
 	require.NoError(ht, restartDave(), "unable to restart Eve")
 
+	// Dave should have a pending sweep.
+	ht.AssertNumPendingSweeps(dave, 1)
+
+	// Mine a block to trigger the sweep.
+	ht.MineBlocks(1)
+
 	// Dave should sweep his funds.
 	ht.Miner.AssertNumTxsInMempool(1)
 
@@ -1411,12 +1417,18 @@ func chanRestoreViaRPC(ht *lntest.HarnessTest, password []byte,
 func assertTimeLockSwept(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	carolStartingBalance, daveStartingBalance int64) {
 
-	// We expect Carol to sweep her funds and also the anchor tx. In
-	// addition, Dave will also sweep his anchor output.
-	expectedTxes := 3
-
 	// Carol should sweep her funds immediately, as they are not
 	// timelocked.
+	ht.AssertNumPendingSweeps(carol, 2)
+	ht.AssertNumPendingSweeps(dave, 1)
+
+	// We expect Carol to sweep her funds and her anchor in a single sweep
+	// tx. In addition, Dave will attempt to sweep his anchor output but
+	// fail due to the sweeping tx being uneconomical.
+	expectedTxes := 1
+
+	// Mine a block to trigger the sweeps.
+	ht.MineBlocks(1)
 	ht.Miner.AssertNumTxsInMempool(expectedTxes)
 
 	// Carol should consider the channel pending force close (since she is
@@ -1444,9 +1456,13 @@ func assertTimeLockSwept(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	// After the Dave's output matures, he should reclaim his funds.
 	//
 	// The commit sweep resolver publishes the sweep tx at defaultCSV-1 and
-	// we already mined one block after the commitment was published, so
-	// take that into account.
-	ht.MineBlocks(defaultCSV - 1 - 1)
+	// we already mined one block after the commitment was published, and
+	// one block to trigger Carol's sweeps, so take that into account.
+	ht.MineEmptyBlocks(1)
+	ht.AssertNumPendingSweeps(dave, 2)
+
+	// Mine a block to trigger the sweeps.
+	ht.MineEmptyBlocks(1)
 	daveSweep := ht.Miner.AssertNumTxsInMempool(1)[0]
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	ht.Miner.AssertTxInBlock(block, daveSweep)
@@ -1526,11 +1542,12 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 		// Dave should sweep his anchor only, since he still has the
 		// lease CLTV constraint on his commitment output. We'd also
 		// see Carol's anchor sweep here.
-		ht.Miner.AssertNumTxsInMempool(2)
 
-		// Mine anchor sweep txes for Carol and Dave.
-		ht.MineBlocksAndAssertNumTxes(1, 2)
-		blocksMined++
+		// Both Dave and Carol should have an anchor sweep request.
+		// Note that they cannot sweep them as these anchor sweepings
+		// are uneconomical.
+		ht.AssertNumPendingSweeps(dave, 1)
+		ht.AssertNumPendingSweeps(carol, 1)
 
 		// After Carol's output matures, she should also reclaim her
 		// funds.
@@ -1538,7 +1555,14 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 		// The commit sweep resolver publishes the sweep tx at
 		// defaultCSV-1 and we already mined one block after the
 		// commitmment was published, so take that into account.
-		ht.MineBlocks(defaultCSV - blocksMined)
+		ht.MineEmptyBlocks(int(defaultCSV - blocksMined))
+
+		// Carol should have two sweep requests - one for her commit
+		// output and the other for her anchor.
+		ht.AssertNumPendingSweeps(carol, 2)
+
+		// Mine a block to trigger the sweep.
+		ht.MineEmptyBlocks(1)
 		ht.MineBlocksAndAssertNumTxes(1, 1)
 
 		// Now the channel should be fully closed also from Carol's POV.
@@ -1551,7 +1575,14 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 			resp.PendingForceClosingChannels[0].BlocksTilMaturity
 		require.Positive(ht, blocksTilMaturity)
 
-		ht.MineBlocks(uint32(blocksTilMaturity))
+		ht.MineEmptyBlocks(int(blocksTilMaturity))
+
+		// Dave should have two sweep requests - one for his commit
+		// output and the other for his anchor.
+		ht.AssertNumPendingSweeps(dave, 2)
+
+		// Mine a block to trigger the sweep.
+		ht.MineEmptyBlocks(1)
 		ht.MineBlocksAndAssertNumTxes(1, 1)
 
 		// Now Dave should consider the channel fully closed.
@@ -1559,13 +1590,22 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 	} else {
 		// Dave should sweep his funds immediately, as they are not
 		// timelocked. We also expect Carol and Dave sweep their
-		// anchors.
+		// anchors if it's an anchor channel.
 		if lntest.CommitTypeHasAnchors(commitType) {
-			ht.MineBlocksAndAssertNumTxes(1, 3)
+			ht.AssertNumPendingSweeps(carol, 1)
+			ht.AssertNumPendingSweeps(dave, 2)
 		} else {
-			ht.MineBlocksAndAssertNumTxes(1, 1)
+			ht.AssertNumPendingSweeps(dave, 1)
 		}
 
+		// Mine one block to trigger the sweeper to sweep.
+		ht.MineEmptyBlocks(1)
+		blocksMined++
+
+		// Expect one tx - the commitment sweep from Dave. For anchor
+		// channels, we expect the two anchor sweeping txns to be
+		// failed due they are uneconomical.
+		ht.MineBlocksAndAssertNumTxes(1, 1)
 		blocksMined++
 
 		// Now Dave should consider the channel fully closed.
@@ -1577,7 +1617,21 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 		// The commit sweep resolver publishes the sweep tx at
 		// defaultCSV-1 and we already have blocks mined after the
 		// commitmment was published, so take that into account.
-		ht.MineBlocks(defaultCSV - blocksMined)
+		ht.MineEmptyBlocks(int(defaultCSV - blocksMined))
+
+		// Mine one block to trigger the sweeper to sweep.
+		ht.MineEmptyBlocks(1)
+
+		// Carol should have two pending sweeps:
+		// 1. her commit output.
+		// 2. her anchor output, if this is anchor channel.
+		if lntest.CommitTypeHasAnchors(commitType) {
+			ht.AssertNumPendingSweeps(carol, 2)
+		} else {
+			ht.AssertNumPendingSweeps(carol, 1)
+		}
+
+		// Assert the sweeping tx is mined.
 		ht.MineBlocksAndAssertNumTxes(1, 1)
 
 		// Now the channel should be fully closed also from Carol's

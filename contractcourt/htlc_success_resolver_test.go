@@ -12,6 +12,8 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnmock"
@@ -65,8 +67,10 @@ func newHtlcResolverTestContext(t *testing.T,
 				return nil
 			},
 			Sweeper: newMockSweeper(),
-			IncubateOutputs: func(wire.OutPoint, *lnwallet.OutgoingHtlcResolution,
-				*lnwallet.IncomingHtlcResolution, uint32) error {
+			IncubateOutputs: func(wire.OutPoint,
+				fn.Option[lnwallet.OutgoingHtlcResolution],
+				fn.Option[lnwallet.IncomingHtlcResolution],
+				uint32, fn.Option[int32]) error {
 
 				return nil
 			},
@@ -88,6 +92,12 @@ func newHtlcResolverTestContext(t *testing.T,
 				return nil
 			},
 			HtlcNotifier: htlcNotifier,
+			Budget:       *DefaultBudgetConfig(),
+			QueryIncomingCircuit: func(
+				circuit models.CircuitKey) *models.CircuitKey {
+
+				return nil
+			},
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			report *channeldb.ResolverReport) error {
@@ -124,7 +134,7 @@ func (i *htlcResolverTestContext) resolve() {
 	// Start resolver.
 	i.resolverResultChan = make(chan resolveResult, 1)
 	go func() {
-		nextResolver, err := i.resolver.Resolve()
+		nextResolver, err := i.resolver.Resolve(false)
 		i.resolverResultChan <- resolveResult{
 			nextResolver: nextResolver,
 			err:          err,
@@ -177,17 +187,14 @@ func TestHtlcSuccessSingleStage(t *testing.T) {
 			// that our sweep succeeded.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
 				_ bool) error {
-				// The resolver will create and publish a sweep
-				// tx.
-				resolver := ctx.resolver.(*htlcSuccessResolver)
-				resolver.Sweeper.(*mockSweeper).
-					createSweepTxChan <- sweepTx
 
-				// Confirm the sweep, which should resolve it.
-				ctx.notifier.ConfChan <- &chainntnfs.TxConfirmation{
-					Tx:          sweepTx,
-					BlockHeight: testInitialBlockHeight - 1,
+				// The resolver will offer the input to the
+				// sweeper.
+				details := &chainntnfs.SpendDetail{
+					SpendingTx:    sweepTx,
+					SpenderTxHash: &sweepTxid,
 				}
+				ctx.notifier.SpendChan <- details
 
 				return nil
 			},
@@ -394,7 +401,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				resolver := ctx.resolver.(*htlcSuccessResolver)
 				inp := <-resolver.Sweeper.(*mockSweeper).sweptInputs
 				op := inp.OutPoint()
-				if *op != commitOutpoint {
+				if op != commitOutpoint {
 					return fmt.Errorf("outpoint %v swept, "+
 						"expected %v", op,
 						commitOutpoint)
@@ -443,7 +450,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 					Hash:  reSignedHash,
 					Index: 1,
 				}
-				if *op != exp {
+				if op != exp {
 					return fmt.Errorf("swept outpoint %v, expected %v",
 						op, exp)
 				}

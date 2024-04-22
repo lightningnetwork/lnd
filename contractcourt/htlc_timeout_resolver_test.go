@@ -14,6 +14,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -279,14 +281,15 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		resolutionChan := make(chan ResolutionMsg, 1)
 		reportChan := make(chan *channeldb.ResolverReport)
 
+		//nolint:lll
 		chainCfg := ChannelArbitratorConfig{
 			ChainArbitratorConfig: ChainArbitratorConfig{
 				Notifier:   notifier,
 				PreimageDB: witnessBeacon,
 				IncubateOutputs: func(wire.OutPoint,
-					*lnwallet.OutgoingHtlcResolution,
-					*lnwallet.IncomingHtlcResolution,
-					uint32) error {
+					fn.Option[lnwallet.OutgoingHtlcResolution],
+					fn.Option[lnwallet.IncomingHtlcResolution],
+					uint32, fn.Option[int32]) error {
 
 					incubateChan <- struct{}{}
 					return nil
@@ -299,6 +302,10 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 					}
 
 					resolutionChan <- msgs[0]
+					return nil
+				},
+				Budget: *DefaultBudgetConfig(),
+				QueryIncomingCircuit: func(circuit models.CircuitKey) *models.CircuitKey {
 					return nil
 				},
 			},
@@ -368,7 +375,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			_, err := resolver.Resolve()
+			_, err := resolver.Resolve(false)
 			if err != nil {
 				resolveErr <- err
 			}
@@ -1030,7 +1037,7 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 				resolver := ctx.resolver.(*htlcTimeoutResolver)
 				inp := <-resolver.Sweeper.(*mockSweeper).sweptInputs
 				op := inp.OutPoint()
-				if *op != commitOutpoint {
+				if op != commitOutpoint {
 					return fmt.Errorf("outpoint %v swept, "+
 						"expected %v", op,
 						commitOutpoint)
@@ -1095,7 +1102,7 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 					Hash:  reSignedHash,
 					Index: 1,
 				}
-				if *op != exp {
+				if op != exp {
 					return fmt.Errorf("wrong outpoint swept")
 				}
 
@@ -1205,7 +1212,7 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 				resolver := ctx.resolver.(*htlcTimeoutResolver)
 				inp := <-resolver.Sweeper.(*mockSweeper).sweptInputs
 				op := inp.OutPoint()
-				if *op != commitOutpoint {
+				if op != commitOutpoint {
 					return fmt.Errorf("outpoint %v swept, "+
 						"expected %v", op,
 						commitOutpoint)

@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/sweep"
 )
@@ -83,7 +84,7 @@ func (c *anchorResolver) ResolverKey() []byte {
 }
 
 // Resolve offers the anchor output to the sweeper and waits for it to be swept.
-func (c *anchorResolver) Resolve() (ContractResolver, error) {
+func (c *anchorResolver) Resolve(_ bool) (ContractResolver, error) {
 	// Attempt to update the sweep parameters to the post-confirmation
 	// situation. We don't want to force sweep anymore, because the anchor
 	// lost its special purpose to get the commitment confirmed. It is just
@@ -115,9 +116,17 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 	resultChan, err := c.Sweeper.SweepInput(
 		&anchorInput,
 		sweep.Params{
-			Fee: sweep.FeePreference{
+			Fee: sweep.FeeEstimateInfo{
 				FeeRate: relayFeeRate,
 			},
+			// For normal anchor sweeping, the budget is 330 sats.
+			Budget: btcutil.Amount(
+				anchorInput.SignDesc().Output.Value,
+			),
+
+			// There's no rush to sweep the anchor, so we use a nil
+			// deadline here.
+			DeadlineHeight: fn.None[int32](),
 		},
 	)
 	if err != nil {
@@ -143,17 +152,6 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 		// 16 block csv lock.
 		case sweep.ErrRemoteSpend:
 			c.log.Warnf("our anchor spent by someone else")
-			outcome = channeldb.ResolverOutcomeUnclaimed
-
-		// The sweeper gave up on sweeping the anchor. This happens
-		// after the maximum number of sweep attempts has been reached.
-		// See sweep.DefaultMaxSweepAttempts. Sweep attempts are
-		// interspaced with random delays picked from a range that
-		// increases exponentially.
-		//
-		// We consider the anchor as being lost.
-		case sweep.ErrTooManyAttempts:
-			c.log.Warnf("anchor sweep abandoned")
 			outcome = channeldb.ResolverOutcomeUnclaimed
 
 		// An unexpected error occurred.

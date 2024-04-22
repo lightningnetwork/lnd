@@ -41,4 +41,19 @@ type Wallet interface {
 	// used to ensure that invalid transactions (inputs spent) aren't
 	// retried in the background.
 	CancelRebroadcast(tx chainhash.Hash)
+
+	// CheckMempoolAcceptance checks whether a transaction follows mempool
+	// policies and returns an error if it cannot be accepted into the
+	// mempool.
+	CheckMempoolAcceptance(tx *wire.MsgTx) error
+
+	// GetTransactionDetails returns a detailed description of a tx given
+	// its transaction hash.
+	GetTransactionDetails(txHash *chainhash.Hash) (
+		*lnwallet.TransactionDetail, error)
+
+	// BackEnd returns a name for the wallet's backing chain service,
+	// which could be e.g. btcd, bitcoind, neutrino, or another consensus
+	// service.
+	BackEnd() string
 }

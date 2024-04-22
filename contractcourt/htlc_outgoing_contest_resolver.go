@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -48,7 +49,9 @@ func newOutgoingContestResolver(res lnwallet.OutgoingHtlcResolution,
 // When either of these two things happens, we'll create a new resolver which
 // is able to handle the final resolution of the contract. We're only the pivot
 // point.
-func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
+func (h *htlcOutgoingContestResolver) Resolve(
+	_ bool) (ContractResolver, error) {
+
 	// If we're already full resolved, then we don't have anything further
 	// to do.
 	if h.resolved {
@@ -194,6 +197,12 @@ func (h *htlcOutgoingContestResolver) IsResolved() bool {
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcOutgoingContestResolver) Encode(w io.Writer) error {
 	return h.htlcTimeoutResolver.Encode(w)
+}
+
+// SupplementDeadline does nothing for an incoming htlc resolver.
+//
+// NOTE: Part of the htlcContractResolver interface.
+func (h *htlcOutgoingContestResolver) SupplementDeadline(_ fn.Option[int32]) {
 }
 
 // newOutgoingContestResolverFromReader attempts to decode an encoded ContractResolver

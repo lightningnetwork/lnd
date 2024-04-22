@@ -4,17 +4,19 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"io"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
 	// txHashesBucketKey is the key that points to a bucket containing the
 	// hashes of all sweep txes that were published successfully.
 	//
-	// maps: txHash -> empty slice
+	// maps: txHash -> TxRecord
 	txHashesBucketKey = []byte("sweeper-tx-hashes")
 
 	// utxnChainPrefix is the bucket prefix for nursery buckets.
@@ -31,7 +33,89 @@ var (
 	byteOrder = binary.BigEndian
 
 	errNoTxHashesBucket = errors.New("tx hashes bucket does not exist")
+
+	// ErrTxNotFound is returned when querying using a txid that's not
+	// found in our db.
+	ErrTxNotFound = errors.New("tx not found")
 )
+
+// TxRecord specifies a record of a tx that's stored in the database.
+type TxRecord struct {
+	// Txid is the sweeping tx's txid, which is used as the key to store
+	// the following values.
+	Txid chainhash.Hash
+
+	// FeeRate is the fee rate of the sweeping tx, unit is sats/kw.
+	FeeRate uint64
+
+	// Fee is the fee of the sweeping tx, unit is sat.
+	Fee uint64
+
+	// Published indicates whether the tx has been published.
+	Published bool
+}
+
+// toTlvStream converts TxRecord into a tlv representation.
+func (t *TxRecord) toTlvStream() (*tlv.Stream, error) {
+	const (
+		// A set of tlv type definitions used to serialize TxRecord.
+		// We define it here instead of the head of the file to avoid
+		// naming conflicts.
+		//
+		// NOTE: A migration should be added whenever the existing type
+		// changes.
+		//
+		// NOTE: Txid is stored as the key, so it's not included here.
+		feeRateType tlv.Type = 0
+		feeType     tlv.Type = 1
+		boolType    tlv.Type = 2
+	)
+
+	return tlv.NewStream(
+		tlv.MakeBigSizeRecord(feeRateType, &t.FeeRate),
+		tlv.MakeBigSizeRecord(feeType, &t.Fee),
+		tlv.MakePrimitiveRecord(boolType, &t.Published),
+	)
+}
+
+// serializeTxRecord serializes a TxRecord based on tlv format.
+func serializeTxRecord(w io.Writer, tx *TxRecord) error {
+	// Create the tlv stream.
+	tlvStream, err := tx.toTlvStream()
+	if err != nil {
+		return err
+	}
+
+	// Encode the tlv stream.
+	var buf bytes.Buffer
+	if err := tlvStream.Encode(&buf); err != nil {
+		return err
+	}
+
+	// Write the tlv stream.
+	if _, err = w.Write(buf.Bytes()); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// deserializeTxRecord deserializes a TxRecord based on tlv format.
+func deserializeTxRecord(r io.Reader) (*TxRecord, error) {
+	var tx TxRecord
+
+	// Create the tlv stream.
+	tlvStream, err := tx.toTlvStream()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tlvStream.Decode(r); err != nil {
+		return nil, err
+	}
+
+	return &tx, nil
+}
 
 // SweeperStore stores published txes.
 type SweeperStore interface {
@@ -39,11 +123,18 @@ type SweeperStore interface {
 	// hash.
 	IsOurTx(hash chainhash.Hash) (bool, error)
 
-	// NotifyPublishTx signals that we are about to publish a tx.
-	NotifyPublishTx(*wire.MsgTx) error
+	// StoreTx stores a tx hash we are about to publish.
+	StoreTx(*TxRecord) error
 
 	// ListSweeps lists all the sweeps we have successfully published.
 	ListSweeps() ([]chainhash.Hash, error)
+
+	// GetTx queries the database to find the tx that matches the given
+	// txid. Returns ErrTxNotFound if it cannot be found.
+	GetTx(hash chainhash.Hash) (*TxRecord, error)
+
+	// DeleteTx removes a tx specified by the hash from the store.
+	DeleteTx(hash chainhash.Hash) error
 }
 
 type sweeperStore struct {
@@ -83,6 +174,8 @@ func NewSweeperStore(db kvdb.Backend, chainHash *chainhash.Hash) (
 
 // migrateTxHashes migrates nursery finalized txes to the tx hashes bucket. This
 // is not implemented as a database migration, to keep the downgrade path open.
+//
+// TODO(yy): delete this function once nursery is removed.
 func migrateTxHashes(tx kvdb.RwTx, txHashesBucket kvdb.RwBucket,
 	chainHash *chainhash.Hash) error {
 
@@ -138,7 +231,24 @@ func migrateTxHashes(tx kvdb.RwTx, txHashesBucket kvdb.RwBucket,
 		log.Debugf("Inserting nursery tx %v in hash list "+
 			"(height=%v)", hash, byteOrder.Uint32(k))
 
-		return txHashesBucket.Put(hash[:], []byte{})
+		// Create the transaction record. Since this is an old record,
+		// we can assume it's already been published. Although it's
+		// possible to calculate the fees and fee rate used here, we
+		// skip it as it's unlikely we'd perform RBF on these old
+		// sweeping transactions.
+		tr := &TxRecord{
+			Txid:      hash,
+			Published: true,
+		}
+
+		// Serialize tx record.
+		var b bytes.Buffer
+		err = serializeTxRecord(&b, tr)
+		if err != nil {
+			return err
+		}
+
+		return txHashesBucket.Put(tr.Txid[:], b.Bytes())
 	})
 	if err != nil {
 		return err
@@ -147,18 +257,22 @@ func migrateTxHashes(tx kvdb.RwTx, txHashesBucket kvdb.RwBucket,
 	return nil
 }
 
-// NotifyPublishTx signals that we are about to publish a tx.
-func (s *sweeperStore) NotifyPublishTx(sweepTx *wire.MsgTx) error {
+// StoreTx stores that we are about to publish a tx.
+func (s *sweeperStore) StoreTx(tr *TxRecord) error {
 	return kvdb.Update(s.db, func(tx kvdb.RwTx) error {
-
 		txHashesBucket := tx.ReadWriteBucket(txHashesBucketKey)
 		if txHashesBucket == nil {
 			return errNoTxHashesBucket
 		}
 
-		hash := sweepTx.TxHash()
+		// Serialize tx record.
+		var b bytes.Buffer
+		err := serializeTxRecord(&b, tr)
+		if err != nil {
+			return err
+		}
 
-		return txHashesBucket.Put(hash[:], []byte{})
+		return txHashesBucket.Put(tr.Txid[:], b.Bytes())
 	}, func() {})
 }
 
@@ -213,6 +327,67 @@ func (s *sweeperStore) ListSweeps() ([]chainhash.Hash, error) {
 	}
 
 	return sweepTxns, nil
+}
+
+// GetTx queries the database to find the tx that matches the given txid.
+// Returns ErrTxNotFound if it cannot be found.
+func (s *sweeperStore) GetTx(txid chainhash.Hash) (*TxRecord, error) {
+	// Create a record.
+	tr := &TxRecord{}
+
+	var err error
+	err = kvdb.View(s.db, func(tx kvdb.RTx) error {
+		txHashesBucket := tx.ReadBucket(txHashesBucketKey)
+		if txHashesBucket == nil {
+			return errNoTxHashesBucket
+		}
+
+		txBytes := txHashesBucket.Get(txid[:])
+		if txBytes == nil {
+			return ErrTxNotFound
+		}
+
+		// For old records, we'd get an empty byte slice here. We can
+		// assume it's already been published. Although it's possible
+		// to calculate the fees and fee rate used here, we skip it as
+		// it's unlikely we'd perform RBF on these old sweeping
+		// transactions.
+		//
+		// TODO(yy): remove this check once migration is added.
+		if len(txBytes) == 0 {
+			tr.Published = true
+			return nil
+		}
+
+		tr, err = deserializeTxRecord(bytes.NewReader(txBytes))
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}, func() {
+		tr = &TxRecord{}
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Attach the txid to the record.
+	tr.Txid = txid
+
+	return tr, nil
+}
+
+// DeleteTx removes the given tx from db.
+func (s *sweeperStore) DeleteTx(txid chainhash.Hash) error {
+	return kvdb.Update(s.db, func(tx kvdb.RwTx) error {
+		txHashesBucket := tx.ReadWriteBucket(txHashesBucketKey)
+		if txHashesBucket == nil {
+			return errNoTxHashesBucket
+		}
+
+		return txHashesBucket.Delete(txid[:])
+	}, func() {})
 }
 
 // Compile-time constraint to ensure sweeperStore implements SweeperStore.

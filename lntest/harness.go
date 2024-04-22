@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -41,6 +42,10 @@ const (
 	// lndErrorChanSize specifies the buffer size used to receive errors
 	// from lnd process.
 	lndErrorChanSize = 10
+
+	// maxBlocksAllowed specifies the max allowed value to be used when
+	// mining blocks.
+	maxBlocksAllowed = 100
 )
 
 // TestCase defines a test case that's been used in the integration test.
@@ -395,7 +400,7 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	st.resetStandbyNodes(t)
 
 	// Reset fee estimator.
-	st.SetFeeEstimate(DefaultFeeRateSatPerKw)
+	st.feeService.Reset()
 
 	// Record block height.
 	_, startHeight := h.Miner.GetBestBlock()
@@ -922,6 +927,10 @@ type OpenChannelParams struct {
 	// virtual byte of the transaction.
 	SatPerVByte btcutil.Amount
 
+	// ConfTarget is the number of blocks that the funding transaction
+	// should be confirmed in.
+	ConfTarget fn.Option[int32]
+
 	// CommitmentType is the commitment type that should be used for the
 	// channel to be opened.
 	CommitmentType lnrpc.CommitmentType
@@ -992,18 +1001,27 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 		minConfs = 0
 	}
 
+	// Get the requested conf target. If not set, default to 6.
+	confTarget := p.ConfTarget.UnwrapOr(6)
+
+	// If there's fee rate set, unset the conf target.
+	if p.SatPerVByte != 0 {
+		confTarget = 0
+	}
+
 	// Prepare the request.
 	return &lnrpc.OpenChannelRequest{
 		NodePubkey:         destNode.PubKey[:],
 		LocalFundingAmount: int64(p.Amt),
 		PushSat:            int64(p.PushAmt),
 		Private:            p.Private,
+		TargetConf:         confTarget,
 		MinConfs:           minConfs,
 		SpendUnconfirmed:   p.SpendUnconfirmed,
 		MinHtlcMsat:        int64(p.MinHtlc),
 		RemoteMaxHtlcs:     uint32(p.RemoteMaxHtlcs),
 		FundingShim:        p.FundingShim,
-		SatPerByte:         int64(p.SatPerVByte),
+		SatPerVbyte:        uint64(p.SatPerVByte),
 		CommitmentType:     p.CommitmentType,
 		ZeroConf:           p.ZeroConf,
 		ScidAlias:          p.ScidAlias,
@@ -1208,6 +1226,11 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 		ChannelPoint: cp,
 		Force:        force,
 		NoWait:       true,
+	}
+
+	// For coop close, we use a default confg target of 6.
+	if !force {
+		closeReq.TargetConf = 6
 	}
 
 	var (
@@ -1560,13 +1583,19 @@ func (h *HarnessTest) CleanupForceClose(hn *node.HarnessNode) {
 	h.AssertNumPendingForceClose(hn, 1)
 
 	// Mine enough blocks for the node to sweep its funds from the force
-	// closed channel. The commit sweep resolver is able to broadcast the
-	// sweep tx up to one block before the CSV elapses, so wait until
-	// defaulCSV-1.
+	// closed channel. The commit sweep resolver is able to offer the input
+	// to the sweeper at defaulCSV-1, and broadcast the sweep tx once one
+	// more block is mined.
 	//
 	// NOTE: we might empty blocks here as we don't know the exact number
 	// of blocks to mine. This may end up mining more blocks than needed.
 	h.MineEmptyBlocks(node.DefaultCSV - 1)
+
+	// Assert there is one pending sweep.
+	h.AssertNumPendingSweeps(hn, 1)
+
+	// Mine a block to trigger the sweep.
+	h.MineEmptyBlocks(1)
 
 	// The node should now sweep the funds, clean up by mining the sweeping
 	// tx.
@@ -1676,6 +1705,9 @@ func (h *HarnessTest) RestartNodeAndRestoreDB(hn *node.HarnessNode) {
 // NOTE: this differs from miner's `MineBlocks` as it requires the nodes to be
 // synced.
 func (h *HarnessTest) MineBlocks(num uint32) []*wire.MsgBlock {
+	require.Less(h, num, uint32(maxBlocksAllowed),
+		"too many blocks to mine")
+
 	// Mining the blocks slow to give `lnd` more time to sync.
 	blocks := h.Miner.MineBlocksSlow(num)
 
@@ -1692,6 +1724,10 @@ func (h *HarnessTest) MineBlocks(num uint32) []*wire.MsgBlock {
 //
 // NOTE: this differs from miner's `MineBlocks` as it requires the nodes to be
 // synced.
+//
+// TODO(yy): change the APIs to force callers to think about blocks and txns:
+// - MineBlocksAndAssertNumTxes -> MineBlocks
+// - add more APIs to mine a single tx.
 func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 	numTxs int) []*wire.MsgBlock {
 
@@ -1764,6 +1800,8 @@ func (h *HarnessTest) CleanShutDown() {
 // NOTE: this differs from miner's `MineEmptyBlocks` as it requires the nodes
 // to be synced.
 func (h *HarnessTest) MineEmptyBlocks(num int) []*wire.MsgBlock {
+	require.Less(h, num, maxBlocksAllowed, "too many blocks to mine")
+
 	blocks := h.Miner.MineEmptyBlocks(num)
 
 	// Finally, make sure all the active nodes are synced.
@@ -1954,9 +1992,9 @@ func (h *HarnessTest) CalculateTxFee(tx *wire.MsgTx) btcutil.Amount {
 		parentHash := in.PreviousOutPoint.Hash
 		rawTx := h.Miner.GetRawTransaction(&parentHash)
 		parent := rawTx.MsgTx()
-		balance += btcutil.Amount(
-			parent.TxOut[in.PreviousOutPoint.Index].Value,
-		)
+		value := parent.TxOut[in.PreviousOutPoint.Index].Value
+
+		balance += btcutil.Amount(value)
 	}
 
 	for _, out := range tx.TxOut {
@@ -1964,6 +2002,24 @@ func (h *HarnessTest) CalculateTxFee(tx *wire.MsgTx) btcutil.Amount {
 	}
 
 	return balance
+}
+
+// CalculateTxWeight calculates the weight for a given tx.
+//
+// TODO(yy): use weight estimator to get more accurate result.
+func (h *HarnessTest) CalculateTxWeight(tx *wire.MsgTx) int64 {
+	utx := btcutil.NewTx(tx)
+	return blockchain.GetTransactionWeight(utx)
+}
+
+// CalculateTxFeeRate calculates the fee rate for a given tx.
+func (h *HarnessTest) CalculateTxFeeRate(
+	tx *wire.MsgTx) chainfee.SatPerKWeight {
+
+	w := h.CalculateTxWeight(tx)
+	fee := h.CalculateTxFee(tx)
+
+	return chainfee.NewSatPerKWeight(fee, uint64(w))
 }
 
 // CalculateTxesFeeRate takes a list of transactions and estimates the fee rate
@@ -1986,57 +2042,6 @@ func (h *HarnessTest) CalculateTxesFeeRate(txns []*wire.MsgTx) int64 {
 	return feeRate
 }
 
-type SweptOutput struct {
-	OutPoint wire.OutPoint
-	SweepTx  *wire.MsgTx
-}
-
-// FindCommitAndAnchor looks for a commitment sweep and anchor sweep in the
-// mempool. Our anchor output is identified by having multiple inputs in its
-// sweep transition, because we have to bring another input to add fees to the
-// anchor. Note that the anchor swept output may be nil if the channel did not
-// have anchors.
-func (h *HarnessTest) FindCommitAndAnchor(sweepTxns []*wire.MsgTx,
-	closeTx string) (*SweptOutput, *SweptOutput) {
-
-	var commitSweep, anchorSweep *SweptOutput
-
-	for _, tx := range sweepTxns {
-		txHash := tx.TxHash()
-		sweepTx := h.Miner.GetRawTransaction(&txHash)
-
-		// We expect our commitment sweep to have a single input, and,
-		// our anchor sweep to have more inputs (because the wallet
-		// needs to add balance to the anchor amount). We find their
-		// sweep txids here to setup appropriate resolutions. We also
-		// need to find the outpoint for our resolution, which we do by
-		// matching the inputs to the sweep to the close transaction.
-		inputs := sweepTx.MsgTx().TxIn
-		if len(inputs) == 1 {
-			commitSweep = &SweptOutput{
-				OutPoint: inputs[0].PreviousOutPoint,
-				SweepTx:  tx,
-			}
-		} else {
-			// Since we have more than one input, we run through
-			// them to find the one whose previous outpoint matches
-			// the closing txid, which means this input is spending
-			// the close tx. This will be our anchor output.
-			for _, txin := range inputs {
-				op := txin.PreviousOutPoint.Hash.String()
-				if op == closeTx {
-					anchorSweep = &SweptOutput{
-						OutPoint: txin.PreviousOutPoint,
-						SweepTx:  tx,
-					}
-				}
-			}
-		}
-	}
-
-	return commitSweep, anchorSweep
-}
-
 // AssertSweepFound looks up a sweep in a nodes list of broadcast sweeps and
 // asserts it's found.
 //
@@ -2044,17 +2049,24 @@ func (h *HarnessTest) FindCommitAndAnchor(sweepTxns []*wire.MsgTx,
 func (h *HarnessTest) AssertSweepFound(hn *node.HarnessNode,
 	sweep string, verbose bool, startHeight int32) {
 
-	// List all sweeps that alice's node had broadcast.
-	sweepResp := hn.RPC.ListSweeps(verbose, startHeight)
+	err := wait.NoError(func() error {
+		// List all sweeps that alice's node had broadcast.
+		sweepResp := hn.RPC.ListSweeps(verbose, startHeight)
 
-	var found bool
-	if verbose {
-		found = findSweepInDetails(h, sweep, sweepResp)
-	} else {
-		found = findSweepInTxids(h, sweep, sweepResp)
-	}
+		var found bool
+		if verbose {
+			found = findSweepInDetails(h, sweep, sweepResp)
+		} else {
+			found = findSweepInTxids(h, sweep, sweepResp)
+		}
 
-	require.Truef(h, found, "%s: sweep: %v not found", sweep, hn.Name())
+		if found {
+			return nil
+		}
+
+		return fmt.Errorf("sweep tx %v not found", sweep)
+	}, wait.DefaultTimeout)
+	require.NoError(h, err, "%s: timeout checking sweep tx", hn.Name())
 }
 
 func findSweepInTxids(ht *HarnessTest, sweepTxid string,
@@ -2225,4 +2237,28 @@ func (h *HarnessTest) GetOutputIndex(txid *chainhash.Hash, addr string) int {
 	require.Greater(h, p2trOutputIndex, -1)
 
 	return p2trOutputIndex
+}
+
+// SendCoins sends a coin from node A to node B with the given amount, returns
+// the sending tx.
+func (h *HarnessTest) SendCoins(a, b *node.HarnessNode,
+	amt btcutil.Amount) *wire.MsgTx {
+
+	// Create an address for Bob receive the coins.
+	req := &lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_TAPROOT_PUBKEY,
+	}
+	resp := b.RPC.NewAddress(req)
+
+	// Send the coins from Alice to Bob. We should expect a tx to be
+	// broadcast and seen in the mempool.
+	sendReq := &lnrpc.SendCoinsRequest{
+		Addr:       resp.Address,
+		Amount:     int64(amt),
+		TargetConf: 6,
+	}
+	a.RPC.SendCoins(sendReq)
+	tx := h.Miner.GetNumTxsFromMempool(1)[0]
+
+	return tx
 }

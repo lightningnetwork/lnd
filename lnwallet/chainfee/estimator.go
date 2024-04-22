@@ -17,11 +17,11 @@ import (
 )
 
 const (
-	// maxBlockTarget is the highest number of blocks confirmations that
+	// MaxBlockTarget is the highest number of blocks confirmations that
 	// a WebAPIEstimator will cache fees for. This number is chosen
 	// because it's the highest number of confs bitcoind will return a fee
 	// estimate for.
-	maxBlockTarget uint32 = 1008
+	MaxBlockTarget uint32 = 1008
 
 	// minBlockTarget is the lowest number of blocks confirmations that
 	// a WebAPIEstimator will cache fees for. Requesting an estimate for
@@ -463,11 +463,11 @@ func (b *BitcoindEstimator) Stop() error {
 func (b *BitcoindEstimator) EstimateFeePerKW(
 	numBlocks uint32) (SatPerKWeight, error) {
 
-	if numBlocks > maxBlockTarget {
+	if numBlocks > MaxBlockTarget {
 		log.Debugf("conf target %d exceeds the max value, "+
-			"use %d instead.", numBlocks, maxBlockTarget,
+			"use %d instead.", numBlocks, MaxBlockTarget,
 		)
-		numBlocks = maxBlockTarget
+		numBlocks = MaxBlockTarget
 	}
 
 	feeEstimate, err := b.fetchEstimate(numBlocks, b.feeMode)
@@ -761,8 +761,8 @@ func NewWebAPIEstimator(api WebAPIFeeSource, noCache bool) *WebAPIEstimator {
 func (w *WebAPIEstimator) EstimateFeePerKW(numBlocks uint32) (
 	SatPerKWeight, error) {
 
-	if numBlocks > maxBlockTarget {
-		numBlocks = maxBlockTarget
+	if numBlocks > MaxBlockTarget {
+		numBlocks = MaxBlockTarget
 	} else if numBlocks < minBlockTarget {
 		return 0, fmt.Errorf("conf target of %v is too low, minimum "+
 			"accepted is %v", numBlocks, minBlockTarget)

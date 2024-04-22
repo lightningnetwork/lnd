@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -49,13 +50,6 @@ type htlcSuccessResolver struct {
 	// broadcast to the main-chain at. We'll use this value to bound any
 	// historical queries to the chain for spends/confirmations.
 	broadcastHeight uint32
-
-	// sweepTx will be non-nil if we've already crafted a transaction to
-	// sweep a direct HTLC output. This is only a concern if we're sweeping
-	// from the commitment transaction of the remote party.
-	//
-	// TODO(roasbeef): send off to utxobundler
-	sweepTx *wire.MsgTx
 
 	// htlc contains information on the htlc that we are resolving on-chain.
 	htlc channeldb.HTLC
@@ -121,7 +115,9 @@ func (h *htlcSuccessResolver) ResolverKey() []byte {
 // TODO(roasbeef): create multi to batch
 //
 // NOTE: Part of the ContractResolver interface.
-func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
+func (h *htlcSuccessResolver) Resolve(
+	immediate bool) (ContractResolver, error) {
+
 	// If we're already resolved, then we can exit early.
 	if h.resolved {
 		return nil, nil
@@ -130,12 +126,12 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	// If we don't have a success transaction, then this means that this is
 	// an output on the remote party's commitment transaction.
 	if h.htlcResolution.SignedSuccessTx == nil {
-		return h.resolveRemoteCommitOutput()
+		return h.resolveRemoteCommitOutput(immediate)
 	}
 
 	// Otherwise this an output on our own commitment, and we must start by
 	// broadcasting the second-level success transaction.
-	secondLevelOutpoint, err := h.broadcastSuccessTx()
+	secondLevelOutpoint, err := h.broadcastSuccessTx(immediate)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +165,9 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 // broadcasting the second-level success transaction. It returns the ultimate
 // outpoint of the second-level tx, that we must wait to be spent for the
 // resolver to be fully resolved.
-func (h *htlcSuccessResolver) broadcastSuccessTx() (*wire.OutPoint, error) {
+func (h *htlcSuccessResolver) broadcastSuccessTx(
+	immediate bool) (*wire.OutPoint, error) {
+
 	// If we have non-nil SignDetails, this means that have a 2nd level
 	// HTLC transaction that is signed using sighash SINGLE|ANYONECANPAY
 	// (the case for anchor type channels). In this case we can re-sign it
@@ -177,7 +175,7 @@ func (h *htlcSuccessResolver) broadcastSuccessTx() (*wire.OutPoint, error) {
 	// the checkpointed outputIncubating field to determine if we already
 	// swept the HTLC output into the second level transaction.
 	if h.htlcResolution.SignDetails != nil {
-		return h.broadcastReSignedSuccessTx()
+		return h.broadcastReSignedSuccessTx(immediate)
 	}
 
 	// Otherwise we'll publish the second-level transaction directly and
@@ -205,8 +203,9 @@ func (h *htlcSuccessResolver) broadcastSuccessTx() (*wire.OutPoint, error) {
 			h, h.htlc.RHash[:])
 
 		err := h.IncubateOutputs(
-			h.ChanPoint, nil, &h.htlcResolution,
-			h.broadcastHeight,
+			h.ChanPoint, fn.None[lnwallet.OutgoingHtlcResolution](),
+			fn.Some(h.htlcResolution),
+			h.broadcastHeight, fn.Some(int32(h.htlc.RefundTimeout)),
 		)
 		if err != nil {
 			return nil, err
@@ -226,7 +225,9 @@ func (h *htlcSuccessResolver) broadcastSuccessTx() (*wire.OutPoint, error) {
 // broadcastReSignedSuccessTx handles the case where we have non-nil
 // SignDetails, and offers the second level transaction to the Sweeper, that
 // will re-sign it and attach fees at will.
-func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
+//
+//nolint:funlen
+func (h *htlcSuccessResolver) broadcastReSignedSuccessTx(immediate bool) (
 	*wire.OutPoint, error) {
 
 	// Keep track of the tx spending the HTLC output on the commitment, as
@@ -239,10 +240,6 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 		h.htlcResolution.SweepSignDesc.Output.PkScript,
 	)
 	if !h.outputIncubating {
-		log.Infof("%T(%x): offering second-layer transition tx to "+
-			"sweeper: %v", h, h.htlc.RHash[:],
-			spew.Sdump(h.htlcResolution.SignedSuccessTx))
-
 		var secondLevelInput input.HtlcSecondLevelAnchorInput
 		if isTaproot {
 			//nolint:lll
@@ -260,12 +257,34 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 			)
 		}
 
+		// Calculate the budget for this sweep.
+		value := btcutil.Amount(
+			secondLevelInput.SignDesc().Output.Value,
+		)
+		budget := calculateBudget(
+			value, h.Budget.DeadlineHTLCRatio,
+			h.Budget.DeadlineHTLC,
+		)
+
+		// The deadline would be the CLTV in this HTLC output. If we
+		// are the initiator of this force close, with the default
+		// `IncomingBroadcastDelta`, it means we have 10 blocks left
+		// when going onchain. Given we need to mine one block to
+		// confirm the force close tx, and one more block to trigger
+		// the sweep, we have 8 blocks left to sweep the HTLC.
+		deadline := fn.Some(int32(h.htlc.RefundTimeout))
+
+		log.Infof("%T(%x): offering second-level HTLC success tx to "+
+			"sweeper with deadline=%v, budget=%v", h,
+			h.htlc.RHash[:], h.htlc.RefundTimeout, budget)
+
+		// We'll now offer the second-level transaction to the sweeper.
 		_, err := h.Sweeper.SweepInput(
 			&secondLevelInput,
 			sweep.Params{
-				Fee: sweep.FeePreference{
-					ConfTarget: secondLevelConfTarget,
-				},
+				Budget:         budget,
+				DeadlineHeight: deadline,
+				Immediate:      immediate,
 			},
 		)
 		if err != nil {
@@ -337,6 +356,25 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 			"height %v", h, h.htlc.RHash[:], waitHeight)
 	}
 
+	// Deduct one block so this input is offered to the sweeper one block
+	// earlier since the sweeper will wait for one block to trigger the
+	// sweeping.
+	//
+	// TODO(yy): this is done so the outputs can be aggregated
+	// properly. Suppose CSV locks of five 2nd-level outputs all
+	// expire at height 840000, there is a race in block digestion
+	// between contractcourt and sweeper:
+	// - G1: block 840000 received in contractcourt, it now offers
+	//   the outputs to the sweeper.
+	// - G2: block 840000 received in sweeper, it now starts to
+	//   sweep the received outputs - there's no guarantee all
+	//   fives have been received.
+	// To solve this, we either offer the outputs earlier, or
+	// implement `blockbeat`, and force contractcourt and sweeper
+	// to consume each block sequentially.
+	waitHeight--
+
+	// TODO(yy): let sweeper handles the wait?
 	err := waitForHeight(waitHeight, h.Notifier, h.quit)
 	if err != nil {
 		return nil, err
@@ -352,10 +390,6 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 		Index: commitSpend.SpenderInputIndex,
 	}
 
-	// Finally, let the sweeper sweep the second-level output.
-	log.Infof("%T(%x): CSV lock expired, offering second-layer "+
-		"output to sweeper: %v", h, h.htlc.RHash[:], op)
-
 	// Let the sweeper sweep the second-level output now that the
 	// CSV/CLTV locks have expired.
 	var witType input.StandardWitnessType
@@ -368,16 +402,30 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 		op, witType,
 		input.LeaseHtlcAcceptedSuccessSecondLevel,
 		&h.htlcResolution.SweepSignDesc,
-		h.htlcResolution.CsvDelay, h.broadcastHeight,
+		h.htlcResolution.CsvDelay, uint32(commitSpend.SpendingHeight),
 		h.htlc.RHash,
 	)
+
+	// Calculate the budget for this sweep.
+	budget := calculateBudget(
+		btcutil.Amount(inp.SignDesc().Output.Value),
+		h.Budget.NoDeadlineHTLCRatio,
+		h.Budget.NoDeadlineHTLC,
+	)
+
+	log.Infof("%T(%x): offering second-level success tx output to sweeper "+
+		"with no deadline and budget=%v at height=%v", h,
+		h.htlc.RHash[:], budget, waitHeight)
+
 	// TODO(roasbeef): need to update above for leased types
 	_, err = h.Sweeper.SweepInput(
 		inp,
 		sweep.Params{
-			Fee: sweep.FeePreference{
-				ConfTarget: sweepConfTarget,
-			},
+			Budget: budget,
+
+			// For second level success tx, there's no rush to get
+			// it confirmed, so we use a nil deadline.
+			DeadlineHeight: fn.None[int32](),
 		},
 	)
 	if err != nil {
@@ -392,106 +440,70 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 // resolveRemoteCommitOutput handles sweeping an HTLC output on the remote
 // commitment with the preimage. In this case we can sweep the output directly,
 // and don't have to broadcast a second-level transaction.
-func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
+func (h *htlcSuccessResolver) resolveRemoteCommitOutput(immediate bool) (
 	ContractResolver, error) {
 
-	// If we don't already have the sweep transaction constructed, we'll do
-	// so and broadcast it.
-	if h.sweepTx == nil {
-		log.Infof("%T(%x): crafting sweep tx for incoming+remote "+
-			"htlc confirmed", h, h.htlc.RHash[:])
+	isTaproot := txscript.IsPayToTaproot(
+		h.htlcResolution.SweepSignDesc.Output.PkScript,
+	)
 
-		isTaproot := txscript.IsPayToTaproot(
-			h.htlcResolution.SweepSignDesc.Output.PkScript,
-		)
-
-		// Before we can craft out sweeping transaction, we need to
-		// create an input which contains all the items required to add
-		// this input to a sweeping transaction, and generate a
-		// witness.
-		var inp input.Input
-		if isTaproot {
-			inp = lnutils.Ptr(input.MakeTaprootHtlcSucceedInput(
-				&h.htlcResolution.ClaimOutpoint,
-				&h.htlcResolution.SweepSignDesc,
-				h.htlcResolution.Preimage[:],
-				h.broadcastHeight,
-				h.htlcResolution.CsvDelay,
-			))
-		} else {
-			inp = lnutils.Ptr(input.MakeHtlcSucceedInput(
-				&h.htlcResolution.ClaimOutpoint,
-				&h.htlcResolution.SweepSignDesc,
-				h.htlcResolution.Preimage[:],
-				h.broadcastHeight,
-				h.htlcResolution.CsvDelay,
-			))
-		}
-
-		// With the input created, we can now generate the full sweep
-		// transaction, that we'll use to move these coins back into
-		// the backing wallet.
-		//
-		// TODO: Set tx lock time to current block height instead of
-		// zero. Will be taken care of once sweeper implementation is
-		// complete.
-		//
-		// TODO: Use time-based sweeper and result chan.
-		var err error
-		h.sweepTx, err = h.Sweeper.CreateSweepTx(
-			[]input.Input{inp},
-			sweep.FeePreference{
-				ConfTarget: sweepConfTarget,
-			}, 0,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		log.Infof("%T(%x): crafted sweep tx=%v", h,
-			h.htlc.RHash[:], spew.Sdump(h.sweepTx))
-
-		// TODO(halseth): should checkpoint sweep tx to DB? Since after
-		// a restart we might create a different tx, that will conflict
-		// with the published one.
+	// Before we can craft out sweeping transaction, we need to
+	// create an input which contains all the items required to add
+	// this input to a sweeping transaction, and generate a
+	// witness.
+	var inp input.Input
+	if isTaproot {
+		inp = lnutils.Ptr(input.MakeTaprootHtlcSucceedInput(
+			&h.htlcResolution.ClaimOutpoint,
+			&h.htlcResolution.SweepSignDesc,
+			h.htlcResolution.Preimage[:],
+			h.broadcastHeight,
+			h.htlcResolution.CsvDelay,
+		))
+	} else {
+		inp = lnutils.Ptr(input.MakeHtlcSucceedInput(
+			&h.htlcResolution.ClaimOutpoint,
+			&h.htlcResolution.SweepSignDesc,
+			h.htlcResolution.Preimage[:],
+			h.broadcastHeight,
+			h.htlcResolution.CsvDelay,
+		))
 	}
 
-	// Register the confirmation notification before broadcasting the sweep
-	// transaction.
-	sweepTXID := h.sweepTx.TxHash()
-	sweepScript := h.sweepTx.TxOut[0].PkScript
-	confNtfn, err := h.Notifier.RegisterConfirmationsNtfn(
-		&sweepTXID, sweepScript, 1, h.broadcastHeight,
+	// Calculate the budget for this sweep.
+	budget := calculateBudget(
+		btcutil.Amount(inp.SignDesc().Output.Value),
+		h.Budget.DeadlineHTLCRatio,
+		h.Budget.DeadlineHTLC,
+	)
+
+	deadline := fn.Some(int32(h.htlc.RefundTimeout))
+
+	log.Infof("%T(%x): offering direct-preimage HTLC output to sweeper "+
+		"with deadline=%v, budget=%v", h, h.htlc.RHash[:],
+		h.htlc.RefundTimeout, budget)
+
+	// We'll now offer the direct preimage HTLC to the sweeper.
+	_, err := h.Sweeper.SweepInput(
+		inp,
+		sweep.Params{
+			Budget:         budget,
+			DeadlineHeight: deadline,
+			Immediate:      immediate,
+		},
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	// Regardless of whether an existing transaction was found or newly
-	// constructed, we'll broadcast the sweep transaction to the network.
-	label := labels.MakeLabel(
-		labels.LabelTypeChannelClose, &h.ShortChanID,
+	// Wait for the direct-preimage HTLC sweep tx to confirm.
+	sweepTxDetails, err := waitForSpend(
+		&h.htlcResolution.ClaimOutpoint,
+		h.htlcResolution.SweepSignDesc.Output.PkScript,
+		h.broadcastHeight, h.Notifier, h.quit,
 	)
-	err = h.PublishTx(h.sweepTx, label)
 	if err != nil {
-		log.Infof("%T(%x): unable to publish tx: %v",
-			h, h.htlc.RHash[:], err)
-		confNtfn.Cancel()
-
 		return nil, err
-	}
-
-	log.Infof("%T(%x): waiting for sweep tx (txid=%v) to be confirmed", h,
-		h.htlc.RHash[:], sweepTXID)
-
-	select {
-	case _, ok := <-confNtfn.Confirmed:
-		if !ok {
-			return nil, errResolverShuttingDown
-		}
-
-	case <-h.quit:
-		return nil, errResolverShuttingDown
 	}
 
 	// Once the transaction has received a sufficient number of
@@ -500,7 +512,7 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
 
 	// Checkpoint the resolver, and write the outcome to disk.
 	return nil, h.checkpointClaim(
-		&sweepTXID,
+		sweepTxDetails.SpenderTxHash,
 		channeldb.ResolverOutcomeClaimed,
 	)
 }
@@ -708,6 +720,12 @@ func (h *htlcSuccessResolver) Supplement(htlc channeldb.HTLC) {
 // NOTE: Part of the htlcContractResolver interface.
 func (h *htlcSuccessResolver) HtlcPoint() wire.OutPoint {
 	return h.htlcResolution.HtlcPoint()
+}
+
+// SupplementDeadline does nothing for an incoming htlc resolver.
+//
+// NOTE: Part of the htlcContractResolver interface.
+func (h *htlcSuccessResolver) SupplementDeadline(_ fn.Option[int32]) {
 }
 
 // A compile time assertion to ensure htlcSuccessResolver meets the

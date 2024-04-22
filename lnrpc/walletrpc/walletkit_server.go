@@ -30,6 +30,8 @@ import (
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/labels"
@@ -863,41 +865,44 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 
 	// Retrieve all of the outputs the UtxoSweeper is currently trying to
 	// sweep.
-	pendingInputs, err := w.cfg.Sweeper.PendingInputs()
+	inputsMap, err := w.cfg.Sweeper.PendingInputs()
 	if err != nil {
 		return nil, err
 	}
 
 	// Convert them into their respective RPC format.
-	rpcPendingSweeps := make([]*PendingSweep, 0, len(pendingInputs))
-	for _, pendingInput := range pendingInputs {
-		witnessType, ok := allWitnessTypes[pendingInput.WitnessType]
+	rpcPendingSweeps := make([]*PendingSweep, 0, len(inputsMap))
+	for _, inp := range inputsMap {
+		witnessType, ok := allWitnessTypes[inp.WitnessType]
 		if !ok {
 			return nil, fmt.Errorf("unhandled witness type %v for "+
-				"input %v", pendingInput.WitnessType,
-				pendingInput.OutPoint)
+				"input %v", inp.WitnessType, inp.OutPoint)
 		}
 
-		op := lnrpc.MarshalOutPoint(&pendingInput.OutPoint)
-		amountSat := uint32(pendingInput.Amount)
-		satPerVbyte := uint64(pendingInput.LastFeeRate.FeePerVByte())
-		broadcastAttempts := uint32(pendingInput.BroadcastAttempts)
-		nextBroadcastHeight := uint32(pendingInput.NextBroadcastHeight)
+		op := lnrpc.MarshalOutPoint(&inp.OutPoint)
+		amountSat := uint32(inp.Amount)
+		satPerVbyte := uint64(inp.LastFeeRate.FeePerVByte())
+		broadcastAttempts := uint32(inp.BroadcastAttempts)
 
-		requestedFee := pendingInput.Params.Fee
-		requestedFeeRate := uint64(requestedFee.FeeRate.FeePerVByte())
+		// Get the requested starting fee rate, if set.
+		startingFeeRate := fn.MapOptionZ(
+			inp.Params.StartingFeeRate,
+			func(feeRate chainfee.SatPerKWeight) uint64 {
+				return uint64(feeRate.FeePerVByte())
+			})
 
-		rpcPendingSweeps = append(rpcPendingSweeps, &PendingSweep{
+		ps := &PendingSweep{
 			Outpoint:             op,
 			WitnessType:          witnessType,
 			AmountSat:            amountSat,
 			SatPerVbyte:          satPerVbyte,
 			BroadcastAttempts:    broadcastAttempts,
-			NextBroadcastHeight:  nextBroadcastHeight,
-			RequestedSatPerVbyte: requestedFeeRate,
-			RequestedConfTarget:  requestedFee.ConfTarget,
-			Force:                pendingInput.Params.Force,
-		})
+			Immediate:            inp.Params.Immediate,
+			Budget:               uint64(inp.Params.Budget),
+			DeadlineHeight:       inp.DeadlineHeight,
+			RequestedSatPerVbyte: startingFeeRate,
+		}
+		rpcPendingSweeps = append(rpcPendingSweeps, ps)
 	}
 
 	return &PendingSweepsResponse{
@@ -938,6 +943,131 @@ func UnmarshallOutPoint(op *lnrpc.OutPoint) (*wire.OutPoint, error) {
 	}, nil
 }
 
+// validateBumpFeeRequest makes sure the deprecated fields are not used when
+// the new fields are set.
+func validateBumpFeeRequest(in *BumpFeeRequest) (
+	fn.Option[chainfee.SatPerKWeight], bool, error) {
+
+	// Get the specified fee rate if set.
+	satPerKwOpt := fn.None[chainfee.SatPerKWeight]()
+
+	// We only allow using either the deprecated field or the new field.
+	switch {
+	case in.SatPerByte != 0 && in.SatPerVbyte != 0:
+		return satPerKwOpt, false, fmt.Errorf("either SatPerByte or " +
+			"SatPerVbyte should be set, but not both")
+
+	case in.SatPerByte != 0:
+		satPerKw := chainfee.SatPerVByte(
+			in.SatPerByte,
+		).FeePerKWeight()
+		satPerKwOpt = fn.Some(satPerKw)
+
+	case in.SatPerVbyte != 0:
+		satPerKw := chainfee.SatPerVByte(
+			in.SatPerVbyte,
+		).FeePerKWeight()
+		satPerKwOpt = fn.Some(satPerKw)
+	}
+
+	var immediate bool
+	switch {
+	case in.Force && in.Immediate:
+		return satPerKwOpt, false, fmt.Errorf("either Force or " +
+			"Immediate should be set, but not both")
+
+	case in.Force:
+		immediate = in.Force
+
+	case in.Immediate:
+		immediate = in.Immediate
+	}
+
+	return satPerKwOpt, immediate, nil
+}
+
+// prepareSweepParams creates the sweep params to be used for the sweeper. It
+// returns the new params and a bool indicating whether this is an existing
+// input.
+func (w *WalletKit) prepareSweepParams(in *BumpFeeRequest,
+	op wire.OutPoint, currentHeight int32) (sweep.Params, bool, error) {
+
+	// Return an error if both deprecated and new fields are used.
+	feerate, immediate, err := validateBumpFeeRequest(in)
+	if err != nil {
+		return sweep.Params{}, false, err
+	}
+
+	// Get the current pending inputs.
+	inputMap, err := w.cfg.Sweeper.PendingInputs()
+	if err != nil {
+		return sweep.Params{}, false, fmt.Errorf("unable to get "+
+			"pending inputs: %w", err)
+	}
+
+	// Find the pending input.
+	//
+	// TODO(yy): act differently based on the state of the input?
+	inp, ok := inputMap[op]
+
+	if !ok {
+		// NOTE: if this input doesn't exist and the new budget is not
+		// specified, the params would have a zero budget.
+		params := sweep.Params{
+			Immediate:       immediate,
+			StartingFeeRate: feerate,
+			Budget:          btcutil.Amount(in.Budget),
+		}
+		if in.TargetConf != 0 {
+			params.DeadlineHeight = fn.Some(
+				int32(in.TargetConf) + currentHeight,
+			)
+		}
+
+		return params, ok, nil
+	}
+
+	// Find the existing budget used for this input. Note that this value
+	// must be greater than zero.
+	budget := inp.Params.Budget
+
+	// Set the new budget if specified.
+	if in.Budget != 0 {
+		budget = btcutil.Amount(in.Budget)
+	}
+
+	// For an existing input, we assign it first, then overwrite it if
+	// a deadline is requested.
+	deadline := inp.Params.DeadlineHeight
+
+	// Set the deadline if target conf is specified.
+	//
+	// TODO(yy): upgrade `falafel` so we can make this field optional. Atm
+	// we cannot distinguish between user's not setting the field and
+	// setting it to 0.
+	if in.TargetConf != 0 {
+		deadline = fn.Some(int32(in.TargetConf) + currentHeight)
+	}
+
+	// Prepare the new sweep params.
+	//
+	// NOTE: if this input doesn't exist and the new budget is not
+	// specified, the params would have a zero budget.
+	params := sweep.Params{
+		Immediate:       immediate,
+		StartingFeeRate: feerate,
+		DeadlineHeight:  deadline,
+		Budget:          budget,
+	}
+
+	if ok {
+		log.Infof("[BumpFee]: bumping fee for existing input=%v, old "+
+			"params=%v, new params=%v", op, inp.Params, params)
+	}
+
+	return params, ok, nil
+}
+
 // BumpFee allows bumping the fee rate of an arbitrary input. A fee preference
 // can be expressed either as a specific fee rate or a delta of blocks in which
 // the output should be swept on-chain within. If a fee preference is not
@@ -952,65 +1082,80 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 		return nil, err
 	}
 
-	// We only allow using either the deprecated field or the new field.
-	if in.SatPerByte != 0 && in.SatPerVbyte != 0 {
-		return nil, fmt.Errorf("either SatPerByte or " +
-			"SatPerVbyte should be set, but not both")
+	// Get the current height so we can calculate the deadline height.
+	_, currentHeight, err := w.cfg.Chain.GetBestBlock()
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve current height: %w",
+			err)
 	}
 
-	// Construct the request's fee preference.
-	satPerKw := chainfee.SatPerKVByte(in.SatPerVbyte * 1000).FeePerKWeight()
-	if in.SatPerByte != 0 {
-		satPerKw = chainfee.SatPerKVByte(
-			in.SatPerByte * 1000,
-		).FeePerKWeight()
-	}
-	feePreference := sweep.FeePreference{
-		ConfTarget: uint32(in.TargetConf),
-		FeeRate:    satPerKw,
-	}
-
-	// We'll attempt to bump the fee of the input through the UtxoSweeper.
-	// If it is currently attempting to sweep the input, then it'll simply
-	// bump its fee, which will result in a replacement transaction (RBF)
-	// being broadcast. If it is not aware of the input however,
-	// lnwallet.ErrNotMine is returned.
-	params := sweep.ParamsUpdate{
-		Fee:   feePreference,
-		Force: in.Force,
-	}
-
-	_, err = w.cfg.Sweeper.UpdateParams(*op, params)
-	switch err {
-	case nil:
-		return &BumpFeeResponse{
-			Status: "Successfully registered rbf-tx with sweeper",
-		}, nil
-	case lnwallet.ErrNotMine:
-		break
-	default:
+	// We now create a new sweeping params and update it in the sweeper.
+	// This will complicate the RBF conditions if this input has already
+	// been offered to sweeper before and it has already been included in a
+	// tx with other inputs. If this is the case, two results are possible:
+	// - either this input successfully RBFed the existing tx, or,
+	// - the budget of this input was not enough to RBF the existing tx.
+	params, existing, err := w.prepareSweepParams(in, *op, currentHeight)
+	if err != nil {
 		return nil, err
 	}
 
-	log.Debugf("Attempting to CPFP outpoint %s", op)
+	// If this input exists, we will update its params.
+	if existing {
+		_, err = w.cfg.Sweeper.UpdateParams(*op, params)
+		if err != nil {
+			return nil, err
+		}
 
-	// Since we're unable to perform a bump through RBF, we'll assume the
-	// user is attempting to bump an unconfirmed transaction's fee rate by
+		return &BumpFeeResponse{
+			Status: "Successfully registered rbf-tx with sweeper",
+		}, nil
+	}
+
+	// Otherwise, create a new sweeping request for this input.
+	err = w.sweepNewInput(op, uint32(currentHeight), params)
+	if err != nil {
+		return nil, err
+	}
+
+	return &BumpFeeResponse{
+		Status: "Successfully registered CPFP-tx with the sweeper",
+	}, nil
+}
+
+// sweepNewInput handles the case where an input is seen the first time by the
+// sweeper. It will fetch the output from the wallet and construct an input and
+// offer it to the sweeper.
+//
+// NOTE: if the budget is not set, the default budget ratio is used.
+func (w *WalletKit) sweepNewInput(op *wire.OutPoint, currentHeight uint32,
+	params sweep.Params) error {
+
+	log.Debugf("Attempting to sweep outpoint %s", op)
+
+	// Since the sweeper is not aware of the input, we'll assume the user
+	// is attempting to bump an unconfirmed transaction's fee rate by
 	// sweeping an output within it under control of the wallet with a
-	// higher fee rate, essentially performing a Child-Pays-For-Parent
-	// (CPFP).
+	// higher fee rate. In this case, this will be a CPFP.
 	//
 	// We'll gather all of the information required by the UtxoSweeper in
 	// order to sweep the output.
 	utxo, err := w.cfg.Wallet.FetchInputInfo(op)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// We're only able to bump the fee of unconfirmed transactions.
 	if utxo.Confirmations > 0 {
-		return nil, errors.New("unable to bump fee of a confirmed " +
+		return errors.New("unable to bump fee of a confirmed " +
 			"transaction")
+	}
+
+	// If there's no budget set, use the default value.
+	if params.Budget == 0 {
+		params.Budget = utxo.Value.MulF64(
+			contractcourt.DefaultBudgetRatio,
+		)
 	}
 
 	signDesc := &input.SignDescriptor{
@@ -1031,29 +1176,18 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 		witnessType = input.TaprootPubKeySpend
 		signDesc.HashType = txscript.SigHashDefault
 	default:
-		return nil, fmt.Errorf("unknown input witness %v", op)
+		return fmt.Errorf("unknown input witness %v", op)
 	}
 
-	// We'll use the current height as the height hint since we're dealing
-	// with an unconfirmed transaction.
-	_, currentHeight, err := w.cfg.Chain.GetBestBlock()
-	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve current height: %w",
-			err)
+	log.Infof("[BumpFee]: bumping fee for new input=%v, params=%v", op,
+		params)
+
+	inp := input.NewBaseInput(op, witnessType, signDesc, currentHeight)
+	if _, err = w.cfg.Sweeper.SweepInput(inp, params); err != nil {
+		return err
 	}
 
-	inp := input.NewBaseInput(
-		op, witnessType, signDesc, uint32(currentHeight),
-	)
-
-	sweepParams := sweep.Params{Fee: feePreference}
-	if _, err = w.cfg.Sweeper.SweepInput(inp, sweepParams); err != nil {
-		return nil, err
-	}
-
-	return &BumpFeeResponse{
-		Status: "Successfully registered cpfp-tx with the sweeper",
-	}, nil
+	return nil
 }
 
 // ListSweeps returns a list of the sweeps that our node has published.

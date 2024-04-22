@@ -1,10 +1,10 @@
 package sweep
 
 // bucket contains a set of inputs that are not mutually exclusive.
-type bucket pendingInputs
+type bucket InputsMap
 
 // tryAdd tries to add a new input to this bucket.
-func (b bucket) tryAdd(input *pendingInput) bool {
+func (b bucket) tryAdd(input *SweeperInput) bool {
 	exclusiveGroup := input.params.ExclusiveGroup
 	if exclusiveGroup != nil {
 		for _, input := range b {
@@ -28,7 +28,7 @@ func (b bucket) tryAdd(input *pendingInput) bool {
 		}
 	}
 
-	b[*input.OutPoint()] = input
+	b[input.OutPoint()] = input
 
 	return true
 }
@@ -40,7 +40,7 @@ type bucketList struct {
 
 // add adds a new input. If the input is not accepted by any of the existing
 // buckets, a new bucket will be created.
-func (b *bucketList) add(input *pendingInput) {
+func (b *bucketList) add(input *SweeperInput) {
 	for _, existingBucket := range b.buckets {
 		if existingBucket.tryAdd(input) {
 			return

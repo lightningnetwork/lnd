@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -325,6 +326,9 @@ type server struct {
 	livenessMonitor *healthcheck.Monitor
 
 	customMessageServer *subscribe.Server
+
+	// txPublisher is a publisher with fee-bumping capability.
+	txPublisher *sweep.TxPublisher
 
 	quit chan struct{}
 
@@ -1052,9 +1056,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	srvrLog.Debugf("Sweeper batch window duration: %v",
-		cfg.Sweeper.BatchWindowDuration)
-
 	sweeperStore, err := sweep.NewSweeperStore(
 		dbs.ChanStateDB, s.cfg.ActiveNetParams.GenesisHash,
 	)
@@ -1063,20 +1064,30 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
+	aggregator := sweep.NewBudgetAggregator(
+		cc.FeeEstimator, sweep.DefaultMaxInputsPerTx,
+	)
+
+	s.txPublisher = sweep.NewTxPublisher(sweep.TxPublisherConfig{
+		Signer:    cc.Wallet.Cfg.Signer,
+		Wallet:    cc.Wallet,
+		Estimator: cc.FeeEstimator,
+		Notifier:  cc.ChainNotifier,
+	})
+
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{
 		FeeEstimator:         cc.FeeEstimator,
-		DetermineFeePerKw:    sweep.DetermineFeePerKw,
 		GenSweepScript:       newSweepPkScriptGen(cc.Wallet),
 		Signer:               cc.Wallet.Cfg.Signer,
 		Wallet:               newSweeperWallet(cc.Wallet),
-		TickerDuration:       cfg.Sweeper.BatchWindowDuration,
+		Mempool:              cc.MempoolNotifier,
 		Notifier:             cc.ChainNotifier,
 		Store:                sweeperStore,
 		MaxInputsPerTx:       sweep.DefaultMaxInputsPerTx,
-		MaxSweepAttempts:     sweep.DefaultMaxSweepAttempts,
-		NextAttemptDeltaFunc: sweep.DefaultNextAttemptDeltaFunc,
 		MaxFeeRate:           cfg.Sweeper.MaxFeeRate,
-		FeeRateBucketSize:    sweep.DefaultFeeRateBucketSize,
+		Aggregator:           aggregator,
+		Publisher:            s.txPublisher,
+		NoDeadlineConfTarget: cfg.Sweeper.NoDeadlineConfTarget,
 	})
 
 	s.utxoNursery = contractcourt.NewUtxoNursery(&contractcourt.NurseryConfig{
@@ -1088,6 +1099,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PublishTransaction:  cc.Wallet.PublishTransaction,
 		Store:               utxnStore,
 		SweepInput:          s.sweeper.SweepInput,
+		Budget:              s.cfg.Sweeper.Budget,
 	})
 
 	// Construct a closure that wraps the htlcswitch's CloseLink method.
@@ -1122,6 +1134,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		},
 	)
 
+	//nolint:lll
 	s.chainArb = contractcourt.NewChainArbitrator(contractcourt.ChainArbitratorConfig{
 		ChainHash:              *s.cfg.ActiveNetParams.GenesisHash,
 		IncomingBroadcastDelta: lncfg.DefaultIncomingBroadcastDelta,
@@ -1138,24 +1151,14 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			return nil
 		},
 		IncubateOutputs: func(chanPoint wire.OutPoint,
-			outHtlcRes *lnwallet.OutgoingHtlcResolution,
-			inHtlcRes *lnwallet.IncomingHtlcResolution,
-			broadcastHeight uint32) error {
-
-			var (
-				inRes  []lnwallet.IncomingHtlcResolution
-				outRes []lnwallet.OutgoingHtlcResolution
-			)
-			if inHtlcRes != nil {
-				inRes = append(inRes, *inHtlcRes)
-			}
-			if outHtlcRes != nil {
-				outRes = append(outRes, *outHtlcRes)
-			}
+			outHtlcRes fn.Option[lnwallet.OutgoingHtlcResolution],
+			inHtlcRes fn.Option[lnwallet.IncomingHtlcResolution],
+			broadcastHeight uint32,
+			deadlineHeight fn.Option[int32]) error {
 
 			return s.utxoNursery.IncubateOutputs(
-				chanPoint, outRes, inRes,
-				broadcastHeight,
+				chanPoint, outHtlcRes, inHtlcRes,
+				broadcastHeight, deadlineHeight,
 			)
 		},
 		PreimageDB:   s.witnessBeacon,
@@ -1222,9 +1225,26 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PaymentsExpirationGracePeriod: cfg.PaymentsExpirationGracePeriod,
 		IsForwardedHTLC:               s.htlcSwitch.IsForwardedHTLC,
 		Clock:                         clock.NewDefaultClock(),
-		SubscribeBreachComplete:       s.breachArbitrator.SubscribeBreachComplete, //nolint:lll
-		PutFinalHtlcOutcome:           s.chanStateDB.PutOnchainFinalHtlcOutcome,   //nolint: lll
+		SubscribeBreachComplete:       s.breachArbitrator.SubscribeBreachComplete,
+		PutFinalHtlcOutcome:           s.chanStateDB.PutOnchainFinalHtlcOutcome,
 		HtlcNotifier:                  s.htlcNotifier,
+		Budget:                        *s.cfg.Sweeper.Budget,
+
+		// TODO(yy): remove this hack once PaymentCircuit is interfaced.
+		QueryIncomingCircuit: func(
+			circuit models.CircuitKey) *models.CircuitKey {
+
+			// Get the circuit map.
+			circuits := s.htlcSwitch.CircuitLookup()
+
+			// Lookup the outgoing circuit.
+			pc := circuits.LookupOpenCircuit(circuit)
+			if pc == nil {
+				return nil
+			}
+
+			return &pc.Incoming
+		},
 	}, dbs.ChanStateDB)
 
 	// Select the configuration and funding parameters for Bitcoin.
@@ -1931,6 +1951,15 @@ func (s *server) Start() error {
 			cleanup = cleanup.add(s.towerClientMgr.Stop)
 		}
 
+		if err := s.txPublisher.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(func() error {
+			s.txPublisher.Stop()
+			return nil
+		})
+
 		if err := s.sweeper.Start(); err != nil {
 			startErr = err
 			return
@@ -2264,6 +2293,9 @@ func (s *server) Stop() error {
 		if err := s.sweeper.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop sweeper: %v", err)
 		}
+
+		s.txPublisher.Stop()
+
 		if err := s.channelNotifier.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop channelNotifier: %v", err)
 		}

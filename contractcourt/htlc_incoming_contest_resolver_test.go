@@ -351,6 +351,12 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 				return nil
 			},
 			HtlcNotifier: htlcNotifier,
+			Budget:       *DefaultBudgetConfig(),
+			QueryIncomingCircuit: func(
+				circuit models.CircuitKey) *models.CircuitKey {
+
+				return nil
+			},
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {
@@ -390,7 +396,7 @@ func (i *incomingResolverTestContext) resolve() {
 	i.resolveErr = make(chan error, 1)
 	go func() {
 		var err error
-		i.nextResolver, err = i.resolver.Resolve()
+		i.nextResolver, err = i.resolver.Resolve(false)
 		i.resolveErr <- err
 	}()
 

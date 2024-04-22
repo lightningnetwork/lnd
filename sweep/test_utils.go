@@ -40,6 +40,27 @@ func NewMockNotifier(t *testing.T) *MockNotifier {
 	}
 }
 
+// NotifyEpochNonBlocking simulates a new epoch arriving without blocking when
+// the epochChan is not read.
+func (m *MockNotifier) NotifyEpochNonBlocking(height int32) {
+	m.t.Helper()
+
+	for epochChan, chanHeight := range m.epochChan {
+		// Only send notifications if the height is greater than the
+		// height the caller passed into the register call.
+		if chanHeight >= height {
+			continue
+		}
+
+		log.Debugf("Notifying height %v to listener", height)
+
+		select {
+		case epochChan <- &chainntnfs.BlockEpoch{Height: height}:
+		default:
+		}
+	}
+}
+
 // NotifyEpoch simulates a new epoch arriving.
 func (m *MockNotifier) NotifyEpoch(height int32) {
 	m.t.Helper()
@@ -98,6 +119,8 @@ func (m *MockNotifier) SpendOutpoint(outpoint wire.OutPoint,
 func (m *MockNotifier) sendSpend(channel chan *chainntnfs.SpendDetail,
 	outpoint *wire.OutPoint,
 	spendingTx *wire.MsgTx) {
+
+	log.Debugf("Notifying spend of outpoint %v", outpoint)
 
 	spenderTxHash := spendingTx.TxHash()
 	channel <- &chainntnfs.SpendDetail{
@@ -187,6 +210,8 @@ func (m *MockNotifier) Stop() error {
 // RegisterSpendNtfn registers for spend notifications.
 func (m *MockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	_ []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+
+	log.Debugf("RegisterSpendNtfn for outpoint %v", outpoint)
 
 	// Add channel to global spend ntfn map.
 	m.mutex.Lock()

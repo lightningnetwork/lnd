@@ -1,8 +1,14 @@
 package input
 
 import (
+	"crypto/sha256"
+
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -17,15 +23,11 @@ var _ Input = (*MockInput)(nil)
 
 // Outpoint returns the reference to the output being spent, used to construct
 // the corresponding transaction input.
-func (m *MockInput) OutPoint() *wire.OutPoint {
+func (m *MockInput) OutPoint() wire.OutPoint {
 	args := m.Called()
 	op := args.Get(0)
 
-	if op == nil {
-		return nil
-	}
-
-	return op.(*wire.OutPoint)
+	return op.(wire.OutPoint)
 }
 
 // RequiredTxOut returns a non-nil TxOut if input commits to a certain
@@ -122,4 +124,146 @@ func (m *MockInput) UnconfParent() *TxInfo {
 	}
 
 	return info.(*TxInfo)
+}
+
+// MockWitnessType implements the `WitnessType` interface and is used by other
+// packages for mock testing.
+type MockWitnessType struct {
+	mock.Mock
+}
+
+// Compile time assertion that MockWitnessType implements WitnessType.
+var _ WitnessType = (*MockWitnessType)(nil)
+
+// String returns a human readable version of the WitnessType.
+func (m *MockWitnessType) String() string {
+	args := m.Called()
+
+	return args.String(0)
+}
+
+// WitnessGenerator will return a WitnessGenerator function that an output uses
+// to generate the witness and optionally the sigScript for a sweep
+// transaction.
+func (m *MockWitnessType) WitnessGenerator(signer Signer,
+	descriptor *SignDescriptor) WitnessGenerator {
+
+	args := m.Called()
+
+	return args.Get(0).(WitnessGenerator)
+}
+
+// SizeUpperBound returns the maximum length of the witness of this WitnessType
+// if it would be included in a tx. It also returns if the output itself is a
+// nested p2sh output, if so then we need to take into account the extra
+// sigScript data size.
+func (m *MockWitnessType) SizeUpperBound() (int, bool, error) {
+	args := m.Called()
+
+	return args.Int(0), args.Bool(1), args.Error(2)
+}
+
+// AddWeightEstimation adds the estimated size of the witness in bytes to the
+// given weight estimator.
+func (m *MockWitnessType) AddWeightEstimation(e *TxWeightEstimator) error {
+	args := m.Called()
+
+	return args.Error(0)
+}
+
+// MockInputSigner is a mock implementation of the Signer interface.
+type MockInputSigner struct {
+	mock.Mock
+}
+
+// Compile-time constraint to ensure MockInputSigner implements Signer.
+var _ Signer = (*MockInputSigner)(nil)
+
+// SignOutputRaw generates a signature for the passed transaction according to
+// the data within the passed SignDescriptor.
+func (m *MockInputSigner) SignOutputRaw(tx *wire.MsgTx,
+	signDesc *SignDescriptor) (Signature, error) {
+
+	args := m.Called(tx, signDesc)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).(Signature), args.Error(1)
+}
+
+// ComputeInputScript generates a complete InputIndex for the passed
+// transaction with the signature as defined within the passed SignDescriptor.
+func (m *MockInputSigner) ComputeInputScript(tx *wire.MsgTx,
+	signDesc *SignDescriptor) (*Script, error) {
+
+	args := m.Called(tx, signDesc)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).(*Script), args.Error(1)
+}
+
+// MuSig2CreateSession creates a new MuSig2 signing session using the local key
+// identified by the key locator.
+func (m *MockInputSigner) MuSig2CreateSession(version MuSig2Version,
+	locator keychain.KeyLocator, pubkey []*btcec.PublicKey,
+	tweak *MuSig2Tweaks, pubNonces [][musig2.PubNonceSize]byte,
+	nonces *musig2.Nonces) (*MuSig2SessionInfo, error) {
+
+	args := m.Called(version, locator, pubkey, tweak, pubNonces, nonces)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).(*MuSig2SessionInfo), args.Error(1)
+}
+
+// MuSig2RegisterNonces registers one or more public nonces of other signing
+// participants for a session identified by its ID.
+func (m *MockInputSigner) MuSig2RegisterNonces(versio MuSig2SessionID,
+	pubNonces [][musig2.PubNonceSize]byte) (bool, error) {
+
+	args := m.Called(versio, pubNonces)
+	if args.Get(0) == nil {
+		return false, args.Error(1)
+	}
+
+	return args.Bool(0), args.Error(1)
+}
+
+// MuSig2Sign creates a partial signature using the local signing key that was
+// specified when the session was created.
+func (m *MockInputSigner) MuSig2Sign(sessionID MuSig2SessionID,
+	msg [sha256.Size]byte, withSortedKeys bool) (
+	*musig2.PartialSignature, error) {
+
+	args := m.Called(sessionID, msg, withSortedKeys)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).(*musig2.PartialSignature), args.Error(1)
+}
+
+// MuSig2CombineSig combines the given partial signature(s) with the local one,
+// if it already exists.
+func (m *MockInputSigner) MuSig2CombineSig(sessionID MuSig2SessionID,
+	partialSig []*musig2.PartialSignature) (
+	*schnorr.Signature, bool, error) {
+
+	args := m.Called(sessionID, partialSig)
+	if args.Get(0) == nil {
+		return nil, false, args.Error(2)
+	}
+
+	return args.Get(0).(*schnorr.Signature), args.Bool(1), args.Error(2)
+}
+
+// MuSig2Cleanup removes a session from memory to free up resources.
+func (m *MockInputSigner) MuSig2Cleanup(sessionID MuSig2SessionID) error {
+	args := m.Called(sessionID)
+
+	return args.Error(0)
 }

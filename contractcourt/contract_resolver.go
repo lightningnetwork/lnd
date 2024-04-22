@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 )
 
 var (
@@ -20,10 +21,6 @@ const (
 	// sweepConfTarget is the default number of blocks that we'll use as a
 	// confirmation target when sweeping.
 	sweepConfTarget = 6
-
-	// secondLevelConfTarget is the confirmation target we'll use when
-	// adding fees to our second-level HTLC transactions.
-	secondLevelConfTarget = 6
 )
 
 // ContractResolver is an interface which packages a state machine which is
@@ -46,7 +43,7 @@ type ContractResolver interface {
 	// resolution, then another resolve is returned.
 	//
 	// NOTE: This function MUST be run as a goroutine.
-	Resolve() (ContractResolver, error)
+	Resolve(immediate bool) (ContractResolver, error)
 
 	// SupplementState allows the user of a ContractResolver to supplement
 	// it with state required for the proper resolution of a contract.
@@ -75,6 +72,10 @@ type htlcContractResolver interface {
 	// Supplement adds additional information to the resolver that is
 	// required before Resolve() is called.
 	Supplement(htlc channeldb.HTLC)
+
+	// SupplementDeadline gives the deadline height for the HTLC output.
+	// This is only useful for outgoing HTLCs.
+	SupplementDeadline(deadlineHeight fn.Option[int32])
 }
 
 // reportingContractResolver is a ContractResolver that also exposes a report on

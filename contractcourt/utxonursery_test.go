@@ -16,7 +16,9 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -462,6 +464,7 @@ func createNurseryTestContext(t *testing.T,
 		PublishTransaction: func(tx *wire.MsgTx, _ string) error {
 			return publishFunc(tx, "nursery")
 		},
+		Budget: DefaultBudgetConfig(),
 	}
 
 	nursery := NewUtxoNursery(&nurseryCfg)
@@ -626,9 +629,8 @@ func incubateTestOutput(t *testing.T, nursery *UtxoNursery,
 
 	// Hand off to nursery.
 	err := nursery.IncubateOutputs(
-		testChanPoint,
-		[]lnwallet.OutgoingHtlcResolution{*outgoingRes},
-		nil, 0,
+		testChanPoint, fn.Some(*outgoingRes),
+		fn.None[lnwallet.IncomingHtlcResolution](), 0, fn.None[int32](),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -708,9 +710,9 @@ func TestRejectedCribTransaction(t *testing.T) {
 
 			// Hand off to nursery.
 			err := ctx.nursery.IncubateOutputs(
-				testChanPoint,
-				[]lnwallet.OutgoingHtlcResolution{*outgoingRes},
-				nil, 0,
+				testChanPoint, fn.Some(*outgoingRes),
+				fn.None[lnwallet.IncomingHtlcResolution](), 0,
+				fn.None[int32](),
 			)
 			if test.expectErr {
 				require.ErrorIs(t, err, test.broadcastErr)
@@ -758,7 +760,8 @@ func assertNurseryReport(t *testing.T, nursery *UtxoNursery,
 
 	if len(report.Htlcs) != expectedNofHtlcs {
 		t.Fatalf("expected %v outputs to be reported, but report "+
-			"only contains %v", expectedNofHtlcs, len(report.Htlcs))
+			"contains %s", expectedNofHtlcs,
+			spew.Sdump(report.Htlcs))
 	}
 
 	if expectedNofHtlcs != 0 {
@@ -1065,7 +1068,7 @@ func newMockSweeperFull(t *testing.T) *mockSweeperFull {
 func (s *mockSweeperFull) sweepInput(input input.Input,
 	_ sweep.Params) (chan sweep.Result, error) {
 
-	log.Debugf("mockSweeper sweepInput called for %v", *input.OutPoint())
+	log.Debugf("mockSweeper sweepInput called for %v", input.OutPoint())
 
 	select {
 	case s.sweepChan <- input:
@@ -1077,7 +1080,7 @@ func (s *mockSweeperFull) sweepInput(input input.Input,
 	defer s.lock.Unlock()
 
 	c := make(chan sweep.Result, 1)
-	s.resultChans[*input.OutPoint()] = c
+	s.resultChans[input.OutPoint()] = c
 
 	return c, nil
 }

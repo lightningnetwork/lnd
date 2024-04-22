@@ -114,10 +114,10 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 			runDeriveSharedKey(tt, wo)
 		},
 	}, {
-		name:      "cpfp",
+		name:      "bumpfee",
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
-			runCPFP(tt, wo, carol)
+			runBumpFee(tt, wo)
 		},
 	}, {
 		name:       "psbt",

@@ -14,8 +14,10 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/queue"
 )
 
@@ -58,7 +60,7 @@ type BtcdNotifier struct {
 	active  int32 // To be used atomically.
 	stopped int32 // To be used atomically.
 
-	chainConn   *rpcclient.Client
+	chainConn   *chain.RPCClient
 	chainParams *chaincfg.Params
 
 	notificationCancels  chan interface{}
@@ -127,21 +129,30 @@ func New(config *rpcclient.ConnConfig, chainParams *chaincfg.Params,
 		quit: make(chan struct{}),
 	}
 
+	// Disable connecting to btcd within the rpcclient.New method. We
+	// defer establishing the connection to our .Start() method.
+	config.DisableConnectOnNew = true
+	config.DisableAutoReconnect = false
+
 	ntfnCallbacks := &rpcclient.NotificationHandlers{
 		OnBlockConnected:    notifier.onBlockConnected,
 		OnBlockDisconnected: notifier.onBlockDisconnected,
 		OnRedeemingTx:       notifier.onRedeemingTx,
 	}
 
-	// Disable connecting to btcd within the rpcclient.New method. We
-	// defer establishing the connection to our .Start() method.
-	config.DisableConnectOnNew = true
-	config.DisableAutoReconnect = false
-	chainConn, err := rpcclient.New(config, ntfnCallbacks)
+	rpcCfg := &chain.RPCClientConfig{
+		ReconnectAttempts:    20,
+		Conn:                 config,
+		Chain:                chainParams,
+		NotificationHandlers: ntfnCallbacks,
+	}
+
+	chainRPC, err := chain.NewRPCClientWithConfig(rpcCfg)
 	if err != nil {
 		return nil, err
 	}
-	notifier.chainConn = chainConn
+
+	notifier.chainConn = chainRPC
 
 	return notifier, nil
 }
@@ -1126,4 +1137,27 @@ func (b *BtcdNotifier) CancelMempoolSpendEvent(
 	sub *chainntnfs.MempoolSpendEvent) {
 
 	b.memNotifier.UnsubscribeEvent(sub)
+}
+
+// LookupInputMempoolSpend takes an outpoint and queries the mempool to find
+// its spending tx. Returns the tx if found, otherwise fn.None.
+//
+// NOTE: part of the MempoolWatcher interface.
+func (b *BtcdNotifier) LookupInputMempoolSpend(
+	op wire.OutPoint) fn.Option[wire.MsgTx] {
+
+	// Find the spending txid.
+	txid, found := b.chainConn.LookupInputMempoolSpend(op)
+	if !found {
+		return fn.None[wire.MsgTx]()
+	}
+
+	// Query the spending tx using the id.
+	tx, err := b.chainConn.GetRawTransaction(&txid)
+	if err != nil {
+		// TODO(yy): enable logging errors in this package.
+		return fn.None[wire.MsgTx]()
+	}
+
+	return fn.Some(*tx.MsgTx().Copy())
 }

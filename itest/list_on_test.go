@@ -206,10 +206,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testChannelUnsettledBalance,
 	},
 	{
-		Name:     "commitment deadline",
-		TestFunc: testCommitmentTransactionDeadline,
-	},
-	{
 		Name:     "channel force closure",
 		TestFunc: testChannelForceClosure,
 	},
@@ -463,8 +459,8 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSignVerifyMessage,
 	},
 	{
-		Name:     "cpfp",
-		TestFunc: testCPFP,
+		Name:     "bumpfee",
+		TestFunc: testBumpFee,
 	},
 	{
 		Name:     "taproot",
@@ -585,5 +581,17 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "nativesql no migration",
 		TestFunc: testNativeSQLNoMigration,
+	},
+	{
+		Name:     "sweep anchor cpfp local force close",
+		TestFunc: testSweepAnchorCPFPLocalForceClose,
+	},
+	{
+		Name:     "sweep htlcs",
+		TestFunc: testSweepHTLCs,
+	},
+	{
+		Name:     "sweep commit output and anchor",
+		TestFunc: testSweepCommitOutputAndAnchor,
 	},
 }

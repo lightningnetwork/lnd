@@ -1175,11 +1175,13 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 	// Query the fee estimator for the fee rate for the given confirmation
 	// target.
 	target := in.TargetConf
-	feePerKw, err := sweep.DetermineFeePerKw(
-		r.server.cc.FeeEstimator, sweep.FeePreference{
-			ConfTarget: uint32(target),
-		},
-	)
+	feePref := sweep.FeeEstimateInfo{
+		ConfTarget: uint32(target),
+	}
+
+	// Since we are providing a fee estimation as an RPC response, there's
+	// no need to set a max feerate here, so we use 0.
+	feePerKw, err := feePref.Estimate(r.server.cc.FeeEstimator, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -2128,17 +2130,22 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 		return nil, fmt.Errorf("cannot open channel to self")
 	}
 
-	// Calculate an appropriate fee rate for this transaction.
-	feeRate, err := lnrpc.CalculateFeeRate(
-		uint64(in.SatPerByte), in.SatPerVbyte, // nolint:staticcheck
-		uint32(in.TargetConf), r.server.cc.FeeEstimator,
-	)
-	if err != nil {
-		return nil, err
-	}
+	var feeRate chainfee.SatPerKWeight
 
-	rpcsLog.Debugf("[openchannel]: using fee of %v sat/kw for funding tx",
-		int64(feeRate))
+	// Skip estimating fee rate for PSBT funding.
+	if in.FundingShim == nil || in.FundingShim.GetPsbtShim() == nil {
+		// Calculate an appropriate fee rate for this transaction.
+		feeRate, err = lnrpc.CalculateFeeRate(
+			uint64(in.SatPerByte), in.SatPerVbyte,
+			uint32(in.TargetConf), r.server.cc.FeeEstimator,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		rpcsLog.Debugf("[openchannel]: using fee of %v sat/kw for "+
+			"funding tx", int64(feeRate))
+	}
 
 	script, err := chancloser.ParseUpfrontShutdownAddress(
 		in.CloseAddress, r.cfg.ActiveNetParams.Params,

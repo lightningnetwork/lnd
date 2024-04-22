@@ -2,10 +2,10 @@ package sweep
 
 import (
 	"errors"
+	"fmt"
 	"os"
-	"reflect"
 	"runtime/pprof"
-	"sort"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,13 +14,17 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lntest/mock"
+	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,9 +33,11 @@ var (
 
 	testMaxSweepAttempts = 3
 
-	testMaxInputsPerTx = 3
+	testMaxInputsPerTx = uint32(3)
 
-	defaultFeePref = Params{Fee: FeePreference{ConfTarget: 1}}
+	defaultFeePref = Params{Fee: FeeEstimateInfo{ConfTarget: 1}}
+
+	errDummy = errors.New("dummy error")
 )
 
 type sweeperTestContext struct {
@@ -41,14 +47,16 @@ type sweeperTestContext struct {
 	notifier  *MockNotifier
 	estimator *mockFeeEstimator
 	backend   *mockBackend
-	store     *MockSweeperStore
+	store     SweeperStore
+	publisher *MockBumper
 
-	publishChan chan wire.MsgTx
+	publishChan   chan wire.MsgTx
+	currentHeight int32
 }
 
 var (
 	spendableInputs []*input.BaseInput
-	testInputCount  int
+	testInputCount  atomic.Uint64
 
 	testPubKey, _ = btcec.ParsePubKey([]byte{
 		0x04, 0x11, 0xdb, 0x93, 0xe1, 0xdc, 0xdb, 0x8a,
@@ -65,7 +73,7 @@ var (
 func createTestInput(value int64, witnessType input.WitnessType) input.BaseInput {
 	hash := chainhash.Hash{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-		byte(testInputCount + 1)}
+		byte(testInputCount.Add(1))}
 
 	input := input.MakeBaseInput(
 		&wire.OutPoint{
@@ -84,8 +92,6 @@ func createTestInput(value int64, witnessType input.WitnessType) input.BaseInput
 		nil,
 	)
 
-	testInputCount++
-
 	return input
 }
 
@@ -102,7 +108,13 @@ func init() {
 func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 	notifier := NewMockNotifier(t)
 
-	store := NewMockSweeperStore()
+	// Create new store.
+	cdb, err := channeldb.MakeTestDB(t)
+	require.NoError(t, err)
+
+	var chain chainhash.Hash
+	store, err := NewSweeperStore(cdb, &chain)
+	require.NoError(t, err)
 
 	backend := newMockBackend(t, notifier)
 	backend.walletUtxos = []*lnwallet.Utxo{
@@ -114,37 +126,44 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 
 	estimator := newMockFeeEstimator(10000, chainfee.FeePerKwFloor)
 
+	aggregator := NewSimpleUtxoAggregator(
+		estimator, DefaultMaxFeeRate.FeePerKWeight(),
+		testMaxInputsPerTx,
+	)
+
+	// Create a mock fee bumper.
+	mockBumper := &MockBumper{}
+	t.Cleanup(func() {
+		mockBumper.AssertExpectations(t)
+	})
+
 	ctx := &sweeperTestContext{
-		notifier:    notifier,
-		publishChan: backend.publishChan,
-		t:           t,
-		estimator:   estimator,
-		backend:     backend,
-		store:       store,
+		notifier:      notifier,
+		publishChan:   backend.publishChan,
+		t:             t,
+		estimator:     estimator,
+		backend:       backend,
+		store:         store,
+		currentHeight: mockChainHeight,
+		publisher:     mockBumper,
 	}
 
 	ctx.sweeper = New(&UtxoSweeperConfig{
-		Notifier:       notifier,
-		Wallet:         backend,
-		TickerDuration: 100 * time.Millisecond,
-		Store:          store,
-		Signer:         &mock.DummySigner{},
+		Notifier: notifier,
+		Wallet:   backend,
+		Store:    store,
+		Signer:   &lnmock.DummySigner{},
 		GenSweepScript: func() ([]byte, error) {
 			script := make([]byte, input.P2WPKHSize)
 			script[0] = 0
 			script[1] = 20
 			return script, nil
 		},
-		FeeEstimator:     estimator,
-		MaxInputsPerTx:   testMaxInputsPerTx,
-		MaxSweepAttempts: testMaxSweepAttempts,
-		NextAttemptDeltaFunc: func(attempts int) int32 {
-			// Use delta func without random factor.
-			return 1 << uint(attempts-1)
-		},
-		MaxFeeRate:        DefaultMaxFeeRate,
-		FeeRateBucketSize: DefaultFeeRateBucketSize,
-		DetermineFeePerKw: DetermineFeePerKw,
+		FeeEstimator:   estimator,
+		MaxInputsPerTx: testMaxInputsPerTx,
+		MaxFeeRate:     DefaultMaxFeeRate,
+		Aggregator:     aggregator,
+		Publisher:      mockBumper,
 	})
 
 	ctx.sweeper.Start()
@@ -209,6 +228,11 @@ func (ctx *sweeperTestContext) assertNoTx() {
 
 func (ctx *sweeperTestContext) receiveTx() wire.MsgTx {
 	ctx.t.Helper()
+
+	// Every time we want to receive a tx, we send a new block epoch to the
+	// sweeper to trigger a sweeping action.
+	ctx.notifier.NotifyEpochNonBlocking(ctx.currentHeight + 1)
+
 	var tx wire.MsgTx
 	select {
 	case tx = <-ctx.publishChan:
@@ -240,18 +264,18 @@ func (ctx *sweeperTestContext) assertPendingInputs(inputs ...input.Input) {
 
 	inputSet := make(map[wire.OutPoint]struct{}, len(inputs))
 	for _, input := range inputs {
-		inputSet[*input.OutPoint()] = struct{}{}
+		inputSet[input.OutPoint()] = struct{}{}
 	}
 
-	pendingInputs, err := ctx.sweeper.PendingInputs()
+	inputsMap, err := ctx.sweeper.PendingInputs()
 	if err != nil {
 		ctx.t.Fatal(err)
 	}
-	if len(pendingInputs) != len(inputSet) {
+	if len(inputsMap) != len(inputSet) {
 		ctx.t.Fatalf("expected %d pending inputs, got %d",
-			len(inputSet), len(pendingInputs))
+			len(inputSet), len(inputsMap))
 	}
-	for input := range pendingInputs {
+	for input := range inputsMap {
 		if _, ok := inputSet[input]; !ok {
 			ctx.t.Fatalf("found unexpected input %v", input)
 		}
@@ -271,7 +295,7 @@ func assertTxSweepsInputs(t *testing.T, sweepTx *wire.MsgTx,
 	}
 	m := make(map[wire.OutPoint]struct{}, len(inputs))
 	for _, input := range inputs {
-		m[*input.OutPoint()] = struct{}{}
+		m[input.OutPoint()] = struct{}{}
 	}
 	for _, txIn := range sweepTx.TxIn {
 		if _, ok := m[txIn.PreviousOutPoint]; !ok {
@@ -298,7 +322,7 @@ func assertTxFeeRate(t *testing.T, tx *wire.MsgTx,
 
 	m := make(map[wire.OutPoint]input.Input, len(inputs))
 	for _, input := range inputs {
-		m[*input.OutPoint()] = input
+		m[input.OutPoint()] = input
 	}
 
 	var inputAmt int64
@@ -325,25 +349,80 @@ func assertTxFeeRate(t *testing.T, tx *wire.MsgTx,
 	}
 }
 
+// assertNumSweeps asserts that the expected number of sweeps has been found in
+// the sweeper's store.
+func assertNumSweeps(t *testing.T, sweeper *UtxoSweeper, num int) {
+	err := wait.NoError(func() error {
+		sweeps, err := sweeper.ListSweeps()
+		if err != nil {
+			return err
+		}
+
+		if len(sweeps) != num {
+			return fmt.Errorf("want %d sweeps, got %d",
+				num, len(sweeps))
+		}
+
+		return nil
+	}, 5*time.Second)
+	require.NoError(t, err, "timeout checking num of sweeps")
+}
+
 // TestSuccess tests the sweeper happy flow.
 func TestSuccess(t *testing.T) {
 	ctx := createSweeperTestContext(t)
 
-	// Sweeping an input without a fee preference should result in an error.
-	_, err := ctx.sweeper.SweepInput(spendableInputs[0], Params{})
-	if err != ErrNoFeePreference {
-		t.Fatalf("expected ErrNoFeePreference, got %v", err)
-	}
+	inp := spendableInputs[0]
 
-	resultChan, err := ctx.sweeper.SweepInput(
-		spendableInputs[0], defaultFeePref,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Sweeping an input without a fee preference should result in an error.
+	_, err := ctx.sweeper.SweepInput(inp, Params{
+		Fee: &FeeEstimateInfo{},
+	})
+	require.ErrorIs(t, err, ErrNoFeePreference)
+
+	// Mock the Broadcast method to succeed.
+	bumpResultChan := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{{
+				PreviousOutPoint: inp.OutPoint(),
+			}},
+		}
+
+		// Send the first event.
+		bumpResultChan <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	})
+
+	resultChan, err := ctx.sweeper.SweepInput(inp, defaultFeePref)
+	require.NoError(t, err)
 
 	sweepTx := ctx.receiveTx()
 
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 1)
+
+	// Mock a confirmed event.
+	bumpResultChan <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx,
+		FeeRate: 10,
+		Fee:     100,
+	}
+
+	// Mine a block to confirm the sweep tx.
 	ctx.backend.mine()
 
 	select {
@@ -376,9 +455,7 @@ func TestDust(t *testing.T) {
 	dustInput := createTestInput(5260, input.CommitmentTimeLock)
 
 	_, err := ctx.sweeper.SweepInput(&dustInput, defaultFeePref)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// No sweep transaction is expected now. The sweeper should recognize
 	// that the sweep output will not be relayed and not generate the tx. It
@@ -389,18 +466,50 @@ func TestDust(t *testing.T) {
 	// Sweep another input that brings the tx output above the dust limit.
 	largeInput := createTestInput(100000, input.CommitmentTimeLock)
 
+	// Mock the Broadcast method to succeed.
+	bumpResultChan := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: largeInput.OutPoint()},
+				{PreviousOutPoint: dustInput.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	})
+
 	_, err = ctx.sweeper.SweepInput(&largeInput, defaultFeePref)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// The second input brings the sweep output above the dust limit. We
 	// expect a sweep tx now.
-
 	sweepTx := ctx.receiveTx()
-	if len(sweepTx.TxIn) != 2 {
-		t.Fatalf("Expected tx to sweep 2 inputs, but contains %v "+
-			"inputs instead", len(sweepTx.TxIn))
+	require.Len(t, sweepTx.TxIn, 2, "unexpected num of tx inputs")
+
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 1)
+
+	// Mock a confirmed event.
+	bumpResultChan <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx,
+		FeeRate: 10,
+		Fee:     100,
 	}
 
 	ctx.backend.mine()
@@ -425,29 +534,53 @@ func TestWalletUtxo(t *testing.T) {
 	// sats. The tx yield becomes then 294-180 = 114 sats.
 	dustInput := createTestInput(294, input.WitnessKeyHash)
 
+	// Mock the Broadcast method to succeed.
+	bumpResultChan := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: dustInput.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	})
+
 	_, err := ctx.sweeper.SweepInput(
 		&dustInput,
-		Params{Fee: FeePreference{FeeRate: chainfee.FeePerKwFloor}},
+		Params{Fee: FeeEstimateInfo{FeeRate: chainfee.FeePerKwFloor}},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	sweepTx := ctx.receiveTx()
-	if len(sweepTx.TxIn) != 2 {
-		t.Fatalf("Expected tx to sweep 2 inputs, but contains %v "+
-			"inputs instead", len(sweepTx.TxIn))
-	}
 
-	// Calculate expected output value based on wallet utxo of 1_000_000
-	// sats.
-	expectedOutputValue := int64(294 + 1_000_000 - 180)
-	if sweepTx.TxOut[0].Value != expectedOutputValue {
-		t.Fatalf("Expected output value of %v, but got %v",
-			expectedOutputValue, sweepTx.TxOut[0].Value)
-	}
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 1)
 
 	ctx.backend.mine()
+
+	// Mock a confirmed event.
+	bumpResultChan <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx,
+		FeeRate: 10,
+		Fee:     100,
+	}
+
 	ctx.finish(1)
 }
 
@@ -462,28 +595,50 @@ func TestNegativeInput(t *testing.T) {
 	largeInputResult, err := ctx.sweeper.SweepInput(
 		&largeInput, defaultFeePref,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// Sweep an additional input with a negative net yield. The weight of
 	// the HtlcAcceptedRemoteSuccess input type adds more in fees than its
 	// value at the current fee level.
 	negInput := createTestInput(2900, input.HtlcOfferedRemoteTimeout)
 	negInputResult, err := ctx.sweeper.SweepInput(&negInput, defaultFeePref)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// Sweep a third input that has a smaller output than the previous one,
 	// but yields positively because of its lower weight.
 	positiveInput := createTestInput(2800, input.CommitmentNoDelay)
+
+	// Mock the Broadcast method to succeed.
+	bumpResultChan := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: largeInput.OutPoint()},
+				{PreviousOutPoint: positiveInput.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
 	positiveInputResult, err := ctx.sweeper.SweepInput(
 		&positiveInput, defaultFeePref,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// We expect that a sweep tx is published now, but it should only
 	// contain the large input. The negative input should stay out of sweeps
@@ -491,7 +646,18 @@ func TestNegativeInput(t *testing.T) {
 	sweepTx1 := ctx.receiveTx()
 	assertTxSweepsInputs(t, &sweepTx1, &largeInput, &positiveInput)
 
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 1)
+
 	ctx.backend.mine()
+
+	// Mock a confirmed event.
+	bumpResultChan <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx1,
+		FeeRate: 10,
+		Fee:     100,
+	}
 
 	ctx.expectResult(largeInputResult, nil)
 	ctx.expectResult(positiveInputResult, nil)
@@ -501,17 +667,54 @@ func TestNegativeInput(t *testing.T) {
 
 	// Create another large input.
 	secondLargeInput := createTestInput(100000, input.CommitmentNoDelay)
+
+	// Mock the Broadcast method to succeed.
+	bumpResultChan = make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: negInput.OutPoint()},
+				{PreviousOutPoint: secondLargeInput.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
 	secondLargeInputResult, err := ctx.sweeper.SweepInput(
 		&secondLargeInput, defaultFeePref,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	sweepTx2 := ctx.receiveTx()
 	assertTxSweepsInputs(t, &sweepTx2, &secondLargeInput, &negInput)
 
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 2)
+
 	ctx.backend.mine()
+
+	// Mock a confirmed event.
+	bumpResultChan <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx2,
+		FeeRate: 10,
+		Fee:     100,
+	}
 
 	ctx.expectResult(secondLargeInputResult, nil)
 	ctx.expectResult(negInputResult, nil)
@@ -523,29 +726,95 @@ func TestNegativeInput(t *testing.T) {
 func TestChunks(t *testing.T) {
 	ctx := createSweeperTestContext(t)
 
+	// Mock the Broadcast method to succeed on the first chunk.
+	bumpResultChan1 := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan1, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		//nolint:lll
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: spendableInputs[0].OutPoint()},
+				{PreviousOutPoint: spendableInputs[1].OutPoint()},
+				{PreviousOutPoint: spendableInputs[2].OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan1 <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
+	// Mock the Broadcast method to succeed on the second chunk.
+	bumpResultChan2 := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan2, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		//nolint:lll
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: spendableInputs[3].OutPoint()},
+				{PreviousOutPoint: spendableInputs[4].OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan2 <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
 	// Sweep five inputs.
 	for _, input := range spendableInputs[:5] {
 		_, err := ctx.sweeper.SweepInput(input, defaultFeePref)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 	}
 
 	// We expect two txes to be published because of the max input count of
 	// three.
 	sweepTx1 := ctx.receiveTx()
-	if len(sweepTx1.TxIn) != 3 {
-		t.Fatalf("Expected first tx to sweep 3 inputs, but contains %v "+
-			"inputs instead", len(sweepTx1.TxIn))
-	}
+	require.Len(t, sweepTx1.TxIn, 3)
 
 	sweepTx2 := ctx.receiveTx()
-	if len(sweepTx2.TxIn) != 2 {
-		t.Fatalf("Expected first tx to sweep 2 inputs, but contains %v "+
-			"inputs instead", len(sweepTx1.TxIn))
-	}
+	require.Len(t, sweepTx2.TxIn, 2)
+
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 2)
 
 	ctx.backend.mine()
+
+	// Mock a confirmed event.
+	bumpResultChan1 <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx1,
+		FeeRate: 10,
+		Fee:     100,
+	}
+	bumpResultChan2 <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx2,
+		FeeRate: 10,
+		Fee:     100,
+	}
 
 	ctx.finish(1)
 }
@@ -564,39 +833,60 @@ func TestRemoteSpend(t *testing.T) {
 func testRemoteSpend(t *testing.T, postSweep bool) {
 	ctx := createSweeperTestContext(t)
 
+	// Create a fake sweep tx that spends the second input as the first
+	// will be spent by the remote.
+	tx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: spendableInputs[1].OutPoint()},
+		},
+	}
+
+	// Mock the Broadcast method to succeed.
+	bumpResultChan := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan, nil).Run(func(args mock.Arguments) {
+		// Send the first event.
+		bumpResultChan <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
 	resultChan1, err := ctx.sweeper.SweepInput(
 		spendableInputs[0], defaultFeePref,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	resultChan2, err := ctx.sweeper.SweepInput(
 		spendableInputs[1], defaultFeePref,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// Spend the input with an unknown tx.
 	remoteTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
-			{
-				PreviousOutPoint: *(spendableInputs[0].OutPoint()),
-			},
+			{PreviousOutPoint: spendableInputs[0].OutPoint()},
 		},
 	}
 	err = ctx.backend.publishTransaction(remoteTx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	if postSweep {
-
 		// Tx publication by sweeper returns ErrDoubleSpend. Sweeper
 		// will retry the inputs without reporting a result. It could be
 		// spent by the remote party.
 		ctx.receiveTx()
+
+		// Wait until the sweep tx has been saved to db.
+		assertNumSweeps(t, ctx.sweeper, 1)
 	}
 
 	ctx.backend.mine()
@@ -616,12 +906,20 @@ func testRemoteSpend(t *testing.T, postSweep bool) {
 	if !postSweep {
 		// Assert that the sweeper sweeps the remaining input.
 		sweepTx := ctx.receiveTx()
+		require.Len(t, sweepTx.TxIn, 1)
 
-		if len(sweepTx.TxIn) != 1 {
-			t.Fatal("expected sweep to only sweep the one remaining output")
-		}
+		// Wait until the sweep tx has been saved to db.
+		assertNumSweeps(t, ctx.sweeper, 1)
 
 		ctx.backend.mine()
+
+		// Mock a confirmed event.
+		bumpResultChan <- &BumpResult{
+			Event:   TxConfirmed,
+			Tx:      &sweepTx,
+			FeeRate: 10,
+			Fee:     100,
+		}
 
 		ctx.expectResult(resultChan2, nil)
 
@@ -632,8 +930,10 @@ func testRemoteSpend(t *testing.T, postSweep bool) {
 		ctx.finish(2)
 
 		select {
-		case <-resultChan2:
-			t.Fatalf("no result expected for error input")
+		case r := <-resultChan2:
+			require.NoError(t, r.Err)
+			require.Equal(t, r.Tx.TxHash(), tx.TxHash())
+
 		default:
 		}
 	}
@@ -645,25 +945,57 @@ func TestIdempotency(t *testing.T) {
 	ctx := createSweeperTestContext(t)
 
 	input := spendableInputs[0]
+
+	// Mock the Broadcast method to succeed.
+	bumpResultChan := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: input.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
 	resultChan1, err := ctx.sweeper.SweepInput(input, defaultFeePref)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	resultChan2, err := ctx.sweeper.SweepInput(input, defaultFeePref)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
-	ctx.receiveTx()
+	sweepTx := ctx.receiveTx()
+
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 1)
 
 	resultChan3, err := ctx.sweeper.SweepInput(input, defaultFeePref)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// Spend the input of the sweep tx.
 	ctx.backend.mine()
+
+	// Mock a confirmed event.
+	bumpResultChan <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx,
+		FeeRate: 10,
+		Fee:     100,
+	}
 
 	ctx.expectResult(resultChan1, nil)
 	ctx.expectResult(resultChan2, nil)
@@ -675,14 +1007,11 @@ func TestIdempotency(t *testing.T) {
 	// Because the sweeper kept track of all of its sweep txes, it will
 	// recognize the spend as its own.
 	resultChan4, err := ctx.sweeper.SweepInput(input, defaultFeePref)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ctx.expectResult(resultChan4, nil)
 
 	// Timer is still running, but spend notification was delivered before
 	// it expired.
-
 	ctx.finish(1)
 }
 
@@ -701,26 +1030,78 @@ func TestRestart(t *testing.T) {
 
 	// Sweep input and expect sweep tx.
 	input1 := spendableInputs[0]
-	if _, err := ctx.sweeper.SweepInput(input1, defaultFeePref); err != nil {
-		t.Fatal(err)
-	}
 
-	ctx.receiveTx()
+	// Mock the Broadcast method to succeed.
+	bumpResultChan1 := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan1, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: input1.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan1 <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
+	_, err := ctx.sweeper.SweepInput(input1, defaultFeePref)
+	require.NoError(t, err)
+
+	sweepTx1 := ctx.receiveTx()
+
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 1)
 
 	// Restart sweeper.
 	ctx.restartSweeper()
 
 	// Simulate other subsystem (e.g. contract resolver) re-offering inputs.
 	spendChan1, err := ctx.sweeper.SweepInput(input1, defaultFeePref)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	input2 := spendableInputs[1]
+
+	// Mock the Broadcast method to succeed.
+	bumpResultChan2 := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan2, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: input2.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan2 <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
 	spendChan2, err := ctx.sweeper.SweepInput(input2, defaultFeePref)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// Spend inputs of sweep txes and verify that spend channels signal
 	// spends.
@@ -739,9 +1120,26 @@ func TestRestart(t *testing.T) {
 
 	// Timer tick should trigger republishing a sweep for the remaining
 	// input.
-	ctx.receiveTx()
+	sweepTx2 := ctx.receiveTx()
+
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 2)
 
 	ctx.backend.mine()
+
+	// Mock a confirmed event.
+	bumpResultChan1 <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx1,
+		FeeRate: 10,
+		Fee:     100,
+	}
+	bumpResultChan2 <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx2,
+		FeeRate: 10,
+		Fee:     100,
+	}
 
 	select {
 	case result := <-spendChan2:
@@ -758,75 +1156,155 @@ func TestRestart(t *testing.T) {
 	ctx.finish(1)
 }
 
-// TestRestartRemoteSpend asserts that the sweeper picks up sweeping properly after
-// a restart with remote spend.
+// TestRestartRemoteSpend asserts that the sweeper picks up sweeping properly
+// after a restart with remote spend.
 func TestRestartRemoteSpend(t *testing.T) {
-
 	ctx := createSweeperTestContext(t)
 
-	// Sweep input.
+	// Get testing inputs.
 	input1 := spendableInputs[0]
-	if _, err := ctx.sweeper.SweepInput(input1, defaultFeePref); err != nil {
-		t.Fatal(err)
+	input2 := spendableInputs[1]
+
+	// Create a fake sweep tx that spends the second input as the first
+	// will be spent by the remote.
+	tx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: input2.OutPoint()},
+		},
 	}
+
+	// Mock the Broadcast method to succeed.
+	bumpResultChan := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan, nil).Run(func(args mock.Arguments) {
+		// Send the first event.
+		bumpResultChan <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
+	_, err := ctx.sweeper.SweepInput(input1, defaultFeePref)
+	require.NoError(t, err)
 
 	// Sweep another input.
-	input2 := spendableInputs[1]
-	if _, err := ctx.sweeper.SweepInput(input2, defaultFeePref); err != nil {
-		t.Fatal(err)
-	}
+	_, err = ctx.sweeper.SweepInput(input2, defaultFeePref)
+	require.NoError(t, err)
 
 	sweepTx := ctx.receiveTx()
+
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 1)
 
 	// Restart sweeper.
 	ctx.restartSweeper()
 
-	// Replace the sweep tx with a remote tx spending input 1.
+	// Replace the sweep tx with a remote tx spending input 2.
 	ctx.backend.deleteUnconfirmed(sweepTx.TxHash())
 
 	remoteTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
-			{
-				PreviousOutPoint: *(input2.OutPoint()),
-			},
+			{PreviousOutPoint: input1.OutPoint()},
 		},
 	}
-	if err := ctx.backend.publishTransaction(remoteTx); err != nil {
-		t.Fatal(err)
-	}
+	err = ctx.backend.publishTransaction(remoteTx)
+	require.NoError(t, err)
 
 	// Mine remote spending tx.
 	ctx.backend.mine()
 
-	// Simulate other subsystem (e.g. contract resolver) re-offering input 0.
-	spendChan, err := ctx.sweeper.SweepInput(input1, defaultFeePref)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Mock the Broadcast method to succeed.
+	bumpResultChan = make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan, nil).Run(func(args mock.Arguments) {
+		// Send the first event.
+		bumpResultChan <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
+	// Simulate other subsystem (e.g. contract resolver) re-offering input
+	// 2.
+	spendChan, err := ctx.sweeper.SweepInput(input2, defaultFeePref)
+	require.NoError(t, err)
 
 	// Expect sweeper to construct a new tx, because input 1 was spend
 	// remotely.
-	ctx.receiveTx()
+	sweepTx = ctx.receiveTx()
 
 	ctx.backend.mine()
+
+	// Mock a confirmed event.
+	bumpResultChan <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx,
+		FeeRate: 10,
+		Fee:     100,
+	}
 
 	ctx.expectResult(spendChan, nil)
 
 	ctx.finish(1)
 }
 
-// TestRestartConfirmed asserts that the sweeper picks up sweeping properly after
-// a restart with a confirm of our own sweep tx.
+// TestRestartConfirmed asserts that the sweeper picks up sweeping properly
+// after a restart with a confirm of our own sweep tx.
 func TestRestartConfirmed(t *testing.T) {
 	ctx := createSweeperTestContext(t)
 
 	// Sweep input.
 	input := spendableInputs[0]
-	if _, err := ctx.sweeper.SweepInput(input, defaultFeePref); err != nil {
-		t.Fatal(err)
-	}
 
-	ctx.receiveTx()
+	// Mock the Broadcast method to succeed.
+	bumpResultChan := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: input.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
+	_, err := ctx.sweeper.SweepInput(input, defaultFeePref)
+	require.NoError(t, err)
+
+	sweepTx := ctx.receiveTx()
+
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 1)
 
 	// Restart sweeper.
 	ctx.restartSweeper()
@@ -834,8 +1312,18 @@ func TestRestartConfirmed(t *testing.T) {
 	// Mine the sweep tx.
 	ctx.backend.mine()
 
-	// Simulate other subsystem (e.g. contract resolver) re-offering input 0.
+	// Mock a confirmed event.
+	bumpResultChan <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx,
+		FeeRate: 10,
+		Fee:     100,
+	}
+
+	// Simulate other subsystem (e.g. contract resolver) re-offering input
+	// 0.
 	spendChan, err := ctx.sweeper.SweepInput(input, defaultFeePref)
+	require.NoError(t, err)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -850,66 +1338,98 @@ func TestRestartConfirmed(t *testing.T) {
 func TestRetry(t *testing.T) {
 	ctx := createSweeperTestContext(t)
 
-	resultChan0, err := ctx.sweeper.SweepInput(
-		spendableInputs[0], defaultFeePref,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	inp0 := spendableInputs[0]
+	inp1 := spendableInputs[1]
+
+	// Mock the Broadcast method to succeed.
+	bumpResultChan1 := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan1, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: inp0.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan1 <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
+	resultChan0, err := ctx.sweeper.SweepInput(inp0, defaultFeePref)
+	require.NoError(t, err)
 
 	// We expect a sweep to be published.
-	ctx.receiveTx()
+	sweepTx1 := ctx.receiveTx()
+
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 1)
+
+	// Mock the Broadcast method to succeed on the second sweep.
+	bumpResultChan2 := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan2, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: inp1.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan2 <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
 
 	// Offer a fresh input.
-	resultChan1, err := ctx.sweeper.SweepInput(
-		spendableInputs[1], defaultFeePref,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	resultChan1, err := ctx.sweeper.SweepInput(inp1, defaultFeePref)
+	require.NoError(t, err)
 
 	// A single tx is expected to be published.
-	ctx.receiveTx()
+	sweepTx2 := ctx.receiveTx()
+
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 2)
 
 	ctx.backend.mine()
+
+	// Mock a confirmed event.
+	bumpResultChan1 <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx1,
+		FeeRate: 10,
+		Fee:     100,
+	}
+	bumpResultChan2 <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx2,
+		FeeRate: 10,
+		Fee:     100,
+	}
 
 	ctx.expectResult(resultChan0, nil)
 	ctx.expectResult(resultChan1, nil)
-
-	ctx.finish(1)
-}
-
-// TestGiveUp asserts that the sweeper gives up on an input if it can't be swept
-// after a configured number of attempts.a
-func TestGiveUp(t *testing.T) {
-	ctx := createSweeperTestContext(t)
-
-	resultChan0, err := ctx.sweeper.SweepInput(
-		spendableInputs[0], defaultFeePref,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// We expect a sweep to be published at height 100 (mockChainIOHeight).
-	ctx.receiveTx()
-
-	// Because of MaxSweepAttemps, two more sweeps will be attempted. We
-	// configured exponential back-off without randomness for the test. The
-	// second attempt, we expect to happen at 101. The third attempt at 103.
-	// At that point, the input is expected to be failed.
-
-	// Second attempt
-	ctx.notifier.NotifyEpoch(101)
-	ctx.receiveTx()
-
-	// Third attempt
-	ctx.notifier.NotifyEpoch(103)
-	ctx.receiveTx()
-
-	ctx.expectResult(resultChan0, ErrTooManyAttempts)
-
-	ctx.backend.mine()
 
 	ctx.finish(1)
 }
@@ -924,53 +1444,114 @@ func TestDifferentFeePreferences(t *testing.T) {
 	// with the higher fee preference, and the last with the lower. We do
 	// this to ensure the sweeper can broadcast distinct transactions for
 	// each sweep with a different fee preference.
-	lowFeePref := FeePreference{ConfTarget: 12}
+	lowFeePref := FeeEstimateInfo{ConfTarget: 12}
 	lowFeeRate := chainfee.SatPerKWeight(5000)
 	ctx.estimator.blocksToFee[lowFeePref.ConfTarget] = lowFeeRate
 
-	highFeePref := FeePreference{ConfTarget: 6}
+	highFeePref := FeeEstimateInfo{ConfTarget: 6}
 	highFeeRate := chainfee.SatPerKWeight(10000)
 	ctx.estimator.blocksToFee[highFeePref.ConfTarget] = highFeeRate
 
 	input1 := spendableInputs[0]
+	input2 := spendableInputs[1]
+	input3 := spendableInputs[2]
+
+	// Mock the Broadcast method to succeed on the first sweep.
+	bumpResultChan1 := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan1, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: input1.OutPoint()},
+				{PreviousOutPoint: input2.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan1 <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
+	// Mock the Broadcast method to succeed on the second sweep.
+	bumpResultChan2 := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan2, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: input3.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan2 <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
 	resultChan1, err := ctx.sweeper.SweepInput(
 		input1, Params{Fee: highFeePref},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	input2 := spendableInputs[1]
+	require.NoError(t, err)
+
 	resultChan2, err := ctx.sweeper.SweepInput(
 		input2, Params{Fee: highFeePref},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	input3 := spendableInputs[2]
+	require.NoError(t, err)
+
 	resultChan3, err := ctx.sweeper.SweepInput(
 		input3, Params{Fee: lowFeePref},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Generate the same type of sweep script that was used for weight
-	// estimation.
-	changePk, err := ctx.sweeper.cfg.GenSweepScript()
 	require.NoError(t, err)
 
-	// The first transaction broadcast should be the one spending the higher
-	// fee rate inputs.
+	// The first transaction broadcast should be the one spending the
+	// higher fee rate inputs.
 	sweepTx1 := ctx.receiveTx()
-	assertTxFeeRate(t, &sweepTx1, highFeeRate, changePk, input1, input2)
 
 	// The second should be the one spending the lower fee rate inputs.
 	sweepTx2 := ctx.receiveTx()
-	assertTxFeeRate(t, &sweepTx2, lowFeeRate, changePk, input3)
+
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 2)
 
 	// With the transactions broadcast, we'll mine a block to so that the
 	// result is delivered to each respective client.
 	ctx.backend.mine()
+
+	// Mock a confirmed event.
+	bumpResultChan1 <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx1,
+		FeeRate: 10,
+		Fee:     100,
+	}
+	bumpResultChan2 <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx2,
+		FeeRate: 10,
+		Fee:     100,
+	}
+
 	resultChans := []chan Result{resultChan1, resultChan2, resultChan3}
 	for _, resultChan := range resultChans {
 		ctx.expectResult(resultChan, nil)
@@ -993,129 +1574,119 @@ func TestPendingInputs(t *testing.T) {
 		highFeeRate = 10000
 	)
 
-	lowFeePref := FeePreference{
+	lowFeePref := FeeEstimateInfo{
 		ConfTarget: 12,
 	}
 	ctx.estimator.blocksToFee[lowFeePref.ConfTarget] = lowFeeRate
 
-	highFeePref := FeePreference{
+	highFeePref := FeeEstimateInfo{
 		ConfTarget: 6,
 	}
 	ctx.estimator.blocksToFee[highFeePref.ConfTarget] = highFeeRate
 
 	input1 := spendableInputs[0]
+	input2 := spendableInputs[1]
+	input3 := spendableInputs[2]
+
+	// Mock the Broadcast method to succeed on the first sweep.
+	bumpResultChan1 := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan1, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: input1.OutPoint()},
+				{PreviousOutPoint: input2.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan1 <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
+	// Mock the Broadcast method to succeed on the second sweep.
+	bumpResultChan2 := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan2, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: input3.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan2 <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
 	resultChan1, err := ctx.sweeper.SweepInput(
 		input1, Params{Fee: highFeePref},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	input2 := spendableInputs[1]
+	require.NoError(t, err)
+
 	_, err = ctx.sweeper.SweepInput(
 		input2, Params{Fee: highFeePref},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	input3 := spendableInputs[2]
+	require.NoError(t, err)
+
 	resultChan3, err := ctx.sweeper.SweepInput(
 		input3, Params{Fee: lowFeePref},
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// We should expect to see all inputs pending.
 	ctx.assertPendingInputs(input1, input2, input3)
 
-	// We should expect to see both sweep transactions broadcast. The higher
-	// fee rate sweep should be broadcast first. We'll remove the lower fee
-	// rate sweep to ensure we can detect pending inputs after a sweep.
-	// Once the higher fee rate sweep confirms, we should no longer see
-	// those inputs pending.
-	ctx.receiveTx()
-	lowFeeRateTx := ctx.receiveTx()
-	ctx.backend.deleteUnconfirmed(lowFeeRateTx.TxHash())
-	ctx.backend.mine()
-	ctx.expectResult(resultChan1, nil)
-	ctx.assertPendingInputs(input3)
+	// We should expect to see both sweep transactions broadcast - one for
+	// the higher feerate, the other for the lower.
+	sweepTx1 := ctx.receiveTx()
+	sweepTx2 := ctx.receiveTx()
 
-	// We'll then trigger a new block to rebroadcast the lower fee rate
-	// sweep. Once again we'll ensure those inputs are no longer pending
-	// once the sweep transaction confirms.
-	ctx.backend.notifier.NotifyEpoch(101)
-	ctx.receiveTx()
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 2)
+
+	// Mine these txns, and we should expect to see the results delivered.
 	ctx.backend.mine()
+
+	// Mock a confirmed event.
+	bumpResultChan1 <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx1,
+		FeeRate: 10,
+		Fee:     100,
+	}
+	bumpResultChan2 <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx2,
+		FeeRate: 10,
+		Fee:     100,
+	}
+
+	ctx.expectResult(resultChan1, nil)
 	ctx.expectResult(resultChan3, nil)
 	ctx.assertPendingInputs()
-
-	ctx.finish(1)
-}
-
-// TestBumpFeeRBF ensures that the UtxoSweeper can properly handle a fee bump
-// request for an input it is currently attempting to sweep. When sweeping the
-// input with the higher fee rate, a replacement transaction is created.
-func TestBumpFeeRBF(t *testing.T) {
-	ctx := createSweeperTestContext(t)
-
-	lowFeePref := FeePreference{ConfTarget: 144}
-	lowFeeRate := chainfee.FeePerKwFloor
-	ctx.estimator.blocksToFee[lowFeePref.ConfTarget] = lowFeeRate
-
-	// We'll first try to bump the fee of an output currently unknown to the
-	// UtxoSweeper. Doing so should result in a lnwallet.ErrNotMine error.
-	_, err := ctx.sweeper.UpdateParams(
-		wire.OutPoint{}, ParamsUpdate{Fee: lowFeePref},
-	)
-	if err != lnwallet.ErrNotMine {
-		t.Fatalf("expected error lnwallet.ErrNotMine, got \"%v\"", err)
-	}
-
-	// We'll then attempt to sweep an input, which we'll use to bump its fee
-	// later on.
-	input := createTestInput(
-		btcutil.SatoshiPerBitcoin, input.CommitmentTimeLock,
-	)
-	sweepResult, err := ctx.sweeper.SweepInput(
-		&input, Params{Fee: lowFeePref},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Generate the same type of change script used so we can have accurate
-	// weight estimation.
-	changePk, err := ctx.sweeper.cfg.GenSweepScript()
-	require.NoError(t, err)
-
-	// Ensure that a transaction is broadcast with the lower fee preference.
-	lowFeeTx := ctx.receiveTx()
-	assertTxFeeRate(t, &lowFeeTx, lowFeeRate, changePk, &input)
-
-	// We'll then attempt to bump its fee rate.
-	highFeePref := FeePreference{ConfTarget: 6}
-	highFeeRate := DefaultMaxFeeRate.FeePerKWeight()
-	ctx.estimator.blocksToFee[highFeePref.ConfTarget] = highFeeRate
-
-	// We should expect to see an error if a fee preference isn't provided.
-	_, err = ctx.sweeper.UpdateParams(*input.OutPoint(), ParamsUpdate{})
-	if err != ErrNoFeePreference {
-		t.Fatalf("expected ErrNoFeePreference, got %v", err)
-	}
-
-	bumpResult, err := ctx.sweeper.UpdateParams(
-		*input.OutPoint(), ParamsUpdate{Fee: highFeePref},
-	)
-	require.NoError(t, err, "unable to bump input's fee")
-
-	// A higher fee rate transaction should be immediately broadcast.
-	highFeeTx := ctx.receiveTx()
-	assertTxFeeRate(t, &highFeeTx, highFeeRate, changePk, &input)
-
-	// We'll finish our test by mining the sweep transaction.
-	ctx.backend.mine()
-	ctx.expectResult(sweepResult, nil)
-	ctx.expectResult(bumpResult, nil)
 
 	ctx.finish(1)
 }
@@ -1124,41 +1695,136 @@ func TestBumpFeeRBF(t *testing.T) {
 func TestExclusiveGroup(t *testing.T) {
 	ctx := createSweeperTestContext(t)
 
+	input1 := spendableInputs[0]
+	input2 := spendableInputs[1]
+	input3 := spendableInputs[2]
+
+	// Mock the Broadcast method to succeed on the first sweep.
+	bumpResultChan1 := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan1, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: input1.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan1 <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
+	// Mock the Broadcast method to succeed on the second sweep.
+	bumpResultChan2 := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan2, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: input2.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan2 <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
+	// Mock the Broadcast method to succeed on the third sweep.
+	bumpResultChan3 := make(chan *BumpResult, 1)
+	ctx.publisher.On("Broadcast", mock.Anything).Return(
+		bumpResultChan3, nil).Run(func(args mock.Arguments) {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{PreviousOutPoint: input3.OutPoint()},
+			},
+		}
+
+		// Send the first event.
+		bumpResultChan3 <- &BumpResult{
+			Event: TxPublished,
+			Tx:    tx,
+		}
+
+		// Due to a mix of new and old test frameworks, we need to
+		// manually call the method to get the test to pass.
+		//
+		// TODO(yy): remove the test context and replace them will
+		// mocks.
+		err := ctx.backend.PublishTransaction(tx, "")
+		require.NoError(t, err)
+	}).Once()
+
 	// Sweep three inputs in the same exclusive group.
 	var results []chan Result
 	for i := 0; i < 3; i++ {
 		exclusiveGroup := uint64(1)
 		result, err := ctx.sweeper.SweepInput(
 			spendableInputs[i], Params{
-				Fee:            FeePreference{ConfTarget: 6},
+				Fee:            FeeEstimateInfo{ConfTarget: 6},
 				ExclusiveGroup: &exclusiveGroup,
 			},
 		)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		results = append(results, result)
 	}
 
 	// We expect all inputs to be published in separate transactions, even
 	// though they share the same fee preference.
-	for i := 0; i < 3; i++ {
-		sweepTx := ctx.receiveTx()
-		if len(sweepTx.TxOut) != 1 {
-			t.Fatal("expected a single tx out in the sweep tx")
-		}
+	sweepTx1 := ctx.receiveTx()
+	require.Len(t, sweepTx1.TxIn, 1)
 
-		// Remove all txes except for the one that sweeps the first
-		// input. This simulates the sweeps being conflicting.
-		if sweepTx.TxIn[0].PreviousOutPoint !=
-			*spendableInputs[0].OutPoint() {
+	sweepTx2 := ctx.receiveTx()
+	sweepTx3 := ctx.receiveTx()
 
-			ctx.backend.deleteUnconfirmed(sweepTx.TxHash())
-		}
-	}
+	// Remove all txes except for the one that sweeps the first
+	// input. This simulates the sweeps being conflicting.
+	ctx.backend.deleteUnconfirmed(sweepTx2.TxHash())
+	ctx.backend.deleteUnconfirmed(sweepTx3.TxHash())
+
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 3)
 
 	// Mine the first sweep tx.
 	ctx.backend.mine()
+
+	// Mock a confirmed event.
+	bumpResultChan1 <- &BumpResult{
+		Event:   TxConfirmed,
+		Tx:      &sweepTx1,
+		FeeRate: 10,
+		Fee:     100,
+	}
+	bumpResultChan2 <- &BumpResult{
+		Event: TxFailed,
+		Tx:    &sweepTx2,
+	}
+	bumpResultChan2 <- &BumpResult{
+		Event: TxFailed,
+		Tx:    &sweepTx3,
+	}
 
 	// Expect the first input to be swept by the confirmed sweep tx.
 	result0 := <-results[0]
@@ -1176,287 +1842,6 @@ func TestExclusiveGroup(t *testing.T) {
 	result2 := <-results[2]
 	if result2.Err != ErrExclusiveGroupSpend {
 		t.Fatal("expected third input to be canceled")
-	}
-}
-
-// TestCpfp tests that the sweeper spends cpfp inputs at a fee rate that exceeds
-// the parent tx fee rate.
-func TestCpfp(t *testing.T) {
-	ctx := createSweeperTestContext(t)
-
-	ctx.estimator.updateFees(1000, chainfee.FeePerKwFloor)
-
-	// Offer an input with an unconfirmed parent tx to the sweeper. The
-	// parent tx pays 3000 sat/kw.
-	hash := chainhash.Hash{1}
-	input := input.MakeBaseInput(
-		&wire.OutPoint{Hash: hash},
-		input.CommitmentTimeLock,
-		&input.SignDescriptor{
-			Output: &wire.TxOut{
-				Value: 330,
-			},
-			KeyDesc: keychain.KeyDescriptor{
-				PubKey: testPubKey,
-			},
-		},
-		0,
-		&input.TxInfo{
-			Weight: 300,
-			Fee:    900,
-		},
-	)
-
-	feePref := FeePreference{ConfTarget: 6}
-	result, err := ctx.sweeper.SweepInput(
-		&input, Params{Fee: feePref, Force: true},
-	)
-	require.NoError(t, err)
-
-	// Increase the fee estimate to above the parent tx fee rate.
-	ctx.estimator.updateFees(5000, chainfee.FeePerKwFloor)
-
-	// Signal a new block. This is a trigger for the sweeper to refresh fee
-	// estimates.
-	ctx.notifier.NotifyEpoch(1000)
-
-	// Now we do expect a sweep transaction to be published with our input
-	// and an attached wallet utxo.
-	tx := ctx.receiveTx()
-	require.Len(t, tx.TxIn, 2)
-	require.Len(t, tx.TxOut, 1)
-
-	// As inputs we have 10000 sats from the wallet and 330 sats from the
-	// cpfp input. The sweep tx is weight expected to be 759 units. There is
-	// an additional 300 weight units from the parent to include in the
-	// package, making a total of 1059. At 5000 sat/kw, the required fee for
-	// the package is 5295 sats. The parent already paid 900 sats, so there
-	// is 4395 sat remaining to be paid. The expected output value is
-	// therefore: 1_000_000 + 330 - 4395 = 995 935.
-	require.Equal(t, int64(995_935), tx.TxOut[0].Value)
-
-	// Mine the tx and assert that the result is passed back.
-	ctx.backend.mine()
-	ctx.expectResult(result, nil)
-
-	ctx.finish(1)
-}
-
-var (
-	testInputsA = pendingInputs{
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 0}: &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 1}: &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 2}: &pendingInput{},
-	}
-
-	testInputsB = pendingInputs{
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 10}: &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 11}: &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 12}: &pendingInput{},
-	}
-
-	testInputsC = pendingInputs{
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 0}:  &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 1}:  &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 2}:  &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 10}: &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 11}: &pendingInput{},
-		wire.OutPoint{Hash: chainhash.Hash{}, Index: 12}: &pendingInput{},
-	}
-)
-
-// TestMergeClusters check that we properly can merge clusters together,
-// according to their required locktime.
-func TestMergeClusters(t *testing.T) {
-	t.Parallel()
-
-	lockTime1 := uint32(100)
-	lockTime2 := uint32(200)
-
-	testCases := []struct {
-		name string
-		a    inputCluster
-		b    inputCluster
-		res  []inputCluster
-	}{
-		{
-			name: "max fee rate",
-			a: inputCluster{
-				sweepFeeRate: 5000,
-				inputs:       testInputsA,
-			},
-			b: inputCluster{
-				sweepFeeRate: 7000,
-				inputs:       testInputsB,
-			},
-			res: []inputCluster{
-				{
-					sweepFeeRate: 7000,
-					inputs:       testInputsC,
-				},
-			},
-		},
-		{
-			name: "same locktime",
-			a: inputCluster{
-				lockTime:     &lockTime1,
-				sweepFeeRate: 5000,
-				inputs:       testInputsA,
-			},
-			b: inputCluster{
-				lockTime:     &lockTime1,
-				sweepFeeRate: 7000,
-				inputs:       testInputsB,
-			},
-			res: []inputCluster{
-				{
-					lockTime:     &lockTime1,
-					sweepFeeRate: 7000,
-					inputs:       testInputsC,
-				},
-			},
-		},
-		{
-			name: "diff locktime",
-			a: inputCluster{
-				lockTime:     &lockTime1,
-				sweepFeeRate: 5000,
-				inputs:       testInputsA,
-			},
-			b: inputCluster{
-				lockTime:     &lockTime2,
-				sweepFeeRate: 7000,
-				inputs:       testInputsB,
-			},
-			res: []inputCluster{
-				{
-					lockTime:     &lockTime1,
-					sweepFeeRate: 5000,
-					inputs:       testInputsA,
-				},
-				{
-					lockTime:     &lockTime2,
-					sweepFeeRate: 7000,
-					inputs:       testInputsB,
-				},
-			},
-		},
-	}
-
-	for _, test := range testCases {
-		merged := mergeClusters(test.a, test.b)
-		if !reflect.DeepEqual(merged, test.res) {
-			t.Fatalf("[%s] unexpected result: %v",
-				test.name, spew.Sdump(merged))
-		}
-	}
-}
-
-// TestZipClusters tests that we can merge lists of inputs clusters correctly.
-func TestZipClusters(t *testing.T) {
-	t.Parallel()
-
-	createCluster := func(inp pendingInputs, f chainfee.SatPerKWeight) inputCluster {
-		return inputCluster{
-			sweepFeeRate: f,
-			inputs:       inp,
-		}
-	}
-
-	testCases := []struct {
-		name string
-		as   []inputCluster
-		bs   []inputCluster
-		res  []inputCluster
-	}{
-		{
-			name: "merge A into B",
-			as: []inputCluster{
-				createCluster(testInputsA, 5000),
-			},
-			bs: []inputCluster{
-				createCluster(testInputsB, 7000),
-			},
-			res: []inputCluster{
-				createCluster(testInputsC, 7000),
-			},
-		},
-		{
-			name: "A can't merge with B",
-			as: []inputCluster{
-				createCluster(testInputsA, 7000),
-			},
-			bs: []inputCluster{
-				createCluster(testInputsB, 5000),
-			},
-			res: []inputCluster{
-				createCluster(testInputsA, 7000),
-				createCluster(testInputsB, 5000),
-			},
-		},
-		{
-			name: "empty bs",
-			as: []inputCluster{
-				createCluster(testInputsA, 7000),
-			},
-			bs: []inputCluster{},
-			res: []inputCluster{
-				createCluster(testInputsA, 7000),
-			},
-		},
-		{
-			name: "empty as",
-			as:   []inputCluster{},
-			bs: []inputCluster{
-				createCluster(testInputsB, 5000),
-			},
-			res: []inputCluster{
-				createCluster(testInputsB, 5000),
-			},
-		},
-
-		{
-			name: "zip 3xA into 3xB",
-			as: []inputCluster{
-				createCluster(testInputsA, 5000),
-				createCluster(testInputsA, 5000),
-				createCluster(testInputsA, 5000),
-			},
-			bs: []inputCluster{
-				createCluster(testInputsB, 7000),
-				createCluster(testInputsB, 7000),
-				createCluster(testInputsB, 7000),
-			},
-			res: []inputCluster{
-				createCluster(testInputsC, 7000),
-				createCluster(testInputsC, 7000),
-				createCluster(testInputsC, 7000),
-			},
-		},
-		{
-			name: "zip A into 3xB",
-			as: []inputCluster{
-				createCluster(testInputsA, 2500),
-			},
-			bs: []inputCluster{
-				createCluster(testInputsB, 3000),
-				createCluster(testInputsB, 2000),
-				createCluster(testInputsB, 1000),
-			},
-			res: []inputCluster{
-				createCluster(testInputsC, 3000),
-				createCluster(testInputsB, 2000),
-				createCluster(testInputsB, 1000),
-			},
-		},
-	}
-
-	for _, test := range testCases {
-		zipped := zipClusters(test.as, test.bs)
-		if !reflect.DeepEqual(zipped, test.res) {
-			t.Fatalf("[%s] unexpected result: %v",
-				test.name, spew.Sdump(zipped))
-		}
 	}
 }
 
@@ -1544,14 +1929,21 @@ func TestLockTimes(t *testing.T) {
 	// impact our test.
 	ctx.sweeper.cfg.MaxInputsPerTx = 100
 
+	// We also need to update the aggregator about this new config.
+	ctx.sweeper.cfg.Aggregator = NewSimpleUtxoAggregator(
+		ctx.estimator, DefaultMaxFeeRate.FeePerKWeight(), 100,
+	)
+
 	// We will set up the lock times in such a way that we expect the
 	// sweeper to divide the inputs into 4 diffeerent transactions.
 	const numSweeps = 4
 
 	// Sweep 8 inputs, using 4 different lock times.
 	var (
-		results []chan Result
-		inputs  = make(map[wire.OutPoint]input.Input)
+		results         []chan Result
+		inputs          = make(map[wire.OutPoint]input.Input)
+		clusters        = make(map[uint32][]input.Input)
+		bumpResultChans = make([]chan *BumpResult, 0, 4)
 	)
 	for i := 0; i < numSweeps*2; i++ {
 		lt := uint32(10 + (i % numSweeps))
@@ -1560,53 +1952,84 @@ func TestLockTimes(t *testing.T) {
 			locktime:  &lt,
 		}
 
-		result, err := ctx.sweeper.SweepInput(
-			inp, Params{
-				Fee: FeePreference{ConfTarget: 6},
-			},
-		)
-		if err != nil {
-			t.Fatal(err)
-		}
-		results = append(results, result)
-
 		op := inp.OutPoint()
-		inputs[*op] = inp
+		inputs[op] = inp
+
+		cluster, ok := clusters[lt]
+		if !ok {
+			cluster = make([]input.Input, 0)
+		}
+		cluster = append(cluster, inp)
+		clusters[lt] = cluster
 	}
 
-	// We also add 3 regular inputs that don't require any specific lock
-	// time.
 	for i := 0; i < 3; i++ {
 		inp := spendableInputs[i+numSweeps*2]
-		result, err := ctx.sweeper.SweepInput(
-			inp, Params{
-				Fee: FeePreference{ConfTarget: 6},
-			},
-		)
-		if err != nil {
-			t.Fatal(err)
+		inputs[inp.OutPoint()] = inp
+
+		lt := uint32(10 + (i % numSweeps))
+		clusters[lt] = append(clusters[lt], inp)
+	}
+
+	for lt, cluster := range clusters {
+		// Create a fake sweep tx.
+		tx := &wire.MsgTx{
+			TxIn:     []*wire.TxIn{},
+			LockTime: lt,
 		}
 
-		results = append(results, result)
+		// Append the inputs.
+		for _, inp := range cluster {
+			txIn := &wire.TxIn{
+				PreviousOutPoint: inp.OutPoint(),
+			}
+			tx.TxIn = append(tx.TxIn, txIn)
+		}
 
-		op := inp.OutPoint()
-		inputs[*op] = inp
+		// Mock the Broadcast method to succeed on current sweep.
+		bumpResultChan := make(chan *BumpResult, 1)
+		bumpResultChans = append(bumpResultChans, bumpResultChan)
+		ctx.publisher.On("Broadcast", mock.Anything).Return(
+			bumpResultChan, nil).Run(func(args mock.Arguments) {
+			// Send the first event.
+			bumpResultChan <- &BumpResult{
+				Event: TxPublished,
+				Tx:    tx,
+			}
+
+			// Due to a mix of new and old test frameworks, we need
+			// to manually call the method to get the test to pass.
+			//
+			// TODO(yy): remove the test context and replace them
+			// will mocks.
+			err := ctx.backend.PublishTransaction(tx, "")
+			require.NoError(t, err)
+		}).Once()
+	}
+
+	// Make all the sweeps.
+	for _, inp := range inputs {
+		result, err := ctx.sweeper.SweepInput(
+			inp, Params{
+				Fee: FeeEstimateInfo{ConfTarget: 6},
+			},
+		)
+		require.NoError(t, err)
+
+		results = append(results, result)
 	}
 
 	// Check the sweeps transactions, ensuring all inputs are there, and
 	// all the locktimes are satisfied.
+	sweepTxes := make([]wire.MsgTx, 0, numSweeps)
 	for i := 0; i < numSweeps; i++ {
 		sweepTx := ctx.receiveTx()
-		if len(sweepTx.TxOut) != 1 {
-			t.Fatal("expected a single tx out in the sweep tx")
-		}
+		sweepTxes = append(sweepTxes, sweepTx)
 
 		for _, txIn := range sweepTx.TxIn {
 			op := txIn.PreviousOutPoint
 			inp, ok := inputs[op]
-			if !ok {
-				t.Fatalf("Unexpected outpoint: %v", op)
-			}
+			require.True(t, ok)
 
 			delete(inputs, op)
 
@@ -1617,478 +2040,37 @@ func TestLockTimes(t *testing.T) {
 				continue
 			}
 
-			if lt != sweepTx.LockTime {
-				t.Fatalf("Input required locktime %v, sweep "+
-					"tx had locktime %v", lt, sweepTx.LockTime)
-			}
+			require.EqualValues(t, lt, sweepTx.LockTime)
+		}
+	}
+
+	// Wait until the sweep tx has been saved to db.
+	assertNumSweeps(t, ctx.sweeper, 4)
+
+	// Mine the sweeps.
+	ctx.backend.mine()
+
+	for i, bumpResultChan := range bumpResultChans {
+		// Mock a confirmed event.
+		bumpResultChan <- &BumpResult{
+			Event:   TxConfirmed,
+			Tx:      &sweepTxes[i],
+			FeeRate: 10,
+			Fee:     100,
 		}
 	}
 
 	// The should be no inputs not foud in any of the sweeps.
-	if len(inputs) != 0 {
-		t.Fatalf("had unsweeped inputs")
-	}
-
-	// Mine the first sweeps
-	ctx.backend.mine()
+	require.Empty(t, inputs)
 
 	// Results should all come back.
-	for i := range results {
-		result := <-results[i]
-		if result.Err != nil {
-			t.Fatal("expected input to be swept")
+	for i, resultChan := range results {
+		select {
+		case result := <-resultChan:
+			require.NoError(t, result.Err)
+		case <-time.After(1 * time.Second):
+			t.Fatalf("result %v did not come back", i)
 		}
-	}
-}
-
-// TestRequiredTxOuts checks that inputs having a required TxOut gets swept with
-// sweep transactions paying into these outputs.
-func TestRequiredTxOuts(t *testing.T) {
-	// Create some test inputs and locktime vars.
-	var inputs []*input.BaseInput
-	for i := 0; i < 20; i++ {
-		input := createTestInput(
-			int64(btcutil.SatoshiPerBitcoin+i*500),
-			input.CommitmentTimeLock,
-		)
-
-		inputs = append(inputs, &input)
-	}
-
-	locktime1 := uint32(51)
-	locktime2 := uint32(52)
-	locktime3 := uint32(53)
-
-	aPkScript := make([]byte, input.P2WPKHSize)
-	aPkScript[0] = 'a'
-
-	bPkScript := make([]byte, input.P2WSHSize)
-	bPkScript[0] = 'b'
-
-	cPkScript := make([]byte, input.P2PKHSize)
-	cPkScript[0] = 'c'
-
-	dPkScript := make([]byte, input.P2SHSize)
-	dPkScript[0] = 'd'
-
-	ePkScript := make([]byte, input.UnknownWitnessSize)
-	ePkScript[0] = 'e'
-
-	fPkScript := make([]byte, input.P2WSHSize)
-	fPkScript[0] = 'f'
-
-	testCases := []struct {
-		name         string
-		inputs       []*testInput
-		assertSweeps func(*testing.T, map[wire.OutPoint]*testInput,
-			[]*wire.MsgTx)
-	}{
-		{
-			// Single input with a required TX out that is smaller.
-			// We expect a change output to be added.
-			name: "single input, leftover change",
-			inputs: []*testInput{
-				{
-					BaseInput: inputs[0],
-					reqTxOut: &wire.TxOut{
-						PkScript: aPkScript,
-						Value:    100000,
-					},
-				},
-			},
-
-			// Since the required output value is small, we expect
-			// the rest after fees to go into a change output.
-			assertSweeps: func(t *testing.T,
-				_ map[wire.OutPoint]*testInput,
-				txs []*wire.MsgTx) {
-
-				require.Equal(t, 1, len(txs))
-
-				tx := txs[0]
-				require.Equal(t, 1, len(tx.TxIn))
-
-				// We should have two outputs, the required
-				// output must be the first one.
-				require.Equal(t, 2, len(tx.TxOut))
-				out := tx.TxOut[0]
-				require.Equal(t, aPkScript, out.PkScript)
-				require.Equal(t, int64(100000), out.Value)
-			},
-		},
-		{
-			// An input committing to a slightly smaller output, so
-			// it will pay its own fees.
-			name: "single input, no change",
-			inputs: []*testInput{
-				{
-					BaseInput: inputs[0],
-					reqTxOut: &wire.TxOut{
-						PkScript: aPkScript,
-
-						// Fee will be about 5340 sats.
-						// Subtract a bit more to
-						// ensure no dust change output
-						// is manifested.
-						Value: inputs[0].SignDesc().Output.Value - 6300,
-					},
-				},
-			},
-
-			// We expect this single input/output pair.
-			assertSweeps: func(t *testing.T,
-				_ map[wire.OutPoint]*testInput,
-				txs []*wire.MsgTx) {
-
-				require.Equal(t, 1, len(txs))
-
-				tx := txs[0]
-				require.Equal(t, 1, len(tx.TxIn))
-
-				require.Equal(t, 1, len(tx.TxOut))
-				out := tx.TxOut[0]
-				require.Equal(t, aPkScript, out.PkScript)
-				require.Equal(
-					t,
-					inputs[0].SignDesc().Output.Value-6300,
-					out.Value,
-				)
-			},
-		},
-		{
-			// Two inputs, where the first one required no tx out.
-			name: "two inputs, one with required tx out",
-			inputs: []*testInput{
-				{
-
-					// We add a normal, non-requiredTxOut
-					// input. We use test input 10, to make
-					// sure this has a higher yield than
-					// the other input, and will be
-					// attempted added first to the sweep
-					// tx.
-					BaseInput: inputs[10],
-				},
-				{
-					// The second input requires a TxOut.
-					BaseInput: inputs[0],
-					reqTxOut: &wire.TxOut{
-						PkScript: aPkScript,
-						Value:    inputs[0].SignDesc().Output.Value,
-					},
-				},
-			},
-
-			// We expect the inputs to have been reordered.
-			assertSweeps: func(t *testing.T,
-				_ map[wire.OutPoint]*testInput,
-				txs []*wire.MsgTx) {
-
-				require.Equal(t, 1, len(txs))
-
-				tx := txs[0]
-				require.Equal(t, 2, len(tx.TxIn))
-				require.Equal(t, 2, len(tx.TxOut))
-
-				// The required TxOut should be the first one.
-				out := tx.TxOut[0]
-				require.Equal(t, aPkScript, out.PkScript)
-				require.Equal(
-					t, inputs[0].SignDesc().Output.Value,
-					out.Value,
-				)
-
-				// The first input should be the one having the
-				// required TxOut.
-				require.Len(t, tx.TxIn, 2)
-				require.Equal(
-					t, inputs[0].OutPoint(),
-					&tx.TxIn[0].PreviousOutPoint,
-				)
-
-				// Second one is the one without a required tx
-				// out.
-				require.Equal(
-					t, inputs[10].OutPoint(),
-					&tx.TxIn[1].PreviousOutPoint,
-				)
-			},
-		},
-
-		{
-			// An input committing to an output of equal value, just
-			// add input to pay fees.
-			name: "single input, extra fee input",
-			inputs: []*testInput{
-				{
-					BaseInput: inputs[0],
-					reqTxOut: &wire.TxOut{
-						PkScript: aPkScript,
-						Value:    inputs[0].SignDesc().Output.Value,
-					},
-				},
-			},
-
-			// We expect an extra input and output.
-			assertSweeps: func(t *testing.T,
-				_ map[wire.OutPoint]*testInput,
-				txs []*wire.MsgTx) {
-
-				require.Equal(t, 1, len(txs))
-
-				tx := txs[0]
-				require.Equal(t, 2, len(tx.TxIn))
-
-				require.Equal(t, 2, len(tx.TxOut))
-				out := tx.TxOut[0]
-				require.Equal(t, aPkScript, out.PkScript)
-				require.Equal(
-					t, inputs[0].SignDesc().Output.Value,
-					out.Value,
-				)
-			},
-		},
-		{
-			// Three inputs added, should be combined into a single
-			// sweep.
-			name: "three inputs",
-			inputs: []*testInput{
-				{
-					BaseInput: inputs[0],
-					reqTxOut: &wire.TxOut{
-						PkScript: aPkScript,
-						Value:    inputs[0].SignDesc().Output.Value,
-					},
-				},
-				{
-					BaseInput: inputs[1],
-					reqTxOut: &wire.TxOut{
-						PkScript: bPkScript,
-						Value:    inputs[1].SignDesc().Output.Value,
-					},
-				},
-				{
-					BaseInput: inputs[2],
-					reqTxOut: &wire.TxOut{
-						PkScript: cPkScript,
-						Value:    inputs[2].SignDesc().Output.Value,
-					},
-				},
-			},
-
-			// We expect an extra input and output to pay fees.
-			assertSweeps: func(t *testing.T,
-				testInputs map[wire.OutPoint]*testInput,
-				txs []*wire.MsgTx) {
-
-				require.Equal(t, 1, len(txs))
-
-				tx := txs[0]
-				require.Equal(t, 4, len(tx.TxIn))
-				require.Equal(t, 4, len(tx.TxOut))
-
-				// The inputs and outputs must be in the same
-				// order.
-				for i, in := range tx.TxIn {
-					// Last one is the change input/output
-					// pair, so we'll skip it.
-					if i == 3 {
-						continue
-					}
-
-					// Get this input to ensure the output
-					// on index i coresponsd to this one.
-					inp := testInputs[in.PreviousOutPoint]
-					require.NotNil(t, inp)
-
-					require.Equal(
-						t, tx.TxOut[i].Value,
-						inp.SignDesc().Output.Value,
-					)
-				}
-			},
-		},
-		{
-			// Six inputs added, which 3 different locktimes.
-			// Should result in 3 sweeps.
-			name: "six inputs",
-			inputs: []*testInput{
-				{
-					BaseInput: inputs[0],
-					locktime:  &locktime1,
-					reqTxOut: &wire.TxOut{
-						PkScript: aPkScript,
-						Value:    inputs[0].SignDesc().Output.Value,
-					},
-				},
-				{
-					BaseInput: inputs[1],
-					locktime:  &locktime1,
-					reqTxOut: &wire.TxOut{
-						PkScript: bPkScript,
-						Value:    inputs[1].SignDesc().Output.Value,
-					},
-				},
-				{
-					BaseInput: inputs[2],
-					locktime:  &locktime2,
-					reqTxOut: &wire.TxOut{
-						PkScript: cPkScript,
-						Value:    inputs[2].SignDesc().Output.Value,
-					},
-				},
-				{
-					BaseInput: inputs[3],
-					locktime:  &locktime2,
-					reqTxOut: &wire.TxOut{
-						PkScript: dPkScript,
-						Value:    inputs[3].SignDesc().Output.Value,
-					},
-				},
-				{
-					BaseInput: inputs[4],
-					locktime:  &locktime3,
-					reqTxOut: &wire.TxOut{
-						PkScript: ePkScript,
-						Value:    inputs[4].SignDesc().Output.Value,
-					},
-				},
-				{
-					BaseInput: inputs[5],
-					locktime:  &locktime3,
-					reqTxOut: &wire.TxOut{
-						PkScript: fPkScript,
-						Value:    inputs[5].SignDesc().Output.Value,
-					},
-				},
-			},
-
-			// We expect three sweeps, each having two of our
-			// inputs, one extra input and output to pay fees.
-			assertSweeps: func(t *testing.T,
-				testInputs map[wire.OutPoint]*testInput,
-				txs []*wire.MsgTx) {
-
-				require.Equal(t, 3, len(txs))
-
-				for _, tx := range txs {
-					require.Equal(t, 3, len(tx.TxIn))
-					require.Equal(t, 3, len(tx.TxOut))
-
-					// The inputs and outputs must be in
-					// the same order.
-					for i, in := range tx.TxIn {
-						// Last one is the change
-						// output, so we'll skip it.
-						if i == 2 {
-							continue
-						}
-
-						// Get this input to ensure the
-						// output on index i coresponsd
-						// to this one.
-						inp := testInputs[in.PreviousOutPoint]
-						require.NotNil(t, inp)
-
-						require.Equal(
-							t, tx.TxOut[i].Value,
-							inp.SignDesc().Output.Value,
-						)
-
-						// Check that the locktimes are
-						// kept intact.
-						require.Equal(
-							t, tx.LockTime,
-							*inp.locktime,
-						)
-					}
-				}
-			},
-		},
-	}
-
-	for _, testCase := range testCases {
-		testCase := testCase
-
-		t.Run(testCase.name, func(t *testing.T) {
-			ctx := createSweeperTestContext(t)
-
-			// We increase the number of max inputs to a tx so that
-			// won't impact our test.
-			ctx.sweeper.cfg.MaxInputsPerTx = 100
-
-			// Sweep all test inputs.
-			var (
-				inputs  = make(map[wire.OutPoint]*testInput)
-				results = make(map[wire.OutPoint]chan Result)
-			)
-			for _, inp := range testCase.inputs {
-				result, err := ctx.sweeper.SweepInput(
-					inp, Params{
-						Fee: FeePreference{ConfTarget: 6},
-					},
-				)
-				if err != nil {
-					t.Fatal(err)
-				}
-
-				op := inp.OutPoint()
-				results[*op] = result
-				inputs[*op] = inp
-			}
-
-			// Check the sweeps transactions, ensuring all inputs
-			// are there, and all the locktimes are satisfied.
-			var sweeps []*wire.MsgTx
-		Loop:
-			for {
-				select {
-				case tx := <-ctx.publishChan:
-					sweeps = append(sweeps, &tx)
-				case <-time.After(200 * time.Millisecond):
-					break Loop
-				}
-			}
-
-			// Mine the sweeps.
-			ctx.backend.mine()
-
-			// Results should all come back.
-			for _, resultChan := range results {
-				result := <-resultChan
-				if result.Err != nil {
-					t.Fatalf("expected input to be "+
-						"swept: %v", result.Err)
-				}
-			}
-
-			// Assert the transactions are what we expect.
-			testCase.assertSweeps(t, inputs, sweeps)
-
-			// Finally we assert that all our test inputs were part
-			// of the sweeps, and that they were signed correctly.
-			sweptInputs := make(map[wire.OutPoint]struct{})
-			for _, sweep := range sweeps {
-				swept := assertSignedIndex(t, sweep, inputs)
-				for op := range swept {
-					if _, ok := sweptInputs[op]; ok {
-						t.Fatalf("outpoint %v part of "+
-							"previous sweep", op)
-					}
-
-					sweptInputs[op] = struct{}{}
-				}
-			}
-
-			require.Equal(t, len(inputs), len(sweptInputs))
-			for op := range sweptInputs {
-				_, ok := inputs[op]
-				if !ok {
-					t.Fatalf("swept input %v not part of "+
-						"test inputs", op)
-				}
-			}
-		})
 	}
 }
 
@@ -2133,390 +2115,992 @@ func TestSweeperShutdownHandling(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestFeeRateForPreference checks `feeRateForPreference` works as expected.
-func TestFeeRateForPreference(t *testing.T) {
+// TestMarkInputsPendingPublish checks that given a list of inputs with
+// different states, only the non-terminal state will be marked as `Published`.
+func TestMarkInputsPendingPublish(t *testing.T) {
 	t.Parallel()
 
-	dummyErr := errors.New("dummy")
+	require := require.New(t)
 
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{})
 
-	// errFeeFunc is a mock over DetermineFeePerKw that always return the
-	// above dummy error.
-	errFeeFunc := func(_ chainfee.Estimator, _ FeePreference) (
-		chainfee.SatPerKWeight, error) {
+	// Create a mock input set.
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
 
-		return 0, dummyErr
+	// Create three testing inputs.
+	//
+	// inputNotExist specifies an input that's not found in the sweeper's
+	// `pendingInputs` map.
+	inputNotExist := &input.MockInput{}
+	defer inputNotExist.AssertExpectations(t)
+
+	inputNotExist.On("OutPoint").Return(wire.OutPoint{Index: 0})
+
+	// inputInit specifies a newly created input.
+	inputInit := &input.MockInput{}
+	defer inputInit.AssertExpectations(t)
+
+	inputInit.On("OutPoint").Return(wire.OutPoint{Index: 1})
+
+	s.inputs[inputInit.OutPoint()] = &SweeperInput{
+		state: Init,
 	}
 
-	// Set the relay fee rate to be 1 sat/kw.
-	s.relayFeeRate = 1
+	// inputPendingPublish specifies an input that's about to be published.
+	inputPendingPublish := &input.MockInput{}
+	defer inputPendingPublish.AssertExpectations(t)
 
-	// smallFeeFunc is a mock over DetermineFeePerKw that always return a
-	// fee rate that's below the relayFeeRate.
-	smallFeeFunc := func(_ chainfee.Estimator, _ FeePreference) (
-		chainfee.SatPerKWeight, error) {
+	inputPendingPublish.On("OutPoint").Return(wire.OutPoint{Index: 2})
 
-		return s.relayFeeRate - 1, nil
+	s.inputs[inputPendingPublish.OutPoint()] = &SweeperInput{
+		state: PendingPublish,
 	}
 
-	// Set the max fee rate to be 1000 sat/vb.
-	s.cfg.MaxFeeRate = 1000
+	// inputTerminated specifies an input that's terminated.
+	inputTerminated := &input.MockInput{}
+	defer inputTerminated.AssertExpectations(t)
 
-	// largeFeeFunc is a mock over DetermineFeePerKw that always return a
-	// fee rate that's larger than the MaxFeeRate.
-	largeFeeFunc := func(_ chainfee.Estimator, _ FeePreference) (
-		chainfee.SatPerKWeight, error) {
+	inputTerminated.On("OutPoint").Return(wire.OutPoint{Index: 3})
 
-		return s.cfg.MaxFeeRate.FeePerKWeight() + 1, nil
+	s.inputs[inputTerminated.OutPoint()] = &SweeperInput{
+		state: Excluded,
 	}
 
-	// validFeeRate is used to test the success case.
-	validFeeRate := (s.cfg.MaxFeeRate.FeePerKWeight() + s.relayFeeRate) / 2
+	// Mark the test inputs. We expect the non-exist input and the
+	// inputTerminated to be skipped, and the rest to be marked as pending
+	// publish.
+	set.On("Inputs").Return([]input.Input{
+		inputNotExist, inputInit, inputPendingPublish, inputTerminated,
+	})
+	s.markInputsPendingPublish(set)
 
-	// normalFeeFunc is a mock over DetermineFeePerKw that always return a
-	// fee rate that's within the range.
-	normalFeeFunc := func(_ chainfee.Estimator, _ FeePreference) (
-		chainfee.SatPerKWeight, error) {
+	// We expect unchanged number of pending inputs.
+	require.Len(s.inputs, 3)
 
-		return validFeeRate, nil
-	}
+	// We expect the init input's state to become pending publish.
+	require.Equal(PendingPublish, s.inputs[inputInit.OutPoint()].state)
 
-	testCases := []struct {
-		name              string
-		feePref           FeePreference
-		determineFeePerKw feeDeterminer
-		expectedFeeRate   chainfee.SatPerKWeight
-		expectedErr       error
-	}{
-		{
-			// When the fee preference is empty, we should see an
-			// error.
-			name:        "empty fee preference",
-			feePref:     FeePreference{},
-			expectedErr: ErrNoFeePreference,
-		},
-		{
-			// When an error is returned from the fee determiner,
-			// we should return it.
-			name:              "error from DetermineFeePerKw",
-			feePref:           FeePreference{FeeRate: 1},
-			determineFeePerKw: errFeeFunc,
-			expectedErr:       dummyErr,
-		},
-		{
-			// When DetermineFeePerKw gives a too small value, we
-			// should return an error.
-			name:              "fee rate below relay fee rate",
-			feePref:           FeePreference{FeeRate: 1},
-			determineFeePerKw: smallFeeFunc,
-			expectedErr:       ErrFeePreferenceTooLow,
-		},
-		{
-			// When DetermineFeePerKw gives a too large value, we
-			// should cap it at the max fee rate.
-			name:              "fee rate above max fee rate",
-			feePref:           FeePreference{FeeRate: 1},
-			determineFeePerKw: largeFeeFunc,
-			expectedFeeRate:   s.cfg.MaxFeeRate.FeePerKWeight(),
-		},
-		{
-			// When DetermineFeePerKw gives a sane fee rate, we
-			// should return it without any error.
-			name:              "success",
-			feePref:           FeePreference{FeeRate: 1},
-			determineFeePerKw: normalFeeFunc,
-			expectedFeeRate:   validFeeRate,
-		},
-	}
+	// We expect the pending-publish to stay unchanged.
+	require.Equal(PendingPublish,
+		s.inputs[inputPendingPublish.OutPoint()].state)
 
-	//nolint:paralleltest
-	for _, tc := range testCases {
-		tc := tc
-
-		t.Run(tc.name, func(t *testing.T) {
-			// Attach the mocked method.
-			s.cfg.DetermineFeePerKw = tc.determineFeePerKw
-
-			// Call the function under test.
-			feerate, err := s.feeRateForPreference(tc.feePref)
-
-			// Assert the expected feerate.
-			require.Equal(t, tc.expectedFeeRate, feerate)
-
-			// Assert the expected error.
-			require.ErrorIs(t, err, tc.expectedErr)
-		})
-	}
+	// We expect the terminated to stay unchanged.
+	require.Equal(Excluded, s.inputs[inputTerminated.OutPoint()].state)
 }
 
-// TestClusterByLockTime tests the method clusterByLockTime works as expected.
-func TestClusterByLockTime(t *testing.T) {
+// TestMarkInputsPublished checks that given a list of inputs with different
+// states, only the state `PendingPublish` will be marked as `Published`.
+func TestMarkInputsPublished(t *testing.T) {
 	t.Parallel()
 
-	// Create a test param with a dummy fee preference. This is needed so
-	// `feeRateForPreference` won't throw an error.
-	param := Params{Fee: FeePreference{ConfTarget: 1}}
+	require := require.New(t)
 
-	// We begin the test by creating three clusters of inputs, the first
-	// cluster has a locktime of 1, the second has a locktime of 2, and the
-	// final has no locktime.
-	lockTime1 := uint32(1)
-	lockTime2 := uint32(2)
+	// Create a mock sweeper store.
+	mockStore := NewMockSweeperStore()
 
-	// Create cluster one, which has a locktime of 1.
-	input1LockTime1 := &input.MockInput{}
-	input2LockTime1 := &input.MockInput{}
-	input1LockTime1.On("RequiredLockTime").Return(lockTime1, true)
-	input2LockTime1.On("RequiredLockTime").Return(lockTime1, true)
-
-	// Create cluster two, which has a locktime of 2.
-	input3LockTime2 := &input.MockInput{}
-	input4LockTime2 := &input.MockInput{}
-	input3LockTime2.On("RequiredLockTime").Return(lockTime2, true)
-	input4LockTime2.On("RequiredLockTime").Return(lockTime2, true)
-
-	// Create cluster three, which has no locktime.
-	input5NoLockTime := &input.MockInput{}
-	input6NoLockTime := &input.MockInput{}
-	input5NoLockTime.On("RequiredLockTime").Return(uint32(0), false)
-	input6NoLockTime.On("RequiredLockTime").Return(uint32(0), false)
-
-	// With the inner Input being mocked, we can now create the pending
-	// inputs.
-	input1 := &pendingInput{Input: input1LockTime1, params: param}
-	input2 := &pendingInput{Input: input2LockTime1, params: param}
-	input3 := &pendingInput{Input: input3LockTime2, params: param}
-	input4 := &pendingInput{Input: input4LockTime2, params: param}
-	input5 := &pendingInput{Input: input5NoLockTime, params: param}
-	input6 := &pendingInput{Input: input6NoLockTime, params: param}
-
-	// Create the pending inputs map, which will be passed to the method
-	// under test.
-	//
-	// NOTE: we don't care the actual outpoint values as long as they are
-	// unique.
-	inputs := pendingInputs{
-		wire.OutPoint{Index: 1}: input1,
-		wire.OutPoint{Index: 2}: input2,
-		wire.OutPoint{Index: 3}: input3,
-		wire.OutPoint{Index: 4}: input4,
-		wire.OutPoint{Index: 5}: input5,
-		wire.OutPoint{Index: 6}: input6,
-	}
-
-	// Create expected clusters so we can shorten the line length in the
-	// test cases below.
-	cluster1 := pendingInputs{
-		wire.OutPoint{Index: 1}: input1,
-		wire.OutPoint{Index: 2}: input2,
-	}
-	cluster2 := pendingInputs{
-		wire.OutPoint{Index: 3}: input3,
-		wire.OutPoint{Index: 4}: input4,
-	}
-
-	// cluster3 should be the remaining inputs since they don't have
-	// locktime.
-	cluster3 := pendingInputs{
-		wire.OutPoint{Index: 5}: input5,
-		wire.OutPoint{Index: 6}: input6,
-	}
-
-	// Set the min fee rate to be 1000 sat/kw.
-	const minFeeRate = chainfee.SatPerKWeight(1000)
+	// Create a test TxRecord and a dummy error.
+	dummyTR := &TxRecord{}
+	dummyErr := errors.New("dummy error")
 
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{
-		MaxFeeRate: minFeeRate.FeePerVByte() * 10,
+		Store: mockStore,
 	})
 
-	// Set the relay fee to be the minFeeRate. Any fee rate below the
-	// minFeeRate will cause an error to be returned.
-	s.relayFeeRate = minFeeRate
+	// Create three testing inputs.
+	//
+	// inputNotExist specifies an input that's not found in the sweeper's
+	// `inputs` map.
+	inputNotExist := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 1},
+	}
 
-	// applyFeeRate takes a testing fee rate and makes a mocker over
-	// DetermineFeePerKw that always return the testing fee rate. This
-	// mocked method is then attached to the sweeper.
-	applyFeeRate := func(feeRate chainfee.SatPerKWeight) {
-		mockFeeFunc := func(_ chainfee.Estimator, _ FeePreference) (
-			chainfee.SatPerKWeight, error) {
+	// inputInit specifies a newly created input. When marking this as
+	// published, we should see an error log as this input hasn't been
+	// published yet.
+	inputInit := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 2},
+	}
+	s.inputs[inputInit.PreviousOutPoint] = &SweeperInput{
+		state: Init,
+	}
 
-			return feeRate, nil
-		}
+	// inputPendingPublish specifies an input that's about to be published.
+	inputPendingPublish := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 3},
+	}
+	s.inputs[inputPendingPublish.PreviousOutPoint] = &SweeperInput{
+		state: PendingPublish,
+	}
 
-		s.cfg.DetermineFeePerKw = mockFeeFunc
+	// First, check that when an error is returned from db, it's properly
+	// returned here.
+	mockStore.On("StoreTx", dummyTR).Return(dummyErr).Once()
+	err := s.markInputsPublished(dummyTR, nil)
+	require.ErrorIs(err, dummyErr)
+
+	// We also expect the record has been marked as published.
+	require.True(dummyTR.Published)
+
+	// Then, check that the target input has will be correctly marked as
+	// published.
+	//
+	// Mock the store to return nil
+	mockStore.On("StoreTx", dummyTR).Return(nil).Once()
+
+	// Mark the test inputs. We expect the non-exist input and the
+	// inputInit to be skipped, and the final input to be marked as
+	// published.
+	err = s.markInputsPublished(dummyTR, []*wire.TxIn{
+		inputNotExist, inputInit, inputPendingPublish,
+	})
+	require.NoError(err)
+
+	// We expect unchanged number of pending inputs.
+	require.Len(s.inputs, 2)
+
+	// We expect the init input's state to stay unchanged.
+	require.Equal(Init,
+		s.inputs[inputInit.PreviousOutPoint].state)
+
+	// We expect the pending-publish input's is now marked as published.
+	require.Equal(Published,
+		s.inputs[inputPendingPublish.PreviousOutPoint].state)
+
+	// Assert mocked statements are executed as expected.
+	mockStore.AssertExpectations(t)
+}
+
+// TestMarkInputsPublishFailed checks that given a list of inputs with
+// different states, only the state `PendingPublish` and `Published` will be
+// marked as `PublishFailed`.
+func TestMarkInputsPublishFailed(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	// Create a mock sweeper store.
+	mockStore := NewMockSweeperStore()
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Store: mockStore,
+	})
+
+	// Create three testing inputs.
+	//
+	// inputNotExist specifies an input that's not found in the sweeper's
+	// `inputs` map.
+	inputNotExist := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 1},
+	}
+
+	// inputInit specifies a newly created input. When marking this as
+	// published, we should see an error log as this input hasn't been
+	// published yet.
+	inputInit := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 2},
+	}
+	s.inputs[inputInit.PreviousOutPoint] = &SweeperInput{
+		state: Init,
+	}
+
+	// inputPendingPublish specifies an input that's about to be published.
+	inputPendingPublish := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 3},
+	}
+	s.inputs[inputPendingPublish.PreviousOutPoint] = &SweeperInput{
+		state: PendingPublish,
+	}
+
+	// inputPublished specifies an input that's published.
+	inputPublished := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 4},
+	}
+	s.inputs[inputPublished.PreviousOutPoint] = &SweeperInput{
+		state: Published,
+	}
+
+	// Mark the test inputs. We expect the non-exist input and the
+	// inputInit to be skipped, and the final input to be marked as
+	// published.
+	s.markInputsPublishFailed([]wire.OutPoint{
+		inputNotExist.PreviousOutPoint,
+		inputInit.PreviousOutPoint,
+		inputPendingPublish.PreviousOutPoint,
+		inputPublished.PreviousOutPoint,
+	})
+
+	// We expect unchanged number of pending inputs.
+	require.Len(s.inputs, 3)
+
+	// We expect the init input's state to stay unchanged.
+	require.Equal(Init,
+		s.inputs[inputInit.PreviousOutPoint].state)
+
+	// We expect the pending-publish input's is now marked as publish
+	// failed.
+	require.Equal(PublishFailed,
+		s.inputs[inputPendingPublish.PreviousOutPoint].state)
+
+	// We expect the published input's is now marked as publish failed.
+	require.Equal(PublishFailed,
+		s.inputs[inputPublished.PreviousOutPoint].state)
+
+	// Assert mocked statements are executed as expected.
+	mockStore.AssertExpectations(t)
+}
+
+// TestMarkInputsSwept checks that given a list of inputs with different
+// states, only the non-terminal state will be marked as `Swept`.
+func TestMarkInputsSwept(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	// Create a mock input.
+	mockInput := &input.MockInput{}
+	defer mockInput.AssertExpectations(t)
+
+	// Mock the `OutPoint` to return a dummy outpoint.
+	mockInput.On("OutPoint").Return(wire.OutPoint{Hash: chainhash.Hash{1}})
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{})
+
+	// Create three testing inputs.
+	//
+	// inputNotExist specifies an input that's not found in the sweeper's
+	// `inputs` map.
+	inputNotExist := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 1},
+	}
+
+	// inputInit specifies a newly created input.
+	inputInit := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 2},
+	}
+	s.inputs[inputInit.PreviousOutPoint] = &SweeperInput{
+		state: Init,
+		Input: mockInput,
+	}
+
+	// inputPendingPublish specifies an input that's about to be published.
+	inputPendingPublish := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 3},
+	}
+	s.inputs[inputPendingPublish.PreviousOutPoint] = &SweeperInput{
+		state: PendingPublish,
+		Input: mockInput,
+	}
+
+	// inputTerminated specifies an input that's terminated.
+	inputTerminated := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 4},
+	}
+	s.inputs[inputTerminated.PreviousOutPoint] = &SweeperInput{
+		state: Excluded,
+		Input: mockInput,
+	}
+
+	tx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			inputNotExist, inputInit,
+			inputPendingPublish, inputTerminated,
+		},
+	}
+
+	// Mark the test inputs. We expect the inputTerminated to be skipped,
+	// and the rest to be marked as swept.
+	s.markInputsSwept(tx, true)
+
+	// We expect unchanged number of pending inputs.
+	require.Len(s.inputs, 3)
+
+	// We expect the init input's state to become swept.
+	require.Equal(Swept,
+		s.inputs[inputInit.PreviousOutPoint].state)
+
+	// We expect the pending-publish becomes swept.
+	require.Equal(Swept,
+		s.inputs[inputPendingPublish.PreviousOutPoint].state)
+
+	// We expect the terminated to stay unchanged.
+	require.Equal(Excluded,
+		s.inputs[inputTerminated.PreviousOutPoint].state)
+}
+
+// TestMempoolLookup checks that the method `mempoolLookup` works as expected.
+func TestMempoolLookup(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	// Create a test outpoint.
+	op := wire.OutPoint{Index: 1}
+
+	// Create a mock mempool watcher.
+	mockMempool := chainntnfs.NewMockMempoolWatcher()
+	defer mockMempool.AssertExpectations(t)
+
+	// Create a test sweeper without a mempool.
+	s := New(&UtxoSweeperConfig{})
+
+	// Since we don't have a mempool, we expect the call to return a
+	// fn.None indicating it's not found.
+	tx := s.mempoolLookup(op)
+	require.True(tx.IsNone())
+
+	// Re-create the sweeper with the mocked mempool watcher.
+	s = New(&UtxoSweeperConfig{
+		Mempool: mockMempool,
+	})
+
+	// Mock the mempool watcher to return not found.
+	mockMempool.On("LookupInputMempoolSpend", op).Return(
+		fn.None[wire.MsgTx]()).Once()
+
+	// We expect a fn.None tx to be returned.
+	tx = s.mempoolLookup(op)
+	require.True(tx.IsNone())
+
+	// Mock the mempool to return a spending tx.
+	dummyTx := wire.MsgTx{}
+	mockMempool.On("LookupInputMempoolSpend", op).Return(
+		fn.Some(dummyTx)).Once()
+
+	// Calling the loopup again, we expect the dummyTx to be returned.
+	tx = s.mempoolLookup(op)
+	require.False(tx.IsNone())
+	require.Equal(dummyTx, tx.UnsafeFromSome())
+}
+
+// TestUpdateSweeperInputs checks that the method `updateSweeperInputs` will
+// properly update the inputs based on their states.
+func TestUpdateSweeperInputs(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	// Create a test sweeper.
+	s := New(nil)
+
+	// Create mock inputs.
+	inp1 := &input.MockInput{}
+	defer inp1.AssertExpectations(t)
+	inp2 := &input.MockInput{}
+	defer inp2.AssertExpectations(t)
+	inp3 := &input.MockInput{}
+	defer inp3.AssertExpectations(t)
+
+	// Create a list of inputs using all the states.
+	//
+	// Mock the input to have a locktime that's matured so it will be
+	// returned.
+	inp1.On("RequiredLockTime").Return(
+		uint32(s.currentHeight), false).Once()
+	inp1.On("BlocksToMaturity").Return(uint32(0)).Once()
+	inp1.On("HeightHint").Return(uint32(s.currentHeight)).Once()
+	input0 := &SweeperInput{state: Init, Input: inp1}
+
+	// These inputs won't hit RequiredLockTime so we won't mock.
+	input1 := &SweeperInput{state: PendingPublish, Input: inp1}
+	input2 := &SweeperInput{state: Published, Input: inp1}
+
+	// Mock the input to have a locktime that's matured so it will be
+	// returned.
+	inp1.On("RequiredLockTime").Return(
+		uint32(s.currentHeight), false).Once()
+	inp1.On("BlocksToMaturity").Return(uint32(0)).Once()
+	inp1.On("HeightHint").Return(uint32(s.currentHeight)).Once()
+	input3 := &SweeperInput{state: PublishFailed, Input: inp1}
+
+	// These inputs won't hit RequiredLockTime so we won't mock.
+	input4 := &SweeperInput{state: Swept, Input: inp1}
+	input5 := &SweeperInput{state: Excluded, Input: inp1}
+	input6 := &SweeperInput{state: Failed, Input: inp1}
+
+	// Mock the input to have a locktime in the future so it will NOT be
+	// returned.
+	inp2.On("RequiredLockTime").Return(
+		uint32(s.currentHeight+1), true).Once()
+	input7 := &SweeperInput{state: Init, Input: inp2}
+
+	// Mock the input to have a CSV expiry in the future so it will NOT be
+	// returned.
+	inp3.On("RequiredLockTime").Return(
+		uint32(s.currentHeight), false).Once()
+	inp3.On("BlocksToMaturity").Return(uint32(2)).Once()
+	inp3.On("HeightHint").Return(uint32(s.currentHeight)).Once()
+	input8 := &SweeperInput{state: Init, Input: inp3}
+
+	// Add the inputs to the sweeper. After the update, we should see the
+	// terminated inputs being removed.
+	s.inputs = map[wire.OutPoint]*SweeperInput{
+		{Index: 0}: input0,
+		{Index: 1}: input1,
+		{Index: 2}: input2,
+		{Index: 3}: input3,
+		{Index: 4}: input4,
+		{Index: 5}: input5,
+		{Index: 6}: input6,
+		{Index: 7}: input7,
+		{Index: 8}: input8,
+	}
+
+	// We expect the inputs with `Swept`, `Excluded`, and `Failed` to be
+	// removed.
+	expectedInputs := map[wire.OutPoint]*SweeperInput{
+		{Index: 0}: input0,
+		{Index: 1}: input1,
+		{Index: 2}: input2,
+		{Index: 3}: input3,
+		{Index: 7}: input7,
+		{Index: 8}: input8,
+	}
+
+	// We expect only the inputs with `Init` and `PublishFailed` to be
+	// returned.
+	expectedReturn := map[wire.OutPoint]*SweeperInput{
+		{Index: 0}: input0,
+		{Index: 3}: input3,
+	}
+
+	// Update the sweeper inputs.
+	inputs := s.updateSweeperInputs()
+
+	// Assert the returned inputs are as expected.
+	require.Equal(expectedReturn, inputs)
+
+	// Assert the sweeper inputs are as expected.
+	require.Equal(expectedInputs, s.inputs)
+}
+
+// TestDecideStateAndRBFInfo checks that the expected state and RBFInfo are
+// returned based on whether this input can be found both in mempool and the
+// sweeper store.
+func TestDecideStateAndRBFInfo(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	// Create a test outpoint.
+	op := wire.OutPoint{Index: 1}
+
+	// Create a mock mempool watcher and a mock sweeper store.
+	mockMempool := chainntnfs.NewMockMempoolWatcher()
+	defer mockMempool.AssertExpectations(t)
+	mockStore := NewMockSweeperStore()
+	defer mockStore.AssertExpectations(t)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Store:   mockStore,
+		Mempool: mockMempool,
+	})
+
+	// First, mock the mempool to return false.
+	mockMempool.On("LookupInputMempoolSpend", op).Return(
+		fn.None[wire.MsgTx]()).Once()
+
+	// Since the mempool lookup failed, we exepect state Init and no
+	// RBFInfo.
+	state, rbf := s.decideStateAndRBFInfo(op)
+	require.True(rbf.IsNone())
+	require.Equal(Init, state)
+
+	// Mock the mempool lookup to return a tx three times as we are calling
+	// attachAvailableRBFInfo three times.
+	tx := wire.MsgTx{}
+	mockMempool.On("LookupInputMempoolSpend", op).Return(
+		fn.Some(tx)).Times(3)
+
+	// Mock the store to return an error saying the tx cannot be found.
+	mockStore.On("GetTx", tx.TxHash()).Return(nil, ErrTxNotFound).Once()
+
+	// Although the db lookup failed, we expect the state to be Published.
+	state, rbf = s.decideStateAndRBFInfo(op)
+	require.True(rbf.IsNone())
+	require.Equal(Published, state)
+
+	// Mock the store to return a db error.
+	dummyErr := errors.New("dummy error")
+	mockStore.On("GetTx", tx.TxHash()).Return(nil, dummyErr).Once()
+
+	// Although the db lookup failed, we expect the state to be Published.
+	state, rbf = s.decideStateAndRBFInfo(op)
+	require.True(rbf.IsNone())
+	require.Equal(Published, state)
+
+	// Mock the store to return a record.
+	tr := &TxRecord{
+		Fee:     100,
+		FeeRate: 100,
+	}
+	mockStore.On("GetTx", tx.TxHash()).Return(tr, nil).Once()
+
+	// Call the method again.
+	state, rbf = s.decideStateAndRBFInfo(op)
+
+	// Assert that the RBF info is returned.
+	rbfInfo := fn.Some(RBFInfo{
+		Txid:    tx.TxHash(),
+		Fee:     btcutil.Amount(tr.Fee),
+		FeeRate: chainfee.SatPerKWeight(tr.FeeRate),
+	})
+	require.Equal(rbfInfo, rbf)
+
+	// Assert the state is updated.
+	require.Equal(Published, state)
+}
+
+// TestMarkInputFailed checks that the input is marked as failed as expected.
+func TestMarkInputFailed(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock input.
+	mockInput := &input.MockInput{}
+	defer mockInput.AssertExpectations(t)
+
+	// Mock the `OutPoint` to return a dummy outpoint.
+	mockInput.On("OutPoint").Return(wire.OutPoint{Hash: chainhash.Hash{1}})
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{})
+
+	// Create a testing pending input.
+	pi := &SweeperInput{
+		state: Init,
+		Input: mockInput,
+	}
+
+	// Call the method under test.
+	s.markInputFailed(pi, errors.New("dummy error"))
+
+	// Assert the state is updated.
+	require.Equal(t, Failed, pi.state)
+}
+
+// TestSweepPendingInputs checks that `sweepPendingInputs` correctly executes
+// its workflow based on the returned values from the interfaces.
+func TestSweepPendingInputs(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock wallet and aggregator.
+	wallet := &MockWallet{}
+	defer wallet.AssertExpectations(t)
+
+	aggregator := &mockUtxoAggregator{}
+	defer aggregator.AssertExpectations(t)
+
+	publisher := &MockBumper{}
+	defer publisher.AssertExpectations(t)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Wallet:     wallet,
+		Aggregator: aggregator,
+		Publisher:  publisher,
+		GenSweepScript: func() ([]byte, error) {
+			return testPubKey.SerializeCompressed(), nil
+		},
+		NoDeadlineConfTarget: uint32(DefaultDeadlineDelta),
+	})
+
+	// Set a current height to test the deadline override.
+	s.currentHeight = testHeight
+
+	// Create an input set that needs wallet inputs.
+	setNeedWallet := &MockInputSet{}
+	defer setNeedWallet.AssertExpectations(t)
+
+	// Mock this set to ask for wallet input.
+	setNeedWallet.On("NeedWalletInput").Return(true).Once()
+	setNeedWallet.On("AddWalletInputs", wallet).Return(nil).Once()
+
+	// Mock the wallet to require the lock once.
+	wallet.On("WithCoinSelectLock", mock.Anything).Return(nil).Once()
+
+	// Create an input set that doesn't need wallet inputs.
+	normalSet := &MockInputSet{}
+	defer normalSet.AssertExpectations(t)
+
+	normalSet.On("NeedWalletInput").Return(false).Once()
+
+	// Mock the methods used in `sweep`. This is not important for this
+	// unit test.
+	setNeedWallet.On("Inputs").Return(nil).Times(4)
+	setNeedWallet.On("DeadlineHeight").Return(testHeight).Once()
+	setNeedWallet.On("Budget").Return(btcutil.Amount(1)).Once()
+	setNeedWallet.On("StartingFeeRate").Return(
+		fn.None[chainfee.SatPerKWeight]()).Once()
+	normalSet.On("Inputs").Return(nil).Times(4)
+	normalSet.On("DeadlineHeight").Return(testHeight).Once()
+	normalSet.On("Budget").Return(btcutil.Amount(1)).Once()
+	normalSet.On("StartingFeeRate").Return(
+		fn.None[chainfee.SatPerKWeight]()).Once()
+
+	// Make pending inputs for testing. We don't need real values here as
+	// the returned clusters are mocked.
+	pis := make(InputsMap)
+
+	// Mock the aggregator to return the mocked input sets.
+	aggregator.On("ClusterInputs", pis).Return([]InputSet{
+		setNeedWallet, normalSet,
+	})
+
+	// Mock `Broadcast` to return an error. This should cause the
+	// `createSweepTx` inside `sweep` to fail. This is done so we can
+	// terminate the method early as we are only interested in testing the
+	// workflow in `sweepPendingInputs`. We don't need to test `sweep` here
+	// as it should be tested in its own unit test.
+	dummyErr := errors.New("dummy error")
+	publisher.On("Broadcast", mock.Anything).Return(nil, dummyErr).Twice()
+
+	// Call the method under test.
+	s.sweepPendingInputs(pis)
+}
+
+// TestHandleBumpEventTxFailed checks that the sweeper correctly handles the
+// case where the bump event tx fails to be published.
+func TestHandleBumpEventTxFailed(t *testing.T) {
+	t.Parallel()
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{})
+
+	var (
+		// Create four testing outpoints.
+		op1        = wire.OutPoint{Hash: chainhash.Hash{1}}
+		op2        = wire.OutPoint{Hash: chainhash.Hash{2}}
+		op3        = wire.OutPoint{Hash: chainhash.Hash{3}}
+		opNotExist = wire.OutPoint{Hash: chainhash.Hash{4}}
+	)
+
+	// Create three mock inputs.
+	input1 := &input.MockInput{}
+	defer input1.AssertExpectations(t)
+
+	input2 := &input.MockInput{}
+	defer input2.AssertExpectations(t)
+
+	input3 := &input.MockInput{}
+	defer input3.AssertExpectations(t)
+
+	// Construct the initial state for the sweeper.
+	s.inputs = InputsMap{
+		op1: &SweeperInput{Input: input1, state: PendingPublish},
+		op2: &SweeperInput{Input: input2, state: PendingPublish},
+		op3: &SweeperInput{Input: input3, state: PendingPublish},
+	}
+
+	// Create a testing tx that spends the first two inputs.
+	tx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op1},
+			{PreviousOutPoint: op2},
+			{PreviousOutPoint: opNotExist},
+		},
+	}
+
+	// Create a testing bump result.
+	br := &BumpResult{
+		Tx:    tx,
+		Event: TxFailed,
+		Err:   errDummy,
+	}
+
+	// Call the method under test.
+	err := s.handleBumpEvent(br)
+	require.ErrorIs(t, err, errDummy)
+
+	// Assert the states of the first two inputs are updated.
+	require.Equal(t, PublishFailed, s.inputs[op1].state)
+	require.Equal(t, PublishFailed, s.inputs[op2].state)
+
+	// Assert the state of the third input is not updated.
+	require.Equal(t, PendingPublish, s.inputs[op3].state)
+
+	// Assert the non-existing input is not added to the pending inputs.
+	require.NotContains(t, s.inputs, opNotExist)
+}
+
+// TestHandleBumpEventTxReplaced checks that the sweeper correctly handles the
+// case where the bump event tx is replaced.
+func TestHandleBumpEventTxReplaced(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock store.
+	store := &MockSweeperStore{}
+	defer store.AssertExpectations(t)
+
+	// Create a mock wallet.
+	wallet := &MockWallet{}
+	defer wallet.AssertExpectations(t)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Store:  store,
+		Wallet: wallet,
+	})
+
+	// Create a testing outpoint.
+	op := wire.OutPoint{Hash: chainhash.Hash{1}}
+
+	// Create a mock input.
+	inp := &input.MockInput{}
+	defer inp.AssertExpectations(t)
+
+	// Construct the initial state for the sweeper.
+	s.inputs = InputsMap{
+		op: &SweeperInput{Input: inp, state: PendingPublish},
+	}
+
+	// Create a testing tx that spends the input.
+	tx := &wire.MsgTx{
+		LockTime: 1,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op},
+		},
+	}
+
+	// Create a replacement tx.
+	replacementTx := &wire.MsgTx{
+		LockTime: 2,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op},
+		},
+	}
+
+	// Create a testing bump result.
+	br := &BumpResult{
+		Tx:         replacementTx,
+		ReplacedTx: tx,
+		Event:      TxReplaced,
+	}
+
+	// Mock the store to return an error.
+	dummyErr := errors.New("dummy error")
+	store.On("GetTx", tx.TxHash()).Return(nil, dummyErr).Once()
+
+	// Call the method under test and assert the error is returned.
+	err := s.handleBumpEventTxReplaced(br)
+	require.ErrorIs(t, err, dummyErr)
+
+	// Mock the store to return the old tx record.
+	store.On("GetTx", tx.TxHash()).Return(&TxRecord{
+		Txid: tx.TxHash(),
+	}, nil).Once()
+
+	// We expect to cancel rebroadcasting the replaced tx.
+	wallet.On("CancelRebroadcast", tx.TxHash()).Once()
+
+	// Mock an error returned when deleting the old tx record.
+	store.On("DeleteTx", tx.TxHash()).Return(dummyErr).Once()
+
+	// Call the method under test and assert the error is returned.
+	err = s.handleBumpEventTxReplaced(br)
+	require.ErrorIs(t, err, dummyErr)
+
+	// Mock the store to return the old tx record and delete it without
+	// error.
+	store.On("GetTx", tx.TxHash()).Return(&TxRecord{
+		Txid: tx.TxHash(),
+	}, nil).Once()
+	store.On("DeleteTx", tx.TxHash()).Return(nil).Once()
+
+	// Mock the store to save the new tx record.
+	store.On("StoreTx", &TxRecord{
+		Txid:      replacementTx.TxHash(),
+		Published: true,
+	}).Return(nil).Once()
+
+	// We expect to cancel rebroadcasting the replaced tx.
+	wallet.On("CancelRebroadcast", tx.TxHash()).Once()
+
+	// Call the method under test.
+	err = s.handleBumpEventTxReplaced(br)
+	require.NoError(t, err)
+
+	// Assert the state of the input is updated.
+	require.Equal(t, Published, s.inputs[op].state)
+}
+
+// TestHandleBumpEventTxPublished checks that the sweeper correctly handles the
+// case where the bump event tx is published.
+func TestHandleBumpEventTxPublished(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock store.
+	store := &MockSweeperStore{}
+	defer store.AssertExpectations(t)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Store: store,
+	})
+
+	// Create a testing outpoint.
+	op := wire.OutPoint{Hash: chainhash.Hash{1}}
+
+	// Create a mock input.
+	inp := &input.MockInput{}
+	defer inp.AssertExpectations(t)
+
+	// Construct the initial state for the sweeper.
+	s.inputs = InputsMap{
+		op: &SweeperInput{Input: inp, state: PendingPublish},
+	}
+
+	// Create a testing tx that spends the input.
+	tx := &wire.MsgTx{
+		LockTime: 1,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op},
+		},
+	}
+
+	// Create a testing bump result.
+	br := &BumpResult{
+		Tx:    tx,
+		Event: TxPublished,
+	}
+
+	// Mock the store to save the new tx record.
+	store.On("StoreTx", &TxRecord{
+		Txid:      tx.TxHash(),
+		Published: true,
+	}).Return(nil).Once()
+
+	// Call the method under test.
+	err := s.handleBumpEventTxPublished(br)
+	require.NoError(t, err)
+
+	// Assert the state of the input is updated.
+	require.Equal(t, Published, s.inputs[op].state)
+}
+
+// TestMonitorFeeBumpResult checks that the fee bump monitor loop correctly
+// exits when the sweeper is stopped, the tx is confirmed or failed.
+func TestMonitorFeeBumpResult(t *testing.T) {
+	// Create a mock store.
+	store := &MockSweeperStore{}
+	defer store.AssertExpectations(t)
+
+	// Create a mock wallet.
+	wallet := &MockWallet{}
+	defer wallet.AssertExpectations(t)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Store:  store,
+		Wallet: wallet,
+	})
+
+	// Create a testing outpoint.
+	op := wire.OutPoint{Hash: chainhash.Hash{1}}
+
+	// Create a mock input.
+	inp := &input.MockInput{}
+	defer inp.AssertExpectations(t)
+
+	// Construct the initial state for the sweeper.
+	s.inputs = InputsMap{
+		op: &SweeperInput{Input: inp, state: PendingPublish},
+	}
+
+	// Create a testing tx that spends the input.
+	tx := &wire.MsgTx{
+		LockTime: 1,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op},
+		},
 	}
 
 	testCases := []struct {
-		name                    string
-		testFeeRate             chainfee.SatPerKWeight
-		expectedClusters        []inputCluster
-		expectedRemainingInputs pendingInputs
+		name            string
+		setupResultChan func() <-chan *BumpResult
+		shouldExit      bool
 	}{
 		{
-			// Test a successful case where the locktime clusters
-			// are created and the no-locktime cluster is returned
-			// as the remaining inputs.
-			name: "successfully create clusters",
-			// Use a fee rate above the min value so we don't hit
-			// an error when performing fee estimation.
-			//
-			// TODO(yy): we should customize the returned fee rate
-			// for each input to further test the averaging logic.
-			// Or we can split the method into two, one for
-			// grouping the clusters and the other for averaging
-			// the fee rates so it's easier to be tested.
-			testFeeRate: minFeeRate + 1,
-			expectedClusters: []inputCluster{
-				{
-					lockTime:     &lockTime1,
-					sweepFeeRate: minFeeRate + 1,
-					inputs:       cluster1,
-				},
-				{
-					lockTime:     &lockTime2,
-					sweepFeeRate: minFeeRate + 1,
-					inputs:       cluster2,
-				},
+			// When a tx confirmed event is received, we expect to
+			// exit the monitor loop.
+			name: "tx confirmed",
+			// We send a result with TxConfirmed event to the
+			// result channel.
+			setupResultChan: func() <-chan *BumpResult {
+				// Create a result chan.
+				resultChan := make(chan *BumpResult, 1)
+				resultChan <- &BumpResult{
+					Tx:      tx,
+					Event:   TxConfirmed,
+					Fee:     10000,
+					FeeRate: 100,
+				}
+
+				// We expect to cancel rebroadcasting the tx
+				// once confirmed.
+				wallet.On("CancelRebroadcast",
+					tx.TxHash()).Once()
+
+				return resultChan
 			},
-			expectedRemainingInputs: cluster3,
+			shouldExit: true,
 		},
 		{
-			// Test that when the input is skipped when the fee
-			// estimation returns an error.
-			name: "error from fee estimation",
-			// Use a fee rate below the min value so we hit an
-			// error when performing fee estimation.
-			testFeeRate:      minFeeRate - 1,
-			expectedClusters: []inputCluster{},
-			// Remaining inputs should stay untouched.
-			expectedRemainingInputs: cluster3,
-		},
-	}
+			// When a tx failed event is received, we expect to
+			// exit the monitor loop.
+			name: "tx failed",
+			// We send a result with TxConfirmed event to the
+			// result channel.
+			setupResultChan: func() <-chan *BumpResult {
+				// Create a result chan.
+				resultChan := make(chan *BumpResult, 1)
+				resultChan <- &BumpResult{
+					Tx:    tx,
+					Event: TxFailed,
+					Err:   errDummy,
+				}
 
-	//nolint:paralleltest
-	for _, tc := range testCases {
-		tc := tc
+				// We expect to cancel rebroadcasting the tx
+				// once failed.
+				wallet.On("CancelRebroadcast",
+					tx.TxHash()).Once()
 
-		t.Run(tc.name, func(t *testing.T) {
-			// Apply the test fee rate so `feeRateForPreference` is
-			// mocked to return the specified value.
-			applyFeeRate(tc.testFeeRate)
-
-			// Call the method under test.
-			clusters, remainingInputs := s.clusterByLockTime(inputs)
-
-			// Sort by locktime as the order is not guaranteed.
-			sort.Slice(clusters, func(i, j int) bool {
-				return *clusters[i].lockTime <
-					*clusters[j].lockTime
-			})
-
-			// Validate the values are returned as expected.
-			require.Equal(t, tc.expectedClusters, clusters)
-			require.Equal(t, tc.expectedRemainingInputs,
-				remainingInputs,
-			)
-
-			// Assert the mocked methods are called as expected.
-			input1LockTime1.AssertExpectations(t)
-			input2LockTime1.AssertExpectations(t)
-			input3LockTime2.AssertExpectations(t)
-			input4LockTime2.AssertExpectations(t)
-			input5NoLockTime.AssertExpectations(t)
-			input6NoLockTime.AssertExpectations(t)
-		})
-	}
-}
-
-// TestGetInputLists checks that the expected input sets are returned based on
-// whether there are retried inputs or not.
-func TestGetInputLists(t *testing.T) {
-	t.Parallel()
-
-	// Create a test param with a dummy fee preference. This is needed so
-	// `feeRateForPreference` won't throw an error.
-	param := Params{Fee: FeePreference{ConfTarget: 1}}
-
-	// Create a mock input and mock all the methods used in this test.
-	testInput := &input.MockInput{}
-	testInput.On("RequiredLockTime").Return(0, false)
-	testInput.On("WitnessType").Return(input.CommitmentAnchor)
-	testInput.On("OutPoint").Return(&wire.OutPoint{Index: 1})
-	testInput.On("RequiredTxOut").Return(nil)
-	testInput.On("UnconfParent").Return(nil)
-	testInput.On("SignDesc").Return(&input.SignDescriptor{
-		Output: &wire.TxOut{Value: 100_000},
-	})
-
-	// Create a new and a retried input.
-	//
-	// NOTE: we use the same input.Input for both pending inputs as we only
-	// test the logic of returning the correct non-nil input sets, and not
-	// the content the of sets. To validate the content of the sets, we
-	// should test `generateInputPartitionings` instead.
-	newInput := &pendingInput{
-		Input:  testInput,
-		params: param,
-	}
-	oldInput := &pendingInput{
-		Input:           testInput,
-		params:          param,
-		publishAttempts: 1,
-	}
-
-	// clusterNew contains only new inputs.
-	clusterNew := pendingInputs{
-		wire.OutPoint{Index: 1}: newInput,
-	}
-
-	// clusterMixed contains a mixed of new and retried inputs.
-	clusterMixed := pendingInputs{
-		wire.OutPoint{Index: 1}: newInput,
-		wire.OutPoint{Index: 2}: oldInput,
-	}
-
-	// clusterOld contains only retried inputs.
-	clusterOld := pendingInputs{
-		wire.OutPoint{Index: 2}: oldInput,
-	}
-
-	// Create a test sweeper.
-	s := New(&UtxoSweeperConfig{
-		MaxInputsPerTx: DefaultMaxInputsPerTx,
-	})
-
-	testCases := []struct {
-		name              string
-		cluster           inputCluster
-		expectedNilAllSet bool
-		expectNilNewSet   bool
-	}{
-		{
-			// When there are only new inputs, we'd expect the
-			// first returned set(allSets) to be empty.
-			name:              "new inputs only",
-			cluster:           inputCluster{inputs: clusterNew},
-			expectedNilAllSet: true,
-			expectNilNewSet:   false,
+				return resultChan
+			},
+			shouldExit: true,
 		},
 		{
-			// When there are only retried inputs, we'd expect the
-			// second returned set(newSet) to be empty.
-			name:              "retried inputs only",
-			cluster:           inputCluster{inputs: clusterOld},
-			expectedNilAllSet: false,
-			expectNilNewSet:   true,
-		},
-		{
-			// When there are mixed inputs, we'd expect two sets
-			// are returned.
-			name:              "mixed inputs",
-			cluster:           inputCluster{inputs: clusterMixed},
-			expectedNilAllSet: false,
-			expectNilNewSet:   false,
+			// When processing non-confirmed events, the monitor
+			// should not exit.
+			name: "no exit on normal event",
+			// We send a result with TxPublished and mock the
+			// method `StoreTx` to return nil.
+			setupResultChan: func() <-chan *BumpResult {
+				// Create a result chan.
+				resultChan := make(chan *BumpResult, 1)
+				resultChan <- &BumpResult{
+					Tx:    tx,
+					Event: TxPublished,
+				}
+
+				return resultChan
+			},
+			shouldExit: false,
+		}, {
+			// When the sweeper is shutting down, the monitor loop
+			// should exit.
+			name: "exit on sweeper shutdown",
+			// We don't send anything but quit the sweeper.
+			setupResultChan: func() <-chan *BumpResult {
+				close(s.quit)
+
+				return nil
+			},
+			shouldExit: true,
 		},
 	}
 
@@ -2524,17 +3108,37 @@ func TestGetInputLists(t *testing.T) {
 		tc := tc
 
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+			// Setup the testing result channel.
+			resultChan := tc.setupResultChan()
 
-			allSets, newSets, err := s.getInputLists(tc.cluster, 0)
-			require.NoError(t, err)
+			// Create a done chan that's used to signal the monitor
+			// has exited.
+			done := make(chan struct{})
 
-			if tc.expectNilNewSet {
-				require.Nil(t, newSets)
+			s.wg.Add(1)
+			go func() {
+				s.monitorFeeBumpResult(resultChan)
+				close(done)
+			}()
+
+			// The monitor is expected to exit, we check it's done
+			// in one second or fail.
+			if tc.shouldExit {
+				select {
+				case <-done:
+				case <-time.After(1 * time.Second):
+					require.Fail(t, "monitor not exited")
+				}
+
+				return
 			}
 
-			if tc.expectedNilAllSet {
-				require.Nil(t, allSets)
+			// The monitor should not exit, check it doesn't close
+			// the `done` channel within one second.
+			select {
+			case <-done:
+				require.Fail(t, "monitor exited")
+			case <-time.After(1 * time.Second):
 			}
 		})
 	}

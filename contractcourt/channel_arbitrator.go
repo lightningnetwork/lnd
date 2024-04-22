@@ -17,6 +17,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -36,12 +37,6 @@ var (
 )
 
 const (
-	// anchorSweepConfTarget is the conf target used when sweeping
-	// commitment anchors. This value is only used when the commitment
-	// transaction has no valid HTLCs for determining a confirmation
-	// deadline.
-	anchorSweepConfTarget = 144
-
 	// arbitratorBlockBufferSize is the size of the buffer we give to each
 	// channel arbitrator.
 	arbitratorBlockBufferSize = 20
@@ -169,6 +164,13 @@ type ChannelArbitratorConfig struct {
 	// This is mostly used to supplement the ContractResolvers with
 	// additional information required for proper contract resolution.
 	FetchHistoricalChannel func() (*channeldb.OpenChannel, error)
+
+	// FindOutgoingHTLCDeadline returns the deadline in absolute block
+	// height for the specified outgoing HTLC. For an outgoing HTLC, its
+	// deadline is defined by the timeout height of its corresponding
+	// incoming HTLC - this is the expiry height the that remote peer can
+	// spend his/her outgoing HTLC via the timeout path.
+	FindOutgoingHTLCDeadline func(htlc channeldb.HTLC) fn.Option[int32]
 
 	ChainArbitratorConfig
 }
@@ -757,6 +759,14 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 		}
 
 		htlcResolver.Supplement(*htlc)
+
+		// If this is an outgoing HTLC, we will also need to supplement
+		// the resolver with the expiry block height of its
+		// corresponding incoming HTLC.
+		if !htlc.Incoming {
+			deadline := c.cfg.FindOutgoingHTLCDeadline(*htlc)
+			htlcResolver.SupplementDeadline(deadline)
+		}
 	}
 
 	// The anchor resolver is stateless and can always be re-instantiated.
@@ -777,7 +787,7 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 		// TODO(roasbeef): this isn't re-launched?
 	}
 
-	c.launchResolvers(unresolvedContracts)
+	c.launchResolvers(unresolvedContracts, true)
 
 	return nil
 }
@@ -1235,7 +1245,7 @@ func (c *ChannelArbitrator) stateStep(
 
 		// Finally, we'll launch all the required contract resolvers.
 		// Once they're all resolved, we're no longer needed.
-		c.launchResolvers(resolvers)
+		c.launchResolvers(resolvers, false)
 
 		nextState = StateWaitingFullResolution
 
@@ -1305,28 +1315,22 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 		htlcs htlcSet, anchorPath string) error {
 
 		// Find the deadline for this specific anchor.
-		deadline, err := c.findCommitmentDeadline(heightHint, htlcs)
+		deadline, value, err := c.findCommitmentDeadlineAndValue(
+			heightHint, htlcs,
+		)
 		if err != nil {
 			return err
 		}
 
-		// Create a force flag that's used to indicate whether we
-		// should force sweeping this anchor.
-		var force bool
+		// If we cannot find a deadline, it means there's no HTLCs at
+		// stake, which means we can relax our anchor sweeping as we
+		// don't have any time sensitive outputs to sweep.
+		if deadline.IsNone() {
+			log.Infof("ChannelArbitrator(%v): no HTLCs at stake, "+
+				"skipped anchor CPFP", c.cfg.ChanPoint)
 
-		// Check the deadline against the default value. If it's less
-		// than the default value of 144, it means there is a deadline
-		// and we will perform a CPFP for this commitment tx.
-		if deadline < anchorSweepConfTarget {
-			// Signal that this is a force sweep, so that the
-			// anchor will be swept even if it isn't economical
-			// purely based on the anchor value.
-			force = true
+			return nil
 		}
-
-		log.Debugf("ChannelArbitrator(%v): pre-confirmation sweep of "+
-			"anchor of %s commit tx %v, force=%v", c.cfg.ChanPoint,
-			anchorPath, anchor.CommitAnchor, force)
 
 		witnessType := input.CommitmentAnchor
 
@@ -1351,6 +1355,28 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 			},
 		)
 
+		// If we have a deadline, we'll use it to calculate the
+		// deadline height, otherwise default to none.
+		deadlineDesc := "None"
+		deadlineHeight := fn.MapOption(func(d int32) int32 {
+			deadlineDesc = fmt.Sprintf("%d", d)
+
+			return d + int32(heightHint)
+		})(deadline)
+
+		// Calculate the budget based on the value under protection,
+		// which is the sum of all HTLCs on this commitment subtracted
+		// by their budgets.
+		budget := calculateBudget(
+			value, c.cfg.Budget.AnchorCPFPRatio,
+			c.cfg.Budget.AnchorCPFP,
+		)
+
+		log.Infof("ChannelArbitrator(%v): offering anchor from %s "+
+			"commitment %v to sweeper with deadline=%v, budget=%v",
+			c.cfg.ChanPoint, anchorPath, anchor.CommitAnchor,
+			deadlineDesc, budget)
+
 		// Sweep anchor output with a confirmation target fee
 		// preference. Because this is a cpfp-operation, the anchor
 		// will only be attempted to sweep when the current fee
@@ -1359,11 +1385,9 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 		_, err = c.cfg.Sweeper.SweepInput(
 			&anchorInput,
 			sweep.Params{
-				Fee: sweep.FeePreference{
-					ConfTarget: deadline,
-				},
-				Force:          force,
 				ExclusiveGroup: &exclusiveGroup,
+				Budget:         budget,
+				DeadlineHeight: deadlineHeight,
 			},
 		)
 		if err != nil {
@@ -1410,20 +1434,26 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 	return nil
 }
 
-// findCommitmentDeadline finds the deadline (relative block height) for a
-// commitment transaction by extracting the minimum CLTV from its HTLCs. From
-// our PoV, the deadline is defined to be the smaller of,
+// findCommitmentDeadlineAndValue finds the deadline (relative block height)
+// for a commitment transaction by extracting the minimum CLTV from its HTLCs.
+// From our PoV, the deadline is defined to be the smaller of,
 //   - the least CLTV from outgoing HTLCs,  or,
 //   - the least CLTV from incoming HTLCs if the preimage is available.
 //
-// Note: when the deadline turns out to be 0 blocks, we will replace it with 1
+// It also finds the total value that are time-sensitive, which is the sum of
+// all the outgoing HTLCs plus incoming HTLCs whose preimages are known. It
+// then returns the value left after subtracting the budget used for sweeping
+// the time-sensitive HTLCs.
+//
+// NOTE: when the deadline turns out to be 0 blocks, we will replace it with 1
 // block because our fee estimator doesn't allow a 0 conf target. This also
 // means we've left behind and should increase our fee to make the transaction
 // confirmed asap.
-func (c *ChannelArbitrator) findCommitmentDeadline(heightHint uint32,
-	htlcs htlcSet) (uint32, error) {
+func (c *ChannelArbitrator) findCommitmentDeadlineAndValue(heightHint uint32,
+	htlcs htlcSet) (fn.Option[int32], btcutil.Amount, error) {
 
 	deadlineMinHeight := uint32(math.MaxUint32)
+	totalValue := btcutil.Amount(0)
 
 	// First, iterate through the outgoingHTLCs to find the lowest CLTV
 	// value.
@@ -1437,11 +1467,15 @@ func (c *ChannelArbitrator) findCommitmentDeadline(heightHint uint32,
 			continue
 		}
 
+		value := htlc.Amt.ToSatoshis()
+		totalValue += value
+
 		if htlc.RefundTimeout < deadlineMinHeight {
 			deadlineMinHeight = htlc.RefundTimeout
+
 			log.Tracef("ChannelArbitrator(%v): outgoing HTLC has "+
-				"deadline: %v", c.cfg.ChanPoint,
-				deadlineMinHeight)
+				"deadline=%v, value=%v", c.cfg.ChanPoint,
+				deadlineMinHeight, value)
 		}
 	}
 
@@ -1461,18 +1495,22 @@ func (c *ChannelArbitrator) findCommitmentDeadline(heightHint uint32,
 		// this HTLC.
 		preimageAvailable, err := c.isPreimageAvailable(htlc.RHash)
 		if err != nil {
-			return 0, err
+			return fn.None[int32](), 0, err
 		}
 
 		if !preimageAvailable {
 			continue
 		}
 
+		value := htlc.Amt.ToSatoshis()
+		totalValue += value
+
 		if htlc.RefundTimeout < deadlineMinHeight {
 			deadlineMinHeight = htlc.RefundTimeout
+
 			log.Tracef("ChannelArbitrator(%v): incoming HTLC has "+
-				"deadline: %v", c.cfg.ChanPoint,
-				deadlineMinHeight)
+				"deadline=%v, amt=%v", c.cfg.ChanPoint,
+				deadlineMinHeight, value)
 		}
 	}
 
@@ -1486,9 +1524,9 @@ func (c *ChannelArbitrator) findCommitmentDeadline(heightHint uint32,
 	deadline := deadlineMinHeight - heightHint
 	switch {
 	// When we couldn't find a deadline height from our HTLCs, we will fall
-	// back to the default value.
+	// back to the default value as there's no time pressure here.
 	case deadlineMinHeight == math.MaxUint32:
-		deadline = anchorSweepConfTarget
+		return fn.None[int32](), 0, nil
 
 	// When the deadline is passed, we will fall back to the smallest conf
 	// target (1 block).
@@ -1499,22 +1537,32 @@ func (c *ChannelArbitrator) findCommitmentDeadline(heightHint uint32,
 		deadline = 1
 	}
 
-	log.Debugf("ChannelArbitrator(%v): calculated deadline: %d, "+
-		"using deadlineMinHeight=%d, heightHint=%d",
-		c.cfg.ChanPoint, deadline, deadlineMinHeight, heightHint)
+	// Calculate the value left after subtracting the budget used for
+	// sweeping the time-sensitive HTLCs.
+	valueLeft := totalValue - calculateBudget(
+		totalValue, c.cfg.Budget.DeadlineHTLCRatio,
+		c.cfg.Budget.DeadlineHTLC,
+	)
 
-	return deadline, nil
+	log.Debugf("ChannelArbitrator(%v): calculated valueLeft=%v, "+
+		"deadline=%d, using deadlineMinHeight=%d, heightHint=%d",
+		c.cfg.ChanPoint, valueLeft, deadline, deadlineMinHeight,
+		heightHint)
+
+	return fn.Some(int32(deadline)), valueLeft, nil
 }
 
 // launchResolvers updates the activeResolvers list and starts the resolvers.
-func (c *ChannelArbitrator) launchResolvers(resolvers []ContractResolver) {
+func (c *ChannelArbitrator) launchResolvers(resolvers []ContractResolver,
+	immediate bool) {
+
 	c.activeResolversLock.Lock()
 	defer c.activeResolversLock.Unlock()
 
 	c.activeResolvers = resolvers
 	for _, contract := range resolvers {
 		c.wg.Add(1)
-		go c.resolveContract(contract)
+		go c.resolveContract(contract, immediate)
 	}
 }
 
@@ -1733,8 +1781,15 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 	for _, htlc := range htlcs.outgoingHTLCs {
 		// We'll need to go on-chain for an outgoing HTLC if it was
 		// never resolved downstream, and it's "close" to timing out.
-		toChain := c.shouldGoOnChain(htlc, c.cfg.OutgoingBroadcastDelta,
-			height,
+		//
+		// TODO(yy): If there's no corresponding incoming HTLC, it
+		// means we are the first hop, hence the payer. This is a
+		// tricky case - unlike a forwarding hop, we don't have an
+		// incoming HTLC that will time out, which means as long as we
+		// can learn the preimage, we can settle the invoice (before it
+		// expires?).
+		toChain := c.shouldGoOnChain(
+			htlc, c.cfg.OutgoingBroadcastDelta, height,
 		)
 
 		if toChain {
@@ -1768,8 +1823,8 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 			continue
 		}
 
-		toChain := c.shouldGoOnChain(htlc, c.cfg.IncomingBroadcastDelta,
-			height,
+		toChain := c.shouldGoOnChain(
+			htlc, c.cfg.IncomingBroadcastDelta, height,
 		)
 
 		if toChain {
@@ -2046,7 +2101,7 @@ func (c *ChannelArbitrator) checkRemoteChainActions(
 	// the commitments, and cancel back any that are on the pending but not
 	// the non-pending.
 	remoteDiffActions := c.checkRemoteDiffActions(
-		height, activeHTLCs, pendingConf,
+		activeHTLCs, pendingConf,
 	)
 
 	// Finally, we'll merge all the chain actions and the final set of
@@ -2059,7 +2114,7 @@ func (c *ChannelArbitrator) checkRemoteChainActions(
 // confirmed commit and remote dangling commit for HTLCS that we need to cancel
 // back. If we find any HTLCs on the remote pending but not the remote, then
 // we'll mark them to be failed immediately.
-func (c *ChannelArbitrator) checkRemoteDiffActions(height uint32,
+func (c *ChannelArbitrator) checkRemoteDiffActions(
 	activeHTLCs map[HtlcSetKey]htlcSet,
 	pendingConf bool) ChainActionMap {
 
@@ -2083,6 +2138,20 @@ func (c *ChannelArbitrator) checkRemoteDiffActions(height uint32,
 	actionMap := make(ChainActionMap)
 	for _, htlc := range danglingHTLCs.outgoingHTLCs {
 		if _, ok := remoteHtlcs[htlc.HtlcIndex]; ok {
+			continue
+		}
+
+		preimageAvailable, err := c.isPreimageAvailable(htlc.RHash)
+		if err != nil {
+			log.Errorf("ChannelArbitrator(%v): failed to query "+
+				"preimage for dangling htlc=%x from remote "+
+				"commitments diff", c.cfg.ChanPoint,
+				htlc.RHash[:])
+
+			continue
+		}
+
+		if preimageAvailable {
 			continue
 		}
 
@@ -2349,6 +2418,14 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				if chanState != nil {
 					resolver.SupplementState(chanState)
 				}
+
+				// For outgoing HTLCs, we will also need to
+				// supplement the resolver with the expiry
+				// block height of its corresponding incoming
+				// HTLC.
+				deadline := c.cfg.FindOutgoingHTLCDeadline(htlc)
+				resolver.SupplementDeadline(deadline)
+
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 
@@ -2441,6 +2518,14 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				if chanState != nil {
 					resolver.SupplementState(chanState)
 				}
+
+				// For outgoing HTLCs, we will also need to
+				// supplement the resolver with the expiry
+				// block height of its corresponding incoming
+				// HTLC.
+				deadline := c.cfg.FindOutgoingHTLCDeadline(htlc)
+				resolver.SupplementDeadline(deadline)
+
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 		}
@@ -2490,7 +2575,9 @@ func (c *ChannelArbitrator) replaceResolver(oldResolver,
 // contracts.
 //
 // NOTE: This MUST be run as a goroutine.
-func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
+func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver,
+	immediate bool) {
+
 	defer c.wg.Done()
 
 	log.Debugf("ChannelArbitrator(%v): attempting to resolve %T",
@@ -2511,7 +2598,7 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 		default:
 			// Otherwise, we'll attempt to resolve the current
 			// contract.
-			nextContract, err := currentContract.Resolve()
+			nextContract, err := currentContract.Resolve(immediate)
 			if err != nil {
 				if err == errResolverShuttingDown {
 					return

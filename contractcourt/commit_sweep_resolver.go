@@ -13,15 +13,10 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
-)
-
-const (
-	// commitOutputConfTarget is the default confirmation target we'll use
-	// for sweeps of commit outputs that belong to us.
-	commitOutputConfTarget = 6
 )
 
 // commitSweepResolver is a resolver that will attempt to sweep the commitment
@@ -189,7 +184,9 @@ func (c *commitSweepResolver) getCommitTxConfHeight() (uint32, error) {
 // returned.
 //
 // NOTE: This function MUST be run as a goroutine.
-func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
+//
+//nolint:funlen
+func (c *commitSweepResolver) Resolve(_ bool) (ContractResolver, error) {
 	// If we're already resolved, then we can exit early.
 	if c.resolved {
 		return nil, nil
@@ -347,12 +344,23 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// TODO(roasbeef): instead of ading ctrl block to the sign desc, make
 	// new input type, have sweeper set it?
 
-	// With our input constructed, we'll now offer it to the
-	// sweeper.
-	c.log.Infof("sweeping commit output")
+	// Calculate the budget for the sweeping this input.
+	budget := calculateBudget(
+		btcutil.Amount(inp.SignDesc().Output.Value),
+		c.Budget.ToLocalRatio, c.Budget.ToLocal,
+	)
+	c.log.Infof("Sweeping commit output using budget=%v", budget)
 
-	feePref := sweep.FeePreference{ConfTarget: commitOutputConfTarget}
-	resultChan, err := c.Sweeper.SweepInput(inp, sweep.Params{Fee: feePref})
+	// With our input constructed, we'll now offer it to the sweeper.
+	resultChan, err := c.Sweeper.SweepInput(
+		inp, sweep.Params{
+			Budget: budget,
+
+			// Specify a nil deadline here as there's no time
+			// pressure.
+			DeadlineHeight: fn.None[int32](),
+		},
+	)
 	if err != nil {
 		c.log.Errorf("unable to sweep input: %v", err)
 

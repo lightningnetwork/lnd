@@ -713,8 +713,10 @@ var interfaceImpls = []struct {
 
 			// Start a bitcoind instance.
 			tempBitcoindDir := t.TempDir()
-			zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
-			zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
+			zmqBlockHost := fmt.Sprintf("tcp://localhost:%d",
+				getFreePort())
+			zmqTxHost := fmt.Sprintf("tcp://localhost:%d",
+				getFreePort())
 
 			rpcPort := getFreePort()
 			bitcoind := exec.Command(

@@ -28,14 +28,6 @@ const (
 	// less than this will result in an error.
 	minBlockTarget uint32 = 1
 
-	// minFeeUpdateTimeout represents the minimum interval in which a
-	// WebAPIEstimator will request fresh fees from its API.
-	minFeeUpdateTimeout = 5 * time.Minute
-
-	// maxFeeUpdateTimeout represents the maximum interval in which a
-	// WebAPIEstimator will request fresh fees from its API.
-	maxFeeUpdateTimeout = 20 * time.Minute
-
 	// WebAPIConnectionTimeout specifies the timeout value for connecting
 	// to the api source.
 	WebAPIConnectionTimeout = 5 * time.Second
@@ -739,19 +731,43 @@ type WebAPIEstimator struct {
 	// estimates.
 	noCache bool
 
+	// minFeeUpdateTimeout represents the minimum interval in which the
+	// web estimator will request fresh fees from its API.
+	minFeeUpdateTimeout time.Duration
+
+	// minFeeUpdateTimeout represents the maximum interval in which the
+	// web estimator will request fresh fees from its API.
+	maxFeeUpdateTimeout time.Duration
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
 
 // NewWebAPIEstimator creates a new WebAPIEstimator from a given URL and a
 // fallback default fee. The fees are updated whenever a new block is mined.
-func NewWebAPIEstimator(api WebAPIFeeSource, noCache bool) *WebAPIEstimator {
-	return &WebAPIEstimator{
-		apiSource:        api,
-		feeByBlockTarget: make(map[uint32]uint32),
-		noCache:          noCache,
-		quit:             make(chan struct{}),
+func NewWebAPIEstimator(api WebAPIFeeSource, noCache bool,
+	minFeeUpdateTimeout time.Duration,
+	maxFeeUpdateTimeout time.Duration) (*WebAPIEstimator, error) {
+
+	if minFeeUpdateTimeout == 0 || maxFeeUpdateTimeout == 0 {
+		return nil, fmt.Errorf("minFeeUpdateTimeout and " +
+			"maxFeeUpdateTimeout must be greater than 0")
 	}
+
+	if minFeeUpdateTimeout >= maxFeeUpdateTimeout {
+		return nil, fmt.Errorf("minFeeUpdateTimeout target of %v "+
+			"cannot be greater than maxFeeUpdateTimeout of %v",
+			minFeeUpdateTimeout, maxFeeUpdateTimeout)
+	}
+
+	return &WebAPIEstimator{
+		apiSource:           api,
+		feeByBlockTarget:    make(map[uint32]uint32),
+		noCache:             noCache,
+		quit:                make(chan struct{}),
+		minFeeUpdateTimeout: minFeeUpdateTimeout,
+		maxFeeUpdateTimeout: maxFeeUpdateTimeout,
+	}, nil
 }
 
 // EstimateFeePerKW takes in a target for the number of blocks until an initial
@@ -809,7 +825,12 @@ func (w *WebAPIEstimator) Start() error {
 	w.started.Do(func() {
 		log.Infof("Starting web API fee estimator")
 
-		w.updateFeeTicker = time.NewTicker(w.randomFeeUpdateTimeout())
+		feeUpdateTimeout := w.randomFeeUpdateTimeout()
+
+		log.Infof("Web API fee estimator using update timeout of %v",
+			feeUpdateTimeout)
+
+		w.updateFeeTicker = time.NewTicker(feeUpdateTimeout)
 		w.updateFeeEstimates()
 
 		w.wg.Add(1)
@@ -852,9 +873,11 @@ func (w *WebAPIEstimator) RelayFeePerKW() SatPerKWeight {
 // and maxFeeUpdateTimeout that will be used to determine how often the Estimator
 // should retrieve fresh fees from its API.
 func (w *WebAPIEstimator) randomFeeUpdateTimeout() time.Duration {
-	lower := int64(minFeeUpdateTimeout)
-	upper := int64(maxFeeUpdateTimeout)
-	return time.Duration(prand.Int63n(upper-lower) + lower)
+	lower := int64(w.minFeeUpdateTimeout)
+	upper := int64(w.maxFeeUpdateTimeout)
+	return time.Duration(
+		prand.Int63n(upper-lower) + lower, //nolint:gosec
+	).Round(time.Second)
 }
 
 // getCachedFee takes a conf target and returns the cached fee rate. When the

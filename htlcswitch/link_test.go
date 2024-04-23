@@ -2220,11 +2220,11 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 		BatchTicker:          bticker,
 		FwdPkgGCTicker:       ticker.NewForce(15 * time.Second),
 		PendingCommitTicker:  ticker.New(time.Minute),
-		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
+		// Make the BatchSize and Min/MaxUpdateTimeout large enough
 		// to not trigger commit updates automatically during tests.
 		BatchSize:               10000,
-		MinFeeUpdateTimeout:     30 * time.Minute,
-		MaxFeeUpdateTimeout:     40 * time.Minute,
+		MinUpdateTimeout:        30 * time.Minute,
+		MaxUpdateTimeout:        40 * time.Minute,
 		MaxOutgoingCltvExpiry:   DefaultMaxOutgoingCltvExpiry,
 		MaxFeeAllocation:        DefaultMaxLinkFeeAllocation,
 		NotifyActiveLink:        func(wire.OutPoint) {},
@@ -4881,11 +4881,11 @@ func (h *persistentLinkHarness) restartLink(
 		BatchTicker:          bticker,
 		FwdPkgGCTicker:       ticker.New(5 * time.Second),
 		PendingCommitTicker:  ticker.New(time.Minute),
-		// Make the BatchSize and Min/MaxFeeUpdateTimeout large enough
+		// Make the BatchSize and Min/MaxUpdateTimeout large enough
 		// to not trigger commit updates automatically during tests.
-		BatchSize:           10000,
-		MinFeeUpdateTimeout: 30 * time.Minute,
-		MaxFeeUpdateTimeout: 40 * time.Minute,
+		BatchSize:        10000,
+		MinUpdateTimeout: 30 * time.Minute,
+		MaxUpdateTimeout: 40 * time.Minute,
 		// Set any hodl flags requested for the new link.
 		HodlMask:                hodl.MaskFromFlags(hodlFlags...),
 		MaxOutgoingCltvExpiry:   DefaultMaxOutgoingCltvExpiry,

@@ -122,7 +122,8 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	updateNodeAnnouncement func(features *lnwire.RawFeatureVector,
 		modifiers ...netann.NodeAnnModifier) error,
 	parseAddr func(addr string) (net.Addr, error),
-	rpcLogger btclog.Logger, aliasMgr *aliasmgr.Manager) error {
+	rpcLogger btclog.Logger, aliasMgr *aliasmgr.Manager,
+	invoiceHtlcModifier *invoices.HtlcModificationInterceptor) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
 	// that allows us to programmatically inspect its fields.
@@ -237,6 +238,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			)
 			subCfgValue.FieldByName("InvoiceRegistry").Set(
 				reflect.ValueOf(invoiceRegistry),
+			)
+			subCfgValue.FieldByName("HtlcModifier").Set(
+				reflect.ValueOf(invoiceHtlcModifier),
 			)
 			subCfgValue.FieldByName("IsChannelActive").Set(
 				reflect.ValueOf(htlcSwitch.HasActiveLink),

@@ -317,6 +317,51 @@
     "invoicesrpcCancelInvoiceResp": {
       "type": "object"
     },
+    "invoicesrpcCircuitKey": {
+      "type": "object",
+      "properties": {
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The id of the channel that the is part of this circuit."
+        },
+        "htlc_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The index of the incoming htlc in the incoming channel."
+        }
+      },
+      "description": "CircuitKey is a unique identifier for an HTLC."
+    },
+    "invoicesrpcInvoiceAcceptorRequest": {
+      "type": "object",
+      "properties": {
+        "invoice": {
+          "$ref": "#/definitions/lnrpcInvoice",
+          "description": "invoice is the invoice that the client should consider accepting."
+        },
+        "exit_htlc_circuit_key": {
+          "$ref": "#/definitions/invoicesrpcCircuitKey",
+          "description": "exit_htlc_circuit_key is the key of the HTLC for which we is involved in\nthe invoice settlement attempt."
+        },
+        "exit_htlc_amt": {
+          "type": "string",
+          "format": "uint64",
+          "description": "exit_htlc_amt is the amount (millisats) that the client should consider\naccepting."
+        },
+        "exit_htlc_expiry": {
+          "type": "integer",
+          "format": "int64",
+          "description": "exit_htlc_expiry is the expiry time of the exit HTLC."
+        },
+        "current_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "current_height is the current block height."
+        }
+      },
+      "description": "InvoiceAcceptorRequest is a message that the server sends to the client to\nrequest the client to accept an invoice."
+    },
     "invoicesrpcLookupModifier": {
       "type": "string",
       "enum": [

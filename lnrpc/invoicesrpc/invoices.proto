@@ -59,6 +59,14 @@ service Invoices {
     using either its payment hash, payment address, or set ID.
     */
     rpc LookupInvoiceV2 (LookupInvoiceMsg) returns (lnrpc.Invoice);
+
+    /*
+    InvoiceAcceptor is a bi-directional streaming RPC that allows a client to
+    accept invoices. The server will send invoices to the client and the client
+    can respond with whether it accepts the invoice or not.
+     */
+    rpc InvoiceAcceptor (stream InvoiceAcceptorResponse)
+        returns (stream InvoiceAcceptorRequest);
 }
 
 message CancelInvoiceMsg {
@@ -191,4 +199,45 @@ message LookupInvoiceMsg {
     }
 
     LookupModifier lookup_modifier = 4;
+}
+
+// CircuitKey is a unique identifier for an HTLC.
+message CircuitKey {
+    /// The id of the channel that the is part of this circuit.
+    uint64 chan_id = 1;
+
+    /// The index of the incoming htlc in the incoming channel.
+    uint64 htlc_id = 2;
+}
+
+// InvoiceAcceptorRequest is a message that the server sends to the client to
+// request the client to accept an invoice.
+message InvoiceAcceptorRequest {
+    // invoice is the invoice that the client should consider accepting.
+    lnrpc.Invoice invoice = 1;
+
+    // exit_htlc_circuit_key is the key of the HTLC for which we is involved in
+    // the invoice settlement attempt.
+    CircuitKey exit_htlc_circuit_key = 2;
+
+    // exit_htlc_amt is the amount (millisats) that the client should consider
+    // accepting.
+    uint64 exit_htlc_amt = 3;
+
+    // exit_htlc_expiry is the expiry time of the exit HTLC.
+    uint32 exit_htlc_expiry = 4;
+
+    // current_height is the current block height.
+    uint32 current_height = 5;
+}
+
+// InvoiceAcceptorResponse is a message that the client sends to the server to
+// indicate whether it accepts the invoice or not.
+message InvoiceAcceptorResponse {
+    // preimage is the preimage of the invoice.
+    bytes preimage = 1;
+
+    // skip_amount_check is a flag that indicates whether the client wants to
+    // skip the amount check during the invoice settlement process.
+    bool skip_amount_check = 2;
 }

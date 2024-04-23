@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -31,6 +32,12 @@ const (
 )
 
 var (
+	// ErrInvoiceAcceptorAlreadyExists signals that an invoice acceptor
+	// already exists. The user must disconnect an existing invoice accptor
+	// prior to opening another stream.
+	ErrInvoiceAcceptorAlreadyExists = errors.New("interceptor already " +
+		"exists")
+
 	// macaroonOps are the set of capabilities that our minted macaroon (if
 	// it doesn't already exist) will have.
 	macaroonOps = []bakery.Op{
@@ -66,6 +73,10 @@ var (
 			Entity: "invoices",
 			Action: "write",
 		}},
+		"/invoicesrpc.Invoices/InvoiceAcceptor": {{
+			Entity: "invoices",
+			Action: "write",
+		}},
 	}
 
 	// DefaultInvoicesMacFilename is the default name of the invoices
@@ -87,6 +98,12 @@ type ServerShell struct {
 type Server struct {
 	// Required by the grpc-gateway/v2 library for forward compatibility.
 	UnimplementedInvoicesServer
+
+	// invoiceAcceptorActive is an atomic flag that indicates whether an
+	// invoice acceptor RPC server is currently active. It is used to ensure
+	// that only one invoice acceptor RPC server instance is running at a
+	// time.
+	invoiceAcceptorActive atomic.Int32
 
 	quit chan struct{}
 
@@ -446,4 +463,23 @@ func (s *Server) LookupInvoiceV2(ctx context.Context,
 	}
 
 	return CreateRPCInvoice(&invoice, s.cfg.ChainParams)
+}
+
+// InvoiceAcceptor is a bidirectional streaming RPC that allows a client to
+// inspect and optionally accept invoices.
+func (s *Server) InvoiceAcceptor(
+	acceptorServer Invoices_InvoiceAcceptorServer) error {
+
+	// Ensure that there is only one invoice acceptor RPC server instance.
+	if !s.invoiceAcceptorActive.CompareAndSwap(0, 1) {
+		return ErrInvoiceAcceptorAlreadyExists
+	}
+	defer s.invoiceAcceptorActive.CompareAndSwap(1, 0)
+
+	// Run the invoice acceptor.
+	return newInvoiceAcceptor(invoiceAcceptorConfig{
+		chainParams: s.cfg.ChainParams,
+		interceptor: s.cfg.InvoiceSettlementInterceptor,
+		rpcServer:   acceptorServer,
+	}).run()
 }

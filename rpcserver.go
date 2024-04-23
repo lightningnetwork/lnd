@@ -672,7 +672,9 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 // be started, and start accepting RPC calls.
 func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, atpl *autopilot.Manager,
-	invoiceRegistry *invoices.InvoiceRegistry, tower *watchtower.Standalone,
+	invoiceRegistry *invoices.InvoiceRegistry,
+	invoiceSettlementInterceptor *invoices.SettlementInterceptor,
+	tower *watchtower.Standalone,
 	chanPredicate chanacceptor.MultiplexAcceptor) error {
 
 	// Set up router rpc backend.
@@ -771,12 +773,13 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 	// TODO(roasbeef): extend sub-sever config to have both (local vs remote) DB
 	err = subServerCgs.PopulateDependencies(
 		r.cfg, s.cc, r.cfg.networkDir, macService, atpl, invoiceRegistry,
-		s.htlcSwitch, r.cfg.ActiveNetParams.Params, s.chanRouter,
-		routerBackend, s.nodeSigner, s.graphDB, s.chanStateDB,
-		s.sweeper, tower, s.towerClientMgr, r.cfg.net.ResolveTCPAddr,
-		genInvoiceFeatures, genAmpInvoiceFeatures,
-		s.getNodeAnnouncement, s.updateAndBrodcastSelfNode, parseAddr,
-		rpcsLog, s.aliasMgr.GetPeerAlias,
+		invoiceSettlementInterceptor, s.htlcSwitch,
+		r.cfg.ActiveNetParams.Params, s.chanRouter, routerBackend,
+		s.nodeSigner, s.graphDB, s.chanStateDB, s.sweeper, tower,
+		s.towerClientMgr, r.cfg.net.ResolveTCPAddr, genInvoiceFeatures,
+		genAmpInvoiceFeatures, s.getNodeAnnouncement,
+		s.updateAndBrodcastSelfNode, parseAddr, rpcsLog,
+		s.aliasMgr.GetPeerAlias,
 	)
 	if err != nil {
 		return err

@@ -261,18 +261,6 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			return nil, nil, err
 		}
 
-		// Map the deprecated neutrino feeurl flag to the general fee
-		// url.
-		if cfg.NeutrinoMode.FeeURL != "" {
-			if cfg.FeeURL != "" {
-				return nil, nil, errors.New("feeurl and " +
-					"neutrino.feeurl are mutually " +
-					"exclusive")
-			}
-
-			cfg.FeeURL = cfg.NeutrinoMode.FeeURL
-		}
-
 		cc.ChainSource = chain.NewNeutrinoClient(
 			cfg.ActiveNetParams.Params, cfg.NeutrinoCS,
 		)

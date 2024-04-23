@@ -104,6 +104,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	networkDir string, macService *macaroons.Service,
 	atpl *autopilot.Manager,
 	invoiceRegistry *invoices.InvoiceRegistry,
+	invoiceSettlementInterceptor *invoices.SettlementInterceptor,
 	htlcSwitch *htlcswitch.Switch,
 	activeNetParams *chaincfg.Params,
 	chanRouter *routing.ChannelRouter,
@@ -237,6 +238,10 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			)
 			subCfgValue.FieldByName("InvoiceRegistry").Set(
 				reflect.ValueOf(invoiceRegistry),
+			)
+			//nolint:lll
+			subCfgValue.FieldByName("InvoiceSettlementInterceptor").Set(
+				reflect.ValueOf(invoiceSettlementInterceptor),
 			)
 			subCfgValue.FieldByName("IsChannelActive").Set(
 				reflect.ValueOf(htlcSwitch.HasActiveLink),

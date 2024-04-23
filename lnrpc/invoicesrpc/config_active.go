@@ -30,6 +30,11 @@ type Config struct {
 	// created by the daemon.
 	InvoiceRegistry *invoices.InvoiceRegistry
 
+	// InvoiceSettlementInterceptor is a service which intercepts invoices
+	// during the settlement phase, enabling a subscribed client to
+	// determine the settlement outcome.
+	InvoiceSettlementInterceptor invoices.SettlementInterceptorInterface
+
 	// IsChannelActive is used to generate valid hop hints.
 	IsChannelActive func(chanID lnwire.ChannelID) bool
 

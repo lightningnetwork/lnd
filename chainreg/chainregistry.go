@@ -77,9 +77,13 @@ type Config struct {
 	// ActiveNetParams details the current chain we are on.
 	ActiveNetParams BitcoinNetParams
 
-	// FeeURL defines the URL for fee estimation we will use. This field is
-	// optional.
+	// Deprecated: Use Fee.URL. FeeURL defines the URL for fee estimation
+	// we will use. This field is optional.
 	FeeURL string
+
+	// Fee defines settings for the web fee estimator. This field is
+	// optional.
+	Fee *lncfg.Fee
 
 	// Dialer is a function closure that will be used to establish outbound
 	// TCP connections to Bitcoin peers in the event of a pruned block being
@@ -241,6 +245,16 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to initialize height hint "+
 			"cache: %v", err)
+	}
+
+	// Map the deprecated feeurl flag to fee.url.
+	if cfg.FeeURL != "" {
+		if cfg.Fee.URL != "" {
+			return nil, nil, errors.New("fee.url and " +
+				"feeurl are mutually exclusive")
+		}
+
+		cfg.Fee.URL = cfg.FeeURL
 	}
 
 	// If spv mode is active, then we'll be using a distinct set of
@@ -682,27 +696,34 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	// If the fee URL isn't set, and the user is running mainnet, then
 	// we'll return an error to instruct them to set a proper fee
 	// estimator.
-	case cfg.FeeURL == "" && cfg.Bitcoin.MainNet &&
+	case cfg.Fee.URL == "" && cfg.Bitcoin.MainNet &&
 		cfg.Bitcoin.Node == "neutrino":
 
-		return nil, nil, fmt.Errorf("--feeurl parameter required " +
+		return nil, nil, fmt.Errorf("--fee.url parameter required " +
 			"when running neutrino on mainnet")
 
 	// Override default fee estimator if an external service is specified.
-	case cfg.FeeURL != "":
+	case cfg.Fee.URL != "":
 		// Do not cache fees on regtest to make it easier to execute
 		// manual or automated test cases.
 		cacheFees := !cfg.Bitcoin.RegTest
 
-		log.Infof("Using external fee estimator %v: cached=%v",
-			cfg.FeeURL, cacheFees)
+		log.Infof("Using external fee estimator %v: cached=%v: "+
+			"min update timeout=%v, max update timeout=%v",
+			cfg.Fee.URL, cacheFees, cfg.Fee.MinUpdateTimeout,
+			cfg.Fee.MaxUpdateTimeout)
 
-		cc.FeeEstimator = chainfee.NewWebAPIEstimator(
+		cc.FeeEstimator, err = chainfee.NewWebAPIEstimator(
 			chainfee.SparseConfFeeSource{
-				URL: cfg.FeeURL,
+				URL: cfg.Fee.URL,
 			},
 			!cacheFees,
+			cfg.Fee.MinUpdateTimeout,
+			cfg.Fee.MaxUpdateTimeout,
 		)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	ccCleanup := func() {

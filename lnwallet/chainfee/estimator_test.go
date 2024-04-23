@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/stretchr/testify/require"
@@ -142,6 +143,9 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 		// Fee rates are in sat/kb.
 		minFeeRate uint32 = 2000 // 500 sat/kw
 		maxFeeRate uint32 = 4000 // 1000 sat/kw
+
+		minFeeUpdateTimeout = 5 * time.Minute
+		maxFeeUpdateTimeout = 20 * time.Minute
 	)
 
 	testCases := []struct {
@@ -199,7 +203,9 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 	feeSource := &mockFeeSource{}
 	feeSource.On("GetFeeMap").Return(feeRateResp, nil)
 
-	estimator := NewWebAPIEstimator(feeSource, false)
+	estimator, _ := NewWebAPIEstimator(
+		feeSource, false, minFeeUpdateTimeout, maxFeeUpdateTimeout,
+	)
 
 	// Test that requesting a fee when no fees have been cached won't fail.
 	feeRate, err := estimator.EstimateFeePerKW(5)
@@ -247,10 +253,15 @@ func TestGetCachedFee(t *testing.T) {
 
 		minFeeRate uint32 = 100
 		maxFeeRate uint32 = 1000
+
+		minFeeUpdateTimeout = 5 * time.Minute
+		maxFeeUpdateTimeout = 20 * time.Minute
 	)
 
 	// Create a dummy estimator without WebAPIFeeSource.
-	estimator := NewWebAPIEstimator(nil, false)
+	estimator, _ := NewWebAPIEstimator(
+		nil, false, minFeeUpdateTimeout, maxFeeUpdateTimeout,
+	)
 
 	// When the cache is empty, an error should be returned.
 	cachedFee, err := estimator.getCachedFee(minTarget)
@@ -314,4 +325,39 @@ func TestGetCachedFee(t *testing.T) {
 			require.Equal(t, tc.expectedFee, cachedFee)
 		})
 	}
+}
+
+func TestRandomFeeUpdateTimeout(t *testing.T) {
+	t.Parallel()
+
+	var (
+		minFeeUpdateTimeout = 1 * time.Minute
+		maxFeeUpdateTimeout = 2 * time.Minute
+	)
+
+	estimator, _ := NewWebAPIEstimator(
+		nil, false, minFeeUpdateTimeout, maxFeeUpdateTimeout,
+	)
+
+	for i := 0; i < 1000; i++ {
+		timeout := estimator.randomFeeUpdateTimeout()
+
+		require.GreaterOrEqual(t, timeout, minFeeUpdateTimeout)
+		require.LessOrEqual(t, timeout, maxFeeUpdateTimeout)
+	}
+}
+
+func TestInvalidFeeUpdateTimeout(t *testing.T) {
+	t.Parallel()
+
+	var (
+		minFeeUpdateTimeout = 2 * time.Minute
+		maxFeeUpdateTimeout = 1 * time.Minute
+	)
+
+	_, err := NewWebAPIEstimator(
+		nil, false, minFeeUpdateTimeout, maxFeeUpdateTimeout,
+	)
+	require.Error(t, err, "NewWebAPIEstimator should return an error "+
+		"when minFeeUpdateTimeout > maxFeeUpdateTimeout")
 }

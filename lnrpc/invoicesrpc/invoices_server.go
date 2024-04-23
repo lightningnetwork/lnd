@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -31,6 +32,13 @@ const (
 )
 
 var (
+	// ErrInvoiceHtlcModifierAlreadyExists signals that an invoice HTLC
+	// modifier already exists. The user must disconnect an existing invoice
+	// HTLC modifier prior to opening another stream.
+	ErrInvoiceHtlcModifierAlreadyExists = errors.New(
+		"invoice HTLC modifier already exists",
+	)
+
 	// macaroonOps are the set of capabilities that our minted macaroon (if
 	// it doesn't already exist) will have.
 	macaroonOps = []bakery.Op{
@@ -66,6 +74,10 @@ var (
 			Entity: "invoices",
 			Action: "write",
 		}},
+		"/invoicesrpc.Invoices/HtlcModifier": {{
+			Entity: "invoices",
+			Action: "write",
+		}},
 	}
 
 	// DefaultInvoicesMacFilename is the default name of the invoices
@@ -87,6 +99,12 @@ type ServerShell struct {
 type Server struct {
 	// Required by the grpc-gateway/v2 library for forward compatibility.
 	UnimplementedInvoicesServer
+
+	// invoiceHtlcModifierActive is an atomic flag that indicates whether an
+	// invoice HTLC modifier RPC server is currently active. It is used to
+	// ensure that only one invoice HTLC modifier RPC server instance is
+	// running at a time.
+	invoiceHtlcModifierActive atomic.Int32
 
 	quit chan struct{}
 
@@ -446,4 +464,28 @@ func (s *Server) LookupInvoiceV2(ctx context.Context,
 	}
 
 	return CreateRPCInvoice(&invoice, s.cfg.ChainParams)
+}
+
+// HtlcModifier is a bidirectional streaming RPC that allows a client to
+// intercept and modify the HTLCs that attempt to settle the given invoice. The
+// server will send HTLCs of invoices to the client and the client can modify
+// some aspects of the HTLC in order to pass the invoice acceptance tests.
+func (s *Server) HtlcModifier(
+	modifierServer Invoices_HtlcModifierServer) error {
+
+	// Ensure that there is only one invoice HTLC modifier RPC server
+	// instance.
+	if !s.invoiceHtlcModifierActive.CompareAndSwap(0, 1) {
+		return ErrInvoiceHtlcModifierAlreadyExists
+	}
+	defer s.invoiceHtlcModifierActive.CompareAndSwap(1, 0)
+
+	// Run the invoice HTLC  modifier.
+	log.Debugf("Invoice HTLC modifier client connected")
+
+	return newHtlcModifier(htlcModifierConfig{
+		chainParams:             s.cfg.ChainParams,
+		modificationInterceptor: s.cfg.HtlcModifier,
+		serverStream:            modifierServer,
+	}).run()
 }

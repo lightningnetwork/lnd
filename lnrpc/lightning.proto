@@ -3890,6 +3890,10 @@ message InvoiceHTLC {
 
     // Details relevant to AMP HTLCs, only populated if this is an AMP HTLC.
     AMP amp = 11;
+
+    // Custom tlv records that were only sent on the p2p wire message, not in
+    // the onion.
+    map<uint64, bytes> wire_custom_records = 12;
 }
 
 // Details specific to AMP HTLCs.

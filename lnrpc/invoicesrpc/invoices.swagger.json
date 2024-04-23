@@ -82,9 +82,52 @@
         ]
       }
     },
+    "/v2/invoices/htlcmodifier": {
+      "post": {
+        "summary": "HtlcModifier is a bidirectional streaming RPC that allows a client to\nintercept and modify the HTLCs that attempt to settle the given invoice. The\nserver will send HTLCs of invoices to the client and the client can modify\nsome aspects of the HTLC in order to pass the invoice acceptance tests.",
+        "operationId": "Invoices_HtlcModifier",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/invoicesrpcHtlcModifyRequest"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of invoicesrpcHtlcModifyRequest"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": " (streaming inputs)",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/invoicesrpcHtlcModifyResponse"
+            }
+          }
+        ],
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
     "/v2/invoices/lookup": {
       "get": {
-        "summary": "LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced\nusing either its payment hash, payment address, or set ID.",
+        "summary": "LookupInvoiceV2 attempts to look up at invoice. An invoice can be referenced\nusing either its payment hash, payment address, or set ID.",
         "operationId": "Invoices_LookupInvoiceV2",
         "responses": {
           "200": {
@@ -316,6 +359,72 @@
     },
     "invoicesrpcCancelInvoiceResp": {
       "type": "object"
+    },
+    "invoicesrpcCircuitKey": {
+      "type": "object",
+      "properties": {
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The id of the channel that the is part of this circuit."
+        },
+        "htlc_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "/ The index of the incoming htlc in the incoming channel."
+        }
+      },
+      "description": "CircuitKey is a unique identifier for an HTLC."
+    },
+    "invoicesrpcHtlcModifyRequest": {
+      "type": "object",
+      "properties": {
+        "invoice": {
+          "$ref": "#/definitions/lnrpcInvoice",
+          "description": "The invoice the intercepted HTLC is attempting to settle. The HTLCs in\nthe invoice are only HTLCs that have already been accepted or settled,\nnot including the current intercepted HTLC."
+        },
+        "exit_htlc_circuit_key": {
+          "$ref": "#/definitions/invoicesrpcCircuitKey",
+          "description": "The unique identifier of the HTLC of this intercepted HTLC."
+        },
+        "exit_htlc_amt": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount in milli-satoshi that the exit HTLC is attempting to pay."
+        },
+        "exit_htlc_expiry": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The absolute expiry height of the exit HTLC."
+        },
+        "current_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The current block height."
+        },
+        "exit_htlc_wire_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The wire message custom records of the exit HTLC."
+        }
+      }
+    },
+    "invoicesrpcHtlcModifyResponse": {
+      "type": "object",
+      "properties": {
+        "circuit_key": {
+          "$ref": "#/definitions/invoicesrpcCircuitKey",
+          "description": "The circuit key of the HTLC that the client wants to modify."
+        },
+        "amt_paid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The modified amount in milli-satoshi that the exit HTLC is paying. This\nvalue can be different from the actual on-chain HTLC amount, in case the\nHTLC carries other valuable items, as can be the case with custom channel\ntypes. In order to not modify this value, the client should set it zero."
+        }
+      }
     },
     "invoicesrpcLookupModifier": {
       "type": "string",
@@ -639,6 +748,14 @@
         "amp": {
           "$ref": "#/definitions/lnrpcAMP",
           "description": "Details relevant to AMP HTLCs, only populated if this is an AMP HTLC."
+        },
+        "wire_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Custom tlv records that were only sent on the p2p wire message, not in\nthe onion."
         }
       },
       "title": "Details of an HTLC that paid to an invoice"

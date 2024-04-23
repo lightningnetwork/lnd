@@ -1014,6 +1014,7 @@ func newMockRegistry(minDelta uint32) *mockInvoiceRegistry {
 		panic(err)
 	}
 
+	modifierMock := &invoices.MockHtlcModifier{}
 	registry := invoices.NewRegistry(
 		cdb,
 		invoices.NewInvoiceExpiryWatcher(
@@ -1022,6 +1023,7 @@ func newMockRegistry(minDelta uint32) *mockInvoiceRegistry {
 		),
 		&invoices.RegistryConfig{
 			FinalCltvRejectDelta: 5,
+			HtlcInterceptor:      modifierMock,
 		},
 	)
 	registry.Start()

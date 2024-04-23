@@ -198,3 +198,42 @@ type InvoiceUpdater interface {
 	// Finalize finalizes the update before it is written to the database.
 	Finalize(updateType UpdateType) error
 }
+
+// InterceptClientRequest is the request that is passed to the client via
+// callback during an interceptor session. The request contains the invoice that
+// is being intercepted and supporting information.
+type InterceptClientRequest struct {
+	// ExitHtlcCircuitKey is the circuit key that identifies the HTLC which
+	// is involved in the invoice settlement.
+	ExitHtlcCircuitKey CircuitKey
+
+	// ExitHtlcAmt is the amount of the HTLC which is involved in the
+	// invoice settlement.
+	ExitHtlcAmt lnwire.MilliSatoshi
+
+	// ExitHtlcExpiry is the expiry time of the HTLC which is involved in
+	// the invoice settlement.
+	ExitHtlcExpiry uint32
+
+	// CurrentHeight is the current block height.
+	CurrentHeight uint32
+
+	// Invoice is the invoice that is being intercepted.
+	Invoice Invoice
+}
+
+// InterceptorClientCallback is a function that is called when an invoice is
+// intercepted by the invoice interceptor.
+type InterceptorClientCallback func(InterceptClientRequest) error
+
+// SettlementInterceptorInterface is an interface that allows the caller to
+// intercept and specify invoice settlement outcomes.
+type SettlementInterceptorInterface interface {
+	// SetClientCallback sets the client callback function that is called
+	// when an invoice is intercepted.
+	SetClientCallback(InterceptorClientCallback)
+
+	// Resolve is called by the caller to settle an invoice with the
+	// corresponding resolution.
+	Resolve(lntypes.Hash, bool) error
+}

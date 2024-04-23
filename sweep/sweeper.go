@@ -43,11 +43,6 @@ var (
 
 // Params contains the parameters that control the sweeping process.
 type Params struct {
-	// Fee is the fee preference of the client who requested the input to be
-	// swept. If a confirmation target is specified, then we'll map it into
-	// a fee rate whenever we attempt to cluster inputs for a sweep.
-	Fee FeePreference
-
 	// ExclusiveGroup is an identifier that, if set, prevents other inputs
 	// with the same identifier from being batched together.
 	ExclusiveGroup *uint64
@@ -209,13 +204,6 @@ type SweeperInput struct {
 // String returns a human readable interpretation of the pending input.
 func (p *SweeperInput) String() string {
 	return fmt.Sprintf("%v (%v)", p.Input.OutPoint(), p.Input.WitnessType())
-}
-
-// parameters returns the sweep parameters for this input.
-//
-// NOTE: Part of the txInput interface.
-func (p *SweeperInput) parameters() Params {
-	return p.params
 }
 
 // terminated returns a boolean indicating whether the input has reached a
@@ -510,18 +498,6 @@ func (s *UtxoSweeper) SweepInput(inp input.Input,
 		inp.SignDesc() == nil {
 
 		return nil, errors.New("nil input received")
-	}
-
-	// Ensure the client provided a sane fee preference.
-	//
-	// TODO(yy): remove this check?
-	if params.Fee != nil {
-		_, err := params.Fee.Estimate(
-			s.cfg.FeeEstimator, s.cfg.MaxFeeRate.FeePerKWeight(),
-		)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	absoluteTimeLock, _ := inp.RequiredLockTime()
@@ -1145,7 +1121,6 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 	// Create the updated parameters struct. Leave the exclusive group
 	// unchanged.
 	newParams := Params{
-		Fee:             req.params.Fee,
 		StartingFeeRate: req.params.StartingFeeRate,
 		Immediate:       req.params.Immediate,
 		Budget:          req.params.Budget,

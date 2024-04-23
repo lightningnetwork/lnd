@@ -3262,7 +3262,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		// DecodeHopIterator function which process the Sphinx packet.
 		chanIterator, failureCode := decodeResps[i].Result()
 		if failureCode != lnwire.CodeNone {
-			// If we're unable to process the onion blob than we
+			// If we're unable to process the onion blob then we
 			// should send the malformed htlc error to payment
 			// sender.
 			l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
@@ -3273,27 +3273,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			continue
 		}
 
-		// Retrieve onion obfuscator from onion blob in order to
-		// produce initial obfuscation of the onion failureCode.
-		obfuscator, failureCode := chanIterator.ExtractErrorEncrypter(
-			l.cfg.ExtractErrorEncrypter,
-		)
-		if failureCode != lnwire.CodeNone {
-			// If we're unable to process the onion blob than we
-			// should send the malformed htlc error to payment
-			// sender.
-			l.sendMalformedHTLCError(
-				pd.HtlcIndex, failureCode, onionBlob[:], pd.SourceRef,
-			)
-
-			l.log.Errorf("unable to decode onion "+
-				"obfuscator: %v", failureCode)
-			continue
-		}
-
 		heightNow := l.cfg.BestHeight()
 
-		pld, _, pldErr := chanIterator.HopPayload()
+		pld, routeRole, pldErr := chanIterator.HopPayload()
 		if pldErr != nil {
 			// If we're unable to process the onion payload, or we
 			// received invalid onion payload failure, then we
@@ -3306,6 +3288,33 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			//nolint:errorlint
 			if e, ok := pldErr.(hop.ErrInvalidPayload); ok {
 				failedType = uint64(e.Type)
+			}
+
+			// If we couldn't parse the payload, make our best
+			// effort at creating an error encrypter that knows
+			// what blinding type we were, but if we couldn't
+			// parse the payload we have no way of knowing whether
+			// we were the introduction node or not.
+			//
+			//nolint:lll
+			obfuscator, failCode := chanIterator.ExtractErrorEncrypter(
+				l.cfg.ExtractErrorEncrypter,
+				// We need our route role here because we
+				// couldn't parse or validate the payload.
+				routeRole == hop.RouteRoleIntroduction,
+			)
+			if failCode != lnwire.CodeNone {
+				l.log.Errorf("could not extract error "+
+					"encrypter: %v", pldErr)
+
+				// We can't process this htlc, send back
+				// malformed.
+				l.sendMalformedHTLCError(
+					pd.HtlcIndex, failureCode,
+					onionBlob[:], pd.SourceRef,
+				)
+
+				continue
 			}
 
 			// TODO: currently none of the test unit infrastructure
@@ -3321,6 +3330,27 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 			l.log.Errorf("unable to decode forwarding "+
 				"instructions: %v", pldErr)
+
+			continue
+		}
+
+		// Retrieve onion obfuscator from onion blob in order to
+		// produce initial obfuscation of the onion failureCode.
+		obfuscator, failureCode := chanIterator.ExtractErrorEncrypter(
+			l.cfg.ExtractErrorEncrypter,
+			routeRole == hop.RouteRoleIntroduction,
+		)
+		if failureCode != lnwire.CodeNone {
+			// If we're unable to process the onion blob than we
+			// should send the malformed htlc error to payment
+			// sender.
+			l.sendMalformedHTLCError(
+				pd.HtlcIndex, failureCode, onionBlob[:],
+				pd.SourceRef,
+			)
+
+			l.log.Errorf("unable to decode onion "+
+				"obfuscator: %v", failureCode)
 
 			continue
 		}

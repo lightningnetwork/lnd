@@ -103,8 +103,8 @@ type Iterator interface {
 
 	// ExtractErrorEncrypter returns the ErrorEncrypter needed for this hop,
 	// along with a failure code to signal if the decoding was successful.
-	ExtractErrorEncrypter(ErrorEncrypterExtracter) (ErrorEncrypter,
-		lnwire.FailCode)
+	ExtractErrorEncrypter(extractor ErrorEncrypterExtracter,
+		introductionNode bool) (ErrorEncrypter, lnwire.FailCode)
 }
 
 // sphinxHopIterator is the Sphinx implementation of hop iterator which uses
@@ -235,9 +235,31 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, RouteRole, error) {
 //
 // NOTE: Part of the HopIterator interface.
 func (r *sphinxHopIterator) ExtractErrorEncrypter(
-	extracter ErrorEncrypterExtracter) (ErrorEncrypter, lnwire.FailCode) {
+	extracter ErrorEncrypterExtracter, introductionNode bool) (
+	ErrorEncrypter, lnwire.FailCode) {
 
-	return extracter(r.ogPacket.EphemeralKey)
+	encrypter, errCode := extracter(r.ogPacket.EphemeralKey)
+	if errCode != lnwire.CodeNone {
+		return nil, errCode
+	}
+
+	// If we're in a blinded path, wrap the error encrypter that we just
+	// derived in a "marker" type which we'll use to know what type of
+	// error we're handling.
+	switch {
+	case introductionNode:
+		return &IntroductionErrorEncrypter{
+			ErrorEncrypter: encrypter,
+		}, errCode
+
+	case r.blindingKit.UpdateAddBlinding.IsSome():
+		return &RelayingErrorEncrypter{
+			ErrorEncrypter: encrypter,
+		}, errCode
+
+	default:
+		return encrypter, errCode
+	}
 }
 
 // BlindingProcessor is an interface that provides the cryptographic operations

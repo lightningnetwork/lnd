@@ -112,11 +112,17 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 	// to decode only what we need to make routing decisions.
 	case sphinx.PayloadTLV:
 		isFinal := r.processedPacket.Action == sphinx.ExitNode
-		payload, parsed, err := NewPayloadFromReader(
+		payload, parsed, err := ParseTLVPayload(
 			bytes.NewReader(r.processedPacket.Payload.Payload),
-			isFinal, r.blindingKit.UpdateAddBlinding.IsSome(),
 		)
 		if err != nil {
+			return nil, err
+		}
+
+		if err := ValidateTLVPayload(
+			parsed, isFinal,
+			r.blindingKit.UpdateAddBlinding.IsSome(),
+		); err != nil {
 			return nil, err
 		}
 

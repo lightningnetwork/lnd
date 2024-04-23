@@ -547,9 +547,13 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 		testChildIndex = uint32(9)
 	)
 
-	p, _, err := hop.NewPayloadFromReader(
-		bytes.NewReader(test.payload), test.isFinalHop,
-		test.updateAddBlinded,
+	p, parsedTypes, err := hop.ParseTLVPayload(
+		bytes.NewReader(test.payload),
+	)
+	require.NoError(t, err)
+
+	err = hop.ValidateTLVPayload(
+		parsedTypes, test.isFinalHop, test.updateAddBlinded,
 	)
 	if !reflect.DeepEqual(test.expErr, err) {
 		t.Fatalf("expected error mismatch, want: %v, got: %v",

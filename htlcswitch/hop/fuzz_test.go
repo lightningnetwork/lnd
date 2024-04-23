@@ -135,10 +135,14 @@ func fuzzPayload(f *testing.F, finalPayload, updateAddBlinded bool) {
 
 		r := bytes.NewReader(data)
 
-		payload1, _, err := NewPayloadFromReader(
-			r, finalPayload, updateAddBlinded,
-		)
+		payload1, parsed, err := ParseTLVPayload(r)
 		if err != nil {
+			return
+		}
+
+		if err = ValidateParsedPayloadTypes(
+			parsed, finalPayload, updateAddBlinded,
+		); err != nil {
 			return
 		}
 
@@ -147,7 +151,7 @@ func fuzzPayload(f *testing.F, finalPayload, updateAddBlinded bool) {
 		err = hop.PackHopPayload(&b, nextChanID, finalPayload)
 		switch {
 		// PackHopPayload refuses to encode an AMP record
-		// without an MPP record. However, NewPayloadFromReader
+		// without an MPP record. However, ValidateParsedPayloadTypes
 		// does allow decoding an AMP record without an MPP
 		// record, since validation is done at a later stage. Do
 		// not report a bug for this case.
@@ -156,9 +160,9 @@ func fuzzPayload(f *testing.F, finalPayload, updateAddBlinded bool) {
 
 		// PackHopPayload will not encode regular payloads or final
 		// hops in blinded routes that do not have an amount or expiry
-		// TLV set. However, NewPayloadFromReader will allow creation
-		// of payloads where these TLVs are present, but they have
-		// zero values because validation is done at a later stage.
+		// TLV set. However, ValidateParsedPayloadTypes will allow
+		// creation of payloads where these TLVs are present, but they
+		// have zero values because validation is done at a later stage.
 		case errors.Is(err, route.ErrMissingField):
 			return
 
@@ -166,8 +170,11 @@ func fuzzPayload(f *testing.F, finalPayload, updateAddBlinded bool) {
 			require.NoError(t, err)
 		}
 
-		payload2, _, err := NewPayloadFromReader(
-			&b, finalPayload, updateAddBlinded,
+		payload2, parsed, err := ParseTLVPayload(&b)
+		require.NoError(t, err)
+
+		err = ValidateParsedPayloadTypes(
+			parsed, finalPayload, updateAddBlinded,
 		)
 		require.NoError(t, err)
 

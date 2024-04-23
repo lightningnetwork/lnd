@@ -23,6 +23,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	// htlcModifierMock is a mock implementation of the invoice HtlcModifier
+	// interface.
+	htlcModifierMock = &invpkg.MockHtlcModifier{}
+)
+
 // TestInvoiceRegistry is a master test which encompasses all tests using an
 // InvoiceDB instance. The purpose of this test is to be able to run all tests
 // with a custom DB instance, so that we can test the same logic with different
@@ -517,6 +523,7 @@ func testSettleHoldInvoice(t *testing.T,
 	cfg := invpkg.RegistryConfig{
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		Clock:                clock,
+		HtlcInterceptor:      htlcModifierMock,
 	}
 
 	expiryWatcher := invpkg.NewInvoiceExpiryWatcher(
@@ -683,6 +690,7 @@ func testCancelHoldInvoice(t *testing.T,
 	cfg := invpkg.RegistryConfig{
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		Clock:                testClock,
+		HtlcInterceptor:      htlcModifierMock,
 	}
 	expiryWatcher := invpkg.NewInvoiceExpiryWatcher(
 		cfg.Clock, 0, uint32(testCurrentHeight), nil, newMockNotifier(),
@@ -1200,6 +1208,7 @@ func testInvoiceExpiryWithRegistry(t *testing.T,
 	cfg := invpkg.RegistryConfig{
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		Clock:                testClock,
+		HtlcInterceptor:      htlcModifierMock,
 	}
 
 	expiryWatcher := invpkg.NewInvoiceExpiryWatcher(
@@ -1310,6 +1319,7 @@ func testOldInvoiceRemovalOnStart(t *testing.T,
 		FinalCltvRejectDelta:        testFinalCltvRejectDelta,
 		Clock:                       testClock,
 		GcCanceledInvoicesOnStartup: true,
+		HtlcInterceptor:             htlcModifierMock,
 	}
 
 	expiryWatcher := invpkg.NewInvoiceExpiryWatcher(

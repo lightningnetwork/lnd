@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
@@ -74,6 +75,11 @@ type RegistryConfig struct {
 	// KeysendHoldTime indicates for how long we want to accept and hold
 	// spontaneous keysend payments.
 	KeysendHoldTime time.Duration
+
+	// SettlementInterceptor is a service that intercepts invoices during
+	// the settlement phase, enabling a subscribed client to determine the
+	// settlement outcome.
+	SettlementInterceptor *SettlementInterceptor
 }
 
 // htlcReleaseEvent describes an htlc auto-release event. It is used to release
@@ -998,6 +1004,41 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	)
 
 	callback := func(inv *Invoice) (*InvoiceUpdateDesc, error) {
+		// Provide the invoice to the settlement interceptor to allow
+		// the interceptor's client an opportunity to manipulate the
+		// settlement process.
+		var interceptSession fn.Option[InterceptSession]
+		if i.cfg.SettlementInterceptor != nil {
+			clientReq := InterceptClientRequest{
+				ExitHtlcCircuitKey: ctx.circuitKey,
+				ExitHtlcAmt:        ctx.amtPaid,
+				ExitHtlcExpiry:     ctx.expiry,
+				CurrentHeight:      uint32(ctx.currentHeight),
+				Invoice:            *inv,
+			}
+			interceptSession =
+				i.cfg.SettlementInterceptor.Intercept(clientReq)
+		}
+
+		// If the interceptor service has provided a response, we'll
+		// use the interceptor session to wait for the client to respond
+		// with a settlement resolution.
+		interceptSession.WhenSome(func(session InterceptSession) {
+			log.Debug("Waiting for client response from " +
+				"settlement interceptor session")
+
+			select {
+			case resp := <-session.ClientResponseChannel:
+				log.Debugf("Received settlement interceptor "+
+					"response: %v", resp)
+				ctx.SkipAmountCheck = resp.SkipAmountCheck
+
+			case <-session.Quit:
+				// At this point, the interceptor session has
+				// quit.
+			}
+		})
+
 		updateDesc, res, err := updateInvoice(ctx, inv)
 		if err != nil {
 			return nil, err
@@ -1051,6 +1092,8 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 
 	var invoiceToExpire invoiceExpiry
 
+	log.Debugf("Settlement resolution: %T %v", resolution, resolution)
+
 	switch res := resolution.(type) {
 	case *HtlcFailResolution:
 		// Inspect latest htlc state on the invoice. If it is found,
@@ -1099,6 +1142,8 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		// with our peer.
 		setID := ctx.setID()
 		settledHtlcSet := invoice.HTLCSet(setID, HtlcStateSettled)
+		log.Debugf("Settled htlc set size: %d", len(settledHtlcSet))
+
 		for key, htlc := range settledHtlcSet {
 			preimage := res.Preimage
 			if htlc.AMP != nil && htlc.AMP.Preimage != nil {
@@ -1183,7 +1228,7 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	}
 
 	// Now that the links have been notified of any state changes to their
-	// HTLCs, we'll go ahead and notify any clients wiaiting on the invoice
+	// HTLCs, we'll go ahead and notify any clients waiting on the invoice
 	// state changes.
 	if updateSubscribers {
 		// We'll add a setID onto the notification, but only if this is

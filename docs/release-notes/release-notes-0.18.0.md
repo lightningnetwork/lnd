@@ -433,6 +433,9 @@
   logged](https://github.com/lightningnetwork/lnd/pull/8693) when no values are
   specified.
 
+* Removed deprecated `neutrino.feeurl` option. Please use the newer `fee.url`
+  option instead.
+
 ## Performance Improvements
 
 * Watchtower client DB migration to massively [improve the start-up 

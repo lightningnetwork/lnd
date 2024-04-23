@@ -39,6 +39,10 @@ type InvoicesClient interface {
 	// LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced
 	// using either its payment hash, payment address, or set ID.
 	LookupInvoiceV2(ctx context.Context, in *LookupInvoiceMsg, opts ...grpc.CallOption) (*lnrpc.Invoice, error)
+	// InvoiceAcceptor is a bi-directional streaming RPC that allows a client to
+	// accept invoices. The server will send invoices to the client and the client
+	// can respond with whether it accepts the invoice or not.
+	InvoiceAcceptor(ctx context.Context, opts ...grpc.CallOption) (Invoices_InvoiceAcceptorClient, error)
 }
 
 type invoicesClient struct {
@@ -117,6 +121,37 @@ func (c *invoicesClient) LookupInvoiceV2(ctx context.Context, in *LookupInvoiceM
 	return out, nil
 }
 
+func (c *invoicesClient) InvoiceAcceptor(ctx context.Context, opts ...grpc.CallOption) (Invoices_InvoiceAcceptorClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Invoices_ServiceDesc.Streams[1], "/invoicesrpc.Invoices/InvoiceAcceptor", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &invoicesInvoiceAcceptorClient{stream}
+	return x, nil
+}
+
+type Invoices_InvoiceAcceptorClient interface {
+	Send(*InvoiceAcceptorResponse) error
+	Recv() (*InvoiceAcceptorRequest, error)
+	grpc.ClientStream
+}
+
+type invoicesInvoiceAcceptorClient struct {
+	grpc.ClientStream
+}
+
+func (x *invoicesInvoiceAcceptorClient) Send(m *InvoiceAcceptorResponse) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *invoicesInvoiceAcceptorClient) Recv() (*InvoiceAcceptorRequest, error) {
+	m := new(InvoiceAcceptorRequest)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // InvoicesServer is the server API for Invoices service.
 // All implementations must embed UnimplementedInvoicesServer
 // for forward compatibility
@@ -141,6 +176,10 @@ type InvoicesServer interface {
 	// LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced
 	// using either its payment hash, payment address, or set ID.
 	LookupInvoiceV2(context.Context, *LookupInvoiceMsg) (*lnrpc.Invoice, error)
+	// InvoiceAcceptor is a bi-directional streaming RPC that allows a client to
+	// accept invoices. The server will send invoices to the client and the client
+	// can respond with whether it accepts the invoice or not.
+	InvoiceAcceptor(Invoices_InvoiceAcceptorServer) error
 	mustEmbedUnimplementedInvoicesServer()
 }
 
@@ -162,6 +201,9 @@ func (UnimplementedInvoicesServer) SettleInvoice(context.Context, *SettleInvoice
 }
 func (UnimplementedInvoicesServer) LookupInvoiceV2(context.Context, *LookupInvoiceMsg) (*lnrpc.Invoice, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method LookupInvoiceV2 not implemented")
+}
+func (UnimplementedInvoicesServer) InvoiceAcceptor(Invoices_InvoiceAcceptorServer) error {
+	return status.Errorf(codes.Unimplemented, "method InvoiceAcceptor not implemented")
 }
 func (UnimplementedInvoicesServer) mustEmbedUnimplementedInvoicesServer() {}
 
@@ -269,6 +311,32 @@ func _Invoices_LookupInvoiceV2_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Invoices_InvoiceAcceptor_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(InvoicesServer).InvoiceAcceptor(&invoicesInvoiceAcceptorServer{stream})
+}
+
+type Invoices_InvoiceAcceptorServer interface {
+	Send(*InvoiceAcceptorRequest) error
+	Recv() (*InvoiceAcceptorResponse, error)
+	grpc.ServerStream
+}
+
+type invoicesInvoiceAcceptorServer struct {
+	grpc.ServerStream
+}
+
+func (x *invoicesInvoiceAcceptorServer) Send(m *InvoiceAcceptorRequest) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *invoicesInvoiceAcceptorServer) Recv() (*InvoiceAcceptorResponse, error) {
+	m := new(InvoiceAcceptorResponse)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // Invoices_ServiceDesc is the grpc.ServiceDesc for Invoices service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -298,6 +366,12 @@ var Invoices_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "SubscribeSingleInvoice",
 			Handler:       _Invoices_SubscribeSingleInvoice_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "InvoiceAcceptor",
+			Handler:       _Invoices_InvoiceAcceptor_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "invoicesrpc/invoices.proto",

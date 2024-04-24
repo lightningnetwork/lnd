@@ -342,6 +342,13 @@ func (t *TxPublisher) initialBroadcast(req *BumpRequest) (*BumpResult, error) {
 	// Create a fee bumping algorithm to be used for future RBF.
 	feeAlgo, err := t.initializeFeeFunction(req)
 	if err != nil {
+		log.Infof("Registering a sweep bump request with the current "+
+			"budget(%v) having still a large enough absolute "+
+			"deadline(%v) is not economical and unlikely to "+
+			"confirm, it will be broadcasted regardless once the "+
+			"relative deadline approaches 1 block given the same "+
+			"inputs.", req.Budget, req.DeadlineHeight)
+
 		return nil, fmt.Errorf("init fee function: %w", err)
 	}
 

@@ -4316,7 +4316,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	}
 
 	checkAlmostDust := func(link *channelLink, mbox MailBox,
-		remote bool) bool {
+		whoseCommit lntypes.ChannelParty) bool {
 
 		timeout := time.After(15 * time.Second)
 		pollInterval := 300 * time.Millisecond
@@ -4331,11 +4331,11 @@ func TestSwitchDustForwarding(t *testing.T) {
 			default:
 			}
 
-			linkDust := link.getDustSum(remote)
+			linkDust := link.getDustSum(whoseCommit)
 			localMailDust, remoteMailDust := mbox.DustPackets()
 
 			totalDust := linkDust
-			if remote {
+			if whoseCommit == lntypes.Remote {
 				totalDust += remoteMailDust
 			} else {
 				totalDust += localMailDust
@@ -4354,7 +4354,11 @@ func TestSwitchDustForwarding(t *testing.T) {
 		n.firstBobChannelLink.ChanID(),
 		n.firstBobChannelLink.ShortChanID(),
 	)
-	require.True(t, checkAlmostDust(n.firstBobChannelLink, bobMbox, false))
+	require.True(
+		t, checkAlmostDust(
+			n.firstBobChannelLink, bobMbox, lntypes.Local,
+		),
+	)
 
 	// Assert that the HTLC is failed due to the dust threshold.
 	err = n.bobServer.htlcSwitch.SendHTLC(
@@ -4455,7 +4459,11 @@ func TestSwitchDustForwarding(t *testing.T) {
 	aliceMbox := aliceOrch.GetOrCreateMailBox(
 		n.aliceChannelLink.ChanID(), n.aliceChannelLink.ShortChanID(),
 	)
-	require.True(t, checkAlmostDust(n.aliceChannelLink, aliceMbox, true))
+	require.True(
+		t, checkAlmostDust(
+			n.aliceChannelLink, aliceMbox, lntypes.Remote,
+		),
+	)
 
 	err = n.aliceServer.htlcSwitch.SendHTLC(
 		n.aliceChannelLink.ShortChanID(), uint64(357),

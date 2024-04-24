@@ -5195,7 +5195,7 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 			lc.localUpdateLog.logIndex)
 
 		_, w := lc.availableCommitmentBalance(
-			htlcView, true, FeeBuffer,
+			htlcView, lntypes.Remote, FeeBuffer,
 		)
 
 		return w
@@ -7984,11 +7984,11 @@ func TestChannelFeeRateFloor(t *testing.T) {
 // TestFetchParent tests lookup of an entry's parent in the appropriate log.
 func TestFetchParent(t *testing.T) {
 	tests := []struct {
-		name          string
-		remoteChain   bool
-		remoteLog     bool
-		localEntries  []*PaymentDescriptor
-		remoteEntries []*PaymentDescriptor
+		name             string
+		whoseCommitChain lntypes.ChannelParty
+		whoseUpdateLog   lntypes.ChannelParty
+		localEntries     []*PaymentDescriptor
+		remoteEntries    []*PaymentDescriptor
 
 		// parentIndex is the parent index of the entry that we will
 		// lookup with fetch parent.
@@ -8002,22 +8002,22 @@ func TestFetchParent(t *testing.T) {
 		expectedIndex uint64
 	}{
 		{
-			name:          "not found in remote log",
-			localEntries:  nil,
-			remoteEntries: nil,
-			remoteChain:   true,
-			remoteLog:     true,
-			parentIndex:   0,
-			expectErr:     true,
+			name:             "not found in remote log",
+			localEntries:     nil,
+			remoteEntries:    nil,
+			whoseCommitChain: lntypes.Remote,
+			whoseUpdateLog:   lntypes.Remote,
+			parentIndex:      0,
+			expectErr:        true,
 		},
 		{
-			name:          "not found in local log",
-			localEntries:  nil,
-			remoteEntries: nil,
-			remoteChain:   false,
-			remoteLog:     false,
-			parentIndex:   0,
-			expectErr:     true,
+			name:             "not found in local log",
+			localEntries:     nil,
+			remoteEntries:    nil,
+			whoseCommitChain: lntypes.Local,
+			whoseUpdateLog:   lntypes.Local,
+			parentIndex:      0,
+			expectErr:        true,
 		},
 		{
 			name:         "remote log + chain, remote add height 0",
@@ -8037,10 +8037,10 @@ func TestFetchParent(t *testing.T) {
 					addCommitHeightRemote: 0,
 				},
 			},
-			remoteChain: true,
-			remoteLog:   true,
-			parentIndex: 1,
-			expectErr:   true,
+			whoseCommitChain: lntypes.Remote,
+			whoseUpdateLog:   lntypes.Remote,
+			parentIndex:      1,
+			expectErr:        true,
 		},
 		{
 			name: "remote log, local chain, local add height 0",
@@ -8059,11 +8059,11 @@ func TestFetchParent(t *testing.T) {
 					addCommitHeightRemote: 100,
 				},
 			},
-			localEntries: nil,
-			remoteChain:  false,
-			remoteLog:    true,
-			parentIndex:  1,
-			expectErr:    true,
+			localEntries:     nil,
+			whoseCommitChain: lntypes.Local,
+			whoseUpdateLog:   lntypes.Remote,
+			parentIndex:      1,
+			expectErr:        true,
 		},
 		{
 			name: "local log + chain, local add height 0",
@@ -8082,11 +8082,11 @@ func TestFetchParent(t *testing.T) {
 					addCommitHeightRemote: 100,
 				},
 			},
-			remoteEntries: nil,
-			remoteChain:   false,
-			remoteLog:     false,
-			parentIndex:   1,
-			expectErr:     true,
+			remoteEntries:    nil,
+			whoseCommitChain: lntypes.Local,
+			whoseUpdateLog:   lntypes.Local,
+			parentIndex:      1,
+			expectErr:        true,
 		},
 
 		{
@@ -8106,11 +8106,11 @@ func TestFetchParent(t *testing.T) {
 					addCommitHeightRemote: 0,
 				},
 			},
-			remoteEntries: nil,
-			remoteChain:   true,
-			remoteLog:     false,
-			parentIndex:   1,
-			expectErr:     true,
+			remoteEntries:    nil,
+			whoseCommitChain: lntypes.Remote,
+			whoseUpdateLog:   lntypes.Local,
+			parentIndex:      1,
+			expectErr:        true,
 		},
 		{
 			name:         "remote log found",
@@ -8130,11 +8130,11 @@ func TestFetchParent(t *testing.T) {
 					addCommitHeightRemote: 100,
 				},
 			},
-			remoteChain:   true,
-			remoteLog:     true,
-			parentIndex:   1,
-			expectErr:     false,
-			expectedIndex: 2,
+			whoseCommitChain: lntypes.Remote,
+			whoseUpdateLog:   lntypes.Remote,
+			parentIndex:      1,
+			expectErr:        false,
+			expectedIndex:    2,
 		},
 		{
 			name: "local log found",
@@ -8153,12 +8153,12 @@ func TestFetchParent(t *testing.T) {
 					addCommitHeightRemote: 100,
 				},
 			},
-			remoteEntries: nil,
-			remoteChain:   false,
-			remoteLog:     false,
-			parentIndex:   1,
-			expectErr:     false,
-			expectedIndex: 2,
+			remoteEntries:    nil,
+			whoseCommitChain: lntypes.Local,
+			whoseUpdateLog:   lntypes.Local,
+			parentIndex:      1,
+			expectErr:        false,
+			expectedIndex:    2,
 		},
 	}
 
@@ -8185,8 +8185,8 @@ func TestFetchParent(t *testing.T) {
 				&PaymentDescriptor{
 					ParentIndex: test.parentIndex,
 				},
-				test.remoteChain,
-				test.remoteLog,
+				test.whoseCommitChain,
+				test.whoseUpdateLog,
 			)
 			gotErr := err != nil
 			if test.expectErr != gotErr {
@@ -8244,11 +8244,11 @@ func TestEvaluateView(t *testing.T) {
 	)
 
 	tests := []struct {
-		name        string
-		ourHtlcs    []*PaymentDescriptor
-		theirHtlcs  []*PaymentDescriptor
-		remoteChain bool
-		mutateState bool
+		name             string
+		ourHtlcs         []*PaymentDescriptor
+		theirHtlcs       []*PaymentDescriptor
+		whoseCommitChain lntypes.ChannelParty
+		mutateState      bool
 
 		// ourExpectedHtlcs is the set of our htlcs that we expect in
 		// the htlc view once it has been evaluated. We just store
@@ -8275,9 +8275,9 @@ func TestEvaluateView(t *testing.T) {
 		expectSent lnwire.MilliSatoshi
 	}{
 		{
-			name:        "our fee update is applied",
-			remoteChain: false,
-			mutateState: false,
+			name:             "our fee update is applied",
+			whoseCommitChain: lntypes.Local,
+			mutateState:      false,
 			ourHtlcs: []*PaymentDescriptor{
 				{
 					Amount:    ourFeeUpdateAmt,
@@ -8292,10 +8292,10 @@ func TestEvaluateView(t *testing.T) {
 			expectSent:         0,
 		},
 		{
-			name:        "their fee update is applied",
-			remoteChain: false,
-			mutateState: false,
-			ourHtlcs:    []*PaymentDescriptor{},
+			name:             "their fee update is applied",
+			whoseCommitChain: lntypes.Local,
+			mutateState:      false,
+			ourHtlcs:         []*PaymentDescriptor{},
 			theirHtlcs: []*PaymentDescriptor{
 				{
 					Amount:    theirFeeUpdateAmt,
@@ -8310,9 +8310,9 @@ func TestEvaluateView(t *testing.T) {
 		},
 		{
 			// We expect unresolved htlcs to to remain in the view.
-			name:        "htlcs adds without settles",
-			remoteChain: false,
-			mutateState: false,
+			name:             "htlcs adds without settles",
+			whoseCommitChain: lntypes.Local,
+			mutateState:      false,
 			ourHtlcs: []*PaymentDescriptor{
 				{
 					HtlcIndex: 0,
@@ -8344,9 +8344,9 @@ func TestEvaluateView(t *testing.T) {
 			expectSent:     0,
 		},
 		{
-			name:        "our htlc settled, state mutated",
-			remoteChain: false,
-			mutateState: true,
+			name:             "our htlc settled, state mutated",
+			whoseCommitChain: lntypes.Local,
+			mutateState:      true,
 			ourHtlcs: []*PaymentDescriptor{
 				{
 					HtlcIndex:            0,
@@ -8379,9 +8379,9 @@ func TestEvaluateView(t *testing.T) {
 			expectSent:     htlcAddAmount,
 		},
 		{
-			name:        "our htlc settled, state not mutated",
-			remoteChain: false,
-			mutateState: false,
+			name:             "our htlc settled, state not mutated",
+			whoseCommitChain: lntypes.Local,
+			mutateState:      false,
 			ourHtlcs: []*PaymentDescriptor{
 				{
 					HtlcIndex:            0,
@@ -8414,9 +8414,9 @@ func TestEvaluateView(t *testing.T) {
 			expectSent:     0,
 		},
 		{
-			name:        "their htlc settled, state mutated",
-			remoteChain: false,
-			mutateState: true,
+			name:             "their htlc settled, state mutated",
+			whoseCommitChain: lntypes.Local,
+			mutateState:      true,
 			ourHtlcs: []*PaymentDescriptor{
 				{
 					HtlcIndex: 0,
@@ -8457,9 +8457,10 @@ func TestEvaluateView(t *testing.T) {
 			expectSent:     0,
 		},
 		{
-			name:        "their htlc settled, state not mutated",
-			remoteChain: false,
-			mutateState: false,
+			name: "their htlc settled, state not mutated",
+
+			whoseCommitChain: lntypes.Local,
+			mutateState:      false,
 			ourHtlcs: []*PaymentDescriptor{
 				{
 					HtlcIndex: 0,
@@ -8542,7 +8543,7 @@ func TestEvaluateView(t *testing.T) {
 			// Evaluate the htlc view, mutate as test expects.
 			result, err := lc.evaluateHTLCView(
 				view, &ourBalance, &theirBalance, nextHeight,
-				test.remoteChain, test.mutateState,
+				test.whoseCommitChain, test.mutateState,
 			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -8630,12 +8631,12 @@ func TestProcessFeeUpdate(t *testing.T) {
 	)
 
 	tests := []struct {
-		name            string
-		startHeights    heights
-		expectedHeights heights
-		remoteChain     bool
-		mutate          bool
-		expectedFee     chainfee.SatPerKWeight
+		name             string
+		startHeights     heights
+		expectedHeights  heights
+		whoseCommitChain lntypes.ChannelParty
+		mutate           bool
+		expectedFee      chainfee.SatPerKWeight
 	}{
 		{
 			// Looking at local chain, local add is non-zero so
@@ -8653,9 +8654,9 @@ func TestProcessFeeUpdate(t *testing.T) {
 				remoteAdd:    0,
 				remoteRemove: height,
 			},
-			remoteChain: false,
-			mutate:      false,
-			expectedFee: feePerKw,
+			whoseCommitChain: lntypes.Local,
+			mutate:           false,
+			expectedFee:      feePerKw,
 		},
 		{
 			// Looking at local chain, local add is zero so the
@@ -8674,9 +8675,9 @@ func TestProcessFeeUpdate(t *testing.T) {
 				remoteAdd:    height,
 				remoteRemove: 0,
 			},
-			remoteChain: false,
-			mutate:      false,
-			expectedFee: ourFeeUpdatePerSat,
+			whoseCommitChain: lntypes.Local,
+			mutate:           false,
+			expectedFee:      ourFeeUpdatePerSat,
 		},
 		{
 			// Looking at remote chain, the remote add height is
@@ -8695,9 +8696,9 @@ func TestProcessFeeUpdate(t *testing.T) {
 				remoteAdd:    0,
 				remoteRemove: 0,
 			},
-			remoteChain: true,
-			mutate:      false,
-			expectedFee: ourFeeUpdatePerSat,
+			whoseCommitChain: lntypes.Remote,
+			mutate:           false,
+			expectedFee:      ourFeeUpdatePerSat,
 		},
 		{
 			// Looking at remote chain, the remote add height is
@@ -8716,9 +8717,9 @@ func TestProcessFeeUpdate(t *testing.T) {
 				remoteAdd:    height,
 				remoteRemove: 0,
 			},
-			remoteChain: true,
-			mutate:      false,
-			expectedFee: feePerKw,
+			whoseCommitChain: lntypes.Remote,
+			mutate:           false,
+			expectedFee:      feePerKw,
 		},
 		{
 			// Local add height is non-zero, so the update has
@@ -8737,9 +8738,9 @@ func TestProcessFeeUpdate(t *testing.T) {
 				remoteAdd:    0,
 				remoteRemove: height,
 			},
-			remoteChain: false,
-			mutate:      true,
-			expectedFee: feePerKw,
+			whoseCommitChain: lntypes.Local,
+			mutate:           true,
+			expectedFee:      feePerKw,
 		},
 		{
 			// Local add is zero and we are looking at our local
@@ -8759,9 +8760,9 @@ func TestProcessFeeUpdate(t *testing.T) {
 				remoteAdd:    0,
 				remoteRemove: 0,
 			},
-			remoteChain: false,
-			mutate:      true,
-			expectedFee: ourFeeUpdatePerSat,
+			whoseCommitChain: lntypes.Local,
+			mutate:           true,
+			expectedFee:      ourFeeUpdatePerSat,
 		},
 	}
 
@@ -8785,7 +8786,7 @@ func TestProcessFeeUpdate(t *testing.T) {
 				feePerKw: chainfee.SatPerKWeight(feePerKw),
 			}
 			processFeeUpdate(
-				update, nextHeight, test.remoteChain,
+				update, nextHeight, test.whoseCommitChain,
 				test.mutate, view,
 			)
 
@@ -8840,7 +8841,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 	tests := []struct {
 		name                 string
 		startHeights         heights
-		remoteChain          bool
+		whoseCommitChain     lntypes.ChannelParty
 		isIncoming           bool
 		mutateState          bool
 		ourExpectedBalance   lnwire.MilliSatoshi
@@ -8856,7 +8857,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				localRemove:  0,
 				remoteRemove: 0,
 			},
-			remoteChain:          true,
+			whoseCommitChain:     lntypes.Remote,
 			isIncoming:           false,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance,
@@ -8877,7 +8878,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				localRemove:  0,
 				remoteRemove: 0,
 			},
-			remoteChain:          false,
+			whoseCommitChain:     lntypes.Local,
 			isIncoming:           false,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance,
@@ -8898,7 +8899,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				localRemove:  0,
 				remoteRemove: 0,
 			},
-			remoteChain:          false,
+			whoseCommitChain:     lntypes.Local,
 			isIncoming:           true,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance,
@@ -8919,7 +8920,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				localRemove:  0,
 				remoteRemove: 0,
 			},
-			remoteChain:          false,
+			whoseCommitChain:     lntypes.Local,
 			isIncoming:           true,
 			mutateState:          true,
 			ourExpectedBalance:   startBalance,
@@ -8941,7 +8942,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				localRemove:  0,
 				remoteRemove: 0,
 			},
-			remoteChain:          true,
+			whoseCommitChain:     lntypes.Remote,
 			isIncoming:           false,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance - updateAmount,
@@ -8962,7 +8963,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				localRemove:  0,
 				remoteRemove: 0,
 			},
-			remoteChain:          true,
+			whoseCommitChain:     lntypes.Remote,
 			isIncoming:           false,
 			mutateState:          true,
 			ourExpectedBalance:   startBalance - updateAmount,
@@ -8983,7 +8984,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				localRemove:  0,
 				remoteRemove: removeHeight,
 			},
-			remoteChain:          true,
+			whoseCommitChain:     lntypes.Remote,
 			isIncoming:           false,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance,
@@ -9004,7 +9005,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				localRemove:  removeHeight,
 				remoteRemove: 0,
 			},
-			remoteChain:          false,
+			whoseCommitChain:     lntypes.Local,
 			isIncoming:           false,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance,
@@ -9027,7 +9028,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				localRemove:  0,
 				remoteRemove: 0,
 			},
-			remoteChain:          true,
+			whoseCommitChain:     lntypes.Remote,
 			isIncoming:           true,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance + updateAmount,
@@ -9050,7 +9051,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				localRemove:  0,
 				remoteRemove: 0,
 			},
-			remoteChain:          true,
+			whoseCommitChain:     lntypes.Remote,
 			isIncoming:           false,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance,
@@ -9073,7 +9074,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				localRemove:  0,
 				remoteRemove: 0,
 			},
-			remoteChain:          true,
+			whoseCommitChain:     lntypes.Remote,
 			isIncoming:           true,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance,
@@ -9096,7 +9097,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				localRemove:  0,
 				remoteRemove: 0,
 			},
-			remoteChain:          true,
+			whoseCommitChain:     lntypes.Remote,
 			isIncoming:           false,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance + updateAmount,
@@ -9121,7 +9122,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				localRemove:  0,
 				remoteRemove: 0,
 			},
-			remoteChain:          false,
+			whoseCommitChain:     lntypes.Local,
 			isIncoming:           true,
 			mutateState:          true,
 			ourExpectedBalance:   startBalance + updateAmount,
@@ -9146,7 +9147,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				localRemove:  0,
 				remoteRemove: 0,
 			},
-			remoteChain:          true,
+			whoseCommitChain:     lntypes.Remote,
 			isIncoming:           true,
 			mutateState:          true,
 			ourExpectedBalance:   startBalance + updateAmount,
@@ -9195,7 +9196,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 
 			process(
 				update, &ourBalance, &theirBalance, nextHeight,
-				test.remoteChain, test.isIncoming,
+				test.whoseCommitChain, test.isIncoming,
 				test.mutateState,
 			)
 
@@ -9750,9 +9751,9 @@ func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
 	checkDust := func(c *LightningChannel, expLocal,
 		expRemote lnwire.MilliSatoshi) {
 
-		localDustSum := c.GetDustSum(false)
+		localDustSum := c.GetDustSum(lntypes.Local)
 		require.Equal(t, expLocal, localDustSum)
-		remoteDustSum := c.GetDustSum(true)
+		remoteDustSum := c.GetDustSum(lntypes.Remote)
 		require.Equal(t, expRemote, remoteDustSum)
 	}
 
@@ -9905,8 +9906,9 @@ func deriveDummyRetributionParams(chanState *channeldb.OpenChannel) (uint32,
 	config := chanState.RemoteChanCfg
 	commitHash := chanState.RemoteCommitment.CommitTx.TxHash()
 	keyRing := DeriveCommitmentKeys(
-		config.RevocationBasePoint.PubKey, false, chanState.ChanType,
-		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+		config.RevocationBasePoint.PubKey, lntypes.Remote,
+		chanState.ChanType, &chanState.LocalChanCfg,
+		&chanState.RemoteChanCfg,
 	)
 	leaseExpiry := chanState.ThawHeight
 	return leaseExpiry, keyRing, commitHash
@@ -10373,7 +10375,7 @@ func TestExtractPayDescs(t *testing.T) {
 	// NOTE: we use nil commitment key rings to avoid checking the htlc
 	// scripts(`genHtlcScript`) as it should be tested independently.
 	incomingPDs, outgoingPDs, err := lnChan.extractPayDescs(
-		0, 0, htlcs, nil, nil, true,
+		0, 0, htlcs, nil, nil, lntypes.Local,
 	)
 	require.NoError(t, err)
 

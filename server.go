@@ -1489,8 +1489,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		EnableUpfrontShutdown:         cfg.EnableUpfrontShutdown,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
-		DeleteAliasEdge: deleteAliasEdge,
-		AliasManager:    s.aliasMgr,
+		DeleteAliasEdge:   deleteAliasEdge,
+		AliasManager:      s.aliasMgr,
+		IsSweeperOutpoint: s.sweeper.IsSweeperOutpoint,
 	})
 	if err != nil {
 		return nil, err

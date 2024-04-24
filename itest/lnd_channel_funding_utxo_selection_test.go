@@ -330,7 +330,8 @@ func runUtxoSelectionTestCase(ht *lntest.HarnessTest, alice,
 	// When re-selecting a spent output for funding another channel we
 	// expect the respective error message.
 	if tc.reuseUtxo {
-		expectedErrStr := fmt.Sprintf("outpoint already spent: %s:%d",
+		expectedErrStr := fmt.Sprintf("outpoint already spent or "+
+			"locked by another subsystem: %s:%d",
 			selectedOutpoints[0].TxidStr,
 			selectedOutpoints[0].OutputIndex)
 		expectedErr := fmt.Errorf(expectedErrStr)

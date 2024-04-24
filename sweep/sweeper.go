@@ -1735,3 +1735,26 @@ func (s *UtxoSweeper) handleBumpEvent(r *BumpResult) error {
 
 	return nil
 }
+
+// IsSweeperOutpoint determines whether the outpoint was created by the sweeper.
+//
+// NOTE: It is enough to check the txid because the sweeper will create
+// outpoints which solely belong to the internal LND wallet.
+func (s *UtxoSweeper) IsSweeperOutpoint(op wire.OutPoint) bool {
+	found, err := s.cfg.Store.IsOurTx(op.Hash)
+	// In case there is an error fetching the transaction details from the
+	// sweeper store we assume the outpoint is still used by the sweeper
+	// (worst case scenario).
+	//
+	// TODO(ziggie): Ensure that confirmed outpoints are deleted from the
+	// bucket.
+	if err != nil && !errors.Is(err, errNoTxHashesBucket) {
+		log.Errorf("failed to fetch info for outpoint(%v:%d) "+
+			"with: %v, we assume it is still in use by the sweeper",
+			op.Hash, op.Index, err)
+
+		return true
+	}
+
+	return found
+}

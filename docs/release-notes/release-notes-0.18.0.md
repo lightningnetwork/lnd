@@ -118,6 +118,14 @@
 
 * [Fixed a bug in `btcd` that caused an incompatibility with
   `bitcoind v27.0`](https://github.com/lightningnetwork/lnd/pull/8573).
+  
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8609) a function call 
+  where arguments were swapped.
+
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8545) utxo selection
+  for the internal channel funding flow (Single and Batch Funding Flow). Now
+  utxos which are unconfirmed and originated from the sweeper subsystem are not
+  selected because they bear the risk of being replaced (BIP 125 RBF).
 
 # New Features
 ## Functional Enhancements

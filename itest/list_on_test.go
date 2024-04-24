@@ -118,6 +118,14 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testBatchChanFunding,
 	},
 	{
+		Name:     "open channel with unstable utxos",
+		TestFunc: testChannelFundingWithUnstableUtxos,
+	},
+	{
+		Name:     "open psbt channel with unstable utxos",
+		TestFunc: testPsbtChanFundingWithUnstableUtxos,
+	},
+	{
 		Name:     "update channel policy",
 		TestFunc: testUpdateChannelPolicy,
 	},

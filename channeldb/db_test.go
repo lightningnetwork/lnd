@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/stretchr/testify/require"
@@ -606,7 +607,9 @@ func TestFetchChannels(t *testing.T) {
 				channelIDOption(pendingWaitingChan),
 			)
 
-			err = pendingClosing.MarkCoopBroadcasted(nil, true)
+			err = pendingClosing.MarkCoopBroadcasted(
+				nil, lntypes.Local,
+			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -626,7 +629,9 @@ func TestFetchChannels(t *testing.T) {
 				channelIDOption(openWaitingChan),
 				openChannelOption(),
 			)
-			err = openClosing.MarkCoopBroadcasted(nil, true)
+			err = openClosing.MarkCoopBroadcasted(
+				nil, lntypes.Local,
+			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

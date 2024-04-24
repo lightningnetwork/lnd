@@ -2882,8 +2882,10 @@ func (l *channelLink) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 // method.
 //
 // NOTE: Part of the dustHandler interface.
-func (l *channelLink) getDustSum(remote bool) lnwire.MilliSatoshi {
-	return l.channel.GetDustSum(remote)
+func (l *channelLink) getDustSum(whoseCommit lntypes.ChannelParty,
+) lnwire.MilliSatoshi {
+
+	return l.channel.GetDustSum(whoseCommit)
 }
 
 // getFeeRate is a wrapper method that retrieves the underlying channel's
@@ -2911,25 +2913,26 @@ func (l *channelLink) getDustClosure() dustClosure {
 // the HTLC is incoming (i.e. one that the remote sent), a boolean denoting
 // whether to evaluate on the local or remote commit, and finally an HTLC
 // amount to test.
-type dustClosure func(chainfee.SatPerKWeight, bool, bool, btcutil.Amount) bool
+type dustClosure func(feerate chainfee.SatPerKWeight, incoming bool,
+	whoseCommit lntypes.ChannelParty, amt btcutil.Amount) bool
 
 // dustHelper is used to construct the dustClosure.
 func dustHelper(chantype channeldb.ChannelType, localDustLimit,
 	remoteDustLimit btcutil.Amount) dustClosure {
 
-	isDust := func(feerate chainfee.SatPerKWeight, incoming,
-		localCommit bool, amt btcutil.Amount) bool {
+	isDust := func(feerate chainfee.SatPerKWeight, incoming bool,
+		whoseCommit lntypes.ChannelParty, amt btcutil.Amount) bool {
 
-		if localCommit {
-			return lnwallet.HtlcIsDust(
-				chantype, incoming, true, feerate, amt,
-				localDustLimit,
-			)
+		var dustLimit btcutil.Amount
+		if whoseCommit == lntypes.Local {
+			dustLimit = localDustLimit
+		} else {
+			dustLimit = remoteDustLimit
 		}
 
 		return lnwallet.HtlcIsDust(
-			chantype, incoming, false, feerate, amt,
-			remoteDustLimit,
+			chantype, incoming, whoseCommit, feerate, amt,
+			dustLimit,
 		)
 	}
 

@@ -2785,8 +2785,12 @@ func (s *Switch) evaluateDustThreshold(link ChannelLink,
 	isDust := link.getDustClosure()
 
 	// Evaluate if the HTLC is dust on either sides' commitment.
-	isLocalDust := isDust(feeRate, incoming, true, amount.ToSatoshis())
-	isRemoteDust := isDust(feeRate, incoming, false, amount.ToSatoshis())
+	isLocalDust := isDust(
+		feeRate, incoming, lntypes.Local, amount.ToSatoshis(),
+	)
+	isRemoteDust := isDust(
+		feeRate, incoming, lntypes.Remote, amount.ToSatoshis(),
+	)
 
 	if !(isLocalDust || isRemoteDust) {
 		// If the HTLC is not dust on either commitment, it's fine to
@@ -2803,7 +2807,7 @@ func (s *Switch) evaluateDustThreshold(link ChannelLink,
 	// If the htlc is dust on the local commitment, we'll obtain the dust
 	// sum for it.
 	if isLocalDust {
-		localSum := link.getDustSum(false)
+		localSum := link.getDustSum(lntypes.Local)
 		localSum += localMailDust
 
 		// Optionally include the HTLC amount only for outgoing
@@ -2821,7 +2825,7 @@ func (s *Switch) evaluateDustThreshold(link ChannelLink,
 	// Also check if the htlc is dust on the remote commitment, if we've
 	// reached this point.
 	if isRemoteDust {
-		remoteSum := link.getDustSum(true)
+		remoteSum := link.getDustSum(lntypes.Remote)
 		remoteSum += remoteMailDust
 
 		// Optionally include the HTLC amount only for outgoing

@@ -1,14 +1,19 @@
 package lntest
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"math"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -16,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -271,4 +277,35 @@ func CalcStaticFeeBuffer(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
 	)
 
 	return feeBuffer.ToSatoshis()
+}
+
+func GenerateBlockHeaderBytes(numHeaders uint32, harness *rpctest.Harness,
+	t *testing.T) []byte {
+
+	blockHashes, err := harness.Client.Generate(numHeaders)
+	require.NoError(t, err)
+
+	return serializeHeaders(blockHashes, harness, t)
+}
+
+var headerBufPool = sync.Pool{
+	New: func() interface{} { return new(bytes.Buffer) },
+}
+
+func serializeHeaders(blockHashes []*chainhash.Hash,
+	harness *rpctest.Harness, t *testing.T) []byte {
+
+	headerBuf := headerBufPool.Get().(*bytes.Buffer)
+	headerBuf.Reset()
+	defer headerBufPool.Put(headerBuf)
+
+	for i := range blockHashes {
+		hdr, err := harness.Client.GetBlockHeader(blockHashes[i])
+		require.NoError(t, err)
+
+		err = hdr.Serialize(headerBuf)
+		require.NoError(t, err)
+	}
+
+	return headerBuf.Bytes()
 }

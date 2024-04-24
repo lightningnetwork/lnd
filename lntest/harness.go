@@ -166,6 +166,20 @@ func (h *HarnessTest) ChainBackendName() string {
 	return h.manager.chainBackend.Name()
 }
 
+func (h *HarnessTest) IsNeutrinoSideloadTest() bool {
+	if !(h.manager.chainBackend.Name() == NeutrinoBackendName) {
+		return false
+	}
+
+	for _, s := range h.manager.chainBackend.GenArgs() {
+		if s == "--neutrino.connect="+h.Miner.P2PAddress() {
+			return false
+		}
+	}
+
+	return true
+}
+
 // Context returns the run context used in this test. Usaually it should be
 // managed by the test itself otherwise undefined behaviors will occur. It can
 // be used, however, when a test needs to have its own context being managed

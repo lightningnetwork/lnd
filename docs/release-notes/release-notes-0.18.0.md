@@ -347,6 +347,10 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   `budget`, and `deadline_height`, the fields `force`, `requested_conf_target`,
   and `next_broadcast_height` are deprecated.
 
+* When paying an AMP payment request, [the `--amp` flag is now
+  required](https://github.com/lightningnetwork/lnd/pull/8681) to be consistent
+  w/ the flow when a payment request isn't used. 
+
 ## lncli Updates
 
 * [Documented all available `lncli`
@@ -508,6 +512,7 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * Marcos Fernandez Perez
 * Matt Morehouse
 * Mohamed Awnallah
+* Olaoluwa Osuntokun
 * Ononiwu Maureen Chiamaka
 * Slyghtning
 * Tee8z

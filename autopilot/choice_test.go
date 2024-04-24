@@ -21,7 +21,7 @@ func TestWeightedChoiceEmptyMap(t *testing.T) {
 	}
 }
 
-// singeNonZero is a type used to generate float64 slices with one non-zero
+// singleNonZero is a type used to generate float64 slices with one non-zero
 // element.
 type singleNonZero []float64
 

@@ -332,7 +332,7 @@ func (h *HtlcSucceedInput) CraftInputScript(signer Signer, txn *wire.MsgTx,
 	}, nil
 }
 
-// HtlcsSecondLevelAnchorInput is an input type used to spend HTLC outputs
+// HtlcSecondLevelAnchorInput is an input type used to spend HTLC outputs
 // using a re-signed second level transaction, either via the timeout or success
 // paths.
 type HtlcSecondLevelAnchorInput struct {

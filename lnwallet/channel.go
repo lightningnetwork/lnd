@@ -1965,7 +1965,8 @@ type BreachRetribution struct {
 // required to construct the BreachRetribution. If the revocation log is missing
 // the required fields then ErrRevLogDataMissing will be returned.
 func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
-	breachHeight uint32, spendTx *wire.MsgTx) (*BreachRetribution, error) {
+	breachHeight uint32, spendTx *wire.MsgTx,
+	leafStore fn.Option[AuxLeafStore]) (*BreachRetribution, error) {
 
 	// Query the on-disk revocation log for the snapshot which was recorded
 	// at this particular state num. Based on whether a legacy revocation
@@ -3023,9 +3024,16 @@ func processFeeUpdate(feeUpdate *PaymentDescriptor, nextHeight uint64,
 // signature can be submitted to the sigPool to generate all the signatures
 // asynchronously and in parallel.
 func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
-	chanType channeldb.ChannelType, isRemoteInitiator bool,
-	leaseExpiry uint32, localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
-	remoteCommitView *commitment) ([]SignJob, chan struct{}, error) {
+	chanState *channeldb.OpenChannel, leaseExpiry uint32,
+	remoteCommitView *commitment,
+	leafStore fn.Option[AuxLeafStore]) ([]SignJob, chan struct{}, error) {
+
+	var (
+		isRemoteInitiator = !chanState.IsInitiator
+		localChanCfg      = chanState.LocalChanCfg
+		remoteChanCfg     = chanState.RemoteChanCfg
+		chanType          = chanState.ChanType
+	)
 
 	txHash := remoteCommitView.txn.TxHash()
 	dustLimit := remoteChanCfg.DustLimit
@@ -3191,9 +3199,9 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 // validate this new state. This function is called right before sending the
 // new commitment to the remote party. The commit diff returned contains all
 // information necessary for retransmission.
-func (lc *LightningChannel) createCommitDiff(
-	newCommit *commitment, commitSig lnwire.Sig,
-	htlcSigs []lnwire.Sig) (*channeldb.CommitDiff, error) {
+func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
+	commitSig lnwire.Sig, htlcSigs []lnwire.Sig) (*channeldb.CommitDiff,
+	error) {
 
 	// First, we need to convert the funding outpoint into the ID that's
 	// used on the wire to identify this channel. We'll use this shortly
@@ -3892,9 +3900,8 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 		leaseExpiry = lc.channelState.ThawHeight
 	}
 	sigBatch, cancelChan, err := genRemoteHtlcSigJobs(
-		keyRing, lc.channelState.ChanType, !lc.channelState.IsInitiator,
-		leaseExpiry, &lc.channelState.LocalChanCfg,
-		&lc.channelState.RemoteChanCfg, newCommitView,
+		keyRing, lc.channelState, leaseExpiry, newCommitView,
+		lc.leafStore,
 	)
 	if err != nil {
 		return nil, err
@@ -4497,10 +4504,18 @@ func (lc *LightningChannel) computeView(view *HtlcView,
 // meant to verify all the signatures for HTLC's attached to a newly created
 // commitment state. The jobs generated are fully populated, and can be sent
 // directly into the pool of workers.
-func genHtlcSigValidationJobs(localCommitmentView *commitment,
-	keyRing *CommitmentKeyRing, htlcSigs []lnwire.Sig,
-	chanType channeldb.ChannelType, isLocalInitiator bool, leaseExpiry uint32,
-	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) ([]VerifyJob, error) {
+//
+//nolint:funlen
+func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
+	localCommitmentView *commitment, keyRing *CommitmentKeyRing,
+	htlcSigs []lnwire.Sig, leaseExpiry uint32,
+	leafStore fn.Option[AuxLeafStore]) ([]VerifyJob, error) {
+
+	var (
+		isLocalInitiator = chanState.IsInitiator
+		localChanCfg     = chanState.LocalChanCfg
+		chanType         = chanState.ChanType
+	)
 
 	txHash := localCommitmentView.txn.TxHash()
 	feePerKw := localCommitmentView.feePerKw
@@ -4890,10 +4905,8 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 		leaseExpiry = lc.channelState.ThawHeight
 	}
 	verifyJobs, err := genHtlcSigValidationJobs(
-		localCommitmentView, keyRing, commitSigs.HtlcSigs,
-		lc.channelState.ChanType, lc.channelState.IsInitiator,
-		leaseExpiry, &lc.channelState.LocalChanCfg,
-		&lc.channelState.RemoteChanCfg,
+		lc.channelState, localCommitmentView, keyRing,
+		commitSigs.HtlcSigs, leaseExpiry, lc.leafStore,
 	)
 	if err != nil {
 		return err
@@ -6340,10 +6353,10 @@ type UnilateralCloseSummary struct {
 // happen in case we have lost state) it should be set to an empty struct, in
 // which case we will attempt to sweep the non-HTLC output using the passed
 // commitPoint.
-func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Signer,
-	commitSpend *chainntnfs.SpendDetail,
-	remoteCommit channeldb.ChannelCommitment,
-	commitPoint *btcec.PublicKey) (*UnilateralCloseSummary, error) {
+func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel,
+	signer input.Signer, commitSpend *chainntnfs.SpendDetail,
+	remoteCommit channeldb.ChannelCommitment, commitPoint *btcec.PublicKey,
+	leafStore fn.Option[AuxLeafStore]) (*UnilateralCloseSummary, error) {
 
 	// First, we'll generate the commitment point and the revocation point
 	// so we can re-construct the HTLC state and also our payment key.
@@ -7286,7 +7299,7 @@ func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
 	localCommitment := lc.channelState.LocalCommitment
 	summary, err := NewLocalForceCloseSummary(
 		lc.channelState, lc.Signer, commitTx,
-		localCommitment.CommitHeight,
+		localCommitment.CommitHeight, lc.leafStore,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen force close "+
@@ -7303,8 +7316,8 @@ func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
 // channel state.  The passed commitTx must be a fully signed commitment
 // transaction corresponding to localCommit.
 func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
-	signer input.Signer, commitTx *wire.MsgTx, stateNum uint64) (
-	*LocalForceCloseSummary, error) {
+	signer input.Signer, commitTx *wire.MsgTx, stateNum uint64,
+	leafStore fn.Option[AuxLeafStore]) (*LocalForceCloseSummary, error) {
 
 	// Re-derive the original pkScript for to-self output within the
 	// commitment transaction. We'll need this to find the corresponding

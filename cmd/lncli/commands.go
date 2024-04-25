@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -2178,8 +2179,9 @@ var updateChannelPolicyCommand = cli.Command{
 			Usage: "the base fee in milli-satoshis that will be " +
 				"charged for each forwarded HTLC, regardless " +
 				"of payment size",
+			Value: int64(chainreg.DefaultBitcoinBaseFeeMSat),
 		},
-		cli.StringFlag{
+		cli.Float64Flag{
 			Name: "fee_rate",
 			Usage: "the fee rate that will be charged " +
 				"proportionally based on the value of each " +
@@ -2187,6 +2189,7 @@ var updateChannelPolicyCommand = cli.Command{
 				"0 with a granularity of 0.000001 " +
 				"(millionths). Can not be set at the same " +
 				"time as fee_rate_ppm",
+			Value: float64(chainreg.DefaultBitcoinFeeRate),
 		},
 		cli.Uint64Flag{
 			Name: "fee_rate_ppm",
@@ -2196,6 +2199,7 @@ var updateChannelPolicyCommand = cli.Command{
 				"possible rate is 0 with a granularity of " +
 				"0.000001 (millionths). Can not be set at " +
 				"the same time as fee_rate",
+			Value: uint64(chainreg.DefaultBitcoinBaseFeeMSat),
 		},
 		cli.Int64Flag{
 			Name: "inbound_base_fee_msat",
@@ -2226,12 +2230,14 @@ var updateChannelPolicyCommand = cli.Command{
 			Name: "time_lock_delta",
 			Usage: "the CLTV delta that will be applied to all " +
 				"forwarded HTLCs",
+			Value: uint64(chainreg.DefaultBitcoinTimeLockDelta),
 		},
 		cli.Uint64Flag{
 			Name: "min_htlc_msat",
 			Usage: "if set, the min HTLC size that will be " +
 				"applied to all forwarded HTLCs. If unset, " +
 				"the min HTLC is left unchanged",
+			Value: uint64(chainreg.DefaultBitcoinMinHTLCInMSat),
 		},
 		cli.Uint64Flag{
 			Name: "max_htlc_msat",

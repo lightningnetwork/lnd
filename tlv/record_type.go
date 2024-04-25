@@ -104,15 +104,15 @@ type OptionalRecordT[T TlvType, V any] struct {
 // TlvType returns the type of the record. This is the value used to identify
 // this type on the wire. This value is bound to the specified TlvType type
 // param.
-func (t *OptionalRecordT[T, V]) TlvType() Type {
+func (o *OptionalRecordT[T, V]) TlvType() Type {
 	zeroRecord := ZeroRecordT[T, V]()
 	return zeroRecord.TlvType()
 }
 
 // WhenSomeV executes the given function if the optional record is present.
 // This operates on the inner most type, V, which is the value of the record.
-func (t *OptionalRecordT[T, V]) WhenSomeV(f func(V)) {
-	t.Option.WhenSome(func(r RecordT[T, V]) {
+func (o *OptionalRecordT[T, V]) WhenSomeV(f func(V)) {
+	o.Option.WhenSome(func(r RecordT[T, V]) {
 		f(r.Val)
 	})
 }
@@ -126,7 +126,7 @@ func (o *OptionalRecordT[T, V]) UnwrapOrFailV(t *testing.T) V {
 	return inner.Val
 }
 
-// UnwrapOrErr is used to extract a value from an option, if the option is
+// UnwrapOrErrV is used to extract a value from an option, if the option is
 // empty, then the specified error is returned directly. This gives the
 // underlying value of the record, instead of the record itself.
 func (o *OptionalRecordT[T, V]) UnwrapOrErrV(err error) (V, error) {
@@ -141,8 +141,17 @@ func (o *OptionalRecordT[T, V]) UnwrapOrErrV(err error) (V, error) {
 }
 
 // Zero returns a zero value of the record type.
-func (t *OptionalRecordT[T, V]) Zero() RecordT[T, V] {
+func (o *OptionalRecordT[T, V]) Zero() RecordT[T, V] {
 	return ZeroRecordT[T, V]()
+}
+
+// ValOpt returns an Option of the underlying value. This can be used to chain
+// other option related methods to avoid needing to first go through the outer
+// record.
+func (o *OptionalRecordT[T, V]) ValOpt() fn.Option[V] {
+	return fn.MapOption(func(record RecordT[T, V]) V {
+		return record.Val
+	})(o.Option)
 }
 
 // SomeRecordT creates a new OptionalRecordT type from a given RecordT type.
@@ -181,8 +190,8 @@ func (b BigSizeT[T]) Int() T {
 }
 
 // Record returns the underlying record interface for the record type.
-func (t *BigSizeT[T]) Record() Record {
+func (b *BigSizeT[T]) Record() Record {
 	// We use a zero value for the type here as this should be used with
 	// the higher order RecordT type.
-	return MakeBigSizeRecord(0, &t.v)
+	return MakeBigSizeRecord(0, &b.v)
 }

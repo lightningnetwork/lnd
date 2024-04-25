@@ -576,7 +576,8 @@ func (c *commitment) toDiskCommit(
 // restart a channel session.
 func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 	htlc *channeldb.HTLC, commitKeys lntypes.Dual[*CommitmentKeyRing],
-	whoseCommit lntypes.ChannelParty) (PaymentDescriptor, error) {
+	whoseCommit lntypes.ChannelParty,
+	auxLeaf input.AuxTapLeaf) (PaymentDescriptor, error) {
 
 	// The proper pkScripts for this PaymentDescriptor must be
 	// generated so we can easily locate them within the commitment
@@ -602,6 +603,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 		scriptInfo, err := genHtlcScript(
 			chanType, htlc.Incoming, lntypes.Local,
 			htlc.RefundTimeout, htlc.RHash, localCommitKeys,
+			auxLeaf,
 		)
 		if err != nil {
 			return pd, err
@@ -618,6 +620,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 		scriptInfo, err := genHtlcScript(
 			chanType, htlc.Incoming, lntypes.Remote,
 			htlc.RefundTimeout, htlc.RHash, remoteCommitKeys,
+			auxLeaf,
 		)
 		if err != nil {
 			return pd, err
@@ -667,7 +670,8 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 // for each side.
 func (lc *LightningChannel) extractPayDescs(feeRate chainfee.SatPerKWeight,
 	htlcs []channeldb.HTLC, commitKeys lntypes.Dual[*CommitmentKeyRing],
-	whoseCommit lntypes.ChannelParty) ([]PaymentDescriptor,
+	whoseCommit lntypes.ChannelParty,
+	auxLeaves fn.Option[CommitAuxLeaves]) ([]PaymentDescriptor,
 	[]PaymentDescriptor, error) {
 
 	var (
@@ -685,8 +689,19 @@ func (lc *LightningChannel) extractPayDescs(feeRate chainfee.SatPerKWeight,
 
 		htlc := htlc
 
+		auxLeaf := fn.ChainOption(
+			func(l CommitAuxLeaves) input.AuxTapLeaf {
+				leaves := l.OutgoingHtlcLeaves
+				if htlc.Incoming {
+					leaves = l.IncomingHtlcLeaves
+				}
+
+				return leaves[htlc.HtlcIndex].AuxTapLeaf
+			},
+		)(auxLeaves)
+
 		payDesc, err := lc.diskHtlcToPayDesc(
-			feeRate, &htlc, commitKeys, whoseCommit,
+			feeRate, &htlc, commitKeys, whoseCommit, auxLeaf,
 		)
 		if err != nil {
 			return incomingHtlcs, outgoingHtlcs, err
@@ -733,12 +748,25 @@ func (lc *LightningChannel) diskCommitToMemCommit(
 		))
 	}
 
+	auxResult, err := fn.MapOptionZ(
+		lc.leafStore,
+		func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
+			return s.FetchLeavesFromCommit(
+				NewAuxChanState(lc.channelState), *diskCommit,
+				*commitKeys.GetForParty(whoseCommit),
+			)
+		},
+	).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
+
 	// With the key rings re-created, we'll now convert all the on-disk
 	// HTLC"s into PaymentDescriptor's so we can re-insert them into our
 	// update log.
 	incomingHtlcs, outgoingHtlcs, err := lc.extractPayDescs(
 		chainfee.SatPerKWeight(diskCommit.FeePerKw),
-		diskCommit.Htlcs, commitKeys, whoseCommit,
+		diskCommit.Htlcs, commitKeys, whoseCommit, auxResult.AuxLeaves,
 	)
 	if err != nil {
 		return nil, err
@@ -1091,7 +1119,8 @@ func (lc *LightningChannel) ResetState() {
 func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 	remoteUpdateLog *updateLog, commitHeight uint64,
 	feeRate chainfee.SatPerKWeight, remoteCommitKeys *CommitmentKeyRing,
-	remoteDustLimit btcutil.Amount) (*PaymentDescriptor, error) {
+	remoteDustLimit btcutil.Amount,
+	auxLeaves fn.Option[CommitAuxLeaves]) (*PaymentDescriptor, error) {
 
 	// Depending on the type of update message we'll map that to a distinct
 	// PaymentDescriptor instance.
@@ -1127,10 +1156,17 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 			feeRate, wireMsg.Amount.ToSatoshis(), remoteDustLimit,
 		)
 		if !isDustRemote {
+			auxLeaf := fn.ChainOption(
+				func(l CommitAuxLeaves) input.AuxTapLeaf {
+					leaves := l.OutgoingHtlcLeaves
+					return leaves[pd.HtlcIndex].AuxTapLeaf
+				},
+			)(auxLeaves)
+
 			scriptInfo, err := genHtlcScript(
 				lc.channelState.ChanType, false, lntypes.Remote,
 				wireMsg.Expiry, wireMsg.PaymentHash,
-				remoteCommitKeys,
+				remoteCommitKeys, auxLeaf,
 			)
 			if err != nil {
 				return nil, err
@@ -1791,6 +1827,19 @@ func (lc *LightningChannel) restorePendingLocalUpdates(
 	pendingCommit := pendingRemoteCommitDiff.Commitment
 	pendingHeight := pendingCommit.CommitHeight
 
+	auxResult, err := fn.MapOptionZ(
+		lc.leafStore,
+		func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
+			return s.FetchLeavesFromCommit(
+				NewAuxChanState(lc.channelState), pendingCommit,
+				*pendingRemoteKeys,
+			)
+		},
+	).Unpack()
+	if err != nil {
+		return fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
+
 	// If we did have a dangling commit, then we'll examine which updates
 	// we included in that state and re-insert them into our update log.
 	for _, logUpdate := range pendingRemoteCommitDiff.LogUpdates {
@@ -1801,6 +1850,7 @@ func (lc *LightningChannel) restorePendingLocalUpdates(
 			chainfee.SatPerKWeight(pendingCommit.FeePerKw),
 			pendingRemoteKeys,
 			lc.channelState.RemoteChanCfg.DustLimit,
+			auxResult.AuxLeaves,
 		)
 		if err != nil {
 			return err
@@ -2007,24 +2057,40 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		leaseExpiry = chanState.ThawHeight
 	}
 
-	// TODO(roasbeef): Actually fetch aux leaves (later commits in this PR).
+	auxResult, err := fn.MapOptionZ(
+		leafStore, func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
+			return s.FetchLeavesFromRevocation(revokedLog)
+		},
+	).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
 
 	// Since it is the remote breach we are reconstructing, the output
 	// going to us will be a to-remote script with our local params.
+	remoteAuxLeaf := fn.ChainOption(
+		func(l CommitAuxLeaves) input.AuxTapLeaf {
+			return l.RemoteAuxLeaf
+		},
+	)(auxResult.AuxLeaves)
 	isRemoteInitiator := !chanState.IsInitiator
 	ourScript, ourDelay, err := CommitScriptToRemote(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
-		leaseExpiry, input.NoneTapLeaf(),
+		leaseExpiry, remoteAuxLeaf,
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	localAuxLeaf := fn.ChainOption(
+		func(l CommitAuxLeaves) input.AuxTapLeaf {
+			return l.LocalAuxLeaf
+		},
+	)(auxResult.AuxLeaves)
 	theirDelay := uint32(chanState.RemoteChanCfg.CsvDelay)
 	theirScript, err := CommitScriptToSelf(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToLocalKey,
-		keyRing.RevocationKey, theirDelay, leaseExpiry,
-		input.NoneTapLeaf(),
+		keyRing.RevocationKey, theirDelay, leaseExpiry, localAuxLeaf,
 	)
 	if err != nil {
 		return nil, err
@@ -2042,7 +2108,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	if revokedLog != nil {
 		br, ourAmt, theirAmt, err = createBreachRetribution(
 			revokedLog, spendTx, chanState, keyRing,
-			commitmentSecret, leaseExpiry,
+			commitmentSecret, leaseExpiry, auxResult.AuxLeaves,
 		)
 		if err != nil {
 			return nil, err
@@ -2176,7 +2242,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 func createHtlcRetribution(chanState *channeldb.OpenChannel,
 	keyRing *CommitmentKeyRing, commitHash chainhash.Hash,
 	commitmentSecret *btcec.PrivateKey, leaseExpiry uint32,
-	htlc *channeldb.HTLCEntry) (HtlcRetribution, error) {
+	htlc *channeldb.HTLCEntry,
+	auxLeaves fn.Option[CommitAuxLeaves]) (HtlcRetribution, error) {
 
 	var emptyRetribution HtlcRetribution
 
@@ -2186,10 +2253,24 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 	// We'll generate the original second level witness script now, as
 	// we'll need it if we're revoking an HTLC output on the remote
 	// commitment transaction, and *they* go to the second level.
+	secondLevelAuxLeaf := fn.ChainOption(
+		func(l CommitAuxLeaves) fn.Option[input.AuxTapLeaf] {
+			return fn.MapOption(func(val uint16) input.AuxTapLeaf {
+				idx := input.HtlcIndex(val)
+
+				if htlc.Incoming.Val {
+					leaves := l.IncomingHtlcLeaves[idx]
+					return leaves.SecondLevelLeaf
+				}
+
+				return l.OutgoingHtlcLeaves[idx].SecondLevelLeaf
+			})(htlc.HtlcIndex.ValOpt())
+		},
+	)(auxLeaves)
 	secondLevelScript, err := SecondLevelHtlcScript(
 		chanState.ChanType, isRemoteInitiator,
 		keyRing.RevocationKey, keyRing.ToLocalKey, theirDelay,
-		leaseExpiry,
+		leaseExpiry, fn.FlattenOption(secondLevelAuxLeaf),
 	)
 	if err != nil {
 		return emptyRetribution, err
@@ -2200,9 +2281,24 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 	// HTLC script. Otherwise, is this was an outgoing HTLC that we sent,
 	// then from the PoV of the remote commitment state, they're the
 	// receiver of this HTLC.
+	htlcLeaf := fn.ChainOption(
+		func(l CommitAuxLeaves) fn.Option[input.AuxTapLeaf] {
+			return fn.MapOption(func(val uint16) input.AuxTapLeaf {
+				idx := input.HtlcIndex(val)
+
+				if htlc.Incoming.Val {
+					leaves := l.IncomingHtlcLeaves[idx]
+					return leaves.AuxTapLeaf
+				}
+
+				return l.OutgoingHtlcLeaves[idx].AuxTapLeaf
+			})(htlc.HtlcIndex.ValOpt())
+		},
+	)(auxLeaves)
 	scriptInfo, err := genHtlcScript(
 		chanState.ChanType, htlc.Incoming.Val, lntypes.Remote,
 		htlc.RefundTimeout.Val, htlc.RHash.Val, keyRing,
+		fn.FlattenOption(htlcLeaf),
 	)
 	if err != nil {
 		return emptyRetribution, err
@@ -2266,7 +2362,9 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 	spendTx *wire.MsgTx, chanState *channeldb.OpenChannel,
 	keyRing *CommitmentKeyRing, commitmentSecret *btcec.PrivateKey,
-	leaseExpiry uint32) (*BreachRetribution, int64, int64, error) {
+	leaseExpiry uint32,
+	auxLeaves fn.Option[CommitAuxLeaves]) (*BreachRetribution, int64, int64,
+	error) {
 
 	commitHash := revokedLog.CommitTxHash
 
@@ -2275,7 +2373,7 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 	for i, htlc := range revokedLog.HTLCEntries {
 		hr, err := createHtlcRetribution(
 			chanState, keyRing, commitHash.Val,
-			commitmentSecret, leaseExpiry, htlc,
+			commitmentSecret, leaseExpiry, htlc, auxLeaves,
 		)
 		if err != nil {
 			return nil, 0, 0, err
@@ -2427,6 +2525,7 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 		hr, err := createHtlcRetribution(
 			chanState, keyRing, commitHash,
 			commitmentSecret, leaseExpiry, entry,
+			fn.None[CommitAuxLeaves](),
 		)
 		if err != nil {
 			return nil, 0, 0, err
@@ -3041,12 +3140,26 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	// With the keys generated, we'll make a slice with enough capacity to
 	// hold potentially all the HTLCs. The actual slice may be a bit
 	// smaller (than its total capacity) and some HTLCs may be dust.
-	numSigs := (len(remoteCommitView.incomingHTLCs) +
-		len(remoteCommitView.outgoingHTLCs))
+	numSigs := len(remoteCommitView.incomingHTLCs) +
+		len(remoteCommitView.outgoingHTLCs)
 	sigBatch := make([]SignJob, 0, numSigs)
 
 	var err error
 	cancelChan := make(chan struct{})
+
+	auxResult, err := fn.MapOptionZ(
+		leafStore, func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
+			return s.FetchLeavesFromCommit(
+				NewAuxChanState(chanState),
+				*remoteCommitView.toDiskCommit(lntypes.Remote),
+				*keyRing,
+			)
+		},
+	).Unpack()
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to fetch aux leaves: %w",
+			err)
+	}
 
 	// For each outgoing and incoming HTLC, if the HTLC isn't considered a
 	// dust output after taking into account second-level HTLC fees, then a
@@ -3074,6 +3187,13 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		htlcFee := HtlcTimeoutFee(chanType, feePerKw)
 		outputAmt := htlc.Amount.ToSatoshis() - htlcFee
 
+		auxLeaf := fn.ChainOption(
+			func(l CommitAuxLeaves) input.AuxTapLeaf {
+				leaves := l.IncomingHtlcLeaves
+				return leaves[htlc.HtlcIndex].SecondLevelLeaf
+			},
+		)(auxResult.AuxLeaves)
+
 		// With the fee calculate, we can properly create the HTLC
 		// timeout transaction using the HTLC amount minus the fee.
 		op := wire.OutPoint{
@@ -3084,10 +3204,14 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			chanType, isRemoteInitiator, op, outputAmt,
 			htlc.Timeout, uint32(remoteChanCfg.CsvDelay),
 			leaseExpiry, keyRing.RevocationKey, keyRing.ToLocalKey,
+			auxLeaf,
 		)
 		if err != nil {
 			return nil, nil, err
 		}
+
+		// TODO(roasbeef): hook up signer interface here (later commit
+		// in this PR).
 
 		// Construct a full hash cache as we may be signing a segwit v1
 		// sighash.
@@ -3115,7 +3239,8 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		// If this is a taproot channel, then we'll need to set the
 		// method type to ensure we generate a valid signature.
 		if chanType.IsTaproot() {
-			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod //nolint:lll
+			//nolint:lll
+			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod
 		}
 
 		sigBatch = append(sigBatch, sigJob)
@@ -3141,6 +3266,13 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		htlcFee := HtlcSuccessFee(chanType, feePerKw)
 		outputAmt := htlc.Amount.ToSatoshis() - htlcFee
 
+		auxLeaf := fn.ChainOption(
+			func(l CommitAuxLeaves) input.AuxTapLeaf {
+				leaves := l.OutgoingHtlcLeaves
+				return leaves[htlc.HtlcIndex].SecondLevelLeaf
+			},
+		)(auxResult.AuxLeaves)
+
 		// With the proper output amount calculated, we can now
 		// generate the success transaction using the remote party's
 		// CSV delay.
@@ -3152,6 +3284,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			chanType, isRemoteInitiator, op, outputAmt,
 			uint32(remoteChanCfg.CsvDelay), leaseExpiry,
 			keyRing.RevocationKey, keyRing.ToLocalKey,
+			auxLeaf,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -4523,9 +4656,23 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 	// enough capacity to hold verification jobs for all HTLC's in this
 	// view. In the case that we have some dust outputs, then the actual
 	// length will be smaller than the total capacity.
-	numHtlcs := (len(localCommitmentView.incomingHTLCs) +
-		len(localCommitmentView.outgoingHTLCs))
+	numHtlcs := len(localCommitmentView.incomingHTLCs) +
+		len(localCommitmentView.outgoingHTLCs)
 	verifyJobs := make([]VerifyJob, 0, numHtlcs)
+
+	auxResult, err := fn.MapOptionZ(
+		leafStore, func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
+			return s.FetchLeavesFromCommit(
+				NewAuxChanState(chanState),
+				*localCommitmentView.toDiskCommit(
+					lntypes.Local,
+				), *keyRing,
+			)
+		},
+	).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
 
 	// We'll iterate through each output in the commitment transaction,
 	// populating the sigHash closure function if it's detected to be an
@@ -4560,11 +4707,19 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 				htlcFee := HtlcSuccessFee(chanType, feePerKw)
 				outputAmt := htlc.Amount.ToSatoshis() - htlcFee
 
+				auxLeaf := fn.ChainOption(func(
+					l CommitAuxLeaves) input.AuxTapLeaf {
+
+					leaves := l.IncomingHtlcLeaves
+					idx := htlc.HtlcIndex
+					return leaves[idx].SecondLevelLeaf
+				})(auxResult.AuxLeaves)
+
 				successTx, err := CreateHtlcSuccessTx(
 					chanType, isLocalInitiator, op,
 					outputAmt, uint32(localChanCfg.CsvDelay),
 					leaseExpiry, keyRing.RevocationKey,
-					keyRing.ToLocalKey,
+					keyRing.ToLocalKey, auxLeaf,
 				)
 				if err != nil {
 					return nil, err
@@ -4644,12 +4799,20 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 				htlcFee := HtlcTimeoutFee(chanType, feePerKw)
 				outputAmt := htlc.Amount.ToSatoshis() - htlcFee
 
+				auxLeaf := fn.ChainOption(func(
+					l CommitAuxLeaves) input.AuxTapLeaf {
+
+					leaves := l.OutgoingHtlcLeaves
+					idx := htlc.HtlcIndex
+					return leaves[idx].SecondLevelLeaf
+				})(auxResult.AuxLeaves)
+
 				timeoutTx, err := CreateHtlcTimeoutTx(
 					chanType, isLocalInitiator, op,
 					outputAmt, htlc.Timeout,
 					uint32(localChanCfg.CsvDelay),
 					leaseExpiry, keyRing.RevocationKey,
-					keyRing.ToLocalKey,
+					keyRing.ToLocalKey, auxLeaf,
 				)
 				if err != nil {
 					return nil, err
@@ -6364,6 +6527,18 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel,
 		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
 	)
 
+	auxResult, err := fn.MapOptionZ(
+		leafStore, func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
+			return s.FetchLeavesFromCommit(
+				NewAuxChanState(chanState), remoteCommit,
+				*keyRing,
+			)
+		},
+	).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
+
 	// Next, we'll obtain HTLC resolutions for all the outgoing HTLC's we
 	// had on their commitment transaction.
 	var leaseExpiry uint32
@@ -6376,6 +6551,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel,
 		signer, remoteCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
 		&chanState.RemoteChanCfg, commitSpend.SpendingTx,
 		chanState.ChanType, isRemoteInitiator, leaseExpiry,
+		auxResult.AuxLeaves,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create htlc "+
@@ -6384,14 +6560,17 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel,
 
 	commitTxBroadcast := commitSpend.SpendingTx
 
-	// TODO(roasbeef): Actually fetch aux leaves (later commits in this PR).
-
 	// Before we can generate the proper sign descriptor, we'll need to
 	// locate the output index of our non-delayed output on the commitment
 	// transaction.
+	remoteAuxLeaf := fn.ChainOption(
+		func(l CommitAuxLeaves) input.AuxTapLeaf {
+			return l.RemoteAuxLeaf
+		},
+	)(auxResult.AuxLeaves)
 	selfScript, maturityDelay, err := CommitScriptToRemote(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
-		leaseExpiry, input.NoneTapLeaf(),
+		leaseExpiry, remoteAuxLeaf,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create self commit "+
@@ -6631,7 +6810,8 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay, leaseExpiry uint32,
 	whoseCommit lntypes.ChannelParty, isCommitFromInitiator bool,
-	chanType channeldb.ChannelType) (*OutgoingHtlcResolution, error) {
+	chanType channeldb.ChannelType,
+	auxLeaves fn.Option[CommitAuxLeaves]) (*OutgoingHtlcResolution, error) {
 
 	op := wire.OutPoint{
 		Hash:  commitTx.TxHash(),
@@ -6640,9 +6820,12 @@ func newOutgoingHtlcResolution(signer input.Signer,
 
 	// First, we'll re-generate the script used to send the HTLC to the
 	// remote party within their commitment transaction.
+	auxLeaf := fn.ChainOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
+		return l.OutgoingHtlcLeaves[htlc.HtlcIndex].AuxTapLeaf
+	})(auxLeaves)
 	htlcScriptInfo, err := genHtlcScript(
 		chanType, false, whoseCommit, htlc.RefundTimeout, htlc.RHash,
-		keyRing,
+		keyRing, auxLeaf,
 	)
 	if err != nil {
 		return nil, err
@@ -6715,10 +6898,16 @@ func newOutgoingHtlcResolution(signer input.Signer,
 
 	// With the fee calculated, re-construct the second level timeout
 	// transaction.
+	secondLevelAuxLeaf := fn.ChainOption(
+		func(l CommitAuxLeaves) input.AuxTapLeaf {
+			leaves := l.OutgoingHtlcLeaves
+			return leaves[htlc.HtlcIndex].SecondLevelLeaf
+		},
+	)(auxLeaves)
 	timeoutTx, err := CreateHtlcTimeoutTx(
 		chanType, isCommitFromInitiator, op, secondLevelOutputAmt,
-		htlc.RefundTimeout, csvDelay, leaseExpiry, keyRing.RevocationKey,
-		keyRing.ToLocalKey,
+		htlc.RefundTimeout, csvDelay, leaseExpiry,
+		keyRing.RevocationKey, keyRing.ToLocalKey, secondLevelAuxLeaf,
 	)
 	if err != nil {
 		return nil, err
@@ -6801,6 +6990,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		htlcSweepScript, err = SecondLevelHtlcScript(
 			chanType, isCommitFromInitiator, keyRing.RevocationKey,
 			keyRing.ToLocalKey, csvDelay, leaseExpiry,
+			secondLevelAuxLeaf,
 		)
 		if err != nil {
 			return nil, err
@@ -6809,7 +6999,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		//nolint:lll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
-			fn.None[txscript.TapLeaf](),
+			secondLevelAuxLeaf,
 		)
 		if err != nil {
 			return nil, err
@@ -6884,8 +7074,8 @@ func newIncomingHtlcResolution(signer input.Signer,
 	htlc *channeldb.HTLC, keyRing *CommitmentKeyRing,
 	feePerKw chainfee.SatPerKWeight, csvDelay, leaseExpiry uint32,
 	whoseCommit lntypes.ChannelParty, isCommitFromInitiator bool,
-	chanType channeldb.ChannelType) (
-	*IncomingHtlcResolution, error) {
+	chanType channeldb.ChannelType,
+	auxLeaves fn.Option[CommitAuxLeaves]) (*IncomingHtlcResolution, error) {
 
 	op := wire.OutPoint{
 		Hash:  commitTx.TxHash(),
@@ -6894,9 +7084,12 @@ func newIncomingHtlcResolution(signer input.Signer,
 
 	// First, we'll re-generate the script the remote party used to
 	// send the HTLC to us in their commitment transaction.
+	auxLeaf := fn.ChainOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
+		return l.IncomingHtlcLeaves[htlc.HtlcIndex].AuxTapLeaf
+	})(auxLeaves)
 	scriptInfo, err := genHtlcScript(
 		chanType, true, whoseCommit, htlc.RefundTimeout, htlc.RHash,
-		keyRing,
+		keyRing, auxLeaf,
 	)
 	if err != nil {
 		return nil, err
@@ -6956,6 +7149,13 @@ func newIncomingHtlcResolution(signer input.Signer,
 		}, nil
 	}
 
+	secondLevelAuxLeaf := fn.ChainOption(
+		func(l CommitAuxLeaves) input.AuxTapLeaf {
+			leaves := l.IncomingHtlcLeaves
+			return leaves[htlc.HtlcIndex].SecondLevelLeaf
+		},
+	)(auxLeaves)
+
 	// Otherwise, we'll need to go to the second level to sweep this HTLC.
 	//
 	// First, we'll reconstruct the original HTLC success transaction,
@@ -6965,7 +7165,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 	successTx, err := CreateHtlcSuccessTx(
 		chanType, isCommitFromInitiator, op, secondLevelOutputAmt,
 		csvDelay, leaseExpiry, keyRing.RevocationKey,
-		keyRing.ToLocalKey,
+		keyRing.ToLocalKey, secondLevelAuxLeaf,
 	)
 	if err != nil {
 		return nil, err
@@ -7048,6 +7248,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 		htlcSweepScript, err = SecondLevelHtlcScript(
 			chanType, isCommitFromInitiator, keyRing.RevocationKey,
 			keyRing.ToLocalKey, csvDelay, leaseExpiry,
+			secondLevelAuxLeaf,
 		)
 		if err != nil {
 			return nil, err
@@ -7056,7 +7257,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 		//nolint:lll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
-			fn.None[txscript.TapLeaf](),
+			secondLevelAuxLeaf,
 		)
 		if err != nil {
 			return nil, err
@@ -7149,7 +7350,8 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 	htlcs []channeldb.HTLC, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
 	commitTx *wire.MsgTx, chanType channeldb.ChannelType,
-	isCommitFromInitiator bool, leaseExpiry uint32) (*HtlcResolutions, error) {
+	isCommitFromInitiator bool, leaseExpiry uint32,
+	auxLeaves fn.Option[CommitAuxLeaves]) (*HtlcResolutions, error) {
 
 	// TODO(roasbeef): don't need to swap csv delay?
 	dustLimit := remoteChanCfg.DustLimit
@@ -7182,8 +7384,9 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 			// as we can satisfy the contract.
 			ihr, err := newIncomingHtlcResolution(
 				signer, localChanCfg, commitTx, &htlc,
-				keyRing, feePerKw, uint32(csvDelay), leaseExpiry,
-				whoseCommit, isCommitFromInitiator, chanType,
+				keyRing, feePerKw, uint32(csvDelay),
+				leaseExpiry, whoseCommit, isCommitFromInitiator,
+				chanType, auxLeaves,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("incoming resolution "+
@@ -7197,7 +7400,7 @@ func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight,
 		ohr, err := newOutgoingHtlcResolution(
 			signer, localChanCfg, commitTx, &htlc, keyRing,
 			feePerKw, uint32(csvDelay), leaseExpiry, whoseCommit,
-			isCommitFromInitiator, chanType,
+			isCommitFromInitiator, chanType, auxLeaves,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("outgoing resolution "+
@@ -7336,16 +7539,31 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
 	)
 
-	// TODO(roasbeef): Actually fetch aux leaves (later commits in this PR).
+	auxResult, err := fn.MapOptionZ(
+		leafStore, func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
+			return s.FetchLeavesFromCommit(
+				NewAuxChanState(chanState),
+				chanState.LocalCommitment, *keyRing,
+			)
+		},
+	).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
 
 	var leaseExpiry uint32
 	if chanState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = chanState.ThawHeight
 	}
+
+	localAuxLeaf := fn.ChainOption(
+		func(l CommitAuxLeaves) input.AuxTapLeaf {
+			return l.LocalAuxLeaf
+		},
+	)(auxResult.AuxLeaves)
 	toLocalScript, err := CommitScriptToSelf(
 		chanState.ChanType, chanState.IsInitiator, keyRing.ToLocalKey,
-		keyRing.RevocationKey, csvTimeout, leaseExpiry,
-		input.NoneTapLeaf(),
+		keyRing.RevocationKey, csvTimeout, leaseExpiry, localAuxLeaf,
 	)
 	if err != nil {
 		return nil, err
@@ -7436,7 +7654,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 		chainfee.SatPerKWeight(localCommit.FeePerKw), lntypes.Local,
 		signer, localCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
 		&chanState.RemoteChanCfg, commitTx, chanState.ChanType,
-		chanState.IsInitiator, leaseExpiry,
+		chanState.IsInitiator, leaseExpiry, auxResult.AuxLeaves,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen htlc resolution: %w", err)

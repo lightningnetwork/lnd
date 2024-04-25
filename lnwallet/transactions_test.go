@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -229,7 +229,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 
 		var testCases []testCase
 
-		jsonText, err := ioutil.ReadFile(set.jsonFile)
+		jsonText, err := os.ReadFile(set.jsonFile)
 		require.NoError(t, err)
 
 		err = json.Unmarshal(jsonText, &testCases)

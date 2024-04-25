@@ -398,7 +398,10 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   In particular, the complexity involved in the lifecycle loop has been
   decoupled into logical steps, with each step having its own responsibility,
   making it easier to reason about the payment flow.
- 
+
+* [Remove io/ioutil package 
+  dependence](https://github.com/lightningnetwork/lnd/pull/7765).
+
 * [Add a watchtower tower client
   multiplexer](https://github.com/lightningnetwork/lnd/pull/7702) to manage
   tower clients of different types.

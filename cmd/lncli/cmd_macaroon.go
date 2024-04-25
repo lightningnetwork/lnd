@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"unicode"
@@ -192,7 +192,7 @@ func bakeMacaroon(ctx *cli.Context) error {
 	// a file or write to the standard output using hex encoding.
 	switch {
 	case savePath != "":
-		err = ioutil.WriteFile(savePath, macBytes, 0644)
+		err = os.WriteFile(savePath, macBytes, 0644)
 		if err != nil {
 			return err
 		}
@@ -352,7 +352,7 @@ func printMacaroon(ctx *cli.Context) error {
 		macPath := lncfg.CleanAndExpandPath(ctx.String("macaroon_file"))
 
 		// Load the specified macaroon file.
-		macBytes, err = ioutil.ReadFile(macPath)
+		macBytes, err = os.ReadFile(macPath)
 		if err != nil {
 			return fmt.Errorf("unable to read macaroon path %v: %v",
 				macPath, err)
@@ -441,7 +441,7 @@ func constrainMacaroon(ctx *cli.Context) error {
 	sourceMacFile := lncfg.CleanAndExpandPath(args.First())
 	args = args.Tail()
 
-	sourceMacBytes, err := ioutil.ReadFile(sourceMacFile)
+	sourceMacBytes, err := os.ReadFile(sourceMacFile)
 	if err != nil {
 		return fmt.Errorf("error trying to read source macaroon file "+
 			"%s: %v", sourceMacFile, err)
@@ -471,7 +471,7 @@ func constrainMacaroon(ctx *cli.Context) error {
 	}
 
 	// Now we can output the result.
-	err = ioutil.WriteFile(destMacFile, destMacBytes, 0644)
+	err = os.WriteFile(destMacFile, destMacBytes, 0644)
 	if err != nil {
 		return fmt.Errorf("error writing destination macaroon file "+
 			"%s: %v", destMacFile, err)

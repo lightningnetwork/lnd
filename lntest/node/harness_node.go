@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -297,7 +296,7 @@ func (hn *HarnessNode) ReadMacaroon(macPath string, timeout time.Duration) (
 	// using it.
 	var mac *macaroon.Macaroon
 	err := wait.NoError(func() error {
-		macBytes, err := ioutil.ReadFile(macPath)
+		macBytes, err := os.ReadFile(macPath)
 		if err != nil {
 			return fmt.Errorf("error reading macaroon file: %w",
 				err)
@@ -824,7 +823,7 @@ func (hn *HarnessNode) BackupDB() error {
 		}
 	} else {
 		// Backup files.
-		tempDir, err := ioutil.TempDir("", "past-state")
+		tempDir, err := os.MkdirTemp("", "past-state")
 		if err != nil {
 			return fmt.Errorf("unable to create temp db folder: %w",
 				err)
@@ -1032,7 +1031,7 @@ func addLogFile(hn *HarnessNode) error {
 // copyAll copies all files and directories from srcDir to dstDir recursively.
 // Note that this function does not support links.
 func copyAll(dstDir, srcDir string) error {
-	entries, err := ioutil.ReadDir(srcDir)
+	entries, err := os.ReadDir(srcDir)
 	if err != nil {
 		return err
 	}

@@ -7,7 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"runtime"
 	"strconv"
@@ -987,7 +987,7 @@ func sendToRoute(ctx *cli.Context) error {
 	// The user is signalling that we should read stdin in order to parse
 	// the set of target routes.
 	case args.Present() && args.First() == "-":
-		b, err := ioutil.ReadAll(os.Stdin)
+		b, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return err
 		}

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 )
 
@@ -105,7 +104,7 @@ func (f *OnionFile) StorePrivateKey(privateKey []byte) error {
 		privateKeyContent = b.Bytes()
 	}
 
-	err := ioutil.WriteFile(
+	err := os.WriteFile(
 		f.privateKeyPath, privateKeyContent, f.privateKeyPerm,
 	)
 	if err != nil {
@@ -124,7 +123,7 @@ func (f *OnionFile) PrivateKey() ([]byte, error) {
 	}
 
 	// Try to read the Tor private key to pass into the AddOnion call.
-	privateKeyContent, err := ioutil.ReadFile(f.privateKeyPath)
+	privateKeyContent, err := os.ReadFile(f.privateKeyPath)
 	if err != nil {
 		return nil, err
 	}

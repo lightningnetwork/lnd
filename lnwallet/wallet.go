@@ -2496,9 +2496,16 @@ func initStateHints(commit1, commit2 *wire.MsgTx,
 func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 	fundingTx *wire.MsgTx) error {
 
+	var chanOpts []ChannelOpt
+	l.Cfg.AuxLeafStore.WhenSome(func(s AuxLeafStore) {
+		chanOpts = append(chanOpts, WithLeafStore(s))
+	})
+
 	// First, we'll obtain a fully signed commitment transaction so we can
 	// pass into it on the chanvalidate package for verification.
-	channel, err := NewLightningChannel(l.Cfg.Signer, channelState, nil)
+	channel, err := NewLightningChannel(
+		l.Cfg.Signer, channelState, nil, chanOpts...,
+	)
 	if err != nil {
 		return err
 	}

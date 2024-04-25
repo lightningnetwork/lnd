@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -563,6 +564,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		IsSweeperOutpoint: func(wire.OutPoint) bool {
 			return false
 		},
+		AuxLeafStore: fn.Some[lnwallet.AuxLeafStore](
+			&lnwallet.MockAuxLeafStore{},
+		),
 	}
 
 	for _, op := range options {
@@ -672,6 +676,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		OpenChannelPredicate:  chainedAcceptor,
 		DeleteAliasEdge:       oldCfg.DeleteAliasEdge,
 		AliasManager:          oldCfg.AliasManager,
+		AuxLeafStore:          oldCfg.AuxLeafStore,
 	})
 	require.NoError(t, err, "failed recreating aliceFundingManager")
 

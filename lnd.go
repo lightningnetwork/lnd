@@ -456,7 +456,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	defer cleanUp()
 
 	partialChainControl, walletConfig, cleanUp, err := implCfg.BuildWalletConfig(
-		ctx, dbs, interceptorChain, grpcListeners,
+		ctx, dbs, &implCfg.AuxComponents, interceptorChain,
+		grpcListeners,
 	)
 	if err != nil {
 		return mkErr("error creating wallet config: %v", err)

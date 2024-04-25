@@ -129,6 +129,11 @@
 
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/8685) lncli "bumpfee"
   parsing of the immediate/force flag.
+  
+* [Added](https://github.com/lightningnetwork/lnd/pull/8686) more descriptive
+  log message in case the initial broadcast of a sweep transaction fails because
+  its budget is too small and the transaction is unlikely to confirm at the
+  current absolute deadline target.
 
 # New Features
 ## Functional Enhancements

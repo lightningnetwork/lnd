@@ -448,9 +448,11 @@ func (b *blindedForwardTest) createRouteToBlinded(paymentAmt int64,
 	return resp.Routes[0]
 }
 
-// sendBlindedPayment dispatches a payment to the route provided.
+// sendBlindedPayment dispatches a payment to the route provided, returning a
+// cancel function for the payment. Timeout is set for very long to allow
+// time for on-chain resolution.
 func (b *blindedForwardTest) sendBlindedPayment(ctx context.Context,
-	route *lnrpc.Route) {
+	route *lnrpc.Route) func() {
 
 	hash := sha256.Sum256(b.preimage[:])
 	sendReq := &routerrpc.SendToRouteRequest{
@@ -458,11 +460,13 @@ func (b *blindedForwardTest) sendBlindedPayment(ctx context.Context,
 		Route:       route,
 	}
 
-	// Dispatch in a goroutine because this call is blocking - we assume
-	// that we'll have assertions that this payment is sent by the caller.
+	ctx, cancel := context.WithTimeout(ctx, time.Hour)
 	go func() {
-		b.ht.Alice.RPC.SendToRouteV2(sendReq)
+		_, err := b.ht.Alice.RPC.Router.SendToRouteV2(ctx, sendReq)
+		require.NoError(b.ht, err)
 	}()
+
+	return cancel
 }
 
 // interceptFinalHop launches a goroutine to intercept Carol's htlcs and
@@ -805,7 +809,8 @@ func testForwardBlindedRoute(ht *lntest.HarnessTest) {
 	resolveHTLC := testCase.interceptFinalHop()
 
 	// Once our interceptor is set up, we can send the blinded payment.
-	testCase.sendBlindedPayment(ctx, blindedRoute)
+	cancelPmt := testCase.sendBlindedPayment(ctx, blindedRoute)
+	defer cancelPmt()
 
 	// Wait for the HTLC to be active on Alice's channel.
 	hash := sha256.Sum256(testCase.preimage[:])
@@ -886,7 +891,8 @@ func sendAndResumeBlindedPayment(ctx context.Context, ht *lntest.HarnessTest,
 	// First, test sending the payment all the way through to Dave. We
 	// expect this payment to fail, because he does not know how to
 	// process payments to a blinded route (not yet supported).
-	testCase.sendBlindedPayment(ctx, blindedRoute)
+	cancelPmt := testCase.sendBlindedPayment(ctx, blindedRoute)
+	defer cancelPmt()
 
 	// When Carol intercepts the HTLC, instruct her to resume the payment
 	// so that it'll reach Dave and fail.

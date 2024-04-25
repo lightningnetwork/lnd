@@ -34,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -104,7 +105,7 @@ type DatabaseBuilder interface {
 type WalletConfigBuilder interface {
 	// BuildWalletConfig is responsible for creating or unlocking and then
 	// fully initializing a wallet.
-	BuildWalletConfig(context.Context, *DatabaseInstances,
+	BuildWalletConfig(context.Context, *DatabaseInstances, *AuxComponents,
 		*rpcperms.InterceptorChain,
 		[]*ListenerWithSignal) (*chainreg.PartialChainControl,
 		*btcwallet.Config, func(), error)
@@ -145,6 +146,17 @@ type ImplementationCfg struct {
 	// ChainControlBuilder is a type that can provide a custom wallet
 	// implementation.
 	ChainControlBuilder
+	// AuxComponents is a set of auxiliary components that can be used by
+	// lnd for certain custom channel types.
+	AuxComponents
+}
+
+// AuxComponents is a set of auxiliary components that can be used by lnd for
+// certain custom channel types.
+type AuxComponents struct {
+	// AuxLeafStore is an optional data source that can be used by custom
+	// channels to fetch+store various data.
+	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
 }
 
 // DefaultWalletImpl is the default implementation of our normal, btcwallet
@@ -229,7 +241,8 @@ func (d *DefaultWalletImpl) Permissions() map[string][]bakery.Op {
 //
 // NOTE: This is part of the WalletConfigBuilder interface.
 func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
-	dbs *DatabaseInstances, interceptorChain *rpcperms.InterceptorChain,
+	dbs *DatabaseInstances, aux *AuxComponents,
+	interceptorChain *rpcperms.InterceptorChain,
 	grpcListeners []*ListenerWithSignal) (*chainreg.PartialChainControl,
 	*btcwallet.Config, func(), error) {
 
@@ -549,6 +562,7 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 		HeightHintDB:                dbs.HeightHintDB,
 		ChanStateDB:                 dbs.ChanStateDB.ChannelStateDB(),
 		NeutrinoCS:                  neutrinoCS,
+		AuxLeafStore:                aux.AuxLeafStore,
 		ActiveNetParams:             d.cfg.ActiveNetParams,
 		FeeURL:                      d.cfg.FeeURL,
 		Dialer: func(addr string) (net.Conn, error) {
@@ -607,8 +621,9 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 
 // proxyBlockEpoch proxies a block epoch subsections to the underlying neutrino
 // rebroadcaster client.
-func proxyBlockEpoch(notifier chainntnfs.ChainNotifier,
-) func() (*blockntfns.Subscription, error) {
+func proxyBlockEpoch(
+	notifier chainntnfs.ChainNotifier) func() (*blockntfns.Subscription,
+	error) {
 
 	return func() (*blockntfns.Subscription, error) {
 		blockEpoch, err := notifier.RegisterBlockEpochNtfn(
@@ -699,6 +714,7 @@ func (d *DefaultWalletImpl) BuildChainControl(
 		ChainIO:               walletController,
 		NetParams:             *walletConfig.NetParams,
 		CoinSelectionStrategy: walletConfig.CoinSelectionStrategy,
+		AuxLeafStore:          partialChainControl.Cfg.AuxLeafStore,
 	}
 
 	// The broadcast is already always active for neutrino nodes, so we
@@ -878,6 +894,10 @@ type DatabaseInstances struct {
 	// for native SQL queries for tables that already support it. This may
 	// be nil if the use-native-sql flag was not set.
 	NativeSQLStore *sqldb.BaseDB
+
+	// AuxLeafStore is an optional data source that can be used by custom
+	// channels to fetch+store various data.
+	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
 }
 
 // DefaultDatabaseBuilder is a type that builds the default database backends

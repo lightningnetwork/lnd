@@ -437,7 +437,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	defer cleanUp()
 
 	partialChainControl, walletConfig, cleanUp, err := implCfg.BuildWalletConfig(
-		ctx, dbs, interceptorChain, grpcListeners,
+		ctx, dbs, &implCfg.AuxComponents, interceptorChain,
+		grpcListeners,
 	)
 	if err != nil {
 		return mkErr("error creating wallet config: %v", err)
@@ -580,7 +581,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	server, err := newServer(
 		cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
 		activeChainControl.Cfg.WalletUnlockParams.ChansToRestore,
-		multiAcceptor, torController, tlsManager,
+		multiAcceptor, torController, tlsManager, implCfg,
 	)
 	if err != nil {
 		return mkErr("unable to create server: %v", err)

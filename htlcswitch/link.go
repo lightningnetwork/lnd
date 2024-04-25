@@ -3293,14 +3293,18 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 		heightNow := l.cfg.BestHeight()
 
-		pld, err := chanIterator.HopPayload()
-		if err != nil {
+		pld, _, pldErr := chanIterator.HopPayload()
+		if pldErr != nil {
 			// If we're unable to process the onion payload, or we
 			// received invalid onion payload failure, then we
 			// should send an error back to the caller so the HTLC
 			// can be canceled.
 			var failedType uint64
-			if e, ok := err.(hop.ErrInvalidPayload); ok {
+
+			// We need to get the underlying error value, so we
+			// can't use errors.As as suggested by the linter.
+			//nolint:errorlint
+			if e, ok := pldErr.(hop.ErrInvalidPayload); ok {
 				failedType = uint64(e.Type)
 			}
 
@@ -3316,7 +3320,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			)
 
 			l.log.Errorf("unable to decode forwarding "+
-				"instructions: %v", err)
+				"instructions: %v", pldErr)
+
 			continue
 		}
 

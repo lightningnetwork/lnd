@@ -1010,7 +1010,7 @@ func runFundAndSignPsbt(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 
 	for _, addrType := range spendAddrTypes {
 		for _, changeType := range changeAddrTypes {
-			ht.Logf("testing with address type %s and"+
+			ht.Logf("testing with address type %s and "+
 				"change address type %s", addrType, changeType)
 
 			// First, spend all the coins in the wallet to an

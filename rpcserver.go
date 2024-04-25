@@ -6763,6 +6763,27 @@ func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 	req *lnrpc.DeleteAllPaymentsRequest) (
 	*lnrpc.DeleteAllPaymentsResponse, error) {
 
+	switch {
+	// Since this is a destructive operation, at least one of the options
+	// must be set to true.
+	case !req.AllPayments && !req.FailedPaymentsOnly &&
+		!req.FailedHtlcsOnly:
+
+		return nil, fmt.Errorf("at least one of the options " +
+			"`all_payments`, `failed_payments_only`, or " +
+			"`failed_htlcs_only` must be set to true")
+
+	// `all_payments` cannot be true with `failed_payments_only` or
+	// `failed_htlcs_only`. `all_payments` includes all records, making
+	// these options contradictory.
+	case req.AllPayments &&
+		(req.FailedPaymentsOnly || req.FailedHtlcsOnly):
+
+		return nil, fmt.Errorf("`all_payments` cannot be set to true " +
+			"while either `failed_payments_only` or " +
+			"`failed_htlcs_only` is also set to true")
+	}
+
 	rpcsLog.Infof("[DeleteAllPayments] failed_payments_only=%v, "+
 		"failed_htlcs_only=%v", req.FailedPaymentsOnly,
 		req.FailedHtlcsOnly)

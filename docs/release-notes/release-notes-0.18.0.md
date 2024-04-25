@@ -355,6 +355,12 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   `budget`, and `deadline_height`, the fields `force`, `requested_conf_target`,
   and `next_broadcast_height` are deprecated.
 
+* [Delete All Payments RPC](https://github.com/lightningnetwork/lnd/pull/8672)
+  adds `all_payments` option to the `DeleteAllPayments` RPC. This update
+  ensures that the arguments are provided when calling `DeleteAllPayments` RPC,
+  whether through gRPC or the REST API, due to the destructive nature of the
+  operation.
+
 ## lncli Updates
 
 * [Documented all available `lncli`

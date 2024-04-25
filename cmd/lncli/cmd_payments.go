@@ -1783,6 +1783,7 @@ func deletePayments(ctx *cli.Context) error {
 			what)
 		_, err = client.DeleteAllPayments(
 			ctxc, &lnrpc.DeleteAllPaymentsRequest{
+				AllPayments:        includeNonFailed,
 				FailedPaymentsOnly: !includeNonFailed,
 				FailedHtlcsOnly:    failedHTLCsOnly,
 			},

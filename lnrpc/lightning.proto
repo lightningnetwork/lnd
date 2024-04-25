@@ -4231,6 +4231,10 @@ message DeleteAllPaymentsRequest {
     Only delete failed HTLCs from payments, not the payment itself.
     */
     bool failed_htlcs_only = 2;
+
+    // Delete all payments. NOTE: Using this option requires careful
+    // consideration as it is a destructive operation.
+    bool all_payments = 3;
 }
 
 message DeletePaymentResponse {

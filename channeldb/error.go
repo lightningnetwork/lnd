@@ -108,6 +108,12 @@ var (
 	// channel with a channel point that is already present in the
 	// database.
 	ErrChanAlreadyExists = fmt.Errorf("channel already exists")
+
+	ErrNodeAnnBucketNotFound = fmt.Errorf("no node announcement bucket " +
+		"exist")
+
+	ErrNodeAnnNotFound = fmt.Errorf("node announcement with target " + 
+		"identity not found")
 )
 
 // ErrTooManyExtraOpaqueBytes creates an error which should be returned if the

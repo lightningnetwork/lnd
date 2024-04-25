@@ -420,14 +420,14 @@ func sweepSigHash(chanType channeldb.ChannelType) txscript.SigHashType {
 // argument should correspond to the owner of the commitment transaction which
 // we are generating the to_local script for.
 func SecondLevelHtlcScript(chanType channeldb.ChannelType, initiator bool,
-	revocationKey, delayKey *btcec.PublicKey,
-	csvDelay, leaseExpiry uint32) (input.ScriptDescriptor, error) {
+	revocationKey, delayKey *btcec.PublicKey, csvDelay, leaseExpiry uint32,
+	auxLeaf input.AuxTapLeaf) (input.ScriptDescriptor, error) {
 
 	switch {
 	// For taproot channels, the pkScript is a segwit v1 p2tr output.
 	case chanType.IsTaproot():
 		return input.TaprootSecondLevelScriptTree(
-			revocationKey, delayKey, csvDelay, input.NoneTapLeaf(),
+			revocationKey, delayKey, csvDelay, auxLeaf,
 		)
 
 	// If we are the initiator of a leased channel, then we have an
@@ -755,10 +755,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		theirBalance -= commitFeeMSat
 	}
 
-	var (
-		commitTx *wire.MsgTx
-		err      error
-	)
+	var commitTx *wire.MsgTx
 
 	// Before we create the commitment transaction below, we'll try to see
 	// if there're any aux leaves that need to be a part of the tapscript
@@ -806,6 +803,19 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		return nil, err
 	}
 
+	// Similarly, we'll now attempt to extract the set of aux leaves for
+	// the set of incoming and outgoing HTLCs.
+	incomingAuxLeaves := fn.MapOption(
+		func(leaves CommitAuxLeaves) input.HtlcAuxLeaves {
+			return leaves.IncomingHtlcLeaves
+		},
+	)(auxResult.AuxLeaves)
+	outgoingAuxLeaves := fn.MapOption(
+		func(leaves CommitAuxLeaves) input.HtlcAuxLeaves {
+			return leaves.OutgoingHtlcLeaves
+		},
+	)(auxResult.AuxLeaves)
+
 	// We'll now add all the HTLC outputs to the commitment transaction.
 	// Each output includes an off-chain 2-of-2 covenant clause, so we'll
 	// need the objective local/remote keys for this particular commitment
@@ -826,9 +836,15 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			continue
 		}
 
+		auxLeaf := fn.ChainOption(
+			func(leaves input.HtlcAuxLeaves) input.AuxTapLeaf {
+				return leaves[htlc.HtlcIndex].AuxTapLeaf
+			},
+		)(outgoingAuxLeaves)
+
 		err := addHTLC(
 			commitTx, whoseCommit, false, htlc, keyRing,
-			cb.chanState.ChanType,
+			cb.chanState.ChanType, auxLeaf,
 		)
 		if err != nil {
 			return nil, err
@@ -848,9 +864,15 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			continue
 		}
 
+		auxLeaf := fn.ChainOption(
+			func(leaves input.HtlcAuxLeaves) input.AuxTapLeaf {
+				return leaves[htlc.HtlcIndex].AuxTapLeaf
+			},
+		)(incomingAuxLeaves)
+
 		err := addHTLC(
 			commitTx, whoseCommit, true, htlc, keyRing,
-			cb.chanState.ChanType,
+			cb.chanState.ChanType, auxLeaf,
 		)
 		if err != nil {
 			return nil, err
@@ -1128,7 +1150,7 @@ func genSegwitV0HtlcScript(chanType channeldb.ChannelType,
 // channel.
 func GenTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 	timeout uint32, rHash [32]byte, keyRing *CommitmentKeyRing,
-) (*input.HtlcScriptTree, error) {
+	auxLeaf input.AuxTapLeaf) (*input.HtlcScriptTree, error) {
 
 	var (
 		htlcScriptTree *input.HtlcScriptTree
@@ -1145,8 +1167,7 @@ func GenTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 	case isIncoming && whoseCommit.IsLocal():
 		htlcScriptTree, err = input.ReceiverHTLCScriptTaproot(
 			timeout, keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
-			keyRing.RevocationKey, rHash[:], whoseCommit,
-			input.NoneTapLeaf(),
+			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf,
 		)
 
 	// We're being paid via an HTLC by the remote party, and the HTLC is
@@ -1155,8 +1176,7 @@ func GenTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 	case isIncoming && whoseCommit.IsRemote():
 		htlcScriptTree, err = input.SenderHTLCScriptTaproot(
 			keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
-			keyRing.RevocationKey, rHash[:], whoseCommit,
-			input.NoneTapLeaf(),
+			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf,
 		)
 
 	// We're sending an HTLC which is being added to our commitment
@@ -1165,8 +1185,7 @@ func GenTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 	case !isIncoming && whoseCommit.IsLocal():
 		htlcScriptTree, err = input.SenderHTLCScriptTaproot(
 			keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
-			keyRing.RevocationKey, rHash[:], whoseCommit,
-			input.NoneTapLeaf(),
+			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf,
 		)
 
 	// Finally, we're paying the remote party via an HTLC, which is being
@@ -1175,8 +1194,7 @@ func GenTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 	case !isIncoming && whoseCommit.IsRemote():
 		htlcScriptTree, err = input.ReceiverHTLCScriptTaproot(
 			timeout, keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
-			keyRing.RevocationKey, rHash[:], whoseCommit,
-			input.NoneTapLeaf(),
+			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf,
 		)
 	}
 
@@ -1191,7 +1209,8 @@ func GenTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 // along side the multiplexer.
 func genHtlcScript(chanType channeldb.ChannelType, isIncoming bool,
 	whoseCommit lntypes.ChannelParty, timeout uint32, rHash [32]byte,
-	keyRing *CommitmentKeyRing) (input.ScriptDescriptor, error) {
+	keyRing *CommitmentKeyRing,
+	auxLeaf input.AuxTapLeaf) (input.ScriptDescriptor, error) {
 
 	if !chanType.IsTaproot() {
 		return genSegwitV0HtlcScript(
@@ -1201,7 +1220,7 @@ func genHtlcScript(chanType channeldb.ChannelType, isIncoming bool,
 	}
 
 	return GenTaprootHtlcScript(
-		isIncoming, whoseCommit, timeout, rHash, keyRing,
+		isIncoming, whoseCommit, timeout, rHash, keyRing, auxLeaf,
 	)
 }
 
@@ -1214,13 +1233,15 @@ func genHtlcScript(chanType channeldb.ChannelType, isIncoming bool,
 // the descriptor itself.
 func addHTLC(commitTx *wire.MsgTx, whoseCommit lntypes.ChannelParty,
 	isIncoming bool, paymentDesc *PaymentDescriptor,
-	keyRing *CommitmentKeyRing, chanType channeldb.ChannelType) error {
+	keyRing *CommitmentKeyRing, chanType channeldb.ChannelType,
+	auxLeaf input.AuxTapLeaf) error {
 
 	timeout := paymentDesc.Timeout
 	rHash := paymentDesc.RHash
 
 	scriptInfo, err := genHtlcScript(
 		chanType, isIncoming, whoseCommit, timeout, rHash, keyRing,
+		auxLeaf,
 	)
 	if err != nil {
 		return err

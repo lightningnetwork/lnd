@@ -9971,7 +9971,7 @@ func TestCreateHtlcRetribution(t *testing.T) {
 	// Create the htlc retribution.
 	hr, err := createHtlcRetribution(
 		aliceChannel.channelState, keyRing, commitHash,
-		dummyPrivate, leaseExpiry, htlc,
+		dummyPrivate, leaseExpiry, htlc, fn.None[CommitAuxLeaves](),
 	)
 	// Expect no error.
 	require.NoError(t, err)
@@ -10177,6 +10177,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 				tc.revocationLog, tx,
 				aliceChannel.channelState, keyRing,
 				dummyPrivate, leaseExpiry,
+				fn.None[CommitAuxLeaves](),
 			)
 
 			// Check the error if expected.
@@ -10295,7 +10296,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	// error as there are no past delta state saved as revocation logs yet.
 	_, err = NewBreachRetribution(
 		aliceChannel.channelState, stateNum, breachHeight, breachTx,
-		fn.None[AuxLeafStore](),
+		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 	)
 	require.ErrorIs(t, err, channeldb.ErrNoPastDeltas)
 
@@ -10303,7 +10304,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	// provided.
 	_, err = NewBreachRetribution(
 		aliceChannel.channelState, stateNum, breachHeight, nil,
-		fn.None[AuxLeafStore](),
+		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
 	)
 	require.ErrorIs(t, err, channeldb.ErrNoPastDeltas)
 
@@ -10417,6 +10418,7 @@ func TestExtractPayDescs(t *testing.T) {
 	// scripts(`genHtlcScript`) as it should be tested independently.
 	incomingPDs, outgoingPDs, err := lnChan.extractPayDescs(
 		0, htlcs, lntypes.Dual[*CommitmentKeyRing]{}, lntypes.Local,
+		fn.None[CommitAuxLeaves](),
 	)
 	require.NoError(t, err)
 

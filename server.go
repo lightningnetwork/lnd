@@ -4008,11 +4008,12 @@ func (s *server) peerInitializer(p *peer.Brontide) {
 	s.wg.Add(1)
 	go s.peerTerminationWatcher(p, ready)
 
+	pubStr := hex.EncodeToString(p.IdentityKey().SerializeCompressed())
+
 	// Start the peer! If an error occurs, we Disconnect the peer, which
 	// will unblock the peerTerminationWatcher.
 	if err := p.Start(); err != nil {
-		srvrLog.Warnf("Starting peer=%v got error: %v",
-			p.IdentityKey(), err)
+		srvrLog.Warnf("Starting peer=%v got error: %v", pubStr, err)
 
 		p.Disconnect(fmt.Errorf("unable to start peer: %w", err))
 		return
@@ -4021,8 +4022,6 @@ func (s *server) peerInitializer(p *peer.Brontide) {
 	// Otherwise, signal to the peerTerminationWatcher that the peer startup
 	// was successful, and to begin watching the peer's wait group.
 	close(ready)
-
-	pubStr := string(p.IdentityKey().SerializeCompressed())
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

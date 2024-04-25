@@ -913,7 +913,8 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			p.cfg.Signer, dbChan, p.cfg.SigPool, chanOpts...,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to create channel "+
+				"state machine: %w", err)
 		}
 
 		chanPoint := dbChan.FundingOutpoint

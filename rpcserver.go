@@ -4400,10 +4400,23 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	// is returned and peerScidAlias will be an empty ShortChannelID.
 	peerScidAlias, _ := r.server.aliasMgr.GetPeerAlias(chanID)
 
-	var customChannelData []byte
-	dbChannel.CustomBlob.WhenSome(func(blob tlv.Blob) {
-		customChannelData = blob
-	})
+	customOpenChanData := dbChannel.CustomBlob.UnwrapOr(nil)
+	customLocalCommitData := dbChannel.LocalCommitment.CustomBlob.UnwrapOr(nil)
+
+	// We'll encode our custom channel data as two blobs. The first is a
+	// set of var bytes encoding of the open chan data, the second is an
+	// encoding of the local commitment data.
+	var customChanDataBuf bytes.Buffer
+	err := wire.WriteVarBytes(&customChanDataBuf, 0, customOpenChanData)
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode open chan "+
+			"data: %v", err)
+	}
+	err = wire.WriteVarBytes(&customChanDataBuf, 0, customLocalCommitData)
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode local commit "+
+			"data: %v", err)
+	}
 
 	channel := &lnrpc.Channel{
 		Active:                isActive,
@@ -4437,7 +4450,7 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 		ZeroConf:              dbChannel.IsZeroConf(),
 		ZeroConfConfirmedScid: dbChannel.ZeroConfRealScid().ToUint64(),
 		Memo:                  string(dbChannel.Memo),
-		CustomChannelData:     customChannelData,
+		CustomChannelData:     customChanDataBuf.Bytes(),
 		// TODO: remove the following deprecated fields
 		CsvDelay:             uint32(dbChannel.LocalChanCfg.CsvDelay),
 		LocalChanReserveSat:  int64(dbChannel.LocalChanCfg.ChanReserve),

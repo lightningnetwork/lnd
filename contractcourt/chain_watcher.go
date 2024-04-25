@@ -424,15 +424,30 @@ func (c *chainWatcher) handleUnknownLocalState(
 		&c.cfg.chanState.LocalChanCfg, &c.cfg.chanState.RemoteChanCfg,
 	)
 
+	auxLeaves, err := lnwallet.AuxLeavesFromCommit(
+		c.cfg.chanState, c.cfg.chanState.LocalCommitment,
+		c.cfg.auxLeafStore, *commitKeyRing,
+	)
+	if err != nil {
+		return false, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
+
 	// With the keys derived, we'll construct the remote script that'll be
 	// present if they have a non-dust balance on the commitment.
 	var leaseExpiry uint32
 	if c.cfg.chanState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = c.cfg.chanState.ThawHeight
 	}
+
+	remoteAuxLeaf := fn.MapOption(
+		func(l lnwallet.CommitAuxLeaves) input.AuxTapLeaf {
+			return l.RemoteAuxLeaf
+		},
+	)(auxLeaves)
 	remoteScript, _, err := lnwallet.CommitScriptToRemote(
 		c.cfg.chanState.ChanType, c.cfg.chanState.IsInitiator,
-		commitKeyRing.ToRemoteKey, leaseExpiry, input.NoneTapLeaf(),
+		commitKeyRing.ToRemoteKey, leaseExpiry,
+		fn.FlattenOption(remoteAuxLeaf),
 	)
 	if err != nil {
 		return false, err
@@ -441,11 +456,16 @@ func (c *chainWatcher) handleUnknownLocalState(
 	// Next, we'll derive our script that includes the revocation base for
 	// the remote party allowing them to claim this output before the CSV
 	// delay if we breach.
+	localAuxLeaf := fn.MapOption(
+		func(l lnwallet.CommitAuxLeaves) input.AuxTapLeaf {
+			return l.LocalAuxLeaf
+		},
+	)(auxLeaves)
 	localScript, err := lnwallet.CommitScriptToSelf(
 		c.cfg.chanState.ChanType, c.cfg.chanState.IsInitiator,
 		commitKeyRing.ToLocalKey, commitKeyRing.RevocationKey,
 		uint32(c.cfg.chanState.LocalChanCfg.CsvDelay), leaseExpiry,
-		input.NoneTapLeaf(),
+		fn.FlattenOption(localAuxLeaf),
 	)
 	if err != nil {
 		return false, err

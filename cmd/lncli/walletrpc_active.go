@@ -272,10 +272,24 @@ func bumpFee(ctx *cli.Context) error {
 	client, cleanUp := getWalletClient(ctx)
 	defer cleanUp()
 
+	// Parse immediate flag (force flag was deprecated).
+	immediate := false
+	switch {
+	case ctx.IsSet("immediate") && ctx.IsSet("force"):
+		return fmt.Errorf("cannot set immediate and force flag at " +
+			"the same time")
+
+	case ctx.Bool("immediate"):
+		immediate = true
+
+	case ctx.Bool("force"):
+		immediate = true
+	}
+
 	resp, err := client.BumpFee(ctxc, &walletrpc.BumpFeeRequest{
 		Outpoint:   protoOutPoint,
 		TargetConf: uint32(ctx.Uint64("conf_target")),
-		Immediate:  ctx.Bool("force"),
+		Immediate:  immediate,
 		Budget:     ctx.Uint64("budget"),
 	})
 	if err != nil {

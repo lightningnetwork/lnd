@@ -127,6 +127,9 @@
   utxos which are unconfirmed and originated from the sweeper subsystem are not
   selected because they bear the risk of being replaced (BIP 125 RBF).
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8685) lncli "bumpfee"
+  parsing of the immediate/force flag.
+
 # New Features
 ## Functional Enhancements
 

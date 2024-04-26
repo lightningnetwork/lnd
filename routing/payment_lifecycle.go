@@ -680,10 +680,10 @@ func (p *paymentLifecycle) sendAttempt(
 
 	// If we had any first hop TLVs, then we'll encode that here now.
 	firstHopTLVs := tlv.MapToRecords(p.firstHopTLVs)
-	wireTLVs := fn.Map(func(r tlv.Record) tlv.RecordProducer {
+	wireRecords := fn.Map(func(r tlv.Record) tlv.RecordProducer {
 		return &r
 	}, firstHopTLVs)
-	if err := htlcAdd.ExtraData.PackRecords(wireTLVs...); err != nil {
+	if err := htlcAdd.ExtraData.PackRecords(wireRecords...); err != nil {
 		return nil, err
 	}
 

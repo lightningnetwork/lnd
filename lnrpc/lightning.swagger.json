@@ -3111,6 +3111,10 @@
         "memo": {
           "type": "string",
           "description": "An optional note-to-self to go along with the channel containing some\nuseful information. This is only ever stored locally and in no way\nimpacts the channel's operation."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte"
         }
       }
     },
@@ -4012,6 +4016,10 @@
         "pending_open_remote_balance": {
           "$ref": "#/definitions/lnrpcAmount",
           "description": "Sum of channels pending remote balances."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte"
         }
       }
     },

@@ -2711,6 +2711,8 @@ message PendingChannelsResponse {
         impacts the channel's operation.
         */
         string memo = 13;
+
+        bytes custom_channel_data = 14;
     }
 
     message PendingOpenChannel {
@@ -2970,6 +2972,8 @@ message ChannelBalanceResponse {
 
     // Sum of channels pending remote balances.
     Amount pending_open_remote_balance = 8;
+
+    bytes custom_channel_data = 9;
 }
 
 message QueryRoutesRequest {

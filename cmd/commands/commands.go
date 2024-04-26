@@ -1463,15 +1463,19 @@ func walletBalance(ctx *cli.Context) error {
 	return nil
 }
 
-var channelBalanceCommand = cli.Command{
+var ChannelBalanceCommand = cli.Command{
 	Name:     "channelbalance",
 	Category: "Channels",
 	Usage: "Returns the sum of the total available channel balance across " +
 		"all open channels.",
-	Action: actionDecorator(channelBalance),
+	Action: actionDecorator(func(c *cli.Context) error {
+		return ChannelBalance(c, nil)
+	}),
 }
 
-func channelBalance(ctx *cli.Context) error {
+func ChannelBalance(ctx *cli.Context,
+	respDecorator ResponseDecorator[*lnrpc.ChannelBalanceResponse]) error {
+
 	ctxc := getContext()
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
@@ -1480,6 +1484,13 @@ func channelBalance(ctx *cli.Context) error {
 	resp, err := client.ChannelBalance(ctxc, req)
 	if err != nil {
 		return err
+	}
+
+	if respDecorator != nil {
+		err = respDecorator(ctx, resp)
+		if err != nil {
+			return err
+		}
 	}
 
 	printRespJSON(resp)

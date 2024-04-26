@@ -458,7 +458,7 @@ func Main() {
 		abandonChannelCommand,
 		listPeersCommand,
 		walletBalanceCommand,
-		channelBalanceCommand,
+		ChannelBalanceCommand,
 		getInfoCommand,
 		getDebugInfoCommand,
 		encryptDebugPackageCommand,

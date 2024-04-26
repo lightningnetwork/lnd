@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -250,6 +251,11 @@ type ChainArbitrator struct {
 	// active channels that it must still watch over.
 	chanSource *channeldb.DB
 
+	// blockBeatChan is a channel to receive blocks from BlockBeat. The
+	// received block contains the best known height and the transactions
+	// confirmed in this block.
+	blockBeatChan chan chainio.Beat
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -266,6 +272,7 @@ func NewChainArbitrator(cfg ChainArbitratorConfig,
 		activeWatchers: make(map[wire.OutPoint]*chainWatcher),
 		chanSource:     db,
 		quit:           make(chan struct{}),
+		blockBeatChan:  make(chan chainio.Beat),
 	}
 }
 
@@ -745,18 +752,11 @@ func (c *ChainArbitrator) Start() error {
 		}
 	}
 
-	// Subscribe to a single stream of block epoch notifications that we
-	// will dispatch to all active arbitrators.
-	blockEpoch, err := c.cfg.Notifier.RegisterBlockEpochNtfn(nil)
-	if err != nil {
-		return err
-	}
-
 	// Start our goroutine which will dispatch blocks to each arbitrator.
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		c.dispatchBlocks(blockEpoch)
+		c.dispatchBlocks()
 	}()
 
 	// TODO(roasbeef): eventually move all breach watching here
@@ -781,8 +781,7 @@ type blockRecipient struct {
 // dispatchBlocks consumes a block epoch notification stream and dispatches
 // blocks to each of the chain arb's active channel arbitrators. This function
 // must be run in a goroutine.
-func (c *ChainArbitrator) dispatchBlocks(
-	blockEpoch *chainntnfs.BlockEpochEvent) {
+func (c *ChainArbitrator) dispatchBlocks() {
 
 	// getRecipients is a helper function which acquires the chain arb
 	// lock and returns a set of block recipients which can be used to
@@ -805,8 +804,6 @@ func (c *ChainArbitrator) dispatchBlocks(
 	// On exit, cancel our blocks subscription and close each block channel
 	// so that the arbitrators know they will no longer be receiving blocks.
 	defer func() {
-		blockEpoch.Cancel()
-
 		recipients := getRecipients()
 		for _, recipient := range recipients {
 			close(recipient.blocks)
@@ -818,12 +815,14 @@ func (c *ChainArbitrator) dispatchBlocks(
 		select {
 		// Consume block epochs, exiting if our subscription is
 		// terminated.
-		case block, ok := <-blockEpoch.Epochs:
+		case beat, ok := <-c.blockBeatChan:
 			if !ok {
 				log.Trace("dispatchBlocks block epoch " +
 					"cancelled")
 				return
 			}
+
+			block := beat.Epoch
 
 			// Get the set of currently active channels block
 			// subscription channels and dispatch the block to
@@ -852,6 +851,9 @@ func (c *ChainArbitrator) dispatchBlocks(
 					return
 				}
 			}
+
+			// Notify we've processed the block.
+			fn.SendOrQuit(beat.Err, nil, c.quit)
 
 		// Exit if the chain arbitrator is shutting down.
 		case <-c.quit:
@@ -1320,3 +1322,22 @@ func (c *ChainArbitrator) FindOutgoingHTLCDeadline(scid lnwire.ShortChannelID,
 
 // TODO(roasbeef): arbitration reports
 //  * types: contested, waiting for success conf, etc
+
+// NOTE: part of the `chainio.Consumer` interface.
+func (c *ChainArbitrator) ProcessBlock(beat chainio.Beat) <-chan error {
+	select {
+	case c.blockBeatChan <- beat:
+		log.Debugf("Received block beat for height=%d",
+			beat.Epoch.Height)
+
+	case <-c.quit:
+		return nil
+	}
+
+	return beat.Err
+}
+
+// NOTE: part of the `chainio.Consumer` interface.
+func (c *ChainArbitrator) Name() string {
+	return "chain arbitrator"
+}

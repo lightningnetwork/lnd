@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
@@ -297,6 +298,11 @@ type TxPublisher struct {
 	// the chan that the publisher sends the fee bump result to.
 	subscriberChans lnutils.SyncMap[uint64, chan *BumpResult]
 
+	// blockBeatChan is a channel to receive blocks from BlockBeat. The
+	// received block contains the best known height and the transactions
+	// confirmed in this block.
+	blockBeatChan chan chainio.Beat
+
 	// quit is used to signal the publisher to stop.
 	quit chan struct{}
 }
@@ -311,6 +317,7 @@ func NewTxPublisher(cfg TxPublisherConfig) *TxPublisher {
 		records:         lnutils.SyncMap[uint64, *monitorRecord]{},
 		subscriberChans: lnutils.SyncMap[uint64, chan *BumpResult]{},
 		quit:            make(chan struct{}),
+		blockBeatChan:   make(chan chainio.Beat),
 	}
 }
 
@@ -344,6 +351,25 @@ func (t *TxPublisher) Broadcast(req *BumpRequest) <-chan *BumpResult {
 	t.subscriberChans.Store(requestID, subscriber)
 
 	return subscriber
+}
+
+// NOTE: part of the `chainio.Consumer` interface.
+func (t *TxPublisher) ProcessBlock(beat chainio.Beat) <-chan error {
+	select {
+	case t.blockBeatChan <- beat:
+		log.Tracef("TxPublisher received block beat for height=%d",
+			beat.Epoch.Height)
+
+	case <-t.quit:
+		return nil
+	}
+
+	return beat.Err
+}
+
+// NOTE: part of the `chainio.Consumer` interface.
+func (t *TxPublisher) Name() string {
+	return "tx publisher"
 }
 
 // initialBroadcast initializes a fee function, creates an RBF-compliant tx and
@@ -677,13 +703,8 @@ func (t *TxPublisher) Start() error {
 	log.Info("TxPublisher starting...")
 	defer log.Debugf("TxPublisher started")
 
-	blockEvent, err := t.cfg.Notifier.RegisterBlockEpochNtfn(nil)
-	if err != nil {
-		return fmt.Errorf("register block epoch ntfn: %w", err)
-	}
-
 	t.wg.Add(1)
-	go t.monitor(blockEvent)
+	go t.monitor()
 
 	return nil
 }
@@ -703,13 +724,12 @@ func (t *TxPublisher) Stop() {
 // to be bumped. If so, it will attempt to bump the fee of the tx.
 //
 // NOTE: Must be run as a goroutine.
-func (t *TxPublisher) monitor(blockEvent *chainntnfs.BlockEpochEvent) {
-	defer blockEvent.Cancel()
+func (t *TxPublisher) monitor() {
 	defer t.wg.Done()
 
 	for {
 		select {
-		case epoch, ok := <-blockEvent.Epochs:
+		case beat, ok := <-t.blockBeatChan:
 			if !ok {
 				// We should stop the publisher before stopping
 				// the chain service. Otherwise it indicates an
@@ -720,6 +740,7 @@ func (t *TxPublisher) monitor(blockEvent *chainntnfs.BlockEpochEvent) {
 				return
 			}
 
+			epoch := beat.Epoch
 			log.Debugf("TxPublisher received new block: %v",
 				epoch.Height)
 
@@ -729,6 +750,9 @@ func (t *TxPublisher) monitor(blockEvent *chainntnfs.BlockEpochEvent) {
 			// Check all monitored txns to see if any of them needs
 			// to be bumped.
 			t.processRecords()
+
+			// Notify we've processed the block.
+			fn.SendOrQuit(beat.Err, nil, t.quit)
 
 		case <-t.quit:
 			log.Debug("Fee bumper stopped, exit monitor")

@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
@@ -335,6 +336,11 @@ type UtxoSweeper struct {
 	// bumpResultChan is a channel that receives broadcast results from the
 	// TxPublisher.
 	bumpResultChan chan *BumpResult
+
+	// blockBeatChan is a channel to receive blocks from BlockBeat. The
+	// received block contains the best known height and the transactions
+	// confirmed in this block.
+	blockBeatChan chan chainio.Beat
 }
 
 // UtxoSweeperConfig contains dependencies of UtxoSweeper.
@@ -419,6 +425,7 @@ func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 		quit:              make(chan struct{}),
 		inputs:            make(InputsMap),
 		bumpResultChan:    make(chan *BumpResult, 100),
+		blockBeatChan:     make(chan chainio.Beat),
 	}
 }
 
@@ -434,21 +441,12 @@ func (s *UtxoSweeper) Start() error {
 	// not change from here on.
 	s.relayFeeRate = s.cfg.FeeEstimator.RelayFeePerKW()
 
-	// We need to register for block epochs and retry sweeping every block.
-	// We should get a notification with the current best block immediately
-	// if we don't provide any epoch. We'll wait for that in the collector.
-	blockEpochs, err := s.cfg.Notifier.RegisterBlockEpochNtfn(nil)
-	if err != nil {
-		return fmt.Errorf("register block epoch ntfn: %w", err)
-	}
-
 	// Start sweeper main loop.
 	s.wg.Add(1)
 	go func() {
-		defer blockEpochs.Cancel()
 		defer s.wg.Done()
 
-		s.collector(blockEpochs.Epochs)
+		s.collector()
 
 		// The collector exited and won't longer handle incoming
 		// requests. This can happen on shutdown, when the block
@@ -501,6 +499,25 @@ func (s *UtxoSweeper) Stop() error {
 	s.wg.Wait()
 
 	return nil
+}
+
+// NOTE: part of the `chainio.Consumer` interface.
+func (s *UtxoSweeper) ProcessBlock(beat chainio.Beat) <-chan error {
+	select {
+	case s.blockBeatChan <- beat:
+		log.Debugf("Received block beat for height=%d",
+			beat.Epoch.Height)
+
+	case <-s.quit:
+		return nil
+	}
+
+	return beat.Err
+}
+
+// NOTE: part of the `chainio.Consumer` interface.
+func (s *UtxoSweeper) Name() string {
+	return "sweeper"
 }
 
 // SweepInput sweeps inputs back into the wallet. The inputs will be batched and
@@ -634,18 +651,7 @@ func (s *UtxoSweeper) removeConflictSweepDescendants(
 
 // collector is the sweeper main loop. It processes new inputs, spend
 // notifications and counts down to publication of the sweep tx.
-func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
-	// We registered for the block epochs with a nil request. The notifier
-	// should send us the current best block immediately. So we need to wait
-	// for it here because we need to know the current best height.
-	select {
-	case bestBlock := <-blockEpochs:
-		s.currentHeight = bestBlock.Height
-
-	case <-s.quit:
-		return
-	}
-
+func (s *UtxoSweeper) collector() {
 	for {
 		// Clean inputs, which will remove inputs that are swept,
 		// failed, or excluded from the sweeper and return inputs that
@@ -708,7 +714,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 
 		// A new block comes in, update the bestHeight, perform a check
 		// over all pending inputs and publish sweeping txns if needed.
-		case epoch, ok := <-blockEpochs:
+		case beat, ok := <-s.blockBeatChan:
 			if !ok {
 				// We should stop the sweeper before stopping
 				// the chain service. Otherwise it indicates an
@@ -717,6 +723,8 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 
 				return
 			}
+
+			epoch := beat.Epoch
 
 			// Update the sweeper to the best height.
 			s.currentHeight = epoch.Height
@@ -739,6 +747,9 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 
 			// Attempt to sweep any pending inputs.
 			s.sweepPendingInputs(inputs)
+
+			// Notify we've processed the block.
+			fn.SendOrQuit(beat.Err, nil, s.quit)
 
 		case <-s.quit:
 			return

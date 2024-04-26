@@ -37,7 +37,7 @@ require (
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn v1.0.5
 	github.com/lightningnetwork/lnd/healthcheck v1.2.4
-	github.com/lightningnetwork/lnd/kvdb v1.4.6
+	github.com/lightningnetwork/lnd/kvdb v1.4.8
 	github.com/lightningnetwork/lnd/queue v1.1.1
 	github.com/lightningnetwork/lnd/sqldb v1.0.2
 	github.com/lightningnetwork/lnd/ticker v1.1.1

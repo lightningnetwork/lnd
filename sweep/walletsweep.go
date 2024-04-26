@@ -16,13 +16,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 )
 
-const (
-	// defaultNumBlocksEstimate is the number of blocks that we fall back
-	// to issuing an estimate for if a fee pre fence doesn't specify an
-	// explicit conf target or fee rate.
-	defaultNumBlocksEstimate = 6
-)
-
 var (
 	// ErrNoFeePreference is returned when we attempt to satisfy a sweep
 	// request from a client whom did not specify a fee preference.

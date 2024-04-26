@@ -263,7 +263,7 @@ type mockHopIterator struct {
 	hop.Iterator
 }
 
-func (h *mockHopIterator) HopPayload() (*hop.Payload, error) {
+func (h *mockHopIterator) HopPayload() (*hop.Payload, hop.RouteRole, error) {
 	var nextAddress [8]byte
 	if !h.isExit {
 		nextAddress = [8]byte{0x01}
@@ -275,7 +275,7 @@ func (h *mockHopIterator) HopPayload() (*hop.Payload, error) {
 		ForwardAmount: 100,
 		OutgoingCltv:  40,
 		ExtraBytes:    [12]byte{},
-	}), nil
+	}), hop.RouteRoleCleartext, nil
 }
 
 func (h *mockHopIterator) EncodeNextHop(w io.Writer) error {

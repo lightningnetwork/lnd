@@ -543,7 +543,7 @@ func (h *htlcIncomingContestResolver) decodePayload() (*hop.Payload,
 		return nil, nil, err
 	}
 
-	payload, err := iterator.HopPayload()
+	payload, _, err := iterator.HopPayload()
 	if err != nil {
 		return nil, nil, err
 	}

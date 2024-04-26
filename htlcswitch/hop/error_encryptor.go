@@ -25,7 +25,25 @@ const (
 
 	// EncrypterTypeMock is used to identify a mock obfuscator instance.
 	EncrypterTypeMock = 2
+
+	// EncrypterTypeIntroduction is used to identify a sphinx onion error
+	// encrypter where we are the introduction node in a blinded route. It
+	// has the same functionality as EncrypterTypeSphinx, but is used to
+	// mark our special-case error handling.
+	EncrypterTypeIntroduction = 3
+
+	// EncrypterTypeRelaying is used to identify a sphinx onion error
+	// encryper where we are a relaying node in a blinded route. It has
+	// the same functionality as a EncrypterTypeSphinx, but is used to mark
+	// our special-case error handling.
+	EncrypterTypeRelaying = 4
 )
+
+// IsBlinded returns a boolean indicating whether the error encrypter belongs
+// to a blinded route.
+func (e EncrypterType) IsBlinded() bool {
+	return e == EncrypterTypeIntroduction || e == EncrypterTypeRelaying
+}
 
 // ErrorEncrypterExtracter defines a function signature that extracts an
 // ErrorEncrypter from an sphinx OnionPacket.
@@ -197,9 +215,72 @@ func (s *SphinxErrorEncrypter) Reextract(
 	s.OnionErrorEncrypter = sphinxEncrypter.OnionErrorEncrypter
 
 	return nil
-
 }
 
 // A compile time check to ensure SphinxErrorEncrypter implements the
 // ErrorEncrypter interface.
 var _ ErrorEncrypter = (*SphinxErrorEncrypter)(nil)
+
+// A compile time check to ensure that IntroductionErrorEncrypter implements
+// the ErrorEncrypter interface.
+var _ ErrorEncrypter = (*IntroductionErrorEncrypter)(nil)
+
+// IntroductionErrorEncrypter is a wrapper type on SphinxErrorEncrypter which
+// is used to signal that we have special HTLC error handling for this hop.
+type IntroductionErrorEncrypter struct {
+	// ErrorEncrypter is the underlying error encrypter, embedded
+	// directly in the struct so that we don't have to re-implement the
+	// ErrorEncrypter interface.
+	ErrorEncrypter
+}
+
+// NewIntroductionErrorEncrypter returns a blank IntroductionErrorEncrypter.
+func NewIntroductionErrorEncrypter() *IntroductionErrorEncrypter {
+	return &IntroductionErrorEncrypter{
+		ErrorEncrypter: NewSphinxErrorEncrypter(),
+	}
+}
+
+// Type returns the identifier for an introduction error encrypter.
+func (i *IntroductionErrorEncrypter) Type() EncrypterType {
+	return EncrypterTypeIntroduction
+}
+
+// Reextract rederives the error encrypter from the currently held EphemeralKey,
+// relying on the logic in the underlying SphinxErrorEncrypter.
+func (i *IntroductionErrorEncrypter) Reextract(
+	extract ErrorEncrypterExtracter) error {
+
+	return i.ErrorEncrypter.Reextract(extract)
+}
+
+// A compile time check to ensure that RelayingErrorEncrypte implements
+// the ErrorEncrypter interface.
+var _ ErrorEncrypter = (*RelayingErrorEncrypter)(nil)
+
+// RelayingErrorEncrypter is a wrapper type on SphinxErrorEncrypter which
+// is used to signal that we have special HTLC error handling for this hop.
+type RelayingErrorEncrypter struct {
+	ErrorEncrypter
+}
+
+// NewRelayingErrorEncrypter returns a blank RelayingErrorEncrypter with
+// an underlying SphinxErrorEncrypter.
+func NewRelayingErrorEncrypter() *RelayingErrorEncrypter {
+	return &RelayingErrorEncrypter{
+		ErrorEncrypter: NewSphinxErrorEncrypter(),
+	}
+}
+
+// Type returns the identifier for a relaying error encrypter.
+func (r *RelayingErrorEncrypter) Type() EncrypterType {
+	return EncrypterTypeRelaying
+}
+
+// Reextract rederives the error encrypter from the currently held EphemeralKey,
+// relying on the logic in the underlying SphinxErrorEncrypter.
+func (r *RelayingErrorEncrypter) Reextract(
+	extract ErrorEncrypterExtracter) error {
+
+	return r.ErrorEncrypter.Reextract(extract)
+}

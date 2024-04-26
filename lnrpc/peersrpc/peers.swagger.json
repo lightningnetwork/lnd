@@ -77,6 +77,8 @@
         "ANCHORS_OPT",
         "ANCHORS_ZERO_FEE_HTLC_REQ",
         "ANCHORS_ZERO_FEE_HTLC_OPT",
+        "ROUTE_BLINDING_REQUIRED",
+        "ROUTE_BLINDING_OPTIONAL",
         "AMP_REQ",
         "AMP_OPT"
       ],

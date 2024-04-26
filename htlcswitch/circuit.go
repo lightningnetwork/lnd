@@ -205,6 +205,12 @@ func (c *PaymentCircuit) Decode(r io.Reader) error {
 		// Test encrypter.
 		c.ErrorEncrypter = NewMockObfuscator()
 
+	case hop.EncrypterTypeIntroduction:
+		c.ErrorEncrypter = hop.NewIntroductionErrorEncrypter()
+
+	case hop.EncrypterTypeRelaying:
+		c.ErrorEncrypter = hop.NewRelayingErrorEncrypter()
+
 	default:
 		return UnknownEncrypterType(encrypterType)
 	}

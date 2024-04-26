@@ -26,6 +26,7 @@ type decodePayloadTest struct {
 	name               string
 	payload            []byte
 	isFinalHop         bool
+	updateAddBlinded   bool
 	expErr             error
 	expCustomRecords   map[uint64][]byte
 	shouldHaveMPP      bool
@@ -271,8 +272,9 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name:       "intermediate hop with encrypted data",
-		isFinalHop: false,
+		name:             "intermediate hop with encrypted data",
+		isFinalHop:       false,
+		updateAddBlinded: true,
 		payload: []byte{
 			// encrypted data
 			0x0a, 0x03, 0x03, 0x02, 0x01,
@@ -365,8 +367,9 @@ var decodePayloadTests = []decodePayloadTest{
 		shouldHaveTotalAmt: true,
 	},
 	{
-		name:       "final blinded hop with total amount",
-		isFinalHop: true,
+		name:             "final blinded hop with total amount",
+		isFinalHop:       true,
+		updateAddBlinded: true,
 		payload: []byte{
 			// amount
 			0x02, 0x00,
@@ -378,8 +381,9 @@ var decodePayloadTests = []decodePayloadTest{
 		shouldHaveEncData: true,
 	},
 	{
-		name:       "final blinded missing amt",
-		isFinalHop: true,
+		name:             "final blinded missing amt",
+		isFinalHop:       true,
+		updateAddBlinded: true,
 		payload: []byte{
 			// cltv
 			0x04, 0x00,
@@ -394,8 +398,9 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name:       "final blinded missing cltv",
-		isFinalHop: true,
+		name:             "final blinded missing cltv",
+		isFinalHop:       true,
+		updateAddBlinded: true,
 		payload: []byte{
 			// amount
 			0x02, 0x00,
@@ -410,8 +415,9 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name:       "intermediate blinded has amount",
-		isFinalHop: false,
+		name:             "intermediate blinded has amount",
+		isFinalHop:       false,
+		updateAddBlinded: true,
 		payload: []byte{
 			// amount
 			0x02, 0x00,
@@ -425,8 +431,9 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name:       "intermediate blinded has expiry",
-		isFinalHop: false,
+		name:             "intermediate blinded has expiry",
+		isFinalHop:       false,
+		updateAddBlinded: true,
 		payload: []byte{
 			// cltv
 			0x04, 0x00,
@@ -435,6 +442,67 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 		expErr: hop.ErrInvalidPayload{
 			Type:      record.LockTimeOnionType,
+			Violation: hop.IncludedViolation,
+			FinalHop:  false,
+		},
+	},
+	{
+		name:       "update add blinding no data",
+		isFinalHop: false,
+		payload: []byte{
+			// cltv
+			0x04, 0x00,
+		},
+		updateAddBlinded: true,
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.EncryptedDataOnionType,
+			Violation: hop.OmittedViolation,
+			FinalHop:  false,
+		},
+	},
+	{
+		name:       "onion blinding point no data",
+		isFinalHop: false,
+		payload: append([]byte{
+			// blinding point (type / length)
+			0x0c, 0x21,
+		},
+			// blinding point (value)
+			testPubKey.SerializeCompressed()...,
+		),
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.EncryptedDataOnionType,
+			Violation: hop.OmittedViolation,
+			FinalHop:  false,
+		},
+	},
+	{
+		name:       "encrypted data no blinding",
+		isFinalHop: false,
+		payload: []byte{
+			// encrypted data
+			0x0a, 0x03, 0x03, 0x02, 0x01,
+		},
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.EncryptedDataOnionType,
+			Violation: hop.IncludedViolation,
+		},
+	},
+	{
+		name:             "both blinding points",
+		isFinalHop:       false,
+		updateAddBlinded: true,
+		payload: append([]byte{
+			// encrypted data
+			0x0a, 0x03, 0x03, 0x02, 0x01,
+			// blinding point (type / length)
+			0x0c, 0x21,
+		},
+			// blinding point (value)
+			testPubKey.SerializeCompressed()...,
+		),
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.BlindingPointOnionType,
 			Violation: hop.IncludedViolation,
 			FinalHop:  false,
 		},
@@ -479,8 +547,13 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 		testChildIndex = uint32(9)
 	)
 
-	p, _, err := hop.NewPayloadFromReader(
-		bytes.NewReader(test.payload), test.isFinalHop,
+	p, parsedTypes, err := hop.ParseTLVPayload(
+		bytes.NewReader(test.payload),
+	)
+	require.NoError(t, err)
+
+	err = hop.ValidateTLVPayload(
+		parsedTypes, test.isFinalHop, test.updateAddBlinded,
 	)
 	if !reflect.DeepEqual(test.expErr, err) {
 		t.Fatalf("expected error mismatch, want: %v, got: %v",

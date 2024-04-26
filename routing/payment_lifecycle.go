@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"time"
@@ -11,6 +10,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -678,17 +678,14 @@ func (p *paymentLifecycle) sendAttempt(
 		PaymentHash: *attempt.Hash,
 	}
 
-	buffer := new(bytes.Buffer)
-	if err := p.firstHopTLVs.Encode(buffer); err != nil {
-		return p.failAttempt(attempt.AttemptID, err)
+	// If we had any first hop TLVs, then we'll encode that here now.
+	firstHopTLVs := tlv.MapToRecords(p.firstHopTLVs)
+	wireTLVs := fn.Map(func(r tlv.Record) tlv.RecordProducer {
+		return &r
+	}, firstHopTLVs)
+	if err := htlcAdd.ExtraData.PackRecords(wireTLVs...); err != nil {
+		return nil, err
 	}
-
-	recordsBytes := buffer.Bytes()
-	tlvRecord := tlv.NewPrimitiveRecord[lnwire.CustomRecordsBlobTlvType](
-		recordsBytes,
-	)
-
-	htlcAdd.CustomRecordsBlob = tlv.SomeRecordT(tlvRecord)
 
 	// Generate the raw encoded sphinx packet to be included along
 	// with the htlcAdd message that we send directly to the

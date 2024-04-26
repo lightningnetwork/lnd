@@ -8,7 +8,7 @@ require (
 	github.com/google/btree v1.0.1
 	github.com/jackc/pgx/v4 v4.18.1
 	github.com/lightningnetwork/lnd/healthcheck v1.2.4
-	github.com/lightningnetwork/lnd/sqldb v1.0.1
+	github.com/lightningnetwork/lnd/sqldb v1.0.2
 	github.com/stretchr/testify v1.9.0
 	go.etcd.io/bbolt v1.3.7
 	go.etcd.io/etcd/api/v3 v3.5.7

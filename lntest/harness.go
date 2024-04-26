@@ -105,6 +105,32 @@ type HarnessTest struct {
 	cleaned bool
 }
 
+// harnessOpts contains functional option to modify the behavior of the various
+// harness calls.
+type harnessOpts struct {
+	useAMP bool
+}
+
+// defaultHarnessOpts returns a new instance of the harnessOpts with default
+// values specified.
+func defaultHarnessOpts() harnessOpts {
+	return harnessOpts{
+		useAMP: false,
+	}
+}
+
+// HarnessOpt is a functional option that can be used to modify the behavior of
+// harness functionality.
+type HarnessOpt func(*harnessOpts)
+
+// WithAMP is a functional option that can be used to enable the AMP feature
+// for sending payments.
+func WithAMP() HarnessOpt {
+	return func(h *harnessOpts) {
+		h.useAMP = true
+	}
+}
+
 // NewHarnessTest creates a new instance of a harnessTest from a regular
 // testing.T instance.
 func NewHarnessTest(t *testing.T, lndBinary string, feeService WebFeeService,
@@ -1438,7 +1464,13 @@ func (h *HarnessTest) FundCoinsP2TR(amt btcutil.Amount,
 // all payment requests. This function does not return until all payments
 // have reached the specified status.
 func (h *HarnessTest) completePaymentRequestsAssertStatus(hn *node.HarnessNode,
-	paymentRequests []string, status lnrpc.Payment_PaymentStatus) {
+	paymentRequests []string, status lnrpc.Payment_PaymentStatus,
+	opts ...HarnessOpt) {
+
+	payOpts := defaultHarnessOpts()
+	for _, opt := range opts {
+		opt(&payOpts)
+	}
 
 	// Create a buffered chan to signal the results.
 	results := make(chan rpc.PaymentClient, len(paymentRequests))
@@ -1449,6 +1481,7 @@ func (h *HarnessTest) completePaymentRequestsAssertStatus(hn *node.HarnessNode,
 			PaymentRequest: payReq,
 			TimeoutSeconds: int32(wait.PaymentTimeout.Seconds()),
 			FeeLimitMsat:   noFeeLimitMsat,
+			Amp:            payOpts.useAMP,
 		}
 		stream := hn.RPC.SendPayment(req)
 
@@ -1477,10 +1510,10 @@ func (h *HarnessTest) completePaymentRequestsAssertStatus(hn *node.HarnessNode,
 // requests. This function does not return until all payments successfully
 // complete without errors.
 func (h *HarnessTest) CompletePaymentRequests(hn *node.HarnessNode,
-	paymentRequests []string) {
+	paymentRequests []string, opts ...HarnessOpt) {
 
 	h.completePaymentRequestsAssertStatus(
-		hn, paymentRequests, lnrpc.Payment_SUCCEEDED,
+		hn, paymentRequests, lnrpc.Payment_SUCCEEDED, opts...,
 	)
 }
 

@@ -129,6 +129,7 @@ func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 		PaymentAddr:    externalPayAddr,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
+		Amp:            true,
 	}
 	payment := ht.SendPaymentAssertSettled(mts.alice, sendReq)
 
@@ -252,6 +253,7 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
 	// Now we'll use Carol to pay the invoice that Dave created.
 	ht.CompletePaymentRequests(
 		carol, []string{addInvoiceResp.PaymentRequest},
+		lntest.WithAMP(),
 	)
 
 	// Dave should get a notification that the invoice has been settled.
@@ -274,6 +276,7 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
 	// has received another payment.
 	ht.CompletePaymentRequests(
 		carol, []string{addInvoiceResp.PaymentRequest},
+		lntest.WithAMP(),
 	)
 
 	// Dave should get another notification.

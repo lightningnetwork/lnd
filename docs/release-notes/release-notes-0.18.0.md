@@ -368,6 +368,10 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   whether through gRPC or the REST API, due to the destructive nature of the
   operation.
 
+* When paying an AMP payment request, [the `--amp` flag is now
+  required](https://github.com/lightningnetwork/lnd/pull/8681) to be consistent
+  w/ the flow when a payment request isn't used. 
+
 ## lncli Updates
 
 * [Documented all available `lncli`
@@ -532,6 +536,7 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * Marcos Fernandez Perez
 * Matt Morehouse
 * Mohamed Awnallah
+* Olaoluwa Osuntokun
 * Ononiwu Maureen Chiamaka
 * Slyghtning
 * Tee8z

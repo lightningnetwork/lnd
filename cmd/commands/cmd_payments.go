@@ -141,8 +141,8 @@ var (
 	}
 )
 
-// paymentFlags returns common flags for sendpayment and payinvoice.
-func paymentFlags() []cli.Flag {
+// PaymentFlags returns common flags for sendpayment and payinvoice.
+func PaymentFlags() []cli.Flag {
 	return []cli.Flag{
 		cli.StringFlag{
 			Name:  "pay_req",
@@ -190,7 +190,7 @@ func paymentFlags() []cli.Flag {
 	}
 }
 
-var sendPaymentCommand = cli.Command{
+var SendPaymentCommand = cli.Command{
 	Name:     "sendpayment",
 	Category: "Payments",
 	Usage:    "Send a payment over lightning.",
@@ -214,7 +214,7 @@ var sendPaymentCommand = cli.Command{
 	`,
 	ArgsUsage: "dest amt payment_hash final_cltv_delta pay_addr | " +
 		"--pay_req=R [--pay_addr=H]",
-	Flags: append(paymentFlags(),
+	Flags: append(PaymentFlags(),
 		cli.StringFlag{
 			Name: "dest, d",
 			Usage: "the compressed identity pubkey of the " +
@@ -241,7 +241,7 @@ var sendPaymentCommand = cli.Command{
 			Usage: "will generate a pre-image and encode it in the sphinx packet, a dest must be set [experimental]",
 		},
 	),
-	Action: sendPayment,
+	Action: SendPayment,
 }
 
 // retrieveFeeLimit retrieves the fee limit based on the different fee limit
@@ -312,7 +312,7 @@ func parsePayAddr(ctx *cli.Context, args cli.Args) ([]byte, error) {
 	return payAddr, nil
 }
 
-func sendPayment(ctx *cli.Context) error {
+func SendPayment(ctx *cli.Context) error {
 	// Show command help if no arguments provided
 	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
 		_ = cli.ShowCommandHelp(ctx, "sendpayment")
@@ -343,7 +343,7 @@ func sendPayment(ctx *cli.Context) error {
 
 		req.PaymentAddr = payAddr
 
-		return sendPaymentRequest(ctx, req)
+		return SendPaymentRequest(ctx, req)
 	}
 
 	var (
@@ -451,10 +451,10 @@ func sendPayment(ctx *cli.Context) error {
 
 	req.PaymentAddr = payAddr
 
-	return sendPaymentRequest(ctx, req)
+	return SendPaymentRequest(ctx, req)
 }
 
-func sendPaymentRequest(ctx *cli.Context,
+func SendPaymentRequest(ctx *cli.Context,
 	req *routerrpc.SendPaymentRequest) error {
 
 	ctxc := getContext()
@@ -592,7 +592,7 @@ func sendPaymentRequest(ctx *cli.Context,
 		return err
 	}
 
-	finalState, err := printLivePayment(
+	finalState, err := PrintLivePayment(
 		ctxc, stream, client, printJSON,
 	)
 	if err != nil {
@@ -652,15 +652,15 @@ func trackPayment(ctx *cli.Context) error {
 	}
 
 	client := lnrpc.NewLightningClient(conn)
-	_, err = printLivePayment(ctxc, stream, client, ctx.Bool(jsonFlag.Name))
+	_, err = PrintLivePayment(ctxc, stream, client, ctx.Bool(jsonFlag.Name))
 	return err
 }
 
-// printLivePayment receives payment updates from the given stream and either
+// PrintLivePayment receives payment updates from the given stream and either
 // outputs them as json or as a more user-friendly formatted table. The table
 // option uses terminal control codes to rewrite the output. This call
 // terminates when the payment reaches a final state.
-func printLivePayment(ctxc context.Context,
+func PrintLivePayment(ctxc context.Context,
 	stream routerrpc.Router_TrackPaymentV2Client,
 	client lnrpc.LightningClient, json bool) (*lnrpc.Payment, error) {
 
@@ -859,7 +859,7 @@ var payInvoiceCommand = cli.Command{
 	This command is a shortcut for 'sendpayment --pay_req='.
 	`,
 	ArgsUsage: "pay_req",
-	Flags: append(paymentFlags(),
+	Flags: append(PaymentFlags(),
 		cli.Int64Flag{
 			Name: "amt",
 			Usage: "(optional) number of satoshis to fulfill the " +
@@ -888,7 +888,7 @@ func payInvoice(ctx *cli.Context) error {
 		DestCustomRecords: make(map[uint64][]byte),
 	}
 
-	return sendPaymentRequest(ctx, req)
+	return SendPaymentRequest(ctx, req)
 }
 
 var sendToRouteCommand = cli.Command{

@@ -465,7 +465,7 @@ func Main() {
 		decryptDebugPackageCommand,
 		getRecoveryInfoCommand,
 		pendingChannelsCommand,
-		sendPaymentCommand,
+		SendPaymentCommand,
 		payInvoiceCommand,
 		sendToRouteCommand,
 		addInvoiceCommand,

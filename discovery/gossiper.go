@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -82,9 +83,10 @@ var (
 // can provide that serve useful when processing a specific network
 // announcement.
 type optionalMsgFields struct {
-	capacity     *btcutil.Amount
-	channelPoint *wire.OutPoint
-	remoteAlias  *lnwire.ShortChannelID
+	capacity      *btcutil.Amount
+	channelPoint  *wire.OutPoint
+	remoteAlias   *lnwire.ShortChannelID
+	tapscriptRoot fn.Option[chainhash.Hash]
 }
 
 // apply applies the optional fields within the functional options.
@@ -112,6 +114,12 @@ func ChannelCapacity(capacity btcutil.Amount) OptionalMsgField {
 func ChannelPoint(op wire.OutPoint) OptionalMsgField {
 	return func(f *optionalMsgFields) {
 		f.channelPoint = &op
+	}
+}
+
+func TapscriptRoot(root fn.Option[chainhash.Hash]) OptionalMsgField {
+	return func(f *optionalMsgFields) {
+		f.tapscriptRoot = root
 	}
 }
 
@@ -2500,6 +2508,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 		BitcoinKey2Bytes: ann.BitcoinKey2,
 		AuthProof:        proof,
 		Features:         featureBuf.Bytes(),
+		TapscriptRoot:    nMsg.optionalMsgFields.tapscriptRoot,
 		ExtraOpaqueData:  ann.ExtraOpaqueData,
 	}
 

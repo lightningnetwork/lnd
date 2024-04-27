@@ -3478,6 +3478,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	errChan := f.cfg.SendAnnouncement(
 		ann.chanAnn, discovery.ChannelCapacity(completeChan.Capacity),
 		discovery.ChannelPoint(completeChan.FundingOutpoint),
+		discovery.TapscriptRoot(completeChan.TapscriptRoot),
 	)
 	select {
 	case err := <-errChan:
@@ -4406,9 +4407,9 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	//
 	// We can pass in zeroes for the min and max htlc policy, because we
 	// only use the channel announcement message from the returned struct.
-	ann, err := f.newChanAnnouncement(localIDKey, remoteIDKey,
-		localFundingKey, remoteFundingKey, shortChanID, chanID,
-		0, 0, nil, chanType,
+	ann, err := f.newChanAnnouncement(
+		localIDKey, remoteIDKey, localFundingKey, remoteFundingKey,
+		shortChanID, chanID, 0, 0, nil, chanType,
 	)
 	if err != nil {
 		log.Errorf("can't generate channel announcement: %v", err)

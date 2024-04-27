@@ -28,3 +28,19 @@ func Const[A, B any](a A) func(B) A {
 		return a
 	}
 }
+
+// Eq is a curried function that returns true if its eventual two arguments are
+// equal.
+func Eq[A comparable](x A) func(A) bool {
+	return func(y A) bool {
+		return x == y
+	}
+}
+
+// Neq is a curried function that returns true if its eventual two arguments are
+// not equal.
+func Neq[A comparable](x A) func(A) bool {
+	return func(y A) bool {
+		return x != y
+	}
+}

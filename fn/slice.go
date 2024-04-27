@@ -114,6 +114,11 @@ func FindIdx[A any](pred Pred[A], s []A) Option[T2[int, A]] {
 	return None[T2[int, A]]()
 }
 
+// Elem returns true if the element in the argument is found in the slice
+func Elem[A comparable](a A, s []A) bool {
+	return Any(Eq(a), s)
+}
+
 // Flatten takes a slice of slices and returns a concatenation of those slices.
 func Flatten[A any](s [][]A) []A {
 	sz := Foldr(

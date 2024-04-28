@@ -3100,6 +3100,10 @@ func HtlcIsDust(chanType channeldb.ChannelType,
 // HtlcView represents the "active" HTLCs at a particular point within the
 // history of the HTLC update log.
 type HtlcView struct {
+	// NextHeight is the height of the commitment transaction that will be
+	// created using this view.
+	NextHeight uint64
+
 	// OurUpdates are our outgoing HTLCs.
 	OurUpdates []*PaymentDescriptor
 
@@ -3300,7 +3304,8 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 	// view. If any fee updates are found when evaluating the view, it will
 	// be updated.
 	newView := &HtlcView{
-		FeePerKw: view.FeePerKw,
+		FeePerKw:   view.FeePerKw,
+		NextHeight: nextHeight,
 	}
 
 	// We use two maps, one for the local log and one for the remote log to

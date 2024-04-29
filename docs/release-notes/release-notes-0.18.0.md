@@ -530,25 +530,56 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 # Contributors (Alphabetical Order)
 
 * Alex Akselrod
+* Alex Sears
 * Amin Bashiri
 * Andras Banki-Horvath
+* AtomicInnovation321
+* bartoli
 * BitcoinerCoderBob
+* bitromortac
+* bota87
+* Calvin Zachman
 * Carla Kirk-Cohen
+* cristiantroy
+* cuinix
+* davisv7
 * Elle Mouton
 * ErikEk
+* Eugene Siegel
 * Feelancer21
+* ffranr
+* Hao Wang
+* hidewrong
 * Jesse de Wit
+* João Thallis
+* Jonathan Harvey-Buschel
 * Joost Jager
+* Jordi Montes
 * Keagan McClelland
+* kilrau
+* mani2310
 * Marcos Fernandez Perez
 * Matt Morehouse
+* Michael Rooke
 * Mohamed Awnallah
 * Olaoluwa Osuntokun
+* Oliver Gugger
 * Ononiwu Maureen Chiamaka
+* Sam Korn
+* saubyk
+* Simone Ragonesi
 * Slyghtning
+* tdb3
 * Tee8z
+* testwill
+* Thabokani
+* threewebcode
 * Turtle
-* Hao Wang
+* twofaktor
+* vuittont60
 * w3irdrobot
+* weiliy
+* xiaoxianBoy
 * Yong Yu
+* zhiqiangxu
 * Ziggie

@@ -3183,6 +3183,9 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	}
 	feePerKw := filteredHTLCView.FeePerKw
 
+	htlcView.NextHeight = nextHeight
+	filteredHTLCView.NextHeight = nextHeight
+
 	// Actually generate unsigned commitment transaction for this view.
 	commitTx, err := lc.commitBuilder.createUnsignedCommitmentTx(
 		ourBalance, theirBalance, !remoteChain, feePerKw, nextHeight,

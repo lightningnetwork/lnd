@@ -1917,6 +1917,25 @@ func (p *Brontide) hasChannel(chanID lnwire.ChannelID) bool {
 // channel with the peer to mitigate a dos vector where a peer costlessly
 // connects to us and spams us with errors.
 func (p *Brontide) storeError(err error) {
+	// If we do not have any active channels with the peer, we do not store
+	// errors as a dos mitigation.
+	if !p.hasActiveChannels() {
+		p.log.Trace("no channels with peer, not storing err")
+		return
+	}
+
+	p.cfg.ErrorBuffer.Add(
+		&TimestampedError{Timestamp: time.Now(), Error: err},
+	)
+}
+
+// hasActiveChannels checks if the Brontide instance has any active Lightning
+// network channels that are currently open and not pending.
+//
+// Returns:
+// - true if there is at least one active channel.
+// - false if there are no active channels or all channels are pending.
+func (p *Brontide) hasActiveChannels() bool {
 	var haveChannels bool
 
 	p.activeChannels.Range(func(_ lnwire.ChannelID,
@@ -1934,16 +1953,7 @@ func (p *Brontide) storeError(err error) {
 		return false
 	})
 
-	// If we do not have any active channels with the peer, we do not store
-	// errors as a dos mitigation.
-	if !haveChannels {
-		p.log.Trace("no channels with peer, not storing err")
-		return
-	}
-
-	p.cfg.ErrorBuffer.Add(
-		&TimestampedError{Timestamp: time.Now(), Error: err},
-	)
+	return haveChannels
 }
 
 // handleWarningOrError processes a warning or error msg and returns true if

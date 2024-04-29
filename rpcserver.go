@@ -389,22 +389,6 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "read",
 		}},
-		"/lnrpc.Lightning/SendPayment": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
-		"/lnrpc.Lightning/SendPaymentSync": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
-		"/lnrpc.Lightning/SendToRoute": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
-		"/lnrpc.Lightning/SendToRouteSync": {{
-			Entity: "offchain",
-			Action: "write",
-		}},
 		"/lnrpc.Lightning/AddInvoice": {{
 			Entity: "invoices",
 			Action: "write",
@@ -5026,81 +5010,6 @@ type rpcPaymentRequest struct {
 	route *route.Route
 }
 
-// SendPayment dispatches a bi-directional streaming RPC for sending payments
-// through the Lightning Network. A single RPC invocation creates a persistent
-// bi-directional stream allowing clients to rapidly send payments through the
-// Lightning Network with a single persistent connection.
-func (r *rpcServer) SendPayment(stream lnrpc.Lightning_SendPaymentServer) error {
-	var lock sync.Mutex
-
-	return r.sendPayment(&paymentStream{
-		recv: func() (*rpcPaymentRequest, error) {
-			req, err := stream.Recv()
-			if err != nil {
-				return nil, err
-			}
-
-			return &rpcPaymentRequest{
-				SendRequest: req,
-			}, nil
-		},
-		send: func(r *lnrpc.SendResponse) error {
-			// Calling stream.Send concurrently is not safe.
-			lock.Lock()
-			defer lock.Unlock()
-			return stream.Send(r)
-		},
-	})
-}
-
-// SendToRoute dispatches a bi-directional streaming RPC for sending payments
-// through the Lightning Network via predefined routes passed in. A single RPC
-// invocation creates a persistent bi-directional stream allowing clients to
-// rapidly send payments through the Lightning Network with a single persistent
-// connection.
-func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error {
-	var lock sync.Mutex
-
-	return r.sendPayment(&paymentStream{
-		recv: func() (*rpcPaymentRequest, error) {
-			req, err := stream.Recv()
-			if err != nil {
-				return nil, err
-			}
-
-			return r.unmarshallSendToRouteRequest(req)
-		},
-		send: func(r *lnrpc.SendResponse) error {
-			// Calling stream.Send concurrently is not safe.
-			lock.Lock()
-			defer lock.Unlock()
-			return stream.Send(r)
-		},
-	})
-}
-
-// unmarshallSendToRouteRequest unmarshalls an rpc sendtoroute request
-func (r *rpcServer) unmarshallSendToRouteRequest(
-	req *lnrpc.SendToRouteRequest) (*rpcPaymentRequest, error) {
-
-	if req.Route == nil {
-		return nil, fmt.Errorf("unable to send, no route provided")
-	}
-
-	route, err := r.routerBackend.UnmarshallRoute(req.Route)
-	if err != nil {
-		return nil, err
-	}
-
-	return &rpcPaymentRequest{
-		SendRequest: &lnrpc.SendRequest{
-			PaymentHash:       req.PaymentHash,
-			PaymentHashString: req.PaymentHashString,
-		},
-		route: route,
-	}, nil
-}
-
 // rpcPaymentIntent is a small wrapper struct around the of values we can
 // receive from a client over RPC if they wish to send a payment. We'll either
 // extract these fields from a payment request (which may include routing
@@ -5667,37 +5576,6 @@ sendLoop:
 	// Wait for all goroutines to finish before closing the stream.
 	wg.Wait()
 	return nil
-}
-
-// SendPaymentSync is the synchronous non-streaming version of SendPayment.
-// This RPC is intended to be consumed by clients of the REST proxy.
-// Additionally, this RPC expects the destination's public key and the payment
-// hash (if any) to be encoded as hex strings.
-func (r *rpcServer) SendPaymentSync(ctx context.Context,
-	nextPayment *lnrpc.SendRequest) (*lnrpc.SendResponse, error) {
-
-	return r.sendPaymentSync(ctx, &rpcPaymentRequest{
-		SendRequest: nextPayment,
-	})
-}
-
-// SendToRouteSync is the synchronous non-streaming version of SendToRoute.
-// This RPC is intended to be consumed by clients of the REST proxy.
-// Additionally, this RPC expects the payment hash (if any) to be encoded as
-// hex strings.
-func (r *rpcServer) SendToRouteSync(ctx context.Context,
-	req *lnrpc.SendToRouteRequest) (*lnrpc.SendResponse, error) {
-
-	if req.Route == nil {
-		return nil, fmt.Errorf("unable to send, no routes provided")
-	}
-
-	paymentRequest, err := r.unmarshallSendToRouteRequest(req)
-	if err != nil {
-		return nil, err
-	}
-
-	return r.sendPaymentSync(ctx, paymentRequest)
 }
 
 // sendPaymentSync is the synchronous variant of sendPayment. It will block and

@@ -768,7 +768,7 @@
     },
     "/v2/wallet/tx/label": {
       "post": {
-        "summary": "lncli: `wallet labeltx`\nLabelTransaction adds a label to a transaction. If the transaction already\nhas a label the call will fail unless the overwrite bool is set. This will\noverwrite the exiting transaction label. Labels must not be empty, and\ncannot exceed 500 characters.",
+        "summary": "lncli: `wallet labeltx`\nLabelTransaction adds a label to a transaction. If the transaction already\nhas a label the call will fail unless the overwrite bool is set. This will\noverwrite the existing transaction label. Labels must not be empty, and\ncannot exceed 500 characters.",
         "operationId": "WalletKit_LabelTransaction",
         "responses": {
           "200": {
@@ -1360,7 +1360,7 @@
         "target_conf": {
           "type": "integer",
           "format": "int64",
-          "description": "Optional. The deadline in number of blocks that the input should be spent\nwithin. When not set, for new inputs, the default value (1008) is used;\nfor exiting inputs, their current values will be retained."
+          "description": "Optional. The deadline in number of blocks that the input should be spent\nwithin. When not set, for new inputs, the default value (1008) is used;\nfor existing inputs, their current values will be retained."
         },
         "sat_per_byte": {
           "type": "integer",

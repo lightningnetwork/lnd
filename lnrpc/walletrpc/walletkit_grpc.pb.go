@@ -216,7 +216,7 @@ type WalletKitClient interface {
 	// lncli: `wallet labeltx`
 	// LabelTransaction adds a label to a transaction. If the transaction already
 	// has a label the call will fail unless the overwrite bool is set. This will
-	// overwrite the exiting transaction label. Labels must not be empty, and
+	// overwrite the existing transaction label. Labels must not be empty, and
 	// cannot exceed 500 characters.
 	LabelTransaction(ctx context.Context, in *LabelTransactionRequest, opts ...grpc.CallOption) (*LabelTransactionResponse, error)
 	// lncli: `wallet psbt fund`
@@ -727,7 +727,7 @@ type WalletKitServer interface {
 	// lncli: `wallet labeltx`
 	// LabelTransaction adds a label to a transaction. If the transaction already
 	// has a label the call will fail unless the overwrite bool is set. This will
-	// overwrite the exiting transaction label. Labels must not be empty, and
+	// overwrite the existing transaction label. Labels must not be empty, and
 	// cannot exceed 500 characters.
 	LabelTransaction(context.Context, *LabelTransactionRequest) (*LabelTransactionResponse, error)
 	// lncli: `wallet psbt fund`

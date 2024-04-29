@@ -86,14 +86,6 @@ func TestExtraOpaqueDataEncodeDecode(t *testing.T) {
 	}
 }
 
-type recordProducer struct {
-	record tlv.Record
-}
-
-func (r *recordProducer) Record() tlv.Record {
-	return r.record
-}
-
 // TestExtraOpaqueDataPackUnpackRecords tests that we're able to pack a set of
 // tlv.Records into a stream, and unpack them on the other side to obtain the
 // same set of records.

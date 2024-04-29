@@ -107,7 +107,8 @@
   which with the default fee allocation in place will eventually lead to the
   downsizing to the fee floor (1 sat/vByte) in the worst case.
 
-* [Removed](https://github.com/lightningnetwork/lnd/pull/8577) some unreachable code
+* [Removed](https://github.com/lightningnetwork/lnd/pull/8577) some unreachable
+  code.
 
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/8609) a function
   call where arguments were swapped.
@@ -118,20 +119,14 @@
 
 * [Fixed a bug in `btcd` that caused an incompatibility with
   `bitcoind v27.0`](https://github.com/lightningnetwork/lnd/pull/8573).
-  
-* [Fixed](https://github.com/lightningnetwork/lnd/pull/8609) a function call 
-  where arguments were swapped.
 
-* [Fixed](https://github.com/lightningnetwork/lnd/pull/8545) utxo selection
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8545) UTXO selection
   for the internal channel funding flow (Single and Batch Funding Flow). Now
-  utxos which are unconfirmed and originated from the sweeper subsystem are not
+  UTXOs which are unconfirmed and originated from the sweeper subsystem are not
   selected because they bear the risk of being replaced (BIP 125 RBF).
-
-* [Fixed](https://github.com/lightningnetwork/lnd/pull/8685) lncli "bumpfee"
-  parsing of the immediate/force flag.
   
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/8621) the behaviour of
-  neutrino LND nodes which would loose sync in case they had very unstable
+  neutrino LND nodes which would lose sync in case they had very unstable
   peer connection.
 
 # New Features
@@ -151,13 +146,13 @@
   can be enabled with the option `accept-positive-inbound-fees`.
 
 * A new config value,
-  [sweeper.maxfeerate](https://github.com/lightningnetwork/lnd/pull/7823), is
+  [`sweeper.maxfeerate`](https://github.com/lightningnetwork/lnd/pull/7823), is
   added so users can specify the max allowed fee rate when sweeping on-chain
-  funds. The default value is 1000 sat/vb. Setting this value below 100 sat/vb
+  funds. The default value is 1000 sat/vB. Setting this value below 100 sat/vB
   is not allowed, as low fee rate can cause transactions not confirming in
   time, which could result in fund loss.
   Please note that the actual fee rate to be used is determined by the fee
-  estimator used(for instance `bitcoind`), and this value is a cap on the max
+  estimator used (for instance `bitcoind`), and this value is a cap on the max
   allowed value. So it's expected that this cap is rarely hit unless there's
   mempool congestion.
 
@@ -210,8 +205,9 @@
   `lnd.conf`](https://github.com/lightningnetwork/lnd/pull/8310)
   for the `rpcuser` and `rpcpass` fields to better protect the secrets.
 
-* When computing a minimum fee for transaction construction, `lnd` [now takes our
-bitcoin peers' feefilter values into account](https://github.com/lightningnetwork/lnd/pull/8418).
+* When computing a minimum fee for transaction construction, `lnd` [now takes
+  its bitcoin peers' `feefilter` values into
+  account](https://github.com/lightningnetwork/lnd/pull/8418).
 
 * [Preparatory work](https://github.com/lightningnetwork/lnd/pull/8159) for 
   forwarding of blinded routes was added, along with [support](https://github.com/lightningnetwork/lnd/pull/8160)
@@ -268,7 +264,7 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 
 * Deprecate `bumpclosefee` for `bumpforceclosefee` to accommodate for the fact 
   that only force closing transactions can be bumped to avoid confusion. 
-  Moreover allow to specify a max fee rate range when coop closing a channel.
+  Moreover, allow to specify a max fee rate range when coop closing a channel.
   [Deprecate bumpclosefee for bumpforceclosefee and add `max_fee_rate` option
    to `closechannel` cmd](https://github.com/lightningnetwork/lnd/pull/8350).
 
@@ -347,7 +343,8 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 
 * [Coin Selection Strategy](https://github.com/lightningnetwork/lnd/pull/8515)
   add coin selection strategy option to the following on-chain RPC calls
-  `EstimateFee`, `SendMany`, `SendCoins`, `BatchOpenChannel`, `SendOutputs`, and `FundPsbt`.
+  `EstimateFee`, `SendMany`, `SendCoins`, `BatchOpenChannel`, `SendOutputs`, and
+  `FundPsbt`.
 
 * `BumpFee` has been updated to take advantage of the [new budget-based
   sweeper](https://github.com/lightningnetwork/lnd/pull/8667). The param
@@ -365,7 +362,7 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 
 * When paying an AMP payment request, [the `--amp` flag is now
   required](https://github.com/lightningnetwork/lnd/pull/8681) to be consistent
-  w/ the flow when a payment request isn't used. 
+  with the flow when a payment request isn't used. 
 
 ## lncli Updates
 
@@ -425,7 +422,7 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 
 ## Breaking Changes
 
-* Previously when callng `SendCoins`, `SendMany`, `OpenChannel` and
+* Previously when calling `SendCoins`, `SendMany`, `OpenChannel` and
   `CloseChannel` for coop close, it is allowed to specify both an empty
   `SatPerVbyte` and `TargetConf`, and a default conf target of 6 will be used.
   This will [no longer be
@@ -517,7 +514,7 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   settings between `sqldb` and `kvdb` packages.
 
 * [Expanded SweeperStore](https://github.com/lightningnetwork/lnd/pull/8147) to
-  also store the feerate, fees paid, and whether it's published or not for a
+  also store the fee rate, fees paid, and whether it's published or not for a
   given sweeping transaction.
 
 ## Code Health
@@ -525,30 +522,59 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 
   from `channeldb` schema structs.
 
-## Tooling and Documentation
-
 # Contributors (Alphabetical Order)
 
 * Alex Akselrod
+* Alex Sears
 * Amin Bashiri
 * Andras Banki-Horvath
+* AtomicInnovation321
+* bartoli
 * BitcoinerCoderBob
+* bitromortac
+* bota87
+* Calvin Zachman
 * Carla Kirk-Cohen
+* cristiantroy
+* cuinix
+* davisv7
 * Elle Mouton
 * ErikEk
+* Eugene Siegel
 * Feelancer21
+* ffranr
+* Hao Wang
+* hidewrong
 * Jesse de Wit
+* João Thallis
+* Jonathan Harvey-Buschel
 * Joost Jager
+* Jordi Montes
 * Keagan McClelland
+* kilrau
+* mani2310
 * Marcos Fernandez Perez
 * Matt Morehouse
+* Michael Rooke
 * Mohamed Awnallah
 * Olaoluwa Osuntokun
+* Oliver Gugger
 * Ononiwu Maureen Chiamaka
+* Sam Korn
+* saubyk
+* Simone Ragonesi
 * Slyghtning
+* tdb3
 * Tee8z
+* testwill
+* Thabokani
+* threewebcode
 * Turtle
-* Hao Wang
+* twofaktor
+* vuittont60
 * w3irdrobot
+* weiliy
+* xiaoxianBoy
 * Yong Yu
+* zhiqiangxu
 * Ziggie

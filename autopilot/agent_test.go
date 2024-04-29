@@ -254,7 +254,7 @@ func respondMoreChans(t *testing.T, testCtx *testContext, resp moreChansResp) {
 	}
 }
 
-// respondMoreChans consumes the nodeScoresArgs element and responds to the
+// respondNodeScores consumes the nodeScoresArgs element and responds to the
 // agent with the given node scores.
 func respondNodeScores(t *testing.T, testCtx *testContext,
 	resp map[NodeID]*NodeScore) {
@@ -468,7 +468,7 @@ func TestAgentChannelCloseSignal(t *testing.T) {
 	}
 }
 
-// TestAgentBalanceUpdateIncrease ensures that once the agent receives an
+// TestAgentBalanceUpdate ensures that once the agent receives an
 // outside signal concerning a balance update, then it will re-query the
 // heuristic to determine its next action.
 func TestAgentBalanceUpdate(t *testing.T) {

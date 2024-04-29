@@ -17,7 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/tor"
 )
 
-// validateAtplConfig is a helper method that makes sure the passed
+// validateAtplCfg is a helper method that makes sure the passed
 // configuration is sane. Currently it checks that the heuristic configuration
 // makes sense. In case the config is valid, it will return a list of
 // WeightedHeuristics that can be combined for use with the autopilot agent.

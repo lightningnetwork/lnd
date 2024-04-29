@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
@@ -346,10 +347,10 @@ type ChannelArbitrator struct {
 	// to do its duty.
 	cfg ChannelArbitratorConfig
 
-	// blocks is a channel that the arbitrator will receive new blocks on.
-	// This channel should be buffered by so that it does not block the
-	// sender.
-	blocks chan int32
+	// blockBeatChan is a channel to receive blocks from BlockBeat. The
+	// received block contains the best known height and the transactions
+	// confirmed in this block.
+	blockBeatChan chan chainio.Beat
 
 	// signalUpdates is a channel that any new live signals for the channel
 	// we're watching over will be sent.
@@ -399,8 +400,10 @@ func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 	}
 
 	return &ChannelArbitrator{
-		log:              log,
-		blocks:           make(chan int32, arbitratorBlockBufferSize),
+		log: log,
+		blockBeatChan: make(
+			chan chainio.Beat, arbitratorBlockBufferSize,
+		),
 		signalUpdates:    make(chan *signalUpdateMsg),
 		resolutionSignal: make(chan struct{}),
 		forceCloseReqs:   make(chan *forceCloseReq),
@@ -2790,31 +2793,23 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// A new block has arrived, we'll examine all the active HTLC's
 		// to see if any of them have expired, and also update our
 		// track of the best current height.
-		case blockHeight, ok := <-c.blocks:
+		case beat, ok := <-c.blockBeatChan:
 			if !ok {
 				return
 			}
-			bestHeight = blockHeight
 
-			// If we're not in the default state, then we can
-			// ignore this signal as we're waiting for contract
-			// resolution.
-			if c.state != StateDefault {
-				continue
-			}
+			log.Debugf("ChannelArbitrator(%v): new block height=%v",
+				c.cfg.ChanPoint, beat.Epoch.Height)
 
-			// Now that a new block has arrived, we'll attempt to
-			// advance our state forward.
-			nextState, _, err := c.advanceState(
-				uint32(bestHeight), chainTrigger, nil,
-			)
+			err := c.handleBlockbeat(beat)
 			if err != nil {
-				log.Errorf("Unable to advance state: %v", err)
+				log.Errorf("Handle block=%v got err: %v",
+					beat.Epoch.Height, err)
 			}
 
 			// If as a result of this trigger, the contract is
 			// fully resolved, then well exit.
-			if nextState == StateFullyResolved {
+			if c.state == StateFullyResolved {
 				return
 			}
 
@@ -3138,6 +3133,46 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			return
 		}
 	}
+}
+
+// handleBlockbeat processes a newly received blockbeat.
+func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Beat) error {
+	// Notify we've processed the block.
+	defer fn.SendOrQuit(beat.Err, nil, c.quit)
+
+	bestHeight := beat.Epoch.Height
+
+	// If we're not in the default state, then we can ignore this signal as
+	// we're waiting for contract resolution.
+	if c.state != StateDefault {
+		return nil
+	}
+
+	// Now that a new block has arrived, we'll attempt to advance our state
+	// forward.
+	_, _, err := c.advanceState(
+		uint32(bestHeight), chainTrigger, nil,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to advance state: %w", err)
+	}
+
+	return nil
+}
+
+// processBlock sends the specified blockbeat to the channel arbitrator's inner
+// loop for processing.
+func (c *ChannelArbitrator) processBlock(beat chainio.Beat) <-chan error {
+	select {
+	case c.blockBeatChan <- beat:
+		log.Debugf("Received block beat for height=%d",
+			beat.Epoch.Height)
+
+	case <-c.quit:
+		return nil
+	}
+
+	return beat.Err
 }
 
 // checkLegacyBreach returns StateFullyResolved if the channel was closed with

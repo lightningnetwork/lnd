@@ -961,19 +961,12 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			auxLeaves,
 		)
 	} else {
-		// If we have aux leaves, then we'll actually reverse them for
-		// the commitment of the remote party.
-		remoteAuxLeaves := fn.MapOption(
-			func(leaves CommitAuxLeaves) CommitAuxLeaves {
-				return leaves.ForRemoteCommit()
-			},
-		)(auxLeaves)
 		commitTx, err = CreateCommitTx(
 			cb.chanState.ChanType, fundingTxIn(cb.chanState), keyRing,
 			&cb.chanState.RemoteChanCfg, &cb.chanState.LocalChanCfg,
 			theirBalance.ToSatoshis(), ourBalance.ToSatoshis(),
 			numHTLCs, !cb.chanState.IsInitiator, leaseExpiry,
-			remoteAuxLeaves,
+			auxLeaves,
 		)
 	}
 	if err != nil {

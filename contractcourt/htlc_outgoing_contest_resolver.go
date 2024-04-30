@@ -49,8 +49,8 @@ func newOutgoingContestResolver(res lnwallet.OutgoingHtlcResolution,
 // When either of these two things happens, we'll create a new resolver which
 // is able to handle the final resolution of the contract. We're only the pivot
 // point.
-func (h *htlcOutgoingContestResolver) Resolve(
-	_ bool) (ContractResolver, error) {
+func (h *htlcOutgoingContestResolver) Resolve(_ bool,
+	blockChan <-chan int32) (ContractResolver, error) {
 
 	// If we're already full resolved, then we don't have anything further
 	// to do.
@@ -99,18 +99,12 @@ func (h *htlcOutgoingContestResolver) Resolve(
 	// If we reach this point, then we can't fully act yet, so we'll await
 	// either of our signals triggering: the HTLC expires, or we learn of
 	// the preimage.
-	blockEpochs, err := h.Notifier.RegisterBlockEpochNtfn(nil)
-	if err != nil {
-		return nil, err
-	}
-	defer blockEpochs.Cancel()
-
 	for {
 		select {
 
 		// A new block has arrived, we'll check to see if this leads to
 		// HTLC expiration.
-		case newBlock, ok := <-blockEpochs.Epochs:
+		case newBlockHeight, ok := <-blockChan:
 			if !ok {
 				return nil, errResolverShuttingDown
 			}
@@ -125,7 +119,7 @@ func (h *htlcOutgoingContestResolver) Resolve(
 			// check doesn't pass, error `transaction is not
 			// finalized` will be returned and the broadcast will
 			// fail.
-			newHeight := uint32(newBlock.Height)
+			newHeight := uint32(newBlockHeight)
 			if newHeight >= h.htlcResolution.Expiry {
 				log.Infof("%T(%v): HTLC has expired "+
 					"(height=%v, expiry=%v), transforming "+

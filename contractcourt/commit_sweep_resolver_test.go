@@ -23,13 +23,13 @@ type commitSweepResolverTestContext struct {
 	sweeper            *mockSweeper
 	resolverResultChan chan resolveResult
 	t                  *testing.T
+	blockChan          chan int32
 }
 
 func newCommitSweepResolverTestContext(t *testing.T,
 	resolution *lnwallet.CommitOutputResolution) *commitSweepResolverTestContext {
 
 	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
 		SpendChan: make(chan *chainntnfs.SpendDetail),
 		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
@@ -71,10 +71,11 @@ func newCommitSweepResolverTestContext(t *testing.T,
 	)
 
 	return &commitSweepResolverTestContext{
-		resolver: resolver,
-		notifier: notifier,
-		sweeper:  sweeper,
-		t:        t,
+		resolver:  resolver,
+		notifier:  notifier,
+		sweeper:   sweeper,
+		t:         t,
+		blockChan: make(chan int32, 1),
 	}
 }
 
@@ -82,7 +83,7 @@ func (i *commitSweepResolverTestContext) resolve() {
 	// Start resolver.
 	i.resolverResultChan = make(chan resolveResult, 1)
 	go func() {
-		nextResolver, err := i.resolver.Resolve(false)
+		nextResolver, err := i.resolver.Resolve(false, i.blockChan)
 		i.resolverResultChan <- resolveResult{
 			nextResolver: nextResolver,
 			err:          err,
@@ -91,9 +92,7 @@ func (i *commitSweepResolverTestContext) resolve() {
 }
 
 func (i *commitSweepResolverTestContext) notifyEpoch(height int32) {
-	i.notifier.EpochChan <- &chainntnfs.BlockEpoch{
-		Height: height,
-	}
+	i.blockChan <- height
 }
 
 func (i *commitSweepResolverTestContext) waitForResult() {

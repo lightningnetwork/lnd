@@ -37,6 +37,8 @@ type htlcResolverTestContext struct {
 	finalHtlcOutcomeStored bool
 
 	t *testing.T
+
+	blockChan chan int32
 }
 
 func newHtlcResolverTestContext(t *testing.T,
@@ -44,7 +46,6 @@ func newHtlcResolverTestContext(t *testing.T,
 		cfg ResolverConfig) ContractResolver) *htlcResolverTestContext {
 
 	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
 		SpendChan: make(chan *chainntnfs.SpendDetail, 1),
 		ConfChan:  make(chan *chainntnfs.TxConfirmation, 1),
 	}
@@ -54,6 +55,7 @@ func newHtlcResolverTestContext(t *testing.T,
 		notifier:       notifier,
 		resolutionChan: make(chan ResolutionMsg, 1),
 		t:              t,
+		blockChan:      make(chan int32, 1),
 	}
 
 	htlcNotifier := &mockHTLCNotifier{}
@@ -134,12 +136,16 @@ func (i *htlcResolverTestContext) resolve() {
 	// Start resolver.
 	i.resolverResultChan = make(chan resolveResult, 1)
 	go func() {
-		nextResolver, err := i.resolver.Resolve(false)
+		nextResolver, err := i.resolver.Resolve(false, i.blockChan)
 		i.resolverResultChan <- resolveResult{
 			nextResolver: nextResolver,
 			err:          err,
 		}
 	}()
+}
+
+func (i *htlcResolverTestContext) notifyEpoch(height int32) {
+	i.blockChan <- height
 }
 
 func (i *htlcResolverTestContext) waitForResult() {
@@ -437,9 +443,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 					}
 				}
 
-				ctx.notifier.EpochChan <- &chainntnfs.BlockEpoch{
-					Height: 13,
-				}
+				ctx.notifyEpoch(13)
 
 				// We expect it to sweep the second-level
 				// transaction we notfied about above.

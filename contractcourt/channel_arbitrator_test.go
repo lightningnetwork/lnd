@@ -359,7 +359,6 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 		OutgoingBroadcastDelta: 5,
 		IncomingBroadcastDelta: 5,
 		Notifier: &mock.ChainNotifier{
-			EpochChan: make(chan *chainntnfs.BlockEpoch),
 			SpendChan: make(chan *chainntnfs.SpendDetail),
 			ConfChan:  make(chan *chainntnfs.TxConfirmation),
 		},
@@ -1068,12 +1067,10 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	}
 
 	// Send a notification that the expiry height has been reached.
-	oldNotifier.EpochChan <- &chainntnfs.BlockEpoch{Height: 10}
-
 	beat := chainio.NewBeat(chainntnfs.BlockEpoch{
 		Height: 10,
 	})
-	chanArbCtx.chanArb.blockBeatChan <- beat
+	chanArb.blockBeatChan <- beat
 
 	// htlcOutgoingContestResolver is now transforming into a
 	// htlcTimeoutResolver and should send the contract off for incubation.

@@ -90,8 +90,8 @@ func (h *htlcIncomingContestResolver) processFinalHtlcFail() error {
 //     as we have no remaining actions left at our disposal.
 //
 // NOTE: Part of the ContractResolver interface.
-func (h *htlcIncomingContestResolver) Resolve(
-	_ bool) (ContractResolver, error) {
+func (h *htlcIncomingContestResolver) Resolve(_ bool,
+	blockChan <-chan int32) (ContractResolver, error) {
 
 	// If we're already full resolved, then we don't have anything further
 	// to do.
@@ -126,21 +126,13 @@ func (h *htlcIncomingContestResolver) Resolve(
 		return nil, h.PutResolverReport(nil, resReport)
 	}
 
-	// Register for block epochs. After registration, the current height
-	// will be sent on the channel immediately.
-	blockEpochs, err := h.Notifier.RegisterBlockEpochNtfn(nil)
-	if err != nil {
-		return nil, err
-	}
-	defer blockEpochs.Cancel()
-
 	var currentHeight int32
 	select {
-	case newBlock, ok := <-blockEpochs.Epochs:
+	case height, ok := <-blockChan:
 		if !ok {
 			return nil, errResolverShuttingDown
 		}
-		currentHeight = newBlock.Height
+		currentHeight = height
 	case <-h.quit:
 		return nil, errResolverShuttingDown
 	}
@@ -403,7 +395,7 @@ func (h *htlcIncomingContestResolver) Resolve(
 			htlcResolution := hodlItem.(invoices.HtlcResolution)
 			return processHtlcResolution(htlcResolution)
 
-		case newBlock, ok := <-blockEpochs.Epochs:
+		case height, ok := <-blockChan:
 			if !ok {
 				return nil, errResolverShuttingDown
 			}
@@ -411,7 +403,7 @@ func (h *htlcIncomingContestResolver) Resolve(
 			// If this new height expires the HTLC, then this means
 			// we never found out the preimage, so we can mark
 			// resolved and exit.
-			newHeight := uint32(newBlock.Height)
+			newHeight := uint32(height)
 			if newHeight >= h.htlcExpiry {
 				log.Infof("%T(%v): HTLC has timed out "+
 					"(expiry=%v, height=%v), abandoning", h,

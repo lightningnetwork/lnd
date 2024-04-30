@@ -418,8 +418,8 @@ func checkSizeAndIndex(witness wire.TxWitness, size, index int) bool {
 // see a direct sweep via the timeout clause.
 //
 // NOTE: Part of the ContractResolver interface.
-func (h *htlcTimeoutResolver) Resolve(
-	immediate bool) (ContractResolver, error) {
+func (h *htlcTimeoutResolver) Resolve(immediate bool,
+	blockChan <-chan int32) (ContractResolver, error) {
 
 	// If we're already resolved, then we can exit early.
 	if h.resolved {
@@ -468,7 +468,7 @@ func (h *htlcTimeoutResolver) Resolve(
 
 	// Depending on whether this was a local or remote commit, we must
 	// handle the spending transaction accordingly.
-	return h.handleCommitSpend(commitSpend)
+	return h.handleCommitSpend(blockChan, commitSpend)
 }
 
 // sweepSecondLevelTx sends a second level timeout transaction to the sweeper.
@@ -668,7 +668,7 @@ func (h *htlcTimeoutResolver) checkPointSecondLevelTx() error {
 // confirmed second-level timeout transaction, and we'll sweep that into our
 // wallet. If the was a remote commitment, the resolver will resolve
 // immetiately.
-func (h *htlcTimeoutResolver) handleCommitSpend(
+func (h *htlcTimeoutResolver) handleCommitSpend(blockChan <-chan int32,
 	commitSpend *chainntnfs.SpendDetail) (ContractResolver, error) {
 
 	var (
@@ -731,7 +731,7 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 		waitHeight--
 
 		// TODO(yy): let sweeper handles the wait?
-		err := waitForHeight(waitHeight, h.Notifier, h.quit)
+		err := waitForHeight(waitHeight, blockChan, h.quit)
 		if err != nil {
 			return nil, err
 		}

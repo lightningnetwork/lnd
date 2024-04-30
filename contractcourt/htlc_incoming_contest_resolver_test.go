@@ -309,11 +309,11 @@ type incomingResolverTestContext struct {
 	nextResolver           ContractResolver
 	finalHtlcOutcomeStored bool
 	t                      *testing.T
+	blockChan              chan int32
 }
 
 func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolverTestContext {
 	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
 		SpendChan: make(chan *chainntnfs.SpendDetail),
 		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
@@ -332,6 +332,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		notifier:       notifier,
 		onionProcessor: onionProcessor,
 		t:              t,
+		blockChan:      make(chan int32, 1),
 	}
 
 	htlcNotifier := &mockHTLCNotifier{}
@@ -395,7 +396,7 @@ func (i *incomingResolverTestContext) resolve() {
 	i.resolveErr = make(chan error, 1)
 	go func() {
 		var err error
-		i.nextResolver, err = i.resolver.Resolve(false)
+		i.nextResolver, err = i.resolver.Resolve(false, i.blockChan)
 		i.resolveErr <- err
 	}()
 
@@ -404,9 +405,7 @@ func (i *incomingResolverTestContext) resolve() {
 }
 
 func (i *incomingResolverTestContext) notifyEpoch(height int32) {
-	i.notifier.EpochChan <- &chainntnfs.BlockEpoch{
-		Height: height,
-	}
+	i.blockChan <- height
 }
 
 func (i *incomingResolverTestContext) waitForResult(expectSuccessRes bool) {

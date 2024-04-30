@@ -267,7 +267,6 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 	}
 
 	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
 		SpendChan: make(chan *chainntnfs.SpendDetail),
 		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
@@ -375,7 +374,8 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			_, err := resolver.Resolve(false)
+			// TODO(yy): fix.
+			_, err := resolver.Resolve(false, nil)
 			if err != nil {
 				resolveErr <- err
 			}
@@ -1089,9 +1089,7 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 				}
 
 				// Mimic CSV lock expiring.
-				ctx.notifier.EpochChan <- &chainntnfs.BlockEpoch{
-					Height: 13,
-				}
+				ctx.notifyEpoch(13)
 
 				// The timeout tx output should now be given to
 				// the sweeper.

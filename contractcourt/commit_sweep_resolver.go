@@ -92,24 +92,20 @@ func (c *commitSweepResolver) ResolverKey() []byte {
 
 // waitForHeight registers for block notifications and waits for the provided
 // block height to be reached.
-func waitForHeight(waitHeight uint32, notifier chainntnfs.ChainNotifier,
+//
+// TODO(yy): There's no need to wait for height in the resolvers, instead, we
+// can offer these immature inputs to the sweeper immediately since the sweeper
+// will handle the waiting.
+func waitForHeight(waitHeight uint32, blockChan <-chan int32,
 	quit <-chan struct{}) error {
-
-	// Register for block epochs. After registration, the current height
-	// will be sent on the channel immediately.
-	blockEpochs, err := notifier.RegisterBlockEpochNtfn(nil)
-	if err != nil {
-		return err
-	}
-	defer blockEpochs.Cancel()
 
 	for {
 		select {
-		case newBlock, ok := <-blockEpochs.Epochs:
+		case newBlockHeight, ok := <-blockChan:
 			if !ok {
 				return errResolverShuttingDown
 			}
-			height := newBlock.Height
+			height := newBlockHeight
 			if height >= int32(waitHeight) {
 				return nil
 			}
@@ -186,7 +182,9 @@ func (c *commitSweepResolver) getCommitTxConfHeight() (uint32, error) {
 // NOTE: This function MUST be run as a goroutine.
 //
 //nolint:funlen
-func (c *commitSweepResolver) Resolve(_ bool) (ContractResolver, error) {
+func (c *commitSweepResolver) Resolve(_ bool,
+	blockChan <-chan int32) (ContractResolver, error) {
+
 	// If we're already resolved, then we can exit early.
 	if c.resolved {
 		return nil, nil
@@ -241,7 +239,7 @@ func (c *commitSweepResolver) Resolve(_ bool) (ContractResolver, error) {
 			waitHeight = unlockHeight - 1
 		}
 
-		err := waitForHeight(waitHeight, c.Notifier, c.quit)
+		err := waitForHeight(waitHeight, blockChan, c.quit)
 		if err != nil {
 			return nil, err
 		}

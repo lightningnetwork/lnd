@@ -115,8 +115,8 @@ func (h *htlcSuccessResolver) ResolverKey() []byte {
 // TODO(roasbeef): create multi to batch
 //
 // NOTE: Part of the ContractResolver interface.
-func (h *htlcSuccessResolver) Resolve(
-	immediate bool) (ContractResolver, error) {
+func (h *htlcSuccessResolver) Resolve(immediate bool,
+	blockChan <-chan int32) (ContractResolver, error) {
 
 	// If we're already resolved, then we can exit early.
 	if h.resolved {
@@ -131,7 +131,7 @@ func (h *htlcSuccessResolver) Resolve(
 
 	// Otherwise this an output on our own commitment, and we must start by
 	// broadcasting the second-level success transaction.
-	secondLevelOutpoint, err := h.broadcastSuccessTx(immediate)
+	secondLevelOutpoint, err := h.broadcastSuccessTx(immediate, blockChan)
 	if err != nil {
 		return nil, err
 	}
@@ -165,8 +165,8 @@ func (h *htlcSuccessResolver) Resolve(
 // broadcasting the second-level success transaction. It returns the ultimate
 // outpoint of the second-level tx, that we must wait to be spent for the
 // resolver to be fully resolved.
-func (h *htlcSuccessResolver) broadcastSuccessTx(
-	immediate bool) (*wire.OutPoint, error) {
+func (h *htlcSuccessResolver) broadcastSuccessTx(immediate bool,
+	blockChan <-chan int32) (*wire.OutPoint, error) {
 
 	// If we have non-nil SignDetails, this means that have a 2nd level
 	// HTLC transaction that is signed using sighash SINGLE|ANYONECANPAY
@@ -175,7 +175,7 @@ func (h *htlcSuccessResolver) broadcastSuccessTx(
 	// the checkpointed outputIncubating field to determine if we already
 	// swept the HTLC output into the second level transaction.
 	if h.htlcResolution.SignDetails != nil {
-		return h.broadcastReSignedSuccessTx(immediate)
+		return h.broadcastReSignedSuccessTx(immediate, blockChan)
 	}
 
 	// Otherwise we'll publish the second-level transaction directly and
@@ -227,8 +227,8 @@ func (h *htlcSuccessResolver) broadcastSuccessTx(
 // will re-sign it and attach fees at will.
 //
 //nolint:funlen
-func (h *htlcSuccessResolver) broadcastReSignedSuccessTx(immediate bool) (
-	*wire.OutPoint, error) {
+func (h *htlcSuccessResolver) broadcastReSignedSuccessTx(immediate bool,
+	blockChan <-chan int32) (*wire.OutPoint, error) {
 
 	// Keep track of the tx spending the HTLC output on the commitment, as
 	// this will be the confirmed second-level tx we'll ultimately sweep.
@@ -375,7 +375,7 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx(immediate bool) (
 	waitHeight--
 
 	// TODO(yy): let sweeper handles the wait?
-	err := waitForHeight(waitHeight, h.Notifier, h.quit)
+	err := waitForHeight(waitHeight, blockChan, h.quit)
 	if err != nil {
 		return nil, err
 	}

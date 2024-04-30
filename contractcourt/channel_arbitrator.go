@@ -1593,7 +1593,7 @@ func (c *ChannelArbitrator) launchResolvers(resolvers []ContractResolver,
 		blockChan := make(chan int32, arbitratorBlockBufferSize)
 		c.activeResolvers[contract] = blockChan
 
-		go c.resolveContract(contract, immediate)
+		go c.resolveContract(contract, blockChan, immediate)
 	}
 }
 
@@ -2607,7 +2607,7 @@ func (c *ChannelArbitrator) replaceResolver(oldResolver,
 //
 // NOTE: This MUST be run as a goroutine.
 func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver,
-	immediate bool) {
+	blockChan <-chan int32, immediate bool) {
 
 	defer c.wg.Done()
 
@@ -2629,7 +2629,9 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver,
 		default:
 			// Otherwise, we'll attempt to resolve the current
 			// contract.
-			nextContract, err := currentContract.Resolve(immediate)
+			nextContract, err := currentContract.Resolve(
+				immediate, blockChan,
+			)
 			if err != nil {
 				if err == errResolverShuttingDown {
 					return

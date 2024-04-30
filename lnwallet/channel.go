@@ -2474,7 +2474,7 @@ type htlcView struct {
 func (lc *LightningChannel) fetchHTLCView(theirLogIndex, ourLogIndex uint64) *htlcView {
 	var ourHTLCs []*PaymentDescriptor
 	for e := lc.localUpdateLog.Front(); e != nil; e = e.Next() {
-		htlc := e.Value.(*PaymentDescriptor)
+		htlc := e.Value
 
 		// This HTLC is active from this point-of-view iff the log
 		// index of the state update is below the specified index in
@@ -2486,7 +2486,7 @@ func (lc *LightningChannel) fetchHTLCView(theirLogIndex, ourLogIndex uint64) *ht
 
 	var theirHTLCs []*PaymentDescriptor
 	for e := lc.remoteUpdateLog.Front(); e != nil; e = e.Next() {
-		htlc := e.Value.(*PaymentDescriptor)
+		htlc := e.Value
 
 		// If this is an incoming HTLC, then it is only active from
 		// this point-of-view if the index of the HTLC addition in
@@ -3112,7 +3112,7 @@ func (lc *LightningChannel) createCommitDiff(
 	// set of items we need to retransmit if we reconnect and find that
 	// they didn't process this new state fully.
 	for e := lc.localUpdateLog.Front(); e != nil; e = e.Next() {
-		pd := e.Value.(*PaymentDescriptor)
+		pd := e.Value
 
 		// If this entry wasn't committed at the exact height of this
 		// remote commitment, then we'll skip it as it was already
@@ -3250,7 +3250,7 @@ func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
 	// remote party expects.
 	var logUpdates []channeldb.LogUpdate
 	for e := lc.remoteUpdateLog.Front(); e != nil; e = e.Next() {
-		pd := e.Value.(*PaymentDescriptor)
+		pd := e.Value
 
 		// Skip all remote updates that we have already included in our
 		// commit chain.
@@ -5195,7 +5195,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 
 	var addIndex, settleFailIndex uint16
 	for e := lc.remoteUpdateLog.Front(); e != nil; e = e.Next() {
-		pd := e.Value.(*PaymentDescriptor)
+		pd := e.Value
 
 		// Fee updates are local to this particular channel, and should
 		// never be forwarded.
@@ -5525,7 +5525,7 @@ func (lc *LightningChannel) GetDustSum(remote bool,
 
 	// Grab all of our HTLCs and evaluate against the dust limit.
 	for e := lc.localUpdateLog.Front(); e != nil; e = e.Next() {
-		pd := e.Value.(*PaymentDescriptor)
+		pd := e.Value
 		if pd.EntryType != Add {
 			continue
 		}
@@ -5544,7 +5544,7 @@ func (lc *LightningChannel) GetDustSum(remote bool,
 
 	// Grab all of their HTLCs and evaluate against the dust limit.
 	for e := lc.remoteUpdateLog.Front(); e != nil; e = e.Next() {
-		pd := e.Value.(*PaymentDescriptor)
+		pd := e.Value
 		if pd.EntryType != Add {
 			continue
 		}
@@ -8545,7 +8545,7 @@ func (lc *LightningChannel) unsignedLocalUpdates(remoteMessageIndex,
 
 	var localPeerUpdates []channeldb.LogUpdate
 	for e := lc.localUpdateLog.Front(); e != nil; e = e.Next() {
-		pd := e.Value.(*PaymentDescriptor)
+		pd := e.Value
 
 		// We don't save add updates as they are restored from the
 		// remote commitment in restoreStateLogs.

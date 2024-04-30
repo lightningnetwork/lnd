@@ -443,6 +443,7 @@ func TestUpdateSweeperInputs(t *testing.T) {
 	// returned.
 	inp2.On("RequiredLockTime").Return(
 		uint32(s.currentHeight+1), true).Once()
+	inp2.On("OutPoint").Return(wire.OutPoint{Index: 2}).Maybe()
 	input7 := &SweeperInput{state: Init, Input: inp2}
 
 	// Mock the input to have a CSV expiry in the future so it will NOT be
@@ -451,6 +452,7 @@ func TestUpdateSweeperInputs(t *testing.T) {
 		uint32(s.currentHeight), false).Once()
 	inp3.On("BlocksToMaturity").Return(uint32(2)).Once()
 	inp3.On("HeightHint").Return(uint32(s.currentHeight)).Once()
+	inp3.On("OutPoint").Return(wire.OutPoint{Index: 3}).Maybe()
 	input8 := &SweeperInput{state: Init, Input: inp3}
 
 	// Add the inputs to the sweeper. After the update, we should see the

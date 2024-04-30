@@ -939,8 +939,7 @@ func TestBroadcast(t *testing.T) {
 	}
 
 	// Send the req and expect no error.
-	resultChan, err := tp.Broadcast(req)
-	require.NoError(t, err)
+	resultChan := tp.Broadcast(req)
 	require.NotNil(t, resultChan)
 
 	// Validate the record was stored.
@@ -990,8 +989,7 @@ func TestBroadcastImmediate(t *testing.T) {
 		chainfee.SatPerKWeight(0), errDummy).Once()
 
 	// Send the req and expect no error.
-	resultChan, err := tp.Broadcast(req)
-	require.NoError(t, err)
+	resultChan := tp.Broadcast(req)
 	require.NotNil(t, resultChan)
 
 	// Validate the record was removed due to an error returned in initial
@@ -1486,8 +1484,7 @@ func TestHandleInitialBroadcastSuccess(t *testing.T) {
 	}
 
 	// Register the testing record use `Broadcast`.
-	resultChan, err := tp.Broadcast(req)
-	require.NoError(t, err)
+	resultChan := tp.Broadcast(req)
 
 	// Grab the monitor record from the map.
 	rid := tp.requestCounter.Load()
@@ -1558,8 +1555,7 @@ func TestHandleInitialBroadcastFail(t *testing.T) {
 		mock.Anything).Return(errDummy).Once()
 
 	// Register the testing record use `Broadcast`.
-	resultChan, err := tp.Broadcast(req)
-	require.NoError(t, err)
+	resultChan := tp.Broadcast(req)
 
 	// Grab the monitor record from the map.
 	rid := tp.requestCounter.Load()
@@ -1592,8 +1588,7 @@ func TestHandleInitialBroadcastFail(t *testing.T) {
 		mock.Anything, mock.Anything).Return(errDummy).Once()
 
 	// Register the testing record use `Broadcast`.
-	resultChan, err = tp.Broadcast(req)
-	require.NoError(t, err)
+	resultChan = tp.Broadcast(req)
 
 	// Grab the monitor record from the map.
 	rid = tp.requestCounter.Load()

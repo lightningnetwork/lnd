@@ -65,7 +65,7 @@ type Bumper interface {
 	// and monitors its confirmation status for potential fee bumping. It
 	// returns a chan that the caller can use to receive updates about the
 	// broadcast result and potential RBF attempts.
-	Broadcast(req *BumpRequest) (<-chan *BumpResult, error)
+	Broadcast(req *BumpRequest) <-chan *BumpResult
 }
 
 // BumpEvent represents the event of a fee bumping attempt.
@@ -382,9 +382,9 @@ func (t *TxPublisher) isNeutrinoBackend() bool {
 // RBF-compliant unless the budget specified cannot cover the fee.
 //
 // NOTE: part of the Bumper interface.
-func (t *TxPublisher) Broadcast(req *BumpRequest) (<-chan *BumpResult, error) {
-	log.Tracef("Received broadcast request: %s", lnutils.SpewLogClosure(
-		req))
+func (t *TxPublisher) Broadcast(req *BumpRequest) <-chan *BumpResult {
+	log.Tracef("Received broadcast request: %s",
+		lnutils.SpewLogClosure(req))
 
 	// Store the request.
 	requestID, record := t.storeInitialRecord(req)
@@ -398,7 +398,7 @@ func (t *TxPublisher) Broadcast(req *BumpRequest) (<-chan *BumpResult, error) {
 		t.handleInitialBroadcast(record, requestID)
 	}
 
-	return subscriber, nil
+	return subscriber
 }
 
 // storeInitialRecord initializes a monitor record and saves it in the map.

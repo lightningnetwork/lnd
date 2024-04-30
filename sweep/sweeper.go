@@ -530,7 +530,7 @@ func (s *UtxoSweeper) SweepInput(inp input.Input,
 	}
 
 	absoluteTimeLock, _ := inp.RequiredLockTime()
-	log.Infof("Sweep request received: out_point=%v, witness_type=%v, "+
+	log.Debugf("Sweep request received: out_point=%v, witness_type=%v, "+
 		"relative_time_lock=%v, absolute_time_lock=%v, amount=%v, "+
 		"parent=(%v), params=(%v)", inp.OutPoint(), inp.WitnessType(),
 		inp.BlocksToMaturity(), absoluteTimeLock,
@@ -736,7 +736,18 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 			inputs := s.updateSweeperInputs()
 
 			log.Debugf("Received new block: height=%v, attempt "+
-				"sweeping %d inputs", epoch.Height, len(inputs))
+				"sweeping %d inputs:\n%s",
+				epoch.Height, len(inputs),
+				lnutils.NewLogClosure(func() string {
+					inps := make(
+						[]input.Input, 0, len(inputs),
+					)
+					for _, in := range inputs {
+						inps = append(inps, in)
+					}
+
+					return inputTypeSummary(inps)
+				}))
 
 			// Attempt to sweep any pending inputs.
 			s.sweepPendingInputs(inputs)
@@ -1207,13 +1218,29 @@ func (s *UtxoSweeper) mempoolLookup(op wire.OutPoint) fn.Option[wire.MsgTx] {
 	return s.cfg.Mempool.LookupInputMempoolSpend(op)
 }
 
-// handleNewInput processes a new input by registering spend notification and
-// scheduling sweeping for it.
-func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
+// calculateDefaultDeadline calculates the default deadline height for a sweep
+// request that has no deadline height specified.
+func (s *UtxoSweeper) calculateDefaultDeadline(pi *SweeperInput) int32 {
 	// Create a default deadline height, which will be used when there's no
 	// DeadlineHeight specified for a given input.
 	defaultDeadline := s.currentHeight + int32(s.cfg.NoDeadlineConfTarget)
 
+	// If the input is immature and has a locktime, we'll use the locktime
+	// height as the starting height.
+	matured, locktime := pi.isMature(uint32(s.currentHeight))
+	if !matured {
+		defaultDeadline = int32(locktime + s.cfg.NoDeadlineConfTarget)
+		log.Debugf("Input %v is immature, using locktime=%v instead "+
+			"of current height=%d", pi.OutPoint(), locktime,
+			s.currentHeight)
+	}
+
+	return defaultDeadline
+}
+
+// handleNewInput processes a new input by registering spend notification and
+// scheduling sweeping for it.
+func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 	outpoint := input.input.OutPoint()
 	pi, pending := s.inputs[outpoint]
 	if pending {
@@ -1238,14 +1265,21 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 		Input:     input.input,
 		params:    input.params,
 		rbf:       rbfInfo,
-		// Set the acutal deadline height.
-		DeadlineHeight: input.params.DeadlineHeight.UnwrapOr(
-			defaultDeadline,
-		),
 	}
+
+	// Set the acutal deadline height.
+	pi.DeadlineHeight = input.params.DeadlineHeight.UnwrapOr(
+		s.calculateDefaultDeadline(pi),
+	)
 
 	s.inputs[outpoint] = pi
 	log.Tracef("input %v, state=%v, added to inputs", outpoint, pi.state)
+
+	log.Infof("Registered sweep request at block %d: out_point=%v, "+
+		"witness_type=%v, amount=%v, deadline=%d, params=(%v)",
+		s.currentHeight, pi.OutPoint(), pi.WitnessType(),
+		btcutil.Amount(pi.SignDesc().Output.Value), pi.DeadlineHeight,
+		pi.params)
 
 	// Start watching for spend of this input, either by us or the remote
 	// party.
@@ -1660,7 +1694,7 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 	r := resp.result
 	tx, err := r.Tx, r.Err
 
-	log.Errorf("Fee bump attempt failed for tx=%v: %v", tx.TxHash(), err)
+	log.Warnf("Fee bump attempt failed for tx=%v: %v", tx.TxHash(), err)
 
 	// NOTE: When marking the inputs as failed, we are using the input set
 	// instead of the inputs found in the tx. This is fine for current

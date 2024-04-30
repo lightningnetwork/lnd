@@ -1718,7 +1718,7 @@ func (s *UtxoSweeper) handleBumpEventTxPublished(r *BumpResult) error {
 // NOTE: TxConfirmed event is not handled, since we already subscribe to the
 // input's spending event, we don't need to do anything here.
 func (s *UtxoSweeper) handleBumpEvent(r *BumpResult) error {
-	log.Debugf("Received bump event [%v] for tx %v", r.Event, r.Tx.TxHash())
+	log.Debugf("Received bump result %v", r)
 
 	switch r.Event {
 	// The tx has been published, we update the inputs' state and create a
@@ -1734,6 +1734,9 @@ func (s *UtxoSweeper) handleBumpEvent(r *BumpResult) error {
 	// with the new one.
 	case TxReplaced:
 		return s.handleBumpEventTxReplaced(r)
+
+	case TxError:
+		// TODO(yy): create a method to remove this input.
 	}
 
 	return nil

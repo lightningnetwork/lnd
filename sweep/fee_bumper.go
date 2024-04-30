@@ -71,6 +71,9 @@ const (
 	// TxConfirmed is sent when the tx is confirmed.
 	TxConfirmed
 
+	// TxError is sent when there's an error creating the tx.
+	TxError
+
 	// sentinalEvent is used to check if an event is unknown.
 	sentinalEvent
 )
@@ -86,6 +89,8 @@ func (e BumpEvent) String() string {
 		return "Replaced"
 	case TxConfirmed:
 		return "Confirmed"
+	case TxError:
+		return "Error"
 	default:
 		return "Unknown"
 	}
@@ -202,6 +207,16 @@ type BumpResult struct {
 
 	// requestID is the ID of the request that created this record.
 	requestID uint64
+}
+
+// String returns a human-readable string for the result.
+func (b *BumpResult) String() string {
+	desc := fmt.Sprintf("Event=%v", b.Event)
+	if b.Tx != nil {
+		desc += fmt.Sprintf(", Tx=%v", b.Tx.TxHash())
+	}
+
+	return fmt.Sprintf("[%s]", desc)
 }
 
 // Validate validates the BumpResult so it's safe to use.
@@ -592,8 +607,7 @@ func (t *TxPublisher) notifyResult(result *BumpResult) {
 		return
 	}
 
-	log.Debugf("Sending result for requestID=%v, tx=%v", id,
-		result.Tx.TxHash())
+	log.Debugf("Sending result %v for requestID=%v", result, id)
 
 	select {
 	// Send the result to the subscriber.
@@ -622,9 +636,13 @@ func (t *TxPublisher) removeResult(result *BumpResult) {
 			id, result.Tx.TxHash(), result.Err)
 
 	case TxConfirmed:
-		// Remove the record is the tx is confirmed.
+		// Remove the record if the tx is confirmed.
 		log.Debugf("Removing confirmed monitor record=%v, tx=%v", id,
 			result.Tx.TxHash())
+
+	case TxError:
+		// Remove the record if there's an error.
+		log.Debugf("Removing monitor record=%v due to error", id)
 
 	// Do nothing if it's neither failed or confirmed.
 	default:

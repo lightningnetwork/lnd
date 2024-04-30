@@ -284,14 +284,14 @@ type MockBumper struct {
 var _ Bumper = (*MockBumper)(nil)
 
 // Broadcast broadcasts the transaction to the network.
-func (m *MockBumper) Broadcast(req *BumpRequest) (<-chan *BumpResult, error) {
+func (m *MockBumper) Broadcast(req *BumpRequest) <-chan *BumpResult {
 	args := m.Called(req)
 
 	if args.Get(0) == nil {
-		return nil, args.Error(1)
+		return nil
 	}
 
-	return args.Get(0).(chan *BumpResult), args.Error(1)
+	return args.Get(0).(chan *BumpResult)
 }
 
 // MockFeeFunction is a mock implementation of the FeeFunction interface.

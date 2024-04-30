@@ -90,32 +90,6 @@ func (c *commitSweepResolver) ResolverKey() []byte {
 	return key[:]
 }
 
-// waitForHeight registers for block notifications and waits for the provided
-// block height to be reached.
-//
-// TODO(yy): There's no need to wait for height in the resolvers, instead, we
-// can offer these immature inputs to the sweeper immediately since the sweeper
-// will handle the waiting.
-func waitForHeight(waitHeight uint32, blockChan <-chan int32,
-	quit <-chan struct{}) error {
-
-	for {
-		select {
-		case newBlockHeight, ok := <-blockChan:
-			if !ok {
-				return errResolverShuttingDown
-			}
-			height := newBlockHeight
-			if height >= int32(waitHeight) {
-				return nil
-			}
-
-		case <-quit:
-			return errResolverShuttingDown
-		}
-	}
-}
-
 // waitForSpend waits for the given outpoint to be spent, and returns the
 // details of the spending tx.
 func waitForSpend(op *wire.OutPoint, pkScript []byte, heightHint uint32,
@@ -183,7 +157,7 @@ func (c *commitSweepResolver) getCommitTxConfHeight() (uint32, error) {
 //
 //nolint:funlen
 func (c *commitSweepResolver) Resolve(
-	blockChan <-chan int32) (ContractResolver, error) {
+	_ <-chan int32) (ContractResolver, error) {
 
 	// If we're already resolved, then we can exit early.
 	if c.resolved {
@@ -212,44 +186,12 @@ func (c *commitSweepResolver) Resolve(
 	c.currentReport.MaturityHeight = unlockHeight
 	c.reportLock.Unlock()
 
-	// If there is a csv/cltv lock, we'll wait for that.
-	if c.commitResolution.MaturityDelay > 0 || c.hasCLTV() {
-		// Determine what height we should wait until for the locks to
-		// expire.
-		var waitHeight uint32
-		switch {
-		// If we have both a csv and cltv lock, we'll need to look at
-		// both and see which expires later.
-		case c.commitResolution.MaturityDelay > 0 && c.hasCLTV():
-			c.log.Debugf("waiting for CSV and CLTV lock to expire "+
-				"at height %v", unlockHeight)
-			// If the CSV expires after the CLTV, or there is no
-			// CLTV, then we can broadcast a sweep a block before.
-			// Otherwise, we need to broadcast at our expected
-			// unlock height.
-			waitHeight = uint32(math.Max(
-				float64(unlockHeight-1), float64(c.leaseExpiry),
-			))
-
-		// If we only have a csv lock, wait for the height before the
-		// lock expires as the spend path should be unlocked by then.
-		case c.commitResolution.MaturityDelay > 0:
-			c.log.Debugf("waiting for CSV lock to expire at "+
-				"height %v", unlockHeight)
-			waitHeight = unlockHeight - 1
-		}
-
-		err := waitForHeight(waitHeight, blockChan, c.quit)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	var (
 		isLocalCommitTx bool
 
 		signDesc = c.commitResolution.SelfOutputSignDesc
 	)
+
 	switch {
 	// For taproot channels, we'll know if this is the local commit based
 	// on the witness script. For local channels, the witness script has an

@@ -419,7 +419,7 @@ func checkSizeAndIndex(witness wire.TxWitness, size, index int) bool {
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcTimeoutResolver) Resolve(
-	blockChan <-chan int32) (ContractResolver, error) {
+	_ <-chan int32) (ContractResolver, error) {
 
 	// If we're already resolved, then we can exit early.
 	if h.resolved {
@@ -468,7 +468,7 @@ func (h *htlcTimeoutResolver) Resolve(
 
 	// Depending on whether this was a local or remote commit, we must
 	// handle the spending transaction accordingly.
-	return h.handleCommitSpend(blockChan, commitSpend)
+	return h.handleCommitSpend(commitSpend)
 }
 
 // sweepSecondLevelTx sends a second level timeout transaction to the sweeper.
@@ -667,7 +667,7 @@ func (h *htlcTimeoutResolver) checkPointSecondLevelTx() error {
 // confirmed second-level timeout transaction, and we'll sweep that into our
 // wallet. If the was a remote commitment, the resolver will resolve
 // immetiately.
-func (h *htlcTimeoutResolver) handleCommitSpend(blockChan <-chan int32,
+func (h *htlcTimeoutResolver) handleCommitSpend(
 	commitSpend *chainntnfs.SpendDetail) (ContractResolver, error) {
 
 	var (
@@ -711,30 +711,6 @@ func (h *htlcTimeoutResolver) handleCommitSpend(blockChan <-chan int32,
 				"height %v", h, h.htlc.RHash[:], waitHeight)
 		}
 
-		// Deduct one block so this input is offered to the sweeper one
-		// block earlier since the sweeper will wait for one block to
-		// trigger the sweeping.
-		//
-		// TODO(yy): this is done so the outputs can be aggregated
-		// properly. Suppose CSV locks of five 2nd-level outputs all
-		// expire at height 840000, there is a race in block digestion
-		// between contractcourt and sweeper:
-		// - G1: block 840000 received in contractcourt, it now offers
-		//   the outputs to the sweeper.
-		// - G2: block 840000 received in sweeper, it now starts to
-		//   sweep the received outputs - there's no guarantee all
-		//   fives have been received.
-		// To solve this, we either offer the outputs earlier, or
-		// implement `blockbeat`, and force contractcourt and sweeper
-		// to consume each block sequentially.
-		waitHeight--
-
-		// TODO(yy): let sweeper handles the wait?
-		err := waitForHeight(waitHeight, blockChan, h.quit)
-		if err != nil {
-			return nil, err
-		}
-
 		// We'll use this input index to determine the second-level
 		// output index on the transaction, as the signatures requires
 		// the indexes to be the same. We don't look for the
@@ -773,7 +749,7 @@ func (h *htlcTimeoutResolver) handleCommitSpend(blockChan <-chan int32,
 			"sweeper with no deadline and budget=%v at height=%v",
 			h, h.htlc.RHash[:], budget, waitHeight)
 
-		_, err = h.Sweeper.SweepInput(
+		_, err := h.Sweeper.SweepInput(
 			inp,
 			sweep.Params{
 				Budget: budget,

@@ -817,6 +817,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// key.
 	alias := cfg.Alias
 	if alias == "" {
+		pubkey := nodeKeyDesc.PubKey
+		persistedAlias, err := s.miscDB.ChannelStateDB().NodeAnnouncemenDB().FetchNodeAnnouncement(pubkey)
+		if err == nil && persistedAlias.Alias != "" {
+			alias = persistedAlias.Alias
+		}
+	}
+	if alias == "" {
 		alias = hex.EncodeToString(serializedPubKey[:10])
 	}
 	nodeAlias, err := lnwire.NewNodeAlias(alias)

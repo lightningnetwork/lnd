@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
@@ -374,8 +375,13 @@ func testForwardInterceptorModifiedHtlc(ht *lntest.HarnessTest) {
 	// Connect an interceptor to Bob's node.
 	bobInterceptor, cancelBobInterceptor := bob.RPC.HtlcInterceptor()
 
+	// We're going to modify the payment amount and want Carol to accept the
+	// payment, so we set up an invoice acceptor on Dave.
+	carolAcceptor, carolCancel := carol.RPC.InvoiceHtlcModifier()
+	defer carolCancel()
+
 	// Prepare the test cases.
-	invoiceValueAmtMsat := int64(1000)
+	invoiceValueAmtMsat := int64(20_000_000)
 	req := &lnrpc.Invoice{ValueMsat: invoiceValueAmtMsat}
 	addResponse := carol.RPC.AddInvoice(req)
 	invoice := carol.RPC.LookupInvoice(addResponse.RHash)
@@ -408,10 +414,10 @@ func testForwardInterceptorModifiedHtlc(ht *lntest.HarnessTest) {
 	crValue := []byte("custom-records-test-value")
 	customRecords[crKey] = crValue
 
-	// TODO(guggero): Actually modify the amount once we have the invoice
-	// interceptor and can accept a lower amount.
-	newOutAmountMsat := packet.OutgoingAmountMsat
-
+	// Modify the amount of the HTLC, so we send out less than the original
+	// amount.
+	const modifyAmount = 5_000_000
+	newOutAmountMsat := packet.OutgoingAmountMsat - modifyAmount
 	err := bobInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
 		IncomingCircuitKey:   packet.IncomingCircuitKey,
 		OutAmountMsat:        newOutAmountMsat,
@@ -419,6 +425,17 @@ func testForwardInterceptorModifiedHtlc(ht *lntest.HarnessTest) {
 		Action:               actionResumeModify,
 	})
 	require.NoError(ht, err, "failed to send request")
+
+	invoicePacket := ht.ReceiveInvoiceHtlcModification(carolAcceptor)
+	require.EqualValues(
+		ht, newOutAmountMsat, invoicePacket.ExitHtlcAmt,
+	)
+	amtPaid := newOutAmountMsat + modifyAmount
+	err = carolAcceptor.Send(&invoicesrpc.HtlcModifyResponse{
+		CircuitKey: invoicePacket.ExitHtlcCircuitKey,
+		AmtPaid:    &amtPaid,
+	})
+	require.NoError(ht, err, "carol acceptor response")
 
 	// Cancel the context, which will disconnect Bob's interceptor.
 	cancelBobInterceptor()
@@ -473,17 +490,23 @@ func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
 	carolInterceptor, cancelCarolInterceptor := carol.RPC.HtlcInterceptor()
 	defer cancelCarolInterceptor()
 
-	req := &lnrpc.Invoice{ValueMsat: 1000}
+	// We're going to modify the payment amount and want Dave to accept the
+	// payment, so we set up an invoice acceptor on Dave.
+	daveAcceptor, daveCancel := dave.RPC.InvoiceHtlcModifier()
+	defer daveCancel()
+
+	req := &lnrpc.Invoice{ValueMsat: 20_000_000}
 	addResponse := dave.RPC.AddInvoice(req)
 	invoice := dave.RPC.LookupInvoice(addResponse.RHash)
 
+	customRecords := map[uint64][]byte{
+		65537: []byte("test"),
+	}
 	sendReq := &routerrpc.SendPaymentRequest{
-		PaymentRequest: invoice.PaymentRequest,
-		TimeoutSeconds: int32(wait.PaymentTimeout.Seconds()),
-		FeeLimitMsat:   noFeeLimitMsat,
-		FirstHopCustomRecords: map[uint64][]byte{
-			65537: []byte("test"),
-		},
+		PaymentRequest:        invoice.PaymentRequest,
+		TimeoutSeconds:        int32(wait.PaymentTimeout.Seconds()),
+		FeeLimitMsat:          noFeeLimitMsat,
+		FirstHopCustomRecords: customRecords,
 	}
 
 	_ = alice.RPC.SendPayment(sendReq)
@@ -499,14 +522,10 @@ func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
 	require.True(ht, ok, "expected custom record")
 	require.Equal(ht, []byte("test"), val)
 
-	// TODO(guggero): Actually modify the amount once we have the invoice
-	// interceptor and can accept a lower amount.
-	newOutAmountMsat := packet.OutgoingAmountMsat
-
+	// Just resume the payment on Bob.
 	err := bobInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
 		IncomingCircuitKey: packet.IncomingCircuitKey,
-		OutAmountMsat:      newOutAmountMsat,
-		Action:             actionResumeModify,
+		Action:             actionResume,
 	})
 	require.NoError(ht, err, "failed to send request")
 
@@ -515,12 +534,31 @@ func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
 	packet = ht.ReceiveHtlcInterceptor(carolInterceptor)
 	require.Len(ht, packet.InWireCustomRecords, 0)
 
-	// Just resume the payment on Carol.
+	// We're going to tell Carol to forward 5k sats less to Dave. We need to
+	// set custom records on the HTLC as well, to make sure the HTLC isn't
+	// rejected outright and actually gets to the invoice acceptor.
+	const modifyAmount = 5_000_000
+	newOutAmountMsat := packet.OutgoingAmountMsat - modifyAmount
 	err = carolInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
-		IncomingCircuitKey: packet.IncomingCircuitKey,
-		Action:             actionResume,
+		IncomingCircuitKey:   packet.IncomingCircuitKey,
+		OutAmountMsat:        newOutAmountMsat,
+		OutWireCustomRecords: customRecords,
+		Action:               actionResumeModify,
 	})
 	require.NoError(ht, err, "carol interceptor response")
+
+	// The payment should get to Dave, and we should be able to intercept
+	// and modify it, telling Dave to accept it.
+	invoicePacket := ht.ReceiveInvoiceHtlcModification(daveAcceptor)
+	require.EqualValues(
+		ht, newOutAmountMsat, invoicePacket.ExitHtlcAmt,
+	)
+	amtPaid := newOutAmountMsat + modifyAmount
+	err = daveAcceptor.Send(&invoicesrpc.HtlcModifyResponse{
+		CircuitKey: invoicePacket.ExitHtlcCircuitKey,
+		AmtPaid:    &amtPaid,
+	})
+	require.NoError(ht, err, "dave acceptor response")
 
 	// Assert that the payment was successful.
 	var preimage lntypes.Preimage

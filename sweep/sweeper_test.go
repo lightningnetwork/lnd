@@ -1075,3 +1075,125 @@ func TestMonitorFeeBumpResult(t *testing.T) {
 		})
 	}
 }
+
+// TestMarkInputsFailed checks that given a list of inputs with different
+// states, the method `markInputsFailed` correctly marks the inputs as failed.
+func TestMarkInputsFailed(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	// Create a mock input set.
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{})
+
+	// Create testing inputs for each state.
+	// - inputInit specifies a newly created input. When marking this as
+	//   published, we should see an error log as this input hasn't been
+	//   published yet.
+	// - inputPendingPublish specifies an input about to be published.
+	// - inputPublished specifies an input that's published.
+	// - inputPublishFailed specifies an input that's failed to be
+	//   published.
+	// - inputSwept specifies an input that's swept.
+	// - inputExcluded specifies an input that's excluded.
+	// - inputFailed specifies an input that's failed.
+	var (
+		inputInit           = createMockInput(t, s, Init)
+		inputPendingPublish = createMockInput(t, s, PendingPublish)
+		inputPublished      = createMockInput(t, s, Published)
+		inputPublishFailed  = createMockInput(t, s, PublishFailed)
+		inputSwept          = createMockInput(t, s, Swept)
+		inputExcluded       = createMockInput(t, s, Excluded)
+		inputFailed         = createMockInput(t, s, Failed)
+	)
+
+	// Gather all inputs.
+	set.On("Inputs").Return([]input.Input{
+		inputInit, inputPendingPublish, inputPublished,
+		inputPublishFailed, inputSwept, inputExcluded, inputFailed,
+	})
+
+	// Mark the test inputs. We expect the non-exist input and
+	// inputSwept/inputExcluded/inputFailed to be skipped.
+	s.markInputsFailed(set, errDummy)
+
+	// We expect unchanged number of pending inputs.
+	require.Len(s.inputs, 7)
+
+	// We expect the init input's to be marked as failed.
+	require.Equal(Failed, s.inputs[inputInit.OutPoint()].state)
+
+	// We expect the pending-publish input to be marked as failed.
+	require.Equal(Failed, s.inputs[inputPendingPublish.OutPoint()].state)
+
+	// We expect the published input to be marked as failed.
+	require.Equal(Failed, s.inputs[inputPublished.OutPoint()].state)
+
+	// We expect the publish failed input to be markd as failed.
+	require.Equal(Failed, s.inputs[inputPublishFailed.OutPoint()].state)
+
+	// We expect the swept input to stay unchanged.
+	require.Equal(Swept, s.inputs[inputSwept.OutPoint()].state)
+
+	// We expect the excluded input to stay unchanged.
+	require.Equal(Excluded, s.inputs[inputExcluded.OutPoint()].state)
+
+	// We expect the failed input to stay unchanged.
+	require.Equal(Failed, s.inputs[inputFailed.OutPoint()].state)
+}
+
+// TestHandleBumpEventTxFatal checks that `handleBumpEventTxFatal` correctly
+// handles a `TxFatal` event.
+func TestHandleBumpEventTxFatal(t *testing.T) {
+	t.Parallel()
+
+	rt := require.New(t)
+
+	// Create a mock store.
+	store := &MockSweeperStore{}
+	defer store.AssertExpectations(t)
+
+	// Create a mock input set. We are not testing `markInputFailed` here,
+	// so the actual set doesn't matter.
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+	set.On("Inputs").Return(nil)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Store: store,
+	})
+
+	// Create a dummy tx.
+	tx := &wire.MsgTx{
+		LockTime: 1,
+	}
+
+	// Create a testing bump response.
+	result := &BumpResult{
+		Err: errDummy,
+		Tx:  tx,
+	}
+	resp := &bumpResp{
+		result: result,
+		set:    set,
+	}
+
+	// Mock the store to return an error.
+	store.On("DeleteTx", mock.Anything).Return(errDummy).Once()
+
+	// Call the method under test and assert the error is returned.
+	err := s.handleBumpEventTxFatal(resp)
+	rt.ErrorIs(err, errDummy)
+
+	// Mock the store to return nil.
+	store.On("DeleteTx", mock.Anything).Return(nil).Once()
+
+	// Call the method under test and assert no error is returned.
+	err = s.handleBumpEventTxFatal(resp)
+	rt.NoError(err)
+}

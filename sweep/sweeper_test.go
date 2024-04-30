@@ -715,13 +715,8 @@ func TestSweepPendingInputs(t *testing.T) {
 		setNeedWallet, normalSet,
 	})
 
-	// Mock `Broadcast` to return an error. This should cause the
-	// `createSweepTx` inside `sweep` to fail. This is done so we can
-	// terminate the method early as we are only interested in testing the
-	// workflow in `sweepPendingInputs`. We don't need to test `sweep` here
-	// as it should be tested in its own unit test.
-	dummyErr := errors.New("dummy error")
-	publisher.On("Broadcast", mock.Anything).Return(nil, dummyErr).Twice()
+	// Mock `Broadcast` to return a result.
+	publisher.On("Broadcast", mock.Anything).Return(nil).Twice()
 
 	// Call the method under test.
 	s.sweepPendingInputs(pis)

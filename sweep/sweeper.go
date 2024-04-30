@@ -1441,11 +1441,6 @@ func (s *UtxoSweeper) markInputFailed(pi *SweeperInput, err error) {
 
 	pi.state = Failed
 
-	// Remove all other inputs in this exclusive group.
-	if pi.params.ExclusiveGroup != nil {
-		s.removeExclusiveGroup(*pi.params.ExclusiveGroup)
-	}
-
 	s.signalResult(pi, Result{Err: err})
 }
 
@@ -1728,6 +1723,62 @@ func (s *UtxoSweeper) handleBumpEventTxPublished(resp *bumpResp) error {
 	return nil
 }
 
+// handleBumpEventTxFatal handles the case where there's an unexpected error
+// when creating or publishing the sweeping tx. In this case, the tx will be
+// removed from the sweeper store and the inputs will be marked as `Failed`,
+// which means they will not be retried.
+func (s *UtxoSweeper) handleBumpEventTxFatal(resp *bumpResp) error {
+	r := resp.result
+
+	// Remove the tx from the sweeper store if there is one. Since this is
+	// a broadcast error, it's likely there isn't a tx here.
+	if r.Tx != nil {
+		txid := r.Tx.TxHash()
+		log.Infof("Tx=%v failed with unexpected error: %v", txid, r.Err)
+
+		// Remove the tx from the sweeper db if it exists.
+		if err := s.cfg.Store.DeleteTx(txid); err != nil {
+			return fmt.Errorf("delete tx record for %v: %w", txid,
+				err)
+		}
+	}
+
+	// Mark the inputs as failed.
+	s.markInputsFailed(resp.set, r.Err)
+
+	return nil
+}
+
+// markInputsFailed marks all inputs found in the tx as failed. It will also
+// notify all the subscribers of these inputs.
+func (s *UtxoSweeper) markInputsFailed(set InputSet, err error) {
+	for _, inp := range set.Inputs() {
+		outpoint := inp.OutPoint()
+
+		input, ok := s.inputs[outpoint]
+		if !ok {
+			// It's very likely that a spending tx contains inputs
+			// that we don't know.
+			log.Tracef("Skipped marking input as failed: %v not "+
+				"found in pending inputs", outpoint)
+
+			continue
+		}
+
+		// If the input is already in a terminal state, we don't want
+		// to rewrite it, which also indicates an error as we only get
+		// an error event during the initial broadcast.
+		if input.terminated() {
+			log.Errorf("Skipped marking input=%v as failed due to "+
+				"unexpected state=%v", outpoint, input.state)
+
+			continue
+		}
+
+		s.markInputFailed(input, err)
+	}
+}
+
 // handleBumpEvent handles the result sent from the bumper based on its event
 // type.
 //
@@ -1752,8 +1803,10 @@ func (s *UtxoSweeper) handleBumpEvent(r *bumpResp) error {
 	case TxReplaced:
 		return s.handleBumpEventTxReplaced(r)
 
+	// There's a fatal error in creating the tx, we will remove the tx from
+	// the sweeper db and mark the inputs as failed.
 	case TxFatal:
-		// TODO(yy): create a method to remove this input.
+		return s.handleBumpEventTxFatal(r)
 	}
 
 	return nil

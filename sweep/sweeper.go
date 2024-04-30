@@ -222,6 +222,34 @@ func (p *SweeperInput) terminated() bool {
 	}
 }
 
+// isMature returns a boolean indicating whether the input has a timelock that
+// has been reached or not. The locktime found is also returned.
+func (p *SweeperInput) isMature(currentHeight uint32) (bool, uint32) {
+	locktime, _ := p.RequiredLockTime()
+	if currentHeight < locktime {
+		log.Debugf("Input %v has locktime=%v, current height is %v",
+			p.OutPoint(), locktime, currentHeight)
+
+		return false, locktime
+	}
+
+	// If the input has a CSV that's not yet reached, we will skip
+	// this input and wait for the expiry.
+	//
+	// NOTE: We need to consider whether this input can be included in the
+	// next block or not, which means the CSV will be checked against the
+	// currentHeight plus one.
+	locktime = p.BlocksToMaturity() + p.HeightHint()
+	if currentHeight+1 < locktime {
+		log.Debugf("Input %v has CSV expiry=%v, current height is %v",
+			p.OutPoint(), locktime, currentHeight)
+
+		return false, locktime
+	}
+
+	return true, locktime
+}
+
 // InputsMap is a type alias for a set of pending inputs.
 type InputsMap = map[wire.OutPoint]*SweeperInput
 
@@ -1038,6 +1066,12 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 
 	resps := make(map[wire.OutPoint]*PendingInputResponse, len(s.inputs))
 	for _, inp := range s.inputs {
+		// Skip immature inputs for compatibility.
+		mature, _ := inp.isMature(uint32(s.currentHeight))
+		if !mature {
+			continue
+		}
+
 		// Only the exported fields are set, as we expect the response
 		// to only be consumed externally.
 		op := inp.OutPoint()
@@ -1485,20 +1519,9 @@ func (s *UtxoSweeper) updateSweeperInputs() InputsMap {
 
 		// If the input has a locktime that's not yet reached, we will
 		// skip this input and wait for the locktime to be reached.
-		locktime, _ := input.RequiredLockTime()
-		if uint32(s.currentHeight) < locktime {
-			log.Warnf("Skipping input %v due to locktime=%v not "+
-				"reached, current height is %v", op, locktime,
-				s.currentHeight)
-
-			continue
-		}
-
-		// If the input has a CSV that's not yet reached, we will skip
-		// this input and wait for the expiry.
-		locktime = input.BlocksToMaturity() + input.HeightHint()
-		if s.currentHeight < int32(locktime)-1 {
-			log.Infof("Skipping input %v due to CSV expiry=%v not "+
+		mature, locktime := input.isMature(uint32(s.currentHeight))
+		if !mature {
+			log.Infof("Skipping input %v due to locktime=%v not "+
 				"reached, current height is %v", op, locktime,
 				s.currentHeight)
 

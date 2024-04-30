@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/stretchr/testify/require"
 )
@@ -189,6 +190,23 @@ func (h *HarnessRPC) HtlcInterceptor() (InterceptorClient, context.CancelFunc) {
 	ctxt, cancel := context.WithCancel(h.runCtx)
 	resp, err := h.Router.HtlcInterceptor(ctxt)
 	h.NoError(err, "HtlcInterceptor")
+
+	return resp, cancel
+}
+
+type InvoiceAcceptorClient invoicesrpc.Invoices_InvoiceAcceptorClient
+
+// InvoiceAcceptor makes an RPC call to the node's RouterClient and asserts.
+func (h *HarnessRPC) InvoiceAcceptor() (InvoiceAcceptorClient,
+	context.CancelFunc) {
+
+	// InvoiceAcceptor needs to have the context alive for the entire test
+	// case as the returned client will be used for send and receive events
+	// stream. Therefore, we use cancel context here instead of a timeout
+	// context.
+	ctxt, cancel := context.WithCancel(h.runCtx)
+	resp, err := h.Invoice.InvoiceAcceptor(ctxt)
+	h.NoError(err, "InvoiceAcceptor")
 
 	return resp, cancel
 }

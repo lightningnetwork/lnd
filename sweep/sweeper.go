@@ -838,16 +838,7 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 
 	// Broadcast will return a read-only chan that we will listen to for
 	// this publish result and future RBF attempt.
-	resp, err := s.cfg.Publisher.Broadcast(req)
-	if err != nil {
-		log.Errorf("Initial broadcast failed: %v, inputs=\n%v", err,
-			inputTypeSummary(set.Inputs()))
-
-		// TODO(yy): find out which input is causing the failure.
-		s.markInputsPublishFailed(set)
-
-		return err
-	}
+	resp := s.cfg.Publisher.Broadcast(req)
 
 	// Successfully sent the broadcast attempt, we now handle the result by
 	// subscribing to the result chan and listen for future updates about

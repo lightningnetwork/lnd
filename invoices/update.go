@@ -23,6 +23,10 @@ type invoiceUpdateCtx struct {
 	mpp                  *record.MPP
 	amp                  *record.AMP
 	metadata             []byte
+
+	// SkipAmountCheck is a flag that indicates whether the amount check
+	// should be skipped during the invoice settlement process.
+	SkipAmountCheck bool
 }
 
 // invoiceRef returns an identifier that can be used to lookup or update the
@@ -189,13 +193,13 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 	}
 
 	// Don't accept zero-valued sets.
-	if ctx.mpp.TotalMsat() == 0 {
+	if !ctx.SkipAmountCheck && ctx.mpp.TotalMsat() == 0 {
 		return nil, ctx.failRes(ResultHtlcSetTotalTooLow), nil
 	}
 
 	// Check that the total amt of the htlc set is high enough. In case this
 	// is a zero-valued invoice, it will always be enough.
-	if ctx.mpp.TotalMsat() < inv.Terms.Value {
+	if !ctx.SkipAmountCheck && ctx.mpp.TotalMsat() < inv.Terms.Value {
 		return nil, ctx.failRes(ResultHtlcSetTotalTooLow), nil
 	}
 
@@ -204,7 +208,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 	// Check whether total amt matches other htlcs in the set.
 	var newSetTotal lnwire.MilliSatoshi
 	for _, htlc := range htlcSet {
-		if ctx.mpp.TotalMsat() != htlc.MppTotalAmt {
+		if !ctx.SkipAmountCheck && ctx.mpp.TotalMsat() != htlc.MppTotalAmt { //nolint:lll
 			return nil, ctx.failRes(ResultHtlcSetTotalMismatch), nil
 		}
 
@@ -239,7 +243,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 
 	// If the invoice cannot be settled yet, only record the htlc.
 	setComplete := newSetTotal >= ctx.mpp.TotalMsat()
-	if !setComplete {
+	if !ctx.SkipAmountCheck && !setComplete {
 		return &update, ctx.acceptRes(resultPartialAccepted), nil
 	}
 

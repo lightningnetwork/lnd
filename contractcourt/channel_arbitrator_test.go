@@ -809,7 +809,7 @@ func TestChannelArbitratorBreachClose(t *testing.T) {
 	require.Equal(t, 2, len(chanArb.activeResolvers))
 
 	var anchorExists, breachExists bool
-	for _, resolver := range chanArb.activeResolvers {
+	for resolver := range chanArb.activeResolvers {
 		switch resolver.(type) {
 		case *anchorResolver:
 			anchorExists = true
@@ -1040,9 +1040,13 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 			len(chanArb.activeResolvers))
 	}
 
+	var resolver ContractResolver
+	for r := range chanArb.activeResolvers {
+		resolver = r
+	}
+
 	// We'll now examine the in-memory state of the active resolvers to
 	// ensure t hey were populated properly.
-	resolver := chanArb.activeResolvers[0]
 	outgoingResolver, ok := resolver.(*htlcOutgoingContestResolver)
 	if !ok {
 		t.Fatalf("expected outgoing contest resolver, got %vT",
@@ -2801,7 +2805,11 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 			len(chanArb.activeResolvers))
 	}
 
-	resolver := chanArb.activeResolvers[0]
+	var resolver ContractResolver
+	for r := range chanArb.activeResolvers {
+		resolver = r
+	}
+
 	_, ok := resolver.(*anchorResolver)
 	if !ok {
 		t.Fatalf("expected anchor resolver, got %T", resolver)

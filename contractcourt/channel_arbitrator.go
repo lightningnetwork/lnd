@@ -1,7 +1,6 @@
 package contractcourt
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -356,9 +355,9 @@ type ChannelArbitrator struct {
 	// we're watching over will be sent.
 	signalUpdates chan *signalUpdateMsg
 
-	// activeResolvers is a slice of any active resolvers. This is used to
-	// be able to signal them for shutdown in the case that we shutdown.
-	activeResolvers []ContractResolver
+	// activeResolvers is a map of active resolvers. It uses the resolver
+	// as the key and a block chan as the value.
+	activeResolvers map[ContractResolver]chan int32
 
 	// activeResolversLock prevents simultaneous read and write to the
 	// resolvers slice.
@@ -801,7 +800,7 @@ func (c *ChannelArbitrator) Report() []*ContractReport {
 	defer c.activeResolversLock.RUnlock()
 
 	var reports []*ContractReport
-	for _, resolver := range c.activeResolvers {
+	for resolver := range c.activeResolvers {
 		r, ok := resolver.(reportingContractResolver)
 		if !ok {
 			continue
@@ -831,7 +830,7 @@ func (c *ChannelArbitrator) Stop() error {
 	}
 
 	c.activeResolversLock.RLock()
-	for _, activeResolver := range c.activeResolvers {
+	for activeResolver := range c.activeResolvers {
 		activeResolver.Stop()
 	}
 	c.activeResolversLock.RUnlock()
@@ -1585,9 +1584,15 @@ func (c *ChannelArbitrator) launchResolvers(resolvers []ContractResolver,
 	c.activeResolversLock.Lock()
 	defer c.activeResolversLock.Unlock()
 
-	c.activeResolvers = resolvers
+	c.activeResolvers = make(map[ContractResolver]chan int32)
+
 	for _, contract := range resolvers {
 		c.wg.Add(1)
+
+		// Create a block chan for each contract resolver.
+		blockChan := make(chan int32, arbitratorBlockBufferSize)
+		c.activeResolvers[contract] = blockChan
+
 		go c.resolveContract(contract, immediate)
 	}
 }
@@ -2582,15 +2587,15 @@ func (c *ChannelArbitrator) replaceResolver(oldResolver,
 	c.activeResolversLock.Lock()
 	defer c.activeResolversLock.Unlock()
 
-	oldKey := oldResolver.ResolverKey()
-	for i, r := range c.activeResolvers {
-		if bytes.Equal(r.ResolverKey(), oldKey) {
-			c.activeResolvers[i] = newResolver
-			return nil
-		}
+	blockChan, ok := c.activeResolvers[oldResolver]
+	if !ok {
+		return errors.New("resolver to be replaced not found")
 	}
 
-	return errors.New("resolver to be replaced not found")
+	c.activeResolvers[newResolver] = blockChan
+	delete(c.activeResolvers, oldResolver)
+
+	return nil
 }
 
 // resolveContract is a goroutine tasked with fully resolving an unresolved
@@ -2766,6 +2771,25 @@ func (c *ChannelArbitrator) updateActiveHTLCs() {
 		pendingSet := c.unmergedSet[RemotePendingHtlcSet]
 		c.activeHTLCs[RemotePendingHtlcSet] = pendingSet
 	}
+}
+
+// notifyResolvers will send the block height to all the active resolvers.
+func (c *ChannelArbitrator) notifyResolvers(height int32) {
+	c.activeResolversLock.RLock()
+	defer c.activeResolversLock.RUnlock()
+
+	log.Debugf("Notifying %v resolvers of new block height %v",
+		len(c.activeResolvers), height)
+
+	for _, blockChan := range c.activeResolvers {
+		select {
+		case blockChan <- height:
+		case <-c.quit:
+		}
+	}
+
+	log.Debugf("Notified %v resolvers of new block height %v",
+		len(c.activeResolvers), height)
 }
 
 // channelAttendant is the primary goroutine that acts at the judicial
@@ -3141,6 +3165,9 @@ func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Beat) error {
 	defer fn.SendOrQuit(beat.Err, nil, c.quit)
 
 	bestHeight := beat.Epoch.Height
+
+	// Notify all resolvers about this new block.
+	c.notifyResolvers(bestHeight)
 
 	// If we're not in the default state, then we can ignore this signal as
 	// we're waiting for contract resolution.

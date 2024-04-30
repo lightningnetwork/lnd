@@ -90,7 +90,7 @@ func (h *htlcIncomingContestResolver) processFinalHtlcFail() error {
 //     as we have no remaining actions left at our disposal.
 //
 // NOTE: Part of the ContractResolver interface.
-func (h *htlcIncomingContestResolver) Resolve(_ bool,
+func (h *htlcIncomingContestResolver) Resolve(
 	blockChan <-chan int32) (ContractResolver, error) {
 
 	// If we're already full resolved, then we don't have anything further

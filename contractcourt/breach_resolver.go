@@ -47,9 +47,7 @@ func (b *breachResolver) ResolverKey() []byte {
 // been broadcast.
 //
 // TODO(yy): let sweeper handle the breach inputs.
-func (b *breachResolver) Resolve(_ bool,
-	_ <-chan int32) (ContractResolver, error) {
-
+func (b *breachResolver) Resolve(_ <-chan int32) (ContractResolver, error) {
 	if !b.subscribed {
 		complete, err := b.SubscribeBreachComplete(
 			&b.ChanPoint, b.replyChan,

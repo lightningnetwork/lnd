@@ -210,7 +210,7 @@ func (i *outgoingResolverTestContext) resolve() {
 	// Start resolver.
 	i.resolverResultChan = make(chan resolveResult, 1)
 	go func() {
-		nextResolver, err := i.resolver.Resolve(false, i.blockChan)
+		nextResolver, err := i.resolver.Resolve(i.blockChan)
 		i.resolverResultChan <- resolveResult{
 			nextResolver: nextResolver,
 			err:          err,

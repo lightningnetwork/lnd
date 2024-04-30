@@ -373,9 +373,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-
-			// TODO(yy): fix.
-			_, err := resolver.Resolve(false, nil)
+			_, err := resolver.Resolve(nil)
 			if err != nil {
 				resolveErr <- err
 			}

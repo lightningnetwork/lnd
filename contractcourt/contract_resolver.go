@@ -43,8 +43,7 @@ type ContractResolver interface {
 	// resolution, then another resolve is returned.
 	//
 	// NOTE: This function MUST be run as a goroutine.
-	Resolve(immediate bool,
-		blockChan <-chan int32) (ContractResolver, error)
+	Resolve(blockChan <-chan int32) (ContractResolver, error)
 
 	// SupplementState allows the user of a ContractResolver to supplement
 	// it with state required for the proper resolution of a contract.

@@ -396,7 +396,7 @@ func (i *incomingResolverTestContext) resolve() {
 	i.resolveErr = make(chan error, 1)
 	go func() {
 		var err error
-		i.nextResolver, err = i.resolver.Resolve(false, i.blockChan)
+		i.nextResolver, err = i.resolver.Resolve(i.blockChan)
 		i.resolveErr <- err
 	}()
 

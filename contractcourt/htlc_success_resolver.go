@@ -115,7 +115,7 @@ func (h *htlcSuccessResolver) ResolverKey() []byte {
 // TODO(roasbeef): create multi to batch
 //
 // NOTE: Part of the ContractResolver interface.
-func (h *htlcSuccessResolver) Resolve(immediate bool,
+func (h *htlcSuccessResolver) Resolve(
 	blockChan <-chan int32) (ContractResolver, error) {
 
 	// If we're already resolved, then we can exit early.
@@ -126,12 +126,12 @@ func (h *htlcSuccessResolver) Resolve(immediate bool,
 	// If we don't have a success transaction, then this means that this is
 	// an output on the remote party's commitment transaction.
 	if h.htlcResolution.SignedSuccessTx == nil {
-		return h.resolveRemoteCommitOutput(immediate)
+		return h.resolveRemoteCommitOutput()
 	}
 
 	// Otherwise this an output on our own commitment, and we must start by
 	// broadcasting the second-level success transaction.
-	secondLevelOutpoint, err := h.broadcastSuccessTx(immediate, blockChan)
+	secondLevelOutpoint, err := h.broadcastSuccessTx(blockChan)
 	if err != nil {
 		return nil, err
 	}
@@ -165,8 +165,8 @@ func (h *htlcSuccessResolver) Resolve(immediate bool,
 // broadcasting the second-level success transaction. It returns the ultimate
 // outpoint of the second-level tx, that we must wait to be spent for the
 // resolver to be fully resolved.
-func (h *htlcSuccessResolver) broadcastSuccessTx(immediate bool,
-	blockChan <-chan int32) (*wire.OutPoint, error) {
+func (h *htlcSuccessResolver) broadcastSuccessTx(blockChan <-chan int32) (
+	*wire.OutPoint, error) {
 
 	// If we have non-nil SignDetails, this means that have a 2nd level
 	// HTLC transaction that is signed using sighash SINGLE|ANYONECANPAY
@@ -175,7 +175,7 @@ func (h *htlcSuccessResolver) broadcastSuccessTx(immediate bool,
 	// the checkpointed outputIncubating field to determine if we already
 	// swept the HTLC output into the second level transaction.
 	if h.htlcResolution.SignDetails != nil {
-		return h.broadcastReSignedSuccessTx(immediate, blockChan)
+		return h.broadcastReSignedSuccessTx(blockChan)
 	}
 
 	// Otherwise we'll publish the second-level transaction directly and
@@ -227,7 +227,7 @@ func (h *htlcSuccessResolver) broadcastSuccessTx(immediate bool,
 // will re-sign it and attach fees at will.
 //
 //nolint:funlen
-func (h *htlcSuccessResolver) broadcastReSignedSuccessTx(immediate bool,
+func (h *htlcSuccessResolver) broadcastReSignedSuccessTx(
 	blockChan <-chan int32) (*wire.OutPoint, error) {
 
 	// Keep track of the tx spending the HTLC output on the commitment, as
@@ -284,7 +284,6 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx(immediate bool,
 			sweep.Params{
 				Budget:         budget,
 				DeadlineHeight: deadline,
-				Immediate:      immediate,
 			},
 		)
 		if err != nil {
@@ -440,7 +439,7 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx(immediate bool,
 // resolveRemoteCommitOutput handles sweeping an HTLC output on the remote
 // commitment with the preimage. In this case we can sweep the output directly,
 // and don't have to broadcast a second-level transaction.
-func (h *htlcSuccessResolver) resolveRemoteCommitOutput(immediate bool) (
+func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
 	ContractResolver, error) {
 
 	isTaproot := txscript.IsPayToTaproot(
@@ -489,7 +488,6 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput(immediate bool) (
 		sweep.Params{
 			Budget:         budget,
 			DeadlineHeight: deadline,
-			Immediate:      immediate,
 		},
 	)
 	if err != nil {

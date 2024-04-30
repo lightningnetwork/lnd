@@ -423,6 +423,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testForwardInterceptorBasic,
 	},
 	{
+		Name:     "invoice acceptor basic",
+		TestFunc: testInvoiceAcceptorBasic,
+	},
+	{
 		Name:     "zero conf channel open",
 		TestFunc: testZeroConfChannelOpen,
 	},

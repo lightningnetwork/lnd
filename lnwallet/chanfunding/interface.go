@@ -4,9 +4,11 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wtxmgr"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -119,6 +121,11 @@ type Request struct {
 	// output. By definition, this'll also use segwit v1 (taproot) for the
 	// funding output.
 	Musig2 bool
+
+	// TapscriptRoot is the root of the tapscript tree that will be used to
+	// create the funding output. This field will only be utilized if the
+	// Musig2 flag above is set to true.
+	TapscriptRoot fn.Option[chainhash.Hash]
 }
 
 // Intent is returned by an Assembler and represents the base functionality the

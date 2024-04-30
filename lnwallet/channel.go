@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -1475,8 +1476,13 @@ func (lc *LightningChannel) createSignDesc() error {
 	remoteKey := chanState.RemoteChanCfg.MultiSigKey.PubKey
 
 	if chanState.ChanType.IsTaproot() {
+		fundingOpts := fn.MapOptionZ(
+			chanState.TapscriptRoot, TapscriptRootToOpt,
+		)
+
 		fundingPkScript, _, err = input.GenTaprootFundingScript(
 			localKey, remoteKey, int64(lc.channelState.Capacity),
+			fundingOpts...,
 		)
 		if err != nil {
 			return err
@@ -6501,11 +6507,15 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 				"verification nonce: %w", err)
 		}
 
+		tapscriptTweak := fn.MapOption(TapscriptRootToTweak)(
+			lc.channelState.TapscriptRoot,
+		)
+
 		// Now that we have the local nonce, we'll re-create the musig
 		// session we had for this height.
 		musigSession := NewPartialMusigSession(
 			*localNonce, ourKey, theirKey, lc.Signer,
-			&lc.fundingOutput, LocalMusigCommit,
+			&lc.fundingOutput, LocalMusigCommit, tapscriptTweak,
 		)
 
 		var remoteSig lnwire.PartialSigWithNonce
@@ -9048,12 +9058,13 @@ func (lc *LightningChannel) InitRemoteMusigNonces(remoteNonce *musig2.Nonces,
 	// TODO(roasbeef): propagate rename of signing and verification nonces
 
 	sessionCfg := &MusigSessionCfg{
-		LocalKey:    localChanCfg.MultiSigKey,
-		RemoteKey:   remoteChanCfg.MultiSigKey,
-		LocalNonce:  *localNonce,
-		RemoteNonce: *remoteNonce,
-		Signer:      lc.Signer,
-		InputTxOut:  &lc.fundingOutput,
+		LocalKey:       localChanCfg.MultiSigKey,
+		RemoteKey:      remoteChanCfg.MultiSigKey,
+		LocalNonce:     *localNonce,
+		RemoteNonce:    *remoteNonce,
+		Signer:         lc.Signer,
+		InputTxOut:     &lc.fundingOutput,
+		TapscriptTweak: lc.channelState.TapscriptRoot,
 	}
 	lc.musigSessions = NewMusigPairSession(
 		sessionCfg,

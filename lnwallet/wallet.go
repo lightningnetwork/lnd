@@ -23,6 +23,7 @@ import (
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -199,6 +200,11 @@ type InitFundingReserveMsg struct {
 	// Memo is any arbitrary information we wish to store locally about the
 	// channel that will be useful to our future selves.
 	Memo []byte
+
+	// TapscriptRoot is the root of the tapscript tree that will be used to
+	// create the funding output. This is an optional field that should
+	// only be set for taproot channels.
+	TapscriptRoot fn.Option[chainhash.Hash]
 
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
@@ -2086,8 +2092,14 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 		// already. If we're the responder in the funding flow, we may
 		// not have generated it already.
 		if res.musigSessions == nil {
+			fundingOpts := fn.MapOptionZ(
+				res.partialState.TapscriptRoot,
+				TapscriptRootToOpt,
+			)
+
 			_, fundingOutput, err := input.GenTaprootFundingScript(
 				localKey, remoteKey, channelValue,
+				fundingOpts...,
 			)
 			if err != nil {
 				return err
@@ -2327,11 +2339,18 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		fundingTxOut         *wire.TxOut
 	)
 	if chanType.IsTaproot() {
-		fundingWitnessScript, fundingTxOut, err = input.GenTaprootFundingScript( //nolint:lll
+		fundingOpts := fn.MapOptionZ(
+			pendingReservation.partialState.TapscriptRoot,
+			TapscriptRootToOpt,
+		)
+		//nolint:lll
+		fundingWitnessScript, fundingTxOut, err = input.GenTaprootFundingScript(
 			ourKey.PubKey, theirKey.PubKey, channelValue,
+			fundingOpts...,
 		)
 	} else {
-		fundingWitnessScript, fundingTxOut, err = input.GenFundingPkScript( //nolint:lll
+		//nolint:lll
+		fundingWitnessScript, fundingTxOut, err = input.GenFundingPkScript(
 			ourKey.PubKey.SerializeCompressed(),
 			theirKey.PubKey.SerializeCompressed(), channelValue,
 		)
@@ -2445,6 +2464,20 @@ func initStateHints(commit1, commit2 *wire.MsgTx,
 	return nil
 }
 
+// TapscriptRootToOpt is a helper function that converts a tapscript root into
+// the functional option we can use to pass into GenTaprootFundingScript.
+func TapscriptRootToOpt(root chainhash.Hash) []input.FundingScriptOpt {
+	return []input.FundingScriptOpt{input.WithTapscriptRoot(root)}
+}
+
+// TapscriptRootToTweak is a helper function that converts a tapscript root
+// into a tweak that can be used with the MuSig2 API.
+func TapscriptRootToTweak(root chainhash.Hash) input.MuSig2Tweaks {
+	return input.MuSig2Tweaks{
+		TaprootTweak: root[:],
+	}
+}
+
 // ValidateChannel will attempt to fully validate a newly mined channel, given
 // its funding transaction and existing channel state. If this method returns
 // an error, then the mined channel is invalid, and shouldn't be used.
@@ -2466,8 +2499,13 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 	// funding transaction, and also commitment validity.
 	var fundingScript []byte
 	if channelState.ChanType.IsTaproot() {
+		fundingOpts := fn.MapOptionZ(
+			channelState.TapscriptRoot, TapscriptRootToOpt,
+		)
+
 		fundingScript, _, err = input.GenTaprootFundingScript(
 			localKey, remoteKey, int64(channel.Capacity),
+			fundingOpts...,
 		)
 		if err != nil {
 			return err

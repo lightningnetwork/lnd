@@ -3068,7 +3068,7 @@ type BumpFeeRequest struct {
 	Outpoint *lnrpc.OutPoint `protobuf:"bytes,1,opt,name=outpoint,proto3" json:"outpoint,omitempty"`
 	// Optional. The deadline in number of blocks that the input should be spent
 	// within. When not set, for new inputs, the default value (1008) is used;
-	// for exiting inputs, their current values will be retained.
+	// for existing inputs, their current values will be retained.
 	TargetConf uint32 `protobuf:"varint,2,opt,name=target_conf,json=targetConf,proto3" json:"target_conf,omitempty"`
 	// Deprecated, use sat_per_vbyte.
 	// The fee rate, expressed in sat/vbyte, that should be used to spend the input

@@ -775,7 +775,7 @@ func TestHandleBumpEventTxFailed(t *testing.T) {
 
 	// Call the method under test.
 	err := s.handleBumpEvent(br)
-	require.ErrorIs(t, err, errDummy)
+	require.NoError(t, err)
 
 	// Assert the states of the first two inputs are updated.
 	require.Equal(t, PublishFailed, s.inputs[op1].state)

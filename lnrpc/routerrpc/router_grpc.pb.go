@@ -53,6 +53,10 @@ type RouterClient interface {
 	// route manually. This can be used for things like rebalancing, and atomic
 	// swaps.
 	SendToRouteV2(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*lnrpc.HTLCAttempt, error)
+	// SendOnion attempts to make a payment via the specified onion. This
+	// method differs from SendPayment in that the instance need not be aware of
+	// the full details of the payment route.
+	SendOnion(ctx context.Context, in *SendOnionRequest, opts ...grpc.CallOption) (*SendOnionResponse, error)
 	// lncli: `resetmc`
 	// ResetMissionControl clears all mission control state and starts with a clean
 	// slate.
@@ -244,6 +248,15 @@ func (c *routerClient) SendToRoute(ctx context.Context, in *SendToRouteRequest, 
 func (c *routerClient) SendToRouteV2(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*lnrpc.HTLCAttempt, error) {
 	out := new(lnrpc.HTLCAttempt)
 	err := c.cc.Invoke(ctx, "/routerrpc.Router/SendToRouteV2", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *routerClient) SendOnion(ctx context.Context, in *SendOnionRequest, opts ...grpc.CallOption) (*SendOnionResponse, error) {
+	out := new(SendOnionResponse)
+	err := c.cc.Invoke(ctx, "/routerrpc.Router/SendOnion", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -489,6 +502,10 @@ type RouterServer interface {
 	// route manually. This can be used for things like rebalancing, and atomic
 	// swaps.
 	SendToRouteV2(context.Context, *SendToRouteRequest) (*lnrpc.HTLCAttempt, error)
+	// SendOnion attempts to make a payment via the specified onion. This
+	// method differs from SendPayment in that the instance need not be aware of
+	// the full details of the payment route.
+	SendOnion(context.Context, *SendOnionRequest) (*SendOnionResponse, error)
 	// lncli: `resetmc`
 	// ResetMissionControl clears all mission control state and starts with a clean
 	// slate.
@@ -576,6 +593,9 @@ func (UnimplementedRouterServer) SendToRoute(context.Context, *SendToRouteReques
 }
 func (UnimplementedRouterServer) SendToRouteV2(context.Context, *SendToRouteRequest) (*lnrpc.HTLCAttempt, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendToRouteV2 not implemented")
+}
+func (UnimplementedRouterServer) SendOnion(context.Context, *SendOnionRequest) (*SendOnionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendOnion not implemented")
 }
 func (UnimplementedRouterServer) ResetMissionControl(context.Context, *ResetMissionControlRequest) (*ResetMissionControlResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResetMissionControl not implemented")
@@ -739,6 +759,24 @@ func _Router_SendToRouteV2_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RouterServer).SendToRouteV2(ctx, req.(*SendToRouteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Router_SendOnion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendOnionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RouterServer).SendOnion(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/routerrpc.Router/SendOnion",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RouterServer).SendOnion(ctx, req.(*SendOnionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -994,6 +1032,10 @@ var Router_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendToRouteV2",
 			Handler:    _Router_SendToRouteV2_Handler,
+		},
+		{
+			MethodName: "SendOnion",
+			Handler:    _Router_SendOnion_Handler,
 		},
 		{
 			MethodName: "ResetMissionControl",

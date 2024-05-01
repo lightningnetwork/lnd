@@ -1682,6 +1682,23 @@
         }
       }
     },
+    "routerrpcSendOnionResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean",
+          "description": "Indicates if the onion was successfully sent or not."
+        },
+        "error_message": {
+          "type": "string",
+          "description": "In case of failure, this field will provide more information about the\nerror."
+        },
+        "error_code": {
+          "type": "string",
+          "description": "A code representing the type of error that occurred. This can be used\nto programmatically distinguish between different kinds of errors."
+        }
+      }
+    },
     "routerrpcSendPaymentRequest": {
       "type": "object",
       "properties": {

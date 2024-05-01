@@ -78,6 +78,13 @@ service Router {
     */
     rpc SendToRouteV2 (SendToRouteRequest) returns (lnrpc.HTLCAttempt);
 
+    /*
+    SendOnion attempts to make a payment via the specified onion. This
+    method differs from SendPayment in that the instance need not be aware of
+    the full details of the payment route.
+    */
+    rpc SendOnion (SendOnionRequest) returns (SendOnionResponse);
+
     /* lncli: `resetmc`
     ResetMissionControl clears all mission control state and starts with a clean
     slate.
@@ -440,6 +447,46 @@ message SendToRouteResponse {
 
     // The failure message in case the payment failed.
     lnrpc.Failure failure = 2;
+}
+
+message SendOnionRequest {
+    // The raw onion packet to be sent across the network.
+    bytes onion_blob = 1;
+
+    // The first hop's public key where the onion will be sent.
+    bytes first_hop_pubkey = 2;
+
+    // The total amount in millisatoshis required to complete a payment over
+    // this route. This value includes the cumulative fees at each hop. The HTLC
+    // extended to the first-hop in the route will need to have at least this
+    // many (milli)satoshis.
+    int64 amount = 3;
+
+    // The absolute timelock or CLTV value that should be extended to the first
+    // hop in the route. All other hops will decrement the time-lock as
+    // described by the onion.
+    uint32 timelock = 4;
+
+    // The payment hash associated with the HTLC. This is needed for tracking
+    // and debugging purposes.
+    bytes payment_hash = 5;
+
+    // The attempt ID uniquely identifying this payment attempt. The caller can
+    // expect to track results for the payment via this attempt ID.
+    uint64 attempt_id = 6;
+}
+
+message SendOnionResponse {
+    // Indicates if the onion was successfully sent or not.
+    bool success = 1;
+
+    // In case of failure, this field will provide more information about the
+    // error.
+    string error_message = 2;
+
+    // A code representing the type of error that occurred. This can be used
+    // to programmatically distinguish between different kinds of errors.
+    string error_code = 3;
 }
 
 message ResetMissionControlRequest {

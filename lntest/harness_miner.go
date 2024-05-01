@@ -80,7 +80,7 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 
 	// If we expect transactions to be included in the blocks we'll mine,
 	// we wait here until they are seen in the miner's mempool.
-	txids := h.Miner.AssertNumTxsInMempool(numTxs)
+	txids := h.AssertNumTxsInMempool(numTxs)
 
 	// Mine blocks.
 	blocks := h.Miner.MineBlocksSlow(num)
@@ -118,7 +118,7 @@ func (h *HarnessTest) DisconnectMiner() {
 // cleanMempool mines blocks till the mempool is empty and asserts all active
 // nodes have synced to the chain.
 func (h *HarnessTest) cleanMempool() {
-	_, startHeight := h.Miner.GetBestBlock()
+	_, startHeight := h.GetBestBlock()
 
 	// Mining the blocks slow to give `lnd` more time to sync.
 	var bestBlock *wire.MsgBlock
@@ -126,7 +126,7 @@ func (h *HarnessTest) cleanMempool() {
 		// If mempool is empty, exit.
 		mem := h.Miner.GetRawMempool()
 		if len(mem) == 0 {
-			_, height := h.Miner.GetBestBlock()
+			_, height := h.GetBestBlock()
 			h.Logf("Mined %d blocks when cleanup the mempool",
 				height-startHeight)
 
@@ -157,7 +157,7 @@ func (h *HarnessTest) cleanMempool() {
 // TODO(yy): remove this workaround when syncing blocks are unified in all the
 // subsystems.
 func (h *HarnessTest) mineTillForceCloseResolved(hn *node.HarnessNode) {
-	_, startHeight := h.Miner.GetBestBlock()
+	_, startHeight := h.GetBestBlock()
 
 	err := wait.NoError(func() error {
 		resp := hn.RPC.PendingChannels()
@@ -169,7 +169,7 @@ func (h *HarnessTest) mineTillForceCloseResolved(hn *node.HarnessNode) {
 				"close channel to be zero")
 		}
 
-		_, height := h.Miner.GetBestBlock()
+		_, height := h.GetBestBlock()
 		h.Logf("Mined %d blocks while waiting for force closed "+
 			"channel to be resolved", height-startHeight)
 
@@ -179,6 +179,21 @@ func (h *HarnessTest) mineTillForceCloseResolved(hn *node.HarnessNode) {
 	require.NoErrorf(h, err, "assert force close resolved timeout")
 }
 
+// AssertTxInMempool asserts a given transaction can be found in the mempool.
+func (h *HarnessTest) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
+	return h.Miner.AssertTxInMempool(txid)
+}
+
+// AssertTxNotInMempool asserts a given transaction cannot be found in the
+// mempool. It assumes the mempool is not empty.
+//
+// NOTE: this should be used after `AssertTxInMempool` to ensure the tx has
+// entered the mempool before. Otherwise it might give false positive and the
+// tx may enter the mempool after the check.
+func (h *HarnessTest) AssertTxNotInMempool(txid chainhash.Hash) *wire.MsgTx {
+	return h.Miner.AssertTxNotInMempool(txid)
+}
+
 // AssertNumTxsInMempool polls until finding the desired number of transactions
 // in the provided miner's mempool. It will asserrt if this number is not met
 // after the given timeout.
@@ -186,9 +201,25 @@ func (h *HarnessTest) AssertNumTxsInMempool(n int) []*chainhash.Hash {
 	return h.Miner.AssertNumTxsInMempool(n)
 }
 
+// AssertOutpointInMempool asserts a given outpoint can be found in the mempool.
+func (h *HarnessTest) AssertOutpointInMempool(op wire.OutPoint) *wire.MsgTx {
+	return h.Miner.AssertOutpointInMempool(op)
+}
+
 // AssertTxInBlock asserts that a given txid can be found in the passed block.
 func (h *HarnessTest) AssertTxInBlock(block *wire.MsgBlock,
 	txid *chainhash.Hash) {
 
 	h.Miner.AssertTxInBlock(block, txid)
+}
+
+// GetNumTxsFromMempool polls until finding the desired number of transactions
+// in the miner's mempool and returns the full transactions to the caller.
+func (h *HarnessTest) GetNumTxsFromMempool(n int) []*wire.MsgTx {
+	return h.Miner.GetNumTxsFromMempool(n)
+}
+
+// GetBestBlock makes a RPC request to miner and asserts.
+func (h *HarnessTest) GetBestBlock() (*chainhash.Hash, int32) {
+	return h.Miner.GetBestBlock()
 }

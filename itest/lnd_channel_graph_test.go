@@ -316,7 +316,7 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 	ht.AssertNumNodeAnns(alice, alice.PubKeyStr, 1)
 	ht.AssertNumNodeAnns(alice, bob.PubKeyStr, 1)
 
-	_, blockHeight := ht.Miner.GetBestBlock()
+	_, blockHeight := ht.GetBestBlock()
 
 	// Now we'll test that updates are properly sent after channels are
 	// closed within the network.

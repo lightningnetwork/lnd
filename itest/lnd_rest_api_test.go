@@ -238,7 +238,7 @@ func testRestAPI(ht *lntest.HarnessTest) {
 
 func wsTestCaseSubscription(ht *lntest.HarnessTest) {
 	// Find out the current best block so we can subscribe to the next one.
-	hash, height := ht.Miner.GetBestBlock()
+	hash, height := ht.GetBestBlock()
 
 	// Create a new subscription to get block epoch events.
 	req := &chainrpc.BlockEpoch{
@@ -314,7 +314,7 @@ func wsTestCaseSubscription(ht *lntest.HarnessTest) {
 
 func wsTestCaseSubscriptionMacaroon(ht *lntest.HarnessTest) {
 	// Find out the current best block so we can subscribe to the next one.
-	hash, height := ht.Miner.GetBestBlock()
+	hash, height := ht.GetBestBlock()
 
 	// Create a new subscription to get block epoch events.
 	req := &chainrpc.BlockEpoch{

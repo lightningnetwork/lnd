@@ -1535,7 +1535,7 @@ func publishTxAndConfirmSweep(ht *lntest.HarnessTest, node *node.HarnessNode,
 	// Before we publish the tx that spends the p2tr transaction, we want to
 	// register a spend listener that we expect to fire after mining the
 	// block.
-	_, currentHeight := ht.Miner.GetBestBlock()
+	_, currentHeight := ht.GetBestBlock()
 
 	// For a Taproot output we cannot leave the outpoint empty. Let's make
 	// sure the API returns the correct error here.
@@ -1609,7 +1609,7 @@ func confirmAddress(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	addrPkScript, err := txscript.PayToAddrScript(parsedAddr)
 	require.NoError(ht, err)
 
-	_, currentHeight := ht.Miner.GetBestBlock()
+	_, currentHeight := ht.GetBestBlock()
 	req := &chainrpc.ConfRequest{
 		Script:       addrPkScript,
 		Txid:         txid[:],

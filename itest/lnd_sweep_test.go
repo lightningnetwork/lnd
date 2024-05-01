@@ -209,7 +209,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	//
 	// We should see Bob's anchor sweeping tx triggered by the above
 	// block, along with his force close tx.
-	txns := ht.Miner.GetNumTxsFromMempool(2)
+	txns := ht.GetNumTxsFromMempool(2)
 
 	// Find the sweeping tx.
 	sweepTx := ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
@@ -261,7 +261,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 
 		// Make sure Bob's old sweeping tx has been removed from the
 		// mempool.
-		ht.Miner.AssertTxNotInMempool(sweepTx.TxHash())
+		ht.AssertTxNotInMempool(sweepTx.TxHash())
 
 		// We expect to see two txns in the mempool,
 		// - Bob's force close tx.
@@ -276,7 +276,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 
 		// We should see Bob's anchor sweeping tx being fee bumped
 		// since it's not confirmed, along with his force close tx.
-		txns = ht.Miner.GetNumTxsFromMempool(2)
+		txns = ht.GetNumTxsFromMempool(2)
 
 		// Find the sweeping tx.
 		sweepTx = ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
@@ -311,11 +311,11 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	ht.MineEmptyBlocks(1)
 
 	// Make sure Bob's old sweeping tx has been removed from the mempool.
-	ht.Miner.AssertTxNotInMempool(sweepTx.TxHash())
+	ht.AssertTxNotInMempool(sweepTx.TxHash())
 
 	// Get the last sweeping tx - we should see two txns here, Bob's anchor
 	// sweeping tx and his force close tx.
-	txns = ht.Miner.GetNumTxsFromMempool(2)
+	txns = ht.GetNumTxsFromMempool(2)
 
 	// Find the sweeping tx.
 	sweepTx = ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
@@ -336,7 +336,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	//
 	// We expect two txns here, one for the anchor sweeping, the other for
 	// the force close tx.
-	txns = ht.Miner.GetNumTxsFromMempool(2)
+	txns = ht.GetNumTxsFromMempool(2)
 
 	// Find the sweeping tx.
 	currentSweepTx := ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
@@ -912,7 +912,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 
 	// Bob should now have one sweep and one sweeping tx in the mempool.
 	ht.AssertNumPendingSweeps(bob, 1)
-	outgoingSweep := ht.Miner.GetNumTxsFromMempool(1)[0]
+	outgoingSweep := ht.GetNumTxsFromMempool(1)[0]
 
 	// Check the shape of the sweeping tx - we expect it to be
 	// 2-input-2-output as a wallet utxo is used and a required output is
@@ -986,13 +986,13 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 
 		// Make sure Bob's old sweeping tx has been removed from the
 		// mempool.
-		ht.Miner.AssertTxNotInMempool(outgoingSweep.TxHash())
+		ht.AssertTxNotInMempool(outgoingSweep.TxHash())
 
 		// Bob should still have the outgoing HTLC sweep.
 		ht.AssertNumPendingSweeps(bob, 1)
 
 		// We should see Bob's replacement tx in the mempool.
-		outgoingSweep = ht.Miner.GetNumTxsFromMempool(1)[0]
+		outgoingSweep = ht.GetNumTxsFromMempool(1)[0]
 
 		// Bob's outgoing HTLC sweeping tx should be fee bumped.
 		assertSweepFeeRate(
@@ -1018,7 +1018,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// We should see two txns in the mempool:
 	// 1. Bob's outgoing HTLC sweeping tx.
 	// 2. Bob's force close tx for Alice->Bob.
-	txns := ht.Miner.GetNumTxsFromMempool(2)
+	txns := ht.GetNumTxsFromMempool(2)
 
 	// Find the force close tx - we expect it to have a single input.
 	closeTx := txns[0]
@@ -1051,7 +1051,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// 1. the outgoing HTLC sweeping tx.
 	// 2. the incoming HTLC sweeping tx.
 	// 3. the anchor sweeping tx.
-	txns = ht.Miner.GetNumTxsFromMempool(3)
+	txns = ht.GetNumTxsFromMempool(3)
 
 	abCloseTxid := closeTx.TxHash()
 
@@ -1102,7 +1102,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 		// We should see two txns in the mempool:
 		// 1. the outgoing HTLC sweeping tx.
 		// 2. the incoming HTLC sweeping tx.
-		txns = ht.Miner.GetNumTxsFromMempool(2)
+		txns = ht.GetNumTxsFromMempool(2)
 
 		var incoming, outgoing *wire.MsgTx
 
@@ -1160,8 +1160,8 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 
 		// Make sure Bob's old sweeping txns have been removed from the
 		// mempool.
-		ht.Miner.AssertTxNotInMempool(outgoingSweep.TxHash())
-		ht.Miner.AssertTxNotInMempool(incomingSweep.TxHash())
+		ht.AssertTxNotInMempool(outgoingSweep.TxHash())
+		ht.AssertTxNotInMempool(incomingSweep.TxHash())
 
 		// Bob should have two pending sweeps:
 		// 1. the outgoing HTLC output on Bob->Carol.
@@ -1370,7 +1370,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// - Alice's anchor sweeping tx must have been failed due to the fee
 	//   rate chosen in this test - the anchor sweep tx has no output.
 	// - Bob's sweeping tx, which sweeps both his anchor and commit outputs.
-	bobSweepTx := ht.Miner.GetNumTxsFromMempool(1)[0]
+	bobSweepTx := ht.GetNumTxsFromMempool(1)[0]
 
 	// We expect two pending sweeps for Bob - anchor and commit outputs.
 	pendingSweepBob := ht.AssertNumPendingSweeps(bob, 2)[0]
@@ -1466,7 +1466,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 		// created and published.
 		aliceStartPosition = 1
 
-		txns := ht.Miner.GetNumTxsFromMempool(2)
+		txns := ht.GetNumTxsFromMempool(2)
 		aliceFirstSweepTx = txns[0]
 
 		// Reassign if the second tx is larger.
@@ -1503,7 +1503,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	//   commit output together because they have different deadlines.
 	// - Bob's previous sweeping tx, which sweeps both his anchor and
 	//   commit outputs, at the starting fee rate.
-	txns := ht.Miner.GetNumTxsFromMempool(2)
+	txns := ht.GetNumTxsFromMempool(2)
 
 	// Assume the first tx is Alice's sweeping tx, if the second tx has a
 	// larger output value, then that's Alice's as her to_local value is
@@ -1611,7 +1611,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 		//   commit outputs, using the increased fee rate.
 		// - Bob's previous sweeping tx, which sweeps both his anchor
 		//   and commit outputs, at the possible increased fee rate.
-		txns = ht.Miner.GetNumTxsFromMempool(2)
+		txns = ht.GetNumTxsFromMempool(2)
 
 		// Assume the first tx is Alice's sweeping tx, if the second tx
 		// has a larger output value, then that's Alice's as her
@@ -1691,14 +1691,14 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 
 		// Make sure Alice's old sweeping tx has been removed from the
 		// mempool.
-		ht.Miner.AssertTxNotInMempool(aliceSweepTx.TxHash())
+		ht.AssertTxNotInMempool(aliceSweepTx.TxHash())
 
 		// Make sure Bob's old sweeping tx has been removed from the
 		// mempool. Since Bob's sweeping tx will only be successfully
 		// RBFed every 4 blocks, his old sweeping tx only will be
 		// removed when there are 4 blocks increased.
 		if bobPosition%4 == 0 {
-			ht.Miner.AssertTxNotInMempool(bobSweepTx.TxHash())
+			ht.AssertTxNotInMempool(bobSweepTx.TxHash())
 		}
 
 		// We should see two txns in the mempool:
@@ -1706,7 +1706,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 		//   commit outputs, using the increased fee rate.
 		// - Bob's previous sweeping tx, which sweeps both his anchor
 		//   and commit outputs, at the possible increased fee rate.
-		txns := ht.Miner.GetNumTxsFromMempool(2)
+		txns := ht.GetNumTxsFromMempool(2)
 
 		// Assume the first tx is Alice's sweeping tx, if the second tx
 		// has a larger output value, then that's Alice's as her
@@ -1911,7 +1911,7 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 
 		// We expect to see Alice's original tx and her CPFP tx in the
 		// mempool.
-		txns := ht.Miner.GetNumTxsFromMempool(2)
+		txns := ht.GetNumTxsFromMempool(2)
 
 		// Find the sweeping tx - assume it's the first item, if it has
 		// the same txid as the parent tx, use the second item.
@@ -1972,7 +1972,7 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 
 	// Since the request doesn't specify a deadline, we expect the default
 	// deadline to be used.
-	_, currentHeight := ht.Miner.GetBestBlock()
+	_, currentHeight := ht.GetBestBlock()
 	deadline := uint32(currentHeight + sweep.DefaultDeadlineDelta)
 
 	// Assert the pending sweep is created with the expected values:
@@ -2003,7 +2003,7 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	alice.RPC.BumpFee(bumpFeeReq)
 
 	// Alice's old sweeping tx should be replaced.
-	ht.Miner.AssertTxNotInMempool(sweepTx1.TxHash())
+	ht.AssertTxNotInMempool(sweepTx1.TxHash())
 
 	// Assert the pending sweep is created with the expected values:
 	// - broadcast attempts: 2.
@@ -2035,7 +2035,7 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	alice.RPC.BumpFee(bumpFeeReq)
 
 	// Alice's old sweeping tx should be replaced.
-	ht.Miner.AssertTxNotInMempool(sweepTx2.TxHash())
+	ht.AssertTxNotInMempool(sweepTx2.TxHash())
 
 	// Assert the pending sweep is created with the expected values:
 	// - broadcast attempts: 3.
@@ -2066,7 +2066,7 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	alice.RPC.BumpFee(bumpFeeReq)
 
 	// Alice's old sweeping tx should be replaced.
-	ht.Miner.AssertTxNotInMempool(sweepTx3.TxHash())
+	ht.AssertTxNotInMempool(sweepTx3.TxHash())
 
 	// Assert the pending sweep is created with the expected values:
 	// - broadcast attempts: 4.
@@ -2093,7 +2093,7 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	alice.RPC.BumpFee(bumpFeeReq)
 
 	// Alice's old sweeping tx should be replaced.
-	ht.Miner.AssertTxNotInMempool(sweepTx4.TxHash())
+	ht.AssertTxNotInMempool(sweepTx4.TxHash())
 
 	// Assert the pending sweep is created with the expected values:
 	// - broadcast attempts: 5.

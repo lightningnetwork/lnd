@@ -248,7 +248,7 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 	// Bob's force close transaction should now be found in the mempool.
 	ht.AssertNumTxsInMempool(1)
 	op := ht.OutPointFromChannelPoint(bobChanPoint)
-	closeTx := ht.Miner.AssertOutpointInMempool(op)
+	closeTx := ht.AssertOutpointInMempool(op)
 
 	// Bob's anchor output should be offered to his sweep since Bob has
 	// time-sensitive HTLCs - we expect both anchors are offered.
@@ -280,7 +280,7 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 
 	htlcOutpoint := wire.OutPoint{Hash: closeTx.TxHash(), Index: 2}
 	commitOutpoint := wire.OutPoint{Hash: closeTx.TxHash(), Index: 3}
-	htlcTimeoutTxid := ht.Miner.AssertOutpointInMempool(
+	htlcTimeoutTxid := ht.AssertOutpointInMempool(
 		htlcOutpoint,
 	).TxHash()
 
@@ -330,7 +330,7 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 		ht.AssertNumPendingSweeps(bob, 2)
 
 		// Assert that the HTLC timeout tx is now in the mempool.
-		ht.Miner.AssertOutpointInMempool(htlcTimeoutOutpoint)
+		ht.AssertOutpointInMempool(htlcTimeoutOutpoint)
 
 		// We now wait for 30 seconds to overcome the flake - there's a
 		// block race between contractcourt and sweeper, causing the
@@ -363,7 +363,7 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 		pendingChanResp := bob.RPC.PendingChannels()
 		if len(pendingChanResp.PendingForceClosingChannels) != 0 {
 			// Check that the sweep spends the expected inputs.
-			ht.Miner.AssertOutpointInMempool(commitOutpoint)
+			ht.AssertOutpointInMempool(commitOutpoint)
 			ht.MineBlocksAndAssertNumTxes(1, 1)
 		}
 	} else {
@@ -381,14 +381,14 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 		ht.MineEmptyBlocks(1)
 
 		// Check that the sweep spends from the mined commitment.
-		ht.Miner.AssertOutpointInMempool(commitOutpoint)
+		ht.AssertOutpointInMempool(commitOutpoint)
 
 		// Mine one more block to trigger the timeout path.
 		ht.MineBlocksAndAssertNumTxes(1, 1)
 
 		// Bob's sweeper should now broadcast his second layer sweep
 		// due to the CSV on the HTLC timeout output.
-		ht.Miner.AssertOutpointInMempool(htlcTimeoutOutpoint)
+		ht.AssertOutpointInMempool(htlcTimeoutOutpoint)
 
 		// Next, we'll mine a final block that should confirm the
 		// sweeping transactions left.
@@ -503,7 +503,7 @@ func runMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 	// transaction in order to go to the chain and sweep her HTLC.
 	ht.AssertNumTxsInMempool(1)
 
-	closingTx := ht.Miner.AssertOutpointInMempool(
+	closingTx := ht.AssertOutpointInMempool(
 		ht.OutPointFromChannelPoint(bobChanPoint),
 	)
 	closingTxid := closingTx.TxHash()
@@ -572,7 +572,7 @@ func runMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 	ht.MineEmptyBlocks(1)
 
 	// All transactions should be spending from the commitment transaction.
-	txes := ht.Miner.GetNumTxsFromMempool(expectedTxes)
+	txes := ht.GetNumTxsFromMempool(expectedTxes)
 	ht.AssertAllTxesSpendFrom(txes, closingTxid)
 
 	// We'll now mine an additional block which should confirm both the
@@ -644,7 +644,7 @@ func runMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 		ht.MineEmptyBlocks(1)
 
 		commitOutpoint := wire.OutPoint{Hash: closingTxid, Index: 3}
-		ht.Miner.AssertOutpointInMempool(commitOutpoint)
+		ht.AssertOutpointInMempool(commitOutpoint)
 		ht.MineBlocksAndAssertNumTxes(1, 1)
 	}
 
@@ -756,7 +756,7 @@ func runMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 		ht.MineEmptyBlocks(1)
 		blocksMined++
 
-		commitSweepTx := ht.Miner.AssertOutpointInMempool(
+		commitSweepTx := ht.AssertOutpointInMempool(
 			bobCommitOutpoint,
 		)
 		txid := commitSweepTx.TxHash()
@@ -784,7 +784,7 @@ func runMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 
 	// We should also now find a transaction in the mempool, as Bob should
 	// have broadcast his second layer timeout transaction.
-	timeoutTx := ht.Miner.AssertOutpointInMempool(htlcOutpoint).TxHash()
+	timeoutTx := ht.AssertOutpointInMempool(htlcOutpoint).TxHash()
 
 	// Next, we'll mine an additional block. This should serve to confirm
 	// the second layer timeout transaction.
@@ -837,7 +837,7 @@ func runMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 
 	// Assert the sweeping tx is found in the mempool.
 	htlcTimeoutOutpoint := wire.OutPoint{Hash: timeoutTx, Index: 0}
-	ht.Miner.AssertOutpointInMempool(htlcTimeoutOutpoint)
+	ht.AssertOutpointInMempool(htlcTimeoutOutpoint)
 
 	// Mine a block to confirm the sweep.
 	ht.MineBlocksAndAssertNumTxes(1, numExpected)
@@ -1042,7 +1042,7 @@ func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 		ht.MineEmptyBlocks(1)
 
 		bobCommitOutpoint := wire.OutPoint{Hash: *closeTx, Index: 3}
-		bobCommitSweep := ht.Miner.AssertOutpointInMempool(
+		bobCommitSweep := ht.AssertOutpointInMempool(
 			bobCommitOutpoint,
 		)
 		bobCommitSweepTxid := bobCommitSweep.TxHash()
@@ -1219,7 +1219,7 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 
 	// Look up the closing transaction. It should be spending from the
 	// funding transaction,
-	closingTx := ht.Miner.AssertOutpointInMempool(
+	closingTx := ht.AssertOutpointInMempool(
 		ht.OutPointFromChannelPoint(bobChanPoint),
 	)
 	closingTxid := closingTx.TxHash()
@@ -1300,7 +1300,7 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	carolSecondLevelCSV--
 
 	// Check Bob's second level tx.
-	bobSecondLvlTx := ht.Miner.GetNumTxsFromMempool(1)[0]
+	bobSecondLvlTx := ht.GetNumTxsFromMempool(1)[0]
 
 	// It should spend from the commitment in the channel with Alice.
 	ht.AssertTxSpendFrom(bobSecondLvlTx, *bobForceClose)
@@ -1355,7 +1355,7 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	block = ht.MineBlocksAndAssertNumTxes(bobSecondLevelCSV, 1)[0]
 	ht.AssertTxInBlock(block, carolSweep)
 
-	bobSweep := ht.Miner.GetNumTxsFromMempool(1)[0]
+	bobSweep := ht.GetNumTxsFromMempool(1)[0]
 	bobSweepTxid := bobSweep.TxHash()
 
 	// When we mine one additional block, that will confirm Bob's sweep.
@@ -1399,11 +1399,11 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 		aliceCommitOutpoint := wire.OutPoint{
 			Hash: *bobForceClose, Index: 3,
 		}
-		ht.Miner.AssertOutpointInMempool(
+		ht.AssertOutpointInMempool(
 			aliceCommitOutpoint,
 		).TxHash()
 		bobCommitOutpoint := wire.OutPoint{Hash: closingTxid, Index: 3}
-		ht.Miner.AssertOutpointInMempool(
+		ht.AssertOutpointInMempool(
 			bobCommitOutpoint,
 		).TxHash()
 
@@ -1562,7 +1562,7 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 
 	// The closing transaction should be spending from the funding
 	// transaction.
-	closingTx := ht.Miner.AssertOutpointInMempool(
+	closingTx := ht.AssertOutpointInMempool(
 		ht.OutPointFromChannelPoint(bobChanPoint),
 	)
 	closingTxid := closingTx.TxHash()
@@ -1624,7 +1624,7 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 	// NOTE: after Bob is restarted, the sweeping of the direct preimage
 	// spent will happen immediately so we don't need to mine a block to
 	// trigger Bob's sweeper to sweep it.
-	bobHtlcSweep := ht.Miner.GetNumTxsFromMempool(1)[0]
+	bobHtlcSweep := ht.GetNumTxsFromMempool(1)[0]
 	bobHtlcSweepTxid := bobHtlcSweep.TxHash()
 
 	// It should spend from the commitment in the channel with Alice.
@@ -1692,9 +1692,9 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 		aliceCommitOutpoint := wire.OutPoint{
 			Hash: *aliceForceClose, Index: 3,
 		}
-		ht.Miner.AssertOutpointInMempool(aliceCommitOutpoint)
+		ht.AssertOutpointInMempool(aliceCommitOutpoint)
 		bobCommitOutpoint := wire.OutPoint{Hash: closingTxid, Index: 3}
-		ht.Miner.AssertOutpointInMempool(bobCommitOutpoint)
+		ht.AssertOutpointInMempool(bobCommitOutpoint)
 
 		// Confirm their sweeps.
 		ht.MineBlocksAndAssertNumTxes(1, 2)
@@ -1887,7 +1887,7 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	// other for local.
 	ht.AssertNumPendingSweeps(bob, 2)
 
-	closeTx := ht.Miner.AssertOutpointInMempool(
+	closeTx := ht.AssertOutpointInMempool(
 		ht.OutPointFromChannelPoint(bobChanPoint),
 	)
 	closeTxid := closeTx.TxHash()
@@ -1977,7 +1977,7 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Assert the sweeping txns are found in the mempool.
-	txes := ht.Miner.GetNumTxsFromMempool(expectedTxes)
+	txes := ht.GetNumTxsFromMempool(expectedTxes)
 
 	// Since Bob can aggregate the transactions, we expect a single
 	// transaction, that have multiple spends from the commitment.
@@ -2048,7 +2048,7 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 		ht.MineEmptyBlocks(1)
 
 		// Find the commitment sweep.
-		bobCommitSweep := ht.Miner.GetNumTxsFromMempool(1)[0]
+		bobCommitSweep := ht.GetNumTxsFromMempool(1)[0]
 		ht.AssertTxSpendFrom(bobCommitSweep, closeTxid)
 
 		// Also ensure it is not spending from any of the HTLC output.
@@ -2092,7 +2092,7 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 		numBlocks := uint32(forceCloseChan.BlocksTilMaturity)
 
 		// Add debug log.
-		_, height := ht.Miner.GetBestBlock()
+		_, height := ht.GetBestBlock()
 		bob.AddToLogf("itest: now mine %d blocks at height %d",
 			numBlocks, height)
 		ht.MineEmptyBlocks(int(numBlocks) - 1)
@@ -2135,7 +2135,7 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	ht.Logf("Checking mempool got: %v", err)
 
 	// Make sure it spends from the second level tx.
-	secondLevelSweep := ht.Miner.GetNumTxsFromMempool(numExpected)[0]
+	secondLevelSweep := ht.GetNumTxsFromMempool(numExpected)[0]
 	bobSweep := secondLevelSweep.TxHash()
 
 	// It should be sweeping all the second-level outputs.
@@ -2232,7 +2232,7 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 	var aliceFundingShim *lnrpc.FundingShim
 	var thawHeight uint32
 	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-		_, minerHeight := ht.Miner.GetBestBlock()
+		_, minerHeight := ht.GetBestBlock()
 		thawHeight = uint32(minerHeight + thawHeightDelta)
 		aliceFundingShim, _ = deriveFundingShim(
 			ht, alice, bob, chanAmt, thawHeight, true, c,
@@ -2449,7 +2449,7 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 
 	// Get the current height to compute number of blocks to mine to
 	// trigger the htlc timeout resolver from Bob.
-	_, height := ht.Miner.GetBestBlock()
+	_, height := ht.GetBestBlock()
 
 	// We'll now mine enough blocks to trigger Bob's timeout resolver.
 	numBlocks = htlc.ExpirationHeight - uint32(height) -
@@ -2680,7 +2680,7 @@ func runExtraPreimageFromLocalCommit(ht *lntest.HarnessTest,
 
 	// Get the current height to compute number of blocks to mine to
 	// trigger the timeout resolver from Bob.
-	_, height := ht.Miner.GetBestBlock()
+	_, height := ht.GetBestBlock()
 
 	// We'll now mine enough blocks to trigger Bob's htlc timeout resolver
 	// to act. Once his timeout resolver starts, it will extract the
@@ -2701,7 +2701,7 @@ func runExtraPreimageFromLocalCommit(ht *lntest.HarnessTest,
 	// preimage from the blocks.
 	if ht.IsNeutrinoBackend() {
 		// Make sure the direct spend tx is still in the mempool.
-		ht.Miner.AssertOutpointInMempool(htlcOutpoint)
+		ht.AssertOutpointInMempool(htlcOutpoint)
 
 		// Mine a block to confirm Carol's direct spend tx.
 		ht.MineBlocks(1)

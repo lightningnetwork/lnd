@@ -486,7 +486,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 
 	// We now update the anchor sweep's deadline to be different than the
 	// commit sweep so they can won't grouped together.
-	_, currentHeight := ht.Miner.GetBestBlock()
+	_, currentHeight := ht.GetBestBlock()
 	deadline := int32(commit.DeadlineHeight) - currentHeight
 	require.Positive(ht, deadline)
 	ht.Logf("Found commit deadline %d, anchor deadline %d",
@@ -520,7 +520,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// Mine one block to trigger Alice's sweeper to reconsider the anchor
 	// sweeping - it will be swept with her commit output together in one
 	// tx.
-	txns := ht.Miner.GetNumTxsFromMempool(2)
+	txns := ht.GetNumTxsFromMempool(2)
 	aliceSweep := txns[0]
 	if aliceSweep.TxOut[0].Value > txns[1].TxOut[0].Value {
 		aliceSweep = txns[1]
@@ -600,7 +600,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 		Hash:  *forceCloseTxID,
 		Index: 1,
 	}
-	ht.Miner.AssertOutpointInMempool(commitSweepOp)
+	ht.AssertOutpointInMempool(commitSweepOp)
 	ht.MineBlocks(1)
 
 	ht.AssertNumWaitingClose(alice, 0)
@@ -727,7 +727,7 @@ func testRemoveTx(ht *lntest.HarnessTest) {
 	require.Lenf(ht, unconfirmed, 2, "number of unconfirmed tx")
 
 	// Get the raw transaction to calculate the exact fee.
-	tx := ht.Miner.GetNumTxsFromMempool(1)[0]
+	tx := ht.GetNumTxsFromMempool(1)[0]
 
 	// Calculate the tx fee so we can compare the end amounts. We are
 	// sending from the internal wallet to the internal wallet so only
@@ -836,7 +836,7 @@ func testListSweeps(ht *lntest.HarnessTest) {
 	ht.MineEmptyBlocks(1)
 
 	// Get the current block height.
-	_, blockHeight := ht.Miner.GetBestBlock()
+	_, blockHeight := ht.GetBestBlock()
 
 	// Close the second channel and also sweep the funds.
 	ht.ForceCloseChannel(alice, chanPoints[1])

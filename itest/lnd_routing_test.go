@@ -117,7 +117,7 @@ func testSingleHopSendToRouteCase(ht *lntest.HarnessTest,
 	// Assert Carol and Dave are synced to the chain before proceeding, to
 	// ensure the queried route will have a valid final CLTV once the HTLC
 	// reaches Dave.
-	_, minerHeight := ht.Miner.GetBestBlock()
+	_, minerHeight := ht.GetBestBlock()
 	ht.WaitForNodeBlockHeight(carol, minerHeight)
 	ht.WaitForNodeBlockHeight(dave, minerHeight)
 

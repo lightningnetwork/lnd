@@ -433,10 +433,10 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	st.feeService.Reset()
 
 	// Record block height.
-	_, startHeight := h.Miner.GetBestBlock()
+	_, startHeight := h.GetBestBlock()
 
 	st.Cleanup(func() {
-		_, endHeight := h.Miner.GetBestBlock()
+		_, endHeight := h.GetBestBlock()
 
 		st.Logf("finished test: %s, start height=%d, end height=%d, "+
 			"mined blocks=%d", st.manager.currentTestCase,
@@ -2158,7 +2158,7 @@ func (h *HarnessTest) SendCoins(a, b *node.HarnessNode,
 		TargetConf: 6,
 	}
 	a.RPC.SendCoins(sendReq)
-	tx := h.Miner.GetNumTxsFromMempool(1)[0]
+	tx := h.GetNumTxsFromMempool(1)[0]
 
 	return tx
 }

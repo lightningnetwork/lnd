@@ -59,7 +59,7 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	require.Len(ht, channel.PendingHtlcs, 1)
 	activeHtlc := channel.PendingHtlcs[0]
 
-	_, currentHeight := ht.Miner.GetBestBlock()
+	_, currentHeight := ht.GetBestBlock()
 
 	// Now we will mine blocks until the htlc expires, and wait for each
 	// node to sync to our latest height. Sanity check that we won't

@@ -160,7 +160,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Fetch starting height of this test so we can compute the block
 	// heights we expect certain events to take place.
-	_, curHeight := ht.Miner.GetBestBlock()
+	_, curHeight := ht.GetBestBlock()
 
 	// Using the current height of the chain, derive the relevant heights
 	// for incubating two-stage htlcs.
@@ -214,7 +214,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	ht.AssertNumUTXOs(alice, expectedUtxos)
 
 	// We expect to see Alice's force close tx in the mempool.
-	ht.Miner.GetNumTxsFromMempool(1)
+	ht.GetNumTxsFromMempool(1)
 
 	// Mine a block which should confirm the commitment transaction
 	// broadcast as a result of the force closure. Once mined, we also
@@ -278,7 +278,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Carol's sweep tx should be in the mempool already, as her output is
 	// not timelocked.
-	carolTx := ht.Miner.GetNumTxsFromMempool(1)[0]
+	carolTx := ht.GetNumTxsFromMempool(1)[0]
 
 	// Carol's sweeping tx should have 2-input-1-output shape.
 	require.Len(ht, carolTx.TxIn, 2)
@@ -431,7 +431,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Update current height
-	_, curHeight = ht.Miner.GetBestBlock()
+	_, curHeight = ht.GetBestBlock()
 
 	// checkForceClosedChannelNumHtlcs verifies that a force closed channel
 	// has the proper number of htlcs.
@@ -485,7 +485,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// number of blocks we have generated since adding it to the nursery,
 	// and take an additional block off so that we end up one block shy of
 	// the expiry height, and add the block padding.
-	_, currentHeight := ht.Miner.GetBestBlock()
+	_, currentHeight := ht.GetBestBlock()
 	cltvHeightDelta := int(htlcExpiryHeight - uint32(currentHeight) - 1)
 
 	// Advance the blockchain until just before the CLTV expires, nothing
@@ -662,7 +662,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Advance the chain until just before the 2nd-layer CSV delays expire.
 	// For anchor channels this is one block earlier.
-	_, currentHeight = ht.Miner.GetBestBlock()
+	_, currentHeight = ht.GetBestBlock()
 	ht.Logf("current height: %v, htlcCsvMaturityHeight=%v", currentHeight,
 		htlcCsvMaturityHeight)
 	numBlocks := int(htlcCsvMaturityHeight - uint32(currentHeight) - 2)

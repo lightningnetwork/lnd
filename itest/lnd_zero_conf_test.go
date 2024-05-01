@@ -962,7 +962,7 @@ func testZeroConfReorg(ht *lntest.HarnessTest) {
 	ht.Miner.AssertMinerBlockHeightDelta(tempMiner, 1)
 
 	// Wait for Carol to sync to the original miner's chain.
-	_, minerHeight := ht.Miner.GetBestBlock()
+	_, minerHeight := ht.GetBestBlock()
 	ht.WaitForNodeBlockHeight(carol, minerHeight)
 
 	// Now we'll disconnect Carol's chain backend from the original miner

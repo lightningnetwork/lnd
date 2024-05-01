@@ -1053,7 +1053,7 @@ func testBatchChanFunding(ht *lntest.HarnessTest) {
 	ht.AssertTopologyChannelOpen(alice, chanPoint3)
 
 	// Check if the change type from the batch_open_channel funding is P2TR.
-	rawTx := ht.Miner.GetRawTransaction(txHash)
+	rawTx := ht.GetRawTransaction(txHash)
 	require.Len(ht, rawTx.MsgTx().TxOut, 5)
 
 	// For calculating the change output index we use the formula for the
@@ -1182,9 +1182,9 @@ func deriveFundingShim(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	var txid *chainhash.Hash
 	targetOutputs := []*wire.TxOut{fundingOutput}
 	if publish {
-		txid = ht.Miner.SendOutputsWithoutChange(targetOutputs, 5)
+		txid = ht.SendOutputsWithoutChange(targetOutputs, 5)
 	} else {
-		tx := ht.Miner.CreateTransaction(targetOutputs, 5)
+		tx := ht.CreateTransaction(targetOutputs, 5)
 
 		txHash := tx.TxHash()
 		txid = &txHash

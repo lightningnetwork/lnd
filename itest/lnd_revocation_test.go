@@ -570,13 +570,13 @@ func revokedCloseRetributionRemoteHodlCase(ht *lntest.HarnessTest,
 	var justiceTxid *chainhash.Hash
 	errNotFound := errors.New("justice tx not found")
 	findJusticeTx := func() (*chainhash.Hash, error) {
-		mempool := ht.Miner.GetRawMempool()
+		mempool := ht.GetRawMempool()
 
 		for _, txid := range mempool {
 			// Check that the justice tx has the appropriate number
 			// of inputs.
 			//
-			// NOTE: We don't use `ht.Miner.GetRawTransaction`
+			// NOTE: We don't use `ht.GetRawTransaction`
 			// which asserts a txid must be found as the HTLC
 			// spending txes might be aggregated.
 			tx, err := ht.Miner.Client.GetRawTransaction(txid)
@@ -626,14 +626,14 @@ func revokedCloseRetributionRemoteHodlCase(ht *lntest.HarnessTest,
 	}
 	require.NoError(ht, err, "timeout finding justice tx")
 
-	justiceTx := ht.Miner.GetRawTransaction(justiceTxid)
+	justiceTx := ht.GetRawTransaction(justiceTxid)
 
 	// isSecondLevelSpend checks that the passed secondLevelTxid is a
 	// potentitial second level spend spending from the commit tx.
 	isSecondLevelSpend := func(commitTxid,
 		secondLevelTxid *chainhash.Hash) bool {
 
-		secondLevel := ht.Miner.GetRawTransaction(secondLevelTxid)
+		secondLevel := ht.GetRawTransaction(secondLevelTxid)
 
 		// A second level spend should have only one input, and one
 		// output.

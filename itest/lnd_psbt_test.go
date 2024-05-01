@@ -464,7 +464,7 @@ func runPsbtChanFundingExternal(ht *lntest.HarnessTest, carol,
 	require.NoError(ht, err)
 
 	txHash := finalTx.TxHash()
-	_, err = ht.Miner.Client.SendRawTransaction(&finalTx, false)
+	_, err = ht.SendRawTransaction(&finalTx, false)
 	require.NoError(ht, err)
 
 	// Now we can mine a block to get the transaction confirmed, then wait

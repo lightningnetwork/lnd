@@ -97,7 +97,7 @@ func testNonStdSweepInner(ht *lntest.HarnessTest, address string) {
 
 	// Fetch the txid so we can grab the raw transaction.
 	txid := ht.AssertNumTxsInMempool(1)[0]
-	tx := ht.Miner.GetRawTransaction(txid)
+	tx := ht.GetRawTransaction(txid)
 
 	msgTx := tx.MsgTx()
 
@@ -111,7 +111,7 @@ func testNonStdSweepInner(ht *lntest.HarnessTest, address string) {
 	for _, inp := range msgTx.TxIn {
 		// Fetch the previous outpoint's value.
 		prevOut := inp.PreviousOutPoint
-		ptx := ht.Miner.GetRawTransaction(&prevOut.Hash)
+		ptx := ht.GetRawTransaction(&prevOut.Hash)
 
 		pout := ptx.MsgTx().TxOut[prevOut.Index]
 		inputVal += int(pout.Value)

@@ -252,7 +252,7 @@ func testOnchainFundRecovery(ht *lntest.HarnessTest) {
 	promptChangeAddr := func(node *node.HarnessNode) {
 		ht.Helper()
 
-		minerAddr := ht.Miner.NewMinerAddress()
+		minerAddr := ht.NewMinerAddress()
 		req := &lnrpc.SendCoinsRequest{
 			Addr:       minerAddr.String(),
 			Amount:     minerAmt,

@@ -823,14 +823,14 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// Send coins to a compatible address without specifying fee rate or
 	// conf target.
 	// ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
-	// 	Addr:    ht.Miner.NewMinerAddress().String(),
+	// 	Addr:    ht.NewMinerAddress().String(),
 	// 	SendAll: true,
 	// 	Label:   sendCoinsLabel,
 	// })
 
 	// Send coins to a compatible address.
 	ainz.RPC.SendCoins(&lnrpc.SendCoinsRequest{
-		Addr:       ht.Miner.NewMinerAddress().String(),
+		Addr:       ht.NewMinerAddress().String(),
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
@@ -930,7 +930,7 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// If we try again, but this time specifying an amount, then the call
 	// should fail.
 	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
-		Addr:       ht.Miner.NewMinerAddress().String(),
+		Addr:       ht.NewMinerAddress().String(),
 		Amount:     10000,
 		SendAll:    true,
 		Label:      sendCoinsLabel,

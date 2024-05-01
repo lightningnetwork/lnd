@@ -4,8 +4,10 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -222,4 +224,78 @@ func (h *HarnessTest) GetNumTxsFromMempool(n int) []*wire.MsgTx {
 // GetBestBlock makes a RPC request to miner and asserts.
 func (h *HarnessTest) GetBestBlock() (*chainhash.Hash, int32) {
 	return h.Miner.GetBestBlock()
+}
+
+// MineBlockWithTx mines a single block to include the specifies tx only.
+func (h *HarnessTest) MineBlockWithTx(tx *wire.MsgTx) *wire.MsgBlock {
+	return h.Miner.MineBlockWithTx(tx)
+}
+
+// ConnectToMiner connects the miner to a temp miner.
+func (h *HarnessTest) ConnectToMiner(tempMiner *miner.HarnessMiner) {
+	h.Miner.ConnectMiner(tempMiner)
+}
+
+// DisconnectFromMiner disconnects the miner from the temp miner.
+func (h *HarnessTest) DisconnectFromMiner(tempMiner *miner.HarnessMiner) {
+	h.Miner.DisconnectMiner(tempMiner)
+}
+
+// GetRawMempool makes a RPC call to the miner's GetRawMempool and
+// asserts.
+func (h *HarnessTest) GetRawMempool() []*chainhash.Hash {
+	return h.Miner.GetRawMempool()
+}
+
+// GetRawTransaction makes a RPC call to the miner's GetRawTransaction and
+// asserts.
+func (h *HarnessTest) GetRawTransaction(txid *chainhash.Hash) *btcutil.Tx {
+	return h.Miner.GetRawTransaction(txid)
+}
+
+// NewMinerAddress creates a new address for the miner and asserts.
+func (h *HarnessTest) NewMinerAddress() btcutil.Address {
+	return h.Miner.NewMinerAddress()
+}
+
+// SpawnTempMiner creates a temp miner and syncs it with the current miner.
+// Once miners are synced, the temp miner is disconnected from the original
+// miner and returned.
+func (h *HarnessTest) SpawnTempMiner() *miner.HarnessMiner {
+	return h.Miner.SpawnTempMiner()
+}
+
+// CreateTransaction uses the miner to create a transaction using the given
+// outputs using the specified fee rate and returns the transaction.
+func (h *HarnessTest) CreateTransaction(outputs []*wire.TxOut,
+	feeRate btcutil.Amount) *wire.MsgTx {
+
+	return h.Miner.CreateTransaction(outputs, feeRate)
+}
+
+// SendOutputsWithoutChange uses the miner to send the given outputs using the
+// specified fee rate and returns the txid.
+func (h *HarnessTest) SendOutputsWithoutChange(outputs []*wire.TxOut,
+	feeRate btcutil.Amount) *chainhash.Hash {
+
+	return h.Miner.SendOutputsWithoutChange(outputs, feeRate)
+}
+
+// AssertMinerBlockHeightDelta ensures that tempMiner is 'delta' blocks ahead
+// of miner.
+func (h *HarnessTest) AssertMinerBlockHeightDelta(
+	tempMiner *miner.HarnessMiner, delta int32) {
+
+	h.Miner.AssertMinerBlockHeightDelta(tempMiner, delta)
+}
+
+// SendRawTransaction submits the encoded transaction to the server which will
+// then relay it to the network.
+func (h *HarnessTest) SendRawTransaction(tx *wire.MsgTx,
+	allowHighFees bool) (chainhash.Hash, error) {
+
+	txid, err := h.Miner.Client.SendRawTransaction(tx, allowHighFees)
+	require.NoError(h, err)
+
+	return *txid, nil
 }

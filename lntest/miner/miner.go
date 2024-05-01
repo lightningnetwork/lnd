@@ -410,7 +410,7 @@ func (h *HarnessMiner) AssertOutpointInMempool(op wire.OutPoint) *wire.MsgTx {
 		}
 
 		for _, txid := range mempool {
-			// We don't use `ht.Miner.GetRawTransaction` which
+			// We don't use `ht.GetRawTransaction` which
 			// asserts a txid must be found. While iterating here,
 			// the actual mempool state might have been changed,
 			// causing a given txid being removed and cannot be

@@ -339,7 +339,7 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 		// TODO(yy): remove this once `blockbeat` is in place.
 		numExpected := 1
 		err := wait.NoError(func() error {
-			mem := ht.Miner.GetRawMempool()
+			mem := ht.GetRawMempool()
 			if len(mem) == 2 {
 				numExpected = 2
 				return nil
@@ -2120,7 +2120,7 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	// TODO(yy): remove this once `blockbeat` is in place.
 	numExpected := 1
 	err := wait.NoError(func() error {
-		mem := ht.Miner.GetRawMempool()
+		mem := ht.GetRawMempool()
 		if len(mem) == numExpected {
 			return nil
 		}

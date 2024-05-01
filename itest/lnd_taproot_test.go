@@ -1850,7 +1850,7 @@ func testTaprootCoopClose(ht *lntest.HarnessTest) {
 	// assertTaprootDeliveryUsed returns true if a Taproot addr was used in
 	// the co-op close transaction.
 	assertTaprootDeliveryUsed := func(closingTxid *chainhash.Hash) bool {
-		tx := ht.Miner.GetRawTransaction(closingTxid)
+		tx := ht.GetRawTransaction(closingTxid)
 		for _, txOut := range tx.MsgTx().TxOut {
 			if !txscript.IsPayToTaproot(txOut.PkScript) {
 				return false

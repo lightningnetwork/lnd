@@ -321,7 +321,7 @@ func testAnchorReservedValue(ht *lntest.HarnessTest) {
 
 	// Alice tries to send all funds to an external address, the reserved
 	// value must stay in her wallet.
-	minerAddr := ht.Miner.NewMinerAddress()
+	minerAddr := ht.NewMinerAddress()
 
 	sweepReq = &lnrpc.SendCoinsRequest{
 		Addr:       minerAddr.String(),
@@ -544,7 +544,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// With the anchor output located, and the main commitment mined we'll
 	// instruct the wallet to send all coins in the wallet to a new address
 	// (to the miner), including unconfirmed change.
-	minerAddr := ht.Miner.NewMinerAddress()
+	minerAddr := ht.NewMinerAddress()
 	sweepReq := &lnrpc.SendCoinsRequest{
 		Addr:             minerAddr.String(),
 		SendAll:          true,
@@ -574,7 +574,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// mine a transaction that double spends the output.
 	thirdPartyAnchorSweep := genAnchorSweep(ht, aliceSweep, anchor.Outpoint)
 	ht.Logf("Third party tx=%v", thirdPartyAnchorSweep.TxHash())
-	ht.Miner.MineBlockWithTx(thirdPartyAnchorSweep)
+	ht.MineBlockWithTx(thirdPartyAnchorSweep)
 
 	// At this point, we should no longer find Alice's transaction that
 	// tried to sweep the anchor in her wallet.
@@ -673,7 +673,7 @@ func genAnchorSweep(ht *lntest.HarnessTest, aliceSweep *wire.MsgTx,
 	aliceAnchorTxIn.Witness[0] = nil
 	aliceAnchorTxIn.Sequence = 16
 
-	minerAddr := ht.Miner.NewMinerAddress()
+	minerAddr := ht.NewMinerAddress()
 	addrScript, err := txscript.PayToAddrScript(minerAddr)
 	require.NoError(ht, err, "unable to gen addr script")
 
@@ -766,7 +766,7 @@ func testRemoveTx(ht *lntest.HarnessTest) {
 	// Mine a block and make sure the transaction previously broadcasted
 	// shows up in alice's wallet although we removed the transaction from
 	// the wallet when it was unconfirmed.
-	block := ht.Miner.MineBlocks(1)[0]
+	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	ht.AssertTxInBlock(block, txID)
 
 	// Verify that alice has 2 confirmed unspent utxos in her default

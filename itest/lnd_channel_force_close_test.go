@@ -393,7 +393,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Fetch the sweep transaction, all input it's spending should be from
 	// the commitment transaction which was broadcast on-chain.
-	sweepTx := ht.Miner.GetRawTransaction(sweepingTXID)
+	sweepTx := ht.GetRawTransaction(sweepingTXID)
 	for _, txIn := range sweepTx.MsgTx().TxIn {
 		require.Equal(ht, &txIn.PreviousOutPoint.Hash, closingTxID,
 			"sweep transaction not spending from commit")
@@ -567,7 +567,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 		// on-chain. In case of an anchor type channel, we expect one
 		// extra input that is not spending from the commitment, that
 		// is added for fees.
-		htlcTx := ht.Miner.GetRawTransaction(htlcTxID)
+		htlcTx := ht.GetRawTransaction(htlcTxID)
 
 		// Ensure the htlc transaction has the expected number of
 		// inputs.
@@ -736,7 +736,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	htlcSweepTxID := ht.AssertNumTxsInMempool(1)[0]
 
 	// Fetch the htlc sweep transaction from the mempool.
-	htlcSweepTx := ht.Miner.GetRawTransaction(htlcSweepTxID)
+	htlcSweepTx := ht.GetRawTransaction(htlcSweepTxID)
 
 	// Ensure the htlc sweep transaction only has one input for each htlc
 	// Alice extended before force closing.

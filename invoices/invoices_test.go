@@ -2681,8 +2681,11 @@ func testDeleteCanceledInvoices(t *testing.T,
 		}, nil
 	}
 
-	// Add some invoices to the test db.
+	// Test deletion of canceled invoices when there are none.
 	ctxb := context.Background()
+	require.NoError(t, db.DeleteCanceledInvoices(ctxb))
+
+	// Add some invoices to the test db.
 	var invoices []invpkg.Invoice
 	for i := 0; i < 10; i++ {
 		invoice, err := randInvoice(lnwire.MilliSatoshi(i + 1))

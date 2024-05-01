@@ -139,6 +139,45 @@ func (h *HarnessRPC) SendToRouteV2(
 	return resp
 }
 
+// SendOnion makes a RPC call to SendOnion and asserts.
+func (h *HarnessRPC) SendOnion(
+	req *routerrpc.SendOnionRequest) *routerrpc.SendOnionResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.Router.SendOnion(ctxt, req)
+	h.NoError(err, "SendOnion")
+
+	return resp
+}
+
+// TrackOnion makes a RPC call to TrackOnion and asserts.
+func (h *HarnessRPC) TrackOnion(
+	req *routerrpc.TrackOnionRequest) *routerrpc.TrackOnionResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.Router.TrackOnion(ctxt, req)
+	h.NoError(err, "TrackOnion")
+
+	return resp
+}
+
+// BuildOnion makes a RPC call to BuildOnion and asserts.
+func (h *HarnessRPC) BuildOnion(
+	req *routerrpc.BuildOnionRequest) *routerrpc.BuildOnionResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.Router.BuildOnion(ctxt, req)
+	h.NoError(err, "BuildOnion")
+
+	return resp
+}
+
 // QueryProbability makes a RPC call to the node's QueryProbability and
 // asserts.
 //

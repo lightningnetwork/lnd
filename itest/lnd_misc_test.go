@@ -416,7 +416,7 @@ func testMaxPendingChannels(ht *lntest.HarnessTest) {
 
 		// Ensure that the funding transaction enters a block, and is
 		// properly advertised by Alice.
-		ht.Miner.AssertTxInBlock(block, fundingTxID)
+		ht.AssertTxInBlock(block, fundingTxID)
 		ht.AssertTopologyChannelOpen(alice, fundingChanPoint)
 
 		// The channel should be listed in the peer information

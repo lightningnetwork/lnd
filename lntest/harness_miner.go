@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -176,4 +177,18 @@ func (h *HarnessTest) mineTillForceCloseResolved(hn *node.HarnessNode) {
 	}, DefaultTimeout)
 
 	require.NoErrorf(h, err, "assert force close resolved timeout")
+}
+
+// AssertNumTxsInMempool polls until finding the desired number of transactions
+// in the provided miner's mempool. It will asserrt if this number is not met
+// after the given timeout.
+func (h *HarnessTest) AssertNumTxsInMempool(n int) []*chainhash.Hash {
+	return h.Miner.AssertNumTxsInMempool(n)
+}
+
+// AssertTxInBlock asserts that a given txid can be found in the passed block.
+func (h *HarnessTest) AssertTxInBlock(block *wire.MsgBlock,
+	txid *chainhash.Hash) {
+
+	h.Miner.AssertTxInBlock(block, txid)
 }

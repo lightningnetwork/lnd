@@ -110,7 +110,7 @@ func testZeroConfChannelOpen(ht *lntest.HarnessTest) {
 
 	fundingTxID := ht.GetChanPointFundingTxid(fundingPoint2)
 
-	ht.Miner.AssertTxInBlock(block, fundingTxID)
+	ht.AssertTxInBlock(block, fundingTxID)
 
 	daveInvoiceResp3 := dave.RPC.AddInvoice(daveInvoiceParams)
 	ht.CompletePaymentRequests(
@@ -159,7 +159,7 @@ func testZeroConfChannelOpen(ht *lntest.HarnessTest) {
 	block = ht.MineBlocksAndAssertNumTxes(6, 1)[0]
 
 	fundingTxID = ht.GetChanPointFundingTxid(fundingPoint3)
-	ht.Miner.AssertTxInBlock(block, fundingTxID)
+	ht.AssertTxInBlock(block, fundingTxID)
 
 	// Wait until Eve's ZeroConf channel is replaced by the confirmed SCID
 	// in her graph.

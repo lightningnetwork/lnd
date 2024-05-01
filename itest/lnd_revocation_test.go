@@ -122,7 +122,7 @@ func breachRetributionTestCase(ht *lntest.HarnessTest,
 	// update, then ensure that the closing transaction was included in the
 	// block.
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-	ht.Miner.AssertTxInBlock(block, breachTXID)
+	ht.AssertTxInBlock(block, breachTXID)
 
 	// Construct to_remote output which pays to Bob. Based on the output
 	// ordering, the first output in this breach tx is the to_remote
@@ -174,7 +174,7 @@ func breachRetributionTestCase(ht *lntest.HarnessTest,
 	// transaction which was just accepted into the mempool.
 	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	justiceTxid := justiceTx.TxHash()
-	ht.Miner.AssertTxInBlock(block, &justiceTxid)
+	ht.AssertTxInBlock(block, &justiceTxid)
 
 	ht.AssertNodeNumChannels(carol, 0)
 
@@ -363,7 +363,7 @@ func revokedCloseRetributionZeroValueRemoteOutputCase(ht *lntest.HarnessTest,
 	// transaction which was just accepted into the mempool.
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	justiceTxid := justiceTx.TxHash()
-	ht.Miner.AssertTxInBlock(block, &justiceTxid)
+	ht.AssertTxInBlock(block, &justiceTxid)
 
 	// At this point, Dave should have no pending channels.
 	ht.AssertNodeNumChannels(dave, 0)
@@ -559,7 +559,7 @@ func revokedCloseRetributionRemoteHodlCase(ht *lntest.HarnessTest,
 	breachTXID := ht.WaitForChannelCloseEvent(closeUpdates)
 	require.Equal(ht, closeTxID[:], breachTXID[:],
 		"expected breach ID to be equal to close ID")
-	ht.Miner.AssertTxInBlock(block, breachTXID)
+	ht.AssertTxInBlock(block, breachTXID)
 
 	// Query the mempool for Dave's justice transaction, this should be
 	// broadcast as Carol's contract breaching transaction gets confirmed

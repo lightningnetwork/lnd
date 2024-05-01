@@ -656,7 +656,7 @@ func (h *HarnessTest) AssertStreamChannelCoopClosed(hn *node.HarnessNode,
 	// Consume one close event and assert the closing txid can be found in
 	// the block.
 	closingTxid := h.WaitForChannelCloseEvent(stream)
-	h.Miner.AssertTxInBlock(block, closingTxid)
+	h.AssertTxInBlock(block, closingTxid)
 
 	// We should see zero waiting close channels now.
 	h.AssertNumWaitingClose(hn, 0)
@@ -700,7 +700,7 @@ func (h *HarnessTest) AssertStreamChannelForceClosed(hn *node.HarnessNode,
 	// Consume one close event and assert the closing txid can be found in
 	// the block.
 	closingTxid := h.WaitForChannelCloseEvent(stream)
-	h.Miner.AssertTxInBlock(block, closingTxid)
+	h.AssertTxInBlock(block, closingTxid)
 
 	// We should see zero waiting close channels and 1 pending force close
 	// channels now.
@@ -2564,7 +2564,7 @@ func (h *HarnessTest) AssertClosingTxInMempool(cp *lnrpc.ChannelPoint,
 	}
 
 	// Wait for the expected txes to be found in the mempool.
-	h.Miner.AssertNumTxsInMempool(expectedTxes)
+	h.AssertNumTxsInMempool(expectedTxes)
 
 	// Get the closing tx from the mempool.
 	op := h.OutPointFromChannelPoint(cp)
@@ -2578,7 +2578,7 @@ func (h *HarnessTest) AssertClosingTxInMempool(cp *lnrpc.ChannelPoint,
 // will assert the anchor sweep tx is also in the mempool.
 func (h *HarnessTest) MineClosingTx(cp *lnrpc.ChannelPoint) *wire.MsgTx {
 	// Wait for the expected txes to be found in the mempool.
-	h.Miner.AssertNumTxsInMempool(1)
+	h.AssertNumTxsInMempool(1)
 
 	// Get the closing tx from the mempool.
 	op := h.OutPointFromChannelPoint(cp)

@@ -859,7 +859,7 @@ func testChannelFundingPersistence(ht *lntest.HarnessTest) {
 	// channel has been opened. The funding transaction should be found
 	// within the newly mined block.
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-	ht.Miner.AssertTxInBlock(block, fundingTxID)
+	ht.AssertTxInBlock(block, fundingTxID)
 
 	// Get the height that our transaction confirmed at.
 	_, height := ht.Miner.GetBestBlock()
@@ -1047,7 +1047,7 @@ func testBatchChanFunding(ht *lntest.HarnessTest) {
 
 	// Mine the batch transaction and check the network topology.
 	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
-	ht.Miner.AssertTxInBlock(block, txHash)
+	ht.AssertTxInBlock(block, txHash)
 	ht.AssertTopologyChannelOpen(alice, chanPoint1)
 	ht.AssertTopologyChannelOpen(alice, chanPoint2)
 	ht.AssertTopologyChannelOpen(alice, chanPoint3)

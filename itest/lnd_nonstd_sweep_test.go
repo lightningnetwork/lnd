@@ -96,7 +96,7 @@ func testNonStdSweepInner(ht *lntest.HarnessTest, address string) {
 	carol.RPC.SendCoins(sendReq)
 
 	// Fetch the txid so we can grab the raw transaction.
-	txid := ht.Miner.AssertNumTxsInMempool(1)[0]
+	txid := ht.AssertNumTxsInMempool(1)[0]
 	tx := ht.Miner.GetRawTransaction(txid)
 
 	msgTx := tx.MsgTx()

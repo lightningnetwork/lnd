@@ -1193,7 +1193,7 @@ func (h *HarnessTest) openChannel(alice, bob *node.HarnessNode,
 
 	// Check that the funding tx is found in the first block.
 	fundingTxID := h.GetChanPointFundingTxid(fundingChanPoint)
-	h.Miner.AssertTxInBlock(block, fundingTxID)
+	h.AssertTxInBlock(block, fundingTxID)
 
 	// Check that both alice and bob have seen the channel from their
 	// network topology.

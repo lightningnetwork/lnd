@@ -266,7 +266,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 		// We expect to see two txns in the mempool,
 		// - Bob's force close tx.
 		// - Bob's anchor sweep tx.
-		ht.Miner.AssertNumTxsInMempool(2)
+		ht.AssertNumTxsInMempool(2)
 
 		// We expect the fees to increase by i*delta.
 		expectedFee := startFeeAnchor + feeDelta.MulF64(float64(i))
@@ -887,7 +887,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	ht.AssertNumPendingSweeps(bob, 2)
 
 	// Assert Bob's force closing tx has been broadcast.
-	ht.Miner.AssertNumTxsInMempool(1)
+	ht.AssertNumTxsInMempool(1)
 
 	// Mine the force close tx, which triggers Bob's contractcourt to offer
 	// his outgoing HTLC to his sweeper.
@@ -982,7 +982,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 		outgoingFuncPosition++
 
 		// We should see Bob's sweeping tx in the mempool.
-		ht.Miner.AssertNumTxsInMempool(1)
+		ht.AssertNumTxsInMempool(1)
 
 		// Make sure Bob's old sweeping tx has been removed from the
 		// mempool.
@@ -1156,7 +1156,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 		// We should see two txns in the mempool,
 		// - the incoming HTLC sweeping tx.
 		// - the outgoing HTLC sweeping tx.
-		ht.Miner.AssertNumTxsInMempool(2)
+		ht.AssertNumTxsInMempool(2)
 
 		// Make sure Bob's old sweeping txns have been removed from the
 		// mempool.
@@ -1600,7 +1600,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 
 		// We expect to see both Alice's and Bob's sweeping txns in the
 		// mempool.
-		ht.Miner.AssertNumTxsInMempool(2)
+		ht.AssertNumTxsInMempool(2)
 
 		// Make sure Alice's old sweeping tx has been removed from the
 		// mempool.
@@ -1687,7 +1687,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 
 		// We expect to see both Alice's and Bob's sweeping txns in the
 		// mempool.
-		ht.Miner.AssertNumTxsInMempool(2)
+		ht.AssertNumTxsInMempool(2)
 
 		// Make sure Alice's old sweeping tx has been removed from the
 		// mempool.

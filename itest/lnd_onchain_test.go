@@ -717,7 +717,7 @@ func testRemoveTx(ht *lntest.HarnessTest) {
 		TargetConf: 6,
 	}
 	alice.RPC.SendCoins(sendReq)
-	txID := ht.Miner.AssertNumTxsInMempool(1)[0]
+	txID := ht.AssertNumTxsInMempool(1)[0]
 
 	// Make sure the unspent number of utxos is 2 and the unconfirmed
 	// balances add up.
@@ -767,7 +767,7 @@ func testRemoveTx(ht *lntest.HarnessTest) {
 	// shows up in alice's wallet although we removed the transaction from
 	// the wallet when it was unconfirmed.
 	block := ht.Miner.MineBlocks(1)[0]
-	ht.Miner.AssertTxInBlock(block, txID)
+	ht.AssertTxInBlock(block, txID)
 
 	// Verify that alice has 2 confirmed unspent utxos in her default
 	// wallet.
@@ -861,7 +861,7 @@ func testListSweeps(ht *lntest.HarnessTest) {
 	ht.MineEmptyBlocks(1)
 
 	// Now we can expect that the sweep has been broadcast.
-	ht.Miner.AssertNumTxsInMempool(1)
+	ht.AssertNumTxsInMempool(1)
 
 	// List all unconfirmed sweeps that alice's node had broadcast.
 	sweepResp := alice.RPC.ListSweeps(false, -1)

@@ -389,7 +389,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// So we fetch the node's mempool to ensure it has been properly
 	// broadcast.
 	ht.MineEmptyBlocks(1)
-	sweepingTXID := ht.Miner.AssertNumTxsInMempool(1)[0]
+	sweepingTXID := ht.AssertNumTxsInMempool(1)[0]
 
 	// Fetch the sweep transaction, all input it's spending should be from
 	// the commitment transaction which was broadcast on-chain.
@@ -547,7 +547,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// NOTE: after restart, all the htlc timeout txns will be offered to
 	// the sweeper with `Immediate` set to true, so they won't be
 	// aggregated.
-	htlcTxIDs := ht.Miner.AssertNumTxsInMempool(numInvoices)
+	htlcTxIDs := ht.AssertNumTxsInMempool(numInvoices)
 
 	// Retrieve each htlc timeout txn from the mempool, and ensure it is
 	// well-formed. This entails verifying that each only spends from
@@ -733,7 +733,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	}
 
 	// Wait for the single sweep txn to appear in the mempool.
-	htlcSweepTxID := ht.Miner.AssertNumTxsInMempool(1)[0]
+	htlcSweepTxID := ht.AssertNumTxsInMempool(1)[0]
 
 	// Fetch the htlc sweep transaction from the mempool.
 	htlcSweepTx := ht.Miner.GetRawTransaction(htlcSweepTxID)
@@ -818,7 +818,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// Generate the final block that sweeps all htlc funds into the user's
 	// wallet, and make sure the sweep is in this block.
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-	ht.Miner.AssertTxInBlock(block, htlcSweepTxID)
+	ht.AssertTxInBlock(block, htlcSweepTxID)
 
 	// Now that the channel has been fully swept, it should no longer show
 	// up within the pending channels RPC.
@@ -935,7 +935,7 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 	ht.MineEmptyBlocks(1)
 
 	// Carol should have broadcast her sweeping tx.
-	ht.Miner.AssertNumTxsInMempool(1)
+	ht.AssertNumTxsInMempool(1)
 
 	// Mine two blocks to confirm Carol's sweeping tx, which will by now
 	// Alice's commit output should be offered to her sweeper.

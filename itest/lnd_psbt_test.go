@@ -261,7 +261,7 @@ func runPsbtChanFunding(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	}
 
 	// No transaction should have been published yet.
-	ht.Miner.AssertNumTxsInMempool(0)
+	ht.AssertNumTxsInMempool(0)
 
 	// Let's progress the second channel now. This time we'll use the raw
 	// wire format transaction directly.
@@ -295,7 +295,7 @@ func runPsbtChanFunding(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 
 	txHash := finalTx.TxHash()
 	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
-	ht.Miner.AssertTxInBlock(block, &txHash)
+	ht.AssertTxInBlock(block, &txHash)
 	ht.AssertTopologyChannelOpen(carol, chanPoint)
 	ht.AssertTopologyChannelOpen(carol, chanPoint2)
 
@@ -456,7 +456,7 @@ func runPsbtChanFundingExternal(ht *lntest.HarnessTest, carol,
 	finalizeRes := alice.RPC.FinalizePsbt(finalizeReq)
 
 	// No transaction should have been published yet.
-	ht.Miner.AssertNumTxsInMempool(0)
+	ht.AssertNumTxsInMempool(0)
 
 	// Great, now let's publish the final raw transaction.
 	var finalTx wire.MsgTx
@@ -470,7 +470,7 @@ func runPsbtChanFundingExternal(ht *lntest.HarnessTest, carol,
 	// Now we can mine a block to get the transaction confirmed, then wait
 	// for the new channel to be propagated through the network.
 	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
-	ht.Miner.AssertTxInBlock(block, &txHash)
+	ht.AssertTxInBlock(block, &txHash)
 	ht.AssertTopologyChannelOpen(carol, chanPoint)
 	ht.AssertTopologyChannelOpen(carol, chanPoint2)
 
@@ -627,7 +627,7 @@ func runPsbtChanFundingSingleStep(ht *lntest.HarnessTest, carol,
 
 	txHash := finalTx.TxHash()
 	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
-	ht.Miner.AssertTxInBlock(block, &txHash)
+	ht.AssertTxInBlock(block, &txHash)
 	ht.AssertTopologyChannelOpen(carol, chanPoint)
 
 	// Next, to make sure the channel functions as normal, we'll make some
@@ -1326,7 +1326,7 @@ func extractPublishAndMine(ht *lntest.HarnessTest, node *node.HarnessNode,
 	// Mine one block which should contain two transactions.
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	txHash := finalTx.TxHash()
-	ht.Miner.AssertTxInBlock(block, &txHash)
+	ht.AssertTxInBlock(block, &txHash)
 
 	return finalTx
 }
@@ -1432,8 +1432,8 @@ func assertPsbtSpend(ht *lntest.HarnessTest, alice *node.HarnessNode,
 	block := ht.MineBlocksAndAssertNumTxes(1, 2)[0]
 	firstTxHash := prevTx.TxHash()
 	secondTxHash := finalTx.TxHash()
-	ht.Miner.AssertTxInBlock(block, &firstTxHash)
-	ht.Miner.AssertTxInBlock(block, &secondTxHash)
+	ht.AssertTxInBlock(block, &firstTxHash)
+	ht.AssertTxInBlock(block, &secondTxHash)
 }
 
 // assertPsbtFundSignSpend funds a PSBT from the internal wallet and then
@@ -1794,7 +1794,7 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 
 	txHash := finalTx.TxHash()
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-	ht.Miner.AssertTxInBlock(block, &txHash)
+	ht.AssertTxInBlock(block, &txHash)
 
 	// Now we do the same but instead use preselected utxos to verify that
 	// these utxos respects the utxo restrictions on sweeper unconfirmed
@@ -1941,7 +1941,7 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 
 	txHash = finalTx.TxHash()
 	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-	ht.Miner.AssertTxInBlock(block, &txHash)
+	ht.AssertTxInBlock(block, &txHash)
 
 	ht.CloseChannel(carol, channelPoint3)
 }

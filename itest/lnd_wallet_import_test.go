@@ -372,7 +372,7 @@ func fundChanAndCloseFromImportedAccount(ht *lntest.HarnessTest, srcNode,
 		)
 
 		block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
-		ht.Miner.AssertTxInBlock(block, txHash)
+		ht.AssertTxInBlock(block, txHash)
 
 		confBalanceAfterChan += chanChangeUtxoAmt
 		ht.AssertWalletAccountBalance(srcNode, account, 0, 0)
@@ -389,7 +389,7 @@ func fundChanAndCloseFromImportedAccount(ht *lntest.HarnessTest, srcNode,
 		)
 
 		block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
-		ht.Miner.AssertTxInBlock(block, txHash)
+		ht.AssertTxInBlock(block, txHash)
 
 		confBalanceAfterChan += chanChangeUtxoAmt
 		ht.AssertWalletAccountBalance(

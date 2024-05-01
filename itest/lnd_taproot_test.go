@@ -107,7 +107,7 @@ func testTaprootSendCoinsKeySpendBip86(ht *lntest.HarnessTest,
 		TargetConf: 6,
 	})
 
-	txid := ht.Miner.AssertNumTxsInMempool(1)[0]
+	txid := ht.AssertNumTxsInMempool(1)[0]
 
 	// Wait until bob has seen the tx and considers it as owned.
 	p2trOutputIndex := ht.GetOutputIndex(txid, p2trResp.Address)
@@ -162,7 +162,7 @@ func testTaprootComputeInputScriptKeySpendBip86(ht *lntest.HarnessTest,
 	alice.RPC.SendCoins(req)
 
 	// Wait until bob has seen the tx and considers it as owned.
-	txid := ht.Miner.AssertNumTxsInMempool(1)[0]
+	txid := ht.AssertNumTxsInMempool(1)[0]
 	p2trOutputIndex := ht.GetOutputIndex(txid, p2trAddr.String())
 	op := &lnrpc.OutPoint{
 		TxidBytes:   txid[:],
@@ -1413,7 +1413,7 @@ func clearWalletImportedTapscriptBalance(ht *lntest.HarnessTest,
 	// Mine one block which should contain the sweep transaction.
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	sweepTxHash := sweepTx.TxHash()
-	ht.Miner.AssertTxInBlock(block, &sweepTxHash)
+	ht.AssertTxInBlock(block, &sweepTxHash)
 }
 
 // testScriptHashLock returns a simple bitcoin script that locks the funds to
@@ -1481,7 +1481,7 @@ func sendToTaprootOutput(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	hn.RPC.SendCoins(req)
 
 	// Wait until the TX is found in the mempool.
-	txid := ht.Miner.AssertNumTxsInMempool(1)[0]
+	txid := ht.AssertNumTxsInMempool(1)[0]
 	p2trOutputIndex := ht.GetOutputIndex(txid, tapScriptAddr.String())
 	p2trOutpoint := wire.OutPoint{
 		Hash:  *txid,
@@ -1592,7 +1592,7 @@ func confirmAddress(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	addrString string) {
 
 	// Wait until the tx that sends to the address is found.
-	txid := ht.Miner.AssertNumTxsInMempool(1)[0]
+	txid := ht.AssertNumTxsInMempool(1)[0]
 
 	// Wait until bob has seen the tx and considers it as owned.
 	addrOutputIndex := ht.GetOutputIndex(txid, addrString)

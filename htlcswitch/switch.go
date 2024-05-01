@@ -2,9 +2,12 @@ package htlcswitch
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/rand"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/errorcodes"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -620,6 +624,76 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 	packet.circuit = circuit
 
 	return link.handleSwitchPacket(packet)
+}
+
+// TranslateErrorForRPC converts an error from the underlying HTLC switch to
+// a form that we can package for delivery to SendOnion rpc clients.
+func TranslateErrorForRPC(err error) (string, string) {
+	switch {
+	case errors.Is(err, ErrPaymentIDNotFound):
+		return err.Error(), errorcodes.ErrCodePaymentIDNotFound
+
+	case errors.Is(err, ErrUnreadableFailureMessage):
+		return err.Error(), errorcodes.ErrCodeUnreadableFailureMessage
+
+	case errors.Is(err, ErrSwitchExiting):
+		return err.Error(), errorcodes.ErrCodeSwitchExiting
+
+	default:
+		// Handling ClearTextError and ForwardingError
+		var clearTextErr ClearTextError
+		if errors.As(err, &clearTextErr) {
+			switch e := err.(type) {
+			case *ForwardingError:
+				var buf bytes.Buffer
+				err := lnwire.EncodeFailure(&buf, e.WireMessage(), 0)
+				if err != nil {
+					return fmt.Sprintf("failed to encode wire message: %v", err), errorcodes.ErrCodeInternal
+				}
+				return fmt.Sprintf("%d@%s", e.FailureSourceIdx, hex.EncodeToString(buf.Bytes())), errorcodes.ErrCodeForwardingError
+			default:
+				var buf bytes.Buffer
+				err := lnwire.EncodeFailure(&buf, clearTextErr.WireMessage(), 0)
+				if err != nil {
+					return fmt.Sprintf("failed to encode wire message: %v", err), errorcodes.ErrCodeInternal
+				}
+				return hex.EncodeToString(buf.Bytes()), errorcodes.ErrCodeClearTextError
+			}
+		}
+	}
+
+	return err.Error(), errorcodes.ErrCodeInternal
+}
+
+// ParseForwardingError converts an error from the format in SendOnion rpc
+// protos to a forwarding error type.
+func ParseForwardingError(errStr string) (*ForwardingError, error) {
+	parts := strings.SplitN(errStr, "@", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid forwarding error format: %s",
+			errStr)
+	}
+
+	idx, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return nil, fmt.Errorf("invalid forwarding error index: %s",
+			errStr)
+	}
+
+	wireMsgBytes, err := hex.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid forwarding error wire message: %s",
+			errStr)
+	}
+
+	r := bytes.NewReader(wireMsgBytes)
+	wireMsg, err := lnwire.DecodeFailure(r, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode wire message: %v",
+			err)
+	}
+
+	return NewForwardingError(wireMsg, idx), nil
 }
 
 // UpdateForwardingPolicies sends a message to the switch to update the
@@ -2418,6 +2492,30 @@ func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelUpdateHandler,
 	defer s.indexMtx.RUnlock()
 
 	var handlers []ChannelUpdateHandler
+
+	links, err := s.getLinks(hop)
+	if err != nil {
+		return nil, err
+	}
+
+	// Range over the returned []ChannelLink to convert them into
+	// []ChannelUpdateHandler.
+	for _, link := range links {
+		handlers = append(handlers, link)
+	}
+
+	return handlers, nil
+}
+
+// GetLinksByPubkey fetches all the links connected to a particular node
+// identified by the serialized compressed form of its public key.
+func (s *Switch) GetLinksByPubkey(hop [33]byte) ([]ChannelInfoProvider,
+	error) {
+
+	s.indexMtx.RLock()
+	defer s.indexMtx.RUnlock()
+
+	var handlers []ChannelInfoProvider
 
 	links, err := s.getLinks(hop)
 	if err != nil {

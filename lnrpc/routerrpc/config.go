@@ -46,6 +46,13 @@ type Config struct {
 	// RouterBackend contains shared logic between this sub server and the
 	// main rpc server.
 	RouterBackend *RouterBackend
+
+	// HTLCSwitch contains shared logic between this sub server and the
+	// main rpc server.
+	// HtlcSwitch     *htlcswitch.Switch
+	HtlcDispatcher routing.PaymentAttemptDispatcher
+
+	ChannelInfoAccessor ChannelInfoAccessor
 }
 
 // DefaultConfig defines the config defaults.

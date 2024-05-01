@@ -11,11 +11,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -79,6 +81,10 @@ var (
 			Action: "write",
 		}},
 		"/routerrpc.Router/SendToRoute": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/routerrpc.Router/SendOnion": {{
 			Entity: "offchain",
 			Action: "write",
 		}},
@@ -885,6 +891,144 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 	}
 
 	return nil, err
+}
+
+// SendOnion handles the incoming request to send a payment using a
+// preconstructed onion blob provided by the caller.
+func (s *Server) SendOnion(_ context.Context,
+	req *SendOnionRequest) (*SendOnionResponse, error) {
+
+	if len(req.OnionBlob) == 0 {
+		return nil, status.Error(codes.InvalidArgument,
+			"onion blob is required")
+	}
+	if len(req.OnionBlob) > lnwire.OnionPacketSize {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"onion blob size exceeds limit of %d bytes",
+			lnwire.OnionPacketSize)
+	}
+
+	if len(req.FirstHopPubkey) == 0 {
+		return nil, status.Error(codes.InvalidArgument,
+			"first hop pubkey is required")
+	}
+
+	if len(req.PaymentHash) == 0 {
+		return nil, status.Error(codes.InvalidArgument,
+			"payment hash is required")
+	}
+
+	if req.Amount <= 0 {
+		return nil, status.Error(codes.InvalidArgument,
+			"amount must be greater than zero")
+	}
+
+	hash, err := lntypes.MakeHash(req.PaymentHash)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"invalid payment hash: %v", err)
+	}
+
+	// Convert the first hop pubkey into a format usable by the forwarding
+	// subsystem (eg: HTLCSwitch).
+	//
+	// NOTE(calvin): We'll either need to require clients provide the short
+	// channel ID to use as a first hop OR lookup an acceptable channel ID
+	// for the given first hop public key.
+	firstHop, err := btcec.ParsePubKey(req.FirstHopPubkey)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"invalid first hop pubkey: %v", err)
+	}
+
+	// Convert public key to channel ID.
+	//
+	// NOTE(calvin): This allows us to preserve non-strict forwarding and
+	// provide a slightly more user friendly API to callers. An alternative
+	// would be to require the caller to provide the channel ID directly.
+	chanID, err := s.findEligibleChannelID(
+		firstHop, lnwire.MilliSatoshi(req.Amount),
+	)
+	if err != nil {
+		// NOTE(calvin): Should this error be communicated via RPC proto?
+		return nil, status.Errorf(codes.Internal,
+			"unable to find eligible channel ID: %v", err)
+	}
+
+	// Craft an HTLC packet to send to the htlcswitch. The metadata within
+	// this packet will be used to route the payment through the network,
+	// starting with the first-hop.
+	htlcAdd := &lnwire.UpdateAddHTLC{
+		Amount:      lnwire.MilliSatoshi(req.Amount),
+		Expiry:      req.Timelock,
+		PaymentHash: hash,
+		OnionBlob:   [1366]byte(req.OnionBlob),
+	}
+
+	log.Debugf("Dispatching SendOnion for HTLC hash %x via %s",
+		htlcAdd.PaymentHash, chanID)
+
+	// Send the HTLC to the first hop directly by way of the HTLCSwitch.
+	err = s.cfg.HtlcDispatcher.SendHTLC(chanID, req.AttemptId, htlcAdd)
+	if err != nil {
+		// message, code := s.translateErrorForRPC(err)
+		message, code := htlcswitch.TranslateErrorForRPC(err)
+		return &SendOnionResponse{
+			Success:      false,
+			ErrorMessage: message,
+			ErrorCode:    code,
+		}, nil
+	}
+
+	return &SendOnionResponse{Success: true}, nil
+}
+
+// ChannelInfoAccessor defines an interface for accessing channel information
+// necessary for routing payments, specifically methods for fetching links by
+// public key.
+type ChannelInfoAccessor interface {
+	GetLinksByPubkey(pubKey [33]byte) ([]htlcswitch.ChannelInfoProvider,
+		error)
+}
+
+// findEligibleChannelID attempts to find an eligible channel based on the
+// provided public key and the amount to be sent. It returns a channel ID that
+// can carry the given payment amount.
+func (s *Server) findEligibleChannelID(pubKey *btcec.PublicKey,
+	amount lnwire.MilliSatoshi) (lnwire.ShortChannelID, error) {
+
+	var pubKeyArray [33]byte
+	copy(pubKeyArray[:], pubKey.SerializeCompressed())
+	links, err := s.cfg.ChannelInfoAccessor.GetLinksByPubkey(pubKeyArray)
+	if err != nil {
+		return lnwire.ShortChannelID{},
+			fmt.Errorf("failed to retrieve channels: %w", err)
+	}
+
+	// NOTE(calvin): This is NOT duplicating the checks that the Switch
+	// itself will perform as those are only performed in ForwardPackets().
+	for _, link := range links {
+		log.Debugf("Considering channel link scid=%v",
+			link.ShortChanID())
+
+		// Ensure the link is eligible to forward payments.
+		if !link.EligibleToForward() {
+			continue
+		}
+
+		// Check if the channel has sufficient bandwidth.
+		if link.Bandwidth() >= amount {
+			// Check if adding an HTLC of this amount is possible.
+			if err := link.MayAddOutgoingHtlc(amount); err == nil {
+
+				return link.ShortChanID(), nil
+			}
+		}
+	}
+
+	return lnwire.ShortChannelID{},
+		fmt.Errorf("no suitable channel found for amount: %d msat",
+			amount)
 }
 
 // ResetMissionControl clears all mission control state and starts with a clean

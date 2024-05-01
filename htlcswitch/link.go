@@ -2141,6 +2141,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			CommitSig:  msg.CommitSig,
 			HtlcSigs:   msg.HtlcSigs,
 			PartialSig: msg.PartialSig,
+			AuxSigBlob: msg.ExtraData,
 		})
 		if err != nil {
 			// If we were unable to reconstruct their proposed

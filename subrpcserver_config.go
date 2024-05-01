@@ -321,6 +321,14 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				reflect.ValueOf(htlcSwitch),
 			)
 
+			subCfgValue.FieldByName("HtlcDispatcher").Set(
+				reflect.ValueOf(htlcSwitch),
+			)
+
+			subCfgValue.FieldByName("ChannelInfoAccessor").Set(
+				reflect.ValueOf(htlcSwitch),
+			)
+
 		case *watchtowerrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)
 

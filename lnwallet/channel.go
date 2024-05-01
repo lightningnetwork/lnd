@@ -3871,6 +3871,14 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 					*pd.OpenCircuitKey)
 			}
 
+			// Copy over any custom records as extra data that we
+			// may not explicitly know about.
+			pd.CustomRecords.WhenSome(func(b tlv.Blob) {
+				// TODO(roasbeef): needs to merge w/ existing
+				// TLVs
+				copy(htlc.ExtraData[:], b[:])
+			})
+
 			logUpdates = append(logUpdates, logUpdate)
 
 			// Short circuit here since an add should not have any

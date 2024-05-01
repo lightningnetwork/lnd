@@ -404,6 +404,11 @@ func (m *mockUpdateHandler) HandleChannelUpdate(msg lnwire.Message) {}
 // ChanID returns the mockUpdateHandler's cid.
 func (m *mockUpdateHandler) ChanID() lnwire.ChannelID { return m.cid }
 
+// ShortChanID returns the mockUpdateHandler's cid.
+func (m *mockUpdateHandler) ShortChanID() lnwire.ShortChannelID {
+	return lnwire.NewShortChanIDFromInt(0)
+}
+
 // Bandwidth currently returns a dummy value.
 func (m *mockUpdateHandler) Bandwidth() lnwire.MilliSatoshi { return 0 }
 

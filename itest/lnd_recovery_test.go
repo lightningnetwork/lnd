@@ -263,7 +263,7 @@ func testOnchainFundRecovery(ht *lntest.HarnessTest) {
 		txid := ht.Miner.AssertNumTxsInMempool(1)[0]
 		require.Equal(ht, txid.String(), resp.Txid)
 
-		block := ht.MineBlocks(1)[0]
+		block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 		ht.Miner.AssertTxInBlock(block, txid)
 	}
 	restoreCheckBalance(finalBalance, 9, 20, promptChangeAddr)

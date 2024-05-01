@@ -58,7 +58,7 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 	// and our new miner mine 15. This will also confirm our pending
 	// channel on the original miner's chain, which should be considered
 	// open.
-	block := ht.MineBlocks(10)[0]
+	block := ht.MineBlocksAndAssertNumTxes(10, 1)[0]
 	ht.Miner.AssertTxInBlock(block, fundingTxID)
 	_, err = tempMiner.Client.Generate(15)
 	require.NoError(ht, err, "unable to generate blocks")

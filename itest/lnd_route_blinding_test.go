@@ -1021,7 +1021,7 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	// value.
 	info := ht.Bob.RPC.GetInfo()
 	target := carolHTLC.IncomingExpiry - info.BlockHeight
-	ht.MineBlocks(target)
+	ht.MineBlocks(int(target))
 
 	// Wait for Bob's timeout transaction in the mempool, since we've
 	// suspended Carol we don't need to account for her commitment output

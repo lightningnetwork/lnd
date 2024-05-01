@@ -93,7 +93,7 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	// TODO(yy): fix block height asymmetry among all the subsystems.
 	//
 	// We first mine enough blocks to trigger an invoice cancelation.
-	ht.MineBlocks(blocksTillCancel)
+	ht.MineBlocks(int(blocksTillCancel))
 
 	// Wait for the nodes to be synced.
 	ht.WaitForBlockchainSync(alice)
@@ -133,7 +133,7 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	// happen in bitcoind backend, as Alice's CNCT was syncing way faster
 	// than Bob's INVC, causing the channel being force closed before the
 	// invoice cancelation message was received by Alice.
-	ht.MineBlocks(blocksTillForce - blocksTillCancel)
+	ht.MineBlocks(int(blocksTillForce - blocksTillCancel))
 
 	// Wait for the nodes to be synced.
 	ht.WaitForBlockchainSync(alice)

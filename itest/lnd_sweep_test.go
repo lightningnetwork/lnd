@@ -872,7 +872,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	numBlocks := padCLTV(uint32(
 		invoiceReqHold.CltvExpiry - lncfg.DefaultOutgoingBroadcastDelta,
 	))
-	ht.MineBlocks(numBlocks)
+	ht.MineBlocks(int(numBlocks))
 
 	// Before we mine empty blocks to check the RBF behavior, we need to be
 	// aware that Bob's incoming HTLC will expire before his outgoing HTLC
@@ -1804,7 +1804,7 @@ func createSimpleNetwork(ht *lntest.HarnessTest, nodeCfg []string,
 	}
 
 	// Mine 1 block to get the above coins confirmed.
-	ht.MineBlocks(1)
+	ht.MineBlocksAndAssertNumTxes(1, numNodes-1)
 
 	// Open channels in batch to save blocks mined.
 	reqs := make([]*lntest.OpenChannelRequest, 0, len(nodes)-1)

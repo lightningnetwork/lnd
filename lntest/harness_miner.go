@@ -3,6 +3,7 @@ package lntest
 import (
 	"fmt"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -10,22 +11,46 @@ import (
 )
 
 // MineBlocks mines blocks and asserts all active nodes have synced to the
-// chain.
+// chain. It assumes no txns are expected in the blocks.
 //
-// NOTE: this differs from miner's `MineBlocks` as it requires the nodes to be
-// synced.
-func (h *HarnessTest) MineBlocks(num uint32) []*wire.MsgBlock {
-	require.Less(h, num, uint32(maxBlocksAllowed),
-		"too many blocks to mine")
+// NOTE: Use `MineBlocksAndAssertNumTxes` if you expect txns in the blocks. Use
+// `MineEmptyBlocks` if you want to make sure that txns stay unconfirmed.
+func (h *HarnessTest) MineBlocks(num int) {
+	require.Less(h, num, maxBlocksAllowed, "too many blocks to mine")
 
-	// Mining the blocks slow to give `lnd` more time to sync.
-	blocks := h.Miner.MineBlocksSlow(num)
+	// Mine num of blocks.
+	for i := 0; i < num; i++ {
+		block := h.Miner.MineBlocks(1)[0]
 
-	// Make sure all the active nodes are synced.
-	bestBlock := blocks[len(blocks)-1]
-	h.AssertActiveNodesSyncedTo(bestBlock)
+		// Check the block doesn't have any txns except the coinbase.
+		if len(block.Transactions) <= 1 {
+			// Make sure all the active nodes are synced.
+			h.AssertActiveNodesSyncedTo(block)
 
-	return blocks
+			// Mine the next block.
+			continue
+		}
+
+		// Create a detailed description.
+		desc := fmt.Sprintf("block %v has %d txns:\n",
+			block.BlockHash(), len(block.Transactions)-1)
+
+		// Print all the txns except the coinbase.
+		for _, tx := range block.Transactions {
+			if blockchain.IsCoinBaseTx(tx) {
+				continue
+			}
+
+			desc += fmt.Sprintf("%v\n", tx.TxHash())
+		}
+
+		desc += "Consider using `MineBlocksAndAssertNumTxes` if you " +
+			"expect txns, or `MineEmptyBlocks` if you want to " +
+			"keep the txns unconfirmed."
+
+		// Raise an error if the block has txns.
+		require.Fail(h, "MineBlocks", desc)
+	}
 }
 
 // MineEmptyBlocks mines a given number of empty blocks.
@@ -49,10 +74,6 @@ func (h *HarnessTest) MineEmptyBlocks(num int) []*wire.MsgBlock {
 //
 // NOTE: this differs from miner's `MineBlocks` as it requires the nodes to be
 // synced.
-//
-// TODO(yy): change the APIs to force callers to think about blocks and txns:
-// - MineBlocksAndAssertNumTxes -> MineBlocks
-// - add more APIs to mine a single tx.
 func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 	numTxs int) []*wire.MsgBlock {
 

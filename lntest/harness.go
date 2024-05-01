@@ -1414,24 +1414,24 @@ func (h *HarnessTest) fundCoins(amt btcutil.Amount, target *node.HarnessNode,
 		pkScriptStr := utxos[0].PkScript
 		require.Equal(h, pkScriptStr, expPkScriptStr,
 			"pkscript mismatch")
+
+		expectedBalance := btcutil.Amount(
+			initialBalance.UnconfirmedBalance,
+		) + amt
+		h.WaitForBalanceUnconfirmed(target, expectedBalance)
 	}
 
 	// If the transaction should remain unconfirmed, then we'll wait until
 	// the target node's unconfirmed balance reflects the expected balance
 	// and exit.
-	if !confirmed && !h.IsNeutrinoBackend() {
-		expectedBalance := btcutil.Amount(
-			initialBalance.UnconfirmedBalance,
-		) + amt
-		h.WaitForBalanceUnconfirmed(target, expectedBalance)
-
+	if !confirmed {
 		return
 	}
 
 	// Otherwise, we'll generate 1 new blocks to ensure the output gains a
 	// sufficient number of confirmations and wait for the balance to
 	// reflect what's expected.
-	h.MineBlocks(1)
+	h.MineBlocksAndAssertNumTxes(1, 1)
 
 	expectedBalance := btcutil.Amount(initialBalance.ConfirmedBalance) + amt
 	h.WaitForBalanceConfirmed(target, expectedBalance)

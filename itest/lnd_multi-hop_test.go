@@ -243,7 +243,7 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 	numBlocks := padCLTV(
 		uint32(finalCltvDelta - lncfg.DefaultOutgoingBroadcastDelta),
 	)
-	ht.MineBlocks(numBlocks)
+	ht.MineBlocks(int(numBlocks))
 
 	// Bob's force close transaction should now be found in the mempool.
 	ht.Miner.AssertNumTxsInMempool(1)

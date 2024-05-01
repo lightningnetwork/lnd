@@ -128,6 +128,10 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/routerrpc.Router/BuildOnion": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 		"/routerrpc.Router/SubscribeHtlcEvents": {{
 			Entity: "offchain",
 			Action: "read",
@@ -891,6 +895,62 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 	}
 
 	return nil, err
+}
+
+// BuildOnion constructs a sphinx onion packet for the given route.
+func (s *Server) BuildOnion(_ context.Context,
+	req *BuildOnionRequest) (*BuildOnionResponse, error) {
+
+	if req.Route == nil {
+		return nil, status.Error(codes.InvalidArgument,
+			"route information is required")
+	}
+	if len(req.PaymentHash) == 0 {
+		return nil, status.Error(codes.InvalidArgument,
+			"payment hash is required")
+	}
+
+	var sessionKey *btcec.PrivateKey
+	var err error
+	if len(req.SessionKey) == 0 {
+		sessionKey, err = routing.GenerateNewSessionKey()
+		if err != nil {
+			return nil, status.Errorf(codes.Internal,
+				"failed to generate session key: %v", err)
+		}
+	} else {
+		sessionKey, _ = btcec.PrivKeyFromBytes(req.SessionKey)
+	}
+
+	// Convert the route to a Sphinx path.
+	route, err := s.cfg.RouterBackend.UnmarshallRoute(req.Route)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"invalid route: %v", err)
+	}
+
+	// Generate the onion packet.
+	onionBlob, circuit, err := routing.GenerateSphinxPacket(
+		route, req.PaymentHash, sessionKey,
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"failed to create onion blob: %v", err)
+	}
+
+	// We'll provide the list of hop public keys for caller convenience.
+	// They may wish to use them + the session key in a future call to
+	// SendOnion so that the server can decrypt and handle errors.
+	hopPubKeys := make([][]byte, len(circuit.PaymentPath))
+	for i, pubKey := range circuit.PaymentPath {
+		hopPubKeys[i] = pubKey.SerializeCompressed()
+	}
+
+	return &BuildOnionResponse{
+		OnionBlob:  onionBlob,
+		SessionKey: sessionKey.Serialize(),
+		HopPubkeys: hopPubKeys,
+	}, nil
 }
 
 // SendOnion handles the incoming request to send a payment using a

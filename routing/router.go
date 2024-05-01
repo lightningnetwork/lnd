@@ -698,9 +698,9 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 	return bestRoutes, nil
 }
 
-// generateNewSessionKey generates a new ephemeral private key to be used for a
+// GenerateNewSessionKey generates a new ephemeral private key to be used for a
 // payment attempt.
-func generateNewSessionKey() (*btcec.PrivateKey, error) {
+func GenerateNewSessionKey() (*btcec.PrivateKey, error) {
 	// Generate a new random session key to ensure that we don't trigger
 	// any replay.
 	//
@@ -708,11 +708,11 @@ func generateNewSessionKey() (*btcec.PrivateKey, error) {
 	return btcec.NewPrivateKey()
 }
 
-// generateSphinxPacket generates then encodes a sphinx packet which encodes
+// GenerateSphinxPacket generates then encodes a sphinx packet which encodes
 // the onion route specified by the passed layer 3 route. The blob returned
 // from this function can immediately be included within an HTLC add packet to
 // be sent to the first hop within the route.
-func generateSphinxPacket(rt *route.Route, paymentHash []byte,
+func GenerateSphinxPacket(rt *route.Route, paymentHash []byte,
 	sessionKey *btcec.PrivateKey) ([]byte, *sphinx.Circuit, error) {
 
 	// Now that we know we have an actual route, we'll map the route into a

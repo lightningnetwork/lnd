@@ -1,4 +1,4 @@
-package lntest
+package miner
 
 import (
 	"bytes"
@@ -34,13 +34,13 @@ const (
 )
 
 var (
-	harnessNetParams = &chaincfg.RegressionNetParams
+	HarnessNetParams = &chaincfg.RegressionNetParams
 
 	// temp is used to signal we want to establish a temporary connection
 	// using the btcd Node API.
 	//
 	// NOTE: Cannot be const, since the node API expects a reference.
-	temp = "temp"
+	Temp = "temp"
 )
 
 type HarnessMiner struct {
@@ -99,7 +99,7 @@ func newMiner(ctxb context.Context, t *testing.T, minerDirName,
 		"--nostalldetect",
 	}
 
-	miner, err := rpctest.New(harnessNetParams, handler, args, btcdBinary)
+	miner, err := rpctest.New(HarnessNetParams, handler, args, btcdBinary)
 	require.NoError(t, err, "unable to create mining node")
 
 	ctxt, cancel := context.WithCancel(ctxb)
@@ -119,7 +119,7 @@ func newMiner(ctxb context.Context, t *testing.T, minerDirName,
 func (h *HarnessMiner) saveLogs() {
 	// After shutting down the miner, we'll make a copy of the log files
 	// before deleting the temporary log dir.
-	path := fmt.Sprintf("%s/%s", h.logPath, harnessNetParams.Name)
+	path := fmt.Sprintf("%s/%s", h.logPath, HarnessNetParams.Name)
 	files, err := os.ReadDir(path)
 	require.NoError(h, err, "unable to read log directory")
 
@@ -130,7 +130,7 @@ func (h *HarnessMiner) saveLogs() {
 		copyPath := fmt.Sprintf("%s/../%s", h.logPath, newFilename)
 
 		logFile := fmt.Sprintf("%s/%s", path, file.Name())
-		err := CopyFile(filepath.Clean(copyPath), logFile)
+		err := node.CopyFile(filepath.Clean(copyPath), logFile)
 		require.NoError(h, err, "unable to copy file")
 	}
 
@@ -533,7 +533,7 @@ func (h *HarnessMiner) SpawnTempMiner() *HarnessMiner {
 	require.NoError(tempMiner.SetUp(false, 0), "unable to setup miner")
 
 	// Connect the temp miner to the original miner.
-	err := h.Client.Node(btcjson.NConnect, tempMiner.P2PAddress(), &temp)
+	err := h.Client.Node(btcjson.NConnect, tempMiner.P2PAddress(), &Temp)
 	require.NoError(err, "unable to connect node")
 
 	// Sync the blocks.
@@ -546,7 +546,7 @@ func (h *HarnessMiner) SpawnTempMiner() *HarnessMiner {
 
 	// Once synced, we now disconnect the temp miner so it'll be
 	// independent from the original miner.
-	err = h.Client.Node(btcjson.NDisconnect, tempMiner.P2PAddress(), &temp)
+	err = h.Client.Node(btcjson.NDisconnect, tempMiner.P2PAddress(), &Temp)
 	require.NoError(err, "unable to disconnect miners")
 
 	return tempMiner
@@ -557,7 +557,7 @@ func (h *HarnessMiner) ConnectMiner(tempMiner *HarnessMiner) {
 	require := require.New(h.T)
 
 	// Connect the current miner to the temporary miner.
-	err := h.Client.Node(btcjson.NConnect, tempMiner.P2PAddress(), &temp)
+	err := h.Client.Node(btcjson.NConnect, tempMiner.P2PAddress(), &Temp)
 	require.NoError(err, "unable to connect temp miner")
 
 	nodes := []*rpctest.Harness{tempMiner.Harness, h.Harness}
@@ -567,7 +567,7 @@ func (h *HarnessMiner) ConnectMiner(tempMiner *HarnessMiner) {
 
 // DisconnectMiner disconnects the miner from the temp miner.
 func (h *HarnessMiner) DisconnectMiner(tempMiner *HarnessMiner) {
-	err := h.Client.Node(btcjson.NDisconnect, tempMiner.P2PAddress(), &temp)
+	err := h.Client.Node(btcjson.NDisconnect, tempMiner.P2PAddress(), &Temp)
 	require.NoError(h.T, err, "unable to disconnect temp miner")
 }
 
@@ -597,6 +597,6 @@ func (h *HarnessMiner) AssertMinerBlockHeightDelta(tempMiner *HarnessMiner,
 		}
 
 		return nil
-	}, DefaultTimeout)
+	}, wait.DefaultTimeout)
 	require.NoError(h.T, err, "failed to assert block height delta")
 }

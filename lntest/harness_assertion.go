@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -937,7 +938,7 @@ func (h *HarnessTest) RandomPreimage() lntypes.Preimage {
 
 // DecodeAddress decodes a given address and asserts there's no error.
 func (h *HarnessTest) DecodeAddress(addr string) btcutil.Address {
-	resp, err := btcutil.DecodeAddress(addr, harnessNetParams)
+	resp, err := btcutil.DecodeAddress(addr, miner.HarnessNetParams)
 	require.NoError(h, err, "DecodeAddress failed")
 
 	return resp
@@ -2015,6 +2016,7 @@ func (h *HarnessTest) CreateBurnAddr(addrType lnrpc.AddressType) ([]byte,
 	require.NoError(h, err)
 
 	randomKeyBytes := randomPrivKey.PubKey().SerializeCompressed()
+	harnessNetParams := miner.HarnessNetParams
 
 	var addr btcutil.Address
 	switch addrType {

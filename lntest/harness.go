@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -78,7 +79,7 @@ type HarnessTest struct {
 
 	// Miner is a reference to a running full node that can be used to
 	// create new blocks on the network.
-	Miner *HarnessMiner
+	Miner *miner.HarnessMiner
 
 	// manager handles the start and stop of a given node.
 	manager *nodeManager
@@ -158,7 +159,9 @@ func NewHarnessTest(t *testing.T, lndBinary string, feeService WebFeeService,
 
 // Start will assemble the chain backend and the miner for the HarnessTest. It
 // also starts the fee service and watches lnd process error.
-func (h *HarnessTest) Start(chain node.BackendConfig, miner *HarnessMiner) {
+func (h *HarnessTest) Start(chain node.BackendConfig,
+	miner *miner.HarnessMiner) {
+
 	// Spawn a new goroutine to watch for any fatal errors that any of the
 	// running lnd processes encounter. If an error occurs, then the test
 	// case should naturally as a result and we log the server error here
@@ -1599,7 +1602,7 @@ func (h *HarnessTest) OpenChannelPsbt(srcNode, destNode *node.HarnessNode,
 	// Make sure the channel funding address has the correct type for the
 	// given commitment type.
 	fundingAddr, err := btcutil.DecodeAddress(
-		upd.PsbtFund.FundingAddress, harnessNetParams,
+		upd.PsbtFund.FundingAddress, miner.HarnessNetParams,
 	)
 	require.NoError(h, err)
 

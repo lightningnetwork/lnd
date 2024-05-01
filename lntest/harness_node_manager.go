@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 )
@@ -88,7 +89,7 @@ func (nm *nodeManager) newNode(t *testing.T, name string, extraArgs []string,
 		NativeSQL:         nm.nativeSQL,
 		NodeID:            nm.nextNodeID(),
 		LndBinary:         nm.lndBinary,
-		NetParams:         harnessNetParams,
+		NetParams:         miner.HarnessNetParams,
 		SkipUnlock:        noAuth,
 	}
 

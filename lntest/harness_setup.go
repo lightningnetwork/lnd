@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -65,27 +66,27 @@ func SetupHarness(t *testing.T, binaryPath, dbBackendName string,
 // transactions on simnet to reject them. Transactions on the lightning network
 // should always be standard to get better guarantees of getting included in to
 // blocks.
-func prepareMiner(ctxt context.Context, t *testing.T) *HarnessMiner {
-	miner := NewMiner(ctxt, t)
+func prepareMiner(ctxt context.Context, t *testing.T) *miner.HarnessMiner {
+	m := miner.NewMiner(ctxt, t)
 
 	// Before we start anything, we want to overwrite some of the
 	// connection settings to make the tests more robust. We might need to
 	// restart the miner while there are already blocks present, which will
 	// take a bit longer than the 1 second the default settings amount to.
 	// Doubling both values will give us retries up to 4 seconds.
-	miner.MaxConnRetries = rpctest.DefaultMaxConnectionRetries * 2
-	miner.ConnectionRetryTimeout = rpctest.DefaultConnectionRetryTimeout * 2
+	m.MaxConnRetries = rpctest.DefaultMaxConnectionRetries * 2
+	m.ConnectionRetryTimeout = rpctest.DefaultConnectionRetryTimeout * 2
 
 	// Set up miner and connect chain backend to it.
-	require.NoError(t, miner.SetUp(true, 50))
-	require.NoError(t, miner.Client.NotifyNewTransactions(false))
+	require.NoError(t, m.SetUp(true, 50))
+	require.NoError(t, m.Client.NotifyNewTransactions(false))
 
 	// Next mine enough blocks in order for segwit and the CSV package
 	// soft-fork to activate on SimNet.
-	numBlocks := harnessNetParams.MinerConfirmationWindow * 2
-	miner.GenerateBlocks(numBlocks)
+	numBlocks := miner.HarnessNetParams.MinerConfirmationWindow * 2
+	m.GenerateBlocks(numBlocks)
 
-	return miner
+	return m
 }
 
 // prepareChainBackend creates a new chain backend.
@@ -93,7 +94,7 @@ func prepareChainBackend(t *testing.T,
 	minerAddr string) (node.BackendConfig, func()) {
 
 	chainBackend, cleanUp, err := NewBackend(
-		minerAddr, harnessNetParams,
+		minerAddr, miner.HarnessNetParams,
 	)
 	require.NoError(t, err, "new backend")
 

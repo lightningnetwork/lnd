@@ -125,7 +125,7 @@ func testNonStdSweepInner(ht *lntest.HarnessTest, address string) {
 
 	// Fetch the vsize of the transaction so we can determine if the
 	// transaction pays >= 1 sat/vbyte.
-	rawTx := ht.Miner.GetRawTransactionVerbose(txid)
+	rawTx := ht.Miner().GetRawTransactionVerbose(txid)
 
 	// Require fee >= vbytes.
 	require.True(ht, fee >= int(rawTx.Vsize))

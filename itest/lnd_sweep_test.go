@@ -172,7 +172,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 
 	// Remember the force close height so we can calculate the deadline
 	// height.
-	_, forceCloseHeight := ht.Miner.GetBestBlock()
+	_, forceCloseHeight := ht.GetBestBlock()
 
 	// Bob should have two pending sweeps,
 	// - anchor sweeping from his local commitment.
@@ -304,7 +304,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	//
 	// Once out of the above loop, we expect to be 2 blocks before the CPFP
 	// deadline.
-	_, currentHeight := ht.Miner.GetBestBlock()
+	_, currentHeight := ht.GetBestBlock()
 	require.Equal(ht, int(anchorDeadline-2), int(currentHeight))
 
 	// Mine one more block, we'd use up all the CPFP budget.
@@ -512,7 +512,7 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	forceCloseHeight := htlc.ExpirationHeight - goToChainDelta
 
 	// Mine till the goToChainHeight is reached.
-	_, currentHeight := ht.Miner.GetBestBlock()
+	_, currentHeight := ht.GetBestBlock()
 	numBlocks := forceCloseHeight - uint32(currentHeight)
 	ht.MineEmptyBlocks(int(numBlocks))
 
@@ -641,7 +641,7 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	//
 	// Once out of the above loop, we expect to be 2 blocks before the CPFP
 	// deadline.
-	_, currentHeight = ht.Miner.GetBestBlock()
+	_, currentHeight = ht.GetBestBlock()
 	require.Equal(ht, int(anchorDeadline-2), int(currentHeight))
 
 	// Mine one more block, we'd use up all the CPFP budget.
@@ -1380,7 +1380,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	//
 	// TODO(yy): assert they are equal once blocks are synced via
 	// `blockbeat`.
-	_, currentHeight := ht.Miner.GetBestBlock()
+	_, currentHeight := ht.GetBestBlock()
 	actualDeadline := int32(pendingSweepBob.DeadlineHeight) - currentHeight
 	if actualDeadline != int32(deadlineB) {
 		ht.Logf("!!! Found unsynced block between sweeper and "+
@@ -1438,7 +1438,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	//
 	// TODO(yy): assert they are equal once blocks are synced via
 	// `blockbeat`.
-	_, currentHeight = ht.Miner.GetBestBlock()
+	_, currentHeight = ht.GetBestBlock()
 	actualDeadline = int32(aliceCommit.DeadlineHeight) - currentHeight
 	if actualDeadline != int32(deadlineA) {
 		ht.Logf("!!! Found unsynced block between Alice's sweeper and "+

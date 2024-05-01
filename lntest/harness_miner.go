@@ -13,6 +13,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Miner returns the miner instance.
+//
+// NOTE: Caller should keep in mind that when using this private instance,
+// certain states won't be managed by the HarnessTest anymore. For instance,
+// when mining directly, the nodes managed by the HarnessTest can be out of
+// sync, and the `HarnessTest.CurrentHeight()` won't be accurate.
+func (h *HarnessTest) Miner() *miner.HarnessMiner {
+	return h.miner
+}
+
 // MineBlocks mines blocks and asserts all active nodes have synced to the
 // chain. It assumes no txns are expected in the blocks.
 //
@@ -23,7 +33,7 @@ func (h *HarnessTest) MineBlocks(num int) {
 
 	// Mine num of blocks.
 	for i := 0; i < num; i++ {
-		block := h.Miner.MineBlocks(1)[0]
+		block := h.miner.MineBlocks(1)[0]
 
 		// Check the block doesn't have any txns except the coinbase.
 		if len(block.Transactions) <= 1 {
@@ -63,7 +73,7 @@ func (h *HarnessTest) MineBlocks(num int) {
 func (h *HarnessTest) MineEmptyBlocks(num int) []*wire.MsgBlock {
 	require.Less(h, num, maxBlocksAllowed, "too many blocks to mine")
 
-	blocks := h.Miner.MineEmptyBlocks(num)
+	blocks := h.miner.MineEmptyBlocks(num)
 
 	// Finally, make sure all the active nodes are synced.
 	h.AssertActiveNodesSynced()
@@ -85,16 +95,16 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 	txids := h.AssertNumTxsInMempool(numTxs)
 
 	// Mine blocks.
-	blocks := h.Miner.MineBlocksSlow(num)
+	blocks := h.miner.MineBlocksSlow(num)
 
 	// Assert that all the transactions were included in the first block.
 	for _, txid := range txids {
-		h.Miner.AssertTxInBlock(blocks[0], txid)
+		h.miner.AssertTxInBlock(blocks[0], txid)
 	}
 
 	// Make sure the mempool has been updated.
 	for _, txid := range txids {
-		h.Miner.AssertTxNotInMempool(*txid)
+		h.miner.AssertTxNotInMempool(*txid)
 	}
 
 	// Finally, make sure all the active nodes are synced.
@@ -126,7 +136,7 @@ func (h *HarnessTest) cleanMempool() {
 	var bestBlock *wire.MsgBlock
 	err := wait.NoError(func() error {
 		// If mempool is empty, exit.
-		mem := h.Miner.GetRawMempool()
+		mem := h.miner.GetRawMempool()
 		if len(mem) == 0 {
 			_, height := h.GetBestBlock()
 			h.Logf("Mined %d blocks when cleanup the mempool",
@@ -136,7 +146,7 @@ func (h *HarnessTest) cleanMempool() {
 		}
 
 		// Otherwise mine a block.
-		blocks := h.Miner.MineBlocksSlow(1)
+		blocks := h.miner.MineBlocksSlow(1)
 		bestBlock = blocks[len(blocks)-1]
 
 		// Make sure all the active nodes are synced.
@@ -183,7 +193,7 @@ func (h *HarnessTest) mineTillForceCloseResolved(hn *node.HarnessNode) {
 
 // AssertTxInMempool asserts a given transaction can be found in the mempool.
 func (h *HarnessTest) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
-	return h.Miner.AssertTxInMempool(txid)
+	return h.miner.AssertTxInMempool(txid)
 }
 
 // AssertTxNotInMempool asserts a given transaction cannot be found in the
@@ -193,76 +203,76 @@ func (h *HarnessTest) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
 // entered the mempool before. Otherwise it might give false positive and the
 // tx may enter the mempool after the check.
 func (h *HarnessTest) AssertTxNotInMempool(txid chainhash.Hash) *wire.MsgTx {
-	return h.Miner.AssertTxNotInMempool(txid)
+	return h.miner.AssertTxNotInMempool(txid)
 }
 
 // AssertNumTxsInMempool polls until finding the desired number of transactions
 // in the provided miner's mempool. It will asserrt if this number is not met
 // after the given timeout.
 func (h *HarnessTest) AssertNumTxsInMempool(n int) []*chainhash.Hash {
-	return h.Miner.AssertNumTxsInMempool(n)
+	return h.miner.AssertNumTxsInMempool(n)
 }
 
 // AssertOutpointInMempool asserts a given outpoint can be found in the mempool.
 func (h *HarnessTest) AssertOutpointInMempool(op wire.OutPoint) *wire.MsgTx {
-	return h.Miner.AssertOutpointInMempool(op)
+	return h.miner.AssertOutpointInMempool(op)
 }
 
 // AssertTxInBlock asserts that a given txid can be found in the passed block.
 func (h *HarnessTest) AssertTxInBlock(block *wire.MsgBlock,
 	txid *chainhash.Hash) {
 
-	h.Miner.AssertTxInBlock(block, txid)
+	h.miner.AssertTxInBlock(block, txid)
 }
 
 // GetNumTxsFromMempool polls until finding the desired number of transactions
 // in the miner's mempool and returns the full transactions to the caller.
 func (h *HarnessTest) GetNumTxsFromMempool(n int) []*wire.MsgTx {
-	return h.Miner.GetNumTxsFromMempool(n)
+	return h.miner.GetNumTxsFromMempool(n)
 }
 
 // GetBestBlock makes a RPC request to miner and asserts.
 func (h *HarnessTest) GetBestBlock() (*chainhash.Hash, int32) {
-	return h.Miner.GetBestBlock()
+	return h.miner.GetBestBlock()
 }
 
 // MineBlockWithTx mines a single block to include the specifies tx only.
 func (h *HarnessTest) MineBlockWithTx(tx *wire.MsgTx) *wire.MsgBlock {
-	return h.Miner.MineBlockWithTx(tx)
+	return h.miner.MineBlockWithTx(tx)
 }
 
 // ConnectToMiner connects the miner to a temp miner.
 func (h *HarnessTest) ConnectToMiner(tempMiner *miner.HarnessMiner) {
-	h.Miner.ConnectMiner(tempMiner)
+	h.miner.ConnectMiner(tempMiner)
 }
 
 // DisconnectFromMiner disconnects the miner from the temp miner.
 func (h *HarnessTest) DisconnectFromMiner(tempMiner *miner.HarnessMiner) {
-	h.Miner.DisconnectMiner(tempMiner)
+	h.miner.DisconnectMiner(tempMiner)
 }
 
 // GetRawMempool makes a RPC call to the miner's GetRawMempool and
 // asserts.
 func (h *HarnessTest) GetRawMempool() []*chainhash.Hash {
-	return h.Miner.GetRawMempool()
+	return h.miner.GetRawMempool()
 }
 
 // GetRawTransaction makes a RPC call to the miner's GetRawTransaction and
 // asserts.
 func (h *HarnessTest) GetRawTransaction(txid *chainhash.Hash) *btcutil.Tx {
-	return h.Miner.GetRawTransaction(txid)
+	return h.miner.GetRawTransaction(txid)
 }
 
 // NewMinerAddress creates a new address for the miner and asserts.
 func (h *HarnessTest) NewMinerAddress() btcutil.Address {
-	return h.Miner.NewMinerAddress()
+	return h.miner.NewMinerAddress()
 }
 
 // SpawnTempMiner creates a temp miner and syncs it with the current miner.
 // Once miners are synced, the temp miner is disconnected from the original
 // miner and returned.
 func (h *HarnessTest) SpawnTempMiner() *miner.HarnessMiner {
-	return h.Miner.SpawnTempMiner()
+	return h.miner.SpawnTempMiner()
 }
 
 // CreateTransaction uses the miner to create a transaction using the given
@@ -270,7 +280,7 @@ func (h *HarnessTest) SpawnTempMiner() *miner.HarnessMiner {
 func (h *HarnessTest) CreateTransaction(outputs []*wire.TxOut,
 	feeRate btcutil.Amount) *wire.MsgTx {
 
-	return h.Miner.CreateTransaction(outputs, feeRate)
+	return h.miner.CreateTransaction(outputs, feeRate)
 }
 
 // SendOutputsWithoutChange uses the miner to send the given outputs using the
@@ -278,7 +288,7 @@ func (h *HarnessTest) CreateTransaction(outputs []*wire.TxOut,
 func (h *HarnessTest) SendOutputsWithoutChange(outputs []*wire.TxOut,
 	feeRate btcutil.Amount) *chainhash.Hash {
 
-	return h.Miner.SendOutputsWithoutChange(outputs, feeRate)
+	return h.miner.SendOutputsWithoutChange(outputs, feeRate)
 }
 
 // AssertMinerBlockHeightDelta ensures that tempMiner is 'delta' blocks ahead
@@ -286,7 +296,7 @@ func (h *HarnessTest) SendOutputsWithoutChange(outputs []*wire.TxOut,
 func (h *HarnessTest) AssertMinerBlockHeightDelta(
 	tempMiner *miner.HarnessMiner, delta int32) {
 
-	h.Miner.AssertMinerBlockHeightDelta(tempMiner, delta)
+	h.miner.AssertMinerBlockHeightDelta(tempMiner, delta)
 }
 
 // SendRawTransaction submits the encoded transaction to the server which will
@@ -294,7 +304,7 @@ func (h *HarnessTest) AssertMinerBlockHeightDelta(
 func (h *HarnessTest) SendRawTransaction(tx *wire.MsgTx,
 	allowHighFees bool) (chainhash.Hash, error) {
 
-	txid, err := h.Miner.Client.SendRawTransaction(tx, allowHighFees)
+	txid, err := h.miner.Client.SendRawTransaction(tx, allowHighFees)
 	require.NoError(h, err)
 
 	return *txid, nil

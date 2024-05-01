@@ -77,9 +77,9 @@ type HarnessTest struct {
 	// Embed the standbyNodes so we can easily access them via `ht.Alice`.
 	standbyNodes
 
-	// Miner is a reference to a running full node that can be used to
+	// miner is a reference to a running full node that can be used to
 	// create new blocks on the network.
-	Miner *miner.HarnessMiner
+	miner *miner.HarnessMiner
 
 	// manager handles the start and stop of a given node.
 	manager *nodeManager
@@ -188,7 +188,7 @@ func (h *HarnessTest) Start(chain node.BackendConfig,
 	h.manager.feeServiceURL = h.feeService.URL()
 
 	// Assemble the miner.
-	h.Miner = miner
+	h.miner = miner
 }
 
 // ChainBackendName returns the chain backend name used in the test.
@@ -254,7 +254,7 @@ func (h *HarnessTest) createAndSendOutput(target *node.HarnessNode,
 		PkScript: addrScript,
 		Value:    int64(amt),
 	}
-	h.Miner.SendOutput(output, defaultMinerFeeRate)
+	h.miner.SendOutput(output, defaultMinerFeeRate)
 }
 
 // SetupRemoteSigningStandbyNodes starts the initial seeder nodes within the
@@ -371,7 +371,7 @@ func (h *HarnessTest) Stop() {
 	h.stopChainBackend()
 
 	// Stop the miner.
-	h.Miner.Stop()
+	h.miner.Stop()
 }
 
 // RunTestCase executes a harness test case. Any errors or panics will be
@@ -414,7 +414,7 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	st := &HarnessTest{
 		T:            t,
 		manager:      h.manager,
-		Miner:        h.Miner,
+		miner:        h.miner,
 		standbyNodes: h.standbyNodes,
 		feeService:   h.feeService,
 		lndErrorChan: make(chan error, lndErrorChanSize),
@@ -424,7 +424,7 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	st.runCtx, st.cancel = context.WithCancel(h.runCtx)
 
 	// Inherit the subtest for the miner.
-	st.Miner.T = st.T
+	st.miner.T = st.T
 
 	// Reset the standby nodes.
 	st.resetStandbyNodes(t)
@@ -467,7 +467,7 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 		st.shutdownNonStandbyNodes()
 
 		// We require the mempool to be cleaned from the test.
-		require.Empty(st, st.Miner.GetRawMempool(), "mempool not "+
+		require.Empty(st, st.miner.GetRawMempool(), "mempool not "+
 			"cleaned, please mine blocks to clean them all.")
 
 		// Finally, cancel the run context. We have to do it here
@@ -1298,7 +1298,7 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 		pendingClose.ClosePending.Txid)
 
 	// Assert the closing tx is in the mempool.
-	h.Miner.AssertTxInMempool(closeTxid)
+	h.miner.AssertTxInMempool(closeTxid)
 
 	return stream, closeTxid
 }
@@ -1396,7 +1396,7 @@ func (h *HarnessTest) fundCoins(amt btcutil.Amount, target *node.HarnessNode,
 		PkScript: addrScript,
 		Value:    int64(amt),
 	}
-	h.Miner.SendOutput(output, defaultMinerFeeRate)
+	h.miner.SendOutput(output, defaultMinerFeeRate)
 
 	// Encode the pkScript in hex as this the format that it will be
 	// returned via rpc.
@@ -1903,7 +1903,7 @@ func (h *HarnessTest) CalculateTxFee(tx *wire.MsgTx) btcutil.Amount {
 	var balance btcutil.Amount
 	for _, in := range tx.TxIn {
 		parentHash := in.PreviousOutPoint.Hash
-		rawTx := h.Miner.GetRawTransaction(&parentHash)
+		rawTx := h.miner.GetRawTransaction(&parentHash)
 		parent := rawTx.MsgTx()
 		value := parent.TxOut[in.PreviousOutPoint.Index].Value
 
@@ -2121,12 +2121,12 @@ func (h *HarnessTest) ReceiveChannelEvent(
 func (h *HarnessTest) GetOutputIndex(txid *chainhash.Hash, addr string) int {
 	// We'll then extract the raw transaction from the mempool in order to
 	// determine the index of the p2tr output.
-	tx := h.Miner.GetRawTransaction(txid)
+	tx := h.miner.GetRawTransaction(txid)
 
 	p2trOutputIndex := -1
 	for i, txOut := range tx.MsgTx().TxOut {
 		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-			txOut.PkScript, h.Miner.ActiveNet,
+			txOut.PkScript, h.miner.ActiveNet,
 		)
 		require.NoError(h, err)
 

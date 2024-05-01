@@ -579,7 +579,7 @@ func revokedCloseRetributionRemoteHodlCase(ht *lntest.HarnessTest,
 			// NOTE: We don't use `ht.GetRawTransaction`
 			// which asserts a txid must be found as the HTLC
 			// spending txes might be aggregated.
-			tx, err := ht.Miner.Client.GetRawTransaction(txid)
+			tx, err := ht.Miner().Client.GetRawTransaction(txid)
 			if err != nil {
 				return nil, err
 			}

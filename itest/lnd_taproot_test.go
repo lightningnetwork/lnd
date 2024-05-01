@@ -96,7 +96,7 @@ func testTaprootSendCoinsKeySpendBip86(ht *lntest.HarnessTest,
 
 	// Assert this is a segwit v1 address that starts with bcrt1p.
 	require.Contains(
-		ht, p2trResp.Address, ht.Miner.ActiveNet.Bech32HRPSegwit+"1p",
+		ht, p2trResp.Address, ht.Miner().ActiveNet.Bech32HRPSegwit+"1p",
 	)
 
 	// Send the coins from Alice's wallet to her own, but to the new p2tr

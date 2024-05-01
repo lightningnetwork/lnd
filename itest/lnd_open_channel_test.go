@@ -32,7 +32,7 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 	// Create a temp miner.
 	tempMiner := ht.SpawnTempMiner()
 
-	miner := ht.Miner
+	miner := ht.Miner()
 	alice, bob := ht.Alice, ht.Bob
 
 	// Create a new channel that requires 1 confs before it's considered

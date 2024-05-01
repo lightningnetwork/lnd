@@ -296,7 +296,7 @@ func wsTestCaseSubscription(ht *lntest.HarnessTest) {
 	}()
 
 	// Mine a block and make sure we get a message for it.
-	blockHashes := ht.Miner.GenerateBlocks(1)
+	blockHashes := ht.Miner().GenerateBlocks(1)
 	select {
 	case msg := <-msgChan:
 		require.Equal(
@@ -388,7 +388,7 @@ func wsTestCaseSubscriptionMacaroon(ht *lntest.HarnessTest) {
 	}()
 
 	// Mine a block and make sure we get a message for it.
-	blockHashes := ht.Miner.GenerateBlocks(1)
+	blockHashes := ht.Miner().GenerateBlocks(1)
 	select {
 	case msg := <-msgChan:
 		require.Equal(

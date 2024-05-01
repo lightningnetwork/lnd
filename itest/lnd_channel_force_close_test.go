@@ -709,7 +709,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 		// NOTE: we don't check `len(mempool) == 1` because it will
 		// give us false positive.
 		err := wait.NoError(func() error {
-			mempool := ht.Miner.GetRawMempool()
+			mempool := ht.Miner().GetRawMempool()
 			if len(mempool) == 2 {
 				return nil
 			}

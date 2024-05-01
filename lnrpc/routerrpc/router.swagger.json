@@ -1910,6 +1910,29 @@
     "routerrpcSubscribedEvent": {
       "type": "object"
     },
+    "routerrpcTrackOnionResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean",
+          "description": "Indicates if the onion was successfully sent or not."
+        },
+        "preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The preimage obtained by making the payment."
+        },
+        "error_message": {
+          "type": "string",
+          "description": "In case of failure, this field will provide more information about the\nerror."
+        },
+        "encrypted_error": {
+          "type": "string",
+          "format": "byte",
+          "description": "If the caller provides no means to decrypt the error then we'll defer\nerror decryption on the server and return the encrypted error blob."
+        }
+      }
+    },
     "routerrpcUpdateChanStatusRequest": {
       "type": "object",
       "properties": {

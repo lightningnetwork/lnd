@@ -86,6 +86,12 @@ service Router {
     rpc SendOnion (SendOnionRequest) returns (SendOnionResponse);
 
     /*
+    TrackOnion allows callers to query whether or not a payment dispatched via
+    SendOnion succeeded or failed.
+    */
+    rpc TrackOnion (TrackOnionRequest) returns (TrackOnionResponse);
+
+    /*
     BuildOnion attempts to build an onion packet for the specified route.
     */
     rpc BuildOnion (BuildOnionRequest) returns (BuildOnionResponse);
@@ -519,6 +525,43 @@ message BuildOnionResponse {
     // The serialized public keys of all nodes along the route for the
     // constructed onion.
     repeated bytes hop_pubkeys = 3;
+}
+
+message TrackOnionRequest {
+    // The payment hash associated with the HTLC. This is needed for tracking
+    // and debugging purposes.
+    bytes payment_hash = 1;
+
+    // The attempt ID uniquely identifying this payment attempt. The caller can
+    // expect to track results for the payment via this attempt ID.
+    uint64 attempt_id = 2;
+
+    // Optional: Session key used to generate the onion/sphinx packet.
+    bytes session_key = 3;
+
+    // Optional: Public keys of nodes along the route, used with session_key.
+    repeated bytes hop_pubkeys = 4;
+
+    // Optional: list of shared secrets for deobfuscating errors server side.
+    // If not included, then it will be the caller's responsibility to decrypt
+    // any errors from the SendOnion attempt.
+    repeated bytes shared_secrets = 5;
+}
+
+message TrackOnionResponse {
+    // Indicates if the onion was successfully sent or not.
+    bool success = 1;
+
+    // The preimage obtained by making the payment.
+    bytes preimage = 2;
+
+    // In case of failure, this field will provide more information about the
+    // error.
+    string error_message = 3;
+
+    // If the caller provides no means to decrypt the error then we'll defer
+    // error decryption on the server and return the encrypted error blob.
+    bytes encrypted_error = 4;
 }
 
 message ResetMissionControlRequest {

@@ -538,6 +538,10 @@ type Config struct {
 	// AliasManager is an implementation of the aliasHandler interface that
 	// abstracts away the handling of many alias functions.
 	AliasManager aliasHandler
+
+	// AuxLeafStore is an optional store that can be used to store auxiliary
+	// leaves for certain custom channel types.
+	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
 }
 
 // Manager acts as an orchestrator/bridge between the wallet's
@@ -1056,9 +1060,14 @@ func (f *Manager) advanceFundingState(channel *channeldb.OpenChannel,
 		}
 	}
 
+	var chanOpts []lnwallet.ChannelOpt
+	f.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
+		chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
+	})
+
 	// We create the state-machine object which wraps the database state.
 	lnChannel, err := lnwallet.NewLightningChannel(
-		nil, channel, nil,
+		nil, channel, nil, chanOpts...,
 	)
 	if err != nil {
 		log.Errorf("Unable to create LightningChannel(%v): %v",

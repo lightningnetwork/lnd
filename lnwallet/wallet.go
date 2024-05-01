@@ -1458,6 +1458,21 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	req.err <- nil
 }
 
+// createCommitOpts is a struct that holds the options for creating a new
+// commitment transaction.
+type createCommitOpts struct {
+	auxLeaves fn.Option[CommitAuxLeaves]
+}
+
+// defaultCommitOpts returns a new createCommitOpts with default values.
+func defaultCommitOpts() createCommitOpts {
+	return createCommitOpts{}
+}
+
+// CreateCommitOpt is a functional option that can be used to modify the way a
+// new commitment transaction is created.
+type CreateCommitOpt func(*createCommitOpts)
+
 // CreateCommitmentTxns is a helper function that creates the initial
 // commitment transaction for both parties. This function is used during the
 // initial funding workflow as both sides must generate a signature for the
@@ -1467,7 +1482,13 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	ourChanCfg, theirChanCfg *channeldb.ChannelConfig,
 	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
 	fundingTxIn wire.TxIn, chanType channeldb.ChannelType, initiator bool,
-	leaseExpiry uint32) (*wire.MsgTx, *wire.MsgTx, error) {
+	leaseExpiry uint32, opts ...CreateCommitOpt) (*wire.MsgTx, *wire.MsgTx,
+	error) {
+
+	options := defaultCommitOpts()
+	for _, optFunc := range opts {
+		optFunc(&options)
+	}
 
 	localCommitmentKeys := DeriveCommitmentKeys(
 		localCommitPoint, true, chanType, ourChanCfg, theirChanCfg,
@@ -1479,7 +1500,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	ourCommitTx, err := CreateCommitTx(
 		chanType, fundingTxIn, localCommitmentKeys, ourChanCfg,
 		theirChanCfg, localBalance, remoteBalance, 0, initiator,
-		leaseExpiry,
+		leaseExpiry, options.auxLeaves,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1493,7 +1514,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	theirCommitTx, err := CreateCommitTx(
 		chanType, fundingTxIn, remoteCommitmentKeys, theirChanCfg,
 		ourChanCfg, remoteBalance, localBalance, 0, !initiator,
-		leaseExpiry,
+		leaseExpiry, options.auxLeaves,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -2484,9 +2505,16 @@ func TapscriptRootToTweak(root chainhash.Hash) input.MuSig2Tweaks {
 func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 	fundingTx *wire.MsgTx) error {
 
+	var chanOpts []ChannelOpt
+	l.Cfg.AuxLeafStore.WhenSome(func(s AuxLeafStore) {
+		chanOpts = append(chanOpts, WithLeafStore(s))
+	})
+
 	// First, we'll obtain a fully signed commitment transaction so we can
 	// pass into it on the chanvalidate package for verification.
-	channel, err := NewLightningChannel(l.Cfg.Signer, channelState, nil)
+	channel, err := NewLightningChannel(
+		l.Cfg.Signer, channelState, nil, chanOpts...,
+	)
 	if err != nil {
 		return err
 	}

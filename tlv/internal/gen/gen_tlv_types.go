@@ -9,6 +9,7 @@ import (
 
 const (
 	numberOfTypes     = 100
+	customTypeStart   = 65536
 	defaultOutputFile = "tlv_types_generated.go"
 )
 
@@ -32,9 +33,18 @@ type TlvType{{ $index }} = *tlvType{{ $index }}
 
 func main() {
 	// Create a slice of items that the template can range over.
-	var items []struct{}
-	for i := uint16(0); i <= numberOfTypes; i++ {
-		items = append(items, struct{}{})
+	//
+	// We'll generate 100 elements from the lower end of the TLV range
+	// first.
+	items := make(map[uint32]struct{})
+	for i := uint32(0); i <= numberOfTypes; i++ {
+		items[i] = struct{}{}
+	}
+
+	// With the lower end generated, we'll now generate 100 records in the
+	// upper end of the range.
+	for i := uint32(customTypeStart); i <= customTypeStart+numberOfTypes; i++ {
+		items[i] = struct{}{}
 	}
 
 	tpl, err := template.New("tlv").Parse(typeCodeTemplate)

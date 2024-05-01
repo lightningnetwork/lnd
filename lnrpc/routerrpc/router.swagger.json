@@ -1147,6 +1147,30 @@
         }
       }
     },
+    "routerrpcBuildOnionResponse": {
+      "type": "object",
+      "properties": {
+        "onion_blob": {
+          "type": "string",
+          "format": "byte",
+          "description": "The constructed onion packet in bytes."
+        },
+        "session_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The session key used for building the onion packet."
+        },
+        "hop_pubkeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The serialized public keys of all nodes along the route for the\nconstructed onion."
+        }
+      },
+      "description": "BuildOnionResponse contains the constructed onion packet."
+    },
     "routerrpcBuildRouteRequest": {
       "type": "object",
       "properties": {

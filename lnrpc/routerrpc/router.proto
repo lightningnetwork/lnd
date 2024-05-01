@@ -85,6 +85,11 @@ service Router {
     */
     rpc SendOnion (SendOnionRequest) returns (SendOnionResponse);
 
+    /*
+    BuildOnion attempts to build an onion packet for the specified route.
+    */
+    rpc BuildOnion (BuildOnionRequest) returns (BuildOnionResponse);
+
     /* lncli: `resetmc`
     ResetMissionControl clears all mission control state and starts with a clean
     slate.
@@ -487,6 +492,33 @@ message SendOnionResponse {
     // A code representing the type of error that occurred. This can be used
     // to programmatically distinguish between different kinds of errors.
     string error_code = 3;
+}
+
+// BuildOnionRequest includes the necessary information to construct a Sphinx
+// onion packet.
+message BuildOnionRequest {
+    // The route for which the onion packet should be built.
+    lnrpc.Route route = 1;
+
+    // The payment hash associated with the HTLC.
+    bytes payment_hash = 2;
+
+    // A session key for onion packet construction, if not provided, a new one
+    // will be generated.
+    bytes session_key = 3;
+}
+
+// BuildOnionResponse contains the constructed onion packet.
+message BuildOnionResponse {
+    // The constructed onion packet in bytes.
+    bytes onion_blob = 1;
+
+    // The session key used for building the onion packet.
+    bytes session_key = 2;
+
+    // The serialized public keys of all nodes along the route for the
+    // constructed onion.
+    repeated bytes hop_pubkeys = 3;
 }
 
 message ResetMissionControlRequest {

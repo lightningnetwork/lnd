@@ -5063,9 +5063,7 @@ func (lc *LightningChannel) computeView(view *HtlcView, remoteChain bool,
 	// need this to determine which HTLCs are dust, and also the final fee
 	// rate.
 	view.FeePerKw = commitChain.tip().feePerKw
-
-	// TODO(roasbeef): also need to pass blob here as well for final
-	// balances?
+	view.NextHeight = nextHeight
 
 	// We evaluate the view at this stage, meaning settled and failed HTLCs
 	// will remove their corresponding added HTLCs.  The resulting filtered

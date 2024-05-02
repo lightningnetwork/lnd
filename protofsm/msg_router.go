@@ -260,7 +260,7 @@ func (p *MultiMsgRouter) msgRouter() {
 			var couldSend bool
 			for _, endpoint := range endpoints {
 				if endpoint.CanHandle(msg) {
-					log.Tracef("MsgRouter: sending "+
+					log.Infof("MsgRouter: sending "+
 						"msg %T to endpoint %s", msg,
 						endpoint.Name())
 
@@ -271,7 +271,7 @@ func (p *MultiMsgRouter) msgRouter() {
 
 			var err error
 			if !couldSend {
-				log.Tracef("MsgRouter: unable to route "+
+				log.Infof("MsgRouter: unable to route "+
 					"msg %T", msg)
 
 				err = ErrUnableToRouteMsg

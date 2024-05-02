@@ -5,7 +5,6 @@ import (
 	"container/list"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -595,7 +594,8 @@ func NewBrontide(cfg Config) *Brontide {
 		return uint16(
 			// We don't need cryptographic randomness here.
 			/* #nosec */
-			rand.Intn(lnwire.MaxPongBytes + 1),
+			//rand.Intn(lnwire.MaxPongBytes + 1),
+			2,
 		)
 	}
 

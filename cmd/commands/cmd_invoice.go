@@ -307,7 +307,7 @@ func decodePayReq(ctx *cli.Context) error {
 	}
 
 	resp, err := client.DecodePayReq(ctxc, &lnrpc.PayReqString{
-		PayReq: stripPrefix(payreq),
+		PayReq: StripPrefix(payreq),
 	})
 	if err != nil {
 		return err

@@ -2508,7 +2508,6 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 		BitcoinKey2Bytes: ann.BitcoinKey2,
 		AuthProof:        proof,
 		Features:         featureBuf.Bytes(),
-		TapscriptRoot:    nMsg.optionalMsgFields.tapscriptRoot,
 		ExtraOpaqueData:  ann.ExtraOpaqueData,
 	}
 
@@ -2522,6 +2521,8 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 			cp := *nMsg.optionalMsgFields.channelPoint
 			edge.ChannelPoint = cp
 		}
+
+		edge.TapscriptRoot = nMsg.optionalMsgFields.tapscriptRoot
 	}
 
 	log.Debugf("Adding edge for short_chan_id: %v",

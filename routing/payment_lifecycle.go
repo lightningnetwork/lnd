@@ -10,6 +10,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -359,7 +360,8 @@ func (p *paymentLifecycle) requestRoute(
 	// Query our payment session to construct a route.
 	rt, err := p.paySession.RequestRoute(
 		ps.RemainingAmt, remainingFees,
-		uint32(ps.NumAttemptsInFlight), uint32(p.currentHeight), nil,
+		uint32(ps.NumAttemptsInFlight), uint32(p.currentHeight),
+		p.firstHopTLVs,
 	)
 
 	// Exit early if there's no error.
@@ -675,6 +677,44 @@ func (p *paymentLifecycle) sendAttempt(
 		Expiry:        rt.TotalTimeLock,
 		PaymentHash:   *attempt.Hash,
 		CustomRecords: lnwire.CustomRecords(p.firstHopTLVs),
+	}
+
+	// If we had custom records in the HTLC, then we'll encode that here
+	// now. We allow the traffic shaper (if there is one) to overwrite the
+	// custom records below. But if there is no traffic shaper, we still
+	// want to forward these custom records.
+	encodedRecords, err := htlcAdd.CustomRecords.Serialize()
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode first hop TLVs: %w",
+			err)
+	}
+
+	// If a hook exists that may affect our outgoing message, we call it now
+	// and apply its side effects to the UpdateAddHTLC message.
+	err = fn.MapOptionZ(
+		p.router.cfg.TrafficShaper,
+		func(ts TlvTrafficShaper) error {
+			newAmt, newData, err := ts.ProduceHtlcExtraData(
+				rt.TotalAmount, encodedRecords,
+			)
+			if err != nil {
+				return err
+			}
+
+			customRecords, err := lnwire.ParseCustomRecords(newData)
+			if err != nil {
+				return err
+			}
+
+			htlcAdd.CustomRecords = customRecords
+			htlcAdd.Amount = lnwire.NewMSatFromSatoshis(newAmt)
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("traffic shaper failed to produce "+
+			"extra data: %w", err)
 	}
 
 	// Generate the raw encoded sphinx packet to be included along

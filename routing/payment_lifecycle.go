@@ -11,11 +11,13 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/routing/shards"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // ErrPaymentLifecycleExiting is used when waiting for htlc attempt result, but
@@ -274,6 +276,13 @@ lifecycle:
 		}
 
 		log.Tracef("Found route: %s", spew.Sdump(rt.Hops))
+
+		// Allow the traffic shaper to add custom records to the
+		// outgoing HTLC and also adjust the amount if needed.
+		err = p.amendFirstHopData(rt)
+		if err != nil {
+			return exitWithErr(err)
+		}
 
 		// We found a route to try, create a new HTLC attempt to try.
 		attempt, err := p.registerAttempt(rt, ps.RemainingAmt)
@@ -668,8 +677,10 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
 func (p *paymentLifecycle) sendAttempt(
 	attempt *channeldb.HTLCAttempt) (*attemptResult, error) {
 
-	log.Debugf("Sending HTLC attempt(id=%v, amt=%v) for payment %v",
-		attempt.AttemptID, attempt.Route.TotalAmount, p.identifier)
+	log.Debugf("Sending HTLC attempt(id=%v, total_amt=%v, first_hop_amt=%d"+
+		") for payment %v", attempt.AttemptID,
+		attempt.Route.TotalAmount, attempt.Route.FirstHopAmount.Val,
+		p.identifier)
 
 	rt := attempt.Route
 
@@ -680,10 +691,10 @@ func (p *paymentLifecycle) sendAttempt(
 	// this packet will be used to route the payment through the network,
 	// starting with the first-hop.
 	htlcAdd := &lnwire.UpdateAddHTLC{
-		Amount:        rt.TotalAmount,
+		Amount:        rt.FirstHopAmount.Val.Int(),
 		Expiry:        rt.TotalTimeLock,
 		PaymentHash:   *attempt.Hash,
-		CustomRecords: p.firstHopCustomRecords,
+		CustomRecords: rt.FirstHopWireCustomRecords,
 	}
 
 	// Generate the raw encoded sphinx packet to be included along
@@ -720,6 +731,75 @@ func (p *paymentLifecycle) sendAttempt(
 	return &attemptResult{
 		attempt: attempt,
 	}, nil
+}
+
+// amendFirstHopData is a function that calls the traffic shaper to allow it to
+// add custom records to the outgoing HTLC and also adjust the amount if
+// needed.
+func (p *paymentLifecycle) amendFirstHopData(rt *route.Route) error {
+	// The first hop amount on the route is the full route amount if not
+	// overwritten by the traffic shaper. So we set the initial value now
+	// and potentially overwrite it later.
+	rt.FirstHopAmount = tlv.NewRecordT[tlv.TlvType0](
+		tlv.NewBigSizeT(rt.TotalAmount),
+	)
+
+	// By default, we set the first hop custom records to the initial
+	// value requested by the RPC. The traffic shaper may overwrite this
+	// value.
+	rt.FirstHopWireCustomRecords = p.firstHopCustomRecords
+
+	// extraDataRequest is a helper struct to pass the custom records and
+	// amount back from the traffic shaper.
+	type extraDataRequest struct {
+		customRecords fn.Option[lnwire.CustomRecords]
+
+		amount fn.Option[lnwire.MilliSatoshi]
+	}
+
+	// If a hook exists that may affect our outgoing message, we call it now
+	// and apply its side effects to the UpdateAddHTLC message.
+	result, err := fn.MapOptionZ(
+		p.router.cfg.TrafficShaper,
+		func(ts TlvTrafficShaper) fn.Result[extraDataRequest] {
+			newAmt, newRecords, err := ts.ProduceHtlcExtraData(
+				rt.TotalAmount, p.firstHopCustomRecords,
+			)
+			if err != nil {
+				return fn.Err[extraDataRequest](err)
+			}
+
+			// Make sure we only received valid records.
+			if err := newRecords.Validate(); err != nil {
+				return fn.Err[extraDataRequest](err)
+			}
+
+			log.Debugf("TLV traffic shaper returned custom "+
+				"records %v and amount %d msat for HTLC",
+				spew.Sdump(newRecords), newAmt)
+
+			return fn.Ok(extraDataRequest{
+				customRecords: fn.Some(newRecords),
+				amount:        fn.Some(newAmt),
+			})
+		},
+	).Unpack()
+	if err != nil {
+		return fmt.Errorf("traffic shaper failed to produce extra "+
+			"data: %w", err)
+	}
+
+	// Apply the side effects to the UpdateAddHTLC message.
+	result.customRecords.WhenSome(func(records lnwire.CustomRecords) {
+		rt.FirstHopWireCustomRecords = records
+	})
+	result.amount.WhenSome(func(amount lnwire.MilliSatoshi) {
+		rt.FirstHopAmount = tlv.NewRecordT[tlv.TlvType0](
+			tlv.NewBigSizeT(amount),
+		)
+	})
+
+	return nil
 }
 
 // failAttemptAndPayment fails both the payment and its attempt via the

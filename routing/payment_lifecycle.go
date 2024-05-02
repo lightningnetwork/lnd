@@ -362,6 +362,7 @@ func (p *paymentLifecycle) requestRoute(
 	rt, err := p.paySession.RequestRoute(
 		ps.RemainingAmt, remainingFees,
 		uint32(ps.NumAttemptsInFlight), uint32(p.currentHeight),
+		p.firstHopTLVs,
 	)
 
 	// Exit early if there's no error.

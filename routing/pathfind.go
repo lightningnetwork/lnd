@@ -13,9 +13,11 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -433,6 +435,10 @@ type RestrictParams struct {
 	// BlindedPayment is necessary to determine the hop size of the
 	// last/exit hop.
 	BlindedPayment *BlindedPayment
+
+	// FirstHopCustomRecords includes any records that should be included in
+	// the update_add_htlc message towards our peer.
+	FirstHopCustomRecords record.CustomSet
 }
 
 // PathFindingConfig defines global parameters that control the trade-off in
@@ -459,9 +465,10 @@ type PathFindingConfig struct {
 // available balance.
 func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 	bandwidthHints bandwidthHints,
-	g routingGraph) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
+	g routingGraph, htlcBlob fn.Option[tlv.Blob]) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
 
 	var max, total lnwire.MilliSatoshi
+
 	cb := func(channel *channeldb.DirectedChannel) error {
 		if !channel.OutPolicySet {
 			return nil
@@ -477,7 +484,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 		}
 
 		bandwidth, ok := bandwidthHints.availableChanBandwidth(
-			chanID, 0,
+			chanID, 0, htlcBlob,
 		)
 
 		// If the bandwidth is not available, use the channel capacity.
@@ -491,7 +498,9 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 			max = bandwidth
 		}
 
-		total += bandwidth
+		total = lnwire.MilliSatoshi(
+			safeAdd(uint64(total), uint64(bandwidth)),
+		)
 
 		return nil
 	}
@@ -599,8 +608,23 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	self := g.graph.sourceNode()
 
 	if source == self {
+
+		firstHopTLVs := tlv.MapToRecords(r.FirstHopCustomRecords)
+		wireRecords := fn.Map(func(r tlv.Record) tlv.RecordProducer {
+			return &r
+		}, firstHopTLVs)
+
+		firstHopData := lnwire.ExtraOpaqueData{}
+
+		err := firstHopData.PackRecords(wireRecords...)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		tlvOption := fn.Some[tlv.Blob](firstHopData)
 		max, total, err := getOutgoingBalance(
 			self, outgoingChanMap, g.bandwidthHints, g.graph,
+			tlvOption,
 		)
 		if err != nil {
 			return nil, 0, err
@@ -1029,9 +1053,23 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				continue
 			}
 
+			firstHopTLVs := tlv.MapToRecords(r.FirstHopCustomRecords)
+			wireRecords := fn.Map(func(r tlv.Record) tlv.RecordProducer {
+				return &r
+			}, firstHopTLVs)
+
+			firstHopData := lnwire.ExtraOpaqueData{}
+
+			err := firstHopData.PackRecords(wireRecords...)
+			if err != nil {
+				return nil, 0, err
+			}
+
+			tlvOption := fn.Some[tlv.Blob](firstHopData)
+
 			edge := edgeUnifier.getEdge(
 				netAmountReceived, g.bandwidthHints,
-				partialPath.outboundFee,
+				partialPath.outboundFee, tlvOption,
 			)
 
 			if edge == nil {
@@ -1222,4 +1260,12 @@ func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
 
 	// The final hop does not have a short chanID set.
 	return finalHop.PayloadSize(0)
+}
+
+func safeAdd(x, y uint64) uint64 {
+	if y > math.MaxUint64-x {
+		// Overflow would occur, return maximum uint64 value
+		return math.MaxUint64
+	}
+	return x + y
 }

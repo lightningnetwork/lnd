@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // InvoiceDatabase is an interface which represents the persistent subsystem
@@ -277,6 +278,16 @@ type ChannelLink interface {
 	// AttachMailBox delivers an active MailBox to the link. The MailBox may
 	// have buffered messages.
 	AttachMailBox(MailBox)
+
+	// FundingCustomBlob returns the custom funding blob of the channel that
+	// this link is associated with. The funding blob represents static
+	// information about the channel that was created at channel funding
+	// time.
+	FundingCustomBlob() fn.Option[tlv.Blob]
+
+	// CommitmentCustomBlob returns the custom blob of the current local
+	// commitment of the channel that this link is associated with.
+	CommitmentCustomBlob() fn.Option[tlv.Blob]
 
 	// Start/Stop are used to initiate the start/stop of the channel link
 	// functioning.

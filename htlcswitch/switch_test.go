@@ -5735,3 +5735,178 @@ func TestSwitchOrphanCleanup(t *testing.T) {
 		})
 	}
 }
+
+// TestExtractResult is a unit test for the extractResult function. It verifies
+// that the function correctly processes network results under various
+// conditions.
+func TestExtractResult(t *testing.T) {
+	t.Parallel()
+
+	// Define mock data to be used across test cases.
+	preimage := lntypes.Preimage{1}
+	hash := preimage.Hash()
+	attemptID := uint64(42)
+	encryptedReason := []byte("encrypted reason")
+
+	// Create a mock deobfuscator that will successfully "decrypt" the
+	// reason.
+	decryptedFailure := NewLinkError(
+		lnwire.NewTemporaryChannelFailure(nil),
+	)
+	mockDeobfuscator := &mockErrorDecryptor{
+		result: &ForwardingError{
+			msg: decryptedFailure.WireMessage(),
+		},
+	}
+
+	// Create a mock unencrypted failure message.
+	var unencryptedReasonBytes bytes.Buffer
+	unencryptedFailure := lnwire.NewTemporaryChannelFailure(nil)
+	err := lnwire.EncodeFailure(&unencryptedReasonBytes,
+		unencryptedFailure, 0,
+	)
+	require.NoError(t, err)
+
+	//nolint:ll
+	tests := []struct {
+		name           string
+		deobfuscator   ErrorDecrypter
+		networkResult  *networkResult
+		expectedResult *PaymentResult
+		expectedErr    bool
+	}{
+		//  1. A successful payment (UpdateFulfillHTLC) correctly
+		//     returns the preimage.
+		{
+			name:         "success with preimage",
+			deobfuscator: nil,
+			networkResult: &networkResult{
+				msg: &lnwire.UpdateFulfillHTLC{
+					PaymentPreimage: preimage,
+				},
+			},
+			expectedResult: &PaymentResult{
+				Preimage: preimage,
+			},
+		},
+		//  2. A failed payment (UpdateFailHTLC) with no deobfuscator
+		//     correctly returns the opaque, encrypted error reason.
+		{
+			name:         "fail with no deobfuscator",
+			deobfuscator: nil,
+			networkResult: &networkResult{
+				msg: &lnwire.UpdateFailHTLC{
+					Reason: encryptedReason,
+				},
+			},
+			expectedResult: &PaymentResult{
+				EncryptedError: encryptedReason,
+			},
+		},
+		//  3. A failed payment with a deobfuscator correctly decrypts
+		//     and returns the underlying failure message.
+		{
+			name:         "fail with deobfuscator",
+			deobfuscator: mockDeobfuscator,
+			networkResult: &networkResult{
+				msg: &lnwire.UpdateFailHTLC{
+					Reason: encryptedReason,
+				},
+			},
+			expectedResult: &PaymentResult{
+				Error: NewForwardingError(
+					decryptedFailure.WireMessage(), 0,
+				),
+			},
+		},
+		//  4. An unencrypted, local failure is correctly decoded and
+		//     returned.
+		{
+			name:         "unencrypted local failure",
+			deobfuscator: nil,
+			networkResult: &networkResult{
+				msg: &lnwire.UpdateFailHTLC{
+					Reason: unencryptedReasonBytes.Bytes(),
+				},
+				unencrypted: true,
+			},
+			expectedResult: &PaymentResult{
+				Error: NewLinkError(unencryptedFailure),
+			},
+		},
+		//  5. An unencrypted, local failure is correctly decoded and
+		//     returned.
+		{
+			name:         "unencrypted local failure no reason",
+			deobfuscator: nil,
+			networkResult: &networkResult{
+				msg: &lnwire.UpdateFailHTLC{
+					Reason: []byte{},
+				},
+				unencrypted: true,
+			},
+			expectedResult: &PaymentResult{
+				Error: &LinkError{
+					msg:           unencryptedFailure,
+					FailureDetail: OutgoingFailureDecodeError,
+				},
+			},
+		},
+		//  6. An on-chain resolution failure is correctly identified
+		//     and returned.
+		{
+			name:         "on-chain resolution failure",
+			deobfuscator: nil,
+			networkResult: &networkResult{
+				msg: &lnwire.UpdateFailHTLC{
+					Reason: nil,
+				},
+				isResolution: true,
+			},
+			expectedResult: &PaymentResult{
+				Error: NewDetailedLinkError(
+					&lnwire.FailPermanentChannelFailure{},
+					OutgoingFailureOnChainTimeout,
+				),
+			},
+		},
+		//  7. An unknown message type results in an error.
+		{
+			name:          "unknown message type",
+			deobfuscator:  nil,
+			networkResult: &networkResult{msg: &lnwire.UpdateAddHTLC{}},
+			expectedErr:   true,
+		},
+	}
+
+	// Initialize a bare-bones switch. It's only needed for context,
+	// the functions under test have no side effects on it.
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
+	require.NoError(t, err)
+	err = s.Start()
+	require.NoError(t, err)
+	defer func() {
+		err := s.Stop()
+		require.NoError(t, err)
+	}()
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := s.extractResult(
+				tt.deobfuscator, tt.networkResult,
+				attemptID, hash,
+			)
+
+			if tt.expectedErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.expectedResult, result)
+		})
+	}
+}

@@ -4008,6 +4008,19 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 				PubNonce: remoteNonce,
 			}),
 		)
+
+		err = fn.MapOptionZ(
+			f.cfg.AuxFundingController,
+			func(controller AuxFundingController) error {
+				return controller.ChannelReady(channel)
+			},
+		)
+		if err != nil {
+			cid := newChanIdentifier(msg.ChanID)
+			f.sendWarning(peer, cid, err)
+
+			return
+		}
 	}
 
 	// The channel_ready message contains the next commitment point we'll
@@ -4093,6 +4106,17 @@ func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
 
 	log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
 		"added to router graph", chanID, scid)
+
+	err = fn.MapOptionZ(
+		f.cfg.AuxFundingController,
+		func(controller AuxFundingController) error {
+			return controller.ChannelReady(channel)
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed notifying aux funding controller "+
+			"about channel ready: %w", err)
+	}
 
 	// Give the caller a final update notifying them that the channel is
 	fundingPoint := channel.FundingOutpoint

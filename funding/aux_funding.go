@@ -30,6 +30,11 @@ type AuxFundingController interface {
 	// tapscript root that should be used when creating any musig2 sessions
 	// for a channel.
 	DeriveTapscriptRoot(PendingChanID) (fn.Option[chainhash.Hash], error)
+
+	// ChannelReady is called when a channel has been fully opened and is
+	// ready to be used. This can be used to perform any final setup or
+	// cleanup.
+	ChannelReady(openChan *channeldb.OpenChannel) error
 }
 
 // descFromPendingChanID takes a pending channel ID, that may already be

@@ -61,6 +61,11 @@ type PaymentResult struct {
 	// irrevocably canceled. If the payment failed during forwarding, this
 	// error will be a *ForwardingError.
 	Error error
+
+	// EncryptedError will contain the raw bytes of an encrypted error
+	// in the event of a payment failure if the switch is instructed to
+	// defer error processing to external sub-systems.
+	EncryptedError []byte
 }
 
 // networkResult is the raw result received from the network after a payment

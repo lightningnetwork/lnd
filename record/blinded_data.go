@@ -17,6 +17,11 @@ type BlindedRouteData struct {
 	// ShortChannelID is the channel ID of the next hop.
 	ShortChannelID tlv.OptionalRecordT[tlv.TlvType2, lnwire.ShortChannelID]
 
+	// PathID is a secret set of bytes that the blinded path creator will
+	// set so that they can check the value on decryption to ensure that the
+	// path they created was used for the intended purpose.
+	PathID tlv.OptionalRecordT[tlv.TlvType6, []byte]
+
 	// NextBlindingOverride is a blinding point that should be switched
 	// in for the next hop. This is used to combine two blinded paths into
 	// one (which primarily is used in onion messaging, but in theory
@@ -68,12 +73,33 @@ func NewNonFinalBlindedRouteData(chanID lnwire.ShortChannelID,
 	return info
 }
 
+// NewFinalHopBlindedRouteData creates the data that's provided for the final
+// hop in a blinded route.
+func NewFinalHopBlindedRouteData(constraints *PaymentConstraints,
+	pathID []byte) *BlindedRouteData {
+
+	var data BlindedRouteData
+	if pathID != nil {
+		data.PathID = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType6](pathID),
+		)
+	}
+
+	if constraints != nil {
+		data.Constraints = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType12](*constraints))
+	}
+
+	return &data
+}
+
 // DecodeBlindedRouteData decodes the data provided within a blinded route.
 func DecodeBlindedRouteData(r io.Reader) (*BlindedRouteData, error) {
 	var (
 		d BlindedRouteData
 
 		scid             = d.ShortChannelID.Zero()
+		pathID           = d.PathID.Zero()
 		blindingOverride = d.NextBlindingOverride.Zero()
 		relayInfo        = d.RelayInfo.Zero()
 		constraints      = d.Constraints.Zero()
@@ -86,7 +112,8 @@ func DecodeBlindedRouteData(r io.Reader) (*BlindedRouteData, error) {
 	}
 
 	typeMap, err := tlvRecords.ExtractRecords(
-		&scid, &blindingOverride, &relayInfo, &constraints, &features,
+		&scid, &pathID, &blindingOverride, &relayInfo, &constraints,
+		&features,
 	)
 	if err != nil {
 		return nil, err
@@ -94,6 +121,10 @@ func DecodeBlindedRouteData(r io.Reader) (*BlindedRouteData, error) {
 
 	if val, ok := typeMap[d.ShortChannelID.TlvType()]; ok && val == nil {
 		d.ShortChannelID = tlv.SomeRecordT(scid)
+	}
+
+	if val, ok := typeMap[d.PathID.TlvType()]; ok && val == nil {
+		d.PathID = tlv.SomeRecordT(pathID)
 	}
 
 	val, ok := typeMap[d.NextBlindingOverride.TlvType()]
@@ -127,6 +158,10 @@ func EncodeBlindedRouteData(data *BlindedRouteData) ([]byte, error) {
 		lnwire.ShortChannelID]) {
 
 		recordProducers = append(recordProducers, &scid)
+	})
+
+	data.PathID.WhenSome(func(pathID tlv.RecordT[tlv.TlvType6, []byte]) {
+		recordProducers = append(recordProducers, &pathID)
 	})
 
 	data.NextBlindingOverride.WhenSome(func(pk tlv.RecordT[tlv.TlvType8,

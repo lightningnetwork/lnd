@@ -118,6 +118,59 @@ func TestBlindedDataEncoding(t *testing.T) {
 	}
 }
 
+// TestBlindedDataFinalHopEncoding tests the encoding and decoding of a blinded
+// data blob intended for the final hop of a blinded path where only the pathID
+// will potentially be set.
+func TestBlindedDataFinalHopEncoding(t *testing.T) {
+	tests := []struct {
+		name        string
+		pathID      []byte
+		constraints bool
+	}{
+		{
+			name:   "with path ID",
+			pathID: []byte{1, 2, 3, 4, 5, 6},
+		},
+		{
+			name:   "with no path ID",
+			pathID: nil,
+		},
+		{
+			name:        "with path ID and constraints",
+			pathID:      []byte{1, 2, 3, 4, 5, 6},
+			constraints: true,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var constraints *PaymentConstraints
+			if test.constraints {
+				constraints = &PaymentConstraints{
+					MaxCltvExpiry:   4,
+					HtlcMinimumMsat: 5,
+				}
+			}
+
+			encodedData := NewFinalHopBlindedRouteData(
+				constraints, test.pathID,
+			)
+
+			encoded, err := EncodeBlindedRouteData(encodedData)
+			require.NoError(t, err)
+
+			b := bytes.NewBuffer(encoded)
+			decodedData, err := DecodeBlindedRouteData(b)
+			require.NoError(t, err)
+
+			require.Equal(t, encodedData, decodedData)
+		})
+	}
+}
+
 // TestBlindedRouteVectors tests encoding/decoding of the test vectors for
 // blinded route data provided in the specification.
 //

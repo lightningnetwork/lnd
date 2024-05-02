@@ -5555,3 +5555,85 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 
 	require.NoError(t, interceptSwitch.Stop())
 }
+
+func TestExtractResult(t *testing.T) {
+	mockEncryptedReason := []byte("mock-encrypted-reason")
+	mockPaymentPreimage := [32]byte{1, 2, 3, 4, 5}
+	mockPaymentHash := [32]byte{6, 7, 8, 9, 10}
+	mockAttemptID := uint64(42)
+
+	mockNetworkResult := func(msg lnwire.Message) *networkResult {
+		return &networkResult{
+			msg:          msg,
+			unencrypted:  false,
+			isResolution: false,
+		}
+	}
+
+	// Initialize the switch with a temporary DB.
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
+	require.NoError(t, err, "unable to init switch")
+
+	err = s.Start()
+	require.NoError(t, err, "unable to start switch")
+	defer s.Stop()
+
+	tests := []struct {
+		name          string
+		deobfuscator  ErrorDecrypter
+		networkResult *networkResult
+		expected      *PaymentResult
+		expectsError  bool
+	}{
+		{
+			name:         "Nil Deobfuscator - UpdateFailHTLC",
+			deobfuscator: nil,
+			networkResult: mockNetworkResult(
+				&lnwire.UpdateFailHTLC{
+					Reason: mockEncryptedReason},
+			),
+			expected: &PaymentResult{
+				EncryptedError: mockEncryptedReason,
+			},
+			expectsError: false,
+		},
+		{
+			name:         "UpdateFulfillHTLC",
+			deobfuscator: nil,
+			networkResult: mockNetworkResult(
+				&lnwire.UpdateFulfillHTLC{
+					PaymentPreimage: mockPaymentPreimage},
+			),
+			expected: &PaymentResult{
+				Preimage: mockPaymentPreimage,
+			},
+			expectsError: false,
+		},
+		{
+			name:         "Unknown Response Type",
+			deobfuscator: nil,
+			networkResult: mockNetworkResult(
+				&lnwire.UpdateAddHTLC{},
+			),
+			expected:     nil,
+			expectsError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := s.extractResult(
+				tt.deobfuscator, tt.networkResult,
+				mockAttemptID, mockPaymentHash,
+			)
+
+			if tt.expectsError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}

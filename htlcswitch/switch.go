@@ -1008,7 +1008,9 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 }
 
 // extractResult uses the given deobfuscator to extract the payment result from
-// the given network message.
+// the given network message. If the deobfuscator is not present, then we'll
+// return the onion-encrypted blob that details why the HTLC was failed. This
+// blob is only fully decryptable by the entity which built the onion packet.
 func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
 	attemptID uint64, paymentHash lntypes.Hash) (*PaymentResult, error) {
 
@@ -1024,6 +1026,12 @@ func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
 	// We've received a fail update which means we can finalize the
 	// user payment and return fail response.
 	case *lnwire.UpdateFailHTLC:
+		if deobfuscator == nil {
+			return &PaymentResult{
+				EncryptedError: htlc.Reason,
+			}, nil
+		}
+
 		// TODO(yy): construct deobfuscator here to avoid creating it
 		// in paymentLifecycle even for settled HTLCs.
 		paymentErr := s.parseFailedPayment(

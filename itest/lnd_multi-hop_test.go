@@ -2092,7 +2092,7 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 		numBlocks := uint32(forceCloseChan.BlocksTilMaturity)
 
 		// Add debug log.
-		_, height := ht.GetBestBlock()
+		height := ht.CurrentHeight()
 		bob.AddToLogf("itest: now mine %d blocks at height %d",
 			numBlocks, height)
 		ht.MineEmptyBlocks(int(numBlocks) - 1)
@@ -2232,8 +2232,8 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 	var aliceFundingShim *lnrpc.FundingShim
 	var thawHeight uint32
 	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-		_, minerHeight := ht.GetBestBlock()
-		thawHeight = uint32(minerHeight + thawHeightDelta)
+		minerHeight := ht.CurrentHeight()
+		thawHeight = minerHeight + thawHeightDelta
 		aliceFundingShim, _ = deriveFundingShim(
 			ht, alice, bob, chanAmt, thawHeight, true, c,
 		)
@@ -2449,10 +2449,10 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 
 	// Get the current height to compute number of blocks to mine to
 	// trigger the htlc timeout resolver from Bob.
-	_, height := ht.GetBestBlock()
+	height := ht.CurrentHeight()
 
 	// We'll now mine enough blocks to trigger Bob's timeout resolver.
-	numBlocks = htlc.ExpirationHeight - uint32(height) -
+	numBlocks = htlc.ExpirationHeight - height -
 		lncfg.DefaultOutgoingBroadcastDelta
 
 	// We should now have Carol's htlc success tx in the mempool.
@@ -2680,12 +2680,12 @@ func runExtraPreimageFromLocalCommit(ht *lntest.HarnessTest,
 
 	// Get the current height to compute number of blocks to mine to
 	// trigger the timeout resolver from Bob.
-	_, height := ht.GetBestBlock()
+	height := ht.CurrentHeight()
 
 	// We'll now mine enough blocks to trigger Bob's htlc timeout resolver
 	// to act. Once his timeout resolver starts, it will extract the
 	// preimage from Carol's direct spend tx found in the mempool.
-	numBlocks = htlc.ExpirationHeight - uint32(height) -
+	numBlocks = htlc.ExpirationHeight - height -
 		lncfg.DefaultOutgoingBroadcastDelta
 
 	// Decrease the fee rate used by the sweeper so Bob's timeout tx will

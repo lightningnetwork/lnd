@@ -172,7 +172,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 
 	// Remember the force close height so we can calculate the deadline
 	// height.
-	_, forceCloseHeight := ht.GetBestBlock()
+	forceCloseHeight := ht.CurrentHeight()
 
 	// Bob should have two pending sweeps,
 	// - anchor sweeping from his local commitment.
@@ -188,7 +188,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	sweeps := ht.AssertNumPendingSweeps(bob, 2)
 
 	// The two anchor sweeping should have the same deadline height.
-	deadlineHeight := uint32(forceCloseHeight) + deadlineDeltaAnchor
+	deadlineHeight := forceCloseHeight + deadlineDeltaAnchor
 	require.Equal(ht, deadlineHeight, sweeps[0].DeadlineHeight)
 	require.Equal(ht, deadlineHeight, sweeps[1].DeadlineHeight)
 
@@ -304,7 +304,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	//
 	// Once out of the above loop, we expect to be 2 blocks before the CPFP
 	// deadline.
-	_, currentHeight := ht.GetBestBlock()
+	currentHeight := ht.CurrentHeight()
 	require.Equal(ht, int(anchorDeadline-2), int(currentHeight))
 
 	// Mine one more block, we'd use up all the CPFP budget.
@@ -512,8 +512,8 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	forceCloseHeight := htlc.ExpirationHeight - goToChainDelta
 
 	// Mine till the goToChainHeight is reached.
-	_, currentHeight := ht.GetBestBlock()
-	numBlocks := forceCloseHeight - uint32(currentHeight)
+	currentHeight := ht.CurrentHeight()
+	numBlocks := forceCloseHeight - currentHeight
 	ht.MineEmptyBlocks(int(numBlocks))
 
 	// Assert Bob's force closing tx has been broadcast.
@@ -641,7 +641,7 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	//
 	// Once out of the above loop, we expect to be 2 blocks before the CPFP
 	// deadline.
-	_, currentHeight = ht.GetBestBlock()
+	currentHeight = ht.CurrentHeight()
 	require.Equal(ht, int(anchorDeadline-2), int(currentHeight))
 
 	// Mine one more block, we'd use up all the CPFP budget.
@@ -1380,7 +1380,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	//
 	// TODO(yy): assert they are equal once blocks are synced via
 	// `blockbeat`.
-	_, currentHeight := ht.GetBestBlock()
+	currentHeight := int32(ht.CurrentHeight())
 	actualDeadline := int32(pendingSweepBob.DeadlineHeight) - currentHeight
 	if actualDeadline != int32(deadlineB) {
 		ht.Logf("!!! Found unsynced block between sweeper and "+
@@ -1438,7 +1438,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	//
 	// TODO(yy): assert they are equal once blocks are synced via
 	// `blockbeat`.
-	_, currentHeight = ht.GetBestBlock()
+	currentHeight = int32(ht.CurrentHeight())
 	actualDeadline = int32(aliceCommit.DeadlineHeight) - currentHeight
 	if actualDeadline != int32(deadlineA) {
 		ht.Logf("!!! Found unsynced block between Alice's sweeper and "+
@@ -1972,7 +1972,7 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 
 	// Since the request doesn't specify a deadline, we expect the default
 	// deadline to be used.
-	_, currentHeight := ht.GetBestBlock()
+	currentHeight := int32(ht.CurrentHeight())
 	deadline := uint32(currentHeight + sweep.DefaultDeadlineDelta)
 
 	// Assert the pending sweep is created with the expected values:

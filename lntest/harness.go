@@ -105,6 +105,9 @@ type HarnessTest struct {
 	// cleaned specifies whether the cleanup has been applied for the
 	// current HarnessTest.
 	cleaned bool
+
+	// currentHeight is the current height of the chain backend.
+	currentHeight uint32
 }
 
 // harnessOpts contains functional option to modify the behavior of the various
@@ -433,7 +436,8 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	st.feeService.Reset()
 
 	// Record block height.
-	_, startHeight := h.GetBestBlock()
+	h.updateCurrentHeight()
+	startHeight := int32(h.CurrentHeight())
 
 	st.Cleanup(func() {
 		_, endHeight := h.GetBestBlock()

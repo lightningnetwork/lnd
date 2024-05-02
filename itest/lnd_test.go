@@ -151,7 +151,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		}
 	}
 
-	_, height := harnessTest.GetBestBlock()
+	height := harnessTest.CurrentHeight()
 	t.Logf("=========> tests finished for tranche: %v, tested %d "+
 		"cases, end height: %d\n", trancheIndex, len(testCases), height)
 }

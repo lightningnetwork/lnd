@@ -59,14 +59,14 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	require.Len(ht, channel.PendingHtlcs, 1)
 	activeHtlc := channel.PendingHtlcs[0]
 
-	_, currentHeight := ht.GetBestBlock()
+	currentHeight := ht.CurrentHeight()
 
 	// Now we will mine blocks until the htlc expires, and wait for each
 	// node to sync to our latest height. Sanity check that we won't
 	// underflow.
-	require.Greater(ht, activeHtlc.ExpirationHeight, uint32(currentHeight),
+	require.Greater(ht, activeHtlc.ExpirationHeight, currentHeight,
 		"expected expiry after current height")
-	blocksTillExpiry := activeHtlc.ExpirationHeight - uint32(currentHeight)
+	blocksTillExpiry := activeHtlc.ExpirationHeight - currentHeight
 
 	// Alice will go to chain with some delta, sanity check that we won't
 	// underflow and subtract this from our mined blocks.

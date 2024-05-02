@@ -1535,13 +1535,13 @@ func publishTxAndConfirmSweep(ht *lntest.HarnessTest, node *node.HarnessNode,
 	// Before we publish the tx that spends the p2tr transaction, we want to
 	// register a spend listener that we expect to fire after mining the
 	// block.
-	_, currentHeight := ht.GetBestBlock()
+	currentHeight := ht.CurrentHeight()
 
 	// For a Taproot output we cannot leave the outpoint empty. Let's make
 	// sure the API returns the correct error here.
 	req := &chainrpc.SpendRequest{
 		Script:     spendRequest.Script,
-		HeightHint: uint32(currentHeight),
+		HeightHint: currentHeight,
 	}
 	spendClient := node.RPC.RegisterSpendNtfn(req)
 
@@ -1556,7 +1556,7 @@ func publishTxAndConfirmSweep(ht *lntest.HarnessTest, node *node.HarnessNode,
 	req = &chainrpc.SpendRequest{
 		Outpoint:   spendRequest.Outpoint,
 		Script:     spendRequest.Script,
-		HeightHint: uint32(currentHeight),
+		HeightHint: currentHeight,
 	}
 	spendClient = node.RPC.RegisterSpendNtfn(req)
 
@@ -1582,7 +1582,7 @@ func publishTxAndConfirmSweep(ht *lntest.HarnessTest, node *node.HarnessNode,
 	require.NoError(ht, err)
 	spend := spendMsg.GetSpend()
 	require.NotNil(ht, spend)
-	require.Equal(ht, spend.SpendingHeight, uint32(currentHeight+1))
+	require.Equal(ht, spend.SpendingHeight, currentHeight+1)
 }
 
 // confirmAddress makes sure that a transaction in the mempool spends funds to
@@ -1609,11 +1609,11 @@ func confirmAddress(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	addrPkScript, err := txscript.PayToAddrScript(parsedAddr)
 	require.NoError(ht, err)
 
-	_, currentHeight := ht.GetBestBlock()
+	currentHeight := ht.CurrentHeight()
 	req := &chainrpc.ConfRequest{
 		Script:       addrPkScript,
 		Txid:         txid[:],
-		HeightHint:   uint32(currentHeight),
+		HeightHint:   currentHeight,
 		NumConfs:     1,
 		IncludeBlock: true,
 	}
@@ -1628,7 +1628,7 @@ func confirmAddress(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	require.NoError(ht, err)
 	conf := confMsg.GetConf()
 	require.NotNil(ht, conf)
-	require.Equal(ht, conf.BlockHeight, uint32(currentHeight+1))
+	require.Equal(ht, conf.BlockHeight, currentHeight+1)
 	require.NotNil(ht, conf.RawBlock)
 
 	// We should also be able to decode the raw block.

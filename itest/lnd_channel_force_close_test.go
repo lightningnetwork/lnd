@@ -160,7 +160,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Fetch starting height of this test so we can compute the block
 	// heights we expect certain events to take place.
-	_, curHeight := ht.GetBestBlock()
+	curHeight := int32(ht.CurrentHeight())
 
 	// Using the current height of the chain, derive the relevant heights
 	// for incubating two-stage htlcs.
@@ -431,7 +431,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Update current height
-	_, curHeight = ht.GetBestBlock()
+	curHeight = int32(ht.CurrentHeight())
 
 	// checkForceClosedChannelNumHtlcs verifies that a force closed channel
 	// has the proper number of htlcs.
@@ -485,7 +485,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// number of blocks we have generated since adding it to the nursery,
 	// and take an additional block off so that we end up one block shy of
 	// the expiry height, and add the block padding.
-	_, currentHeight := ht.GetBestBlock()
+	currentHeight := int32(ht.CurrentHeight())
 	cltvHeightDelta := int(htlcExpiryHeight - uint32(currentHeight) - 1)
 
 	// Advance the blockchain until just before the CLTV expires, nothing
@@ -662,7 +662,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Advance the chain until just before the 2nd-layer CSV delays expire.
 	// For anchor channels this is one block earlier.
-	_, currentHeight = ht.GetBestBlock()
+	currentHeight = int32(ht.CurrentHeight())
 	ht.Logf("current height: %v, htlcCsvMaturityHeight=%v", currentHeight,
 		htlcCsvMaturityHeight)
 	numBlocks := int(htlcCsvMaturityHeight - uint32(currentHeight) - 2)

@@ -862,7 +862,7 @@ func testChannelFundingPersistence(ht *lntest.HarnessTest) {
 	ht.AssertTxInBlock(block, fundingTxID)
 
 	// Get the height that our transaction confirmed at.
-	_, height := ht.GetBestBlock()
+	height := int32(ht.CurrentHeight())
 
 	// Restart both nodes to test that the appropriate state has been
 	// persisted and that both nodes recover gracefully.

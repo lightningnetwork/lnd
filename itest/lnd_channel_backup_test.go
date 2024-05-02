@@ -624,8 +624,8 @@ func runChanRestoreScenarioCommitTypes(ht *lntest.HarnessTest,
 
 	var fundingShim *lnrpc.FundingShim
 	if ct == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-		_, minerHeight := ht.GetBestBlock()
-		thawHeight := uint32(minerHeight + thawHeightDelta)
+		minerHeight := ht.CurrentHeight()
+		thawHeight := minerHeight + thawHeightDelta
 
 		fundingShim, _ = deriveFundingShim(
 			ht, dave, carol, crs.params.Amt, thawHeight, true, ct,

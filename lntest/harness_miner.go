@@ -31,6 +31,9 @@ func (h *HarnessTest) Miner() *miner.HarnessMiner {
 func (h *HarnessTest) MineBlocks(num int) {
 	require.Less(h, num, maxBlocksAllowed, "too many blocks to mine")
 
+	// Update the harness's current height.
+	defer h.updateCurrentHeight()
+
 	// Mine num of blocks.
 	for i := 0; i < num; i++ {
 		block := h.miner.MineBlocks(1)[0]
@@ -73,6 +76,9 @@ func (h *HarnessTest) MineBlocks(num int) {
 func (h *HarnessTest) MineEmptyBlocks(num int) []*wire.MsgBlock {
 	require.Less(h, num, maxBlocksAllowed, "too many blocks to mine")
 
+	// Update the harness's current height.
+	defer h.updateCurrentHeight()
+
 	blocks := h.miner.MineEmptyBlocks(num)
 
 	// Finally, make sure all the active nodes are synced.
@@ -89,6 +95,9 @@ func (h *HarnessTest) MineEmptyBlocks(num int) []*wire.MsgBlock {
 // synced.
 func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 	numTxs int) []*wire.MsgBlock {
+
+	// Update the harness's current height.
+	defer h.updateCurrentHeight()
 
 	// If we expect transactions to be included in the blocks we'll mine,
 	// we wait here until they are seen in the miner's mempool.
@@ -308,4 +317,16 @@ func (h *HarnessTest) SendRawTransaction(tx *wire.MsgTx,
 	require.NoError(h, err)
 
 	return *txid, nil
+}
+
+// CurrentHeight returns the current block height.
+func (h *HarnessTest) CurrentHeight() uint32 {
+	return h.currentHeight
+}
+
+// updateCurrentHeight set the harness's current height to the best known
+// height.
+func (h *HarnessTest) updateCurrentHeight() {
+	_, height := h.GetBestBlock()
+	h.currentHeight = uint32(height)
 }

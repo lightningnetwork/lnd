@@ -486,7 +486,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 
 	// We now update the anchor sweep's deadline to be different than the
 	// commit sweep so they can won't grouped together.
-	_, currentHeight := ht.GetBestBlock()
+	currentHeight := int32(ht.CurrentHeight())
 	deadline := int32(commit.DeadlineHeight) - currentHeight
 	require.Positive(ht, deadline)
 	ht.Logf("Found commit deadline %d, anchor deadline %d",
@@ -836,7 +836,7 @@ func testListSweeps(ht *lntest.HarnessTest) {
 	ht.MineEmptyBlocks(1)
 
 	// Get the current block height.
-	_, blockHeight := ht.GetBestBlock()
+	blockHeight := int32(ht.CurrentHeight())
 
 	// Close the second channel and also sweep the funds.
 	ht.ForceCloseChannel(alice, chanPoints[1])

@@ -466,6 +466,10 @@ type RestrictParams struct {
 	// BlindedPaymentPathSet is necessary to determine the hop size of the
 	// last/exit hop.
 	BlindedPaymentPathSet *BlindedPaymentPathSet
+
+	// FirstHopCustomRecords includes any records that should be included in
+	// the update_add_htlc message towards our peer.
+	FirstHopCustomRecords lnwire.CustomRecords
 }
 
 // PathFindingConfig defines global parameters that control the trade-off in
@@ -524,7 +528,16 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 			max = bandwidth
 		}
 
-		total += bandwidth
+		var overflow bool
+		total, overflow = overflowSafeAdd(total, bandwidth)
+		if overflow {
+			// If the current total and the bandwidth would
+			// overflow the maximum value, we set the total to the
+			// maximum value. Which is more milli-satoshis than are
+			// in existence anyway, so the actual value is
+			// irrelevant.
+			total = lnwire.MilliSatoshi(math.MaxUint64)
+		}
 
 		return nil
 	}
@@ -1445,4 +1458,16 @@ func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
 
 	// The final hop does not have a short chanID set.
 	return finalHop.PayloadSize(0)
+}
+
+// overflowSafeAdd adds two MilliSatoshi values and returns the result. If an
+// overflow could occur, zero is returned instead and the boolean is set to
+// true.
+func overflowSafeAdd(x, y lnwire.MilliSatoshi) (lnwire.MilliSatoshi, bool) {
+	if y > math.MaxUint64-x {
+		// Overflow would occur, return 0 and set overflow flag.
+		return 0, true
+	}
+
+	return x + y, false
 }

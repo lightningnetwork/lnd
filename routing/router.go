@@ -1188,6 +1188,13 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 		firstHopCustomRecords,
 	)
 
+	// Allow the traffic shaper to add custom records to the outgoing HTLC
+	// and also adjust the amount if needed.
+	err = p.amendFirstHopData(rt)
+	if err != nil {
+		return nil, err
+	}
+
 	// We found a route to try, create a new HTLC attempt to try.
 	//
 	// NOTE: we use zero `remainingAmt` here to simulate the same effect of

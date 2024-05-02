@@ -341,7 +341,7 @@ func SendPayment(ctx *cli.Context) error {
 	// details of the payment are encoded within the request.
 	if ctx.IsSet("pay_req") {
 		req := &routerrpc.SendPaymentRequest{
-			PaymentRequest:    stripPrefix(ctx.String("pay_req")),
+			PaymentRequest:    StripPrefix(ctx.String("pay_req")),
 			Amt:               ctx.Int64("amt"),
 			DestCustomRecords: make(map[uint64][]byte),
 			Amp:               ctx.Bool(ampFlag.Name),
@@ -920,7 +920,7 @@ func payInvoice(ctx *cli.Context) error {
 	}
 
 	req := &routerrpc.SendPaymentRequest{
-		PaymentRequest:    stripPrefix(payReq),
+		PaymentRequest:    StripPrefix(payReq),
 		Amt:               ctx.Int64("amt"),
 		DestCustomRecords: make(map[uint64][]byte),
 		Amp:               ctx.Bool(ampFlag.Name),
@@ -1922,7 +1922,7 @@ func estimateRouteFee(ctx *cli.Context) error {
 		req.AmtSat = amtSat
 
 	case ctx.IsSet("pay_req"):
-		req.PaymentRequest = stripPrefix(ctx.String("pay_req"))
+		req.PaymentRequest = StripPrefix(ctx.String("pay_req"))
 		if ctx.IsSet("timeout") {
 			req.Timeout = uint32(ctx.Duration("timeout").Seconds())
 		}

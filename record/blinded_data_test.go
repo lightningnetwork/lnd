@@ -101,7 +101,7 @@ func TestBlindedDataEncoding(t *testing.T) {
 				}
 			}
 
-			encodedData := NewBlindedRouteData(
+			encodedData := NewNonFinalBlindedRouteData(
 				channelID, pubkey(t), info, constraints,
 				testCase.features,
 			)
@@ -134,7 +134,7 @@ func TestBlindingSpecTestVectors(t *testing.T) {
 	}{
 		{
 			encoded: "011a0000000000000000000000000000000000000000000000000000020800000000000006c10a0800240000009627100c06000b69e505dc0e00fd023103123456",
-			expectedPaymentData: NewBlindedRouteData(
+			expectedPaymentData: NewNonFinalBlindedRouteData(
 				lnwire.ShortChannelID{
 					BlockHeight: 0,
 					TxIndex:     0,
@@ -158,7 +158,7 @@ func TestBlindingSpecTestVectors(t *testing.T) {
 		},
 		{
 			encoded: "020800000000000004510821031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f0a0800300000006401f40c06000b69c105dc0e00",
-			expectedPaymentData: NewBlindedRouteData(
+			expectedPaymentData: NewNonFinalBlindedRouteData(
 				lnwire.ShortChannelID{
 					TxPosition: 1105,
 				},

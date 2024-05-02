@@ -15,7 +15,7 @@ import (
 // forwarding information.
 type BlindedRouteData struct {
 	// ShortChannelID is the channel ID of the next hop.
-	ShortChannelID tlv.RecordT[tlv.TlvType2, lnwire.ShortChannelID]
+	ShortChannelID tlv.OptionalRecordT[tlv.TlvType2, lnwire.ShortChannelID]
 
 	// NextBlindingOverride is a blinding point that should be switched
 	// in for the next hop. This is used to combine two blinded paths into
@@ -24,7 +24,7 @@ type BlindedRouteData struct {
 	NextBlindingOverride tlv.OptionalRecordT[tlv.TlvType8, *btcec.PublicKey]
 
 	// RelayInfo provides the relay parameters for the hop.
-	RelayInfo tlv.RecordT[tlv.TlvType10, PaymentRelayInfo]
+	RelayInfo tlv.OptionalRecordT[tlv.TlvType10, PaymentRelayInfo]
 
 	// Constraints provides the payment relay constraints for the hop.
 	Constraints tlv.OptionalRecordT[tlv.TlvType12, PaymentConstraints]
@@ -33,16 +33,20 @@ type BlindedRouteData struct {
 	Features tlv.OptionalRecordT[tlv.TlvType14, lnwire.FeatureVector]
 }
 
-// NewBlindedRouteData creates the data that's provided for hops within a
-// blinded route.
-func NewBlindedRouteData(chanID lnwire.ShortChannelID,
+// NewNonFinalBlindedRouteData creates the data that's provided for hops within
+// a blinded route.
+func NewNonFinalBlindedRouteData(chanID lnwire.ShortChannelID,
 	blindingOverride *btcec.PublicKey, relayInfo PaymentRelayInfo,
 	constraints *PaymentConstraints,
 	features *lnwire.FeatureVector) *BlindedRouteData {
 
 	info := &BlindedRouteData{
-		ShortChannelID: tlv.NewRecordT[tlv.TlvType2](chanID),
-		RelayInfo:      tlv.NewRecordT[tlv.TlvType10](relayInfo),
+		ShortChannelID: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType2](chanID),
+		),
+		RelayInfo: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType10](relayInfo),
+		),
 	}
 
 	if blindingOverride != nil {
@@ -69,7 +73,9 @@ func DecodeBlindedRouteData(r io.Reader) (*BlindedRouteData, error) {
 	var (
 		d BlindedRouteData
 
+		scid             = d.ShortChannelID.Zero()
 		blindingOverride = d.NextBlindingOverride.Zero()
+		relayInfo        = d.RelayInfo.Zero()
 		constraints      = d.Constraints.Zero()
 		features         = d.Features.Zero()
 	)
@@ -80,17 +86,23 @@ func DecodeBlindedRouteData(r io.Reader) (*BlindedRouteData, error) {
 	}
 
 	typeMap, err := tlvRecords.ExtractRecords(
-		&d.ShortChannelID,
-		&blindingOverride, &d.RelayInfo.Val, &constraints,
-		&features,
+		&scid, &blindingOverride, &relayInfo, &constraints, &features,
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	if val, ok := typeMap[d.ShortChannelID.TlvType()]; ok && val == nil {
+		d.ShortChannelID = tlv.SomeRecordT(scid)
+	}
+
 	val, ok := typeMap[d.NextBlindingOverride.TlvType()]
 	if ok && val == nil {
 		d.NextBlindingOverride = tlv.SomeRecordT(blindingOverride)
+	}
+
+	if val, ok := typeMap[d.RelayInfo.TlvType()]; ok && val == nil {
+		d.RelayInfo = tlv.SomeRecordT(relayInfo)
 	}
 
 	if val, ok := typeMap[d.Constraints.TlvType()]; ok && val == nil {
@@ -111,7 +123,11 @@ func EncodeBlindedRouteData(data *BlindedRouteData) ([]byte, error) {
 		recordProducers = make([]tlv.RecordProducer, 0, 5)
 	)
 
-	recordProducers = append(recordProducers, &data.ShortChannelID)
+	data.ShortChannelID.WhenSome(func(scid tlv.RecordT[tlv.TlvType2,
+		lnwire.ShortChannelID]) {
+
+		recordProducers = append(recordProducers, &scid)
+	})
 
 	data.NextBlindingOverride.WhenSome(func(pk tlv.RecordT[tlv.TlvType8,
 		*btcec.PublicKey]) {
@@ -119,7 +135,11 @@ func EncodeBlindedRouteData(data *BlindedRouteData) ([]byte, error) {
 		recordProducers = append(recordProducers, &pk)
 	})
 
-	recordProducers = append(recordProducers, &data.RelayInfo.Val)
+	data.RelayInfo.WhenSome(func(r tlv.RecordT[tlv.TlvType10,
+		PaymentRelayInfo]) {
+
+		recordProducers = append(recordProducers, &r)
+	})
 
 	data.Constraints.WhenSome(func(cs tlv.RecordT[tlv.TlvType12,
 		PaymentConstraints]) {

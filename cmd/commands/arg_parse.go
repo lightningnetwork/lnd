@@ -42,7 +42,7 @@ func parseTime(s string, base time.Time) (uint64, error) {
 
 var lightningPrefix = "lightning:"
 
-// stripPrefix removes accidentally copied 'lightning:' prefix.
-func stripPrefix(s string) string {
+// StripPrefix removes accidentally copied 'lightning:' prefix.
+func StripPrefix(s string) string {
 	return strings.TrimSpace(strings.TrimPrefix(s, lightningPrefix))
 }

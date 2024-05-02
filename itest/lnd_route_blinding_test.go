@@ -1018,10 +1018,14 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	// suspended Carol we don't need to account for her commitment output
 	// claim.
 	ht.Miner.MineBlocksAndAssertNumTxes(1, 1)
+	ht.AssertNumPendingSweeps(ht.Bob, 0)
 
 	// Assert that the HTLC has cleared.
-	ht.AssertHTLCNotActive(ht.Alice, testCase.channels[0], hash[:])
+	ht.WaitForBlockchainSync(ht.Bob)
+	ht.WaitForBlockchainSync(ht.Alice)
+
 	ht.AssertHTLCNotActive(ht.Bob, testCase.channels[0], hash[:])
+	ht.AssertHTLCNotActive(ht.Alice, testCase.channels[0], hash[:])
 
 	// Wait for the HTLC to reflect as failed for Alice.
 	paymentStream := ht.Alice.RPC.TrackPaymentV2(hash[:])

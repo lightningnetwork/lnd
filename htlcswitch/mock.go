@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -35,6 +36,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 func isAlias(scid lnwire.ShortChannelID) bool {
@@ -910,6 +912,10 @@ func (f *mockChannelLink) PeerPubKey() [33]byte {
 
 func (f *mockChannelLink) ChannelPoint() wire.OutPoint {
 	return wire.OutPoint{}
+}
+
+func (f *mockChannelLink) ChannelCustomBlob() fn.Option[tlv.Blob] {
+	return fn.Option[tlv.Blob]{}
 }
 
 func (f *mockChannelLink) Stop()                                        {}

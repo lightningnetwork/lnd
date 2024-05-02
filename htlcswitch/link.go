@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/ticker"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 func init() {
@@ -3751,4 +3752,10 @@ func (l *channelLink) fail(linkErr LinkFailureError,
 	// the peer about the failure.
 	l.failed = true
 	l.cfg.OnChannelFailure(l.ChanID(), l.ShortChanID(), linkErr)
+}
+
+// ChannelCustomBlob returns the custom blob of the channel that this link is
+// associated with.
+func (l *channelLink) ChannelCustomBlob() fn.Option[tlv.Blob] {
+	return l.channel.State().CustomBlob
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -685,6 +686,26 @@ func (p *paymentLifecycle) sendAttempt(
 		return &r
 	}, firstHopTLVs)
 	if err := htlcAdd.ExtraData.PackRecords(wireRecords...); err != nil {
+		return nil, err
+	}
+
+	// If a hook exists that may affect our outgoing message, we call it now
+	// and apply its side effects to the UpdateAddHTLC message.
+	var err error
+
+	p.router.cfg.TrafficShaper.WhenSome(func(ts TlvTrafficShaper) {
+		var newAmt btcutil.Amount
+		var newData []byte
+
+		newAmt, newData, err = ts.ProduceHtlcExtraData(
+			htlcAdd.ExtraData, uint64(htlcAdd.Amount.ToSatoshis()),
+		)
+
+		htlcAdd.ExtraData = newData
+		htlcAdd.Amount = lnwire.MilliSatoshi(newAmt * 1000)
+	})
+
+	if err != nil {
 		return nil, err
 	}
 

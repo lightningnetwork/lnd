@@ -152,12 +152,6 @@ type ImplementationCfg struct {
 	// AuxComponents is a set of auxiliary components that can be used by
 	// lnd for certain custom channel types.
 	AuxComponents
-
-	TlvTrafficShaper
-}
-
-type TlvTrafficShaper struct {
-	TrafficShaper fn.Option[routing.TlvTrafficShaper]
 }
 
 // AuxComponents is a set of auxiliary components that can be used by lnd for
@@ -180,6 +174,10 @@ type AuxComponents struct {
 	// AuxSigner is an optional signer that can be used to sign auxiliary
 	// leaves for certain custom channel types.
 	AuxSigner fn.Option[lnwallet.AuxSigner]
+
+	// TrafficShaper is an optional traffic shaper that can be used to
+	// control the outgoing channel of a payment.
+	TrafficShaper fn.Option[routing.TlvTrafficShaper]
 }
 
 // DefaultWalletImpl is the default implementation of our normal, btcwallet

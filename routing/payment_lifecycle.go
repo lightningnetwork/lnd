@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -691,22 +690,25 @@ func (p *paymentLifecycle) sendAttempt(
 
 	// If a hook exists that may affect our outgoing message, we call it now
 	// and apply its side effects to the UpdateAddHTLC message.
-	var err error
+	err := fn.MapOptionZ(
+		p.router.cfg.TrafficShaper,
+		func(ts TlvTrafficShaper) error {
+			newAmt, newData, err := ts.ProduceHtlcExtraData(
+				rt.TotalAmount, htlcAdd.ExtraData,
+			)
+			if err != nil {
+				return err
+			}
 
-	p.router.cfg.TrafficShaper.WhenSome(func(ts TlvTrafficShaper) {
-		var newAmt btcutil.Amount
-		var newData []byte
+			htlcAdd.ExtraData = newData
+			htlcAdd.Amount = lnwire.MilliSatoshi(newAmt * 1000)
 
-		newAmt, newData, err = ts.ProduceHtlcExtraData(
-			htlcAdd.ExtraData, uint64(htlcAdd.Amount.ToSatoshis()),
-		)
-
-		htlcAdd.ExtraData = newData
-		htlcAdd.Amount = lnwire.MilliSatoshi(newAmt * 1000)
-	})
-
+			return nil
+		},
+	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("traffic shaper failed to produce "+
+			"extra data: %w", err)
 	}
 
 	// Generate the raw encoded sphinx packet to be included along

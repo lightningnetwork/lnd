@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"fmt"
+
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
@@ -29,16 +31,19 @@ type bandwidthHints interface {
 // payment should be carried by a channel based on the TLV records that may be
 // present in the `update_add_htlc` message or the channel commitment itself.
 type TlvTrafficShaper interface {
-	// ShouldCarryPayment returns true if the provided tlv records indicate
-	// that this channel may carry out the payment by utilizing external
-	// mechanisms.
-	ShouldCarryPayment(amt lnwire.MilliSatoshi, htlcTLV,
-		channelBlob fn.Option[tlv.Blob]) bool
-
 	// HandleTraffic is called in order to check if the channel identified
 	// by the provided channel ID may have external mechanisms that would
 	// allow it to carry out the payment.
-	HandleTraffic(cid lnwire.ShortChannelID) bool
+	HandleTraffic(cid lnwire.ShortChannelID,
+		fundingBlob fn.Option[tlv.Blob]) (bool, error)
+
+	// PaymentBandwidth returns the available bandwidth for a custom channel
+	// decided by the given channel aux blob and HTLC blob. A return value
+	// of 0 means there is no bandwidth available. To find out if a channel
+	// is a custom channel that should be handled by the traffic shaper, the
+	// HandleTraffic method should be called first.
+	PaymentBandwidth(htlcBlob,
+		commitmentBlob fn.Option[tlv.Blob]) (lnwire.MilliSatoshi, error)
 
 	AuxHtlcModifier
 }
@@ -47,10 +52,10 @@ type TlvTrafficShaper interface {
 // HTLC of a payment by changing the amount or the wire message tlv records.
 type AuxHtlcModifier interface {
 	// ProduceHtlcExtraData is a function that, based on the previous extra
-	// data blob of an htlc, may produce a different blob or modify the
+	// data blob of an HTLC, may produce a different blob or modify the
 	// amount of bitcoin this htlc should carry.
-	ProduceHtlcExtraData(htlcBlob tlv.Blob,
-		chanID uint64) (btcutil.Amount, tlv.Blob, error)
+	ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
+		htlcBlob tlv.Blob) (btcutil.Amount, tlv.Blob, error)
 }
 
 // getLinkQuery is the function signature used to lookup a link.
@@ -125,51 +130,57 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 		return 0
 	}
 
-	res := fn.MapOptionZ(b.trafficShaper, func(ts TlvTrafficShaper) bool {
-		return ts.HandleTraffic(cid)
-	})
-
-	// If response is no and we do have a traffic shaper, we can't handle
-	// the traffic and return early.
-	if !res && b.trafficShaper.IsSome() {
-		log.Warnf("ShortChannelID=%v: can't handle traffic", cid)
-		return 0
-	}
-
-	channelBlob := link.ChannelCustomBlob()
-
-	// Run the wrapped traffic if it exists, otherwise return false.
-	res = fn.MapOptionZ(b.trafficShaper, func(ts TlvTrafficShaper) bool {
-		return ts.ShouldCarryPayment(amount, htlcBlob, channelBlob)
-	})
-
-	// If the traffic shaper indicates that this channel can route the
-	// payment, we immediatelly select this channel and return maximum
-	// bandwidth as response.
-	if res {
-		// If the amount is zero, but the traffic shaper signaled that
-		// the channel can carry the payment, we'll return the maximum
-		// amount. A zero amount is used when we try to figure out if
-		// enough balance exists for the payment to be carried out, but
-		// at that point we don't know the payment amount in order to
-		// return an exact value, so we signal a value that will
-		// certainly satisfy the payment amount.
-		if amount == 0 {
-			// We don't want to just return the max uint64 as this
-			// will overflow when further amounts are added
-			// together.
-			return lnwire.MaxMilliSatoshi / 2
+	var (
+		auxBandwidth           lnwire.MilliSatoshi
+		auxBandwidthDetermined bool
+	)
+	err = fn.MapOptionZ(b.trafficShaper, func(ts TlvTrafficShaper) error {
+		fundingBlob := link.FundingCustomBlob()
+		shouldHandle, err := ts.HandleTraffic(cid, fundingBlob)
+		if err != nil {
+			return fmt.Errorf("traffic shaper failed to decide "+
+				"whether to handle traffic: %w", err)
 		}
 
-		return amount
+		log.Debugf("ShortChannelID=%v: external traffic shaper is "+
+			"handling traffic: %v", cid, shouldHandle)
+
+		// If this channel isn't handled by the external traffic shaper,
+		// we'll return early.
+		if !shouldHandle {
+			return nil
+		}
+
+		// Ask for a specific bandwidth to be used for the channel.
+		commitmentBlob := link.CommitmentCustomBlob()
+		auxBandwidth, err = ts.PaymentBandwidth(
+			htlcBlob, commitmentBlob,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to get bandwidth from "+
+				"external traffic shaper: %w", err)
+		}
+
+		log.Debugf("ShortChannelID=%v: external traffic shaper "+
+			"reported available bandwidth: %v", cid, auxBandwidth)
+
+		// TODO(guggero): Still need to ask the link if it can add an
+		// HTLC? To avoid running over the on-chain max htlc limit?
+
+		auxBandwidthDetermined = true
+		return nil
+	})
+	if err != nil {
+		log.Errorf("ShortChannelID=%v: failed to get bandwidth from "+
+			"external traffic shaper: %v", cid, err)
+		return 0
 	}
 
-	// If the traffic shaper is present and it returned false, we want to
-	// skip this channel.
-	if b.trafficShaper.IsSome() {
-		log.Warnf("ShortChannelID=%v: payment not allowed by traffic "+
-			"shaper", cid)
-		return 0
+	// If the external traffic shaper determined the bandwidth, we'll return
+	// that value, even if it is zero (which would mean no bandwidth is
+	// available on that channel).
+	if auxBandwidthDetermined {
+		return auxBandwidth
 	}
 
 	// If our link isn't currently in a state where it can add

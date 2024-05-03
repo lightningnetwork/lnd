@@ -9539,3 +9539,19 @@ func (lc *LightningChannel) MultiSigKeys() (keychain.KeyDescriptor,
 	return lc.channelState.LocalChanCfg.MultiSigKey,
 		lc.channelState.RemoteChanCfg.MultiSigKey
 }
+
+// LocalCommitmentBlob returns the custom blob of the local commitment.
+func (lc *LightningChannel) LocalCommitmentBlob() fn.Option[tlv.Blob] {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	chanState := lc.channelState
+	localBalance := chanState.LocalCommitment.CustomBlob
+
+	return fn.MapOption(func(b tlv.Blob) tlv.Blob {
+		newBlob := make([]byte, len(b))
+		copy(newBlob, b)
+
+		return newBlob
+	})(localBalance)
+}

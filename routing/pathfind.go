@@ -465,7 +465,8 @@ type PathFindingConfig struct {
 // available balance.
 func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 	bandwidthHints bandwidthHints,
-	g routingGraph, htlcBlob fn.Option[tlv.Blob]) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
+	g routingGraph, htlcBlob fn.Option[tlv.Blob]) (lnwire.MilliSatoshi,
+	lnwire.MilliSatoshi, error) {
 
 	var max, total lnwire.MilliSatoshi
 

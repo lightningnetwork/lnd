@@ -272,9 +272,15 @@ type ChannelLink interface {
 	// have buffered messages.
 	AttachMailBox(MailBox)
 
-	// ChannelCustomBlob returns the custom blob of the channel that this
-	// link is associated with.
-	ChannelCustomBlob() fn.Option[tlv.Blob]
+	// FundingCustomBlob returns the custom funding blob of the channel that
+	// this link is associated with. The funding blob represents static
+	// information about the channel that was created at channel funding
+	// time.
+	FundingCustomBlob() fn.Option[tlv.Blob]
+
+	// CommitmentCustomBlob returns the custom blob of the current local
+	// commitment of the channel that this link is associated with.
+	CommitmentCustomBlob() fn.Option[tlv.Blob]
 
 	// Start/Stop are used to initiate the start/stop of the channel link
 	// functioning.

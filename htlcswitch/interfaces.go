@@ -378,7 +378,8 @@ type InterceptedForward interface {
 
 	// ResumeModified notifies the intention to resume an existing hold
 	// forward with modified fields.
-	ResumeModified(outgoingAmountMsat fn.Option[lnwire.MilliSatoshi],
+	ResumeModified(incomingAmountMsat,
+		outgoingAmountMsat fn.Option[lnwire.MilliSatoshi],
 		customRecords fn.Option[record.CustomSet]) error
 
 	// Settle notifies the intention to settle an existing hold

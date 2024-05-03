@@ -55,7 +55,7 @@ func (f *interceptedForward) Resume() error {
 
 // ResumeModified notifies the intention to resume an existing hold forward with
 // a modified htlc.
-func (f *interceptedForward) ResumeModified(_ fn.Option[lnwire.MilliSatoshi],
+func (f *interceptedForward) ResumeModified(_, _ fn.Option[lnwire.MilliSatoshi],
 	_ fn.Option[record.CustomSet]) error {
 
 	return ErrCannotResume

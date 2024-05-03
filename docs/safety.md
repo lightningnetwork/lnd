@@ -400,7 +400,7 @@ The following steps are recommended to cut all links between the old clearnet
 node and the new Tor node:
 1. Close all channels on the old node and wait for them to fully close.
 1. Send all on-chain funds of the old node through a Coin Join service (like
-   Wasabi or Samurai/Whirlpool) until a sufficiently high anonymity set is
+   Joinmarket) until a sufficiently high anonymity set is
    reached.
 1. Create a new `lnd` node with a **new seed** that is only connected to Tor
    and generate an on-chain address on the new node.

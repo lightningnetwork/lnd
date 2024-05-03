@@ -38,7 +38,6 @@ func TestNetworkResultSerialization(t *testing.T) {
 		ChanID:          chanID,
 		ID:              2,
 		PaymentPreimage: preimage,
-		ExtraData:       make([]byte, 0),
 	}
 
 	fail := &lnwire.UpdateFailHTLC{

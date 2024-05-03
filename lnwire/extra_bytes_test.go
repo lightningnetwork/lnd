@@ -143,3 +143,66 @@ func TestExtraOpaqueDataPackUnpackRecords(t *testing.T) {
 		t.Fatalf("type2 not found in typeMap")
 	}
 }
+
+// TestPackRecords tests that we're able to pack a set of records into an
+// ExtraOpaqueData instance, and then extract them back out. Crucially, we'll
+// ensure that records can be packed in any order, and we'll ensure that the
+// unpacked records are valid.
+func TestPackRecords(t *testing.T) {
+	t.Parallel()
+
+	// Create an empty ExtraOpaqueData instance.
+	extraBytes := ExtraOpaqueData{}
+
+	var (
+		// Record type 1.
+		tlvType1     tlv.TlvType1
+		recordBytes1 = []byte("recordBytes1")
+		tlvRecord1   = tlv.NewPrimitiveRecord[tlv.TlvType1](
+			recordBytes1,
+		)
+
+		// Record type 2.
+		tlvType2     tlv.TlvType2
+		recordBytes2 = []byte("recordBytes2")
+		tlvRecord2   = tlv.NewPrimitiveRecord[tlv.TlvType2](
+			recordBytes2,
+		)
+
+		// Record type 3.
+		tlvType3     tlv.TlvType3
+		recordBytes3 = []byte("recordBytes3")
+		tlvRecord3   = tlv.NewPrimitiveRecord[tlv.TlvType3](
+			recordBytes3,
+		)
+	)
+
+	// Pack records 1 and 2 into the ExtraOpaqueData instance.
+	err := extraBytes.PackRecords(
+		[]tlv.RecordProducer{&tlvRecord1, &tlvRecord2}...,
+	)
+	require.NoError(t, err)
+
+	// Examine the records that were packed into the ExtraOpaqueData.
+	extractedRecords, err := extraBytes.ExtractRecords()
+	require.NoError(t, err)
+
+	require.Equal(t, 2, len(extractedRecords))
+	require.Equal(t, recordBytes1, extractedRecords[tlvType1.TypeVal()])
+	require.Equal(t, recordBytes2, extractedRecords[tlvType2.TypeVal()])
+
+	// Pack records 1, 2, and 3 into the ExtraOpaqueData instance.
+	err = extraBytes.PackRecords(
+		[]tlv.RecordProducer{&tlvRecord3, &tlvRecord1, &tlvRecord2}...,
+	)
+	require.NoError(t, err)
+
+	// Examine the records that were packed into the ExtraOpaqueData.
+	extractedRecords, err = extraBytes.ExtractRecords()
+	require.NoError(t, err)
+
+	require.Equal(t, 3, len(extractedRecords))
+	require.Equal(t, recordBytes1, extractedRecords[tlvType1.TypeVal()])
+	require.Equal(t, recordBytes2, extractedRecords[tlvType2.TypeVal()])
+	require.Equal(t, recordBytes3, extractedRecords[tlvType3.TypeVal()])
+}

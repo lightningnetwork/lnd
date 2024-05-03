@@ -124,6 +124,13 @@ func (r *forwardInterceptor) resolveFromClient(
 
 	case ResolveHoldForwardAction_RESUME_MODIFIED:
 		// Modify HTLC and resume forward.
+		incomingAmtMsat := fn.None[lnwire.MilliSatoshi]()
+		if in.IncomingAmountMsat > 0 {
+			incomingAmtMsat = fn.Some[lnwire.MilliSatoshi](
+				lnwire.MilliSatoshi(in.IncomingAmountMsat),
+			)
+		}
+
 		outgoingAmtMsat := fn.None[lnwire.MilliSatoshi]()
 		if in.OutgoingAmountMsat > 0 {
 			outgoingAmtMsat = fn.Some[lnwire.MilliSatoshi](
@@ -149,6 +156,7 @@ func (r *forwardInterceptor) resolveFromClient(
 		return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
 			Key:                circuitKey,
 			Action:             htlcswitch.FwdActionResumeModified,
+			IncomingAmountMsat: incomingAmtMsat,
 			OutgoingAmountMsat: outgoingAmtMsat,
 			CustomRecords:      customRecords,
 		})

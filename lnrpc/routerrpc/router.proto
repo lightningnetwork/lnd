@@ -1005,13 +1005,17 @@ message ForwardHtlcInterceptResponse {
     // default value for this field.
     lnrpc.Failure.FailureCode failure_code = 5;
 
+    // incoming_amount_msat is used to set the p2p message incoming amount field
+    // for validating an incoming HTLC.
+    uint64 incoming_amount_msat = 6;
+
     // outgoing_amount_msat is used to set the p2p message outgoing amount field
     // for resuming a HTLC.
-    uint64 outgoing_amount_msat = 6;
+    uint64 outgoing_amount_msat = 7;
 
     // custom_records is used to set the p2p message custom records field for
     // resuming a HTLC.
-    map<uint64, bytes> custom_records = 7;
+    map<uint64, bytes> custom_records = 8;
 }
 
 enum ResolveHoldForwardAction {

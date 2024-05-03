@@ -125,6 +125,10 @@ type FwdResolution struct {
 	// FwdActionSettle.
 	Preimage lntypes.Preimage
 
+	// IncomingAmountMsat is the amount that is to be used for validating if
+	// Action is FwdActionResumeModified.
+	IncomingAmountMsat fn.Option[lnwire.MilliSatoshi]
+
 	// OutgoingAmountMsat is the amount that is to be used for forwarding if
 	// Action is FwdActionResumeModified.
 	OutgoingAmountMsat fn.Option[lnwire.MilliSatoshi]
@@ -391,7 +395,8 @@ func (s *InterceptableSwitch) resolve(res *FwdResolution) error {
 
 	case FwdActionResumeModified:
 		return intercepted.ResumeModified(
-			res.OutgoingAmountMsat, res.CustomRecords,
+			res.IncomingAmountMsat, res.OutgoingAmountMsat,
+			res.CustomRecords,
 		)
 
 	case FwdActionSettle:
@@ -641,32 +646,39 @@ func (f *interceptedForward) Resume() error {
 
 // ResumeModified resumes the default behavior with field modifications.
 func (f *interceptedForward) ResumeModified(
+	incomingAmountMsat fn.Option[lnwire.MilliSatoshi],
 	outgoingAmountMsat fn.Option[lnwire.MilliSatoshi],
 	customRecords fn.Option[record.CustomSet]) error {
 
 	// Modify the wire message contained in the packet.
 	htlc, ok := f.packet.htlc.(*lnwire.UpdateAddHTLC)
 	if ok {
+		incomingAmountMsat.WhenSome(func(amount lnwire.MilliSatoshi) {
+			f.packet.incomingAmount = amount
+		})
 		outgoingAmountMsat.WhenSome(func(amount lnwire.MilliSatoshi) {
 			htlc.Amount = amount
 		})
 
-		//nolint:lll
-		err := fn.MapOptionZ(customRecords, func(records record.CustomSet) error {
-			if len(records) == 0 {
+		err := fn.MapOptionZ(
+			customRecords, func(records record.CustomSet) error {
+				if len(records) == 0 {
+					return nil
+				}
+
+				// Type cast and validate custom records.
+				htlc.CustomRecords = lnwire.CustomRecords(
+					records,
+				)
+				err := htlc.CustomRecords.Validate()
+				if err != nil {
+					return fmt.Errorf("failed to validate "+
+						"custom records: %w", err)
+				}
+
 				return nil
-			}
-
-			// Type cast and validate custom records.
-			htlc.CustomRecords = lnwire.CustomRecords(records)
-			err := htlc.CustomRecords.Validate()
-			if err != nil {
-				return fmt.Errorf("failed to validate custom "+
-					"records: %w", err)
-			}
-
-			return nil
-		})
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("failed to encode custom records: %w",
 				err)

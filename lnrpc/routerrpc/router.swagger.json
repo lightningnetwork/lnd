@@ -1352,6 +1352,10 @@
           "$ref": "#/definitions/FailureFailureCode",
           "description": "Return the specified failure code in case the resolve action is Fail. The\nmessage data fields are populated automatically.\n\nIf a non-zero failure_code is specified, failure_message must not be set.\n\nFor backwards-compatibility reasons, TEMPORARY_CHANNEL_FAILURE is the\ndefault value for this field."
         },
+        "incoming_amount_msat": {
+          "type": "string",
+          "format": "uint64"
+        },
         "outgoing_amount_msat": {
           "type": "string",
           "format": "uint64",

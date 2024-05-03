@@ -399,9 +399,8 @@ provide any privacy benefits.
 The following steps are recommended to cut all links between the old clearnet
 node and the new Tor node:
 1. Close all channels on the old node and wait for them to fully close.
-1. Send all on-chain funds of the old node through a Coin Join service (like
-   Wasabi or Samurai/Whirlpool) until a sufficiently high anonymity set is
-   reached.
+1. If desired, take steps to preserve the on-chain privacy of the funds from the
+   old node before sending them to the new node.
 1. Create a new `lnd` node with a **new seed** that is only connected to Tor
    and generate an on-chain address on the new node.
 1. Send the mixed/coinjoined coins to the address of the new node.

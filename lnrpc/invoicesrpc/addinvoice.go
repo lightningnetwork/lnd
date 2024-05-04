@@ -13,8 +13,10 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -97,6 +99,31 @@ type AddInvoiceConfig struct {
 	// GetAlias allows the peer's alias SCID to be retrieved for private
 	// option_scid_alias channels.
 	GetAlias func(lnwire.ChannelID) (lnwire.ShortChannelID, error)
+
+	// BestHeight returns the current best block height that this node is
+	// aware of.
+	BestHeight func() (uint32, error)
+
+	// QueryBlindedRoutes can be used to generate a few routes to this node
+	// that can then be used in the construction of a blinded payment path.
+	QueryBlindedRoutes func(lnwire.MilliSatoshi) ([]*route.Route, error)
+
+	// BlindedRoutePolicyIncrMultiplier is the amount by which policy values
+	// for hops in a blinded route will be bumped to avoid easy probing. For
+	// example, a multiplier of 1.1 will bump all appropriate the values
+	// (base fee, fee rate, CLTV delta and min HLTC) by 10%.
+	BlindedRoutePolicyIncrMultiplier float64
+
+	// BlindedRoutePolicyDecrMultiplier is the amount by which appropriate
+	// policy values for hops in a blinded route will be decreased to avoid
+	// easy probing. For example, a multiplier of 0.9 will reduce
+	// appropriate values (like maximum HTLC) by 10%.
+	BlindedRoutePolicyDecrMultiplier float64
+
+	// MinNumHops is the minimum number of hops that a blinded path should
+	// be. Dummy hops will be used to pad any route with a length less than
+	// this.
+	MinNumHops uint8
 }
 
 // AddInvoiceData contains the required data to create a new invoice.
@@ -146,6 +173,11 @@ type AddInvoiceData struct {
 	//
 	// NOTE: Preimage should always be set to nil when this value is true.
 	Amp bool
+
+	// Blind signals that this invoice should disguise the location of the
+	// recipient by adding blinded payment paths to the invoice instead of
+	// revealing the destination node's real pub key.
+	Blind bool
 
 	// RouteHints are optional route hints that can each be individually
 	// used to assist in reaching the invoice's destination.
@@ -251,6 +283,11 @@ func (d *AddInvoiceData) mppPaymentHashAndPreimage() (*lntypes.Preimage,
 func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	invoice *AddInvoiceData) (*lntypes.Hash, *invoices.Invoice, error) {
 
+	if invoice.Amp && invoice.Blind {
+		return nil, nil, fmt.Errorf("AMP invoices with blinded paths " +
+			"are not yet supported")
+	}
+
 	paymentPreimage, paymentHash, err := invoice.paymentHashAndPreimage()
 	if err != nil {
 		return nil, nil, err
@@ -322,10 +359,9 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		options = append(options, zpay32.FallbackAddr(addr))
 	}
 
+	var expiry time.Duration
 	switch {
-	// If expiry is set, specify it. If it is not provided, no expiry time
-	// will be explicitly added to this payment request, which will imply
-	// the default 3600 seconds.
+	// An invoice expiry has been provided by the caller.
 	case invoice.Expiry > 0:
 
 		// We'll ensure that the specified expiry is restricted to sane
@@ -340,18 +376,18 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 				float64(expSeconds), maxExpiry.Seconds())
 		}
 
-		expiry := time.Duration(invoice.Expiry) * time.Second
-		options = append(options, zpay32.Expiry(expiry))
+		expiry = time.Duration(invoice.Expiry) * time.Second
 
 	// If no custom expiry is provided, use the default MPP expiry.
 	case !invoice.Amp:
-		options = append(options, zpay32.Expiry(DefaultInvoiceExpiry))
+		expiry = DefaultInvoiceExpiry
 
 	// Otherwise, use the default AMP expiry.
 	default:
-		defaultExpiry := zpay32.Expiry(DefaultAMPInvoiceExpiry)
-		options = append(options, defaultExpiry)
+		expiry = DefaultAMPInvoiceExpiry
 	}
+
+	options = append(options, zpay32.Expiry(expiry))
 
 	// If the description hash is set, then we add it do the list of
 	// options. If not, use the memo field as the payment request
@@ -366,15 +402,16 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		options = append(options, zpay32.Description(invoice.Memo))
 	}
 
-	// We'll use our current default CLTV value unless one was specified as
-	// an option on the command line when creating an invoice.
-	switch {
-	case invoice.CltvExpiry > routing.MaxCLTVDelta:
+	if invoice.CltvExpiry > routing.MaxCLTVDelta {
 		return nil, nil, fmt.Errorf("CLTV delta of %v is too large, "+
 			"max accepted is: %v", invoice.CltvExpiry,
 			math.MaxUint16)
+	}
 
-	case invoice.CltvExpiry != 0:
+	// We'll use our current default CLTV value unless one was specified as
+	// an option on the command line when creating an invoice.
+	cltvExpiryDelta := uint64(cfg.DefaultCLTVExpiry)
+	if invoice.CltvExpiry != 0 {
 		// Disallow user-chosen final CLTV deltas below the required
 		// minimum.
 		if invoice.CltvExpiry < routing.MinCLTVDelta {
@@ -383,13 +420,14 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 				invoice.CltvExpiry, routing.MinCLTVDelta)
 		}
 
-		options = append(options,
-			zpay32.CLTVExpiry(invoice.CltvExpiry))
+		cltvExpiryDelta = invoice.CltvExpiry
+	}
 
-	default:
-		// TODO(roasbeef): assumes set delta between versions
-		defaultCLTVExpiry := uint64(cfg.DefaultCLTVExpiry)
-		options = append(options, zpay32.CLTVExpiry(defaultCLTVExpiry))
+	// Only include a final CLTV expiry delta if this is not a blinded
+	// invoice. In a blinded invoice, this value will be added to the total
+	// blinded route CLTV delta value
+	if !invoice.Blind {
+		options = append(options, zpay32.CLTVExpiry(cltvExpiryDelta))
 	}
 
 	// We make sure that the given invoice routing hints number is within
@@ -401,6 +439,11 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	// Include route hints if needed.
 	if len(invoice.RouteHints) > 0 || invoice.Private {
+		if invoice.Blind {
+			return nil, nil, fmt.Errorf("can't set both hop " +
+				"hints and add blinded payment paths")
+		}
+
 		// Validate provided hop hints.
 		for _, hint := range invoice.RouteHints {
 			if len(hint) == 0 {
@@ -443,14 +486,72 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	}
 	options = append(options, zpay32.Features(invoiceFeatures))
 
-	// Generate and set a random payment address for this invoice. If the
+	// Generate and set a random payment address for this payment. If the
 	// sender understands payment addresses, this can be used to avoid
-	// intermediaries probing the receiver.
+	// intermediaries probing the receiver. If the invoice does not have
+	// blinded paths, then this will be encoded in the invoice itself.
+	// Otherwise, it will instead be embedded in the encrypted recipient
+	// data of blinded paths.
 	var paymentAddr [32]byte
 	if _, err := rand.Read(paymentAddr[:]); err != nil {
 		return nil, nil, err
 	}
-	options = append(options, zpay32.PaymentAddr(paymentAddr))
+
+	if invoice.Blind {
+		// Use the 10-min-per-block assumption to get a rough estimate
+		// of the number of blocks until the invoice expires. We want
+		// to make sure that the blinded path definitely does not expire
+		// before the invoice does, and so we add a healthy buffer.
+		invoiceExpiry := uint32(expiry.Minutes() / 10)
+		blindedPathExpiry := invoiceExpiry * 2
+
+		// Add BlockPadding to the finalCltvDelta so that the receiving
+		// node does not reject the HTLC if some blocks are mined while
+		// the payment is in-flight. Note that unlike vanilla invoices,
+		// with blinded paths, the recipient is responsible for adding
+		// this block padding instead of the sender.
+		finalCLTVDelta := uint32(cltvExpiryDelta)
+		finalCLTVDelta += uint32(routing.BlockPadding)
+
+		//nolint:lll
+		paths, err := buildBlindedPaymentPaths(&buildBlindedPathCfg{
+			findRoutes:              cfg.QueryBlindedRoutes,
+			fetchChannelEdgesByID:   cfg.Graph.FetchChannelEdgesByID,
+			pathID:                  paymentAddr[:],
+			valueMsat:               invoice.Value,
+			bestHeight:              cfg.BestHeight,
+			minFinalCLTVExpiryDelta: finalCLTVDelta,
+			blocksUntilExpiry:       blindedPathExpiry,
+			addPolicyBuffer: func(p *blindedHopPolicy) (
+				*blindedHopPolicy, error) {
+
+				return addPolicyBuffer(
+					p, cfg.BlindedRoutePolicyIncrMultiplier,
+					cfg.BlindedRoutePolicyDecrMultiplier,
+				)
+			},
+			minNumHops: cfg.MinNumHops,
+			// TODO: make configurable
+			dummyHopPolicy: &blindedHopPolicy{
+				cltvExpiryDelta: 80,
+				feeRate:         100,
+				baseFee:         100,
+				minHTLCMsat:     0,
+				maxHTLCMsat:     lnwire.MaxMilliSatoshi,
+			},
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+
+		for _, path := range paths {
+			options = append(options, zpay32.WithBlindedPaymentPath(
+				path,
+			))
+		}
+	} else {
+		options = append(options, zpay32.PaymentAddr(paymentAddr))
+	}
 
 	// Create and encode the payment request as a bech32 (zpay32) string.
 	creationDate := time.Now()
@@ -463,7 +564,27 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	payReqString, err := payReq.Encode(zpay32.MessageSigner{
 		SignCompact: func(msg []byte) ([]byte, error) {
-			return cfg.NodeSigner.SignMessageCompact(msg, false)
+			// For an invoice without a blinded path, the main node
+			// key is used to sign the invoice so that the sender
+			// can derive the true pub key of the recipient.
+			if !invoice.Blind {
+				return cfg.NodeSigner.SignMessageCompact(
+					msg, false,
+				)
+			}
+
+			// For an invoice with a blinded path, we use an
+			// ephemeral key to sign the invoice since we don't want
+			// the sender to be able to know the real pub key of
+			// the recipient.
+			ephemKey, err := btcec.NewPrivateKey()
+			if err != nil {
+				return nil, err
+			}
+
+			return ecdsa.SignCompact(
+				ephemKey, chainhash.HashB(msg), true,
+			)
 		},
 	})
 	if err != nil {

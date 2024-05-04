@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -1098,6 +1099,182 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		distance[source].netAmountReceived-amt)
 
 	return pathEdges, distance[source].probability, nil
+}
+
+// blindedPathRestrictions are a set of constraints to adhere to when
+// choosing a set of blinded paths to this node.
+type blindedPathRestrictions struct {
+	// minNumHops is the minimum number of hops to include in a blinded
+	// path. This doesn't include our node, so if the minimum is 1, then
+	// the path will contain at minimum our node along with an introduction
+	// node hop. A minimum of 0 will include paths where this node is the
+	// introduction node and so should be used with caution.
+	minNumHops uint8
+
+	// maxNumHops is the maximum number of hops to include in a blinded
+	// path. This doesn't include our node, so if the maximum is 1, then
+	// the path will contain our node along with an introduction node hop.
+	maxNumHops uint8
+}
+
+// blindedHop holds the information about a hop we have selected for a blinded
+// path.
+type blindedHop struct {
+	vertex       route.Vertex
+	edgePolicy   *models.CachedEdgePolicy
+	edgeCapacity btcutil.Amount
+}
+
+// findBlindedPaths does a depth first search from the target node to find a set
+// of blinded paths to the target node given the set of restrictions. This
+// function will select and return any candidate path. A candidate path is a
+// path to the target node with a size determined by the given hop number
+// constraints where all the nodes on the path signal the route blinding feature
+// _and_ the introduction node for the path has more than one public channel.
+// Any filtering of paths based on payment value or success probabilities is
+// left to the caller.
+func findBlindedPaths(g routingGraph, target route.Vertex,
+	restrictions *blindedPathRestrictions) ([][]blindedHop, error) {
+
+	// Sanity check the restrictions.
+	if restrictions.minNumHops > restrictions.maxNumHops {
+		return nil, fmt.Errorf("maximum number of blinded path hops "+
+			"(%d) must be greater than or equal to the minimum "+
+			"number of hops (%d)", restrictions.maxNumHops,
+			restrictions.minNumHops)
+	}
+
+	// This function will have some recursion. We will spin out from the
+	// target node & append edges to the paths until we reach various exit
+	// conditions such as: The maxHops number being reached or reaching
+	// a node that doesn't have any other edges - in that final case, the
+	// whole path should be ignored.
+	paths, _, err := processNodeForBlindedPath(g, target, nil, restrictions)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reverse each path so that the order is correct and then append this
+	// node on as the destination of each path.
+	orderedPaths := make([][]blindedHop, len(paths))
+
+	for i, path := range paths {
+		sort.Slice(path, func(i, j int) bool {
+			return j < i
+		})
+
+		orderedPaths[i] = append(path, blindedHop{vertex: target})
+	}
+
+	// Handle the special case that allows a blinded path with the
+	// introduction node as the destination node.
+	if restrictions.minNumHops == 0 {
+		singleHopPath := [][]blindedHop{{{vertex: target}}}
+
+		//nolint:makezero
+		orderedPaths = append(
+			orderedPaths, singleHopPath...,
+		)
+	}
+
+	return orderedPaths, err
+}
+
+// processNodeForBlindedPath is a recursive function that traverses the graph
+// in a depth first manner searching for a set of blinded paths to the given
+// node.
+func processNodeForBlindedPath(g routingGraph, node route.Vertex,
+	alreadyVisited map[route.Vertex]bool,
+	restrictions *blindedPathRestrictions) ([][]blindedHop, bool, error) {
+
+	// If we have already visited the maximum number of hops, then this path
+	// is complete and we can exit now.
+	if len(alreadyVisited) > int(restrictions.maxNumHops) {
+		return nil, false, nil
+	}
+
+	// If we have already visited this peer on this path, then we skip
+	// processing it again.
+	if alreadyVisited[node] {
+		return nil, false, nil
+	}
+
+	features, err := g.fetchNodeFeatures(node)
+	if err != nil {
+		return nil, false, err
+	}
+
+	// If this node does not support route blinding, then we can exit here
+	// since we cannot include this node in a blinded pat.
+	if !features.HasFeature(lnwire.RouteBlindingOptional) {
+		return nil, false, nil
+	}
+
+	// At this point, copy the alreadyVisited map.
+	visited := make(map[route.Vertex]bool, len(alreadyVisited))
+	for r := range alreadyVisited {
+		visited[r] = true
+	}
+
+	// Add this node the visited set.
+	visited[node] = true
+
+	var (
+		hopSets   [][]blindedHop
+		chanCount int
+	)
+
+	// Now, iterate over the node's channels in search for paths to this
+	// node that can be used for blinded paths
+	err = g.forEachNodeChannel(node,
+		func(channel *channeldb.DirectedChannel) error {
+			// Keep track of how many incoming channels this node
+			// has. We only use a node as an introduction node if it
+			// has channels other than the one that lead us to it.
+			chanCount++
+
+			// Process each channel peer to gather any paths that
+			// lead to the peer.
+			nextPaths, hasMoreChans, err := processNodeForBlindedPath( //nolint:lll
+				g, channel.OtherNode, visited, restrictions,
+			)
+			if err != nil {
+				return err
+			}
+
+			hop := blindedHop{
+				vertex:       channel.OtherNode,
+				edgePolicy:   channel.InPolicy,
+				edgeCapacity: channel.Capacity,
+			}
+
+			// For each of the paths returned, unwrap them and
+			// append this hop to them.
+			for _, path := range nextPaths {
+				hopSets = append(
+					hopSets,
+					append([]blindedHop{hop}, path...),
+				)
+			}
+
+			// If this node does have channels other than the one
+			// that lead to it, and if the hop count up to this node
+			// meets the minHop requirement, then we also add a
+			// path that starts at this node.
+			if hasMoreChans &&
+				len(visited) >= int(restrictions.minNumHops) {
+
+				hopSets = append(hopSets, []blindedHop{hop})
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return hopSets, chanCount > 1, nil
 }
 
 // getProbabilityBasedDist converts a weight into a distance that takes into

@@ -46,6 +46,9 @@ const (
 	// maxHopHints is the maximum number of hint paths that will be included
 	// in an invoice.
 	maxHopHints = 20
+
+	// oneMillion is a constant used frequently in fee rate calculations.
+	oneMillion = uint32(1000000)
 )
 
 // AddInvoiceConfig contains dependencies for invoice creation.
@@ -842,6 +845,60 @@ func PopulateHopHints(cfg *SelectHopHintsCfg, amtMSat lnwire.MilliSatoshi,
 
 	hopHints = append(hopHints, selectedHints...)
 	return hopHints, nil
+}
+
+// calcBlindedPathPolicies computes the accumulated policy values for the path.
+// These values include the total base fee, the total proportional fee and the
+// total CLTV delta. This function assumes that all the passed relay infos have
+// already been adjusted with a buffer to account for easy probing attacks.
+func calcBlindedPathPolicies(relayInfo []*record.PaymentRelayInfo,
+	ourMinFinalCLTVDelta uint16) (lnwire.MilliSatoshi, uint32, uint16) {
+
+	var (
+		totalFeeBase lnwire.MilliSatoshi
+		totalFeeProp uint32
+		totalCLTV    = ourMinFinalCLTVDelta
+	)
+	// Use the algorithms defined in BOLT 4 to calculate the accumulated
+	// relay fees for the route:
+	//nolint:lll
+	// https://github.com/lightning/bolts/blob/db278ab9b2baa0b30cfe79fb3de39280595938d3/04-onion-routing.md?plain=1#L255
+	for i := len(relayInfo) - 1; i >= 0; i-- {
+		info := relayInfo[i]
+
+		totalFeeBase = calcNextTotalBaseFee(
+			totalFeeBase, info.BaseFee, info.FeeRate,
+		)
+
+		totalFeeProp = calcNextTotalFeeRate(totalFeeProp, info.FeeRate)
+
+		totalCLTV += info.CltvExpiryDelta
+	}
+
+	return totalFeeBase, totalFeeProp, totalCLTV
+}
+
+// calcNextTotalBaseFee takes the current total accumulated base fee of a
+// blinded path at hop `n` along with the fee rate and base fee of the hop at
+// `n+1` and uses these to calculate the accumulated base fee at hop `n+1`.
+func calcNextTotalBaseFee(currentTotal, hopBaseFee lnwire.MilliSatoshi,
+	hopFeeRate uint32) lnwire.MilliSatoshi {
+
+	numerator := (uint32(hopBaseFee) * oneMillion) +
+		(uint32(currentTotal) * (oneMillion + hopFeeRate)) +
+		oneMillion - 1
+
+	return lnwire.MilliSatoshi(numerator / oneMillion)
+}
+
+// calculateNextTotalFeeRate takes the current total accumulated fee rate of a
+// blinded path at hop `n` along with the fee rate of the hop at `n+1` and uses
+// these to calculate the accumulated fee rate at hop `n+1`.
+func calcNextTotalFeeRate(currentTotal, hopFeeRate uint32) uint32 {
+	numerator := (currentTotal+hopFeeRate)*oneMillion +
+		currentTotal*hopFeeRate + oneMillion - 1
+
+	return numerator / oneMillion
 }
 
 // hopData packages the record.BlindedRouteData for a hop on a blinded path with

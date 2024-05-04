@@ -899,6 +899,40 @@ func TestPopulateHopHints(t *testing.T) {
 	}
 }
 
+// TestBlindedPathAccumulatedPolicyCalc tests the logic for calculating the
+// accumulated routing policies of a blinded route against an example mentioned
+// in the spec document:
+// https://github.com/lightning/bolts/blob/master/proposals/route-blinding.md
+func TestBlindedPathAccumulatedPolicyCalc(t *testing.T) {
+	t.Parallel()
+
+	// In the spec example, the blinded route is:
+	// 	Carol -> Bob -> Alice
+	// And Alice chooses the following buffered policy for both the C->B
+	// and B->A edges.
+	nodePolicy := &record.PaymentRelayInfo{
+		FeeRate:         500,
+		BaseFee:         100,
+		CltvExpiryDelta: 144,
+	}
+
+	hopPolicies := []*record.PaymentRelayInfo{
+		nodePolicy,
+		nodePolicy,
+	}
+
+	// Alice's minimum final expiry delta is chosen to be 12.
+	aliceMinFinalExpDelta := uint16(12)
+
+	totalBase, totalRate, totalCLTVDelta := calcBlindedPathPolicies(
+		hopPolicies, aliceMinFinalExpDelta,
+	)
+
+	require.Equal(t, lnwire.MilliSatoshi(201), totalBase)
+	require.EqualValues(t, 1001, totalRate)
+	require.EqualValues(t, 300, totalCLTVDelta)
+}
+
 // TestPadBlindedHopInfo asserts that the padding of blinded hop data is done
 // correctly and that it takes the expected number of iterations.
 func TestPadBlindedHopInfo(t *testing.T) {

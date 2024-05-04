@@ -514,7 +514,8 @@ func (g *testGraphInstance) getLink(chanID lnwire.ShortChannelID) (
 // not required and derived from the channel data. The goal is to keep
 // instantiating a test channel graph as light weight as possible.
 func createTestGraphFromChannels(t *testing.T, useCache bool,
-	testChannels []*testChannel, source string) (*testGraphInstance, error) {
+	testChannels []*testChannel, source string,
+	sourceFeatureBits ...lnwire.FeatureBit) (*testGraphInstance, error) {
 
 	// We'll use this fake address for the IP address of all the nodes in
 	// our tests. This value isn't needed for path finding so it doesn't
@@ -578,10 +579,13 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 	}
 
 	// Add the source node.
-	dbNode, err := addNodeWithAlias(source, lnwire.EmptyFeatureVector())
-	if err != nil {
-		return nil, err
-	}
+	dbNode, err := addNodeWithAlias(
+		source, lnwire.NewFeatureVector(
+			lnwire.NewRawFeatureVector(sourceFeatureBits...),
+			lnwire.Features,
+		),
+	)
+	require.NoError(t, err)
 
 	if err = graph.SetSourceNode(dbNode); err != nil {
 		return nil, err
@@ -3031,10 +3035,11 @@ type pathFindingTestContext struct {
 }
 
 func newPathFindingTestContext(t *testing.T, useCache bool,
-	testChannels []*testChannel, source string) *pathFindingTestContext {
+	testChannels []*testChannel, source string,
+	sourceFeatureBits ...lnwire.FeatureBit) *pathFindingTestContext {
 
 	testGraphInstance, err := createTestGraphFromChannels(
-		t, useCache, testChannels, source,
+		t, useCache, testChannels, source, sourceFeatureBits...,
 	)
 	require.NoError(t, err, "unable to create graph")
 
@@ -3075,6 +3080,12 @@ func (c *pathFindingTestContext) findPath(target route.Vertex,
 		c.graph, nil, c.bandwidthHints, &c.restrictParams,
 		&c.pathFindingConfig, c.source, target, amt, c.timePref, 0,
 	)
+}
+
+func (c *pathFindingTestContext) findBlindedPaths(
+	restrictions *blindedPathRestrictions) ([][]blindedHop, error) {
+
+	return dbFindBlindedPaths(c.graph, restrictions)
 }
 
 func (c *pathFindingTestContext) assertPath(path []*unifiedEdge,
@@ -3132,6 +3143,22 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 	)
 
 	return route, err
+}
+
+// dbFindBlindedPaths calls findBlindedPaths after getting a db transaction from
+// the database graph.
+func dbFindBlindedPaths(graph *channeldb.ChannelGraph,
+	restrictions *blindedPathRestrictions) ([][]blindedHop, error) {
+
+	sourceNode, err := graph.SourceNode()
+	if err != nil {
+		return nil, err
+	}
+
+	return findBlindedPaths(
+		newMockGraphSessionChanDB(graph), sourceNode.PubKeyBytes,
+		restrictions,
+	)
 }
 
 // TestBlindedRouteConstruction tests creation of a blinded route with the
@@ -3505,4 +3532,163 @@ func TestLastHopPayloadSize(t *testing.T) {
 			)
 		})
 	}
+}
+
+// TestFindBlindedPaths tests that the findBlindedPaths function correctly
+// selects a set of blinded paths to a destination node given various
+// restrictions.
+func TestFindBlindedPaths(t *testing.T) {
+	featuresWithRouteBlinding := lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(lnwire.RouteBlindingOptional),
+		lnwire.Features,
+	)
+
+	policyWithRouteBlinding := &testChannelPolicy{
+		Expiry:   144,
+		FeeRate:  400,
+		MinHTLC:  1,
+		MaxHTLC:  100000000,
+		Features: featuresWithRouteBlinding,
+	}
+
+	policyWithoutRouteBlinding := &testChannelPolicy{
+		Expiry:  144,
+		FeeRate: 400,
+		MinHTLC: 1,
+		MaxHTLC: 100000000,
+	}
+
+	// Set up the following graph where Dave will be our destination node.
+	// All the nodes except for A will signal the Route Blinding feature
+	// bit.
+	//
+	// 	      A --- F
+	// 	      |	    |
+	//	G --- D --- B --- E
+	// 	      |		  |
+	// 	      C-----------/
+	//
+	testChannels := []*testChannel{
+		symmetricTestChannel(
+			"dave", "alice", 100000, policyWithoutRouteBlinding, 1,
+		),
+		symmetricTestChannel(
+			"dave", "bob", 100000, policyWithRouteBlinding, 2,
+		),
+		symmetricTestChannel(
+			"dave", "charlie", 100000, policyWithRouteBlinding, 3,
+		),
+		symmetricTestChannel(
+			"alice", "frank", 100000, policyWithRouteBlinding, 4,
+		),
+		symmetricTestChannel(
+			"bob", "frank", 100000, policyWithRouteBlinding, 5,
+		),
+		symmetricTestChannel(
+			"eve", "charlie", 100000, policyWithRouteBlinding, 6,
+		),
+		symmetricTestChannel(
+			"bob", "eve", 100000, policyWithRouteBlinding, 7,
+		),
+		symmetricTestChannel(
+			"dave", "george", 100000, policyWithRouteBlinding, 8,
+		),
+	}
+
+	ctx := newPathFindingTestContext(
+		t, true, testChannels, "dave", lnwire.RouteBlindingOptional,
+	)
+
+	// assertPaths checks that the set of selected paths contains all the
+	// expected paths.
+	assertPaths := func(paths [][]blindedHop, expectedPaths []string) {
+		require.Len(t, paths, len(expectedPaths))
+
+		actualPaths := make(map[string]bool)
+
+		for _, path := range paths {
+			var label string
+			for _, hop := range path {
+				label += ctx.aliasFromKey(hop.vertex) + ","
+			}
+
+			actualPaths[strings.TrimRight(label, ",")] = true
+		}
+
+		for _, path := range expectedPaths {
+			require.True(t, actualPaths[path])
+		}
+	}
+
+	// 1) Restrict the min & max path length such that we only include paths
+	// with one hop other than the destination hop.
+	paths, err := ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops: 1,
+		maxNumHops: 1,
+	})
+	require.NoError(t, err)
+
+	// We expect the B->D and C->D paths to be chosen.
+	// The A->D path is not chosen since A does not advertise the route
+	// blinding feature bit. The G->D path is not chosen since G does not
+	// have any other known channels.
+	assertPaths(paths, []string{
+		"bob,dave",
+		"charlie,dave",
+	})
+
+	// 2) Extend the search to include 2 hops other than the destination.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops: 1,
+		maxNumHops: 2,
+	})
+	require.NoError(t, err)
+
+	// We expect the following paths:
+	// 	- B, D
+	//	- F, B, D
+	// 	- E, B, D
+	// 	- C, D
+	// 	- E, C, D
+	assertPaths(paths, []string{
+		"bob,dave",
+		"frank,bob,dave",
+		"eve,bob,dave",
+		"charlie,dave",
+		"eve,charlie,dave",
+	})
+
+	// 3) Extend the search even further and also increase the minimum path
+	// length.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops: 2,
+		maxNumHops: 3,
+	})
+	require.NoError(t, err)
+
+	// We expect the following paths:
+	//	- F, B, D
+	// 	- E, B, D
+	// 	- E, C, D
+	// 	- B, E, C, D
+	// 	- C, E, B, D
+	assertPaths(paths, []string{
+		"frank,bob,dave",
+		"eve,bob,dave",
+		"eve,charlie,dave",
+		"bob,eve,charlie,dave",
+		"charlie,eve,bob,dave",
+	})
+
+	// 4) Finally, we will test the special case where the destination node
+	// is also the recipient.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops: 0,
+		maxNumHops: 0,
+	})
+	require.NoError(t, err)
+
+	assertPaths(paths, []string{
+		"dave",
+	})
 }

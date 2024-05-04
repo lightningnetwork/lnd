@@ -847,6 +847,81 @@ func PopulateHopHints(cfg *SelectHopHintsCfg, amtMSat lnwire.MilliSatoshi,
 	return hopHints, nil
 }
 
+// bufferedChanPolicy holds the set of relay policy rules of a channel that
+// have been buffered to keep the blinded path valid in the event of small
+// policy changes.
+type bufferedChanPolicy struct {
+	cltvExpiryDelta uint16
+	feeRate         uint32
+	baseFee         lnwire.MilliSatoshi
+	minHTLCMsat     lnwire.MilliSatoshi
+	maxHTLCMsat     lnwire.MilliSatoshi
+}
+
+// addPolicyBuffer constructs the bufferedChanPolicies for a path hop by taking
+// its actual policy values and multiplying them by the given multipliers.
+// The base fee, fee rate and minimum HTLC msat values are adjusted via the
+// incMultiplier while the maximum HTLC msat value is adjusted via the
+// decMultiplier. If adjustments of the HTLC values no longer make sense
+// then the original HTLC value is used.
+func addPolicyBuffer(policy *models.ChannelEdgePolicy,
+	incMultiplier, decMultiplier float64) (*bufferedChanPolicy, error) {
+
+	if incMultiplier < 1 {
+		return nil, fmt.Errorf("blinded path policy increase " +
+			"multiplier must be greater than or equal to 1")
+	}
+
+	if decMultiplier < 0 || decMultiplier > 1 {
+		return nil, fmt.Errorf("blinded path policy decrease " +
+			"multiplier must be in the range [0;1]")
+	}
+
+	var (
+		minHTLCMsat = lnwire.MilliSatoshi(math.Ceil(
+			float64(policy.MinHTLC) * incMultiplier,
+		))
+		maxHTLCMsat = lnwire.MilliSatoshi(math.Floor(
+			float64(policy.MaxHTLC) * decMultiplier,
+		))
+	)
+
+	// Make sure the new minimum is not more than the original maximum.
+	// If it is, then just stick to the original minimum.
+	if minHTLCMsat > policy.MaxHTLC {
+		minHTLCMsat = policy.MinHTLC
+	}
+
+	// Make sure the new maximum is not less than the original minimum.
+	// If it is, then just stick to the original maximum.
+	if maxHTLCMsat < policy.MinHTLC {
+		maxHTLCMsat = policy.MaxHTLC
+	}
+
+	// Also ensure that the new htlc bounds make sense. If the new minimum
+	// is greater than the new maximum, then just let both to their original
+	// values.
+	if minHTLCMsat > maxHTLCMsat {
+		minHTLCMsat = policy.MinHTLC
+		maxHTLCMsat = policy.MaxHTLC
+	}
+
+	return &bufferedChanPolicy{
+		cltvExpiryDelta: uint16(math.Ceil(
+			float64(policy.TimeLockDelta) * incMultiplier,
+		)),
+		feeRate: uint32(math.Ceil(
+			float64(policy.FeeProportionalMillionths) *
+				incMultiplier,
+		)),
+		baseFee: lnwire.MilliSatoshi(math.Ceil(
+			float64(policy.FeeBaseMSat) * incMultiplier,
+		)),
+		minHTLCMsat: minHTLCMsat,
+		maxHTLCMsat: maxHTLCMsat,
+	}, nil
+}
+
 // calcBlindedPathPolicies computes the accumulated policy values for the path.
 // These values include the total base fee, the total proportional fee and the
 // total CLTV delta. This function assumes that all the passed relay infos have

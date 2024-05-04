@@ -10,6 +10,8 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -893,6 +895,165 @@ func TestPopulateHopHints(t *testing.T) {
 			// We shuffle the elements in the hop hint list so we
 			// need to compare the elements here.
 			require.ElementsMatch(t, tc.expectedHopHints, hopHints)
+		})
+	}
+}
+
+// TestPadBlindedHopInfo asserts that the padding of blinded hop data is done
+// correctly and that it takes the expected number of iterations.
+func TestPadBlindedHopInfo(t *testing.T) {
+	tests := []struct {
+		name               string
+		expectedIterations int
+		expectedFinalSize  int
+
+		// We will use the pathID field of BlindedRouteData to set an
+		// initial payload size. The ints in this list represent the
+		// size of each pathID.
+		pathIDs []int
+
+		// existingPadding is a map from entry index (based on the
+		// pathIDs set) to the number of pre-existing padding bytes to
+		// add.
+		existingPadding map[int]int
+	}{
+		{
+			// If there is only one entry, then no padding is
+			// expected.
+			name:               "single entry",
+			expectedIterations: 1,
+			pathIDs:            []int{10},
+
+			// The final size will be 12 since the path ID is 10
+			// bytes, and it will be prefixed by type and value
+			// bytes.
+			expectedFinalSize: 12,
+		},
+		{
+			// All the payloads are the same size from the get go
+			// meaning that no padding is expected.
+			name:               "all start equal",
+			expectedIterations: 1,
+			pathIDs:            []int{10, 10, 10},
+
+			// The final size will be 12 since the path ID is 10
+			// bytes, and it will be prefixed by type and value
+			// bytes.
+			expectedFinalSize: 12,
+		},
+		{
+			// If the blobs differ by 1 byte it will take 4
+			// iterations:
+			// 1) padding of 1 is added to entry 2 which will
+			//    increase its size by 3 bytes since padding does
+			//    not yet exist for it.
+			// 2) Now entry 1 will be short 2 bytes. It will be
+			//    padded by 2 bytes but again since it is a new
+			//    padding field, 4 bytes are added.
+			// 3) Finally, entry 2 is padded by 1 extra. Since it
+			//    already does have a padding field, this does end
+			//    up adding only 1 extra byte.
+			// 4) The fourth iteration determines that all are now
+			//    the same size.
+			name:               "differ by 1",
+			expectedIterations: 4,
+			pathIDs:            []int{4, 3},
+			expectedFinalSize:  10,
+		},
+		{
+			name:               "existing padding and diff of 1",
+			expectedIterations: 2,
+			pathIDs:            []int{10, 11},
+
+			// By adding some existing padding, the type and length
+			// field for the padding are already accounted for in
+			// the first iteration, and so we only expect two
+			// iterations to get the payloads to match size here:
+			// one for adding a single extra byte to the smaller
+			// payload and another for confirming the sizes match.
+			existingPadding:   map[int]int{0: 1, 1: 1},
+			expectedFinalSize: 16,
+		},
+		{
+			// In this test, we test a BigSize bucket shift. We do
+			// this by setting the initial path ID's of both entries
+			// to a 0 size which means the total encoding of those
+			// will be 2 bytes (to encode the type and length). Then
+			// for the initial padding, we let the first entry be
+			// 253 bytes long which is just long enough to be in
+			// the second BigSize bucket which uses 3 bytes to
+			// encode the value length. We make the second entry
+			// 252 bytes which still puts it in the first bucket
+			// which uses 1 byte for the length. The difference in
+			// overall packet size will be 3 bytes (the first entry
+			// has 2 more length bytes and 1 more value byte). So
+			// the function will try to pad the second entry by 3
+			// bytes (iteration 1). This will however result in the
+			// second entry shifting to the second BigSize bucket
+			// meaning it will gain an additional 2 bytes for the
+			// new length encoding meaning that overall it gains 5
+			// bytes in size. This will result in another iteration
+			// which will result in padding the first entry with an
+			// extra 2 bytes to meet the second entry's new size
+			// (iteration 2). One more iteration (3) is then done
+			// to confirm that all entries are now the same size.
+			name:               "big size bucket shift",
+			expectedIterations: 3,
+
+			// We make the path IDs large enough so that
+			pathIDs:           []int{0, 0},
+			existingPadding:   map[int]int{0: 253, 1: 252},
+			expectedFinalSize: 261,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			// If the test includes existing padding, then make
+			if test.existingPadding != nil {
+				require.Len(t, test.existingPadding,
+					len(test.pathIDs))
+			}
+
+			hopDataSet := make([]*hopData, len(test.pathIDs))
+			for i, l := range test.pathIDs {
+				pathID := tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType6](
+						make([]byte, l),
+					),
+				)
+				data := &record.BlindedRouteData{
+					PathID: pathID,
+				}
+
+				if test.existingPadding != nil {
+					//nolint:lll
+					padding := tlv.SomeRecordT(
+						tlv.NewPrimitiveRecord[tlv.TlvType1](
+							make([]byte, test.existingPadding[i]),
+						),
+					)
+
+					data.Padding = padding
+				}
+
+				hopDataSet[i] = &hopData{data: data}
+			}
+
+			hopInfo, numIterations, err := padHopInfo(hopDataSet)
+			require.NoError(t, err)
+			require.Equal(t, test.expectedIterations, numIterations)
+
+			// We expect all resulting blobs to be the same size.
+			for _, info := range hopInfo {
+				require.Len(
+					t, info.PlainText,
+					test.expectedFinalSize,
+				)
+			}
 		})
 	}
 }

@@ -16,13 +16,16 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -839,4 +842,126 @@ func PopulateHopHints(cfg *SelectHopHintsCfg, amtMSat lnwire.MilliSatoshi,
 
 	hopHints = append(hopHints, selectedHints...)
 	return hopHints, nil
+}
+
+// hopData packages the record.BlindedRouteData for a hop on a blinded path with
+// the real node ID of that hop.
+type hopData struct {
+	data   *record.BlindedRouteData
+	nodeID *btcec.PublicKey
+}
+
+// padStats can be used to keep track of various pieces of data that we collect
+// during a call to padHopInfo. This is useful for logging and for test
+// assertions.
+type padStats struct {
+	minPayloadSize  int
+	maxPayloadSize  int
+	finalPaddedSize int
+	numIterations   int
+}
+
+// padHopInfo iterates over a set of record.BlindedRouteData and adds padding
+// where needed until the resulting encrypted data blobs are all the same size.
+// This may take a few iterations due to the fact that a TLV field is used to
+// add this padding. For example, if we want to add a 1 byte padding to a
+// record.BlindedRouteData when it does not yet have any padding, then adding
+// a 1 byte padding will actually add 3 bytes due to the bytes required when
+// adding the initial type and length bytes. However, on the next iteration if
+// we again add just 1 byte, then only a single byte will be added. The same
+// iteration is required for padding values on the BigSize encoding bucket
+// edges. The number of iterations that this function takes is also returned for
+// testing purposes.
+func padHopInfo(hopInfo []*hopData) ([]*sphinx.HopInfo, *padStats, error) {
+	var (
+		paymentPath = make([]*sphinx.HopInfo, len(hopInfo))
+		stats       padStats
+	)
+	for {
+		stats.numIterations++
+
+		// On each iteration of the loop, we first determine the
+		// current largest encoded data blob size. This will be the
+		// size we aim to get the others to match.
+		var (
+			maxLen int
+			minLen = math.MaxInt8
+		)
+		for i, hop := range hopInfo {
+			plainText, err := record.EncodeBlindedRouteData(
+				hop.data,
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			if len(plainText) > maxLen {
+				maxLen = len(plainText)
+
+				// Update the stats to take note of this new
+				// max since this may be the final max that all
+				// payloads will be padded to.
+				stats.finalPaddedSize = maxLen
+			}
+			if len(plainText) < minLen {
+				minLen = len(plainText)
+			}
+
+			paymentPath[i] = &sphinx.HopInfo{
+				NodePub:   hop.nodeID,
+				PlainText: plainText,
+			}
+		}
+
+		// If this is our first iteration, then we take note of the min
+		// and max lengths of the payloads pre-padding for logging
+		// later.
+		if stats.numIterations == 1 {
+			stats.minPayloadSize = minLen
+			stats.maxPayloadSize = maxLen
+		}
+
+		// Now we iterate over them again and determine which ones we
+		// need to add padding to.
+		var numEqual int
+		for i, hop := range hopInfo {
+			plainText := paymentPath[i].PlainText
+
+			// If the plaintext length is equal to the desired
+			// length, then we can continue. We use numEqual to
+			// keep track of how many have the same length.
+			if len(plainText) == maxLen {
+				numEqual++
+
+				continue
+			}
+
+			// If we previously added padding to this hop, we keep
+			// the length of that initial padding too.
+			var existingPadding int
+			hop.data.Padding.WhenSome(
+				func(p tlv.RecordT[tlv.TlvType1, []byte]) {
+					existingPadding = len(p.Val)
+				},
+			)
+
+			// Add some padding bytes to the hop.
+			hop.data.PadBy(
+				existingPadding + maxLen - len(plainText),
+			)
+		}
+
+		// If all the payloads have the same length, we can exit the
+		// loop.
+		if numEqual == len(hopInfo) {
+			break
+		}
+	}
+
+	log.Debugf("Finished padding %d blinded path payloads to %d bytes "+
+		"each where the pre-padded min and max sizes were %d and %d "+
+		"bytes respectively", len(hopInfo), stats.finalPaddedSize,
+		stats.minPayloadSize, stats.maxPayloadSize)
+
+	return paymentPath, &stats, nil
 }

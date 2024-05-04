@@ -902,6 +902,159 @@ func TestPopulateHopHints(t *testing.T) {
 	}
 }
 
+// TestApplyBlindedPathPolicyBuffer tests blinded policy adjustments.
+func TestApplyBlindedPathPolicyBuffer(t *testing.T) {
+	tests := []struct {
+		name          string
+		policyIn      *blindedHopPolicy
+		expectedOut   *blindedHopPolicy
+		incMultiplier float64
+		decMultiplier float64
+		expectedError string
+	}{
+		{
+			name:          "invalid increase multiplier",
+			incMultiplier: 0,
+			expectedError: "blinded path policy increase " +
+				"multiplier must be greater than or equal to 1",
+		},
+		{
+			name:          "decrease multiplier too small",
+			incMultiplier: 1,
+			decMultiplier: -1,
+			expectedError: "blinded path policy decrease " +
+				"multiplier must be in the range [0;1]",
+		},
+		{
+			name:          "decrease multiplier too big",
+			incMultiplier: 1,
+			decMultiplier: 2,
+			expectedError: "blinded path policy decrease " +
+				"multiplier must be in the range [0;1]",
+		},
+		{
+			name:          "no change",
+			incMultiplier: 1,
+			decMultiplier: 1,
+			policyIn: &blindedHopPolicy{
+				cltvExpiryDelta: 1,
+				minHTLCMsat:     2,
+				maxHTLCMsat:     3,
+				baseFee:         4,
+				feeRate:         5,
+			},
+			expectedOut: &blindedHopPolicy{
+				cltvExpiryDelta: 1,
+				minHTLCMsat:     2,
+				maxHTLCMsat:     3,
+				baseFee:         4,
+				feeRate:         5,
+			},
+		},
+		{
+			name: "buffer up by 100% and down by and down " +
+				"by 50%",
+			incMultiplier: 2,
+			decMultiplier: 0.5,
+			policyIn: &blindedHopPolicy{
+				cltvExpiryDelta: 10,
+				minHTLCMsat:     20,
+				maxHTLCMsat:     300,
+				baseFee:         40,
+				feeRate:         50,
+			},
+			expectedOut: &blindedHopPolicy{
+				cltvExpiryDelta: 20,
+				minHTLCMsat:     40,
+				maxHTLCMsat:     150,
+				baseFee:         80,
+				feeRate:         100,
+			},
+		},
+		{
+			name: "new HTLC minimum larger than OG " +
+				"maximum",
+			incMultiplier: 2,
+			decMultiplier: 1,
+			policyIn: &blindedHopPolicy{
+				cltvExpiryDelta: 10,
+				minHTLCMsat:     20,
+				maxHTLCMsat:     30,
+				baseFee:         40,
+				feeRate:         50,
+			},
+			expectedOut: &blindedHopPolicy{
+				cltvExpiryDelta: 20,
+				minHTLCMsat:     20,
+				maxHTLCMsat:     30,
+				baseFee:         80,
+				feeRate:         100,
+			},
+		},
+		{
+			name: "new HTLC maximum smaller than OG " +
+				"minimum",
+			incMultiplier: 1,
+			decMultiplier: 0.5,
+			policyIn: &blindedHopPolicy{
+				cltvExpiryDelta: 10,
+				minHTLCMsat:     20,
+				maxHTLCMsat:     30,
+				baseFee:         40,
+				feeRate:         50,
+			},
+			expectedOut: &blindedHopPolicy{
+				cltvExpiryDelta: 10,
+				minHTLCMsat:     20,
+				maxHTLCMsat:     30,
+				baseFee:         40,
+				feeRate:         50,
+			},
+		},
+		{
+			name: "new HTLC minimum and maximums are not " +
+				"compatible",
+			incMultiplier: 2,
+			decMultiplier: 0.5,
+			policyIn: &blindedHopPolicy{
+				cltvExpiryDelta: 10,
+				minHTLCMsat:     30,
+				maxHTLCMsat:     100,
+				baseFee:         40,
+				feeRate:         50,
+			},
+			expectedOut: &blindedHopPolicy{
+				cltvExpiryDelta: 20,
+				minHTLCMsat:     30,
+				maxHTLCMsat:     100,
+				baseFee:         80,
+				feeRate:         100,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			bufferedPolicy, err := addPolicyBuffer(
+				test.policyIn, test.incMultiplier,
+				test.decMultiplier,
+			)
+			if test.expectedError != "" {
+				require.ErrorContains(
+					t, err, test.expectedError,
+				)
+
+				return
+			}
+
+			require.Equal(t, test.expectedOut, bufferedPolicy)
+		})
+	}
+}
+
 // TestBlindedPathAccumulatedPolicyCalc tests the logic for calculating the
 // accumulated routing policies of a blinded route against an example mentioned
 // in the spec document:

@@ -3836,6 +3836,12 @@ message Invoice {
     Note: Output only, don't specify for creating an invoice.
     */
     map<string, AMPInvoiceState> amp_invoice_state = 28;
+
+    /*
+    Signals that the invoice should include blinded paths to hide the true
+    identity of the recipient.
+    */
+    bool blind = 29;
 }
 
 enum InvoiceHTLCState {

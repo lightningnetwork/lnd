@@ -3778,9 +3778,6 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 // that we're not part of a blinded route and an error encrypter that'll be
 // used if we are the introduction node and need to present an error as if
 // we're the failing party.
-//
-// Note: this function does not yet handle special error cases for receiving
-// nodes in blinded paths, as LND does not support blinded receives.
 func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
 	e hop.ErrorEncrypter,
 	originalFailure lnwire.OpaqueReason) error {

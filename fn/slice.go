@@ -1,5 +1,13 @@
 package fn
 
+import "golang.org/x/exp/constraints"
+
+// Number is a type constraint for all numeric types in Go (integers,
+// float and complex numbers)
+type Number interface {
+	constraints.Integer | constraints.Float | constraints.Complex
+}
+
 // All returns true when the supplied predicate evaluates to true for all of
 // the values in the slice.
 func All[A any](pred func(A) bool, s []A) bool {
@@ -167,4 +175,26 @@ func ZipWith[A, B, C any](f func(A, B) C, a []A, b []B) []C {
 	}
 
 	return res
+}
+
+// SliceToMap converts a slice to a map using the provided key and value
+// functions.
+func SliceToMap[A any, K comparable, V any](s []A, keyFunc func(A) K,
+	valueFunc func(A) V) map[K]V {
+
+	res := make(map[K]V, len(s))
+	for _, val := range s {
+		key := keyFunc(val)
+		value := valueFunc(val)
+		res[key] = value
+	}
+
+	return res
+}
+
+// Sum calculates the sum of a slice of numbers, `items`.
+func Sum[B Number](items []B) B {
+	return Foldl(func(a, b B) B {
+		return a + b
+	}, 0, items)
 }

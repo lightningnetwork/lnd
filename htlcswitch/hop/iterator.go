@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -230,17 +231,43 @@ func parseAndValidateRecipientData(r *sphinxHopIterator, payload *Payload,
 		return nil, routeRole, err
 	}
 
-	// Exit early if this onion is for the exit hop of the route since
-	// route blinding receives are not yet supported.
+	// This is the final node in the blinded route.
 	if isFinal {
-		return nil, routeRole, fmt.Errorf("being the final hop in a " +
-			"blinded path is not yet supported")
+		return deriveBlindedRouteFinalHopForwardingInfo(
+			routeData, payload, routeRole,
+		)
 	}
 
 	// Else, we are a forwarding node in this blinded path.
 	return deriveBlindedRouteForwardingInfo(
 		r, routeData, payload, routeRole, blindingPoint,
 	)
+}
+
+// deriveBlindedRouteFinalHopForwardingInfo extracts the PathID from the
+// routeData and constructs the ForwardingInfo accordingly.
+func deriveBlindedRouteFinalHopForwardingInfo(
+	routeData *record.BlindedRouteData, payload *Payload,
+	routeRole RouteRole) (*Payload, RouteRole, error) {
+
+	var pathID *chainhash.Hash
+	routeData.PathID.WhenSome(func(r tlv.RecordT[tlv.TlvType6, []byte]) {
+		var id chainhash.Hash
+		copy(id[:], r.Val)
+		pathID = &id
+	})
+	if pathID == nil {
+		return nil, routeRole, ErrInvalidPayload{
+			Type:      tlv.Type(6),
+			Violation: InsufficientViolation,
+		}
+	}
+
+	payload.FwdInfo = ForwardingInfo{
+		PathID: pathID,
+	}
+
+	return payload, routeRole, nil
 }
 
 // deriveBlindedRouteForwardingInfo uses the parsed BlindedRouteData from the

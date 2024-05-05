@@ -1,9 +1,11 @@
 package invoices
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/amp"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -23,12 +25,17 @@ type invoiceUpdateCtx struct {
 	mpp                  *record.MPP
 	amp                  *record.AMP
 	metadata             []byte
+	pathID               *chainhash.Hash
+	totalAmtMsat         lnwire.MilliSatoshi
 }
 
 // invoiceRef returns an identifier that can be used to lookup or update the
 // invoice this HTLC is targeting.
 func (i *invoiceUpdateCtx) invoiceRef() InvoiceRef {
 	switch {
+	case i.pathID != nil:
+		return InvoiceRefByHashAndAddr(i.hash, *i.pathID)
+
 	case i.amp != nil && i.mpp != nil:
 		payAddr := i.mpp.PaymentAddr()
 		return InvoiceRefByAddr(payAddr)
@@ -130,7 +137,7 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *Invoice) (
 	// If no MPP payload was provided, then we expect this to be a keysend,
 	// or a payment to an invoice created before we started to require the
 	// MPP payload.
-	if ctx.mpp == nil {
+	if ctx.mpp == nil && ctx.pathID == nil {
 		return updateLegacy(ctx, inv)
 	}
 
@@ -158,12 +165,27 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 
 	setID := ctx.setID()
 
+	var (
+		totalAmt    = ctx.totalAmtMsat
+		paymentAddr []byte
+	)
+	// If an MPP record is present, then the payment address and total
+	// payment amount is extracted from it. Otherwise, the pathID is used
+	// to extract the payment address.
+	if ctx.mpp != nil {
+		totalAmt = ctx.mpp.TotalMsat()
+		payAddr := ctx.mpp.PaymentAddr()
+		paymentAddr = payAddr[:]
+	} else {
+		paymentAddr = ctx.pathID[:]
+	}
+
 	// Start building the accept descriptor.
 	acceptDesc := &HtlcAcceptDesc{
 		Amt:           ctx.amtPaid,
 		Expiry:        ctx.expiry,
 		AcceptHeight:  ctx.currentHeight,
-		MppTotalAmt:   ctx.mpp.TotalMsat(),
+		MppTotalAmt:   totalAmt,
 		CustomRecords: ctx.customRecords,
 	}
 
@@ -184,18 +206,18 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 	}
 
 	// Check the payment address that authorizes the payment.
-	if ctx.mpp.PaymentAddr() != inv.Terms.PaymentAddr {
+	if !bytes.Equal(paymentAddr, inv.Terms.PaymentAddr[:]) {
 		return nil, ctx.failRes(ResultAddressMismatch), nil
 	}
 
 	// Don't accept zero-valued sets.
-	if ctx.mpp.TotalMsat() == 0 {
+	if totalAmt == 0 {
 		return nil, ctx.failRes(ResultHtlcSetTotalTooLow), nil
 	}
 
 	// Check that the total amt of the htlc set is high enough. In case this
 	// is a zero-valued invoice, it will always be enough.
-	if ctx.mpp.TotalMsat() < inv.Terms.Value {
+	if totalAmt < inv.Terms.Value {
 		return nil, ctx.failRes(ResultHtlcSetTotalTooLow), nil
 	}
 
@@ -204,7 +226,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 	// Check whether total amt matches other htlcs in the set.
 	var newSetTotal lnwire.MilliSatoshi
 	for _, htlc := range htlcSet {
-		if ctx.mpp.TotalMsat() != htlc.MppTotalAmt {
+		if totalAmt != htlc.MppTotalAmt {
 			return nil, ctx.failRes(ResultHtlcSetTotalMismatch), nil
 		}
 
@@ -238,7 +260,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 	}
 
 	// If the invoice cannot be settled yet, only record the htlc.
-	setComplete := newSetTotal >= ctx.mpp.TotalMsat()
+	setComplete := newSetTotal >= totalAmt
 	if !setComplete {
 		return &update, ctx.acceptRes(resultPartialAccepted), nil
 	}

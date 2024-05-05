@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -408,6 +409,12 @@ func (h *Payload) BlindingPoint() *btcec.PublicKey {
 	return h.blindingPoint
 }
 
+// PathID returns the path ID that was encoded in the final hop payload of a
+// blinded payment.
+func (h *Payload) PathID() *chainhash.Hash {
+	return h.FwdInfo.PathID
+}
+
 // Metadata returns the additional data that is sent along with the
 // payment to the payee.
 func (h *Payload) Metadata() []byte {
@@ -460,10 +467,6 @@ func getMinRequiredViolation(set tlv.TypeMap) *tlv.Type {
 // the route "expires" and a malicious party does not have endless opportunity
 // to probe the blinded route and compare it to updated channel policies in
 // the network.
-//
-// Note that this function only validates blinded route data for forwarding
-// nodes, as LND does not yet support receiving via a blinded route (which has
-// different validation rules).
 func ValidateBlindedRouteData(blindedData *record.BlindedRouteData,
 	incomingAmount lnwire.MilliSatoshi, incomingTimelock uint32) error {
 

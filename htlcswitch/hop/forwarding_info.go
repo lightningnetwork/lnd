@@ -1,6 +1,7 @@
 package hop
 
 import (
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -27,4 +28,9 @@ type ForwardingInfo struct {
 	// node in UpdateAddHtlc. This field is set if the htlc is part of a
 	// blinded route.
 	NextBlinding lnwire.BlindingPointRecord
+
+	// PathID is a secret identifier that the creator of a blinded path
+	// sets for itself to ensure that the blinded path has been used in the
+	// correct context.
+	PathID *chainhash.Hash
 }

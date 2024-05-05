@@ -32,6 +32,10 @@
   argument to `addinvoice` and `addholdinvoice`, allowing users to set the
   `min_final_cltv_expiry_delta`
 
+* The [`lncli wallet estimatefeerate`](https://github.com/lightningnetwork/lnd/pull/8730)
+  command returns the fee rate estimate for on-chain transactions in sat/kw and
+  sat/vb to achieve a given confirmation target.
+
 # Improvements
 ## Functional Updates
 ## RPC Updates

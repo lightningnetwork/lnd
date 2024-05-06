@@ -468,7 +468,7 @@ func Main() {
 		SendPaymentCommand,
 		payInvoiceCommand,
 		sendToRouteCommand,
-		addInvoiceCommand,
+		AddInvoiceCommand,
 		lookupInvoiceCommand,
 		listInvoicesCommand,
 		ListChannelsCommand,

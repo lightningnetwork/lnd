@@ -9,7 +9,7 @@ import (
 	"github.com/urfave/cli"
 )
 
-var addInvoiceCommand = cli.Command{
+var AddInvoiceCommand = cli.Command{
 	Name:     "addinvoice",
 	Category: "Invoices",
 	Usage:    "Add a new invoice.",

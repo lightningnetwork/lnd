@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -613,8 +614,20 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			err)
 	}
 
-	// Now we have created all dependencies necessary to populate and
-	// start the RPC server.
+	// Now we have created all dependencies necessary to register them with
+	// the auxiliary components.
+	err = fn.MapOptionZ(
+		implCfg.DependenciesReceiver,
+		func(r DependenciesReceiver) error {
+			return r.RegisterComponents(server.aliasMgr)
+		},
+	)
+	if err != nil {
+		return mkErr("unable to add deps to aux components: %v", err)
+	}
+
+	// And with those dependencies available, we can populate and start the
+	// RPC server as well.
 	err = rpcServer.addDeps(
 		server, interceptorChain.MacaroonService(), cfg.SubRPCServers,
 		atplManager, server.invoices, tower, multiAcceptor,

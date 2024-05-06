@@ -44,6 +44,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/routing"
@@ -123,6 +124,32 @@ type ChainControlBuilder interface {
 		*btcwallet.Config) (*chainreg.ChainControl, func(), error)
 }
 
+// AliasAdder is an interface that can add SCID aliases to the local alias
+// store.
+type AliasAdder interface {
+	// AddLocalAlias adds a database mapping from the passed alias to the
+	// passed base SCID. The gossip boolean marks whether to create a
+	// mapping that the gossiper will use. It is set to false for the
+	// upgrade path where the feature-bit is toggled on and there are
+	// existing channels. The linkUpdate flag is used to signal whether this
+	// function should also trigger an update on the htlcswitch SCID alias
+	// maps.
+	AddLocalAlias(alias, baseScid lnwire.ShortChannelID, gossip,
+		linkUpdate bool) error
+
+	// DeleteLocalAlias removes a mapping from the database and the
+	// Manager's maps.
+	DeleteLocalAlias(alias, baseScid lnwire.ShortChannelID) error
+}
+
+// DependenciesReceiver is an interface that can be implemented by auxiliary
+// components that need to receive dependencies from lnd.
+type DependenciesReceiver interface {
+	// RegisterComponents allows the auxiliary component to register the
+	// given lnd components it might depend on.
+	RegisterComponents(aliasAdder AliasAdder) error
+}
+
 // ImplementationCfg is a struct that holds all configuration items for
 // components that can be implemented outside lnd itself.
 type ImplementationCfg struct {
@@ -182,6 +209,10 @@ type AuxComponents struct {
 	// AuxDataParser is an optional data parser that can be used to parse
 	// auxiliary data for certain custom channel types.
 	AuxDataParser fn.Option[AuxDataParser]
+
+	// DependenciesReceiver is an optional endpoint to receive access to lnd
+	// components once they are fully initialized.
+	DependenciesReceiver fn.Option[DependenciesReceiver]
 }
 
 // DefaultWalletImpl is the default implementation of our normal, btcwallet

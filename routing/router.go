@@ -924,8 +924,18 @@ type LightningPayment struct {
 	// NOTE: This is optional unless required by the payment. When providing
 	// multiple routes, ensure the hop hints within each route are chained
 	// together and sorted in forward order in order to reach the
-	// destination successfully.
+	// destination successfully. This is mutually exclusive to the
+	// BlindedPayment field.
 	RouteHints [][]zpay32.HopHint
+
+	// BlindedPayment holds the information about a blinded path to the
+	// payment recipient. This is mutually exclusive to the RouteHints
+	// field.
+	//
+	// NOTE: a recipient may provide multiple blinded payment paths in the
+	// same invoice. Currently, LND will only attempt to use the first one.
+	// A future PR will handle multiple blinded payment paths.
+	BlindedPayment *BlindedPayment
 
 	// OutgoingChannelIDs is the list of channels that are allowed for the
 	// first hop. If nil, any channel may be used.

@@ -46,6 +46,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -82,6 +83,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -565,6 +567,17 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Action: "read",
 		}},
 	}
+}
+
+// AuxDataParser is an interface that is used to parse auxiliary custom data
+// within RPC messages. This is used to transform binary blobs to human-readable
+// JSON representations.
+type AuxDataParser interface {
+	// InlineParseCustomData replaces any custom data binary blob in the
+	// given RPC message with its corresponding JSON formatted data. This
+	// transforms the binary (likely TLV encoded) data to a human-readable
+	// JSON representation (still as byte slice).
+	InlineParseCustomData(msg proto.Message) error
 }
 
 // rpcServer is a gRPC, RPC front end to the lnd daemon.
@@ -3478,9 +3491,16 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 		unsettledRemoteBalance   lnwire.MilliSatoshi
 		pendingOpenLocalBalance  lnwire.MilliSatoshi
 		pendingOpenRemoteBalance lnwire.MilliSatoshi
+		customDataBuf            bytes.Buffer
 	)
 
 	openChannels, err := r.server.chanStateDB.FetchAllOpenChannels()
+	if err != nil {
+		return nil, err
+	}
+
+	// Encode the number of open channels to the custom data buffer.
+	err = wire.WriteVarInt(&customDataBuf, 0, uint64(len(openChannels)))
 	if err != nil {
 		return nil, err
 	}
@@ -3498,9 +3518,22 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 				unsettledRemoteBalance += htlc.Amt
 			}
 		}
+
+		// Encode the custom data for this open channel.
+		openChanData := channel.LocalCommitment.CustomBlob.UnwrapOr(nil)
+		err = wire.WriteVarBytes(&customDataBuf, 0, openChanData)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	pendingChannels, err := r.server.chanStateDB.FetchPendingChannels()
+	if err != nil {
+		return nil, err
+	}
+
+	// Encode the number of pending channels to the custom data buffer.
+	err = wire.WriteVarInt(&customDataBuf, 0, uint64(len(pendingChannels)))
 	if err != nil {
 		return nil, err
 	}
@@ -3509,6 +3542,13 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 		c := channel.LocalCommitment
 		pendingOpenLocalBalance += c.LocalBalance
 		pendingOpenRemoteBalance += c.RemoteBalance
+
+		// Encode the custom data for this pending channel.
+		openChanData := channel.LocalCommitment.CustomBlob.UnwrapOr(nil)
+		err = wire.WriteVarBytes(&customDataBuf, 0, openChanData)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	rpcsLog.Debugf("[channelbalance] local_balance=%v remote_balance=%v "+
@@ -3518,7 +3558,7 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 		unsettledRemoteBalance, pendingOpenLocalBalance,
 		pendingOpenRemoteBalance)
 
-	return &lnrpc.ChannelBalanceResponse{
+	resp := &lnrpc.ChannelBalanceResponse{
 		LocalBalance: &lnrpc.Amount{
 			Sat:  uint64(localBalance.ToSatoshis()),
 			Msat: uint64(localBalance),
@@ -3543,11 +3583,24 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 			Sat:  uint64(pendingOpenRemoteBalance.ToSatoshis()),
 			Msat: uint64(pendingOpenRemoteBalance),
 		},
+		CustomChannelData: customDataBuf.Bytes(),
 
 		// Deprecated fields.
 		Balance:            int64(localBalance.ToSatoshis()),
 		PendingOpenBalance: int64(pendingOpenLocalBalance.ToSatoshis()),
-	}, nil
+	}
+
+	err = fn.MapOptionZ(
+		r.server.implCfg.AuxDataParser,
+		func(parser AuxDataParser) error {
+			return parser.InlineParseCustomData(resp)
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing custom data: %w", err)
+	}
+
+	return resp, nil
 }
 
 type (
@@ -4301,6 +4354,16 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		}
 
 		resp.Channels = append(resp.Channels, channel)
+	}
+
+	err = fn.MapOptionZ(
+		r.server.implCfg.AuxDataParser,
+		func(parser AuxDataParser) error {
+			return parser.InlineParseCustomData(resp)
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing custom data: %w", err)
 	}
 
 	return resp, nil

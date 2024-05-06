@@ -178,6 +178,10 @@ type AuxComponents struct {
 	// TrafficShaper is an optional traffic shaper that can be used to
 	// control the outgoing channel of a payment.
 	TrafficShaper fn.Option[routing.TlvTrafficShaper]
+
+	// AuxDataParser is an optional data parser that can be used to parse
+	// auxiliary data for certain custom channel types.
+	AuxDataParser fn.Option[AuxDataParser]
 }
 
 // DefaultWalletImpl is the default implementation of our normal, btcwallet

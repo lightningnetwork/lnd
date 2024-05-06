@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,16 +9,12 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/record"
-	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -273,9 +268,9 @@ func testQueryBlindedRoutes(ht *lntest.HarnessTest) {
 
 	htlcAttempt := alice.RPC.SendToRouteV2(sendReq)
 
-	// Since Carol doesn't understand blinded routes, we expect her to fail
-	// the payment because the onion payload is invalid (missing amount to
-	// forward).
+	// Since Carol won't be able to decrypt the dummy encrypted data
+	// containing the forwarding information, we expect her to fail the
+	// payment.
 	require.NotNil(ht, htlcAttempt.Failure)
 	require.Equal(ht, uint32(2), htlcAttempt.Failure.FailureSourceIndex)
 
@@ -347,41 +342,58 @@ func newBlindedForwardTest(ht *lntest.HarnessTest) (context.Context,
 	}
 }
 
-// setup spins up additional nodes needed for our test and creates a four hop
-// network for testing blinded forwarding and returns a blinded route from
-// Bob -> Carol -> Dave, with Bob acting as the introduction point and an
-// interceptor on Carol's node to manage HTLCs (as Dave does not yet support
-// receiving).
-func (b *blindedForwardTest) setup(
-	ctx context.Context) *routing.BlindedPayment {
+// setupNetwork spins up additional nodes needed for our test and creates a four
+// hop network for testing blinded path logic and an optional interceptor on
+// Carol's node for those tests where we want to perhaps prevent the final hop
+// from settling.
+func (b *blindedForwardTest) setupNetwork(ctx context.Context,
+	withInterceptor bool) {
 
-	b.carol = b.ht.NewNode("Carol", []string{
-		"--requireinterceptor", "--bitcoin.timelockdelta=18",
-	})
+	carolArgs := []string{"--bitcoin.timelockdelta=18"}
+	if withInterceptor {
+		carolArgs = append(carolArgs, "--requireinterceptor")
+	}
+	b.carol = b.ht.NewNode("Carol", carolArgs)
 
-	var err error
-	b.carolInterceptor, err = b.carol.RPC.Router.HtlcInterceptor(ctx)
-	require.NoError(b.ht, err, "interceptor")
+	if withInterceptor {
+		var err error
+		b.carolInterceptor, err = b.carol.RPC.Router.HtlcInterceptor(
+			ctx,
+		)
+		require.NoError(b.ht, err, "interceptor")
+	}
 
+	// Restrict Dave so that he only ever creates a single blinded path from
+	// Bob to himself.
 	b.dave = b.ht.NewNode("Dave", []string{
 		"--bitcoin.timelockdelta=18",
+		"--invoices.blinding.min-num-real-hops=2",
+		"--invoices.blinding.num-hops=2",
 	})
 
 	b.channels = setupFourHopNetwork(b.ht, b.carol, b.dave)
+}
 
-	// Create a blinded route to Dave via Bob --- Carol --- Dave:
-	bobChan := b.ht.GetChannelByChanPoint(b.ht.Bob, b.channels[1])
-	carolChan := b.ht.GetChannelByChanPoint(b.carol, b.channels[2])
+// buildBlindedPath returns a blinded route from Bob -> Carol -> Dave, with Bob
+// acting as the introduction point.
+func (b *blindedForwardTest) buildBlindedPath() *lnrpc.BlindedPaymentPath {
+	// Let Dave add a blinded invoice.
+	invoice := b.dave.RPC.AddInvoice(&lnrpc.Invoice{
+		RPreimage: b.preimage[:],
+		Memo:      "test",
+		ValueMsat: 10_000_000,
+		Blind:     true,
+	})
 
-	edges := []*forwardingEdge{
-		getForwardingEdge(b.ht, b.ht.Bob, bobChan.ChanId),
-		getForwardingEdge(b.ht, b.carol, carolChan.ChanId),
-	}
+	// Assert that only one blinded path is selected and that it contains
+	// a 3 hop path starting at Bob.
+	payReq := b.dave.RPC.DecodePayReq(invoice.PaymentRequest)
+	require.Len(b.ht, payReq.BlindedPaths, 1)
+	path := payReq.BlindedPaths[0].BlindedPath
+	require.Len(b.ht, path.BlindedHops, 3)
+	require.EqualValues(b.ht, path.IntroductionNode, b.ht.Bob.PubKey[:])
 
-	davePk, err := btcec.ParsePubKey(b.dave.PubKey[:])
-	require.NoError(b.ht, err, "dave pubkey")
-
-	return b.createBlindedRoute(edges, davePk, 50)
+	return payReq.BlindedPaths[0]
 }
 
 // cleanup tears down all channels created by the test and cancels the top
@@ -399,41 +411,12 @@ func (b *blindedForwardTest) cleanup() {
 //
 //nolint:gomnd
 func (b *blindedForwardTest) createRouteToBlinded(paymentAmt int64,
-	route *routing.BlindedPayment) *lnrpc.Route {
-
-	intro := route.BlindedPath.IntroductionPoint.SerializeCompressed()
-	blinding := route.BlindedPath.BlindingPoint.SerializeCompressed()
-
-	blindedRoute := &lnrpc.BlindedPath{
-		IntroductionNode: intro,
-		BlindingPoint:    blinding,
-		BlindedHops: make(
-			[]*lnrpc.BlindedHop,
-			len(route.BlindedPath.BlindedHops),
-		),
-	}
-
-	for i, hop := range route.BlindedPath.BlindedHops {
-		blindedRoute.BlindedHops[i] = &lnrpc.BlindedHop{
-			BlindedNode:   hop.BlindedNodePub.SerializeCompressed(),
-			EncryptedData: hop.CipherText,
-		}
-	}
-	blindedPath := &lnrpc.BlindedPaymentPath{
-		BlindedPath: blindedRoute,
-		BaseFeeMsat: uint64(
-			route.BaseFee,
-		),
-		ProportionalFeeRate: route.ProportionalFeeRate,
-		TotalCltvDelta: uint32(
-			route.CltvExpiryDelta,
-		),
-	}
+	blindedPath *lnrpc.BlindedPaymentPath) *lnrpc.Route {
 
 	req := &lnrpc.QueryRoutesRequest{
 		AmtMsat: paymentAmt,
-		// Our fee limit doesn't really matter, we just want to
-		// be able to make the payment.
+		// Our fee limit doesn't really matter, we just want to be able
+		// to make the payment.
 		FeeLimit: &lnrpc.FeeLimit{
 			Limit: &lnrpc.FeeLimit_Percent{
 				Percent: 50,
@@ -480,63 +463,48 @@ func (b *blindedForwardTest) sendBlindedPayment(ctx context.Context,
 	return cancel
 }
 
-// interceptFinalHop launches a goroutine to intercept Carol's htlcs and
-// returns a closure that can be used to resolve intercepted htlcs.
-//
-//nolint:lll
-func (b *blindedForwardTest) interceptFinalHop() func(routerrpc.ResolveHoldForwardAction) {
+// sendToRoute synchronously lets Alice attempt to send to the given route
+// using the SendToRouteV2 endpoint and asserts that the payment either
+// succeeds or fails.
+func (b *blindedForwardTest) sendToRoute(route *lnrpc.Route,
+	assertSuccess bool) {
+
 	hash := sha256.Sum256(b.preimage[:])
-	htlcReceived := make(chan *routerrpc.ForwardHtlcInterceptRequest)
-
-	// Launch a goroutine which will receive from the interceptor and pipe
-	// it into our request channel.
-	go func() {
-		forward, err := b.carolInterceptor.Recv()
-		if err != nil {
-			b.ht.Fatalf("intercept receive failed: %v", err)
-		}
-
-		if !bytes.Equal(forward.PaymentHash, hash[:]) {
-			b.ht.Fatalf("unexpected payment hash: %v", hash)
-		}
-
-		select {
-		case htlcReceived <- forward:
-
-		case <-time.After(lntest.DefaultTimeout):
-			b.ht.Fatal("timeout waiting to send intercepted htlc")
-		}
-	}()
-
-	// Create a closure that will wait for the intercept request and
-	// resolve the HTLC with the appropriate action.
-	resolve := func(action routerrpc.ResolveHoldForwardAction) {
-		select {
-		case forward := <-htlcReceived:
-			resp := &routerrpc.ForwardHtlcInterceptResponse{
-				IncomingCircuitKey: forward.IncomingCircuitKey,
-			}
-
-			switch action {
-			case routerrpc.ResolveHoldForwardAction_FAIL:
-				resp.Action = routerrpc.ResolveHoldForwardAction_FAIL
-
-			case routerrpc.ResolveHoldForwardAction_SETTLE:
-				resp.Action = routerrpc.ResolveHoldForwardAction_SETTLE
-				resp.Preimage = b.preimage[:]
-
-			case routerrpc.ResolveHoldForwardAction_RESUME:
-				resp.Action = routerrpc.ResolveHoldForwardAction_RESUME
-			}
-
-			require.NoError(b.ht, b.carolInterceptor.Send(resp))
-
-		case <-time.After(lntest.DefaultTimeout):
-			b.ht.Fatal("timeout waiting for htlc intercept")
-		}
+	sendReq := &routerrpc.SendToRouteRequest{
+		PaymentHash: hash[:],
+		Route:       route,
 	}
 
-	return resolve
+	// Let Alice send to the blinded payment path and assert that it
+	// succeeds/fails.
+	htlcAttempt := b.ht.Alice.RPC.SendToRouteV2(sendReq)
+	if assertSuccess {
+		require.Nil(b.ht, htlcAttempt.Failure)
+		require.Equal(b.ht, htlcAttempt.Status,
+			lnrpc.HTLCAttempt_SUCCEEDED)
+
+		return
+	}
+
+	require.NotNil(b.ht, htlcAttempt.Failure)
+	require.Equal(b.ht, htlcAttempt.Status, lnrpc.HTLCAttempt_FAILED)
+
+	// Wait for the HTLC to reflect as failed for Alice.
+	preimage, err := lntypes.MakePreimage(b.preimage[:])
+	require.NoError(b.ht, err)
+
+	pmt := b.ht.AssertPaymentStatus(
+		b.ht.Alice, preimage, lnrpc.Payment_FAILED,
+	)
+	require.Len(b.ht, pmt.Htlcs, 1)
+
+	// Assert that the failure appears to originate from the introduction
+	// node hop.
+	require.EqualValues(b.ht, 1, pmt.Htlcs[0].Failure.FailureSourceIndex)
+	require.Equal(
+		b.ht, lnrpc.Failure_INVALID_ONION_BLINDING,
+		pmt.Htlcs[0].Failure.Code,
+	)
 }
 
 // drainCarolLiquidity will drain all of the liquidity in Carol's channel in
@@ -632,234 +600,55 @@ func setupFourHopNetwork(ht *lntest.HarnessTest,
 	}
 }
 
-// createBlindedRoute creates a blinded route to the recipient node provided.
-// The set of hops is expected to start at the introduction node and end at
-// the recipient.
-func (b *blindedForwardTest) createBlindedRoute(hops []*forwardingEdge,
-	dest *btcec.PublicKey, finalCLTV uint16) *routing.BlindedPayment {
-
-	// Create a path with space for each of our hops + the destination
-	// node. We include our passed final cltv delta here because blinded
-	// paths include the delta in the blinded portion (not the invoice).
-	blindedPayment := &routing.BlindedPayment{
-		CltvExpiryDelta: finalCLTV,
-	}
-
-	pathLength := len(hops) + 1
-	blindedPath := make([]*sphinx.HopInfo, pathLength)
-
-	// Run forwards through our hops to create blinded route data for each
-	// node with the next node's short channel id and our payment
-	// constraints.
-	for i := 0; i < len(hops); i++ {
-		node := hops[i]
-		scid := node.channelID
-
-		// Set the relay information for this edge based on its policy.
-		delta := uint16(node.edge.TimeLockDelta)
-		relayInfo := &record.PaymentRelayInfo{
-			BaseFee: lnwire.MilliSatoshi(
-				node.edge.FeeBaseMsat,
-			),
-			FeeRate:         uint32(node.edge.FeeRateMilliMsat),
-			CltvExpiryDelta: delta,
-		}
-
-		// We set our constraints with our edge's actual htlc min, and
-		// an arbitrary maximum expiry (since it's just an anti-probing
-		// mechanism).
-		constraints := &record.PaymentConstraints{
-			HtlcMinimumMsat: lnwire.MilliSatoshi(node.edge.MinHtlc),
-			MaxCltvExpiry:   100000,
-		}
-
-		// Add CLTV delta of each hop to the blinded payment.
-		blindedPayment.CltvExpiryDelta += delta
-
-		// Encode the route's blinded data and include it in the
-		// blinded hop.
-		payload := record.NewNonFinalBlindedRouteData(
-			scid, nil, *relayInfo, constraints, nil,
-		)
-		payloadBytes, err := record.EncodeBlindedRouteData(payload)
-		require.NoError(b.ht, err)
-
-		blindedPath[i] = &sphinx.HopInfo{
-			NodePub:   node.pubkey,
-			PlainText: payloadBytes,
-		}
-	}
-
-	// Next, we'll run backwards through our route to build up the aggregate
-	// fees for the blinded payment as a whole. This is done in a separate
-	// loop for the sake of readability.
-	//
-	// For blinded path aggregated fees, we start at the receiving node
-	// and add up base an proportional fees *including* the fees that we'll
-	// charge on accumulated fees. We use the int ceiling to round up so
-	// that the sender will always over-pay, ensuring that we don't round
-	// down along the route leaving one forwarding node short of what
-	// they're expecting.
-	var (
-		hopCount                = len(hops) - 1
-		currentHopBaseFee       = hops[hopCount].edge.FeeBaseMsat
-		currentHopPropFee       = hops[hopCount].edge.FeeRateMilliMsat
-		feeParts          int64 = 1e6
-	)
-
-	// Note: the spec says to iterate backwards, but then uses n / n +1 to
-	// express the "next" hop in the route going backwards. This works for
-	// languages where we can iterate backwards and get an increasing
-	// index, but since we're counting backwards we use n-1 instead.
-	//
-	// Specification reference:
-	//nolint:lll
-	// https://github.com/lightning/bolts/blob/60de4a09727c20dea330f9ee8313034de6e50594/proposals/route-blinding.md?plain=1#L253-L254
-	for i := hopCount; i > 0; i-- {
-		preceedingBase := hops[i-1].edge.FeeBaseMsat
-		preceedingProp := hops[i-1].edge.FeeBaseMsat
-
-		// Separate numerator from ceiling division to break up large
-		// lines.
-		baseFeeNumerator := preceedingBase*feeParts +
-			currentHopBaseFee*(feeParts+preceedingProp)
-		currentHopBaseFee = (baseFeeNumerator + feeParts - 1) / feeParts
-
-		propFeeNumerator := (currentHopPropFee+preceedingProp)*
-			feeParts + currentHopPropFee*preceedingProp
-		currentHopPropFee = (propFeeNumerator + feeParts - 1) / feeParts
-	}
-
-	blindedPayment.BaseFee = uint32(currentHopBaseFee)
-	blindedPayment.ProportionalFeeRate = uint32(currentHopPropFee)
-
-	// Add our destination node at the end of the path. We don't need to
-	// add any forwarding parameters because we're at the final hop.
-	payloadBytes, err := record.EncodeBlindedRouteData(
-		// TODO: we don't have support for the final hop fields,
-		// because only forwarding is supported. We add a next
-		// node ID here so that it _looks like_ a valid
-		// forwarding hop (though in reality it's the last
-		// hop).
-		record.NewNonFinalBlindedRouteData(
-			lnwire.NewShortChanIDFromInt(100), nil,
-			record.PaymentRelayInfo{}, nil, nil,
-		),
-	)
-	require.NoError(b.ht, err, "final payload")
-
-	blindedPath[pathLength-1] = &sphinx.HopInfo{
-		NodePub:   dest,
-		PlainText: payloadBytes,
-	}
-
-	// Blind the path.
-	blindingKey, err := btcec.NewPrivateKey()
-	require.NoError(b.ht, err)
-
-	blindedPayment.BlindedPath, err = sphinx.BuildBlindedPath(
-		blindingKey, blindedPath,
-	)
-	require.NoError(b.ht, err, "build blinded path")
-
-	return blindedPayment
-}
-
-// forwardingEdge contains the channel id/source public key for a forwarding
-// edge and the policy associated with the channel in that direction.
-type forwardingEdge struct {
-	pubkey    *btcec.PublicKey
-	channelID lnwire.ShortChannelID
-	edge      *lnrpc.RoutingPolicy
-}
-
-func getForwardingEdge(ht *lntest.HarnessTest,
-	node *node.HarnessNode, chanID uint64) *forwardingEdge {
-
-	chanInfo := node.RPC.GetChanInfo(&lnrpc.ChanInfoRequest{
-		ChanId: chanID,
-	})
-
-	pubkey, err := btcec.ParsePubKey(node.PubKey[:])
-	require.NoError(ht, err, "%v pubkey", node.Cfg.Name)
-
-	fwdEdge := &forwardingEdge{
-		pubkey:    pubkey,
-		channelID: lnwire.NewShortChanIDFromInt(chanID),
-	}
-
-	if chanInfo.Node1Pub == node.PubKeyStr {
-		fwdEdge.edge = chanInfo.Node1Policy
-	} else {
-		require.Equal(ht, node.PubKeyStr, chanInfo.Node2Pub,
-			"policy edge sanity check")
-
-		fwdEdge.edge = chanInfo.Node2Policy
-	}
-
-	return fwdEdge
-}
-
-// testForwardBlindedRoute tests lnd's ability to forward payments in a blinded
-// route.
-func testForwardBlindedRoute(ht *lntest.HarnessTest) {
+// testForwardAndReceiveBlindedRoute tests lnd's ability to create a blinded
+// payment path, forward payments in a blinded route and receive the payment.
+func testForwardAndReceiveBlindedRoute(ht *lntest.HarnessTest) {
 	ctx, testCase := newBlindedForwardTest(ht)
 	defer testCase.cleanup()
 
-	route := testCase.setup(ctx)
-	blindedRoute := testCase.createRouteToBlinded(10_000_000, route)
+	// Set up the 4 hop network and let Dave create an invoice with a
+	// blinded path that uses Bob as an introduction node.
+	testCase.setupNetwork(ctx, false)
+	blindedPaymentPath := testCase.buildBlindedPath()
 
-	// Receiving via blinded routes is not yet supported, so Dave won't be
-	// able to process the payment.
-	//
-	// We have an interceptor at our disposal that will catch htlcs as they
-	// are forwarded (ie, it won't intercept a HTLC that dave is receiving,
-	// since no forwarding occurs). We initiate this interceptor with
-	// Carol, so that we can catch it and settle on the outgoing link to
-	// Dave. Once we hit the outgoing link, we know that we successfully
-	// parsed the htlc, so this is an acceptable compromise.
-	// Assert that our interceptor has exited without an error.
-	resolveHTLC := testCase.interceptFinalHop()
+	// Construct a full route from Alice to Dave using the blinded payment
+	// path.
+	route := testCase.createRouteToBlinded(10_000_000, blindedPaymentPath)
 
-	// Once our interceptor is set up, we can send the blinded payment.
-	cancelPmt := testCase.sendBlindedPayment(ctx, blindedRoute)
-	defer cancelPmt()
-
-	// Wait for the HTLC to be active on Alice's channel.
-	hash := sha256.Sum256(testCase.preimage[:])
-	ht.AssertOutgoingHTLCActive(ht.Alice, testCase.channels[0], hash[:])
-	ht.AssertOutgoingHTLCActive(ht.Bob, testCase.channels[1], hash[:])
-
-	// Intercept and settle the HTLC.
-	resolveHTLC(routerrpc.ResolveHoldForwardAction_SETTLE)
-
-	// Wait for the HTLC to reflect as settled for Alice.
-	preimage, err := lntypes.MakePreimage(testCase.preimage[:])
-	require.NoError(ht, err)
-	ht.AssertPaymentStatus(ht.Alice, preimage, lnrpc.Payment_SUCCEEDED)
-
-	// Assert that the HTLC has settled before test cleanup runs so that
-	// we can cooperatively close all channels.
-	ht.AssertHTLCNotActive(ht.Bob, testCase.channels[1], hash[:])
-	ht.AssertHTLCNotActive(ht.Alice, testCase.channels[0], hash[:])
+	// Let Alice send to the constructed route and assert that the payment
+	// succeeds.
+	testCase.sendToRoute(route, true)
 }
 
-// Tests handling of errors from the receiving node in a blinded route, testing
-// a payment over: Alice -- Bob -- Carol -- Dave, where Bob is the introduction
-// node.
-//
-// Note that at present the payment fails at Dave because we do not yet support
-// receiving to blinded routes. In future, we can substitute this test out to
-// trigger an IncorrectPaymentDetails failure. In the meantime, this test
-// provides valuable coverage for the case where a node in the route is not
-// spec compliant (ie, does not return the blinded failure and just uses a
-// normal one) because Dave will not appropriately convert the error.
+// testReceiverBlindedError tests handling of errors from the receiving node in
+// a blinded route, testing a payment over: Alice -- Bob -- Carol -- Dave, where
+// Bob is the introduction node.
 func testReceiverBlindedError(ht *lntest.HarnessTest) {
 	ctx, testCase := newBlindedForwardTest(ht)
 	defer testCase.cleanup()
-	route := testCase.setup(ctx)
 
-	sendAndResumeBlindedPayment(ctx, ht, testCase, route, true)
+	testCase.setupNetwork(ctx, false)
+	blindedPaymentPath := testCase.buildBlindedPath()
+	route := testCase.createRouteToBlinded(10_000_000, blindedPaymentPath)
+
+	// Replace the encrypted recipient data payload for Dave (the recipient)
+	// with an invalid payload which Dave will then fail to parse when he
+	// receives the incoming HTLC for this payment.
+	route.Hops[len(route.Hops)-1].EncryptedData = []byte{1, 2, 3}
+
+	// Subscribe to Dave's HTLC events so that we can observe the payment
+	// coming in.
+	daveEvents := testCase.dave.RPC.SubscribeHtlcEvents()
+
+	// Once subscribed, the first event will be UNKNOWN.
+	ht.AssertHtlcEventType(daveEvents, routerrpc.HtlcEvent_UNKNOWN)
+
+	// Let Alice send to the constructed route and assert that the payment
+	// fails.
+	testCase.sendToRoute(route, false)
+
+	// Make sure that the HTLC did in fact reach Dave and fail there.
+	ht.AssertHtlcEvents(daveEvents, 0, 0, 0, 1, routerrpc.HtlcEvent_FORWARD)
 }
 
 // testRelayingBlindedError tests handling of errors from relaying nodes in a
@@ -869,61 +658,29 @@ func testReceiverBlindedError(ht *lntest.HarnessTest) {
 func testRelayingBlindedError(ht *lntest.HarnessTest) {
 	ctx, testCase := newBlindedForwardTest(ht)
 	defer testCase.cleanup()
-	route := testCase.setup(ctx)
+
+	testCase.setupNetwork(ctx, false)
+	blindedPaymentPath := testCase.buildBlindedPath()
+	route := testCase.createRouteToBlinded(10_000_000, blindedPaymentPath)
 
 	// Before we send our payment, drain all of Carol's liquidity
 	// so that she can't forward the payment to Dave.
 	testCase.drainCarolLiquidity(false)
 
-	// Then dispatch the payment through Carol which will fail due to
-	// a lack of liquidity. This check only happens _after_ the interceptor
-	// has given the instruction to resume so we can use test
-	// infrastructure that will go ahead and intercept the payment.
-	sendAndResumeBlindedPayment(ctx, ht, testCase, route, true)
-}
+	// Subscribe to Carol's HTLC events so that we can observe the payment
+	// coming in.
+	carolEvents := testCase.carol.RPC.SubscribeHtlcEvents()
 
-// sendAndResumeBlindedPayment sends a blinded payment through the test
-// network provided, intercepting the payment at Carol and allowing it to
-// resume. This utility function allows us to ensure that payments at least
-// reach Carol and asserts that all errors appear to originate from the
-// introduction node.
-func sendAndResumeBlindedPayment(ctx context.Context, ht *lntest.HarnessTest,
-	testCase *blindedForwardTest, route *routing.BlindedPayment,
-	interceptAtCarol bool) {
+	// Once subscribed, the first event will be UNKNOWN.
+	ht.AssertHtlcEventType(carolEvents, routerrpc.HtlcEvent_UNKNOWN)
 
-	blindedRoute := testCase.createRouteToBlinded(10_000_000, route)
+	// Let Alice send to the constructed route and assert that the payment
+	// fails.
+	testCase.sendToRoute(route, false)
 
-	// Before we dispatch the payment, spin up a goroutine that will
-	// intercept the HTLC on Carol's forward. This allows us to ensure
-	// that the HTLC actually reaches the location we expect it to.
-	var resolveHTLC func(routerrpc.ResolveHoldForwardAction)
-	if interceptAtCarol {
-		resolveHTLC = testCase.interceptFinalHop()
-	}
-
-	// First, test sending the payment all the way through to Dave. We
-	// expect this payment to fail, because he does not know how to
-	// process payments to a blinded route (not yet supported).
-	cancelPmt := testCase.sendBlindedPayment(ctx, blindedRoute)
-	defer cancelPmt()
-
-	// When Carol intercepts the HTLC, instruct her to resume the payment
-	// so that it'll reach Dave and fail.
-	if interceptAtCarol {
-		resolveHTLC(routerrpc.ResolveHoldForwardAction_RESUME)
-	}
-
-	// Wait for the HTLC to reflect as failed for Alice.
-	preimage, err := lntypes.MakePreimage(testCase.preimage[:])
-	require.NoError(ht, err)
-	pmt := ht.AssertPaymentStatus(ht.Alice, preimage, lnrpc.Payment_FAILED)
-	require.Len(ht, pmt.Htlcs, 1)
-	require.EqualValues(
-		ht, 1, pmt.Htlcs[0].Failure.FailureSourceIndex,
-	)
-	require.Equal(
-		ht, lnrpc.Failure_INVALID_ONION_BLINDING,
-		pmt.Htlcs[0].Failure.Code,
+	// Make sure that the HTLC did in fact reach Carol and fail there.
+	ht.AssertHtlcEvents(
+		carolEvents, 0, 0, 0, 1, routerrpc.HtlcEvent_FORWARD,
 	)
 }
 
@@ -934,35 +691,52 @@ func sendAndResumeBlindedPayment(ctx context.Context, ht *lntest.HarnessTest,
 func testIntroductionNodeError(ht *lntest.HarnessTest) {
 	ctx, testCase := newBlindedForwardTest(ht)
 	defer testCase.cleanup()
-	route := testCase.setup(ctx)
+	testCase.setupNetwork(ctx, false)
+	blindedPaymentPath := testCase.buildBlindedPath()
+	route := testCase.createRouteToBlinded(10_000_000, blindedPaymentPath)
 
 	// Before we send our payment, drain all of Carol's incoming liquidity
 	// so that she can't receive the forward from Bob, causing a failure
 	// at the introduction node.
 	testCase.drainCarolLiquidity(true)
 
-	// Send the payment, but do not expect it to reach Carol at all.
-	sendAndResumeBlindedPayment(ctx, ht, testCase, route, false)
+	// Subscribe to Bob's HTLC events so that we can observe the payment
+	// coming in.
+	bobEvents := ht.Bob.RPC.SubscribeHtlcEvents()
+
+	// Once subscribed, the first event will be UNKNOWN.
+	ht.AssertHtlcEventType(bobEvents, routerrpc.HtlcEvent_UNKNOWN)
+
+	// Let Alice send to the constructed route and assert that the payment
+	// fails.
+	testCase.sendToRoute(route, false)
+
+	// Make sure that the HTLC did in fact reach Bob and fail there.
+	ht.AssertHtlcEvents(
+		bobEvents, 0, 0, 0, 1, routerrpc.HtlcEvent_FORWARD,
+	)
 }
 
 // testDisableIntroductionNode tests disabling of blinded forwards for the
 // introduction node.
 func testDisableIntroductionNode(ht *lntest.HarnessTest) {
-	// Disable route blinding for Bob, then re-connect to Alice.
+	// First construct a blinded route while Bob is still advertising the
+	// route blinding feature bit to ensure that Bob is included in the
+	// blinded path that Dave selects.
+	ctx, testCase := newBlindedForwardTest(ht)
+	defer testCase.cleanup()
+	testCase.setupNetwork(ctx, false)
+	blindedPaymentPath := testCase.buildBlindedPath()
+	route := testCase.createRouteToBlinded(10_000_000, blindedPaymentPath)
+
+	// Now, disable route blinding for Bob, then re-connect to Alice.
 	ht.RestartNodeWithExtraArgs(ht.Bob, []string{
 		"--protocol.no-route-blinding",
 	})
 	ht.EnsureConnected(ht.Alice, ht.Bob)
 
-	ctx, testCase := newBlindedForwardTest(ht)
-	defer testCase.cleanup()
-	route := testCase.setup(ctx)
-	// We always expect failures to look like they originated at Bob
-	// because blinded errors are converted. However, our tests intercepts
-	// all of Carol's forwards and we're not providing it any interceptor
-	// instructions. This means that the test will hang/timeout at Carol
-	// if Bob _doesn't_ fail the HTLC back as expected.
-	sendAndResumeBlindedPayment(ctx, ht, testCase, route, false)
+	// Assert that this fails.
+	testCase.sendToRoute(route, false)
 }
 
 // testErrorHandlingOnChainFailure tests handling of blinded errors when we're
@@ -971,14 +745,17 @@ func testDisableIntroductionNode(ht *lntest.HarnessTest) {
 // infrastructure in place already for error testing.
 func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	// Setup a test case, note that we don't use its built in clean up
-	// because we're going to close a channel so we'll close out the
+	// because we're going to close a channel, so we'll close out the
 	// rest manually.
 	ctx, testCase := newBlindedForwardTest(ht)
 
-	// Note that we send a larger amount here do it'll be worthwhile for
+	// Note that we send a larger amount here, so it'll be worthwhile for
 	// the sweeper to claim.
-	route := testCase.setup(ctx)
-	blindedRoute := testCase.createRouteToBlinded(50_000_000, route)
+	testCase.setupNetwork(ctx, true)
+	blindedPaymentPath := testCase.buildBlindedPath()
+	blindedRoute := testCase.createRouteToBlinded(
+		50_000_000, blindedPaymentPath,
+	)
 
 	// Once our interceptor is set up, we can send the blinded payment.
 	cancelPmt := testCase.sendBlindedPayment(ctx, blindedRoute)

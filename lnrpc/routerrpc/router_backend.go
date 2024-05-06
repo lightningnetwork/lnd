@@ -999,6 +999,32 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		payIntent.PaymentAddr = payAddr
 		payIntent.PaymentRequest = []byte(rpcPayReq.PaymentRequest)
 		payIntent.Metadata = payReq.Metadata
+
+		if len(payReq.BlindedPaymentPaths) > 0 {
+			// NOTE: Currently we only choose a single payment path.
+			// This will be updated in a future PR to handle
+			// multiple blinded payment paths.
+			path := payReq.BlindedPaymentPaths[0]
+			if len(path.Hops) == 0 {
+				return nil, fmt.Errorf("a blinded payment " +
+					"must have at least 1 hop")
+			}
+
+			finalHop := path.Hops[len(path.Hops)-1]
+
+			payIntent.BlindedPayment = MarshalBlindedPayment(path)
+
+			// Replace the target node with the blinded public key
+			// of the blinded path's final node.
+			copy(
+				payIntent.Target[:],
+				finalHop.BlindedNodePub.SerializeCompressed(),
+			)
+
+			if !path.Features.IsEmpty() {
+				payIntent.DestFeatures = path.Features.Clone()
+			}
+		}
 	} else {
 		// Otherwise, If the payment request field was not specified
 		// (and a custom route wasn't specified), construct the payment
@@ -1135,6 +1161,26 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	}
 
 	return payIntent, nil
+}
+
+// MarshalBlindedPayment marshals a zpay32.BLindedPaymentPath into a
+// routing.BlindedPayment.
+func MarshalBlindedPayment(
+	path *zpay32.BlindedPaymentPath) *routing.BlindedPayment {
+
+	return &routing.BlindedPayment{
+		BlindedPath: &sphinx.BlindedPath{
+			IntroductionPoint: path.Hops[0].BlindedNodePub,
+			BlindingPoint:     path.FirstEphemeralBlindingPoint,
+			BlindedHops:       path.Hops,
+		},
+		BaseFee:             path.FeeBaseMsat,
+		ProportionalFeeRate: path.FeeRate,
+		CltvExpiryDelta:     path.CltvExpiryDelta,
+		HtlcMinimum:         path.HTLCMinMsat,
+		HtlcMaximum:         path.HTLCMaxMsat,
+		Features:            path.Features,
+	}
 }
 
 // unmarshallRouteHints unmarshalls a list of route hints.

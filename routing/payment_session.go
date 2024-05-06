@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btclog"
 	"github.com/davecgh/go-spew/spew"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -203,6 +204,18 @@ func newPaymentSession(p *LightningPayment,
 		return nil, err
 	}
 
+	if p.BlindedPayment != nil {
+		if len(edges) != 0 {
+			return nil, fmt.Errorf("cannot have both route hints " +
+				"and blinded path")
+		}
+
+		edges, err = p.BlindedPayment.toRouteHints()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	logPrefix := fmt.Sprintf("PaymentSession(%x):", p.Identifier())
 
 	return &paymentSession{
@@ -380,6 +393,11 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 			return nil, err
 		}
 
+		var blindedPath *sphinx.BlindedPath
+		if p.payment.BlindedPayment != nil {
+			blindedPath = p.payment.BlindedPayment.BlindedPath
+		}
+
 		// With the next candidate path found, we'll attempt to turn
 		// this into a route by applying the time-lock and fee
 		// requirements.
@@ -392,7 +410,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 				records:     p.payment.DestCustomRecords,
 				paymentAddr: p.payment.PaymentAddr,
 				metadata:    p.payment.Metadata,
-			}, nil,
+			}, blindedPath,
 		)
 		if err != nil {
 			return nil, err

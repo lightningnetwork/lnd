@@ -886,6 +886,7 @@ func payInvoice(ctx *cli.Context) error {
 		PaymentRequest:    stripPrefix(payReq),
 		Amt:               ctx.Int64("amt"),
 		DestCustomRecords: make(map[uint64][]byte),
+		Amp:               ctx.Bool(ampFlag.Name),
 	}
 
 	return sendPaymentRequest(ctx, req)

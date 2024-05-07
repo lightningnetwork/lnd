@@ -563,8 +563,8 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testQueryBlindedRoutes,
 	},
 	{
-		Name:     "forward and receive blinded",
-		TestFunc: testForwardAndReceiveBlindedRoute,
+		Name:     "route blinding invoices",
+		TestFunc: testBlindedRouteInvoices,
 	},
 	{
 		Name:     "receiver blinded error",

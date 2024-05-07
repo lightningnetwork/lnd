@@ -6691,6 +6691,14 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 
 	channelUpdates := make([]*lnrpc.ChannelEdgeUpdate, len(topChange.ChannelEdgeUpdates))
 	for i, channelUpdate := range topChange.ChannelEdgeUpdates {
+
+		customRecords := marshalExtraOpaqueData(
+			channelUpdate.ExtraOpaqueData,
+		)
+		inboundFee := extractInboundFeeSafe(
+			channelUpdate.ExtraOpaqueData,
+		)
+
 		channelUpdates[i] = &lnrpc.ChannelEdgeUpdate{
 			ChanId: channelUpdate.ChanID,
 			ChanPoint: &lnrpc.ChannelPoint{
@@ -6701,12 +6709,25 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 			},
 			Capacity: int64(channelUpdate.Capacity),
 			RoutingPolicy: &lnrpc.RoutingPolicy{
-				TimeLockDelta:    uint32(channelUpdate.TimeLockDelta),
-				MinHtlc:          int64(channelUpdate.MinHTLC),
-				MaxHtlcMsat:      uint64(channelUpdate.MaxHTLC),
-				FeeBaseMsat:      int64(channelUpdate.BaseFee),
-				FeeRateMilliMsat: int64(channelUpdate.FeeRate),
-				Disabled:         channelUpdate.Disabled,
+				TimeLockDelta: uint32(
+					channelUpdate.TimeLockDelta,
+				),
+				MinHtlc: int64(
+					channelUpdate.MinHTLC,
+				),
+				MaxHtlcMsat: uint64(
+					channelUpdate.MaxHTLC,
+				),
+				FeeBaseMsat: int64(
+					channelUpdate.BaseFee,
+				),
+				FeeRateMilliMsat: int64(
+					channelUpdate.FeeRate,
+				),
+				Disabled:                channelUpdate.Disabled,
+				InboundFeeBaseMsat:      inboundFee.BaseFee,
+				InboundFeeRateMilliMsat: inboundFee.FeeRate,
+				CustomRecords:           customRecords,
 			},
 			AdvertisingNode: encodeKey(channelUpdate.AdvertisingNode),
 			ConnectingNode:  encodeKey(channelUpdate.ConnectingNode),

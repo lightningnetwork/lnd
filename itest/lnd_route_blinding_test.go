@@ -600,24 +600,54 @@ func setupFourHopNetwork(ht *lntest.HarnessTest,
 	}
 }
 
-// testForwardAndReceiveBlindedRoute tests lnd's ability to create a blinded
-// payment path, forward payments in a blinded route and receive the payment.
-func testForwardAndReceiveBlindedRoute(ht *lntest.HarnessTest) {
+// testBlindedRouteInvoices tests lnd's ability to create a blinded payment path
+// which it then inserts into an invoice, sending to an invoice with a blinded
+// path and forward payments in a blinded route and finally, receiving the
+// payment.
+func testBlindedRouteInvoices(ht *lntest.HarnessTest) {
 	ctx, testCase := newBlindedForwardTest(ht)
 	defer testCase.cleanup()
 
 	// Set up the 4 hop network and let Dave create an invoice with a
 	// blinded path that uses Bob as an introduction node.
 	testCase.setupNetwork(ctx, false)
-	blindedPaymentPath := testCase.buildBlindedPath()
 
-	// Construct a full route from Alice to Dave using the blinded payment
-	// path.
-	route := testCase.createRouteToBlinded(10_000_000, blindedPaymentPath)
+	// Let Dave add a blinded invoice.
+	invoice := testCase.dave.RPC.AddInvoice(&lnrpc.Invoice{
+		Memo:      "test",
+		ValueMsat: 10_000_000,
+		Blind:     true,
+	})
 
-	// Let Alice send to the constructed route and assert that the payment
-	// succeeds.
-	testCase.sendToRoute(route, true)
+	// Now let Alice pay the invoice.
+	ht.CompletePaymentRequests(ht.Alice, []string{invoice.PaymentRequest})
+
+	// Restart Dave with blinded path restrictions that will result in him
+	// creating a blinded path that uses himself as the introduction node.
+	ht.RestartNodeWithExtraArgs(testCase.dave, []string{
+		"--invoices.blinding.min-num-real-hops=0",
+		"--invoices.blinding.num-hops=0",
+	})
+	ht.EnsureConnected(testCase.dave, testCase.carol)
+
+	// Let Dave add a blinded invoice.
+	// Once again let Dave create a blinded invoice.
+	invoice = testCase.dave.RPC.AddInvoice(&lnrpc.Invoice{
+		Memo:      "test",
+		ValueMsat: 10_000_000,
+		Blind:     true,
+	})
+
+	// Assert that it contains a single blinded path with only an
+	// introduction node hop where the introduction node is Dave.
+	payReq := testCase.dave.RPC.DecodePayReq(invoice.PaymentRequest)
+	require.Len(ht, payReq.BlindedPaths, 1)
+	path := payReq.BlindedPaths[0].BlindedPath
+	require.Len(ht, path.BlindedHops, 1)
+	require.EqualValues(ht, path.IntroductionNode, testCase.dave.PubKey[:])
+
+	// Now let Alice pay the invoice.
+	ht.CompletePaymentRequests(ht.Alice, []string{invoice.PaymentRequest})
 }
 
 // testReceiverBlindedError tests handling of errors from the receiving node in

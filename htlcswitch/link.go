@@ -202,15 +202,15 @@ type ChannelLinkConfig struct {
 	// receiving node is persistent.
 	UnsafeReplay bool
 
-	// MinFeeUpdateTimeout represents the minimum interval in which a link
+	// MinUpdateTimeout represents the minimum interval in which a link
 	// will propose to update its commitment fee rate. A random timeout will
-	// be selected between this and MaxFeeUpdateTimeout.
-	MinFeeUpdateTimeout time.Duration
+	// be selected between this and MaxUpdateTimeout.
+	MinUpdateTimeout time.Duration
 
-	// MaxFeeUpdateTimeout represents the maximum interval in which a link
+	// MaxUpdateTimeout represents the maximum interval in which a link
 	// will propose to update its commitment fee rate. A random timeout will
-	// be selected between this and MinFeeUpdateTimeout.
-	MaxFeeUpdateTimeout time.Duration
+	// be selected between this and MinUpdateTimeout.
+	MaxUpdateTimeout time.Duration
 
 	// OutgoingCltvRejectDelta defines the number of blocks before expiry of
 	// an htlc where we don't offer an htlc anymore. This should be at least
@@ -1558,8 +1558,8 @@ func getResolutionFailure(resolution *invoices.HtlcFailResolution,
 // within the link's configuration that will be used to determine when the link
 // should propose an update to its commitment fee rate.
 func (l *channelLink) randomFeeUpdateTimeout() time.Duration {
-	lower := int64(l.cfg.MinFeeUpdateTimeout)
-	upper := int64(l.cfg.MaxFeeUpdateTimeout)
+	lower := int64(l.cfg.MinUpdateTimeout)
+	upper := int64(l.cfg.MaxUpdateTimeout)
 	return time.Duration(prand.Int63n(upper-lower) + lower)
 }
 

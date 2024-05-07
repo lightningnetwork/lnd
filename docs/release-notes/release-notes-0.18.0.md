@@ -209,6 +209,17 @@
   its bitcoin peers' `feefilter` values into
   account](https://github.com/lightningnetwork/lnd/pull/8418).
 
+* Web fee estimator settings have been moved into a new `fee` config group.
+  A new `fee.url` option has been added within this group that replaces the old
+  `feeurl` option, which is now deprecated. Additionally, [two new config values,
+  fee.min-update-timeout and fee.max-update-timeout](https://github.com/lightningnetwork/lnd/pull/8484)
+  are added to allow users to specify the minimum and maximum time between fee
+  updates from the web fee estimator. The default values are 5 minutes and 20
+  minutes respectively. These values are used to prevent the fee estimator from
+  being queried too frequently. This replaces previously hardcoded values that
+  were set to the same values as the new defaults. The previously deprecated
+  `neutrino.feeurl` option has been removed.
+
 * [Preparatory work](https://github.com/lightningnetwork/lnd/pull/8159) for 
   forwarding of blinded routes was added, along with [support](https://github.com/lightningnetwork/lnd/pull/8160)
   for forwarding blinded payments and [error handling](https://github.com/lightningnetwork/lnd/pull/8485).
@@ -433,6 +444,9 @@
   logged](https://github.com/lightningnetwork/lnd/pull/8693) when no values are
   specified.
 
+* Removed deprecated `neutrino.feeurl` option. Please use the newer `fee.url`
+  option instead.
+
 ## Performance Improvements
 
 * Watchtower client DB migration to massively [improve the start-up 
@@ -569,6 +583,7 @@
 * testwill
 * Thabokani
 * threewebcode
+* Tom Kirkpatrick
 * Turtle
 * twofaktor
 * vuittont60

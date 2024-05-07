@@ -149,14 +149,14 @@ var (
 	DefaultRouterMacFilename = "router.macaroon"
 )
 
-// ServerShell a is shell struct holding a reference to the actual sub-server.
+// ServerShell is a shell struct holding a reference to the actual sub-server.
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
 type ServerShell struct {
 	RouterServer
 }
 
-// Server is a stand alone sub RPC server which exposes functionality that
+// Server is a stand-alone sub RPC server which exposes functionality that
 // allows clients to route arbitrary payment through the Lightning Network.
 type Server struct {
 	started                  int32 // To be used atomically.
@@ -181,7 +181,7 @@ var _ RouterServer = (*Server)(nil)
 // that contains all external dependencies. If the target macaroon exists, and
 // we're unable to create it, then an error will be returned. We also return
 // the set of permissions that we require as a server. At the time of writing
-// of this documentation, this is the same macaroon as as the admin macaroon.
+// of this documentation, this is the same macaroon as the admin macaroon.
 func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	// If the path of the router macaroon wasn't generated, then we'll
 	// assume that it's found at the default network directory.
@@ -986,9 +986,8 @@ func (s *Server) SetMissionControlConfig(ctx context.Context,
 				AprioriHopProbability: float64(
 					req.Config.HopProbability,
 				),
-				AprioriWeight: float64(req.Config.Weight),
-				CapacityFraction: float64(
-					routing.DefaultCapacityFraction),
+				AprioriWeight:    float64(req.Config.Weight),
+				CapacityFraction: routing.DefaultCapacityFraction, //nolint:lll
 			}
 		}
 
@@ -1032,8 +1031,8 @@ func (s *Server) SetMissionControlConfig(ctx context.Context,
 
 // QueryMissionControl exposes the internal mission control state to callers. It
 // is a development feature.
-func (s *Server) QueryMissionControl(ctx context.Context,
-	req *QueryMissionControlRequest) (*QueryMissionControlResponse, error) {
+func (s *Server) QueryMissionControl(_ context.Context,
+	_ *QueryMissionControlRequest) (*QueryMissionControlResponse, error) {
 
 	snapshot := s.cfg.RouterBackend.MissionControl.GetHistorySnapshot()
 
@@ -1080,7 +1079,7 @@ func toRPCPairData(data *routing.TimedPairResult) *PairData {
 
 // XImportMissionControl imports the state provided to our internal mission
 // control. Only entries that are fresher than our existing state will be used.
-func (s *Server) XImportMissionControl(ctx context.Context,
+func (s *Server) XImportMissionControl(_ context.Context,
 	req *XImportMissionControlRequest) (*XImportMissionControlResponse,
 	error) {
 
@@ -1273,8 +1272,9 @@ func (s *Server) subscribePayment(identifier lntypes.Hash) (
 	sub, err := router.Tower.SubscribePayment(identifier)
 
 	switch {
-	case err == channeldb.ErrPaymentNotInitiated:
+	case errors.Is(err, channeldb.ErrPaymentNotInitiated):
 		return nil, status.Error(codes.NotFound, err.Error())
+
 	case err != nil:
 		return nil, err
 	}
@@ -1385,7 +1385,7 @@ func (s *Server) trackPaymentStream(context context.Context,
 }
 
 // BuildRoute builds a route from a list of hop addresses.
-func (s *Server) BuildRoute(ctx context.Context,
+func (s *Server) BuildRoute(_ context.Context,
 	req *BuildRouteRequest) (*BuildRouteResponse, error) {
 
 	// Unmarshall hop list.
@@ -1446,7 +1446,7 @@ func (s *Server) BuildRoute(ctx context.Context,
 
 // SubscribeHtlcEvents creates a uni-directional stream from the server to
 // the client which delivers a stream of htlc events.
-func (s *Server) SubscribeHtlcEvents(req *SubscribeHtlcEventsRequest,
+func (s *Server) SubscribeHtlcEvents(_ *SubscribeHtlcEventsRequest,
 	stream Router_SubscribeHtlcEventsServer) error {
 
 	htlcClient, err := s.cfg.RouterBackend.SubscribeHtlcEvents()
@@ -1495,7 +1495,7 @@ func (s *Server) SubscribeHtlcEvents(req *SubscribeHtlcEventsRequest,
 
 // HtlcInterceptor is a bidirectional stream for streaming interception
 // requests to the caller.
-// Upon connection it does the following:
+// Upon connection, it does the following:
 // 1. Check if there is already a live stream, if yes it rejects the request.
 // 2. Registered a ForwardInterceptor
 // 3. Delivers to the caller every √√ and detect his answer.
@@ -1525,7 +1525,7 @@ func extractOutPoint(req *UpdateChanStatusRequest) (*wire.OutPoint, error) {
 }
 
 // UpdateChanStatus allows channel state to be set manually.
-func (s *Server) UpdateChanStatus(ctx context.Context,
+func (s *Server) UpdateChanStatus(_ context.Context,
 	req *UpdateChanStatusRequest) (*UpdateChanStatusResponse, error) {
 
 	outPoint, err := extractOutPoint(req)

@@ -368,7 +368,7 @@ func (p *paymentLifecycle) requestRoute(
 	log.Warnf("Failed to find route for payment %v: %v", p.identifier, err)
 
 	// If the error belongs to `noRouteError` set, it means a non-critical
-	// error has happened during path finding and we will mark the payment
+	// error has happened during path finding, and we will mark the payment
 	// failed with this reason. Otherwise, we'll return the critical error
 	// found to abort the lifecycle.
 	var routeErr noRouteError
@@ -377,9 +377,9 @@ func (p *paymentLifecycle) requestRoute(
 	}
 
 	// It's the `paymentSession`'s responsibility to find a route for us
-	// with best effort. When it cannot find a path, we need to treat it as
-	// a terminal condition and fail the payment no matter it has inflight
-	// HTLCs or not.
+	// with the best effort. When it cannot find a path, we need to treat it
+	// as a terminal condition and fail the payment no matter it has
+	// inflight HTLCs or not.
 	failureCode := routeErr.FailureReason()
 	log.Warnf("Marking payment %v permanently failed with no route: %v",
 		p.identifier, failureCode)
@@ -415,7 +415,7 @@ type attemptResult struct {
 
 // collectResultAsync launches a goroutine that will wait for the result of the
 // given HTLC attempt to be available then handle its result. Once received, it
-// will send a nil error to channel `resultCollected` to indicate there's an
+// will send a nil error to channel `resultCollected` to indicate there's a
 // result.
 func (p *paymentLifecycle) collectResultAsync(attempt *channeldb.HTLCAttempt) {
 	log.Debugf("Collecting result for attempt %v in payment %v",
@@ -484,7 +484,7 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 		return p.failAttempt(attempt.AttemptID, err)
 	}
 
-	// Using the created circuit, initialize the error decrypter so we can
+	// Using the created circuit, initialize the error decrypter, so we can
 	// parse+decode any failures incurred by this payment within the
 	// switch.
 	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
@@ -786,7 +786,7 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 		return p.failAttempt(attemptID, sendErr)
 	}
 
-	if sendErr == htlcswitch.ErrUnreadableFailureMessage {
+	if errors.Is(sendErr, htlcswitch.ErrUnreadableFailureMessage) {
 		log.Warn("Unreadable failure when sending htlc: id=%v, hash=%v",
 			attempt.AttemptID, attempt.Hash)
 
@@ -801,7 +801,8 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 	// down the route. If the error is not related to the propagation of
 	// our payment, we can stop trying because an internal error has
 	// occurred.
-	rtErr, ok := sendErr.(htlcswitch.ClearTextError)
+	var rtErr htlcswitch.ClearTextError
+	ok := errors.As(sendErr, &rtErr)
 	if !ok {
 		return p.failPaymentAndAttempt(
 			attemptID, &internalErrorReason, sendErr,
@@ -815,7 +816,8 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 	// ForwardingError, it did not originate at our node, so we set
 	// failureSourceIdx to the index of the node where the failure occurred.
 	failureSourceIdx := 0
-	source, ok := rtErr.(*htlcswitch.ForwardingError)
+	var source *htlcswitch.ForwardingError
+	ok = errors.As(rtErr, &source)
 	if ok {
 		failureSourceIdx = source.FailureSourceIdx
 	}
@@ -863,7 +865,7 @@ func (p *paymentLifecycle) handleFailureMessage(rt *route.Route,
 
 	// Parse pubkey to allow validation of the channel update. This should
 	// always succeed, otherwise there is something wrong in our
-	// implementation. Therefore return an error.
+	// implementation. Therefore, return an error.
 	errVertex := rt.Hops[errorSourceIdx-1].PubKeyBytes
 	errSource, err := btcec.ParsePubKey(errVertex[:])
 	if err != nil {
@@ -951,17 +953,18 @@ func marshallError(sendError error, time time.Time) *channeldb.HTLCFailInfo {
 		FailTime: time,
 	}
 
-	switch sendError {
-	case htlcswitch.ErrPaymentIDNotFound:
+	switch {
+	case errors.Is(sendError, htlcswitch.ErrPaymentIDNotFound):
 		response.Reason = channeldb.HTLCFailInternal
 		return response
 
-	case htlcswitch.ErrUnreadableFailureMessage:
+	case errors.Is(sendError, htlcswitch.ErrUnreadableFailureMessage):
 		response.Reason = channeldb.HTLCFailUnreadable
 		return response
 	}
 
-	rtErr, ok := sendError.(htlcswitch.ClearTextError)
+	var rtErr htlcswitch.ClearTextError
+	ok := errors.As(sendError, &rtErr)
 	if !ok {
 		response.Reason = channeldb.HTLCFailInternal
 		return response
@@ -981,7 +984,8 @@ func marshallError(sendError error, time time.Time) *channeldb.HTLCFailInfo {
 	// failure occurred. If the error is not a ForwardingError, the failure
 	// occurred at our node, so we leave the index as 0 to indicate that
 	// we failed locally.
-	fErr, ok := rtErr.(*htlcswitch.ForwardingError)
+	var fErr *htlcswitch.ForwardingError
+	ok = errors.As(rtErr, &fErr)
 	if ok {
 		response.FailureSourceIndex = uint32(fErr.FailureSourceIdx)
 	}

@@ -130,7 +130,7 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 	if err != nil {
 		return err
 	}
-	c.CustomRecords = *customRecords
+	c.CustomRecords = customRecords
 
 	// Set extra data to nil if we didn't parse anything out of it so that
 	// we can use assert.Equal in tests.

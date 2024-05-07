@@ -2484,11 +2484,13 @@ func (s *Switch) getLinkByMapping(pkt *htlcPacket) (ChannelLink, error) {
 	chanID := pkt.outgoingChanID
 	aliasID := s.cfg.IsAlias(chanID)
 
+	_, haveAliasMapping := s.aliasToReal[chanID]
+
 	// Set the originalOutgoingChanID so the proper channel_update can be
 	// sent back if the option-scid-alias feature bit was negotiated.
 	pkt.originalOutgoingChanID = chanID
 
-	if aliasID {
+	if aliasID || haveAliasMapping {
 		// Since outgoingChanID is an alias, we'll fetch the link via
 		// baseIndex.
 		baseScid, ok := s.baseIndex[chanID]

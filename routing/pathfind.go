@@ -610,22 +610,15 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	if source == self {
 
-		firstHopTLVs := tlv.MapToRecords(r.FirstHopCustomRecords)
-		wireRecords := fn.Map(func(r tlv.Record) tlv.RecordProducer {
-			return &r
-		}, firstHopTLVs)
-
-		firstHopData := lnwire.ExtraOpaqueData{}
-
-		err := firstHopData.PackRecords(wireRecords...)
+		customRecords := lnwire.CustomRecords(r.FirstHopCustomRecords)
+		firstHopData, err := customRecords.Serialize()
 		if err != nil {
 			return nil, 0, err
 		}
 
-		tlvOption := fn.Some[tlv.Blob](firstHopData)
 		max, total, err := getOutgoingBalance(
 			self, outgoingChanMap, g.bandwidthHints, g.graph,
-			tlvOption,
+			fn.Some[tlv.Blob](firstHopData),
 		)
 		if err != nil {
 			return nil, 0, err

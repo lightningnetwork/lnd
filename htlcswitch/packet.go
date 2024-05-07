@@ -98,10 +98,6 @@ type htlcPacket struct {
 	// were included in the payload.
 	customRecords record.CustomSet
 
-	// wireRecords are user-defined records in the custom type range that
-	// were included in the peer's wire message.
-	wireRecords record.CustomSet
-
 	// originalOutgoingChanID is used when sending back failure messages.
 	// It is only used for forwarded Adds on option_scid_alias channels.
 	// This is to avoid possible confusion if a payer uses the public SCID

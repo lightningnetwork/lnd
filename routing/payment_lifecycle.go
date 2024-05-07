@@ -17,7 +17,6 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/routing/shards"
-	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // ErrPaymentLifecycleExiting is used when waiting for htlc attempt result, but
@@ -680,28 +679,32 @@ func (p *paymentLifecycle) sendAttempt(
 	}
 
 	// If we had any first hop TLVs, then we'll encode that here now.
-	firstHopTLVs := tlv.MapToRecords(p.firstHopTLVs)
-	wireRecords := fn.Map(func(r tlv.Record) tlv.RecordProducer {
-		return &r
-	}, firstHopTLVs)
-	if err := htlcAdd.ExtraData.PackRecords(wireRecords...); err != nil {
-		return nil, err
+	htlcAdd.CustomRecords = lnwire.CustomRecords(p.firstHopTLVs)
+	encodedRecords, err := htlcAdd.CustomRecords.Serialize()
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode first hop TLVs: %w",
+			err)
 	}
 
 	// If a hook exists that may affect our outgoing message, we call it now
 	// and apply its side effects to the UpdateAddHTLC message.
-	err := fn.MapOptionZ(
+	err = fn.MapOptionZ(
 		p.router.cfg.TrafficShaper,
 		func(ts TlvTrafficShaper) error {
 			newAmt, newData, err := ts.ProduceHtlcExtraData(
-				rt.TotalAmount, htlcAdd.ExtraData,
+				rt.TotalAmount, encodedRecords,
 			)
 			if err != nil {
 				return err
 			}
 
-			htlcAdd.ExtraData = newData
-			htlcAdd.Amount = lnwire.MilliSatoshi(newAmt * 1000)
+			customRecords, err := lnwire.ParseCustomRecords(newData)
+			if err != nil {
+				return err
+			}
+
+			htlcAdd.CustomRecords = customRecords
+			htlcAdd.Amount = lnwire.NewMSatFromSatoshis(newAmt)
 
 			return nil
 		},

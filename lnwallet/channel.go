@@ -335,7 +335,7 @@ type PaymentDescriptor struct {
 	// NOTE: Populated only on add payment descriptor entry types.
 	OnionBlob []byte
 
-	// CustomRecrods also stores the set of optional custom records that
+	// CustomRecords also stores the set of optional custom records that
 	// may have been attached to a sent HTLC.
 	CustomRecords fn.Option[tlv.Blob]
 
@@ -383,10 +383,6 @@ type PaymentDescriptor struct {
 	// blinded route (ie, not the introduction node) from update_add_htlc's
 	// TLVs.
 	BlindingPoint lnwire.BlindingPointRecord
-
-	// WireRecords contains the TLV records blob that was included in
-	// the original wire message that added this HTLC.
-	WireRecords lnwire.CustomRecords
 }
 
 // AddHeight returns a pointer to the height at which the HTLC was added to the
@@ -453,6 +449,17 @@ func PayDescsFromRemoteLogUpdates(chanID lnwire.ShortChannelID, height uint64,
 			}
 			pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
 			copy(pd.OnionBlob[:], wireMsg.OnionBlob[:])
+
+			if len(wireMsg.CustomRecords) > 0 {
+				b, err := wireMsg.CustomRecords.Serialize()
+				if err != nil {
+					return nil, fmt.Errorf("error "+
+						"serializing custom records: "+
+						"%w", err)
+				}
+
+				pd.CustomRecords = fn.Some[tlv.Blob](b)
+			}
 
 		case *lnwire.UpdateFulfillHTLC:
 			pd = PaymentDescriptor{
@@ -745,7 +752,9 @@ func (c *commitment) populateHtlcIndexes(chanType channeldb.ChannelType,
 
 // toDiskCommit converts the target commitment into a format suitable to be
 // written to disk after an accepted state transition.
-func (c *commitment) toDiskCommit(ourCommit bool) *channeldb.ChannelCommitment {
+func (c *commitment) toDiskCommit(ourCommit bool) (*channeldb.ChannelCommitment,
+	error) {
+
 	numHtlcs := len(c.outgoingHTLCs) + len(c.incomingHTLCs)
 
 	commit := &channeldb.ChannelCommitment{
@@ -782,11 +791,23 @@ func (c *commitment) toDiskCommit(ourCommit bool) *channeldb.ChannelCommitment {
 		}
 		copy(h.OnionBlob[:], htlc.OnionBlob)
 
-		// If the HTLC had custom records, then we'll copy that over so
+		// If the HTLC had custom records, then we'll copy that over, so
 		// we restore with the same information.
-		htlc.CustomRecords.WhenSome(func(b tlv.Blob) {
-			copy(h.ExtraData[:], b[:])
-		})
+		err := fn.MapOptionZ(
+			htlc.CustomRecords, func(b tlv.Blob) error {
+				r, err := lnwire.ParseCustomRecords(b)
+				if err != nil {
+					return err
+				}
+
+				h.CustomRecords = r
+
+				return nil
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
 
 		if ourCommit && htlc.sig != nil {
 			h.Signature = htlc.sig.Serialize()
@@ -813,11 +834,23 @@ func (c *commitment) toDiskCommit(ourCommit bool) *channeldb.ChannelCommitment {
 		}
 		copy(h.OnionBlob[:], htlc.OnionBlob)
 
-		// If the HTLC had custom records, then we'll copy that over so
+		// If the HTLC had custom records, then we'll copy that over, so
 		// we restore with the same information.
-		htlc.CustomRecords.WhenSome(func(b tlv.Blob) {
-			copy(h.ExtraData[:], b[:])
-		})
+		err := fn.MapOptionZ(
+			htlc.CustomRecords, func(b tlv.Blob) error {
+				r, err := lnwire.ParseCustomRecords(b)
+				if err != nil {
+					return err
+				}
+
+				h.CustomRecords = r
+
+				return nil
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
 
 		if ourCommit && htlc.sig != nil {
 			h.Signature = htlc.sig.Serialize()
@@ -826,7 +859,7 @@ func (c *commitment) toDiskCommit(ourCommit bool) *channeldb.ChannelCommitment {
 		commit.Htlcs = append(commit.Htlcs, h)
 	}
 
-	return commit
+	return commit, nil
 }
 
 // diskHtlcToPayDesc converts an HTLC previously written to disk within a
@@ -920,8 +953,12 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 
 	// Ensure that we'll restore any custom records which were stored as
 	// extra data on disk.
-	if len(htlc.ExtraData) != 0 {
-		pd.CustomRecords = fn.Some[tlv.Blob](htlc.ExtraData)
+	if len(htlc.CustomRecords) != 0 {
+		b, err := htlc.CustomRecords.Serialize()
+		if err != nil {
+			return pd, err
+		}
+		pd.CustomRecords = fn.Some[tlv.Blob](b)
 	}
 
 	return pd, nil
@@ -1678,6 +1715,16 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 		pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
 		copy(pd.OnionBlob[:], wireMsg.OnionBlob[:])
 
+		if len(wireMsg.CustomRecords) > 0 {
+			b, err := wireMsg.CustomRecords.Serialize()
+			if err != nil {
+				return nil, fmt.Errorf("error serializing "+
+					"custom records: %w", err)
+			}
+
+			pd.CustomRecords = fn.Some[tlv.Blob](b)
+		}
+
 		isDustRemote := HtlcIsDust(
 			lc.channelState.ChanType, false, false, feeRate,
 			wireMsg.Amount.ToSatoshis(), remoteDustLimit,
@@ -1882,6 +1929,16 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 		}
 		pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
 		copy(pd.OnionBlob, wireMsg.OnionBlob[:])
+
+		if len(wireMsg.CustomRecords) > 0 {
+			b, err := wireMsg.CustomRecords.Serialize()
+			if err != nil {
+				return nil, fmt.Errorf("error serializing "+
+					"custom records: %w", err)
+			}
+
+			pd.CustomRecords = fn.Some[tlv.Blob](b)
+		}
 
 		// We don't need to generate an htlc script yet. This will be
 		// done once we sign our remote commitment.
@@ -3620,9 +3677,14 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	var err error
 	cancelChan := make(chan struct{})
 
+	diskCommit, err := remoteCommitView.toDiskCommit(true)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("unable to convert "+
+			"commitment: %w", err)
+	}
+
 	auxLeaves, err := AuxLeavesFromCommit(
-		chanState, *remoteCommitView.toDiskCommit(false), leafStore,
-		*keyRing,
+		chanState, *diskCommit, leafStore, *keyRing,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("unable to fetch aux leaves: "+
@@ -3866,6 +3928,26 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 				BlindingPoint: pd.BlindingPoint,
 			}
 			copy(htlc.OnionBlob[:], pd.OnionBlob)
+
+			// Copy over any custom records as extra data that we
+			// may not explicitly know about.
+			err := fn.MapOptionZ(
+				pd.CustomRecords, func(b tlv.Blob) error {
+					r, err := lnwire.ParseCustomRecords(b)
+					if err != nil {
+						return err
+					}
+
+					htlc.CustomRecords = r
+
+					return nil
+				},
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error mapping custom "+
+					"records: %w", err)
+			}
+
 			logUpdate.UpdateMsg = htlc
 
 			// Gather any references for circuits opened by this Add
@@ -3874,14 +3956,6 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 				openCircuitKeys = append(openCircuitKeys,
 					*pd.OpenCircuitKey)
 			}
-
-			// Copy over any custom records as extra data that we
-			// may not explicitly know about.
-			pd.CustomRecords.WhenSome(func(b tlv.Blob) {
-				// TODO(roasbeef): needs to merge w/ existing
-				// TLVs
-				copy(htlc.ExtraData[:], b[:])
-			})
 
 			logUpdates = append(logUpdates, logUpdate)
 
@@ -3941,7 +4015,11 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 	// With the set of log updates mapped into wire messages, we'll now
 	// convert the in-memory commit into a format suitable for writing to
 	// disk.
-	diskCommit := newCommit.toDiskCommit(false)
+	diskCommit, err := newCommit.toDiskCommit(false)
+	if err != nil {
+		return nil, fmt.Errorf("error converting commitment to disk "+
+			"commit: %w", err)
+	}
 
 	auxSigBlob, err := packSigs(auxSigs, lc.auxSigner)
 	if err != nil {
@@ -3968,7 +4046,9 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 
 // getUnsignedAckedUpdates returns all remote log updates that we haven't
 // signed for yet ourselves.
-func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
+func (lc *LightningChannel) getUnsignedAckedUpdates() ([]channeldb.LogUpdate,
+	error) {
+
 	// First, we need to convert the funding outpoint into the ID that's
 	// used on the wire to identify this channel.
 	chanID := lnwire.NewChanIDFromOutPoint(lc.channelState.FundingOutpoint)
@@ -4018,6 +4098,26 @@ func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
 				BlindingPoint: pd.BlindingPoint,
 			}
 			copy(htlc.OnionBlob[:], pd.OnionBlob)
+
+			// Copy over any custom records as extra data that we
+			// may not explicitly know about.
+			err := fn.MapOptionZ(
+				pd.CustomRecords, func(b tlv.Blob) error {
+					r, err := lnwire.ParseCustomRecords(b)
+					if err != nil {
+						return err
+					}
+
+					htlc.CustomRecords = r
+
+					return nil
+				},
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error mapping custom "+
+					"records: %w", err)
+			}
+
 			logUpdate.UpdateMsg = htlc
 
 		case Settle:
@@ -4054,7 +4154,7 @@ func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
 
 		logUpdates = append(logUpdates, logUpdate)
 	}
-	return logUpdates
+	return logUpdates, nil
 }
 
 // CalcFeeBuffer calculates a FeeBuffer in accordance with the recommended
@@ -5157,8 +5257,14 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 	verifyJobs := make([]VerifyJob, 0, numHtlcs)
 	auxVerifyJobs := make([]AuxVerifyJob, 0, numHtlcs)
 
+	diskCommit, err := localCommitmentView.toDiskCommit(true)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to convert commitment: %w",
+			err)
+	}
+
 	auxLeaves, err := AuxLeavesFromCommit(
-		chanState, *localCommitmentView.toDiskCommit(true), leafStore,
+		chanState, *diskCommit, leafStore,
 		*keyRing,
 	)
 	if err != nil {
@@ -5938,12 +6044,18 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 	// Additionally, generate a channel delta for this state transition for
 	// persistent storage.
 	chainTail := lc.localCommitChain.tail()
-	newCommitment := chainTail.toDiskCommit(true)
+	newCommitment, err := chainTail.toDiskCommit(true)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	// Get the unsigned acked remotes updates that are currently in memory.
 	// We need them after a restart to sync our remote commitment with what
 	// is committed locally.
-	unsignedAckedUpdates := lc.getUnsignedAckedUpdates()
+	unsignedAckedUpdates, err := lc.getUnsignedAckedUpdates()
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	finalHtlcs, err := lc.channelState.UpdateCommitment(
 		newCommitment, unsignedAckedUpdates,
@@ -6132,6 +6244,26 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 				BlindingPoint: pd.BlindingPoint,
 			}
 			copy(htlc.OnionBlob[:], pd.OnionBlob)
+
+			// Copy over any custom records as extra data that we
+			// may not explicitly know about.
+			err := fn.MapOptionZ(
+				pd.CustomRecords, func(b tlv.Blob) error {
+					r, err := lnwire.ParseCustomRecords(b)
+					if err != nil {
+						return err
+					}
+
+					htlc.CustomRecords = r
+
+					return nil
+				},
+			)
+			if err != nil {
+				return nil, nil, nil, nil, fmt.Errorf("error "+
+					"mapping custom records: %w", err)
+			}
+
 			logUpdate.UpdateMsg = htlc
 			addUpdates = append(addUpdates, logUpdate)
 
@@ -6333,7 +6465,11 @@ func (lc *LightningChannel) addHTLC(htlc *lnwire.UpdateAddHTLC,
 	lc.Lock()
 	defer lc.Unlock()
 
-	pd := lc.htlcAddDescriptor(htlc, openKey)
+	pd, err := lc.htlcAddDescriptor(htlc, openKey)
+	if err != nil {
+		return 0, err
+	}
+
 	if err := lc.validateAddHtlc(pd, buffer); err != nil {
 		return 0, err
 	}
@@ -6437,12 +6573,16 @@ func (lc *LightningChannel) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 	// to the commitment so that we validate commitment slots rather than
 	// available balance, since our actual htlc amount is unknown at this
 	// stage.
-	pd := lc.htlcAddDescriptor(
+	pd, err := lc.htlcAddDescriptor(
 		&lnwire.UpdateAddHTLC{
 			Amount: mockHtlcAmt,
 		},
 		&models.CircuitKey{},
 	)
+	if err != nil {
+		lc.log.Errorf("Error adding htlc descriptor: %v", err)
+		return err
+	}
 
 	// Enforce the FeeBuffer because we are evaluating whether we can add
 	// another htlc to the channel state.
@@ -6457,7 +6597,7 @@ func (lc *LightningChannel) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 // htlcAddDescriptor returns a payment descriptor for the htlc and open key
 // provided to add to our local update log.
 func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
-	openKey *models.CircuitKey) *PaymentDescriptor {
+	openKey *models.CircuitKey) (*PaymentDescriptor, error) {
 
 	pd := &PaymentDescriptor{
 		EntryType:      Add,
@@ -6473,11 +6613,17 @@ func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
 
 	// Copy over any extra data included to ensure we can forward and
 	// process this HTLC properly.
-	if len(htlc.ExtraData) != 0 {
-		pd.CustomRecords = fn.Some[tlv.Blob](htlc.ExtraData[:])
+	if len(htlc.CustomRecords) > 0 {
+		b, err := htlc.CustomRecords.Serialize()
+		if err != nil {
+			return nil, fmt.Errorf("error serializing custom "+
+				"records: %w", err)
+		}
+
+		pd.CustomRecords = fn.Some[tlv.Blob](b)
 	}
 
-	return pd
+	return pd, nil
 }
 
 // validateAddHtlc validates the addition of an outgoing htlc to our local and
@@ -6535,13 +6681,16 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 		HtlcIndex:     lc.remoteUpdateLog.htlcCounter,
 		OnionBlob:     htlc.OnionBlob[:],
 		BlindingPoint: htlc.BlindingPoint,
-		WireRecords:   htlc.CustomRecords,
 	}
 
-	// Copy over any extra data included to ensure we can forward and
-	// process this HTLC properly.
-	if htlc.ExtraData != nil {
-		pd.CustomRecords = fn.Some(tlv.Blob(htlc.ExtraData[:]))
+	if len(htlc.CustomRecords) > 0 {
+		b, err := htlc.CustomRecords.Serialize()
+		if err != nil {
+			return 0, fmt.Errorf("error serializing custom "+
+				"records: %w", err)
+		}
+
+		pd.CustomRecords = fn.Some[tlv.Blob](b)
 	}
 
 	localACKedIndex := lc.remoteCommitChain.tail().ourMessageIndex

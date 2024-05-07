@@ -3376,7 +3376,29 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					Amount:        fwdInfo.AmountToForward,
 					PaymentHash:   pd.RHash,
 					BlindingPoint: fwdInfo.NextBlinding,
-					CustomRecords: pd.WireRecords,
+				}
+
+				err = fn.MapOptionZ(
+					pd.CustomRecords,
+					func(b tlv.Blob) error {
+						r, err := lnwire.ParseCustomRecords(
+							b,
+						)
+						if err != nil {
+							return err
+						}
+
+						addMsg.CustomRecords = r
+
+						return nil
+					},
+				)
+				if err != nil {
+					l.fail(LinkFailureError{
+						code: ErrInternalError,
+					}, err.Error())
+
+					return
 				}
 
 				// Finally, we'll encode the onion packet for
@@ -3423,7 +3445,26 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				Amount:        fwdInfo.AmountToForward,
 				PaymentHash:   pd.RHash,
 				BlindingPoint: fwdInfo.NextBlinding,
-				CustomRecords: pd.WireRecords,
+			}
+
+			err = fn.MapOptionZ(
+				pd.CustomRecords, func(b tlv.Blob) error {
+					r, err := lnwire.ParseCustomRecords(b)
+					if err != nil {
+						return err
+					}
+
+					addMsg.CustomRecords = r
+
+					return nil
+				},
+			)
+			if err != nil {
+				l.fail(LinkFailureError{
+					code: ErrInternalError,
+				}, err.Error())
+
+				return
 			}
 
 			// Finally, we'll encode the onion packet for the

@@ -71,7 +71,8 @@ func (e *ExtraOpaqueData) PackRecords(recordProducers ...tlv.RecordProducer) err
 		return err
 	}
 
-	*e = append(extraBytesWriter.Bytes(), *e...)
+	// *e = append(extraBytesWriter.Bytes(), *e...)
+	*e = ExtraOpaqueData(extraBytesWriter.Bytes())
 
 	return nil
 }

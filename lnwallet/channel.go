@@ -8449,3 +8449,10 @@ func (lc *LightningChannel) MultiSigKeys() (keychain.KeyDescriptor,
 	return lc.channelState.LocalChanCfg.MultiSigKey,
 		lc.channelState.RemoteChanCfg.MultiSigKey
 }
+
+func (lc *LightningChannel) ExecDynCommProposal(
+	initiator lntypes.ChannelParty,
+	proposal lnwire.DynPropose,
+) error {
+	panic("NOT IMPLEMENTED: LightningChannel.ExecDyncommProposal")
+}

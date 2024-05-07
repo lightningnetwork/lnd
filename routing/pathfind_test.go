@@ -3322,16 +3322,19 @@ func TestBlindedRouteConstruction(t *testing.T) {
 			ToNodeFeatures: tlvFeatures,
 		}
 
-		// Create final hop parameters for payment amount = 110. Note
-		// that final cltv delta is not set because blinded paths
-		// include this final delta in their aggregate delta. A
-		// sender-set delta may be added to account for block arrival
-		// during payment, but we do not set it in this test.
+		// Create final hop parameters for payment amount = 110.
 		totalAmt       lnwire.MilliSatoshi = 110
 		finalHopParams                     = finalHopParams{
 			amt:      totalAmt,
 			totalAmt: totalAmt,
 			metadata: metadata,
+
+			// We set a CLTV delta here just to test that this will
+			// be ignored by newRoute since this is a blinded path
+			// where the accumulated CLTV delta for the route
+			// communicated in the blinded path should be assumed to
+			// include the CLTV delta of the final hop.
+			cltvDelta: MaxCLTVDelta,
 		}
 	)
 

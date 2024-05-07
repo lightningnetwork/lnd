@@ -156,6 +156,10 @@ type Invoice struct {
 	// This field is un-exported and can only be read by the
 	// MinFinalCLTVExpiry() method. By forcing callers to read via this
 	// method, we can easily enforce the default if not specified.
+	//
+	// NOTE: this field is ignored in the case that the invoice contains
+	// blinded paths since then the final minimum cltv expiry delta is
+	// expected to be included in the route's accumulated CLTV delta value.
 	minFinalCLTVExpiry *uint64
 
 	// Description is a short description of the purpose of this invoice.

@@ -96,9 +96,17 @@ type edgePolicyWithSource struct {
 // such as amounts and cltvs, as well as more complex features like destination
 // custom records and payment address.
 type finalHopParams struct {
-	amt         lnwire.MilliSatoshi
-	totalAmt    lnwire.MilliSatoshi
-	cltvDelta   uint16
+	amt      lnwire.MilliSatoshi
+	totalAmt lnwire.MilliSatoshi
+
+	// cltvDelta is the final hop's minimum CLTV expiry delta.
+	//
+	// NOTE that in the case of paying to a blinded path, this value will
+	// be set to a duplicate of the blinded path's accumulated CLTV value.
+	// We would then only need to use this value in the case where the
+	// introduction node of the path is also the destination node.
+	cltvDelta uint16
+
 	records     record.CustomSet
 	paymentAddr *[32]byte
 
@@ -190,10 +198,21 @@ func newRoute(sourceVertex route.Vertex,
 			// reporting through RPC. Set to zero for the final hop.
 			fee = 0
 
-			// As this is the last hop, we'll use the specified
-			// final CLTV delta value instead of the value from the
-			// last link in the route.
-			totalTimeLock += uint32(finalHop.cltvDelta)
+			// Only include the final hop CLTV delta in the total
+			// time lock value if this is not a route to a blinded
+			// path. For blinded paths, the total time-lock from the
+			// whole path will be deduced from the introduction
+			// node's CLTV delta. The exception is for the case
+			// where the final hop is the blinded path introduction
+			// node.
+			if blindedPath == nil ||
+				len(blindedPath.BlindedHops) == 1 {
+
+				// As this is the last hop, we'll use the
+				// specified final CLTV delta value instead of
+				// the value from the last link in the route.
+				totalTimeLock += uint32(finalHop.cltvDelta)
+			}
 			outgoingTimeLock = totalTimeLock
 
 			// Attach any custom records to the final hop.

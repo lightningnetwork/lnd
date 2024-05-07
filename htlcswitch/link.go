@@ -384,6 +384,10 @@ type channelLink struct {
 	// respect to the quiescence protocol.
 	quiescer
 
+	// dyncommNegotiator is a state machine that tracks active negotiations
+	// for Dynamic Commitments.
+	dyncommNegotiator
+
 	// activeQuiescenceRequest is a possibly nil channel that we should
 	// send on when we complete quiescence. We close the channel (causing
 	// None to be read) if the process fails. Otherwise the inner boolean
@@ -2516,6 +2520,65 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 
 		// If we can immediately send an Stfu response back , we will.
 		l.drivePendingStfuSends()
+
+	case *lnwire.DynPropose:
+		if !l.quiescer.isQuiescent() {
+			l.stfuFailf("cannot process dyn_propose, channel is "+
+				"not quiescent")
+		}
+
+		res, err := l.dyncommNegotiator.recvDynPropose(*msg)
+		if err != nil {
+			// Failed to process DynPropose...
+			panic("NOT IMPLEMENTED: error handling recvDynPropose")
+		}
+
+
+		res.WhenLeft(func(m lnwire.DynAck) {
+			err := l.channel.ExecDynCommProposal(
+				lntypes.Remote, *msg,
+			)
+			if err != nil {
+				panic("NOT IMPLEMENTED: error handling during dyncomm execution")
+			}
+			l.cfg.Peer.SendMessage(false, &m)
+		})
+
+		res.WhenRight(func(m lnwire.DynReject) {
+			l.cfg.Peer.SendMessage(false, &m)
+		})
+
+	case *lnwire.DynAck:
+		if !l.quiescer.isQuiescent() {
+			l.stfuFailf("cannot process dyn_ack, channel is "+
+				"not quiescent")
+		}
+
+		propose, err := l.dyncommNegotiator.recvDynAck(*msg)
+		if err != nil {
+			// Failed to process DynAck...
+			panic("NOT IMPLEMENTED: error handling recvDynAck")
+		}
+
+		err = l.channel.ExecDynCommProposal(lntypes.Local, propose)
+		if err != nil {
+			panic("NOT IMPLEMENTED: error handling during dyncomm execution")
+		}
+
+		l.dyncommNegotiator.reset()
+
+	case *lnwire.DynReject:
+		if !l.quiescer.isQuiescent() {
+			l.stfuFailf("cannot process dyn_reject, channel is "+
+				"not quiescent")
+		}
+
+		if l.dyncommNegotiator.recvDynReject(*msg) != nil {
+			// Failed to process DynReject...
+			panic("NOT IMPLEMENTED: error handling recvDynAck")
+		}
+
+		l.dyncommNegotiator.reset()
 
 	// In the case where we receive a warning message from our peer, just
 	// log it and move on. We choose not to disconnect from our peer,

@@ -67,12 +67,12 @@ var (
 
 	// ErrValueMismatch is returned if we try to register a non-MPP attempt
 	// with an amount that doesn't match the payment amount.
-	ErrValueMismatch = errors.New("attempted value doesn't match payment" +
+	ErrValueMismatch = errors.New("attempted value doesn't match payment " +
 		"amount")
 
 	// ErrValueExceedsAmt is returned if we try to register an attempt that
 	// would take the total sent amount above the payment amount.
-	ErrValueExceedsAmt = errors.New("attempted value exceeds payment" +
+	ErrValueExceedsAmt = errors.New("attempted value exceeds payment " +
 		"amount")
 
 	// ErrNonMPPayment is returned if we try to register an MPP attempt for
@@ -82,6 +82,17 @@ var (
 	// ErrMPPayment is returned if we try to register a non-MPP attempt for
 	// a payment that already has an MPP attempt registered.
 	ErrMPPayment = errors.New("payment has MPP attempts")
+
+	// ErrMPPRecordInBlindedPayment is returned if we try to register an
+	// attempt with an MPP record for a payment to a blinded path.
+	ErrMPPRecordInBlindedPayment = errors.New("blinded payment cannot " +
+		"contain MPP records")
+
+	// ErrBlindedPaymentTotalAmountMismatch is returned if we try to
+	// register an HTLC shard to a blinded route where the total amount
+	// doesn't match existing shards.
+	ErrBlindedPaymentTotalAmountMismatch = errors.New("blinded path " +
+		"total amount mismatch")
 
 	// ErrMPPPaymentAddrMismatch is returned if we try to register an MPP
 	// shard where the payment address doesn't match existing shards.
@@ -96,7 +107,7 @@ var (
 	// attempt to a payment that has at least one of its HTLCs settled.
 	ErrPaymentPendingSettled = errors.New("payment has settled htlcs")
 
-	// ErrPaymentAlreadyFailed is returned when we try to add a new attempt
+	// ErrPaymentPendingFailed is returned when we try to add a new attempt
 	// to a payment that already has a failure reason.
 	ErrPaymentPendingFailed = errors.New("payment has failure reason")
 
@@ -334,11 +345,47 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 			return err
 		}
 
+		// If the final hop has encrypted data, then we know this is a
+		// blinded payment. In blinded payments, MPP records are not set
+		// for split payments and the recipient is responsible for using
+		// a consistent PathID across the various encrypted data
+		// payloads that we received from them for this payment. All we
+		// need to check is that the total amount field for each HTLC
+		// in the split payment is correct.
+		isBlinded := len(attempt.Route.FinalHop().EncryptedData) != 0
+
 		// Make sure any existing shards match the new one with regards
 		// to MPP options.
 		mpp := attempt.Route.FinalHop().MPP
+
+		// MPP records should not be set for attempts to blinded paths.
+		if isBlinded && mpp != nil {
+			return ErrMPPRecordInBlindedPayment
+		}
+
 		for _, h := range payment.InFlightHTLCs() {
 			hMpp := h.Route.FinalHop().MPP
+
+			// If this is a blinded payment, then no existing HTLCs
+			// should have MPP records.
+			if isBlinded && hMpp != nil {
+				return ErrMPPRecordInBlindedPayment
+			}
+
+			// If this is a blinded payment, then we just need to
+			// check that the TotalAmtMsat field for this shard
+			// is equal to that of any other shard in the same
+			// payment.
+			if isBlinded {
+				if attempt.Route.FinalHop().TotalAmtMsat !=
+					h.Route.FinalHop().TotalAmtMsat {
+
+					//nolint:lll
+					return ErrBlindedPaymentTotalAmountMismatch
+				}
+
+				continue
+			}
 
 			switch {
 			// We tried to register a non-MPP attempt for a MPP
@@ -367,9 +414,10 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 		}
 
 		// If this is a non-MPP attempt, it must match the total amount
-		// exactly.
+		// exactly. Note that a blinded payment is considered an MPP
+		// attempt.
 		amt := attempt.Route.ReceiverAmt()
-		if mpp == nil && amt != payment.Info.Value {
+		if !isBlinded && mpp == nil && amt != payment.Info.Value {
 			return ErrValueMismatch
 		}
 

@@ -234,7 +234,9 @@ func TestInvoices(t *testing.T) {
 	makeSQLDB := func(t *testing.T, sqlite bool) invpkg.InvoiceDB {
 		var db *sqldb.BaseDB
 		if sqlite {
+			sqliteConstructorMu.Lock()
 			db = sqldb.NewTestSqliteDB(t).BaseDB
+			sqliteConstructorMu.Unlock()
 		} else {
 			db = sqldb.NewTestPostgresDB(t, pgFixture).BaseDB
 		}

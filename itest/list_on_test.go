@@ -587,6 +587,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testErrorHandlingOnChainFailure,
 	},
 	{
+		Name:     "mpp to single blinded path",
+		TestFunc: testMPPToSingleBlindedPath,
+	},
+	{
 		Name:     "removetx",
 		TestFunc: testRemoveTx,
 	},

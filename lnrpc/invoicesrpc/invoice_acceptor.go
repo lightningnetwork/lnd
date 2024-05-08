@@ -4,6 +4,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/tlv"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -77,12 +78,19 @@ func (r *invoiceAcceptor) onIntercept(
 		return err
 	}
 
+	// Unpack the message custom records from the option.
+	var msgCustomRecords tlv.Blob
+	req.MsgCustomRecords.WhenSome(func(cr tlv.Blob) {
+		msgCustomRecords = cr
+	})
+
 	return r.cfg.rpcServer.Send(&InvoiceAcceptorRequest{
-		Invoice:            rpcInvoice,
-		ExitHtlcCircuitKey: rpcCircuitKey,
-		ExitHtlcAmt:        uint64(req.ExitHtlcAmt),
-		ExitHtlcExpiry:     req.ExitHtlcExpiry,
-		CurrentHeight:      req.CurrentHeight,
+		Invoice:                  rpcInvoice,
+		ExitHtlcCircuitKey:       rpcCircuitKey,
+		ExitHtlcAmt:              uint64(req.ExitHtlcAmt),
+		ExitHtlcExpiry:           req.ExitHtlcExpiry,
+		CurrentHeight:            req.CurrentHeight,
+		ExitHtlcMsgCustomRecords: msgCustomRecords,
 	})
 }
 

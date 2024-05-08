@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
@@ -892,8 +893,8 @@ func (i *InvoiceRegistry) processAMP(ctx invoiceUpdateCtx) error {
 // held htlc.
 func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	amtPaid lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	circuitKey CircuitKey, hodlChan chan<- interface{},
-	payload Payload) (HtlcResolution, error) {
+	circuitKey CircuitKey, msgCustomRecords fn.Option[tlv.Blob],
+	hodlChan chan<- interface{}, payload Payload) (HtlcResolution, error) {
 
 	// Create the update context containing the relevant details of the
 	// incoming htlc.
@@ -904,6 +905,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		expiry:               expiry,
 		currentHeight:        currentHeight,
 		finalCltvRejectDelta: i.cfg.FinalCltvRejectDelta,
+		msgCustomRecords:     msgCustomRecords,
 		customRecords:        payload.CustomRecords(),
 		mpp:                  payload.MultiPath(),
 		amp:                  payload.AMPRecord(),
@@ -1004,12 +1006,16 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	)
 
 	callback := func(inv *Invoice) (*InvoiceUpdateDesc, error) {
+		//setID := ctx.setID()
+		//htlcSet := inv.HTLCSet(setID, HtlcStateAccepted)
+
 		// Provide the invoice to the settlement interceptor to allow
 		// the interceptor's client an opportunity to manipulate the
 		// settlement process.
 		var interceptSession fn.Option[InterceptSession]
 		if i.cfg.SettlementInterceptor != nil {
 			clientReq := InterceptClientRequest{
+				MsgCustomRecords:   ctx.msgCustomRecords,
 				ExitHtlcCircuitKey: ctx.circuitKey,
 				ExitHtlcAmt:        ctx.amtPaid,
 				ExitHtlcExpiry:     ctx.expiry,

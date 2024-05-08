@@ -5,9 +5,11 @@ import (
 	"errors"
 
 	"github.com/lightningnetwork/lnd/amp"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // invoiceUpdateCtx is an object that describes the context for the invoice
@@ -19,10 +21,18 @@ type invoiceUpdateCtx struct {
 	expiry               uint32
 	currentHeight        int32
 	finalCltvRejectDelta int32
-	customRecords        record.CustomSet
-	mpp                  *record.MPP
-	amp                  *record.AMP
-	metadata             []byte
+
+	// msgCustomRecords is the custom records that were included with the
+	// HTLC p2p message.
+	msgCustomRecords fn.Option[tlv.Blob]
+
+	// customRecords is a map of custom records that were included with the
+	// HTLC onion payload.
+	customRecords record.CustomSet
+
+	mpp      *record.MPP
+	amp      *record.AMP
+	metadata []byte
 
 	// SkipAmountCheck is a flag that indicates whether the amount check
 	// should be skipped during the invoice settlement process.

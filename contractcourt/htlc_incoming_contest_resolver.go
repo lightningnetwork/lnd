@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // htlcIncomingContestResolver is a ContractResolver that's able to resolve an
@@ -308,7 +309,8 @@ func (h *htlcIncomingContestResolver) Resolve(
 
 		resolution, err := h.Registry.NotifyExitHopHtlc(
 			h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, currentHeight,
-			circuitKey, hodlQueue.ChanIn(), payload,
+			circuitKey, fn.None[tlv.Blob](), hodlQueue.ChanIn(),
+			payload,
 		)
 		if err != nil {
 			return nil, err

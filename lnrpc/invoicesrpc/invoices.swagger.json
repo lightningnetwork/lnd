@@ -358,6 +358,11 @@
           "type": "integer",
           "format": "int64",
           "description": "current_height is the current block height."
+        },
+        "exit_htlc_msg_custom_records": {
+          "type": "string",
+          "format": "byte",
+          "description": "exit_htlc_msg_custom_records is the p2p message custom records of the\nexit HTLC."
         }
       },
       "description": "InvoiceAcceptorRequest is a message that the server sends to the client to\nrequest the client to accept an invoice."

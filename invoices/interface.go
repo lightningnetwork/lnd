@@ -5,9 +5,11 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // InvoiceDB is the database that stores the information about invoices.
@@ -203,6 +205,10 @@ type InvoiceUpdater interface {
 // callback during an interceptor session. The request contains the invoice that
 // is being intercepted and supporting information.
 type InterceptClientRequest struct {
+	// MsgCustomRecords is the custom records that were parsed from the
+	// HTLC p2p message.
+	MsgCustomRecords fn.Option[tlv.Blob]
+
 	// ExitHtlcCircuitKey is the circuit key that identifies the HTLC which
 	// is involved in the invoice settlement.
 	ExitHtlcCircuitKey CircuitKey

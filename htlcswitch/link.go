@@ -3566,13 +3566,20 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		return nil
 	}
 
-	// As we're the exit hop, we'll double check the hop-payload included in
-	// the HTLC to ensure that it was crafted correctly by the sender and
-	// is compatible with the HTLC we were extended.
-	if pd.Amount < fwdInfo.AmountToForward {
+	// As we're the exit hop, we'll double check the hop-payload included
+	// in the HTLC to ensure that it was crafted correctly by the sender
+	// and is compatible with the HTLC we were extended.
+	//
+	// For a special case, if the fwdInfo doesn't have any blinded path
+	// information, and the incoming HTLC had special extra data, then
+	// we'll skip this amount check.
+	hasBlindedPath := fwdInfo.NextBlinding.IsSome()
+	customHTLC := pd.CustomRecords.IsSome() && !hasBlindedPath
+	log.Infof("custom_htlc_bypass=%v", customHTLC)
+	if !customHTLC && pd.Amount < fwdInfo.AmountToForward {
 		l.log.Errorf("onion payload of incoming htlc(%x) has "+
 			"incompatible value: expected <=%v, got %v", pd.RHash,
-			pd.Amount, fwdInfo.AmountToForward)
+			fwdInfo.AmountToForward, pd.Amount)
 
 		failure := NewLinkError(
 			lnwire.NewFinalIncorrectHtlcAmount(pd.Amount),

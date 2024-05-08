@@ -21,12 +21,20 @@ type invoiceUpdateCtx struct {
 	expiry               uint32
 	currentHeight        int32
 	finalCltvRejectDelta int32
-	customRecords        record.CustomSet
-	mpp                  *record.MPP
-	amp                  *record.AMP
-	metadata             []byte
-	pathID               *chainhash.Hash
-	totalAmtMsat         lnwire.MilliSatoshi
+
+	// wireCustomRecords are the custom records that were included with the
+	// HTLC wire message.
+	wireCustomRecords lnwire.CustomRecords
+
+	// customRecords is a map of custom records that were included with the
+	// HTLC onion payload.
+	customRecords record.CustomSet
+
+	mpp          *record.MPP
+	amp          *record.AMP
+	metadata     []byte
+	pathID       *chainhash.Hash
+	totalAmtMsat lnwire.MilliSatoshi
 }
 
 // invoiceRef returns an identifier that can be used to lookup or update the
@@ -95,12 +103,14 @@ func (i invoiceUpdateCtx) settleRes(preimage lntypes.Preimage,
 // acceptRes is a helper function which creates an accept resolution with
 // the information contained in the invoiceUpdateCtx and the accept resolution
 // result provided.
-func (i invoiceUpdateCtx) acceptRes(outcome acceptResolutionResult) *htlcAcceptResolution {
+func (i invoiceUpdateCtx) acceptRes(
+	outcome acceptResolutionResult) *htlcAcceptResolution {
+
 	return newAcceptResolution(i.circuitKey, outcome)
 }
 
 // updateInvoice is a callback for DB.UpdateInvoice that contains the invoice
-// settlement logic. It returns a hltc resolution that indicates what the
+// settlement logic. It returns a HTLC resolution that indicates what the
 // outcome of the update was.
 func updateInvoice(ctx *invoiceUpdateCtx, inv *Invoice) (
 	*InvoiceUpdateDesc, HtlcResolution, error) {
@@ -119,7 +129,7 @@ func updateInvoice(ctx *invoiceUpdateCtx, inv *Invoice) (
 			pre := inv.Terms.PaymentPreimage
 
 			// Terms.PaymentPreimage will be nil for AMP invoices.
-			// Set it to the HTLC's AMP Preimage instead.
+			// Set it to the HTLCs AMP Preimage instead.
 			if pre == nil {
 				pre = htlc.AMP.Preimage
 			}
@@ -180,13 +190,19 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 		paymentAddr = ctx.pathID[:]
 	}
 
+	// For storage, we don't really care where the custom records came from.
+	// So we merge them together and store them in the same field.
+	customRecords := lnwire.CustomRecords(
+		ctx.customRecords,
+	).MergedCopy(ctx.wireCustomRecords)
+
 	// Start building the accept descriptor.
 	acceptDesc := &HtlcAcceptDesc{
 		Amt:           ctx.amtPaid,
 		Expiry:        ctx.expiry,
 		AcceptHeight:  ctx.currentHeight,
 		MppTotalAmt:   totalAmt,
-		CustomRecords: ctx.customRecords,
+		CustomRecords: record.CustomSet(customRecords),
 	}
 
 	if ctx.amp != nil {
@@ -223,7 +239,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 
 	htlcSet := inv.HTLCSet(setID, HtlcStateAccepted)
 
-	// Check whether total amt matches other htlcs in the set.
+	// Check whether total amt matches other HTLCs in the set.
 	var newSetTotal lnwire.MilliSatoshi
 	for _, htlc := range htlcSet {
 		if totalAmt != htlc.MppTotalAmt {
@@ -265,7 +281,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 		return &update, ctx.acceptRes(resultPartialAccepted), nil
 	}
 
-	// Check to see if we can settle or this is an hold invoice and
+	// Check to see if we can settle or this is a hold invoice, and
 	// we need to wait for the preimage.
 	if inv.HodlInvoice {
 		update.State = &InvoiceStateUpdateDesc{
@@ -434,13 +450,19 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 		return nil, ctx.failRes(ResultExpiryTooSoon), nil
 	}
 
+	// For storage, we don't really care where the custom records came from.
+	// So we merge them together and store them in the same field.
+	customRecords := lnwire.CustomRecords(
+		ctx.customRecords,
+	).MergedCopy(ctx.wireCustomRecords)
+
 	// Record HTLC in the invoice database.
 	newHtlcs := map[CircuitKey]*HtlcAcceptDesc{
 		ctx.circuitKey: {
 			Amt:           ctx.amtPaid,
 			Expiry:        ctx.expiry,
 			AcceptHeight:  ctx.currentHeight,
-			CustomRecords: ctx.customRecords,
+			CustomRecords: record.CustomSet(customRecords),
 		},
 	}
 

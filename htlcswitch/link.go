@@ -3584,7 +3584,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
 		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
-		circuitKey, l.hodlQueue.ChanIn(), payload,
+		circuitKey, l.hodlQueue.ChanIn(), pd.CustomRecords, payload,
 	)
 	if err != nil {
 		return err

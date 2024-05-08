@@ -1046,11 +1046,12 @@ func (i *mockInvoiceRegistry) SettleHodlInvoice(
 func (i *mockInvoiceRegistry) NotifyExitHopHtlc(rhash lntypes.Hash,
 	amt lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
 	circuitKey models.CircuitKey, hodlChan chan<- interface{},
+	wireCustomRecords lnwire.CustomRecords,
 	payload invoices.Payload) (invoices.HtlcResolution, error) {
 
 	event, err := i.registry.NotifyExitHopHtlc(
-		rhash, amt, expiry, currentHeight, circuitKey, hodlChan,
-		payload,
+		rhash, amt, expiry, currentHeight, circuitKey,
+		hodlChan, wireCustomRecords, payload,
 	)
 	if err != nil {
 		return nil, err

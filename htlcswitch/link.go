@@ -3845,7 +3845,7 @@ func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
 		invoiceHash, add.Amount, add.Expiry, int32(heightNow),
-		circuitKey, l.hodlQueue.ChanIn(), payload,
+		circuitKey, l.hodlQueue.ChanIn(), add.CustomRecords, payload,
 	)
 	if err != nil {
 		return err

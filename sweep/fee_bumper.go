@@ -701,7 +701,6 @@ func (t *TxPublisher) Stop() error {
 	log.Debug("TxPublisher stopped")
 
 	return nil
-
 }
 
 // monitor is the main loop driven by new blocks. Whevenr a new block arrives,

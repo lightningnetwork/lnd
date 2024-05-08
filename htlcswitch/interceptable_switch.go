@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -33,6 +34,9 @@ var (
 // Settle - routes UpdateFulfillHTLC to the originating link.
 // Fail - routes UpdateFailHTLC to the originating link.
 type InterceptableSwitch struct {
+	started uint32 // To be used atomically.
+	stopped uint32 // To be used atomically.
+
 	// htlcSwitch is the underline switch
 	htlcSwitch *Switch
 
@@ -201,6 +205,10 @@ func (s *InterceptableSwitch) SetInterceptor(
 }
 
 func (s *InterceptableSwitch) Start() error {
+	if !atomic.CompareAndSwapUint32(&s.started, 0, 1) {
+		return nil
+	}
+
 	blockEpochStream, err := s.notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return err
@@ -221,6 +229,10 @@ func (s *InterceptableSwitch) Start() error {
 }
 
 func (s *InterceptableSwitch) Stop() error {
+	if !atomic.CompareAndSwapUint32(&s.stopped, 0, 1) {
+		return nil
+	}
+
 	close(s.quit)
 	s.wg.Wait()
 

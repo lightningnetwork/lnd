@@ -284,7 +284,9 @@
 
 * [Man pages](https://github.com/lightningnetwork/lnd/pull/8525) Generate man
   pages automatically using `lncli generatemanpage` command for both `lncli`
-  and `lnd` commands when running `make install` in the Makefile.
+  and `lnd` commands when running 
+  [`make install-all`](https://github.com/lightningnetwork/lnd/pull/8739) in 
+  the Makefile.
 
 # Improvements
 ## Functional Updates

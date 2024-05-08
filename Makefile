@@ -136,8 +136,13 @@ manpages:
 	@$(call print, "Generating man pages lncli.1 and lnd.1.")
 	./scripts/gen_man_pages.sh $(DESTDIR) $(PREFIX)
 
-#? install: Build and install lnd and lncli binaries, place them in $GOPATH/bin, generate and install man pages
-install: install-binaries manpages
+#? install: Build and install lnd and lncli binaries and place them in $GOPATH/bin.
+install: install-binaries
+
+#? install-all: Performs all the same tasks as the install command along with generating and
+# installing the man pages for the lnd and lncli binaries. This command is useful in an
+# environment where a user has root access and so has write access to the man page directory.
+install-all: install manpages
 
 #? release-install: Build and install lnd and lncli release binaries, place them in $GOPATH/bin
 release-install:

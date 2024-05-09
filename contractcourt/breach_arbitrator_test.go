@@ -635,7 +635,7 @@ func TestMockRetributionStore(t *testing.T) {
 }
 
 func makeTestChannelDB(t *testing.T) (*channeldb.DB, error) {
-	db, err := channeldb.Open(t.TempDir())
+	db, err := channeldb.OpenTestDB(t.TempDir())
 	if err != nil {
 		return nil, err
 	}
@@ -667,7 +667,9 @@ func TestChannelDBRetributionStore(t *testing.T) {
 							"restart: %v",
 							err)
 					}
-					db, err = channeldb.Open(db.Path())
+					db, err = channeldb.OpenTestDB(
+						db.Path(),
+					)
 					if err != nil {
 						t.Fatalf("unable to open "+
 							"channeldb: %v", err)
@@ -2259,7 +2261,7 @@ func createInitChannels(t *testing.T, revocationWindow int) (
 		return nil, nil, err
 	}
 
-	dbAlice, err := channeldb.Open(t.TempDir())
+	dbAlice, err := channeldb.OpenTestDB(t.TempDir())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2267,7 +2269,7 @@ func createInitChannels(t *testing.T, revocationWindow int) (
 		require.NoError(t, dbAlice.Close())
 	})
 
-	dbBob, err := channeldb.Open(t.TempDir())
+	dbBob, err := channeldb.OpenTestDB(t.TempDir())
 	if err != nil {
 		return nil, nil, err
 	}

@@ -239,7 +239,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		return nil, nil, err
 	}
 
-	dbAlice, err := channeldb.Open(t.TempDir())
+	dbAlice, err := channeldb.OpenTestDB(t.TempDir())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -247,7 +247,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		require.NoError(t, dbAlice.Close())
 	})
 
-	dbBob, err := channeldb.Open(t.TempDir())
+	dbBob, err := channeldb.OpenTestDB(t.TempDir())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -386,7 +386,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		switch err {
 		case nil:
 		case kvdb.ErrDatabaseNotOpen:
-			dbAlice, err = channeldb.Open(dbAlice.Path())
+			dbAlice, err = channeldb.OpenTestDB(dbAlice.Path())
 			if err != nil {
 				return nil, errors.Errorf("unable to reopen alice "+
 					"db: %v", err)
@@ -432,7 +432,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		switch err {
 		case nil:
 		case kvdb.ErrDatabaseNotOpen:
-			dbBob, err = channeldb.Open(dbBob.Path())
+			dbBob, err = channeldb.OpenTestDB(dbBob.Path())
 			if err != nil {
 				return nil, errors.Errorf("unable to reopen bob "+
 					"db: %v", err)

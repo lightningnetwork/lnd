@@ -999,7 +999,7 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
+	cdb, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
 	t.Cleanup(func() { cdb.Close() })
 
@@ -1093,7 +1093,7 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 
-	cdb2, err := channeldb.Open(tempPath)
+	cdb2, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err, "unable to reopen channeldb")
 	t.Cleanup(func() { cdb2.Close() })
 
@@ -1189,7 +1189,7 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
+	cdb, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
 	t.Cleanup(func() { cdb.Close() })
 
@@ -1283,7 +1283,7 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 
-	cdb2, err := channeldb.Open(tempPath)
+	cdb2, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err, "unable to reopen channeldb")
 	t.Cleanup(func() { cdb2.Close() })
 
@@ -1382,7 +1382,7 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
+	cdb, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
 	t.Cleanup(func() { cdb.Close() })
 
@@ -1468,7 +1468,7 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 
-	cdb2, err := channeldb.Open(tempPath)
+	cdb2, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err, "unable to reopen channeldb")
 	t.Cleanup(func() { cdb2.Close() })
 
@@ -1538,7 +1538,7 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
+	cdb, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
 	t.Cleanup(func() { cdb.Close() })
 
@@ -1619,7 +1619,7 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 
-	cdb2, err := channeldb.Open(tempPath)
+	cdb2, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err, "unable to reopen channeldb")
 	t.Cleanup(func() { cdb2.Close() })
 
@@ -1695,7 +1695,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
+	cdb, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
 	t.Cleanup(func() { cdb.Close() })
 
@@ -1775,7 +1775,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 
-	cdb2, err := channeldb.Open(tempPath)
+	cdb2, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err, "unable to reopen channeldb")
 	t.Cleanup(func() { cdb2.Close() })
 
@@ -1867,7 +1867,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 
-	cdb3, err := channeldb.Open(tempPath)
+	cdb3, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err, "unable to reopen channeldb")
 	t.Cleanup(func() { cdb3.Close() })
 
@@ -3824,7 +3824,7 @@ func newInterceptableSwitchTestContext(
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
+	cdb, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err, "unable to open channeldb")
 	t.Cleanup(func() { cdb.Close() })
 
@@ -4866,7 +4866,7 @@ func testSwitchForwardFailAlias(t *testing.T, zeroConf bool) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
+	cdb, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err)
 	t.Cleanup(func() { cdb.Close() })
 
@@ -4942,7 +4942,7 @@ func testSwitchForwardFailAlias(t *testing.T, zeroConf bool) {
 	err = cdb.Close()
 	require.NoError(t, err)
 
-	cdb2, err := channeldb.Open(tempPath)
+	cdb2, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err)
 	t.Cleanup(func() { cdb2.Close() })
 
@@ -5082,7 +5082,7 @@ func testSwitchAliasFailAdd(t *testing.T, zeroConf, private, useAlias bool) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
+	cdb, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err)
 	defer cdb.Close()
 
@@ -5423,7 +5423,7 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
+	cdb, err := channeldb.OpenTestDB(tempPath)
 	require.NoError(t, err)
 	t.Cleanup(func() { cdb.Close() })
 

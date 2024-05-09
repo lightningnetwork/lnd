@@ -336,10 +336,10 @@ type DB struct {
 	noRevLogAmtData bool
 }
 
-// Open opens or creates channeldb. Any necessary schemas migrations due
-// to updates will take place as necessary.
-// TODO(bhandras): deprecate this function.
-func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
+// OpenTestBoltDB opens or creates channeldb using the boltDB type and enables
+// specific options when opening the channeldb e.g. allows for auto compacting.
+// Any necessary schemas migrations due to updates will take place as necessary.
+func OpenTestBoltDB(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 	opts := DefaultOptions()
 	for _, modifier := range modifiers {
 		modifier(&opts)
@@ -361,6 +361,30 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 	if err == nil {
 		db.dbPath = dbPath
 	}
+	return db, err
+}
+
+// OpenTestDB opens or creates channeldb using the kv channeldb selected via
+// golang tags (e.g. kvdb_sqlite, kvdb_etcd, kvdb_postgres or default bolt if
+// nothing is explicitly specified).
+// Any necessary schemas migrations due to updates will take place as necessary.
+func OpenTestDB(dbPath string, modifiers ...OptionModifier) (*DB, error) {
+	opts := DefaultOptions()
+	for _, modifier := range modifiers {
+		modifier(&opts)
+	}
+
+	backend, backendCleanup, err := kvdb.GetTestBackend(dbPath, dbName)
+	if err != nil {
+		backendCleanup()
+		return nil, err
+	}
+
+	db, err := CreateWithBackend(backend, modifiers...)
+	if err == nil {
+		db.dbPath = dbPath
+	}
+
 	return db, err
 }
 
@@ -1842,7 +1866,7 @@ func MakeTestDB(t *testing.T, modifiers ...OptionModifier) (*DB, error) {
 	tempDirName := t.TempDir()
 
 	// Next, create channeldb for the first time.
-	backend, backendCleanup, err := kvdb.GetTestBackend(tempDirName, "cdb")
+	backend, backendCleanup, err := kvdb.GetTestBackend(tempDirName, dbName)
 	if err != nil {
 		backendCleanup()
 		return nil, err

@@ -526,7 +526,7 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 }
 
 func initDB(t *testing.T, keepFailedPaymentAttempts bool) (*channeldb.DB, error) {
-	db, err := channeldb.Open(
+	db, err := channeldb.OpenTestDB(
 		t.TempDir(), channeldb.OptionKeepFailedPaymentAttempts(
 			keepFailedPaymentAttempts,
 		),

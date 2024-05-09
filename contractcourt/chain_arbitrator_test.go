@@ -21,7 +21,7 @@ import (
 func TestChainArbitratorRepublishCloses(t *testing.T) {
 	t.Parallel()
 
-	db, err := channeldb.Open(t.TempDir())
+	db, err := channeldb.OpenTestDB(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 func TestResolveContract(t *testing.T) {
 	t.Parallel()
 
-	db, err := channeldb.Open(t.TempDir())
+	db, err := channeldb.OpenTestDB(t.TempDir())
 	require.NoError(t, err, "unable to open db")
 	t.Cleanup(func() {
 		require.NoError(t, db.Close())

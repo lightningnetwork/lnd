@@ -17,7 +17,7 @@ import (
 func createTestMessageStore(t *testing.T) *MessageStore {
 	t.Helper()
 
-	db, err := channeldb.Open(t.TempDir())
+	db, err := channeldb.OpenTestDB(t.TempDir())
 	if err != nil {
 		t.Fatalf("unable to open db: %v", err)
 	}

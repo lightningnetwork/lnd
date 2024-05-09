@@ -25,7 +25,7 @@ type testGraph interface {
 
 func newDiskChanGraph(t *testing.T) (testGraph, error) {
 	// Next, create channeldb for the first time.
-	cdb, err := channeldb.Open(t.TempDir())
+	cdb, err := channeldb.OpenTestDB(t.TempDir())
 	if err != nil {
 		return nil, err
 	}

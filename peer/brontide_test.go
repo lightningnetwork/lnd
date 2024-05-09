@@ -1057,7 +1057,7 @@ func TestPeerCustomMessage(t *testing.T) {
 	t.Parallel()
 
 	// Set up node Alice.
-	dbAlice, err := channeldb.Open(t.TempDir())
+	dbAlice, err := channeldb.OpenTestDB(t.TempDir())
 	require.NoError(t, err)
 
 	aliceKey, err := btcec.NewPrivateKey()

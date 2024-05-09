@@ -235,15 +235,21 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 		}
 	}
 
+	localStateBounds := ChannelStateSpaceBounds{
+		MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
+		ChanReserve:      btcutil.Amount(rand.Int63()),
+		MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
+		MaxAcceptedHtlcs: uint16(rand.Int31()),
+	}
+
+	localRenderingParams := CommitmentRenderingParams{
+		DustLimit: btcutil.Amount(rand.Int63()),
+		CsvDelay:  uint16(rand.Int31()),
+	}
+
 	localCfg := ChannelConfig{
-		ChannelConstraints: ChannelConstraints{
-			DustLimit:        btcutil.Amount(rand.Int63()),
-			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
-			ChanReserve:      btcutil.Amount(rand.Int63()),
-			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
-			MaxAcceptedHtlcs: uint16(rand.Int31()),
-			CsvDelay:         uint16(rand.Int31()),
-		},
+		ChannelStateSpaceBounds:   localStateBounds,
+		CommitmentRenderingParams: localRenderingParams,
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: privKey.PubKey(),
 		},
@@ -260,15 +266,22 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 			PubKey: privKey.PubKey(),
 		},
 	}
+
+	remoteStateBounds := ChannelStateSpaceBounds{
+		MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
+		ChanReserve:      btcutil.Amount(rand.Int63()),
+		MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
+		MaxAcceptedHtlcs: uint16(rand.Int31()),
+	}
+
+	remoteRenderingParams := CommitmentRenderingParams{
+		DustLimit: btcutil.Amount(rand.Int63()),
+		CsvDelay:  uint16(rand.Int31()),
+	}
+
 	remoteCfg := ChannelConfig{
-		ChannelConstraints: ChannelConstraints{
-			DustLimit:        btcutil.Amount(rand.Int63()),
-			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
-			ChanReserve:      btcutil.Amount(rand.Int63()),
-			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
-			MaxAcceptedHtlcs: uint16(rand.Int31()),
-			CsvDelay:         uint16(rand.Int31()),
-		},
+		ChannelStateSpaceBounds:   remoteStateBounds,
+		CommitmentRenderingParams: remoteRenderingParams,
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: privKey.PubKey(),
 			KeyLocator: keychain.KeyLocator{

@@ -138,24 +138,28 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	csvTimeoutBob := uint32(4)
 	isAliceInitiator := true
 
-	aliceConstraints := &channeldb.ChannelConstraints{
-		DustLimit: btcutil.Amount(200),
+	aliceBounds := channeldb.ChannelStateSpaceBounds{
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 			channelCapacity),
 		ChanReserve:      aliceReserve,
 		MinHTLC:          0,
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
-		CsvDelay:         uint16(csvTimeoutAlice),
+	}
+	aliceRParams := channeldb.CommitmentRenderingParams{
+		DustLimit: btcutil.Amount(200),
+		CsvDelay:  uint16(csvTimeoutAlice),
 	}
 
-	bobConstraints := &channeldb.ChannelConstraints{
-		DustLimit: btcutil.Amount(800),
+	bobBounds := channeldb.ChannelStateSpaceBounds{
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 			channelCapacity),
 		ChanReserve:      bobReserve,
 		MinHTLC:          0,
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
-		CsvDelay:         uint16(csvTimeoutBob),
+	}
+	bobRParams := channeldb.CommitmentRenderingParams{
+		DustLimit: btcutil.Amount(800),
+		CsvDelay:  uint16(csvTimeoutBob),
 	}
 
 	var hash [sha256.Size]byte
@@ -172,7 +176,8 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
 
 	aliceCfg := channeldb.ChannelConfig{
-		ChannelConstraints: *aliceConstraints,
+		ChannelStateSpaceBounds:   aliceBounds,
+		CommitmentRenderingParams: aliceRParams,
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: aliceKeyPub,
 		},
@@ -190,7 +195,8 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		},
 	}
 	bobCfg := channeldb.ChannelConfig{
-		ChannelConstraints: *bobConstraints,
+		ChannelStateSpaceBounds:   bobBounds,
+		CommitmentRenderingParams: bobRParams,
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: bobKeyPub,
 		},

@@ -150,13 +150,15 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	}
 
 	aliceCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        aliceDustLimit,
+		ChannelStateBounds: channeldb.ChannelStateBounds{
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelCapacity),
 			ChanReserve:      channelCapacity / 100,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
-			CsvDelay:         uint16(csvTimeoutAlice),
+		},
+		CommitmentParams: channeldb.CommitmentParams{
+			DustLimit: aliceDustLimit,
+			CsvDelay:  uint16(csvTimeoutAlice),
 		},
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: aliceKeys[0].PubKey(),
@@ -175,13 +177,15 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		},
 	}
 	bobCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        bobDustLimit,
+		ChannelStateBounds: channeldb.ChannelStateBounds{
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(channelCapacity),
 			ChanReserve:      channelCapacity / 100,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
-			CsvDelay:         uint16(csvTimeoutBob),
+		},
+		CommitmentParams: channeldb.CommitmentParams{
+			DustLimit: bobDustLimit,
+			CsvDelay:  uint16(csvTimeoutBob),
 		},
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: bobKeys[0].PubKey(),

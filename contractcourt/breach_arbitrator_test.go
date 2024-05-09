@@ -2178,13 +2178,15 @@ func createInitChannels(t *testing.T) (
 	fundingTxIn := wire.NewTxIn(prevOut, nil, nil)
 
 	aliceCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        aliceDustLimit,
+		ChannelStateBounds: channeldb.ChannelStateBounds{
 			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
 			ChanReserve:      0,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
-			CsvDelay:         uint16(csvTimeoutAlice),
+		},
+		CommitmentParams: channeldb.CommitmentParams{
+			DustLimit: aliceDustLimit,
+			CsvDelay:  uint16(csvTimeoutAlice),
 		},
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: aliceKeyPub,
@@ -2203,13 +2205,15 @@ func createInitChannels(t *testing.T) (
 		},
 	}
 	bobCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        bobDustLimit,
+		ChannelStateBounds: channeldb.ChannelStateBounds{
 			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
 			ChanReserve:      0,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
-			CsvDelay:         uint16(csvTimeoutBob),
+		},
+		CommitmentParams: channeldb.CommitmentParams{
+			DustLimit: bobDustLimit,
+			CsvDelay:  uint16(csvTimeoutBob),
 		},
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: bobKeyPub,

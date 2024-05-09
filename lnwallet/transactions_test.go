@@ -603,14 +603,14 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	dustLimit := DustLimitForSize(input.UnknownWitnessSize)
 
 	aliceChanCfg := &channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
+		CommitmentParams: channeldb.CommitmentParams{
 			DustLimit: dustLimit,
 			CsvDelay:  csvTimeout,
 		},
 	}
 
 	bobChanCfg := &channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
+		CommitmentParams: channeldb.CommitmentParams{
 			DustLimit: dustLimit,
 			CsvDelay:  csvTimeout,
 		},
@@ -834,15 +834,17 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 
 	// Define channel configurations.
 	remoteCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit: tc.dustLimit,
+		ChannelStateBounds: channeldb.ChannelStateBounds{
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 				tc.fundingAmount,
 			),
 			ChanReserve:      0,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
-			CsvDelay:         tc.localCsvDelay,
+		},
+		CommitmentParams: channeldb.CommitmentParams{
+			DustLimit: tc.dustLimit,
+			CsvDelay:  tc.localCsvDelay,
 		},
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: tc.remoteFundingPrivkey.PubKey(),
@@ -861,15 +863,17 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		},
 	}
 	localCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit: tc.dustLimit,
+		ChannelStateBounds: channeldb.ChannelStateBounds{
 			MaxPendingAmount: lnwire.NewMSatFromSatoshis(
 				tc.fundingAmount,
 			),
 			ChanReserve:      0,
 			MinHTLC:          0,
 			MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
-			CsvDelay:         tc.localCsvDelay,
+		},
+		CommitmentParams: channeldb.CommitmentParams{
+			DustLimit: tc.dustLimit,
+			CsvDelay:  tc.localCsvDelay,
 		},
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: tc.localFundingPrivkey.PubKey(),

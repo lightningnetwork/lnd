@@ -115,13 +115,15 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 	)
 
 	aliceCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        aliceDustLimit,
+		ChannelStateBounds: channeldb.ChannelStateBounds{
 			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
 			ChanReserve:      btcutil.Amount(rand.Int63()),
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
-			CsvDelay:         uint16(csvTimeoutAlice),
+		},
+		CommitmentParams: channeldb.CommitmentParams{
+			DustLimit: aliceDustLimit,
+			CsvDelay:  uint16(csvTimeoutAlice),
 		},
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: aliceKeyPub,
@@ -140,13 +142,15 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		},
 	}
 	bobCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        bobDustLimit,
+		ChannelStateBounds: channeldb.ChannelStateBounds{
 			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
 			ChanReserve:      btcutil.Amount(rand.Int63()),
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
-			CsvDelay:         uint16(csvTimeoutBob),
+		},
+		CommitmentParams: channeldb.CommitmentParams{
+			DustLimit: bobDustLimit,
+			CsvDelay:  uint16(csvTimeoutBob),
 		},
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: bobKeyPub,

@@ -422,16 +422,18 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	aliceChanReservation, err := alice.InitChannelReservation(aliceReq)
 	require.NoError(t, err, "unable to initialize funding reservation")
 	aliceChanReservation.SetNumConfsRequired(numReqConfs)
-	channelConstraints := &channeldb.ChannelConstraints{
-		DustLimit:        lnwallet.DustLimitUnknownWitness(),
+	bounds := &channeldb.ChannelStateBounds{
 		ChanReserve:      fundingAmount / 100,
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(fundingAmount),
 		MinHTLC:          1,
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
-		CsvDelay:         csvDelay,
+	}
+	commitParams := &channeldb.CommitmentParams{
+		DustLimit: lnwallet.DustLimitUnknownWitness(),
+		CsvDelay:  csvDelay,
 	}
 	err = aliceChanReservation.CommitConstraints(
-		channelConstraints, defaultMaxLocalCsvDelay, false,
+		bounds, commitParams, defaultMaxLocalCsvDelay, false,
 	)
 	require.NoError(t, err, "unable to verify constraints")
 
@@ -463,7 +465,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	bobChanReservation, err := bob.InitChannelReservation(bobReq)
 	require.NoError(t, err, "bob unable to init channel reservation")
 	err = bobChanReservation.CommitConstraints(
-		channelConstraints, defaultMaxLocalCsvDelay, true,
+		bounds, commitParams, defaultMaxLocalCsvDelay, true,
 	)
 	require.NoError(t, err, "unable to verify constraints")
 	bobChanReservation.SetNumConfsRequired(numReqConfs)
@@ -827,16 +829,18 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	aliceChanReservation, err := alice.InitChannelReservation(aliceReq)
 	require.NoError(t, err, "unable to init channel reservation")
 	aliceChanReservation.SetNumConfsRequired(numReqConfs)
-	channelConstraints := &channeldb.ChannelConstraints{
-		DustLimit:        lnwallet.DustLimitUnknownWitness(),
+	bounds := &channeldb.ChannelStateBounds{
 		ChanReserve:      fundingAmt / 100,
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(fundingAmt),
 		MinHTLC:          1,
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
-		CsvDelay:         csvDelay,
+	}
+	commitParams := &channeldb.CommitmentParams{
+		DustLimit: lnwallet.DustLimitUnknownWitness(),
+		CsvDelay:  csvDelay,
 	}
 	err = aliceChanReservation.CommitConstraints(
-		channelConstraints, defaultMaxLocalCsvDelay, false,
+		bounds, commitParams, defaultMaxLocalCsvDelay, false,
 	)
 	require.NoError(t, err, "unable to verify constraints")
 
@@ -875,7 +879,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	bobChanReservation, err := bob.InitChannelReservation(bobReq)
 	require.NoError(t, err, "unable to create bob reservation")
 	err = bobChanReservation.CommitConstraints(
-		channelConstraints, defaultMaxLocalCsvDelay, true,
+		bounds, commitParams, defaultMaxLocalCsvDelay, true,
 	)
 	require.NoError(t, err, "unable to verify constraints")
 	bobChanReservation.SetNumConfsRequired(numReqConfs)

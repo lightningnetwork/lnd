@@ -279,7 +279,7 @@ func (r *Manager) getHtlcAmtLimits(tx kvdb.RTx, chanPoint wire.OutPoint) (
 	// capacity AND less than or equal to the max in-flight HTLC value.
 	// Since the latter is always less than or equal to the former, just
 	// return the max in-flight value.
-	maxAmt := ch.LocalChanCfg.ChannelConstraints.MaxPendingAmount
+	maxAmt := ch.LocalChanCfg.ChannelStateBounds.MaxPendingAmount
 
 	return ch.LocalChanCfg.MinHTLC, maxAmt, nil
 }

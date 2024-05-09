@@ -126,6 +126,64 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 
 	chanType := channeldb.ChannelType(rand.Intn(8))
 
+	localCfg := channeldb.ChannelConfig{
+		ChannelStateBounds: channeldb.ChannelStateBounds{},
+		CommitmentParams: channeldb.CommitmentParams{
+			CsvDelay: uint16(rand.Int63()),
+		},
+		MultiSigKey: keychain.KeyDescriptor{
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamily(rand.Int63()),
+				Index:  uint32(rand.Int63()),
+			},
+		},
+		RevocationBasePoint: keychain.KeyDescriptor{
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamily(rand.Int63()),
+				Index:  uint32(rand.Int63()),
+			},
+		},
+		PaymentBasePoint: keychain.KeyDescriptor{
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamily(rand.Int63()),
+				Index:  uint32(rand.Int63()),
+			},
+		},
+		DelayBasePoint: keychain.KeyDescriptor{
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamily(rand.Int63()),
+				Index:  uint32(rand.Int63()),
+			},
+		},
+		HtlcBasePoint: keychain.KeyDescriptor{
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamily(rand.Int63()),
+				Index:  uint32(rand.Int63()),
+			},
+		},
+	}
+
+	remoteCfg := channeldb.ChannelConfig{
+		CommitmentParams: channeldb.CommitmentParams{
+			CsvDelay: uint16(rand.Int63()),
+		},
+		MultiSigKey: keychain.KeyDescriptor{
+			PubKey: pub,
+		},
+		RevocationBasePoint: keychain.KeyDescriptor{
+			PubKey: pub,
+		},
+		PaymentBasePoint: keychain.KeyDescriptor{
+			PubKey: pub,
+		},
+		DelayBasePoint: keychain.KeyDescriptor{
+			PubKey: pub,
+		},
+		HtlcBasePoint: keychain.KeyDescriptor{
+			PubKey: pub,
+		},
+	}
+
 	return &channeldb.OpenChannel{
 		ChainHash:       chainHash,
 		ChanType:        chanType,
@@ -134,63 +192,10 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 		ShortChannelID: lnwire.NewShortChanIDFromInt(
 			uint64(rand.Int63()),
 		),
-		ThawHeight:  rand.Uint32(),
-		IdentityPub: pub,
-		LocalChanCfg: channeldb.ChannelConfig{
-			ChannelConstraints: channeldb.ChannelConstraints{
-				CsvDelay: uint16(rand.Int63()),
-			},
-			MultiSigKey: keychain.KeyDescriptor{
-				KeyLocator: keychain.KeyLocator{
-					Family: keychain.KeyFamily(rand.Int63()),
-					Index:  uint32(rand.Int63()),
-				},
-			},
-			RevocationBasePoint: keychain.KeyDescriptor{
-				KeyLocator: keychain.KeyLocator{
-					Family: keychain.KeyFamily(rand.Int63()),
-					Index:  uint32(rand.Int63()),
-				},
-			},
-			PaymentBasePoint: keychain.KeyDescriptor{
-				KeyLocator: keychain.KeyLocator{
-					Family: keychain.KeyFamily(rand.Int63()),
-					Index:  uint32(rand.Int63()),
-				},
-			},
-			DelayBasePoint: keychain.KeyDescriptor{
-				KeyLocator: keychain.KeyLocator{
-					Family: keychain.KeyFamily(rand.Int63()),
-					Index:  uint32(rand.Int63()),
-				},
-			},
-			HtlcBasePoint: keychain.KeyDescriptor{
-				KeyLocator: keychain.KeyLocator{
-					Family: keychain.KeyFamily(rand.Int63()),
-					Index:  uint32(rand.Int63()),
-				},
-			},
-		},
-		RemoteChanCfg: channeldb.ChannelConfig{
-			ChannelConstraints: channeldb.ChannelConstraints{
-				CsvDelay: uint16(rand.Int63()),
-			},
-			MultiSigKey: keychain.KeyDescriptor{
-				PubKey: pub,
-			},
-			RevocationBasePoint: keychain.KeyDescriptor{
-				PubKey: pub,
-			},
-			PaymentBasePoint: keychain.KeyDescriptor{
-				PubKey: pub,
-			},
-			DelayBasePoint: keychain.KeyDescriptor{
-				PubKey: pub,
-			},
-			HtlcBasePoint: keychain.KeyDescriptor{
-				PubKey: pub,
-			},
-		},
+		ThawHeight:         rand.Uint32(),
+		IdentityPub:        pub,
+		LocalChanCfg:       localCfg,
+		RemoteChanCfg:      remoteCfg,
 		RevocationProducer: shaChainProducer,
 	}, nil
 }

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"sync/atomic"
 	"syscall"
 
@@ -104,12 +105,21 @@ type Interceptor struct {
 
 	// shutdownRequestChannel is used to request the daemon to shutdown
 	// gracefully, similar to when receiving SIGINT.
-	shutdownRequestChannel chan struct{}
+	shutdownRequestChannel chan int
 
 	// quit is closed when instructing the main interrupt handler to exit.
 	// Note that to avoid losing notifications, only shutdown func may
 	// close this channel.
 	quit chan struct{}
+
+	// exitCode represents the exit code of the interceptor.
+	exitCode int
+
+	// exitCodeMutex protects the exitCode.
+	exitCodeMutex sync.Mutex
+
+	// exited indicates whether the application has exited.
+	exited bool
 
 	// Notifier handles sending shutdown notifications.
 	Notifier Notifier
@@ -117,15 +127,15 @@ type Interceptor struct {
 
 // Intercept starts the interception of interrupt signals and returns an `Interceptor` instance.
 // Note that any previous active interceptor must be stopped before a new one can be created.
-func Intercept() (Interceptor, error) {
+func Intercept() (*Interceptor, error) {
 	if !atomic.CompareAndSwapInt32(&started, 0, 1) {
-		return Interceptor{}, errors.New("intercept already started")
+		return nil, errors.New("intercept already started")
 	}
 
 	channels := Interceptor{
 		interruptChannel:       make(chan os.Signal, 1),
 		shutdownChannel:        make(chan struct{}),
-		shutdownRequestChannel: make(chan struct{}),
+		shutdownRequestChannel: make(chan int, 1),
 		quit:                   make(chan struct{}),
 	}
 
@@ -135,10 +145,11 @@ func Intercept() (Interceptor, error) {
 		syscall.SIGTERM,
 		syscall.SIGQUIT,
 	}
+
 	signal.Notify(channels.interruptChannel, signalsToCatch...)
 	go channels.mainInterruptHandler()
 
-	return channels, nil
+	return &channels, nil
 }
 
 // mainInterruptHandler listens for SIGINT (Ctrl+C) signals on the
@@ -175,12 +186,25 @@ func (c *Interceptor) mainInterruptHandler() {
 		select {
 		case signal := <-c.interruptChannel:
 			log.Infof("Received %v", signal)
+
+			// Set the interceptor exit code status to 0 since the
+			// shutdown is triggered by an interrupt signal.
+			c.setExitCode(0)
+
 			shutdown()
 
-		case <-c.shutdownRequestChannel:
+		case errorCode := <-c.shutdownRequestChannel:
 			log.Infof("Received shutdown request.")
+
+			// Set the interceptor exit code status based on the
+			// provided error code i.e We set exit code 1 for
+			// critical errors, code 0 for normal shutdowns
+			// (e.g., StopDaemon RPC).
+			c.setExitCode(errorCode)
+
 			shutdown()
 
+		// We only reach this case once shutdown has been called.
 		case <-c.quit:
 			log.Infof("Gracefully shutting down.")
 			close(c.shutdownChannel)
@@ -214,10 +238,11 @@ func (c *Interceptor) Alive() bool {
 	}
 }
 
-// RequestShutdown initiates a graceful shutdown from the application.
-func (c *Interceptor) RequestShutdown() {
+// RequestShutdown initiates a graceful shutdown from the application. It
+// accepts an error code parameter from the caller.
+func (c *Interceptor) RequestShutdown(errorCode int) {
 	select {
-	case c.shutdownRequestChannel <- struct{}{}:
+	case c.shutdownRequestChannel <- errorCode:
 	case <-c.quit:
 	}
 }
@@ -226,4 +251,29 @@ func (c *Interceptor) RequestShutdown() {
 // interrupt handler has exited.
 func (c *Interceptor) ShutdownChannel() <-chan struct{} {
 	return c.shutdownChannel
+}
+
+// GetExitCode returns the exit code of the interceptor, which represents
+// the exit status when the main interrupt handler exits. It blocks until
+// the exit code is available.
+func (c *Interceptor) GetExitCode() (int, bool) {
+	c.exitCodeMutex.Lock()
+	defer c.exitCodeMutex.Unlock()
+
+	if !c.exited {
+		return 0, false
+	}
+
+	return c.exitCode, true
+}
+
+// setExitCode sets the exit code of the interceptor to the provided value.
+// It is used to communicate the exit status when the main interrupt handler
+// exits.
+func (c *Interceptor) setExitCode(exitCode int) {
+	c.exitCodeMutex.Lock()
+	defer c.exitCodeMutex.Unlock()
+
+	c.exitCode = exitCode
+	c.exited = true
 }

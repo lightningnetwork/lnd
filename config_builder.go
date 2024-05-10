@@ -151,7 +151,7 @@ type ImplementationCfg struct {
 type DefaultWalletImpl struct {
 	cfg         *Config
 	logger      btclog.Logger
-	interceptor signal.Interceptor
+	interceptor *signal.Interceptor
 
 	watchOnly        bool
 	migrateWatchOnly bool
@@ -160,7 +160,7 @@ type DefaultWalletImpl struct {
 
 // NewDefaultWalletImpl creates a new default wallet implementation.
 func NewDefaultWalletImpl(cfg *Config, logger btclog.Logger,
-	interceptor signal.Interceptor, watchOnly bool) *DefaultWalletImpl {
+	interceptor *signal.Interceptor, watchOnly bool) *DefaultWalletImpl {
 
 	return &DefaultWalletImpl{
 		cfg:         cfg,
@@ -758,7 +758,7 @@ type RPCSignerWalletImpl struct {
 // NewRPCSignerWalletImpl creates a new instance of the remote signing wallet
 // implementation.
 func NewRPCSignerWalletImpl(cfg *Config, logger btclog.Logger,
-	interceptor signal.Interceptor,
+	interceptor *signal.Interceptor,
 	migrateWatchOnly bool) *RPCSignerWalletImpl {
 
 	return &RPCSignerWalletImpl{

@@ -92,7 +92,7 @@ var (
 // genSubLogger creates a logger for a subsystem. We provide an instance of
 // a signal.Interceptor to be able to shutdown in the case of a critical error.
 func genSubLogger(root *build.RotatingLogWriter,
-	interceptor signal.Interceptor) func(string) btclog.Logger {
+	interceptor *signal.Interceptor) func(string) btclog.Logger {
 
 	// Create a shutdown function which will request shutdown from our
 	// interceptor if it is listening.
@@ -101,7 +101,7 @@ func genSubLogger(root *build.RotatingLogWriter,
 			return
 		}
 
-		interceptor.RequestShutdown()
+		interceptor.RequestShutdown(1)
 	}
 
 	// Return a function which will create a sublogger from our root
@@ -112,7 +112,9 @@ func genSubLogger(root *build.RotatingLogWriter,
 }
 
 // SetupLoggers initializes all package-global logger variables.
-func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor) {
+func SetupLoggers(root *build.RotatingLogWriter,
+	interceptor *signal.Interceptor) {
+
 	genLogger := genSubLogger(root, interceptor)
 
 	// Now that we have the proper root logger, we can replace the
@@ -184,7 +186,7 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 // AddSubLogger is a helper method to conveniently create and register the
 // logger of one or more sub systems.
 func AddSubLogger(root *build.RotatingLogWriter, subsystem string,
-	interceptor signal.Interceptor, useLoggers ...func(btclog.Logger)) {
+	interceptor *signal.Interceptor, useLoggers ...func(btclog.Logger)) {
 
 	// genSubLogger will return a callback for creating a logger instance,
 	// which we will give to the root logger.

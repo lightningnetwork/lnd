@@ -1250,6 +1250,12 @@ func (p *Brontide) WaitForDisconnect(ready chan struct{}) {
 	p.wg.Wait()
 }
 
+func (p *Brontide) IsDisconnected() bool {
+	val := atomic.LoadInt32(&p.disconnect)
+
+	return val == 1
+}
+
 // Disconnect terminates the connection with the remote peer. Additionally, a
 // signal is sent to the server and htlcSwitch indicating the resources
 // allocated to the peer can now be cleaned up.
@@ -1668,7 +1674,7 @@ func (p *Brontide) readHandler() {
 	discStream.Start()
 	defer discStream.Stop()
 out:
-	for atomic.LoadInt32(&p.disconnect) == 0 {
+	for !p.IsDisconnected() {
 		nextMsg, err := p.readNextMessage()
 		if !idleTimer.Stop() {
 			select {

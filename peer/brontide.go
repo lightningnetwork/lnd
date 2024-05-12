@@ -1823,6 +1823,8 @@ out:
 
 			discStream.AddMsg(msg)
 
+		case *lnwire.PeerStorage:
+		case *lnwire.PeerStorageRetrieval:
 		case *lnwire.Custom:
 			err := p.handleCustomMessage(msg)
 			if err != nil {
@@ -2140,8 +2142,11 @@ func messageSummary(msg lnwire.Message) string {
 			time.Unix(int64(msg.FirstTimestamp), 0),
 			msg.TimestampRange)
 
-	case *lnwire.Custom:
-		return fmt.Sprintf("type=%d", msg.Type)
+	case *lnwire.Custom,
+		*lnwire.PeerStorageRetrieval,
+		*lnwire.PeerStorage:
+
+		return fmt.Sprintf("type=%d", msg.MsgType())
 	}
 
 	return fmt.Sprintf("unknown msg type=%T", msg)

@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1441,4 +1442,130 @@ func TestHandlePeerStorageRetrieval(t *testing.T) {
 
 	// Test that we disconnect.
 	require.True(t, peer.IsDisconnected())
+}
+
+// TestHandlePeerStorage tests handling peer storage message.
+func TestHandlePeerStorage(t *testing.T) {
+	t.Parallel()
+	rt := require.New(t)
+
+	// Create test data.
+	blob := []byte{0x9c, 0x40, 0x1, 0x2, 0x3}
+
+	testCases := []struct {
+		name        string
+		msgTestFunc func(msg lnwire.Message)
+		setUpFunc   func(peer *Brontide)
+		noSendMsg   bool
+		disconnect  bool
+		backupData  lnwire.PeerStorageBlob
+	}{
+		{
+			name: "option peer storage disabled",
+			msgTestFunc: func(msg lnwire.Message) {
+				// In this case, we expect to send a warning to
+				// this peer.
+				rt.IsType(msg, &lnwire.Warning{})
+			},
+			disconnect: true,
+		},
+		{
+			name: "option peer storage enabled, active channels " +
+				"present",
+			setUpFunc: func(peer *Brontide) {
+				// Enable option_peer_storage.
+				peer.cfg.Features = lnwire.NewFeatureVector(
+					lnwire.NewRawFeatureVector(
+						lnwire.ProvideStorageOptional,
+					),
+					lnwire.Features,
+				)
+
+				// Add a  dummy active channel.
+				chanID := lnwire.NewChanIDFromOutPoint(
+					wire.OutPoint{Index: 1},
+				)
+				peer.activeChannels.Store(
+					chanID, &lnwallet.LightningChannel{},
+				)
+			},
+			noSendMsg:  true,
+			backupData: blob,
+		},
+		{
+			name: "option peer storage enabled, active channels " +
+				"absent",
+			setUpFunc: func(peer *Brontide) {
+				// Enable option_peer_storage.
+				peer.cfg.Features = lnwire.NewFeatureVector(
+					lnwire.NewRawFeatureVector(
+						lnwire.ProvideStorageOptional,
+					),
+					lnwire.Features,
+				)
+
+				peer.activeChannels = &lnutils.SyncMap[
+					lnwire.ChannelID,
+					*lnwallet.LightningChannel,
+				]{}
+			},
+			noSendMsg: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			params := createTestPeer(t)
+			peer := params.peer
+
+			// The backupData should be nil on initialization.
+			rt.Nil(peer.backupData)
+
+			// Send a signal to this channel to indicate readiness
+			// for potential peer disconnection.
+			close(peer.startReady)
+
+			if tc.setUpFunc != nil {
+				tc.setUpFunc(peer)
+			}
+
+			// Buffer outgoingQueue to prevent blocking.
+			peer.outgoingQueue = make(chan outgoingMsg, 1)
+
+			peerStorageMsg, err := lnwire.NewPeerStorageMsg(
+				blob,
+			)
+			rt.NoError(err)
+
+			// Call the method.
+			err = peer.handlePeerStorageMessage(peerStorageMsg)
+			rt.NoError(err)
+
+			// Test for the backup data stored in memory.
+			rt.Equal(tc.backupData, peer.backupData)
+
+			// Test for expected outgoing messages, if any.
+			select {
+			case receivedMsg := <-peer.outgoingQueue:
+				if !tc.noSendMsg {
+					tc.msgTestFunc(receivedMsg.msg)
+
+					return
+				}
+
+				t.Fatalf("received unexpected "+
+					"message %v",
+					receivedMsg.msg.MsgType())
+
+			case <-time.After(2 * time.Second):
+				if !tc.noSendMsg {
+					t.Fatalf("did not receive message " +
+						"as expected.")
+				}
+			}
+
+			// Check if the peer should be disconnected.
+			rt.Equal(tc.disconnect, peer.IsDisconnected())
+		})
+	}
 }

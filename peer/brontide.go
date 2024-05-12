@@ -514,6 +514,10 @@ type Brontide struct {
 
 	// log is a peer-specific logging instance.
 	log btclog.Logger
+
+	// backupData is an in-memory store for data that we store for our
+	// peers.
+	backupData lnwire.PeerStorageBlob
 }
 
 // A compile-time check to ensure that Brontide satisfies the lnpeer.Peer interface.
@@ -1824,6 +1828,12 @@ out:
 			discStream.AddMsg(msg)
 
 		case *lnwire.PeerStorage:
+			err = p.handlePeerStorageMessage(msg)
+			if err != nil {
+				p.storeError(err)
+				p.log.Errorf("%v", err)
+			}
+
 		case *lnwire.PeerStorageRetrieval:
 			err = p.handlePeerStorageRetrieval()
 			if err != nil {
@@ -4167,6 +4177,42 @@ func (p *Brontide) handleRemovePendingChannel(req *newChannelMsg) {
 	// Remove the record of this pending channel.
 	p.activeChannels.Delete(chanID)
 	p.addedChannels.Delete(chanID)
+}
+
+// handlePeerStorageMessage handles `PeerStorage` message, it stores the message
+// and sends it back to the peer as an ack.
+func (p *Brontide) handlePeerStorageMessage(msg *lnwire.PeerStorage) error {
+	// Check if we have the feature to store peer backup enabled.
+	if !p.LocalFeatures().HasFeature(lnwire.ProvideStorageOptional) {
+		warning := "received peer storage message but not " +
+			"advertising required feature bit"
+
+		if err := p.SendMessage(false, &lnwire.Warning{
+			ChanID: lnwire.ConnectionWideID,
+			Data:   []byte(warning),
+		}); err != nil {
+			return err
+		}
+
+		p.Disconnect(errors.New(warning))
+
+		return nil
+	}
+
+	// If we have no active channels with this peer, we return quickly.
+	if !p.hasActiveChannels() {
+		p.log.Tracef("Received peerStorage message from "+
+			"peer(%v) with no active channels -- ignoring",
+			p.String())
+
+		return nil
+	}
+
+	p.log.Debugf("handling peerbackup for peer(%s)", p)
+
+	p.backupData = msg.Blob
+
+	return nil
 }
 
 // sendLinkUpdateMsg sends a message that updates the channel to the

@@ -314,6 +314,9 @@
   maintain a healthy connection to the network by checking the number of
   outbound peers if they are below 6.
 
+* [Add inbound fees](https://github.com/lightningnetwork/lnd/pull/8723) to 
+  `subscribeChannelGraph`.
+
 ### Logging
 * [Add the htlc amount](https://github.com/lightningnetwork/lnd/pull/8156) to
   contract court logs in case of timed-out HTLCs in order to easily spot dust
@@ -549,6 +552,7 @@
 * BitcoinerCoderBob
 * bitromortac
 * bota87
+* Bufo
 * Calvin Zachman
 * Carla Kirk-Cohen
 * cristiantroy

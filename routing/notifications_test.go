@@ -75,7 +75,18 @@ func createTestNode() (*channeldb.LightningNode, error) {
 }
 
 func randEdgePolicy(chanID *lnwire.ShortChannelID,
-	node *channeldb.LightningNode) *models.ChannelEdgePolicy {
+	node *channeldb.LightningNode) (*models.ChannelEdgePolicy, error) {
+
+	InboundFee := models.InboundFee{
+		Base: prand.Int31() * -1,
+		Rate: prand.Int31() * -1,
+	}
+	inboundFee := InboundFee.ToWire()
+
+	var extraOpaqueData lnwire.ExtraOpaqueData
+	if err := extraOpaqueData.PackRecords(&inboundFee); err != nil {
+		return nil, err
+	}
 
 	return &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
@@ -87,7 +98,8 @@ func randEdgePolicy(chanID *lnwire.ShortChannelID,
 		FeeBaseMSat:               lnwire.MilliSatoshi(prand.Int31()),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(prand.Int31()),
 		ToNode:                    node.PubKeyBytes,
-	}
+		ExtraOpaqueData:           extraOpaqueData,
+	}, nil
 }
 
 func createChannelEdge(ctx *testCtx, bitcoinKey1, bitcoinKey2 []byte,
@@ -457,9 +469,12 @@ func TestEdgeUpdateNotification(t *testing.T) {
 
 	// Create random policy edges that are stemmed to the channel id
 	// created above.
-	edge1 := randEdgePolicy(chanID, node1)
+	edge1, err := randEdgePolicy(chanID, node1)
+	require.NoError(t, err, "unable to create a random chan policy")
 	edge1.ChannelFlags = 0
-	edge2 := randEdgePolicy(chanID, node2)
+
+	edge2, err := randEdgePolicy(chanID, node2)
+	require.NoError(t, err, "unable to create a random chan policy")
 	edge2.ChannelFlags = 1
 
 	if err := ctx.router.UpdateEdge(edge1); err != nil {
@@ -511,6 +526,9 @@ func TestEdgeUpdateNotification(t *testing.T) {
 				"expected %v, got %v", edgeAnn.TimeLockDelta,
 				edgeUpdate.TimeLockDelta)
 		}
+		require.Equal(
+			t, edgeAnn.ExtraOpaqueData, edgeUpdate.ExtraOpaqueData,
+		)
 	}
 
 	// Create lookup map for notifications we are intending to receive. Entries

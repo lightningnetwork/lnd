@@ -301,6 +301,11 @@ type ChannelEdgeUpdate struct {
 	// Disabled, if true, signals that the channel is unavailable to relay
 	// payments.
 	Disabled bool
+
+	// ExtraOpaqueData is the set of data that was appended to this message
+	// to fill out the full maximum transport message size. These fields can
+	// be used to specify optional data such as custom TLV fields.
+	ExtraOpaqueData lnwire.ExtraOpaqueData
 }
 
 // appendTopologyChange appends the passed update message to the passed
@@ -379,6 +384,7 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 			AdvertisingNode: aNode,
 			ConnectingNode:  cNode,
 			Disabled:        m.ChannelFlags&lnwire.ChanUpdateDisabled != 0,
+			ExtraOpaqueData: m.ExtraOpaqueData,
 		}
 
 		// TODO(roasbeef): add bit to toggle

@@ -2429,6 +2429,9 @@ message OpenChannelRequest {
     */
     repeated OutPoint outpoints = 28;
 
+    /*
+    Custom arbitrary data that should be associated with the channel.
+     */
     bytes custom_channel_data = 29;
 }
 message OpenStatusUpdate {

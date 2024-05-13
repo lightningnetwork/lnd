@@ -6137,7 +6137,8 @@
         },
         "custom_channel_data": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "Custom arbitrary data that should be associated with the channel."
         }
       }
     },

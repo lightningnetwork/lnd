@@ -7668,8 +7668,9 @@ type OpenChannelRequest struct {
 	// the channel's operation.
 	Memo string `protobuf:"bytes,27,opt,name=memo,proto3" json:"memo,omitempty"`
 	// A list of selected outpoints that are allocated for channel funding.
-	Outpoints         []*OutPoint `protobuf:"bytes,28,rep,name=outpoints,proto3" json:"outpoints,omitempty"`
-	CustomChannelData []byte      `protobuf:"bytes,29,opt,name=custom_channel_data,json=customChannelData,proto3" json:"custom_channel_data,omitempty"`
+	Outpoints []*OutPoint `protobuf:"bytes,28,rep,name=outpoints,proto3" json:"outpoints,omitempty"`
+	// Custom arbitrary data that should be associated with the channel.
+	CustomChannelData []byte `protobuf:"bytes,29,opt,name=custom_channel_data,json=customChannelData,proto3" json:"custom_channel_data,omitempty"`
 }
 
 func (x *OpenChannelRequest) Reset() {

@@ -3199,8 +3199,10 @@ type ForwardHtlcInterceptResponse struct {
 	//
 	// For backwards-compatibility reasons, TEMPORARY_CHANNEL_FAILURE is the
 	// default value for this field.
-	FailureCode        lnrpc.Failure_FailureCode `protobuf:"varint,5,opt,name=failure_code,json=failureCode,proto3,enum=lnrpc.Failure_FailureCode" json:"failure_code,omitempty"`
-	IncomingAmountMsat uint64                    `protobuf:"varint,6,opt,name=incoming_amount_msat,json=incomingAmountMsat,proto3" json:"incoming_amount_msat,omitempty"`
+	FailureCode lnrpc.Failure_FailureCode `protobuf:"varint,5,opt,name=failure_code,json=failureCode,proto3,enum=lnrpc.Failure_FailureCode" json:"failure_code,omitempty"`
+	// incoming_amount_msat is used to set the p2p message incoming amount field
+	// for validating an incoming HTLC.
+	IncomingAmountMsat uint64 `protobuf:"varint,6,opt,name=incoming_amount_msat,json=incomingAmountMsat,proto3" json:"incoming_amount_msat,omitempty"`
 	// outgoing_amount_msat is used to set the p2p message outgoing amount field
 	// for resuming a HTLC.
 	OutgoingAmountMsat uint64 `protobuf:"varint,7,opt,name=outgoing_amount_msat,json=outgoingAmountMsat,proto3" json:"outgoing_amount_msat,omitempty"`

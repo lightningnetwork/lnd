@@ -2387,12 +2387,28 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		return errors.New("inbound_fee_rate_ppm out of range")
 	}
 
+	// Inbound fees are optional. However, if an update is required,
+	// both the base fee and the fee rate must be provided.
+	var inboundFee *lnrpc.InboundFee
+	if ctx.IsSet("inbound_base_fee_msat") !=
+		ctx.IsSet("inbound_fee_rate_ppm") {
+
+		return errors.New("both parameters must be provided: " +
+			"inbound_base_fee_msat and inbound_fee_rate_ppm")
+	}
+
+	if ctx.IsSet("inbound_fee_rate_ppm") {
+		inboundFee = &lnrpc.InboundFee{
+			BaseFeeMsat: int32(inboundBaseFeeMsat),
+			FeeRatePpm:  int32(inboundFeeRatePpm),
+		}
+	}
+
 	req := &lnrpc.PolicyUpdateRequest{
-		BaseFeeMsat:        baseFee,
-		TimeLockDelta:      uint32(timeLockDelta),
-		MaxHtlcMsat:        ctx.Uint64("max_htlc_msat"),
-		InboundBaseFeeMsat: int32(inboundBaseFeeMsat),
-		InboundFeeRatePpm:  int32(inboundFeeRatePpm),
+		BaseFeeMsat:   baseFee,
+		TimeLockDelta: uint32(timeLockDelta),
+		MaxHtlcMsat:   ctx.Uint64("max_htlc_msat"),
+		InboundFee:    inboundFee,
 	}
 
 	if ctx.IsSet("min_htlc_msat") {

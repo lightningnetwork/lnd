@@ -46,6 +46,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -7216,27 +7217,35 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	}
 
 	// By default, positive inbound fees are rejected.
-	if !r.cfg.AcceptPositiveInboundFees {
-		if req.InboundBaseFeeMsat > 0 {
+	if !r.cfg.AcceptPositiveInboundFees && req.InboundFee != nil {
+		if req.InboundFee.BaseFeeMsat > 0 {
 			return nil, fmt.Errorf("positive values for inbound "+
 				"base fee msat are not supported: %v",
-				req.InboundBaseFeeMsat)
+				req.InboundFee.BaseFeeMsat)
 		}
-		if req.InboundFeeRatePpm > 0 {
+		if req.InboundFee.FeeRatePpm > 0 {
 			return nil, fmt.Errorf("positive values for inbound "+
 				"fee rate ppm are not supported: %v",
-				req.InboundFeeRatePpm)
+				req.InboundFee.FeeRatePpm)
 		}
+	}
+
+	// If no inbound fees have been specified, we indicate with an empty
+	// option that the previous inbound fee should be retained during the
+	// edge update.
+	inboundFee := fn.None[models.InboundFee]()
+	if req.InboundFee != nil {
+		inboundFee = fn.Some(models.InboundFee{
+			Base: req.InboundFee.BaseFeeMsat,
+			Rate: req.InboundFee.FeeRatePpm,
+		})
 	}
 
 	baseFeeMsat := lnwire.MilliSatoshi(req.BaseFeeMsat)
 	feeSchema := routing.FeeSchema{
-		BaseFee: baseFeeMsat,
-		FeeRate: feeRateFixed,
-		InboundFee: models.InboundFee{
-			Base: req.InboundBaseFeeMsat,
-			Rate: req.InboundFeeRatePpm,
-		},
+		BaseFee:    baseFeeMsat,
+		FeeRate:    feeRateFixed,
+		InboundFee: inboundFee,
 	}
 
 	maxHtlc := lnwire.MilliSatoshi(req.MaxHtlcMsat)

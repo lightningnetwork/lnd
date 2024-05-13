@@ -241,3 +241,43 @@ func TestSliceToMap(t *testing.T) {
 		})
 	}
 }
+
+// TestHasDuplicates tests the HasDuplicates function.
+func TestHasDuplicates(t *testing.T) {
+	// Define test cases.
+	testCases := []struct {
+		name  string
+		items []int
+		want  bool
+	}{
+		{
+			name:  "All unique",
+			items: []int{1, 2, 3, 4, 5},
+			want:  false,
+		},
+		{
+			name:  "Some duplicates",
+			items: []int{1, 2, 2, 3, 4},
+			want:  true,
+		},
+		{
+			name:  "No items",
+			items: []int{},
+			want:  false,
+		},
+		{
+			name:  "All duplicates",
+			items: []int{1, 1, 1, 1},
+			want:  true,
+		},
+	}
+
+	// Execute each test case.
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := HasDuplicates(tc.items)
+
+			require.Equal(t, tc.want, got)
+		})
+	}
+}

@@ -198,3 +198,10 @@ func Sum[B Number](items []B) B {
 		return a + b
 	}, 0, items)
 }
+
+// HasDuplicates checks if the given slice contains any duplicate elements.
+// It returns false if there are no duplicates in the slice (i.e., all elements
+// are unique), otherwise returns false.
+func HasDuplicates[A comparable](items []A) bool {
+	return len(NewSet(items...)) != len(items)
+}

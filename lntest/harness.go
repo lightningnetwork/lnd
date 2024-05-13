@@ -980,6 +980,10 @@ type OpenChannelParams struct {
 	// FundMax flag is specified the entirety of selected funds is
 	// allocated towards channel funding.
 	Outpoints []*lnrpc.OutPoint
+
+	// CustomChannelData is an optional field that allows the caller to
+	// specify custom data to be associated with the channel.
+	CustomChannelData []byte
 }
 
 // prepareOpenChannel waits for both nodes to be synced to chain and returns an
@@ -1032,6 +1036,7 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 		FundMax:            p.FundMax,
 		Memo:               p.Memo,
 		Outpoints:          p.Outpoints,
+		CustomChannelData:  p.CustomChannelData,
 	}
 }
 

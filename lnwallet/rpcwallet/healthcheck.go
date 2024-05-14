@@ -1,32 +1,25 @@
 package rpcwallet
 
 import (
-	"fmt"
+	"context"
 	"time"
-
-	"github.com/lightningnetwork/lnd/lncfg"
 )
 
 // HealthCheck returns a health check function for the given remote signing
 // configuration.
-func HealthCheck(cfg *lncfg.RemoteSigner, timeout time.Duration) func() error {
-	return func() error {
-		conn, err := connectRPC(
-			cfg.RPCHost, cfg.TLSCertPath, cfg.MacaroonPath, timeout,
-		)
-		if err != nil {
-			return fmt.Errorf("error connecting to the remote "+
-				"signing node through RPC: %v", err)
-		}
+func HealthCheck(ctx context.Context, rs RemoteSignerConnection,
+	timeout time.Duration) func() error {
 
-		defer func() {
-			err = conn.Close()
-			if err != nil {
-				log.Warnf("Failed to close health check "+
-					"connection to remote signing node: %v",
-					err)
-			}
-		}()
+	return func() error {
+		ctxt, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+
+		err := rs.Ping(ctxt, timeout)
+		if err != nil {
+			log.Errorf("Remote signer health check failed: %v", err)
+
+			return err
+		}
 
 		return nil
 	}

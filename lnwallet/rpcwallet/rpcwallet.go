@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"crypto/x509"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -31,12 +29,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/macaroons"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
-	"gopkg.in/macaroon.v2"
 )
 
 var (
@@ -1320,56 +1314,6 @@ func extractSignature(in *psbt.PInput,
 		return nil, fmt.Errorf("can't extract signature, unsupported "+
 			"signing method: %v", signMethod)
 	}
-}
-
-// connectRPC tries to establish an RPC connection to the given host:port with
-// the supplied certificate and macaroon.
-func connectRPC(hostPort, tlsCertPath, macaroonPath string,
-	timeout time.Duration) (*grpc.ClientConn, error) {
-
-	certBytes, err := os.ReadFile(tlsCertPath)
-	if err != nil {
-		return nil, fmt.Errorf("error reading TLS cert file %v: %w",
-			tlsCertPath, err)
-	}
-
-	cp := x509.NewCertPool()
-	if !cp.AppendCertsFromPEM(certBytes) {
-		return nil, fmt.Errorf("credentials: failed to append " +
-			"certificate")
-	}
-
-	macBytes, err := os.ReadFile(macaroonPath)
-	if err != nil {
-		return nil, fmt.Errorf("error reading macaroon file %v: %w",
-			macaroonPath, err)
-	}
-	mac := &macaroon.Macaroon{}
-	if err := mac.UnmarshalBinary(macBytes); err != nil {
-		return nil, fmt.Errorf("error decoding macaroon: %w", err)
-	}
-
-	macCred, err := macaroons.NewMacaroonCredential(mac)
-	if err != nil {
-		return nil, fmt.Errorf("error creating creds: %w", err)
-	}
-
-	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(
-			cp, "",
-		)),
-		grpc.WithPerRPCCredentials(macCred),
-		grpc.WithBlock(),
-	}
-	ctxt, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	conn, err := grpc.DialContext(ctxt, hostPort, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("unable to connect to RPC server: %w",
-			err)
-	}
-
-	return conn, nil
 }
 
 // packetFromTx creates a PSBT from a tx that potentially already contains

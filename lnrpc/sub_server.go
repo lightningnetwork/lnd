@@ -32,6 +32,13 @@ type SubServer interface {
 	// Name returns a unique string representation of the sub-server. This
 	// can be used to identify the sub-server and also de-duplicate them.
 	Name() string
+
+	// InjectDependencies populates the sub-server's dependencies using the
+	// passed SubServerConfigDispatcher. If the finalizeDependencies boolean
+	// is true, then the sub-server should finalize its dependencies and
+	// return an error if any required dependencies are missing.
+	InjectDependencies(subCfgs SubServerConfigDispatcher,
+		finalizeDependencies bool) error
 }
 
 // GrpcHandler is the interface that should be registered with the root gRPC
@@ -53,13 +60,10 @@ type GrpcHandler interface {
 	RegisterWithRestServer(context.Context, *runtime.ServeMux, string,
 		[]grpc.DialOption) error
 
-	// CreateSubServer populates the subserver's dependencies using the
-	// passed SubServerConfigDispatcher. This method should fully
-	// initialize the sub-server instance, making it ready for action. It
-	// returns the macaroon permissions that the sub-server wishes to pass
-	// on to the root server for all methods routed towards it.
-	CreateSubServer(subCfgs SubServerConfigDispatcher) (SubServer,
-		MacaroonPerms, error)
+	// CreateSubServer creates an instance of the sub-server, and returns
+	// the macaroon permissions that the sub-server wishes to pass on to the
+	// root server for all methods routed towards it.
+	CreateSubServer() (SubServer, MacaroonPerms, error)
 }
 
 // SubServerConfigDispatcher is an interface that all sub-servers will use to

@@ -94,6 +94,18 @@ var (
 		"/lnrpc.State/SubscribeState": {},
 		"/lnrpc.State/GetState":       {},
 	}
+
+	// walletUnlockedStartupPermissions defines the methods and macaroon
+	// permissions that remain available while the wallet is unlocked but
+	// the full RPC server is still starting. As the user may be waiting
+	// for a remote signer to connect during this state, transitioning to
+	// the next state may take some time.
+	walletUnlockedStartupPermissions = map[string][]bakery.Op{
+		"/lnrpc.Lightning/StopDaemon": {{
+			Entity: "info",
+			Action: "write",
+		}},
+	}
 )
 
 // InterceptorChain is a struct that can be added to the running GRPC server,
@@ -660,10 +672,23 @@ func (r *InterceptorChain) checkMacaroon(ctx context.Context,
 
 	r.RLock()
 	uriPermissions, ok := r.permissionMap[fullMethod]
+	state := r.state
 	r.RUnlock()
 	if !ok {
-		return fmt.Errorf("%s: unknown permissions required for method",
-			fullMethod)
+		if state == walletUnlocked {
+			// The wallet-unlocked startup window can expose a
+			// small list of methods before the full RPC permission
+			// map is populated. Fall back to those known
+			// permissions so macaroon validation can still succeed
+			// for them.
+			uriPermissions, ok =
+				walletUnlockedStartupPermissions[fullMethod]
+		}
+
+		if !ok {
+			return fmt.Errorf("%s: unknown permissions required "+
+				"for method", fullMethod)
+		}
 	}
 
 	// Find out if there is an external validator registered for
@@ -711,7 +736,9 @@ func (r *InterceptorChain) MacaroonStreamServerInterceptor() grpc.StreamServerIn
 
 // checkRPCState checks whether a call to the given server is allowed in the
 // current RPC state.
-func (r *InterceptorChain) checkRPCState(srv interface{}) error {
+func (r *InterceptorChain) checkRPCState(srv interface{},
+	fullMethod string) error {
+
 	// The StateService is being accessed, we allow the call regardless of
 	// the current state.
 	_, ok := srv.(lnrpc.StateServer)
@@ -752,7 +779,12 @@ func (r *InterceptorChain) checkRPCState(srv interface{}) error {
 			return ErrWalletUnlocked
 		}
 
-		return ErrRPCStarting
+		// Only allow the small set of startup methods that remain
+		// available until the full RPC server is active.
+		_, ok = walletUnlockedStartupPermissions[fullMethod]
+		if !ok {
+			return ErrRPCStarting
+		}
 
 	// If the RPC server or lnd server is active, we allow calls to any
 	// service except the WalletUnlocker.
@@ -775,9 +807,10 @@ func (r *InterceptorChain) rpcStateUnaryServerInterceptor() grpc.UnaryServerInte
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler) (interface{}, error) {
 
-		r.rpcsLog.Debugf("[%v] requested", info.FullMethod)
+		method := info.FullMethod
+		r.rpcsLog.Debugf("[%v] requested", method)
 
-		if err := r.checkRPCState(info.Server); err != nil {
+		if err := r.checkRPCState(info.Server, method); err != nil {
 			return nil, err
 		}
 
@@ -793,7 +826,7 @@ func (r *InterceptorChain) rpcStateStreamServerInterceptor() grpc.StreamServerIn
 
 		r.rpcsLog.Debugf("[%v] requested", info.FullMethod)
 
-		if err := r.checkRPCState(srv); err != nil {
+		if err := r.checkRPCState(srv, info.FullMethod); err != nil {
 			return err
 		}
 

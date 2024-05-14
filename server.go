@@ -2083,28 +2083,46 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 
 	// If remote signing is enabled, add the healthcheck for the remote
 	// signing RPC interface.
-	if s.cfg.RemoteSigner != nil && s.cfg.RemoteSigner.Enable {
+	if s.cfg.RemoteSigner.Enable {
+		// remoteSignerPinger is a local interface added to keep
+		// dependencies narrow: for the liveness probe we only need
+		// the ability to ping the remote signer, which is done through
+		// the rpcwallet.RPCKeyRing.Ping function. Avoiding a concrete
+		// *rpcwallet.RPCKeyRing dependency keeps WalletController
+		// encapsulation intact.
+		type remoteSignerPinger interface {
+			Ping(context.Context, time.Duration) error
+		}
+
+		rsPinger, ok := cc.Wc.(remoteSignerPinger)
+		if !ok {
+			return errors.New("incorrect WalletController type, " +
+				"expected remote signer pinger")
+		}
+
+		innerTimeout := cfg.HealthChecks.RemoteSigner.Timeout
+
 		// Because we have two cascading timeouts here, we need to add
 		// some slack to the "outer" one of them in case the "inner"
 		// returns exactly on time.
-		overhead := time.Millisecond * 10
+		outerTimeout := innerTimeout + time.Millisecond*10
 
-		remoteSignerConnectionCheck := healthcheck.NewObservation(
+		rsConnectionCheck := healthcheck.NewObservation(
 			"remote signer connection",
 			rpcwallet.HealthCheck(
-				s.cfg.RemoteSigner,
-
+				ctx,
 				// For the health check we might to be even
 				// stricter than the initial/normal connect, so
-				// we use the health check timeout here.
-				cfg.HealthChecks.RemoteSigner.Timeout,
+				// we use the health check timeout.
+				innerTimeout,
+				rsPinger.Ping,
 			),
 			cfg.HealthChecks.RemoteSigner.Interval,
-			cfg.HealthChecks.RemoteSigner.Timeout+overhead,
+			outerTimeout,
 			cfg.HealthChecks.RemoteSigner.Backoff,
 			cfg.HealthChecks.RemoteSigner.Attempts,
 		)
-		checks = append(checks, remoteSignerConnectionCheck)
+		checks = append(checks, rsConnectionCheck)
 	}
 
 	// If we have a leader elector, we add a health check to ensure we are

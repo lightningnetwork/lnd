@@ -24,48 +24,96 @@ var remoteSignerTestCases = []*lntest.TestCase{
 		TestFunc: testRemoteSignerRandomSeed,
 	},
 	{
+		Name:     "random seed outbound",
+		TestFunc: testRemoteSignerRandomSeedOutbound,
+	},
+	{
 		Name:     "account import",
 		TestFunc: testRemoteSignerAccountImport,
+	},
+	{
+		Name:     "account import outbound",
+		TestFunc: testRemoteSignerAccountImportOutbound,
 	},
 	{
 		Name:     "channel open",
 		TestFunc: testRemoteSignerChannelOpen,
 	},
 	{
+		Name:     "channel open outbound",
+		TestFunc: testRemoteSignerChannelOpenOutbound,
+	},
+	{
 		Name:     "funding input types",
 		TestFunc: testRemoteSignerChannelFundingInputTypes,
+	},
+	{
+		Name:     "funding input types outbound",
+		TestFunc: testRemoteSignerChannelFundingInputTypesOutbound,
 	},
 	{
 		Name:     "funding async payments",
 		TestFunc: testRemoteSignerAsyncPayments,
 	},
 	{
+		Name:     "funding async payments outbound",
+		TestFunc: testRemoteSignerAsyncPaymentsOutbound,
+	},
+	{
 		Name:     "funding async payments taproot",
 		TestFunc: testRemoteSignerAsyncPaymentsTaproot,
+	},
+	{
+		Name:     "funding async payments taproot outbound",
+		TestFunc: testRemoteSignerAsyncPaymentsTaprootOutbound,
 	},
 	{
 		Name:     "shared key",
 		TestFunc: testRemoteSignerSharedKey,
 	},
 	{
+		Name:     "shared key outbound",
+		TestFunc: testRemoteSignerSharedKeyOutbound,
+	},
+	{
 		Name:     "bump fee",
 		TestFunc: testRemoteSignerBumpFee,
+	},
+	{
+		Name:     "bump fee outbound",
+		TestFunc: testRemoteSignerBumpFeeOutbound,
 	},
 	{
 		Name:     "psbt",
 		TestFunc: testRemoteSignerPSBT,
 	},
 	{
+		Name:     "psbt outbound",
+		TestFunc: testRemoteSignerPSBTOutbound,
+	},
+	{
 		Name:     "sign output raw",
 		TestFunc: testRemoteSignerSignOutputRaw,
+	},
+	{
+		Name:     "sign output raw outbound",
+		TestFunc: testRemoteSignerSignOutputRawOutbound,
 	},
 	{
 		Name:     "verify msg",
 		TestFunc: testRemoteSignerSignVerifyMsg,
 	},
 	{
+		Name:     "verify msg outbound",
+		TestFunc: testRemoteSignerSignVerifyMsgOutbound,
+	},
+	{
 		Name:     "taproot",
 		TestFunc: testRemoteSignerTaproot,
+	},
+	{
+		Name:     "taproot outbound",
+		TestFunc: testRemoteSignerTaprootOutbound,
 	},
 }
 
@@ -115,10 +163,11 @@ type remoteSignerTestCase struct {
 	fn         func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode)
 }
 
-// prepareRemoteSignerTest prepares a test case for the remote signer test
-// suite by creating three nodes.
-func prepareRemoteSignerTest(ht *lntest.HarnessTest, tc remoteSignerTestCase) (
-	*node.HarnessNode, *node.HarnessNode, *node.HarnessNode) {
+// prepareInboundRemoteSignerTest prepares a test case using an inbound remote
+// signer for the test suite by creating three nodes.
+func prepareInboundRemoteSignerTest(ht *lntest.HarnessTest,
+	tc remoteSignerTestCase) (*node.HarnessNode, *node.HarnessNode,
+	*node.HarnessNode) {
 
 	// Signer is our signing node and has the wallet with the full master
 	// private key. We test that we can create the watch-only wallet from
@@ -198,24 +247,164 @@ func prepareRemoteSignerTest(ht *lntest.HarnessTest, tc remoteSignerTestCase) (
 	return signer, watchOnly, carol
 }
 
-// testRemoteSignerRandomSeed tests that a watch-only wallet can use a remote
-// signing wallet to perform any signing or ECDH operations.
-func testRemoteSignerRandomSeed(ht *lntest.HarnessTest) {
-	tc := remoteSignerTestCase{
-		name:       "random seed",
+// prepareInboundRemoteSignerTest prepares a test case using an outbound remote
+// signer for the test suite by creating three nodes.
+func prepareOutboundRemoteSignerTest(ht *lntest.HarnessTest,
+	tc remoteSignerTestCase) (*node.HarnessNode, *node.HarnessNode,
+	*node.HarnessNode) {
+
+	// Signer is our signing node and has the wallet with the full
+	// master private key. We test that we can create the watch-only
+	// wallet from the exported accounts but also from a static key
+	// to make sure the derivation of the account public keys is
+	// correct in both cases.
+	password := []byte("itestpassword")
+	var (
+		signerNodePubKey  = nodePubKey
+		watchOnlyAccounts = deriveCustomScopeAccounts(ht.T)
+		signer            *node.HarnessNode
+		err               error
+	)
+
+	var commitArgs []string
+	if tc.commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		commitArgs = lntest.NodeArgsForCommitType(
+			tc.commitType,
+		)
+	}
+
+	// WatchOnly is the node that has a watch-only wallet and uses
+	// the Signer node for any operation that requires access to
+	// private keys. We use the outbound signer type here, meaning
+	// that the watch-only node expects the signer to make an
+	// outbound connection to it.
+	watchOnly := ht.CreateNewNode(
+		"WatchOnly", append([]string{
+			"--remotesigner.enable",
+			"--remotesigner.allowinboundconnection",
+			"--remotesigner.timeout=30s",
+			"--remotesigner.requesttimeout=30s",
+		}, commitArgs...),
+		password,
+	)
+
+	// As the signer node will make an outbound connection to the
+	// watch-only node, we must specify the watch-only node's RPC
+	// connection details in the signer's configuration.
+	signerArgs := []string{
+		"--watchonlynode.enable",
+		"--watchonlynode.timeout=30s",
+		"--watchonlynode.requesttimeout=10s",
+		fmt.Sprintf(
+			"--watchonlynode.rpchost=localhost:%d",
+			watchOnly.Cfg.RPCPort,
+		),
+		fmt.Sprintf(
+			"--watchonlynode.tlscertpath=%s",
+			watchOnly.Cfg.TLSCertPath,
+		),
+		fmt.Sprintf(
+			"--watchonlynode.macaroonpath=%s",
+			watchOnly.Cfg.AdminMacPath,
+		),
+	}
+
+	if !tc.randomSeed {
+		signer = ht.RestoreNodeWithSeed(
+			"Signer", signerArgs, password, nil, rootKey, 0,
+			nil,
+		)
+	} else {
+		signer = ht.NewNode("Signer", signerArgs)
+		signerNodePubKey = signer.PubKeyStr
+
+		rpcAccts := signer.RPC.ListAccounts(
+			&walletrpc.ListAccountsRequest{},
+		)
+
+		watchOnlyAccounts, err = walletrpc.AccountsToWatchOnly(
+			rpcAccts.Accounts,
+		)
+		require.NoError(ht, err)
+	}
+
+	// As the watch-only node will not fully start until the signer
+	// node connects to it, we need to start the watch-only node
+	// after having started the signer node.
+	ht.StartWatchOnly(watchOnly, "WatchOnly", password,
+		&lnrpc.WatchOnly{
+			MasterKeyBirthdayTimestamp: 0,
+			MasterKeyFingerprint:       nil,
+			Accounts:                   watchOnlyAccounts,
+		},
+	)
+
+	resp := watchOnly.RPC.GetInfo()
+	require.Equal(ht, signerNodePubKey, resp.IdentityPubkey)
+
+	if tc.sendCoins {
+		ht.FundCoins(btcutil.SatoshiPerBitcoin, watchOnly)
+		ht.AssertWalletAccountBalance(
+			watchOnly, "default",
+			btcutil.SatoshiPerBitcoin, 0,
+		)
+	}
+
+	carol := ht.NewNode("carol", commitArgs)
+	ht.EnsureConnected(watchOnly, carol)
+
+	return signer, watchOnly, carol
+}
+
+func executeRemoteSignerTestCase(ht *lntest.HarnessTest,
+	tc remoteSignerTestCase, isOutbound bool) {
+
+	var watchOnly, carol *node.HarnessNode
+
+	if isOutbound {
+		_, watchOnly, carol = prepareOutboundRemoteSignerTest(ht, tc)
+	} else {
+		_, watchOnly, carol = prepareInboundRemoteSignerTest(ht, tc)
+	}
+
+	tc.fn(ht, watchOnly, carol)
+}
+
+func randomSeedTestCase(isOutbound bool) remoteSignerTestCase {
+	tName := "random seed"
+	if isOutbound {
+		tName += " outbound"
+	}
+
+	return remoteSignerTestCase{
+		name:       tName,
 		randomSeed: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			// Nothing more to test here.
 		},
 	}
-
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
 }
 
-func testRemoteSignerAccountImport(ht *lntest.HarnessTest) {
-	tc := remoteSignerTestCase{
-		name: "account import",
+// testRemoteSignerRandomSeed tests that a watch-only wallet can use a remote
+// signing wallet to perform any signing or ECDH operations.
+func testRemoteSignerRandomSeed(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, randomSeedTestCase(false), false)
+}
+
+// testRemoteSignerRandomSeed tests that a watch-only wallet can use an outbound
+// remote signing wallet to perform any signing or ECDH operations.
+func testRemoteSignerRandomSeedOutbound(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, randomSeedTestCase(true), true)
+}
+
+func accountImportTestCase(isOutbound bool) remoteSignerTestCase {
+	tName := "account import"
+	if isOutbound {
+		tName += " outbound"
+	}
+
+	return remoteSignerTestCase{
+		name: tName,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runWalletImportAccountScenario(
 				tt, walletrpc.AddressType_WITNESS_PUBKEY_HASH,
@@ -223,53 +412,97 @@ func testRemoteSignerAccountImport(ht *lntest.HarnessTest) {
 			)
 		},
 	}
-
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
 }
 
-func testRemoteSignerChannelOpen(ht *lntest.HarnessTest) {
-	tc := remoteSignerTestCase{
-		name:      "basic channel open close",
+func testRemoteSignerAccountImport(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, accountImportTestCase(false), false)
+}
+
+func testRemoteSignerAccountImportOutbound(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, accountImportTestCase(true), true)
+}
+
+func channelOpenTestCase(isOutbound bool) remoteSignerTestCase {
+	tName := "basic channel open close"
+	if isOutbound {
+		tName += " outbound"
+	}
+
+	return remoteSignerTestCase{
+		name:      tName,
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runBasicChannelCreationAndUpdates(tt, wo, carol)
 		},
 	}
-
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
 }
 
-func testRemoteSignerChannelFundingInputTypes(ht *lntest.HarnessTest) {
-	tc := remoteSignerTestCase{
-		name:      "channel funding input types",
+func testRemoteSignerChannelOpen(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, channelOpenTestCase(false), false)
+}
+
+func testRemoteSignerChannelOpenOutbound(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, channelOpenTestCase(true), true)
+}
+
+func channelFundingInputTypesTestCase(isOutbound bool) remoteSignerTestCase {
+	tName := "channel funding input types"
+	if isOutbound {
+		tName += " outbound"
+	}
+
+	return remoteSignerTestCase{
+		name:      tName,
 		sendCoins: false,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runChannelFundingInputTypes(tt, carol, wo)
 		},
 	}
-
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
 }
 
-func testRemoteSignerAsyncPayments(ht *lntest.HarnessTest) {
-	tc := remoteSignerTestCase{
-		name:      "async payments",
+func testRemoteSignerChannelFundingInputTypes(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(
+		ht, channelFundingInputTypesTestCase(false), false,
+	)
+}
+
+func testRemoteSignerChannelFundingInputTypesOutbound(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(
+		ht, channelFundingInputTypesTestCase(true), true,
+	)
+}
+
+func asyncPaymentsTestCase(isOutbound bool) remoteSignerTestCase {
+	tName := "async payments"
+	if isOutbound {
+		tName += " outbound"
+	}
+
+	return remoteSignerTestCase{
+		name:      tName,
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runAsyncPayments(tt, wo, carol, nil)
 		},
 	}
-
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
 }
 
-func testRemoteSignerAsyncPaymentsTaproot(ht *lntest.HarnessTest) {
-	tc := remoteSignerTestCase{
-		name:      "async payments taproot",
+func testRemoteSignerAsyncPayments(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, asyncPaymentsTestCase(false), false)
+}
+
+func testRemoteSignerAsyncPaymentsOutbound(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, asyncPaymentsTestCase(true), true)
+}
+
+func asyncPaymentsTaprootTestCase(isOutbound bool) remoteSignerTestCase {
+	tName := "async payments taproot"
+	if isOutbound {
+		tName += " outbound"
+	}
+
+	return remoteSignerTestCase{
+		name:      tName,
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			commitType := lnrpc.CommitmentType_SIMPLE_TAPROOT
@@ -280,39 +513,75 @@ func testRemoteSignerAsyncPaymentsTaproot(ht *lntest.HarnessTest) {
 		},
 		commitType: lnrpc.CommitmentType_SIMPLE_TAPROOT,
 	}
-
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
 }
 
-func testRemoteSignerSharedKey(ht *lntest.HarnessTest) {
-	tc := remoteSignerTestCase{
-		name: "shared key",
+func testRemoteSignerAsyncPaymentsTaproot(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(
+		ht, asyncPaymentsTaprootTestCase(false), false,
+	)
+}
+
+func testRemoteSignerAsyncPaymentsTaprootOutbound(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(
+		ht, asyncPaymentsTaprootTestCase(true), true,
+	)
+}
+
+func sharedKeyTestCase(isOutbound bool) remoteSignerTestCase {
+	tName := "shared key"
+	if isOutbound {
+		tName += " outbound"
+	}
+
+	return remoteSignerTestCase{
+		name: tName,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runDeriveSharedKey(tt, wo)
 		},
 	}
-
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
 }
 
-func testRemoteSignerBumpFee(ht *lntest.HarnessTest) {
-	tc := remoteSignerTestCase{
-		name:      "bumpfee",
+func testRemoteSignerSharedKey(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, sharedKeyTestCase(false), false)
+}
+
+func testRemoteSignerSharedKeyOutbound(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, sharedKeyTestCase(true), true)
+}
+
+func bumpFeeTestCase(isOutbound bool) remoteSignerTestCase {
+	tName := "bumpfee"
+	if isOutbound {
+		tName += " outbound"
+	}
+
+	return remoteSignerTestCase{
+		name:      tName,
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runBumpFee(tt, wo)
 		},
 	}
-
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
 }
 
-func testRemoteSignerPSBT(ht *lntest.HarnessTest) {
-	tc := remoteSignerTestCase{
-		name:       "psbt",
+func testRemoteSignerBumpFee(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, bumpFeeTestCase(false), false)
+}
+
+func testRemoteSignerBumpFeeOutbound(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, bumpFeeTestCase(true), true)
+}
+
+func psbtTestCase(ht *lntest.HarnessTest,
+	isOutbound bool) remoteSignerTestCase {
+
+	tName := "psbt"
+	if isOutbound {
+		tName += " outbound"
+	}
+
+	return remoteSignerTestCase{
+		name:       tName,
 		randomSeed: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runPsbtChanFundingWithNodes(
@@ -330,40 +599,68 @@ func testRemoteSignerPSBT(ht *lntest.HarnessTest) {
 			runFundAndSignPsbt(ht, wo)
 		},
 	}
-
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
 }
 
-func testRemoteSignerSignOutputRaw(ht *lntest.HarnessTest) {
-	tc := remoteSignerTestCase{
-		name:      "sign output raw",
+func testRemoteSignerPSBT(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, psbtTestCase(ht, false), false)
+}
+
+func testRemoteSignerPSBTOutbound(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, psbtTestCase(ht, true), true)
+}
+
+func signOutputRawTestCase(isOutbound bool) remoteSignerTestCase {
+	tName := "sign output raw"
+	if isOutbound {
+		tName += " outbound"
+	}
+
+	return remoteSignerTestCase{
+		name:      tName,
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runSignOutputRaw(tt, wo)
 		},
 	}
-
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
 }
 
-func testRemoteSignerSignVerifyMsg(ht *lntest.HarnessTest) {
-	tc := remoteSignerTestCase{
-		name:      "sign verify msg",
+func testRemoteSignerSignOutputRaw(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, signOutputRawTestCase(false), false)
+}
+
+func testRemoteSignerSignOutputRawOutbound(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, signOutputRawTestCase(true), true)
+}
+
+func signVerifyMsgTestCase(isOutbound bool) remoteSignerTestCase {
+	tName := "sign verify msg"
+	if isOutbound {
+		tName += " outbound"
+	}
+	return remoteSignerTestCase{
+		name:      tName,
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runSignVerifyMessage(tt, wo)
 		},
 	}
-
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
 }
 
-func testRemoteSignerTaproot(ht *lntest.HarnessTest) {
-	tc := remoteSignerTestCase{
-		name:       "taproot",
+func testRemoteSignerSignVerifyMsg(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, signVerifyMsgTestCase(false), false)
+}
+
+func testRemoteSignerSignVerifyMsgOutbound(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, signVerifyMsgTestCase(true), true)
+}
+
+func taprootTestCase(isOutbound bool) remoteSignerTestCase {
+	tName := "taproot"
+	if isOutbound {
+		tName += " outbound"
+	}
+	return remoteSignerTestCase{
+		name:       tName,
 		sendCoins:  true,
 		randomSeed: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
@@ -389,9 +686,14 @@ func testRemoteSignerTaproot(ht *lntest.HarnessTest) {
 			}
 		},
 	}
+}
 
-	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
-	tc.fn(ht, watchOnly, carol)
+func testRemoteSignerTaproot(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, taprootTestCase(false), false)
+}
+
+func testRemoteSignerTaprootOutbound(ht *lntest.HarnessTest) {
+	executeRemoteSignerTestCase(ht, taprootTestCase(true), true)
 }
 
 // deriveCustomScopeAccounts derives the first 255 default accounts of the custom lnd

@@ -1414,6 +1414,21 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(*req)
 		},
+		MsgUpdateFulfillHTLC: func(v []reflect.Value, r *rand.Rand) {
+			req := UpdateFulfillHTLC{
+				ID: r.Uint64(),
+			}
+
+			_, err := r.Read(req.ChanID[:])
+			require.NoError(t, err)
+
+			_, err = r.Read(req.PaymentPreimage[:])
+			require.NoError(t, err)
+
+			req.CustomRecords = randCustomRecords(t, r)
+
+			v[0] = reflect.ValueOf(req)
+		},
 	}
 
 	// With the above types defined, we'll now generate a slice of

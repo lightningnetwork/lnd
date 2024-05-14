@@ -1436,9 +1436,13 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 
 // findCommitmentDeadlineAndValue finds the deadline (relative block height)
 // for a commitment transaction by extracting the minimum CLTV from its HTLCs.
-// From our PoV, the deadline is defined to be the smaller of,
-//   - the least CLTV from outgoing HTLCs,  or,
-//   - the least CLTV from incoming HTLCs if the preimage is available.
+// From our PoV, the deadline delta is defined to be the smaller of,
+//   - half of the least CLTV from outgoing HTLCs' corresponding incoming
+//     HTLCs,  or,
+//   - half of the least CLTV from incoming HTLCs if the preimage is available.
+//
+// We use half of the CTLV value to ensure that we have enough time to sweep
+// the second-level HTLCs.
 //
 // It also finds the total value that are time-sensitive, which is the sum of
 // all the outgoing HTLCs plus incoming HTLCs whose preimages are known. It
@@ -1468,10 +1472,24 @@ func (c *ChannelArbitrator) findCommitmentDeadlineAndValue(heightHint uint32,
 		}
 
 		value := htlc.Amt.ToSatoshis()
-		totalValue += value
 
-		if htlc.RefundTimeout < deadlineMinHeight {
-			deadlineMinHeight = htlc.RefundTimeout
+		// Find the expiry height for this outgoing HTLC's incoming
+		// HTLC.
+		deadlineOpt := c.cfg.FindOutgoingHTLCDeadline(htlc)
+
+		// The deadline is default to the current deadlineMinHeight,
+		// and it's overwritten when it's not none.
+		deadline := deadlineMinHeight
+		deadlineOpt.WhenSome(func(d int32) {
+			deadline = uint32(d)
+
+			// We only consider the value is under protection when
+			// it's time-sensitive.
+			totalValue += value
+		})
+
+		if deadline < deadlineMinHeight {
+			deadlineMinHeight = deadline
 
 			log.Tracef("ChannelArbitrator(%v): outgoing HTLC has "+
 				"deadline=%v, value=%v", c.cfg.ChanPoint,
@@ -1521,7 +1539,7 @@ func (c *ChannelArbitrator) findCommitmentDeadlineAndValue(heightHint uint32,
 	//       * none of the HTLCs are preimageAvailable.
 	//   - when our deadlineMinHeight is no greater than the heightHint,
 	//     which means we are behind our schedule.
-	deadline := deadlineMinHeight - heightHint
+	var deadline uint32
 	switch {
 	// When we couldn't find a deadline height from our HTLCs, we will fall
 	// back to the default value as there's no time pressure here.
@@ -1535,6 +1553,11 @@ func (c *ChannelArbitrator) findCommitmentDeadlineAndValue(heightHint uint32,
 			"deadlineMinHeight=%d, heightHint=%d",
 			c.cfg.ChanPoint, deadlineMinHeight, heightHint)
 		deadline = 1
+
+	// Use half of the deadline delta, and leave the other half to be used
+	// to sweep the HTLCs.
+	default:
+		deadline = (deadlineMinHeight - heightHint) / 2
 	}
 
 	// Calculate the value left after subtracting the budget used for
@@ -2800,7 +2823,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// state, so we'll get the most up to date signals to we can
 		// properly do our job.
 		case signalUpdate := <-c.signalUpdates:
-			log.Tracef("ChannelArbitrator(%v) got new signal "+
+			log.Tracef("ChannelArbitrator(%v): got new signal "+
 				"update!", c.cfg.ChanPoint)
 
 			// We'll update the ShortChannelID.

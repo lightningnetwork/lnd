@@ -536,7 +536,11 @@ var allTestCases = []*lntest.TestCase{
 	},
 	{
 		Name:     "remote signer",
-		TestFunc: testRemoteSigner,
+		TestFunc: testInboundRemoteSigner,
+	},
+	{
+		Name:     "outbound remote signer",
+		TestFunc: testOutboundRemoteSigner,
 	},
 	{
 		Name:     "taproot coop close",

@@ -968,6 +968,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				inboundFee,
 				fakeHopHintCapacity,
 				reverseEdge.edge.IntermediatePayloadSize,
+				reverseEdge.edge.BlindedPayment(),
 			)
 		}
 

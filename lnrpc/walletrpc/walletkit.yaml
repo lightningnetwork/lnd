@@ -79,3 +79,6 @@ http:
     - selector: walletrpc.WalletKit.BumpForceCloseFee
       post: "/v2/wallet/BumpForceCloseFee"
       body: "*"
+    - selector: walletrpc.WalletKit.SignCoordinatorStreams
+      post: "/v2/wallet/remotesigner-stream"
+      body: "*"

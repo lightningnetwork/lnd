@@ -1569,3 +1569,89 @@ func TestHandlePeerStorage(t *testing.T) {
 		})
 	}
 }
+
+// TestPeerStorageWriter tests the peerStorageWriter function.
+func TestPeerStorageWriter(t *testing.T) {
+	harness := createTestPeer(t)
+	peer := harness.peer
+
+	// Start the function in a goroutine to test its functionality in
+	// another thread. A successful test means the function started and
+	// performed as expected.
+	peer.wg.Add(1)
+	go peer.peerStorageWriter()
+
+	// Update the backupData every quarter of the backupUpdateInterval.
+	// We do this to test that only the most recent update within this
+	// interval is persisted. This also tests that indeed, the storage is
+	// delayed.
+	interval := backupUpdateInterval / 4
+
+	// We would update the backupData eight times at every quarter of the
+	// backupUpdateInterval. That means this process would go on for
+	// 2 times the backupUpdateInterval duration.
+	for i := 0; i < 8; i++ {
+		ti := time.NewTicker(interval)
+		select {
+		case <-ti.C:
+			peer.bMtx.L.Lock()
+			peer.backupData = []byte{byte(i)}
+			peer.bMtx.Signal()
+			peer.bMtx.L.Unlock()
+
+		case <-time.After(1 * time.Second):
+			t.Fatalf("did not receive ticker as expected.")
+		}
+	}
+
+	// We expect to persist initial backup data at index 0. After one full
+	// backupUpdateInterval, the next data to be persisted is at index 4.
+	// Between data at index 4 and the final data at index 7, only 3/4 of
+	// the backupUpdateInterval elapses. The remaining interval is completed
+	// with this sleep command, so that the data at index 4 would be
+	// persisted.
+	time.Sleep(backupUpdateInterval / 4)
+
+	retrievedData, err := peer.cfg.PeerDataStore.Retrieve()
+	require.NoError(t, err)
+
+	// We expect one data persisted within a backupUpdateInterval.
+	// Since we sent updates within a duration of two times the
+	// backupUpdateInterval, we expect to have persisted two updates
+	// only.
+	require.Len(t, retrievedData, 2)
+
+	// Convert the data to its corresponding integer values.
+	convToIntData := func(retrievedData []byte) []int {
+		return fn.Map(func(b byte) int {
+			return int(b)
+		}, retrievedData)
+	}
+
+	// The backup data was updated eight times, each annotated with its
+	// index. Due to the delay, we expect only the data from the zeroth and
+	// fourth updates to be persisted in that order.
+	require.Equal(t, []int{0, 4}, convToIntData(retrievedData))
+
+	// Test that we store remaining data on quit.
+	close(peer.quit)
+	peer.bMtx.Signal()
+
+	// The signal for data at index 7 wasn't picked up because it
+	// was sent during the storage delay for data at index 4.
+	// After sending another signal, we expect the
+	// `peerStorageWriter` to now pick it up, then bypass the
+	// storage delay and persist it immediately as we have now
+	// closed the peer's quit channel as well.
+	//
+	// Wait a bit to allow for storing before we retrieve.
+	time.Sleep(time.Second / 2)
+	retrievedData, err = peer.cfg.PeerDataStore.Retrieve()
+	require.NoError(t, err)
+
+	require.Len(t, retrievedData, 3)
+	require.Equal(t, []int{0, 4, 7}, convToIntData(retrievedData))
+
+	// Wait for goroutine to exit(good manners).
+	peer.wg.Wait()
+}

@@ -76,6 +76,8 @@ const (
 
 	// ErrorBufferSize is the number of historic peer errors that we store.
 	ErrorBufferSize = 10
+
+	backupUpdateInterval = 1 * time.Second
 )
 
 var (
@@ -518,6 +520,7 @@ type Brontide struct {
 	// backupData is an in-memory store for data that we store for our
 	// peers.
 	backupData lnwire.PeerStorageBlob
+	bMtx       *sync.Cond
 }
 
 // A compile-time check to ensure that Brontide satisfies the lnpeer.Peer interface.
@@ -549,6 +552,7 @@ func NewBrontide(cfg Config) *Brontide {
 		startReady:         make(chan struct{}),
 		quit:               make(chan struct{}),
 		log:                build.NewPrefixLog(logPrefix, peerLog),
+		bMtx:               sync.NewCond(&sync.Mutex{}),
 	}
 
 	var (
@@ -752,10 +756,14 @@ func (p *Brontide) Start() error {
 		return fmt.Errorf("could not start ping manager %w", err)
 	}
 
-	p.wg.Add(4)
+	p.wg.Add(5)
 	go p.queueHandler()
 	go p.writeHandler()
 	go p.channelManager()
+
+	// Initialize peerStorageWriter before readHandler to ensure readiness
+	// for storing `PeerStorage` messages upon receipt.
+	go p.peerStorageWriter()
 	go p.readHandler()
 
 	// Signal to any external processes that the peer is now active.
@@ -775,6 +783,75 @@ func (p *Brontide) Start() error {
 	go p.maybeSendNodeAnn(activeChans)
 
 	return nil
+}
+
+// peerStorageWriter coordinates persisting peer's backup data by delaying its
+// storage from its time of receipt to its time of persistence by the
+// duration specified in the `backupUpdateInterval`.
+func (p *Brontide) peerStorageWriter() {
+	defer p.wg.Done()
+
+	var data []byte
+
+Loop:
+	p.bMtx.L.Lock()
+	for {
+		p.bMtx.Wait()
+
+		// Store the data in a different variable as we are about to
+		// exit lock.
+		data = p.backupData
+		p.bMtx.L.Unlock()
+
+		// Check if we are to exit, now that we are awake.
+		select {
+		case <-p.quit:
+			if data == nil {
+				return
+			}
+
+			// Store the data immediately and exit.
+			err := p.cfg.PeerDataStore.Store(data)
+			if err != nil {
+				peerLog.Warnf("Failed to store peer "+
+					"backup data: %v", err)
+			}
+
+			return
+
+		default:
+		}
+
+		break
+	}
+
+	t := time.NewTicker(backupUpdateInterval)
+
+	select {
+	case <-t.C:
+		// Store the data.
+		err := p.cfg.PeerDataStore.Store(data)
+		if err != nil {
+			peerLog.Criticalf("Failed to store peer "+
+				"backup data: %v", err)
+		}
+
+		goto Loop
+
+	case <-p.quit:
+		if data == nil {
+			return
+		}
+
+		// Store the data immediately and exit.
+		err := p.cfg.PeerDataStore.Store(data)
+		if err != nil {
+			peerLog.Warnf("Failed to store peer backup "+
+				"data: %v", err)
+		}
+
+		return
+	}
 }
 
 // initGossipSync initializes either a gossip syncer or an initial routing
@@ -1285,6 +1362,10 @@ func (p *Brontide) Disconnect(reason error) {
 	p.cfg.Conn.Close()
 
 	close(p.quit)
+
+	// Signal the peerStorageWriter to stop waiting and pick up the close
+	// signal.
+	p.bMtx.Signal()
 
 	if err := p.pingManager.Stop(); err != nil {
 		p.log.Errorf("couldn't stop pingManager during disconnect: %v",
@@ -4210,7 +4291,10 @@ func (p *Brontide) handlePeerStorageMessage(msg *lnwire.PeerStorage) error {
 
 	p.log.Debugf("handling peerbackup for peer(%s)", p)
 
+	p.bMtx.L.Lock()
 	p.backupData = msg.Blob
+	p.bMtx.Signal()
+	p.bMtx.L.Unlock()
 
 	return nil
 }

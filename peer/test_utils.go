@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/rand"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -538,6 +539,46 @@ func (m *mockMessageConn) Close() error {
 	return nil
 }
 
+type mockPeerDataStore struct {
+	data [][]byte
+	mtx  sync.RWMutex
+}
+
+func newMockDataStore() *mockPeerDataStore {
+	return &mockPeerDataStore{}
+}
+
+// Store persists the backup data given to us by peers.
+func (d *mockPeerDataStore) Store(data []byte) error {
+	d.mtx.Lock()
+	defer d.mtx.Unlock()
+
+	d.data = append(d.data, data)
+
+	return nil
+}
+
+// Delete deletes the peer with PeerPub public key from the storage layer.
+func (d *mockPeerDataStore) Delete() error {
+	d.mtx.Lock()
+	defer d.mtx.Unlock()
+
+	d.data = nil
+
+	return nil
+}
+
+// Retrieve obtains data for peer with peerPub public key from the storage
+// layer.
+func (d *mockPeerDataStore) Retrieve() (
+	[]byte, error) {
+
+	d.mtx.RLock()
+	defer d.mtx.RUnlock()
+
+	return fn.Flatten(d.data), nil
+}
+
 // createTestPeer creates a new peer for testing and returns a context struct
 // containing necessary handles and mock objects for conducting tests on peer
 // functionalities.
@@ -708,7 +749,8 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 
 			return nil
 		},
-		PongBuf: make([]byte, lnwire.MaxPongBytes),
+		PongBuf:       make([]byte, lnwire.MaxPongBytes),
+		PeerDataStore: newMockDataStore(),
 	}
 
 	alicePeer := NewBrontide(*cfg)

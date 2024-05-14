@@ -29,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/rpcperms"
@@ -595,13 +596,23 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		multiAcceptor = chanacceptor.NewChainedAcceptor()
 	}
 
+	// Set up the remote signer client. If the
+	// cfg.RemoteSigner.SignerType != lncfg.SignerClientType, this remote
+	// signer client won't run when the server starts.
+	rscBuilder := rpcwallet.NewRemoteSignerClientBuilder(cfg.RemoteSigner)
+
+	rsClient, err := rscBuilder.Build(rpcServer.subServers)
+	if err != nil {
+		return mkErr("unable to create remote signer client: %v", err)
+	}
+
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	server, err := newServer(
 		cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
 		activeChainControl.Cfg.WalletUnlockParams.ChansToRestore,
 		multiAcceptor, torController, tlsManager, leaderElector,
-		implCfg,
+		implCfg, rsClient,
 	)
 	if err != nil {
 		return mkErr("unable to create server: %v", err)

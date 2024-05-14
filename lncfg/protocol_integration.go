@@ -2,6 +2,11 @@
 
 package lncfg
 
+import (
+	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/lnwire"
+)
+
 // ProtocolOptions is a struct that we use to be able to test backwards
 // compatibility of protocol additions, while defaulting to the latest within
 // lnd, or to enable experimental protocol changes.
@@ -60,6 +65,23 @@ type ProtocolOptions struct {
 
 	// NoRouteBlindingOption disables forwarding of payments in blinded routes.
 	NoRouteBlindingOption bool `long:"no-route-blinding" description:"do not forward payments that are a part of a blinded route"`
+
+	// CustomMessage allows the custom message APIs to handle messages with
+	// the provided protocol numbers, which fall outside the custom message
+	// number range.
+	CustomMessage []uint16 `long:"custom-message" description:"allows the custom message apis to send and report messages with the protocol number provided that fall outside of the custom message number range."`
+
+	// CustomInit specifies feature bits to advertise in the node's init
+	// message.
+	CustomInit []uint16 `long:"custom-init" description:"custom feature bits to advertise in the node's init message"`
+
+	// CustomNodeAnn specifies custom feature bits to advertise in the
+	// node's announcement message.
+	CustomNodeAnn []uint16 `long:"custom-nodeann" description:"custom feature bits to advertise in the node's announcement message"`
+
+	// CustomInvoice specifies custom feature bits to advertise in the
+	// node's invoices.
+	CustomInvoice []uint16 `long:"custom-invoice" description:"custom feature bits to advertise in the node's invoices"`
 }
 
 // Wumbo returns true if lnd should permit the creation and acceptance of wumbo
@@ -99,4 +121,30 @@ func (l *ProtocolOptions) NoAnySegwit() bool {
 // NoRouteBlinding returns true if forwarding of blinded payments is disabled.
 func (l *ProtocolOptions) NoRouteBlinding() bool {
 	return l.NoRouteBlindingOption
+}
+
+// CustomMessageOverrides returns the set of protocol messages that we override
+// to allow custom handling.
+func (l ProtocolOptions) CustomMessageOverrides() []uint16 {
+	return l.CustomMessage
+}
+
+// CustomFeatures returns a custom set of feature bits to advertise.
+func (l ProtocolOptions) CustomFeatures() map[feature.Set][]lnwire.FeatureBit {
+	customFeatures := make(map[feature.Set][]lnwire.FeatureBit)
+
+	setFeatures := func(set feature.Set, bits []uint16) {
+		for _, customFeature := range bits {
+			customFeatures[set] = append(
+				customFeatures[set],
+				lnwire.FeatureBit(customFeature),
+			)
+		}
+	}
+
+	setFeatures(feature.SetInit, l.CustomInit)
+	setFeatures(feature.SetNodeAnn, l.CustomNodeAnn)
+	setFeatures(feature.SetInvoice, l.CustomInvoice)
+
+	return customFeatures
 }

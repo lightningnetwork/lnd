@@ -1667,8 +1667,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 
 	// If the experimental protocol options specify any protocol messages
 	// that we want to handle as custom messages, set them now.
-	//nolint:lll
-	customMsg := cfg.ProtocolOptions.ExperimentalProtocol.CustomMessageOverrides()
+	customMsg := cfg.ProtocolOptions.CustomMessageOverrides()
 
 	// We can safely set our custom override values during startup because
 	// startup is blocked on config parsing.

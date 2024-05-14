@@ -539,6 +539,49 @@
         ]
       }
     },
+    "/v2/wallet/remotesigner-stream": {
+      "post": {
+        "summary": "SignCoordinatorStreams dispatches a bi-directional streaming RPC that\nallows a remote signer to connect to lnd and remotely provide the signatures\nrequired for any on-chain related transactions or messages.",
+        "operationId": "WalletKit_SignCoordinatorStreams",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/walletrpcSignCoordinatorRequest"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of walletrpcSignCoordinatorRequest"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": " (streaming inputs)",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/walletrpcSignCoordinatorResponse"
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
     "/v2/wallet/removetx": {
       "post": {
         "summary": "lncli: `wallet removetx`\nRemoveTransaction attempts to remove the provided transaction from the\ninternal transaction store of the wallet.",
@@ -1266,6 +1309,297 @@
           "type": "integer",
           "format": "int32",
           "description": "The precise index of the key being identified."
+        }
+      }
+    },
+    "signrpcMuSig2CleanupRequest": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique ID of the signing session that should be removed/cleaned up."
+        }
+      }
+    },
+    "signrpcMuSig2CleanupResponse": {
+      "type": "object"
+    },
+    "signrpcMuSig2CombineSigRequest": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique ID of the signing session to combine the signatures for."
+        },
+        "other_partial_signatures": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The list of all other participants' partial signatures to add to the current\nsession."
+        }
+      }
+    },
+    "signrpcMuSig2CombineSigResponse": {
+      "type": "object",
+      "properties": {
+        "have_all_signatures": {
+          "type": "boolean",
+          "description": "Indicates whether all partial signatures required to create a final, full\nsignature are known yet. If this is true, then the final_signature field is\nset, otherwise it is empty."
+        },
+        "final_signature": {
+          "type": "string",
+          "format": "byte",
+          "description": "The final, full signature that is valid for the combined public key."
+        }
+      }
+    },
+    "signrpcMuSig2RegisterNoncesRequest": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique ID of the signing session those nonces should be registered with."
+        },
+        "other_signer_public_nonces": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "A list of all public nonces of other signing participants that should be\nregistered."
+        }
+      }
+    },
+    "signrpcMuSig2RegisterNoncesResponse": {
+      "type": "object",
+      "properties": {
+        "have_all_nonces": {
+          "type": "boolean",
+          "description": "Indicates whether all nonces required to start the signing process are known\nnow."
+        }
+      }
+    },
+    "signrpcMuSig2SessionRequest": {
+      "type": "object",
+      "properties": {
+        "key_loc": {
+          "$ref": "#/definitions/signrpcKeyLocator",
+          "description": "The key locator that identifies which key to use for signing."
+        },
+        "all_signer_pubkeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "A list of all public keys (serialized in 32-byte x-only format for v0.4.0\nand 33-byte compressed format for v1.0.0rc2!) participating in the signing\nsession. The list will always be sorted lexicographically internally. This\nmust include the local key which is described by the above key_loc."
+        },
+        "other_signer_public_nonces": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "An optional list of all public nonces of other signing participants that\nmight already be known."
+        },
+        "tweaks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/signrpcTweakDesc"
+          },
+          "description": "A series of optional generic tweaks to be applied to the aggregated\npublic key."
+        },
+        "taproot_tweak": {
+          "$ref": "#/definitions/signrpcTaprootTweakDesc",
+          "description": "An optional taproot specific tweak that must be specified if the MuSig2\ncombined key will be used as the main taproot key of a taproot output\non-chain."
+        },
+        "version": {
+          "$ref": "#/definitions/signrpcMuSig2Version",
+          "description": "The mandatory version of the MuSig2 BIP draft to use. This is necessary to\ndifferentiate between the changes that were made to the BIP while this\nexperimental RPC was already released. Some of those changes affect how the\ncombined key and nonces are created."
+        },
+        "pregenerated_local_nonce": {
+          "type": "string",
+          "format": "byte",
+          "description": "A set of pre generated secret local nonces to use in the musig2 session.\nThis field is optional. This can be useful for protocols that need to send\nnonces ahead of time before the set of signer keys are known. This value\nMUST be 97 bytes and be the concatenation of two CSPRNG generated 32 byte\nvalues and local public key used for signing as specified in the key_loc\nfield."
+        }
+      }
+    },
+    "signrpcMuSig2SessionResponse": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique ID that represents this signing session. A session can be used\nfor producing a signature a single time. If the signing fails for any\nreason, a new session with the same participants needs to be created."
+        },
+        "combined_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The combined public key (in the 32-byte x-only format) with all tweaks\napplied to it. If a taproot tweak is specified, this corresponds to the\ntaproot key that can be put into the on-chain output."
+        },
+        "taproot_internal_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw combined public key (in the 32-byte x-only format) before any tweaks\nare applied to it. If a taproot tweak is specified, this corresponds to the\ninternal key that needs to be put into the witness if the script spend path\nis used."
+        },
+        "local_public_nonces": {
+          "type": "string",
+          "format": "byte",
+          "description": "The two public nonces the local signer uses, combined into a single value\nof 66 bytes. Can be split into the two 33-byte points to get the individual\nnonces."
+        },
+        "have_all_nonces": {
+          "type": "boolean",
+          "description": "Indicates whether all nonces required to start the signing process are known\nnow."
+        },
+        "version": {
+          "$ref": "#/definitions/signrpcMuSig2Version",
+          "description": "The version of the MuSig2 BIP that was used to create the session."
+        }
+      }
+    },
+    "signrpcMuSig2SignRequest": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique ID of the signing session to use for signing."
+        },
+        "message_digest": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte SHA256 digest of the message to sign."
+        },
+        "cleanup": {
+          "type": "boolean",
+          "description": "Cleanup indicates that after signing, the session state can be cleaned up,\nsince another participant is going to be responsible for combining the\npartial signatures."
+        }
+      }
+    },
+    "signrpcMuSig2SignResponse": {
+      "type": "object",
+      "properties": {
+        "local_partial_signature": {
+          "type": "string",
+          "format": "byte",
+          "description": "The partial signature created by the local signer."
+        }
+      }
+    },
+    "signrpcMuSig2Version": {
+      "type": "string",
+      "enum": [
+        "MUSIG2_VERSION_UNDEFINED",
+        "MUSIG2_VERSION_V040",
+        "MUSIG2_VERSION_V100RC2"
+      ],
+      "default": "MUSIG2_VERSION_UNDEFINED",
+      "description": " - MUSIG2_VERSION_UNDEFINED: The default value on the RPC is zero for enums so we need to represent an\ninvalid/undefined version by default to make sure clients upgrade their\nsoftware to set the version explicitly.\n - MUSIG2_VERSION_V040: The version of MuSig2 that lnd 0.15.x shipped with, which corresponds to the\nversion v0.4.0 of the MuSig2 BIP draft.\n - MUSIG2_VERSION_V100RC2: The current version of MuSig2 which corresponds to the version v1.0.0rc2 of\nthe MuSig2 BIP draft."
+    },
+    "signrpcSharedKeyRequest": {
+      "type": "object",
+      "properties": {
+        "ephemeral_pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The ephemeral public key to use for the DH key derivation."
+        },
+        "key_loc": {
+          "$ref": "#/definitions/signrpcKeyLocator",
+          "description": "Deprecated. The optional key locator of the local key that should be used.\nIf this parameter is not set then the node's identity private key will be\nused."
+        },
+        "key_desc": {
+          "$ref": "#/definitions/signrpcKeyDescriptor",
+          "description": "A key descriptor describes the key used for performing ECDH. Either a key\nlocator or a raw public key is expected, if neither is supplied, defaults to\nthe node's identity private key."
+        }
+      }
+    },
+    "signrpcSharedKeyResponse": {
+      "type": "object",
+      "properties": {
+        "shared_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The shared public key, hashed with sha256."
+        }
+      }
+    },
+    "signrpcSignMessageReq": {
+      "type": "object",
+      "properties": {
+        "msg": {
+          "type": "string",
+          "format": "byte",
+          "description": "The message to be signed. When using REST, this field must be encoded as\nbase64."
+        },
+        "key_loc": {
+          "$ref": "#/definitions/signrpcKeyLocator",
+          "description": "The key locator that identifies which key to use for signing."
+        },
+        "double_hash": {
+          "type": "boolean",
+          "description": "Double-SHA256 hash instead of just the default single round."
+        },
+        "compact_sig": {
+          "type": "boolean",
+          "description": "Use the compact (pubkey recoverable) format instead of the raw lnwire\nformat. This option cannot be used with Schnorr signatures."
+        },
+        "schnorr_sig": {
+          "type": "boolean",
+          "description": "Use Schnorr signature. This option cannot be used with compact format."
+        },
+        "schnorr_sig_tap_tweak": {
+          "type": "string",
+          "format": "byte",
+          "title": "The optional Taproot tweak bytes to apply to the private key before creating\na Schnorr signature. The private key is tweaked as described in BIP-341:\nprivKey + h_tapTweak(internalKey || tapTweak)"
+        },
+        "tag": {
+          "type": "string",
+          "format": "byte",
+          "description": "An optional tag that can be provided when taking a tagged hash of a\nmessage. This option can only be used when schnorr_sig is true."
+        }
+      }
+    },
+    "signrpcSignMessageResp": {
+      "type": "object",
+      "properties": {
+        "signature": {
+          "type": "string",
+          "format": "byte",
+          "description": "The signature for the given message in the fixed-size LN wire format."
+        }
+      }
+    },
+    "signrpcTaprootTweakDesc": {
+      "type": "object",
+      "properties": {
+        "script_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The root hash of the tapscript tree if a script path is committed to. If\nthe MuSig2 key put on chain doesn't also commit to a script path (BIP-0086\nkey spend only), then this needs to be empty and the key_spend_only field\nbelow must be set to true. This is required because gRPC cannot\ndifferentiate between a zero-size byte slice and a nil byte slice (both\nwould be serialized the same way). So the extra boolean is required."
+        },
+        "key_spend_only": {
+          "type": "boolean",
+          "description": "Indicates that the above script_root is expected to be empty because this\nis a BIP-0086 key spend only commitment where only the internal key is\ncommitted to instead of also including a script root hash."
+        }
+      }
+    },
+    "signrpcTweakDesc": {
+      "type": "object",
+      "properties": {
+        "tweak": {
+          "type": "string",
+          "format": "byte",
+          "description": "Tweak is the 32-byte value that will modify the public key."
+        },
+        "is_x_only": {
+          "type": "boolean",
+          "description": "Specifies if the target key should be converted to an x-only public key\nbefore tweaking. If true, then the public key will be mapped to an x-only\nkey before the tweaking operation is applied."
         }
       }
     },
@@ -2019,6 +2353,32 @@
         }
       }
     },
+    "walletrpcRegistrationComplete": {
+      "type": "object",
+      "properties": {
+        "signature": {
+          "type": "string",
+          "description": "Holds the signature generated by the watch-only node when signing the\nregistration_challenge provided by the remote signer in SignerRegistration."
+        },
+        "registration_info": {
+          "type": "string",
+          "description": "Contains information about the watch-only lnd that may be useful for the\nremote signer."
+        }
+      }
+    },
+    "walletrpcRegistrationResponse": {
+      "type": "object",
+      "properties": {
+        "registration_complete": {
+          "$ref": "#/definitions/walletrpcRegistrationComplete",
+          "description": "Sent by the watch-only lnd when the remote signer registration is\nsuccessful."
+        },
+        "registration_error": {
+          "type": "string",
+          "description": "Contains details about any errors that occurred during remote signer\nregistration."
+        }
+      }
+    },
     "walletrpcReleaseOutputRequest": {
       "type": "object",
       "properties": {
@@ -2105,6 +2465,110 @@
         }
       }
     },
+    "walletrpcSignCoordinatorRequest": {
+      "type": "object",
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "A unique request ID of a SignCoordinator gRPC request. Useful for mapping\nrequests to responses."
+        },
+        "registration_response": {
+          "$ref": "#/definitions/walletrpcRegistrationResponse",
+          "description": "The Registration Response message is returned by the watch-only lnd as\na response to SignerRegistration message."
+        },
+        "ping": {
+          "type": "boolean",
+          "description": "To ensure that the remote signer is still active and alive, the\nwatch-only lnd can send a Ping message to the remote signer, which\nshould then respond with the respective Pong message."
+        },
+        "shared_key_request": {
+          "$ref": "#/definitions/signrpcSharedKeyRequest",
+          "description": "Requests a shared public key from the remote signer."
+        },
+        "sign_message_req": {
+          "$ref": "#/definitions/signrpcSignMessageReq",
+          "description": "Requests that the remote signer signs the passed message."
+        },
+        "mu_sig2_session_request": {
+          "$ref": "#/definitions/signrpcMuSig2SessionRequest",
+          "description": "Requests a MuSig2 Session of the remote signer."
+        },
+        "mu_sig2_register_nonces_request": {
+          "$ref": "#/definitions/signrpcMuSig2RegisterNoncesRequest",
+          "description": "Requests that the remote signer registers a nonce with the referenced\nMuSig2 Session."
+        },
+        "mu_sig2_sign_request": {
+          "$ref": "#/definitions/signrpcMuSig2SignRequest",
+          "description": "Requests that the remote signer signs the passed message digest with\nthe referenced MuSig2 Session."
+        },
+        "mu_sig2_combine_sig_request": {
+          "$ref": "#/definitions/signrpcMuSig2CombineSigRequest",
+          "description": "Requests that the remote signer combines and adds the passed partial\nsignatures for the referenced MuSig2 Session."
+        },
+        "mu_sig2_cleanup_request": {
+          "$ref": "#/definitions/signrpcMuSig2CleanupRequest",
+          "description": "Requests that the remote signer removes/cleans up the referenced\nMuSig2 session."
+        },
+        "sign_psbt_request": {
+          "$ref": "#/definitions/walletrpcSignPsbtRequest",
+          "description": "Requests that the remote signer signs the passed PSBT."
+        }
+      }
+    },
+    "walletrpcSignCoordinatorResponse": {
+      "type": "object",
+      "properties": {
+        "ref_request_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The request ID this response refers to."
+        },
+        "signer_registration": {
+          "$ref": "#/definitions/walletrpcSignerRegistration",
+          "description": "The Signer Registration message is sent by the remote signer when it\nconnects to the watch-only lnd node, to initialize a handshake between\nthe nodes."
+        },
+        "pong": {
+          "type": "boolean",
+          "description": "To ensure that the remote signer is still active and alive, the\nwatch-only node can send a Ping message to remote signer. This Pong\nmessage should then be sent by the remote signer to respond to the Ping\nmessage."
+        },
+        "shared_key_response": {
+          "$ref": "#/definitions/signrpcSharedKeyResponse",
+          "description": "The remote signer's corresponding response to a Shared Key request."
+        },
+        "sign_message_resp": {
+          "$ref": "#/definitions/signrpcSignMessageResp",
+          "description": "The remote signer's corresponding response to a Sign Message request."
+        },
+        "mu_sig2_session_response": {
+          "$ref": "#/definitions/signrpcMuSig2SessionResponse",
+          "description": "The remote signer's corresponding response to a Mu Sig2 Session\nrequest."
+        },
+        "mu_sig2_register_nonces_response": {
+          "$ref": "#/definitions/signrpcMuSig2RegisterNoncesResponse",
+          "description": "The remote signer's corresponding response to a Mu Sig2 Register Nonces\nrequest."
+        },
+        "mu_sig2_sign_response": {
+          "$ref": "#/definitions/signrpcMuSig2SignResponse",
+          "description": "The remote signer's corresponding response to a Mu Sig2 Sign request."
+        },
+        "mu_sig2_combine_sig_response": {
+          "$ref": "#/definitions/signrpcMuSig2CombineSigResponse",
+          "description": "The remote signer's corresponding response to a Mu Sig2 Combine Sig\nrequest."
+        },
+        "mu_sig2_cleanup_response": {
+          "$ref": "#/definitions/signrpcMuSig2CleanupResponse",
+          "description": "The remote signer's corresponding response to a Mu Sig2 Cleanup\nrequest."
+        },
+        "sign_psbt_response": {
+          "$ref": "#/definitions/walletrpcSignPsbtResponse",
+          "description": "The remote signer's corresponding response to a Sign Psbt request."
+        },
+        "signer_error": {
+          "$ref": "#/definitions/walletrpcSignerError",
+          "description": "If the remote signer encounters an error while processing a request, it\nwill respond with a SignerError message that details the error."
+        }
+      }
+    },
     "walletrpcSignMessageWithAddrRequest": {
       "type": "object",
       "properties": {
@@ -2153,6 +2617,28 @@
             "format": "int64"
           },
           "description": "The indices of signed inputs."
+        }
+      }
+    },
+    "walletrpcSignerError": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string",
+          "description": "Details an error which occurred on remote signer."
+        }
+      }
+    },
+    "walletrpcSignerRegistration": {
+      "type": "object",
+      "properties": {
+        "registration_challenge": {
+          "type": "string",
+          "description": "The registration challenge allows the remote signer to pass data that will\nbe signed by the watch-only lnd. The resulting signature will be returned in\nthe RegistrationResponse message."
+        },
+        "registration_info": {
+          "type": "string",
+          "description": "The registration info contains details about the remote signer that may be\nuseful for the watch-only lnd."
         }
       }
     },

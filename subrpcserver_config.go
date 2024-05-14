@@ -101,8 +101,8 @@ type subRPCServerConfigs struct {
 // within this struct, and populate the items it requires based on the main
 // configuration file, and the chain control.
 //
-// NOTE: This MUST be called before any callers are permitted to execute the
-// FetchConfig method.
+// NOTE: When preparing all sub-servers to be ready to accept RPC calls, this
+// MUST be called before the FetchConfig method is executed.
 func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	cc *chainreg.ChainControl,
 	networkDir string, macService *macaroons.Service,

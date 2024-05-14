@@ -9,6 +9,7 @@ import (
 	"net"
 	"sort"
 	"strconv"
+	"sync/atomic"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -87,6 +88,8 @@ type ServerShell struct {
 //
 // TODO(wilmer): better name?
 type WatchtowerClient struct {
+	injected int32 // To be used atomically.
+
 	// Required by the grpc-gateway/v2 library for forward compatibility.
 	UnimplementedWatchtowerClientServer
 
@@ -102,22 +105,37 @@ var _ WatchtowerClientServer = (*WatchtowerClient)(nil)
 // within this method. If the macaroons we need aren't found in the filepath,
 // then we'll create them on start up. If we're unable to locate, or create the
 // macaroons we need, then we'll return with an error.
-func New(cfg *Config) (*WatchtowerClient, lnrpc.MacaroonPerms, error) {
-	return &WatchtowerClient{cfg: *cfg}, macPermissions, nil
-}
-
-// Start launches any helper goroutines required for the WatchtowerClient to
-// function.
-//
-// NOTE: This is part of the lnrpc.SubWatchtowerClient interface.
-func (c *WatchtowerClient) Start() error {
-	return nil
+func New() (*WatchtowerClient, lnrpc.MacaroonPerms, error) {
+	return &WatchtowerClient{cfg: Config{}}, macPermissions, nil
 }
 
 // Stop signals any active goroutines for a graceful closure.
 //
 // NOTE: This is part of the lnrpc.SubServer interface.
 func (c *WatchtowerClient) Stop() error {
+	return nil
+}
+
+// InjectDependencies populates the sub-server's dependencies. If the
+// finalizeDependencies boolean is true, then the sub-server will finalize its
+// dependencies and return an error if any required dependencies are missing.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (c *WatchtowerClient) InjectDependencies(
+	configRegistry lnrpc.SubServerConfigDispatcher,
+	finalizeDependencies bool) error {
+
+	if finalizeDependencies && atomic.AddInt32(&c.injected, 1) != 1 {
+		return lnrpc.ErrDependenciesFinalized
+	}
+
+	cfg, err := getConfig(configRegistry, finalizeDependencies)
+	if err != nil {
+		return err
+	}
+
+	c.cfg = *cfg
+
 	return nil
 }
 
@@ -160,17 +178,15 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 	return nil
 }
 
-// CreateSubServer populates the subserver's dependencies using the passed
-// SubServerConfigDispatcher. This method should fully initialize the
-// sub-server instance, making it ready for action. It returns the macaroon
-// permissions that the sub-server wishes to pass on to the root server for all
-// methods routed towards it.
+// CreateSubServer creates an instance of the sub-server, and returns the
+// macaroon permissions that the sub-server wishes to pass on to the root server
+// for all methods routed towards it.
 //
 // NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
+func (r *ServerShell) CreateSubServer() (
 	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
 
-	subServer, macPermissions, err := createNewSubServer(configRegistry)
+	subServer, macPermissions, err := New()
 	if err != nil {
 		return nil, nil, err
 	}

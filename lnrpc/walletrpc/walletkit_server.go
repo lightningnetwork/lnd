@@ -492,7 +492,16 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 func (w *WalletKit) SignCoordinatorStreams(
 	stream WalletKit_SignCoordinatorStreamsServer) error {
 
-	return fmt.Errorf("Unimplemented")
+	// Check that the user actually has configured that the reverse remote
+	// signer functionality should be enabled.
+	if w.cfg.RemoteSignerConnection == nil {
+		return fmt.Errorf("inbound connections from remote signers " +
+			"not enabled in config")
+	}
+
+	connectionCoordinator := w.cfg.RemoteSignerConnection
+
+	return connectionCoordinator.AddConnection(stream)
 }
 
 // LeaseOutput locks an output to the given ID, preventing it from being

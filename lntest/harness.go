@@ -238,7 +238,7 @@ func (h *HarnessTest) setupWatchOnlyNode(name string,
 		name)
 
 	// Create a new watch-only node with remote signer configuration.
-	return h.NewNodeRemoteSigner(
+	return h.NewNodeWatchOnly(
 		name, remoteSignerArgs, password,
 		&lnrpc.WatchOnly{
 			MasterKeyBirthdayTimestamp: 0,
@@ -764,15 +764,35 @@ func (h *HarnessTest) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
 	return h.newNodeWithSeed(name, extraArgs, req, statelessInit)
 }
 
-// NewNodeRemoteSigner creates a new remote signer node and asserts its
+// NewNodeWatchOnly creates a new watch-only node and asserts its
 // creation.
-func (h *HarnessTest) NewNodeRemoteSigner(name string, extraArgs []string,
+func (h *HarnessTest) NewNodeWatchOnly(name string, extraArgs []string,
 	password []byte, watchOnly *lnrpc.WatchOnly) *node.HarnessNode {
+
+	hn := h.CreateNewNode(name, extraArgs, password)
+
+	h.StartWatchOnly(hn, name, password, watchOnly)
+
+	return hn
+}
+
+// CreateNodeWatchOnly creates a new node and asserts its creation. The function
+// will only create the node and will not start it.
+func (h *HarnessTest) CreateNewNode(name string, extraArgs []string,
+	password []byte) *node.HarnessNode {
 
 	hn, err := h.manager.newNode(h.T, name, extraArgs, password, true)
 	require.NoErrorf(h, err, "unable to create new node for %s", name)
 
-	err = hn.StartWithNoAuth(h.runCtx)
+	return hn
+}
+
+// StartWatchOnly starts the passed node in watch-only mode. The function will
+// assert that the node is started and that the initialization is successful.
+func (h *HarnessTest) StartWatchOnly(hn *node.HarnessNode, name string,
+	password []byte, watchOnly *lnrpc.WatchOnly) {
+
+	err := hn.StartWithNoAuth(h.runCtx)
 	require.NoError(h, err, "failed to start node %s", name)
 
 	// With the seed created, construct the init request to the node,
@@ -786,8 +806,6 @@ func (h *HarnessTest) NewNodeRemoteSigner(name string, extraArgs []string,
 	// will also initialize the macaroon-authenticated LightningClient.
 	_, err = h.manager.initWalletAndNode(hn, initReq)
 	require.NoErrorf(h, err, "failed to init node %s", name)
-
-	return hn
 }
 
 // KillNode kills the node and waits for the node process to stop.

@@ -48,9 +48,7 @@ type RemoteSigner struct {
 
 // Validate checks the values configured for our remote RPC signer.
 func (r *RemoteSigner) Validate() error {
-	if r.SignerType == SignerClientType ||
-		r.SignerType == OutboundRemoteSignerType {
-
+	if r.SignerType == OutboundRemoteSignerType {
 		return fmt.Errorf("remote signer: the set signertype \"%v\" "+
 			"is not yet supported", r.SignerType)
 	}

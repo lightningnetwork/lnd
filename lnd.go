@@ -503,6 +503,24 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	defer cleanUp()
 
+	// Prepare the sub-servers, and insert the permissions required to
+	// access them into the interceptor chain. Note that we do not yet have
+	// all dependencies required to use all sub-servers.
+	err = rpcServer.prepareSubServers(
+		interceptorChain.MacaroonService(), cfg.SubRPCServers,
+		activeChainControl,
+	)
+	if err != nil {
+		return mkErr("error adding sub server permissions", err)
+	}
+
+	defer func() {
+		err := rpcServer.Stop()
+		if err != nil {
+			ltndLog.Errorf("Error stopping the RPC server", err)
+		}
+	}()
+
 	// TODO(roasbeef): add rotation
 	idKeyDesc, err := activeChainControl.KeyRing.DeriveKey(
 		keychain.KeyLocator{
@@ -671,8 +689,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		return mkErr("unable to load permanent TLS certificate", err)
 	}
 
-	// Now we have created all dependencies necessary to populate and
-	// start the RPC server.
+	// Now we have created all dependencies necessary to be able to use all
+	// sub-servers, so we add the dependencies to the sub-servers.
 	err = rpcServer.addDeps(
 		ctx, server, interceptorChain.MacaroonService(),
 		cfg.SubRPCServers, atplManager, server.invoices, tower,
@@ -681,12 +699,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	if err != nil {
 		return mkErr("unable to add deps to RPC server", err)
 	}
-	if err := rpcServer.Start(); err != nil {
-		return mkErr("unable to start RPC server", err)
-	}
-	defer rpcServer.Stop()
 
-	// We transition the RPC state to Active, as the RPC server is up.
+	// We transition the RPC state to Active, as the sub-servers are now
+	// ready to be used.
 	interceptorChain.SetRPCActive()
 
 	if err := interceptor.Notifier.NotifyReady(true); err != nil {

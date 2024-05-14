@@ -7553,19 +7553,28 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 func (r *rpcServer) StopDaemon(_ context.Context,
 	_ *lnrpc.StopRequest) (*lnrpc.StopResponse, error) {
 
-	// Before we even consider a shutdown, are we currently in recovery
-	// mode? We don't want to allow shutting down during recovery because
-	// that would mean the user would have to manually continue the rescan
-	// process next time by using `lncli unlock --recovery_window X`
-	// otherwise some funds wouldn't be picked up.
-	isRecoveryMode, progress, err := r.server.cc.Wallet.GetRecoveryInfo()
-	if err != nil {
-		return nil, fmt.Errorf("unable to get wallet recovery info: %w",
-			err)
-	}
-	if isRecoveryMode && progress < 1 {
-		return nil, fmt.Errorf("wallet recovery in progress, cannot " +
-			"shut down, please wait until rescan finishes")
+	// StopDaemon is one of the few methods that can be called while the
+	// wallet is unlocked but the full RPC server is still starting. In
+	// that window addDeps has not yet populated r.server, so only perform
+	// the recovery-mode shutdown guard once those dependencies exist.
+	if r.server != nil && r.server.cc != nil && r.server.cc.Wallet != nil {
+		// Before we even consider a shutdown, are we currently in
+		// recovery mode? We don't want to allow shutting down during
+		// recovery because that would mean the user would have to
+		// manually continue the rescan process next time by using
+		// `lncli unlock --recovery_window X` otherwise some funds
+		// wouldn't be picked up.
+		isRecoveryMode, progress, err := r.server.cc.Wallet.
+			GetRecoveryInfo()
+		if err != nil {
+			return nil, fmt.Errorf("unable to get wallet recovery "+
+				"info: %w", err)
+		}
+		if isRecoveryMode && progress < 1 {
+			return nil, fmt.Errorf("wallet recovery in progress, " +
+				"cannot shut down, please wait until rescan " +
+				"finishes")
+		}
 	}
 
 	r.interceptor.RequestShutdown()

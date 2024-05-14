@@ -409,6 +409,14 @@ func (b *BtcWallet) Stop() error {
 	return nil
 }
 
+// ReadySignal currently signals that the wallet is ready instantly.
+func (b *BtcWallet) ReadySignal() chan error {
+	readyChan := make(chan error, 1)
+	readyChan <- nil
+
+	return readyChan
+}
+
 // ConfirmedBalance returns the sum of all the wallet's unspent outputs that
 // have at least confs confirmations. If confs is set to zero, then all unspent
 // outputs, including those currently in the mempool will be included in the

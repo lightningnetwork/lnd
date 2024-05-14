@@ -303,7 +303,7 @@ func (r *InterceptorChain) SetRPCActive() {
 	_ = r.ntfnServer.SendUpdate(r.state)
 }
 
-// SetServerActive moves the RPC state from walletUnlocked to rpcActive.
+// SetServerActive moves the RPC state from rpcActive to serverActive.
 func (r *InterceptorChain) SetServerActive() {
 	r.Lock()
 	defer r.Unlock()

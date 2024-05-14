@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/rpcperms"
@@ -616,13 +617,24 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		multiAcceptor = chanacceptor.NewChainedAcceptor()
 	}
 
+	rscBuilder := rpcwallet.NewRemoteSignerClientBuilder(cfg.WatchOnlyNode)
+
+	// We pass a factory instead of a concrete RemoteSignerClient because
+	// the builder needs rpcServer.subServers (WalletKit/Signer), and those
+	// sub-servers are only instantiated in rpcServer.addDeps() later in
+	// startup. The server calls this factory in server.Start(), after that.
+	remoteSignerClientFactory :=
+		func() (rpcwallet.RemoteSignerClient, error) {
+			return rscBuilder.Build(rpcServer.subServers)
+		}
+
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	server, err := newServer(
 		ctx, cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
 		activeChainControl.Cfg.WalletUnlockParams.ChansToRestore,
 		multiAcceptor, torController, tlsManager, leaderElector,
-		implCfg,
+		implCfg, remoteSignerClientFactory,
 	)
 	if err != nil {
 		return mkErr("unable to create server", err)

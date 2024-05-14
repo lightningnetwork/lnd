@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -205,7 +206,7 @@ func executeStateTransitions(t *testing.T, htlcAmount lnwire.MilliSatoshi,
 		chanStates []*channeldb.OpenChannel
 	)
 
-	state, err := copyChannelState(t, aliceChannel.State())
+	state, err := copyChannelStateBoltDB(t, aliceChannel.State())
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +223,7 @@ func executeStateTransitions(t *testing.T, htlcAmount lnwire.MilliSatoshi,
 			return nil, err
 		}
 
-		state, err := copyChannelState(t, aliceChannel.State())
+		state, err := copyChannelStateBoltDB(t, aliceChannel.State())
 		if err != nil {
 			return nil, err
 		}
@@ -238,6 +239,10 @@ func executeStateTransitions(t *testing.T, htlcAmount lnwire.MilliSatoshi,
 // remote force close using the obtained data loss commitment point.
 func TestChainWatcherDataLossProtect(t *testing.T) {
 	t.Parallel()
+
+	if !kvdb.IsBoltDB() {
+		t.Skip()
+	}
 
 	// dlpScenario is our primary quick check testing function for this
 	// test as whole. It ensures that if the remote party broadcasts a
@@ -417,6 +422,10 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 // commitment output based on only the outputs present on the transaction.
 func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 	t.Parallel()
+
+	if !kvdb.IsBoltDB() {
+		t.Skip()
+	}
 
 	// localForceCloseScenario is the primary test we'll use to execute our
 	// table driven tests. We'll assert that for any number of state

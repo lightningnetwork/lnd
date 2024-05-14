@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/netann"
@@ -211,6 +212,14 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			)
 			subCfgValue.FieldByName("ChanStateDB").Set(
 				reflect.ValueOf(chanStateDB),
+			)
+
+			kRing, ok := cc.Wallet.WalletController.(*rpcwallet.RPCKeyRing)
+			if !ok || !cfg.RemoteSigner.AllowInboundConnection {
+				break
+			}
+			subCfgValue.FieldByName("RemoteSignerConnection").Set(
+				reflect.ValueOf(kRing.RemoteSignerConnection()),
 			)
 
 		case *autopilotrpc.Config:

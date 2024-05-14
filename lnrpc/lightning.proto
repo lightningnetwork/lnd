@@ -1590,8 +1590,6 @@ message Channel {
     the channel's operation.
     */
     string memo = 36;
-
-    bytes custom_channel_data = 37;
 }
 
 message ListChannelsRequest {

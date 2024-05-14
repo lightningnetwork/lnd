@@ -2298,7 +2298,6 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 		FundUpToMaxAmt:    fundUpToMaxAmt,
 		MinFundAmt:        minFundAmt,
 		Memo:              []byte(in.Memo),
-		CustomChannelData: in.CustomChannelData,
 		Outpoints:         outpoints,
 	}, nil
 }

@@ -1354,7 +1354,8 @@
         },
         "incoming_amount_msat": {
           "type": "string",
-          "format": "uint64"
+          "format": "uint64",
+          "description": "incoming_amount_msat is used to set the p2p message incoming amount field\nfor validating an incoming HTLC."
         },
         "outgoing_amount_msat": {
           "type": "string",

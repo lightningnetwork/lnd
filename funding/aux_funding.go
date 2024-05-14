@@ -35,6 +35,11 @@ type AuxFundingController interface {
 	// ready to be used. This can be used to perform any final setup or
 	// cleanup.
 	ChannelReady(openChan *channeldb.OpenChannel) error
+
+	// ChannelFinalized is called when a channel has been fully finalized.
+	// In this state, we've received the commitment sig from the remote
+	// party, so we are safe to broadcast the funding transaction.
+	ChannelFinalized(PendingChanID) error
 }
 
 // descFromPendingChanID takes a pending channel ID, that may already be

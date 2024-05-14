@@ -2753,6 +2753,22 @@ func (f *Manager) funderProcessFundingSigned(peer lnpeer.Peer,
 		}
 	}
 
+	// Before we proceed, if we have a funding hook that wants a
+	// notification that it's safe to broadcast the funding transaction,
+	// then we'll send that now.
+	err = fn.MapOptionZ(
+		f.cfg.AuxFundingController,
+		func(controller AuxFundingController) error {
+			return controller.ChannelFinalized(cid.tempChanID)
+		},
+	)
+	if err != nil {
+		cid := newChanIdentifier(msg.ChanID)
+		f.sendWarning(peer, cid, err)
+
+		return
+	}
+
 	// Now that we have a finalized reservation for this funding flow,
 	// we'll send the to be active channel to the ChainArbitrator so it can
 	// watch for any on-chain actions before the channel has fully

@@ -158,7 +158,7 @@ func prepareRemoteSignerTest(ht *lntest.HarnessTest, tc remoteSignerTestCase) (
 
 	// WatchOnly is the node that has a watch-only wallet and uses the
 	// Signer node for any operation that requires access to private keys.
-	watchOnly := ht.NewNodeRemoteSigner(
+	watchOnly := ht.NewNodeWatchOnly(
 		"WatchOnly", append([]string{
 			"--remotesigner.enable",
 			fmt.Sprintf(

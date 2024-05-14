@@ -130,7 +130,7 @@ func NewInboundRemoteSigner(rpcHost string, tlsCertPath string,
 	macaroonPath string,
 	timeout time.Duration) (*InboundRemoteSigner, func(), error) {
 
-	rpcConn, err := connect(rpcHost, tlsCertPath, macaroonPath, timeout)
+	rpcConn, err := connectRPC(rpcHost, tlsCertPath, macaroonPath, timeout)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error connecting to the remote "+
 			"signing node through RPC: %v", err)
@@ -179,7 +179,7 @@ func (r *InboundRemoteSigner) Ready() error {
 //
 // NOTE: This is part of the RemoteSigner interface.
 func (r *InboundRemoteSigner) Ping(timeout time.Duration) error {
-	conn, err := connect(
+	conn, err := connectRPC(
 		r.rpcHost, r.tlsCertPath, r.macaroonPath, timeout,
 	)
 	if err != nil {
@@ -201,9 +201,9 @@ func (r *InboundRemoteSigner) Timeout() time.Duration {
 // RemoteSigner interface.
 var _ RemoteSigner = (*InboundRemoteSigner)(nil)
 
-// connect tries to establish an RPC connection to the given host:port with the
-// supplied certificate and macaroon.
-func connect(hostPort, tlsCertPath, macaroonPath string,
+// connectRPC tries to establish an RPC connection to the given host:port with
+// the supplied certificate and macaroon.
+func connectRPC(hostPort, tlsCertPath, macaroonPath string,
 	timeout time.Duration) (*grpc.ClientConn, error) {
 
 	certBytes, err := os.ReadFile(tlsCertPath)

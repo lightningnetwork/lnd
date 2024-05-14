@@ -2101,28 +2101,36 @@ func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
 
 	// If remote signing is enabled, add the healthcheck for the remote
 	// signing RPC interface.
-	if s.cfg.RemoteSigner != nil && s.cfg.RemoteSigner.Enable {
+	if s.cfg.RemoteSigner.Enable {
+		rpckKeyRing, ok := cc.Wc.(*rpcwallet.RPCKeyRing)
+		if !ok {
+			return errors.New("incorrect WalletController type, " +
+				"expected *rpcwallet.RPCKeyRing")
+		}
+
+		innerTimeout := cfg.HealthChecks.RemoteSigner.Timeout
+
 		// Because we have two cascading timeouts here, we need to add
 		// some slack to the "outer" one of them in case the "inner"
 		// returns exactly on time.
-		overhead := time.Millisecond * 10
+		outerTimeout := innerTimeout + time.Millisecond*10
 
-		remoteSignerConnectionCheck := healthcheck.NewObservation(
+		rsConnectionCheck := healthcheck.NewObservation(
 			"remote signer connection",
 			rpcwallet.HealthCheck(
-				s.cfg.RemoteSigner,
-
+				ctx,
+				rpckKeyRing.RemoteSignerConnection(),
 				// For the health check we might to be even
 				// stricter than the initial/normal connect, so
-				// we use the health check timeout here.
-				cfg.HealthChecks.RemoteSigner.Timeout,
+				// we use the health check timeout.
+				innerTimeout,
 			),
 			cfg.HealthChecks.RemoteSigner.Interval,
-			cfg.HealthChecks.RemoteSigner.Timeout+overhead,
+			outerTimeout,
 			cfg.HealthChecks.RemoteSigner.Backoff,
 			cfg.HealthChecks.RemoteSigner.Attempts,
 		)
-		checks = append(checks, remoteSignerConnectionCheck)
+		checks = append(checks, rsConnectionCheck)
 	}
 
 	// If we have a leader elector, we add a health check to ensure we are

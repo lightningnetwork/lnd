@@ -1412,3 +1412,33 @@ func TestRemovePendingChannel(t *testing.T) {
 
 	require.NoError(t, err)
 }
+
+// TestHandlePeerStorageRetrieval tests the `handlePeerStorageRetrieval
+// ` brontide method.
+func TestHandlePeerStorageRetrieval(t *testing.T) {
+	harness := createTestPeer(t)
+
+	peer := harness.peer
+
+	// Buffer outgoingQueue to prevent blocking.
+	peer.outgoingQueue = make(chan outgoingMsg, 1)
+
+	// Send signal that the peer is ready and can handle disconnect.
+	close(peer.startReady)
+
+	err := peer.handlePeerStorageRetrieval()
+	require.NoError(t, err)
+
+	// Test that we send a warning to the peer.
+	select {
+	case receivedMsg := <-peer.outgoingQueue:
+		require.IsType(t, &lnwire.Warning{}, receivedMsg.msg)
+
+	case <-time.After(timeout):
+		t.Fatalf("did not receive message " +
+			"as expected.")
+	}
+
+	// Test that we disconnect.
+	require.True(t, peer.IsDisconnected())
+}

@@ -1825,6 +1825,11 @@ out:
 
 		case *lnwire.PeerStorage:
 		case *lnwire.PeerStorageRetrieval:
+			err = p.handlePeerStorageRetrieval()
+			if err != nil {
+				p.storeError(err)
+				p.log.Errorf("%v", err)
+			}
 		case *lnwire.Custom:
 			err := p.handleCustomMessage(msg)
 			if err != nil {
@@ -4187,4 +4192,24 @@ func (p *Brontide) sendLinkUpdateMsg(cid lnwire.ChannelID, msg lnwire.Message) {
 	// With the stream obtained, add the message to the stream so we can
 	// continue processing message.
 	chanStream.AddMsg(msg)
+}
+
+// handlePeerStorageRetrieval sends a warning and disconnects any peer that
+// sends us a `PeerStorageRetrieval` message.
+func (p *Brontide) handlePeerStorageRetrieval() error {
+	peerLog.Tracef("received peerStorageRetrieval message from "+
+		"peer, %v", p.Address())
+
+	warning := "receieved unexpected peerStorageRetrieval message"
+
+	if err := p.SendMessage(false, &lnwire.Warning{
+		ChanID: lnwire.ConnectionWideID,
+		Data:   []byte(warning),
+	}); err != nil {
+		return err
+	}
+
+	p.Disconnect(errors.New(warning))
+
+	return nil
 }

@@ -184,6 +184,10 @@ var (
 			Entity: "onchain",
 			Action: "write",
 		}},
+		"/walletrpc.WalletKit/SignCoordinatorStreams": {{
+			Entity: "remotesigner",
+			Action: "generate",
+		}},
 	}
 
 	// DefaultWalletKitMacFilename is the default name of the wallet kit
@@ -450,6 +454,14 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 	return &ListUnspentResponse{
 		Utxos: rpcUtxos,
 	}, nil
+}
+
+// SignCoordinatorStreams opens a bi-directional streaming RPC, which is used
+// to allow a remote signer to process sign requests on behalf of the wallet.
+func (w *WalletKit) SignCoordinatorStreams(
+	stream WalletKit_SignCoordinatorStreamsServer) error {
+
+	return fmt.Errorf("Unimplemented")
 }
 
 // LeaseOutput locks an output to the given ID, preventing it from being

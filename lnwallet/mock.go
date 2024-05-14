@@ -296,6 +296,14 @@ func (w *mockWalletController) Stop() error {
 	return nil
 }
 
+// ReadySignal currently signals that the wallet is ready instantly.
+func (w *mockWalletController) ReadySignal() chan error {
+	readyChan := make(chan error, 1)
+	readyChan <- nil
+
+	return readyChan
+}
+
 func (w *mockWalletController) FetchTx(chainhash.Hash) (*wire.MsgTx, error) {
 	return nil, nil
 }

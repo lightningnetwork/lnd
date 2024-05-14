@@ -53,19 +53,17 @@ var (
 	}}
 )
 
-// testRemoteSigner tests that a watch-only wallet can use a remote signing
-// wallet to perform any signing or ECDH operations.
-func testRemoteSigner(ht *lntest.HarnessTest) {
-	type testCase struct {
-		name       string
-		randomSeed bool
-		sendCoins  bool
-		commitType lnrpc.CommitmentType
-		fn         func(tt *lntest.HarnessTest,
-			wo, carol *node.HarnessNode)
-	}
+type remoteSignerTestCase struct {
+	name       string
+	randomSeed bool
+	sendCoins  bool
+	commitType lnrpc.CommitmentType
+	fn         func(tt *lntest.HarnessTest,
+		wo, carol *node.HarnessNode)
+}
 
-	subTests := []testCase{{
+func getRemoteSignerTestCases(ht *lntest.HarnessTest) []remoteSignerTestCase {
+	return []remoteSignerTestCase{{
 		name:       "random seed",
 		randomSeed: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
@@ -176,9 +174,15 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 			}
 		},
 	}}
+}
 
+// testInboundRemoteSigner tests that a watch-only wallet can use a remote
+// signing wallet to perform any signing or ECDH operations. The test
+// specifically uses an inbound remote signer, meaning that the watch-only node
+// will make an outbound connection to the remote signer.
+func testInboundRemoteSigner(ht *lntest.HarnessTest) {
 	prepareTest := func(st *lntest.HarnessTest,
-		subTest testCase) (*node.HarnessNode,
+		subTest remoteSignerTestCase) (*node.HarnessNode,
 		*node.HarnessNode, *node.HarnessNode) {
 
 		// Signer is our signing node and has the wallet with the full
@@ -224,6 +228,7 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 		watchOnly := st.NewNodeWatchOnly(
 			"WatchOnly", append([]string{
 				"--remotesigner.enable",
+				"--remotesigner.signertype=inbound",
 				fmt.Sprintf(
 					"--remotesigner.rpchost=localhost:%d",
 					signer.Cfg.RPCPort,
@@ -261,7 +266,136 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 		return signer, watchOnly, carol
 	}
 
-	for _, testCase := range subTests {
+	for _, testCase := range getRemoteSignerTestCases(ht) {
+		subTest := testCase
+
+		success := ht.Run(subTest.name, func(tt *testing.T) {
+			// Skip the cleanup here as no standby node is used.
+			st := ht.Subtest(tt)
+
+			_, watchOnly, carol := prepareTest(st, subTest)
+			subTest.fn(st, watchOnly, carol)
+		})
+
+		if !success {
+			return
+		}
+	}
+}
+
+// testOutboundRemoteSigner tests that a watch-only wallet can use a remote
+// signing wallet to perform any signing or ECDH operations. The test
+// specifically uses an outbound remote signer, meaning that the remote signer
+// node will make an outbound connection to the watch-only node.
+func testOutboundRemoteSigner(ht *lntest.HarnessTest) {
+	prepareTest := func(st *lntest.HarnessTest,
+		subTest remoteSignerTestCase) (*node.HarnessNode,
+		*node.HarnessNode, *node.HarnessNode) {
+
+		// Signer is our signing node and has the wallet with the full
+		// master private key. We test that we can create the watch-only
+		// wallet from the exported accounts but also from a static key
+		// to make sure the derivation of the account public keys is
+		// correct in both cases.
+		password := []byte("itestpassword")
+		var (
+			signerNodePubKey  = nodePubKey
+			watchOnlyAccounts = deriveCustomScopeAccounts(ht.T)
+			signer            *node.HarnessNode
+			err               error
+		)
+
+		var commitArgs []string
+		if subTest.commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+			commitArgs = lntest.NodeArgsForCommitType(
+				subTest.commitType,
+			)
+		}
+
+		// WatchOnly is the node that has a watch-only wallet and uses
+		// the Signer node for any operation that requires access to
+		// private keys. We use the outbound signer type here, meaning
+		// that the watch-only node expects the signer to make an
+		// outbound connection to it.
+		watchOnly := st.CreateNewNode(
+			"WatchOnly", append([]string{
+				"--remotesigner.enable",
+				"--remotesigner.signertype=outbound",
+				"--remotesigner.timeout=30s",
+				"--remotesigner.requesttimeout=30s",
+			}, commitArgs...),
+			password,
+		)
+
+		// As the signer node will make an outbound connection to the
+		// watch-only node, we must specify the watch-only node's RPC
+		// connection details in the signer's configuration.
+		signerArgs := []string{
+			"--remotesigner.signertype=signer", // Outbound signer.
+			"--remotesigner.timeout=30s",
+			"--remotesigner.requesttimeout=10s",
+			fmt.Sprintf(
+				"--remotesigner.rpchost=localhost:%d",
+				watchOnly.Cfg.RPCPort,
+			),
+			fmt.Sprintf(
+				"--remotesigner.tlscertpath=%s",
+				watchOnly.Cfg.TLSCertPath,
+			),
+			fmt.Sprintf(
+				"--remotesigner.macaroonpath=%s",
+				watchOnly.Cfg.AdminMacPath,
+			),
+		}
+
+		if !subTest.randomSeed {
+			signer = st.RestoreNodeWithSeed(
+				"Signer", signerArgs, password, nil, rootKey, 0,
+				nil,
+			)
+		} else {
+			signer = st.NewNode("Signer", signerArgs)
+			signerNodePubKey = signer.PubKeyStr
+
+			rpcAccts := signer.RPC.ListAccounts(
+				&walletrpc.ListAccountsRequest{},
+			)
+
+			watchOnlyAccounts, err = walletrpc.AccountsToWatchOnly(
+				rpcAccts.Accounts,
+			)
+			require.NoError(st, err)
+		}
+
+		// As the watch-only node will not fully start until the signer
+		// node connects to it, we need to start the watch-only node
+		// after having started the signer node.
+		st.StartWatchOnly(watchOnly, "WatchOnly", password,
+			&lnrpc.WatchOnly{
+				MasterKeyBirthdayTimestamp: 0,
+				MasterKeyFingerprint:       nil,
+				Accounts:                   watchOnlyAccounts,
+			},
+		)
+
+		resp := watchOnly.RPC.GetInfo()
+		require.Equal(st, signerNodePubKey, resp.IdentityPubkey)
+
+		if subTest.sendCoins {
+			st.FundCoins(btcutil.SatoshiPerBitcoin, watchOnly)
+			ht.AssertWalletAccountBalance(
+				watchOnly, "default",
+				btcutil.SatoshiPerBitcoin, 0,
+			)
+		}
+
+		carol := st.NewNode("carol", commitArgs)
+		st.EnsureConnected(watchOnly, carol)
+
+		return signer, watchOnly, carol
+	}
+
+	for _, testCase := range getRemoteSignerTestCases(ht) {
 		subTest := testCase
 
 		success := ht.Run(subTest.name, func(tt *testing.T) {

@@ -855,6 +855,21 @@ func (r *RPCKeyRing) RemoteSigner() RemoteSigner {
 	return r.remoteSigner
 }
 
+// RequireReady waits until the remote signer is ready to sign transactions, and
+// returns an error if we time out while waiting. This method overrides/shadows
+// the default implementation of the WalletController interface.
+//
+// NOTE: This method is part of the WalletController interface.
+func (r *RPCKeyRing) ReadySignal() chan error {
+	readyChan := make(chan error, 1)
+
+	go func() {
+		readyChan <- r.remoteSigner.Ready()
+	}()
+
+	return readyChan
+}
+
 // MuSig2Cleanup removes a session from memory to free up resources.
 func (r *RPCKeyRing) MuSig2Cleanup(sessionID input.MuSig2SessionID) error {
 	req := &signrpc.MuSig2CleanupRequest{

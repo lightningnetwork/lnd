@@ -46,6 +46,10 @@ enum WalletState {
     // isn't ready.
     UNLOCKED = 2;
 
+    // ALLOW_REMOTE_SIGNER means that the lnd server in a state where it's only
+    // ready to accept incoming connections from a remote signer.
+    ALLOW_REMOTE_SIGNER = 5;
+
     // RPC_ACTIVE means that the lnd server is active but not fully ready for
     // calls.
     RPC_ACTIVE = 3;

@@ -206,7 +206,7 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 		Store: mockStore,
 	})
 
-	// Create three testing inputs.
+	// Create testing inputs for each state.
 	//
 	// inputNotExist specifies an input that's not found in the sweeper's
 	// `inputs` map.
@@ -240,18 +240,52 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 		state: Published,
 	}
 
+	// inputPublishFailed specifies an input that's failed to be published.
+	inputPublishFailed := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 5},
+	}
+	s.inputs[inputPublishFailed.PreviousOutPoint] = &SweeperInput{
+		state: PublishFailed,
+	}
+
+	// inputSwept specifies an input that's swept.
+	inputSwept := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 6},
+	}
+	s.inputs[inputSwept.PreviousOutPoint] = &SweeperInput{
+		state: Swept,
+	}
+
+	// inputExcluded specifies an input that's excluded.
+	inputExcluded := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 7},
+	}
+	s.inputs[inputExcluded.PreviousOutPoint] = &SweeperInput{
+		state: Excluded,
+	}
+
+	// inputFailed specifies an input that's failed.
+	inputFailed := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{Index: 8},
+	}
+	s.inputs[inputFailed.PreviousOutPoint] = &SweeperInput{
+		state: Failed,
+	}
+
+	// Gather all inputs' outpoints.
+	pendingOps := make([]wire.OutPoint, 0, len(s.inputs)+1)
+	for op := range s.inputs {
+		pendingOps = append(pendingOps, op)
+	}
+	pendingOps = append(pendingOps, inputNotExist.PreviousOutPoint)
+
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputInit to be skipped, and the final input to be marked as
 	// published.
-	s.markInputsPublishFailed([]wire.OutPoint{
-		inputNotExist.PreviousOutPoint,
-		inputInit.PreviousOutPoint,
-		inputPendingPublish.PreviousOutPoint,
-		inputPublished.PreviousOutPoint,
-	})
+	s.markInputsPublishFailed(pendingOps)
 
 	// We expect unchanged number of pending inputs.
-	require.Len(s.inputs, 3)
+	require.Len(s.inputs, 7)
 
 	// We expect the init input's state to stay unchanged.
 	require.Equal(Init,
@@ -265,6 +299,19 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	// We expect the published input's is now marked as publish failed.
 	require.Equal(PublishFailed,
 		s.inputs[inputPublished.PreviousOutPoint].state)
+
+	// We expect the publish failed input to stay unchanged.
+	require.Equal(PublishFailed,
+		s.inputs[inputPublishFailed.PreviousOutPoint].state)
+
+	// We expect the swept input to stay unchanged.
+	require.Equal(Swept, s.inputs[inputSwept.PreviousOutPoint].state)
+
+	// We expect the excluded input to stay unchanged.
+	require.Equal(Excluded, s.inputs[inputExcluded.PreviousOutPoint].state)
+
+	// We expect the failed input to stay unchanged.
+	require.Equal(Failed, s.inputs[inputFailed.PreviousOutPoint].state)
 
 	// Assert mocked statements are executed as expected.
 	mockStore.AssertExpectations(t)

@@ -29,6 +29,11 @@ type AdditionalEdge interface {
 
 	// EdgePolicy returns the policy of the additional edge.
 	EdgePolicy() *models.CachedEdgePolicy
+
+	// BlindedPayment returns the BlindedPayment that this additional edge
+	// info was derived from. It will return nil if this edge was not
+	// derived from a blinded route.
+	BlindedPayment() *BlindedPayment
 }
 
 // PayloadSizeFunc defines the interface for the payload size function.
@@ -58,6 +63,12 @@ func (p *PrivateEdge) IntermediatePayloadSize(amount lnwire.MilliSatoshi,
 	}
 
 	return hop.PayloadSize(channelID)
+}
+
+// BlindedPayment is a no-op for a PrivateEdge since it is not associated with
+// a blinded payment. This will thus return nil.
+func (p *PrivateEdge) BlindedPayment() *BlindedPayment {
+	return nil
 }
 
 // BlindedEdge implements the AdditionalEdge interface. Blinded hops are viewed
@@ -118,6 +129,12 @@ func (b *BlindedEdge) IntermediatePayloadSize(_ lnwire.MilliSatoshi, _ uint32,
 
 	// For blinded paths the next chanID is in the encrypted data tlv.
 	return hop.PayloadSize(0)
+}
+
+// BlindedPayment returns the blinded payment that this edge is associated
+// with.
+func (b *BlindedEdge) BlindedPayment() *BlindedPayment {
+	return b.blindedPayment
 }
 
 // Compile-time constraints to ensure the PrivateEdge and the BlindedEdge

@@ -245,6 +245,17 @@ var (
 	}
 )
 
+// InboundRemoteSignerConnection is an interface that mimics a subset of the
+// rpcwallet InboundRemoteSignerConnection interface to avoid circular
+// dependencies.
+type InboundRemoteSignerConnection interface {
+	// AddConnection feeds the inbound connection handler with the incoming
+	// stream set up by an outbound remote signer and then blocks until the
+	// stream is closed. Lnd can then send any requests to the remote signer
+	// through the stream.
+	AddConnection(stream WalletKit_SignCoordinatorStreamsServer) error
+}
+
 // ServerShell is a shell struct holding a reference to the actual sub-server.
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.

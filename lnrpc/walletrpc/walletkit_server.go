@@ -244,6 +244,15 @@ var (
 	}
 )
 
+// RemoteSigner is an interface that mimics a subset of the rpcwallet
+// RemoteSigner interface to avoid circular dependencies.
+type RemoteSigner interface {
+	// Run feeds lnd with the incoming stream that an outbound remote signer
+	// has set up, and then blocks until the stream is closed. Lnd can then
+	// proceed to send any requests to the remote signer through the stream.
+	Run(stream WalletKit_SignCoordinatorStreamsServer) error
+}
+
 // ServerShell is a shell struct holding a reference to the actual sub-server.
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.

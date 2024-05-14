@@ -256,3 +256,73 @@ func connectRPC(hostPort, tlsCertPath, macaroonPath string,
 
 	return conn, nil
 }
+
+// OutboundRemoteSigner references a remote signer that makes an outbound
+// connection to a watch-only node.
+type OutboundRemoteSigner struct {
+	*SignCoordinator
+
+	connectionTimeout time.Duration
+}
+
+// NewOutboundRemoteSigner creates a new OutboundRemoteSigner instance.
+func NewOutboundRemoteSigner(requestTimeout time.Duration,
+	connectionTimeout time.Duration) (*OutboundRemoteSigner, func()) {
+
+	remoteSigner := &OutboundRemoteSigner{
+		connectionTimeout: connectionTimeout,
+	}
+
+	remoteSigner.SignCoordinator = NewSignCoordinator(
+		requestTimeout, connectionTimeout,
+	)
+
+	return remoteSigner, remoteSigner.Stop
+}
+
+// Timeout returns the set connection timeout for the remote signer.
+//
+// NOTE: This is part of the RemoteSigner interface.
+func (r *OutboundRemoteSigner) Timeout() time.Duration {
+	return r.connectionTimeout
+}
+
+// Ready blocks and returns nil when the remote signer is ready to accept
+// requests.
+//
+// NOTE: This is part of the RemoteSigner interface.
+func (r *OutboundRemoteSigner) Ready() error {
+	log.Infof("Waiting for the remote signer to connect")
+
+	return r.SignCoordinator.WaitUntilConnected()
+}
+
+// Ping verifies that the remote signer is still responsive.
+//
+// NOTE: This is part of the RemoteSigner interface.
+func (r *OutboundRemoteSigner) Ping(timeout time.Duration) error {
+	pong, err := r.SignCoordinator.Ping(timeout)
+	if err != nil {
+		return fmt.Errorf("Ping request to remote signer "+
+			"errored: %w", err)
+	}
+
+	if !pong {
+		return errors.New("incorrect Pong response from remote signer")
+	}
+
+	return nil
+}
+
+// Run feeds lnd with the incoming stream that an outbound remote signer has set
+// up, and blocks until the stream is closed. Lnd can then proceed to send any
+// requests to the remote signer through the stream.
+//
+// NOTE: This is part of the RemoteSigner interface.
+func (r *OutboundRemoteSigner) Run(stream StreamServer) error {
+	return r.SignCoordinator.Run(stream)
+}
+
+// A compile time assertion to ensure OutboundRemoteSigner meets the
+// RemoteSigner interface.
+var _ RemoteSigner = (*OutboundRemoteSigner)(nil)

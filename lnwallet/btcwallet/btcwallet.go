@@ -2,6 +2,7 @@ package btcwallet
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -407,6 +408,14 @@ func (b *BtcWallet) Stop() error {
 	b.chain.Stop()
 
 	return nil
+}
+
+// ReadySignal currently signals that the wallet is ready instantly.
+func (b *BtcWallet) ReadySignal(_ context.Context) chan error {
+	readyChan := make(chan error, 1)
+	readyChan <- nil
+
+	return readyChan
 }
 
 // ConfirmedBalance returns the sum of all the wallet's unspent outputs that

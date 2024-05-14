@@ -913,6 +913,16 @@ func (r *RPCKeyRing) Ping(ctx context.Context, timeout time.Duration) error {
 	return r.remoteSignerConn.Ping(ctx, timeout)
 }
 
+// ReadySignal returns a channel that signals once the wallet is ready to be
+// used, i.e. once the remote signer is connected. If we time out while waiting,
+// an error gets sent over the channel. This method overrides/shadows the
+// default implementation of the WalletController interface.
+//
+// NOTE: This method is part of the WalletController interface.
+func (r *RPCKeyRing) ReadySignal(ctx context.Context) chan error {
+	return r.remoteSignerConn.Ready(ctx)
+}
+
 // MuSig2Cleanup removes a session from memory to free up resources.
 func (r *RPCKeyRing) MuSig2Cleanup(sessionID input.MuSig2SessionID) error {
 	req := &signrpc.MuSig2CleanupRequest{

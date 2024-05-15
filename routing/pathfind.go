@@ -135,9 +135,8 @@ type finalHopParams struct {
 // NOTE: If a non-nil blinded path is provided it is assumed to have been
 // validated by the caller.
 func newRoute(sourceVertex route.Vertex,
-	pathEdges []*unifiedEdge, currentHeight uint32,
-	finalHop finalHopParams, blindedPath *sphinx.BlindedPath) (
-	*route.Route, error) {
+	pathEdges []*unifiedEdge, currentHeight uint32, finalHop finalHopParams,
+	blindedPathSet *BlindedPaymentPathSet) (*route.Route, error) {
 
 	var (
 		hops []*route.Hop
@@ -152,7 +151,13 @@ func newRoute(sourceVertex route.Vertex,
 		// backwards below, this next hop gets closer and closer to the
 		// sender of the payment.
 		nextIncomingAmount lnwire.MilliSatoshi
+
+		blindedPath *sphinx.BlindedPath
 	)
+
+	if blindedPathSet != nil {
+		blindedPath = blindedPathSet.GetPath().BlindedPath
+	}
 
 	pathLength := len(pathEdges)
 	for i := pathLength - 1; i >= 0; i-- {
@@ -436,9 +441,9 @@ type RestrictParams struct {
 	// the payee.
 	Metadata []byte
 
-	// BlindedPayment is necessary to determine the hop size of the
+	// BlindedPaymentPathSet is necessary to determine the hop size of the
 	// last/exit hop.
-	BlindedPayment *BlindedPayment
+	BlindedPaymentPathSet *BlindedPaymentPathSet
 }
 
 // PathFindingConfig defines global parameters that control the trade-off in
@@ -1334,9 +1339,11 @@ func getProbabilityBasedDist(weight int64, probability float64,
 func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
 	amount lnwire.MilliSatoshi) uint64 {
 
-	if r.BlindedPayment != nil {
-		blindedPath := r.BlindedPayment.BlindedPath.BlindedHops
-		blindedPoint := r.BlindedPayment.BlindedPath.BlindingPoint
+	if r.BlindedPaymentPathSet != nil {
+		paymentPath := r.BlindedPaymentPathSet.
+			LargestLastHopPayloadPath()
+		blindedPath := paymentPath.BlindedPath.BlindedHops
+		blindedPoint := paymentPath.BlindedPath.BlindingPoint
 
 		encryptedData := blindedPath[len(blindedPath)-1].CipherText
 		finalHop := route.Hop{

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -24,6 +25,140 @@ var (
 	// HTLC maximum and minimum values.
 	ErrHTLCRestrictions = errors.New("invalid htlc minimum and maximum")
 )
+
+// BlindedPaymentPathSet groups the data we need to handle sending to a set of
+// blinded paths provided by the recipient of a payment.
+//
+// NOTE: for now this only holds a single BlindedPayment. By the end of the PR
+// series, it will handle multiple paths.
+type BlindedPaymentPathSet struct {
+	// paths is the set of blinded payment paths for a single payment.
+	// NOTE: For now this will always only have a single entry. By the end
+	// of this PR, it can hold multiple.
+	paths []*BlindedPayment
+
+	// targetPubKey is the ephemeral node pub key that we will inject into
+	// each path as the last hop. This is only for the sake of path finding.
+	// Once the path has been found, the original destination pub key is
+	// used again. In the edge case where there is only a single hop in the
+	// path (the introduction node is the destination node), then this will
+	// just be the introduction node's real public key.
+	targetPubKey *btcec.PublicKey
+
+	// features is the set of relay features available for the payment.
+	// This is extracted from the set of blinded payment paths. At the
+	// moment we require that all paths for the same payment have the
+	// same feature set.
+	features *lnwire.FeatureVector
+}
+
+// NewBlindedPaymentPathSet constructs a new BlindedPaymentPathSet from a set of
+// BlindedPayments.
+func NewBlindedPaymentPathSet(paths []*BlindedPayment) (*BlindedPaymentPathSet,
+	error) {
+
+	if len(paths) == 0 {
+		return nil, ErrNoBlindedPath
+	}
+
+	// For now, we assert that all the paths have the same set of features.
+	features := paths[0].Features
+	noFeatures := features == nil || features.IsEmpty()
+	for i := 1; i < len(paths); i++ {
+		noFeats := paths[i].Features == nil ||
+			paths[i].Features.IsEmpty()
+
+		if noFeatures && !noFeats {
+			return nil, fmt.Errorf("all blinded paths must have " +
+				"the same set of features")
+		}
+
+		if noFeatures {
+			continue
+		}
+
+		if !features.RawFeatureVector.Equals(
+			paths[i].Features.RawFeatureVector,
+		) {
+
+			return nil, fmt.Errorf("all blinded paths must have " +
+				"the same set of features")
+		}
+	}
+
+	// NOTE: for now, we just take a single path. By the end of this PR
+	// series, all paths will be kept.
+	path := paths[0]
+
+	finalHop := path.BlindedPath.
+		BlindedHops[len(path.BlindedPath.BlindedHops)-1]
+
+	return &BlindedPaymentPathSet{
+		paths:        paths,
+		targetPubKey: finalHop.BlindedNodePub,
+		features:     features,
+	}, nil
+}
+
+// TargetPubKey returns the public key to be used as the destination node's
+// public key during pathfinding.
+func (s *BlindedPaymentPathSet) TargetPubKey() *btcec.PublicKey {
+	return s.targetPubKey
+}
+
+// Features returns the set of relay features available for the payment.
+func (s *BlindedPaymentPathSet) Features() *lnwire.FeatureVector {
+	return s.features
+}
+
+// GetPath is a temporary getter for the single path that the set holds.
+// This will be removed later on in this PR.
+func (s *BlindedPaymentPathSet) GetPath() *BlindedPayment {
+	return s.paths[0]
+}
+
+// LargestLastHopPayloadPath returns the BlindedPayment in the set that has the
+// largest last-hop payload. This is to be used for onion size estimation in
+// path finding.
+func (s *BlindedPaymentPathSet) LargestLastHopPayloadPath() *BlindedPayment {
+	var (
+		largestPath *BlindedPayment
+		currentMax  int
+	)
+	for _, path := range s.paths {
+		numHops := len(path.BlindedPath.BlindedHops)
+		lastHop := path.BlindedPath.BlindedHops[numHops-1]
+
+		if len(lastHop.CipherText) > currentMax {
+			largestPath = path
+		}
+	}
+
+	return largestPath
+}
+
+// ToRouteHints returns a RouteHints set containing the hints from each path in
+// the set.
+func (s *BlindedPaymentPathSet) ToRouteHints() (RouteHints, error) {
+	hints := make(RouteHints)
+
+	for _, path := range s.paths {
+		pathHints, err := path.toRouteHints()
+		if err != nil {
+			return nil, err
+		}
+
+		for from, edges := range pathHints {
+			hints[from] = append(hints[from], edges...)
+		}
+	}
+
+	if len(hints) == 0 {
+		return nil, nil
+	}
+
+	return hints, nil
+}
 
 // BlindedPayment provides the path and payment parameters required to send a
 // payment along a blinded path.

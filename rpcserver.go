@@ -5246,28 +5246,24 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 		payIntent.metadata = payReq.Metadata
 
 		if len(payReq.BlindedPaymentPaths) > 0 {
-			// NOTE: Currently we only choose a single payment path.
-			// This will be updated in a future PR to handle
-			// multiple blinded payment paths.
-			path := payReq.BlindedPaymentPaths[0]
-			if len(path.Hops) == 0 {
-				return payIntent, fmt.Errorf("a blinded " +
-					"payment must have at least 1 hop")
+			pathSet, err := routerrpc.BuildBlindedPathSet(
+				payReq.BlindedPaymentPaths,
+			)
+			if err != nil {
+				return payIntent, err
 			}
+			payIntent.blindedPayment = pathSet.GetPath()
 
-			finalHop := path.Hops[len(path.Hops)-1]
-			payIntent.blindedPayment =
-				routerrpc.MarshalBlindedPayment(path)
-
-			// Replace the target node with the blinded public key
-			// of the blinded path's final node.
+			// Replace the destination node with the target public
+			// key of the blinded path set.
 			copy(
 				payIntent.dest[:],
-				finalHop.BlindedNodePub.SerializeCompressed(),
+				pathSet.TargetPubKey().SerializeCompressed(),
 			)
 
-			if !payReq.BlindedPaymentPaths[0].Features.IsEmpty() {
-				payIntent.destFeatures = path.Features.Clone()
+			pathFeatures := pathSet.Features()
+			if !pathFeatures.IsEmpty() {
+				payIntent.destFeatures = pathFeatures.Clone()
 			}
 		}
 

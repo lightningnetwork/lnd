@@ -3973,7 +3973,10 @@ func TestNewRouteRequest(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			var blindedPathInfo *BlindedPaymentPathSet
+			var (
+				blindedPathInfo *BlindedPaymentPathSet
+				expectedTarget  = testCase.expectedTarget
+			)
 			if testCase.blindedPayment != nil {
 				blindedPathInfo, err = NewBlindedPaymentPathSet(
 					[]*BlindedPayment{
@@ -3981,6 +3984,10 @@ func TestNewRouteRequest(t *testing.T) {
 					},
 				)
 				require.NoError(t, err)
+
+				expectedTarget = route.NewVertex(
+					blindedPathInfo.TargetPubKey(),
+				)
 			}
 
 			req, err := NewRouteRequest(
@@ -3995,7 +4002,7 @@ func TestNewRouteRequest(t *testing.T) {
 				return
 			}
 
-			require.Equal(t, req.Target, testCase.expectedTarget)
+			require.Equal(t, req.Target, expectedTarget)
 			require.Equal(
 				t, req.FinalExpiry, testCase.expectedCltv,
 			)

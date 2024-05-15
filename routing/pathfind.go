@@ -144,12 +144,8 @@ func newRoute(sourceVertex route.Vertex,
 		// sender of the payment.
 		nextIncomingAmount lnwire.MilliSatoshi
 
-		blindedPath *sphinx.BlindedPath
+		blindedPayment *BlindedPayment
 	)
-
-	if blindedPathSet != nil {
-		blindedPath = blindedPathSet.GetPath().BlindedPath
-	}
 
 	pathLength := len(pathEdges)
 	for i := pathLength - 1; i >= 0; i-- {
@@ -158,6 +154,10 @@ func newRoute(sourceVertex route.Vertex,
 		edge := pathEdges[i].policy
 
 		isBlindedEdge := pathEdges[i].blindedPayment != nil
+
+		if isBlindedEdge && blindedPayment == nil {
+			blindedPayment = pathEdges[i].blindedPayment
+		}
 
 		// We'll calculate the amounts, timelocks, and fees for each hop
 		// in the route. The base case is the final hop which includes
@@ -235,8 +235,9 @@ func newRoute(sourceVertex route.Vertex,
 			// node's cltv delta. The exception is for the case
 			// where the final hop is the blinded path introduction
 			// node.
-			if blindedPath == nil ||
-				len(blindedPath.BlindedHops) == 1 {
+			if blindedPathSet == nil ||
+				len(blindedPathSet.GetPath().BlindedPath.
+					BlindedHops) == 1 {
 
 				// As this is the last hop, we'll use the
 				// specified final CLTV delta value instead of
@@ -273,7 +274,7 @@ func newRoute(sourceVertex route.Vertex,
 
 			metadata = finalHop.metadata
 
-			if blindedPath != nil {
+			if blindedPathSet != nil {
 				totalAmtMsatBlinded = finalHop.totalAmt
 			}
 		} else {
@@ -334,10 +335,24 @@ func newRoute(sourceVertex route.Vertex,
 	// If we are creating a route to a blinded path, we need to add some
 	// additional data to the route that is required for blinded forwarding.
 	// We do another pass on our edges to append this data.
-	if blindedPath != nil {
+	if blindedPathSet != nil {
+		// If the passed in BlindedPaymentPathSet is non-nil but no
+		// edge had a BlindedPayment attached, it means that the path
+		// chosen was an introduction-node-only path. So in this case,
+		// we can assume the relevant payment is the only one in the
+		// payment set.
+		if blindedPayment == nil {
+			blindedPayment = blindedPathSet.GetPath()
+		}
+
 		var (
 			inBlindedRoute bool
 			dataIndex      = 0
+
+			blindedPath = blindedPayment.BlindedPath
+			numHops     = len(blindedPath.BlindedHops)
+			realFinal   = blindedPath.BlindedHops[numHops-1].
+					BlindedNodePub
 
 			introVertex = route.NewVertex(
 				blindedPath.IntroductionPoint,
@@ -366,6 +381,11 @@ func newRoute(sourceVertex route.Vertex,
 			if i != len(hops)-1 {
 				hop.AmtToForward = 0
 				hop.OutgoingTimeLock = 0
+			} else {
+				// For the final hop, we swap out the pub key
+				// bytes to the original destination node pub
+				// key for that payment path.
+				hop.PubKeyBytes = route.NewVertex(realFinal)
 			}
 
 			dataIndex++

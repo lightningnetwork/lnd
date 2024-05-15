@@ -388,10 +388,10 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 				fromNode, toNode, amt, capacity,
 			)
 		},
-		DestCustomRecords: record.CustomSet(in.DestCustomRecords),
-		CltvLimit:         cltvLimit,
-		DestFeatures:      destinationFeatures,
-		BlindedPayment:    blindedPathSet.GetPath(),
+		DestCustomRecords:     record.CustomSet(in.DestCustomRecords),
+		CltvLimit:             cltvLimit,
+		DestFeatures:          destinationFeatures,
+		BlindedPaymentPathSet: blindedPathSet,
 	}
 
 	// Pass along an outgoing channel restriction if specified.
@@ -420,7 +420,7 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 
 	return routing.NewRouteRequest(
 		sourcePubKey, targetPubKey, amt, in.TimePref, restrictions,
-		customRecords, routeHintEdges, blindedPathSet.GetPath(),
+		customRecords, routeHintEdges, blindedPathSet,
 		finalCLTVDelta,
 	)
 }
@@ -1007,7 +1007,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			if err != nil {
 				return nil, err
 			}
-			payIntent.BlindedPayment = pathSet.GetPath()
+			payIntent.BlindedPathSet = pathSet
 
 			// Replace the target node with the target public key
 			// of the blinded path set.

@@ -523,17 +523,7 @@ func NewRouteRequest(source route.Vertex, target *route.Vertex,
 			return nil, ErrExpiryAndBlinded
 		}
 
-		// If we have a blinded path with 1 hop, the cltv expiry
-		// will not be included in any hop hints (since we're just
-		// sending to the introduction node and need no blinded hints).
-		// In this case, we include it to make sure that the final
-		// cltv delta is accounted for (since it's part of the blinded
-		// delta). In the case of a multi-hop route, we set our final
-		// cltv to zero, since it's going to be accounted for in the
-		// delta for our hints.
-		if len(blindedPayment.BlindedPath.BlindedHops) == 1 {
-			requestExpiry = blindedPayment.CltvExpiryDelta
-		}
+		requestExpiry = blindedPathSet.FinalCLTVDelta()
 
 		requestHints, err = blindedPathSet.ToRouteHints()
 		if err != nil {

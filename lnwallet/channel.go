@@ -566,7 +566,7 @@ func (c *commitment) toDiskCommit(
 // restore commitment state written to disk back into memory once we need to
 // restart a channel session.
 func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
-	commitHeight uint64, htlc *channeldb.HTLC, localCommitKeys,
+	htlc *channeldb.HTLC, localCommitKeys *CommitmentKeyRing,
 	remoteCommitKeys *CommitmentKeyRing, whoseCommit lntypes.ChannelParty,
 ) (PaymentDescriptor, error) {
 
@@ -654,8 +654,8 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 // to a set of incoming and outgoing payment descriptors. Once reconstructed,
 // these payment descriptors can be re-inserted into the in-memory updateLog
 // for each side.
-func (lc *LightningChannel) extractPayDescs(commitHeight uint64,
-	feeRate chainfee.SatPerKWeight, htlcs []channeldb.HTLC, localCommitKeys,
+func (lc *LightningChannel) extractPayDescs(feeRate chainfee.SatPerKWeight,
+	htlcs []channeldb.HTLC, localCommitKeys *CommitmentKeyRing,
 	remoteCommitKeys *CommitmentKeyRing, whoseCommit lntypes.ChannelParty,
 ) ([]PaymentDescriptor, []PaymentDescriptor, error) {
 
@@ -675,7 +675,7 @@ func (lc *LightningChannel) extractPayDescs(commitHeight uint64,
 		htlc := htlc
 
 		payDesc, err := lc.diskHtlcToPayDesc(
-			feeRate, commitHeight, &htlc,
+			feeRate, &htlc,
 			localCommitKeys, remoteCommitKeys,
 			whoseCommit,
 		)
@@ -728,7 +728,6 @@ func (lc *LightningChannel) diskCommitToMemCommit(
 	// HTLC"s into PaymentDescriptor's so we can re-insert them into our
 	// update log.
 	incomingHtlcs, outgoingHtlcs, err := lc.extractPayDescs(
-		diskCommit.CommitHeight,
 		chainfee.SatPerKWeight(diskCommit.FeePerKw),
 		diskCommit.Htlcs, localCommitKeys, remoteCommitKeys,
 		whoseCommit,

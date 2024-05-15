@@ -10379,7 +10379,7 @@ func TestExtractPayDescs(t *testing.T) {
 	// NOTE: we use nil commitment key rings to avoid checking the htlc
 	// scripts(`genHtlcScript`) as it should be tested independently.
 	incomingPDs, outgoingPDs, err := lnChan.extractPayDescs(
-		0, 0, htlcs, nil, nil, lntypes.Local,
+		0, htlcs, nil, nil, lntypes.Local,
 	)
 	require.NoError(t, err)
 

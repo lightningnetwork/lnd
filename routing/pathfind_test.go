@@ -3286,7 +3286,7 @@ func TestBlindedRouteConstruction(t *testing.T) {
 	// that make up the graph we'll give to route construction. The hints
 	// map is keyed by source node, so we can retrieve our blinded edges
 	// accordingly.
-	blindedEdges, err := blindedPayment.toRouteHints()
+	blindedEdges, err := blindedPayment.toRouteHints(nil)
 	require.NoError(t, err)
 
 	carolDaveEdge := blindedEdges[carolVertex][0]

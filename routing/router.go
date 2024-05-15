@@ -572,20 +572,7 @@ func getTargetNode(target *route.Vertex,
 		return route.Vertex{}, ErrTargetAndBlinded
 
 	case blinded:
-		blindedPayment := blindedPathSet.GetPath()
-
-		// If we're dealing with an edge-case blinded path that just
-		// has an introduction node (first hop expected to be the intro
-		// hop), then we return the unblinded introduction node as our
-		// target.
-		hops := blindedPayment.BlindedPath.BlindedHops
-		if len(hops) == 1 {
-			return route.NewVertex(
-				blindedPayment.BlindedPath.IntroductionPoint,
-			), nil
-		}
-
-		return route.NewVertex(hops[len(hops)-1].BlindedNodePub), nil
+		return route.NewVertex(blindedPathSet.TargetPubKey()), nil
 
 	case targetSet:
 		return *target, nil

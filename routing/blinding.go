@@ -51,6 +51,22 @@ type BlindedPaymentPathSet struct {
 	// moment we require that all paths for the same payment have the
 	// same feature set.
 	features *lnwire.FeatureVector
+
+	// finalCLTV is the final hop's expiry delta of _any_ path in the set.
+	// For any multi-hop path, the final CLTV delta should be seen as zero
+	// since the final hop's final CLTV delta is accounted for in the
+	// accumulated path policy values. The only edge case is for when the
+	// final hop in the path is also the introduction node in which case
+	// that path's FinalCLTV must be the non-zero min CLTV of the final hop
+	// so that it is accounted for in path finding. For this reason, if
+	// we have any single path in the set with only one hop, then we throw
+	// away all the other paths. This should be fine to do since if there is
+	// a path where the intro node is also the destination node, then there
+	// isn't any need to try any other longer blinded path. In other words,
+	// if this value is non-zero, then there is only one path in this
+	// blinded path set and that path only has a single hop: the
+	// introduction node.
+	finalCLTV uint16
 }
 
 // NewBlindedPaymentPathSet constructs a new BlindedPaymentPathSet from a set of
@@ -95,19 +111,25 @@ func NewBlindedPaymentPathSet(paths []*BlindedPayment) (*BlindedPaymentPathSet,
 	}
 	targetPub := targetPriv.PubKey()
 
+	var (
+		pathSet        = paths
+		finalCLTVDelta uint16
+	)
 	// If any provided blinded path only has a single hop (ie, the
 	// destination node is also the introduction node), then we discard all
 	// other paths since we know the real pub key of the destination node.
-	// For a single hop path, there is also no need for the pseudo target
-	// pub key replacement, so our target pub key in this case just remains
-	// the real introduction node ID.
-	var pathSet = paths
+	// We also then set the final CLTV delta to the path's delta since
+	// there are no other edge hints that will account for it. For a single
+	// hop path, there is also no need for the pseudo target pub key
+	// replacement, so our target pub key in this case just remains the
+	// real introduction node ID.
 	for _, path := range paths {
 		if len(path.BlindedPath.BlindedHops) != 1 {
 			continue
 		}
 
 		pathSet = []*BlindedPayment{path}
+		finalCLTVDelta = path.CltvExpiryDelta
 		targetPub = path.BlindedPath.IntroductionPoint
 
 		break
@@ -117,6 +139,7 @@ func NewBlindedPaymentPathSet(paths []*BlindedPayment) (*BlindedPaymentPathSet,
 		paths:        pathSet,
 		targetPubKey: targetPub,
 		features:     features,
+		finalCLTV:    finalCLTVDelta,
 	}, nil
 }
 
@@ -135,6 +158,15 @@ func (s *BlindedPaymentPathSet) Features() *lnwire.FeatureVector {
 // This will be removed later on in this PR.
 func (s *BlindedPaymentPathSet) GetPath() *BlindedPayment {
 	return s.paths[0]
+}
+
+// FinalCLTVDelta is the minimum CLTV delta to use for the final hop on the
+// route. In most cases this will return zero since the value is accounted for
+// in the path's accumulated CLTVExpiryDelta. Only in the edge case of the path
+// set only including a single path which only includes an introduction node
+// will this return a non-zero value.
+func (s *BlindedPaymentPathSet) FinalCLTVDelta() uint16 {
+	return s.finalCLTV
 }
 
 // LargestLastHopPayloadPath returns the BlindedPayment in the set that has the

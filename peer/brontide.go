@@ -1257,15 +1257,13 @@ func (p *Brontide) Disconnect(reason error) {
 
 	p.log.Infof(err.Error())
 
+	// Stop PingManager before closing TCP connection.
+	p.pingManager.Stop()
+
 	// Ensure that the TCP connection is properly closed before continuing.
 	p.cfg.Conn.Close()
 
 	close(p.quit)
-
-	if err := p.pingManager.Stop(); err != nil {
-		p.log.Errorf("couldn't stop pingManager during disconnect: %v",
-			err)
-	}
 }
 
 // String returns the string representation of this peer.

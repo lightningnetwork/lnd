@@ -83,6 +83,6 @@ func TestPingManager(t *testing.T) {
 			require.False(t, test.result)
 		}
 
-		require.NoError(t, mgr.Stop(), "Could not stop pingManager")
+		mgr.Stop()
 	}
 }

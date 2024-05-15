@@ -1750,7 +1750,10 @@ out:
 		// handle this message. If it can, then we're able to skip the
 		// rest of the message handling logic.
 		ok := fn.MapOptionZ(p.msgRouter, func(r protofsm.MsgRouter) error {
-			return r.RouteMsg(nextMsg)
+			return r.RouteMsg(protofsm.PeerMsg{
+				PeerPub: *p.IdentityKey(),
+				Message: nextMsg,
+			})
 		})
 
 		// No error occurred, and the message was handled by the

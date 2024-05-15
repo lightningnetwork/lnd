@@ -5,6 +5,7 @@ import (
 	"maps"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -23,6 +24,15 @@ var (
 // registered endpoints.
 type EndPointName = string
 
+// PeerMsg is a wire message that includes the public key of the peer that sent
+// it.
+type PeerMsg struct {
+	lnwire.Message
+
+	// PeerPub is the public key of the peer that sent this message.
+	PeerPub btcec.PublicKey
+}
+
 // MsgEndpoint is an interface that represents a message endpoint, or the
 // sub-system that will handle processing an incoming wire message.
 type MsgEndpoint interface {
@@ -32,11 +42,11 @@ type MsgEndpoint interface {
 
 	// CanHandle returns true if the target message can be routed to this
 	// endpoint.
-	CanHandle(msg lnwire.Message) bool
+	CanHandle(msg PeerMsg) bool
 
 	// SendMessage handles the target message, and returns true if the
 	// message was able to be processed.
-	SendMessage(msg lnwire.Message) bool
+	SendMessage(msg PeerMsg) bool
 }
 
 // MsgRouter is an interface that represents a message router, which is generic
@@ -55,7 +65,7 @@ type MsgRouter interface {
 	// RouteMsg attempts to route the target message to a registered
 	// endpoint. If ANY endpoint could handle the message, then nil is
 	// returned. Otherwise, ErrUnableToRouteMsg is returned.
-	RouteMsg(lnwire.Message) error
+	RouteMsg(PeerMsg) error
 
 	// Start starts the peer message router.
 	Start()
@@ -129,7 +139,7 @@ type MultiMsgRouter struct {
 
 	// msgChan is the channel that all messages will be sent to for
 	// processing.
-	msgChan chan queryMsg[lnwire.Message, error]
+	msgChan chan queryMsg[PeerMsg, error]
 
 	// endpointsQueries is a channel that all queries to the endpoints map
 	// will be sent to.
@@ -144,7 +154,7 @@ func NewMultiMsgRouter() *MultiMsgRouter {
 	return &MultiMsgRouter{
 		registerChan:    make(chan queryMsg[MsgEndpoint, error]),
 		unregisterChan:  make(chan queryMsg[EndPointName, error]),
-		msgChan:         make(chan queryMsg[lnwire.Message, error]),
+		msgChan:         make(chan queryMsg[PeerMsg, error]),
 		endpointQueries: make(chan queryMsg[MsgEndpoint, EndpointsMap]),
 		quit:            make(chan struct{}),
 	}
@@ -184,7 +194,7 @@ func (p *MultiMsgRouter) UnregisterEndpoint(name EndPointName) error {
 // RouteMsg attempts to route the target message to a registered endpoint. If
 // ANY endpoint could handle the message, then true is
 // returned.
-func (p *MultiMsgRouter) RouteMsg(msg lnwire.Message) error {
+func (p *MultiMsgRouter) RouteMsg(msg PeerMsg) error {
 	return sendQueryErr(p.msgChan, msg, p.quit)
 }
 
@@ -261,7 +271,7 @@ func (p *MultiMsgRouter) msgRouter() {
 			for _, endpoint := range endpoints {
 				if endpoint.CanHandle(msg) {
 					log.Infof("MsgRouter: sending "+
-						"msg %T to endpoint %s", msg,
+						"msg %T to endpoint %s", msg.Message,
 						endpoint.Name())
 
 					sent := endpoint.SendMessage(msg)
@@ -272,7 +282,7 @@ func (p *MultiMsgRouter) msgRouter() {
 			var err error
 			if !couldSend {
 				log.Infof("MsgRouter: unable to route "+
-					"msg %T", msg)
+					"msg %T", msg.Message)
 
 				err = ErrUnableToRouteMsg
 			}

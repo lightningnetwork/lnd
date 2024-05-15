@@ -3965,11 +3965,6 @@ func TestNewRouteRequest(t *testing.T) {
 			finalExpiry:    unblindedCltv,
 			err:            ErrExpiryAndBlinded,
 		},
-		{
-			name:           "invalid blinded payment",
-			blindedPayment: &BlindedPayment{},
-			err:            ErrNoBlindedPath,
-		},
 	}
 
 	for _, testCase := range testCases {
@@ -3978,9 +3973,19 @@ func TestNewRouteRequest(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
+			var blindedPathInfo *BlindedPaymentPathSet
+			if testCase.blindedPayment != nil {
+				blindedPathInfo, err = NewBlindedPaymentPathSet(
+					[]*BlindedPayment{
+						testCase.blindedPayment,
+					},
+				)
+				require.NoError(t, err)
+			}
+
 			req, err := NewRouteRequest(
 				source, testCase.target, 1000, 0, nil, nil,
-				testCase.routeHints, testCase.blindedPayment,
+				testCase.routeHints, blindedPathInfo,
 				testCase.finalExpiry,
 			)
 			require.ErrorIs(t, err, testCase.err)

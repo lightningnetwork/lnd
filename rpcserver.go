@@ -5120,7 +5120,7 @@ type rpcPaymentIntent struct {
 	paymentAddr        *[32]byte
 	payReq             []byte
 	metadata           []byte
-	blindedPayment     *routing.BlindedPayment
+	blindedPathSet     *routing.BlindedPaymentPathSet
 
 	destCustomRecords record.CustomSet
 
@@ -5263,7 +5263,7 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 			if err != nil {
 				return payIntent, err
 			}
-			payIntent.blindedPayment = pathSet.GetPath()
+			payIntent.blindedPathSet = pathSet
 
 			// Replace the destination node with the target public
 			// key of the blinded path set.
@@ -5432,7 +5432,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 			DestFeatures:       payIntent.destFeatures,
 			PaymentAddr:        payIntent.paymentAddr,
 			Metadata:           payIntent.metadata,
-			BlindedPayment:     payIntent.blindedPayment,
+			BlindedPathSet:     payIntent.blindedPathSet,
 
 			// Don't enable multi-part payments on the main rpc.
 			// Users need to use routerrpc for that.

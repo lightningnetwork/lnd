@@ -76,6 +76,12 @@ const (
 
 	// ErrorBufferSize is the number of historic peer errors that we store.
 	ErrorBufferSize = 10
+
+	// pongSizeCeiling is the upper bound on a uniformly distributed random
+	// variable that we use for requesting pong responses. We don't use the
+	// MaxPongBytes (upper bound accepted by the protocol) because it is
+	// needlessly wasteful of precious Tor bandwidth for little to no gain.
+	pongSizeCeiling = 4096
 )
 
 var (
@@ -558,17 +564,16 @@ func NewBrontide(cfg Config) *Brontide {
 		return lastSerializedBlockHeader[:]
 	}
 
-	// TODO(roasbeef): make dynamic in order to
-	// create fake cover traffic
-	// NOTE(proofofkeags): this was changed to be
-	// dynamic to allow better pong identification,
-	// however, more thought is needed to make this
-	// actually usable as a traffic decoy
+	// TODO(roasbeef): make dynamic in order to create fake cover traffic.
+	//
+	// NOTE(proofofkeags): this was changed to be dynamic to allow better
+	// pong identification, however, more thought is needed to make this
+	// actually usable as a traffic decoy.
 	randPongSize := func() uint16 {
 		return uint16(
 			// We don't need cryptographic randomness here.
 			/* #nosec */
-			rand.Intn(lnwire.MaxPongBytes + 1),
+			rand.Intn(pongSizeCeiling) + 1,
 		)
 	}
 

@@ -349,22 +349,12 @@ type commitment struct {
 
 // locateOutputIndex is a small helper function to locate the output index of a
 // particular HTLC within the current commitment transaction. The duplicate map
-// massed in is to be retained for each output within the commitment
+// passed in is to be retained for each output within the commitment
 // transition.  This ensures that we don't assign multiple HTLCs to the same
 // index within the commitment transaction.
 func locateOutputIndex(p *PaymentDescriptor, tx *wire.MsgTx,
 	whoseCommit lntypes.ChannelParty, dups map[PaymentHash][]int32,
 	cltvs []uint32) (int32, error) {
-
-	// Checks to see if element (e) exists in slice (s).
-	contains := func(s []int32, e int32) bool {
-		for _, a := range s {
-			if a == e {
-				return true
-			}
-		}
-		return false
-	}
 
 	// If this is their commitment transaction, we'll be trying to locate
 	// their pkScripts, otherwise we'll be looking for ours. This is
@@ -385,7 +375,7 @@ func locateOutputIndex(p *PaymentDescriptor, tx *wire.MsgTx,
 			// If this payment hash and index has already been
 			// found, then we'll continue in order to avoid any
 			// duplicate indexes.
-			if contains(dups[p.RHash], int32(i)) {
+			if fn.Elem(int32(i), dups[p.RHash]) {
 				continue
 			}
 

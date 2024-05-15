@@ -23,6 +23,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	switchhop "github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -3286,7 +3287,9 @@ func TestBlindedRouteConstruction(t *testing.T) {
 	// that make up the graph we'll give to route construction. The hints
 	// map is keyed by source node, so we can retrieve our blinded edges
 	// accordingly.
-	blindedEdges, err := blindedPayment.toRouteHints()
+	blindedEdges, err := blindedPayment.toRouteHints(
+		fn.None[*btcec.PublicKey](),
+	)
 	require.NoError(t, err)
 
 	carolDaveEdge := blindedEdges[carolVertex][0]

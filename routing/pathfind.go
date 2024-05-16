@@ -333,7 +333,11 @@ func newRoute(sourceVertex route.Vertex,
 		// we can assume the relevant payment is the only one in the
 		// payment set.
 		if blindedPayment == nil {
-			blindedPayment = blindedPathSet.GetPath()
+			var err error
+			blindedPayment, err = blindedPathSet.IntroNodeOnlyPath()
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		var (

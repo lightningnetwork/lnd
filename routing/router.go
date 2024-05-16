@@ -504,12 +504,7 @@ func NewRouteRequest(source route.Vertex, target *route.Vertex,
 	)
 
 	if blindedPathSet != nil {
-		blindedPayment := blindedPathSet.GetPath()
-
-		introVertex := route.NewVertex(
-			blindedPayment.BlindedPath.IntroductionPoint,
-		)
-		if source == introVertex {
+		if blindedPathSet.IsIntroNode(source) {
 			return nil, ErrSelfIntro
 		}
 

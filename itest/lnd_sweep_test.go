@@ -874,9 +874,6 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	))
 	ht.MineBlocks(numBlocks)
 
-	// Bob force closes the channel.
-	// ht.CloseChannelAssertPending(bob, bcChanPoint, true)
-
 	// Before we mine empty blocks to check the RBF behavior, we need to be
 	// aware that Bob's incoming HTLC will expire before his outgoing HTLC
 	// deadline is reached. This happens because the incoming HTLC is sent
@@ -944,7 +941,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// Now the start fee rate is checked, we can calculate the fee rate
 	// delta.
 	outgoingFeeRateDelta := (outgoingEndFeeRate - outgoingStartFeeRate) /
-		chainfee.SatPerKWeight(outgoingHTLCDeadline)
+		chainfee.SatPerKWeight(outgoingHTLCDeadline-1)
 
 	// outgoingFuncPosition records the position of Bob's fee function used
 	// for his outgoing HTLC sweeping tx.
@@ -1083,7 +1080,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// Now the start fee rate is checked, we can calculate the fee rate
 	// delta.
 	incomingFeeRateDelta := (incomingEndFeeRate - incomingStartFeeRate) /
-		chainfee.SatPerKWeight(incomingHTLCDeadline)
+		chainfee.SatPerKWeight(incomingHTLCDeadline-1)
 
 	// incomingFuncPosition records the position of Bob's fee function used
 	// for his incoming HTLC sweeping tx.
@@ -1143,7 +1140,10 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// We now mine enough blocks till we reach the end of the outgoing
 	// HTLC's deadline. Along the way, we check the expected fee rates are
 	// used for both incoming and outgoing HTLC sweeping txns.
-	blocksLeft := outgoingHTLCDeadline - outgoingFuncPosition
+	//
+	// NOTE: We need to subtract 1 from the deadline as the budget must be
+	// used up before the deadline.
+	blocksLeft := outgoingHTLCDeadline - outgoingFuncPosition - 1
 	for i := int32(0); i < blocksLeft; i++ {
 		// Mine an empty block.
 		ht.MineEmptyBlocks(1)
@@ -1418,7 +1418,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	bobTxWeight := uint64(ht.CalculateTxWeight(bobSweepTx))
 	bobEndingFeeRate := chainfee.NewSatPerKWeight(bobBudget, bobTxWeight)
 	bobFeeRateDelta := (bobEndingFeeRate - bobStartFeeRate) /
-		chainfee.SatPerKWeight(deadlineB)
+		chainfee.SatPerKWeight(deadlineB-1)
 
 	// Mine an empty block, which should trigger Alice's contractcourt to
 	// offer her commit output to the sweeper.
@@ -1550,7 +1550,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	aliceTxWeight := uint64(ht.CalculateTxWeight(aliceSweepTx))
 	aliceEndingFeeRate := sweep.DefaultMaxFeeRate.FeePerKWeight()
 	aliceFeeRateDelta := (aliceEndingFeeRate - aliceStartingFeeRate) /
-		chainfee.SatPerKWeight(deadlineA)
+		chainfee.SatPerKWeight(deadlineA-1)
 
 	aliceFeeRate := ht.CalculateTxFeeRate(aliceSweepTx)
 	expectedFeeRateAlice := aliceStartingFeeRate +

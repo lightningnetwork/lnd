@@ -1216,8 +1216,8 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input, changePkScript []byte,
 		}
 	}
 
-	log.Debugf("Created sweep tx %v for %v inputs", sweepTx.TxHash(),
-		len(inputs))
+	log.Debugf("Created sweep tx %v for inputs:\n%v", sweepTx.TxHash(),
+		inputTypeSummary(inputs))
 
 	return sweepTx, txFee, nil
 }

@@ -1042,3 +1042,166 @@ func testMPPToSingleBlindedPath(ht *lntest.HarnessTest) {
 		ht.AssertNumWaitingClose(hn, 0)
 	}
 }
+
+// testMPPToMultipleBlindedPaths tests that a two-shard MPP payment can be sent
+// over a multiple blinded paths. The following network is created where Dave
+// is the recipient and Alice the sender. Dave will create an invoice containing
+// two blinded paths: one with Bob at the intro node and one with Carol as the
+// intro node. Channel liquidity will be set up in such a way that Alice will be
+// forced to send one shared via the Bob->Dave route and one over the
+// Carol->Dave route.
+//
+//		   --- Bob ---
+//	          /            \
+//	      Alice           Dave
+//		  \	       /
+//		   --- Carol ---
+func testMPPToMultipleBlindedPaths(ht *lntest.HarnessTest) {
+	alice, bob := ht.Alice, ht.Bob
+
+	// Create a four-node context consisting of Alice, Bob and three new
+	// nodes.
+	dave := ht.NewNode("dave", []string{
+		"--invoices.blinding.min-num-hops=1",
+		"--invoices.blinding.max-num-hops=1",
+	})
+	carol := ht.NewNode("carol", nil)
+
+	// Connect nodes to ensure propagation of channels.
+	ht.EnsureConnected(alice, carol)
+	ht.EnsureConnected(alice, carol)
+	ht.EnsureConnected(carol, dave)
+	ht.EnsureConnected(bob, dave)
+
+	// Fund the new nodes.
+	ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, carol)
+	ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, dave)
+	ht.MineBlocks(1)
+
+	const paymentAmt = btcutil.Amount(300000)
+
+	nodes := []*node.HarnessNode{alice, bob, carol, dave}
+
+	reqs := []*lntest.OpenChannelRequest{
+		{
+			Local:  alice,
+			Remote: bob,
+			Param: lntest.OpenChannelParams{
+				Amt: paymentAmt * 2 / 3,
+			},
+		},
+		{
+			Local:  alice,
+			Remote: carol,
+			Param: lntest.OpenChannelParams{
+				Amt: paymentAmt * 2 / 3,
+			},
+		},
+		{
+			Local:  bob,
+			Remote: dave,
+			Param:  lntest.OpenChannelParams{Amt: paymentAmt * 2},
+		},
+		{
+			Local:  carol,
+			Remote: dave,
+			Param:  lntest.OpenChannelParams{Amt: paymentAmt * 2},
+		},
+	}
+
+	channelPoints := ht.OpenMultiChannelsAsync(reqs)
+
+	// Make sure every node has heard every channel.
+	for _, hn := range nodes {
+		for _, cp := range channelPoints {
+			ht.AssertTopologyChannelOpen(hn, cp)
+		}
+
+		// Each node should have exactly 5 edges.
+		ht.AssertNumEdges(hn, len(channelPoints), false)
+	}
+
+	// Ok now make a payment that must be slit to succeed.
+
+	// Make Dave create an invoice for Alice to pay
+	invoice := &lnrpc.Invoice{
+		Memo:  "test",
+		Value: int64(paymentAmt),
+		Blind: true,
+	}
+	invoiceResp := dave.RPC.AddInvoice(invoice)
+
+	// Assert that two blinded paths are included in the invoice.
+	payReq := dave.RPC.DecodePayReq(invoiceResp.PaymentRequest)
+	require.Len(ht, payReq.BlindedPaths, 2)
+
+	sendReq := &routerrpc.SendPaymentRequest{
+		PaymentRequest: invoiceResp.PaymentRequest,
+		MaxParts:       10,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
+	}
+	payment := ht.SendPaymentAssertSettled(alice, sendReq)
+
+	preimageBytes, err := hex.DecodeString(payment.PaymentPreimage)
+	require.NoError(ht, err)
+
+	preimage, err := lntypes.MakePreimage(preimageBytes)
+	require.NoError(ht, err)
+
+	hash, err := lntypes.MakeHash(invoiceResp.RHash)
+	require.NoError(ht, err)
+
+	// Make sure we got the preimage.
+	require.True(ht, preimage.Matches(hash), "preimage doesn't match")
+
+	// Check that Alice split the payment in at least two shards. Because
+	// the hand-off of the htlc to the link is asynchronous (via a mailbox),
+	// there is some non-determinism in the process. Depending on whether
+	// the new pathfinding round is started before or after the htlc is
+	// locked into the channel, different sharding may occur. Therefore we
+	// can only check if the number of shards isn't below the theoretical
+	// minimum.
+	succeeded := 0
+	for _, htlc := range payment.Htlcs {
+		if htlc.Status == lnrpc.HTLCAttempt_SUCCEEDED {
+			succeeded++
+		}
+	}
+
+	const minExpectedShards = 2
+	require.GreaterOrEqual(ht, succeeded, minExpectedShards,
+		"expected shards not reached")
+
+	// Make sure Dave show the invoice as settled for the full amount.
+	inv := dave.RPC.LookupInvoice(invoiceResp.RHash)
+
+	require.EqualValues(ht, paymentAmt, inv.AmtPaidSat,
+		"incorrect payment amt")
+
+	require.Equal(ht, lnrpc.Invoice_SETTLED, inv.State,
+		"Invoice not settled")
+
+	settled := 0
+	for _, htlc := range inv.Htlcs {
+		if htlc.State == lnrpc.InvoiceHTLCState_SETTLED {
+			settled++
+		}
+	}
+	require.Equal(ht, succeeded, settled, "num of HTLCs wrong")
+
+	// Close all channels without mining the closing transactions.
+	ht.CloseChannelAssertPending(alice, channelPoints[0], false)
+	ht.CloseChannelAssertPending(alice, channelPoints[1], false)
+	ht.CloseChannelAssertPending(bob, channelPoints[2], false)
+	ht.CloseChannelAssertPending(carol, channelPoints[3], false)
+
+	// Now mine a block to include all the closing transactions. (first
+	// iteration: no blinded paths)
+	ht.MineBlocks(1)
+
+	// Assert that the channels are closed.
+	for _, hn := range nodes {
+		ht.AssertNumWaitingClose(hn, 0)
+	}
+}

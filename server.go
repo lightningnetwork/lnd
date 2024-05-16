@@ -330,6 +330,10 @@ type server struct {
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
 
+	// peerStorageProvider offers a structure for storing peer's backup
+	// data.
+	peerStorageProvider *peer.PeerStorageProducer
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -550,6 +554,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		CustomFeatures:           cfg.ProtocolOptions.ExperimentalProtocol.CustomFeatures(),
 		NoTaprootChans:           !cfg.ProtocolOptions.TaprootChans,
 		NoRouteBlinding:          cfg.ProtocolOptions.NoRouteBlinding(),
+		NoPeerStorage:            !cfg.ProtocolOptions.PeerStorage(),
 	})
 	if err != nil {
 		return nil, err
@@ -1518,8 +1523,15 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	// Assemble a peer notifier which will provide clients with subscriptions
-	// to peer online and offline events.
+	s.peerStorageProvider, err = peer.NewPeerStorageProducer(
+		dbs.PeerStorageDB,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Assemble a peer notifier which will provide clients with
+	// subscriptions to peer online and offline events.
 	s.peerNotifier = peernotifier.New()
 
 	// Create a channel event store which monitors all open channels.
@@ -3799,6 +3811,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	brontideConn := conn.(*brontide.Conn)
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
+	pubKeyBytes := pubKey.SerializeCompressed()
 
 	srvrLog.Infof("Finalizing connection to %x@%s, inbound=%v",
 		pubKey.SerializeCompressed(), addr, inbound)
@@ -3907,7 +3920,10 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		RequestAlias:           s.aliasMgr.RequestAlias,
 		AddLocalAlias:          s.aliasMgr.AddLocalAlias,
 		DisallowRouteBlinding:  s.cfg.ProtocolOptions.NoRouteBlinding(),
-		Quit:                   s.quit,
+		PeerDataStore: s.peerStorageProvider.NewPeerStorageDB(
+			pubKeyBytes,
+		),
+		Quit: s.quit,
 	}
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())

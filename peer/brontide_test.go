@@ -2,26 +2,25 @@ package peer
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
-	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/pool"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,19 +38,13 @@ var (
 func TestPeerChannelClosureShutdownResponseLinkRemoved(t *testing.T) {
 	t.Parallel()
 
-	notifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
-	}
-	broadcastTxChan := make(chan *wire.MsgTx)
-
-	mockSwitch := &mockMessageSwitch{}
-
-	alicePeer, bobChan, err := createTestPeer(
-		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
-	)
+	harness, err := createTestPeerWithChannel(t, noUpdate)
 	require.NoError(t, err, "unable to create test channels")
+
+	var (
+		alicePeer = harness.peer
+		bobChan   = harness.channel
+	)
 
 	chanPoint := bobChan.ChannelPoint()
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
@@ -87,19 +80,16 @@ func TestPeerChannelClosureShutdownResponseLinkRemoved(t *testing.T) {
 func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	t.Parallel()
 
-	notifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
-	}
-	broadcastTxChan := make(chan *wire.MsgTx)
-
-	mockSwitch := &mockMessageSwitch{}
-
-	alicePeer, bobChan, err := createTestPeer(
-		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
-	)
+	harness, err := createTestPeerWithChannel(t, noUpdate)
 	require.NoError(t, err, "unable to create test channels")
+
+	var (
+		alicePeer       = harness.peer
+		bobChan         = harness.channel
+		mockSwitch      = harness.mockSwitch
+		broadcastTxChan = harness.publishTx
+		notifier        = harness.notifier
+	)
 
 	chanPoint := bobChan.ChannelPoint()
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
@@ -192,19 +182,16 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	t.Parallel()
 
-	notifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
-	}
-	broadcastTxChan := make(chan *wire.MsgTx)
-
-	mockSwitch := &mockMessageSwitch{}
-
-	alicePeer, bobChan, err := createTestPeer(
-		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
-	)
+	harness, err := createTestPeerWithChannel(t, noUpdate)
 	require.NoError(t, err, "unable to create test channels")
+
+	var (
+		bobChan         = harness.channel
+		alicePeer       = harness.peer
+		mockSwitch      = harness.mockSwitch
+		broadcastTxChan = harness.publishTx
+		notifier        = harness.notifier
+	)
 
 	chanPoint := bobChan.ChannelPoint()
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
@@ -316,19 +303,16 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	t.Parallel()
 
-	notifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
-	}
-	broadcastTxChan := make(chan *wire.MsgTx)
-
-	mockSwitch := &mockMessageSwitch{}
-
-	alicePeer, bobChan, err := createTestPeer(
-		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
-	)
+	harness, err := createTestPeerWithChannel(t, noUpdate)
 	require.NoError(t, err, "unable to create test channels")
+
+	var (
+		bobChan         = harness.channel
+		alicePeer       = harness.peer
+		mockSwitch      = harness.mockSwitch
+		broadcastTxChan = harness.publishTx
+		notifier        = harness.notifier
+	)
 
 	chanPoint := bobChan.ChannelPoint()
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
@@ -503,19 +487,16 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	t.Parallel()
 
-	notifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
-	}
-	broadcastTxChan := make(chan *wire.MsgTx)
-
-	mockSwitch := &mockMessageSwitch{}
-
-	alicePeer, bobChan, err := createTestPeer(
-		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
-	)
+	harness, err := createTestPeerWithChannel(t, noUpdate)
 	require.NoError(t, err, "unable to create test channels")
+
+	var (
+		alicePeer       = harness.peer
+		bobChan         = harness.channel
+		mockSwitch      = harness.mockSwitch
+		broadcastTxChan = harness.publishTx
+		notifier        = harness.notifier
+	)
 
 	chanPoint := bobChan.ChannelPoint()
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
@@ -830,31 +811,27 @@ func TestCustomShutdownScript(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			notifier := &mock.ChainNotifier{
-				SpendChan: make(chan *chainntnfs.SpendDetail),
-				EpochChan: make(chan *chainntnfs.BlockEpoch),
-				ConfChan:  make(chan *chainntnfs.TxConfirmation),
-			}
-			broadcastTxChan := make(chan *wire.MsgTx)
-
-			mockSwitch := &mockMessageSwitch{}
-
 			// Open a channel.
-			alicePeer, bobChan, err := createTestPeer(
-				t, notifier, broadcastTxChan, test.update,
-				mockSwitch,
+			harness, err := createTestPeerWithChannel(
+				t, test.update,
 			)
 			if err != nil {
 				t.Fatalf("unable to create test channels: %v", err)
 			}
+
+			var (
+				alicePeer  = harness.peer
+				bobChan    = harness.channel
+				mockSwitch = harness.mockSwitch
+			)
 
 			chanPoint := bobChan.ChannelPoint()
 			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 			mockLink := newMockUpdateHandler(chanID)
 			mockSwitch.links = append(mockSwitch.links, mockLink)
 
-			// Request initiator to cooperatively close the channel, with
-			// a specified delivery address.
+			// Request initiator to cooperatively close the channel,
+			// with a specified delivery address.
 			updateChan := make(chan interface{}, 1)
 			errChan := make(chan error, 1)
 			closeCommand := htlcswitch.ChanClose{
@@ -1000,35 +977,23 @@ func TestStaticRemoteDowngrade(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
-			writeBufferPool := pool.NewWriteBuffer(
-				pool.DefaultWriteBufferGCInterval,
-				pool.DefaultWriteBufferExpiryInterval,
+			params := createTestPeer(t)
+
+			var (
+				p         = params.peer
+				mockConn  = params.mockConn
+				writePool = p.cfg.WritePool
 			)
-
-			writePool := pool.NewWrite(
-				writeBufferPool, 1, timeout,
-			)
-			require.NoError(t, writePool.Start())
-
-			mockConn := newMockConn(t, 1)
-
-			p := Brontide{
-				cfg: Config{
-					LegacyFeatures: legacy,
-					Features:       test.features,
-					Conn:           mockConn,
-					WritePool:      writePool,
-					PongBuf:        make([]byte, lnwire.MaxPongBytes),
-				},
-				log: peerLog,
-			}
+			// Set feature bits.
+			p.cfg.LegacyFeatures = legacy
+			p.cfg.Features = test.features
 
 			var b bytes.Buffer
 			_, err := lnwire.WriteMessage(&b, test.expectedInit, 0)
 			require.NoError(t, err)
 
-			// Send our init message, assert that we write our expected message
-			// and shutdown our write pool.
+			// Send our init message, assert that we write our
+			// expected message and shutdown our write pool.
 			require.NoError(t, p.sendInitMsg(test.legacy))
 			mockConn.assertWrite(b.Bytes())
 			require.NoError(t, writePool.Stop())
@@ -1056,100 +1021,19 @@ func genScript(t *testing.T, address string) lnwire.DeliveryAddress {
 func TestPeerCustomMessage(t *testing.T) {
 	t.Parallel()
 
-	// Set up node Alice.
-	dbAlice, err := channeldb.Open(t.TempDir())
+	params := createTestPeer(t)
+
+	var (
+		mockConn           = params.mockConn
+		alicePeer          = params.peer
+		receivedCustomChan = params.customChan
+		remoteKey          = alicePeer.PubKey()
+	)
+
+	// Start peer.
+	startPeerDone := startPeer(t, mockConn, alicePeer)
+	_, err := fn.RecvOrTimeout(startPeerDone, 2*timeout)
 	require.NoError(t, err)
-
-	aliceKey, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
-	writeBufferPool := pool.NewWriteBuffer(
-		pool.DefaultWriteBufferGCInterval,
-		pool.DefaultWriteBufferExpiryInterval,
-	)
-
-	writePool := pool.NewWrite(
-		writeBufferPool, 1, timeout,
-	)
-	require.NoError(t, writePool.Start())
-
-	readBufferPool := pool.NewReadBuffer(
-		pool.DefaultReadBufferGCInterval,
-		pool.DefaultReadBufferExpiryInterval,
-	)
-
-	readPool := pool.NewRead(
-		readBufferPool, 1, timeout,
-	)
-	require.NoError(t, readPool.Start())
-
-	mockConn := newMockConn(t, 1)
-
-	receivedCustomChan := make(chan *customMsg)
-
-	remoteKey := [33]byte{8}
-
-	notifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
-	}
-
-	// TODO(yy): change ChannelNotifier to be an interface.
-	channelNotifier := channelnotifier.New(dbAlice.ChannelStateDB())
-	require.NoError(t, channelNotifier.Start())
-	t.Cleanup(func() {
-		require.NoError(t, channelNotifier.Stop(),
-			"stop channel notifier failed")
-	})
-
-	alicePeer := NewBrontide(Config{
-		PubKeyBytes: remoteKey,
-		ChannelDB:   dbAlice.ChannelStateDB(),
-		Addr: &lnwire.NetAddress{
-			IdentityKey: aliceKey.PubKey(),
-		},
-		PrunePersistentPeerConnection: func([33]byte) {},
-		Features:                      lnwire.EmptyFeatureVector(),
-		LegacyFeatures:                lnwire.EmptyFeatureVector(),
-		WritePool:                     writePool,
-		ReadPool:                      readPool,
-		Conn:                          mockConn,
-		ChainNotifier:                 notifier,
-		HandleCustomMessage: func(
-			peer [33]byte, msg *lnwire.Custom) error {
-
-			receivedCustomChan <- &customMsg{
-				peer: peer,
-				msg:  *msg,
-			}
-			return nil
-		},
-		PongBuf:         make([]byte, lnwire.MaxPongBytes),
-		ChannelNotifier: channelNotifier,
-	})
-
-	// Set up the init sequence.
-	go func() {
-		// Read init message.
-		<-mockConn.writtenMessages
-
-		// Write the init reply message.
-		initReplyMsg := lnwire.NewInitMessage(
-			lnwire.NewRawFeatureVector(
-				lnwire.DataLossProtectRequired,
-			),
-			lnwire.NewRawFeatureVector(),
-		)
-		var b bytes.Buffer
-		_, err = lnwire.WriteMessage(&b, initReplyMsg, 0)
-		require.NoError(t, err)
-
-		mockConn.readMessages <- b.Bytes()
-	}()
-
-	// Start the peer.
-	require.NoError(t, alicePeer.Start())
 
 	// Send a custom message.
 	customMsg, err := lnwire.NewCustom(
@@ -1185,20 +1069,11 @@ func TestUpdateNextRevocation(t *testing.T) {
 
 	require := require.New(t)
 
-	// TODO(yy): create interface for lnwallet.LightningChannel so we can
-	// easily mock it without the following setups.
-	notifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
-	}
-	broadcastTxChan := make(chan *wire.MsgTx)
-	mockSwitch := &mockMessageSwitch{}
-
-	alicePeer, bobChan, err := createTestPeer(
-		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
-	)
+	harness, err := createTestPeerWithChannel(t, noUpdate)
 	require.NoError(err, "unable to create test channels")
+
+	bobChan := harness.channel
+	alicePeer := harness.peer
 
 	// testChannel is used to test the updateNextRevocation function.
 	testChannel := bobChan.State()
@@ -1412,29 +1287,21 @@ func TestHandleRemovePendingChannel(t *testing.T) {
 func TestStartupWriteMessageRace(t *testing.T) {
 	t.Parallel()
 
-	// Set up parameters for createTestPeer.
-	notifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
-	}
-	broadcastTxChan := make(chan *wire.MsgTx)
-	mockSwitch := &mockMessageSwitch{}
-
-	// Use a callback to extract the channel created by createTestPeer, so
-	// we can mark it borked below. We can't mark it borked within the
-	// callback, since the channel hasn't been saved to the DB yet when the
-	// callback executes.
+	// Use a callback to extract the channel created by
+	// createTestPeerWithChannel, so we can mark it borked below.
+	// We can't mark it borked within the callback, since the channel hasn't
+	// been saved to the DB yet when the callback executes.
 	var channel *channeldb.OpenChannel
 	getChannels := func(a, b *channeldb.OpenChannel) {
 		channel = a
 	}
 
-	// createTestPeer creates a peer and a channel with that peer.
-	peer, _, err := createTestPeer(
-		t, notifier, broadcastTxChan, getChannels, mockSwitch,
-	)
+	// createTestPeerWithChannel creates a peer and a channel with that
+	// peer.
+	harness, err := createTestPeerWithChannel(t, getChannels)
 	require.NoError(t, err, "unable to create test channel")
+
+	peer := harness.peer
 
 	// Avoid the need to mock the channel graph by marking the channel
 	// borked. Borked channels still get a reestablish message sent on
@@ -1445,58 +1312,21 @@ func TestStartupWriteMessageRace(t *testing.T) {
 	mockConn := newMockConn(t, 2)
 	peer.cfg.Conn = mockConn
 
-	// Set up other configuration necessary to successfully execute
-	// peer.Start().
-	peer.cfg.LegacyFeatures = lnwire.EmptyFeatureVector()
-	writeBufferPool := pool.NewWriteBuffer(
-		pool.DefaultWriteBufferGCInterval,
-		pool.DefaultWriteBufferExpiryInterval,
-	)
-	writePool := pool.NewWrite(
-		writeBufferPool, 1, timeout,
-	)
-	require.NoError(t, writePool.Start())
-	peer.cfg.WritePool = writePool
-	readBufferPool := pool.NewReadBuffer(
-		pool.DefaultReadBufferGCInterval,
-		pool.DefaultReadBufferExpiryInterval,
-	)
-	readPool := pool.NewRead(
-		readBufferPool, 1, timeout,
-	)
-	require.NoError(t, readPool.Start())
-	peer.cfg.ReadPool = readPool
-
 	// Send a message while starting the peer. As the peer starts up, it
 	// should not trigger a data race between the sending of this message
 	// and the sending of the channel reestablish message.
-	sendPingDone := make(chan struct{})
+	var sendPingDone = make(chan struct{})
 	go func() {
 		require.NoError(t, peer.SendMessage(true, lnwire.NewPing(0)))
 		close(sendPingDone)
 	}()
 
-	// Handle init messages.
-	go func() {
-		// Read init message.
-		<-mockConn.writtenMessages
-
-		// Write the init reply message.
-		initReplyMsg := lnwire.NewInitMessage(
-			lnwire.NewRawFeatureVector(
-				lnwire.DataLossProtectRequired,
-			),
-			lnwire.NewRawFeatureVector(),
-		)
-		var b bytes.Buffer
-		_, err = lnwire.WriteMessage(&b, initReplyMsg, 0)
-		require.NoError(t, err)
-
-		mockConn.readMessages <- b.Bytes()
-	}()
-
 	// Start the peer. No data race should occur.
-	require.NoError(t, peer.Start())
+	startPeerDone := startPeer(t, mockConn, peer)
+
+	// Ensure startup is complete.
+	_, err = fn.RecvOrTimeout(startPeerDone, 2*timeout)
+	require.NoError(t, err)
 
 	// Ensure messages were sent during startup.
 	<-sendPingDone
@@ -1516,20 +1346,11 @@ func TestStartupWriteMessageRace(t *testing.T) {
 func TestRemovePendingChannel(t *testing.T) {
 	t.Parallel()
 
-	// Set up parameters for createTestPeer.
-	notifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
-	}
-	broadcastTxChan := make(chan *wire.MsgTx)
-	mockSwitch := &mockMessageSwitch{}
-
-	// createTestPeer creates a peer and a channel with that peer.
-	peer, _, err := createTestPeer(
-		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
-	)
+	// createTestPeerWithChannel creates a peer and a channel.
+	harness, err := createTestPeerWithChannel(t, noUpdate)
 	require.NoError(t, err, "unable to create test channel")
+
+	peer := harness.peer
 
 	// Add a pending channel to the peer Alice.
 	errChan := make(chan error, 1)
@@ -1592,4 +1413,300 @@ func TestRemovePendingChannel(t *testing.T) {
 	}, wait.DefaultTimeout)
 
 	require.NoError(t, err)
+}
+
+// TestHandlePeerStorageRetrieval tests the `handlePeerStorageRetrieval
+// ` brontide method.
+func TestHandlePeerStorageRetrieval(t *testing.T) {
+	harness := createTestPeer(t)
+
+	peer := harness.peer
+
+	// Buffer outgoingQueue to prevent blocking.
+	peer.outgoingQueue = make(chan outgoingMsg, 1)
+
+	// Send signal that the peer is ready and can handle disconnect.
+	close(peer.startReady)
+
+	err := peer.handlePeerStorageRetrieval()
+	require.NoError(t, err)
+
+	// Test that we send a warning to the peer.
+	select {
+	case receivedMsg := <-peer.outgoingQueue:
+		require.IsType(t, &lnwire.Warning{}, receivedMsg.msg)
+
+	case <-time.After(timeout):
+		t.Fatalf("did not receive message " +
+			"as expected.")
+	}
+
+	// Test that we disconnect.
+	require.True(t, peer.IsDisconnected())
+}
+
+// TestHandlePeerStorage tests handling peer storage message.
+func TestHandlePeerStorage(t *testing.T) {
+	t.Parallel()
+	rt := require.New(t)
+
+	// Create test data.
+	blob := []byte{0x9c, 0x40, 0x1, 0x2, 0x3}
+
+	testCases := []struct {
+		name        string
+		msgTestFunc func(msg lnwire.Message)
+		setUpFunc   func(peer *Brontide)
+		noSendMsg   bool
+		disconnect  bool
+		backupData  lnwire.PeerStorageBlob
+	}{
+		{
+			name: "option peer storage disabled",
+			msgTestFunc: func(msg lnwire.Message) {
+				// In this case, we expect to send a warning to
+				// this peer.
+				rt.IsType(msg, &lnwire.Warning{})
+			},
+			disconnect: true,
+		},
+		{
+			name: "option peer storage enabled, active channels " +
+				"present",
+			setUpFunc: func(peer *Brontide) {
+				// Enable option_peer_storage.
+				peer.cfg.Features = lnwire.NewFeatureVector(
+					lnwire.NewRawFeatureVector(
+						lnwire.ProvideStorageOptional,
+					),
+					lnwire.Features,
+				)
+
+				// Add a  dummy active channel.
+				chanID := lnwire.NewChanIDFromOutPoint(
+					wire.OutPoint{Index: 1},
+				)
+				peer.activeChannels.Store(
+					chanID, &lnwallet.LightningChannel{},
+				)
+			},
+			noSendMsg:  true,
+			backupData: blob,
+		},
+		{
+			name: "option peer storage enabled, active channels " +
+				"absent",
+			setUpFunc: func(peer *Brontide) {
+				// Enable option_peer_storage.
+				peer.cfg.Features = lnwire.NewFeatureVector(
+					lnwire.NewRawFeatureVector(
+						lnwire.ProvideStorageOptional,
+					),
+					lnwire.Features,
+				)
+
+				peer.activeChannels = &lnutils.SyncMap[
+					lnwire.ChannelID,
+					*lnwallet.LightningChannel,
+				]{}
+			},
+			noSendMsg: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			params := createTestPeer(t)
+			peer := params.peer
+
+			// The backupData should be nil on initialization.
+			rt.Nil(peer.backupData)
+
+			// Send a signal to this channel to indicate readiness
+			// for potential peer disconnection.
+			close(peer.startReady)
+
+			if tc.setUpFunc != nil {
+				tc.setUpFunc(peer)
+			}
+
+			// Buffer outgoingQueue to prevent blocking.
+			peer.outgoingQueue = make(chan outgoingMsg, 1)
+
+			peerStorageMsg, err := lnwire.NewPeerStorageMsg(
+				blob,
+			)
+			rt.NoError(err)
+
+			// Call the method.
+			err = peer.handlePeerStorageMessage(peerStorageMsg)
+			rt.NoError(err)
+
+			// Test for the backup data stored in memory.
+			rt.Equal(tc.backupData, peer.backupData)
+
+			// Test for expected outgoing messages, if any.
+			select {
+			case receivedMsg := <-peer.outgoingQueue:
+				if !tc.noSendMsg {
+					tc.msgTestFunc(receivedMsg.msg)
+
+					return
+				}
+
+				t.Fatalf("received unexpected "+
+					"message %v",
+					receivedMsg.msg.MsgType())
+
+			case <-time.After(2 * time.Second):
+				if !tc.noSendMsg {
+					t.Fatalf("did not receive message " +
+						"as expected.")
+				}
+			}
+
+			// Check if the peer should be disconnected.
+			rt.Equal(tc.disconnect, peer.IsDisconnected())
+		})
+	}
+}
+
+// TestPeerStorageWriter tests the peerStorageWriter function.
+func TestPeerStorageWriter(t *testing.T) {
+	harness := createTestPeer(t)
+	peer := harness.peer
+
+	// Start the function in a goroutine to test its functionality in
+	// another thread. A successful test means the function started and
+	// performed as expected.
+	peer.wg.Add(1)
+	go peer.peerStorageWriter()
+
+	// Update the backupData every quarter of the backupUpdateInterval.
+	// We do this to test that only the most recent update within this
+	// interval is persisted. This also tests that indeed, the storage is
+	// delayed.
+	interval := backupUpdateInterval / 4
+
+	// We would update the backupData eight times at every quarter of the
+	// backupUpdateInterval. That means this process would go on for
+	// 2 times the backupUpdateInterval duration.
+	for i := 0; i < 8; i++ {
+		ti := time.NewTicker(interval)
+		select {
+		case <-ti.C:
+			peer.bMtx.L.Lock()
+			peer.backupData = []byte{byte(i)}
+			peer.bMtx.Signal()
+			peer.bMtx.L.Unlock()
+
+		case <-time.After(1 * time.Second):
+			t.Fatalf("did not receive ticker as expected.")
+		}
+	}
+
+	// We expect to persist initial backup data at index 0. After one full
+	// backupUpdateInterval, the next data to be persisted is at index 4.
+	// Between data at index 4 and the final data at index 7, only 3/4 of
+	// the backupUpdateInterval elapses. The remaining interval is completed
+	// with this sleep command, so that the data at index 4 would be
+	// persisted.
+	time.Sleep(backupUpdateInterval / 4)
+
+	retrievedData, err := peer.cfg.PeerDataStore.Retrieve()
+	require.NoError(t, err)
+
+	// We expect one data persisted within a backupUpdateInterval.
+	// Since we sent updates within a duration of two times the
+	// backupUpdateInterval, we expect to have persisted two updates
+	// only.
+	require.Len(t, retrievedData, 2)
+
+	// Convert the data to its corresponding integer values.
+	convToIntData := func(retrievedData []byte) []int {
+		return fn.Map(func(b byte) int {
+			return int(b)
+		}, retrievedData)
+	}
+
+	// The backup data was updated eight times, each annotated with its
+	// index. Due to the delay, we expect only the data from the zeroth and
+	// fourth updates to be persisted in that order.
+	require.Equal(t, []int{0, 4}, convToIntData(retrievedData))
+
+	// Test that we store remaining data on quit.
+	close(peer.quit)
+	peer.bMtx.Signal()
+
+	// The signal for data at index 7 wasn't picked up because it
+	// was sent during the storage delay for data at index 4.
+	// After sending another signal, we expect the
+	// `peerStorageWriter` to now pick it up, then bypass the
+	// storage delay and persist it immediately as we have now
+	// closed the peer's quit channel as well.
+	//
+	// Wait a bit to allow for storing before we retrieve.
+	time.Sleep(time.Second / 2)
+	retrievedData, err = peer.cfg.PeerDataStore.Retrieve()
+	require.NoError(t, err)
+
+	require.Len(t, retrievedData, 3)
+	require.Equal(t, []int{0, 4, 7}, convToIntData(retrievedData))
+
+	// Wait for goroutine to exit(good manners).
+	peer.wg.Wait()
+}
+
+// TestPeerBackupReconnect ensures that a peer sends the backup data,
+// if available upon connection. It verifies the peer's behavior by simulating
+// a reconnection and checking if the expected backup data is sent to the mock
+// connection within a specified timeout.
+func TestPeerBackupReconnect(t *testing.T) {
+	t.Parallel()
+	rt := require.New(t)
+
+	params := createTestPeer(t)
+
+	var (
+		peer     = params.peer
+		mockConn = params.mockConn
+	)
+
+	// Enable option_peer_storage.
+	peer.cfg.Features = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.ProvideStorageOptional,
+		),
+		lnwire.Features,
+	)
+
+	// Create sample backup data.
+	sampleData := []byte{0, 1, 2}
+
+	// Store peer's backup data.
+	rt.NoError(peer.cfg.PeerDataStore.Store(sampleData))
+
+	// Test that we send the data to the peer on startup.
+	donePeer := startPeer(t, mockConn, peer)
+	t.Cleanup(func() {
+		_, err := fn.RecvOrTimeout(donePeer, 2*timeout)
+		require.NoError(t, err)
+		peer.Disconnect(errors.New(""))
+	})
+
+	// Test that we send this peer its backup on startup.
+	select {
+	case rawMsg := <-mockConn.writtenMessages:
+		msgReader := bytes.NewReader(rawMsg)
+		nextMsg, err := lnwire.ReadMessage(msgReader, 0)
+		require.NoError(t, err)
+
+		msg, ok := nextMsg.(*lnwire.PeerStorageRetrieval)
+		require.True(t, ok)
+
+		require.True(t, bytes.Equal(msg.Blob, sampleData))
+
+	case <-time.After(timeout):
+		t.Fatalf("timeout waiting for messsage")
+	}
 }

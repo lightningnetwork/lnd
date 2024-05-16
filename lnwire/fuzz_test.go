@@ -900,3 +900,25 @@ func FuzzClosingComplete(f *testing.F) {
 		harness(t, data)
 	})
 }
+
+func FuzzPeerStorage(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Prefix with PeerStorage.
+		data = prefixWithMsgType(data, MsgPeerStorage)
+
+		// Pass the message into our general fuzz harness for wire
+		// messages!
+		harness(t, data)
+	})
+}
+
+func FuzzPeerStorageRetrieval(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Prefix with PeerStorage.
+		data = prefixWithMsgType(data, MsgPeerStorageRetrieval)
+
+		// Pass the message into our general fuzz harness for wire
+		// messages!
+		harness(t, data)
+	})
+}

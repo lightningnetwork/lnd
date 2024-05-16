@@ -76,6 +76,8 @@ const (
 
 	// ErrorBufferSize is the number of historic peer errors that we store.
 	ErrorBufferSize = 10
+
+	backupUpdateInterval = 1 * time.Second
 )
 
 var (
@@ -137,6 +139,21 @@ type ChannelCloseUpdate struct {
 type TimestampedError struct {
 	Error     error
 	Timestamp time.Time
+}
+
+// PeerDataStore is an interface representing the structure enabling the peer
+// to carry out operations to store other peer's data.
+//
+//nolint:revive
+type PeerDataStore interface {
+	// Store saves backup data received from peers.
+	Store(data []byte) error
+
+	// Delete eliminates a peer's data from the store.
+	Delete() error
+
+	// Retrieve fetches the data of a peer from the store.
+	Retrieve() ([]byte, error)
 }
 
 // Config defines configuration fields that are necessary for a peer object
@@ -372,6 +389,10 @@ type Config struct {
 
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
+
+	// PeerDataStore is the storage layer that helps us store other peer's
+	// backup data.
+	PeerDataStore PeerDataStore
 }
 
 // Brontide is an active peer on the Lightning Network. This struct is responsible
@@ -495,6 +516,11 @@ type Brontide struct {
 
 	// log is a peer-specific logging instance.
 	log btclog.Logger
+
+	// backupData is an in-memory store for data that we store for our
+	// peers.
+	backupData lnwire.PeerStorageBlob
+	bMtx       *sync.Cond
 }
 
 // A compile-time check to ensure that Brontide satisfies the lnpeer.Peer interface.
@@ -526,6 +552,7 @@ func NewBrontide(cfg Config) *Brontide {
 		startReady:         make(chan struct{}),
 		quit:               make(chan struct{}),
 		log:                build.NewPrefixLog(logPrefix, peerLog),
+		bMtx:               sync.NewCond(&sync.Mutex{}),
 	}
 
 	var (
@@ -724,15 +751,39 @@ func (p *Brontide) Start() error {
 		}
 	}
 
+	// Send this peer its backup data if we have it. This is sent after the
+	// init message and before the channelReestablish message.
+	if p.LocalFeatures().HasFeature(lnwire.ProvideStorageOptional) {
+		data, err := p.cfg.PeerDataStore.Retrieve()
+		if err != nil {
+			return fmt.Errorf("unable to retrieve peer "+
+				"backup data: %v", err)
+		}
+
+		if data != nil {
+			if err := p.writeMessage(
+				lnwire.NewPeerStorageRetrievalMsg(data),
+			); err != nil {
+				return fmt.Errorf("unable to send "+
+					"PeerStorageRetrieval msg to peer on "+
+					"connection: %v", err)
+			}
+		}
+	}
+
 	err = p.pingManager.Start()
 	if err != nil {
 		return fmt.Errorf("could not start ping manager %w", err)
 	}
 
-	p.wg.Add(4)
+	p.wg.Add(5)
 	go p.queueHandler()
 	go p.writeHandler()
 	go p.channelManager()
+
+	// Initialize peerStorageWriter before readHandler to ensure readiness
+	// for storing `PeerStorage` messages upon receipt.
+	go p.peerStorageWriter()
 	go p.readHandler()
 
 	// Signal to any external processes that the peer is now active.
@@ -752,6 +803,75 @@ func (p *Brontide) Start() error {
 	go p.maybeSendNodeAnn(activeChans)
 
 	return nil
+}
+
+// peerStorageWriter coordinates persisting peer's backup data by delaying its
+// storage from its time of receipt to its time of persistence by the
+// duration specified in the `backupUpdateInterval`.
+func (p *Brontide) peerStorageWriter() {
+	defer p.wg.Done()
+
+	var data []byte
+
+Loop:
+	p.bMtx.L.Lock()
+	for {
+		p.bMtx.Wait()
+
+		// Store the data in a different variable as we are about to
+		// exit lock.
+		data = p.backupData
+		p.bMtx.L.Unlock()
+
+		// Check if we are to exit, now that we are awake.
+		select {
+		case <-p.quit:
+			if data == nil {
+				return
+			}
+
+			// Store the data immediately and exit.
+			err := p.cfg.PeerDataStore.Store(data)
+			if err != nil {
+				peerLog.Warnf("Failed to store peer "+
+					"backup data: %v", err)
+			}
+
+			return
+
+		default:
+		}
+
+		break
+	}
+
+	t := time.NewTicker(backupUpdateInterval)
+
+	select {
+	case <-t.C:
+		// Store the data.
+		err := p.cfg.PeerDataStore.Store(data)
+		if err != nil {
+			peerLog.Criticalf("Failed to store peer "+
+				"backup data: %v", err)
+		}
+
+		goto Loop
+
+	case <-p.quit:
+		if data == nil {
+			return
+		}
+
+		// Store the data immediately and exit.
+		err := p.cfg.PeerDataStore.Store(data)
+		if err != nil {
+			peerLog.Warnf("Failed to store peer backup "+
+				"data: %v", err)
+		}
+
+		return
+	}
 }
 
 // initGossipSync initializes either a gossip syncer or an initial routing
@@ -1231,6 +1351,12 @@ func (p *Brontide) WaitForDisconnect(ready chan struct{}) {
 	p.wg.Wait()
 }
 
+func (p *Brontide) IsDisconnected() bool {
+	val := atomic.LoadInt32(&p.disconnect)
+
+	return val == 1
+}
+
 // Disconnect terminates the connection with the remote peer. Additionally, a
 // signal is sent to the server and htlcSwitch indicating the resources
 // allocated to the peer can now be cleaned up.
@@ -1256,6 +1382,10 @@ func (p *Brontide) Disconnect(reason error) {
 	p.cfg.Conn.Close()
 
 	close(p.quit)
+
+	// Signal the peerStorageWriter to stop waiting and pick up the close
+	// signal.
+	p.bMtx.Signal()
 
 	if err := p.pingManager.Stop(); err != nil {
 		p.log.Errorf("couldn't stop pingManager during disconnect: %v",
@@ -1649,7 +1779,7 @@ func (p *Brontide) readHandler() {
 	discStream.Start()
 	defer discStream.Stop()
 out:
-	for atomic.LoadInt32(&p.disconnect) == 0 {
+	for !p.IsDisconnected() {
 		nextMsg, err := p.readNextMessage()
 		if !idleTimer.Stop() {
 			select {
@@ -1798,6 +1928,19 @@ out:
 
 			discStream.AddMsg(msg)
 
+		case *lnwire.PeerStorage:
+			err = p.handlePeerStorageMessage(msg)
+			if err != nil {
+				p.storeError(err)
+				p.log.Errorf("%v", err)
+			}
+
+		case *lnwire.PeerStorageRetrieval:
+			err = p.handlePeerStorageRetrieval()
+			if err != nil {
+				p.storeError(err)
+				p.log.Errorf("%v", err)
+			}
 		case *lnwire.Custom:
 			err := p.handleCustomMessage(msg)
 			if err != nil {
@@ -1898,6 +2041,25 @@ func (p *Brontide) hasChannel(chanID lnwire.ChannelID) bool {
 // channel with the peer to mitigate a dos vector where a peer costlessly
 // connects to us and spams us with errors.
 func (p *Brontide) storeError(err error) {
+	// If we do not have any active channels with the peer, we do not store
+	// errors as a dos mitigation.
+	if !p.hasActiveChannels() {
+		p.log.Trace("no channels with peer, not storing err")
+		return
+	}
+
+	p.cfg.ErrorBuffer.Add(
+		&TimestampedError{Timestamp: time.Now(), Error: err},
+	)
+}
+
+// hasActiveChannels checks if the Brontide instance has any active Lightning
+// network channels that are currently open and not pending.
+//
+// Returns:
+// - true if there is at least one active channel.
+// - false if there are no active channels or all channels are pending.
+func (p *Brontide) hasActiveChannels() bool {
 	var haveChannels bool
 
 	p.activeChannels.Range(func(_ lnwire.ChannelID,
@@ -1915,16 +2077,7 @@ func (p *Brontide) storeError(err error) {
 		return false
 	})
 
-	// If we do not have any active channels with the peer, we do not store
-	// errors as a dos mitigation.
-	if !haveChannels {
-		p.log.Trace("no channels with peer, not storing err")
-		return
-	}
-
-	p.cfg.ErrorBuffer.Add(
-		&TimestampedError{Timestamp: time.Now(), Error: err},
-	)
+	return haveChannels
 }
 
 // handleWarningOrError processes a warning or error msg and returns true if
@@ -2105,8 +2258,11 @@ func messageSummary(msg lnwire.Message) string {
 			time.Unix(int64(msg.FirstTimestamp), 0),
 			msg.TimestampRange)
 
-	case *lnwire.Custom:
-		return fmt.Sprintf("type=%d", msg.Type)
+	case *lnwire.Custom,
+		*lnwire.PeerStorageRetrieval,
+		*lnwire.PeerStorage:
+
+		return fmt.Sprintf("type=%d", msg.MsgType())
 	}
 
 	return fmt.Sprintf("unknown msg type=%T", msg)
@@ -4124,6 +4280,45 @@ func (p *Brontide) handleRemovePendingChannel(req *newChannelMsg) {
 	p.addedChannels.Delete(chanID)
 }
 
+// handlePeerStorageMessage handles `PeerStorage` message, it stores the message
+// and sends it back to the peer as an ack.
+func (p *Brontide) handlePeerStorageMessage(msg *lnwire.PeerStorage) error {
+	// Check if we have the feature to store peer backup enabled.
+	if !p.LocalFeatures().HasFeature(lnwire.ProvideStorageOptional) {
+		warning := "received peer storage message but not " +
+			"advertising required feature bit"
+
+		if err := p.SendMessage(false, &lnwire.Warning{
+			ChanID: lnwire.ConnectionWideID,
+			Data:   []byte(warning),
+		}); err != nil {
+			return err
+		}
+
+		p.Disconnect(errors.New(warning))
+
+		return nil
+	}
+
+	// If we have no active channels with this peer, we return quickly.
+	if !p.hasActiveChannels() {
+		p.log.Tracef("Received peerStorage message from "+
+			"peer(%v) with no active channels -- ignoring",
+			p.String())
+
+		return nil
+	}
+
+	p.log.Debugf("handling peerbackup for peer(%s)", p)
+
+	p.bMtx.L.Lock()
+	p.backupData = msg.Blob
+	p.bMtx.Signal()
+	p.bMtx.L.Unlock()
+
+	return nil
+}
+
 // sendLinkUpdateMsg sends a message that updates the channel to the
 // channel's message stream.
 func (p *Brontide) sendLinkUpdateMsg(cid lnwire.ChannelID, msg lnwire.Message) {
@@ -4147,4 +4342,24 @@ func (p *Brontide) sendLinkUpdateMsg(cid lnwire.ChannelID, msg lnwire.Message) {
 	// With the stream obtained, add the message to the stream so we can
 	// continue processing message.
 	chanStream.AddMsg(msg)
+}
+
+// handlePeerStorageRetrieval sends a warning and disconnects any peer that
+// sends us a `PeerStorageRetrieval` message.
+func (p *Brontide) handlePeerStorageRetrieval() error {
+	peerLog.Tracef("received peerStorageRetrieval message from "+
+		"peer, %v", p.Address())
+
+	warning := "receieved unexpected peerStorageRetrieval message"
+
+	if err := p.SendMessage(false, &lnwire.Warning{
+		ChanID: lnwire.ConnectionWideID,
+		Data:   []byte(warning),
+	}); err != nil {
+		return err
+	}
+
+	p.Disconnect(errors.New(warning))
+
+	return nil
 }

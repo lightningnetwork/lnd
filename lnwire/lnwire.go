@@ -460,6 +460,9 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 	case ExtraOpaqueData:
 		return e.Encode(w)
 
+	case PeerStorageBlob:
+		return e.Encode(w)
+
 	default:
 		return fmt.Errorf("unknown type in WriteElement: %T", e)
 	}
@@ -937,6 +940,9 @@ func ReadElement(r io.Reader, element interface{}) error {
 		*e = addrBytes[:length]
 
 	case *ExtraOpaqueData:
+		return e.Decode(r)
+
+	case *PeerStorageBlob:
 		return e.Decode(r)
 
 	default:

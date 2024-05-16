@@ -60,6 +60,10 @@ type ProtocolOptions struct {
 
 	// NoRouteBlindingOption disables forwarding of payments in blinded routes.
 	NoRouteBlindingOption bool `long:"no-route-blinding" description:"do not forward payments that are a part of a blinded route"`
+
+	// OptionPeerStorage, when set to true, enables storage of backup data
+	// shared by peers.
+	OptionPeerStorage bool `long:"peer-storage" description:"store peer's backup data'"`
 }
 
 // Wumbo returns true if lnd should permit the creation and acceptance of wumbo
@@ -99,4 +103,10 @@ func (l *ProtocolOptions) NoAnySegwit() bool {
 // NoRouteBlinding returns true if forwarding of blinded payments is disabled.
 func (l *ProtocolOptions) NoRouteBlinding() bool {
 	return l.NoRouteBlindingOption
+}
+
+// PeerStorage returns true if we want to enable storage of backup data
+// shared by peers.
+func (l *ProtocolOptions) PeerStorage() bool {
+	return l.OptionPeerStorage
 }

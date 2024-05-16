@@ -1595,6 +1595,18 @@ func TestLightningWireProtocol(t *testing.T) {
 				return mainScenario(&m)
 			},
 		},
+		{
+			msgType: MsgPeerStorage,
+			scenario: func(m PeerStorage) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgPeerStorageRetrieval,
+			scenario: func(m PeerStorageRetrieval) bool {
+				return mainScenario(&m)
+			},
+		},
 	}
 	for _, test := range tests {
 		var config *quick.Config

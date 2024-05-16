@@ -66,6 +66,9 @@ type Config struct {
 	// CustomFeatures is a set of custom features to advertise in each
 	// set.
 	CustomFeatures map[Set][]lnwire.FeatureBit
+
+	// NoPeerStorage unsets any bits signalling support for peer storage.
+	NoPeerStorage bool
 }
 
 // Manager is responsible for generating feature vectors for different requested
@@ -188,6 +191,10 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.RouteBlindingOptional)
 			raw.Unset(lnwire.RouteBlindingRequired)
 		}
+		if cfg.NoPeerStorage {
+			raw.Unset(lnwire.ProvideStorageOptional)
+		}
+
 		for _, custom := range cfg.CustomFeatures[set] {
 			if custom > set.Maximum() {
 				return nil, fmt.Errorf("feature bit: %v "+

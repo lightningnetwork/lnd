@@ -30,6 +30,16 @@ run:
     - integration
 
 linters-settings:
+  depguard:
+    rules:
+      main:
+        # allow the following packages hierarchies
+        allow:
+          - $gostd
+          - github.com/btcsuite
+          - github.com/lightninglabs
+          - github.com/lightningnetwork
+
   errorlint:
     # Check for incorrect fmt.Errorf error wrapping.
     errorf: true

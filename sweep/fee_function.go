@@ -86,11 +86,14 @@ type LinearFeeFunction struct {
 	currentFeeRate chainfee.SatPerKWeight
 
 	// width is the number of blocks between the starting block height
-	// and the deadline block height.
+	// and the deadline block height minus one.
+	//
+	// NOTE: We do minus one from the conf target here because we want to
+	// max out the budget before the deadline height is reached.
 	width uint32
 
-	// position is the number of blocks between the starting block height
-	// and the current block height.
+	// position is the fee function's current position, given a width of w,
+	// a valid position should lie in range [0, w].
 	position uint32
 
 	// deltaFeeRate is the fee rate (msat/kw) increase per block.
@@ -116,10 +119,10 @@ func NewLinearFeeFunction(maxFeeRate chainfee.SatPerKWeight,
 	startingFeeRate fn.Option[chainfee.SatPerKWeight]) (
 	*LinearFeeFunction, error) {
 
-	// If the deadline has already been reached, there's nothing the fee
-	// function can do. In this case, we'll use the max fee rate
-	// immediately.
-	if confTarget == 0 {
+	// If the deadline is one block away or has already been reached,
+	// there's nothing the fee function can do. In this case, we'll use the
+	// max fee rate immediately.
+	if confTarget <= 1 {
 		return &LinearFeeFunction{
 			startingFeeRate: maxFeeRate,
 			endingFeeRate:   maxFeeRate,
@@ -129,7 +132,7 @@ func NewLinearFeeFunction(maxFeeRate chainfee.SatPerKWeight,
 
 	l := &LinearFeeFunction{
 		endingFeeRate: maxFeeRate,
-		width:         confTarget,
+		width:         confTarget - 1,
 		estimator:     estimator,
 	}
 
@@ -153,18 +156,18 @@ func NewLinearFeeFunction(maxFeeRate chainfee.SatPerKWeight,
 
 	// The starting and ending fee rates are in sat/kw, so we need to
 	// convert them to msat/kw by multiplying by 1000.
-	delta := btcutil.Amount(end - start).MulF64(1000 / float64(confTarget))
+	delta := btcutil.Amount(end - start).MulF64(1000 / float64(l.width))
 	l.deltaFeeRate = mSatPerKWeight(delta)
 
 	// We only allow the delta to be zero if the width is one - when the
 	// delta is zero, it means the starting and ending fee rates are the
 	// same, which means there's nothing to increase, so any width greater
 	// than 1 doesn't provide any utility. This could happen when the
-	// sweeper is offered to sweep an input that has passed its deadline.
+	// budget is too small.
 	if l.deltaFeeRate == 0 && l.width != 1 {
 		log.Errorf("Failed to init fee function: startingFeeRate=%v, "+
 			"endingFeeRate=%v, width=%v, delta=%v", start, end,
-			confTarget, l.deltaFeeRate)
+			l.width, l.deltaFeeRate)
 
 		return nil, fmt.Errorf("fee rate delta is zero")
 	}
@@ -175,7 +178,7 @@ func NewLinearFeeFunction(maxFeeRate chainfee.SatPerKWeight,
 
 	log.Debugf("Linear fee function initialized with startingFeeRate=%v, "+
 		"endingFeeRate=%v, width=%v, delta=%v", start, end,
-		confTarget, l.deltaFeeRate)
+		l.width, l.deltaFeeRate)
 
 	return l, nil
 }
@@ -211,12 +214,12 @@ func (l *LinearFeeFunction) IncreaseFeeRate(confTarget uint32) (bool, error) {
 	newPosition := uint32(0)
 
 	// Only calculate the new position when the conf target is less than
-	// the function's width - the width is the initial conf target, and we
-	// expect the current conf target to decrease over time. However, we
+	// the function's width - the width is the initial conf target-1, and
+	// we expect the current conf target to decrease over time. However, we
 	// still allow the supplied conf target to be greater than the width,
 	// and we won't increase the fee rate in that case.
-	if confTarget < l.width {
-		newPosition = l.width - confTarget
+	if confTarget < l.width+1 {
+		newPosition = l.width + 1 - confTarget
 		log.Tracef("Increasing position from %v to %v", l.position,
 			newPosition)
 	}
@@ -290,7 +293,7 @@ func (l *LinearFeeFunction) estimateFeeRate(
 	// (1008), we will use the min relay fee instead.
 	if confTarget >= chainfee.MaxBlockTarget {
 		minFeeRate := l.estimator.RelayFeePerKW()
-		log.Debugf("Conf target %v is greater than max block target, "+
+		log.Infof("Conf target %v is greater than max block target, "+
 			"using min relay fee rate %v", confTarget, minFeeRate)
 
 		return minFeeRate, nil

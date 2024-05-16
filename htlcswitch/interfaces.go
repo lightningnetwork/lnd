@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -323,7 +324,7 @@ type InterceptableHtlcForwarder interface {
 type ForwardInterceptor func(InterceptedPacket) error
 
 // InterceptedPacket contains the relevant information for the interceptor about
-// an htlc.
+// an HTLC.
 type InterceptedPacket struct {
 	// IncomingCircuit contains the incoming channel and htlc id of the
 	// packet.
@@ -374,6 +375,12 @@ type InterceptedForward interface {
 	// basically means the caller wants to resume with the default behavior for
 	// this htlc which usually means forward it.
 	Resume() error
+
+	// ResumeModified notifies the intention to resume an existing hold
+	// forward with modified fields.
+	ResumeModified(incomingAmountMsat,
+		outgoingAmountMsat fn.Option[lnwire.MilliSatoshi],
+		customRecords fn.Option[record.CustomSet]) error
 
 	// Settle notifies the intention to settle an existing hold
 	// forward with a given preimage.

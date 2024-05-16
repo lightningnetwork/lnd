@@ -1487,7 +1487,7 @@ func (s *Server) SubscribeHtlcEvents(req *SubscribeHtlcEventsRequest,
 
 // HtlcInterceptor is a bidirectional stream for streaming interception
 // requests to the caller.
-// Upon connection it does the following:
+// Upon connection, it does the following:
 // 1. Check if there is already a live stream, if yes it rejects the request.
 // 2. Registered a ForwardInterceptor
 // 3. Delivers to the caller every √√ and detect his answer.
@@ -1500,7 +1500,7 @@ func (s *Server) HtlcInterceptor(stream Router_HtlcInterceptorServer) error {
 	}
 	defer atomic.CompareAndSwapInt32(&s.forwardInterceptorActive, 1, 0)
 
-	// run the forward interceptor.
+	// Run the forward interceptor.
 	return newForwardInterceptor(
 		s.cfg.RouterBackend.InterceptableForwarder, stream,
 	).run()

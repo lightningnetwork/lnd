@@ -2024,17 +2024,18 @@ func messageSummary(msg lnwire.Message) string {
 		)
 
 		return fmt.Sprintf("chan_id=%v, id=%v, amt=%v, expiry=%v, "+
-			"hash=%x, blinding_point=%x", msg.ChanID, msg.ID,
-			msg.Amount, msg.Expiry, msg.PaymentHash[:],
-			blindingPoint)
+			"hash=%x, blinding_point=%x, custom_records=%v",
+			msg.ChanID, msg.ID, msg.Amount, msg.Expiry,
+			msg.PaymentHash[:], blindingPoint, msg.CustomRecords)
 
 	case *lnwire.UpdateFailHTLC:
 		return fmt.Sprintf("chan_id=%v, id=%v, reason=%x", msg.ChanID,
 			msg.ID, msg.Reason)
 
 	case *lnwire.UpdateFulfillHTLC:
-		return fmt.Sprintf("chan_id=%v, id=%v, pre_image=%x",
-			msg.ChanID, msg.ID, msg.PaymentPreimage[:])
+		return fmt.Sprintf("chan_id=%v, id=%v, pre_image=%x, "+
+			"custom_records=%v", msg.ChanID, msg.ID,
+			msg.PaymentPreimage[:], msg.CustomRecords)
 
 	case *lnwire.CommitSig:
 		return fmt.Sprintf("chan_id=%v, num_htlcs=%v", msg.ChanID,

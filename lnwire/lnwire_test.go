@@ -389,6 +389,45 @@ func TestEmptyMessageUnknownType(t *testing.T) {
 	}
 }
 
+// randCustomRecords generates a random set of custom records for testing.
+func randCustomRecords(t *testing.T, r *rand.Rand) CustomRecords {
+	var (
+		customRecords = CustomRecords{}
+
+		// We'll generate a random number of records,
+		// between 0 and 10.
+		numRecords = r.Intn(10)
+	)
+
+	// For each record, we'll generate a random key and
+	// value.
+	for i := 0; i < numRecords; i++ {
+		// Keys must be equal to or greater than
+		// MinCustomRecordsTlvType.
+		keyOffset := uint64(r.Intn(100))
+		key := MinCustomRecordsTlvType + keyOffset
+
+		// Values are byte slices of any length.
+		value := make([]byte, r.Intn(100))
+		_, err := r.Read(value)
+		require.NoError(t, err)
+
+		customRecords[key] = value
+	}
+
+	// Validate the custom records as a sanity check.
+	err := customRecords.Validate()
+	require.NoError(t, err)
+
+	// If by chance we end up with an empty set of custom records, we'll
+	// set it to nil to simplify test comparisons.
+	if len(customRecords) == 0 {
+		customRecords = nil
+	}
+
+	return customRecords
+}
+
 // TestLightningWireProtocol uses the testing/quick package to create a series
 // of fuzz tests to attempt to break a primary scenario which is implemented as
 // property based testing scenario.
@@ -1353,6 +1392,8 @@ func TestLightningWireProtocol(t *testing.T) {
 			_, err = r.Read(req.OnionBlob[:])
 			require.NoError(t, err)
 
+			req.CustomRecords = randCustomRecords(t, r)
+
 			// Generate a blinding point 50% of the time, since not
 			// all update adds will use route blinding.
 			if r.Int31()%2 == 0 {
@@ -1372,6 +1413,21 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 
 			v[0] = reflect.ValueOf(*req)
+		},
+		MsgUpdateFulfillHTLC: func(v []reflect.Value, r *rand.Rand) {
+			req := UpdateFulfillHTLC{
+				ID: r.Uint64(),
+			}
+
+			_, err := r.Read(req.ChanID[:])
+			require.NoError(t, err)
+
+			_, err = r.Read(req.PaymentPreimage[:])
+			require.NoError(t, err)
+
+			req.CustomRecords = randCustomRecords(t, r)
+
+			v[0] = reflect.ValueOf(req)
 		},
 	}
 

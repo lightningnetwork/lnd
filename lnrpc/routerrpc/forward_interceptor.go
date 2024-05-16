@@ -4,10 +4,12 @@ import (
 	"errors"
 
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -22,7 +24,7 @@ var (
 	ErrMissingPreimage = errors.New("missing preimage")
 )
 
-// forwardInterceptor is a helper struct that handles the lifecycle of an rpc
+// forwardInterceptor is a helper struct that handles the lifecycle of an RPC
 // interceptor streaming session.
 // It is created when the stream opens and disconnects when the stream closes.
 type forwardInterceptor struct {
@@ -43,7 +45,7 @@ func newForwardInterceptor(htlcSwitch htlcswitch.InterceptableHtlcForwarder,
 }
 
 // run sends the intercepted packets to the client and receives the
-// corersponding responses. On one hand it registered itself as an interceptor
+// corresponding responses. On one hand it registered itself as an interceptor
 // that receives the switch packets and on the other hand launches a go routine
 // to read from the client stream.
 // To coordinate all this and make sure it is safe for concurrent access all
@@ -117,6 +119,45 @@ func (r *forwardInterceptor) resolveFromClient(
 		return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
 			Key:    circuitKey,
 			Action: htlcswitch.FwdActionResume,
+		})
+
+	case ResolveHoldForwardAction_RESUME_MODIFIED:
+		// Modify HTLC and resume forward.
+		incomingAmtMsat := fn.None[lnwire.MilliSatoshi]()
+		if in.IncomingAmountMsat > 0 {
+			incomingAmtMsat = fn.Some[lnwire.MilliSatoshi](
+				lnwire.MilliSatoshi(in.IncomingAmountMsat),
+			)
+		}
+
+		outgoingAmtMsat := fn.None[lnwire.MilliSatoshi]()
+		if in.OutgoingAmountMsat > 0 {
+			outgoingAmtMsat = fn.Some[lnwire.MilliSatoshi](
+				lnwire.MilliSatoshi(in.OutgoingAmountMsat),
+			)
+		}
+
+		customRecords := fn.None[record.CustomSet]()
+		if len(in.CustomRecords) > 0 {
+			// Validate custom records.
+			cr := record.CustomSet(in.CustomRecords)
+			if err := cr.Validate(); err != nil {
+				return status.Errorf(
+					codes.InvalidArgument,
+					"failed to validate custom records: %v",
+					err,
+				)
+			}
+
+			customRecords = fn.Some[record.CustomSet](cr)
+		}
+
+		return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
+			Key:                circuitKey,
+			Action:             htlcswitch.FwdActionResumeModified,
+			IncomingAmountMsat: incomingAmtMsat,
+			OutgoingAmountMsat: outgoingAmtMsat,
+			CustomRecords:      customRecords,
 		})
 
 	case ResolveHoldForwardAction_FAIL:

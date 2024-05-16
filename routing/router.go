@@ -2,6 +2,7 @@ package routing
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"math"
 	"runtime"
@@ -715,13 +716,15 @@ func (r *ChannelRouter) Start() error {
 			// result for the in-flight attempt is received.
 			paySession := r.cfg.SessionSource.NewPaymentSessionEmpty()
 
-			// We pass in a zero timeout value, to indicate we
+			// We pass in a non-timeout context, to indicate we
 			// don't need it to timeout. It will stop immediately
 			// after the existing attempt has finished anyway. We
 			// also set a zero fee limit, as no more routes should
 			// be tried.
+			noTimeout := time.Duration(0)
 			_, _, err := r.sendPayment(
-				0, payment.Info.PaymentIdentifier, 0,
+				context.Background(), 0,
+				payment.Info.PaymentIdentifier, noTimeout,
 				paySession, shardTracker,
 			)
 			if err != nil {
@@ -2406,18 +2409,16 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 	log.Tracef("Dispatching SendPayment for lightning payment: %v",
 		spewPayment(payment))
 
-	// Since this is the first time this payment is being made, we pass nil
-	// for the existing attempt.
 	return r.sendPayment(
-		payment.FeeLimit, payment.Identifier(),
+		context.Background(), payment.FeeLimit, payment.Identifier(),
 		payment.PayAttemptTimeout, paySession, shardTracker,
 	)
 }
 
 // SendPaymentAsync is the non-blocking version of SendPayment. The payment
 // result needs to be retrieved via the control tower.
-func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment,
-	ps PaymentSession, st shards.ShardTracker) {
+func (r *ChannelRouter) SendPaymentAsync(ctx context.Context,
+	payment *LightningPayment, ps PaymentSession, st shards.ShardTracker) {
 
 	// Since this is the first time this payment is being made, we pass nil
 	// for the existing attempt.
@@ -2429,7 +2430,7 @@ func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment,
 			spewPayment(payment))
 
 		_, _, err := r.sendPayment(
-			payment.FeeLimit, payment.Identifier(),
+			ctx, payment.FeeLimit, payment.Identifier(),
 			payment.PayAttemptTimeout, ps, st,
 		)
 		if err != nil {
@@ -2604,9 +2605,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// - nil payment session (since we already have a route).
 	// - no payment timeout.
 	// - no current block height.
-	p := newPaymentLifecycle(
-		r, 0, paymentIdentifier, nil, shardTracker, 0, 0,
-	)
+	p := newPaymentLifecycle(r, 0, paymentIdentifier, nil, shardTracker, 0)
 
 	// We found a route to try, create a new HTLC attempt to try.
 	//
@@ -2699,10 +2698,22 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 // carry out its execution. After restarts, it is safe, and assumed, that the
 // router will call this method for every payment still in-flight according to
 // the ControlTower.
-func (r *ChannelRouter) sendPayment(feeLimit lnwire.MilliSatoshi,
-	identifier lntypes.Hash, timeout time.Duration,
-	paySession PaymentSession,
+func (r *ChannelRouter) sendPayment(ctx context.Context,
+	feeLimit lnwire.MilliSatoshi, identifier lntypes.Hash,
+	paymentAttemptTimeout time.Duration, paySession PaymentSession,
 	shardTracker shards.ShardTracker) ([32]byte, *route.Route, error) {
+
+	// If the user provides a timeout, we will additionally wrap the context
+	// in a deadline.
+	cancel := func() {}
+	if paymentAttemptTimeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, paymentAttemptTimeout)
+	}
+
+	// Since resumePayment is a blocking call, we'll cancel this
+	// context if the payment completes before the optional
+	// deadline.
+	defer cancel()
 
 	// We'll also fetch the current block height, so we can properly
 	// calculate the required HTLC time locks within the route.
@@ -2714,11 +2725,11 @@ func (r *ChannelRouter) sendPayment(feeLimit lnwire.MilliSatoshi,
 	// Now set up a paymentLifecycle struct with these params, such that we
 	// can resume the payment from the current state.
 	p := newPaymentLifecycle(
-		r, feeLimit, identifier, paySession,
-		shardTracker, timeout, currentHeight,
+		r, feeLimit, identifier, paySession, shardTracker,
+		currentHeight,
 	)
 
-	return p.resumePayment()
+	return p.resumePayment(ctx)
 }
 
 // extractChannelUpdate examines the error and extracts the channel update.

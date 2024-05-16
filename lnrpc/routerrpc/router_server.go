@@ -360,13 +360,25 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 		return err
 	}
 
+	// The payment context is influenced by two user-provided parameters,
+	// the cancelable flag and the payment attempt timeout.
+	// If the payment is cancelable, we will use the stream context as the
+	// payment context. That way, if the user ends the stream, the payment
+	// loop will be canceled.
+	// The second context parameter is the timeout. If the user provides a
+	// timeout, we will additionally wrap the context in a deadline. If the
+	// user provided 'cancelable' and ends the stream before the timeout is
+	// reached the payment will be canceled.
+	ctx := context.Background()
+	if req.Cancelable {
+		ctx = stream.Context()
+	}
+
 	// Send the payment asynchronously.
-	s.cfg.Router.SendPaymentAsync(payment, paySession, shardTracker)
+	s.cfg.Router.SendPaymentAsync(ctx, payment, paySession, shardTracker)
 
 	// Track the payment and return.
-	return s.trackPayment(
-		sub, payHash, stream, req.NoInflightUpdates,
-	)
+	return s.trackPayment(sub, payHash, stream, req.NoInflightUpdates)
 }
 
 // EstimateRouteFee allows callers to obtain an expected value w.r.t how much it

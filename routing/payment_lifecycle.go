@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -29,7 +30,6 @@ type paymentLifecycle struct {
 	identifier    lntypes.Hash
 	paySession    PaymentSession
 	shardTracker  shards.ShardTracker
-	timeoutChan   <-chan time.Time
 	currentHeight int32
 
 	// quit is closed to signal the sub goroutines of the payment lifecycle
@@ -52,7 +52,7 @@ type paymentLifecycle struct {
 // newPaymentLifecycle initiates a new payment lifecycle and returns it.
 func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
 	identifier lntypes.Hash, paySession PaymentSession,
-	shardTracker shards.ShardTracker, timeout time.Duration,
+	shardTracker shards.ShardTracker,
 	currentHeight int32) *paymentLifecycle {
 
 	p := &paymentLifecycle{
@@ -68,13 +68,6 @@ func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
 
 	// Mount the result collector.
 	p.resultCollector = p.collectResultAsync
-
-	// If a timeout is specified, create a timeout channel. If no timeout is
-	// specified, the channel is left nil and will never abort the payment
-	// loop.
-	if timeout != 0 {
-		p.timeoutChan = time.After(timeout)
-	}
 
 	return p
 }
@@ -167,7 +160,9 @@ func (p *paymentLifecycle) decideNextStep(
 }
 
 // resumePayment resumes the paymentLifecycle from the current state.
-func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
+func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
+	*route.Route, error) {
+
 	// When the payment lifecycle loop exits, we make sure to signal any
 	// sub goroutine of the HTLC attempt to exit, then wait for them to
 	// return.
@@ -221,18 +216,17 @@ lifecycle:
 
 		// We now proceed our lifecycle with the following tasks in
 		// order,
-		//   1. check timeout.
+		//   1. check context.
 		//   2. request route.
 		//   3. create HTLC attempt.
 		//   4. send HTLC attempt.
 		//   5. collect HTLC attempt result.
 		//
-		// Before we attempt any new shard, we'll check to see if
-		// either we've gone past the payment attempt timeout, or the
-		// router is exiting. In either case, we'll stop this payment
-		// attempt short. If a timeout is not applicable, timeoutChan
-		// will be nil.
-		if err := p.checkTimeout(); err != nil {
+		// Before we attempt any new shard, we'll check to see if we've
+		// gone past the payment attempt timeout, or if the context was
+		// cancelled, or the router is exiting. In any of these cases,
+		// we'll stop this payment attempt short.
+		if err := p.checkContext(ctx); err != nil {
 			return exitWithErr(err)
 		}
 
@@ -318,19 +312,30 @@ lifecycle:
 	return [32]byte{}, nil, *failure
 }
 
-// checkTimeout checks whether the payment has reached its timeout.
-func (p *paymentLifecycle) checkTimeout() error {
+// checkContext checks whether the payment context has been canceled.
+// Cancellation occurs manually or if the context times out.
+func (p *paymentLifecycle) checkContext(ctx context.Context) error {
 	select {
-	case <-p.timeoutChan:
-		log.Warnf("payment attempt not completed before timeout")
+	case <-ctx.Done():
+		// If the context was canceled, we'll mark the payment as
+		// failed. There are two cases to distinguish here: Either a
+		// user-provided timeout was reached, or the context was
+		// canceled, either to a manual cancellation or due to an
+		// unknown error.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			log.Warnf("Payment attempt not completed before "+
+				"timeout, id=%s", p.identifier.String())
+		} else {
+			log.Warnf("Payment attempt context canceled, id=%s",
+				p.identifier.String())
+		}
 
 		// By marking the payment failed, depending on whether it has
 		// inflight HTLCs or not, its status will now either be
 		// `StatusInflight` or `StatusFailed`. In either case, no more
 		// HTLCs will be attempted.
-		err := p.router.cfg.Control.FailPayment(
-			p.identifier, channeldb.FailureReasonTimeout,
-		)
+		reason := channeldb.FailureReasonTimeout
+		err := p.router.cfg.Control.FailPayment(p.identifier, reason)
 		if err != nil {
 			return fmt.Errorf("FailPayment got %w", err)
 		}

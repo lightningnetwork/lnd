@@ -3089,6 +3089,9 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// We've just received a request to forcibly close out the
 		// channel. We'll
 		case closeReq := <-c.forceCloseReqs:
+			log.Infof("ChannelArbitrator(%v): received force "+
+				"close request", c.cfg.ChanPoint)
+
 			if c.state != StateDefault {
 				select {
 				case closeReq.closeTx <- nil:

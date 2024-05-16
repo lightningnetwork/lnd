@@ -713,12 +713,6 @@ func runMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	// to be mined to trigger a force close later on.
 	var blocksMined uint32
 
-	// We need to mine a block otherwise `FindOutgoingHTLCDeadline` cannot
-	// find the incoming HTLC on Bob's ChainArbitrator.
-	//
-	// TODO(yy): Investigate and fix it!
-	ht.MineEmptyBlocks(1)
-
 	// Now that all parties have the HTLC locked in, we'll immediately
 	// force close the Bob -> Carol channel. This should trigger contract
 	// resolution mode for both of them.

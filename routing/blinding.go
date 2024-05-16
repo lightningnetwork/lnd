@@ -154,10 +154,36 @@ func (s *BlindedPaymentPathSet) Features() *lnwire.FeatureVector {
 	return s.features
 }
 
-// GetPath is a temporary getter for the single path that the set holds.
-// This will be removed later on in this PR.
-func (s *BlindedPaymentPathSet) GetPath() *BlindedPayment {
-	return s.paths[0]
+// IntroNodeOnlyPath can be called if it is expected that the path set only
+// contains a single payment path which itself only has one hop. It errors if
+// this is not the case.
+func (s *BlindedPaymentPathSet) IntroNodeOnlyPath() (*BlindedPayment, error) {
+	if len(s.paths) != 1 {
+		return nil, fmt.Errorf("expected only a single path in the "+
+			"blinded payment set, got %d", len(s.paths))
+	}
+
+	if len(s.paths[0].BlindedPath.BlindedHops) > 1 {
+		return nil, fmt.Errorf("an intro node only path cannot have " +
+			"more than one hop")
+	}
+
+	return s.paths[0], nil
+}
+
+// IsIntroNode returns true if the given vertex is an introduction node for one
+// of the paths in the blinded payment path set.
+func (s *BlindedPaymentPathSet) IsIntroNode(source route.Vertex) bool {
+	for _, path := range s.paths {
+		introVertex := route.NewVertex(
+			path.BlindedPath.IntroductionPoint,
+		)
+		if source == introVertex {
+			return true
+		}
+	}
+
+	return false
 }
 
 // FinalCLTVDelta is the minimum CLTV delta to use for the final hop on the

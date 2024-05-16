@@ -3296,10 +3296,21 @@ func TestBlindedRouteConstruction(t *testing.T) {
 	daveEveEdge := blindedEdges[daveBlindedVertex][0]
 
 	edges := []*unifiedEdge{
-		{policy: aliceBobEdge},
-		{policy: bobCarolEdge},
-		{policy: carolDaveEdge.EdgePolicy()},
-		{policy: daveEveEdge.EdgePolicy()},
+		{
+			policy: aliceBobEdge,
+		},
+		{
+			policy:         bobCarolEdge,
+			blindedPayment: blindedPayment,
+		},
+		{
+			policy:         carolDaveEdge.EdgePolicy(),
+			blindedPayment: blindedPayment,
+		},
+		{
+			policy:         daveEveEdge.EdgePolicy(),
+			blindedPayment: blindedPayment,
+		},
 	}
 
 	// Total timelock for the route should include:

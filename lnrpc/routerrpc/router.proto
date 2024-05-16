@@ -330,6 +330,15 @@ message SendPaymentRequest {
     only, to 1 to optimize for reliability only or a value inbetween for a mix.
     */
     double time_pref = 23;
+
+    /*
+    If set, the payment loop can be interrupted by manually canceling the
+    payment context, even before the payment timeout is reached. Note that the
+    payment may still succeed after cancellation, as in-flight attempts can
+    still settle afterwards. Canceling will only prevent further attempts from
+    being sent.
+    */
+    bool cancelable = 24;
 }
 
 message TrackPaymentRequest {

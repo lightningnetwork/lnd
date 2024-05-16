@@ -128,7 +128,7 @@ func TestBlindedPaymentToHints(t *testing.T) {
 		HtlcMaximum:         htlcMax,
 		Features:            features,
 	}
-	hints, err := blindedPayment.toRouteHints()
+	hints, err := blindedPayment.toRouteHints(nil)
 	require.NoError(t, err)
 	require.Nil(t, hints)
 
@@ -183,7 +183,7 @@ func TestBlindedPaymentToHints(t *testing.T) {
 		},
 	}
 
-	actual, err := blindedPayment.toRouteHints()
+	actual, err := blindedPayment.toRouteHints(nil)
 	require.NoError(t, err)
 
 	require.Equal(t, len(expected), len(actual))

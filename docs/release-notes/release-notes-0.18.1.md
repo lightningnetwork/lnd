@@ -40,6 +40,9 @@
 
 * [Generate and send to](https://github.com/lightningnetwork/lnd/pull/8735) an 
   invoice with blinded paths.
+
+* Add the ability to [send to use multiple blinded payment 
+  paths](https://github.com/lightningnetwork/lnd/pull/8764) in an MP payment.
  
 ## Testing
 ## Database

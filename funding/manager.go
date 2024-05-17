@@ -1921,6 +1921,8 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	log.Debugf("Remote party accepted commitment rendering params: %v",
 		lnutils.SpewLogClosure(params))
 
+	reservation.SetState(lnwallet.SentAcceptChannel)
+
 	// With the initiator's contribution recorded, respond with our
 	// contribution in the next message of the workflow.
 	fundingAccept := lnwire.AcceptChannel{
@@ -1980,6 +1982,10 @@ func (f *Manager) funderProcessAcceptChannel(peer lnpeer.Peer,
 
 	// Update the timestamp once the fundingAcceptMsg has been handled.
 	defer resCtx.updateTimestamp()
+
+	if resCtx.reservation.State() != lnwallet.SentOpenChannel {
+		return
+	}
 
 	log.Infof("Recv'd fundingResponse for pending_id(%x)",
 		pendingChanID[:])
@@ -2406,6 +2412,8 @@ func (f *Manager) continueFundingAccept(resCtx *reservationWithCtx,
 		}
 	}
 
+	resCtx.reservation.SetState(lnwallet.SentFundingCreated)
+
 	if err := resCtx.peer.SendMessage(true, fundingCreated); err != nil {
 		log.Errorf("Unable to send funding complete message: %v", err)
 		f.failFundingFlow(resCtx.peer, cid, err)
@@ -2440,6 +2448,10 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 	fundingOut := msg.FundingPoint
 	log.Infof("completing pending_id(%x) with ChannelPoint(%v)",
 		pendingChanID[:], fundingOut)
+
+	if resCtx.reservation.State() != lnwallet.SentAcceptChannel {
+		return
+	}
 
 	// Create the channel identifier without setting the active channel ID.
 	cid := newChanIdentifier(pendingChanID)
@@ -2700,6 +2712,14 @@ func (f *Manager) funderProcessFundingSigned(peer lnpeer.Peer,
 		return
 	}
 
+	if resCtx.reservation.State() != lnwallet.SentFundingCreated {
+		err := fmt.Errorf("unable to find reservation for chan_id=%x",
+			msg.ChanID)
+		f.failFundingFlow(peer, cid, err)
+
+		return
+	}
+
 	// Create an entry in the local discovery map so we can ensure that we
 	// process the channel confirmation fully before we receive a
 	// channel_ready message.
@@ -2793,6 +2813,21 @@ func (f *Manager) funderProcessFundingSigned(peer lnpeer.Peer,
 			// TODO(halseth): retry more often? Handle with CPFP?
 			// Just delete from the DB?
 		}
+	}
+
+	// Before we proceed, if we have a funding hook that wants a
+	// notification that it's safe to broadcast the funding transaction,
+	// then we'll send that now.
+	err = fn.MapOptionZ(
+		f.cfg.AuxFundingController,
+		func(controller AuxFundingController) error {
+			return controller.ChannelFinalized(cid.tempChanID)
+		},
+	)
+	if err != nil {
+		log.Errorf("Failed to inform aux funding controller about "+
+			"ChannelPoint(%v) being finalized: %v", fundingPoint,
+			err)
 	}
 
 	// Now that we have a finalized reservation for this funding flow,
@@ -4043,6 +4078,26 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 				PubNonce: remoteNonce,
 			}),
 		)
+
+		// Inform the aux funding controller that the liquidity in the
+		// custom channel is now ready to be advertised. We potentially
+		// haven't sent our own channel ready message yet, but other
+		// than that the channel is ready to count toward available
+		// liquidity.
+		err = fn.MapOptionZ(
+			f.cfg.AuxFundingController,
+			func(controller AuxFundingController) error {
+				return controller.ChannelReady(
+					lnwallet.NewAuxChanState(channel),
+				)
+			},
+		)
+		if err != nil {
+			cid := newChanIdentifier(msg.ChanID)
+			f.sendWarning(peer, cid, err)
+
+			return
+		}
 	}
 
 	// The channel_ready message contains the next commitment point we'll
@@ -4128,6 +4183,19 @@ func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
 
 	log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
 		"added to graph", chanID, scid)
+
+	err = fn.MapOptionZ(
+		f.cfg.AuxFundingController,
+		func(controller AuxFundingController) error {
+			return controller.ChannelReady(
+				lnwallet.NewAuxChanState(channel),
+			)
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed notifying aux funding controller "+
+			"about channel ready: %w", err)
+	}
 
 	// Give the caller a final update notifying them that the channel is
 	fundingPoint := channel.FundingOutpoint
@@ -4906,6 +4974,8 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 
 	log.Infof("Starting funding workflow with %v for pending_id(%x), "+
 		"committype=%v", msg.Peer.Address(), chanID, commitType)
+
+	reservation.SetState(lnwallet.SentOpenChannel)
 
 	fundingOpen := lnwire.OpenChannel{
 		ChainHash:             *f.cfg.Wallet.Cfg.NetParams.GenesisHash,

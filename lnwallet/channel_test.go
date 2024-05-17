@@ -2140,11 +2140,11 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 		bobChannel.channelState.LocalCommitment.FeePerKw,
 	)
 
-	setDustLimit := func(dustVal btcutil.Amount) {
-		aliceChannel.channelState.LocalChanCfg.DustLimit = dustVal
-		aliceChannel.channelState.RemoteChanCfg.DustLimit = dustVal
-		bobChannel.channelState.LocalChanCfg.DustLimit = dustVal
-		bobChannel.channelState.RemoteChanCfg.DustLimit = dustVal
+	setDustLimit := func(dustAlice btcutil.Amount, dustBob btcutil.Amount) {
+		aliceChannel.channelState.LocalChanCfg.DustLimit = dustAlice
+		aliceChannel.channelState.RemoteChanCfg.DustLimit = dustAlice
+		bobChannel.channelState.LocalChanCfg.DustLimit = dustBob
+		bobChannel.channelState.RemoteChanCfg.DustLimit = dustBob
 	}
 
 	resetChannelState := func() {
@@ -2165,7 +2165,7 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	// We'll start be initializing the limit of both Alice and Bob to 10k
 	// satoshis.
 	dustLimit := btcutil.Amount(10000)
-	setDustLimit(dustLimit)
+	setDustLimit(dustLimit, dustLimit)
 
 	// Both sides currently have over 1 BTC settled as part of their
 	// balances. As a result, performing a cooperative closure now result
@@ -2283,6 +2283,42 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 		t.Fatalf("bob's balance is incorrect: expected %v, got %v",
 			aliceBal.ToSatoshis(), closeTx.TxOut[0].Value)
 	}
+
+	// We'll reset the channel states before proceeding to our next test.
+	resetChannelState()
+
+	// Next we'll modify the current balances and dust limits such that
+	// Bob's current balance is _below_ Alice's dust limit.
+	aliceBal = lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	bobBal = lnwire.NewMSatFromSatoshis(2500)
+	setDustLimit(10000, 2000)
+	setBalances(aliceBal, bobBal)
+
+	// Attempt another cooperative channel closure. It should fail because
+	// Bob won't accept his output to be missing.
+	aliceSig, _, _, err = aliceChannel.CreateCloseProposal(
+		aliceFee, aliceDeliveryScript, bobDeliveryScript,
+	)
+	require.NoError(t, err, "unable to close channel")
+
+	bobSig, _, _, err = bobChannel.CreateCloseProposal(
+		bobFee, bobDeliveryScript, aliceDeliveryScript,
+	)
+	require.NoError(t, err, "unable to close channel")
+
+	_, _, err = bobChannel.CompleteCooperativeClose(
+		bobSig, aliceSig, bobDeliveryScript, aliceDeliveryScript,
+		bobFee,
+	)
+	require.ErrorContains(t, err, "failed checkmultisig",
+		"channel close should not be accepted by bob")
+
+	_, _, err = aliceChannel.CompleteCooperativeClose(
+		aliceSig, bobSig, aliceDeliveryScript, bobDeliveryScript,
+		aliceFee,
+	)
+	require.ErrorContains(t, err, "failed checkmultisig",
+		"channel close should not have a valid signature")
 }
 
 // TestUpdateFeeAdjustments tests that the state machine is able to properly

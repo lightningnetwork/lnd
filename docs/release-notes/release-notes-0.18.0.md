@@ -317,6 +317,10 @@
 * [Add inbound fees](https://github.com/lightningnetwork/lnd/pull/8723) to 
   `subscribeChannelGraph`.
 
+* [Moved](https://github.com/lightningnetwork/lnd/pull/8744) the experimental
+  "custom" options to the main protocol config so that they can be used without
+  the dev build flag set.
+
 ### Logging
 * [Add the htlc amount](https://github.com/lightningnetwork/lnd/pull/8156) to
   contract court logs in case of timed-out HTLCs in order to easily spot dust

@@ -3529,9 +3529,16 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 		unsettledRemoteBalance   lnwire.MilliSatoshi
 		pendingOpenLocalBalance  lnwire.MilliSatoshi
 		pendingOpenRemoteBalance lnwire.MilliSatoshi
+		customDataBuf            bytes.Buffer
 	)
 
 	openChannels, err := r.server.chanStateDB.FetchAllOpenChannels()
+	if err != nil {
+		return nil, err
+	}
+
+	// Encode the number of open channels to the custom data buffer.
+	err = wire.WriteVarInt(&customDataBuf, 0, uint64(len(openChannels)))
 	if err != nil {
 		return nil, err
 	}
@@ -3549,9 +3556,22 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 				unsettledRemoteBalance += htlc.Amt
 			}
 		}
+
+		// Encode the custom data for this open channel.
+		openChanData := channel.LocalCommitment.CustomBlob.UnwrapOr(nil)
+		err = wire.WriteVarBytes(&customDataBuf, 0, openChanData)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	pendingChannels, err := r.server.chanStateDB.FetchPendingChannels()
+	if err != nil {
+		return nil, err
+	}
+
+	// Encode the number of pending channels to the custom data buffer.
+	err = wire.WriteVarInt(&customDataBuf, 0, uint64(len(pendingChannels)))
 	if err != nil {
 		return nil, err
 	}
@@ -3560,6 +3580,13 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 		c := channel.LocalCommitment
 		pendingOpenLocalBalance += c.LocalBalance
 		pendingOpenRemoteBalance += c.RemoteBalance
+
+		// Encode the custom data for this pending channel.
+		openChanData := channel.LocalCommitment.CustomBlob.UnwrapOr(nil)
+		err = wire.WriteVarBytes(&customDataBuf, 0, openChanData)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	rpcsLog.Debugf("[channelbalance] local_balance=%v remote_balance=%v "+
@@ -3594,6 +3621,7 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 			Sat:  uint64(pendingOpenRemoteBalance.ToSatoshis()),
 			Msat: uint64(pendingOpenRemoteBalance),
 		},
+		CustomChannelData: customDataBuf.Bytes(),
 
 		// Deprecated fields.
 		Balance:            int64(localBalance.ToSatoshis()),
@@ -3654,6 +3682,12 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 			pendingChan.BroadcastHeight()
 		fundingExpiryBlocks := int32(maxFundingHeight) - currentHeight
 
+		customChanBytes, err := encodeCustomChanData(pendingChan)
+		if err != nil {
+			return nil, fmt.Errorf("unable to encode open chan "+
+				"data: %w", err)
+		}
+
 		result[i] = &lnrpc.PendingChannelsResponse_PendingOpenChannel{
 			Channel: &lnrpc.PendingChannelsResponse_PendingChannel{
 				RemoteNodePub:        hex.EncodeToString(pub),
@@ -3667,6 +3701,7 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 				CommitmentType:       rpcCommitmentType(pendingChan.ChanType),
 				Private:              isPrivate(pendingChan),
 				Memo:                 string(pendingChan.Memo),
+				CustomChannelData:    customChanBytes,
 			},
 			CommitWeight:        commitWeight,
 			CommitFee:           int64(localCommitment.CommitFee),
@@ -4397,6 +4432,30 @@ func isPrivate(dbChannel *channeldb.OpenChannel) bool {
 	return dbChannel.ChannelFlags&lnwire.FFAnnounceChannel != 1
 }
 
+// encodeCustomChanData encodes the custom channel data for the open channel.
+// It encodes that data as a pair of var bytes blobs.
+func encodeCustomChanData(lnChan *channeldb.OpenChannel) ([]byte, error) {
+	customOpenChanData := lnChan.CustomBlob.UnwrapOr(nil)
+	customLocalCommitData := lnChan.LocalCommitment.CustomBlob.UnwrapOr(nil)
+
+	// We'll encode our custom channel data as two blobs. The first is a
+	// set of var bytes encoding of the open chan data, the second is an
+	// encoding of the local commitment data.
+	var customChanDataBuf bytes.Buffer
+	err := wire.WriteVarBytes(&customChanDataBuf, 0, customOpenChanData)
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode open chan "+
+			"data: %w", err)
+	}
+	err = wire.WriteVarBytes(&customChanDataBuf, 0, customLocalCommitData)
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode local commit "+
+			"data: %w", err)
+	}
+
+	return customChanDataBuf.Bytes(), nil
+}
+
 // createRPCOpenChannel creates an *lnrpc.Channel from the *channeldb.Channel.
 func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	isActive, peerAliasLookup bool) (*lnrpc.Channel, error) {
@@ -4451,6 +4510,14 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	// is returned and peerScidAlias will be an empty ShortChannelID.
 	peerScidAlias, _ := r.server.aliasMgr.GetPeerAlias(chanID)
 
+	// Finally we'll attempt to encode the custom channel data if any
+	// exists.
+	customChanBytes, err := encodeCustomChanData(dbChannel)
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode open chan data: %w",
+			err)
+	}
+
 	channel := &lnrpc.Channel{
 		Active:                isActive,
 		Private:               isPrivate(dbChannel),
@@ -4483,6 +4550,7 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 		ZeroConf:              dbChannel.IsZeroConf(),
 		ZeroConfConfirmedScid: dbChannel.ZeroConfRealScid().ToUint64(),
 		Memo:                  string(dbChannel.Memo),
+		CustomChannelData:     customChanBytes,
 		// TODO: remove the following deprecated fields
 		CsvDelay:             uint32(dbChannel.LocalChanCfg.CsvDelay),
 		LocalChanReserveSat:  int64(dbChannel.LocalChanCfg.ChanReserve),

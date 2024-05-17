@@ -3127,6 +3127,11 @@
         "memo": {
           "type": "string",
           "description": "An optional note-to-self to go along with the channel containing some\nuseful information. This is only ever stored locally and in no way\nimpacts the channel's operation."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Custom channel data that might be populated in custom channels."
         }
       }
     },
@@ -3849,6 +3854,11 @@
         "memo": {
           "type": "string",
           "description": "An optional note-to-self to go along with the channel containing some\nuseful information. This is only ever stored locally and in no way impacts\nthe channel's operation."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Custom channel data that might be populated in custom channels."
         }
       }
     },
@@ -4052,6 +4062,11 @@
         "pending_open_remote_balance": {
           "$ref": "#/definitions/lnrpcAmount",
           "description": "Sum of channels pending remote balances."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Custom channel data that might be populated if there are custom channels\npresent."
         }
       }
     },

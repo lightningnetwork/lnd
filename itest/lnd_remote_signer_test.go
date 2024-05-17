@@ -412,8 +412,8 @@ func testOutboundRemoteSigner(ht *lntest.HarnessTest) {
 	}
 }
 
-// deriveCustomScopeAccounts derives the first 255 default accounts of the custom lnd
-// internal key scope.
+// deriveCustomScopeAccounts derives the first 255 default accounts of the
+// custom lnd internal key scope.
 func deriveCustomScopeAccounts(t *testing.T) []*lnrpc.WatchOnlyAccount {
 	allAccounts := make([]*lnrpc.WatchOnlyAccount, 0, 255+len(accounts))
 	allAccounts = append(allAccounts, accounts...)

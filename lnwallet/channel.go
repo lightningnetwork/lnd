@@ -8616,7 +8616,7 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 			Value:    int64(ourBalance),
 		})
 	}
-	if theirBalance >= remoteDust {
+	if theirBalance >= remoteDust && theirBalance >= localDust {
 		closeTx.AddTxOut(&wire.TxOut{
 			PkScript: theirDeliveryScript,
 			Value:    int64(theirBalance),

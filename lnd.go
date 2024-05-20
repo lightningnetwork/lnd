@@ -139,7 +139,12 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	interceptor signal.Interceptor) error {
 
 	defer func() {
-		ltndLog.Info("Shutdown complete\n")
+		// Create a blank line after the final log message to ensure
+		// that after the final log message is printed a new line.
+		// This was done because the '\n' character was not working
+		// properly.
+		ltndLog.Info("Shutdown complete")
+		ltndLog.Info(" ")
 		err := cfg.LogWriter.Close()
 		if err != nil {
 			ltndLog.Errorf("Could not close log rotator: %v", err)

@@ -278,6 +278,8 @@ type server struct {
 
 	localChanMgr *localchans.Manager
 
+	edgeRepopulator *routing.EdgeRepopulator
+
 	utxoNursery *contractcourt.UtxoNursery
 
 	sweeper *sweep.UtxoSweeper
@@ -1047,6 +1049,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PropagateChanPolicyUpdate: s.authGossiper.PropagateChanPolicyUpdate,
 		UpdateForwardingPolicies:  s.htlcSwitch.UpdateForwardingPolicies,
 		FetchChannel:              s.chanStateDB.FetchChannel,
+	}
+
+	s.edgeRepopulator = &routing.EdgeRepopulator{
+		LocalPubkey:          *nodeKeyDesc.PubKey,
+		DefaultRoutingPolicy: cc.RoutingPolicy,
+		ChanStateDB:          s.chanStateDB,
+		GraphDB:              s.graphDB,
 	}
 
 	utxnStore, err := contractcourt.NewNurseryStore(

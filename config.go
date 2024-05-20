@@ -502,6 +502,11 @@ type Config struct {
 	// HTTPHeaderTimeout is the maximum duration that the server will wait
 	// before timing out reading the headers of an HTTP request.
 	HTTPHeaderTimeout time.Duration `long:"http-header-timeout" description:"The maximum duration that the server will wait before timing out reading the headers of an HTTP request."`
+
+	// RepopulateMissingEdges is a value indicating whether missing edges of
+	// local channels should be re-added to the local view of the graph on
+	// startup.
+	RepopulateMissingEdges bool `long:"repopulate-missing-edges" description:"Repopulates any missing edges of local channels in the node's local view of the graph. This can help with 'edge not found' issues where LND will always select the default routing policy. Should be set to false after successful execution to avoid repopulating on every restart of lnd."`
 }
 
 // GRPCConfig holds the configuration options for the gRPC server.

@@ -585,6 +585,16 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		return mkErr("unable to create server: %v", err)
 	}
 
+	// Ensure all local channels have corresponding edges and channel
+	// policies in the graph db before starting.
+	if cfg.RepopulateMissingEdges {
+		err = server.edgeRepopulator.RepopulateMissingEdges()
+		if err != nil {
+			return mkErr(
+				"unable to repopulate missing edges: %v", err)
+		}
+	}
+
 	// Set up an autopilot manager from the current config. This will be
 	// used to manage the underlying autopilot agent, starting and stopping
 	// it at will.

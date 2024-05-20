@@ -428,8 +428,7 @@ func testRescanAddressDetection(ht *lntest.HarnessTest) {
 	})
 
 	// Wait until the spending tx is found and mine a block to confirm it.
-	ht.AssertNumTxsInMempool(1)
-	ht.MineBlocks(1)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// The wallet should still just see a single UTXO of the change output
 	// created earlier.

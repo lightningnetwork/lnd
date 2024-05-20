@@ -601,7 +601,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 		Index: 1,
 	}
 	ht.AssertOutpointInMempool(commitSweepOp)
-	ht.MineBlocks(1)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	ht.AssertNumWaitingClose(alice, 0)
 }

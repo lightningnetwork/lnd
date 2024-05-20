@@ -104,7 +104,7 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 	txids := h.AssertNumTxsInMempool(numTxs)
 
 	// Mine blocks.
-	blocks := h.miner.MineBlocksSlow(num)
+	blocks := h.miner.MineBlocks(num)
 
 	// Assert that all the transactions were included in the first block.
 	for _, txid := range txids {

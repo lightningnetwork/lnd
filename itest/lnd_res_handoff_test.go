@@ -66,7 +66,7 @@ func testResHandoff(ht *lntest.HarnessTest) {
 	ht.AssertNumWaitingClose(bob, 1)
 
 	// Mine a block to confirm the closing tx.
-	ht.MineBlocks(1)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// We sleep here so we can be sure that the hand-off has occurred from
 	// Bob's contractcourt to Bob's htlcswitch. This sleep could be removed

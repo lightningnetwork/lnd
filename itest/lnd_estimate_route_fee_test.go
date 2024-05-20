@@ -359,6 +359,8 @@ func testEstimateRouteFee(ht *lntest.HarnessTest) {
 
 	mts.ht.CloseChannelAssertPending(mts.bob, channelPointBobPaula, false)
 	mts.ht.CloseChannelAssertPending(mts.eve, channelPointEvePaula, false)
+	ht.MineBlocksAndAssertNumTxes(1, 2)
+
 	mts.closeChannels()
 }
 

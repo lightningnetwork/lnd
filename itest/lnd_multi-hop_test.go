@@ -2223,7 +2223,7 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, carol)
 
 		// Mine 1 block to get the above coins confirmed.
-		ht.MineBlocks(1)
+		ht.MineBlocksAndAssertNumTxes(1, 3)
 	}
 
 	// We'll start the test by creating a channel between Alice and Bob,
@@ -2703,8 +2703,14 @@ func runExtraPreimageFromLocalCommit(ht *lntest.HarnessTest,
 		// Make sure the direct spend tx is still in the mempool.
 		ht.AssertOutpointInMempool(htlcOutpoint)
 
-		// Mine a block to confirm Carol's direct spend tx.
-		ht.MineBlocks(1)
+		// Mine a block to confirm two txns,
+		// - Carol's direct spend tx.
+		// - Bob's to_local output sweep tx.
+		if c != lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
+			ht.MineBlocksAndAssertNumTxes(1, 2)
+		} else {
+			ht.MineBlocksAndAssertNumTxes(1, 1)
+		}
 	}
 
 	// Finally, check that the Alice's payment is marked as succeeded as

@@ -94,7 +94,7 @@ func newChanRestoreScenario(ht *lntest.HarnessTest, ct lnrpc.CommitmentType,
 	ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, dave)
 
 	// Mine a block to confirm the funds.
-	ht.MineBlocks(1)
+	ht.MineBlocksAndAssertNumTxes(1, 2)
 
 	// For the anchor output case we need two UTXOs for Carol so she can
 	// sweep both the local and remote anchor.

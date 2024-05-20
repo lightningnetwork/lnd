@@ -207,3 +207,31 @@ func UnmarshallCoinSelectionStrategy(strategy CoinSelectionStrategy,
 			"%v", strategy)
 	}
 }
+
+// ScidAliasMap is a map from a base short channel ID to a set of alias short
+// channel IDs.
+type ScidAliasMap map[lnwire.ShortChannelID][]lnwire.ShortChannelID
+
+// MarshalAliasMap converts a ScidAliasMap to its proto counterpart. This is
+// used in various RPCs that handle scid alias mappings.
+func MarshalAliasMap(scidMap ScidAliasMap) []*AliasMap {
+	res := make([]*AliasMap, 0, len(scidMap))
+
+	for base, aliases := range scidMap {
+		rpcMap := &AliasMap{
+			BaseScid: base.ToUint64(),
+		}
+
+		rpcMap.Aliases = make([]uint64, 0, len(aliases))
+
+		for _, alias := range aliases {
+			rpcMap.Aliases = append(
+				rpcMap.Aliases, alias.ToUint64(),
+			)
+		}
+
+		res = append(res, rpcMap)
+	}
+
+	return res
+}

@@ -639,7 +639,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	thresholdSats := btcutil.Amount(cfg.DustThreshold)
 	thresholdMSats := lnwire.NewMSatFromSatoshis(thresholdSats)
 
-	s.aliasMgr, err = aliasmgr.NewManager(dbs.ChanStateDB)
+	linkUpdater := func(shortID lnwire.ShortChannelID) error {
+		link, err := s.htlcSwitch.GetLinkByShortID(shortID)
+		if err != nil {
+			return err
+		}
+
+		s.htlcSwitch.UpdateLinkAliases(link)
+
+		return nil
+	}
+
+	s.aliasMgr, err = aliasmgr.NewManager(dbs.ChanStateDB, linkUpdater)
 	if err != nil {
 		return nil, err
 	}

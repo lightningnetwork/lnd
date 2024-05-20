@@ -514,6 +514,72 @@
         ]
       }
     },
+    "/v2/router/x/addaliases": {
+      "post": {
+        "summary": "XAddLocalChanAliases is an experimental API that creates a set of new\nchannel SCID alias mappings. The list of successfully created mappings is\nreturned. This is only a locally stored alias, and will not be communicated\nto the channel peer via any message. Therefore, routing over such an alias\nwill only work of the peer also calls this same RPC on their end.",
+        "operationId": "Router_XAddLocalChanAliases",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcAddAliasesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcAddAliasesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
+    "/v2/router/x/deletealiases": {
+      "post": {
+        "summary": "XDeleteLocalChanAliases is an experimental API that deletes a set of new\nalias mappings. The list of successfully deleted mappings is returned. The\ndeletion will not be communicated to the channel peer via any message.",
+        "operationId": "Router_XDeleteLocalChanAliases",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcDeleteAliasesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcDeleteAliasesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
     "/v2/router/x/importhistory": {
       "post": {
         "summary": "lncli: `importmc`\nXImportMissionControl is an experimental API that imports the state provided\nto the internal mission control's state, using all results which are more\nrecent than our existing values. These values will only be imported\nin-memory, and will not be persisted across restarts.",
@@ -616,6 +682,24 @@
         "child_index": {
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "lnrpcAliasMap": {
+      "type": "object",
+      "properties": {
+        "base_scid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "For non-zero-conf channels, this is the confirmed SCID. Otherwise, this is\nthe first assigned \"base\" alias."
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "The set of all aliases stored for the base SCID."
         }
       }
     },
@@ -1099,6 +1183,28 @@
         }
       }
     },
+    "routerrpcAddAliasesRequest": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
+        }
+      }
+    },
+    "routerrpcAddAliasesResponse": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
+        }
+      }
+    },
     "routerrpcAprioriParameters": {
       "type": "object",
       "properties": {
@@ -1207,6 +1313,28 @@
           "type": "string",
           "format": "uint64",
           "description": "/ The index of the incoming htlc in the incoming channel."
+        }
+      }
+    },
+    "routerrpcDeleteAliasesRequest": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
+        }
+      }
+    },
+    "routerrpcDeleteAliasesResponse": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
         }
       }
     },

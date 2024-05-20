@@ -10,6 +10,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
+// UpdateLinkAliases locates the active link that matches the given
+// shortID and triggers an update based on the latest values of the
+// alias manager.
+type UpdateLinkAliases func(shortID lnwire.ShortChannelID) error
+
 var (
 	// aliasBucket stores aliases as keys and their base SCIDs as values.
 	// This is used to populate the maps that the Manager uses. The keys
@@ -77,6 +82,10 @@ var (
 type Manager struct {
 	backend kvdb.Backend
 
+	// LinkUpdater is a function used by aliasmgr to facilitate live update
+	// of aliases in other subsystems.
+	LinkUpdater UpdateLinkAliases
+
 	// baseToSet is a mapping from the "base" SCID to the set of aliases
 	// for this channel. This mapping includes all channels that
 	// negotiated the option-scid-alias feature bit.
@@ -98,11 +107,14 @@ type Manager struct {
 }
 
 // NewManager initializes an alias Manager from the passed database backend.
-func NewManager(db kvdb.Backend) (*Manager, error) {
+func NewManager(db kvdb.Backend,
+	linkUpdater UpdateLinkAliases) (*Manager, error) {
+
 	m := &Manager{backend: db}
 	m.baseToSet = make(map[lnwire.ShortChannelID][]lnwire.ShortChannelID)
 	m.aliasToBase = make(map[lnwire.ShortChannelID]lnwire.ShortChannelID)
 	m.peerAlias = make(map[lnwire.ChannelID]lnwire.ShortChannelID)
+	m.LinkUpdater = linkUpdater
 
 	err := m.populateMaps()
 	return m, err
@@ -215,12 +227,22 @@ func (m *Manager) populateMaps() error {
 // AddLocalAlias adds a database mapping from the passed alias to the passed
 // base SCID. The gossip boolean marks whether or not to create a mapping
 // that the gossiper will use. It is set to false for the upgrade path where
-// the feature-bit is toggled on and there are existing channels.
+// the feature-bit is toggled on and there are existing channels. The linkUpdate
+// flag is used to signal whether this function should also trigger an update
+// on the htlcswitch scid alias maps.
 func (m *Manager) AddLocalAlias(alias, baseScid lnwire.ShortChannelID,
-	gossip bool) error {
+	gossip, linkUpdate bool) error {
 
+	// We need to lock the manager for the whole duration of this method,
+	// except for the very last part where we call the link updater. In
+	// order for us to safely use a defer _and_ still be able to manually
+	// unlock, we use a sync.Once.
 	m.Lock()
-	defer m.Unlock()
+	unlockOnce := sync.Once{}
+	unlock := func() {
+		unlockOnce.Do(m.Unlock)
+	}
+	defer unlock()
 
 	err := kvdb.Update(m.backend, func(tx kvdb.RwTx) error {
 		// If the caller does not want to allow the alias to be used
@@ -268,6 +290,18 @@ func (m *Manager) AddLocalAlias(alias, baseScid lnwire.ShortChannelID,
 	// Only store the gossiper map if gossip is true.
 	if gossip {
 		m.aliasToBase[alias] = baseScid
+	}
+
+	// We definitely need to unlock the Manager before calling the link
+	// updater. If we don't, we'll deadlock. We use a sync.Once to ensure
+	// that we only unlock once.
+	unlock()
+
+	// Finally, we trigger a htlcswitch update if the flag is set, in order
+	// for any future htlc that references the added alias to be properly
+	// routed.
+	if linkUpdate {
+		return m.LinkUpdater(baseScid)
 	}
 
 	return nil
@@ -338,6 +372,72 @@ func (m *Manager) DeleteSixConfs(baseScid lnwire.ShortChannelID) error {
 	}
 
 	return nil
+}
+
+// DeleteLocalAlias removes a mapping from the database and the Manager's maps.
+func (m *Manager) DeleteLocalAlias(alias,
+	baseScid lnwire.ShortChannelID) error {
+
+	// We need to lock the manager for the whole duration of this method,
+	// except for the very last part where we call the link updater. In
+	// order for us to safely use a defer _and_ still be able to manually
+	// unlock, we use a sync.Once.
+	m.Lock()
+	unlockOnce := sync.Once{}
+	unlock := func() {
+		unlockOnce.Do(m.Unlock)
+	}
+	defer unlock()
+
+	err := kvdb.Update(m.backend, func(tx kvdb.RwTx) error {
+		aliasToBaseBucket, err := tx.CreateTopLevelBucket(aliasBucket)
+		if err != nil {
+			return err
+		}
+
+		var aliasBytes [8]byte
+		byteOrder.PutUint64(aliasBytes[:], alias.ToUint64())
+
+		return aliasToBaseBucket.Delete(aliasBytes[:])
+	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	// Now that the database state has been updated, we'll delete the
+	// mapping from the Manager's maps.
+	aliasSet, ok := m.baseToSet[baseScid]
+	if !ok {
+		return nil
+	}
+
+	// We'll iterate through the alias set and remove the alias from the
+	// set.
+	for i, a := range aliasSet {
+		if a.ToUint64() == alias.ToUint64() {
+			aliasSet = append(aliasSet[:i], aliasSet[i+1:]...)
+			break
+		}
+	}
+
+	// If the alias set is empty, we'll delete the base SCID from the
+	// baseToSet map.
+	if len(aliasSet) == 0 {
+		delete(m.baseToSet, baseScid)
+	} else {
+		m.baseToSet[baseScid] = aliasSet
+	}
+
+	// Finally, we'll delete the aliasToBase mapping from the Manager's
+	// cache.
+	delete(m.aliasToBase, alias)
+
+	// We definitely need to unlock the Manager before calling the link
+	// updater. If we don't, we'll deadlock. We use a sync.Once to ensure
+	// that we only unlock once.
+	unlock()
+
+	return m.LinkUpdater(baseScid)
 }
 
 // PutPeerAlias stores the peer's alias SCID once we learn of it in the

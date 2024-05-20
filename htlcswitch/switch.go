@@ -2343,6 +2343,26 @@ func (s *Switch) addLiveLink(link ChannelLink) {
 	}
 	s.interfaceIndex[peerPub][link.ChanID()] = link
 
+	s.updateLinkAliases(link)
+}
+
+// UpdateLinkAliases is the externally exposed wrapper for updating link
+// aliases. It acquires the indexMtx and calls the internal method.
+func (s *Switch) UpdateLinkAliases(link ChannelLink) {
+	s.indexMtx.Lock()
+	defer s.indexMtx.Unlock()
+
+	s.updateLinkAliases(link)
+}
+
+// updateLinkAliases updates the aliases for a given link. This will cause the
+// htlcswitch to consult the alias manager on the up to date values of its
+// alias maps.
+//
+// NOTE: this MUST be called with the indexMtx held.
+func (s *Switch) updateLinkAliases(link ChannelLink) {
+	linkScid := link.ShortChanID()
+
 	aliases := link.getAliases()
 	if link.isZeroConf() {
 		if link.zeroConfConfirmed() {
@@ -2367,6 +2387,21 @@ func (s *Switch) addLiveLink(link ChannelLink) {
 			s.baseIndex[alias] = linkScid
 		}
 	} else if link.negotiatedAliasFeature() {
+		// First, we flush any alias mappings for this link's scid
+		// before we populate the map again, in order to get rid of old
+		// values that no longer exist.
+		for alias, real := range s.aliasToReal {
+			if real == linkScid {
+				delete(s.aliasToReal, alias)
+			}
+		}
+
+		for alias, real := range s.baseIndex {
+			if real == linkScid {
+				delete(s.baseIndex, alias)
+			}
+		}
+
 		// The link's SCID is the confirmed SCID for non-zero-conf
 		// option-scid-alias feature bit channels.
 		for _, alias := range aliases {
@@ -2464,11 +2499,16 @@ func (s *Switch) getLinkByMapping(pkt *htlcPacket) (ChannelLink, error) {
 	chanID := pkt.outgoingChanID
 	aliasID := s.cfg.IsAlias(chanID)
 
+	// Custom alias mappings (that aren't communicated over the wire) are
+	// allowed to be outside the range of allowed SCID aliases (so they
+	// return false for IsAlias()).
+	_, haveAliasMapping := s.aliasToReal[chanID]
+
 	// Set the originalOutgoingChanID so the proper channel_update can be
 	// sent back if the option-scid-alias feature bit was negotiated.
 	pkt.originalOutgoingChanID = chanID
 
-	if aliasID {
+	if aliasID || haveAliasMapping {
 		// Since outgoingChanID is an alias, we'll fetch the link via
 		// baseIndex.
 		baseScid, ok := s.baseIndex[chanID]
@@ -2858,6 +2898,8 @@ func (s *Switch) failMailboxUpdate(outgoingScid,
 // the associated channel is not one of these, this function will return nil
 // and the caller is expected to handle this properly. In this case, a return
 // to the original non-alias behavior is expected.
+//
+//nolint:nestif
 func (s *Switch) failAliasUpdate(scid lnwire.ShortChannelID,
 	incoming bool) *lnwire.ChannelUpdate {
 
@@ -2865,7 +2907,12 @@ func (s *Switch) failAliasUpdate(scid lnwire.ShortChannelID,
 	// lookups for ChannelUpdate.
 	s.indexMtx.RLock()
 
-	if s.cfg.IsAlias(scid) {
+	// Custom alias mappings (that aren't communicated over the wire) are
+	// allowed to be outside the range of allowed SCID aliases (so they
+	// return false for IsAlias()).
+	_, haveAliasMapping := s.aliasToReal[scid]
+
+	if s.cfg.IsAlias(scid) || haveAliasMapping {
 		// The alias SCID was used. In the incoming case this means
 		// the channel is zero-conf as the link sets the scid. In the
 		// outgoing case, the sender set the scid to use and may be

@@ -6,8 +6,9 @@ import (
 )
 
 const (
-	// DefaultRemoteSignerRPCTimeout is the default timeout that is used
-	// when forwarding a request to the remote signer through RPC.
+	// DefaultRemoteSignerRPCTimeout is the default connection timeout
+	// that is used when connecting to the remote signer or watch-only node
+	// through RPC.
 	DefaultRemoteSignerRPCTimeout = 5 * time.Second
 )
 

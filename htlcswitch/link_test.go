@@ -2235,6 +2235,7 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 		NotifyInactiveLinkEvent: func(wire.OutPoint) {},
 		HtlcNotifier:            aliceSwitch.cfg.HtlcNotifier,
 		GetAliases:              getAliases,
+		ShouldFwdExpEndorsement: func() bool { return true },
 	}
 
 	aliceLink := NewChannelLink(aliceCfg, aliceLc.channel)
@@ -4864,6 +4865,8 @@ func (h *persistentLinkHarness) restartLink(
 	// Instantiate with a long interval, so that we can precisely control
 	// the firing via force feeding.
 	bticker := ticker.NewForce(time.Hour)
+
+	//nolint:lll
 	aliceCfg := ChannelLinkConfig{
 		FwrdingPolicy: globalPolicy,
 		Peer:          alicePeer,
@@ -4910,6 +4913,7 @@ func (h *persistentLinkHarness) restartLink(
 		HtlcNotifier:            h.hSwitch.cfg.HtlcNotifier,
 		SyncStates:              syncStates,
 		GetAliases:              getAliases,
+		ShouldFwdExpEndorsement: func() bool { return true },
 	}
 
 	aliceLink := NewChannelLink(aliceCfg, aliceChannel)

@@ -82,7 +82,8 @@ flowchart LR
 deadline together. Inputs with the same deadline express the same time
 sensitivity so it makes sense to sweep them in the same transaction. Once
 grouped, inputs in each batch are sorted based on their budgets. The only
-exception is inputs with `ExclusiveGroup` flag set, which will be swept alone.
+exception is inputs with the `ExclusiveGroup` flag set, which will be swept
+alone.
 
 Once the batching is finished, an `InputSet` is returned, which is an interface
 used to decide whether a wallet UTXO is needed or not when creating the
@@ -91,11 +92,10 @@ the sum of the output values from these inputs against the sum of their
 budgets - if the total budget cannot be covered, one or more wallet UTXOs are
 needed.
 
-For instance, when anchor output is swept to perform a CPFP, one or more wallet
-UTXOs are likely to be used to meet the specified budget, which is also the
-case when sweeping second-level HTLC transactions. However, if the sweeping
-transaction also contains other to-be-swept inputs, a wallet UTXO is no longer
-needed if their values can cover the total budget.
+For instance, commitment and HTLC transactions usually have some proportion of
+their outputs timelocked, preventing them from being used to pay fees
+immediately. For these transactions, wallet UTXOs are often needed to get them
+confirmed in a timely manner.
 
 #### `Bumper`
 
@@ -144,7 +144,7 @@ initialized with:
 - a starting fee rate of 10 sat/vB, which is the result from calling
   `estimatesmartfee 1000`.
 - an ending fee rate of 400 sat/vB, which is the result of `200,000/500`.
-- a fee rate delta of 390 sat/kvB, which is the result of `(400 - 10) / 500 *
+- a fee rate delta of 390 sat/kvB, which is the result of `(400 - 10) / 1000 *
   1000`.
 
 ## Sweeping Outputs from a Force Close Transaction

@@ -287,10 +287,11 @@ func bumpFee(ctx *cli.Context) error {
 	}
 
 	resp, err := client.BumpFee(ctxc, &walletrpc.BumpFeeRequest{
-		Outpoint:   protoOutPoint,
-		TargetConf: uint32(ctx.Uint64("conf_target")),
-		Immediate:  immediate,
-		Budget:     ctx.Uint64("budget"),
+		Outpoint:    protoOutPoint,
+		TargetConf:  uint32(ctx.Uint64("conf_target")),
+		Immediate:   immediate,
+		Budget:      ctx.Uint64("budget"),
+		SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
 	})
 	if err != nil {
 		return err
@@ -487,10 +488,11 @@ func bumpForceCloseFee(ctx *cli.Context) error {
 
 		resp, err := walletClient.BumpFee(
 			ctxc, &walletrpc.BumpFeeRequest{
-				Outpoint:   sweep.Outpoint,
-				TargetConf: uint32(ctx.Uint64("conf_target")),
-				Budget:     ctx.Uint64("budget"),
-				Immediate:  ctx.Bool("immediate"),
+				Outpoint:    sweep.Outpoint,
+				TargetConf:  uint32(ctx.Uint64("conf_target")),
+				Budget:      ctx.Uint64("budget"),
+				Immediate:   ctx.Bool("immediate"),
+				SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
 			})
 		if err != nil {
 			return err

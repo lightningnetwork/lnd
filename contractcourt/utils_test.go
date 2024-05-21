@@ -52,7 +52,7 @@ func copyFile(dest, src string) error {
 
 // copyChannelState copies the OpenChannel state by copying the database and
 // creating a new struct from it. The copied state is returned.
-func copyChannelState(t *testing.T, state *channeldb.OpenChannel) (
+func copyChannelStateBoltDB(t *testing.T, state *channeldb.OpenChannel) (
 	*channeldb.OpenChannel, error) {
 
 	// Make a copy of the DB.
@@ -65,12 +65,12 @@ func copyChannelState(t *testing.T, state *channeldb.OpenChannel) (
 		return nil, err
 	}
 
-	newDb, err := channeldb.Open(tempDbPath)
+	newDB, err := channeldb.OpenTestDB(tempDbPath)
 	if err != nil {
 		return nil, err
 	}
 
-	chans, err := newDb.ChannelStateDB().FetchAllChannels()
+	chans, err := newDB.ChannelStateDB().FetchAllChannels()
 	if err != nil {
 		return nil, err
 	}

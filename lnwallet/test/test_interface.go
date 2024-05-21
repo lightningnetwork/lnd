@@ -314,7 +314,7 @@ func createTestWallet(tempTestDir string, miningNode *rpctest.Harness,
 	signer input.Signer, bio lnwallet.BlockChainIO) (*lnwallet.LightningWallet, error) {
 
 	dbDir := filepath.Join(tempTestDir, "cdb")
-	fullDB, err := channeldb.Open(dbDir)
+	fullDB, err := channeldb.OpenTestDB(dbDir)
 	if err != nil {
 		return nil, err
 	}
@@ -3099,7 +3099,7 @@ func TestLightningWallet(t *testing.T, targetBackEnd string) {
 	rpcConfig := miningNode.RPCConfig()
 
 	tempDir := t.TempDir()
-	db, err := channeldb.Open(tempDir)
+	db, err := channeldb.OpenTestDB(tempDir)
 	require.NoError(t, err, "unable to create db")
 	testCfg := channeldb.CacheConfig{
 		QueryDisable: false,

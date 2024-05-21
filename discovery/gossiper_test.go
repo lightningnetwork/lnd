@@ -75,7 +75,7 @@ var (
 // makeTestDB creates a new instance of the ChannelDB for testing purposes.
 func makeTestDB(t *testing.T) (*channeldb.DB, error) {
 	// Create channeldb for the first time.
-	cdb, err := channeldb.Open(t.TempDir())
+	cdb, err := channeldb.OpenTestDB(t.TempDir())
 	if err != nil {
 		return nil, err
 	}

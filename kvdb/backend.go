@@ -32,6 +32,11 @@ var (
 	byteOrder = binary.BigEndian
 )
 
+// IsBoltDB returns whether the backend runs on bolt db.
+func IsBoltDB() bool {
+	return !PostgresBackend && !SqliteBackend && !EtcdBackend
+}
+
 // fileExists returns true if the file exists, and false otherwise.
 func fileExists(path string) bool {
 	if _, err := os.Stat(path); err != nil {

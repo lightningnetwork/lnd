@@ -905,10 +905,10 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 	)
 
 	// Create temporary databases.
-	dbRemote, err := channeldb.Open(t.TempDir())
+	dbRemote, err := channeldb.OpenTestDB(t.TempDir())
 	require.NoError(t, err)
 
-	dbLocal, err := channeldb.Open(t.TempDir())
+	dbLocal, err := channeldb.OpenTestDB(t.TempDir())
 	require.NoError(t, err)
 
 	// Create the initial commitment transactions for the channel.

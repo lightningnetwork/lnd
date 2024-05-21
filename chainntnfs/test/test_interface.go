@@ -1906,7 +1906,7 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 
 		// Initialize a height hint cache for each notifier.
 		tempDir := t.TempDir()
-		db, err := channeldb.Open(tempDir)
+		db, err := channeldb.OpenTestDB(tempDir)
 		if err != nil {
 			t.Fatalf("unable to create db: %v", err)
 		}

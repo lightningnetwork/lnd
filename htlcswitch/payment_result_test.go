@@ -102,7 +102,7 @@ func TestNetworkResultStore(t *testing.T) {
 
 	const numResults = 4
 
-	db, err := channeldb.Open(t.TempDir())
+	db, err := channeldb.OpenTestDB(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

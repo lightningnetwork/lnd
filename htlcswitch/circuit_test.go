@@ -626,7 +626,7 @@ func makeCircuitDB(t *testing.T, path string) *channeldb.DB {
 		path = t.TempDir()
 	}
 
-	db, err := channeldb.Open(path)
+	db, err := channeldb.OpenTestDB(path)
 	require.NoError(t, err, "unable to open channel db")
 	t.Cleanup(func() { db.Close() })
 

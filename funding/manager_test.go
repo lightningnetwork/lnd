@@ -424,7 +424,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	}
 
 	dbDir := filepath.Join(tempTestDir, "cdb")
-	fullDB, err := channeldb.Open(dbDir)
+	fullDB, err := channeldb.OpenTestDB(dbDir)
 	if err != nil {
 		return nil, err
 	}

@@ -229,7 +229,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		return nil, nil, err
 	}
 
-	dbAlice, err := channeldb.Open(t.TempDir(), dbModifiers...)
+	dbAlice, err := channeldb.OpenTestDB(t.TempDir(), dbModifiers...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -237,7 +237,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		require.NoError(t, dbAlice.Close())
 	})
 
-	dbBob, err := channeldb.Open(t.TempDir(), dbModifiers...)
+	dbBob, err := channeldb.OpenTestDB(t.TempDir(), dbModifiers...)
 	if err != nil {
 		return nil, nil, err
 	}

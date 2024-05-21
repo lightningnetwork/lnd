@@ -170,7 +170,7 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 		return nil, nil, err
 	}
 
-	dbAlice, err := channeldb.Open(t.TempDir())
+	dbAlice, err := channeldb.OpenTestDB(t.TempDir())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -178,7 +178,7 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 		require.NoError(t, dbAlice.Close())
 	})
 
-	dbBob, err := channeldb.Open(t.TempDir())
+	dbBob, err := channeldb.OpenTestDB(t.TempDir())
 	if err != nil {
 		return nil, nil, err
 	}

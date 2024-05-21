@@ -37,7 +37,7 @@ var (
 func initHintCache(t *testing.T) *channeldb.HeightHintCache {
 	t.Helper()
 
-	db, err := channeldb.Open(t.TempDir())
+	db, err := channeldb.OpenTestDB(t.TempDir())
 	require.NoError(t, err, "unable to create db")
 	t.Cleanup(func() {
 		require.NoError(t, db.Close())

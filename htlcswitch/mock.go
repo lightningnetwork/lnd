@@ -212,7 +212,7 @@ func initSwitchWithTempDB(t testing.TB, startingHeight uint32) (*Switch,
 	error) {
 
 	tempPath := filepath.Join(t.TempDir(), "switchdb")
-	db, err := channeldb.Open(tempPath)
+	db, err := channeldb.OpenTestDB(tempPath)
 	if err != nil {
 		return nil, err
 	}
@@ -952,7 +952,7 @@ func newDB() (*channeldb.DB, func(), error) {
 	}
 
 	// Next, create channeldb for the first time.
-	cdb, err := channeldb.Open(tempDirName)
+	cdb, err := channeldb.OpenTestDB(tempDirName)
 	if err != nil {
 		os.RemoveAll(tempDirName)
 		return nil, nil, err

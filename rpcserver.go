@@ -760,6 +760,10 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 			return nil
 		},
 		ShouldSetExpEndorsement: func() bool {
+			if s.cfg.ProtocolOptions.NoExperimentalEndorsement() {
+				return false
+			}
+
 			return clock.NewDefaultClock().Now().Before(
 				EndorsementExperimentEnd,
 			)

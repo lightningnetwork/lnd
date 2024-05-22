@@ -2779,11 +2779,18 @@ func (c *ChannelArbitrator) notifyResolvers(height int32) {
 	log.Debugf("Notifying %v resolvers of new block height %v",
 		len(c.activeResolvers), height)
 
-	for _, blockChan := range c.activeResolvers {
+	// notifyHeight is a helper closure that sends the block height to a
+	// single resolver.
+	notifyHeight := func(height int32, blockChan chan int32) {
 		select {
 		case blockChan <- height:
 		case <-c.quit:
 		}
+	}
+
+	// Notify all resolvers in parallel.
+	for _, blockChan := range c.activeResolvers {
+		go notifyHeight(height, blockChan)
 	}
 
 	log.Debugf("Notified %v resolvers of new block height %v",

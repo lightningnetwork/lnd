@@ -733,7 +733,7 @@ func (l *LightningWallet) RegisterFundingIntent(expectedID [32]byte,
 	}
 
 	if _, ok := l.fundingIntents[expectedID]; ok {
-		return fmt.Errorf("%w: already has intent registered: %v",
+		return fmt.Errorf("%w: already has intent registered: %x",
 			ErrDuplicatePendingChanID, expectedID[:])
 	}
 

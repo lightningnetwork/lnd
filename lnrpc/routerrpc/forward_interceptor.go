@@ -84,15 +84,16 @@ func (r *forwardInterceptor) onIntercept(
 			ChanId: inKey.ChanID.ToUint64(),
 			HtlcId: inKey.HtlcID,
 		},
-		OutgoingRequestedChanId: htlc.OutgoingChanID.ToUint64(),
-		PaymentHash:             htlc.Hash[:],
-		OutgoingAmountMsat:      uint64(htlc.OutgoingAmount),
-		OutgoingExpiry:          htlc.OutgoingExpiry,
-		IncomingAmountMsat:      uint64(htlc.IncomingAmount),
-		IncomingExpiry:          htlc.IncomingExpiry,
-		CustomRecords:           htlc.CustomRecords,
-		OnionBlob:               htlc.OnionBlob[:],
-		AutoFailHeight:          htlc.AutoFailHeight,
+		OutgoingRequestedChanId:       htlc.OutgoingChanID.ToUint64(),
+		PaymentHash:                   htlc.Hash[:],
+		OutgoingAmountMsat:            uint64(htlc.OutgoingAmount),
+		OutgoingExpiry:                htlc.OutgoingExpiry,
+		IncomingAmountMsat:            uint64(htlc.IncomingAmount),
+		IncomingExpiry:                htlc.IncomingExpiry,
+		CustomRecords:                 htlc.CustomRecords,
+		OnionBlob:                     htlc.OnionBlob[:],
+		AutoFailHeight:                htlc.AutoFailHeight,
+		IncomingHtlcWireCustomRecords: htlc.IncomingWireCustomRecords,
 	}
 
 	return r.stream.Send(interceptionRequest)
@@ -138,9 +139,9 @@ func (r *forwardInterceptor) resolveFromClient(
 		}
 
 		customRecords := fn.None[record.CustomSet]()
-		if len(in.CustomRecords) > 0 {
+		if len(in.OutgoingHtlcWireCustomRecords) > 0 {
 			// Validate custom records.
-			cr := record.CustomSet(in.CustomRecords)
+			cr := record.CustomSet(in.OutgoingHtlcWireCustomRecords)
 			if err := cr.Validate(); err != nil {
 				return status.Errorf(
 					codes.InvalidArgument,

@@ -713,7 +713,7 @@ func (r *ChannelRouter) Start() error {
 			// be tried.
 			_, _, err := r.sendPayment(
 				0, payment.Info.PaymentIdentifier, 0,
-				paySession, shardTracker,
+				paySession, shardTracker, nil,
 			)
 			if err != nil {
 				log.Errorf("Resuming payment %v failed: %v.",
@@ -2308,6 +2308,11 @@ type LightningPayment struct {
 	// fail.
 	DestCustomRecords record.CustomSet
 
+	// FirstHopCustomRecords are the TLV records that are to be sent to the
+	// first hop of this payment. These records will be transmitted via the
+	// wire message and therefore do not affect the onion payload size.
+	FirstHopCustomRecords record.CustomSet
+
 	// MaxParts is the maximum number of partial payments that may be used
 	// to complete the full amount.
 	MaxParts uint32
@@ -2393,6 +2398,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 	return r.sendPayment(
 		payment.FeeLimit, payment.Identifier(),
 		payment.PayAttemptTimeout, paySession, shardTracker,
+		payment.FirstHopCustomRecords,
 	)
 }
 
@@ -2413,6 +2419,7 @@ func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment,
 		_, _, err := r.sendPayment(
 			payment.FeeLimit, payment.Identifier(),
 			payment.PayAttemptTimeout, ps, st,
+			payment.FirstHopCustomRecords,
 		)
 		if err != nil {
 			log.Errorf("Payment %x failed: %v",
@@ -2587,7 +2594,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// - no payment timeout.
 	// - no current block height.
 	p := newPaymentLifecycle(
-		r, 0, paymentIdentifier, nil, shardTracker, 0, 0,
+		r, 0, paymentIdentifier, nil, shardTracker, 0, 0, nil,
 	)
 
 	// We found a route to try, create a new HTLC attempt to try.
@@ -2683,8 +2690,8 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 // the ControlTower.
 func (r *ChannelRouter) sendPayment(feeLimit lnwire.MilliSatoshi,
 	identifier lntypes.Hash, timeout time.Duration,
-	paySession PaymentSession,
-	shardTracker shards.ShardTracker) ([32]byte, *route.Route, error) {
+	paySession PaymentSession, shardTracker shards.ShardTracker,
+	firstHopTLVs record.CustomSet) ([32]byte, *route.Route, error) {
 
 	// We'll also fetch the current block height so we can properly
 	// calculate the required HTLC time locks within the route.
@@ -2697,7 +2704,7 @@ func (r *ChannelRouter) sendPayment(feeLimit lnwire.MilliSatoshi,
 	// can resume the payment from the current state.
 	p := newPaymentLifecycle(
 		r, feeLimit, identifier, paySession,
-		shardTracker, timeout, currentHeight,
+		shardTracker, timeout, currentHeight, firstHopTLVs,
 	)
 
 	return p.resumePayment()

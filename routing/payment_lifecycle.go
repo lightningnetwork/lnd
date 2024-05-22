@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/routing/shards"
 )
@@ -31,6 +32,7 @@ type paymentLifecycle struct {
 	shardTracker  shards.ShardTracker
 	timeoutChan   <-chan time.Time
 	currentHeight int32
+	firstHopTLVs  record.CustomSet
 
 	// quit is closed to signal the sub goroutines of the payment lifecycle
 	// to stop.
@@ -53,7 +55,7 @@ type paymentLifecycle struct {
 func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
 	identifier lntypes.Hash, paySession PaymentSession,
 	shardTracker shards.ShardTracker, timeout time.Duration,
-	currentHeight int32) *paymentLifecycle {
+	currentHeight int32, firstHopTLVs record.CustomSet) *paymentLifecycle {
 
 	p := &paymentLifecycle{
 		router:          r,
@@ -64,6 +66,7 @@ func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
 		currentHeight:   currentHeight,
 		quit:            make(chan struct{}),
 		resultCollected: make(chan error, 1),
+		firstHopTLVs:    firstHopTLVs,
 	}
 
 	// Mount the result collector.
@@ -668,9 +671,10 @@ func (p *paymentLifecycle) sendAttempt(
 	// this packet will be used to route the payment through the network,
 	// starting with the first-hop.
 	htlcAdd := &lnwire.UpdateAddHTLC{
-		Amount:      rt.TotalAmount,
-		Expiry:      rt.TotalTimeLock,
-		PaymentHash: *attempt.Hash,
+		Amount:        rt.TotalAmount,
+		Expiry:        rt.TotalTimeLock,
+		PaymentHash:   *attempt.Hash,
+		CustomRecords: lnwire.CustomRecords(p.firstHopTLVs),
 	}
 
 	// Generate the raw encoded sphinx packet to be included along

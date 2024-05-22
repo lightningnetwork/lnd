@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -622,15 +623,16 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 			ChanID: f.packet.incomingChanID,
 			HtlcID: f.packet.incomingHTLCID,
 		},
-		OutgoingChanID: f.packet.outgoingChanID,
-		Hash:           f.htlc.PaymentHash,
-		OutgoingExpiry: f.htlc.Expiry,
-		OutgoingAmount: f.htlc.Amount,
-		IncomingAmount: f.packet.incomingAmount,
-		IncomingExpiry: f.packet.incomingTimeout,
-		CustomRecords:  f.packet.customRecords,
-		OnionBlob:      f.htlc.OnionBlob,
-		AutoFailHeight: f.autoFailHeight,
+		OutgoingChanID:            f.packet.outgoingChanID,
+		Hash:                      f.htlc.PaymentHash,
+		OutgoingExpiry:            f.htlc.Expiry,
+		OutgoingAmount:            f.htlc.Amount,
+		IncomingAmount:            f.packet.incomingAmount,
+		IncomingExpiry:            f.packet.incomingTimeout,
+		CustomRecords:             f.packet.customRecords,
+		OnionBlob:                 f.htlc.OnionBlob,
+		AutoFailHeight:            f.autoFailHeight,
+		IncomingWireCustomRecords: f.packet.incomingCustomRecords,
 	}
 }
 
@@ -659,49 +661,57 @@ func (f *interceptedForward) ResumeModified(
 			htlc.Amount = amount
 		})
 
-		//nolint:lll
-		err := fn.MapOptionZ(customRecords, func(records record.CustomSet) error {
-			if len(records) == 0 {
+		err := fn.MapOptionZ(
+			customRecords, func(records record.CustomSet) error {
+				if len(records) == 0 {
+					return nil
+				}
+
+				// Type cast and validate custom records.
+				htlc.CustomRecords = lnwire.CustomRecords(
+					records,
+				)
+				err := htlc.CustomRecords.Validate()
+				if err != nil {
+					return fmt.Errorf("failed to validate "+
+						"custom records: %w", err)
+				}
+
 				return nil
-			}
-
-			// Type cast and validate custom records.
-			htlc.CustomRecords = lnwire.CustomRecords(records)
-			err := htlc.CustomRecords.Validate()
-			if err != nil {
-				return fmt.Errorf("failed to validate custom "+
-					"records: %w", err)
-			}
-
-			return nil
-		})
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("failed to encode custom records: %w",
 				err)
 		}
 
 	case *lnwire.UpdateFulfillHTLC:
-		//nolint:lll
-		err := fn.MapOptionZ(customRecords, func(records record.CustomSet) error {
-			if len(records) == 0 {
+		err := fn.MapOptionZ(
+			customRecords, func(records record.CustomSet) error {
+				if len(records) == 0 {
+					return nil
+				}
+
+				// Type cast and validate custom records.
+				htlc.CustomRecords = lnwire.CustomRecords(
+					records,
+				)
+				err := htlc.CustomRecords.Validate()
+				if err != nil {
+					return fmt.Errorf("failed to validate "+
+						"custom records: %w", err)
+				}
+
 				return nil
-			}
-
-			// Type cast and validate custom records.
-			htlc.CustomRecords = lnwire.CustomRecords(records)
-			err := htlc.CustomRecords.Validate()
-			if err != nil {
-				return fmt.Errorf("failed to validate custom "+
-					"records: %w", err)
-			}
-
-			return nil
-		})
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("failed to encode custom records: %w",
 				err)
 		}
 	}
+
+	log.Tracef("Forwarding packet %v", spew.Sdump(f.packet))
 
 	// Forward to the switch. A link quit channel isn't needed, because we
 	// are on a different thread now.

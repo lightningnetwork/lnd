@@ -98,6 +98,10 @@ type htlcPacket struct {
 	// were included in the payload.
 	customRecords record.CustomSet
 
+	// incomingCustomRecords are custom type range TLVs that are included
+	// in the incoming update_add_htlc.
+	incomingCustomRecords record.CustomSet
+
 	// originalOutgoingChanID is used when sending back failure messages.
 	// It is only used for forwarded Adds on option_scid_alias channels.
 	// This is to avoid possible confusion if a payer uses the public SCID

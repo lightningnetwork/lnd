@@ -347,6 +347,15 @@ message SendPaymentRequest {
     only, to 1 to optimize for reliability only or a value inbetween for a mix.
     */
     double time_pref = 23;
+
+    /*
+    An optional field that can be used to pass an arbitrary set of TLV records
+    to the first hop peer of this payment. This can be used to pass application
+    specific data during the payment attempt. Record types are required to be in
+    the custom range >= 65536. When using REST, the values must be encoded as
+    base64.
+    */
+    map<uint64, bytes> first_hop_custom_records = 24;
 }
 
 message TrackPaymentRequest {
@@ -971,6 +980,9 @@ message ForwardHtlcInterceptRequest {
     // The block height at which this htlc will be auto-failed to prevent the
     // channel from force-closing.
     int32 auto_fail_height = 10;
+
+    // The custom records of the peer's incoming wire message.
+    map<uint64, bytes> incoming_htlc_wire_custom_records = 11;
 }
 
 /**
@@ -1018,9 +1030,9 @@ message ForwardHtlcInterceptResponse {
     // for resuming a HTLC.
     uint64 outgoing_amount_msat = 7;
 
-    // custom_records is used to set the p2p message custom records field for
-    // resuming a HTLC.
-    map<uint64, bytes> custom_records = 8;
+    // Outgoing htlc wire custom records is used to set the p2p message custom
+    // records field for resuming a HTLC.
+    map<uint64, bytes> outgoing_htlc_wire_custom_records = 8;
 }
 
 enum ResolveHoldForwardAction {

@@ -196,12 +196,10 @@ func (m *PingManager) pingHandler() {
 	}
 }
 
-// Stop interrupts the goroutines that the PingManager owns. Can only be called
-// when the PingManager is running.
-func (m *PingManager) Stop() error {
+// Stop interrupts the goroutines that the PingManager owns.
+func (m *PingManager) Stop() {
 	if m.pingTicker == nil {
-		return errors.New("PingManager cannot be stopped because it " +
-			"isn't running")
+		return
 	}
 
 	m.stopped.Do(func() {
@@ -211,8 +209,6 @@ func (m *PingManager) Stop() error {
 		m.pingTicker.Stop()
 		m.pingTimeout.Stop()
 	})
-
-	return nil
 }
 
 // setPingState is a private method to keep track of all of the fields we need

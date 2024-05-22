@@ -1610,8 +1610,8 @@ func (c *ChannelArbitrator) advanceState(
 	for {
 		priorState = c.state
 		log.Debugf("ChannelArbitrator(%v): attempting state step with "+
-			"trigger=%v from state=%v", c.cfg.ChanPoint, trigger,
-			priorState)
+			"trigger=%v from state=%v at height=%v",
+			c.cfg.ChanPoint, trigger, priorState, triggerHeight)
 
 		nextState, closeTx, err := c.stateStep(
 			triggerHeight, trigger, confCommitSet,
@@ -2822,14 +2822,12 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 		// We have broadcasted our commitment, and it is now confirmed
 		// on-chain.
 		case closeInfo := <-c.cfg.ChainEvents.LocalUnilateralClosure:
-			log.Infof("ChannelArbitrator(%v): local on-chain "+
-				"channel close", c.cfg.ChanPoint)
-
 			if c.state != StateCommitmentBroadcasted {
 				log.Errorf("ChannelArbitrator(%v): unexpected "+
 					"local on-chain channel close",
 					c.cfg.ChanPoint)
 			}
+
 			closeTx := closeInfo.CloseTx
 
 			resolutions, err := closeInfo.ContractResolutions.
@@ -2856,6 +2854,10 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 
 				return
 			}
+
+			log.Infof("ChannelArbitrator(%v): local force close "+
+				"tx=%v confirmed", c.cfg.ChanPoint,
+				closeTx.TxHash())
 
 			contractRes := &ContractResolutions{
 				CommitHash:       closeTx.TxHash(),

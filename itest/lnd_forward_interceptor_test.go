@@ -477,16 +477,25 @@ func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
 	addResponse := dave.RPC.AddInvoice(req)
 	invoice := dave.RPC.LookupInvoice(addResponse.RHash)
 
+	expectedCustomRecords := map[uint64][]byte{
+		65537: []byte("test"),
+	}
 	sendReq := &routerrpc.SendPaymentRequest{
-		PaymentRequest: invoice.PaymentRequest,
-		TimeoutSeconds: int32(wait.PaymentTimeout.Seconds()),
-		FeeLimitMsat:   noFeeLimitMsat,
-		FirstHopCustomRecords: map[uint64][]byte{
-			65537: []byte("test"),
-		},
+		PaymentRequest:        invoice.PaymentRequest,
+		TimeoutSeconds:        int32(wait.PaymentTimeout.Seconds()),
+		FeeLimitMsat:          noFeeLimitMsat,
+		FirstHopCustomRecords: expectedCustomRecords,
 	}
 
 	_ = alice.RPC.SendPayment(sendReq)
+
+	// We also expect Alice to send an experimental endorsement field by
+	// default, but set its value to unendorsed because the field is not
+	// yet enabled for use.
+	endorsedType := uint64(lnwire.ExperimentalEndorsementType)
+	expectedCustomRecords[endorsedType] = []byte{
+		lnwire.ExperimentalUnendorsed,
+	}
 
 	// We start the htlc interceptor with a simple implementation that saves
 	// all intercepted packets. These packets are held to simulate a
@@ -530,7 +539,7 @@ func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
 		func(p *lnrpc.Payment) error {
 			recordsEqual := reflect.DeepEqual(
 				p.FirstHopCustomRecords,
-				sendReq.FirstHopCustomRecords,
+				expectedCustomRecords,
 			)
 			if !recordsEqual {
 				return fmt.Errorf("expected custom records to "+
@@ -605,7 +614,12 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	// pending payment.
 	packet := ht.ReceiveHtlcInterceptor(bobInterceptor)
 
-	require.Len(ht, packet.InWireCustomRecords, 1)
+	// We expect an experimental endorsement signal to be included but not
+	// set along with our custom record.
+	customRecords[uint64(lnwire.ExperimentalEndorsementType)] = []byte{
+		lnwire.ExperimentalUnendorsed,
+	}
+	require.Len(ht, packet.InWireCustomRecords, 2)
 	require.Equal(ht, customRecords, packet.InWireCustomRecords)
 
 	// We accept the payment at Bob and resume it, so it gets to Carol.
@@ -642,7 +656,7 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	// We should get another notification about the held HTLC.
 	packet = ht.ReceiveHtlcInterceptor(bobInterceptor)
 
-	require.Len(ht, packet.InWireCustomRecords, 1)
+	require.Len(ht, packet.InWireCustomRecords, 2)
 	require.Equal(ht, customRecords, packet.InWireCustomRecords)
 
 	err = carolInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
@@ -651,9 +665,10 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	})
 	require.NoError(ht, err, "failed to send request")
 
-	// And now we forward the payment at Carol.
+	// And now we forward the payment at Carol, expecting only an
+	// endorsement signal in our incoming custom records.
 	packet = ht.ReceiveHtlcInterceptor(carolInterceptor)
-	require.Len(ht, packet.InWireCustomRecords, 0)
+	require.Len(ht, packet.InWireCustomRecords, 1)
 	err = carolInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
 		IncomingCircuitKey: packet.IncomingCircuitKey,
 		Action:             actionResume,

@@ -3775,3 +3775,16 @@ func (l *channelLink) fail(linkErr LinkFailureError,
 	l.failed = true
 	l.cfg.OnChannelFailure(l.ChanID(), l.ShortChanID(), linkErr)
 }
+
+// FundingCustomBlob returns the custom funding blob of the channel that this
+// link is associated with. The funding blob represents static information about
+// the channel that was created at channel funding time.
+func (l *channelLink) FundingCustomBlob() fn.Option[tlv.Blob] {
+	return l.channel.State().CustomBlob
+}
+
+// CommitmentCustomBlob returns the custom blob of the current local commitment
+// of the channel that this link is associated with.
+func (l *channelLink) CommitmentCustomBlob() fn.Option[tlv.Blob] {
+	return l.channel.LocalCommitmentBlob()
+}

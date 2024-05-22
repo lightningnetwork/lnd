@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -243,7 +244,9 @@ type PaymentSessionSource interface {
 	// routes to the given target. An optional set of routing hints can be
 	// provided in order to populate additional edges to explore when
 	// finding a path to the payment's destination.
-	NewPaymentSession(p *LightningPayment) (PaymentSession, error)
+	NewPaymentSession(p *LightningPayment,
+		trafficShaper fn.Option[TlvTrafficShaper]) (PaymentSession,
+		error)
 
 	// NewPaymentSessionEmpty creates a new paymentSession instance that is
 	// empty, and will be exhausted immediately. Used for failure reporting
@@ -409,6 +412,10 @@ type Config struct {
 	// IsAlias returns whether a passed ShortChannelID is an alias. This is
 	// only used for our local channels.
 	IsAlias func(scid lnwire.ShortChannelID) bool
+
+	// TrafficShaper is an optional traffic shaper that can be used to
+	// control the outgoing channel of a payment.
+	TrafficShaper fn.Option[TlvTrafficShaper]
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -2095,6 +2102,7 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 	// eliminate certain routes early on in the path finding process.
 	bandwidthHints, err := newBandwidthManager(
 		r.cachedGraph, r.selfNode.PubKeyBytes, r.cfg.GetLink,
+		r.cfg.TrafficShaper,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -2457,7 +2465,9 @@ func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
-	paySession, err := r.cfg.SessionSource.NewPaymentSession(payment)
+	paySession, err := r.cfg.SessionSource.NewPaymentSession(
+		payment, r.cfg.TrafficShaper,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -3106,6 +3116,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	// the best outgoing channel to use in case no outgoing channel is set.
 	bandwidthHints, err := newBandwidthManager(
 		r.cachedGraph, r.selfNode.PubKeyBytes, r.cfg.GetLink,
+		r.cfg.TrafficShaper,
 	)
 	if err != nil {
 		return nil, err
@@ -3202,7 +3213,9 @@ func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
 		}
 
 		// Get an edge for the specific amount that we want to forward.
-		edge := edgeUnifier.getEdge(runningAmt, bandwidthHints, 0)
+		edge := edgeUnifier.getEdge(
+			runningAmt, bandwidthHints, 0, fn.Option[[]byte]{},
+		)
 		if edge == nil {
 			log.Errorf("Cannot find policy with amt=%v for node %v",
 				runningAmt, fromNode)
@@ -3240,7 +3253,9 @@ func getPathEdges(source route.Vertex, receiverAmt lnwire.MilliSatoshi,
 	// amount ranges re-checked.
 	var pathEdges []*unifiedEdge
 	for i, unifier := range unifiers {
-		edge := unifier.getEdge(receiverAmt, bandwidthHints, 0)
+		edge := unifier.getEdge(
+			receiverAmt, bandwidthHints, 0, fn.Option[[]byte]{},
+		)
 		if edge == nil {
 			fromNode := source
 			if i > 0 {

@@ -550,18 +550,19 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	//nolint:lll
 	featureMgr, err := feature.NewManager(feature.Config{
-		NoTLVOnion:               cfg.ProtocolOptions.LegacyOnion(),
-		NoStaticRemoteKey:        cfg.ProtocolOptions.NoStaticRemoteKey(),
-		NoAnchors:                cfg.ProtocolOptions.NoAnchorCommitments(),
-		NoWumbo:                  !cfg.ProtocolOptions.Wumbo(),
-		NoScriptEnforcementLease: cfg.ProtocolOptions.NoScriptEnforcementLease(),
-		NoKeysend:                !cfg.AcceptKeySend,
-		NoOptionScidAlias:        !cfg.ProtocolOptions.ScidAlias(),
-		NoZeroConf:               !cfg.ProtocolOptions.ZeroConf(),
-		NoAnySegwit:              cfg.ProtocolOptions.NoAnySegwit(),
-		CustomFeatures:           cfg.ProtocolOptions.CustomFeatures(),
-		NoTaprootChans:           !cfg.ProtocolOptions.TaprootChans,
-		NoRouteBlinding:          cfg.ProtocolOptions.NoRouteBlinding(),
+		NoTLVOnion:                cfg.ProtocolOptions.LegacyOnion(),
+		NoStaticRemoteKey:         cfg.ProtocolOptions.NoStaticRemoteKey(),
+		NoAnchors:                 cfg.ProtocolOptions.NoAnchorCommitments(),
+		NoWumbo:                   !cfg.ProtocolOptions.Wumbo(),
+		NoScriptEnforcementLease:  cfg.ProtocolOptions.NoScriptEnforcementLease(),
+		NoKeysend:                 !cfg.AcceptKeySend,
+		NoOptionScidAlias:         !cfg.ProtocolOptions.ScidAlias(),
+		NoZeroConf:                !cfg.ProtocolOptions.ZeroConf(),
+		NoAnySegwit:               cfg.ProtocolOptions.NoAnySegwit(),
+		CustomFeatures:            cfg.ProtocolOptions.CustomFeatures(),
+		NoTaprootChans:            !cfg.ProtocolOptions.TaprootChans,
+		NoRouteBlinding:           cfg.ProtocolOptions.NoRouteBlinding(),
+		NoExperimentalEndorsement: cfg.ProtocolOptions.NoExperimentalEndorsement(),
 	})
 	if err != nil {
 		return nil, err
@@ -4096,6 +4097,10 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		AuxLeafStore:           s.implCfg.AuxLeafStore,
 		MsgRouter:              s.implCfg.MsgRouter,
 		ShouldFwdExpEndorsement: func() bool {
+			if s.cfg.ProtocolOptions.NoExperimentalEndorsement() {
+				return false
+			}
+
 			return clock.NewDefaultClock().Now().Before(
 				EndorsementExperimentEnd,
 			)

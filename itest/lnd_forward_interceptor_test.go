@@ -526,7 +526,13 @@ func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
 	packet := ht.ReceiveHtlcInterceptor(bobInterceptor)
 	require.Equal(ht, bobExpectedCustomRecords, packet.InWireCustomRecords)
 
-	// Just resume the payment on Bob.
+	// We expect the custom record and an endorsement signal.
+	require.Len(ht, packet.InWireCustomRecords, 2)
+
+	val, ok := packet.InWireCustomRecords[65537]
+	require.True(ht, ok, "expected custom record")
+	require.Equal(ht, []byte("test"), val)
+
 	err := bobInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
 		IncomingCircuitKey: packet.IncomingCircuitKey,
 		Action:             actionResume,

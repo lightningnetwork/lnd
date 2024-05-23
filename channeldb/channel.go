@@ -2750,6 +2750,8 @@ func (h *HTLC) Copy() HTLC {
 	copy(clone.Signature[:], h.Signature)
 	copy(clone.RHash[:], h.RHash[:])
 	copy(clone.ExtraData, h.ExtraData)
+	clone.BlindingPoint = h.BlindingPoint
+	clone.CustomRecords = h.CustomRecords.Copy()
 
 	return clone
 }

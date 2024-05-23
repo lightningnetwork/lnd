@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -290,7 +291,7 @@ type FeeSchema struct {
 
 	// InboundFee is the inbound fee schedule that applies to forwards
 	// coming in through a channel to which this FeeSchema pertains.
-	InboundFee models.InboundFee
+	InboundFee fn.Option[models.InboundFee]
 }
 
 // ChannelPolicy holds the parameters that determine the policy we enforce

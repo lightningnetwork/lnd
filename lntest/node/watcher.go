@@ -681,6 +681,18 @@ func CheckChannelPolicy(policy, expectedPolicy *lnrpc.RoutingPolicy) error {
 		return fmt.Errorf("expected max htlc %v, got %v",
 			expectedPolicy.MaxHtlcMsat, policy.MaxHtlcMsat)
 	}
+	if policy.InboundFeeBaseMsat != expectedPolicy.InboundFeeBaseMsat {
+		return fmt.Errorf("expected inbound base fee %v, got %v",
+			expectedPolicy.InboundFeeBaseMsat,
+			policy.InboundFeeBaseMsat)
+	}
+	if policy.InboundFeeRateMilliMsat !=
+		expectedPolicy.InboundFeeRateMilliMsat {
+
+		return fmt.Errorf("expected inbound fee rate %v, got %v",
+			expectedPolicy.InboundFeeRateMilliMsat,
+			policy.InboundFeeRateMilliMsat)
+	}
 	if policy.Disabled != expectedPolicy.Disabled {
 		return errors.New("edge should be disabled but isn't")
 	}

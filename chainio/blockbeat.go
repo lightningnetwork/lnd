@@ -52,6 +52,88 @@ func NewBeat(epoch chainntnfs.BlockEpoch) Beat {
 	}
 }
 
+// NotifySequential takes a list of consumers and notify them about the new
+// epoch sequentially.
+func (b *Beat) NotifySequential(consumers []Consumer) error {
+	for _, c := range consumers {
+		// Construct a new beat with a buffered error chan.
+		beat := NewBeat(b.Epoch)
+
+		// Record the time it takes the consumer to process this block.
+		start := time.Now()
+
+		log.Tracef("Sending block %v to consumer: %v", b.Epoch.Height,
+			c.Name())
+
+		// We expect the consumer to finish processing this block under
+		// 30s, otherwise a timeout error is returned.
+		err, timeout := fn.RecvOrTimeout(
+			c.ProcessBlock(beat), DefaultProcessBlockTimeout,
+		)
+		if err != nil {
+			return fmt.Errorf("%s: ProcessBlock got: %w", c.Name(),
+				err)
+		}
+		if timeout != nil {
+			return fmt.Errorf("%s timed out while processing block",
+				c.Name())
+		}
+
+		log.Debugf("Consumer [%s] processed block %d in %v", c.Name(),
+			b.Epoch.Height, time.Since(start))
+	}
+
+	return nil
+}
+
+// NotifyConcurrent notifies each queue concurrently about the latest block
+// epoch.
+func (b *Beat) NotifyConcurrent(consumers []Consumer, quit chan struct{}) {
+	// errChans is a map of channels that will be used to receive errors
+	// returned from notifying the consumers.
+	errChans := make(map[string]chan error, len(consumers))
+
+	// Notify each queue in goroutines.
+	for _, c := range consumers {
+		log.Tracef("Sending block %v to consumer: %v", b.Epoch.Height,
+			c.Name())
+
+		// Create a signal chan.
+		errChan := make(chan error)
+		errChans[c.Name()] = errChan
+
+		// Notify each consumer concurrently.
+		go func(c Consumer, epoch chainntnfs.BlockEpoch) {
+			// Construct a new beat with a buffered error chan.
+			beat := NewBeat(epoch)
+
+			// Notify each consumer in this queue sequentially.
+			errChan <- beat.NotifySequential([]Consumer{c})
+		}(c, b.Epoch)
+	}
+
+	// Wait for all consumers in each queue to finish.
+	for name, errChan := range errChans {
+		select {
+		case err := <-errChan:
+			// It's critical that the subsystems can process blocks
+			// correctly and timely, if an error returns, we'd
+			// gracefully shutdown lnd to bring attentions.
+			if err != nil {
+				log.Criticalf("Consumer=%v failed to process "+
+					"block: %v", name, err)
+
+				return
+			}
+
+			log.Debugf("Notified consumer=%v on block %d", name,
+				b.Epoch.Height)
+
+		case <-quit:
+		}
+	}
+}
+
 // BlockBeat is a service that handles dispatching new blocks to `lnd`'s
 // subsystems. During startup, subsystems that are block-driven should
 // implement the `Consumer` interface and register themselves via
@@ -198,8 +280,11 @@ func (b *BlockBeat) notifyQueues() {
 
 			defer b.wg.Done()
 
+			// Construct a new beat with a buffered error chan.
+			beat := NewBeat(epoch)
+
 			// Notify each consumer in this queue sequentially.
-			errChan <- b.notifyQueue(c, epoch)
+			errChan <- beat.NotifySequential(c)
 		}(qid, consumers, b.blockEpoch)
 	}
 
@@ -225,38 +310,38 @@ func (b *BlockBeat) notifyQueues() {
 	}
 }
 
-// notifyQueue takes a list of consumers and notify them about the new epoch
-// sequentially.
-func (b *BlockBeat) notifyQueue(queue []Consumer,
-	epoch chainntnfs.BlockEpoch) error {
+// // notifyQueue takes a list of consumers and notify them about the new epoch
+// // sequentially.
+// func (b *BlockBeat) notifyQueue(queue []Consumer,
+// 	epoch chainntnfs.BlockEpoch) error {
 
-	for _, c := range queue {
-		log.Debugf("Notifying consumer [%s] on block %d", c.Name(),
-			epoch.Height)
+// 	for _, c := range queue {
+// 		log.Debugf("Notifying consumer [%s] on block %d", c.Name(),
+// 			epoch.Height)
 
-		// Construct a new beat with a buffered error chan.
-		beat := NewBeat(epoch)
+// 		// Construct a new beat with a buffered error chan.
+// 		beat := NewBeat(epoch)
 
-		// Record the time it takes the consumer to process this block.
-		start := time.Now()
+// 		// Record the time it takes the consumer to process this block.
+// 		start := time.Now()
 
-		// We expect the consumer to finish processing this block under
-		// 30s, otherwise a timeout error is returned.
-		err, timeout := fn.RecvOrTimeout(
-			c.ProcessBlock(beat), DefaultProcessBlockTimeout,
-		)
-		if err != nil {
-			return fmt.Errorf("%s: ProcessBlock got: %w", c.Name(),
-				err)
-		}
-		if timeout != nil {
-			return fmt.Errorf("%s timed out while processing block",
-				c.Name())
-		}
+// 		// We expect the consumer to finish processing this block under
+// 		// 30s, otherwise a timeout error is returned.
+// 		err, timeout := fn.RecvOrTimeout(
+// 			c.ProcessBlock(beat), DefaultProcessBlockTimeout,
+// 		)
+// 		if err != nil {
+// 			return fmt.Errorf("%s: ProcessBlock got: %w", c.Name(),
+// 				err)
+// 		}
+// 		if timeout != nil {
+// 			return fmt.Errorf("%s timed out while processing block",
+// 				c.Name())
+// 		}
 
-		log.Debugf("Consumer [%s] processed block %d in %v", c.Name(),
-			epoch.Height, time.Since(start))
-	}
+// 		log.Debugf("Consumer [%s] processed block %d in %v", c.Name(),
+// 			epoch.Height, time.Since(start))
+// 	}
 
-	return nil
-}
+// 	return nil
+// }

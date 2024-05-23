@@ -413,6 +413,9 @@ func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 	}
 }
 
+// Compile-time check for the WebFeeService interface.
+var _ chainio.Consumer = (*ChannelArbitrator)(nil)
+
 // chanArbStartState contains the information from disk that we need to start
 // up a channel arbitrator.
 type chanArbStartState struct {
@@ -3194,9 +3197,11 @@ func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Beat) error {
 	return nil
 }
 
-// processBlock sends the specified blockbeat to the channel arbitrator's inner
+// ProcessBlock sends the specified blockbeat to the channel arbitrator's inner
 // loop for processing.
-func (c *ChannelArbitrator) processBlock(beat chainio.Beat) <-chan error {
+//
+// NOTE: Part of chainio.Consumer interface.
+func (c *ChannelArbitrator) ProcessBlock(beat chainio.Beat) <-chan error {
 	select {
 	case c.blockBeatChan <- beat:
 		log.Debugf("Received block beat for height=%d",
@@ -3207,6 +3212,13 @@ func (c *ChannelArbitrator) processBlock(beat chainio.Beat) <-chan error {
 	}
 
 	return beat.Err
+}
+
+// Name returns a human-readable string for this subsystem.
+//
+// NOTE: Part of chainio.Consumer interface.
+func (c *ChannelArbitrator) Name() string {
+	return fmt.Sprint("ChannelArbitrator(%v)", c.cfg.ChanPoint)
 }
 
 // checkLegacyBreach returns StateFullyResolved if the channel was closed with

@@ -801,9 +801,7 @@ func (c *ChainArbitrator) sendBlockAndWait(beat chainio.Beat) {
 	c.Lock()
 
 	// Create a map to record active channel arbitrator.
-	channels := make(
-		map[wire.OutPoint]*ChannelArbitrator, len(c.activeChannels),
-	)
+	channels := make([]chainio.Consumer, 0, len(c.activeChannels))
 
 	// Create a map of go chans to store the done signals.
 	doneChans := make(
@@ -812,15 +810,17 @@ func (c *ChainArbitrator) sendBlockAndWait(beat chainio.Beat) {
 
 	// Copy the active channels to the map.
 	for op, channel := range c.activeChannels {
-		channels[op] = channel
+		channels = append(channels, channel)
 		doneChans[op] = make(chan struct{})
 	}
 
 	c.Unlock()
 
+	beat.NotifyConsumers(channels)
+
 	// Iterate all the copied channels and send the blockbeat to them.
+
 	for _, channel := range channels {
-		beat := chainio.NewBeat(beat.Epoch)
 
 		// Deliver the block to the channel arbitrator.
 		go func(ch *ChannelArbitrator, beat chainio.Beat) {
@@ -843,30 +843,6 @@ func (c *ChainArbitrator) sendBlockAndWait(beat chainio.Beat) {
 		case <-c.quit:
 			return
 		}
-	}
-}
-
-// waitForChanArbProcessBlock waits for the channel arbitrator to process the
-// block. It will log an error if there's an error returned from the channel
-// arbitrator or the processing timed out.
-func (c *ChainArbitrator) waitForChanArbProcessBlock(chanArb *ChannelArbitrator,
-	beat chainio.Beat) {
-
-	log.Debugf("Sending block=%d to ChannelArbitrator(%v)",
-		beat.Epoch.Height, chanArb.cfg.ChanPoint)
-
-	// We expect the channel arbitrator to finish processing this block
-	// under 30s, otherwise a timeout error is returned.
-	err, timeout := fn.RecvOrTimeout(
-		chanArb.processBlock(beat), chainio.DefaultProcessBlockTimeout,
-	)
-	if err != nil {
-		log.Errorf("ChannelArbitrator(%v): process block got: %v",
-			chanArb.cfg.ChanPoint, err)
-	}
-	if timeout != nil {
-		log.Errorf("ChannelArbitrator(%v): process block timeout: %v",
-			chanArb.cfg.ChanPoint, err)
 	}
 }
 

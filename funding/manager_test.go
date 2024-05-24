@@ -550,7 +550,8 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		NotifyOpenChannelEvent:        evt.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chainedAcceptor,
 		NotifyPendingOpenChannelEvent: evt.NotifyPendingOpenChannelEvent,
-		DeleteAliasEdge: func(scid lnwire.ShortChannelID) (
+		ReAssignSCID: func(aliasScID,
+			newScID lnwire.ShortChannelID) (
 			*models.ChannelEdgePolicy, error) {
 
 			return nil, nil
@@ -674,7 +675,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		ZombieSweeperInterval: oldCfg.ZombieSweeperInterval,
 		ReservationTimeout:    oldCfg.ReservationTimeout,
 		OpenChannelPredicate:  chainedAcceptor,
-		DeleteAliasEdge:       oldCfg.DeleteAliasEdge,
+		ReAssignSCID:          oldCfg.ReAssignSCID,
 		AliasManager:          oldCfg.AliasManager,
 		AuxLeafStore:          oldCfg.AuxLeafStore,
 		AuxSigner:             oldCfg.AuxSigner,
@@ -1185,6 +1186,38 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 
 		require.Len(t, announcements, 1, "expected 1 "+
 			"ChannelAnnouncement from node %d", i)
+		require.Len(t, updates, 1, "expected 1 ChannelUpdate from "+
+			"node %d", i)
+		for _, update := range updates {
+			verifyChannelUpdate(
+				t, update, i, nodes,
+				node.fundingMgr.cfg, capacity, customMinHtlc,
+				customMaxHtlc, baseFees, feeRates,
+			)
+		}
+	}
+}
+
+// assertChannelUpdate checks that a ChannelUpdate has been sent by the node
+// with the expected parameters.
+func assertChannelUpdates(t *testing.T, alice, bob *testNode,
+	capacity btcutil.Amount, customMinHtlc, customMaxHtlc,
+	baseFees, feeRates []lnwire.MilliSatoshi) {
+
+	t.Helper()
+
+	// Validate custom parameter arrays have expected length
+	validateCustomParams(
+		t, customMinHtlc, customMaxHtlc, baseFees, feeRates,
+	)
+
+	nodes := []*testNode{alice, bob}
+	for i, node := range nodes {
+		// Each node should send exactly 2 announcements
+		// ChannelAnnouncement and ChannelUpdate.
+		_, updates := collectGossipMsgs(t, node, 1)
+		verifyNoExtraMsgs(t, node)
+
 		require.Len(t, updates, 1, "expected 1 ChannelUpdate from "+
 			"node %d", i)
 		for _, update := range updates {
@@ -4620,7 +4653,7 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 
 	// For taproot channels, we don't expect them to be announced atm.
 	if !isTaprootChanType(chanType) {
-		assertChannelAnnouncements(
+		assertChannelUpdates(
 			t, alice, bob, fundingAmt, nil, nil, nil, nil,
 		)
 	}

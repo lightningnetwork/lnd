@@ -4063,3 +4063,85 @@ func TestClosedScid(t *testing.T) {
 	require.Nil(t, err)
 	require.True(t, exists)
 }
+
+// TestUpdateAliasChannel tests that the underlying graph channel information
+// for an alias channel is deleted and readded under a different short channel
+// id.
+func TestUpdateAliasChannel(t *testing.T) {
+	t.Parallel()
+
+	graph, err := MakeTestGraph(t)
+	require.NoError(t, err, "unable to make test database")
+
+	// Create first node and add it to the graph.
+	node1, err := createTestVertex(graph.db)
+	require.NoError(t, err, "unable to create test node")
+	err = graph.AddLightningNode(node1)
+	require.NoError(t, err)
+
+	// Create second node and add it to the graph.
+	node2, err := createTestVertex(graph.db)
+	require.NoError(t, err, "unable to create test node")
+	err = graph.AddLightningNode(node2)
+	require.NoError(t, err)
+
+	// Adding a new channel edge to the graph.
+	edgeInfo, edge1, edge2 := createChannelEdge(
+		graph.db, node1, node2,
+	)
+	if err := graph.AddChannelEdge(edgeInfo); err != nil {
+		t.Fatalf("unable to create channel edge: %v", err)
+	}
+
+	// Add both edge policies.
+	err = graph.UpdateEdgePolicy(edge1)
+	require.NoError(t, err)
+
+	err = graph.UpdateEdgePolicy(edge2)
+	require.NoError(t, err)
+
+	oldSCID := edgeInfo.ChannelID
+
+	// Define the new channel id (under real conditions this is the new
+	// confirmed channel id. For non-zeroconf alias channels this is the
+	// same as the old SCID). but we for this test require a different SCID
+	// and therefore we add 1 to the old SCID.
+	newChanSCID := oldSCID + 1
+
+	// Readd the channel edgeInfo under a different scid.
+	newEdgeInfo := new(models.ChannelEdgeInfo)
+	*newEdgeInfo = *edgeInfo
+	newEdgeInfo.ChannelID = newChanSCID
+
+	// Create a new edge policy with the new channel id.
+	newEdge1 := new(models.ChannelEdgePolicy)
+	*newEdge1 = *edge1
+	newEdge1.ChannelID = newChanSCID
+
+	// Re-add the channel edge to the graph which deletes the old data and
+	// inserts the new edge data (edge info and edge policy).
+	err = graph.ReAddChannelEdge(oldSCID, newEdgeInfo, newEdge1)
+	require.NoError(t, err)
+
+	// The old channel data should not exist anymore.
+	_, _, _, err = graph.FetchChannelEdgesByID(oldSCID)
+	require.ErrorIs(t, err, ErrEdgeNotFound, "channel should not exist")
+
+	// Fetch the new channel data.
+	newEdgeInfo, newEdge1, newEdge2, err := graph.FetchChannelEdgesByID(
+		newChanSCID,
+	)
+	require.NoError(t, err, "unable to fetch channel by ID")
+
+	// Edge 1 should be different and should have another channel id.
+	err = compareEdgePolicies(newEdge1, edge1)
+	require.ErrorContains(t, err, "ChannelID doesn't match")
+
+	// Edge 2 should be nil, because we deleted the former peer data.
+	require.Nil(t, newEdge2)
+
+	// Because we did not change the signatures the edge info should be
+	// the same as soon as we swap in the old channel id.
+	newEdgeInfo.ChannelID = oldSCID
+	assertEdgeInfoEqual(t, newEdgeInfo, edgeInfo)
+}

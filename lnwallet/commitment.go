@@ -613,7 +613,7 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 // commitment transaction outputs. The second parameter is a list of CLTV
 // timeouts that must correspond to the number of transaction outputs, with the
 // value of 0 for non-HTLC outputs.
-type CommitSortFunc func(*wire.MsgTx, []uint32) error
+type CommitSortFunc func(*wire.MsgTx, []uint32, []input.HtlcIndex) error
 
 // CommitAuxLeaves stores two potential auxiliary leaves for the remote and
 // local output that may be used to argument the final tapscript trees of the
@@ -1003,6 +1003,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// commitment outputs and should correspond to zero values for the
 	// purposes of sorting.
 	cltvs := make([]uint32, len(commitTx.TxOut))
+	htlcIndexes := make([]input.HtlcIndex, len(commitTx.TxOut))
 	for _, htlc := range filteredHTLCView.OurUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, isOurs, feePerKw,
@@ -1025,7 +1026,11 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if err != nil {
 			return nil, err
 		}
-		cltvs = append(cltvs, htlc.Timeout) // nolint:makezero
+
+		// We want to add the CLTV and HTLC index to their respective
+		// slices, even if we already pre-allocated them.
+		cltvs = append(cltvs, htlc.Timeout)               //nolint
+		htlcIndexes = append(htlcIndexes, htlc.HtlcIndex) //nolint
 	}
 	for _, htlc := range filteredHTLCView.TheirUpdates {
 		if HtlcIsDust(
@@ -1049,7 +1054,11 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if err != nil {
 			return nil, err
 		}
-		cltvs = append(cltvs, htlc.Timeout) // nolint:makezero
+
+		// We want to add the CLTV and HTLC index to their respective
+		// slices, even if we already pre-allocated them.
+		cltvs = append(cltvs, htlc.Timeout)               //nolint
+		htlcIndexes = append(htlcIndexes, htlc.HtlcIndex) //nolint
 	}
 
 	// Set the state hint of the commitment transaction to facilitate
@@ -1071,7 +1080,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 				"sorting function")
 		}
 
-		err = customCommitSort(commitTx, cltvs)
+		err = customCommitSort(commitTx, cltvs, htlcIndexes)
 		if err != nil {
 			return nil, fmt.Errorf("unable to sort commitment "+
 				"transaction by custom order: %w", err)

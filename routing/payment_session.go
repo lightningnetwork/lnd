@@ -273,9 +273,9 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	// client-side MTU that we'll attempt to respect at all times.
 	maxShardActive := p.payment.MaxShardAmt != nil
 	if maxShardActive && maxAmt > *p.payment.MaxShardAmt {
-		p.log.Debug("Clamping payment attempt from %v to %v due to "+
-			"max shard size of %v", maxAmt,
-			*p.payment.MaxShardAmt, maxAmt)
+		p.log.Debugf("Clamping payment attempt from %v to %v due to "+
+			"max shard size of %v", maxAmt, *p.payment.MaxShardAmt,
+			maxAmt)
 
 		maxAmt = *p.payment.MaxShardAmt
 	}

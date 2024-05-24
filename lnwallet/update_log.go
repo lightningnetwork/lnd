@@ -44,7 +44,7 @@ type updateLog struct {
 	// htlcs, hence update types `Fail|MalformedFail|Settle`. A modified
 	// HTLC is one that's present in the log, and has as a pending fail or
 	// settle that's attempting to consume it.
-	modifiedHtlcs map[uint64]struct{}
+	modifiedHtlcs fn.Set[uint64]
 }
 
 // newUpdateLog creates a new updateLog instance.
@@ -55,7 +55,7 @@ func newUpdateLog(logIndex, htlcCounter uint64) *updateLog {
 		htlcIndex:     make(map[uint64]*fn.Node[*PaymentDescriptor]),
 		logIndex:      logIndex,
 		htlcCounter:   htlcCounter,
-		modifiedHtlcs: make(map[uint64]struct{}),
+		modifiedHtlcs: fn.NewSet[uint64](),
 	}
 }
 
@@ -122,21 +122,20 @@ func (u *updateLog) removeHtlc(i uint64) {
 	u.Remove(entry)
 	delete(u.htlcIndex, i)
 
-	delete(u.modifiedHtlcs, i)
+	u.modifiedHtlcs.Remove(i)
 }
 
 // htlcHasModification returns true if the HTLC identified by the passed index
 // has a pending modification within the log.
 func (u *updateLog) htlcHasModification(i uint64) bool {
-	_, o := u.modifiedHtlcs[i]
-	return o
+	return u.modifiedHtlcs.Contains(i)
 }
 
 // markHtlcModified marks an HTLC as modified based on its HTLC index. After a
 // call to this method, htlcHasModification will return true until the HTLC is
 // removed.
 func (u *updateLog) markHtlcModified(i uint64) {
-	u.modifiedHtlcs[i] = struct{}{}
+	u.modifiedHtlcs.Add(i)
 }
 
 // compactLogs performs garbage collection within the log removing HTLCs which

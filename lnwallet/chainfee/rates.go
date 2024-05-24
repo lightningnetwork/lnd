@@ -42,7 +42,7 @@ type SatPerKVByte btcutil.Amount
 
 // FeeForVSize calculates the fee resulting from this fee rate and the given
 // vsize in vbytes.
-func (s SatPerKVByte) FeeForVSize(vbytes int64) btcutil.Amount {
+func (s SatPerKVByte) FeeForVSize(vbytes lntypes.VByte) btcutil.Amount {
 	return btcutil.Amount(s) * btcutil.Amount(vbytes) / 1000
 }
 
@@ -73,7 +73,7 @@ func (s SatPerKWeight) FeeForWeight(wu lntypes.WeightUnit) btcutil.Amount {
 
 // FeeForVByte calculates the fee resulting from this fee rate and the given
 // size in vbytes (vb).
-func (s SatPerKWeight) FeeForVByte(vb int64) btcutil.Amount {
+func (s SatPerKWeight) FeeForVByte(vb lntypes.VByte) btcutil.Amount {
 	return s.FeePerKVByte().FeeForVSize(vb)
 }
 

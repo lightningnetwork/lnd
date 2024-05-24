@@ -863,9 +863,9 @@ type TxWeightEstimator struct {
 	hasWitness       bool
 	inputCount       uint32
 	outputCount      uint32
-	inputSize        int
+	inputSize        lntypes.VByte
 	inputWitnessSize lntypes.WeightUnit
-	outputSize       int
+	outputSize       lntypes.VByte
 }
 
 // AddP2PKHInput updates the weight estimate to account for an additional input
@@ -975,7 +975,7 @@ func (twe *TxWeightEstimator) AddNestedP2WSHInput(
 
 // AddTxOutput adds a known TxOut to the weight estimator.
 func (twe *TxWeightEstimator) AddTxOutput(txOut *wire.TxOut) *TxWeightEstimator {
-	twe.outputSize += txOut.SerializeSize()
+	twe.outputSize += lntypes.VByte(txOut.SerializeSize())
 	twe.outputCount++
 
 	return twe
@@ -1028,7 +1028,7 @@ func (twe *TxWeightEstimator) AddP2SHOutput() *TxWeightEstimator {
 
 // AddOutput estimates the weight of an output based on the pkScript.
 func (twe *TxWeightEstimator) AddOutput(pkScript []byte) *TxWeightEstimator {
-	twe.outputSize += BaseOutputSize + len(pkScript)
+	twe.outputSize += BaseOutputSize + lntypes.VByte(len(pkScript))
 	twe.outputCount++
 
 	return twe
@@ -1036,9 +1036,10 @@ func (twe *TxWeightEstimator) AddOutput(pkScript []byte) *TxWeightEstimator {
 
 // Weight gets the estimated weight of the transaction.
 func (twe *TxWeightEstimator) Weight() lntypes.WeightUnit {
-	txSizeStripped := BaseTxSize +
-		wire.VarIntSerializeSize(uint64(twe.inputCount)) + twe.inputSize +
-		wire.VarIntSerializeSize(uint64(twe.outputCount)) + twe.outputSize
+	inputCount := wire.VarIntSerializeSize(uint64(twe.inputCount))
+	outputCount := wire.VarIntSerializeSize(uint64(twe.outputCount))
+	txSizeStripped := BaseTxSize + lntypes.VByte(inputCount) +
+		twe.inputSize + lntypes.VByte(outputCount) + twe.outputSize
 	weight := lntypes.WeightUnit(txSizeStripped * witnessScaleFactor)
 
 	if twe.hasWitness {

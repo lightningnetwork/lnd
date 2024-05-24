@@ -309,7 +309,7 @@ func fundingFee(numInput int, change bool) btcutil.Amount {
 		weightEstimate.AddP2TROutput()
 	}
 
-	totalWeight := int64(weightEstimate.Weight())
+	totalWeight := weightEstimate.Weight()
 
 	return feeRate.FeeForWeight(totalWeight)
 }

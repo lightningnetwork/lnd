@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 )
@@ -34,14 +35,15 @@ func TestBudgetAggregatorFilterInputs(t *testing.T) {
 
 	// Mock the `SizeUpperBound` method to return an error exactly once.
 	dummyErr := errors.New("dummy error")
-	wtErr.On("SizeUpperBound").Return(0, false, dummyErr).Once()
+	wtErr.On("SizeUpperBound").Return(
+		lntypes.WeightUnit(0), false, dummyErr).Once()
 
 	// Create a mock WitnessType that gives the size.
 	wt := &input.MockWitnessType{}
 	defer wt.AssertExpectations(t)
 
 	// Mock the `SizeUpperBound` method to return the size four times.
-	const wtSize = 100
+	const wtSize lntypes.WeightUnit = 100
 	wt.On("SizeUpperBound").Return(wtSize, true, nil).Times(4)
 
 	// Create a mock input that will be filtered out due to error.
@@ -396,7 +398,7 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 
 	// Mock the `SizeUpperBound` method to return the size 10 times since
 	// we are using ten inputs.
-	const wtSize = 100
+	const wtSize lntypes.WeightUnit = 100
 	wt.On("SizeUpperBound").Return(wtSize, true, nil).Times(10)
 	wt.On("String").Return("mock witness type")
 

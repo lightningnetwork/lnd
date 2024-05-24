@@ -5,6 +5,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 const (
@@ -863,7 +864,7 @@ type TxWeightEstimator struct {
 	inputCount       uint32
 	outputCount      uint32
 	inputSize        int
-	inputWitnessSize int
+	inputWitnessSize lntypes.WeightUnit
 	outputSize       int
 }
 
@@ -888,7 +889,9 @@ func (twe *TxWeightEstimator) AddP2WKHInput() *TxWeightEstimator {
 // AddWitnessInput updates the weight estimate to account for an additional
 // input spending a native pay-to-witness output. This accepts the total size
 // of the witness as a parameter.
-func (twe *TxWeightEstimator) AddWitnessInput(witnessSize int) *TxWeightEstimator {
+func (twe *TxWeightEstimator) AddWitnessInput(
+	witnessSize lntypes.WeightUnit) *TxWeightEstimator {
+
 	twe.inputSize += InputSize
 	twe.inputWitnessSize += witnessSize
 	twe.inputCount++
@@ -905,7 +908,8 @@ func (twe *TxWeightEstimator) AddWitnessInput(witnessSize int) *TxWeightEstimato
 // NOTE: The leaf witness size must be calculated without the byte that accounts
 // for the number of witness elements, only the total size of all elements on
 // the stack that are consumed by the revealed script should be counted.
-func (twe *TxWeightEstimator) AddTapscriptInput(leafWitnessSize int,
+func (twe *TxWeightEstimator) AddTapscriptInput(
+	leafWitnessSize lntypes.WeightUnit,
 	tapscript *waddrmgr.Tapscript) *TxWeightEstimator {
 
 	// We add 1 byte for the total number of witness elements.
@@ -915,7 +919,9 @@ func (twe *TxWeightEstimator) AddTapscriptInput(leafWitnessSize int,
 		1 + len(tapscript.ControlBlock.InclusionProof)
 
 	twe.inputSize += InputSize
-	twe.inputWitnessSize += leafWitnessSize + controlBlockWitnessSize
+	twe.inputWitnessSize += leafWitnessSize + lntypes.WeightUnit(
+		controlBlockWitnessSize,
+	)
 	twe.inputCount++
 	twe.hasWitness = true
 
@@ -956,7 +962,9 @@ func (twe *TxWeightEstimator) AddNestedP2WKHInput() *TxWeightEstimator {
 
 // AddNestedP2WSHInput updates the weight estimate to account for an additional
 // input spending a P2SH output with a nested P2WSH redeem script.
-func (twe *TxWeightEstimator) AddNestedP2WSHInput(witnessSize int) *TxWeightEstimator {
+func (twe *TxWeightEstimator) AddNestedP2WSHInput(
+	witnessSize lntypes.WeightUnit) *TxWeightEstimator {
+
 	twe.inputSize += InputSize + NestedP2WSHSize
 	twe.inputWitnessSize += witnessSize
 	twe.inputCount++
@@ -1027,11 +1035,12 @@ func (twe *TxWeightEstimator) AddOutput(pkScript []byte) *TxWeightEstimator {
 }
 
 // Weight gets the estimated weight of the transaction.
-func (twe *TxWeightEstimator) Weight() int {
+func (twe *TxWeightEstimator) Weight() lntypes.WeightUnit {
 	txSizeStripped := BaseTxSize +
 		wire.VarIntSerializeSize(uint64(twe.inputCount)) + twe.inputSize +
 		wire.VarIntSerializeSize(uint64(twe.outputCount)) + twe.outputSize
-	weight := txSizeStripped * witnessScaleFactor
+	weight := lntypes.WeightUnit(txSizeStripped * witnessScaleFactor)
+
 	if twe.hasWitness {
 		weight += WitnessHeaderSize + twe.inputWitnessSize
 	}
@@ -1041,5 +1050,5 @@ func (twe *TxWeightEstimator) Weight() int {
 // VSize gets the estimated virtual size of the transactions, in vbytes.
 func (twe *TxWeightEstimator) VSize() int {
 	// A tx's vsize is 1/4 of the weight, rounded up.
-	return (twe.Weight() + witnessScaleFactor - 1) / witnessScaleFactor
+	return int(twe.Weight().ToVB())
 }

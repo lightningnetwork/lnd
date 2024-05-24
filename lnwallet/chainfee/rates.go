@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 const (
@@ -59,13 +60,13 @@ func (s SatPerKVByte) String() string {
 type SatPerKWeight btcutil.Amount
 
 // NewSatPerKWeight creates a new fee rate in sat/kw.
-func NewSatPerKWeight(fee btcutil.Amount, weight uint64) SatPerKWeight {
-	return SatPerKWeight(fee.MulF64(1000 / float64(weight)))
+func NewSatPerKWeight(fee btcutil.Amount, wu lntypes.WeightUnit) SatPerKWeight {
+	return SatPerKWeight(fee.MulF64(1000 / float64(wu)))
 }
 
 // FeeForWeight calculates the fee resulting from this fee rate and the given
 // weight in weight units (wu).
-func (s SatPerKWeight) FeeForWeight(wu int64) btcutil.Amount {
+func (s SatPerKWeight) FeeForWeight(wu lntypes.WeightUnit) btcutil.Amount {
 	// The resulting fee is rounded down, as specified in BOLT#03.
 	return btcutil.Amount(s) * btcutil.Amount(wu) / 1000
 }

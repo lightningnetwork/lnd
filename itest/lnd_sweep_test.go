@@ -271,7 +271,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 		// We expect the fees to increase by i*delta.
 		expectedFee := startFeeAnchor + feeDelta.MulF64(float64(i))
 		expectedFeeRate := chainfee.NewSatPerKWeight(
-			expectedFee, uint64(txWeight),
+			expectedFee, txWeight,
 		)
 
 		// We should see Bob's anchor sweeping tx being fee bumped
@@ -608,7 +608,7 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 		// We expect the fees to increase by i*delta.
 		expectedFee := startFeeAnchor + feeDelta.MulF64(float64(i))
 		expectedFeeRate := chainfee.NewSatPerKWeight(
-			expectedFee, uint64(txWeight),
+			expectedFee, txWeight,
 		)
 
 		// We should see Bob's anchor sweeping tx being fee bumped
@@ -929,7 +929,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	outgoingBudget := 2 * invoiceAmt
 	outgoingTxSize := ht.CalculateTxWeight(outgoingSweep)
 	outgoingEndFeeRate := chainfee.NewSatPerKWeight(
-		outgoingBudget, uint64(outgoingTxSize),
+		outgoingBudget, outgoingTxSize,
 	)
 
 	// Assert the initial sweeping tx is using the start fee rate.
@@ -950,7 +950,8 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// assertSweepFeeRate is a helper closure that asserts the expected fee
 	// rate is used at the given position for a sweeping tx.
 	assertSweepFeeRate := func(sweepTx *wire.MsgTx,
-		startFeeRate, delta chainfee.SatPerKWeight, txSize int64,
+		startFeeRate, delta chainfee.SatPerKWeight,
+		txSize lntypes.WeightUnit,
 		deadline, position int32, desc string) {
 
 		// Bob's HTLC sweeping tx should be fee bumped.
@@ -1068,7 +1069,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	incomingBudget := invoiceAmt.MulF64(contractcourt.DefaultBudgetRatio)
 	incomingTxSize := ht.CalculateTxWeight(incomingSweep)
 	incomingEndFeeRate := chainfee.NewSatPerKWeight(
-		incomingBudget, uint64(incomingTxSize),
+		incomingBudget, incomingTxSize,
 	)
 
 	// Assert the initial sweeping tx is using the start fee rate.
@@ -1415,7 +1416,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 
 	// Calculate the ending fee rate and fee rate delta used in his fee
 	// function.
-	bobTxWeight := uint64(ht.CalculateTxWeight(bobSweepTx))
+	bobTxWeight := ht.CalculateTxWeight(bobSweepTx)
 	bobEndingFeeRate := chainfee.NewSatPerKWeight(bobBudget, bobTxWeight)
 	bobFeeRateDelta := (bobEndingFeeRate - bobStartFeeRate) /
 		chainfee.SatPerKWeight(deadlineB-1)

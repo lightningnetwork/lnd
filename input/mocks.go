@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -157,10 +158,10 @@ func (m *MockWitnessType) WitnessGenerator(signer Signer,
 // if it would be included in a tx. It also returns if the output itself is a
 // nested p2sh output, if so then we need to take into account the extra
 // sigScript data size.
-func (m *MockWitnessType) SizeUpperBound() (int, bool, error) {
+func (m *MockWitnessType) SizeUpperBound() (lntypes.WeightUnit, bool, error) {
 	args := m.Called()
 
-	return args.Int(0), args.Bool(1), args.Error(2)
+	return args.Get(0).(lntypes.WeightUnit), args.Bool(1), args.Error(2)
 }
 
 // AddWeightEstimation adds the estimated size of the witness in bytes to the

@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -506,9 +507,10 @@ func calcStaticFee(chanType channeldb.ChannelType, numHTLCs int) btcutil.Amount 
 		htlcWeight = 172
 		feePerKw   = btcutil.Amount(24/4) * 1000
 	)
-	return feePerKw *
-		(btcutil.Amount(CommitWeight(chanType) +
-			htlcWeight*int64(numHTLCs))) / 1000
+	htlcsWeight := htlcWeight * int64(numHTLCs)
+	totalWeight := CommitWeight(chanType) + lntypes.WeightUnit(htlcsWeight)
+
+	return feePerKw * (btcutil.Amount(totalWeight)) / 1000
 }
 
 // ForceStateTransition executes the necessary interaction between the two

@@ -211,7 +211,7 @@ func (b *BudgetAggregator) filterInputs(inputs InputsMap) InputsMap {
 		}
 
 		// Skip inputs that has too little budget.
-		minFee := minFeeRate.FeeForWeight(int64(size))
+		minFee := minFeeRate.FeeForWeight(size)
 		if pi.params.Budget < minFee {
 			log.Warnf("Skipped input=%v: has budget=%v, but the "+
 				"min fee requires %v", op, pi.params.Budget,
@@ -224,7 +224,7 @@ func (b *BudgetAggregator) filterInputs(inputs InputsMap) InputsMap {
 		startingFeeRate := pi.params.StartingFeeRate.UnwrapOr(
 			chainfee.SatPerKWeight(0),
 		)
-		startingFee := startingFeeRate.FeeForWeight(int64(size))
+		startingFee := startingFeeRate.FeeForWeight(size)
 		if pi.params.Budget < startingFee {
 			log.Errorf("Skipped input=%v: has budget=%v, but the "+
 				"starting fee requires %v", op,

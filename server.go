@@ -1260,22 +1260,42 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	// Wrap the DeleteChannelEdges method so that the funding manager can
 	// use it without depending on several layers of indirection.
-	deleteAliasEdge := func(scid lnwire.ShortChannelID) (
-		*models.ChannelEdgePolicy, error) {
+	deleteAliasEdge := func(
+		aliasScID, newScID lnwire.ShortChannelID) error {
 
 		info, e1, e2, err := s.graphDB.FetchChannelEdgesByID(
-			scid.ToUint64(),
+			aliasScID.ToUint64(),
 		)
 		if err == channeldb.ErrEdgeNotFound {
 			// This is unlikely but there is a slim chance of this
 			// being hit if lnd was killed via SIGKILL and the
 			// funding manager was stepping through the delete
 			// alias edge logic.
-			return nil, nil
+			return nil
 		} else if err != nil {
-			return nil, err
+			return err
 		}
 
+		// The AuthProof is only available when the channel is public
+		// and therefore announced to the broader network after six
+		// confirmation. This happens after readding the edge with the
+		// confirmed scid.
+		newEdgeInfo := models.ChannelEdgeInfo{
+			ChannelID:        newScID.ToUint64(),
+			ChannelPoint:     info.ChannelPoint,
+			Capacity:         info.Capacity,
+			ChainHash:        info.ChainHash,
+			NodeKey1Bytes:    info.NodeKey1Bytes,
+			NodeKey2Bytes:    info.NodeKey2Bytes,
+			BitcoinKey1Bytes: info.BitcoinKey1Bytes,
+			BitcoinKey2Bytes: info.BitcoinKey2Bytes,
+			Features:         info.Features,
+			ExtraOpaqueData:  info.ExtraOpaqueData,
+		}
+
+		// We also readd the channel policy from our side with the new
+		// short channel id.
+		//
 		// Grab our key to find our policy.
 		var ourKey [33]byte
 		copy(ourKey[:], nodeKeyDesc.PubKey.SerializeCompressed())
@@ -1289,13 +1309,33 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 		if ourPolicy == nil {
 			// Something is wrong, so return an error.
-			return nil, fmt.Errorf("we don't have an edge")
+			return fmt.Errorf("edge policy not found")
 		}
 
-		err = s.graphDB.DeleteChannelEdges(
-			false, false, scid.ToUint64(),
+		// Update the policy data, this invalidates the signature
+		// therefore we need to resign the data.
+		ourPolicy.ChannelID = newEdgeInfo.ChannelID
+		chanUpdate := netann.UnsignedChannelUpdateFromEdge(
+			&newEdgeInfo, ourPolicy)
+
+		data, err := chanUpdate.DataToSign()
+
+		nodeSig, err := cc.MsgSigner.SignMessage(
+			nodeKeyDesc.KeyLocator, data, true,
 		)
-		return ourPolicy, err
+		sig, err := lnwire.NewSigFromSignature(nodeSig)
+		if err != nil {
+			return err
+		}
+		ourPolicy.SetSigBytes(sig.ToSignatureBytes())
+
+		// Delete the old edge information under the alias SCID and add
+		// the updated data with the new SCID.
+		err = s.graphDB.ReAddChannelEdge(
+			aliasScID.ToUint64(), &newEdgeInfo, ourPolicy,
+		)
+
+		return err
 	}
 
 	// For the reservationTimeout and the zombieSweeperInterval different

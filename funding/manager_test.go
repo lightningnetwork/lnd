@@ -550,10 +550,10 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		NotifyOpenChannelEvent:        evt.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chainedAcceptor,
 		NotifyPendingOpenChannelEvent: evt.NotifyPendingOpenChannelEvent,
-		DeleteAliasEdge: func(scid lnwire.ShortChannelID) (
-			*models.ChannelEdgePolicy, error) {
+		DeleteAliasEdge: func(
+			aliasScID, newScID lnwire.ShortChannelID) error {
 
-			return nil, nil
+			return nil
 		},
 		AliasManager: aliasMgr,
 		// For unit tests we default to false meaning that no funds

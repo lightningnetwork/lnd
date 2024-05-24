@@ -1380,13 +1380,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	// Wrap the DeleteChannelEdges method so that the funding manager can
+	// Wrap the `ReAddChannelEdge` method so that the funding manager can
 	// use it without depending on several layers of indirection.
-	deleteAliasEdge := func(scid lnwire.ShortChannelID) (
+	reAssignSCID := func(aliasScID, newScID lnwire.ShortChannelID) (
 		*models.ChannelEdgePolicy, error) {
 
 		info, e1, e2, err := s.graphDB.FetchChannelEdgesByID(
-			scid.ToUint64(),
+			aliasScID.ToUint64(),
 		)
 		if errors.Is(err, graphdb.ErrEdgeNotFound) {
 			// This is unlikely but there is a slim chance of this
@@ -1398,7 +1398,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			return nil, err
 		}
 
-		// Grab our key to find our policy.
+		// We create a new ChannelEdgeInfo with the new SCID.
+		newEdgeInfo := new(models.ChannelEdgeInfo)
+		*newEdgeInfo = *info
+		newEdgeInfo.ChannelID = newScID.ToUint64()
+
+		// We also readd the channel policy from our side with the new
+		// short channel id so we grab our key to find our policy.
 		var ourKey [33]byte
 		copy(ourKey[:], nodeKeyDesc.PubKey.SerializeCompressed())
 
@@ -1410,13 +1416,43 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		}
 
 		if ourPolicy == nil {
-			// Something is wrong, so return an error.
-			return nil, fmt.Errorf("we don't have an edge")
+			// We should always have our policy available. If that
+			// is not the case there might be an error in the
+			// ChannelUpdate msg logic so we return early.
+			return nil, fmt.Errorf("edge policy not found")
 		}
 
-		err = s.graphDB.DeleteChannelEdges(
-			false, false, scid.ToUint64(),
+		// Update the policy data, this invalidates the signature
+		// therefore we need to resign the data.
+		ourPolicy.ChannelID = newEdgeInfo.ChannelID
+		chanUpdate := netann.UnsignedChannelUpdateFromEdge(
+			newEdgeInfo, ourPolicy,
 		)
+
+		data, err := chanUpdate.DataToSign()
+		if err != nil {
+			return nil, err
+		}
+
+		nodeSig, err := cc.MsgSigner.SignMessage(
+			nodeKeyDesc.KeyLocator, data, true,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		sig, err := lnwire.NewSigFromSignature(nodeSig)
+		if err != nil {
+			return nil, err
+		}
+		ourPolicy.SetSigBytes(sig.ToSignatureBytes())
+
+		// Delete the old edge information under the alias SCID and add
+		// the updated data with the new SCID.
+		err = s.graphDB.ReAddChannelEdge(
+			aliasScID.ToUint64(), newEdgeInfo, ourPolicy,
+		)
+
 		return ourPolicy, err
 	}
 
@@ -1612,7 +1648,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		EnableUpfrontShutdown:         cfg.EnableUpfrontShutdown,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
-		DeleteAliasEdge:      deleteAliasEdge,
+		ReAssignSCID:         reAssignSCID,
 		AliasManager:         s.aliasMgr,
 		IsSweeperOutpoint:    s.sweeper.IsSweeperOutpoint,
 		AuxFundingController: implCfg.AuxFundingController,

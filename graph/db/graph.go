@@ -1178,6 +1178,80 @@ func (c *ChannelGraph) addChannelEdge(tx kvdb.RwTx,
 	return chanIndex.Put(b.Bytes(), chanKey[:])
 }
 
+// ReAddChannelEdge removes the edge with the given channel ID from the
+// database and adds the new edge to guarantee atomicity.
+// This is important for option-scid-alias channels which may change its SCID
+// over the course of its lifetime (e.g., public zero-conf channels).
+func (c *ChannelGraph) ReAddChannelEdge(
+	chanID uint64, newEdge *models.ChannelEdgeInfo,
+	ourPolicy *models.ChannelEdgePolicy) error {
+
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+		edges := tx.ReadWriteBucket(edgeBucket)
+		if edges == nil {
+			return ErrEdgeNotFound
+		}
+		edgeIndex := edges.NestedReadWriteBucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrEdgeNotFound
+		}
+		chanIndex := edges.NestedReadWriteBucket(channelPointBucket)
+		if chanIndex == nil {
+			return ErrEdgeNotFound
+		}
+		nodes := tx.ReadWriteBucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNodeNotFound
+		}
+
+		var rawChanID [8]byte
+		byteOrder.PutUint64(rawChanID[:], chanID)
+
+		// We don't mark this channel as zombie, because we are readding
+		// it immediately after deleting it below. This method also
+		// deletes the channel from the graph cache, however there is
+		// no entry in the cache because we only add it if we have
+		// received the proof(signatures).
+		err := c.delChannelEdgeUnsafe(
+			edges, edgeIndex, chanIndex, nil,
+			rawChanID[:], false, false,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Now we add the channel with the new edge info.
+		err = c.addChannelEdge(tx, newEdge)
+		if err != nil {
+			return err
+		}
+
+		// Also add the new channel update from our side.
+		_, err = updateEdgePolicy(tx, ourPolicy, c.graphCache)
+
+		return err
+	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	// Remove the Cache entries.
+	c.rejectCache.remove(chanID)
+	c.chanCache.remove(chanID)
+
+	// We also make sure we clear the reject cache because we might have
+	// received a channel update msg with the new SCID from our peer which
+	// would have been put in the reject cache because the channel was not
+	// part of the graph.
+	c.rejectCache.remove(newEdge.ChannelID)
+	c.chanCache.remove(newEdge.ChannelID)
+
+	return nil
+}
+
 // HasChannelEdge returns true if the database knows of a channel edge with the
 // passed channel ID, and false otherwise. If an edge with that ID is found
 // within the graph, then two time stamps representing the last time the edge

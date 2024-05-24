@@ -70,6 +70,12 @@ func (s SatPerKWeight) FeeForWeight(wu int64) btcutil.Amount {
 	return btcutil.Amount(s) * btcutil.Amount(wu) / 1000
 }
 
+// FeeForVByte calculates the fee resulting from this fee rate and the given
+// size in vbytes (vb).
+func (s SatPerKWeight) FeeForVByte(vb int64) btcutil.Amount {
+	return s.FeePerKVByte().FeeForVSize(vb)
+}
+
 // FeePerKVByte converts the current fee rate from sat/kw to sat/kb.
 func (s SatPerKWeight) FeePerKVByte() SatPerKVByte {
 	return SatPerKVByte(s * blockchain.WitnessScaleFactor)

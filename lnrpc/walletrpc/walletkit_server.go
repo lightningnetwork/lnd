@@ -1660,8 +1660,6 @@ func (w *WalletKit) fundPsbtInternalWallet(account string,
 // fundPsbtCoinSelect uses the "new" PSBT funding method using the channel
 // funding coin selection algorithm that allows specifying custom inputs while
 // selecting coins.
-//
-//nolint:funlen
 func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 	packet *psbt.Packet, minConfs int32,
 	changeType chanfunding.ChangeAddressType,

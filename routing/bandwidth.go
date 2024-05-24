@@ -3,7 +3,6 @@ package routing
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -55,7 +54,8 @@ type AuxHtlcModifier interface {
 	// data blob of an HTLC, may produce a different blob or modify the
 	// amount of bitcoin this htlc should carry.
 	ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
-		htlcBlob tlv.Blob) (btcutil.Amount, tlv.Blob, error)
+		htlcCustomRecords lnwire.CustomRecords) (lnwire.MilliSatoshi,
+		tlv.Blob, error)
 }
 
 // getLinkQuery is the function signature used to lookup a link.

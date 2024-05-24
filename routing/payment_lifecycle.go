@@ -679,23 +679,13 @@ func (p *paymentLifecycle) sendAttempt(
 		CustomRecords: lnwire.CustomRecords(p.firstHopTLVs),
 	}
 
-	// If we had custom records in the HTLC, then we'll encode that here
-	// now. We allow the traffic shaper (if there is one) to overwrite the
-	// custom records below. But if there is no traffic shaper, we still
-	// want to forward these custom records.
-	encodedRecords, err := htlcAdd.CustomRecords.Serialize()
-	if err != nil {
-		return nil, fmt.Errorf("unable to encode first hop TLVs: %w",
-			err)
-	}
-
 	// If a hook exists that may affect our outgoing message, we call it now
 	// and apply its side effects to the UpdateAddHTLC message.
-	err = fn.MapOptionZ(
+	err := fn.MapOptionZ(
 		p.router.cfg.TrafficShaper,
 		func(ts TlvTrafficShaper) error {
 			newAmt, newData, err := ts.ProduceHtlcExtraData(
-				rt.TotalAmount, encodedRecords,
+				rt.TotalAmount, htlcAdd.CustomRecords,
 			)
 			if err != nil {
 				return err
@@ -706,8 +696,12 @@ func (p *paymentLifecycle) sendAttempt(
 				return err
 			}
 
+			log.Debugf("TLV traffic shaper returned custom "+
+				"records %v and amount %d msat for HTLC",
+				spew.Sdump(customRecords), newAmt)
+
 			htlcAdd.CustomRecords = customRecords
-			htlcAdd.Amount = lnwire.NewMSatFromSatoshis(newAmt)
+			htlcAdd.Amount = newAmt
 
 			return nil
 		},

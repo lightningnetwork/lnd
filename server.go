@@ -806,23 +806,27 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// configuration so we can send it out as a sort of heart beat within
 	// the network.
 	//
-	// We'll start by parsing the node color from configuration.
+	// We'll start by getting the node color & alias from disk.
+	pubkey := nodeKeyDesc.PubKey
+	persistedConfig, _ := s.miscDB.FetchNodeAnnouncement(pubkey)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// We'll then be parsing the node color from configuration.
 	color, err := lncfg.ParseHexColor(cfg.Color)
 	if err != nil {
 		srvrLog.Errorf("unable to parse color: %v\n", err)
 		return nil, err
 	}
 
+	// If no alias is provided, check if one is stored in the database and
+	// use that.
+	alias := cfg.Alias
+	if alias == "" && persistedConfig != nil {
+		alias = persistedConfig.Alias
+	}
 	// If no alias is provided, default to first 10 characters of public
 	// key.
-	alias := cfg.Alias
-	if alias == "" {
-		pubkey := nodeKeyDesc.PubKey
-		persistedAlias, err := s.miscDB.ChannelStateDB().NodeAnnouncemenDB().FetchNodeAnnouncement(pubkey)
-		if err == nil && persistedAlias.Alias != "" {
-			alias = persistedAlias.Alias
-		}
-	}
 	if alias == "" {
 		alias = hex.EncodeToString(serializedPubKey[:10])
 	}

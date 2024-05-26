@@ -28,30 +28,14 @@ type NodeAnnouncement struct {
 	// channel/topology related information received by this node MUST be
 	// signed by this public key.
 	IdentityPub *btcec.PublicKey
-
-	db *NodeAnnouncementDB
-}
-
-type NodeAnnouncementDB struct {
-	backend kvdb.Backend
-}
-
-func NewNodeAnnouncement(db *NodeAnnouncementDB, identityPub *btcec.PublicKey, alias, color string) *NodeAnnouncement {
-
-	return &NodeAnnouncement{
-		Alias:       alias,
-		IdentityPub: identityPub,
-		Color:       color,
-		db:          db,
-	}
 }
 
 // FetchNodeAnnouncement attempts to lookup the data for NodeAnnouncement based
 // on a target identity public key. If a particular NodeAnnouncement for the
 // passed identity public key cannot be found, then returns ErrNodeAnnNotFound
-func (l *NodeAnnouncementDB) FetchNodeAnnouncement(identity *btcec.PublicKey) (*NodeAnnouncement, error) {
+func (d *DB) FetchNodeAnnouncement(identity *btcec.PublicKey) (*NodeAnnouncement, error) {
 	var nodeAnnouncement *NodeAnnouncement
-	err := kvdb.View(l.backend, func(tx kvdb.RTx) error {
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		nodeAnn, err := fetchNodeAnnouncement(tx, identity)
 		if err != nil {
 			return err
@@ -89,38 +73,34 @@ func fetchNodeAnnouncement(tx kvdb.RTx, targetPub *btcec.PublicKey) (*NodeAnnoun
 
 }
 
-func (n *NodeAnnouncement) PutNodeAnnouncement(pubkey *btcec.PublicKey, alias, color string) error {
-	nodeAnn := NewNodeAnnouncement(n.db, pubkey, alias, color)
-
-	return kvdb.Update(n.db.backend, func(tx kvdb.RwTx) error {
-		nodeAnnBucket := tx.ReadWriteBucket(nodeAnnouncementBucket)
-		if nodeAnnBucket == nil {
-			_, err := tx.CreateTopLevelBucket(nodeAnnouncementBucket)
-			if err != nil {
-				return err
-			}
-
-			nodeAnnBucket = tx.ReadWriteBucket(nodeAnnouncementBucket)
-			if nodeAnnBucket == nil {
-				return ErrNodeAnnBucketNotFound
-			}
-		}
-
-		return putNodeAnnouncement(nodeAnnBucket, nodeAnn)
-	}, func() {})
-}
-
-func putNodeAnnouncement(nodeAnnBucket kvdb.RwBucket, n *NodeAnnouncement) error {
-	// First serialize the NodeAnnouncement into raw-bytes encoding.
-	var b bytes.Buffer
-	if err := serializeNodeAnnouncement(&b, n); err != nil {
-		return err
+func (d *DB) PutNodeAnnouncement(pubkey *btcec.PublicKey, alias, color string) error {
+	nodeAnn := &NodeAnnouncement{
+		Alias:       alias,
+		IdentityPub: pubkey,
+		Color:       color,
 	}
 
-	// Finally insert the link-node into the node metadata bucket keyed
-	// according to the its pubkey serialized in compressed form.
-	nodePub := n.IdentityPub.SerializeCompressed()
-	return nodeAnnBucket.Put(nodePub, b.Bytes())
+	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+		nodeAnnouncements := tx.ReadWriteBucket(nodeAnnouncementBucket)
+
+		nodeAnnBucket, err := nodeAnnouncements.CreateBucketIfNotExists(pubkey.SerializeCompressed())
+		if err != nil {
+			return err
+		}
+
+		var b bytes.Buffer
+		if err := serializeNodeAnnouncement(&b, nodeAnn); err != nil {
+			return err
+		}
+
+		err = nodeAnnBucket.Put(pubkey.SerializeCompressed(), b.Bytes())
+		if err != nil {
+			return err
+		}
+
+		return nil
+
+	}, func() {})
 }
 
 func serializeNodeAnnouncement(w io.Writer, n *NodeAnnouncement) error {

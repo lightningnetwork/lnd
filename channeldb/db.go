@@ -286,6 +286,12 @@ var (
 			number:    31,
 			migration: migration31.DeleteLastPublishedTxTLB,
 		},
+		{
+			// Create a top level bucket which holds information
+			// about our node announcement.
+			number:    32,
+			migration: mig.CreateTLB(nodeAnnouncementBucket),
+		},
 	}
 
 	// optionalVersions stores all optional migrations that are applied
@@ -520,9 +526,6 @@ type ChannelStateDB struct {
 	// linkNodeDB separates all DB operations on LinkNodes.
 	linkNodeDB *LinkNodeDB
 
-	// nodeAnnouncementDB seperates all DB operations on NodeAnnouncements.
-	nodeAnnouncementDb *NodeAnnouncementDB
-
 	// parent holds a pointer to the "main" channeldb.DB object. This is
 	// only used for testing and should never be used in production code.
 	// For testing use the ChannelStateDB.GetParentDB() function to retrieve
@@ -544,11 +547,6 @@ func (c *ChannelStateDB) GetParentDB() *DB {
 // LinkNodeDB returns the current instance of the link node database.
 func (c *ChannelStateDB) LinkNodeDB() *LinkNodeDB {
 	return c.linkNodeDB
-}
-
-// nodeAnnouncementDB returns the current instance of the nodeannouncement database.
-func (c *ChannelStateDB) NodeAnnouncemenDB() *NodeAnnouncementDB {
-	return c.nodeAnnouncementDb
 }
 
 // FetchOpenChannels starts a new database transaction and returns all stored

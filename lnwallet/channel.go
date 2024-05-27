@@ -5174,9 +5174,7 @@ func (lc *LightningChannel) computeView(view *HtlcView, remoteChain bool,
 	// need this to determine which HTLCs are dust, and also the final fee
 	// rate.
 	view.FeePerKw = commitChain.tip().feePerKw
-
-	// TODO(roasbeef): also need to pass blob here as well for final
-	// balances?
+	view.NextHeight = nextHeight
 
 	// We evaluate the view at this stage, meaning settled and failed HTLCs
 	// will remove their corresponding added HTLCs.  The resulting filtered
@@ -6677,13 +6675,16 @@ func (lc *LightningChannel) validateAddHtlc(pd *PaymentDescriptor,
 // ReceiveHTLC adds an HTLC to the state machine's remote update log. This
 // method should be called in response to receiving a new HTLC from the remote
 // party.
-func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, error) {
+func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64,
+	error) {
+
 	lc.Lock()
 	defer lc.Unlock()
 
 	if htlc.ID != lc.remoteUpdateLog.htlcCounter {
-		return 0, fmt.Errorf("ID %d on HTLC add does not match expected next "+
-			"ID %d", htlc.ID, lc.remoteUpdateLog.htlcCounter)
+		return 0, fmt.Errorf("ID %d on HTLC add does not match "+
+			"expected next ID %d", htlc.ID,
+			lc.remoteUpdateLog.htlcCounter)
 	}
 
 	pd := &PaymentDescriptor{

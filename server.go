@@ -1505,8 +1505,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		EnableUpfrontShutdown:         cfg.EnableUpfrontShutdown,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
-		DeleteAliasEdge: deleteAliasEdge,
-		AliasManager:    s.aliasMgr,
+		DeleteAliasEdge:      deleteAliasEdge,
+		AliasManager:         s.aliasMgr,
+		AuxFundingController: implCfg.AuxFundingController,
 	})
 	if err != nil {
 		return nil, err
@@ -3924,6 +3925,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		DisallowRouteBlinding:  s.cfg.ProtocolOptions.NoRouteBlinding(),
 		Quit:                   s.quit,
 		AuxLeafStore:           s.implCfg.AuxLeafStore,
+		MsgRouter:              s.implCfg.MsgRouter,
 	}
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())

@@ -35,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -44,6 +45,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
@@ -162,6 +164,16 @@ type AuxComponents struct {
 	// TrafficShaper is an optional traffic shaper that can be used to
 	// control the outgoing channel of a payment.
 	TrafficShaper fn.Option[routing.TlvTrafficShaper]
+
+	// MsgRouter is an optional message router that if set will be used in
+	// place of a new blank default message router.
+	MsgRouter fn.Option[protofsm.MsgRouter]
+
+	// AuxFundingController is an optional controller that can be used to
+	// modify the way we handle certain custom chanenl types. It's also
+	// able to automatically handle new custom protocol messages related to
+	// the funding process.
+	AuxFundingController fn.Option[funding.AuxFundingController]
 }
 
 // DefaultWalletImpl is the default implementation of our normal, btcwallet

@@ -42,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/pool"
+	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -374,6 +375,11 @@ type Config struct {
 	// invalid.
 	DisallowRouteBlinding bool
 
+	// MsgRouter is an optional instance of the main message router that
+	// the peer will use. If None, then a new default version will be used
+	// in place.
+	MsgRouter fn.Option[protofsm.MsgRouter]
+
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
 }
@@ -493,6 +499,10 @@ type Brontide struct {
 	// potentially holding lots of un-consumed events.
 	channelEventClient *subscribe.Client
 
+	// msgRouter is an instance of the MsgRouter which is used to send off
+	// new wire messages for handing.
+	msgRouter fn.Option[protofsm.MsgRouter]
+
 	startReady chan struct{}
 	quit       chan struct{}
 	wg         sync.WaitGroup
@@ -507,6 +517,12 @@ var _ lnpeer.Peer = (*Brontide)(nil)
 // NewBrontide creates a new Brontide from a peer.Config struct.
 func NewBrontide(cfg Config) *Brontide {
 	logPrefix := fmt.Sprintf("Peer(%x):", cfg.PubKeyBytes)
+
+	// We'll either use the msg router instance passed in, or create a new
+	// blank instance.
+	msgRouter := cfg.MsgRouter.Alt(fn.Some[protofsm.MsgRouter](
+		protofsm.NewMultiMsgRouter(),
+	))
 
 	p := &Brontide{
 		cfg:           cfg,
@@ -530,6 +546,7 @@ func NewBrontide(cfg Config) *Brontide {
 		startReady:         make(chan struct{}),
 		quit:               make(chan struct{}),
 		log:                build.NewPrefixLog(logPrefix, peerLog),
+		msgRouter:          msgRouter,
 	}
 
 	var (
@@ -703,6 +720,12 @@ func (p *Brontide) Start() error {
 	if err := p.attachChannelEventSubscription(); err != nil {
 		return err
 	}
+
+	// Register the message router now as we may need to register some
+	// endpoints while loading the channels below.
+	p.msgRouter.WhenSome(func(router protofsm.MsgRouter) {
+		router.Start()
+	})
 
 	msgs, err := p.loadActiveChannels(activeChans)
 	if err != nil {
@@ -882,7 +905,8 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			p.cfg.Signer, dbChan, p.cfg.SigPool, chanOpts...,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to create channel "+
+				"state machine: %w", err)
 		}
 
 		chanPoint := dbChan.FundingOutpoint
@@ -1270,6 +1294,10 @@ func (p *Brontide) Disconnect(reason error) {
 		p.log.Errorf("couldn't stop pingManager during disconnect: %v",
 			err)
 	}
+
+	p.msgRouter.WhenSome(func(router protofsm.MsgRouter) {
+		router.Stop()
+	})
 }
 
 // String returns the string representation of this peer.
@@ -1707,6 +1735,24 @@ out:
 			default:
 				break out
 			}
+		}
+
+		// If a message router is active, then we'll try to have it
+		// handle this message. If it can, then we're able to skip the
+		// rest of the message handling logic.
+		err = fn.MapOptionZ(
+			p.msgRouter, func(r protofsm.MsgRouter) error {
+				return r.RouteMsg(protofsm.PeerMsg{
+					PeerPub: *p.IdentityKey(),
+					Message: nextMsg,
+				})
+			},
+		)
+
+		// No error occurred, and the message was handled by the
+		// router.
+		if err == nil {
+			continue
 		}
 
 		var (

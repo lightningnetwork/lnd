@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -98,7 +99,6 @@ const (
 	// you and limitless channel size (apart from 21 million cap).
 	MaxBtcFundingAmountWumbo = btcutil.Amount(1000000000)
 
-	// TODO(roasbeef): tune.
 	msgBufferSize = 50
 
 	// MaxWaitNumBlocksFundingConf is the maximum number of blocks to wait
@@ -288,7 +288,7 @@ type InitFundingMsg struct {
 	// PendingChanID is not all zeroes (the default value), then this will
 	// be the pending channel ID used for the funding flow within the wire
 	// protocol.
-	PendingChanID [32]byte
+	PendingChanID PendingChanID
 
 	// ChannelType allows the caller to use an explicit channel type for the
 	// funding negotiation. This type will only be observed if BOTH sides
@@ -318,7 +318,7 @@ type fundingMsg struct {
 // pendingChannels is a map instantiated per-peer which tracks all active
 // pending single funded channels indexed by their pending channel identifier,
 // which is a set of 32-bytes generated via a CSPRNG.
-type pendingChannels map[[32]byte]*reservationWithCtx
+type pendingChannels map[PendingChanID]*reservationWithCtx
 
 // serializedPubKey is used within the FundingManager's activeReservations list
 // to identify the nodes with which the FundingManager is actively working to
@@ -542,6 +542,12 @@ type Config struct {
 	// AuxLeafStore is an optional store that can be used to store auxiliary
 	// leaves for certain custom channel types.
 	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
+
+	// AuxFundingController is an optional controller that can be used to
+	// modify the way we handle certain custom channel types. It's also
+	// able to automatically handle new custom protocol messages related to
+	// the funding process.
+	AuxFundingController fn.Option[AuxFundingController]
 }
 
 // Manager acts as an orchestrator/bridge between the wallet's
@@ -567,8 +573,10 @@ type Manager struct {
 
 	// chanIDNonce is a nonce that's incremented for each new funding
 	// reservation created.
-	nonceMtx    sync.RWMutex
-	chanIDNonce uint64
+	chanIDNonce atomic.Uint64
+
+	// nonceMtx is a mutex that guards the pendingMusigNonces.
+	nonceMtx sync.RWMutex
 
 	// pendingMusigNonces is used to store the musig2 nonce we generate to
 	// send funding locked until we receive a funding locked message from
@@ -590,7 +598,7 @@ type Manager struct {
 	// required as mid funding flow, we switch to referencing the channel
 	// by its full channel ID once the commitment transactions have been
 	// signed by both parties.
-	signedReservations map[lnwire.ChannelID][32]byte
+	signedReservations map[lnwire.ChannelID]PendingChanID
 
 	// resMtx guards both of the maps above to ensure that all access is
 	// goroutine safe.
@@ -797,24 +805,28 @@ func (f *Manager) rebroadcastFundingTx(c *channeldb.OpenChannel) {
 	}
 }
 
+// PendingChanID is a type that represents a pending channel ID. This might be
+// selected by the caller, but if not, will be automatically selected.
+type PendingChanID = [32]byte
+
 // nextPendingChanID returns the next free pending channel ID to be used to
 // identify a particular future channel funding workflow.
-func (f *Manager) nextPendingChanID() [32]byte {
-	// Obtain a fresh nonce. We do this by encoding the current nonce
-	// counter, then incrementing it by one.
-	f.nonceMtx.Lock()
-	var nonce [8]byte
-	binary.LittleEndian.PutUint64(nonce[:], f.chanIDNonce)
-	f.chanIDNonce++
-	f.nonceMtx.Unlock()
+func (f *Manager) nextPendingChanID() PendingChanID {
+	// Obtain a fresh nonce. We do this by encoding the incremented nonce.
+	nextNonce := f.chanIDNonce.Add(1)
+
+	var nonceBytes [8]byte
+	binary.LittleEndian.PutUint64(nonceBytes[:], nextNonce)
 
 	// We'll generate the next pending channelID by "encrypting" 32-bytes
 	// of zeroes which'll extract 32 random bytes from our stream cipher.
 	var (
-		nextChanID [32]byte
+		nextChanID PendingChanID
 		zeroes     [32]byte
 	)
-	salsa20.XORKeyStream(nextChanID[:], zeroes[:], nonce[:], &f.chanIDKey)
+	salsa20.XORKeyStream(
+		nextChanID[:], zeroes[:], nonceBytes[:], &f.chanIDKey,
+	)
 
 	return nextChanID
 }
@@ -1044,7 +1056,8 @@ func (f *Manager) reservationCoordinator() {
 //
 // NOTE: This MUST be run as a goroutine.
 func (f *Manager) advanceFundingState(channel *channeldb.OpenChannel,
-	pendingChanID [32]byte, updateChan chan<- *lnrpc.OpenStatusUpdate) {
+	pendingChanID PendingChanID,
+	updateChan chan<- *lnrpc.OpenStatusUpdate) {
 
 	defer f.wg.Done()
 
@@ -1119,7 +1132,7 @@ func (f *Manager) advanceFundingState(channel *channeldb.OpenChannel,
 // updateChan can be set non-nil to get OpenStatusUpdates.
 func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 	lnChannel *lnwallet.LightningChannel,
-	shortChanID *lnwire.ShortChannelID, pendingChanID [32]byte,
+	shortChanID *lnwire.ShortChannelID, pendingChanID PendingChanID,
 	channelState channelOpeningState,
 	updateChan chan<- *lnrpc.OpenStatusUpdate) error {
 
@@ -1242,8 +1255,8 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 
 // advancePendingChannelState waits for a pending channel's funding tx to
 // confirm, and marks it open in the database when that happens.
-func (f *Manager) advancePendingChannelState(
-	channel *channeldb.OpenChannel, pendingChanID [32]byte) error {
+func (f *Manager) advancePendingChannelState(channel *channeldb.OpenChannel,
+	pendingChanID PendingChanID) error {
 
 	if channel.IsZeroConf() {
 		// Persist the alias to the alias database.
@@ -1605,6 +1618,18 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		return
 	}
 
+	// At this point, if we have an AuxFundingController active, we'll
+	// check to see if we have a special tapscript root to use in our
+	// MuSig funding output.
+	tapscriptRoot, err := deriveTapscriptRoot(
+		f.cfg.AuxFundingController, msg.PendingChannelID,
+	)
+	if err != nil {
+		err = fmt.Errorf("error deriving tapscript root: %w", err)
+		log.Error(err)
+		f.failFundingFlow(peer, cid, err)
+	}
+
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:        &msg.ChainHash,
 		PendingChanID:    msg.PendingChannelID,
@@ -1621,6 +1646,7 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		ZeroConf:         zeroConf,
 		OptionScidAlias:  scid,
 		ScidAliasFeature: scidFeatureVal,
+		TapscriptRoot:    tapscriptRoot,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
@@ -2217,10 +2243,27 @@ func (f *Manager) waitForPsbt(intent *chanfunding.PsbtIntent,
 			return
 		}
 
+		// At this point, we'll see if there's an AuxFundingDesc we
+		// need to deliver so the funding process can continue
+		// properly.
+		chanState := resCtx.reservation.ChanState()
+		localKeys, remoteKeys := resCtx.reservation.CommitmentKeyRings()
+		auxFundingDesc, err := descFromPendingChanID(
+			f.cfg.AuxFundingController, cid.tempChanID, chanState,
+			*localKeys, *remoteKeys, true,
+		)
+		if err != nil {
+			failFlow("error continuing PSBT flow", err)
+			return
+		}
+
 		// A non-nil error means we can continue the funding flow.
 		// Notify the wallet so it can prepare everything we need to
 		// continue.
-		err = resCtx.reservation.ProcessPsbt()
+		//
+		// We'll also pass along the aux funding controller as well,
+		// which may be used to help process the finalized PSBT.
+		err = resCtx.reservation.ProcessPsbt(auxFundingDesc)
 		if err != nil {
 			failFlow("error continuing PSBT flow", err)
 			return
@@ -2346,7 +2389,6 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 	// final funding transaction, as well as a signature for our version of
 	// the commitment transaction. So at this point, we can validate the
 	// initiator's commitment transaction, then send our own if it's valid.
-	// TODO(roasbeef): make case (p vs P) consistent throughout
 	fundingOut := msg.FundingPoint
 	log.Infof("completing pending_id(%x) with ChannelPoint(%v)",
 		pendingChanID[:], fundingOut)
@@ -2378,16 +2420,33 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 		}
 	}
 
+	// At this point, we'll see if there's an AuxFundingDesc we need to
+	// deliver so the funding process can continue properly.
+	chanState := resCtx.reservation.ChanState()
+	localKeys, remoteKeys := resCtx.reservation.CommitmentKeyRings()
+	auxFundingDesc, err := descFromPendingChanID(
+		f.cfg.AuxFundingController, cid.tempChanID, chanState,
+		*localKeys, *remoteKeys, true,
+	)
+	if err != nil {
+		log.Errorf("error continuing PSBT flow: %v", err)
+		f.failFundingFlow(peer, cid, err)
+		return
+	}
+
 	// With all the necessary data available, attempt to advance the
 	// funding workflow to the next stage. If this succeeds then the
 	// funding transaction will broadcast after our next message.
 	// CompleteReservationSingle will also mark the channel as 'IsPending'
 	// in the database.
+	//
+	// We'll also directly pass in the AuxFunding controller as well,
+	// which may be used by the reservation system to finalize funding our
+	// side.
 	completeChan, err := resCtx.reservation.CompleteReservationSingle(
-		&fundingOut, commitSig,
+		&fundingOut, commitSig, auxFundingDesc,
 	)
 	if err != nil {
-		// TODO(roasbeef): better error logging: peerID, channelID, etc.
 		log.Errorf("unable to complete single reservation: %v", err)
 		f.failFundingFlow(peer, cid, err)
 		return
@@ -2683,6 +2742,22 @@ func (f *Manager) funderProcessFundingSigned(peer lnpeer.Peer,
 		}
 	}
 
+	// Before we proceed, if we have a funding hook that wants a
+	// notification that it's safe to broadcast the funding transaction,
+	// then we'll send that now.
+	err = fn.MapOptionZ(
+		f.cfg.AuxFundingController,
+		func(controller AuxFundingController) error {
+			return controller.ChannelFinalized(cid.tempChanID)
+		},
+	)
+	if err != nil {
+		cid := newChanIdentifier(msg.ChanID)
+		f.sendWarning(peer, cid, err)
+
+		return
+	}
+
 	// Now that we have a finalized reservation for this funding flow,
 	// we'll send the to be active channel to the ChainArbitrator so it can
 	// watch for any on-chain actions before the channel has fully
@@ -2698,9 +2773,6 @@ func (f *Manager) funderProcessFundingSigned(peer lnpeer.Peer,
 
 	// Send an update to the upstream client that the negotiation process
 	// is over.
-	//
-	// TODO(roasbeef): add abstraction over updates to accommodate
-	// long-polling, or SSE, etc.
 	upd := &lnrpc.OpenStatusUpdate{
 		Update: &lnrpc.OpenStatusUpdate_ChanPending{
 			ChanPending: &lnrpc.PendingUpdate{
@@ -2744,7 +2816,7 @@ type confirmedChannel struct {
 // channel as closed. The error is only returned for the responder of the
 // channel flow.
 func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
-	pendingID [32]byte) error {
+	pendingID PendingChanID) error {
 
 	// We'll get a timeout if the number of blocks mined since the channel
 	// was initiated reaches MaxWaitNumBlocksFundingConf and we are not the
@@ -3409,6 +3481,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	errChan := f.cfg.SendAnnouncement(
 		ann.chanAnn, discovery.ChannelCapacity(completeChan.Capacity),
 		discovery.ChannelPoint(completeChan.FundingOutpoint),
+		discovery.TapscriptRoot(completeChan.TapscriptRoot),
 	)
 	select {
 	case err := <-errChan:
@@ -3607,7 +3680,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 // a zero-conf channel. This will wait for the real confirmation, add the
 // confirmed SCID to the router graph, and then announce after six confs.
 func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel,
-	pendingID [32]byte) error {
+	_ PendingChanID) error {
 
 	// First we'll check whether the channel is confirmed on-chain. If it
 	// is already confirmed, the chainntnfs subsystem will return with the
@@ -3938,6 +4011,19 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 				PubNonce: remoteNonce,
 			}),
 		)
+
+		err = fn.MapOptionZ(
+			f.cfg.AuxFundingController,
+			func(controller AuxFundingController) error {
+				return controller.ChannelReady(channel)
+			},
+		)
+		if err != nil {
+			cid := newChanIdentifier(msg.ChanID)
+			f.sendWarning(peer, cid, err)
+
+			return
+		}
 	}
 
 	// The channel_ready message contains the next commitment point we'll
@@ -3975,7 +4061,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 // channel is now active, thus we change its state to `addedToRouterGraph` to
 // let the channel start handling routing.
 func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
-	scid *lnwire.ShortChannelID, pendingChanID [32]byte,
+	scid *lnwire.ShortChannelID, pendingChanID PendingChanID,
 	updateChan chan<- *lnrpc.OpenStatusUpdate) error {
 
 	chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
@@ -4023,6 +4109,17 @@ func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
 
 	log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
 		"added to router graph", chanID, scid)
+
+	err = fn.MapOptionZ(
+		f.cfg.AuxFundingController,
+		func(controller AuxFundingController) error {
+			return controller.ChannelReady(channel)
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed notifying aux funding controller "+
+			"about channel ready: %w", err)
+	}
 
 	// Give the caller a final update notifying them that the channel is
 	fundingPoint := channel.FundingOutpoint
@@ -4337,9 +4434,9 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	//
 	// We can pass in zeroes for the min and max htlc policy, because we
 	// only use the channel announcement message from the returned struct.
-	ann, err := f.newChanAnnouncement(localIDKey, remoteIDKey,
-		localFundingKey, remoteFundingKey, shortChanID, chanID,
-		0, 0, nil, chanType,
+	ann, err := f.newChanAnnouncement(
+		localIDKey, remoteIDKey, localFundingKey, remoteFundingKey,
+		shortChanID, chanID, 0, 0, nil, chanType,
 	)
 	if err != nil {
 		log.Errorf("can't generate channel announcement: %v", err)
@@ -4405,7 +4502,6 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 
 // InitFundingWorkflow sends a message to the funding manager instructing it
 // to initiate a single funder workflow with the source peer.
-// TODO(roasbeef): re-visit blocking nature..
 func (f *Manager) InitFundingWorkflow(msg *InitFundingMsg) {
 	f.fundingRequests <- msg
 }
@@ -4499,7 +4595,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// If the caller specified their own channel ID, then we'll use that.
 	// Otherwise we'll generate a fresh one as normal.  This will be used
 	// to track this reservation throughout its lifetime.
-	var chanID [32]byte
+	var chanID PendingChanID
 	if msg.PendingChanID == zeroID {
 		chanID = f.nextPendingChanID()
 	} else {
@@ -4595,6 +4691,20 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		scidFeatureVal = true
 	}
 
+	// At this point, if we have an AuxFundingController active, we'll check
+	// to see if we have a special tapscript root to use in our MuSig2
+	// funding output.
+	tapscriptRoot, err := deriveTapscriptRoot(
+		f.cfg.AuxFundingController, chanID,
+	)
+	if err != nil {
+		err = fmt.Errorf("error deriving tapscript root: %w", err)
+		log.Error(err)
+		msg.Err <- err
+
+		return
+	}
+
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:         &msg.ChainHash,
 		PendingChanID:     chanID,
@@ -4618,6 +4728,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		OptionScidAlias:   scid,
 		ScidAliasFeature:  scidFeatureVal,
 		Memo:              msg.Memo,
+		TapscriptRoot:     tapscriptRoot,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
@@ -4904,7 +5015,8 @@ func (f *Manager) pruneZombieReservations() {
 // cancelReservationCtx does all needed work in order to securely cancel the
 // reservation.
 func (f *Manager) cancelReservationCtx(peerKey *btcec.PublicKey,
-	pendingChanID [32]byte, byRemote bool) (*reservationWithCtx, error) {
+	pendingChanID PendingChanID,
+	byRemote bool) (*reservationWithCtx, error) {
 
 	log.Infof("Cancelling funding reservation for node_key=%x, "+
 		"chan_id=%x", peerKey.SerializeCompressed(), pendingChanID[:])
@@ -4952,7 +5064,7 @@ func (f *Manager) cancelReservationCtx(peerKey *btcec.PublicKey,
 // deleteReservationCtx deletes the reservation uniquely identified by the
 // target public key of the peer, and the specified pending channel ID.
 func (f *Manager) deleteReservationCtx(peerKey *btcec.PublicKey,
-	pendingChanID [32]byte) {
+	pendingChanID PendingChanID) {
 
 	peerIDKey := newSerializedKey(peerKey)
 	f.resMtx.Lock()
@@ -4975,7 +5087,7 @@ func (f *Manager) deleteReservationCtx(peerKey *btcec.PublicKey,
 // getReservationCtx returns the reservation context for a particular pending
 // channel ID for a target peer.
 func (f *Manager) getReservationCtx(peerKey *btcec.PublicKey,
-	pendingChanID [32]byte) (*reservationWithCtx, error) {
+	pendingChanID PendingChanID) (*reservationWithCtx, error) {
 
 	peerIDKey := newSerializedKey(peerKey)
 	f.resMtx.RLock()
@@ -4995,7 +5107,7 @@ func (f *Manager) getReservationCtx(peerKey *btcec.PublicKey,
 // of being funded. After the funding transaction has been confirmed, the
 // channel will receive a new, permanent channel ID, and will no longer be
 // considered pending.
-func (f *Manager) IsPendingChannel(pendingChanID [32]byte,
+func (f *Manager) IsPendingChannel(pendingChanID PendingChanID,
 	peer lnpeer.Peer) bool {
 
 	peerIDKey := newSerializedKey(peer.IdentityKey())

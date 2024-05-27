@@ -3358,27 +3358,6 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				continue
 			}
 
-			var customRecords record.CustomSet
-			err = fn.MapOptionZ(
-				pd.CustomRecords, func(b tlv.Blob) error {
-					r, err := lnwire.ParseCustomRecords(b)
-					if err != nil {
-						return err
-					}
-
-					customRecords = record.CustomSet(r)
-
-					return nil
-				},
-			)
-			if err != nil {
-				l.fail(LinkFailureError{
-					code: ErrInternalError,
-				}, err.Error())
-
-				return
-			}
-
 			switch fwdPkg.State {
 			case channeldb.FwdStateProcessed:
 				// This add was not forwarded on the previous
@@ -3412,21 +3391,22 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 				inboundFee := l.cfg.FwrdingPolicy.InboundFee
 
-				//nolint:lll
 				updatePacket := &htlcPacket{
-					incomingChanID:        l.ShortChanID(),
-					incomingHTLCID:        pd.HtlcIndex,
-					outgoingChanID:        fwdInfo.NextHop,
-					sourceRef:             pd.SourceRef,
-					incomingAmount:        pd.Amount,
-					amount:                addMsg.Amount,
-					htlc:                  addMsg,
-					obfuscator:            obfuscator,
-					incomingTimeout:       pd.Timeout,
-					outgoingTimeout:       fwdInfo.OutgoingCTLV,
-					customRecords:         pld.CustomRecords(),
-					inboundFee:            inboundFee,
-					incomingCustomRecords: customRecords,
+					incomingChanID:  l.ShortChanID(),
+					incomingHTLCID:  pd.HtlcIndex,
+					outgoingChanID:  fwdInfo.NextHop,
+					sourceRef:       pd.SourceRef,
+					incomingAmount:  pd.Amount,
+					amount:          addMsg.Amount,
+					htlc:            addMsg,
+					obfuscator:      obfuscator,
+					incomingTimeout: pd.Timeout,
+					outgoingTimeout: fwdInfo.OutgoingCTLV,
+					customRecords:   pld.CustomRecords(),
+					inboundFee:      inboundFee,
+					incomingCustomRecords: record.CustomSet(
+						pd.CustomRecords,
+					),
 				}
 				switchPackets = append(
 					switchPackets, updatePacket,
@@ -3482,21 +3462,22 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			if fwdPkg.State == channeldb.FwdStateLockedIn {
 				inboundFee := l.cfg.FwrdingPolicy.InboundFee
 
-				//nolint:lll
 				updatePacket := &htlcPacket{
-					incomingChanID:        l.ShortChanID(),
-					incomingHTLCID:        pd.HtlcIndex,
-					outgoingChanID:        fwdInfo.NextHop,
-					sourceRef:             pd.SourceRef,
-					incomingAmount:        pd.Amount,
-					amount:                addMsg.Amount,
-					htlc:                  addMsg,
-					obfuscator:            obfuscator,
-					incomingTimeout:       pd.Timeout,
-					outgoingTimeout:       fwdInfo.OutgoingCTLV,
-					customRecords:         pld.CustomRecords(),
-					inboundFee:            inboundFee,
-					incomingCustomRecords: customRecords,
+					incomingChanID:  l.ShortChanID(),
+					incomingHTLCID:  pd.HtlcIndex,
+					outgoingChanID:  fwdInfo.NextHop,
+					sourceRef:       pd.SourceRef,
+					incomingAmount:  pd.Amount,
+					amount:          addMsg.Amount,
+					htlc:            addMsg,
+					obfuscator:      obfuscator,
+					incomingTimeout: pd.Timeout,
+					outgoingTimeout: fwdInfo.OutgoingCTLV,
+					customRecords:   pld.CustomRecords(),
+					inboundFee:      inboundFee,
+					incomingCustomRecords: record.CustomSet(
+						pd.CustomRecords,
+					),
 				}
 
 				fwdPkg.FwdFilter.Set(idx)

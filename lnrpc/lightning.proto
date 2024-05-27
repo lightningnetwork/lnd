@@ -1590,6 +1590,11 @@ message Channel {
     the channel's operation.
     */
     string memo = 36;
+
+    /*
+    Custom channel data that might be populated in custom channels.
+    */
+    bytes custom_channel_data = 37;
 }
 
 message ListChannelsRequest {
@@ -2707,6 +2712,11 @@ message PendingChannelsResponse {
         impacts the channel's operation.
         */
         string memo = 13;
+
+        /*
+        Custom channel data that might be populated in custom channels.
+        */
+        bytes custom_channel_data = 34;
     }
 
     message PendingOpenChannel {
@@ -2966,6 +2976,12 @@ message ChannelBalanceResponse {
 
     // Sum of channels pending remote balances.
     Amount pending_open_remote_balance = 8;
+
+    /*
+    Custom channel data that might be populated if there are custom channels
+    present.
+    */
+    bytes custom_channel_data = 9;
 }
 
 message QueryRoutesRequest {

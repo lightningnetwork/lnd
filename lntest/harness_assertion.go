@@ -958,6 +958,11 @@ func (h *HarnessTest) AssertChannelBalanceResp(hn *node.HarnessNode,
 	expected *lnrpc.ChannelBalanceResponse) {
 
 	resp := hn.RPC.ChannelBalance()
+
+	// Ignore custom channel data of both expected and actual responses.
+	expected.CustomChannelData = nil
+	resp.CustomChannelData = nil
+
 	require.True(h, proto.Equal(expected, resp), "balance is incorrect "+
 		"got: %v, want: %v", resp, expected)
 }

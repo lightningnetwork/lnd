@@ -178,6 +178,10 @@ type AuxComponents struct {
 	// AuxSigner is an optional signer that can be used to sign auxiliary
 	// leaves for certain custom channel types.
 	AuxSigner fn.Option[lnwallet.AuxSigner]
+
+	// AuxDataParser is an optional data parser that can be used to parse
+	// auxiliary data for certain custom channel types.
+	AuxDataParser fn.Option[AuxDataParser]
 }
 
 // DefaultWalletImpl is the default implementation of our normal, btcwallet

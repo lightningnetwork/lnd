@@ -4020,11 +4020,12 @@ func (s *server) peerInitializer(p *peer.Brontide) {
 	s.wg.Add(1)
 	go s.peerTerminationWatcher(p, ready)
 
+	pubBytes := p.IdentityKey().SerializeCompressed()
+
 	// Start the peer! If an error occurs, we Disconnect the peer, which
 	// will unblock the peerTerminationWatcher.
 	if err := p.Start(); err != nil {
-		srvrLog.Warnf("Starting peer=%v got error: %v",
-			p.IdentityKey(), err)
+		srvrLog.Warnf("Starting peer=%x got error: %v", pubBytes, err)
 
 		p.Disconnect(fmt.Errorf("unable to start peer: %w", err))
 		return
@@ -4034,13 +4035,15 @@ func (s *server) peerInitializer(p *peer.Brontide) {
 	// was successful, and to begin watching the peer's wait group.
 	close(ready)
 
-	pubStr := string(p.IdentityKey().SerializeCompressed())
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Check if there are listeners waiting for this peer to come online.
 	srvrLog.Debugf("Notifying that peer %v is online", p)
+
+	// TODO(guggero): Do a proper conversion to a string everywhere, or use
+	// route.Vertex as the key type of peerConnectedListeners.
+	pubStr := string(pubBytes)
 	for _, peerChan := range s.peerConnectedListeners[pubStr] {
 		select {
 		case peerChan <- p:

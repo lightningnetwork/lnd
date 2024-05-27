@@ -18,8 +18,8 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-// anchorSize is the constant anchor output size.
-const anchorSize = btcutil.Amount(330)
+// AnchorSize is the constant anchor output size.
+const AnchorSize = btcutil.Amount(330)
 
 // DefaultAnchorsCommitMaxFeeRateSatPerVByte is the default max fee rate in
 // sat/vbyte the initiator will use for anchor channels. This should be enough
@@ -201,9 +201,9 @@ func (w *WitnessScriptDesc) PkScript() []byte {
 	return w.OutputScript
 }
 
-// WitnessScript returns the witness script that we'll use when signing for the
-// remote party, and also verifying signatures on our transactions. As an
-// example, when we create an outgoing HTLC for the remote party, we want to
+// WitnessScriptToSign returns the witness script that we'll use when signing
+// for the remote party, and also verifying signatures on our transactions. As
+// an example, when we create an outgoing HTLC for the remote party, we want to
 // sign their success path.
 func (w *WitnessScriptDesc) WitnessScriptToSign() []byte {
 	return w.WitnessScript
@@ -211,10 +211,10 @@ func (w *WitnessScriptDesc) WitnessScriptToSign() []byte {
 
 // WitnessScriptForPath returns the witness script for the given spending path.
 // An error is returned if the path is unknown. This is useful as when
-// constructing a contrl block for a given path, one also needs witness script
+// constructing a control block for a given path, one also needs witness script
 // being signed.
-func (w *WitnessScriptDesc) WitnessScriptForPath(_ input.ScriptPath,
-) ([]byte, error) {
+func (w *WitnessScriptDesc) WitnessScriptForPath(
+	_ input.ScriptPath) ([]byte, error) {
 
 	return w.WitnessScript, nil
 }
@@ -532,8 +532,8 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 	input.ScriptDescriptor, input.ScriptDescriptor, error) {
 
 	var (
-		anchorScript func(key *btcec.PublicKey) (
-			input.ScriptDescriptor, error)
+		anchorScript func(
+			key *btcec.PublicKey) (input.ScriptDescriptor, error)
 
 		keySelector func(*channeldb.ChannelConfig,
 			bool) *btcec.PublicKey
@@ -544,12 +544,10 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 	// level key is now the (relative) local delay and remote public key,
 	// since these are fully revealed once the commitment hits the chain.
 	case chanType.IsTaproot():
-		anchorScript = func(key *btcec.PublicKey,
-		) (input.ScriptDescriptor, error) {
+		anchorScript = func(
+			key *btcec.PublicKey) (input.ScriptDescriptor, error) {
 
-			return input.NewAnchorScriptTree(
-				key,
-			)
+			return input.NewAnchorScriptTree(key)
 		}
 
 		keySelector = func(cfg *channeldb.ChannelConfig,
@@ -567,8 +565,8 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 	default:
 		// For normal channels, we'll create a p2wsh script based on
 		// the target key.
-		anchorScript = func(key *btcec.PublicKey,
-		) (input.ScriptDescriptor, error) {
+		anchorScript = func(
+			key *btcec.PublicKey) (input.ScriptDescriptor, error) {
 
 			script, err := input.CommitScriptAnchor(key)
 			if err != nil {
@@ -615,7 +613,7 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 // commitment transaction outputs. The second parameter is a list of CLTV
 // timeouts that must correspond to the number of transaction outputs, with the
 // value of 0 for non-HTLC outputs.
-type CommitSortFunc func(*wire.MsgTx, []uint32) error
+type CommitSortFunc func(*wire.MsgTx, []uint32, []input.HtlcIndex) error
 
 // CommitAuxLeaves stores two potential auxiliary leaves for the remote and
 // local output that may be used to argument the final tapscript trees of the
@@ -1005,6 +1003,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// commitment outputs and should correspond to zero values for the
 	// purposes of sorting.
 	cltvs := make([]uint32, len(commitTx.TxOut))
+	htlcIndexes := make([]input.HtlcIndex, len(commitTx.TxOut))
 	for _, htlc := range filteredHTLCView.OurUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, isOurs, feePerKw,
@@ -1027,7 +1026,11 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if err != nil {
 			return nil, err
 		}
-		cltvs = append(cltvs, htlc.Timeout) // nolint:makezero
+
+		// We want to add the CLTV and HTLC index to their respective
+		// slices, even if we already pre-allocated them.
+		cltvs = append(cltvs, htlc.Timeout)               //nolint
+		htlcIndexes = append(htlcIndexes, htlc.HtlcIndex) //nolint
 	}
 	for _, htlc := range filteredHTLCView.TheirUpdates {
 		if HtlcIsDust(
@@ -1051,7 +1054,11 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		if err != nil {
 			return nil, err
 		}
-		cltvs = append(cltvs, htlc.Timeout) // nolint:makezero
+
+		// We want to add the CLTV and HTLC index to their respective
+		// slices, even if we already pre-allocated them.
+		cltvs = append(cltvs, htlc.Timeout)               //nolint
+		htlcIndexes = append(htlcIndexes, htlc.HtlcIndex) //nolint
 	}
 
 	// Set the state hint of the commitment transaction to facilitate
@@ -1073,7 +1080,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 				"sorting function")
 		}
 
-		err = customCommitSort(commitTx, cltvs)
+		err = customCommitSort(commitTx, cltvs, htlcIndexes)
 		if err != nil {
 			return nil, fmt.Errorf("unable to sort commitment "+
 				"transaction by custom order: %w", err)
@@ -1191,7 +1198,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 		if localOutput || numHTLCs > 0 {
 			commitTx.AddTxOut(&wire.TxOut{
 				PkScript: localAnchor.PkScript(),
-				Value:    int64(anchorSize),
+				Value:    int64(AnchorSize),
 			})
 		}
 
@@ -1200,7 +1207,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 		if remoteOutput || numHTLCs > 0 {
 			commitTx.AddTxOut(&wire.TxOut{
 				PkScript: remoteAnchor.PkScript(),
-				Value:    int64(anchorSize),
+				Value:    int64(AnchorSize),
 			})
 		}
 	}
@@ -1225,7 +1232,7 @@ func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
 	// Since the initiator's balance also is stored after subtracting the
 	// anchor values, add that back in case this was an anchor commitment.
 	if chanType.HasAnchors() {
-		initiatorDelta += 2 * anchorSize
+		initiatorDelta += 2 * AnchorSize
 	}
 
 	// The initiator will pay the full coop close fee, subtract that value
@@ -1323,9 +1330,9 @@ func genSegwitV0HtlcScript(chanType channeldb.ChannelType,
 	}, nil
 }
 
-// genTaprootHtlcScript generates the HTLC scripts for a taproot+musig2
+// GenTaprootHtlcScript generates the HTLC scripts for a taproot+musig2
 // channel.
-func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
+func GenTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 	rHash [32]byte, keyRing *CommitmentKeyRing,
 	auxLeaf input.AuxTapLeaf) (*input.HtlcScriptTree, error) {
 
@@ -1395,7 +1402,7 @@ func genHtlcScript(chanType channeldb.ChannelType, isIncoming, ourCommit bool,
 		)
 	}
 
-	return genTaprootHtlcScript(
+	return GenTaprootHtlcScript(
 		isIncoming, ourCommit, timeout, rHash, keyRing, auxLeaf,
 	)
 }

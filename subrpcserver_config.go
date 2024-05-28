@@ -207,12 +207,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				reflect.ValueOf(chanStateDB),
 			)
 
-			kRing, ok := cc.Wallet.WalletController.(*rpcwallet.RPCKeyRing)
-			if ok {
-				subCfgValue.FieldByName("RemoteSigner").Set(
-					reflect.ValueOf(kRing.RemoteSigner()),
-				)
-			}
+			// The "RemoteSigner" field have already been added
+			// through the PopulateRemoteSignerCfgValues function,
+			// and we therefore don't need to overwrite them here.
 
 		case *autopilotrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)
@@ -354,6 +351,30 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	s.RouterRPC.MacService = macService
 	s.RouterRPC.Router = chanRouter
 	s.RouterRPC.RouterBackend = routerBackend
+
+	return nil
+}
+
+// PopulateRemoteSignerCfgValues populates the WalletKit sub-server config with
+// the remote signer items, given that the remote signer is enabled.
+func (s *subRPCServerConfigs) PopulateRemoteSignerCfgValues(cfg *Config,
+	cc *chainreg.ChainControl) error {
+
+	// Only populate the config values with the remote signer if it's
+	// enabled.
+	if cfg.RemoteSigner == nil || !cfg.RemoteSigner.Enable {
+		return nil
+	}
+
+	// Extract the WalletKit sub-server config, and populate the config with
+	// the remote signer values.
+	subCfgValue := extractReflectValue(s.WalletKitRPC)
+
+	if rpckKeyRing, ok := cc.Wc.(*rpcwallet.RPCKeyRing); ok {
+		subCfgValue.FieldByName("RemoteSigner").Set(
+			reflect.ValueOf(rpckKeyRing.RemoteSigner()),
+		)
+	}
 
 	return nil
 }

@@ -670,14 +670,17 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 	}
 }
 
-// prepareSubServers prepares the sub-servers to be started, and insert the
-// permissions required to access them into the interceptor chain.
+// prepareSubServers prepares the sub-servers to be started. The function
+// populates the wallet sub-server configuration with the remote signer values,
+// and insert the permissions required to access them into the interceptor
+// chain.
 func (r *rpcServer) prepareSubServers(macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, cc *chainreg.ChainControl) error {
 
 	var (
 		subServers     []lnrpc.SubServer
 		subServerPerms []lnrpc.MacaroonPerms
+		injectSubs     []lnrpc.SubServer
 	)
 
 	// Create all of the sub-servers. Note that we do not yet have all
@@ -694,6 +697,30 @@ func (r *rpcServer) prepareSubServers(macService *macaroons.Service,
 		// interceptors below.
 		subServers = append(subServers, subServer)
 		subServerPerms = append(subServerPerms, macPerms)
+
+		if subServer.Name() == walletrpc.SubServerName {
+			injectSubs = append(injectSubs, subServer)
+		}
+	}
+
+	// We need to populate the wallet sub-server configuration with the
+	// remote signer values, prior to the other sub-servers, as we need the
+	// wallet sub-server to be able to accept connections from a remote
+	// signer before the other sub-servers will be ready to handle requests.
+	err := subServerCgs.PopulateRemoteSignerCfgValues(r.cfg, cc)
+	if err != nil {
+		return err
+	}
+
+	// We'll now inject the dependencies into the sub-servers, which are
+	// needed during the start-up of the main rpc-server. Note that the
+	// dependencies are not yet finalized, as more dependencies will be
+	// injected in later in the addDeps function, when those are ready.
+	for _, subServer := range injectSubs {
+		err := subServer.InjectDependencies(subServerCgs, false)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Next, we need to merge the set of sub server macaroon permissions

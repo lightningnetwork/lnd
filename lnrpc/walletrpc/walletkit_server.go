@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -270,6 +271,12 @@ type WalletKit struct {
 	UnimplementedWalletKitServer
 
 	cfg *Config
+
+	// As we allow rpc requests into the server before InjectDependencies
+	// has been executed, he read lock should be held when accessing values
+	// from the cfg.
+	// The write lock should be held when setting the cfg.
+	sync.RWMutex
 }
 
 // A compile time check to ensure that WalletKit fully implements the
@@ -307,6 +314,9 @@ func (w *WalletKit) InjectDependencies(
 	if finalizeDependencies && atomic.AddInt32(&w.injected, 1) != 1 {
 		return lnrpc.ErrDependenciesFinalized
 	}
+
+	w.Lock()
+	defer w.Unlock()
 
 	cfg, err := getConfig(configRegistry, finalizeDependencies)
 	if err != nil {
@@ -428,6 +438,9 @@ func (r *ServerShell) CreateSubServer() (
 
 // internalScope returns the internal key scope.
 func (w *WalletKit) internalScope() waddrmgr.KeyScope {
+	w.RLock()
+	defer w.RUnlock()
+
 	return waddrmgr.KeyScope{
 		Purpose: keychain.BIP0043Purpose,
 		Coin:    w.cfg.ChainParams.HDCoinType,
@@ -470,6 +483,10 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 	// any other concurrent processes attempting to lock any UTXOs which may
 	// be shown available to us.
 	var utxos []*lnwallet.Utxo
+
+	w.RLock()
+	defer w.RUnlock()
+
 	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
 		utxos, err = w.cfg.Wallet.ListUnspentWitness(
 			minConfs, maxConfs, req.Account,
@@ -496,13 +513,21 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 func (w *WalletKit) SignCoordinatorStreams(
 	stream WalletKit_SignCoordinatorStreamsServer) error {
 
+	w.RLock()
+
 	// Check that the user actually has configured that the reverse remote
 	// signer functionality should be enabled.
 	if w.cfg.RemoteSigner == nil {
+		w.RUnlock()
+
 		return fmt.Errorf("remote signer not set in config")
 	}
 
 	signer := w.cfg.RemoteSigner
+
+	// Release the read lock as we will acquire the write in the
+	// InjectDependencies function while the stream is still open.
+	w.RUnlock()
 
 	err := signer.Run(stream)
 	if err != nil {
@@ -552,6 +577,9 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 		duration = time.Duration(req.ExpirationSeconds) * time.Second
 	}
 
+	w.RLock()
+	defer w.RUnlock()
+
 	// Acquire the global coin selection lock to ensure there aren't any
 	// other concurrent processes attempting to lease the same UTXO.
 	var expiration time.Time
@@ -587,6 +615,9 @@ func (w *WalletKit) ReleaseOutput(ctx context.Context,
 		return nil, err
 	}
 
+	w.RLock()
+	defer w.RUnlock()
+
 	// Acquire the global coin selection lock to maintain consistency as
 	// it's acquired when we initially leased the output.
 	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
@@ -603,6 +634,9 @@ func (w *WalletKit) ReleaseOutput(ctx context.Context,
 func (w *WalletKit) ListLeases(ctx context.Context,
 	req *ListLeasesRequest) (*ListLeasesResponse, error) {
 
+	w.RLock()
+	defer w.RUnlock()
+
 	leases, err := w.cfg.Wallet.ListLeasedOutputs()
 	if err != nil {
 		return nil, err
@@ -618,6 +652,9 @@ func (w *WalletKit) ListLeases(ctx context.Context,
 // child within this branch.
 func (w *WalletKit) DeriveNextKey(ctx context.Context,
 	req *KeyReq) (*signrpc.KeyDescriptor, error) {
+
+	w.RLock()
+	defer w.RUnlock()
 
 	nextKeyDesc, err := w.cfg.KeyRing.DeriveNextKey(
 		keychain.KeyFamily(req.KeyFamily),
@@ -639,6 +676,9 @@ func (w *WalletKit) DeriveNextKey(ctx context.Context,
 // KeyLocator.
 func (w *WalletKit) DeriveKey(ctx context.Context,
 	req *signrpc.KeyLocator) (*signrpc.KeyDescriptor, error) {
+
+	w.RLock()
+	defer w.RUnlock()
 
 	keyDesc, err := w.cfg.KeyRing.DeriveKey(keychain.KeyLocator{
 		Family: keychain.KeyFamily(req.KeyFamily),
@@ -679,6 +719,9 @@ func (w *WalletKit) NextAddr(ctx context.Context,
 		addrType = lnwallet.TaprootPubkey
 	}
 
+	w.RLock()
+	defer w.RUnlock()
+
 	addr, err := w.cfg.Wallet.NewAddress(addrType, req.Change, account)
 	if err != nil {
 		return nil, err
@@ -703,6 +746,9 @@ func (w *WalletKit) GetTransaction(_ context.Context,
 	if err != nil {
 		return nil, err
 	}
+
+	w.RLock()
+	defer w.RUnlock()
 
 	res, err := w.cfg.Wallet.GetTransactionDetails(txHash)
 	if err != nil {
@@ -737,6 +783,9 @@ func (w *WalletKit) PublishTransaction(ctx context.Context,
 		return nil, err
 	}
 
+	w.RLock()
+	defer w.RUnlock()
+
 	err = w.cfg.Wallet.PublishTransaction(tx, label)
 	if err != nil {
 		return nil, err
@@ -768,6 +817,9 @@ func (w *WalletKit) RemoveTransaction(_ context.Context,
 	if err != nil {
 		return nil, err
 	}
+
+	w.RLock()
+	defer w.RUnlock()
 
 	// Query the tx store of our internal wallet for the specified
 	// transaction.
@@ -839,6 +891,9 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 		return nil, err
 	}
 
+	w.RLock()
+	defer w.RUnlock()
+
 	// Before sending out funds we need to ensure that the remainder of our
 	// wallet funds would cover for the anchor reserve requirement. We'll
 	// also take unconfirmed funds into account.
@@ -908,6 +963,9 @@ func (w *WalletKit) EstimateFee(ctx context.Context,
 			"than 1")
 	}
 
+	w.RLock()
+	defer w.RUnlock()
+
 	satPerKw, err := w.cfg.FeeEstimator.EstimateFeePerKW(
 		uint32(req.ConfTarget),
 	)
@@ -930,6 +988,9 @@ func (w *WalletKit) EstimateFee(ctx context.Context,
 // taking the average fee rate of all the outputs it's trying to sweep.
 func (w *WalletKit) PendingSweeps(ctx context.Context,
 	in *PendingSweepsRequest) (*PendingSweepsResponse, error) {
+
+	w.RLock()
+	defer w.RUnlock()
 
 	// Retrieve all of the outputs the UtxoSweeper is currently trying to
 	// sweep.
@@ -1066,6 +1127,9 @@ func (w *WalletKit) prepareSweepParams(in *BumpFeeRequest,
 		return sweep.Params{}, false, err
 	}
 
+	w.RLock()
+	defer w.RUnlock()
+
 	// Get the current pending inputs.
 	inputMap, err := w.cfg.Sweeper.PendingInputs()
 	if err != nil {
@@ -1149,6 +1213,9 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
+	w.RLock()
+	defer w.RUnlock()
 
 	// Get the current height so we can calculate the deadline height.
 	_, currentHeight, err := w.cfg.Chain.GetBestBlock()
@@ -1347,6 +1414,9 @@ func (w *WalletKit) BumpForceCloseFee(_ context.Context,
 func (w *WalletKit) sweepNewInput(op *wire.OutPoint, currentHeight uint32,
 	params sweep.Params) error {
 
+	w.RLock()
+	defer w.RUnlock()
+
 	log.Debugf("Attempting to sweep outpoint %s", op)
 
 	// Since the sweeper is not aware of the input, we'll assume the user
@@ -1409,6 +1479,9 @@ func (w *WalletKit) sweepNewInput(op *wire.OutPoint, currentHeight uint32,
 // ListSweeps returns a list of the sweeps that our node has published.
 func (w *WalletKit) ListSweeps(ctx context.Context,
 	in *ListSweepsRequest) (*ListSweepsResponse, error) {
+
+	w.RLock()
+	defer w.RUnlock()
 
 	sweeps, err := w.cfg.Sweeper.ListSweeps()
 	if err != nil {
@@ -1493,6 +1566,9 @@ func (w *WalletKit) LabelTransaction(ctx context.Context,
 		return nil, err
 	}
 
+	w.RLock()
+	defer w.RUnlock()
+
 	err = w.cfg.Wallet.LabelTransaction(*hash, req.Label, req.Overwrite)
 	return &LabelTransactionResponse{}, err
 }
@@ -1529,6 +1605,9 @@ func (w *WalletKit) LabelTransaction(ctx context.Context,
 // an error on the caller's side.
 func (w *WalletKit) FundPsbt(_ context.Context,
 	req *FundPsbtRequest) (*FundPsbtResponse, error) {
+
+	w.RLock()
+	defer w.RUnlock()
 
 	coinSelectionStrategy, err := lnrpc.UnmarshallCoinSelectionStrategy(
 		req.CoinSelectionStrategy, w.cfg.CoinSelectionStrategy,
@@ -1750,6 +1829,9 @@ func (w *WalletKit) fundPsbtInternalWallet(account string,
 	feeSatPerKW chainfee.SatPerKWeight,
 	strategy base.CoinSelectionStrategy) (*FundPsbtResponse, error) {
 
+	w.RLock()
+	defer w.RUnlock()
+
 	// The RPC parsing part is now over. Several of the following operations
 	// require us to hold the global coin selection lock, so we do the rest
 	// of the tasks while holding the lock. The result is a list of locked
@@ -1877,6 +1959,8 @@ func (w *WalletKit) fundPsbtInternalWallet(account string,
 // fundPsbtCoinSelect uses the "new" PSBT funding method using the channel
 // funding coin selection algorithm that allows specifying custom inputs while
 // selecting coins.
+//
+//nolint:funlen
 func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 	packet *psbt.Packet, minConfs int32,
 	changeType chanfunding.ChangeAddressType,
@@ -1892,6 +1976,9 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 	if err != nil {
 		return nil, err
 	}
+
+	w.RLock()
+	defer w.RUnlock()
 
 	// In case the user just specified the input outpoints of UTXOs we own,
 	// the fee estimation below will error out because the UTXO information
@@ -2084,6 +2171,9 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 func (w *WalletKit) assertNotAvailable(inputs []*wire.TxIn, minConfs int32,
 	account string) error {
 
+	w.RLock()
+	defer w.RUnlock()
+
 	return w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
 		// Get a list of all unspent witness outputs.
 		utxos, err := w.cfg.Wallet.ListUnspentWitness(
@@ -2114,6 +2204,9 @@ func (w *WalletKit) assertNotAvailable(inputs []*wire.TxIn, minConfs int32,
 func (w *WalletKit) lockAndCreateFundingResponse(packet *psbt.Packet,
 	newOutpoints []wire.OutPoint, changeIndex int32) (*FundPsbtResponse,
 	error) {
+
+	w.RLock()
+	defer w.RUnlock()
 
 	// Make sure we can properly serialize the packet. If this goes wrong
 	// then something isn't right with the inputs, and we probably shouldn't
@@ -2153,6 +2246,9 @@ func (w *WalletKit) handleChange(packet *psbt.Packet, changeIndex int32,
 
 		return changeIndex, nil
 	}
+
+	w.RLock()
+	defer w.RUnlock()
 
 	// The user requested a new change output.
 	addrType := addrTypeFromChangeAddressType(changeType)
@@ -2291,6 +2387,9 @@ func (w *WalletKit) SignPsbt(_ context.Context, req *SignPsbtRequest) (
 		}
 	}
 
+	w.RLock()
+	defer w.RUnlock()
+
 	// Let the wallet do the heavy lifting. This will sign all inputs that
 	// we have the UTXO for. If some inputs can't be signed and don't have
 	// witness data attached, they will just be skipped.
@@ -2346,6 +2445,9 @@ func (w *WalletKit) FinalizePsbt(_ context.Context,
 	if packet.IsComplete() {
 		return nil, fmt.Errorf("PSBT is already fully signed")
 	}
+
+	w.RLock()
+	defer w.RUnlock()
 
 	// Let the wallet do the heavy lifting. This will sign all inputs that
 	// we have the UTXO for. If some inputs can't be signed and don't have
@@ -2518,6 +2620,9 @@ func (w *WalletKit) ListAccounts(ctx context.Context,
 			req.AddressType)
 	}
 
+	w.RLock()
+	defer w.RUnlock()
+
 	accounts, err := w.cfg.Wallet.ListAccounts(req.Name, keyScopeFilter)
 	if err != nil {
 		return nil, err
@@ -2552,6 +2657,9 @@ func (w *WalletKit) ListAccounts(ctx context.Context,
 func (w *WalletKit) RequiredReserve(ctx context.Context,
 	req *RequiredReserveRequest) (*RequiredReserveResponse, error) {
 
+	w.RLock()
+	defer w.RUnlock()
+
 	numAnchorChans, err := w.cfg.CurrentNumAnchorChans()
 	if err != nil {
 		return nil, err
@@ -2571,6 +2679,9 @@ func (w *WalletKit) RequiredReserve(ctx context.Context,
 // wallet accounts and return the addresses of only those matching.
 func (w *WalletKit) ListAddresses(ctx context.Context,
 	req *ListAddressesRequest) (*ListAddressesResponse, error) {
+
+	w.RLock()
+	defer w.RUnlock()
 
 	addressLists, err := w.cfg.Wallet.ListAddresses(
 		req.AccountName,
@@ -2665,6 +2776,9 @@ const msgSignaturePrefix = "Bitcoin Signed Message:\n"
 func (w *WalletKit) SignMessageWithAddr(_ context.Context,
 	req *SignMessageWithAddrRequest) (*SignMessageWithAddrResponse, error) {
 
+	w.RLock()
+	defer w.RUnlock()
+
 	addr, err := btcutil.DecodeAddress(req.Addr, w.cfg.ChainParams)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode address: %w", err)
@@ -2754,6 +2868,9 @@ func (w *WalletKit) VerifyMessageWithAddr(_ context.Context,
 	} else {
 		serializedPubkey = pk.SerializeUncompressed()
 	}
+
+	w.RLock()
+	defer w.RUnlock()
 
 	addr, err := btcutil.DecodeAddress(req.Addr, w.cfg.ChainParams)
 	if err != nil {
@@ -2876,6 +2993,9 @@ func (w *WalletKit) ImportAccount(_ context.Context,
 		return nil, err
 	}
 
+	w.RLock()
+	defer w.RUnlock()
+
 	accountProps, extAddrs, intAddrs, err := w.cfg.Wallet.ImportAccount(
 		req.Name, accountPubKey, mkfp, addrType, req.DryRun,
 	)
@@ -2934,6 +3054,9 @@ func (w *WalletKit) ImportPublicKey(_ context.Context,
 	if err != nil {
 		return nil, err
 	}
+
+	w.RLock()
+	defer w.RUnlock()
 
 	if err := w.cfg.Wallet.ImportPublicKey(pubKey, *addrType); err != nil {
 		return nil, err
@@ -3010,6 +3133,9 @@ func (w *WalletKit) ImportTapscript(_ context.Context,
 	default:
 		return nil, fmt.Errorf("invalid script")
 	}
+
+	w.RLock()
+	defer w.RUnlock()
 
 	taprootScope := waddrmgr.KeyScopeBIP0086
 	addr, err := w.cfg.Wallet.ImportTaprootScript(taprootScope, tapscript)

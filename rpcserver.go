@@ -696,8 +696,9 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 	}
 }
 
-// prepareSubServers prepares the sub-servers, and insert the permissions
-// required to access them into the interceptor chain.
+// prepareSubServers prepares the sub-servers. The function populates the wallet
+// sub-server configuration with the remote signer connection, and insert the
+// permissions required to access the sub-servers into the interceptor chain.
 func (r *rpcServer) prepareSubServers(macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, cc *chainreg.ChainControl) error {
 
@@ -720,6 +721,30 @@ func (r *rpcServer) prepareSubServers(macService *macaroons.Service,
 		// interceptors below.
 		subServers = append(subServers, subServer)
 		subServerPerms = append(subServerPerms, macPerms)
+
+		// We need to populate the wallet sub-server configuration with
+		// the remote signer values, and then inject the values into the
+		// wallet sub-server. This needs to be done prior to the other
+		// sub-servers, as we need the wallet sub-server to be able to
+		// accept connections from a remote signer before the other
+		// sub-servers will be ready to handle requests.
+		if subServer.Name() == walletrpc.SubServerName {
+			// Populate the wallet sub-server configuration with the
+			// remote signer connection.
+			err := subServerCgs.PopulateRemoteSignerConnectionCfg(
+				r.cfg, cc,
+			)
+			if err != nil {
+				return err
+			}
+
+			// Inject the remote signer values into the wallet
+			// sub-server.
+			err = subServer.InjectDependencies(subServerCgs, false)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	// Next, we need to merge the set of sub server macaroon permissions

@@ -477,7 +477,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	// Prepare the sub-servers to be started, and insert the permissions
 	// required to access them into the interceptor chain. Note that we do
-	// not yet have all dependencies required to use all sub-servers.
+	// not yet have all dependencies required to use all sub-servers, but we
+	// need be able to allow a remote signer to connect to lnd before we can
+	// derive the keys create the required dependencies.
 	err = rpcServer.prepareSubServers(
 		interceptorChain.MacaroonService(), cfg.SubRPCServers,
 		activeChainControl,
@@ -496,6 +498,35 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			ltndLog.Errorf("Error stopping the RPC server: %v", err)
 		}
 	}()
+
+	// To ensure that a potential remote signer can connect to lnd before we
+	// can handle other requests, we set the interceptor chain to be ready
+	// accept remote signer connections, if enabled by the cfg.
+	if cfg.RemoteSigner.Enable &&
+		cfg.RemoteSigner.SignerType == lncfg.OutboundRemoteSignerType {
+
+		interceptorChain.SetAllowRemoteSigner()
+	}
+
+	// We'll wait until the wallet is fully ready to be used before we
+	// proceed to derive keys from it.
+	select {
+	case err = <-activeChainControl.Wallet.WalletController.ReadySignal():
+		if err != nil {
+			return mkErr("error when waiting for wallet to be "+
+				"ready: %v", err)
+		}
+
+	case <-interceptor.ShutdownChannel():
+		// If we receive a shutdown signal while waiting for the wallet
+		// to be ready, we must stop blocking so that all the deferred
+		// clean up functions can be executed. That will also shutdown
+		// the wallet.
+		// We can't continue execute the code below as we can't generate
+		// any keys which.
+		return mkErr("Shutdown signal received while waiting for " +
+			"wallet to be ready.")
+	}
 
 	// TODO(roasbeef): add rotation
 	idKeyDesc, err := activeChainControl.KeyRing.DeriveKey(

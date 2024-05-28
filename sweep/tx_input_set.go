@@ -314,7 +314,8 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 		}
 		b.addInput(pi)
 
-		log.Debugf("Added wallet input %v to input set", pi)
+		log.Debugf("Added wallet input to input set: op=%v, amt=%v",
+			pi.OutPoint(), utxo.Value)
 
 		// Return if we've reached the minimum output amount.
 		if !b.NeedWalletInput() {

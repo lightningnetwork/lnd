@@ -1660,8 +1660,6 @@ func (w *WalletKit) fundPsbtInternalWallet(account string,
 // fundPsbtCoinSelect uses the "new" PSBT funding method using the channel
 // funding coin selection algorithm that allows specifying custom inputs while
 // selecting coins.
-//
-//nolint:funlen
 func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 	packet *psbt.Packet, minConfs int32,
 	changeType chanfunding.ChangeAddressType,
@@ -1737,7 +1735,7 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 	// Do we already have enough inputs specified to pay for the TX as it
 	// is? In that case we only need to allocate any change, if there is
 	// any.
-	packetFeeNoChange := feeRate.FeeForWeight(int64(estimator.Weight()))
+	packetFeeNoChange := feeRate.FeeForWeight(estimator.Weight())
 	if inputSum >= outputSum+packetFeeNoChange {
 		// Calculate the packet's fee with a change output so, so we can
 		// let the coin selection algorithm decide whether to use a
@@ -1749,9 +1747,7 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 		case chanfunding.P2WKHChangeAddress:
 			estimator.AddP2WKHOutput()
 		}
-		packetFeeWithChange := feeRate.FeeForWeight(
-			int64(estimator.Weight()),
-		)
+		packetFeeWithChange := feeRate.FeeForWeight(estimator.Weight())
 
 		changeAmt, needMore, err := chanfunding.CalculateChangeAmount(
 			inputSum, outputSum, packetFeeNoChange,

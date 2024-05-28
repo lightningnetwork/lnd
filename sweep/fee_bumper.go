@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -155,7 +156,7 @@ func (r *BumpRequest) MaxFeeRateAllowed() (chainfee.SatPerKWeight, error) {
 // calcSweepTxWeight calculates the weight of the sweep tx. It assumes a
 // sweeping tx always has a single output(change).
 func calcSweepTxWeight(inputs []input.Input,
-	outputPkScript []byte) (uint64, error) {
+	outputPkScript []byte) (lntypes.WeightUnit, error) {
 
 	// Use a const fee rate as we only use the weight estimator to
 	// calculate the size.
@@ -175,7 +176,7 @@ func calcSweepTxWeight(inputs []input.Input,
 		return 0, err
 	}
 
-	return uint64(estimator.weight()), nil
+	return estimator.weight(), nil
 }
 
 // BumpResult is used by the Bumper to send updates about the tx being

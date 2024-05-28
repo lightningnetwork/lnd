@@ -71,7 +71,7 @@ type TxInfo struct {
 	Fee btcutil.Amount
 
 	// Weight is the weight of the tx.
-	Weight int64
+	Weight lntypes.WeightUnit
 }
 
 // String returns a human readable version of the tx info.

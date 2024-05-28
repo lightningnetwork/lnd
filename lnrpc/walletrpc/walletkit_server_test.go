@@ -132,7 +132,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		}
 
 		weight := estimator.Weight()
-		fee := chainfee.FeePerKwFloor.FeeForWeight(int64(weight))
+		fee := chainfee.FeePerKwFloor.FeeForWeight(weight)
 
 		return fee + dust
 	}

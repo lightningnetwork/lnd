@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/lntypes"
 )
 
 // WitnessGenerator represents a function that is able to generate the final
@@ -32,7 +33,7 @@ type WitnessType interface {
 	// WitnessType if it would be included in a tx. It also returns if the
 	// output itself is a nested p2sh output, if so then we need to take
 	// into account the extra sigScript data size.
-	SizeUpperBound() (int, bool, error)
+	SizeUpperBound() (lntypes.WeightUnit, bool, error)
 
 	// AddWeightEstimation adds the estimated size of the witness in bytes
 	// to the given weight estimator.
@@ -726,7 +727,9 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 // sigScript data size.
 //
 // NOTE: This is part of the WitnessType interface.
-func (wt StandardWitnessType) SizeUpperBound() (int, bool, error) {
+func (wt StandardWitnessType) SizeUpperBound() (lntypes.WeightUnit,
+	bool, error) {
+
 	switch wt {
 	// Outputs on a remote commitment transaction that pay directly to us.
 	case CommitSpendNoDelayTweakless:
@@ -743,7 +746,8 @@ func (wt StandardWitnessType) SizeUpperBound() (int, bool, error) {
 	case LeaseCommitmentTimeLock:
 		size := ToLocalTimeoutWitnessSize +
 			LeaseWitnessScriptSizeOverhead
-		return size, false, nil
+
+		return lntypes.WeightUnit(size), false, nil
 
 	// 1 CSV time locked output to us on remote commitment.
 	case CommitmentToRemoteConfirmed:
@@ -751,7 +755,8 @@ func (wt StandardWitnessType) SizeUpperBound() (int, bool, error) {
 	case LeaseCommitmentToRemoteConfirmed:
 		size := ToRemoteConfirmedWitnessSize +
 			LeaseWitnessScriptSizeOverhead
-		return size, false, nil
+
+		return lntypes.WeightUnit(size), false, nil
 
 	// Anchor output on the commitment transaction.
 	case CommitmentAnchor:
@@ -765,7 +770,8 @@ func (wt StandardWitnessType) SizeUpperBound() (int, bool, error) {
 	case LeaseHtlcOfferedTimeoutSecondLevel:
 		size := ToLocalTimeoutWitnessSize +
 			LeaseWitnessScriptSizeOverhead
-		return size, false, nil
+
+		return lntypes.WeightUnit(size), false, nil
 
 	// Input to the outgoing HTLC second layer timeout transaction.
 	case HtlcOfferedTimeoutSecondLevelInputConfirmed:
@@ -779,7 +785,8 @@ func (wt StandardWitnessType) SizeUpperBound() (int, bool, error) {
 	case LeaseHtlcAcceptedSuccessSecondLevel:
 		size := ToLocalTimeoutWitnessSize +
 			LeaseWitnessScriptSizeOverhead
-		return size, false, nil
+
+		return lntypes.WeightUnit(size), false, nil
 
 	// Input to the incoming second-layer HTLC success transaction.
 	case HtlcAcceptedSuccessSecondLevelInputConfirmed:

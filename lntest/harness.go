@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -2041,9 +2042,9 @@ func (h *HarnessTest) CalculateTxFee(tx *wire.MsgTx) btcutil.Amount {
 // CalculateTxWeight calculates the weight for a given tx.
 //
 // TODO(yy): use weight estimator to get more accurate result.
-func (h *HarnessTest) CalculateTxWeight(tx *wire.MsgTx) int64 {
+func (h *HarnessTest) CalculateTxWeight(tx *wire.MsgTx) lntypes.WeightUnit {
 	utx := btcutil.NewTx(tx)
-	return blockchain.GetTransactionWeight(utx)
+	return lntypes.WeightUnit(blockchain.GetTransactionWeight(utx))
 }
 
 // CalculateTxFeeRate calculates the fee rate for a given tx.
@@ -2053,7 +2054,7 @@ func (h *HarnessTest) CalculateTxFeeRate(
 	w := h.CalculateTxWeight(tx)
 	fee := h.CalculateTxFee(tx)
 
-	return chainfee.NewSatPerKWeight(fee, uint64(w))
+	return chainfee.NewSatPerKWeight(fee, w)
 }
 
 // CalculateTxesFeeRate takes a list of transactions and estimates the fee rate

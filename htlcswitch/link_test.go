@@ -2480,7 +2480,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// Calculate the fee buffer for a channel state. Account for htlcs on
 	// the potential channel state as well.
-	htlcWeight := int64(1) * input.HTLCWeight
+	htlcWeight := lntypes.WeightUnit(1) * input.HTLCWeight
 	feeBuffer := lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -2517,7 +2517,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// Calculate the fee buffer for a channel state. Account for htlcs on
 	// the potential channel state as well.
-	htlcWeight = int64(2) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(2) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -2578,7 +2578,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// Calculate the fee buffer for a channel state. Account for htlcs on
 	// the potential channel state as well.
-	htlcWeight = int64(1) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(1) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -2609,7 +2609,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// Calculate the fee buffer for a channel state. Account for htlcs on
 	// the potential channel state as well.
-	htlcWeight = int64(2) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(2) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -2675,7 +2675,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// Calculate the fee buffer for a channel state. Account for htlcs on
 	// the potential channel state as well.
-	htlcWeight = int64(1) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(1) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -2721,7 +2721,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// Calculate the fee buffer for a channel state. Account for htlcs on
 	// the potential channel state as well.
-	htlcWeight = int64(2) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(2) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -2771,7 +2771,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// Calculate the fee buffer for a channel state. Account for htlcs on
 	// the potential channel state as well.
-	htlcWeight = int64(1) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(1) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -2835,7 +2835,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// Calculate the fee buffer for a channel state. Account for htlcs on
 	// the potential channel state as well.
-	htlcWeight = int64(2) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(2) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -2880,7 +2880,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 
 	// Calculate the fee buffer for a channel state. Account for htlcs on
 	// the potential channel state as well.
-	htlcWeight = int64(1) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(1) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -2976,7 +2976,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 
 	// Calculate the fee buffer for a channel state. Account for htlcs on
 	// the potential channel state as well.
-	htlcWeight := int64(1) * input.HTLCWeight
+	htlcWeight := lntypes.WeightUnit(1) * input.HTLCWeight
 	feeBuffer := lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -3022,7 +3022,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 
 	// Calculate the fee buffer for a channel state. Account for htlcs on
 	// the potential channel state as well.
-	htlcWeight = int64(1+halfHtlcs) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(1+halfHtlcs) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -3113,7 +3113,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// With two HTLCs on the pending commit, and two added to the in-memory
 	// commitment state, the resulting bandwidth should reflect that Alice
 	// is paying the all htlc amounts in addition to all htlc fees.
-	htlcWeight = int64(1+numHtlcs) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(1+numHtlcs) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -3205,7 +3205,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// Since the latter two HTLCs have been completely dropped from memory,
 	// only the first two HTLCs we added should still be reflected in the
 	// channel bandwidth.
-	htlcWeight = int64(1+halfHtlcs) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(1+halfHtlcs) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -3264,7 +3264,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 
 	// Calculate the fee buffer for a channel state. Account for htlcs on
 	// the potential channel state as well.
-	htlcWeight := int64(1) * input.HTLCWeight
+	htlcWeight := lntypes.WeightUnit(1) * input.HTLCWeight
 	feeBuffer := lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -3309,7 +3309,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 
 	// We account for the 2 htlcs and the additional one which would be
 	// needed when sending and htlc.
-	htlcWeight = int64(1+halfHtlcs) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(1+halfHtlcs) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -3387,7 +3387,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	}
 
 	// Alice's bandwidth should have reverted back to her starting value.
-	htlcWeight = int64(1) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(1) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -3414,7 +3414,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 
 	// We account for the 2 htlcs and the additional one which would be
 	// needed when sending and htlc.
-	htlcWeight = int64(1+halfHtlcs) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(1+halfHtlcs) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -3492,7 +3492,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 		t.Fatalf("expected %d packet to be failed", halfHtlcs)
 	}
 
-	htlcWeight = int64(1) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(1) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -3540,7 +3540,7 @@ func TestChannelLinkTrimCircuitsRemoteCommit(t *testing.T) {
 
 	// Calculate the fee buffer for a channel state. Account for htlcs on
 	// the potential channel state as well.
-	htlcWeight := int64(1) * input.HTLCWeight
+	htlcWeight := lntypes.WeightUnit(1) * input.HTLCWeight
 	feeBuffer := lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -3602,7 +3602,7 @@ func TestChannelLinkTrimCircuitsRemoteCommit(t *testing.T) {
 
 	// The resulting bandwidth should reflect that Alice is paying both
 	// htlc amounts, in addition to both htlc fees.
-	htlcWeight = int64(1+numHtlcs) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(1+numHtlcs) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)
@@ -3700,7 +3700,7 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 
 	// Calculate the fee buffer for a channel state. Account for htlcs on
 	// the potential channel state as well.
-	htlcWeight := int64(1) * input.HTLCWeight
+	htlcWeight := lntypes.WeightUnit(1) * input.HTLCWeight
 	feeBuffer := lnwallet.CalcFeeBuffer(feePerKw, commitWeight+htlcWeight)
 
 	// The starting bandwidth of the channel should be exactly the amount
@@ -3727,7 +3727,7 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 	_ = harness.aliceLink.handleSwitchPacket(addPkt)
 	time.Sleep(time.Millisecond * 100)
 
-	htlcWeight = int64(2) * input.HTLCWeight
+	htlcWeight = lntypes.WeightUnit(2) * input.HTLCWeight
 	feeBuffer = lnwallet.CalcFeeBuffer(
 		feePerKw, commitWeight+htlcWeight,
 	)

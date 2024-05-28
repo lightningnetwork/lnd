@@ -116,7 +116,7 @@ func calculateFees(utxos []wallet.Coin, feeRate chainfee.SatPerKWeight,
 
 	// Estimate the fee required for a transaction without a change
 	// output.
-	totalWeight := int64(weightEstimate.Weight())
+	totalWeight := weightEstimate.Weight()
 	requiredFeeNoChange := feeRate.FeeForWeight(totalWeight)
 
 	// Estimate the fee required for a transaction with a change output.
@@ -137,7 +137,7 @@ func calculateFees(utxos []wallet.Coin, feeRate chainfee.SatPerKWeight,
 
 	// Now that we have added the change output, redo the fee
 	// estimate.
-	totalWeight = int64(weightEstimate.Weight())
+	totalWeight = weightEstimate.Weight()
 	requiredFeeWithChange := feeRate.FeeForWeight(totalWeight)
 
 	return requiredFeeNoChange, requiredFeeWithChange, nil

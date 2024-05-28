@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 )
@@ -187,7 +188,7 @@ func testTaprootComputeInputScriptKeySpendBip86(ht *lntest.HarnessTest,
 	estimator := input.TxWeightEstimator{}
 	estimator.AddTaprootKeySpendInput(txscript.SigHashDefault)
 	estimator.AddP2WKHOutput()
-	estimatedWeight := int64(estimator.Weight())
+	estimatedWeight := estimator.Weight()
 	requiredFee := feeRate.FeeForWeight(estimatedWeight)
 
 	tx := wire.NewMsgTx(2)
@@ -278,7 +279,7 @@ func testTaprootSignOutputRawScriptSpend(ht *lntest.HarnessTest,
 	)
 	estimator.AddP2WKHOutput()
 
-	estimatedWeight := int64(estimator.Weight())
+	estimatedWeight := estimator.Weight()
 	sigHash := txscript.SigHashDefault
 	if len(sigHashType) != 0 {
 		sigHash = sigHashType[0]
@@ -431,7 +432,7 @@ func testTaprootSignOutputRawKeySpendBip86(ht *lntest.HarnessTest,
 	estimator := input.TxWeightEstimator{}
 	estimator.AddTaprootKeySpendInput(sigHash)
 	estimator.AddP2WKHOutput()
-	estimatedWeight := int64(estimator.Weight())
+	estimatedWeight := estimator.Weight()
 	requiredFee := feeRate.FeeForWeight(estimatedWeight)
 
 	tx := wire.NewMsgTx(2)
@@ -525,7 +526,7 @@ func testTaprootSignOutputRawKeySpendRootHash(ht *lntest.HarnessTest,
 	estimator := input.TxWeightEstimator{}
 	estimator.AddTaprootKeySpendInput(txscript.SigHashDefault)
 	estimator.AddP2WKHOutput()
-	estimatedWeight := int64(estimator.Weight())
+	estimatedWeight := estimator.Weight()
 	requiredFee := feeRate.FeeForWeight(estimatedWeight)
 
 	tx := wire.NewMsgTx(2)
@@ -610,7 +611,7 @@ func testTaprootMuSig2KeySpendBip86(ht *lntest.HarnessTest,
 	estimator := input.TxWeightEstimator{}
 	estimator.AddTaprootKeySpendInput(txscript.SigHashDefault)
 	estimator.AddP2WKHOutput()
-	estimatedWeight := int64(estimator.Weight())
+	estimatedWeight := estimator.Weight()
 	requiredFee := feeRate.FeeForWeight(estimatedWeight)
 
 	tx := wire.NewMsgTx(2)
@@ -740,7 +741,7 @@ func testTaprootMuSig2KeySpendRootHash(ht *lntest.HarnessTest,
 	estimator := input.TxWeightEstimator{}
 	estimator.AddTaprootKeySpendInput(txscript.SigHashDefault)
 	estimator.AddP2WKHOutput()
-	estimatedWeight := int64(estimator.Weight())
+	estimatedWeight := estimator.Weight()
 	requiredFee := feeRate.FeeForWeight(estimatedWeight)
 
 	tx := wire.NewMsgTx(2)
@@ -874,10 +875,11 @@ func testTaprootMuSig2ScriptSpend(ht *lntest.HarnessTest,
 	feeRate := chainfee.SatPerKWeight(12500)
 	estimator := input.TxWeightEstimator{}
 	estimator.AddTapscriptInput(
-		len([]byte("foobar"))+len(leaf1.Script)+1, tapscript,
+		lntypes.WeightUnit(len([]byte("foobar"))+len(leaf1.Script)+1),
+		tapscript,
 	)
 	estimator.AddP2WKHOutput()
-	estimatedWeight := int64(estimator.Weight())
+	estimatedWeight := estimator.Weight()
 	requiredFee := feeRate.FeeForWeight(estimatedWeight)
 
 	tx := wire.NewMsgTx(2)
@@ -956,7 +958,7 @@ func testTaprootMuSig2CombinedLeafKeySpend(ht *lntest.HarnessTest,
 		input.TaprootSignatureWitnessSize, tapscript,
 	)
 	estimator.AddP2WKHOutput()
-	estimatedWeight := int64(estimator.Weight())
+	estimatedWeight := estimator.Weight()
 	requiredFee := feeRate.FeeForWeight(estimatedWeight)
 
 	tx := wire.NewMsgTx(2)
@@ -1525,7 +1527,7 @@ func sendToTaprootOutput(ht *lntest.HarnessTest, hn *node.HarnessNode,
 // spend request, the given sweep address' balance is verified to be seen as
 // funds belonging to the wallet.
 func publishTxAndConfirmSweep(ht *lntest.HarnessTest, node *node.HarnessNode,
-	tx *wire.MsgTx, estimatedWeight int64,
+	tx *wire.MsgTx, estimatedWeight lntypes.WeightUnit,
 	spendRequest *chainrpc.SpendRequest, sweepAddr string) {
 
 	ht.Helper()
@@ -1564,7 +1566,7 @@ func publishTxAndConfirmSweep(ht *lntest.HarnessTest, node *node.HarnessNode,
 	// Since Schnorr signatures are fixed size, we must be able to estimate
 	// the size of this transaction exactly.
 	txWeight := blockchain.GetTransactionWeight(btcutil.NewTx(tx))
-	require.Equal(ht, estimatedWeight, txWeight)
+	require.EqualValues(ht, estimatedWeight, txWeight)
 
 	txReq := &walletrpc.Transaction{
 		TxHex: buf.Bytes(),

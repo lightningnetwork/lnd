@@ -240,7 +240,7 @@ func calcCoopCloseFee(chanType channeldb.ChannelType,
 		weightEstimator.AddTxOutput(remoteOutput)
 	}
 
-	totalWeight := int64(weightEstimator.Weight())
+	totalWeight := weightEstimator.Weight()
 
 	return idealFeeRate.FeeForWeight(totalWeight)
 }

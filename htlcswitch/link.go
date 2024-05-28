@@ -3530,13 +3530,24 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		return nil
 	}
 
-	// As we're the exit hop, we'll double check the hop-payload included in
-	// the HTLC to ensure that it was crafted correctly by the sender and
-	// is compatible with the HTLC we were extended.
-	if pd.Amount < fwdInfo.AmountToForward {
+	// As we're the exit hop, we'll double-check the hop-payload included
+	// in the HTLC to ensure that it was crafted correctly by the sender
+	// and is compatible with the HTLC we were extended.
+	//
+	// For a special case, if the fwdInfo doesn't have any blinded path
+	// information, and the incoming HTLC had special extra data, then
+	// we'll skip this amount check. The invoice acceptor will make sure we
+	// reject the HTLC if it's not containing the correct amount after
+	// examining the custom data.
+	hasBlindedPath := fwdInfo.NextBlinding.IsSome()
+	customHTLC := len(pd.CustomRecords) > 0 && !hasBlindedPath
+	log.Tracef("Exit hop has_blinded_path=%v custom_htlc_bypass=%v",
+		hasBlindedPath, customHTLC)
+
+	if !customHTLC && pd.Amount < fwdInfo.AmountToForward {
 		l.log.Errorf("onion payload of incoming htlc(%x) has "+
-			"incompatible value: expected <=%v, got %v", pd.RHash,
-			pd.Amount, fwdInfo.AmountToForward)
+			"incompatible value: expected >=%v, got %v", pd.RHash,
+			fwdInfo.AmountToForward, pd.Amount)
 
 		failure := NewLinkError(
 			lnwire.NewFinalIncorrectHtlcAmount(pd.Amount),
@@ -3573,7 +3584,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
 		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
-		circuitKey, l.hodlQueue.ChanIn(), payload,
+		circuitKey, l.hodlQueue.ChanIn(), pd.CustomRecords, payload,
 	)
 	if err != nil {
 		return err

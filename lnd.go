@@ -618,6 +618,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	err = rpcServer.addDeps(
 		server, interceptorChain.MacaroonService(), cfg.SubRPCServers,
 		atplManager, server.invoices, tower, multiAcceptor,
+		server.invoiceHtlcModifier,
 	)
 	if err != nil {
 		return mkErr("unable to add deps to RPC server: %v", err)

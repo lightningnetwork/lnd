@@ -43,10 +43,6 @@ type SessionSource struct {
 	// PathFindingConfig defines global parameters that control the
 	// trade-off in path finding between fees and probability.
 	PathFindingConfig PathFindingConfig
-
-	// TrafficShaper is an optional traffic shaper that can be used to
-	// control the outgoing channel of a payment.
-	TrafficShaper fn.Option[TlvTrafficShaper]
 }
 
 // getRoutingGraph returns a routing graph and a clean-up function for

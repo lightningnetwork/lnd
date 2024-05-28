@@ -5533,6 +5533,14 @@
         "amp": {
           "$ref": "#/definitions/lnrpcAMP",
           "description": "Details relevant to AMP HTLCs, only populated if this is an AMP HTLC."
+        },
+        "wire_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Custom tlv records that were only sent on the p2p wire message, not in\nthe onion."
         }
       },
       "title": "Details of an HTLC that paid to an invoice"

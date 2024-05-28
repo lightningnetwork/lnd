@@ -435,6 +435,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testForwardInterceptorWireRecords,
 	},
 	{
+		Name:     "invoice HTLC modifier basic",
+		TestFunc: testInvoiceHtlcModifierBasic,
+	},
+	{
 		Name:     "zero conf channel open",
 		TestFunc: testZeroConfChannelOpen,
 	},

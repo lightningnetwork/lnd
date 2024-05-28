@@ -546,6 +546,28 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		}
 	}
 
+	// We'll wait until the wallet is fully ready to be used before we
+	// proceed to derive keys from it.
+	select {
+	case err = <-activeChainControl.Wallet.WalletController.ReadySignal(
+		ctx,
+	):
+		if err != nil {
+			return mkErr("error when waiting for wallet to be "+
+				"ready", err)
+		}
+
+	case <-interceptor.ShutdownChannel():
+		// If we receive a shutdown signal while waiting for the wallet
+		// to be ready, we must stop blocking so that all the deferred
+		// clean up functions can be executed. That will also shut down
+		// the wallet.
+		// We can't continue to execute the code below as we can't
+		// do any operations which requires private keys.
+		return mkErr("Shutting down", errors.New("shutdown signal "+
+			"received while waiting for wallet to be ready"))
+	}
+
 	// TODO(roasbeef): add rotation
 	idKeyDesc, err := activeChainControl.KeyRing.DeriveKey(
 		keychain.KeyLocator{

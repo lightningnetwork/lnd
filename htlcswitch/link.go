@@ -204,15 +204,15 @@ type ChannelLinkConfig struct {
 	// receiving node is persistent.
 	UnsafeReplay bool
 
-	// MinFeeUpdateTimeout represents the minimum interval in which a link
+	// MinUpdateTimeout represents the minimum interval in which a link
 	// will propose to update its commitment fee rate. A random timeout will
-	// be selected between this and MaxFeeUpdateTimeout.
-	MinFeeUpdateTimeout time.Duration
+	// be selected between this and MaxUpdateTimeout.
+	MinUpdateTimeout time.Duration
 
-	// MaxFeeUpdateTimeout represents the maximum interval in which a link
+	// MaxUpdateTimeout represents the maximum interval in which a link
 	// will propose to update its commitment fee rate. A random timeout will
-	// be selected between this and MinFeeUpdateTimeout.
-	MaxFeeUpdateTimeout time.Duration
+	// be selected between this and MinUpdateTimeout.
+	MaxUpdateTimeout time.Duration
 
 	// OutgoingCltvRejectDelta defines the number of blocks before expiry of
 	// an htlc where we don't offer an htlc anymore. This should be at least
@@ -1560,8 +1560,8 @@ func getResolutionFailure(resolution *invoices.HtlcFailResolution,
 // within the link's configuration that will be used to determine when the link
 // should propose an update to its commitment fee rate.
 func (l *channelLink) randomFeeUpdateTimeout() time.Duration {
-	lower := int64(l.cfg.MinFeeUpdateTimeout)
-	upper := int64(l.cfg.MaxFeeUpdateTimeout)
+	lower := int64(l.cfg.MinUpdateTimeout)
+	upper := int64(l.cfg.MaxUpdateTimeout)
 	return time.Duration(prand.Int63n(upper-lower) + lower)
 }
 
@@ -1795,8 +1795,20 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		htlc.ID = pkt.incomingHTLCID
 
 		// We send the HTLC message to the peer which initially created
-		// the HTLC.
-		l.cfg.Peer.SendMessage(false, htlc)
+		// the HTLC. If the incoming blinding point is non-nil, we
+		// know that we are a relaying node in a blinded path.
+		// Otherwise, we're either an introduction node or not part of
+		// a blinded path at all.
+		if err := l.sendIncomingHTLCFailureMsg(
+			htlc.ID,
+			pkt.obfuscator,
+			htlc.Reason,
+		); err != nil {
+			l.log.Errorf("unable to send HTLC failure: %v",
+				err)
+
+			return
+		}
 
 		// If the packet does not have a link failure set, it failed
 		// further down the route so we notify a forwarding failure.
@@ -2032,6 +2044,19 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			failure = &lnwire.FailInvalidOnionKey{
 				OnionSHA256: msg.ShaOnionBlob,
 			}
+
+		// Handle malformed errors that are part of a blinded route.
+		// This case is slightly different, because we expect every
+		// relaying node in the blinded portion of the route to send
+		// malformed errors. If we're also a relaying node, we're
+		// likely going to switch this error out anyway for our own
+		// malformed error, but we handle the case here for
+		// completeness.
+		case lnwire.CodeInvalidBlinding:
+			failure = &lnwire.FailInvalidBlinding{
+				OnionSHA256: msg.ShaOnionBlob,
+			}
+
 		default:
 			l.log.Warnf("unexpected failure code received in "+
 				"UpdateFailMailformedHTLC: %v", msg.FailureCode)
@@ -3253,7 +3278,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		// DecodeHopIterator function which process the Sphinx packet.
 		chanIterator, failureCode := decodeResps[i].Result()
 		if failureCode != lnwire.CodeNone {
-			// If we're unable to process the onion blob than we
+			// If we're unable to process the onion blob then we
 			// should send the malformed htlc error to payment
 			// sender.
 			l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
@@ -3264,35 +3289,48 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			continue
 		}
 
-		// Retrieve onion obfuscator from onion blob in order to
-		// produce initial obfuscation of the onion failureCode.
-		obfuscator, failureCode := chanIterator.ExtractErrorEncrypter(
-			l.cfg.ExtractErrorEncrypter,
-		)
-		if failureCode != lnwire.CodeNone {
-			// If we're unable to process the onion blob than we
-			// should send the malformed htlc error to payment
-			// sender.
-			l.sendMalformedHTLCError(
-				pd.HtlcIndex, failureCode, onionBlob[:], pd.SourceRef,
-			)
-
-			l.log.Errorf("unable to decode onion "+
-				"obfuscator: %v", failureCode)
-			continue
-		}
-
 		heightNow := l.cfg.BestHeight()
 
-		pld, err := chanIterator.HopPayload()
-		if err != nil {
+		pld, routeRole, pldErr := chanIterator.HopPayload()
+		if pldErr != nil {
 			// If we're unable to process the onion payload, or we
 			// received invalid onion payload failure, then we
 			// should send an error back to the caller so the HTLC
 			// can be canceled.
 			var failedType uint64
-			if e, ok := err.(hop.ErrInvalidPayload); ok {
+
+			// We need to get the underlying error value, so we
+			// can't use errors.As as suggested by the linter.
+			//nolint:errorlint
+			if e, ok := pldErr.(hop.ErrInvalidPayload); ok {
 				failedType = uint64(e.Type)
+			}
+
+			// If we couldn't parse the payload, make our best
+			// effort at creating an error encrypter that knows
+			// what blinding type we were, but if we couldn't
+			// parse the payload we have no way of knowing whether
+			// we were the introduction node or not.
+			//
+			//nolint:lll
+			obfuscator, failCode := chanIterator.ExtractErrorEncrypter(
+				l.cfg.ExtractErrorEncrypter,
+				// We need our route role here because we
+				// couldn't parse or validate the payload.
+				routeRole == hop.RouteRoleIntroduction,
+			)
+			if failCode != lnwire.CodeNone {
+				l.log.Errorf("could not extract error "+
+					"encrypter: %v", pldErr)
+
+				// We can't process this htlc, send back
+				// malformed.
+				l.sendMalformedHTLCError(
+					pd.HtlcIndex, failureCode,
+					onionBlob[:], pd.SourceRef,
+				)
+
+				continue
 			}
 
 			// TODO: currently none of the test unit infrastructure
@@ -3307,7 +3345,29 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			)
 
 			l.log.Errorf("unable to decode forwarding "+
-				"instructions: %v", err)
+				"instructions: %v", pldErr)
+
+			continue
+		}
+
+		// Retrieve onion obfuscator from onion blob in order to
+		// produce initial obfuscation of the onion failureCode.
+		obfuscator, failureCode := chanIterator.ExtractErrorEncrypter(
+			l.cfg.ExtractErrorEncrypter,
+			routeRole == hop.RouteRoleIntroduction,
+		)
+		if failureCode != lnwire.CodeNone {
+			// If we're unable to process the onion blob than we
+			// should send the malformed htlc error to payment
+			// sender.
+			l.sendMalformedHTLCError(
+				pd.HtlcIndex, failureCode, onionBlob[:],
+				pd.SourceRef,
+			)
+
+			l.log.Errorf("unable to decode onion "+
+				"obfuscator: %v", failureCode)
+
 			continue
 		}
 
@@ -3693,11 +3753,14 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 		return
 	}
 
-	l.cfg.Peer.SendMessage(false, &lnwire.UpdateFailHTLC{
-		ChanID: l.ChanID(),
-		ID:     pd.HtlcIndex,
-		Reason: reason,
-	})
+	// Send the appropriate failure message depending on whether we're
+	// in a blinded route or not.
+	if err := l.sendIncomingHTLCFailureMsg(
+		pd.HtlcIndex, e, reason,
+	); err != nil {
+		l.log.Errorf("unable to send HTLC failure: %v", err)
+		return
+	}
 
 	// Notify a link failure on our incoming link. Outgoing htlc information
 	// is not available at this point, because we have not decrypted the
@@ -3724,6 +3787,95 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 		failure,
 		true,
 	)
+}
+
+// sendPeerHTLCFailure handles sending a HTLC failure message back to the
+// peer from which the HTLC was received. This function is primarily used to
+// handle the special requirements of route blinding, specifically:
+// - Forwarding nodes must switch out any errors with MalformedFailHTLC
+// - Introduction nodes should return regular HTLC failure messages.
+//
+// It accepts the original opaque failure, which will be used in the case
+// that we're not part of a blinded route and an error encrypter that'll be
+// used if we are the introduction node and need to present an error as if
+// we're the failing party.
+//
+// Note: this function does not yet handle special error cases for receiving
+// nodes in blinded paths, as LND does not support blinded receives.
+func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
+	e hop.ErrorEncrypter,
+	originalFailure lnwire.OpaqueReason) error {
+
+	var msg lnwire.Message
+	switch {
+	// Our circuit's error encrypter will be nil if this was a locally
+	// initiated payment. We can only hit a blinded error for a locally
+	// initiated payment if we allow ourselves to be picked as the
+	// introduction node for our own payments and in that case we
+	// shouldn't reach this code. To prevent the HTLC getting stuck,
+	// we fail it back and log an error.
+	// code.
+	case e == nil:
+		msg = &lnwire.UpdateFailHTLC{
+			ChanID: l.ChanID(),
+			ID:     htlcIndex,
+			Reason: originalFailure,
+		}
+
+		l.log.Errorf("Unexpected blinded failure when "+
+			"we are the sending node, incoming htlc: %v(%v)",
+			l.ShortChanID(), htlcIndex)
+
+	// For cleartext hops (ie, non-blinded/normal) we don't need any
+	// transformation on the error message and can just send the original.
+	case !e.Type().IsBlinded():
+		msg = &lnwire.UpdateFailHTLC{
+			ChanID: l.ChanID(),
+			ID:     htlcIndex,
+			Reason: originalFailure,
+		}
+
+	// When we're the introduction node, we need to convert the error to
+	// a UpdateFailHTLC.
+	case e.Type() == hop.EncrypterTypeIntroduction:
+		l.log.Debugf("Introduction blinded node switching out failure "+
+			"error: %v", htlcIndex)
+
+		// The specification does not require that we set the onion
+		// blob.
+		failureMsg := lnwire.NewInvalidBlinding(nil)
+		reason, err := e.EncryptFirstHop(failureMsg)
+		if err != nil {
+			return err
+		}
+
+		msg = &lnwire.UpdateFailHTLC{
+			ChanID: l.ChanID(),
+			ID:     htlcIndex,
+			Reason: reason,
+		}
+
+	// If we are a relaying node, we need to switch out any error that
+	// we've received to a malformed HTLC error.
+	case e.Type() == hop.EncrypterTypeRelaying:
+		l.log.Debugf("Relaying blinded node switching out malformed "+
+			"error: %v", htlcIndex)
+
+		msg = &lnwire.UpdateFailMalformedHTLC{
+			ChanID:      l.ChanID(),
+			ID:          htlcIndex,
+			FailureCode: lnwire.CodeInvalidBlinding,
+		}
+
+	default:
+		return fmt.Errorf("unexpected encrypter: %d", e)
+	}
+
+	if err := l.cfg.Peer.SendMessage(false, msg); err != nil {
+		l.log.Warnf("Send update fail failed: %v", err)
+	}
+
+	return nil
 }
 
 // sendMalformedHTLCError helper function which sends the malformed HTLC update

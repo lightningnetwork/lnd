@@ -272,11 +272,26 @@ func bumpFee(ctx *cli.Context) error {
 	client, cleanUp := getWalletClient(ctx)
 	defer cleanUp()
 
+	// Parse immediate flag (force flag was deprecated).
+	immediate := false
+	switch {
+	case ctx.IsSet("immediate") && ctx.IsSet("force"):
+		return fmt.Errorf("cannot set immediate and force flag at " +
+			"the same time")
+
+	case ctx.Bool("immediate"):
+		immediate = true
+
+	case ctx.Bool("force"):
+		immediate = true
+	}
+
 	resp, err := client.BumpFee(ctxc, &walletrpc.BumpFeeRequest{
-		Outpoint:   protoOutPoint,
-		TargetConf: uint32(ctx.Uint64("conf_target")),
-		Immediate:  ctx.Bool("force"),
-		Budget:     ctx.Uint64("budget"),
+		Outpoint:    protoOutPoint,
+		TargetConf:  uint32(ctx.Uint64("conf_target")),
+		Immediate:   immediate,
+		Budget:      ctx.Uint64("budget"),
+		SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
 	})
 	if err != nil {
 		return err
@@ -473,10 +488,11 @@ func bumpForceCloseFee(ctx *cli.Context) error {
 
 		resp, err := walletClient.BumpFee(
 			ctxc, &walletrpc.BumpFeeRequest{
-				Outpoint:   sweep.Outpoint,
-				TargetConf: uint32(ctx.Uint64("conf_target")),
-				Budget:     ctx.Uint64("budget"),
-				Immediate:  ctx.Bool("immediate"),
+				Outpoint:    sweep.Outpoint,
+				TargetConf:  uint32(ctx.Uint64("conf_target")),
+				Budget:      ctx.Uint64("budget"),
+				Immediate:   ctx.Bool("immediate"),
+				SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
 			})
 		if err != nil {
 			return err

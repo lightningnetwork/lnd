@@ -1470,6 +1470,8 @@
                 "ANCHORS_OPT",
                 "ANCHORS_ZERO_FEE_HTLC_REQ",
                 "ANCHORS_ZERO_FEE_HTLC_OPT",
+                "ROUTE_BLINDING_REQUIRED",
+                "ROUTE_BLINDING_OPTIONAL",
                 "AMP_REQ",
                 "AMP_OPT"
               ]
@@ -2265,6 +2267,13 @@
           {
             "name": "failed_htlcs_only",
             "description": "Only delete failed HTLCs from payments, not the payment itself.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "all_payments",
+            "description": "Delete all payments. NOTE: Using this option requires careful\nconsideration as it is a destructive operation.",
             "in": "query",
             "required": false,
             "type": "boolean"
@@ -4702,6 +4711,8 @@
         "ANCHORS_OPT",
         "ANCHORS_ZERO_FEE_HTLC_REQ",
         "ANCHORS_ZERO_FEE_HTLC_OPT",
+        "ROUTE_BLINDING_REQUIRED",
+        "ROUTE_BLINDING_OPTIONAL",
         "AMP_REQ",
         "AMP_OPT"
       ],
@@ -5298,6 +5309,21 @@
           "type": "integer",
           "format": "int64",
           "description": "The time-lock delta of the channel."
+        }
+      }
+    },
+    "lnrpcInboundFee": {
+      "type": "object",
+      "properties": {
+        "base_fee_msat": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The inbound base fee charged regardless of the number of milli-satoshis\nreceived in the channel. By default, only negative values are accepted."
+        },
+        "fee_rate_ppm": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The effective inbound fee rate in micro-satoshis (parts per million).\nBy default, only negative values are accepted."
         }
       }
     },
@@ -6597,13 +6623,9 @@
           "type": "boolean",
           "description": "If true, min_htlc_msat is applied."
         },
-        "inbound_base_fee_msat": {
-          "type": "integer",
-          "format": "int32"
-        },
-        "inbound_fee_rate_ppm": {
-          "type": "integer",
-          "format": "int32"
+        "inbound_fee": {
+          "$ref": "#/definitions/lnrpcInboundFee",
+          "description": "Optional inbound fee. If unset, the previously set value will be\nretained [EXPERIMENTAL]."
         }
       }
     },

@@ -29,7 +29,7 @@ env:
   # /dev.Dockerfile
   # /make/builder.Dockerfile
   # /.github/workflows/release.yml
-  GO_VERSION: 1.21.0
+  GO_VERSION: 1.22.3
 
 jobs:
   ########################
@@ -225,6 +225,7 @@ jobs:
         if: matrix.unit_type == 'btcd unit-cover'
         with:
           path-to-profile: coverage.txt
+          flag-name: 'unit'
           parallel: true
 
 
@@ -241,13 +242,13 @@ jobs:
       matrix:
         include:
           - name: btcd
-            args: backend=btcd
+            args: backend=btcd cover=1
           - name: bitcoind
-            args: backend=bitcoind
+            args: backend=bitcoind cover=1
           - name: bitcoind-notxindex
             args: backend="bitcoind notxindex"
           - name: bitcoind-rpcpolling
-            args: backend="bitcoind rpcpolling"
+            args: backend="bitcoind rpcpolling" cover=1
           - name: bitcoind-etcd
             args: backend=bitcoind dbbackend=etcd
           - name: bitcoind-postgres
@@ -259,7 +260,7 @@ jobs:
           - name: bitcoind-sqlite-nativesql
             args: backend=bitcoind dbbackend=sqlite nativesql=true
           - name: neutrino
-            args: backend=neutrino
+            args: backend=neutrino cover=1
     steps:
       - name: git checkout
         uses: actions/checkout@v3
@@ -275,6 +276,14 @@ jobs:
 
       - name: run ${{ matrix.name }}
         run: make itest-parallel ${{ matrix.args }}
+
+      - name: Send coverage
+        if: ${{ contains(matrix.args, 'cover=1') }}
+        uses: shogo82148/actions-goveralls@v1
+        with:
+          path-to-profile: coverage.txt
+          flag-name: 'itest-${{ matrix.name }}'
+          parallel: true
 
       - name: Zip log files on failure
         if: ${{ failure() }}
@@ -401,3 +410,13 @@ jobs:
 
       - name: release notes check
         run: scripts/check-release-notes.sh
+  
+  # Notify about the completion of all coverage collecting jobs.
+  finish:
+    if: ${{ always() }}
+    needs: [unit-test, ubuntu-integration-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: shogo82148/actions-goveralls@v1
+        with:
+          parallel-finished: true

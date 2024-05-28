@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
+	"os"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
@@ -708,7 +708,7 @@ func testAbandonChannel(ht *lntest.HarnessTest) {
 	// To make sure the channel is removed from the backup file as well
 	// when being abandoned, grab a backup snapshot so we can compare it
 	// with the later state.
-	bkupBefore, err := ioutil.ReadFile(alice.Cfg.ChanBackupPath())
+	bkupBefore, err := os.ReadFile(alice.Cfg.ChanBackupPath())
 	require.NoError(ht, err, "channel backup before abandoning channel")
 
 	// Send request to abandon channel.
@@ -733,7 +733,7 @@ func testAbandonChannel(ht *lntest.HarnessTest) {
 
 	// Make sure the channel is no longer in the channel backup list.
 	err = wait.NoError(func() error {
-		bkupAfter, err := ioutil.ReadFile(alice.Cfg.ChanBackupPath())
+		bkupAfter, err := os.ReadFile(alice.Cfg.ChanBackupPath())
 		if err != nil {
 			return fmt.Errorf("could not get channel backup "+
 				"before abandoning channel: %v", err)
@@ -815,13 +815,18 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 		TargetConf: 6,
 	})
 
+	// TODO(yy): we still allow default values to be used when neither conf
+	// target or fee rate is set in 0.18.0. When future release forbidden
+	// this behavior, we should revive the test below, which asserts either
+	// conf target or fee rate is set.
+	//
 	// Send coins to a compatible address without specifying fee rate or
 	// conf target.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
-		Addr:    ht.Miner.NewMinerAddress().String(),
-		SendAll: true,
-		Label:   sendCoinsLabel,
-	})
+	// ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	// 	Addr:    ht.Miner.NewMinerAddress().String(),
+	// 	SendAll: true,
+	// 	Label:   sendCoinsLabel,
+	// })
 
 	// Send coins to a compatible address.
 	ainz.RPC.SendCoins(&lnrpc.SendCoinsRequest{

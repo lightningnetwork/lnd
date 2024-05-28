@@ -849,7 +849,7 @@ func TestForceClose(t *testing.T) {
 
 type forceCloseTestCase struct {
 	chanType             channeldb.ChannelType
-	expectedCommitWeight int64
+	expectedCommitWeight lntypes.WeightUnit
 	anchorAmt            btcutil.Amount
 }
 
@@ -4820,7 +4820,7 @@ func TestChanAvailableBandwidth(t *testing.T) {
 	)
 
 	assertBandwidthEstimateCorrect := func(aliceInitiate bool,
-		numNonDustHtlcsOnCommit int64) {
+		numNonDustHtlcsOnCommit lntypes.WeightUnit) {
 
 		// With the HTLC's added, we'll now query the AvailableBalance
 		// method for the current available channel bandwidth from
@@ -5206,7 +5206,7 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 	// fromt the given channel's POV.
 	// When sending htlcs we enforce the feebuffer on the commitment
 	// transaction.
-	remoteCommitWeight := func(lc *LightningChannel) int64 {
+	remoteCommitWeight := func(lc *LightningChannel) lntypes.WeightUnit {
 		remoteACKedIndex := lc.localCommitChain.tip().theirMessageIndex
 		htlcView := lc.fetchHTLCView(remoteACKedIndex,
 			lc.localUpdateLog.logIndex)
@@ -10492,8 +10492,8 @@ func TestApplyCommitmentFee(t *testing.T) {
 		balanceBelowReserve = lnwire.NewMSatFromSatoshis(5_000)
 
 		// commitment weight with an additional htlc.
-		commitWeight int64 = input.BaseAnchorCommitmentTxWeight +
-			input.HTLCWeight
+		commitWeight lntypes.WeightUnit = input.
+				BaseAnchorCommitmentTxWeight + input.HTLCWeight
 
 		// fee rate of 10 sat/vbyte.
 		feePerKw  = chainfee.SatPerKWeight(2500)

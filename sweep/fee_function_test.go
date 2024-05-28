@@ -8,22 +8,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestLinearFeeFunctionNew tests the NewLinearFeeFunction function.
-func TestLinearFeeFunctionNew(t *testing.T) {
+// TestLinearFeeFunctionNewMaxFeeRateUsed tests when the conf target is <= 1,
+// the max fee rate is used.
+func TestLinearFeeFunctionNewMaxFeeRateUsed(t *testing.T) {
 	t.Parallel()
 
 	rt := require.New(t)
 
 	// Create a mock fee estimator.
 	estimator := &chainfee.MockEstimator{}
+	defer estimator.AssertExpectations(t)
 
 	// Create testing params.
 	maxFeeRate := chainfee.SatPerKWeight(10000)
-	estimatedFeeRate := chainfee.SatPerKWeight(500)
-	minRelayFeeRate := chainfee.SatPerKWeight(100)
-	confTarget := uint32(6)
 	noStartFeeRate := fn.None[chainfee.SatPerKWeight]()
-	startFeeRate := chainfee.SatPerKWeight(1000)
 
 	// Assert init fee function with zero conf value will end up using the
 	// max fee rate.
@@ -36,23 +34,56 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 	rt.Equal(maxFeeRate, f.endingFeeRate)
 	rt.Equal(maxFeeRate, f.currentFeeRate)
 
-	// When the fee estimator returns an error, it's returned.
-	//
-	// Mock the fee estimator to return an error.
-	estimator.On("EstimateFeePerKW", confTarget).Return(
-		chainfee.SatPerKWeight(0), errDummy).Once()
+	// Assert init fee function with conf of one will end up using the max
+	// fee rate.
+	f, err = NewLinearFeeFunction(maxFeeRate, 1, estimator, noStartFeeRate)
+	rt.NoError(err)
+	rt.NotNil(f)
 
-	f, err = NewLinearFeeFunction(
-		maxFeeRate, confTarget, estimator, noStartFeeRate,
-	)
-	rt.ErrorIs(err, errDummy)
-	rt.Nil(f)
+	// Assert the internal state.
+	rt.Equal(maxFeeRate, f.startingFeeRate)
+	rt.Equal(maxFeeRate, f.endingFeeRate)
+	rt.Equal(maxFeeRate, f.currentFeeRate)
+}
 
-	// When the starting feerate is greater than the ending feerate, the
-	// starting feerate is capped.
+// TestLinearFeeFunctionNewZeroFeeRateDelta tests when the fee rate delta is
+// zero, it will return an error except when the width is one.
+func TestLinearFeeFunctionNewZeroFeeRateDelta(t *testing.T) {
+	t.Parallel()
+
+	rt := require.New(t)
+
+	// Create a mock fee estimator.
+	estimator := &chainfee.MockEstimator{}
+	defer estimator.AssertExpectations(t)
+
+	// Create testing params.
+	maxFeeRate := chainfee.SatPerKWeight(10000)
+	estimatedFeeRate := chainfee.SatPerKWeight(500)
+	confTarget := uint32(6)
+	noStartFeeRate := fn.None[chainfee.SatPerKWeight]()
+
+	// When the calculated fee rate delta is 0, an error should be returned
+	// when the width is not one.
 	//
 	// Mock the fee estimator to return the fee rate.
-	smallConf := uint32(1)
+	estimator.On("EstimateFeePerKW", confTarget).Return(
+		// The starting fee rate is the max fee rate.
+		maxFeeRate, nil).Once()
+	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
+
+	f, err := NewLinearFeeFunction(
+		maxFeeRate, confTarget, estimator, noStartFeeRate,
+	)
+	rt.ErrorContains(err, "fee rate delta is zero")
+	rt.Nil(f)
+
+	// When the calculated fee rate delta is 0, an error should NOT be
+	// returned when the width is one, and the starting feerate is capped
+	// at the max fee rate.
+	//
+	// Mock the fee estimator to return the fee rate.
+	smallConf := uint32(2)
 	estimator.On("EstimateFeePerKW", smallConf).Return(
 		// The fee rate is greater than the max fee rate.
 		maxFeeRate+1, nil).Once()
@@ -64,18 +95,41 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 	rt.NoError(err)
 	rt.NotNil(f)
 
-	// When the calculated fee rate delta is 0, an error should be returned.
-	//
-	// Mock the fee estimator to return the fee rate.
-	estimator.On("EstimateFeePerKW", confTarget).Return(
-		// The starting fee rate is the max fee rate.
-		maxFeeRate, nil).Once()
-	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
+	// Assert the internal state.
+	rt.Equal(maxFeeRate, f.startingFeeRate)
+	rt.Equal(maxFeeRate, f.endingFeeRate)
+	rt.Equal(maxFeeRate, f.currentFeeRate)
+	rt.Zero(f.deltaFeeRate)
+	rt.Equal(smallConf-1, f.width)
+}
 
-	f, err = NewLinearFeeFunction(
+// TestLinearFeeFunctionNewEsimator tests the NewLinearFeeFunction function
+// properly reacts to the response or error returned from the fee estimator.
+func TestLinearFeeFunctionNewEsimator(t *testing.T) {
+	t.Parallel()
+
+	rt := require.New(t)
+
+	// Create a mock fee estimator.
+	estimator := &chainfee.MockEstimator{}
+	defer estimator.AssertExpectations(t)
+
+	// Create testing params.
+	maxFeeRate := chainfee.SatPerKWeight(10000)
+	minRelayFeeRate := chainfee.SatPerKWeight(100)
+	confTarget := uint32(6)
+	noStartFeeRate := fn.None[chainfee.SatPerKWeight]()
+
+	// When the fee estimator returns an error, it's returned.
+	//
+	// Mock the fee estimator to return an error.
+	estimator.On("EstimateFeePerKW", confTarget).Return(
+		chainfee.SatPerKWeight(0), errDummy).Once()
+
+	f, err := NewLinearFeeFunction(
 		maxFeeRate, confTarget, estimator, noStartFeeRate,
 	)
-	rt.ErrorContains(err, "fee rate delta is zero")
+	rt.ErrorIs(err, errDummy)
 	rt.Nil(f)
 
 	// When the conf target is >= 1008, the min relay fee should be used.
@@ -95,16 +149,36 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 	rt.Equal(maxFeeRate, f.endingFeeRate)
 	rt.Equal(minRelayFeeRate, f.currentFeeRate)
 	rt.NotZero(f.deltaFeeRate)
-	rt.Equal(largeConf, f.width)
+	rt.Equal(largeConf-1, f.width)
+}
+
+// TestLinearFeeFunctionNewSuccess tests we can create the fee function
+// successfully.
+func TestLinearFeeFunctionNewSuccess(t *testing.T) {
+	t.Parallel()
+
+	rt := require.New(t)
+
+	// Create a mock fee estimator.
+	estimator := &chainfee.MockEstimator{}
+	defer estimator.AssertExpectations(t)
+
+	// Create testing params.
+	maxFeeRate := chainfee.SatPerKWeight(10000)
+	estimatedFeeRate := chainfee.SatPerKWeight(500)
+	minRelayFeeRate := chainfee.SatPerKWeight(100)
+	confTarget := uint32(6)
+	noStartFeeRate := fn.None[chainfee.SatPerKWeight]()
+	startFeeRate := chainfee.SatPerKWeight(1000)
 
 	// Check a successfully created fee function.
 	//
 	// Mock the fee estimator to return the fee rate.
 	estimator.On("EstimateFeePerKW", confTarget).Return(
 		estimatedFeeRate, nil).Once()
-	estimator.On("RelayFeePerKW").Return(estimatedFeeRate).Once()
+	estimator.On("RelayFeePerKW").Return(minRelayFeeRate).Once()
 
-	f, err = NewLinearFeeFunction(
+	f, err := NewLinearFeeFunction(
 		maxFeeRate, confTarget, estimator, noStartFeeRate,
 	)
 	rt.NoError(err)
@@ -115,7 +189,7 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 	rt.Equal(maxFeeRate, f.endingFeeRate)
 	rt.Equal(estimatedFeeRate, f.currentFeeRate)
 	rt.NotZero(f.deltaFeeRate)
-	rt.Equal(confTarget, f.width)
+	rt.Equal(confTarget-1, f.width)
 
 	// Check a successfully created fee function using the specified
 	// starting fee rate.
@@ -131,7 +205,10 @@ func TestLinearFeeFunctionNew(t *testing.T) {
 
 	// Assert the customized starting fee rate is used.
 	rt.Equal(startFeeRate, f.startingFeeRate)
+	rt.Equal(maxFeeRate, f.endingFeeRate)
 	rt.Equal(startFeeRate, f.currentFeeRate)
+	rt.NotZero(f.deltaFeeRate)
+	rt.Equal(confTarget-1, f.width)
 }
 
 // TestLinearFeeFunctionFeeRateAtPosition checks the expected feerate is
@@ -201,12 +278,13 @@ func TestLinearFeeFunctionIncrement(t *testing.T) {
 
 	// Create a mock fee estimator.
 	estimator := &chainfee.MockEstimator{}
+	defer estimator.AssertExpectations(t)
 
 	// Create testing params. These params are chosen so the delta value is
 	// 100.
-	maxFeeRate := chainfee.SatPerKWeight(1000)
+	maxFeeRate := chainfee.SatPerKWeight(900)
 	estimatedFeeRate := chainfee.SatPerKWeight(100)
-	confTarget := uint32(9)
+	confTarget := uint32(9) // This means the width is 8.
 
 	// Mock the fee estimator to return the fee rate.
 	estimator.On("EstimateFeePerKW", confTarget).Return(
@@ -219,8 +297,8 @@ func TestLinearFeeFunctionIncrement(t *testing.T) {
 	)
 	rt.NoError(err)
 
-	// We now increase the position from 1 to 9.
-	for i := uint32(1); i <= confTarget; i++ {
+	// We now increase the position from 1 to 8.
+	for i := uint32(1); i <= confTarget-1; i++ {
 		// Increase the fee rate.
 		increased, err := f.Increment()
 		rt.NoError(err)
@@ -236,7 +314,7 @@ func TestLinearFeeFunctionIncrement(t *testing.T) {
 		rt.Equal(estimatedFeeRate+delta, f.FeeRate())
 	}
 
-	// Now the position is at 9th, increase it again should give us an
+	// Now the position is at 8th, increase it again should give us an
 	// error.
 	increased, err := f.Increment()
 	rt.ErrorIs(err, ErrMaxPosition)
@@ -252,12 +330,13 @@ func TestLinearFeeFunctionIncreaseFeeRate(t *testing.T) {
 
 	// Create a mock fee estimator.
 	estimator := &chainfee.MockEstimator{}
+	defer estimator.AssertExpectations(t)
 
 	// Create testing params. These params are chosen so the delta value is
 	// 100.
-	maxFeeRate := chainfee.SatPerKWeight(1000)
+	maxFeeRate := chainfee.SatPerKWeight(900)
 	estimatedFeeRate := chainfee.SatPerKWeight(100)
-	confTarget := uint32(9)
+	confTarget := uint32(9) // This means the width is 8.
 
 	// Mock the fee estimator to return the fee rate.
 	estimator.On("EstimateFeePerKW", confTarget).Return(
@@ -281,9 +360,9 @@ func TestLinearFeeFunctionIncreaseFeeRate(t *testing.T) {
 	rt.NoError(err)
 	rt.False(increased)
 
-	// We now increase the fee rate from conf target 8 to 1 and assert we
+	// We now increase the fee rate from conf target 8 to 2 and assert we
 	// get no error and true.
-	for i := uint32(1); i < confTarget; i++ {
+	for i := uint32(1); i < confTarget-1; i++ {
 		// Increase the fee rate.
 		increased, err := f.IncreaseFeeRate(confTarget - i)
 		rt.NoError(err)
@@ -299,11 +378,17 @@ func TestLinearFeeFunctionIncreaseFeeRate(t *testing.T) {
 		rt.Equal(estimatedFeeRate+delta, f.FeeRate())
 	}
 
-	// Test that when we use a conf target of 0, we get the ending fee
+	// Test that when we use a conf target of 1, we get the ending fee
 	// rate.
-	increased, err = f.IncreaseFeeRate(0)
+	increased, err = f.IncreaseFeeRate(1)
 	rt.NoError(err)
 	rt.True(increased)
-	rt.Equal(confTarget, f.position)
+	rt.Equal(confTarget-1, f.position)
 	rt.Equal(maxFeeRate, f.currentFeeRate)
+
+	// Test that when we use a conf target of 0, ErrMaxPosition is
+	// returned.
+	increased, err = f.IncreaseFeeRate(0)
+	rt.ErrorIs(err, ErrMaxPosition)
+	rt.False(increased)
 }

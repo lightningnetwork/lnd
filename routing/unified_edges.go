@@ -281,14 +281,13 @@ func (u *edgeUnifier) getEdgeLocal(netAmtReceived lnwire.MilliSatoshi,
 		}
 
 		// We pick the local channel with the highest available
-		// bandwidth, to maximize the success probability. It
-		// can be that the channel state changes between
-		// querying the bandwidth hints and sending out the
-		// htlc.
+		// bandwidth, to maximize the success probability. It can be
+		// that the channel state changes between querying the bandwidth
+		// hints and sending out the htlc.
 		if bandwidth < maxBandwidth {
 			log.Debugf("Skipped edge %v: not max bandwidth, "+
 				"bandwidth=%v, maxBandwidth=%v",
-				bandwidth, maxBandwidth)
+				edge.policy.ChannelID, bandwidth, maxBandwidth)
 
 			continue
 		}

@@ -8,7 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"os"
 	"os/user"
@@ -350,7 +350,7 @@ type Config struct {
 	MaxPendingChannels int    `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 	BackupFilePath     string `long:"backupfilepath" description:"The target location of the channel backup file"`
 
-	FeeURL string `long:"feeurl" description:"Optional URL for external fee estimation. If no URL is specified, the method for fee estimation will depend on the chosen backend and network. Must be set for neutrino on mainnet."`
+	FeeURL string `long:"feeurl" description:"DEPRECATED: Use 'fee.url' option. Optional URL for external fee estimation. If no URL is specified, the method for fee estimation will depend on the chosen backend and network. Must be set for neutrino on mainnet." hidden:"true"`
 
 	Bitcoin      *lncfg.Chain    `group:"Bitcoin" namespace:"bitcoin"`
 	BtcdMode     *lncfg.Btcd     `group:"btcd" namespace:"btcd"`
@@ -441,6 +441,8 @@ type Config struct {
 	GcCanceledInvoicesOnTheFly bool `long:"gc-canceled-invoices-on-the-fly" description:"If true, we'll delete newly canceled invoices on the fly."`
 
 	DustThreshold uint64 `long:"dust-threshold" description:"Sets the dust sum threshold in satoshis for a channel after which dust HTLC's will be failed."`
+
+	Fee *lncfg.Fee `group:"fee" namespace:"fee"`
 
 	Invoices *lncfg.Invoices `group:"invoices" namespace:"invoices"`
 
@@ -582,6 +584,12 @@ func DefaultConfig() Config {
 		MinBackoff:         defaultMinBackoff,
 		MaxBackoff:         defaultMaxBackoff,
 		ConnectionTimeout:  tor.DefaultConnTimeout,
+
+		Fee: &lncfg.Fee{
+			MinUpdateTimeout: lncfg.DefaultMinUpdateTimeout,
+			MaxUpdateTimeout: lncfg.DefaultMaxUpdateTimeout,
+		},
+
 		SubRPCServers: &subRPCServerConfigs{
 			SignRPC:   &signrpc.Config{},
 			RouterRPC: routerrpc.DefaultConfig(),
@@ -627,9 +635,8 @@ func DefaultConfig() Config {
 			RejectCacheSize:  channeldb.DefaultRejectCacheSize,
 			ChannelCacheSize: channeldb.DefaultChannelCacheSize,
 		},
-		Prometheus:      lncfg.DefaultPrometheus(),
-		Watchtower:      lncfg.DefaultWatchtowerCfg(defaultTowerDir),
-		ProtocolOptions: lncfg.DefaultProtocol(),
+		Prometheus: lncfg.DefaultPrometheus(),
+		Watchtower: lncfg.DefaultWatchtowerCfg(defaultTowerDir),
 		HealthChecks: &lncfg.HealthCheckConfig{
 			ChainCheck: &lncfg.CheckConfig{
 				Interval: defaultChainInterval,
@@ -1660,8 +1667,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 
 	// If the experimental protocol options specify any protocol messages
 	// that we want to handle as custom messages, set them now.
-	//nolint:lll
-	customMsg := cfg.ProtocolOptions.ExperimentalProtocol.CustomMessageOverrides()
+	customMsg := cfg.ProtocolOptions.CustomMessageOverrides()
 
 	// We can safely set our custom override values during startup because
 	// startup is blocked on config parsing.
@@ -1845,7 +1851,7 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 
 		// We convert the cookie into a user name and password.
 		if conf.RPCCookie != "" {
-			cookie, err := ioutil.ReadFile(conf.RPCCookie)
+			cookie, err := os.ReadFile(conf.RPCCookie)
 			if err != nil {
 				return fmt.Errorf("cannot read cookie file: %w",
 					err)
@@ -2006,7 +2012,7 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 
 	// With the file open extract the contents of the configuration file so
 	// we can attempt to locate the RPC credentials.
-	configContents, err := ioutil.ReadAll(btcdConfigFile)
+	configContents, err := io.ReadAll(btcdConfigFile)
 	if err != nil {
 		return "", "", err
 	}
@@ -2056,7 +2062,7 @@ func extractBitcoindRPCParams(networkName, bitcoindDataDir, bitcoindConfigPath,
 
 	// With the file open extract the contents of the configuration file so
 	// we can attempt to locate the RPC credentials.
-	configContents, err := ioutil.ReadAll(bitcoindConfigFile)
+	configContents, err := io.ReadAll(bitcoindConfigFile)
 	if err != nil {
 		return "", "", "", "", err
 	}
@@ -2118,7 +2124,7 @@ func extractBitcoindRPCParams(networkName, bitcoindDataDir, bitcoindConfigPath,
 	if rpcCookiePath != "" {
 		cookiePath = rpcCookiePath
 	}
-	cookie, err := ioutil.ReadFile(cookiePath)
+	cookie, err := os.ReadFile(cookiePath)
 	if err == nil {
 		splitCookie := strings.Split(string(cookie), ":")
 		if len(splitCookie) == 2 {

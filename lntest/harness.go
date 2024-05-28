@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -104,6 +105,32 @@ type HarnessTest struct {
 	// cleaned specifies whether the cleanup has been applied for the
 	// current HarnessTest.
 	cleaned bool
+}
+
+// harnessOpts contains functional option to modify the behavior of the various
+// harness calls.
+type harnessOpts struct {
+	useAMP bool
+}
+
+// defaultHarnessOpts returns a new instance of the harnessOpts with default
+// values specified.
+func defaultHarnessOpts() harnessOpts {
+	return harnessOpts{
+		useAMP: false,
+	}
+}
+
+// HarnessOpt is a functional option that can be used to modify the behavior of
+// harness functionality.
+type HarnessOpt func(*harnessOpts)
+
+// WithAMP is a functional option that can be used to enable the AMP feature
+// for sending payments.
+func WithAMP() HarnessOpt {
+	return func(h *harnessOpts) {
+		h.useAMP = true
+	}
 }
 
 // NewHarnessTest creates a new instance of a harnessTest from a regular
@@ -1206,6 +1233,7 @@ func (h *HarnessTest) OpenChannelAssertErr(srcNode, destNode *node.HarnessNode,
 
 	// Receive an error to be sent from the stream.
 	_, err := h.receiveOpenChannelUpdate(respStream)
+	require.NotNil(h, err, "expected channel opening to fail")
 
 	// Use string comparison here as we haven't codified all the RPC errors
 	// yet.
@@ -1438,7 +1466,13 @@ func (h *HarnessTest) FundCoinsP2TR(amt btcutil.Amount,
 // all payment requests. This function does not return until all payments
 // have reached the specified status.
 func (h *HarnessTest) completePaymentRequestsAssertStatus(hn *node.HarnessNode,
-	paymentRequests []string, status lnrpc.Payment_PaymentStatus) {
+	paymentRequests []string, status lnrpc.Payment_PaymentStatus,
+	opts ...HarnessOpt) {
+
+	payOpts := defaultHarnessOpts()
+	for _, opt := range opts {
+		opt(&payOpts)
+	}
 
 	// Create a buffered chan to signal the results.
 	results := make(chan rpc.PaymentClient, len(paymentRequests))
@@ -1449,6 +1483,7 @@ func (h *HarnessTest) completePaymentRequestsAssertStatus(hn *node.HarnessNode,
 			PaymentRequest: payReq,
 			TimeoutSeconds: int32(wait.PaymentTimeout.Seconds()),
 			FeeLimitMsat:   noFeeLimitMsat,
+			Amp:            payOpts.useAMP,
 		}
 		stream := hn.RPC.SendPayment(req)
 
@@ -1477,10 +1512,10 @@ func (h *HarnessTest) completePaymentRequestsAssertStatus(hn *node.HarnessNode,
 // requests. This function does not return until all payments successfully
 // complete without errors.
 func (h *HarnessTest) CompletePaymentRequests(hn *node.HarnessNode,
-	paymentRequests []string) {
+	paymentRequests []string, opts ...HarnessOpt) {
 
 	h.completePaymentRequestsAssertStatus(
-		hn, paymentRequests, lnrpc.Payment_SUCCEEDED,
+		hn, paymentRequests, lnrpc.Payment_SUCCEEDED, opts...,
 	)
 }
 
@@ -2008,9 +2043,9 @@ func (h *HarnessTest) CalculateTxFee(tx *wire.MsgTx) btcutil.Amount {
 // CalculateTxWeight calculates the weight for a given tx.
 //
 // TODO(yy): use weight estimator to get more accurate result.
-func (h *HarnessTest) CalculateTxWeight(tx *wire.MsgTx) int64 {
+func (h *HarnessTest) CalculateTxWeight(tx *wire.MsgTx) lntypes.WeightUnit {
 	utx := btcutil.NewTx(tx)
-	return blockchain.GetTransactionWeight(utx)
+	return lntypes.WeightUnit(blockchain.GetTransactionWeight(utx))
 }
 
 // CalculateTxFeeRate calculates the fee rate for a given tx.
@@ -2020,7 +2055,7 @@ func (h *HarnessTest) CalculateTxFeeRate(
 	w := h.CalculateTxWeight(tx)
 	fee := h.CalculateTxFee(tx)
 
-	return chainfee.NewSatPerKWeight(fee, uint64(w))
+	return chainfee.NewSatPerKWeight(fee, w)
 }
 
 // CalculateTxesFeeRate takes a list of transactions and estimates the fee rate

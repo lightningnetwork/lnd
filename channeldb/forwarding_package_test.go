@@ -142,8 +142,31 @@ func checkPkgFilterEncodeDecode(t *testing.T, i uint16, f *channeldb.PkgFilter) 
 
 var (
 	chanID = lnwire.NewChanIDFromOutPoint(wire.OutPoint{})
+)
 
-	adds = []channeldb.LogUpdate{
+func testSettleFails() []channeldb.LogUpdate {
+	return []channeldb.LogUpdate{
+		{
+			LogIndex: 2,
+			UpdateMsg: &lnwire.UpdateFulfillHTLC{
+				ChanID:          chanID,
+				ID:              0,
+				PaymentPreimage: [32]byte{0},
+			},
+		},
+		{
+			LogIndex: 3,
+			UpdateMsg: &lnwire.UpdateFailHTLC{
+				ChanID: chanID,
+				ID:     1,
+				Reason: []byte{},
+			},
+		},
+	}
+}
+
+func testAdds() []channeldb.LogUpdate {
+	return []channeldb.LogUpdate{
 		{
 			LogIndex: 0,
 			UpdateMsg: &lnwire.UpdateAddHTLC{
@@ -165,26 +188,7 @@ var (
 			},
 		},
 	}
-
-	settleFails = []channeldb.LogUpdate{
-		{
-			LogIndex: 2,
-			UpdateMsg: &lnwire.UpdateFulfillHTLC{
-				ChanID:          chanID,
-				ID:              0,
-				PaymentPreimage: [32]byte{0},
-			},
-		},
-		{
-			LogIndex: 3,
-			UpdateMsg: &lnwire.UpdateFailHTLC{
-				ChanID: chanID,
-				ID:     1,
-				Reason: []byte{},
-			},
-		},
-	}
-)
+}
 
 // TestPackagerEmptyFwdPkg checks that the state transitions exhibited by a
 // forwarding package that contains no adds, fails or settles. We expect that
@@ -272,6 +276,8 @@ func TestPackagerOnlyAdds(t *testing.T) {
 	if len(fwdPkgs) != 0 {
 		t.Fatalf("no forwarding packages should exist, found %d", len(fwdPkgs))
 	}
+
+	adds := testAdds()
 
 	// Next, create and write a new forwarding package that only has add
 	// htlcs.
@@ -377,6 +383,7 @@ func TestPackagerOnlySettleFails(t *testing.T) {
 
 	// Next, create and write a new forwarding package that only has add
 	// htlcs.
+	settleFails := testSettleFails()
 	fwdPkg := channeldb.NewFwdPkg(shortChanID, 0, nil, settleFails)
 
 	nSettleFails := len(settleFails)
@@ -479,8 +486,11 @@ func TestPackagerAddsThenSettleFails(t *testing.T) {
 		t.Fatalf("no forwarding packages should exist, found %d", len(fwdPkgs))
 	}
 
+	adds := testAdds()
+
 	// Next, create and write a new forwarding package that only has add
 	// htlcs.
+	settleFails := testSettleFails()
 	fwdPkg := channeldb.NewFwdPkg(shortChanID, 0, adds, settleFails)
 
 	nAdds := len(adds)
@@ -612,8 +622,11 @@ func TestPackagerSettleFailsThenAdds(t *testing.T) {
 		t.Fatalf("no forwarding packages should exist, found %d", len(fwdPkgs))
 	}
 
+	adds := testAdds()
+
 	// Next, create and write a new forwarding package that has both add
 	// and settle/fail htlcs.
+	settleFails := testSettleFails()
 	fwdPkg := channeldb.NewFwdPkg(shortChanID, 0, adds, settleFails)
 
 	nAdds := len(adds)

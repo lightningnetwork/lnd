@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -230,7 +230,7 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 
 		var testCases []testCase
 
-		jsonText, err := ioutil.ReadFile(set.jsonFile)
+		jsonText, err := os.ReadFile(set.jsonFile)
 		require.NoError(t, err)
 
 		err = json.Unmarshal(jsonText, &testCases)
@@ -915,7 +915,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 
 	// Create the initial commitment transactions for the channel.
 	feePerKw := chainfee.SatPerKWeight(feeRate)
-	commitWeight := int64(input.CommitWeight)
+	commitWeight := lntypes.WeightUnit(input.CommitWeight)
 	if chanType.HasAnchors() {
 		commitWeight = input.AnchorCommitWeight
 	}

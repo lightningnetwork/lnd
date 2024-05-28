@@ -88,10 +88,10 @@ func TestSphinxHopIteratorForwardingInstructions(t *testing.T) {
 	for i, testCase := range testCases {
 		iterator.processedPacket = testCase.sphinxPacket
 
-		pld, err := iterator.HopPayload()
-		if err != nil {
+		pld, _, pldErr := iterator.HopPayload()
+		if pldErr != nil {
 			t.Fatalf("#%v: unable to extract forwarding "+
-				"instructions: %v", i, err)
+				"instructions: %v", i, pldErr)
 		}
 
 		fwdInfo := pld.ForwardingInfo()
@@ -216,24 +216,10 @@ func TestDecryptAndValidateFwdInfo(t *testing.T) {
 		expectedErr       error
 	}{
 		{
-			name:      "no blinding point",
-			data:      validData,
-			processor: &mockProcessor{},
-			expectedErr: ErrInvalidPayload{
-				Type:      record.BlindingPointOnionType,
-				Violation: OmittedViolation,
-			},
-		},
-		{
-			name:              "both blinding points",
-			data:              validData,
-			updateAddBlinding: &btcec.PublicKey{},
-			payloadBlinding:   &btcec.PublicKey{},
-			processor:         &mockProcessor{},
-			expectedErr: ErrInvalidPayload{
-				Type:      record.BlindingPointOnionType,
-				Violation: IncludedViolation,
-			},
+			name:        "no blinding point",
+			data:        validData,
+			processor:   &mockProcessor{},
+			expectedErr: ErrNoBlindingPoint,
 		},
 		{
 			name:              "decryption failed",
@@ -265,11 +251,18 @@ func TestDecryptAndValidateFwdInfo(t *testing.T) {
 			},
 		},
 		{
-			name:              "valid",
+			name:              "valid using update add",
 			updateAddBlinding: &btcec.PublicKey{},
 			data:              validData,
 			processor:         &mockProcessor{},
 			expectedErr:       nil,
+		},
+		{
+			name:            "valid using payload",
+			payloadBlinding: &btcec.PublicKey{},
+			data:            validData,
+			processor:       &mockProcessor{},
+			expectedErr:     nil,
 		},
 	}
 

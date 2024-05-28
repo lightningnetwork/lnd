@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -155,7 +156,7 @@ func (r *BumpRequest) MaxFeeRateAllowed() (chainfee.SatPerKWeight, error) {
 // calcSweepTxWeight calculates the weight of the sweep tx. It assumes a
 // sweeping tx always has a single output(change).
 func calcSweepTxWeight(inputs []input.Input,
-	outputPkScript []byte) (uint64, error) {
+	outputPkScript []byte) (lntypes.WeightUnit, error) {
 
 	// Use a const fee rate as we only use the weight estimator to
 	// calculate the size.
@@ -175,7 +176,7 @@ func calcSweepTxWeight(inputs []input.Input,
 		return 0, err
 	}
 
-	return uint64(estimator.weight()), nil
+	return estimator.weight(), nil
 }
 
 // BumpResult is used by the Bumper to send updates about the tx being
@@ -267,7 +268,7 @@ type TxPublisher struct {
 	cfg *TxPublisherConfig
 
 	// currentHeight is the current block height.
-	currentHeight int32
+	currentHeight atomic.Int32
 
 	// records is a map keyed by the requestCounter and the value is the tx
 	// being monitored.
@@ -373,7 +374,9 @@ func (t *TxPublisher) initializeFeeFunction(
 	}
 
 	// Get the initial conf target.
-	confTarget := calcCurrentConfTarget(t.currentHeight, req.DeadlineHeight)
+	confTarget := calcCurrentConfTarget(
+		t.currentHeight.Load(), req.DeadlineHeight,
+	)
 
 	log.Debugf("Initializing fee function with conf target=%v, budget=%v, "+
 		"maxFeeRateAllowed=%v", confTarget, req.Budget,
@@ -542,7 +545,7 @@ func (t *TxPublisher) broadcast(requestID uint64) (*BumpResult, error) {
 
 	tx := record.tx
 	log.Debugf("Publishing sweep tx %v, num_inputs=%v, height=%v",
-		txid, len(tx.TxIn), t.currentHeight)
+		txid, len(tx.TxIn), t.currentHeight.Load())
 
 	// Set the event, and change it to TxFailed if the wallet fails to
 	// publish it.
@@ -715,7 +718,7 @@ func (t *TxPublisher) monitor(blockEvent *chainntnfs.BlockEpochEvent) {
 				epoch.Height)
 
 			// Update the best known height for the publisher.
-			t.currentHeight = epoch.Height
+			t.currentHeight.Store(epoch.Height)
 
 			// Check all monitored txns to see if any of them needs
 			// to be bumped.
@@ -788,7 +791,7 @@ func (t *TxPublisher) processRecords() {
 	}
 
 	// Get the current height to be used in the following goroutines.
-	currentHeight := t.currentHeight
+	currentHeight := t.currentHeight.Load()
 
 	// For records that are not confirmed, we perform a fee bump if needed.
 	for requestID, r := range feeBumpRecords {
@@ -854,7 +857,7 @@ func (t *TxPublisher) handleFeeBumpTx(requestID uint64, r *monitorRecord,
 		// TODO(yy): send this error back to the sweeper so it can
 		// re-group the inputs?
 		log.Errorf("Failed to increase fee rate for tx %v at "+
-			"height=%v: %v", oldTxid, t.currentHeight, err)
+			"height=%v: %v", oldTxid, t.currentHeight.Load(), err)
 
 		return
 	}
@@ -862,7 +865,7 @@ func (t *TxPublisher) handleFeeBumpTx(requestID uint64, r *monitorRecord,
 	// If the fee rate was not increased, there's no need to bump the fee.
 	if !increased {
 		log.Tracef("Skip bumping tx %v at height=%v", oldTxid,
-			t.currentHeight)
+			t.currentHeight.Load())
 
 		return
 	}
@@ -1122,7 +1125,7 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input, changePkScript []byte,
 
 	// Validate and calculate the fee and change amount.
 	txFee, changeAmtOpt, locktimeOpt, err := prepareSweepTx(
-		inputs, changePkScript, feeRate, t.currentHeight,
+		inputs, changePkScript, feeRate, t.currentHeight.Load(),
 	)
 	if err != nil {
 		return nil, 0, err
@@ -1178,7 +1181,7 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input, changePkScript []byte,
 
 	// We'll default to using the current block height as locktime, if none
 	// of the inputs commits to a different locktime.
-	sweepTx.LockTime = uint32(locktimeOpt.UnwrapOr(t.currentHeight))
+	sweepTx.LockTime = uint32(locktimeOpt.UnwrapOr(t.currentHeight.Load()))
 
 	prevInputFetcher, err := input.MultiPrevOutFetcher(inputs)
 	if err != nil {
@@ -1214,8 +1217,8 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input, changePkScript []byte,
 		}
 	}
 
-	log.Debugf("Created sweep tx %v for %v inputs", sweepTx.TxHash(),
-		len(inputs))
+	log.Debugf("Created sweep tx %v for inputs:\n%v", sweepTx.TxHash(),
+		inputTypeSummary(inputs))
 
 	return sweepTx, txFee, nil
 }

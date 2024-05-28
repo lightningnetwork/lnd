@@ -216,7 +216,7 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody,
 	// Now, compute the output values depending on whether FlagReward is set
 	// in the current session's policy.
 	outputs, err := session.Policy.ComputeJusticeTxOuts(
-		t.totalAmt, int64(weightEstimate.Weight()),
+		t.totalAmt, weightEstimate.Weight(),
 		t.sweepPkScript, session.RewardPkScript,
 	)
 	if err != nil {

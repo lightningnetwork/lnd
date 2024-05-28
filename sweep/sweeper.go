@@ -767,11 +767,11 @@ func (s *UtxoSweeper) signalResult(pi *SweeperInput, result Result) {
 	listeners := pi.listeners
 
 	if result.Err == nil {
-		log.Debugf("Dispatching sweep success for %v to %v listeners",
+		log.Tracef("Dispatching sweep success for %v to %v listeners",
 			op, len(listeners),
 		)
 	} else {
-		log.Debugf("Dispatching sweep error for %v to %v listeners: %v",
+		log.Tracef("Dispatching sweep error for %v to %v listeners: %v",
 			op, len(listeners), result.Err,
 		)
 	}
@@ -830,6 +830,9 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 			outpoints[i] = inp.OutPoint()
 		}
 
+		log.Errorf("Initial broadcast failed: %v, inputs=\n%v", err,
+			inputTypeSummary(set.Inputs()))
+
 		// TODO(yy): find out which input is causing the failure.
 		s.markInputsPublishFailed(outpoints)
 
@@ -855,7 +858,7 @@ func (s *UtxoSweeper) markInputsPendingPublish(set InputSet) {
 			// It could be that this input is an additional wallet
 			// input that was attached. In that case there also
 			// isn't a pending input to update.
-			log.Debugf("Skipped marking input as pending "+
+			log.Tracef("Skipped marking input as pending "+
 				"published: %v not found in pending inputs",
 				input.OutPoint())
 
@@ -904,7 +907,7 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord,
 			// It could be that this input is an additional wallet
 			// input that was attached. In that case there also
 			// isn't a pending input to update.
-			log.Debugf("Skipped marking input as published: %v "+
+			log.Tracef("Skipped marking input as published: %v "+
 				"not found in pending inputs",
 				input.PreviousOutPoint)
 
@@ -940,7 +943,7 @@ func (s *UtxoSweeper) markInputsPublishFailed(outpoints []wire.OutPoint) {
 			// It could be that this input is an additional wallet
 			// input that was attached. In that case there also
 			// isn't a pending input to update.
-			log.Debugf("Skipped marking input as publish failed: "+
+			log.Tracef("Skipped marking input as publish failed: "+
 				"%v not found in pending inputs", op)
 
 			continue
@@ -948,7 +951,7 @@ func (s *UtxoSweeper) markInputsPublishFailed(outpoints []wire.OutPoint) {
 
 		// Valdiate that the input is in an expected state.
 		if pi.state != PendingPublish && pi.state != Published {
-			log.Errorf("Expect input %v to have %v, instead it "+
+			log.Debugf("Expect input %v to have %v, instead it "+
 				"has %v", op, PendingPublish, pi.state)
 
 			continue
@@ -1397,7 +1400,7 @@ func (s *UtxoSweeper) markInputsSwept(tx *wire.MsgTx, isOurTx bool) {
 		if !ok {
 			// It's very likely that a spending tx contains inputs
 			// that we don't know.
-			log.Debugf("Skipped marking input as swept: %v not "+
+			log.Tracef("Skipped marking input as swept: %v not "+
 				"found in pending inputs", outpoint)
 
 			continue
@@ -1734,4 +1737,27 @@ func (s *UtxoSweeper) handleBumpEvent(r *BumpResult) error {
 	}
 
 	return nil
+}
+
+// IsSweeperOutpoint determines whether the outpoint was created by the sweeper.
+//
+// NOTE: It is enough to check the txid because the sweeper will create
+// outpoints which solely belong to the internal LND wallet.
+func (s *UtxoSweeper) IsSweeperOutpoint(op wire.OutPoint) bool {
+	found, err := s.cfg.Store.IsOurTx(op.Hash)
+	// In case there is an error fetching the transaction details from the
+	// sweeper store we assume the outpoint is still used by the sweeper
+	// (worst case scenario).
+	//
+	// TODO(ziggie): Ensure that confirmed outpoints are deleted from the
+	// bucket.
+	if err != nil && !errors.Is(err, errNoTxHashesBucket) {
+		log.Errorf("failed to fetch info for outpoint(%v:%d) "+
+			"with: %v, we assume it is still in use by the sweeper",
+			op.Hash, op.Index, err)
+
+		return true
+	}
+
+	return found
 }

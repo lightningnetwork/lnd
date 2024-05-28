@@ -216,34 +216,17 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// We expect to see Alice's force close tx in the mempool.
 	ht.Miner.GetNumTxsFromMempool(1)
 
-	// Assert Alice's has the pending anchor outputs - one for local and
-	// the other for remote (invalid).
-	sweeps := ht.AssertNumPendingSweeps(alice, 2)
-	aliceAnchor := sweeps[0]
-	if aliceAnchor.Outpoint.TxidStr != waitingClose.Commitments.LocalTxid {
-		aliceAnchor = sweeps[1]
-	}
-	require.Equal(ht, aliceAnchor.Outpoint.TxidStr,
-		waitingClose.Commitments.LocalTxid)
-
 	// Mine a block which should confirm the commitment transaction
 	// broadcast as a result of the force closure. Once mined, we also
 	// expect Alice's anchor sweeping tx being published.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
-	// Assert Alice's anchor sweeping tx is found in the mempool.
-	aliceSweepTxid := ht.Miner.AssertNumTxsInMempool(1)[0]
-
-	// Add alice's anchor to our expected set of reports.
-	op := fmt.Sprintf("%v:%v", aliceAnchor.Outpoint.TxidStr,
-		aliceAnchor.Outpoint.OutputIndex)
-	aliceReports[op] = &lnrpc.Resolution{
-		ResolutionType: lnrpc.ResolutionType_ANCHOR,
-		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
-		SweepTxid:      aliceSweepTxid.String(),
-		Outpoint:       aliceAnchor.Outpoint,
-		AmountSat:      uint64(anchorSize),
-	}
+	// Assert Alice's has one pending anchor output - because she doesn't
+	// have incoming HTLCs, her outgoing HTLC won't have a deadline, thus
+	// she won't use the anchor to perform CPFP.
+	aliceAnchor := ht.AssertNumPendingSweeps(alice, 1)[0]
+	require.Equal(ht, aliceAnchor.Outpoint.TxidStr,
+		waitingClose.Commitments.LocalTxid)
 
 	// Now that the commitment has been confirmed, the channel should be
 	// marked as force closed.
@@ -290,10 +273,8 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	}
 
 	// Mine a block to trigger Carol's sweeper to make decisions on the
-	// anchor sweeping. This block will also confirm Alice's anchor
-	// sweeping tx as her anchor is used for CPFP due to there are
-	// time-sensitive HTLCs.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
+	// anchor sweeping.
+	ht.MineEmptyBlocks(1)
 
 	// Carol's sweep tx should be in the mempool already, as her output is
 	// not timelocked.
@@ -307,7 +288,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	totalFeeCarol := ht.CalculateTxFee(carolTx)
 
 	// If we have anchors, add an anchor resolution for carol.
-	op = fmt.Sprintf("%v:%v", carolAnchor.Outpoint.TxidStr,
+	op := fmt.Sprintf("%v:%v", carolAnchor.Outpoint.TxidStr,
 		carolAnchor.Outpoint.OutputIndex)
 	carolReports[op] = &lnrpc.Resolution{
 		ResolutionType: lnrpc.ResolutionType_ANCHOR,
@@ -336,27 +317,8 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// commit and anchor outputs.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
-	// Once Alice's anchor sweeping is mined, she should have no pending
-	// sweep requests atm.
-	ht.AssertNumPendingSweeps(alice, 0)
-
-	// TODO(yy): fix the case in 0.18.1 - the CPFP anchor sweeping may be
-	// replaced with a following request after the above restart - the
-	// anchor will be offered to the sweeper again with updated params,
-	// which cannot be swept due to it being uneconomical.
-	var anchorRecovered bool
-	err = wait.NoError(func() error {
-		sweepResp := alice.RPC.ListSweeps(false, 0)
-		txns := sweepResp.GetTransactionIds().TransactionIds
-
-		if len(txns) >= 1 {
-			anchorRecovered = true
-			return nil
-		}
-
-		return fmt.Errorf("expected 1 sweep tx, got %d", len(txns))
-	}, wait.DefaultTimeout)
-	ht.Logf("waiting for Alice's anchor sweep to be broadcast: %v", err)
+	// Alice should still have the anchor sweeping request.
+	ht.AssertNumPendingSweeps(alice, 1)
 
 	// The following restart checks to ensure that outputs in the
 	// kindergarten bucket are persisted while waiting for the required
@@ -399,12 +361,8 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 			return errors.New("all funds should still be in " +
 				"limbo")
 		}
-		if !anchorRecovered {
-			return nil
-		}
-		if forceClose.RecoveredBalance != anchorSize {
-			return fmt.Errorf("expected %v to be recovered",
-				anchorSize)
+		if forceClose.RecoveredBalance != 0 {
+			return errors.New("no funds should be recovered")
 		}
 
 		return nil
@@ -417,7 +375,11 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// At this point, the CSV will expire in the next block, meaning that
 	// the output should be offered to the sweeper.
-	aliceCommit := ht.AssertNumPendingSweeps(alice, 1)[0]
+	sweeps := ht.AssertNumPendingSweeps(alice, 2)
+	commitSweep, anchorSweep := sweeps[0], sweeps[1]
+	if commitSweep.AmountSat < anchorSweep.AmountSat {
+		commitSweep, anchorSweep = anchorSweep, commitSweep
+	}
 
 	// Restart Alice to ensure that she resumes watching the finalized
 	// commitment sweep txid.
@@ -438,14 +400,25 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	}
 
 	// We expect a resolution which spends our commit output.
-	op = fmt.Sprintf("%v:%v", aliceCommit.Outpoint.TxidStr,
-		aliceCommit.Outpoint.OutputIndex)
+	op = fmt.Sprintf("%v:%v", commitSweep.Outpoint.TxidStr,
+		commitSweep.Outpoint.OutputIndex)
 	aliceReports[op] = &lnrpc.Resolution{
 		ResolutionType: lnrpc.ResolutionType_COMMIT,
 		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
 		SweepTxid:      sweepingTXID.String(),
-		Outpoint:       aliceCommit.Outpoint,
+		Outpoint:       commitSweep.Outpoint,
 		AmountSat:      uint64(aliceBalance),
+	}
+
+	// Add alice's anchor to our expected set of reports.
+	op = fmt.Sprintf("%v:%v", aliceAnchor.Outpoint.TxidStr,
+		aliceAnchor.Outpoint.OutputIndex)
+	aliceReports[op] = &lnrpc.Resolution{
+		ResolutionType: lnrpc.ResolutionType_ANCHOR,
+		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
+		SweepTxid:      sweepingTXID.String(),
+		Outpoint:       aliceAnchor.Outpoint,
+		AmountSat:      uint64(anchorSize),
 	}
 
 	// Check that we can find the commitment sweep in our set of known

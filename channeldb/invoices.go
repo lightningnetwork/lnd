@@ -2139,14 +2139,14 @@ func (d *DB) DeleteCanceledInvoices(_ context.Context) error {
 			invoiceIndexBucket,
 		)
 		if invoiceIndex == nil {
-			return invpkg.ErrNoInvoicesCreated
+			return nil
 		}
 
 		invoiceAddIndex := invoices.NestedReadWriteBucket(
 			addIndexBucket,
 		)
 		if invoiceAddIndex == nil {
-			return invpkg.ErrNoInvoicesCreated
+			return nil
 		}
 
 		payAddrIndex := tx.ReadWriteBucket(payAddrIndexBucket)

@@ -539,6 +539,12 @@ type Config struct {
 	// abstracts away the handling of many alias functions.
 	AliasManager aliasHandler
 
+	// IsSweeperOutpoint queries the sweeper store for successfully
+	// published sweeps. This is useful to decide for the internal wallet
+	// backed funding flow to not use utxos still being swept by the sweeper
+	// subsystem.
+	IsSweeperOutpoint func(wire.OutPoint) bool
+
 	// AuxLeafStore is an optional store that can be used to store auxiliary
 	// leaves for certain custom channel types.
 	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
@@ -1580,6 +1586,8 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 			// Fail the funding flow.
 			flowErr := fmt.Errorf("channel acceptor blocked " +
 				"zero-conf channel negotiation")
+			log.Errorf("Cancelling funding flow for %v based on "+
+				"channel acceptor response: %v", cid, flowErr)
 			f.failFundingFlow(peer, cid, flowErr)
 			return
 		}
@@ -1594,6 +1602,9 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 				// Fail the funding flow.
 				flowErr := fmt.Errorf("scid-alias feature " +
 					"must be negotiated for zero-conf")
+				log.Errorf("Cancelling funding flow for "+
+					"zero-conf channel %v: %v", cid,
+					flowErr)
 				f.failFundingFlow(peer, cid, flowErr)
 				return
 			}
@@ -1610,7 +1621,8 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	case public && scid:
 		err = fmt.Errorf("option-scid-alias chantype for public " +
 			"channel")
-		log.Error(err)
+		log.Errorf("Cancelling funding flow for public channel %v "+
+			"with scid-alias: %v", cid, err)
 		f.failFundingFlow(peer, cid, err)
 
 		return
@@ -1619,7 +1631,8 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	// unadvertised channels for now.
 	case commitType.IsTaproot() && public:
 		err = fmt.Errorf("taproot channel type for public channel")
-		log.Error(err)
+		log.Errorf("Cancelling funding flow for public taproot "+
+			"channel %v: %v", cid, err)
 		f.failFundingFlow(peer, cid, err)
 
 		return
@@ -4731,11 +4744,27 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		MinConfs:          msg.MinConfs,
 		CommitType:        commitType,
 		ChanFunder:        msg.ChanFunder,
-		ZeroConf:          zeroConf,
-		OptionScidAlias:   scid,
-		ScidAliasFeature:  scidFeatureVal,
-		Memo:              msg.Memo,
-		TapscriptRoot:     tapscriptRoot,
+		// Unconfirmed Utxos which are marked by the sweeper subsystem
+		// are excluded from the coin selection because they are not
+		// final and can be RBFed by the sweeper subsystem.
+		AllowUtxoForFunding: func(u lnwallet.Utxo) bool {
+			// Utxos with at least 1 confirmation are safe to use
+			// for channel openings because they don't bare the risk
+			// of being replaced (BIP 125 RBF).
+			if u.Confirmations > 0 {
+				return true
+			}
+
+			// Query the sweeper storage to make sure we don't use
+			// an unconfirmed utxo still in use by the sweeper
+			// subsystem.
+			return !f.cfg.IsSweeperOutpoint(u.OutPoint)
+		},
+		ZeroConf:         zeroConf,
+		OptionScidAlias:  scid,
+		ScidAliasFeature: scidFeatureVal,
+		Memo:             msg.Memo,
+		TapscriptRoot:    tapscriptRoot,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)

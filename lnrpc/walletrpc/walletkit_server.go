@@ -10,7 +10,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"os"
 	"path/filepath"
@@ -289,7 +288,7 @@ func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		err = ioutil.WriteFile(macFilePath, walletKitMacBytes, 0644)
+		err = os.WriteFile(macFilePath, walletKitMacBytes, 0644)
 		if err != nil {
 			_ = os.Remove(macFilePath)
 			return nil, nil, err
@@ -1551,12 +1550,73 @@ func (w *WalletKit) fundPsbtInternalWallet(account string,
 				return err
 			}
 
+			// filterFn makes sure utxos which are unconfirmed and
+			// still used by the sweeper are not used.
+			filterFn := func(u *lnwallet.Utxo) bool {
+				// Confirmed utxos are always allowed.
+				if u.Confirmations > 0 {
+					return true
+				}
+
+				// Unconfirmed utxos in use by the sweeper are
+				// not stable to use because they can be
+				// replaced.
+				if w.cfg.Sweeper.IsSweeperOutpoint(u.OutPoint) {
+					log.Warnf("Cannot use unconfirmed "+
+						"utxo=%v because it is "+
+						"unstable and could be "+
+						"replaced", u.OutPoint)
+
+					return false
+				}
+
+				return true
+			}
+
+			eligibleUtxos := fn.Filter(filterFn, utxos)
+
 			// Validate all inputs against our known list of UTXOs
 			// now.
-			err = verifyInputsUnspent(packet.UnsignedTx.TxIn, utxos)
+			err = verifyInputsUnspent(
+				packet.UnsignedTx.TxIn, eligibleUtxos,
+			)
 			if err != nil {
 				return err
 			}
+		}
+
+		// currentHeight is needed to determine whether the internal
+		// wallet utxo is still unconfirmed.
+		_, currentHeight, err := w.cfg.Chain.GetBestBlock()
+		if err != nil {
+			return fmt.Errorf("unable to retrieve current "+
+				"height: %v", err)
+		}
+
+		// restrictUnstableUtxos is a filter function which disallows
+		// the usage of unconfirmed outputs published (still in use) by
+		// the sweeper.
+		restrictUnstableUtxos := func(utxo wtxmgr.Credit) bool {
+			// Wallet utxos which are unmined have a height
+			// of -1.
+			if utxo.Height != -1 && utxo.Height <= currentHeight {
+				// Confirmed utxos are always allowed.
+				return true
+			}
+
+			// Utxos used by the sweeper are not used for
+			// channel openings.
+			allowed := !w.cfg.Sweeper.IsSweeperOutpoint(
+				utxo.OutPoint,
+			)
+			if !allowed {
+				log.Warnf("Cannot use unconfirmed "+
+					"utxo=%v because it is "+
+					"unstable and could be "+
+					"replaced", utxo.OutPoint)
+			}
+
+			return allowed
 		}
 
 		// We made sure the input from the user is as sane as possible.
@@ -1564,8 +1624,8 @@ func (w *WalletKit) fundPsbtInternalWallet(account string,
 		// lock any coins but might still change the wallet DB by
 		// generating a new change address.
 		changeIndex, err := w.cfg.Wallet.FundPsbt(
-			packet, minConfs, feeSatPerKW, account,
-			keyScope, strategy,
+			packet, minConfs, feeSatPerKW, account, keyScope,
+			strategy, restrictUnstableUtxos,
 		)
 		if err != nil {
 			return fmt.Errorf("wallet couldn't fund PSBT: %w", err)
@@ -1600,8 +1660,6 @@ func (w *WalletKit) fundPsbtInternalWallet(account string,
 // fundPsbtCoinSelect uses the "new" PSBT funding method using the channel
 // funding coin selection algorithm that allows specifying custom inputs while
 // selecting coins.
-//
-//nolint:funlen
 func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 	packet *psbt.Packet, minConfs int32,
 	changeType chanfunding.ChangeAddressType,
@@ -1677,7 +1735,7 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 	// Do we already have enough inputs specified to pay for the TX as it
 	// is? In that case we only need to allocate any change, if there is
 	// any.
-	packetFeeNoChange := feeRate.FeeForWeight(int64(estimator.Weight()))
+	packetFeeNoChange := feeRate.FeeForWeight(estimator.Weight())
 	if inputSum >= outputSum+packetFeeNoChange {
 		// Calculate the packet's fee with a change output so, so we can
 		// let the coin selection algorithm decide whether to use a
@@ -1689,9 +1747,7 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 		case chanfunding.P2WKHChangeAddress:
 			estimator.AddP2WKHOutput()
 		}
-		packetFeeWithChange := feeRate.FeeForWeight(
-			int64(estimator.Weight()),
-		)
+		packetFeeWithChange := feeRate.FeeForWeight(estimator.Weight())
 
 		changeAmt, needMore, err := chanfunding.CalculateChangeAmount(
 			inputSum, outputSum, packetFeeNoChange,

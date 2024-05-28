@@ -107,7 +107,8 @@
   which with the default fee allocation in place will eventually lead to the
   downsizing to the fee floor (1 sat/vByte) in the worst case.
 
-* [Removed](https://github.com/lightningnetwork/lnd/pull/8577) some unreachable code
+* [Removed](https://github.com/lightningnetwork/lnd/pull/8577) some unreachable
+  code.
 
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/8609) a function
   call where arguments were swapped.
@@ -118,6 +119,15 @@
 
 * [Fixed a bug in `btcd` that caused an incompatibility with
   `bitcoind v27.0`](https://github.com/lightningnetwork/lnd/pull/8573).
+
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8545) UTXO selection
+  for the internal channel funding flow (Single and Batch Funding Flow). Now
+  UTXOs which are unconfirmed and originated from the sweeper subsystem are not
+  selected because they bear the risk of being replaced (BIP 125 RBF).
+  
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8621) the behaviour of
+  neutrino LND nodes which would lose sync in case they had very unstable
+  peer connection.
 
 # New Features
 ## Functional Enhancements
@@ -136,13 +146,13 @@
   can be enabled with the option `accept-positive-inbound-fees`.
 
 * A new config value,
-  [sweeper.maxfeerate](https://github.com/lightningnetwork/lnd/pull/7823), is
+  [`sweeper.maxfeerate`](https://github.com/lightningnetwork/lnd/pull/7823), is
   added so users can specify the max allowed fee rate when sweeping on-chain
-  funds. The default value is 1000 sat/vb. Setting this value below 100 sat/vb
+  funds. The default value is 1000 sat/vB. Setting this value below 100 sat/vB
   is not allowed, as low fee rate can cause transactions not confirming in
   time, which could result in fund loss.
   Please note that the actual fee rate to be used is determined by the fee
-  estimator used(for instance `bitcoind`), and this value is a cap on the max
+  estimator used (for instance `bitcoind`), and this value is a cap on the max
   allowed value. So it's expected that this cap is rarely hit unless there's
   mempool congestion.
 
@@ -195,13 +205,28 @@
   `lnd.conf`](https://github.com/lightningnetwork/lnd/pull/8310)
   for the `rpcuser` and `rpcpass` fields to better protect the secrets.
 
-* When computing a minimum fee for transaction construction, `lnd` [now takes our
-bitcoin peers' feefilter values into account](https://github.com/lightningnetwork/lnd/pull/8418).
+* When computing a minimum fee for transaction construction, `lnd` [now takes
+  its bitcoin peers' `feefilter` values into
+  account](https://github.com/lightningnetwork/lnd/pull/8418).
+
+* Web fee estimator settings have been moved into a new `fee` config group.
+  A new `fee.url` option has been added within this group that replaces the old
+  `feeurl` option, which is now deprecated. Additionally, [two new config values,
+  fee.min-update-timeout and fee.max-update-timeout](https://github.com/lightningnetwork/lnd/pull/8484)
+  are added to allow users to specify the minimum and maximum time between fee
+  updates from the web fee estimator. The default values are 5 minutes and 20
+  minutes respectively. These values are used to prevent the fee estimator from
+  being queried too frequently. This replaces previously hardcoded values that
+  were set to the same values as the new defaults. The previously deprecated
+  `neutrino.feeurl` option has been removed.
 
 * [Preparatory work](https://github.com/lightningnetwork/lnd/pull/8159) for 
   forwarding of blinded routes was added, along with [support](https://github.com/lightningnetwork/lnd/pull/8160)
-  for forwarding blinded payments. Forwarding of blinded payments is disabled 
-  by default, and the feature is not yet advertised to the network.
+  for forwarding blinded payments and [error handling](https://github.com/lightningnetwork/lnd/pull/8485).
+  With this change, LND is now eligible to be selected as part of a blinded 
+  route and can forward payments on behalf of nodes that have support for 
+  receiving to blinded paths. This upgrade provides a meaningful improvement 
+  to the anonymity set and usability of blinded paths in the Lightning Network.
 
 * Introduced [fee bumper](https://github.com/lightningnetwork/lnd/pull/8424) to
   handle bumping the fees of sweeping transactions properly. A
@@ -250,7 +275,7 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 
 * Deprecate `bumpclosefee` for `bumpforceclosefee` to accommodate for the fact 
   that only force closing transactions can be bumped to avoid confusion. 
-  Moreover allow to specify a max fee rate range when coop closing a channel.
+  Moreover, allow to specify a max fee rate range when coop closing a channel.
   [Deprecate bumpclosefee for bumpforceclosefee and add `max_fee_rate` option
    to `closechannel` cmd](https://github.com/lightningnetwork/lnd/pull/8350).
 
@@ -259,7 +284,9 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 
 * [Man pages](https://github.com/lightningnetwork/lnd/pull/8525) Generate man
   pages automatically using `lncli generatemanpage` command for both `lncli`
-  and `lnd` commands when running `make install` in the Makefile.
+  and `lnd` commands when running 
+  [`make install-all`](https://github.com/lightningnetwork/lnd/pull/8739) in 
+  the Makefile.
 
 # Improvements
 ## Functional Updates
@@ -286,6 +313,13 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   added to `chainHealthCheck` to make sure chain backend `bitcoind` and `btcd`
   maintain a healthy connection to the network by checking the number of
   outbound peers if they are below 6.
+
+* [Add inbound fees](https://github.com/lightningnetwork/lnd/pull/8723) to 
+  `subscribeChannelGraph`.
+
+* [Moved](https://github.com/lightningnetwork/lnd/pull/8744) the experimental
+  "custom" options to the main protocol config so that they can be used without
+  the dev build flag set.
 
 ### Logging
 * [Add the htlc amount](https://github.com/lightningnetwork/lnd/pull/8156) to
@@ -329,15 +363,8 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 
 * [Coin Selection Strategy](https://github.com/lightningnetwork/lnd/pull/8515)
   add coin selection strategy option to the following on-chain RPC calls
-  `EstimateFee`, `SendMany`, `SendCoins`, `BatchOpenChannel`, `SendOutputs`, and `FundPsbt`.
-
-* Previously when callng `SendCoins`, `SendMany`, `OpenChannel` and
-  `CloseChannel` for coop close, it is allowed to specify both an empty
-  `SatPerVbyte` and `TargetConf`, and a default conf target of 6 will be used.
-  This is [no longer allowed](
-  https://github.com/lightningnetwork/lnd/pull/8422) and the caller must
-  specify either `SatPerVbyte` or `TargetConf` so the fee estimator can do a
-  proper fee estimation.
+  `EstimateFee`, `SendMany`, `SendCoins`, `BatchOpenChannel`, `SendOutputs`, and
+  `FundPsbt`.
 
 * `BumpFee` has been updated to take advantage of the [new budget-based
   sweeper](https://github.com/lightningnetwork/lnd/pull/8667). The param
@@ -346,6 +373,16 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   outputs. In addition, `PendingSweep` has added new fields `immediate`,
   `budget`, and `deadline_height`, the fields `force`, `requested_conf_target`,
   and `next_broadcast_height` are deprecated.
+
+* [Delete All Payments RPC](https://github.com/lightningnetwork/lnd/pull/8672)
+  adds `all_payments` option to the `DeleteAllPayments` RPC. This update
+  ensures that the arguments are provided when calling `DeleteAllPayments` RPC,
+  whether through gRPC or the REST API, due to the destructive nature of the
+  operation.
+
+* When paying an AMP payment request, [the `--amp` flag is now
+  required](https://github.com/lightningnetwork/lnd/pull/8681) to be consistent
+  with the flow when a payment request isn't used. 
 
 ## lncli Updates
 
@@ -381,7 +418,10 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   In particular, the complexity involved in the lifecycle loop has been
   decoupled into logical steps, with each step having its own responsibility,
   making it easier to reason about the payment flow.
- 
+
+* [Remove io/ioutil package 
+  dependence](https://github.com/lightningnetwork/lnd/pull/7765).
+
 * [Add a watchtower tower client
   multiplexer](https://github.com/lightningnetwork/lnd/pull/7702) to manage
   tower clients of different types.
@@ -401,6 +441,21 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   manage the lifecycle of the inputs.
 
 ## Breaking Changes
+
+* Previously when calling `SendCoins`, `SendMany`, `OpenChannel` and
+  `CloseChannel` for coop close, it is allowed to specify both an empty
+  `SatPerVbyte` and `TargetConf`, and a default conf target of 6 will be used.
+  This will [no longer be
+  allowed](https://github.com/lightningnetwork/lnd/pull/8422) in the next
+  release (v0.19.0) and the caller must specify either `SatPerVbyte` or
+  `TargetConf` so the fee estimator can do a proper fee estimation. For current
+  release, [an error will be
+  logged](https://github.com/lightningnetwork/lnd/pull/8693) when no values are
+  specified.
+
+* Removed deprecated `neutrino.feeurl` option. Please use the newer `fee.url`
+  option instead.
+
 ## Performance Improvements
 
 * Watchtower client DB migration to massively [improve the start-up 
@@ -482,7 +537,7 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   settings between `sqldb` and `kvdb` packages.
 
 * [Expanded SweeperStore](https://github.com/lightningnetwork/lnd/pull/8147) to
-  also store the feerate, fees paid, and whether it's published or not for a
+  also store the fee rate, fees paid, and whether it's published or not for a
   given sweeping transaction.
 
 ## Code Health
@@ -490,29 +545,61 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 
   from `channeldb` schema structs.
 
-## Tooling and Documentation
-
 # Contributors (Alphabetical Order)
 
 * Alex Akselrod
+* Alex Sears
 * Amin Bashiri
 * Andras Banki-Horvath
+* AtomicInnovation321
+* bartoli
 * BitcoinerCoderBob
+* bitromortac
+* bota87
+* Bufo
+* Calvin Zachman
 * Carla Kirk-Cohen
+* cristiantroy
+* cuinix
+* davisv7
 * Elle Mouton
 * ErikEk
+* Eugene Siegel
 * Feelancer21
+* ffranr
+* Hao Wang
+* hidewrong
 * Jesse de Wit
+* João Thallis
+* Jonathan Harvey-Buschel
 * Joost Jager
+* Jordi Montes
 * Keagan McClelland
+* kilrau
+* mani2310
 * Marcos Fernandez Perez
 * Matt Morehouse
+* Michael Rooke
 * Mohamed Awnallah
+* Olaoluwa Osuntokun
+* Oliver Gugger
 * Ononiwu Maureen Chiamaka
+* Sam Korn
+* saubyk
+* Simone Ragonesi
 * Slyghtning
+* tdb3
 * Tee8z
+* testwill
+* Thabokani
+* threewebcode
+* Tom Kirkpatrick
 * Turtle
-* Hao Wang
+* twofaktor
+* vuittont60
 * w3irdrobot
+* weiliy
+* xiaoxianBoy
 * Yong Yu
+* zhiqiangxu
 * Ziggie

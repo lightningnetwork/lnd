@@ -297,11 +297,12 @@ func TestTxWeightEstimator(t *testing.T) {
 			tx.AddTxOut(&wire.TxOut{PkScript: p2shScript})
 		}
 
-		expectedWeight := blockchain.GetTransactionWeight(btcutil.NewTx(tx))
-		if weightEstimate.Weight() != int(expectedWeight) {
-			t.Errorf("Case %d: Got wrong weight: expected %d, got %d",
-				i, expectedWeight, weightEstimate.Weight())
-		}
+		expectedWeight := blockchain.GetTransactionWeight(
+			btcutil.NewTx(tx),
+		)
+		require.EqualValuesf(t, expectedWeight, weightEstimate.Weight(),
+			"Case %d: Got wrong weight: expected %d, got %d",
+			i, expectedWeight, weightEstimate.Weight())
 	}
 }
 

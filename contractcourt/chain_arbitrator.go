@@ -1311,6 +1311,10 @@ func (c *ChainArbitrator) FindOutgoingHTLCDeadline(scid lnwire.ShortChannelID,
 			continue
 		}
 
+		// Make sure the channel arbitrator has the latest view of its
+		// active HTLCs.
+		channelArb.updateActiveHTLCs()
+
 		// Iterate all the known HTLCs to find the targeted incoming
 		// HTLC.
 		for _, htlcs := range channelArb.activeHTLCs {

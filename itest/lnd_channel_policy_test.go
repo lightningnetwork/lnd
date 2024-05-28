@@ -45,7 +45,9 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	nodes := []*node.HarnessNode{alice, bob}
 
 	// Alice and Bob should see each other's ChannelUpdates, advertising the
-	// default routing policies.
+	// default routing policies. We do not currently set any inbound fees.
+	// The inbound base and inbound fee rate are advertised with a default
+	// of 0.
 	expectedPolicy := &lnrpc.RoutingPolicy{
 		FeeBaseMsat:      defaultFeeBase,
 		FeeRateMilliMsat: defaultFeeRate,
@@ -227,9 +229,9 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	require.NoError(ht, err, "unable to receive payment stream")
 	require.Empty(ht, sendResp.PaymentError, "expected payment to succeed")
 
-	// With our little cluster set up, we'll update the fees and the max
-	// htlc size for the Bob side of the Alice->Bob channel, and make sure
-	// all nodes learn about it.
+	// With our little cluster set up, we'll update the outbound fees and
+	// the max htlc size for the Bob side of the Alice->Bob channel, and
+	// make sure all nodes learn about it. Inbound fees remain at 0.
 	baseFee := int64(1500)
 	feeRate := int64(12)
 	timeLockDelta := uint32(66)
@@ -298,17 +300,25 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	feeRate = int64(123)
 	timeLockDelta = uint32(22)
 	maxHtlc *= 2
+	inboundBaseFee := int32(-400)
+	inboundFeeRatePpm := int32(-60)
 
 	expectedPolicy.FeeBaseMsat = baseFee
 	expectedPolicy.FeeRateMilliMsat = testFeeBase * feeRate
 	expectedPolicy.TimeLockDelta = timeLockDelta
 	expectedPolicy.MaxHtlcMsat = maxHtlc
+	expectedPolicy.InboundFeeBaseMsat = inboundBaseFee
+	expectedPolicy.InboundFeeRateMilliMsat = inboundFeeRatePpm
 
 	req = &lnrpc.PolicyUpdateRequest{
 		BaseFeeMsat:   baseFee,
 		FeeRate:       float64(feeRate),
 		TimeLockDelta: timeLockDelta,
 		MaxHtlcMsat:   maxHtlc,
+		InboundFee: &lnrpc.InboundFee{
+			BaseFeeMsat: inboundBaseFee,
+			FeeRatePpm:  inboundFeeRatePpm,
+		},
 	}
 	req.Scope = &lnrpc.PolicyUpdateRequest_Global{}
 	alice.RPC.UpdateChannelPolicy(req)
@@ -370,10 +380,13 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 		)
 	}
 
-	// Double the base fee and attach to the policy.
+	// Double the base fee and attach to the policy. Moreover, we set the
+	// inbound fee to nil and test that it does not change the propagated
+	// inbound fee.
 	baseFee1 := baseFee * 2
 	expectedPolicy.FeeBaseMsat = baseFee1
 	req.BaseFeeMsat = baseFee1
+	req.InboundFee = nil
 	assertAliceAndBob(req, expectedPolicy)
 
 	// Check that Carol has both heard the policy and updated it in her

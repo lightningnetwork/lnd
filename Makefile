@@ -69,6 +69,7 @@ DOCKER_TOOLS = docker run \
   --rm \
   -v $(shell bash -c "go env GOCACHE || (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache \
   -v $(shell bash -c "go env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
+  -v $(shell bash -c "mkdir -p /tmp/go-lint-cache; echo /tmp/go-lint-cache"):/root/.cache/golangci-lint \
   -v $$(pwd):/build lnd-tools
 
 GREEN := "\\033[0;32m"
@@ -110,7 +111,7 @@ build:
 build-itest:
 	@$(call print, "Building itest btcd and lnd.")
 	CGO_ENABLED=0 $(GOBUILD) -tags="integration" -o itest/btcd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(BTCD_PKG)
-	CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" -o itest/lnd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(PKG)/cmd/lnd
+	CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" $(ITEST_COVERAGE) -o itest/lnd-itest$(EXEC_SUFFIX) $(DEV_LDFLAGS) $(PKG)/cmd/lnd
 
 	@$(call print, "Building itest binary for ${backend} backend.")
 	CGO_ENABLED=0 $(GOTEST) -v ./itest -tags="$(DEV_TAGS) $(RPC_TAGS) integration $(backend)" -c -o itest/itest.test$(EXEC_SUFFIX)
@@ -135,8 +136,13 @@ manpages:
 	@$(call print, "Generating man pages lncli.1 and lnd.1.")
 	./scripts/gen_man_pages.sh $(DESTDIR) $(PREFIX)
 
-#? install: Build and install lnd and lncli binaries, place them in $GOPATH/bin, generate and install man pages
-install: install-binaries manpages
+#? install: Build and install lnd and lncli binaries and place them in $GOPATH/bin.
+install: install-binaries
+
+#? install-all: Performs all the same tasks as the install command along with generating and
+# installing the man pages for the lnd and lncli binaries. This command is useful in an
+# environment where a user has root access and so has write access to the man page directory.
+install-all: install manpages
 
 #? release-install: Build and install lnd and lncli release binaries, place them in $GOPATH/bin
 release-install:
@@ -197,6 +203,7 @@ itest-only: db-instance
 	@$(call print, "Running integration tests with ${backend} backend.")
 	rm -rf itest/*.log itest/.logs-*; date
 	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_part.sh 0 1 $(TEST_FLAGS) $(ITEST_FLAGS)
+	$(COLLECT_ITEST_COVERAGE)
 
 #? itest: Build and run integration tests
 itest: build-itest itest-only
@@ -209,6 +216,7 @@ itest-parallel: build-itest db-instance
 	@$(call print, "Running tests")
 	rm -rf itest/*.log itest/.logs-*; date
 	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_parallel.sh $(ITEST_PARALLELISM) $(NUM_ITEST_TRANCHES) $(TEST_FLAGS) $(ITEST_FLAGS)
+	$(COLLECT_ITEST_COVERAGE)
 
 #? itest-clean: Kill all running itest processes
 itest-clean:

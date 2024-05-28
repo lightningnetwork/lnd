@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -242,13 +243,15 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 
 	// Based on the channel type, we determine the initial commit weight
 	// and fee.
-	commitWeight := int64(input.CommitWeight)
+	commitWeight := input.CommitWeight
 	if req.CommitType.IsTaproot() {
 		commitWeight = input.TaprootCommitWeight
 	} else if req.CommitType.HasAnchors() {
-		commitWeight = int64(input.AnchorCommitWeight)
+		commitWeight = input.AnchorCommitWeight
 	}
-	commitFee := req.CommitFeePerKw.FeeForWeight(commitWeight)
+	commitFee := req.CommitFeePerKw.FeeForWeight(
+		lntypes.WeightUnit(commitWeight),
+	)
 
 	localFundingMSat := lnwire.NewMSatFromSatoshis(localFundingAmt)
 	// TODO(halseth): make method take remote funding amount directly

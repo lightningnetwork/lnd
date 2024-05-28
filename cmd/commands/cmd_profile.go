@@ -2,7 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"strings"
@@ -423,7 +422,7 @@ func profileAddMacaroon(ctx *cli.Context) error {
 
 	// Now load and possibly encrypt the macaroon file.
 	macPath := lncfg.CleanAndExpandPath(ctx.GlobalString("macaroonpath"))
-	macBytes, err := ioutil.ReadFile(macPath)
+	macBytes, err := os.ReadFile(macPath)
 	if err != nil {
 		return fmt.Errorf("unable to read macaroon path: %w", err)
 	}

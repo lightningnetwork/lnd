@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"sync"
 	"testing"
 	"testing/quick"
 	"time"
@@ -22,6 +23,12 @@ import (
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/stretchr/testify/require"
 )
+
+// sqliteConstructorMu is used to ensure that only one thread can call the
+// sqldb.NewTestSqliteDB constructor at a time. This is a temporary workaround
+// that can be removed once this race condition in the sqlite repo is resolved:
+// https://gitlab.com/cznic/sqlite/-/issues/180
+var sqliteConstructorMu sync.Mutex
 
 var (
 	// htlcModifierMock is a mock implementation of the invoice HtlcModifier
@@ -136,7 +143,9 @@ func TestInvoiceRegistry(t *testing.T) {
 
 		var db *sqldb.BaseDB
 		if sqlite {
+			sqliteConstructorMu.Lock()
 			db = sqldb.NewTestSqliteDB(t).BaseDB
+			sqliteConstructorMu.Unlock()
 		} else {
 			db = sqldb.NewTestPostgresDB(t, pgFixture).BaseDB
 		}

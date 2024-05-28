@@ -294,7 +294,7 @@ type FeeSchema struct {
 
 	// InboundFee is the inbound fee schedule that applies to forwards
 	// coming in through a channel to which this FeeSchema pertains.
-	InboundFee models.InboundFee
+	InboundFee fn.Option[models.InboundFee]
 }
 
 // ChannelPolicy holds the parameters that determine the policy we enforce

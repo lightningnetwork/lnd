@@ -551,8 +551,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoOptionScidAlias:        !cfg.ProtocolOptions.ScidAlias(),
 		NoZeroConf:               !cfg.ProtocolOptions.ZeroConf(),
 		NoAnySegwit:              cfg.ProtocolOptions.NoAnySegwit(),
-		CustomFeatures:           cfg.ProtocolOptions.ExperimentalProtocol.CustomFeatures(),
+		CustomFeatures:           cfg.ProtocolOptions.CustomFeatures(),
 		NoTaprootChans:           !cfg.ProtocolOptions.TaprootChans,
+		NoRouteBlinding:          cfg.ProtocolOptions.NoRouteBlinding(),
 	})
 	if err != nil {
 		return nil, err
@@ -1514,6 +1515,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
 		DeleteAliasEdge:      deleteAliasEdge,
 		AliasManager:         s.aliasMgr,
+		IsSweeperOutpoint:    s.sweeper.IsSweeperOutpoint,
 		AuxFundingController: implCfg.AuxFundingController,
 	})
 	if err != nil {
@@ -3532,7 +3534,7 @@ func (s *server) nextPeerBackoff(pubStr string,
 	return s.cfg.MinBackoff
 }
 
-// shouldDropConnection determines if our local connection to a remote peer
+// shouldDropLocalConnection determines if our local connection to a remote peer
 // should be dropped in the case of concurrent connection establishment. In
 // order to deterministically decide which connection should be dropped, we'll
 // utilize the ordering of the local and remote public key. If we didn't use

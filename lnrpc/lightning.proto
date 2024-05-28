@@ -4251,6 +4251,10 @@ message DeleteAllPaymentsRequest {
     Only delete failed HTLCs from payments, not the payment itself.
     */
     bool failed_htlcs_only = 2;
+
+    // Delete all payments. NOTE: Using this option requires careful
+    // consideration as it is a destructive operation.
+    bool all_payments = 3;
 }
 
 message DeletePaymentResponse {
@@ -4327,6 +4331,8 @@ enum FeatureBit {
     ANCHORS_OPT = 21;
     ANCHORS_ZERO_FEE_HTLC_REQ = 22;
     ANCHORS_ZERO_FEE_HTLC_OPT = 23;
+    ROUTE_BLINDING_REQUIRED = 24;
+    ROUTE_BLINDING_OPTIONAL = 25;
     AMP_REQ = 30;
     AMP_OPT = 31;
 }
@@ -4383,6 +4389,16 @@ message FeeReportResponse {
     uint64 month_fee_sum = 4;
 }
 
+message InboundFee {
+    // The inbound base fee charged regardless of the number of milli-satoshis
+    // received in the channel. By default, only negative values are accepted.
+    int32 base_fee_msat = 1;
+
+    // The effective inbound fee rate in micro-satoshis (parts per million).
+    // By default, only negative values are accepted.
+    int32 fee_rate_ppm = 2;
+}
+
 message PolicyUpdateRequest {
     oneof scope {
         // If set, then this update applies to all currently active channels.
@@ -4416,8 +4432,9 @@ message PolicyUpdateRequest {
     // If true, min_htlc_msat is applied.
     bool min_htlc_msat_specified = 8;
 
-    int32 inbound_base_fee_msat = 10;
-    int32 inbound_fee_rate_ppm = 11;
+    // Optional inbound fee. If unset, the previously set value will be
+    // retained [EXPERIMENTAL].
+    InboundFee inbound_fee = 10;
 }
 
 enum UpdateFailure {

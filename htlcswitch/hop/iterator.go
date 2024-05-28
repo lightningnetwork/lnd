@@ -17,7 +17,68 @@ import (
 var (
 	// ErrDecodeFailed is returned when we can't decode blinded data.
 	ErrDecodeFailed = errors.New("could not decode blinded data")
+
+	// ErrNoBlindingPoint is returned when we have not provided a blinding
+	// point for a validated payload with encrypted data set.
+	ErrNoBlindingPoint = errors.New("no blinding point set for validated " +
+		"blinded hop")
 )
+
+// RouteRole represents the different types of roles a node can have as a
+// recipient of a HTLC.
+type RouteRole uint8
+
+const (
+	// RouteRoleCleartext represents a regular route hop.
+	RouteRoleCleartext RouteRole = iota
+
+	// RouteRoleIntroduction represents an introduction node in a blinded
+	// path, characterized by a blinding point in the onion payload.
+	RouteRoleIntroduction
+
+	// RouteRoleRelaying represents a relaying node in a blinded path,
+	// characterized by a blinding point in update_add_htlc.
+	RouteRoleRelaying
+)
+
+// String representation of a role in a route.
+func (h RouteRole) String() string {
+	switch h {
+	case RouteRoleCleartext:
+		return "cleartext"
+
+	case RouteRoleRelaying:
+		return "blinded relay"
+
+	case RouteRoleIntroduction:
+		return "introduction node"
+
+	default:
+		return fmt.Sprintf("unknown route role: %d", h)
+	}
+}
+
+// NewRouteRole returns the role we're playing in a route depending on the
+// blinding points set (or not). If we are in the situation where we received
+// blinding points in both the update add message and the payload:
+//   - We must have had a valid update add blinding point, because we were able
+//     to decrypt our onion to get the payload blinding point.
+//   - We return a relaying node role, because an introduction node (by
+//     definition) does not receive a blinding point in update add.
+//   - We assume the sending node to be buggy (including a payload blinding
+//     where it shouldn't), and rely on validation elsewhere to handle this.
+func NewRouteRole(updateAddBlinding, payloadBlinding bool) RouteRole {
+	switch {
+	case updateAddBlinding:
+		return RouteRoleRelaying
+
+	case payloadBlinding:
+		return RouteRoleIntroduction
+
+	default:
+		return RouteRoleCleartext
+	}
+}
 
 // Iterator is an interface that abstracts away the routing information
 // included in HTLC's which includes the entirety of the payment path of an
@@ -30,8 +91,11 @@ type Iterator interface {
 	// information encoded within the returned ForwardingInfo is to be used
 	// by each hop to authenticate the information given to it by the prior
 	// hop. The payload will also contain any additional TLV fields provided
-	// by the sender.
-	HopPayload() (*Payload, error)
+	// by the sender. The role that this hop plays in the context of
+	// route blinding (regular, introduction or relaying) is returned
+	// whenever the payload is successfully parsed, even if we subsequently
+	// face a validation error.
+	HopPayload() (*Payload, RouteRole, error)
 
 	// EncodeNextHop encodes the onion packet destined for the next hop
 	// into the passed io.Writer.
@@ -39,8 +103,8 @@ type Iterator interface {
 
 	// ExtractErrorEncrypter returns the ErrorEncrypter needed for this hop,
 	// along with a failure code to signal if the decoding was successful.
-	ExtractErrorEncrypter(ErrorEncrypterExtracter) (ErrorEncrypter,
-		lnwire.FailCode)
+	ExtractErrorEncrypter(extractor ErrorEncrypterExtracter,
+		introductionNode bool) (ErrorEncrypter, lnwire.FailCode)
 }
 
 // sphinxHopIterator is the Sphinx implementation of hop iterator which uses
@@ -90,29 +154,56 @@ func (r *sphinxHopIterator) EncodeNextHop(w io.Writer) error {
 // HopPayload returns the set of fields that detail exactly _how_ this hop
 // should forward the HTLC to the next hop.  Additionally, the information
 // encoded within the returned ForwardingInfo is to be used by each hop to
-// authenticate the information given to it by the prior hop. The payload will
-// also contain any additional TLV fields provided by the sender.
+// authenticate the information given to it by the prior hop. The role that
+// this hop plays in the context of route blinding (regular, introduction or
+// relaying) is returned whenever the payload is successfully parsed, even if
+// we subsequently face a validation error. The payload will also contain any
+// additional TLV fields provided by the sender.
 //
 // NOTE: Part of the HopIterator interface.
-func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
+func (r *sphinxHopIterator) HopPayload() (*Payload, RouteRole, error) {
 	switch r.processedPacket.Payload.Type {
 
 	// If this is the legacy payload, then we'll extract the information
 	// directly from the pre-populated ForwardingInstructions field.
 	case sphinx.PayloadLegacy:
 		fwdInst := r.processedPacket.ForwardingInstructions
-		return NewLegacyPayload(fwdInst), nil
+		return NewLegacyPayload(fwdInst), RouteRoleCleartext, nil
 
 	// Otherwise, if this is the TLV payload, then we'll make a new stream
 	// to decode only what we need to make routing decisions.
 	case sphinx.PayloadTLV:
 		isFinal := r.processedPacket.Action == sphinx.ExitNode
-		payload, parsed, err := NewPayloadFromReader(
+		payload, parsed, err := ParseTLVPayload(
 			bytes.NewReader(r.processedPacket.Payload.Payload),
-			isFinal,
 		)
 		if err != nil {
-			return nil, err
+			// If we couldn't even parse our payload then we do
+			// a best-effort of determining our role in a blinded
+			// route, accepting that we can't know whether we
+			// were the introduction node (as the payload
+			// is not parseable).
+			routeRole := RouteRoleCleartext
+			if r.blindingKit.UpdateAddBlinding.IsSome() {
+				routeRole = RouteRoleRelaying
+			}
+
+			return nil, routeRole, err
+		}
+
+		// Now that we've parsed our payload we can determine which
+		// role we're playing in the route.
+		_, payloadBlinding := parsed[record.BlindingPointOnionType]
+		routeRole := NewRouteRole(
+			r.blindingKit.UpdateAddBlinding.IsSome(),
+			payloadBlinding,
+		)
+
+		if err := ValidateTLVPayload(
+			parsed, isFinal,
+			r.blindingKit.UpdateAddBlinding.IsSome(),
+		); err != nil {
+			return nil, routeRole, err
 		}
 
 		// If we had an encrypted data payload present, pull out our
@@ -122,17 +213,18 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 				payload, isFinal, parsed,
 			)
 			if err != nil {
-				return nil, err
+				return nil, routeRole, err
 			}
 
 			payload.FwdInfo = *fwdInfo
 		}
 
-		return payload, err
+		return payload, routeRole, nil
 
 	default:
-		return nil, fmt.Errorf("unknown sphinx payload type: %v",
-			r.processedPacket.Payload.Type)
+		return nil, RouteRoleCleartext,
+			fmt.Errorf("unknown sphinx payload type: %v",
+				r.processedPacket.Payload.Type)
 	}
 }
 
@@ -143,9 +235,31 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 //
 // NOTE: Part of the HopIterator interface.
 func (r *sphinxHopIterator) ExtractErrorEncrypter(
-	extracter ErrorEncrypterExtracter) (ErrorEncrypter, lnwire.FailCode) {
+	extracter ErrorEncrypterExtracter, introductionNode bool) (
+	ErrorEncrypter, lnwire.FailCode) {
 
-	return extracter(r.ogPacket.EphemeralKey)
+	encrypter, errCode := extracter(r.ogPacket.EphemeralKey)
+	if errCode != lnwire.CodeNone {
+		return nil, errCode
+	}
+
+	// If we're in a blinded path, wrap the error encrypter that we just
+	// derived in a "marker" type which we'll use to know what type of
+	// error we're handling.
+	switch {
+	case introductionNode:
+		return &IntroductionErrorEncrypter{
+			ErrorEncrypter: encrypter,
+		}, errCode
+
+	case r.blindingKit.UpdateAddBlinding.IsSome():
+		return &RelayingErrorEncrypter{
+			ErrorEncrypter: encrypter,
+		}, errCode
+
+	default:
+		return encrypter, errCode
+	}
 }
 
 // BlindingProcessor is an interface that provides the cryptographic operations
@@ -182,35 +296,16 @@ type BlindingKit struct {
 	IncomingAmount lnwire.MilliSatoshi
 }
 
-// validateBlindingPoint validates that only one blinding point is present for
-// the hop and returns the relevant one.
-func (b *BlindingKit) validateBlindingPoint(payloadBlinding *btcec.PublicKey,
-	isFinalHop bool) (*btcec.PublicKey, error) {
+// getBlindingPoint returns either the payload or updateAddHtlc blinding point,
+// assuming that validation that these values are appropriately set has already
+// been handled elsewhere.
+func (b *BlindingKit) getBlindingPoint(payloadBlinding *btcec.PublicKey) (
+	*btcec.PublicKey, error) {
 
-	// Bolt 04: if encrypted_recipient_data is present:
-	// - if blinding_point (in update add) is set:
-	//   - MUST error if current_blinding_point is set (in payload)
-	// - otherwise:
-	//   - MUST return an error if current_blinding_point is not present
-	//     (in payload)
 	payloadBlindingSet := payloadBlinding != nil
 	updateBlindingSet := b.UpdateAddBlinding.IsSome()
 
 	switch {
-	case !(payloadBlindingSet || updateBlindingSet):
-		return nil, ErrInvalidPayload{
-			Type:      record.BlindingPointOnionType,
-			Violation: OmittedViolation,
-			FinalHop:  isFinalHop,
-		}
-
-	case payloadBlindingSet && updateBlindingSet:
-		return nil, ErrInvalidPayload{
-			Type:      record.BlindingPointOnionType,
-			Violation: IncludedViolation,
-			FinalHop:  isFinalHop,
-		}
-
 	case payloadBlindingSet:
 		return payloadBlinding, nil
 
@@ -223,9 +318,10 @@ func (b *BlindingKit) validateBlindingPoint(payloadBlinding *btcec.PublicKey,
 		}
 
 		return pk.Val, nil
-	}
 
-	return nil, fmt.Errorf("expected blinded point set")
+	default:
+		return nil, ErrNoBlindingPoint
+	}
 }
 
 // DecryptAndValidateFwdInfo performs all operations required to decrypt and
@@ -235,11 +331,10 @@ func (b *BlindingKit) DecryptAndValidateFwdInfo(payload *Payload,
 	*ForwardingInfo, error) {
 
 	// We expect this function to be called when we have encrypted data
-	// present, and a blinding key is set either in the payload or the
+	// present, and expect validation to already have ensured that a
+	// blinding key is set either in the payload or the
 	// update_add_htlc message.
-	blindingPoint, err := b.validateBlindingPoint(
-		payload.blindingPoint, isFinalHop,
-	)
+	blindingPoint, err := b.getBlindingPoint(payload.blindingPoint)
 	if err != nil {
 		return nil, err
 	}

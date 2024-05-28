@@ -334,7 +334,8 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 		}
 		for _, coin := range manuallySelectedCoins {
 			if _, ok := unspent[coin.OutPoint]; !ok {
-				return fmt.Errorf("outpoint already spent: %v",
+				return fmt.Errorf("outpoint already spent or "+
+					"locked by another subsystem: %v",
 					coin.OutPoint)
 			}
 		}

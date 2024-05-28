@@ -946,6 +946,14 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 
 		payAddr := payReq.PaymentAddr
 		if payReq.Features.HasFeature(lnwire.AMPOptional) {
+			// The opt-in AMP flag is required to pay an AMP
+			// invoice.
+			if !rpcPayReq.Amp {
+				return nil, fmt.Errorf("the AMP flag (--amp " +
+					"or SendPaymentRequest.Amp) must be " +
+					"set to pay an AMP invoice")
+			}
+
 			// Generate random SetID and root share.
 			var setID [32]byte
 			_, err = rand.Read(setID[:])

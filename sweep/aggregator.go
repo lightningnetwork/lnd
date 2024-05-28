@@ -5,6 +5,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -201,8 +203,8 @@ func (b *BudgetAggregator) filterInputs(inputs InputsMap) InputsMap {
 	for _, pi := range inputs {
 		op := pi.OutPoint()
 
-		// Get the size and skip if there's an error.
-		size, _, err := pi.WitnessType().SizeUpperBound()
+		// Get the size of the witness and skip if there's an error.
+		witnessSize, _, err := pi.WitnessType().SizeUpperBound()
 		if err != nil {
 			log.Warnf("Skipped input=%v: cannot get its size: %v",
 				op, err)
@@ -210,12 +212,27 @@ func (b *BudgetAggregator) filterInputs(inputs InputsMap) InputsMap {
 			continue
 		}
 
+		//nolint:lll
+		// Calculate the size if the input is included in the tx.
+		//
+		// NOTE: When including this input, we need to account the
+		// non-witness data which is expressed in vb.
+		//
+		// TODO(yy): This is not accurate for tapscript input. We need
+		// to unify calculations used in the `TxWeightEstimator` inside
+		// `input/size.go` and `weightEstimator` in
+		// `weight_estimator.go`. And calculate the expected weights
+		// similar to BOLT-3:
+		// https://github.com/lightning/bolts/blob/master/03-transactions.md#appendix-a-expected-weights
+		wu := lntypes.VByte(input.InputSize).ToWU() + witnessSize
+
 		// Skip inputs that has too little budget.
-		minFee := minFeeRate.FeeForWeight(int64(size))
+		minFee := minFeeRate.FeeForWeight(wu)
 		if pi.params.Budget < minFee {
 			log.Warnf("Skipped input=%v: has budget=%v, but the "+
-				"min fee requires %v", op, pi.params.Budget,
-				minFee)
+				"min fee requires %v (feerate=%v), size=%v", op,
+				pi.params.Budget, minFee,
+				minFeeRate.FeePerVByte(), wu.ToVB())
 
 			continue
 		}
@@ -224,11 +241,12 @@ func (b *BudgetAggregator) filterInputs(inputs InputsMap) InputsMap {
 		startingFeeRate := pi.params.StartingFeeRate.UnwrapOr(
 			chainfee.SatPerKWeight(0),
 		)
-		startingFee := startingFeeRate.FeeForWeight(int64(size))
+		startingFee := startingFeeRate.FeeForWeight(wu)
 		if pi.params.Budget < startingFee {
 			log.Errorf("Skipped input=%v: has budget=%v, but the "+
-				"starting fee requires %v", op,
-				pi.params.Budget, minFee)
+				"starting fee requires %v (feerate=%v), "+
+				"size=%v", op, pi.params.Budget, startingFee,
+				startingFeeRate.FeePerVByte(), wu.ToVB())
 
 			continue
 		}

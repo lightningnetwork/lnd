@@ -379,7 +379,7 @@ func testRescanAddressDetection(ht *lntest.HarnessTest) {
 	estimator := input.TxWeightEstimator{}
 	estimator.AddP2WKHInput()
 	estimator.AddP2WKHOutput()
-	estimatedWeight := int64(estimator.Weight())
+	estimatedWeight := estimator.Weight()
 	requiredFee := feeRate.FeeForWeight(estimatedWeight)
 
 	tx := wire.NewMsgTx(2)

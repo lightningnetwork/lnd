@@ -241,13 +241,13 @@ func (b *BudgetInputSet) NeedWalletInput() bool {
 		// If the input's budget is not even covered by itself, we need
 		// to borrow outputs from other inputs.
 		if budgetBorrowable < 0 {
-			log.Debugf("Input %v specified a budget that exceeds "+
+			log.Tracef("Input %v specified a budget that exceeds "+
 				"its output value: %v > %v", inp, budget,
 				output)
 		}
 	}
 
-	log.Tracef("NeedWalletInput: budgetNeeded=%v, budgetBorrowable=%v",
+	log.Debugf("NeedWalletInput: budgetNeeded=%v, budgetBorrowable=%v",
 		budgetNeeded, budgetBorrowable)
 
 	// If we don't have enough extra budget to borrow, we need wallet
@@ -313,6 +313,9 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 			},
 		}
 		b.addInput(pi)
+
+		log.Debugf("Added wallet input to input set: op=%v, amt=%v",
+			pi.OutPoint(), utxo.Value)
 
 		// Return if we've reached the minimum output amount.
 		if !b.NeedWalletInput() {

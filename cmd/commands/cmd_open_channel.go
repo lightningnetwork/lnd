@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -1016,7 +1015,7 @@ func readTerminalOrFile(quit chan struct{}) (string, error) {
 
 	// If it's a path to an existing file and it's small enough, let's try
 	// to read its content now.
-	content, err := ioutil.ReadFile(maybeFile)
+	content, err := os.ReadFile(maybeFile)
 	if err != nil {
 		return "", err
 	}

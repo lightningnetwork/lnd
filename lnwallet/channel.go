@@ -29,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -4062,7 +4063,7 @@ func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
 // an htlc even if our channel is drained locally.
 // See: https://github.com/lightning/bolts/blob/master/02-peer-protocol.md
 func CalcFeeBuffer(feePerKw chainfee.SatPerKWeight,
-	commitWeight int64) lnwire.MilliSatoshi {
+	commitWeight lntypes.WeightUnit) lnwire.MilliSatoshi {
 
 	// Account for a 100% in fee rate increase.
 	bufferFeePerKw := 2 * feePerKw
@@ -4135,7 +4136,7 @@ func (b BufferType) String() string {
 // and verifies that it does not become negative. This function returns the new
 // balance and the exact buffer amount (excluding the commitment fee).
 func (lc *LightningChannel) applyCommitFee(
-	balance lnwire.MilliSatoshi, commitWeight int64,
+	balance lnwire.MilliSatoshi, commitWeight lntypes.WeightUnit,
 	feePerKw chainfee.SatPerKWeight,
 	buffer BufferType) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
 
@@ -5031,8 +5032,8 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 // If the updateState boolean is set true, the add and remove heights of the
 // HTLCs will be set to the next commitment height.
 func (lc *LightningChannel) computeView(view *HtlcView, remoteChain bool,
-	updateState bool) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, int64,
-	*HtlcView, error) {
+	updateState bool) (lnwire.MilliSatoshi, lnwire.MilliSatoshi,
+	lntypes.WeightUnit, *HtlcView, error) {
 
 	commitChain := lc.localCommitChain
 	dustLimit := lc.channelState.LocalChanCfg.DustLimit
@@ -5098,7 +5099,7 @@ func (lc *LightningChannel) computeView(view *HtlcView, remoteChain bool,
 
 	// Now go through all HTLCs at this stage, to calculate the total
 	// weight, needed to calculate the transaction fee.
-	var totalHtlcWeight int64
+	var totalHtlcWeight lntypes.WeightUnit
 	for _, htlc := range filteredHTLCView.OurUpdates {
 		if HtlcIsDust(
 			lc.channelState.ChanType, false, !remoteChain,
@@ -7963,7 +7964,7 @@ type AnchorResolution struct {
 	CommitFee btcutil.Amount
 
 	// CommitWeight is the weight of the commit tx.
-	CommitWeight int64
+	CommitWeight lntypes.WeightUnit
 }
 
 // LocalForceCloseSummary describes the final commitment state before the
@@ -8652,7 +8653,7 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 	return &AnchorResolution{
 		CommitAnchor:         *outPoint,
 		AnchorSignDescriptor: *signDesc,
-		CommitWeight:         weight,
+		CommitWeight:         lntypes.WeightUnit(weight),
 		CommitFee:            fee,
 	}, nil
 }
@@ -8678,7 +8679,7 @@ func (lc *LightningChannel) AvailableBalance() lnwire.MilliSatoshi {
 // this method. Additionally, the total weight of the next to be created
 // commitment is returned for accounting purposes.
 func (lc *LightningChannel) availableBalance(
-	buffer BufferType) (lnwire.MilliSatoshi, int64) {
+	buffer BufferType) (lnwire.MilliSatoshi, lntypes.WeightUnit) {
 
 	// We'll grab the current set of log updates that the remote has
 	// ACKed.
@@ -8718,7 +8719,8 @@ func (lc *LightningChannel) availableBalance(
 // eating into our balance. It will make sure we won't violate the channel
 // reserve constraints for this amount.
 func (lc *LightningChannel) availableCommitmentBalance(view *HtlcView,
-	remoteChain bool, buffer BufferType) (lnwire.MilliSatoshi, int64) {
+	remoteChain bool, buffer BufferType) (lnwire.MilliSatoshi,
+	lntypes.WeightUnit) {
 
 	// Compute the current balances for this commitment. This will take
 	// into account HTLCs to determine the commit weight, which the

@@ -7,7 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"runtime"
 	"strconv"
@@ -886,6 +886,7 @@ func payInvoice(ctx *cli.Context) error {
 		PaymentRequest:    StripPrefix(payReq),
 		Amt:               ctx.Int64("amt"),
 		DestCustomRecords: make(map[uint64][]byte),
+		Amp:               ctx.Bool(ampFlag.Name),
 	}
 
 	return SendPaymentRequest(ctx, req)
@@ -987,7 +988,7 @@ func sendToRoute(ctx *cli.Context) error {
 	// The user is signalling that we should read stdin in order to parse
 	// the set of target routes.
 	case args.Present() && args.First() == "-":
-		b, err := ioutil.ReadAll(os.Stdin)
+		b, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return err
 		}
@@ -1783,6 +1784,7 @@ func deletePayments(ctx *cli.Context) error {
 			what)
 		_, err = client.DeleteAllPayments(
 			ctxc, &lnrpc.DeleteAllPaymentsRequest{
+				AllPayments:        includeNonFailed,
 				FailedPaymentsOnly: !includeNonFailed,
 				FailedHtlcsOnly:    failedHTLCsOnly,
 			},

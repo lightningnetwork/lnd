@@ -556,6 +556,11 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			return nil, nil
 		},
 		AliasManager: aliasMgr,
+		// For unit tests we default to false meaning that no funds
+		// originated from the sweeper.
+		IsSweeperOutpoint: func(wire.OutPoint) bool {
+			return false
+		},
 	}
 
 	for _, op := range options {

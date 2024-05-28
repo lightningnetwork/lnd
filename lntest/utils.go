@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -212,8 +213,9 @@ func CalcStaticFee(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
 		anchors = anchorSize
 	}
 
-	return feePerKw.FeeForWeight(int64(commitWeight+htlcWeight*numHTLCs)) +
-		anchors
+	totalWeight := commitWeight + htlcWeight*numHTLCs
+
+	return feePerKw.FeeForWeight(lntypes.WeightUnit(totalWeight)) + anchors
 }
 
 // CalculateMaxHtlc re-implements the RequiredRemoteChannelReserve of the
@@ -266,8 +268,10 @@ func CalcStaticFeeBuffer(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
 
 	// Account for the HTLC which will be required when sending an htlc.
 	numHTLCs++
+
+	totalWeight := commitWeight + numHTLCs*htlcWeight
 	feeBuffer := lnwallet.CalcFeeBuffer(
-		feePerKw, int64(commitWeight+numHTLCs*htlcWeight),
+		feePerKw, lntypes.WeightUnit(totalWeight),
 	)
 
 	return feeBuffer.ToSatoshis()

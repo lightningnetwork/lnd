@@ -10,7 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"sync"
 	"testing"
 
@@ -256,7 +256,7 @@ func TestMuSig2KeyAggTestVectors(t *testing.T) {
 
 		var formattedJson bytes.Buffer
 		json.Indent(&formattedJson, jsonBytes, "", "\t")
-		err = ioutil.WriteFile(
+		err = os.WriteFile(
 			keyAggTestVectorName, formattedJson.Bytes(), 0644,
 		)
 		if err != nil {
@@ -656,7 +656,7 @@ func TestMuSig2SigningTestVectors(t *testing.T) {
 
 		var formattedJson bytes.Buffer
 		json.Indent(&formattedJson, jsonBytes, "", "\t")
-		err = ioutil.WriteFile(
+		err = os.WriteFile(
 			signTestVectorName, formattedJson.Bytes(), 0644,
 		)
 		if err != nil {
@@ -1540,7 +1540,7 @@ func TestMusig2AggregateNoncesTestVectors(t *testing.T) {
 
 		var formattedJson bytes.Buffer
 		json.Indent(&formattedJson, jsonBytes, "", "\t")
-		err = ioutil.WriteFile(
+		err = os.WriteFile(
 			nonceAggTestVectorName, formattedJson.Bytes(), 0644,
 		)
 		if err != nil {

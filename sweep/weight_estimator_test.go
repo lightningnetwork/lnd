@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +29,7 @@ func TestWeightEstimator(t *testing.T) {
 	require.NoError(t, w.add(&input1))
 
 	// The expectations is that this input is added.
-	const expectedWeight1 = 322
+	const expectedWeight1 lntypes.WeightUnit = 322
 	require.Equal(t, expectedWeight1, w.weight())
 	require.Equal(t, testFeeRate.FeeForWeight(expectedWeight1),
 		w.feeWithParent())
@@ -50,7 +51,7 @@ func TestWeightEstimator(t *testing.T) {
 
 	// Pay for parent isn't possible because the parent pays a higher fee
 	// rate than the child. We expect no additional fee on the child.
-	const expectedWeight2 = expectedWeight1 + 280
+	const expectedWeight2 lntypes.WeightUnit = expectedWeight1 + 280
 	require.Equal(t, expectedWeight2, w.weight())
 	require.Equal(t, testFeeRate.FeeForWeight(expectedWeight2),
 		w.feeWithParent())
@@ -70,7 +71,7 @@ func TestWeightEstimator(t *testing.T) {
 	require.NoError(t, w.add(&input3))
 
 	// Expect the weight to increase because of the third input.
-	const expectedWeight3 = expectedWeight2 + 280
+	const expectedWeight3 lntypes.WeightUnit = expectedWeight2 + 280
 	require.Equal(t, expectedWeight3, w.weight())
 
 	// Expect the fee to cover the child and the parent transaction at 20
@@ -107,7 +108,7 @@ func TestWeightEstimatorMaxFee(t *testing.T) {
 	require.NoError(t, w.add(&childInput))
 
 	// The child weight should be 322 weight uints.
-	const childWeight = 322
+	const childWeight lntypes.WeightUnit = 322
 	require.Equal(t, childWeight, w.weight())
 
 	// Check the fee is capped at the maximum allowed fee. The

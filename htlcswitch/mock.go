@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
@@ -333,10 +332,10 @@ func newMockHopIterator(hops ...*hop.Payload) hop.Iterator {
 	return &mockHopIterator{hops: hops}
 }
 
-func (r *mockHopIterator) HopPayload() (*hop.Payload, error) {
+func (r *mockHopIterator) HopPayload() (*hop.Payload, hop.RouteRole, error) {
 	h := r.hops[0]
 	r.hops = r.hops[1:]
-	return h, nil
+	return h, hop.RouteRoleCleartext, nil
 }
 
 func (r *mockHopIterator) ExtraOnionBlob() []byte {
@@ -344,7 +343,7 @@ func (r *mockHopIterator) ExtraOnionBlob() []byte {
 }
 
 func (r *mockHopIterator) ExtractErrorEncrypter(
-	extracter hop.ErrorEncrypterExtracter) (hop.ErrorEncrypter,
+	extracter hop.ErrorEncrypterExtracter, _ bool) (hop.ErrorEncrypter,
 	lnwire.FailCode) {
 
 	return extracter(nil)
@@ -961,7 +960,7 @@ var _ ChannelLink = (*mockChannelLink)(nil)
 func newDB() (*channeldb.DB, func(), error) {
 	// First, create a temporary directory to be used for the duration of
 	// this test.
-	tempDirName, err := ioutil.TempDir("", "channeldb")
+	tempDirName, err := os.MkdirTemp("", "channeldb")
 	if err != nil {
 		return nil, nil, err
 	}

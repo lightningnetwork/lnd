@@ -16,6 +16,8 @@ shift
 EXEC="$WORKDIR"/itest.test"$EXEC_SUFFIX"
 LND_EXEC="$WORKDIR"/lnd-itest"$EXEC_SUFFIX"
 BTCD_EXEC="$WORKDIR"/btcd-itest"$EXEC_SUFFIX"
+export GOCOVERDIR="$WORKDIR/cover"
+mkdir -p "$GOCOVERDIR"
 echo $EXEC -test.v "$@" -logoutput -logdir=.logs-tranche$TRANCHE -lndexec=$LND_EXEC -btcdexec=$BTCD_EXEC -splittranches=$NUM_TRANCHES -runtranche=$TRANCHE
 
 # Exit code 255 causes the parallel jobs to abort, so if one part fails the

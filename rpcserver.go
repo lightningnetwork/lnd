@@ -87,6 +87,13 @@ import (
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
+const (
+	// defaultNumBlocksEstimate is the number of blocks that we fall back
+	// to issuing an estimate for if a fee pre fence doesn't specify an
+	// explicit conf target or fee rate.
+	defaultNumBlocksEstimate = 6
+)
+
 var (
 	// readPermissions is a slice of all entities that allow read
 	// permissions for authorization purposes, all lowercase.
@@ -1253,15 +1260,46 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 	return resp, nil
 }
 
+// maybeUseDefaultConf makes sure that when the user doesn't set either the fee
+// rate or conf target, the default conf target is used.
+func maybeUseDefaultConf(satPerByte int64, satPerVByte uint64,
+	targetConf uint32) uint32 {
+
+	// If the fee rate is set, there's no need to use the default conf
+	// target. In this case, we just return the targetConf from the
+	// request.
+	if satPerByte != 0 || satPerVByte != 0 {
+		return targetConf
+	}
+
+	// Return the user specified conf target if set.
+	if targetConf != 0 {
+		return targetConf
+	}
+
+	// If the fee rate is not set, yet the conf target is zero, the default
+	// 6 will be returned.
+	rpcsLog.Errorf("Expected either 'sat_per_vbyte' or 'conf_target' to " +
+		"be set, using default conf of 6 instead")
+
+	return defaultNumBlocksEstimate
+}
+
 // SendCoins executes a request to send coins to a particular address. Unlike
 // SendMany, this RPC call only allows creating a single output at a time.
 func (r *rpcServer) SendCoins(ctx context.Context,
 	in *lnrpc.SendCoinsRequest) (*lnrpc.SendCoinsResponse, error) {
 
+	// Keep the old behavior prior to 0.18.0 - when the user doesn't set
+	// fee rate or conf target, the default conf target of 6 is used.
+	targetConf := maybeUseDefaultConf(
+		in.SatPerByte, in.SatPerVbyte, uint32(in.TargetConf),
+	)
+
 	// Calculate an appropriate fee rate for this transaction.
 	feePerKw, err := lnrpc.CalculateFeeRate(
 		uint64(in.SatPerByte), in.SatPerVbyte, // nolint:staticcheck
-		uint32(in.TargetConf), r.server.cc.FeeEstimator,
+		targetConf, r.server.cc.FeeEstimator,
 	)
 	if err != nil {
 		return nil, err
@@ -1479,10 +1517,16 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 func (r *rpcServer) SendMany(ctx context.Context,
 	in *lnrpc.SendManyRequest) (*lnrpc.SendManyResponse, error) {
 
+	// Keep the old behavior prior to 0.18.0 - when the user doesn't set
+	// fee rate or conf target, the default conf target of 6 is used.
+	targetConf := maybeUseDefaultConf(
+		in.SatPerByte, in.SatPerVbyte, uint32(in.TargetConf),
+	)
+
 	// Calculate an appropriate fee rate for this transaction.
 	feePerKw, err := lnrpc.CalculateFeeRate(
 		uint64(in.SatPerByte), in.SatPerVbyte, // nolint:staticcheck
-		uint32(in.TargetConf), r.server.cc.FeeEstimator,
+		targetConf, r.server.cc.FeeEstimator,
 	)
 	if err != nil {
 		return nil, err
@@ -1902,9 +1946,9 @@ func newFundingShimAssembler(chanPointShim *lnrpc.ChanPointShim, initiator bool,
 	), nil
 }
 
-// newFundingShimAssembler returns a new fully populated
+// newPsbtAssembler returns a new fully populated
 // chanfunding.PsbtAssembler using a FundingShim obtained from an RPC caller.
-func newPsbtAssembler(req *lnrpc.OpenChannelRequest, normalizedMinConfs int32,
+func newPsbtAssembler(req *lnrpc.OpenChannelRequest,
 	psbtShim *lnrpc.PsbtShim, netParams *chaincfg.Params) (
 	chanfunding.Assembler, error) {
 
@@ -1917,11 +1961,6 @@ func newPsbtAssembler(req *lnrpc.OpenChannelRequest, normalizedMinConfs int32,
 	// fields are populated and none of the incompatible fields are.
 	if len(psbtShim.PendingChanId) != 32 {
 		return nil, fmt.Errorf("pending chan ID not set")
-	}
-	if normalizedMinConfs != 1 {
-		return nil, fmt.Errorf("setting non-default values for " +
-			"minimum confirmation is not supported for PSBT " +
-			"funding")
 	}
 	if req.SatPerByte != 0 || req.SatPerVbyte != 0 || req.TargetConf != 0 { // nolint:staticcheck
 		return nil, fmt.Errorf("specifying fee estimation parameters " +
@@ -2148,10 +2187,17 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 
 	// Skip estimating fee rate for PSBT funding.
 	if in.FundingShim == nil || in.FundingShim.GetPsbtShim() == nil {
+		// Keep the old behavior prior to 0.18.0 - when the user
+		// doesn't set fee rate or conf target, the default conf target
+		// of 6 is used.
+		targetConf := maybeUseDefaultConf(
+			in.SatPerByte, in.SatPerVbyte, uint32(in.TargetConf),
+		)
+
 		// Calculate an appropriate fee rate for this transaction.
 		feeRate, err = lnrpc.CalculateFeeRate(
 			uint64(in.SatPerByte), in.SatPerVbyte,
-			uint32(in.TargetConf), r.server.cc.FeeEstimator,
+			targetConf, r.server.cc.FeeEstimator,
 		)
 		if err != nil {
 			return nil, err
@@ -2365,8 +2411,12 @@ func (r *rpcServer) OpenChannel(in *lnrpc.OpenChannelRequest,
 			// chanfunding.PsbtAssembler to construct the funding
 			// transaction.
 			copy(req.PendingChanID[:], psbtShim.PendingChanId)
+
+			// NOTE: For the PSBT case we do also allow unconfirmed
+			// utxos to fund the psbt transaction because we make
+			// sure we only use stable utxos.
 			req.ChanFunder, err = newPsbtAssembler(
-				in, req.MinConfs, psbtShim,
+				in, psbtShim,
 				&r.server.cc.Wallet.Cfg.NetParams,
 			)
 			if err != nil {
@@ -2695,12 +2745,19 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 				"is offline (try force closing it instead): %v", err)
 		}
 
+		// Keep the old behavior prior to 0.18.0 - when the user
+		// doesn't set fee rate or conf target, the default conf target
+		// of 6 is used.
+		targetConf := maybeUseDefaultConf(
+			in.SatPerByte, in.SatPerVbyte, uint32(in.TargetConf),
+		)
+
 		// Based on the passed fee related parameters, we'll determine
 		// an appropriate fee rate for the cooperative closure
 		// transaction.
 		feeRate, err := lnrpc.CalculateFeeRate(
 			uint64(in.SatPerByte), in.SatPerVbyte, // nolint:staticcheck
-			uint32(in.TargetConf), r.server.cc.FeeEstimator,
+			targetConf, r.server.cc.FeeEstimator,
 		)
 		if err != nil {
 			return err
@@ -6738,6 +6795,14 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 
 	channelUpdates := make([]*lnrpc.ChannelEdgeUpdate, len(topChange.ChannelEdgeUpdates))
 	for i, channelUpdate := range topChange.ChannelEdgeUpdates {
+
+		customRecords := marshalExtraOpaqueData(
+			channelUpdate.ExtraOpaqueData,
+		)
+		inboundFee := extractInboundFeeSafe(
+			channelUpdate.ExtraOpaqueData,
+		)
+
 		channelUpdates[i] = &lnrpc.ChannelEdgeUpdate{
 			ChanId: channelUpdate.ChanID,
 			ChanPoint: &lnrpc.ChannelPoint{
@@ -6748,12 +6813,25 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 			},
 			Capacity: int64(channelUpdate.Capacity),
 			RoutingPolicy: &lnrpc.RoutingPolicy{
-				TimeLockDelta:    uint32(channelUpdate.TimeLockDelta),
-				MinHtlc:          int64(channelUpdate.MinHTLC),
-				MaxHtlcMsat:      uint64(channelUpdate.MaxHTLC),
-				FeeBaseMsat:      int64(channelUpdate.BaseFee),
-				FeeRateMilliMsat: int64(channelUpdate.FeeRate),
-				Disabled:         channelUpdate.Disabled,
+				TimeLockDelta: uint32(
+					channelUpdate.TimeLockDelta,
+				),
+				MinHtlc: int64(
+					channelUpdate.MinHTLC,
+				),
+				MaxHtlcMsat: uint64(
+					channelUpdate.MaxHTLC,
+				),
+				FeeBaseMsat: int64(
+					channelUpdate.BaseFee,
+				),
+				FeeRateMilliMsat: int64(
+					channelUpdate.FeeRate,
+				),
+				Disabled:                channelUpdate.Disabled,
+				InboundFeeBaseMsat:      inboundFee.BaseFee,
+				InboundFeeRateMilliMsat: inboundFee.FeeRate,
+				CustomRecords:           customRecords,
 			},
 			AdvertisingNode: encodeKey(channelUpdate.AdvertisingNode),
 			ConnectingNode:  encodeKey(channelUpdate.ConnectingNode),
@@ -6867,6 +6945,27 @@ func (r *rpcServer) DeletePayment(ctx context.Context,
 func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 	req *lnrpc.DeleteAllPaymentsRequest) (
 	*lnrpc.DeleteAllPaymentsResponse, error) {
+
+	switch {
+	// Since this is a destructive operation, at least one of the options
+	// must be set to true.
+	case !req.AllPayments && !req.FailedPaymentsOnly &&
+		!req.FailedHtlcsOnly:
+
+		return nil, fmt.Errorf("at least one of the options " +
+			"`all_payments`, `failed_payments_only`, or " +
+			"`failed_htlcs_only` must be set to true")
+
+	// `all_payments` cannot be true with `failed_payments_only` or
+	// `failed_htlcs_only`. `all_payments` includes all records, making
+	// these options contradictory.
+	case req.AllPayments &&
+		(req.FailedPaymentsOnly || req.FailedHtlcsOnly):
+
+		return nil, fmt.Errorf("`all_payments` cannot be set to true " +
+			"while either `failed_payments_only` or " +
+			"`failed_htlcs_only` is also set to true")
+	}
 
 	rpcsLog.Infof("[DeleteAllPayments] failed_payments_only=%v, "+
 		"failed_htlcs_only=%v", req.FailedPaymentsOnly,
@@ -7221,27 +7320,35 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	}
 
 	// By default, positive inbound fees are rejected.
-	if !r.cfg.AcceptPositiveInboundFees {
-		if req.InboundBaseFeeMsat > 0 {
+	if !r.cfg.AcceptPositiveInboundFees && req.InboundFee != nil {
+		if req.InboundFee.BaseFeeMsat > 0 {
 			return nil, fmt.Errorf("positive values for inbound "+
 				"base fee msat are not supported: %v",
-				req.InboundBaseFeeMsat)
+				req.InboundFee.BaseFeeMsat)
 		}
-		if req.InboundFeeRatePpm > 0 {
+		if req.InboundFee.FeeRatePpm > 0 {
 			return nil, fmt.Errorf("positive values for inbound "+
 				"fee rate ppm are not supported: %v",
-				req.InboundFeeRatePpm)
+				req.InboundFee.FeeRatePpm)
 		}
+	}
+
+	// If no inbound fees have been specified, we indicate with an empty
+	// option that the previous inbound fee should be retained during the
+	// edge update.
+	inboundFee := fn.None[models.InboundFee]()
+	if req.InboundFee != nil {
+		inboundFee = fn.Some(models.InboundFee{
+			Base: req.InboundFee.BaseFeeMsat,
+			Rate: req.InboundFee.FeeRatePpm,
+		})
 	}
 
 	baseFeeMsat := lnwire.MilliSatoshi(req.BaseFeeMsat)
 	feeSchema := routing.FeeSchema{
-		BaseFee: baseFeeMsat,
-		FeeRate: feeRateFixed,
-		InboundFee: models.InboundFee{
-			Base: req.InboundBaseFeeMsat,
-			Rate: req.InboundFeeRatePpm,
-		},
+		BaseFee:    baseFeeMsat,
+		FeeRate:    feeRateFixed,
+		InboundFee: inboundFee,
 	}
 
 	maxHtlc := lnwire.MilliSatoshi(req.MaxHtlcMsat)

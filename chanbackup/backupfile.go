@@ -2,7 +2,6 @@ package chanbackup
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -138,7 +137,7 @@ func (b *MultiFile) ExtractMulti(keyChain keychain.KeyRing) (*Multi, error) {
 	// Now that we've confirmed the target file is populated, we'll read
 	// all the contents of the file. This function ensures that file is
 	// always closed, even if we can't read the contents.
-	multiBytes, err := ioutil.ReadFile(b.fileName)
+	multiBytes, err := os.ReadFile(b.fileName)
 	if err != nil {
 		return nil, err
 	}

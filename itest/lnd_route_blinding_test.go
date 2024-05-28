@@ -355,14 +355,16 @@ func (b *blindedForwardTest) setup(
 	ctx context.Context) *routing.BlindedPayment {
 
 	b.carol = b.ht.NewNode("Carol", []string{
-		"requireinterceptor",
+		"--requireinterceptor", "--bitcoin.timelockdelta=18",
 	})
 
 	var err error
 	b.carolInterceptor, err = b.carol.RPC.Router.HtlcInterceptor(ctx)
 	require.NoError(b.ht, err, "interceptor")
 
-	b.dave = b.ht.NewNode("Dave", nil)
+	b.dave = b.ht.NewNode("Dave", []string{
+		"--bitcoin.timelockdelta=18",
+	})
 
 	b.channels = setupFourHopNetwork(b.ht, b.carol, b.dave)
 
@@ -448,9 +450,11 @@ func (b *blindedForwardTest) createRouteToBlinded(paymentAmt int64,
 	return resp.Routes[0]
 }
 
-// sendBlindedPayment dispatches a payment to the route provided.
+// sendBlindedPayment dispatches a payment to the route provided, returning a
+// cancel function for the payment. Timeout is set for very long to allow
+// time for on-chain resolution.
 func (b *blindedForwardTest) sendBlindedPayment(ctx context.Context,
-	route *lnrpc.Route) {
+	route *lnrpc.Route) func() {
 
 	hash := sha256.Sum256(b.preimage[:])
 	sendReq := &routerrpc.SendToRouteRequest{
@@ -458,11 +462,13 @@ func (b *blindedForwardTest) sendBlindedPayment(ctx context.Context,
 		Route:       route,
 	}
 
-	// Dispatch in a goroutine because this call is blocking - we assume
-	// that we'll have assertions that this payment is sent by the caller.
+	ctx, cancel := context.WithTimeout(ctx, time.Hour)
 	go func() {
-		b.ht.Alice.RPC.SendToRouteV2(sendReq)
+		_, err := b.ht.Alice.RPC.Router.SendToRouteV2(ctx, sendReq)
+		require.NoError(b.ht, err)
 	}()
+
+	return cancel
 }
 
 // interceptFinalHop launches a goroutine to intercept Carol's htlcs and
@@ -522,6 +528,43 @@ func (b *blindedForwardTest) interceptFinalHop() func(routerrpc.ResolveHoldForwa
 	}
 
 	return resolve
+}
+
+// drainCarolLiquidity will drain all of the liquidity in Carol's channel in
+// the direction requested:
+// - incoming: Carol has no incoming liquidity from Bob
+// - outgoing: Carol has no outgoing liquidity to Dave.
+func (b *blindedForwardTest) drainCarolLiquidity(incoming bool) {
+	sendingNode := b.carol
+	receivingNode := b.dave
+
+	if incoming {
+		sendingNode = b.ht.Bob
+		receivingNode = b.carol
+	}
+
+	resp := sendingNode.RPC.ListChannels(&lnrpc.ListChannelsRequest{
+		Peer: receivingNode.PubKey[:],
+	})
+	require.Len(b.ht, resp.Channels, 1)
+
+	// We can't send our channel reserve, and leave some buffer for fees.
+	paymentAmt := resp.Channels[0].LocalBalance -
+		int64(resp.Channels[0].RemoteConstraints.ChanReserveSat) - 25000
+
+	invoice := receivingNode.RPC.AddInvoice(&lnrpc.Invoice{
+		// Leave some leeway for fees for the HTLC.
+		Value: paymentAmt,
+	})
+
+	pmtClient := sendingNode.RPC.SendPayment(
+		&routerrpc.SendPaymentRequest{
+			PaymentRequest: invoice.PaymentRequest,
+			TimeoutSeconds: 60,
+		},
+	)
+
+	b.ht.AssertPaymentStatusFromStream(pmtClient, lnrpc.Payment_SUCCEEDED)
 }
 
 // setupFourHopNetwork creates a network with the following topology and
@@ -768,7 +811,8 @@ func testForwardBlindedRoute(ht *lntest.HarnessTest) {
 	resolveHTLC := testCase.interceptFinalHop()
 
 	// Once our interceptor is set up, we can send the blinded payment.
-	testCase.sendBlindedPayment(ctx, blindedRoute)
+	cancelPmt := testCase.sendBlindedPayment(ctx, blindedRoute)
+	defer cancelPmt()
 
 	// Wait for the HTLC to be active on Alice's channel.
 	hash := sha256.Sum256(testCase.preimage[:])
@@ -787,4 +831,232 @@ func testForwardBlindedRoute(ht *lntest.HarnessTest) {
 	// we can cooperatively close all channels.
 	ht.AssertHTLCNotActive(ht.Bob, testCase.channels[1], hash[:])
 	ht.AssertHTLCNotActive(ht.Alice, testCase.channels[0], hash[:])
+}
+
+// Tests handling of errors from the receiving node in a blinded route, testing
+// a payment over: Alice -- Bob -- Carol -- Dave, where Bob is the introduction
+// node.
+//
+// Note that at present the payment fails at Dave because we do not yet support
+// receiving to blinded routes. In future, we can substitute this test out to
+// trigger an IncorrectPaymentDetails failure. In the meantime, this test
+// provides valuable coverage for the case where a node in the route is not
+// spec compliant (ie, does not return the blinded failure and just uses a
+// normal one) because Dave will not appropriately convert the error.
+func testReceiverBlindedError(ht *lntest.HarnessTest) {
+	ctx, testCase := newBlindedForwardTest(ht)
+	defer testCase.cleanup()
+	route := testCase.setup(ctx)
+
+	sendAndResumeBlindedPayment(ctx, ht, testCase, route, true)
+}
+
+// testRelayingBlindedError tests handling of errors from relaying nodes in a
+// blinded route, testing a failure over on Carol's outgoing link in the
+// following topology: Alice -- Bob -- Carol -- Dave, where Bob is the
+// introduction node.
+func testRelayingBlindedError(ht *lntest.HarnessTest) {
+	ctx, testCase := newBlindedForwardTest(ht)
+	defer testCase.cleanup()
+	route := testCase.setup(ctx)
+
+	// Before we send our payment, drain all of Carol's liquidity
+	// so that she can't forward the payment to Dave.
+	testCase.drainCarolLiquidity(false)
+
+	// Then dispatch the payment through Carol which will fail due to
+	// a lack of liquidity. This check only happens _after_ the interceptor
+	// has given the instruction to resume so we can use test
+	// infrastructure that will go ahead and intercept the payment.
+	sendAndResumeBlindedPayment(ctx, ht, testCase, route, true)
+}
+
+// sendAndResumeBlindedPayment sends a blinded payment through the test
+// network provided, intercepting the payment at Carol and allowing it to
+// resume. This utility function allows us to ensure that payments at least
+// reach Carol and asserts that all errors appear to originate from the
+// introduction node.
+func sendAndResumeBlindedPayment(ctx context.Context, ht *lntest.HarnessTest,
+	testCase *blindedForwardTest, route *routing.BlindedPayment,
+	interceptAtCarol bool) {
+
+	blindedRoute := testCase.createRouteToBlinded(10_000_000, route)
+
+	// Before we dispatch the payment, spin up a goroutine that will
+	// intercept the HTLC on Carol's forward. This allows us to ensure
+	// that the HTLC actually reaches the location we expect it to.
+	var resolveHTLC func(routerrpc.ResolveHoldForwardAction)
+	if interceptAtCarol {
+		resolveHTLC = testCase.interceptFinalHop()
+	}
+
+	// First, test sending the payment all the way through to Dave. We
+	// expect this payment to fail, because he does not know how to
+	// process payments to a blinded route (not yet supported).
+	cancelPmt := testCase.sendBlindedPayment(ctx, blindedRoute)
+	defer cancelPmt()
+
+	// When Carol intercepts the HTLC, instruct her to resume the payment
+	// so that it'll reach Dave and fail.
+	if interceptAtCarol {
+		resolveHTLC(routerrpc.ResolveHoldForwardAction_RESUME)
+	}
+
+	// Wait for the HTLC to reflect as failed for Alice.
+	preimage, err := lntypes.MakePreimage(testCase.preimage[:])
+	require.NoError(ht, err)
+	pmt := ht.AssertPaymentStatus(ht.Alice, preimage, lnrpc.Payment_FAILED)
+	require.Len(ht, pmt.Htlcs, 1)
+	require.EqualValues(
+		ht, 1, pmt.Htlcs[0].Failure.FailureSourceIndex,
+	)
+	require.Equal(
+		ht, lnrpc.Failure_INVALID_ONION_BLINDING,
+		pmt.Htlcs[0].Failure.Code,
+	)
+}
+
+// testIntroductionNodeError tests handling of errors in a blinded route when
+// the introduction node is the source of the error. This test sends a payment
+// over Alice -- Bob -- Carol -- Dave, where Bob is the introduction node and
+// has insufficient outgoing liquidity to forward on to carol.
+func testIntroductionNodeError(ht *lntest.HarnessTest) {
+	ctx, testCase := newBlindedForwardTest(ht)
+	defer testCase.cleanup()
+	route := testCase.setup(ctx)
+
+	// Before we send our payment, drain all of Carol's incoming liquidity
+	// so that she can't receive the forward from Bob, causing a failure
+	// at the introduction node.
+	testCase.drainCarolLiquidity(true)
+
+	// Send the payment, but do not expect it to reach Carol at all.
+	sendAndResumeBlindedPayment(ctx, ht, testCase, route, false)
+}
+
+// testDisableIntroductionNode tests disabling of blinded forwards for the
+// introduction node.
+func testDisableIntroductionNode(ht *lntest.HarnessTest) {
+	// Disable route blinding for Bob, then re-connect to Alice.
+	ht.RestartNodeWithExtraArgs(ht.Bob, []string{
+		"--protocol.no-route-blinding",
+	})
+	ht.EnsureConnected(ht.Alice, ht.Bob)
+
+	ctx, testCase := newBlindedForwardTest(ht)
+	defer testCase.cleanup()
+	route := testCase.setup(ctx)
+	// We always expect failures to look like they originated at Bob
+	// because blinded errors are converted. However, our tests intercepts
+	// all of Carol's forwards and we're not providing it any interceptor
+	// instructions. This means that the test will hang/timeout at Carol
+	// if Bob _doesn't_ fail the HTLC back as expected.
+	sendAndResumeBlindedPayment(ctx, ht, testCase, route, false)
+}
+
+// testErrorHandlingOnChainFailure tests handling of blinded errors when we're
+// resolving from an on-chain resolution. This test also tests that we're able
+// to resolve blinded HTLCs on chain between restarts, as we've got all the
+// infrastructure in place already for error testing.
+func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
+	// Setup a test case, note that we don't use its built in clean up
+	// because we're going to close a channel so we'll close out the
+	// rest manually.
+	ctx, testCase := newBlindedForwardTest(ht)
+
+	// Note that we send a larger amount here do it'll be worthwhile for
+	// the sweeper to claim.
+	route := testCase.setup(ctx)
+	blindedRoute := testCase.createRouteToBlinded(50_000_000, route)
+
+	// Once our interceptor is set up, we can send the blinded payment.
+	cancelPmt := testCase.sendBlindedPayment(ctx, blindedRoute)
+	defer cancelPmt()
+
+	// Wait for the HTLC to be active on Alice and Bob's channels.
+	hash := sha256.Sum256(testCase.preimage[:])
+	ht.AssertOutgoingHTLCActive(ht.Alice, testCase.channels[0], hash[:])
+	ht.AssertOutgoingHTLCActive(ht.Bob, testCase.channels[1], hash[:])
+
+	// Intercept the forward on Carol's link, but do not take any action
+	// so that we have the chance to force close with this HTLC in flight.
+	carolHTLC, err := testCase.carolInterceptor.Recv()
+	require.NoError(ht, err)
+
+	// Force close Bob <-> Carol.
+	closeStream, _ := ht.CloseChannelAssertPending(
+		ht.Bob, testCase.channels[1], true,
+	)
+
+	ht.AssertStreamChannelForceClosed(
+		ht.Bob, testCase.channels[1], false, closeStream,
+	)
+
+	// SuspendCarol so that she can't interfere with the resolution of the
+	// HTLC from now on.
+	restartCarol := ht.SuspendNode(testCase.carol)
+
+	// Mine blocks so that Bob will claim his CSV delayed local commitment,
+	// we've already mined 1 block so we need one less than our CSV.
+	ht.MineBlocks(node.DefaultCSV - 1)
+	ht.AssertNumPendingSweeps(ht.Bob, 1)
+	ht.MineEmptyBlocks(1)
+	ht.Miner.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Restart bob so that we can test that he's able to recover everything
+	// he needs to claim a blinded HTLC.
+	ht.RestartNode(ht.Bob)
+
+	// Mine enough blocks for Bob to trigger timeout of his outgoing HTLC.
+	// Carol's incoming expiry height is Bob's outgoing so we can use this
+	// value.
+	info := ht.Bob.RPC.GetInfo()
+	target := carolHTLC.IncomingExpiry - info.BlockHeight
+	ht.MineBlocks(target)
+
+	// Wait for Bob's timeout transaction in the mempool, since we've
+	// suspended Carol we don't need to account for her commitment output
+	// claim.
+	ht.Miner.MineBlocksAndAssertNumTxes(1, 1)
+	ht.AssertNumPendingSweeps(ht.Bob, 0)
+
+	// Assert that the HTLC has cleared.
+	ht.WaitForBlockchainSync(ht.Bob)
+	ht.WaitForBlockchainSync(ht.Alice)
+
+	ht.AssertHTLCNotActive(ht.Bob, testCase.channels[0], hash[:])
+	ht.AssertHTLCNotActive(ht.Alice, testCase.channels[0], hash[:])
+
+	// Wait for the HTLC to reflect as failed for Alice.
+	paymentStream := ht.Alice.RPC.TrackPaymentV2(hash[:])
+	htlcs := ht.ReceiveTrackPayment(paymentStream).Htlcs
+	require.Len(ht, htlcs, 1)
+	require.NotNil(ht, htlcs[0].Failure)
+	require.Equal(
+		ht, htlcs[0].Failure.Code,
+		lnrpc.Failure_INVALID_ONION_BLINDING,
+	)
+
+	// Clean up the rest of our force close: mine blocks so that Bob's CSV
+	// expires plus one block to trigger his sweep and then mine it.
+	ht.MineBlocks(node.DefaultCSV + 1)
+	ht.Miner.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Bring carol back up so that we can close out the rest of our
+	// channels cooperatively. She requires an interceptor to start up
+	// so we just re-register our interceptor.
+	require.NoError(ht, restartCarol())
+	_, err = testCase.carol.RPC.Router.HtlcInterceptor(ctx)
+	require.NoError(ht, err, "interceptor")
+
+	// Assert that Carol has started up and reconnected to dave so that
+	// we can close out channels cooperatively.
+	ht.EnsureConnected(testCase.carol, testCase.dave)
+
+	// Manually close out the rest of our channels and cancel (don't use
+	// built in cleanup which will try close the already-force-closed
+	// channel).
+	ht.CloseChannel(ht.Alice, testCase.channels[0])
+	ht.CloseChannel(testCase.carol, testCase.channels[2])
+	testCase.cancel()
 }

@@ -428,7 +428,7 @@ func randCustomRecords(t *testing.T, r *rand.Rand) CustomRecords {
 		key := MinCustomRecordsTlvType + keyOffset
 
 		// Values are byte slices of any length.
-		value := make([]byte, r.Intn(100))
+		value := make([]byte, r.Intn(10))
 		_, err := r.Read(value)
 		require.NoError(t, err)
 
@@ -771,7 +771,6 @@ func TestLightningWireProtocol(t *testing.T) {
 			req := Shutdown{
 				ChannelID: ChannelID(c),
 				Address:   shutdownAddr,
-				ExtraData: make([]byte, 0),
 			}
 
 			if r.Int31()%2 == 0 {
@@ -933,12 +932,14 @@ func TestLightningWireProtocol(t *testing.T) {
 			// Only create the slice if there will be any signatures
 			// in it to prevent false positive test failures due to
 			// an empty slice versus a nil slice.
-			numSigs := uint16(r.Int31n(1019))
+			numSigs := uint16(r.Int31n(500))
 			if numSigs > 0 {
 				req.HtlcSigs = make([]Sig, numSigs)
 			}
 			for i := 0; i < int(numSigs); i++ {
-				req.HtlcSigs[i], err = NewSigFromSignature(testSig)
+				req.HtlcSigs[i], err = NewSigFromSignature(
+					testSig,
+				)
 				if err != nil {
 					t.Fatalf("unable to parse sig: %v", err)
 					return

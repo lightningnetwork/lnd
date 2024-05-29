@@ -4121,6 +4121,21 @@
         },
         "success": {
           "type": "boolean"
+        },
+        "local_close_output": {
+          "$ref": "#/definitions/lnrpcCloseOutput",
+          "description": "The local channel close output. If the local channel balance was dust to\nbegin with, this output will not be set."
+        },
+        "remote_close_output": {
+          "$ref": "#/definitions/lnrpcCloseOutput",
+          "description": "The remote channel close output. If the remote channel balance was dust\nto begin with, this output will not be set."
+        },
+        "additional_outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcCloseOutput"
+          },
+          "description": "Any additional outputs that might be added for custom channel types."
         }
       }
     },
@@ -4427,6 +4442,30 @@
       "properties": {
         "valid": {
           "type": "boolean"
+        }
+      }
+    },
+    "lnrpcCloseOutput": {
+      "type": "object",
+      "properties": {
+        "amount_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The amount in satoshi of this close output. This amount is the final\ncommitment balance of the channel and the actual amount paid out on chain\nmight be smaller due to subtracted fees."
+        },
+        "pk_script": {
+          "type": "string",
+          "format": "byte",
+          "description": "The pkScript of the close output."
+        },
+        "is_local": {
+          "type": "boolean",
+          "description": "Whether this output is for the local or remote node."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "The TLV encoded custom channel data records for this output, which might\nbe set for custom channels."
         }
       }
     },

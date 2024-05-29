@@ -42,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/msgmux"
@@ -182,6 +183,10 @@ type AuxComponents struct {
 	// AuxDataParser is an optional data parser that can be used to parse
 	// auxiliary data for certain custom channel types.
 	AuxDataParser fn.Option[AuxDataParser]
+
+	// AuxChanCloser is an optional channel closer that can be used to
+	// modify the way a coop-close transaction is constructed.
+	AuxChanCloser fn.Option[chancloser.AuxChanCloser]
 }
 
 // DefaultWalletImpl is the default implementation of our normal, btcwallet

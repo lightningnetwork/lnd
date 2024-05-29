@@ -395,6 +395,10 @@ type Config struct {
 	// in place.
 	MsgRouter fn.Option[protofsm.MsgRouter]
 
+	// AuxChanCloser is an optional instance of an abstraction that can be
+	// used to modify the way the co-op close transaction is constructed.
+	AuxChanCloser fn.Option[chancloser.AuxChanCloser]
+
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
 }

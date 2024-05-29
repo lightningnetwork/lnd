@@ -28,23 +28,11 @@ func TestIntermediatePayloadSize(t *testing.T) {
 		edge    AdditionalEdge
 	}{
 		{
-			name: "Legacy payload private edge",
-			hop: route.Hop{
-				AmtToForward:     1000,
-				OutgoingTimeLock: 600000,
-				ChannelID:        3432483437438,
-				LegacyPayload:    true,
-			},
-			nextHop: 1,
-			edge:    &PrivateEdge{},
-		},
-		{
 			name: "Tlv payload private edge",
 			hop: route.Hop{
 				AmtToForward:     1000,
 				OutgoingTimeLock: 600000,
 				ChannelID:        3432483437438,
-				LegacyPayload:    false,
 			},
 			nextHop: 1,
 			edge:    &PrivateEdge{},
@@ -86,7 +74,6 @@ func TestIntermediatePayloadSize(t *testing.T) {
 				IntermediatePayloadSize(
 					testCase.hop.AmtToForward,
 					testCase.hop.OutgoingTimeLock,
-					testCase.hop.LegacyPayload,
 					testCase.nextHop,
 				)
 

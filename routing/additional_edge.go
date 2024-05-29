@@ -25,7 +25,7 @@ type AdditionalEdge interface {
 	// additional edge when being an intermediate hop in a route NOT the
 	// final hop.
 	IntermediatePayloadSize(amount lnwire.MilliSatoshi, expiry uint32,
-		legacy bool, channelID uint64) uint64
+		channelID uint64) uint64
 
 	// EdgePolicy returns the policy of the additional edge.
 	EdgePolicy() *models.CachedEdgePolicy
@@ -33,7 +33,7 @@ type AdditionalEdge interface {
 
 // PayloadSizeFunc defines the interface for the payload size function.
 type PayloadSizeFunc func(amount lnwire.MilliSatoshi, expiry uint32,
-	legacy bool, channelID uint64) uint64
+	channelID uint64) uint64
 
 // PrivateEdge implements the AdditionalEdge interface. As the name implies it
 // is used for private route hints that the receiver adds for example to an
@@ -50,12 +50,11 @@ func (p *PrivateEdge) EdgePolicy() *models.CachedEdgePolicy {
 // IntermediatePayloadSize returns the sphinx payload size defined in BOLT04 if
 // this edge were to be included in a route.
 func (p *PrivateEdge) IntermediatePayloadSize(amount lnwire.MilliSatoshi,
-	expiry uint32, legacy bool, channelID uint64) uint64 {
+	expiry uint32, channelID uint64) uint64 {
 
 	hop := route.Hop{
 		AmtToForward:     amount,
 		OutgoingTimeLock: expiry,
-		LegacyPayload:    legacy,
 	}
 
 	return hop.PayloadSize(channelID)
@@ -77,11 +76,10 @@ func (b *BlindedEdge) EdgePolicy() *models.CachedEdgePolicy {
 // IntermediatePayloadSize returns the sphinx payload size defined in BOLT04 if
 // this edge were to be included in a route.
 func (b *BlindedEdge) IntermediatePayloadSize(_ lnwire.MilliSatoshi, _ uint32,
-	_ bool, _ uint64) uint64 {
+	_ uint64) uint64 {
 
 	hop := route.Hop{
 		BlindingPoint: b.blindingPoint,
-		LegacyPayload: false,
 		EncryptedData: b.cipherText,
 	}
 
@@ -97,11 +95,11 @@ var _ AdditionalEdge = (*BlindedEdge)(nil)
 // defaultHopPayloadSize is the default payload size of a normal (not-blinded)
 // hop in the route.
 func defaultHopPayloadSize(amount lnwire.MilliSatoshi, expiry uint32,
-	legacy bool, channelID uint64) uint64 {
+	channelID uint64) uint64 {
 
 	// The payload size of a cleartext intermediate hop is equal to the
 	// payload size of a private edge therefore we reuse its size function.
 	edge := PrivateEdge{}
 
-	return edge.IntermediatePayloadSize(amount, expiry, legacy, channelID)
+	return edge.IntermediatePayloadSize(amount, expiry, channelID)
 }

@@ -202,10 +202,10 @@ func TestBlindedPaymentToHints(t *testing.T) {
 		// The arguments we use for the payload do not matter as long as
 		// both functions return the same payload.
 		expectedPayloadSize := expectedHint[0].IntermediatePayloadSize(
-			0, 0, false, 0,
+			0, 0, 0,
 		)
 		actualPayloadSize := actualHint[0].IntermediatePayloadSize(
-			0, 0, false, 0,
+			0, 0, 0,
 		)
 
 		require.Equal(t, expectedPayloadSize, actualPayloadSize)

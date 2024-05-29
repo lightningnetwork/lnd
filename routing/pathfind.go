@@ -659,8 +659,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// The payload size of the final hop differ from intermediate hops
 	// and depends on whether the destination is blinded or not.
-	lastHopPayloadSize := lastHopPayloadSize(r, finalHtlcExpiry, amt,
-		!features.HasFeature(lnwire.TLVOnionPayloadOptional))
+	lastHopPayloadSize := lastHopPayloadSize(r, finalHtlcExpiry, amt)
 
 	// We can't always assume that the end destination is publicly
 	// advertised to the network so we'll manually include the target node.
@@ -882,14 +881,10 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				return
 			}
 
-			supportsTlv := fromFeatures.HasFeature(
-				lnwire.TLVOnionPayloadOptional,
-			)
-
 			payloadSize = edge.hopPayloadSizeFn(
 				amountToSend,
 				uint32(toNodeDist.incomingCltv),
-				!supportsTlv, edge.policy.ChannelID,
+				edge.policy.ChannelID,
 			)
 		}
 
@@ -1176,7 +1171,7 @@ func getProbabilityBasedDist(weight int64, probability float64,
 // It depends on the tlv types which are present and also whether the hop is
 // part of a blinded route or not.
 func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
-	amount lnwire.MilliSatoshi, legacy bool) uint64 {
+	amount lnwire.MilliSatoshi) uint64 {
 
 	if r.BlindedPayment != nil {
 		blindedPath := r.BlindedPayment.BlindedPath.BlindedHops
@@ -1186,7 +1181,6 @@ func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
 		finalHop := route.Hop{
 			AmtToForward:     amount,
 			OutgoingTimeLock: uint32(finalHtlcExpiry),
-			LegacyPayload:    false,
 			EncryptedData:    encryptedData,
 		}
 		if len(blindedPath) == 1 {
@@ -1214,7 +1208,6 @@ func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
 		AmtToForward:     amount,
 		OutgoingTimeLock: uint32(finalHtlcExpiry),
 		CustomRecords:    r.DestCustomRecords,
-		LegacyPayload:    legacy,
 		MPP:              mpp,
 		AMP:              amp,
 		Metadata:         r.Metadata,

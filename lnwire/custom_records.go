@@ -42,6 +42,38 @@ func NewCustomRecordsFromTlvTypeMap(tlvMap tlv.TypeMap) (CustomRecords,
 	return customRecords, nil
 }
 
+// FilteredCustomRecords returns a new CustomRecords instance containing only
+// the records from the given tlv.TypeMap that are in the custom records TLV
+// type range. Filtered out records that aren't in the custom records TLV type
+// range are returned in a new tlv.TypeMap.
+func FilteredCustomRecords(typeMap tlv.TypeMap) (CustomRecords, tlv.TypeMap,
+	error) {
+
+	// Any records from the extra data TLV map which are in the custom
+	// records TLV type range will be included in the custom records field.
+	customRecordsTlvMap := make(tlv.TypeMap, len(typeMap))
+	remainder := make(tlv.TypeMap)
+	for k, v := range typeMap {
+		// Skip records that are not in the custom records TLV type
+		// range.
+		if k < MinCustomRecordsTlvType {
+			remainder[k] = v
+
+			continue
+		}
+
+		// Include the record in the custom records map.
+		customRecordsTlvMap[k] = v
+	}
+
+	cr, err := NewCustomRecordsFromTlvTypeMap(customRecordsTlvMap)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return cr, remainder, nil
+}
+
 // ParseCustomRecords creates a new CustomRecords instance from a
 // tlv.Blob.
 func ParseCustomRecords(b tlv.Blob) (CustomRecords, error) {

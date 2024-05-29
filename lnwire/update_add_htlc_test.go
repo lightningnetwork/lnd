@@ -184,33 +184,7 @@ func TestUpdateAddHtlcEncodeDecode(t *testing.T) {
 		err = actualMsg.Decode(decodeReader, 0)
 		require.NoError(t, err)
 
-		// Compare the two messages to ensure equality one field at a
-		// time.
-		require.Equal(t, tc.Msg.ChanID, actualMsg.ChanID)
-		require.Equal(t, tc.Msg.ID, actualMsg.ID)
-		require.Equal(t, tc.Msg.Amount, actualMsg.Amount)
-		require.Equal(t, tc.Msg.PaymentHash, actualMsg.PaymentHash)
-		require.Equal(t, tc.Msg.OnionBlob, actualMsg.OnionBlob)
-		require.Equal(t, tc.Msg.BlindingPoint, actualMsg.BlindingPoint)
-
-		// Check that the custom records field is as expected.
-		if len(tc.Msg.CustomRecords) == 0 {
-			require.Len(t, actualMsg.CustomRecords, 0)
-		} else {
-			require.Equal(
-				t, tc.Msg.CustomRecords,
-				actualMsg.CustomRecords,
-			)
-		}
-
-		// Check that the extra data field is as expected.
-		if len(tc.Msg.ExtraData) == 0 {
-			require.Len(t, actualMsg.ExtraData, 0)
-		} else {
-			require.Equal(
-				t, tc.Msg.ExtraData,
-				actualMsg.ExtraData,
-			)
-		}
+		// Compare the two messages to ensure equality.
+		require.Equal(t, tc.Msg, actualMsg)
 	}
 }

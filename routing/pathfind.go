@@ -161,7 +161,6 @@ func newRoute(sourceVertex route.Vertex,
 			fee                 int64
 			totalAmtMsatBlinded lnwire.MilliSatoshi
 			outgoingTimeLock    uint32
-			tlvPayload          bool
 			customRecords       record.CustomSet
 			mpp                 *record.MPP
 			metadata            []byte
@@ -180,13 +179,6 @@ func newRoute(sourceVertex route.Vertex,
 			return edge.ToNodeFeatures.HasFeature(feature)
 		}
 
-		// We start by assuming the node doesn't support TLV. We'll now
-		// inspect the node's feature vector to see if we can promote
-		// the hop. We assume already that the feature vector's
-		// transitive dependencies have already been validated by path
-		// finding or some other means.
-		tlvPayload = supports(lnwire.TLVOnionPayloadOptional)
-
 		if i == len(pathEdges)-1 {
 			// If this is the last hop, then the hop payload will
 			// contain the exact amount. In BOLT #4: Onion Routing
@@ -204,12 +196,7 @@ func newRoute(sourceVertex route.Vertex,
 			totalTimeLock += uint32(finalHop.cltvDelta)
 			outgoingTimeLock = totalTimeLock
 
-			// Attach any custom records to the final hop if the
-			// receiver supports TLV.
-			if !tlvPayload && finalHop.records != nil {
-				return nil, errors.New("cannot attach " +
-					"custom records")
-			}
+			// Attach any custom records to the final hop.
 			customRecords = finalHop.records
 
 			// If we're attaching a payment addr but the receiver
@@ -275,7 +262,6 @@ func newRoute(sourceVertex route.Vertex,
 			ChannelID:        edge.ChannelID,
 			AmtToForward:     amtToForward,
 			OutgoingTimeLock: outgoingTimeLock,
-			LegacyPayload:    !tlvPayload,
 			CustomRecords:    customRecords,
 			MPP:              mpp,
 			Metadata:         metadata,

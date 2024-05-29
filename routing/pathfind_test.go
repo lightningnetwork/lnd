@@ -3,7 +3,6 @@ package routing
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -25,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	switchhop "github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -1030,7 +1030,8 @@ var basicGraphPathFindingTests = []basicGraphPathFindingTestCase{
 	// Basic route with fee limit.
 	{target: "sophon", paymentAmt: 100, feeLimit: 50,
 		expectFailureNoPath: true,
-	}}
+	},
+}
 
 func runBasicGraphPathFinding(t *testing.T, useCache bool) {
 	testGraphInstance, err := parseTestGraph(t, useCache, basicGraphFilePath)
@@ -1123,32 +1124,27 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 
 	// Hops should point to the next hop
 	for i := 0; i < len(expectedHops)-1; i++ {
-		var expectedHop [8]byte
-		binary.BigEndian.PutUint64(expectedHop[:], route.Hops[i+1].ChannelID)
+		payload, _, err := switchhop.ParseTLVPayload(
+			bytes.NewReader(sphinxPath[i].HopPayload.Payload),
+		)
+		require.NoError(t, err)
 
-		hopData, err := sphinxPath[i].HopPayload.HopData()
-		if err != nil {
-			t.Fatalf("unable to make hop data: %v", err)
-		}
-
-		if !bytes.Equal(hopData.NextAddress[:], expectedHop[:]) {
-			t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
-				expectedHop[:], hopData.NextAddress[:])
-		}
+		require.Equal(
+			t, route.Hops[i+1].ChannelID,
+			payload.FwdInfo.NextHop.ToUint64(),
+		)
 	}
+
+	lastHopIndex := len(expectedHops) - 1
+
+	payload, _, err := switchhop.ParseTLVPayload(
+		bytes.NewReader(sphinxPath[lastHopIndex].HopPayload.Payload),
+	)
+	require.NoError(t, err)
 
 	// The final hop should have a next hop value of all zeroes in order
 	// to indicate it's the exit hop.
-	var exitHop [8]byte
-	lastHopIndex := len(expectedHops) - 1
-
-	hopData, err := sphinxPath[lastHopIndex].HopPayload.HopData()
-	require.NoError(t, err, "unable to create hop data")
-
-	if !bytes.Equal(hopData.NextAddress[:], exitHop[:]) {
-		t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
-			exitHop[:], hopData.NextAddress)
-	}
+	require.Zero(t, payload.FwdInfo.NextHop.ToUint64())
 
 	var expectedTotalFee lnwire.MilliSatoshi
 	for i := 0; i < expectedHopCount; i++ {

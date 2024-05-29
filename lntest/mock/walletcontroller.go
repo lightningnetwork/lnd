@@ -73,9 +73,8 @@ func (w *WalletController) ConfirmedBalance(int32, string) (btcutil.Amount,
 func (w *WalletController) NewAddress(lnwallet.AddressType, bool,
 	string) (btcutil.Address, error) {
 
-	addr, _ := btcutil.NewAddressPubKey(
-		w.RootKey.PubKey().SerializeCompressed(), &chaincfg.MainNetParams,
-	)
+	pkh := btcutil.Hash160(w.RootKey.PubKey().SerializeCompressed())
+	addr, _ := btcutil.NewAddressPubKeyHash(pkh, &chaincfg.MainNetParams)
 	return addr, nil
 }
 

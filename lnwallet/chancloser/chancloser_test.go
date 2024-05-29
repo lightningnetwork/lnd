@@ -358,7 +358,8 @@ func TestMaxFeeClamp(t *testing.T) {
 					Channel:      &channel,
 					MaxFee:       test.inputMaxFee,
 					FeeEstimator: &SimpleCoopFeeEstimator{},
-				}, nil, test.idealFee, 0, nil, false,
+				}, DeliveryAddrWithKey{}, test.idealFee, 0, nil,
+				false,
 			)
 
 			// We'll call initFeeBaseline early here since we need
@@ -399,7 +400,8 @@ func TestMaxFeeBailOut(t *testing.T) {
 				MaxFee: idealFee * 2,
 			}
 			chanCloser := NewChanCloser(
-				closeCfg, nil, idealFee, 0, nil, false,
+				closeCfg, DeliveryAddrWithKey{}, idealFee, 0,
+				nil, false,
 			)
 
 			// We'll now force the channel state into the
@@ -523,7 +525,7 @@ func TestTaprootFastClose(t *testing.T) {
 			DisableChannel: func(wire.OutPoint) error {
 				return nil
 			},
-		}, nil, idealFee, 0, nil, true,
+		}, DeliveryAddrWithKey{}, idealFee, 0, nil, true,
 	)
 	aliceCloser.initFeeBaseline()
 
@@ -540,7 +542,7 @@ func TestTaprootFastClose(t *testing.T) {
 			DisableChannel: func(wire.OutPoint) error {
 				return nil
 			},
-		}, nil, idealFee, 0, nil, false,
+		}, DeliveryAddrWithKey{}, idealFee, 0, nil, false,
 	)
 	bobCloser.initFeeBaseline()
 

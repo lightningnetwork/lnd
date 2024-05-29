@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/build"
@@ -867,6 +868,72 @@ func (p *Brontide) QuitSignal() <-chan struct{} {
 	return p.quit
 }
 
+// internalKeyForAddr returns the internal key associated with a taproot
+// address.
+func internalKeyForAddr(wallet *lnwallet.LightningWallet,
+	deliveryScript []byte) (fn.Option[btcec.PublicKey], error) {
+
+	none := fn.None[btcec.PublicKey]()
+
+	pkScript, err := txscript.ParsePkScript(deliveryScript)
+	if err != nil {
+		return none, err
+	}
+	addr, err := pkScript.Address(&wallet.Cfg.NetParams)
+	if err != nil {
+		return none, err
+	}
+
+	walletAddr, err := wallet.AddressInfo(addr)
+	if err != nil {
+		return none, err
+	}
+
+	// If the address isn't known to the wallet, we can't determine the
+	// internal key.
+	if walletAddr == nil {
+		return none, nil
+	}
+
+	// If it's not a taproot address, we don't require to know the internal
+	// key in the first place. So we don't return an error here, but also no
+	// internal key.
+	if walletAddr.AddrType() != waddrmgr.TaprootPubKey {
+		return none, nil
+	}
+
+	pubKeyAddr, ok := walletAddr.(waddrmgr.ManagedPubKeyAddress)
+	if !ok {
+		return none, fmt.Errorf("expected pubkey addr, got %T",
+			pubKeyAddr)
+	}
+
+	return fn.Some(*pubKeyAddr.PubKey()), nil
+}
+
+// addrWithInternalKey takes a delivery script, then attempts to supplement it
+// with information related to the internal key for the addr, but only if it's
+// a taproot addr.
+func (p *Brontide) addrWithInternalKey(
+	deliveryScript []byte) fn.Result[chancloser.DeliveryAddrWithKey] {
+
+	// TODO(roasbeef): not compatible with external shutdown addr?
+	// Currently, custom channels cannot be created with external upfront
+	// shutdown addresses, so this shouldn't be an issue. We only require
+	// the internal key for taproot addresses to be able to provide a non
+	// inclusion proof of any scripts.
+
+	internalKey, err := internalKeyForAddr(p.cfg.Wallet, deliveryScript)
+	if err != nil {
+		return fn.Err[chancloser.DeliveryAddrWithKey](err)
+	}
+
+	return fn.Ok(chancloser.DeliveryAddrWithKey{
+		DeliveryAddress: deliveryScript,
+		InternalKey:     internalKey,
+	})
+}
+
 // loadActiveChannels creates indexes within the peer for tracking all active
 // channels returned by the database. It returns a slice of channel reestablish
 // messages that should be sent to the peer immediately, in case we have borked
@@ -1107,8 +1174,16 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 				return
 			}
 
+			addr, err := p.addrWithInternalKey(
+				info.DeliveryScript.Val,
+			).Unpack()
+			if err != nil {
+				shutdownInfoErr = fmt.Errorf("unable to make "+
+					"delivery addr: %w", err)
+				return
+			}
 			chanCloser, err := p.createChanCloser(
-				lnChan, info.DeliveryScript.Val, feePerKw, nil,
+				lnChan, addr, feePerKw, nil,
 				info.LocalInitiator.Val,
 			)
 			if err != nil {
@@ -2795,8 +2870,12 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 		return nil, fmt.Errorf("unable to estimate fee")
 	}
 
+	addr, err := p.addrWithInternalKey(deliveryScript).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse addr: %w", err)
+	}
 	chanCloser, err = p.createChanCloser(
-		channel, deliveryScript, feePerKw, nil, false,
+		channel, addr, feePerKw, nil, false,
 	)
 	if err != nil {
 		p.log.Errorf("unable to create chan closer: %v", err)
@@ -3037,8 +3116,12 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 		channeldb.ChanStatusLocalCloseInitiator,
 	)
 
+	addr, err := p.addrWithInternalKey(deliveryScript).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse addr: %w", err)
+	}
 	chanCloser, err := p.createChanCloser(
-		lnChan, deliveryScript, feePerKw, nil, locallyInitiated,
+		lnChan, addr, feePerKw, nil, locallyInitiated,
 	)
 	if err != nil {
 		p.log.Errorf("unable to create chan closer: %v", err)
@@ -3065,8 +3148,8 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 // createChanCloser constructs a ChanCloser from the passed parameters and is
 // used to de-duplicate code.
 func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
-	deliveryScript lnwire.DeliveryAddress, fee chainfee.SatPerKWeight,
-	req *htlcswitch.ChanClose,
+	deliveryScript chancloser.DeliveryAddrWithKey,
+	fee chainfee.SatPerKWeight, req *htlcswitch.ChanClose,
 	locallyInitiated bool) (*chancloser.ChanCloser, error) {
 
 	_, startingHeight, err := p.cfg.ChainIO.GetBestBlock()
@@ -3087,6 +3170,7 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 			MusigSession: NewMusigChanCloser(channel),
 			FeeEstimator: &chancloser.SimpleCoopFeeEstimator{},
 			BroadcastTx:  p.cfg.Wallet.PublishTransaction,
+			AuxCloser:    p.cfg.AuxChanCloser,
 			DisableChannel: func(op wire.OutPoint) error {
 				return p.cfg.ChanStatusMgr.RequestDisable(
 					op, false,
@@ -3158,9 +3242,16 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 				return
 			}
 		}
-
+		addr, err := p.addrWithInternalKey(deliveryScript).Unpack()
+		if err != nil {
+			err = fmt.Errorf("unable to parse addr for channel "+
+				"%v: %w", req.ChanPoint, err)
+			p.log.Errorf(err.Error())
+			req.Err <- err
+			return
+		}
 		chanCloser, err := p.createChanCloser(
-			channel, deliveryScript, req.TargetFeePerKw, req, true,
+			channel, addr, req.TargetFeePerKw, req, true,
 		)
 		if err != nil {
 			p.log.Errorf(err.Error())

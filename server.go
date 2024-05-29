@@ -4106,6 +4106,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		AuxLeafStore:           s.implCfg.AuxLeafStore,
 		AuxSigner:              s.implCfg.AuxSigner,
 		MsgRouter:              s.implCfg.MsgRouter,
+		AuxChanCloser:          s.implCfg.AuxChanCloser,
 	}
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())

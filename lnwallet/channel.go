@@ -8206,10 +8206,21 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	}, nil
 }
 
+// CloseOutput is wraps a normal tx out with additional metadata that indicates
+// if the output to the initiator of the channel or not.
+type CloseOutput struct {
+	wire.TxOut
+
+	// IsLocal indicates if the output belong to the local party.
+	IsLocal bool
+}
+
 // chanCloseOpt is a functional option that can be used to modify the co-op
 // close process.
 type chanCloseOpt struct {
 	musigSession *MusigSession
+
+	extraCloseOutputs []CloseOutput
 }
 
 // ChanCloseOpt is a closure type that cen be used to modify the set of default
@@ -8230,6 +8241,14 @@ func WithCoopCloseMusigSession(session *MusigSession) ChanCloseOpt {
 	}
 }
 
+// WithExtraCloseOutputs can be used to add extra outputs to the cooperative
+// transaction.
+func WithExtraCloseOutputs(extraOutputs []CloseOutput) ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.extraCloseOutputs = extraOutputs
+	}
+}
+
 // CreateCloseProposal is used by both parties in a cooperative channel close
 // workflow to generate proposed close transactions and signatures. This method
 // should only be executed once all pending HTLCs (if any) on the channel have
@@ -8237,9 +8256,6 @@ func WithCoopCloseMusigSession(session *MusigSession) ChanCloseOpt {
 // the "closing" state, which indicates that all incoming/outgoing HTLC
 // requests should be rejected. A signature for the closing transaction is
 // returned.
-//
-// TODO(roasbeef): caller should initiate signal to reject all incoming HTLCs,
-// settle any in flight.
 func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	localDeliveryScript []byte, remoteDeliveryScript []byte,
 	closeOpts ...ChanCloseOpt) (input.Signature, *chainhash.Hash,
@@ -8250,7 +8266,6 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 
 	// If we're already closing the channel, then ignore this request.
 	if lc.isClosed {
-		// TODO(roasbeef): check to ensure no pending payments
 		return nil, nil, 0, ErrChanClosing
 	}
 
@@ -8275,6 +8290,15 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	// If this is a taproot channel, then we use an RBF'able funding input.
 	if lc.channelState.ChanType.IsTaproot() {
 		closeTxOpts = append(closeTxOpts, WithRBFCloseTx())
+	}
+
+	// If we have any extra outputs to pass along, then we'll map that to
+	// the co-op close option txn type.
+	if opts.extraCloseOutputs != nil {
+		closeTxOpts = append(
+			closeTxOpts,
+			WithExtraTxCloseOutputs(opts.extraCloseOutputs),
+		)
 	}
 
 	closeTx := CreateCooperativeCloseTx(
@@ -8357,6 +8381,15 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	// If this is a taproot channel, then we use an RBF'able funding input.
 	if lc.channelState.ChanType.IsTaproot() {
 		closeTxOpts = append(closeTxOpts, WithRBFCloseTx())
+	}
+
+	// If we have any extra outputs to pass along, then we'll map that to
+	// the co-op close option txn type.
+	if opts.extraCloseOutputs != nil {
+		closeTxOpts = append(
+			closeTxOpts,
+			WithExtraTxCloseOutputs(opts.extraCloseOutputs),
+		)
 	}
 
 	// Create the transaction used to return the current settled balance
@@ -9013,6 +9046,10 @@ type closeTxOpts struct {
 	// enableRBF indicates whether the cooperative close tx should signal
 	// RBF or not.
 	enableRBF bool
+
+	// extraCloseOutputs is a set of additional outputs that should be
+	// added the co-op close transaction.
+	extraCloseOutputs []CloseOutput
 }
 
 // defaultCloseTxOpts returns a closeTxOpts struct with default values.
@@ -9030,6 +9067,14 @@ type CloseTxOpt func(*closeTxOpts)
 func WithRBFCloseTx() CloseTxOpt {
 	return func(o *closeTxOpts) {
 		o.enableRBF = true
+	}
+}
+
+// WithExtraTxCloseOutputs can be used to add extra outputs to the cooperative
+// transaction.
+func WithExtraTxCloseOutputs(extraOutputs []CloseOutput) CloseTxOpt {
+	return func(o *closeTxOpts) {
+		o.extraCloseOutputs = extraOutputs
 	}
 }
 
@@ -9064,17 +9109,101 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 
 	// Create both cooperative closure outputs, properly respecting the
 	// dust limits of both parties.
-	if ourBalance >= localDust {
+	var localOutputIdx fn.Option[int]
+	haveLocalOutput := ourBalance >= localDust
+	if haveLocalOutput {
 		closeTx.AddTxOut(&wire.TxOut{
 			PkScript: ourDeliveryScript,
 			Value:    int64(ourBalance),
 		})
+
+		localOutputIdx = fn.Some(len(closeTx.TxOut) - 1)
 	}
-	if theirBalance >= remoteDust {
+
+	var remoteOutputIdx fn.Option[int]
+	haveRemoteOutput := theirBalance >= remoteDust
+	if haveRemoteOutput {
 		closeTx.AddTxOut(&wire.TxOut{
 			PkScript: theirDeliveryScript,
 			Value:    int64(theirBalance),
 		})
+
+		remoteOutputIdx = fn.Some(len(closeTx.TxOut) - 1)
+	}
+
+	// If we have extra outputs to add to the co-op close transaction, then
+	// we'll examine them now. We'll deduct the output's value from the
+	// owning party. In the case that a party can't pay for the output,
+	// then their normal output will be omitted.
+	for idx := range opts.extraCloseOutputs {
+		extraTxOut := opts.extraCloseOutputs[idx]
+
+		switch {
+		// For additional local outputs, add the output, then deduct
+		// the balance from our local balance.
+		case extraTxOut.IsLocal:
+			localOutputIdx.WhenSome(func(idx int) {
+				txOut := closeTx.TxOut[idx]
+
+				// The extra output (if one exists) is the more
+				// important one, as in custom channels it might
+				// carry some additional values. The normal
+				// output is just an address that sends the
+				// local balance back to our wallet. The extra
+				// one also goes to our wallet, but might also
+				// carry other values, so it has higher
+				// priority. Do we have enough balance to have
+				// both the extra output with the given value
+				// (which is subtracted from our balance) and
+				// still an above-dust normal output? If not, we
+				// skip the extra output and just overwrite the
+				// existing output script with the one from the
+				// extra output.
+				amtAfterOutput := ourBalance - btcutil.Amount(
+					extraTxOut.Value,
+				)
+				if amtAfterOutput <= localDust {
+					txOut.PkScript = extraTxOut.PkScript
+
+					return
+				}
+
+				txOut.Value -= extraTxOut.Value
+				closeTx.AddTxOut(&extraTxOut.TxOut)
+			})
+
+		// For extra remote outputs, we'll do the opposite.
+		case !extraTxOut.IsLocal:
+			remoteOutputIdx.WhenSome(func(idx int) {
+				txOut := closeTx.TxOut[idx]
+
+				// The extra output (if one exists) is the more
+				// important one, as in custom channels it might
+				// carry some additional values. The normal
+				// output is just an address that sends the
+				// remote balance back to their wallet. The
+				// extra one also goes to their wallet, but
+				// might also/ carry other values, so it has
+				// higher priority. Do they have enough balance
+				// to have both the extra output with the given
+				// value (which is subtracted from their
+				// balance) and still an above-dust normal
+				// output? If not, we skip the extra output and
+				// just overwrite the existing output script
+				// with the one from the extra output.
+				amtAfterOutput := theirBalance - btcutil.Amount(
+					extraTxOut.Value,
+				)
+				if amtAfterOutput <= remoteDust {
+					txOut.PkScript = extraTxOut.PkScript
+
+					return
+				}
+
+				txOut.Value -= extraTxOut.Value
+				closeTx.AddTxOut(&extraTxOut.TxOut)
+			})
+		}
 	}
 
 	txsort.InPlaceSort(closeTx)

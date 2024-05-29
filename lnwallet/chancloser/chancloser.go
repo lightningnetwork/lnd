@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -105,6 +106,18 @@ const (
 	// 3x higher than our max fee.
 	defaultMaxFeeMultiplier = 3
 )
+
+// DeliveryAddrWithKey wraps a normal delivery addr, but also includes the
+// internal key for the delivery addr if known.
+type DeliveryAddrWithKey struct {
+	// DeliveryAddress is the raw, serialized pkScript of the delivery
+	// address.
+	lnwire.DeliveryAddress
+
+	// InternalKey is the Taproot internal key of the delivery address, if
+	// the address is a P2TR output.
+	InternalKey fn.Option[btcec.PublicKey]
+}
 
 // ChanCloseCfg holds all the items that a ChanCloser requires to carry out its
 // duties.
@@ -208,6 +221,10 @@ type ChanCloser struct {
 	// funds to.
 	localDeliveryScript []byte
 
+	// localInternalKey is the local delivery address Taproot internal key,
+	// if the local delivery script is a P2TR output.
+	localInternalKey fn.Option[btcec.PublicKey]
+
 	// remoteDeliveryScript is the script that we'll send the remote party's
 	// settled channel funds to.
 	remoteDeliveryScript []byte
@@ -284,7 +301,7 @@ func (d *SimpleCoopFeeEstimator) EstimateFee(chanType channeldb.ChannelType,
 // NewChanCloser creates a new instance of the channel closure given the passed
 // configuration, and delivery+fee preference. The final argument should only
 // be populated iff, we're the initiator of this closing request.
-func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
+func NewChanCloser(cfg ChanCloseCfg, deliveryScript DeliveryAddrWithKey,
 	idealFeePerKw chainfee.SatPerKWeight, negotiationHeight uint32,
 	closeReq *htlcswitch.ChanClose,
 	closer lntypes.ChannelParty) *ChanCloser {
@@ -299,7 +316,8 @@ func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 		cfg:                 cfg,
 		negotiationHeight:   negotiationHeight,
 		idealFeeRate:        idealFeePerKw,
-		localDeliveryScript: deliveryScript,
+		localInternalKey:    deliveryScript.InternalKey,
+		localDeliveryScript: deliveryScript.DeliveryAddress,
 		priorFeeOffers: make(
 			map[btcutil.Amount]*lnwire.ClosingSigned,
 		),
@@ -362,6 +380,7 @@ func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 			ChanPoint:   c.chanPoint,
 			ShortChanID: c.cfg.Channel.ShortChanID(),
 			Initiator:   c.cfg.Channel.IsInitiator(),
+			InternalKey: c.localInternalKey,
 			CommitBlob:  c.cfg.Channel.LocalCommitmentBlob(),
 			FundingBlob: c.cfg.Channel.FundingBlob(),
 		})
@@ -966,6 +985,7 @@ func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
 				req := AuxShutdownReq{
 					ChanPoint:   c.chanPoint,
 					ShortChanID: c.cfg.Channel.ShortChanID(),
+					InternalKey: c.localInternalKey,
 					Initiator:   channel.IsInitiator(),
 					CommitBlob:  channel.LocalCommitmentBlob(),
 					FundingBlob: channel.FundingBlob(),
@@ -1042,6 +1062,7 @@ func (c *ChanCloser) auxCloseOutputs(
 		req := AuxShutdownReq{
 			ChanPoint:   c.chanPoint,
 			ShortChanID: c.cfg.Channel.ShortChanID(),
+			InternalKey: c.localInternalKey,
 			Initiator:   c.cfg.Channel.IsInitiator(),
 			CommitBlob:  c.cfg.Channel.LocalCommitmentBlob(),
 			FundingBlob: c.cfg.Channel.FundingBlob(),

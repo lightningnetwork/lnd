@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -151,6 +152,14 @@ func (m *mockChannel) ChannelPoint() wire.OutPoint {
 	return m.chanPoint
 }
 
+func (m *mockChannel) LocalCommitmentBlob() fn.Option[tlv.Blob] {
+	return fn.None[tlv.Blob]()
+}
+
+func (m *mockChannel) FundingBlob() fn.Option[tlv.Blob] {
+	return fn.None[tlv.Blob]()
+}
+
 func (m *mockChannel) MarkCoopBroadcasted(*wire.MsgTx, bool) error {
 	return nil
 }
@@ -202,12 +211,20 @@ func (m *mockChannel) CompleteCooperativeClose(localSig,
 	return &wire.MsgTx{}, 0, nil
 }
 
-func (m *mockChannel) LocalBalanceDust() bool {
-	return false
+func (m *mockChannel) LocalBalanceDust() (bool, btcutil.Amount) {
+	return false, 0
 }
 
-func (m *mockChannel) RemoteBalanceDust() bool {
-	return false
+func (m *mockChannel) RemoteBalanceDust() (bool, btcutil.Amount) {
+	return false, 0
+}
+
+func (m *mockChannel) CommitBalances() (btcutil.Amount, btcutil.Amount) {
+	return 0, 0
+}
+
+func (m *mockChannel) CommitFee() btcutil.Amount {
+	return 0
 }
 
 func (m *mockChannel) ChanType() channeldb.ChannelType {

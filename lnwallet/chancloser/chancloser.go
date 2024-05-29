@@ -140,6 +140,10 @@ type ChanCloseCfg struct {
 	// FeeEstimator is used to estimate the absolute starting co-op close
 	// fee.
 	FeeEstimator CoopFeeEstimator
+
+	// AuxCloser is an optional interface that can be used to modify the
+	// way the co-op close process proceeds.
+	AuxCloser fn.Option[AuxChanCloser]
 }
 
 // ChanCloser is a state machine that handles the cooperative channel closure
@@ -215,6 +219,20 @@ type ChanCloser struct {
 	// we use to handle a specific race condition caused by the independent
 	// message processing queues.
 	cachedClosingSigned fn.Option[lnwire.ClosingSigned]
+
+	// localCloseOutput is the local output on the closing transaction that
+	// the local party should be paid to. This will only be populated if the
+	// local balance isn't dust.
+	localCloseOutput fn.Option[CloseOutput]
+
+	// remoteCloseOutput is the remote output on the closing transaction
+	// that the remote party should be paid to. This will only be populated
+	// if the remote balance isn't dust.
+	remoteCloseOutput fn.Option[CloseOutput]
+
+	// auxOutputs are the optional additional outputs that might be added to
+	// the closing transaction.
+	auxOutputs fn.Option[AuxCloseOutputs]
 }
 
 // calcCoopCloseFee computes an "ideal" absolute co-op close fee given the
@@ -295,13 +313,13 @@ func (c *ChanCloser) initFeeBaseline() {
 	// Depending on if a balance ends up being dust or not, we'll pass a
 	// nil TxOut into the EstimateFee call which can handle it.
 	var localTxOut, remoteTxOut *wire.TxOut
-	if !c.cfg.Channel.LocalBalanceDust() {
+	if isDust, _ := c.cfg.Channel.LocalBalanceDust(); !isDust {
 		localTxOut = &wire.TxOut{
 			PkScript: c.localDeliveryScript,
 			Value:    0,
 		}
 	}
-	if !c.cfg.Channel.RemoteBalanceDust() {
+	if isDust, _ := c.cfg.Channel.RemoteBalanceDust(); !isDust {
 		remoteTxOut = &wire.TxOut{
 			PkScript: c.remoteDeliveryScript,
 			Value:    0,
@@ -337,6 +355,30 @@ func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 	// desired closing script.
 	shutdown := lnwire.NewShutdown(c.cid, c.localDeliveryScript)
 
+	// At this point, we'll check to see if we have any custom records to
+	// add to the shutdown message.
+	err := fn.MapOptionZ(c.cfg.AuxCloser, func(a AuxChanCloser) error {
+		shutdownCustomRecords, err := a.ShutdownBlob(AuxShutdownReq{
+			ChanPoint:   c.chanPoint,
+			ShortChanID: c.cfg.Channel.ShortChanID(),
+			Initiator:   c.cfg.Channel.IsInitiator(),
+			CommitBlob:  c.cfg.Channel.LocalCommitmentBlob(),
+			FundingBlob: c.cfg.Channel.FundingBlob(),
+		})
+		if err != nil {
+			return err
+		}
+
+		shutdownCustomRecords.WhenSome(func(cr lnwire.CustomRecords) {
+			shutdown.CustomRecords = cr
+		})
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	// If this is a taproot channel, then we'll need to also generate a
 	// nonce that'll be used sign the co-op close transaction offer.
 	if c.cfg.Channel.ChanType().IsTaproot() {
@@ -370,10 +412,21 @@ func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 	shutdownInfo := channeldb.NewShutdownInfo(
 		c.localDeliveryScript, c.closer.IsLocal(),
 	)
-	err := c.cfg.Channel.MarkShutdownSent(shutdownInfo)
+	err = c.cfg.Channel.MarkShutdownSent(shutdownInfo)
 	if err != nil {
 		return nil, err
 	}
+
+	// We'll track our local close output, even if it's dust in BTC terms,
+	// it might still carry value in custom channel terms.
+	_, dustAmt := c.cfg.Channel.LocalBalanceDust()
+	localBalance, _ := c.cfg.Channel.CommitBalances()
+	c.localCloseOutput = fn.Some(CloseOutput{
+		Amt:             localBalance,
+		DustLimit:       dustAmt,
+		PkScript:        c.localDeliveryScript,
+		ShutdownRecords: shutdown.CustomRecords,
+	})
 
 	return shutdown, nil
 }
@@ -444,6 +497,21 @@ func (c *ChanCloser) NegotiationHeight() uint32 {
 	return c.negotiationHeight
 }
 
+// LocalCloseOutput returns the local close output.
+func (c *ChanCloser) LocalCloseOutput() fn.Option[CloseOutput] {
+	return c.localCloseOutput
+}
+
+// RemoteCloseOutput returns the remote close output.
+func (c *ChanCloser) RemoteCloseOutput() fn.Option[CloseOutput] {
+	return c.remoteCloseOutput
+}
+
+// AuxOutputs returns optional extra outputs.
+func (c *ChanCloser) AuxOutputs() fn.Option[AuxCloseOutputs] {
+	return c.auxOutputs
+}
+
 // validateShutdownScript attempts to match and validate the script provided in
 // our peer's shutdown message with the upfront shutdown script we have on
 // record. For any script specified, we also make sure it matches our
@@ -502,6 +570,17 @@ func (c *ChanCloser) ReceiveShutdown(msg lnwire.Shutdown) (
 	fn.Option[lnwire.Shutdown], error) {
 
 	noShutdown := fn.None[lnwire.Shutdown]()
+
+	// We'll track their remote close output, even if it's dust in BTC
+	// terms, it might still carry value in custom channel terms.
+	_, dustAmt := c.cfg.Channel.RemoteBalanceDust()
+	_, remoteBalance := c.cfg.Channel.CommitBalances()
+	c.remoteCloseOutput = fn.Some(CloseOutput{
+		Amt:             remoteBalance,
+		DustLimit:       dustAmt,
+		PkScript:        msg.Address,
+		ShutdownRecords: msg.CustomRecords,
+	})
 
 	switch c.state {
 	// If we're in the close idle state, and we're receiving a channel
@@ -850,6 +929,25 @@ func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
 			}
 		}
 
+		// Before we complete the cooperative close, we'll see if we
+		// have any extra aux options.
+		c.auxOutputs, err = c.auxCloseOutputs(remoteProposedFee)
+		if err != nil {
+			return noClosing, err
+		}
+		c.auxOutputs.WhenSome(func(outs AuxCloseOutputs) {
+			closeOpts = append(
+				closeOpts, lnwallet.WithExtraCloseOutputs(
+					outs.ExtraCloseOutputs,
+				),
+			)
+			closeOpts = append(
+				closeOpts, lnwallet.WithCustomCoopSort(
+					outs.CustomSort,
+				),
+			)
+		})
+
 		closeTx, _, err := c.cfg.Channel.CompleteCooperativeClose(
 			localSig, remoteSig, c.localDeliveryScript,
 			c.remoteDeliveryScript, remoteProposedFee, closeOpts...,
@@ -858,6 +956,32 @@ func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
 			return noClosing, err
 		}
 		c.closingTx = closeTx
+
+		// If there's an aux chan closer, then we'll finalize with it
+		// before we write to disk.
+		err = fn.MapOptionZ(
+			c.cfg.AuxCloser, func(aux AuxChanCloser) error {
+				channel := c.cfg.Channel
+				//nolint:lll
+				req := AuxShutdownReq{
+					ChanPoint:   c.chanPoint,
+					ShortChanID: c.cfg.Channel.ShortChanID(),
+					Initiator:   channel.IsInitiator(),
+					CommitBlob:  channel.LocalCommitmentBlob(),
+					FundingBlob: channel.FundingBlob(),
+				}
+				desc := AuxCloseDesc{
+					AuxShutdownReq:    req,
+					LocalCloseOutput:  c.localCloseOutput,
+					RemoteCloseOutput: c.remoteCloseOutput,
+				}
+
+				return aux.FinalizeClose(desc, closeTx)
+			},
+		)
+		if err != nil {
+			return noClosing, err
+		}
 
 		// Before publishing the closing tx, we persist it to the
 		// database, such that it can be republished if something goes
@@ -908,9 +1032,45 @@ func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
 	}
 }
 
+// auxCloseOutputs returns any additional outputs that should be used when
+// closing the channel.
+func (c *ChanCloser) auxCloseOutputs(
+	closeFee btcutil.Amount) (fn.Option[AuxCloseOutputs], error) {
+
+	var closeOuts fn.Option[AuxCloseOutputs]
+	err := fn.MapOptionZ(c.cfg.AuxCloser, func(aux AuxChanCloser) error {
+		req := AuxShutdownReq{
+			ChanPoint:   c.chanPoint,
+			ShortChanID: c.cfg.Channel.ShortChanID(),
+			Initiator:   c.cfg.Channel.IsInitiator(),
+			CommitBlob:  c.cfg.Channel.LocalCommitmentBlob(),
+			FundingBlob: c.cfg.Channel.FundingBlob(),
+		}
+		outs, err := aux.AuxCloseOutputs(AuxCloseDesc{
+			AuxShutdownReq:    req,
+			CloseFee:          closeFee,
+			CommitFee:         c.cfg.Channel.CommitFee(),
+			LocalCloseOutput:  c.localCloseOutput,
+			RemoteCloseOutput: c.remoteCloseOutput,
+		})
+		if err != nil {
+			return err
+		}
+
+		closeOuts = outs
+
+		return nil
+	})
+	if err != nil {
+		return closeOuts, err
+	}
+
+	return closeOuts, nil
+}
+
 // proposeCloseSigned attempts to propose a new signature for the closing
-// transaction for a channel based on the prior fee negotiations and our current
-// compromise fee.
+// transaction for a channel based on the prior fee negotiations and our
+// current compromise fee.
 func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (
 	*lnwire.ClosingSigned, error) {
 
@@ -928,6 +1088,26 @@ func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (
 		}
 	}
 
+	// We'll also now see if the aux chan closer has any additional options
+	// for the closing purpose.
+	c.auxOutputs, err = c.auxCloseOutputs(fee)
+	if err != nil {
+		return nil, err
+	}
+	c.auxOutputs.WhenSome(func(outs AuxCloseOutputs) {
+		closeOpts = append(
+			closeOpts, lnwallet.WithExtraCloseOutputs(
+				outs.ExtraCloseOutputs,
+			),
+		)
+		closeOpts = append(
+			closeOpts, lnwallet.WithCustomCoopSort(
+				outs.CustomSort,
+			),
+		)
+	})
+
+	// With all our options added, we'll attempt to co-op close now.
 	rawSig, _, _, err := c.cfg.Channel.CreateCloseProposal(
 		fee, c.localDeliveryScript, c.remoteDeliveryScript,
 		closeOpts...,

@@ -11731,11 +11731,12 @@ func TestCreateCooperativeCloseTx(t *testing.T) {
 				)
 			}
 
-			closeTx := CreateCooperativeCloseTx(
+			closeTx, err := CreateCooperativeCloseTx(
 				*fundingTxIn, localDust, remoteDust,
 				test.localBalance, test.remoteBalance,
 				localScript, remoteScript, opts...,
 			)
+			require.NoError(t, err)
 
 			txsort.InPlaceSort(test.expectedTx)
 

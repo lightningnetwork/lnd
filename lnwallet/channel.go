@@ -7700,12 +7700,21 @@ type CloseOutput struct {
 	IsLocal bool
 }
 
+// CloseSortFunc is a function type alias for a function that sorts the closing
+// transaction.
+type CloseSortFunc func(*wire.MsgTx) error
+
 // chanCloseOpt is a functional option that can be used to modify the co-op
 // close process.
 type chanCloseOpt struct {
 	musigSession *MusigSession
 
 	extraCloseOutputs []CloseOutput
+
+	// customSort is a custom function that can be used to sort the
+	// transaction outputs. If this isn't set, then the default BIP-69
+	// sorting is used.
+	customSort CloseSortFunc
 }
 
 // ChanCloseOpt is a closure type that cen be used to modify the set of default
@@ -7731,6 +7740,14 @@ func WithCoopCloseMusigSession(session *MusigSession) ChanCloseOpt {
 func WithExtraCloseOutputs(extraOutputs []CloseOutput) ChanCloseOpt {
 	return func(opts *chanCloseOpt) {
 		opts.extraCloseOutputs = extraOutputs
+	}
+}
+
+// WithCustomCoopSort can be used to modify the way the co-op close transaction
+// is sorted.
+func WithCustomCoopSort(sorter CloseSortFunc) ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.customSort = sorter
 	}
 }
 
@@ -7784,12 +7801,20 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 			opts.extraCloseOutputs,
 		))
 	}
+	if opts.customSort != nil {
+		closeTxOpts = append(
+			closeTxOpts, WithCustomTxSort(opts.customSort),
+		)
+	}
 
-	closeTx := CreateCooperativeCloseTx(
+	closeTx, err := CreateCooperativeCloseTx(
 		fundingTxIn(lc.channelState), lc.channelState.LocalChanCfg.DustLimit,
 		lc.channelState.RemoteChanCfg.DustLimit, ourBalance, theirBalance,
 		localDeliveryScript, remoteDeliveryScript, closeTxOpts...,
 	)
+	if err != nil {
+		return nil, nil, 0, err
+	}
 
 	// Ensure that the transaction doesn't explicitly violate any
 	// consensus rules such as being too big, or having any value with a
@@ -7874,15 +7899,23 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 			opts.extraCloseOutputs,
 		))
 	}
+	if opts.customSort != nil {
+		closeTxOpts = append(
+			closeTxOpts, WithCustomTxSort(opts.customSort),
+		)
+	}
 
 	// Create the transaction used to return the current settled balance
 	// on this active channel back to both parties. In this current model,
 	// the initiator pays full fees for the cooperative close transaction.
-	closeTx := CreateCooperativeCloseTx(
+	closeTx, err := CreateCooperativeCloseTx(
 		fundingTxIn(lc.channelState), lc.channelState.LocalChanCfg.DustLimit,
 		lc.channelState.RemoteChanCfg.DustLimit, ourBalance, theirBalance,
 		localDeliveryScript, remoteDeliveryScript, closeTxOpts...,
 	)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	// Ensure that the transaction doesn't explicitly validate any
 	// consensus rules such as being too big, or having any value with a
@@ -8584,6 +8617,11 @@ type closeTxOpts struct {
 	// extraCloseOutputs is a set of additional outputs that should be
 	// added the co-op close transaction.
 	extraCloseOutputs []CloseOutput
+
+	// customSort is a custom function that can be used to sort the
+	// transaction outputs. If this isn't set, then the default BIP-69
+	// sorting is used.
+	customSort CloseSortFunc
 }
 
 // defaultCloseTxOpts returns a closeTxOpts struct with default values.
@@ -8612,6 +8650,14 @@ func WithExtraTxCloseOutputs(extraOutputs []CloseOutput) CloseTxOpt {
 	}
 }
 
+// WithCustomTxSort can be used to modify the way the close transaction is
+// sorted.
+func WithCustomTxSort(sorter CloseSortFunc) CloseTxOpt {
+	return func(opts *closeTxOpts) {
+		opts.customSort = sorter
+	}
+}
+
 // CreateCooperativeCloseTx creates a transaction which if signed by both
 // parties, then broadcast cooperatively closes an active channel. The creation
 // of the closure transaction is modified by a boolean indicating if the party
@@ -8621,7 +8667,7 @@ func WithExtraTxCloseOutputs(extraOutputs []CloseOutput) CloseTxOpt {
 func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 	localDust, remoteDust, ourBalance, theirBalance btcutil.Amount,
 	ourDeliveryScript, theirDeliveryScript []byte,
-	closeOpts ...CloseTxOpt) *wire.MsgTx {
+	closeOpts ...CloseTxOpt) (*wire.MsgTx, error) {
 
 	opts := defaultCloseTxOpts()
 	for _, optFunc := range closeOpts {
@@ -8754,9 +8800,15 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 		}
 	}
 
-	txsort.InPlaceSort(closeTx)
+	if opts.customSort != nil {
+		if err := opts.customSort(closeTx); err != nil {
+			return nil, err
+		}
+	} else {
+		txsort.InPlaceSort(closeTx)
+	}
 
-	return closeTx
+	return closeTx, nil
 }
 
 // LocalBalanceDust returns true if when creating a co-op close transaction,

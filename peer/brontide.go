@@ -145,6 +145,21 @@ type PendingUpdate struct {
 type ChannelCloseUpdate struct {
 	ClosingTxid []byte
 	Success     bool
+
+	// LocalCloseOutput is an optional, additional output on the closing
+	// transaction that the local party should be paid to. This will only be
+	// populated if the local balance isn't dust.
+	LocalCloseOutput fn.Option[chancloser.CloseOutput]
+
+	// RemoteCloseOutput is an optional, additional output on the closing
+	// transaction that the remote party should be paid to. This will only
+	// be populated if the remote balance isn't dust.
+	RemoteCloseOutput fn.Option[chancloser.CloseOutput]
+
+	// AuxOutputs is an optional set of additional outputs that might be
+	// included in the closing transaction. These are used for custom
+	// channel types.
+	AuxOutputs fn.Option[chancloser.AuxCloseOutputs]
 }
 
 // TimestampedError is a timestamped error that is used to store the most recent
@@ -3567,17 +3582,25 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 		}
 	}
 
-	go WaitForChanToClose(chanCloser.NegotiationHeight(), notifier, errChan,
+	localOut := chanCloser.LocalCloseOutput()
+	remoteOut := chanCloser.RemoteCloseOutput()
+	auxOut := chanCloser.AuxOutputs()
+	go WaitForChanToClose(
+		chanCloser.NegotiationHeight(), notifier, errChan,
 		&chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, func() {
 			// Respond to the local subsystem which requested the
 			// channel closure.
 			if closeReq != nil {
 				closeReq.Updates <- &ChannelCloseUpdate{
-					ClosingTxid: closingTxid[:],
-					Success:     true,
+					ClosingTxid:       closingTxid[:],
+					Success:           true,
+					LocalCloseOutput:  localOut,
+					RemoteCloseOutput: remoteOut,
+					AuxOutputs:        auxOut,
 				}
 			}
-		})
+		},
+	)
 }
 
 // WaitForChanToClose uses the passed notifier to wait until the channel has

@@ -101,6 +101,9 @@ func (r *htlcReleaseEvent) Less(other queue.PriorityQueueItem) bool {
 // created by the daemon. The registry is a thin wrapper around a map in order
 // to ensure that all updates/reads are thread safe.
 type InvoiceRegistry struct {
+	started sync.Once
+	stopped sync.Once
+
 	sync.RWMutex
 
 	nextClientID uint32 // must be used atomically
@@ -213,41 +216,50 @@ func (i *InvoiceRegistry) scanInvoicesOnStart(ctx context.Context) error {
 
 // Start starts the registry and all goroutines it needs to carry out its task.
 func (i *InvoiceRegistry) Start() error {
-	// Start InvoiceExpiryWatcher and prepopulate it with existing active
-	// invoices.
-	err := i.expiryWatcher.Start(func(hash lntypes.Hash, force bool) error {
-		return i.cancelInvoiceImpl(context.Background(), hash, force)
+	var err error
+
+	i.started.Do(func() {
+		// Start InvoiceExpiryWatcher and prepopulate it with existing
+		// active invoices.
+		err = i.expiryWatcher.Start(
+			func(hash lntypes.Hash, force bool) error {
+				return i.cancelInvoiceImpl(
+					context.Background(), hash, force,
+				)
+			})
+		if err != nil {
+			return
+		}
+
+		log.Info("InvoiceRegistry starting")
+
+		i.wg.Add(1)
+		go i.invoiceEventLoop()
+
+		// Now scan all pending and removable invoices to the expiry
+		// watcher or delete them.
+		err = i.scanInvoicesOnStart(context.Background())
+		if err != nil {
+			_ = i.Stop()
+		}
 	})
-	if err != nil {
-		return err
-	}
 
-	log.Info("InvoiceRegistry starting")
-
-	i.wg.Add(1)
-	go i.invoiceEventLoop()
-
-	// Now scan all pending and removable invoices to the expiry watcher or
-	// delete them.
-	err = i.scanInvoicesOnStart(context.Background())
-	if err != nil {
-		_ = i.Stop()
-		return err
-	}
-
-	return nil
+	return err
 }
 
 // Stop signals the registry for a graceful shutdown.
 func (i *InvoiceRegistry) Stop() error {
-	log.Info("InvoiceRegistry shutting down...")
-	defer log.Debug("InvoiceRegistry shutdown complete")
+	i.stopped.Do(func() {
+		log.Info("InvoiceRegistry shutting down...")
+		defer log.Debug("InvoiceRegistry shutdown complete")
 
-	i.expiryWatcher.Stop()
+		i.expiryWatcher.Stop()
 
-	close(i.quit)
+		close(i.quit)
 
-	i.wg.Wait()
+		i.wg.Wait()
+	})
+
 	return nil
 }
 

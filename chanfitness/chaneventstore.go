@@ -13,6 +13,7 @@ package chanfitness
 import (
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
@@ -48,6 +49,9 @@ var (
 // ChannelEventStore maintains a set of event logs for the node's channels to
 // provide insight into the performance and health of channels.
 type ChannelEventStore struct {
+	started uint32 // To be used atomically.
+	stopped uint32 // To be used atomically.
+
 	cfg *Config
 
 	// peers tracks all of our currently monitored peers and their channels.
@@ -142,6 +146,10 @@ func NewChannelEventStore(config *Config) *ChannelEventStore {
 // information from the store. If this function fails, it cancels its existing
 // subscriptions and returns an error.
 func (c *ChannelEventStore) Start() error {
+	if !atomic.CompareAndSwapUint32(&c.started, 0, 1) {
+		return nil
+	}
+
 	log.Info("ChannelEventStore starting")
 
 	// Create a subscription to channel events.
@@ -203,6 +211,10 @@ func (c *ChannelEventStore) Start() error {
 
 // Stop terminates all goroutines started by the event store.
 func (c *ChannelEventStore) Stop() {
+	if !atomic.CompareAndSwapUint32(&c.stopped, 0, 1) {
+		return
+	}
+
 	log.Info("ChannelEventStore shutting down...")
 	defer log.Debug("ChannelEventStore shutdown complete")
 

@@ -675,10 +675,28 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	// With all the relevant chains initialized, we can finally start the
 	// server itself.
-	if err := server.Start(); err != nil {
+	errChan := make(chan error)
+	go server.Start(errChan)
+
+	defer func() {
+		err := server.Stop()
+		if err != nil {
+			ltndLog.Warnf("Stopping the server including all "+
+				"its subsystems failed with %v", err)
+		}
+	}()
+
+	select {
+	case err := <-errChan:
+		if err == nil {
+			break
+		}
+
 		return mkErr("unable to start server: %v", err)
+
+	case <-interceptor.ShutdownChannel():
+		return nil
 	}
-	defer server.Stop()
 
 	// We transition the server state to Active, as the server is up.
 	interceptorChain.SetServerActive()

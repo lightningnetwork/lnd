@@ -286,12 +286,6 @@ var (
 			number:    31,
 			migration: migration31.DeleteLastPublishedTxTLB,
 		},
-		{
-			// Create a top level bucket which holds information
-			// about our node announcement.
-			number:    32,
-			migration: mig.CreateTLB(nodeAnnouncementBucket),
-		},
 	}
 
 	// optionalVersions stores all optional migrations that are applied

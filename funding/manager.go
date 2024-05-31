@@ -3911,7 +3911,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 		localNonce, ok := f.pendingMusigNonces[chanID]
 		if !ok {
 			// If there's no pending nonce for this channel ID,
-			// we'll use the one generatd above.
+			// we'll use the one generated above.
 			localNonce = firstVerNonce
 			f.pendingMusigNonces[chanID] = firstVerNonce
 		}

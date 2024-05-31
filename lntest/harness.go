@@ -1007,6 +1007,10 @@ type OpenChannelParams struct {
 	// FundMax flag is specified the entirety of selected funds is
 	// allocated towards channel funding.
 	Outpoints []*lnrpc.OutPoint
+
+	// CloseAddress sets the upfront_shutdown_script parameter during
+	// channel open. It is expected to be encoded as a bitcoin address.
+	CloseAddress string
 }
 
 // prepareOpenChannel waits for both nodes to be synced to chain and returns an
@@ -1059,6 +1063,7 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 		FundMax:            p.FundMax,
 		Memo:               p.Memo,
 		Outpoints:          p.Outpoints,
+		CloseAddress:       p.CloseAddress,
 	}
 }
 

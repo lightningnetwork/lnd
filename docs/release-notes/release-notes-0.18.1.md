@@ -24,6 +24,10 @@
 ## RPC Additions
 ## lncli Additions
 
+* [Added](https://github.com/lightningnetwork/lnd/pull/8491) the `cltv_expiry`
+  argument to `addinvoice` and `addholdinvoice`, allowing users to set the
+  `min_final_cltv_expiry_delta`
+
 # Improvements
 ## Functional Updates
 ## RPC Updates

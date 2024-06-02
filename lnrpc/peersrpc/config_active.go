@@ -6,6 +6,7 @@ package peersrpc
 import (
 	"net"
 
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 )
@@ -29,4 +30,6 @@ type Config struct {
 	// vector should be provided.
 	UpdateNodeAnnouncement func(features *lnwire.RawFeatureVector,
 		mods ...netann.NodeAnnModifier) error
+
+	ChanStateDB *channeldb.ChannelStateDB
 }

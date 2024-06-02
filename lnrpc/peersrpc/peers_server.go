@@ -398,5 +398,10 @@ func (s *Server) UpdateNodeAnnouncement(_ context.Context,
 		return nil, err
 	}
 
+	nodeAnnouncement := s.cfg.GetNodeAnnouncement()
+	s.cfg.ChanStateDB.GetParentDB().PutNodeAnnouncement(
+		nodeAnnouncement.NodeID, nodeAnnouncement.Alias,
+		nodeAnnouncement.RGBColor)
+
 	return resp, nil
 }

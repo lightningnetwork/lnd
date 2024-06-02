@@ -332,6 +332,10 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				reflect.ValueOf(updateNodeAnnouncement),
 			)
 
+			subCfgValue.FieldByName("ChanStateDB").Set(
+				reflect.ValueOf(chanStateDB),
+			)
+
 		default:
 			return fmt.Errorf("unknown field: %v, %T", fieldName,
 				cfg)

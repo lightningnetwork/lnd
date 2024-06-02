@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"image/color"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -15,19 +16,28 @@ var (
 	nodeAnnouncementBucket = []byte("nab")
 )
 
+// NodeAlias is a hex encoded UTF-8 string that may be displayed as an
+// alternative to the node's ID. Notice that aliases are not unique and may be
+// freely chosen by the node operators.
+type NodeAlias [32]byte
+
+// String returns a utf8 string representation of the alias bytes.
+func (n NodeAlias) String() string {
+	// Trim trailing zero-bytes for presentation
+	return string(bytes.Trim(n[:], "\x00"))
+}
+
 type NodeAnnouncement struct {
-	// Alias indicate the human readable name that a node operator can
-	// assign to their node for better readability and easier identification
-	Alias string
+	// Alias is used to customize node's appearance in maps and
+	// graphs
+	Alias NodeAlias
 
 	// Color represent the hexadecimal value that node operators can assign
 	// to their nodes. It's represented as a hex string.
-	Color string
+	Color color.RGBA
 
-	// IdentityPub is the node's current identity public key. Any
-	// channel/topology related information received by this node MUST be
-	// signed by this public key.
-	IdentityPub *btcec.PublicKey
+	// NodeID is a public key which is used as node identification.
+	NodeID [33]byte
 }
 
 // FetchNodeAnnouncement attempts to lookup the data for NodeAnnouncement based
@@ -35,6 +45,7 @@ type NodeAnnouncement struct {
 // passed identity public key cannot be found, then returns ErrNodeAnnNotFound
 func (d *DB) FetchNodeAnnouncement(identity *btcec.PublicKey) (*NodeAnnouncement, error) {
 	var nodeAnnouncement *NodeAnnouncement
+
 	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		nodeAnn, err := fetchNodeAnnouncement(tx, identity)
 		if err != nil {
@@ -73,50 +84,56 @@ func fetchNodeAnnouncement(tx kvdb.RTx, targetPub *btcec.PublicKey) (*NodeAnnoun
 
 }
 
-func (d *DB) PutNodeAnnouncement(pubkey *btcec.PublicKey, alias, color string) error {
+func (d *DB) PutNodeAnnouncement(pubkey [33]byte, alias [32]byte, color color.RGBA) error {
 	nodeAnn := &NodeAnnouncement{
-		Alias:       alias,
-		IdentityPub: pubkey,
-		Color:       color,
+		Alias:  alias,
+		Color:  color,
+		NodeID: pubkey,
 	}
 
 	return kvdb.Update(d, func(tx kvdb.RwTx) error {
-		nodeAnnouncements := tx.ReadWriteBucket(nodeAnnouncementBucket)
-
-		nodeAnnBucket, err := nodeAnnouncements.CreateBucketIfNotExists(pubkey.SerializeCompressed())
-		if err != nil {
-			return err
+		nodeAnnBucket := tx.ReadWriteBucket(nodeAnnouncementBucket)
+		if nodeAnnBucket == nil {
+			return ErrNodeAnnBucketNotFound
 		}
 
-		var b bytes.Buffer
-		if err := serializeNodeAnnouncement(&b, nodeAnn); err != nil {
-			return err
-		}
-
-		err = nodeAnnBucket.Put(pubkey.SerializeCompressed(), b.Bytes())
-		if err != nil {
-			return err
-		}
-
-		return nil
+		return putNodeAnnouncement(nodeAnnBucket, nodeAnn)
 
 	}, func() {})
 }
 
+func putNodeAnnouncement(nodeAnnBucket kvdb.RwBucket, n *NodeAnnouncement) error {
+	var b bytes.Buffer
+	if err := serializeNodeAnnouncement(&b, n); err != nil {
+		return err
+	}
+
+	nodePub := n.NodeID[:]
+	return nodeAnnBucket.Put(nodePub, b.Bytes())
+}
+
 func serializeNodeAnnouncement(w io.Writer, n *NodeAnnouncement) error {
 	// Serialize Alias
-	if _, err := w.Write([]byte(n.Alias + "\x00")); err != nil {
+	if _, err := w.Write([]byte(n.Alias[:])); err != nil {
 		return err
 	}
 
 	// Serialize Color
-	if _, err := w.Write([]byte(n.Color + "\x00")); err != nil {
+	// Write R
+	if _, err := w.Write([]byte{n.Color.R}); err != nil {
+		return err
+	}
+	// Write G
+	if _, err := w.Write([]byte{n.Color.G}); err != nil {
+		return err
+	}
+	// Write B
+	if _, err := w.Write([]byte{n.Color.B}); err != nil {
 		return err
 	}
 
 	// Serialize IdentityPub
-	serializedID := n.IdentityPub.SerializeCompressed()
-	if _, err := w.Write(serializedID); err != nil {
+	if _, err := w.Write(n.NodeID[:]); err != nil {
 		return err
 	}
 
@@ -132,23 +149,22 @@ func deserializeNodeAnnouncement(r io.Reader) (*NodeAnnouncement, error) {
 	if _, err := io.ReadFull(r, aliasBuf); err != nil {
 		return nil, err
 	}
-	nodeAnn.Alias = string(bytes.TrimRight(aliasBuf, "\x00"))
+	nodeAnn.Alias = [32]byte(aliasBuf)
 
 	// Read Color
-	colorBuf := make([]byte, 8)
+	// colorBuf contains R, G, B, A (alpha), but the color.RGBA type only
+	// expects R, G, B, so we need to slice it.
+	colorBuf := make([]byte, 3)
 	if _, err := io.ReadFull(r, colorBuf); err != nil {
 		return nil, err
 	}
-	nodeAnn.Color = string(bytes.TrimRight(colorBuf, "\x00"))
+	nodeAnn.Color = color.RGBA{colorBuf[0], colorBuf[1], colorBuf[2], 0}
 
 	var pub [33]byte
 	if _, err := io.ReadFull(r, pub[:]); err != nil {
 		return nil, err
 	}
-	nodeAnn.IdentityPub, err = btcec.ParsePubKey(pub[:])
-	if err != nil {
-		return nil, err
-	}
+	nodeAnn.NodeID = pub
 
 	return nodeAnn, err
 

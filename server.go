@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"image/color"
 	"math/big"
 	prand "math/rand"
 	"net"
@@ -806,26 +807,35 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// configuration so we can send it out as a sort of heart beat within
 	// the network.
 	//
-	// We'll start by getting the node color & alias from disk.
+	// We'll start by getting the node announcement from disk.
 	pubkey := nodeKeyDesc.PubKey
-	persistedConfig, _ := s.miscDB.FetchNodeAnnouncement(pubkey)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// We'll then be parsing the node color from configuration.
-	color, err := lncfg.ParseHexColor(cfg.Color)
+	persistedConfig, err := s.miscDB.FetchNodeAnnouncement(pubkey)
 	if err != nil {
-		srvrLog.Errorf("unable to parse color: %v\n", err)
-		return nil, err
+		srvrLog.Errorf("unable to fetch node announcement: %v\n", err)
+	}
+
+	var color color.RGBA
+
+	// Determine the source of the color. #3399FF is the default
+	if cfg.Color == "#3399FF" && persistedConfig != nil {
+		color = persistedConfig.Color
+	} else {
+		var err error
+		color, err = lncfg.ParseHexColor(cfg.Color)
+		if err != nil {
+			srvrLog.Errorf("unable to parse color: %v\n", err)
+			return nil, err
+		}
 	}
 
 	// If no alias is provided, check if one is stored in the database and
 	// use that.
 	alias := cfg.Alias
 	if alias == "" && persistedConfig != nil {
-		alias = persistedConfig.Alias
+		alias = persistedConfig.Alias.String()
 	}
-	// If no alias is provided, default to first 10 characters of public
+
+	// If still alias is empty, default to first 10 characters of public
 	// key.
 	if alias == "" {
 		alias = hex.EncodeToString(serializedPubKey[:10])

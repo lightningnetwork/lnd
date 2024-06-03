@@ -3,9 +3,11 @@ package htlcswitch
 import (
 	"context"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -59,8 +61,10 @@ type packetHandler interface {
 // whether a link has too much dust exposure.
 type dustHandler interface {
 	// getDustSum returns the dust sum on either the local or remote
-	// commitment.
-	getDustSum(remote bool) lnwire.MilliSatoshi
+	// commitment. An optional fee parameter can be passed in which is used
+	// to calculate the dust sum.
+	getDustSum(remote bool,
+		fee fn.Option[chainfee.SatPerKWeight]) lnwire.MilliSatoshi
 
 	// getFeeRate returns the current channel feerate.
 	getFeeRate() chainfee.SatPerKWeight
@@ -68,6 +72,10 @@ type dustHandler interface {
 	// getDustClosure returns a closure that can evaluate whether a passed
 	// HTLC is dust.
 	getDustClosure() dustClosure
+
+	// getCommitFee returns the commitment fee in satoshis from either the
+	// local or remote commitment. This does not include dust.
+	getCommitFee(remote bool) btcutil.Amount
 }
 
 // scidAliasHandler is an interface that the ChannelLink implements so it can

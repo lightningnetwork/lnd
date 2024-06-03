@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -2989,7 +2990,7 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	// initiator.
 	htlcView := lc.fetchHTLCView(theirLogIndex, ourLogIndex)
 	ourBalance, theirBalance, _, filteredHTLCView, err := lc.computeView(
-		htlcView, remoteChain, true,
+		htlcView, remoteChain, true, fn.None[chainfee.SatPerKWeight](),
 	)
 	if err != nil {
 		return nil, err
@@ -3949,7 +3950,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	}
 
 	ourBalance, theirBalance, commitWeight, filteredView, err := lc.computeView(
-		view, remoteChain, false,
+		view, remoteChain, false, fn.None[chainfee.SatPerKWeight](),
 	)
 	if err != nil {
 		return err
@@ -4711,13 +4712,15 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 // view (settling unsettled HTLCs), commitment weight and feePerKw, after
 // applying the HTLCs to the latest commitment. The returned balances are the
 // balances *before* subtracting the commitment fee from the initiator's
-// balance.
+// balance. It accepts a "dry run" feerate argument to calculate a potential
+// commitment transaction fee.
 //
 // If the updateState boolean is set true, the add and remove heights of the
 // HTLCs will be set to the next commitment height.
 func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
-	updateState bool) (lnwire.MilliSatoshi, lnwire.MilliSatoshi,
-	lntypes.WeightUnit, *htlcView, error) {
+	updateState bool, dryRunFee fn.Option[chainfee.SatPerKWeight]) (
+	lnwire.MilliSatoshi, lnwire.MilliSatoshi, lntypes.WeightUnit,
+	*htlcView, error) {
 
 	commitChain := lc.localCommitChain
 	dustLimit := lc.channelState.LocalChanCfg.DustLimit
@@ -4762,6 +4765,12 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 		return 0, 0, 0, nil, err
 	}
 	feePerKw := filteredHTLCView.feePerKw
+
+	// Here we override the view's fee-rate if a dry-run fee-rate was
+	// passed in.
+	if !updateState {
+		feePerKw = dryRunFee.UnwrapOr(feePerKw)
+	}
 
 	// We need to first check ourBalance and theirBalance to be negative
 	// because MilliSathoshi is a unsigned type and can underflow in
@@ -5954,7 +5963,9 @@ func (lc *LightningChannel) addHTLC(htlc *lnwire.UpdateAddHTLC,
 // commitment tx.
 //
 // NOTE: This over-estimates the dust exposure.
-func (lc *LightningChannel) GetDustSum(remote bool) lnwire.MilliSatoshi {
+func (lc *LightningChannel) GetDustSum(remote bool,
+	dryRunFee fn.Option[chainfee.SatPerKWeight]) lnwire.MilliSatoshi {
+
 	lc.RLock()
 	defer lc.RUnlock()
 
@@ -5970,6 +5981,9 @@ func (lc *LightningChannel) GetDustSum(remote bool) lnwire.MilliSatoshi {
 
 	chanType := lc.channelState.ChanType
 	feeRate := chainfee.SatPerKWeight(commit.FeePerKw)
+
+	// Optionally use the dry-run fee-rate.
+	feeRate = dryRunFee.UnwrapOr(feeRate)
 
 	// Grab all of our HTLCs and evaluate against the dust limit.
 	for e := lc.localUpdateLog.Front(); e != nil; e = e.Next() {
@@ -8256,7 +8270,7 @@ func (lc *LightningChannel) availableCommitmentBalance(
 	// into account HTLCs to determine the commit weight, which the
 	// initiator must pay the fee for.
 	ourBalance, theirBalance, commitWeight, filteredView, err := lc.computeView(
-		view, remoteChain, false,
+		view, remoteChain, false, fn.None[chainfee.SatPerKWeight](),
 	)
 	if err != nil {
 		lc.log.Errorf("Unable to fetch available balance: %v", err)
@@ -8454,6 +8468,54 @@ func (lc *LightningChannel) UpdateFee(feePerKw chainfee.SatPerKWeight) error {
 	lc.localUpdateLog.appendUpdate(pd)
 
 	return nil
+}
+
+// CommitFeeTotalAt applies a proposed feerate to the channel and returns the
+// commitment fee with this new feerate. It does not modify the underlying
+// LightningChannel.
+func (lc *LightningChannel) CommitFeeTotalAt(
+	feePerKw chainfee.SatPerKWeight) (btcutil.Amount, btcutil.Amount,
+	error) {
+
+	lc.RLock()
+	defer lc.RUnlock()
+
+	dryRunFee := fn.Some[chainfee.SatPerKWeight](feePerKw)
+
+	// We want to grab every update in both update logs to calculate the
+	// commitment fees in the worst-case with this fee-rate.
+	localIdx := lc.localUpdateLog.logIndex
+	remoteIdx := lc.remoteUpdateLog.logIndex
+
+	localHtlcView := lc.fetchHTLCView(remoteIdx, localIdx)
+
+	var localCommitFee, remoteCommitFee btcutil.Amount
+
+	// Compute the local commitment's weight.
+	_, _, localWeight, _, err := lc.computeView(
+		localHtlcView, false, false, dryRunFee,
+	)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	localCommitFee = feePerKw.FeeForWeight(localWeight)
+
+	// Create another view in case for some reason the prior one was
+	// mutated.
+	remoteHtlcView := lc.fetchHTLCView(remoteIdx, localIdx)
+
+	// Compute the remote commitment's weight.
+	_, _, remoteWeight, _, err := lc.computeView(
+		remoteHtlcView, true, false, dryRunFee,
+	)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	remoteCommitFee = feePerKw.FeeForWeight(remoteWeight)
+
+	return localCommitFee, remoteCommitFee, err
 }
 
 // ReceiveUpdateFee handles an updated fee sent from remote. This method will
@@ -8808,6 +8870,22 @@ func (lc *LightningChannel) CommitFeeRate() chainfee.SatPerKWeight {
 	defer lc.RUnlock()
 
 	return chainfee.SatPerKWeight(lc.channelState.LocalCommitment.FeePerKw)
+}
+
+// WorstCaseFeeRate returns the higher feerate from either the local commitment
+// or the remote commitment.
+func (lc *LightningChannel) WorstCaseFeeRate() chainfee.SatPerKWeight {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	localFeeRate := lc.channelState.LocalCommitment.FeePerKw
+	remoteFeeRate := lc.channelState.RemoteCommitment.FeePerKw
+
+	if localFeeRate > remoteFeeRate {
+		return chainfee.SatPerKWeight(localFeeRate)
+	}
+
+	return chainfee.SatPerKWeight(remoteFeeRate)
 }
 
 // IsPending returns true if the channel's funding transaction has been fully

@@ -381,6 +381,10 @@ type Config struct {
 	// invalid.
 	DisallowRouteBlinding bool
 
+	// MaxFeeExposure limits the number of outstanding fees in a channel.
+	// This value will be passed to created links.
+	MaxFeeExposure lnwire.MilliSatoshi
+
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
 }
@@ -1194,6 +1198,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		GetAliases:              p.cfg.GetAliases,
 		PreviouslySentShutdown:  shutdownMsg,
 		DisallowRouteBlinding:   p.cfg.DisallowRouteBlinding,
+		MaxFeeExposure:          p.cfg.MaxFeeExposure,
 	}
 
 	// Before adding our new link, purge the switch of any pending or live

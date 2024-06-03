@@ -638,7 +638,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
 
-	thresholdSats := btcutil.Amount(cfg.DustThreshold)
+	thresholdSats := btcutil.Amount(cfg.MaxFeeExposure)
 	thresholdMSats := lnwire.NewMSatFromSatoshis(thresholdSats)
 
 	s.aliasMgr, err = aliasmgr.NewManager(dbs.ChanStateDB)
@@ -678,7 +678,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		RejectHTLC:             cfg.RejectHTLC,
 		Clock:                  clock.NewDefaultClock(),
 		MailboxDeliveryTimeout: cfg.Htlcswitch.MailboxDeliveryTimeout,
-		DustThreshold:          thresholdMSats,
+		MaxFeeExposure:         thresholdMSats,
 		SignAliasUpdate:        s.signAliasUpdate,
 		IsAlias:                aliasmgr.IsAlias,
 	}, uint32(currentHeight))
@@ -3863,6 +3863,9 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		towerClient = s.towerClientMgr
 	}
 
+	thresholdSats := btcutil.Amount(s.cfg.MaxFeeExposure)
+	thresholdMSats := lnwire.NewMSatFromSatoshis(thresholdSats)
+
 	// Now that we've established a connection, create a peer, and it to the
 	// set of currently active peers. Configure the peer with the incoming
 	// and outgoing broadcast deltas to prevent htlcs from being accepted or
@@ -3932,6 +3935,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		RequestAlias:           s.aliasMgr.RequestAlias,
 		AddLocalAlias:          s.aliasMgr.AddLocalAlias,
 		DisallowRouteBlinding:  s.cfg.ProtocolOptions.NoRouteBlinding(),
+		MaxFeeExposure:         thresholdMSats,
 		Quit:                   s.quit,
 	}
 

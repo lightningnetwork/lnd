@@ -441,7 +441,7 @@ type Config struct {
 
 	GcCanceledInvoicesOnTheFly bool `long:"gc-canceled-invoices-on-the-fly" description:"If true, we'll delete newly canceled invoices on the fly."`
 
-	DustThreshold uint64 `long:"dust-threshold" description:"Sets the dust sum threshold in satoshis for a channel after which dust HTLC's will be failed."`
+	MaxFeeExposure uint64 `long:"dust-threshold" description:"Sets the max fee exposure in satoshis for a channel after which HTLC's will be failed."`
 
 	Fee *lncfg.Fee `group:"fee" namespace:"fee"`
 
@@ -684,7 +684,7 @@ func DefaultConfig() Config {
 		MaxOutgoingCltvExpiry:     htlcswitch.DefaultMaxOutgoingCltvExpiry,
 		MaxChannelFeeAllocation:   htlcswitch.DefaultMaxLinkFeeAllocation,
 		MaxCommitFeeRateAnchors:   lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
-		DustThreshold:             uint64(htlcswitch.DefaultDustThreshold.ToSatoshis()),
+		MaxFeeExposure:            uint64(htlcswitch.DefaultMaxFeeExposure.ToSatoshis()),
 		LogWriter:                 build.NewRotatingLogWriter(),
 		DB:                        lncfg.DefaultDB(),
 		Cluster:                   lncfg.DefaultCluster(),

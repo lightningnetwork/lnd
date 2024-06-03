@@ -18,10 +18,12 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
@@ -4331,7 +4333,9 @@ func TestSwitchDustForwarding(t *testing.T) {
 			default:
 			}
 
-			linkDust := link.getDustSum(remote)
+			linkDust := link.getDustSum(
+				remote, fn.None[chainfee.SatPerKWeight](),
+			)
 			localMailDust, remoteMailDust := mbox.DustPackets()
 
 			totalDust := linkDust

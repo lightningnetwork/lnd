@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -2803,7 +2804,9 @@ func (s *Switch) evaluateDustThreshold(link ChannelLink,
 	// If the htlc is dust on the local commitment, we'll obtain the dust
 	// sum for it.
 	if isLocalDust {
-		localSum := link.getDustSum(false)
+		localSum := link.getDustSum(
+			false, fn.None[chainfee.SatPerKWeight](),
+		)
 		localSum += localMailDust
 
 		// Optionally include the HTLC amount only for outgoing
@@ -2821,7 +2824,9 @@ func (s *Switch) evaluateDustThreshold(link ChannelLink,
 	// Also check if the htlc is dust on the remote commitment, if we've
 	// reached this point.
 	if isRemoteDust {
-		remoteSum := link.getDustSum(true)
+		remoteSum := link.getDustSum(
+			true, fn.None[chainfee.SatPerKWeight](),
+		)
 		remoteSum += remoteMailDust
 
 		// Optionally include the HTLC amount only for outgoing

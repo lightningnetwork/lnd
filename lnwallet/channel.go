@@ -6355,6 +6355,53 @@ func (lc *LightningChannel) addHTLC(htlc *lnwire.UpdateAddHTLC,
 		return 0, err
 	}
 
+	// Let's check if this is a custom channel HTLC.
+	if lc.isCustomChannel() && htlc.CustomRecords != nil {
+
+		// If the htlc amount is below dust we will override it and set
+		// it to be the dust limit.
+		if btcutil.Amount(htlc.Amount/1000) <
+			lc.channelState.LocalChanCfg.DustLimit {
+
+			pd.Amount = lnwire.MilliSatoshi(
+				lc.channelState.LocalChanCfg.DustLimit * 1000,
+			)
+		}
+
+		// Construct the payment descriptor that will be used to append
+		// to the remote log.
+		remotePd := &PaymentDescriptor{
+			EntryType: Add,
+			RHash:     PaymentHash(htlc.PaymentHash),
+			Timeout:   htlc.Expiry,
+			// Use the pd amount in case it was overridden.
+			Amount:        pd.Amount,
+			LogIndex:      lc.remoteUpdateLog.logIndex,
+			HtlcIndex:     lc.remoteUpdateLog.htlcCounter,
+			OnionBlob:     htlc.OnionBlob[:],
+			BlindingPoint: htlc.BlindingPoint,
+			// NOTE: we don't set the custom records field, as this
+			// htlc is only used to compensate for the amount of
+			// sats that we're sending over to the remote side.
+			// Setting the custom records here could have undesired
+			// side effects.
+		}
+
+		localACKedIndex := lc.remoteCommitChain.tail().ourMessageIndex
+
+		// Perform the commitment sanity check.
+		err := lc.validateCommitmentSanity(
+			lc.remoteUpdateLog.logIndex, localACKedIndex,
+			false, NoBuffer, nil, pd,
+		)
+		if err != nil {
+			return 0, err
+		}
+
+		// Finally, append the HTLC to the remote log.
+		lc.remoteUpdateLog.appendHtlc(remotePd)
+	}
+
 	lc.localUpdateLog.appendHtlc(pd)
 
 	return pd.HtlcIndex, nil
@@ -6566,6 +6613,32 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64,
 	)
 	if err != nil {
 		return 0, err
+	}
+
+	// Let's check if this is a custom channel HTLC.
+	if lc.isCustomChannel() && htlc.CustomRecords != nil {
+		localPd := &PaymentDescriptor{
+			EntryType: Add,
+			RHash:     pd.RHash,
+			Timeout:   pd.Timeout,
+			Amount:    pd.Amount,
+			LogIndex:  lc.localUpdateLog.logIndex,
+			HtlcIndex: lc.localUpdateLog.htlcCounter,
+			OnionBlob: pd.OnionBlob,
+			// TODO(george): what shoudl be used here?
+			OpenCircuitKey: &models.CircuitKey{},
+			BlindingPoint:  pd.BlindingPoint,
+			// NOTE: we don't set the custom records field, as this
+			// htlc is only used to compensate for the amount of
+			// sats that were sent to us from the remote side.
+		}
+
+		if err := lc.validateAddHtlc(pd, FeeBuffer); err != nil {
+			return 0, err
+		}
+
+		// Finally, append the HTLC to the local log.
+		lc.localUpdateLog.appendHtlc(localPd)
 	}
 
 	lc.remoteUpdateLog.appendHtlc(pd)
@@ -6985,6 +7058,15 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 	commitTx.TxIn[0].Witness = witness
 
 	return commitTx, nil
+}
+
+// isCustomChannel is a boolean check that asserts whether this channel is a custom
+// channel.
+func (lc *LightningChannel) isCustomChannel() bool {
+	// TODO(george): is this sufficient to check for a custom channel? do
+	// we also need feature bit?
+	return lc.channelState.CustomBlob.IsSome() &&
+		lc.auxSigner.IsSome() && lc.opts.leafStore.IsSome()
 }
 
 // CommitOutputResolution carries the necessary information required to allow

@@ -1137,6 +1137,7 @@ func toPairSnapshot(pairResult *PairHistory) (*routing.MissionControlPairSnapsho
 		lnwire.MilliSatoshi(pairResult.History.FailAmtMsat),
 		btcutil.Amount(pairResult.History.FailAmtSat),
 		pairResult.History.FailTime,
+		true,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("%v invalid failure: %w", pairPrefix,
@@ -1147,6 +1148,7 @@ func toPairSnapshot(pairResult *PairHistory) (*routing.MissionControlPairSnapsho
 		lnwire.MilliSatoshi(pairResult.History.SuccessAmtMsat),
 		btcutil.Amount(pairResult.History.SuccessAmtSat),
 		pairResult.History.SuccessTime,
+		false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("%v invalid success: %w", pairPrefix,
@@ -1174,9 +1176,11 @@ func toPairSnapshot(pairResult *PairHistory) (*routing.MissionControlPairSnapsho
 }
 
 // getPair validates the values provided for a mission control result and
-// returns the msat amount and timestamp for it.
+// returns the msat amount and timestamp for it. `isFailure` can be used to
+// default values to 0 instead of returning an error.
 func getPair(amtMsat lnwire.MilliSatoshi, amtSat btcutil.Amount,
-	timestamp int64) (lnwire.MilliSatoshi, time.Time, error) {
+	timestamp int64, isFailure bool) (lnwire.MilliSatoshi, time.Time,
+	error) {
 
 	amt, err := getMsatPairValue(amtMsat, amtSat)
 	if err != nil {
@@ -1189,16 +1193,21 @@ func getPair(amtMsat lnwire.MilliSatoshi, amtSat btcutil.Amount,
 	)
 
 	switch {
+	// If a timestamp and amount if provided, return those values.
 	case timeSet && amountSet:
 		return amt, time.Unix(timestamp, 0), nil
 
-	case timeSet && !amountSet:
+	// Return an error if it does have a timestamp without an amount, and
+	// it's not expected to be a failure.
+	case !isFailure && timeSet && !amountSet:
 		return 0, time.Time{}, errors.New("non-zero timestamp " +
-			"requires non-zero amount")
+			"requires non-zero amount for success pairs")
 
-	case !timeSet && amountSet:
-		return 0, time.Time{}, errors.New("non-zero amount requires " +
-			"non-zero timestamp")
+	// Return an error if it does have an amount without a timestamp, and
+	// it's not expected to be a failure.
+	case !isFailure && !timeSet && amountSet:
+		return 0, time.Time{}, errors.New("non-zero amount for " +
+			"success pairs requires non-zero timestamp")
 
 	default:
 		return 0, time.Time{}, nil

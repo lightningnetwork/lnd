@@ -27,7 +27,15 @@
 # Improvements
 ## Functional Updates
 ## RPC Updates
+
+* [`xImportMissionControl`](https://github.com/lightningnetwork/lnd/pull/8779) 
+  now accepts `0` failure amounts.
+
 ## lncli Updates
+
+* [`importmc`](https://github.com/lightningnetwork/lnd/pull/8779) now accepts
+  `0` failure amounts.
+
 ## Code Health
 ## Breaking Changes
 ## Performance Improvements
@@ -40,3 +48,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Bufo

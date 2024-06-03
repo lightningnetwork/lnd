@@ -66,8 +66,9 @@ func importMissionControl(ctx *cli.Context) error {
 		return fmt.Errorf("please provide amount in msat: %w", err)
 	}
 
-	if amt <= 0 {
-		return errors.New("amount must be >0")
+	// Allow 0 value as failure amount.
+	if !ctx.IsSet("failure") && amt <= 0 {
+		return errors.New("success amount must be >0")
 	}
 
 	client := routerrpc.NewRouterClient(conn)

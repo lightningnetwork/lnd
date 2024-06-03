@@ -1043,6 +1043,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}, nodeKeyDesc)
 
 	s.localChanMgr = &localchans.Manager{
+		LocalPubkey:               nodeKeyDesc.PubKey,
+		DefaultRoutingPolicy:      cc.RoutingPolicy,
 		ForAllOutgoingChannels:    s.chanRouter.ForAllOutgoingChannels,
 		PropagateChanPolicyUpdate: s.authGossiper.PropagateChanPolicyUpdate,
 		UpdateForwardingPolicies:  s.htlcSwitch.UpdateForwardingPolicies,

@@ -1,10 +1,13 @@
 package localchans
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -19,6 +22,12 @@ import (
 // Manager manages the node's local channels. The only operation that is
 // currently implemented is updating forwarding policies.
 type Manager struct {
+	// LocalPubkey contains the public key of the local node.
+	LocalPubkey *btcec.PublicKey
+
+	// DefaultRoutingPolicy is the default routing policy.
+	DefaultRoutingPolicy models.ForwardingPolicy
+
 	// UpdateForwardingPolicies is used by the manager to update active
 	// links with a new policy.
 	UpdateForwardingPolicies func(
@@ -51,7 +60,8 @@ type Manager struct {
 // UpdatePolicy updates the policy for the specified channels on disk and in
 // the active links.
 func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
-	chanPoints ...wire.OutPoint) ([]*lnrpc.FailedUpdate, error) {
+	createMissingEdge bool, chanPoints ...wire.OutPoint) (
+	[]*lnrpc.FailedUpdate, error) {
 
 	r.policyUpdateLock.Lock()
 	defer r.policyUpdateLock.Unlock()
@@ -69,10 +79,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 	var edgesToUpdate []discovery.EdgeWithInfo
 	policiesToUpdate := make(map[wire.OutPoint]models.ForwardingPolicy)
 
-	// Next, we'll loop over all the outgoing channels the router knows of.
-	// If we have a filter then we'll only collected those channels,
-	// otherwise we'll collect them all.
-	err := r.ForAllOutgoingChannels(func(
+	processChan := func(
 		tx kvdb.RTx,
 		info *models.ChannelEdgeInfo,
 		edge *models.ChannelEdgePolicy) error {
@@ -125,7 +132,12 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		}
 
 		return nil
-	})
+	}
+
+	// Next, we'll loop over all the outgoing channels the router knows of.
+	// If we have a filter then we'll only collect those channels, otherwise
+	// we'll collect them all.
+	err := r.ForAllOutgoingChannels(processChan)
 	if err != nil {
 		return nil, err
 	}
@@ -155,6 +167,30 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 					"not yet confirmed",
 				))
 
+		case createMissingEdge:
+			// If the edge was not found, but the channel is found,
+			// that means the edge is missing in the graph database
+			// and should be recreated. The edge and policy are
+			// created in-memory and will be added to the graph in
+			// the PropagateChanPolicyUpdate call below.
+			info, edge, err := r.createEdge(channel)
+			if err != nil {
+				log.Errorf("Failed to recreate missing edge "+
+					"for channel %s: %v",
+					channel.FundingOutpoint.String(), err)
+
+				f := lnrpc.UpdateFailure_UPDATE_FAILURE_UNKNOWN
+				failedUpdates = append(failedUpdates,
+					makeFailureItem(chanPoint, f,
+						"could not update policies",
+					))
+			}
+
+			err = processChan(nil, info, edge)
+			if err != nil {
+				return nil, err
+			}
+
 		default:
 			failedUpdates = append(failedUpdates,
 				makeFailureItem(chanPoint,
@@ -178,6 +214,87 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 	r.UpdateForwardingPolicies(policiesToUpdate)
 
 	return failedUpdates, nil
+}
+
+// createEdge recreates an edge and policy from an open channel in-memory.
+func (r *Manager) createEdge(channel *channeldb.OpenChannel) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy, error) {
+
+	var (
+		nodeKey1Bytes, nodeKey2Bytes,
+		bitcoinKey1Bytes, bitcoinKey2Bytes []byte
+		featureBuf bytes.Buffer
+	)
+
+	localBytes := r.LocalPubkey.SerializeCompressed()
+	remoteBytes := channel.IdentityPub.SerializeCompressed()
+	localBitcoin := channel.LocalChanCfg.MultiSigKey.PubKey.
+		SerializeCompressed()
+	remoteBitcoin := channel.RemoteChanCfg.MultiSigKey.PubKey.
+		SerializeCompressed()
+
+	// local is a value indicating whether the local node is node 1
+	// in the channel edge. If true, the local node is node 1, if
+	// false the local node is node 2.
+	local := bytes.Compare(localBytes, remoteBytes) < 0
+
+	if local {
+		nodeKey1Bytes = localBytes
+		nodeKey2Bytes = remoteBytes
+		bitcoinKey1Bytes = localBitcoin
+		bitcoinKey2Bytes = remoteBitcoin
+	} else {
+		nodeKey1Bytes = remoteBytes
+		nodeKey2Bytes = localBytes
+		bitcoinKey1Bytes = remoteBitcoin
+		bitcoinKey2Bytes = localBitcoin
+	}
+
+	err := lnwire.NewRawFeatureVector().Encode(&featureBuf)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to encode features: %w",
+			err)
+	}
+
+	info := &models.ChannelEdgeInfo{
+		ChannelID:    channel.ShortChanID().ToUint64(),
+		ChainHash:    channel.ChainHash,
+		Features:     featureBuf.Bytes(),
+		Capacity:     channel.Capacity,
+		ChannelPoint: channel.FundingOutpoint,
+	}
+
+	copy(info.NodeKey1Bytes[:], nodeKey1Bytes)
+	copy(info.NodeKey2Bytes[:], nodeKey2Bytes)
+	copy(info.BitcoinKey1Bytes[:], bitcoinKey1Bytes)
+	copy(info.BitcoinKey2Bytes[:], bitcoinKey2Bytes)
+
+	log.Infof("Fixing missing edge for local channel %s",
+		channel.FundingOutpoint.String())
+
+	channelFlags := lnwire.ChanUpdateChanFlags(0)
+	if !local {
+		channelFlags = 1
+	}
+
+	// Construct a dummy channel edge policy with default values that will
+	// be updated with the new values in the call to processChan below.
+	timeLockDelta := uint16(r.DefaultRoutingPolicy.TimeLockDelta)
+	edge := &models.ChannelEdgePolicy{
+		ChannelID:                 channel.ShortChanID().ToUint64(),
+		LastUpdate:                time.Time{},
+		TimeLockDelta:             timeLockDelta,
+		ChannelFlags:              channelFlags,
+		MessageFlags:              lnwire.ChanUpdateRequiredMaxHtlc,
+		FeeBaseMSat:               r.DefaultRoutingPolicy.BaseFee,
+		FeeProportionalMillionths: r.DefaultRoutingPolicy.FeeRate,
+		MinHTLC:                   r.DefaultRoutingPolicy.MinHTLCOut,
+		MaxHTLC:                   r.DefaultRoutingPolicy.MaxHTLC,
+	}
+
+	copy(edge.ToNode[:], remoteBytes)
+
+	return info, edge, nil
 }
 
 // updateEdge updates the given edge with the new schema.

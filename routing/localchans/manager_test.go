@@ -156,6 +156,7 @@ func TestManager(t *testing.T) {
 		newPolicy              routing.ChannelPolicy
 		channelSet             []channel
 		specifiedChanPoints    []wire.OutPoint
+		createMissingEdge      bool
 		expectedNumUpdates     int
 		expectedUpdateFailures []lnrpc.UpdateFailure
 		expectErr              error
@@ -173,6 +174,7 @@ func TestManager(t *testing.T) {
 				},
 			},
 			specifiedChanPoints:    []wire.OutPoint{chanPointValid},
+			createMissingEdge:      false,
 			expectedNumUpdates:     1,
 			expectedUpdateFailures: []lnrpc.UpdateFailure{},
 			expectErr:              nil,
@@ -190,6 +192,7 @@ func TestManager(t *testing.T) {
 				},
 			},
 			specifiedChanPoints:    []wire.OutPoint{},
+			createMissingEdge:      false,
 			expectedNumUpdates:     1,
 			expectedUpdateFailures: []lnrpc.UpdateFailure{},
 			expectErr:              nil,
@@ -207,6 +210,7 @@ func TestManager(t *testing.T) {
 				},
 			},
 			specifiedChanPoints: []wire.OutPoint{chanPointMissing},
+			createMissingEdge:   false,
 			expectedNumUpdates:  0,
 			expectedUpdateFailures: []lnrpc.UpdateFailure{
 				lnrpc.UpdateFailure_UPDATE_FAILURE_NOT_FOUND,
@@ -228,6 +232,7 @@ func TestManager(t *testing.T) {
 				},
 			},
 			specifiedChanPoints:    []wire.OutPoint{chanPointValid},
+			createMissingEdge:      false,
 			expectedNumUpdates:     1,
 			expectedUpdateFailures: []lnrpc.UpdateFailure{},
 			expectErr:              nil,
@@ -242,6 +247,7 @@ func TestManager(t *testing.T) {
 			expectedNumUpdates = test.expectedNumUpdates
 
 			failedUpdates, err := manager.UpdatePolicy(test.newPolicy,
+				test.createMissingEdge,
 				test.specifiedChanPoints...)
 
 			if len(failedUpdates) != len(test.expectedUpdateFailures) {

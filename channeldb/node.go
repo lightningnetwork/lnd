@@ -40,6 +40,19 @@ type NodeAnnouncement struct {
 	NodeID [33]byte
 }
 
+// Sync performs a full database sync which writes the current up-to-date data
+// within the struct to the database.
+func (n *NodeAnnouncement) Sync(db *DB) error {
+	return kvdb.Update(db, func(tx kvdb.RwTx) error {
+		nodeAnnBucket := tx.ReadWriteBucket(nodeAnnouncementBucket)
+		if nodeAnnBucket == nil {
+			return ErrNodeAnnBucketNotFound
+		}
+
+		return putNodeAnnouncement(nodeAnnBucket, n)
+	}, func() {})
+}
+
 // FetchNodeAnnouncement attempts to lookup the data for NodeAnnouncement based
 // on a target identity public key. If a particular NodeAnnouncement for the
 // passed identity public key cannot be found, then returns ErrNodeAnnNotFound

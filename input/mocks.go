@@ -8,8 +8,10 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -125,6 +127,17 @@ func (m *MockInput) UnconfParent() *TxInfo {
 	}
 
 	return info.(*TxInfo)
+}
+
+func (m *MockInput) ResolutionBlob() fn.Option[tlv.Blob] {
+	args := m.Called()
+
+	info := args.Get(0)
+	if info == nil {
+		return fn.None[tlv.Blob]()
+	}
+
+	return info.(fn.Option[tlv.Blob])
 }
 
 // MockWitnessType implements the `WitnessType` interface and is used by other

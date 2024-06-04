@@ -16,12 +16,14 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -1074,6 +1076,10 @@ type breachedOutput struct {
 	secondLevelTapTweak      [32]byte
 
 	witnessFunc input.WitnessGenerator
+
+	resolutionBlob fn.Option[tlv.Blob]
+
+	// TODO(roasbeef): function opt and hook into brar
 }
 
 // makeBreachedOutput assembles a new breachedOutput that can be used by the
@@ -1179,6 +1185,11 @@ func (bo *breachedOutput) HeightHint() uint32 {
 // UnconfParent returns information about a possibly unconfirmed parent tx.
 func (bo *breachedOutput) UnconfParent() *input.TxInfo {
 	return nil
+}
+
+// ResolutionBlob...
+func (bo *breachedOutput) ResolutionBlob() fn.Option[tlv.Blob] {
+	return bo.resolutionBlob
 }
 
 // Add compile-time constraint ensuring breachedOutput implements the Input

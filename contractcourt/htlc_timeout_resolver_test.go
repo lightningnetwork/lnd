@@ -1120,11 +1120,6 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 					t.Fatalf("resolution not sent")
 				}
 
-				// Mimic CSV lock expiring.
-				ctx.notifier.EpochChan <- &chainntnfs.BlockEpoch{
-					Height: 13,
-				}
-
 				// The timeout tx output should now be given to
 				// the sweeper.
 				resolver := ctx.resolver.(*htlcTimeoutResolver)

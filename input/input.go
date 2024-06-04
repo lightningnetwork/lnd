@@ -6,7 +6,9 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // EmptyOutPoint is a zeroed outpoint.
@@ -63,6 +65,10 @@ type Input interface {
 	// UnconfParent returns information about a possibly unconfirmed parent
 	// tx.
 	UnconfParent() *TxInfo
+
+	// ResolutionBlob returns a special opaque blob to be used to
+	// sweep/resolve this input.
+	ResolutionBlob() fn.Option[tlv.Blob]
 }
 
 // TxInfo describes properties of a parent tx that are relevant for CPFP.
@@ -106,6 +112,10 @@ type inputKit struct {
 	// unconfParent contains information about a potential unconfirmed
 	// parent transaction.
 	unconfParent *TxInfo
+
+	// resolutionBlob is an optional blob that can be used to resolve an
+	// input.
+	resolutionBlob fn.Option[tlv.Blob]
 }
 
 // OutPoint returns the breached output's identifier that is to be included as
@@ -156,8 +166,17 @@ func (i *inputKit) UnconfParent() *TxInfo {
 	return i.unconfParent
 }
 
-// inputOpts holds options for the input.
+// ResolutionBlob returns a special opaque blob to be used to sweep/resolve
+// this input.
+func (i *inputKit) ResolutionBlob() fn.Option[tlv.Blob] {
+	return i.resolutionBlob
+}
+
+// inputOpts contains options for constructing a new input.
 type inputOpts struct {
+	// resolutionBlob is an optional blob that can be used to resolve an
+	// input.
+	resolutionBlob fn.Option[tlv.Blob]
 }
 
 // defaultInputOpts returns a new inputOpts with default values.
@@ -165,8 +184,17 @@ func defaultInputOpts() *inputOpts {
 	return &inputOpts{}
 }
 
-// InputOpt is a functional option argument to the input constructor.
+// InputOpt is a functional option that can be used to modify the default input
+// options.
 type InputOpt func(*inputOpts) //nolint:revive
+
+// WithResolutionBlob is an option that can be used to set a resolution blob on
+// for an input.
+func WithResolutionBlob(b fn.Option[tlv.Blob]) InputOpt {
+	return func(o *inputOpts) {
+		o.resolutionBlob = b
+	}
+}
 
 // BaseInput contains all the information needed to sweep a basic
 // output (CSV/CLTV/no time lock).
@@ -187,11 +215,12 @@ func MakeBaseInput(outpoint *wire.OutPoint, witnessType WitnessType,
 
 	return BaseInput{
 		inputKit{
-			outpoint:     *outpoint,
-			witnessType:  witnessType,
-			signDesc:     *signDescriptor,
-			heightHint:   heightHint,
-			unconfParent: unconfParent,
+			outpoint:       *outpoint,
+			witnessType:    witnessType,
+			signDesc:       *signDescriptor,
+			heightHint:     heightHint,
+			unconfParent:   unconfParent,
+			resolutionBlob: opt.resolutionBlob,
 		},
 	}
 }

@@ -1553,7 +1553,7 @@ func encodeTaprootAuxData(w io.Writer, c *ContractResolutions) error {
 		commitResolution := c.CommitResolution
 		commitSignDesc := commitResolution.SelfOutputSignDesc
 		//nolint:lll
-		tapCase.CtrlBlocks.CommitSweepCtrlBlock = commitSignDesc.ControlBlock
+		tapCase.CtrlBlocks.Val.CommitSweepCtrlBlock = commitSignDesc.ControlBlock
 	}
 
 	for _, htlc := range c.HtlcResolutions.IncomingHTLCs {
@@ -1571,7 +1571,7 @@ func encodeTaprootAuxData(w io.Writer, c *ContractResolutions) error {
 				htlc.SignedSuccessTx.TxIn[0].PreviousOutPoint,
 			)
 			//nolint:lll
-			tapCase.CtrlBlocks.SecondLevelCtrlBlocks[resID] = ctrlBlock
+			tapCase.CtrlBlocks.Val.SecondLevelCtrlBlocks[resID] = ctrlBlock
 
 			// For HTLCs we need to go to the second level for, we
 			// also need to store the control block needed to
@@ -1580,12 +1580,12 @@ func encodeTaprootAuxData(w io.Writer, c *ContractResolutions) error {
 				//nolint:lll
 				bridgeCtrlBlock := htlc.SignDetails.SignDesc.ControlBlock
 				//nolint:lll
-				tapCase.CtrlBlocks.IncomingHtlcCtrlBlocks[resID] = bridgeCtrlBlock
+				tapCase.CtrlBlocks.Val.IncomingHtlcCtrlBlocks[resID] = bridgeCtrlBlock
 			}
 		} else {
 			resID := newResolverID(htlc.ClaimOutpoint)
 			//nolint:lll
-			tapCase.CtrlBlocks.IncomingHtlcCtrlBlocks[resID] = ctrlBlock
+			tapCase.CtrlBlocks.Val.IncomingHtlcCtrlBlocks[resID] = ctrlBlock
 		}
 	}
 	for _, htlc := range c.HtlcResolutions.OutgoingHTLCs {
@@ -1603,7 +1603,7 @@ func encodeTaprootAuxData(w io.Writer, c *ContractResolutions) error {
 				htlc.SignedTimeoutTx.TxIn[0].PreviousOutPoint,
 			)
 			//nolint:lll
-			tapCase.CtrlBlocks.SecondLevelCtrlBlocks[resID] = ctrlBlock
+			tapCase.CtrlBlocks.Val.SecondLevelCtrlBlocks[resID] = ctrlBlock
 
 			// For HTLCs we need to go to the second level for, we
 			// also need to store the control block needed to
@@ -1614,18 +1614,18 @@ func encodeTaprootAuxData(w io.Writer, c *ContractResolutions) error {
 				//nolint:lll
 				bridgeCtrlBlock := htlc.SignDetails.SignDesc.ControlBlock
 				//nolint:lll
-				tapCase.CtrlBlocks.OutgoingHtlcCtrlBlocks[resID] = bridgeCtrlBlock
+				tapCase.CtrlBlocks.Val.OutgoingHtlcCtrlBlocks[resID] = bridgeCtrlBlock
 			}
 		} else {
 			resID := newResolverID(htlc.ClaimOutpoint)
 			//nolint:lll
-			tapCase.CtrlBlocks.OutgoingHtlcCtrlBlocks[resID] = ctrlBlock
+			tapCase.CtrlBlocks.Val.OutgoingHtlcCtrlBlocks[resID] = ctrlBlock
 		}
 	}
 
 	if c.AnchorResolution != nil {
 		anchorSignDesc := c.AnchorResolution.AnchorSignDescriptor
-		tapCase.TapTweaks.AnchorTweak = anchorSignDesc.TapTweak
+		tapCase.TapTweaks.Val.AnchorTweak = anchorSignDesc.TapTweak
 	}
 
 	return tapCase.Encode(w)
@@ -1639,7 +1639,7 @@ func decodeTapRootAuxData(r io.Reader, c *ContractResolutions) error {
 
 	if c.CommitResolution != nil {
 		c.CommitResolution.SelfOutputSignDesc.ControlBlock =
-			tapCase.CtrlBlocks.CommitSweepCtrlBlock
+			tapCase.CtrlBlocks.Val.CommitSweepCtrlBlock
 	}
 
 	for i := range c.HtlcResolutions.IncomingHTLCs {
@@ -1652,19 +1652,19 @@ func decodeTapRootAuxData(r io.Reader, c *ContractResolutions) error {
 			)
 
 			//nolint:lll
-			ctrlBlock := tapCase.CtrlBlocks.SecondLevelCtrlBlocks[resID]
+			ctrlBlock := tapCase.CtrlBlocks.Val.SecondLevelCtrlBlocks[resID]
 			htlc.SweepSignDesc.ControlBlock = ctrlBlock
 
 			//nolint:lll
 			if htlc.SignDetails != nil {
-				bridgeCtrlBlock := tapCase.CtrlBlocks.IncomingHtlcCtrlBlocks[resID]
+				bridgeCtrlBlock := tapCase.CtrlBlocks.Val.IncomingHtlcCtrlBlocks[resID]
 				htlc.SignDetails.SignDesc.ControlBlock = bridgeCtrlBlock
 			}
 		} else {
 			resID = newResolverID(htlc.ClaimOutpoint)
 
 			//nolint:lll
-			ctrlBlock := tapCase.CtrlBlocks.IncomingHtlcCtrlBlocks[resID]
+			ctrlBlock := tapCase.CtrlBlocks.Val.IncomingHtlcCtrlBlocks[resID]
 			htlc.SweepSignDesc.ControlBlock = ctrlBlock
 		}
 
@@ -1680,19 +1680,19 @@ func decodeTapRootAuxData(r io.Reader, c *ContractResolutions) error {
 			)
 
 			//nolint:lll
-			ctrlBlock := tapCase.CtrlBlocks.SecondLevelCtrlBlocks[resID]
+			ctrlBlock := tapCase.CtrlBlocks.Val.SecondLevelCtrlBlocks[resID]
 			htlc.SweepSignDesc.ControlBlock = ctrlBlock
 
 			//nolint:lll
 			if htlc.SignDetails != nil {
-				bridgeCtrlBlock := tapCase.CtrlBlocks.OutgoingHtlcCtrlBlocks[resID]
+				bridgeCtrlBlock := tapCase.CtrlBlocks.Val.OutgoingHtlcCtrlBlocks[resID]
 				htlc.SignDetails.SignDesc.ControlBlock = bridgeCtrlBlock
 			}
 		} else {
 			resID = newResolverID(htlc.ClaimOutpoint)
 
 			//nolint:lll
-			ctrlBlock := tapCase.CtrlBlocks.OutgoingHtlcCtrlBlocks[resID]
+			ctrlBlock := tapCase.CtrlBlocks.Val.OutgoingHtlcCtrlBlocks[resID]
 			htlc.SweepSignDesc.ControlBlock = ctrlBlock
 		}
 
@@ -1701,7 +1701,7 @@ func decodeTapRootAuxData(r io.Reader, c *ContractResolutions) error {
 
 	if c.AnchorResolution != nil {
 		c.AnchorResolution.AnchorSignDescriptor.TapTweak =
-			tapCase.TapTweaks.AnchorTweak
+			tapCase.TapTweaks.Val.AnchorTweak
 	}
 
 	return nil

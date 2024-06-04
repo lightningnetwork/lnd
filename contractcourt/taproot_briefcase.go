@@ -8,9 +8,6 @@ import (
 )
 
 const (
-	taprootCtrlBlockType tlv.Type = 0
-	taprootTapTweakType  tlv.Type = 1
-
 	commitCtrlBlockType       tlv.Type = 0
 	revokeCtrlBlockType       tlv.Type = 1
 	outgoingHtlcCtrlBlockType tlv.Type = 2
@@ -26,36 +23,39 @@ const (
 // information we need to sweep taproot outputs.
 type taprootBriefcase struct {
 	// CtrlBlock is the set of control block for the taproot outputs.
-	CtrlBlocks *ctrlBlocks
+	CtrlBlocks tlv.RecordT[tlv.TlvType0, ctrlBlocks]
 
 	// TapTweaks is the set of taproot tweaks for the taproot outputs that
 	// are to be spent via a keyspend path. This includes anchors, and any
 	// revocation paths.
-	TapTweaks *tapTweaks
+	TapTweaks tlv.RecordT[tlv.TlvType1, tapTweaks]
 }
+
+// TODO(roasbeef): morph into new tlv record
 
 // newTaprootBriefcase returns a new instance of the taproot specific briefcase
 // variant.
 func newTaprootBriefcase() *taprootBriefcase {
 	return &taprootBriefcase{
-		CtrlBlocks: newCtrlBlocks(),
-		TapTweaks:  newTapTweaks(),
+		CtrlBlocks: tlv.NewRecordT[tlv.TlvType0](newCtrlBlocks()),
+		TapTweaks:  tlv.NewRecordT[tlv.TlvType1](newTapTweaks()),
 	}
 }
 
 // EncodeRecords returns a slice of TLV records that should be encoded.
 func (t *taprootBriefcase) EncodeRecords() []tlv.Record {
-	return []tlv.Record{
-		newCtrlBlocksRecord(&t.CtrlBlocks),
-		newTapTweaksRecord(&t.TapTweaks),
+	records := []tlv.Record{
+		t.CtrlBlocks.Record(),
+		t.TapTweaks.Record(),
 	}
+	return records
 }
 
 // DecodeRecords returns a slice of TLV records that should be decoded.
 func (t *taprootBriefcase) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
-		newCtrlBlocksRecord(&t.CtrlBlocks),
-		newTapTweaksRecord(&t.TapTweaks),
+		t.CtrlBlocks.Record(),
+		t.TapTweaks.Record(),
 	}
 }
 
@@ -76,7 +76,12 @@ func (t *taprootBriefcase) Decode(r io.Reader) error {
 		return err
 	}
 
-	return stream.Decode(r)
+	_, err = stream.DecodeWithParsedTypes(r)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // resolverCtrlBlocks is a map of resolver IDs to their corresponding control
@@ -216,8 +221,8 @@ type ctrlBlocks struct {
 }
 
 // newCtrlBlocks returns a new instance of the ctrlBlocks struct.
-func newCtrlBlocks() *ctrlBlocks {
-	return &ctrlBlocks{
+func newCtrlBlocks() ctrlBlocks {
+	return ctrlBlocks{
 		OutgoingHtlcCtrlBlocks: newResolverCtrlBlocks(),
 		IncomingHtlcCtrlBlocks: newResolverCtrlBlocks(),
 		SecondLevelCtrlBlocks:  newResolverCtrlBlocks(),
@@ -260,7 +265,7 @@ func varBytesDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 
 // ctrlBlockEncoder is a custom TLV encoder for the ctrlBlocks struct.
 func ctrlBlockEncoder(w io.Writer, val any, _ *[8]byte) error {
-	if t, ok := val.(**ctrlBlocks); ok {
+	if t, ok := val.(*ctrlBlocks); ok {
 		return (*t).Encode(w)
 	}
 
@@ -269,7 +274,7 @@ func ctrlBlockEncoder(w io.Writer, val any, _ *[8]byte) error {
 
 // ctrlBlockDecoder is a custom TLV decoder for the ctrlBlocks struct.
 func ctrlBlockDecoder(r io.Reader, val any, _ *[8]byte, l uint64) error {
-	if typ, ok := val.(**ctrlBlocks); ok {
+	if typ, ok := val.(*ctrlBlocks); ok {
 		ctrlReader := io.LimitReader(r, int64(l))
 
 		var ctrlBlocks ctrlBlocks
@@ -278,34 +283,12 @@ func ctrlBlockDecoder(r io.Reader, val any, _ *[8]byte, l uint64) error {
 			return err
 		}
 
-		*typ = &ctrlBlocks
+		*typ = ctrlBlocks
 
 		return nil
 	}
 
 	return tlv.NewTypeForDecodingErr(val, "ctrlBlocks", l, l)
-}
-
-// newCtrlBlocksRecord returns a new TLV record that can be used to
-// encode/decode the set of cotrol blocks for the taproot outputs for a
-// channel.
-func newCtrlBlocksRecord(blks **ctrlBlocks) tlv.Record {
-	recordSize := func() uint64 {
-		var (
-			b   bytes.Buffer
-			buf [8]byte
-		)
-		if err := ctrlBlockEncoder(&b, blks, &buf); err != nil {
-			panic(err)
-		}
-
-		return uint64(len(b.Bytes()))
-	}
-
-	return tlv.MakeDynamicRecord(
-		taprootCtrlBlockType, blks, recordSize, ctrlBlockEncoder,
-		ctrlBlockDecoder,
-	)
 }
 
 // EncodeRecords returns the set of TLV records that encode the control block
@@ -382,7 +365,21 @@ func (c *ctrlBlocks) DecodeRecords() []tlv.Record {
 // Record returns a TLV record that can be used to encode/decode the control
 // blocks.  type from a given TLV stream.
 func (c *ctrlBlocks) Record() tlv.Record {
-	return tlv.MakePrimitiveRecord(commitCtrlBlockType, c)
+	recordSize := func() uint64 {
+		var (
+			b   bytes.Buffer
+			buf [8]byte
+		)
+		if err := ctrlBlockEncoder(&b, c, &buf); err != nil {
+			panic(err)
+		}
+
+		return uint64(len(b.Bytes()))
+	}
+
+	return tlv.MakeDynamicRecord(
+		0, c, recordSize, ctrlBlockEncoder, ctrlBlockDecoder,
+	)
 }
 
 // Encode encodes the set of control blocks.
@@ -530,8 +527,8 @@ type tapTweaks struct {
 }
 
 // newTapTweaks returns a new tapTweaks struct.
-func newTapTweaks() *tapTweaks {
-	return &tapTweaks{
+func newTapTweaks() tapTweaks {
+	return tapTweaks{
 		BreachedHtlcTweaks:            make(htlcTapTweaks),
 		BreachedSecondLevelHltcTweaks: make(htlcTapTweaks),
 	}
@@ -539,7 +536,7 @@ func newTapTweaks() *tapTweaks {
 
 // tapTweaksEncoder is a custom TLV encoder for the tapTweaks struct.
 func tapTweaksEncoder(w io.Writer, val any, _ *[8]byte) error {
-	if t, ok := val.(**tapTweaks); ok {
+	if t, ok := val.(*tapTweaks); ok {
 		return (*t).Encode(w)
 	}
 
@@ -548,7 +545,7 @@ func tapTweaksEncoder(w io.Writer, val any, _ *[8]byte) error {
 
 // tapTweaksDecoder is a custom TLV decoder for the tapTweaks struct.
 func tapTweaksDecoder(r io.Reader, val any, _ *[8]byte, l uint64) error {
-	if typ, ok := val.(**tapTweaks); ok {
+	if typ, ok := val.(*tapTweaks); ok {
 		tweakReader := io.LimitReader(r, int64(l))
 
 		var tapTweaks tapTweaks
@@ -557,33 +554,12 @@ func tapTweaksDecoder(r io.Reader, val any, _ *[8]byte, l uint64) error {
 			return err
 		}
 
-		*typ = &tapTweaks
+		*typ = tapTweaks
 
 		return nil
 	}
 
 	return tlv.NewTypeForDecodingErr(val, "tapTweaks", l, l)
-}
-
-// newTapTweaksRecord returns a new TLV record that can be used to
-// encode/decode the tap tweak structs.
-func newTapTweaksRecord(tweaks **tapTweaks) tlv.Record {
-	recordSize := func() uint64 {
-		var (
-			b   bytes.Buffer
-			buf [8]byte
-		)
-		if err := tapTweaksEncoder(&b, tweaks, &buf); err != nil {
-			panic(err)
-		}
-
-		return uint64(len(b.Bytes()))
-	}
-
-	return tlv.MakeDynamicRecord(
-		taprootTapTweakType, tweaks, recordSize, tapTweaksEncoder,
-		tapTweaksDecoder,
-	)
 }
 
 // EncodeRecords returns the set of TLV records that encode the tweaks.
@@ -637,7 +613,21 @@ func (t *tapTweaks) DecodeRecords() []tlv.Record {
 // Record returns a TLV record that can be used to encode/decode the tap
 // tweaks.
 func (t *tapTweaks) Record() tlv.Record {
-	return tlv.MakePrimitiveRecord(taprootTapTweakType, t)
+	recordSize := func() uint64 {
+		var (
+			b   bytes.Buffer
+			buf [8]byte
+		)
+		if err := tapTweaksEncoder(&b, t, &buf); err != nil {
+			panic(err)
+		}
+
+		return uint64(len(b.Bytes()))
+	}
+
+	return tlv.MakeDynamicRecord(
+		0, t, recordSize, tapTweaksEncoder, tapTweaksDecoder,
+	)
 }
 
 // Encode encodes the set of tap tweaks.

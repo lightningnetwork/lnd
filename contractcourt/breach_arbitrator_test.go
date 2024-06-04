@@ -1592,6 +1592,9 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	retribution, err := lnwallet.NewBreachRetribution(
 		alice.State(), height, 1, forceCloseTx,
 		fn.Some[lnwallet.AuxLeafStore](&lnwallet.MockAuxLeafStore{}),
+		fn.Some[lnwallet.AuxContractResolver](
+			&lnwallet.MockAuxContractResolver{},
+		),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 
@@ -1802,6 +1805,9 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	retribution, err := lnwallet.NewBreachRetribution(
 		alice.State(), height, uint32(blockHeight), forceCloseTx,
 		fn.Some[lnwallet.AuxLeafStore](&lnwallet.MockAuxLeafStore{}),
+		fn.Some[lnwallet.AuxContractResolver](
+			&lnwallet.MockAuxContractResolver{},
+		),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 

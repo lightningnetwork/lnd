@@ -764,6 +764,10 @@ type LightningChannel struct {
 	// custom channel variants.
 	auxSigner fn.Option[AuxSigner]
 
+	// auxResolver is an optional component that can be used to modify the
+	// way contracts are resolved.
+	auxResolver fn.Option[AuxContractResolver]
+
 	// Capacity is the total capacity of this channel.
 	Capacity btcutil.Amount
 
@@ -824,8 +828,9 @@ type channelOpts struct {
 	localNonce  *musig2.Nonces
 	remoteNonce *musig2.Nonces
 
-	leafStore fn.Option[AuxLeafStore]
-	auxSigner fn.Option[AuxSigner]
+	leafStore   fn.Option[AuxLeafStore]
+	auxSigner   fn.Option[AuxSigner]
+	auxResolver fn.Option[AuxContractResolver]
 
 	skipNonceInit bool
 }
@@ -868,6 +873,14 @@ func WithLeafStore(store AuxLeafStore) ChannelOpt {
 func WithAuxSigner(signer AuxSigner) ChannelOpt {
 	return func(o *channelOpts) {
 		o.auxSigner = fn.Some[AuxSigner](signer)
+	}
+}
+
+// WithAuxResolver is used to specify a custom aux contract resolver for the
+// channel.
+func WithAuxResolver(resolver AuxContractResolver) ChannelOpt {
+	return func(o *channelOpts) {
+		o.auxResolver = fn.Some[AuxContractResolver](resolver)
 	}
 }
 
@@ -924,6 +937,7 @@ func NewLightningChannel(signer input.Signer,
 		Signer:        signer,
 		leafStore:     opts.leafStore,
 		auxSigner:     opts.auxSigner,
+		auxResolver:   opts.auxResolver,
 		sigPool:       sigPool,
 		currentHeight: localCommit.CommitHeight,
 		commitChains:  commitChains,
@@ -1884,6 +1898,10 @@ type HtlcRetribution struct {
 	// this HTLC was offered by us. This flag is used determine the exact
 	// witness type should be used to sweep the output.
 	IsIncoming bool
+
+	// ResolutionBlob is a blob used for aux channels that permits a
+	// spender of this output to claim all funds.
+	ResolutionBlob fn.Option[tlv.Blob]
 }
 
 // BreachRetribution contains all the data necessary to bring a channel
@@ -1953,6 +1971,14 @@ type BreachRetribution struct {
 	// breaching commitment transaction. This allows downstream clients to
 	// have access to the public keys used in the scripts.
 	KeyRing *CommitmentKeyRing
+
+	// LocalResolutionBlob is a blob used for aux channels that permits an
+	// honest party to sweep the local commitment output.
+	LocalResolutionBlob fn.Option[tlv.Blob]
+
+	// RemoteResolutionBlob is a blob used for aux channels that permits an
+	// honest party to sweep the remote commitment output.
+	RemoteResolutionBlob fn.Option[tlv.Blob]
 }
 
 // NewBreachRetribution creates a new fully populated BreachRetribution for the
@@ -1964,7 +1990,9 @@ type BreachRetribution struct {
 // the required fields then ErrRevLogDataMissing will be returned.
 func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	breachHeight uint32, spendTx *wire.MsgTx,
-	leafStore fn.Option[AuxLeafStore]) (*BreachRetribution, error) {
+	leafStore fn.Option[AuxLeafStore],
+	auxResolver fn.Option[AuxContractResolver]) (*BreachRetribution,
+	error) {
 
 	// Query the on-disk revocation log for the snapshot which was recorded
 	// at this particular state num. Based on whether a legacy revocation
@@ -2127,6 +2155,38 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 				return nil, err
 			}
 		}
+
+		// At this point, we'll check to see if we need any extra
+		// resolution data for this output.
+		resolveReq := ResolutionReq{
+			ChanPoint:      chanState.FundingOutpoint,
+			ShortChanID:    chanState.ShortChanID(),
+			Initiator:      chanState.IsInitiator,
+			FundingBlob:    chanState.CustomBlob,
+			Type:           input.TaprootRemoteCommitSpend,
+			CloseType:      Breach,
+			CommitTx:       spendTx,
+			SignDesc:       *br.LocalOutputSignDesc,
+			KeyRing:        keyRing,
+			CsvDelay:       ourDelay,
+			BreachCsvDelay: fn.Some(theirDelay),
+			CommitFee:      chanState.RemoteCommitment.CommitFee,
+		}
+		if revokedLog != nil {
+			resolveReq.CommitBlob = revokedLog.CustomBlob.ValOpt()
+		}
+
+		resolveBlob := fn.MapOptionZ(
+			auxResolver,
+			func(a AuxContractResolver) fn.Result[tlv.Blob] {
+				return a.ResolveContract(resolveReq)
+			},
+		)
+		if err := resolveBlob.Err(); err != nil {
+			return nil, fmt.Errorf("unable to aux resolve: %w", err)
+		}
+
+		br.LocalResolutionBlob = resolveBlob.Option()
 	}
 
 	// Similarly, if their balance exceeds the remote party's dust limit,
@@ -2174,6 +2234,37 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 				return nil, err
 			}
 		}
+
+		// At this point, we'll check to see if we need any extra
+		// resolution data for this output.
+		resolveReq := ResolutionReq{
+			ChanPoint:      chanState.FundingOutpoint,
+			ShortChanID:    chanState.ShortChanID(),
+			Initiator:      chanState.IsInitiator,
+			FundingBlob:    chanState.CustomBlob,
+			Type:           input.TaprootCommitmentRevoke,
+			CloseType:      Breach,
+			CommitTx:       spendTx,
+			SignDesc:       *br.RemoteOutputSignDesc,
+			KeyRing:        keyRing,
+			CsvDelay:       theirDelay,
+			BreachCsvDelay: fn.Some(theirDelay),
+			CommitFee:      chanState.RemoteCommitment.CommitFee,
+		}
+		if revokedLog != nil {
+			resolveReq.CommitBlob = revokedLog.CustomBlob.ValOpt()
+		}
+		resolveBlob := fn.MapOptionZ(
+			auxResolver,
+			func(a AuxContractResolver) fn.Result[tlv.Blob] {
+				return a.ResolveContract(resolveReq)
+			},
+		)
+		if err := resolveBlob.Err(); err != nil {
+			return nil, fmt.Errorf("unable to aux resolve: %w", err)
+		}
+
+		br.RemoteResolutionBlob = resolveBlob.Option()
 	}
 
 	// Finally, with all the necessary data constructed, we can pad the
@@ -6473,6 +6564,11 @@ type CommitOutputResolution struct {
 	// that pay to the local party within the broadcast commitment
 	// transaction.
 	MaturityDelay uint32
+
+	// ResolutionBlob is a blob used for aux channels that permits a
+	// spender of the output to properly resolve it in the case of a force
+	// close.
+	ResolutionBlob fn.Option[tlv.Blob]
 }
 
 // UnilateralCloseSummary describes the details of a detected unilateral
@@ -6530,7 +6626,9 @@ type UnilateralCloseSummary struct {
 func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel,
 	signer input.Signer, commitSpend *chainntnfs.SpendDetail,
 	remoteCommit channeldb.ChannelCommitment, commitPoint *btcec.PublicKey,
-	leafStore fn.Option[AuxLeafStore]) (*UnilateralCloseSummary, error) {
+	leafStore fn.Option[AuxLeafStore],
+	auxResolver fn.Option[AuxContractResolver]) (*UnilateralCloseSummary,
+	error) {
 
 	// First, we'll generate the commitment point and the revocation point
 	// so we can re-construct the HTLC state and also our payment key.
@@ -6554,11 +6652,17 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel,
 
 	// Next, we'll obtain HTLC resolutions for all the outgoing HTLC's we
 	// had on their commitment transaction.
-	var leaseExpiry uint32
+	var (
+		leaseExpiry       uint32
+		selfPoint         *wire.OutPoint
+		localBalance      int64
+		isRemoteInitiator = !chanState.IsInitiator
+		commitTxBroadcast = commitSpend.SpendingTx
+	)
+
 	if chanState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = chanState.ThawHeight
 	}
-	isRemoteInitiator := !chanState.IsInitiator
 	htlcResolutions, err := extractHtlcResolutions(
 		chainfee.SatPerKWeight(remoteCommit.FeePerKw), commitType,
 		signer, remoteCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
@@ -6567,11 +6671,9 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel,
 		auxResult.AuxLeaves,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create htlc "+
-			"resolutions: %v", err)
+		return nil, fmt.Errorf("unable to create htlc resolutions: %w",
+			err)
 	}
-
-	commitTxBroadcast := commitSpend.SpendingTx
 
 	// Before we can generate the proper sign descriptor, we'll need to
 	// locate the output index of our non-delayed output on the commitment
@@ -6587,14 +6689,8 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create self commit "+
-			"script: %v", err)
+			"script: %w", err)
 	}
-
-	var (
-		selfPoint    *wire.OutPoint
-		localBalance int64
-	)
-
 	for outputIndex, txOut := range commitTxBroadcast.TxOut {
 		if bytes.Equal(txOut.PkScript, selfScript.PkScript()) {
 			selfPoint = &wire.OutPoint{
@@ -6657,6 +6753,35 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel,
 				return nil, err
 			}
 		}
+
+		// At this point, we'll check to see if we need any extra
+		// resolution data for this output.
+		resolveReq := ResolutionReq{
+			ChanPoint:     chanState.FundingOutpoint,
+			ShortChanID:   chanState.ShortChanID(),
+			Initiator:     chanState.IsInitiator,
+			CommitBlob:    chanState.RemoteCommitment.CustomBlob,
+			FundingBlob:   chanState.CustomBlob,
+			Type:          input.TaprootRemoteCommitSpend,
+			CloseType:     RemoteForceClose,
+			CommitTx:      commitTxBroadcast,
+			ContractPoint: *selfPoint,
+			SignDesc:      commitResolution.SelfOutputSignDesc,
+			KeyRing:       keyRing,
+			CsvDelay:      maturityDelay,
+			CommitFee:     chanState.RemoteCommitment.CommitFee,
+		}
+		resolveBlob := fn.MapOptionZ(
+			auxResolver,
+			func(a AuxContractResolver) fn.Result[tlv.Blob] {
+				return a.ResolveContract(resolveReq)
+			},
+		)
+		if err := resolveBlob.Err(); err != nil {
+			return nil, fmt.Errorf("unable to aux resolve: %w", err)
+		}
+
+		commitResolution.ResolutionBlob = resolveBlob.Option()
 	}
 
 	closeSummary := channeldb.ChannelCloseSummary{
@@ -7513,7 +7638,7 @@ func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
 	localCommitment := lc.channelState.LocalCommitment
 	summary, err := NewLocalForceCloseSummary(
 		lc.channelState, lc.Signer, commitTx,
-		localCommitment.CommitHeight, lc.leafStore,
+		localCommitment.CommitHeight, lc.leafStore, lc.auxResolver,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen force close "+
@@ -7531,7 +7656,9 @@ func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
 // transaction corresponding to localCommit.
 func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	signer input.Signer, commitTx *wire.MsgTx, stateNum uint64,
-	leafStore fn.Option[AuxLeafStore]) (*LocalForceCloseSummary, error) {
+	leafStore fn.Option[AuxLeafStore],
+	auxResolver fn.Option[AuxContractResolver]) (*LocalForceCloseSummary,
+	error) {
 
 	// Re-derive the original pkScript for to-self output within the
 	// commitment transaction. We'll need this to find the corresponding
@@ -7655,6 +7782,35 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 				return nil, err
 			}
 		}
+
+		// At this point, we'll check to see if we need any extra
+		// resolution data for this output.
+		resolveBlob := fn.MapOptionZ(
+			auxResolver,
+			func(a AuxContractResolver) fn.Result[tlv.Blob] {
+				//nolint:lll
+				return a.ResolveContract(ResolutionReq{
+					ChanPoint:     chanState.FundingOutpoint,
+					ShortChanID:   chanState.ShortChanID(),
+					Initiator:     chanState.IsInitiator,
+					CommitBlob:    chanState.LocalCommitment.CustomBlob,
+					FundingBlob:   chanState.CustomBlob,
+					Type:          input.TaprootLocalCommitSpend,
+					CloseType:     LocalForceClose,
+					CommitTx:      commitTx,
+					ContractPoint: commitResolution.SelfOutPoint,
+					SignDesc:      commitResolution.SelfOutputSignDesc,
+					KeyRing:       keyRing,
+					CsvDelay:      csvTimeout,
+					CommitFee:     chanState.LocalCommitment.CommitFee,
+				})
+			},
+		)
+		if err := resolveBlob.Err(); err != nil {
+			return nil, fmt.Errorf("unable to aux resolve: %w", err)
+		}
+
+		commitResolution.ResolutionBlob = resolveBlob.Option()
 	}
 
 	// Once the delay output has been found (if it exists), then we'll also

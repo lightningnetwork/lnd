@@ -6043,6 +6043,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		aliceChannel.channelState.RemoteCommitment,
 		aliceChannel.channelState.RemoteCurrentRevocation,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
+		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)
 	require.NoError(t, err, "unable to create alice close summary")
 
@@ -6193,6 +6194,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		aliceChannel.channelState.RemoteCommitment,
 		aliceChannel.channelState.RemoteCurrentRevocation,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
+		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)
 	require.NoError(t, err, "unable to create alice close summary")
 
@@ -6211,6 +6213,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		aliceRemoteChainTip.Commitment,
 		aliceChannel.channelState.RemoteNextRevocation,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
+		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)
 	require.NoError(t, err, "unable to create alice close summary")
 
@@ -7092,6 +7095,7 @@ func TestNewBreachRetributionSkipsDustHtlcs(t *testing.T) {
 	breachRet, err := NewBreachRetribution(
 		aliceChannel.channelState, revokedStateNum, 100, breachTx,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
+		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 
@@ -10653,6 +10657,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	_, err = NewBreachRetribution(
 		aliceChannel.channelState, stateNum, breachHeight, breachTx,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
+		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)
 	require.ErrorIs(t, err, channeldb.ErrNoPastDeltas)
 
@@ -10661,6 +10666,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	_, err = NewBreachRetribution(
 		aliceChannel.channelState, stateNum, breachHeight, nil,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
+		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)
 	require.ErrorIs(t, err, channeldb.ErrNoPastDeltas)
 
@@ -10707,6 +10713,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	br, err := NewBreachRetribution(
 		aliceChannel.channelState, stateNum, breachHeight, breachTx,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
+		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)
 	require.NoError(t, err)
 
@@ -10719,6 +10726,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	br, err = NewBreachRetribution(
 		aliceChannel.channelState, stateNum, breachHeight, nil,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
+		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)
 	require.NoError(t, err)
 	assertRetribution(br, 1, 0)
@@ -10728,6 +10736,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	_, err = NewBreachRetribution(
 		aliceChannel.channelState, stateNum+1, breachHeight, breachTx,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
+		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)
 	require.ErrorIs(t, err, channeldb.ErrLogEntryNotFound)
 
@@ -10736,6 +10745,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	_, err = NewBreachRetribution(
 		aliceChannel.channelState, stateNum+1, breachHeight, nil,
 		fn.Some[AuxLeafStore](&MockAuxLeafStore{}),
+		fn.Some[AuxContractResolver](&MockAuxContractResolver{}),
 	)
 	require.ErrorIs(t, err, channeldb.ErrLogEntryNotFound)
 }

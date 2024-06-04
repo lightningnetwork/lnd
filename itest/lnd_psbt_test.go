@@ -649,16 +649,51 @@ func runPsbtChanFundingSingleStep(ht *lntest.HarnessTest, carol,
 
 // testSignPsbt tests that the SignPsbt RPC works correctly.
 func testSignPsbt(ht *lntest.HarnessTest) {
-	runSignPsbtSegWitV0P2WKH(ht, ht.Alice)
-	runSignPsbtSegWitV0NP2WKH(ht, ht.Alice)
-	runSignPsbtSegWitV1KeySpendBip86(ht, ht.Alice)
-	runSignPsbtSegWitV1KeySpendRootHash(ht, ht.Alice)
-	runSignPsbtSegWitV1ScriptSpend(ht, ht.Alice)
+	psbtTestRunners := []struct {
+		name   string
+		runner func(*lntest.HarnessTest, *node.HarnessNode)
+	}{
+		{
+			name:   "sign psbt segwit v0 P2WPKH",
+			runner: runSignPsbtSegWitV0P2WKH,
+		},
+		{
+			name:   "sign psbt segwit v0 P2WSH",
+			runner: runSignPsbtSegWitV0NP2WKH,
+		},
+		{
+			name:   "sign psbt segwit v1 key spend bip86",
+			runner: runSignPsbtSegWitV1KeySpendBip86,
+		},
+		{
+			name:   "sign psbt segwit v1 key spend root hash",
+			runner: runSignPsbtSegWitV1KeySpendRootHash,
+		},
+		{
+			name:   "sign psbt segwit v1 script spend",
+			runner: runSignPsbtSegWitV1ScriptSpend,
+		},
+		{
+			// The above tests all make sure we can sign for keys
+			// that aren't in the wallet. But we also want to make
+			// sure we can fund and then sign PSBTs from our
+			// wallet.
+			name:   "fund and sign psbt",
+			runner: runFundAndSignPsbt,
+		},
+	}
 
-	// The above tests all make sure we can sign for keys that aren't in
-	// the wallet. But we also want to make sure we can fund and then sign
-	// PSBTs from our wallet.
-	runFundAndSignPsbt(ht, ht.Alice)
+	for _, tc := range psbtTestRunners {
+		succeed := ht.Run(tc.name, func(t *testing.T) {
+			st := ht.Subtest(t)
+			tc.runner(st, st.Alice)
+		})
+
+		// Abort the test if failed.
+		if !succeed {
+			return
+		}
+	}
 }
 
 // runSignPsbtSegWitV0P2WKH tests that the SignPsbt RPC works correctly for a

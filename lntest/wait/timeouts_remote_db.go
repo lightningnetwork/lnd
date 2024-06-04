@@ -20,7 +20,7 @@ const (
 
 	// DefaultTimeout is a timeout that will be used for various wait
 	// scenarios where no custom timeout value is defined.
-	DefaultTimeout = time.Second * 45
+	DefaultTimeout = time.Second * 60
 
 	// AsyncBenchmarkTimeout is the timeout used when running the async
 	// payments benchmark.

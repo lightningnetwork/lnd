@@ -1778,6 +1778,11 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 		h.Miner.AssertTxInBlock(blocks[0], txid)
 	}
 
+	// Make sure the mempool has been updated.
+	for _, txid := range txids {
+		h.Miner.AssertTxNotInMempool(*txid)
+	}
+
 	// Finally, make sure all the active nodes are synced.
 	bestBlock := blocks[len(blocks)-1]
 	h.AssertActiveNodesSyncedTo(bestBlock)

@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -667,8 +668,11 @@ func TestSweepPendingInputs(t *testing.T) {
 		Wallet:     wallet,
 		Aggregator: aggregator,
 		Publisher:  publisher,
-		GenSweepScript: func() ([]byte, error) {
-			return testPubKey.SerializeCompressed(), nil
+		GenSweepScript: func() fn.Result[lnwallet.AddrWithKey] {
+			//nolint:lll
+			return fn.Ok(lnwallet.AddrWithKey{
+				DeliveryAddress: testPubKey.SerializeCompressed(),
+			})
 		},
 		NoDeadlineConfTarget: uint32(DefaultDeadlineDelta),
 	})

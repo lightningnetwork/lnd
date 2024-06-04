@@ -390,7 +390,7 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 	go func() {
 		defer wg.Done()
 
-		_, err := resolver.Resolve(false)
+		_, err := resolver.Resolve()
 		if err != nil {
 			resolveErr <- err
 		}

@@ -1116,13 +1116,15 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	aggregator := sweep.NewBudgetAggregator(
 		cc.FeeEstimator, sweep.DefaultMaxInputsPerTx,
+		s.implCfg.AuxSweeper,
 	)
 
 	s.txPublisher = sweep.NewTxPublisher(sweep.TxPublisherConfig{
-		Signer:    cc.Wallet.Cfg.Signer,
-		Wallet:    cc.Wallet,
-		Estimator: cc.FeeEstimator,
-		Notifier:  cc.ChainNotifier,
+		Signer:     cc.Wallet.Cfg.Signer,
+		Wallet:     cc.Wallet,
+		Estimator:  cc.FeeEstimator,
+		Notifier:   cc.ChainNotifier,
+		AuxSweeper: s.implCfg.AuxSweeper,
 	})
 
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{

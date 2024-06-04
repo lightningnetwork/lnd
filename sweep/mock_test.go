@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/mock"
@@ -315,15 +316,37 @@ func (m *MockFeeFunction) IncreaseFeeRate(confTarget uint32) (bool, error) {
 	return args.Bool(0), args.Error(1)
 }
 
-type MockAuxSweeper struct{}
+type MockAuxSweeper struct {
+	mock.Mock
+}
 
 // DeriveSweepAddr takes a set of inputs, and the change address we'd
 // use to sweep them, and maybe results an extra sweep output that we
 // should add to the sweeping transaction.
-func (*MockAuxSweeper) DeriveSweepAddr(_ []input.Input,
+func (m *MockAuxSweeper) DeriveSweepAddr(_ []input.Input,
 	_ lnwallet.AddrWithKey) fn.Result[SweepOutput] {
 
-	return fn.Ok(SweepOutput{})
+	return fn.Ok(SweepOutput{
+		TxOut: wire.TxOut{
+			Value:    123,
+			PkScript: changePkScript.DeliveryAddress,
+		},
+		IsExtra:     false,
+		InternalKey: fn.None[keychain.KeyDescriptor](),
+	})
+}
+
+// ExtraBudgetForInputs is used to determine the extra budget that
+// should be allocated to sweep the given set of inputs. This can be
+// used to add extra funds to the sweep transaction, for example to
+// cover fees for additional outputs of custom channels.
+func (m *MockAuxSweeper) ExtraBudgetForInputs(
+	_ []input.Input) fn.Result[btcutil.Amount] {
+
+	args := m.Called()
+	amt := args.Get(0)
+
+	return amt.(fn.Result[btcutil.Amount])
 }
 
 // NotifyBroadcast is used to notify external callers of the broadcast

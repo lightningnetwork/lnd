@@ -437,10 +437,6 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 					}
 				}
 
-				ctx.notifier.EpochChan <- &chainntnfs.BlockEpoch{
-					Height: 13,
-				}
-
 				// We expect it to sweep the second-level
 				// transaction we notfied about above.
 				resolver := ctx.resolver.(*htlcSuccessResolver)

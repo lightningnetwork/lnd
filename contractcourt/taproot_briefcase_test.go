@@ -70,6 +70,10 @@ func TestTaprootBriefcase(t *testing.T) {
 	_, err = rand.Read(anchorTweak[:])
 	require.NoError(t, err)
 
+	var commitBlob [100]byte
+	_, err = rand.Read(commitBlob[:])
+	require.NoError(t, err)
+
 	testCase := &taprootBriefcase{
 		CtrlBlocks: tlv.NewRecordT[tlv.TlvType0](ctrlBlocks{
 			CommitSweepCtrlBlock:   sweepCtrlBlock[:],
@@ -83,6 +87,9 @@ func TestTaprootBriefcase(t *testing.T) {
 			BreachedHtlcTweaks:            randHtlcTweaks(t),
 			BreachedSecondLevelHltcTweaks: randHtlcTweaks(t),
 		}),
+		CommitBlob: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType2](commitBlob[:]),
+		),
 	}
 
 	var b bytes.Buffer

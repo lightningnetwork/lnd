@@ -4,22 +4,23 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
-// testCaseUpdateFulfill is a test case for the UpdateFulfillHTLC message.
-type testCaseUpdateFulfill struct {
+// testCaseShutdown is a test case for the Shutdown message.
+type testCaseShutdown struct {
 	// Msg is the message to be encoded and decoded.
-	Msg UpdateFulfillHTLC
+	Msg Shutdown
 
 	// ExpectEncodeError is a flag that indicates whether we expect the
 	// encoding of the message to fail.
 	ExpectEncodeError bool
 }
 
-// generateTestCases generates a set of UpdateFulfillHTLC message test cases.
-func generateUpdateFulfillTestCases(t *testing.T) []testCaseUpdateFulfill {
+// generateShutdownTestCases generates a set of Shutdown message test cases.
+func generateShutdownTestCases(t *testing.T) []testCaseShutdown {
 	// Firstly, we'll set basic values for the message fields.
 	//
 	// Generate random channel ID.
@@ -36,6 +37,9 @@ func generateUpdateFulfillTestCases(t *testing.T) []testCaseUpdateFulfill {
 	var paymentPreimage [32]byte
 	copy(paymentPreimage[:], paymentPreimageBytes)
 
+	deliveryAddr, err := generateRandomBytes(16)
+	require.NoError(t, err)
+
 	// Define custom records.
 	recordKey1 := uint64(MinCustomRecordsTlvType + 1)
 	recordValue1, err := generateRandomBytes(10)
@@ -49,6 +53,15 @@ func generateUpdateFulfillTestCases(t *testing.T) []testCaseUpdateFulfill {
 		recordKey1: recordValue1,
 		recordKey2: recordValue2,
 	}
+
+	dummyPubKey, err := pubkeyFromHex(
+		"0228f2af0abe322403480fb3ee172f7f1601e67d1da6cad40b54c4468d4" +
+			"8236c39",
+	)
+	require.NoError(t, err)
+
+	muSig2Nonce, err := musig2.GenNonces(musig2.WithPublicKey(dummyPubKey))
+	require.NoError(t, err)
 
 	// Construct an instance of extra data that contains records with TLV
 	// types below the minimum custom records threshold and that lack
@@ -73,28 +86,35 @@ func generateUpdateFulfillTestCases(t *testing.T) []testCaseUpdateFulfill {
 	require.NoError(t, err)
 
 	// Define test cases.
-	testCases := make([]testCaseUpdateFulfill, 0)
+	testCases := make([]testCaseShutdown, 0)
 
-	testCases = append(testCases, testCaseUpdateFulfill{
-		Msg: UpdateFulfillHTLC{
-			ChanID:          chanID,
-			ID:              42,
-			PaymentPreimage: paymentPreimage,
-			CustomRecords:   customRecords,
-			ExtraData:       extraData,
+	testCases = append(testCases, testCaseShutdown{
+		Msg: Shutdown{
+			ChannelID:     chanID,
+			CustomRecords: customRecords,
+			ExtraData:     extraData,
+			Address:       deliveryAddr,
+		},
+	}, testCaseShutdown{
+		Msg: Shutdown{
+			ChannelID:     chanID,
+			CustomRecords: customRecords,
+			ExtraData:     extraData,
+			Address:       deliveryAddr,
+			ShutdownNonce: SomeShutdownNonce(muSig2Nonce.PubNonce),
 		},
 	})
 
 	return testCases
 }
 
-// TestUpdateFulfillHtlcEncodeDecode tests UpdateFulfillHTLC message encoding
-// and decoding for all supported field values.
-func TestUpdateFulfillHtlcEncodeDecode(t *testing.T) {
+// TestShutdownEncodeDecode tests Shutdown message encoding and decoding for all
+// supported field values.
+func TestShutdownEncodeDecode(t *testing.T) {
 	t.Parallel()
 
 	// Generate test cases.
-	testCases := generateUpdateFulfillTestCases(t)
+	testCases := generateShutdownTestCases(t)
 
 	// Execute test cases.
 	for tcIdx, tc := range testCases {
@@ -112,12 +132,13 @@ func TestUpdateFulfillHtlcEncodeDecode(t *testing.T) {
 		require.NoError(t, err)
 
 		// Decode the encoded message bytes message.
-		var actualMsg UpdateFulfillHTLC
+		var actualMsg Shutdown
 		decodeReader := bytes.NewReader(buf.Bytes())
 		err = actualMsg.Decode(decodeReader, 0)
 		require.NoError(t, err)
 
-		// Compare the two messages to ensure equality.
+		// Compare the two messages to ensure equality one field at a
+		// time.
 		require.Equal(t, tc.Msg, actualMsg)
 	}
 }

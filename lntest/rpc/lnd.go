@@ -376,14 +376,15 @@ func (h *HarnessRPC) SendCoins(
 	return resp
 }
 
-// SendCoinsAssertErr sends a given amount of money to the specified address
-// from the passed node and asserts an error has returned.
-func (h *HarnessRPC) SendCoinsAssertErr(req *lnrpc.SendCoinsRequest) {
+// SendCoinsReturnErr sends a given amount of money to the specified address
+// from the passed node and returns the resulting error.
+func (h *HarnessRPC) SendCoinsReturnErr(req *lnrpc.SendCoinsRequest) error {
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
 	_, err := h.LN.SendCoins(ctxt, req)
-	require.Error(h, err, "node %s didn't not return an error", h.Name)
+
+	return err
 }
 
 // GetTransactions makes a RPC call to GetTransactions and asserts.

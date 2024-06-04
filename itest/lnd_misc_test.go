@@ -777,20 +777,20 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	sendCoinsLabel := "send all coins"
 
 	// Ensure that we can't send coins to our own Pubkey.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	require.Error(ht, ainz.RPC.SendCoinsReturnErr(&lnrpc.SendCoinsRequest{
 		Addr:       ainz.RPC.GetInfo().IdentityPubkey,
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
-	})
+	}))
 
 	// Ensure that we can't send coins to another user's Pubkey.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	require.Error(ht, ainz.RPC.SendCoinsReturnErr(&lnrpc.SendCoinsRequest{
 		Addr:       ht.Alice.RPC.GetInfo().IdentityPubkey,
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
-	})
+	}))
 
 	// With the two coins above mined, we'll now instruct Ainz to sweep all
 	// the coins to an external address not under its control. We will first
@@ -800,20 +800,20 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// same network as the user.
 
 	// Send coins to a testnet3 address.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	require.Error(ht, ainz.RPC.SendCoinsReturnErr(&lnrpc.SendCoinsRequest{
 		Addr:       "tb1qfc8fusa98jx8uvnhzavxccqlzvg749tvjw82tg",
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
-	})
+	}))
 
 	// Send coins to a mainnet address.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	require.Error(ht, ainz.RPC.SendCoinsReturnErr(&lnrpc.SendCoinsRequest{
 		Addr:       "1MPaXKp5HhsLNjVSqaL7fChE3TVyrTMRT3",
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
-	})
+	}))
 
 	// TODO(yy): we still allow default values to be used when neither conf
 	// target or fee rate is set in 0.18.0. When future release forbidden
@@ -822,11 +822,12 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	//
 	// Send coins to a compatible address without specifying fee rate or
 	// conf target.
-	// ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	// require.Error(ht, ainz.RPC.SendCoinsAssertErr(&lnrpc.
+	// SendCoinsRequest{
 	// 	Addr:    ht.Miner.NewMinerAddress().String(),
 	// 	SendAll: true,
 	// 	Label:   sendCoinsLabel,
-	// })
+	// }))
 
 	// Send coins to a compatible address.
 	ainz.RPC.SendCoins(&lnrpc.SendCoinsRequest{
@@ -929,13 +930,13 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 
 	// If we try again, but this time specifying an amount, then the call
 	// should fail.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	require.Error(ht, ainz.RPC.SendCoinsReturnErr(&lnrpc.SendCoinsRequest{
 		Addr:       ht.Miner.NewMinerAddress().String(),
 		Amount:     10000,
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
-	})
+	}))
 
 	// With all the edge cases tested, we'll now test the happy paths of
 	// change output types.

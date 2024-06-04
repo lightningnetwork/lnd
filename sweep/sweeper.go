@@ -817,7 +817,7 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 		Inputs:          set.Inputs(),
 		Budget:          set.Budget(),
 		DeadlineHeight:  set.DeadlineHeight(),
-		DeliveryAddress: sweepAddr.DeliveryAddress,
+		DeliveryAddress: sweepAddr,
 		MaxFeeRate:      s.cfg.MaxFeeRate.FeePerKWeight(),
 		StartingFeeRate: set.StartingFeeRate(),
 		// TODO(yy): pass the strategy here.

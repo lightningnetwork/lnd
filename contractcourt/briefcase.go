@@ -10,9 +10,11 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // ContractResolutions is a wrapper struct around the two forms of resolutions
@@ -1554,6 +1556,12 @@ func encodeTaprootAuxData(w io.Writer, c *ContractResolutions) error {
 		commitSignDesc := commitResolution.SelfOutputSignDesc
 		//nolint:lll
 		tapCase.CtrlBlocks.Val.CommitSweepCtrlBlock = commitSignDesc.ControlBlock
+
+		c.CommitResolution.ResolutionBlob.WhenSome(func(b []byte) {
+			tapCase.SettledCommitBlob = tlv.SomeRecordT(
+				tlv.NewPrimitiveRecord[tlv.TlvType2](b),
+			)
+		})
 	}
 
 	for _, htlc := range c.HtlcResolutions.IncomingHTLCs {
@@ -1640,6 +1648,10 @@ func decodeTapRootAuxData(r io.Reader, c *ContractResolutions) error {
 	if c.CommitResolution != nil {
 		c.CommitResolution.SelfOutputSignDesc.ControlBlock =
 			tapCase.CtrlBlocks.Val.CommitSweepCtrlBlock
+
+		tapCase.SettledCommitBlob.WhenSomeV(func(b []byte) {
+			c.CommitResolution.ResolutionBlob = fn.Some(b)
+		})
 	}
 
 	for i := range c.HtlcResolutions.IncomingHTLCs {

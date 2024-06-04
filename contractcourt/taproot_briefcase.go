@@ -29,6 +29,17 @@ type taprootBriefcase struct {
 	// are to be spent via a keyspend path. This includes anchors, and any
 	// revocation paths.
 	TapTweaks tlv.RecordT[tlv.TlvType1, tapTweaks]
+
+	// SettledCommitBlob is an optional record that contains an opaque blob
+	// that may be used to properly sweep commitment outputs on a force
+	// close transaction.
+	SettledCommitBlob tlv.OptionalRecordT[tlv.TlvType2, tlv.Blob]
+
+	// BreachCommitBlob is an optional record that contains an opaque blob
+	// used to sweep a remote party's breached output.
+	BreachedCommitBlob tlv.OptionalRecordT[tlv.TlvType3, tlv.Blob]
+
+	// TODO(roasbeef): htlc blobs
 }
 
 // TODO(roasbeef): morph into new tlv record
@@ -48,6 +59,18 @@ func (t *taprootBriefcase) EncodeRecords() []tlv.Record {
 		t.CtrlBlocks.Record(),
 		t.TapTweaks.Record(),
 	}
+
+	t.SettledCommitBlob.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType2, tlv.Blob]) {
+			records = append(records, r.Record())
+		},
+	)
+	t.BreachedCommitBlob.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType3, tlv.Blob]) {
+			records = append(records, r.Record())
+		},
+	)
+
 	return records
 }
 
@@ -71,14 +94,28 @@ func (t *taprootBriefcase) Encode(w io.Writer) error {
 
 // Decode decodes the given reader into the target struct.
 func (t *taprootBriefcase) Decode(r io.Reader) error {
-	stream, err := tlv.NewStream(t.DecodeRecords()...)
+	settledCommitBlob := t.SettledCommitBlob.Zero()
+	breachedCommitBlob := t.BreachedCommitBlob.Zero()
+	records := append(
+		t.DecodeRecords(),
+		settledCommitBlob.Record(),
+		breachedCommitBlob.Record(),
+	)
+	stream, err := tlv.NewStream(records...)
 	if err != nil {
 		return err
 	}
 
-	_, err = stream.DecodeWithParsedTypes(r)
+	typeMap, err := stream.DecodeWithParsedTypes(r)
 	if err != nil {
 		return err
+	}
+
+	if val, ok := typeMap[t.SettledCommitBlob.TlvType()]; ok && val == nil {
+		t.SettledCommitBlob = tlv.SomeRecordT(settledCommitBlob)
+	}
+	if v, ok := typeMap[t.BreachedCommitBlob.TlvType()]; ok && v == nil {
+		t.BreachedCommitBlob = tlv.SomeRecordT(breachedCommitBlob)
 	}
 
 	return nil

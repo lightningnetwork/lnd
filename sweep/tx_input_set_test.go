@@ -28,7 +28,9 @@ func TestNewBudgetInputSet(t *testing.T) {
 	rt := require.New(t)
 
 	// Pass an empty slice and expect an error.
-	set, err := NewBudgetInputSet([]SweeperInput{}, testHeight)
+	set, err := NewBudgetInputSet(
+		[]SweeperInput{}, testHeight, fn.None[AuxSweeper](),
+	)
 	rt.ErrorContains(err, "inputs slice is empty")
 	rt.Nil(set)
 
@@ -66,23 +68,35 @@ func TestNewBudgetInputSet(t *testing.T) {
 	}
 
 	// Pass a slice of inputs with different deadline heights.
-	set, err = NewBudgetInputSet([]SweeperInput{input1, input2}, testHeight)
+	set, err = NewBudgetInputSet(
+		[]SweeperInput{input1, input2}, testHeight,
+		fn.None[AuxSweeper](),
+	)
 	rt.ErrorContains(err, "input deadline height not matched")
 	rt.Nil(set)
 
 	// Pass a slice of inputs that only one input has the deadline height,
 	// but it has a different value than the specified testHeight.
-	set, err = NewBudgetInputSet([]SweeperInput{input0, input2}, testHeight)
+	set, err = NewBudgetInputSet(
+		[]SweeperInput{input0, input2}, testHeight,
+		fn.None[AuxSweeper](),
+	)
 	rt.ErrorContains(err, "input deadline height not matched")
 	rt.Nil(set)
 
 	// Pass a slice of inputs that are duplicates.
-	set, err = NewBudgetInputSet([]SweeperInput{input3, input3}, testHeight)
+	set, err = NewBudgetInputSet(
+		[]SweeperInput{input3, input3}, testHeight,
+		fn.None[AuxSweeper](),
+	)
 	rt.ErrorContains(err, "duplicate inputs")
 	rt.Nil(set)
 
 	// Pass a slice of inputs that only one input has the deadline height,
-	set, err = NewBudgetInputSet([]SweeperInput{input0, input3}, testHeight)
+	set, err = NewBudgetInputSet(
+		[]SweeperInput{input0, input3}, testHeight,
+		fn.None[AuxSweeper](),
+	)
 	rt.NoError(err)
 	rt.NotNil(set)
 }
@@ -102,7 +116,9 @@ func TestBudgetInputSetAddInput(t *testing.T) {
 	}
 
 	// Initialize an input set, which adds the above input.
-	set, err := NewBudgetInputSet([]SweeperInput{*pi}, testHeight)
+	set, err := NewBudgetInputSet(
+		[]SweeperInput{*pi}, testHeight, fn.None[AuxSweeper](),
+	)
 	require.NoError(t, err)
 
 	// Add the input to the set again.
@@ -125,48 +141,55 @@ func TestNeedWalletInput(t *testing.T) {
 	// Create a mock input that doesn't have required outputs.
 	mockInput := &input.MockInput{}
 	mockInput.On("RequiredTxOut").Return(nil)
+	mockInput.On("OutPoint").Return(wire.OutPoint{Hash: chainhash.Hash{1}})
 	defer mockInput.AssertExpectations(t)
 
 	// Create a mock input that has required outputs.
 	mockInputRequireOutput := &input.MockInput{}
 	mockInputRequireOutput.On("RequiredTxOut").Return(&wire.TxOut{})
+	mockInputRequireOutput.On("OutPoint").Return(
+		wire.OutPoint{Hash: chainhash.Hash{2}},
+	)
 	defer mockInputRequireOutput.AssertExpectations(t)
 
 	// We now create two pending inputs each has a budget of 100 satoshis.
 	const budget = 100
 
 	// Create the pending input that doesn't have a required output.
-	piBudget := &SweeperInput{
+	piBudget := SweeperInput{
 		Input:  mockInput,
 		params: Params{Budget: budget},
 	}
 
 	// Create the pending input that has a required output.
-	piRequireOutput := &SweeperInput{
+	piRequireOutput := SweeperInput{
 		Input:  mockInputRequireOutput,
 		params: Params{Budget: budget},
 	}
 
 	testCases := []struct {
 		name        string
-		setupInputs func() []*SweeperInput
+		setupInputs func() []SweeperInput
+		extraBudget btcutil.Amount
 		need        bool
+		err         error
 	}{
 		{
 			// When there are no pending inputs, we won't need a
-			// wallet input. Technically this should be an invalid
+			// wallet input. Technically this is be an invalid
 			// state.
 			name: "no inputs",
-			setupInputs: func() []*SweeperInput {
+			setupInputs: func() []SweeperInput {
 				return nil
 			},
 			need: false,
+			err:  errEmptyInputs,
 		},
 		{
 			// When there's no required output, we don't need a
 			// wallet input.
 			name: "no required outputs",
-			setupInputs: func() []*SweeperInput {
+			setupInputs: func() []SweeperInput {
 				// Create a sign descriptor to be used in the
 				// pending input when calculating budgets can
 				// be borrowed.
@@ -177,15 +200,36 @@ func TestNeedWalletInput(t *testing.T) {
 				}
 				mockInput.On("SignDesc").Return(sd).Once()
 
-				return []*SweeperInput{piBudget}
+				return []SweeperInput{piBudget}
 			},
 			need: false,
+		},
+		{
+			// When there's no required normal outputs, but an extra
+			// budget from custom channels, we will need a wallet
+			// input.
+			name: "no required normal outputs but extra budget",
+			setupInputs: func() []SweeperInput {
+				// Create a sign descriptor to be used in the
+				// pending input when calculating budgets can
+				// be borrowed.
+				sd := &input.SignDescriptor{
+					Output: &wire.TxOut{
+						Value: budget,
+					},
+				}
+				mockInput.On("SignDesc").Return(sd).Once()
+
+				return []SweeperInput{piBudget}
+			},
+			extraBudget: 1000,
+			need:        true,
 		},
 		{
 			// When the output value cannot cover the budget, we
 			// need a wallet input.
 			name: "output value cannot cover budget",
-			setupInputs: func() []*SweeperInput {
+			setupInputs: func() []SweeperInput {
 				// Create a sign descriptor to be used in the
 				// pending input when calculating budgets can
 				// be borrowed.
@@ -194,8 +238,8 @@ func TestNeedWalletInput(t *testing.T) {
 						Value: budget - 1,
 					},
 				}
-				mockInput.On("SignDesc").Return(sd).Once()
 
+				mockInput.On("SignDesc").Return(sd).Once()
 				// These two methods are only invoked when the
 				// unit test is running with a logger.
 				mockInput.On("OutPoint").Return(
@@ -205,7 +249,7 @@ func TestNeedWalletInput(t *testing.T) {
 					input.CommitmentAnchor,
 				).Maybe()
 
-				return []*SweeperInput{piBudget}
+				return []SweeperInput{piBudget}
 			},
 			need: true,
 		},
@@ -213,8 +257,8 @@ func TestNeedWalletInput(t *testing.T) {
 			// When there's only inputs that require outputs, we
 			// need wallet inputs.
 			name: "only required outputs",
-			setupInputs: func() []*SweeperInput {
-				return []*SweeperInput{piRequireOutput}
+			setupInputs: func() []SweeperInput {
+				return []SweeperInput{piRequireOutput}
 			},
 			need: true,
 		},
@@ -223,7 +267,7 @@ func TestNeedWalletInput(t *testing.T) {
 			// budget cannot cover the required, we need a wallet
 			// input.
 			name: "not enough budget to be borrowed",
-			setupInputs: func() []*SweeperInput {
+			setupInputs: func() []SweeperInput {
 				// Create a sign descriptor to be used in the
 				// pending input when calculating budgets can
 				// be borrowed.
@@ -237,7 +281,7 @@ func TestNeedWalletInput(t *testing.T) {
 				}
 				mockInput.On("SignDesc").Return(sd).Once()
 
-				return []*SweeperInput{
+				return []SweeperInput{
 					piBudget, piRequireOutput,
 				}
 			},
@@ -248,7 +292,7 @@ func TestNeedWalletInput(t *testing.T) {
 			// borrowed covers the required, we don't need wallet
 			// inputs.
 			name: "enough budget to be borrowed",
-			setupInputs: func() []*SweeperInput {
+			setupInputs: func() []SweeperInput {
 				// Create a sign descriptor to be used in the
 				// pending input when calculating budgets can
 				// be borrowed.
@@ -263,7 +307,7 @@ func TestNeedWalletInput(t *testing.T) {
 				mockInput.On("SignDesc").Return(sd).Once()
 				piBudget.Input = mockInput
 
-				return []*SweeperInput{
+				return []SweeperInput{
 					piBudget, piRequireOutput,
 				}
 			},
@@ -276,12 +320,27 @@ func TestNeedWalletInput(t *testing.T) {
 			// Setup testing inputs.
 			inputs := tc.setupInputs()
 
+			// If an extra budget is set, then we'll update the mock
+			// to expect the extra budget.
+			mockAuxSweeper := &MockAuxSweeper{}
+			mockAuxSweeper.On("ExtraBudgetForInputs").Return(
+				fn.Ok(tc.extraBudget),
+			)
+
 			// Initialize an input set, which adds the testing
 			// inputs.
-			set := &BudgetInputSet{inputs: inputs}
+			set, err := NewBudgetInputSet(
+				inputs, 0, fn.Some[AuxSweeper](mockAuxSweeper),
+			)
+			if err != nil {
+				require.ErrorIs(t, err, tc.err)
+				return
+			}
 
 			result := set.NeedWalletInput()
+
 			require.Equal(t, tc.need, result)
+			mockAuxSweeper.AssertExpectations(t)
 		})
 	}
 }
@@ -434,7 +493,9 @@ func TestAddWalletInputSuccess(t *testing.T) {
 		min, max).Return([]*lnwallet.Utxo{utxo, utxo}, nil).Once()
 
 	// Initialize an input set with the pending input.
-	set, err := NewBudgetInputSet([]SweeperInput{*pi}, deadline)
+	set, err := NewBudgetInputSet(
+		[]SweeperInput{*pi}, deadline, fn.None[AuxSweeper](),
+	)
 	require.NoError(t, err)
 
 	// Add wallet inputs to the input set, which should give us an error as

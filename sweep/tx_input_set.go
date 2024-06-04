@@ -111,17 +111,26 @@ type BudgetInputSet struct {
 	// deadlineHeight is the height which the inputs in this set must be
 	// confirmed by.
 	deadlineHeight int32
+
+	// extraBudget is a value that should be allocated to sweep the given
+	// set of inputs. This can be used to add extra funds to the sweep
+	// transaction, for example to cover fees for additional outputs of
+	// custom channels.
+	extraBudget btcutil.Amount
 }
 
 // Compile-time constraint to ensure budgetInputSet implements InputSet.
 var _ InputSet = (*BudgetInputSet)(nil)
+
+// errEmptyInputs is returned when the input slice is empty.
+var errEmptyInputs = fmt.Errorf("inputs slice is empty")
 
 // validateInputs is used when creating new BudgetInputSet to ensure there are
 // no duplicate inputs and they all share the same deadline heights, if set.
 func validateInputs(inputs []SweeperInput, deadlineHeight int32) error {
 	// Sanity check the input slice to ensure it's non-empty.
 	if len(inputs) == 0 {
-		return fmt.Errorf("inputs slice is empty")
+		return errEmptyInputs
 	}
 
 	// inputDeadline tracks the input's deadline height. It will be updated
@@ -167,8 +176,8 @@ func validateInputs(inputs []SweeperInput, deadlineHeight int32) error {
 }
 
 // NewBudgetInputSet creates a new BudgetInputSet.
-func NewBudgetInputSet(inputs []SweeperInput,
-	deadlineHeight int32) (*BudgetInputSet, error) {
+func NewBudgetInputSet(inputs []SweeperInput, deadlineHeight int32,
+	auxSweeper fn.Option[AuxSweeper]) (*BudgetInputSet, error) {
 
 	// Validate the supplied inputs.
 	if err := validateInputs(inputs, deadlineHeight); err != nil {
@@ -186,7 +195,30 @@ func NewBudgetInputSet(inputs []SweeperInput,
 
 	log.Tracef("Created %v", bi.String())
 
+	// Attach an optional budget. This will be a no-op if the auxSweeper
+	// is not set.
+	if err := bi.attachExtraBudget(auxSweeper); err != nil {
+		return nil, err
+	}
+
 	return bi, nil
+}
+
+// attachExtraBudget attaches an extra budget to the input set, if the passed
+// aux sweeper is set.
+func (b *BudgetInputSet) attachExtraBudget(s fn.Option[AuxSweeper]) error {
+	extraBudget, err := fn.MapOptionZ(
+		s, func(aux AuxSweeper) fn.Result[btcutil.Amount] {
+			return aux.ExtraBudgetForInputs(b.Inputs())
+		},
+	).Unpack()
+	if err != nil {
+		return err
+	}
+
+	b.extraBudget = extraBudget
+
+	return nil
 }
 
 // String returns a human-readable description of the input set.
@@ -212,8 +244,10 @@ func (b *BudgetInputSet) addInput(input SweeperInput) {
 func (b *BudgetInputSet) NeedWalletInput() bool {
 	var (
 		// budgetNeeded is the amount that needs to be covered from
-		// other inputs.
-		budgetNeeded btcutil.Amount
+		// other inputs. We start at the value of the extra budget,
+		// which might be needed for custom channels that add extra
+		// outputs.
+		budgetNeeded = b.extraBudget
 
 		// budgetBorrowable is the amount that can be borrowed from
 		// other inputs.

@@ -150,7 +150,7 @@ func TestBudgetAggregatorFilterInputs(t *testing.T) {
 
 	// Init the budget aggregator with the mocked estimator and zero max
 	// num of inputs.
-	b := NewBudgetAggregator(estimator, 0)
+	b := NewBudgetAggregator(estimator, 0, fn.None[AuxSweeper]())
 
 	// Call the method under test.
 	result := b.filterInputs(inputs)
@@ -214,7 +214,7 @@ func TestBudgetAggregatorSortInputs(t *testing.T) {
 	}
 
 	// Init the budget aggregator with zero max num of inputs.
-	b := NewBudgetAggregator(nil, 0)
+	b := NewBudgetAggregator(nil, 0, fn.None[AuxSweeper]())
 
 	// Call the method under test.
 	result := b.sortInputs(inputs)
@@ -279,7 +279,7 @@ func TestBudgetAggregatorCreateInputSets(t *testing.T) {
 	}
 
 	// Create a budget aggregator with max number of inputs set to 2.
-	b := NewBudgetAggregator(nil, 2)
+	b := NewBudgetAggregator(nil, 2, fn.None[AuxSweeper]())
 
 	// Create test cases.
 	testCases := []struct {
@@ -540,7 +540,9 @@ func TestBudgetInputSetClusterInputs(t *testing.T) {
 	}
 
 	// Create a budget aggregator with a max number of inputs set to 100.
-	b := NewBudgetAggregator(estimator, DefaultMaxInputsPerTx)
+	b := NewBudgetAggregator(
+		estimator, DefaultMaxInputsPerTx, fn.None[AuxSweeper](),
+	)
 
 	// Call the method under test.
 	result := b.ClusterInputs(inputs)

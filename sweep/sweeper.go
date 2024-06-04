@@ -298,7 +298,7 @@ type UtxoSweeper struct {
 	// to sweep.
 	inputs InputsMap
 
-	currentOutputScript []byte
+	currentOutputScript fn.Option[lnwallet.AddrWithKey]
 
 	relayFeeRate chainfee.SatPerKWeight
 
@@ -802,12 +802,19 @@ func (s *UtxoSweeper) signalResult(pi *SweeperInput, result Result) {
 // the tx. The output address is only marked as used if the publish succeeds.
 func (s *UtxoSweeper) sweep(set InputSet) error {
 	// Generate an output script if there isn't an unused script available.
-	if s.currentOutputScript == nil {
-		pkScript, err := s.cfg.GenSweepScript().Unpack()
+	if s.currentOutputScript.IsNone() {
+		addr, err := s.cfg.GenSweepScript().Unpack()
 		if err != nil {
 			return fmt.Errorf("gen sweep script: %w", err)
 		}
-		s.currentOutputScript = pkScript.DeliveryAddress
+		s.currentOutputScript = fn.Some(addr)
+	}
+
+	sweepAddr, err := s.currentOutputScript.UnwrapOrErr(
+		fmt.Errorf("none sweep script"),
+	)
+	if err != nil {
+		return err
 	}
 
 	// Create a fee bump request and ask the publisher to broadcast it. The
@@ -817,7 +824,7 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 		Inputs:          set.Inputs(),
 		Budget:          set.Budget(),
 		DeadlineHeight:  set.DeadlineHeight(),
-		DeliveryAddress: s.currentOutputScript,
+		DeliveryAddress: sweepAddr.DeliveryAddress,
 		MaxFeeRate:      s.cfg.MaxFeeRate.FeePerKWeight(),
 		StartingFeeRate: set.StartingFeeRate(),
 		// TODO(yy): pass the strategy here.
@@ -1708,10 +1715,10 @@ func (s *UtxoSweeper) handleBumpEventTxPublished(r *BumpResult) error {
 	log.Debugf("Published sweep tx %v, num_inputs=%v, height=%v",
 		tx.TxHash(), len(tx.TxIn), s.currentHeight)
 
-	// If there's no error, remove the output script. Otherwise
-	// keep it so that it can be reused for the next transaction
-	// and causes no address inflation.
-	s.currentOutputScript = nil
+	// If there's no error, remove the output script. Otherwise keep it so
+	// that it can be reused for the next transaction and causes no address
+	// inflation.
+	s.currentOutputScript = fn.None[lnwallet.AddrWithKey]()
 
 	return nil
 }

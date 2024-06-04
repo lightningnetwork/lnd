@@ -196,6 +196,9 @@ type chainWatcherConfig struct {
 
 	// auxLeafStore can be used to fetch information for custom channels.
 	auxLeafStore fn.Option[lnwallet.AuxLeafStore]
+
+	// auxResolver is used to supplement contract resolution.
+	auxResolver fn.Option[lnwallet.AuxContractResolver]
 }
 
 // chainWatcher is a system that's assigned to every active channel. The duty
@@ -896,7 +899,7 @@ func (c *chainWatcher) handlePossibleBreach(commitSpend *chainntnfs.SpendDetail,
 	spendHeight := uint32(commitSpend.SpendingHeight)
 	retribution, err := lnwallet.NewBreachRetribution(
 		c.cfg.chanState, broadcastStateNum, spendHeight,
-		commitSpend.SpendingTx, c.cfg.auxLeafStore,
+		commitSpend.SpendingTx, c.cfg.auxLeafStore, c.cfg.auxResolver,
 	)
 
 	switch {
@@ -1147,7 +1150,7 @@ func (c *chainWatcher) dispatchLocalForceClose(
 
 	forceClose, err := lnwallet.NewLocalForceCloseSummary(
 		c.cfg.chanState, c.cfg.signer, commitSpend.SpendingTx, stateNum,
-		c.cfg.auxLeafStore,
+		c.cfg.auxLeafStore, c.cfg.auxResolver,
 	)
 	if err != nil {
 		return err
@@ -1239,8 +1242,8 @@ func (c *chainWatcher) dispatchRemoteForceClose(
 	// materials required to let each subscriber sweep the funds in the
 	// channel on-chain.
 	uniClose, err := lnwallet.NewUnilateralCloseSummary(
-		c.cfg.chanState, c.cfg.signer, commitSpend,
-		remoteCommit, commitPoint, c.cfg.auxLeafStore,
+		c.cfg.chanState, c.cfg.signer, commitSpend, remoteCommit,
+		commitPoint, c.cfg.auxLeafStore, c.cfg.auxResolver,
 	)
 	if err != nil {
 		return err

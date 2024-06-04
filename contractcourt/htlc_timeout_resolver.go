@@ -418,9 +418,7 @@ func checkSizeAndIndex(witness wire.TxWitness, size, index int) bool {
 // see a direct sweep via the timeout clause.
 //
 // NOTE: Part of the ContractResolver interface.
-func (h *htlcTimeoutResolver) Resolve(
-	immediate bool) (ContractResolver, error) {
-
+func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	// If we're already resolved, then we can exit early.
 	if h.resolved {
 		return nil, nil
@@ -429,7 +427,7 @@ func (h *htlcTimeoutResolver) Resolve(
 	// Start by spending the HTLC output, either by broadcasting the
 	// second-level timeout transaction, or directly if this is the remote
 	// commitment.
-	commitSpend, err := h.spendHtlcOutput(immediate)
+	commitSpend, err := h.spendHtlcOutput()
 	if err != nil {
 		return nil, err
 	}
@@ -477,7 +475,7 @@ func (h *htlcTimeoutResolver) Resolve(
 
 // sweepSecondLevelTx sends a second level timeout transaction to the sweeper.
 // This transaction uses the SINLGE|ANYONECANPAY flag.
-func (h *htlcTimeoutResolver) sweepSecondLevelTx(immediate bool) error {
+func (h *htlcTimeoutResolver) sweepSecondLevelTx() error {
 	log.Infof("%T(%x): offering second-layer timeout tx to sweeper: %v",
 		h, h.htlc.RHash[:],
 		spew.Sdump(h.htlcResolution.SignedTimeoutTx))
@@ -538,7 +536,6 @@ func (h *htlcTimeoutResolver) sweepSecondLevelTx(immediate bool) error {
 		sweep.Params{
 			Budget:         budget,
 			DeadlineHeight: h.incomingHTLCExpiryHeight,
-			Immediate:      immediate,
 		},
 	)
 	if err != nil {
@@ -572,7 +569,7 @@ func (h *htlcTimeoutResolver) sendSecondLevelTxLegacy() error {
 // sweeper. This is used when the remote party goes on chain, and we're able to
 // sweep an HTLC we offered after a timeout. Only the CLTV encumbered outputs
 // are resolved via this path.
-func (h *htlcTimeoutResolver) sweepDirectHtlcOutput(immediate bool) error {
+func (h *htlcTimeoutResolver) sweepDirectHtlcOutput() error {
 	var htlcWitnessType input.StandardWitnessType
 	if h.isTaproot() {
 		htlcWitnessType = input.TaprootHtlcOfferedRemoteTimeout
@@ -612,7 +609,6 @@ func (h *htlcTimeoutResolver) sweepDirectHtlcOutput(immediate bool) error {
 			// This is an outgoing HTLC, so we want to make sure
 			// that we sweep it before the incoming HTLC expires.
 			DeadlineHeight: h.incomingHTLCExpiryHeight,
-			Immediate:      immediate,
 		},
 	)
 	if err != nil {
@@ -627,8 +623,8 @@ func (h *htlcTimeoutResolver) sweepDirectHtlcOutput(immediate bool) error {
 // used to spend the output into the next stage. If this is the remote
 // commitment, the output will be swept directly without the timeout
 // transaction.
-func (h *htlcTimeoutResolver) spendHtlcOutput(
-	immediate bool) (*chainntnfs.SpendDetail, error) {
+func (h *htlcTimeoutResolver) spendHtlcOutput() (
+	*chainntnfs.SpendDetail, error) {
 
 	switch {
 	// If we have non-nil SignDetails, this means that have a 2nd level
@@ -636,7 +632,7 @@ func (h *htlcTimeoutResolver) spendHtlcOutput(
 	// (the case for anchor type channels). In this case we can re-sign it
 	// and attach fees at will. We let the sweeper handle this job.
 	case h.htlcResolution.SignDetails != nil && !h.outputIncubating:
-		if err := h.sweepSecondLevelTx(immediate); err != nil {
+		if err := h.sweepSecondLevelTx(); err != nil {
 			log.Errorf("Sending timeout tx to sweeper: %v", err)
 
 			return nil, err
@@ -645,7 +641,7 @@ func (h *htlcTimeoutResolver) spendHtlcOutput(
 	// If this is a remote commitment there's no second level timeout txn,
 	// and we can just send this directly to the sweeper.
 	case h.htlcResolution.SignedTimeoutTx == nil && !h.outputIncubating:
-		if err := h.sweepDirectHtlcOutput(immediate); err != nil {
+		if err := h.sweepDirectHtlcOutput(); err != nil {
 			log.Errorf("Sending direct spend to sweeper: %v", err)
 
 			return nil, err

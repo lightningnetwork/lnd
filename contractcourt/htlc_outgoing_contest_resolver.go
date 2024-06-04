@@ -49,9 +49,7 @@ func newOutgoingContestResolver(res lnwallet.OutgoingHtlcResolution,
 // When either of these two things happens, we'll create a new resolver which
 // is able to handle the final resolution of the contract. We're only the pivot
 // point.
-func (h *htlcOutgoingContestResolver) Resolve(
-	_ bool) (ContractResolver, error) {
-
+func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	// If we're already full resolved, then we don't have anything further
 	// to do.
 	if h.resolved {

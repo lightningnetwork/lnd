@@ -605,7 +605,7 @@ type MessageSigner interface {
 type AddrWithKey struct {
 	lnwire.DeliveryAddress
 
-	InternalKey fn.Option[btcec.PublicKey]
+	InternalKey fn.Option[keychain.KeyDescriptor]
 
 	// TODO(roasbeef): consolidate w/ instance in chan closer
 }

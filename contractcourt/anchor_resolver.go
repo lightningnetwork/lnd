@@ -84,7 +84,7 @@ func (c *anchorResolver) ResolverKey() []byte {
 }
 
 // Resolve offers the anchor output to the sweeper and waits for it to be swept.
-func (c *anchorResolver) Resolve(_ bool) (ContractResolver, error) {
+func (c *anchorResolver) Resolve() (ContractResolver, error) {
 	// Attempt to update the sweep parameters to the post-confirmation
 	// situation. We don't want to force sweep anymore, because the anchor
 	// lost its special purpose to get the commitment confirmed. It is just

@@ -318,7 +318,7 @@ type UtxoSweeper struct {
 type UtxoSweeperConfig struct {
 	// GenSweepScript generates a P2WKH script belonging to the wallet where
 	// funds can be swept.
-	GenSweepScript func() ([]byte, error)
+	GenSweepScript func() fn.Result[lnwallet.AddrWithKey]
 
 	// FeeEstimator is used when crafting sweep transactions to estimate
 	// the necessary fee relative to the expected size of the sweep
@@ -803,11 +803,11 @@ func (s *UtxoSweeper) signalResult(pi *SweeperInput, result Result) {
 func (s *UtxoSweeper) sweep(set InputSet) error {
 	// Generate an output script if there isn't an unused script available.
 	if s.currentOutputScript == nil {
-		pkScript, err := s.cfg.GenSweepScript()
+		pkScript, err := s.cfg.GenSweepScript().Unpack()
 		if err != nil {
 			return fmt.Errorf("gen sweep script: %w", err)
 		}
-		s.currentOutputScript = pkScript
+		s.currentOutputScript = pkScript.DeliveryAddress
 	}
 
 	// Create a fee bump request and ask the publisher to broadcast it. The

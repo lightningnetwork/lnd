@@ -149,6 +149,7 @@ type ImplementationCfg struct {
 	// ChainControlBuilder is a type that can provide a custom wallet
 	// implementation.
 	ChainControlBuilder
+
 	// AuxComponents is a set of auxiliary components that can be used by
 	// lnd for certain custom channel types.
 	AuxComponents
@@ -186,6 +187,10 @@ type AuxComponents struct {
 	// AuxChanCloser is an optional channel closer that can be used to
 	// modify the way a coop-close transaction is constructed.
 	AuxChanCloser fn.Option[chancloser.AuxChanCloser]
+
+	// AuxContractResolver is an optional interface that can be used to
+	// modify the way contracts are resolved.
+	AuxContractResolver fn.Option[lnwallet.AuxContractResolver]
 }
 
 // DefaultWalletImpl is the default implementation of our normal, btcwallet

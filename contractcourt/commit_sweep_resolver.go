@@ -101,36 +101,6 @@ func (c *commitSweepResolver) ResolverKey() []byte {
 	return key[:]
 }
 
-// waitForHeight registers for block notifications and waits for the provided
-// block height to be reached.
-func waitForHeight(waitHeight uint32, notifier chainntnfs.ChainNotifier,
-	quit <-chan struct{}) error {
-
-	// Register for block epochs. After registration, the current height
-	// will be sent on the channel immediately.
-	blockEpochs, err := notifier.RegisterBlockEpochNtfn(nil)
-	if err != nil {
-		return err
-	}
-	defer blockEpochs.Cancel()
-
-	for {
-		select {
-		case newBlock, ok := <-blockEpochs.Epochs:
-			if !ok {
-				return errResolverShuttingDown
-			}
-			height := newBlock.Height
-			if height >= int32(waitHeight) {
-				return nil
-			}
-
-		case <-quit:
-			return errResolverShuttingDown
-		}
-	}
-}
-
 // waitForSpend waits for the given outpoint to be spent, and returns the
 // details of the spending tx.
 func waitForSpend(op *wire.OutPoint, pkScript []byte, heightHint uint32,
@@ -224,39 +194,6 @@ func (c *commitSweepResolver) Resolve(_ bool) (ContractResolver, error) {
 	c.reportLock.Lock()
 	c.currentReport.MaturityHeight = unlockHeight
 	c.reportLock.Unlock()
-
-	// If there is a csv/cltv lock, we'll wait for that.
-	if c.commitResolution.MaturityDelay > 0 || c.hasCLTV() {
-		// Determine what height we should wait until for the locks to
-		// expire.
-		var waitHeight uint32
-		switch {
-		// If we have both a csv and cltv lock, we'll need to look at
-		// both and see which expires later.
-		case c.commitResolution.MaturityDelay > 0 && c.hasCLTV():
-			c.log.Debugf("waiting for CSV and CLTV lock to expire "+
-				"at height %v", unlockHeight)
-			// If the CSV expires after the CLTV, or there is no
-			// CLTV, then we can broadcast a sweep a block before.
-			// Otherwise, we need to broadcast at our expected
-			// unlock height.
-			waitHeight = uint32(math.Max(
-				float64(unlockHeight-1), float64(c.leaseExpiry),
-			))
-
-		// If we only have a csv lock, wait for the height before the
-		// lock expires as the spend path should be unlocked by then.
-		case c.commitResolution.MaturityDelay > 0:
-			c.log.Debugf("waiting for CSV lock to expire at "+
-				"height %v", unlockHeight)
-			waitHeight = unlockHeight - 1
-		}
-
-		err := waitForHeight(waitHeight, c.Notifier, c.quit)
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	var (
 		isLocalCommitTx bool

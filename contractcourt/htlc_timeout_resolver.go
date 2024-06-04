@@ -789,30 +789,6 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 				"height %v", h, h.htlc.RHash[:], waitHeight)
 		}
 
-		// Deduct one block so this input is offered to the sweeper one
-		// block earlier since the sweeper will wait for one block to
-		// trigger the sweeping.
-		//
-		// TODO(yy): this is done so the outputs can be aggregated
-		// properly. Suppose CSV locks of five 2nd-level outputs all
-		// expire at height 840000, there is a race in block digestion
-		// between contractcourt and sweeper:
-		// - G1: block 840000 received in contractcourt, it now offers
-		//   the outputs to the sweeper.
-		// - G2: block 840000 received in sweeper, it now starts to
-		//   sweep the received outputs - there's no guarantee all
-		//   fives have been received.
-		// To solve this, we either offer the outputs earlier, or
-		// implement `blockbeat`, and force contractcourt and sweeper
-		// to consume each block sequentially.
-		waitHeight--
-
-		// TODO(yy): let sweeper handles the wait?
-		err := waitForHeight(waitHeight, h.Notifier, h.quit)
-		if err != nil {
-			return nil, err
-		}
-
 		// We'll use this input index to determine the second-level
 		// output index on the transaction, as the signatures requires
 		// the indexes to be the same. We don't look for the
@@ -853,7 +829,7 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 			"sweeper with no deadline and budget=%v at height=%v",
 			h, h.htlc.RHash[:], budget, waitHeight)
 
-		_, err = h.Sweeper.SweepInput(
+		_, err := h.Sweeper.SweepInput(
 			inp,
 			sweep.Params{
 				Budget: budget,

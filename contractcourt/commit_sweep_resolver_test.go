@@ -90,12 +90,6 @@ func (i *commitSweepResolverTestContext) resolve() {
 	}()
 }
 
-func (i *commitSweepResolverTestContext) notifyEpoch(height int32) {
-	i.notifier.EpochChan <- &chainntnfs.BlockEpoch{
-		Height: height,
-	}
-}
-
 func (i *commitSweepResolverTestContext) waitForResult() {
 	i.t.Helper()
 
@@ -292,22 +286,10 @@ func testCommitSweepResolverDelay(t *testing.T, sweepErr error) {
 		t.Fatal("report maturity height incorrect")
 	}
 
-	// Notify initial block height. The csv lock is still in effect, so we
-	// don't expect any sweep to happen yet.
-	ctx.notifyEpoch(testInitialBlockHeight)
-
-	select {
-	case <-ctx.sweeper.sweptInputs:
-		t.Fatal("no sweep expected")
-	case <-time.After(sweepProcessInterval):
-	}
-
-	// A new block arrives. The commit tx confirmed at height -1 and the csv
-	// is 3, so a spend will be valid in the first block after height +1.
-	ctx.notifyEpoch(testInitialBlockHeight + 1)
-
-	<-ctx.sweeper.sweptInputs
-
+	// Notify initial block height. Although the csv lock is still in
+	// effect, we expect the input being sent to the sweeper before the csv
+	// lock expires.
+	//
 	// Set the resolution report outcome based on whether our sweep
 	// succeeded.
 	outcome := channeldb.ResolverOutcomeClaimed

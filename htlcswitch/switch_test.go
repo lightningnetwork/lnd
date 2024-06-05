@@ -4290,14 +4290,15 @@ func TestSwitchDustForwarding(t *testing.T) {
 	// We'll test that once the default threshold is exceeded on the
 	// Alice -> Bob channel, either side's calls to SendHTLC will fail.
 	//
-	// Alice will send 357 HTLC's of 700sats. Bob will also send 357 HTLC's
-	// of 700sats. If either side attempts to send a dust HTLC, it will
-	// fail so amounts below 800sats will breach the dust threshold.
+	// Alice will send 354 HTLC's of 700sats. Bob will also send 354 HTLC's
+	// of 700sats.
+	numHTLCs := 354
+	aliceAttemptID, bobAttemptID := numHTLCs, numHTLCs
 	amt := lnwire.NewMSatFromSatoshis(700)
 	aliceBobFirstHop := n.aliceChannelLink.ShortChanID()
 
-	sendDustHtlcs(t, n, true, amt, aliceBobFirstHop)
-	sendDustHtlcs(t, n, false, amt, aliceBobFirstHop)
+	sendDustHtlcs(t, n, true, amt, aliceBobFirstHop, numHTLCs)
+	sendDustHtlcs(t, n, false, amt, aliceBobFirstHop, numHTLCs)
 
 	// Generate the parameters needed for Bob to send another dust HTLC.
 	_, timelock, hops := generateHops(
@@ -4322,7 +4323,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 
 		timeout := time.After(15 * time.Second)
 		pollInterval := 300 * time.Millisecond
-		expectedDust := 357 * 2 * amt
+		expectedDust := 354 * 2 * amt
 
 		for {
 			<-time.After(pollInterval)
@@ -4360,11 +4361,27 @@ func TestSwitchDustForwarding(t *testing.T) {
 	)
 	require.True(t, checkAlmostDust(n.firstBobChannelLink, bobMbox, false))
 
-	// Assert that the HTLC is failed due to the dust threshold.
+	// Sending one more HTLC should fail. SendHTLC won't error, but the
+	// HTLC should be failed backwards.
 	err = n.bobServer.htlcSwitch.SendHTLC(
-		aliceBobFirstHop, uint64(357), failingHtlc,
+		aliceBobFirstHop, uint64(bobAttemptID), failingHtlc,
 	)
-	require.ErrorIs(t, err, errDustThresholdExceeded)
+	require.Nil(t, err)
+
+	// Use the network result store to ensure the HTLC was failed
+	// backwards.
+	bobResultChan, err := n.bobServer.htlcSwitch.GetAttemptResult(
+		uint64(bobAttemptID), failingHash, newMockDeobfuscator(),
+	)
+	require.NoError(t, err)
+
+	result, ok := <-bobResultChan
+	require.True(t, ok)
+	assertFailureCode(
+		t, result.Error, lnwire.CodeTemporaryChannelFailure,
+	)
+
+	bobAttemptID++
 
 	// Generate the parameters needed for bob to send a non-dust HTLC.
 	nondustAmt := lnwire.NewMSatFromSatoshis(10_000)
@@ -4375,8 +4392,9 @@ func TestSwitchDustForwarding(t *testing.T) {
 	blob, err = generateRoute(hops...)
 	require.NoError(t, err)
 
-	// Now attempt to send an HTLC above Bob's dust limit. It should
-	// succeed.
+	// Now attempt to send an HTLC above Bob's dust limit. Even though this
+	// is not a dust HTLC, it should fail because the increase in weight
+	// pushes us over the threshold.
 	nondustPreimage := lntypes.Preimage{0, 0, 4}
 	nondustHash := nondustPreimage.Hash()
 	nondustHtlc := &lnwire.UpdateAddHTLC{
@@ -4386,12 +4404,23 @@ func TestSwitchDustForwarding(t *testing.T) {
 		OnionBlob:   blob,
 	}
 
-	// Assert that SendHTLC succeeds and evaluateDustThreshold returns
-	// false.
 	err = n.bobServer.htlcSwitch.SendHTLC(
-		aliceBobFirstHop, uint64(358), nondustHtlc,
+		aliceBobFirstHop, uint64(bobAttemptID), nondustHtlc,
 	)
 	require.NoError(t, err)
+	require.True(t, checkAlmostDust(n.firstBobChannelLink, bobMbox, false))
+
+	// Check that the HTLC failed.
+	bobResultChan, err = n.bobServer.htlcSwitch.GetAttemptResult(
+		uint64(bobAttemptID), nondustHash, newMockDeobfuscator(),
+	)
+	require.NoError(t, err)
+
+	result, ok = <-bobResultChan
+	require.True(t, ok)
+	assertFailureCode(
+		t, result.Error, lnwire.CodeTemporaryChannelFailure,
+	)
 
 	// Introduce Carol into the mix and assert that sending a multi-hop
 	// dust HTLC to Alice will fail. Bob should fail back the HTLC with a
@@ -4421,21 +4450,19 @@ func TestSwitchDustForwarding(t *testing.T) {
 		carolHtlc,
 	)
 	require.NoError(t, err)
-	carolAttemptID++
 
 	carolResultChan, err := n.carolServer.htlcSwitch.GetAttemptResult(
-		uint64(carolAttemptID-1), carolHash, newMockDeobfuscator(),
+		uint64(carolAttemptID), carolHash, newMockDeobfuscator(),
 	)
 	require.NoError(t, err)
 
-	result, ok := <-carolResultChan
+	result, ok = <-carolResultChan
 	require.True(t, ok)
 	assertFailureCode(
 		t, result.Error, lnwire.CodeTemporaryChannelFailure,
 	)
 
-	// Send an HTLC from Alice to Carol and assert that it is failed at the
-	// call to SendHTLC.
+	// Send an HTLC from Alice to Carol and assert that it gets failed.
 	htlcAmt, totalTimelock, aliceHops := generateHops(
 		amt, testStartingHeight, n.firstBobChannelLink,
 		n.carolChannelLink,
@@ -4462,22 +4489,35 @@ func TestSwitchDustForwarding(t *testing.T) {
 	require.True(t, checkAlmostDust(n.aliceChannelLink, aliceMbox, true))
 
 	err = n.aliceServer.htlcSwitch.SendHTLC(
-		n.aliceChannelLink.ShortChanID(), uint64(357),
+		n.aliceChannelLink.ShortChanID(), uint64(aliceAttemptID),
 		aliceMultihopHtlc,
 	)
-	require.ErrorIs(t, err, errDustThresholdExceeded)
+	require.Nil(t, err)
+
+	aliceResultChan, err := n.aliceServer.htlcSwitch.GetAttemptResult(
+		uint64(aliceAttemptID), aliceMultihopHash,
+		newMockDeobfuscator(),
+	)
+	require.NoError(t, err)
+
+	result, ok = <-aliceResultChan
+	require.True(t, ok)
+	assertFailureCode(
+		t, result.Error, lnwire.CodeTemporaryChannelFailure,
+	)
+
+	// Check that there are numHTLCs circuits open for both Alice and Bob.
+	require.Equal(t, numHTLCs, n.aliceServer.htlcSwitch.circuits.NumOpen())
+	require.Equal(t, numHTLCs, n.bobServer.htlcSwitch.circuits.NumOpen())
 }
 
 // sendDustHtlcs is a helper function used to send many dust HTLC's to test the
 // Switch's dust-threshold logic. It takes a boolean denoting whether or not
 // Alice is the sender.
 func sendDustHtlcs(t *testing.T, n *threeHopNetwork, alice bool,
-	amt lnwire.MilliSatoshi, sid lnwire.ShortChannelID) {
+	amt lnwire.MilliSatoshi, sid lnwire.ShortChannelID, numHTLCs int) {
 
 	t.Helper()
-
-	// The number of dust HTLC's we'll send for both Alice and Bob.
-	numHTLCs := 357
 
 	// Extract the destination into a variable. If alice is the sender, the
 	// destination is Bob.
@@ -4532,7 +4572,7 @@ func sendDustHtlcs(t *testing.T, n *threeHopNetwork, alice bool,
 
 		for {
 			// It may be the case that the dust threshold is hit
-			// before all 357*2 HTLC's are sent due to double
+			// before all numHTLCs*2 HTLC's are sent due to double
 			// counting. Get around this by continuing to send
 			// until successful.
 			err = sendingSwitch.SendHTLC(sid, attemptID, htlc)

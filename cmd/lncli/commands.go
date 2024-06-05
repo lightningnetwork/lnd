@@ -1309,7 +1309,7 @@ func abandonChannel(ctx *cli.Context) error {
 }
 
 // parseChannelPoint parses a funding txid and output index from the command
-// line. Both named options as well as unnamed parameters are supported.
+// line. Both named options and unnamed parameters are supported.
 func parseChannelPoint(ctx *cli.Context) (*lnrpc.ChannelPoint, error) {
 	channelPoint := &lnrpc.ChannelPoint{}
 	var err error
@@ -1632,7 +1632,7 @@ func listChannels(ctx *cli.Context) error {
 		peerKey = pk[:]
 	}
 
-	// By default we will look up the peers' alias information unless the
+	// By default, we will look up the peers' alias information unless the
 	// skip_peer_alias_lookup flag indicates otherwise.
 	lookupPeerAlias := !ctx.Bool("skip_peer_alias_lookup")
 
@@ -2230,7 +2230,7 @@ var updateChannelPolicyCommand = cli.Command{
 				"forwarded HTLC and the outbound fee. Fee " +
 				"rate is expressed in parts per million and " +
 				"must be zero or negative - it is a discount " +
-				"for using a particular incoming channel." +
+				"for using a particular incoming channel. " +
 				"Note that forwards will be rejected if the " +
 				"discount exceeds the outbound fee " +
 				"(forward at a loss), and lead to " +
@@ -2804,7 +2804,7 @@ var restoreChanBackupCommand = cli.Command{
 }
 
 // errMissingChanBackup is an error returned when we attempt to parse a channel
-// backup from a CLI command and it is missing.
+// backup from a CLI command, and it is missing.
 var errMissingChanBackup = errors.New("missing channel backup")
 
 func parseChanBackups(ctx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error) {

@@ -6327,6 +6327,12 @@ func (lc *LightningChannel) ChannelPoint() wire.OutPoint {
 	return lc.channelState.FundingOutpoint
 }
 
+// ChannelID returns the ChannelID of this LightningChannel. This is the same
+// ChannelID that is used in update messages for this channel.
+func (lc *LightningChannel) ChannelID() lnwire.ChannelID {
+	return lnwire.NewChanIDFromOutPoint(lc.ChannelPoint())
+}
+
 // ShortChanID returns the short channel ID for the channel. The short channel
 // ID encodes the exact location in the main chain that the original
 // funding output can be found.

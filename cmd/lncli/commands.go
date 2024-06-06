@@ -1787,8 +1787,16 @@ var getChanInfoCommand = cli.Command{
 	ArgsUsage: "chan_id",
 	Flags: []cli.Flag{
 		cli.Uint64Flag{
-			Name:  "chan_id",
-			Usage: "the 8-byte compact channel ID to query for",
+			Name: "chan_id",
+			Usage: "The 8-byte compact channel ID to query for. " +
+				"If this is set the chan_point param is " +
+				"ignored.",
+		},
+		cli.StringFlag{
+			Name: "chan_point",
+			Usage: "The channel point in format txid:index. If " +
+				"the chan_id param is set this param is " +
+				"ignored.",
 		},
 	},
 	Action: actionDecorator(getChanInfo),
@@ -1800,24 +1808,31 @@ func getChanInfo(ctx *cli.Context) error {
 	defer cleanUp()
 
 	var (
-		chanID uint64
-		err    error
+		chanID    uint64
+		chanPoint string
+		err       error
 	)
 
 	switch {
 	case ctx.IsSet("chan_id"):
 		chanID = ctx.Uint64("chan_id")
+
 	case ctx.Args().Present():
 		chanID, err = strconv.ParseUint(ctx.Args().First(), 10, 64)
 		if err != nil {
 			return fmt.Errorf("error parsing chan_id: %w", err)
 		}
+
+	case ctx.IsSet("chan_point"):
+		chanPoint = ctx.String("chan_point")
+
 	default:
-		return fmt.Errorf("chan_id argument missing")
+		return fmt.Errorf("chan_id or chan_point argument missing")
 	}
 
 	req := &lnrpc.ChanInfoRequest{
-		ChanId: chanID,
+		ChanId:    chanID,
+		ChanPoint: chanPoint,
 	}
 
 	chanInfo, err := client.GetChanInfo(ctxc, req)

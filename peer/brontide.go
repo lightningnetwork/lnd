@@ -1089,7 +1089,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 				return
 			}
 
-			shutdownMsg = fn.Some[lnwire.Shutdown](*shutdown)
+			shutdownMsg = fn.Some(*shutdown)
 		})
 		if shutdownInfoErr != nil {
 			return nil, shutdownInfoErr
@@ -2938,7 +2938,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 		})
 
 	// An error other than ErrNoShutdownInfo was returned
-	case err != nil && !errors.Is(err, channeldb.ErrNoShutdownInfo):
+	case !errors.Is(err, channeldb.ErrNoShutdownInfo):
 		return nil, err
 
 	case errors.Is(err, channeldb.ErrNoShutdownInfo):

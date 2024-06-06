@@ -3443,6 +3443,10 @@ message ChanInfoRequest {
     output index for the channel.
     */
     uint64 chan_id = 1 [jstype = JS_STRING];
+
+    // The channel point of the channel in format funding_txid:output_index. If
+    // chan_id is specified, this field is ignored.
+    string chan_point = 2;
 }
 
 message NetworkInfoRequest {

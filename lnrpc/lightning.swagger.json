@@ -1204,6 +1204,13 @@
             "required": true,
             "type": "string",
             "format": "uint64"
+          },
+          {
+            "name": "chan_point",
+            "description": "The channel point of the channel in format funding_txid:output_index. If\nchan_id is specified, this field is ignored.",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [

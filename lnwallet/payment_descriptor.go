@@ -70,6 +70,11 @@ func (u updateType) String() string {
 // TODO(roasbeef): LogEntry interface??
 //   - need to separate attrs for cancel/add/settle/feeupdate
 type PaymentDescriptor struct {
+	// ChanID is the ChannelID of the LightningChannel that this
+	// PaymentDescriptor belongs to. We track this here so we can
+	// reconstruct the Messages that this PaymentDescriptor is built from.
+	ChanID lnwire.ChannelID
+
 	// RHash is the payment hash for this HTLC. The HTLC can be settled iff
 	// the preimage to this hash is presented.
 	RHash PaymentHash

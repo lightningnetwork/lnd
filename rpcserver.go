@@ -2891,7 +2891,7 @@ func abandonChanFromGraph(chanGraph *channeldb.ChannelGraph,
 	// the graph, so we'll return a nil error.
 	chanID, err := chanGraph.ChannelID(chanPoint)
 	switch {
-	case err == channeldb.ErrEdgeNotFound:
+	case errors.Is(err, channeldb.ErrEdgeNotFound):
 		return nil
 	case err != nil:
 		return err

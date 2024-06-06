@@ -974,7 +974,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		info, p1, p2, err := graph.FetchChannelEdgesByOutpoint(
 			&chanPoint,
 		)
-		if err != nil && err != channeldb.ErrEdgeNotFound {
+		if err != nil && !errors.Is(err, channeldb.ErrEdgeNotFound) {
 			return nil, err
 		}
 

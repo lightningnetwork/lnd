@@ -35,10 +35,16 @@
 * [`xImportMissionControl`](https://github.com/lightningnetwork/lnd/pull/8779) 
   now accepts `0` failure amounts.
 
+* [`ChanInfoRequest`](https://github.com/lightningnetwork/lnd/pull/8813)
+  adds support for channel points.
+
 ## lncli Updates
 
 * [`importmc`](https://github.com/lightningnetwork/lnd/pull/8779) now accepts
   `0` failure amounts.
+ 
+* [`getchaninfo`](https://github.com/lightningnetwork/lnd/pull/8813) now accepts
+  a channel outpoint besides a channel id.
 
 ## Code Health
 ## Breaking Changes

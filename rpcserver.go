@@ -6295,15 +6295,40 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 }
 
 // GetChanInfo returns the latest authenticated network announcement for the
-// given channel identified by its channel ID: an 8-byte integer which uniquely
-// identifies the location of transaction's funding output within the block
-// chain.
-func (r *rpcServer) GetChanInfo(ctx context.Context,
+// given channel identified by either its channel ID or a channel outpoint. Both
+// uniquely identify the location of transaction's funding output within the
+// blockchain. The former is an 8-byte integer, while the latter is a string
+// formatted as funding_txid:output_index.
+func (r *rpcServer) GetChanInfo(_ context.Context,
 	in *lnrpc.ChanInfoRequest) (*lnrpc.ChannelEdge, error) {
 
 	graph := r.server.graphDB
 
-	edgeInfo, edge1, edge2, err := graph.FetchChannelEdgesByID(in.ChanId)
+	var (
+		edgeInfo     *models.ChannelEdgeInfo
+		edge1, edge2 *models.ChannelEdgePolicy
+		err          error
+	)
+
+	switch {
+	case in.ChanId != 0:
+		edgeInfo, edge1, edge2, err = graph.FetchChannelEdgesByID(
+			in.ChanId,
+		)
+
+	case in.ChanPoint != "":
+		var chanPoint *wire.OutPoint
+		chanPoint, err = wire.NewOutPointFromString(in.ChanPoint)
+		if err != nil {
+			return nil, err
+		}
+		edgeInfo, edge1, edge2, err = graph.FetchChannelEdgesByOutpoint(
+			chanPoint,
+		)
+
+	default:
+		return nil, fmt.Errorf("specify either chan_id or chan_point")
+	}
 	if err != nil {
 		return nil, err
 	}

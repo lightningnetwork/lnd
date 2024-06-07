@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"image/color"
 	"io"
+	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 var (
@@ -38,6 +40,13 @@ type NodeAnnouncement struct {
 
 	// NodeID is a public key which is used as node identification.
 	NodeID [33]byte
+
+	// Address includes two specification fields: 'ipv6' and 'port' on
+	// which the node is accepting incoming connections.
+	Addresses []net.Addr
+
+	// Features is the list of protocol features this node supports.
+	Features *lnwire.RawFeatureVector
 }
 
 // Sync performs a full database sync which writes the current up-to-date data
@@ -97,11 +106,14 @@ func fetchNodeAnnouncement(tx kvdb.RTx, targetPub *btcec.PublicKey) (*NodeAnnoun
 
 }
 
-func (d *DB) PutNodeAnnouncement(pubkey [33]byte, alias [32]byte, color color.RGBA) error {
+func (d *DB) PutNodeAnnouncement(pubkey [33]byte, alias [32]byte, color color.RGBA,
+	addresses []net.Addr, features *lnwire.RawFeatureVector) error {
 	nodeAnn := &NodeAnnouncement{
-		Alias:  alias,
-		Color:  color,
-		NodeID: pubkey,
+		Alias:     alias,
+		Color:     color,
+		NodeID:    pubkey,
+		Addresses: addresses,
+		Features:  features,
 	}
 
 	return kvdb.Update(d, func(tx kvdb.RwTx) error {
@@ -145,8 +157,26 @@ func serializeNodeAnnouncement(w io.Writer, n *NodeAnnouncement) error {
 		return err
 	}
 
-	// Serialize IdentityPub
+	// Serialize NodeID
 	if _, err := w.Write(n.NodeID[:]); err != nil {
+		return err
+	}
+
+	// Serialize Addresses
+	var addrBuffer bytes.Buffer
+	if err := lnwire.WriteNetAddrs(&addrBuffer, n.Addresses); err != nil {
+		return err
+	}
+	if _, err := w.Write(addrBuffer.Bytes()); err != nil {
+		return err
+	}
+
+	// Serialize Features
+	var featsBuffer bytes.Buffer
+	if err := lnwire.WriteRawFeatureVector(&featsBuffer, n.Features); err != nil {
+		return err
+	}
+	if _, err := w.Write(featsBuffer.Bytes()); err != nil {
 		return err
 	}
 
@@ -178,6 +208,14 @@ func deserializeNodeAnnouncement(r io.Reader) (*NodeAnnouncement, error) {
 		return nil, err
 	}
 	nodeAnn.NodeID = pub
+
+	if err := lnwire.ReadElement(r, &nodeAnn.Addresses); err != nil {
+		return nil, err
+	}
+
+	if err := lnwire.ReadElement(r, &nodeAnn.Features); err != nil {
+		return nil, err
+	}
 
 	return nodeAnn, err
 

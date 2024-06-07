@@ -796,8 +796,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
+	// Fetch the persisted node announcement from disk. This announcement
+	// contains information about our node, and will be used to construct
+	// our initial node.
+	pubkey := nodeKeyDesc.PubKey
+	persistedConfig, err := s.miscDB.FetchNodeAnnouncement(pubkey)
+	if err != nil {
+		srvrLog.Errorf("unable to fetch node announcement: %v\n", err)
+	}
+
 	selfAddrs := make([]net.Addr, 0, len(externalIPs))
 	selfAddrs = append(selfAddrs, externalIPs...)
+	selfAddrs = append(selfAddrs, persistedConfig.Addresses...)
 
 	// As the graph can be obtained at anytime from the network, we won't
 	// replicate it, and instead it'll only be stored locally.
@@ -806,17 +816,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// We'll now reconstruct a node announcement based on our current
 	// configuration so we can send it out as a sort of heart beat within
 	// the network.
-	//
-	// We'll start by getting the node announcement from disk.
-	pubkey := nodeKeyDesc.PubKey
-	persistedConfig, err := s.miscDB.FetchNodeAnnouncement(pubkey)
-	if err != nil {
-		srvrLog.Errorf("unable to fetch node announcement: %v\n", err)
-	}
-
 	var color color.RGBA
-
-	// Determine the source of the color. #3399FF is the default
+	// Determine the source of the color. If the user-provided color is
+	// #3399FF (default) and there is a persisted node announcement, use the color
+	// from that. Otherwise, parse the user-provided color.
 	if cfg.Color == "#3399FF" && persistedConfig != nil {
 		color = persistedConfig.Color
 	} else {
@@ -829,14 +832,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	// If no alias is provided, check if one is stored in the database and
-	// use that.
+	// use that. If still no alias is provided, default to the first 10
+	// characters of the public key.
 	alias := cfg.Alias
 	if alias == "" && persistedConfig != nil {
 		alias = persistedConfig.Alias.String()
 	}
-
-	// If still alias is empty, default to first 10 characters of public
-	// key.
 	if alias == "" {
 		alias = hex.EncodeToString(serializedPubKey[:10])
 	}
@@ -844,12 +845,26 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	if err != nil {
 		return nil, err
 	}
+
+	//
+	// If there is no persisted configuration, we will use the set of features
+	// provided by the feature manager. Otherwise, we will use the features
+	// stored in the persisted configuration.
+	var features *lnwire.FeatureVector
+	if persistedConfig != nil {
+		// Extract the features from the persisted configuration.
+		features = lnwire.NewFeatureVector(persistedConfig.Features, lnwire.Features)
+	} else {
+		// Get the set of features from the feature manager.
+		features = s.featureMgr.Get(feature.SetNodeAnn)
+	}
+
 	selfNode := &channeldb.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Now(),
 		Addresses:            selfAddrs,
 		Alias:                nodeAlias.String(),
-		Features:             s.featureMgr.Get(feature.SetNodeAnn),
+		Features:             features,
 		Color:                color,
 	}
 	copy(selfNode.PubKeyBytes[:], nodeKeyDesc.PubKey.SerializeCompressed())

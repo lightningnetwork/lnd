@@ -4180,6 +4180,16 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	resp.WaitingCloseChannels = waitingCloseChannels
 	resp.TotalLimboBalance += limbo
 
+	err = fn.MapOptionZ(
+		r.server.implCfg.AuxDataParser,
+		func(parser AuxDataParser) error {
+			return parser.InlineParseCustomData(resp)
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing custom data: %w", err)
+	}
+
 	return resp, nil
 }
 

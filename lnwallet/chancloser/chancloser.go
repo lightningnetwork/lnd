@@ -432,17 +432,16 @@ func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 		return nil, err
 	}
 
-	// If the local balance isn't dust, then we'll track that we have an
-	// active close output.
-	if isDust, dustAmt := c.cfg.Channel.LocalBalanceDust(); !isDust {
-		localBalance, _ := c.cfg.Channel.CommitBalances()
-		c.localCloseOutput = fn.Some(CloseOutput{
-			Amt:             localBalance,
-			DustLimit:       dustAmt,
-			PkScript:        c.localDeliveryScript,
-			ShutdownRecords: shutdown.CustomRecords,
-		})
-	}
+	// We'll track our local close output, even if it's dust in BTC terms,
+	// it might still carry value in custom channel terms.
+	_, dustAmt := c.cfg.Channel.LocalBalanceDust()
+	localBalance, _ := c.cfg.Channel.CommitBalances()
+	c.localCloseOutput = fn.Some(CloseOutput{
+		Amt:             localBalance,
+		DustLimit:       dustAmt,
+		PkScript:        c.localDeliveryScript,
+		ShutdownRecords: shutdown.CustomRecords,
+	})
 
 	return shutdown, nil
 }
@@ -587,17 +586,16 @@ func (c *ChanCloser) ReceiveShutdown(msg lnwire.Shutdown) (
 
 	noShutdown := fn.None[lnwire.Shutdown]()
 
-	// If the remote balance isn't dust, then we'll track that they have an
-	// active close output.
-	if isDust, dustAmt := c.cfg.Channel.RemoteBalanceDust(); !isDust {
-		_, remoteBalance := c.cfg.Channel.CommitBalances()
-		c.remoteCloseOutput = fn.Some(CloseOutput{
-			Amt:             remoteBalance,
-			DustLimit:       dustAmt,
-			PkScript:        msg.Address,
-			ShutdownRecords: msg.CustomRecords,
-		})
-	}
+	// We'll track their remote close output, even if it's dust in BTC
+	// terms, it might still carry value in custom channel terms.
+	_, dustAmt := c.cfg.Channel.RemoteBalanceDust()
+	_, remoteBalance := c.cfg.Channel.CommitBalances()
+	c.remoteCloseOutput = fn.Some(CloseOutput{
+		Amt:             remoteBalance,
+		DustLimit:       dustAmt,
+		PkScript:        msg.Address,
+		ShutdownRecords: msg.CustomRecords,
+	})
 
 	switch c.state {
 	// If we're in the close idle state, and we're receiving a channel

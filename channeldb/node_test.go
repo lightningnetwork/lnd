@@ -2,9 +2,12 @@ package channeldb
 
 import (
 	"image/color"
+	"net"
+	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,11 +23,15 @@ func TestNodeAnnouncementEncodeDecode(t *testing.T) {
 	copy(alias[:], []byte("alice"))
 	color := color.RGBA{255, 255, 255, 0}
 	_, pub := btcec.PrivKeyFromBytes(key[:])
+	address := []net.Addr{testAddr}
+	features := lnwire.RawFeatureVector{}
 
 	nodeAnn := &NodeAnnouncement{
-		Alias:  alias,
-		Color:  color,
-		NodeID: [33]byte(pub.SerializeCompressed()),
+		Alias:     alias,
+		Color:     color,
+		NodeID:    [33]byte(pub.SerializeCompressed()),
+		Addresses: address,
+		Features:  &features,
 	}
 	if err := nodeAnn.Sync(fullDB); err != nil {
 		t.Fatalf("unable to sync node announcement: %v", err)
@@ -47,6 +54,12 @@ func TestNodeAnnouncementEncodeDecode(t *testing.T) {
 	if nodeAnn.NodeID != persistedNodeAnn.NodeID {
 		t.Fatalf("node nodeIds don't match: expected %v, got %v",
 			nodeAnn.NodeID, persistedNodeAnn.NodeID)
+	}
+
+	// Verify that the addresses of the node announcements are the same.
+	if !reflect.DeepEqual(nodeAnn.Addresses, persistedNodeAnn.Addresses) {
+		t.Fatalf("node addresses don't match: expected %v, got %v",
+			nodeAnn.Addresses, persistedNodeAnn.Addresses)
 	}
 
 }

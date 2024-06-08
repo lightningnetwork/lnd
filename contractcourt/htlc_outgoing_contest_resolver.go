@@ -58,6 +58,17 @@ func (h *htlcOutgoingContestResolver) Resolve(
 		return nil, nil
 	}
 
+	// If the HTLC has custom records, then for now we'll pause resolution.
+	//
+	// TODO(roasbeef): Implement resolving HTLCs with custom records
+	// (follow-up PR).
+	if len(h.htlc.CustomRecords) != 0 {
+		select { //nolint:gosimple
+		case <-h.quit:
+			return nil, errResolverShuttingDown
+		}
+	}
+
 	// Otherwise, we'll watch for two external signals to decide if we'll
 	// morph into another resolver, or fully resolve the contract.
 	//

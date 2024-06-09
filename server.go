@@ -1319,6 +1319,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		},
 		AuxLeafStore: implCfg.AuxLeafStore,
 		AuxSigner:    implCfg.AuxSigner,
+		AuxResolver:  implCfg.AuxContractResolver,
 	}, dbs.ChanStateDB)
 
 	// Select the configuration and funding parameters for Bitcoin.
@@ -1568,6 +1569,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		IsSweeperOutpoint:    s.sweeper.IsSweeperOutpoint,
 		AuxFundingController: implCfg.AuxFundingController,
 		AuxSigner:            implCfg.AuxSigner,
+		AuxResolver:          implCfg.AuxContractResolver,
 	})
 	if err != nil {
 		return nil, err
@@ -4150,6 +4152,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		AuxSigner:              s.implCfg.AuxSigner,
 		MsgRouter:              s.implCfg.MsgRouter,
 		AuxChanCloser:          s.implCfg.AuxChanCloser,
+		AuxResolver:            s.implCfg.AuxContractResolver,
 	}
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())

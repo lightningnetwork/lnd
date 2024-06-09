@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"image/color"
 	"math/big"
 	prand "math/rand"
 	"net"
@@ -807,33 +808,74 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// replicate it, and instead it'll only be stored locally.
 	chanGraph := dbs.GraphDB.ChannelGraph()
 
+	// Fetch the source node from the channel graph. If a source node is
+	// found, we'll use its values for our initial node announcement.
+	persistedNode, err := chanGraph.SourceNode()
+	if err != nil {
+		srvrLog.Errorf("unable to fetch source node: %v", err)
+	}
+
 	// We'll now reconstruct a node announcement based on our current
 	// configuration so we can send it out as a sort of heart beat within
 	// the network.
 	//
-	// We'll start by parsing the node color from configuration.
-	color, err := lncfg.ParseHexColor(cfg.Color)
-	if err != nil {
-		srvrLog.Errorf("unable to parse color: %v\n", err)
-		return nil, err
+
+	// If the node is restarted, we should use the previously persisted
+	// values for the node's alias, color, addresses, and features.
+	// Otherwise, we'll use the configured values.
+	var (
+		color    color.RGBA
+		alias    = cfg.Alias
+		features *lnwire.FeatureVector
+	)
+
+	// If the node was previously persisted, we'll use the saved values.
+	if persistedNode != nil {
+		// If the color is still set to the default, we'll use the
+		// persisted color.
+		if cfg.Color == defaultColor {
+			color = persistedNode.Color
+		}
+
+		// If an alias was not specified in the configuration,
+		// we'll use the saved alias.
+		if alias == "" {
+			alias = persistedNode.Alias
+		}
+
+		features = persistedNode.Features
+
+		// Append the persisted addresses to the list of addresses our
+		// node can be reached at.
+		selfAddrs = append(selfAddrs, persistedNode.Addresses...)
+	} else {
+		color, err = lncfg.ParseHexColor(cfg.Color)
+		if err != nil {
+			srvrLog.Errorf("unable to parse color: %v\n", err)
+
+			return nil, err
+		}
+
+		// If an alias was not specified, we'll generate one based on
+		// the serialized public key.
+		if alias == "" {
+			alias = hex.EncodeToString(serializedPubKey[:10])
+		}
+
+		features = s.featureMgr.Get(feature.SetNodeAnn)
 	}
 
-	// If no alias is provided, default to first 10 characters of public
-	// key.
-	alias := cfg.Alias
-	if alias == "" {
-		alias = hex.EncodeToString(serializedPubKey[:10])
-	}
 	nodeAlias, err := lnwire.NewNodeAlias(alias)
 	if err != nil {
 		return nil, err
 	}
+
 	selfNode := &channeldb.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Now(),
 		Addresses:            selfAddrs,
 		Alias:                nodeAlias.String(),
-		Features:             s.featureMgr.Get(feature.SetNodeAnn),
+		Features:             features,
 		Color:                color,
 	}
 	copy(selfNode.PubKeyBytes[:], nodeKeyDesc.PubKey.SerializeCompressed())

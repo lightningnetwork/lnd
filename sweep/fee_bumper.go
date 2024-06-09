@@ -258,8 +258,8 @@ type TxPublisherConfig struct {
 	// Notifier is used to monitor the confirmation status of the tx.
 	Notifier chainntnfs.ChainNotifier
 
-	// AuxSweeper is an optional interface that can be used to shape the
-	// way the final sweep transaction is generated.
+	// AuxSweeper is an optional interface that can be used to modify the
+	// way sweep transaction are generated.
 	AuxSweeper fn.Option[AuxSweeper]
 }
 

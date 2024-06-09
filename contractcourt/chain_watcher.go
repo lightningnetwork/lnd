@@ -193,10 +193,8 @@ type chainWatcherConfig struct {
 	// auxLeafStore can be used to fetch information for custom channels.
 	auxLeafStore fn.Option[lnwallet.AuxLeafStore]
 
-	// auxResolver...
+	// auxResolver is used to supplement contract resolution.
 	auxResolver fn.Option[lnwallet.AuxContractResolver]
-
-	// TODO(roasbeef): always set in config ^
 }
 
 // chainWatcher is a system that's assigned to every active channel. The duty

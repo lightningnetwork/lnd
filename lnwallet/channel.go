@@ -1467,7 +1467,8 @@ func WithAuxSigner(signer AuxSigner) ChannelOpt {
 	}
 }
 
-// WithAuxResolver...
+// WithAuxResolver is used to specify a custom aux contract resolver for the
+// channel.
 func WithAuxResolver(resolver AuxContractResolver) ChannelOpt {
 	return func(o *channelOpts) {
 		o.auxResolver = fn.Some[AuxContractResolver](resolver)

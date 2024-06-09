@@ -396,6 +396,10 @@ type Config struct {
 	// leaves for certain custom channel types.
 	AuxSigner fn.Option[lnwallet.AuxSigner]
 
+	// AuxResolver is an optional interface that can be used to modify the
+	// way contracts are resolved.
+	AuxResolver fn.Option[lnwallet.AuxContractResolver]
+
 	// PongBuf is a slice we'll reuse instead of allocating memory on the
 	// heap. Since only reads will occur and no writes, there is no need
 	// for any synchronization primitives. As a result, it's safe to share
@@ -999,8 +1003,6 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			}
 		}
 
-		// TODO(roasbeef): also make aux resolver here
-
 		var chanOpts []lnwallet.ChannelOpt
 		p.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
 			chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
@@ -1008,6 +1010,14 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		p.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
 			chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
 		})
+		p.cfg.AuxResolver.WhenSome(
+			func(s lnwallet.AuxContractResolver) {
+				chanOpts = append(
+					chanOpts, lnwallet.WithAuxResolver(s),
+				)
+			},
+		)
+
 		lnChan, err := lnwallet.NewLightningChannel(
 			p.cfg.Signer, dbChan, p.cfg.SigPool, chanOpts...,
 		)
@@ -4253,6 +4263,9 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 	})
 	p.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
 		chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
+	})
+	p.cfg.AuxResolver.WhenSome(func(s lnwallet.AuxContractResolver) {
+		chanOpts = append(chanOpts, lnwallet.WithAuxResolver(s))
 	})
 
 	// If not already active, we'll add this channel to the set of active

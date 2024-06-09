@@ -225,6 +225,10 @@ type ChainArbitratorConfig struct {
 	// AuxSigner is an optional signer that can be used to sign auxiliary
 	// leaves for certain custom channel types.
 	AuxSigner fn.Option[lnwallet.AuxSigner]
+
+	// AuxResolver is an optional interface that can be used to modify the
+	// way contracts are resolved.
+	AuxResolver fn.Option[lnwallet.AuxContractResolver]
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all
@@ -314,6 +318,9 @@ func (a *arbChannel) NewAnchorResolutions() (*lnwallet.AnchorResolutions,
 	a.c.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
 		chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
 	})
+	a.c.cfg.AuxResolver.WhenSome(func(s lnwallet.AuxContractResolver) {
+		chanOpts = append(chanOpts, lnwallet.WithAuxResolver(s))
+	})
 
 	chanMachine, err := lnwallet.NewLightningChannel(
 		a.c.cfg.Signer, channel, nil, chanOpts...,
@@ -366,6 +373,9 @@ func (a *arbChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) 
 	})
 	a.c.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
 		chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
+	})
+	a.c.cfg.AuxResolver.WhenSome(func(s lnwallet.AuxContractResolver) {
+		chanOpts = append(chanOpts, lnwallet.WithAuxResolver(s))
 	})
 
 	// Finally, we'll force close the channel completing
@@ -581,6 +591,8 @@ func (c *ChainArbitrator) Start() error {
 				isOurAddr:           c.cfg.IsOurAddress,
 				contractBreach:      breachClosure,
 				extractStateNumHint: lnwallet.GetStateNumHint,
+				auxLeafStore:        c.cfg.AuxLeafStore,
+				auxResolver:         c.cfg.AuxResolver,
 			},
 		)
 		if err != nil {
@@ -1210,6 +1222,8 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 				)
 			},
 			extractStateNumHint: lnwallet.GetStateNumHint,
+			auxLeafStore:        c.cfg.AuxLeafStore,
+			auxResolver:         c.cfg.AuxResolver,
 		},
 	)
 	if err != nil {

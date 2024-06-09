@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"image/color"
 	"math/big"
 	prand "math/rand"
 	"net"
@@ -929,28 +930,6 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	selfAddrs := make([]net.Addr, 0, len(externalIPs))
 	selfAddrs = append(selfAddrs, externalIPs...)
 
-	// We'll now reconstruct a node announcement based on our current
-	// configuration so we can send it out as a sort of heart beat within
-	// the network.
-	//
-	// We'll start by parsing the node color from configuration.
-	color, err := lncfg.ParseHexColor(cfg.Color)
-	if err != nil {
-		srvrLog.Errorf("unable to parse color: %v\n", err)
-		return nil, err
-	}
-
-	// If no alias is provided, default to first 10 characters of public
-	// key.
-	alias := cfg.Alias
-	if alias == "" {
-		alias = hex.EncodeToString(serializedPubKey[:10])
-	}
-	nodeAlias, err := lnwire.NewNodeAlias(alias)
-	if err != nil {
-		return nil, err
-	}
-
 	// TODO(elle): All previously persisted node announcement fields (ie,
 	//  not just LastUpdate) should be consulted here to ensure that we
 	//  aren't overwriting any fields that may have been set during the
@@ -976,10 +955,25 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, fmt.Errorf("unable to fetch source node: %w", err)
 	}
 
+	// We'll now reconstruct a node announcement based on our current
+	// configuration so we can send it out as a sort of heart beat within
+	// the network.
+	color, alias, addresses, err := s.getNodeAnnFields(
+		srcNode, selfAddrs, serializedPubKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	nodeAlias, err := lnwire.NewNodeAlias(alias)
+	if err != nil {
+		return nil, err
+	}
+
 	selfNode := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           nodeLastUpdate,
-		Addresses:            selfAddrs,
+		Addresses:            addresses,
 		Alias:                nodeAlias.String(),
 		Features:             s.featureMgr.Get(feature.SetNodeAnn),
 		Color:                color,
@@ -5598,4 +5592,69 @@ func (s *server) AttemptRBFCloseUpdate(ctx context.Context,
 	}
 
 	return updates, nil
+}
+
+// getNodeAnnFields populates the alias, color, and addresses. This is used
+// during startup to construct the initial node announcement.
+func (s *server) getNodeAnnFields(sourceNode *models.LightningNode,
+	selfAddrs []net.Addr, serializedPubKey [33]byte) (color.RGBA, string,
+	[]net.Addr, error) {
+
+	var (
+		color color.RGBA
+		alias = s.cfg.Alias
+		addrs = selfAddrs
+		err   error
+	)
+
+	// Parse the color from config. We will update this later if the config
+	// color is not changed from default (#3399FF) and we have a value in
+	// the source node.
+	color, err = lncfg.ParseHexColor(s.cfg.Color)
+	if err != nil {
+		return color, "", nil, fmt.Errorf("unable to parse color: %w",
+			err)
+	}
+
+	// If the source node is nil, we'll use the default config values and
+	// return early.
+	if sourceNode == nil {
+		// If an alias was not set, we'll set it to the first 10 bytes
+		// of the serialized public key.
+		if alias == "" {
+			alias = hex.EncodeToString(serializedPubKey[:10])
+		}
+
+		return color, alias, addrs, nil
+	}
+
+	// If the color is not changed from default, it means that we didn't
+	// specify a different color in the config. We'll use the source node's
+	// color.
+	if s.cfg.Color == defaultColor {
+		color = sourceNode.Color
+	}
+
+	// If an alias is not specified in the config, we'll use the source
+	// node's alias.
+	if alias == "" {
+		alias = sourceNode.Alias
+	}
+
+	// To avoid having duplicate addresses, we'll only add addresses from
+	// the source node that are not already in our address list yet.
+	addressMap := make(map[string]struct{}, len(addrs))
+	// Populate the map with the existing addresses.
+	for _, existingAddr := range addrs {
+		addressMap[existingAddr.String()] = struct{}{}
+	}
+	// Append unique addresses from the source node to the address list.
+	for _, addr := range sourceNode.Addresses {
+		if _, found := addressMap[addr.String()]; !found {
+			addrs = append(addrs, addr)
+			addressMap[addr.String()] = struct{}{}
+		}
+	}
+
+	return color, alias, addrs, nil
 }

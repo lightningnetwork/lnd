@@ -958,7 +958,7 @@ func initBreachedState(t *testing.T) (*BreachArbitrator,
 	// Create a pair of channels using a notifier that allows us to signal
 	// a spend of the funding transaction. Alice's channel will be the on
 	// observing a breach.
-	alice, bob, err := createInitChannels(t, 1)
+	alice, bob, err := createInitChannels(t)
 	require.NoError(t, err, "unable to create test channels")
 
 	// Instantiate a breach arbiter to handle the breach of alice's channel.
@@ -2150,7 +2150,7 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 // createInitChannels creates two initialized test channels funded with 10 BTC,
 // with 5 BTC allocated to each side. Within the channel, Alice is the
 // initiator.
-func createInitChannels(t *testing.T, revocationWindow int) (
+func createInitChannels(t *testing.T) (
 	*lnwallet.LightningChannel, *lnwallet.LightningChannel, error) {
 
 	aliceKeyPriv, aliceKeyPub := btcec.PrivKeyFromBytes(
@@ -2395,7 +2395,7 @@ func createInitChannels(t *testing.T, revocationWindow int) (
 
 	// Now that the channel are open, simulate the start of a session by
 	// having Alice and Bob extend their revocation windows to each other.
-	err = initRevocationWindows(channelAlice, channelBob, revocationWindow)
+	err = initRevocationWindows(channelAlice, channelBob)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2408,7 +2408,7 @@ func createInitChannels(t *testing.T, revocationWindow int) (
 // commitment state machines.
 //
 // TODO(conner) remove code duplication
-func initRevocationWindows(chanA, chanB *lnwallet.LightningChannel, windowSize int) error {
+func initRevocationWindows(chanA, chanB *lnwallet.LightningChannel) error {
 	aliceNextRevoke, err := chanA.NextRevocationKey()
 	if err != nil {
 		return err

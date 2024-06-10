@@ -2891,7 +2891,7 @@ func abandonChanFromGraph(chanGraph *channeldb.ChannelGraph,
 	// the graph, so we'll return a nil error.
 	chanID, err := chanGraph.ChannelID(chanPoint)
 	switch {
-	case err == channeldb.ErrEdgeNotFound:
+	case errors.Is(err, channeldb.ErrEdgeNotFound):
 		return nil
 	case err != nil:
 		return err
@@ -5677,7 +5677,7 @@ sendLoop:
 func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	nextPayment *lnrpc.SendRequest) (*lnrpc.SendResponse, error) {
 
-	return r.sendPaymentSync(ctx, &rpcPaymentRequest{
+	return r.sendPaymentSync(&rpcPaymentRequest{
 		SendRequest: nextPayment,
 	})
 }
@@ -5698,12 +5698,12 @@ func (r *rpcServer) SendToRouteSync(ctx context.Context,
 		return nil, err
 	}
 
-	return r.sendPaymentSync(ctx, paymentRequest)
+	return r.sendPaymentSync(paymentRequest)
 }
 
 // sendPaymentSync is the synchronous variant of sendPayment. It will block and
 // wait until the payment has been fully completed.
-func (r *rpcServer) sendPaymentSync(ctx context.Context,
+func (r *rpcServer) sendPaymentSync(
 	nextPayment *rpcPaymentRequest) (*lnrpc.SendResponse, error) {
 
 	// We don't allow payments to be sent while the daemon itself is still

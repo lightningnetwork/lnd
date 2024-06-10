@@ -2119,7 +2119,7 @@ func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 		// If the channel cannot be found, it is most likely a leftover
 		// message for a channel that was closed, so we can consider it
 		// stale.
-		if err == channeldb.ErrEdgeNotFound {
+		if errors.Is(err, channeldb.ErrEdgeNotFound) {
 			return true
 		}
 		if err != nil {
@@ -2139,7 +2139,7 @@ func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 		// If the channel cannot be found, it is most likely a leftover
 		// message for a channel that was closed, so we can consider it
 		// stale.
-		if err == channeldb.ErrEdgeNotFound {
+		if errors.Is(err, channeldb.ErrEdgeNotFound) {
 			return true
 		}
 		if err != nil {
@@ -2750,12 +2750,12 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 	defer d.channelMtx.Unlock(graphScid.ToUint64())
 
 	chanInfo, e1, e2, err := d.cfg.Router.GetChannelByID(graphScid)
-	switch err {
+	switch {
 	// No error, break.
-	case nil:
+	case err == nil:
 		break
 
-	case channeldb.ErrZombieEdge:
+	case errors.Is(err, channeldb.ErrZombieEdge):
 		err = d.processZombieUpdate(chanInfo, graphScid, upd)
 		if err != nil {
 			log.Debug(err)
@@ -2768,11 +2768,11 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		// needed to ensure the edge exists in the graph before
 		// applying the update.
 		fallthrough
-	case channeldb.ErrGraphNotFound:
+	case errors.Is(err, channeldb.ErrGraphNotFound):
 		fallthrough
-	case channeldb.ErrGraphNoEdgesFound:
+	case errors.Is(err, channeldb.ErrGraphNoEdgesFound):
 		fallthrough
-	case channeldb.ErrEdgeNotFound:
+	case errors.Is(err, channeldb.ErrEdgeNotFound):
 		// If the edge corresponding to this ChannelUpdate was not
 		// found in the graph, this might be a channel in the process
 		// of being opened, and we haven't processed our own

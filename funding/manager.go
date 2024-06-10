@@ -1188,7 +1188,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 			// If this is a zero-conf channel, then we will wait
 			// for it to be confirmed before announcing it to the
 			// greater network.
-			err := f.waitForZeroConfChannel(channel, pendingChanID)
+			err := f.waitForZeroConfChannel(channel)
 			if err != nil {
 				return fmt.Errorf("failed waiting for zero "+
 					"channel: %v", err)
@@ -3605,9 +3605,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 // waitForZeroConfChannel is called when the state is addedToRouterGraph with
 // a zero-conf channel. This will wait for the real confirmation, add the
 // confirmed SCID to the router graph, and then announce after six confs.
-func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel,
-	pendingID [32]byte) error {
-
+func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel) error {
 	// First we'll check whether the channel is confirmed on-chain. If it
 	// is already confirmed, the chainntnfs subsystem will return with the
 	// confirmed tx. Otherwise, we'll wait here until confirmation occurs.

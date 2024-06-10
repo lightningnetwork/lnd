@@ -328,14 +328,15 @@ func sendPayment(ctx *cli.Context) error {
 			PaymentRequest:    stripPrefix(ctx.String("pay_req")),
 			Amt:               ctx.Int64("amt"),
 			DestCustomRecords: make(map[uint64][]byte),
+			Amp:               ctx.Bool(ampFlag.Name),
 		}
 
 		// We'll attempt to parse a payment address as well, given that
 		// if the user is using an AMP invoice, then they may be trying
 		// to specify that value manually.
 		//
-		// Don't parse unnamed arguments to prevent confusion with the main
-		// unnamed argument format for non-AMP payments.
+		// Don't parse unnamed arguments to prevent confusion with the
+		// main unnamed argument format for non-AMP payments.
 		payAddr, err := parsePayAddr(ctx, nil)
 		if err != nil {
 			return err

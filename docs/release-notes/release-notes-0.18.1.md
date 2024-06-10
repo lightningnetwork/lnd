@@ -46,6 +46,9 @@
 * [`getchaninfo`](https://github.com/lightningnetwork/lnd/pull/8813) now accepts
   a channel outpoint besides a channel id.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8823) how we parse the
+  `--amp` flag when sending a payment specifying the payment request.
+
 ## Code Health
 ## Breaking Changes
 ## Performance Improvements
@@ -59,4 +62,5 @@
 
 # Contributors (Alphabetical Order)
 
+* Andras Banki-Horvath
 * Bufo

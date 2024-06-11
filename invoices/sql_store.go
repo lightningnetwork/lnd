@@ -79,6 +79,9 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 	UpsertAMPSubInvoice(ctx context.Context,
 		arg sqlc.UpsertAMPSubInvoiceParams) (sql.Result, error)
 
+	InsertAMPSubInvoice(ctx context.Context,
+		arg sqlc.InsertAMPSubInvoiceParams) error
+
 	UpdateAMPSubInvoiceState(ctx context.Context,
 		arg sqlc.UpdateAMPSubInvoiceStateParams) error
 

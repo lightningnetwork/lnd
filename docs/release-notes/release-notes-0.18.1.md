@@ -26,11 +26,19 @@
 # New Features
 ## Functional Enhancements
 ## RPC Additions
+
+* [Added unbanPeer RPC](https://github.com/lightningnetwork/lnd/pull/7606/).
+  This would enable unbanning and connecting to a previously banned peer.
+
 ## lncli Additions
 
 * [Added](https://github.com/lightningnetwork/lnd/pull/8491) the `cltv_expiry`
   argument to `addinvoice` and `addholdinvoice`, allowing users to set the
   `min_final_cltv_expiry_delta`
+
+* [Added unbanPeer command](https://github.com/lightningnetwork/lnd/pull/7606/). 
+  This would enable unbanning and connecting to a previously banned peer using 
+  the lncli command.
 
 # Improvements
 ## Functional Updates

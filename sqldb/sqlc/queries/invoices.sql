@@ -7,6 +7,16 @@ INSERT INTO invoices (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 ) RETURNING id;
 
+-- name: InsertMigratedInvoice :one
+INSERT INTO invoices (
+    hash, preimage, settle_index, settled_at, memo, amount_msat, cltv_delta, 
+    expiry, payment_addr, payment_request, payment_request_hash, state, 
+    amount_paid_msat, is_amp, is_hodl, is_keysend, created_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+) RETURNING id;
+
+
 -- name: InsertInvoiceFeature :exec
 INSERT INTO invoice_features (
     invoice_id, feature

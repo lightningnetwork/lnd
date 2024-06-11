@@ -533,6 +533,61 @@ func (q *Queries) InsertInvoiceHTLCCustomRecord(ctx context.Context, arg InsertI
 	return err
 }
 
+const insertMigratedInvoice = `-- name: InsertMigratedInvoice :one
+INSERT INTO invoices (
+    hash, preimage, settle_index, settled_at, memo, amount_msat, cltv_delta, 
+    expiry, payment_addr, payment_request, payment_request_hash, state, 
+    amount_paid_msat, is_amp, is_hodl, is_keysend, created_at
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+) RETURNING id
+`
+
+type InsertMigratedInvoiceParams struct {
+	Hash               []byte
+	Preimage           []byte
+	SettleIndex        sql.NullInt64
+	SettledAt          sql.NullTime
+	Memo               sql.NullString
+	AmountMsat         int64
+	CltvDelta          sql.NullInt32
+	Expiry             int32
+	PaymentAddr        []byte
+	PaymentRequest     sql.NullString
+	PaymentRequestHash []byte
+	State              int16
+	AmountPaidMsat     int64
+	IsAmp              bool
+	IsHodl             bool
+	IsKeysend          bool
+	CreatedAt          time.Time
+}
+
+func (q *Queries) InsertMigratedInvoice(ctx context.Context, arg InsertMigratedInvoiceParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertMigratedInvoice,
+		arg.Hash,
+		arg.Preimage,
+		arg.SettleIndex,
+		arg.SettledAt,
+		arg.Memo,
+		arg.AmountMsat,
+		arg.CltvDelta,
+		arg.Expiry,
+		arg.PaymentAddr,
+		arg.PaymentRequest,
+		arg.PaymentRequestHash,
+		arg.State,
+		arg.AmountPaidMsat,
+		arg.IsAmp,
+		arg.IsHodl,
+		arg.IsKeysend,
+		arg.CreatedAt,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const nextInvoiceSettleIndex = `-- name: NextInvoiceSettleIndex :one
 UPDATE invoice_sequences SET current_value = current_value + 1
 WHERE name = 'settle_index'

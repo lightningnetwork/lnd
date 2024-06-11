@@ -204,6 +204,66 @@ func NewSQLStore(db BatchedSQLInvoiceQueries,
 	}
 }
 
+func makeInsertInvoiceParams(invoice *Invoice, paymentHash lntypes.Hash) (
+	sqlc.InsertInvoiceParams, error) {
+
+	// Precompute the payment request hash so we can use it in the query.
+	var paymentRequestHash []byte
+	if len(invoice.PaymentRequest) > 0 {
+		h := sha256.New()
+		h.Write(invoice.PaymentRequest)
+		paymentRequestHash = h.Sum(nil)
+	}
+
+	params := sqlc.InsertInvoiceParams{
+		Hash:       paymentHash[:],
+		AmountMsat: int64(invoice.Terms.Value),
+		CltvDelta: sqldb.SQLInt32(
+			invoice.Terms.FinalCltvDelta,
+		),
+		Expiry: int32(invoice.Terms.Expiry.Seconds()),
+		// Note: keysend invoices don't have a payment request.
+		PaymentRequest: sqldb.SQLStr(string(
+			invoice.PaymentRequest),
+		),
+		PaymentRequestHash: paymentRequestHash,
+		State:              int16(invoice.State),
+		AmountPaidMsat:     int64(invoice.AmtPaid),
+		IsAmp:              invoice.IsAMP(),
+		IsHodl:             invoice.HodlInvoice,
+		IsKeysend:          invoice.IsKeysend(),
+		CreatedAt:          invoice.CreationDate.UTC(),
+	}
+
+	if invoice.Memo != nil {
+		// Store the memo as a nullable string in the database. Note
+		// that for compatibility reasons, we store the value as a valid
+		// string even if it's empty.
+		params.Memo = sql.NullString{
+			String: string(invoice.Memo),
+			Valid:  true,
+		}
+	}
+
+	// Some invoices may not have a preimage, like in the case of HODL
+	// invoices.
+	if invoice.Terms.PaymentPreimage != nil {
+		preimage := *invoice.Terms.PaymentPreimage
+		if preimage == UnknownPreimage {
+			return sqlc.InsertInvoiceParams{},
+				errors.New("cannot use all-zeroes preimage")
+		}
+		params.Preimage = preimage[:]
+	}
+
+	// Some non MPP payments may have the default (invalid) value.
+	if invoice.Terms.PaymentAddr != BlankPayAddr {
+		params.PaymentAddr = invoice.Terms.PaymentAddr[:]
+	}
+
+	return params, nil
+}
+
 // AddInvoice inserts the targeted invoice into the database. If the invoice has
 // *any* payment hashes which already exists within the database, then the
 // insertion will be aborted and rejected due to the strict policy banning any
@@ -224,55 +284,16 @@ func (i *SQLStore) AddInvoice(ctx context.Context,
 		invoiceID   int64
 	)
 
-	// Precompute the payment request hash so we can use it in the query.
-	var paymentRequestHash []byte
-	if len(newInvoice.PaymentRequest) > 0 {
-		h := sha256.New()
-		h.Write(newInvoice.PaymentRequest)
-		paymentRequestHash = h.Sum(nil)
+	insertInvoiceParams, err := makeInsertInvoiceParams(
+		newInvoice, paymentHash,
+	)
+	if err != nil {
+		return 0, err
 	}
 
-	err := i.db.ExecTx(ctx, &writeTxOpts, func(db SQLInvoiceQueries) error {
-		params := sqlc.InsertInvoiceParams{
-			Hash:       paymentHash[:],
-			Memo:       sqldb.SQLStr(string(newInvoice.Memo)),
-			AmountMsat: int64(newInvoice.Terms.Value),
-			// Note: BOLT12 invoices don't have a final cltv delta.
-			CltvDelta: sqldb.SQLInt32(
-				newInvoice.Terms.FinalCltvDelta,
-			),
-			Expiry: int32(newInvoice.Terms.Expiry.Seconds()),
-			// Note: keysend invoices don't have a payment request.
-			PaymentRequest: sqldb.SQLStr(string(
-				newInvoice.PaymentRequest),
-			),
-			PaymentRequestHash: paymentRequestHash,
-			State:              int16(newInvoice.State),
-			AmountPaidMsat:     int64(newInvoice.AmtPaid),
-			IsAmp:              newInvoice.IsAMP(),
-			IsHodl:             newInvoice.HodlInvoice,
-			IsKeysend:          newInvoice.IsKeysend(),
-			CreatedAt:          newInvoice.CreationDate.UTC(),
-		}
-
-		// Some invoices may not have a preimage, like in the case of
-		// HODL invoices.
-		if newInvoice.Terms.PaymentPreimage != nil {
-			preimage := *newInvoice.Terms.PaymentPreimage
-			if preimage == UnknownPreimage {
-				return errors.New("cannot use all-zeroes " +
-					"preimage")
-			}
-			params.Preimage = preimage[:]
-		}
-
-		// Some non MPP payments may have the default (invalid) value.
-		if newInvoice.Terms.PaymentAddr != BlankPayAddr {
-			params.PaymentAddr = newInvoice.Terms.PaymentAddr[:]
-		}
-
+	err = i.db.ExecTx(ctx, &writeTxOpts, func(db SQLInvoiceQueries) error {
 		var err error
-		invoiceID, err = db.InsertInvoice(ctx, params)
+		invoiceID, err = db.InsertInvoice(ctx, insertInvoiceParams)
 		if err != nil {
 			return fmt.Errorf("unable to insert invoice: %w", err)
 		}

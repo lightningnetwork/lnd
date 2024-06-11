@@ -32,6 +32,10 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 	InsertInvoice(ctx context.Context, arg sqlc.InsertInvoiceParams) (int64,
 		error)
 
+	// TODO(bhandras): remove this once migrations have been separated out.
+	InsertMigratedInvoice(ctx context.Context,
+		arg sqlc.InsertMigratedInvoiceParams) (int64, error)
+
 	InsertInvoiceFeature(ctx context.Context,
 		arg sqlc.InsertInvoiceFeatureParams) error
 

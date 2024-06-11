@@ -591,6 +591,8 @@ func (c *ChainArbitrator) Start() error {
 				isOurAddr:           c.cfg.IsOurAddress,
 				contractBreach:      breachClosure,
 				extractStateNumHint: lnwallet.GetStateNumHint,
+				auxLeafStore:        c.cfg.AuxLeafStore,
+				auxResolver:         c.cfg.AuxResolver,
 			},
 		)
 		if err != nil {
@@ -1208,11 +1210,10 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	// that we detect any relevant on chain events.
 	chainWatcher, err := newChainWatcher(
 		chainWatcherConfig{
-			chanState:   newChan,
-			notifier:    c.cfg.Notifier,
-			signer:      c.cfg.Signer,
-			isOurAddr:   c.cfg.IsOurAddress,
-			auxResolver: c.cfg.AuxResolver,
+			chanState: newChan,
+			notifier:  c.cfg.Notifier,
+			signer:    c.cfg.Signer,
+			isOurAddr: c.cfg.IsOurAddress,
 			contractBreach: func(
 				retInfo *lnwallet.BreachRetribution) error {
 
@@ -1221,6 +1222,8 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 				)
 			},
 			extractStateNumHint: lnwallet.GetStateNumHint,
+			auxLeafStore:        c.cfg.AuxLeafStore,
+			auxResolver:         c.cfg.AuxResolver,
 		},
 	)
 	if err != nil {

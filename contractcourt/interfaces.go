@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -29,11 +30,12 @@ type Registry interface {
 	// the resolution is sent on the passed in hodlChan later.
 	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
 		expiry uint32, currentHeight int32,
-		circuitKey models.CircuitKey, hodlChan chan<- interface{},
+		circuitKey models.CircuitKey,
+		subscriber *fn.ConcurrentQueue[invoices.HtlcResolution],
 		payload invoices.Payload) (invoices.HtlcResolution, error)
 
 	// HodlUnsubscribeAll unsubscribes from all htlc resolutions.
-	HodlUnsubscribeAll(subscriber chan<- interface{})
+	HodlUnsubscribeAll(subscriber *fn.ConcurrentQueue[invoices.HtlcResolution])
 }
 
 // OnionProcessor is an interface used to decode onion blobs.

@@ -17,7 +17,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/queue"
 )
 
 // htlcIncomingContestResolver is a ContractResolver that's able to resolve an
@@ -287,12 +286,12 @@ func (h *htlcIncomingContestResolver) Resolve(
 	}
 
 	var (
-		hodlChan       <-chan interface{}
+		hodlChan       <-chan invoices.HtlcResolution
 		witnessUpdates <-chan lntypes.Preimage
 	)
 	if payload.FwdInfo.NextHop == hop.Exit {
 		// Create a buffered hodl chan to prevent deadlock.
-		hodlQueue := queue.NewConcurrentQueue(10)
+		hodlQueue := fn.NewConcurrentQueue[invoices.HtlcResolution](10)
 		hodlQueue.Start()
 
 		hodlChan = hodlQueue.ChanOut()
@@ -308,14 +307,14 @@ func (h *htlcIncomingContestResolver) Resolve(
 
 		resolution, err := h.Registry.NotifyExitHopHtlc(
 			h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, currentHeight,
-			circuitKey, hodlQueue.ChanIn(), payload,
+			circuitKey, hodlQueue, payload,
 		)
 		if err != nil {
 			return nil, err
 		}
 
 		defer func() {
-			h.Registry.HodlUnsubscribeAll(hodlQueue.ChanIn())
+			h.Registry.HodlUnsubscribeAll(hodlQueue)
 
 			hodlQueue.Stop()
 		}()

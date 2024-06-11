@@ -173,10 +173,10 @@ func TestHtlcIncomingResolverExitSettleHodl(t *testing.T) {
 	ctx.resolve()
 
 	notifyData := <-ctx.registry.notifyChan
-	notifyData.hodlChan <- invoices.NewSettleResolution(
+	notifyData.subscriber.Enqueue(invoices.NewSettleResolution(
 		testResPreimage, testResCircuitKey, testAcceptHeight,
 		invoices.ResultSettled,
-	)
+	))
 
 	ctx.waitForResult(true)
 }
@@ -243,9 +243,9 @@ func TestHtlcIncomingResolverExitCancelHodl(t *testing.T) {
 
 	ctx.resolve()
 	notifyData := <-ctx.registry.notifyChan
-	notifyData.hodlChan <- invoices.NewFailResolution(
+	notifyData.subscriber.Enqueue(invoices.NewFailResolution(
 		testResCircuitKey, testAcceptHeight, invoices.ResultCanceled,
-	)
+	))
 
 	// Assert that we have a failure resolution because our invoice was
 	// cancelled.

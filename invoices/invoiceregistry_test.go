@@ -15,6 +15,8 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/invoices"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -242,13 +244,15 @@ func testSettleInvoice(t *testing.T,
 		t.Fatal("no update received")
 	}
 
-	hodlChan := make(chan interface{}, 1)
+	subscriber := fn.NewConcurrentQueue[invoices.HtlcResolution](10)
+	subscriber.Start()
+	defer subscriber.Stop()
 
 	// Try to settle invoice with an htlc that expires too soon.
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoice.Terms.Value,
 		uint32(testCurrentHeight)+testInvoiceCltvDelta-1,
-		testCurrentHeight, getCircuitKey(10), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(10), subscriber, testPayload,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -263,7 +267,7 @@ func testSettleInvoice(t *testing.T,
 	amtPaid := lnwire.MilliSatoshi(100500)
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(0), hodlChan,
+		testCurrentHeight, getCircuitKey(0), subscriber,
 		testPayload,
 	)
 	if err != nil {
@@ -305,7 +309,7 @@ func testSettleInvoice(t *testing.T,
 	// behaviour after a restart.
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(0), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(0), subscriber, testPayload,
 	)
 	require.NoError(t, err, "unexpected NotifyExitHopHtlc error")
 	require.NotNil(t, resolution)
@@ -319,7 +323,7 @@ func testSettleInvoice(t *testing.T,
 	// paid invoice that may open up a probe vector.
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid+600, testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(1), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(1), subscriber, testPayload,
 	)
 	require.NoError(t, err, "unexpected NotifyExitHopHtlc error")
 	require.NotNil(t, resolution)
@@ -334,7 +338,7 @@ func testSettleInvoice(t *testing.T,
 	// would have failed if it were the first payment.
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid-600, testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(2), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(2), subscriber, testPayload,
 	)
 	require.NoError(t, err, "unexpected NotifyExitHopHtlc error")
 	require.NotNil(t, resolution)
@@ -357,7 +361,7 @@ func testSettleInvoice(t *testing.T,
 
 	// As this is a direct settle, we expect nothing on the hodl chan.
 	select {
-	case <-hodlChan:
+	case <-subscriber.ChanOut():
 		t.Fatal("unexpected resolution")
 	default:
 	}
@@ -466,12 +470,15 @@ func testCancelInvoiceImpl(t *testing.T, gc bool,
 		require.NoError(t, err)
 	}
 
+	subscriber := fn.NewConcurrentQueue[invoices.HtlcResolution](10)
+	subscriber.Start()
+	defer subscriber.Stop()
+
 	// Notify arrival of a new htlc paying to this invoice. This should
 	// result in a cancel resolution.
-	hodlChan := make(chan interface{})
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoiceAmount, testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(0), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(0), subscriber, testPayload,
 	)
 	if err != nil {
 		t.Fatal("expected settlement of a canceled invoice to succeed")
@@ -573,13 +580,15 @@ func testSettleHoldInvoice(t *testing.T,
 	// Use slightly higher amount for accept/settle.
 	amtPaid := lnwire.MilliSatoshi(100500)
 
-	hodlChan := make(chan interface{}, 1)
+	subscriber := fn.NewConcurrentQueue[invoices.HtlcResolution](10)
+	subscriber.Start()
+	defer subscriber.Stop()
 
 	// NotifyExitHopHtlc without a preimage present in the invoice registry
 	// should be possible.
 	resolution, err := registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(0), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(0), subscriber, testPayload,
 	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
@@ -591,7 +600,7 @@ func testSettleHoldInvoice(t *testing.T,
 	// Test idempotency.
 	resolution, err = registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(0), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(0), subscriber, testPayload,
 	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
@@ -604,7 +613,7 @@ func testSettleHoldInvoice(t *testing.T,
 	// is a replay.
 	resolution, err = registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, testHtlcExpiry,
-		testCurrentHeight+10, getCircuitKey(0), hodlChan, testPayload,
+		testCurrentHeight+10, getCircuitKey(0), subscriber, testPayload,
 	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
@@ -617,7 +626,7 @@ func testSettleHoldInvoice(t *testing.T,
 	// requirement. It should be rejected.
 	resolution, err = registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, 1, testCurrentHeight,
-		getCircuitKey(1), hodlChan, testPayload,
+		getCircuitKey(1), subscriber, testPayload,
 	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
@@ -641,7 +650,7 @@ func testSettleHoldInvoice(t *testing.T,
 	err = registry.SettleHodlInvoice(ctxb, testInvoicePreimage)
 	require.NoError(t, err, "expected set preimage to succeed")
 
-	htlcResolution, _ := (<-hodlChan).(invpkg.HtlcResolution)
+	htlcResolution, _ := subscriber.Dequeue()
 	require.NotNil(t, htlcResolution)
 	settleResolution := checkSettleResolution(
 		t, htlcResolution, testInvoicePreimage,
@@ -714,13 +723,16 @@ func testCancelHoldInvoice(t *testing.T,
 	require.NoError(t, err)
 
 	amtPaid := lnwire.MilliSatoshi(100000)
-	hodlChan := make(chan interface{}, 1)
+
+	subscriber := fn.NewConcurrentQueue[invoices.HtlcResolution](10)
+	subscriber.Start()
+	defer subscriber.Stop()
 
 	// NotifyExitHopHtlc without a preimage present in the invoice registry
 	// should be possible.
 	resolution, err := registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(0), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(0), subscriber, testPayload,
 	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
@@ -733,7 +745,7 @@ func testCancelHoldInvoice(t *testing.T,
 	err = registry.CancelInvoice(ctxb, testInvoicePaymentHash)
 	require.NoError(t, err, "cancel invoice failed")
 
-	htlcResolution, _ := (<-hodlChan).(invpkg.HtlcResolution)
+	htlcResolution, _ := subscriber.Dequeue()
 	require.NotNil(t, htlcResolution)
 	checkFailResolution(t, htlcResolution, invpkg.ResultCanceled)
 
@@ -742,7 +754,7 @@ func testCancelHoldInvoice(t *testing.T,
 	// accept height.
 	resolution, err = registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, testHtlcExpiry,
-		testCurrentHeight+1, getCircuitKey(0), hodlChan, testPayload,
+		testCurrentHeight+1, getCircuitKey(0), subscriber, testPayload,
 	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
@@ -767,11 +779,14 @@ func testUnknownInvoice(t *testing.T,
 
 	// Notify arrival of a new htlc paying to this invoice. This should
 	// succeed.
-	hodlChan := make(chan interface{})
+	subscriber := fn.NewConcurrentQueue[invoices.HtlcResolution](10)
+	subscriber.Start()
+	defer subscriber.Stop()
+
 	amt := lnwire.MilliSatoshi(100000)
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amt, testHtlcExpiry, testCurrentHeight,
-		getCircuitKey(0), hodlChan, testPayload,
+		getCircuitKey(0), subscriber, testPayload,
 	)
 	if err != nil {
 		t.Fatal("unexpected error")
@@ -813,7 +828,9 @@ func testKeySendImpl(t *testing.T, keySendEnabled bool,
 	require.NoError(t, err)
 	defer allSubscriptions.Cancel()
 
-	hodlChan := make(chan interface{}, 1)
+	subscriber := fn.NewConcurrentQueue[invoices.HtlcResolution](10)
+	subscriber.Start()
+	defer subscriber.Stop()
 
 	amt := lnwire.MilliSatoshi(1000)
 	expiry := uint32(testCurrentHeight + 20)
@@ -831,7 +848,7 @@ func testKeySendImpl(t *testing.T, keySendEnabled bool,
 
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		hash, amt, expiry,
-		testCurrentHeight, getCircuitKey(10), hodlChan,
+		testCurrentHeight, getCircuitKey(10), subscriber,
 		invalidKeySendPayload,
 	)
 	if err != nil {
@@ -854,7 +871,7 @@ func testKeySendImpl(t *testing.T, keySendEnabled bool,
 
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		hash, amt, expiry,
-		testCurrentHeight, getCircuitKey(10), hodlChan, keySendPayload,
+		testCurrentHeight, getCircuitKey(10), subscriber, keySendPayload,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -883,7 +900,7 @@ func testKeySendImpl(t *testing.T, keySendEnabled bool,
 	// but no event should be generated.
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		hash, amt, expiry,
-		testCurrentHeight, getCircuitKey(10), hodlChan, keySendPayload,
+		testCurrentHeight, getCircuitKey(10), subscriber, keySendPayload,
 	)
 	require.Nil(t, err)
 	checkSettleResolution(t, resolution, preimage)
@@ -907,7 +924,7 @@ func testKeySendImpl(t *testing.T, keySendEnabled bool,
 
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		hash2, amt, expiry,
-		testCurrentHeight, getCircuitKey(20), hodlChan, keySendPayload2,
+		testCurrentHeight, getCircuitKey(20), subscriber, keySendPayload2,
 	)
 	require.Nil(t, err)
 
@@ -948,7 +965,9 @@ func testHoldKeysendImpl(t *testing.T, timeoutKeysend bool,
 	require.NoError(t, err)
 	defer allSubscriptions.Cancel()
 
-	hodlChan := make(chan interface{}, 1)
+	subscriber := fn.NewConcurrentQueue[invoices.HtlcResolution](10)
+	subscriber.Start()
+	defer subscriber.Stop()
 
 	amt := lnwire.MilliSatoshi(1000)
 	expiry := uint32(testCurrentHeight + 20)
@@ -966,7 +985,7 @@ func testHoldKeysendImpl(t *testing.T, timeoutKeysend bool,
 
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		hash, amt, expiry,
-		testCurrentHeight, getCircuitKey(10), hodlChan, keysendPayload,
+		testCurrentHeight, getCircuitKey(10), subscriber, keysendPayload,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -997,7 +1016,7 @@ func testHoldKeysendImpl(t *testing.T, timeoutKeysend bool,
 		)
 
 		// Expect the keysend payment to be failed.
-		res := <-hodlChan
+		res, _ := subscriber.Dequeue()
 		failResolution, ok := res.(*invpkg.HtlcFailResolution)
 		require.Truef(
 			t, ok, "expected fail resolution, got: %T",
@@ -1045,11 +1064,14 @@ func testMppPayment(t *testing.T,
 	}
 
 	// Send htlc 1.
-	hodlChan1 := make(chan interface{}, 1)
+	subscriber1 := fn.NewConcurrentQueue[invoices.HtlcResolution](10)
+	subscriber1.Start()
+	defer subscriber1.Stop()
+
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoice.Terms.Value/2,
 		testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(10), hodlChan1, mppPayload,
+		testCurrentHeight, getCircuitKey(10), subscriber1, mppPayload,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1061,7 +1083,7 @@ func testMppPayment(t *testing.T,
 	// Simulate mpp timeout releasing htlc 1.
 	ctx.clock.SetTime(testTime.Add(30 * time.Second))
 
-	htlcResolution, _ := (<-hodlChan1).(invpkg.HtlcResolution)
+	htlcResolution, _ := subscriber1.Dequeue()
 	failResolution, ok := htlcResolution.(*invpkg.HtlcFailResolution)
 	if !ok {
 		t.Fatalf("expected fail resolution, got: %T",
@@ -1073,11 +1095,14 @@ func testMppPayment(t *testing.T,
 	}
 
 	// Send htlc 2.
-	hodlChan2 := make(chan interface{}, 1)
+	subscriber2 := fn.NewConcurrentQueue[invoices.HtlcResolution](10)
+	subscriber2.Start()
+	defer subscriber2.Stop()
+
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoice.Terms.Value/2,
 		testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(11), hodlChan2, mppPayload,
+		testCurrentHeight, getCircuitKey(11), subscriber2, mppPayload,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1087,11 +1112,14 @@ func testMppPayment(t *testing.T,
 	}
 
 	// Send htlc 3.
-	hodlChan3 := make(chan interface{}, 1)
+	subscriber3 := fn.NewConcurrentQueue[invoices.HtlcResolution](10)
+	subscriber3.Start()
+	defer subscriber3.Stop()
+
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoice.Terms.Value/2,
 		testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(12), hodlChan3, mppPayload,
+		testCurrentHeight, getCircuitKey(12), subscriber3, mppPayload,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1146,11 +1174,14 @@ func testMppPaymentWithOverpayment(t *testing.T,
 		overpayment := lnwire.MilliSatoshi((overpaymentRand % 999) + 1)
 
 		// Send htlc 1.
-		hodlChan1 := make(chan interface{}, 1)
+		subscriber1 := fn.NewConcurrentQueue[invoices.HtlcResolution](10)
+		subscriber1.Start()
+		defer subscriber1.Stop()
+
 		resolution, err := ctx.registry.NotifyExitHopHtlc(
 			testInvoicePaymentHash, testInvoice.Terms.Value/2,
 			testHtlcExpiry, testCurrentHeight, getCircuitKey(11),
-			hodlChan1, mppPayload,
+			subscriber1, mppPayload,
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -1160,11 +1191,13 @@ func testMppPaymentWithOverpayment(t *testing.T,
 		}
 
 		// Send htlc 2.
-		hodlChan2 := make(chan interface{}, 1)
+		subscriber2 := fn.NewConcurrentQueue[invoices.HtlcResolution](10)
+		subscriber2.Start()
+		defer subscriber2.Stop()
 		resolution, err = ctx.registry.NotifyExitHopHtlc(
 			testInvoicePaymentHash,
 			testInvoice.Terms.Value/2+overpayment, testHtlcExpiry,
-			testCurrentHeight, getCircuitKey(12), hodlChan2,
+			testCurrentHeight, getCircuitKey(12), subscriber2,
 			mppPayload,
 		)
 		if err != nil {
@@ -1439,7 +1472,10 @@ func testHeightExpiryWithRegistryImpl(t *testing.T, numParts int, settle bool,
 	}
 
 	htlcAmt := testInvoice.Terms.Value / lnwire.MilliSatoshi(numParts)
-	hodlChan := make(chan interface{}, numParts)
+	subscriber := fn.NewConcurrentQueue[invoices.HtlcResolution](numParts)
+	subscriber.Start()
+	defer subscriber.Stop()
+
 	for i := 0; i < numParts; i++ {
 		// We bump our expiry height for each htlc so that we can test
 		// that the lowest expiry height is used.
@@ -1447,7 +1483,7 @@ func testHeightExpiryWithRegistryImpl(t *testing.T, numParts int, settle bool,
 
 		resolution, err := ctx.registry.NotifyExitHopHtlc(
 			testInvoicePaymentHash, htlcAmt, expiry,
-			testCurrentHeight, getCircuitKey(uint64(i)), hodlChan,
+			testCurrentHeight, getCircuitKey(uint64(i)), subscriber,
 			payLoad,
 		)
 		require.NoError(t, err)
@@ -1485,7 +1521,7 @@ func testHeightExpiryWithRegistryImpl(t *testing.T, numParts int, settle bool,
 		require.NoError(t, err)
 
 		for i := 0; i < numParts; i++ {
-			resolution, _ := (<-hodlChan).(invpkg.HtlcResolution)
+			resolution, _ := subscriber.Dequeue()
 			require.NotNil(t, resolution)
 			settleResolution := checkSettleResolution(
 				t, resolution, testInvoicePreimage,
@@ -1506,7 +1542,7 @@ func testHeightExpiryWithRegistryImpl(t *testing.T, numParts int, settle bool,
 	if !settle {
 		expectedState = invpkg.ContractCanceled
 
-		htlcResolution, _ := (<-hodlChan).(invpkg.HtlcResolution)
+		htlcResolution, _ := subscriber.Dequeue()
 		require.NotNil(t, htlcResolution)
 		checkFailResolution(
 			t, htlcResolution, invpkg.ResultCanceled,
@@ -1547,11 +1583,14 @@ func testMultipleSetHeightExpiry(t *testing.T,
 	}
 
 	// Send htlc 1.
-	hodlChan1 := make(chan interface{}, 1)
+	subscriber1 := fn.NewConcurrentQueue[invoices.HtlcResolution](1)
+	subscriber1.Start()
+	defer subscriber1.Stop()
+
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoice.Terms.Value/2,
 		testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(10), hodlChan1, mppPayload,
+		testCurrentHeight, getCircuitKey(10), subscriber1, mppPayload,
 	)
 	require.NoError(t, err)
 	require.Nil(t, resolution, "did not expect direct resolution")
@@ -1559,7 +1598,7 @@ func testMultipleSetHeightExpiry(t *testing.T,
 	// Simulate mpp timeout releasing htlc 1.
 	ctx.clock.SetTime(testTime.Add(30 * time.Second))
 
-	htlcResolution, _ := (<-hodlChan1).(invpkg.HtlcResolution)
+	htlcResolution, _ := subscriber1.Dequeue()
 	failResolution, ok := htlcResolution.(*invpkg.HtlcFailResolution)
 	require.True(t, ok, "expected fail resolution, got: %T", resolution)
 	require.Equal(t, invpkg.ResultMppTimeout, failResolution.Outcome,
@@ -1577,19 +1616,25 @@ func testMultipleSetHeightExpiry(t *testing.T,
 	expiry := testHtlcExpiry + 5
 
 	// Send htlc 2.
-	hodlChan2 := make(chan interface{}, 1)
+	subscriber2 := fn.NewConcurrentQueue[invoices.HtlcResolution](1)
+	subscriber2.Start()
+	defer subscriber2.Stop()
+
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoice.Terms.Value/2, expiry,
-		testCurrentHeight, getCircuitKey(11), hodlChan2, mppPayload,
+		testCurrentHeight, getCircuitKey(11), subscriber2, mppPayload,
 	)
 	require.NoError(t, err)
 	require.Nil(t, resolution, "did not expect direct resolution")
 
 	// Send htlc 3.
-	hodlChan3 := make(chan interface{}, 1)
+	subscriber3 := fn.NewConcurrentQueue[invoices.HtlcResolution](10)
+	subscriber3.Start()
+	defer subscriber3.Stop()
+
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoice.Terms.Value/2, expiry,
-		testCurrentHeight, getCircuitKey(12), hodlChan3, mppPayload,
+		testCurrentHeight, getCircuitKey(12), subscriber3, mppPayload,
 	)
 	require.NoError(t, err)
 	require.Nil(t, resolution, "did not expect direct resolution")
@@ -1686,7 +1731,9 @@ func testSettleInvoicePaymentAddrRequired(t *testing.T,
 		t.Fatal("no update received")
 	}
 
-	hodlChan := make(chan interface{}, 1)
+	subscriber := fn.NewConcurrentQueue[invoices.HtlcResolution](1)
+	subscriber.Start()
+	defer subscriber.Stop()
 
 	// Now try to settle the invoice, the testPayload doesn't have any mpp
 	// information, so it should be forced to the updateLegacy path then
@@ -1694,7 +1741,7 @@ func testSettleInvoicePaymentAddrRequired(t *testing.T,
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, invoice.Terms.Value,
 		uint32(testCurrentHeight)+testInvoiceCltvDelta-1,
-		testCurrentHeight, getCircuitKey(10), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(10), subscriber, testPayload,
 	)
 	require.NoError(t, err)
 
@@ -1781,11 +1828,14 @@ func testSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T,
 
 	// We'll now attempt to settle the invoice as normal, this should work
 	// no problem as we should allow these existing invoices to be settled.
-	hodlChan := make(chan interface{}, 1)
+	subscriber := fn.NewConcurrentQueue[invoices.HtlcResolution](1)
+	subscriber.Start()
+	defer subscriber.Stop()
+
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoiceAmount,
 		testHtlcExpiry, testCurrentHeight,
-		getCircuitKey(10), hodlChan, testPayload,
+		getCircuitKey(10), subscriber, testPayload,
 	)
 	require.NoError(t, err)
 
@@ -1845,10 +1895,13 @@ func testAMPWithoutMPPPayload(t *testing.T,
 		amp: record.NewAMP([32]byte{}, [32]byte{}, 0),
 	}
 
-	hodlChan := make(chan interface{}, 1)
+	subscriber := fn.NewConcurrentQueue[invoices.HtlcResolution](1)
+	subscriber.Start()
+	defer subscriber.Stop()
+
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		lntypes.Hash{}, shardAmt, expiry,
-		testCurrentHeight, getCircuitKey(uint64(10)), hodlChan,
+		testCurrentHeight, getCircuitKey(uint64(10)), subscriber,
 		payload,
 	)
 	require.NoError(t, err)
@@ -1983,11 +2036,13 @@ func testSpontaneousAmpPaymentImpl(
 
 	// Record the hodl channels of all HTLCs but the last one, which
 	// received its resolution directly from NotifyExistHopHtlc.
-	hodlChans := make(map[lntypes.Preimage]chan interface{})
+	hodlSubscribers := make(map[lntypes.Preimage]*fn.ConcurrentQueue[invoices.HtlcResolution])
 	for i := 0; i < numShards; i++ {
 		isFinalShard := i == numShards-1
 
-		hodlChan := make(chan interface{}, 1)
+		subscriber := fn.NewConcurrentQueue[invoices.HtlcResolution](1)
+		subscriber.Start()
+		defer subscriber.Stop()
 
 		var child *amp.Child
 		if !isFinalShard {
@@ -1998,7 +2053,7 @@ func testSpontaneousAmpPaymentImpl(
 			child = left.Child(uint32(i))
 
 			// Only store the first numShards-1 hodlChans.
-			hodlChans[child.Preimage] = hodlChan
+			hodlSubscribers[child.Preimage] = subscriber
 		} else {
 			child = sharer.Child(uint32(i))
 		}
@@ -2017,7 +2072,7 @@ func testSpontaneousAmpPaymentImpl(
 
 		resolution, err := ctx.registry.NotifyExitHopHtlc(
 			child.Hash, shardAmt, expiry,
-			testCurrentHeight, getCircuitKey(uint64(i)), hodlChan,
+			testCurrentHeight, getCircuitKey(uint64(i)), subscriber,
 			payload,
 		)
 		require.NoError(t, err)
@@ -2082,9 +2137,8 @@ func testSpontaneousAmpPaymentImpl(
 
 	// For the non-final hodl chans, assert that they receive the expected
 	// failure or preimage.
-	for preimage, hodlChan := range hodlChans {
-		resolution, ok := (<-hodlChan).(invpkg.HtlcResolution)
-		require.True(t, ok)
+	for preimage, subscriber := range hodlSubscribers {
+		resolution, _ := subscriber.Dequeue()
 		require.NotNil(t, resolution)
 		if failReconstruction {
 			checkFailResolution(

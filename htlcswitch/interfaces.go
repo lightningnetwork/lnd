@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -29,7 +30,8 @@ type InvoiceDatabase interface {
 	// for decoding purposes.
 	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
 		expiry uint32, currentHeight int32,
-		circuitKey models.CircuitKey, hodlChan chan<- interface{},
+		circuitKey models.CircuitKey,
+		hodlSubscriber *fn.ConcurrentQueue[invoices.HtlcResolution],
 		payload invoices.Payload) (invoices.HtlcResolution, error)
 
 	// CancelInvoice attempts to cancel the invoice corresponding to the
@@ -40,7 +42,7 @@ type InvoiceDatabase interface {
 	SettleHodlInvoice(ctx context.Context, preimage lntypes.Preimage) error
 
 	// HodlUnsubscribeAll unsubscribes from all htlc resolutions.
-	HodlUnsubscribeAll(subscriber chan<- interface{})
+	HodlUnsubscribeAll(subscriber *fn.ConcurrentQueue[invoices.HtlcResolution])
 }
 
 // packetHandler is an interface used exclusively by the Switch to handle

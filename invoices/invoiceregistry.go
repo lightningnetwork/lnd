@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
@@ -134,11 +135,11 @@ type InvoiceRegistry struct {
 
 	// hodlSubscriptions is a map from a circuit key to a list of
 	// subscribers. It is used for efficient notification of links.
-	hodlSubscriptions map[CircuitKey]map[chan<- interface{}]struct{}
+	hodlSubscriptions map[CircuitKey]map[*fn.ConcurrentQueue[HtlcResolution]]struct{}
 
 	// reverseSubscriptions tracks circuit keys subscribed to per
 	// subscriber. This is used to unsubscribe from all hashes efficiently.
-	hodlReverseSubscriptions map[chan<- interface{}]map[CircuitKey]struct{}
+	hodlReverseSubscriptions map[*fn.ConcurrentQueue[HtlcResolution]]map[CircuitKey]struct{}
 
 	// htlcAutoReleaseChan contains the new htlcs that need to be
 	// auto-released.
@@ -165,10 +166,10 @@ func NewRegistry(idb InvoiceDB, expiryWatcher *InvoiceExpiryWatcher,
 		singleNotificationClients: singleNotificationClients,
 		invoiceEvents:             make(chan *invoiceEvent, 100),
 		hodlSubscriptions: make(
-			map[CircuitKey]map[chan<- interface{}]struct{},
+			map[CircuitKey]map[*fn.ConcurrentQueue[HtlcResolution]]struct{},
 		),
 		hodlReverseSubscriptions: make(
-			map[chan<- interface{}]map[CircuitKey]struct{},
+			map[*fn.ConcurrentQueue[HtlcResolution]]map[CircuitKey]struct{},
 		),
 		cfg:                 cfg,
 		htlcAutoReleaseChan: make(chan *htlcReleaseEvent),
@@ -886,7 +887,7 @@ func (i *InvoiceRegistry) processAMP(ctx invoiceUpdateCtx) error {
 // held htlc.
 func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	amtPaid lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	circuitKey CircuitKey, hodlChan chan<- interface{},
+	circuitKey CircuitKey, hodlSubscriber *fn.ConcurrentQueue[HtlcResolution],
 	payload Payload) (HtlcResolution, error) {
 
 	// Create the update context containing the relevant details of the
@@ -936,7 +937,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	// Execute locked notify exit hop logic.
 	i.Lock()
 	resolution, invoiceToExpire, err := i.notifyExitHopHtlcLocked(
-		&ctx, hodlChan,
+		&ctx, hodlSubscriber,
 	)
 	i.Unlock()
 	if err != nil {
@@ -987,7 +988,8 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 // that should be executed inside the registry lock. The returned invoiceExpiry
 // (if not nil) needs to be added to the expiry watcher outside of the lock.
 func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
-	ctx *invoiceUpdateCtx, hodlChan chan<- interface{}) (
+	ctx *invoiceUpdateCtx,
+	hodlSubscriber *fn.ConcurrentQueue[HtlcResolution]) (
 	HtlcResolution, invoiceExpiry, error) {
 
 	// We'll attempt to settle an invoice matching this rHash on disk (if
@@ -1176,7 +1178,7 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 			invoiceToExpire = makeInvoiceExpiry(ctx.hash, invoice)
 		}
 
-		i.hodlSubscribe(hodlChan, ctx.circuitKey)
+		i.hodlSubscribe(hodlSubscriber, ctx.circuitKey)
 
 	default:
 		panic("unknown action")
@@ -1688,8 +1690,21 @@ func (i *InvoiceRegistry) notifyHodlSubscribers(htlcResolution HtlcResolution) {
 	// maps. The subscription can be removed as there only ever will be a
 	// single resolution for each hash.
 	for subscriber := range subscribers {
+
+		// We wrap the Enqueue method in a goroutine so that we can exit
+		// in case the invoiceregistry quits.
+		resultChan := make(chan struct{})
+		go func() {
+			err := subscriber.Enqueue(htlcResolution)
+			if err != nil {
+				// Handle error from Enqueue
+				fmt.Println("Error enqueuing:", err)
+			}
+			resultChan <- struct{}{}
+		}()
+
 		select {
-		case subscriber <- htlcResolution:
+		case <-resultChan:
 		case <-i.quit:
 			return
 		}
@@ -1704,8 +1719,8 @@ func (i *InvoiceRegistry) notifyHodlSubscribers(htlcResolution HtlcResolution) {
 }
 
 // hodlSubscribe adds a new invoice subscription.
-func (i *InvoiceRegistry) hodlSubscribe(subscriber chan<- interface{},
-	circuitKey CircuitKey) {
+func (i *InvoiceRegistry) hodlSubscribe(
+	subscriber *fn.ConcurrentQueue[HtlcResolution], circuitKey CircuitKey) {
 
 	i.hodlSubscriptionsMux.Lock()
 	defer i.hodlSubscriptionsMux.Unlock()
@@ -1714,7 +1729,7 @@ func (i *InvoiceRegistry) hodlSubscribe(subscriber chan<- interface{},
 
 	subscriptions, ok := i.hodlSubscriptions[circuitKey]
 	if !ok {
-		subscriptions = make(map[chan<- interface{}]struct{})
+		subscriptions = make(map[*fn.ConcurrentQueue[HtlcResolution]]struct{})
 		i.hodlSubscriptions[circuitKey] = subscriptions
 	}
 	subscriptions[subscriber] = struct{}{}
@@ -1728,7 +1743,9 @@ func (i *InvoiceRegistry) hodlSubscribe(subscriber chan<- interface{},
 }
 
 // HodlUnsubscribeAll cancels the subscription.
-func (i *InvoiceRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) {
+func (i *InvoiceRegistry) HodlUnsubscribeAll(
+	subscriber *fn.ConcurrentQueue[HtlcResolution]) {
+
 	i.hodlSubscriptionsMux.Lock()
 	defer i.hodlSubscriptionsMux.Unlock()
 

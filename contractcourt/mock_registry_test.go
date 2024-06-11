@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -12,7 +13,7 @@ import (
 type notifyExitHopData struct {
 	payHash       lntypes.Hash
 	paidAmount    lnwire.MilliSatoshi
-	hodlChan      chan<- interface{}
+	subscriber    *fn.ConcurrentQueue[invoices.HtlcResolution]
 	expiry        uint32
 	currentHeight int32
 }
@@ -25,11 +26,12 @@ type mockRegistry struct {
 
 func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
 	paidAmount lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	circuitKey models.CircuitKey, hodlChan chan<- interface{},
+	circuitKey models.CircuitKey,
+	subscriber *fn.ConcurrentQueue[invoices.HtlcResolution],
 	payload invoices.Payload) (invoices.HtlcResolution, error) {
 
 	r.notifyChan <- notifyExitHopData{
-		hodlChan:      hodlChan,
+		subscriber:    subscriber,
 		payHash:       payHash,
 		paidAmount:    paidAmount,
 		expiry:        expiry,
@@ -39,7 +41,9 @@ func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
 	return r.notifyResolution, r.notifyErr
 }
 
-func (r *mockRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) {}
+func (r *mockRegistry) HodlUnsubscribeAll(
+	subscriber *fn.ConcurrentQueue[invoices.HtlcResolution]) {
+}
 
 func (r *mockRegistry) LookupInvoice(context.Context, lntypes.Hash) (
 	invoices.Invoice, error) {

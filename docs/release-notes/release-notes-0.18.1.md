@@ -19,6 +19,10 @@
 
 # Bug Fixes
 
+* `closedchannels` now [successfully reports](https://github.com/lightningnetwork/lnd/pull/8800)
+  settled balances even if the delivery address is set to an address that
+  LND does not control.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

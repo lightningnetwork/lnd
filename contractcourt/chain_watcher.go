@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,8 +17,10 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 const (
@@ -970,28 +973,67 @@ func (c *chainWatcher) handleUnknownRemoteState(
 }
 
 // toSelfAmount takes a transaction and returns the sum of all outputs that pay
-// to a script that the wallet controls. If no outputs pay to us, then we
+// to a script that the wallet controls or the channel defines as its delivery
+// script . If no outputs pay to us (determined by these criteria), then we
 // return zero. This is possible as our output may have been trimmed due to
 // being dust.
 func (c *chainWatcher) toSelfAmount(tx *wire.MsgTx) btcutil.Amount {
-	var selfAmt btcutil.Amount
-	for _, txOut := range tx.TxOut {
-		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-			// Doesn't matter what net we actually pass in.
-			txOut.PkScript, &chaincfg.TestNet3Params,
-		)
-		if err != nil {
-			continue
-		}
+	// There are two main cases we have to handle here. First, in the coop
+	// close case we will always have saved the delivery address we used
+	// whether it was from the upfront shutdown, from the delivery address
+	// requested at close time, or even an automatically generated one. All
+	// coop-close cases can be identified in the following manner:
+	shutdown, _ := c.cfg.chanState.ShutdownInfo()
+	oDeliveryAddr := fn.MapOption(
+		func(i channeldb.ShutdownInfo) lnwire.DeliveryAddress {
+			return i.DeliveryScript.Val
+		})(shutdown)
 
-		for _, addr := range addrs {
-			if c.cfg.isOurAddr(addr) {
-				selfAmt += btcutil.Amount(txOut.Value)
-			}
-		}
+	// Here we define a function capable of identifying whether an output
+	// corresponds with our local delivery script from a ShutdownInfo if we
+	// have a ShutdownInfo for this chainWatcher's underlying channel.
+	//
+	// isDeliveryOutput :: *TxOut -> bool
+	isDeliveryOutput := func(o *wire.TxOut) bool {
+		return fn.ElimOption(
+			oDeliveryAddr,
+			// If we don't have a delivery addr, then the output
+			// can't match it.
+			func() bool { return false },
+			// Otherwise if the PkScript of the TxOut matches our
+			// delivery script then this is a delivery output.
+			func(a lnwire.DeliveryAddress) bool {
+				return slices.Equal(a, o.PkScript)
+			},
+		)
 	}
 
-	return selfAmt
+	// Here we define a function capable of identifying whether an output
+	// belongs to the LND wallet. We use this as a heuristic in the case
+	// where we might be looking for spendable force closure outputs.
+	//
+	// isWalletOutput :: *TxOut -> bool
+	isWalletOutput := func(out *wire.TxOut) bool {
+		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+			// Doesn't matter what net we actually pass in.
+			out.PkScript, &chaincfg.TestNet3Params,
+		)
+		if err != nil {
+			return false
+		}
+
+		return fn.Any(c.cfg.isOurAddr, addrs)
+	}
+
+	// Grab all of the outputs that correspond with our delivery address
+	// or our wallet is aware of.
+	outs := fn.Filter(fn.PredOr(isDeliveryOutput, isWalletOutput), tx.TxOut)
+
+	// Grab the values for those outputs.
+	vals := fn.Map(func(o *wire.TxOut) int64 { return o.Value }, outs)
+
+	// Return the sum.
+	return btcutil.Amount(fn.Sum(vals))
 }
 
 // dispatchCooperativeClose processed a detect cooperative channel closure.

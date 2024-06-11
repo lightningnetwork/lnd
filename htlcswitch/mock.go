@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -1028,11 +1029,12 @@ func (i *mockInvoiceRegistry) SettleHodlInvoice(
 
 func (i *mockInvoiceRegistry) NotifyExitHopHtlc(rhash lntypes.Hash,
 	amt lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	circuitKey models.CircuitKey, hodlChan chan<- interface{},
+	circuitKey models.CircuitKey,
+	hodlSubscriber *fn.ConcurrentQueue[invoices.HtlcResolution],
 	payload invoices.Payload) (invoices.HtlcResolution, error) {
 
 	event, err := i.registry.NotifyExitHopHtlc(
-		rhash, amt, expiry, currentHeight, circuitKey, hodlChan,
+		rhash, amt, expiry, currentHeight, circuitKey, hodlSubscriber,
 		payload,
 	)
 	if err != nil {
@@ -1059,7 +1061,7 @@ func (i *mockInvoiceRegistry) AddInvoice(ctx context.Context,
 }
 
 func (i *mockInvoiceRegistry) HodlUnsubscribeAll(
-	subscriber chan<- interface{}) {
+	subscriber *fn.ConcurrentQueue[invoices.HtlcResolution]) {
 
 	i.registry.HodlUnsubscribeAll(subscriber)
 }

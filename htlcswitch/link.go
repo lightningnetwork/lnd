@@ -28,7 +28,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/ticker"
 )
 
@@ -351,7 +350,7 @@ type channelLink struct {
 
 	// hodlQueue is used to receive exit hop htlc resolutions from invoice
 	// registry.
-	hodlQueue *queue.ConcurrentQueue
+	hodlQueue *fn.ConcurrentQueue[invoices.HtlcResolution]
 
 	// hodlMap stores related htlc data for a circuit key. It allows
 	// resolving those htlcs when we receive a message on hodlQueue.
@@ -451,7 +450,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		cfg:                 cfg,
 		channel:             channel,
 		hodlMap:             make(map[models.CircuitKey]hodlHtlc),
-		hodlQueue:           queue.NewConcurrentQueue(10),
+		hodlQueue:           fn.NewConcurrentQueue[invoices.HtlcResolution](10),
 		log:                 build.NewPrefixLog(logPrefix, log),
 		flushHooks:          newHookMap(),
 		outgoingCommitHooks: newHookMap(),
@@ -555,7 +554,7 @@ func (l *channelLink) Stop() {
 
 	// As the link is stopping, we are no longer interested in htlc
 	// resolutions coming from the invoice registry.
-	l.cfg.Registry.HodlUnsubscribeAll(l.hodlQueue.ChanIn())
+	l.cfg.Registry.HodlUnsubscribeAll(l.hodlQueue)
 
 	if l.cfg.ChainEvents.Cancel != nil {
 		l.cfg.ChainEvents.Cancel()
@@ -3623,7 +3622,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
 		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
-		circuitKey, l.hodlQueue.ChanIn(), payload,
+		circuitKey, l.hodlQueue, payload,
 	)
 	if err != nil {
 		return err

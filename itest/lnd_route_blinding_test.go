@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -465,6 +466,14 @@ func (b *blindedForwardTest) sendBlindedPayment(ctx context.Context,
 	ctx, cancel := context.WithTimeout(ctx, time.Hour)
 	go func() {
 		_, err := b.ht.Alice.RPC.Router.SendToRouteV2(ctx, sendReq)
+
+		// We may get a context canceled error when the test is
+		// finished.
+		if errors.Is(err, context.Canceled) {
+			b.ht.Logf("sendBlindedPayment: parent context canceled")
+			return
+		}
+
 		require.NoError(b.ht, err)
 	}()
 

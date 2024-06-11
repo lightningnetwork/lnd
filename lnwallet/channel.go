@@ -8182,14 +8182,29 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
 	)
 
+	localCommit := chanState.LocalCommitment
+
+	// If we have a custom blob, then we'll attempt to fetch the aux leaves
+	// for this state.
+	auxLeaves, err := AuxLeavesFromCommit(
+		chanState, localCommit, leafStore, *keyRing,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
+
 	var leaseExpiry uint32
 	if chanState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = chanState.ThawHeight
 	}
+
+	localAuxLeaf := fn.MapOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
+		return l.LocalAuxLeaf
+	})(auxLeaves)
 	toLocalScript, err := CommitScriptToSelf(
 		chanState.ChanType, chanState.IsInitiator, keyRing.ToLocalKey,
 		keyRing.RevocationKey, csvTimeout, leaseExpiry,
-		input.NoneTapLeaf(),
+		fn.FlattenOption(localAuxLeaf),
 	)
 	if err != nil {
 		return nil, err
@@ -8303,15 +8318,6 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	// outgoing HTLC's that we'll need to claim as well. If this is after
 	// recovery there is not much we can do with HTLCs, so we'll always
 	// use what we have in our latest state when extracting resolutions.
-	localCommit := chanState.LocalCommitment
-
-	auxLeaves, err := AuxLeavesFromCommit(
-		chanState, localCommit, leafStore, *keyRing,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
-	}
-
 	htlcResolutions, err := extractHtlcResolutions(
 		chainfee.SatPerKWeight(localCommit.FeePerKw), true, signer,
 		localCommit.Htlcs, keyRing, &chanState.LocalChanCfg,

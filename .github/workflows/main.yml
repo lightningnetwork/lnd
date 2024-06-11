@@ -105,7 +105,7 @@ jobs:
       - name: fetch and rebase on ${{ github.base_ref }}
         run: |
           git remote add upstream https://github.com/${{ github.repository }}
-          git fetch upstream
+          git fetch upstream ${{ github.base_ref }}:refs/remotes/upstream/${{ github.base_ref }}
           export GIT_COMMITTER_EMAIL="lnd-ci@example.com"
           export GIT_COMMITTER_NAME="LND CI"
           git rebase upstream/${{ github.base_ref }}

@@ -407,17 +407,19 @@ func (q *Queries) GetInvoiceHTLCs(ctx context.Context, invoiceID int64) ([]Invoi
 
 const insertInvoice = `-- name: InsertInvoice :one
 INSERT INTO invoices (
-    hash, preimage, memo, amount_msat, cltv_delta, expiry, payment_addr, 
-    payment_request, payment_request_hash, state, amount_paid_msat, is_amp,
-    is_hodl, is_keysend, created_at
+    hash, preimage, settle_index, settled_at, memo, amount_msat, cltv_delta, 
+    expiry, payment_addr, payment_request, payment_request_hash, state, 
+    amount_paid_msat, is_amp, is_hodl, is_keysend, created_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
 ) RETURNING id
 `
 
 type InsertInvoiceParams struct {
 	Hash               []byte
 	Preimage           []byte
+	SettleIndex        sql.NullInt64
+	SettledAt          sql.NullTime
 	Memo               sql.NullString
 	AmountMsat         int64
 	CltvDelta          sql.NullInt32
@@ -437,6 +439,8 @@ func (q *Queries) InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (i
 	row := q.db.QueryRowContext(ctx, insertInvoice,
 		arg.Hash,
 		arg.Preimage,
+		arg.SettleIndex,
+		arg.SettledAt,
 		arg.Memo,
 		arg.AmountMsat,
 		arg.CltvDelta,

@@ -79,6 +79,10 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 	UpsertAMPSubInvoice(ctx context.Context,
 		arg sqlc.UpsertAMPSubInvoiceParams) (sql.Result, error)
 
+	// TODO(bhandras): remove this once migrations have been separated out.
+	InsertAMPSubInvoice(ctx context.Context,
+		arg sqlc.InsertAMPSubInvoiceParams) error
+
 	UpdateAMPSubInvoiceState(ctx context.Context,
 		arg sqlc.UpdateAMPSubInvoiceStateParams) error
 

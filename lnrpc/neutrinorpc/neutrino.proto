@@ -71,6 +71,11 @@ service NeutrinoKit {
     rpc GetBlockHash (GetBlockHashRequest) returns (GetBlockHashResponse) {
         option deprecated = true;
     }
+
+    /*
+    UnbanPeer unbans a previously banned peer and connects to it.
+     */
+    rpc UnbanPeer (UnbanPeerRequest) returns (UnbanPeerResponse);
 }
 
 message StatusRequest {
@@ -243,4 +248,18 @@ message GetBlockHashRequest {
 message GetBlockHashResponse {
     // The block hash.
     string hash = 1;
+}
+
+message UnbanPeerRequest {
+    // The address of the peer to be unbanned.
+    string peer_address = 1;
+
+    // Indicates if the peer to be unbanned should be connected as a
+    // permanent peer.
+    bool perm_connect = 2;
+}
+
+message UnbanPeerResponse {
+    // The status of the UnbanPeer operation.
+    string status = 1;
 }

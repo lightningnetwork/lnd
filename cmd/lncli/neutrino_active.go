@@ -225,6 +225,50 @@ func getCFilter(ctx *cli.Context) error {
 	return nil
 }
 
+var unbanPeerCommand = cli.Command{
+	Name:        "unbanpeer",
+	Usage:       "Unbans a previously banned peer and connects to it.",
+	Category:    "Neutrino",
+	Description: "Unban and connects to a previously banned peer",
+	ArgsUsage:   "address",
+	Action:      actionDecorator(unbanNeutrinoPeer),
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name: "permconnect",
+			Usage: "indicates if the peer to be unbanned should " +
+				"be connected as a permanent peer.",
+		},
+	},
+}
+
+func unbanNeutrinoPeer(ctx *cli.Context) error {
+	ctxc := getContext()
+	args := ctx.Args()
+
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if ctx.NArg() != 1 || ctx.NumFlags() > 1 {
+		return cli.ShowCommandHelp(ctx, "unbanpeer")
+	}
+
+	client, cleanUp := getNeutrinoKitClient(ctx)
+	defer cleanUp()
+
+	req := &neutrinorpc.UnbanPeerRequest{
+		PeerAddress: args.First(),
+		PermConnect: ctx.Bool("permconnect"),
+	}
+
+	resp, err := client.UnbanPeer(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
+	return nil
+}
+
 // neutrinoCommands will return the set of commands to enable for neutrinorpc
 // builds.
 func neutrinoCommands() []cli.Command {
@@ -241,6 +285,7 @@ func neutrinoCommands() []cli.Command {
 				isBannedCommand,
 				getBlockHeaderNeutrinoCommand,
 				getCFilterCommand,
+				unbanPeerCommand,
 			},
 		},
 	}

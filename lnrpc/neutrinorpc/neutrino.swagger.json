@@ -265,6 +265,39 @@
           "NeutrinoKit"
         ]
       }
+    },
+    "/v2/neutrino/unban": {
+      "post": {
+        "summary": "UnbanPeer unbans a previously banned peer and connects to it.",
+        "operationId": "NeutrinoKit_UnbanPeer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcUnbanPeerResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcUnbanPeerRequest"
+            }
+          }
+        ],
+        "tags": [
+          "NeutrinoKit"
+        ]
+      }
     }
   },
   "definitions": {
@@ -502,6 +535,28 @@
             "type": "string"
           },
           "description": "Connected peers."
+        }
+      }
+    },
+    "neutrinorpcUnbanPeerRequest": {
+      "type": "object",
+      "properties": {
+        "peer_address": {
+          "type": "string",
+          "description": "The address of the peer to be unbanned."
+        },
+        "perm_connect": {
+          "type": "boolean",
+          "description": "Indicates if the peer to be unbanned should be connected as a\npermanent peer."
+        }
+      }
+    },
+    "neutrinorpcUnbanPeerResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the UnbanPeer operation."
         }
       }
     },

@@ -26,6 +26,11 @@
 # New Features
 ## Functional Enhancements
 ## RPC Additions
+
+* [SignCoordinatorStreams](https://github.com/lightningnetwork/lnd/pull/8754)
+  allows a remote signer to connect to the lnd node, if the
+  `remotesigner.signertype` cfg value has been set to `outbound`.
+
 ## lncli Additions
 
 * [Added](https://github.com/lightningnetwork/lnd/pull/8491) the `cltv_expiry`
@@ -38,6 +43,12 @@
 
 # Improvements
 ## Functional Updates
+
+* [Added](https://github.com/lightningnetwork/lnd/pull/8754) support for a new
+  remote signer type `outbound`, which makes an outbound connection to the
+  watch-only node, instead of requiring on an inbound connection from the
+  watch-only node.
+
 ## RPC Updates
 
 * [`xImportMissionControl`](https://github.com/lightningnetwork/lnd/pull/8779) 

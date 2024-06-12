@@ -371,12 +371,18 @@ func TestMigrateSingleInvoice(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		test := test
+
 		t.Run(test.name+"_SQLite", func(t *testing.T) {
+			t.Parallel()
+
 			store := makeSQLDB(t, true)
 			testMigrateSingleInvoice(t, store, test.mpp, test.amp)
 		})
 
 		t.Run(test.name+"_Postgres", func(t *testing.T) {
+			t.Parallel()
+
 			store := makeSQLDB(t, false)
 			testMigrateSingleInvoice(t, store, test.mpp, test.amp)
 		})
@@ -389,8 +395,6 @@ func TestMigrateSingleInvoice(t *testing.T) {
 // store and compare them to the original invoices.
 func testMigrateSingleInvoice(t *testing.T, store *SQLStore, mpp bool,
 	amp bool) {
-
-	t.Parallel()
 
 	ctxb := context.Background()
 	invoices := make(map[lntypes.Hash]*Invoice)

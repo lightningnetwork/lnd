@@ -3,13 +3,16 @@ package invoices
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strconv"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
+	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 // MigrateSingleInvoice migrates a single invoice to the new SQL schema. Note
@@ -185,6 +188,102 @@ func MigrateSingleInvoice(ctx context.Context, tx SQLInvoiceQueries,
 						"AMP sub invoice: %w", err)
 				}
 			}
+		}
+	}
+
+	return nil
+}
+
+// MigrateInvoices migrates all invoices from the old database to the new SQL
+// schema. The migration is done in a single transaction to ensure that all
+// invoices are migrated or none at all.
+func MigrateInvoices(ctx context.Context, db InvoiceDB,
+	sqlStore *SQLStore, netParams *chaincfg.Params, batchSize int) error {
+
+	offset := uint64(0)
+	var ops SQLInvoiceQueriesTxOptions
+	return sqlStore.db.ExecTx(ctx, &ops, func(tx SQLInvoiceQueries) error {
+		for {
+			query := InvoiceQuery{
+				IndexOffset:    offset,
+				NumMaxInvoices: uint64(batchSize),
+			}
+
+			queryResult, err := db.QueryInvoices(ctx, query)
+			if err != nil {
+				return fmt.Errorf("unable to query invoices: "+
+					"%v", err)
+			}
+
+			if len(queryResult.Invoices) == 0 {
+				log.Infof("All invoices migrated")
+
+				return nil
+			}
+
+			err = migrateInvoices(
+				ctx, tx, sqlStore, queryResult.Invoices,
+				netParams,
+			)
+			if err != nil {
+				return err
+			}
+
+			offset = queryResult.LastIndexOffset
+		}
+	}, func() {})
+}
+
+func migrateInvoices(ctx context.Context, tx SQLInvoiceQueries,
+	sqlStore *SQLStore, invoices []Invoice,
+	netParams *chaincfg.Params) error {
+
+	for i, invoice := range invoices {
+		var paymentHash lntypes.Hash
+		if invoice.Terms.PaymentPreimage != nil {
+			paymentHash = invoice.Terms.PaymentPreimage.Hash()
+		} else {
+			paymentRequest, err := zpay32.Decode(
+				string(invoice.PaymentRequest),
+				netParams,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to decode payment "+
+					"request for invoice (add_index=%v): "+
+					"%v", invoice.AddIndex, err)
+			}
+
+			if paymentRequest.PaymentHash != nil {
+				copy(
+					paymentHash[:],
+					paymentRequest.PaymentHash[:],
+				)
+			} else {
+				log.Warnf("Cannot migrate invoice "+
+					"(add_index=%v)", invoice.AddIndex)
+
+				continue
+			}
+		}
+		err := MigrateSingleInvoice(ctx, tx, &invoices[i], paymentHash)
+		if err != nil {
+			return fmt.Errorf("unable to migrate invoice(%v): %w",
+				paymentHash, err)
+		}
+
+		migratedInvoice, err := sqlStore.fetchInvoice(
+			ctx, tx, InvoiceRefByHash(paymentHash),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch migrated "+
+				"invoice(%v): %v", paymentHash, err)
+		}
+
+		// Override the add index before checking for equality.
+		migratedInvoice.AddIndex = invoice.AddIndex
+		if !reflect.DeepEqual(invoice, *migratedInvoice) {
+			return fmt.Errorf("migrated invoice does not match "+
+				"original invoice: %v", paymentHash)
 		}
 	}
 

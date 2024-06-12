@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -349,12 +350,18 @@ func TestMigrateSingleInvoice(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		test := test
+
 		t.Run(test.name+"_SQLite", func(t *testing.T) {
+			t.Parallel()
+
 			store := makeSQLDB(t, true)
 			testMigrateSingleInvoice(t, store, test.mpp, test.amp)
 		})
 
 		t.Run(test.name+"_Postgres", func(t *testing.T) {
+			t.Parallel()
+
 			store := makeSQLDB(t, false)
 			testMigrateSingleInvoice(t, store, test.mpp, test.amp)
 		})
@@ -367,8 +374,6 @@ func TestMigrateSingleInvoice(t *testing.T) {
 // store and compare them to the original invoices.
 func testMigrateSingleInvoice(t *testing.T, store *SQLStore, mpp bool,
 	amp bool) {
-
-	t.Parallel()
 
 	ctxb := context.Background()
 	invoices := make(map[lntypes.Hash]*Invoice)
@@ -404,5 +409,91 @@ func testMigrateSingleInvoice(t *testing.T, store *SQLStore, mpp bool,
 
 		invoice.AddIndex = sqlInvoice.AddIndex
 		require.Equal(t, *invoice, sqlInvoice)
+	}
+}
+
+func TestMigration(t *testing.T) {
+	// First create a shared Postgres instance so we don't spawn a new
+	// docker container for each test.
+	pgFixture := sqldb.NewTestPgFixture(
+		t, sqldb.DefaultPostgresFixtureLifetime,
+	)
+	t.Cleanup(func() {
+		pgFixture.TearDown(t)
+	})
+
+	makeSQLDB := func(t *testing.T, sqlite bool) *SQLStore {
+		var db *sqldb.BaseDB
+		if sqlite {
+			db = sqldb.NewTestSqliteDB(t).BaseDB
+		} else {
+			db = sqldb.NewTestPostgresDB(t, pgFixture).BaseDB
+		}
+
+		executor := sqldb.NewTransactionExecutor(
+			db, func(tx *sql.Tx) SQLInvoiceQueries {
+				return db.WithTx(tx)
+			},
+		)
+
+		testClock := clock.NewTestClock(time.Unix(1, 0))
+
+		return NewSQLStore(executor, testClock)
+	}
+
+	// For simplicity we will migrate from one SQL db to another. This is
+	// because we have a much better control over the data and can easily
+	// generate random invoices.
+	// TODO(bhandras): potentially add a test where we migrate from a real
+	// KV store to the SQL store
+	store1 := makeSQLDB(t, true)
+	store2 := makeSQLDB(t, false)
+	ctxb := context.Background()
+	const numInvoices = 1111
+
+	var ops SQLInvoiceQueriesTxOptions
+	err := store1.db.ExecTx(ctxb, &ops, func(tx SQLInvoiceQueries) error {
+		for i := 0; i < numInvoices; i++ {
+			mpp := rand.Intn(2) == 1
+			amp := rand.Intn(2) == 1
+			invoice := generateTestInvoice(t, mpp, amp)
+			var hash lntypes.Hash
+			_, err := crand.Read(hash[:])
+			require.NoError(t, err)
+
+			err = MigrateSingleInvoice(ctxb, tx, invoice, hash)
+			require.NoError(t, err)
+		}
+
+		return nil
+	}, func() {})
+	require.NoError(t, err)
+
+	err = MigrateInvoices(ctxb, store1, store2, &chaincfg.SimNetParams, 44)
+	require.NoError(t, err)
+
+	// MigrateInvoices will check if the inserted invoice equals to the
+	// migrated one, but as a sanity check, we'll also fetch the invoices
+	// from the store and compare them to the original invoices.
+	query := InvoiceQuery{
+		IndexOffset: 0,
+		// As a sanity check, fetch more invoices than we have to ensure
+		// that we did not add any extra invoices.
+		NumMaxInvoices: numInvoices * 2,
+	}
+	result1, err := store1.QueryInvoices(ctxb, query)
+	require.NoError(t, err)
+	require.Equal(t, numInvoices, len(result1.Invoices))
+
+	result2, err := store2.QueryInvoices(ctxb, query)
+	require.NoError(t, err)
+	require.Equal(t, numInvoices, len(result2.Invoices))
+
+	// Simply zero out the add index so we don't fail on that when
+	// comparing.
+	for i := 0; i < numInvoices; i++ {
+		result1.Invoices[i].AddIndex = 0
+		result2.Invoices[i].AddIndex = 0
+		require.Equal(t, result1.Invoices[i], result2.Invoices[i])
 	}
 }

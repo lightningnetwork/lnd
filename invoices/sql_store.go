@@ -132,6 +132,12 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 
 	GetInvoicePaymentHashByAddIndex(ctx context.Context,
 		addIndex sql.NullInt64) ([]byte, error)
+
+	GetMigration(ctx context.Context, migrationID string) (
+		sqlc.MigrationTracker, error)
+
+	UpdateMigration(ctx context.Context,
+		arg sqlc.UpdateMigrationParams) error
 }
 
 var _ InvoiceDB = (*SQLStore)(nil)

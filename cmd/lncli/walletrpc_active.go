@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/urfave/cli"
 )
@@ -77,6 +79,7 @@ func walletCommands() []cli.Command {
 			Usage:       "Interact with the wallet.",
 			Description: "",
 			Subcommands: []cli.Command{
+				estimateFeeRateCommand,
 				pendingSweepsCommand,
 				bumpFeeCommand,
 				bumpCloseFeeCommand,
@@ -122,6 +125,55 @@ func getWalletClient(ctx *cli.Context) (walletrpc.WalletKitClient, func()) {
 		conn.Close()
 	}
 	return walletrpc.NewWalletKitClient(conn), cleanUp
+}
+
+var estimateFeeRateCommand = cli.Command{
+	Name: "estimatefeerate",
+	Usage: "Estimates the on-chain fee rate to achieve a confirmation " +
+		"target.",
+	ArgsUsage: "conf_target",
+	Description: `
+	Returns the fee rate estimate for on-chain transactions in sat/kw and
+	sat/vb to achieve a given confirmation target. The source of the fee
+	rate depends on the configuration and is either the on-chain backend or
+	alternatively an external URL.
+	`,
+	Action: actionDecorator(estimateFeeRate),
+}
+
+func estimateFeeRate(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	confTarget, err := strconv.ParseInt(ctx.Args().First(), 10, 64)
+	if err != nil {
+		return cli.ShowCommandHelp(ctx, "estimatefeerate")
+	}
+
+	if confTarget <= 0 || confTarget > math.MaxInt32 {
+		return errors.New("conf_target out of range")
+	}
+
+	resp, err := client.EstimateFee(ctxc, &walletrpc.EstimateFeeRequest{
+		ConfTarget: int32(confTarget),
+	})
+	if err != nil {
+		return err
+	}
+
+	rateKW := chainfee.SatPerKWeight(resp.SatPerKw)
+	rateVB := rateKW.FeePerVByte()
+
+	printJSON(struct {
+		SatPerKw    int64 `json:"sat_per_kw"`
+		SatPerVByte int64 `json:"sat_per_vbyte"`
+	}{
+		SatPerKw:    int64(rateKW),
+		SatPerVByte: int64(rateVB),
+	})
+
+	return nil
 }
 
 var pendingSweepsCommand = cli.Command{

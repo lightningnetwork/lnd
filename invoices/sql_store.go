@@ -138,6 +138,8 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 
 	GetKVInvoicePaymentHashByAddIndex(ctx context.Context, addIndex int64) (
 		[]byte, error)
+
+	ClearKVInvoiceHashIndex(ctx context.Context) error
 }
 
 var _ InvoiceDB = (*SQLStore)(nil)
@@ -354,8 +356,8 @@ func (i *SQLStore) AddInvoice(ctx context.Context,
 
 // fetchInvoice fetches the common invoice data and the AMP state for the
 // invoice with the given reference.
-func (i *SQLStore) fetchInvoice(ctx context.Context,
-	db SQLInvoiceQueries, ref InvoiceRef) (*Invoice, error) {
+func fetchInvoice(ctx context.Context, db SQLInvoiceQueries,
+	ref InvoiceRef) (*Invoice, error) {
 
 	if ref.PayHash() == nil && ref.PayAddr() == nil && ref.SetID() == nil {
 		return nil, ErrInvoiceNotFound
@@ -686,7 +688,7 @@ func (i *SQLStore) LookupInvoice(ctx context.Context,
 
 	readTxOpt := NewSQLInvoiceQueryReadTx()
 	txErr := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
-		invoice, err = i.fetchInvoice(ctx, db, ref)
+		invoice, err = fetchInvoice(ctx, db, ref)
 
 		return err
 	}, func() {})
@@ -1387,7 +1389,7 @@ func (i *SQLStore) UpdateInvoice(ctx context.Context, ref InvoiceRef,
 			ref.refModifier = HtlcSetOnlyModifier
 		}
 
-		invoice, err := i.fetchInvoice(ctx, db, ref)
+		invoice, err := fetchInvoice(ctx, db, ref)
 		if err != nil {
 			return err
 		}

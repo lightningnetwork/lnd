@@ -4,15 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
+	"github.com/pmezard/go-difflib/difflib"
 )
 
 var (
@@ -48,6 +52,11 @@ var (
 	//
 	//   addIndexNo => invoiceKey
 	addIndexBucket = []byte("invoice-add-index")
+
+	// ErrMigrationMismatch is returned when the migrated invoice does not
+	// match the original invoice.
+	ErrMigrationMismatch = fmt.Errorf("migrated invoice does not match " +
+		"original invoice")
 )
 
 // createInvoiceHashIndex generates a hash index that contains payment hashes
@@ -60,7 +69,7 @@ var (
 // a new index in the SQL database that maps each invoice key to its
 // corresponding payment hash.
 func createInvoiceHashIndex(ctx context.Context, db kvdb.Backend,
-	tx SQLInvoiceQueries) error {
+	tx *sqlc.Queries) error {
 
 	return db.View(func(kvTx kvdb.RTx) error {
 		invoices := kvTx.ReadBucket(invoiceBucket)
@@ -398,4 +407,152 @@ func OverrideInvoiceTimeZone(invoice *Invoice) {
 			htlc.ResolveTime = fixTime(htlc.ResolveTime)
 		}
 	}
+}
+
+// MigrateInvoicesToSQL runs the migration of all invoices from the KV database
+// to the SQL database. The migration is done in a single transaction to ensure
+// that all invoices are migrated or none at all. This function can be run
+// multiple times without causing any issues as it will check if the migration
+// has already been performed.
+func MigrateInvoicesToSQL(ctx context.Context, db kvdb.Backend,
+	kvStore InvoiceDB, tx *sqlc.Queries, batchSize int) error {
+
+	log.Infof("Starting migration of invoices from KV to SQL")
+
+	offset := uint64(0)
+	t0 := time.Now()
+
+	// Create the hash index which we will use to look up invoice
+	// payment hashes by their add index during migration.
+	err := createInvoiceHashIndex(ctx, db, tx)
+	if err != nil && !errors.Is(err, ErrNoInvoicesCreated) {
+		log.Errorf("Unable to create invoice hash index: %v",
+			err)
+
+		return err
+	}
+	log.Debugf("Created SQL invoice hash index in %v", time.Since(t0))
+
+	total := 0
+	// Now we can start migrating the invoices. We'll do this in
+	// batches to reduce memory usage.
+	for {
+		t0 = time.Now()
+		query := InvoiceQuery{
+			IndexOffset:    offset,
+			NumMaxInvoices: uint64(batchSize),
+		}
+
+		queryResult, err := kvStore.QueryInvoices(ctx, query)
+		if err != nil && !errors.Is(err, ErrNoInvoicesCreated) {
+			return fmt.Errorf("unable to query invoices: "+
+				"%w", err)
+		}
+
+		if len(queryResult.Invoices) == 0 {
+			log.Infof("All invoices migrated")
+
+			break
+		}
+
+		err = migrateInvoices(ctx, tx, queryResult.Invoices)
+		if err != nil {
+			return err
+		}
+
+		offset = queryResult.LastIndexOffset
+		total += len(queryResult.Invoices)
+		log.Debugf("Migrated %d KV invoices to SQL in %v\n", total,
+			time.Since(t0))
+	}
+
+	// Clean up the hash index as it's no longer needed.
+	err = tx.ClearKVInvoiceHashIndex(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to clear invoice hash "+
+			"index: %w", err)
+	}
+
+	log.Infof("Migration of %d invoices from KV to SQL completed", total)
+
+	return nil
+}
+
+func migrateInvoices(ctx context.Context, tx *sqlc.Queries,
+	invoices []Invoice) error {
+
+	for i, invoice := range invoices {
+		var paymentHash lntypes.Hash
+		if invoice.Terms.PaymentPreimage != nil {
+			paymentHash = invoice.Terms.PaymentPreimage.Hash()
+		} else {
+			paymentHashBytes, err :=
+				tx.GetKVInvoicePaymentHashByAddIndex(
+					ctx, int64(invoice.AddIndex),
+				)
+			if err != nil {
+				// This would be an unexpected inconsistency
+				// in the kv database. We can't do much here
+				// so we'll notify the user and continue.
+				log.Warnf("Cannot migrate invoice, unable to "+
+					"fetch payment hash (add_index=%v): %v",
+					invoice.AddIndex, err)
+
+				continue
+			}
+
+			copy(paymentHash[:], paymentHashBytes)
+		}
+
+		err := MigrateSingleInvoice(ctx, tx, &invoices[i], paymentHash)
+		if err != nil {
+			return fmt.Errorf("unable to migrate invoice(%v): %w",
+				paymentHash, err)
+		}
+
+		migratedInvoice, err := fetchInvoice(
+			ctx, tx, InvoiceRefByHash(paymentHash),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch migrated "+
+				"invoice(%v): %w", paymentHash, err)
+		}
+
+		// Override the time zone for comparison. Note that we need to
+		// override both invoices as the original invoice is coming from
+		// KV database, it was stored as a binary serialized Go
+		// time.Time value which has nanosecond precision but might have
+		// been created in a different time zone. The migrated invoice
+		// is stored in SQL in UTC and selected in the local time zone,
+		// however in PostgreSQL it has microsecond precision while in
+		// SQLite it has nanosecond precision if using TEXT storage
+		// class.
+		OverrideInvoiceTimeZone(&invoice)
+		OverrideInvoiceTimeZone(migratedInvoice)
+
+		// Override the add index before checking for equality.
+		migratedInvoice.AddIndex = invoice.AddIndex
+
+		if !reflect.DeepEqual(invoice, *migratedInvoice) {
+			diff := difflib.UnifiedDiff{
+				A: difflib.SplitLines(
+					spew.Sdump(invoice),
+				),
+				B: difflib.SplitLines(
+					spew.Sdump(migratedInvoice),
+				),
+				FromFile: "Expected",
+				FromDate: "",
+				ToFile:   "Actual",
+				ToDate:   "",
+				Context:  3,
+			}
+			diffText, _ := difflib.GetUnifiedDiffString(diff)
+
+			return fmt.Errorf("%w: %v.\n%v", ErrMigrationMismatch,
+				paymentHash, diffText)
+		}
+	}
+
+	return nil
 }

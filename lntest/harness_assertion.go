@@ -1820,6 +1820,37 @@ func (h *HarnessTest) AssertZombieChannel(hn *node.HarnessNode, chanID uint64) {
 	require.NoError(h, err, "timeout while checking zombie channel")
 }
 
+// AssertNotInGraph asserts that a given channel is either not found at all in
+// the graph or that it has been marked as a zombie.
+func (h *HarnessTest) AssertNotInGraph(hn *node.HarnessNode, chanID uint64) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	err := wait.NoError(func() error {
+		_, err := hn.RPC.LN.GetChanInfo(
+			ctxt, &lnrpc.ChanInfoRequest{ChanId: chanID},
+		)
+		if err == nil {
+			return fmt.Errorf("expected error but got nil")
+		}
+
+		switch {
+		case strings.Contains(err.Error(), "marked as zombie"):
+			return nil
+
+		case strings.Contains(err.Error(), "edge not found"):
+			return nil
+
+		default:
+			return fmt.Errorf("expected error to contain either "+
+				"'%s' or '%s' but was: '%v'", "marked as i"+
+				"zombie", "edge not found", err)
+		}
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout while checking that channel is not "+
+		"found in graph")
+}
+
 // AssertTxAtHeight gets all of the transactions that a node's wallet has a
 // record of at the target height, and finds and returns the tx with the target
 // txid, failing if it is not found.

@@ -688,7 +688,7 @@ var connectCommand = cli.Command{
 		cli.DurationFlag{
 			Name: "timeout",
 			Usage: "The connection timeout value for current request. " +
-				"Valid uints are {ms, s, m, h}.\n" +
+				"Valid units are {ms, s, m, h}.\n" +
 				"If not set, the global connection " +
 				"timeout value (default to 120s) is used.",
 		},

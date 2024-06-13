@@ -1747,6 +1747,9 @@ func marshallPaymentFailureReason(reason *channeldb.FailureReason) (
 
 	case channeldb.FailureReasonInsufficientBalance:
 		return lnrpc.PaymentFailureReason_FAILURE_REASON_INSUFFICIENT_BALANCE, nil
+
+	case channeldb.FailureReasonCanceled:
+		return lnrpc.PaymentFailureReason_FAILURE_REASON_CANCELED, nil
 	}
 
 	return 0, errors.New("unknown failure reason")

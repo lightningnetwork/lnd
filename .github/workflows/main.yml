@@ -103,12 +103,7 @@ jobs:
           go-version: '${{ env.GO_VERSION }}'
 
       - name: fetch and rebase on ${{ github.base_ref }}
-        run: |
-          git remote add upstream https://github.com/${{ github.repository }}
-          git fetch upstream
-          export GIT_COMMITTER_EMAIL="lnd-ci@example.com"
-          export GIT_COMMITTER_NAME="LND CI"
-          git rebase upstream/${{ github.base_ref }}
+        uses: ./.github/actions/rebase
 
       - name: check commits
         run: scripts/check-each-commit.sh upstream/${{ github.base_ref }}
@@ -200,6 +195,12 @@ jobs:
     steps:
       - name: git checkout
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: fetch and rebase on ${{ github.base_ref }}
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/rebase
 
       - name: git checkout fuzzing seeds
         uses: actions/checkout@v3
@@ -266,6 +267,12 @@ jobs:
     steps:
       - name: git checkout
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: fetch and rebase on ${{ github.base_ref }}
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/rebase
 
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
@@ -311,6 +318,12 @@ jobs:
     steps:
       - name: git checkout
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: fetch and rebase on ${{ github.base_ref }}
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/rebase
 
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
@@ -349,6 +362,12 @@ jobs:
     steps:
       - name: git checkout
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: fetch and rebase on ${{ github.base_ref }}
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/rebase
 
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go

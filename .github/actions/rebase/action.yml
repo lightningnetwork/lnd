@@ -1,0 +1,15 @@
+name: "Rebase on to the PR target base branch"
+description: "A reusable workflow that's used to rebase the PR code on to the target base branch."
+
+runs:
+  using: "composite"
+
+  steps:
+    - name: fetch and rebase on ${{ github.base_ref }}
+      shell: bash
+      run: |
+        git remote add upstream https://github.com/${{ github.repository }}
+        git fetch upstream ${{ github.base_ref }}:refs/remotes/upstream/${{ github.base_ref }}
+        export GIT_COMMITTER_EMAIL="lnd-ci@example.com"
+        export GIT_COMMITTER_NAME="LND CI"
+        git rebase upstream/${{ github.base_ref }}

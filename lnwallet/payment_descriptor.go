@@ -69,7 +69,7 @@ func (u updateType) String() string {
 //
 // TODO(roasbeef): LogEntry interface??
 //   - need to separate attrs for cancel/add/settle/feeupdate
-type PaymentDescriptor struct {
+type paymentDescriptor struct {
 	// ChanID is the ChannelID of the LightningChannel that this
 	// PaymentDescriptor belongs to. We track this here so we can
 	// reconstruct the Messages that this PaymentDescriptor is built from.

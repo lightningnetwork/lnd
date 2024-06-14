@@ -167,103 +167,6 @@ func (e *ErrCommitSyncLocalDataLoss) Error() string {
 // payments requested by the wallet/daemon.
 type PaymentHash [32]byte
 
-// PayDescsFromRemoteLogUpdates converts a slice of LogUpdates received from the
-// remote peer into PaymentDescriptors to inform a link's forwarding decisions.
-//
-// NOTE: The provided `logUpdates` MUST correspond exactly to either the Adds
-// or SettleFails in this channel's forwarding package at `height`.
-func PayDescsFromRemoteLogUpdates(chanID lnwire.ShortChannelID, height uint64,
-	logUpdates []channeldb.LogUpdate) ([]*PaymentDescriptor, error) {
-
-	// Allocate enough space to hold all of the payment descriptors we will
-	// reconstruct, and also the list of pointers that will be returned to
-	// the caller.
-	payDescs := make([]PaymentDescriptor, 0, len(logUpdates))
-	payDescPtrs := make([]*PaymentDescriptor, 0, len(logUpdates))
-
-	// Iterate over the log updates we loaded from disk, and reconstruct the
-	// payment descriptor corresponding to one of the four types of htlcs we
-	// can receive from the remote peer. We only repopulate the information
-	// necessary to process the packets and, if necessary, forward them to
-	// the switch.
-	//
-	// For each log update, we include either an AddRef or a SettleFailRef
-	// so that they can be ACK'd and garbage collected.
-	for i, logUpdate := range logUpdates {
-		var pd PaymentDescriptor
-		switch wireMsg := logUpdate.UpdateMsg.(type) {
-
-		case *lnwire.UpdateAddHTLC:
-			pd = PaymentDescriptor{
-				ChanID:    wireMsg.ChanID,
-				RHash:     wireMsg.PaymentHash,
-				Timeout:   wireMsg.Expiry,
-				Amount:    wireMsg.Amount,
-				EntryType: Add,
-				HtlcIndex: wireMsg.ID,
-				LogIndex:  logUpdate.LogIndex,
-				SourceRef: &channeldb.AddRef{
-					Height: height,
-					Index:  uint16(i),
-				},
-				BlindingPoint: pd.BlindingPoint,
-			}
-			pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
-			copy(pd.OnionBlob[:], wireMsg.OnionBlob[:])
-
-		case *lnwire.UpdateFulfillHTLC:
-			pd = PaymentDescriptor{
-				ChanID:      wireMsg.ChanID,
-				RPreimage:   wireMsg.PaymentPreimage,
-				ParentIndex: wireMsg.ID,
-				EntryType:   Settle,
-				DestRef: &channeldb.SettleFailRef{
-					Source: chanID,
-					Height: height,
-					Index:  uint16(i),
-				},
-			}
-
-		case *lnwire.UpdateFailHTLC:
-			pd = PaymentDescriptor{
-				ChanID:      wireMsg.ChanID,
-				ParentIndex: wireMsg.ID,
-				EntryType:   Fail,
-				FailReason:  wireMsg.Reason[:],
-				DestRef: &channeldb.SettleFailRef{
-					Source: chanID,
-					Height: height,
-					Index:  uint16(i),
-				},
-			}
-
-		case *lnwire.UpdateFailMalformedHTLC:
-			pd = PaymentDescriptor{
-				ChanID:       wireMsg.ChanID,
-				ParentIndex:  wireMsg.ID,
-				EntryType:    MalformedFail,
-				FailCode:     wireMsg.FailureCode,
-				ShaOnionBlob: wireMsg.ShaOnionBlob,
-				DestRef: &channeldb.SettleFailRef{
-					Source: chanID,
-					Height: height,
-					Index:  uint16(i),
-				},
-			}
-
-		// NOTE: UpdateFee is not expected since they are not forwarded.
-		case *lnwire.UpdateFee:
-			return nil, fmt.Errorf("unexpected update fee")
-
-		}
-
-		payDescs = append(payDescs, pd)
-		payDescPtrs = append(payDescPtrs, &payDescs[i])
-	}
-
-	return payDescPtrs, nil
-}
-
 // commitment represents a commitment to a new state within an active channel.
 // New commitments can be initiated by either side. Commitments are ordered
 // into a commitment chain, with one existing for both parties. Each side can
@@ -331,11 +234,11 @@ type commitment struct {
 
 	// outgoingHTLCs is a slice of all the outgoing HTLC's (from our PoV)
 	// on this commitment transaction.
-	outgoingHTLCs []PaymentDescriptor
+	outgoingHTLCs []paymentDescriptor
 
 	// incomingHTLCs is a slice of all the incoming HTLC's (from our PoV)
 	// on this commitment transaction.
-	incomingHTLCs []PaymentDescriptor
+	incomingHTLCs []paymentDescriptor
 
 	// [outgoing|incoming]HTLCIndex is an index that maps an output index
 	// on the commitment transaction to the payment descriptor that
@@ -347,8 +250,8 @@ type commitment struct {
 	// this map in order to locate the details needed to validate an HTLC
 	// signature while iterating of the outputs in the local commitment
 	// view.
-	outgoingHTLCIndex map[int32]*PaymentDescriptor
-	incomingHTLCIndex map[int32]*PaymentDescriptor
+	outgoingHTLCIndex map[int32]*paymentDescriptor
+	incomingHTLCIndex map[int32]*paymentDescriptor
 }
 
 // locateOutputIndex is a small helper function to locate the output index of a
@@ -356,7 +259,7 @@ type commitment struct {
 // massed in is to be retained for each output within the commitment
 // transition.  This ensures that we don't assign multiple HTLCs to the same
 // index within the commitment transaction.
-func locateOutputIndex(p *PaymentDescriptor, tx *wire.MsgTx,
+func locateOutputIndex(p *paymentDescriptor, tx *wire.MsgTx,
 	whoseCommit lntypes.ChannelParty, dups map[PaymentHash][]int32,
 	cltvs []uint32) (int32, error) {
 
@@ -416,12 +319,12 @@ func (c *commitment) populateHtlcIndexes(chanType channeldb.ChannelType,
 	// must keep this index so we can validate the HTLC signatures sent to
 	// us.
 	dups := make(map[PaymentHash][]int32)
-	c.outgoingHTLCIndex = make(map[int32]*PaymentDescriptor)
-	c.incomingHTLCIndex = make(map[int32]*PaymentDescriptor)
+	c.outgoingHTLCIndex = make(map[int32]*paymentDescriptor)
+	c.incomingHTLCIndex = make(map[int32]*paymentDescriptor)
 
 	// populateIndex is a helper function that populates the necessary
 	// indexes within the commitment view for a particular HTLC.
-	populateIndex := func(htlc *PaymentDescriptor, incoming bool) error {
+	populateIndex := func(htlc *paymentDescriptor, incoming bool) error {
 		isDust := HtlcIsDust(
 			chanType, incoming, c.whoseCommit, c.feePerKw,
 			htlc.Amount.ToSatoshis(), c.dustLimit,
@@ -582,7 +485,7 @@ func (c *commitment) toDiskCommit(
 func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 	commitHeight uint64, htlc *channeldb.HTLC, localCommitKeys,
 	remoteCommitKeys *CommitmentKeyRing, whoseCommit lntypes.ChannelParty,
-) (PaymentDescriptor, error) {
+) (paymentDescriptor, error) {
 
 	// The proper pkScripts for this PaymentDescriptor must be
 	// generated so we can easily locate them within the commitment
@@ -590,7 +493,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 	var (
 		ourP2WSH, theirP2WSH                 []byte
 		ourWitnessScript, theirWitnessScript []byte
-		pd                                   PaymentDescriptor
+		pd                                   paymentDescriptor
 		chanType                             = lc.channelState.ChanType
 	)
 
@@ -646,7 +549,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 	// With the scripts reconstructed (depending on if this is our commit
 	// vs theirs or a pending commit for the remote party), we can now
 	// re-create the original payment descriptor.
-	return PaymentDescriptor{
+	return paymentDescriptor{
 		ChanID:             lc.ChannelID(),
 		RHash:              htlc.RHash,
 		Timeout:            htlc.RefundTimeout,
@@ -672,11 +575,11 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 func (lc *LightningChannel) extractPayDescs(commitHeight uint64,
 	feeRate chainfee.SatPerKWeight, htlcs []channeldb.HTLC, localCommitKeys,
 	remoteCommitKeys *CommitmentKeyRing, whoseCommit lntypes.ChannelParty,
-) ([]PaymentDescriptor, []PaymentDescriptor, error) {
+) ([]paymentDescriptor, []paymentDescriptor, error) {
 
 	var (
-		incomingHtlcs []PaymentDescriptor
-		outgoingHtlcs []PaymentDescriptor
+		incomingHtlcs []paymentDescriptor
+		outgoingHtlcs []paymentDescriptor
 	)
 
 	// For each included HTLC within this commitment state, we'll convert
@@ -1081,11 +984,11 @@ func (lc *LightningChannel) ResetState() {
 func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 	remoteUpdateLog *updateLog, commitHeight uint64,
 	feeRate chainfee.SatPerKWeight, remoteCommitKeys *CommitmentKeyRing,
-	remoteDustLimit btcutil.Amount) (*PaymentDescriptor, error) {
+	remoteDustLimit btcutil.Amount) (*paymentDescriptor, error) {
 
 	// Depending on the type of update message we'll map that to a distinct
 	// PaymentDescriptor instance.
-	var pd *PaymentDescriptor
+	var pd *paymentDescriptor
 
 	switch wireMsg := logUpdate.UpdateMsg.(type) {
 
@@ -1099,7 +1002,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 		// PaymentDescriptor struct. We also set addCommitHeightRemote
 		// as we've included this HTLC in our local commitment chain
 		// for the remote party.
-		pd = &PaymentDescriptor{
+		pd = &paymentDescriptor{
 			ChanID:                wireMsg.ChanID,
 			RHash:                 wireMsg.PaymentHash,
 			Timeout:               wireMsg.Expiry,
@@ -1137,7 +1040,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 	case *lnwire.UpdateFulfillHTLC:
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 
-		pd = &PaymentDescriptor{
+		pd = &paymentDescriptor{
 			ChanID:                   wireMsg.ChanID,
 			Amount:                   ogHTLC.Amount,
 			RHash:                    ogHTLC.RHash,
@@ -1155,7 +1058,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 	case *lnwire.UpdateFailHTLC:
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 
-		pd = &PaymentDescriptor{
+		pd = &paymentDescriptor{
 			ChanID:                   wireMsg.ChanID,
 			Amount:                   ogHTLC.Amount,
 			RHash:                    ogHTLC.RHash,
@@ -1172,7 +1075,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 		// TODO(roasbeef): err if nil?
 
-		pd = &PaymentDescriptor{
+		pd = &paymentDescriptor{
 			ChanID:                   wireMsg.ChanID,
 			Amount:                   ogHTLC.Amount,
 			RHash:                    ogHTLC.RHash,
@@ -1191,7 +1094,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 	// height to the same value, as we consider the fee update locked in by
 	// adding and removing it at the same height.
 	case *lnwire.UpdateFee:
-		pd = &PaymentDescriptor{
+		pd = &paymentDescriptor{
 			ChanID:   wireMsg.ChanID,
 			LogIndex: logUpdate.LogIndex,
 			Amount: lnwire.NewMSatFromSatoshis(
@@ -1216,7 +1119,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 // the real height may be lower. In the way these fields are used elsewhere, this
 // doesn't change anything.
 func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
-	remoteUpdateLog *updateLog, commitHeight uint64) (*PaymentDescriptor,
+	remoteUpdateLog *updateLog, commitHeight uint64) (*paymentDescriptor,
 	error) {
 
 	// Since Add updates aren't saved to disk under this key, the update will
@@ -1228,7 +1131,7 @@ func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *channeldb.LogUpda
 	case *lnwire.UpdateFulfillHTLC:
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 
-		return &PaymentDescriptor{
+		return &paymentDescriptor{
 			ChanID:                   wireMsg.ChanID,
 			Amount:                   ogHTLC.Amount,
 			RHash:                    ogHTLC.RHash,
@@ -1245,7 +1148,7 @@ func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *channeldb.LogUpda
 	case *lnwire.UpdateFailHTLC:
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 
-		return &PaymentDescriptor{
+		return &paymentDescriptor{
 			ChanID:                   wireMsg.ChanID,
 			Amount:                   ogHTLC.Amount,
 			RHash:                    ogHTLC.RHash,
@@ -1261,7 +1164,7 @@ func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *channeldb.LogUpda
 	case *lnwire.UpdateFailMalformedHTLC:
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 
-		return &PaymentDescriptor{
+		return &paymentDescriptor{
 			ChanID:                   wireMsg.ChanID,
 			Amount:                   ogHTLC.Amount,
 			RHash:                    ogHTLC.RHash,
@@ -1274,7 +1177,7 @@ func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *channeldb.LogUpda
 		}, nil
 
 	case *lnwire.UpdateFee:
-		return &PaymentDescriptor{
+		return &paymentDescriptor{
 			ChanID:   wireMsg.ChanID,
 			LogIndex: logUpdate.LogIndex,
 			Amount: lnwire.NewMSatFromSatoshis(
@@ -1301,12 +1204,12 @@ func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *channeldb.LogUpda
 // may be lower. In the way these fields are used elsewhere, this doesn't change
 // anything.
 func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
-	localUpdateLog *updateLog, commitHeight uint64) (*PaymentDescriptor,
+	localUpdateLog *updateLog, commitHeight uint64) (*paymentDescriptor,
 	error) {
 
 	switch wireMsg := logUpdate.UpdateMsg.(type) {
 	case *lnwire.UpdateAddHTLC:
-		pd := &PaymentDescriptor{
+		pd := &paymentDescriptor{
 			ChanID:               wireMsg.ChanID,
 			RHash:                wireMsg.PaymentHash,
 			Timeout:              wireMsg.Expiry,
@@ -1331,7 +1234,7 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 	case *lnwire.UpdateFulfillHTLC:
 		ogHTLC := localUpdateLog.lookupHtlc(wireMsg.ID)
 
-		return &PaymentDescriptor{
+		return &paymentDescriptor{
 			ChanID:                  wireMsg.ChanID,
 			Amount:                  ogHTLC.Amount,
 			RHash:                   ogHTLC.RHash,
@@ -1348,7 +1251,7 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 	case *lnwire.UpdateFailHTLC:
 		ogHTLC := localUpdateLog.lookupHtlc(wireMsg.ID)
 
-		return &PaymentDescriptor{
+		return &paymentDescriptor{
 			ChanID:                  wireMsg.ChanID,
 			Amount:                  ogHTLC.Amount,
 			RHash:                   ogHTLC.RHash,
@@ -1364,7 +1267,7 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 	case *lnwire.UpdateFailMalformedHTLC:
 		ogHTLC := localUpdateLog.lookupHtlc(wireMsg.ID)
 
-		return &PaymentDescriptor{
+		return &paymentDescriptor{
 			ChanID:                  wireMsg.ChanID,
 			Amount:                  ogHTLC.Amount,
 			RHash:                   ogHTLC.RHash,
@@ -1383,7 +1286,7 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 	// height to the same value, as we consider the fee update locked in by
 	// adding and removing it at the same height.
 	case *lnwire.UpdateFee:
-		return &PaymentDescriptor{
+		return &paymentDescriptor{
 			ChanID:   wireMsg.ChanID,
 			LogIndex: logUpdate.LogIndex,
 			Amount: lnwire.NewMSatFromSatoshis(
@@ -2491,8 +2394,8 @@ func HtlcIsDust(chanType channeldb.ChannelType,
 // htlcView represents the "active" HTLCs at a particular point within the
 // history of the HTLC update log.
 type htlcView struct {
-	ourUpdates   []*PaymentDescriptor
-	theirUpdates []*PaymentDescriptor
+	ourUpdates   []*paymentDescriptor
+	theirUpdates []*paymentDescriptor
 	feePerKw     chainfee.SatPerKWeight
 }
 
@@ -2500,7 +2403,7 @@ type htlcView struct {
 // considered for inclusion within a commitment based on the passed HTLC log
 // indexes.
 func (lc *LightningChannel) fetchHTLCView(theirLogIndex, ourLogIndex uint64) *htlcView {
-	var ourHTLCs []*PaymentDescriptor
+	var ourHTLCs []*paymentDescriptor
 	for e := lc.localUpdateLog.Front(); e != nil; e = e.Next() {
 		htlc := e.Value
 
@@ -2512,7 +2415,7 @@ func (lc *LightningChannel) fetchHTLCView(theirLogIndex, ourLogIndex uint64) *ht
 		}
 	}
 
-	var theirHTLCs []*PaymentDescriptor
+	var theirHTLCs []*paymentDescriptor
 	for e := lc.remoteUpdateLog.Front(); e != nil; e = e.Next() {
 		htlc := e.Value
 
@@ -2623,11 +2526,16 @@ func (lc *LightningChannel) fetchCommitmentView(
 	// In order to ensure _none_ of the HTLC's associated with this new
 	// commitment are mutated, we'll manually copy over each HTLC to its
 	// respective slice.
-	c.outgoingHTLCs = make([]PaymentDescriptor, len(filteredHTLCView.ourUpdates))
+	c.outgoingHTLCs = make(
+		[]paymentDescriptor, len(filteredHTLCView.ourUpdates),
+	)
 	for i, htlc := range filteredHTLCView.ourUpdates {
 		c.outgoingHTLCs[i] = *htlc
 	}
-	c.incomingHTLCs = make([]PaymentDescriptor, len(filteredHTLCView.theirUpdates))
+
+	c.incomingHTLCs = make(
+		[]paymentDescriptor, len(filteredHTLCView.theirUpdates),
+	)
 	for i, htlc := range filteredHTLCView.theirUpdates {
 		c.incomingHTLCs[i] = *htlc
 	}
@@ -2787,9 +2695,9 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 
 // fetchParent is a helper that looks up update log parent entries in the
 // appropriate log.
-func (lc *LightningChannel) fetchParent(entry *PaymentDescriptor,
+func (lc *LightningChannel) fetchParent(entry *paymentDescriptor,
 	whoseCommitChain, whoseUpdateLog lntypes.ChannelParty,
-) (*PaymentDescriptor, error) {
+) (*paymentDescriptor, error) {
 
 	var (
 		updateLog *updateLog
@@ -2842,7 +2750,7 @@ func (lc *LightningChannel) fetchParent(entry *PaymentDescriptor,
 // If the HTLC hasn't yet been committed in either chain, then the height it
 // was committed is updated. Keeping track of this inclusion height allows us to
 // later compact the log once the change is fully committed in both chains.
-func processAddEntry(htlc *PaymentDescriptor, ourBalance,
+func processAddEntry(htlc *paymentDescriptor, ourBalance,
 	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
 	whoseCommitChain lntypes.ChannelParty, isIncoming, mutateState bool) {
 
@@ -2880,7 +2788,7 @@ func processAddEntry(htlc *PaymentDescriptor, ourBalance,
 // processRemoveEntry processes a log entry which settles or times out a
 // previously added HTLC. If the removal entry has already been processed, it
 // is skipped.
-func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
+func processRemoveEntry(htlc *paymentDescriptor, ourBalance,
 	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
 	whoseCommitChain lntypes.ChannelParty, isIncoming, mutateState bool) {
 
@@ -2929,7 +2837,7 @@ func processRemoveEntry(htlc *PaymentDescriptor, ourBalance,
 
 // processFeeUpdate processes a log update that updates the current commitment
 // fee.
-func processFeeUpdate(feeUpdate *PaymentDescriptor, nextHeight uint64,
+func processFeeUpdate(feeUpdate *paymentDescriptor, nextHeight uint64,
 	whoseCommitChain lntypes.ChannelParty, mutateState bool, view *htlcView,
 ) {
 
@@ -3510,7 +3418,7 @@ func (lc *LightningChannel) applyCommitFee(
 // or nil otherwise.
 func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	ourLogCounter uint64, whoseCommitChain lntypes.ChannelParty,
-	buffer BufferType, predictOurAdd, predictTheirAdd *PaymentDescriptor,
+	buffer BufferType, predictOurAdd, predictTheirAdd *paymentDescriptor,
 ) error {
 
 	// First fetch the initial balance before applying any updates.
@@ -3637,7 +3545,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 
 	// validateUpdates take a set of updates, and validates them against
 	// the passed channel constraints.
-	validateUpdates := func(updates []*PaymentDescriptor,
+	validateUpdates := func(updates []*paymentDescriptor,
 		constraints *channeldb.ChannelConfig) error {
 
 		// We keep track of the number of HTLCs in flight for the
@@ -5177,15 +5085,10 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 // The returned values correspond to:
 //  1. The forwarding package corresponding to the remote commitment height
 //     that was revoked.
-//  2. The PaymentDescriptor of any Add HTLCs that were locked in by this
-//     revocation.
-//  3. The PaymentDescriptor of any Settle/Fail HTLCs that were locked in by
-//     this revocation.
-//  4. The set of HTLCs present on the current valid commitment transaction
+//  2. The set of HTLCs present on the current valid commitment transaction
 //     for the remote party.
 func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
-	*channeldb.FwdPkg, []*PaymentDescriptor, []*PaymentDescriptor,
-	[]channeldb.HTLC, error) {
+	*channeldb.FwdPkg, []channeldb.HTLC, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -5194,10 +5097,10 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	store := lc.channelState.RevocationStore
 	revocation, err := chainhash.NewHash(revMsg.Revocation[:])
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, err
 	}
 	if err := store.AddNextEntry(revocation); err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	// Verify that if we use the commitment point computed based off of the
@@ -5206,7 +5109,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	currentCommitPoint := lc.channelState.RemoteCurrentRevocation
 	derivedCommitPoint := input.ComputeCommitmentPoint(revMsg.Revocation[:])
 	if !derivedCommitPoint.IsEqual(currentCommitPoint) {
-		return nil, nil, nil, nil, fmt.Errorf("revocation key mismatch")
+		return nil, nil, fmt.Errorf("revocation key mismatch")
 	}
 
 	// Now that we've verified that the prior commitment has been properly
@@ -5236,10 +5139,8 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// updates to disk and optimistically buffer the forwarding package in
 	// memory.
 	var (
-		addsToForward        []*PaymentDescriptor
-		addUpdates           []channeldb.LogUpdate
-		settleFailsToForward []*PaymentDescriptor
-		settleFailUpdates    []channeldb.LogUpdate
+		addUpdates        []channeldb.LogUpdate
+		settleFailUpdates []channeldb.LogUpdate
 	)
 
 	var addIndex, settleFailIndex uint16
@@ -5291,7 +5192,6 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 			addIndex++
 
 			pd.isForwarded = true
-			addsToForward = append(addsToForward, pd)
 
 		case pd.EntryType != Add && committedRmv && shouldFwdRmv:
 			// Construct a reference specifying the location that
@@ -5305,9 +5205,10 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 			settleFailIndex++
 
 			pd.isForwarded = true
-			settleFailsToForward = append(settleFailsToForward, pd)
 
 		default:
+			// The update was not "freshly locked in" so we will
+			// ignore it as we construct the forwarding package.
 			continue
 		}
 
@@ -5390,7 +5291,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		revocation, lc.channelState,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	// Now that we have a new verification nonce from them, we can refresh
@@ -5398,7 +5299,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	if lc.channelState.ChanType.IsTaproot() {
 		localNonce, err := revMsg.LocalNonce.UnwrapOrErrV(errNoNonce)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, err
 		}
 
 		session, err := lc.musigSessions.RemoteSession.Refresh(
@@ -5407,7 +5308,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 			},
 		)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, err
 		}
 
 		lc.musigSessions.RemoteSession = session
@@ -5423,7 +5324,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		ourOutputIndex, theirOutputIndex,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	// Since they revoked the current lowest height in their commitment
@@ -5440,7 +5341,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 
 	remoteHTLCs := lc.channelState.RemoteCommitment.Htlcs
 
-	return fwdPkg, addsToForward, settleFailsToForward, remoteHTLCs, nil
+	return fwdPkg, remoteHTLCs, nil
 }
 
 // LoadFwdPkgs loads any pending log updates from disk and returns the payment
@@ -5665,9 +5566,9 @@ func (lc *LightningChannel) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 // htlcAddDescriptor returns a payment descriptor for the htlc and open key
 // provided to add to our local update log.
 func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
-	openKey *models.CircuitKey) *PaymentDescriptor {
+	openKey *models.CircuitKey) *paymentDescriptor {
 
-	return &PaymentDescriptor{
+	return &paymentDescriptor{
 		ChanID:         htlc.ChanID,
 		EntryType:      Add,
 		RHash:          PaymentHash(htlc.PaymentHash),
@@ -5683,7 +5584,7 @@ func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
 
 // validateAddHtlc validates the addition of an outgoing htlc to our local and
 // remote commitments.
-func (lc *LightningChannel) validateAddHtlc(pd *PaymentDescriptor,
+func (lc *LightningChannel) validateAddHtlc(pd *paymentDescriptor,
 	buffer BufferType) error {
 	// Make sure adding this HTLC won't violate any of the constraints we
 	// must keep on the commitment transactions.
@@ -5727,7 +5628,7 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 			"ID %d", htlc.ID, lc.remoteUpdateLog.htlcCounter)
 	}
 
-	pd := &PaymentDescriptor{
+	pd := &paymentDescriptor{
 		ChanID:        htlc.ChanID,
 		EntryType:     Add,
 		RHash:         PaymentHash(htlc.PaymentHash),
@@ -5807,7 +5708,7 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte,
 		return ErrInvalidSettlePreimage{preimage[:], htlc.RHash[:]}
 	}
 
-	pd := &PaymentDescriptor{
+	pd := &paymentDescriptor{
 		ChanID:           lc.ChannelID(),
 		Amount:           htlc.Amount,
 		RPreimage:        preimage,
@@ -5853,7 +5754,7 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 		return ErrInvalidSettlePreimage{preimage[:], htlc.RHash[:]}
 	}
 
-	pd := &PaymentDescriptor{
+	pd := &paymentDescriptor{
 		ChanID:      lc.ChannelID(),
 		Amount:      htlc.Amount,
 		RPreimage:   preimage,
@@ -5915,7 +5816,7 @@ func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte,
 		return ErrHtlcIndexAlreadyFailed(htlcIndex)
 	}
 
-	pd := &PaymentDescriptor{
+	pd := &paymentDescriptor{
 		ChanID:           lc.ChannelID(),
 		Amount:           htlc.Amount,
 		RHash:            htlc.RHash,
@@ -5966,7 +5867,7 @@ func (lc *LightningChannel) MalformedFailHTLC(htlcIndex uint64,
 		return ErrHtlcIndexAlreadyFailed(htlcIndex)
 	}
 
-	pd := &PaymentDescriptor{
+	pd := &paymentDescriptor{
 		ChanID:       lc.ChannelID(),
 		Amount:       htlc.Amount,
 		RHash:        htlc.RHash,
@@ -6009,7 +5910,7 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
 		return ErrHtlcIndexAlreadyFailed(htlcIndex)
 	}
 
-	pd := &PaymentDescriptor{
+	pd := &paymentDescriptor{
 		ChanID:      lc.ChannelID(),
 		Amount:      htlc.Amount,
 		RHash:       htlc.RHash,
@@ -8063,7 +7964,7 @@ func (lc *LightningChannel) UpdateFee(feePerKw chainfee.SatPerKWeight) error {
 		return err
 	}
 
-	pd := &PaymentDescriptor{
+	pd := &paymentDescriptor{
 		ChanID:    lc.ChannelID(),
 		LogIndex:  lc.localUpdateLog.logIndex,
 		Amount:    lnwire.NewMSatFromSatoshis(btcutil.Amount(feePerKw)),
@@ -8136,7 +8037,7 @@ func (lc *LightningChannel) ReceiveUpdateFee(feePerKw chainfee.SatPerKWeight) er
 	}
 
 	// TODO(roasbeef): or just modify to use the other balance?
-	pd := &PaymentDescriptor{
+	pd := &paymentDescriptor{
 		ChanID:    lc.ChannelID(),
 		LogIndex:  lc.remoteUpdateLog.logIndex,
 		Amount:    lnwire.NewMSatFromSatoshis(btcutil.Amount(feePerKw)),

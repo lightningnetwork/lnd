@@ -3838,6 +3838,9 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		towerClient = s.towerClientMgr
 	}
 
+	thresholdSats := btcutil.Amount(s.cfg.DustThreshold)
+	thresholdMSats := lnwire.NewMSatFromSatoshis(thresholdSats)
+
 	// Now that we've established a connection, create a peer, and it to the
 	// set of currently active peers. Configure the peer with the incoming
 	// and outgoing broadcast deltas to prevent htlcs from being accepted or
@@ -3907,6 +3910,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		RequestAlias:           s.aliasMgr.RequestAlias,
 		AddLocalAlias:          s.aliasMgr.AddLocalAlias,
 		DisallowRouteBlinding:  s.cfg.ProtocolOptions.NoRouteBlinding(),
+		DustThreshold:          thresholdMSats,
 		Quit:                   s.quit,
 	}
 

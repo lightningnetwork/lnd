@@ -4471,9 +4471,19 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 
 	// Triggering the link to update the fee of the channel with a fee rate
 	// that exceeds its maximum fee allocation should result in a fee rate
-	// corresponding to the maximum fee allocation.
+	// corresponding to the maximum fee allocation. Increase the dust
+	// threshold so that we don't trigger that logic.
+	highDustThreshold := lnwire.NewMSatFromSatoshis(
+		2 * btcutil.SatoshiPerBitcoin,
+	)
 	const maxFeeRate chainfee.SatPerKWeight = 207180182
+	n.aliceChannelLink.cfg.DustThreshold = highDustThreshold
+	n.firstBobChannelLink.cfg.DustThreshold = highDustThreshold
 	triggerFeeUpdate(maxFeeRate+1, minRelayFee, maxFeeRate, true)
+
+	// Decrease the dust threshold back to normal.
+	n.aliceChannelLink.cfg.DustThreshold = DefaultDustThreshold
+	n.firstBobChannelLink.cfg.DustThreshold = DefaultDustThreshold
 
 	// Triggering the link to update the fee of the channel with a fee rate
 	// that is below the current min relay fee rate should result in a fee

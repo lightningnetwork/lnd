@@ -21,6 +21,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -9750,9 +9751,13 @@ func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
 	checkDust := func(c *LightningChannel, expLocal,
 		expRemote lnwire.MilliSatoshi) {
 
-		localDustSum := c.GetDustSum(false)
+		localDustSum := c.GetDustSum(
+			false, fn.None[chainfee.SatPerKWeight](),
+		)
 		require.Equal(t, expLocal, localDustSum)
-		remoteDustSum := c.GetDustSum(true)
+		remoteDustSum := c.GetDustSum(
+			true, fn.None[chainfee.SatPerKWeight](),
+		)
 		require.Equal(t, expRemote, remoteDustSum)
 	}
 

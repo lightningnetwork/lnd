@@ -200,7 +200,7 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 	}
 
 	session, err := newPaymentSession(
-		&payment, getBandwidthHints,
+		&payment, c.graph.source.pubkey, getBandwidthHints,
 		func() (routingGraph, func(), error) {
 			return c.graph, func() {}, nil
 		},

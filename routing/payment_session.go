@@ -163,6 +163,8 @@ type PaymentSession interface {
 // loop if payment attempts take long enough. An additional set of edges can
 // also be provided to assist in reaching the payment's destination.
 type paymentSession struct {
+	selfNode route.Vertex
+
 	additionalEdges map[route.Vertex][]AdditionalEdge
 
 	getBandwidthHints func(routingGraph) (bandwidthHints, error)
@@ -192,7 +194,7 @@ type paymentSession struct {
 }
 
 // newPaymentSession instantiates a new payment session.
-func newPaymentSession(p *LightningPayment,
+func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 	getBandwidthHints func(routingGraph) (bandwidthHints, error),
 	getRoutingGraph func() (routingGraph, func(), error),
 	missionControl MissionController, pathFindingConfig PathFindingConfig) (
@@ -206,6 +208,7 @@ func newPaymentSession(p *LightningPayment,
 	logPrefix := fmt.Sprintf("PaymentSession(%x):", p.Identifier())
 
 	return &paymentSession{
+		selfNode:          selfNode,
 		additionalEdges:   edges,
 		getBandwidthHints: getBandwidthHints,
 		payment:           p,
@@ -296,8 +299,6 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 
 		p.log.Debugf("pathfinding for amt=%v", maxAmt)
 
-		sourceVertex := routingGraph.sourceNode()
-
 		// Find a route for the current amount.
 		path, _, err := p.pathFinder(
 			&graphParams{
@@ -306,7 +307,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 				graph:           routingGraph,
 			},
 			restrictions, &p.pathFindingConfig,
-			sourceVertex, p.payment.Target,
+			p.selfNode, p.selfNode, p.payment.Target,
 			maxAmt, p.payment.TimePref, finalHtlcExpiry,
 		)
 
@@ -384,7 +385,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		// this into a route by applying the time-lock and fee
 		// requirements.
 		route, err := newRoute(
-			sourceVertex, path, height,
+			p.selfNode, path, height,
 			finalHopParams{
 				amt:         maxAmt,
 				totalAmt:    p.payment.Amount,

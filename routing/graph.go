@@ -23,11 +23,6 @@ type routingGraph interface {
 
 	// fetchNodeFeatures returns the features of the given node.
 	fetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
-
-	// FetchAmountPairCapacity determines the maximal capacity between two
-	// pairs of nodes.
-	FetchAmountPairCapacity(nodeFrom, nodeTo route.Vertex,
-		amount lnwire.MilliSatoshi) (btcutil.Amount, error)
 }
 
 // CachedGraph is a routingGraph implementation that retrieves from the
@@ -97,8 +92,6 @@ func (g *CachedGraph) fetchNodeFeatures(nodePub route.Vertex) (
 
 // FetchAmountPairCapacity determines the maximal public capacity between two
 // nodes depending on the amount we try to send.
-//
-// NOTE: Part of the routingGraph interface.
 func (g *CachedGraph) FetchAmountPairCapacity(nodeFrom, nodeTo route.Vertex,
 	amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
 

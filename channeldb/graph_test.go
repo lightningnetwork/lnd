@@ -2685,7 +2685,7 @@ func TestFetchChanInfos(t *testing.T) {
 	// We'll now attempt to query for the range of channel ID's we just
 	// inserted into the database. We should get the exact same set of
 	// edges back.
-	resp, err := graph.FetchChanInfos(nil, edgeQuery)
+	resp, err := graph.FetchChanInfos(edgeQuery)
 	require.NoError(t, err, "unable to fetch chan edges")
 	if len(resp) != len(edges) {
 		t.Fatalf("expected %v edges, instead got %v", len(edges),

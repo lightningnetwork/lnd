@@ -127,11 +127,6 @@ func getTestPair(from, to int) DirectedNodePair {
 	return NewDirectedNodePair(hops[from], hops[to])
 }
 
-func getPolicyFailure(from, to int) *DirectedNodePair {
-	pair := getTestPair(from, to)
-	return &pair
-}
-
 type resultTestCase struct {
 	name          string
 	route         *route.Route
@@ -277,7 +272,6 @@ var resultTestCases = []resultTestCase{
 				getTestPair(1, 2): {},
 				getTestPair(2, 1): {},
 			},
-			policyFailure: getPolicyFailure(2, 3),
 		},
 	},
 
@@ -433,7 +427,6 @@ var resultTestCases = []resultTestCase{
 				getTestPair(2, 1): failPairResult(0),
 				getTestPair(0, 1): successPairResult(100),
 			},
-			policyFailure: getPolicyFailure(1, 2),
 		},
 	},
 	// Test the case where a node after the introduction node returns a

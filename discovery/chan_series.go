@@ -249,7 +249,7 @@ func (c *ChanSeries) FetchChanAnns(chain chainhash.Hash,
 		chanIDs = append(chanIDs, chanID.ToUint64())
 	}
 
-	channels, err := c.graph.FetchChanInfos(nil, chanIDs)
+	channels, err := c.graph.FetchChanInfos(chanIDs)
 	if err != nil {
 		return nil, err
 	}

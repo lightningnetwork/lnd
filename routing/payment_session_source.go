@@ -73,8 +73,8 @@ func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
 	}
 
 	session, err := newPaymentSession(
-		p, getBandwidthHints, m.getRoutingGraph,
-		m.MissionControl, m.PathFindingConfig,
+		p, m.SourceNode.PubKeyBytes, getBandwidthHints,
+		m.getRoutingGraph, m.MissionControl, m.PathFindingConfig,
 	)
 	if err != nil {
 		return nil, err

@@ -1161,7 +1161,7 @@ func genHtlcScript(chanType channeldb.ChannelType, isIncoming bool,
 // PaymentDescriptor that generated it, the generated script is stored within
 // the descriptor itself.
 func addHTLC(commitTx *wire.MsgTx, whoseCommit lntypes.ChannelParty,
-	isIncoming bool, paymentDesc *PaymentDescriptor,
+	isIncoming bool, paymentDesc *paymentDescriptor,
 	keyRing *CommitmentKeyRing, chanType channeldb.ChannelType) error {
 
 	timeout := paymentDesc.Timeout

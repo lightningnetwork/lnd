@@ -18,9 +18,6 @@ type routingGraph interface {
 	forEachNodeChannel(nodePub route.Vertex,
 		cb func(channel *channeldb.DirectedChannel) error) error
 
-	// sourceNode returns the source node of the graph.
-	sourceNode() route.Vertex
-
 	// fetchNodeFeatures returns the features of the given node.
 	fetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
 }
@@ -73,13 +70,6 @@ func (g *CachedGraph) forEachNodeChannel(nodePub route.Vertex,
 	return g.graph.ForEachNodeDirectedChannel(g.tx, nodePub, cb)
 }
 
-// sourceNode returns the source node of the graph.
-//
-// NOTE: Part of the routingGraph interface.
-func (g *CachedGraph) sourceNode() route.Vertex {
-	return g.source
-}
-
 // fetchNodeFeatures returns the features of the given node. If the node is
 // unknown, assume no additional features are supported.
 //
@@ -99,7 +89,7 @@ func (g *CachedGraph) FetchAmountPairCapacity(nodeFrom, nodeTo route.Vertex,
 	//
 	// Note: Inbound fees are not used here because this method is only used
 	// by a deprecated router rpc.
-	u := newNodeEdgeUnifier(g.sourceNode(), nodeTo, false, nil)
+	u := newNodeEdgeUnifier(g.source, nodeTo, false, nil)
 
 	err := u.addGraphPolicies(g)
 	if err != nil {

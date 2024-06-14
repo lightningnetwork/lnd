@@ -48,7 +48,7 @@ const (
 
 // pathFinder defines the interface of a path finding algorithm.
 type pathFinder = func(g *graphParams, r *RestrictParams,
-	cfg *PathFindingConfig, source, target route.Vertex,
+	cfg *PathFindingConfig, self, source, target route.Vertex,
 	amt lnwire.MilliSatoshi, timePref float64, finalHtlcExpiry int32) (
 	[]*unifiedEdge, float64, error)
 
@@ -516,8 +516,9 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 // path and accurately check the amount to forward at every node against the
 // available bandwidth.
 func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
-	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
-	finalHtlcExpiry int32) ([]*unifiedEdge, float64, error) {
+	self, source, target route.Vertex, amt lnwire.MilliSatoshi,
+	timePref float64, finalHtlcExpiry int32) ([]*unifiedEdge, float64,
+	error) {
 
 	// Pathfinding can be a significant portion of the total payment
 	// latency, especially on low-powered devices. Log several metrics to
@@ -596,8 +597,6 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// If we are routing from ourselves, check that we have enough local
 	// balance available.
-	self := g.graph.sourceNode()
-
 	if source == self {
 		max, total, err := getOutgoingBalance(
 			self, outgoingChanMap, g.bandwidthHints, g.graph,

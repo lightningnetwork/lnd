@@ -3396,7 +3396,8 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 			bandwidthHints:  bandwidthHints,
 			graph:           routingGraph,
 		},
-		r, cfg, source, target, amt, timePref, finalHtlcExpiry,
+		r, cfg, sourceNode.PubKeyBytes, source, target, amt, timePref,
+		finalHtlcExpiry,
 	)
 
 	return route, err

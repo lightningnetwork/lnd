@@ -1229,10 +1229,10 @@ func genHtlcScript(chanType channeldb.ChannelType, isIncoming bool,
 // is incoming and if it's being applied to our commitment transaction or that
 // of the remote node's. Additionally, in order to be able to efficiently
 // locate the added HTLC on the commitment transaction from the
-// PaymentDescriptor that generated it, the generated script is stored within
+// paymentDescriptor that generated it, the generated script is stored within
 // the descriptor itself.
 func addHTLC(commitTx *wire.MsgTx, whoseCommit lntypes.ChannelParty,
-	isIncoming bool, paymentDesc *PaymentDescriptor,
+	isIncoming bool, paymentDesc *paymentDescriptor,
 	keyRing *CommitmentKeyRing, chanType channeldb.ChannelType,
 	auxLeaf input.AuxTapLeaf) error {
 
@@ -1253,7 +1253,7 @@ func addHTLC(commitTx *wire.MsgTx, whoseCommit lntypes.ChannelParty,
 	amountPending := int64(paymentDesc.Amount.ToSatoshis())
 	commitTx.AddTxOut(wire.NewTxOut(amountPending, pkScript))
 
-	// Store the pkScript of this particular PaymentDescriptor so we can
+	// Store the pkScript of this particular paymentDescriptor so we can
 	// quickly locate it within the commitment transaction later.
 	if whoseCommit.IsLocal() {
 		paymentDesc.ourPkScript = pkScript

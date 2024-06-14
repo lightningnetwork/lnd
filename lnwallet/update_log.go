@@ -29,16 +29,16 @@ type updateLog struct {
 
 	// List is the updatelog itself, we embed this value so updateLog has
 	// access to all the method of a list.List.
-	*fn.List[*PaymentDescriptor]
+	*fn.List[*paymentDescriptor]
 
 	// updateIndex maps a `logIndex` to a particular update entry. It
 	// deals with the four update types:
 	//   `Fail|MalformedFail|Settle|FeeUpdate`
-	updateIndex map[uint64]*fn.Node[*PaymentDescriptor]
+	updateIndex map[uint64]*fn.Node[*paymentDescriptor]
 
 	// htlcIndex maps a `htlcCounter` to an offered HTLC entry, hence the
 	// `Add` update.
-	htlcIndex map[uint64]*fn.Node[*PaymentDescriptor]
+	htlcIndex map[uint64]*fn.Node[*paymentDescriptor]
 
 	// modifiedHtlcs is a set that keeps track of all the current modified
 	// htlcs, hence update types `Fail|MalformedFail|Settle`. A modified
@@ -50,9 +50,9 @@ type updateLog struct {
 // newUpdateLog creates a new updateLog instance.
 func newUpdateLog(logIndex, htlcCounter uint64) *updateLog {
 	return &updateLog{
-		List:          fn.NewList[*PaymentDescriptor](),
-		updateIndex:   make(map[uint64]*fn.Node[*PaymentDescriptor]),
-		htlcIndex:     make(map[uint64]*fn.Node[*PaymentDescriptor]),
+		List:          fn.NewList[*paymentDescriptor](),
+		updateIndex:   make(map[uint64]*fn.Node[*paymentDescriptor]),
+		htlcIndex:     make(map[uint64]*fn.Node[*paymentDescriptor]),
 		logIndex:      logIndex,
 		htlcCounter:   htlcCounter,
 		modifiedHtlcs: fn.NewSet[uint64](),
@@ -64,7 +64,7 @@ func newUpdateLog(logIndex, htlcCounter uint64) *updateLog {
 // state. This function differs from appendHtlc in that it won't increment
 // either of log's counters. If the HTLC is already present, then it is
 // ignored.
-func (u *updateLog) restoreHtlc(pd *PaymentDescriptor) {
+func (u *updateLog) restoreHtlc(pd *paymentDescriptor) {
 	if _, ok := u.htlcIndex[pd.HtlcIndex]; ok {
 		return
 	}
@@ -74,7 +74,7 @@ func (u *updateLog) restoreHtlc(pd *PaymentDescriptor) {
 
 // appendUpdate appends a new update to the tip of the updateLog. The entry is
 // also added to index accordingly.
-func (u *updateLog) appendUpdate(pd *PaymentDescriptor) {
+func (u *updateLog) appendUpdate(pd *paymentDescriptor) {
 	u.updateIndex[u.logIndex] = u.PushBack(pd)
 	u.logIndex++
 }
@@ -82,13 +82,13 @@ func (u *updateLog) appendUpdate(pd *PaymentDescriptor) {
 // restoreUpdate appends a new update to the tip of the updateLog. The entry is
 // also added to index accordingly. This function differs from appendUpdate in
 // that it won't increment the log index counter.
-func (u *updateLog) restoreUpdate(pd *PaymentDescriptor) {
+func (u *updateLog) restoreUpdate(pd *paymentDescriptor) {
 	u.updateIndex[pd.LogIndex] = u.PushBack(pd)
 }
 
 // appendHtlc appends a new HTLC offer to the tip of the update log. The entry
 // is also added to the offer index accordingly.
-func (u *updateLog) appendHtlc(pd *PaymentDescriptor) {
+func (u *updateLog) appendHtlc(pd *paymentDescriptor) {
 	u.htlcIndex[u.htlcCounter] = u.PushBack(pd)
 	u.htlcCounter++
 
@@ -97,7 +97,7 @@ func (u *updateLog) appendHtlc(pd *PaymentDescriptor) {
 
 // lookupHtlc attempts to look up an offered HTLC according to its offer
 // index. If the entry isn't found, then a nil pointer is returned.
-func (u *updateLog) lookupHtlc(i uint64) *PaymentDescriptor {
+func (u *updateLog) lookupHtlc(i uint64) *paymentDescriptor {
 	htlc, ok := u.htlcIndex[i]
 	if !ok {
 		return nil
@@ -145,7 +145,7 @@ func compactLogs(ourLog, theirLog *updateLog,
 	localChainTail, remoteChainTail uint64) {
 
 	compactLog := func(logA, logB *updateLog) {
-		var nextA *fn.Node[*PaymentDescriptor]
+		var nextA *fn.Node[*paymentDescriptor]
 		for e := logA.Front(); e != nil; e = nextA {
 			// Assign next iteration element at top of loop because
 			// we may remove the current element from the list,

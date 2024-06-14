@@ -2144,8 +2144,9 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 			bandwidthHints:  bandwidthHints,
 			graph:           r.cachedGraph,
 		},
-		req.Restrictions, &r.cfg.PathFindingConfig, req.Source,
-		req.Target, req.Amount, req.TimePreference, finalHtlcExpiry,
+		req.Restrictions, &r.cfg.PathFindingConfig,
+		r.selfNode.PubKeyBytes, req.Source, req.Target, req.Amount,
+		req.TimePreference, finalHtlcExpiry,
 	)
 	if err != nil {
 		return nil, 0, err

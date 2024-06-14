@@ -6896,8 +6896,8 @@ func TestNewBreachRetributionSkipsDustHtlcs(t *testing.T) {
 	}
 }
 
-// compareHtlcs compares two PaymentDescriptors.
-func compareHtlcs(htlc1, htlc2 *PaymentDescriptor) error {
+// compareHtlcs compares two paymentDescriptors.
+func compareHtlcs(htlc1, htlc2 *paymentDescriptor) error {
 	if htlc1.LogIndex != htlc2.LogIndex {
 		return fmt.Errorf("htlc log index did not match")
 	}
@@ -6915,7 +6915,7 @@ func compareHtlcs(htlc1, htlc2 *PaymentDescriptor) error {
 }
 
 // compareIndexes is a helper method to compare two index maps.
-func compareIndexes(a, b map[uint64]*fn.Node[*PaymentDescriptor]) error {
+func compareIndexes(a, b map[uint64]*fn.Node[*paymentDescriptor]) error {
 	for k1, e1 := range a {
 		e2, ok := b[k1]
 		if !ok {
@@ -7384,7 +7384,7 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 			t.Fatalf("unable to create new channel: %v", err)
 		}
 
-		var pd *PaymentDescriptor
+		var pd *paymentDescriptor
 		if remoteLog {
 			h := newChannel.updateLogs.Local.lookupHtlc(htlcIndex)
 			if h != nil {
@@ -8152,8 +8152,8 @@ func TestFetchParent(t *testing.T) {
 		name             string
 		whoseCommitChain lntypes.ChannelParty
 		whoseUpdateLog   lntypes.ChannelParty
-		localEntries     []*PaymentDescriptor
-		remoteEntries    []*PaymentDescriptor
+		localEntries     []*paymentDescriptor
+		remoteEntries    []*paymentDescriptor
 
 		// parentIndex is the parent index of the entry that we will
 		// lookup with fetch parent.
@@ -8187,7 +8187,7 @@ func TestFetchParent(t *testing.T) {
 		{
 			name:         "remote log + chain, remote add height 0",
 			localEntries: nil,
-			remoteEntries: []*PaymentDescriptor{
+			remoteEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
 					HtlcIndex:             1,
@@ -8209,7 +8209,7 @@ func TestFetchParent(t *testing.T) {
 		},
 		{
 			name: "remote log, local chain, local add height 0",
-			remoteEntries: []*PaymentDescriptor{
+			remoteEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
 					HtlcIndex:             1,
@@ -8232,7 +8232,7 @@ func TestFetchParent(t *testing.T) {
 		},
 		{
 			name: "local log + chain, local add height 0",
-			localEntries: []*PaymentDescriptor{
+			localEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
 					HtlcIndex:             1,
@@ -8256,7 +8256,7 @@ func TestFetchParent(t *testing.T) {
 
 		{
 			name: "local log + remote chain, remote add height 0",
-			localEntries: []*PaymentDescriptor{
+			localEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
 					HtlcIndex:             1,
@@ -8280,7 +8280,7 @@ func TestFetchParent(t *testing.T) {
 		{
 			name:         "remote log found",
 			localEntries: nil,
-			remoteEntries: []*PaymentDescriptor{
+			remoteEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
 					HtlcIndex:             1,
@@ -8303,7 +8303,7 @@ func TestFetchParent(t *testing.T) {
 		},
 		{
 			name: "local log found",
-			localEntries: []*PaymentDescriptor{
+			localEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
 					HtlcIndex:             1,
@@ -8349,7 +8349,7 @@ func TestFetchParent(t *testing.T) {
 			}
 
 			parent, err := lc.fetchParent(
-				&PaymentDescriptor{
+				&paymentDescriptor{
 					ParentIndex: test.parentIndex,
 				},
 				test.whoseCommitChain,
@@ -8412,8 +8412,8 @@ func TestEvaluateView(t *testing.T) {
 
 	tests := []struct {
 		name             string
-		ourHtlcs         []*PaymentDescriptor
-		theirHtlcs       []*PaymentDescriptor
+		ourHtlcs         []*paymentDescriptor
+		theirHtlcs       []*paymentDescriptor
 		whoseCommitChain lntypes.ChannelParty
 		mutateState      bool
 
@@ -8445,7 +8445,7 @@ func TestEvaluateView(t *testing.T) {
 			name:             "our fee update is applied",
 			whoseCommitChain: lntypes.Local,
 			mutateState:      false,
-			ourHtlcs: []*PaymentDescriptor{
+			ourHtlcs: []*paymentDescriptor{
 				{
 					Amount:    ourFeeUpdateAmt,
 					EntryType: FeeUpdate,
@@ -8462,8 +8462,8 @@ func TestEvaluateView(t *testing.T) {
 			name:             "their fee update is applied",
 			whoseCommitChain: lntypes.Local,
 			mutateState:      false,
-			ourHtlcs:         []*PaymentDescriptor{},
-			theirHtlcs: []*PaymentDescriptor{
+			ourHtlcs:         []*paymentDescriptor{},
+			theirHtlcs: []*paymentDescriptor{
 				{
 					Amount:    theirFeeUpdateAmt,
 					EntryType: FeeUpdate,
@@ -8480,14 +8480,14 @@ func TestEvaluateView(t *testing.T) {
 			name:             "htlcs adds without settles",
 			whoseCommitChain: lntypes.Local,
 			mutateState:      false,
-			ourHtlcs: []*PaymentDescriptor{
+			ourHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex: 0,
 					Amount:    htlcAddAmount,
 					EntryType: Add,
 				},
 			},
-			theirHtlcs: []*PaymentDescriptor{
+			theirHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex: 0,
 					Amount:    htlcAddAmount,
@@ -8514,7 +8514,7 @@ func TestEvaluateView(t *testing.T) {
 			name:             "our htlc settled, state mutated",
 			whoseCommitChain: lntypes.Local,
 			mutateState:      true,
-			ourHtlcs: []*PaymentDescriptor{
+			ourHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex:            0,
 					Amount:               htlcAddAmount,
@@ -8522,7 +8522,7 @@ func TestEvaluateView(t *testing.T) {
 					addCommitHeightLocal: addHeight,
 				},
 			},
-			theirHtlcs: []*PaymentDescriptor{
+			theirHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex: 0,
 					Amount:    htlcAddAmount,
@@ -8549,7 +8549,7 @@ func TestEvaluateView(t *testing.T) {
 			name:             "our htlc settled, state not mutated",
 			whoseCommitChain: lntypes.Local,
 			mutateState:      false,
-			ourHtlcs: []*PaymentDescriptor{
+			ourHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex:            0,
 					Amount:               htlcAddAmount,
@@ -8557,7 +8557,7 @@ func TestEvaluateView(t *testing.T) {
 					addCommitHeightLocal: addHeight,
 				},
 			},
-			theirHtlcs: []*PaymentDescriptor{
+			theirHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex: 0,
 					Amount:    htlcAddAmount,
@@ -8584,7 +8584,7 @@ func TestEvaluateView(t *testing.T) {
 			name:             "their htlc settled, state mutated",
 			whoseCommitChain: lntypes.Local,
 			mutateState:      true,
-			ourHtlcs: []*PaymentDescriptor{
+			ourHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex: 0,
 					Amount:    htlcAddAmount,
@@ -8599,7 +8599,7 @@ func TestEvaluateView(t *testing.T) {
 					ParentIndex: 1,
 				},
 			},
-			theirHtlcs: []*PaymentDescriptor{
+			theirHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex:            0,
 					Amount:               htlcAddAmount,
@@ -8628,7 +8628,7 @@ func TestEvaluateView(t *testing.T) {
 
 			whoseCommitChain: lntypes.Local,
 			mutateState:      false,
-			ourHtlcs: []*PaymentDescriptor{
+			ourHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex: 0,
 					Amount:    htlcAddAmount,
@@ -8643,7 +8643,7 @@ func TestEvaluateView(t *testing.T) {
 					ParentIndex: 0,
 				},
 			},
-			theirHtlcs: []*PaymentDescriptor{
+			theirHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex:            0,
 					Amount:               htlcAddAmount,
@@ -8750,9 +8750,9 @@ func TestEvaluateView(t *testing.T) {
 
 // checkExpectedHtlcs checks that a set of htlcs that we have contains all the
 // htlcs we expect.
-func checkExpectedHtlcs(t *testing.T, actual []*PaymentDescriptor,
-	expected map[uint64]bool,
-) {
+func checkExpectedHtlcs(t *testing.T, actual []*paymentDescriptor,
+	expected map[uint64]bool) {
+
 	if len(expected) != len(actual) {
 		t.Fatalf("expected: %v htlcs, got: %v",
 			len(expected), len(actual))
@@ -8942,7 +8942,7 @@ func TestProcessFeeUpdate(t *testing.T) {
 			// Create a fee update with add and remove heights as
 			// set in the test.
 			heights := test.startHeights
-			update := &PaymentDescriptor{
+			update := &paymentDescriptor{
 				Amount:                   ourFeeUpdateAmt,
 				addCommitHeightRemote:    heights.remoteAdd,
 				addCommitHeightLocal:     heights.localAdd,
@@ -8969,7 +8969,7 @@ func TestProcessFeeUpdate(t *testing.T) {
 	}
 }
 
-func checkHeights(t *testing.T, update *PaymentDescriptor, expected heights) {
+func checkHeights(t *testing.T, update *paymentDescriptor, expected heights) {
 	updateHeights := heights{
 		localAdd:     update.addCommitHeightLocal,
 		localRemove:  update.removeCommitHeightLocal,
@@ -9338,7 +9338,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			t.Parallel()
 
 			heights := test.startHeights
-			update := &PaymentDescriptor{
+			update := &paymentDescriptor{
 				Amount:                   updateAmount,
 				addCommitHeightLocal:     heights.localAdd,
 				addCommitHeightRemote:    heights.remoteAdd,
@@ -10531,7 +10531,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 }
 
 // TestExtractPayDescs asserts that `extractPayDescs` can correctly turn a
-// slice of htlcs into two slices of PaymentDescriptors.
+// slice of htlcs into two slices of paymentDescriptors.
 func TestExtractPayDescs(t *testing.T) {
 	t.Parallel()
 
@@ -10568,24 +10568,24 @@ func TestExtractPayDescs(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Assert the incoming PaymentDescriptors are matched.
+	// Assert the incoming paymentDescriptors are matched.
 	for i, pd := range incomingPDs {
 		htlc := incomings[i]
 		assertPayDescMatchHTLC(t, pd, htlc)
 	}
 
-	// Assert the outgoing PaymentDescriptors are matched.
+	// Assert the outgoing paymentDescriptors are matched.
 	for i, pd := range outgoingPDs {
 		htlc := outgoings[i]
 		assertPayDescMatchHTLC(t, pd, htlc)
 	}
 }
 
-// assertPayDescMatchHTLC compares a PaymentDescriptor to a channeldb.HTLC and
+// assertPayDescMatchHTLC compares a paymentDescriptor to a channeldb.HTLC and
 // asserts that the fields are matched.
-func assertPayDescMatchHTLC(t *testing.T, pd PaymentDescriptor,
-	htlc channeldb.HTLC,
-) {
+func assertPayDescMatchHTLC(t *testing.T, pd paymentDescriptor,
+	htlc channeldb.HTLC) {
+
 	require := require.New(t)
 
 	require.EqualValues(htlc.RHash, pd.RHash, "RHash")

@@ -5,7 +5,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -21,7 +20,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
@@ -431,51 +429,50 @@ var bumpForceCloseFeeCommand = cli.Command{
 	allows the fee of a channel force closing transaction to be increased by
 	using the child-pays-for-parent mechanism. It will instruct the sweeper
 	to sweep the anchor outputs of the closing transaction at the requested
-	fee rate or confirmation target. The specified fee rate will be the
-	effective fee rate taking the parent fee into account.
+	confirmation target and limit the fees to the specified budget.
 	`,
 	Flags: []cli.Flag{
 		cli.Uint64Flag{
 			Name: "conf_target",
 			Usage: `
-	The deadline in number of blocks that the input should be spent within.
-	When not set, for new inputs, the default value (1008) is used; for
-	exiting inputs, their current values will be retained.`,
+	The deadline in number of blocks that the anchor output should be spent
+	within to bump the closing transaction.`,
 		},
 		cli.Uint64Flag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
+		cli.Uint64Flag{
+			Name: "sat_per_vbyte",
+			Usage: `
+	The starting fee rate, expressed in sat/vbyte. This value will be used
+	by the sweeper's fee function as its starting fee rate. When not set,
+	the sweeper will use the estimated fee rate using the target_conf as the
+	starting fee rate.`,
+		},
 		cli.BoolFlag{
 			Name:   "force",
 			Usage:  "Deprecated, use immediate instead.",
 			Hidden: true,
 		},
-		cli.Uint64Flag{
-			Name: "sat_per_vbyte",
-			Usage: `
-	The starting fee rate, expressed in sat/vbyte, that will be used to
-	spend the input with initially. This value will be used by the
-	sweeper's fee function as its starting fee rate. When not set, the
-	sweeper will use the estimated fee rate using the target_conf as the
-	starting fee rate.`,
-		},
 		cli.BoolFlag{
 			Name: "immediate",
 			Usage: `
-	Whether this input will be swept immediately. When set to true, the
-	sweeper will sweep this input without waiting for the next batch.`,
+	Whether this cpfp transaction will be triggered immediately. When set to
+	true, the sweeper will consider all currently pending registered sweeps
+	and trigger new batch transactions including the sweeping of the anchor 
+	output related to the selected force close transaction.`,
 		},
 		cli.Uint64Flag{
 			Name: "budget",
 			Usage: `
-	The max amount in sats that can be used as the fees. Setting this value
-	greater than the input's value may result in CPFP - one or more wallet
-	utxos will be used to pay the fees specified by the budget. If not set,
-	for new inputs, by default 50% of the input's value will be treated as
-	the budget for fee bumping; for existing inputs, their current budgets
-	will be retained.`,
+	The max amount in sats that can be used as the fees. For already
+	registered anchor outputs if not set explicitly the old value will be
+	used. For channel force closes which have no HTLCs in their commitment
+	transaction this value has to be set to an appropriate amount to pay for
+	the cpfp transaction of the force closed channel otherwise the fee 
+	bumping will fail.`,
 		},
 	},
 	Action: actionDecorator(bumpForceCloseFee),
@@ -492,97 +489,42 @@ func bumpForceCloseFee(ctx *cli.Context) error {
 
 	// Validate the channel point.
 	channelPoint := ctx.Args().Get(0)
-	_, err := NewProtoOutPoint(channelPoint)
+	rpcChannelPoint, err := parseChanPoint(channelPoint)
 	if err != nil {
 		return err
 	}
 
-	// Fetch all waiting close channels.
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
-
-	// Fetch waiting close channel commitments.
-	commitments, err := getWaitingCloseCommitments(
-		ctxc, client, channelPoint,
-	)
-	if err != nil {
-		return err
+	// `sat_per_byte` was deprecated we only use sats/vbyte now.
+	if ctx.IsSet("sat_per_byte") {
+		return fmt.Errorf("deprecated, use sat_per_vbyte instead.")
 	}
 
 	// Retrieve pending sweeps.
 	walletClient, cleanUp := getWalletClient(ctx)
 	defer cleanUp()
 
-	sweeps, err := walletClient.PendingSweeps(
-		ctxc, &walletrpc.PendingSweepsRequest{},
-	)
+	// Parse immediate flag (force flag was deprecated).
+	if ctx.IsSet("immediate") && ctx.IsSet("force") {
+		return fmt.Errorf("cannot set immediate and force flag at " +
+			"the same time")
+	}
+	immediate := ctx.Bool("immediate") || ctx.Bool("force")
+
+	resp, err := walletClient.BumpForceCloseFee(
+		ctxc, &walletrpc.BumpForceCloseFeeRequest{
+			ChanPoint:       rpcChannelPoint,
+			DeadlineDelta:   uint32(ctx.Uint64("conf_target")),
+			Budget:          ctx.Uint64("budget"),
+			Immediate:       immediate,
+			StartingFeerate: ctx.Uint64("sat_per_vbyte"),
+		})
 	if err != nil {
 		return err
 	}
 
-	// Match pending sweeps with commitments of the channel for which a bump
-	// is requested and bump their fees.
-	commitSet := map[string]struct{}{
-		commitments.LocalTxid:  {},
-		commitments.RemoteTxid: {},
-	}
-	if commitments.RemotePendingTxid != "" {
-		commitSet[commitments.RemotePendingTxid] = struct{}{}
-	}
-
-	for _, sweep := range sweeps.PendingSweeps {
-		// Only bump anchor sweeps.
-		if sweep.WitnessType != walletrpc.WitnessType_COMMITMENT_ANCHOR {
-			continue
-		}
-
-		// Skip unrelated sweeps.
-		sweepTxID, err := chainhash.NewHash(sweep.Outpoint.TxidBytes)
-		if err != nil {
-			return err
-		}
-		if _, match := commitSet[sweepTxID.String()]; !match {
-			continue
-		}
-
-		resp, err := walletClient.BumpFee(
-			ctxc, &walletrpc.BumpFeeRequest{
-				Outpoint:    sweep.Outpoint,
-				TargetConf:  uint32(ctx.Uint64("conf_target")),
-				Budget:      ctx.Uint64("budget"),
-				Immediate:   ctx.Bool("immediate"),
-				SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
-			})
-		if err != nil {
-			return err
-		}
-
-		// Bump fee of the anchor sweep.
-		fmt.Printf("Bumping fee of %v:%v: %v\n",
-			sweepTxID, sweep.Outpoint.OutputIndex, resp.GetStatus())
-	}
+	fmt.Printf("BumpForceCloseFee result: %s\n", resp.Status)
 
 	return nil
-}
-
-func getWaitingCloseCommitments(ctxc context.Context,
-	client lnrpc.LightningClient, channelPoint string) (
-	*lnrpc.PendingChannelsResponse_Commitments, error) {
-
-	req := &lnrpc.PendingChannelsRequest{}
-	resp, err := client.PendingChannels(ctxc, req)
-	if err != nil {
-		return nil, err
-	}
-
-	// Lookup the channel commit tx hashes.
-	for _, channel := range resp.WaitingCloseChannels {
-		if channel.Channel.ChannelPoint == channelPoint {
-			return channel.Commitments, nil
-		}
-	}
-
-	return nil, errors.New("channel not found")
 }
 
 var listSweepsCommand = cli.Command{

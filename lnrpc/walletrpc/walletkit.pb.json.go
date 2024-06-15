@@ -572,6 +572,31 @@ func RegisterWalletKitJSONCallbacks(registry map[string]func(ctx context.Context
 		callback(string(respBytes), nil)
 	}
 
+	registry["walletrpc.WalletKit.BumpForceCloseFee"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &BumpForceCloseFeeRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewWalletKitClient(conn)
+		resp, err := client.BumpForceCloseFee(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
+
 	registry["walletrpc.WalletKit.ListSweeps"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 

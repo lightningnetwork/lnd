@@ -208,6 +208,12 @@ type WalletKitClient interface {
 	// done by specifying an outpoint within the low fee transaction that is under
 	// the control of the wallet.
 	BumpFee(ctx context.Context, in *BumpFeeRequest, opts ...grpc.CallOption) (*BumpFeeResponse, error)
+	// lncli: `wallet bumpforceclosefee`
+	// BumpForceCloseFee is an endpoint that allows users to bump the fee of
+	// channel force closes. This does only work for channels of type anchor
+	// because to bump the fee of an unconfirmed commitment transaction only anchor
+	// outputs can be used.
+	BumpForceCloseFee(ctx context.Context, in *BumpFeeRequest, opts ...grpc.CallOption) (*BumpFeeResponse, error)
 	// lncli: `wallet listsweeps`
 	// ListSweeps returns a list of the sweep transactions our node has produced.
 	// Note that these sweeps may not be confirmed yet, as we record sweeps on
@@ -482,6 +488,15 @@ func (c *walletKitClient) BumpFee(ctx context.Context, in *BumpFeeRequest, opts 
 	return out, nil
 }
 
+func (c *walletKitClient) BumpForceCloseFee(ctx context.Context, in *BumpFeeRequest, opts ...grpc.CallOption) (*BumpFeeResponse, error) {
+	out := new(BumpFeeResponse)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/BumpForceCloseFee", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *walletKitClient) ListSweeps(ctx context.Context, in *ListSweepsRequest, opts ...grpc.CallOption) (*ListSweepsResponse, error) {
 	out := new(ListSweepsResponse)
 	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/ListSweeps", in, out, opts...)
@@ -719,6 +734,12 @@ type WalletKitServer interface {
 	// done by specifying an outpoint within the low fee transaction that is under
 	// the control of the wallet.
 	BumpFee(context.Context, *BumpFeeRequest) (*BumpFeeResponse, error)
+	// lncli: `wallet bumpforceclosefee`
+	// BumpForceCloseFee is an endpoint that allows users to bump the fee of
+	// channel force closes. This does only work for channels of type anchor
+	// because to bump the fee of an unconfirmed commitment transaction only anchor
+	// outputs can be used.
+	BumpForceCloseFee(context.Context, *BumpFeeRequest) (*BumpFeeResponse, error)
 	// lncli: `wallet listsweeps`
 	// ListSweeps returns a list of the sweep transactions our node has produced.
 	// Note that these sweeps may not be confirmed yet, as we record sweeps on
@@ -857,6 +878,9 @@ func (UnimplementedWalletKitServer) PendingSweeps(context.Context, *PendingSweep
 }
 func (UnimplementedWalletKitServer) BumpFee(context.Context, *BumpFeeRequest) (*BumpFeeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BumpFee not implemented")
+}
+func (UnimplementedWalletKitServer) BumpForceCloseFee(context.Context, *BumpFeeRequest) (*BumpFeeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BumpForceCloseFee not implemented")
 }
 func (UnimplementedWalletKitServer) ListSweeps(context.Context, *ListSweepsRequest) (*ListSweepsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListSweeps not implemented")
@@ -1282,6 +1306,24 @@ func _WalletKit_BumpFee_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WalletKit_BumpForceCloseFee_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BumpFeeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).BumpForceCloseFee(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/BumpForceCloseFee",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).BumpForceCloseFee(ctx, req.(*BumpFeeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _WalletKit_ListSweeps_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListSweepsRequest)
 	if err := dec(in); err != nil {
@@ -1466,6 +1508,10 @@ var WalletKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BumpFee",
 			Handler:    _WalletKit_BumpFee_Handler,
+		},
+		{
+			MethodName: "BumpForceCloseFee",
+			Handler:    _WalletKit_BumpForceCloseFee_Handler,
 		},
 		{
 			MethodName: "ListSweeps",

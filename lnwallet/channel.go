@@ -5021,7 +5021,6 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	localChainTail := lc.localCommitChain.tail().height
 
 	source := lc.ShortChanID()
-	chanID := lnwire.NewChanIDFromOutPoint(lc.channelState.FundingOutpoint)
 
 	// Determine the set of htlcs that can be forwarded as a result of
 	// having received the revocation. We will simultaneously construct the
@@ -5126,7 +5125,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	localMessageIndex := lc.localCommitChain.tail().ourMessageIndex
 
 	localPeerUpdates := lc.unsignedLocalUpdates(
-		remoteMessageIndex, localMessageIndex, chanID,
+		remoteMessageIndex, localMessageIndex,
 	)
 
 	// Now that we have gathered the set of HTLCs to forward, separated by
@@ -8365,7 +8364,7 @@ func (lc *LightningChannel) FwdMinHtlc() lnwire.MilliSatoshi {
 // NOTE: remoteMessageIndex is the height on the tip because this is called
 // before the tail is advanced to the tip during ReceiveRevocation.
 func (lc *LightningChannel) unsignedLocalUpdates(remoteMessageIndex,
-	localMessageIndex uint64, chanID lnwire.ChannelID) []channeldb.LogUpdate {
+	localMessageIndex uint64) []channeldb.LogUpdate {
 
 	var localPeerUpdates []channeldb.LogUpdate
 	for e := lc.localUpdateLog.Front(); e != nil; e = e.Next() {

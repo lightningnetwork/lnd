@@ -105,7 +105,9 @@ func (d *dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 				return nil
 			}
 
-			node, err := d.db.FetchLightningNode(tx, ep.ToNode)
+			node, err := d.db.FetchLightningNodeWithTx(
+				tx, ep.ToNode,
+			)
 			if err != nil {
 				return err
 			}
@@ -164,7 +166,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 				return nil, err
 			}
 
-			dbNode, err := d.db.FetchLightningNode(nil, vertex)
+			dbNode, err := d.db.FetchLightningNode(vertex)
 			switch {
 			case err == channeldb.ErrGraphNodeNotFound:
 				fallthrough

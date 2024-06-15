@@ -141,7 +141,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// Next, fetch the node from the database to ensure everything was
 	// serialized properly.
-	dbNode, err := graph.FetchLightningNode(nil, testPub)
+	dbNode, err := graph.FetchLightningNode(testPub)
 	require.NoError(t, err, "unable to locate node")
 
 	if _, exists, err := graph.HasLightningNode(dbNode.PubKeyBytes); err != nil {
@@ -164,7 +164,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// Finally, attempt to fetch the node again. This should fail as the
 	// node should have been deleted from the database.
-	_, err = graph.FetchLightningNode(nil, testPub)
+	_, err = graph.FetchLightningNode(testPub)
 	if err != ErrGraphNodeNotFound {
 		t.Fatalf("fetch after delete should fail!")
 	}
@@ -192,7 +192,7 @@ func TestPartialNode(t *testing.T) {
 
 	// Next, fetch the node from the database to ensure everything was
 	// serialized properly.
-	dbNode, err := graph.FetchLightningNode(nil, testPub)
+	dbNode, err := graph.FetchLightningNode(testPub)
 	require.NoError(t, err, "unable to locate node")
 
 	if _, exists, err := graph.HasLightningNode(dbNode.PubKeyBytes); err != nil {
@@ -222,7 +222,7 @@ func TestPartialNode(t *testing.T) {
 
 	// Finally, attempt to fetch the node again. This should fail as the
 	// node should have been deleted from the database.
-	_, err = graph.FetchLightningNode(nil, testPub)
+	_, err = graph.FetchLightningNode(testPub)
 	if err != ErrGraphNodeNotFound {
 		t.Fatalf("fetch after delete should fail!")
 	}
@@ -3014,7 +3014,7 @@ func TestPruneGraphNodes(t *testing.T) {
 
 	// Finally, we'll ensure that node3, the only fully unconnected node as
 	// properly deleted from the graph and not another node in its place.
-	_, err = graph.FetchLightningNode(nil, node3.PubKeyBytes)
+	_, err = graph.FetchLightningNode(node3.PubKeyBytes)
 	if err == nil {
 		t.Fatalf("node 3 should have been deleted!")
 	}
@@ -3048,13 +3048,13 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 
 	// Ensure that node1 was inserted as a full node, while node2 only has
 	// a shell node present.
-	node1, err = graph.FetchLightningNode(nil, node1.PubKeyBytes)
+	node1, err = graph.FetchLightningNode(node1.PubKeyBytes)
 	require.NoError(t, err, "unable to fetch node1")
 	if !node1.HaveNodeAnnouncement {
 		t.Fatalf("have shell announcement for node1, shouldn't")
 	}
 
-	node2, err = graph.FetchLightningNode(nil, node2.PubKeyBytes)
+	node2, err = graph.FetchLightningNode(node2.PubKeyBytes)
 	require.NoError(t, err, "unable to fetch node2")
 	if node2.HaveNodeAnnouncement {
 		t.Fatalf("should have shell announcement for node2, but is full")

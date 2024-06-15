@@ -565,7 +565,7 @@ func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
 	return c.ForEachNode(func(tx kvdb.RTx, node *LightningNode) error {
 		channels := make(map[uint64]*DirectedChannel)
 
-		err := c.ForEachNodeChannel(tx, node.PubKeyBytes,
+		err := c.ForEachNodeChannelWithTx(tx, node.PubKeyBytes,
 			func(tx kvdb.RTx, e *models.ChannelEdgeInfo,
 				p1 *models.ChannelEdgePolicy,
 				p2 *models.ChannelEdgePolicy) error {
@@ -2931,7 +2931,7 @@ func (c *ChannelGraph) isPublic(tx kvdb.RTx, nodePub route.Vertex,
 	// used to terminate the check early.
 	nodeIsPublic := false
 	errDone := errors.New("done")
-	err := c.ForEachNodeChannel(tx, nodePub, func(tx kvdb.RTx,
+	err := c.ForEachNodeChannelWithTx(tx, nodePub, func(tx kvdb.RTx,
 		info *models.ChannelEdgeInfo, _ *models.ChannelEdgePolicy,
 		_ *models.ChannelEdgePolicy) error {
 
@@ -3224,13 +3224,29 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 // halted with the error propagated back up to the caller.
 //
 // Unknown policies are passed into the callback as nil values.
+func (c *ChannelGraph) ForEachNodeChannel(nodePub route.Vertex,
+	cb func(kvdb.RTx, *models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error) error {
+
+	return nodeTraversal(nil, nodePub[:], c.db, cb)
+}
+
+// ForEachNodeChannelWithTx iterates through all channels of the given node,
+// executing the passed callback with an edge info structure and the policies
+// of each end of the channel. The first edge policy is the outgoing edge *to*
+// the connecting node, while the second is the incoming edge *from* the
+// connecting node. If the callback returns an error, then the iteration is
+// halted with the error propagated back up to the caller.
+//
+// Unknown policies are passed into the callback as nil values.
 //
 // If the caller wishes to re-use an existing boltdb transaction, then it
-// should be passed as the first argument.  Otherwise the first argument should
+// should be passed as the first argument.  Otherwise, the first argument should
 // be nil and a fresh transaction will be created to execute the graph
 // traversal.
-func (c *ChannelGraph) ForEachNodeChannel(tx kvdb.RTx, nodePub route.Vertex,
-	cb func(kvdb.RTx, *models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+func (c *ChannelGraph) ForEachNodeChannelWithTx(tx kvdb.RTx,
+	nodePub route.Vertex, cb func(kvdb.RTx, *models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error) error {
 
 	return nodeTraversal(tx, nodePub[:], c.db, cb)

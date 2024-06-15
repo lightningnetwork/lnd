@@ -231,3 +231,56 @@ type PaymentDescriptor struct {
 	// may have been attached to a sent HTLC.
 	CustomRecords lnwire.CustomRecords
 }
+
+// ToLogUpdate recovers the underlying LogUpdate from the paymentDescriptor.
+// This operation is lossy and will forget some extra information tracked by the
+// paymentDescriptor but the function is total in that all paymentDescriptors
+// can be converted back to LogUpdates.
+func (pd *PaymentDescriptor) ToLogUpdate() channeldb.LogUpdate {
+	var msg lnwire.Message
+	switch pd.EntryType {
+	case Add:
+		msg = &lnwire.UpdateAddHTLC{
+			ChanID:        pd.ChanID,
+			ID:            pd.HtlcIndex,
+			Amount:        pd.Amount,
+			PaymentHash:   pd.RHash,
+			Expiry:        pd.Timeout,
+			OnionBlob:     pd.OnionBlob,
+			BlindingPoint: pd.BlindingPoint,
+			CustomRecords: pd.CustomRecords.Copy(),
+		}
+	case Settle:
+		msg = &lnwire.UpdateFulfillHTLC{
+			ChanID:          pd.ChanID,
+			ID:              pd.ParentIndex,
+			PaymentPreimage: pd.RPreimage,
+		}
+	case Fail:
+		msg = &lnwire.UpdateFailHTLC{
+			ChanID: pd.ChanID,
+			ID:     pd.ParentIndex,
+			Reason: pd.FailReason,
+		}
+	case MalformedFail:
+		msg = &lnwire.UpdateFailMalformedHTLC{
+			ChanID:       pd.ChanID,
+			ID:           pd.ParentIndex,
+			ShaOnionBlob: pd.ShaOnionBlob,
+			FailureCode:  pd.FailCode,
+		}
+	case FeeUpdate:
+		// The Amount field holds the feerate denominated in
+		// msat. Since feerates are only denominated in sat/kw,
+		// we can convert it without loss of precision.
+		msg = &lnwire.UpdateFee{
+			ChanID:   pd.ChanID,
+			FeePerKw: uint32(pd.Amount.ToSatoshis()),
+		}
+	}
+
+	return channeldb.LogUpdate{
+		LogIndex:  pd.LogIndex,
+		UpdateMsg: msg,
+	}
+}

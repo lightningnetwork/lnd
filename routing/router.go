@@ -2945,7 +2945,7 @@ func (r *ChannelRouter) ForEachNode(
 func (r *ChannelRouter) ForAllOutgoingChannels(cb func(kvdb.RTx,
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy) error) error {
 
-	return r.cfg.Graph.ForEachNodeChannel(nil, r.cfg.SelfNode,
+	return r.cfg.Graph.ForEachNodeChannel(r.cfg.SelfNode,
 		func(tx kvdb.RTx, c *models.ChannelEdgeInfo,
 			e *models.ChannelEdgePolicy,
 			_ *models.ChannelEdgePolicy) error {

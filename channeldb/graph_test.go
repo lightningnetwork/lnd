@@ -1055,7 +1055,7 @@ func TestGraphTraversal(t *testing.T) {
 	// outgoing channels for a particular node.
 	numNodeChans := 0
 	firstNode, secondNode := nodeList[0], nodeList[1]
-	err = graph.ForEachNodeChannel(nil, firstNode.PubKeyBytes,
+	err = graph.ForEachNodeChannel(firstNode.PubKeyBytes,
 		func(_ kvdb.RTx, _ *models.ChannelEdgeInfo, outEdge,
 			inEdge *models.ChannelEdgePolicy) error {
 
@@ -2737,7 +2737,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 	// Ensure that channel is reported with unknown policies.
 	checkPolicies := func(node *LightningNode, expectedIn, expectedOut bool) {
 		calls := 0
-		err := graph.ForEachNodeChannel(nil, node.PubKeyBytes,
+		err := graph.ForEachNodeChannel(node.PubKeyBytes,
 			func(_ kvdb.RTx, _ *models.ChannelEdgeInfo, outEdge,
 				inEdge *models.ChannelEdgePolicy) error {
 

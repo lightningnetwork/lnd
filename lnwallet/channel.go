@@ -428,9 +428,9 @@ func (c *commitment) toDiskCommit(
 			HtlcIndex:     htlc.HtlcIndex,
 			LogIndex:      htlc.LogIndex,
 			Incoming:      false,
+			OnionBlob:     htlc.OnionBlob,
 			BlindingPoint: htlc.BlindingPoint,
 		}
-		copy(h.OnionBlob[:], htlc.OnionBlob)
 
 		if whoseCommit == lntypes.Local && htlc.sig != nil {
 			h.Signature = htlc.sig.Serialize()
@@ -453,9 +453,9 @@ func (c *commitment) toDiskCommit(
 			HtlcIndex:     htlc.HtlcIndex,
 			LogIndex:      htlc.LogIndex,
 			Incoming:      true,
+			OnionBlob:     htlc.OnionBlob,
 			BlindingPoint: htlc.BlindingPoint,
 		}
-		copy(h.OnionBlob[:], htlc.OnionBlob)
 		if whoseCommit == lntypes.Local && htlc.sig != nil {
 			h.Signature = htlc.sig.Serialize()
 		}
@@ -546,7 +546,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 		EntryType:          Add,
 		HtlcIndex:          htlc.HtlcIndex,
 		LogIndex:           htlc.LogIndex,
-		OnionBlob:          htlc.OnionBlob[:],
+		OnionBlob:          htlc.OnionBlob,
 		localOutputIndex:   localOutputIndex,
 		remoteOutputIndex:  remoteOutputIndex,
 		ourPkScript:        ourP2WSH,
@@ -999,10 +999,9 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 			HtlcIndex:             wireMsg.ID,
 			LogIndex:              logUpdate.LogIndex,
 			addCommitHeightRemote: commitHeight,
+			OnionBlob:             wireMsg.OnionBlob,
 			BlindingPoint:         wireMsg.BlindingPoint,
 		}
-		pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
-		copy(pd.OnionBlob[:], wireMsg.OnionBlob[:])
 
 		isDustRemote := HtlcIsDust(
 			lc.channelState.ChanType, false, lntypes.Remote,
@@ -1206,10 +1205,9 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 			HtlcIndex:            wireMsg.ID,
 			LogIndex:             logUpdate.LogIndex,
 			addCommitHeightLocal: commitHeight,
+			OnionBlob:            wireMsg.OnionBlob,
 			BlindingPoint:        wireMsg.BlindingPoint,
 		}
-		pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
-		copy(pd.OnionBlob, wireMsg.OnionBlob[:])
 
 		// We don't need to generate an htlc script yet. This will be
 		// done once we sign our remote commitment.
@@ -3091,9 +3089,9 @@ func (lc *LightningChannel) createCommitDiff(
 				Amount:        pd.Amount,
 				Expiry:        pd.Timeout,
 				PaymentHash:   pd.RHash,
+				OnionBlob:     pd.OnionBlob,
 				BlindingPoint: pd.BlindingPoint,
 			}
-			copy(htlc.OnionBlob[:], pd.OnionBlob)
 			logUpdate.UpdateMsg = htlc
 
 			// Gather any references for circuits opened by this Add
@@ -3229,9 +3227,9 @@ func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
 				Amount:        pd.Amount,
 				Expiry:        pd.Timeout,
 				PaymentHash:   pd.RHash,
+				OnionBlob:     pd.OnionBlob,
 				BlindingPoint: pd.BlindingPoint,
 			}
-			copy(htlc.OnionBlob[:], pd.OnionBlob)
 			logUpdate.UpdateMsg = htlc
 
 		case Settle:
@@ -5262,9 +5260,9 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 				Amount:        pd.Amount,
 				Expiry:        pd.Timeout,
 				PaymentHash:   pd.RHash,
+				OnionBlob:     pd.OnionBlob,
 				BlindingPoint: pd.BlindingPoint,
 			}
-			copy(htlc.OnionBlob[:], pd.OnionBlob)
 			logUpdate.UpdateMsg = htlc
 			addUpdates = append(addUpdates, logUpdate)
 
@@ -5603,7 +5601,7 @@ func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
 		Amount:         htlc.Amount,
 		LogIndex:       lc.localUpdateLog.logIndex,
 		HtlcIndex:      lc.localUpdateLog.htlcCounter,
-		OnionBlob:      htlc.OnionBlob[:],
+		OnionBlob:      htlc.OnionBlob,
 		OpenCircuitKey: openKey,
 		BlindingPoint:  htlc.BlindingPoint,
 	}
@@ -5663,7 +5661,7 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 		Amount:        htlc.Amount,
 		LogIndex:      lc.remoteUpdateLog.logIndex,
 		HtlcIndex:     lc.remoteUpdateLog.htlcCounter,
-		OnionBlob:     htlc.OnionBlob[:],
+		OnionBlob:     htlc.OnionBlob,
 		BlindingPoint: htlc.BlindingPoint,
 	}
 

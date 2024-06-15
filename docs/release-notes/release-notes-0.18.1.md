@@ -26,6 +26,11 @@
 * [SendPaymentV2](https://github.com/lightningnetwork/lnd/pull/8734) now cancels
   the background payment loop if the user cancels the stream context.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8843) a case where 
+bumping an anchor channel closing was not possible when no HTLCs were on the
+commitment when the channel was force closed. Moreover, a new walletrpc endpoint
+`BumpForceCloseFee` was introduced in the course of this bugfix.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

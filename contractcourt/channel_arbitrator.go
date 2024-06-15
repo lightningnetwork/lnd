@@ -1323,13 +1323,14 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 		}
 
 		// If we cannot find a deadline, it means there's no HTLCs at
-		// stake, which means we can relax our anchor sweeping as we
-		// don't have any time sensitive outputs to sweep.
+		// stake, which means we can relax our anchor sweeping
+		// conditions as we don't have any time sensitive outputs to
+		// sweep. However we need to register the anchor output with the
+		// sweeper so we are later able to bump the close fee.
 		if deadline.IsNone() {
 			log.Infof("ChannelArbitrator(%v): no HTLCs at stake, "+
-				"skipped anchor CPFP", c.cfg.ChanPoint)
-
-			return nil
+				"sweeping anchor with default deadline",
+				c.cfg.ChanPoint)
 		}
 
 		witnessType := input.CommitmentAnchor

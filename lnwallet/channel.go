@@ -3371,12 +3371,6 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 	commitSig lnwire.Sig, htlcSigs []lnwire.Sig) *channeldb.CommitDiff {
 
-	// First, we need to convert the funding outpoint into the ID that's
-	// used on the wire to identify this channel. We'll use this shortly
-	// when recording the exact CommitSig message that we'll be sending
-	// out.
-	chanID := lnwire.NewChanIDFromOutPoint(lc.channelState.FundingOutpoint)
-
 	var (
 		logUpdates        []channeldb.LogUpdate
 		ackAddRefs        []channeldb.AddRef
@@ -3401,91 +3395,42 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 			continue
 		}
 
-		// Knowing that this update is a part of this new commitment,
-		// we'll create a log update and not its index in the log so
-		// we can later restore it properly if a restart occurs.
-		logUpdate := channeldb.LogUpdate{
-			LogIndex: pd.LogIndex,
-		}
-
 		// We'll map the type of the PaymentDescriptor to one of the
 		// four messages that it corresponds to. With this set of
 		// messages obtained, we can simply read from disk and re-send
 		// them in the case of a needed channel sync.
 		switch pd.EntryType {
 		case Add:
-			htlc := &lnwire.UpdateAddHTLC{
-				ChanID:        chanID,
-				ID:            pd.HtlcIndex,
-				Amount:        pd.Amount,
-				Expiry:        pd.Timeout,
-				PaymentHash:   pd.RHash,
-				OnionBlob:     pd.OnionBlob,
-				BlindingPoint: pd.BlindingPoint,
-				CustomRecords: pd.CustomRecords.Copy(),
-			}
-			logUpdate.UpdateMsg = htlc
-
 			// Gather any references for circuits opened by this Add
 			// HTLC.
 			if pd.OpenCircuitKey != nil {
-				openCircuitKeys = append(openCircuitKeys,
-					*pd.OpenCircuitKey)
+				openCircuitKeys = append(
+					openCircuitKeys, *pd.OpenCircuitKey,
+				)
 			}
 
-			logUpdates = append(logUpdates, logUpdate)
-
-			// Short circuit here since an add should not have any
-			// of the references gathered in the case of settles,
-			// fails or malformed fails.
-			continue
-
-		case Settle:
-			logUpdate.UpdateMsg = &lnwire.UpdateFulfillHTLC{
-				ChanID:          chanID,
-				ID:              pd.ParentIndex,
-				PaymentPreimage: pd.RPreimage,
+		case Settle, Fail, MalformedFail:
+			// Gather the fwd pkg references from any settle or fail
+			// packets, if they exist.
+			if pd.SourceRef != nil {
+				ackAddRefs = append(ackAddRefs, *pd.SourceRef)
 			}
-
-		case Fail:
-			logUpdate.UpdateMsg = &lnwire.UpdateFailHTLC{
-				ChanID: chanID,
-				ID:     pd.ParentIndex,
-				Reason: pd.FailReason,
+			if pd.DestRef != nil {
+				settleFailRefs = append(
+					settleFailRefs, *pd.DestRef,
+				)
 			}
-
-		case MalformedFail:
-			logUpdate.UpdateMsg = &lnwire.UpdateFailMalformedHTLC{
-				ChanID:       chanID,
-				ID:           pd.ParentIndex,
-				ShaOnionBlob: pd.ShaOnionBlob,
-				FailureCode:  pd.FailCode,
+			if pd.ClosedCircuitKey != nil {
+				closedCircuitKeys = append(
+					closedCircuitKeys, *pd.ClosedCircuitKey,
+				)
 			}
 
 		case FeeUpdate:
-			// The Amount field holds the feerate denominated in
-			// msat. Since feerates are only denominated in sat/kw,
-			// we can convert it without loss of precision.
-			logUpdate.UpdateMsg = &lnwire.UpdateFee{
-				ChanID:   chanID,
-				FeePerKw: uint32(pd.Amount.ToSatoshis()),
-			}
+			// Nothing special to do.
 		}
 
-		// Gather the fwd pkg references from any settle or fail
-		// packets, if they exist.
-		if pd.SourceRef != nil {
-			ackAddRefs = append(ackAddRefs, *pd.SourceRef)
-		}
-		if pd.DestRef != nil {
-			settleFailRefs = append(settleFailRefs, *pd.DestRef)
-		}
-		if pd.ClosedCircuitKey != nil {
-			closedCircuitKeys = append(closedCircuitKeys,
-				*pd.ClosedCircuitKey)
-		}
-
-		logUpdates = append(logUpdates, logUpdate)
+		logUpdates = append(logUpdates, pd.ToLogUpdate())
 	}
 
 	// With the set of log updates mapped into wire messages, we'll now
@@ -3513,10 +3458,6 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 // getUnsignedAckedUpdates returns all remote log updates that we haven't
 // signed for yet ourselves.
 func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
-	// First, we need to convert the funding outpoint into the ID that's
-	// used on the wire to identify this channel.
-	chanID := lnwire.NewChanIDFromOutPoint(lc.channelState.FundingOutpoint)
-
 	// Fetch the last remote update that we have signed for.
 	lastRemoteCommitted :=
 		lc.commitChains.Remote.tail().messageIndices.Remote
@@ -3547,60 +3488,9 @@ func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
 			continue
 		}
 
-		logUpdate := channeldb.LogUpdate{
-			LogIndex: pd.LogIndex,
-		}
-
-		// We'll map the type of the PaymentDescriptor to one of the
-		// four messages that it corresponds to.
-		switch pd.EntryType {
-		case Add:
-			htlc := &lnwire.UpdateAddHTLC{
-				ChanID:        chanID,
-				ID:            pd.HtlcIndex,
-				Amount:        pd.Amount,
-				Expiry:        pd.Timeout,
-				PaymentHash:   pd.RHash,
-				OnionBlob:     pd.OnionBlob,
-				BlindingPoint: pd.BlindingPoint,
-				CustomRecords: pd.CustomRecords.Copy(),
-			}
-			logUpdate.UpdateMsg = htlc
-
-		case Settle:
-			logUpdate.UpdateMsg = &lnwire.UpdateFulfillHTLC{
-				ChanID:          chanID,
-				ID:              pd.ParentIndex,
-				PaymentPreimage: pd.RPreimage,
-			}
-
-		case Fail:
-			logUpdate.UpdateMsg = &lnwire.UpdateFailHTLC{
-				ChanID: chanID,
-				ID:     pd.ParentIndex,
-				Reason: pd.FailReason,
-			}
-
-		case MalformedFail:
-			logUpdate.UpdateMsg = &lnwire.UpdateFailMalformedHTLC{
-				ChanID:       chanID,
-				ID:           pd.ParentIndex,
-				ShaOnionBlob: pd.ShaOnionBlob,
-				FailureCode:  pd.FailCode,
-			}
-
-		case FeeUpdate:
-			// The Amount field holds the feerate denominated in
-			// msat. Since feerates are only denominated in sat/kw,
-			// we can convert it without loss of precision.
-			logUpdate.UpdateMsg = &lnwire.UpdateFee{
-				ChanID:   chanID,
-				FeePerKw: uint32(pd.Amount.ToSatoshis()),
-			}
-		}
-
-		logUpdates = append(logUpdates, logUpdate)
+		logUpdates = append(logUpdates, pd.ToLogUpdate())
 	}
+
 	return logUpdates
 }
 
@@ -5621,55 +5511,19 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 
 		// If we've reached this point, this HTLC will be added to the
 		// forwarding package at the height of the remote commitment.
-		// All types of HTLCs will record their assigned log index.
-		logUpdate := channeldb.LogUpdate{
-			LogIndex: pd.LogIndex,
-		}
-
-		// Next, we'll map the type of the PaymentDescriptor to one of
-		// the four messages that it corresponds to and separate the
+		// We'll map the type of the PaymentDescriptor to one of the
+		// four messages that it corresponds to and separate the
 		// updates into Adds and Settle/Fail/MalformedFail such that
 		// they can be written in the forwarding package. Adds are
 		// aggregated separately from the other types of HTLCs.
 		switch pd.EntryType {
 		case Add:
-			htlc := &lnwire.UpdateAddHTLC{
-				ChanID:        chanID,
-				ID:            pd.HtlcIndex,
-				Amount:        pd.Amount,
-				Expiry:        pd.Timeout,
-				PaymentHash:   pd.RHash,
-				OnionBlob:     pd.OnionBlob,
-				BlindingPoint: pd.BlindingPoint,
-				CustomRecords: pd.CustomRecords.Copy(),
-			}
-			logUpdate.UpdateMsg = htlc
-			addUpdates = append(addUpdates, logUpdate)
+			addUpdates = append(addUpdates, pd.ToLogUpdate())
 
-		case Settle:
-			logUpdate.UpdateMsg = &lnwire.UpdateFulfillHTLC{
-				ChanID:          chanID,
-				ID:              pd.ParentIndex,
-				PaymentPreimage: pd.RPreimage,
-			}
-			settleFailUpdates = append(settleFailUpdates, logUpdate)
-
-		case Fail:
-			logUpdate.UpdateMsg = &lnwire.UpdateFailHTLC{
-				ChanID: chanID,
-				ID:     pd.ParentIndex,
-				Reason: pd.FailReason,
-			}
-			settleFailUpdates = append(settleFailUpdates, logUpdate)
-
-		case MalformedFail:
-			logUpdate.UpdateMsg = &lnwire.UpdateFailMalformedHTLC{
-				ChanID:       chanID,
-				ID:           pd.ParentIndex,
-				ShaOnionBlob: pd.ShaOnionBlob,
-				FailureCode:  pd.FailCode,
-			}
-			settleFailUpdates = append(settleFailUpdates, logUpdate)
+		case Settle, Fail, MalformedFail:
+			settleFailUpdates = append(
+				settleFailUpdates, pd.ToLogUpdate(),
+			)
 		}
 	}
 
@@ -9005,38 +8859,9 @@ func (lc *LightningChannel) unsignedLocalUpdates(remoteMessageIndex,
 		// covered in the next commitment signature that the remote
 		// sends.
 		if pd.LogIndex < remoteMessageIndex && pd.LogIndex >= localMessageIndex {
-			logUpdate := channeldb.LogUpdate{
-				LogIndex: pd.LogIndex,
-			}
-
-			switch pd.EntryType {
-			case FeeUpdate:
-				logUpdate.UpdateMsg = &lnwire.UpdateFee{
-					ChanID:   chanID,
-					FeePerKw: uint32(pd.Amount.ToSatoshis()),
-				}
-			case Settle:
-				logUpdate.UpdateMsg = &lnwire.UpdateFulfillHTLC{
-					ChanID:          chanID,
-					ID:              pd.ParentIndex,
-					PaymentPreimage: pd.RPreimage,
-				}
-			case Fail:
-				logUpdate.UpdateMsg = &lnwire.UpdateFailHTLC{
-					ChanID: chanID,
-					ID:     pd.ParentIndex,
-					Reason: pd.FailReason,
-				}
-			case MalformedFail:
-				logUpdate.UpdateMsg = &lnwire.UpdateFailMalformedHTLC{
-					ChanID:       chanID,
-					ID:           pd.ParentIndex,
-					ShaOnionBlob: pd.ShaOnionBlob,
-					FailureCode:  pd.FailCode,
-				}
-			}
-
-			localPeerUpdates = append(localPeerUpdates, logUpdate)
+			localPeerUpdates = append(
+				localPeerUpdates, pd.ToLogUpdate(),
+			)
 		}
 	}
 

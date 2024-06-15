@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -108,7 +109,7 @@ func newMockRouter(height uint32) *mockGraphSource {
 	}
 }
 
-var _ routing.ChannelGraphSource = (*mockGraphSource)(nil)
+var _ graph.ChannelGraphSource = (*mockGraphSource)(nil)
 
 func (r *mockGraphSource) AddNode(node *channeldb.LightningNode,
 	_ ...batch.SchedulerOption) error {

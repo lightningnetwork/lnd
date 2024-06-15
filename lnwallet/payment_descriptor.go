@@ -180,7 +180,7 @@ type PaymentDescriptor struct {
 	// routing.
 	//
 	// NOTE: Populated only on add payment descriptor entry types.
-	OnionBlob []byte
+	OnionBlob [lnwire.OnionPacketSize]byte
 
 	// ShaOnionBlob is a sha of the onion blob.
 	//

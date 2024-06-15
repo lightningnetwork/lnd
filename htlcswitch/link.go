@@ -3419,7 +3419,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// parse the onion object in order to obtain the
 			// routing information with DecodeHopIterator function
 			// which process the Sphinx packet.
-			onionReader := bytes.NewReader(pd.OnionBlob)
+			onionReader := bytes.NewReader(pd.OnionBlob[:])
 
 			req := hop.DecodeHopIteratorRequest{
 				OnionReader:    onionReader,
@@ -3471,7 +3471,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		// Fetch the onion blob that was included within this processed
 		// payment descriptor.
 		var onionBlob [lnwire.OnionPacketSize]byte
-		copy(onionBlob[:], pd.OnionBlob)
+		copy(onionBlob[:], pd.OnionBlob[:])
 
 		// Before adding the new htlc to the state machine, parse the
 		// onion object in order to obtain the routing information with

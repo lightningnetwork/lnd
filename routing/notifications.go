@@ -13,6 +13,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -313,7 +314,7 @@ type ChannelEdgeUpdate struct {
 // constitutes. This function will also fetch any required auxiliary
 // information required to create the topology change update from the graph
 // database.
-func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
+func addToTopologyChange(graph graph.DB, update *TopologyChange,
 	msg interface{}) error {
 
 	switch m := msg.(type) {

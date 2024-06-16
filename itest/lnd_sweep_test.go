@@ -1342,9 +1342,11 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// PendingChannels RPC under the waiting close section.
 	ht.AssertChannelWaitingClose(alice, chanPoint)
 
-	// We should see neither Alice or Bob has any pending sweeps as there
-	// are no time-sensitive HTLCs.
-	ht.AssertNumPendingSweeps(alice, 0)
+	// Alice force closes the channel, although no active HTLCs are on the
+	// commitment alice will register both anchor sweeps (local and remote)
+	// with the sweeper subsystem. Bob however did not force close the
+	// channel and will not try to sweep anything.
+	ht.AssertNumPendingSweeps(alice, 2)
 	ht.AssertNumPendingSweeps(bob, 0)
 
 	// Mine a block to confirm Alice's force closing tx. Once it's

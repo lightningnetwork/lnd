@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/labels"
@@ -33,7 +34,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing"
 	"golang.org/x/crypto/salsa20"
 )
 
@@ -3412,10 +3412,10 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	select {
 	case err := <-errChan:
 		if err != nil {
-			if routing.IsError(err, routing.ErrOutdated,
-				routing.ErrIgnored) {
+			if graph.IsError(err, graph.ErrOutdated,
+				graph.ErrIgnored) {
 
-				log.Debugf("Router rejected "+
+				log.Debugf("Graph rejected "+
 					"ChannelAnnouncement: %v", err)
 			} else {
 				return fmt.Errorf("error sending channel "+
@@ -3432,10 +3432,10 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	select {
 	case err := <-errChan:
 		if err != nil {
-			if routing.IsError(err, routing.ErrOutdated,
-				routing.ErrIgnored) {
+			if graph.IsError(err, graph.ErrOutdated,
+				graph.ErrIgnored) {
 
-				log.Debugf("Router rejected "+
+				log.Debugf("Graph rejected "+
 					"ChannelUpdate: %v", err)
 			} else {
 				return fmt.Errorf("error sending channel "+
@@ -4351,10 +4351,10 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	select {
 	case err := <-errChan:
 		if err != nil {
-			if routing.IsError(err, routing.ErrOutdated,
-				routing.ErrIgnored) {
+			if graph.IsError(err, graph.ErrOutdated,
+				graph.ErrIgnored) {
 
-				log.Debugf("Router rejected "+
+				log.Debugf("Graph rejected "+
 					"AnnounceSignatures: %v", err)
 			} else {
 				log.Errorf("Unable to send channel "+
@@ -4381,10 +4381,10 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	select {
 	case err := <-errChan:
 		if err != nil {
-			if routing.IsError(err, routing.ErrOutdated,
-				routing.ErrIgnored) {
+			if graph.IsError(err, graph.ErrOutdated,
+				graph.ErrIgnored) {
 
-				log.Debugf("Router rejected "+
+				log.Debugf("Graph rejected "+
 					"NodeAnnouncement: %v", err)
 			} else {
 				log.Errorf("Unable to send node "+

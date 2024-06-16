@@ -1533,14 +1533,6 @@ func TestNewRoute(t *testing.T) {
 		// expectedTotalTimeLock is relative to the current block height.
 		expectedTotalTimeLock uint32
 
-		// expectError indicates whether the newRoute call is expected
-		// to fail or succeed.
-		expectError bool
-
-		// expectedErrorCode indicates the expected error code when
-		// expectError is true.
-		expectedErrorCode errorCode
-
 		expectedTLVPayload bool
 
 		expectedMPP *record.MPP
@@ -1763,23 +1755,9 @@ func TestNewRoute(t *testing.T) {
 					metadata:    testCase.metadata,
 				}, nil,
 			)
+			require.NoError(t, err)
 
-			if testCase.expectError {
-				expectedCode := testCase.expectedErrorCode
-				if err == nil || !IsError(err, expectedCode) {
-					t.Fatalf("expected newRoute to fail "+
-						"with error code %v but got "+
-						"%v instead",
-						expectedCode, err)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("unable to create path: %v", err)
-					return
-				}
-
-				assertRoute(t, route)
-			}
+			assertRoute(t, route)
 		})
 	}
 }
@@ -2410,8 +2388,8 @@ func TestPathFindSpecExample(t *testing.T) {
 	carol := ctx.aliases["C"]
 	const amt lnwire.MilliSatoshi = 4999999
 	req, err := NewRouteRequest(
-		bob, &carol, amt, 0, noRestrictions, nil, nil, nil,
-		MinCLTVDelta,
+		bob, &carol, amt, 0, noRestrictions, nil, nil,
+		nil, MinCLTVDelta,
 	)
 	require.NoError(t, err, "invalid route request")
 
@@ -2422,33 +2400,18 @@ func TestPathFindSpecExample(t *testing.T) {
 	//
 	// It should be sending the exact payment amount as there are no
 	// additional hops.
-	if route.TotalAmount != amt {
-		t.Fatalf("wrong total amount: got %v, expected %v",
-			route.TotalAmount, amt)
-	}
-	if route.Hops[0].AmtToForward != amt {
-		t.Fatalf("wrong forward amount: got %v, expected %v",
-			route.Hops[0].AmtToForward, amt)
-	}
-
-	fee := route.HopFee(0)
-	if fee != 0 {
-		t.Fatalf("wrong hop fee: got %v, expected %v", fee, 0)
-	}
+	require.Equal(t, amt, route.TotalAmount)
+	require.Equal(t, amt, route.Hops[0].AmtToForward)
+	require.Zero(t, route.HopFee(0))
 
 	// The CLTV expiry should be the current height plus 18 (the expiry for
 	// the B -> C channel.
-	if route.TotalTimeLock !=
-		startingHeight+MinCLTVDelta {
-
-		t.Fatalf("wrong total time lock: got %v, expecting %v",
-			route.TotalTimeLock,
-			startingHeight+MinCLTVDelta)
-	}
+	require.EqualValues(t, startingHeight+MinCLTVDelta, route.TotalTimeLock)
 
 	// Next, we'll set A as the source node so we can assert that we create
 	// the proper route for any queries starting with Alice.
 	alice := ctx.aliases["A"]
+	ctx.router.cfg.SelfNode = alice
 
 	// We'll now request a route from A -> B -> C.
 	req, err = NewRouteRequest(
@@ -2461,32 +2424,21 @@ func TestPathFindSpecExample(t *testing.T) {
 	require.NoError(t, err, "unable to find routes")
 
 	// The route should be two hops.
-	if len(route.Hops) != 2 {
-		t.Fatalf("route should be %v hops, is instead %v", 2,
-			len(route.Hops))
-	}
+	require.Len(t, route.Hops, 2)
 
 	// The total amount should factor in a fee of 10199 and also use a CLTV
 	// delta total of 38 (20 + 18),
 	expectedAmt := lnwire.MilliSatoshi(5010198)
-	if route.TotalAmount != expectedAmt {
-		t.Fatalf("wrong amount: got %v, expected %v",
-			route.TotalAmount, expectedAmt)
-	}
+	require.Equal(t, expectedAmt, route.TotalAmount)
+
 	expectedDelta := uint32(20 + MinCLTVDelta)
-	if route.TotalTimeLock != startingHeight+expectedDelta {
-		t.Fatalf("wrong total time lock: got %v, expecting %v",
-			route.TotalTimeLock, startingHeight+expectedDelta)
-	}
+	require.Equal(t, startingHeight+expectedDelta, route.TotalTimeLock)
 
 	// Ensure that the hops of the route are properly crafted.
 	//
 	// After taking the fee, Bob should be forwarding the remainder which
 	// is the exact payment to Bob.
-	if route.Hops[0].AmtToForward != amt {
-		t.Fatalf("wrong forward amount: got %v, expected %v",
-			route.Hops[0].AmtToForward, amt)
-	}
+	require.Equal(t, amt, route.Hops[0].AmtToForward)
 
 	// We shouldn't pay any fee for the first, hop, but the fee for the
 	// second hop posted fee should be exactly:
@@ -2495,59 +2447,31 @@ func TestPathFindSpecExample(t *testing.T) {
 	// hop, so we should get a fee of exactly:
 	//
 	//  * 200 + 4999999 * 2000 / 1000000 = 10199
-
-	fee = route.HopFee(0)
-	if fee != 10199 {
-		t.Fatalf("wrong hop fee: got %v, expected %v", fee, 10199)
-	}
+	require.EqualValues(t, 10199, route.HopFee(0))
 
 	// While for the final hop, as there's no additional hop afterwards, we
 	// pay no fee.
-	fee = route.HopFee(1)
-	if fee != 0 {
-		t.Fatalf("wrong hop fee: got %v, expected %v", fee, 0)
-	}
+	require.Zero(t, route.HopFee(1))
 
 	// The outgoing CLTV value itself should be the current height plus 30
 	// to meet Carol's requirements.
-	if route.Hops[0].OutgoingTimeLock !=
-		startingHeight+MinCLTVDelta {
-
-		t.Fatalf("wrong total time lock: got %v, expecting %v",
-			route.Hops[0].OutgoingTimeLock,
-			startingHeight+MinCLTVDelta)
-	}
+	require.EqualValues(t, startingHeight+MinCLTVDelta,
+		route.Hops[0].OutgoingTimeLock)
 
 	// For B -> C, we assert that the final hop also has the proper
 	// parameters.
 	lastHop := route.Hops[1]
-	if lastHop.AmtToForward != amt {
-		t.Fatalf("wrong forward amount: got %v, expected %v",
-			lastHop.AmtToForward, amt)
-	}
-	if lastHop.OutgoingTimeLock !=
-		startingHeight+MinCLTVDelta {
-
-		t.Fatalf("wrong total time lock: got %v, expecting %v",
-			lastHop.OutgoingTimeLock,
-			startingHeight+MinCLTVDelta)
-	}
+	require.EqualValues(t, amt, lastHop.AmtToForward)
+	require.EqualValues(t, startingHeight+MinCLTVDelta, lastHop.OutgoingTimeLock)
 }
 
 func assertExpectedPath(t *testing.T, aliasMap map[string]route.Vertex,
 	path []*unifiedEdge, nodeAliases ...string) {
 
-	if len(path) != len(nodeAliases) {
-		t.Fatalf("number of hops=(%v) and number of aliases=(%v) do "+
-			"not match", len(path), len(nodeAliases))
-	}
+	require.Len(t, path, len(nodeAliases))
 
 	for i, hop := range path {
-		if hop.policy.ToNodePubKey() != aliasMap[nodeAliases[i]] {
-			t.Fatalf("expected %v to be pos #%v in hop, instead "+
-				"%v was", nodeAliases[i], i,
-				hop.policy.ToNodePubKey())
-		}
+		require.Equal(t, aliasMap[nodeAliases[i]], hop.policy.ToNodePubKey())
 	}
 }
 
@@ -2558,9 +2482,7 @@ func TestNewRouteFromEmptyHops(t *testing.T) {
 
 	var source route.Vertex
 	_, err := route.NewRouteFromHops(0, 0, source, []*route.Hop{})
-	if err != route.ErrNoRouteHopsProvided {
-		t.Fatalf("expected empty hops error: instead got: %v", err)
-	}
+	require.ErrorIs(t, err, route.ErrNoRouteHopsProvided)
 }
 
 // runRestrictOutgoingChannel asserts that a outgoing channel restriction is
@@ -2602,11 +2524,6 @@ func runRestrictOutgoingChannel(t *testing.T, useCache bool) {
 	}
 
 	ctx := newPathFindingTestContext(t, useCache, testChannels, "roasbeef")
-
-	const (
-		startingHeight = 100
-		finalHopCLTV   = 1
-	)
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.keyFromAlias("target")

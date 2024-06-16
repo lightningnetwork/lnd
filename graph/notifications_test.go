@@ -1,7 +1,8 @@
-package routing
+package graph
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"image/color"
 	prand "math/rand"
@@ -11,13 +12,17 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/kvdb"
+	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -49,15 +54,28 @@ var (
 	bitcoinKey2 = priv2.PubKey()
 
 	timeout = time.Second * 5
+
+	testRBytes, _ = hex.DecodeString("8ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa1bf0314f882d7")
+	testSBytes, _ = hex.DecodeString("299105481d63e0f4bc2a88121167221b6700d72a0ead154c03be696a292d24ae")
+	testRScalar   = new(btcec.ModNScalar)
+	testSScalar   = new(btcec.ModNScalar)
+	_             = testRScalar.SetByteSlice(testRBytes)
+	_             = testSScalar.SetByteSlice(testSBytes)
+	testSig       = ecdsa.NewSignature(testRScalar, testSScalar)
+
+	testAuthProof = models.ChannelAuthProof{
+		NodeSig1Bytes:    testSig.Serialize(),
+		NodeSig2Bytes:    testSig.Serialize(),
+		BitcoinSig1Bytes: testSig.Serialize(),
+		BitcoinSig2Bytes: testSig.Serialize(),
+	}
 )
 
-func createTestNode() (*channeldb.LightningNode, error) {
+func createTestNode(t *testing.T) *channeldb.LightningNode {
 	updateTime := prand.Int63()
 
 	priv, err := btcec.NewPrivateKey()
-	if err != nil {
-		return nil, errors.Errorf("unable create private key: %v", err)
-	}
+	require.NoError(t, err)
 
 	pub := priv.PubKey().SerializeCompressed()
 	n := &channeldb.LightningNode{
@@ -71,7 +89,7 @@ func createTestNode() (*channeldb.LightningNode, error) {
 	}
 	copy(n.PubKeyBytes[:], pub)
 
-	return n, nil
+	return n
 }
 
 func randEdgePolicy(chanID *lnwire.ShortChannelID,
@@ -271,7 +289,7 @@ type mockChainView struct {
 }
 
 // A compile time check to ensure mockChainView implements the
-// chainview.FilteredChainView.
+// chainview.FilteredChainViewReader.
 var _ chainview.FilteredChainView = (*mockChainView)(nil)
 
 func newMockChainView(chain lnwallet.BlockChainIO) *mockChainView {
@@ -299,6 +317,15 @@ func (m *mockChainView) UpdateFilter(ops []channeldb.EdgePoint, updateHeight uin
 		m.filter[op.OutPoint] = struct{}{}
 	}
 
+	return nil
+}
+
+func (m *mockChainView) Start() error {
+	return nil
+}
+
+func (m *mockChainView) Stop() error {
+	close(m.quit)
 	return nil
 }
 
@@ -405,15 +432,6 @@ func (m *mockChainView) FilterBlock(blockHash *chainhash.Hash) (*chainview.Filte
 	return filteredBlock, nil
 }
 
-func (m *mockChainView) Start() error {
-	return nil
-}
-
-func (m *mockChainView) Stop() error {
-	close(m.quit)
-	return nil
-}
-
 // TestEdgeUpdateNotification tests that when edges are updated or added,
 // a proper notification is sent of to all registered clients.
 func TestEdgeUpdateNotification(t *testing.T) {
@@ -437,10 +455,8 @@ func TestEdgeUpdateNotification(t *testing.T) {
 
 	// Next we'll create two test nodes that the fake channel will be open
 	// between.
-	node1, err := createTestNode()
-	require.NoError(t, err, "unable to create test node")
-	node2, err := createTestNode()
-	require.NoError(t, err, "unable to create test node")
+	node1 := createTestNode(t)
+	node2 := createTestNode(t)
 
 	// Finally, to conclude our test set up, we'll create a channel
 	// update to announce the created channel between the two nodes.
@@ -458,13 +474,13 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 
-	if err := ctx.router.AddEdge(edge); err != nil {
+	if err := ctx.builder.AddEdge(edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
 	// With the channel edge now in place, we'll subscribe for topology
 	// notifications.
-	ntfnClient, err := ctx.router.SubscribeTopology()
+	ntfnClient, err := ctx.builder.SubscribeTopology()
 	require.NoError(t, err, "unable to subscribe for channel notifications")
 
 	// Create random policy edges that are stemmed to the channel id
@@ -477,10 +493,10 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	require.NoError(t, err, "unable to create a random chan policy")
 	edge2.ChannelFlags = 1
 
-	if err := ctx.router.UpdateEdge(edge1); err != nil {
+	if err := ctx.builder.UpdateEdge(edge1); err != nil {
 		t.Fatalf("unable to add edge update: %v", err)
 	}
-	if err := ctx.router.UpdateEdge(edge2); err != nil {
+	if err := ctx.builder.UpdateEdge(edge2); err != nil {
 		t.Fatalf("unable to add edge update: %v", err)
 	}
 
@@ -625,10 +641,8 @@ func TestNodeUpdateNotification(t *testing.T) {
 	// Create two nodes acting as endpoints in the created channel, and use
 	// them to trigger notifications by sending updated node announcement
 	// messages.
-	node1, err := createTestNode()
-	require.NoError(t, err, "unable to create test node")
-	node2, err := createTestNode()
-	require.NoError(t, err, "unable to create test node")
+	node1 := createTestNode(t)
+	node2 := createTestNode(t)
 
 	testFeaturesBuf := new(bytes.Buffer)
 	require.NoError(t, testFeatures.Encode(testFeaturesBuf))
@@ -649,20 +663,20 @@ func TestNodeUpdateNotification(t *testing.T) {
 
 	// Adding the edge will add the nodes to the graph, but with no info
 	// except the pubkey known.
-	if err := ctx.router.AddEdge(edge); err != nil {
+	if err := ctx.builder.AddEdge(edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
 	// Create a new client to receive notifications.
-	ntfnClient, err := ctx.router.SubscribeTopology()
+	ntfnClient, err := ctx.builder.SubscribeTopology()
 	require.NoError(t, err, "unable to subscribe for channel notifications")
 
 	// Change network topology by adding the updated info for the two nodes
 	// to the channel router.
-	if err := ctx.router.AddNode(node1); err != nil {
+	if err := ctx.builder.AddNode(node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
-	if err := ctx.router.AddNode(node2); err != nil {
+	if err := ctx.builder.AddNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -756,7 +770,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 	nodeUpdateAnn.LastUpdate = node1.LastUpdate.Add(300 * time.Millisecond)
 
 	// Add new node topology update to the channel router.
-	if err := ctx.router.AddNode(&nodeUpdateAnn); err != nil {
+	if err := ctx.builder.AddNode(&nodeUpdateAnn); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -788,7 +802,7 @@ func TestNotificationCancellation(t *testing.T) {
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
 
 	// Create a new client to receive notifications.
-	ntfnClient, err := ctx.router.SubscribeTopology()
+	ntfnClient, err := ctx.builder.SubscribeTopology()
 	require.NoError(t, err, "unable to subscribe for channel notifications")
 
 	// We'll create the utxo for a new channel.
@@ -808,10 +822,8 @@ func TestNotificationCancellation(t *testing.T) {
 
 	// We'll create a fresh new node topology update to feed to the channel
 	// router.
-	node1, err := createTestNode()
-	require.NoError(t, err, "unable to create test node")
-	node2, err := createTestNode()
-	require.NoError(t, err, "unable to create test node")
+	node1 := createTestNode(t)
+	node2 := createTestNode(t)
 
 	// Before we send the message to the channel router, we'll cancel the
 	// notifications for this client. As a result, the notification
@@ -832,15 +844,15 @@ func TestNotificationCancellation(t *testing.T) {
 	}
 	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
-	if err := ctx.router.AddEdge(edge); err != nil {
+	if err := ctx.builder.AddEdge(edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
-	if err := ctx.router.AddNode(node1); err != nil {
+	if err := ctx.builder.AddNode(node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
-	if err := ctx.router.AddNode(node2); err != nil {
+	if err := ctx.builder.AddNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -883,10 +895,8 @@ func TestChannelCloseNotification(t *testing.T) {
 
 	// Next we'll create two test nodes that the fake channel will be open
 	// between.
-	node1, err := createTestNode()
-	require.NoError(t, err, "unable to create test node")
-	node2, err := createTestNode()
-	require.NoError(t, err, "unable to create test node")
+	node1 := createTestNode(t)
+	node2 := createTestNode(t)
 
 	// Finally, to conclude our test set up, we'll create a channel
 	// announcement to announce the created channel between the two nodes.
@@ -903,13 +913,13 @@ func TestChannelCloseNotification(t *testing.T) {
 	}
 	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
-	if err := ctx.router.AddEdge(edge); err != nil {
+	if err := ctx.builder.AddEdge(edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
 	// With the channel edge now in place, we'll subscribe for topology
 	// notifications.
-	ntfnClient, err := ctx.router.SubscribeTopology()
+	ntfnClient, err := ctx.builder.SubscribeTopology()
 	require.NoError(t, err, "unable to subscribe for channel notifications")
 
 	// Next, we'll simulate the closure of our channel by generating a new
@@ -998,4 +1008,201 @@ func TestEncodeHexColor(t *testing.T) {
 				"want: %v, got: %v", tc.encoded, encoded)
 		}
 	}
+}
+
+type testCtx struct {
+	builder *Builder
+
+	graph *channeldb.ChannelGraph
+
+	aliases map[string]route.Vertex
+
+	privKeys map[string]*btcec.PrivateKey
+
+	channelIDs map[route.Vertex]map[route.Vertex]uint64
+
+	chain     *mockChain
+	chainView *mockChainView
+
+	notifier *lnmock.ChainNotifier
+}
+
+func (c *testCtx) getChannelIDFromAlias(t *testing.T, a, b string) uint64 {
+	vertexA, ok := c.aliases[a]
+	require.True(t, ok, "cannot find aliases for %s", a)
+
+	vertexB, ok := c.aliases[b]
+	require.True(t, ok, "cannot find aliases for %s", b)
+
+	channelIDMap, ok := c.channelIDs[vertexA]
+	require.True(t, ok, "cannot find channelID map %s(%s)", vertexA, a)
+
+	channelID, ok := channelIDMap[vertexB]
+	require.True(t, ok, "cannot find channelID using %s(%s)", vertexB, b)
+
+	return channelID
+}
+
+func createTestCtxSingleNode(t *testing.T,
+	startingHeight uint32) *testCtx {
+
+	graph, graphBackend, err := makeTestGraph(t, true)
+	require.NoError(t, err, "failed to make test graph")
+
+	sourceNode := createTestNode(t)
+
+	require.NoError(t,
+		graph.SetSourceNode(sourceNode), "failed to set source node",
+	)
+
+	graphInstance := &testGraphInstance{
+		graph:        graph,
+		graphBackend: graphBackend,
+	}
+
+	return createTestCtxFromGraphInstance(
+		t, startingHeight, graphInstance, false,
+	)
+}
+
+func (c *testCtx) RestartBuilder(t *testing.T) {
+	c.chainView.Reset()
+
+	selfNode, err := c.graph.SourceNode()
+	require.NoError(t, err)
+
+	// With the chainView reset, we'll now re-create the builder itself, and
+	// start it.
+	builder, err := NewBuilder(&Config{
+		SelfNode:            selfNode.PubKeyBytes,
+		Graph:               c.graph,
+		Chain:               c.chain,
+		ChainView:           c.chainView,
+		Notifier:            c.builder.cfg.Notifier,
+		ChannelPruneExpiry:  time.Hour * 24,
+		GraphPruneInterval:  time.Hour * 2,
+		AssumeChannelValid:  c.builder.cfg.AssumeChannelValid,
+		FirstTimePruneDelay: c.builder.cfg.FirstTimePruneDelay,
+		StrictZombiePruning: c.builder.cfg.StrictZombiePruning,
+		IsAlias: func(scid lnwire.ShortChannelID) bool {
+			return false
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, builder.Start())
+
+	// Finally, we'll swap out the pointer in the testCtx with this fresh
+	// instance of the router.
+	c.builder = builder
+}
+
+// makeTestGraph creates a new instance of a channeldb.ChannelGraph for testing
+// purposes.
+func makeTestGraph(t *testing.T, useCache bool) (*channeldb.ChannelGraph,
+	kvdb.Backend, error) {
+
+	// Create channelgraph for the first time.
+	backend, backendCleanup, err := kvdb.GetTestBackend(t.TempDir(), "cgr")
+	if err != nil {
+		return nil, nil, err
+	}
+
+	t.Cleanup(backendCleanup)
+
+	opts := channeldb.DefaultOptions()
+	graph, err := channeldb.NewChannelGraph(
+		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
+		opts.BatchCommitInterval, opts.PreAllocCacheNumNodes,
+		useCache, false,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return graph, backend, nil
+}
+
+type testGraphInstance struct {
+	graph        *channeldb.ChannelGraph
+	graphBackend kvdb.Backend
+
+	// aliasMap is a map from a node's alias to its public key. This type is
+	// provided in order to allow easily look up from the human memorable alias
+	// to an exact node's public key.
+	aliasMap map[string]route.Vertex
+
+	// privKeyMap maps a node alias to its private key. This is used to be
+	// able to mock a remote node's signing behaviour.
+	privKeyMap map[string]*btcec.PrivateKey
+
+	// channelIDs stores the channel ID for each node.
+	channelIDs map[route.Vertex]map[route.Vertex]uint64
+
+	// links maps channel ids to a mock channel update handler.
+	links map[lnwire.ShortChannelID]htlcswitch.ChannelLink
+}
+
+func createTestCtxFromGraphInstance(t *testing.T,
+	startingHeight uint32, graphInstance *testGraphInstance,
+	strictPruning bool) *testCtx {
+
+	return createTestCtxFromGraphInstanceAssumeValid(
+		t, startingHeight, graphInstance, false, strictPruning,
+	)
+}
+
+func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
+	startingHeight uint32, graphInstance *testGraphInstance,
+	assumeValid bool, strictPruning bool) *testCtx {
+
+	// We'll initialize an instance of the channel router with mock
+	// versions of the chain and channel notifier. As we don't need to test
+	// any p2p functionality, the peer send and switch send messages won't
+	// be populated.
+	chain := newMockChain(startingHeight)
+	chainView := newMockChainView(chain)
+
+	notifier := &lnmock.ChainNotifier{
+		EpochChan: make(chan *chainntnfs.BlockEpoch),
+		SpendChan: make(chan *chainntnfs.SpendDetail),
+		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+	}
+
+	selfnode, err := graphInstance.graph.SourceNode()
+	require.NoError(t, err)
+
+	graphBuilder, err := NewBuilder(&Config{
+		SelfNode:            selfnode.PubKeyBytes,
+		Graph:               graphInstance.graph,
+		Chain:               chain,
+		ChainView:           chainView,
+		Notifier:            notifier,
+		ChannelPruneExpiry:  time.Hour * 24,
+		GraphPruneInterval:  time.Hour * 2,
+		AssumeChannelValid:  assumeValid,
+		FirstTimePruneDelay: 0,
+		StrictZombiePruning: strictPruning,
+		IsAlias: func(scid lnwire.ShortChannelID) bool {
+			return false
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, graphBuilder.Start())
+
+	ctx := &testCtx{
+		builder:    graphBuilder,
+		graph:      graphInstance.graph,
+		aliases:    graphInstance.aliasMap,
+		privKeys:   graphInstance.privKeyMap,
+		channelIDs: graphInstance.channelIDs,
+		chain:      chain,
+		chainView:  chainView,
+		notifier:   notifier,
+	}
+
+	t.Cleanup(func() {
+		graphBuilder.Stop()
+	})
+
+	return ctx
 }

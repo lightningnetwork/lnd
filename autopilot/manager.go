@@ -6,9 +6,9 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing"
 )
 
 // ManagerCfg houses a set of values and methods that is passed to the Manager
@@ -36,7 +36,7 @@ type ManagerCfg struct {
 
 	// SubscribeTopology is used to get a subscription for topology changes
 	// on the network.
-	SubscribeTopology func() (*routing.TopologyClient, error)
+	SubscribeTopology func() (*graph.TopologyClient, error)
 }
 
 // Manager is struct that manages an autopilot agent, making it possible to

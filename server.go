@@ -40,6 +40,7 @@ import (
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
+	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -269,6 +270,8 @@ type server struct {
 	breachArbitrator *contractcourt.BreachArbitrator
 
 	missionControl *routing.MissionControl
+
+	graphBuilder *graph.Builder
 
 	chanRouter *routing.ChannelRouter
 
@@ -969,6 +972,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	strictPruning := cfg.Bitcoin.Node == "neutrino" ||
 		cfg.Routing.StrictZombiePruning
+
+	s.graphBuilder, err = graph.NewBuilder(&graph.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("can't create graph builder: %w", err)
+	}
 
 	s.chanRouter, err = routing.New(routing.Config{
 		SelfNode:            selfNode.PubKeyBytes,
@@ -2015,6 +2023,12 @@ func (s *server) Start() error {
 			return
 		}
 		cleanup = cleanup.add(s.authGossiper.Stop)
+
+		if err := s.graphBuilder.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.graphBuilder.Stop)
 
 		if err := s.chanRouter.Start(); err != nil {
 			startErr = err

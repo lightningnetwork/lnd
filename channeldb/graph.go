@@ -188,6 +188,10 @@ type ChannelGraph struct {
 	nodeScheduler batch.Scheduler
 }
 
+// A compile-time check to ensure that the ChannelGraph implements the GraphDB
+// interface.
+var _ GraphDB = (*ChannelGraph)(nil)
+
 // NewChannelGraph allocates a new ChannelGraph backed by a DB instance. The
 // returned instance has its own unique reject cache and channel cache.
 func NewChannelGraph(db kvdb.Backend, rejectCacheSize, chanCacheSize int,

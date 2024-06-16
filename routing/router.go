@@ -253,8 +253,7 @@ type Config struct {
 
 	// Graph is the channel graph that the ChannelRouter will use to gather
 	// metrics from and also to carry out path finding queries.
-	// TODO(roasbeef): make into an interface
-	Graph *channeldb.ChannelGraph
+	Graph channeldb.GraphDB
 
 	// Chain is the router's source to the most up-to-date blockchain data.
 	// All incoming advertised channels will be checked against the chain

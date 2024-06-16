@@ -313,7 +313,7 @@ type ChannelEdgeUpdate struct {
 // constitutes. This function will also fetch any required auxiliary
 // information required to create the topology change update from the graph
 // database.
-func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
+func addToTopologyChange(graph channeldb.GraphDB, update *TopologyChange,
 	msg interface{}) error {
 
 	switch m := msg.(type) {

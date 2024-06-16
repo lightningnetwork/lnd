@@ -1,4 +1,4 @@
-package routing
+package graph
 
 import (
 	"fmt"
@@ -56,16 +56,16 @@ type topologyClientUpdate struct {
 // topology occurs. Changes that will be sent at notifications include: new
 // nodes appearing, node updating their attributes, new channels, channels
 // closing, and updates in the routing policies of a channel's directed edges.
-func (r *ChannelRouter) SubscribeTopology() (*TopologyClient, error) {
+func (b *Builder) SubscribeTopology() (*TopologyClient, error) {
 	// If the router is not yet started, return an error to avoid a
 	// deadlock waiting for it to handle the subscription request.
-	if atomic.LoadUint32(&r.started) == 0 {
+	if atomic.LoadUint32(&b.started) == 0 {
 		return nil, fmt.Errorf("router not started")
 	}
 
 	// We'll first atomically obtain the next ID for this client from the
 	// incrementing client ID counter.
-	clientID := atomic.AddUint64(&r.ntfnClientCounter, 1)
+	clientID := atomic.AddUint64(&b.ntfnClientCounter, 1)
 
 	log.Debugf("New graph topology client subscription, client %v",
 		clientID)
@@ -73,12 +73,12 @@ func (r *ChannelRouter) SubscribeTopology() (*TopologyClient, error) {
 	ntfnChan := make(chan *TopologyChange, 10)
 
 	select {
-	case r.ntfnClientUpdates <- &topologyClientUpdate{
+	case b.ntfnClientUpdates <- &topologyClientUpdate{
 		cancel:   false,
 		clientID: clientID,
 		ntfnChan: ntfnChan,
 	}:
-	case <-r.quit:
+	case <-b.quit:
 		return nil, errors.New("ChannelRouter shutting down")
 	}
 
@@ -86,11 +86,11 @@ func (r *ChannelRouter) SubscribeTopology() (*TopologyClient, error) {
 		TopologyChanges: ntfnChan,
 		Cancel: func() {
 			select {
-			case r.ntfnClientUpdates <- &topologyClientUpdate{
+			case b.ntfnClientUpdates <- &topologyClientUpdate{
 				cancel:   true,
 				clientID: clientID,
 			}:
-			case <-r.quit:
+			case <-b.quit:
 				return
 			}
 		},
@@ -116,7 +116,7 @@ type topologyClient struct {
 
 // notifyTopologyChange notifies all registered clients of a new change in
 // graph topology in a non-blocking.
-func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
+func (b *Builder) notifyTopologyChange(topologyDiff *TopologyChange) {
 
 	// notifyClient is a helper closure that will send topology updates to
 	// the given client.
@@ -145,7 +145,7 @@ func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
 
 			// Similarly, if the ChannelRouter itself exists early,
 			// then we'll also exit ourselves.
-			case <-r.quit:
+			case <-b.quit:
 
 			}
 		}(client)
@@ -157,7 +157,7 @@ func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
 
 	// Range over the set of active clients, and attempt to send the
 	// topology updates.
-	r.topologyClients.Range(notifyClient)
+	b.topologyClients.Range(notifyClient)
 }
 
 // TopologyChange represents a new set of modifications to the channel graph.

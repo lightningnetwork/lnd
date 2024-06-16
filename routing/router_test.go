@@ -6,6 +6,8 @@ import (
 	"image/color"
 	"math"
 	"math/rand"
+	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,15 +18,15 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/htlcswitch"
-	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
-	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -33,10 +35,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var uniquePaymentID uint64 = 1 // to be used atomically
+var (
+	uniquePaymentID uint64 = 1 // to be used atomically
+
+	testAddr = &net.TCPAddr{IP: (net.IP)([]byte{0xA, 0x0, 0x0, 0x1}),
+		Port: 9000}
+	testAddrs = []net.Addr{testAddr}
+
+	testFeatures = lnwire.NewFeatureVector(nil, lnwire.Features)
+
+	testHash = [32]byte{
+		0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,
+		0x4d, 0x92, 0x73, 0xd1, 0x90, 0x63, 0x81, 0xb4,
+		0x4f, 0x2f, 0x6f, 0x25, 0x88, 0xa3, 0xef, 0xb9,
+		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
+	}
+
+	testTime = time.Date(2018, time.January, 9, 14, 00, 00, 0, time.UTC)
+
+	priv1, _    = btcec.NewPrivateKey()
+	bitcoinKey1 = priv1.PubKey()
+
+	priv2, _    = btcec.NewPrivateKey()
+	bitcoinKey2 = priv2.PubKey()
+
+	timeout = time.Second * 5
+)
 
 type testCtx struct {
 	router *ChannelRouter
+
+	graphBuilder *mockGraphBuilder
 
 	graph *channeldb.ChannelGraph
 
@@ -45,12 +74,6 @@ type testCtx struct {
 	privKeys map[string]*btcec.PrivateKey
 
 	channelIDs map[route.Vertex]map[route.Vertex]uint64
-
-	chain *mockChain
-
-	chainView *mockChainView
-
-	notifier *lnmock.ChainNotifier
 }
 
 func (c *testCtx) getChannelIDFromAlias(t *testing.T, a, b string) uint64 {
@@ -69,57 +92,22 @@ func (c *testCtx) getChannelIDFromAlias(t *testing.T, a, b string) uint64 {
 	return channelID
 }
 
-func (c *testCtx) RestartRouter(t *testing.T) {
-	// First, we'll reset the chainView's state as it doesn't persist the
-	// filter between restarts.
-	c.chainView.Reset()
-
-	source, err := c.graph.SourceNode()
-	require.NoError(t, err)
-
-	// With the chainView reset, we'll now re-create the router itself, and
-	// start it.
-	router, err := New(Config{
-		SelfNode:           source.PubKeyBytes,
-		RoutingGraph:       c.graph,
-		Graph:              c.graph,
-		Chain:              c.chain,
-		ChainView:          c.chainView,
-		Payer:              &mockPaymentAttemptDispatcherOld{},
-		Control:            makeMockControlTower(),
-		ChannelPruneExpiry: time.Hour * 24,
-		GraphPruneInterval: time.Hour * 2,
-		IsAlias: func(scid lnwire.ShortChannelID) bool {
-			return false
-		},
-	})
-	require.NoError(t, err, "unable to create router")
-	require.NoError(t, router.Start(), "unable to start router")
-
-	// Finally, we'll swap out the pointer in the testCtx with this fresh
-	// instance of the router.
-	c.router = router
-}
-
-func createTestCtxFromGraphInstance(t *testing.T,
-	startingHeight uint32, graphInstance *testGraphInstance,
-	strictPruning bool) *testCtx {
+func createTestCtxFromGraphInstance(t *testing.T, startingHeight uint32,
+	graphInstance *testGraphInstance) *testCtx {
 
 	return createTestCtxFromGraphInstanceAssumeValid(
-		t, startingHeight, graphInstance, false, strictPruning,
+		t, startingHeight, graphInstance,
 	)
 }
 
 func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
-	startingHeight uint32, graphInstance *testGraphInstance,
-	assumeValid bool, strictPruning bool) *testCtx {
+	startingHeight uint32, graphInstance *testGraphInstance) *testCtx {
 
 	// We'll initialize an instance of the channel router with mock
 	// versions of the chain and channel notifier. As we don't need to test
 	// any p2p functionality, the peer send and switch send messages won't
 	// be populated.
 	chain := newMockChain(startingHeight)
-	chainView := newMockChainView(chain)
 
 	pathFindingConfig := PathFindingConfig{
 		MinProbability: 0.01,
@@ -152,50 +140,34 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		MissionControl:    mc,
 	}
 
-	notifier := &lnmock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
-	}
+	graphBuilder := newMockGraphBuilder(graphInstance.graph)
 
 	router, err := New(Config{
-		SelfNode:           sourceNode.PubKeyBytes,
-		RoutingGraph:       graphInstance.graph,
-		Graph:              graphInstance.graph,
-		Chain:              chain,
-		ChainView:          chainView,
-		Payer:              &mockPaymentAttemptDispatcherOld{},
-		Notifier:           notifier,
-		Control:            makeMockControlTower(),
-		MissionControl:     mc,
-		SessionSource:      sessionSource,
-		ChannelPruneExpiry: time.Hour * 24,
-		GraphPruneInterval: time.Hour * 2,
-		GetLink:            graphInstance.getLink,
+		SelfNode:       sourceNode.PubKeyBytes,
+		RoutingGraph:   graphInstance.graph,
+		Chain:          chain,
+		Payer:          &mockPaymentAttemptDispatcherOld{},
+		Control:        makeMockControlTower(),
+		MissionControl: mc,
+		SessionSource:  sessionSource,
+		GetLink:        graphInstance.getLink,
 		NextPaymentID: func() (uint64, error) {
 			next := atomic.AddUint64(&uniquePaymentID, 1)
 			return next, nil
 		},
-		PathFindingConfig:   pathFindingConfig,
-		Clock:               clock.NewTestClock(time.Unix(1, 0)),
-		AssumeChannelValid:  assumeValid,
-		StrictZombiePruning: strictPruning,
-		IsAlias: func(scid lnwire.ShortChannelID) bool {
-			return false
-		},
+		PathFindingConfig:  pathFindingConfig,
+		Clock:              clock.NewTestClock(time.Unix(1, 0)),
+		ApplyChannelUpdate: graphBuilder.ApplyChannelUpdate,
 	})
-	require.NoError(t, err, "unable to create router")
 	require.NoError(t, router.Start(), "unable to start router")
 
 	ctx := &testCtx{
-		router:     router,
-		graph:      graphInstance.graph,
-		aliases:    graphInstance.aliasMap,
-		privKeys:   graphInstance.privKeyMap,
-		channelIDs: graphInstance.channelIDs,
-		chain:      chain,
-		chainView:  chainView,
-		notifier:   notifier,
+		router:       router,
+		graphBuilder: graphBuilder,
+		graph:        graphInstance.graph,
+		aliases:      graphInstance.aliasMap,
+		privKeys:     graphInstance.privKeyMap,
+		channelIDs:   graphInstance.channelIDs,
 	}
 
 	t.Cleanup(func() {
@@ -205,27 +177,27 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	return ctx
 }
 
-func createTestCtxSingleNode(t *testing.T,
-	startingHeight uint32) *testCtx {
+func createTestNode() (*channeldb.LightningNode, error) {
+	updateTime := rand.Int63()
 
-	graph, graphBackend, err := makeTestGraph(t, true)
-	require.NoError(t, err, "failed to make test graph")
-
-	sourceNode, err := createTestNode()
-	require.NoError(t, err, "failed to create test node")
-
-	require.NoError(t,
-		graph.SetSourceNode(sourceNode), "failed to set source node",
-	)
-
-	graphInstance := &testGraphInstance{
-		graph:        graph,
-		graphBackend: graphBackend,
+	priv, err := btcec.NewPrivateKey()
+	if err != nil {
+		return nil, errors.Errorf("unable create private key: %v", err)
 	}
 
-	return createTestCtxFromGraphInstance(
-		t, startingHeight, graphInstance, false,
-	)
+	pub := priv.PubKey().SerializeCompressed()
+	n := &channeldb.LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           time.Unix(updateTime, 0),
+		Addresses:            testAddrs,
+		Color:                color.RGBA{1, 2, 3, 0},
+		Alias:                "kek" + string(pub[:]),
+		AuthSigBytes:         testSig.Serialize(),
+		Features:             testFeatures,
+	}
+	copy(n.PubKeyBytes[:], pub)
+
+	return n, nil
 }
 
 func createTestCtxFromFile(t *testing.T,
@@ -236,9 +208,7 @@ func createTestCtxFromFile(t *testing.T,
 	graphInstance, err := parseTestGraph(t, true, testGraph)
 	require.NoError(t, err, "unable to create test graph")
 
-	return createTestCtxFromGraphInstance(
-		t, startingHeight, graphInstance, false,
-	)
+	return createTestCtxFromGraphInstance(t, startingHeight, graphInstance)
 }
 
 // Add valid signature to channel update simulated as error received from the
@@ -472,13 +442,11 @@ func TestChannelUpdateValidation(t *testing.T) {
 	require.NoError(t, err, "unable to create graph")
 
 	const startingBlockHeight = 101
-	ctx := createTestCtxFromGraphInstance(
-		t, startingBlockHeight, testGraph, true,
-	)
+	ctx := createTestCtxFromGraphInstance(t, startingBlockHeight, testGraph)
 
 	// Assert that the initially configured fee is retrieved correctly.
-	_, e1, e2, err := ctx.router.GetChannelByID(
-		lnwire.NewShortChanIDFromInt(1),
+	_, e1, e2, err := ctx.graph.FetchChannelEdgesByID(
+		lnwire.NewShortChanIDFromInt(1).ToUint64(),
 	)
 	require.NoError(t, err, "cannot retrieve channel")
 
@@ -539,14 +507,18 @@ func TestChannelUpdateValidation(t *testing.T) {
 	// empty for this test.
 	var payment lntypes.Hash
 
+	// Instruct the mock graph builder to reject the next update we send
+	// it.
+	ctx.graphBuilder.setNextReject(true)
+
 	// Send off the payment request to the router. The specified route
 	// should be attempted and the channel update should be received by
-	// router and ignored because it is missing a valid signature.
+	// graph and ignored because it is missing a valid signature.
 	_, err = ctx.router.SendToRoute(payment, rt)
 	require.Error(t, err, "expected route to fail with channel update")
 
-	_, e1, e2, err = ctx.router.GetChannelByID(
-		lnwire.NewShortChanIDFromInt(1),
+	_, e1, e2, err = ctx.graph.FetchChannelEdgesByID(
+		lnwire.NewShortChanIDFromInt(1).ToUint64(),
 	)
 	require.NoError(t, err, "cannot retrieve channel")
 
@@ -558,14 +530,17 @@ func TestChannelUpdateValidation(t *testing.T) {
 	// Next, add a signature to the channel update.
 	signErrChanUpdate(t, testGraph.privKeyMap["b"], &errChanUpdate)
 
+	// Let the graph builder accept the next update.
+	ctx.graphBuilder.setNextReject(false)
+
 	// Retry the payment using the same route as before.
 	_, err = ctx.router.SendToRoute(payment, rt)
 	require.Error(t, err, "expected route to fail with channel update")
 
 	// This time a valid signature was supplied and the policy change should
 	// have been applied to the graph.
-	_, e1, e2, err = ctx.router.GetChannelByID(
-		lnwire.NewShortChanIDFromInt(1),
+	_, e1, e2, err = ctx.graph.FetchChannelEdgesByID(
+		lnwire.NewShortChanIDFromInt(1).ToUint64(),
 	)
 	require.NoError(t, err, "cannot retrieve channel")
 
@@ -1200,1232 +1175,6 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	)
 }
 
-// TestAddProof checks that we can update the channel proof after channel
-// info was added to the database.
-func TestAddProof(t *testing.T) {
-	t.Parallel()
-
-	ctx := createTestCtxSingleNode(t, 0)
-
-	// Before creating out edge, we'll create two new nodes within the
-	// network that the channel will connect.
-	node1, err := createTestNode()
-	if err != nil {
-		t.Fatal(err)
-	}
-	node2, err := createTestNode()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// In order to be able to add the edge we should have a valid funding
-	// UTXO within the blockchain.
-	fundingTx, _, chanID, err := createChannelEdge(ctx,
-		bitcoinKey1.SerializeCompressed(), bitcoinKey2.SerializeCompressed(),
-		100, 0)
-	require.NoError(t, err, "unable create channel edge")
-	fundingBlock := &wire.MsgBlock{
-		Transactions: []*wire.MsgTx{fundingTx},
-	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
-
-	// After utxo was recreated adding the edge without the proof.
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:     chanID.ToUint64(),
-		NodeKey1Bytes: node1.PubKeyBytes,
-		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof:     nil,
-	}
-	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
-
-	if err := ctx.router.AddEdge(edge); err != nil {
-		t.Fatalf("unable to add edge: %v", err)
-	}
-
-	// Now we'll attempt to update the proof and check that it has been
-	// properly updated.
-	if err := ctx.router.AddProof(*chanID, &testAuthProof); err != nil {
-		t.Fatalf("unable to add proof: %v", err)
-	}
-
-	info, _, _, err := ctx.router.GetChannelByID(*chanID)
-	require.NoError(t, err, "unable to get channel")
-	if info.AuthProof == nil {
-		t.Fatal("proof have been updated")
-	}
-}
-
-// TestIgnoreNodeAnnouncement tests that adding a node to the router that is
-// not known from any channel announcement, leads to the announcement being
-// ignored.
-func TestIgnoreNodeAnnouncement(t *testing.T) {
-	t.Parallel()
-
-	const startingBlockHeight = 101
-	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
-
-	pub := priv1.PubKey()
-	node := &channeldb.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Unix(123, 0),
-		Addresses:            testAddrs,
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "node11",
-		AuthSigBytes:         testSig.Serialize(),
-		Features:             testFeatures,
-	}
-	copy(node.PubKeyBytes[:], pub.SerializeCompressed())
-
-	err := ctx.router.AddNode(node)
-	if !IsError(err, ErrIgnored) {
-		t.Fatalf("expected to get ErrIgnore, instead got: %v", err)
-	}
-}
-
-// TestIgnoreChannelEdgePolicyForUnknownChannel checks that a router will
-// ignore a channel policy for a channel not in the graph.
-func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
-	t.Parallel()
-
-	const startingBlockHeight = 101
-
-	// Setup an initially empty network.
-	testChannels := []*testChannel{}
-	testGraph, err := createTestGraphFromChannels(
-		t, true, testChannels, "roasbeef",
-	)
-	require.NoError(t, err, "unable to create graph")
-
-	ctx := createTestCtxFromGraphInstance(
-		t, startingBlockHeight, testGraph, false,
-	)
-
-	var pub1 [33]byte
-	copy(pub1[:], priv1.PubKey().SerializeCompressed())
-
-	var pub2 [33]byte
-	copy(pub2[:], priv2.PubKey().SerializeCompressed())
-
-	// Add the edge between the two unknown nodes to the graph, and check
-	// that the nodes are found after the fact.
-	fundingTx, _, chanID, err := createChannelEdge(
-		ctx, bitcoinKey1.SerializeCompressed(),
-		bitcoinKey2.SerializeCompressed(), 10000, 500,
-	)
-	require.NoError(t, err, "unable to create channel edge")
-	fundingBlock := &wire.MsgBlock{
-		Transactions: []*wire.MsgTx{fundingTx},
-	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
-
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:        chanID.ToUint64(),
-		NodeKey1Bytes:    pub1,
-		NodeKey2Bytes:    pub2,
-		BitcoinKey1Bytes: pub1,
-		BitcoinKey2Bytes: pub2,
-		AuthProof:        nil,
-	}
-	edgePolicy := &models.ChannelEdgePolicy{
-		SigBytes:                  testSig.Serialize(),
-		ChannelID:                 edge.ChannelID,
-		LastUpdate:                testTime,
-		TimeLockDelta:             10,
-		MinHTLC:                   1,
-		FeeBaseMSat:               10,
-		FeeProportionalMillionths: 10000,
-	}
-
-	// Attempt to update the edge. This should be ignored, since the edge
-	// is not yet added to the router.
-	err = ctx.router.UpdateEdge(edgePolicy)
-	if !IsError(err, ErrIgnored) {
-		t.Fatalf("expected to get ErrIgnore, instead got: %v", err)
-	}
-
-	// Add the edge.
-	if err := ctx.router.AddEdge(edge); err != nil {
-		t.Fatalf("expected to be able to add edge to the channel graph,"+
-			" even though the vertexes were unknown: %v.", err)
-	}
-
-	// Now updating the edge policy should succeed.
-	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
-		t.Fatalf("unable to update edge policy: %v", err)
-	}
-}
-
-// TestAddEdgeUnknownVertexes tests that if an edge is added that contains two
-// vertexes which we don't know of, the edge should be available for use
-// regardless. This is due to the fact that we don't actually need node
-// announcements for the channel vertexes to be able to use the channel.
-func TestAddEdgeUnknownVertexes(t *testing.T) {
-	t.Parallel()
-
-	const startingBlockHeight = 101
-	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
-
-	var pub1 [33]byte
-	copy(pub1[:], priv1.PubKey().SerializeCompressed())
-
-	var pub2 [33]byte
-	copy(pub2[:], priv2.PubKey().SerializeCompressed())
-
-	// The two nodes we are about to add should not exist yet.
-	_, exists1, err := ctx.graph.HasLightningNode(pub1)
-	require.NoError(t, err, "unable to query graph")
-	if exists1 {
-		t.Fatalf("node already existed")
-	}
-	_, exists2, err := ctx.graph.HasLightningNode(pub2)
-	require.NoError(t, err, "unable to query graph")
-	if exists2 {
-		t.Fatalf("node already existed")
-	}
-
-	// Add the edge between the two unknown nodes to the graph, and check
-	// that the nodes are found after the fact.
-	fundingTx, _, chanID, err := createChannelEdge(ctx,
-		bitcoinKey1.SerializeCompressed(),
-		bitcoinKey2.SerializeCompressed(),
-		10000, 500,
-	)
-	require.NoError(t, err, "unable to create channel edge")
-	fundingBlock := &wire.MsgBlock{
-		Transactions: []*wire.MsgTx{fundingTx},
-	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
-
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:        chanID.ToUint64(),
-		NodeKey1Bytes:    pub1,
-		NodeKey2Bytes:    pub2,
-		BitcoinKey1Bytes: pub1,
-		BitcoinKey2Bytes: pub2,
-		AuthProof:        nil,
-	}
-	if err := ctx.router.AddEdge(edge); err != nil {
-		t.Fatalf("expected to be able to add edge to the channel graph,"+
-			" even though the vertexes were unknown: %v.", err)
-	}
-
-	// We must add the edge policy to be able to use the edge for route
-	// finding.
-	edgePolicy := &models.ChannelEdgePolicy{
-		SigBytes:                  testSig.Serialize(),
-		ChannelID:                 edge.ChannelID,
-		LastUpdate:                testTime,
-		TimeLockDelta:             10,
-		MinHTLC:                   1,
-		FeeBaseMSat:               10,
-		FeeProportionalMillionths: 10000,
-		ToNode:                    edge.NodeKey2Bytes,
-	}
-	edgePolicy.ChannelFlags = 0
-
-	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
-		t.Fatalf("unable to update edge policy: %v", err)
-	}
-
-	// Create edge in the other direction as well.
-	edgePolicy = &models.ChannelEdgePolicy{
-		SigBytes:                  testSig.Serialize(),
-		ChannelID:                 edge.ChannelID,
-		LastUpdate:                testTime,
-		TimeLockDelta:             10,
-		MinHTLC:                   1,
-		FeeBaseMSat:               10,
-		FeeProportionalMillionths: 10000,
-		ToNode:                    edge.NodeKey1Bytes,
-	}
-	edgePolicy.ChannelFlags = 1
-
-	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
-		t.Fatalf("unable to update edge policy: %v", err)
-	}
-
-	// After adding the edge between the two previously unknown nodes, they
-	// should have been added to the graph.
-	_, exists1, err = ctx.graph.HasLightningNode(pub1)
-	require.NoError(t, err, "unable to query graph")
-	if !exists1 {
-		t.Fatalf("node1 was not added to the graph")
-	}
-	_, exists2, err = ctx.graph.HasLightningNode(pub2)
-	require.NoError(t, err, "unable to query graph")
-	if !exists2 {
-		t.Fatalf("node2 was not added to the graph")
-	}
-
-	// We will connect node1 to the rest of the test graph, and make sure
-	// we can find a route to node2, which will use the just added channel
-	// edge.
-
-	// We will connect node 1 to "sophon"
-	connectNode := ctx.aliases["sophon"]
-	connectNodeKey, err := btcec.ParsePubKey(connectNode[:])
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var (
-		pubKey1 *btcec.PublicKey
-		pubKey2 *btcec.PublicKey
-	)
-	node1Bytes := priv1.PubKey().SerializeCompressed()
-	node2Bytes := connectNode
-	if bytes.Compare(node1Bytes[:], node2Bytes[:]) == -1 {
-		pubKey1 = priv1.PubKey()
-		pubKey2 = connectNodeKey
-	} else {
-		pubKey1 = connectNodeKey
-		pubKey2 = priv1.PubKey()
-	}
-
-	fundingTx, _, chanID, err = createChannelEdge(ctx,
-		pubKey1.SerializeCompressed(), pubKey2.SerializeCompressed(),
-		10000, 510)
-	require.NoError(t, err, "unable to create channel edge")
-	fundingBlock = &wire.MsgBlock{
-		Transactions: []*wire.MsgTx{fundingTx},
-	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
-
-	edge = &models.ChannelEdgeInfo{
-		ChannelID: chanID.ToUint64(),
-		AuthProof: nil,
-	}
-	copy(edge.NodeKey1Bytes[:], node1Bytes)
-	edge.NodeKey2Bytes = node2Bytes
-	copy(edge.BitcoinKey1Bytes[:], node1Bytes)
-	edge.BitcoinKey2Bytes = node2Bytes
-
-	if err := ctx.router.AddEdge(edge); err != nil {
-		t.Fatalf("unable to add edge to the channel graph: %v.", err)
-	}
-
-	edgePolicy = &models.ChannelEdgePolicy{
-		SigBytes:                  testSig.Serialize(),
-		ChannelID:                 edge.ChannelID,
-		LastUpdate:                testTime,
-		TimeLockDelta:             10,
-		MinHTLC:                   1,
-		FeeBaseMSat:               10,
-		FeeProportionalMillionths: 10000,
-		ToNode:                    edge.NodeKey2Bytes,
-	}
-	edgePolicy.ChannelFlags = 0
-
-	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
-		t.Fatalf("unable to update edge policy: %v", err)
-	}
-
-	edgePolicy = &models.ChannelEdgePolicy{
-		SigBytes:                  testSig.Serialize(),
-		ChannelID:                 edge.ChannelID,
-		LastUpdate:                testTime,
-		TimeLockDelta:             10,
-		MinHTLC:                   1,
-		FeeBaseMSat:               10,
-		FeeProportionalMillionths: 10000,
-		ToNode:                    edge.NodeKey1Bytes,
-	}
-	edgePolicy.ChannelFlags = 1
-
-	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
-		t.Fatalf("unable to update edge policy: %v", err)
-	}
-
-	// We should now be able to find a route to node 2.
-	paymentAmt := lnwire.NewMSatFromSatoshis(100)
-	targetNode := priv2.PubKey()
-	var targetPubKeyBytes route.Vertex
-	copy(targetPubKeyBytes[:], targetNode.SerializeCompressed())
-
-	req, err := NewRouteRequest(
-		ctx.router.cfg.SelfNode, &targetPubKeyBytes,
-		paymentAmt, 0, noRestrictions, nil, nil, nil, MinCLTVDelta,
-	)
-	require.NoError(t, err, "invalid route request")
-	_, _, err = ctx.router.FindRoute(req)
-	require.NoError(t, err, "unable to find any routes")
-
-	// Now check that we can update the node info for the partial node
-	// without messing up the channel graph.
-	n1 := &channeldb.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Unix(123, 0),
-		Addresses:            testAddrs,
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "node11",
-		AuthSigBytes:         testSig.Serialize(),
-		Features:             testFeatures,
-	}
-	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
-
-	if err := ctx.router.AddNode(n1); err != nil {
-		t.Fatalf("could not add node: %v", err)
-	}
-
-	n2 := &channeldb.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Unix(123, 0),
-		Addresses:            testAddrs,
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "node22",
-		AuthSigBytes:         testSig.Serialize(),
-		Features:             testFeatures,
-	}
-	copy(n2.PubKeyBytes[:], priv2.PubKey().SerializeCompressed())
-
-	if err := ctx.router.AddNode(n2); err != nil {
-		t.Fatalf("could not add node: %v", err)
-	}
-
-	// Should still be able to find the route, and the info should be
-	// updated.
-	req, err = NewRouteRequest(
-		ctx.router.cfg.SelfNode, &targetPubKeyBytes,
-		paymentAmt, 0, noRestrictions, nil, nil, nil, MinCLTVDelta,
-	)
-	require.NoError(t, err, "invalid route request")
-
-	_, _, err = ctx.router.FindRoute(req)
-	require.NoError(t, err, "unable to find any routes")
-
-	copy1, err := ctx.graph.FetchLightningNode(pub1)
-	require.NoError(t, err, "unable to fetch node")
-
-	if copy1.Alias != n1.Alias {
-		t.Fatalf("fetched node not equal to original")
-	}
-
-	copy2, err := ctx.graph.FetchLightningNode(pub2)
-	require.NoError(t, err, "unable to fetch node")
-
-	if copy2.Alias != n2.Alias {
-		t.Fatalf("fetched node not equal to original")
-	}
-}
-
-// TestWakeUpOnStaleBranch tests that upon startup of the ChannelRouter, if the
-// the chain previously reflected in the channel graph is stale (overtaken by a
-// longer chain), the channel router will prune the graph for any channels
-// confirmed on the stale chain, and resync to the main chain.
-func TestWakeUpOnStaleBranch(t *testing.T) {
-	t.Parallel()
-
-	const startingBlockHeight = 101
-	ctx := createTestCtxSingleNode(t, startingBlockHeight)
-
-	const chanValue = 10000
-
-	// chanID1 will not be reorged out.
-	var chanID1 uint64
-
-	// chanID2 will be reorged out.
-	var chanID2 uint64
-
-	// Create 10 common blocks, confirming chanID1.
-	for i := uint32(1); i <= 10; i++ {
-		block := &wire.MsgBlock{
-			Transactions: []*wire.MsgTx{},
-		}
-		height := startingBlockHeight + i
-		if i == 5 {
-			fundingTx, _, chanID, err := createChannelEdge(ctx,
-				bitcoinKey1.SerializeCompressed(),
-				bitcoinKey2.SerializeCompressed(),
-				chanValue, height)
-			if err != nil {
-				t.Fatalf("unable create channel edge: %v", err)
-			}
-			block.Transactions = append(block.Transactions,
-				fundingTx)
-			chanID1 = chanID.ToUint64()
-
-		}
-		ctx.chain.addBlock(block, height, rand.Uint32())
-		ctx.chain.setBestBlock(int32(height))
-		ctx.chainView.notifyBlock(block.BlockHash(), height,
-			[]*wire.MsgTx{}, t)
-	}
-
-	// Give time to process new blocks
-	time.Sleep(time.Millisecond * 500)
-
-	_, forkHeight, err := ctx.chain.GetBestBlock()
-	require.NoError(t, err, "unable to ge best block")
-
-	// Create 10 blocks on the minority chain, confirming chanID2.
-	for i := uint32(1); i <= 10; i++ {
-		block := &wire.MsgBlock{
-			Transactions: []*wire.MsgTx{},
-		}
-		height := uint32(forkHeight) + i
-		if i == 5 {
-			fundingTx, _, chanID, err := createChannelEdge(ctx,
-				bitcoinKey1.SerializeCompressed(),
-				bitcoinKey2.SerializeCompressed(),
-				chanValue, height)
-			if err != nil {
-				t.Fatalf("unable create channel edge: %v", err)
-			}
-			block.Transactions = append(block.Transactions,
-				fundingTx)
-			chanID2 = chanID.ToUint64()
-		}
-		ctx.chain.addBlock(block, height, rand.Uint32())
-		ctx.chain.setBestBlock(int32(height))
-		ctx.chainView.notifyBlock(block.BlockHash(), height,
-			[]*wire.MsgTx{}, t)
-	}
-	// Give time to process new blocks
-	time.Sleep(time.Millisecond * 500)
-
-	// Now add the two edges to the channel graph, and check that they
-	// correctly show up in the database.
-	node1, err := createTestNode()
-	require.NoError(t, err, "unable to create test node")
-	node2, err := createTestNode()
-	require.NoError(t, err, "unable to create test node")
-
-	edge1 := &models.ChannelEdgeInfo{
-		ChannelID:     chanID1,
-		NodeKey1Bytes: node1.PubKeyBytes,
-		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
-	}
-	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge1.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
-
-	if err := ctx.router.AddEdge(edge1); err != nil {
-		t.Fatalf("unable to add edge: %v", err)
-	}
-
-	edge2 := &models.ChannelEdgeInfo{
-		ChannelID:     chanID2,
-		NodeKey1Bytes: node1.PubKeyBytes,
-		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
-	}
-	copy(edge2.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge2.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
-
-	if err := ctx.router.AddEdge(edge2); err != nil {
-		t.Fatalf("unable to add edge: %v", err)
-	}
-
-	// Check that the fundingTxs are in the graph db.
-	_, _, has, isZombie, err := ctx.graph.HasChannelEdge(chanID1)
-	if err != nil {
-		t.Fatalf("error looking for edge: %v", chanID1)
-	}
-	if !has {
-		t.Fatalf("could not find edge in graph")
-	}
-	if isZombie {
-		t.Fatal("edge was marked as zombie")
-	}
-
-	_, _, has, isZombie, err = ctx.graph.HasChannelEdge(chanID2)
-	if err != nil {
-		t.Fatalf("error looking for edge: %v", chanID2)
-	}
-	if !has {
-		t.Fatalf("could not find edge in graph")
-	}
-	if isZombie {
-		t.Fatal("edge was marked as zombie")
-	}
-
-	// Stop the router, so we can reorg the chain while its offline.
-	if err := ctx.router.Stop(); err != nil {
-		t.Fatalf("unable to stop router: %v", err)
-	}
-
-	// Create a 15 block fork.
-	for i := uint32(1); i <= 15; i++ {
-		block := &wire.MsgBlock{
-			Transactions: []*wire.MsgTx{},
-		}
-		height := uint32(forkHeight) + i
-		ctx.chain.addBlock(block, height, rand.Uint32())
-		ctx.chain.setBestBlock(int32(height))
-	}
-
-	// Give time to process new blocks.
-	time.Sleep(time.Millisecond * 500)
-
-	source, err := ctx.graph.SourceNode()
-	require.NoError(t, err)
-
-	// Create new router with same graph database.
-	router, err := New(Config{
-		SelfNode:           source.PubKeyBytes,
-		RoutingGraph:       ctx.graph,
-		Graph:              ctx.graph,
-		Chain:              ctx.chain,
-		ChainView:          ctx.chainView,
-		Payer:              &mockPaymentAttemptDispatcherOld{},
-		Control:            makeMockControlTower(),
-		ChannelPruneExpiry: time.Hour * 24,
-		GraphPruneInterval: time.Hour * 2,
-
-		// We'll set the delay to zero to prune immediately.
-		FirstTimePruneDelay: 0,
-
-		IsAlias: func(scid lnwire.ShortChannelID) bool {
-			return false
-		},
-	})
-	if err != nil {
-		t.Fatalf("unable to create router %v", err)
-	}
-
-	// It should resync to the longer chain on startup.
-	if err := router.Start(); err != nil {
-		t.Fatalf("unable to start router: %v", err)
-	}
-
-	// The channel with chanID2 should not be in the database anymore,
-	// since it is not confirmed on the longest chain. chanID1 should
-	// still be.
-	_, _, has, isZombie, err = ctx.graph.HasChannelEdge(chanID1)
-	if err != nil {
-		t.Fatalf("error looking for edge: %v", chanID1)
-	}
-	if !has {
-		t.Fatalf("did not find edge in graph")
-	}
-	if isZombie {
-		t.Fatal("edge was marked as zombie")
-	}
-
-	_, _, has, isZombie, err = ctx.graph.HasChannelEdge(chanID2)
-	if err != nil {
-		t.Fatalf("error looking for edge: %v", chanID2)
-	}
-	if has {
-		t.Fatalf("found edge in graph")
-	}
-	if isZombie {
-		t.Fatal("reorged edge should not be marked as zombie")
-	}
-}
-
-// TestDisconnectedBlocks checks that the router handles a reorg happening when
-// it is active.
-func TestDisconnectedBlocks(t *testing.T) {
-	t.Parallel()
-
-	const startingBlockHeight = 101
-	ctx := createTestCtxSingleNode(t, startingBlockHeight)
-
-	const chanValue = 10000
-
-	// chanID1 will not be reorged out, while chanID2 will be reorged out.
-	var chanID1, chanID2 uint64
-
-	// Create 10 common blocks, confirming chanID1.
-	for i := uint32(1); i <= 10; i++ {
-		block := &wire.MsgBlock{
-			Transactions: []*wire.MsgTx{},
-		}
-		height := startingBlockHeight + i
-		if i == 5 {
-			fundingTx, _, chanID, err := createChannelEdge(ctx,
-				bitcoinKey1.SerializeCompressed(),
-				bitcoinKey2.SerializeCompressed(),
-				chanValue, height)
-			if err != nil {
-				t.Fatalf("unable create channel edge: %v", err)
-			}
-			block.Transactions = append(block.Transactions,
-				fundingTx)
-			chanID1 = chanID.ToUint64()
-
-		}
-		ctx.chain.addBlock(block, height, rand.Uint32())
-		ctx.chain.setBestBlock(int32(height))
-		ctx.chainView.notifyBlock(block.BlockHash(), height,
-			[]*wire.MsgTx{}, t)
-	}
-
-	// Give time to process new blocks
-	time.Sleep(time.Millisecond * 500)
-
-	_, forkHeight, err := ctx.chain.GetBestBlock()
-	require.NoError(t, err, "unable to get best block")
-
-	// Create 10 blocks on the minority chain, confirming chanID2.
-	var minorityChain []*wire.MsgBlock
-	for i := uint32(1); i <= 10; i++ {
-		block := &wire.MsgBlock{
-			Transactions: []*wire.MsgTx{},
-		}
-		height := uint32(forkHeight) + i
-		if i == 5 {
-			fundingTx, _, chanID, err := createChannelEdge(ctx,
-				bitcoinKey1.SerializeCompressed(),
-				bitcoinKey2.SerializeCompressed(),
-				chanValue, height)
-			if err != nil {
-				t.Fatalf("unable create channel edge: %v", err)
-			}
-			block.Transactions = append(block.Transactions,
-				fundingTx)
-			chanID2 = chanID.ToUint64()
-		}
-		minorityChain = append(minorityChain, block)
-		ctx.chain.addBlock(block, height, rand.Uint32())
-		ctx.chain.setBestBlock(int32(height))
-		ctx.chainView.notifyBlock(block.BlockHash(), height,
-			[]*wire.MsgTx{}, t)
-	}
-	// Give time to process new blocks
-	time.Sleep(time.Millisecond * 500)
-
-	// Now add the two edges to the channel graph, and check that they
-	// correctly show up in the database.
-	node1, err := createTestNode()
-	require.NoError(t, err, "unable to create test node")
-	node2, err := createTestNode()
-	require.NoError(t, err, "unable to create test node")
-
-	edge1 := &models.ChannelEdgeInfo{
-		ChannelID:        chanID1,
-		NodeKey1Bytes:    node1.PubKeyBytes,
-		NodeKey2Bytes:    node2.PubKeyBytes,
-		BitcoinKey1Bytes: node1.PubKeyBytes,
-		BitcoinKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
-	}
-	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge1.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
-
-	if err := ctx.router.AddEdge(edge1); err != nil {
-		t.Fatalf("unable to add edge: %v", err)
-	}
-
-	edge2 := &models.ChannelEdgeInfo{
-		ChannelID:        chanID2,
-		NodeKey1Bytes:    node1.PubKeyBytes,
-		NodeKey2Bytes:    node2.PubKeyBytes,
-		BitcoinKey1Bytes: node1.PubKeyBytes,
-		BitcoinKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
-	}
-	copy(edge2.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge2.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
-
-	if err := ctx.router.AddEdge(edge2); err != nil {
-		t.Fatalf("unable to add edge: %v", err)
-	}
-
-	// Check that the fundingTxs are in the graph db.
-	_, _, has, isZombie, err := ctx.graph.HasChannelEdge(chanID1)
-	if err != nil {
-		t.Fatalf("error looking for edge: %v", chanID1)
-	}
-	if !has {
-		t.Fatalf("could not find edge in graph")
-	}
-	if isZombie {
-		t.Fatal("edge was marked as zombie")
-	}
-
-	_, _, has, isZombie, err = ctx.graph.HasChannelEdge(chanID2)
-	if err != nil {
-		t.Fatalf("error looking for edge: %v", chanID2)
-	}
-	if !has {
-		t.Fatalf("could not find edge in graph")
-	}
-	if isZombie {
-		t.Fatal("edge was marked as zombie")
-	}
-
-	// Create a 15 block fork. We first let the chainView notify the router
-	// about stale blocks, before sending the now connected blocks. We do
-	// this because we expect this order from the chainview.
-	ctx.chainView.notifyStaleBlockAck = make(chan struct{}, 1)
-	for i := len(minorityChain) - 1; i >= 0; i-- {
-		block := minorityChain[i]
-		height := uint32(forkHeight) + uint32(i) + 1
-		ctx.chainView.notifyStaleBlock(block.BlockHash(), height,
-			block.Transactions, t)
-		<-ctx.chainView.notifyStaleBlockAck
-	}
-
-	time.Sleep(time.Second * 2)
-
-	ctx.chainView.notifyBlockAck = make(chan struct{}, 1)
-	for i := uint32(1); i <= 15; i++ {
-		block := &wire.MsgBlock{
-			Transactions: []*wire.MsgTx{},
-		}
-		height := uint32(forkHeight) + i
-		ctx.chain.addBlock(block, height, rand.Uint32())
-		ctx.chain.setBestBlock(int32(height))
-		ctx.chainView.notifyBlock(block.BlockHash(), height,
-			block.Transactions, t)
-		<-ctx.chainView.notifyBlockAck
-	}
-
-	time.Sleep(time.Millisecond * 500)
-
-	// chanID2 should not be in the database anymore, since it is not
-	// confirmed on the longest chain. chanID1 should still be.
-	_, _, has, isZombie, err = ctx.graph.HasChannelEdge(chanID1)
-	if err != nil {
-		t.Fatalf("error looking for edge: %v", chanID1)
-	}
-	if !has {
-		t.Fatalf("did not find edge in graph")
-	}
-	if isZombie {
-		t.Fatal("edge was marked as zombie")
-	}
-
-	_, _, has, isZombie, err = ctx.graph.HasChannelEdge(chanID2)
-	if err != nil {
-		t.Fatalf("error looking for edge: %v", chanID2)
-	}
-	if has {
-		t.Fatalf("found edge in graph")
-	}
-	if isZombie {
-		t.Fatal("reorged edge should not be marked as zombie")
-	}
-}
-
-// TestChansClosedOfflinePruneGraph tests that if channels we know of are
-// closed while we're offline, then once we resume operation of the
-// ChannelRouter, then the channels are properly pruned.
-func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
-	t.Parallel()
-
-	const startingBlockHeight = 101
-	ctx := createTestCtxSingleNode(t, startingBlockHeight)
-
-	const chanValue = 10000
-
-	// First, we'll create a channel, to be mined shortly at height 102.
-	block102 := &wire.MsgBlock{
-		Transactions: []*wire.MsgTx{},
-	}
-	nextHeight := startingBlockHeight + 1
-	fundingTx1, chanUTXO, chanID1, err := createChannelEdge(ctx,
-		bitcoinKey1.SerializeCompressed(),
-		bitcoinKey2.SerializeCompressed(),
-		chanValue, uint32(nextHeight))
-	require.NoError(t, err, "unable create channel edge")
-	block102.Transactions = append(block102.Transactions, fundingTx1)
-	ctx.chain.addBlock(block102, uint32(nextHeight), rand.Uint32())
-	ctx.chain.setBestBlock(int32(nextHeight))
-	ctx.chainView.notifyBlock(block102.BlockHash(), uint32(nextHeight),
-		[]*wire.MsgTx{}, t)
-
-	// We'll now create the edges and nodes within the database required
-	// for the ChannelRouter to properly recognize the channel we added
-	// above.
-	node1, err := createTestNode()
-	require.NoError(t, err, "unable to create test node")
-	node2, err := createTestNode()
-	require.NoError(t, err, "unable to create test node")
-	edge1 := &models.ChannelEdgeInfo{
-		ChannelID:     chanID1.ToUint64(),
-		NodeKey1Bytes: node1.PubKeyBytes,
-		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
-	}
-	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge1.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
-	if err := ctx.router.AddEdge(edge1); err != nil {
-		t.Fatalf("unable to add edge: %v", err)
-	}
-
-	// The router should now be aware of the channel we created above.
-	_, _, hasChan, isZombie, err := ctx.graph.HasChannelEdge(chanID1.ToUint64())
-	if err != nil {
-		t.Fatalf("error looking for edge: %v", chanID1)
-	}
-	if !hasChan {
-		t.Fatalf("could not find edge in graph")
-	}
-	if isZombie {
-		t.Fatal("edge was marked as zombie")
-	}
-
-	// With the transaction included, and the router's database state
-	// updated, we'll now mine 5 additional blocks on top of it.
-	for i := 0; i < 5; i++ {
-		nextHeight++
-
-		block := &wire.MsgBlock{
-			Transactions: []*wire.MsgTx{},
-		}
-		ctx.chain.addBlock(block, uint32(nextHeight), rand.Uint32())
-		ctx.chain.setBestBlock(int32(nextHeight))
-		ctx.chainView.notifyBlock(block.BlockHash(), uint32(nextHeight),
-			[]*wire.MsgTx{}, t)
-	}
-
-	// At this point, our starting height should be 107.
-	_, chainHeight, err := ctx.chain.GetBestBlock()
-	require.NoError(t, err, "unable to get best block")
-	if chainHeight != 107 {
-		t.Fatalf("incorrect chain height: expected %v, got %v",
-			107, chainHeight)
-	}
-
-	// Next, we'll "shut down" the router in order to simulate downtime.
-	if err := ctx.router.Stop(); err != nil {
-		t.Fatalf("unable to shutdown router: %v", err)
-	}
-
-	// While the router is "offline" we'll mine 5 additional blocks, with
-	// the second block closing the channel we created above.
-	for i := 0; i < 5; i++ {
-		nextHeight++
-
-		block := &wire.MsgBlock{
-			Transactions: []*wire.MsgTx{},
-		}
-
-		if i == 2 {
-			// For the second block, we'll add a transaction that
-			// closes the channel we created above by spending the
-			// output.
-			closingTx := wire.NewMsgTx(2)
-			closingTx.AddTxIn(&wire.TxIn{
-				PreviousOutPoint: *chanUTXO,
-			})
-			block.Transactions = append(block.Transactions,
-				closingTx)
-		}
-
-		ctx.chain.addBlock(block, uint32(nextHeight), rand.Uint32())
-		ctx.chain.setBestBlock(int32(nextHeight))
-		ctx.chainView.notifyBlock(block.BlockHash(), uint32(nextHeight),
-			[]*wire.MsgTx{}, t)
-	}
-
-	// At this point, our starting height should be 112.
-	_, chainHeight, err = ctx.chain.GetBestBlock()
-	require.NoError(t, err, "unable to get best block")
-	if chainHeight != 112 {
-		t.Fatalf("incorrect chain height: expected %v, got %v",
-			112, chainHeight)
-	}
-
-	// Now we'll re-start the ChannelRouter. It should recognize that it's
-	// behind the main chain and prune all the blocks that it missed while
-	// it was down.
-	ctx.RestartRouter(t)
-
-	// At this point, the channel that was pruned should no longer be known
-	// by the router.
-	_, _, hasChan, isZombie, err = ctx.graph.HasChannelEdge(chanID1.ToUint64())
-	if err != nil {
-		t.Fatalf("error looking for edge: %v", chanID1)
-	}
-	if hasChan {
-		t.Fatalf("channel was found in graph but shouldn't have been")
-	}
-	if isZombie {
-		t.Fatal("closed channel should not be marked as zombie")
-	}
-}
-
-// TestPruneChannelGraphStaleEdges ensures that we properly prune stale edges
-// from the channel graph.
-func TestPruneChannelGraphStaleEdges(t *testing.T) {
-	t.Parallel()
-
-	freshTimestamp := time.Now()
-	staleTimestamp := time.Unix(0, 0)
-
-	// We'll create the following test graph so that two of the channels
-	// are pruned.
-	testChannels := []*testChannel{
-		// No edges.
-		{
-			Node1:     &testChannelEnd{Alias: "a"},
-			Node2:     &testChannelEnd{Alias: "b"},
-			Capacity:  100000,
-			ChannelID: 1,
-		},
-
-		// Only one edge with a stale timestamp.
-		{
-			Node1: &testChannelEnd{
-				Alias: "d",
-				testChannelPolicy: &testChannelPolicy{
-					LastUpdate: staleTimestamp,
-				},
-			},
-			Node2:     &testChannelEnd{Alias: "b"},
-			Capacity:  100000,
-			ChannelID: 2,
-		},
-
-		// Only one edge with a stale timestamp, but it's the source
-		// node so it won't get pruned.
-		{
-			Node1: &testChannelEnd{
-				Alias: "a",
-				testChannelPolicy: &testChannelPolicy{
-					LastUpdate: staleTimestamp,
-				},
-			},
-			Node2:     &testChannelEnd{Alias: "b"},
-			Capacity:  100000,
-			ChannelID: 3,
-		},
-
-		// Only one edge with a fresh timestamp.
-		{
-			Node1: &testChannelEnd{
-				Alias: "a",
-				testChannelPolicy: &testChannelPolicy{
-					LastUpdate: freshTimestamp,
-				},
-			},
-			Node2:     &testChannelEnd{Alias: "b"},
-			Capacity:  100000,
-			ChannelID: 4,
-		},
-
-		// One edge fresh, one edge stale. This will be pruned with
-		// strict pruning activated.
-		{
-			Node1: &testChannelEnd{
-				Alias: "c",
-				testChannelPolicy: &testChannelPolicy{
-					LastUpdate: freshTimestamp,
-				},
-			},
-			Node2: &testChannelEnd{
-				Alias: "d",
-				testChannelPolicy: &testChannelPolicy{
-					LastUpdate: staleTimestamp,
-				},
-			},
-			Capacity:  100000,
-			ChannelID: 5,
-		},
-
-		// Both edges fresh.
-		symmetricTestChannel("g", "h", 100000, &testChannelPolicy{
-			LastUpdate: freshTimestamp,
-		}, 6),
-
-		// Both edges stale, only one pruned. This should be pruned for
-		// both normal and strict pruning.
-		symmetricTestChannel("e", "f", 100000, &testChannelPolicy{
-			LastUpdate: staleTimestamp,
-		}, 7),
-	}
-
-	for _, strictPruning := range []bool{true, false} {
-		// We'll create our test graph and router backed with these test
-		// channels we've created.
-		testGraph, err := createTestGraphFromChannels(
-			t, true, testChannels, "a",
-		)
-		if err != nil {
-			t.Fatalf("unable to create test graph: %v", err)
-		}
-
-		const startingHeight = 100
-		ctx := createTestCtxFromGraphInstance(
-			t, startingHeight, testGraph, strictPruning,
-		)
-
-		// All of the channels should exist before pruning them.
-		assertChannelsPruned(t, ctx.graph, testChannels)
-
-		// Proceed to prune the channels - only the last one should be pruned.
-		if err := ctx.router.pruneZombieChans(); err != nil {
-			t.Fatalf("unable to prune zombie channels: %v", err)
-		}
-
-		// We expect channels that have either both edges stale, or one edge
-		// stale with both known.
-		var prunedChannels []uint64
-		if strictPruning {
-			prunedChannels = []uint64{2, 5, 7}
-		} else {
-			prunedChannels = []uint64{2, 7}
-		}
-		assertChannelsPruned(t, ctx.graph, testChannels, prunedChannels...)
-	}
-}
-
-// TestPruneChannelGraphDoubleDisabled test that we can properly prune channels
-// with both edges disabled from our channel graph.
-func TestPruneChannelGraphDoubleDisabled(t *testing.T) {
-	t.Parallel()
-
-	t.Run("no_assumechannelvalid", func(t *testing.T) {
-		testPruneChannelGraphDoubleDisabled(t, false)
-	})
-	t.Run("assumechannelvalid", func(t *testing.T) {
-		testPruneChannelGraphDoubleDisabled(t, true)
-	})
-}
-
-func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
-	// We'll create the following test graph so that only the last channel
-	// is pruned. We'll use a fresh timestamp to ensure they're not pruned
-	// according to that heuristic.
-	timestamp := time.Now()
-	testChannels := []*testChannel{
-		// Channel from self shouldn't be pruned.
-		symmetricTestChannel(
-			"self", "a", 100000, &testChannelPolicy{
-				LastUpdate: timestamp,
-				Disabled:   true,
-			}, 99,
-		),
-
-		// No edges.
-		{
-			Node1:     &testChannelEnd{Alias: "a"},
-			Node2:     &testChannelEnd{Alias: "b"},
-			Capacity:  100000,
-			ChannelID: 1,
-		},
-
-		// Only one edge disabled.
-		{
-			Node1: &testChannelEnd{
-				Alias: "a",
-				testChannelPolicy: &testChannelPolicy{
-					LastUpdate: timestamp,
-					Disabled:   true,
-				},
-			},
-			Node2:     &testChannelEnd{Alias: "b"},
-			Capacity:  100000,
-			ChannelID: 2,
-		},
-
-		// Only one edge enabled.
-		{
-			Node1: &testChannelEnd{
-				Alias: "a",
-				testChannelPolicy: &testChannelPolicy{
-					LastUpdate: timestamp,
-					Disabled:   false,
-				},
-			},
-			Node2:     &testChannelEnd{Alias: "b"},
-			Capacity:  100000,
-			ChannelID: 3,
-		},
-
-		// One edge disabled, one edge enabled.
-		{
-			Node1: &testChannelEnd{
-				Alias: "a",
-				testChannelPolicy: &testChannelPolicy{
-					LastUpdate: timestamp,
-					Disabled:   true,
-				},
-			},
-			Node2: &testChannelEnd{
-				Alias: "b",
-				testChannelPolicy: &testChannelPolicy{
-					LastUpdate: timestamp,
-					Disabled:   false,
-				},
-			},
-			Capacity:  100000,
-			ChannelID: 1,
-		},
-
-		// Both edges enabled.
-		symmetricTestChannel("c", "d", 100000, &testChannelPolicy{
-			LastUpdate: timestamp,
-			Disabled:   false,
-		}, 2),
-
-		// Both edges disabled, only one pruned.
-		symmetricTestChannel("e", "f", 100000, &testChannelPolicy{
-			LastUpdate: timestamp,
-			Disabled:   true,
-		}, 3),
-	}
-
-	// We'll create our test graph and router backed with these test
-	// channels we've created.
-	testGraph, err := createTestGraphFromChannels(
-		t, true, testChannels, "self",
-	)
-	require.NoError(t, err, "unable to create test graph")
-
-	const startingHeight = 100
-	ctx := createTestCtxFromGraphInstanceAssumeValid(
-		t, startingHeight, testGraph, assumeValid, false,
-	)
-
-	// All the channels should exist within the graph before pruning them
-	// when not using AssumeChannelValid, otherwise we should have pruned
-	// the last channel on startup.
-	if !assumeValid {
-		assertChannelsPruned(t, ctx.graph, testChannels)
-	} else {
-		// Sleep to allow the pruning to finish.
-		time.Sleep(200 * time.Millisecond)
-
-		prunedChannel := testChannels[len(testChannels)-1].ChannelID
-		assertChannelsPruned(t, ctx.graph, testChannels, prunedChannel)
-	}
-
-	if err := ctx.router.pruneZombieChans(); err != nil {
-		t.Fatalf("unable to prune zombie channels: %v", err)
-	}
-
-	// If we attempted to prune them without AssumeChannelValid being set,
-	// none should be pruned. Otherwise the last channel should still be
-	// pruned.
-	if !assumeValid {
-		assertChannelsPruned(t, ctx.graph, testChannels)
-	} else {
-		prunedChannel := testChannels[len(testChannels)-1].ChannelID
-		assertChannelsPruned(t, ctx.graph, testChannels, prunedChannel)
-	}
-}
-
 // TestFindPathFeeWeighting tests that the findPath method will properly prefer
 // routes with lower fees over routes with lower time lock values. This is
 // meant to exercise the fact that the internal findPath method ranks edges
@@ -2464,226 +1213,6 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	}
 	if path[0].policy.ToNodePubKey() != ctx.aliases["luoji"] {
 		t.Fatalf("wrong node: %v", path[0].policy.ToNodePubKey())
-	}
-}
-
-// TestIsStaleNode tests that the IsStaleNode method properly detects stale
-// node announcements.
-func TestIsStaleNode(t *testing.T) {
-	t.Parallel()
-
-	const startingBlockHeight = 101
-	ctx := createTestCtxSingleNode(t, startingBlockHeight)
-
-	// Before we can insert a node in to the database, we need to create a
-	// channel that it's linked to.
-	var (
-		pub1 [33]byte
-		pub2 [33]byte
-	)
-	copy(pub1[:], priv1.PubKey().SerializeCompressed())
-	copy(pub2[:], priv2.PubKey().SerializeCompressed())
-
-	fundingTx, _, chanID, err := createChannelEdge(ctx,
-		bitcoinKey1.SerializeCompressed(),
-		bitcoinKey2.SerializeCompressed(),
-		10000, 500)
-	require.NoError(t, err, "unable to create channel edge")
-	fundingBlock := &wire.MsgBlock{
-		Transactions: []*wire.MsgTx{fundingTx},
-	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
-
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:        chanID.ToUint64(),
-		NodeKey1Bytes:    pub1,
-		NodeKey2Bytes:    pub2,
-		BitcoinKey1Bytes: pub1,
-		BitcoinKey2Bytes: pub2,
-		AuthProof:        nil,
-	}
-	if err := ctx.router.AddEdge(edge); err != nil {
-		t.Fatalf("unable to add edge: %v", err)
-	}
-
-	// Before we add the node, if we query for staleness, we should get
-	// false, as we haven't added the full node.
-	updateTimeStamp := time.Unix(123, 0)
-	if ctx.router.IsStaleNode(pub1, updateTimeStamp) {
-		t.Fatalf("incorrectly detected node as stale")
-	}
-
-	// With the node stub in the database, we'll add the fully node
-	// announcement to the database.
-	n1 := &channeldb.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           updateTimeStamp,
-		Addresses:            testAddrs,
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "node11",
-		AuthSigBytes:         testSig.Serialize(),
-		Features:             testFeatures,
-	}
-	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
-	if err := ctx.router.AddNode(n1); err != nil {
-		t.Fatalf("could not add node: %v", err)
-	}
-
-	// If we use the same timestamp and query for staleness, we should get
-	// true.
-	if !ctx.router.IsStaleNode(pub1, updateTimeStamp) {
-		t.Fatalf("failure to detect stale node update")
-	}
-
-	// If we update the timestamp and once again query for staleness, it
-	// should report false.
-	newTimeStamp := time.Unix(1234, 0)
-	if ctx.router.IsStaleNode(pub1, newTimeStamp) {
-		t.Fatalf("incorrectly detected node as stale")
-	}
-}
-
-// TestIsKnownEdge tests that the IsKnownEdge method properly detects stale
-// channel announcements.
-func TestIsKnownEdge(t *testing.T) {
-	t.Parallel()
-
-	const startingBlockHeight = 101
-	ctx := createTestCtxSingleNode(t, startingBlockHeight)
-
-	// First, we'll create a new channel edge (just the info) and insert it
-	// into the database.
-	var (
-		pub1 [33]byte
-		pub2 [33]byte
-	)
-	copy(pub1[:], priv1.PubKey().SerializeCompressed())
-	copy(pub2[:], priv2.PubKey().SerializeCompressed())
-
-	fundingTx, _, chanID, err := createChannelEdge(ctx,
-		bitcoinKey1.SerializeCompressed(),
-		bitcoinKey2.SerializeCompressed(),
-		10000, 500)
-	require.NoError(t, err, "unable to create channel edge")
-	fundingBlock := &wire.MsgBlock{
-		Transactions: []*wire.MsgTx{fundingTx},
-	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
-
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:        chanID.ToUint64(),
-		NodeKey1Bytes:    pub1,
-		NodeKey2Bytes:    pub2,
-		BitcoinKey1Bytes: pub1,
-		BitcoinKey2Bytes: pub2,
-		AuthProof:        nil,
-	}
-	if err := ctx.router.AddEdge(edge); err != nil {
-		t.Fatalf("unable to add edge: %v", err)
-	}
-
-	// Now that the edge has been inserted, query is the router already
-	// knows of the edge should return true.
-	if !ctx.router.IsKnownEdge(*chanID) {
-		t.Fatalf("router should detect edge as known")
-	}
-}
-
-// TestIsStaleEdgePolicy tests that the IsStaleEdgePolicy properly detects
-// stale channel edge update announcements.
-func TestIsStaleEdgePolicy(t *testing.T) {
-	t.Parallel()
-
-	const startingBlockHeight = 101
-	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
-
-	// First, we'll create a new channel edge (just the info) and insert it
-	// into the database.
-	var (
-		pub1 [33]byte
-		pub2 [33]byte
-	)
-	copy(pub1[:], priv1.PubKey().SerializeCompressed())
-	copy(pub2[:], priv2.PubKey().SerializeCompressed())
-
-	fundingTx, _, chanID, err := createChannelEdge(ctx,
-		bitcoinKey1.SerializeCompressed(),
-		bitcoinKey2.SerializeCompressed(),
-		10000, 500)
-	require.NoError(t, err, "unable to create channel edge")
-	fundingBlock := &wire.MsgBlock{
-		Transactions: []*wire.MsgTx{fundingTx},
-	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
-
-	// If we query for staleness before adding the edge, we should get
-	// false.
-	updateTimeStamp := time.Unix(123, 0)
-	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
-		t.Fatalf("router failed to detect fresh edge policy")
-	}
-	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
-		t.Fatalf("router failed to detect fresh edge policy")
-	}
-
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:        chanID.ToUint64(),
-		NodeKey1Bytes:    pub1,
-		NodeKey2Bytes:    pub2,
-		BitcoinKey1Bytes: pub1,
-		BitcoinKey2Bytes: pub2,
-		AuthProof:        nil,
-	}
-	if err := ctx.router.AddEdge(edge); err != nil {
-		t.Fatalf("unable to add edge: %v", err)
-	}
-
-	// We'll also add two edge policies, one for each direction.
-	edgePolicy := &models.ChannelEdgePolicy{
-		SigBytes:                  testSig.Serialize(),
-		ChannelID:                 edge.ChannelID,
-		LastUpdate:                updateTimeStamp,
-		TimeLockDelta:             10,
-		MinHTLC:                   1,
-		FeeBaseMSat:               10,
-		FeeProportionalMillionths: 10000,
-	}
-	edgePolicy.ChannelFlags = 0
-	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
-		t.Fatalf("unable to update edge policy: %v", err)
-	}
-
-	edgePolicy = &models.ChannelEdgePolicy{
-		SigBytes:                  testSig.Serialize(),
-		ChannelID:                 edge.ChannelID,
-		LastUpdate:                updateTimeStamp,
-		TimeLockDelta:             10,
-		MinHTLC:                   1,
-		FeeBaseMSat:               10,
-		FeeProportionalMillionths: 10000,
-	}
-	edgePolicy.ChannelFlags = 1
-	if err := ctx.router.UpdateEdge(edgePolicy); err != nil {
-		t.Fatalf("unable to update edge policy: %v", err)
-	}
-
-	// Now that the edges have been added, an identical (chanID, flag,
-	// timestamp) tuple for each edge should be detected as a stale edge.
-	if !ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
-		t.Fatalf("router failed to detect stale edge policy")
-	}
-	if !ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
-		t.Fatalf("router failed to detect stale edge policy")
-	}
-
-	// If we now update the timestamp for both edges, the router should
-	// detect that this tuple represents a fresh edge.
-	updateTimeStamp = time.Unix(9999, 0)
-	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
-		t.Fatalf("router failed to detect fresh edge policy")
-	}
-	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
-		t.Fatalf("router failed to detect fresh edge policy")
 	}
 }
 
@@ -2742,9 +1271,7 @@ func TestUnknownErrorSource(t *testing.T) {
 	require.NoError(t, err, "unable to create graph")
 
 	const startingBlockHeight = 101
-	ctx := createTestCtxFromGraphInstance(
-		t, startingBlockHeight, testGraph, false,
-	)
+	ctx := createTestCtxFromGraphInstance(t, startingBlockHeight, testGraph)
 
 	// Create a payment to node c.
 	payment := createDummyLightningPayment(
@@ -2801,47 +1328,6 @@ func TestUnknownErrorSource(t *testing.T) {
 	}
 }
 
-// assertChannelsPruned ensures that only the given channels are pruned from the
-// graph out of the set of all channels.
-func assertChannelsPruned(t *testing.T, graph *channeldb.ChannelGraph,
-	channels []*testChannel, prunedChanIDs ...uint64) {
-
-	t.Helper()
-
-	pruned := make(map[uint64]struct{}, len(channels))
-	for _, chanID := range prunedChanIDs {
-		pruned[chanID] = struct{}{}
-	}
-
-	for _, channel := range channels {
-		_, shouldPrune := pruned[channel.ChannelID]
-		_, _, exists, isZombie, err := graph.HasChannelEdge(
-			channel.ChannelID,
-		)
-		if err != nil {
-			t.Fatalf("unable to determine existence of "+
-				"channel=%v in the graph: %v",
-				channel.ChannelID, err)
-		}
-		if !shouldPrune && !exists {
-			t.Fatalf("expected channel=%v to exist within "+
-				"the graph", channel.ChannelID)
-		}
-		if shouldPrune && exists {
-			t.Fatalf("expected channel=%v to not exist "+
-				"within the graph", channel.ChannelID)
-		}
-		if !shouldPrune && isZombie {
-			t.Fatalf("expected channel=%v to not be marked "+
-				"as zombie", channel.ChannelID)
-		}
-		if shouldPrune && !isZombie {
-			t.Fatalf("expected channel=%v to be marked as "+
-				"zombie", channel.ChannelID)
-		}
-	}
-}
-
 // TestSendToRouteStructuredError asserts that SendToRoute returns a structured
 // error.
 func TestSendToRouteStructuredError(t *testing.T) {
@@ -2868,9 +1354,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	require.NoError(t, err, "unable to create graph")
 
 	const startingBlockHeight = 101
-	ctx := createTestCtxFromGraphInstance(
-		t, startingBlockHeight, testGraph, false,
-	)
+	ctx := createTestCtxFromGraphInstance(t, startingBlockHeight, testGraph)
 
 	// Set up an init channel for the control tower, such that we can make
 	// sure the payment is initiated correctly.
@@ -2983,9 +1467,7 @@ func TestSendToRouteMaxHops(t *testing.T) {
 
 	const startingBlockHeight = 101
 
-	ctx := createTestCtxFromGraphInstance(
-		t, startingBlockHeight, testGraph, false,
-	)
+	ctx := createTestCtxFromGraphInstance(t, startingBlockHeight, testGraph)
 
 	// Create a 30 hop route that exceeds the maximum hop limit.
 	const payAmt = lnwire.MilliSatoshi(10000)
@@ -3088,9 +1570,7 @@ func TestBuildRoute(t *testing.T) {
 
 	const startingBlockHeight = 101
 
-	ctx := createTestCtxFromGraphInstance(
-		t, startingBlockHeight, testGraph, false,
-	)
+	ctx := createTestCtxFromGraphInstance(t, startingBlockHeight, testGraph)
 
 	checkHops := func(rt *route.Route, expected []uint64,
 		payAddr [32]byte) {
@@ -3224,245 +1704,6 @@ func TestGetPathEdges(t *testing.T) {
 		require.Equal(t, pathEdges, tc.expectedEdges)
 		require.Equal(t, amt, tc.expectedAmt)
 	}
-}
-
-// edgeCreationModifier is an enum-like type used to modify steps that are
-// skipped when creating a channel in the test context.
-type edgeCreationModifier uint8
-
-const (
-	// edgeCreationNoFundingTx is used to skip adding the funding
-	// transaction of an edge to the chain.
-	edgeCreationNoFundingTx edgeCreationModifier = iota
-
-	// edgeCreationNoUTXO is used to skip adding the UTXO of a channel to
-	// the UTXO set.
-	edgeCreationNoUTXO
-
-	// edgeCreationBadScript is used to create the edge, but use the wrong
-	// scrip which should cause it to fail output validation.
-	edgeCreationBadScript
-)
-
-// newChannelEdgeInfo is a helper function used to create a new channel edge,
-// possibly skipping adding it to parts of the chain/state as well.
-func newChannelEdgeInfo(ctx *testCtx, fundingHeight uint32,
-	ecm edgeCreationModifier) (*models.ChannelEdgeInfo, error) {
-
-	node1, err := createTestNode()
-	if err != nil {
-		return nil, err
-	}
-	node2, err := createTestNode()
-	if err != nil {
-		return nil, err
-	}
-
-	fundingTx, _, chanID, err := createChannelEdge(
-		ctx, bitcoinKey1.SerializeCompressed(),
-		bitcoinKey2.SerializeCompressed(), 100, fundingHeight,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create edge: %w", err)
-	}
-
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:     chanID.ToUint64(),
-		NodeKey1Bytes: node1.PubKeyBytes,
-		NodeKey2Bytes: node2.PubKeyBytes,
-	}
-	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
-
-	if ecm == edgeCreationNoFundingTx {
-		return edge, nil
-	}
-
-	fundingBlock := &wire.MsgBlock{
-		Transactions: []*wire.MsgTx{fundingTx},
-	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
-
-	if ecm == edgeCreationNoUTXO {
-		ctx.chain.delUtxo(wire.OutPoint{
-			Hash: fundingTx.TxHash(),
-		})
-	}
-
-	if ecm == edgeCreationBadScript {
-		fundingTx.TxOut[0].PkScript[0] ^= 1
-	}
-
-	return edge, nil
-}
-
-func assertChanChainRejection(t *testing.T, ctx *testCtx,
-	edge *models.ChannelEdgeInfo, failCode errorCode) {
-
-	t.Helper()
-
-	err := ctx.router.AddEdge(edge)
-	if !IsError(err, failCode) {
-		t.Fatalf("validation should have failed: %v", err)
-	}
-
-	// This channel should now be present in the zombie channel index.
-	_, _, _, isZombie, err := ctx.graph.HasChannelEdge(
-		edge.ChannelID,
-	)
-	require.Nil(t, err)
-	require.True(t, isZombie, "edge should be marked as zombie")
-}
-
-// TestChannelOnChainRejectionZombie tests that if we fail validating a channel
-// due to some sort of on-chain rejection (no funding transaction, or invalid
-// UTXO), then we'll mark the channel as a zombie.
-func TestChannelOnChainRejectionZombie(t *testing.T) {
-	t.Parallel()
-
-	ctx := createTestCtxSingleNode(t, 0)
-
-	// To start,  we'll make an edge for the channel, but we won't add the
-	// funding transaction to the mock blockchain, which should cause the
-	// validation to fail below.
-	edge, err := newChannelEdgeInfo(ctx, 1, edgeCreationNoFundingTx)
-	require.Nil(t, err)
-
-	// We expect this to fail as the transaction isn't present in the
-	// chain (nor the block).
-	assertChanChainRejection(t, ctx, edge, ErrNoFundingTransaction)
-
-	// Next, we'll make another channel edge, but actually add it to the
-	// graph this time.
-	edge, err = newChannelEdgeInfo(ctx, 2, edgeCreationNoUTXO)
-	require.Nil(t, err)
-
-	// Instead now, we'll remove it from the set of UTXOs which should
-	// cause the spentness validation to fail.
-	assertChanChainRejection(t, ctx, edge, ErrChannelSpent)
-
-	// If we cause the funding transaction the chain to fail validation, we
-	// should see similar behavior.
-	edge, err = newChannelEdgeInfo(ctx, 3, edgeCreationBadScript)
-	require.Nil(t, err)
-	assertChanChainRejection(t, ctx, edge, ErrInvalidFundingOutput)
-}
-
-func createDummyTestGraph(t *testing.T) *testGraphInstance {
-	// Setup two simple channels such that we can mock sending along this
-	// route.
-	chanCapSat := btcutil.Amount(100000)
-	testChannels := []*testChannel{
-		symmetricTestChannel("a", "b", chanCapSat, &testChannelPolicy{
-			Expiry:  144,
-			FeeRate: 400,
-			MinHTLC: 1,
-			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
-		}, 1),
-		symmetricTestChannel("b", "c", chanCapSat, &testChannelPolicy{
-			Expiry:  144,
-			FeeRate: 400,
-			MinHTLC: 1,
-			MaxHTLC: lnwire.NewMSatFromSatoshis(chanCapSat),
-		}, 2),
-	}
-
-	testGraph, err := createTestGraphFromChannels(t, true, testChannels, "a")
-	require.NoError(t, err, "failed to create graph")
-	return testGraph
-}
-
-func createDummyLightningPayment(t *testing.T,
-	target route.Vertex, amt lnwire.MilliSatoshi) *LightningPayment {
-
-	var preImage lntypes.Preimage
-	_, err := rand.Read(preImage[:])
-	require.NoError(t, err, "unable to generate preimage")
-
-	payHash := preImage.Hash()
-
-	return &LightningPayment{
-		Target:      target,
-		Amount:      amt,
-		FeeLimit:    noFeeLimit,
-		paymentHash: &payHash,
-	}
-}
-
-// TestBlockDifferenceFix tests if when the router is behind on blocks, the
-// router catches up to the best block head.
-func TestBlockDifferenceFix(t *testing.T) {
-	t.Parallel()
-
-	initialBlockHeight := uint32(0)
-
-	// Starting height here is set to 0, which is behind where we want to
-	// be.
-	ctx := createTestCtxSingleNode(t, initialBlockHeight)
-
-	// Add initial block to our mini blockchain.
-	block := &wire.MsgBlock{
-		Transactions: []*wire.MsgTx{},
-	}
-	ctx.chain.addBlock(block, initialBlockHeight, rand.Uint32())
-
-	// Let's generate a new block of height 5, 5 above where our node is at.
-	newBlock := &wire.MsgBlock{
-		Transactions: []*wire.MsgTx{},
-	}
-	newBlockHeight := uint32(5)
-
-	blockDifference := newBlockHeight - initialBlockHeight
-
-	ctx.chainView.notifyBlockAck = make(chan struct{}, 1)
-
-	ctx.chain.addBlock(newBlock, newBlockHeight, rand.Uint32())
-	ctx.chain.setBestBlock(int32(newBlockHeight))
-	ctx.chainView.notifyBlock(block.BlockHash(), newBlockHeight,
-		[]*wire.MsgTx{}, t)
-
-	<-ctx.chainView.notifyBlockAck
-
-	// At this point, the chain notifier should have noticed that we're
-	// behind on blocks, and will send the n missing blocks that we
-	// need to the client's epochs channel. Let's replicate this
-	// functionality.
-	for i := 0; i < int(blockDifference); i++ {
-		currBlockHeight := int32(i + 1)
-
-		nonce := rand.Uint32()
-
-		newBlock := &wire.MsgBlock{
-			Transactions: []*wire.MsgTx{},
-			Header:       wire.BlockHeader{Nonce: nonce},
-		}
-		ctx.chain.addBlock(newBlock, uint32(currBlockHeight), nonce)
-		currHash := newBlock.Header.BlockHash()
-
-		newEpoch := &chainntnfs.BlockEpoch{
-			Height: currBlockHeight,
-			Hash:   &currHash,
-		}
-
-		ctx.notifier.EpochChan <- newEpoch
-
-		ctx.chainView.notifyBlock(currHash,
-			uint32(currBlockHeight), block.Transactions, t)
-
-		<-ctx.chainView.notifyBlockAck
-	}
-
-	err := wait.NoError(func() error {
-		// Then router height should be updated to the latest block.
-		if atomic.LoadUint32(&ctx.router.bestHeight) != newBlockHeight {
-			return fmt.Errorf("height should have been updated "+
-				"to %v, instead got %v", newBlockHeight,
-				ctx.router.bestHeight)
-		}
-
-		return nil
-	}, testTimeout)
-	require.NoError(t, err, "block height wasn't updated")
 }
 
 // TestSendToRouteSkipTempErrSuccess validates a successful payment send.
@@ -4007,4 +2248,368 @@ func TestNewRouteRequest(t *testing.T) {
 			)
 		})
 	}
+}
+
+// TestAddEdgeUnknownVertexes tests that if an edge is added that contains two
+// vertexes which we don't know of, the edge should be available for use
+// regardless. This is due to the fact that we don't actually need node
+// announcements for the channel vertexes to be able to use the channel.
+func TestAddEdgeUnknownVertexes(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
+
+	var pub1 [33]byte
+	copy(pub1[:], priv1.PubKey().SerializeCompressed())
+
+	var pub2 [33]byte
+	copy(pub2[:], priv2.PubKey().SerializeCompressed())
+
+	// The two nodes we are about to add should not exist yet.
+	_, exists1, err := ctx.graph.HasLightningNode(pub1)
+	require.NoError(t, err, "unable to query graph")
+	require.False(t, exists1)
+
+	_, exists2, err := ctx.graph.HasLightningNode(pub2)
+	require.NoError(t, err, "unable to query graph")
+	require.False(t, exists2)
+
+	// Add the edge between the two unknown nodes to the graph, and check
+	// that the nodes are found after the fact.
+	_, _, chanID, err := createChannelEdge(
+		bitcoinKey1.SerializeCompressed(),
+		bitcoinKey2.SerializeCompressed(),
+		10000, 500,
+	)
+	require.NoError(t, err, "unable to create channel edge")
+
+	edge := &models.ChannelEdgeInfo{
+		ChannelID:        chanID.ToUint64(),
+		NodeKey1Bytes:    pub1,
+		NodeKey2Bytes:    pub2,
+		BitcoinKey1Bytes: pub1,
+		BitcoinKey2Bytes: pub2,
+		AuthProof:        nil,
+	}
+	require.NoError(t, ctx.graph.AddChannelEdge(edge))
+
+	// We must add the edge policy to be able to use the edge for route
+	// finding.
+	edgePolicy := &models.ChannelEdgePolicy{
+		SigBytes:                  testSig.Serialize(),
+		ChannelID:                 edge.ChannelID,
+		LastUpdate:                testTime,
+		TimeLockDelta:             10,
+		MinHTLC:                   1,
+		FeeBaseMSat:               10,
+		FeeProportionalMillionths: 10000,
+		ToNode:                    edge.NodeKey2Bytes,
+	}
+	edgePolicy.ChannelFlags = 0
+
+	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
+
+	// Create edge in the other direction as well.
+	edgePolicy = &models.ChannelEdgePolicy{
+		SigBytes:                  testSig.Serialize(),
+		ChannelID:                 edge.ChannelID,
+		LastUpdate:                testTime,
+		TimeLockDelta:             10,
+		MinHTLC:                   1,
+		FeeBaseMSat:               10,
+		FeeProportionalMillionths: 10000,
+		ToNode:                    edge.NodeKey1Bytes,
+	}
+	edgePolicy.ChannelFlags = 1
+
+	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
+
+	// After adding the edge between the two previously unknown nodes, they
+	// should have been added to the graph.
+	_, exists1, err = ctx.graph.HasLightningNode(pub1)
+	require.NoError(t, err, "unable to query graph")
+	require.True(t, exists1)
+
+	_, exists2, err = ctx.graph.HasLightningNode(pub2)
+	require.NoError(t, err, "unable to query graph")
+	require.True(t, exists2)
+
+	// We will connect node1 to the rest of the test graph, and make sure
+	// we can find a route to node2, which will use the just added channel
+	// edge.
+
+	// We will connect node 1 to "sophon"
+	connectNode := ctx.aliases["sophon"]
+	connectNodeKey, err := btcec.ParsePubKey(connectNode[:])
+	require.NoError(t, err)
+
+	var (
+		pubKey1 *btcec.PublicKey
+		pubKey2 *btcec.PublicKey
+	)
+	node1Bytes := priv1.PubKey().SerializeCompressed()
+	node2Bytes := connectNode
+	if bytes.Compare(node1Bytes[:], node2Bytes[:]) == -1 {
+		pubKey1 = priv1.PubKey()
+		pubKey2 = connectNodeKey
+	} else {
+		pubKey1 = connectNodeKey
+		pubKey2 = priv1.PubKey()
+	}
+
+	_, _, chanID, err = createChannelEdge(
+		pubKey1.SerializeCompressed(), pubKey2.SerializeCompressed(),
+		10000, 510)
+	require.NoError(t, err, "unable to create channel edge")
+
+	edge = &models.ChannelEdgeInfo{
+		ChannelID: chanID.ToUint64(),
+		AuthProof: nil,
+	}
+	copy(edge.NodeKey1Bytes[:], node1Bytes)
+	edge.NodeKey2Bytes = node2Bytes
+	copy(edge.BitcoinKey1Bytes[:], node1Bytes)
+	edge.BitcoinKey2Bytes = node2Bytes
+
+	require.NoError(t, ctx.graph.AddChannelEdge(edge))
+
+	edgePolicy = &models.ChannelEdgePolicy{
+		SigBytes:                  testSig.Serialize(),
+		ChannelID:                 edge.ChannelID,
+		LastUpdate:                testTime,
+		TimeLockDelta:             10,
+		MinHTLC:                   1,
+		FeeBaseMSat:               10,
+		FeeProportionalMillionths: 10000,
+		ToNode:                    edge.NodeKey2Bytes,
+	}
+	edgePolicy.ChannelFlags = 0
+
+	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
+
+	edgePolicy = &models.ChannelEdgePolicy{
+		SigBytes:                  testSig.Serialize(),
+		ChannelID:                 edge.ChannelID,
+		LastUpdate:                testTime,
+		TimeLockDelta:             10,
+		MinHTLC:                   1,
+		FeeBaseMSat:               10,
+		FeeProportionalMillionths: 10000,
+		ToNode:                    edge.NodeKey1Bytes,
+	}
+	edgePolicy.ChannelFlags = 1
+
+	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
+
+	// We should now be able to find a route to node 2.
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	targetNode := priv2.PubKey()
+	var targetPubKeyBytes route.Vertex
+	copy(targetPubKeyBytes[:], targetNode.SerializeCompressed())
+
+	req, err := NewRouteRequest(
+		ctx.router.cfg.SelfNode, &targetPubKeyBytes,
+		paymentAmt, 0, noRestrictions, nil, nil, nil, MinCLTVDelta,
+	)
+	require.NoError(t, err, "invalid route request")
+	_, _, err = ctx.router.FindRoute(req)
+	require.NoError(t, err, "unable to find any routes")
+
+	// Now check that we can update the node info for the partial node
+	// without messing up the channel graph.
+	n1 := &channeldb.LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           time.Unix(123, 0),
+		Addresses:            testAddrs,
+		Color:                color.RGBA{1, 2, 3, 0},
+		Alias:                "node11",
+		AuthSigBytes:         testSig.Serialize(),
+		Features:             testFeatures,
+	}
+	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
+
+	require.NoError(t, ctx.graph.AddLightningNode(n1))
+
+	n2 := &channeldb.LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           time.Unix(123, 0),
+		Addresses:            testAddrs,
+		Color:                color.RGBA{1, 2, 3, 0},
+		Alias:                "node22",
+		AuthSigBytes:         testSig.Serialize(),
+		Features:             testFeatures,
+	}
+	copy(n2.PubKeyBytes[:], priv2.PubKey().SerializeCompressed())
+
+	require.NoError(t, ctx.graph.AddLightningNode(n2))
+
+	// Should still be able to find the route, and the info should be
+	// updated.
+	req, err = NewRouteRequest(
+		ctx.router.cfg.SelfNode, &targetPubKeyBytes,
+		paymentAmt, 0, noRestrictions, nil, nil, nil, MinCLTVDelta,
+	)
+	require.NoError(t, err, "invalid route request")
+
+	_, _, err = ctx.router.FindRoute(req)
+	require.NoError(t, err, "unable to find any routes")
+
+	copy1, err := ctx.graph.FetchLightningNode(pub1)
+	require.NoError(t, err, "unable to fetch node")
+
+	require.Equal(t, n1.Alias, copy1.Alias)
+
+	copy2, err := ctx.graph.FetchLightningNode(pub2)
+	require.NoError(t, err, "unable to fetch node")
+
+	require.Equal(t, n2.Alias, copy2.Alias)
+}
+
+func createDummyLightningPayment(t *testing.T,
+	target route.Vertex, amt lnwire.MilliSatoshi) *LightningPayment {
+
+	var preImage lntypes.Preimage
+	_, err := rand.Read(preImage[:])
+	require.NoError(t, err, "unable to generate preimage")
+
+	payHash := preImage.Hash()
+
+	return &LightningPayment{
+		Target:      target,
+		Amount:      amt,
+		FeeLimit:    noFeeLimit,
+		paymentHash: &payHash,
+	}
+}
+
+type mockGraphBuilder struct {
+	rejectUpdate bool
+	updateEdge   func(update *models.ChannelEdgePolicy) error
+}
+
+func newMockGraphBuilder(graph channeldb.GraphDB) *mockGraphBuilder { //nolint:lll
+	return &mockGraphBuilder{
+		updateEdge: func(update *models.ChannelEdgePolicy) error {
+			return graph.UpdateEdgePolicy(update)
+		},
+	}
+}
+
+func (m *mockGraphBuilder) setNextReject(reject bool) {
+	m.rejectUpdate = reject
+}
+
+func (m *mockGraphBuilder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate) bool {
+	if m.rejectUpdate {
+		return false
+	}
+
+	err := m.updateEdge(&models.ChannelEdgePolicy{
+		SigBytes:                  msg.Signature.ToSignatureBytes(),
+		ChannelID:                 msg.ShortChannelID.ToUint64(),
+		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
+		MessageFlags:              msg.MessageFlags,
+		ChannelFlags:              msg.ChannelFlags,
+		TimeLockDelta:             msg.TimeLockDelta,
+		MinHTLC:                   msg.HtlcMinimumMsat,
+		MaxHTLC:                   msg.HtlcMaximumMsat,
+		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
+		FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
+		ExtraOpaqueData:           msg.ExtraOpaqueData,
+	})
+
+	return err == nil
+}
+
+type mockChain struct {
+	lnwallet.BlockChainIO
+
+	blocks           map[chainhash.Hash]*wire.MsgBlock
+	blockIndex       map[uint32]chainhash.Hash
+	blockHeightIndex map[chainhash.Hash]uint32
+
+	utxos map[wire.OutPoint]wire.TxOut
+
+	bestHeight int32
+
+	sync.RWMutex
+}
+
+func newMockChain(currentHeight uint32) *mockChain {
+	return &mockChain{
+		bestHeight:       int32(currentHeight),
+		blocks:           make(map[chainhash.Hash]*wire.MsgBlock),
+		utxos:            make(map[wire.OutPoint]wire.TxOut),
+		blockIndex:       make(map[uint32]chainhash.Hash),
+		blockHeightIndex: make(map[chainhash.Hash]uint32),
+	}
+}
+
+func (m *mockChain) GetBestBlock() (*chainhash.Hash, int32, error) {
+	m.RLock()
+	defer m.RUnlock()
+
+	blockHash := m.blockIndex[uint32(m.bestHeight)]
+
+	return &blockHash, m.bestHeight, nil
+}
+
+func (m *mockChain) setBestBlock(height int32) {
+	m.Lock()
+	defer m.Unlock()
+
+	m.bestHeight = height
+}
+
+func (m *mockChain) addUtxo(op wire.OutPoint, out *wire.TxOut) {
+	m.Lock()
+	m.utxos[op] = *out
+	m.Unlock()
+}
+
+func (m *mockChain) delUtxo(op wire.OutPoint) {
+	m.Lock()
+	delete(m.utxos, op)
+	m.Unlock()
+}
+
+func (m *mockChain) addBlock(block *wire.MsgBlock, height uint32, nonce uint32) {
+	m.Lock()
+	block.Header.Nonce = nonce
+	hash := block.Header.BlockHash()
+	m.blocks[hash] = block
+	m.blockIndex[height] = hash
+	m.blockHeightIndex[hash] = height
+	m.Unlock()
+}
+
+func createChannelEdge(bitcoinKey1, bitcoinKey2 []byte,
+	chanValue btcutil.Amount, fundingHeight uint32) (*wire.MsgTx,
+	*wire.OutPoint, *lnwire.ShortChannelID, error) {
+
+	fundingTx := wire.NewMsgTx(2)
+	_, tx, err := input.GenFundingPkScript(
+		bitcoinKey1,
+		bitcoinKey2,
+		int64(chanValue),
+	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	fundingTx.TxOut = append(fundingTx.TxOut, tx)
+	chanUtxo := wire.OutPoint{
+		Hash:  fundingTx.TxHash(),
+		Index: 0,
+	}
+
+	// Our fake channel will be "confirmed" at height 101.
+	chanID := &lnwire.ShortChannelID{
+		BlockHeight: fundingHeight,
+		TxIndex:     0,
+		TxPosition:  0,
+	}
+
+	return fundingTx, &chanUtxo, chanID, nil
 }

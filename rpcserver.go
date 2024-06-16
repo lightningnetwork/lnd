@@ -48,6 +48,7 @@ import (
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
+	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
@@ -3088,7 +3089,7 @@ func (r *rpcServer) GetInfo(_ context.Context,
 	// date, we add the router's state to it. So the flag will only toggle
 	// to true once the router was also able to catch up.
 	if !r.cfg.Routing.AssumeChannelValid {
-		routerHeight := r.server.chanRouter.SyncedHeight()
+		routerHeight := r.server.graphBuilder.SyncedHeight()
 		isSynced = isSynced && uint32(bestHeight) == routerHeight
 	}
 
@@ -3131,7 +3132,7 @@ func (r *rpcServer) GetInfo(_ context.Context,
 	// TODO(roasbeef): add synced height n stuff
 
 	isTestNet := chainreg.IsTestnet(&r.cfg.ActiveNetParams)
-	nodeColor := routing.EncodeHexColor(nodeAnn.RGBColor)
+	nodeColor := graph.EncodeHexColor(nodeAnn.RGBColor)
 	version := build.Version() + " commit=" + build.Commit
 
 	return &lnrpc.GetInfoResponse{
@@ -6431,7 +6432,7 @@ func marshalNode(node *channeldb.LightningNode) *lnrpc.LightningNode {
 		PubKey:        hex.EncodeToString(node.PubKeyBytes[:]),
 		Addresses:     nodeAddrs,
 		Alias:         node.Alias,
-		Color:         routing.EncodeHexColor(node.Color),
+		Color:         graph.EncodeHexColor(node.Color),
 		Features:      features,
 		CustomRecords: customRecords,
 	}
@@ -6626,7 +6627,7 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 
 	// First, we start by subscribing to a new intent to receive
 	// notifications from the channel router.
-	client, err := r.server.chanRouter.SubscribeTopology()
+	client, err := r.server.graphBuilder.SubscribeTopology()
 	if err != nil {
 		return err
 	}
@@ -6678,7 +6679,7 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 // marshallTopologyChange performs a mapping from the topology change struct
 // returned by the router to the form of notifications expected by the current
 // gRPC service.
-func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopologyUpdate {
+func marshallTopologyChange(topChange *graph.TopologyChange) *lnrpc.GraphTopologyUpdate {
 
 	// encodeKey is a simple helper function that converts a live public
 	// key into a hex-encoded version of the compressed serialization for

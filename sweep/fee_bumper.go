@@ -1247,7 +1247,7 @@ func prepareSweepTx(inputs []input.Input, changePkScript []byte,
 		return 0, noChange, noLocktime, err
 	}
 
-	txFee := estimator.fee()
+	txFee := estimator.feeWithParent()
 
 	var (
 		// Track whether any of the inputs require a certain locktime.

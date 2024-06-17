@@ -22,15 +22,25 @@
 * `closedchannels` now [successfully reports](https://github.com/lightningnetwork/lnd/pull/8800)
   settled balances even if the delivery address is set to an address that
   LND does not control.
+ 
+* [SendPaymentV2](https://github.com/lightningnetwork/lnd/pull/8734) now cancels
+  the background payment loop if the user cancels the stream context.
 
 # New Features
 ## Functional Enhancements
 ## RPC Additions
+
+* The [SendPaymentRequest](https://github.com/lightningnetwork/lnd/pull/8734) 
+  message receives a new flag `cancelable` which indicates if the payment loop 
+  is cancelable. The cancellation can either occur manually by cancelling the 
+  send payment stream context, or automatically at the end of the timeout period 
+  if the user provided `timeout_seconds`.
+
 ## lncli Additions
 
 * [Added](https://github.com/lightningnetwork/lnd/pull/8491) the `cltv_expiry`
   argument to `addinvoice` and `addholdinvoice`, allowing users to set the
-  `min_final_cltv_expiry_delta`
+  `min_final_cltv_expiry_delta`.
 
 * The [`lncli wallet estimatefeerate`](https://github.com/lightningnetwork/lnd/pull/8730)
   command returns the fee rate estimate for on-chain transactions in sat/kw and
@@ -72,3 +82,4 @@
 
 * Andras Banki-Horvath
 * Bufo
+* Slyghtning

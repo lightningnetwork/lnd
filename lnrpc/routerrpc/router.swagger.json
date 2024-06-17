@@ -1804,6 +1804,10 @@
           "type": "number",
           "format": "double",
           "description": "The time preference for this payment. Set to -1 to optimize for fees\nonly, to 1 to optimize for reliability only or a value inbetween for a mix."
+        },
+        "cancelable": {
+          "type": "boolean",
+          "description": "If set, the payment loop can be interrupted by manually canceling the\npayment context, even before the payment timeout is reached. Note that the\npayment may still succeed after cancellation, as in-flight attempts can\nstill settle afterwards. Canceling will only prevent further attempts from\nbeing sent."
         }
       }
     },

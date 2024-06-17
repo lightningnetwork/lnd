@@ -139,6 +139,17 @@ var (
 		Usage: "(blinded paths) the total cltv delay for the " +
 			"blinded portion of the route",
 	}
+
+	cancelableFlag = cli.BoolFlag{
+		Name: "cancelable",
+		Usage: "if set to true, the payment loop can be interrupted " +
+			"by manually canceling the payment context, even " +
+			"before the payment timeout is reached. Note that " +
+			"the payment may still succeed after cancellation, " +
+			"as in-flight attempts can still settle afterwards. " +
+			"Canceling will only prevent further attempts from " +
+			"being sent",
+	}
 )
 
 // paymentFlags returns common flags for sendpayment and payinvoice.
@@ -166,6 +177,7 @@ func paymentFlags() []cli.Flag {
 				"after the timeout has elapsed",
 			Value: paymentTimeout,
 		},
+		cancelableFlag,
 		cltvLimitFlag,
 		lastHopFlag,
 		cli.Int64SliceFlag{
@@ -329,6 +341,7 @@ func sendPayment(ctx *cli.Context) error {
 			Amt:               ctx.Int64("amt"),
 			DestCustomRecords: make(map[uint64][]byte),
 			Amp:               ctx.Bool(ampFlag.Name),
+			Cancelable:        ctx.Bool(cancelableFlag.Name),
 		}
 
 		// We'll attempt to parse a payment address as well, given that
@@ -387,6 +400,7 @@ func sendPayment(ctx *cli.Context) error {
 		Amt:               amount,
 		DestCustomRecords: make(map[uint64][]byte),
 		Amp:               ctx.Bool(ampFlag.Name),
+		Cancelable:        ctx.Bool(cancelableFlag.Name),
 	}
 
 	var rHash []byte
@@ -888,6 +902,7 @@ func payInvoice(ctx *cli.Context) error {
 		Amt:               ctx.Int64("amt"),
 		DestCustomRecords: make(map[uint64][]byte),
 		Amp:               ctx.Bool(ampFlag.Name),
+		Cancelable:        ctx.Bool(cancelableFlag.Name),
 	}
 
 	return sendPaymentRequest(ctx, req)

@@ -629,11 +629,11 @@ const (
 	// but we still haven't announced the channel to the network.
 	channelReadySent
 
-	// addedToRouterGraph is the opening state of a channel if the
-	// channel has been successfully added to the router graph
-	// immediately after the channelReady message has been sent, but
-	// we still haven't announced the channel to the network.
-	addedToRouterGraph
+	// addedToGraph is the opening state of a channel if the channel has
+	// been successfully added to the graph immediately after the
+	// channelReady message has been sent, but we still haven't announced
+	// the channel to the network.
+	addedToGraph
 )
 
 func (c channelOpeningState) String() string {
@@ -642,8 +642,8 @@ func (c channelOpeningState) String() string {
 		return "markedOpen"
 	case channelReadySent:
 		return "channelReadySent"
-	case addedToRouterGraph:
-		return "addedToRouterGraph"
+	case addedToGraph:
+		return "addedToGraph"
 	default:
 		return "unknown"
 	}
@@ -1039,9 +1039,9 @@ func (f *Manager) reservationCoordinator() {
 // advanceFundingState will advance the channel through the steps after the
 // funding transaction is broadcasted, up until the point where the channel is
 // ready for operation. This includes waiting for the funding transaction to
-// confirm, sending channel_ready to the peer, adding the channel to the
-// router graph, and announcing the channel. The updateChan can be set non-nil
-// to get OpenStatusUpdates.
+// confirm, sending channel_ready to the peer, adding the channel to the graph,
+// and announcing the channel. The updateChan can be set non-nil to get
+// OpenStatusUpdates.
 //
 // NOTE: This MUST be run as a goroutine.
 func (f *Manager) advanceFundingState(channel *channeldb.OpenChannel,
@@ -1152,7 +1152,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 		return nil
 
 	// channelReady was sent to peer, but the channel was not added to the
-	// router graph and the channel announcement was not sent.
+	// graph and the channel announcement was not sent.
 	case channelReadySent:
 		// We must wait until we've received the peer's channel_ready
 		// before sending a channel_update according to BOLT#07.
@@ -1183,7 +1183,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 
 	// The channel was added to the Router's topology, but the channel
 	// announcement was not sent.
-	case addedToRouterGraph:
+	case addedToGraph:
 		if channel.IsZeroConf() {
 			// If this is a zero-conf channel, then we will wait
 			// for it to be confirmed before announcing it to the
@@ -3374,15 +3374,15 @@ func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
 	return fwdMinHTLC, fwdMaxHTLC
 }
 
-// addToRouterGraph sends a ChannelAnnouncement and a ChannelUpdate to the
-// gossiper so that the channel is added to the Router's internal graph.
+// addToGraph sends a ChannelAnnouncement and a ChannelUpdate to the
+// gossiper so that the channel is added to the graph builder's internal graph.
 // These announcement messages are NOT broadcasted to the greater network,
 // only to the channel counter party. The proofs required to announce the
 // channel to the greater network will be created and sent in annAfterSixConfs.
 // The peerAlias is used for zero-conf channels to give the counter-party a
 // ChannelUpdate they understand. ourPolicy may be set for various
 // option-scid-alias channels to re-use the same policy.
-func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
+func (f *Manager) addToGraph(completeChan *channeldb.OpenChannel,
 	shortChanID *lnwire.ShortChannelID,
 	peerAlias *lnwire.ShortChannelID,
 	ourPolicy *models.ChannelEdgePolicy) error {
@@ -3451,8 +3451,8 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 
 // annAfterSixConfs broadcasts the necessary channel announcement messages to
 // the network after 6 confs. Should be called after the channelReady message
-// is sent and the channel is added to the router graph (channelState is
-// 'addedToRouterGraph') and the channel is ready to be used. This is the last
+// is sent and the channel is added to the graph (channelState is
+// 'addedToGraph') and the channel is ready to be used. This is the last
 // step in the channel opening process, and the opening state will be deleted
 // from the database if successful.
 func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
@@ -3563,7 +3563,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 			}
 
 			// We'll delete the edge and add it again via
-			// addToRouterGraph. This is because the peer may have
+			// addToGraph. This is because the peer may have
 			// sent us a ChannelUpdate with an alias and we don't
 			// want to relay this.
 			ourPolicy, err := f.cfg.DeleteAliasEdge(baseScid)
@@ -3573,12 +3573,12 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 					err)
 			}
 
-			err = f.addToRouterGraph(
+			err = f.addToGraph(
 				completeChan, &baseScid, nil, ourPolicy,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to re-add to "+
-					"router graph: %v", err)
+					"graph: %v", err)
 			}
 		}
 
@@ -3602,9 +3602,9 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 	return nil
 }
 
-// waitForZeroConfChannel is called when the state is addedToRouterGraph with
+// waitForZeroConfChannel is called when the state is addedToGraph with
 // a zero-conf channel. This will wait for the real confirmation, add the
-// confirmed SCID to the router graph, and then announce after six confs.
+// confirmed SCID to the graph, and then announce after six confs.
 func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel) error {
 	// First we'll check whether the channel is confirmed on-chain. If it
 	// is already confirmed, the chainntnfs subsystem will return with the
@@ -3659,15 +3659,15 @@ func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel) error {
 		}
 
 		// We'll need to update the graph with the new ShortChannelID
-		// via an addToRouterGraph call. We don't pass in the peer's
+		// via an addToGraph call. We don't pass in the peer's
 		// alias since we'll be using the confirmed SCID from now on
 		// regardless if it's public or not.
-		err = f.addToRouterGraph(
+		err = f.addToGraph(
 			c, &confChan.shortChanID, nil, ourPolicy,
 		)
 		if err != nil {
 			return fmt.Errorf("failed adding confirmed zero-conf "+
-				"SCID to router graph: %v", err)
+				"SCID to graph: %v", err)
 		}
 	}
 
@@ -3969,7 +3969,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 // handleChannelReadyReceived is called once the remote's channelReady message
 // is received and processed. At this stage, we must have sent out our
 // channelReady message, once the remote's channelReady is processed, the
-// channel is now active, thus we change its state to `addedToRouterGraph` to
+// channel is now active, thus we change its state to `addedToGraph` to
 // let the channel start handling routing.
 func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
 	scid *lnwire.ShortChannelID, pendingChanID [32]byte,
@@ -4001,9 +4001,9 @@ func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
 		peerAlias = &foundAlias
 	}
 
-	err := f.addToRouterGraph(channel, scid, peerAlias, nil)
+	err := f.addToGraph(channel, scid, peerAlias, nil)
 	if err != nil {
-		return fmt.Errorf("failed adding to router graph: %w", err)
+		return fmt.Errorf("failed adding to graph: %w", err)
 	}
 
 	// As the channel is now added to the ChannelRouter's topology, the
@@ -4011,15 +4011,15 @@ func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
 	// moved to the last state (actually deleted from the database) after
 	// the channel is finally announced.
 	err = f.saveChannelOpeningState(
-		&channel.FundingOutpoint, addedToRouterGraph, scid,
+		&channel.FundingOutpoint, addedToGraph, scid,
 	)
 	if err != nil {
 		return fmt.Errorf("error setting channel state to"+
-			" addedToRouterGraph: %w", err)
+			" addedToGraph: %w", err)
 	}
 
 	log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
-		"added to router graph", chanID, scid)
+		"added to graph", chanID, scid)
 
 	// Give the caller a final update notifying them that the channel is
 	fundingPoint := channel.FundingOutpoint
@@ -4344,7 +4344,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	}
 
 	// We only send the channel proof announcement and the node announcement
-	// because addToRouterGraph previously sent the ChannelAnnouncement and
+	// because addToGraph previously sent the ChannelAnnouncement and
 	// the ChannelUpdate announcement messages. The channel proof and node
 	// announcements are broadcast to the greater network.
 	errChan := f.cfg.SendAnnouncement(ann.chanProof)

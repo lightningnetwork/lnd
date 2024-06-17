@@ -294,6 +294,7 @@ func (h *HarnessMiner) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
 
 		for _, memTx := range mempool {
 			// Check the values are equal.
+			msgTx = h.GetRawTransaction(memTx).MsgTx()
 			if *memTx == *txid {
 				return nil
 			}

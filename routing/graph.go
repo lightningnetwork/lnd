@@ -65,8 +65,8 @@ var _ routingGraph = (*CachedGraph)(nil)
 
 // NewCachedGraph instantiates a new db-connected routing graph. It implicitly
 // instantiates a new read transaction.
-func NewCachedGraph(sourceNode *channeldb.LightningNode,
-	graph ReadOnlyGraph) (*CachedGraph, error) {
+func NewCachedGraph(sourceNodePubKey route.Vertex, graph ReadOnlyGraph) (
+	*CachedGraph, error) {
 
 	tx, err := graph.NewPathFindTx()
 	if err != nil {
@@ -76,7 +76,7 @@ func NewCachedGraph(sourceNode *channeldb.LightningNode,
 	return &CachedGraph{
 		graph:  graph,
 		tx:     tx,
-		source: sourceNode.PubKeyBytes,
+		source: sourceNodePubKey,
 	}, nil
 }
 

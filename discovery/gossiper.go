@@ -2200,7 +2200,9 @@ func (d *AuthenticatedGossiper) updateChannel(info *models.ChannelEdgeInfo,
 
 	// To ensure that our signature is valid, we'll verify it ourself
 	// before committing it to the slice returned.
-	err = graph.ValidateChannelUpdateAnn(d.selfKey, info.Capacity, chanUpdate)
+	err = graph.ValidateChannelUpdateAnn(
+		d.selfKey, info.Capacity, chanUpdate,
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generated invalid channel "+
 			"update sig: %v", err)

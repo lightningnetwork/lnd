@@ -117,7 +117,6 @@ type topologyClient struct {
 // notifyTopologyChange notifies all registered clients of a new change in
 // graph topology in a non-blocking.
 func (b *Builder) notifyTopologyChange(topologyDiff *TopologyChange) {
-
 	// notifyClient is a helper closure that will send topology updates to
 	// the given client.
 	notifyClient := func(clientID uint64, client *topologyClient) bool {

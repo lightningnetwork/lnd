@@ -19,7 +19,7 @@ func init() {
 }
 
 // DisableLog disables all library log output.  Logging output is disabled by
-// by default until UseLogger is called.
+// default until UseLogger is called.
 func DisableLog() {
 	UseLogger(btclog.Disabled)
 }

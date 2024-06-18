@@ -79,6 +79,11 @@
 
 # Technical and Architectural Updates
 ## BOLT Spec Updates
+
+* Start assuming that all hops used during path-finding and route construction
+  [support the TLV onion 
+  format](https://github.com/lightningnetwork/lnd/pull/8791).
+
 ## Testing
 ## Database
 ## Code Health
@@ -88,5 +93,6 @@
 
 * Andras Banki-Horvath
 * Bufo
+* Elle Mouton
 * Matheus Degiovani
 * Slyghtning

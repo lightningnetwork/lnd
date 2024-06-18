@@ -319,6 +319,10 @@ type ChannelPolicy struct {
 // the configuration MUST be non-nil for the ChannelRouter to carry out its
 // duties.
 type Config struct {
+	// SelfNode is the public key of the node that this channel router
+	// belongs to.
+	SelfNode route.Vertex
+
 	// RoutingGraph is a graph source that will be used for pathfinding.
 	RoutingGraph GraphWithReadLock
 
@@ -451,11 +455,6 @@ type ChannelRouter struct {
 	// initialized with.
 	cfg *Config
 
-	// selfNode is the center of the star-graph centered around the
-	// ChannelRouter. The ChannelRouter uses this node as a starting point
-	// when doing any path finding.
-	selfNode *channeldb.LightningNode
-
 	// cachedGraph is an instance of routingGraph that caches the source
 	// node as well as the channel graph itself in memory.
 	cachedGraph routingGraph
@@ -512,13 +511,8 @@ var _ ChannelGraphSource = (*ChannelRouter)(nil)
 // channel graph is a subset of the UTXO set) set, then the router will proceed
 // to fully sync to the latest state of the UTXO set.
 func New(cfg Config) (*ChannelRouter, error) {
-	selfNode, err := cfg.Graph.SourceNode()
-	if err != nil {
-		return nil, err
-	}
-
 	graph, err := NewCachedGraph(
-		selfNode.PubKeyBytes, cfg.RoutingGraph, false,
+		cfg.SelfNode, cfg.RoutingGraph, false,
 	)
 	if err != nil {
 		return nil, err
@@ -531,7 +525,6 @@ func New(cfg Config) (*ChannelRouter, error) {
 		topologyClients:   &lnutils.SyncMap[uint64, *topologyClient]{},
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
 		channelEdgeMtx:    multimutex.NewMutex[uint64](),
-		selfNode:          selfNode,
 		statTicker:        ticker.New(defaultStatInterval),
 		stats:             new(routerStats),
 		quit:              make(chan struct{}),
@@ -980,8 +973,8 @@ func (r *ChannelRouter) pruneZombieChans() error {
 
 	// A helper method to detect if the channel belongs to this node
 	isSelfChannelEdge := func(info *models.ChannelEdgeInfo) bool {
-		return info.NodeKey1Bytes == r.selfNode.PubKeyBytes ||
-			info.NodeKey2Bytes == r.selfNode.PubKeyBytes
+		return info.NodeKey1Bytes == r.cfg.SelfNode ||
+			info.NodeKey2Bytes == r.cfg.SelfNode
 	}
 
 	// First, we'll collect all the channels which are eligible for garbage
@@ -2122,7 +2115,7 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 	// We'll attempt to obtain a set of bandwidth hints that can help us
 	// eliminate certain routes early on in the path finding process.
 	bandwidthHints, err := newBandwidthManager(
-		r.cachedGraph, r.selfNode.PubKeyBytes, r.cfg.GetLink,
+		r.cachedGraph, r.cfg.SelfNode, r.cfg.GetLink,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -2152,7 +2145,7 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 			graph:           r.cachedGraph,
 		},
 		req.Restrictions, &r.cfg.PathFindingConfig,
-		r.selfNode.PubKeyBytes, req.Source, req.Target, req.Amount,
+		r.cfg.SelfNode, req.Source, req.Target, req.Amount,
 		req.TimePreference, finalHtlcExpiry,
 	)
 	if err != nil {
@@ -2952,7 +2945,7 @@ func (r *ChannelRouter) ForEachNode(
 func (r *ChannelRouter) ForAllOutgoingChannels(cb func(kvdb.RTx,
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy) error) error {
 
-	return r.cfg.Graph.ForEachNodeChannel(nil, r.selfNode.PubKeyBytes,
+	return r.cfg.Graph.ForEachNodeChannel(nil, r.cfg.SelfNode,
 		func(tx kvdb.RTx, c *models.ChannelEdgeInfo,
 			e *models.ChannelEdgePolicy,
 			_ *models.ChannelEdgePolicy) error {
@@ -3135,7 +3128,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	// We'll attempt to obtain a set of bandwidth hints that helps us select
 	// the best outgoing channel to use in case no outgoing channel is set.
 	bandwidthHints, err := newBandwidthManager(
-		r.cachedGraph, r.selfNode.PubKeyBytes, r.cfg.GetLink,
+		r.cachedGraph, r.cfg.SelfNode, r.cfg.GetLink,
 	)
 	if err != nil {
 		return nil, err
@@ -3148,7 +3141,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		return nil, err
 	}
 
-	sourceNode := r.selfNode.PubKeyBytes
+	sourceNode := r.cfg.SelfNode
 	unifiers, senderAmt, err := getRouteUnifiers(
 		sourceNode, hops, useMinAmt, runningAmt, outgoingChans,
 		r.cachedGraph, bandwidthHints,

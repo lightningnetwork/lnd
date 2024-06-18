@@ -2405,18 +2405,13 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Carol, so we set "B" as the source node so path finding starts from
 	// Bob.
 	bob := ctx.aliases["B"]
-	bobNode, err := ctx.graph.FetchLightningNode(nil, bob)
-	require.NoError(t, err, "unable to find bob")
-	if err := ctx.graph.SetSourceNode(bobNode); err != nil {
-		t.Fatalf("unable to set source node: %v", err)
-	}
 
 	// Query for a route of 4,999,999 mSAT to carol.
 	carol := ctx.aliases["C"]
 	const amt lnwire.MilliSatoshi = 4999999
 	req, err := NewRouteRequest(
-		bobNode.PubKeyBytes, &carol, amt, 0, noRestrictions, nil, nil,
-		nil, MinCLTVDelta,
+		bob, &carol, amt, 0, noRestrictions, nil, nil, nil,
+		MinCLTVDelta,
 	)
 	require.NoError(t, err, "invalid route request")
 
@@ -2454,21 +2449,10 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Next, we'll set A as the source node so we can assert that we create
 	// the proper route for any queries starting with Alice.
 	alice := ctx.aliases["A"]
-	aliceNode, err := ctx.graph.FetchLightningNode(nil, alice)
-	require.NoError(t, err, "unable to find alice")
-	if err := ctx.graph.SetSourceNode(aliceNode); err != nil {
-		t.Fatalf("unable to set source node: %v", err)
-	}
-	ctx.router.selfNode = aliceNode
-	source, err := ctx.graph.SourceNode()
-	require.NoError(t, err, "unable to retrieve source node")
-	if source.PubKeyBytes != alice {
-		t.Fatalf("source node not set")
-	}
 
 	// We'll now request a route from A -> B -> C.
 	req, err = NewRouteRequest(
-		source.PubKeyBytes, &carol, amt, 0, noRestrictions, nil, nil,
+		alice, &carol, amt, 0, noRestrictions, nil, nil,
 		nil, MinCLTVDelta,
 	)
 	require.NoError(t, err, "invalid route request")

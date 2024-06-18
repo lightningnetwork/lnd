@@ -59,8 +59,6 @@ var (
 
 	priv2, _    = btcec.NewPrivateKey()
 	bitcoinKey2 = priv2.PubKey()
-
-	timeout = time.Second * 5
 )
 
 type testCtx struct {
@@ -192,7 +190,7 @@ func createTestNode() (*channeldb.LightningNode, error) {
 		LastUpdate:           time.Unix(updateTime, 0),
 		Addresses:            testAddrs,
 		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "kek" + string(pub[:]),
+		Alias:                "kek" + string(pub),
 		AuthSigBytes:         testSig.Serialize(),
 		Features:             testFeatures,
 	}
@@ -306,7 +304,6 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	// the more costly path (through pham nuwen).
 	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
-
 			if firstHop == roasbeefSongoku {
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					// TODO(roasbeef): temp node failure
@@ -605,26 +602,29 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	// We'll now modify the SendToSwitch method to return an error for the
 	// outgoing channel to Son goku. This will be a fee related error, so
 	// it should only cause the edge to be pruned after the second attempt.
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
-		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
+	dispatcher, ok := ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld) //nolint:lll
+	require.True(t, ok)
 
-			roasbeefSongoku := lnwire.NewShortChanIDFromInt(
-				roasbeefSongokuChanID,
+	dispatcher.setPaymentResult(func(firstHop lnwire.ShortChannelID) (
+		[32]byte, error) {
+
+		roasbeefSongoku := lnwire.NewShortChanIDFromInt(
+			roasbeefSongokuChanID,
+		)
+		if firstHop == roasbeefSongoku {
+			return [32]byte{}, htlcswitch.NewForwardingError(
+				// Within our error, we'll add a
+				// channel update which is meant to
+				// reflect the new fee schedule for the
+				// node/channel.
+				&lnwire.FailFeeInsufficient{
+					Update: errChanUpdate,
+				}, 1,
 			)
-			if firstHop == roasbeefSongoku {
-				return [32]byte{}, htlcswitch.NewForwardingError(
-					// Within our error, we'll add a
-					// channel update which is meant to
-					// reflect the new fee schedule for the
-					// node/channel.
-					&lnwire.FailFeeInsufficient{
-						Update: errChanUpdate,
-					}, 1,
-				)
-			}
+		}
 
-			return preImage, nil
-		})
+		return preImage, nil
+	})
 
 	// Send off the payment request to the router, route through phamnuwen
 	// should've been selected as a fall back and succeeded correctly.
@@ -1209,12 +1209,8 @@ func TestFindPathFeeWeighting(t *testing.T) {
 
 	// The route that was chosen should be exactly one hop, and should be
 	// directly to luoji.
-	if len(path) != 1 {
-		t.Fatalf("expected path length of 1, instead was: %v", len(path))
-	}
-	if path[0].policy.ToNodePubKey() != ctx.aliases["luoji"] {
-		t.Fatalf("wrong node: %v", path[0].policy.ToNodePubKey())
-	}
+	require.Len(t, path, 1)
+	require.Equal(t, ctx.aliases["luoji"], path[0].policy.ToNodePubKey())
 }
 
 // TestEmptyRoutesGenerateSphinxPacket tests that the generateSphinxPacket
@@ -1226,9 +1222,7 @@ func TestEmptyRoutesGenerateSphinxPacket(t *testing.T) {
 	sessionKey, _ := btcec.NewPrivateKey()
 	emptyRoute := &route.Route{}
 	_, _, err := generateSphinxPacket(emptyRoute, testHash[:], sessionKey)
-	if err != route.ErrNoRouteHopsProvided {
-		t.Fatalf("expected empty hops error: instead got: %v", err)
-	}
+	require.ErrorIs(t, err, route.ErrNoRouteHopsProvided)
 }
 
 // TestUnknownErrorSource tests that if the source of an error is unknown, all
@@ -1268,7 +1262,9 @@ func TestUnknownErrorSource(t *testing.T) {
 		}, 4),
 	}
 
-	testGraph, err := createTestGraphFromChannels(t, true, testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(
+		t, true, testChannels, "a",
+	)
 	require.NoError(t, err, "unable to create graph")
 
 	const startingBlockHeight = 101
@@ -1282,20 +1278,23 @@ func TestUnknownErrorSource(t *testing.T) {
 	// We'll modify the SendToSwitch method so that it simulates hop b as a
 	// node that returns an unparsable failure if approached via the a->b
 	// channel.
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
-		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
+	dispatcher, ok := ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld) //nolint:lll
+	require.True(t, ok)
 
-			// If channel a->b is used, return an error without
-			// source and message. The sender won't know the origin
-			// of the error.
-			if firstHop.ToUint64() == 1 {
-				return [32]byte{},
-					htlcswitch.ErrUnreadableFailureMessage
-			}
+	dispatcher.setPaymentResult(func(firstHop lnwire.ShortChannelID) (
+		[32]byte, error) {
 
-			// Otherwise the payment succeeds.
-			return lntypes.Preimage{}, nil
-		})
+		// If channel a->b is used, return an error without
+		// source and message. The sender won't know the origin
+		// of the error.
+		if firstHop.ToUint64() == 1 {
+			return [32]byte{},
+				htlcswitch.ErrUnreadableFailureMessage
+		}
+
+		// Otherwise the payment succeeds.
+		return lntypes.Preimage{}, nil
+	})
 
 	// Send off the payment request to the router. The expectation is that
 	// the route a->b->c is tried first. An unreadable faiure is returned
@@ -1306,19 +1305,22 @@ func TestUnknownErrorSource(t *testing.T) {
 		payment.paymentHash)
 
 	// Next we modify payment result to return an unknown failure.
-	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
-		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
+	dispatcher, ok = ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld) //nolint:lll
+	require.True(t, ok)
 
-			// If channel a->b is used, simulate that the failure
-			// couldn't be decoded (FailureMessage is nil).
-			if firstHop.ToUint64() == 2 {
-				return [32]byte{},
-					htlcswitch.NewUnknownForwardingError(1)
-			}
+	dispatcher.setPaymentResult(func(firstHop lnwire.ShortChannelID) (
+		[32]byte, error) {
 
-			// Otherwise the payment succeeds.
-			return lntypes.Preimage{}, nil
-		})
+		// If channel a->b is used, simulate that the failure
+		// couldn't be decoded (FailureMessage is nil).
+		if firstHop.ToUint64() == 2 {
+			return [32]byte{},
+				htlcswitch.NewUnknownForwardingError(1)
+		}
+
+		// Otherwise the payment succeeds.
+		return lntypes.Preimage{}, nil
+	})
 
 	// Send off the payment request to the router. We expect the payment to
 	// fail because both routes have been pruned.
@@ -2351,7 +2353,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	)
 	node1Bytes := priv1.PubKey().SerializeCompressed()
 	node2Bytes := connectNode
-	if bytes.Compare(node1Bytes[:], node2Bytes[:]) == -1 {
+	if bytes.Compare(node1Bytes, node2Bytes[:]) == -1 {
 		pubKey1 = priv1.PubKey()
 		pubKey2 = connectNodeKey
 	} else {
@@ -2554,35 +2556,6 @@ func (m *mockChain) GetBestBlock() (*chainhash.Hash, int32, error) {
 	blockHash := m.blockIndex[uint32(m.bestHeight)]
 
 	return &blockHash, m.bestHeight, nil
-}
-
-func (m *mockChain) setBestBlock(height int32) {
-	m.Lock()
-	defer m.Unlock()
-
-	m.bestHeight = height
-}
-
-func (m *mockChain) addUtxo(op wire.OutPoint, out *wire.TxOut) {
-	m.Lock()
-	m.utxos[op] = *out
-	m.Unlock()
-}
-
-func (m *mockChain) delUtxo(op wire.OutPoint) {
-	m.Lock()
-	delete(m.utxos, op)
-	m.Unlock()
-}
-
-func (m *mockChain) addBlock(block *wire.MsgBlock, height uint32, nonce uint32) {
-	m.Lock()
-	block.Header.Nonce = nonce
-	hash := block.Header.BlockHash()
-	m.blocks[hash] = block
-	m.blockIndex[height] = hash
-	m.blockHeightIndex[hash] = height
-	m.Unlock()
 }
 
 func createChannelEdge(bitcoinKey1, bitcoinKey2 []byte,

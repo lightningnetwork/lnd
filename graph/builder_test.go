@@ -182,7 +182,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 }
 
 // TestWakeUpOnStaleBranch tests that upon startup of the ChannelRouter, if the
-// the chain previously reflected in the channel graph is stale (overtaken by a
+// chain previously reflected in the channel graph is stale (overtaken by a
 // longer chain), the channel router will prune the graph for any channels
 // confirmed on the stale chain, and resync to the main chain.
 func TestWakeUpOnStaleBranch(t *testing.T) {
@@ -216,7 +216,6 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 			block.Transactions = append(block.Transactions,
 				fundingTx)
 			chanID1 = chanID.ToUint64()
-
 		}
 		ctx.chain.addBlock(block, height, rand.Uint32())
 		ctx.chain.setBestBlock(int32(height))
@@ -418,7 +417,6 @@ func TestDisconnectedBlocks(t *testing.T) {
 			block.Transactions = append(block.Transactions,
 				fundingTx)
 			chanID1 = chanID.ToUint64()
-
 		}
 		ctx.chain.addBlock(block, height, rand.Uint32())
 		ctx.chain.setBestBlock(int32(height))
@@ -633,7 +631,9 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 	}
 
 	// The router should now be aware of the channel we created above.
-	_, _, hasChan, isZombie, err := ctx.graph.HasChannelEdge(chanID1.ToUint64())
+	_, _, hasChan, isZombie, err := ctx.graph.HasChannelEdge(
+		chanID1.ToUint64(),
+	)
 	if err != nil {
 		t.Fatalf("error looking for edge: %v", chanID1)
 	}
@@ -713,7 +713,9 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 
 	// At this point, the channel that was pruned should no longer be known
 	// by the router.
-	_, _, hasChan, isZombie, err = ctx.graph.HasChannelEdge(chanID1.ToUint64())
+	_, _, hasChan, isZombie, err = ctx.graph.HasChannelEdge(
+		chanID1.ToUint64(),
+	)
 	if err != nil {
 		t.Fatalf("error looking for edge: %v", chanID1)
 	}
@@ -833,20 +835,23 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 		// All of the channels should exist before pruning them.
 		assertChannelsPruned(t, ctx.graph, testChannels)
 
-		// Proceed to prune the channels - only the last one should be pruned.
+		// Proceed to prune the channels - only the last one should be
+		// pruned.
 		if err := ctx.builder.pruneZombieChans(); err != nil {
 			t.Fatalf("unable to prune zombie channels: %v", err)
 		}
 
-		// We expect channels that have either both edges stale, or one edge
-		// stale with both known.
+		// We expect channels that have either both edges stale, or one
+		// edge stale with both known.
 		var prunedChannels []uint64
 		if strictPruning {
 			prunedChannels = []uint64{2, 5, 7}
 		} else {
 			prunedChannels = []uint64{2, 7}
 		}
-		assertChannelsPruned(t, ctx.graph, testChannels, prunedChannels...)
+		assertChannelsPruned(
+			t, ctx.graph, testChannels, prunedChannels...,
+		)
 	}
 }
 
@@ -1387,7 +1392,9 @@ func TestBlockDifferenceFix(t *testing.T) {
 
 	err := wait.NoError(func() error {
 		// Then router height should be updated to the latest block.
-		if atomic.LoadUint32(&ctx.builder.bestHeight) != newBlockHeight {
+		if atomic.LoadUint32(&ctx.builder.bestHeight) !=
+			newBlockHeight {
+
 			return fmt.Errorf("height should have been updated "+
 				"to %v, instead got %v", newBlockHeight,
 				ctx.builder.bestHeight)
@@ -1589,7 +1596,10 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 		}
 
 		err = graph.AddChannelEdge(&edgeInfo)
-		if err != nil && err != channeldb.ErrEdgeAlreadyExist {
+		if err != nil && !errors.Is(
+			err, channeldb.ErrEdgeAlreadyExist,
+		) {
+
 			return nil, err
 		}
 
@@ -1601,17 +1611,27 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 		}
 
 		edgePolicy := &models.ChannelEdgePolicy{
-			SigBytes:                  testSig.Serialize(),
-			MessageFlags:              lnwire.ChanUpdateMsgFlags(edge.MessageFlags),
-			ChannelFlags:              channelFlags,
-			ChannelID:                 edge.ChannelID,
-			LastUpdate:                testTime,
-			TimeLockDelta:             edge.Expiry,
-			MinHTLC:                   lnwire.MilliSatoshi(edge.MinHTLC),
-			MaxHTLC:                   lnwire.MilliSatoshi(edge.MaxHTLC),
-			FeeBaseMSat:               lnwire.MilliSatoshi(edge.FeeBaseMsat),
-			FeeProportionalMillionths: lnwire.MilliSatoshi(edge.FeeRate),
-			ToNode:                    targetNode,
+			SigBytes: testSig.Serialize(),
+			MessageFlags: lnwire.ChanUpdateMsgFlags(
+				edge.MessageFlags,
+			),
+			ChannelFlags:  channelFlags,
+			ChannelID:     edge.ChannelID,
+			LastUpdate:    testTime,
+			TimeLockDelta: edge.Expiry,
+			MinHTLC: lnwire.MilliSatoshi(
+				edge.MinHTLC,
+			),
+			MaxHTLC: lnwire.MilliSatoshi(
+				edge.MaxHTLC,
+			),
+			FeeBaseMSat: lnwire.MilliSatoshi(
+				edge.FeeBaseMsat,
+			),
+			FeeProportionalMillionths: lnwire.MilliSatoshi(
+				edge.FeeRate,
+			),
+			ToNode: targetNode,
 		}
 		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 			return nil, err
@@ -1652,7 +1672,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 // testGraph is the struct which corresponds to the JSON format used to encode
 // graphs within the files in the testdata directory.
 //
-// TODO(roasbeef): add test graph auto-generator
+// TODO(roasbeef): add test graph auto-generator.
 type testGraph struct {
 	Info  []string   `json:"info"`
 	Nodes []testNode `json:"nodes"`
@@ -1788,13 +1808,14 @@ type testChannelPolicy struct {
 	Features           *lnwire.FeatureVector
 }
 
-// createTestGraphFromChannels returns a fully populated ChannelGraph based on a set of
-// test channels. Additional required information like keys are derived in
-// a deterministic way and added to the channel graph. A list of nodes is
-// not required and derived from the channel data. The goal is to keep
-// instantiating a test channel graph as light weight as possible.
+// createTestGraphFromChannels returns a fully populated ChannelGraph based on a
+// set of test channels. Additional required information like keys are derived
+// in a deterministic way and added to the channel graph. A list of nodes is not
+// required and derived from the channel data. The goal is to keep instantiating
+// a test channel graph as light weight as possible.
 func createTestGraphFromChannels(t *testing.T, useCache bool,
-	testChannels []*testChannel, source string) (*testGraphInstance, error) {
+	testChannels []*testChannel, source string) (*testGraphInstance,
+	error) {
 
 	// We'll use this fake address for the IP address of all the nodes in
 	// our tests. This value isn't needed for path finding so it doesn't
@@ -1940,7 +1961,9 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 		}
 
 		err = graph.AddChannelEdge(&edgeInfo)
-		if err != nil && err != channeldb.ErrEdgeAlreadyExist {
+		if err != nil &&
+			!errors.Is(err, channeldb.ErrEdgeAlreadyExist) {
+
 			return nil, err
 		}
 
@@ -1981,7 +2004,8 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				ToNode:                    node2Vertex,
 				ExtraOpaqueData:           getExtraData(node1),
 			}
-			if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+			err := graph.UpdateEdgePolicy(edgePolicy)
+			if err != nil {
 				return nil, err
 			}
 		}
@@ -2011,12 +2035,13 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				ToNode:                    node1Vertex,
 				ExtraOpaqueData:           getExtraData(node2),
 			}
-			if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+			err := graph.UpdateEdgePolicy(edgePolicy)
+			if err != nil {
 				return nil, err
 			}
 		}
 
-		channelID++
+		channelID++ //nolint:ineffassign
 	}
 
 	return &testGraphInstance{

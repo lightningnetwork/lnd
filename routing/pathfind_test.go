@@ -2328,7 +2328,8 @@ func TestPathFindSpecExample(t *testing.T) {
 	// parameters.
 	lastHop := route.Hops[1]
 	require.EqualValues(t, amt, lastHop.AmtToForward)
-	require.EqualValues(t, startingHeight+MinCLTVDelta, lastHop.OutgoingTimeLock)
+	require.EqualValues(t, startingHeight+MinCLTVDelta,
+		lastHop.OutgoingTimeLock)
 }
 
 func assertExpectedPath(t *testing.T, aliasMap map[string]route.Vertex,
@@ -2337,7 +2338,8 @@ func assertExpectedPath(t *testing.T, aliasMap map[string]route.Vertex,
 	require.Len(t, path, len(nodeAliases))
 
 	for i, hop := range path {
-		require.Equal(t, aliasMap[nodeAliases[i]], hop.policy.ToNodePubKey())
+		require.Equal(t, aliasMap[nodeAliases[i]],
+			hop.policy.ToNodePubKey())
 	}
 }
 

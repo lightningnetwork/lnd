@@ -1058,6 +1058,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		IsStillZombieChannel:    s.graphBuilder.IsZombieChannel,
 	}, nodeKeyDesc)
 
+	//nolint:lll
 	s.localChanMgr = &localchans.Manager{
 		ForAllOutgoingChannels:    s.graphBuilder.ForAllOutgoingChannels,
 		PropagateChanPolicyUpdate: s.authGossiper.PropagateChanPolicyUpdate,

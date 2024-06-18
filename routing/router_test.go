@@ -77,6 +77,7 @@ func (c *testCtx) RestartRouter(t *testing.T) {
 	// With the chainView reset, we'll now re-create the router itself, and
 	// start it.
 	router, err := New(Config{
+		RoutingGraph:       c.graph,
 		Graph:              c.graph,
 		Chain:              c.chain,
 		ChainView:          c.chainView,
@@ -154,6 +155,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	}
 
 	router, err := New(Config{
+		RoutingGraph:       graphInstance.graph,
 		Graph:              graphInstance.graph,
 		Chain:              chain,
 		ChainView:          chainView,
@@ -1763,6 +1765,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 
 	// Create new router with same graph database.
 	router, err := New(Config{
+		RoutingGraph:       ctx.graph,
 		Graph:              ctx.graph,
 		Chain:              ctx.chain,
 		ChainView:          ctx.chainView,

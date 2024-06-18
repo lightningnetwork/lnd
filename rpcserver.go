@@ -692,7 +692,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 			amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
 
 			routingGraph, err := routing.NewCachedGraph(
-				selfNode.PubKeyBytes, graph,
+				selfNode.PubKeyBytes, graph, true,
 			)
 			if err != nil {
 				return 0, err

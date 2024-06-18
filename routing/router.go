@@ -319,6 +319,9 @@ type ChannelPolicy struct {
 // the configuration MUST be non-nil for the ChannelRouter to carry out its
 // duties.
 type Config struct {
+	// RoutingGraph is a graph source that will be used for pathfinding.
+	RoutingGraph GraphWithReadLock
+
 	// Graph is the channel graph that the ChannelRouter will use to gather
 	// metrics from and also to carry out path finding queries.
 	// TODO(roasbeef): make into an interface
@@ -514,12 +517,16 @@ func New(cfg Config) (*ChannelRouter, error) {
 		return nil, err
 	}
 
+	graph, err := NewCachedGraph(
+		selfNode.PubKeyBytes, cfg.RoutingGraph, false,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	r := &ChannelRouter{
-		cfg: &cfg,
-		cachedGraph: &CachedGraph{
-			graph:  cfg.Graph,
-			source: selfNode.PubKeyBytes,
-		},
+		cfg:               &cfg,
+		cachedGraph:       graph,
 		networkUpdates:    make(chan *routingMsg),
 		topologyClients:   &lnutils.SyncMap[uint64, *topologyClient]{},
 		ntfnClientUpdates: make(chan *topologyClientUpdate),

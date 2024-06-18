@@ -64,20 +64,25 @@ type CachedGraph struct {
 var _ routingGraph = (*CachedGraph)(nil)
 
 // NewCachedGraph instantiates a new db-connected routing graph. It implicitly
-// instantiates a new read transaction.
+// instantiates a new read transaction if withReadLock is true and if the
+// backing Graph supports it.
 func NewCachedGraph(sourceNodePubKey route.Vertex,
-	graph GraphWithReadLock) (*CachedGraph, error) {
+	graph GraphWithReadLock, withReadLock bool) (*CachedGraph, error) {
 
-	tx, err := graph.NewPathFindTx()
-	if err != nil {
-		return nil, err
+	cachedGraph := &CachedGraph{
+		graph:  graph,
+		source: sourceNodePubKey,
 	}
 
-	return &CachedGraph{
-		graph:  graph,
-		tx:     tx,
-		source: sourceNodePubKey,
-	}, nil
+	if withReadLock {
+		var err error
+		cachedGraph.tx, err = graph.NewPathFindTx()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return cachedGraph, nil
 }
 
 // Close attempts to close the underlying db transaction. This is a no-op in

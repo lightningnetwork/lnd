@@ -692,19 +692,11 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 			amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
 
 			routingGraph, err := routing.NewCachedGraph(
-				selfNode.PubKeyBytes, graph,
+				selfNode.PubKeyBytes, graph, false,
 			)
 			if err != nil {
 				return 0, err
 			}
-			defer func() {
-				closeErr := routingGraph.Close()
-				if closeErr != nil {
-					rpcsLog.Errorf("not able to close "+
-						"routing graph tx: %v",
-						closeErr)
-				}
-			}()
 
 			return routingGraph.FetchAmountPairCapacity(
 				nodeFrom, nodeTo, amount,

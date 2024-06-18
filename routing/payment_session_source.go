@@ -50,7 +50,7 @@ type SessionSource struct {
 // pathfinding.
 func (m *SessionSource) getRoutingGraph() (routingGraph, func(), error) {
 	routingTx, err := NewCachedGraph(
-		m.SourceNode.PubKeyBytes, m.RoutingGraph,
+		m.SourceNode.PubKeyBytes, m.RoutingGraph, true,
 	)
 	if err != nil {
 		return nil, nil, err

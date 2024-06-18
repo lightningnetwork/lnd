@@ -16,9 +16,11 @@ var _ PaymentSessionSource = (*SessionSource)(nil)
 // SessionSource defines a source for the router to retrieve new payment
 // sessions.
 type SessionSource struct {
-	// Graph is the channel graph that will be used to gather metrics from
-	// and also to carry out path finding queries.
-	Graph *channeldb.ChannelGraph
+	// RoutingGraph provides a Graph that can be used for path finding for a
+	// specific payment. If the NewPathFindingTx method is called to obtain
+	// a read-only lock on the graph, then the clean-up all-back must be
+	// called once path-finding is complete.
+	RoutingGraph GraphWithReadLock
 
 	// SourceNode is the graph's source node.
 	SourceNode *channeldb.LightningNode
@@ -47,7 +49,9 @@ type SessionSource struct {
 // getRoutingGraph returns a routing graph and a clean-up function for
 // pathfinding.
 func (m *SessionSource) getRoutingGraph() (routingGraph, func(), error) {
-	routingTx, err := NewCachedGraph(m.SourceNode.PubKeyBytes, m.Graph)
+	routingTx, err := NewCachedGraph(
+		m.SourceNode.PubKeyBytes, m.RoutingGraph,
+	)
 	if err != nil {
 		return nil, nil, err
 	}

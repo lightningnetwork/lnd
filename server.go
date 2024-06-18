@@ -956,7 +956,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, fmt.Errorf("error getting source node: %w", err)
 	}
 	paymentSessionSource := &routing.SessionSource{
-		Graph:             chanGraph,
+		RoutingGraph:      chanGraph,
 		SourceNode:        sourceNode,
 		MissionControl:    s.missionControl,
 		GetLink:           s.htlcSwitch.GetLinkByShortID,
@@ -967,8 +967,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s.controlTower = routing.NewControlTower(paymentControl)
 
-	strictPruning := (cfg.Bitcoin.Node == "neutrino" ||
-		cfg.Routing.StrictZombiePruning)
+	strictPruning := cfg.Bitcoin.Node == "neutrino" ||
+		cfg.Routing.StrictZombiePruning
+
 	s.chanRouter, err = routing.New(routing.Config{
 		Graph:               chanGraph,
 		Chain:               cc.ChainIO,

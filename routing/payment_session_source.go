@@ -47,7 +47,7 @@ type SessionSource struct {
 // getRoutingGraph returns a routing graph and a clean-up function for
 // pathfinding.
 func (m *SessionSource) getRoutingGraph() (routingGraph, func(), error) {
-	routingTx, err := NewCachedGraph(m.SourceNode, m.Graph)
+	routingTx, err := NewCachedGraph(m.SourceNode.PubKeyBytes, m.Graph)
 	if err != nil {
 		return nil, nil, err
 	}

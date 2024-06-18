@@ -82,11 +82,18 @@
 ## Testing
 ## Database
 ## Code Health
+
+* [Move graph building and 
+  maintaining](https://github.com/lightningnetwork/lnd/pull/8848) duties from 
+  the `routing.ChannelRouter` to the new `graph.Builder` sub-system and also 
+  remove the `channeldb.ChannelGraph` pointer from the `ChannelRouter`.
+
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath
 * Bufo
+* Elle Mouton
 * Matheus Degiovani
 * Slyghtning

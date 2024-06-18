@@ -22,10 +22,39 @@ type routingGraph interface {
 	fetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
 }
 
+// GraphWithReadLock is a Graph extended with a call to create a new read-only
+// transaction that can then be used to make further queries to the Graph.
+type GraphWithReadLock interface {
+	// NewPathFindTx returns a new read transaction that can be used for a
+	// single path finding session. Will return nil if the graph cache is
+	// enabled.
+	NewPathFindTx() (kvdb.RTx, error)
+
+	Graph
+}
+
+// Graph describes the API necessary for a graph source to have in order to be
+// used by the Router for pathfinding.
+type Graph interface {
+	// ForEachNodeDirectedChannel iterates through all channels of a given
+	// node, executing the passed callback on the directed edge representing
+	// the channel and its incoming policy. If the callback returns an
+	// error, then the iteration is halted with the error propagated back
+	// up to the caller.
+	//
+	// Unknown policies are passed into the callback as nil values.
+	ForEachNodeDirectedChannel(tx kvdb.RTx, node route.Vertex,
+		cb func(channel *channeldb.DirectedChannel) error) error
+
+	// FetchNodeFeatures returns the features of a given node. If no
+	// features are known for the node, an empty feature vector is returned.
+	FetchNodeFeatures(node route.Vertex) (*lnwire.FeatureVector, error)
+}
+
 // CachedGraph is a routingGraph implementation that retrieves from the
 // database.
 type CachedGraph struct {
-	graph  *channeldb.ChannelGraph
+	graph  Graph
 	tx     kvdb.RTx
 	source route.Vertex
 }
@@ -37,7 +66,7 @@ var _ routingGraph = (*CachedGraph)(nil)
 // NewCachedGraph instantiates a new db-connected routing graph. It implicitly
 // instantiates a new read transaction.
 func NewCachedGraph(sourceNode *channeldb.LightningNode,
-	graph *channeldb.ChannelGraph) (*CachedGraph, error) {
+	graph GraphWithReadLock) (*CachedGraph, error) {
 
 	tx, err := graph.NewPathFindTx()
 	if err != nil {

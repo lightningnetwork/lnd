@@ -55,13 +55,19 @@ var (
 
 	timeout = time.Second * 5
 
-	testRBytes, _ = hex.DecodeString("8ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa1bf0314f882d7")
-	testSBytes, _ = hex.DecodeString("299105481d63e0f4bc2a88121167221b6700d72a0ead154c03be696a292d24ae")
-	testRScalar   = new(btcec.ModNScalar)
-	testSScalar   = new(btcec.ModNScalar)
-	_             = testRScalar.SetByteSlice(testRBytes)
-	_             = testSScalar.SetByteSlice(testSBytes)
-	testSig       = ecdsa.NewSignature(testRScalar, testSScalar)
+	testRBytes, _ = hex.DecodeString(
+		"8ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa1bf03" +
+			"14f882d7",
+	)
+	testSBytes, _ = hex.DecodeString(
+		"299105481d63e0f4bc2a88121167221b6700d72a0ead154c03be696a2" +
+			"92d24ae",
+	)
+	testRScalar = new(btcec.ModNScalar)
+	testSScalar = new(btcec.ModNScalar)
+	_           = testRScalar.SetByteSlice(testRBytes)
+	_           = testSScalar.SetByteSlice(testSBytes)
+	testSig     = ecdsa.NewSignature(testRScalar, testSScalar)
 
 	testAuthProof = models.ChannelAuthProof{
 		NodeSig1Bytes:    testSig.Serialize(),
@@ -1027,22 +1033,6 @@ type testCtx struct {
 	notifier *lnmock.ChainNotifier
 }
 
-func (c *testCtx) getChannelIDFromAlias(t *testing.T, a, b string) uint64 {
-	vertexA, ok := c.aliases[a]
-	require.True(t, ok, "cannot find aliases for %s", a)
-
-	vertexB, ok := c.aliases[b]
-	require.True(t, ok, "cannot find aliases for %s", b)
-
-	channelIDMap, ok := c.channelIDs[vertexA]
-	require.True(t, ok, "cannot find channelID map %s(%s)", vertexA, a)
-
-	channelID, ok := channelIDMap[vertexB]
-	require.True(t, ok, "cannot find channelID using %s(%s)", vertexB, b)
-
-	return channelID
-}
-
 func createTestCtxSingleNode(t *testing.T,
 	startingHeight uint32) *testCtx {
 
@@ -1127,8 +1117,8 @@ type testGraphInstance struct {
 	graphBackend kvdb.Backend
 
 	// aliasMap is a map from a node's alias to its public key. This type is
-	// provided in order to allow easily look up from the human memorable alias
-	// to an exact node's public key.
+	// provided in order to allow easily look up from the human memorable
+	// alias to an exact node's public key.
 	aliasMap map[string]route.Vertex
 
 	// privKeyMap maps a node alias to its private key. This is used to be
@@ -1201,7 +1191,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	}
 
 	t.Cleanup(func() {
-		graphBuilder.Stop()
+		require.NoError(t, graphBuilder.Stop())
 	})
 
 	return ctx

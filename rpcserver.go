@@ -6666,7 +6666,8 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 // marshallTopologyChange performs a mapping from the topology change struct
 // returned by the router to the form of notifications expected by the current
 // gRPC service.
-func marshallTopologyChange(topChange *graph.TopologyChange) *lnrpc.GraphTopologyUpdate {
+func marshallTopologyChange(
+	topChange *graph.TopologyChange) *lnrpc.GraphTopologyUpdate {
 
 	// encodeKey is a simple helper function that converts a live public
 	// key into a hex-encoded version of the compressed serialization for
@@ -6677,7 +6678,9 @@ func marshallTopologyChange(topChange *graph.TopologyChange) *lnrpc.GraphTopolog
 
 	nodeUpdates := make([]*lnrpc.NodeUpdate, len(topChange.NodeUpdates))
 	for i, nodeUpdate := range topChange.NodeUpdates {
-		nodeAddrs := make([]*lnrpc.NodeAddress, 0, len(nodeUpdate.Addresses))
+		nodeAddrs := make(
+			[]*lnrpc.NodeAddress, 0, len(nodeUpdate.Addresses),
+		)
 		for _, addr := range nodeUpdate.Addresses {
 			nodeAddr := &lnrpc.NodeAddress{
 				Network: addr.Network(),

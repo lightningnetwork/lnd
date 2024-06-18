@@ -222,7 +222,7 @@ func (b *Builder) Start() error {
 	// channels from the graph based on their spentness, but whether they
 	// are considered zombies or not. We will start zombie pruning after a
 	// small delay, to avoid slowing down startup of lnd.
-	if b.cfg.AssumeChannelValid {
+	if b.cfg.AssumeChannelValid { //nolint:nestif
 		time.AfterFunc(b.cfg.FirstTimePruneDelay, func() {
 			select {
 			case <-b.quit:
@@ -256,6 +256,7 @@ func (b *Builder) Start() error {
 		if err != nil && !errors.Is(
 			err, channeldb.ErrGraphNoEdgesFound,
 		) {
+
 			return err
 		}
 
@@ -290,7 +291,9 @@ func (b *Builder) Start() error {
 		// from the graph in order to ensure we maintain a tight graph
 		// of "useful" nodes.
 		err = b.cfg.Graph.PruneGraphNodes()
-		if err != nil && err != channeldb.ErrGraphNodesNotFound {
+		if err != nil &&
+			!errors.Is(err, channeldb.ErrGraphNodesNotFound) {
+
 			return err
 		}
 	}
@@ -344,8 +347,8 @@ func (b *Builder) syncGraphWithChain() error {
 		switch {
 		// If the graph has never been pruned, or hasn't fully been
 		// created yet, then we don't treat this as an explicit error.
-		case err == channeldb.ErrGraphNeverPruned:
-		case err == channeldb.ErrGraphNotFound:
+		case errors.Is(err, channeldb.ErrGraphNeverPruned):
+		case errors.Is(err, channeldb.ErrGraphNotFound):
 		default:
 			return err
 		}
@@ -355,7 +358,6 @@ func (b *Builder) syncGraphWithChain() error {
 		pruneHeight, pruneHash)
 
 	switch {
-
 	// If the graph has never been pruned, then we can exit early as this
 	// entails it's being created for the first time and hasn't seen any
 	// block or created channels.
@@ -388,34 +390,40 @@ func (b *Builder) syncGraphWithChain() error {
 		}
 
 		pruneHash, pruneHeight, err = b.cfg.Graph.PruneTip()
-		if err != nil {
-			switch {
-			// If at this point the graph has never been pruned, we
-			// can exit as this entails we are back to the point
-			// where it hasn't seen any block or created channels,
-			// alas there's nothing left to prune.
-			case err == channeldb.ErrGraphNeverPruned:
-				return nil
-			case err == channeldb.ErrGraphNotFound:
-				return nil
-			default:
-				return err
-			}
+		switch {
+		// If at this point the graph has never been pruned, we can exit
+		// as this entails we are back to the point where it hasn't seen
+		// any block or created channels, alas there's nothing left to
+		// prune.
+		case errors.Is(err, channeldb.ErrGraphNeverPruned):
+			return nil
+
+		case errors.Is(err, channeldb.ErrGraphNotFound):
+			return nil
+
+		case err != nil:
+			return err
+
+		default:
 		}
-		mainBlockHash, err = b.cfg.Chain.GetBlockHash(int64(pruneHeight))
+
+		mainBlockHash, err = b.cfg.Chain.GetBlockHash(
+			int64(pruneHeight),
+		)
 		if err != nil {
 			return err
 		}
 	}
 
-	log.Infof("Syncing channel graph from height=%v (hash=%v) to height=%v "+
-		"(hash=%v)", pruneHeight, pruneHash, bestHeight, bestHash)
+	log.Infof("Syncing channel graph from height=%v (hash=%v) to "+
+		"height=%v (hash=%v)", pruneHeight, pruneHash, bestHeight,
+		bestHash)
 
 	// If we're not yet caught up, then we'll walk forward in the chain
 	// pruning the channel graph with each new block that hasn't yet been
 	// consumed by the channel graph.
 	var spentOutputs []*wire.OutPoint
-	for nextHeight := pruneHeight + 1; nextHeight <= uint32(bestHeight); nextHeight++ {
+	for nextHeight := pruneHeight + 1; nextHeight <= uint32(bestHeight); nextHeight++ { //nolint:lll
 		// Break out of the rescan early if a shutdown has been
 		// requested, otherwise long rescans will block the daemon from
 		// shutting down promptly.
@@ -462,6 +470,7 @@ func (b *Builder) syncGraphWithChain() error {
 
 	log.Infof("Graph pruning complete: %v channels were closed since "+
 		"height %v", len(closedChans), pruneHeight)
+
 	return nil
 }
 
@@ -615,7 +624,11 @@ func (b *Builder) pruneZombieChans() error {
 	}
 
 	for _, u := range oldEdges {
-		filterPruneChans(u.Info, u.Policy1, u.Policy2)
+		err = filterPruneChans(u.Info, u.Policy1, u.Policy2)
+		if err != nil {
+			return fmt.Errorf("error filtering channels to "+
+				"prune: %w", err)
+		}
 	}
 
 	log.Infof("Pruning %v zombie channels", len(chansToPrune))
@@ -640,7 +653,7 @@ func (b *Builder) pruneZombieChans() error {
 	// With the channels pruned, we'll also attempt to prune any nodes that
 	// were a part of them.
 	err = b.cfg.Graph.PruneGraphNodes()
-	if err != nil && err != channeldb.ErrGraphNodesNotFound {
+	if err != nil && !errors.Is(err, channeldb.ErrGraphNodesNotFound) {
 		return fmt.Errorf("unable to prune graph nodes: %w", err)
 	}
 
@@ -761,7 +774,6 @@ func (b *Builder) networkHandler() {
 	}
 
 	for {
-
 		// If there are stats, resume the statTicker.
 		if !b.stats.Empty() {
 			b.statTicker.Resume()
@@ -793,12 +805,14 @@ func (b *Builder) networkHandler() {
 
 			// Since this block is stale, we update our best height
 			// to the previous block.
-			blockHeight := uint32(chainUpdate.Height)
+			blockHeight := chainUpdate.Height
 			atomic.StoreUint32(&b.bestHeight, blockHeight-1)
 
 			// Update the channel graph to reflect that this block
 			// was disconnected.
-			_, err := b.cfg.Graph.DisconnectBlockAtHeight(blockHeight)
+			_, err := b.cfg.Graph.DisconnectBlockAtHeight(
+				blockHeight,
+			)
 			if err != nil {
 				log.Errorf("unable to prune graph with stale "+
 					"block: %v", err)
@@ -836,7 +850,9 @@ func (b *Builder) networkHandler() {
 					"height=%v, got height=%v",
 					currentHeight+1, chainUpdate.Height)
 
-				err := b.getMissingBlocks(currentHeight, chainUpdate)
+				err := b.getMissingBlocks(
+					currentHeight, chainUpdate,
+				)
 				if err != nil {
 					log.Errorf("unable to retrieve missing"+
 						"blocks: %v", err)
@@ -1136,6 +1152,8 @@ func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte,
 // channel/edge update network update. If the update didn't affect the internal
 // state of the draft due to either being out of date, invalid, or redundant,
 // then error is returned.
+//
+//nolint:funlen
 func (b *Builder) processUpdate(msg interface{},
 	op ...batch.SchedulerOption) error {
 
@@ -1166,7 +1184,9 @@ func (b *Builder) processUpdate(msg interface{},
 		_, _, exists, isZombie, err := b.cfg.Graph.HasChannelEdge(
 			msg.ChannelID,
 		)
-		if err != nil && err != channeldb.ErrGraphNoEdgesFound {
+		if err != nil &&
+			!errors.Is(err, channeldb.ErrGraphNoEdgesFound) {
+
 			return errors.Errorf("unable to check for edge "+
 				"existence: %v", err)
 		}
@@ -1188,7 +1208,8 @@ func (b *Builder) processUpdate(msg interface{},
 		// ChannelAnnouncement from the gossiper.
 		scid := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		if b.cfg.AssumeChannelValid || b.cfg.IsAlias(scid) {
-			if err := b.cfg.Graph.AddChannelEdge(msg, op...); err != nil {
+			err := b.cfg.Graph.AddChannelEdge(msg, op...)
+			if err != nil {
 				return fmt.Errorf("unable to add edge: %w", err)
 			}
 			log.Tracef("New channel discovered! Link "+
@@ -1206,6 +1227,8 @@ func (b *Builder) processUpdate(msg interface{},
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		fundingTx, err := b.fetchFundingTxWrapper(&channelID)
 		if err != nil {
+			//nolint:lll
+			//
 			// In order to ensure we don't erroneously mark a
 			// channel as a zombie due to an RPC failure, we'll
 			// attempt to string match for the relevant errors.
@@ -1253,13 +1276,15 @@ func (b *Builder) processUpdate(msg interface{},
 		// formed. If this check fails, then this channel either
 		// doesn't exist, or isn't the one that was meant to be created
 		// according to the passed channel proofs.
-		fundingPoint, err := chanvalidate.Validate(&chanvalidate.Context{
-			Locator: &chanvalidate.ShortChanIDChanLocator{
-				ID: channelID,
+		fundingPoint, err := chanvalidate.Validate(
+			&chanvalidate.Context{
+				Locator: &chanvalidate.ShortChanIDChanLocator{
+					ID: channelID,
+				},
+				MultiSigPkScript: fundingPkScript,
+				FundingTx:        fundingTx,
 			},
-			MultiSigPkScript: fundingPkScript,
-			FundingTx:        fundingTx,
-		})
+		)
 		if err != nil {
 			// Mark the edge as a zombie so we won't try to
 			// re-validate it on start up.
@@ -1336,16 +1361,20 @@ func (b *Builder) processUpdate(msg interface{},
 
 		edge1Timestamp, edge2Timestamp, exists, isZombie, err :=
 			b.cfg.Graph.HasChannelEdge(msg.ChannelID)
-		if err != nil && err != channeldb.ErrGraphNoEdgesFound {
+		if err != nil && !errors.Is(
+			err, channeldb.ErrGraphNoEdgesFound,
+		) {
+
 			return errors.Errorf("unable to check for edge "+
 				"existence: %v", err)
-
 		}
 
 		// If the channel is marked as a zombie in our database, and
 		// we consider this a stale update, then we should not apply the
 		// policy.
-		isStaleUpdate := time.Since(msg.LastUpdate) > b.cfg.ChannelPruneExpiry
+		isStaleUpdate := time.Since(msg.LastUpdate) >
+			b.cfg.ChannelPruneExpiry
+
 		if isZombie && isStaleUpdate {
 			return newErrf(ErrIgnored, "ignoring stale update "+
 				"(flags=%v|%v) for zombie chan_id=%v",
@@ -1368,7 +1397,6 @@ func (b *Builder) processUpdate(msg interface{},
 		// that edge. If this message has a timestamp not strictly
 		// newer than what we already know of we can exit early.
 		switch {
-
 		// A flag set of 0 indicates this is an announcement for the
 		// "first" node in the channel.
 		case msg.ChannelFlags&lnwire.ChanUpdateDirection == 0:
@@ -1448,7 +1476,7 @@ func (b *Builder) fetchFundingTxWrapper(chanID *lnwire.ShortChannelID) (
 // short channel ID.
 //
 // TODO(roasbeef): replace with call to GetBlockTransaction? (would allow to
-// later use getblocktxn)
+// later use getblocktxn).
 func (b *Builder) fetchFundingTx(
 	chanID *lnwire.ShortChannelID) (*wire.MsgTx, error) {
 
@@ -1702,6 +1730,7 @@ func (b *Builder) AddProof(chanID lnwire.ShortChannelID,
 	}
 
 	info.AuthProof = proof
+
 	return b.cfg.Graph.UpdateChannelEdge(info)
 }
 
@@ -1739,6 +1768,7 @@ func (b *Builder) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
 	_, _, exists, isZombie, _ := b.cfg.Graph.HasChannelEdge(
 		chanID.ToUint64(),
 	)
+
 	return exists || isZombie
 }
 
@@ -1754,7 +1784,6 @@ func (b *Builder) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	if err != nil {
 		log.Debugf("Check stale edge policy got error: %v", err)
 		return false
-
 	}
 
 	// If we know of the edge as a zombie, then we'll make some additional

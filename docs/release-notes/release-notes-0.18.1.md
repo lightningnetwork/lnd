@@ -74,6 +74,9 @@
 ## Breaking Changes
 ## Performance Improvements
 
+* Mission Control Store [improved performance during DB
+  flushing](https://github.com/lightningnetwork/lnd/pull/8549) stage.
+
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 ## Testing
@@ -85,4 +88,5 @@
 
 * Andras Banki-Horvath
 * Bufo
+* Matheus Degiovani
 * Slyghtning

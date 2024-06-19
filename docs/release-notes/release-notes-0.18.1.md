@@ -22,9 +22,12 @@
 * `closedchannels` now [successfully reports](https://github.com/lightningnetwork/lnd/pull/8800)
   settled balances even if the delivery address is set to an address that
   LND does not control.
- 
+
 * [SendPaymentV2](https://github.com/lightningnetwork/lnd/pull/8734) now cancels
   the background payment loop if the user cancels the stream context.
+
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/8822) that caused
+  LND to read the config only partially and continued with the startup.
 
 # New Features
 ## Functional Enhancements

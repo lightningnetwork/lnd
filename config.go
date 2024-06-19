@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
@@ -771,7 +772,9 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 		// If it's a parsing related error, then we'll return
 		// immediately, otherwise we can proceed as possibly the config
 		// file doesn't exist which is OK.
-		if _, ok := err.(*flags.IniError); ok {
+		if lnutils.ErrorAs[*flags.IniError](err) ||
+			lnutils.ErrorAs[*flags.Error](err) {
+
 			return nil, err
 		}
 

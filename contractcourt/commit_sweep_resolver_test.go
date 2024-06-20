@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/sweep"
+	"github.com/stretchr/testify/require"
 )
 
 type commitSweepResolverTestContext struct {
@@ -82,6 +83,9 @@ func (i *commitSweepResolverTestContext) resolve() {
 	// Start resolver.
 	i.resolverResultChan = make(chan resolveResult, 1)
 	go func() {
+		err := i.resolver.Launch()
+		require.NoError(i.t, err)
+
 		nextResolver, err := i.resolver.Resolve()
 		i.resolverResultChan <- resolveResult{
 			nextResolver: nextResolver,

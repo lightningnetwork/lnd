@@ -10,6 +10,15 @@ type Result[T any] struct {
 	Either[T, error]
 }
 
+// NewResult creates a new result from a (value, error) tuple.
+func NewResult[T any](val T, err error) Result[T] {
+	if err != nil {
+		return Err[T](err)
+	}
+
+	return Ok(val)
+}
+
 // Ok creates a new Result with a success value.
 func Ok[T any](val T) Result[T] {
 	return Result[T]{Either: NewLeft[T, error](val)}
@@ -31,6 +40,11 @@ func Errf[T any](errString string, args ...any) Result[T] {
 func (r Result[T]) Unpack() (T, error) {
 	var zero T
 	return r.left.UnwrapOr(zero), r.right.UnwrapOr(nil)
+}
+
+// Err exposes the underlying error of the result type as a normal error type.
+func (r Result[T]) Err() error {
+	return r.right.some
 }
 
 // IsOk returns true if the Result is a success value.
@@ -139,4 +153,16 @@ func FlatMap[A, B any](r Result[A], f func(A) Result[B]) Result[B] {
 // Railway Oriented Programming (ROP).
 func AndThen[A, B any](r Result[A], f func(A) Result[B]) Result[B] {
 	return FlatMap(r, f)
+}
+
+// AndThen2 applies a function that returns a Result[C] to the success values
+// of two Result types if both exist.
+func AndThen2[A, B, C any](ra Result[A], rb Result[B],
+	f func(A, B) Result[C]) Result[C] {
+
+	return AndThen(ra, func(a A) Result[C] {
+		return AndThen(rb, func(b B) Result[C] {
+			return f(a, b)
+		})
+	})
 }

@@ -959,7 +959,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, fmt.Errorf("error getting source node: %w", err)
 	}
 	paymentSessionSource := &routing.SessionSource{
-		RoutingGraph:      chanGraph,
+		GraphSessionConstructor: routing.NewGraphSessionConstructor(
+			chanGraph, sourceNode.PubKeyBytes,
+		),
 		SourceNode:        sourceNode,
 		MissionControl:    s.missionControl,
 		GetLink:           s.htlcSwitch.GetLinkByShortID,

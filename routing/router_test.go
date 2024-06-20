@@ -132,7 +132,12 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	sourceNode, err := graphInstance.graph.SourceNode()
 	require.NoError(t, err)
 	sessionSource := &SessionSource{
-		RoutingGraph:      graphInstance.graph,
+		GraphSessionConstructor: &mockGraphSessionConstructor{
+			graph: &CachedGraph{
+				graph:  graphInstance.graph,
+				source: sourceNode.PubKeyBytes,
+			},
+		},
 		SourceNode:        sourceNode,
 		GetLink:           graphInstance.getLink,
 		PathFindingConfig: pathFindingConfig,

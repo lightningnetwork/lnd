@@ -220,7 +220,7 @@ type Config struct {
 	SelfNode route.Vertex
 
 	// RoutingGraph is a graph source that will be used for pathfinding.
-	RoutingGraph ReadOnlyGraph
+	RoutingGraph Graph
 
 	// Chain is the router's source to the most up-to-date blockchain data.
 	// All incoming advertised channels will be checked against the chain
@@ -319,17 +319,13 @@ type ChannelRouter struct {
 // channel graph is a subset of the UTXO set) set, then the router will proceed
 // to fully sync to the latest state of the UTXO set.
 func New(cfg Config) (*ChannelRouter, error) {
-	graph, err := NewCachedGraph(
-		cfg.SelfNode, cfg.RoutingGraph, false,
-	)
-	if err != nil {
-		return nil, err
-	}
-
 	return &ChannelRouter{
-		cfg:         &cfg,
-		cachedGraph: graph,
-		quit:        make(chan struct{}),
+		cfg: &cfg,
+		cachedGraph: &CachedGraph{
+			graph:  cfg.RoutingGraph,
+			source: cfg.SelfNode,
+		},
+		quit: make(chan struct{}),
 	}, nil
 }
 

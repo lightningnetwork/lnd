@@ -33,6 +33,59 @@ type ReadOnlyGraph interface {
 	Graph
 }
 
+type GraphSessionConstructor interface {
+	NewSession() (GraphSession, error)
+}
+
+type GraphSession interface {
+	Graph() routingGraph
+	Close()
+}
+
+func NewGraphSessionConstructor(graph ReadOnlyGraph,
+	sourceNode route.Vertex) GraphSessionConstructor {
+
+	return &readLockGraphSessConstructor{
+		sourceNode: sourceNode,
+		graph:      graph,
+	}
+}
+
+type readLockGraphSessConstructor struct {
+	sourceNode route.Vertex
+	graph      ReadOnlyGraph
+}
+
+func (r *readLockGraphSessConstructor) NewSession() (GraphSession, error) {
+	cachedGraph, err := NewCachedGraph(r.sourceNode, r.graph, true)
+	if err != nil {
+		return nil, err
+	}
+
+	return &readLockGraphSession{
+		cachedGraph: cachedGraph,
+	}, nil
+}
+
+var _ GraphSessionConstructor = (*readLockGraphSessConstructor)(nil)
+
+type readLockGraphSession struct {
+	cachedGraph *CachedGraph
+}
+
+func (r *readLockGraphSession) Graph() routingGraph {
+	return r.cachedGraph
+}
+
+func (r *readLockGraphSession) Close() {
+	err := r.cachedGraph.Close()
+	if err != nil {
+		log.Errorf("Error closing db tx: %v", err)
+	}
+}
+
+var _ GraphSession = (*readLockGraphSession)(nil)
+
 // Graph describes the API necessary for a graph source to have in order to be
 // used by the Router for pathfinding.
 type Graph interface {

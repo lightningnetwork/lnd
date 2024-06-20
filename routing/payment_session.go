@@ -176,7 +176,7 @@ type paymentSession struct {
 
 	pathFinder pathFinder
 
-	getRoutingGraph func() (routingGraph, func(), error)
+	graphSessionConstructor GraphSessionConstructor
 
 	// pathFindingConfig defines global parameters that control the
 	// trade-off in path finding between fees and probability.
@@ -197,7 +197,7 @@ type paymentSession struct {
 // newPaymentSession instantiates a new payment session.
 func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 	getBandwidthHints func(routingGraph) (bandwidthHints, error),
-	getRoutingGraph func() (routingGraph, func(), error),
+	graphSessionConstructor GraphSessionConstructor,
 	missionControl MissionController, pathFindingConfig PathFindingConfig) (
 	*paymentSession, error) {
 
@@ -209,16 +209,16 @@ func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 	logPrefix := fmt.Sprintf("PaymentSession(%x):", p.Identifier())
 
 	return &paymentSession{
-		selfNode:          selfNode,
-		additionalEdges:   edges,
-		getBandwidthHints: getBandwidthHints,
-		payment:           p,
-		pathFinder:        findPath,
-		getRoutingGraph:   getRoutingGraph,
-		pathFindingConfig: pathFindingConfig,
-		missionControl:    missionControl,
-		minShardAmt:       DefaultShardMinAmt,
-		log:               build.NewPrefixLog(logPrefix, log),
+		selfNode:                selfNode,
+		additionalEdges:         edges,
+		getBandwidthHints:       getBandwidthHints,
+		payment:                 p,
+		pathFinder:              findPath,
+		graphSessionConstructor: graphSessionConstructor,
+		pathFindingConfig:       pathFindingConfig,
+		missionControl:          missionControl,
+		minShardAmt:             DefaultShardMinAmt,
+		log:                     build.NewPrefixLog(logPrefix, log),
 	}, nil
 }
 
@@ -281,11 +281,13 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	}
 
 	for {
-		// Get a routing graph.
-		routingGraph, cleanup, err := p.getRoutingGraph()
+		// Start a new routing graph session.
+		graphSession, err := p.graphSessionConstructor.NewSession()
 		if err != nil {
 			return nil, err
 		}
+
+		routingGraph := graphSession.Graph()
 
 		// We'll also obtain a set of bandwidthHints from the lower
 		// layer for each of our outbound channels. This will allow the
@@ -312,8 +314,8 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 			maxAmt, p.payment.TimePref, finalHtlcExpiry,
 		)
 
-		// Close routing graph.
-		cleanup()
+		// Close routing graph session.
+		graphSession.Close()
 
 		switch {
 		case err == errNoPathFound:

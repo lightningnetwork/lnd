@@ -201,9 +201,7 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 
 	session, err := newPaymentSession(
 		&payment, c.graph.source.pubkey, getBandwidthHints,
-		func() (routingGraph, func(), error) {
-			return c.graph, func() {}, nil
-		},
+		&mockGraphSessionConstructor{graph: c.graph},
 		mc, c.pathFindingCfg,
 	)
 	if err != nil {
@@ -291,6 +289,29 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 
 	return attempts, nil
 }
+
+type mockGraphSessionConstructor struct {
+	graph routingGraph
+}
+
+func (m *mockGraphSessionConstructor) NewSession() (GraphSession, error) {
+	return &mockGraphSession{graph: m.graph}, nil
+}
+
+var _ GraphSessionConstructor = (*mockGraphSessionConstructor)(nil)
+
+type mockGraphSession struct {
+	graph routingGraph
+}
+
+func (m *mockGraphSession) Graph() routingGraph {
+	return m.graph
+}
+
+func (m *mockGraphSession) Close() {
+}
+
+var _ GraphSession = (*mockGraphSession)(nil)
 
 // getNodeIndex returns the zero-based index of the given node in the route.
 func getNodeIndex(route *route.Route, failureSource route.Vertex) *int {

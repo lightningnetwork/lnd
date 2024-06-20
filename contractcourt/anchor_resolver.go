@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 
@@ -71,7 +72,7 @@ func newAnchorResolver(anchorSignDescriptor input.SignDescriptor,
 		currentReport:        report,
 	}
 
-	r.initLogger(r)
+	r.initLogger(fmt.Sprintf("%T(%v)", r, r.anchor))
 
 	return r
 }

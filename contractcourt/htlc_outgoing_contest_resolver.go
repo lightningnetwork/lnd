@@ -1,7 +1,6 @@
 package contractcourt
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -36,6 +35,47 @@ func newOutgoingContestResolver(res lnwallet.OutgoingHtlcResolution,
 	}
 }
 
+// Launch will call the inner resolver's launch method if the expiry height has
+// been reached, otherwise it's a no-op.
+func (h *htlcOutgoingContestResolver) Launch() error {
+	// NOTE: we don't mark this resolver as launched as the inner resolver
+	// will set it when it's launched.
+	if h.launched {
+		h.log.Tracef("already launched")
+		return nil
+	}
+
+	// If the HTLC has custom records, then for now we'll pause resolution.
+	//
+	// TODO(roasbeef): Implement resolving HTLCs with custom records
+	// (follow-up PR).
+	if len(h.htlc.CustomRecords) != 0 {
+		select { //nolint:gosimple
+		case <-h.quit:
+			return errResolverShuttingDown
+		}
+	}
+
+	h.log.Debugf("launching contest resolver...")
+
+	_, bestHeight, err := h.ChainIO.GetBestBlock()
+	if err != nil {
+		return err
+	}
+
+	if uint32(bestHeight) < h.htlcResolution.Expiry {
+		return nil
+	}
+
+	// If the current height is >= expiry, then a timeout path spend will
+	// be valid to be included in the next block, and we can immediately
+	// return the resolver.
+	h.log.Infof("expired (height=%v, expiry=%v), launching timeout "+
+		"resolver", bestHeight, h.htlcResolution.Expiry)
+
+	return h.htlcTimeoutResolver.Launch()
+}
+
 // Resolve commences the resolution of this contract. As this contract hasn't
 // yet timed out, we'll wait for one of two things to happen
 //
@@ -53,6 +93,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	// If we're already full resolved, then we don't have anything further
 	// to do.
 	if h.resolved {
+		h.log.Errorf("already resolved")
 		return nil, nil
 	}
 
@@ -86,7 +127,6 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 			return nil, errResolverShuttingDown
 		}
 
-		// TODO(roasbeef): Checkpoint?
 		return nil, h.claimCleanUp(commitSpend)
 
 	// If it hasn't, then we'll watch for both the expiration, and the
@@ -124,12 +164,18 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 			// finalized` will be returned and the broadcast will
 			// fail.
 			newHeight := uint32(newBlock.Height)
-			if newHeight >= h.htlcResolution.Expiry {
-				log.Infof("%T(%v): HTLC has expired "+
+			expiry := h.htlcResolution.Expiry
+			if h.isZeroFeeOutput() {
+				expiry--
+			}
+
+			if newHeight >= expiry {
+				log.Infof("%T(%v): HTLC about to expire "+
 					"(height=%v, expiry=%v), transforming "+
 					"into timeout resolver", h,
 					h.htlcResolution.ClaimOutpoint,
 					newHeight, h.htlcResolution.Expiry)
+
 				return h.htlcTimeoutResolver, nil
 			}
 
@@ -147,7 +193,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 			return nil, h.claimCleanUp(commitSpend)
 
 		case <-h.quit:
-			return nil, fmt.Errorf("resolver canceled")
+			return nil, errResolverShuttingDown
 		}
 	}
 }
@@ -178,6 +224,8 @@ func (h *htlcOutgoingContestResolver) report() *ContractReport {
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcOutgoingContestResolver) Stop() {
+	h.log.Debugf("stopping...")
+	defer h.log.Debugf("stopped")
 	close(h.quit)
 }
 

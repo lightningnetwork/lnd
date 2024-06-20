@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
@@ -210,6 +211,10 @@ type chainWatcher struct {
 	started int32 // To be used atomically.
 	stopped int32 // To be used atomically.
 
+	// Embed the blockbeat consumer struct to get access to the method
+	// `NotifyBlockProcessed` and the `BlockbeatChan`.
+	chainio.BeatConsumer
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 
@@ -260,12 +265,27 @@ func newChainWatcher(cfg chainWatcherConfig) (*chainWatcher, error) {
 		)
 	}
 
-	return &chainWatcher{
+	c := &chainWatcher{
 		cfg:                 cfg,
 		stateHintObfuscator: stateHint,
 		quit:                make(chan struct{}),
 		clientSubscriptions: make(map[uint64]*ChainEventSubscription),
-	}, nil
+	}
+
+	// Mount the block consumer.
+	c.BeatConsumer = chainio.NewBeatConsumer(c.quit, c.Name())
+
+	return c, nil
+}
+
+// Compile-time check for the chainio.Consumer interface.
+var _ chainio.Consumer = (*chainWatcher)(nil)
+
+// Name returns the name of the watcher.
+//
+// NOTE: part of the `chainio.Consumer` interface.
+func (c *chainWatcher) Name() string {
+	return fmt.Sprintf("ChainWatcher(%v)", c.cfg.chanState.FundingOutpoint)
 }
 
 // Start starts all goroutines that the chainWatcher needs to perform its

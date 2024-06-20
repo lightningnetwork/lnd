@@ -88,7 +88,7 @@ func newCommitSweepResolver(res lnwallet.CommitOutputResolution,
 		chanPoint:           chanPoint,
 	}
 
-	r.initLogger(r)
+	r.initLogger(fmt.Sprintf("%T(%v)", r, r.commitResolution.SelfOutPoint))
 	r.initReport()
 
 	return r
@@ -484,7 +484,7 @@ func newCommitSweepResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 	// removed this, but keep in mind that this data may still be present in
 	// the database.
 
-	c.initLogger(c)
+	c.initLogger(fmt.Sprintf("%T(%v)", c, c.commitResolution.SelfOutPoint))
 	c.initReport()
 
 	return c, nil

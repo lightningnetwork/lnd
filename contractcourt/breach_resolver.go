@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -32,7 +33,7 @@ func newBreachResolver(resCfg ResolverConfig) *breachResolver {
 		replyChan:           make(chan struct{}),
 	}
 
-	r.initLogger(r)
+	r.initLogger(fmt.Sprintf("%T(%v)", r, r.ChanPoint))
 
 	return r
 }
@@ -114,7 +115,7 @@ func newBreachResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 		return nil, err
 	}
 
-	b.initLogger(b)
+	b.initLogger(fmt.Sprintf("%T(%v)", b, b.ChanPoint))
 
 	return b, nil
 }

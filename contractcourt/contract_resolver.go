@@ -121,8 +121,15 @@ func newContractResolverKit(cfg ResolverConfig) *contractResolverKit {
 }
 
 // initLogger initializes the resolver-specific logger.
-func (r *contractResolverKit) initLogger(resolver ContractResolver) {
-	logPrefix := fmt.Sprintf("%T(%v):", resolver, r.ChanPoint)
+func (r *contractResolverKit) initLogger(prefix string) {
+	logPrefix := fmt.Sprintf("ChannelArbitrator(%v): %s:", r.ChanPoint,
+		prefix)
+
+	if r.ShortChanID.IsDefault() {
+		logPrefix = fmt.Sprintf("ChannelArbitrator(%v): %s:",
+			r.ChanPoint, prefix)
+	}
+
 	r.log = build.NewPrefixLog(logPrefix, log)
 }
 

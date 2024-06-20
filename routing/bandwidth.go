@@ -43,8 +43,8 @@ type TlvTrafficShaper interface {
 	// of 0 means there is no bandwidth available. To find out if a channel
 	// is a custom channel that should be handled by the traffic shaper, the
 	// HandleTraffic method should be called first.
-	PaymentBandwidth(htlcBlob,
-		commitmentBlob fn.Option[tlv.Blob]) (lnwire.MilliSatoshi, error)
+	PaymentBandwidth(htlcBlob, commitmentBlob fn.Option[tlv.Blob],
+		linkBandwidth lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error)
 }
 
 // AuxHtlcModifier is an interface that allows the sender to modify the outgoing
@@ -131,6 +131,11 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 	}
 
 	var (
+		// We will pass the link bandwidth to the external traffic
+		// shaper. This is the current best estimate for the available
+		// bandwidth for the link.
+		linkBandwidth = link.Bandwidth()
+
 		auxBandwidth           lnwire.MilliSatoshi
 		auxBandwidthDetermined bool
 	)
@@ -154,7 +159,7 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 		// Ask for a specific bandwidth to be used for the channel.
 		commitmentBlob := link.CommitmentCustomBlob()
 		auxBandwidth, err = ts.PaymentBandwidth(
-			htlcBlob, commitmentBlob,
+			htlcBlob, commitmentBlob, linkBandwidth,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to get bandwidth from "+
@@ -192,7 +197,7 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 
 	// Otherwise, we'll return the current best estimate for the
 	// available bandwidth for the link.
-	return link.Bandwidth()
+	return linkBandwidth
 }
 
 // availableChanBandwidth returns the total available bandwidth for a channel

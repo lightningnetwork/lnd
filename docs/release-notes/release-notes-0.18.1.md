@@ -65,6 +65,9 @@
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/8854) pagination issues 
   in SQL invoicedb queries.
 
+* [Migrate](https://github.com/lightningnetwork/lnd/pull/8855) incorrectly
+  stored invoice expiry values.
+
 ## Code Health
 ## Tooling and Documentation
 

@@ -11,7 +11,7 @@ require (
 	github.com/ory/dockertest/v3 v3.10.0
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/exp v0.0.0-20240325151524-a685a6edb6d8
-	modernc.org/sqlite v1.29.8
+	modernc.org/sqlite v1.29.10
 )
 
 require (

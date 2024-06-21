@@ -69,7 +69,7 @@ func randInvoice(value lnwire.MilliSatoshi) (*invpkg.Invoice, error) {
 	i := &invpkg.Invoice{
 		CreationDate: testNow,
 		Terms: invpkg.ContractTerm{
-			Expiry:          4000,
+			Expiry:          time.Duration(4000) * time.Second,
 			PaymentPreimage: &pre,
 			PaymentAddr:     payAddr,
 			Value:           value,

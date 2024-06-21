@@ -1,0 +1,2 @@
+-- Given that all expiries are changed in this migration we won't be able to
+-- roll back to the previous values.

@@ -173,6 +173,8 @@ github.com/decred/dcrd/lru v1.1.2 h1:KdCzlkxppuoIDGEvCGah1fZRicrDH36IipvlB1ROkFY
 github.com/decred/dcrd/lru v1.1.2/go.mod h1:gEdCVgXs1/YoBvFWt7Scgknbhwik3FgVSzlnCcXL2N8=
 github.com/dhui/dktest v0.4.0 h1:z05UmuXZHO/bgj/ds2bGMBu8FI4WA+Ag/m3ghL+om7M=
 github.com/dhui/dktest v0.4.0/go.mod h1:v/Dbz1LgCBOi2Uki2nUqLBGa83hWBGFMu5MrgMDCc78=
+github.com/djkazic/neutrino v0.16.1-6 h1:e9K2wyMiQYQnF9LIaxfHDh7rePA7JkDNxMga/8P5Nfk=
+github.com/djkazic/neutrino v0.16.1-6/go.mod h1:x3OmY2wsA18+Kc3TSV2QpSUewOCiscw2mKpXgZv2kZk=
 github.com/docker/cli v20.10.17+incompatible h1:eO2KS7ZFeov5UJeaDmIs1NFEDRf32PaqRpvoEkKBy5M=
 github.com/docker/cli v20.10.17+incompatible/go.mod h1:JLrzqnKDaYBop7H2jaqPtU4hHvMKP+vjCwu2uszcLI8=
 github.com/docker/distribution v2.8.2+incompatible h1:T3de5rq0dB1j30rp0sA2rER+m322EBzniBPB6ZIzuh8=
@@ -436,8 +438,6 @@ github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw=
 github.com/lib/pq v1.10.9/go.mod h1:AlVN5x4E4T544tWzH6hKfbfQvm3HdbOxrmggDNAPY9o=
 github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf h1:HZKvJUHlcXI/f/O0Avg7t8sqkPo78HFzjmeYFl6DPnc=
 github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf/go.mod h1:vxmQPeIQxPf6Jf9rM8R+B4rKBqLA2AjttNxkFBL2Plk=
-github.com/lightninglabs/neutrino v0.16.1-0.20240425105051-602843d34ffd h1:D8aRocHpoCv43hL8egXEMYyPmyOiefFHZ66338KQB2s=
-github.com/lightninglabs/neutrino v0.16.1-0.20240425105051-602843d34ffd/go.mod h1:x3OmY2wsA18+Kc3TSV2QpSUewOCiscw2mKpXgZv2kZk=
 github.com/lightninglabs/neutrino/cache v1.1.2 h1:C9DY/DAPaPxbFC+xNNEI/z1SJY9GS3shmlu5hIQ798g=
 github.com/lightninglabs/neutrino/cache v1.1.2/go.mod h1:XJNcgdOw1LQnanGjw8Vj44CvguYA25IMKjWFZczwZuo=
 github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display h1:pRdza2wleRN1L2fJXd6ZoQ9ZegVFTAb2bOQfruJPKcY=

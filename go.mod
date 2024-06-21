@@ -19,6 +19,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0
 	github.com/go-errors/errors v1.0.1
+	github.com/golang/protobuf v1.5.3
 	github.com/gorilla/websocket v1.5.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
@@ -94,7 +95,6 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.4.2 // indirect
 	github.com/golang-migrate/migrate/v4 v4.17.0 // indirect
-	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/btree v1.0.1 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
@@ -202,6 +202,8 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display
+
+replace github.com/lightninglabs/neutrino => github.com/djkazic/neutrino v0.16.1-6
 
 // If you change this please also update .github/pull_request_template.md and
 // docs/INSTALL.md.

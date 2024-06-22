@@ -925,6 +925,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	mcCfg := &routing.MissionControlConfig{
+		UpdateEstimatorValue:    s.UpdateEstimatorValue,
 		Estimator:               estimator,
 		MaxMcHistory:            routingConfig.MaxMcHistory,
 		McFlushInterval:         routingConfig.McFlushInterval,
@@ -1678,6 +1679,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	s.connMgr = cmgr
 
 	return s, nil
+}
+
+// Callback function to update the Estimator value in the main cfg when the 
+// lncli setmccfg is called to change the estimator value. 
+ func (s *server) UpdateEstimatorValue(estimator routing.Estimator) {
+	s.cfg.Estimator = estimator
 }
 
 // signAliasUpdate takes a ChannelUpdate and returns the signature. This is

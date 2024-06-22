@@ -121,6 +121,10 @@ type MissionControl struct {
 // MissionControlConfig defines parameters that control mission control
 // behaviour.
 type MissionControlConfig struct {
+	// callback is a function that is called whenever the mission control
+	// state is updated.
+	UpdateEstimatorValue func(estimator Estimator)
+	
 	// Estimator gives probability estimates for node pairs.
 	Estimator Estimator
 
@@ -308,6 +312,7 @@ func (m *MissionControl) SetConfig(cfg *MissionControlConfig) error {
 	m.state.minFailureRelaxInterval = cfg.MinFailureRelaxInterval
 	m.estimator = cfg.Estimator
 
+	cfg.UpdateEstimatorValue(cfg.Estimator)
 	return nil
 }
 

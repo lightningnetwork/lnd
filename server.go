@@ -923,7 +923,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				routingConfig.ProbabilityEstimatorType)
 		}
 	}
-
+	// UpdateEstimatorValue is a function that will be called by the
+	// mission control instance every time a new estimator stratefu 
+	// is setted.
 	mcCfg := &routing.MissionControlConfig{
 		UpdateEstimatorValue:    s.UpdateEstimatorValue,
 		Estimator:               estimator,

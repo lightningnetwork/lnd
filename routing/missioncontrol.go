@@ -312,6 +312,7 @@ func (m *MissionControl) SetConfig(cfg *MissionControlConfig) error {
 	m.state.minFailureRelaxInterval = cfg.MinFailureRelaxInterval
 	m.estimator = cfg.Estimator
 
+	//call the callback to update the estimator value
 	cfg.UpdateEstimatorValue(cfg.Estimator)
 	return nil
 }

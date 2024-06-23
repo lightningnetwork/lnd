@@ -2,7 +2,7 @@
 
 package sqldb
 
-import "fmt"
+import "errors"
 
 // SqliteStore is a database store implementation that uses a sqlite backend.
 type SqliteStore struct {
@@ -14,5 +14,5 @@ type SqliteStore struct {
 // NewSqliteStore attempts to open a new sqlite database based on the passed
 // config.
 func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
-	return nil, fmt.Errorf("SQLite backend not supported in WebAssembly")
+	return nil, errors.New("SQLite backend not supported in WebAssembly")
 }

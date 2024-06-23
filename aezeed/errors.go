@@ -1,20 +1,23 @@
 package aezeed
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	// ErrIncorrectVersion is returned if a seed bares a mismatched
 	// external version to that of the package executing the aezeed scheme.
-	ErrIncorrectVersion = fmt.Errorf("wrong seed version")
+	ErrIncorrectVersion = errors.New("wrong seed version")
 
 	// ErrInvalidPass is returned if the user enters an invalid passphrase
 	// for a particular enciphered mnemonic.
-	ErrInvalidPass = fmt.Errorf("invalid passphrase")
+	ErrInvalidPass = errors.New("invalid passphrase")
 
 	// ErrIncorrectMnemonic is returned if we detect that the checksum of
 	// the specified mnemonic doesn't match. This indicates the user input
 	// the wrong mnemonic.
-	ErrIncorrectMnemonic = fmt.Errorf("mnemonic phrase checksum doesn't " +
+	ErrIncorrectMnemonic = errors.New("mnemonic phrase checksum doesn't " +
 		"match")
 )
 

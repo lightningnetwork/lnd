@@ -426,6 +426,14 @@ func (h *htlcTimeoutResolver) Resolve(
 		return nil, nil
 	}
 
+	// If the HTLC has custom records, then for now we'll pause resolution.
+	if len(h.htlc.CustomRecords) != 0 {
+		select { //nolint:gosimple
+		case <-h.quit:
+			return nil, errResolverShuttingDown
+		}
+	}
+
 	// Start by spending the HTLC output, either by broadcasting the
 	// second-level timeout transaction, or directly if this is the remote
 	// commitment.

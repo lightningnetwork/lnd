@@ -220,6 +220,26 @@ func (b *BudgetInputSet) NeedWalletInput() bool {
 		budgetBorrowable btcutil.Amount
 	)
 
+	// If any of the outputs in the set have a resolution blob, then this
+	// means we'll end up needing an extra change output. We'll tack this
+	// on now as an extra portion of the budget.
+	extraRequiredTxOut := fn.Any(func(i *SweeperInput) bool {
+		// If there's a required txout, then we don't count this as
+		// it'll be a second level HTLC.
+		if i.RequiredTxOut() != nil {
+			return false
+		}
+
+		// Otherwise, we need one if we have a resolution blob.
+		return i.ResolutionBlob().IsSome()
+	}, b.inputs)
+
+	if extraRequiredTxOut {
+		// TODO(roasbeef): aux sweeper ext to ask for extra output
+		// params and value?
+		budgetNeeded += 1_000
+	}
+
 	for _, inp := range b.inputs {
 		// If this input has a required output, we can assume it's a
 		// second-level htlc txns input. Although this input must have

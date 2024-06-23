@@ -38,7 +38,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	signer input.Signer) (*wire.MsgTx, btcutil.Amount, error) {
 
 	inputs, estimator, err := getWeightEstimate(
-		inputs, outputs, feeRate, maxFeeRate, changePkScript,
+		inputs, outputs, feeRate, maxFeeRate, [][]byte{changePkScript},
 	)
 	if err != nil {
 		return nil, 0, err
@@ -221,7 +221,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 // Additionally, it returns counts for the number of csv and cltv inputs.
 func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
 	feeRate, maxFeeRate chainfee.SatPerKWeight,
-	outputPkScript []byte) ([]input.Input, *weightEstimator, error) {
+	outputPkScripts [][]byte) ([]input.Input, *weightEstimator, error) {
 
 	// We initialize a weight estimator so we can accurately asses the
 	// amount of fees we need to pay for this sweep transaction.
@@ -237,31 +237,33 @@ func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
 
 	// If there is any leftover change after paying to the given outputs
 	// and required outputs, it will go to a single segwit p2wkh or p2tr
-	// address. This will be our change address, so ensure it contributes to
-	// our weight estimate. Note that if we have other outputs, we might end
-	// up creating a sweep tx without a change output. It is okay to add the
-	// change output to the weight estimate regardless, since the estimated
-	// fee will just be subtracted from this already dust output, and
-	// trimmed.
-	switch {
-	case txscript.IsPayToTaproot(outputPkScript):
-		weightEstimate.addP2TROutput()
+	// address. This will be our change address, so ensure it contributes
+	// to our weight estimate. Note that if we have other outputs, we might
+	// end up creating a sweep tx without a change output. It is okay to
+	// add the change output to the weight estimate regardless, since the
+	// estimated fee will just be subtracted from this already dust output,
+	// and trimmed.
+	for _, outputPkScript := range outputPkScripts {
+		switch {
+		case txscript.IsPayToTaproot(outputPkScript):
+			weightEstimate.addP2TROutput()
 
-	case txscript.IsPayToWitnessScriptHash(outputPkScript):
-		weightEstimate.addP2WSHOutput()
+		case txscript.IsPayToWitnessScriptHash(outputPkScript):
+			weightEstimate.addP2WSHOutput()
 
-	case txscript.IsPayToWitnessPubKeyHash(outputPkScript):
-		weightEstimate.addP2WKHOutput()
+		case txscript.IsPayToWitnessPubKeyHash(outputPkScript):
+			weightEstimate.addP2WKHOutput()
 
-	case txscript.IsPayToPubKeyHash(outputPkScript):
-		weightEstimate.estimator.AddP2PKHOutput()
+		case txscript.IsPayToPubKeyHash(outputPkScript):
+			weightEstimate.estimator.AddP2PKHOutput()
 
-	case txscript.IsPayToScriptHash(outputPkScript):
-		weightEstimate.estimator.AddP2SHOutput()
+		case txscript.IsPayToScriptHash(outputPkScript):
+			weightEstimate.estimator.AddP2SHOutput()
 
-	default:
-		// Unknown script type.
-		return nil, nil, errors.New("unknown script type")
+		default:
+			// Unknown script type.
+			return nil, nil, errors.New("unknown script type")
+		}
 	}
 
 	// For each output, use its witness type to determine the estimate

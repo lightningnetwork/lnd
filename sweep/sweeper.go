@@ -297,7 +297,7 @@ type UtxoSweeper struct {
 	// to sweep.
 	inputs InputsMap
 
-	currentOutputScript []byte
+	currentOutputScript fn.Option[lnwallet.AddrWithKey]
 
 	relayFeeRate chainfee.SatPerKWeight
 
@@ -317,7 +317,7 @@ type UtxoSweeper struct {
 type UtxoSweeperConfig struct {
 	// GenSweepScript generates a P2WKH script belonging to the wallet where
 	// funds can be swept.
-	GenSweepScript func() ([]byte, error)
+	GenSweepScript func() fn.Result[lnwallet.AddrWithKey]
 
 	// FeeEstimator is used when crafting sweep transactions to estimate
 	// the necessary fee relative to the expected size of the sweep
@@ -361,6 +361,10 @@ type UtxoSweeperConfig struct {
 	// NoDeadlineConfTarget is the conf target to use when sweeping
 	// non-time-sensitive outputs.
 	NoDeadlineConfTarget uint32
+
+	// AuxSweeper is an optional interface that can be used to modify the
+	// way sweep transaction are generated.
+	AuxSweeper fn.Option[AuxSweeper]
 }
 
 // Result is the struct that is pushed through the result channel. Callers can
@@ -795,12 +799,19 @@ func (s *UtxoSweeper) signalResult(pi *SweeperInput, result Result) {
 // the tx. The output address is only marked as used if the publish succeeds.
 func (s *UtxoSweeper) sweep(set InputSet) error {
 	// Generate an output script if there isn't an unused script available.
-	if s.currentOutputScript == nil {
-		pkScript, err := s.cfg.GenSweepScript()
+	if s.currentOutputScript.IsNone() {
+		addr, err := s.cfg.GenSweepScript().Unpack()
 		if err != nil {
 			return fmt.Errorf("gen sweep script: %w", err)
 		}
-		s.currentOutputScript = pkScript
+		s.currentOutputScript = fn.Some(addr)
+	}
+
+	sweepAddr, err := s.currentOutputScript.UnwrapOrErr(
+		fmt.Errorf("none sweep script"),
+	)
+	if err != nil {
+		return err
 	}
 
 	// Create a fee bump request and ask the publisher to broadcast it. The
@@ -810,7 +821,7 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 		Inputs:          set.Inputs(),
 		Budget:          set.Budget(),
 		DeadlineHeight:  set.DeadlineHeight(),
-		DeliveryAddress: s.currentOutputScript,
+		DeliveryAddress: sweepAddr,
 		MaxFeeRate:      s.cfg.MaxFeeRate.FeePerKWeight(),
 		StartingFeeRate: set.StartingFeeRate(),
 		// TODO(yy): pass the strategy here.
@@ -1704,10 +1715,10 @@ func (s *UtxoSweeper) handleBumpEventTxPublished(r *BumpResult) error {
 	log.Debugf("Published sweep tx %v, num_inputs=%v, height=%v",
 		tx.TxHash(), len(tx.TxIn), s.currentHeight)
 
-	// If there's no error, remove the output script. Otherwise
-	// keep it so that it can be reused for the next transaction
-	// and causes no address inflation.
-	s.currentOutputScript = nil
+	// If there's no error, remove the output script. Otherwise keep it so
+	// that it can be reused for the next transaction and causes no address
+	// inflation.
+	s.currentOutputScript = fn.None[lnwallet.AddrWithKey]()
 
 	return nil
 }

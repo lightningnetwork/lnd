@@ -18,7 +18,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
-	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/build"
@@ -36,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -394,6 +394,10 @@ type Config struct {
 	// AuxSigner is an optional signer that can be used to sign auxiliary
 	// leaves for certain custom channel types.
 	AuxSigner fn.Option[lnwallet.AuxSigner]
+
+	// AuxResolver is an optional interface that can be used to modify the
+	// way contracts are resolved.
+	AuxResolver fn.Option[lnwallet.AuxContractResolver]
 
 	// PongBuf is a slice we'll reuse instead of allocating memory on the
 	// heap. Since only reads will occur and no writes, there is no need
@@ -883,70 +887,32 @@ func (p *Brontide) QuitSignal() <-chan struct{} {
 	return p.quit
 }
 
-// internalKeyForAddr returns the internal key associated with a taproot
-// address.
-func internalKeyForAddr(wallet *lnwallet.LightningWallet,
-	deliveryScript []byte) (fn.Option[btcec.PublicKey], error) {
-
-	none := fn.None[btcec.PublicKey]()
-
-	pkScript, err := txscript.ParsePkScript(deliveryScript)
-	if err != nil {
-		return none, err
-	}
-	addr, err := pkScript.Address(&wallet.Cfg.NetParams)
-	if err != nil {
-		return none, err
-	}
-
-	walletAddr, err := wallet.AddressInfo(addr)
-	if err != nil {
-		return none, err
-	}
-
-	// If the address isn't known to the wallet, we can't determine the
-	// internal key.
-	if walletAddr == nil {
-		return none, nil
-	}
-
-	// If it's not a taproot address, we don't require to know the internal
-	// key in the first place. So we don't return an error here, but also no
-	// internal key.
-	if walletAddr.AddrType() != waddrmgr.TaprootPubKey {
-		return none, nil
-	}
-
-	pubKeyAddr, ok := walletAddr.(waddrmgr.ManagedPubKeyAddress)
-	if !ok {
-		return none, fmt.Errorf("expected pubkey addr, got %T",
-			pubKeyAddr)
-	}
-
-	return fn.Some(*pubKeyAddr.PubKey()), nil
-}
-
 // addrWithInternalKey takes a delivery script, then attempts to supplement it
 // with information related to the internal key for the addr, but only if it's
 // a taproot addr.
 func (p *Brontide) addrWithInternalKey(
-	deliveryScript []byte) fn.Result[chancloser.DeliveryAddrWithKey] {
+	deliveryScript []byte) (*chancloser.DeliveryAddrWithKey, error) {
 
-	// TODO(roasbeef): not compatible with external shutdown addr?
 	// Currently, custom channels cannot be created with external upfront
 	// shutdown addresses, so this shouldn't be an issue. We only require
 	// the internal key for taproot addresses to be able to provide a non
 	// inclusion proof of any scripts.
-
-	internalKey, err := internalKeyForAddr(p.cfg.Wallet, deliveryScript)
+	internalKeyDesc, err := lnwallet.InternalKeyForAddr(
+		p.cfg.Wallet, &p.cfg.Wallet.Cfg.NetParams,
+		deliveryScript,
+	)
 	if err != nil {
-		return fn.Err[chancloser.DeliveryAddrWithKey](err)
+		return nil, fmt.Errorf("unable to fetch internal key: %w", err)
 	}
 
-	return fn.Ok(chancloser.DeliveryAddrWithKey{
+	return &chancloser.DeliveryAddrWithKey{
 		DeliveryAddress: deliveryScript,
-		InternalKey:     internalKey,
-	})
+		InternalKey: fn.MapOption(
+			func(desc keychain.KeyDescriptor) btcec.PublicKey {
+				return *desc.PubKey
+			},
+		)(internalKeyDesc),
+	}, nil
 }
 
 // loadActiveChannels creates indexes within the peer for tracking all active
@@ -1027,6 +993,10 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		p.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
 			chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
 		})
+		p.cfg.AuxResolver.WhenSome(func(s lnwallet.AuxContractResolver) { //nolint:lll
+			chanOpts = append(chanOpts, lnwallet.WithAuxResolver(s))
+		})
+
 		lnChan, err := lnwallet.NewLightningChannel(
 			p.cfg.Signer, dbChan, p.cfg.SigPool, chanOpts...,
 		)
@@ -1191,7 +1161,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 
 			addr, err := p.addrWithInternalKey(
 				info.DeliveryScript.Val,
-			).Unpack()
+			)
 			if err != nil {
 				shutdownInfoErr = fmt.Errorf("unable to make "+
 					"delivery addr: %w", err)
@@ -2885,7 +2855,7 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 		return nil, fmt.Errorf("unable to estimate fee")
 	}
 
-	addr, err := p.addrWithInternalKey(deliveryScript).Unpack()
+	addr, err := p.addrWithInternalKey(deliveryScript)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse addr: %w", err)
 	}
@@ -3131,7 +3101,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 		channeldb.ChanStatusLocalCloseInitiator,
 	)
 
-	addr, err := p.addrWithInternalKey(deliveryScript).Unpack()
+	addr, err := p.addrWithInternalKey(deliveryScript)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse addr: %w", err)
 	}
@@ -3163,7 +3133,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 // createChanCloser constructs a ChanCloser from the passed parameters and is
 // used to de-duplicate code.
 func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
-	deliveryScript chancloser.DeliveryAddrWithKey,
+	deliveryScript *chancloser.DeliveryAddrWithKey,
 	fee chainfee.SatPerKWeight, req *htlcswitch.ChanClose,
 	locallyInitiated bool) (*chancloser.ChanCloser, error) {
 
@@ -3198,7 +3168,7 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 			ChainParams: &p.cfg.Wallet.Cfg.NetParams,
 			Quit:        p.quit,
 		},
-		deliveryScript,
+		*deliveryScript,
 		fee,
 		uint32(startingHeight),
 		req,
@@ -3257,7 +3227,7 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 				return
 			}
 		}
-		addr, err := p.addrWithInternalKey(deliveryScript).Unpack()
+		addr, err := p.addrWithInternalKey(deliveryScript)
 		if err != nil {
 			err = fmt.Errorf("unable to parse addr for channel "+
 				"%v: %w", req.ChanPoint, err)
@@ -4198,6 +4168,9 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 	})
 	p.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
 		chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
+	})
+	p.cfg.AuxResolver.WhenSome(func(s lnwallet.AuxContractResolver) {
+		chanOpts = append(chanOpts, lnwallet.WithAuxResolver(s))
 	})
 
 	// If not already active, we'll add this channel to the set of active

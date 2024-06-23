@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -69,19 +70,26 @@ func TestTaprootBriefcase(t *testing.T) {
 	_, err = rand.Read(anchorTweak[:])
 	require.NoError(t, err)
 
+	var commitBlob [100]byte
+	_, err = rand.Read(commitBlob[:])
+	require.NoError(t, err)
+
 	testCase := &taprootBriefcase{
-		CtrlBlocks: &ctrlBlocks{
+		CtrlBlocks: tlv.NewRecordT[tlv.TlvType0](ctrlBlocks{
 			CommitSweepCtrlBlock:   sweepCtrlBlock[:],
 			RevokeSweepCtrlBlock:   revokeCtrlBlock[:],
 			OutgoingHtlcCtrlBlocks: randResolverCtrlBlocks(t),
 			IncomingHtlcCtrlBlocks: randResolverCtrlBlocks(t),
 			SecondLevelCtrlBlocks:  randResolverCtrlBlocks(t),
-		},
-		TapTweaks: &tapTweaks{
+		}),
+		TapTweaks: tlv.NewRecordT[tlv.TlvType1](tapTweaks{
 			AnchorTweak:                   anchorTweak[:],
 			BreachedHtlcTweaks:            randHtlcTweaks(t),
 			BreachedSecondLevelHltcTweaks: randHtlcTweaks(t),
-		},
+		}),
+		CommitBlob: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType2](commitBlob[:]),
+		),
 	}
 
 	var b bytes.Buffer

@@ -6,7 +6,9 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // EmptyOutPoint is a zeroed outpoint.
@@ -63,6 +65,10 @@ type Input interface {
 	// UnconfParent returns information about a possibly unconfirmed parent
 	// tx.
 	UnconfParent() *TxInfo
+
+	// ResolutionBlob returns a special opaque blob to be used to
+	// sweep/resolve this input.
+	ResolutionBlob() fn.Option[tlv.Blob]
 }
 
 // TxInfo describes properties of a parent tx that are relevant for CPFP.
@@ -106,6 +112,8 @@ type inputKit struct {
 	// unconfParent contains information about a potential unconfirmed
 	// parent transaction.
 	unconfParent *TxInfo
+
+	resolutionBlob fn.Option[tlv.Blob]
 }
 
 // OutPoint returns the breached output's identifier that is to be included as
@@ -156,6 +164,38 @@ func (i *inputKit) UnconfParent() *TxInfo {
 	return i.unconfParent
 }
 
+// ResolutionBlob returns a special opaque blob to be used to sweep/resolve
+// this input.
+func (i *inputKit) ResolutionBlob() fn.Option[tlv.Blob] {
+	return i.resolutionBlob
+}
+
+// inputOpts contains options for constructing a new input.
+type inputOpts struct {
+	// resolutionBlob is an optional blob that can be used to resolve an
+	// input.
+	resolutionBlob fn.Option[tlv.Blob]
+}
+
+// defaultInputOpts returns a new inputOpts with default values.
+func defaultInputOpts() *inputOpts {
+	return &inputOpts{}
+}
+
+// InputOpt is a functional option that can be used to modify the default input
+// options.
+//
+// TODO(roasbeef): make rest of args to input kit func opt?
+type InputOpt func(*inputOpts) //nolint:revive
+
+// WithResolutionBlob is an option that can be used to set a resolution blob on
+// for an input.
+func WithResolutionBlob(b fn.Option[tlv.Blob]) InputOpt {
+	return func(o *inputOpts) {
+		o.resolutionBlob = b
+	}
+}
+
 // BaseInput contains all the information needed to sweep a basic
 // output (CSV/CLTV/no time lock).
 type BaseInput struct {
@@ -166,15 +206,21 @@ type BaseInput struct {
 // sweep transaction.
 func MakeBaseInput(outpoint *wire.OutPoint, witnessType WitnessType,
 	signDescriptor *SignDescriptor, heightHint uint32,
-	unconfParent *TxInfo) BaseInput {
+	unconfParent *TxInfo, opts ...InputOpt) BaseInput {
+
+	opt := defaultInputOpts()
+	for _, optF := range opts {
+		optF(opt)
+	}
 
 	return BaseInput{
 		inputKit{
-			outpoint:     *outpoint,
-			witnessType:  witnessType,
-			signDesc:     *signDescriptor,
-			heightHint:   heightHint,
-			unconfParent: unconfParent,
+			outpoint:       *outpoint,
+			witnessType:    witnessType,
+			signDesc:       *signDescriptor,
+			heightHint:     heightHint,
+			unconfParent:   unconfParent,
+			resolutionBlob: opt.resolutionBlob,
 		},
 	}
 }
@@ -182,10 +228,11 @@ func MakeBaseInput(outpoint *wire.OutPoint, witnessType WitnessType,
 // NewBaseInput allocates and assembles a new *BaseInput that can be used to
 // construct a sweep transaction.
 func NewBaseInput(outpoint *wire.OutPoint, witnessType WitnessType,
-	signDescriptor *SignDescriptor, heightHint uint32) *BaseInput {
+	signDescriptor *SignDescriptor, heightHint uint32,
+	opts ...InputOpt) *BaseInput {
 
 	input := MakeBaseInput(
-		outpoint, witnessType, signDescriptor, heightHint, nil,
+		outpoint, witnessType, signDescriptor, heightHint, nil, opts...,
 	)
 
 	return &input
@@ -195,36 +242,31 @@ func NewBaseInput(outpoint *wire.OutPoint, witnessType WitnessType,
 // construct a sweep transaction.
 func NewCsvInput(outpoint *wire.OutPoint, witnessType WitnessType,
 	signDescriptor *SignDescriptor, heightHint uint32,
-	blockToMaturity uint32) *BaseInput {
+	blockToMaturity uint32, opts ...InputOpt) *BaseInput {
 
-	return &BaseInput{
-		inputKit{
-			outpoint:        *outpoint,
-			witnessType:     witnessType,
-			signDesc:        *signDescriptor,
-			heightHint:      heightHint,
-			blockToMaturity: blockToMaturity,
-		},
-	}
+	input := MakeBaseInput(
+		outpoint, witnessType, signDescriptor, heightHint, nil, opts...,
+	)
+
+	input.blockToMaturity = blockToMaturity
+
+	return &input
 }
 
 // NewCsvInputWithCltv assembles a new csv and cltv locked input that can be
 // used to construct a sweep transaction.
 func NewCsvInputWithCltv(outpoint *wire.OutPoint, witnessType WitnessType,
 	signDescriptor *SignDescriptor, heightHint uint32,
-	csvDelay uint32, cltvExpiry uint32) *BaseInput {
+	csvDelay uint32, cltvExpiry uint32, opts ...InputOpt) *BaseInput {
 
-	return &BaseInput{
-		inputKit{
-			outpoint:        *outpoint,
-			witnessType:     witnessType,
-			signDesc:        *signDescriptor,
-			heightHint:      heightHint,
-			blockToMaturity: csvDelay,
-			cltvExpiry:      cltvExpiry,
-			unconfParent:    nil,
-		},
-	}
+	input := MakeBaseInput(
+		outpoint, witnessType, signDescriptor, heightHint, nil, opts...,
+	)
+
+	input.blockToMaturity = csvDelay
+	input.cltvExpiry = cltvExpiry
+
+	return &input
 }
 
 // CraftInputScript returns a valid set of input scripts allowing this output
@@ -256,16 +298,16 @@ type HtlcSucceedInput struct {
 // construct a sweep transaction.
 func MakeHtlcSucceedInput(outpoint *wire.OutPoint,
 	signDescriptor *SignDescriptor, preimage []byte, heightHint,
-	blocksToMaturity uint32) HtlcSucceedInput {
+	blocksToMaturity uint32, opts ...InputOpt) HtlcSucceedInput {
+
+	input := MakeBaseInput(
+		outpoint, HtlcAcceptedRemoteSuccess, signDescriptor,
+		heightHint, nil, opts...,
+	)
+	input.blockToMaturity = blocksToMaturity
 
 	return HtlcSucceedInput{
-		inputKit: inputKit{
-			outpoint:        *outpoint,
-			witnessType:     HtlcAcceptedRemoteSuccess,
-			signDesc:        *signDescriptor,
-			heightHint:      heightHint,
-			blockToMaturity: blocksToMaturity,
-		},
+		inputKit: input.inputKit,
 		preimage: preimage,
 	}
 }
@@ -274,16 +316,17 @@ func MakeHtlcSucceedInput(outpoint *wire.OutPoint,
 // to spend an HTLC output for a taproot channel on the remote party's
 // commitment transaction.
 func MakeTaprootHtlcSucceedInput(op *wire.OutPoint, signDesc *SignDescriptor,
-	preimage []byte, heightHint, blocksToMaturity uint32) HtlcSucceedInput {
+	preimage []byte, heightHint, blocksToMaturity uint32,
+	opts ...InputOpt) HtlcSucceedInput {
+
+	input := MakeBaseInput(
+		op, TaprootHtlcAcceptedRemoteSuccess, signDesc,
+		heightHint, nil, opts...,
+	)
+	input.blockToMaturity = blocksToMaturity
 
 	return HtlcSucceedInput{
-		inputKit: inputKit{
-			outpoint:        *op,
-			witnessType:     TaprootHtlcAcceptedRemoteSuccess,
-			signDesc:        *signDesc,
-			heightHint:      heightHint,
-			blockToMaturity: blocksToMaturity,
-		},
+		inputKit: input.inputKit,
 		preimage: preimage,
 	}
 }
@@ -388,7 +431,8 @@ func (i *HtlcSecondLevelAnchorInput) CraftInputScript(signer Signer,
 // to spend the HTLC output on our commit using the second level timeout
 // transaction.
 func MakeHtlcSecondLevelTimeoutAnchorInput(signedTx *wire.MsgTx,
-	signDetails *SignDetails, heightHint uint32) HtlcSecondLevelAnchorInput {
+	signDetails *SignDetails, heightHint uint32,
+	opts ...InputOpt) HtlcSecondLevelAnchorInput {
 
 	// Spend an HTLC output on our local commitment tx using the
 	// 2nd timeout transaction.
@@ -408,16 +452,15 @@ func MakeHtlcSecondLevelTimeoutAnchorInput(signedTx *wire.MsgTx,
 		)
 	}
 
-	return HtlcSecondLevelAnchorInput{
-		inputKit: inputKit{
-			outpoint:    signedTx.TxIn[0].PreviousOutPoint,
-			witnessType: HtlcOfferedTimeoutSecondLevelInputConfirmed,
-			signDesc:    signDetails.SignDesc,
-			heightHint:  heightHint,
+	input := MakeBaseInput(
+		&signedTx.TxIn[0].PreviousOutPoint,
+		HtlcOfferedTimeoutSecondLevelInputConfirmed,
+		&signDetails.SignDesc, heightHint, nil, opts...,
+	)
+	input.blockToMaturity = 1
 
-			// CSV delay is always 1 for these inputs.
-			blockToMaturity: 1,
-		},
+	return HtlcSecondLevelAnchorInput{
+		inputKit:      input.inputKit,
 		SignedTx:      signedTx,
 		createWitness: createWitness,
 	}
@@ -429,7 +472,7 @@ func MakeHtlcSecondLevelTimeoutAnchorInput(signedTx *wire.MsgTx,
 // sweep the second level HTLC aggregated with other transactions.
 func MakeHtlcSecondLevelTimeoutTaprootInput(signedTx *wire.MsgTx,
 	signDetails *SignDetails,
-	heightHint uint32) HtlcSecondLevelAnchorInput {
+	heightHint uint32, opts ...InputOpt) HtlcSecondLevelAnchorInput {
 
 	createWitness := func(signer Signer, txn *wire.MsgTx,
 		hashCache *txscript.TxSigHashes,
@@ -453,16 +496,15 @@ func MakeHtlcSecondLevelTimeoutTaprootInput(signedTx *wire.MsgTx,
 		)
 	}
 
-	return HtlcSecondLevelAnchorInput{
-		inputKit: inputKit{
-			outpoint:    signedTx.TxIn[0].PreviousOutPoint,
-			witnessType: TaprootHtlcLocalOfferedTimeout,
-			signDesc:    signDetails.SignDesc,
-			heightHint:  heightHint,
+	input := MakeBaseInput(
+		&signedTx.TxIn[0].PreviousOutPoint,
+		TaprootHtlcLocalOfferedTimeout,
+		&signDetails.SignDesc, heightHint, nil, opts...,
+	)
+	input.blockToMaturity = 1
 
-			// CSV delay is always 1 for these inputs.
-			blockToMaturity: 1,
-		},
+	return HtlcSecondLevelAnchorInput{
+		inputKit:      input.inputKit,
 		SignedTx:      signedTx,
 		createWitness: createWitness,
 	}
@@ -473,7 +515,7 @@ func MakeHtlcSecondLevelTimeoutTaprootInput(signedTx *wire.MsgTx,
 // transaction.
 func MakeHtlcSecondLevelSuccessAnchorInput(signedTx *wire.MsgTx,
 	signDetails *SignDetails, preimage lntypes.Preimage,
-	heightHint uint32) HtlcSecondLevelAnchorInput {
+	heightHint uint32, opts ...InputOpt) HtlcSecondLevelAnchorInput {
 
 	// Spend an HTLC output on our local commitment tx using the 2nd
 	// success transaction.
@@ -492,18 +534,16 @@ func MakeHtlcSecondLevelSuccessAnchorInput(signedTx *wire.MsgTx,
 			preimage[:], signer, &desc, txn,
 		)
 	}
+	input := MakeBaseInput(
+		&signedTx.TxIn[0].PreviousOutPoint,
+		HtlcAcceptedSuccessSecondLevelInputConfirmed,
+		&signDetails.SignDesc, heightHint, nil, opts...,
+	)
+	input.blockToMaturity = 1
 
 	return HtlcSecondLevelAnchorInput{
-		inputKit: inputKit{
-			outpoint:    signedTx.TxIn[0].PreviousOutPoint,
-			witnessType: HtlcAcceptedSuccessSecondLevelInputConfirmed,
-			signDesc:    signDetails.SignDesc,
-			heightHint:  heightHint,
-
-			// CSV delay is always 1 for these inputs.
-			blockToMaturity: 1,
-		},
 		SignedTx:      signedTx,
+		inputKit:      input.inputKit,
 		createWitness: createWitness,
 	}
 }
@@ -513,7 +553,7 @@ func MakeHtlcSecondLevelSuccessAnchorInput(signedTx *wire.MsgTx,
 // commitment transaction.
 func MakeHtlcSecondLevelSuccessTaprootInput(signedTx *wire.MsgTx,
 	signDetails *SignDetails, preimage lntypes.Preimage,
-	heightHint uint32) HtlcSecondLevelAnchorInput {
+	heightHint uint32, opts ...InputOpt) HtlcSecondLevelAnchorInput {
 
 	createWitness := func(signer Signer, txn *wire.MsgTx,
 		hashCache *txscript.TxSigHashes,
@@ -537,16 +577,15 @@ func MakeHtlcSecondLevelSuccessTaprootInput(signedTx *wire.MsgTx,
 		)
 	}
 
-	return HtlcSecondLevelAnchorInput{
-		inputKit: inputKit{
-			outpoint:    signedTx.TxIn[0].PreviousOutPoint,
-			witnessType: TaprootHtlcAcceptedLocalSuccess,
-			signDesc:    signDetails.SignDesc,
-			heightHint:  heightHint,
+	input := MakeBaseInput(
+		&signedTx.TxIn[0].PreviousOutPoint,
+		TaprootHtlcAcceptedLocalSuccess,
+		&signDetails.SignDesc, heightHint, nil, opts...,
+	)
+	input.blockToMaturity = 1
 
-			// CSV delay is always 1 for these inputs.
-			blockToMaturity: 1,
-		},
+	return HtlcSecondLevelAnchorInput{
+		inputKit:      input.inputKit,
 		SignedTx:      signedTx,
 		createWitness: createWitness,
 	}

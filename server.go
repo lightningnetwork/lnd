@@ -1507,12 +1507,14 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	backupFile := chanbackup.NewMultiFile(cfg.BackupFilePath)
 	startingChans, err := chanbackup.FetchStaticChanBackups(
 		s.chanStateDB, s.addrSource,
+		chanbackup.WithCloseTxInputs(cfg.BackupCloseTxInputs),
 	)
 	if err != nil {
 		return nil, err
 	}
 	s.chanSubSwapper, err = chanbackup.NewSubSwapper(
 		startingChans, chanNotifier, s.cc.KeyRing, backupFile,
+		chanbackup.WithCloseTxInputs(cfg.BackupCloseTxInputs),
 	)
 	if err != nil {
 		return nil, err
@@ -2309,6 +2311,12 @@ func (s *server) Stop() error {
 		}
 		if err := s.chanSubSwapper.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop chanSubSwapper: %v", err)
+		}
+		if s.cfg.BackupCloseTxInputs {
+			if err := s.updateChannelBackup(); err != nil {
+				srvrLog.Warnf("failed to update channel "+
+					"backup: %v", err)
+			}
 		}
 		if err := s.cc.ChainNotifier.Stop(); err != nil {
 			srvrLog.Warnf("Unable to stop ChainNotifier: %v", err)
@@ -4689,6 +4697,47 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate,
 	case <-s.quit:
 		return ErrServerShuttingDown
 	}
+}
+
+// updateChannelBackup reads channels from DB, creates channel backup for all
+// the channels and writes it to disk.
+func (s *server) updateChannelBackup() error {
+	// Fetch static channel backups from the database.
+	// Note that s.chanStateDB is still active in server.Stop(), it is
+	// closed outside of server type, in function Main.
+	chans, err := chanbackup.FetchStaticChanBackups(
+		s.chanStateDB, s.addrSource,
+		chanbackup.WithCloseTxInputs(s.cfg.BackupCloseTxInputs),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to fetch channel backups: %w", err)
+	}
+
+	// Identify file location of disk.
+	backupFile := chanbackup.NewMultiFile(s.cfg.BackupFilePath)
+
+	// Pack all fetched channel backups into a single multi backup format.
+	multi := chanbackup.Multi{
+		Version:       chanbackup.DefaultMultiVersion,
+		StaticBackups: chans,
+	}
+
+	// Write the packed multi backup data to a buffer. This is an
+	// intermediate step before writing the data to the backup file.
+	var b bytes.Buffer
+	if err := multi.PackToWriter(&b, s.cc.KeyRing); err != nil {
+		return fmt.Errorf("unable to pack multi backup: %w", err)
+	}
+
+	// Convert the buffer's contents into a packed multi backup type and
+	// atomically update the backup file on disk. This ensures that the
+	// backup file is always in a consistent state.
+	packed := chanbackup.PackedMulti(b.Bytes())
+	if err := backupFile.UpdateAndSwap(packed); err != nil {
+		return fmt.Errorf("unable to update multi backup: %w", err)
+	}
+
+	return nil
 }
 
 // SendCustomMessage sends a custom message to the peer with the specified

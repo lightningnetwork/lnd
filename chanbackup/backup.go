@@ -53,11 +53,60 @@ func assembleChanBackup(addrSource AddressSource,
 	return &single, nil
 }
 
+func buildCloseTxInputs(targetChan *channeldb.OpenChannel) *CloseTxInputs {
+	log.Debugf("Crafting CloseTxInputs for ChannelPoint(%v)",
+		targetChan.FundingOutpoint)
+
+	localCommit := targetChan.LocalCommitment
+
+	if localCommit.CommitTx == nil {
+		log.Infof("CommitTx is nil for ChannelPoint(%v), "+
+			"skipping CloseTxInputs. This is possible when "+
+			"DLP is active.", targetChan.FundingOutpoint)
+
+		return nil
+	}
+
+	inputs := &CloseTxInputs{
+		CommitTx:  localCommit.CommitTx,
+		CommitSig: localCommit.CommitSig,
+	}
+
+	if targetChan.ChanType.IsTaproot() {
+		inputs.CommitHeight = localCommit.CommitHeight
+	}
+
+	return inputs
+}
+
+// BackupConfig contains options of backup creation process.
+type BackupConfig struct {
+	// Whether to put CloseTxInputs into a backup. A backup with this data
+	// can be used by "chantools scbforceclose" command.
+	includeCloseTxInputs bool
+}
+
+// BackupOption sets an option in BackupConfig.
+type BackupOption func(*BackupConfig)
+
+// WithCloseTxInputs specifies if SCB must contain inputs needed to produce
+// a force close transaction from it using "chantools scbforceclose".
+func WithCloseTxInputs(include bool) BackupOption {
+	return func(c *BackupConfig) {
+		c.includeCloseTxInputs = include
+	}
+}
+
 // FetchBackupForChan attempts to create a plaintext static channel backup for
 // the target channel identified by its channel point. If we're unable to find
 // the target channel, then an error will be returned.
 func FetchBackupForChan(chanPoint wire.OutPoint, chanSource LiveChannelSource,
-	addrSource AddressSource) (*Single, error) {
+	addrSource AddressSource, options ...BackupOption) (*Single, error) {
+
+	var config BackupConfig
+	for _, opt := range options {
+		opt(&config)
+	}
 
 	// First, we'll query the channel source to see if the channel is known
 	// and open within the database.
@@ -75,13 +124,22 @@ func FetchBackupForChan(chanPoint wire.OutPoint, chanSource LiveChannelSource,
 		return nil, fmt.Errorf("unable to create chan backup: %w", err)
 	}
 
+	if config.includeCloseTxInputs {
+		staticChanBackup.CloseTxInputs = buildCloseTxInputs(targetChan)
+	}
+
 	return staticChanBackup, nil
 }
 
 // FetchStaticChanBackups will return a plaintext static channel back up for
 // all known active/open channels within the passed channel source.
 func FetchStaticChanBackups(chanSource LiveChannelSource,
-	addrSource AddressSource) ([]Single, error) {
+	addrSource AddressSource, options ...BackupOption) ([]Single, error) {
+
+	var config BackupConfig
+	for _, opt := range options {
+		opt(&config)
+	}
 
 	// First, we'll query the backup source for information concerning all
 	// currently open and available channels.
@@ -98,6 +156,10 @@ func FetchStaticChanBackups(chanSource LiveChannelSource,
 		chanBackup, err := assembleChanBackup(addrSource, openChan)
 		if err != nil {
 			return nil, err
+		}
+
+		if config.includeCloseTxInputs {
+			chanBackup.CloseTxInputs = buildCloseTxInputs(openChan)
 		}
 
 		staticChanBackups = append(staticChanBackups, *chanBackup)

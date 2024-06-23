@@ -39,6 +39,12 @@
   send payment stream context, or automatically at the end of the timeout period 
   if the user provided `timeout_seconds`.
 
+* [`ExportChannelBackup`, `ExportAllChannelBackups`, and
+  `SubscribeChannelBackups`][close] RPCs of LND are getting new argument:
+  `bool with_close_tx_inputs`. If it is set, the RPCs return channel backups
+  with the material needed to produce a force-close tx, given the private key
+  is available at restore time.
+
 ## lncli Additions
 
 * [Added](https://github.com/lightningnetwork/lnd/pull/8491) the `cltv_expiry`
@@ -49,8 +55,19 @@
   command returns the fee rate estimate for on-chain transactions in sat/kw and
   sat/vb to achieve a given confirmation target.
 
+* [`lncli exportchanbackup`][close] gets new flag `--with_close_tx_inputs`.
+  If it is specified, the produced channel backup has the material needed to
+  produce a force-close tx, given the private key is available at restore time.
+
 # Improvements
 ## Functional Updates
+
+* lnd gets new flag [`--backupclosetxinputs`][close]. Pass the option to enable
+  inclusion of data needed for unilateral channel closure in an SCB file. This
+  option increases the file size by approximately 25%. Reserve this option as
+  a last resort when the peer is offline and all other avenues to retrieve funds
+  from the channel have been exhausted.
+
 ## RPC Updates
 
 * [`xImportMissionControl`](https://github.com/lightningnetwork/lnd/pull/8779) 
@@ -87,6 +104,9 @@
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath
+* Boris Nagaev
 * Bufo
 * Matheus Degiovani
 * Slyghtning
+
+[close]: https://github.com/lightningnetwork/lnd/pull/8183

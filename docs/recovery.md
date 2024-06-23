@@ -258,6 +258,25 @@ An example of using file system level notification to [copy the backup to a
 distinct volume/partition/drive can be found
 here](https://gist.github.com/alexbosworth/2c5e185aedbdac45a03655b709e255a3).
 
+(backupclosetxinputs)=
+##### backupclosetxinputs
+
+In case the peer is offline, it is impossible to use DLP protocol and recover
+funds directly using SCB backup file. To overcome this, there is new option
+`--backupclosetxinputs` of LND. Pass the option to enable inclusion of data
+needed for unilateral channel closure in an SCB file. This option increases
+the file size by approximately 25%.
+
+To generate a force close transaction from the backup file, utilize the
+`chantools scbforceclose` command. However, exercise caution as this action is
+perilous. If the channel has been updated since the backup creation, another
+node or a watchtower may issue a penalty transaction, seizing all funds.
+
+Reserve this option as a last resort when the peer is offline and all other
+avenues to retrieve funds from the channel have been exhausted. The primary
+motivation for introducing this option is to provide a means of recovery,
+albeit with some risk, rather than losing the funds indefinitely.
+
 #### Using the `ExportChanBackup` RPC
 
 Another way to obtain SCBS for all or a target channel is via the new
@@ -283,6 +302,10 @@ $  lncli --network=simnet exportchanbackup --all --output_file=channel.backup
 As shown above, a user can either: specify a specific channel to backup, backup
 all existing channels, or backup directly to an on-disk file. All backups use
 the same format.
+
+To include the data needed for unilateral channel closure in your SCB, use the
+`lncli exportchanbackup` command with the additional flag `--with_close_tx_inputs`.
+See section [](#backupclosetxinputs).
 
 #### Streaming Updates via `SubscribeChannelBackups`
 

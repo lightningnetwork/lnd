@@ -228,6 +228,9 @@ type ChannelPolicy struct {
 	MinHTLC *lnwire.MilliSatoshi
 }
 
+// RouteTransformFunc defines a function type for transforming a route.
+type RouteTransformFunc func(route *route.Route) *route.Route
+
 // Config defines the configuration for the ChannelRouter. ALL elements within
 // the configuration MUST be non-nil for the ChannelRouter to carry out its
 // duties.
@@ -238,6 +241,10 @@ type Config struct {
 
 	// RoutingGraph is a graph source that will be used for pathfinding.
 	RoutingGraph Graph
+
+	// RouteTransform is an optional function that transforms the route
+	// after it is built.
+	RouteTransform RouteTransformFunc
 
 	// Chain is the router's source to the most up-to-date blockchain data.
 	// All incoming advertised channels will be checked against the chain

@@ -1558,7 +1558,7 @@ func encodeTaprootAuxData(w io.Writer, c *ContractResolutions) error {
 		tapCase.CtrlBlocks.Val.CommitSweepCtrlBlock = commitSignDesc.ControlBlock
 
 		c.CommitResolution.ResolutionBlob.WhenSome(func(b []byte) {
-			tapCase.CommitBlob = tlv.SomeRecordT(
+			tapCase.SettledCommitBlob = tlv.SomeRecordT(
 				tlv.NewPrimitiveRecord[tlv.TlvType2](b),
 			)
 		})
@@ -1649,7 +1649,7 @@ func decodeTapRootAuxData(r io.Reader, c *ContractResolutions) error {
 		c.CommitResolution.SelfOutputSignDesc.ControlBlock =
 			tapCase.CtrlBlocks.Val.CommitSweepCtrlBlock
 
-		tapCase.CommitBlob.WhenSomeV(func(b []byte) {
+		tapCase.SettledCommitBlob.WhenSomeV(func(b []byte) {
 			c.CommitResolution.ResolutionBlob = fn.Some(b)
 		})
 	}

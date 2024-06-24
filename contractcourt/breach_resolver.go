@@ -83,6 +83,7 @@ func (b *breachResolver) Resolve() (ContractResolver, error) {
 
 // Stop signals the breachResolver to stop.
 func (b *breachResolver) Stop() {
+	b.log.Debugf("stopping...")
 	close(b.quit)
 }
 
@@ -123,3 +124,16 @@ func newBreachResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 // A compile time assertion to ensure breachResolver meets the ContractResolver
 // interface.
 var _ ContractResolver = (*breachResolver)(nil)
+
+// TODO(yy): implement it once the outputs are offered to the sweeper.
+func (b *breachResolver) Launch() error {
+	if b.launched {
+		b.log.Tracef("already launched")
+		return nil
+	}
+
+	b.log.Debugf("launching resolver...")
+	b.launched = true
+
+	return nil
+}

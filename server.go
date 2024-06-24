@@ -1177,16 +1177,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			CloseLink: closeLink,
 			DB:        s.chanStateDB,
 			Estimator: s.cc.FeeEstimator,
-			GenSweepScript: func() ([]byte, error) {
-				addr, err := newSweepPkScriptGen(
-					cc.Wallet, netParams,
-				)().Unpack()
-				if err != nil {
-					return nil, err
-				}
-
-				return addr.DeliveryAddress, nil
-			},
+			GenSweepScript: newSweepPkScriptGen(
+				cc.Wallet, s.cfg.ActiveNetParams.Params,
+			),
 			Notifier:           cc.ChainNotifier,
 			PublishTransaction: cc.Wallet.PublishTransaction,
 			ContractBreaches:   contractBreaches,

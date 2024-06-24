@@ -149,7 +149,7 @@ type BreachConfig struct {
 	Estimator chainfee.Estimator
 
 	// GenSweepScript generates the receiving scripts for swept outputs.
-	GenSweepScript func() ([]byte, error)
+	GenSweepScript func() fn.Result[lnwallet.AddrWithKey]
 
 	// Notifier provides a publish/subscribe interface for event driven
 	// notifications regarding the confirmation of txids.
@@ -1517,7 +1517,7 @@ func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight lntypes.WeightUnit,
 	// sweep the funds to.
 	// TODO(roasbeef): possibly create many outputs to minimize change in
 	// the future?
-	pkScript, err := b.cfg.GenSweepScript()
+	pkScript, err := b.cfg.GenSweepScript().Unpack()
 	if err != nil {
 		return nil, err
 	}
@@ -1545,7 +1545,7 @@ func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight lntypes.WeightUnit,
 
 	// We begin by adding the output to which our funds will be deposited.
 	txn.AddTxOut(&wire.TxOut{
-		PkScript: pkScript,
+		PkScript: pkScript.DeliveryAddress,
 		Value:    sweepAmt,
 	})
 

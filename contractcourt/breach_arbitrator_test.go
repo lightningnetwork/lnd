@@ -2135,15 +2135,19 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 	// Assemble our test arbiter.
 	notifier := mock.MakeMockSpendNotifier()
 	ba := NewBreachArbitrator(&BreachConfig{
-		CloseLink:          func(_ *wire.OutPoint, _ ChannelCloseType) {},
-		DB:                 db.ChannelStateDB(),
-		Estimator:          chainfee.NewStaticEstimator(12500, 0),
-		GenSweepScript:     func() ([]byte, error) { return nil, nil },
-		ContractBreaches:   contractBreaches,
-		Signer:             signer,
-		Notifier:           notifier,
-		PublishTransaction: func(_ *wire.MsgTx, _ string) error { return nil },
-		Store:              store,
+		CloseLink: func(_ *wire.OutPoint, _ ChannelCloseType) {},
+		DB:        db.ChannelStateDB(),
+		Estimator: chainfee.NewStaticEstimator(12500, 0),
+		GenSweepScript: func() fn.Result[lnwallet.AddrWithKey] {
+			return fn.Ok(lnwallet.AddrWithKey{})
+		},
+		ContractBreaches: contractBreaches,
+		Signer:           signer,
+		Notifier:         notifier,
+		PublishTransaction: func(_ *wire.MsgTx, _ string) error {
+			return nil
+		},
+		Store: store,
 	})
 
 	if err := ba.Start(); err != nil {

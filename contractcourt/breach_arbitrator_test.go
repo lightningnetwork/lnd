@@ -1230,16 +1230,16 @@ func TestBreachCreateJusticeTx(t *testing.T) {
 
 	// The spendAll tx should be spending all the outputs. This is the
 	// "regular" justice transaction type.
-	require.Len(t, justiceTxs.spendAll.TxIn, len(breachedOutputs))
+	require.Len(t, justiceTxs.spendAll.justiceTx.TxIn, len(breachedOutputs))
 
 	// The spendCommitOuts tx should be spending the 4 types of commit outs
 	// (note that in practice there will be at most two commit outputs per
 	// commit, but we test all 4 types here).
-	require.Len(t, justiceTxs.spendCommitOuts.TxIn, 4)
+	require.Len(t, justiceTxs.spendCommitOuts.justiceTx.TxIn, 4)
 
 	// Check that the spendHTLCs tx is spending the two revoked commitment
 	// level HTLC output types.
-	require.Len(t, justiceTxs.spendHTLCs.TxIn, 2)
+	require.Len(t, justiceTxs.spendHTLCs.justiceTx.TxIn, 2)
 
 	// Finally, check that the spendSecondLevelHTLCs txs are spending the
 	// second level type.

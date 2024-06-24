@@ -924,7 +924,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		}
 	}
 	// UpdateEstimatorValue is a function that will be called by the
-	// mission control instance every time a new estimator stratefu 
+	// mission control instance every time a new estimator value 
 	// is setted.
 	mcCfg := &routing.MissionControlConfig{
 		UpdateEstimatorValue:    s.UpdateEstimatorValue,
@@ -1683,8 +1683,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	return s, nil
 }
 
-// Callback function to update the Estimator value in the main cfg when the 
-// lncli setmccfg is called to change the estimator value. 
+// UpdateEstimatorValue is a callback function to change estimator value in the  
+// main cfg when the lncli setmccfg is called to change the estimator value. 
  func (s *server) UpdateEstimatorValue(estimator routing.Estimator) {
 	s.cfg.Estimator = estimator
 }

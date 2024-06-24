@@ -6901,16 +6901,15 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 	err := build.ParseAndSetDebugLevels(req.LevelSpec, r.cfg.LogWriter)
 	if err != nil {
 		return nil, err
-	} else {
-		// There is no error parsing the LevelSpec, so we'll update
-		// the current debug level, without checking everything again
-		levels := strings.Split(req.LevelSpec, ",")
-		// If the first entry has no =, treat it as the log level for
-		// all subsystems and the debuglevel is updated
-		if !strings.Contains(levels[0], "=") {
-			r.cfg.DebugLevel = levels[0]
-		}
-
+	}
+	
+	// There is no error parsing the LevelSpec, so we'll update
+	// the current debug level, without checking everything again
+	levels := strings.Split(req.LevelSpec, ",")
+	// If the first entry has no =, treat it as the log level for
+	// all subsystems and the debuglevel is updated
+	if !strings.Contains(levels[0], "=") {
+		r.cfg.DebugLevel = levels[0]
 	}
 
 	return &lnrpc.DebugLevelResponse{}, nil

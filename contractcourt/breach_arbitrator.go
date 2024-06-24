@@ -1085,10 +1085,9 @@ type breachedOutput struct {
 // makeBreachedOutput assembles a new breachedOutput that can be used by the
 // breach arbiter to construct a justice or sweep transaction.
 func makeBreachedOutput(outpoint *wire.OutPoint,
-	witnessType input.StandardWitnessType,
-	secondLevelScript []byte,
-	signDescriptor *input.SignDescriptor,
-	confHeight uint32) breachedOutput {
+	witnessType input.StandardWitnessType, secondLevelScript []byte,
+	signDescriptor *input.SignDescriptor, confHeight uint32,
+	resolutionBlob fn.Option[tlv.Blob]) breachedOutput {
 
 	amount := signDescriptor.Output.Value
 
@@ -1099,6 +1098,7 @@ func makeBreachedOutput(outpoint *wire.OutPoint,
 		witnessType:              witnessType,
 		signDesc:                 *signDescriptor,
 		confHeight:               confHeight,
+		resolutionBlob:           resolutionBlob,
 	}
 }
 
@@ -1276,6 +1276,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 			nil,
 			breachInfo.LocalOutputSignDesc,
 			breachInfo.BreachHeight,
+			breachInfo.LocalResolutionBlob,
 		)
 
 		breachedOutputs = append(breachedOutputs, localOutput)
@@ -1302,6 +1303,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 			nil,
 			breachInfo.RemoteOutputSignDesc,
 			breachInfo.BreachHeight,
+			breachInfo.RemoteResolutionBlob,
 		)
 
 		breachedOutputs = append(breachedOutputs, remoteOutput)
@@ -1336,6 +1338,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 			breachInfo.HtlcRetributions[i].SecondLevelWitnessScript,
 			&breachInfo.HtlcRetributions[i].SignDesc,
 			breachInfo.BreachHeight,
+			breachInfo.HtlcRetributions[i].ResolutionBlob,
 		)
 
 		// For taproot outputs, we also need to hold onto the second
@@ -1642,11 +1645,27 @@ func taprootBriefcaseFromRetInfo(retInfo *retributionInfo) *taprootBriefcase {
 			//nolint:lll
 			tapCase.CtrlBlocks.Val.CommitSweepCtrlBlock = bo.signDesc.ControlBlock
 
+			bo.resolutionBlob.WhenSome(func(blob tlv.Blob) {
+				tapCase.SettledCommitBlob = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType2](
+						blob,
+					),
+				)
+			})
+
 		// To spend the revoked output again, we'll store the same
 		// control block value as above, but in a different place.
 		case input.TaprootCommitmentRevoke:
 			//nolint:lll
 			tapCase.CtrlBlocks.Val.RevokeSweepCtrlBlock = bo.signDesc.ControlBlock
+
+			bo.resolutionBlob.WhenSome(func(blob tlv.Blob) {
+				tapCase.BreachedCommitBlob = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType3](
+						blob,
+					),
+				)
+			})
 
 		// For spending the HTLC outputs, we'll store the first and
 		// second level tweak values.
@@ -1685,11 +1704,21 @@ func applyTaprootRetInfo(tapCase *taprootBriefcase,
 			//nolint:lll
 			bo.signDesc.ControlBlock = tapCase.CtrlBlocks.Val.CommitSweepCtrlBlock
 
+			tapCase.SettledCommitBlob.WhenSomeV(func(blob tlv.Blob) { //nolint:lll
+				bo.resolutionBlob = fn.Some(blob)
+			})
+
 		// To spend the revoked output again, we'll apply the same
 		// control block value as above, but to a different place.
 		case input.TaprootCommitmentRevoke:
 			//nolint:lll
 			bo.signDesc.ControlBlock = tapCase.CtrlBlocks.Val.RevokeSweepCtrlBlock
+
+			tapCase.BreachedCommitBlob.WhenSomeV(
+				func(blob tlv.Blob) {
+					bo.resolutionBlob = fn.Some(blob)
+				},
+			)
 
 		// For spending the HTLC outputs, we'll apply the first and
 		// second level tweak values.

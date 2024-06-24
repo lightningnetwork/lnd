@@ -1199,6 +1199,8 @@ func TestBreachCreateJusticeTx(t *testing.T) {
 		input.HtlcSecondLevelRevoke,
 	}
 
+	rBlob := fn.Some([]byte{0x01})
+
 	breachedOutputs := make([]breachedOutput, len(outputTypes))
 	for i, wt := range outputTypes {
 		// Create a fake breached output for each type, ensuring they
@@ -1217,6 +1219,7 @@ func TestBreachCreateJusticeTx(t *testing.T) {
 			nil,
 			signDesc,
 			1,
+			rBlob,
 		)
 	}
 

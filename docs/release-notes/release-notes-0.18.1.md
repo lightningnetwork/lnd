@@ -59,6 +59,9 @@
 * [`ChanInfoRequest`](https://github.com/lightningnetwork/lnd/pull/8813)
   adds support for channel points.
 
+* [Added `outpoints` to `SendCoinsRequest`](
+  https://github.com/lightningnetwork/lnd/pull/8516).
+
 ## lncli Updates
 
 * [`importmc`](https://github.com/lightningnetwork/lnd/pull/8779) now accepts
@@ -69,6 +72,10 @@
 
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/8823) how we parse the
   `--amp` flag when sending a payment specifying the payment request.
+
+* [`sendcoins` now takes an optional utxo flag](
+    https://github.com/lightningnetwork/lnd/pull/8516). This allows users to
+    specify the coins that they want to use as inputs for the transaction.
 
 ## Code Health
 ## Breaking Changes

@@ -5,12 +5,16 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/wallet/txrules"
+	"github.com/btcsuite/btcwallet/wallet/txsizes"
 	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -22,8 +26,10 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 )
 
 // testDisconnectingTargetPeer performs a test which disconnects Alice-peer
@@ -777,20 +783,20 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	sendCoinsLabel := "send all coins"
 
 	// Ensure that we can't send coins to our own Pubkey.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	require.Error(ht, ainz.RPC.SendCoinsReturnErr(&lnrpc.SendCoinsRequest{
 		Addr:       ainz.RPC.GetInfo().IdentityPubkey,
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
-	})
+	}))
 
 	// Ensure that we can't send coins to another user's Pubkey.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	require.Error(ht, ainz.RPC.SendCoinsReturnErr(&lnrpc.SendCoinsRequest{
 		Addr:       ht.Alice.RPC.GetInfo().IdentityPubkey,
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
-	})
+	}))
 
 	// With the two coins above mined, we'll now instruct Ainz to sweep all
 	// the coins to an external address not under its control. We will first
@@ -800,20 +806,20 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// same network as the user.
 
 	// Send coins to a testnet3 address.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	require.Error(ht, ainz.RPC.SendCoinsReturnErr(&lnrpc.SendCoinsRequest{
 		Addr:       "tb1qfc8fusa98jx8uvnhzavxccqlzvg749tvjw82tg",
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
-	})
+	}))
 
 	// Send coins to a mainnet address.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	require.Error(ht, ainz.RPC.SendCoinsReturnErr(&lnrpc.SendCoinsRequest{
 		Addr:       "1MPaXKp5HhsLNjVSqaL7fChE3TVyrTMRT3",
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
-	})
+	}))
 
 	// TODO(yy): we still allow default values to be used when neither conf
 	// target or fee rate is set in 0.18.0. When future release forbidden
@@ -822,28 +828,12 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	//
 	// Send coins to a compatible address without specifying fee rate or
 	// conf target.
-	// ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	// require.Error(ht, ainz.RPC.SendCoinsAssertErr(&lnrpc.
+	// SendCoinsRequest{
 	// 	Addr:    ht.Miner.NewMinerAddress().String(),
 	// 	SendAll: true,
 	// 	Label:   sendCoinsLabel,
-	// })
-
-	// Send coins to a compatible address.
-	ainz.RPC.SendCoins(&lnrpc.SendCoinsRequest{
-		Addr:       ht.Miner.NewMinerAddress().String(),
-		SendAll:    true,
-		Label:      sendCoinsLabel,
-		TargetConf: 6,
-	})
-
-	// We'll mine a block which should include the sweep transaction we
-	// generated above.
-	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-
-	// The sweep transaction should have exactly two inputs as we only had
-	// two UTXOs in the wallet.
-	sweepTx := block.Transactions[1]
-	require.Len(ht, sweepTx.TxIn, 2, "expected 2 inputs")
+	// }))
 
 	// assertTxLabel is a helper function which finds a target tx in our
 	// set of transactions and checks that it has the desired label.
@@ -875,52 +865,132 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 		require.NoError(ht, err, "timeout assertTxLabel")
 	}
 
-	sweepTxStr := sweepTx.TxHash().String()
-	waitTxLabel(sweepTxStr, sendCoinsLabel)
-
-	// While we are looking at labels, we test our label transaction
-	// command to make sure it is behaving as expected. First, we try to
-	// label our transaction with an empty label, and check that we fail as
-	// expected.
-	sweepHash := sweepTx.TxHash()
-	err := ainz.RPC.LabelTransactionAssertErr(
-		&walletrpc.LabelTransactionRequest{
-			Txid:      sweepHash[:],
-			Label:     "",
-			Overwrite: false,
-		},
+	// List unspent utxos so that we can fetch outpoints for the test below.
+	res := ainz.RPC.ListUnspent(
+		&walletrpc.ListUnspentRequest{},
 	)
 
-	// Our error will be wrapped in a rpc error, so we check that it
-	// contains the error we expect.
-	errZeroLabel := "cannot label transaction with empty label"
-	require.Contains(ht, err.Error(), errZeroLabel)
-
-	// Next, we try to relabel our transaction without setting the overwrite
-	// boolean. We expect this to fail, because the wallet requires setting
-	// of this param to prevent accidental overwrite of labels.
-	err = ainz.RPC.LabelTransactionAssertErr(
-		&walletrpc.LabelTransactionRequest{
-			Txid:      sweepHash[:],
-			Label:     "label that will not work",
-			Overwrite: false,
+	tcs := []struct {
+		name          string
+		selectedCoins []*lnrpc.OutPoint
+		error         string
+	}{
+		{
+			name: "selected coins, duplicates",
+			selectedCoins: []*lnrpc.OutPoint{
+				res.Utxos[0].Outpoint,
+				res.Utxos[0].Outpoint,
+			},
+			error: "selected outpoints contain duplicate " +
+				"values",
 		},
-	)
+		{
+			name: "selected coins, no duplicates",
+			selectedCoins: []*lnrpc.OutPoint{
+				res.Utxos[0].Outpoint,
+			},
+		},
+		{
+			name:          "no selected coins",
+			selectedCoins: nil,
+		},
+	}
+	for _, tc := range tcs {
+		ht.Run(tc.name, func(t *testing.T) {
+			// Fetch unspent utxos early on to enable us to get the
+			// expected length of sweep tx inputs further down in
+			// the test.
+			res = ainz.RPC.ListUnspent(
+				&walletrpc.ListUnspentRequest{},
+			)
 
-	// Our error will be wrapped in a rpc error, so we check that it
-	// contains the error we expect.
-	require.Contains(ht, err.Error(), wallet.ErrTxLabelExists.Error())
+			// Send coins to a compatible address.
+			minerAddr := ht.Miner.NewMinerAddress().String()
+			err := ainz.RPC.SendCoinsReturnErr(
+				&lnrpc.SendCoinsRequest{
+					Addr:       minerAddr,
+					SendAll:    true,
+					Outpoints:  tc.selectedCoins,
+					Label:      sendCoinsLabel,
+					TargetConf: 1,
+				})
+			if tc.error != "" {
+				require.ErrorContains(t, err, tc.error)
+				return
+			}
 
-	// Finally, we overwrite our label with a new label, which should not
-	// fail.
-	newLabel := "new sweep tx label"
-	ainz.RPC.LabelTransaction(&walletrpc.LabelTransactionRequest{
-		Txid:      sweepHash[:],
-		Label:     newLabel,
-		Overwrite: true,
-	})
+			require.NoError(t, err)
 
-	waitTxLabel(sweepTxStr, newLabel)
+			// We'll mine a block which should include the sweep
+			// transaction we generated above.
+			block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+
+			// The sweep transaction should have the expected
+			// number of inputs.
+			sweepTx := block.Transactions[1]
+
+			expectedLen := len(res.Utxos)
+			if tc.selectedCoins != nil {
+				expectedLen = len(tc.selectedCoins)
+			}
+
+			require.Len(ht, sweepTx.TxIn, expectedLen)
+
+			sweepTxStr := sweepTx.TxHash().String()
+			waitTxLabel(sweepTxStr, sendCoinsLabel)
+
+			// While we are looking at labels, we test our label
+			// transaction command to make sure it is behaving as
+			// expected. First, we try to label our transaction with
+			// an empty label, and check that we fail as expected.
+			sweepHash := sweepTx.TxHash()
+			err = ainz.RPC.LabelTransactionAssertErr(
+				&walletrpc.LabelTransactionRequest{
+					Txid:      sweepHash[:],
+					Label:     "",
+					Overwrite: false,
+				},
+			)
+
+			// Our error will be wrapped in a rpc error, so we check
+			// that it contains the error we expect.
+			errZeroLabel := "cannot label transaction with empty " +
+				"label"
+			require.Contains(ht, err.Error(), errZeroLabel)
+
+			// Next, we try to relabel our transaction without
+			// setting the overwrite boolean. We expect this to
+			// fail, because the wallet requires setting
+			// of this param to prevent accidental overwrite of
+			// labels.
+			err = ainz.RPC.LabelTransactionAssertErr(
+				&walletrpc.LabelTransactionRequest{
+					Txid:      sweepHash[:],
+					Label:     "label that will not work",
+					Overwrite: false,
+				},
+			)
+
+			// Our error will be wrapped in a rpc error, so we check
+			// that it contains the error we expect.
+			require.Contains(
+				ht, err.Error(),
+				wallet.ErrTxLabelExists.Error(),
+			)
+
+			// Finally, we overwrite our label with a new label,
+			// which should not fail.
+			newLabel := "new sweep tx label"
+			ainz.RPC.LabelTransaction(
+				&walletrpc.LabelTransactionRequest{
+					Txid:      sweepHash[:],
+					Label:     newLabel,
+					Overwrite: true,
+				})
+
+			waitTxLabel(sweepTxStr, newLabel)
+		})
+	}
 
 	// Finally, Ainz should now have no coins at all within his wallet.
 	resp := ainz.RPC.WalletBalance()
@@ -929,13 +999,13 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 
 	// If we try again, but this time specifying an amount, then the call
 	// should fail.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	require.Error(ht, ainz.RPC.SendCoinsReturnErr(&lnrpc.SendCoinsRequest{
 		Addr:       ht.Miner.NewMinerAddress().String(),
 		Amount:     10000,
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
-	})
+	}))
 
 	// With all the edge cases tested, we'll now test the happy paths of
 	// change output types.
@@ -1301,4 +1371,302 @@ func testNativeSQLNoMigration(ht *lntest.HarnessTest) {
 	// Reset the extra args and restart alice.
 	alice.SetExtraArgs(nil)
 	require.NoError(ht, alice.Start(ht.Context()))
+}
+
+// testSendCoinSelectUtxo tests sendCoins with selected utxos as input.
+func testSendCoinSelectUtxo(ht *lntest.HarnessTest) {
+	// sumCoins is used to sum a slice of `btcutil.Amount` and return result
+	// in int64 format.
+	sumCoins := func(coins []btcutil.Amount) int64 {
+		return int64(fn.Sum(coins))
+	}
+
+	// This is the target number of confirmations required when
+	// estimating fees.
+	targetConf := 6
+
+	// estimateFees is used to estimate the amount of fees required for a
+	// tx given a slice of outputs and a specified number of inputs.
+	estimateFees := func(outputs []*wire.TxOut,
+		numInput int) btcutil.Amount {
+
+		// We would use the taproot key size to compute the virtual
+		// size as that is the default change output script size.
+		// The sendCoins function uses the default because it does not
+		// specify any `coinSelectKeyScope` while creating the
+		// transaction.
+		estimatedSize := txsizes.EstimateVirtualSize(
+			0, 0, numInput, 0, outputs, txsizes.P2TRPkScriptSize,
+		)
+
+		feePerKw, _ := lnrpc.CalculateFeeRate(
+			0, 0,
+			uint32(targetConf), chainfee.NewStaticEstimator(
+				chainreg.DefaultBitcoinStaticFeePerKW,
+				chainreg.DefaultBitcoinStaticMinRelayFeeRate,
+			),
+		)
+
+		targetFee := txrules.FeeForSerializeSize(
+			btcutil.Amount(feePerKw.FeePerKVByte()), estimatedSize,
+		)
+
+		return targetFee
+	}
+
+	// Generate address for the request.
+	addr := ht.Miner.NewMinerAddress()
+
+	// Estimate the fees for a transaction with an output value of
+	// 350_000 and with two inputs.
+	pkscript, _ := txscript.PayToAddrScript(addr)
+	outputs := []*wire.TxOut{
+		{
+			Value:    350_000,
+			PkScript: pkscript,
+		},
+	}
+	feeEstimate := estimateFees(outputs, 2)
+
+	initialCoins := []btcutil.Amount{
+		100_000,
+		50_000,
+
+		// We add this to this coin for testcas(es) in which we do not
+		// expect a change.
+		300_000 + feeEstimate,
+		20_000,
+		1_000,
+	}
+
+	var tcs = []struct {
+		name          string
+		amt           int64
+		selectedCoins []btcutil.Amount
+		expectedErr   string
+		expectChange  bool
+	}{
+		{
+			name: "sendCoins with selected utxos, no change",
+			selectedCoins: []btcutil.Amount{
+				50_000,
+				300_000 + feeEstimate,
+			},
+			amt: 350_000,
+		},
+		{
+			name: "sendCoins with selected utxos, expect change",
+			selectedCoins: []btcutil.Amount{
+				50_000,
+				100_000,
+			},
+			amt:          50_400,
+			expectChange: true,
+		},
+		{
+			name: "sendCoins, amount specified, " +
+				"no select outpoints",
+			amt: 200_000,
+		},
+		{
+			name: "sendCoins amount specified greater than " +
+				"available amount",
+			amt: 1_000_000,
+			expectedErr: "insufficient funds available to " +
+				"construct transaction",
+		},
+		{
+			name: "sendCoins with selected utxos, amt specified " +
+				"greater than select utxos funds",
+			selectedCoins: []btcutil.Amount{
+				50_000,
+				1_000,
+			},
+			amt: 200_000,
+			expectedErr: "insufficient funds available to " +
+				"construct transaction",
+		},
+		{
+			name: "sendCoins with selected utxos, amt specified " +
+				"duplicate utxos",
+			selectedCoins: []btcutil.Amount{
+				50_000,
+				50_000,
+			},
+			amt: 55_000,
+			expectedErr: "selected outpoints contain " +
+				"duplicate values",
+		},
+	}
+
+	for _, tc := range tcs {
+		ht.Run(tc.name, func(t *testing.T) {
+			st := ht.Subtest(t)
+
+			ally := st.NewNode("ally", nil)
+
+			// Fund ally and compute the expected wallet balance.
+			for _, initialCoin := range initialCoins {
+				st.FundCoins(initialCoin, ally)
+			}
+
+			coinSum := sumCoins(initialCoins)
+			st.AssertWalletAccountBalance(
+				ally, lnwallet.DefaultAccountName, coinSum, 0,
+			)
+
+			// Fetch unspent utxos and create an outpoint lookup
+			// for each unique amount.
+			res := ally.RPC.ListUnspent(
+				&walletrpc.ListUnspentRequest{},
+			)
+			lookup := fn.SliceToMap(
+				res.Utxos,
+				func(utxo *lnrpc.Utxo) btcutil.Amount {
+					return btcutil.Amount(utxo.AmountSat)
+				}, func(utxo *lnrpc.Utxo) *lnrpc.OutPoint {
+					return utxo.Outpoint
+				},
+			)
+
+			var selectedOutpoints []*lnrpc.OutPoint
+			for _, amt := range tc.selectedCoins {
+				selectedOutpoints = append(
+					selectedOutpoints, lookup[amt],
+				)
+			}
+
+			sendCoinReq := &lnrpc.SendCoinsRequest{
+				Addr:       addr.String(),
+				Outpoints:  selectedOutpoints,
+				Amount:     tc.amt,
+				TargetConf: int32(targetConf),
+			}
+
+			// SendCoins and check for error.
+			err := ally.RPC.SendCoinsReturnErr(
+				sendCoinReq,
+			)
+
+			// If we expect sendCoins to fail, then we stop the
+			// test here.
+			if tc.expectedErr != "" {
+				require.ErrorContains(st, err, tc.expectedErr)
+
+				return
+			}
+
+			require.NoError(st, err)
+
+			var (
+				block = st.MineBlocksAndAssertNumTxes(1, 1)[0]
+				tx    = block.Transactions[1]
+
+				// we compute the actual fee used in this
+				// transaction.
+				fee = st.CalculateTxFee(tx)
+
+				// amtSent is the amount sent to the address
+				// that a sendCoins request is sending funds to.
+				amtSent = tc.amt
+			)
+
+			// expectTxOutAmt is a slice containing all the
+			// values of the outputs contained in the transaction.
+			expectTxOutAmt := []int64{amtSent}
+
+			// sumSelectedCoins is the sum of the values of the
+			// selected outpoints supplied as input for the
+			// sendcoins request.
+			var sumSelectedCoins int64
+			if len(selectedOutpoints) > 0 {
+				// Test that it is only the selected
+				// outpoints supplied that is used as input
+				// in this transaction.
+				require.Equal(
+					st, len(selectedOutpoints),
+					len(tx.TxIn),
+				)
+				selectedOpLookup := fn.Map(
+					func(o *lnrpc.OutPoint) string {
+						return o.TxidStr
+					}, maps.Values(lookup),
+				)
+				for _, in := range tx.TxIn {
+					Op := in.PreviousOutPoint.Hash.String()
+					require.Contains(
+						st, selectedOpLookup, Op,
+					)
+				}
+
+				// Then test for any change in the transaction.
+				// We only do this for requests with selected
+				// outpoints as we are aware of the exact
+				// input used in the transaction and so can
+				// compute for change.
+				//
+				// sumSelectedCoins is the sum of the values
+				// of all the selected coins.
+				sumSelectedCoins = sumCoins(
+					tc.selectedCoins,
+				)
+
+				// amtSpent is the amount consumed in this
+				// transaction.
+				//
+				// We expect to spend the actual amount being
+				// sent to the address as well as the fee
+				// required for the transaction.
+				amtSpent := tc.amt + int64(fee)
+				change := sumSelectedCoins - amtSpent
+				nonZeroChange := change != 0
+				require.Equal(
+					st, tc.expectChange, nonZeroChange,
+				)
+
+				// In the case that we expect change in the
+				// transaction, we expect two outputs in the
+				// transaction, with values equal to the change
+				// and the `amtSent`.
+				if nonZeroChange {
+					expectTxOutAmt = append(
+						expectTxOutAmt, change,
+					)
+					// Ensure the length of TxOut is of the
+					// expected length.
+					require.Len(st, tx.TxOut, 2)
+				}
+			}
+
+			// Test that our expected output amounts are in the
+			// actual output amounts.
+			actualTxOut := fn.Map(func(s *wire.TxOut) int64 {
+				return s.Value
+			}, tx.TxOut)
+			require.True(
+				st,
+				fn.All(
+					fn.NewSet(actualTxOut...).Contains,
+					expectTxOutAmt,
+				),
+			)
+
+			// Test that the amount left in the wallet is as
+			// expected.
+			//
+			// balance is the amount we expect in the wallet after
+			// the sendCoins operation.
+			balance := coinSum - tc.amt - int64(fee)
+			st.AssertWalletAccountBalance(
+				ally, lnwallet.DefaultAccountName, balance, 0,
+			)
+
+			// When re-selecting a spent output for funding we
+			// expect an error.
+			if len(selectedOutpoints) > 0 {
+				err := ally.RPC.SendCoinsReturnErr(sendCoinReq)
+				require.Error(st, err)
+			}
+		})
+	}
 }

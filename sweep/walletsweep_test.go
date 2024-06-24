@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wtxmgr"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -213,6 +214,12 @@ func (m *mockOutputLeaser) ReleaseOutput(_ wtxmgr.LockID,
 	return nil
 }
 
+func (m *mockOutputLeaser) Reset() {
+	m.releasedOutputs = make(map[wire.OutPoint]struct{})
+
+	m.leasedOutputs = make(map[wire.OutPoint]struct{})
+}
+
 var sweepScript = []byte{
 	0x0, 0x14, 0x64, 0x3d, 0x8b, 0x15, 0x69, 0x4a, 0x54,
 	0x7d, 0x57, 0x33, 0x6e, 0x51, 0xdf, 0xfd, 0x38, 0xe3,
@@ -339,7 +346,7 @@ func TestCraftSweepAllTxCoinSelectFail(t *testing.T) {
 
 	_, err := CraftSweepAllTx(
 		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLeaser,
-		nil, 0,
+		nil, 0, nil,
 	)
 
 	// Since we instructed the coin select locker to fail above, we should
@@ -365,7 +372,7 @@ func TestCraftSweepAllTxUnknownWitnessType(t *testing.T) {
 
 	_, err := CraftSweepAllTx(
 		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLeaser,
-		nil, 0,
+		nil, 0, nil,
 	)
 
 	// Since passed in a p2wsh output, which is unknown, we should fail to
@@ -380,7 +387,7 @@ func TestCraftSweepAllTxUnknownWitnessType(t *testing.T) {
 	assertUtxosLeasedAndReleased(t, utxoLeaser, testUtxos)
 }
 
-// TestCraftSweepAllTx tests that we'll properly lock all available outputs
+// TestCraftSweepAllTx tests that we'll properly lock all relevant outputs
 // within the wallet, and craft a single sweep transaction that pays to the
 // target output.
 func TestCraftSweepAllTx(t *testing.T) {
@@ -397,46 +404,121 @@ func TestCraftSweepAllTx(t *testing.T) {
 	coinSelectLocker := &mockCoinSelectionLocker{}
 	utxoLeaser := newMockOutputLeaser()
 
-	sweepPkg, err := CraftSweepAllTx(
-		0, 0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
-		utxoLeaser, signer, 0,
-	)
-	require.NoError(t, err, "unable to make sweep tx")
-
-	// At this point, all of the UTXOs that we made above should be locked
-	// and none of them unlocked.
-	assertUtxosLeased(t, utxoLeaser, testUtxos[:2])
-	assertNoUtxosReleased(t, utxoLeaser, testUtxos[:2])
-
-	// Now that we have our sweep transaction, we should find that we have
-	// a UTXO for each input, and also that our final output value is the
-	// sum of all our inputs.
-	sweepTx := sweepPkg.SweepTx
-	if len(sweepTx.TxIn) != len(targetUTXOs) {
-		t.Fatalf("expected %v utxo, got %v", len(targetUTXOs),
-			len(sweepTx.TxIn))
+	testCases := []struct {
+		name        string
+		selectUtxos fn.Set[wire.OutPoint]
+		errString   string
+	}{
+		{
+			name:        "sweep all utxos in wallet",
+			selectUtxos: nil,
+		},
+		{
+			name:        "sweep select utxos in wallet, no error",
+			selectUtxos: fn.NewSet(targetUTXOs[0].OutPoint),
+		},
+		{
+			name: "sweep select utxos in wallet, " +
+				"all select utxos not unspent utxo known " +
+				"to the wallet",
+			selectUtxos: fn.NewSet(
+				wire.OutPoint{Index: 4},
+				wire.OutPoint{Index: 5},
+			),
+			errString: "missing key",
+		},
+		{
+			name: "sweep select utxos in wallet, " +
+				"some select utxos not unspent utxo known " +
+				"to the wallet",
+			selectUtxos: fn.NewSet(wire.OutPoint{Index: 5}),
+			errString:   "missing key",
+		},
 	}
 
-	// We should have a single output that pays to our sweep script
-	// generated above.
-	expectedSweepValue := int64(3000)
-	if len(sweepTx.TxOut) != 1 {
-		t.Fatalf("should have %v outputs, instead have %v", 1,
-			len(sweepTx.TxOut))
-	}
-	output := sweepTx.TxOut[0]
-	switch {
-	case output.Value != expectedSweepValue:
-		t.Fatalf("expected %v sweep value, instead got %v",
-			expectedSweepValue, output.Value)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			sweepPkg, err := CraftSweepAllTx(
+				0, 0, 10, nil, deliveryAddr, coinSelectLocker,
+				utxoSource, utxoLeaser, signer, 0,
+				tc.selectUtxos,
+			)
+			if tc.errString != "" {
+				require.ErrorContains(t, err, tc.errString)
+				require.Nil(t, sweepPkg)
 
-	case !bytes.Equal(sweepScript, output.PkScript):
-		t.Fatalf("expected %x sweep script, instead got %x", sweepScript,
-			output.PkScript)
-	}
+				return
+			}
 
-	// If we cancel the sweep attempt, then we should find that all the
-	// UTXOs within the sweep transaction are now unlocked.
-	sweepPkg.CancelSweepAttempt()
-	assertUtxosReleased(t, utxoLeaser, testUtxos[:2])
+			require.NoError(t, err)
+			require.NotNil(t, sweepPkg)
+
+			inputUtxos := targetUTXOs
+			if len(tc.selectUtxos) != 0 {
+				inputUtxos, err = fetchUtxosFromOutpoints(
+					targetUTXOs, tc.selectUtxos.ToSlice(),
+				)
+				require.NoError(t, err)
+			}
+
+			expectedSweepValue := sumUtxos(inputUtxos)
+
+			// At this point, all the UTXOs that we made above
+			// should be locked and none of them unlocked.
+			assertUtxosLeased(t, utxoLeaser, inputUtxos)
+			assertNoUtxosReleased(t, utxoLeaser, inputUtxos)
+
+			// Now that we have our sweep transaction, we should
+			// find that we have a UTXO for each input, and also
+			// that our final output value is the sum of all our
+			// inputs.
+			sweepTx := sweepPkg.SweepTx
+			require.Len(t, sweepTx.TxIn, len(inputUtxos))
+
+			lookup := make(
+				map[wire.OutPoint]struct{}, len(sweepTx.TxIn),
+			)
+			for _, tx := range sweepTx.TxIn {
+				lookup[tx.PreviousOutPoint] = struct{}{}
+			}
+
+			for _, utxo := range inputUtxos {
+				_, ok := lookup[utxo.OutPoint]
+				require.True(t, ok)
+			}
+
+			// We should have a single output that pays to our sweep
+			// script generated above.
+			require.Len(t, sweepTx.TxOut, 1)
+
+			output := sweepTx.TxOut[0]
+			switch {
+			case output.Value != expectedSweepValue:
+				t.Fatalf("expected %v sweep value, instead "+
+					"got %v", expectedSweepValue,
+					output.Value)
+
+			case !bytes.Equal(sweepScript, output.PkScript):
+				t.Fatalf("expected %x sweep script, instead "+
+					"got %x", sweepScript, output.PkScript)
+			}
+
+			// If we cancel the sweep attempt, then we should find
+			// that all the UTXOs within the sweep transaction are
+			// now unlocked.
+			sweepPkg.CancelSweepAttempt()
+			assertUtxosReleased(t, utxoLeaser, inputUtxos)
+
+			// Reset all utxoleaser values after test.
+			utxoLeaser.Reset()
+		})
+	}
+}
+
+func sumUtxos(utxos []*lnwallet.Utxo) int64 {
+	vals := fn.Map(func(u *lnwallet.Utxo) btcutil.Amount {
+		return u.Value
+	}, utxos)
+
+	return int64(fn.Sum(vals))
 }

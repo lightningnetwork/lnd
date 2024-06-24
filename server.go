@@ -1686,7 +1686,20 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 // UpdateEstimatorValue is a callback function to change estimator value in the  
 // main cfg when the lncli setmccfg is called to change the estimator value. 
  func (s *server) UpdateEstimatorValue(estimator routing.Estimator) {
-	s.cfg.Estimator = estimator
+	switch c := estimator.Config().(type) {
+	case *routing.AprioriConfig:
+		targetCfg := s.cfg.SubRPCServers.RouterRPC.AprioriConfig
+		targetCfg.PenaltyHalfLife = c.PenaltyHalfLife
+		targetCfg.Weight = c.AprioriWeight
+		targetCfg.CapacityFraction = c.CapacityFraction
+		targetCfg.HopProbability = c.AprioriHopProbability
+
+	case *routing.BimodalConfig:
+		targetCfg := s.cfg.SubRPCServers.RouterRPC.BimodalConfig
+		targetCfg.Scale = int64(c.BimodalScaleMsat)
+		targetCfg.NodeWeight = c.BimodalNodeWeight
+		targetCfg.DecayTime = c.BimodalDecayTime
+	}
 }
 
 // signAliasUpdate takes a ChannelUpdate and returns the signature. This is

@@ -2559,7 +2559,8 @@ type BreachRetribution struct {
 func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	breachHeight uint32, spendTx *wire.MsgTx,
 	leafStore fn.Option[AuxLeafStore],
-	auxResolver fn.Option[AuxContractResolver]) (*BreachRetribution, error) { //nolint:lll
+	auxResolver fn.Option[AuxContractResolver]) (*BreachRetribution,
+	error) {
 
 	// Query the on-disk revocation log for the snapshot which was recorded
 	// at this particular state num. Based on whether a legacy revocation
@@ -2611,26 +2612,26 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 	// Since it is the remote breach we are reconstructing, the output
 	// going to us will be a to-remote script with our local params.
-	localAuxLeaf := fn.MapOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
-		return l.LocalAuxLeaf
+	remoteAuxLeaf := fn.MapOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
+		return l.RemoteAuxLeaf
 	})(auxLeaves)
 	isRemoteInitiator := !chanState.IsInitiator
 	ourScript, ourDelay, err := CommitScriptToRemote(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
-		leaseExpiry, fn.FlattenOption(localAuxLeaf),
+		leaseExpiry, fn.FlattenOption(remoteAuxLeaf),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	remoteAuxLeaf := fn.MapOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
-		return l.RemoteAuxLeaf
+	localAuxLeaf := fn.MapOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
+		return l.LocalAuxLeaf
 	})(auxLeaves)
 	theirDelay := uint32(chanState.RemoteChanCfg.CsvDelay)
 	theirScript, err := CommitScriptToSelf(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToLocalKey,
 		keyRing.RevocationKey, theirDelay, leaseExpiry,
-		fn.FlattenOption(remoteAuxLeaf),
+		fn.FlattenOption(localAuxLeaf),
 	)
 	if err != nil {
 		return nil, err
@@ -2723,19 +2724,20 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		resolveBlob := fn.MapOptionZ(
 			auxResolver,
 			func(a AuxContractResolver) fn.Result[tlv.Blob] {
+				//nolint:lll
 				return a.ResolveContract(ResolutionReq{
 					ChanPoint:   chanState.FundingOutpoint,
 					ShortChanID: chanState.ShortChanID(),
 					Initiator:   chanState.IsInitiator,
-					CommitBlob:  chanState.RemoteCommitment.CustomBlob, //nolint:lll
+					CommitBlob:  chanState.RemoteCommitment.CustomBlob,
 					FundingBlob: chanState.CustomBlob,
-					Type:        input.TaprootRemoteCommitSpend, //nolint:lll
+					Type:        input.TaprootRemoteCommitSpend,
 					CloseType:   Breach,
 					CommitTx:    spendTx,
 					SignDesc:    *br.LocalOutputSignDesc,
 					KeyRing:     keyRing,
 					CsvDelay:    theirDelay,
-					CommitFee:   chanState.RemoteCommitment.CommitFee, //nolint:lll
+					CommitFee:   chanState.RemoteCommitment.CommitFee,
 				})
 			},
 		)
@@ -2797,19 +2799,20 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		resolveBlob := fn.MapOptionZ(
 			auxResolver,
 			func(a AuxContractResolver) fn.Result[tlv.Blob] {
+				//nolint:lll
 				return a.ResolveContract(ResolutionReq{
 					ChanPoint:   chanState.FundingOutpoint,
 					ShortChanID: chanState.ShortChanID(),
 					Initiator:   chanState.IsInitiator,
-					CommitBlob:  chanState.RemoteCommitment.CustomBlob, //nolint:lll
+					CommitBlob:  chanState.RemoteCommitment.CustomBlob,
 					FundingBlob: chanState.CustomBlob,
-					Type:        input.TaprootCommitmentRevoke, //nolint:lll
+					Type:        input.TaprootCommitmentRevoke,
 					CloseType:   Breach,
 					CommitTx:    spendTx,
 					SignDesc:    *br.RemoteOutputSignDesc,
 					KeyRing:     keyRing,
 					CsvDelay:    theirDelay,
-					CommitFee:   chanState.RemoteCommitment.CommitFee, //nolint:lll
+					CommitFee:   chanState.RemoteCommitment.CommitFee,
 				})
 			},
 		)

@@ -161,7 +161,6 @@ func newRoute(sourceVertex route.Vertex,
 			fee                 int64
 			totalAmtMsatBlinded lnwire.MilliSatoshi
 			outgoingTimeLock    uint32
-			tlvPayload          bool
 			customRecords       record.CustomSet
 			mpp                 *record.MPP
 			metadata            []byte
@@ -180,13 +179,6 @@ func newRoute(sourceVertex route.Vertex,
 			return edge.ToNodeFeatures.HasFeature(feature)
 		}
 
-		// We start by assuming the node doesn't support TLV. We'll now
-		// inspect the node's feature vector to see if we can promote
-		// the hop. We assume already that the feature vector's
-		// transitive dependencies have already been validated by path
-		// finding or some other means.
-		tlvPayload = supports(lnwire.TLVOnionPayloadOptional)
-
 		if i == len(pathEdges)-1 {
 			// If this is the last hop, then the hop payload will
 			// contain the exact amount. In BOLT #4: Onion Routing
@@ -204,12 +196,7 @@ func newRoute(sourceVertex route.Vertex,
 			totalTimeLock += uint32(finalHop.cltvDelta)
 			outgoingTimeLock = totalTimeLock
 
-			// Attach any custom records to the final hop if the
-			// receiver supports TLV.
-			if !tlvPayload && finalHop.records != nil {
-				return nil, errors.New("cannot attach " +
-					"custom records")
-			}
+			// Attach any custom records to the final hop.
 			customRecords = finalHop.records
 
 			// If we're attaching a payment addr but the receiver
@@ -275,7 +262,6 @@ func newRoute(sourceVertex route.Vertex,
 			ChannelID:        edge.ChannelID,
 			AmtToForward:     amtToForward,
 			OutgoingTimeLock: outgoingTimeLock,
-			LegacyPayload:    !tlvPayload,
 			CustomRecords:    customRecords,
 			MPP:              mpp,
 			Metadata:         metadata,
@@ -659,8 +645,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// The payload size of the final hop differ from intermediate hops
 	// and depends on whether the destination is blinded or not.
-	lastHopPayloadSize := lastHopPayloadSize(r, finalHtlcExpiry, amt,
-		!features.HasFeature(lnwire.TLVOnionPayloadOptional))
+	lastHopPayloadSize := lastHopPayloadSize(r, finalHtlcExpiry, amt)
 
 	// We can't always assume that the end destination is publicly
 	// advertised to the network so we'll manually include the target node.
@@ -882,14 +867,10 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				return
 			}
 
-			supportsTlv := fromFeatures.HasFeature(
-				lnwire.TLVOnionPayloadOptional,
-			)
-
 			payloadSize = edge.hopPayloadSizeFn(
 				amountToSend,
 				uint32(toNodeDist.incomingCltv),
-				!supportsTlv, edge.policy.ChannelID,
+				edge.policy.ChannelID,
 			)
 		}
 
@@ -1176,7 +1157,7 @@ func getProbabilityBasedDist(weight int64, probability float64,
 // It depends on the tlv types which are present and also whether the hop is
 // part of a blinded route or not.
 func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
-	amount lnwire.MilliSatoshi, legacy bool) uint64 {
+	amount lnwire.MilliSatoshi) uint64 {
 
 	if r.BlindedPayment != nil {
 		blindedPath := r.BlindedPayment.BlindedPath.BlindedHops
@@ -1186,7 +1167,6 @@ func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
 		finalHop := route.Hop{
 			AmtToForward:     amount,
 			OutgoingTimeLock: uint32(finalHtlcExpiry),
-			LegacyPayload:    false,
 			EncryptedData:    encryptedData,
 		}
 		if len(blindedPath) == 1 {
@@ -1214,7 +1194,6 @@ func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
 		AmtToForward:     amount,
 		OutgoingTimeLock: uint32(finalHtlcExpiry),
 		CustomRecords:    r.DestCustomRecords,
-		LegacyPayload:    legacy,
 		MPP:              mpp,
 		AMP:              amp,
 		Metadata:         r.Metadata,

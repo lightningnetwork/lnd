@@ -133,6 +133,11 @@ type Hop struct {
 	// LegacyPayload if true, then this signals that this node doesn't
 	// understand the new TLV payload, so we must instead use the legacy
 	// payload.
+	//
+	// NOTE: we should no longer ever create a Hop with Legacy set to true.
+	// The only reason we are keeping this member is that it could be the
+	// case that we have serialised hops persisted to disk where
+	// LegacyPayload is true.
 	LegacyPayload bool
 
 	// Metadata is additional data that is sent along with the payment to
@@ -190,7 +195,7 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64,
 
 	// If this is a legacy payload, then we'll exit here as this method
 	// shouldn't be called.
-	if h.LegacyPayload == true {
+	if h.LegacyPayload {
 		return fmt.Errorf("cannot pack hop payloads for legacy " +
 			"payloads")
 	}
@@ -370,8 +375,8 @@ func validateNextChanID(nextChanIDIsSet, isBlinded, finalHop bool) error {
 	}
 }
 
-// Size returns the total size this hop's payload would take up in the onion
-// packet.
+// PayloadSize returns the total size this hop's payload would take up in the
+// onion packet.
 func (h *Hop) PayloadSize(nextChanID uint64) uint64 {
 	if h.LegacyPayload {
 		return sphinx.LegacyHopDataSize

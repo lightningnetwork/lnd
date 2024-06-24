@@ -84,8 +84,123 @@ func (c *anchorResolver) ResolverKey() []byte {
 	return nil
 }
 
-// Resolve offers the anchor output to the sweeper and waits for it to be swept.
+// Resolve waits for the output to be swept.
 func (c *anchorResolver) Resolve() (ContractResolver, error) {
+	// If we're already resolved, then we can exit early.
+	if c.resolved {
+		c.log.Errorf("already resolved")
+		return nil, nil
+	}
+
+	var (
+		outcome channeldb.ResolverOutcome
+		spendTx *chainhash.Hash
+	)
+
+	select {
+	case sweepRes := <-c.sweepResultChan:
+		switch sweepRes.Err {
+		// Anchor was swept successfully.
+		case nil:
+			sweepTxID := sweepRes.Tx.TxHash()
+
+			spendTx = &sweepTxID
+			outcome = channeldb.ResolverOutcomeClaimed
+
+		// Anchor was swept by someone else. This is possible after the
+		// 16 block csv lock.
+		case sweep.ErrRemoteSpend:
+			c.log.Warnf("our anchor spent by someone else")
+			outcome = channeldb.ResolverOutcomeUnclaimed
+
+		// An unexpected error occurred.
+		default:
+			c.log.Errorf("unable to sweep anchor: %v", sweepRes.Err)
+
+			return nil, sweepRes.Err
+		}
+
+	case <-c.quit:
+		return nil, errResolverShuttingDown
+	}
+
+	c.log.Infof("resolved in tx %v", spendTx)
+
+	// Update report to reflect that funds are no longer in limbo.
+	c.reportLock.Lock()
+	if outcome == channeldb.ResolverOutcomeClaimed {
+		c.currentReport.RecoveredBalance = c.currentReport.LimboBalance
+	}
+	c.currentReport.LimboBalance = 0
+	report := c.currentReport.resolverReport(
+		spendTx, channeldb.ResolverTypeAnchor, outcome,
+	)
+	c.reportLock.Unlock()
+
+	c.resolved = true
+	return nil, c.PutResolverReport(nil, report)
+}
+
+// Stop signals the resolver to cancel any current resolution processes, and
+// suspend.
+//
+// NOTE: Part of the ContractResolver interface.
+func (c *anchorResolver) Stop() {
+	c.log.Debugf("stopping...")
+	defer c.log.Debugf("stopped")
+
+	close(c.quit)
+}
+
+// IsResolved returns true if the stored state in the resolve is fully
+// resolved. In this case the target output can be forgotten.
+//
+// NOTE: Part of the ContractResolver interface.
+func (c *anchorResolver) IsResolved() bool {
+	return c.resolved
+}
+
+// SupplementState allows the user of a ContractResolver to supplement it with
+// state required for the proper resolution of a contract.
+//
+// NOTE: Part of the ContractResolver interface.
+func (c *anchorResolver) SupplementState(state *channeldb.OpenChannel) {
+	c.chanType = state.ChanType
+}
+
+// report returns a report on the resolution state of the contract.
+func (c *anchorResolver) report() *ContractReport {
+	c.reportLock.Lock()
+	defer c.reportLock.Unlock()
+
+	reportCopy := c.currentReport
+	return &reportCopy
+}
+
+func (c *anchorResolver) Encode(w io.Writer) error {
+	return errors.New("serialization not supported")
+}
+
+// A compile time assertion to ensure anchorResolver meets the
+// ContractResolver interface.
+var _ ContractResolver = (*anchorResolver)(nil)
+
+// Launch offers the anchor output to the sweeper.
+func (c *anchorResolver) Launch() error {
+	if c.launched {
+		c.log.Tracef("already launched")
+		return nil
+	}
+
+	c.log.Debugf("launching resolver...")
+	c.launched = true
+
+	// If we're already resolved, then we can exit early.
+	if c.resolved {
+		c.log.Errorf("already resolved")
+		return nil
+	}
+
 	// Attempt to update the sweep parameters to the post-confirmation
 	// situation. We don't want to force sweep anymore, because the anchor
 	// lost its special purpose to get the commitment confirmed. It is just
@@ -125,94 +240,12 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 			DeadlineHeight: fn.None[int32](),
 		},
 	)
+
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	var (
-		outcome channeldb.ResolverOutcome
-		spendTx *chainhash.Hash
-	)
+	c.sweepResultChan = resultChan
 
-	select {
-	case sweepRes := <-resultChan:
-		switch sweepRes.Err {
-		// Anchor was swept successfully.
-		case nil:
-			sweepTxID := sweepRes.Tx.TxHash()
-
-			spendTx = &sweepTxID
-			outcome = channeldb.ResolverOutcomeClaimed
-
-		// Anchor was swept by someone else. This is possible after the
-		// 16 block csv lock.
-		case sweep.ErrRemoteSpend:
-			c.log.Warnf("our anchor spent by someone else")
-			outcome = channeldb.ResolverOutcomeUnclaimed
-
-		// An unexpected error occurred.
-		default:
-			c.log.Errorf("unable to sweep anchor: %v", sweepRes.Err)
-
-			return nil, sweepRes.Err
-		}
-
-	case <-c.quit:
-		return nil, errResolverShuttingDown
-	}
-
-	// Update report to reflect that funds are no longer in limbo.
-	c.reportLock.Lock()
-	if outcome == channeldb.ResolverOutcomeClaimed {
-		c.currentReport.RecoveredBalance = c.currentReport.LimboBalance
-	}
-	c.currentReport.LimboBalance = 0
-	report := c.currentReport.resolverReport(
-		spendTx, channeldb.ResolverTypeAnchor, outcome,
-	)
-	c.reportLock.Unlock()
-
-	c.resolved = true
-	return nil, c.PutResolverReport(nil, report)
+	return nil
 }
-
-// Stop signals the resolver to cancel any current resolution processes, and
-// suspend.
-//
-// NOTE: Part of the ContractResolver interface.
-func (c *anchorResolver) Stop() {
-	close(c.quit)
-}
-
-// IsResolved returns true if the stored state in the resolve is fully
-// resolved. In this case the target output can be forgotten.
-//
-// NOTE: Part of the ContractResolver interface.
-func (c *anchorResolver) IsResolved() bool {
-	return c.resolved
-}
-
-// SupplementState allows the user of a ContractResolver to supplement it with
-// state required for the proper resolution of a contract.
-//
-// NOTE: Part of the ContractResolver interface.
-func (c *anchorResolver) SupplementState(state *channeldb.OpenChannel) {
-	c.chanType = state.ChanType
-}
-
-// report returns a report on the resolution state of the contract.
-func (c *anchorResolver) report() *ContractReport {
-	c.reportLock.Lock()
-	defer c.reportLock.Unlock()
-
-	reportCopy := c.currentReport
-	return &reportCopy
-}
-
-func (c *anchorResolver) Encode(w io.Writer) error {
-	return errors.New("serialization not supported")
-}
-
-// A compile time assertion to ensure anchorResolver meets the
-// ContractResolver interface.
-var _ ContractResolver = (*anchorResolver)(nil)

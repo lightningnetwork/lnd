@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/sweep"
 )
 
 var (
@@ -110,6 +111,15 @@ type contractResolverKit struct {
 	log btclog.Logger
 
 	quit chan struct{}
+
+	// sweepResultChan is the result chan returned from calling
+	// `SweepInput`. It should be mounted to the specific resolver once the
+	// input has been offered to the sweeper.
+	sweepResultChan chan sweep.Result
+
+	// launched specifies whether the resolver has been launched. Calling
+	// `Launch` will be a no-op if this is true.
+	launched bool
 }
 
 // newContractResolverKit instantiates the mix-in struct.

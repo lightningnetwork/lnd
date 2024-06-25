@@ -146,6 +146,9 @@ func (i *htlcResolverTestContext) resolve() {
 	i.resolverResultChan = make(chan resolveResult, 1)
 
 	go func() {
+		err := i.resolver.Launch()
+		require.NoError(i.t, err)
+
 		nextResolver, err := i.resolver.Resolve()
 		i.resolverResultChan <- resolveResult{
 			nextResolver: nextResolver,

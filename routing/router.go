@@ -3140,35 +3140,29 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		// the destination. There are nodes in the wild that have a
 		// min_htlc channel policy of zero, which could lead to a zero
 		// amount payment being made.
-		senderAmt, err := backwardPass(
+		var senderAmt lnwire.MilliSatoshi
+		pathEdges, senderAmt, err = backwardPass(
 			unifiers, useMinAmt, 1, bandwidthHints,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		pathEdges, receiverAmt, err = getPathEdges(
-			senderAmt, unifiers, bandwidthHints, 
-		)
+		receiverAmt, err = forwardPass(senderAmt, pathEdges)
 		if err != nil {
 			return nil, err
 		}
 	} else {
 		// If an amount is specified, we need to build a route that
 		// delivers exactly this amount to the final destination.
-		senderAmt, err := backwardPass(
+		pathEdges, _, err = backwardPass(
 			unifiers, useMinAmt, *amt, bandwidthHints,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		pathEdges, receiverAmt, err = getPathEdges(
-			senderAmt, unifiers, bandwidthHints,
-		)
-		if err != nil {
-			return nil, err
-		}
+		receiverAmt = *amt
 	}
 
 	// Fetch the current block height outside the routing transaction, to
@@ -3237,12 +3231,15 @@ func getEdgeUnifiers(source route.Vertex, hops []route.Vertex,
 	return unifiers, nil
 }
 
-// backwardPass determines the amount that should be sent to fulfill min HTLC
-// requirements. The minimal sender amount can be searched for by activating
-// useMinAmt.
+// backwardPass returns a list of unified edges for the given route and
+// determines the amount that should be sent to fulfill min HTLC requirements.
+// The minimal sender amount can be searched for by activating useMinAmt.
 func backwardPass(unifiers []*edgeUnifier, useMinAmt bool,
 	runningAmt lnwire.MilliSatoshi,
-	bandwidthHints *bandwidthManager) (lnwire.MilliSatoshi, error) {
+	bandwidthHints *bandwidthManager) ([]*unifiedEdge, lnwire.MilliSatoshi,
+	error) {
+
+	var unifiedEdges = make([]*unifiedEdge, len(unifiers))
 
 	// Traverse hops backwards to accumulate fees in the running amounts.
 	for i := len(unifiers) - 1; i >= 0; i-- {
@@ -3263,7 +3260,7 @@ func backwardPass(unifiers []*edgeUnifier, useMinAmt bool,
 			log.Errorf("Cannot find policy with amt=%v for hop %v",
 				runningAmt, i)
 
-			return 0, ErrNoChannel{
+			return nil, 0, ErrNoChannel{
 				position: i,
 			}
 		}
@@ -3275,38 +3272,37 @@ func backwardPass(unifiers []*edgeUnifier, useMinAmt bool,
 
 		log.Tracef("Select channel %v at position %v",
 			edge.policy.ChannelID, i)
+
+		unifiedEdges[i] = edge
 	}
 
-	return runningAmt, nil
+	return unifiedEdges, runningAmt, nil
 }
 
-// getPathEdges returns the edges that make up the path and the amount that gets
-// delivered to the receiver.
-func getPathEdges(receiverAmt lnwire.MilliSatoshi,
-	unifiers []*edgeUnifier,
-	bandwidthHints *bandwidthManager) ([]*unifiedEdge, lnwire.MilliSatoshi,
-	error) {
+// forwardPass returns the amount that a receiver will receive after deducting
+// all fees from the sender amount.
+func forwardPass(senderAmt lnwire.MilliSatoshi,
+	unifiedEdges []*unifiedEdge) (lnwire.MilliSatoshi, error) {
 
 	// Now that we arrived at the start of the route and found out the route
 	// total amount, we make a forward pass. Because the amount may have
 	// been increased in the backward pass, fees need to be recalculated and
 	// amount ranges re-checked.
-	var pathEdges []*unifiedEdge
-	for i, unifier := range unifiers {
-		edge := unifier.getEdge(receiverAmt, bandwidthHints, 0)
-		if edge == nil {
-			return nil, 0, ErrNoChannel{position: i}
-		}
-
+	for i, edge := range unifiedEdges {
 		if i > 0 {
 			// Decrease the amount to send while going forward.
-			receiverAmt -= edge.policy.ComputeFeeFromIncoming(
-				receiverAmt,
+			senderAmt -= edge.policy.ComputeFeeFromIncoming(
+				senderAmt,
 			)
 		}
 
-		pathEdges = append(pathEdges, edge)
+		if !edge.amtInRange(senderAmt) {
+			log.Errorf("Amount %v not in range for hop %v",
+				senderAmt, i)
+
+			return 0, ErrNoChannel{position: i}
+		}
 	}
 
-	return pathEdges, receiverAmt, nil
+	return senderAmt, nil
 }

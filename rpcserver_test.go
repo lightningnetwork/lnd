@@ -77,3 +77,53 @@ func TestAuxDataParser(t *testing.T) {
 	require.NotNil(t, resp)
 	require.Equal(t, []byte{0x00, 0x00}, resp.CustomChannelData)
 }
+
+// TestRpcCommitmentType tests the rpcCommitmentType returns the corect
+// commitment type given a channel type.
+func TestRpcCommitmentType(t *testing.T) {
+	tests := []struct {
+		name     string
+		chanType channeldb.ChannelType
+		want     lnrpc.CommitmentType
+	}{
+		{
+			name: "tapscript overlay",
+			chanType: channeldb.SimpleTaprootFeatureBit |
+				channeldb.TapscriptRootBit,
+			want: lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY,
+		},
+		{
+			name:     "simple taproot",
+			chanType: channeldb.SimpleTaprootFeatureBit,
+			want:     lnrpc.CommitmentType_SIMPLE_TAPROOT,
+		},
+		{
+			name:     "lease expiration",
+			chanType: channeldb.LeaseExpirationBit,
+			want:     lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
+		},
+		{
+			name:     "anchors",
+			chanType: channeldb.AnchorOutputsBit,
+			want:     lnrpc.CommitmentType_ANCHORS,
+		},
+		{
+			name:     "tweakless",
+			chanType: channeldb.SingleFunderTweaklessBit,
+			want:     lnrpc.CommitmentType_STATIC_REMOTE_KEY,
+		},
+		{
+			name:     "legacy",
+			chanType: channeldb.SingleFunderBit,
+			want:     lnrpc.CommitmentType_LEGACY,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(
+				t, tt.want, rpcCommitmentType(tt.chanType),
+			)
+		})
+	}
+}

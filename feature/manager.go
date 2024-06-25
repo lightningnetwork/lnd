@@ -63,6 +63,9 @@ type Config struct {
 	// NoRouteBlinding unsets route blinding feature bits.
 	NoRouteBlinding bool
 
+	// NoTaprootOverlay unsets the taproot overlay channel feature bits.
+	NoTaprootOverlay bool
+
 	// CustomFeatures is a set of custom features to advertise in each
 	// set.
 	CustomFeatures map[Set][]lnwire.FeatureBit
@@ -187,6 +190,10 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		if cfg.NoRouteBlinding {
 			raw.Unset(lnwire.RouteBlindingOptional)
 			raw.Unset(lnwire.RouteBlindingRequired)
+		}
+		if cfg.NoTaprootOverlay {
+			raw.Unset(lnwire.SimpleTaprootOverlayChansOptional)
+			raw.Unset(lnwire.SimpleTaprootOverlayChansRequired)
 		}
 		for _, custom := range cfg.CustomFeatures[set] {
 			if custom > set.Maximum() {

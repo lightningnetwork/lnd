@@ -85,6 +85,11 @@ var deps = depDesc{
 	lnwire.RouteBlindingRequired: {
 		lnwire.TLVOnionPayloadRequired: {},
 	},
+	lnwire.SimpleTaprootOverlayChansOptional: {
+		lnwire.SimpleTaprootChannelsOptionalStaging: {},
+		lnwire.TLVOnionPayloadOptional:              {},
+		lnwire.ScidAliasOptional:                    {},
+	},
 }
 
 // ValidateDeps asserts that a feature vector sets all features and their

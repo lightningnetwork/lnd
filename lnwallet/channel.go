@@ -8612,13 +8612,13 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 
 	// Create both cooperative closure outputs, properly respecting the
 	// dust limits of both parties.
-	if ourBalance >= localDust {
+	if ourBalance > localDust {
 		closeTx.AddTxOut(&wire.TxOut{
 			PkScript: ourDeliveryScript,
 			Value:    int64(ourBalance),
 		})
 	}
-	if theirBalance >= remoteDust {
+	if theirBalance > remoteDust {
 		closeTx.AddTxOut(&wire.TxOut{
 			PkScript: theirDeliveryScript,
 			Value:    int64(theirBalance),

@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -1101,12 +1102,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	}
 
 	// Send a notification that the expiry height has been reached.
-	//
-	// TODO(yy): remove the EpochChan and use the blockbeat below once
-	// resolvers are hooked with the blockbeat.
 	oldNotifier.EpochChan <- &chainntnfs.BlockEpoch{Height: 10}
-	// beat := chainio.NewBlockbeatFromHeight(10)
-	// chanArb.BlockbeatChan <- beat
 
 	// htlcOutgoingContestResolver is now transforming into a
 	// htlcTimeoutResolver and should send the contract off for incubation.
@@ -1149,8 +1145,12 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	default:
 	}
 
-	// Notify resolver that the second level transaction is spent.
-	oldNotifier.SpendChan <- &chainntnfs.SpendDetail{SpendingTx: closeTx}
+	// Notify resolver that the output of the timeout tx has been spent.
+	oldNotifier.SpendChan <- &chainntnfs.SpendDetail{
+		SpendingTx:    closeTx,
+		SpentOutPoint: &wire.OutPoint{},
+		SpenderTxHash: &closeTxid,
+	}
 
 	// At this point channel should be marked as resolved.
 	chanArbCtxNew.AssertStateTransitions(StateFullyResolved)
@@ -2830,27 +2830,28 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 	}
 	chanArb.UpdateContractSignals(signals)
 
-	// Set current block height.
-	beat = newBeatFromHeight(int32(heightHint))
-	chanArbCtx.chanArb.BlockbeatChan <- beat
-
 	htlcAmt := lnwire.MilliSatoshi(1_000_000)
 
 	// Create testing HTLCs.
-	deadlineDelta := uint32(10)
-	deadlinePreimageDelta := deadlineDelta + 2
+	spendingHeight := uint32(beat.Height())
+	deadlineDelta := uint32(100)
+
+	deadlinePreimageDelta := deadlineDelta
 	htlcWithPreimage := channeldb.HTLC{
-		HtlcIndex:     99,
-		RefundTimeout: heightHint + deadlinePreimageDelta,
+		HtlcIndex: 99,
+		// RefundTimeout is 101.
+		RefundTimeout: spendingHeight + deadlinePreimageDelta,
 		RHash:         rHash,
 		Incoming:      true,
 		Amt:           htlcAmt,
 	}
+	expectedDeadline := deadlineDelta/2 + spendingHeight
 
-	deadlineHTLCdelta := deadlineDelta + 3
+	deadlineHTLCdelta := deadlineDelta + 40
 	htlc := channeldb.HTLC{
-		HtlcIndex:     100,
-		RefundTimeout: heightHint + deadlineHTLCdelta,
+		HtlcIndex: 100,
+		// RefundTimeout is 141.
+		RefundTimeout: spendingHeight + deadlineHTLCdelta,
 		Amt:           htlcAmt,
 	}
 
@@ -2935,7 +2936,9 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 
 	//nolint:ll
 	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
-		SpendDetail: &chainntnfs.SpendDetail{},
+		SpendDetail: &chainntnfs.SpendDetail{
+			SpendingHeight: int32(spendingHeight),
+		},
 		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
 			CloseTx: closeTx,
 			ContractResolutions: fn.Some(lnwallet.ContractResolutions{
@@ -2999,16 +3002,14 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 	// to htlcWithPreimage's CLTV.
 	require.Equal(t, 2, len(chanArbCtx.sweeper.deadlines))
 	require.EqualValues(t,
-		heightHint+deadlinePreimageDelta/2,
+		expectedDeadline,
 		chanArbCtx.sweeper.deadlines[0], "want %d, got %d",
-		heightHint+deadlinePreimageDelta/2,
-		chanArbCtx.sweeper.deadlines[0],
+		expectedDeadline, chanArbCtx.sweeper.deadlines[0],
 	)
 	require.EqualValues(t,
-		heightHint+deadlinePreimageDelta/2,
+		expectedDeadline,
 		chanArbCtx.sweeper.deadlines[1], "want %d, got %d",
-		heightHint+deadlinePreimageDelta/2,
-		chanArbCtx.sweeper.deadlines[1],
+		expectedDeadline, chanArbCtx.sweeper.deadlines[1],
 	)
 }
 
@@ -3159,7 +3160,8 @@ func assertResolverReport(t *testing.T, reports chan *channeldb.ResolverReport,
 	select {
 	case report := <-reports:
 		if !reflect.DeepEqual(report, expected) {
-			t.Fatalf("expected: %v, got: %v", expected, report)
+			t.Fatalf("expected: %v, got: %v", spew.Sdump(expected),
+				spew.Sdump(report))
 		}
 
 	case <-time.After(defaultTimeout):

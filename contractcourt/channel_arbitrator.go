@@ -816,7 +816,7 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 		// TODO(roasbeef): this isn't re-launched?
 	}
 
-	c.launchResolvers(unresolvedContracts)
+	c.resolveContracts(unresolvedContracts)
 
 	return nil
 }
@@ -1355,7 +1355,7 @@ func (c *ChannelArbitrator) stateStep(
 
 		// Finally, we'll launch all the required contract resolvers.
 		// Once they're all resolved, we're no longer needed.
-		c.launchResolvers(resolvers)
+		c.resolveContracts(resolvers)
 
 		nextState = StateWaitingFullResolution
 
@@ -1578,15 +1578,72 @@ func (c *ChannelArbitrator) findCommitmentDeadlineAndValue(heightHint uint32,
 	return fn.Some(int32(deadline)), valueLeft, nil
 }
 
-// launchResolvers updates the activeResolvers list and starts the resolvers.
-func (c *ChannelArbitrator) launchResolvers(resolvers []ContractResolver) {
+// resolveContracts updates the activeResolvers list and starts to resolve each
+// contract concurrently, and launches them.
+func (c *ChannelArbitrator) resolveContracts(resolvers []ContractResolver) {
 	c.activeResolversLock.Lock()
 	c.activeResolvers = resolvers
 	c.activeResolversLock.Unlock()
 
+	// Launch all resolvers.
+	c.launchResolvers()
+
 	for _, contract := range resolvers {
 		c.wg.Add(1)
 		go c.resolveContract(contract)
+	}
+}
+
+// launchResolvers launches all the active resolvers concurrently.
+func (c *ChannelArbitrator) launchResolvers() {
+	c.activeResolversLock.Lock()
+	resolvers := c.activeResolvers
+	c.activeResolversLock.Unlock()
+
+	// errChans is a map of channels that will be used to receive errors
+	// returned from launching the resolvers.
+	errChans := make(map[ContractResolver]chan error, len(resolvers))
+
+	// Launch each resolver in goroutines.
+	for _, r := range resolvers {
+		// If the contract is already resolved, there's no need to
+		// launch it again.
+		if r.IsResolved() {
+			log.Debugf("ChannelArbitrator(%v): skipping resolver "+
+				"%T as it's already resolved", c.cfg.ChanPoint,
+				r)
+
+			continue
+		}
+
+		// Create a signal chan.
+		errChan := make(chan error, 1)
+		errChans[r] = errChan
+
+		go func() {
+			err := r.Launch()
+			errChan <- err
+		}()
+	}
+
+	// Wait for all resolvers to finish launching.
+	for r, errChan := range errChans {
+		select {
+		case err := <-errChan:
+			if err == nil {
+				continue
+			}
+
+			log.Errorf("ChannelArbitrator(%v): unable to launch "+
+				"contract resolver(%T): %v", c.cfg.ChanPoint, r,
+				err)
+
+		case <-c.quit:
+			log.Debugf("ChannelArbitrator quit signal received, " +
+				"exit launchResolvers")
+
+			return
+		}
 	}
 }
 
@@ -2628,6 +2685,13 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 				// loop.
 				currentContract = nextContract
 
+				// Launch the new contract.
+				err = currentContract.Launch()
+				if err != nil {
+					log.Errorf("Failed to launch %T: %v",
+						currentContract, err)
+				}
+
 			// If this contract is actually fully resolved, then
 			// we'll mark it as such within the database.
 			case currentContract.IsResolved():
@@ -3143,6 +3207,9 @@ func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Blockbeat) error {
 			return fmt.Errorf("unable to advance state: %w", err)
 		}
 	}
+
+	// Launch all active resolvers when a new blockbeat is received.
+	c.launchResolvers()
 
 	return nil
 }

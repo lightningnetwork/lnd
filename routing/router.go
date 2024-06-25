@@ -3107,6 +3107,17 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		}
 	}
 
+	// We'll attempt to obtain a set of bandwidth hints that helps us select
+	// the best outgoing channel to use in case no outgoing channel is set.
+	bandwidthHints, err := newBandwidthManager(
+		r.cachedGraph, r.selfNode.PubKeyBytes, r.cfg.GetLink,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceNode := r.selfNode.PubKeyBytes
+
 	// If no amount is specified, we need to build a route for the minimum
 	// amount that this route can carry.
 	useMinAmt := amt == nil
@@ -3124,23 +3135,6 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		runningAmt = *amt
 	}
 
-	// We'll attempt to obtain a set of bandwidth hints that helps us select
-	// the best outgoing channel to use in case no outgoing channel is set.
-	bandwidthHints, err := newBandwidthManager(
-		r.cachedGraph, r.selfNode.PubKeyBytes, r.cfg.GetLink,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Fetch the current block height outside the routing transaction, to
-	// prevent the rpc call blocking the database.
-	_, height, err := r.cfg.Chain.GetBestBlock()
-	if err != nil {
-		return nil, err
-	}
-
-	sourceNode := r.selfNode.PubKeyBytes
 	unifiers, senderAmt, err := getRouteUnifiers(
 		sourceNode, hops, useMinAmt, runningAmt, outgoingChans,
 		r.cachedGraph, bandwidthHints,
@@ -3152,6 +3146,13 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	pathEdges, receiverAmt, err := getPathEdges(
 		sourceNode, senderAmt, unifiers, bandwidthHints, hops,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch the current block height outside the routing transaction, to
+	// prevent the rpc call blocking the database.
+	_, height, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {
 		return nil, err
 	}

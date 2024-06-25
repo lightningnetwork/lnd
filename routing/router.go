@@ -1441,31 +1441,45 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	// amount that this route can carry.
 	useMinAmt := amt == nil
 
-	var runningAmt lnwire.MilliSatoshi
+	var (
+		receiverAmt lnwire.MilliSatoshi
+		pathEdges   []*unifiedEdge
+	)
+
 	if useMinAmt {
 		// For minimum amount routes, aim to deliver at least 1 msat to
 		// the destination. There are nodes in the wild that have a
 		// min_htlc channel policy of zero, which could lead to a zero
 		// amount payment being made.
-		runningAmt = 1
+		senderAmt, err := senderAmtBackwardPass(
+			unifiers, useMinAmt, 1, bandwidthHints,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		pathEdges, receiverAmt, err = getPathEdges(
+			senderAmt, unifiers, bandwidthHints,
+		)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		// If an amount is specified, we need to build a route that
 		// delivers exactly this amount to the final destination.
-		runningAmt = *amt
-	}
+		senderAmt, err := senderAmtBackwardPass(
+			unifiers, useMinAmt, *amt, bandwidthHints,
+		)
+		if err != nil {
+			return nil, err
+		}
 
-	senderAmt, err := senderAmtBackwardPass(
-		unifiers, useMinAmt, runningAmt, bandwidthHints,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	pathEdges, receiverAmt, err := getPathEdges(
-		senderAmt, unifiers, bandwidthHints,
-	)
-	if err != nil {
-		return nil, err
+		pathEdges, receiverAmt, err = getPathEdges(
+			senderAmt, unifiers, bandwidthHints,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Fetch the current block height outside the routing transaction, to

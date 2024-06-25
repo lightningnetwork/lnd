@@ -26,6 +26,16 @@ const (
 	sqliteTxLockImmediate = "_txlock=immediate"
 )
 
+var (
+	// sqliteSchemaReplacements is a map of schema strings that need to be
+	// replaced for sqlite. This is needed because sqlite doesn't directly
+	// support the BIGINT type for primary keys, so we need to replace it
+	// with INTEGER.
+	sqliteSchemaReplacements = map[string]string{
+		"BIGINT PRIMARY KEY": "INTEGER PRIMARY KEY",
+	}
+)
+
 // SqliteStore is a database store implementation that uses a sqlite backend.
 type SqliteStore struct {
 	cfg *SqliteConfig
@@ -95,46 +105,44 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 	db.SetMaxOpenConns(defaultMaxConns)
 	db.SetMaxIdleConns(defaultMaxConns)
 	db.SetConnMaxLifetime(connIdleLifetime)
-
-	if !cfg.SkipMigrations {
-		// Now that the database is open, populate the database with
-		// our set of schemas based on our embedded in-memory file
-		// system.
-		//
-		// First, we'll need to open up a new migration instance for
-		// our current target database: sqlite.
-		driver, err := sqlite_migrate.WithInstance(
-			db, &sqlite_migrate.Config{},
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		// We use INTEGER PRIMARY KEY for sqlite, because it acts as a
-		// ROWID alias which is 8 bytes big and also autoincrements.
-		// It's important to use the ROWID as a primary key because the
-		// key look ups are almost twice as fast
-		sqliteFS := newReplacerFS(sqlSchemas, map[string]string{
-			"BIGINT PRIMARY KEY": "INTEGER PRIMARY KEY",
-		})
-
-		err = applyMigrations(
-			sqliteFS, driver, "sqlc/migrations", "sqlc",
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	queries := sqlc.New(db)
 
-	return &SqliteStore{
+	s := &SqliteStore{
 		cfg: cfg,
 		BaseDB: &BaseDB{
 			DB:      db,
 			Queries: queries,
 		},
-	}, nil
+	}
+
+	// Execute migrations unless configured to skip them.
+	if !cfg.SkipMigrations {
+		if err := s.ExecuteMigrations(TargetLatest); err != nil {
+			return nil, fmt.Errorf("error executing migrations: "+
+				"%w", err)
+
+		}
+	}
+
+	return s, nil
+}
+
+// ExecuteMigrations runs migrations for the sqlite database, depending on the
+// target given, either all migrations or up to a given version.
+func (s *SqliteStore) ExecuteMigrations(target MigrationTarget) error {
+	driver, err := sqlite_migrate.WithInstance(
+		s.DB, &sqlite_migrate.Config{},
+	)
+	if err != nil {
+		return fmt.Errorf("error creating sqlite migration: %w", err)
+	}
+
+	// Populate the database with our set of schemas based on our embedded
+	// in-memory file system.
+	sqliteFS := newReplacerFS(sqlSchemas, sqliteSchemaReplacements)
+	return applyMigrations(
+		sqliteFS, driver, "sqlc/migrations", "sqlite", target,
+	)
 }
 
 // NewTestSqliteDB is a helper function that creates an SQLite database for

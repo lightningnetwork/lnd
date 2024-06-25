@@ -990,7 +990,6 @@ func (h *htlcTimeoutResolver) sweepTimeoutTxOutput() error {
 		input.LeaseHtlcOfferedTimeoutSecondLevel,
 		&h.htlcResolution.SweepSignDesc,
 		h.htlcResolution.CsvDelay, uint32(commitSpend.SpendingHeight),
-		h.htlc.RHash,
 	)
 
 	// Calculate the budget for this sweep.

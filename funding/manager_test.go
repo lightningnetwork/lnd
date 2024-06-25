@@ -4653,8 +4653,8 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 // opening behavior with a specified fundmax flag. To give a hypothetical
 // example, if ANCHOR types had been introduced after the fundmax flag had been
 // activated, the developer would have had to code for the anchor reserve in the
-// funding manager in the context of public and private channels. Otherwise
-// inconsistent bahvior would have resulted when specifying fundmax for
+// funding manager in the context of public and private channels. Otherwise,
+// inconsistent behavior would have resulted when specifying fundmax for
 // different types of channel openings.
 // To ensure consistency this test compares a map of locally defined channel
 // commitment types to the list of channel types that are defined in the proto
@@ -4670,6 +4670,7 @@ func TestCommitmentTypeFundmaxSanityCheck(t *testing.T) {
 		"ANCHORS":                 3,
 		"SCRIPT_ENFORCED_LEASE":   4,
 		"SIMPLE_TAPROOT":          5,
+		"SIMPLE_TAPROOT_OVERLAY":  6,
 	}
 
 	for commitmentType := range lnrpc.CommitmentType_value {

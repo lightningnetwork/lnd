@@ -3199,7 +3199,8 @@ func TestForwardPass(t *testing.T) {
 		expectedErr string
 	}{
 		{
-			name: "empty",
+			name:        "empty",
+			expectedErr: "no edges to forward through",
 		},
 		{
 			name: "single edge, no valid policy",

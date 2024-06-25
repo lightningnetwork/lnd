@@ -3240,11 +3240,16 @@ func backwardPass(unifiers []*edgeUnifier, useMinAmt bool,
 	error) {
 
 	var unifiedEdges = make([]*unifiedEdge, len(unifiers))
+	var nextIncoming lnwire.MilliSatoshi
 
 	// Traverse hops backwards to accumulate fees in the running amounts.
 	for i := len(unifiers) - 1; i >= 0; i-- {
-		localChan := i == 0
 		edgeUnifier := unifiers[i]
+
+		var (
+			edge *unifiedEdge
+			fee  int64
+		)
 
 		// If using min amt, increase amt if needed.
 		if useMinAmt {
@@ -3254,29 +3259,69 @@ func backwardPass(unifiers []*edgeUnifier, useMinAmt bool,
 			}
 		}
 
-		// Get an edge for the specific amount that we want to forward.
-		edge := edgeUnifier.getEdge(runningAmt, bandwidthHints, 0)
-		if edge == nil {
-			log.Errorf("Cannot find policy with amt=%v for hop %v",
-				runningAmt, i)
+		if i == len(unifiers)-1 {
+			// Get an edge for the specific amount that we want to
+			// forward.
+			edge = edgeUnifier.getEdge(
+				runningAmt, bandwidthHints, 0,
+			)
+			if edge == nil {
+				log.Errorf("Cannot find policy with amt=%v "+
+					"for hop %v", runningAmt, i)
 
-			return nil, 0, ErrNoChannel{
-				position: i,
+				return nil, 0, ErrNoChannel{
+					position: i,
+				}
 			}
+
+			// The last hop only forwards the amount that the
+			// destination should receive.
+			fee = 0
+		} else {
+			// The amount that the current hop needs to forward is
+			// equal to the incoming amount of the following hop
+			// that we already dealt with.
+			runningAmt = nextIncoming
+
+			// The fee that needs to be paid to the current node is
+			// based on the amount that this node needs to forward
+			// and its policy for its outgoing channel. This policy
+			// is stored as part of the incoming channel of the
+			// following hop.
+			outboundFee := unifiedEdges[i+1].policy.ComputeFee(
+				runningAmt,
+			)
+
+			netAmount := runningAmt + outboundFee
+
+			// The unified edge is selected such that it can support
+			// forwarding the total amount, including the inbound
+			// fee. The previous hop's outbound fee is also supplied
+			// such that the inbound fee can be capped.
+			edge = edgeUnifier.getEdge(
+				netAmount, bandwidthHints, outboundFee,
+			)
+			if edge == nil {
+				return nil, 0, ErrNoChannel{
+					position: i,
+				}
+			}
+
+			log.Tracef("Select channel %v at position %v",
+				edge.policy.ChannelID, i)
+
+			fee = int64(outboundFee)
 		}
 
-		// Add fee for this hop.
-		if !localChan {
-			runningAmt += edge.policy.ComputeFee(runningAmt)
-		}
-
-		log.Tracef("Select channel %v at position %v",
-			edge.policy.ChannelID, i)
+		// Finally, we update the amount that needs to flow into the
+		// previous hop, which is the amount this hop needs to forward,
+		// accounting for the fee that it takes.
+		nextIncoming = runningAmt + lnwire.MilliSatoshi(fee)
 
 		unifiedEdges[i] = edge
 	}
 
-	return unifiedEdges, runningAmt, nil
+	return unifiedEdges, nextIncoming, nil
 }
 
 // forwardPass returns the amount that a receiver will receive after deducting
@@ -3284,20 +3329,32 @@ func backwardPass(unifiers []*edgeUnifier, useMinAmt bool,
 func forwardPass(senderAmt lnwire.MilliSatoshi,
 	unifiedEdges []*unifiedEdge) (lnwire.MilliSatoshi, error) {
 
+	if len(unifiedEdges) == 0 {
+		return 0, fmt.Errorf("no edges to forward through")
+	}
+
+	inEdge := unifiedEdges[0]
+	if !inEdge.amtInRange(senderAmt) {
+		log.Errorf("Amount %v not in range for hop index %v",
+			senderAmt, 0)
+
+		return 0, ErrNoChannel{position: 0}
+	}
+
 	// Now that we arrived at the start of the route and found out the route
 	// total amount, we make a forward pass. Because the amount may have
 	// been increased in the backward pass, fees need to be recalculated and
 	// amount ranges re-checked.
-	for i, edge := range unifiedEdges {
-		if i > 0 {
-			// Decrease the amount to send while going forward.
-			senderAmt -= edge.policy.ComputeFeeFromIncoming(
-				senderAmt,
-			)
-		}
+	for i := 1; i < len(unifiedEdges); i++ {
+		outEdge := unifiedEdges[i]
 
-		if !edge.amtInRange(senderAmt) {
-			log.Errorf("Amount %v not in range for hop %v",
+		// Decrease the amount to send while going forward.
+		senderAmt -= outEdge.policy.ComputeFeeFromIncoming(
+			senderAmt,
+		)
+
+		if !outEdge.amtInRange(senderAmt) {
+			log.Errorf("Amount %v not in range for hop index %v",
 				senderAmt, i)
 
 			return 0, ErrNoChannel{position: i}

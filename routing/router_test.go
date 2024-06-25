@@ -1536,10 +1536,10 @@ func TestBuildRoute(t *testing.T) {
 		}, 6),
 
 		// Create two channels from b to c. For building routes, we
-		// expect the lowest cost channel to be selected. Note that this
-		// isn't a situation that we are expecting in reality. Routing
-		// nodes are recommended to keep their channel policies towards
-		// the same peer identical.
+		// expect the highest cost channel to be selected. Note that
+		// this isn't a situation that we are expecting in reality.
+		// Routing nodes are recommended to keep their channel policies
+		// towards the same peer identical.
 		symmetricTestChannel("b", "c", chanCapSat, &testChannelPolicy{
 			Expiry:   144,
 			FeeRate:  50000,
@@ -1555,6 +1555,8 @@ func TestBuildRoute(t *testing.T) {
 			Features: paymentAddrFeatures,
 		}, 7),
 
+		// Create some channels that have conflicting min/max
+		// constraints.
 		symmetricTestChannel("a", "e", chanCapSat, &testChannelPolicy{
 			Expiry:   144,
 			FeeRate:  80000,
@@ -1569,9 +1571,28 @@ func TestBuildRoute(t *testing.T) {
 			MaxHTLC:  lnwire.NewMSatFromSatoshis(chanCapSat),
 			Features: paymentAddrFeatures,
 		}, 4),
+
+		// Create some channels that have a conflicting max HTLC
+		// constraint for one node pair, similar to the b->c channels.
+		symmetricTestChannel("b", "z", chanCapSat, &testChannelPolicy{
+			Expiry:   144,
+			FeeRate:  50000,
+			MinHTLC:  lnwire.NewMSatFromSatoshis(20),
+			MaxHTLC:  lnwire.NewMSatFromSatoshis(25),
+			Features: paymentAddrFeatures,
+		}, 3),
+		symmetricTestChannel("b", "z", chanCapSat, &testChannelPolicy{
+			Expiry:   144,
+			FeeRate:  60000,
+			MinHTLC:  lnwire.NewMSatFromSatoshis(20),
+			MaxHTLC:  lnwire.MilliSatoshi(20100),
+			Features: paymentAddrFeatures,
+		}, 8),
 	}
 
-	testGraph, err := createTestGraphFromChannels(t, true, testChannels, "a")
+	testGraph, err := createTestGraphFromChannels(
+		t, true, testChannels, "a",
+	)
 	require.NoError(t, err, "unable to create graph")
 
 	const startingBlockHeight = 101
@@ -1583,15 +1604,10 @@ func TestBuildRoute(t *testing.T) {
 
 		t.Helper()
 
-		if len(rt.Hops) != len(expected) {
-			t.Fatal("hop count mismatch")
-		}
+		require.Len(t, rt.Hops, len(expected))
+
 		for i, hop := range rt.Hops {
-			if hop.ChannelID != expected[i] {
-				t.Fatalf("expected channel %v at pos %v, but "+
-					"got channel %v",
-					expected[i], i, hop.ChannelID)
-			}
+			require.Equal(t, expected[i], hop.ChannelID)
 		}
 
 		lastHop := rt.Hops[len(rt.Hops)-1]
@@ -1603,64 +1619,67 @@ func TestBuildRoute(t *testing.T) {
 	_, err = rand.Read(payAddr[:])
 	require.NoError(t, err)
 
+	// Create hop list for an unknown destination.
+	hops := []route.Vertex{ctx.aliases["b"], ctx.aliases["y"]}
+	_, err = ctx.router.BuildRoute(nil, hops, nil, 40, &payAddr)
+	noChanErr := ErrNoChannel{}
+	require.ErrorAs(t, err, &noChanErr)
+	require.Equal(t, 1, noChanErr.position)
+
 	// Create hop list from the route node pubkeys.
-	hops := []route.Vertex{
-		ctx.aliases["b"], ctx.aliases["c"],
-	}
+	hops = []route.Vertex{ctx.aliases["b"], ctx.aliases["c"]}
 	amt := lnwire.NewMSatFromSatoshis(100)
 
 	// Build the route for the given amount.
-	rt, err := ctx.router.BuildRoute(
-		&amt, hops, nil, 40, &payAddr,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rt, err := ctx.router.BuildRoute(&amt, hops, nil, 40, &payAddr)
+	require.NoError(t, err)
 
 	// Check that we get the expected route back. The total amount should be
 	// the amount to deliver to hop c (100 sats) plus the max fee for the
 	// connection b->c (6 sats).
 	checkHops(rt, []uint64{1, 7}, payAddr)
-	if rt.TotalAmount != 106000 {
-		t.Fatalf("unexpected total amount %v", rt.TotalAmount)
-	}
+	require.Equal(t, lnwire.MilliSatoshi(106000), rt.TotalAmount)
 
 	// Build the route for the minimum amount.
-	rt, err = ctx.router.BuildRoute(
-		nil, hops, nil, 40, &payAddr,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rt, err = ctx.router.BuildRoute(nil, hops, nil, 40, &payAddr)
+	require.NoError(t, err)
 
 	// Check that we get the expected route back. The minimum that we can
 	// send from b to c is 20 sats. Hop b charges 1200 msat for the
 	// forwarding. The channel between hop a and b can carry amounts in the
 	// range [5, 100], so 21200 msats is the minimum amount for this route.
 	checkHops(rt, []uint64{1, 7}, payAddr)
-	if rt.TotalAmount != 21200 {
-		t.Fatalf("unexpected total amount %v", rt.TotalAmount)
-	}
+	require.Equal(t, lnwire.MilliSatoshi(21200), rt.TotalAmount)
+
+	// The receiver gets sent the minimal HTLC amount.
+	require.Equal(t, lnwire.MilliSatoshi(20000), rt.Hops[1].AmtToForward)
 
 	// Test a route that contains incompatible channel htlc constraints.
 	// There is no amount that can pass through both channel 5 and 4.
-	hops = []route.Vertex{
-		ctx.aliases["e"], ctx.aliases["c"],
-	}
-	_, err = ctx.router.BuildRoute(
-		nil, hops, nil, 40, nil,
-	)
-	errNoChannel, ok := err.(ErrNoChannel)
-	if !ok {
-		t.Fatalf("expected incompatible policies error, but got %v",
-			err)
-	}
-	if errNoChannel.position != 0 {
-		t.Fatalf("unexpected no channel error position")
-	}
-	if errNoChannel.fromNode != ctx.aliases["a"] {
-		t.Fatalf("unexpected no channel error node")
-	}
+	hops = []route.Vertex{ctx.aliases["e"], ctx.aliases["c"]}
+	_, err = ctx.router.BuildRoute(nil, hops, nil, 40, nil)
+	require.Error(t, err)
+	noChanErr = ErrNoChannel{}
+	require.ErrorAs(t, err, &noChanErr)
+	require.Equal(t, 0, noChanErr.position)
+
+	// Test a route that contains channel constraints that lead to a
+	// different selection of a unified edge, when the amount is rescaled
+	// for the final edge. From a backward pass we expect the policy of
+	// channel 8 to be used, because its policy has the highest fee rate,
+	// bumping the amount to 20000 msat leading to a sender amount of 21200
+	// msat including the fees for hop over channel 8. In the forward pass
+	// however, we discover that the max HTLC constraint of channel 8 is
+	// violated after subtracting the fee, which is why we change the policy
+	// to the one of channel 3. This leads to a delivered amount of 20191
+	// msat, in contrast to the naive 20000 msat from the min HTLC
+	// constraint of both channels.
+	hops = []route.Vertex{ctx.aliases["b"], ctx.aliases["z"]}
+	rt, err = ctx.router.BuildRoute(nil, hops, nil, 40, &payAddr)
+	require.NoError(t, err)
+	checkHops(rt, []uint64{1, 3}, payAddr)
+	require.Equal(t, lnwire.MilliSatoshi(21200), rt.TotalAmount)
+	require.Equal(t, lnwire.MilliSatoshi(20191), rt.Hops[1].AmtToForward)
 }
 
 // TestGetPathEdges tests that the getPathEdges function returns the expected
@@ -1689,14 +1708,13 @@ func TestGetPathEdges(t *testing.T) {
 				localChan: true,
 			},
 		},
-		expectedErr: fmt.Sprintf("no matching outgoing channel "+
-			"available for node 0 (%v)", ctx.aliases["roasbeef"]),
+		expectedErr: fmt.Sprintf("no matching outgoing channel " +
+			"available for node index 0"),
 	}}
 
 	for _, tc := range testCases {
 		pathEdges, amt, err := getPathEdges(
-			tc.sourceNode, tc.amt, tc.unifiers, tc.bandwidthHints,
-			tc.hops,
+			tc.amt, tc.unifiers, tc.bandwidthHints,
 		)
 
 		if tc.expectedErr != "" {

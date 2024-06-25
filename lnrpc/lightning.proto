@@ -1388,8 +1388,14 @@ enum CommitmentType {
     A channel that uses musig2 for the funding output, and the new tapscript
     features where relevant.
     */
-    // TODO(roasbeef): need script enforce mirror type for the above as well?
     SIMPLE_TAPROOT = 5;
+
+    /*
+    Identical to the SIMPLE_TAPROOT channel type, but with extra functionality.
+    This channel type also commits to additional meta data in the tapscript
+    leaves for the scripts in a channel.
+    */
+    SIMPLE_TAPROOT_OVERLAY = 6;
 }
 
 message ChannelConstraints {

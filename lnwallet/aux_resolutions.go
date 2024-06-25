@@ -69,6 +69,12 @@ type ResolutionReq struct {
 	// CsvDelay is the CSV delay for the local output for this commitment.
 	CsvDelay uint32
 
+	// BreachCsvDelay is the CSV delay for the remote output. This is only
+	// set when the CloseType is Breach. This indicates the CSV delay to
+	// use for the remote party's to_local delayed output, that is now
+	// rightfully ours in a breach situation.
+	BreachCsvDelay fn.Option[uint32]
+
 	// CltvDelay is the CLTV delay for the outpoint.
 	CltvDelay fn.Option[uint32]
 }

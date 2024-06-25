@@ -2466,6 +2466,10 @@ type HtlcRetribution struct {
 	// this HTLC was offered by us. This flag is used determine the exact
 	// witness type should be used to sweep the output.
 	IsIncoming bool
+
+	// ResolutionBlob is a blob used for aux channels that permits a
+	// spender of this output to claim all funds.
+	ResolutionBlob fn.Option[tlv.Blob]
 }
 
 // BreachRetribution contains all the data necessary to bring a channel
@@ -2536,10 +2540,13 @@ type BreachRetribution struct {
 	// have access to the public keys used in the scripts.
 	KeyRing *CommitmentKeyRing
 
-	// ResolutionBlob is a blob used for aux channels that permits a
-	// spender of the output to properly resolve it in the case of a force
-	// close.
-	ResolutionBlob fn.Option[tlv.Blob]
+	// LocalResolutionBlob is a blob used for aux channels that permits an
+	// honest party to sweep the local commitment output.
+	LocalResolutionBlob fn.Option[tlv.Blob]
+
+	// RemoteResolutionBlob is a blob used for aux channels that permits an
+	// honest party to sweep the remote commitment output.
+	RemoteResolutionBlob fn.Option[tlv.Blob]
 }
 
 // NewBreachRetribution creates a new fully populated BreachRetribution for the
@@ -2552,7 +2559,8 @@ type BreachRetribution struct {
 func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	breachHeight uint32, spendTx *wire.MsgTx,
 	leafStore fn.Option[AuxLeafStore],
-	auxResolver fn.Option[AuxContractResolver]) (*BreachRetribution, error) { //nolint:lll
+	auxResolver fn.Option[AuxContractResolver]) (*BreachRetribution,
+	error) {
 
 	// Query the on-disk revocation log for the snapshot which was recorded
 	// at this particular state num. Based on whether a legacy revocation
@@ -2604,26 +2612,26 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 	// Since it is the remote breach we are reconstructing, the output
 	// going to us will be a to-remote script with our local params.
-	localAuxLeaf := fn.MapOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
-		return l.LocalAuxLeaf
+	remoteAuxLeaf := fn.MapOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
+		return l.RemoteAuxLeaf
 	})(auxLeaves)
 	isRemoteInitiator := !chanState.IsInitiator
 	ourScript, ourDelay, err := CommitScriptToRemote(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
-		leaseExpiry, fn.FlattenOption(localAuxLeaf),
+		leaseExpiry, fn.FlattenOption(remoteAuxLeaf),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	remoteAuxLeaf := fn.MapOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
-		return l.RemoteAuxLeaf
+	localAuxLeaf := fn.MapOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
+		return l.LocalAuxLeaf
 	})(auxLeaves)
 	theirDelay := uint32(chanState.RemoteChanCfg.CsvDelay)
 	theirScript, err := CommitScriptToSelf(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToLocalKey,
 		keyRing.RevocationKey, theirDelay, leaseExpiry,
-		fn.FlattenOption(remoteAuxLeaf),
+		fn.FlattenOption(localAuxLeaf),
 	)
 	if err != nil {
 		return nil, err
@@ -2716,19 +2724,21 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		resolveBlob := fn.MapOptionZ(
 			auxResolver,
 			func(a AuxContractResolver) fn.Result[tlv.Blob] {
+				//nolint:lll
 				return a.ResolveContract(ResolutionReq{
-					ChanPoint:   chanState.FundingOutpoint,
-					ShortChanID: chanState.ShortChanID(),
-					Initiator:   chanState.IsInitiator,
-					CommitBlob:  chanState.RemoteCommitment.CustomBlob, //nolint:lll
-					FundingBlob: chanState.CustomBlob,
-					Type:        input.TaprootRemoteCommitSpend, //nolint:lll
-					CloseType:   Breach,
-					CommitTx:    spendTx,
-					SignDesc:    *br.LocalOutputSignDesc,
-					KeyRing:     keyRing,
-					CsvDelay:    theirDelay,
-					CommitFee:   chanState.RemoteCommitment.CommitFee, //nolint:lll
+					ChanPoint:      chanState.FundingOutpoint,
+					ShortChanID:    chanState.ShortChanID(),
+					Initiator:      chanState.IsInitiator,
+					CommitBlob:     revokedLog.CustomBlob.ValOpt(),
+					FundingBlob:    chanState.CustomBlob,
+					Type:           input.TaprootRemoteCommitSpend,
+					CloseType:      Breach,
+					CommitTx:       spendTx,
+					SignDesc:       *br.LocalOutputSignDesc,
+					KeyRing:        keyRing,
+					CsvDelay:       ourDelay,
+					BreachCsvDelay: fn.Some(theirDelay),
+					CommitFee:      chanState.RemoteCommitment.CommitFee,
 				})
 			},
 		)
@@ -2736,7 +2746,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			return nil, fmt.Errorf("unable to aux resolve: %w", err)
 		}
 
-		br.ResolutionBlob = resolveBlob.Option()
+		br.LocalResolutionBlob = resolveBlob.Option()
 	}
 
 	// Similarly, if their balance exceeds the remote party's dust limit,
@@ -2790,19 +2800,21 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		resolveBlob := fn.MapOptionZ(
 			auxResolver,
 			func(a AuxContractResolver) fn.Result[tlv.Blob] {
+				//nolint:lll
 				return a.ResolveContract(ResolutionReq{
-					ChanPoint:   chanState.FundingOutpoint,
-					ShortChanID: chanState.ShortChanID(),
-					Initiator:   chanState.IsInitiator,
-					CommitBlob:  chanState.RemoteCommitment.CustomBlob, //nolint:lll
-					FundingBlob: chanState.CustomBlob,
-					Type:        input.TaprootCommitmentRevoke, //nolint:lll
-					CloseType:   Breach,
-					CommitTx:    spendTx,
-					SignDesc:    *br.RemoteOutputSignDesc,
-					KeyRing:     keyRing,
-					CsvDelay:    theirDelay,
-					CommitFee:   chanState.RemoteCommitment.CommitFee, //nolint:lll
+					ChanPoint:      chanState.FundingOutpoint,
+					ShortChanID:    chanState.ShortChanID(),
+					Initiator:      chanState.IsInitiator,
+					CommitBlob:     revokedLog.CustomBlob.ValOpt(),
+					FundingBlob:    chanState.CustomBlob,
+					Type:           input.TaprootCommitmentRevoke,
+					CloseType:      Breach,
+					CommitTx:       spendTx,
+					SignDesc:       *br.RemoteOutputSignDesc,
+					KeyRing:        keyRing,
+					CsvDelay:       theirDelay,
+					BreachCsvDelay: fn.Some(theirDelay),
+					CommitFee:      chanState.RemoteCommitment.CommitFee,
 				})
 			},
 		)
@@ -2810,7 +2822,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			return nil, fmt.Errorf("unable to aux resolve: %w", err)
 		}
 
-		br.ResolutionBlob = resolveBlob.Option()
+		br.RemoteResolutionBlob = resolveBlob.Option()
 	}
 
 	// Finally, with all the necessary data constructed, we can pad the

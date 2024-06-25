@@ -87,8 +87,11 @@ func TestTaprootBriefcase(t *testing.T) {
 			BreachedHtlcTweaks:            randHtlcTweaks(t),
 			BreachedSecondLevelHltcTweaks: randHtlcTweaks(t),
 		}),
-		CommitBlob: tlv.SomeRecordT(
+		SettledCommitBlob: tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType2](commitBlob[:]),
+		),
+		BreachedCommitBlob: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType3](commitBlob[:]),
 		),
 	}
 

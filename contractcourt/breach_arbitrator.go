@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -149,7 +150,7 @@ type BreachConfig struct {
 	Estimator chainfee.Estimator
 
 	// GenSweepScript generates the receiving scripts for swept outputs.
-	GenSweepScript func() ([]byte, error)
+	GenSweepScript func() fn.Result[lnwallet.AddrWithKey]
 
 	// Notifier provides a publish/subscribe interface for event driven
 	// notifications regarding the confirmation of txids.
@@ -174,6 +175,10 @@ type BreachConfig struct {
 	// breached channels. This is used in conjunction with DB to recover
 	// from crashes, restarts, or other failures.
 	Store RetributionStorer
+
+	// AuxSweeper is an optional interface that can be used to modify the
+	// way sweep transaction are generated.
+	AuxSweeper fn.Option[sweep.AuxSweeper]
 }
 
 // BreachArbitrator is a special subsystem which is responsible for watching and
@@ -738,10 +743,28 @@ justiceTxBroadcast:
 		return spew.Sdump(finalTx)
 	}))
 
+	// As we're about to broadcast our breach transaction, we'll notify the
+	// aux sweeper of our broadcast attempt first.
+	err = fn.MapOptionZ(b.cfg.AuxSweeper, func(aux sweep.AuxSweeper) error {
+		bumpReq := sweep.BumpRequest{
+			Inputs:          finalTx.inputs,
+			DeliveryAddress: finalTx.sweepAddr,
+			ExtraTxOut:      finalTx.extraTxOut,
+		}
+
+		return aux.NotifyBroadcast(
+			&bumpReq, finalTx.justiceTx, finalTx.fee,
+		)
+	})
+	if err != nil {
+		brarLog.Errorf("unable to notify broadcast: %w", err)
+		return
+	}
+
 	// We'll now attempt to broadcast the transaction which finalized the
 	// channel's retribution against the cheating counter party.
 	label := labels.MakeLabel(labels.LabelTypeJusticeTransaction, nil)
-	err = b.cfg.PublishTransaction(finalTx, label)
+	err = b.cfg.PublishTransaction(finalTx.justiceTx, label)
 	if err != nil {
 		brarLog.Errorf("Unable to broadcast justice tx: %v", err)
 	}
@@ -863,7 +886,9 @@ Loop:
 						return spew.Sdump(tx)
 					}))
 
-				err = b.cfg.PublishTransaction(tx, label)
+				err = b.cfg.PublishTransaction(
+					tx.justiceTx, label,
+				)
 				if err != nil {
 					brarLog.Warnf("Unable to broadcast "+
 						"commit out spending justice "+
@@ -880,7 +905,9 @@ Loop:
 						return spew.Sdump(tx)
 					}))
 
-				err = b.cfg.PublishTransaction(tx, label)
+				err = b.cfg.PublishTransaction(
+					tx.justiceTx, label,
+				)
 				if err != nil {
 					brarLog.Warnf("Unable to broadcast "+
 						"HTLC out spending justice "+
@@ -897,7 +924,9 @@ Loop:
 						return spew.Sdump(tx)
 					}))
 
-				err = b.cfg.PublishTransaction(tx, label)
+				err = b.cfg.PublishTransaction(
+					tx.justiceTx, label,
+				)
 				if err != nil {
 					brarLog.Warnf("Unable to broadcast "+
 						"second-level HTLC out "+
@@ -1085,10 +1114,9 @@ type breachedOutput struct {
 // makeBreachedOutput assembles a new breachedOutput that can be used by the
 // breach arbiter to construct a justice or sweep transaction.
 func makeBreachedOutput(outpoint *wire.OutPoint,
-	witnessType input.StandardWitnessType,
-	secondLevelScript []byte,
-	signDescriptor *input.SignDescriptor,
-	confHeight uint32) breachedOutput {
+	witnessType input.StandardWitnessType, secondLevelScript []byte,
+	signDescriptor *input.SignDescriptor, confHeight uint32,
+	resolutionBlob fn.Option[tlv.Blob]) breachedOutput {
 
 	amount := signDescriptor.Output.Value
 
@@ -1099,6 +1127,7 @@ func makeBreachedOutput(outpoint *wire.OutPoint,
 		witnessType:              witnessType,
 		signDesc:                 *signDescriptor,
 		confHeight:               confHeight,
+		resolutionBlob:           resolutionBlob,
 	}
 }
 
@@ -1276,6 +1305,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 			nil,
 			breachInfo.LocalOutputSignDesc,
 			breachInfo.BreachHeight,
+			breachInfo.LocalResolutionBlob,
 		)
 
 		breachedOutputs = append(breachedOutputs, localOutput)
@@ -1302,6 +1332,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 			nil,
 			breachInfo.RemoteOutputSignDesc,
 			breachInfo.BreachHeight,
+			breachInfo.RemoteResolutionBlob,
 		)
 
 		breachedOutputs = append(breachedOutputs, remoteOutput)
@@ -1336,6 +1367,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 			breachInfo.HtlcRetributions[i].SecondLevelWitnessScript,
 			&breachInfo.HtlcRetributions[i].SignDesc,
 			breachInfo.BreachHeight,
+			breachInfo.HtlcRetributions[i].ResolutionBlob,
 		)
 
 		// For taproot outputs, we also need to hold onto the second
@@ -1375,10 +1407,10 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 // spend the to_local output and commitment level HTLC outputs separately,
 // before the CSV locks expire.
 type justiceTxVariants struct {
-	spendAll              *wire.MsgTx
-	spendCommitOuts       *wire.MsgTx
-	spendHTLCs            *wire.MsgTx
-	spendSecondLevelHTLCs []*wire.MsgTx
+	spendAll              *justiceTxCtx
+	spendCommitOuts       *justiceTxCtx
+	spendHTLCs            *justiceTxCtx
+	spendSecondLevelHTLCs []*justiceTxCtx
 }
 
 // createJusticeTx creates transactions which exacts "justice" by sweeping ALL
@@ -1442,7 +1474,9 @@ func (b *BreachArbitrator) createJusticeTx(
 			err)
 	}
 
-	secondLevelSweeps := make([]*wire.MsgTx, 0, len(secondLevelInputs))
+	// TODO(roasbeef): only register one of them?
+
+	secondLevelSweeps := make([]*justiceTxCtx, 0, len(secondLevelInputs))
 	for _, input := range secondLevelInputs {
 		sweepTx, err := b.createSweepTx(input)
 		if err != nil {
@@ -1459,9 +1493,23 @@ func (b *BreachArbitrator) createJusticeTx(
 	return txs, nil
 }
 
+// justiceTxCtx contains the justice transaction along with other related meta
+// data.
+type justiceTxCtx struct {
+	justiceTx *wire.MsgTx
+
+	sweepAddr lnwallet.AddrWithKey
+
+	extraTxOut fn.Option[sweep.SweepOutput]
+
+	fee btcutil.Amount
+
+	inputs []input.Input
+}
+
 // createSweepTx creates a tx that sweeps the passed inputs back to our wallet.
-func (b *BreachArbitrator) createSweepTx(inputs ...input.Input) (*wire.MsgTx,
-	error) {
+func (b *BreachArbitrator) createSweepTx(
+	inputs ...input.Input) (*justiceTxCtx, error) {
 
 	if len(inputs) == 0 {
 		return nil, nil
@@ -1483,6 +1531,15 @@ func (b *BreachArbitrator) createSweepTx(inputs ...input.Input) (*wire.MsgTx,
 	// that pays to a p2tr output. Components such as the version,
 	// nLockTime, and output are already included in the TxWeightEstimator.
 	weightEstimate.AddP2TROutput()
+
+	// If any of our inputs has a resolution blob, then we'll add another
+	// P2TR output.
+	hasBlobs := fn.Any(func(i input.Input) bool {
+		return i.ResolutionBlob().IsSome()
+	}, inputs)
+	if hasBlobs {
+		weightEstimate.AddP2TROutput()
+	}
 
 	// Next, we iterate over the breached outputs contained in the
 	// retribution info.  For each, we switch over the witness type such
@@ -1517,13 +1574,13 @@ func (b *BreachArbitrator) createSweepTx(inputs ...input.Input) (*wire.MsgTx,
 // sweepSpendableOutputsTxn creates a signed transaction from a sequence of
 // spendable outputs by sweeping the funds into a single p2wkh output.
 func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight lntypes.WeightUnit,
-	inputs ...input.Input) (*wire.MsgTx, error) {
+	inputs ...input.Input) (*justiceTxCtx, error) {
 
 	// First, we obtain a new public key script from the wallet which we'll
 	// sweep the funds to.
 	// TODO(roasbeef): possibly create many outputs to minimize change in
 	// the future?
-	pkScript, err := b.cfg.GenSweepScript()
+	pkScript, err := b.cfg.GenSweepScript().Unpack()
 	if err != nil {
 		return nil, err
 	}
@@ -1542,6 +1599,18 @@ func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight lntypes.WeightUnit,
 	}
 	txFee := feePerKw.FeeForWeight(txWeight)
 
+	// At this point, we'll check to see if we have any extra outputs to
+	// add from the aux sweeper.
+	extraChangeOut := fn.MapOptionZ(
+		b.cfg.AuxSweeper,
+		func(aux sweep.AuxSweeper) fn.Result[sweep.SweepOutput] {
+			return aux.DeriveSweepAddr(inputs, pkScript)
+		},
+	)
+	if err := extraChangeOut.Err(); err != nil {
+		return nil, err
+	}
+
 	// TODO(roasbeef): already start to siphon their funds into fees
 	sweepAmt := int64(totalAmt - txFee)
 
@@ -1549,11 +1618,21 @@ func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight lntypes.WeightUnit,
 	// information gathered above and the provided retribution information.
 	txn := wire.NewMsgTx(2)
 
-	// We begin by adding the output to which our funds will be deposited.
+	// First, we'll add the extra swep output if it exists, subtracting the
+	// amount from the sweep amt.
+	extraChangeOut.WhenResult(func(o sweep.SweepOutput) {
+		sweepAmt -= o.Value
+
+		txn.AddTxOut(&o.TxOut)
+	})
+
+	// Next, we'll add the output to which our funds will be deposited.
 	txn.AddTxOut(&wire.TxOut{
-		PkScript: pkScript,
+		PkScript: pkScript.DeliveryAddress,
 		Value:    sweepAmt,
 	})
+
+	// TODO(roasbeef): add other output change modify sweep amt
 
 	// Next, we add all of the spendable outputs as inputs to the
 	// transaction.
@@ -1610,7 +1689,13 @@ func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight lntypes.WeightUnit,
 		}
 	}
 
-	return txn, nil
+	return &justiceTxCtx{
+		justiceTx:  txn,
+		sweepAddr:  pkScript,
+		extraTxOut: extraChangeOut.Option(),
+		fee:        txFee,
+		inputs:     inputs,
+	}, nil
 }
 
 // RetributionStore handles persistence of retribution states to disk and is
@@ -1642,11 +1727,27 @@ func taprootBriefcaseFromRetInfo(retInfo *retributionInfo) *taprootBriefcase {
 			//nolint:lll
 			tapCase.CtrlBlocks.Val.CommitSweepCtrlBlock = bo.signDesc.ControlBlock
 
+			bo.resolutionBlob.WhenSome(func(blob tlv.Blob) {
+				tapCase.SettledCommitBlob = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType2](
+						blob,
+					),
+				)
+			})
+
 		// To spend the revoked output again, we'll store the same
 		// control block value as above, but in a different place.
 		case input.TaprootCommitmentRevoke:
 			//nolint:lll
 			tapCase.CtrlBlocks.Val.RevokeSweepCtrlBlock = bo.signDesc.ControlBlock
+
+			bo.resolutionBlob.WhenSome(func(blob tlv.Blob) {
+				tapCase.BreachedCommitBlob = tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType3](
+						blob,
+					),
+				)
+			})
 
 		// For spending the HTLC outputs, we'll store the first and
 		// second level tweak values.
@@ -1685,11 +1786,21 @@ func applyTaprootRetInfo(tapCase *taprootBriefcase,
 			//nolint:lll
 			bo.signDesc.ControlBlock = tapCase.CtrlBlocks.Val.CommitSweepCtrlBlock
 
+			tapCase.SettledCommitBlob.WhenSomeV(func(blob tlv.Blob) { //nolint:lll
+				bo.resolutionBlob = fn.Some(blob)
+			})
+
 		// To spend the revoked output again, we'll apply the same
 		// control block value as above, but to a different place.
 		case input.TaprootCommitmentRevoke:
 			//nolint:lll
 			bo.signDesc.ControlBlock = tapCase.CtrlBlocks.Val.RevokeSweepCtrlBlock
+
+			tapCase.BreachedCommitBlob.WhenSomeV(
+				func(blob tlv.Blob) {
+					bo.resolutionBlob = fn.Some(blob)
+				},
+			)
 
 		// For spending the HTLC outputs, we'll apply the first and
 		// second level tweak values.

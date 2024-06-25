@@ -1409,8 +1409,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	hops []route.Vertex, outgoingChan *uint64,
 	finalCltvDelta int32, payAddr *[32]byte) (*route.Route, error) {
 
-	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v",
-		len(hops), amt)
+	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v", len(hops), amt)
 
 	var outgoingChans map[uint64]struct{}
 	if outgoingChan != nil {
@@ -1418,6 +1417,17 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 			*outgoingChan: {},
 		}
 	}
+
+	// We'll attempt to obtain a set of bandwidth hints that helps us select
+	// the best outgoing channel to use in case no outgoing channel is set.
+	bandwidthHints, err := newBandwidthManager(
+		r.cfg.RoutingGraph, r.cfg.SelfNode, r.cfg.GetLink,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceNode := r.cfg.SelfNode
 
 	// If no amount is specified, we need to build a route for the minimum
 	// amount that this route can carry.
@@ -1436,23 +1446,6 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		runningAmt = *amt
 	}
 
-	// We'll attempt to obtain a set of bandwidth hints that helps us select
-	// the best outgoing channel to use in case no outgoing channel is set.
-	bandwidthHints, err := newBandwidthManager(
-		r.cfg.RoutingGraph, r.cfg.SelfNode, r.cfg.GetLink,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Fetch the current block height outside the routing transaction, to
-	// prevent the rpc call blocking the database.
-	_, height, err := r.cfg.Chain.GetBestBlock()
-	if err != nil {
-		return nil, err
-	}
-
-	sourceNode := r.cfg.SelfNode
 	unifiers, senderAmt, err := getRouteUnifiers(
 		sourceNode, hops, useMinAmt, runningAmt, outgoingChans,
 		r.cfg.RoutingGraph, bandwidthHints,
@@ -1464,6 +1457,13 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	pathEdges, receiverAmt, err := getPathEdges(
 		sourceNode, senderAmt, unifiers, bandwidthHints, hops,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fetch the current block height outside the routing transaction, to
+	// prevent the rpc call blocking the database.
+	_, height, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {
 		return nil, err
 	}

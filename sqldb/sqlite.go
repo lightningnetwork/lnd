@@ -166,3 +166,29 @@ func NewTestSqliteDB(t *testing.T) *SqliteStore {
 
 	return sqlDB
 }
+
+// NewTestSqliteDBWithVersion is a helper function that creates an SQLite
+// database for testing and migrates it to the given version.
+func NewTestSqliteDBWithVersion(t *testing.T, version uint) *SqliteStore {
+	t.Helper()
+
+	t.Logf("Creating new SQLite DB for testing, migrating to version %d",
+		version)
+
+	// TODO(roasbeef): if we pass :memory: for the file name, then we get
+	// an in mem version to speed up tests
+	dbFileName := filepath.Join(t.TempDir(), "tmp.db")
+	sqlDB, err := NewSqliteStore(&SqliteConfig{
+		SkipMigrations: true,
+	}, dbFileName)
+	require.NoError(t, err)
+
+	err = sqlDB.ExecuteMigrations(TargetVersion(version))
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		require.NoError(t, sqlDB.DB.Close())
+	})
+
+	return sqlDB
+}

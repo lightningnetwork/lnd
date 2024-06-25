@@ -1619,6 +1619,11 @@ func TestBuildRoute(t *testing.T) {
 	_, err = rand.Read(payAddr[:])
 	require.NoError(t, err)
 
+	// Test that we can't build a route when no hops are given.
+	hops = []route.Vertex{}
+	_, err = ctx.router.BuildRoute(nil, hops, nil, 40, nil)
+	require.Error(t, err)
+
 	// Create hop list for an unknown destination.
 	hops := []route.Vertex{ctx.aliases["b"], ctx.aliases["y"]}
 	_, err = ctx.router.BuildRoute(nil, hops, nil, 40, &payAddr)
@@ -1698,7 +1703,8 @@ func TestReceiverAmtForwardPass(t *testing.T) {
 		expectedErr string
 	}{
 		{
-			name: "empty",
+			name:        "empty",
+			expectedErr: "no edges to forward through",
 		},
 		{
 			name: "single edge, no valid policy",

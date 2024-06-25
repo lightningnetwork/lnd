@@ -1545,48 +1545,90 @@ func getEdgeUnifiers(source route.Vertex, hops []route.Vertex,
 // determines the amount that should be sent to fulfill min HTLC requirements.
 // The minimal sender amount can be searched for by activating useMinAmt.
 func senderAmtBackwardPass(unifiers []*edgeUnifier, useMinAmt bool,
-	runningAmt lnwire.MilliSatoshi,
+	receiverAmt lnwire.MilliSatoshi,
 	bandwidthHints bandwidthHints) ([]*unifiedEdge, lnwire.MilliSatoshi,
 	error) {
 
+	if len(unifiers) == 0 {
+		return nil, 0, fmt.Errorf("no unifiers provided")
+	}
+
 	var unifiedEdges = make([]*unifiedEdge, len(unifiers))
 
-	// Traverse hops backwards to accumulate fees in the running amounts.
-	for i := len(unifiers) - 1; i >= 0; i-- {
-		localChan := i == 0
-		edgeUnifier := unifiers[i]
+	// We traverse the route backwards and handle the last hop separately.
+	edgeUnifier := unifiers[len(unifiers)-1]
 
-		// If using min amt, increase amt if needed.
+	// incomingAmt tracks the amount that is forwarded on the edges of a
+	// route. The last hop only forwards the amount that the receiver should
+	// receive, as there are no fees paid to the last node.
+	incomingAmt := receiverAmt
+
+	// If using min amt, increase the amount if needed to fulfill min HTLC
+	// requirements.
+	if useMinAmt {
+		min := edgeUnifier.minAmt()
+		if min > incomingAmt {
+			incomingAmt = min
+		}
+	}
+
+	// Get an edge for the specific amount that we want to forward.
+	edge := edgeUnifier.getEdge(incomingAmt, bandwidthHints, 0)
+	if edge == nil {
+		log.Errorf("Cannot find policy with amt=%v "+
+			"for hop %v", incomingAmt, len(unifiers)-1)
+
+		return nil, 0, ErrNoChannel{position: len(unifiers) - 1}
+	}
+
+	unifiedEdges[len(unifiers)-1] = edge
+
+	// Handle the rest of the route except the last hop.
+	for i := len(unifiers) - 2; i >= 0; i-- {
+		edgeUnifier = unifiers[i]
+
+		// If using min amt, increase the amount if needed to fulfill
+		// min HTLC requirements.
 		if useMinAmt {
 			min := edgeUnifier.minAmt()
-			if min > runningAmt {
-				runningAmt = min
+			if min > incomingAmt {
+				incomingAmt = min
 			}
 		}
 
-		// Get an edge for the specific amount that we want to forward.
-		edge := edgeUnifier.getEdge(runningAmt, bandwidthHints, 0)
+		// A --current hop-- B --next hop: incomingAmt-- C
+		// The outbound fee paid to the current end node B is based on
+		// the amount that the next hop forwards and B's policy for that
+		// hop.
+		outboundFee := unifiedEdges[i+1].policy.ComputeFee(
+			incomingAmt,
+		)
+
+		netAmount := incomingAmt + outboundFee
+
+		// We need to select an edge that can forward the requested
+		// amount.
+		edge = edgeUnifier.getEdge(
+			netAmount, bandwidthHints, outboundFee,
+		)
 		if edge == nil {
-			log.Errorf("Cannot find policy with amt=%v for hop %v",
-				runningAmt, i)
-
-			return nil, 0, ErrNoChannel{
-				position: i,
-			}
+			return nil, 0, ErrNoChannel{position: i}
 		}
 
-		// Add fee for this hop.
-		if !localChan {
-			runningAmt += edge.policy.ComputeFee(runningAmt)
-		}
+		fee := outboundFee
 
 		log.Tracef("Select channel %v at position %v",
 			edge.policy.ChannelID, i)
 
+		// Finally, we update the amount that needs to flow into node B
+		// from A, which is the next hop's forwarding amount plus the
+		// fee for B: A --current hop: incomingAmt-- B --next hop-- C
+		incomingAmt += fee
+
 		unifiedEdges[i] = edge
 	}
 
-	return unifiedEdges, runningAmt, nil
+	return unifiedEdges, incomingAmt, nil
 }
 
 // receiverAmtForwardPass returns the amount that a receiver will receive after
@@ -1594,20 +1636,32 @@ func senderAmtBackwardPass(unifiers []*edgeUnifier, useMinAmt bool,
 func receiverAmtForwardPass(runningAmt lnwire.MilliSatoshi,
 	unifiedEdges []*unifiedEdge) (lnwire.MilliSatoshi, error) {
 
+	if len(unifiedEdges) == 0 {
+		return 0, fmt.Errorf("no edges to forward through")
+	}
+
+	inEdge := unifiedEdges[0]
+	if !inEdge.amtInRange(runningAmt) {
+		log.Errorf("Amount %v not in range for hop index %v",
+			runningAmt, 0)
+
+		return 0, ErrNoChannel{position: 0}
+	}
+
 	// Now that we arrived at the start of the route and found out the route
 	// total amount, we make a forward pass. Because the amount may have
 	// been increased in the backward pass, fees need to be recalculated and
 	// amount ranges re-checked.
-	for i, edge := range unifiedEdges {
-		if i > 0 {
-			// Decrease the amount to send while going forward.
-			runningAmt -= edge.policy.ComputeFeeFromIncoming(
-				runningAmt,
-			)
-		}
+	for i := 1; i < len(unifiedEdges); i++ {
+		outEdge := unifiedEdges[i]
 
-		if !edge.amtInRange(runningAmt) {
-			log.Errorf("Amount %v not in range for hop %v",
+		// Decrease the amount to send while going forward.
+		runningAmt -= outEdge.policy.ComputeFeeFromIncoming(
+			runningAmt,
+		)
+
+		if !outEdge.amtInRange(runningAmt) {
+			log.Errorf("Amount %v not in range for hop index %v",
 				runningAmt, i)
 
 			return 0, ErrNoChannel{position: i}

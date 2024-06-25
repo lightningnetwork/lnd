@@ -583,7 +583,6 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 		input.LeaseHtlcAcceptedSuccessSecondLevel,
 		&h.htlcResolution.SweepSignDesc,
 		h.htlcResolution.CsvDelay, uint32(commitSpend.SpendingHeight),
-		h.htlc.RHash,
 	)
 
 	// Calculate the budget for this sweep.

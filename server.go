@@ -547,6 +547,15 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		readBufferPool, cfg.Workers.Read, pool.DefaultWorkerTimeout,
 	)
 
+	// If the taproot overlay flag is set, but we don't have an aux funding
+	// controller, then we'll exit as this is incompatible.
+	if cfg.ProtocolOptions.TaprootOverlayChans &&
+		implCfg.AuxFundingController.IsNone() {
+
+		return nil, fmt.Errorf("taproot overlay flag set, but not " +
+			"aux controllers")
+	}
+
 	//nolint:lll
 	featureMgr, err := feature.NewManager(feature.Config{
 		NoTLVOnion:               cfg.ProtocolOptions.LegacyOnion(),
@@ -560,6 +569,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoAnySegwit:              cfg.ProtocolOptions.NoAnySegwit(),
 		CustomFeatures:           cfg.ProtocolOptions.CustomFeatures(),
 		NoTaprootChans:           !cfg.ProtocolOptions.TaprootChans,
+		NoTaprootOverlay:         !cfg.ProtocolOptions.TaprootOverlayChans,
 		NoRouteBlinding:          cfg.ProtocolOptions.NoRouteBlinding(),
 	})
 	if err != nil {

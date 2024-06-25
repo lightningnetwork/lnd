@@ -38,6 +38,17 @@ type ContractResolver interface {
 	// resides within.
 	ResolverKey() []byte
 
+	// Launch starts the resolver by constructing an input and offering it
+	// to the sweeper. Once offered, it's expected to monitor the sweeping
+	// result in a goroutine invoked by calling Resolve.
+	//
+	// NOTE: We can call `Resolve` inside a goroutine at the end of this
+	// method to avoid calling it in the ChannelArbitrator. However, there
+	// are some DB-related operations such as SwapContract/ResolveContract
+	// which need to be done inside the resolvers instead, which needs a
+	// deeper refactoring.
+	Launch() error
+
 	// Resolve instructs the contract resolver to resolve the output
 	// on-chain. Once the output has been *fully* resolved, the function
 	// should return immediately with a nil ContractResolver value for the

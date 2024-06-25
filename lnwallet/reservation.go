@@ -2,6 +2,7 @@ package lnwallet
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 
@@ -50,6 +51,11 @@ const (
 	// channels that use a musig2 funding output and the tapscript tree
 	// where relevant for the commitment transaction pk scripts.
 	CommitmentTypeSimpleTaproot
+
+	// CommitmentTypeSimpleTaprootOverlay builds on the existing
+	// CommitmentTypeSimpleTaproot type but layers on a special overlay
+	// protocol.
+	CommitmentTypeSimpleTaprootOverlay
 )
 
 // HasStaticRemoteKey returns whether the commitment type supports remote
@@ -59,8 +65,11 @@ func (c CommitmentType) HasStaticRemoteKey() bool {
 	case CommitmentTypeTweakless,
 		CommitmentTypeAnchorsZeroFeeHtlcTx,
 		CommitmentTypeScriptEnforcedLease,
-		CommitmentTypeSimpleTaproot:
+		CommitmentTypeSimpleTaproot,
+		CommitmentTypeSimpleTaprootOverlay:
+
 		return true
+
 	default:
 		return false
 	}
@@ -71,8 +80,11 @@ func (c CommitmentType) HasAnchors() bool {
 	switch c {
 	case CommitmentTypeAnchorsZeroFeeHtlcTx,
 		CommitmentTypeScriptEnforcedLease,
-		CommitmentTypeSimpleTaproot:
+		CommitmentTypeSimpleTaproot,
+		CommitmentTypeSimpleTaprootOverlay:
+
 		return true
+
 	default:
 		return false
 	}
@@ -80,7 +92,8 @@ func (c CommitmentType) HasAnchors() bool {
 
 // IsTaproot returns true if the channel type is a taproot channel.
 func (c CommitmentType) IsTaproot() bool {
-	return c == CommitmentTypeSimpleTaproot
+	return c == CommitmentTypeSimpleTaproot ||
+		c == CommitmentTypeSimpleTaprootOverlay
 }
 
 // String returns the name of the CommitmentType.
@@ -96,6 +109,8 @@ func (c CommitmentType) String() string {
 		return "script-enforced-lease"
 	case CommitmentTypeSimpleTaproot:
 		return "simple-taproot"
+	case CommitmentTypeSimpleTaprootOverlay:
+		return "simple-taproot-overlay"
 	default:
 		return "invalid"
 	}
@@ -424,7 +439,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		chanType |= channeldb.FrozenBit
 	}
 
-	if req.CommitType == CommitmentTypeSimpleTaproot {
+	if req.CommitType.IsTaproot() {
 		chanType |= channeldb.SimpleTaprootFeatureBit
 	}
 
@@ -440,7 +455,15 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		chanType |= channeldb.ScidAliasFeatureBit
 	}
 
-	if req.TapscriptRoot.IsSome() {
+	taprootOverlay := req.CommitType == CommitmentTypeSimpleTaprootOverlay
+	switch {
+	case taprootOverlay && req.TapscriptRoot.IsNone():
+		fallthrough
+	case !taprootOverlay && req.TapscriptRoot.IsSome():
+		return nil, fmt.Errorf("taproot overlay chans must be set " +
+			"with tapscript root")
+
+	case taprootOverlay && req.TapscriptRoot.IsSome():
 		chanType |= channeldb.TapscriptRootBit
 	}
 

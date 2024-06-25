@@ -3081,13 +3081,12 @@ func (r *ChannelRouter) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
 // channels that satisfy all requirements.
 type ErrNoChannel struct {
 	position int
-	fromNode route.Vertex
 }
 
 // Error returns a human-readable string describing the error.
 func (e ErrNoChannel) Error() string {
 	return fmt.Sprintf("no matching outgoing channel available for "+
-		"node %v (%v)", e.position, e.fromNode)
+		"node index %v", e.position)
 }
 
 // BuildRoute returns a fully specified route based on a list of pubkeys. If
@@ -3118,6 +3117,15 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 	sourceNode := r.selfNode.PubKeyBytes
 
+	// We check that each node in the route has a connection to others that
+	// can forward in principle.
+	unifiers, err := getEdgeUnifiers(
+		r.selfNode.PubKeyBytes, hops, outgoingChans, r.cachedGraph,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// If no amount is specified, we need to build a route for the minimum
 	// amount that this route can carry.
 	useMinAmt := amt == nil
@@ -3135,16 +3143,15 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		runningAmt = *amt
 	}
 
-	unifiers, senderAmt, err := getRouteUnifiers(
-		sourceNode, hops, useMinAmt, runningAmt, outgoingChans,
-		r.cachedGraph, bandwidthHints,
+	senderAmt, err := backwardPass(
+		unifiers, useMinAmt, runningAmt, bandwidthHints,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	pathEdges, receiverAmt, err := getPathEdges(
-		sourceNode, senderAmt, unifiers, bandwidthHints, hops,
+		senderAmt, unifiers, bandwidthHints,
 	)
 	if err != nil {
 		return nil, err
@@ -3171,11 +3178,9 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 }
 
 // getRouteUnifiers returns a list of edge unifiers for the given route.
-func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
-	useMinAmt bool, runningAmt lnwire.MilliSatoshi,
-	outgoingChans map[uint64]struct{}, graph routingGraph,
-	bandwidthHints *bandwidthManager) ([]*edgeUnifier, lnwire.MilliSatoshi,
-	error) {
+func getEdgeUnifiers(source route.Vertex, hops []route.Vertex,
+	outgoingChans map[uint64]struct{},
+	graph routingGraph) ([]*edgeUnifier, error) {
 
 	// Allocate a list that will contain the edge unifiers for this route.
 	unifiers := make([]*edgeUnifier, len(hops))
@@ -3191,8 +3196,6 @@ func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
 			fromNode = hops[i-1]
 		}
 
-		localChan := i == 0
-
 		// Build unified policies for this hop based on the channels
 		// known in the graph. Don't use inbound fees.
 		//
@@ -3203,18 +3206,34 @@ func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
 
 		err := u.addGraphPolicies(graph)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 
 		// Exit if there are no channels.
 		edgeUnifier, ok := u.edgeUnifiers[fromNode]
 		if !ok {
-			log.Errorf("Cannot find policy for node %v", fromNode)
-			return nil, 0, ErrNoChannel{
-				fromNode: fromNode,
-				position: i,
-			}
+			log.Errorf("Cannot find policy for node index %v",
+				fromNode)
+			return nil, ErrNoChannel{position: i}
 		}
+
+		unifiers[i] = edgeUnifier
+	}
+
+	return unifiers, nil
+}
+
+// backwardPass determines the amount that should be sent to fulfill min HTLC
+// requirements. The minimal sender amount can be searched for by activating
+// useMinAmt.
+func backwardPass(unifiers []*edgeUnifier, useMinAmt bool,
+	runningAmt lnwire.MilliSatoshi,
+	bandwidthHints *bandwidthManager) (lnwire.MilliSatoshi, error) {
+
+	// Traverse hops backwards to accumulate fees in the running amounts.
+	for i := len(unifiers) - 1; i >= 0; i-- {
+		localChan := i == 0
+		edgeUnifier := unifiers[i]
 
 		// If using min amt, increase amt if needed.
 		if useMinAmt {
@@ -3227,11 +3246,10 @@ func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
 		// Get an edge for the specific amount that we want to forward.
 		edge := edgeUnifier.getEdge(runningAmt, bandwidthHints, 0)
 		if edge == nil {
-			log.Errorf("Cannot find policy with amt=%v for node %v",
-				runningAmt, fromNode)
+			log.Errorf("Cannot find policy with amt=%v for hop %v",
+				runningAmt, i)
 
-			return nil, 0, ErrNoChannel{
-				fromNode: fromNode,
+			return 0, ErrNoChannel{
 				position: i,
 			}
 		}
@@ -3243,19 +3261,17 @@ func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
 
 		log.Tracef("Select channel %v at position %v",
 			edge.policy.ChannelID, i)
-
-		unifiers[i] = edgeUnifier
 	}
 
-	return unifiers, runningAmt, nil
+	return runningAmt, nil
 }
 
-// getPathEdges returns the edges that make up the path and the total amount,
-// including fees, to send the payment.
-func getPathEdges(source route.Vertex, receiverAmt lnwire.MilliSatoshi,
-	unifiers []*edgeUnifier, bandwidthHints *bandwidthManager,
-	hops []route.Vertex) ([]*unifiedEdge,
-	lnwire.MilliSatoshi, error) {
+// getPathEdges returns the edges that make up the path and the amount that gets
+// delivered to the receiver.
+func getPathEdges(receiverAmt lnwire.MilliSatoshi,
+	unifiers []*edgeUnifier,
+	bandwidthHints *bandwidthManager) ([]*unifiedEdge, lnwire.MilliSatoshi,
+	error) {
 
 	// Now that we arrived at the start of the route and found out the route
 	// total amount, we make a forward pass. Because the amount may have
@@ -3265,15 +3281,7 @@ func getPathEdges(source route.Vertex, receiverAmt lnwire.MilliSatoshi,
 	for i, unifier := range unifiers {
 		edge := unifier.getEdge(receiverAmt, bandwidthHints, 0)
 		if edge == nil {
-			fromNode := source
-			if i > 0 {
-				fromNode = hops[i-1]
-			}
-
-			return nil, 0, ErrNoChannel{
-				fromNode: fromNode,
-				position: i,
-			}
+			return nil, 0, ErrNoChannel{position: i}
 		}
 
 		if i > 0 {

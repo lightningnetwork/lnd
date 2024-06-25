@@ -1669,53 +1669,122 @@ func TestBuildRoute(t *testing.T) {
 	// channel 8 to be used, because its policy has the highest fee rate,
 	// bumping the amount to 20000 msat leading to a sender amount of 21200
 	// msat including the fees for hop over channel 8. In the forward pass
-	// however, we discover that the max HTLC constraint of channel 8 is
-	// violated after subtracting the fee, which is why we change the policy
-	// to the one of channel 3. This leads to a delivered amount of 20191
-	// msat, in contrast to the naive 20000 msat from the min HTLC
-	// constraint of both channels.
+	// however, we subtract that fee again, resulting in the min HTLC
+	// amount. The forward pass doesn't check for a different policy that
+	// could me more applicable, which is why we don't get back the highest
+	// amount that could be delivered to the receiver of 21819 msat, using
+	// policy of channel 3.
 	hops = []route.Vertex{ctx.aliases["b"], ctx.aliases["z"]}
 	rt, err = ctx.router.BuildRoute(nil, hops, nil, 40, &payAddr)
 	require.NoError(t, err)
-	checkHops(rt, []uint64{1, 3}, payAddr)
+	checkHops(rt, []uint64{1, 8}, payAddr)
 	require.Equal(t, lnwire.MilliSatoshi(21200), rt.TotalAmount)
-	require.Equal(t, lnwire.MilliSatoshi(20191), rt.Hops[1].AmtToForward)
+	require.Equal(t, lnwire.MilliSatoshi(20000), rt.Hops[1].AmtToForward)
+
 }
 
-// TestGetPathEdges tests that the getPathEdges function returns the expected
-// edges and amount when given a set of unifiers and does not panic.
-func TestGetPathEdges(t *testing.T) {
+// TestReceiverAmtForwardPass tests that the forward pass returns the expected
+// receiver amount when given a set of edges and does not panic.
+func TestReceiverAmtForwardPass(t *testing.T) {
 	t.Parallel()
 
-	const startingBlockHeight = 101
-	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
-
 	testCases := []struct {
-		sourceNode     route.Vertex
-		amt            lnwire.MilliSatoshi
-		unifiers       []*edgeUnifier
-		bandwidthHints *bandwidthManager
-		hops           []route.Vertex
+		name         string
+		amt          lnwire.MilliSatoshi
+		unifiedEdges []*unifiedEdge
+		hops         []route.Vertex
 
-		expectedEdges []*models.CachedEdgePolicy
-		expectedAmt   lnwire.MilliSatoshi
-		expectedErr   string
-	}{{
-		sourceNode: ctx.aliases["roasbeef"],
-		unifiers: []*edgeUnifier{
-			{
-				edges:     []*unifiedEdge{},
-				localChan: true,
-			},
+		expectedAmt lnwire.MilliSatoshi
+		expectedErr string
+	}{
+		{
+			name: "empty",
 		},
-		expectedErr: fmt.Sprintf("no matching outgoing channel " +
-			"available for node index 0"),
-	}}
+		{
+			name: "single edge, no valid policy",
+			amt:  1000,
+			unifiedEdges: []*unifiedEdge{
+				{
+					policy: &models.CachedEdgePolicy{
+						MinHTLC: 1001,
+					},
+				},
+			},
+			expectedErr: fmt.Sprintf("no matching outgoing " +
+				"channel available for node index 0"),
+		},
+		{
+			name: "single edge",
+			amt:  1000,
+			unifiedEdges: []*unifiedEdge{
+				{
+					policy: &models.CachedEdgePolicy{
+						MinHTLC: 1000,
+					},
+				},
+			},
+			expectedAmt: 1000,
+		},
+		{
+			name: "outbound fee, no rounding",
+			amt:  1e9,
+			unifiedEdges: []*unifiedEdge{
+				{
+					// The first hop's outbound fee is
+					// irrelevant in fee calculation.
+					policy: &models.CachedEdgePolicy{
+						FeeBaseMSat:               1234,
+						FeeProportionalMillionths: 1234,
+					},
+				},
+				{
+					// No rounding is done here.
+					policy: &models.CachedEdgePolicy{
+						FeeBaseMSat:               1000,
+						FeeProportionalMillionths: 1000,
+					},
+				},
+			},
+			// From an outgoing amount of 999000000 msat, we get
+			// in = out + base + out * rate = 1000000000.0
+			//
+			// The inverse outgoing amount for this is
+			// out = (in - base) / (1 + rate) =
+			// (1e9 - 1000) / (1 + 1e-3) = 999000000.0000001,
+			// which is rounded down.
+			expectedAmt: 999000000,
+		},
+		{
+			name: "outbound fee, rounding",
+			amt:  1e9,
+			unifiedEdges: []*unifiedEdge{
+				{
+					// The first hop's outbound fee is
+					// irrelevant in fee calculation.
+					policy: &models.CachedEdgePolicy{
+						FeeBaseMSat:               1234,
+						FeeProportionalMillionths: 1234,
+					},
+				},
+				{
+					// This policy is chosen such that we
+					// round down.
+					policy: &models.CachedEdgePolicy{
+						FeeBaseMSat:               1000,
+						FeeProportionalMillionths: 999,
+					},
+				},
+			},
+			// The float amount for this is
+			// out = (in - base) / (1 + rate) =
+			// (1e9 - 1000) / (1 + 999e-6) = 999000998.002995,
+			// which is rounded up.
+			expectedAmt: 999000999,
+		},
+	}
 
 	for _, tc := range testCases {
-		pathEdges, amt, err := getPathEdges(
-			tc.amt, tc.unifiers, tc.bandwidthHints,
-		)
+		amt, err := receiverAmtForwardPass(tc.amt, tc.unifiedEdges)
 
 		if tc.expectedErr != "" {
 			require.Error(t, err)
@@ -1725,9 +1794,90 @@ func TestGetPathEdges(t *testing.T) {
 		}
 
 		require.NoError(t, err)
-		require.Equal(t, pathEdges, tc.expectedEdges)
 		require.Equal(t, amt, tc.expectedAmt)
 	}
+}
+
+// TestSenderAmtBackwardPass tests that the computation of the sender amount is
+// done correctly for route building.
+func TestSenderAmtBackwardPass(t *testing.T) {
+	bandwidthHints := bandwidthManager{
+		getLink: func(chanId lnwire.ShortChannelID) (
+			htlcswitch.ChannelLink, error) {
+
+			return nil, nil
+		},
+		localChans: make(map[lnwire.ShortChannelID]struct{}),
+	}
+
+	var (
+		capacity        btcutil.Amount      = 1_000_000
+		testReceiverAmt lnwire.MilliSatoshi = 1_000_000
+		minHTLC         lnwire.MilliSatoshi = 1_000
+	)
+
+	edgeUnifiers := []*edgeUnifier{
+		{
+			edges: []*unifiedEdge{
+				{
+					// This outbound fee doesn't have an
+					// effect (sender doesn't pay outbound).
+					policy: &models.CachedEdgePolicy{
+						FeeBaseMSat: 112,
+					},
+					capacity: capacity,
+				},
+			},
+		},
+		{
+			edges: []*unifiedEdge{
+				{
+					policy: &models.CachedEdgePolicy{
+						FeeBaseMSat: 222,
+					},
+					capacity: capacity,
+				},
+			},
+		},
+		{
+			edges: []*unifiedEdge{
+				{
+					policy: &models.CachedEdgePolicy{
+						FeeBaseMSat: 333,
+						MinHTLC:     minHTLC,
+					},
+					capacity: capacity,
+				},
+			},
+		},
+	}
+
+	// A search for an amount that is below the minimum HTLC amount should
+	// fail.
+	_, _, err := senderAmtBackwardPass(
+		edgeUnifiers, false, minHTLC-1, &bandwidthHints,
+	)
+	require.Error(t, err)
+
+	// Do a min amount search.
+	unifiedEdges, senderAmount, err := senderAmtBackwardPass(
+		edgeUnifiers, true, 1, &bandwidthHints,
+	)
+	require.NoError(t, err)
+	require.Equal(t, minHTLC+333+222, senderAmount)
+
+	// Do a search for a specific amount.
+	unifiedEdges, senderAmount, err = senderAmtBackwardPass(
+		edgeUnifiers, false, testReceiverAmt, &bandwidthHints,
+	)
+	require.NoError(t, err)
+	require.Equal(t, testReceiverAmt+333+222, senderAmount)
+
+	// Check that we arrive at the same receiver amount by doing a forward
+	// pass.
+	receiverAmt, err := receiverAmtForwardPass(senderAmount, unifiedEdges)
+	require.NoError(t, err)
+	require.Equal(t, testReceiverAmt, receiverAmt)
 }
 
 // TestSendToRouteSkipTempErrSuccess validates a successful payment send.

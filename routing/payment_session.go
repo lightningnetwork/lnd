@@ -175,7 +175,7 @@ type paymentSession struct {
 
 	pathFinder pathFinder
 
-	getRoutingGraph func() (Graph, func(), error)
+	graphSessFactory GraphSessionFactory
 
 	// pathFindingConfig defines global parameters that control the
 	// trade-off in path finding between fees and probability.
@@ -196,9 +196,8 @@ type paymentSession struct {
 // newPaymentSession instantiates a new payment session.
 func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 	getBandwidthHints func(Graph) (bandwidthHints, error),
-	getRoutingGraph func() (Graph, func(), error),
-	missionControl MissionController, pathFindingConfig PathFindingConfig) (
-	*paymentSession, error) {
+	graphSessFactory GraphSessionFactory, missionControl MissionController,
+	pathFindingConfig PathFindingConfig) (*paymentSession, error) {
 
 	edges, err := RouteHintsToEdges(p.RouteHints, p.Target)
 	if err != nil {
@@ -213,7 +212,7 @@ func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 		getBandwidthHints: getBandwidthHints,
 		payment:           p,
 		pathFinder:        findPath,
-		getRoutingGraph:   getRoutingGraph,
+		graphSessFactory:  graphSessFactory,
 		pathFindingConfig: pathFindingConfig,
 		missionControl:    missionControl,
 		minShardAmt:       DefaultShardMinAmt,
@@ -280,8 +279,8 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	}
 
 	for {
-		// Get a routing graph.
-		routingGraph, cleanup, err := p.getRoutingGraph()
+		// Get a routing graph session.
+		graph, closeGraph, err := p.graphSessFactory.NewGraphSession()
 		if err != nil {
 			return nil, err
 		}
@@ -292,7 +291,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		// don't have enough bandwidth to carry the payment. New
 		// bandwidth hints are queried for every new path finding
 		// attempt, because concurrent payments may change balances.
-		bandwidthHints, err := p.getBandwidthHints(routingGraph)
+		bandwidthHints, err := p.getBandwidthHints(graph)
 		if err != nil {
 			return nil, err
 		}
@@ -304,15 +303,17 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 			&graphParams{
 				additionalEdges: p.additionalEdges,
 				bandwidthHints:  bandwidthHints,
-				graph:           routingGraph,
+				graph:           graph,
 			},
 			restrictions, &p.pathFindingConfig,
 			p.selfNode, p.selfNode, p.payment.Target,
 			maxAmt, p.payment.TimePref, finalHtlcExpiry,
 		)
 
-		// Close routing graph.
-		cleanup()
+		// Close routing graph session.
+		if err := closeGraph(); err != nil {
+			log.Errorf("could not close graph session: %v", err)
+		}
 
 		switch {
 		case err == errNoPathFound:

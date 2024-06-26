@@ -119,9 +119,7 @@ func TestUpdateAdditionalEdge(t *testing.T) {
 		func(Graph) (bandwidthHints, error) {
 			return &mockBandwidthHints{}, nil
 		},
-		func() (Graph, func(), error) {
-			return &sessionGraph{}, func() {}, nil
-		},
+		newMockGraphSessionFactory(&sessionGraph{}),
 		&MissionControl{},
 		PathFindingConfig{},
 	)
@@ -199,9 +197,7 @@ func TestRequestRoute(t *testing.T) {
 		func(Graph) (bandwidthHints, error) {
 			return &mockBandwidthHints{}, nil
 		},
-		func() (Graph, func(), error) {
-			return &sessionGraph{}, func() {}, nil
-		},
+		newMockGraphSessionFactory(&sessionGraph{}),
 		&MissionControl{},
 		PathFindingConfig{},
 	)

@@ -5,7 +5,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -22,58 +21,16 @@ type Graph interface {
 	FetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
 }
 
-// CachedGraph is a Graph implementation that retrieves from the
-// database.
-type CachedGraph struct {
-	graph *channeldb.ChannelGraph
-	tx    kvdb.RTx
-}
-
-// A compile time assertion to make sure CachedGraph implements the Graph
-// interface.
-var _ Graph = (*CachedGraph)(nil)
-
-// NewCachedGraph instantiates a new db-connected routing graph. It implicitly
-// instantiates a new read transaction.
-func NewCachedGraph(graph *channeldb.ChannelGraph) (*CachedGraph, error) {
-	tx, err := graph.NewPathFindTx()
-	if err != nil {
-		return nil, err
-	}
-
-	return &CachedGraph{
-		graph: graph,
-		tx:    tx,
-	}, nil
-}
-
-// Close attempts to close the underlying db transaction. This is a no-op in
-// case the underlying graph uses an in-memory cache.
-func (g *CachedGraph) Close() error {
-	if g.tx == nil {
-		return nil
-	}
-
-	return g.tx.Rollback()
-}
-
-// ForEachNodeChannel calls the callback for every channel of the given node.
-//
-// NOTE: Part of the Graph interface.
-func (g *CachedGraph) ForEachNodeChannel(nodePub route.Vertex,
-	cb func(channel *channeldb.DirectedChannel) error) error {
-
-	return g.graph.ForEachNodeDirectedChannel(g.tx, nodePub, cb)
-}
-
-// FetchNodeFeatures returns the features of the given node. If the node is
-// unknown, assume no additional features are supported.
-//
-// NOTE: Part of the Graph interface.
-func (g *CachedGraph) FetchNodeFeatures(nodePub route.Vertex) (
-	*lnwire.FeatureVector, error) {
-
-	return g.graph.FetchNodeFeatures(nodePub)
+// GraphSessionFactory can be used to produce a new Graph instance which can
+// then be used for a path-finding session. Depending on the implementation,
+// the Graph session will represent a DB connection where a read-lock is being
+// held across calls to the backing Graph.
+type GraphSessionFactory interface {
+	// NewGraphSession will produce a new Graph to use for a path-finding
+	// session. It returns the Graph along with a call-back that must be
+	// called once Graph access is complete. This call-back will close any
+	// read-only transaction that was created at Graph construction time.
+	NewGraphSession() (Graph, func() error, error)
 }
 
 // FetchAmountPairCapacity determines the maximal public capacity between two

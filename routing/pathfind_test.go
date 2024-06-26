@@ -3201,14 +3201,16 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 		return nil, err
 	}
 
-	routingGraph, err := NewCachedGraph(graph)
+	graphSessFactory := newMockGraphSessionFactoryFromChanDB(graph)
+
+	graphSess, closeGraphSess, err := graphSessFactory.NewGraphSession()
 	if err != nil {
 		return nil, err
 	}
 
 	defer func() {
-		if err := routingGraph.Close(); err != nil {
-			log.Errorf("Error closing db tx: %v", err)
+		if err := closeGraphSess(); err != nil {
+			log.Errorf("Error closing graph session: %v", err)
 		}
 	}()
 
@@ -3216,7 +3218,7 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 		&graphParams{
 			additionalEdges: additionalEdges,
 			bandwidthHints:  bandwidthHints,
-			graph:           routingGraph,
+			graph:           graphSess,
 		},
 		r, cfg, sourceNode.PubKeyBytes, source, target, amt, timePref,
 		finalHtlcExpiry,

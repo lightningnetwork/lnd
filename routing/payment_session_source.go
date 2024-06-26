@@ -16,9 +16,10 @@ var _ PaymentSessionSource = (*SessionSource)(nil)
 // SessionSource defines a source for the router to retrieve new payment
 // sessions.
 type SessionSource struct {
-	// Graph is the channel graph that will be used to gather metrics from
-	// and also to carry out path finding queries.
-	Graph *channeldb.ChannelGraph
+	// GraphSessionFactory can be used to gain access to a Graph session.
+	// If the backing DB allows it, this will mean that a read transaction
+	// is being held during the use of the session.
+	GraphSessionFactory GraphSessionFactory
 
 	// SourceNode is the graph's source node.
 	SourceNode *channeldb.LightningNode
@@ -44,21 +45,6 @@ type SessionSource struct {
 	PathFindingConfig PathFindingConfig
 }
 
-// getRoutingGraph returns a routing graph and a clean-up function for
-// pathfinding.
-func (m *SessionSource) getRoutingGraph() (Graph, func(), error) {
-	routingTx, err := NewCachedGraph(m.Graph)
-	if err != nil {
-		return nil, nil, err
-	}
-	return routingTx, func() {
-		err := routingTx.Close()
-		if err != nil {
-			log.Errorf("Error closing db tx: %v", err)
-		}
-	}, nil
-}
-
 // NewPaymentSession creates a new payment session backed by the latest prune
 // view from Mission Control. An optional set of routing hints can be provided
 // in order to populate additional edges to explore when finding a path to the
@@ -74,7 +60,7 @@ func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
 
 	session, err := newPaymentSession(
 		p, m.SourceNode.PubKeyBytes, getBandwidthHints,
-		m.getRoutingGraph, m.MissionControl, m.PathFindingConfig,
+		m.GraphSessionFactory, m.MissionControl, m.PathFindingConfig,
 	)
 	if err != nil {
 		return nil, err

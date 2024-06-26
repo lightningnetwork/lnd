@@ -453,9 +453,9 @@ type ChannelRouter struct {
 	// when doing any path finding.
 	selfNode *channeldb.LightningNode
 
-	// cachedGraph is an instance of routingGraph that caches the source
+	// cachedGraph is an instance of Graph that caches the source
 	// node as well as the channel graph itself in memory.
-	cachedGraph routingGraph
+	cachedGraph Graph
 
 	// newBlocks is a channel in which new blocks connected to the end of
 	// the main chain are sent over, and blocks updated after a call to
@@ -3177,7 +3177,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 // getRouteUnifiers returns a list of edge unifiers for the given route.
 func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
 	useMinAmt bool, runningAmt lnwire.MilliSatoshi,
-	outgoingChans map[uint64]struct{}, graph routingGraph,
+	outgoingChans map[uint64]struct{}, graph Graph,
 	bandwidthHints *bandwidthManager) ([]*edgeUnifier, lnwire.MilliSatoshi,
 	error) {
 

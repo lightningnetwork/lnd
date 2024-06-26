@@ -167,7 +167,7 @@ type paymentSession struct {
 
 	additionalEdges map[route.Vertex][]AdditionalEdge
 
-	getBandwidthHints func(routingGraph) (bandwidthHints, error)
+	getBandwidthHints func(Graph) (bandwidthHints, error)
 
 	payment *LightningPayment
 
@@ -175,7 +175,7 @@ type paymentSession struct {
 
 	pathFinder pathFinder
 
-	getRoutingGraph func() (routingGraph, func(), error)
+	getRoutingGraph func() (Graph, func(), error)
 
 	// pathFindingConfig defines global parameters that control the
 	// trade-off in path finding between fees and probability.
@@ -195,8 +195,8 @@ type paymentSession struct {
 
 // newPaymentSession instantiates a new payment session.
 func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
-	getBandwidthHints func(routingGraph) (bandwidthHints, error),
-	getRoutingGraph func() (routingGraph, func(), error),
+	getBandwidthHints func(Graph) (bandwidthHints, error),
+	getRoutingGraph func() (Graph, func(), error),
 	missionControl MissionController, pathFindingConfig PathFindingConfig) (
 	*paymentSession, error) {
 

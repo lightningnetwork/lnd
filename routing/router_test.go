@@ -74,9 +74,13 @@ func (c *testCtx) RestartRouter(t *testing.T) {
 	// filter between restarts.
 	c.chainView.Reset()
 
+	source, err := c.graph.SourceNode()
+	require.NoError(t, err)
+
 	// With the chainView reset, we'll now re-create the router itself, and
 	// start it.
 	router, err := New(Config{
+		SelfNode:           source.PubKeyBytes,
 		RoutingGraph:       newMockGraphSessionChanDB(c.graph),
 		Graph:              c.graph,
 		Chain:              c.chain,
@@ -157,6 +161,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	}
 
 	router, err := New(Config{
+		SelfNode:           sourceNode.PubKeyBytes,
 		RoutingGraph:       newMockGraphSessionChanDB(graphInstance.graph),
 		Graph:              graphInstance.graph,
 		Chain:              chain,
@@ -278,7 +283,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	}
 
 	req, err := NewRouteRequest(
-		ctx.router.selfNode.PubKeyBytes, &target, paymentAmt, 0,
+		ctx.router.cfg.SelfNode, &target, paymentAmt, 0,
 		restrictions, nil, nil, nil, MinCLTVDelta,
 	)
 	require.NoError(t, err, "invalid route request")
@@ -1541,7 +1546,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	copy(targetPubKeyBytes[:], targetNode.SerializeCompressed())
 
 	req, err := NewRouteRequest(
-		ctx.router.selfNode.PubKeyBytes, &targetPubKeyBytes,
+		ctx.router.cfg.SelfNode, &targetPubKeyBytes,
 		paymentAmt, 0, noRestrictions, nil, nil, nil, MinCLTVDelta,
 	)
 	require.NoError(t, err, "invalid route request")
@@ -1583,7 +1588,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// Should still be able to find the route, and the info should be
 	// updated.
 	req, err = NewRouteRequest(
-		ctx.router.selfNode.PubKeyBytes, &targetPubKeyBytes,
+		ctx.router.cfg.SelfNode, &targetPubKeyBytes,
 		paymentAmt, 0, noRestrictions, nil, nil, nil, MinCLTVDelta,
 	)
 	require.NoError(t, err, "invalid route request")
@@ -1765,8 +1770,12 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	// Give time to process new blocks.
 	time.Sleep(time.Millisecond * 500)
 
+	source, err := ctx.graph.SourceNode()
+	require.NoError(t, err)
+
 	// Create new router with same graph database.
 	router, err := New(Config{
+		SelfNode:           source.PubKeyBytes,
 		RoutingGraph:       newMockGraphSessionChanDB(ctx.graph),
 		Graph:              ctx.graph,
 		Chain:              ctx.chain,

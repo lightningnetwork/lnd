@@ -972,6 +972,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		cfg.Routing.StrictZombiePruning
 
 	s.chanRouter, err = routing.New(routing.Config{
+		SelfNode:            selfNode.PubKeyBytes,
 		RoutingGraph:        graphsession.NewRoutingGraph(chanGraph),
 		Graph:               chanGraph,
 		Chain:               cc.ChainIO,

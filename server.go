@@ -1011,6 +1011,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Clock:               clock.NewDefaultClock(),
 		StrictZombiePruning: strictPruning,
 		IsAlias:             aliasmgr.IsAlias,
+		HaveChannelWith:     s.htlcSwitch.HaveLinkWith,
 		TrafficShaper:       implCfg.TrafficShaper,
 	})
 	if err != nil {

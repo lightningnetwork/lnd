@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
 )
 
@@ -2591,6 +2592,21 @@ func (s *Switch) HasActiveLink(chanID lnwire.ChannelID) bool {
 
 	if link, ok := s.linkIndex[chanID]; ok {
 		return link.EligibleToForward()
+	}
+
+	return false
+}
+
+// HaveLinkWith returns true if there is at least one link with the given peer.
+func (s *Switch) HaveLinkWith(peer route.Vertex) bool {
+	s.indexMtx.RLock()
+	defer s.indexMtx.RUnlock()
+
+	for chanID := range s.linkIndex {
+		l := s.linkIndex[chanID]
+		if l.PeerPubKey() == peer {
+			return true
+		}
 	}
 
 	return false

@@ -414,6 +414,10 @@ type Config struct {
 	// only used for our local channels.
 	IsAlias func(scid lnwire.ShortChannelID) bool
 
+	// HaveChannelWith returns whether we have a (potentially pending)
+	// channel with the given node.
+	HaveChannelWith func(route.Vertex) bool
+
 	// TrafficShaper is an optional traffic shaper that can be used to
 	// control the outgoing channel of a payment.
 	TrafficShaper fn.Option[TlvTrafficShaper]
@@ -1473,7 +1477,13 @@ func (r *ChannelRouter) assertNodeAnnFreshness(node route.Vertex,
 		return errors.Errorf("unable to query for the "+
 			"existence of node: %v", err)
 	}
-	if !exists {
+
+	// If we don't have a way to find out if we have a channel with this
+	// node (e.g. in unit tests), we'll assume there isn't one.
+	channelWithNode := r.cfg.HaveChannelWith != nil &&
+		r.cfg.HaveChannelWith(node)
+
+	if !exists && !channelWithNode {
 		return newErrf(ErrIgnored, "Ignoring node announcement"+
 			" for node not found in channel graph (%x)",
 			node[:])

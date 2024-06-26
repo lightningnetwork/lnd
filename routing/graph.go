@@ -25,9 +25,8 @@ type Graph interface {
 // CachedGraph is a Graph implementation that retrieves from the
 // database.
 type CachedGraph struct {
-	graph  *channeldb.ChannelGraph
-	tx     kvdb.RTx
-	source route.Vertex
+	graph *channeldb.ChannelGraph
+	tx    kvdb.RTx
 }
 
 // A compile time assertion to make sure CachedGraph implements the Graph
@@ -36,18 +35,15 @@ var _ Graph = (*CachedGraph)(nil)
 
 // NewCachedGraph instantiates a new db-connected routing graph. It implicitly
 // instantiates a new read transaction.
-func NewCachedGraph(sourceNode *channeldb.LightningNode,
-	graph *channeldb.ChannelGraph) (*CachedGraph, error) {
-
+func NewCachedGraph(graph *channeldb.ChannelGraph) (*CachedGraph, error) {
 	tx, err := graph.NewPathFindTx()
 	if err != nil {
 		return nil, err
 	}
 
 	return &CachedGraph{
-		graph:  graph,
-		tx:     tx,
-		source: sourceNode.PubKeyBytes,
+		graph: graph,
+		tx:    tx,
 	}, nil
 }
 
@@ -82,16 +78,16 @@ func (g *CachedGraph) FetchNodeFeatures(nodePub route.Vertex) (
 
 // FetchAmountPairCapacity determines the maximal public capacity between two
 // nodes depending on the amount we try to send.
-func (g *CachedGraph) FetchAmountPairCapacity(nodeFrom, nodeTo route.Vertex,
+func FetchAmountPairCapacity(graph Graph, source, nodeFrom, nodeTo route.Vertex,
 	amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
 
 	// Create unified edges for all incoming connections.
 	//
 	// Note: Inbound fees are not used here because this method is only used
 	// by a deprecated router rpc.
-	u := newNodeEdgeUnifier(g.source, nodeTo, false, nil)
+	u := newNodeEdgeUnifier(source, nodeTo, false, nil)
 
-	err := u.addGraphPolicies(g)
+	err := u.addGraphPolicies(graph)
 	if err != nil {
 		return 0, err
 	}

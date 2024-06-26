@@ -691,9 +691,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		FetchAmountPairCapacity: func(nodeFrom, nodeTo route.Vertex,
 			amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
 
-			routingGraph, err := routing.NewCachedGraph(
-				selfNode, graph,
-			)
+			routingGraph, err := routing.NewCachedGraph(graph)
 			if err != nil {
 				return 0, err
 			}
@@ -706,8 +704,9 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 				}
 			}()
 
-			return routingGraph.FetchAmountPairCapacity(
-				nodeFrom, nodeTo, amount,
+			return routing.FetchAmountPairCapacity(
+				routingGraph, selfNode.PubKeyBytes, nodeFrom,
+				nodeTo, amount,
 			)
 		},
 		FetchChannelEndpoints: func(chanID uint64) (route.Vertex,

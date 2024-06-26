@@ -227,31 +227,6 @@ func (m *mockGraph) FetchNodeFeatures(nodePub route.Vertex) (
 	return lnwire.EmptyFeatureVector(), nil
 }
 
-// FetchAmountPairCapacity returns the maximal capacity between nodes in the
-// graph.
-//
-// NOTE: Part of the Graph interface.
-func (m *mockGraph) FetchAmountPairCapacity(nodeFrom, nodeTo route.Vertex,
-	amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
-
-	var capacity btcutil.Amount
-
-	cb := func(channel *channeldb.DirectedChannel) error {
-		if channel.OtherNode == nodeTo {
-			capacity = channel.Capacity
-		}
-
-		return nil
-	}
-
-	err := m.ForEachNodeChannel(nodeFrom, cb)
-	if err != nil {
-		return 0, err
-	}
-
-	return capacity, nil
-}
-
 // htlcResult describes the resolution of an htlc. If failure is nil, the htlc
 // was settled.
 type htlcResult struct {

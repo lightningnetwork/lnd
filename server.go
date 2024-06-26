@@ -32,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/graphsession"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/clock"
@@ -956,20 +957,22 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, fmt.Errorf("error getting source node: %w", err)
 	}
 	paymentSessionSource := &routing.SessionSource{
-		Graph:             chanGraph,
-		SourceNode:        sourceNode,
-		MissionControl:    s.missionControl,
-		GetLink:           s.htlcSwitch.GetLinkByShortID,
-		PathFindingConfig: pathFindingConfig,
+		GraphSessionFactory: graphsession.NewFactory(chanGraph),
+		SourceNode:          sourceNode,
+		MissionControl:      s.missionControl,
+		GetLink:             s.htlcSwitch.GetLinkByShortID,
+		PathFindingConfig:   pathFindingConfig,
 	}
 
 	paymentControl := channeldb.NewPaymentControl(dbs.ChanStateDB)
 
 	s.controlTower = routing.NewControlTower(paymentControl)
 
-	strictPruning := (cfg.Bitcoin.Node == "neutrino" ||
-		cfg.Routing.StrictZombiePruning)
+	strictPruning := cfg.Bitcoin.Node == "neutrino" ||
+		cfg.Routing.StrictZombiePruning
+
 	s.chanRouter, err = routing.New(routing.Config{
+		RoutingGraph:        graphsession.NewRoutingGraph(chanGraph),
 		Graph:               chanGraph,
 		Chain:               cc.ChainIO,
 		ChainView:           cc.ChainView,

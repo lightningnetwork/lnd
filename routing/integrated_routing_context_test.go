@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -201,10 +202,7 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 
 	session, err := newPaymentSession(
 		&payment, c.graph.source.pubkey, getBandwidthHints,
-		func() (Graph, func(), error) {
-			return c.graph, func() {}, nil
-		},
-		mc, c.pathFindingCfg,
+		newMockGraphSessionFactory(c.graph), mc, c.pathFindingCfg,
 	)
 	if err != nil {
 		c.t.Fatal(err)
@@ -306,4 +304,89 @@ func getNodeIndex(route *route.Route, failureSource route.Vertex) *int {
 		}
 	}
 	return nil
+}
+
+type mockGraphSessionFactory struct {
+	Graph
+}
+
+func newMockGraphSessionFactory(graph Graph) GraphSessionFactory {
+	return &mockGraphSessionFactory{Graph: graph}
+}
+
+func (m *mockGraphSessionFactory) NewSession() (GraphSession, error) {
+	return m, nil
+}
+
+func (m *mockGraphSessionFactory) Close() error {
+	return nil
+}
+
+var _ GraphSessionFactory = (*mockGraphSessionFactory)(nil)
+var _ GraphSession = (*mockGraphSessionFactory)(nil)
+
+type mockGraphSessionFactoryChanDB struct {
+	graph *channeldb.ChannelGraph
+}
+
+func newMockGraphSessionFactoryFromChanDB(
+	graph *channeldb.ChannelGraph) *mockGraphSessionFactoryChanDB {
+
+	return &mockGraphSessionFactoryChanDB{
+		graph: graph,
+	}
+}
+
+func (g *mockGraphSessionFactoryChanDB) NewSession() (GraphSession, error) {
+	tx, err := g.graph.NewPathFindTx()
+	if err != nil {
+		return nil, err
+	}
+
+	return &mockGraphSessionChanDB{
+		graph: g.graph,
+		tx:    tx,
+	}, nil
+}
+
+var _ GraphSessionFactory = (*mockGraphSessionFactoryChanDB)(nil)
+
+type mockGraphSessionChanDB struct {
+	graph *channeldb.ChannelGraph
+	tx    kvdb.RTx
+}
+
+func newMockGraphSessionChanDB(graph *channeldb.ChannelGraph) Graph {
+	return &mockGraphSessionChanDB{
+		graph: graph,
+	}
+}
+
+func (g *mockGraphSessionChanDB) Graph() Graph {
+	return g
+}
+
+func (g *mockGraphSessionChanDB) Close() error {
+	if g.tx == nil {
+		return nil
+	}
+
+	err := g.tx.Rollback()
+	if err != nil {
+		return fmt.Errorf("error closing db tx: %w", err)
+	}
+
+	return nil
+}
+
+func (g *mockGraphSessionChanDB) ForEachNodeChannel(nodePub route.Vertex,
+	cb func(channel *channeldb.DirectedChannel) error) error {
+
+	return g.graph.ForEachNodeDirectedChannel(g.tx, nodePub, cb)
+}
+
+func (g *mockGraphSessionChanDB) FetchNodeFeatures(nodePub route.Vertex) (
+	*lnwire.FeatureVector, error) {
+
+	return g.graph.FetchNodeFeatures(nodePub)
 }

@@ -319,6 +319,9 @@ type ChannelPolicy struct {
 // the configuration MUST be non-nil for the ChannelRouter to carry out its
 // duties.
 type Config struct {
+	// RoutingGraph is a graph source that will be used for pathfinding.
+	RoutingGraph Graph
+
 	// Graph is the channel graph that the ChannelRouter will use to gather
 	// metrics from and also to carry out path finding queries.
 	// TODO(roasbeef): make into an interface
@@ -453,10 +456,6 @@ type ChannelRouter struct {
 	// when doing any path finding.
 	selfNode *channeldb.LightningNode
 
-	// cachedGraph is an instance of Graph that caches the source
-	// node as well as the channel graph itself in memory.
-	cachedGraph Graph
-
 	// newBlocks is a channel in which new blocks connected to the end of
 	// the main chain are sent over, and blocks updated after a call to
 	// UpdateFilter.
@@ -515,10 +514,7 @@ func New(cfg Config) (*ChannelRouter, error) {
 	}
 
 	r := &ChannelRouter{
-		cfg: &cfg,
-		cachedGraph: &CachedGraph{
-			graph: cfg.Graph,
-		},
+		cfg:               &cfg,
 		networkUpdates:    make(chan *routingMsg),
 		topologyClients:   &lnutils.SyncMap[uint64, *topologyClient]{},
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
@@ -2114,7 +2110,7 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 	// We'll attempt to obtain a set of bandwidth hints that can help us
 	// eliminate certain routes early on in the path finding process.
 	bandwidthHints, err := newBandwidthManager(
-		r.cachedGraph, r.selfNode.PubKeyBytes, r.cfg.GetLink,
+		r.cfg.RoutingGraph, r.selfNode.PubKeyBytes, r.cfg.GetLink,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -2141,7 +2137,7 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 		&graphParams{
 			additionalEdges: req.RouteHints,
 			bandwidthHints:  bandwidthHints,
-			graph:           r.cachedGraph,
+			graph:           r.cfg.RoutingGraph,
 		},
 		req.Restrictions, &r.cfg.PathFindingConfig,
 		r.selfNode.PubKeyBytes, req.Source, req.Target, req.Amount,
@@ -3127,7 +3123,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	// We'll attempt to obtain a set of bandwidth hints that helps us select
 	// the best outgoing channel to use in case no outgoing channel is set.
 	bandwidthHints, err := newBandwidthManager(
-		r.cachedGraph, r.selfNode.PubKeyBytes, r.cfg.GetLink,
+		r.cfg.RoutingGraph, r.selfNode.PubKeyBytes, r.cfg.GetLink,
 	)
 	if err != nil {
 		return nil, err
@@ -3143,7 +3139,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	sourceNode := r.selfNode.PubKeyBytes
 	unifiers, senderAmt, err := getRouteUnifiers(
 		sourceNode, hops, useMinAmt, runningAmt, outgoingChans,
-		r.cachedGraph, bandwidthHints,
+		r.cfg.RoutingGraph, bandwidthHints,
 	)
 	if err != nil {
 		return nil, err

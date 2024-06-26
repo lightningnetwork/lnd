@@ -517,8 +517,7 @@ func New(cfg Config) (*ChannelRouter, error) {
 	r := &ChannelRouter{
 		cfg: &cfg,
 		cachedGraph: &CachedGraph{
-			graph:  cfg.Graph,
-			source: selfNode.PubKeyBytes,
+			graph: cfg.Graph,
 		},
 		networkUpdates:    make(chan *routingMsg),
 		topologyClients:   &lnutils.SyncMap[uint64, *topologyClient]{},

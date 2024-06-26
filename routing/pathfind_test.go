@@ -3201,7 +3201,7 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 		return nil, err
 	}
 
-	routingGraph, err := NewCachedGraph(sourceNode, graph)
+	routingGraph, err := NewCachedGraph(graph)
 	if err != nil {
 		return nil, err
 	}

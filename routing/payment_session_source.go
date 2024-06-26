@@ -46,7 +46,7 @@ type SessionSource struct {
 
 // getRoutingGraph returns a routing graph and a clean-up function for
 // pathfinding.
-func (m *SessionSource) getRoutingGraph() (routingGraph, func(), error) {
+func (m *SessionSource) getRoutingGraph() (Graph, func(), error) {
 	routingTx, err := NewCachedGraph(m.SourceNode, m.Graph)
 	if err != nil {
 		return nil, nil, err
@@ -66,7 +66,7 @@ func (m *SessionSource) getRoutingGraph() (routingGraph, func(), error) {
 func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
 	PaymentSession, error) {
 
-	getBandwidthHints := func(graph routingGraph) (bandwidthHints, error) {
+	getBandwidthHints := func(graph Graph) (bandwidthHints, error) {
 		return newBandwidthManager(
 			graph, m.SourceNode.PubKeyBytes, m.GetLink,
 		)

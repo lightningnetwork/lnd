@@ -10,19 +10,19 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
-// routingGraph is an abstract interface that provides information about nodes
-// and edges to pathfinding.
-type routingGraph interface {
-	// forEachNodeChannel calls the callback for every channel of the given
+// Graph is an abstract interface that provides information about nodes and
+// edges to pathfinding.
+type Graph interface {
+	// ForEachNodeChannel calls the callback for every channel of the given
 	// node.
-	forEachNodeChannel(nodePub route.Vertex,
+	ForEachNodeChannel(nodePub route.Vertex,
 		cb func(channel *channeldb.DirectedChannel) error) error
 
-	// fetchNodeFeatures returns the features of the given node.
-	fetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
+	// FetchNodeFeatures returns the features of the given node.
+	FetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
 }
 
-// CachedGraph is a routingGraph implementation that retrieves from the
+// CachedGraph is a Graph implementation that retrieves from the
 // database.
 type CachedGraph struct {
 	graph  *channeldb.ChannelGraph
@@ -30,9 +30,9 @@ type CachedGraph struct {
 	source route.Vertex
 }
 
-// A compile time assertion to make sure CachedGraph implements the routingGraph
+// A compile time assertion to make sure CachedGraph implements the Graph
 // interface.
-var _ routingGraph = (*CachedGraph)(nil)
+var _ Graph = (*CachedGraph)(nil)
 
 // NewCachedGraph instantiates a new db-connected routing graph. It implicitly
 // instantiates a new read transaction.
@@ -61,20 +61,20 @@ func (g *CachedGraph) Close() error {
 	return g.tx.Rollback()
 }
 
-// forEachNodeChannel calls the callback for every channel of the given node.
+// ForEachNodeChannel calls the callback for every channel of the given node.
 //
-// NOTE: Part of the routingGraph interface.
-func (g *CachedGraph) forEachNodeChannel(nodePub route.Vertex,
+// NOTE: Part of the Graph interface.
+func (g *CachedGraph) ForEachNodeChannel(nodePub route.Vertex,
 	cb func(channel *channeldb.DirectedChannel) error) error {
 
 	return g.graph.ForEachNodeDirectedChannel(g.tx, nodePub, cb)
 }
 
-// fetchNodeFeatures returns the features of the given node. If the node is
+// FetchNodeFeatures returns the features of the given node. If the node is
 // unknown, assume no additional features are supported.
 //
-// NOTE: Part of the routingGraph interface.
-func (g *CachedGraph) fetchNodeFeatures(nodePub route.Vertex) (
+// NOTE: Part of the Graph interface.
+func (g *CachedGraph) FetchNodeFeatures(nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
 	return g.graph.FetchNodeFeatures(nodePub)

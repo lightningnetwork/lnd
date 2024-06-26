@@ -350,7 +350,7 @@ func edgeWeight(lockedAmt lnwire.MilliSatoshi, fee lnwire.MilliSatoshi,
 // graphParams wraps the set of graph parameters passed to findPath.
 type graphParams struct {
 	// graph is the ChannelGraph to be used during path finding.
-	graph routingGraph
+	graph Graph
 
 	// additionalEdges is an optional set of edges that should be
 	// considered during path finding, that is not already found in the
@@ -445,7 +445,7 @@ type PathFindingConfig struct {
 // available balance.
 func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 	bandwidthHints bandwidthHints,
-	g routingGraph) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
+	g Graph) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
 
 	var max, total lnwire.MilliSatoshi
 	cb := func(channel *channeldb.DirectedChannel) error {
@@ -483,7 +483,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 	}
 
 	// Iterate over all channels of the to node.
-	err := g.forEachNodeChannel(node, cb)
+	err := g.ForEachNodeChannel(node, cb)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -523,7 +523,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	features := r.DestFeatures
 	if features == nil {
 		var err error
-		features, err = g.graph.fetchNodeFeatures(target)
+		features, err = g.graph.FetchNodeFeatures(target)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -919,7 +919,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 
 		// Fetch node features fresh from the graph.
-		fromFeatures, err := g.graph.fetchNodeFeatures(node)
+		fromFeatures, err := g.graph.FetchNodeFeatures(node)
 		if err != nil {
 			return nil, err
 		}

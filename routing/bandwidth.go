@@ -39,7 +39,7 @@ type bandwidthManager struct {
 // hints for the edges we directly have open ourselves. Obtaining these hints
 // allows us to reduce the number of extraneous attempts as we can skip channels
 // that are inactive, or just don't have enough bandwidth to carry the payment.
-func newBandwidthManager(graph routingGraph, sourceNode route.Vertex,
+func newBandwidthManager(graph Graph, sourceNode route.Vertex,
 	linkQuery getLinkQuery) (*bandwidthManager, error) {
 
 	manager := &bandwidthManager{
@@ -49,7 +49,7 @@ func newBandwidthManager(graph routingGraph, sourceNode route.Vertex,
 
 	// First, we'll collect the set of outbound edges from the target
 	// source node and add them to our bandwidth manager's map of channels.
-	err := graph.forEachNodeChannel(sourceNode,
+	err := graph.ForEachNodeChannel(sourceNode,
 		func(channel *channeldb.DirectedChannel) error {
 			shortID := lnwire.NewShortChanIDFromInt(
 				channel.ChannelID,

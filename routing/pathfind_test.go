@@ -882,13 +882,6 @@ func runFindPathWithMetadata(t *testing.T, useCache bool) {
 
 	_, err = ctx.findPath(target, paymentAmt)
 	require.ErrorIs(t, errNoPathFound, err)
-
-	// Assert that tlv payload support takes precedence over metadata
-	// issues.
-	ctx.restrictParams.DestFeatures = lnwire.EmptyFeatureVector()
-
-	_, err = ctx.findPath(target, paymentAmt)
-	require.ErrorIs(t, errNoTlvPayload, err)
 }
 
 // runFindLowestFeePath tests that out of two routes with identical total
@@ -1260,20 +1253,6 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	// dest features are set, and we won't have a node ann to fall back on.
 	restrictions := *noRestrictions
 	restrictions.DestCustomRecords = record.CustomSet{70000: []byte{}}
-
-	_, err = find(&restrictions)
-	if err != errNoTlvPayload {
-		t.Fatalf("path shouldn't have been found: %v", err)
-	}
-
-	// Set empty dest features so we don't try the fallback. We should still
-	// fail since the tlv feature isn't set.
-	restrictions.DestFeatures = lnwire.EmptyFeatureVector()
-
-	_, err = find(&restrictions)
-	if err != errNoTlvPayload {
-		t.Fatalf("path shouldn't have been found: %v", err)
-	}
 
 	// Finally, set the tlv feature in the payload and assert we found the
 	// same path as before.
@@ -1775,30 +1754,11 @@ func runDestTLVGraphFallback(t *testing.T, useCache bool) {
 	// Add custom records w/o any dest features.
 	restrictions.DestCustomRecords = record.CustomSet{70000: []byte{}}
 
-	// Path to luoji should fail because his node ann features are empty.
-	_, err = find(&restrictions, luoji)
-	if err != errNoTlvPayload {
-		t.Fatalf("path shouldn't have been found: %v", err)
-	}
-
 	// However, path to satoshi should succeed via the fallback because his
 	// node ann features have the TLV bit.
 	path, err := find(&restrictions, satoshi)
 	require.NoError(t, err, "path should have been found")
 	assertExpectedPath(t, ctx.testGraphInstance.aliasMap, path, "satoshi")
-
-	// Add empty destination features. This should cause both paths to fail,
-	// since this override anything in the graph.
-	restrictions.DestFeatures = lnwire.EmptyFeatureVector()
-
-	_, err = find(&restrictions, luoji)
-	if err != errNoTlvPayload {
-		t.Fatalf("path shouldn't have been found: %v", err)
-	}
-	_, err = find(&restrictions, satoshi)
-	if err != errNoTlvPayload {
-		t.Fatalf("path shouldn't have been found: %v", err)
-	}
 
 	// Finally, set the TLV dest feature. We should succeed in finding a
 	// path to luoji.

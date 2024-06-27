@@ -543,32 +543,14 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		return nil, 0, errMissingDependentFeature
 	}
 
-	// Now that we know the feature vector is well formed, we'll proceed in
-	// checking that it supports the features we need, given our
-	// restrictions on the final hop.
-
-	// If the caller needs to send custom records, check that our
-	// destination feature vector supports TLV.
-	if len(r.DestCustomRecords) > 0 &&
-		!features.HasFeature(lnwire.TLVOnionPayloadOptional) {
-
-		return nil, 0, errNoTlvPayload
-	}
-
-	// If the caller has a payment address to attach, check that our
-	// destination feature vector supports them.
+	// Now that we know the feature vector is well-formed, we'll proceed in
+	// checking that it supports the features we need. If the caller has a
+	// payment address to attach, check that our destination feature vector
+	// supports them.
 	if r.PaymentAddr != nil &&
 		!features.HasFeature(lnwire.PaymentAddrOptional) {
 
 		return nil, 0, errNoPaymentAddr
-	}
-
-	// If the caller needs to send custom records, check that our
-	// destination feature vector supports TLV.
-	if r.Metadata != nil &&
-		!features.HasFeature(lnwire.TLVOnionPayloadOptional) {
-
-		return nil, 0, errNoTlvPayload
 	}
 
 	// Set up outgoing channel map for quicker access.

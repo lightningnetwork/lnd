@@ -137,6 +137,10 @@ type AddInvoiceData struct {
 	// RouteHints are optional route hints that can each be individually
 	// used to assist in reaching the invoice's destination.
 	RouteHints [][]zpay32.HopHint
+
+	// Metadata is additional data that is sent along with the payment to
+	// the payee.
+	Metadata []byte
 }
 
 // paymentHashAndPreimage returns the payment hash and preimage for this invoice
@@ -438,6 +442,10 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		return nil, nil, err
 	}
 	options = append(options, zpay32.PaymentAddr(paymentAddr))
+
+	if len(invoice.Metadata) > 0 {
+		options = append(options, zpay32.Metadata(invoice.Metadata))
+	}
 
 	// Create and encode the payment request as a bech32 (zpay32) string.
 	creationDate := time.Now()

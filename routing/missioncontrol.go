@@ -93,6 +93,11 @@ type NodeResults map[route.Vertex]TimedPairResult
 // since the last failure is used to estimate a success probability that is fed
 // into the path finding process for subsequent payment attempts.
 type MissionControl struct {
+
+	// UpdateEstimatorValue is a function that is called whenever the 
+	// mission control state is updated.
+	UpdateEstimatorCB func(estimator Estimator)
+
 	// state is the internal mission control state that is input for
 	// probability estimation.
 	state *missionControlState
@@ -123,7 +128,7 @@ type MissionControl struct {
 type MissionControlConfig struct {
 	// UpdateEstimatorValue is a function that is called whenever the 
 	// mission control state is updated.
-	UpdateEstimatorValue func(estimator Estimator)
+	UpdateEstimatorCB func(estimator Estimator)
 	
 	// Estimator gives probability estimates for node pairs.
 	Estimator Estimator
@@ -212,9 +217,9 @@ type paymentResult struct {
 // NewMissionControl returns a new instance of missionControl.
 func NewMissionControl(db kvdb.Backend, self route.Vertex,
 	cfg *MissionControlConfig) (*MissionControl, error) {
-
-	log.Debugf("Instantiating mission control with config: %v, %v", cfg,
-		cfg.Estimator)
+	
+	log.Infof("Instantiating mission control with config: %v, %v, %v", cfg,
+		cfg.Estimator, cfg.UpdateEstimatorCB)
 
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -233,6 +238,7 @@ func NewMissionControl(db kvdb.Backend, self route.Vertex,
 		selfNode:  self,
 		store:     store,
 		estimator: cfg.Estimator,
+		UpdateEstimatorCB: cfg.UpdateEstimatorCB,
 	}
 
 	if err := mc.init(); err != nil {
@@ -313,7 +319,7 @@ func (m *MissionControl) SetConfig(cfg *MissionControlConfig) error {
 	m.estimator = cfg.Estimator
 	
 	// callback function to update the estimator value on main cfg
-	cfg.UpdateEstimatorValue(cfg.Estimator) 
+	m.UpdateEstimatorCB(cfg.Estimator)
 	
 	return nil
 }

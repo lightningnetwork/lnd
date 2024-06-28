@@ -927,7 +927,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// mission control instance every time a new estimator value 
 	// is setted.
 	mcCfg := &routing.MissionControlConfig{
-		UpdateEstimatorValue:    s.UpdateEstimatorValue,
+		UpdateEstimatorCB:       s.UpdateEstimatorValue,
 		Estimator:               estimator,
 		MaxMcHistory:            routingConfig.MaxMcHistory,
 		McFlushInterval:         routingConfig.McFlushInterval,

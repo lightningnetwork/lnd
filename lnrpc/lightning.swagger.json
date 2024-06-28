@@ -5490,6 +5490,11 @@
           },
           "description": "Maps a 32-byte hex-encoded set ID to the sub-invoice AMP state for the\ngiven set ID. This field is always populated for AMP invoices, and can be\nused along side LookupInvoice to obtain the HTLC information related to a\ngiven sub-invoice.\nNote: Output only, don't specify for creating an invoice.",
           "title": "[EXPERIMENTAL]:"
+        },
+        "metadata": {
+          "type": "string",
+          "format": "byte",
+          "description": "Metadata to send along to the payee in the invoice."
         }
       }
     },
@@ -6299,6 +6304,10 @@
           "additionalProperties": {
             "$ref": "#/definitions/lnrpcFeature"
           }
+        },
+        "metadata": {
+          "type": "string",
+          "format": "byte"
         }
       }
     },

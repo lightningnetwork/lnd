@@ -2020,19 +2020,22 @@ func (f *Manager) funderProcessAcceptChannel(peer lnpeer.Peer,
 		return
 	}
 
-	// Fail early if minimum depth is set to 0 and the channel is not
-	// zero-conf.
-	if !resCtx.reservation.IsZeroConf() && msg.MinAcceptDepth == 0 {
-		err = fmt.Errorf("non-zero-conf channel has min depth zero")
-		log.Warn(err)
-		f.failFundingFlow(peer, cid, err)
-		return
+	// If this is not a zero-conf channel but the peer responded with a
+	// min-depth of zero, we will use our minimum of 1 instead.
+	minDepth := msg.MinAcceptDepth
+	if !resCtx.reservation.IsZeroConf() && minDepth == 0 {
+		log.Infof("Responder to pending_id=%v sent a minimum "+
+			"confirmation depth of 0 for non-zero-conf channel. "+
+			"We will use a minimum depth of 1 instead.",
+			cid.tempChanID)
+
+		minDepth = 1
 	}
 
 	// We'll also specify the responder's preference for the number of
 	// required confirmations, and also the set of channel constraints
 	// they've specified for commitment states we can create.
-	resCtx.reservation.SetNumConfsRequired(uint16(msg.MinAcceptDepth))
+	resCtx.reservation.SetNumConfsRequired(uint16(minDepth))
 	channelConstraints := &channeldb.ChannelConstraints{
 		DustLimit:        msg.DustLimit,
 		ChanReserve:      msg.ChannelReserve,

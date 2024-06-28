@@ -84,6 +84,11 @@
   [support the TLV onion 
   format](https://github.com/lightningnetwork/lnd/pull/8791).
 
+* Allow channel fundee to send a [minimum confirmation depth of
+  0](https://github.com/lightningnetwork/lnd/pull/8796) for a non-zero-conf
+  channel. We will still wait for the channel to have at least one confirmation
+  and so the main change here is that we don't error out for such a case.
+
 ## Testing
 ## Database
 ## Code Health

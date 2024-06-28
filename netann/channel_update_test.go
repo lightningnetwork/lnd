@@ -7,11 +7,11 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
-	"github.com/lightningnetwork/lnd/routing"
 )
 
 type mockSigner struct {
@@ -182,7 +182,7 @@ func TestUpdateDisableFlag(t *testing.T) {
 
 			// Finally, validate the signature using the router's
 			// verification logic.
-			err = routing.VerifyChannelUpdateSignature(
+			err = graph.VerifyChannelUpdateSignature(
 				newUpdate, pubKey,
 			)
 			if err != nil {

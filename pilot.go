@@ -295,6 +295,6 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			}, nil
 		},
 		SubscribeTransactions: svr.cc.Wallet.SubscribeTransactions,
-		SubscribeTopology:     svr.chanRouter.SubscribeTopology,
+		SubscribeTopology:     svr.graphBuilder.SubscribeTopology,
 	}, nil
 }

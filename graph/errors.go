@@ -1,4 +1,4 @@
-package routing
+package graph
 
 import "github.com/go-errors/errors"
 
@@ -39,27 +39,27 @@ const (
 	ErrParentValidationFailed
 )
 
-// routerError is a structure that represent the error inside the routing package,
+// graphError is a structure that represent the error inside the graph package,
 // this structure carries additional information about error code in order to
 // be able distinguish errors outside of the current package.
-type routerError struct {
+type graphError struct {
 	err  *errors.Error
 	code errorCode
 }
 
 // Error represents errors as the string
 // NOTE: Part of the error interface.
-func (e *routerError) Error() string {
+func (e *graphError) Error() string {
 	return e.err.Error()
 }
 
-// A compile time check to ensure routerError implements the error interface.
-var _ error = (*routerError)(nil)
+// A compile time check to ensure graphError implements the error interface.
+var _ error = (*graphError)(nil)
 
-// newErrf creates a routerError by the given error formatted description and
+// newErrf creates a graphError by the given error formatted description and
 // its corresponding error code.
-func newErrf(code errorCode, format string, a ...interface{}) *routerError {
-	return &routerError{
+func newErrf(code errorCode, format string, a ...interface{}) *graphError {
+	return &graphError{
 		code: code,
 		err:  errors.Errorf(format, a...),
 	}
@@ -68,7 +68,7 @@ func newErrf(code errorCode, format string, a ...interface{}) *routerError {
 // IsError is a helper function which is needed to have ability to check that
 // returned error has specific error code.
 func IsError(e interface{}, codes ...errorCode) bool {
-	err, ok := e.(*routerError)
+	err, ok := e.(*graphError)
 	if !ok {
 		return false
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/funding"
+	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -179,6 +180,7 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	AddSubLogger(root, btcwallet.Subsystem, interceptor, btcwallet.UseLogger)
 	AddSubLogger(root, rpcwallet.Subsystem, interceptor, rpcwallet.UseLogger)
 	AddSubLogger(root, peersrpc.Subsystem, interceptor, peersrpc.UseLogger)
+	AddSubLogger(root, graph.Subsystem, interceptor, graph.UseLogger)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

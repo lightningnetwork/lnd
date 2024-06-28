@@ -1,0 +1,147 @@
+{
+    "nodes": [
+        {
+            "source": false, 
+            "pubkey": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6", 
+            "alias": "A"
+        }, 
+        {
+            "source": true, 
+            "pubkey": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add", 
+            "alias": "B" 
+        }, 
+        {
+            "source": false, 
+            "pubkey": "03c19f0027ffbb0ae0e14a4d958788793f9d74e107462473ec0c3891e4feb12e99", 
+            "alias": "C" 
+        }, 
+        {
+            "source": false, 
+            "pubkey": "02e7b1aaac10977c38e9c61c74dc66840de211bcec3021603e7977bc5e28edabfd", 
+            "alias": "D"
+        } 
+    ],
+    "edges": [
+        {
+            
+            "comment": "A -> B channel",
+            "node_1": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add", 
+            "node_2": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6", 
+            "channel_id": 12345, 
+            "channel_point": "89dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
+            "channel_flags": 1,
+            "message_flags": 1,
+            "expiry": 10,
+            "min_htlc": 1, 
+            "max_htlc": 100000000,
+            "fee_base_msat": 100, 
+            "fee_rate": 1000, 
+            "capacity": 100000
+        },
+        {
+            "comment": "B -> A channel",
+            "node_1": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add", 
+            "node_2": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6", 
+            "channel_id": 12345, 
+            "channel_point": "89dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
+            "channel_flags": 0,
+            "message_flags": 1,
+            "expiry": 20,
+            "min_htlc": 1, 
+            "max_htlc": 100000000,
+            "fee_base_msat": 200, 
+            "fee_rate": 2000,
+            "capacity": 100000
+        },
+        {
+            "comment": "A -> D channel",
+            "node_1": "02e7b1aaac10977c38e9c61c74dc66840de211bcec3021603e7977bc5e28edabfd", 
+            "node_2": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6", 
+            "channel_id": 12345839, 
+            "channel_point": "89dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
+            "channel_flags": 1,
+            "message_flags": 1,
+            "expiry": 10,
+            "min_htlc": 1, 
+            "max_htlc": 100000000,
+            "fee_base_msat": 100, 
+            "fee_rate": 1000,
+            "capacity": 100000
+        },
+        {
+            "comment": "D -> A channel",
+            "node_1": "02e7b1aaac10977c38e9c61c74dc66840de211bcec3021603e7977bc5e28edabfd", 
+            "node_2": "0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6", 
+            "channel_id": 12345839, 
+            "channel_point": "89dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
+            "channel_flags": 0,
+            "message_flags": 1,
+            "expiry": 40,
+            "min_htlc": 1, 
+            "max_htlc": 100000000,
+            "fee_base_msat": 400, 
+            "fee_rate": 4000,
+            "capacity": 100000
+        },
+        {
+            "comment": "D -> C channel",
+            "node_1": "02e7b1aaac10977c38e9c61c74dc66840de211bcec3021603e7977bc5e28edabfd", 
+            "node_2": "03c19f0027ffbb0ae0e14a4d958788793f9d74e107462473ec0c3891e4feb12e99", 
+            "channel_id": 1234583, 
+            "channel_point": "89dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
+            "channel_flags": 0,
+            "message_flags": 1,
+            "expiry": 40,
+            "min_htlc": 1, 
+            "max_htlc": 100000000,
+            "fee_base_msat": 400, 
+            "fee_rate": 4000,
+            "capacity": 100000
+        },
+        {
+            "comment": "C -> D channel",
+            "node_1": "02e7b1aaac10977c38e9c61c74dc66840de211bcec3021603e7977bc5e28edabfd", 
+            "node_2": "03c19f0027ffbb0ae0e14a4d958788793f9d74e107462473ec0c3891e4feb12e99", 
+            "channel_id": 1234583, 
+            "channel_point": "89dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
+            "channel_flags": 1,
+            "message_flags": 1,
+            "expiry": 30,
+            "min_htlc": 1, 
+            "max_htlc": 100000000,
+            "fee_base_msat": 300, 
+            "fee_rate": 3000,
+            "capacity": 100000
+        },
+        {
+            "comment": "C -> B channel",
+            "node_1": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add", 
+            "node_2": "03c19f0027ffbb0ae0e14a4d958788793f9d74e107462473ec0c3891e4feb12e99", 
+            "channel_id": 1234589, 
+            "channel_point": "89dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
+            "channel_flags": 1,
+            "message_flags": 1,
+            "expiry": 30,
+            "min_htlc": 1, 
+            "max_htlc": 100000000,
+            "fee_base_msat": 300, 
+            "fee_rate": 3000,
+            "capacity": 100000
+        },
+        {
+            "comment": "B -> C channel",
+            "node_1": "032b480de5d002f1a8fd1fe1bbf0a0f1b07760f65f052e66d56f15d71097c01add", 
+            "node_2": "03c19f0027ffbb0ae0e14a4d958788793f9d74e107462473ec0c3891e4feb12e99", 
+            "channel_id": 1234589, 
+            "channel_point": "89dc56859c6a082d15ba1a7f6cb6be3fea62e1746e2cb8497b1189155c21a233:0", 
+            "channel_flags": 0,
+            "message_flags": 1,
+            "expiry": 20,
+            "min_htlc": 1, 
+            "max_htlc": 100000000,
+            "fee_base_msat": 200, 
+            "fee_rate": 2000,
+            "capacity": 100000
+        }
+    ]
+}

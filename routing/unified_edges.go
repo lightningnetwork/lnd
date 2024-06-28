@@ -96,7 +96,7 @@ func (u *nodeEdgeUnifier) addPolicy(fromNode route.Vertex,
 
 // addGraphPolicies adds all policies that are known for the toNode in the
 // graph.
-func (u *nodeEdgeUnifier) addGraphPolicies(g routingGraph) error {
+func (u *nodeEdgeUnifier) addGraphPolicies(g Graph) error {
 	cb := func(channel *channeldb.DirectedChannel) error {
 		// If there is no edge policy for this candidate node, skip.
 		// Note that we are searching backwards so this node would have
@@ -122,7 +122,7 @@ func (u *nodeEdgeUnifier) addGraphPolicies(g routingGraph) error {
 	}
 
 	// Iterate over all channels of the to node.
-	return g.forEachNodeChannel(u.toNode, cb)
+	return g.ForEachNodeChannel(u.toNode, cb)
 }
 
 // unifiedEdge is the individual channel data that is kept inside an edgeUnifier

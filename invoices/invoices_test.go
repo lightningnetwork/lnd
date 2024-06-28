@@ -234,9 +234,7 @@ func TestInvoices(t *testing.T) {
 	makeSQLDB := func(t *testing.T, sqlite bool) invpkg.InvoiceDB {
 		var db *sqldb.BaseDB
 		if sqlite {
-			sqliteConstructorMu.Lock()
 			db = sqldb.NewTestSqliteDB(t).BaseDB
-			sqliteConstructorMu.Unlock()
 		} else {
 			db = sqldb.NewTestPostgresDB(t, pgFixture).BaseDB
 		}
@@ -249,7 +247,14 @@ func TestInvoices(t *testing.T) {
 
 		testClock := clock.NewTestClock(testNow)
 
-		return invpkg.NewSQLStore(executor, testClock)
+		// We'll use a pagination limit of 3 for all tests to ensure
+		// that we also cover query pagination.
+		const testPaginationLimit = 3
+
+		return invpkg.NewSQLStore(
+			executor, testClock,
+			invpkg.WithPaginationLimit(testPaginationLimit),
+		)
 	}
 
 	for _, test := range testList {

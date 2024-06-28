@@ -5,7 +5,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -21,7 +20,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
@@ -485,97 +483,37 @@ func bumpForceCloseFee(ctx *cli.Context) error {
 
 	// Validate the channel point.
 	channelPoint := ctx.Args().Get(0)
-	_, err := NewProtoOutPoint(channelPoint)
+	rpcChannelPoint, err := NewProtoOutPoint(channelPoint)
 	if err != nil {
 		return err
 	}
 
-	// Fetch all waiting close channels.
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
-
-	// Fetch waiting close channel commitments.
-	commitments, err := getWaitingCloseCommitments(
-		ctxc, client, channelPoint,
-	)
-	if err != nil {
-		return err
+	// Parse immediate flag (force flag was deprecated).
+	if ctx.IsSet("immediate") && ctx.IsSet("force") {
+		return fmt.Errorf("cannot set immediate and force flag at " +
+			"the same time")
 	}
+	immediate := ctx.Bool("immediate") || ctx.Bool("force")
 
 	// Retrieve pending sweeps.
 	walletClient, cleanUp := getWalletClient(ctx)
 	defer cleanUp()
 
-	sweeps, err := walletClient.PendingSweeps(
-		ctxc, &walletrpc.PendingSweepsRequest{},
-	)
+	resp, err := walletClient.BumpForceCloseFee(
+		ctxc, &walletrpc.BumpFeeRequest{
+			Outpoint:    rpcChannelPoint,
+			TargetConf:  uint32(ctx.Uint64("conf_target")),
+			Budget:      ctx.Uint64("budget"),
+			Immediate:   immediate,
+			SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
+		})
 	if err != nil {
 		return err
 	}
 
-	// Match pending sweeps with commitments of the channel for which a bump
-	// is requested and bump their fees.
-	commitSet := map[string]struct{}{
-		commitments.LocalTxid:  {},
-		commitments.RemoteTxid: {},
-	}
-	if commitments.RemotePendingTxid != "" {
-		commitSet[commitments.RemotePendingTxid] = struct{}{}
-	}
-
-	for _, sweep := range sweeps.PendingSweeps {
-		// Only bump anchor sweeps.
-		if sweep.WitnessType != walletrpc.WitnessType_COMMITMENT_ANCHOR {
-			continue
-		}
-
-		// Skip unrelated sweeps.
-		sweepTxID, err := chainhash.NewHash(sweep.Outpoint.TxidBytes)
-		if err != nil {
-			return err
-		}
-		if _, match := commitSet[sweepTxID.String()]; !match {
-			continue
-		}
-
-		resp, err := walletClient.BumpFee(
-			ctxc, &walletrpc.BumpFeeRequest{
-				Outpoint:    sweep.Outpoint,
-				TargetConf:  uint32(ctx.Uint64("conf_target")),
-				Budget:      ctx.Uint64("budget"),
-				Immediate:   ctx.Bool("immediate"),
-				SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
-			})
-		if err != nil {
-			return err
-		}
-
-		// Bump fee of the anchor sweep.
-		fmt.Printf("Bumping fee of %v:%v: %v\n",
-			sweepTxID, sweep.Outpoint.OutputIndex, resp.GetStatus())
-	}
+	fmt.Println(resp.Status)
 
 	return nil
-}
-
-func getWaitingCloseCommitments(ctxc context.Context,
-	client lnrpc.LightningClient, channelPoint string) (
-	*lnrpc.PendingChannelsResponse_Commitments, error) {
-
-	req := &lnrpc.PendingChannelsRequest{}
-	resp, err := client.PendingChannels(ctxc, req)
-	if err != nil {
-		return nil, err
-	}
-
-	// Lookup the channel commit tx hashes.
-	for _, channel := range resp.WaitingCloseChannels {
-		if channel.Channel.ChannelPoint == channelPoint {
-			return channel.Commitments, nil
-		}
-	}
-
-	return nil, errors.New("channel not found")
 }
 
 var listSweepsCommand = cli.Command{

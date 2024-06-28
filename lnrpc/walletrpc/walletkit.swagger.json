@@ -16,6 +16,39 @@
     "application/json"
   ],
   "paths": {
+    "/v2/wallet/BumpForceCloseFee": {
+      "post": {
+        "summary": "lncli: `wallet bumpforceclosefee`\nBumpForceCloseFee is an endpoint that allows users to bump the fee of\nchannel force closes. This does only work for channels of type anchor\nbecause to bump the fee of an unconfirmed commitment transaction only anchor\noutputs can be used.",
+        "operationId": "WalletKit_BumpForceCloseFee",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcBumpFeeResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/walletrpcBumpFeeRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
     "/v2/wallet/accounts": {
       "get": {
         "summary": "lncli: `wallet accounts list`\nListAccounts retrieves all accounts belonging to the wallet by default. A\nname and key scope filter can be provided to filter through all of the\nwallet accounts and return only those matching.",

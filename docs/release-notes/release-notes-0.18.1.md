@@ -23,6 +23,11 @@
   matching from publishing transactions that can cause the broadcast process to
   fail if `btcd` with an older version (pre-`v0.24.2`) is used.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8843) a case where 
+bumping an anchor channel closing was not possible when no HTLCs were on the
+commitment when the channel was force closed. Moreover, a new walletrpc endpoint
+`BumpForceCloseFee` was introduced in the course of this bugfix.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

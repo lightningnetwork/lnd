@@ -254,6 +254,19 @@ func (h *HarnessRPC) BumpFee(
 	return resp
 }
 
+// BumpForceCloseFee makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessRPC) BumpForceCloseFee(
+	req *walletrpc.BumpFeeRequest) *walletrpc.BumpFeeResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.BumpForceCloseFee(ctxt, req)
+	h.NoError(err, "BumpForceCloseFee")
+
+	return resp
+}
+
 // ListAccounts makes a RPC call to the node's WalletKitClient and asserts.
 func (h *HarnessRPC) ListAccounts(
 	req *walletrpc.ListAccountsRequest) *walletrpc.ListAccountsResponse {

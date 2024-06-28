@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn"
@@ -1342,9 +1343,11 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// PendingChannels RPC under the waiting close section.
 	ht.AssertChannelWaitingClose(alice, chanPoint)
 
-	// We should see neither Alice or Bob has any pending sweeps as there
-	// are no time-sensitive HTLCs.
-	ht.AssertNumPendingSweeps(alice, 0)
+	// Alice force closes the channel, although no active HTLCs are on the
+	// commitment alice will register both anchor sweeps (local and remote)
+	// with the sweeper subsystem. Bob however did not force close the
+	// channel and will not try to sweep anything.
+	ht.AssertNumPendingSweeps(alice, 2)
 	ht.AssertNumPendingSweeps(bob, 0)
 
 	// Mine a block to confirm Alice's force closing tx. Once it's
@@ -2144,5 +2147,119 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	assertFeeRateGreater(testFeeRate)
 
 	// Clean up the mempol.
+	ht.MineBlocksAndAssertNumTxes(1, 2)
+}
+
+// testBumpForceCloseFee tests that when a force close transaction, in
+// particular a commitment which has no HTLCs at stake, can be bumped via the
+// rpc endpoint `BumpForceCloseFee`. It also verifies that the parent fee is
+// accounted for when setting the new fee rate target.
+func testBumpForceCloseFee(ht *lntest.HarnessTest) {
+	// Skip this test for neutrino, as it's not aware of mempool
+	// transactions.
+	if ht.IsNeutrinoBackend() {
+		ht.Skipf("skipping BumpFee test for neutrino backend")
+	}
+
+	// fundAmt is the funding amount.
+	fundAmt := btcutil.Amount(1_000_000)
+
+	// We add a push amount because otherwise no anchor for the counter
+	// party will be created which influences the commitment fee
+	// calculation.
+	pushAmt := btcutil.Amount(50_000)
+
+	openChannelParams := lntest.OpenChannelParams{
+		Amt:     fundAmt,
+		PushAmt: pushAmt,
+	}
+
+	// Bumping the close fee rate is only possible for anchor channels.
+	cfg := []string{
+		"--protocol.anchors",
+	}
+
+	// Create a two hop network: Alice -> Bob.
+	chanPoints, nodes := createSimpleNetwork(ht, cfg, 2, openChannelParams)
+
+	// Unwrap the results.
+	chanPoint := chanPoints[0]
+	alice := nodes[0]
+
+	// Alice force closes the channel which has no HTLCs at stake.
+	_, closingTxID := ht.CloseChannelAssertPending(alice, chanPoint, true)
+	require.NotNil(ht, closingTxID)
+
+	// Alice should see one waiting close channel.
+	ht.AssertNumWaitingClose(alice, 1)
+
+	// Alice should have 2 registered sweep inputs. The anchor of the local
+	// commitment tx and the anchor of the remote commitment tx.
+	ht.AssertNumPendingSweeps(alice, 2)
+
+	// Calculate the commitment tx fee rate.
+	closingTx := ht.Miner.AssertTxInMempool(closingTxID)
+	require.NotNil(ht, closingTx)
+
+	// The default commitment fee for anchor channels is capped at 2500
+	// sat/vbyte but there might be some inaccuracies because of the
+	// witness signature length therefore we calculate the exact value here.
+	closingFeeRate := ht.CalculateTxFeeRate(closingTx)
+	parentWeight := ht.CalculateTxWeight(closingTx)
+	parentFee := ht.CalculateTxFee(closingTx)
+
+	// We increase the fee rate by 100%. We also make sure a sufficient
+	// budget is available to pay for the new selected fee rate otherwise
+	// the input will be skipped by the sweeper subsystem.
+	newFeeRate := closingFeeRate * 2
+	bumpFeeReq := &walletrpc.BumpFeeRequest{
+		Outpoint: &lnrpc.OutPoint{
+			TxidBytes:   chanPoint.GetFundingTxidBytes(),
+			TxidStr:     chanPoint.GetFundingTxidStr(),
+			OutputIndex: chanPoint.OutputIndex,
+		},
+		SatPerVbyte: uint64(newFeeRate.FeePerVByte()),
+		Budget:      100000,
+		// We use a force param to create the sweeping tx immediately.
+		Immediate: true,
+	}
+
+	alice.RPC.BumpForceCloseFee(bumpFeeReq)
+
+	// We expect the initial closing transaction and the local anchor cpfp
+	// transaction because alice force closed the channel.
+	ht.Miner.AssertNumTxsInMempool(2)
+
+	// To compare the fee rate we first need to find the txid of the anchor
+	// cpfp transaction which is the only unconfirmed transaction present
+	// in our wallet.
+	utxos := alice.RPC.ListUnspent(&walletrpc.ListUnspentRequest{
+		MinConfs: 0,
+		MaxConfs: 0,
+	}).Utxos
+	require.Len(ht, utxos, 1)
+
+	anchorCpfp := utxos[0]
+	anchorCpfpHash, err := chainhash.NewHash(anchorCpfp.Outpoint.TxidBytes)
+	require.NoError(ht, err)
+
+	// Fetch the anchor cpfp transaction to calculate the effective fee
+	// rate.
+	anchorTx := ht.Miner.GetRawTransaction(anchorCpfpHash)
+	anchorCpfpWeight := ht.CalculateTxWeight(anchorTx.MsgTx())
+	anchorFee := ht.CalculateTxFee(anchorTx.MsgTx())
+
+	effectiveFeeRate := uint64(parentFee+anchorFee) * 1000 /
+		uint64(anchorCpfpWeight+parentWeight)
+
+	// There might be always a slight inaccurary because the witness data
+	// (signature) is estimated and can have a different length for
+	// non-taproot transactions.
+	require.InEpsilonf(ht, uint64(newFeeRate), effectiveFeeRate, 0.01,
+		"feerate:, want %d, got %d", newFeeRate,
+		effectiveFeeRate)
+
+	// Mine both transactions, the closing tx and the anchor cpfp tx.
+	// This is needed to clean up the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
 }

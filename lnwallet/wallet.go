@@ -1157,6 +1157,27 @@ func (l *LightningWallet) CurrentNumAnchorChans() (int, error) {
 	return numAnchors, nil
 }
 
+// GetWaitingCloseCommitment returns the waiting close channel in case it does
+// exist in the underlying channel state database.
+func (l *LightningWallet) GetWaitingCloseChannel(
+	chanPoint wire.OutPoint) (*channeldb.OpenChannel, error) {
+
+	// Count all anchor channels that are open or pending
+	// open, or waiting close.
+	chans, err := l.Cfg.Database.FetchWaitingCloseChannels()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, channel := range chans {
+		if channel.FundingOutpoint == chanPoint {
+			return channel, nil
+		}
+	}
+
+	return nil, errors.New("channel not found")
+}
+
 // CheckReservedValue checks whether publishing a transaction with the given
 // inputs and outputs would violate the value we reserve in the wallet for
 // bumping the fee of anchor channels. The numAnchorChans argument should be

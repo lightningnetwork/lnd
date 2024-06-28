@@ -202,6 +202,11 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 					cc.Wallet.Cfg.CoinSelectionStrategy,
 				),
 			)
+			subCfgValue.FieldByName("GetWaitingCloseChannel").Set(
+				reflect.ValueOf(
+					cc.Wallet.GetWaitingCloseChannel,
+				),
+			)
 
 		case *autopilotrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)

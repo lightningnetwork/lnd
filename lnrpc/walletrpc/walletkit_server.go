@@ -29,6 +29,7 @@ import (
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
@@ -103,6 +104,10 @@ var (
 			Action: "read",
 		}},
 		"/walletrpc.WalletKit/BumpFee": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
+		"/walletrpc.WalletKit/BumpForceCloseFee": {{
 			Entity: "onchain",
 			Action: "write",
 		}},
@@ -1119,6 +1124,121 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 
 	return &BumpFeeResponse{
 		Status: "Successfully registered CPFP-tx with the sweeper",
+	}, nil
+}
+
+// BumpForceCloseFee bumps the fee rate of an unconfirmed anchor channel. It
+// updates the new fee rate parameters with the sweeper subsystem. Additionally
+// it will try to create anchor cpfp transactions for all possible commitment
+// transactions (local, remote, remote-dangling) so depending on which
+// commitment is in the local mempool only one of them will succeed in being
+// broadcasted.
+func (w *WalletKit) BumpForceCloseFee(_ context.Context,
+	in *BumpFeeRequest) (*BumpFeeResponse, error) {
+
+	// Parse the outpoint from the request.
+	op, err := UnmarshallOutPoint(in.Outpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the relevant channel if it is in the waiting close state.
+	// Question: Is it safe to use the pointer to the OpenChannel struct?
+	channel, err := w.cfg.GetWaitingCloseChannel(*op)
+	if err != nil {
+		return nil, err
+	}
+
+	// Match pending sweeps with commitments of the channel for which a bump
+	// is requested. Depending on the commitment state when force closing
+	// the channel we might have up to 3 commitments to consider when
+	// bumping the fee.
+	// Question: Should we only bump the `closing_txid` we registered in our
+	// db ?
+	commitSet := make(map[string]struct{})
+
+	if channel.LocalCommitment.CommitTx != nil {
+		localTxID := channel.LocalCommitment.CommitTx.TxHash()
+		// Question: Should we check for a valid txid string?
+		commitSet[localTxID.String()] = struct{}{}
+	}
+
+	if channel.RemoteCommitment.CommitTx != nil {
+		remoteTxID := channel.RemoteCommitment.CommitTx.TxHash()
+		commitSet[remoteTxID.String()] = struct{}{}
+	}
+
+	// Check whether there was a dangling commitment at the time the channel
+	// was force closed.
+	remoteCommitDiff, err := channel.RemoteCommitChainTip()
+	if err != nil && !errors.Is(err, channeldb.ErrNoPendingCommit) {
+		return nil, err
+	}
+
+	if remoteCommitDiff != nil {
+		hash := remoteCommitDiff.Commitment.CommitTx.TxHash()
+		commitSet[hash.String()] = struct{}{}
+	}
+
+	// Retrieve all of the outputs the UtxoSweeper is currently trying to
+	// sweep.
+	inputsMap, err := w.cfg.Sweeper.PendingInputs()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the current height so we can calculate the deadline height.
+	_, currentHeight, err := w.cfg.Chain.GetBestBlock()
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve current height: %w",
+			err)
+	}
+
+	// Filter all relevant anchor sweeps and update the sweep request.
+	for _, sweep := range inputsMap {
+		// Only filter for anchor inputs because these are the only
+		// inputs which can be used to bump a closed unconfirmed
+		// commitment transaction.
+		if sweep.WitnessType != input.CommitmentAnchor &&
+			sweep.WitnessType != input.TaprootAnchorSweepSpend {
+
+			continue
+		}
+
+		if _, match := commitSet[sweep.OutPoint.Hash.String()]; !match {
+			continue
+		}
+
+		// Anchor cpfp bump request are predictable because they are
+		// swept separately hence not batched with other sweeps (they
+		// are marked with the exclusive group flag). Bumping the fee
+		// rate does not create any conflicting fee bump conditions.
+		// Either the rbf requirements are met or the bump is rejected
+		// by the mempool rules.
+		params, existing, err := w.prepareSweepParams(
+			in, sweep.OutPoint, currentHeight,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// There might be the case when an anchor sweep is confirmed
+		// between fetching the pending sweeps and preparing the sweep
+		// params. We log this case and proceed.
+		if !existing {
+			log.Errorf("Sweep anchor input(%v) not known to the " +
+				"sweeper subsystem")
+			continue
+		}
+
+		_, err = w.cfg.Sweeper.UpdateParams(sweep.OutPoint, params)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &BumpFeeResponse{
+		Status: "Successfully registered anchor-cpfp transactions",
 	}, nil
 }
 

@@ -1805,7 +1805,7 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 		payHash := preimage.Hash()
 		invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
 			Value:      invoiceAmt,
-			CltvExpiry: thawHeightDelta - 4,
+			CltvExpiry: thawHeightDelta,
 			Hash:       payHash[:],
 			RouteHints: aliceRouteHints,
 		}
@@ -1844,7 +1844,7 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 		carol.RPC.SendPayment(req)
 	}
 
-	// At this point, all 3 nodes should now the HTLCs active on their
+	// At this point, all 3 nodes should now have the HTLCs active on their
 	// channels.
 	ht.AssertActiveHtlcs(alice, payHashes...)
 	ht.AssertActiveHtlcs(bob, payHashes...)
@@ -1863,7 +1863,10 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 
 	// Increase the fee estimate so that the following force close tx will
 	// be cpfp'ed.
-	ht.SetFeeEstimate(30000)
+	// We need to respect the budget of the anchor cpfp which with the above
+	// number of HTLCs and the default ratio is 62500 sats, a too high
+	// fee rate will fail the anchor cpfp.
+	ht.SetFeeEstimate(15000)
 
 	// We want Carol's htlcs to expire off-chain to demonstrate bob's force
 	// close. However, Carol will cancel her invoices to prevent force
@@ -1921,11 +1924,22 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	// Once bob has force closed, we can restart carol.
 	require.NoError(ht, restartCarol())
 
-	// Mine a block to confirm the closing transaction.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
+	// Mine an empty block first to trigger the anchor cpfp transaction of
+	// bob.
+	ht.MineEmptyBlocks(1)
 
-	// The above mined block will trigger Bob to sweep his anchor output.
-	ht.Miner.AssertNumTxsInMempool(1)
+	// Mine a block to confirm the closing transaction and the anchor cpfp
+	// transaction.
+	ht.MineBlocksAndAssertNumTxes(1, 2)
+
+	// Trigger the acutal sweeps.
+	ht.MineEmptyBlocks(1)
+
+	// The above sweep will trigger 2 transactions
+	// The timeout transactions of bob.
+	// And the remote spend + Anchor of Carol
+	// The anchor of bob is not swept because its cltv delta is zero.
+	ht.Miner.AssertNumTxsInMempool(2)
 
 	// Let Alice settle her invoices. When Bob now gets the preimages, he
 	// has no other option than to broadcast his second-level transactions
@@ -1936,17 +1950,6 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 
 	expectedTxes := 0
 	switch c {
-	// With the closing transaction confirmed, we should expect Bob's HTLC
-	// timeout transactions to be broadcast due to the expiry being reached.
-	// We will also expect the success transactions, since he learnt the
-	// preimages from Alice. We also expect Carol to sweep her commitment
-	// output.
-	case lnrpc.CommitmentType_LEGACY:
-		ht.AssertNumPendingSweeps(bob, numInvoices*2+1)
-		ht.AssertNumPendingSweeps(carol, 1)
-
-		expectedTxes = 2*numInvoices + 1
-
 	// In case of anchors, all success transactions will be aggregated into
 	// one, the same is the case for the timeout transactions. In this case
 	// Carol will also sweep her commitment and anchor output in a single
@@ -1956,35 +1959,51 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 		lnrpc.CommitmentType_SIMPLE_TAPROOT:
 
 		// Bob should have `numInvoices` for both HTLC success and
-		// timeout txns, plus one anchor sweep.
-		ht.AssertNumPendingSweeps(bob, numInvoices*2+1)
+		// timeout txns.
+		ht.AssertNumPendingSweeps(bob, numInvoices*2)
 
 		// Carol should have commit and anchor outputs.
 		ht.AssertNumPendingSweeps(carol, 2)
 
-		// We expect to see three sweeping txns:
-		// 1. Bob's sweeping tx for all timeout HTLCs.
+		// We expect to see one sweeping txns:
 		// 2. Bob's sweeping tx for all success HTLCs.
-		// 3. Carol's sweeping tx for her commit and anchor outputs.
-		expectedTxes = 3
+		expectedTxes = 1
 
 	default:
 		ht.Fatalf("unhandled commitment type %v", c)
 	}
 
-	// Mine a block to confirm Bob's anchor sweeping, which will also
-	// trigger his sweeper to sweep HTLCs.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
+	// Mine the block with the following transactions.
+	// 1. Carol's sweeping tx for her commit and anchor outputs.
+	// 2. Bob's sweeping tx for all timeout HTLCs.
+	// This block will also trigger the htlc-success sweep transaction.
+	minedTx := ht.MineBlocksAndAssertNumTxes(1, 2)
+	require.Len(ht, minedTx, 1)
 
-	// Assert the sweeping txns are found in the mempool.
-	txes := ht.Miner.GetNumTxsFromMempool(expectedTxes)
-
-	// Since Bob can aggregate the transactions, we expect a single
-	// transaction, that have multiple spends from the commitment.
 	var (
 		timeoutTxs []*chainhash.Hash
 		successTxs []*chainhash.Hash
 	)
+
+	for _, tx := range minedTx[0].Transactions {
+		txid := tx.TxHash()
+
+		for i := range tx.TxIn {
+			prevOp := tx.TxIn[i].PreviousOutPoint
+			if _, ok := timeoutOuts[prevOp]; ok {
+				timeoutTxs = append(timeoutTxs, &txid)
+
+				break
+			}
+		}
+	}
+
+	// Assert the sweeping txns are found in the mempool.
+	// Expecting the success-sweep transaction of bob.
+	txes := ht.Miner.GetNumTxsFromMempool(expectedTxes)
+
+	// Since Bob can aggregate the transactions, we expect a single
+	// transaction, that have multiple spends from the commitment.
 	for _, tx := range txes {
 		txid := tx.TxHash()
 
@@ -1992,12 +2011,6 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 			prevOp := tx.TxIn[i].PreviousOutPoint
 			if _, ok := successOuts[prevOp]; ok {
 				successTxs = append(successTxs, &txid)
-
-				break
-			}
-
-			if _, ok := timeoutOuts[prevOp]; ok {
-				timeoutTxs = append(timeoutTxs, &txid)
 
 				break
 			}
@@ -2022,6 +2035,7 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	// Mine a block to confirm the all the transactions, including Carol's
 	// commitment tx, anchor tx(optional), and Bob's second-level timeout
 	// and success txes.
+	// This block will also trigger the sweep of bob's commitment output.
 	ht.MineBlocksAndAssertNumTxes(1, expectedTxes)
 
 	// At this point, Bob should have broadcast his second layer success
@@ -2037,10 +2051,6 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	ht.AssertNumHTLCsAndStage(bob, bobChanPoint, numInvoices*2, 2)
 
 	if c != lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-		// If we then mine additional blocks, Bob can sweep his
-		// commitment output.
-		ht.MineEmptyBlocks(1)
-
 		// Assert the tx has been offered to the sweeper.
 		ht.AssertNumPendingSweeps(bob, 1)
 
@@ -2068,12 +2078,6 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	}
 
 	switch c {
-	// In case this is a non-anchor channel type, we must mine 2 blocks, as
-	// the nursery waits an extra block before sweeping. Before the blocks
-	// are mined, we should expect to see Bob's commit sweep in the mempool.
-	case lnrpc.CommitmentType_LEGACY:
-		ht.MineBlocksAndAssertNumTxes(2, 1)
-
 	// Mining one additional block, Bob's second level tx is mature, and he
 	// can sweep the output. Before the blocks are mined, we should expect
 	// to see Bob's commit sweep in the mempool.

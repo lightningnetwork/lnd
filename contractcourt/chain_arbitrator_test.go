@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 )
@@ -61,12 +62,14 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 	for i := 0; i < numChans/2; i++ {
 		closeTx := channels[i].FundingTxn.Copy()
 		closeTx.TxIn[0].PreviousOutPoint = channels[i].FundingOutpoint
-		err := channels[i].MarkCommitmentBroadcasted(closeTx, true)
+		err := channels[i].MarkCommitmentBroadcasted(
+			closeTx, lntypes.Local,
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = channels[i].MarkCoopBroadcasted(closeTx, true)
+		err = channels[i].MarkCoopBroadcasted(closeTx, lntypes.Local)
 		if err != nil {
 			t.Fatal(err)
 		}

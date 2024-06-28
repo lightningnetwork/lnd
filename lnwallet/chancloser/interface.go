@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -33,7 +34,7 @@ type Channel interface { //nolint:interfacebloat
 
 	// MarkCoopBroadcasted persistently marks that the channel close
 	// transaction has been broadcast.
-	MarkCoopBroadcasted(*wire.MsgTx, bool) error
+	MarkCoopBroadcasted(*wire.MsgTx, lntypes.ChannelParty) error
 
 	// MarkShutdownSent persists the given ShutdownInfo. The existence of
 	// the ShutdownInfo represents the fact that the Shutdown message has

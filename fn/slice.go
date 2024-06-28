@@ -1,6 +1,10 @@
 package fn
 
-import "golang.org/x/exp/constraints"
+import (
+	"sync"
+
+	"golang.org/x/exp/constraints"
+)
 
 // Number is a type constraint for all numeric types in Go (integers,
 // float and complex numbers)
@@ -93,6 +97,23 @@ func Find[A any](pred func(A) bool, s []A) Option[A] {
 	}
 
 	return None[A]()
+}
+
+// FindIdx returns the first value that passes the supplied predicate along with
+// its index in the slice. If no satisfactory value is found, None is returned.
+func FindIdx[A any](pred func(A) bool, s []A) Option[T2[int, A]] {
+	for i, val := range s {
+		if pred(val) {
+			return Some(NewT2[int, A](i, val))
+		}
+	}
+
+	return None[T2[int, A]]()
+}
+
+// Elem returns true if the element in the argument is found in the slice
+func Elem[A comparable](a A, s []A) bool {
+	return Any(Eq(a), s)
 }
 
 // Flatten takes a slice of slices and returns a concatenation of those slices.
@@ -204,4 +225,25 @@ func Sum[B Number](items []B) B {
 // are unique), otherwise returns false.
 func HasDuplicates[A comparable](items []A) bool {
 	return len(NewSet(items...)) != len(items)
+}
+
+// ForEachConc maps the argument function over the slice, spawning a new
+// goroutine for each element in the slice and then awaits all results before
+// returning them.
+func ForEachConc[A, B any](f func(A) B, as []A) []B {
+	wait := sync.WaitGroup{}
+	bs := make([]B, len(as))
+
+	for i, a := range as {
+		i, a := i, a
+		wait.Add(1)
+		go func() {
+			bs[i] = f(a)
+			wait.Done()
+		}()
+	}
+
+	wait.Wait()
+
+	return bs
 }

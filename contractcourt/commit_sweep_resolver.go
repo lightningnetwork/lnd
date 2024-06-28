@@ -252,18 +252,86 @@ func (c *commitSweepResolver) Resolve(_ bool) (ContractResolver, error) {
 
 		signDesc = c.commitResolution.SelfOutputSignDesc
 	)
+
+	// commitScriptTimeLockTaproot is a function that returns the timelock
+	// of a non-htlc commitment output.
+	//
+	// TODO(proofofkeags): move this
+	// NOTE FOR REVIEWERS: This function does not really belong here. That
+	// said, I don't know where it should go. If you have opinions, please
+	// comment.
+	commitScriptTimeLockTaproot := func(script []byte) fn.Option[int32] {
+		tok := txscript.MakeScriptTokenizer(0, script)
+		tok.Next() // PUSH <key>
+		if len(tok.Data()) != 32 {
+			return fn.None[int32]()
+		}
+		tok.Next() // CHECKSIG
+		if tok.Opcode() != txscript.OP_CHECKSIG {
+			return fn.None[int32]()
+		}
+
+		tok.Next() // PUSH <timelock>
+		var timelock int32
+		switch {
+		case tok.Opcode() == txscript.OP_0:
+			timelock = 0
+
+		case tok.Opcode() >= txscript.OP_1 &&
+			tok.Opcode() <= txscript.OP_16:
+
+			timelock = int32(tok.Opcode() - txscript.OP_1 + 1)
+
+		case tok.Opcode() == txscript.OP_DATA_1:
+			timelock = int32(tok.Data()[0])
+
+		case tok.Opcode() == txscript.OP_DATA_2:
+			timelock = int32(tok.Data()[0]) |
+				int32(tok.Data()[1])<<8
+
+		case tok.Opcode() == txscript.OP_DATA_3:
+			timelock = int32(tok.Data()[0]) |
+				int32(tok.Data()[1])<<8 |
+				int32(tok.Data()[2])<<16
+
+		case tok.Opcode() == txscript.OP_DATA_4:
+			timelock = int32(tok.Data()[0]) |
+				int32(tok.Data()[1])<<8 |
+				int32(tok.Data()[2])<<16 |
+				int32(tok.Data()[3])<<24
+		default:
+			// We don't cover any data pushes longer than 4 bytes as
+			// that would imply a timelock greater than the history
+			// of Bitcoin.
+			return fn.None[int32]()
+		}
+
+		tok.Next() // CSV
+		if tok.Opcode() != txscript.OP_CHECKSEQUENCEVERIFY {
+			return fn.None[int32]()
+		}
+
+		tok.Next() // DROP
+		if tok.Opcode() != txscript.OP_DROP {
+			return fn.None[int32]()
+		}
+
+		return fn.Some(timelock)
+	}
+
 	switch {
 	// For taproot channels, we'll know if this is the local commit based
-	// on the witness script. For local channels, the witness script has an
-	// OP_DROP value.
-	//
-	// TODO(roasbeef): revisit this after the script changes
-	//  * otherwise need to base off the key in script or the CSV value
-	//  (script num encode)
+	// on the timelock value. For remote commitment transactions, the
+	// witness script has a timelock of 1.
 	case c.chanType.IsTaproot():
-		scriptLen := len(signDesc.WitnessScript)
-		isLocalCommitTx = signDesc.WitnessScript[scriptLen-1] ==
-			txscript.OP_DROP
+		timelock := commitScriptTimeLockTaproot(signDesc.WitnessScript)
+		n, err := timelock.UnwrapOrErr(
+			fmt.Errorf("invalid commit script leaf"),
+		)
+		if err != nil {
+			return nil, err
+		}
+		isLocalCommitTx = n != 1
 
 	// The output is on our local commitment if the script starts with
 	// OP_IF for the revocation clause. On the remote commitment it will

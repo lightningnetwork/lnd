@@ -218,8 +218,8 @@ type paymentResult struct {
 func NewMissionControl(db kvdb.Backend, self route.Vertex,
 	cfg *MissionControlConfig) (*MissionControl, error) {
 	
-	log.Infof("Instantiating mission control with config: %v, %v, %v", cfg,
-		cfg.Estimator, cfg.UpdateEstimatorCB)
+	log.Debugf("Instantiating mission control with config: %v, %v", cfg,
+		cfg.Estimator)
 
 	if err := cfg.validate(); err != nil {
 		return nil, err

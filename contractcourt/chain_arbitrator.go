@@ -549,7 +549,7 @@ func (c *ChainArbitrator) ResolveContract(chanPoint wire.OutPoint) error {
 
 		if err := chainArb.Stop(); err != nil {
 			log.Warnf("unable to stop ChannelArbitrator(%v): %v",
-				chanPoint, err)
+				chainArb.id(), err)
 		}
 	}
 	if chainWatcher != nil {
@@ -891,7 +891,7 @@ func (c *ChainArbitrator) Stop() error {
 	}
 	for chanPoint, arbitrator := range activeChannels {
 		log.Tracef("Attempting to stop ChannelArbitrator(%v)",
-			chanPoint)
+			arbitrator.id())
 
 		if err := arbitrator.Stop(); err != nil {
 			log.Errorf("unable to stop arbitrator for "+
@@ -1066,7 +1066,7 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	chanPoint := newChan.FundingOutpoint
 
 	log.Infof("Creating new ChannelArbitrator for ChannelPoint(%v)",
-		chanPoint)
+		newChan.FundingOutpoint)
 
 	// If we're already watching this channel, then we'll ignore this
 	// request.
@@ -1208,8 +1208,9 @@ func (c *ChainArbitrator) FindOutgoingHTLCDeadline(scid lnwire.ShortChannelID,
 
 				log.Debugf("ChannelArbitrator(%v): found "+
 					"incoming HTLC in channel=%v using "+
-					"rHash=%x, refundTimeout=%v", scid,
-					cp, rHash, htlc.RefundTimeout)
+					"rHash=%x, refundTimeout=%v",
+					channelArb.id(), cp, rHash,
+					htlc.RefundTimeout)
 
 				return fn.Some(int32(htlc.RefundTimeout))
 			}

@@ -629,8 +629,7 @@ func proxyBlockEpoch(notifier chainntnfs.ChainNotifier,
 		go func() {
 			for blk := range blockEpoch.Epochs {
 				ntfn := blockntfns.NewBlockConnected(
-					*blk.BlockHeader,
-					uint32(blk.Height),
+					blk.Block.Header, uint32(blk.Height),
 				)
 
 				sub.Notifications <- ntfn

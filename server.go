@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
@@ -330,6 +331,10 @@ type server struct {
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
 
+	// blockbeat is a block dispatcher that notifies subscribers of new
+	// blocks.
+	blockbeat *chainio.BlockBeat
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -568,6 +573,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s := &server{
 		cfg:            cfg,
+		blockbeat:      chainio.NewBlockBeat(cc.ChainNotifier),
 		graphDB:        dbs.GraphDB.ChannelGraph(),
 		chanStateDB:    dbs.ChanStateDB.ChannelStateDB(),
 		addrSource:     dbs.ChanStateDB,
@@ -1677,7 +1683,29 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 	s.connMgr = cmgr
 
+	// Finally, register the subsystems in blockbeat.
+	s.registerBlockConsumers()
+
 	return s, nil
+}
+
+// registerBlockConsumers registers the subsystems that consume block events.
+// By calling `RegisterQueue`, a list of subsystems are registered in the
+// blockbeat for block notifications. When a new block arrives, the subsystems
+// in the same queue are notified sequentially, and different queues are
+// notified concurrently.
+//
+// NOTE: To put a subsystem in a different queue, create a slice and pass it to
+// a new `RegisterQueue` call.
+func (s *server) registerBlockConsumers() {
+	// In this queue, when a new block arrives, it will be received and
+	// processed in this order: chainArb -> sweeper -> txPublisher.
+	consumers := []chainio.Consumer{
+		s.chainArb,
+		s.sweeper,
+		s.txPublisher,
+	}
+	s.blockbeat.RegisterQueue(consumers)
 }
 
 // signAliasUpdate takes a ChannelUpdate and returns the signature. This is
@@ -2110,6 +2138,17 @@ func (s *server) Start() error {
 			return nil
 		})
 
+		// Start the blockbeat after all other subsystems have been
+		// started so they are ready to receive new blocks.
+		if err := s.blockbeat.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(func() error {
+			s.blockbeat.Stop()
+			return nil
+		})
+
 		// If peers are specified as a config option, we'll add those
 		// peers first.
 		for _, peerAddrCfg := range s.cfg.AddPeers {
@@ -2297,6 +2336,7 @@ func (s *server) Stop() error {
 		}
 
 		s.txPublisher.Stop()
+		s.blockbeat.Stop()
 
 		if err := s.channelNotifier.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop channelNotifier: %v", err)

@@ -26,14 +26,15 @@ func (blockEpoch) Generate(r *rand.Rand, size int) reflect.Value {
 	return reflect.ValueOf(blockEpoch(chainntnfs.BlockEpoch{
 		Hash:   &chainHash,
 		Height: r.Int31n(1000000),
-		BlockHeader: &wire.BlockHeader{
-			Version:    2,
-			PrevBlock:  prevBlockHash,
-			MerkleRoot: merkleRootHash,
-			Timestamp:  time.Now(),
-			Bits:       r.Uint32(),
-			Nonce:      r.Uint32(),
-		},
+		Block: wire.MsgBlock{
+			Header: wire.BlockHeader{
+				Version:    2,
+				PrevBlock:  prevBlockHash,
+				MerkleRoot: merkleRootHash,
+				Timestamp:  time.Now(),
+				Bits:       r.Uint32(),
+				Nonce:      r.Uint32(),
+			}},
 	}))
 }
 
@@ -77,7 +78,7 @@ func TestBestBlockTracker(t *testing.T) {
 		header, _ := tracker.BestBlockHeader()
 
 		return height == uint32(epoch.Height) &&
-			header == epoch.BlockHeader
+			*header == epoch.Block.Header
 	}
 	idempotence := func(epochRand blockEpoch) bool {
 		epoch := chainntnfs.BlockEpoch(epochRand)

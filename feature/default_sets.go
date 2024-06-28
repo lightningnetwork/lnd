@@ -92,8 +92,10 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
-	lnwire.SimpleTaprootOverlayChansOptional: {
-		SetInit:    {}, // I
+	lnwire.ExperimentalEndorsementOptional: {
 		SetNodeAnn: {}, // N
+	},
+	lnwire.SimpleTaprootOverlayChansOptional: {
+		SetInit: {}, // I
 	},
 }

@@ -2222,17 +2222,18 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 		PendingCommitTicker:  ticker.New(time.Minute),
 		// Make the BatchSize and Min/MaxUpdateTimeout large enough
 		// to not trigger commit updates automatically during tests.
-		BatchSize:               10000,
-		MinUpdateTimeout:        30 * time.Minute,
-		MaxUpdateTimeout:        40 * time.Minute,
-		MaxOutgoingCltvExpiry:   DefaultMaxOutgoingCltvExpiry,
-		MaxFeeAllocation:        DefaultMaxLinkFeeAllocation,
-		NotifyActiveLink:        func(wire.OutPoint) {},
-		NotifyActiveChannel:     func(wire.OutPoint) {},
-		NotifyInactiveChannel:   func(wire.OutPoint) {},
-		NotifyInactiveLinkEvent: func(wire.OutPoint) {},
-		HtlcNotifier:            aliceSwitch.cfg.HtlcNotifier,
-		GetAliases:              getAliases,
+		BatchSize:                      10000,
+		MinUpdateTimeout:               30 * time.Minute,
+		MaxUpdateTimeout:               40 * time.Minute,
+		MaxOutgoingCltvExpiry:          DefaultMaxOutgoingCltvExpiry,
+		MaxFeeAllocation:               DefaultMaxLinkFeeAllocation,
+		NotifyActiveLink:               func(wire.OutPoint) {},
+		NotifyActiveChannel:            func(wire.OutPoint) {},
+		NotifyInactiveChannel:          func(wire.OutPoint) {},
+		NotifyInactiveLinkEvent:        func(wire.OutPoint) {},
+		HtlcNotifier:                   aliceSwitch.cfg.HtlcNotifier,
+		GetAliases:                     getAliases,
+		ForwardExperimentalEndorsement: func() bool { return true },
 	}
 
 	aliceLink := NewChannelLink(aliceCfg, aliceLc.channel)
@@ -4852,6 +4853,8 @@ func (h *persistentLinkHarness) restartLink(
 	// Instantiate with a long interval, so that we can precisely control
 	// the firing via force feeding.
 	bticker := ticker.NewForce(time.Hour)
+
+	//nolint:lll
 	aliceCfg := ChannelLinkConfig{
 		FwrdingPolicy: globalPolicy,
 		Peer:          alicePeer,
@@ -4887,16 +4890,17 @@ func (h *persistentLinkHarness) restartLink(
 		MinUpdateTimeout: 30 * time.Minute,
 		MaxUpdateTimeout: 40 * time.Minute,
 		// Set any hodl flags requested for the new link.
-		HodlMask:                hodl.MaskFromFlags(hodlFlags...),
-		MaxOutgoingCltvExpiry:   DefaultMaxOutgoingCltvExpiry,
-		MaxFeeAllocation:        DefaultMaxLinkFeeAllocation,
-		NotifyActiveLink:        func(wire.OutPoint) {},
-		NotifyActiveChannel:     func(wire.OutPoint) {},
-		NotifyInactiveChannel:   func(wire.OutPoint) {},
-		NotifyInactiveLinkEvent: func(wire.OutPoint) {},
-		HtlcNotifier:            h.hSwitch.cfg.HtlcNotifier,
-		SyncStates:              syncStates,
-		GetAliases:              getAliases,
+		HodlMask:                       hodl.MaskFromFlags(hodlFlags...),
+		MaxOutgoingCltvExpiry:          DefaultMaxOutgoingCltvExpiry,
+		MaxFeeAllocation:               DefaultMaxLinkFeeAllocation,
+		NotifyActiveLink:               func(wire.OutPoint) {},
+		NotifyActiveChannel:            func(wire.OutPoint) {},
+		NotifyInactiveChannel:          func(wire.OutPoint) {},
+		NotifyInactiveLinkEvent:        func(wire.OutPoint) {},
+		HtlcNotifier:                   h.hSwitch.cfg.HtlcNotifier,
+		SyncStates:                     syncStates,
+		GetAliases:                     getAliases,
+		ForwardExperimentalEndorsement: func() bool { return true },
 	}
 
 	aliceLink := NewChannelLink(aliceCfg, aliceChannel)

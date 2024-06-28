@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -532,7 +533,8 @@ func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
 	// pending payment.
 	packet := ht.ReceiveHtlcInterceptor(bobInterceptor)
 
-	require.Len(ht, packet.IncomingHtlcWireCustomRecords, 1)
+	// We expect the custom record and an endorsement signal.
+	require.Len(ht, packet.IncomingHtlcWireCustomRecords, 2)
 
 	val, ok := packet.IncomingHtlcWireCustomRecords[65537]
 	require.True(ht, ok, "expected custom record")
@@ -549,9 +551,14 @@ func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
 	require.NoError(ht, err, "failed to send request")
 
 	// Assert that the Alice -> Bob custom records in update_add_htlc are
-	// not propagated on the Bob -> Carol link.
+	// not propagated on the Bob -> Carol link, but we do get our
+	// experimental endorsement signal.
 	packet = ht.ReceiveHtlcInterceptor(carolInterceptor)
-	require.Len(ht, packet.IncomingHtlcWireCustomRecords, 0)
+	require.Len(ht, packet.IncomingHtlcWireCustomRecords, 1)
+
+	t := uint64(lnwire.ExperimentalEndorsementType)
+	_, ok = packet.IncomingHtlcWireCustomRecords[t]
+	require.True(ht, ok)
 
 	// Just resume the payment on Carol.
 	err = carolInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{

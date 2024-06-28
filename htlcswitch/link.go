@@ -280,6 +280,10 @@ type ChannelLinkConfig struct {
 	// by failing back any blinding-related payloads as if they were
 	// invalid.
 	DisallowRouteBlinding bool
+
+	// ForwardExperimentalEndorsement is a closure that indicates whether
+	// the link should forward experimental endorsement signals.
+	ForwardExperimentalEndorsement func() bool
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -3488,6 +3492,16 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				BlindingPoint: fwdInfo.NextBlinding,
 			}
 
+			endorseValue, relay := l.experimentalEndorsement(
+				record.CustomSet(pd.CustomRecords),
+			)
+			if relay {
+				t := uint64(lnwire.ExperimentalEndorsementType)
+				addMsg.CustomRecords = map[uint64][]byte{
+					t: endorseValue,
+				}
+			}
+
 			// Finally, we'll encode the onion packet for the
 			// _next_ hop using the hop iterator decoded for the
 			// current hop.
@@ -3573,6 +3587,50 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 	// opened circuits, which violates assumptions made by the circuit
 	// trimming.
 	l.forwardBatch(replay, switchPackets...)
+}
+
+// experimentalEndorsement returns the value to set for our outgoing
+// experimental endorsement field, and a boolean indicating whether it should
+// be populated on the outgoing htlc.
+func (l *channelLink) experimentalEndorsement(
+	customUpdateAdd record.CustomSet) ([]byte, bool) {
+
+	// Only relay experimental signal if we are within the experiment
+	// period.
+	if !l.cfg.ForwardExperimentalEndorsement() {
+		return nil, false
+	}
+
+	// If we don't have any custom records or the experimental field is
+	// not set, just forward a zero value.
+	if len(customUpdateAdd) == 0 {
+		return []byte{0}, true
+	}
+
+	t := uint64(lnwire.ExperimentalEndorsementType)
+	value, set := customUpdateAdd[t]
+	if !set {
+		return []byte{0}, true
+	}
+
+	// We expect at least one byte for this field, consider it invalid if
+	// it has no data and just forward a zero value.
+	if len(value) == 0 {
+		return []byte{0}, true
+	}
+
+	// We're using a single byte to represent our endorsement value, but
+	// limit the value to using the first three bits (max value = 00000111).
+	// Interpreted as a uint8 (an alias for byte in golang), we forward
+	// with endorsement only if the value of the TLV has the maximum
+	// allowed value.
+	if value[0] == 7 {
+		return []byte{7}, true
+	}
+
+	// Forward as unendorsed otherwise, including cases where we've
+	// received an invalid value that uses more than 3 bits of information.
+	return []byte{0}, true
 }
 
 // processExitHop handles an htlc for which this link is the exit hop. It

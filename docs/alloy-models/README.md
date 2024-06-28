@@ -19,7 +19,7 @@ in development and understanding.
 
 Alloy is useful as when used during upfront software design (or even after the
 fact), one can create a formal model of a software system to gain better
-confidence re the _correctness_ of a system. The model can then be translated
+confidence in the _correctness_ of a system. The model can then be translated
 to code. Many times, writing the model (either before or after the code) can
 help one to better understand a given software system. Models can also be used
 to specify protocols in p2p systems such as Lightning (as it [supports temporal

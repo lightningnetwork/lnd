@@ -1,9 +1,14 @@
 package fn
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/lightninglabs/neutrino/cache/lru"
+)
+
+var (
+	ErrQueueReaderStopped = errors.New("queue reader stopped")
 )
 
 // ConcurrentQueue is a typed concurrent-safe FIFO queue with unbounded
@@ -44,6 +49,28 @@ func (cq *ConcurrentQueue[T]) ChanIn() chan<- T {
 // ChanOut returns a channel that can be used to pop items from the queue.
 func (cq *ConcurrentQueue[T]) ChanOut() <-chan T {
 	return cq.chanOut
+}
+
+// Enqueue isolates the chanIn write channel so that the caller cannot run into
+// deadlock scenarios. This should be prefered over the `ChanIn` method.
+func (cq *ConcurrentQueue[T]) Enqueue(item T) error {
+	select {
+	case <-cq.quit:
+		return ErrQueueReaderStopped
+	case cq.chanIn <- item:
+		return nil
+	}
+}
+
+// Dequeue isolates the chanOut so that the caller cannot run into issues. This
+// should be prefered over the `ChanOut` method.
+func (cq *ConcurrentQueue[T]) Dequeue() (item T, err error) {
+	select {
+	case <-cq.quit:
+		return item, ErrQueueReaderStopped
+	case item := <-cq.chanOut:
+		return item, nil
+	}
 }
 
 // Start begins a goroutine that manages moving items from the in channel to the

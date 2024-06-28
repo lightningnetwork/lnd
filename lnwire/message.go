@@ -23,6 +23,7 @@ type MessageType uint16
 // Lightning protocol.
 const (
 	MsgWarning                 MessageType = 1
+	MsgStfu                                = 2
 	MsgInit                                = 16
 	MsgError                               = 17
 	MsgPing                                = 18
@@ -84,6 +85,8 @@ func (t MessageType) String() string {
 	switch t {
 	case MsgWarning:
 		return "Warning"
+	case MsgStfu:
+		return "Stfu"
 	case MsgInit:
 		return "Init"
 	case MsgOpenChannel:
@@ -211,6 +214,8 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 	switch msgType {
 	case MsgWarning:
 		msg = &Warning{}
+	case MsgStfu:
+		msg = &Stfu{}
 	case MsgInit:
 		msg = &Init{}
 	case MsgOpenChannel:

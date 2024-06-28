@@ -24,6 +24,11 @@ import (
 // version of the commitment transaction. We can sweep this output immediately,
 // as it doesn't have a time-lock delay.
 type commitSweepResolver struct {
+	// localChanCfg is used to provide the resolver with the keys required
+	// to identify whether the commitment transaction was broadcast by the
+	// local or remote party.
+	localChanCfg channeldb.ChannelConfig
+
 	// commitResolution contains all data required to successfully sweep
 	// this HTLC on-chain.
 	commitResolution lnwallet.CommitOutputResolution
@@ -252,18 +257,26 @@ func (c *commitSweepResolver) Resolve(_ bool) (ContractResolver, error) {
 
 		signDesc = c.commitResolution.SelfOutputSignDesc
 	)
+
 	switch {
 	// For taproot channels, we'll know if this is the local commit based
-	// on the witness script. For local channels, the witness script has an
-	// OP_DROP value.
-	//
-	// TODO(roasbeef): revisit this after the script changes
-	//  * otherwise need to base off the key in script or the CSV value
-	//  (script num encode)
+	// on the timelock value. For remote commitment transactions, the
+	// witness script has a timelock of 1.
 	case c.chanType.IsTaproot():
-		scriptLen := len(signDesc.WitnessScript)
-		isLocalCommitTx = signDesc.WitnessScript[scriptLen-1] ==
-			txscript.OP_DROP
+		delayKey := c.localChanCfg.DelayBasePoint.PubKey
+		nonDelayKey := c.localChanCfg.PaymentBasePoint.PubKey
+
+		signKey := c.commitResolution.SelfOutputSignDesc.KeyDesc.PubKey
+
+		// If the key in the script is neither of these, we shouldn't
+		// proceed. This should be impossible.
+		if !signKey.IsEqual(delayKey) && !signKey.IsEqual(nonDelayKey) {
+			return nil, fmt.Errorf("unknown sign key %v", signKey)
+		}
+
+		// The commitment transaction is ours iff the signing key is
+		// the delay key.
+		isLocalCommitTx = signKey.IsEqual(delayKey)
 
 	// The output is on our local commitment if the script starts with
 	// OP_IF for the revocation clause. On the remote commitment it will
@@ -446,6 +459,7 @@ func (c *commitSweepResolver) SupplementState(state *channeldb.OpenChannel) {
 	if state.ChanType.HasLeaseExpiration() {
 		c.leaseExpiry = state.ThawHeight
 	}
+	c.localChanCfg = state.LocalChanCfg
 	c.channelInitiator = state.IsInitiator
 	c.chanType = state.ChanType
 }

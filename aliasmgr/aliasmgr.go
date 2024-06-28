@@ -2,7 +2,7 @@ package aliasmgr
 
 import (
 	"encoding/binary"
-	"fmt"
+	"errors"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -63,11 +63,11 @@ var (
 	}
 
 	// errNoBase is returned when a base SCID isn't found.
-	errNoBase = fmt.Errorf("no base found")
+	errNoBase = errors.New("no base found")
 
 	// errNoPeerAlias is returned when the peer's alias for a given
 	// channel is not found.
-	errNoPeerAlias = fmt.Errorf("no peer alias found")
+	errNoPeerAlias = errors.New("no peer alias found")
 )
 
 // Manager is a struct that handles aliases for LND. It has an underlying

@@ -2,12 +2,72 @@ package main
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strconv"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/urfave/cli"
 )
+
+// newHopHint creates a new lnrpc.HopHint from the provided parameters.
+func newHopHint(nodeID string, chanID uint64, feeBaseMsat uint32,
+	feeProportionalMillionths uint32, cltvExpiryDelta uint32) (
+	*lnrpc.HopHint, error,
+) {
+
+	if nodeID == "" {
+		return nil, fmt.Errorf("node_id is missing in route hint")
+	}
+
+	if chanID == 0 {
+		return nil, fmt.Errorf("chan_id is missing or invalid in " +
+			"route hint")
+	}
+
+	return &lnrpc.HopHint{
+		NodeId:                    nodeID,
+		ChanId:                    chanID,
+		FeeBaseMsat:               feeBaseMsat,
+		FeeProportionalMillionths: feeProportionalMillionths,
+		CltvExpiryDelta:           cltvExpiryDelta,
+	}, nil
+}
+
+// parseRouteHints parses the route hints from a JSON string and returns a
+// slice of lnrpc.HopHint.
+func parseRouteHints(routeHints string) ([]*lnrpc.HopHint, error) {
+	var jsonHints []*lnrpc.HopHint
+	err := json.Unmarshal([]byte(routeHints), &jsonHints)
+
+	if err != nil {
+		return nil, fmt.Errorf("error parsing route hints JSON: "+
+			"%w", err)
+	}
+
+	if len(jsonHints) == 0 {
+		return nil, fmt.Errorf("no valid route hints found in JSON")
+	}
+
+	var invoiceHints []*lnrpc.HopHint
+	for _, jsonHint := range jsonHints {
+		newHint, err := newHopHint(
+			jsonHint.NodeId,
+			jsonHint.ChanId,
+			jsonHint.FeeBaseMsat,
+			jsonHint.FeeProportionalMillionths,
+			jsonHint.CltvExpiryDelta,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		invoiceHints = append(invoiceHints, newHint)
+	}
+
+	return invoiceHints, nil
+}
 
 var addInvoiceCommand = cli.Command{
 	Name:     "addinvoice",
@@ -82,6 +142,22 @@ var addInvoiceCommand = cli.Command{
 			Usage: "creates an AMP invoice. If true, preimage " +
 				"should not be set.",
 		},
+		cli.StringFlag{
+			Name: "route_hints",
+			Usage: "A string representing route " +
+				"hints for the invoice. Each route hint " +
+				"should be a JSON object with fields: " +
+				"node_id (string), chan_id (number), " +
+				"fee_base_msat (number, optional), " +
+				"fee_proportional_millionths " +
+				"(number, optional), cltv_expiry_delta " +
+				"(number, optional). Example: " +
+				`'[{"node_id":"02b2a...",` +
+				`"chan_id":221001837248512,` +
+				`"fee_base_msat":1000,` +
+				`"fee_proportional_millionths":100,` +
+				`"cltv_expiry_delta":40}]'`,
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -106,15 +182,19 @@ func addInvoice(ctx *cli.Context) error {
 		amt, err = strconv.ParseInt(args.First(), 10, 64)
 		args = args.Tail()
 		if err != nil {
-			return fmt.Errorf("unable to decode amt argument: %w",
-				err)
+			return fmt.Errorf(
+				"unable to decode amt argument: %w", err,
+			)
 		}
 	}
 
 	switch {
 	case ctx.IsSet("preimage"):
 		preimage, err = hex.DecodeString(ctx.String("preimage"))
-	case args.Present():
+		// If preimage is not set, but the argument is present, we'll
+		// assume the user has passed in the preimage as a positional
+		// argument.
+	case args.Present() && len(args.First()) == 64:
 		preimage, err = hex.DecodeString(args.First())
 	}
 
@@ -125,6 +205,30 @@ func addInvoice(ctx *cli.Context) error {
 	descHash, err = hex.DecodeString(ctx.String("description_hash"))
 	if err != nil {
 		return fmt.Errorf("unable to parse description_hash: %w", err)
+	}
+
+	routeHintsJSON := ctx.String("route_hints")
+	var invoiceHints []*lnrpc.HopHint
+	if routeHintsJSON != "" {
+		if !ctx.Bool("private") {
+			return fmt.Errorf(
+				"route hints can only be included if the " +
+					"invoice is marked as private",
+			)
+		}
+
+		// Parse the hop hints from the JSON string.
+		invoiceHints, err = parseRouteHints(routeHintsJSON)
+		if err != nil {
+			return err
+		}
+	}
+	routeHints := make([]*lnrpc.RouteHint, 0, len(invoiceHints))
+	for _, hint := range invoiceHints {
+		// Add each invoice hint to the route hints.
+		routeHints = append(routeHints, &lnrpc.RouteHint{
+			HopHints: []*lnrpc.HopHint{hint},
+		})
 	}
 
 	invoice := &lnrpc.Invoice{
@@ -138,6 +242,7 @@ func addInvoice(ctx *cli.Context) error {
 		CltvExpiry:      ctx.Uint64("cltv_expiry_delta"),
 		Private:         ctx.Bool("private"),
 		IsAmp:           ctx.Bool("amp"),
+		RouteHints:      routeHints,
 	}
 
 	resp, err := client.AddInvoice(ctxc, invoice)

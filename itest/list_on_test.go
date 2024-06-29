@@ -210,8 +210,12 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testChannelUnsettledBalance,
 	},
 	{
-		Name:     "channel force closure",
-		TestFunc: testChannelForceClosure,
+		Name:     "channel force closure anchor",
+		TestFunc: testChannelForceClosureAnchor,
+	},
+	{
+		Name:     "channel force closure simple taproot",
+		TestFunc: testChannelForceClosureSimpleTaproot,
 	},
 	{
 		Name:     "failing channel",

@@ -531,8 +531,7 @@ type Config struct {
 
 	// DeleteAliasEdge allows the Manager to delete an alias channel edge
 	// from the graph. It also returns our local to-be-deleted policy.
-	DeleteAliasEdge func(scid lnwire.ShortChannelID) (
-		*models.ChannelEdgePolicy, error)
+	DeleteAliasEdge func(aliasScID, newScID lnwire.ShortChannelID) error
 
 	// AliasManager is an implementation of the aliasHandler interface that
 	// abstracts away the handling of many alias functions.
@@ -3569,19 +3568,13 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 			// addToRouterGraph. This is because the peer may have
 			// sent us a ChannelUpdate with an alias and we don't
 			// want to relay this.
-			ourPolicy, err := f.cfg.DeleteAliasEdge(baseScid)
+			err = f.cfg.DeleteAliasEdge(
+				baseScid, baseScid,
+			)
 			if err != nil {
 				return fmt.Errorf("failed deleting real edge "+
 					"for alias channel from graph: %v",
 					err)
-			}
-
-			err = f.addToRouterGraph(
-				completeChan, &baseScid, nil, ourPolicy,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to re-add to "+
-					"router graph: %v", err)
 			}
 		}
 
@@ -3654,23 +3647,12 @@ func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel) error {
 				"six confirmations: %v", err)
 		}
 
-		// TODO: Make this atomic!
-		ourPolicy, err := f.cfg.DeleteAliasEdge(c.ShortChanID())
+		err := f.cfg.DeleteAliasEdge(
+			c.ShortChanID(), confChan.shortChanID,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to delete alias edge from "+
 				"graph: %v", err)
-		}
-
-		// We'll need to update the graph with the new ShortChannelID
-		// via an addToRouterGraph call. We don't pass in the peer's
-		// alias since we'll be using the confirmed SCID from now on
-		// regardless if it's public or not.
-		err = f.addToRouterGraph(
-			c, &confChan.shortChanID, nil, ourPolicy,
-		)
-		if err != nil {
-			return fmt.Errorf("failed adding confirmed zero-conf "+
-				"SCID to router graph: %v", err)
 		}
 	}
 

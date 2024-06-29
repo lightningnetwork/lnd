@@ -259,46 +259,47 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// The following restart is intended to ensure that outputs from the
 	// force close commitment transaction have been persisted once the
-	// transaction has been confirmed, but before the outputs are spendable
-	// (the "kindergarten" bucket.)
+	// transaction has been confirmed, but before the outputs are
+	// spendable.
 	ht.RestartNode(alice)
 
 	// Carol should offer her commit and anchor outputs to the sweeper.
 	sweepTxns := ht.AssertNumPendingSweeps(carol, 2)
 
-	// Find Carol's anchor sweep.
+	// Identify Carol's pending sweeps.
 	var carolAnchor, carolCommit = sweepTxns[0], sweepTxns[1]
 	if carolAnchor.AmountSat != uint32(anchorSize) {
 		carolAnchor, carolCommit = carolCommit, carolAnchor
 	}
 
-	// Mine a block to trigger Carol's sweeper to make decisions on the
-	// anchor sweeping.
-	ht.MineEmptyBlocks(1)
-
 	// Carol's sweep tx should be in the mempool already, as her output is
-	// not timelocked.
+	// not timelocked. This sweep tx should spend her to_local output as
+	// the anchor output is not economical to spend.
 	carolTx := ht.GetNumTxsFromMempool(1)[0]
 
-	// Carol's sweeping tx should have 2-input-1-output shape.
-	require.Len(ht, carolTx.TxIn, 2)
+	// Carol's sweeping tx should have 1-input-1-output shape.
+	require.Len(ht, carolTx.TxIn, 1)
 	require.Len(ht, carolTx.TxOut, 1)
 
 	// Calculate the total fee Carol paid.
 	totalFeeCarol := ht.CalculateTxFee(carolTx)
 
-	// If we have anchors, add an anchor resolution for carol.
-	op := fmt.Sprintf("%v:%v", carolAnchor.Outpoint.TxidStr,
-		carolAnchor.Outpoint.OutputIndex)
-	carolReports[op] = &lnrpc.Resolution{
-		ResolutionType: lnrpc.ResolutionType_ANCHOR,
-		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
-		SweepTxid:      carolTx.TxHash().String(),
-		AmountSat:      anchorSize,
-		Outpoint:       carolAnchor.Outpoint,
-	}
+	// Carol's anchor report won't be created since it's uneconomical to
+	// sweep. We still keep the follow code snippet in case we want to
+	// bring it back.
+	//
+	// // If we have anchors, add an anchor resolution for carol.
+	// op := fmt.Sprintf("%v:%v", carolAnchor.Outpoint.TxidStr,
+	// 	carolAnchor.Outpoint.OutputIndex)
+	// carolReports[op] = &lnrpc.Resolution{
+	// 	ResolutionType: lnrpc.ResolutionType_ANCHOR,
+	// 	Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
+	// 	SweepTxid:      carolTx.TxHash().String(),
+	// 	AmountSat:      anchorSize,
+	// 	Outpoint:       carolAnchor.Outpoint,
+	// }
 
-	op = fmt.Sprintf("%v:%v", carolCommit.Outpoint.TxidStr,
+	op := fmt.Sprintf("%v:%v", carolCommit.Outpoint.TxidStr,
 		carolCommit.Outpoint.OutputIndex)
 	carolReports[op] = &lnrpc.Resolution{
 		ResolutionType: lnrpc.ResolutionType_COMMIT,
@@ -345,12 +346,12 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 		aliceBalance = forceClose.Channel.LocalBalance
 
 		// At this point, the nursery should show that the commitment
-		// output has 2 block left before its CSV delay expires. In
+		// output has 3 block left before its CSV delay expires. In
 		// total, we have mined exactly defaultCSV blocks, so the htlc
 		// outputs should also reflect that this many blocks have
 		// passed.
 		err = checkCommitmentMaturity(
-			forceClose, commCsvMaturityHeight, 2,
+			forceClose, commCsvMaturityHeight, 3,
 		)
 		if err != nil {
 			return err
@@ -369,9 +370,9 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	}, defaultTimeout)
 	require.NoError(ht, err, "timeout while checking force closed channel")
 
-	// Generate an additional block, which should cause the CSV delayed
-	// output from the commitment txn to expire.
-	ht.MineEmptyBlocks(1)
+	// Generate two blocks, which should cause the CSV delayed output from
+	// the commitment txn to expire.
+	ht.MineEmptyBlocks(2)
 
 	// At this point, the CSV will expire in the next block, meaning that
 	// the output should be offered to the sweeper.
@@ -381,14 +382,9 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 		commitSweep, anchorSweep = anchorSweep, commitSweep
 	}
 
-	// Restart Alice to ensure that she resumes watching the finalized
-	// commitment sweep txid.
-	ht.RestartNode(alice)
-
 	// Mine one block and the sweeping transaction should now be broadcast.
 	// So we fetch the node's mempool to ensure it has been properly
 	// broadcast.
-	ht.MineEmptyBlocks(1)
 	sweepingTXID := ht.AssertNumTxsInMempool(1)[0]
 
 	// Fetch the sweep transaction, all input it's spending should be from
@@ -398,6 +394,10 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 		require.Equal(ht, &txIn.PreviousOutPoint.Hash, closingTxID,
 			"sweep transaction not spending from commit")
 	}
+
+	// Restart Alice to ensure that she resumes watching the finalized
+	// commitment sweep txid.
+	ht.RestartNode(alice)
 
 	// We expect a resolution which spends our commit output.
 	op = fmt.Sprintf("%v:%v", commitSweep.Outpoint.TxidStr,
@@ -410,16 +410,20 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 		AmountSat:      uint64(aliceBalance),
 	}
 
-	// Add alice's anchor to our expected set of reports.
-	op = fmt.Sprintf("%v:%v", aliceAnchor.Outpoint.TxidStr,
-		aliceAnchor.Outpoint.OutputIndex)
-	aliceReports[op] = &lnrpc.Resolution{
-		ResolutionType: lnrpc.ResolutionType_ANCHOR,
-		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
-		SweepTxid:      sweepingTXID.String(),
-		Outpoint:       aliceAnchor.Outpoint,
-		AmountSat:      uint64(anchorSize),
-	}
+	// Alice's anchor report won't be created since it's uneconomical to
+	// sweep. We still keep the follow code snippet in case we want to
+	// bring it back.
+	//
+	// // Add alice's anchor to our expected set of reports.
+	// op = fmt.Sprintf("%v:%v", aliceAnchor.Outpoint.TxidStr,
+	// 	aliceAnchor.Outpoint.OutputIndex)
+	// aliceReports[op] = &lnrpc.Resolution{
+	// 	ResolutionType: lnrpc.ResolutionType_ANCHOR,
+	// 	Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
+	// 	SweepTxid:      sweepingTXID.String(),
+	// 	Outpoint:       aliceAnchor.Outpoint,
+	// 	AmountSat:      uint64(anchorSize),
+	// }
 
 	// Check that we can find the commitment sweep in our set of known
 	// sweeps, using the simple transaction id ListSweeps output.
@@ -539,20 +543,19 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Since Alice had numInvoices (6) htlcs extended to Carol before force
 	// closing, we expect Alice to broadcast an htlc timeout txn for each
-	// one.
-	ht.AssertNumPendingSweeps(alice, numInvoices)
+	// one. We also expect Alice to still have her anchor since it's not
+	// swept.
+	ht.AssertNumPendingSweeps(alice, numInvoices+1)
 
 	// Wait for them all to show up in the mempool
-	//
-	// NOTE: after restart, all the htlc timeout txns will be offered to
-	// the sweeper with `Immediate` set to true, so they won't be
-	// aggregated.
-	htlcTxIDs := ht.AssertNumTxsInMempool(numInvoices)
+	htlcTxIDs := ht.AssertNumTxsInMempool(1)
 
 	// Retrieve each htlc timeout txn from the mempool, and ensure it is
-	// well-formed. This entails verifying that each only spends from
-	// output, and that output is from the commitment txn.
-	numInputs := 2
+	// well-formed. The sweeping tx should spend all the htlc outputs.
+	//
+	// NOTE: We also add 1 output as the outgoing HTLC is swept using twice
+	// its value as its budget, so a wallet utxo is used.
+	numInputs := 6 + 1
 
 	// Construct a map of the already confirmed htlc timeout outpoints,
 	// that will count the number of times each is spent by the sweep txn.
@@ -653,7 +656,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Generate a block that mines the htlc timeout txns. Doing so now
 	// activates the 2nd-stage CSV delayed outputs.
-	ht.MineBlocksAndAssertNumTxes(1, numInvoices)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Alice is restarted here to ensure that she promptly moved the crib
 	// outputs to the kindergarten bucket after the htlc timeout txns were
@@ -688,10 +691,9 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	}, defaultTimeout)
 	require.NoError(ht, err, "timeout while checking force closed channel")
 
-	// Generate a block that causes Alice to sweep the htlc outputs in the
-	// kindergarten bucket.
+	// Generate a block that causes Alice to sweep the htlc outputs.
 	ht.MineEmptyBlocks(1)
-	ht.AssertNumPendingSweeps(alice, numInvoices)
+	ht.AssertNumPendingSweeps(alice, numInvoices+1)
 
 	// Mine a block to trigger the sweep.
 	ht.MineEmptyBlocks(1)
@@ -846,12 +848,6 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// push amount sent by Alice and minus the miner fee paid.
 	carolExpectedBalance := btcutil.Amount(carolStartingBalance) +
 		pushAmt - totalFeeCarol
-
-	// In addition, if this is an anchor-enabled channel, further add the
-	// anchor size.
-	if lntest.CommitTypeHasAnchors(channelType) {
-		carolExpectedBalance += btcutil.Amount(anchorSize)
-	}
 
 	require.Equal(ht, carolExpectedBalance,
 		btcutil.Amount(carolBalResp.ConfirmedBalance),

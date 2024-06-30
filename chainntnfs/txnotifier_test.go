@@ -815,7 +815,7 @@ func TestTxNotifierHistoricalSpendDispatch(t *testing.T) {
 	}
 }
 
-// TestTxNotifierMultipleHistoricalRescans ensures that we don't attempt to
+// TestTxNotifierMultipleHistoricalConfRescans ensures that we don't attempt to
 // request multiple historical confirmation rescans per transactions.
 func TestTxNotifierMultipleHistoricalConfRescans(t *testing.T) {
 	t.Parallel()
@@ -862,7 +862,7 @@ func TestTxNotifierMultipleHistoricalConfRescans(t *testing.T) {
 	}
 }
 
-// TestTxNotifierMultipleHistoricalRescans ensures that we don't attempt to
+// TestTxNotifierMultipleHistoricalSpendRescans ensures that we don't attempt to
 // request multiple historical spend rescans per outpoints.
 func TestTxNotifierMultipleHistoricalSpendRescans(t *testing.T) {
 	t.Parallel()
@@ -1741,7 +1741,7 @@ func TestTxNotifierSpendReorg(t *testing.T) {
 	}
 }
 
-// TestTxNotifierUpdateSpendReorg tests that a call to RegisterSpend after the
+// TestTxNotifierSpendReorgMissed tests that a call to RegisterSpend after the
 // spend has been confirmed, and then UpdateSpendDetails (called by historical
 // dispatch), followed by a chain re-org will notify on the Reorg channel. This
 // was not always the case and has since been fixed.
@@ -2160,7 +2160,7 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	}
 }
 
-// TestTxNotifierSpendHinthistoricalRescan checks that the height hints and
+// TestTxNotifierSpendDuringHistoricalRescan checks that the height hints and
 // spend notifications behave as expected when a spend is found at tip during a
 // historical rescan.
 func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {

@@ -923,8 +923,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				routingConfig.ProbabilityEstimatorType)
 		}
 	}
-
+	// UpdateEstimatorValue is a function that will be called by the
+	// mission control instance every time a new estimator value 
+	// is setted.
 	mcCfg := &routing.MissionControlConfig{
+		UpdateEstimatorCB:       s.UpdateEstimatorValue,
 		Estimator:               estimator,
 		MaxMcHistory:            routingConfig.MaxMcHistory,
 		McFlushInterval:         routingConfig.McFlushInterval,
@@ -1678,6 +1681,25 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	s.connMgr = cmgr
 
 	return s, nil
+}
+
+// UpdateEstimatorValue is a callback function to change estimator value in the  
+// main cfg when the lncli setmccfg is called to change the estimator value. 
+ func (s *server) UpdateEstimatorValue(estimator routing.Estimator) {
+	switch c := estimator.Config().(type) {
+	case *routing.AprioriConfig:
+		targetCfg := s.cfg.SubRPCServers.RouterRPC.AprioriConfig
+		targetCfg.PenaltyHalfLife = c.PenaltyHalfLife
+		targetCfg.Weight = c.AprioriWeight
+		targetCfg.CapacityFraction = c.CapacityFraction
+		targetCfg.HopProbability = c.AprioriHopProbability
+
+	case *routing.BimodalConfig:
+		targetCfg := s.cfg.SubRPCServers.RouterRPC.BimodalConfig
+		targetCfg.Scale = int64(c.BimodalScaleMsat)
+		targetCfg.NodeWeight = c.BimodalNodeWeight
+		targetCfg.DecayTime = c.BimodalDecayTime
+	}
 }
 
 // signAliasUpdate takes a ChannelUpdate and returns the signature. This is

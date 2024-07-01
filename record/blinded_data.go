@@ -268,8 +268,8 @@ type PaymentRelayInfo struct {
 	// satoshi.
 	FeeRate uint32
 
-	// BaseFee is the per-htlc fee charged.
-	BaseFee uint32
+	// BaseFee is the per-htlc fee charged in milli-satoshis.
+	BaseFee lnwire.MilliSatoshi
 }
 
 // Record creates a tlv.Record that encodes the payment relay (type 10) type for
@@ -278,7 +278,7 @@ func (i *PaymentRelayInfo) Record() tlv.Record {
 	return tlv.MakeDynamicRecord(
 		10, &i, func() uint64 {
 			// uint16 + uint32 + tuint32
-			return 2 + 4 + tlv.SizeTUint32(i.BaseFee)
+			return 2 + 4 + tlv.SizeTUint32(uint32(i.BaseFee))
 		}, encodePaymentRelay, decodePaymentRelay,
 	)
 }
@@ -294,9 +294,11 @@ func encodePaymentRelay(w io.Writer, val interface{}, buf *[8]byte) error {
 			return err
 		}
 
+		baseFee := uint32(relayInfo.BaseFee)
+
 		// We can safely reuse buf here because we overwrite its
 		// contents.
-		return tlv.ETUint32(w, &relayInfo.BaseFee, buf)
+		return tlv.ETUint32(w, &baseFee, buf)
 	}
 
 	return tlv.NewTypeForEncodingErr(val, "**hop.PaymentRelayInfo")
@@ -333,7 +335,15 @@ func decodePaymentRelay(r io.Reader, val interface{}, buf *[8]byte,
 		// is okay.
 		b := bytes.NewBuffer(scratch[6:])
 
-		return tlv.DTUint32(b, &relayInfo.BaseFee, buf, l-6)
+		var baseFee uint32
+		err = tlv.DTUint32(b, &baseFee, buf, l-6)
+		if err != nil {
+			return err
+		}
+
+		relayInfo.BaseFee = lnwire.MilliSatoshi(baseFee)
+
+		return nil
 	}
 
 	return tlv.NewTypeForDecodingErr(val, "*hop.paymentRelayInfo", l, 10)

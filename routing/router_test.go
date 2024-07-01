@@ -1886,6 +1886,156 @@ func TestSenderAmtBackwardPass(t *testing.T) {
 	require.Equal(t, testReceiverAmt, receiverAmt)
 }
 
+// TestInboundOutbound tests the functions that computes the incoming and
+// outgoing amounts based on the fees of the incoming and outgoing channels.
+func TestInboundOutbound(t *testing.T) {
+	var outgoingAmt uint64 = 10_000_000
+
+	tests := []struct {
+		name         string
+		incomingBase int32
+		incomingRate int32
+		outgoingBase uint64
+		outgoingRate uint64
+	}{
+		{
+			name:         "only outbound fee",
+			incomingBase: 0,
+			incomingRate: 0,
+			outgoingBase: 20,
+			outgoingRate: 100,
+		},
+		{
+			name:         "positive inbound and outbound fee",
+			incomingBase: 20,
+			incomingRate: 100,
+			outgoingBase: 20,
+			outgoingRate: 100,
+		},
+		{
+			name:         "small negative inbound and outbound fee",
+			incomingBase: -10,
+			incomingRate: -50,
+			outgoingBase: 20,
+			outgoingRate: 100,
+		},
+		{
+			name:         "equal negative inbound and outbound fee",
+			incomingBase: -20,
+			incomingRate: -100,
+			outgoingBase: 20,
+			outgoingRate: 100,
+		},
+		{
+			name:         "large negative inbound and outbound fee",
+			incomingBase: -30,
+			incomingRate: -200,
+			outgoingBase: 20,
+			outgoingRate: 100,
+		},
+		{
+			name: "order of PPM negative inbound and " +
+				"outbound fee (m=0)",
+			incomingBase: -30,
+			incomingRate: -1_000_000,
+			outgoingBase: 20,
+			outgoingRate: 100,
+		},
+		{
+			name: "huge negative inbound and " +
+				"outbound fee (m<0)",
+			incomingBase: -30,
+			incomingRate: -2_000_000,
+			outgoingBase: 20,
+			outgoingRate: 100,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+
+		t.Run(tc.name, func(tt *testing.T) {
+			testInboundOutboundFee(
+				tt, outgoingAmt, tc.incomingBase,
+				tc.incomingRate, tc.outgoingBase,
+				tc.outgoingRate,
+			)
+		})
+	}
+}
+
+// testInboundOutboundFee is a helper function that tests the outgoing and
+// incoming amount relationship.
+func testInboundOutboundFee(t *testing.T, outgoingAmt uint64, inBase,
+	inRate int32, outBase, outRate uint64) {
+
+	debugStr := fmt.Sprintf(
+		"outAmt=%d, inBase=%d, inRate=%d, outBase=%d, outRate=%d",
+		outgoingAmt, inBase, inRate, outBase, outRate,
+	)
+
+	incomingEdge := &unifiedEdge{
+		policy: &models.CachedEdgePolicy{},
+		inboundFees: models.InboundFee{
+			Base: inBase,
+			Rate: inRate,
+		},
+	}
+
+	outgoingEdge := &unifiedEdge{
+		policy: &models.CachedEdgePolicy{
+			FeeBaseMSat: lnwire.MilliSatoshi(
+				outBase,
+			),
+			FeeProportionalMillionths: lnwire.MilliSatoshi(
+				outRate,
+			),
+		},
+	}
+
+	// We compute the incoming amount based on the outgoing amount, which
+	// mimicks the path finding process.
+	incomingAmt := incomingFromOutgoing(
+		lnwire.MilliSatoshi(outgoingAmt), incomingEdge,
+		outgoingEdge,
+	)
+
+	// We do the reverse and compute the outgoing amount based on the
+	// incoming amount.
+	outgoingAmtNew := outgoingFromIncoming(
+		incomingAmt, incomingEdge, outgoingEdge,
+	)
+
+	// We require that the incoming amount is always larger than or equal to
+	// the outgoing amount, because total fees (=incoming-outgoing) should
+	// not become negative.
+	require.GreaterOrEqual(
+		t, int64(incomingAmt), int64(outgoingAmtNew), debugStr,
+		"expected incomingAmt >= outgoingAmtNew",
+	)
+
+	// We check that up to rounding the amounts are equal.
+	require.InDelta(
+		t, int64(outgoingAmt), int64(outgoingAmtNew), 1.0, debugStr,
+		"expected |outgoingAmt - outgoingAmtNew | <= 1",
+	)
+
+	// If we round, the computed outgoing amount should be larger than the
+	// exact outgoing amount, to not hit any min HTLC limits.
+	require.GreaterOrEqual(
+		t, int64(outgoingAmtNew), int64(outgoingAmt), debugStr,
+		"expected outgoingAmtNew >= outgoingAmt",
+	)
+}
+
+// FuzzInboundOutbound tests the incoming and outgoing amount calculation
+// functions with fuzzing.
+func FuzzInboundOutboundFee(f *testing.F) {
+	f.Add(uint64(0), int32(0), int32(0), uint64(0), uint64(0))
+
+	f.Fuzz(testInboundOutboundFee)
+}
+
 // TestSendToRouteSkipTempErrSuccess validates a successful payment send.
 func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	t.Parallel()

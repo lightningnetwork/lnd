@@ -658,7 +658,9 @@ func (b *blindedForwardTest) createBlindedRoute(hops []*forwardingEdge,
 		// Set the relay information for this edge based on its policy.
 		delta := uint16(node.edge.TimeLockDelta)
 		relayInfo := &record.PaymentRelayInfo{
-			BaseFee:         uint32(node.edge.FeeBaseMsat),
+			BaseFee: lnwire.MilliSatoshi(
+				node.edge.FeeBaseMsat,
+			),
 			FeeRate:         uint32(node.edge.FeeRateMilliMsat),
 			CltvExpiryDelta: delta,
 		}

@@ -3205,11 +3205,9 @@ func getEdgeUnifiers(source route.Vertex, hops []route.Vertex,
 		}
 
 		// Build unified policies for this hop based on the channels
-		// known in the graph. Don't use inbound fees.
-		//
-		// TODO: Add inbound fees support for BuildRoute.
+		// known in the graph.
 		u := newNodeEdgeUnifier(
-			source, toNode, false, outgoingChans,
+			source, toNode, true, outgoingChans,
 		)
 
 		err := u.addGraphPolicies(graph)
@@ -3310,7 +3308,11 @@ func backwardPass(unifiers []*edgeUnifier, useMinAmt bool,
 			log.Tracef("Select channel %v at position %v",
 				edge.policy.ChannelID, i)
 
-			fee = int64(outboundFee)
+			inboundFee := calcCappedInboundFee(
+				edge, netAmount, outboundFee,
+			)
+
+			fee = int64(outboundFee) + inboundFee
 		}
 
 		// Finally, we update the amount that needs to flow into the
@@ -3346,12 +3348,11 @@ func forwardPass(senderAmt lnwire.MilliSatoshi,
 	// been increased in the backward pass, fees need to be recalculated and
 	// amount ranges re-checked.
 	for i := 1; i < len(unifiedEdges); i++ {
+		inEdge := unifiedEdges[i-1]
 		outEdge := unifiedEdges[i]
 
 		// Decrease the amount to send while going forward.
-		senderAmt -= outEdge.policy.ComputeFeeFromIncoming(
-			senderAmt,
-		)
+		senderAmt = outgoingFromIncoming(senderAmt, inEdge, outEdge)
 
 		if !outEdge.amtInRange(senderAmt) {
 			log.Errorf("Amount %v not in range for hop index %v",

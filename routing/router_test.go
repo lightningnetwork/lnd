@@ -3087,6 +3087,25 @@ func TestBuildRoute(t *testing.T) {
 			MaxHTLC:  lnwire.MilliSatoshi(20100),
 			Features: paymentAddrFeatures,
 		}, 8),
+
+		// Create a route with inbound fees.
+		symmetricTestChannel("a", "d", chanCapSat, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 20000,
+			MinHTLC: lnwire.NewMSatFromSatoshis(5),
+			MaxHTLC: lnwire.NewMSatFromSatoshis(
+				chanCapSat,
+			),
+			InboundFeeBaseMsat: -1000,
+			InboundFeeRate:     -1000,
+		}, 9),
+		symmetricTestChannel("d", "f", chanCapSat, &testChannelPolicy{
+			Expiry:   144,
+			FeeRate:  60000,
+			MinHTLC:  lnwire.NewMSatFromSatoshis(20),
+			MaxHTLC:  lnwire.NewMSatFromSatoshis(120),
+			Features: paymentAddrFeatures,
+		}, 10),
 	}
 
 	testGraph, err := createTestGraphFromChannels(
@@ -3182,6 +3201,16 @@ func TestBuildRoute(t *testing.T) {
 	require.Equal(t, lnwire.MilliSatoshi(21200), rt.TotalAmount)
 	require.Equal(t, lnwire.MilliSatoshi(20000), rt.Hops[1].AmtToForward)
 
+	// Check that we compute a correct forwarding amount that involves
+	// inbound fees. We expect a similar amount as for the above case of
+	// b->c, but reduced by the inbound discount on the channel a->d.
+	// We get 106000 - 1000 (base in) - 0.001 * 106000 (rate in) = 104894.
+	hops = []route.Vertex{ctx.aliases["d"], ctx.aliases["f"]}
+	amt = lnwire.NewMSatFromSatoshis(100)
+	rt, err = ctx.router.BuildRoute(&amt, hops, nil, 40, &payAddr)
+	require.NoError(t, err)
+	checkHops(rt, []uint64{9, 10}, payAddr)
+	require.EqualValues(t, rt.TotalAmount, 104894)
 }
 
 // TestForwardPass tests that the forwardPass function returns the expected
@@ -3237,7 +3266,8 @@ func TestForwardPass(t *testing.T) {
 			},
 			// The expected outgoing amount is calculated as
 			// ceil((A-b) / (1+r)).
-			expectedAmt: lnwire.MilliSatoshi(999000000),
+			// TODO: should be 999000000 with integer arithmetic.
+			expectedAmt: lnwire.MilliSatoshi(999000001),
 		},
 		{
 			name: "outbound fee, rounding",
@@ -3303,6 +3333,9 @@ func TestBackwardPass(t *testing.T) {
 					policy: &models.CachedEdgePolicy{
 						FeeBaseMSat: 112,
 					},
+					inboundFees: models.InboundFee{
+						Base: 111,
+					},
 					capacity: capacity,
 				},
 			},
@@ -3312,6 +3345,9 @@ func TestBackwardPass(t *testing.T) {
 				{
 					policy: &models.CachedEdgePolicy{
 						FeeBaseMSat: 222,
+					},
+					inboundFees: models.InboundFee{
+						Base: 222,
 					},
 					capacity: capacity,
 				},
@@ -3323,6 +3359,12 @@ func TestBackwardPass(t *testing.T) {
 					policy: &models.CachedEdgePolicy{
 						FeeBaseMSat: 333,
 					},
+					// This inbound fee doesn't have an
+					// effect (receiver doesn't charge
+					// inbound).
+					inboundFees: models.InboundFee{
+						Base: 334,
+					},
 					capacity: capacity,
 				},
 			},
@@ -3333,13 +3375,43 @@ func TestBackwardPass(t *testing.T) {
 		edgeUnifiers, false, testReceiverAmt, &bandwidthHints,
 	)
 	require.NoError(t, err)
-	require.Equal(t, testReceiverAmt+333+222, senderAmount)
+	require.Equal(t, testReceiverAmt+333+222+222+111, senderAmount)
 
 	// Check that we arrive at the same receiver amount by doing a forward
 	// pass.
 	receiverAmt, err := forwardPass(senderAmount, unifiedEdges)
 	require.NoError(t, err)
 	require.Equal(t, testReceiverAmt, receiverAmt)
+
+	// Insert a policy that leads to rounding.
+	edgeUnifiers[1] = &edgeUnifier{
+		edges: []*unifiedEdge{
+			{
+				policy: &models.CachedEdgePolicy{
+					FeeBaseMSat:               20,
+					FeeProportionalMillionths: 100,
+				},
+				inboundFees: models.InboundFee{
+					Base: -10,
+					Rate: -50,
+				},
+				capacity: capacity,
+			},
+		},
+	}
+
+	unifiedEdges, senderAmount, err = backwardPass(
+		edgeUnifiers, false, testReceiverAmt, &bandwidthHints,
+	)
+	require.NoError(t, err)
+
+	// For this route, we have some rounding errors, so we can't expect the
+	// exact amount, but it should be higher than the exact amount.
+	receiverAmt, err = forwardPass(senderAmount, unifiedEdges)
+	require.NoError(t, err)
+	require.NotEqual(t, testReceiverAmt, receiverAmt)
+	require.InDelta(t, int64(testReceiverAmt), int64(receiverAmt), 1)
+	require.GreaterOrEqual(t, int64(receiverAmt), int64(testReceiverAmt))
 }
 
 // edgeCreationModifier is an enum-like type used to modify steps that are

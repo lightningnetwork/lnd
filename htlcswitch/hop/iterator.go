@@ -465,11 +465,11 @@ func (b *BlindingKit) DecryptAndValidateFwdInfo(payload *Payload,
 // ceil(a/b) = (a + b - 1)/(b).
 //
 //nolint:lll,dupword
-func calculateForwardingAmount(incomingAmount lnwire.MilliSatoshi, baseFee,
+func calculateForwardingAmount(incomingAmount, baseFee lnwire.MilliSatoshi,
 	proportionalFee uint32) (lnwire.MilliSatoshi, error) {
 
 	// Sanity check to prevent overflow.
-	if incomingAmount < lnwire.MilliSatoshi(baseFee) {
+	if incomingAmount < baseFee {
 		return 0, fmt.Errorf("incoming amount: %v < base fee: %v",
 			incomingAmount, baseFee)
 	}

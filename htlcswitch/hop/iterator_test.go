@@ -111,7 +111,7 @@ func TestForwardingAmountCalc(t *testing.T) {
 	tests := []struct {
 		name           string
 		incomingAmount lnwire.MilliSatoshi
-		baseFee        uint32
+		baseFee        lnwire.MilliSatoshi
 		proportional   uint32
 		forwardAmount  lnwire.MilliSatoshi
 		expectErr      bool

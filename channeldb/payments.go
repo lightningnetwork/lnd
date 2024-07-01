@@ -597,28 +597,7 @@ func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 		// literally have to traverse the cursor linearly, which can
 		// take quite a while. So it's an optional query parameter.
 		if query.CountTotal {
-			var (
-				totalPayments uint64
-				err           error
-			)
-			countFn := func(_, _ []byte) error {
-				totalPayments++
-
-				return nil
-			}
-
-			// In non-boltdb database backends, there's a faster
-			// ForAll query that allows for batch fetching items.
-			if fastBucket, ok := indexes.(kvdb.ExtendedRBucket); ok {
-				err = fastBucket.ForAll(countFn)
-			} else {
-				err = indexes.ForEach(countFn)
-			}
-			if err != nil {
-				return fmt.Errorf("error counting payments: %w",
-					err)
-			}
-
+			totalPayments := uint64(len(resp.Payments))
 			resp.TotalCount = totalPayments
 		}
 

@@ -17,7 +17,7 @@ $  make install
 ## Configuring Postgres for LND
 
 In order for LND to run on Postgres, an empty database should already exist. A
-database can be created via the usual ways (psql, pgadmin, etc). A user with
+database can be created via the usual ways (psql, pgadmin, etc.). A user with
 access to this database is also required.
 
 Creation of a schema and the tables is handled by LND automatically.

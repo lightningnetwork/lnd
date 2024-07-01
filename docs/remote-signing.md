@@ -91,9 +91,9 @@ signer>  $  lncli wallet accounts list > accounts-signer.json
 
 That `accounts-signer.json` file has to be copied to the machine on which
 "watch-only" will be running. It contains the extended public keys for all of
-`lnd`'s accounts (see [required accounts](#required-accounts) ).
+`lnd`'s accounts (see [required accounts](#required-accounts)).
 
-A custom macaroon can be baked for the watch-only node so it only gets the
+A custom macaroon can be baked for the watch-only node, so it only gets the
 minimum required permissions on the signer instance:
 
 ```shell
@@ -178,7 +178,7 @@ The upgrade process should look like this:
 ## Required accounts
 
 In case you want to provide your own account `xpub`s and not export them from
-an `lnd` node, you can derive them yourself. The extended public keys don't have
+a `lnd` node, you can derive them yourself. The extended public keys don't have
 to come from the same master root key, but normally they would. The main
 requirement is that the `xpub`s are at derivation level 3 (`m/X'/Y'/Z'`).
 

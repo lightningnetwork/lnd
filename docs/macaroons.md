@@ -136,7 +136,7 @@ To avoid leaking the macaroon information, `lnd` supports the so called
     before the `changepassword` command still remain valid. If a user wants to
     invalidate all previously created macaroons, the `--new_mac_root_key` flag
     of the `changepassword` command should be used! 
-* An user of `lncli` will see the returned admin macaroon printed to the screen
+* A user of `lncli` will see the returned admin macaroon printed to the screen
   or saved to a file if the parameter `--save_to=some_file.macaroon` is used.
 * **Important:** By default, `lnd` will create the macaroon files during the
   `unlock` phase, if the `--stateless_init` flag is not used. So to avoid

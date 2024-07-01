@@ -21,7 +21,7 @@ or the specified budget has been used up.
 There are two questions when spending a UTXO - how much fees to pay and what
 the confirmation target is, which gives us the concepts of budget and deadline.
 This is especially important when sweeping the outputs of a force close
-transaction - some of the outputs are time-sensitive, and may result in fund
+transaction - some outputs are time-sensitive, and may result in fund
 loss if not confirmed in time. On the other hand, we don’t want to pay more
 than what we can get back - if a sweeping transaction spends more than what is
 meant to be swept, we are losing money due to fees.
@@ -80,7 +80,7 @@ flowchart LR
 `UtxoAggregator` is an interface that handles the batching of inputs.
 `BudgetAggregator` implements this interface by grouping inputs with the same
 deadline together. Inputs with the same deadline express the same time
-sensitivity so it makes sense to sweep them in the same transaction. Once
+sensitivity, so it makes sense to sweep them in the same transaction. Once
 grouped, inputs in each batch are sorted based on their budgets. The only
 exception is inputs with the `ExclusiveGroup` flag set, which will be swept
 alone.
@@ -119,7 +119,7 @@ rate, an ending fee rate, and a width (the deadline delta). It's used by the
 
 `LinearFeeFunction` implements this interface using a linear function - it
 calculates a fee rate delta using `(ending_fee_rate - starting_fee_rate) /
-deadline`, and increases the fee rate by this delta value everytime a new block
+deadline`, and increases the fee rate by this delta value every time a new block
 arrives. Once the deadline is passed, `LinearFeeFunction` will cap its
 returning fee rate at the ending fee rate.
 

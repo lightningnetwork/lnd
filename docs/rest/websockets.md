@@ -17,7 +17,7 @@ what header fields are allowed to be sent. Therefore, the macaroon cannot just
 be added as a `Grpc-Metadata-Macaroon` header field as it would work with normal
 REST calls. The browser will just ignore that header field and not send it.
 
-Instead we have added a workaround in `lnd`'s WebSocket proxy that allows
+Instead, we have added a workaround in `lnd`'s WebSocket proxy that allows
 sending the macaroon as a WebSocket "protocol":
 
 ```javascript
@@ -101,12 +101,12 @@ ws.on('message', function(body) {
 ## Request-streaming RPCs
 
 Starting with `lnd v0.13.0-beta` all RPCs can be used through REST, even those
-that are fully bi-directional (e.g. the client can also send multiple request
+that are fully bidirectional (e.g. the client can also send multiple request
 messages to the stream).
 
 **Example**:
 
-As an example we show how one can use the bi-directional channel acceptor RPC.
+As an example we show how one can use the bidirectional channel acceptor RPC.
 Through that RPC each incoming channel open request (another peer opening a
 channel to our node) will be passed in for inspection. We can decide
 programmatically whether to accept or reject the channel.

@@ -84,10 +84,10 @@ Standby nodes are `HarnessNode`s created when initializing the integration test
 and stay alive across all the test cases. Creating a new node is not without a
 cost. With block height increasing, it takes significantly longer to initialize
 a new node and wait for it to be synced. Standby nodes, however, don’t have
-this problem as they are digesting blocks all the time. Thus it’s encouraged to
+this problem as they are digesting blocks all the time. Thus, it’s encouraged to
 use standby nodes wherever possible.
 
-Currently there are two standby nodes, Alice and Bob. Their internal states are
+Currently, there are two standby nodes, Alice and Bob. Their internal states are
 recorded and taken into account when `HarnessTest` makes assertions. When
 making a new test case using `Subtest`, there’s a cleanup function which
 further validates the current test case has no dangling uncleaned states, such

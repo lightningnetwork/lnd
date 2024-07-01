@@ -32,7 +32,7 @@ You first need to build the `lnd` docker image:
 $  docker build --tag=myrepository/lnd --build-arg checkout=v0.14.1-beta .
 ```
 
-It is recommended that you checkout the latest released tag.
+It is recommended that you check out the latest released tag.
 
 You can continue by creating and running the container:
 

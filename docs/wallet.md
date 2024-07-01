@@ -115,7 +115,7 @@ of some sort. It will also only work on Unix like file systems that support
 named pipes.
 
 We will use the password manager [`pass`](https://www.passwordstore.org/) as an
-example here but it should work similarly with other password managers.
+example here, but it should work similarly with other password managers.
 
 - Start `lnd` without the flag:
   ```shell
@@ -179,7 +179,7 @@ There is a way to get rid of the need to unlock the wallet password: The
 
 Using that flag with **real funds (mainnet) is extremely risky for two reasons**:
 1. On first startup a wallet is created automatically. The seed phrase (the 24
-   words needed to restore a wallet) is never shown to the user. Therefore if
+   words needed to restore a wallet) is never shown to the user. Therefore, if
    the worst thing happens and the hard disk crashes or the wallet file is
    deleted by accident, **THERE IS NO WAY OF GETTING THE FUNDS BACK**.
 2. In addition to the seed not being known to the user, the wallet database is

@@ -6,11 +6,11 @@ binaries are now reproducible, allowing developers to build the binary on
 distinct machines, and end up with a byte-for-byte identical binary. However,
 this wasn't _fully_ solved in `go1.13`, as the build system still includes the
 directory the binary is built into the binary itself. As a result, our scripts
-utilize a work around needed until `go1.13.2`.  
+utilize a workaround needed until `go1.13.2`.  
 
 ## Building a New Release
 
-### MacOS
+### macOS
 
 The first requirement is to have [`docker`](https://www.docker.com/)
 installed locally and running. The second requirement is to have `make`

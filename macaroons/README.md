@@ -39,7 +39,7 @@ With the root key set up, `lnd` continues with creating three macaroon files:
   the name might suggest it. The permission `offchain` is needed to pay an
   invoice which is currently only granted in the admin macaroon.
 * `readonly.macaroon`: Grants read-only access to all gRPC commands. Could be
-  given to  a monitoring application for example.
+  given to a monitoring application for example.
 * `admin.macaroon`: Grants full read and write access to all gRPC commands.
   This is used by the `lncli` client.
 

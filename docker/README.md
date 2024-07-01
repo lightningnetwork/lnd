@@ -217,7 +217,7 @@ bob $  lncli --network=simnet channelbalance
 ```
 
 Now we have open channel in which we sent only one payment, let's imagine
-that we sent lots of them and we'd now like to close the channel. Let's do
+that we sent lots of them, and we'd now like to close the channel. Let's do
 it!
 ```shell
 # List the "Alice" channel and retrieve "channel_point" which represents
@@ -300,7 +300,7 @@ bitcoins. The schema will be following:
  to "Faucet" then the already created "btcd" node would be sufficient.
 ```
 
-First of all you need to run `btcd` node in `testnet` and wait for it to be 
+First you need to run `btcd` node in `testnet` and wait for it to be 
 synced with test network (`May the Force and Patience be with you`).
 ```shell
 # Init bitcoin network env variable:
@@ -330,11 +330,11 @@ and send some amount of bitcoins to `Alice`.
 ### Building standalone docker images
 
 Instructions on how to build standalone docker images (for development or
-production), outside of `docker-compose`, see the
+production), outside `docker-compose`, see the
 [docker docs](../docs/DOCKER.md).
 
 ### Using bitcoind version
-If you are using the bitcoind version of the compose file i.e `docker-compose-bitcoind.yml`, follow these additional instructions:
+If you are using the bitcoind version of the compose file i.e. `docker-compose-bitcoind.yml`, follow these additional instructions:
 
 #### Start Bitcoin Node with bitcoind using Docker Compose
 To launch the Bitcoin node using bitcoind in the regtest network using Docker Compose, use the following command:

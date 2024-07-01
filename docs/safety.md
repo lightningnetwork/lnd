@@ -29,7 +29,7 @@
 This chapter describes the security/safety mechanisms that are implemented in
 `lnd`. We encourage every person that is planning on putting mainnet funds into
 a Lightning Network channel using `lnd` to read this guide carefully.   
-As of this writing, `lnd` is still in beta and it is considered `#reckless` to
+As of this writing, `lnd` is still in beta, and it is considered `#reckless` to
 put any life altering amounts of BTC into the network.   
 That said, we constantly put in a lot of effort to make `lnd` safer to use and
 more secure. We will update this documentation with each safety mechanism that
@@ -60,14 +60,14 @@ Important to know:
   the 24 words (and the password) in a safe place.
 * You should never run two different `lnd` nodes with the same seed! Even if
   they aren't running at the same time. This will lead to strange/unpredictable
-  behavior or even loss of funds. To migrate an `lnd` node to a new device,
+  behavior or even loss of funds. To migrate a `lnd` node to a new device,
   please see the [node migration section](#migrating-a-node-to-a-new-device).
 * For more technical information [see the aezeed README](../aezeed/README.md).
 
 ### Wallet password
 
 The wallet password is one of the first things that has to be entered if a new
-wallet is created using `lnd`. It is completely independent from the `aezeed`
+wallet is created using `lnd`. It is completely independent of the `aezeed`
 cipher seed passphrase (which is optional). The wallet password is used to
 encrypt the sensitive parts of `lnd`'s databases, currently some parts of
 `wallet.db` and `macaroons.db`. Loss of this password does not necessarily
@@ -77,7 +77,7 @@ But the node will need to be restored using the
 
 ### TLS
 
-By default the two API connections `lnd` offers (gRPC on port 10009 and REST on
+By default, the two API connections `lnd` offers (gRPC on port 10009 and REST on
 port 8080) use TLS with a self-signed certificate for transport level security.
 Specifying the certificate on the client side (for example `lncli`) is only a
 protection against man-in-the-middle attacks and does not provide any
@@ -205,25 +205,25 @@ When creating a new wallet, `lnd` will print out 24 words to write down, which
 is the wallet's seed (in the [aezeed](#aezeed) format). That seed is optionally
 encrypted with a passphrase, also called the _cipher seed passphrase_.   
 It is absolutely important to write both the seed and, if set, the password down
-and store it in a safe place as **there is no way of exporting the seed from an
+and store it in a safe place as **there is no way of exporting the seed from a
 lnd wallet**. When creating the wallet, after printing the seed to the command
 line, it is hashed and only the hash (or to be more exact, the BIP32 extended
 root key) is stored in the `wallet.db` file.   
 There is
 [a tool being worked on](https://github.com/lightningnetwork/lnd/pull/2373)
-that can extract the BIP32 extended root key but currently you cannot restore
+that can extract the BIP32 extended root key, but currently you cannot restore
 lnd with only this root key.
 
 Important to know:
 * Setting a password/passphrase for the aezeed is meant to protect it from
   an attacker that finds the paper/storage device. Writing down the password
   alongside the 24 seed words does not enhance the security in any way.
-  Therefore the password should be stored in a separate place.
+  Therefore, the password should be stored in a separate place.
 
 ### File based backups
 
 There is a lot of confusion and also some myths about how to best backup the
-off-chain funds of an `lnd` node. Making a mistake here is also still the single
+off-chain funds of a `lnd` node. Making a mistake here is also still the single
 biggest risk of losing off-chain funds, even though we do everything to mitigate
 those risks.
 
@@ -231,7 +231,7 @@ those risks.
 The single most important file that needs to be backed up whenever it changes
 is the `<lnddir>/data/chain/bitcoin/mainnet/channel.backup` file which holds
 the Static Channel Backups (SCBs). This file is only updated every time `lnd`
-starts, a channel is opened or a channel is closed.
+starts, a channel is opened, or a channel is closed.
 
 Most consumer Lightning wallet apps upload the file to the cloud automatically.
 
@@ -275,7 +275,7 @@ Other ways of obtaining SCBs for a node's channels are
 
 Because the backup file is encrypted with a key from the seed the node was
 created with, it can safely be stored on a cloud storage or any other storage
-medium. Many consumer focused wallet smartphone apps automatically store a
+medium. Many consumers focused wallet smartphone apps automatically store a
 backup file to the cloud, if the phone is set up to allow it.
 
 ### Keep `lnd` updated
@@ -295,10 +295,9 @@ online.
 
 Funds that are in such channels are at great risk, as is described quite
 dramatically in
-[this article](https://medium.com/@gcomxx/get-rid-of-those-zombie-channels-1267d5a2a708?)
-.
+[this article](https://medium.com/@gcomxx/get-rid-of-those-zombie-channels-1267d5a2a708?).
 
-The TL;DR of the article is that if you have funds in a zombie channel and you
+The TL;DR of the article is that if you have funds in a zombie channel, and you
 need to recover your node after a failure, SCBs won't be able to recover those
 funds. Because SCB restore
 [relies on the remote node cooperating](#static-channel-backups-scbs).
@@ -328,7 +327,7 @@ fallback way to do it.
 This option works very well if the new device runs the same operating system on
 the same (or at least very similar) architecture. If that is the case, the whole
 `/home/<user>/.lnd` directory in Linux (or
-`$HOME/Library/Application Support/lnd` in MacOS, `%LOCALAPPDATA%\lnd` in
+`$HOME/Library/Application Support/lnd` in macOS, `%LOCALAPPDATA%\lnd` in
 Windows) can be moved to the new device and `lnd` started there. It is important
 to shut down `lnd` on the old device before moving the directory!   
 **Not supported/untested** is moving the data directory between different
@@ -390,7 +389,7 @@ list things that possibly need to be changed to work on a new device:
 
 ### Migrating a node from clearnet to Tor
 
-If an `lnd` node has already been connected to the internet with an IPv4 or IPv6
+If a `lnd` node has already been connected to the internet with an IPv4 or IPv6
 (clearnet) address and has any non-private channels, this connection between
 channels and IP address is known to the network and cannot be deleted.   
 Starting the same node with the same identity and channels using Tor is trivial
@@ -411,7 +410,7 @@ node and the new Tor node:
 
 ### Prevent data corruption
 
-Many problems while running an `lnd` node can be prevented by avoiding data
+Many problems while running a `lnd` node can be prevented by avoiding data
 corruption in the channel database (`<lnddir>/data/graph/mainnet/channel.db`).
 
 The following (non-exhaustive) list of things can lead to data corruption:
@@ -428,16 +427,15 @@ The following (non-exhaustive) list of things can lead to data corruption:
   architectures.
 
 To avoid most of these factors, it is recommended to store `lnd`'s main data
-directory on an Solid State Drive (SSD) of a reliable manufacturer.
+directory on a Solid State Drive (SSD) of a reliable manufacturer.
 An alternative or extension to that is to use a replicated disk setup. Making
-sure a power failure does not interrupt the node by running a UPS (
-uninterruptible power supply) might also make sense depending on the reliability
+sure a power failure does not interrupt the node by running a UPS (uninterruptible power supply) might also make sense depending on the reliability
 of the local power grid and the amount of funds at stake.
 
 ### Don't interrupt `lncli` commands
 
 Things can start to take a while to execute if a node has more than 50 to 100
-channels. It is extremely important to **never interrupt an `lncli` command**
+channels. It is extremely important to **never interrupt a `lncli` command**
 if it is manipulating the channel database, which is true for the following
 commands:
  - `openchannel`

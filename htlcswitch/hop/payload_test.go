@@ -646,7 +646,7 @@ func TestValidateBlindedRouteData(t *testing.T) {
 	}{
 		{
 			name: "max cltv expired",
-			data: record.NewBlindedRouteData(
+			data: record.NewNonFinalBlindedRouteData(
 				scid,
 				nil,
 				record.PaymentRelayInfo{},
@@ -663,7 +663,7 @@ func TestValidateBlindedRouteData(t *testing.T) {
 		},
 		{
 			name: "zero max cltv",
-			data: record.NewBlindedRouteData(
+			data: record.NewNonFinalBlindedRouteData(
 				scid,
 				nil,
 				record.PaymentRelayInfo{},
@@ -682,7 +682,7 @@ func TestValidateBlindedRouteData(t *testing.T) {
 		},
 		{
 			name: "amount below minimum",
-			data: record.NewBlindedRouteData(
+			data: record.NewNonFinalBlindedRouteData(
 				scid,
 				nil,
 				record.PaymentRelayInfo{},
@@ -699,7 +699,7 @@ func TestValidateBlindedRouteData(t *testing.T) {
 		},
 		{
 			name: "valid, no features",
-			data: record.NewBlindedRouteData(
+			data: record.NewNonFinalBlindedRouteData(
 				scid,
 				nil,
 				record.PaymentRelayInfo{},
@@ -714,7 +714,7 @@ func TestValidateBlindedRouteData(t *testing.T) {
 		},
 		{
 			name: "unknown features",
-			data: record.NewBlindedRouteData(
+			data: record.NewNonFinalBlindedRouteData(
 				scid,
 				nil,
 				record.PaymentRelayInfo{},
@@ -738,7 +738,7 @@ func TestValidateBlindedRouteData(t *testing.T) {
 		},
 		{
 			name: "valid data",
-			data: record.NewBlindedRouteData(
+			data: record.NewNonFinalBlindedRouteData(
 				scid,
 				nil,
 				record.PaymentRelayInfo{

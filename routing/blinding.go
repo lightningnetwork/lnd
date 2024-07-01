@@ -88,13 +88,13 @@ func (b *BlindedPayment) Validate() error {
 // the case of multiple blinded hops, CLTV delta is fully accounted for in the
 // hints (both for intermediate hops and the final_cltv_delta for the receiving
 // node).
-func (b *BlindedPayment) toRouteHints() RouteHints {
+func (b *BlindedPayment) toRouteHints() (RouteHints, error) {
 	// If we just have a single hop in our blinded route, it just contains
 	// an introduction node (this is a valid path according to the spec).
 	// Since we have the un-blinded node ID for the introduction node, we
 	// don't need to add any route hints.
 	if len(b.BlindedPath.BlindedHops) == 1 {
-		return nil
+		return nil, nil
 	}
 
 	hintCount := len(b.BlindedPath.BlindedHops) - 1
@@ -136,13 +136,12 @@ func (b *BlindedPayment) toRouteHints() RouteHints {
 		ToNodeFeatures: features,
 	}
 
-	hints[fromNode] = []AdditionalEdge{
-		&BlindedEdge{
-			policy:        edgePolicy,
-			cipherText:    b.BlindedPath.BlindedHops[0].CipherText,
-			blindingPoint: b.BlindedPath.BlindingPoint,
-		},
+	edge, err := NewBlindedEdge(edgePolicy, b, 0)
+	if err != nil {
+		return nil, err
 	}
+
+	hints[fromNode] = []AdditionalEdge{edge}
 
 	// Start at an offset of 1 because the first node in our blinded hops
 	// is the introduction node and terminate at the second-last node
@@ -169,14 +168,13 @@ func (b *BlindedPayment) toRouteHints() RouteHints {
 			ToNodeFeatures: features,
 		}
 
-		hints[fromNode] = []AdditionalEdge{
-			&BlindedEdge{
-				policy: edgePolicy,
-				cipherText: b.BlindedPath.BlindedHops[i].
-					CipherText,
-			},
+		edge, err := NewBlindedEdge(edgePolicy, b, i)
+		if err != nil {
+			return nil, err
 		}
+
+		hints[fromNode] = []AdditionalEdge{edge}
 	}
 
-	return hints
+	return hints, nil
 }

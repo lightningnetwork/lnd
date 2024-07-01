@@ -215,6 +215,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 
 			invoice.PaymentHash, err = parse32Bytes(base32Data)
+
 		case fieldTypeS:
 			if invoice.PaymentAddr != nil {
 				// We skip the field if we have already seen a
@@ -223,6 +224,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 
 			invoice.PaymentAddr, err = parse32Bytes(base32Data)
+
 		case fieldTypeD:
 			if invoice.Description != nil {
 				// We skip the field if we have already seen a
@@ -231,6 +233,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 
 			invoice.Description, err = parseDescription(base32Data)
+
 		case fieldTypeM:
 			if invoice.Metadata != nil {
 				// We skip the field if we have already seen a
@@ -248,6 +251,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 
 			invoice.Destination, err = parseDestination(base32Data)
+
 		case fieldTypeH:
 			if invoice.DescriptionHash != nil {
 				// We skip the field if we have already seen a
@@ -256,6 +260,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 
 			invoice.DescriptionHash, err = parse32Bytes(base32Data)
+
 		case fieldTypeX:
 			if invoice.expiry != nil {
 				// We skip the field if we have already seen a
@@ -264,6 +269,7 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 
 			invoice.expiry, err = parseExpiry(base32Data)
+
 		case fieldTypeC:
 			if invoice.minFinalCLTVExpiry != nil {
 				// We skip the field if we have already seen a
@@ -271,7 +277,9 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				continue
 			}
 
-			invoice.minFinalCLTVExpiry, err = parseMinFinalCLTVExpiry(base32Data)
+			invoice.minFinalCLTVExpiry, err =
+				parseMinFinalCLTVExpiry(base32Data)
+
 		case fieldTypeF:
 			if invoice.FallbackAddr != nil {
 				// We skip the field if we have already seen a
@@ -279,7 +287,10 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				continue
 			}
 
-			invoice.FallbackAddr, err = parseFallbackAddr(base32Data, net)
+			invoice.FallbackAddr, err = parseFallbackAddr(
+				base32Data, net,
+			)
+
 		case fieldTypeR:
 			// An `r` field can be included in an invoice multiple
 			// times, so we won't skip it if we have already seen
@@ -289,7 +300,10 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 				return err
 			}
 
-			invoice.RouteHints = append(invoice.RouteHints, routeHint)
+			invoice.RouteHints = append(
+				invoice.RouteHints, routeHint,
+			)
+
 		case fieldType9:
 			if invoice.Features != nil {
 				// We skip the field if we have already seen a
@@ -298,6 +312,19 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 
 			invoice.Features, err = parseFeatures(base32Data)
+
+		case fieldTypeB:
+			blindedPaymentPath, err := parseBlindedPaymentPath(
+				base32Data,
+			)
+			if err != nil {
+				return err
+			}
+
+			invoice.BlindedPaymentPaths = append(
+				invoice.BlindedPaymentPaths, blindedPaymentPath,
+			)
+
 		default:
 			// Ignore unknown type.
 		}
@@ -493,6 +520,17 @@ func parseRouteHint(data []byte) ([]HopHint, error) {
 	}
 
 	return routeHint, nil
+}
+
+// parseBlindedPaymentPath attempts to parse a BlindedPaymentPath from the given
+// byte slice.
+func parseBlindedPaymentPath(data []byte) (*BlindedPaymentPath, error) {
+	base256Data, err := bech32.ConvertBits(data, 5, 8, false)
+	if err != nil {
+		return nil, err
+	}
+
+	return DecodeBlindedPayment(bytes.NewReader(base256Data))
 }
 
 // parseFeatures decodes any feature bits directly from the base32

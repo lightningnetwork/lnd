@@ -360,6 +360,7 @@ func (b *BlindingKit) DecryptAndValidateFwdInfo(payload *Payload,
 	if err != nil {
 		return nil, err
 	}
+
 	// Validate the data in the blinded route against our incoming htlc's
 	// information.
 	if err := ValidateBlindedRouteData(
@@ -368,9 +369,31 @@ func (b *BlindingKit) DecryptAndValidateFwdInfo(payload *Payload,
 		return nil, err
 	}
 
+	// Exit early if this onion is for the exit hop of the route since
+	// route blinding receives are not yet supported.
+	if isFinalHop {
+		return nil, fmt.Errorf("being the final hop in a blinded " +
+			"path is not yet supported")
+	}
+
+	// At this point, we know we are a forwarding node for this onion
+	// and so we expect the relay info and next SCID fields to be set.
+	relayInfo, err := routeData.RelayInfo.UnwrapOrErr(
+		fmt.Errorf("relay info not set for non-final blinded hop"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	nextSCID, err := routeData.ShortChannelID.UnwrapOrErr(
+		fmt.Errorf("next SCID not set for non-final blinded hop"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	fwdAmt, err := calculateForwardingAmount(
-		b.IncomingAmount, routeData.RelayInfo.Val.BaseFee,
-		routeData.RelayInfo.Val.FeeRate,
+		b.IncomingAmount, relayInfo.Val.BaseFee, relayInfo.Val.FeeRate,
 	)
 	if err != nil {
 		return nil, err
@@ -400,10 +423,10 @@ func (b *BlindingKit) DecryptAndValidateFwdInfo(payload *Payload,
 	}
 
 	return &ForwardingInfo{
-		NextHop:         routeData.ShortChannelID.Val,
+		NextHop:         nextSCID.Val,
 		AmountToForward: fwdAmt,
 		OutgoingCTLV: b.IncomingCltv - uint32(
-			routeData.RelayInfo.Val.CltvExpiryDelta,
+			relayInfo.Val.CltvExpiryDelta,
 		),
 		// Remap from blinding override type to blinding point type.
 		NextBlinding: tlv.SomeRecordT(

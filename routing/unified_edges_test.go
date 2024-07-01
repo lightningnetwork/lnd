@@ -59,37 +59,37 @@ func TestNodeEdgeUnifier(t *testing.T) {
 	unifierFilled := newNodeEdgeUnifier(source, toNode, false, nil)
 
 	unifierFilled.addPolicy(
-		fromNode, &p1, inboundFee1, c1, defaultHopPayloadSize,
+		fromNode, &p1, inboundFee1, c1, defaultHopPayloadSize, nil,
 	)
 	unifierFilled.addPolicy(
-		fromNode, &p2, inboundFee2, c2, defaultHopPayloadSize,
+		fromNode, &p2, inboundFee2, c2, defaultHopPayloadSize, nil,
 	)
 
 	unifierNoCapacity := newNodeEdgeUnifier(source, toNode, false, nil)
 	unifierNoCapacity.addPolicy(
-		fromNode, &p1, inboundFee1, 0, defaultHopPayloadSize,
+		fromNode, &p1, inboundFee1, 0, defaultHopPayloadSize, nil,
 	)
 	unifierNoCapacity.addPolicy(
-		fromNode, &p2, inboundFee2, 0, defaultHopPayloadSize,
+		fromNode, &p2, inboundFee2, 0, defaultHopPayloadSize, nil,
 	)
 
 	unifierNoInfo := newNodeEdgeUnifier(source, toNode, false, nil)
 	unifierNoInfo.addPolicy(
 		fromNode, &models.CachedEdgePolicy{}, models.InboundFee{},
-		0, defaultHopPayloadSize,
+		0, defaultHopPayloadSize, nil,
 	)
 
 	unifierInboundFee := newNodeEdgeUnifier(source, toNode, true, nil)
 	unifierInboundFee.addPolicy(
-		fromNode, &p1, inboundFee1, c1, defaultHopPayloadSize,
+		fromNode, &p1, inboundFee1, c1, defaultHopPayloadSize, nil,
 	)
 	unifierInboundFee.addPolicy(
-		fromNode, &p2, inboundFee2, c2, defaultHopPayloadSize,
+		fromNode, &p2, inboundFee2, c2, defaultHopPayloadSize, nil,
 	)
 
 	unifierLocal := newNodeEdgeUnifier(fromNode, toNode, true, nil)
 	unifierLocal.addPolicy(
-		fromNode, &p1, inboundFee1, c1, defaultHopPayloadSize,
+		fromNode, &p1, inboundFee1, c1, defaultHopPayloadSize, nil,
 	)
 
 	inboundFeeZero := models.InboundFee{}
@@ -98,10 +98,11 @@ func TestNodeEdgeUnifier(t *testing.T) {
 	}
 	unifierNegInboundFee := newNodeEdgeUnifier(source, toNode, true, nil)
 	unifierNegInboundFee.addPolicy(
-		fromNode, &p1, inboundFeeZero, c1, defaultHopPayloadSize,
+		fromNode, &p1, inboundFeeZero, c1, defaultHopPayloadSize, nil,
 	)
 	unifierNegInboundFee.addPolicy(
 		fromNode, &p2, inboundFeeNegative, c2, defaultHopPayloadSize,
+		nil,
 	)
 
 	tests := []struct {

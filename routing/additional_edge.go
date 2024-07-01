@@ -2,8 +2,8 @@ package routing
 
 import (
 	"errors"
+	"fmt"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -29,6 +29,11 @@ type AdditionalEdge interface {
 
 	// EdgePolicy returns the policy of the additional edge.
 	EdgePolicy() *models.CachedEdgePolicy
+
+	// BlindedPayment returns the BlindedPayment that this additional edge
+	// info was derived from. It will return nil if this edge was not
+	// derived from a blinded route.
+	BlindedPayment() *BlindedPayment
 }
 
 // PayloadSizeFunc defines the interface for the payload size function.
@@ -60,12 +65,49 @@ func (p *PrivateEdge) IntermediatePayloadSize(amount lnwire.MilliSatoshi,
 	return hop.PayloadSize(channelID)
 }
 
+// BlindedPayment is a no-op for a PrivateEdge since it is not associated with
+// a blinded payment. This will thus return nil.
+func (p *PrivateEdge) BlindedPayment() *BlindedPayment {
+	return nil
+}
+
 // BlindedEdge implements the AdditionalEdge interface. Blinded hops are viewed
-// as additional edges because they are appened at the end of a normal route.
+// as additional edges because they are appended at the end of a normal route.
 type BlindedEdge struct {
-	policy        *models.CachedEdgePolicy
-	cipherText    []byte
-	blindingPoint *btcec.PublicKey
+	policy *models.CachedEdgePolicy
+
+	// blindedPayment is the BlindedPayment that this blinded edge was
+	// derived from.
+	blindedPayment *BlindedPayment
+
+	// hopIndex is the index of the hop in the blinded payment path that
+	// this edge is associated with.
+	hopIndex int
+}
+
+// NewBlindedEdge constructs a new BlindedEdge which packages the policy info
+// for a specific hop within the given blinded payment path. The hop index
+// should correspond to the hop within the blinded payment that this edge is
+// associated with.
+func NewBlindedEdge(policy *models.CachedEdgePolicy, payment *BlindedPayment,
+	hopIndex int) (*BlindedEdge, error) {
+
+	if payment == nil {
+		return nil, fmt.Errorf("blinded payment cannot be nil for " +
+			"blinded edge")
+	}
+
+	if hopIndex < 0 || hopIndex >= len(payment.BlindedPath.BlindedHops) {
+		return nil, fmt.Errorf("the hop index %d is outside the "+
+			"valid range between 0 and %d", hopIndex,
+			len(payment.BlindedPath.BlindedHops)-1)
+	}
+
+	return &BlindedEdge{
+		policy:         policy,
+		hopIndex:       hopIndex,
+		blindedPayment: payment,
+	}, nil
 }
 
 // EdgePolicy return the policy of the BlindedEdge.
@@ -78,13 +120,21 @@ func (b *BlindedEdge) EdgePolicy() *models.CachedEdgePolicy {
 func (b *BlindedEdge) IntermediatePayloadSize(_ lnwire.MilliSatoshi, _ uint32,
 	_ uint64) uint64 {
 
+	blindedPath := b.blindedPayment.BlindedPath
+
 	hop := route.Hop{
-		BlindingPoint: b.blindingPoint,
-		EncryptedData: b.cipherText,
+		BlindingPoint: blindedPath.BlindingPoint,
+		EncryptedData: blindedPath.BlindedHops[b.hopIndex].CipherText,
 	}
 
 	// For blinded paths the next chanID is in the encrypted data tlv.
 	return hop.PayloadSize(0)
+}
+
+// BlindedPayment returns the blinded payment that this edge is associated
+// with.
+func (b *BlindedEdge) BlindedPayment() *BlindedPayment {
+	return b.blindedPayment
 }
 
 // Compile-time constraints to ensure the PrivateEdge and the BlindedEdge

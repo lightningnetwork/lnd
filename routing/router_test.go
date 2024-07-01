@@ -4124,3 +4124,169 @@ func TestNewRouteRequest(t *testing.T) {
 		})
 	}
 }
+
+// incomingFromOutgoing computes the incoming amount based on the outgoing
+// amount by adding fees to the outgoing amount, replicating the path finding
+// process.
+func incomingFromOutgoing(outgoingAmt lnwire.MilliSatoshi,
+	incoming, outgoing *unifiedEdge) lnwire.MilliSatoshi {
+
+	outgoingFee := outgoing.policy.ComputeFee(outgoingAmt)
+
+	// Net amount is the amount the inbound fees are calculated on.
+	netAmount := outgoingAmt + outgoingFee
+
+	inboundFee := incoming.inboundFees.CalcFee(
+		netAmount,
+	)
+
+	// The inbound fee is not allowed to reduce the incoming amount below
+	// the outgoing amount.
+	if int64(outgoingFee)+inboundFee < 0 {
+		return outgoingAmt
+	}
+
+	return netAmount + lnwire.MilliSatoshi(inboundFee)
+}
+
+// TestInboundOutbound tests the functions that compute the incoming and
+// outgoing amounts based on the fees of the incoming and outgoing channels.
+func TestInboundOutbound(t *testing.T) {
+	tests := []struct {
+		name         string
+		incomingBase int32
+		incomingRate int32
+		outgoingBase uint64
+		outgoingRate uint64
+		outgoingAmt  uint64
+	}{
+		{
+			name:         "only outbound fee",
+			incomingBase: 0,
+			incomingRate: 0,
+			outgoingBase: 20,
+			outgoingRate: 100,
+			outgoingAmt:  10_000_000,
+		},
+		{
+			name:         "positive inbound and outbound fee",
+			incomingBase: 20,
+			incomingRate: 100,
+			outgoingBase: 20,
+			outgoingRate: 100,
+			outgoingAmt:  10_000_000,
+		},
+		{
+			name:         "small negative inbound and outbound fee",
+			incomingBase: -10,
+			incomingRate: -50,
+			outgoingBase: 20,
+			outgoingRate: 100,
+			outgoingAmt:  10_000_000,
+		},
+		{
+			name:         "equal negative inbound and outbound fee",
+			incomingBase: -20,
+			incomingRate: -100,
+			outgoingBase: 20,
+			outgoingRate: 100,
+			outgoingAmt:  10_000_000,
+		},
+		{
+			name:         "large negative inbound and outbound fee",
+			incomingBase: -30,
+			incomingRate: -200,
+			outgoingBase: 20,
+			outgoingRate: 100,
+			outgoingAmt:  10_000_000,
+		},
+		{
+			name:         "large negative inbound and outbound fee",
+			incomingBase: -30,
+			incomingRate: -1_000_000,
+			outgoingBase: 20,
+			outgoingRate: 100,
+			outgoingAmt:  10_000_000,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+
+		t.Run(tt.name, func(t *testing.T) {
+			testInboundOutboundFee(t,
+				tt.outgoingAmt, tt.incomingBase,
+				tt.incomingRate, tt.outgoingBase,
+				tt.outgoingRate,
+			)
+		})
+	}
+}
+
+// testInboundOutboundFee is a helper function that tests the outgoing and
+// incoming amount relationship.
+func testInboundOutboundFee(t *testing.T, outgoingAmt uint64, inBase,
+	inRate int32, outBase, outRate uint64) {
+
+	debugStr := fmt.Sprintf(
+		"outAmt=%d, inBase=%d, inRate=%d, outBase=%d, outRate=%d",
+		outgoingAmt, inBase, inRate, outBase, outRate,
+	)
+
+	incomingEdge := &unifiedEdge{
+		policy: &models.CachedEdgePolicy{},
+		inboundFees: models.InboundFee{
+			Base: inBase,
+			Rate: inRate,
+		},
+	}
+
+	outgoingEdge := &unifiedEdge{
+		policy: &models.CachedEdgePolicy{
+			FeeBaseMSat: lnwire.MilliSatoshi(
+				outBase,
+			),
+			FeeProportionalMillionths: lnwire.MilliSatoshi(
+				outRate,
+			),
+		},
+	}
+
+	// We compute the incoming amount based on the outgoing amount, which
+	// mimicks the path finding process.
+	incomingAmt := incomingFromOutgoing(
+		lnwire.MilliSatoshi(outgoingAmt), incomingEdge,
+		outgoingEdge,
+	)
+
+	// We do the reverse and compute the outgoing amount based on the
+	// incoming amount.
+	outgoingAmtNew := outgoingFromIncoming(
+		incomingAmt, incomingEdge, outgoingEdge,
+	)
+
+	// We require that the incoming amount is always larger than the
+	// outgoing amount, because total fees cannot become negative.
+	require.GreaterOrEqual(
+		t, int64(incomingAmt), int64(outgoingAmtNew), debugStr,
+	)
+
+	// We check that up to rounding the amounts are equal.
+	require.InDelta(
+		t, int64(outgoingAmt), int64(outgoingAmtNew), 1.0, debugStr,
+	)
+
+	// If we round, the computed outgoing amount should be larger than the
+	// exact outgoing amount, to not hit any min HTLC limits.
+	require.GreaterOrEqual(
+		t, int64(outgoingAmtNew), int64(outgoingAmt), debugStr,
+	)
+}
+
+// FuzzInboundOutbound tests the incoming and outgoing amount calculation
+// functions with fuzzing.
+func FuzzInboundOutboundFee(f *testing.F) {
+	f.Add(uint64(0), int32(0), int32(0), uint64(0), uint64(0))
+
+	f.Fuzz(testInboundOutboundFee)
+}

@@ -3363,3 +3363,49 @@ func forwardPass(senderAmt lnwire.MilliSatoshi,
 
 	return senderAmt, nil
 }
+
+// outgoingFromIncoming computes the outgoing amount based on the incoming
+// amount by subtracting fees from the incoming amount. Note that this is not
+// exactly the inverse of incomingFromOutgoing, because of the rounding.
+func outgoingFromIncoming(incomingAmt lnwire.MilliSatoshi,
+	incoming, outgoing *unifiedEdge) lnwire.MilliSatoshi {
+
+	// TODO: calculations with integer ceil/floor arithmetic
+	feeRateParts := 1e6
+	rateOut := float64(outgoing.policy.FeeProportionalMillionths)
+	baseOut := float64(outgoing.policy.FeeBaseMSat)
+	rateIn := float64(incoming.inboundFees.Rate)
+	baseIn := float64(incoming.inboundFees.Base)
+
+	// The total fee, neglecting negative inbound fee capping can be
+	// summarized as m*incomingAmt + n, where m is the combined fee rate and
+	// n is the combined base fee.
+	m := (1 + rateOut/feeRateParts) * (1 + rateIn/feeRateParts)
+	n := baseOut*(1+rateIn/feeRateParts) + baseIn
+
+	// TODO: figure out if explicit check of m>0 is necessary.
+
+	// In order to decide if the total fee is negative, we *apply* the fee
+	// on the *incoming* amount.
+	testAmtF := m*float64(incomingAmt) + n
+
+	// Protect against negative values for the integer cast to Msat.
+	if testAmtF < 0 {
+		return incomingAmt
+	}
+
+	// If the total fee is positive, we compute the outgoing amount by
+	// subtracting the fee from the incoming amount, rounding the outgoing
+	// amount up, in order to not hit any min HTLC constraints from the
+	// backward pass.
+	if lnwire.MilliSatoshi(testAmtF) > incomingAmt {
+		return lnwire.MilliSatoshi(
+			math.Ceil((float64(incomingAmt) - n) / m),
+		)
+	}
+
+	// Otherwise the inbound fee made up for the outbound fee, which is why
+	// we just return the incoming amount. Total fees cannot become
+	// negative.
+	return incomingAmt
+}

@@ -92,8 +92,8 @@ github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0/go.mod h1:7SFka0XMvUgj3hfZtyd
 github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f h1:bAs4lUbRJpnnkd9VhRV3jjAVU7DJVjMaK+IsvSeZvFo=
 github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f/go.mod h1:TdznJufoqS23FtqVCzL0ZqgP5MqXbb4fg/WgDys70nA=
 github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d/go.mod h1:+5NJ2+qvTyV9exUAL/rxXi3DcLg2Ts+ymUAY5y4NvMg=
-github.com/btcsuite/btcwallet v0.16.10-0.20240625163855-b42ed59f0528 h1:DZRmr47CdPnNglwEVACPnJnGrfb/GBGyoGs5oqvLFg4=
-github.com/btcsuite/btcwallet v0.16.10-0.20240625163855-b42ed59f0528/go.mod h1:SLFUSQbP8ON/wxholYMfVLvGPJyk7boczOW/ob+nww4=
+github.com/btcsuite/btcwallet v0.16.10-0.20240706055350-e391a1c31df2 h1:mJquwdcEA4hZip4XKbRPAM9rOrus6wlNEcWzMz5CHsI=
+github.com/btcsuite/btcwallet v0.16.10-0.20240706055350-e391a1c31df2/go.mod h1:SLFUSQbP8ON/wxholYMfVLvGPJyk7boczOW/ob+nww4=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.4 h1:poyHFf7+5+RdxNp5r2T6IBRD7RyraUsYARYbp/7t4D8=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.4/go.mod h1:GETGDQuyq+VFfH1S/+/7slLM/9aNa4l7P4ejX6dJfb0=
 github.com/btcsuite/btcwallet/wallet/txrules v1.2.1 h1:UZo7YRzdHbwhK7Rhv3PO9bXgTxiOH45edK5qdsdiatk=
@@ -763,8 +763,8 @@ golang.org/x/net v0.0.0-20201021035429-f5854403a974/go.mod h1:sp8m0HH+o8qH0wwXwY
 golang.org/x/net v0.0.0-20201202161906-c7110b5ffcbb/go.mod h1:sp8m0HH+o8qH0wwXwYZr8TS3Oi6o0r6Gce1SSxlDquU=
 golang.org/x/net v0.0.0-20210226172049-e18ecbb05110/go.mod h1:m0MpNAwzfU5UDzcl9v0D8zg8gWTRqZa9RBIspLL5mdg=
 golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4/go.mod h1:p54w0d4576C0XHj96bSt6lcn1PtDYWL6XObtHCRCNQM=
-golang.org/x/net v0.22.0 h1:9sGLhx7iRIHEiX0oAJ3MRZMUCElJgy7Br1nO+AMN3Tc=
-golang.org/x/net v0.22.0/go.mod h1:JKghWKKOSdJwpW2GEx0Ja7fmaKnMsbu+MWVZTokSYmg=
+golang.org/x/net v0.24.0 h1:1PcaxkF854Fu3+lvBIx5SYn9wRlBzzcnHZSiaFFAb0w=
+golang.org/x/net v0.24.0/go.mod h1:2Q7sJY5mzlzWjKtYUEXSlBWCdyaioyXzRB2RtU8KVE8=
 golang.org/x/oauth2 v0.0.0-20180821212333-d2e6202438be/go.mod h1:N/0e6XlmueqKjAGxoOufVs8QHGRruUQn6yWY3a++T0U=
 golang.org/x/oauth2 v0.0.0-20190226205417-e64efc72b421/go.mod h1:gOpvHmFTYa4IltrdGE7lF6nIHvwfUNPOp7c8zoXwtLw=
 golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45/go.mod h1:gOpvHmFTYa4IltrdGE7lF6nIHvwfUNPOp7c8zoXwtLw=

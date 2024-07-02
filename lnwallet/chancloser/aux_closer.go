@@ -34,6 +34,10 @@ type AuxShutdownReq struct {
 	// down.
 	ChanPoint wire.OutPoint
 
+	// ShortChanID is the short channel ID of the channel that is being
+	// closed.
+	ShortChanID lnwire.ShortChannelID
+
 	// Initiator is true if the local node is the initiator of the channel.
 	Initiator bool
 

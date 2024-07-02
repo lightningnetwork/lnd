@@ -3081,13 +3081,12 @@ func (r *ChannelRouter) MarkEdgeLive(chanID lnwire.ShortChannelID) error {
 // channels that satisfy all requirements.
 type ErrNoChannel struct {
 	position int
-	fromNode route.Vertex
 }
 
 // Error returns a human-readable string describing the error.
 func (e ErrNoChannel) Error() string {
 	return fmt.Sprintf("no matching outgoing channel available for "+
-		"node %v (%v)", e.position, e.fromNode)
+		"node index %v", e.position)
 }
 
 // BuildRoute returns a fully specified route based on a list of pubkeys. If
@@ -3107,23 +3106,6 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		}
 	}
 
-	// If no amount is specified, we need to build a route for the minimum
-	// amount that this route can carry.
-	useMinAmt := amt == nil
-
-	var runningAmt lnwire.MilliSatoshi
-	if useMinAmt {
-		// For minimum amount routes, aim to deliver at least 1 msat to
-		// the destination. There are nodes in the wild that have a
-		// min_htlc channel policy of zero, which could lead to a zero
-		// amount payment being made.
-		runningAmt = 1
-	} else {
-		// If an amount is specified, we need to build a route that
-		// delivers exactly this amount to the final destination.
-		runningAmt = *amt
-	}
-
 	// We'll attempt to obtain a set of bandwidth hints that helps us select
 	// the best outgoing channel to use in case no outgoing channel is set.
 	bandwidthHints, err := newBandwidthManager(
@@ -3133,25 +3115,59 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		return nil, err
 	}
 
+	sourceNode := r.selfNode.PubKeyBytes
+
+	// We check that each node in the route has a connection to others that
+	// can forward in principle.
+	unifiers, err := getEdgeUnifiers(
+		r.selfNode.PubKeyBytes, hops, outgoingChans, r.cachedGraph,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// If no amount is specified, we need to build a route for the minimum
+	// amount that this route can carry.
+	useMinAmt := amt == nil
+
+	var (
+		receiverAmt lnwire.MilliSatoshi
+		pathEdges   []*unifiedEdge
+	)
+
+	if useMinAmt {
+		// For minimum amount routes, aim to deliver at least 1 msat to
+		// the destination. There are nodes in the wild that have a
+		// min_htlc channel policy of zero, which could lead to a zero
+		// amount payment being made.
+		var senderAmt lnwire.MilliSatoshi
+		pathEdges, senderAmt, err = backwardPass(
+			unifiers, useMinAmt, 1, bandwidthHints,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		receiverAmt, err = forwardPass(senderAmt, pathEdges)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// If an amount is specified, we need to build a route that
+		// delivers exactly this amount to the final destination.
+		pathEdges, _, err = backwardPass(
+			unifiers, useMinAmt, *amt, bandwidthHints,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		receiverAmt = *amt
+	}
+
 	// Fetch the current block height outside the routing transaction, to
 	// prevent the rpc call blocking the database.
 	_, height, err := r.cfg.Chain.GetBestBlock()
-	if err != nil {
-		return nil, err
-	}
-
-	sourceNode := r.selfNode.PubKeyBytes
-	unifiers, senderAmt, err := getRouteUnifiers(
-		sourceNode, hops, useMinAmt, runningAmt, outgoingChans,
-		r.cachedGraph, bandwidthHints,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	pathEdges, receiverAmt, err := getPathEdges(
-		sourceNode, senderAmt, unifiers, bandwidthHints, hops,
-	)
 	if err != nil {
 		return nil, err
 	}
@@ -3170,11 +3186,9 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 }
 
 // getRouteUnifiers returns a list of edge unifiers for the given route.
-func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
-	useMinAmt bool, runningAmt lnwire.MilliSatoshi,
-	outgoingChans map[uint64]struct{}, graph routingGraph,
-	bandwidthHints *bandwidthManager) ([]*edgeUnifier, lnwire.MilliSatoshi,
-	error) {
+func getEdgeUnifiers(source route.Vertex, hops []route.Vertex,
+	outgoingChans map[uint64]struct{},
+	graph routingGraph) ([]*edgeUnifier, error) {
 
 	// Allocate a list that will contain the edge unifiers for this route.
 	unifiers := make([]*edgeUnifier, len(hops))
@@ -3190,30 +3204,50 @@ func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
 			fromNode = hops[i-1]
 		}
 
-		localChan := i == 0
-
 		// Build unified policies for this hop based on the channels
-		// known in the graph. Don't use inbound fees.
-		//
-		// TODO: Add inbound fees support for BuildRoute.
+		// known in the graph.
 		u := newNodeEdgeUnifier(
-			source, toNode, false, outgoingChans,
+			source, toNode, true, outgoingChans,
 		)
 
 		err := u.addGraphPolicies(graph)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 
 		// Exit if there are no channels.
 		edgeUnifier, ok := u.edgeUnifiers[fromNode]
 		if !ok {
-			log.Errorf("Cannot find policy for node %v", fromNode)
-			return nil, 0, ErrNoChannel{
-				fromNode: fromNode,
-				position: i,
-			}
+			log.Errorf("Cannot find policy for node index %v",
+				fromNode)
+			return nil, ErrNoChannel{position: i}
 		}
+
+		unifiers[i] = edgeUnifier
+	}
+
+	return unifiers, nil
+}
+
+// backwardPass returns a list of unified edges for the given route and
+// determines the amount that should be sent to fulfill min HTLC requirements.
+// The minimal sender amount can be searched for by activating useMinAmt.
+func backwardPass(unifiers []*edgeUnifier, useMinAmt bool,
+	runningAmt lnwire.MilliSatoshi,
+	bandwidthHints *bandwidthManager) ([]*unifiedEdge, lnwire.MilliSatoshi,
+	error) {
+
+	var unifiedEdges = make([]*unifiedEdge, len(unifiers))
+	var nextIncoming lnwire.MilliSatoshi
+
+	// Traverse hops backwards to accumulate fees in the running amounts.
+	for i := len(unifiers) - 1; i >= 0; i-- {
+		edgeUnifier := unifiers[i]
+
+		var (
+			edge *unifiedEdge
+			fee  int64
+		)
 
 		// If using min amt, increase amt if needed.
 		if useMinAmt {
@@ -3223,67 +3257,156 @@ func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
 			}
 		}
 
-		// Get an edge for the specific amount that we want to forward.
-		edge := edgeUnifier.getEdge(runningAmt, bandwidthHints, 0)
-		if edge == nil {
-			log.Errorf("Cannot find policy with amt=%v for node %v",
-				runningAmt, fromNode)
+		if i == len(unifiers)-1 {
+			// Get an edge for the specific amount that we want to
+			// forward.
+			edge = edgeUnifier.getEdge(
+				runningAmt, bandwidthHints, 0,
+			)
+			if edge == nil {
+				log.Errorf("Cannot find policy with amt=%v "+
+					"for hop %v", runningAmt, i)
 
-			return nil, 0, ErrNoChannel{
-				fromNode: fromNode,
-				position: i,
+				return nil, 0, ErrNoChannel{
+					position: i,
+				}
 			}
+
+			// The last hop only forwards the amount that the
+			// destination should receive.
+			fee = 0
+		} else {
+			// The amount that the current hop needs to forward is
+			// equal to the incoming amount of the following hop
+			// that we already dealt with.
+			runningAmt = nextIncoming
+
+			// The fee that needs to be paid to the current node is
+			// based on the amount that this node needs to forward
+			// and its policy for its outgoing channel. This policy
+			// is stored as part of the incoming channel of the
+			// following hop.
+			outboundFee := unifiedEdges[i+1].policy.ComputeFee(
+				runningAmt,
+			)
+
+			netAmount := runningAmt + outboundFee
+
+			// The unified edge is selected such that it can support
+			// forwarding the total amount, including the inbound
+			// fee. The previous hop's outbound fee is also supplied
+			// such that the inbound fee can be capped.
+			edge = edgeUnifier.getEdge(
+				netAmount, bandwidthHints, outboundFee,
+			)
+			if edge == nil {
+				return nil, 0, ErrNoChannel{
+					position: i,
+				}
+			}
+
+			log.Tracef("Select channel %v at position %v",
+				edge.policy.ChannelID, i)
+
+			inboundFee := calcCappedInboundFee(
+				edge, netAmount, outboundFee,
+			)
+
+			fee = int64(outboundFee) + inboundFee
 		}
 
-		// Add fee for this hop.
-		if !localChan {
-			runningAmt += edge.policy.ComputeFee(runningAmt)
-		}
+		// Finally, we update the amount that needs to flow into the
+		// previous hop, which is the amount this hop needs to forward,
+		// accounting for the fee that it takes.
+		nextIncoming = runningAmt + lnwire.MilliSatoshi(fee)
 
-		log.Tracef("Select channel %v at position %v",
-			edge.policy.ChannelID, i)
-
-		unifiers[i] = edgeUnifier
+		unifiedEdges[i] = edge
 	}
 
-	return unifiers, runningAmt, nil
+	return unifiedEdges, nextIncoming, nil
 }
 
-// getPathEdges returns the edges that make up the path and the total amount,
-// including fees, to send the payment.
-func getPathEdges(source route.Vertex, receiverAmt lnwire.MilliSatoshi,
-	unifiers []*edgeUnifier, bandwidthHints *bandwidthManager,
-	hops []route.Vertex) ([]*unifiedEdge,
-	lnwire.MilliSatoshi, error) {
+// forwardPass returns the amount that a receiver will receive after deducting
+// all fees from the sender amount.
+func forwardPass(senderAmt lnwire.MilliSatoshi,
+	unifiedEdges []*unifiedEdge) (lnwire.MilliSatoshi, error) {
+
+	if len(unifiedEdges) == 0 {
+		return 0, fmt.Errorf("no edges to forward through")
+	}
+
+	inEdge := unifiedEdges[0]
+	if !inEdge.amtInRange(senderAmt) {
+		log.Errorf("Amount %v not in range for hop index %v",
+			senderAmt, 0)
+
+		return 0, ErrNoChannel{position: 0}
+	}
 
 	// Now that we arrived at the start of the route and found out the route
 	// total amount, we make a forward pass. Because the amount may have
 	// been increased in the backward pass, fees need to be recalculated and
 	// amount ranges re-checked.
-	var pathEdges []*unifiedEdge
-	for i, unifier := range unifiers {
-		edge := unifier.getEdge(receiverAmt, bandwidthHints, 0)
-		if edge == nil {
-			fromNode := source
-			if i > 0 {
-				fromNode = hops[i-1]
-			}
+	for i := 1; i < len(unifiedEdges); i++ {
+		inEdge := unifiedEdges[i-1]
+		outEdge := unifiedEdges[i]
 
-			return nil, 0, ErrNoChannel{
-				fromNode: fromNode,
-				position: i,
-			}
+		// Decrease the amount to send while going forward.
+		senderAmt = outgoingFromIncoming(senderAmt, inEdge, outEdge)
+
+		if !outEdge.amtInRange(senderAmt) {
+			log.Errorf("Amount %v not in range for hop index %v",
+				senderAmt, i)
+
+			return 0, ErrNoChannel{position: i}
 		}
-
-		if i > 0 {
-			// Decrease the amount to send while going forward.
-			receiverAmt -= edge.policy.ComputeFeeFromIncoming(
-				receiverAmt,
-			)
-		}
-
-		pathEdges = append(pathEdges, edge)
 	}
 
-	return pathEdges, receiverAmt, nil
+	return senderAmt, nil
+}
+
+// outgoingFromIncoming computes the outgoing amount based on the incoming
+// amount by subtracting fees from the incoming amount. Note that this is not
+// exactly the inverse of incomingFromOutgoing, because of the rounding.
+func outgoingFromIncoming(incomingAmt lnwire.MilliSatoshi,
+	incoming, outgoing *unifiedEdge) lnwire.MilliSatoshi {
+
+	// TODO: calculations with integer ceil/floor arithmetic
+	feeRateParts := 1e6
+	rateOut := float64(outgoing.policy.FeeProportionalMillionths)
+	baseOut := float64(outgoing.policy.FeeBaseMSat)
+	rateIn := float64(incoming.inboundFees.Rate)
+	baseIn := float64(incoming.inboundFees.Base)
+
+	// The total fee, neglecting negative inbound fee capping can be
+	// summarized as m*incomingAmt + n, where m is the combined fee rate and
+	// n is the combined base fee.
+	m := (1 + rateOut/feeRateParts) * (1 + rateIn/feeRateParts)
+	n := baseOut*(1+rateIn/feeRateParts) + baseIn
+
+	// TODO: figure out if explicit check of m>0 is necessary.
+
+	// In order to decide if the total fee is negative, we *apply* the fee
+	// on the *incoming* amount.
+	testAmtF := m*float64(incomingAmt) + n
+
+	// Protect against negative values for the integer cast to Msat.
+	if testAmtF < 0 {
+		return incomingAmt
+	}
+
+	// If the total fee is positive, we compute the outgoing amount by
+	// subtracting the fee from the incoming amount, rounding the outgoing
+	// amount up, in order to not hit any min HTLC constraints from the
+	// backward pass.
+	if lnwire.MilliSatoshi(testAmtF) > incomingAmt {
+		return lnwire.MilliSatoshi(
+			math.Ceil((float64(incomingAmt) - n) / m),
+		)
+	}
+
+	// Otherwise the inbound fee made up for the outbound fee, which is why
+	// we just return the incoming amount. Total fees cannot become
+	// negative.
+	return incomingAmt
 }

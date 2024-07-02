@@ -92,6 +92,9 @@
 * [Groundwork](https://github.com/lightningnetwork/lnd/pull/8752) in preparation
   for implementing route blinding receives.
 
+* [Generate and send to](https://github.com/lightningnetwork/lnd/pull/8735) an
+  invoice with blinded paths.
+
 ## Testing
 ## Database
 ## Code Health

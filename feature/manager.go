@@ -128,6 +128,8 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.MPPRequired)
 			raw.Unset(lnwire.RouteBlindingOptional)
 			raw.Unset(lnwire.RouteBlindingRequired)
+			raw.Unset(lnwire.Bolt11BlindedPathsOptional)
+			raw.Unset(lnwire.Bolt11BlindedPathsRequired)
 			raw.Unset(lnwire.AMPOptional)
 			raw.Unset(lnwire.AMPRequired)
 			raw.Unset(lnwire.KeysendOptional)
@@ -187,6 +189,8 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		if cfg.NoRouteBlinding {
 			raw.Unset(lnwire.RouteBlindingOptional)
 			raw.Unset(lnwire.RouteBlindingRequired)
+			raw.Unset(lnwire.Bolt11BlindedPathsOptional)
+			raw.Unset(lnwire.Bolt11BlindedPathsRequired)
 		}
 		for _, custom := range cfg.CustomFeatures[set] {
 			if custom > set.Maximum() {

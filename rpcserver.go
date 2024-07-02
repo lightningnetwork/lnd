@@ -5121,6 +5121,7 @@ type rpcPaymentIntent struct {
 	paymentAddr        *[32]byte
 	payReq             []byte
 	metadata           []byte
+	blindedPayment     *routing.BlindedPayment
 
 	destCustomRecords record.CustomSet
 
@@ -5255,6 +5256,32 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 		payIntent.destFeatures = payReq.Features
 		payIntent.paymentAddr = payReq.PaymentAddr
 		payIntent.metadata = payReq.Metadata
+
+		if len(payReq.BlindedPaymentPaths) > 0 {
+			// NOTE: Currently we only choose a single payment path.
+			// This will be updated in a future PR to handle
+			// multiple blinded payment paths.
+			path := payReq.BlindedPaymentPaths[0]
+			if len(path.Hops) == 0 {
+				return payIntent, fmt.Errorf("a blinded " +
+					"payment must have at least 1 hop")
+			}
+
+			finalHop := path.Hops[len(path.Hops)-1]
+			payIntent.blindedPayment =
+				routerrpc.MarshalBlindedPayment(path)
+
+			// Replace the target node with the blinded public key
+			// of the blinded path's final node.
+			copy(
+				payIntent.dest[:],
+				finalHop.BlindedNodePub.SerializeCompressed(),
+			)
+
+			if !payReq.BlindedPaymentPaths[0].Features.IsEmpty() {
+				payIntent.destFeatures = path.Features.Clone()
+			}
+		}
 
 		if err := validateDest(payIntent.dest); err != nil {
 			return payIntent, err
@@ -5410,6 +5437,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 			DestFeatures:       payIntent.destFeatures,
 			PaymentAddr:        payIntent.paymentAddr,
 			Metadata:           payIntent.metadata,
+			BlindedPayment:     payIntent.blindedPayment,
 
 			// Don't enable multi-part payments on the main rpc.
 			// Users need to use routerrpc for that.
@@ -5754,6 +5782,12 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 	defaultDelta := r.cfg.Bitcoin.TimeLockDelta
 
+	blindingRestrictions := &routing.BlindedPathRestrictions{
+		MinNumHops:  r.server.cfg.Invoices.BlindedPaths.MinNumHops,
+		MaxNumHops:  r.server.cfg.Invoices.BlindedPaths.MaxNumHops,
+		MaxNumPaths: r.server.cfg.Invoices.BlindedPaths.MaxNumPaths,
+	}
+
 	addInvoiceCfg := &invoicesrpc.AddInvoiceConfig{
 		AddInvoice:        r.server.invoices.AddInvoice,
 		IsChannelActive:   r.server.htlcSwitch.HasActiveLink,
@@ -5763,12 +5797,42 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		ChanDB:            r.server.chanStateDB,
 		Graph:             r.server.graphDB,
 		GenInvoiceFeatures: func() *lnwire.FeatureVector {
-			return r.server.featureMgr.Get(feature.SetInvoice)
+			v := r.server.featureMgr.Get(feature.SetInvoice)
+
+			if invoice.Blind {
+				// If an invoice includes blinded paths, then a
+				// payment address is not required since we use
+				// the PathID in the final hop's encrypted data
+				// for the payment address.
+				v.Unset(lnwire.PaymentAddrRequired)
+				v.Set(lnwire.PaymentAddrOptional)
+
+				// The invoice payer will also need to
+				// understand the new BOLT 11 tagged field
+				// containing the blinded path, so we switch
+				// the bit to required.
+				v.Unset(lnwire.Bolt11BlindedPathsOptional)
+				v.Set(lnwire.Bolt11BlindedPathsRequired)
+			}
+
+			return v
 		},
 		GenAmpInvoiceFeatures: func() *lnwire.FeatureVector {
 			return r.server.featureMgr.Get(feature.SetInvoiceAmp)
 		},
-		GetAlias: r.server.aliasMgr.GetPeerAlias,
+		GetAlias:   r.server.aliasMgr.GetPeerAlias,
+		BestHeight: r.server.cc.BestBlockTracker.BestHeight,
+		BlindedRoutePolicyMultiplier: r.server.cfg.Invoices.
+			BlindedPaths.PolicyIncreaseMultiplier,
+		QueryBlindedRoutes: func(amt lnwire.MilliSatoshi) (
+			[]*route.Route, error) {
+
+			return r.server.chanRouter.FindBlindedPaths(
+				r.selfNode, amt,
+				r.server.missionControl.GetProbability,
+				blindingRestrictions,
+			)
+		},
 	}
 
 	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)
@@ -5791,6 +5855,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		Private:         invoice.Private,
 		RouteHints:      routeHints,
 		Amp:             invoice.IsAmp,
+		Blind:           invoice.Blind,
 	}
 
 	if invoice.RPreimage != nil {

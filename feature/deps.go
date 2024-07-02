@@ -82,8 +82,8 @@ var deps = depDesc{
 	lnwire.RouteBlindingOptional: {
 		lnwire.TLVOnionPayloadOptional: {},
 	},
-	lnwire.RouteBlindingRequired: {
-		lnwire.TLVOnionPayloadRequired: {},
+	lnwire.Bolt11BlindedPathsOptional: {
+		lnwire.RouteBlindingOptional: {},
 	},
 }
 

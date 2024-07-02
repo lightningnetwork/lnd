@@ -1,15 +1,22 @@
 package invoicesrpc
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -893,6 +900,587 @@ func TestPopulateHopHints(t *testing.T) {
 			// We shuffle the elements in the hop hint list so we
 			// need to compare the elements here.
 			require.ElementsMatch(t, tc.expectedHopHints, hopHints)
+		})
+	}
+}
+
+// TestBuildBlindedPath tests the logic for constructing a blinded path against
+// an example mentioned in this spec document:
+// https://github.com/lightning/bolts/blob/master/proposals/route-blinding.md
+func TestBuildBlindedPath(t *testing.T) {
+	// Alice chooses the following path to herself for blinded path
+	// construction:
+	//    	Carol -> Bob -> Alice.
+	// Let's construct the corresponding route.Route for this which will be
+	// returned from the `findRoutes` config callback.
+	var (
+		privC, pkC = btcec.PrivKeyFromBytes([]byte{1})
+		privB, pkB = btcec.PrivKeyFromBytes([]byte{2})
+		privA, pkA = btcec.PrivKeyFromBytes([]byte{3})
+
+		carol = route.NewVertex(pkC)
+		bob   = route.NewVertex(pkB)
+		alice = route.NewVertex(pkA)
+
+		chanCB = uint64(1)
+		chanBA = uint64(2)
+	)
+
+	realRoute := &route.Route{
+		SourcePubKey: carol,
+		Hops: []*route.Hop{
+			{
+				PubKeyBytes: bob,
+				ChannelID:   chanCB,
+			},
+			{
+				PubKeyBytes: alice,
+				ChannelID:   chanBA,
+			},
+		},
+	}
+
+	realPolicies := map[uint64]*models.ChannelEdgePolicy{
+		chanCB: {
+			ChannelID: chanCB,
+			ToNode:    bob,
+		},
+		chanBA: {
+			ChannelID: chanBA,
+			ToNode:    alice,
+		},
+	}
+
+	paths, err := buildBlindedPaymentPaths(&buildBlindedPathCfg{
+		findRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
+			error) {
+
+			return []*route.Route{realRoute}, nil
+		},
+		fetchChannelEdgesByID: func(chanID uint64) (
+			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy, error) {
+
+			return nil, realPolicies[chanID], nil, nil
+		},
+		bestHeight: func() (uint32, error) {
+			return 1000, nil
+		},
+		// In the spec example, all the policies get replaced with
+		// the same static values.
+		addPolicyBuffer: func(_ *models.ChannelEdgePolicy) (
+			*bufferedChanPolicy, error) {
+
+			return &bufferedChanPolicy{
+				feeRate:         500,
+				baseFee:         100,
+				cltvExpiryDelta: 144,
+				minHTLCMsat:     1000,
+				maxHTLCMsat:     lnwire.MaxMilliSatoshi,
+			}, nil
+		},
+		pathID:                  []byte{1, 2, 3},
+		valueMsat:               1000,
+		minFinalCLTVExpiryDelta: 12,
+		blocksUntilExpiry:       200,
+	})
+	require.NoError(t, err)
+	require.Len(t, paths, 1)
+
+	path := paths[0]
+
+	// Check that all the accumulated policy values are correct.
+	require.EqualValues(t, 201, path.FeeBaseMsat)
+	require.EqualValues(t, 1001, path.FeeRate)
+	require.EqualValues(t, 300, path.CltvExpiryDelta)
+	require.EqualValues(t, 1000, path.HTLCMinMsat)
+	require.EqualValues(t, lnwire.MaxMilliSatoshi, path.HTLCMaxMsat)
+
+	// Now we check the hops.
+	require.Len(t, path.Hops, 3)
+
+	// Assert that all the encrypted recipient blobs have been padded such
+	// that they are all the same size.
+	require.Len(t, path.Hops[0].CipherText, len(path.Hops[1].CipherText))
+	require.Len(t, path.Hops[1].CipherText, len(path.Hops[2].CipherText))
+
+	// The first hop, should have the real pub key of the introduction
+	// node: Carol.
+	hop := path.Hops[0]
+	require.True(t, hop.BlindedNodePub.IsEqual(pkC))
+
+	// As Carol, let's decode the hop data and assert that all expected
+	// values have been included.
+	var (
+		blindingPoint = path.FirstEphemeralBlindingPoint
+		data          *record.BlindedRouteData
+	)
+
+	// Check that Carol's info is correct.
+	data, blindingPoint = decryptAndDecodeHopData(
+		t, privC, blindingPoint, hop.CipherText,
+	)
+
+	require.Equal(
+		t, lnwire.NewShortChanIDFromInt(chanCB),
+		data.ShortChannelID.UnwrapOrFail(t).Val,
+	)
+
+	require.Equal(t, record.PaymentRelayInfo{
+		CltvExpiryDelta: 144,
+		FeeRate:         500,
+		BaseFee:         100,
+	}, data.RelayInfo.UnwrapOrFail(t).Val)
+
+	require.Equal(t, record.PaymentConstraints{
+		MaxCltvExpiry:   1500,
+		HtlcMinimumMsat: 1000,
+	}, data.Constraints.UnwrapOrFail(t).Val)
+
+	// Check that all Bob's info is correct.
+	hop = path.Hops[1]
+	data, blindingPoint = decryptAndDecodeHopData(
+		t, privB, blindingPoint, hop.CipherText,
+	)
+
+	require.Equal(
+		t, lnwire.NewShortChanIDFromInt(chanBA),
+		data.ShortChannelID.UnwrapOrFail(t).Val,
+	)
+
+	require.Equal(t, record.PaymentRelayInfo{
+		CltvExpiryDelta: 144,
+		FeeRate:         500,
+		BaseFee:         100,
+	}, data.RelayInfo.UnwrapOrFail(t).Val)
+
+	require.Equal(t, record.PaymentConstraints{
+		MaxCltvExpiry:   1356,
+		HtlcMinimumMsat: 1000,
+	}, data.Constraints.UnwrapOrFail(t).Val)
+
+	// Check that all Alice's info is correct.
+	hop = path.Hops[2]
+	data, _ = decryptAndDecodeHopData(
+		t, privA, blindingPoint, hop.CipherText,
+	)
+	require.True(t, data.ShortChannelID.IsNone())
+	require.True(t, data.RelayInfo.IsNone())
+	require.Equal(t, record.PaymentConstraints{
+		MaxCltvExpiry:   1212,
+		HtlcMinimumMsat: 1000,
+	}, data.Constraints.UnwrapOrFail(t).Val)
+}
+
+// TestSingleHopBlindedPath tests that blinded path construction is done
+// correctly for the case where the destination node is also the introduction
+// node.
+func TestSingleHopBlindedPath(t *testing.T) {
+	var (
+		_, pkC = btcec.PrivKeyFromBytes([]byte{1})
+		carol  = route.NewVertex(pkC)
+	)
+
+	realRoute := &route.Route{
+		SourcePubKey: carol,
+		// No hops since Carol is both the introduction node and the
+		// final destination node.
+		Hops: []*route.Hop{},
+	}
+
+	paths, err := buildBlindedPaymentPaths(&buildBlindedPathCfg{
+		findRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
+			error) {
+
+			return []*route.Route{realRoute}, nil
+		},
+		bestHeight: func() (uint32, error) {
+			return 1000, nil
+		},
+		pathID:                  []byte{1, 2, 3},
+		valueMsat:               1000,
+		minFinalCLTVExpiryDelta: 12,
+		blocksUntilExpiry:       200,
+	})
+	require.NoError(t, err)
+	require.Len(t, paths, 1)
+
+	path := paths[0]
+
+	// Check that all the accumulated policy values are correct. Since this
+	// is a unique case where the destination node is also the introduction
+	// node, the accumulated fee and HTLC values should be zero and the
+	// CLTV expiry delta should be equal to Carol's minFinalCLTVExpiryDelta.
+	require.EqualValues(t, 0, path.FeeBaseMsat)
+	require.EqualValues(t, 0, path.FeeRate)
+	require.EqualValues(t, 0, path.HTLCMinMsat)
+	require.EqualValues(t, 0, path.HTLCMaxMsat)
+	require.EqualValues(t, 12, path.CltvExpiryDelta)
+}
+
+func decryptAndDecodeHopData(t *testing.T, priv *btcec.PrivateKey,
+	ephem *btcec.PublicKey, cipherText []byte) (*record.BlindedRouteData,
+	*btcec.PublicKey) {
+
+	router := sphinx.NewRouter(
+		&keychain.PrivKeyECDH{PrivKey: priv},
+		&bitcoinCfg.SimNetParams, sphinx.NewMemoryReplayLog(),
+	)
+
+	decrypted, err := router.DecryptBlindedHopData(ephem, cipherText)
+	require.NoError(t, err)
+
+	buf := bytes.NewBuffer(decrypted)
+	routeData, err := record.DecodeBlindedRouteData(buf)
+	require.NoError(t, err)
+
+	nextEphem, err := router.NextEphemeral(ephem)
+	require.NoError(t, err)
+
+	return routeData, nextEphem
+}
+
+// TestApplyBlindedPathPolicyBuffer tests blinded policy adjustments.
+func TestApplyBlindedPathPolicyBuffer(t *testing.T) {
+	tests := []struct {
+		name          string
+		policyIn      *models.ChannelEdgePolicy
+		expectedOut   *bufferedChanPolicy
+		incMultiplier float64
+		decMultiplier float64
+		expectedError string
+	}{
+		{
+			name:          "invalid increase multiplier",
+			incMultiplier: 0,
+			expectedError: "blinded path policy increase " +
+				"multiplier must be greater than or equal to 1",
+		},
+		{
+			name:          "decrease multiplier too small",
+			incMultiplier: 1,
+			decMultiplier: -1,
+			expectedError: "blinded path policy decrease " +
+				"multiplier must be in the range [0;1]",
+		},
+		{
+			name:          "decrease multiplier too big",
+			incMultiplier: 1,
+			decMultiplier: 2,
+			expectedError: "blinded path policy decrease " +
+				"multiplier must be in the range [0;1]",
+		},
+		{
+			name:          "no change",
+			incMultiplier: 1,
+			decMultiplier: 1,
+			policyIn: &models.ChannelEdgePolicy{
+				TimeLockDelta:             1,
+				MinHTLC:                   2,
+				MaxHTLC:                   3,
+				FeeBaseMSat:               4,
+				FeeProportionalMillionths: 5,
+			},
+			expectedOut: &bufferedChanPolicy{
+				cltvExpiryDelta: 1,
+				minHTLCMsat:     2,
+				maxHTLCMsat:     3,
+				baseFee:         4,
+				feeRate:         5,
+			},
+		},
+		{
+			name:          "buffer up and down by 50%",
+			incMultiplier: 2,
+			decMultiplier: 0.5,
+			policyIn: &models.ChannelEdgePolicy{
+				TimeLockDelta:             10,
+				MinHTLC:                   20,
+				MaxHTLC:                   300,
+				FeeBaseMSat:               40,
+				FeeProportionalMillionths: 50,
+			},
+			expectedOut: &bufferedChanPolicy{
+				cltvExpiryDelta: 20,
+				minHTLCMsat:     40,
+				maxHTLCMsat:     150,
+				baseFee:         80,
+				feeRate:         100,
+			},
+		},
+		{
+			name: "new HTLC minimum larger than OG " +
+				"maximum",
+			incMultiplier: 2,
+			decMultiplier: 1,
+			policyIn: &models.ChannelEdgePolicy{
+				TimeLockDelta:             10,
+				MinHTLC:                   20,
+				MaxHTLC:                   30,
+				FeeBaseMSat:               40,
+				FeeProportionalMillionths: 50,
+			},
+			expectedOut: &bufferedChanPolicy{
+				cltvExpiryDelta: 20,
+				minHTLCMsat:     20,
+				maxHTLCMsat:     30,
+				baseFee:         80,
+				feeRate:         100,
+			},
+		},
+		{
+			name: "new HTLC maximum smaller than OG " +
+				"minimum",
+			incMultiplier: 1,
+			decMultiplier: 0.5,
+			policyIn: &models.ChannelEdgePolicy{
+				TimeLockDelta:             10,
+				MinHTLC:                   20,
+				MaxHTLC:                   30,
+				FeeBaseMSat:               40,
+				FeeProportionalMillionths: 50,
+			},
+			expectedOut: &bufferedChanPolicy{
+				cltvExpiryDelta: 10,
+				minHTLCMsat:     20,
+				maxHTLCMsat:     30,
+				baseFee:         40,
+				feeRate:         50,
+			},
+		},
+		{
+			name: "new HTLC minimum and maximums are not " +
+				"compatible",
+			incMultiplier: 2,
+			decMultiplier: 0.5,
+			policyIn: &models.ChannelEdgePolicy{
+				TimeLockDelta:             10,
+				MinHTLC:                   30,
+				MaxHTLC:                   100,
+				FeeBaseMSat:               40,
+				FeeProportionalMillionths: 50,
+			},
+			expectedOut: &bufferedChanPolicy{
+				cltvExpiryDelta: 20,
+				minHTLCMsat:     30,
+				maxHTLCMsat:     100,
+				baseFee:         80,
+				feeRate:         100,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			bufferedPolicy, err := addPolicyBuffer(
+				test.policyIn, test.incMultiplier,
+				test.decMultiplier,
+			)
+			if test.expectedError != "" {
+				require.ErrorContains(
+					t, err, test.expectedError,
+				)
+
+				return
+			}
+
+			require.Equal(t, test.expectedOut, bufferedPolicy)
+		})
+	}
+}
+
+// TestBlindedPathAccumulatedPolicyCalc tests the logic for calculating the
+// accumulated routing policies of a blinded route against an example mentioned
+// in the spec document:
+// https://github.com/lightning/bolts/blob/master/proposals/route-blinding.md
+func TestBlindedPathAccumulatedPolicyCalc(t *testing.T) {
+	t.Parallel()
+
+	// In the spec example, the blinded route is:
+	// 	Carol -> Bob -> Alice
+	// And Alice chooses the following buffered policy for both the C->B
+	// and B->A edges.
+	nodePolicy := &record.PaymentRelayInfo{
+		FeeRate:         500,
+		BaseFee:         100,
+		CltvExpiryDelta: 144,
+	}
+
+	hopPolicies := []*record.PaymentRelayInfo{
+		nodePolicy,
+		nodePolicy,
+	}
+
+	// Alice's minimum final expiry delta is chosen to be 12.
+	aliceMinFinalExpDelta := uint16(12)
+
+	totalBase, totalRate, totalCLTVDelta := calcBlindedPathPolicies(
+		hopPolicies, aliceMinFinalExpDelta,
+	)
+
+	require.Equal(t, lnwire.MilliSatoshi(201), totalBase)
+	require.EqualValues(t, 1001, totalRate)
+	require.EqualValues(t, 300, totalCLTVDelta)
+}
+
+// TestPadBlindedHopInfo asserts that the padding of blinded hop data is done
+// correctly and that it takes the expected number of iterations.
+func TestPadBlindedHopInfo(t *testing.T) {
+	tests := []struct {
+		name               string
+		expectedIterations int
+		expectedFinalSize  int
+
+		// We will use the pathID field of BlindedRouteData to set an
+		// initial payload size. The ints in this list represent the
+		// size of each pathID.
+		pathIDs []int
+
+		// existingPadding is a map from entry index (based on the
+		// pathIDs set) to the number of pre-existing padding bytes to
+		// add.
+		existingPadding map[int]int
+	}{
+		{
+			// If there is only one entry, then no padding is
+			// expected.
+			name:               "single entry",
+			expectedIterations: 1,
+			pathIDs:            []int{10},
+
+			// The final size will be 12 since the path ID is 10
+			// bytes, and it will be prefixed by type and value
+			// bytes.
+			expectedFinalSize: 12,
+		},
+		{
+			// All the payloads are the same size from the get go
+			// meaning that no padding is expected.
+			name:               "all start equal",
+			expectedIterations: 1,
+			pathIDs:            []int{10, 10, 10},
+
+			// The final size will be 12 since the path ID is 10
+			// bytes, and it will be prefixed by type and value
+			// bytes.
+			expectedFinalSize: 12,
+		},
+		{
+			// If the blobs differ by 1 byte it will take 4
+			// iterations:
+			// 1) padding of 1 is added to entry 2 which will
+			//    increase its size by 3 bytes since padding does
+			//    not yet exist for it.
+			// 2) Now entry 1 will be short 2 bytes. It will be
+			//    padded by 2 bytes but again since it is a new
+			//    padding field, 4 bytes are added.
+			// 3) Finally, entry 2 is padded by 1 extra. Since it
+			//    already does have a padding field, this does end
+			//    up adding only 1 extra byte.
+			// 4) The fourth iteration determines that all are now
+			//    the same size.
+			name:               "differ by 1",
+			expectedIterations: 4,
+			pathIDs:            []int{4, 3},
+			expectedFinalSize:  10,
+		},
+		{
+			name:               "existing padding and diff of 1",
+			expectedIterations: 2,
+			pathIDs:            []int{10, 11},
+
+			// By adding some existing padding, the type and length
+			// field for the padding are already accounted for in
+			// the first iteration, and so we only expect two
+			// iterations to get the payloads to match size here:
+			// one for adding a single extra byte to the smaller
+			// payload and another for confirming the sizes match.
+			existingPadding:   map[int]int{0: 1, 1: 1},
+			expectedFinalSize: 16,
+		},
+		{
+			// In this test, we test a BigSize bucket shift. We do
+			// this by setting the initial path ID's of both entries
+			// to a 0 size which means the total encoding of those
+			// will be 2 bytes (to encode the type and length). Then
+			// for the initial padding, we let the first entry be
+			// 253 bytes long which is just long enough to be in
+			// the second BigSize bucket which uses 3 bytes to
+			// encode the value length. We make the second entry
+			// 252 bytes which still puts it in the first bucket
+			// which uses 1 byte for the length. The difference in
+			// overall packet size will be 3 bytes (the first entry
+			// has 2 more length bytes and 1 more value byte). So
+			// the function will try to pad the second entry by 3
+			// bytes (iteration 1). This will however result in the
+			// second entry shifting to the second BigSize bucket
+			// meaning it will gain an additional 2 bytes for the
+			// new length encoding meaning that overall it gains 5
+			// bytes in size. This will result in another iteration
+			// which will result in padding the first entry with an
+			// extra 2 bytes to meet the second entry's new size
+			// (iteration 2). One more iteration (3) is then done
+			// to confirm that all entries are now the same size.
+			name:               "big size bucket shift",
+			expectedIterations: 3,
+
+			// We make the path IDs large enough so that
+			pathIDs:           []int{0, 0},
+			existingPadding:   map[int]int{0: 253, 1: 252},
+			expectedFinalSize: 261,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			// If the test includes existing padding, then make
+			if test.existingPadding != nil {
+				require.Len(t, test.existingPadding,
+					len(test.pathIDs))
+			}
+
+			hopDataSet := make([]*hopData, len(test.pathIDs))
+			for i, l := range test.pathIDs {
+				pathID := tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType6](
+						make([]byte, l),
+					),
+				)
+				data := &record.BlindedRouteData{
+					PathID: pathID,
+				}
+
+				if test.existingPadding != nil {
+					//nolint:lll
+					padding := tlv.SomeRecordT(
+						tlv.NewPrimitiveRecord[tlv.TlvType1](
+							make([]byte, test.existingPadding[i]),
+						),
+					)
+
+					data.Padding = padding
+				}
+
+				hopDataSet[i] = &hopData{data: data}
+			}
+
+			hopInfo, numIterations, err := padHopInfo(hopDataSet)
+			require.NoError(t, err)
+			require.Equal(t, test.expectedIterations, numIterations)
+
+			// We expect all resulting blobs to be the same size.
+			for _, info := range hopInfo {
+				require.Len(
+					t, info.PlainText,
+					test.expectedFinalSize,
+				)
+			}
 		})
 	}
 }

@@ -37,7 +37,7 @@ func TestBlindedDataEncoding(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		baseFee     uint32
+		baseFee     lnwire.MilliSatoshi
 		htlcMin     lnwire.MilliSatoshi
 		features    *lnwire.FeatureVector
 		constraints bool

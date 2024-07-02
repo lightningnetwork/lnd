@@ -82,6 +82,10 @@ var addInvoiceCommand = cli.Command{
 			Usage: "creates an AMP invoice. If true, preimage " +
 				"should not be set.",
 		},
+		cli.BoolFlag{
+			Name:  "blind",
+			Usage: "creates an invoice that contains blinded paths",
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -127,6 +131,11 @@ func addInvoice(ctx *cli.Context) error {
 		return fmt.Errorf("unable to parse description_hash: %w", err)
 	}
 
+	if ctx.IsSet("private") && ctx.IsSet("blind") {
+		return fmt.Errorf("cannot set both route hints and blinded " +
+			"paths in the same invoice")
+	}
+
 	invoice := &lnrpc.Invoice{
 		Memo:            ctx.String("memo"),
 		RPreimage:       preimage,
@@ -138,6 +147,7 @@ func addInvoice(ctx *cli.Context) error {
 		CltvExpiry:      ctx.Uint64("cltv_expiry_delta"),
 		Private:         ctx.Bool("private"),
 		IsAmp:           ctx.Bool("amp"),
+		Blind:           ctx.Bool("blind"),
 	}
 
 	resp, err := client.AddInvoice(ctxc, invoice)

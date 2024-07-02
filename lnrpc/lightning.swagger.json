@@ -6610,6 +6610,10 @@
         "inbound_fee": {
           "$ref": "#/definitions/lnrpcInboundFee",
           "description": "Optional inbound fee. If unset, the previously set value will be\nretained [EXPERIMENTAL]."
+        },
+        "create_missing_edge": {
+          "type": "boolean",
+          "description": "If true, the graph edge belonging to this channel will be created if not\nfound. This can fix 'edge not found' errors."
         }
       }
     },

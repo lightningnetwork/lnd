@@ -4419,6 +4419,10 @@ message PolicyUpdateRequest {
     // Optional inbound fee. If unset, the previously set value will be
     // retained [EXPERIMENTAL].
     InboundFee inbound_fee = 10;
+
+    // If true, the graph edge belonging to this channel will be created if not
+    // found. This can fix 'edge not found' errors.
+    bool create_missing_edge = 11;
 }
 
 enum UpdateFailure {

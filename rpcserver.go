@@ -5799,13 +5799,20 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		GenInvoiceFeatures: func() *lnwire.FeatureVector {
 			v := r.server.featureMgr.Get(feature.SetInvoice)
 
-			// If an invoice includes blinded paths, then a payment
-			// address is not required since we use the PathID in
-			// the final hop's encrypted data for the payment
-			// address.
 			if invoice.Blind {
+				// If an invoice includes blinded paths, then a
+				// payment address is not required since we use
+				// the PathID in the final hop's encrypted data
+				// for the payment address.
 				v.Unset(lnwire.PaymentAddrRequired)
 				v.Set(lnwire.PaymentAddrOptional)
+
+				// The invoice payer will also need to
+				// understand the new BOLT 11 tagged field
+				// containing the blinded path, so we switch
+				// the bit to required.
+				v.Unset(lnwire.Bolt11BlindedPathsOptional)
+				v.Set(lnwire.Bolt11BlindedPathsRequired)
 			}
 
 			return v

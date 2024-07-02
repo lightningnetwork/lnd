@@ -772,7 +772,7 @@ func TestResumePaymentFailContextCancel(t *testing.T) {
 	cancel()
 
 	m.control.On(
-		"FailPayment", p.identifier, channeldb.FailureReasonTimeout,
+		"FailPayment", p.identifier, channeldb.FailureReasonCanceled,
 	).Return(nil).Once()
 
 	// 5. decideNextStep now returns stepExit.

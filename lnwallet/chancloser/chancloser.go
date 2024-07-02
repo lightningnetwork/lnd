@@ -375,6 +375,7 @@ func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 	err := fn.MapOptionZ(c.cfg.AuxCloser, func(a AuxChanCloser) error {
 		shutdownCustomRecords, err := a.ShutdownBlob(AuxShutdownReq{
 			ChanPoint:   c.chanPoint,
+			ShortChanID: c.cfg.Channel.ShortChanID(),
 			Initiator:   c.cfg.Channel.IsInitiator(),
 			InternalKey: c.localInternalKey,
 			CommitBlob:  c.cfg.Channel.LocalCommitmentBlob(),
@@ -978,7 +979,9 @@ func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
 			c.cfg.AuxCloser, func(aux AuxChanCloser) error {
 				channel := c.cfg.Channel
 				req := AuxShutdownReq{
-					ChanPoint:   c.chanPoint,
+					ChanPoint: c.chanPoint,
+					//nolint:lll
+					ShortChanID: c.cfg.Channel.ShortChanID(),
 					InternalKey: c.localInternalKey,
 					Initiator:   channel.IsInitiator(),
 					//nolint:lll
@@ -1059,6 +1062,7 @@ func (c *ChanCloser) auxCloseOutputs(
 	err := fn.MapOptionZ(c.cfg.AuxCloser, func(aux AuxChanCloser) error {
 		req := AuxShutdownReq{
 			ChanPoint:   c.chanPoint,
+			ShortChanID: c.cfg.Channel.ShortChanID(),
 			InternalKey: c.localInternalKey,
 			Initiator:   c.cfg.Channel.IsInitiator(),
 			CommitBlob:  c.cfg.Channel.LocalCommitmentBlob(),

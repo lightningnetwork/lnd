@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -204,10 +205,12 @@ func TestCheckMempoolAcceptance(t *testing.T) {
 	}}
 	mockChain.On("TestMempoolAccept", []*wire.MsgTx{tx}, maxFeeRate).Return(
 		results, nil).Once()
+	mockChain.On("MapRPCErr", mock.Anything).Return(
+		chain.ErrInsufficientFee).Once()
 
 	// Now call the method under test.
 	err = wallet.CheckMempoolAcceptance(tx)
-	rt.ErrorIs(err, rpcclient.ErrInsufficientFee)
+	rt.ErrorIs(err, chain.ErrInsufficientFee)
 
 	// Assert that when the tx is accepted, no error is returned.
 	//

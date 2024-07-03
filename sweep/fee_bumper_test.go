@@ -8,8 +8,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -569,7 +569,7 @@ func TestCreateRBFCompliantTx(t *testing.T) {
 				// for the first call.
 				m.wallet.On("CheckMempoolAcceptance",
 					mock.Anything).Return(
-					rpcclient.ErrInsufficientFee).Once()
+					chain.ErrInsufficientFee).Once()
 
 				// Mock the fee function to increase feerate.
 				m.feeFunc.On("Increment").Return(
@@ -591,7 +591,7 @@ func TestCreateRBFCompliantTx(t *testing.T) {
 				// for the first call.
 				m.wallet.On("CheckMempoolAcceptance",
 					mock.Anything).Return(
-					rpcclient.ErrInsufficientFee).Once()
+					chain.ErrInsufficientFee).Once()
 
 				// Mock the fee function to NOT increase
 				// feerate on the first round.
@@ -1087,7 +1087,7 @@ func TestCreateAnPublishFail(t *testing.T) {
 	// Mock the testmempoolaccept to return a fee related error that should
 	// be ignored.
 	m.wallet.On("CheckMempoolAcceptance",
-		mock.Anything).Return(rpcclient.ErrInsufficientFee).Once()
+		mock.Anything).Return(chain.ErrInsufficientFee).Once()
 
 	// Call the createAndPublish method and expect a none option.
 	resultOpt = tp.createAndPublishTx(requestID, record)

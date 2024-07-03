@@ -1202,15 +1202,15 @@ func mapRpcclientError(err error) error {
 	switch {
 	// If the wallet reports a double spend, convert it to our internal
 	// ErrDoubleSpend and return.
-	case errors.Is(err, rpcclient.ErrMempoolConflict),
-		errors.Is(err, rpcclient.ErrMissingInputs):
+	case errors.Is(err, chain.ErrMempoolConflict),
+		errors.Is(err, chain.ErrMissingInputs):
 
 		return lnwallet.ErrDoubleSpend
 
 	// If the wallet reports that fee requirements for accepting the tx
 	// into mempool are not met, convert it to our internal ErrMempoolFee
 	// and return.
-	case errors.Is(err, rpcclient.ErrMempoolMinFeeNotMet):
+	case errors.Is(err, chain.ErrMempoolMinFeeNotMet):
 		return fmt.Errorf("%w: %v", lnwallet.ErrMempoolFee, err.Error())
 	}
 
@@ -1295,9 +1295,9 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	// `PublishTransaction` again because we need to mark the label in the
 	// wallet. We can remove this exception once we have the above TODO
 	// fixed.
-	case errors.Is(err, rpcclient.ErrTxAlreadyInMempool),
-		errors.Is(err, rpcclient.ErrTxAlreadyKnown),
-		errors.Is(err, rpcclient.ErrTxAlreadyConfirmed):
+	case errors.Is(err, chain.ErrTxAlreadyInMempool),
+		errors.Is(err, chain.ErrTxAlreadyKnown),
+		errors.Is(err, chain.ErrTxAlreadyConfirmed):
 
 		err := b.wallet.PublishTransaction(tx, label)
 		return mapRpcclientError(err)

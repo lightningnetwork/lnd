@@ -1203,7 +1203,9 @@ func mapRpcclientError(err error) error {
 	// If the wallet reports a double spend, convert it to our internal
 	// ErrDoubleSpend and return.
 	case errors.Is(err, chain.ErrMempoolConflict),
-		errors.Is(err, chain.ErrMissingInputs):
+		errors.Is(err, chain.ErrMissingInputs),
+		errors.Is(err, chain.ErrTxAlreadyKnown),
+		errors.Is(err, chain.ErrTxAlreadyConfirmed):
 
 		return lnwallet.ErrDoubleSpend
 

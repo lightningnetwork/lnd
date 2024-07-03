@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/lib/pq" // Import the postgres driver.
+	_ "github.com/jackc/pgx/v5"
 	"github.com/ory/dockertest/v3"
 	"github.com/ory/dockertest/v3/docker"
 	"github.com/stretchr/testify/require"
@@ -91,7 +91,7 @@ func NewTestPgFixture(t *testing.T, expiry time.Duration) *TestPgFixture {
 
 	var testDB *sql.DB
 	err = pool.Retry(func() error {
-		testDB, err = sql.Open("postgres", databaseURL)
+		testDB, err = sql.Open("pgx", databaseURL)
 		if err != nil {
 			return err
 		}

@@ -8,8 +8,9 @@ import (
 	"strings"
 	"time"
 
-	postgres_migrate "github.com/golang-migrate/migrate/v4/database/postgres"
+	pgx_migrate "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file" // Read migrations from files. // nolint:lll
+	_ "github.com/jackc/pgx/v5"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
@@ -91,7 +92,7 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	}
 	log.Infof("Using SQL database '%s'", sanitizedDSN)
 
-	rawDB, err := sql.Open("postgres", cfg.Dsn)
+	rawDB, err := sql.Open("pgx", cfg.Dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -135,9 +136,7 @@ func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
 		return err
 	}
 
-	driver, err := postgres_migrate.WithInstance(
-		s.DB, &postgres_migrate.Config{},
-	)
+	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
 	if err != nil {
 		return fmt.Errorf("error creating postgres migration: %w", err)
 	}

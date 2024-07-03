@@ -1191,8 +1191,8 @@ func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32,
 	return witnessOutputs, nil
 }
 
-// mapRpcclientError maps an error from the rpcclient package to defined error
-// in this package.
+// mapRpcclientError maps an error from the `btcwallet/chain` package to
+// defined error in this package.
 //
 // NOTE: we are mapping the errors returned from `sendrawtransaction` RPC or
 // the reject reason from `testmempoolaccept` RPC.
@@ -1277,7 +1277,7 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 
 	// We need to use the string to create an error type and map it to a
 	// btcwallet error.
-	err = rpcclient.MapRPCErr(errors.New(result.RejectReason))
+	err = b.chain.MapRPCErr(errors.New(result.RejectReason))
 
 	//nolint:lll
 	// These two errors are ignored inside `PublishTransaction`:
@@ -1922,7 +1922,7 @@ func (b *BtcWallet) CheckMempoolAcceptance(tx *wire.MsgTx) error {
 	// Mempool check failed, we now map the reject reason to a proper RPC
 	// error and return it.
 	if !result.Allowed {
-		err := rpcclient.MapRPCErr(errors.New(result.RejectReason))
+		err := b.chain.MapRPCErr(errors.New(result.RejectReason))
 
 		return fmt.Errorf("mempool rejection: %w", err)
 	}

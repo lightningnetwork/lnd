@@ -3415,11 +3415,23 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 			if routing.IsError(err, routing.ErrOutdated,
 				routing.ErrIgnored) {
 
-				log.Debugf("Router rejected "+
-					"ChannelAnnouncement: %v", err)
+				// Occasionally we are missing a channel edge in
+				// the graph db, so we change the log level of
+				// this case here to `info` so that we can learn
+				// more about this edge case.
+				//nolint:lll
+				// See: https://github.com/lightningnetwork/lnd/issues/7261
+				log.Info("Router rejected "+
+					"ChannelAnnouncement for "+
+					"short_chan_id(%v): %v", shortChanID,
+					err)
+
+				log.Debugf("ChannelAnnouncement: %v",
+					spew.Sdump(ann.chanAnn))
 			} else {
 				return fmt.Errorf("error sending channel "+
-					"announcement: %v", err)
+					"announcement for short_chan_id(%v): "+
+					"%v", shortChanID, err)
 			}
 		}
 	case <-f.quit:

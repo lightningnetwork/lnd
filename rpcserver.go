@@ -5791,6 +5791,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		Private:         invoice.Private,
 		RouteHints:      routeHints,
 		Amp:             invoice.IsAmp,
+		Metadata:        invoice.Metadata,
 	}
 
 	if invoice.RPreimage != nil {
@@ -6998,6 +6999,7 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 		RouteHints:      routeHints,
 		PaymentAddr:     paymentAddr,
 		Features:        invoicesrpc.CreateRPCFeatures(payReq.Features),
+		Metadata:        payReq.Metadata,
 	}, nil
 }
 

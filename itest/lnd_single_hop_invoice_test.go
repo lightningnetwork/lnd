@@ -137,5 +137,16 @@ func testSingleHopInvoice(ht *lntest.HarnessTest) {
 	require.EqualValues(ht, 20, hopHint.CltvExpiryDelta,
 		"wrong CltvExpiryDelta")
 
+	// Now create an invoice and specify some random metadata.
+	invoice = &lnrpc.Invoice{
+		Memo:     "metadata",
+		Value:    paymentAmt,
+		Metadata: []byte("Here's some fancy metadata :)"),
+	}
+	invoiceResp = bob.RPC.AddInvoice(invoice)
+	payreq = bob.RPC.DecodePayReq(invoiceResp.PaymentRequest)
+	require.Equal(ht, payreq.Metadata,
+		[]byte("Here's some fancy metadata :)"), "wrong metadata")
+
 	ht.CloseChannel(alice, cp)
 }

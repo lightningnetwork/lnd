@@ -33,6 +33,9 @@ type WebFeeService interface {
 	// target.
 	SetFeeRate(feeRate chainfee.SatPerKWeight, conf uint32)
 
+	// SetMinRelayFeerate sets a min relay feerate.
+	SetMinRelayFeerate(fee chainfee.SatPerKVByte)
+
 	// Reset resets the fee rate map to the default value.
 	Reset()
 }
@@ -52,8 +55,9 @@ const (
 type FeeService struct {
 	*testing.T
 
-	feeRateMap map[uint32]uint32
-	url        string
+	feeRateMap      map[uint32]uint32
+	minRelayFeerate chainfee.SatPerKVByte
+	url             string
 
 	srv  *http.Server
 	wg   sync.WaitGroup
@@ -79,6 +83,7 @@ func NewFeeService(t *testing.T) *FeeService {
 	f.feeRateMap = map[uint32]uint32{
 		feeServiceTarget: DefaultFeeRateSatPerKw,
 	}
+	f.minRelayFeerate = chainfee.FeePerKwFloor.FeePerKVByte()
 
 	listenAddr := fmt.Sprintf(":%v", port)
 	mux := http.NewServeMux()
@@ -113,10 +118,9 @@ func (f *FeeService) handleRequest(w http.ResponseWriter, _ *http.Request) {
 	defer f.lock.Unlock()
 
 	bytes, err := json.Marshal(
-		struct {
-			Fees map[uint32]uint32 `json:"fee_by_block_target"`
-		}{
-			Fees: f.feeRateMap,
+		chainfee.WebAPIResponse{
+			FeeByBlockTarget: f.feeRateMap,
+			MinRelayFeerate:  f.minRelayFeerate,
 		},
 	)
 	require.NoErrorf(f, err, "cannot serialize estimates")
@@ -141,6 +145,14 @@ func (f *FeeService) SetFeeRate(fee chainfee.SatPerKWeight, conf uint32) {
 	defer f.lock.Unlock()
 
 	f.feeRateMap[conf] = uint32(fee.FeePerKVByte())
+}
+
+// SetMinRelayFeerate sets a min relay feerate.
+func (f *FeeService) SetMinRelayFeerate(fee chainfee.SatPerKVByte) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+
+	f.minRelayFeerate = fee
 }
 
 // Reset resets the fee rate map to the default value.

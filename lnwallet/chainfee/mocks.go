@@ -12,10 +12,10 @@ type mockFeeSource struct {
 // WebAPIFeeSource interface.
 var _ WebAPIFeeSource = (*mockFeeSource)(nil)
 
-func (m *mockFeeSource) GetFeeMap() (map[uint32]uint32, error) {
+func (m *mockFeeSource) GetFeeInfo() (WebAPIResponse, error) {
 	args := m.Called()
 
-	return args.Get(0).(map[uint32]uint32), args.Error(1)
+	return args.Get(0).(WebAPIResponse), args.Error(1)
 }
 
 // MockEstimator implements the `Estimator` interface and is used by

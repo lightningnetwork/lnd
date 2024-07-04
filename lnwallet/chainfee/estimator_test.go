@@ -252,12 +252,12 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 		feeSource, false, minFeeUpdateTimeout, maxFeeUpdateTimeout,
 	)
 
-	// Test that requesting a fee when no fees have been cached won't fail.
+	// Test that when the estimator is not started, an error is returned.
 	feeRate, err := estimator.EstimateFeePerKW(5)
-	require.NoErrorf(t, err, "expected no error")
-	require.Equalf(t, FeePerKwFloor, feeRate, "expected fee rate floor "+
-		"returned when no cached fee rate found")
+	require.Error(t, err, "expected an error")
+	require.Zero(t, feeRate, "expected zero fee rate")
 
+	// Start the estimator.
 	require.NoError(t, estimator.Start(), "unable to start fee estimator")
 
 	for _, tc := range testCases {

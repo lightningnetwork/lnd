@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -725,8 +726,8 @@ var _ WebAPIFeeSource = (*SparseConfFeeSource)(nil)
 // WebAPIEstimator is an implementation of the Estimator interface that
 // queries an HTTP-based fee estimation from an existing web API.
 type WebAPIEstimator struct {
-	started sync.Once
-	stopped sync.Once
+	started atomic.Bool
+	stopped atomic.Bool
 
 	// apiSource is the backing web API source we'll use for our queries.
 	apiSource WebAPIFeeSource
@@ -792,6 +793,12 @@ func NewWebAPIEstimator(api WebAPIFeeSource, noCache bool,
 func (w *WebAPIEstimator) EstimateFeePerKW(numBlocks uint32) (
 	SatPerKWeight, error) {
 
+	// If the estimator hasn't been started yet, we'll return an error as
+	// we can't provide a fee estimate.
+	if !w.started.Load() {
+		return 0, fmt.Errorf("estimator not started")
+	}
+
 	if numBlocks > MaxBlockTarget {
 		numBlocks = MaxBlockTarget
 	} else if numBlocks < minBlockTarget {
@@ -831,29 +838,33 @@ func (w *WebAPIEstimator) EstimateFeePerKW(numBlocks uint32) (
 //
 // NOTE: This method is part of the Estimator interface.
 func (w *WebAPIEstimator) Start() error {
+	log.Infof("Starting Web API fee estimator...")
+
+	// Return an error if it's already been started.
+	if w.started.Load() {
+		return fmt.Errorf("web API fee estimator already started")
+	}
+	defer w.started.Store(true)
+
+	// During startup we'll query the API to initialize the fee map.
+	w.updateFeeEstimates()
+
 	// No update loop is needed when we don't cache.
 	if w.noCache {
 		return nil
 	}
 
-	var err error
-	w.started.Do(func() {
-		log.Infof("Starting web API fee estimator")
+	feeUpdateTimeout := w.randomFeeUpdateTimeout()
 
-		feeUpdateTimeout := w.randomFeeUpdateTimeout()
+	log.Infof("Web API fee estimator using update timeout of %v",
+		feeUpdateTimeout)
 
-		log.Infof("Web API fee estimator using update timeout of %v",
-			feeUpdateTimeout)
+	w.updateFeeTicker = time.NewTicker(feeUpdateTimeout)
 
-		w.updateFeeTicker = time.NewTicker(feeUpdateTimeout)
-		w.updateFeeEstimates()
+	w.wg.Add(1)
+	go w.feeUpdateManager()
 
-		w.wg.Add(1)
-		go w.feeUpdateManager()
-
-	})
-
-	return err
+	return nil
 }
 
 // Stop stops any spawned goroutines and cleans up the resources used by the
@@ -861,19 +872,22 @@ func (w *WebAPIEstimator) Start() error {
 //
 // NOTE: This method is part of the Estimator interface.
 func (w *WebAPIEstimator) Stop() error {
+	log.Infof("Stopping web API fee estimator")
+
+	if w.stopped.Swap(true) {
+		return fmt.Errorf("web API fee estimator already stopped")
+	}
+
 	// Update loop is not running when we don't cache.
 	if w.noCache {
 		return nil
 	}
 
-	w.stopped.Do(func() {
-		log.Infof("Stopping web API fee estimator")
+	w.updateFeeTicker.Stop()
 
-		w.updateFeeTicker.Stop()
+	close(w.quit)
+	w.wg.Wait()
 
-		close(w.quit)
-		w.wg.Wait()
-	})
 	return nil
 }
 
@@ -882,6 +896,10 @@ func (w *WebAPIEstimator) Stop() error {
 //
 // NOTE: This method is part of the Estimator interface.
 func (w *WebAPIEstimator) RelayFeePerKW() SatPerKWeight {
+	if !w.started.Load() {
+		log.Error("WebAPIEstimator not started")
+	}
+
 	// Get fee estimates now if we don't refresh periodically.
 	if w.noCache {
 		w.updateFeeEstimates()

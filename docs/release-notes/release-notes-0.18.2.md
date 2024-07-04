@@ -29,6 +29,10 @@
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/8822) that caused
   LND to read the config only partially and continued with the startup.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/8887) in error
+  matching from publishing already confirmed transactions that can cause lnd
+  fail to startup if `btcd` with an older version (pre-`v0.24.2`) is used.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions
@@ -102,3 +106,4 @@
 * Matheus Degiovani
 * Oliver Gugger
 * Slyghtning
+* Yong Yu

@@ -1,14 +1,19 @@
 package localchans
 
 import (
+	"encoding/hex"
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -35,6 +40,18 @@ func TestManager(t *testing.T) {
 		channelSet         []channel
 	)
 
+	sp := [33]byte{}
+	_, _ = hex.Decode(sp[:], []byte("028d7500dd4c12685d1f568b4c2b5048e85"+
+		"34b873319f3a8daa612b469132ec7f7"))
+	rp := [33]byte{}
+	_, _ = hex.Decode(rp[:], []byte("034f355bdcb7cc0af728ef3cceb9615d906"+
+		"84bb5b2ca5f859ab0f0b704075871aa"))
+	selfpub, _ := btcec.ParsePubKey(sp[:])
+	remotepub, _ := btcec.ParsePubKey(rp[:])
+	localMultisigPrivKey, _ := btcec.NewPrivateKey()
+	localMultisigKey := localMultisigPrivKey.PubKey()
+	remoteMultisigPrivKey, _ := btcec.NewPrivateKey()
+	remoteMultisigKey := remoteMultisigPrivKey.PubKey()
 	newPolicy := routing.ChannelPolicy{
 		FeeSchema: routing.FeeSchema{
 			BaseFee: 100,
@@ -131,10 +148,25 @@ func TestManager(t *testing.T) {
 		}
 
 		return &channeldb.OpenChannel{
+			FundingOutpoint: chanPointValid,
+			IdentityPub:     remotepub,
 			LocalChanCfg: channeldb.ChannelConfig{
 				ChannelStateBounds: bounds,
+				MultiSigKey: keychain.KeyDescriptor{
+					PubKey: localMultisigKey,
+				},
+			},
+			RemoteChanCfg: channeldb.ChannelConfig{
+				ChannelStateBounds: bounds,
+				MultiSigKey: keychain.KeyDescriptor{
+					PubKey: remoteMultisigKey,
+				},
 			},
 		}, nil
+	}
+
+	addEdge := func(edge *models.ChannelEdgeInfo) error {
+		return nil
 	}
 
 	manager := Manager{
@@ -142,6 +174,16 @@ func TestManager(t *testing.T) {
 		PropagateChanPolicyUpdate: propagateChanPolicyUpdate,
 		ForAllOutgoingChannels:    forAllOutgoingChannels,
 		FetchChannel:              fetchChannel,
+		SelfPub:                   selfpub,
+		DefaultRoutingPolicy: models.ForwardingPolicy{
+			MinHTLCOut:    minHTLC,
+			MaxHTLC:       maxPendingAmount,
+			BaseFee:       lnwire.MilliSatoshi(1000),
+			FeeRate:       lnwire.MilliSatoshi(0),
+			InboundFee:    models.InboundFee{},
+			TimeLockDelta: 80,
+		},
+		AddEdge: addEdge,
 	}
 
 	// Policy with no max htlc value.
@@ -237,6 +279,34 @@ func TestManager(t *testing.T) {
 			expectedUpdateFailures: []lnrpc.UpdateFailure{},
 			expectErr:              nil,
 		},
+		{
+			// Here, the edge is missing, causing the edge to be
+			// recreated.
+			name:                   "missing edge recreated",
+			currentPolicy:          models.ChannelEdgePolicy{},
+			newPolicy:              newPolicy,
+			channelSet:             []channel{},
+			specifiedChanPoints:    []wire.OutPoint{chanPointValid},
+			createMissingEdge:      true,
+			expectedNumUpdates:     1,
+			expectedUpdateFailures: []lnrpc.UpdateFailure{},
+			expectErr:              nil,
+		},
+		{
+			// Here, the edge is missing, but the edge will not be
+			// recreated, because createMissingEdge is false.
+			name:                "missing edge ignored",
+			currentPolicy:       models.ChannelEdgePolicy{},
+			newPolicy:           newPolicy,
+			channelSet:          []channel{},
+			specifiedChanPoints: []wire.OutPoint{chanPointValid},
+			createMissingEdge:   false,
+			expectedNumUpdates:  0,
+			expectedUpdateFailures: []lnrpc.UpdateFailure{
+				lnrpc.UpdateFailure_UPDATE_FAILURE_UNKNOWN,
+			},
+			expectErr: nil,
+		},
 	}
 
 	for _, test := range tests {
@@ -263,4 +333,180 @@ func TestManager(t *testing.T) {
 			require.Equal(t, test.expectErr, err)
 		})
 	}
+}
+
+// Tests creating a new edge in the manager where the local pubkey is the
+// lexicographically lesser or the two.
+func TestCreateEdgeLower(t *testing.T) {
+	sp := [33]byte{}
+	_, _ = hex.Decode(sp[:], []byte("028d7500dd4c12685d1f568b4c2b5048e85"+
+		"34b873319f3a8daa612b469132ec7f7"))
+	rp := [33]byte{}
+	_, _ = hex.Decode(rp[:], []byte("034f355bdcb7cc0af728ef3cceb9615d906"+
+		"84bb5b2ca5f859ab0f0b704075871aa"))
+	selfpub, _ := btcec.ParsePubKey(sp[:])
+	remotepub, _ := btcec.ParsePubKey(rp[:])
+	localMultisigPrivKey, _ := btcec.NewPrivateKey()
+	localMultisigKey := localMultisigPrivKey.PubKey()
+	remoteMultisigPrivKey, _ := btcec.NewPrivateKey()
+	remoteMultisigKey := remoteMultisigPrivKey.PubKey()
+	timestamp := time.Now()
+	defaultPolicy := models.ForwardingPolicy{
+		MinHTLCOut: 1,
+		MaxHTLC:    2,
+		BaseFee:    3,
+		FeeRate:    4,
+		InboundFee: models.InboundFee{
+			Base: 5,
+			Rate: 6,
+		},
+		TimeLockDelta: 7,
+	}
+
+	channel := &channeldb.OpenChannel{
+		IdentityPub: remotepub,
+		LocalChanCfg: channeldb.ChannelConfig{
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: localMultisigKey,
+			},
+		},
+		RemoteChanCfg: channeldb.ChannelConfig{
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: remoteMultisigKey,
+			},
+		},
+		ShortChannelID: lnwire.NewShortChanIDFromInt(8),
+		ChainHash:      *chaincfg.RegressionNetParams.GenesisHash,
+		Capacity:       9,
+		FundingOutpoint: wire.OutPoint{
+			Hash:  chainhash.Hash([32]byte{}),
+			Index: 0,
+		},
+	}
+	expectedInfo := &models.ChannelEdgeInfo{
+		ChannelID:     8,
+		ChainHash:     channel.ChainHash,
+		Features:      []byte{0, 0},
+		Capacity:      9,
+		ChannelPoint:  channel.FundingOutpoint,
+		NodeKey1Bytes: sp,
+		NodeKey2Bytes: rp,
+		BitcoinKey1Bytes: [33]byte(
+			localMultisigKey.SerializeCompressed()),
+		BitcoinKey2Bytes: [33]byte(
+			remoteMultisigKey.SerializeCompressed()),
+		AuthProof:       nil,
+		ExtraOpaqueData: nil,
+	}
+	expectedEdge := &models.ChannelEdgePolicy{
+		ChannelID:                 8,
+		LastUpdate:                timestamp,
+		TimeLockDelta:             7,
+		ChannelFlags:              0,
+		MessageFlags:              lnwire.ChanUpdateRequiredMaxHtlc,
+		FeeBaseMSat:               3,
+		FeeProportionalMillionths: 4,
+		MinHTLC:                   1,
+		MaxHTLC:                   2,
+		SigBytes:                  nil,
+		ToNode:                    rp,
+		ExtraOpaqueData:           nil,
+	}
+	manager := Manager{
+		SelfPub:              selfpub,
+		DefaultRoutingPolicy: defaultPolicy,
+	}
+
+	info, edge, err := manager.createEdge(channel, timestamp)
+	require.NoError(t, err)
+	require.Equal(t, expectedInfo, info)
+	require.Equal(t, expectedEdge, edge)
+}
+
+// Tests creating a new edge in the manager where the local pubkey is the
+// lexicographically higher or the two.
+func TestCreateEdgeHigher(t *testing.T) {
+	sp := [33]byte{}
+	_, _ = hex.Decode(sp[:], []byte("034f355bdcb7cc0af728ef3cceb9615d906"+
+		"84bb5b2ca5f859ab0f0b704075871aa"))
+	rp := [33]byte{}
+	_, _ = hex.Decode(rp[:], []byte("028d7500dd4c12685d1f568b4c2b5048e85"+
+		"34b873319f3a8daa612b469132ec7f7"))
+	selfpub, _ := btcec.ParsePubKey(sp[:])
+	remotepub, _ := btcec.ParsePubKey(rp[:])
+	localMultisigPrivKey, _ := btcec.NewPrivateKey()
+	localMultisigKey := localMultisigPrivKey.PubKey()
+	remoteMultisigPrivKey, _ := btcec.NewPrivateKey()
+	remoteMultisigKey := remoteMultisigPrivKey.PubKey()
+	timestamp := time.Now()
+	defaultPolicy := models.ForwardingPolicy{
+		MinHTLCOut: 1,
+		MaxHTLC:    2,
+		BaseFee:    3,
+		FeeRate:    4,
+		InboundFee: models.InboundFee{
+			Base: 5,
+			Rate: 6,
+		},
+		TimeLockDelta: 7,
+	}
+
+	channel := &channeldb.OpenChannel{
+		IdentityPub: remotepub,
+		LocalChanCfg: channeldb.ChannelConfig{
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: localMultisigKey,
+			},
+		},
+		RemoteChanCfg: channeldb.ChannelConfig{
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: remoteMultisigKey,
+			},
+		},
+		ShortChannelID: lnwire.NewShortChanIDFromInt(8),
+		ChainHash:      *chaincfg.RegressionNetParams.GenesisHash,
+		Capacity:       9,
+		FundingOutpoint: wire.OutPoint{
+			Hash:  chainhash.Hash([32]byte{}),
+			Index: 0,
+		},
+	}
+	expectedInfo := &models.ChannelEdgeInfo{
+		ChannelID:     8,
+		ChainHash:     channel.ChainHash,
+		Features:      []byte{0, 0},
+		Capacity:      9,
+		ChannelPoint:  channel.FundingOutpoint,
+		NodeKey1Bytes: rp,
+		NodeKey2Bytes: sp,
+		BitcoinKey1Bytes: [33]byte(
+			remoteMultisigKey.SerializeCompressed()),
+		BitcoinKey2Bytes: [33]byte(
+			localMultisigKey.SerializeCompressed()),
+		AuthProof:       nil,
+		ExtraOpaqueData: nil,
+	}
+	expectedEdge := &models.ChannelEdgePolicy{
+		ChannelID:                 8,
+		LastUpdate:                timestamp,
+		TimeLockDelta:             7,
+		ChannelFlags:              1,
+		MessageFlags:              lnwire.ChanUpdateRequiredMaxHtlc,
+		FeeBaseMSat:               3,
+		FeeProportionalMillionths: 4,
+		MinHTLC:                   1,
+		MaxHTLC:                   2,
+		SigBytes:                  nil,
+		ToNode:                    rp,
+		ExtraOpaqueData:           nil,
+	}
+	manager := Manager{
+		SelfPub:              selfpub,
+		DefaultRoutingPolicy: defaultPolicy,
+	}
+
+	info, edge, err := manager.createEdge(channel, timestamp)
+	require.NoError(t, err)
+	require.Equal(t, expectedInfo, info)
+	require.Equal(t, expectedEdge, edge)
 }

@@ -1,6 +1,7 @@
 package invoicesrpc
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"math/rand"
@@ -10,10 +11,13 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/mock"
@@ -1401,4 +1405,452 @@ func genBlindedRouteData(rand *rand.Rand) *record.BlindedRouteData {
 	}, rand)
 
 	return &data
+}
+
+// TestBuildBlindedPath tests the logic for constructing a blinded path against
+// an example mentioned in this spec document:
+// https://github.com/lightning/bolts/blob/master/proposals/route-blinding.md
+// This example does not use any dummy hops.
+func TestBuildBlindedPath(t *testing.T) {
+	// Alice chooses the following path to herself for blinded path
+	// construction:
+	//    	Carol -> Bob -> Alice.
+	// Let's construct the corresponding route.Route for this which will be
+	// returned from the `findRoutes` config callback.
+	var (
+		privC, pkC = btcec.PrivKeyFromBytes([]byte{1})
+		privB, pkB = btcec.PrivKeyFromBytes([]byte{2})
+		privA, pkA = btcec.PrivKeyFromBytes([]byte{3})
+
+		carol = route.NewVertex(pkC)
+		bob   = route.NewVertex(pkB)
+		alice = route.NewVertex(pkA)
+
+		chanCB = uint64(1)
+		chanBA = uint64(2)
+	)
+
+	realRoute := &route.Route{
+		SourcePubKey: carol,
+		Hops: []*route.Hop{
+			{
+				PubKeyBytes: bob,
+				ChannelID:   chanCB,
+			},
+			{
+				PubKeyBytes: alice,
+				ChannelID:   chanBA,
+			},
+		},
+	}
+
+	realPolicies := map[uint64]*models.ChannelEdgePolicy{
+		chanCB: {
+			ChannelID: chanCB,
+			ToNode:    bob,
+		},
+		chanBA: {
+			ChannelID: chanBA,
+			ToNode:    alice,
+		},
+	}
+
+	paths, err := buildBlindedPaymentPaths(&buildBlindedPathCfg{
+		findRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
+			error) {
+
+			return []*route.Route{realRoute}, nil
+		},
+		fetchChannelEdgesByID: func(chanID uint64) (
+			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy, error) {
+
+			return nil, realPolicies[chanID], nil, nil
+		},
+		bestHeight: func() (uint32, error) {
+			return 1000, nil
+		},
+		// In the spec example, all the policies get replaced with
+		// the same static values.
+		addPolicyBuffer: func(_ *blindedHopPolicy) (
+			*blindedHopPolicy, error) {
+
+			return &blindedHopPolicy{
+				feeRate:         500,
+				baseFee:         100,
+				cltvExpiryDelta: 144,
+				minHTLCMsat:     1000,
+				maxHTLCMsat:     lnwire.MaxMilliSatoshi,
+			}, nil
+		},
+		pathID:                  []byte{1, 2, 3},
+		valueMsat:               1000,
+		minFinalCLTVExpiryDelta: 12,
+		blocksUntilExpiry:       200,
+	})
+	require.NoError(t, err)
+	require.Len(t, paths, 1)
+
+	path := paths[0]
+
+	// Check that all the accumulated policy values are correct.
+	require.EqualValues(t, 201, path.FeeBaseMsat)
+	require.EqualValues(t, 1001, path.FeeRate)
+	require.EqualValues(t, 300, path.CltvExpiryDelta)
+	require.EqualValues(t, 1000, path.HTLCMinMsat)
+	require.EqualValues(t, lnwire.MaxMilliSatoshi, path.HTLCMaxMsat)
+
+	// Now we check the hops.
+	require.Len(t, path.Hops, 3)
+
+	// Assert that all the encrypted recipient blobs have been padded such
+	// that they are all the same size.
+	require.Len(t, path.Hops[0].CipherText, len(path.Hops[1].CipherText))
+	require.Len(t, path.Hops[1].CipherText, len(path.Hops[2].CipherText))
+
+	// The first hop, should have the real pub key of the introduction
+	// node: Carol.
+	hop := path.Hops[0]
+	require.True(t, hop.BlindedNodePub.IsEqual(pkC))
+
+	// As Carol, let's decode the hop data and assert that all expected
+	// values have been included.
+	var (
+		blindingPoint = path.FirstEphemeralBlindingPoint
+		data          *record.BlindedRouteData
+	)
+
+	// Check that Carol's info is correct.
+	data, blindingPoint = decryptAndDecodeHopData(
+		t, privC, blindingPoint, hop.CipherText,
+	)
+
+	require.Equal(
+		t, lnwire.NewShortChanIDFromInt(chanCB),
+		data.ShortChannelID.UnwrapOrFail(t).Val,
+	)
+
+	require.Equal(t, record.PaymentRelayInfo{
+		CltvExpiryDelta: 144,
+		FeeRate:         500,
+		BaseFee:         100,
+	}, data.RelayInfo.UnwrapOrFail(t).Val)
+
+	require.Equal(t, record.PaymentConstraints{
+		MaxCltvExpiry:   1500,
+		HtlcMinimumMsat: 1000,
+	}, data.Constraints.UnwrapOrFail(t).Val)
+
+	// Check that all Bob's info is correct.
+	hop = path.Hops[1]
+	data, blindingPoint = decryptAndDecodeHopData(
+		t, privB, blindingPoint, hop.CipherText,
+	)
+
+	require.Equal(
+		t, lnwire.NewShortChanIDFromInt(chanBA),
+		data.ShortChannelID.UnwrapOrFail(t).Val,
+	)
+
+	require.Equal(t, record.PaymentRelayInfo{
+		CltvExpiryDelta: 144,
+		FeeRate:         500,
+		BaseFee:         100,
+	}, data.RelayInfo.UnwrapOrFail(t).Val)
+
+	require.Equal(t, record.PaymentConstraints{
+		MaxCltvExpiry:   1356,
+		HtlcMinimumMsat: 1000,
+	}, data.Constraints.UnwrapOrFail(t).Val)
+
+	// Check that all Alice's info is correct.
+	hop = path.Hops[2]
+	data, _ = decryptAndDecodeHopData(
+		t, privA, blindingPoint, hop.CipherText,
+	)
+	require.True(t, data.ShortChannelID.IsNone())
+	require.True(t, data.RelayInfo.IsNone())
+	require.Equal(t, record.PaymentConstraints{
+		MaxCltvExpiry:   1212,
+		HtlcMinimumMsat: 1000,
+	}, data.Constraints.UnwrapOrFail(t).Val)
+	require.Equal(t, []byte{1, 2, 3}, data.PathID.UnwrapOrFail(t).Val)
+}
+
+// TestBuildBlindedPathWithDummyHops tests the construction of a blinded path
+// which includes dummy hops.
+func TestBuildBlindedPathWithDummyHops(t *testing.T) {
+	// Alice chooses the following path to herself for blinded path
+	// construction:
+	//    	Carol -> Bob -> Alice.
+	// Let's construct the corresponding route.Route for this which will be
+	// returned from the `findRoutes` config callback.
+	var (
+		privC, pkC = btcec.PrivKeyFromBytes([]byte{1})
+		privB, pkB = btcec.PrivKeyFromBytes([]byte{2})
+		privA, pkA = btcec.PrivKeyFromBytes([]byte{3})
+
+		carol = route.NewVertex(pkC)
+		bob   = route.NewVertex(pkB)
+		alice = route.NewVertex(pkA)
+
+		chanCB = uint64(1)
+		chanBA = uint64(2)
+	)
+
+	realRoute := &route.Route{
+		SourcePubKey: carol,
+		Hops: []*route.Hop{
+			{
+				PubKeyBytes: bob,
+				ChannelID:   chanCB,
+			},
+			{
+				PubKeyBytes: alice,
+				ChannelID:   chanBA,
+			},
+		},
+	}
+
+	realPolicies := map[uint64]*models.ChannelEdgePolicy{
+		chanCB: {
+			ChannelID: chanCB,
+			ToNode:    bob,
+		},
+		chanBA: {
+			ChannelID: chanBA,
+			ToNode:    alice,
+		},
+	}
+
+	paths, err := buildBlindedPaymentPaths(&buildBlindedPathCfg{
+		findRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
+			error) {
+
+			return []*route.Route{realRoute}, nil
+		},
+		fetchChannelEdgesByID: func(chanID uint64) (
+			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy, error) {
+
+			policy, ok := realPolicies[chanID]
+			if !ok {
+				return nil, nil, nil,
+					fmt.Errorf("edge not found")
+			}
+
+			return nil, policy, nil, nil
+		},
+		bestHeight: func() (uint32, error) {
+			return 1000, nil
+		},
+		// In the spec example, all the policies get replaced with
+		// the same static values.
+		addPolicyBuffer: func(_ *blindedHopPolicy) (
+			*blindedHopPolicy, error) {
+
+			return &blindedHopPolicy{
+				feeRate:         500,
+				baseFee:         100,
+				cltvExpiryDelta: 144,
+				minHTLCMsat:     1000,
+				maxHTLCMsat:     lnwire.MaxMilliSatoshi,
+			}, nil
+		},
+		pathID:                  []byte{1, 2, 3},
+		valueMsat:               1000,
+		minFinalCLTVExpiryDelta: 12,
+		blocksUntilExpiry:       200,
+
+		// By setting the minimum number of hops to 4, we force 2 dummy
+		// hops to be added to the real route.
+		minNumHops: 4,
+
+		dummyHopPolicy: &blindedHopPolicy{
+			cltvExpiryDelta: 50,
+			feeRate:         100,
+			baseFee:         100,
+			minHTLCMsat:     1000,
+			maxHTLCMsat:     lnwire.MaxMilliSatoshi,
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, paths, 1)
+
+	path := paths[0]
+
+	// Check that all the accumulated policy values are correct.
+	require.EqualValues(t, 403, path.FeeBaseMsat)
+	require.EqualValues(t, 1203, path.FeeRate)
+	require.EqualValues(t, 400, path.CltvExpiryDelta)
+	require.EqualValues(t, 1000, path.HTLCMinMsat)
+	require.EqualValues(t, lnwire.MaxMilliSatoshi, path.HTLCMaxMsat)
+
+	// Now we check the hops.
+	require.Len(t, path.Hops, 5)
+
+	// Assert that all the encrypted recipient blobs have been padded such
+	// that they are all the same size.
+	require.Len(t, path.Hops[0].CipherText, len(path.Hops[1].CipherText))
+	require.Len(t, path.Hops[1].CipherText, len(path.Hops[2].CipherText))
+	require.Len(t, path.Hops[2].CipherText, len(path.Hops[3].CipherText))
+	require.Len(t, path.Hops[3].CipherText, len(path.Hops[4].CipherText))
+
+	// The first hop, should have the real pub key of the introduction
+	// node: Carol.
+	hop := path.Hops[0]
+	require.True(t, hop.BlindedNodePub.IsEqual(pkC))
+
+	// As Carol, let's decode the hop data and assert that all expected
+	// values have been included.
+	var (
+		blindingPoint = path.FirstEphemeralBlindingPoint
+		data          *record.BlindedRouteData
+	)
+
+	// Check that Carol's info is correct.
+	data, blindingPoint = decryptAndDecodeHopData(
+		t, privC, blindingPoint, hop.CipherText,
+	)
+
+	require.Equal(
+		t, lnwire.NewShortChanIDFromInt(chanCB),
+		data.ShortChannelID.UnwrapOrFail(t).Val,
+	)
+
+	require.Equal(t, record.PaymentRelayInfo{
+		CltvExpiryDelta: 144,
+		FeeRate:         500,
+		BaseFee:         100,
+	}, data.RelayInfo.UnwrapOrFail(t).Val)
+
+	require.Equal(t, record.PaymentConstraints{
+		MaxCltvExpiry:   1600,
+		HtlcMinimumMsat: 1000,
+	}, data.Constraints.UnwrapOrFail(t).Val)
+
+	// Check that all Bob's info is correct.
+	hop = path.Hops[1]
+	data, blindingPoint = decryptAndDecodeHopData(
+		t, privB, blindingPoint, hop.CipherText,
+	)
+
+	require.Equal(
+		t, lnwire.NewShortChanIDFromInt(chanBA),
+		data.ShortChannelID.UnwrapOrFail(t).Val,
+	)
+
+	require.Equal(t, record.PaymentRelayInfo{
+		CltvExpiryDelta: 144,
+		FeeRate:         500,
+		BaseFee:         100,
+	}, data.RelayInfo.UnwrapOrFail(t).Val)
+
+	require.Equal(t, record.PaymentConstraints{
+		MaxCltvExpiry:   1456,
+		HtlcMinimumMsat: 1000,
+	}, data.Constraints.UnwrapOrFail(t).Val)
+
+	// Check that all Alice's info is correct. The payload should contain
+	// a next_node_id field that is equal to Alice's public key. This
+	// indicates to Alice that she should continue peeling the onion.
+	hop = path.Hops[2]
+	data, blindingPoint = decryptAndDecodeHopData(
+		t, privA, blindingPoint, hop.CipherText,
+	)
+	require.True(t, data.ShortChannelID.IsNone())
+	require.True(t, data.RelayInfo.IsSome())
+	require.True(t, data.Constraints.IsSome())
+	require.Equal(t, pkA, data.NextNodeID.UnwrapOrFail(t).Val)
+
+	// Alice should be able to decrypt the next payload with her private
+	// key. This next payload is yet another dummy hop.
+	hop = path.Hops[3]
+	data, blindingPoint = decryptAndDecodeHopData(
+		t, privA, blindingPoint, hop.CipherText,
+	)
+	require.True(t, data.ShortChannelID.IsNone())
+	require.True(t, data.RelayInfo.IsSome())
+	require.True(t, data.Constraints.IsSome())
+	require.Equal(t, pkA, data.NextNodeID.UnwrapOrFail(t).Val)
+
+	// Unwrapping one more time should reveal the final hop info for Alice.
+	hop = path.Hops[4]
+	data, _ = decryptAndDecodeHopData(
+		t, privA, blindingPoint, hop.CipherText,
+	)
+	require.True(t, data.ShortChannelID.IsNone())
+	require.True(t, data.RelayInfo.IsNone())
+	require.Equal(t, record.PaymentConstraints{
+		MaxCltvExpiry:   1212,
+		HtlcMinimumMsat: 1000,
+	}, data.Constraints.UnwrapOrFail(t).Val)
+	require.Equal(t, []byte{1, 2, 3}, data.PathID.UnwrapOrFail(t).Val)
+}
+
+// TestSingleHopBlindedPath tests that blinded path construction is done
+// correctly for the case where the destination node is also the introduction
+// node.
+func TestSingleHopBlindedPath(t *testing.T) {
+	var (
+		_, pkC = btcec.PrivKeyFromBytes([]byte{1})
+		carol  = route.NewVertex(pkC)
+	)
+
+	realRoute := &route.Route{
+		SourcePubKey: carol,
+		// No hops since Carol is both the introduction node and the
+		// final destination node.
+		Hops: []*route.Hop{},
+	}
+
+	paths, err := buildBlindedPaymentPaths(&buildBlindedPathCfg{
+		findRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
+			error) {
+
+			return []*route.Route{realRoute}, nil
+		},
+		bestHeight: func() (uint32, error) {
+			return 1000, nil
+		},
+		pathID:                  []byte{1, 2, 3},
+		valueMsat:               1000,
+		minFinalCLTVExpiryDelta: 12,
+		blocksUntilExpiry:       200,
+	})
+	require.NoError(t, err)
+	require.Len(t, paths, 1)
+
+	path := paths[0]
+
+	// Check that all the accumulated policy values are correct. Since this
+	// is a unique case where the destination node is also the introduction
+	// node, the accumulated fee and HTLC values should be zero and the
+	// CLTV expiry delta should be equal to Carol's minFinalCLTVExpiryDelta.
+	require.EqualValues(t, 0, path.FeeBaseMsat)
+	require.EqualValues(t, 0, path.FeeRate)
+	require.EqualValues(t, 0, path.HTLCMinMsat)
+	require.EqualValues(t, 0, path.HTLCMaxMsat)
+	require.EqualValues(t, 12, path.CltvExpiryDelta)
+}
+
+func decryptAndDecodeHopData(t *testing.T, priv *btcec.PrivateKey,
+	ephem *btcec.PublicKey, cipherText []byte) (*record.BlindedRouteData,
+	*btcec.PublicKey) {
+
+	router := sphinx.NewRouter(
+		&keychain.PrivKeyECDH{PrivKey: priv}, nil,
+	)
+
+	decrypted, err := router.DecryptBlindedHopData(ephem, cipherText)
+	require.NoError(t, err)
+
+	buf := bytes.NewBuffer(decrypted)
+	routeData, err := record.DecodeBlindedRouteData(buf)
+	require.NoError(t, err)
+
+	nextEphem, err := router.NextEphemeral(ephem)
+	require.NoError(t, err)
+
+	return routeData, nextEphem
 }

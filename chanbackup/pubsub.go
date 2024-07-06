@@ -47,6 +47,19 @@ type ChannelEvent struct {
 	NewChans []ChannelWithAddrs
 }
 
+// manualUpdate holds a group of channel state updates and an error channel
+// to send back an error happened upon update processing or file updating.
+type manualUpdate struct {
+	// singles hold channels backups. They can be either new or known
+	// channels in the Swapper.
+	singles []Single
+
+	// errChan is the channel to send an error back. If the update handling
+	// and the subsequent file updating succeeds, the channel is closed.
+	// The channel must have capacity of 1 to prevent Swapper blocking.
+	errChan chan error
+}
+
 // ChannelSubscription represents an intent to be notified of any updates to
 // the primary channel state.
 type ChannelSubscription struct {
@@ -88,6 +101,8 @@ type SubSwapper struct {
 	// chanEvents is an active subscription to receive new channel state
 	// over.
 	chanEvents *ChannelSubscription
+
+	manualUpdates chan manualUpdate
 
 	// keyRing is the main key ring that will allow us to pack the new
 	// multi backup.
@@ -142,6 +157,7 @@ func NewSubSwapper(startingChans []Single, chanNotifier ChannelNotifier,
 		Swapper:     backupSwapper,
 		quit:        make(chan struct{}),
 
+		manualUpdates:        make(chan manualUpdate),
 		includeCloseTxInputs: config.includeCloseTxInputs,
 	}, nil
 }
@@ -177,6 +193,39 @@ func (s *SubSwapper) Stop() error {
 		close(s.quit)
 		s.wg.Wait()
 	})
+	return nil
+}
+
+// ManualUpdate inserts/updates channel states into the swapper. The updates
+// are processed in another goroutine. The method waits for the updates to be
+// fully processed and the file updated on-disk before returning.
+func (s *SubSwapper) ManualUpdate(singles []Single) error {
+	// Create the update object to insert into the processing loop.
+	errChan := make(chan error, 1)
+	update := manualUpdate{
+		singles: singles,
+		errChan: errChan,
+	}
+
+	select {
+	case s.manualUpdates <- update:
+	case <-s.quit:
+		return fmt.Errorf("swapper stopped when sending manual update")
+	}
+
+	// Wait for processing, block on errChan. If errChan is closed, we
+	// receive nil error, which signals the success.
+	select {
+	case err := <-errChan:
+		if err != nil {
+			return fmt.Errorf("processing of manual update "+
+				"failed: %w", err)
+		}
+	case <-s.quit:
+		return fmt.Errorf("swapper stopped when waiting for outcome")
+	}
+
+	// Success.
 	return nil
 }
 
@@ -319,6 +368,42 @@ func (s *SubSwapper) backupUpdater() {
 			if err := s.updateBackupFile(closedChans...); err != nil {
 				log.Errorf("unable to update backup file: %v",
 					err)
+			}
+
+		// We received a manual update. Handle it and update the file.
+		case manualUpdate := <-s.manualUpdates:
+			oldStateSize := len(s.backupState)
+
+			// For all open channels, we'll create a new SCB given
+			// the required information.
+			for _, single := range manualUpdate.singles {
+				log.Debugf("Manual update of channel %v",
+					single.FundingOutpoint)
+
+				s.backupState[single.FundingOutpoint] = single
+			}
+
+			newStateSize := len(s.backupState)
+
+			log.Infof("Updating on-disk multi SCB backup: "+
+				"num_old_chans=%v, num_new_chans=%v",
+				oldStateSize, newStateSize)
+
+			// With out new state constructed, we'll, atomically
+			// update the on-disk backup state.
+			err := s.updateBackupFile()
+			if err != nil {
+				log.Errorf("unable to update backup file: %v",
+					err)
+
+				// Send the error to the caller of ManualUpdate.
+				// The error channel must have capacity of 1 not
+				// to block here.
+				manualUpdate.errChan <- err
+			} else {
+				// Signify success to the caller by closing the
+				// channel.
+				close(manualUpdate.errChan)
 			}
 
 		// TODO(roasbeef): refresh periodically on a time basis due to

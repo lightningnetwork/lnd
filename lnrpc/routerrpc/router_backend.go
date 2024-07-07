@@ -114,17 +114,21 @@ type MissionControl interface {
 		amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64
 
 	// ResetHistory resets the history of MissionControl returning it to a
-	// state as if no payment attempts have been made.
-	ResetHistory() error
+	// state as if no payment attempts have been made.If the
+	// resetImportedPersistedMC flag is set to true, it also resets the
+	// imported and persisted mission control data on disk.
+	ResetHistory(resetImportedPersistedMC bool) error
 
 	// GetHistorySnapshot takes a snapshot from the current mission control
 	// state and actual probability estimates.
 	GetHistorySnapshot() *routing.MissionControlSnapshot
 
 	// ImportHistory imports the mission control snapshot to our internal
-	// state. This import will only be applied in-memory, and will not be
-	// persisted across restarts.
-	ImportHistory(snapshot *routing.MissionControlSnapshot, force bool) error
+	// state. This import will be applied both in-memory and persisted to
+	// disk, ensuring that the mission control data is available across
+	// restarts (if persistMC flag is set).
+	ImportHistory(snapshot *routing.MissionControlSnapshot, force bool,
+		persistMC bool) error
 
 	// GetPairHistorySnapshot returns the stored history for a given node
 	// pair.

@@ -359,11 +359,6 @@ func (h *HarnessTest) Stop() {
 		return
 	}
 
-	// Stop all running nodes.
-	for _, node := range h.manager.activeNodes {
-		h.Shutdown(node)
-	}
-
 	close(h.lndErrorChan)
 
 	// Stop the fee service.

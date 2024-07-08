@@ -165,7 +165,7 @@
     },
     "/v2/router/mc/reset": {
       "post": {
-        "summary": "lncli: `resetmc`\nResetMissionControl clears all mission control state and starts with a clean\nslate.",
+        "summary": "lncli: `resetmc`\nResetMissionControl clears all mission control state and starts with a clean\nstate. If the reset_imported_persisted_mc flag is set to true, it also\nresets the imported and persisted mission control data on disk.",
         "operationId": "Router_ResetMissionControl",
         "responses": {
           "200": {
@@ -1624,7 +1624,13 @@
       }
     },
     "routerrpcResetMissionControlRequest": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "reset_imported_persisted_mc": {
+          "type": "boolean",
+          "description": "Whether to reset the imported and persisted mission control state on\ndisk."
+        }
+      }
     },
     "routerrpcResetMissionControlResponse": {
       "type": "object"
@@ -1895,6 +1901,10 @@
         "force": {
           "type": "boolean",
           "description": "Whether to force override MC pair history. Note that even with force\noverride the failure pair is imported before the success pair and both\nstill clamp existing failure/success amounts."
+        },
+        "persist_mc": {
+          "type": "boolean",
+          "description": "Whether to persist the imported mission control to disk."
         }
       }
     },

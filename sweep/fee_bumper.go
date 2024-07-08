@@ -427,7 +427,7 @@ func (t *TxPublisher) createRBFCompliantTx(req *BumpRequest,
 			fallthrough
 
 		// We are not paying enough fees so we increase it.
-		case errors.Is(err, rpcclient.ErrInsufficientFee):
+		case errors.Is(err, chain.ErrInsufficientFee):
 			increased := false
 
 			// Keep calling the fee function until the fee rate is
@@ -934,7 +934,7 @@ func (t *TxPublisher) createAndPublishTx(requestID uint64,
 	// - if the deadline is close, we expect the fee function to give us a
 	//   higher fee rate. If the fee rate cannot satisfy the RBF rules, it
 	//   means the budget is not enough.
-	if errors.Is(err, rpcclient.ErrInsufficientFee) ||
+	if errors.Is(err, chain.ErrInsufficientFee) ||
 		errors.Is(err, lnwallet.ErrMempoolFee) {
 
 		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
@@ -989,7 +989,7 @@ func (t *TxPublisher) createAndPublishTx(requestID uint64,
 	//
 	// NOTE: we may get this error if we've bypassed the mempool check,
 	// which means we are suing neutrino backend.
-	if errors.Is(result.Err, rpcclient.ErrInsufficientFee) ||
+	if errors.Is(result.Err, chain.ErrInsufficientFee) ||
 		errors.Is(result.Err, lnwallet.ErrMempoolFee) {
 
 		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(), err)

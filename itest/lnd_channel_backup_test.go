@@ -267,7 +267,7 @@ func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
 				// the node from seed, then manually recover
 				// the channel backup.
 				return chanRestoreViaRPC(
-					st, password, mnemonic, multi, oldNode,
+					st, password, mnemonic, multi,
 				)
 			},
 		},
@@ -291,7 +291,7 @@ func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
 				// create a new nodeRestorer that will restore
 				// using the on-disk channel.backup.
 				return chanRestoreViaRPC(
-					st, password, mnemonic, multi, oldNode,
+					st, password, mnemonic, multi,
 				)
 			},
 		},
@@ -523,7 +523,7 @@ func runChanRestoreScenarioUnConfirmed(ht *lntest.HarnessTest, useFile bool) {
 	// In our nodeRestorer function, we'll restore the node from seed, then
 	// manually recover the channel backup.
 	restoredNodeFunc := chanRestoreViaRPC(
-		ht, crs.password, crs.mnemonic, multi, dave,
+		ht, crs.password, crs.mnemonic, multi,
 	)
 
 	// Test the scenario.
@@ -658,7 +658,7 @@ func runChanRestoreScenarioCommitTypes(ht *lntest.HarnessTest,
 	// Now that we have Dave's backup file, we'll create a new nodeRestorer
 	// that we'll restore using the on-disk channels.backup.
 	restoredNodeFunc := chanRestoreViaRPC(
-		ht, crs.password, crs.mnemonic, multi, dave,
+		ht, crs.password, crs.mnemonic, multi,
 	)
 
 	// Test the scenario.
@@ -687,7 +687,7 @@ func testChannelBackupRestoreLegacy(ht *lntest.HarnessTest) {
 	// In our nodeRestorer function, we'll restore the node from seed, then
 	// manually recover the channel backup.
 	restoredNodeFunc := chanRestoreViaRPC(
-		ht, crs.password, crs.mnemonic, multi, dave,
+		ht, crs.password, crs.mnemonic, multi,
 	)
 
 	// Test the scenario.
@@ -779,7 +779,7 @@ func runChanRestoreScenarioForceClose(ht *lntest.HarnessTest, zeroConf bool) {
 	// Now that we have Dave's backup file, we'll create a new nodeRestorer
 	// that will restore using the on-disk channel.backup.
 	restoredNodeFunc := chanRestoreViaRPC(
-		ht, crs.password, crs.mnemonic, multi, dave,
+		ht, crs.password, crs.mnemonic, multi,
 	)
 
 	// We now wait until both Dave's closing tx.
@@ -1388,8 +1388,7 @@ func createLegacyRevocationChannel(ht *lntest.HarnessTest,
 // instance which will restore the target node from a password+seed, then
 // trigger a SCB restore using the RPC interface.
 func chanRestoreViaRPC(ht *lntest.HarnessTest, password []byte,
-	mnemonic []string, multi []byte,
-	oldNode *node.HarnessNode) nodeRestorer {
+	mnemonic []string, multi []byte) nodeRestorer {
 
 	backup := &lnrpc.RestoreChanBackupRequest_MultiChanBackup{
 		MultiChanBackup: multi,

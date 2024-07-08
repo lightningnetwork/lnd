@@ -6,8 +6,8 @@ DOCKER_RELEASE_HELPER = docker run \
   --rm \
   --user $(shell id -u):$(shell id -g) \
   -v $(shell pwd):/tmp/build/lnd \
-  -v $(shell bash -c "go env GOCACHE || (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache \
-  -v $(shell bash -c "go env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
+  -v $(shell bash -c "$(GOCC) env GOCACHE || (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache \
+  -v $(shell bash -c "$(GOCC) env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
   -e SKIP_VERSION_CHECK \
   lnd-release-helper
 

@@ -1051,3 +1051,171 @@ func testMPPToSingleBlindedPath(ht *lntest.HarnessTest) {
 		ht.AssertNumWaitingClose(hn, 0)
 	}
 }
+
+// testBlindedRouteDummyHops tests that the route blinding flow works as
+// expected in the cases where the recipient chooses to pad the blinded path
+// with dummy hops.
+//
+// We will set up the following network were Dave will always be the recipient
+// and Alice is always the payer. Bob will not support route blinding and so
+// will never be chosen as the introduction node.
+//
+//	Alice -- Bob -- Carol -- Dave
+//
+// First we will start Carol _without_ route blinding support. Then we will
+// configure Dave such that any blinded route he constructs must be 2 hops long.
+// Since Carol cannot be chosen as an introduction node, Dave chooses himself
+// as an introduction node and appends two dummy hops.
+// Next, we will restart Carol with route blinding support and repeat the test
+// but this time we force Dave to construct a path with a minimum distance of 1
+// between him and the introduction node. So we expect that Carol is chosen as
+// the intro node and that one dummy hops is appended.
+func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
+	alice, bob := ht.Alice, ht.Bob
+
+	// Disable route blinding for Bob so that he is never chosen as the
+	// introduction node.
+	ht.RestartNodeWithExtraArgs(bob, []string{
+		"--protocol.no-route-blinding",
+	})
+
+	// Start carol without route blinding so that initially Carol is also
+	// not chosen.
+	carol := ht.NewNode("carol", []string{
+		"--protocol.no-route-blinding",
+	})
+
+	// Configure Dave so that all blinded paths always contain 2 hops and
+	// so that there is no minimum number of real hops.
+	dave := ht.NewNode("dave", []string{
+		"--invoices.blinding.min-num-real-hops=0",
+		"--invoices.blinding.num-hops=2",
+	})
+
+	ht.EnsureConnected(alice, bob)
+	ht.EnsureConnected(bob, carol)
+	ht.EnsureConnected(carol, dave)
+
+	// Send coins to carol and mine 1 blocks to confirm them.
+	ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, carol)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	const paymentAmt = btcutil.Amount(300000)
+
+	nodes := []*node.HarnessNode{alice, bob, carol, dave}
+	reqs := []*lntest.OpenChannelRequest{
+		{
+			Local:  alice,
+			Remote: bob,
+			Param: lntest.OpenChannelParams{
+				Amt: paymentAmt * 3,
+			},
+		},
+		{
+			Local:  bob,
+			Remote: carol,
+			Param: lntest.OpenChannelParams{
+				Amt: paymentAmt * 3,
+			},
+		},
+		{
+			Local:  carol,
+			Remote: dave,
+			Param: lntest.OpenChannelParams{
+				Amt: paymentAmt * 3,
+			},
+		},
+	}
+
+	channelPoints := ht.OpenMultiChannelsAsync(reqs)
+
+	// Make sure every node has heard about every channel.
+	for _, hn := range nodes {
+		for _, cp := range channelPoints {
+			ht.AssertTopologyChannelOpen(hn, cp)
+		}
+
+		// Each node should have exactly 5 edges.
+		ht.AssertNumEdges(hn, len(channelPoints), false)
+	}
+
+	// Make Dave create an invoice with a blinded path for Alice to pay.
+	invoice := &lnrpc.Invoice{
+		Memo:  "test",
+		Value: int64(paymentAmt),
+		Blind: true,
+	}
+	invoiceResp := dave.RPC.AddInvoice(invoice)
+
+	// Assert that it contains a single blinded path and that the
+	// introduction node is dave.
+	payReq := dave.RPC.DecodePayReq(invoiceResp.PaymentRequest)
+	require.Len(ht, payReq.BlindedPaths, 1)
+
+	// The total number of hop payloads is 3: one for the introduction node
+	// and then one for each dummy hop.
+	path := payReq.BlindedPaths[0].BlindedPath
+	require.Len(ht, path.BlindedHops, 3)
+	require.EqualValues(ht, path.IntroductionNode, dave.PubKey[:])
+
+	// Now let Alice pay the invoice.
+	ht.CompletePaymentRequests(
+		ht.Alice, []string{invoiceResp.PaymentRequest},
+	)
+
+	// Make sure Dave show the invoice as settled.
+	inv := dave.RPC.LookupInvoice(invoiceResp.RHash)
+	require.Equal(ht, lnrpc.Invoice_SETTLED, inv.State)
+
+	// Let's also test the case where Dave is not the introduction node.
+	// We restart Carol so that she supports route blinding. We also restart
+	// Dave and force a minimum of 1 real blinded hop. We keep the number
+	// of hops to 2 meaning that one dummy hop should be added.
+	ht.RestartNodeWithExtraArgs(carol, nil)
+	ht.RestartNodeWithExtraArgs(dave, []string{
+		"--invoices.blinding.min-num-real-hops=1",
+		"--invoices.blinding.num-hops=2",
+	})
+	ht.EnsureConnected(bob, carol)
+	ht.EnsureConnected(carol, dave)
+
+	// Make Dave create an invoice with a blinded path for Alice to pay.
+	invoiceResp = dave.RPC.AddInvoice(invoice)
+
+	// Assert that it contains a single blinded path and that the
+	// introduction node is Carol.
+	payReq = dave.RPC.DecodePayReq(invoiceResp.PaymentRequest)
+	for _, path := range payReq.BlindedPaths {
+		ht.Logf("intro node: %x", path.BlindedPath.IntroductionNode)
+	}
+
+	require.Len(ht, payReq.BlindedPaths, 1)
+
+	// The total number of hop payloads is 3: one for the introduction node
+	// and then one for each dummy hop.
+	path = payReq.BlindedPaths[0].BlindedPath
+	require.Len(ht, path.BlindedHops, 3)
+	require.EqualValues(ht, path.IntroductionNode, carol.PubKey[:])
+
+	// Now let Alice pay the invoice.
+	ht.CompletePaymentRequests(
+		ht.Alice, []string{invoiceResp.PaymentRequest},
+	)
+
+	// Make sure Dave show the invoice as settled.
+	inv = dave.RPC.LookupInvoice(invoiceResp.RHash)
+	require.Equal(ht, lnrpc.Invoice_SETTLED, inv.State)
+
+	// Close all channels without mining the closing transactions.
+	ht.CloseChannelAssertPending(alice, channelPoints[0], false)
+	ht.CloseChannelAssertPending(bob, channelPoints[1], false)
+	ht.CloseChannelAssertPending(carol, channelPoints[2], false)
+
+	// Now mine a block to include all the closing transactions.
+	ht.MineBlocksAndAssertNumTxes(1, 3)
+
+	// Assert that the channels are closed.
+	for _, hn := range nodes {
+		ht.AssertNumWaitingClose(hn, 0)
+	}
+}

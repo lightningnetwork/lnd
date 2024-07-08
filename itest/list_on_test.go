@@ -591,6 +591,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testMPPToSingleBlindedPath,
 	},
 	{
+		Name:     "route blinding dummy hops",
+		TestFunc: testBlindedRouteDummyHops,
+	},
+	{
 		Name:     "removetx",
 		TestFunc: testRemoveTx,
 	},

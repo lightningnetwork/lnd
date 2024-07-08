@@ -6,7 +6,7 @@ ITEST_FLAGS =
 ITEST_COVERAGE =
 COLLECT_ITEST_COVERAGE =
 EXEC_SUFFIX =
-COVER_PKG = $$(go list -deps -tags="$(DEV_TAGS)" ./... | grep '$(PKG)' | grep -v lnrpc)
+COVER_PKG = $$($(GOCC) list -deps -tags="$(DEV_TAGS)" ./... | grep '$(PKG)' | grep -v lnrpc)
 NUM_ITEST_TRANCHES = 4
 ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
 POSTGRES_START_DELAY = 5
@@ -88,7 +88,7 @@ endif
 # Enable integration test coverage (requires Go >= 1.20.0).
 ifneq ($(cover),)
 ITEST_COVERAGE = -cover
-COLLECT_ITEST_COVERAGE = go tool covdata textfmt -i=itest/cover -o coverage.txt
+COLLECT_ITEST_COVERAGE = $(GOCC) tool covdata textfmt -i=itest/cover -o coverage.txt
 endif
 
 # Define the log tags that will be applied only when running unit tests. If none
@@ -115,8 +115,8 @@ ifneq ($(nocache),)
 TEST_FLAGS += -test.count=1
 endif
 
-GOLIST := go list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
-GOLISTCOVER := $(shell go list -tags="$(DEV_TAGS)" -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
+GOLIST := $(GOCC) list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
+GOLISTCOVER := $(shell $(GOCC) list -tags="$(DEV_TAGS)" -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
 
 # UNIT_TARGTED is undefined iff a specific package and/or unit test case is
 # not being targeted.

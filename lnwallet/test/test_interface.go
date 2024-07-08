@@ -1808,7 +1808,7 @@ func testPublishTransaction(r *rpctest.Harness,
 			// If RBF is enabled, we expect it to be rejected
 			// because it doesn't pay enough fees.
 			if rbf {
-				expectedErr = rpcclient.ErrInsufficientFee
+				expectedErr = chain.ErrInsufficientFee
 			}
 
 			// Assert the expected error.
@@ -1891,7 +1891,7 @@ func testPublishTransaction(r *rpctest.Harness,
 		// Now broadcast the transaction, we should get an error that
 		// the weight is too large.
 		err := alice.PublishTransaction(testTx, labels.External)
-		require.ErrorIs(t, err, rpcclient.ErrOversizeTx)
+		require.ErrorIs(t, err, chain.ErrOversizeTx)
 	})
 }
 

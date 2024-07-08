@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -1497,14 +1498,14 @@ func (b *BreachArbitrator) createSweepTx(inputs ...input.Input) (*wire.MsgTx,
 		spendableOutputs = append(spendableOutputs, inp)
 	}
 
-	txWeight := int64(weightEstimate.Weight())
+	txWeight := weightEstimate.Weight()
 
 	return b.sweepSpendableOutputsTxn(txWeight, spendableOutputs...)
 }
 
 // sweepSpendableOutputsTxn creates a signed transaction from a sequence of
 // spendable outputs by sweeping the funds into a single p2wkh output.
-func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight int64,
+func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight lntypes.WeightUnit,
 	inputs ...input.Input) (*wire.MsgTx, error) {
 
 	// First, we obtain a new public key script from the wallet which we'll

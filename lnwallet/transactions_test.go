@@ -913,7 +913,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 
 	// Create the initial commitment transactions for the channel.
 	feePerKw := chainfee.SatPerKWeight(feeRate)
-	commitWeight := int64(input.CommitWeight)
+	commitWeight := lntypes.WeightUnit(input.CommitWeight)
 	if chanType.HasAnchors() {
 		commitWeight = input.AnchorCommitWeight
 	}

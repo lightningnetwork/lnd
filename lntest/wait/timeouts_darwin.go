@@ -16,7 +16,7 @@ const (
 
 	// ChannelCloseTimeout is the max time we will wait before a channel is
 	// considered closed.
-	ChannelCloseTimeout = time.Second * 60
+	ChannelCloseTimeout = time.Second * 30
 
 	// DefaultTimeout is a timeout that will be used for various wait
 	// scenarios where no custom timeout value is defined.

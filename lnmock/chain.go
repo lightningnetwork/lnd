@@ -157,3 +157,9 @@ func (m *MockChain) TestMempoolAccept(txns []*wire.MsgTx, maxFeeRate float64) (
 
 	return args.Get(0).([]*btcjson.TestMempoolAcceptResult), args.Error(1)
 }
+
+func (m *MockChain) MapRPCErr(err error) error {
+	args := m.Called(err)
+
+	return args.Error(0)
+}

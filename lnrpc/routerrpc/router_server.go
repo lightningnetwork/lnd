@@ -149,14 +149,14 @@ var (
 	DefaultRouterMacFilename = "router.macaroon"
 )
 
-// ServerShell a is shell struct holding a reference to the actual sub-server.
+// ServerShell is a shell struct holding a reference to the actual sub-server.
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
 type ServerShell struct {
 	RouterServer
 }
 
-// Server is a stand alone sub RPC server which exposes functionality that
+// Server is a stand-alone sub RPC server which exposes functionality that
 // allows clients to route arbitrary payment through the Lightning Network.
 type Server struct {
 	started                  int32 // To be used atomically.
@@ -181,7 +181,7 @@ var _ RouterServer = (*Server)(nil)
 // that contains all external dependencies. If the target macaroon exists, and
 // we're unable to create it, then an error will be returned. We also return
 // the set of permissions that we require as a server. At the time of writing
-// of this documentation, this is the same macaroon as as the admin macaroon.
+// of this documentation, this is the same macaroon as the admin macaroon.
 func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	// If the path of the router macaroon wasn't generated, then we'll
 	// assume that it's found at the default network directory.
@@ -360,13 +360,25 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 		return err
 	}
 
+	// The payment context is influenced by two user-provided parameters,
+	// the cancelable flag and the payment attempt timeout.
+	// If the payment is cancelable, we will use the stream context as the
+	// payment context. That way, if the user ends the stream, the payment
+	// loop will be canceled.
+	// The second context parameter is the timeout. If the user provides a
+	// timeout, we will additionally wrap the context in a deadline. If the
+	// user provided 'cancelable' and ends the stream before the timeout is
+	// reached the payment will be canceled.
+	ctx := context.Background()
+	if req.Cancelable {
+		ctx = stream.Context()
+	}
+
 	// Send the payment asynchronously.
-	s.cfg.Router.SendPaymentAsync(payment, paySession, shardTracker)
+	s.cfg.Router.SendPaymentAsync(ctx, payment, paySession, shardTracker)
 
 	// Track the payment and return.
-	return s.trackPayment(
-		sub, payHash, stream, req.NoInflightUpdates,
-	)
+	return s.trackPayment(sub, payHash, stream, req.NoInflightUpdates)
 }
 
 // EstimateRouteFee allows callers to obtain an expected value w.r.t how much it
@@ -986,9 +998,8 @@ func (s *Server) SetMissionControlConfig(ctx context.Context,
 				AprioriHopProbability: float64(
 					req.Config.HopProbability,
 				),
-				AprioriWeight: float64(req.Config.Weight),
-				CapacityFraction: float64(
-					routing.DefaultCapacityFraction),
+				AprioriWeight:    float64(req.Config.Weight),
+				CapacityFraction: routing.DefaultCapacityFraction, //nolint:lll
 			}
 		}
 
@@ -1032,8 +1043,8 @@ func (s *Server) SetMissionControlConfig(ctx context.Context,
 
 // QueryMissionControl exposes the internal mission control state to callers. It
 // is a development feature.
-func (s *Server) QueryMissionControl(ctx context.Context,
-	req *QueryMissionControlRequest) (*QueryMissionControlResponse, error) {
+func (s *Server) QueryMissionControl(_ context.Context,
+	_ *QueryMissionControlRequest) (*QueryMissionControlResponse, error) {
 
 	snapshot := s.cfg.RouterBackend.MissionControl.GetHistorySnapshot()
 
@@ -1080,7 +1091,7 @@ func toRPCPairData(data *routing.TimedPairResult) *PairData {
 
 // XImportMissionControl imports the state provided to our internal mission
 // control. Only entries that are fresher than our existing state will be used.
-func (s *Server) XImportMissionControl(ctx context.Context,
+func (s *Server) XImportMissionControl(_ context.Context,
 	req *XImportMissionControlRequest) (*XImportMissionControlResponse,
 	error) {
 
@@ -1137,6 +1148,7 @@ func toPairSnapshot(pairResult *PairHistory) (*routing.MissionControlPairSnapsho
 		lnwire.MilliSatoshi(pairResult.History.FailAmtMsat),
 		btcutil.Amount(pairResult.History.FailAmtSat),
 		pairResult.History.FailTime,
+		true,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("%v invalid failure: %w", pairPrefix,
@@ -1147,6 +1159,7 @@ func toPairSnapshot(pairResult *PairHistory) (*routing.MissionControlPairSnapsho
 		lnwire.MilliSatoshi(pairResult.History.SuccessAmtMsat),
 		btcutil.Amount(pairResult.History.SuccessAmtSat),
 		pairResult.History.SuccessTime,
+		false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("%v invalid success: %w", pairPrefix,
@@ -1174,9 +1187,11 @@ func toPairSnapshot(pairResult *PairHistory) (*routing.MissionControlPairSnapsho
 }
 
 // getPair validates the values provided for a mission control result and
-// returns the msat amount and timestamp for it.
+// returns the msat amount and timestamp for it. `isFailure` can be used to
+// default values to 0 instead of returning an error.
 func getPair(amtMsat lnwire.MilliSatoshi, amtSat btcutil.Amount,
-	timestamp int64) (lnwire.MilliSatoshi, time.Time, error) {
+	timestamp int64, isFailure bool) (lnwire.MilliSatoshi, time.Time,
+	error) {
 
 	amt, err := getMsatPairValue(amtMsat, amtSat)
 	if err != nil {
@@ -1189,16 +1204,21 @@ func getPair(amtMsat lnwire.MilliSatoshi, amtSat btcutil.Amount,
 	)
 
 	switch {
+	// If a timestamp and amount if provided, return those values.
 	case timeSet && amountSet:
 		return amt, time.Unix(timestamp, 0), nil
 
-	case timeSet && !amountSet:
+	// Return an error if it does have a timestamp without an amount, and
+	// it's not expected to be a failure.
+	case !isFailure && timeSet && !amountSet:
 		return 0, time.Time{}, errors.New("non-zero timestamp " +
-			"requires non-zero amount")
+			"requires non-zero amount for success pairs")
 
-	case !timeSet && amountSet:
-		return 0, time.Time{}, errors.New("non-zero amount requires " +
-			"non-zero timestamp")
+	// Return an error if it does have an amount without a timestamp, and
+	// it's not expected to be a failure.
+	case !isFailure && !timeSet && amountSet:
+		return 0, time.Time{}, errors.New("non-zero amount for " +
+			"success pairs requires non-zero timestamp")
 
 	default:
 		return 0, time.Time{}, nil
@@ -1264,8 +1284,9 @@ func (s *Server) subscribePayment(identifier lntypes.Hash) (
 	sub, err := router.Tower.SubscribePayment(identifier)
 
 	switch {
-	case err == channeldb.ErrPaymentNotInitiated:
+	case errors.Is(err, channeldb.ErrPaymentNotInitiated):
 		return nil, status.Error(codes.NotFound, err.Error())
+
 	case err != nil:
 		return nil, err
 	}
@@ -1376,7 +1397,7 @@ func (s *Server) trackPaymentStream(context context.Context,
 }
 
 // BuildRoute builds a route from a list of hop addresses.
-func (s *Server) BuildRoute(ctx context.Context,
+func (s *Server) BuildRoute(_ context.Context,
 	req *BuildRouteRequest) (*BuildRouteResponse, error) {
 
 	// Unmarshall hop list.
@@ -1437,7 +1458,7 @@ func (s *Server) BuildRoute(ctx context.Context,
 
 // SubscribeHtlcEvents creates a uni-directional stream from the server to
 // the client which delivers a stream of htlc events.
-func (s *Server) SubscribeHtlcEvents(req *SubscribeHtlcEventsRequest,
+func (s *Server) SubscribeHtlcEvents(_ *SubscribeHtlcEventsRequest,
 	stream Router_SubscribeHtlcEventsServer) error {
 
 	htlcClient, err := s.cfg.RouterBackend.SubscribeHtlcEvents()
@@ -1486,7 +1507,7 @@ func (s *Server) SubscribeHtlcEvents(req *SubscribeHtlcEventsRequest,
 
 // HtlcInterceptor is a bidirectional stream for streaming interception
 // requests to the caller.
-// Upon connection it does the following:
+// Upon connection, it does the following:
 // 1. Check if there is already a live stream, if yes it rejects the request.
 // 2. Registered a ForwardInterceptor
 // 3. Delivers to the caller every √√ and detect his answer.
@@ -1516,7 +1537,7 @@ func extractOutPoint(req *UpdateChanStatusRequest) (*wire.OutPoint, error) {
 }
 
 // UpdateChanStatus allows channel state to be set manually.
-func (s *Server) UpdateChanStatus(ctx context.Context,
+func (s *Server) UpdateChanStatus(_ context.Context,
 	req *UpdateChanStatusRequest) (*UpdateChanStatusResponse, error) {
 
 	outPoint, err := extractOutPoint(req)

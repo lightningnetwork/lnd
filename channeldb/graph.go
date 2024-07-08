@@ -1349,7 +1349,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 				edges, edgeIndex, chanIndex, zombieIndex,
 				chanID, false, false,
 			)
-			if err != nil && err != ErrEdgeNotFound {
+			if err != nil && !errors.Is(err, ErrEdgeNotFound) {
 				return err
 			}
 
@@ -1610,7 +1610,7 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) (
 				edges, edgeIndex, chanIndex, zombieIndex,
 				k, false, false,
 			)
-			if err != nil && err != ErrEdgeNotFound {
+			if err != nil && !errors.Is(err, ErrEdgeNotFound) {
 				return err
 			}
 		}
@@ -2410,7 +2410,7 @@ func (c *ChannelGraph) FetchChanInfos(tx kvdb.RTx, chanIDs []uint64) (
 				edgeIndex, cidBytes[:],
 			)
 			switch {
-			case err == ErrEdgeNotFound:
+			case errors.Is(err, ErrEdgeNotFound):
 				continue
 			case err != nil:
 				return err
@@ -2667,7 +2667,7 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 
 			// Silence ErrEdgeNotFound so that the batch can
 			// succeed, but propagate the error via local state.
-			if err == ErrEdgeNotFound {
+			if errors.Is(err, ErrEdgeNotFound) {
 				edgeNotFound = true
 				return nil
 			}
@@ -3323,14 +3323,14 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 		}
 		chanID := chanIndex.Get(b.Bytes())
 		if chanID == nil {
-			return ErrEdgeNotFound
+			return fmt.Errorf("%w: op=%v", ErrEdgeNotFound, op)
 		}
 
 		// If the channel is found to exists, then we'll first retrieve
 		// the general information for the channel.
 		edge, err := fetchChanEdgeInfo(edgeIndex, chanID)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: chanID=%x", err, chanID)
 		}
 		edgeInfo = &edge
 
@@ -3339,7 +3339,7 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 		// edges.
 		e1, e2, err := fetchChanEdgePolicies(edgeIndex, edges, chanID)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to find policy: %w", err)
 		}
 
 		policy1 = e1
@@ -3404,7 +3404,7 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (
 
 		// If it doesn't exist, we'll quickly check our zombie index to
 		// see if we've previously marked it as so.
-		if err == ErrEdgeNotFound {
+		if errors.Is(err, ErrEdgeNotFound) {
 			// If the zombie index doesn't exist, or the edge is not
 			// marked as a zombie within it, then we'll return the
 			// original ErrEdgeNotFound error.
@@ -4411,7 +4411,8 @@ func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
 
 	edgeInfo := edgeIndex.Get(chanID)
 	if edgeInfo == nil {
-		return nil, nil, ErrEdgeNotFound
+		return nil, nil, fmt.Errorf("%w: chanID=%x", ErrEdgeNotFound,
+			chanID)
 	}
 
 	// The first node is contained within the first half of the edge
@@ -4420,7 +4421,8 @@ func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
 	node1Pub := edgeInfo[:33]
 	edge1, err := fetchChanEdgePolicy(edges, chanID, node1Pub)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("%w: node1Pub=%x", ErrEdgeNotFound,
+			node1Pub)
 	}
 
 	// Similarly, the second node is contained within the latter
@@ -4428,7 +4430,8 @@ func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
 	node2Pub := edgeInfo[33:66]
 	edge2, err := fetchChanEdgePolicy(edges, chanID, node2Pub)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("%w: node2Pub=%x", ErrEdgeNotFound,
+			node2Pub)
 	}
 
 	return edge1, edge2, nil

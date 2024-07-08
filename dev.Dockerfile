@@ -4,7 +4,7 @@
 # /make/builder.Dockerfile
 # /.github/workflows/main.yml
 # /.github/workflows/release.yml
-FROM golang:1.21.0-alpine as builder
+FROM golang:1.22.3-alpine as builder
 
 LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 
@@ -24,7 +24,7 @@ COPY . /go/src/github.com/lightningnetwork/lnd
 #  Install/build lnd.
 RUN cd /go/src/github.com/lightningnetwork/lnd \
 &&  make \
-&&  make install tags="signrpc walletrpc chainrpc invoicesrpc peersrpc"
+&&  make install-all tags="signrpc walletrpc chainrpc invoicesrpc peersrpc"
 
 # Start a new, final image to reduce size.
 FROM alpine as final

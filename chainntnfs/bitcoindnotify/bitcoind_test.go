@@ -100,7 +100,9 @@ func syncNotifierWithMiner(t *testing.T, notifier *BitcoindNotifier,
 		select {
 		case <-time.After(100 * time.Millisecond):
 		case <-timeout:
-			t.Fatalf("timed out waiting to sync notifier")
+			t.Fatalf("timed out in syncNotifierWithMiner, got "+
+				"err=%v, minerHeight=%v, bitcoindHeight=%v",
+				err, minerHeight, bitcoindHeight)
 		}
 	}
 }

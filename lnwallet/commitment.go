@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -471,7 +472,7 @@ func SecondLevelHtlcScript(chanType channeldb.ChannelType, initiator bool,
 }
 
 // CommitWeight returns the base commitment weight before adding HTLCs.
-func CommitWeight(chanType channeldb.ChannelType) int64 {
+func CommitWeight(chanType channeldb.ChannelType) lntypes.WeightUnit {
 	switch {
 	case chanType.IsTaproot():
 		return input.TaprootCommitWeight
@@ -724,7 +725,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// by the current fee-per-kw, then divide by 1000 to get the proper
 	// fee.
 	totalCommitWeight := CommitWeight(cb.chanState.ChanType) +
-		input.HTLCWeight*numHTLCs
+		lntypes.WeightUnit(input.HTLCWeight*numHTLCs)
 
 	// With the weight known, we can now calculate the commitment fee,
 	// ensuring that we account for any dust outputs trimmed above.

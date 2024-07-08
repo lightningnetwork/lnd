@@ -100,16 +100,16 @@ the following commands for your OS:
   <summary>Linux (x86-64)</summary>
   
   ```
-  wget https://dl.google.com/go/go1.19.7.linux-amd64.tar.gz
-  sha256sum go1.19.7.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
+  wget https://dl.google.com/go/go1.22.4.linux-amd64.tar.gz
+  sha256sum go1.22.4.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
   ```
 
   The final output of the command above should be
-  `7a75720c9b066ae1750f6bcc7052aba70fa3813f4223199ee2a2315fd3eb533d`. If it
+  `ba79d4526102575196273416239cca418a651e049c2b099f3159db85e7bade7d`. If it
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  sudo tar -C /usr/local -xzf go1.19.7.linux-amd64.tar.gz
+  sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.22.4.linux-amd64.tar.gz
   export PATH=$PATH:/usr/local/go/bin
   ```
 </details>
@@ -118,16 +118,16 @@ the following commands for your OS:
   <summary>Linux (ARMv6)</summary>
   
   ```
-  wget https://dl.google.com/go/go1.19.7.linux-armv6l.tar.gz
-  sha256sum go1.19.7.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
+  wget https://dl.google.com/go/go1.22.4.linux-armv6l.tar.gz
+  sha256sum go1.22.4.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
   ```
 
   The final output of the command above should be
-  `93b1f621ddfc2c2b4e383e185fa7801e80f8b546918cb96afea2723677928312`. If it
+  `e2b143fbacbc9cbd448e9ef41ac3981f0488ce849af1cf37e2341d09670661de`. If it
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  tar -C /usr/local -xzf go1.19.7.linux-armv6l.tar.gz
+  sudo rm -rf /usr/local/go && tar -C /usr/local -xzf go1.22.4.linux-armv6l.tar.gz
   export PATH=$PATH:/usr/local/go/bin
   ```  
   

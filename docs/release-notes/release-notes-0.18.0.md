@@ -209,6 +209,17 @@
   its bitcoin peers' `feefilter` values into
   account](https://github.com/lightningnetwork/lnd/pull/8418).
 
+* Web fee estimator settings have been moved into a new `fee` config group.
+  A new `fee.url` option has been added within this group that replaces the old
+  `feeurl` option, which is now deprecated. Additionally, [two new config values,
+  fee.min-update-timeout and fee.max-update-timeout](https://github.com/lightningnetwork/lnd/pull/8484)
+  are added to allow users to specify the minimum and maximum time between fee
+  updates from the web fee estimator. The default values are 5 minutes and 20
+  minutes respectively. These values are used to prevent the fee estimator from
+  being queried too frequently. This replaces previously hardcoded values that
+  were set to the same values as the new defaults. The previously deprecated
+  `neutrino.feeurl` option has been removed.
+
 * [Preparatory work](https://github.com/lightningnetwork/lnd/pull/8159) for 
   forwarding of blinded routes was added, along with [support](https://github.com/lightningnetwork/lnd/pull/8160)
   for forwarding blinded payments and [error handling](https://github.com/lightningnetwork/lnd/pull/8485).
@@ -273,7 +284,9 @@
 
 * [Man pages](https://github.com/lightningnetwork/lnd/pull/8525) Generate man
   pages automatically using `lncli generatemanpage` command for both `lncli`
-  and `lnd` commands when running `make install` in the Makefile.
+  and `lnd` commands when running 
+  [`make install-all`](https://github.com/lightningnetwork/lnd/pull/8739) in 
+  the Makefile.
 
 # Improvements
 ## Functional Updates
@@ -300,6 +313,13 @@
   added to `chainHealthCheck` to make sure chain backend `bitcoind` and `btcd`
   maintain a healthy connection to the network by checking the number of
   outbound peers if they are below 6.
+
+* [Add inbound fees](https://github.com/lightningnetwork/lnd/pull/8723) to 
+  `subscribeChannelGraph`.
+
+* [Moved](https://github.com/lightningnetwork/lnd/pull/8744) the experimental
+  "custom" options to the main protocol config so that they can be used without
+  the dev build flag set.
 
 ### Logging
 * [Add the htlc amount](https://github.com/lightningnetwork/lnd/pull/8156) to
@@ -433,6 +453,9 @@
   logged](https://github.com/lightningnetwork/lnd/pull/8693) when no values are
   specified.
 
+* Removed deprecated `neutrino.feeurl` option. Please use the newer `fee.url`
+  option instead.
+
 ## Performance Improvements
 
 * Watchtower client DB migration to massively [improve the start-up 
@@ -533,6 +556,7 @@
 * BitcoinerCoderBob
 * bitromortac
 * bota87
+* Bufo
 * Calvin Zachman
 * Carla Kirk-Cohen
 * cristiantroy
@@ -569,6 +593,7 @@
 * testwill
 * Thabokani
 * threewebcode
+* Tom Kirkpatrick
 * Turtle
 * twofaktor
 * vuittont60

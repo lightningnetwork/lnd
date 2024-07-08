@@ -1188,7 +1188,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 			// If this is a zero-conf channel, then we will wait
 			// for it to be confirmed before announcing it to the
 			// greater network.
-			err := f.waitForZeroConfChannel(channel, pendingChanID)
+			err := f.waitForZeroConfChannel(channel)
 			if err != nil {
 				return fmt.Errorf("failed waiting for zero "+
 					"channel: %v", err)
@@ -1556,6 +1556,8 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 			// Fail the funding flow.
 			flowErr := fmt.Errorf("channel acceptor blocked " +
 				"zero-conf channel negotiation")
+			log.Errorf("Cancelling funding flow for %v based on "+
+				"channel acceptor response: %v", cid, flowErr)
 			f.failFundingFlow(peer, cid, flowErr)
 			return
 		}
@@ -1570,6 +1572,9 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 				// Fail the funding flow.
 				flowErr := fmt.Errorf("scid-alias feature " +
 					"must be negotiated for zero-conf")
+				log.Errorf("Cancelling funding flow for "+
+					"zero-conf channel %v: %v", cid,
+					flowErr)
 				f.failFundingFlow(peer, cid, flowErr)
 				return
 			}
@@ -1586,7 +1591,8 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	case public && scid:
 		err = fmt.Errorf("option-scid-alias chantype for public " +
 			"channel")
-		log.Error(err)
+		log.Errorf("Cancelling funding flow for public channel %v "+
+			"with scid-alias: %v", cid, err)
 		f.failFundingFlow(peer, cid, err)
 
 		return
@@ -1595,7 +1601,8 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	// unadvertised channels for now.
 	case commitType.IsTaproot() && public:
 		err = fmt.Errorf("taproot channel type for public channel")
-		log.Error(err)
+		log.Errorf("Cancelling funding flow for public taproot "+
+			"channel %v: %v", cid, err)
 		f.failFundingFlow(peer, cid, err)
 
 		return
@@ -2013,19 +2020,22 @@ func (f *Manager) funderProcessAcceptChannel(peer lnpeer.Peer,
 		return
 	}
 
-	// Fail early if minimum depth is set to 0 and the channel is not
-	// zero-conf.
-	if !resCtx.reservation.IsZeroConf() && msg.MinAcceptDepth == 0 {
-		err = fmt.Errorf("non-zero-conf channel has min depth zero")
-		log.Warn(err)
-		f.failFundingFlow(peer, cid, err)
-		return
+	// If this is not a zero-conf channel but the peer responded with a
+	// min-depth of zero, we will use our minimum of 1 instead.
+	minDepth := msg.MinAcceptDepth
+	if !resCtx.reservation.IsZeroConf() && minDepth == 0 {
+		log.Infof("Responder to pending_id=%v sent a minimum "+
+			"confirmation depth of 0 for non-zero-conf channel. "+
+			"We will use a minimum depth of 1 instead.",
+			cid.tempChanID)
+
+		minDepth = 1
 	}
 
 	// We'll also specify the responder's preference for the number of
 	// required confirmations, and also the set of channel constraints
 	// they've specified for commitment states we can create.
-	resCtx.reservation.SetNumConfsRequired(uint16(msg.MinAcceptDepth))
+	resCtx.reservation.SetNumConfsRequired(uint16(minDepth))
 	channelConstraints := &channeldb.ChannelConstraints{
 		DustLimit:        msg.DustLimit,
 		ChanReserve:      msg.ChannelReserve,
@@ -3598,9 +3608,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 // waitForZeroConfChannel is called when the state is addedToRouterGraph with
 // a zero-conf channel. This will wait for the real confirmation, add the
 // confirmed SCID to the router graph, and then announce after six confs.
-func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel,
-	pendingID [32]byte) error {
-
+func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel) error {
 	// First we'll check whether the channel is confirmed on-chain. If it
 	// is already confirmed, the chainntnfs subsystem will return with the
 	// confirmed tx. Otherwise, we'll wait here until confirmation occurs.
@@ -3904,7 +3912,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 		localNonce, ok := f.pendingMusigNonces[chanID]
 		if !ok {
 			// If there's no pending nonce for this channel ID,
-			// we'll use the one generatd above.
+			// we'll use the one generated above.
 			localNonce = firstVerNonce
 			f.pendingMusigNonces[chanID] = firstVerNonce
 		}

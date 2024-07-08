@@ -246,6 +246,8 @@ func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 	// knows of.  Otherwise, it may be possible for a new funding flow to
 	// lock an output while we fetch the set of unspent witnesses.
 	err := coinSelectLocker.WithCoinSelectLock(func() error {
+		log.Trace("[WithCoinSelectLock] entered the lock")
+
 		// Now that we can be sure that no other coin selection
 		// operations are going on, we can grab a clean snapshot of the
 		// current UTXO state of the wallet.
@@ -256,10 +258,15 @@ func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 			return err
 		}
 
+		log.Trace("[WithCoinSelectLock] finished fetching UTXOs")
+
 		// We'll now lock each UTXO to ensure that other callers don't
 		// attempt to use these UTXOs in transactions while we're
 		// crafting out sweep all transaction.
 		for _, utxo := range utxos {
+			log.Tracef("[WithCoinSelectLock] leasing utxo: %v",
+				utxo.OutPoint)
+
 			_, _, _, err = outputLeaser.LeaseOutput(
 				chanfunding.LndInternalLockID, utxo.OutPoint,
 				chanfunding.DefaultLockDuration,
@@ -268,6 +275,8 @@ func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 				return err
 			}
 		}
+
+		log.Trace("[WithCoinSelectLock] exited the lock")
 
 		allOutputs = append(allOutputs, utxos...)
 

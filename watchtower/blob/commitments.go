@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -115,7 +116,7 @@ func (c CommitmentType) ToRemoteWitnessType() (input.WitnessType, error) {
 
 // ToRemoteWitnessSize is the size of the witness that will be required to spend
 // the to_remote output.
-func (c CommitmentType) ToRemoteWitnessSize() (int, error) {
+func (c CommitmentType) ToRemoteWitnessSize() (lntypes.WeightUnit, error) {
 	switch c {
 	// Legacy channels (both tweaked and non-tweaked) spend from P2WKH
 	// output.
@@ -137,7 +138,7 @@ func (c CommitmentType) ToRemoteWitnessSize() (int, error) {
 
 // ToLocalWitnessSize is the size of the witness that will be required to spend
 // the to_local output.
-func (c CommitmentType) ToLocalWitnessSize() (int, error) {
+func (c CommitmentType) ToLocalWitnessSize() (lntypes.WeightUnit, error) {
 	switch c {
 	// An older ToLocalPenaltyWitnessSize constant used to underestimate the
 	// size by one byte. The difference in weight can cause different output

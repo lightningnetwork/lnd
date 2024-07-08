@@ -2564,7 +2564,7 @@ func (c *CoinSource) ListCoins(minConfs int32,
 
 	for _, utxo := range utxos {
 		// If there is a filter function supplied all utxos not adhering
-		// to these conditions will be discared.
+		// to these conditions will be discarded.
 		if c.allowUtxo != nil && !c.allowUtxo(*utxo) {
 			walletLog.Infof("Cannot use unconfirmed "+
 				"utxo=%v because it is unstable and could be "+

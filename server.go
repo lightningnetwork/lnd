@@ -547,7 +547,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoOptionScidAlias:        !cfg.ProtocolOptions.ScidAlias(),
 		NoZeroConf:               !cfg.ProtocolOptions.ZeroConf(),
 		NoAnySegwit:              cfg.ProtocolOptions.NoAnySegwit(),
-		CustomFeatures:           cfg.ProtocolOptions.ExperimentalProtocol.CustomFeatures(),
+		CustomFeatures:           cfg.ProtocolOptions.CustomFeatures(),
 		NoTaprootChans:           !cfg.ProtocolOptions.TaprootChans,
 		NoRouteBlinding:          cfg.ProtocolOptions.NoRouteBlinding(),
 	})
@@ -1266,7 +1266,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		info, e1, e2, err := s.graphDB.FetchChannelEdgesByID(
 			scid.ToUint64(),
 		)
-		if err == channeldb.ErrEdgeNotFound {
+		if errors.Is(err, channeldb.ErrEdgeNotFound) {
 			// This is unlikely but there is a slim chance of this
 			// being hit if lnd was killed via SIGKILL and the
 			// funding manager was stepping through the delete

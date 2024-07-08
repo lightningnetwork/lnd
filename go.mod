@@ -4,13 +4,13 @@ require (
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344
 	github.com/andybalholm/brotli v1.0.4
-	github.com/btcsuite/btcd v0.24.2-beta.rc1.0.20240403021926-ae5533602c46
+	github.com/btcsuite/btcd v0.24.2-beta.rc1.0.20240625142744-cc26860b4026
 	github.com/btcsuite/btcd/btcec/v2 v2.3.3
 	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
-	github.com/btcsuite/btcwallet v0.16.10-0.20240404104514-b2f31f9045fb
+	github.com/btcsuite/btcwallet v0.16.10-0.20240706055350-e391a1c31df2
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.4
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.1
 	github.com/btcsuite/btcwallet/walletdb v1.4.2
@@ -35,7 +35,7 @@ require (
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20230823005744-06182b1d7d2f
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
-	github.com/lightningnetwork/lnd/fn v1.0.5
+	github.com/lightningnetwork/lnd/fn v1.0.9
 	github.com/lightningnetwork/lnd/healthcheck v1.2.4
 	github.com/lightningnetwork/lnd/kvdb v1.4.8
 	github.com/lightningnetwork/lnd/queue v1.1.1
@@ -54,7 +54,7 @@ require (
 	golang.org/x/crypto v0.22.0
 	golang.org/x/exp v0.0.0-20240325151524-a685a6edb6d8
 	golang.org/x/mobile v0.0.0-20190719004257-d2bd2a29d028
-	golang.org/x/net v0.22.0
+	golang.org/x/net v0.24.0
 	golang.org/x/sync v0.6.0
 	golang.org/x/term v0.19.0
 	golang.org/x/time v0.3.0
@@ -186,7 +186,7 @@ require (
 	modernc.org/libc v1.49.3 // indirect
 	modernc.org/mathutil v1.6.0 // indirect
 	modernc.org/memory v1.8.0 // indirect
-	modernc.org/sqlite v1.29.8 // indirect
+	modernc.org/sqlite v1.29.10 // indirect
 	modernc.org/strutil v1.2.0 // indirect
 	modernc.org/token v1.1.0 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
@@ -202,6 +202,9 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display
+
+// Temporary replace until the next version of sqldb is tagged.
+replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
 // If you change this please also update .github/pull_request_template.md and
 // docs/INSTALL.md.

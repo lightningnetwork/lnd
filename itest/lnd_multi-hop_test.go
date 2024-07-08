@@ -713,10 +713,6 @@ func runMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	// to be mined to trigger a force close later on.
 	var blocksMined uint32
 
-	// Increase the fee estimate so that the following force close tx will
-	// be cpfp'ed.
-	ht.SetFeeEstimate(30000)
-
 	// Now that all parties have the HTLC locked in, we'll immediately
 	// force close the Bob -> Carol channel. This should trigger contract
 	// resolution mode for both of them.
@@ -755,7 +751,7 @@ func runMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 		ht.MineEmptyBlocks(int(defaultCSV - blocksMined))
 		blocksMined = defaultCSV
 
-		// Assert Bob has the sweep and trigger it..
+		// Assert Bob has the sweep and trigger it.
 		ht.AssertNumPendingSweeps(bob, 1)
 		ht.MineEmptyBlocks(1)
 		blocksMined++
@@ -1523,10 +1519,6 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 	ht.AssertNumPendingSweeps(bob, 1)
 	ht.AssertNumPendingSweeps(alice, 1)
 
-	// Mine a block to confirm Alice's CPFP anchor sweeping.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
-	blocksMined++
-
 	// Mine enough blocks for Alice to sweep her funds from the force
 	// closed channel. AssertStreamChannelForceClosed() already mined a
 	// block containing the commitment tx and the commit sweep tx will be
@@ -1537,7 +1529,7 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 		blocksMined = defaultCSV
 
 		// Alice should now sweep her funds.
-		ht.AssertNumPendingSweeps(alice, 1)
+		ht.AssertNumPendingSweeps(alice, 2)
 
 		// Mine a block to trigger the sweep.
 		ht.MineEmptyBlocks(1)
@@ -1690,7 +1682,7 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 		ht.MineEmptyBlocks(numBlocks)
 
 		// Both Alice and Bob should offer their commit sweeps.
-		ht.AssertNumPendingSweeps(alice, 1)
+		ht.AssertNumPendingSweeps(alice, 2)
 		ht.AssertNumPendingSweeps(bob, 1)
 
 		// Mine a block to trigger the sweeps.
@@ -2472,7 +2464,6 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 	if ht.IsNeutrinoBackend() {
 		// Mine a block to confirm Carol's 2nd level success tx.
 		ht.MineBlocksAndAssertNumTxes(1, 1)
-		numTxesMempool--
 		numBlocks--
 	}
 
@@ -2501,6 +2492,15 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 	// happen as it's not used for CPFP, hence no wallet utxo is used so
 	// it'll be uneconomical.
 	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
+	}
+
+	// For neutrino backend, Carol's second-stage sweep should be offered
+	// to her sweeper.
+	if ht.IsNeutrinoBackend() {
+		ht.AssertNumPendingSweeps(carol, 1)
+
+		// Mine a block to trigger the sweep.
+		ht.MineEmptyBlocks(1)
 	}
 
 	// Mine a block to clean the mempool.

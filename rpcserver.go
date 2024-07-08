@@ -46,6 +46,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -2890,7 +2891,7 @@ func abandonChanFromGraph(chanGraph *channeldb.ChannelGraph,
 	// the graph, so we'll return a nil error.
 	chanID, err := chanGraph.ChannelID(chanPoint)
 	switch {
-	case err == channeldb.ErrEdgeNotFound:
+	case errors.Is(err, channeldb.ErrEdgeNotFound):
 		return nil
 	case err != nil:
 		return err
@@ -5676,7 +5677,7 @@ sendLoop:
 func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	nextPayment *lnrpc.SendRequest) (*lnrpc.SendResponse, error) {
 
-	return r.sendPaymentSync(ctx, &rpcPaymentRequest{
+	return r.sendPaymentSync(&rpcPaymentRequest{
 		SendRequest: nextPayment,
 	})
 }
@@ -5697,12 +5698,12 @@ func (r *rpcServer) SendToRouteSync(ctx context.Context,
 		return nil, err
 	}
 
-	return r.sendPaymentSync(ctx, paymentRequest)
+	return r.sendPaymentSync(paymentRequest)
 }
 
 // sendPaymentSync is the synchronous variant of sendPayment. It will block and
 // wait until the payment has been fully completed.
-func (r *rpcServer) sendPaymentSync(ctx context.Context,
+func (r *rpcServer) sendPaymentSync(
 	nextPayment *rpcPaymentRequest) (*lnrpc.SendResponse, error) {
 
 	// We don't allow payments to be sent while the daemon itself is still
@@ -6294,15 +6295,40 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 }
 
 // GetChanInfo returns the latest authenticated network announcement for the
-// given channel identified by its channel ID: an 8-byte integer which uniquely
-// identifies the location of transaction's funding output within the block
-// chain.
-func (r *rpcServer) GetChanInfo(ctx context.Context,
+// given channel identified by either its channel ID or a channel outpoint. Both
+// uniquely identify the location of transaction's funding output within the
+// blockchain. The former is an 8-byte integer, while the latter is a string
+// formatted as funding_txid:output_index.
+func (r *rpcServer) GetChanInfo(_ context.Context,
 	in *lnrpc.ChanInfoRequest) (*lnrpc.ChannelEdge, error) {
 
 	graph := r.server.graphDB
 
-	edgeInfo, edge1, edge2, err := graph.FetchChannelEdgesByID(in.ChanId)
+	var (
+		edgeInfo     *models.ChannelEdgeInfo
+		edge1, edge2 *models.ChannelEdgePolicy
+		err          error
+	)
+
+	switch {
+	case in.ChanId != 0:
+		edgeInfo, edge1, edge2, err = graph.FetchChannelEdgesByID(
+			in.ChanId,
+		)
+
+	case in.ChanPoint != "":
+		var chanPoint *wire.OutPoint
+		chanPoint, err = wire.NewOutPointFromString(in.ChanPoint)
+		if err != nil {
+			return nil, err
+		}
+		edgeInfo, edge1, edge2, err = graph.FetchChannelEdgesByOutpoint(
+			chanPoint,
+		)
+
+	default:
+		return nil, fmt.Errorf("specify either chan_id or chan_point")
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -6691,6 +6717,14 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 
 	channelUpdates := make([]*lnrpc.ChannelEdgeUpdate, len(topChange.ChannelEdgeUpdates))
 	for i, channelUpdate := range topChange.ChannelEdgeUpdates {
+
+		customRecords := marshalExtraOpaqueData(
+			channelUpdate.ExtraOpaqueData,
+		)
+		inboundFee := extractInboundFeeSafe(
+			channelUpdate.ExtraOpaqueData,
+		)
+
 		channelUpdates[i] = &lnrpc.ChannelEdgeUpdate{
 			ChanId: channelUpdate.ChanID,
 			ChanPoint: &lnrpc.ChannelPoint{
@@ -6701,12 +6735,25 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 			},
 			Capacity: int64(channelUpdate.Capacity),
 			RoutingPolicy: &lnrpc.RoutingPolicy{
-				TimeLockDelta:    uint32(channelUpdate.TimeLockDelta),
-				MinHtlc:          int64(channelUpdate.MinHTLC),
-				MaxHtlcMsat:      uint64(channelUpdate.MaxHTLC),
-				FeeBaseMsat:      int64(channelUpdate.BaseFee),
-				FeeRateMilliMsat: int64(channelUpdate.FeeRate),
-				Disabled:         channelUpdate.Disabled,
+				TimeLockDelta: uint32(
+					channelUpdate.TimeLockDelta,
+				),
+				MinHtlc: int64(
+					channelUpdate.MinHTLC,
+				),
+				MaxHtlcMsat: uint64(
+					channelUpdate.MaxHTLC,
+				),
+				FeeBaseMsat: int64(
+					channelUpdate.BaseFee,
+				),
+				FeeRateMilliMsat: int64(
+					channelUpdate.FeeRate,
+				),
+				Disabled:                channelUpdate.Disabled,
+				InboundFeeBaseMsat:      inboundFee.BaseFee,
+				InboundFeeRateMilliMsat: inboundFee.FeeRate,
+				CustomRecords:           customRecords,
 			},
 			AdvertisingNode: encodeKey(channelUpdate.AdvertisingNode),
 			ConnectingNode:  encodeKey(channelUpdate.ConnectingNode),
@@ -7195,27 +7242,35 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	}
 
 	// By default, positive inbound fees are rejected.
-	if !r.cfg.AcceptPositiveInboundFees {
-		if req.InboundBaseFeeMsat > 0 {
+	if !r.cfg.AcceptPositiveInboundFees && req.InboundFee != nil {
+		if req.InboundFee.BaseFeeMsat > 0 {
 			return nil, fmt.Errorf("positive values for inbound "+
 				"base fee msat are not supported: %v",
-				req.InboundBaseFeeMsat)
+				req.InboundFee.BaseFeeMsat)
 		}
-		if req.InboundFeeRatePpm > 0 {
+		if req.InboundFee.FeeRatePpm > 0 {
 			return nil, fmt.Errorf("positive values for inbound "+
 				"fee rate ppm are not supported: %v",
-				req.InboundFeeRatePpm)
+				req.InboundFee.FeeRatePpm)
 		}
+	}
+
+	// If no inbound fees have been specified, we indicate with an empty
+	// option that the previous inbound fee should be retained during the
+	// edge update.
+	inboundFee := fn.None[models.InboundFee]()
+	if req.InboundFee != nil {
+		inboundFee = fn.Some(models.InboundFee{
+			Base: req.InboundFee.BaseFeeMsat,
+			Rate: req.InboundFee.FeeRatePpm,
+		})
 	}
 
 	baseFeeMsat := lnwire.MilliSatoshi(req.BaseFeeMsat)
 	feeSchema := routing.FeeSchema{
-		BaseFee: baseFeeMsat,
-		FeeRate: feeRateFixed,
-		InboundFee: models.InboundFee{
-			Base: req.InboundBaseFeeMsat,
-			Rate: req.InboundFeeRatePpm,
-		},
+		BaseFee:    baseFeeMsat,
+		FeeRate:    feeRateFixed,
+		InboundFee: inboundFee,
 	}
 
 	maxHtlc := lnwire.MilliSatoshi(req.MaxHtlcMsat)

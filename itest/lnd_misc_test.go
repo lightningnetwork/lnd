@@ -729,7 +729,7 @@ func testAbandonChannel(ht *lntest.HarnessTest) {
 	require.Len(ht, aliceClosedList.Channels, 1, "alice closed channels")
 
 	// Ensure that the channel can no longer be found in the channel graph.
-	ht.AssertZombieChannel(alice, chanID)
+	ht.AssertNotInGraph(alice, chanID)
 
 	// Make sure the channel is no longer in the channel backup list.
 	err = wait.NoError(func() error {

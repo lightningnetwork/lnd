@@ -1309,7 +1309,7 @@ func abandonChannel(ctx *cli.Context) error {
 }
 
 // parseChannelPoint parses a funding txid and output index from the command
-// line. Both named options as well as unnamed parameters are supported.
+// line. Both named options and unnamed parameters are supported.
 func parseChannelPoint(ctx *cli.Context) (*lnrpc.ChannelPoint, error) {
 	channelPoint := &lnrpc.ChannelPoint{}
 	var err error
@@ -1632,7 +1632,7 @@ func listChannels(ctx *cli.Context) error {
 		peerKey = pk[:]
 	}
 
-	// By default we will look up the peers' alias information unless the
+	// By default, we will look up the peers' alias information unless the
 	// skip_peer_alias_lookup flag indicates otherwise.
 	lookupPeerAlias := !ctx.Bool("skip_peer_alias_lookup")
 
@@ -1787,8 +1787,16 @@ var getChanInfoCommand = cli.Command{
 	ArgsUsage: "chan_id",
 	Flags: []cli.Flag{
 		cli.Uint64Flag{
-			Name:  "chan_id",
-			Usage: "the 8-byte compact channel ID to query for",
+			Name: "chan_id",
+			Usage: "The 8-byte compact channel ID to query for. " +
+				"If this is set the chan_point param is " +
+				"ignored.",
+		},
+		cli.StringFlag{
+			Name: "chan_point",
+			Usage: "The channel point in format txid:index. If " +
+				"the chan_id param is set this param is " +
+				"ignored.",
 		},
 	},
 	Action: actionDecorator(getChanInfo),
@@ -1800,24 +1808,31 @@ func getChanInfo(ctx *cli.Context) error {
 	defer cleanUp()
 
 	var (
-		chanID uint64
-		err    error
+		chanID    uint64
+		chanPoint string
+		err       error
 	)
 
 	switch {
 	case ctx.IsSet("chan_id"):
 		chanID = ctx.Uint64("chan_id")
+
 	case ctx.Args().Present():
 		chanID, err = strconv.ParseUint(ctx.Args().First(), 10, 64)
 		if err != nil {
 			return fmt.Errorf("error parsing chan_id: %w", err)
 		}
+
+	case ctx.IsSet("chan_point"):
+		chanPoint = ctx.String("chan_point")
+
 	default:
-		return fmt.Errorf("chan_id argument missing")
+		return fmt.Errorf("chan_id or chan_point argument missing")
 	}
 
 	req := &lnrpc.ChanInfoRequest{
-		ChanId: chanID,
+		ChanId:    chanID,
+		ChanPoint: chanPoint,
 	}
 
 	chanInfo, err := client.GetChanInfo(ctxc, req)
@@ -2215,7 +2230,7 @@ var updateChannelPolicyCommand = cli.Command{
 				"forwarded HTLC and the outbound fee. Fee " +
 				"rate is expressed in parts per million and " +
 				"must be zero or negative - it is a discount " +
-				"for using a particular incoming channel." +
+				"for using a particular incoming channel. " +
 				"Note that forwards will be rejected if the " +
 				"discount exceeds the outbound fee " +
 				"(forward at a loss), and lead to " +
@@ -2387,12 +2402,28 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		return errors.New("inbound_fee_rate_ppm out of range")
 	}
 
+	// Inbound fees are optional. However, if an update is required,
+	// both the base fee and the fee rate must be provided.
+	var inboundFee *lnrpc.InboundFee
+	if ctx.IsSet("inbound_base_fee_msat") !=
+		ctx.IsSet("inbound_fee_rate_ppm") {
+
+		return errors.New("both parameters must be provided: " +
+			"inbound_base_fee_msat and inbound_fee_rate_ppm")
+	}
+
+	if ctx.IsSet("inbound_fee_rate_ppm") {
+		inboundFee = &lnrpc.InboundFee{
+			BaseFeeMsat: int32(inboundBaseFeeMsat),
+			FeeRatePpm:  int32(inboundFeeRatePpm),
+		}
+	}
+
 	req := &lnrpc.PolicyUpdateRequest{
-		BaseFeeMsat:        baseFee,
-		TimeLockDelta:      uint32(timeLockDelta),
-		MaxHtlcMsat:        ctx.Uint64("max_htlc_msat"),
-		InboundBaseFeeMsat: int32(inboundBaseFeeMsat),
-		InboundFeeRatePpm:  int32(inboundFeeRatePpm),
+		BaseFeeMsat:   baseFee,
+		TimeLockDelta: uint32(timeLockDelta),
+		MaxHtlcMsat:   ctx.Uint64("max_htlc_msat"),
+		InboundFee:    inboundFee,
 	}
 
 	if ctx.IsSet("min_htlc_msat") {
@@ -2773,7 +2804,7 @@ var restoreChanBackupCommand = cli.Command{
 }
 
 // errMissingChanBackup is an error returned when we attempt to parse a channel
-// backup from a CLI command and it is missing.
+// backup from a CLI command, and it is missing.
 var errMissingChanBackup = errors.New("missing channel backup")
 
 func parseChanBackups(ctx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error) {

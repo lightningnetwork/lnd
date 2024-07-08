@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -1006,6 +1007,10 @@ type OpenChannelParams struct {
 	// FundMax flag is specified the entirety of selected funds is
 	// allocated towards channel funding.
 	Outpoints []*lnrpc.OutPoint
+
+	// CloseAddress sets the upfront_shutdown_script parameter during
+	// channel open. It is expected to be encoded as a bitcoin address.
+	CloseAddress string
 }
 
 // prepareOpenChannel waits for both nodes to be synced to chain and returns an
@@ -1058,6 +1063,7 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 		FundMax:            p.FundMax,
 		Memo:               p.Memo,
 		Outpoints:          p.Outpoints,
+		CloseAddress:       p.CloseAddress,
 	}
 }
 
@@ -1777,6 +1783,11 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 		h.Miner.AssertTxInBlock(blocks[0], txid)
 	}
 
+	// Make sure the mempool has been updated.
+	for _, txid := range txids {
+		h.Miner.AssertTxNotInMempool(*txid)
+	}
+
 	// Finally, make sure all the active nodes are synced.
 	bestBlock := blocks[len(blocks)-1]
 	h.AssertActiveNodesSyncedTo(bestBlock)
@@ -2041,9 +2052,9 @@ func (h *HarnessTest) CalculateTxFee(tx *wire.MsgTx) btcutil.Amount {
 // CalculateTxWeight calculates the weight for a given tx.
 //
 // TODO(yy): use weight estimator to get more accurate result.
-func (h *HarnessTest) CalculateTxWeight(tx *wire.MsgTx) int64 {
+func (h *HarnessTest) CalculateTxWeight(tx *wire.MsgTx) lntypes.WeightUnit {
 	utx := btcutil.NewTx(tx)
-	return blockchain.GetTransactionWeight(utx)
+	return lntypes.WeightUnit(blockchain.GetTransactionWeight(utx))
 }
 
 // CalculateTxFeeRate calculates the fee rate for a given tx.
@@ -2053,7 +2064,7 @@ func (h *HarnessTest) CalculateTxFeeRate(
 	w := h.CalculateTxWeight(tx)
 	fee := h.CalculateTxFee(tx)
 
-	return chainfee.NewSatPerKWeight(fee, uint64(w))
+	return chainfee.NewSatPerKWeight(fee, w)
 }
 
 // CalculateTxesFeeRate takes a list of transactions and estimates the fee rate

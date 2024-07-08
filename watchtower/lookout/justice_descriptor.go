@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
@@ -123,7 +124,7 @@ func (p *JusticeDescriptor) commitToRemoteInput() (*breachedInput, error) {
 // assembleJusticeTxn accepts the breached inputs recovered from state update
 // and attempts to construct the justice transaction that sweeps the victims
 // funds to their wallet and claims the watchtower's reward.
-func (p *JusticeDescriptor) assembleJusticeTxn(txWeight int64,
+func (p *JusticeDescriptor) assembleJusticeTxn(txWeight lntypes.WeightUnit,
 	inputs ...*breachedInput) (*wire.MsgTx, error) {
 
 	justiceTxn := wire.NewMsgTx(2)
@@ -287,7 +288,7 @@ func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 
 	// TODO(conner): sweep htlc outputs
 
-	txWeight := int64(weightEstimate.Weight())
+	txWeight := weightEstimate.Weight()
 
 	return p.assembleJusticeTxn(txWeight, sweepInputs...)
 }

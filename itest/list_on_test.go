@@ -611,8 +611,12 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testNativeSQLNoMigration,
 	},
 	{
-		Name:     "sweep anchor cpfp local force close",
-		TestFunc: testSweepAnchorCPFPLocalForceClose,
+		Name:     "sweep cpfp anchor outgoing timeout",
+		TestFunc: testSweepCPFPAnchorOutgoingTimeout,
+	},
+	{
+		Name:     "sweep cpfp anchor incoming timeout",
+		TestFunc: testSweepCPFPAnchorIncomingTimeout,
 	},
 	{
 		Name:     "sweep htlcs",
@@ -621,5 +625,9 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "sweep commit output and anchor",
 		TestFunc: testSweepCommitOutputAndAnchor,
+	},
+	{
+		Name:     "coop close with external delivery",
+		TestFunc: testCoopCloseWithExternalDelivery,
 	},
 }

@@ -1191,8 +1191,8 @@ func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32,
 	return witnessOutputs, nil
 }
 
-// mapRpcclientError maps an error from the rpcclient package to defined error
-// in this package.
+// mapRpcclientError maps an error from the `btcwallet/chain` package to
+// defined error in this package.
 //
 // NOTE: we are mapping the errors returned from `sendrawtransaction` RPC or
 // the reject reason from `testmempoolaccept` RPC.
@@ -1202,15 +1202,17 @@ func mapRpcclientError(err error) error {
 	switch {
 	// If the wallet reports a double spend, convert it to our internal
 	// ErrDoubleSpend and return.
-	case errors.Is(err, rpcclient.ErrMempoolConflict),
-		errors.Is(err, rpcclient.ErrMissingInputs):
+	case errors.Is(err, chain.ErrMempoolConflict),
+		errors.Is(err, chain.ErrMissingInputs),
+		errors.Is(err, chain.ErrTxAlreadyKnown),
+		errors.Is(err, chain.ErrTxAlreadyConfirmed):
 
 		return lnwallet.ErrDoubleSpend
 
 	// If the wallet reports that fee requirements for accepting the tx
 	// into mempool are not met, convert it to our internal ErrMempoolFee
 	// and return.
-	case errors.Is(err, rpcclient.ErrMempoolMinFeeNotMet):
+	case errors.Is(err, chain.ErrMempoolMinFeeNotMet):
 		return fmt.Errorf("%w: %v", lnwallet.ErrMempoolFee, err.Error())
 	}
 
@@ -1277,7 +1279,7 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 
 	// We need to use the string to create an error type and map it to a
 	// btcwallet error.
-	err = rpcclient.MapRPCErr(errors.New(result.RejectReason))
+	err = b.chain.MapRPCErr(errors.New(result.RejectReason))
 
 	//nolint:lll
 	// These two errors are ignored inside `PublishTransaction`:
@@ -1295,9 +1297,9 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	// `PublishTransaction` again because we need to mark the label in the
 	// wallet. We can remove this exception once we have the above TODO
 	// fixed.
-	case errors.Is(err, rpcclient.ErrTxAlreadyInMempool),
-		errors.Is(err, rpcclient.ErrTxAlreadyKnown),
-		errors.Is(err, rpcclient.ErrTxAlreadyConfirmed):
+	case errors.Is(err, chain.ErrTxAlreadyInMempool),
+		errors.Is(err, chain.ErrTxAlreadyKnown),
+		errors.Is(err, chain.ErrTxAlreadyConfirmed):
 
 		err := b.wallet.PublishTransaction(tx, label)
 		return mapRpcclientError(err)
@@ -1922,7 +1924,7 @@ func (b *BtcWallet) CheckMempoolAcceptance(tx *wire.MsgTx) error {
 	// Mempool check failed, we now map the reject reason to a proper RPC
 	// error and return it.
 	if !result.Allowed {
-		err := rpcclient.MapRPCErr(errors.New(result.RejectReason))
+		err := b.chain.MapRPCErr(errors.New(result.RejectReason))
 
 		return fmt.Errorf("mempool rejection: %w", err)
 	}

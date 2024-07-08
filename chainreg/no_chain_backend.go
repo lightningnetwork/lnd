@@ -220,4 +220,8 @@ func (n *NoChainSource) TestMempoolAccept([]*wire.MsgTx,
 	return nil, nil
 }
 
+func (n *NoChainSource) MapRPCErr(err error) error {
+	return err
+}
+
 var _ chain.Interface = (*NoChainSource)(nil)

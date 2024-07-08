@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
@@ -350,7 +351,7 @@ type Config struct {
 	MaxPendingChannels int    `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 	BackupFilePath     string `long:"backupfilepath" description:"The target location of the channel backup file"`
 
-	FeeURL string `long:"feeurl" description:"Optional URL for external fee estimation. If no URL is specified, the method for fee estimation will depend on the chosen backend and network. Must be set for neutrino on mainnet."`
+	FeeURL string `long:"feeurl" description:"DEPRECATED: Use 'fee.url' option. Optional URL for external fee estimation. If no URL is specified, the method for fee estimation will depend on the chosen backend and network. Must be set for neutrino on mainnet." hidden:"true"`
 
 	Bitcoin      *lncfg.Chain    `group:"Bitcoin" namespace:"bitcoin"`
 	BtcdMode     *lncfg.Btcd     `group:"btcd" namespace:"btcd"`
@@ -441,6 +442,8 @@ type Config struct {
 	GcCanceledInvoicesOnTheFly bool `long:"gc-canceled-invoices-on-the-fly" description:"If true, we'll delete newly canceled invoices on the fly."`
 
 	DustThreshold uint64 `long:"dust-threshold" description:"Sets the dust sum threshold in satoshis for a channel after which dust HTLC's will be failed."`
+
+	Fee *lncfg.Fee `group:"fee" namespace:"fee"`
 
 	Invoices *lncfg.Invoices `group:"invoices" namespace:"invoices"`
 
@@ -582,6 +585,12 @@ func DefaultConfig() Config {
 		MinBackoff:         defaultMinBackoff,
 		MaxBackoff:         defaultMaxBackoff,
 		ConnectionTimeout:  tor.DefaultConnTimeout,
+
+		Fee: &lncfg.Fee{
+			MinUpdateTimeout: lncfg.DefaultMinUpdateTimeout,
+			MaxUpdateTimeout: lncfg.DefaultMaxUpdateTimeout,
+		},
+
 		SubRPCServers: &subRPCServerConfigs{
 			SignRPC:   &signrpc.Config{},
 			RouterRPC: routerrpc.DefaultConfig(),
@@ -763,7 +772,9 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 		// If it's a parsing related error, then we'll return
 		// immediately, otherwise we can proceed as possibly the config
 		// file doesn't exist which is OK.
-		if _, ok := err.(*flags.IniError); ok {
+		if lnutils.ErrorAs[*flags.IniError](err) ||
+			lnutils.ErrorAs[*flags.Error](err) {
+
 			return nil, err
 		}
 
@@ -1659,8 +1670,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 
 	// If the experimental protocol options specify any protocol messages
 	// that we want to handle as custom messages, set them now.
-	//nolint:lll
-	customMsg := cfg.ProtocolOptions.ExperimentalProtocol.CustomMessageOverrides()
+	customMsg := cfg.ProtocolOptions.CustomMessageOverrides()
 
 	// We can safely set our custom override values during startup because
 	// startup is blocked on config parsing.

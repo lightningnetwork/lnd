@@ -17,9 +17,9 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -550,6 +550,11 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 		NeutrinoCS:                  neutrinoCS,
 		ActiveNetParams:             d.cfg.ActiveNetParams,
 		FeeURL:                      d.cfg.FeeURL,
+		Fee: &lncfg.Fee{
+			URL:              d.cfg.Fee.URL,
+			MinUpdateTimeout: d.cfg.Fee.MinUpdateTimeout,
+			MaxUpdateTimeout: d.cfg.Fee.MaxUpdateTimeout,
+		},
 		Dialer: func(addr string) (net.Conn, error) {
 			return d.cfg.net.Dial(
 				"tcp", addr, d.cfg.ConnectionTimeout,
@@ -703,9 +708,9 @@ func (d *DefaultWalletImpl) BuildChainControl(
 	// The broadcast is already always active for neutrino nodes, so we
 	// don't want to create a rebroadcast loop.
 	if partialChainControl.Cfg.NeutrinoCS == nil {
+		cs := partialChainControl.ChainSource
 		broadcastCfg := pushtx.Config{
 			Broadcast: func(tx *wire.MsgTx) error {
-				cs := partialChainControl.ChainSource
 				_, err := cs.SendRawTransaction(
 					tx, true,
 				)
@@ -719,7 +724,10 @@ func (d *DefaultWalletImpl) BuildChainControl(
 			// In case the backend is different from neutrino we
 			// make sure that broadcast backend errors are mapped
 			// to the neutrino broadcastErr.
-			MapCustomBroadcastError: broadcastErrorMapper,
+			MapCustomBroadcastError: func(err error) error {
+				rpcErr := cs.MapRPCErr(err)
+				return broadcastErrorMapper(rpcErr)
+			},
 		}
 
 		lnWalletConfig.Rebroadcaster = newWalletReBroadcaster(
@@ -1470,27 +1478,27 @@ func parseHeaderStateAssertion(state string) (*headerfs.FilterHeader, error) {
 // the neutrino BroadcastError which allows the Rebroadcaster which currently
 // resides in the neutrino package to use all of its functionalities.
 func broadcastErrorMapper(err error) error {
-	returnErr := rpcclient.MapRPCErr(err)
+	var returnErr error
 
 	// We only filter for specific backend errors which are relevant for the
 	// Rebroadcaster.
 	switch {
 	// This makes sure the tx is removed from the rebroadcaster once it is
 	// confirmed.
-	case errors.Is(returnErr, rpcclient.ErrTxAlreadyKnown),
-		errors.Is(err, rpcclient.ErrTxAlreadyConfirmed):
+	case errors.Is(err, chain.ErrTxAlreadyKnown),
+		errors.Is(err, chain.ErrTxAlreadyConfirmed):
 
 		returnErr = &pushtx.BroadcastError{
 			Code:   pushtx.Confirmed,
-			Reason: returnErr.Error(),
+			Reason: err.Error(),
 		}
 
 	// Transactions which are still in mempool but might fall out because
 	// of low fees are rebroadcasted despite of their backend error.
-	case errors.Is(returnErr, rpcclient.ErrTxAlreadyInMempool):
+	case errors.Is(err, chain.ErrTxAlreadyInMempool):
 		returnErr = &pushtx.BroadcastError{
 			Code:   pushtx.Mempool,
-			Reason: returnErr.Error(),
+			Reason: err.Error(),
 		}
 
 	// Transactions which are not accepted into mempool because of low fees
@@ -1498,13 +1506,12 @@ func broadcastErrorMapper(err error) error {
 	// Mempool conditions change over time so it makes sense to retry
 	// publishing the transaction. Moreover we log the detailed error so the
 	// user can intervene and increase the size of his mempool.
-	case errors.Is(err, rpcclient.ErrMempoolMinFeeNotMet):
-		ltndLog.Warnf("Error while broadcasting transaction: %v",
-			returnErr)
+	case errors.Is(err, chain.ErrMempoolMinFeeNotMet):
+		ltndLog.Warnf("Error while broadcasting transaction: %v", err)
 
 		returnErr = &pushtx.BroadcastError{
 			Code:   pushtx.Mempool,
-			Reason: returnErr.Error(),
+			Reason: err.Error(),
 		}
 	}
 

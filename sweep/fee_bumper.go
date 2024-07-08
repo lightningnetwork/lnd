@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -155,7 +156,7 @@ func (r *BumpRequest) MaxFeeRateAllowed() (chainfee.SatPerKWeight, error) {
 // calcSweepTxWeight calculates the weight of the sweep tx. It assumes a
 // sweeping tx always has a single output(change).
 func calcSweepTxWeight(inputs []input.Input,
-	outputPkScript []byte) (uint64, error) {
+	outputPkScript []byte) (lntypes.WeightUnit, error) {
 
 	// Use a const fee rate as we only use the weight estimator to
 	// calculate the size.
@@ -175,7 +176,7 @@ func calcSweepTxWeight(inputs []input.Input,
 		return 0, err
 	}
 
-	return uint64(estimator.weight()), nil
+	return estimator.weight(), nil
 }
 
 // BumpResult is used by the Bumper to send updates about the tx being
@@ -426,7 +427,7 @@ func (t *TxPublisher) createRBFCompliantTx(req *BumpRequest,
 			fallthrough
 
 		// We are not paying enough fees so we increase it.
-		case errors.Is(err, rpcclient.ErrInsufficientFee):
+		case errors.Is(err, chain.ErrInsufficientFee):
 			increased := false
 
 			// Keep calling the fee function until the fee rate is
@@ -933,7 +934,7 @@ func (t *TxPublisher) createAndPublishTx(requestID uint64,
 	// - if the deadline is close, we expect the fee function to give us a
 	//   higher fee rate. If the fee rate cannot satisfy the RBF rules, it
 	//   means the budget is not enough.
-	if errors.Is(err, rpcclient.ErrInsufficientFee) ||
+	if errors.Is(err, chain.ErrInsufficientFee) ||
 		errors.Is(err, lnwallet.ErrMempoolFee) {
 
 		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
@@ -988,7 +989,7 @@ func (t *TxPublisher) createAndPublishTx(requestID uint64,
 	//
 	// NOTE: we may get this error if we've bypassed the mempool check,
 	// which means we are suing neutrino backend.
-	if errors.Is(result.Err, rpcclient.ErrInsufficientFee) ||
+	if errors.Is(result.Err, chain.ErrInsufficientFee) ||
 		errors.Is(result.Err, lnwallet.ErrMempoolFee) {
 
 		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
@@ -1216,8 +1217,8 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input, changePkScript []byte,
 		}
 	}
 
-	log.Debugf("Created sweep tx %v for %v inputs", sweepTx.TxHash(),
-		len(inputs))
+	log.Debugf("Created sweep tx %v for inputs:\n%v", sweepTx.TxHash(),
+		inputTypeSummary(inputs))
 
 	return sweepTx, txFee, nil
 }

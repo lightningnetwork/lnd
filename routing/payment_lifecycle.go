@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -29,7 +30,6 @@ type paymentLifecycle struct {
 	identifier    lntypes.Hash
 	paySession    PaymentSession
 	shardTracker  shards.ShardTracker
-	timeoutChan   <-chan time.Time
 	currentHeight int32
 
 	// quit is closed to signal the sub goroutines of the payment lifecycle
@@ -52,7 +52,7 @@ type paymentLifecycle struct {
 // newPaymentLifecycle initiates a new payment lifecycle and returns it.
 func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
 	identifier lntypes.Hash, paySession PaymentSession,
-	shardTracker shards.ShardTracker, timeout time.Duration,
+	shardTracker shards.ShardTracker,
 	currentHeight int32) *paymentLifecycle {
 
 	p := &paymentLifecycle{
@@ -68,13 +68,6 @@ func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
 
 	// Mount the result collector.
 	p.resultCollector = p.collectResultAsync
-
-	// If a timeout is specified, create a timeout channel. If no timeout is
-	// specified, the channel is left nil and will never abort the payment
-	// loop.
-	if timeout != 0 {
-		p.timeoutChan = time.After(timeout)
-	}
 
 	return p
 }
@@ -167,7 +160,9 @@ func (p *paymentLifecycle) decideNextStep(
 }
 
 // resumePayment resumes the paymentLifecycle from the current state.
-func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
+func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
+	*route.Route, error) {
+
 	// When the payment lifecycle loop exits, we make sure to signal any
 	// sub goroutine of the HTLC attempt to exit, then wait for them to
 	// return.
@@ -221,18 +216,17 @@ lifecycle:
 
 		// We now proceed our lifecycle with the following tasks in
 		// order,
-		//   1. check timeout.
+		//   1. check context.
 		//   2. request route.
 		//   3. create HTLC attempt.
 		//   4. send HTLC attempt.
 		//   5. collect HTLC attempt result.
 		//
-		// Before we attempt any new shard, we'll check to see if
-		// either we've gone past the payment attempt timeout, or the
-		// router is exiting. In either case, we'll stop this payment
-		// attempt short. If a timeout is not applicable, timeoutChan
-		// will be nil.
-		if err := p.checkTimeout(); err != nil {
+		// Before we attempt any new shard, we'll check to see if we've
+		// gone past the payment attempt timeout, or if the context was
+		// cancelled, or the router is exiting. In any of these cases,
+		// we'll stop this payment attempt short.
+		if err := p.checkContext(ctx); err != nil {
 			return exitWithErr(err)
 		}
 
@@ -318,19 +312,30 @@ lifecycle:
 	return [32]byte{}, nil, *failure
 }
 
-// checkTimeout checks whether the payment has reached its timeout.
-func (p *paymentLifecycle) checkTimeout() error {
+// checkContext checks whether the payment context has been canceled.
+// Cancellation occurs manually or if the context times out.
+func (p *paymentLifecycle) checkContext(ctx context.Context) error {
 	select {
-	case <-p.timeoutChan:
-		log.Warnf("payment attempt not completed before timeout")
+	case <-ctx.Done():
+		// If the context was canceled, we'll mark the payment as
+		// failed. There are two cases to distinguish here: Either a
+		// user-provided timeout was reached, or the context was
+		// canceled, either to a manual cancellation or due to an
+		// unknown error.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			log.Warnf("Payment attempt not completed before "+
+				"timeout, id=%s", p.identifier.String())
+		} else {
+			log.Warnf("Payment attempt context canceled, id=%s",
+				p.identifier.String())
+		}
 
 		// By marking the payment failed, depending on whether it has
 		// inflight HTLCs or not, its status will now either be
 		// `StatusInflight` or `StatusFailed`. In either case, no more
 		// HTLCs will be attempted.
-		err := p.router.cfg.Control.FailPayment(
-			p.identifier, channeldb.FailureReasonTimeout,
-		)
+		reason := channeldb.FailureReasonTimeout
+		err := p.router.cfg.Control.FailPayment(p.identifier, reason)
 		if err != nil {
 			return fmt.Errorf("FailPayment got %w", err)
 		}
@@ -368,7 +373,7 @@ func (p *paymentLifecycle) requestRoute(
 	log.Warnf("Failed to find route for payment %v: %v", p.identifier, err)
 
 	// If the error belongs to `noRouteError` set, it means a non-critical
-	// error has happened during path finding and we will mark the payment
+	// error has happened during path finding, and we will mark the payment
 	// failed with this reason. Otherwise, we'll return the critical error
 	// found to abort the lifecycle.
 	var routeErr noRouteError
@@ -377,9 +382,9 @@ func (p *paymentLifecycle) requestRoute(
 	}
 
 	// It's the `paymentSession`'s responsibility to find a route for us
-	// with best effort. When it cannot find a path, we need to treat it as
-	// a terminal condition and fail the payment no matter it has inflight
-	// HTLCs or not.
+	// with the best effort. When it cannot find a path, we need to treat it
+	// as a terminal condition and fail the payment no matter it has
+	// inflight HTLCs or not.
 	failureCode := routeErr.FailureReason()
 	log.Warnf("Marking payment %v permanently failed with no route: %v",
 		p.identifier, failureCode)
@@ -415,7 +420,7 @@ type attemptResult struct {
 
 // collectResultAsync launches a goroutine that will wait for the result of the
 // given HTLC attempt to be available then handle its result. Once received, it
-// will send a nil error to channel `resultCollected` to indicate there's an
+// will send a nil error to channel `resultCollected` to indicate there's a
 // result.
 func (p *paymentLifecycle) collectResultAsync(attempt *channeldb.HTLCAttempt) {
 	log.Debugf("Collecting result for attempt %v in payment %v",
@@ -484,7 +489,7 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 		return p.failAttempt(attempt.AttemptID, err)
 	}
 
-	// Using the created circuit, initialize the error decrypter so we can
+	// Using the created circuit, initialize the error decrypter, so we can
 	// parse+decode any failures incurred by this payment within the
 	// switch.
 	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
@@ -786,7 +791,7 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 		return p.failAttempt(attemptID, sendErr)
 	}
 
-	if sendErr == htlcswitch.ErrUnreadableFailureMessage {
+	if errors.Is(sendErr, htlcswitch.ErrUnreadableFailureMessage) {
 		log.Warn("Unreadable failure when sending htlc: id=%v, hash=%v",
 			attempt.AttemptID, attempt.Hash)
 
@@ -801,7 +806,8 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 	// down the route. If the error is not related to the propagation of
 	// our payment, we can stop trying because an internal error has
 	// occurred.
-	rtErr, ok := sendErr.(htlcswitch.ClearTextError)
+	var rtErr htlcswitch.ClearTextError
+	ok := errors.As(sendErr, &rtErr)
 	if !ok {
 		return p.failPaymentAndAttempt(
 			attemptID, &internalErrorReason, sendErr,
@@ -815,7 +821,8 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 	// ForwardingError, it did not originate at our node, so we set
 	// failureSourceIdx to the index of the node where the failure occurred.
 	failureSourceIdx := 0
-	source, ok := rtErr.(*htlcswitch.ForwardingError)
+	var source *htlcswitch.ForwardingError
+	ok = errors.As(rtErr, &source)
 	if ok {
 		failureSourceIdx = source.FailureSourceIdx
 	}
@@ -863,7 +870,7 @@ func (p *paymentLifecycle) handleFailureMessage(rt *route.Route,
 
 	// Parse pubkey to allow validation of the channel update. This should
 	// always succeed, otherwise there is something wrong in our
-	// implementation. Therefore return an error.
+	// implementation. Therefore, return an error.
 	errVertex := rt.Hops[errorSourceIdx-1].PubKeyBytes
 	errSource, err := btcec.ParsePubKey(errVertex[:])
 	if err != nil {
@@ -951,17 +958,18 @@ func marshallError(sendError error, time time.Time) *channeldb.HTLCFailInfo {
 		FailTime: time,
 	}
 
-	switch sendError {
-	case htlcswitch.ErrPaymentIDNotFound:
+	switch {
+	case errors.Is(sendError, htlcswitch.ErrPaymentIDNotFound):
 		response.Reason = channeldb.HTLCFailInternal
 		return response
 
-	case htlcswitch.ErrUnreadableFailureMessage:
+	case errors.Is(sendError, htlcswitch.ErrUnreadableFailureMessage):
 		response.Reason = channeldb.HTLCFailUnreadable
 		return response
 	}
 
-	rtErr, ok := sendError.(htlcswitch.ClearTextError)
+	var rtErr htlcswitch.ClearTextError
+	ok := errors.As(sendError, &rtErr)
 	if !ok {
 		response.Reason = channeldb.HTLCFailInternal
 		return response
@@ -981,7 +989,8 @@ func marshallError(sendError error, time time.Time) *channeldb.HTLCFailInfo {
 	// failure occurred. If the error is not a ForwardingError, the failure
 	// occurred at our node, so we leave the index as 0 to indicate that
 	// we failed locally.
-	fErr, ok := rtErr.(*htlcswitch.ForwardingError)
+	var fErr *htlcswitch.ForwardingError
+	ok = errors.As(rtErr, &fErr)
 	if ok {
 		response.FailureSourceIndex = uint32(fErr.FailureSourceIdx)
 	}

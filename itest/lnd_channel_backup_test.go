@@ -1438,9 +1438,6 @@ func assertTimeLockSwept(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	// tx. In addition, Dave will attempt to sweep his anchor output but
 	// fail due to the sweeping tx being uneconomical.
 	expectedTxes := 1
-
-	// Mine a block to trigger the sweeps.
-	ht.MineBlocks(1)
 	ht.AssertNumTxsInMempool(expectedTxes)
 
 	// Carol should consider the channel pending force close (since she is
@@ -1470,11 +1467,10 @@ func assertTimeLockSwept(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	// The commit sweep resolver publishes the sweep tx at defaultCSV-1 and
 	// we already mined one block after the commitment was published, and
 	// one block to trigger Carol's sweeps, so take that into account.
-	ht.MineEmptyBlocks(1)
+	ht.MineEmptyBlocks(2)
 	ht.AssertNumPendingSweeps(dave, 2)
 
 	// Mine a block to trigger the sweeps.
-	ht.MineEmptyBlocks(1)
 	daveSweep := ht.AssertNumTxsInMempool(1)[0]
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	ht.AssertTxInBlock(block, daveSweep)

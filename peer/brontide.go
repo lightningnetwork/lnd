@@ -532,6 +532,11 @@ type Brontide struct {
 	// off new wire messages for handing.
 	msgRouter fn.Option[msgmux.Router]
 
+	// globalMsgRouter is a flag that indicates whether we have a global
+	// msg router. If so, then we don't worry about stopping the msg router
+	// when a peer disconnects.
+	globalMsgRouter bool
+
 	startReady chan struct{}
 	quit       chan struct{}
 	wg         sync.WaitGroup
@@ -546,6 +551,11 @@ var _ lnpeer.Peer = (*Brontide)(nil)
 // NewBrontide creates a new Brontide from a peer.Config struct.
 func NewBrontide(cfg Config) *Brontide {
 	logPrefix := fmt.Sprintf("Peer(%x):", cfg.PubKeyBytes)
+
+	// We have a global message router if one was passed in via the config.
+	// In this case, we don't need to attempt to tear it down when the peer
+	// is stopped.
+	globalMsgRouter := cfg.MsgRouter.IsSome()
 
 	// We'll either use the msg router instance passed in, or create a new
 	// blank instance.
@@ -576,6 +586,7 @@ func NewBrontide(cfg Config) *Brontide {
 		quit:               make(chan struct{}),
 		log:                build.NewPrefixLog(logPrefix, peerLog),
 		msgRouter:          msgRouter,
+		globalMsgRouter:    globalMsgRouter,
 	}
 
 	if cfg.Conn != nil && cfg.Conn.RemoteAddr() != nil {
@@ -1393,9 +1404,13 @@ func (p *Brontide) Disconnect(reason error) {
 
 	close(p.quit)
 
-	p.msgRouter.WhenSome(func(router msgmux.Router) {
-		router.Stop()
-	})
+	// If our msg router isn't global (local to this instance), then we'll
+	// stop it. Otherwise, we'll leave it running.
+	if !p.globalMsgRouter {
+		p.msgRouter.WhenSome(func(router msgmux.Router) {
+			router.Stop()
+		})
+	}
 }
 
 // String returns the string representation of this peer.

@@ -7,7 +7,7 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.17.0
 	github.com/jackc/pgconn v1.14.3
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
-	github.com/lib/pq v1.10.9
+	github.com/jackc/pgx/v5 v5.3.1
 	github.com/ory/dockertest/v3 v3.10.0
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/exp v0.0.0-20240325151524-a685a6edb6d8
@@ -48,6 +48,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/sirupsen/logrus v1.9.2 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect

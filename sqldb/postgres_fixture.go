@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/lib/pq" // Import the postgres driver.
+	_ "github.com/jackc/pgx/v5"
 	"github.com/ory/dockertest/v3"
 	"github.com/ory/dockertest/v3/docker"
 	"github.com/stretchr/testify/require"
@@ -91,7 +91,7 @@ func NewTestPgFixture(t *testing.T, expiry time.Duration) *TestPgFixture {
 
 	var testDB *sql.DB
 	err = pool.Retry(func() error {
-		testDB, err = sql.Open("postgres", databaseURL)
+		testDB, err = sql.Open("pgx", databaseURL)
 		if err != nil {
 			return err
 		}
@@ -124,31 +124,58 @@ func (f *TestPgFixture) TearDown(t *testing.T) {
 	require.NoError(t, err, "Could not purge resource")
 }
 
+// randomDBName generates a random database name.
+func randomDBName(t *testing.T) string {
+	randBytes := make([]byte, 8)
+	_, err := rand.Read(randBytes)
+	require.NoError(t, err)
+
+	return "test_" + hex.EncodeToString(randBytes)
+}
+
 // NewTestPostgresDB is a helper function that creates a Postgres database for
 // testing using the given fixture.
 func NewTestPostgresDB(t *testing.T, fixture *TestPgFixture) *PostgresStore {
 	t.Helper()
 
-	// Create random database name.
-	randBytes := make([]byte, 8)
-	_, err := rand.Read(randBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	dbName := "test_" + hex.EncodeToString(randBytes)
+	dbName := randomDBName(t)
 
 	t.Logf("Creating new Postgres DB '%s' for testing", dbName)
 
-	_, err = fixture.db.ExecContext(
+	_, err := fixture.db.ExecContext(
 		context.Background(), "CREATE DATABASE "+dbName,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	cfg := fixture.GetConfig(dbName)
 	store, err := NewPostgresStore(cfg)
+	require.NoError(t, err)
+
+	return store
+}
+
+// NewTestPostgresDBWithVersion is a helper function that creates a Postgres
+// database for testing and migrates it to the given version.
+func NewTestPostgresDBWithVersion(t *testing.T, fixture *TestPgFixture,
+	version uint) *PostgresStore {
+
+	t.Helper()
+
+	t.Logf("Creating new Postgres DB for testing, migrating to version %d",
+		version)
+
+	dbName := randomDBName(t)
+	_, err := fixture.db.ExecContext(
+		context.Background(), "CREATE DATABASE "+dbName,
+	)
+	require.NoError(t, err)
+
+	storeCfg := fixture.GetConfig(dbName)
+	storeCfg.SkipMigrations = true
+	store, err := NewPostgresStore(storeCfg)
+	require.NoError(t, err)
+
+	err = store.ExecuteMigrations(TargetVersion(version))
 	require.NoError(t, err)
 
 	return store

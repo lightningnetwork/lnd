@@ -233,7 +233,7 @@ func (i *SQLStore) AddInvoice(ctx context.Context,
 			CltvDelta: sqldb.SQLInt32(
 				newInvoice.Terms.FinalCltvDelta,
 			),
-			Expiry: int32(newInvoice.Terms.Expiry),
+			Expiry: int32(newInvoice.Terms.Expiry.Seconds()),
 			// Note: keysend invoices don't have a payment request.
 			PaymentRequest: sqldb.SQLStr(string(
 				newInvoice.PaymentRequest),
@@ -1598,6 +1598,8 @@ func unmarshalInvoice(row sqlc.Invoice) (*lntypes.Hash, *Invoice,
 		cltvDelta = row.CltvDelta.Int32
 	}
 
+	expiry := time.Duration(row.Expiry) * time.Second
+
 	invoice := &Invoice{
 		SettleIndex:    uint64(settleIndex),
 		SettleDate:     settledAt,
@@ -1606,7 +1608,7 @@ func unmarshalInvoice(row sqlc.Invoice) (*lntypes.Hash, *Invoice,
 		CreationDate:   row.CreatedAt.Local(),
 		Terms: ContractTerm{
 			FinalCltvDelta:  cltvDelta,
-			Expiry:          time.Duration(row.Expiry),
+			Expiry:          expiry,
 			PaymentPreimage: preimage,
 			Value:           lnwire.MilliSatoshi(row.AmountMsat),
 			PaymentAddr:     paymentAddr,

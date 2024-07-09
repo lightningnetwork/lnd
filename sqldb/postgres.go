@@ -2,13 +2,15 @@ package sqldb
 
 import (
 	"database/sql"
+	"fmt"
 	"net/url"
 	"path"
 	"strings"
 	"time"
 
-	postgres_migrate "github.com/golang-migrate/migrate/v4/database/postgres"
+	pgx_migrate "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file" // Read migrations from files. // nolint:lll
+	_ "github.com/jackc/pgx/v5"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
@@ -19,6 +21,17 @@ var (
 	// fully executed yet. So this time needs to be chosen correctly to be
 	// longer than the longest expected individual test run time.
 	DefaultPostgresFixtureLifetime = 10 * time.Minute
+
+	// postgresSchemaReplacements is a map of schema strings that need to be
+	// replaced for postgres. This is needed because we write the schemas to
+	// work with sqlite primarily but in sqlc's own dialect, and postgres
+	// has some differences.
+	postgresSchemaReplacements = map[string]string{
+		"BLOB":                "BYTEA",
+		"INTEGER PRIMARY KEY": "SERIAL PRIMARY KEY",
+		"BIGINT PRIMARY KEY":  "BIGSERIAL PRIMARY KEY",
+		"TIMESTAMP":           "TIMESTAMP WITHOUT TIME ZONE",
+	}
 )
 
 // replacePasswordInDSN takes a DSN string and returns it with the password
@@ -79,11 +92,6 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	}
 	log.Infof("Using SQL database '%s'", sanitizedDSN)
 
-	dbName, err := getDatabaseNameFromDSN(cfg.Dsn)
-	if err != nil {
-		return nil, err
-	}
-
 	rawDB, err := sql.Open("pgx", cfg.Dsn)
 	if err != nil {
 		return nil, err
@@ -98,42 +106,45 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	rawDB.SetMaxIdleConns(maxConns)
 	rawDB.SetConnMaxLifetime(connIdleLifetime)
 
-	if !cfg.SkipMigrations {
-		// Now that the database is open, populate the database with
-		// our set of schemas based on our embedded in-memory file
-		// system.
-		//
-		// First, we'll need to open up a new migration instance for
-		// our current target database: Postgres.
-		driver, err := postgres_migrate.WithInstance(
-			rawDB, &postgres_migrate.Config{},
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		postgresFS := newReplacerFS(sqlSchemas, map[string]string{
-			"BLOB":                "BYTEA",
-			"INTEGER PRIMARY KEY": "SERIAL PRIMARY KEY",
-			"BIGINT PRIMARY KEY":  "BIGSERIAL PRIMARY KEY",
-			"TIMESTAMP":           "TIMESTAMP WITHOUT TIME ZONE",
-		})
-
-		err = applyMigrations(
-			postgresFS, driver, "sqlc/migrations", dbName,
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	queries := sqlc.New(rawDB)
 
-	return &PostgresStore{
+	s := &PostgresStore{
 		cfg: cfg,
 		BaseDB: &BaseDB{
 			DB:      rawDB,
 			Queries: queries,
 		},
-	}, nil
+	}
+
+	// Execute migrations unless configured to skip them.
+	if !cfg.SkipMigrations {
+		err := s.ExecuteMigrations(TargetLatest)
+		if err != nil {
+			return nil, fmt.Errorf("error executing migrations: %w",
+				err)
+		}
+	}
+
+	return s, nil
+}
+
+// ExecuteMigrations runs migrations for the Postgres database, depending on the
+// target given, either all migrations or up to a given version.
+func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
+	dbName, err := getDatabaseNameFromDSN(s.cfg.Dsn)
+	if err != nil {
+		return err
+	}
+
+	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
+	if err != nil {
+		return fmt.Errorf("error creating postgres migration: %w", err)
+	}
+
+	// Populate the database with our set of schemas based on our embedded
+	// in-memory file system.
+	postgresFS := newReplacerFS(sqlSchemas, postgresSchemaReplacements)
+	return applyMigrations(
+		postgresFS, driver, "sqlc/migrations", dbName, target,
+	)
 }

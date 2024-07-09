@@ -91,6 +91,12 @@
 
 ## Testing
 ## Database
+
+* [Migrate](https://github.com/lightningnetwork/lnd/pull/8855) incorrectly
+  stored invoice expiry values. This migration only affects users of native SQL
+  invoice database. Invoices with incorrect expiry values will be updated to
+  24-hour expiry, which is the default behavior in LND.
+
 ## Code Health
 ## Tooling and Documentation
 

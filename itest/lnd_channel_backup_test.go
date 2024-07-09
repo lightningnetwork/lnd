@@ -1282,9 +1282,6 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 	// Dave should have a pending sweep.
 	ht.AssertNumPendingSweeps(dave, 1)
 
-	// Mine a block to trigger the sweep.
-	ht.MineBlocks(1)
-
 	// Dave should sweep his funds.
 	ht.AssertNumTxsInMempool(1)
 

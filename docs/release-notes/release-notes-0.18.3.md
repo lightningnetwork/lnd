@@ -130,6 +130,9 @@ commitment when the channel was force closed.
   the `lncli addinvoice` command to instruct LND to include blinded paths in the
   invoice. 
 
+* Add the ability to [send to use multiple blinded payment
+  paths](https://github.com/lightningnetwork/lnd/pull/8764) in an MP payment.
+
 ## Testing
 ## Database
 

@@ -24,9 +24,6 @@ type anchorResolver struct {
 	// anchor is the outpoint on the commitment transaction.
 	anchor wire.OutPoint
 
-	// resolved reflects if the contract has been fully resolved or not.
-	resolved bool
-
 	// broadcastHeight is the height that the original contract was
 	// broadcast to the main-chain at. We'll use this value to bound any
 	// historical queries to the chain for spends/confirmations.
@@ -89,7 +86,7 @@ func (c *anchorResolver) ResolverKey() []byte {
 // NOTE: Part of the ContractResolver interface.
 func (c *anchorResolver) Resolve() (ContractResolver, error) {
 	// If we're already resolved, then we can exit early.
-	if c.resolved {
+	if c.IsResolved() {
 		c.log.Errorf("already resolved")
 		return nil, nil
 	}
@@ -139,7 +136,7 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 	)
 	c.reportLock.Unlock()
 
-	c.resolved = true
+	c.markResolved()
 	return nil, c.PutResolverReport(nil, report)
 }
 
@@ -152,14 +149,6 @@ func (c *anchorResolver) Stop() {
 	defer c.log.Debugf("stopped")
 
 	close(c.quit)
-}
-
-// IsResolved returns true if the stored state in the resolve is fully
-// resolved. In this case the target output can be forgotten.
-//
-// NOTE: Part of the ContractResolver interface.
-func (c *anchorResolver) IsResolved() bool {
-	return c.resolved
 }
 
 // SupplementState allows the user of a ContractResolver to supplement it with
@@ -198,7 +187,7 @@ func (c *anchorResolver) Launch() error {
 	c.launched = true
 
 	// If we're already resolved, then we can exit early.
-	if c.resolved {
+	if c.IsResolved() {
 		c.log.Errorf("already resolved")
 		return nil
 	}

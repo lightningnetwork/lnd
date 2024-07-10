@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync/atomic"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
@@ -119,6 +120,9 @@ type contractResolverKit struct {
 	// launched specifies whether the resolver has been launched. Calling
 	// `Launch` will be a no-op if this is true.
 	launched bool
+
+	// resolved reflects if the contract has been fully resolved or not.
+	resolved atomic.Bool
 }
 
 // newContractResolverKit instantiates the mix-in struct.
@@ -135,6 +139,19 @@ func (r *contractResolverKit) initLogger(prefix string) {
 		prefix)
 
 	r.log = log.WithPrefix(logPrefix)
+}
+
+// IsResolved returns true if the stored state in the resolve is fully
+// resolved. In this case the target output can be forgotten.
+//
+// NOTE: Part of the ContractResolver interface.
+func (r *contractResolverKit) IsResolved() bool {
+	return r.resolved.Load()
+}
+
+// markResolved marks the resolver as resolved.
+func (r *contractResolverKit) markResolved() {
+	r.resolved.Store(true)
 }
 
 var (

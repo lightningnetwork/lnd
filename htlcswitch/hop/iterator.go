@@ -109,7 +109,7 @@ type Iterator interface {
 
 // sphinxHopIterator is the Sphinx implementation of hop iterator which uses
 // onion routing to encode the payment route  in such a way so that node might
-// see only the next hop in the route..
+// see only the next hop in the route.
 type sphinxHopIterator struct {
 	// ogPacket is the original packet from which the processed packet is
 	// derived.
@@ -123,20 +123,31 @@ type sphinxHopIterator struct {
 	// blindingKit contains the elements required to process hops that are
 	// part of a blinded route.
 	blindingKit BlindingKit
+
+	// rHash holds the payment hash for this payment. This is needed for
+	// when a new hop iterator is constructed.
+	rHash []byte
+
+	// router holds the router which can be used to decrypt onion payloads.
+	// This is required for peeling of dummy hops in a blinded path where
+	// the same node will iteratively need to unwrap the onion.
+	router *sphinx.Router
 }
 
 // makeSphinxHopIterator converts a processed packet returned from a sphinx
 // router and converts it into an hop iterator for usage in the link. A
 // blinding kit is passed through for the link to obtain forwarding information
 // for blinded routes.
-func makeSphinxHopIterator(ogPacket *sphinx.OnionPacket,
-	packet *sphinx.ProcessedPacket,
-	blindingKit BlindingKit) *sphinxHopIterator {
+func makeSphinxHopIterator(router *sphinx.Router, ogPacket *sphinx.OnionPacket,
+	packet *sphinx.ProcessedPacket, blindingKit BlindingKit,
+	rHash []byte) *sphinxHopIterator {
 
 	return &sphinxHopIterator{
+		router:          router,
 		ogPacket:        ogPacket,
 		processedPacket: packet,
 		blindingKit:     blindingKit,
+		rHash:           rHash,
 	}
 }
 
@@ -604,12 +615,14 @@ func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte,
 		return nil, err
 	}
 
-	return makeSphinxHopIterator(onionPkt, sphinxPacket, BlindingKit{
-		Processor:         p.router,
-		UpdateAddBlinding: blindingInfo.BlindingKey,
-		IncomingAmount:    blindingInfo.IncomingAmt,
-		IncomingCltv:      blindingInfo.IncomingExpiry,
-	}), nil
+	return makeSphinxHopIterator(p.router, onionPkt, sphinxPacket,
+		BlindingKit{
+			Processor:         p.router,
+			UpdateAddBlinding: blindingInfo.BlindingKey,
+			IncomingAmount:    blindingInfo.IncomingAmt,
+			IncomingCltv:      blindingInfo.IncomingExpiry,
+		}, rHash,
+	), nil
 }
 
 // DecodeHopIteratorRequest encapsulates all date necessary to process an onion
@@ -787,12 +800,12 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 		// Finally, construct a hop iterator from our processed sphinx
 		// packet, simultaneously caching the original onion packet.
 		resp.HopIterator = makeSphinxHopIterator(
-			&onionPkts[i], &packets[i], BlindingKit{
+			p.router, &onionPkts[i], &packets[i], BlindingKit{
 				Processor:         p.router,
 				UpdateAddBlinding: reqs[i].BlindingPoint,
 				IncomingAmount:    reqs[i].IncomingAmount,
 				IncomingCltv:      reqs[i].IncomingCltv,
-			},
+			}, reqs[i].RHash,
 		)
 	}
 

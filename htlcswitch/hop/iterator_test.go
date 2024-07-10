@@ -177,11 +177,11 @@ func (m *mockProcessor) NextEphemeral(*btcec.PublicKey) (*btcec.PublicKey,
 	return nil, nil
 }
 
-// TestDecryptAndValidateFwdInfo tests deriving forwarding info using a
+// TestParseAndValidateRecipientData tests deriving forwarding info using a
 // blinding kit. This test does not cover assertions on the calculations of
 // forwarding information, because this is covered in a test dedicated to those
 // calculations.
-func TestDecryptAndValidateFwdInfo(t *testing.T) {
+func TestParseAndValidateRecipientData(t *testing.T) {
 	t.Parallel()
 
 	// Encode valid blinding data that we'll fake decrypting for our test.
@@ -282,11 +282,15 @@ func TestDecryptAndValidateFwdInfo(t *testing.T) {
 					tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](testCase.updateAddBlinding),
 				)
 			}
-			_, err := kit.DecryptAndValidateFwdInfo(
-				&Payload{
+			iterator := &sphinxHopIterator{
+				blindingKit: kit,
+			}
+
+			_, _, err = parseAndValidateRecipientData(
+				iterator, &Payload{
 					encryptedData: testCase.data,
 					blindingPoint: testCase.payloadBlinding,
-				}, false,
+				}, false, RouteRoleCleartext,
 			)
 			require.ErrorIs(t, err, testCase.expectedErr)
 		})

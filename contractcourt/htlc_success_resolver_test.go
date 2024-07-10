@@ -616,11 +616,11 @@ func runFromCheckpoint(t *testing.T, ctx *htlcResolverTestContext,
 
 		var resolved, incubating bool
 		if h, ok := resolver.(*htlcSuccessResolver); ok {
-			resolved = h.resolved
+			resolved = h.resolved.Load()
 			incubating = h.outputIncubating
 		}
 		if h, ok := resolver.(*htlcTimeoutResolver); ok {
-			resolved = h.resolved
+			resolved = h.resolved.Load()
 			incubating = h.outputIncubating
 		}
 

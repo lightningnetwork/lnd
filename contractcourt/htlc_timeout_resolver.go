@@ -38,9 +38,6 @@ type htlcTimeoutResolver struct {
 	// incubator (utxo nursery).
 	outputIncubating bool
 
-	// resolved reflects if the contract has been fully resolved or not.
-	resolved bool
-
 	// broadcastHeight is the height that the original contract was
 	// broadcast to the main-chain at. We'll use this value to bound any
 	// historical queries to the chain for spends/confirmations.
@@ -238,7 +235,7 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 	}); err != nil {
 		return err
 	}
-	h.resolved = true
+	h.markResolved()
 
 	// Checkpoint our resolver with a report which reflects the preimage
 	// claim by the remote party.
@@ -424,7 +421,7 @@ func checkSizeAndIndex(witness wire.TxWitness, size, index int) bool {
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	// If we're already resolved, then we can exit early.
-	if h.resolved {
+	if h.IsResolved() {
 		h.log.Errorf("already resolved")
 		return nil, nil
 	}
@@ -622,14 +619,6 @@ func (h *htlcTimeoutResolver) Stop() {
 	close(h.quit)
 }
 
-// IsResolved returns true if the stored state in the resolve is fully
-// resolved. In this case the target output can be forgotten.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcTimeoutResolver) IsResolved() bool {
-	return h.resolved
-}
-
 // report returns a report on the resolution state of the contract.
 func (h *htlcTimeoutResolver) report() *ContractReport {
 	// If we have a SignedTimeoutTx but no SignDetails, this is a local
@@ -689,7 +678,7 @@ func (h *htlcTimeoutResolver) Encode(w io.Writer) error {
 	if err := binary.Write(w, endian, h.outputIncubating); err != nil {
 		return err
 	}
-	if err := binary.Write(w, endian, h.resolved); err != nil {
+	if err := binary.Write(w, endian, h.IsResolved()); err != nil {
 		return err
 	}
 	if err := binary.Write(w, endian, h.broadcastHeight); err != nil {
@@ -730,9 +719,15 @@ func newTimeoutResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 	if err := binary.Read(r, endian, &h.outputIncubating); err != nil {
 		return nil, err
 	}
-	if err := binary.Read(r, endian, &h.resolved); err != nil {
+
+	var resolved bool
+	if err := binary.Read(r, endian, &resolved); err != nil {
 		return nil, err
 	}
+	if resolved {
+		h.markResolved()
+	}
+
 	if err := binary.Read(r, endian, &h.broadcastHeight); err != nil {
 		return nil, err
 	}
@@ -1149,7 +1144,7 @@ func (h *htlcTimeoutResolver) checkpointClaim(
 	}
 
 	// Finally, we checkpoint the resolver with our report(s).
-	h.resolved = true
+	h.markResolved()
 
 	return h.Checkpoint(h, report)
 }
@@ -1285,7 +1280,7 @@ func (h *htlcTimeoutResolver) Launch() error {
 
 	switch {
 	// If we're already resolved, then we can exit early.
-	case h.resolved:
+	case h.IsResolved():
 		h.log.Errorf("already resolved")
 		return nil
 

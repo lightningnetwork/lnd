@@ -171,6 +171,38 @@ func TestBlindedDataFinalHopEncoding(t *testing.T) {
 	}
 }
 
+// TestDummyHopBlindedDataEncoding tests the encoding and decoding of a blinded
+// data blob intended for hops preceding a dummy hop in a blinded path. These
+// hops provide the reader with a signal that the next hop may be a dummy hop.
+func TestDummyHopBlindedDataEncoding(t *testing.T) {
+	t.Parallel()
+
+	priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	info := PaymentRelayInfo{
+		FeeRate:         2,
+		CltvExpiryDelta: 3,
+		BaseFee:         30,
+	}
+
+	constraints := PaymentConstraints{
+		MaxCltvExpiry:   4,
+		HtlcMinimumMsat: 100,
+	}
+
+	routeData := NewDummyHopRouteData(priv.PubKey(), info, constraints)
+
+	encoded, err := EncodeBlindedRouteData(routeData)
+	require.NoError(t, err)
+
+	b := bytes.NewBuffer(encoded)
+	decodedData, err := DecodeBlindedRouteData(b)
+	require.NoError(t, err)
+
+	require.Equal(t, routeData, decodedData)
+}
+
 // TestBlindedRouteDataPadding tests the PadBy method of BlindedRouteData.
 func TestBlindedRouteDataPadding(t *testing.T) {
 	newBlindedRouteData := func() *BlindedRouteData {

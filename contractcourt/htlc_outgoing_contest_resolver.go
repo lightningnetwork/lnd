@@ -92,7 +92,7 @@ func (h *htlcOutgoingContestResolver) Launch() error {
 func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	// If we're already full resolved, then we don't have anything further
 	// to do.
-	if h.resolved {
+	if h.IsResolved() {
 		h.log.Errorf("already resolved")
 		return nil, nil
 	}
@@ -227,14 +227,6 @@ func (h *htlcOutgoingContestResolver) Stop() {
 	h.log.Debugf("stopping...")
 	defer h.log.Debugf("stopped")
 	close(h.quit)
-}
-
-// IsResolved returns true if the stored state in the resolve is fully
-// resolved. In this case the target output can be forgotten.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcOutgoingContestResolver) IsResolved() bool {
-	return h.resolved
 }
 
 // Encode writes an encoded version of the ContractResolver into the passed

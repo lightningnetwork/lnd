@@ -39,9 +39,6 @@ type commitSweepResolver struct {
 	// this HTLC on-chain.
 	commitResolution lnwallet.CommitOutputResolution
 
-	// resolved reflects if the contract has been fully resolved or not.
-	resolved bool
-
 	// broadcastHeight is the height that the original contract was
 	// broadcast to the main-chain at. We'll use this value to bound any
 	// historical queries to the chain for spends/confirmations.
@@ -171,7 +168,7 @@ func (c *commitSweepResolver) getCommitTxConfHeight() (uint32, error) {
 //nolint:funlen
 func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// If we're already resolved, then we can exit early.
-	if c.resolved {
+	if c.IsResolved() {
 		c.log.Errorf("already resolved")
 		return nil, nil
 	}
@@ -224,7 +221,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	report := c.currentReport.resolverReport(
 		&sweepTxID, channeldb.ResolverTypeCommit, outcome,
 	)
-	c.resolved = true
+	c.resolved.Store(true)
 
 	// Checkpoint the resolver with a closure that will write the outcome
 	// of the resolver and its sweep transaction to disk.
@@ -239,14 +236,6 @@ func (c *commitSweepResolver) Stop() {
 	c.log.Debugf("stopping...")
 	defer c.log.Debugf("stopped")
 	close(c.quit)
-}
-
-// IsResolved returns true if the stored state in the resolve is fully
-// resolved. In this case the target output can be forgotten.
-//
-// NOTE: Part of the ContractResolver interface.
-func (c *commitSweepResolver) IsResolved() bool {
-	return c.resolved
 }
 
 // SupplementState allows the user of a ContractResolver to supplement it with
@@ -277,7 +266,7 @@ func (c *commitSweepResolver) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := binary.Write(w, endian, c.resolved); err != nil {
+	if err := binary.Write(w, endian, c.IsResolved()); err != nil {
 		return err
 	}
 	if err := binary.Write(w, endian, c.broadcastHeight); err != nil {
@@ -312,9 +301,12 @@ func newCommitSweepResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 		return nil, err
 	}
 
-	if err := binary.Read(r, endian, &c.resolved); err != nil {
+	var resolved bool
+	if err := binary.Read(r, endian, &resolved); err != nil {
 		return nil, err
 	}
+	c.resolved.Store(resolved)
+
 	if err := binary.Read(r, endian, &c.broadcastHeight); err != nil {
 		return nil, err
 	}
@@ -383,7 +375,7 @@ func (c *commitSweepResolver) Launch() error {
 	c.launched = true
 
 	// If we're already resolved, then we can exit early.
-	if c.resolved {
+	if c.IsResolved() {
 		c.log.Errorf("already resolved")
 		return nil
 	}

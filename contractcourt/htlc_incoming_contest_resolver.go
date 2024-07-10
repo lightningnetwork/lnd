@@ -135,7 +135,7 @@ func (h *htlcIncomingContestResolver) Launch() error {
 func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// If we're already full resolved, then we don't have anything further
 	// to do.
-	if h.resolved {
+	if h.IsResolved() {
 		h.log.Errorf("already resolved")
 		return nil, nil
 	}
@@ -151,7 +151,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// will time it out and get their funds back. This situation
 		// can present itself when we crash before processRemoteAdds in
 		// the link has ran.
-		h.resolved = true
+		h.resolved.Store(true)
 
 		if err := h.processFinalHtlcFail(); err != nil {
 			return nil, err
@@ -204,7 +204,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		log.Infof("%T(%v): HTLC has timed out (expiry=%v, height=%v), "+
 			"abandoning", h, h.htlcResolution.ClaimOutpoint,
 			h.htlcExpiry, currentHeight)
-		h.resolved = true
+		h.resolved.Store(true)
 
 		if err := h.processFinalHtlcFail(); err != nil {
 			return nil, err
@@ -245,7 +245,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 				h.htlcResolution.ClaimOutpoint,
 				h.htlcExpiry, currentHeight)
 
-			h.resolved = true
+			h.resolved.Store(true)
 
 			if err := h.processFinalHtlcFail(); err != nil {
 				return nil, err
@@ -406,7 +406,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 					"(expiry=%v, height=%v), abandoning", h,
 					h.htlcResolution.ClaimOutpoint,
 					h.htlcExpiry, currentHeight)
-				h.resolved = true
+				h.resolved.Store(true)
 
 				if err := h.processFinalHtlcFail(); err != nil {
 					return nil, err
@@ -525,14 +525,6 @@ func (h *htlcIncomingContestResolver) Stop() {
 	h.log.Debugf("stopping...")
 	defer h.log.Debugf("stopped")
 	close(h.quit)
-}
-
-// IsResolved returns true if the stored state in the resolve is fully
-// resolved. In this case the target output can be forgotten.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcIncomingContestResolver) IsResolved() bool {
-	return h.resolved
 }
 
 // Encode writes an encoded version of the ContractResolver into the passed

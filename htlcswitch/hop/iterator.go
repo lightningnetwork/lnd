@@ -284,13 +284,6 @@ func deriveBlindedRouteForwardingInfo(r *sphinxHopIterator,
 		return nil, routeRole, err
 	}
 
-	nextSCID, err := routeData.ShortChannelID.UnwrapOrErr(
-		fmt.Errorf("next SCID not set for non-final blinded hop"),
-	)
-	if err != nil {
-		return nil, routeRole, err
-	}
-
 	fwdAmt, err := calculateForwardingAmount(
 		r.blindingKit.IncomingAmount, relayInfo.Val.BaseFee,
 		relayInfo.Val.FeeRate,
@@ -315,6 +308,22 @@ func deriveBlindedRouteForwardingInfo(r *sphinxHopIterator,
 		return nil, routeRole, err
 	}
 
+	// If the payload signals that the following hop is a dummy hop, then
+	// we will iteratively peel the dummy hop until we reach the final
+	// payload.
+	if checkForDummyHop(routeData, r.router.OnionPublicKey()) {
+		return peelBlindedPathDummyHop(
+			r, uint32(relayInfo.Val.CltvExpiryDelta), fwdAmt,
+			routeRole, nextEph,
+		)
+	}
+
+	nextSCID, err := routeData.ShortChannelID.UnwrapOrErr(
+		fmt.Errorf("next SCID not set for non-final blinded hop"),
+	)
+	if err != nil {
+		return nil, routeRole, err
+	}
 	payload.FwdInfo = ForwardingInfo{
 		NextHop:         nextSCID.Val,
 		AmountToForward: fwdAmt,
@@ -330,6 +339,55 @@ func deriveBlindedRouteForwardingInfo(r *sphinxHopIterator,
 	}
 
 	return payload, routeRole, nil
+}
+
+// checkForDummyHop returns whether the given BlindedRouteData packet indicates
+// the presence of a dummy hop.
+func checkForDummyHop(routeData *record.BlindedRouteData,
+	routerPubKey *btcec.PublicKey) bool {
+
+	var isDummy bool
+	routeData.NextNodeID.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType4, *btcec.PublicKey]) {
+			isDummy = r.Val.IsEqual(routerPubKey)
+		},
+	)
+
+	return isDummy
+}
+
+// peelBlindedPathDummyHop packages the next onion packet and then constructs
+// a new hop iterator using our router and then proceeds to process the next
+// packet. This can only be done for blinded route dummy hops since we expect
+// to be the final hop on the path.
+func peelBlindedPathDummyHop(r *sphinxHopIterator, cltvExpiryDelta uint32,
+	fwdAmt lnwire.MilliSatoshi, routeRole RouteRole,
+	nextEph tlv.RecordT[tlv.TlvType8, *btcec.PublicKey]) (*Payload,
+	RouteRole, error) {
+
+	onionPkt := r.processedPacket.NextPacket
+	sphinxPacket, err := r.router.ReconstructOnionPacket(
+		onionPkt, r.rHash, sphinx.WithBlindingPoint(nextEph.Val),
+	)
+	if err != nil {
+		return nil, routeRole, err
+	}
+
+	iterator := makeSphinxHopIterator(
+		r.router, onionPkt, sphinxPacket, BlindingKit{
+			Processor: r.router,
+			UpdateAddBlinding: tlv.SomeRecordT(
+				tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType]( //nolint:lll
+					nextEph.Val,
+				),
+			),
+			IncomingAmount: fwdAmt,
+			IncomingCltv: r.blindingKit.IncomingCltv -
+				cltvExpiryDelta,
+		}, r.rHash,
+	)
+
+	return extractTLVPayload(iterator)
 }
 
 // decryptAndValidateBlindedRouteData decrypts the encrypted payload from the

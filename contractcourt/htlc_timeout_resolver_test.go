@@ -524,7 +524,7 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 	wg.Wait()
 
 	// Finally, the resolver should be marked as resolved.
-	if !resolver.resolved {
+	if !resolver.resolved.Load() {
 		t.Fatalf("resolver should be marked as resolved")
 	}
 }

@@ -206,6 +206,9 @@ func TestParseAndValidateRecipientData(t *testing.T) {
 	// Mocked error.
 	errDecryptFailed := errors.New("could not decrypt")
 
+	nodeKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
 	tests := []struct {
 		name              string
 		data              []byte
@@ -284,6 +287,10 @@ func TestParseAndValidateRecipientData(t *testing.T) {
 			}
 			iterator := &sphinxHopIterator{
 				blindingKit: kit,
+				router: sphinx.NewRouter(
+					&sphinx.PrivKeyECDH{PrivKey: nodeKey},
+					sphinx.NewMemoryReplayLog(),
+				),
 			}
 
 			_, _, err = parseAndValidateRecipientData(

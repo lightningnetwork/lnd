@@ -205,8 +205,8 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 				ogRes.outputIncubating, diskRes.outputIncubating)
 		}
 		if ogRes.resolved != diskRes.resolved {
-			t.Fatalf("expected %v, got %v", ogRes.resolved,
-				diskRes.resolved)
+			t.Fatalf("expected %v, got %v", ogRes.resolved.Load(),
+				diskRes.resolved.Load())
 		}
 		if ogRes.broadcastHeight != diskRes.broadcastHeight {
 			t.Fatalf("expected %v, got %v",
@@ -228,8 +228,8 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 				ogRes.outputIncubating, diskRes.outputIncubating)
 		}
 		if ogRes.resolved != diskRes.resolved {
-			t.Fatalf("expected %v, got %v", ogRes.resolved,
-				diskRes.resolved)
+			t.Fatalf("expected %v, got %v", ogRes.resolved.Load(),
+				diskRes.resolved.Load())
 		}
 		if ogRes.broadcastHeight != diskRes.broadcastHeight {
 			t.Fatalf("expected %v, got %v",
@@ -274,8 +274,8 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 				ogRes.commitResolution, diskRes.commitResolution)
 		}
 		if ogRes.resolved != diskRes.resolved {
-			t.Fatalf("expected %v, got %v", ogRes.resolved,
-				diskRes.resolved)
+			t.Fatalf("expected %v, got %v", ogRes.resolved.Load(),
+				diskRes.resolved.Load())
 		}
 		if ogRes.broadcastHeight != diskRes.broadcastHeight {
 			t.Fatalf("expected %v, got %v",
@@ -311,13 +311,14 @@ func TestContractInsertionRetrieval(t *testing.T) {
 			SweepSignDesc:   testSignDesc,
 		},
 		outputIncubating: true,
-		resolved:         true,
 		broadcastHeight:  102,
 		htlc: channeldb.HTLC{
 			HtlcIndex: 12,
 		},
 	}
-	successResolver := htlcSuccessResolver{
+	timeoutResolver.resolved.Store(true)
+
+	successResolver := &htlcSuccessResolver{
 		htlcResolution: lnwallet.IncomingHtlcResolution{
 			Preimage:        testPreimage,
 			SignedSuccessTx: nil,
@@ -326,40 +327,49 @@ func TestContractInsertionRetrieval(t *testing.T) {
 			SweepSignDesc:   testSignDesc,
 		},
 		outputIncubating: true,
-		resolved:         true,
 		broadcastHeight:  109,
 		htlc: channeldb.HTLC{
 			RHash: testPreimage,
 		},
 	}
-	resolvers := []ContractResolver{
-		&timeoutResolver,
-		&successResolver,
-		&commitSweepResolver{
-			commitResolution: lnwallet.CommitOutputResolution{
-				SelfOutPoint:       testChanPoint2,
-				SelfOutputSignDesc: testSignDesc,
-				MaturityDelay:      99,
-			},
-			resolved:        false,
-			broadcastHeight: 109,
-			chanPoint:       testChanPoint1,
+	successResolver.resolved.Store(true)
+
+	commitResolver := &commitSweepResolver{
+		commitResolution: lnwallet.CommitOutputResolution{
+			SelfOutPoint:       testChanPoint2,
+			SelfOutputSignDesc: testSignDesc,
+			MaturityDelay:      99,
 		},
+		broadcastHeight: 109,
+		chanPoint:       testChanPoint1,
+	}
+	commitResolver.resolved.Store(false)
+
+	resolvers := []ContractResolver{
+		&timeoutResolver, successResolver, commitResolver,
 	}
 
 	// All resolvers require a unique ResolverKey() output. To achieve this
 	// for the composite resolvers, we'll mutate the underlying resolver
 	// with a new outpoint.
-	contestTimeout := timeoutResolver
-	contestTimeout.htlcResolution.ClaimOutpoint = randOutPoint()
+	contestTimeout := htlcTimeoutResolver{
+		htlcResolution: lnwallet.OutgoingHtlcResolution{
+			ClaimOutpoint: randOutPoint(),
+			SweepSignDesc: testSignDesc,
+		},
+	}
 	resolvers = append(resolvers, &htlcOutgoingContestResolver{
 		htlcTimeoutResolver: &contestTimeout,
 	})
-	contestSuccess := successResolver
-	contestSuccess.htlcResolution.ClaimOutpoint = randOutPoint()
+	contestSuccess := &htlcSuccessResolver{
+		htlcResolution: lnwallet.IncomingHtlcResolution{
+			ClaimOutpoint: randOutPoint(),
+			SweepSignDesc: testSignDesc,
+		},
+	}
 	resolvers = append(resolvers, &htlcIncomingContestResolver{
 		htlcExpiry:          100,
-		htlcSuccessResolver: &contestSuccess,
+		htlcSuccessResolver: contestSuccess,
 	})
 
 	// For quick lookup during the test, we'll create this map which allow
@@ -437,12 +447,12 @@ func TestContractResolution(t *testing.T) {
 			SweepSignDesc:   testSignDesc,
 		},
 		outputIncubating: true,
-		resolved:         true,
 		broadcastHeight:  192,
 		htlc: channeldb.HTLC{
 			HtlcIndex: 9912,
 		},
 	}
+	timeoutResolver.resolved.Store(true)
 
 	// First, we'll insert the resolver into the database and ensure that
 	// we get the same resolver out the other side. We do not need to apply
@@ -490,12 +500,13 @@ func TestContractSwapping(t *testing.T) {
 			SweepSignDesc:   testSignDesc,
 		},
 		outputIncubating: true,
-		resolved:         true,
 		broadcastHeight:  102,
 		htlc: channeldb.HTLC{
 			HtlcIndex: 12,
 		},
 	}
+	timeoutResolver.resolved.Store(true)
+
 	contestResolver := &htlcOutgoingContestResolver{
 		htlcTimeoutResolver: timeoutResolver,
 	}

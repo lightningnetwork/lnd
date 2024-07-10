@@ -12,9 +12,6 @@ import (
 // future, this will likely take over the duties the current BreachArbitrator
 // has.
 type breachResolver struct {
-	// resolved reflects if the contract has been fully resolved or not.
-	resolved bool
-
 	// subscribed denotes whether or not the breach resolver has subscribed
 	// to the BreachArbitrator for breach resolution.
 	subscribed bool
@@ -60,7 +57,7 @@ func (b *breachResolver) Resolve() (ContractResolver, error) {
 		// If the breach resolution process is already complete, then
 		// we can cleanup and checkpoint the resolved state.
 		if complete {
-			b.resolved = true
+			b.resolved.Store(true)
 			return nil, b.Checkpoint(b)
 		}
 
@@ -73,7 +70,7 @@ func (b *breachResolver) Resolve() (ContractResolver, error) {
 		// The replyChan has been closed, signalling that the breach
 		// has been fully resolved. Checkpoint the resolved state and
 		// exit.
-		b.resolved = true
+		b.resolved.Store(true)
 		return nil, b.Checkpoint(b)
 	case <-b.quit:
 	}
@@ -90,7 +87,7 @@ func (b *breachResolver) Stop() {
 // IsResolved returns true if the breachResolver is fully resolved and cleanup
 // can occur.
 func (b *breachResolver) IsResolved() bool {
-	return b.resolved
+	return b.resolved.Load()
 }
 
 // SupplementState adds additional state to the breachResolver.
@@ -99,7 +96,7 @@ func (b *breachResolver) SupplementState(_ *channeldb.OpenChannel) {
 
 // Encode encodes the breachResolver to the passed writer.
 func (b *breachResolver) Encode(w io.Writer) error {
-	return binary.Write(w, endian, b.resolved)
+	return binary.Write(w, endian, b.resolved.Load())
 }
 
 // newBreachResolverFromReader attempts to decode an encoded breachResolver
@@ -112,9 +109,11 @@ func newBreachResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 		replyChan:           make(chan struct{}),
 	}
 
-	if err := binary.Read(r, endian, &b.resolved); err != nil {
+	var resolved bool
+	if err := binary.Read(r, endian, &resolved); err != nil {
 		return nil, err
 	}
+	b.resolved.Store(resolved)
 
 	b.initLogger(fmt.Sprintf("%T(%v)", b, b.ChanPoint))
 

@@ -658,6 +658,7 @@ func (f *interceptedForward) ResumeModified(
 	switch htlc := f.packet.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
 		outgoingAmountMsat.WhenSome(func(amount lnwire.MilliSatoshi) {
+			f.packet.amount = amount
 			htlc.Amount = amount
 		})
 

@@ -407,7 +407,7 @@ func testForwardInterceptorModifiedHtlc(ht *lntest.HarnessTest) {
 	customRecords[crKey] = crValue
 
 	action := routerrpc.ResolveHoldForwardAction_RESUME_MODIFIED
-	newOutgoingAmountMsat := packet.OutgoingAmountMsat + 4000
+	newOutgoingAmountMsat := packet.OutgoingAmountMsat
 
 	err := bobInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
 		IncomingCircuitKey:            packet.IncomingCircuitKey,

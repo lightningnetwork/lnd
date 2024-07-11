@@ -126,13 +126,13 @@ var _ ContractResolver = (*breachResolver)(nil)
 
 // TODO(yy): implement it once the outputs are offered to the sweeper.
 func (b *breachResolver) Launch() error {
-	if b.launched {
+	if b.launched.Load() {
 		b.log.Tracef("already launched")
 		return nil
 	}
 
 	b.log.Debugf("launching resolver...")
-	b.launched = true
+	b.launched.Store(true)
 
 	return nil
 }

@@ -176,13 +176,13 @@ var _ ContractResolver = (*anchorResolver)(nil)
 
 // Launch offers the anchor output to the sweeper.
 func (c *anchorResolver) Launch() error {
-	if c.launched {
+	if c.launched.Load() {
 		c.log.Tracef("already launched")
 		return nil
 	}
 
 	c.log.Debugf("launching resolver...")
-	c.launched = true
+	c.launched.Store(true)
 
 	// If we're already resolved, then we can exit early.
 	if c.IsResolved() {

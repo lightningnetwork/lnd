@@ -120,7 +120,7 @@ type contractResolverKit struct {
 
 	// launched specifies whether the resolver has been launched. Calling
 	// `Launch` will be a no-op if this is true.
-	launched bool
+	launched atomic.Bool
 
 	// resolved reflects if the contract has been fully resolved or not.
 	resolved atomic.Bool

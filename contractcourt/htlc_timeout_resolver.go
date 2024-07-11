@@ -1294,13 +1294,13 @@ func (h *htlcTimeoutResolver) resolveTimeoutTxOutput(op wire.OutPoint) error {
 // Launch creates an input based on the details of the outgoing htlc resolution
 // and offers it to the sweeper.
 func (h *htlcTimeoutResolver) Launch() error {
-	if h.launched {
+	if h.launched.Load() {
 		h.log.Tracef("already launched")
 		return nil
 	}
 
 	h.log.Debugf("launching resolver...")
-	h.launched = true
+	h.launched.Store(true)
 
 	// If the HTLC has custom records, then for now we'll pause resolution.
 	//

@@ -366,13 +366,13 @@ var _ reportingContractResolver = (*commitSweepResolver)(nil)
 
 // Launch constructs a commit input and offers it to the sweeper.
 func (c *commitSweepResolver) Launch() error {
-	if c.launched {
+	if c.launched.Load() {
 		c.log.Tracef("already launched")
 		return nil
 	}
 
 	c.log.Debugf("launching resolver...")
-	c.launched = true
+	c.launched.Store(true)
 
 	// If we're already resolved, then we can exit early.
 	if c.IsResolved() {

@@ -186,7 +186,7 @@ func TestDecryptAndValidateFwdInfo(t *testing.T) {
 
 	// Encode valid blinding data that we'll fake decrypting for our test.
 	maxCltv := 1000
-	blindedData := record.NewBlindedRouteData(
+	blindedData := record.NewNonFinalBlindedRouteData(
 		lnwire.NewShortChanIDFromInt(1500), nil,
 		record.PaymentRelayInfo{
 			CltvExpiryDelta: 10,

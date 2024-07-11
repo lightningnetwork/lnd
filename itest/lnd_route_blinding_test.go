@@ -676,7 +676,7 @@ func (b *blindedForwardTest) createBlindedRoute(hops []*forwardingEdge,
 
 		// Encode the route's blinded data and include it in the
 		// blinded hop.
-		payload := record.NewBlindedRouteData(
+		payload := record.NewNonFinalBlindedRouteData(
 			scid, nil, *relayInfo, constraints, nil,
 		)
 		payloadBytes, err := record.EncodeBlindedRouteData(payload)
@@ -739,7 +739,7 @@ func (b *blindedForwardTest) createBlindedRoute(hops []*forwardingEdge,
 		// node ID here so that it _looks like_ a valid
 		// forwarding hop (though in reality it's the last
 		// hop).
-		record.NewBlindedRouteData(
+		record.NewNonFinalBlindedRouteData(
 			lnwire.NewShortChanIDFromInt(100), nil,
 			record.PaymentRelayInfo{}, nil, nil,
 		),

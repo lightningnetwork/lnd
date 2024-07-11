@@ -76,6 +76,10 @@ const (
 	// probing the recipient.
 	fieldTypeS = 16
 
+	// fieldTypeB contains blinded payment path information. This field may
+	// be repeated to include multiple blinded payment paths in the invoice.
+	fieldTypeB = 20
+
 	// maxInvoiceLength is the maximum total length an invoice can have.
 	// This is chosen to be the maximum number of bytes that can fit into a
 	// single QR code: https://en.wikipedia.org/wiki/QR_code#Storage
@@ -152,6 +156,10 @@ type Invoice struct {
 	// This field is un-exported and can only be read by the
 	// MinFinalCLTVExpiry() method. By forcing callers to read via this
 	// method, we can easily enforce the default if not specified.
+	//
+	// NOTE: this field is ignored in the case that the invoice contains
+	// blinded paths since then the final minimum cltv expiry delta is
+	// expected to be included in the route's accumulated CLTV delta value.
 	minFinalCLTVExpiry *uint64
 
 	// Description is a short description of the purpose of this invoice.
@@ -180,8 +188,16 @@ type Invoice struct {
 	// hint can be individually used to reach the destination. These usually
 	// represent private routes.
 	//
-	// NOTE: This is optional.
+	// NOTE: This is optional and should not be set at the same time as
+	// BlindedPaymentPaths.
 	RouteHints [][]HopHint
+
+	// BlindedPaymentPaths is a set of blinded payment paths that can be
+	// used to find the payment receiver.
+	//
+	// NOTE: This is optional and should not be set at the same time as
+	// RouteHints.
+	BlindedPaymentPaths []*BlindedPaymentPath
 
 	// Features represents an optional field used to signal optional or
 	// required support for features by the receiver.
@@ -260,6 +276,15 @@ func FallbackAddr(fallbackAddr btcutil.Address) func(*Invoice) {
 func RouteHint(routeHint []HopHint) func(*Invoice) {
 	return func(i *Invoice) {
 		i.RouteHints = append(i.RouteHints, routeHint)
+	}
+}
+
+// WithBlindedPaymentPath is a functional option that allows a caller of
+// NewInvoice to attach a blinded payment path to the invoice. The option can
+// be used multiple times to attach multiple paths.
+func WithBlindedPaymentPath(p *BlindedPaymentPath) func(*Invoice) {
+	return func(i *Invoice) {
+		i.BlindedPaymentPaths = append(i.BlindedPaymentPaths, p)
 	}
 }
 
@@ -353,6 +378,13 @@ func validateInvoice(invoice *Invoice) error {
 	// The invoice must contain a payment hash.
 	if invoice.PaymentHash == nil {
 		return fmt.Errorf("no payment hash found")
+	}
+
+	if len(invoice.RouteHints) != 0 &&
+		len(invoice.BlindedPaymentPaths) != 0 {
+
+		return fmt.Errorf("cannot have both route hints and blinded " +
+			"payment paths")
 	}
 
 	// Either Description or DescriptionHash must be set, not both.

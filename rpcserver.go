@@ -6971,6 +6971,13 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 	// Convert between the `lnrpc` and `routing` types.
 	routeHints := invoicesrpc.CreateRPCRouteHints(payReq.RouteHints)
 
+	blindedPaymentPaths, err := invoicesrpc.CreateRPCBlindedPayments(
+		payReq.BlindedPaymentPaths,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	var amtSat, amtMsat int64
 	if payReq.MilliSat != nil {
 		amtSat = int64(payReq.MilliSat.ToSatoshis())
@@ -6996,6 +7003,7 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 		Expiry:          expiry,
 		CltvExpiry:      int64(payReq.MinFinalCLTVExpiry()),
 		RouteHints:      routeHints,
+		BlindedPaths:    blindedPaymentPaths,
 		PaymentAddr:     paymentAddr,
 		Features:        invoicesrpc.CreateRPCFeatures(payReq.Features),
 	}, nil

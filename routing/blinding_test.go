@@ -128,7 +128,9 @@ func TestBlindedPaymentToHints(t *testing.T) {
 		HtlcMaximum:         htlcMax,
 		Features:            features,
 	}
-	require.Nil(t, blindedPayment.toRouteHints())
+	hints, err := blindedPayment.toRouteHints()
+	require.NoError(t, err)
+	require.Nil(t, hints)
 
 	// Populate the blinded payment with hops.
 	blindedPayment.BlindedPath.BlindedHops = []*sphinx.BlindedHopInfo{
@@ -146,41 +148,43 @@ func TestBlindedPaymentToHints(t *testing.T) {
 		},
 	}
 
+	policy1 := &models.CachedEdgePolicy{
+		TimeLockDelta: cltvDelta,
+		MinHTLC:       lnwire.MilliSatoshi(htlcMin),
+		MaxHTLC:       lnwire.MilliSatoshi(htlcMax),
+		FeeBaseMSat:   lnwire.MilliSatoshi(baseFee),
+		FeeProportionalMillionths: lnwire.MilliSatoshi(
+			ppmFee,
+		),
+		ToNodePubKey: func() route.Vertex {
+			return vb2
+		},
+		ToNodeFeatures: features,
+	}
+	policy2 := &models.CachedEdgePolicy{
+		ToNodePubKey: func() route.Vertex {
+			return vb3
+		},
+		ToNodeFeatures: features,
+	}
+
+	blindedEdge1, err := NewBlindedEdge(policy1, blindedPayment, 0)
+	require.NoError(t, err)
+
+	blindedEdge2, err := NewBlindedEdge(policy2, blindedPayment, 1)
+	require.NoError(t, err)
+
 	expected := RouteHints{
 		v1: {
-			//nolint:lll
-			&BlindedEdge{
-				policy: &models.CachedEdgePolicy{
-					TimeLockDelta: cltvDelta,
-					MinHTLC:       lnwire.MilliSatoshi(htlcMin),
-					MaxHTLC:       lnwire.MilliSatoshi(htlcMax),
-					FeeBaseMSat:   lnwire.MilliSatoshi(baseFee),
-					FeeProportionalMillionths: lnwire.MilliSatoshi(
-						ppmFee,
-					),
-					ToNodePubKey: func() route.Vertex {
-						return vb2
-					},
-					ToNodeFeatures: features,
-				},
-				blindingPoint: blindedPoint,
-				cipherText:    cipherText,
-			},
+			blindedEdge1,
 		},
 		vb2: {
-			&BlindedEdge{
-				policy: &models.CachedEdgePolicy{
-					ToNodePubKey: func() route.Vertex {
-						return vb3
-					},
-					ToNodeFeatures: features,
-				},
-				cipherText: cipherText,
-			},
+			blindedEdge2,
 		},
 	}
 
-	actual := blindedPayment.toRouteHints()
+	actual, err := blindedPayment.toRouteHints()
+	require.NoError(t, err)
 
 	require.Equal(t, len(expected), len(actual))
 	for vertex, expectedHint := range expected {

@@ -1099,8 +1099,13 @@ var queryRoutesCommand = cli.Command{
 		},
 		cli.Int64Flag{
 			Name: "final_cltv_delta",
-			Usage: "(optional) number of blocks the last hop has to reveal " +
-				"the preimage",
+			Usage: "(optional) number of blocks the last hop has " +
+				"to reveal the preimage. Note that this " +
+				"should not be set in the case where the " +
+				"path includes a blinded path since in " +
+				"that case, the receiver will already have " +
+				"accounted for this value in the " +
+				"blinded_cltv value",
 		},
 		cli.BoolFlag{
 			Name:  "use_mc",
@@ -1236,6 +1241,13 @@ func parseBlindedPaymentParameters(ctx *cli.Context) (
 	// blinded path.
 	if !ctx.IsSet(blindingPointFlag.Name) {
 		return nil, nil
+	}
+
+	// If a blinded path has been provided, then the final_cltv_delta flag
+	// should not be provided since this value will be ignored.
+	if ctx.IsSet("final_cltv_delta") {
+		return nil, fmt.Errorf("`final_cltv_delta` should not be " +
+			"provided if a blinded path is provided")
 	}
 
 	// If any one of our blinding related flags is set, we expect the

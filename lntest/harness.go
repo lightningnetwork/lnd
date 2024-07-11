@@ -1094,6 +1094,16 @@ func (h *HarnessTest) openChannelAssertPending(srcNode,
 	return update.ChanPending, respStream
 }
 
+// OpenChannelSync attempts to open a channel between srcNode and destNode with
+// the passed channel funding parameters.
+func (h *HarnessTest) OpenChannelSync(srcNode,
+	destNode *node.HarnessNode, p OpenChannelParams) *lnrpc.ChannelPoint {
+
+	// Prepare the request and open the channel.
+	openReq := h.prepareOpenChannel(srcNode, destNode, p)
+	return srcNode.RPC.OpenChannelSync(openReq)
+}
+
 // OpenChannelAssertPending attempts to open a channel between srcNode and
 // destNode with the passed channel funding parameters. Once the `OpenChannel`
 // is called, it will consume the first event it receives from the open channel

@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -1474,4 +1475,48 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 
 	ht.CloseChannel(carol, chanPoint1)
 	ht.CloseChannel(carol, chanPoint4)
+}
+
+// testChannelOpeningSync tests that a channel is opened using the
+// `OpenChannelSync` rpc endpoint. Most of the logic is similar to the
+// `OpenChannel` rpc endpoint therefore we only test the basic channel opening.
+func testChannelOpeningSync(ht *lntest.HarnessTest) {
+	alice, bob := ht.Alice, ht.Bob
+
+	chanAmt := funding.MaxBtcFundingAmount
+	expectedFeeRate := chainfee.SatPerKWeight(2500)
+
+	// Open a pending channel between alice and bob. After this call the
+	// channel is still not confirmed but pending in the mempool.
+	chanPoint := ht.OpenChannelSync(alice, bob, lntest.OpenChannelParams{
+		Amt:         chanAmt,
+		SatPerVByte: btcutil.Amount(expectedFeeRate.FeePerVByte()),
+	})
+
+	hash := chanPoint.GetFundingTxidBytes()
+
+	fundingTxID, err := chainhash.NewHash(hash)
+	require.NoError(ht, err)
+
+	mempoolTransactions := ht.GetNumTxsFromMempool(1)
+	require.Len(ht, mempoolTransactions, 1)
+
+	openingTx := mempoolTransactions[0]
+
+	require.Equal(ht, *fundingTxID, openingTx.TxHash())
+
+	feerate := ht.CalculateTxFeeRate(openingTx)
+
+	// There are minor differences in the fee estimation because of the
+	// different sizes of the DER signature.
+	require.InEpsilonf(ht, uint64(expectedFeeRate), uint64(feerate),
+		0.01, "want %v, got %v", expectedFeeRate, feerate)
+
+	// Mine a block to confirm the channel onchain.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Finally, immediately close the channel. This function will
+	// also block until the channel is closed and will additionally
+	// assert the relevant channel closing post conditions.
+	ht.CloseChannel(alice, chanPoint)
 }

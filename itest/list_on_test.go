@@ -102,6 +102,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testRescanAddressDetection,
 	},
 	{
+		Name:     "open channel sync funding",
+		TestFunc: testChannelOpeningSync,
+	},
+	{
 		Name:     "basic funding flow with all input types",
 		TestFunc: testChannelFundingInputTypes,
 	},

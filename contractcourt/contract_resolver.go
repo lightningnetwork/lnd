@@ -118,8 +118,11 @@ type contractResolverKit struct {
 	sweepResultChan chan sweep.Result
 
 	// launched specifies whether the resolver has been launched. Calling
-	// `Launch` will be a no-op if this is true.
-	launched bool
+	// `Launch` will be a no-op if this is true. This value is not saved to
+	// db, as it's fine to relaunch a resolver after a restart. It's only
+	// used to avoid resending requests to the sweeper when a new blockbeat
+	// is received.
+	launched atomic.Bool
 
 	// resolved reflects if the contract has been fully resolved or not.
 	resolved atomic.Bool
@@ -152,6 +155,16 @@ func (r *contractResolverKit) IsResolved() bool {
 // markResolved marks the resolver as resolved.
 func (r *contractResolverKit) markResolved() {
 	r.resolved.Store(true)
+}
+
+// isLaunched returns true if the resolver has been launched.
+func (r *contractResolverKit) isLaunched() bool {
+	return r.launched.Load()
+}
+
+// markLaunched marks the resolver as launched.
+func (r *contractResolverKit) markLaunched() {
+	r.launched.Store(true)
 }
 
 var (

@@ -730,13 +730,13 @@ func (h *htlcSuccessResolver) resolveSuccessTxOutput(op wire.OutPoint) error {
 // Launch creates an input based on the details of the incoming htlc resolution
 // and offers it to the sweeper.
 func (h *htlcSuccessResolver) Launch() error {
-	if h.launched {
+	if h.isLaunched() {
 		h.log.Tracef("already launched")
 		return nil
 	}
 
 	h.log.Debugf("launching resolver...")
-	h.launched = true
+	h.markLaunched()
 
 	switch {
 	// If we're already resolved, then we can exit early.

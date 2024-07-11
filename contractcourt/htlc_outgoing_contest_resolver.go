@@ -40,7 +40,7 @@ func newOutgoingContestResolver(res lnwallet.OutgoingHtlcResolution,
 func (h *htlcOutgoingContestResolver) Launch() error {
 	// NOTE: we don't mark this resolver as launched as the inner resolver
 	// will set it when it's launched.
-	if h.launched {
+	if h.isLaunched() {
 		h.log.Tracef("already launched")
 		return nil
 	}

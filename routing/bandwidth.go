@@ -138,6 +138,13 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 
 		auxBandwidth           lnwire.MilliSatoshi
 		auxBandwidthDetermined bool
+
+		// htlcAmount is the amount we're going to use to check if we
+		// can add another HTLC to the channel. If the external traffic
+		// shaper is handling the channel, we'll use 0 to just sanity
+		// check the number of HTLCs on the channel, since we don't know
+		// the actual HTLC amount that will be sent.
+		htlcAmount = amount
 	)
 	err = fn.MapOptionZ(b.trafficShaper, func(ts TlvTrafficShaper) error {
 		fundingBlob := link.FundingCustomBlob()
@@ -171,6 +178,15 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 
 		auxBandwidthDetermined = true
 
+		// We don't know the actual HTLC amount that will be sent using
+		// the custom channel. But we'll still want to make sure we can
+		// add another HTLC, using the MayAddOutgoingHtlc method below.
+		// Passing 0 into that method will use the minimum HTLC value
+		// for the channel, which is okay to just check we don't exceed
+		// the max number of HTLCs on the channel. A proper balance
+		// check is done elsewhere.
+		htlcAmount = 0
+
 		return nil
 	})
 	if err != nil {
@@ -180,11 +196,11 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 		return 0
 	}
 
-	// If our link isn't currently in a state where it can add
-	// another outgoing htlc, treat the link as unusable.
-	if err := link.MayAddOutgoingHtlc(amount); err != nil {
+	// If our link isn't currently in a state where it can add another
+	// outgoing htlc, treat the link as unusable.
+	if err := link.MayAddOutgoingHtlc(htlcAmount); err != nil {
 		log.Warnf("ShortChannelID=%v: cannot add outgoing "+
-			"htlc: %v", cid, err)
+			"htlc with amount %v: %v", cid, htlcAmount, err)
 		return 0
 	}
 

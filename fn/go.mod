@@ -3,9 +3,9 @@ module github.com/lightningnetwork/lnd/fn
 go 1.19
 
 require (
-	github.com/lightninglabs/neutrino/cache v1.1.2
 	github.com/stretchr/testify v1.8.1
 	golang.org/x/exp v0.0.0-20231226003508-02704c960a9b
+	golang.org/x/sync v0.7.0
 )
 
 require (

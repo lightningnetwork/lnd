@@ -115,13 +115,15 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 	)
 
 	aliceCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        aliceDustLimit,
+		ChannelStateSpaceBounds: channeldb.ChannelStateSpaceBounds{
 			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
 			ChanReserve:      btcutil.Amount(rand.Int63()),
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
-			CsvDelay:         uint16(csvTimeoutAlice),
+		},
+		CommitmentRenderingParams: channeldb.CommitmentRenderingParams{
+			DustLimit: aliceDustLimit,
+			CsvDelay:  uint16(csvTimeoutAlice),
 		},
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: aliceKeyPub,
@@ -140,13 +142,15 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		},
 	}
 	bobCfg := channeldb.ChannelConfig{
-		ChannelConstraints: channeldb.ChannelConstraints{
-			DustLimit:        bobDustLimit,
+		ChannelStateSpaceBounds: channeldb.ChannelStateSpaceBounds{
 			MaxPendingAmount: lnwire.MilliSatoshi(rand.Int63()),
 			ChanReserve:      btcutil.Amount(rand.Int63()),
 			MinHTLC:          lnwire.MilliSatoshi(rand.Int63()),
 			MaxAcceptedHtlcs: uint16(rand.Int31()),
-			CsvDelay:         uint16(csvTimeoutBob),
+		},
+		CommitmentRenderingParams: channeldb.CommitmentRenderingParams{
+			DustLimit: bobDustLimit,
+			CsvDelay:  uint16(csvTimeoutBob),
 		},
 		MultiSigKey: keychain.KeyDescriptor{
 			PubKey: bobKeyPub,
@@ -463,6 +467,12 @@ func (m *mockUpdateHandler) OnCommitOnce(
 ) {
 
 	hook()
+}
+func (m *mockUpdateHandler) InitStfu() <-chan fn.Option[bool] {
+	// TODO(proofofkeags): Implement
+	c := make(chan fn.Option[bool])
+	close(c) // This indicates the attempt failed
+	return c
 }
 
 func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {

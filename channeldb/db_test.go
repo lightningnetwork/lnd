@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/stretchr/testify/require"
@@ -291,6 +292,10 @@ func genRandomChannelShell() (*ChannelShell, error) {
 	}
 	shaChainProducer := shachain.NewRevocationProducer(*revRoot)
 
+	rParams := CommitmentRenderingParams{
+		CsvDelay: uint16(rand.Int63()),
+	}
+
 	return &ChannelShell{
 		NodeAddrs: []net.Addr{&net.TCPAddr{
 			IP:   net.ParseIP("127.0.0.1"),
@@ -305,9 +310,7 @@ func genRandomChannelShell() (*ChannelShell, error) {
 			),
 			IdentityPub: pub,
 			LocalChanCfg: ChannelConfig{
-				ChannelConstraints: ChannelConstraints{
-					CsvDelay: uint16(rand.Int63()),
-				},
+				CommitmentRenderingParams: rParams,
 				PaymentBasePoint: keychain.KeyDescriptor{
 					KeyLocator: keychain.KeyLocator{
 						Family: keychain.KeyFamily(rand.Int63()),
@@ -606,7 +609,9 @@ func TestFetchChannels(t *testing.T) {
 				channelIDOption(pendingWaitingChan),
 			)
 
-			err = pendingClosing.MarkCoopBroadcasted(nil, true)
+			err = pendingClosing.MarkCoopBroadcasted(
+				nil, lntypes.Local,
+			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -626,7 +631,9 @@ func TestFetchChannels(t *testing.T) {
 				channelIDOption(openWaitingChan),
 				openChannelOption(),
 			)
-			err = openClosing.MarkCoopBroadcasted(nil, true)
+			err = openClosing.MarkCoopBroadcasted(
+				nil, lntypes.Local,
+			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

@@ -234,7 +234,7 @@ func (u *edgeUnifier) getEdgeLocal(netAmtReceived lnwire.MilliSatoshi,
 		amt := netAmtReceived + lnwire.MilliSatoshi(inboundFee)
 
 		// Check valid amount range for the channel.
-		if !edge.amtInRange(amt) {
+		if htlcBlob.IsNone() && !edge.amtInRange(amt) {
 			log.Debugf("Amount %v not in range for edge %v",
 				netAmtReceived, edge.policy.ChannelID)
 

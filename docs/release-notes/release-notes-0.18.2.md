@@ -40,10 +40,6 @@
 ## BOLT Spec Updates
 ## Testing
 ## Database
-
-* [Fixed](https://github.com/lightningnetwork/lnd/pull/8854) pagination issues 
-  in SQL invoicedb queries.
-
 ## Code Health
 ## Tooling and Documentation
 

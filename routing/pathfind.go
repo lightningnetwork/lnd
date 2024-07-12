@@ -1007,18 +1007,22 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				continue
 			}
 
-			firstHopTLVs := lnwire.CustomRecords(
-				r.FirstHopCustomRecords,
-			)
-			firstHopData, err := firstHopTLVs.Serialize()
-			if err != nil {
-				return nil, 0, err
+			var firstHopBlob fn.Option[tlv.Blob]
+			if r.FirstHopCustomRecords != nil {
+				firstHopTLVs := lnwire.CustomRecords(
+					r.FirstHopCustomRecords,
+				)
+				firstHopData, err := firstHopTLVs.Serialize()
+				if err != nil {
+					return nil, 0, err
+				}
+
+				firstHopBlob = fn.Some(firstHopData)
 			}
 
 			edge := edgeUnifier.getEdge(
 				netAmountReceived, g.bandwidthHints,
-				partialPath.outboundFee,
-				fn.Some[tlv.Blob](firstHopData),
+				partialPath.outboundFee, firstHopBlob,
 			)
 
 			if edge == nil {

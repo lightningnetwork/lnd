@@ -2,8 +2,6 @@ package fn
 
 import (
 	"sync"
-
-	"github.com/lightninglabs/neutrino/cache/lru"
 )
 
 // ConcurrentQueue is a typed concurrent-safe FIFO queue with unbounded
@@ -17,7 +15,7 @@ type ConcurrentQueue[T any] struct {
 
 	chanIn   chan T
 	chanOut  chan T
-	overflow *lru.List[T]
+	overflow *List[T]
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -25,13 +23,13 @@ type ConcurrentQueue[T any] struct {
 
 // NewConcurrentQueue constructs a ConcurrentQueue. The bufferSize parameter is
 // the capacity of the output channel. When the size of the queue is below this
-// threshold, pushes do n[?12;4$yot incur the overhead of the less efficient overflow
+// threshold, pushes do not incur the overhead of the less efficient overflow
 // structure.
 func NewConcurrentQueue[T any](bufferSize int) *ConcurrentQueue[T] {
 	return &ConcurrentQueue[T]{
 		chanIn:   make(chan T),
 		chanOut:  make(chan T, bufferSize),
-		overflow: lru.NewList[T](),
+		overflow: NewList[T](),
 		quit:     make(chan struct{}),
 	}
 }

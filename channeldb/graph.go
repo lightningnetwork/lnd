@@ -1121,6 +1121,67 @@ func (c *ChannelGraph) addChannelEdge(tx kvdb.RwTx,
 	return chanIndex.Put(b.Bytes(), chanKey[:])
 }
 
+// ReAddChannelEdge removes the edge with the given channel ID from the
+// database and adds the new edge to garantee atomicity.
+// This is important for option-scid-alias channel which might over the course
+// of their lifetime change their SCID (e.g. public zero-conf channels).
+func (c *ChannelGraph) ReAddChannelEdge(
+	chanID uint64, newEdge *models.ChannelEdgeInfo,
+	ourPolicy *models.ChannelEdgePolicy) error {
+
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+		edges := tx.ReadWriteBucket(edgeBucket)
+		if edges == nil {
+			return ErrEdgeNotFound
+		}
+		edgeIndex := edges.NestedReadWriteBucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrEdgeNotFound
+		}
+		chanIndex := edges.NestedReadWriteBucket(channelPointBucket)
+		if chanIndex == nil {
+			return ErrEdgeNotFound
+		}
+		nodes := tx.ReadWriteBucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNodeNotFound
+		}
+
+		var rawChanID [8]byte
+		byteOrder.PutUint64(rawChanID[:], chanID)
+
+		// We don't mark this channel as zombie, because we are readding
+		// it immediately after deleting it below.
+		err := c.delChannelEdgeUnsafe(
+			edges, edgeIndex, chanIndex, nil,
+			rawChanID[:], false, false,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Now we add the channel with the new edge info
+		err = c.addChannelEdge(tx, newEdge)
+
+		// Also add the new channel update from our side.
+		_, err = updateEdgePolicy(tx, ourPolicy, c.graphCache)
+
+		return err
+	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	// Remove the Cache entries.
+	c.rejectCache.remove(chanID)
+	c.chanCache.remove(chanID)
+
+	return nil
+}
+
 // HasChannelEdge returns true if the database knows of a channel edge with the
 // passed channel ID, and false otherwise. If an edge with that ID is found
 // within the graph, then two time stamps representing the last time the edge

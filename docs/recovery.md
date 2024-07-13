@@ -258,6 +258,22 @@ An example of using file system level notification to [copy the backup to a
 distinct volume/partition/drive can be found
 here](https://gist.github.com/alexbosworth/2c5e185aedbdac45a03655b709e255a3).
 
+##### Last resort manual force close
+
+Reserve this option as a last resort when the peer is offline and all other
+avenues to retrieve funds from the channel have been exhausted. The primary
+motivation for introducing this option is to provide a means of recovery,
+albeit with some risk, rather than losing the funds indefinitely. This is a very
+dangerous option, so it should only be used after consulting with a recovery
+specialist or after opening an issue to make sure!!!
+
+Starting with release 0.18.3 LND includes unsigned force close transaction
+for a channel into channel.backup file and RPCs returning channel backups.
+To generate a force close transaction from the backup file, utilize the
+`chantools scbforceclose` command. However, exercise caution as this action is
+perilous. If the channel has been updated since the backup creation, another
+node or a watchtower may issue a penalty transaction, seizing all funds!
+
 #### Using the `ExportChanBackup` RPC
 
 Another way to obtain SCBS for all or a target channel is via the new

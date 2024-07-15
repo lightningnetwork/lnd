@@ -294,6 +294,12 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		// attempt, because concurrent payments may change balances.
 		bandwidthHints, err := p.getBandwidthHints(graph)
 		if err != nil {
+			// Close routing graph session.
+			if graphErr := closeGraph(); graphErr != nil {
+				log.Errorf("could not close graph session: %v",
+					graphErr)
+			}
+
 			return nil, err
 		}
 

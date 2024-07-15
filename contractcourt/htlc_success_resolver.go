@@ -10,8 +10,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -116,139 +114,60 @@ func (h *htlcSuccessResolver) ResolverKey() []byte {
 // anymore. Every HTLC has already passed through the incoming contest resolver
 // and in there the invoice was already marked as settled.
 //
-// TODO(roasbeef): create multi to batch
-//
 // NOTE: Part of the ContractResolver interface.
+//
+// TODO(yy): refactor the interface method to return an error only.
 func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
+	var err error
+
+	switch {
 	// If we're already resolved, then we can exit early.
-	if h.resolved {
-		return nil, nil
-	}
+	case h.resolved:
+		h.log.Errorf("already resolved")
 
-	// If we don't have a success transaction, then this means that this is
-	// an output on the remote party's commitment transaction.
-	if h.isRemoteCommitOutput() {
-		return h.resolveRemoteCommitOutput()
-	}
+	// If this is an output on the remote party's commitment transaction,
+	// use the direct-spend path to sweep the htlc.
+	case h.isRemoteCommitOutput():
+		err = h.resolveRemoteCommitOutput()
 
-	// Otherwise this an output on our own commitment, and we must start by
-	// broadcasting the second-level success transaction.
-	secondLevelOutpoint, err := h.broadcastSuccessTx()
-	if err != nil {
-		return nil, err
-	}
-
-	// To wrap this up, we'll wait until the second-level transaction has
-	// been spent, then fully resolve the contract.
-	return nil, h.resolveSuccessTxOutput(*secondLevelOutpoint)
-}
-
-// broadcastSuccessTx handles an HTLC output on our local commitment by
-// broadcasting the second-level success transaction. It returns the ultimate
-// outpoint of the second-level tx, that we must wait to be spent for the
-// resolver to be fully resolved.
-func (h *htlcSuccessResolver) broadcastSuccessTx() (
-	*wire.OutPoint, error) {
-
-	// If we have non-nil SignDetails, this means that have a 2nd level
-	// HTLC transaction that is signed using sighash SINGLE|ANYONECANPAY
-	// (the case for anchor type channels). In this case we can re-sign it
-	// and attach fees at will. We let the sweeper handle this job.  We use
-	// the checkpointed outputIncubating field to determine if we already
-	// swept the HTLC output into the second level transaction.
-	if h.isZeroFeeOutput() {
-		return h.broadcastReSignedSuccessTx()
-	}
-
-	// Otherwise we'll publish the second-level transaction directly and
-	// offer the resolution to the nursery to handle.
-	log.Infof("%T(%x): broadcasting second-layer transition tx: %v",
-		h, h.htlc.RHash[:], spew.Sdump(h.htlcResolution.SignedSuccessTx))
-
-	// We'll now broadcast the second layer transaction so we can kick off
-	// the claiming process.
-	err := h.resolveLegacySuccessTx()
-	if err != nil {
-		return nil, err
-	}
-
-	return &h.htlcResolution.ClaimOutpoint, nil
-}
-
-// broadcastReSignedSuccessTx handles the case where we have non-nil
-// SignDetails, and offers the second level transaction to the Sweeper, that
-// will re-sign it and attach fees at will.
-func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (*wire.OutPoint,
-	error) {
-
-	// Keep track of the tx spending the HTLC output on the commitment, as
-	// this will be the confirmed second-level tx we'll ultimately sweep.
-	var commitSpend *chainntnfs.SpendDetail
-
-	// We will have to let the sweeper re-sign the success tx and wait for
-	// it to confirm, if we haven't already.
-	if !h.outputIncubating {
-		err := h.sweepSuccessTx()
-		if err != nil {
-			return nil, err
-		}
-
+	// If this is an output on our commitment transaction using post-anchor
+	// channel type, it will be handled by the sweeper.
+	case h.isZeroFeeOutput():
 		err = h.resolveSuccessTx()
-		if err != nil {
-			return nil, err
-		}
+
+	// If this is an output on our own commitment using pre-anchor channel
+	// type, we will publish the success tx and offer the output to the
+	// nursery.
+	default:
+		err = h.resolveLegacySuccessTx()
 	}
 
-	// This should be non-blocking as we will only attempt to sweep the
-	// output when the second level tx has already been confirmed. In other
-	// words, waitForSpend will return immediately.
-	commitSpend, err := waitForSpend(
-		&h.htlcResolution.SignedSuccessTx.TxIn[0].PreviousOutPoint,
-		h.htlcResolution.SignDetails.SignDesc.Output.PkScript,
-		h.broadcastHeight, h.Notifier, h.quit,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	err = h.sweepSuccessTxOutput()
-	if err != nil {
-		return nil, err
-	}
-
-	// Will return this outpoint, when this is spent the resolver is fully
-	// resolved.
-	op := &wire.OutPoint{
-		Hash:  *commitSpend.SpenderTxHash,
-		Index: commitSpend.SpenderInputIndex,
-	}
-
-	return op, nil
+	return nil, err
 }
 
 // resolveRemoteCommitOutput handles sweeping an HTLC output on the remote
 // commitment with the preimage. In this case we can sweep the output directly,
 // and don't have to broadcast a second-level transaction.
-func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
-	ContractResolver, error) {
-
-	err := h.sweepRemoteCommitOutput()
-	if err != nil {
-		return nil, err
-	}
+func (h *htlcSuccessResolver) resolveRemoteCommitOutput() error {
+	h.log.Info("waiting for direct-preimage spend of the htlc to confirm")
 
 	// Wait for the direct-preimage HTLC sweep tx to confirm.
+	//
+	// TODO(yy): use the result chan returned from `SweepInput`.
 	sweepTxDetails, err := waitForSpend(
 		&h.htlcResolution.ClaimOutpoint,
 		h.htlcResolution.SweepSignDesc.Output.PkScript,
 		h.broadcastHeight, h.Notifier, h.quit,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
+	// TODO(yy): should also update the `RecoveredBalance` and
+	// `LimboBalance` like other paths?
+
 	// Checkpoint the resolver, and write the outcome to disk.
-	return nil, h.checkpointClaim(sweepTxDetails.SpenderTxHash)
+	return h.checkpointClaim(sweepTxDetails.SpenderTxHash)
 }
 
 // checkpointClaim checkpoints the success resolver with the reports it needs.
@@ -316,6 +235,9 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcSuccessResolver) Stop() {
+	h.log.Debugf("stopping...")
+	defer h.log.Debugf("stopped")
+
 	close(h.quit)
 }
 
@@ -808,4 +730,48 @@ func (h *htlcSuccessResolver) resolveSuccessTxOutput(op wire.OutPoint) error {
 	h.reportLock.Unlock()
 
 	return h.checkpointClaim(spend.SpenderTxHash)
+}
+
+// Launch creates an input based on the details of the incoming htlc resolution
+// and offers it to the sweeper.
+func (h *htlcSuccessResolver) Launch() error {
+	if h.launched {
+		h.log.Tracef("already launched")
+		return nil
+	}
+
+	h.log.Debugf("launching resolver...")
+	h.launched = true
+
+	switch {
+	// If we're already resolved, then we can exit early.
+	case h.resolved:
+		h.log.Errorf("already resolved")
+		return nil
+
+	// If this is an output on the remote party's commitment transaction,
+	// use the direct-spend path.
+	case h.isRemoteCommitOutput():
+		return h.sweepRemoteCommitOutput()
+
+	// If this is an anchor type channel, we now sweep either the
+	// second-level success tx or the output from the second-level success
+	// tx.
+	case h.isZeroFeeOutput():
+		// If the second-level success tx has already been swept, we
+		// can go ahead and sweep its output.
+		if h.outputIncubating {
+			return h.sweepSuccessTxOutput()
+		}
+
+		// Otherwise, sweep the second level tx.
+		return h.sweepSuccessTx()
+
+	// If this is a legacy channel type, the output is handled by the
+	// nursery via the Resolve so we do nothing here.
+	//
+	// TODO(yy): handle the legacy output by offering it to the sweeper.
+	default:
+		return nil
+	}
 }

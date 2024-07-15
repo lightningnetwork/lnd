@@ -39,7 +39,7 @@ are released by the team. See
 [release.md for more information about reproducible builds](release.md).
 
 Finally, there is the option to build `lnd` fully manually. This requires more
-tooling to be set up first but allows to produce non-production (debug,
+tooling to be set up first but allows producing non-production (debug,
 development) builds.
 
 ## Installing a binary release
@@ -136,7 +136,7 @@ the following commands for your OS:
 <details>
   <summary>macOS</summary>
   
-  First, install [Homebrew](https://brew.sh) if you don‘t already have it.
+  First, install [Homebrew](https://brew.sh) if you don't already have it.
 
   Then
 
@@ -205,7 +205,7 @@ make install
 
 The command above will install the current _master_ branch of `lnd`. If you
 wish to install a tagged release of `lnd` (as the master branch can at times be
-unstable), then [visit then release page to locate the latest
+unstable), then [visit the release page to locate the latest
 release](https://github.com/lightningnetwork/lnd/releases). Assuming the name
 of the release is `v0.x.x`, then you can compile this release from source with
 a small modification to the above command: 
@@ -294,7 +294,7 @@ To check that `lnd` was installed properly run the following command:
 ```
 
 This command requires `bitcoind` (almost any version should do) to be available
-in the system's `$PATH` variable. Otherwise some of the tests will fail.
+in the system's `$PATH` variable. Otherwise, some tests will fail.
 
 **Command-line completion for `lncli`**
 
@@ -308,7 +308,7 @@ time of writing of this document, there are three available chain backends:
 `btcd`, `neutrino`, `bitcoind`. All including neutrino can run on mainnet with
 an out of the box `lnd` instance. We don't require `--txindex` when running
 with `bitcoind` or `btcd` but activating the `txindex` will generally make
-`lnd` run faster. Note that since version 0.13 pruned nodes are supported
+`lnd` run faster. Note that since version 0.13 pruned nodes are supported, 
 although they cause performance penalty and higher network usage.
 
 The set of arguments for each of the backend modes is as follows:
@@ -461,7 +461,7 @@ the following:
 - Make sure the config setting `-rpcserialversion` in `bitcoind` is either set
   to 1 or NOT used because bitcoind's default behaviour is already correct
   (see [bitcoin/issues/28730](https://github.com/bitcoin/bitcoin/issues/28730) 
-  for more infos). Lightning depends on segwit transactions therefore we need 
+  for more info). Lightning depends on segwit transactions therefore we need 
   the witness data when querying the bitcoind backend for transaction details.
   
 - Start `bitcoind` running against testnet, and let it complete a full sync with
@@ -541,7 +541,7 @@ document](wallet.md).
 `lnd`'s authentication system is called **macaroons**, which are decentralized
 bearer credentials allowing for delegation, attenuation, and other cool
 features. You can learn more about them in Alex Akselrod's [writeup on
-Github](https://github.com/lightningnetwork/lnd/issues/20).
+GitHub](https://github.com/lightningnetwork/lnd/issues/20).
 
 Running `lncli create` to create a wallet, will by default generate 
 the `admin.macaroon`, `read_only.macaroon`, and `macaroons.db` 
@@ -596,7 +596,7 @@ Optionally, if you'd like to have a persistent configuration between `lnd`
 launches, allowing you to simply type `lnd --bitcoin.testnet --bitcoin.active`
 at the command line, you can create an `lnd.conf`.
 
-**On MacOS, located at:**
+**On macOS, located at:**
 `/Users/<username>/Library/Application Support/Lnd/lnd.conf`
 
 **On Linux, located at:**

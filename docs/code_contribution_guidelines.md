@@ -56,7 +56,7 @@ not hard requirements as we will gladly accept code contributions as long as
 they follow the guidelines set forth on this page.  That said, if you don't have
 the following basic qualifications you will likely find it quite difficult to
 contribute to the core layers of Lightning. However, there are still a number
-of low hanging fruit which can be tackled without having full competency in the
+of low-hanging fruit which can be tackled without having full competency in the
 areas mentioned below. 
 
 - A reasonable understanding of bitcoin at a high level (see the
@@ -82,7 +82,7 @@ security and performance implications.
   it must follow the guidelines therein.
 - [Original Satoshi Whitepaper](https://bitcoin.org/bitcoin.pdf) - This is the white paper that started it all.  Having a solid
   foundation to build on will make the code much more comprehensible.
-- [Lightning Network Whitepaper](https://lightning.network/lightning-network-paper.pdf) - This is the white paper that kicked off the Layer 2 revolution. Having a good grasp of the concepts of Lightning will make the core logic within the daemon much more comprehensible: Bitcoin Script, off-chain blockchain protocols, payment channels, bi-directional payment channels, relative and absolute time-locks, commitment state revocations, and Segregated Witness. 
+- [Lightning Network Whitepaper](https://lightning.network/lightning-network-paper.pdf) - This is the white paper that kicked off the Layer 2 revolution. Having a good grasp of the concepts of Lightning will make the core logic within the daemon much more comprehensible: Bitcoin Script, off-chain blockchain protocols, payment channels, bidirectional payment channels, relative and absolute time-locks, commitment state revocations, and Segregated Witness. 
     - The original LN was written for a rather narrow audience, the paper may be a bit unapproachable to many. Thanks to the Bitcoin community, there exist many easily accessible supplemental resources which can help one see how all the pieces fit together from double-spend protection all the way up to commitment state transitions and Hash Time Locked Contracts (HTLCs): 
         - [Lightning Network Summary](https://lightning.network/lightning-network-summary.pdf)
         - [Understanding the Lightning Network 3-Part series](https://bitcoinmagazine.com/articles/understanding-the-lightning-network-part-building-a-bidirectional-payment-channel-1464710791) 
@@ -101,7 +101,7 @@ be recommended for newcomers to read first in order to get up to speed.
 # Development Practices
 
 Developers are expected to work in their own trees and submit pull requests when
-they feel their feature or bug fix is ready for integration into the  master
+they feel their feature or bug fix is ready for integration into the master
 branch.
 
 ## Share Early, Share Often
@@ -478,7 +478,7 @@ also likely be asked to split the commit into several smaller, and hence more
 manageable, commits.
 
 Keeping the above in mind, most small changes will be reviewed within a few
-days, while large or far reaching changes may take weeks.  This is a good reason
+days, while large or far-reaching changes may take weeks.  This is a good reason
 to stick with the [Share Early, Share Often](#share-early-share-often)
 development practice outlined above.
 
@@ -506,7 +506,7 @@ make the necessary changes.
 
 During the process of responding to review comments, we prefer that changes be
 made with [fixup commits](https://robots.thoughtbot.com/autosquashing-git-commits). 
-The reason for this is two fold: it makes it easier for the reviewer to see
+The reason for this is twofold: it makes it easier for the reviewer to see
 what changes have been made between versions (since Github doesn't easily show
 prior versions like Critique) and it makes it easier on the PR author as they
 can set it to auto squash the fix up commits on rebase.
@@ -552,7 +552,7 @@ also ping them to remind them to re-request review if needed. (default x = 3)
 To control the bot, you need to add a comment on the PR starting with 
 `!lightninglabs-deploy` followed by the command. There are 2 control types: 
 mute/unmute & cadence. Only the latest comment for each control type will be 
-used. This also means you dont need to keep adding new control comments, just 
+used. This also means you don't need to keep adding new control comments, just 
 edit the latest comment for that control type.
 
 - `!lightninglabs-deploy mute` will mute the bot on the PR completely.

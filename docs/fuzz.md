@@ -9,7 +9,7 @@ It is recommended that processes be set to the number of processor cores in the 
 ```shell
 $  make fuzz pkg=lnwire fuzztime=1m parallel=4
 ```
-Alternatively, individual fuzz tests can be ran manually by setting the working directory to the location of the .go file holding the fuzz tests.
+Alternatively, individual fuzz tests can be run manually by setting the working directory to the location of the .go file holding the fuzz tests.
 The go test command can only test one fuzz test at a time:
 ```shell
 $  cd lnwire
@@ -21,7 +21,7 @@ $  cd lnwire
 $  go test -list=Fuzz.*
 ```
 
-Fuzz tests can be ran as normal tests, which only runs the seed corpus:
+Fuzz tests can be run as normal tests, which only runs the seed corpus:
 ```shell
 $  cd lnwire
 $  go test -run=FuzzAcceptChannel -parallel=4

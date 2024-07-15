@@ -91,9 +91,9 @@ signer>  $  lncli wallet accounts list > accounts-signer.json
 
 That `accounts-signer.json` file has to be copied to the machine on which
 "watch-only" will be running. It contains the extended public keys for all of
-`lnd`'s accounts (see [required accounts](#required-accounts) ).
+`lnd`'s accounts (see [required accounts](#required-accounts)).
 
-A custom macaroon can be baked for the watch-only node so it only gets the
+A custom macaroon can be baked for the watch-only node, so it only gets the
 minimum required permissions on the signer instance:
 
 ```shell

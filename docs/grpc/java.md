@@ -63,7 +63,7 @@ The following dependencies are required.
     </dependency>
 </dependencies>
 ```
-In the build section,  we'll need to configure the following things :
+In the build section, we'll need to configure the following things:
 ```xml
 <build>
     <extensions>

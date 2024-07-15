@@ -175,7 +175,7 @@ With the addition of the `lncli wtclient` command, users are now able to
 interact with the watchtower client directly to obtain/modify information about
 the set of registered watchtowers.
 
-As as example, with the `lncli wtclient tower` command, you can obtain the
+As an example, with the `lncli wtclient tower` command, you can obtain the
 number of sessions currently negotiated with the watchtower added above and
 determine whether it is currently being used for backups through the
 `active_session_candidate` value.

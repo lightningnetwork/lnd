@@ -32,7 +32,7 @@ require (
 	github.com/kkdai/bstream v1.0.0
 	github.com/lightninglabs/neutrino v0.16.1-0.20240425105051-602843d34ffd
 	github.com/lightninglabs/neutrino/cache v1.1.2
-	github.com/lightningnetwork/lightning-onion v1.2.1-0.20230823005744-06182b1d7d2f
+	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn v1.0.9

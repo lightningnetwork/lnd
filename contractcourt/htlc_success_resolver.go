@@ -151,27 +151,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 
 	// To wrap this up, we'll wait until the second-level transaction has
 	// been spent, then fully resolve the contract.
-	log.Infof("%T(%x): waiting for second-level HTLC output to be spent "+
-		"after csv_delay=%v", h, h.htlc.RHash[:], h.htlcResolution.CsvDelay)
-
-	spend, err := waitForSpend(
-		secondLevelOutpoint,
-		h.htlcResolution.SweepSignDesc.Output.PkScript,
-		h.broadcastHeight, h.Notifier, h.quit,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	h.reportLock.Lock()
-	h.currentReport.RecoveredBalance = h.currentReport.LimboBalance
-	h.currentReport.LimboBalance = 0
-	h.reportLock.Unlock()
-
-	h.resolved = true
-	return nil, h.checkpointClaim(
-		spend.SpenderTxHash, channeldb.ResolverOutcomeClaimed,
-	)
+	return nil, h.resolveSuccessTxOutput(*secondLevelOutpoint)
 }
 
 // broadcastSuccessTx handles an HTLC output on our local commitment by
@@ -224,33 +204,25 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (*wire.OutPoint,
 			return nil, err
 		}
 
-		log.Infof("%T(%x): waiting for second-level HTLC success "+
-			"transaction to confirm", h, h.htlc.RHash[:])
-
-		// Wait for the second level transaction to confirm.
-		commitSpend, err = waitForSpend(
-			&h.htlcResolution.SignedSuccessTx.TxIn[0].PreviousOutPoint,
-			h.htlcResolution.SignDetails.SignDesc.Output.PkScript,
-			h.broadcastHeight, h.Notifier, h.quit,
-		)
+		err = h.resolveSuccessTx()
 		if err != nil {
 			return nil, err
 		}
-
-		// Now that the second-level transaction has confirmed, we
-		// checkpoint the state so we'll go to the next stage in case
-		// of restarts.
-		h.outputIncubating = true
-		if err := h.Checkpoint(h); err != nil {
-			log.Errorf("unable to Checkpoint: %v", err)
-			return nil, err
-		}
-
-		log.Infof("%T(%x): second-level HTLC success transaction "+
-			"confirmed!", h, h.htlc.RHash[:])
 	}
 
-	err := h.sweepSuccessTxOutput()
+	// This should be non-blocking as we will only attempt to sweep the
+	// output when the second level tx has already been confirmed. In other
+	// words, waitForSpend will return immediately.
+	commitSpend, err := waitForSpend(
+		&h.htlcResolution.SignedSuccessTx.TxIn[0].PreviousOutPoint,
+		h.htlcResolution.SignDetails.SignDesc.Output.PkScript,
+		h.broadcastHeight, h.Notifier, h.quit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	err = h.sweepSuccessTxOutput()
 	if err != nil {
 		return nil, err
 	}
@@ -286,23 +258,14 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
 		return nil, err
 	}
 
-	// Once the transaction has received a sufficient number of
-	// confirmations, we'll mark ourselves as fully resolved and exit.
-	h.resolved = true
-
 	// Checkpoint the resolver, and write the outcome to disk.
-	return nil, h.checkpointClaim(
-		sweepTxDetails.SpenderTxHash,
-		channeldb.ResolverOutcomeClaimed,
-	)
+	return nil, h.checkpointClaim(sweepTxDetails.SpenderTxHash)
 }
 
 // checkpointClaim checkpoints the success resolver with the reports it needs.
 // If this htlc was claimed two stages, it will write reports for both stages,
 // otherwise it will just write for the single htlc claim.
-func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash,
-	outcome channeldb.ResolverOutcome) error {
-
+func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash) error {
 	// Mark the htlc as final settled.
 	err := h.ChainArbitratorConfig.PutFinalHtlcOutcome(
 		h.ChannelArbitratorConfig.ShortChanID, h.htlc.HtlcIndex, true,
@@ -330,7 +293,7 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash,
 			OutPoint:        h.htlcResolution.ClaimOutpoint,
 			Amount:          amt,
 			ResolverType:    channeldb.ResolverTypeIncomingHtlc,
-			ResolverOutcome: outcome,
+			ResolverOutcome: channeldb.ResolverOutcomeClaimed,
 			SpendTxID:       spendTx,
 		},
 	}
@@ -355,6 +318,7 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash,
 	}
 
 	// Finally, we checkpoint the resolver with our report(s).
+	h.resolved = true
 	return h.Checkpoint(h, reports...)
 }
 
@@ -768,4 +732,82 @@ func (h *htlcSuccessResolver) resolveLegacySuccessTx() error {
 
 	h.outputIncubating = true
 	return h.Checkpoint(h)
+}
+
+// resolveSuccessTx waits for the sweeping tx of the second-level success tx to
+// confirm and offers the output from the success tx to the sweeper.
+func (h *htlcSuccessResolver) resolveSuccessTx() error {
+	h.log.Infof("waiting for 2nd-level HTLC success transaction to confirm")
+
+	// Create aliases to make the code more readable.
+	outpoint := h.htlcResolution.SignedSuccessTx.TxIn[0].PreviousOutPoint
+	pkScript := h.htlcResolution.SignDetails.SignDesc.Output.PkScript
+
+	// Wait for the second level transaction to confirm.
+	commitSpend, err := waitForSpend(
+		&outpoint, pkScript, h.broadcastHeight, h.Notifier, h.quit,
+	)
+	if err != nil {
+		return err
+	}
+
+	// We'll use this input index to determine the second-level output
+	// index on the transaction, as the signatures requires the indexes to
+	// be the same. We don't look for the second-level output script
+	// directly, as there might be more than one HTLC output to the same
+	// pkScript.
+	op := wire.OutPoint{
+		Hash:  *commitSpend.SpenderTxHash,
+		Index: commitSpend.SpenderInputIndex,
+	}
+
+	// If the 2nd-stage sweeping has already been started, we can
+	// fast-forward to start the resolving process for the stage two
+	// output.
+	if h.outputIncubating {
+		return h.resolveSuccessTxOutput(op)
+	}
+
+	// Now that the second-level transaction has confirmed, we checkpoint
+	// the state so we'll go to the next stage in case of restarts.
+	h.outputIncubating = true
+	if err := h.Checkpoint(h); err != nil {
+		log.Errorf("unable to Checkpoint: %v", err)
+		return err
+	}
+
+	h.log.Infof("2nd-level HTLC success tx=%v confirmed",
+		commitSpend.SpenderTxHash)
+
+	// Send the sweep request for the output from the success tx.
+	if err := h.sweepSuccessTxOutput(); err != nil {
+		return err
+	}
+
+	return h.resolveSuccessTxOutput(op)
+}
+
+// resolveSuccessTxOutput waits for the spend of the output from the 2nd-level
+// success tx.
+func (h *htlcSuccessResolver) resolveSuccessTxOutput(op wire.OutPoint) error {
+	// To wrap this up, we'll wait until the second-level transaction has
+	// been spent, then fully resolve the contract.
+	log.Infof("%T(%x): waiting for second-level HTLC output to be spent "+
+		"after csv_delay=%v", h, h.htlc.RHash[:],
+		h.htlcResolution.CsvDelay)
+
+	spend, err := waitForSpend(
+		&op, h.htlcResolution.SweepSignDesc.Output.PkScript,
+		h.broadcastHeight, h.Notifier, h.quit,
+	)
+	if err != nil {
+		return err
+	}
+
+	h.reportLock.Lock()
+	h.currentReport.RecoveredBalance = h.currentReport.LimboBalance
+	h.currentReport.LimboBalance = 0
+	h.reportLock.Unlock()
+
+	return h.checkpointClaim(spend.SpenderTxHash)
 }

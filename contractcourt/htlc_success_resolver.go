@@ -298,7 +298,7 @@ func (h *htlcSuccessResolver) Encode(w io.Writer) error {
 	if err := binary.Write(w, endian, h.outputIncubating); err != nil {
 		return err
 	}
-	if err := binary.Write(w, endian, h.resolved); err != nil {
+	if err := binary.Write(w, endian, h.IsResolved()); err != nil {
 		return err
 	}
 	if err := binary.Write(w, endian, h.broadcastHeight); err != nil {
@@ -337,9 +337,13 @@ func newSuccessResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 	if err := binary.Read(r, endian, &h.outputIncubating); err != nil {
 		return nil, err
 	}
-	if err := binary.Read(r, endian, &h.resolved); err != nil {
+
+	var resolved bool
+	if err := binary.Read(r, endian, &resolved); err != nil {
 		return nil, err
 	}
+	h.resolved.Store(resolved)
+
 	if err := binary.Read(r, endian, &h.broadcastHeight); err != nil {
 		return nil, err
 	}
@@ -622,7 +626,7 @@ func (h *htlcSuccessResolver) resolveLegacySuccessTx() error {
 
 	// Exit early if the output has already been sent to the UtxoNursery.
 	if h.outputIncubating {
-		return nil
+		return h.resolveSuccessTxOutput(h.htlcResolution.ClaimOutpoint)
 	}
 
 	// Otherwise, this is an output on our commitment transaction. In this
@@ -641,7 +645,12 @@ func (h *htlcSuccessResolver) resolveLegacySuccessTx() error {
 	}
 
 	h.outputIncubating = true
-	return h.Checkpoint(h)
+	if err := h.Checkpoint(h); err != nil {
+		log.Errorf("unable to Checkpoint: %v", err)
+		return err
+	}
+
+	return h.resolveSuccessTxOutput(h.htlcResolution.ClaimOutpoint)
 }
 
 // resolveSuccessTx waits for the sweeping tx of the second-level success tx to

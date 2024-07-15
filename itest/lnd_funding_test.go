@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainreg"
-	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
@@ -1341,22 +1340,22 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// that by dave force-closing the channel. Which let's carol sweep its
 	// to_remote output which is not encumbered by any relative locktime.
 	ht.CloseChannelAssertPending(dave, chanPoint2, true)
+
 	// Mine the force close commitment transaction.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Make sure Carol sees her to_remote output from the force close tx.
+	ht.AssertNumPendingSweeps(carol, 1)
 
 	// Mine one block to trigger the sweep transaction.
 	ht.MineEmptyBlocks(1)
 
 	// We need to wait for carol initiating the sweep of the to_remote
 	// output of chanPoint2.
-	utxos := ht.AssertNumUTXOsUnconfirmed(carol, 1)
+	utxo := ht.AssertNumUTXOsUnconfirmed(carol, 1)[0]
 
-	// We filter for the unconfirmed utxo and try to open a channel with
-	// that utxo.
-	utxoOpt := fn.Find(func(u *lnrpc.Utxo) bool {
-		return u.Confirmations == 0
-	}, utxos)
-	fundingUtxo := utxoOpt.UnwrapOrFail(ht.T)
+	// We now try to open channel using the unconfirmed utxo.
+	fundingUtxo := utxo
 
 	// Now try to open the channel with this utxo and expect an error.
 	expectedErr := fmt.Errorf("outpoint already spent or "+
@@ -1404,6 +1403,9 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// by force-closing a channel from dave's side.
 	ht.CloseChannelAssertPending(dave, chanPoint3, true)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Make sure Carol sees her to_remote output from the force close tx.
+	ht.AssertNumPendingSweeps(carol, 1)
 
 	// Mine one block to trigger the sweep transaction.
 	ht.MineEmptyBlocks(1)

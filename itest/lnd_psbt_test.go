@@ -1683,6 +1683,9 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	ht.CloseChannelAssertPending(dave, channelPoint, true)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
+	// Make sure Carol sees her to_remote output from the force close tx.
+	ht.AssertNumPendingSweeps(carol, 1)
+
 	// Mine one block to trigger the sweep transaction.
 	ht.MineEmptyBlocks(1)
 
@@ -1804,6 +1807,9 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// swept by the sweeper. We have STATIC_REMOTE_KEY Channel Types.
 	ht.CloseChannelAssertPending(dave, channelPoint2, true)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Make sure Carol sees her to_remote output from the force close tx.
+	ht.AssertNumPendingSweeps(carol, 1)
 
 	// Mine one block to trigger the sweep transaction.
 	ht.MineEmptyBlocks(1)
@@ -1929,12 +1935,6 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	updateResp = ht.ReceiveOpenChannelUpdate(chanUpdates)
 	upd, ok = updateResp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
 	require.True(ht, ok)
-	channelPoint3 := &lnrpc.ChannelPoint{
-		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-			FundingTxidBytes: upd.ChanPending.Txid,
-		},
-		OutputIndex: upd.ChanPending.OutputIndex,
-	}
 
 	err = finalTx.Deserialize(bytes.NewReader(finalizeRes.RawFinalTx))
 	require.NoError(ht, err)
@@ -1942,6 +1942,4 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	txHash = finalTx.TxHash()
 	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	ht.AssertTxInBlock(block, &txHash)
-
-	ht.CloseChannel(carol, channelPoint3)
 }

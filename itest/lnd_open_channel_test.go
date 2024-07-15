@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -767,6 +768,18 @@ func testFundingExpiryBlocksOnPending(ht *lntest.HarnessTest) {
 	// channel.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 	chanPoint := lntest.ChanPointFromPendingUpdate(update)
+
+	// TODO(yy): remove the sleep once the following bug is fixed.
+	//
+	// We may get the error `unable to gracefully close channel
+	// while peer is offline (try force closing it instead):
+	// channel link not found`. This happens because the channel
+	// link hasn't been added yet but we now proceed to closing the
+	// channel. We may need to revisit how the channel open event
+	// is created and make sure the event is only sent after all
+	// relevant states have been updated.
+	time.Sleep(2 * time.Second)
+
 	ht.CloseChannel(alice, chanPoint)
 }
 

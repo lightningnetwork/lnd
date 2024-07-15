@@ -785,8 +785,13 @@ func (h *HarnessTest) AssertNumUTXOsWithConf(hn *node.HarnessNode,
 			return nil
 		}
 
+		desc := "has UTXOs:\n"
+		for _, utxo := range resp.Utxos {
+			desc += fmt.Sprintf("%v\n", utxo)
+		}
+
 		return errNumNotMatched(hn.Name(), "num of UTXOs",
-			expectedUtxos, total-old, total, old)
+			expectedUtxos, total-old, total, old, desc)
 	}, DefaultTimeout)
 	require.NoError(h, err, "timeout waiting for UTXOs")
 

@@ -135,12 +135,13 @@ func (c *CfFilteredChainView) Start() error {
 //
 // NOTE: This is part of the FilteredChainView interface.
 func (c *CfFilteredChainView) Stop() error {
+	log.Debug("CfFilteredChainView stopping")
+	defer log.Debug("CfFilteredChainView stopped")
+
 	// Already shutting down?
 	if atomic.AddInt32(&c.stopped, 1) != 1 {
 		return nil
 	}
-
-	log.Infof("FilteredChainView stopping")
 
 	close(c.quit)
 	c.blockQueue.Stop()

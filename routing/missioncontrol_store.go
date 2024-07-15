@@ -303,7 +303,11 @@ func (b *missionControlStore) run() {
 		// channel needs to be drained appropriately. This could happen
 		// if the flushInterval is very small (e.g. 1 nanosecond).
 		if !timer.Stop() {
-			<-timer.C
+			select {
+			case <-timer.C:
+			case <-b.done:
+				log.Debugf("Stopping mission control store")
+			}
 		}
 
 		for {
@@ -335,7 +339,12 @@ func (b *missionControlStore) run() {
 			case <-b.done:
 				// Release the timer's resources.
 				if !timer.Stop() {
-					<-timer.C
+					select {
+					case <-timer.C:
+					case <-b.done:
+						log.Debugf("Mission control " +
+							"store stopped")
+					}
 				}
 				return
 			}

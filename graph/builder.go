@@ -116,8 +116,8 @@ type Builder struct {
 	started atomic.Bool
 	stopped atomic.Bool
 
-	ntfnClientCounter uint64 // To be used atomically.
-	bestHeight        uint32 // To be used atomically.
+	ntfnClientCounter atomic.Uint64
+	bestHeight        atomic.Uint32
 
 	cfg *Config
 
@@ -278,7 +278,7 @@ func (b *Builder) Start() error {
 		if err != nil {
 			return err
 		}
-		b.bestHeight = uint32(bestHeight)
+		b.bestHeight.Store(uint32(bestHeight))
 
 		// Before we begin normal operation of the router, we first need
 		// to synchronize the channel graph to the latest state of the
@@ -340,7 +340,7 @@ func (b *Builder) syncGraphWithChain() error {
 	if err != nil {
 		return err
 	}
-	b.bestHeight = uint32(bestHeight)
+	b.bestHeight.Store(uint32(bestHeight))
 
 	pruneHash, pruneHeight, err := b.cfg.Graph.PruneTip()
 	if err != nil {
@@ -806,7 +806,7 @@ func (b *Builder) networkHandler() {
 			// Since this block is stale, we update our best height
 			// to the previous block.
 			blockHeight := chainUpdate.Height
-			atomic.StoreUint32(&b.bestHeight, blockHeight-1)
+			b.bestHeight.Store(blockHeight - 1)
 
 			// Update the channel graph to reflect that this block
 			// was disconnected.
@@ -834,7 +834,7 @@ func (b *Builder) networkHandler() {
 			// directly to the end of our main chain. If not, then
 			// we've somehow missed some blocks. Here we'll catch
 			// up the chain with the latest blocks.
-			currentHeight := atomic.LoadUint32(&b.bestHeight)
+			currentHeight := b.bestHeight.Load()
 			switch {
 			case chainUpdate.Height == currentHeight+1:
 				err := b.updateGraphWithClosedChannels(
@@ -991,7 +991,7 @@ func (b *Builder) updateGraphWithClosedChannels(
 	// of the chain tip.
 	blockHeight := chainUpdate.Height
 
-	atomic.StoreUint32(&b.bestHeight, blockHeight)
+	b.bestHeight.Store(blockHeight)
 	log.Infof("Pruning channel graph using block %v (height=%v)",
 		chainUpdate.Hash, blockHeight)
 
@@ -1342,7 +1342,7 @@ func (b *Builder) processUpdate(msg interface{},
 			},
 		}
 		err = b.cfg.ChainView.UpdateFilter(
-			filterUpdate, atomic.LoadUint32(&b.bestHeight),
+			filterUpdate, b.bestHeight.Load(),
 		)
 		if err != nil {
 			return errors.Errorf("unable to update chain "+
@@ -1658,7 +1658,7 @@ func (b *Builder) CurrentBlockHeight() (uint32, error) {
 // is synced to. This can differ from the above chain height if the goroutine
 // responsible for processing the blocks isn't yet up to speed.
 func (b *Builder) SyncedHeight() uint32 {
-	return atomic.LoadUint32(&b.bestHeight)
+	return b.bestHeight.Load()
 }
 
 // GetChannelByID return the channel by the channel id.

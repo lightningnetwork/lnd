@@ -11,7 +11,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1392,12 +1391,10 @@ func TestBlockDifferenceFix(t *testing.T) {
 
 	err := wait.NoError(func() error {
 		// Then router height should be updated to the latest block.
-		if atomic.LoadUint32(&ctx.builder.bestHeight) !=
-			newBlockHeight {
-
+		if ctx.builder.bestHeight.Load() != newBlockHeight {
 			return fmt.Errorf("height should have been updated "+
 				"to %v, instead got %v", newBlockHeight,
-				ctx.builder.bestHeight)
+				ctx.builder.bestHeight.Load())
 		}
 
 		return nil

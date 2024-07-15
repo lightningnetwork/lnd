@@ -5,7 +5,6 @@ import (
 	"image/color"
 	"net"
 	"sync"
-	"sync/atomic"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -65,7 +64,7 @@ func (b *Builder) SubscribeTopology() (*TopologyClient, error) {
 
 	// We'll first atomically obtain the next ID for this client from the
 	// incrementing client ID counter.
-	clientID := atomic.AddUint64(&b.ntfnClientCounter, 1)
+	clientID := b.ntfnClientCounter.Add(1)
 
 	log.Debugf("New graph topology client subscription, client %v",
 		clientID)

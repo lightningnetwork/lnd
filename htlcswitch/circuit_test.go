@@ -8,7 +8,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
-	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -87,7 +86,7 @@ func initTestExtracter() {
 func newOnionProcessor(t *testing.T) *hop.OnionProcessor {
 	sphinxRouter := sphinx.NewRouter(
 		&keychain.PrivKeyECDH{PrivKey: sphinxPrivKey},
-		&bitcoinCfg.SimNetParams, sphinx.NewMemoryReplayLog(),
+		sphinx.NewMemoryReplayLog(),
 	)
 
 	if err := sphinxRouter.Start(); err != nil {

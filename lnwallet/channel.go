@@ -2951,19 +2951,10 @@ func (lc *LightningChannel) fetchParent(entry *paymentDescriptor,
 
 	// The parent add height should never be zero at this point. If
 	// that's the case we probably forgot to send a new commitment.
-	case whoseCommitChain.IsRemote() &&
-		addEntry.addCommitHeights.Remote == 0:
-
+	case addEntry.addCommitHeights.GetForParty(whoseCommitChain) == 0:
 		return nil, fmt.Errorf("parent entry %d for update %d "+
-			"had zero remote add height", entry.ParentIndex,
-			entry.LogIndex)
-
-	case whoseCommitChain.IsLocal() &&
-		addEntry.addCommitHeights.Local == 0:
-
-		return nil, fmt.Errorf("parent entry %d for update %d "+
-			"had zero local add height", entry.ParentIndex,
-			entry.LogIndex)
+			"had zero %v add height", entry.ParentIndex,
+			entry.LogIndex, whoseCommitChain)
 	}
 
 	return addEntry, nil
@@ -4613,7 +4604,9 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 					)
 				}
 
-				hashCache := input.NewTxSigHashesV0Only(successTx)
+				hashCache :=
+					input.NewTxSigHashesV0Only(successTx)
+
 				sigHash, err := txscript.CalcWitnessSigHash(
 					htlc.ourWitnessScript, hashCache,
 					sigHashType, successTx, 0,

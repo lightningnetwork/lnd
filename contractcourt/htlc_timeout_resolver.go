@@ -455,7 +455,11 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 
 	// Depending on whether this was a local or remote commit, we must
 	// handle the spending transaction accordingly.
-	return h.handleCommitSpend(commitSpend)
+	if h.isRemoteCommitOutput() {
+		return nil, h.resolveRemoteCommitOutput()
+	}
+
+	return nil, h.resolveTimeoutTx()
 }
 
 // sweepTimeoutTx sends a second level timeout transaction to the sweeper.
@@ -663,85 +667,6 @@ func (h *htlcTimeoutResolver) waitForConfirmedSpend(op *wire.OutPoint,
 	}
 
 	return spend, err
-}
-
-// handleCommitSpend handles the spend of the HTLC output on the commitment
-// transaction. If this was our local commitment, the spend will be he
-// confirmed second-level timeout transaction, and we'll sweep that into our
-// wallet. If the was a remote commitment, the resolver will resolve
-// immetiately.
-func (h *htlcTimeoutResolver) handleCommitSpend(
-	commitSpend *chainntnfs.SpendDetail) (ContractResolver, error) {
-
-	var (
-		// claimOutpoint will be the outpoint of the second level
-		// transaction, or on the remote commitment directly. It will
-		// start out as set in the resolution, but we'll update it if
-		// the second-level goes through the sweeper and changes its
-		// txid.
-		claimOutpoint = h.htlcResolution.ClaimOutpoint
-
-		// spendTxID will be the ultimate spend of the claimOutpoint.
-		// We set it to the commit spend for now, as this is the
-		// ultimate spend in case this is a remote commitment. If we go
-		// through the second-level transaction, we'll update this
-		// accordingly.
-		spendTxID = commitSpend.SpenderTxHash
-
-		sweepTx *chainntnfs.SpendDetail
-		err     error
-	)
-
-	switch {
-
-	// If we swept an HTLC directly off the remote party's commitment
-	// transaction, then we can exit here as there's no second level sweep
-	// to do.
-	case h.htlcResolution.SignedTimeoutTx == nil:
-		break
-
-	// If the sweeper is handling the second level transaction, wait for
-	// the CSV and possible CLTV lock to expire, before sweeping the output
-	// on the second-level.
-	case h.isZeroFeeOutput():
-		err := h.sweepTimeoutTxOutput()
-		if err != nil {
-			return nil, err
-		}
-
-		fallthrough
-
-	// Finally, if this was an output on our commitment transaction, we'll
-	// wait for the second-level HTLC output to be spent, and for that
-	// transaction itself to confirm.
-	case !h.isRemoteCommitOutput():
-		log.Infof("%T(%v): waiting for nursery/sweeper to spend CSV "+
-			"delayed output", h, claimOutpoint)
-
-		sweepTx, err = waitForSpend(
-			&claimOutpoint,
-			h.htlcResolution.SweepSignDesc.Output.PkScript,
-			h.broadcastHeight, h.Notifier, h.quit,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		// Update the spend txid to the hash of the sweep transaction.
-		spendTxID = sweepTx.SpenderTxHash
-
-		// Once our sweep of the timeout tx has confirmed, we add a
-		// resolution for our timeoutTx tx first stage transaction.
-		err = h.checkpointStageOne(*spendTxID)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// With the clean up message sent, we'll now mark the contract
-	// resolved, update the recovered balance, record the timeout and the
-	// sweep txid on disk, and wait.
-	return nil, h.checkpointClaim(sweepTx)
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and
@@ -1315,4 +1240,109 @@ func (h *htlcTimeoutResolver) checkpointClaim(
 	h.resolved = true
 
 	return h.Checkpoint(h, report)
+}
+
+// resolveRemoteCommitOutput handles sweeping an HTLC output on the remote
+// commitment with via the timeout path. In this case we can sweep the output
+// directly, and don't have to broadcast a second-level transaction.
+func (h *htlcTimeoutResolver) resolveRemoteCommitOutput() error {
+	h.log.Debug("waiting for direct-timeout spend of the htlc to confirm")
+
+	// Wait for the direct-timeout HTLC sweep tx to confirm.
+	spend, err := h.watchHtlcSpend()
+	if err != nil {
+		return err
+	}
+
+	// If the spend reveals the preimage, then we'll enter the clean up
+	// workflow to pass the preimage back to the incoming link, add it to
+	// the witness cache, and exit.
+	if isPreimageSpend(h.isTaproot(), spend, !h.isRemoteCommitOutput()) {
+		return h.claimCleanUp(spend)
+	}
+
+	// TODO(yy): should also update the `RecoveredBalance` and
+	// `LimboBalance` like other paths?
+
+	// Checkpoint the resolver, and write the outcome to disk.
+	return h.checkpointClaim(spend)
+}
+
+// resolveTimeoutTx waits for the sweeping tx of the second-level
+// timeout tx to confirm and offers the output from the timeout tx to the
+// sweeper.
+func (h *htlcTimeoutResolver) resolveTimeoutTx() error {
+	h.log.Debug("waiting for first-stage 2nd-level HTLC timeout tx to " +
+		"confirm")
+
+	// Wait for the second level transaction to confirm.
+	spend, err := h.watchHtlcSpend()
+	if err != nil {
+		return err
+	}
+
+	// If the spend reveals the preimage, then we'll enter the clean up
+	// workflow to pass the preimage back to the incoming link, add it to
+	// the witness cache, and exit.
+	if isPreimageSpend(h.isTaproot(), spend, !h.isRemoteCommitOutput()) {
+		return h.claimCleanUp(spend)
+	}
+
+	op := h.htlcResolution.ClaimOutpoint
+	spenderTxid := *spend.SpenderTxHash
+
+	// If the timeout tx is a re-signed tx, we will need to find the actual
+	// spent outpoint from the spending tx.
+	if h.isZeroFeeOutput() {
+		op = wire.OutPoint{
+			Hash:  spenderTxid,
+			Index: spend.SpenderInputIndex,
+		}
+	}
+
+	// If the 2nd-stage sweeping has already been started, we can
+	// fast-forward to start the resolving process for the stage two
+	// output.
+	if h.outputIncubating {
+		return h.resolveTimeoutTxOutput(op)
+	}
+
+	h.log.Infof("2nd-level HTLC timeout tx=%v confirmed", spenderTxid)
+
+	// Start the process to sweep the output from the timeout tx.
+	err = h.sweepTimeoutTxOutput()
+	if err != nil {
+		return err
+	}
+
+	// Create a checkpoint since the timeout tx is confirmed and the sweep
+	// request has been made.
+	if err := h.checkpointStageOne(spenderTxid); err != nil {
+		return err
+	}
+
+	// Start the resolving process for the stage two output.
+	return h.resolveTimeoutTxOutput(op)
+}
+
+// resolveTimeoutTxOutput waits for the spend of the output from the 2nd-level
+// timeout tx.
+func (h *htlcTimeoutResolver) resolveTimeoutTxOutput(op wire.OutPoint) error {
+	h.log.Debugf("waiting for second-stage 2nd-level timeout tx output %v "+
+		"to be spent after csv_delay=%v", op, h.htlcResolution.CsvDelay)
+
+	spend, err := waitForSpend(
+		&op, h.htlcResolution.SweepSignDesc.Output.PkScript,
+		h.broadcastHeight, h.Notifier, h.quit,
+	)
+	if err != nil {
+		return err
+	}
+
+	h.reportLock.Lock()
+	h.currentReport.RecoveredBalance = h.currentReport.LimboBalance
+	h.currentReport.LimboBalance = 0
+	h.reportLock.Unlock()
+
+	return h.checkpointClaim(spend)
 }

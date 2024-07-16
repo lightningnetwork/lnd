@@ -1316,7 +1316,7 @@ func (h *HarnessTest) CloseChannel(hn *node.HarnessNode,
 
 	stream, _ := h.CloseChannelAssertPending(hn, cp, false)
 
-	return h.AssertStreamChannelCoopClosed(hn, cp, false, stream)
+	return h.AssertStreamChannelCoopClosed(hn, cp, stream)
 }
 
 // ForceCloseChannel attempts to force close a non-anchored channel identified

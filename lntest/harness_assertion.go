@@ -55,7 +55,8 @@ func (h *HarnessTest) WaitForBlockchainSync(hn *node.HarnessNode) {
 		return fmt.Errorf("%s is not synced to chain", hn.Name())
 	}, DefaultTimeout)
 
-	require.NoError(h, err, "timeout waiting for blockchain sync")
+	require.NoError(h, err, "%s: timeout waiting for blockchain sync",
+		hn.Name())
 }
 
 // WaitForBlockchainSyncTo waits until the node is synced to bestBlock.
@@ -633,8 +634,7 @@ func (h *HarnessTest) AssertNumPendingForceClose(hn *node.HarnessNode,
 // - assert the node has zero waiting close channels.
 // - assert the node has seen the channel close update.
 func (h *HarnessTest) AssertStreamChannelCoopClosed(hn *node.HarnessNode,
-	cp *lnrpc.ChannelPoint, anchors bool,
-	stream rpc.CloseChanClient) *chainhash.Hash {
+	cp *lnrpc.ChannelPoint, stream rpc.CloseChanClient) *chainhash.Hash {
 
 	// Assert the channel is waiting close.
 	resp := h.AssertChannelWaitingClose(hn, cp)
@@ -647,11 +647,7 @@ func (h *HarnessTest) AssertStreamChannelCoopClosed(hn *node.HarnessNode,
 	// We'll now, generate a single block, wait for the final close status
 	// update, then ensure that the closing transaction was included in the
 	// block. If there are anchors, we also expect an anchor sweep.
-	expectedTxes := 1
-	if anchors {
-		expectedTxes = 2
-	}
-	block := h.MineBlocksAndAssertNumTxes(1, expectedTxes)[0]
+	block := h.MineBlocksAndAssertNumTxes(1, 1)[0]
 
 	// Consume one close event and assert the closing txid can be found in
 	// the block.

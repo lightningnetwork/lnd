@@ -89,7 +89,7 @@ func (d *dbNode) Addrs() []net.Addr {
 //
 // NOTE: Part of the autopilot.Node interface.
 func (d *dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
-	return d.db.ForEachNodeChannel(d.tx, d.node.PubKeyBytes,
+	return d.db.ForEachNodeChannelTx(d.tx, d.node.PubKeyBytes,
 		func(tx kvdb.RTx, ei *models.ChannelEdgeInfo, ep,
 			_ *models.ChannelEdgePolicy) error {
 
@@ -105,7 +105,9 @@ func (d *dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 				return nil
 			}
 
-			node, err := d.db.FetchLightningNode(tx, ep.ToNode)
+			node, err := d.db.FetchLightningNodeTx(
+				tx, ep.ToNode,
+			)
 			if err != nil {
 				return err
 			}
@@ -164,7 +166,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 				return nil, err
 			}
 
-			dbNode, err := d.db.FetchLightningNode(nil, vertex)
+			dbNode, err := d.db.FetchLightningNode(vertex)
 			switch {
 			case err == channeldb.ErrGraphNodeNotFound:
 				fallthrough

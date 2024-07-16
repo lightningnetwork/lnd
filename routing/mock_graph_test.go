@@ -164,8 +164,8 @@ func (m *mockGraph) addChannel(id uint64, node1id, node2id byte,
 
 // forEachNodeChannel calls the callback for every channel of the given node.
 //
-// NOTE: Part of the routingGraph interface.
-func (m *mockGraph) forEachNodeChannel(nodePub route.Vertex,
+// NOTE: Part of the Graph interface.
+func (m *mockGraph) ForEachNodeChannel(nodePub route.Vertex,
 	cb func(channel *channeldb.DirectedChannel) error) error {
 
 	// Look up the mock node.
@@ -213,43 +213,18 @@ func (m *mockGraph) forEachNodeChannel(nodePub route.Vertex,
 
 // sourceNode returns the source node of the graph.
 //
-// NOTE: Part of the routingGraph interface.
+// NOTE: Part of the Graph interface.
 func (m *mockGraph) sourceNode() route.Vertex {
 	return m.source.pubkey
 }
 
 // fetchNodeFeatures returns the features of the given node.
 //
-// NOTE: Part of the routingGraph interface.
-func (m *mockGraph) fetchNodeFeatures(nodePub route.Vertex) (
+// NOTE: Part of the Graph interface.
+func (m *mockGraph) FetchNodeFeatures(nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
 	return lnwire.EmptyFeatureVector(), nil
-}
-
-// FetchAmountPairCapacity returns the maximal capacity between nodes in the
-// graph.
-//
-// NOTE: Part of the routingGraph interface.
-func (m *mockGraph) FetchAmountPairCapacity(nodeFrom, nodeTo route.Vertex,
-	amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
-
-	var capacity btcutil.Amount
-
-	cb := func(channel *channeldb.DirectedChannel) error {
-		if channel.OtherNode == nodeTo {
-			capacity = channel.Capacity
-		}
-
-		return nil
-	}
-
-	err := m.forEachNodeChannel(nodeFrom, cb)
-	if err != nil {
-		return 0, err
-	}
-
-	return capacity, nil
 }
 
 // htlcResult describes the resolution of an htlc. If failure is nil, the htlc
@@ -295,5 +270,5 @@ func (m *mockGraph) sendHtlc(route *route.Route) (htlcResult, error) {
 	return source.fwd(nil, next)
 }
 
-// Compile-time check for the routingGraph interface.
-var _ routingGraph = &mockGraph{}
+// Compile-time check for the Graph interface.
+var _ Graph = &mockGraph{}

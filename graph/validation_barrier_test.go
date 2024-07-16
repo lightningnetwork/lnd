@@ -1,12 +1,12 @@
-package routing_test
+package graph_test
 
 import (
 	"encoding/binary"
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing"
 )
 
 // TestValidationBarrierSemaphore checks basic properties of the validation
@@ -21,7 +21,7 @@ func TestValidationBarrierSemaphore(t *testing.T) {
 	)
 
 	quit := make(chan struct{})
-	barrier := routing.NewValidationBarrier(numTasks, quit)
+	barrier := graph.NewValidationBarrier(numTasks, quit)
 
 	// Saturate the semaphore with jobs.
 	for i := 0; i < numTasks; i++ {
@@ -69,7 +69,7 @@ func TestValidationBarrierQuit(t *testing.T) {
 	)
 
 	quit := make(chan struct{})
-	barrier := routing.NewValidationBarrier(2*numTasks, quit)
+	barrier := graph.NewValidationBarrier(2*numTasks, quit)
 
 	// Create a set of unique channel announcements that we will prep for
 	// validation.
@@ -141,8 +141,8 @@ func TestValidationBarrierQuit(t *testing.T) {
 
 		switch {
 		// First half should return without failure.
-		case i < numTasks/4 && !routing.IsError(
-			err, routing.ErrParentValidationFailed,
+		case i < numTasks/4 && !graph.IsError(
+			err, graph.ErrParentValidationFailed,
 		):
 			t.Fatalf("unexpected failure while waiting: %v", err)
 
@@ -150,11 +150,11 @@ func TestValidationBarrierQuit(t *testing.T) {
 			t.Fatalf("unexpected failure while waiting: %v", err)
 
 		// Last half should return the shutdown error.
-		case i >= numTasks/2 && !routing.IsError(
-			err, routing.ErrVBarrierShuttingDown,
+		case i >= numTasks/2 && !graph.IsError(
+			err, graph.ErrVBarrierShuttingDown,
 		):
 			t.Fatalf("expected failure after quitting: want %v, "+
-				"got %v", routing.ErrVBarrierShuttingDown, err)
+				"got %v", graph.ErrVBarrierShuttingDown, err)
 		}
 	}
 }

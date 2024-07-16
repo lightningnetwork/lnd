@@ -32,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/graphsession"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/clock"
@@ -40,6 +41,7 @@ import (
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
+	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -270,6 +272,8 @@ type server struct {
 
 	missionControl *routing.MissionControl
 
+	graphBuilder *graph.Builder
+
 	chanRouter *routing.ChannelRouter
 
 	controlTower routing.ControlTower
@@ -338,7 +342,7 @@ type server struct {
 // updatePersistentPeerAddrs subscribes to topology changes and stores
 // advertised addresses for any NodeAnnouncements from our persisted peers.
 func (s *server) updatePersistentPeerAddrs() error {
-	graphSub, err := s.chanRouter.SubscribeTopology()
+	graphSub, err := s.graphBuilder.SubscribeTopology()
 	if err != nil {
 		return err
 	}
@@ -956,7 +960,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, fmt.Errorf("error getting source node: %w", err)
 	}
 	paymentSessionSource := &routing.SessionSource{
-		Graph:             chanGraph,
+		GraphSessionFactory: graphsession.NewGraphSessionFactory(
+			chanGraph,
+		),
 		SourceNode:        sourceNode,
 		MissionControl:    s.missionControl,
 		GetLink:           s.htlcSwitch.GetLinkByShortID,
@@ -967,27 +973,39 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s.controlTower = routing.NewControlTower(paymentControl)
 
-	strictPruning := (cfg.Bitcoin.Node == "neutrino" ||
-		cfg.Routing.StrictZombiePruning)
-	s.chanRouter, err = routing.New(routing.Config{
+	strictPruning := cfg.Bitcoin.Node == "neutrino" ||
+		cfg.Routing.StrictZombiePruning
+
+	s.graphBuilder, err = graph.NewBuilder(&graph.Config{
+		SelfNode:            selfNode.PubKeyBytes,
 		Graph:               chanGraph,
 		Chain:               cc.ChainIO,
 		ChainView:           cc.ChainView,
 		Notifier:            cc.ChainNotifier,
-		Payer:               s.htlcSwitch,
-		Control:             s.controlTower,
-		MissionControl:      s.missionControl,
-		SessionSource:       paymentSessionSource,
-		ChannelPruneExpiry:  routing.DefaultChannelPruneExpiry,
+		ChannelPruneExpiry:  graph.DefaultChannelPruneExpiry,
 		GraphPruneInterval:  time.Hour,
-		FirstTimePruneDelay: routing.DefaultFirstTimePruneDelay,
-		GetLink:             s.htlcSwitch.GetLinkByShortID,
+		FirstTimePruneDelay: graph.DefaultFirstTimePruneDelay,
 		AssumeChannelValid:  cfg.Routing.AssumeChannelValid,
-		NextPaymentID:       sequencer.NextID,
-		PathFindingConfig:   pathFindingConfig,
-		Clock:               clock.NewDefaultClock(),
 		StrictZombiePruning: strictPruning,
 		IsAlias:             aliasmgr.IsAlias,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("can't create graph builder: %w", err)
+	}
+
+	s.chanRouter, err = routing.New(routing.Config{
+		SelfNode:           selfNode.PubKeyBytes,
+		RoutingGraph:       graphsession.NewRoutingGraph(chanGraph),
+		Chain:              cc.ChainIO,
+		Payer:              s.htlcSwitch,
+		Control:            s.controlTower,
+		MissionControl:     s.missionControl,
+		SessionSource:      paymentSessionSource,
+		GetLink:            s.htlcSwitch.GetLinkByShortID,
+		NextPaymentID:      sequencer.NextID,
+		PathFindingConfig:  pathFindingConfig,
+		Clock:              clock.NewDefaultClock(),
+		ApplyChannelUpdate: s.graphBuilder.ApplyChannelUpdate,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %w", err)
@@ -1004,7 +1022,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.authGossiper = discovery.New(discovery.Config{
-		Router:                s.chanRouter,
+		Graph:                 s.graphBuilder,
 		Notifier:              s.cc.ChainNotifier,
 		ChainHash:             *s.cfg.ActiveNetParams.GenesisHash,
 		Broadcast:             s.BroadcastMessage,
@@ -1039,11 +1057,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		FindBaseByAlias:         s.aliasMgr.FindBaseSCID,
 		GetAlias:                s.aliasMgr.GetPeerAlias,
 		FindChannel:             s.findChannel,
-		IsStillZombieChannel:    s.chanRouter.IsZombieChannel,
+		IsStillZombieChannel:    s.graphBuilder.IsZombieChannel,
 	}, nodeKeyDesc)
 
+	//nolint:lll
 	s.localChanMgr = &localchans.Manager{
-		ForAllOutgoingChannels:    s.chanRouter.ForAllOutgoingChannels,
+		ForAllOutgoingChannels:    s.graphBuilder.ForAllOutgoingChannels,
 		PropagateChanPolicyUpdate: s.authGossiper.PropagateChanPolicyUpdate,
 		UpdateForwardingPolicies:  s.htlcSwitch.UpdateForwardingPolicies,
 		FetchChannel:              s.chanStateDB.FetchChannel,
@@ -2012,6 +2031,12 @@ func (s *server) Start() error {
 			return
 		}
 		cleanup = cleanup.add(s.authGossiper.Stop)
+
+		if err := s.graphBuilder.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.graphBuilder.Stop)
 
 		if err := s.chanRouter.Start(); err != nil {
 			startErr = err
@@ -3113,7 +3138,7 @@ func (s *server) establishPersistentConnections() error {
 	// TODO(roasbeef): instead iterate over link nodes and query graph for
 	// each of the nodes.
 	selfPub := s.identityECDH.PubKey().SerializeCompressed()
-	err = s.graphDB.ForEachNodeChannel(nil, sourceNode.PubKeyBytes, func(
+	err = s.graphDB.ForEachNodeChannel(sourceNode.PubKeyBytes, func(
 		tx kvdb.RTx,
 		chanInfo *models.ChannelEdgeInfo,
 		policy, _ *models.ChannelEdgePolicy) error {
@@ -4628,7 +4653,7 @@ func (s *server) fetchNodeAdvertisedAddrs(pub *btcec.PublicKey) ([]net.Addr, err
 		return nil, err
 	}
 
-	node, err := s.graphDB.FetchLightningNode(nil, vertex)
+	node, err := s.graphDB.FetchLightningNode(vertex)
 	if err != nil {
 		return nil, err
 	}
@@ -4647,7 +4672,7 @@ func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
 
 	ourPubKey := s.identityECDH.PubKey().SerializeCompressed()
 	return func(cid lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
-		info, edge1, edge2, err := s.chanRouter.GetChannelByID(cid)
+		info, edge1, edge2, err := s.graphBuilder.GetChannelByID(cid)
 		if err != nil {
 			return nil, err
 		}

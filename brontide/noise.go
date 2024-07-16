@@ -379,7 +379,7 @@ type Machine struct {
 	// errors that cause partial writes.
 	nextHeaderSend []byte
 
-	// nextHeaderBody holds a reference to the remaining body bytes to write
+	// nextBodySend holds a reference to the remaining body bytes to write
 	// out for a pending message. This allows us to tolerate timeout errors
 	// that cause partial writes.
 	nextBodySend []byte

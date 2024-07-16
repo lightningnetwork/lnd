@@ -583,7 +583,7 @@ type ChannelCloseSummary struct {
 	// per-commitment-point.
 	RemoteNextRevocation *btcec.PublicKey
 
-	// LocalChanCfg is the channel configuration for the local node.
+	// LocalChanConfig is the channel configuration for the local node.
 	LocalChanConfig ChannelConfig
 
 	// LastChanSyncMsg is the ChannelReestablish message for this channel

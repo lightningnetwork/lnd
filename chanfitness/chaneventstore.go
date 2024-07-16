@@ -85,7 +85,7 @@ type Config struct {
 	// for ease of testing.
 	Clock clock.Clock
 
-	// WriteFlapCounts records the flap count for a set of peers on disk.
+	// WriteFlapCount records the flap count for a set of peers on disk.
 	WriteFlapCount func(map[route.Vertex]*channeldb.FlapCount) error
 
 	// ReadFlapCount gets the flap count for a peer on disk.

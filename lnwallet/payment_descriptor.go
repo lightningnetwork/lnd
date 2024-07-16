@@ -6,6 +6,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -165,16 +166,14 @@ type paymentDescriptor struct {
 	// which included this HTLC on either the remote or local commitment
 	// chain. This value is used to determine when an HTLC is fully
 	// "locked-in".
-	addCommitHeightRemote uint64
-	addCommitHeightLocal  uint64
+	addCommitHeights lntypes.Dual[uint64]
 
 	// removeCommitHeight[Remote|Local] encodes the height of the
 	// commitment which removed the parent pointer of this
 	// paymentDescriptor either due to a timeout or a settle. Once both
 	// these heights are below the tail of both chains, the log entries can
 	// safely be removed.
-	removeCommitHeightRemote uint64
-	removeCommitHeightLocal  uint64
+	removeCommitHeights lntypes.Dual[uint64]
 
 	// OnionBlob is an opaque blob which is used to complete multi-hop
 	// routing.

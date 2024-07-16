@@ -7,11 +7,13 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -451,26 +453,6 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		return nil, h.claimCleanUp(commitSpend)
 	}
 
-	// At this point, the second-level transaction is sufficiently
-	// confirmed, or a transaction directly spending the output is.
-	// Therefore, we can now send back our clean up message, failing the
-	// HTLC on the incoming link.
-	//
-	// NOTE: This can be called twice if the outgoing resolver restarts
-	// before the second-stage timeout transaction is confirmed.
-	log.Infof("%T(%v): resolving htlc with incoming fail msg, "+
-		"fully confirmed", h, h.htlcResolution.ClaimOutpoint)
-
-	failureMsg := &lnwire.FailPermanentChannelFailure{}
-	err = h.DeliverResolutionMsg(ResolutionMsg{
-		SourceChan: h.ShortChanID,
-		HtlcIndex:  h.htlc.HtlcIndex,
-		Failure:    failureMsg,
-	})
-	if err != nil {
-		return nil, err
-	}
-
 	// Depending on whether this was a local or remote commit, we must
 	// handle the spending transaction accordingly.
 	return h.handleCommitSpend(commitSpend)
@@ -680,28 +662,7 @@ func (h *htlcTimeoutResolver) waitForConfirmedSpend(op *wire.OutPoint,
 		return nil, err
 	}
 
-	// Once confirmed, persist the state on disk.
-	if err := h.checkPointSecondLevelTx(); err != nil {
-		return nil, err
-	}
-
 	return spend, err
-}
-
-// checkPointSecondLevelTx persists the state of a second level HTLC tx to disk
-// if it's published by the sweeper.
-func (h *htlcTimeoutResolver) checkPointSecondLevelTx() error {
-	// If this was the second level transaction published by the sweeper,
-	// we can checkpoint the resolver now that it's confirmed.
-	if h.htlcResolution.SignDetails != nil && !h.outputIncubating {
-		h.outputIncubating = true
-		if err := h.Checkpoint(h); err != nil {
-			log.Errorf("unable to Checkpoint: %v", err)
-			return err
-		}
-	}
-
-	return nil
 }
 
 // handleCommitSpend handles the spend of the HTLC output on the commitment
@@ -727,7 +688,8 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 		// accordingly.
 		spendTxID = commitSpend.SpenderTxHash
 
-		reports []*channeldb.ResolverReport
+		sweepTx *chainntnfs.SpendDetail
+		err     error
 	)
 
 	switch {
@@ -756,7 +718,7 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 		log.Infof("%T(%v): waiting for nursery/sweeper to spend CSV "+
 			"delayed output", h, claimOutpoint)
 
-		sweepTx, err := waitForSpend(
+		sweepTx, err = waitForSpend(
 			&claimOutpoint,
 			h.htlcResolution.SweepSignDesc.Output.PkScript,
 			h.broadcastHeight, h.Notifier, h.quit,
@@ -770,38 +732,16 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 
 		// Once our sweep of the timeout tx has confirmed, we add a
 		// resolution for our timeoutTx tx first stage transaction.
-		timeoutTx := commitSpend.SpendingTx
-		index := commitSpend.SpenderInputIndex
-		spendHash := commitSpend.SpenderTxHash
-
-		reports = append(reports, &channeldb.ResolverReport{
-			OutPoint:        timeoutTx.TxIn[index].PreviousOutPoint,
-			Amount:          h.htlc.Amt.ToSatoshis(),
-			ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
-			ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
-			SpendTxID:       spendHash,
-		})
+		err = h.checkpointStageOne(*spendTxID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// With the clean up message sent, we'll now mark the contract
 	// resolved, update the recovered balance, record the timeout and the
 	// sweep txid on disk, and wait.
-	h.resolved = true
-	h.reportLock.Lock()
-	h.currentReport.RecoveredBalance = h.currentReport.LimboBalance
-	h.currentReport.LimboBalance = 0
-	h.reportLock.Unlock()
-
-	amt := btcutil.Amount(h.htlcResolution.SweepSignDesc.Output.Value)
-	reports = append(reports, &channeldb.ResolverReport{
-		OutPoint:        claimOutpoint,
-		Amount:          amt,
-		ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
-		ResolverOutcome: channeldb.ResolverOutcomeTimeout,
-		SpendTxID:       spendTxID,
-	})
-
-	return nil, h.Checkpoint(h, reports...)
+	return nil, h.checkpointClaim(sweepTx)
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and
@@ -1050,12 +990,6 @@ func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
 	// Create a result chan to hold the results.
 	result := &spendResult{}
 
-	// hasMempoolSpend is a flag that indicates whether we have found a
-	// preimage spend from the mempool. This is used to determine whether
-	// to checkpoint the resolver or not when later we found the
-	// corresponding block spend.
-	hasMempoolSpent := false
-
 	// Wait for a spend event to arrive.
 	for {
 		select {
@@ -1083,23 +1017,6 @@ func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
 				// Once confirmed, persist the state on disk if
 				// we haven't seen the output's spending tx in
 				// mempool before.
-				//
-				// NOTE: we don't checkpoint the resolver if
-				// it's spending tx has already been found in
-				// mempool - the resolver will take care of the
-				// checkpoint in its `claimCleanUp`. If we do
-				// checkpoint here, however, we'd create a new
-				// record in db for the same htlc resolver
-				// which won't be cleaned up later, resulting
-				// the channel to stay in unresolved state.
-				//
-				// TODO(yy): when fee bumper is implemented, we
-				// need to further check whether this is a
-				// preimage spend. Also need to refactor here
-				// to save us some indentation.
-				if !hasMempoolSpent {
-					result.err = h.checkPointSecondLevelTx()
-				}
 			}
 
 			// Send the result and exit the loop.
@@ -1145,10 +1062,6 @@ func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
 			// continue the loop.
 			result.spend = spendDetail
 			resultChan <- result
-
-			// Set the hasMempoolSpent flag to true so we won't
-			// checkpoint the resolver again in db.
-			hasMempoolSpent = true
 
 			continue
 
@@ -1313,4 +1226,93 @@ func (h *htlcTimeoutResolver) sweepTimeoutTxOutput() error {
 	)
 
 	return err
+}
+
+// checkpointStageOne creates a checkpoint for the first stage of the htlc
+// timeout transaction. This is used to ensure that the resolver can resume
+// watching for the second stage spend in case of a restart.
+func (h *htlcTimeoutResolver) checkpointStageOne(
+	spendTxid chainhash.Hash) error {
+
+	h.log.Debugf("checkpoint stage one spend of HTLC output %v, spent "+
+		"in tx %v", h.outpoint(), spendTxid)
+
+	// Now that the second-level transaction has confirmed, we checkpoint
+	// the state so we'll go to the next stage in case of restarts.
+	h.outputIncubating = true
+
+	// Create stage-one report.
+	report := &channeldb.ResolverReport{
+		OutPoint:        h.outpoint(),
+		Amount:          h.htlc.Amt.ToSatoshis(),
+		ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
+		ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
+		SpendTxID:       &spendTxid,
+	}
+
+	// At this point, the second-level transaction is sufficiently
+	// confirmed. We can now send back our clean up message, failing the
+	// HTLC on the incoming link.
+	failureMsg := &lnwire.FailPermanentChannelFailure{}
+	err := h.DeliverResolutionMsg(ResolutionMsg{
+		SourceChan: h.ShortChanID,
+		HtlcIndex:  h.htlc.HtlcIndex,
+		Failure:    failureMsg,
+	})
+	if err != nil {
+		return err
+	}
+
+	return h.Checkpoint(h, report)
+}
+
+// checkpointClaim checkpoints the timeout resolver with the reports it needs.
+func (h *htlcTimeoutResolver) checkpointClaim(
+	spendDetail *chainntnfs.SpendDetail) error {
+
+	h.log.Infof("resolving htlc with incoming fail msg, output=%v "+
+		"confirmed in tx=%v", spendDetail.SpentOutPoint,
+		spendDetail.SpenderTxHash)
+
+	// For the direct-timeout spend, we will jump to this checkpoint
+	// without calling `checkpointStageOne`. Thus we need to send the clean
+	// up msg to fail the incoming HTLC.
+	if h.isRemoteCommitOutput() {
+		failureMsg := &lnwire.FailPermanentChannelFailure{}
+		err := h.DeliverResolutionMsg(ResolutionMsg{
+			SourceChan: h.ShortChanID,
+			HtlcIndex:  h.htlc.HtlcIndex,
+			Failure:    failureMsg,
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	// Send notification.
+	h.ChainArbitratorConfig.HtlcNotifier.NotifyFinalHtlcEvent(
+		models.CircuitKey{
+			ChanID: h.ShortChanID,
+			HtlcID: h.htlc.HtlcIndex,
+		},
+		channeldb.FinalHtlcInfo{
+			Settled:  true,
+			Offchain: false,
+		},
+	)
+
+	// Create a resolver report for claiming of the htlc itself.
+	amt := btcutil.Amount(h.htlcResolution.SweepSignDesc.Output.Value)
+	report := &channeldb.ResolverReport{
+		OutPoint:        *spendDetail.SpentOutPoint,
+		Amount:          amt,
+		ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
+		ResolverOutcome: channeldb.ResolverOutcomeTimeout,
+		SpendTxID:       spendDetail.SpenderTxHash,
+	}
+
+	// Finally, we checkpoint the resolver with our report(s).
+	h.resolved = true
+
+	return h.Checkpoint(h, report)
 }

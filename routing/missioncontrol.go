@@ -110,6 +110,10 @@ type MissionControl struct {
 	// results that mission control collects.
 	estimator Estimator
 
+	// onConfigUpdate is a function that is called whenever the
+	// mission control state is updated.
+	onConfigUpdate func(estimator Estimator)
+
 	sync.Mutex
 
 	// TODO(roasbeef): further counters, if vertex continually unavailable,
@@ -123,6 +127,10 @@ type MissionControl struct {
 type MissionControlConfig struct {
 	// Estimator gives probability estimates for node pairs.
 	Estimator Estimator
+
+	// OnConfigUpdate is function that is called whenever the
+	// mission control state is updated.
+	OnConfigUpdate func(estimator Estimator)
 
 	// MaxMcHistory defines the maximum number of payment results that are
 	// held on disk.
@@ -224,11 +232,14 @@ func NewMissionControl(db kvdb.Backend, self route.Vertex,
 	}
 
 	mc := &MissionControl{
-		state:     newMissionControlState(cfg.MinFailureRelaxInterval),
-		now:       time.Now,
-		selfNode:  self,
-		store:     store,
-		estimator: cfg.Estimator,
+		state: newMissionControlState(
+			cfg.MinFailureRelaxInterval,
+		),
+		now:            time.Now,
+		selfNode:       self,
+		store:          store,
+		estimator:      cfg.Estimator,
+		onConfigUpdate: cfg.OnConfigUpdate,
 	}
 
 	if err := mc.init(); err != nil {
@@ -307,6 +318,11 @@ func (m *MissionControl) SetConfig(cfg *MissionControlConfig) error {
 	m.store.maxRecords = cfg.MaxMcHistory
 	m.state.minFailureRelaxInterval = cfg.MinFailureRelaxInterval
 	m.estimator = cfg.Estimator
+
+	// Execute the callback function if it is set.
+	if m.onConfigUpdate != nil {
+		m.onConfigUpdate(cfg.Estimator)
+	}
 
 	return nil
 }

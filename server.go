@@ -928,6 +928,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	mcCfg := &routing.MissionControlConfig{
+		OnConfigUpdate:          fn.Some(s.UpdateRoutingConfig),
 		Estimator:               estimator,
 		MaxMcHistory:            routingConfig.MaxMcHistory,
 		McFlushInterval:         routingConfig.McFlushInterval,
@@ -1697,6 +1698,35 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	s.connMgr = cmgr
 
 	return s, nil
+}
+
+// UpdateRoutingConfig is a callback function to update the routing config
+// values in the main cfg.
+func (s *server) UpdateRoutingConfig(cfg *routing.MissionControlConfig) {
+	routerCfg := s.cfg.SubRPCServers.RouterRPC
+
+	switch c := cfg.Estimator.Config().(type) {
+	case routing.AprioriConfig:
+		routerCfg.ProbabilityEstimatorType =
+			routing.AprioriEstimatorName
+
+		targetCfg := routerCfg.AprioriConfig
+		targetCfg.PenaltyHalfLife = c.PenaltyHalfLife
+		targetCfg.Weight = c.AprioriWeight
+		targetCfg.CapacityFraction = c.CapacityFraction
+		targetCfg.HopProbability = c.AprioriHopProbability
+
+	case routing.BimodalConfig:
+		routerCfg.ProbabilityEstimatorType =
+			routing.BimodalEstimatorName
+
+		targetCfg := routerCfg.BimodalConfig
+		targetCfg.Scale = int64(c.BimodalScaleMsat)
+		targetCfg.NodeWeight = c.BimodalNodeWeight
+		targetCfg.DecayTime = c.BimodalDecayTime
+	}
+
+	routerCfg.MaxMcHistory = cfg.MaxMcHistory
 }
 
 // signAliasUpdate takes a ChannelUpdate and returns the signature. This is

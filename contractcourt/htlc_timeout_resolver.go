@@ -426,6 +426,7 @@ func checkSizeAndIndex(witness wire.TxWitness, size, index int) bool {
 func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	// If we're already resolved, then we can exit early.
 	if h.resolved {
+		h.log.Errorf("already resolved")
 		return nil, nil
 	}
 
@@ -440,36 +441,13 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		}
 	}
 
-	// Start by spending the HTLC output, either by broadcasting the
-	// second-level timeout transaction, or directly if this is the remote
-	// commitment.
-	commitSpend, err := h.spendHtlcOutput()
-	if err != nil {
-		return nil, err
-	}
-
-	// If the spend reveals the pre-image, then we'll enter the clean up
-	// workflow to pass the pre-image back to the incoming link, add it to
-	// the witness cache, and exit.
-	if isPreimageSpend(
-		h.isTaproot(), commitSpend,
-		h.htlcResolution.SignedTimeoutTx != nil,
-	) {
-
-		log.Infof("%T(%v): HTLC has been swept with pre-image by "+
-			"remote party during timeout flow! Adding pre-image to "+
-			"witness cache", h, h.htlc.RHash[:],
-			h.htlcResolution.ClaimOutpoint)
-
-		return nil, h.claimCleanUp(commitSpend)
-	}
-
-	// Depending on whether this was a local or remote commit, we must
-	// handle the spending transaction accordingly.
+	// If this is an output on the remote party's commitment transaction,
+	// use the direct-spend path to sweep the htlc.
 	if h.isRemoteCommitOutput() {
 		return nil, h.resolveRemoteCommitOutput()
 	}
 
+	// Otherwise handle the spend from our commitment transaction.
 	return nil, h.resolveTimeoutTx()
 }
 
@@ -535,51 +513,6 @@ func (h *htlcTimeoutResolver) sendSecondLevelTxLegacy() error {
 	)
 }
 
-// spendHtlcOutput handles the initial spend of an HTLC output via the timeout
-// clause. If this is our local commitment, the second-level timeout TX will be
-// used to spend the output into the next stage. If this is the remote
-// commitment, the output will be swept directly without the timeout
-// transaction.
-func (h *htlcTimeoutResolver) spendHtlcOutput() (
-	*chainntnfs.SpendDetail, error) {
-
-	switch {
-	// If we have non-nil SignDetails, this means that have a 2nd level
-	// HTLC transaction that is signed using sighash SINGLE|ANYONECANPAY
-	// (the case for anchor type channels). In this case we can re-sign it
-	// and attach fees at will. We let the sweeper handle this job.
-	case h.isZeroFeeOutput() && !h.outputIncubating:
-		if err := h.sweepTimeoutTx(); err != nil {
-			log.Errorf("Sending timeout tx to sweeper: %v", err)
-
-			return nil, err
-		}
-
-	// If we have no SignDetails, and we haven't already sent the output to
-	// the utxo nursery, then we'll do so now.
-	case !h.isRemoteCommitOutput() && !h.outputIncubating:
-		if err := h.sweepLegacyTimeoutTx(); err != nil {
-			log.Errorf("Sending timeout tx to nursery: %v", err)
-
-			return nil, err
-		}
-
-	default:
-		err := h.sweepRemoteCommitOutput()
-		if err != nil {
-			log.Errorf("Sweeping remote commit output: %v", err)
-
-			return nil, err
-		}
-	}
-
-	// Now that we've handed off the HTLC to the nursery or sweeper, we'll
-	// watch for a spend of the output, and make our next move off of that.
-	// Depending on if this is our commitment, or the remote party's
-	// commitment, we'll be watching a different outpoint and script.
-	return h.watchHtlcSpend()
-}
-
 // watchHtlcSpend watches for a spend of the HTLC output. For neutrino backend,
 // it will check blocks for the confirmed spend. For btcd and bitcoind, it will
 // check both the mempool and the blocks.
@@ -625,6 +558,9 @@ func (h *htlcTimeoutResolver) waitForConfirmedSpend(op *wire.OutPoint,
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcTimeoutResolver) Stop() {
+	h.log.Debugf("stopping...")
+	defer h.log.Debugf("stopped")
+
 	close(h.quit)
 }
 
@@ -1295,4 +1231,63 @@ func (h *htlcTimeoutResolver) resolveTimeoutTxOutput(op wire.OutPoint) error {
 	h.reportLock.Unlock()
 
 	return h.checkpointClaim(spend)
+}
+
+// Launch creates an input based on the details of the outgoing htlc resolution
+// and offers it to the sweeper.
+func (h *htlcTimeoutResolver) Launch() error {
+	if h.launched {
+		h.log.Tracef("already launched")
+		return nil
+	}
+
+	h.log.Debugf("launching resolver...")
+	h.launched = true
+
+	// If the HTLC has custom records, then for now we'll pause resolution.
+	//
+	// TODO(roasbeef): Implement resolving HTLCs with custom records
+	// (follow-up PR).
+	if len(h.htlc.CustomRecords) != 0 {
+		select { //nolint:gosimple
+		case <-h.quit:
+			return nil
+		}
+	}
+
+	switch {
+	// If we're already resolved, then we can exit early.
+	case h.resolved:
+		h.log.Errorf("already resolved")
+		return nil
+
+	// If this is an output on the remote party's commitment transaction,
+	// use the direct timeout spend path.
+	case h.isRemoteCommitOutput():
+		return h.sweepRemoteCommitOutput()
+
+	// If this is an anchor type channel, we now sweep either the
+	// second-level timeout tx or the output from the second-level timeout
+	// tx.
+	case h.isZeroFeeOutput():
+		// If the second-level timeout tx has already been swept, we
+		// can go ahead and sweep its output.
+		if h.outputIncubating {
+			return h.sweepTimeoutTxOutput()
+		}
+
+		// Otherwise, sweep the second level tx.
+		return h.sweepTimeoutTx()
+
+	// If this is a legacy channel type, the output is handled by the
+	// nursery.
+	default:
+		// If the second-level timeout tx has already been swept, we
+		// can go ahead and sweep its output.
+		if h.outputIncubating {
+			return h.sweepTimeoutTxOutput()
+		}
+
+		return h.sweepLegacyTimeoutTx()
+	}
 }

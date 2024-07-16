@@ -40,7 +40,7 @@ type mockWitnessBeacon struct {
 func newMockWitnessBeacon() *mockWitnessBeacon {
 	return &mockWitnessBeacon{
 		preImageUpdates: make(chan lntypes.Preimage, 1),
-		newPreimages:    make(chan []lntypes.Preimage),
+		newPreimages:    make(chan []lntypes.Preimage, 1),
 		lookupPreimage:  make(map[lntypes.Hash]lntypes.Preimage),
 	}
 }
@@ -280,7 +280,7 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 
 	notifier := &mock.ChainNotifier{
 		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		SpendChan: make(chan *chainntnfs.SpendDetail),
+		SpendChan: make(chan *chainntnfs.SpendDetail, 1),
 		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
 
@@ -321,6 +321,7 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 
 				return nil
 			},
+			HtlcNotifier: &mockHTLCNotifier{},
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {
@@ -356,6 +357,7 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 			Amt: testHtlcAmt,
 		},
 	}
+	resolver.initLogger("timeoutResolver")
 
 	var reports []*channeldb.ResolverReport
 
@@ -390,7 +392,12 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 	go func() {
 		defer wg.Done()
 
-		_, err := resolver.Resolve()
+		err := resolver.Launch()
+		if err != nil {
+			resolveErr <- err
+		}
+
+		_, err = resolver.Resolve()
 		if err != nil {
 			resolveErr <- err
 		}
@@ -406,8 +413,7 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 		sweepChan = mockSweeper.sweptInputs
 	}
 
-	// The output should be offered to either the sweeper or
-	// the nursery.
+	// The output should be offered to either the sweeper or the nursery.
 	select {
 	case <-incubateChan:
 	case <-sweepChan:
@@ -431,6 +437,7 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 	case notifier.SpendChan <- &chainntnfs.SpendDetail{
 		SpendingTx:    spendingTx,
 		SpenderTxHash: &spendTxHash,
+		SpentOutPoint: &testChanPoint2,
 	}:
 	case <-time.After(time.Second * 5):
 		t.Fatalf("failed to request spend ntfn")
@@ -487,6 +494,7 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 			case notifier.SpendChan <- &chainntnfs.SpendDetail{
 				SpendingTx:    spendingTx,
 				SpenderTxHash: &spendTxHash,
+				SpentOutPoint: &testChanPoint2,
 			}:
 			case <-time.After(time.Second * 5):
 				t.Fatalf("failed to request spend ntfn")
@@ -549,6 +557,8 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 
 // TestHtlcTimeoutSingleStage tests a remote commitment confirming, and the
 // local node sweeping the HTLC output directly after timeout.
+//
+//nolint:ll
 func TestHtlcTimeoutSingleStage(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 3}
 
@@ -573,6 +583,12 @@ func TestHtlcTimeoutSingleStage(t *testing.T) {
 		SpendTxID:       &sweepTxid,
 	}
 
+	sweepSpend := &chainntnfs.SpendDetail{
+		SpendingTx:    sweepTx,
+		SpentOutPoint: &commitOutpoint,
+		SpenderTxHash: &sweepTxid,
+	}
+
 	checkpoints := []checkpoint{
 		{
 			// We send a confirmation the sweep tx from published
@@ -582,9 +598,10 @@ func TestHtlcTimeoutSingleStage(t *testing.T) {
 
 				// The nursery will create and publish a sweep
 				// tx.
-				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
-					SpendingTx:    sweepTx,
-					SpenderTxHash: &sweepTxid,
+				select {
+				case ctx.notifier.SpendChan <- sweepSpend:
+				case <-time.After(time.Second * 5):
+					t.Fatalf("failed to send spend ntfn")
 				}
 
 				// The resolver should deliver a failure
@@ -620,7 +637,9 @@ func TestHtlcTimeoutSingleStage(t *testing.T) {
 
 // TestHtlcTimeoutSecondStage tests a local commitment being confirmed, and the
 // local node claiming the HTLC output using the second-level timeout tx.
-func TestHtlcTimeoutSecondStage(t *testing.T) {
+//
+//nolint:ll
+func TestHtlcTimeoutSecondStagex(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 2}
 	htlcOutpoint := wire.OutPoint{Index: 3}
 
@@ -678,22 +697,56 @@ func TestHtlcTimeoutSecondStage(t *testing.T) {
 		SpendTxID:       &sweepHash,
 	}
 
+	timeoutSpend := &chainntnfs.SpendDetail{
+		SpendingTx:    timeoutTx,
+		SpentOutPoint: &commitOutpoint,
+		SpenderTxHash: &timeoutTxid,
+	}
+
+	sweepSpend := &chainntnfs.SpendDetail{
+		SpendingTx:    sweepTx,
+		SpentOutPoint: &htlcOutpoint,
+		SpenderTxHash: &sweepHash,
+	}
+
 	checkpoints := []checkpoint{
 		{
+			preCheckpoint: func(ctx *htlcResolverTestContext,
+				_ bool) error {
+
+				// Deliver spend of timeout tx.
+				ctx.notifier.SpendChan <- timeoutSpend
+
+				return nil
+			},
+
 			// Output should be handed off to the nursery.
 			incubating: true,
+			reports: []*channeldb.ResolverReport{
+				firstStage,
+			},
 		},
 		{
 			// We send a confirmation for our sweep tx to indicate
 			// that our sweep succeeded.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
-				_ bool) error {
+				resumed bool) error {
 
-				// The nursery will publish the timeout tx.
-				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
-					SpendingTx:    timeoutTx,
-					SpenderTxHash: &timeoutTxid,
+				// When it's reloaded from disk, we need to
+				// re-send the notification to mock the first
+				// `watchHtlcSpend`.
+				if resumed {
+					// Deliver spend of timeout tx.
+					ctx.notifier.SpendChan <- timeoutSpend
+
+					// Deliver spend of timeout tx output.
+					ctx.notifier.SpendChan <- sweepSpend
+
+					return nil
 				}
+
+				// Deliver spend of timeout tx output.
+				ctx.notifier.SpendChan <- sweepSpend
 
 				// The resolver should deliver a failure
 				// resolution message (indicating we
@@ -707,12 +760,6 @@ func TestHtlcTimeoutSecondStage(t *testing.T) {
 					t.Fatalf("resolution not sent")
 				}
 
-				// Deliver spend of timeout tx.
-				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
-					SpendingTx:    sweepTx,
-					SpenderTxHash: &sweepHash,
-				}
-
 				return nil
 			},
 
@@ -722,7 +769,7 @@ func TestHtlcTimeoutSecondStage(t *testing.T) {
 			incubating: true,
 			resolved:   true,
 			reports: []*channeldb.ResolverReport{
-				firstStage, secondState,
+				secondState,
 			},
 		},
 	}
@@ -797,10 +844,6 @@ func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 
 	checkpoints := []checkpoint{
 		{
-			// Output should be handed off to the nursery.
-			incubating: true,
-		},
-		{
 			// We send a spend notification for a remote spend with
 			// the preimage.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
@@ -812,6 +855,7 @@ func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 				// the preimage.
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 					SpendingTx:    spendTx,
+					SpentOutPoint: &commitOutpoint,
 					SpenderTxHash: &spendTxHash,
 				}
 
@@ -847,7 +891,7 @@ func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 			// After the success tx has confirmed, we expect the
 			// checkpoint to be resolved, and with the above
 			// report.
-			incubating: true,
+			incubating: false,
 			resolved:   true,
 			reports: []*channeldb.ResolverReport{
 				claim,
@@ -914,6 +958,7 @@ func TestHtlcTimeoutSecondStageRemoteSpend(t *testing.T) {
 
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 					SpendingTx:    remoteSuccessTx,
+					SpentOutPoint: &commitOutpoint,
 					SpenderTxHash: &successTxid,
 				}
 
@@ -967,20 +1012,15 @@ func TestHtlcTimeoutSecondStageRemoteSpend(t *testing.T) {
 // TestHtlcTimeoutSecondStageSweeper tests that for anchor channels, when a
 // local commitment confirms, the timeout tx is handed to the sweeper to claim
 // the HTLC output.
+//
+//nolint:ll
 func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
-	commitOutpoint := wire.OutPoint{Index: 2}
 	htlcOutpoint := wire.OutPoint{Index: 3}
-
-	sweepTx := &wire.MsgTx{
-		TxIn:  []*wire.TxIn{{}},
-		TxOut: []*wire.TxOut{{}},
-	}
-	sweepHash := sweepTx.TxHash()
 
 	timeoutTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
 			{
-				PreviousOutPoint: commitOutpoint,
+				PreviousOutPoint: htlcOutpoint,
 			},
 		},
 		TxOut: []*wire.TxOut{
@@ -1027,10 +1067,15 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 		},
 	}
 	reSignedHash := reSignedTimeoutTx.TxHash()
-	reSignedOutPoint := wire.OutPoint{
+
+	timeoutTxOutpoint := wire.OutPoint{
 		Hash:  reSignedHash,
 		Index: 1,
 	}
+
+	// Make a copy so `isPreimageSpend` can easily pass.
+	sweepTx := reSignedTimeoutTx.Copy()
+	sweepHash := sweepTx.TxHash()
 
 	// twoStageResolution is a resolution for a htlc on the local
 	// party's commitment, where the timeout tx can be re-signed.
@@ -1045,7 +1090,7 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 	}
 
 	firstStage := &channeldb.ResolverReport{
-		OutPoint:        commitOutpoint,
+		OutPoint:        htlcOutpoint,
 		Amount:          testHtlcAmt.ToSatoshis(),
 		ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
 		ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
@@ -1053,11 +1098,44 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 	}
 
 	secondState := &channeldb.ResolverReport{
-		OutPoint:        reSignedOutPoint,
+		OutPoint:        timeoutTxOutpoint,
 		Amount:          btcutil.Amount(testSignDesc.Output.Value),
 		ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
 		ResolverOutcome: channeldb.ResolverOutcomeTimeout,
 		SpendTxID:       &sweepHash,
+	}
+	// mockTimeoutTxSpend is a helper closure to mock `waitForSpend` to
+	// return the commit spend in `sweepTimeoutTxOutput`.
+	mockTimeoutTxSpend := func(ctx *htlcResolverTestContext) {
+		select {
+		case ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+			SpendingTx:        reSignedTimeoutTx,
+			SpenderInputIndex: 1,
+			SpenderTxHash:     &reSignedHash,
+			SpendingHeight:    10,
+			SpentOutPoint:     &htlcOutpoint,
+		}:
+
+		case <-time.After(time.Second * 1):
+			t.Fatalf("spend not sent")
+		}
+	}
+
+	// mockSweepTxSpend is a helper closure to mock `waitForSpend` to
+	// return the commit spend in `sweepTimeoutTxOutput`.
+	mockSweepTxSpend := func(ctx *htlcResolverTestContext) {
+		select {
+		case ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+			SpendingTx:        sweepTx,
+			SpenderInputIndex: 1,
+			SpenderTxHash:     &sweepHash,
+			SpendingHeight:    10,
+			SpentOutPoint:     &timeoutTxOutpoint,
+		}:
+
+		case <-time.After(time.Second * 1):
+			t.Fatalf("spend not sent")
+		}
 	}
 
 	checkpoints := []checkpoint{
@@ -1067,28 +1145,40 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 				_ bool) error {
 
 				resolver := ctx.resolver.(*htlcTimeoutResolver)
-				inp := <-resolver.Sweeper.(*mockSweeper).sweptInputs
-				op := inp.OutPoint()
-				if op != commitOutpoint {
-					return fmt.Errorf("outpoint %v swept, "+
-						"expected %v", op,
-						commitOutpoint)
+
+				var (
+					inp input.Input
+					ok  bool
+				)
+
+				select {
+				case inp, ok = <-resolver.Sweeper.(*mockSweeper).sweptInputs:
+					require.True(t, ok)
+
+				case <-time.After(1 * time.Second):
+					t.Fatal("expected input to be swept")
 				}
 
-				// Emulat the sweeper spending using the
-				// re-signed timeout tx.
-				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
-					SpendingTx:        reSignedTimeoutTx,
-					SpenderInputIndex: 1,
-					SpenderTxHash:     &reSignedHash,
-					SpendingHeight:    10,
+				op := inp.OutPoint()
+				if op != htlcOutpoint {
+					return fmt.Errorf("outpoint %v swept, "+
+						"expected %v", op, htlcOutpoint)
 				}
+
+				// Mock `waitForSpend` twice, called in,
+				// - `resolveReSignedTimeoutTx`
+				// - `sweepTimeoutTxOutput`.
+				mockTimeoutTxSpend(ctx)
+				mockTimeoutTxSpend(ctx)
 
 				return nil
 			},
 			// incubating=true is used to signal that the
 			// second-level transaction was confirmed.
 			incubating: true,
+			reports: []*channeldb.ResolverReport{
+				firstStage,
+			},
 		},
 		{
 			// We send a confirmation for our sweep tx to indicate
@@ -1096,17 +1186,17 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 			preCheckpoint: func(ctx *htlcResolverTestContext,
 				resumed bool) error {
 
-				// If we are resuming from a checkpoint, we
-				// expect the resolver to re-subscribe to a
-				// spend, hence we must resend it.
+				// Mock `waitForSpend` to return the commit
+				// spend.
 				if resumed {
-					ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
-						SpendingTx:        reSignedTimeoutTx,
-						SpenderInputIndex: 1,
-						SpenderTxHash:     &reSignedHash,
-						SpendingHeight:    10,
-					}
+					mockTimeoutTxSpend(ctx)
+					mockTimeoutTxSpend(ctx)
+					mockSweepTxSpend(ctx)
+
+					return nil
 				}
+
+				mockSweepTxSpend(ctx)
 
 				// The resolver should deliver a failure
 				// resolution message (indicating we
@@ -1123,7 +1213,20 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 				// The timeout tx output should now be given to
 				// the sweeper.
 				resolver := ctx.resolver.(*htlcTimeoutResolver)
-				inp := <-resolver.Sweeper.(*mockSweeper).sweptInputs
+
+				var (
+					inp input.Input
+					ok  bool
+				)
+
+				select {
+				case inp, ok = <-resolver.Sweeper.(*mockSweeper).sweptInputs:
+					require.True(t, ok)
+
+				case <-time.After(1 * time.Second):
+					t.Fatal("expected input to be swept")
+				}
+
 				op := inp.OutPoint()
 				exp := wire.OutPoint{
 					Hash:  reSignedHash,
@@ -1131,14 +1234,6 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 				}
 				if op != exp {
 					return fmt.Errorf("wrong outpoint swept")
-				}
-
-				// Notify about the spend, which should resolve
-				// the resolver.
-				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
-					SpendingTx:     sweepTx,
-					SpenderTxHash:  &sweepHash,
-					SpendingHeight: 14,
 				}
 
 				return nil
@@ -1150,7 +1245,6 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 			incubating: true,
 			resolved:   true,
 			reports: []*channeldb.ResolverReport{
-				firstStage,
 				secondState,
 			},
 		},
@@ -1232,33 +1326,6 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 
 	checkpoints := []checkpoint{
 		{
-			// The output should be given to the sweeper.
-			preCheckpoint: func(ctx *htlcResolverTestContext,
-				_ bool) error {
-
-				resolver := ctx.resolver.(*htlcTimeoutResolver)
-				inp := <-resolver.Sweeper.(*mockSweeper).sweptInputs
-				op := inp.OutPoint()
-				if op != commitOutpoint {
-					return fmt.Errorf("outpoint %v swept, "+
-						"expected %v", op,
-						commitOutpoint)
-				}
-
-				// Emulate the remote sweeping the output with the preimage.
-				// re-signed timeout tx.
-				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
-					SpendingTx:    spendTx,
-					SpenderTxHash: &spendTxHash,
-				}
-
-				return nil
-			},
-			// incubating=true is used to signal that the
-			// second-level transaction was confirmed.
-			incubating: true,
-		},
-		{
 			// We send a confirmation for our sweep tx to indicate
 			// that our sweep succeeded.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
@@ -1272,6 +1339,7 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 					ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 						SpendingTx:    spendTx,
 						SpenderTxHash: &spendTxHash,
+						SpentOutPoint: &commitOutpoint,
 					}
 				}
 
@@ -1309,7 +1377,7 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 			// After the sweep has confirmed, we expect the
 			// checkpoint to be resolved, and with the above
 			// reports.
-			incubating: true,
+			incubating: false,
 			resolved:   true,
 			reports: []*channeldb.ResolverReport{
 				claim,
@@ -1334,21 +1402,26 @@ func testHtlcTimeout(t *testing.T, resolution lnwallet.OutgoingHtlcResolution,
 	// for the next portion of the test.
 	ctx := newHtlcResolverTestContext(t,
 		func(htlc channeldb.HTLC, cfg ResolverConfig) ContractResolver {
-			return &htlcTimeoutResolver{
+			r := &htlcTimeoutResolver{
 				contractResolverKit: *newContractResolverKit(cfg),
 				htlc:                htlc,
 				htlcResolution:      resolution,
 			}
+			r.initLogger("htlcTimeoutResolver")
+
+			return r
 		},
 	)
 
 	checkpointedState := runFromCheckpoint(t, ctx, checkpoints)
 
+	t.Log("Running resolver to completion after restart")
+
 	// Now, from every checkpoint created, we re-create the resolver, and
 	// run the test from that checkpoint.
 	for i := range checkpointedState {
 		cp := bytes.NewReader(checkpointedState[i])
-		ctx := newHtlcResolverTestContext(t,
+		ctx := newHtlcResolverTestContextFromReader(t,
 			func(htlc channeldb.HTLC, cfg ResolverConfig) ContractResolver {
 				resolver, err := newTimeoutResolverFromReader(cp, cfg)
 				if err != nil {
@@ -1356,7 +1429,8 @@ func testHtlcTimeout(t *testing.T, resolution lnwallet.OutgoingHtlcResolution,
 				}
 
 				resolver.Supplement(htlc)
-				resolver.htlcResolution = resolution
+				resolver.initLogger("htlcTimeoutResolver")
+
 				return resolver
 			},
 		)

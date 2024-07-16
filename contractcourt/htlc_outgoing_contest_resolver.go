@@ -98,7 +98,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 		}
 
 		// TODO(roasbeef): Checkpoint?
-		return h.claimCleanUp(commitSpend)
+		return nil, h.claimCleanUp(commitSpend)
 
 	// If it hasn't, then we'll watch for both the expiration, and the
 	// sweeping out this output.
@@ -155,7 +155,7 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 			// party is by revealing the preimage. So we'll perform
 			// our duties to clean up the contract once it has been
 			// claimed.
-			return h.claimCleanUp(commitSpend)
+			return nil, h.claimCleanUp(commitSpend)
 
 		case <-h.quit:
 			return nil, fmt.Errorf("resolver canceled")

@@ -7614,13 +7614,13 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 			t.Fatalf("htlc not found in log")
 		}
 
-		if pd.addCommitHeightLocal != expLocal {
+		if pd.addCommitHeights.Local != expLocal {
 			t.Fatalf("expected local add height to be %d, was %d",
-				expLocal, pd.addCommitHeightLocal)
+				expLocal, pd.addCommitHeights.Local)
 		}
-		if pd.addCommitHeightRemote != expRemote {
+		if pd.addCommitHeights.Remote != expRemote {
 			t.Fatalf("expected remote add height to be %d, was %d",
-				expRemote, pd.addCommitHeightRemote)
+				expRemote, pd.addCommitHeights.Remote)
 		}
 		return newChannel
 	}
@@ -8402,16 +8402,20 @@ func TestFetchParent(t *testing.T) {
 			remoteEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
-					HtlcIndex:             1,
-					addCommitHeightLocal:  100,
-					addCommitHeightRemote: 100,
+					HtlcIndex: 1,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local:  100,
+						Remote: 100,
+					},
 				},
 				// This entry will be added at log index =1, it
 				// is the parent entry we are looking for.
 				{
-					HtlcIndex:             2,
-					addCommitHeightLocal:  100,
-					addCommitHeightRemote: 0,
+					HtlcIndex: 2,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local:  100,
+						Remote: 0,
+					},
 				},
 			},
 			whoseCommitChain: lntypes.Remote,
@@ -8424,16 +8428,20 @@ func TestFetchParent(t *testing.T) {
 			remoteEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
-					HtlcIndex:             1,
-					addCommitHeightLocal:  100,
-					addCommitHeightRemote: 100,
+					HtlcIndex: 1,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local:  100,
+						Remote: 100,
+					},
 				},
 				// This entry will be added at log index =1, it
 				// is the parent entry we are looking for.
 				{
-					HtlcIndex:             2,
-					addCommitHeightLocal:  0,
-					addCommitHeightRemote: 100,
+					HtlcIndex: 2,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local:  0,
+						Remote: 100,
+					},
 				},
 			},
 			localEntries:     nil,
@@ -8447,16 +8455,20 @@ func TestFetchParent(t *testing.T) {
 			localEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
-					HtlcIndex:             1,
-					addCommitHeightLocal:  100,
-					addCommitHeightRemote: 100,
+					HtlcIndex: 1,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local:  100,
+						Remote: 100,
+					},
 				},
 				// This entry will be added at log index =1, it
 				// is the parent entry we are looking for.
 				{
-					HtlcIndex:             2,
-					addCommitHeightLocal:  0,
-					addCommitHeightRemote: 100,
+					HtlcIndex: 2,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local:  0,
+						Remote: 100,
+					},
 				},
 			},
 			remoteEntries:    nil,
@@ -8471,16 +8483,20 @@ func TestFetchParent(t *testing.T) {
 			localEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
-					HtlcIndex:             1,
-					addCommitHeightLocal:  100,
-					addCommitHeightRemote: 100,
+					HtlcIndex: 1,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local:  100,
+						Remote: 100,
+					},
 				},
 				// This entry will be added at log index =1, it
 				// is the parent entry we are looking for.
 				{
-					HtlcIndex:             2,
-					addCommitHeightLocal:  100,
-					addCommitHeightRemote: 0,
+					HtlcIndex: 2,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local:  100,
+						Remote: 0,
+					},
 				},
 			},
 			remoteEntries:    nil,
@@ -8495,16 +8511,20 @@ func TestFetchParent(t *testing.T) {
 			remoteEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
-					HtlcIndex:             1,
-					addCommitHeightLocal:  100,
-					addCommitHeightRemote: 0,
+					HtlcIndex: 1,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local:  100,
+						Remote: 0,
+					},
 				},
 				// This entry will be added at log index =1, it
 				// is the parent entry we are looking for.
 				{
-					HtlcIndex:             2,
-					addCommitHeightLocal:  100,
-					addCommitHeightRemote: 100,
+					HtlcIndex: 2,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local:  100,
+						Remote: 100,
+					},
 				},
 			},
 			whoseCommitChain: lntypes.Remote,
@@ -8518,16 +8538,20 @@ func TestFetchParent(t *testing.T) {
 			localEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
-					HtlcIndex:             1,
-					addCommitHeightLocal:  0,
-					addCommitHeightRemote: 100,
+					HtlcIndex: 1,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local:  0,
+						Remote: 100,
+					},
 				},
 				// This entry will be added at log index =1, it
 				// is the parent entry we are looking for.
 				{
-					HtlcIndex:             2,
-					addCommitHeightLocal:  100,
-					addCommitHeightRemote: 100,
+					HtlcIndex: 2,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local:  100,
+						Remote: 100,
+					},
 				},
 			},
 			remoteEntries:    nil,
@@ -8728,10 +8752,12 @@ func TestEvaluateView(t *testing.T) {
 			mutateState:      true,
 			ourHtlcs: []*paymentDescriptor{
 				{
-					HtlcIndex:            0,
-					Amount:               htlcAddAmount,
-					EntryType:            Add,
-					addCommitHeightLocal: addHeight,
+					HtlcIndex: 0,
+					Amount:    htlcAddAmount,
+					EntryType: Add,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local: addHeight,
+					},
 				},
 			},
 			theirHtlcs: []*paymentDescriptor{
@@ -8763,10 +8789,12 @@ func TestEvaluateView(t *testing.T) {
 			mutateState:      false,
 			ourHtlcs: []*paymentDescriptor{
 				{
-					HtlcIndex:            0,
-					Amount:               htlcAddAmount,
-					EntryType:            Add,
-					addCommitHeightLocal: addHeight,
+					HtlcIndex: 0,
+					Amount:    htlcAddAmount,
+					EntryType: Add,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local: addHeight,
+					},
 				},
 			},
 			theirHtlcs: []*paymentDescriptor{
@@ -8813,16 +8841,20 @@ func TestEvaluateView(t *testing.T) {
 			},
 			theirHtlcs: []*paymentDescriptor{
 				{
-					HtlcIndex:            0,
-					Amount:               htlcAddAmount,
-					EntryType:            Add,
-					addCommitHeightLocal: addHeight,
+					HtlcIndex: 0,
+					Amount:    htlcAddAmount,
+					EntryType: Add,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local: addHeight,
+					},
 				},
 				{
-					HtlcIndex:            1,
-					Amount:               htlcAddAmount,
-					EntryType:            Add,
-					addCommitHeightLocal: addHeight,
+					HtlcIndex: 1,
+					Amount:    htlcAddAmount,
+					EntryType: Add,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local: addHeight,
+					},
 				},
 			},
 			expectedFee: feePerKw,
@@ -8857,10 +8889,12 @@ func TestEvaluateView(t *testing.T) {
 			},
 			theirHtlcs: []*paymentDescriptor{
 				{
-					HtlcIndex:            0,
-					Amount:               htlcAddAmount,
-					EntryType:            Add,
-					addCommitHeightLocal: addHeight,
+					HtlcIndex: 0,
+					Amount:    htlcAddAmount,
+					EntryType: Add,
+					addCommitHeights: lntypes.Dual[uint64]{
+						Local: addHeight,
+					},
 				},
 			},
 			expectedFee: feePerKw,
@@ -9155,12 +9189,16 @@ func TestProcessFeeUpdate(t *testing.T) {
 			// set in the test.
 			heights := test.startHeights
 			update := &paymentDescriptor{
-				Amount:                   ourFeeUpdateAmt,
-				addCommitHeightRemote:    heights.remoteAdd,
-				addCommitHeightLocal:     heights.localAdd,
-				removeCommitHeightRemote: heights.remoteRemove,
-				removeCommitHeightLocal:  heights.localRemove,
-				EntryType:                FeeUpdate,
+				Amount: ourFeeUpdateAmt,
+				addCommitHeights: lntypes.Dual[uint64]{
+					Local:  heights.localAdd,
+					Remote: heights.remoteAdd,
+				},
+				removeCommitHeights: lntypes.Dual[uint64]{
+					Local:  heights.localRemove,
+					Remote: heights.remoteRemove,
+				},
+				EntryType: FeeUpdate,
 			}
 
 			view := &HtlcView{
@@ -9183,10 +9221,10 @@ func TestProcessFeeUpdate(t *testing.T) {
 
 func checkHeights(t *testing.T, update *paymentDescriptor, expected heights) {
 	updateHeights := heights{
-		localAdd:     update.addCommitHeightLocal,
-		localRemove:  update.removeCommitHeightLocal,
-		remoteAdd:    update.addCommitHeightRemote,
-		remoteRemove: update.removeCommitHeightRemote,
+		localAdd:     update.addCommitHeights.Local,
+		localRemove:  update.removeCommitHeights.Local,
+		remoteAdd:    update.addCommitHeights.Remote,
+		remoteRemove: update.removeCommitHeights.Remote,
 	}
 
 	if !reflect.DeepEqual(updateHeights, expected) {
@@ -9551,12 +9589,16 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 
 			heights := test.startHeights
 			update := &paymentDescriptor{
-				Amount:                   updateAmount,
-				addCommitHeightLocal:     heights.localAdd,
-				addCommitHeightRemote:    heights.remoteAdd,
-				removeCommitHeightLocal:  heights.localRemove,
-				removeCommitHeightRemote: heights.remoteRemove,
-				EntryType:                test.updateType,
+				Amount: updateAmount,
+				addCommitHeights: lntypes.Dual[uint64]{
+					Local:  heights.localAdd,
+					Remote: heights.remoteAdd,
+				},
+				removeCommitHeights: lntypes.Dual[uint64]{
+					Local:  heights.localRemove,
+					Remote: heights.remoteRemove,
+				},
+				EntryType: test.updateType,
 			}
 
 			var (

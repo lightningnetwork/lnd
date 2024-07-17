@@ -9613,15 +9613,25 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			// update type. Process remove is used for settles,
 			// fails and malformed htlcs.
 			process := processRemoveEntry
+			heightDual := &update.removeCommitHeights
 			if test.updateType == Add {
 				process = processAddEntry
+				heightDual = &update.addCommitHeights
 			}
 
-			process(
-				update, &ourBalance, &theirBalance, nextHeight,
-				test.whoseCommitChain, test.isIncoming,
-				test.mutateState,
-			)
+			if heightDual.GetForParty(test.whoseCommitChain) == 0 {
+				process(
+					update, &ourBalance, &theirBalance,
+					test.isIncoming,
+				)
+
+				if test.mutateState {
+					heightDual.SetForParty(
+						test.whoseCommitChain,
+						nextHeight,
+					)
+				}
+			}
 
 			// Check that balances were updated as expected.
 			if ourBalance != test.ourExpectedBalance {

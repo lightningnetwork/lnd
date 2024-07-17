@@ -291,6 +291,24 @@ func testUnconfirmedChannelFunding(ht *lntest.HarnessTest) {
 	// We'll send her some unconfirmed funds.
 	ht.FundCoinsUnconfirmed(2*chanAmt, carol)
 
+	// For neutrino backend, we will confirm the coins sent above and let
+	// Carol send all her funds to herself to create unconfirmed output.
+	if ht.IsNeutrinoBackend() {
+		// Confirm the above coins.
+		ht.MineBlocksAndAssertNumTxes(1, 1)
+
+		// Create a new address and send to herself.
+		resp := carol.RPC.NewAddress(&lnrpc.NewAddressRequest{
+			Type: lnrpc.AddressType_TAPROOT_PUBKEY,
+		})
+
+		// Once sent, Carol would have one unconfirmed UTXO.
+		carol.RPC.SendCoins(&lnrpc.SendCoinsRequest{
+			Addr:    resp.Address,
+			SendAll: true,
+		})
+	}
+
 	// Now, we'll connect her to Alice so that they can open a channel
 	// together. The funding flow should select Carol's unconfirmed output
 	// as she doesn't have any other funds since it's a new node.
@@ -361,11 +379,7 @@ func testUnconfirmedChannelFunding(ht *lntest.HarnessTest) {
 	// parties. For neutrino backend, the funding transaction should be
 	// mined. Otherwise, two transactions should be mined, the unconfirmed
 	// spend and the funding tx.
-	if ht.IsNeutrinoBackend() {
-		ht.MineBlocksAndAssertNumTxes(6, 1)
-	} else {
-		ht.MineBlocksAndAssertNumTxes(6, 2)
-	}
+	ht.MineBlocksAndAssertNumTxes(6, 2)
 
 	chanPoint := ht.WaitForChannelOpenEvent(chanOpenUpdate)
 

@@ -2837,10 +2837,20 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 
 		skipThem[addEntry.HtlcIndex] = struct{}{}
 
-		processRemoveEntry(
-			entry, ourBalance, theirBalance, nextHeight,
-			whoseCommitChain, true, mutateState,
-		)
+		rmvHeights := &entry.removeCommitHeights
+		rmvHeight := rmvHeights.GetForParty(whoseCommitChain)
+		if rmvHeight == 0 {
+			processRemoveEntry(
+				entry, ourBalance, theirBalance, nextHeight,
+				whoseCommitChain, true,
+			)
+
+			if mutateState {
+				rmvHeights.SetForParty(
+					whoseCommitChain, nextHeight,
+				)
+			}
+		}
 	}
 	for _, entry := range view.TheirUpdates {
 		switch entry.EntryType {
@@ -2877,10 +2887,20 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 
 		skipUs[addEntry.HtlcIndex] = struct{}{}
 
-		processRemoveEntry(
-			entry, ourBalance, theirBalance, nextHeight,
-			whoseCommitChain, false, mutateState,
-		)
+		rmvHeights := &entry.removeCommitHeights
+		rmvHeight := rmvHeights.GetForParty(whoseCommitChain)
+		if rmvHeight == 0 {
+			processRemoveEntry(
+				entry, ourBalance, theirBalance, nextHeight,
+				whoseCommitChain, false,
+			)
+
+			if mutateState {
+				rmvHeights.SetForParty(
+					whoseCommitChain, nextHeight,
+				)
+			}
+		}
 	}
 
 	// Next we take a second pass through all the log entries, skipping any
@@ -2892,10 +2912,25 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 			continue
 		}
 
-		processAddEntry(
-			entry, ourBalance, theirBalance, nextHeight,
-			whoseCommitChain, false, mutateState,
-		)
+		// Skip the entries that have already had their add commit
+		// height set for this commit chain.
+		addHeights := &entry.addCommitHeights
+		addHeight := addHeights.GetForParty(whoseCommitChain)
+		if addHeight == 0 {
+			processAddEntry(
+				entry, ourBalance, theirBalance, nextHeight,
+				whoseCommitChain, false,
+			)
+
+			// If we are mutating the state, then set the add
+			// height for the appropriate commitment chain to the
+			// next height.
+			if mutateState {
+				addHeights.SetForParty(
+					whoseCommitChain, nextHeight,
+				)
+			}
+		}
 
 		newView.OurUpdates = append(newView.OurUpdates, entry)
 	}
@@ -2905,10 +2940,25 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 			continue
 		}
 
-		processAddEntry(
-			entry, ourBalance, theirBalance, nextHeight,
-			whoseCommitChain, true, mutateState,
-		)
+		// Skip the entries that have already had their add commit
+		// height set for this commit chain.
+		addHeights := &entry.addCommitHeights
+		addHeight := addHeights.GetForParty(whoseCommitChain)
+		if addHeight == 0 {
+			processAddEntry(
+				entry, ourBalance, theirBalance, nextHeight,
+				whoseCommitChain, true,
+			)
+
+			// If we are mutating the state, then set the add
+			// height for the appropriate commitment chain to the
+			// next height.
+			if mutateState {
+				addHeights.SetForParty(
+					whoseCommitChain, nextHeight,
+				)
+			}
+		}
 
 		newView.TheirUpdates = append(newView.TheirUpdates, entry)
 	}
@@ -2965,23 +3015,8 @@ func (lc *LightningChannel) fetchParent(entry *paymentDescriptor,
 // was committed is updated. Keeping track of this inclusion height allows us to
 // later compact the log once the change is fully committed in both chains.
 func processAddEntry(htlc *paymentDescriptor, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
-	whoseCommitChain lntypes.ChannelParty, isIncoming, mutateState bool) {
-
-	// If we're evaluating this entry for the remote chain (to create/view
-	// a new commitment), then we'll may be updating the height this entry
-	// was added to the chain. Otherwise, we may be updating the entry's
-	// height w.r.t the local chain.
-	var addHeight *uint64
-	if whoseCommitChain.IsRemote() {
-		addHeight = &htlc.addCommitHeights.Remote
-	} else {
-		addHeight = &htlc.addCommitHeights.Local
-	}
-
-	if *addHeight != 0 {
-		return
-	}
+	theirBalance *lnwire.MilliSatoshi, _ uint64,
+	_ lntypes.ChannelParty, isIncoming bool) {
 
 	if isIncoming {
 		// If this is a new incoming (un-committed) HTLC, then we need
@@ -2993,30 +3028,14 @@ func processAddEntry(htlc *paymentDescriptor, ourBalance,
 		// going HTLC to reflect the pending balance.
 		*ourBalance -= htlc.Amount
 	}
-
-	if mutateState {
-		*addHeight = nextHeight
-	}
 }
 
 // processRemoveEntry processes a log entry which settles or times out a
 // previously added HTLC. If the removal entry has already been processed, it
 // is skipped.
 func processRemoveEntry(htlc *paymentDescriptor, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
-	whoseCommitChain lntypes.ChannelParty, isIncoming, mutateState bool) {
-
-	var removeHeight *uint64
-	if whoseCommitChain.IsRemote() {
-		removeHeight = &htlc.removeCommitHeights.Remote
-	} else {
-		removeHeight = &htlc.removeCommitHeights.Local
-	}
-
-	// Ignore any removal entries which have already been processed.
-	if *removeHeight != 0 {
-		return
-	}
+	theirBalance *lnwire.MilliSatoshi, _ uint64,
+	_ lntypes.ChannelParty, isIncoming bool) {
 
 	switch {
 	// If an incoming HTLC is being settled, then this means that we've
@@ -3042,10 +3061,6 @@ func processRemoveEntry(htlc *paymentDescriptor, ourBalance,
 	// the HTLC should be returned to our settled balance.
 	case !isIncoming && (htlc.EntryType == Fail || htlc.EntryType == MalformedFail):
 		*ourBalance += htlc.Amount
-	}
-
-	if mutateState {
-		*removeHeight = nextHeight
 	}
 }
 

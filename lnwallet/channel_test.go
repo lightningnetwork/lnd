@@ -8837,10 +8837,29 @@ func TestProcessFeeUpdate(t *testing.T) {
 			view := &htlcView{
 				feePerKw: chainfee.SatPerKWeight(feePerKw),
 			}
-			processFeeUpdate(
-				update, nextHeight, test.whoseCommitChain,
-				test.mutate, view,
+
+			h := update.addCommitHeights.GetParty(
+				test.whoseCommitChain,
 			)
+
+			if h == 0 {
+				processFeeUpdate(
+					update, &view.feePerKw, nextHeight,
+					test.whoseCommitChain,
+				)
+
+				if test.mutate {
+					update.addCommitHeights.SetParty(
+						test.whoseCommitChain,
+						nextHeight,
+					)
+
+					update.removeCommitHeights.SetParty(
+						test.whoseCommitChain,
+						nextHeight,
+					)
+				}
+			}
 
 			if view.feePerKw != test.expectedFee {
 				t.Fatalf("expected fee: %v, got: %v",

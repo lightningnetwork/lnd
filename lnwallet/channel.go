@@ -2619,10 +2619,24 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 
 		// Process fee updates, updating the current feePerKw.
 		case FeeUpdate:
-			processFeeUpdate(
-				entry, nextHeight, whoseCommitChain,
-				mutateState, newView,
-			)
+			h := entry.addCommitHeights.GetParty(whoseCommitChain)
+
+			if h == 0 {
+				processFeeUpdate(
+					entry, &newView.feePerKw, nextHeight,
+					whoseCommitChain,
+				)
+
+				if mutateState {
+					entry.addCommitHeights.SetParty(
+						whoseCommitChain, nextHeight,
+					)
+
+					entry.removeCommitHeights.SetParty(
+						whoseCommitChain, nextHeight,
+					)
+				}
+			}
 			continue
 		}
 
@@ -2667,10 +2681,24 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 
 		// Process fee updates, updating the current feePerKw.
 		case FeeUpdate:
-			processFeeUpdate(
-				entry, nextHeight, whoseCommitChain,
-				mutateState, newView,
-			)
+			h := entry.addCommitHeights.GetParty(whoseCommitChain)
+
+			if h == 0 {
+				processFeeUpdate(
+					entry, &newView.feePerKw, nextHeight,
+					whoseCommitChain,
+				)
+
+				if mutateState {
+					entry.addCommitHeights.SetParty(
+						whoseCommitChain, nextHeight,
+					)
+
+					entry.removeCommitHeights.SetParty(
+						whoseCommitChain, nextHeight,
+					)
+				}
+			}
 			continue
 		}
 
@@ -2873,35 +2901,13 @@ func processRemoveEntry(htlc *paymentDescriptor, ourBalance,
 
 // processFeeUpdate processes a log update that updates the current commitment
 // fee.
-func processFeeUpdate(feeUpdate *paymentDescriptor, nextHeight uint64,
-	whoseCommitChain lntypes.ChannelParty, mutateState bool, view *htlcView,
-) {
-
-	// Fee updates are applied for all commitments after they are
-	// sent/received, so we consider them being added and removed at the
-	// same height.
-	var addHeight *uint64
-	var removeHeight *uint64
-	if whoseCommitChain.IsRemote() {
-		addHeight = &feeUpdate.addCommitHeights.Remote
-		removeHeight = &feeUpdate.removeCommitHeights.Remote
-	} else {
-		addHeight = &feeUpdate.addCommitHeights.Local
-		removeHeight = &feeUpdate.removeCommitHeights.Local
-	}
-
-	if *addHeight != 0 {
-		return
-	}
+func processFeeUpdate(feeUpdate *paymentDescriptor,
+	feeRef *chainfee.SatPerKWeight, nextHeight uint64,
+	whoseCommitChain lntypes.ChannelParty) {
 
 	// If the update wasn't already locked in, update the current fee rate
 	// to reflect this update.
-	view.feePerKw = chainfee.SatPerKWeight(feeUpdate.Amount.ToSatoshis())
-
-	if mutateState {
-		*addHeight = nextHeight
-		*removeHeight = nextHeight
-	}
+	*feeRef = chainfee.SatPerKWeight(feeUpdate.Amount.ToSatoshis())
 }
 
 // generateRemoteHtlcSigJobs generates a series of HTLC signature jobs for the

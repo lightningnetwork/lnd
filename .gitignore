@@ -36,6 +36,7 @@ itest/*.log
 itest/.backendlogs
 itest/.minerlogs
 itest/lnd-itest
+itest/litd-itest
 itest/btcd-itest
 itest/.logs-*
 itest/cover

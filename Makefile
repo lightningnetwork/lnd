@@ -205,8 +205,18 @@ itest-only: db-instance
 	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_part.sh 0 1 $(TEST_FLAGS) $(ITEST_FLAGS)
 	$(COLLECT_ITEST_COVERAGE)
 
+#? itest-only-litd: Only run litd integration tests without re-building binaries
+itest-only-litd: db-instance
+	@$(call print, "Running integration tests with litd and ${backend} backend.")
+	rm -rf itest/*.log itest/.logs-*; date
+	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_litd_part.sh 0 1 $(TEST_FLAGS) $(ITEST_FLAGS)
+	$(COLLECT_ITEST_COVERAGE)
+
 #? itest: Build and run integration tests
 itest: build-itest itest-only
+
+#? itest-litd: Build and run integration tests with litd
+itest-litd: build-itest itest-only-litd
 
 #? itest-race: Build and run integration tests in race detector mode
 itest-race: build-itest-race itest-only

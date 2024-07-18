@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/integration/rpctest"
@@ -182,7 +183,7 @@ func (cfg *BaseNodeConfig) BaseConfig() *BaseNodeConfig {
 
 // GenArgs generates a slice of command line arguments from the lightning node
 // config struct.
-func (cfg *BaseNodeConfig) GenArgs() []string {
+func (cfg *BaseNodeConfig) GenArgs(isLitd bool) []string {
 	var args []string
 
 	switch cfg.NetParams {
@@ -216,6 +217,20 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath),
 		fmt.Sprintf("--trickledelay=%v", trickleDelay),
 		fmt.Sprintf("--profile=%d", cfg.ProfilePort),
+
+		"--trickledelay=50",
+		"--gossip.sub-batch-delay=5ms",
+		"--caches.rpc-graph-cache-duration=100ms",
+		"--default-remote-max-htlcs=483",
+		"--dust-threshold=5000000",
+		"--rpcmiddleware.enable",
+		"--protocol.anchors",
+		"--protocol.option-scid-alias",
+		"--protocol.zero-conf",
+		"--protocol.simple-taproot-chans",
+		"--protocol.simple-taproot-overlay-chans",
+		"--protocol.custom-message=17",
+		"--debuglevel=trace,GRPC=error,BTCN=info",
 
 		// Use a small batch delay so we can broadcast the
 		// announcements quickly in the tests.
@@ -285,6 +300,54 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	// Put extra args in the end so the args can be overwritten.
 	if cfg.ExtraArgs != nil {
 		args = append(args, cfg.ExtraArgs...)
+	}
+
+	litdArgsTemplate := []string{
+		"--disableui",
+		"--lnd-mode=integrated",
+		"--network=regtest",
+		"--lndconnectinterval=200ms",
+		"--autopilot.disable",
+		"--faraday-mode=disable",
+		"--loop-mode=disable",
+		"--pool-mode=disable",
+		fmt.Sprintf("--lit-dir=%v/litd", cfg.BaseDir),
+		"--taproot-assets.norest",
+		"--taproot-assets.allow-public-uni-proof-courier",
+		"--taproot-assets.universe.public-access=rw",
+		"--taproot-assets.universe.sync-all-assets",
+		"--taproot-assets.universerpccourier.skipinitdelay",
+		"--taproot-assets.universerpccourier.backoffresetwait=1s",
+		"--taproot-assets.universerpccourier.numtries=5",
+		"--taproot-assets.universerpccourier.initialbackoff=300ms",
+		"--taproot-assets.universerpccourier.maxbackoff=600ms",
+		"--taproot-assets.experimental.rfq.priceoracleaddress=" +
+			"use_mock_price_oracle_service_promise_to_" +
+			"not_use_on_mainnet",
+		"--taproot-assets.experimental.rfq.mockoracleassetsperbtc=" +
+			"5820600",
+		"--taproot-assets.universerpccourier.skipinitdelay",
+		"--taproot-assets.universerpccourier.backoffresetwait=100ms",
+		"--taproot-assets.universerpccourier.initialbackoff=300ms",
+		"--taproot-assets.universerpccourier.maxbackoff=600ms",
+		"--taproot-assets.custodianproofretrievaldelay=500ms",
+		fmt.Sprintf("--taproot-assets.tapddir=%v/tapd", cfg.BaseDir),
+	}
+
+	if isLitd {
+		for i := range args {
+			args[i] = strings.ReplaceAll(args[i], "--", "--lnd.")
+		}
+
+		args = append(args, litdArgsTemplate...)
+		args = append(args, fmt.Sprintf(
+			"--httpslisten=localhost:%d",
+			port.NextAvailablePort(),
+		))
+		args = append(args, fmt.Sprintf(
+			"--taproot-assets.rpclisten=localhost:%d",
+			port.NextAvailablePort(),
+		))
 	}
 
 	return args

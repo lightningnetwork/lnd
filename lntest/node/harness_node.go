@@ -375,11 +375,13 @@ func (hn *HarnessNode) SetExtraArgs(extraArgs []string) {
 
 // StartLndCmd handles the startup of lnd, creating log files, and possibly
 // kills the process when needed.
-func (hn *HarnessNode) StartLndCmd(ctxb context.Context) error {
+func (hn *HarnessNode) StartLndCmd(ctxb context.Context,
+	isLitd bool) error {
+
 	// Init the run context.
 	hn.runCtx, hn.cancel = context.WithCancel(ctxb)
 
-	args := hn.Cfg.GenArgs()
+	args := hn.Cfg.GenArgs(isLitd)
 	hn.cmd = exec.Command(hn.Cfg.LndBinary, args...)
 
 	// Redirect stderr output to buffer
@@ -408,9 +410,11 @@ func (hn *HarnessNode) StartLndCmd(ctxb context.Context) error {
 // start.
 //
 // NOTE: caller needs to take extra step to create and unlock the wallet.
-func (hn *HarnessNode) StartWithNoAuth(ctxt context.Context) error {
+func (hn *HarnessNode) StartWithNoAuth(ctxt context.Context,
+	isLitd bool) error {
+
 	// Start lnd process and prepare logs.
-	if err := hn.StartLndCmd(ctxt); err != nil {
+	if err := hn.StartLndCmd(ctxt, isLitd); err != nil {
 		return fmt.Errorf("start lnd error: %w", err)
 	}
 
@@ -431,9 +435,9 @@ func (hn *HarnessNode) StartWithNoAuth(ctxt context.Context) error {
 
 // Start will start the lnd process, creates the grpc connection, and waits
 // until the server is fully started.
-func (hn *HarnessNode) Start(ctxt context.Context) error {
+func (hn *HarnessNode) Start(ctxt context.Context, isLitd bool) error {
 	// Start lnd process and prepare logs.
-	if err := hn.StartLndCmd(ctxt); err != nil {
+	if err := hn.StartLndCmd(ctxt, isLitd); err != nil {
 		return fmt.Errorf("start lnd error: %w", err)
 	}
 

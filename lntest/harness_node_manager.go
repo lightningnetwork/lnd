@@ -146,10 +146,10 @@ func (nm *nodeManager) restartNode(ctxt context.Context,
 
 	// Start the node without unlocking the wallet.
 	if hn.Cfg.SkipUnlock {
-		return hn.StartWithNoAuth(ctxt)
+		return hn.StartWithNoAuth(ctxt, IsLitd)
 	}
 
-	return hn.Start(ctxt)
+	return hn.Start(ctxt, IsLitd)
 }
 
 // unlockNode unlocks the node's wallet if the password is configured.

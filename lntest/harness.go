@@ -50,6 +50,10 @@ const (
 	maxBlocksAllowed = 100
 )
 
+var (
+	IsLitd bool
+)
+
 // TestCase defines a test case that's been used in the integration test.
 type TestCase struct {
 	// Name specifies the test name.
@@ -581,7 +585,7 @@ func (h *HarnessTest) NewNode(name string,
 	require.NoErrorf(h, err, "unable to create new node for %s", name)
 
 	// Start the node.
-	err = node.Start(h.runCtx)
+	err = node.Start(h.runCtx, IsLitd)
 	require.NoError(h, err, "failed to start node %s", node.Name())
 
 	return node
@@ -611,7 +615,7 @@ func (h *HarnessTest) SuspendNode(node *node.HarnessNode) func() error {
 	return func() error {
 		h.manager.registerNode(node)
 
-		if err := node.Start(h.runCtx); err != nil {
+		if err := node.Start(h.runCtx, IsLitd); err != nil {
 			return err
 		}
 		h.WaitForBlockchainSync(node)
@@ -698,7 +702,7 @@ func (h *HarnessTest) newNodeWithSeed(name string,
 
 	// Start the node with seed only, which will only create the `State`
 	// and `WalletUnlocker` clients.
-	err = node.StartWithNoAuth(h.runCtx)
+	err = node.StartWithNoAuth(h.runCtx, IsLitd)
 	require.NoErrorf(h, err, "failed to start node %s", node.Name())
 
 	// Generate a new seed.
@@ -741,7 +745,7 @@ func (h *HarnessTest) RestoreNodeWithSeed(name string, extraArgs []string,
 
 	// Start the node with seed only, which will only create the `State`
 	// and `WalletUnlocker` clients.
-	err = n.StartWithNoAuth(h.runCtx)
+	err = n.StartWithNoAuth(h.runCtx, IsLitd)
 	require.NoErrorf(h, err, "failed to start node %s", n.Name())
 
 	// Create the wallet.
@@ -766,7 +770,7 @@ func (h *HarnessTest) RestoreNodeWithSeed(name string, extraArgs []string,
 // available (this is useful when the node is not expected to become the leader
 // right away).
 func (h *HarnessTest) NewNodeEtcd(name string, etcdCfg *etcd.Config,
-	password []byte, cluster bool,
+	password []byte, cluster bool, isLitd bool,
 	leaderSessionTTL int) *node.HarnessNode {
 
 	// We don't want to use the embedded etcd instance.
@@ -779,7 +783,7 @@ func (h *HarnessTest) NewNodeEtcd(name string, etcdCfg *etcd.Config,
 	require.NoError(h, err, "failed to create new node with etcd")
 
 	// Start the node daemon only.
-	err = node.StartLndCmd(h.runCtx)
+	err = node.StartLndCmd(h.runCtx, isLitd)
 	require.NoError(h, err, "failed to start node %s", node.Name())
 
 	return node
@@ -817,7 +821,7 @@ func (h *HarnessTest) NewNodeRemoteSigner(name string, extraArgs []string,
 	hn, err := h.manager.newNode(h.T, name, extraArgs, password, true)
 	require.NoErrorf(h, err, "unable to create new node for %s", name)
 
-	err = hn.StartWithNoAuth(h.runCtx)
+	err = hn.StartWithNoAuth(h.runCtx, IsLitd)
 	require.NoError(h, err, "failed to start node %s", name)
 
 	// With the seed created, construct the init request to the node,

@@ -79,6 +79,8 @@ var (
 	lndExecutable = flag.String(
 		"lndexec", itestLndBinary, "full path to lnd binary",
 	)
+
+	isLitd bool
 )
 
 // TestLightningNetworkDaemon performs a series of integration tests amongst a
@@ -97,6 +99,12 @@ func TestLightningNetworkDaemon(t *testing.T) {
 
 	// Get the binary path and setup the harness test.
 	binary := getLndBinary(t)
+
+	// If we're running with litd as the binary, we'll need to know this in
+	// a couple of places, so let's write that to a global variable.
+	isLitd = strings.Contains(binary, "litd")
+	lntest.IsLitd = isLitd
+
 	harnessTest := lntest.SetupHarness(
 		t, binary, *dbBackendFlag, *nativeSQLFlag, feeService,
 	)

@@ -1292,7 +1292,7 @@ func testNativeSQLNoMigration(ht *lntest.HarnessTest) {
 	// Restart the node manually as we're really only interested in the
 	// startup error.
 	require.NoError(ht, alice.Stop())
-	require.NoError(ht, alice.StartLndCmd(context.Background()))
+	require.NoError(ht, alice.StartLndCmd(context.Background(), isLitd))
 
 	// We expect the node to fail to start up with native SQL enabled, as we
 	// have an invoice in the KV store.
@@ -1300,5 +1300,5 @@ func testNativeSQLNoMigration(ht *lntest.HarnessTest) {
 
 	// Reset the extra args and restart alice.
 	alice.SetExtraArgs(nil)
-	require.NoError(ht, alice.Start(ht.Context()))
+	require.NoError(ht, alice.Start(ht.Context(), isLitd))
 }

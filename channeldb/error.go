@@ -43,6 +43,8 @@ var (
 	// created.
 	ErrMetaNotFound = fmt.Errorf("unable to locate meta information")
 
+	ErrGraphCacheNotReady = fmt.Errorf("graph cache not ready")
+
 	// ErrGraphNotFound is returned when at least one of the components of
 	// graph doesn't exist.
 	ErrGraphNotFound = fmt.Errorf("graph bucket not initialized")

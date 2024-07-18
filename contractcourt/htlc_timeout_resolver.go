@@ -418,9 +418,7 @@ func checkSizeAndIndex(witness wire.TxWitness, size, index int) bool {
 // see a direct sweep via the timeout clause.
 //
 // NOTE: Part of the ContractResolver interface.
-func (h *htlcTimeoutResolver) Resolve(
-	immediate bool) (ContractResolver, error) {
-
+func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	// If we're already resolved, then we can exit early.
 	if h.resolved {
 		return nil, nil
@@ -429,7 +427,7 @@ func (h *htlcTimeoutResolver) Resolve(
 	// Start by spending the HTLC output, either by broadcasting the
 	// second-level timeout transaction, or directly if this is the remote
 	// commitment.
-	commitSpend, err := h.spendHtlcOutput(immediate)
+	commitSpend, err := h.spendHtlcOutput()
 	if err != nil {
 		return nil, err
 	}
@@ -473,7 +471,7 @@ func (h *htlcTimeoutResolver) Resolve(
 
 // sweepSecondLevelTx sends a second level timeout transaction to the sweeper.
 // This transaction uses the SINLGE|ANYONECANPAY flag.
-func (h *htlcTimeoutResolver) sweepSecondLevelTx(immediate bool) error {
+func (h *htlcTimeoutResolver) sweepSecondLevelTx() error {
 	log.Infof("%T(%x): offering second-layer timeout tx to sweeper: %v",
 		h, h.htlc.RHash[:],
 		spew.Sdump(h.htlcResolution.SignedTimeoutTx))
@@ -531,7 +529,6 @@ func (h *htlcTimeoutResolver) sweepSecondLevelTx(immediate bool) error {
 		sweep.Params{
 			Budget:         budget,
 			DeadlineHeight: h.incomingHTLCExpiryHeight,
-			Immediate:      immediate,
 		},
 	)
 	if err != nil {
@@ -567,8 +564,8 @@ func (h *htlcTimeoutResolver) sendSecondLevelTxLegacy() error {
 // used to spend the output into the next stage. If this is the remote
 // commitment, the output will be swept directly without the timeout
 // transaction.
-func (h *htlcTimeoutResolver) spendHtlcOutput(
-	immediate bool) (*chainntnfs.SpendDetail, error) {
+func (h *htlcTimeoutResolver) spendHtlcOutput() (
+	*chainntnfs.SpendDetail, error) {
 
 	switch {
 	// If we have non-nil SignDetails, this means that have a 2nd level
@@ -576,7 +573,7 @@ func (h *htlcTimeoutResolver) spendHtlcOutput(
 	// (the case for anchor type channels). In this case we can re-sign it
 	// and attach fees at will. We let the sweeper handle this job.
 	case h.htlcResolution.SignDetails != nil && !h.outputIncubating:
-		if err := h.sweepSecondLevelTx(immediate); err != nil {
+		if err := h.sweepSecondLevelTx(); err != nil {
 			log.Errorf("Sending timeout tx to sweeper: %v", err)
 
 			return nil, err
@@ -712,30 +709,6 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 				"height %v", h, h.htlc.RHash[:], waitHeight)
 		}
 
-		// Deduct one block so this input is offered to the sweeper one
-		// block earlier since the sweeper will wait for one block to
-		// trigger the sweeping.
-		//
-		// TODO(yy): this is done so the outputs can be aggregated
-		// properly. Suppose CSV locks of five 2nd-level outputs all
-		// expire at height 840000, there is a race in block digestion
-		// between contractcourt and sweeper:
-		// - G1: block 840000 received in contractcourt, it now offers
-		//   the outputs to the sweeper.
-		// - G2: block 840000 received in sweeper, it now starts to
-		//   sweep the received outputs - there's no guarantee all
-		//   fives have been received.
-		// To solve this, we either offer the outputs earlier, or
-		// implement `blockbeat`, and force contractcourt and sweeper
-		// to consume each block sequentially.
-		waitHeight--
-
-		// TODO(yy): let sweeper handles the wait?
-		err := waitForHeight(waitHeight, h.Notifier, h.quit)
-		if err != nil {
-			return nil, err
-		}
-
 		// We'll use this input index to determine the second-level
 		// output index on the transaction, as the signatures requires
 		// the indexes to be the same. We don't look for the
@@ -774,7 +747,7 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 			"sweeper with no deadline and budget=%v at height=%v",
 			h, h.htlc.RHash[:], budget, waitHeight)
 
-		_, err = h.Sweeper.SweepInput(
+		_, err := h.Sweeper.SweepInput(
 			inp,
 			sweep.Params{
 				Budget: budget,

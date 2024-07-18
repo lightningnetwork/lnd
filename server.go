@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
@@ -334,6 +335,10 @@ type server struct {
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
 
+	// blockbeatDispatcher is a block dispatcher that notifies subscribers
+	// of new blocks.
+	blockbeatDispatcher *chainio.BlockbeatDispatcher
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -583,6 +588,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
 
+		blockbeatDispatcher: chainio.NewBlockbeatDispatcher(
+			cc.ChainNotifier,
+		),
 		channelNotifier: channelnotifier.New(
 			dbs.ChanStateDB.ChannelStateDB(),
 		),
@@ -612,8 +620,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		peersByPub:                make(map[string]*peer.Brontide),
 		inboundPeers:              make(map[string]*peer.Brontide),
 		outboundPeers:             make(map[string]*peer.Brontide),
-		peerConnectedListeners:    make(map[string][]chan<- lnpeer.Peer),
 		peerDisconnectedListeners: make(map[string][]chan<- struct{}),
+
+		peerConnectedListeners: make(map[string][]chan<- lnpeer.Peer),
 
 		customMessageServer: subscribe.NewServer(),
 
@@ -1696,7 +1705,29 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 	s.connMgr = cmgr
 
+	// Finally, register the subsystems in blockbeat.
+	s.registerBlockConsumers()
+
 	return s, nil
+}
+
+// registerBlockConsumers registers the subsystems that consume block events.
+// By calling `RegisterQueue`, a list of subsystems are registered in the
+// blockbeat for block notifications. When a new block arrives, the subsystems
+// in the same queue are notified sequentially, and different queues are
+// notified concurrently.
+//
+// NOTE: To put a subsystem in a different queue, create a slice and pass it to
+// a new `RegisterQueue` call.
+func (s *server) registerBlockConsumers() {
+	// In this queue, when a new block arrives, it will be received and
+	// processed in this order: chainArb -> sweeper -> txPublisher.
+	consumers := []chainio.Consumer{
+		s.chainArb,
+		s.sweeper,
+		s.txPublisher,
+	}
+	s.blockbeatDispatcher.RegisterQueue(consumers)
 }
 
 // signAliasUpdate takes a ChannelUpdate and returns the signature. This is
@@ -1939,6 +1970,13 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.cc.ChainNotifier.Stop)
 
+		// Once ChainNotifier is started, we can set the initial
+		// blockbeat for the consumers.
+		if err := s.blockbeatDispatcher.SetInitialBeat(); err != nil {
+			startErr = err
+			return
+		}
+
 		if err := s.cc.BestBlockTracker.Start(); err != nil {
 			startErr = err
 			return
@@ -2135,6 +2173,17 @@ func (s *server) Start() error {
 			return nil
 		})
 
+		// Start the blockbeat after all other subsystems have been
+		// started so they are ready to receive new blocks.
+		if err := s.blockbeatDispatcher.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(func() error {
+			s.blockbeatDispatcher.Stop()
+			return nil
+		})
+
 		// If peers are specified as a config option, we'll add those
 		// peers first.
 		for _, peerAddrCfg := range s.cfg.AddPeers {
@@ -2284,6 +2333,9 @@ func (s *server) Stop() error {
 
 		// Shutdown connMgr first to prevent conns during shutdown.
 		s.connMgr.Stop()
+
+		// Stop dispatching blocks to other systems immediately.
+		s.blockbeatDispatcher.Stop()
 
 		// Shutdown the wallet, funding manager, and the rpc server.
 		if err := s.chanStatusMgr.Stop(); err != nil {

@@ -791,7 +791,7 @@ func (u *UtxoNursery) graduateClass(classHeight uint32) error {
 		return err
 	}
 
-	utxnLog.Infof("Attempting to graduate height=%v: num_kids=%v, "+
+	utxnLog.Debugf("Attempting to graduate height=%v: num_kids=%v, "+
 		"num_babies=%v", classHeight, len(kgtnOutputs), len(cribOutputs))
 
 	// Offer the outputs to the sweeper and set up notifications that will

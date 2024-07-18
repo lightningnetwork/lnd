@@ -4007,6 +4007,9 @@ func TestGraphLoading(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	_, err = graph.getGraphCache()
+	require.NoError(t, err)
+
 	// Populate the graph with test data.
 	const numNodes = 100
 	const numChannels = 4
@@ -4019,6 +4022,9 @@ func TestGraphLoading(t *testing.T) {
 		opts.BatchCommitInterval, opts.PreAllocCacheNumNodes,
 		true, false,
 	)
+	require.NoError(t, err)
+
+	_, err = graphReloaded.getGraphCache()
 	require.NoError(t, err)
 
 	// Assert that the cache content is identical.

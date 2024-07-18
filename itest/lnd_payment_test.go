@@ -256,6 +256,14 @@ func testListPayments(ht *lntest.HarnessTest) {
 				endDate:  createTimeSeconds - 1,
 				expected: false,
 			},
+			{
+				// Use an earlier both start date and end date
+				// should return us nothing.
+				name:      "earlier start and end date",
+				startDate: createTimeSeconds - 2,
+				endDate:   createTimeSeconds - 1,
+				expected:  false,
+			},
 		}
 	}
 
@@ -271,15 +279,21 @@ func testListPayments(ht *lntest.HarnessTest) {
 	for _, tc := range testCases {
 		ht.Run("payment_"+tc.name, func(t *testing.T) {
 			req := &lnrpc.ListPaymentsRequest{
-				CreationDateStart: tc.startDate,
-				CreationDateEnd:   tc.endDate,
+				CreationDateStart:  tc.startDate,
+				CreationDateEnd:    tc.endDate,
+				CountTotalPayments: true,
 			}
 			resp := alice.RPC.ListPayments(req)
 
 			if tc.expected {
 				require.Lenf(t, resp.Payments, 1, "req=%v", req)
+				require.Equal(t, resp.TotalNumPayments,
+					uint64(1),
+					"TNP=%v", resp.TotalNumPayments)
 			} else {
 				require.Emptyf(t, resp.Payments, "req=%v", req)
+				require.Zero(t, resp.TotalNumPayments,
+					"TNP=%v", resp.TotalNumPayments)
 			}
 		})
 	}

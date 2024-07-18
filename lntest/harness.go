@@ -1316,7 +1316,7 @@ func (h *HarnessTest) CloseChannel(hn *node.HarnessNode,
 
 	stream, _ := h.CloseChannelAssertPending(hn, cp, false)
 
-	return h.AssertStreamChannelCoopClosed(hn, cp, false, stream)
+	return h.AssertStreamChannelCoopClosed(hn, cp, stream)
 }
 
 // ForceCloseChannel attempts to force close a non-anchored channel identified
@@ -1625,9 +1625,9 @@ func (h *HarnessTest) CleanupForceClose(hn *node.HarnessNode) {
 	h.AssertNumPendingForceClose(hn, 1)
 
 	// Mine enough blocks for the node to sweep its funds from the force
-	// closed channel. The commit sweep resolver is able to offer the input
-	// to the sweeper at defaulCSV-1, and broadcast the sweep tx once one
-	// more block is mined.
+	// closed channel. The commit sweep resolver is offers the input to the
+	// sweeper when it's force closed, and broadcast the sweep tx at
+	// defaulCSV-1.
 	//
 	// NOTE: we might empty blocks here as we don't know the exact number
 	// of blocks to mine. This may end up mining more blocks than needed.
@@ -1635,9 +1635,6 @@ func (h *HarnessTest) CleanupForceClose(hn *node.HarnessNode) {
 
 	// Assert there is one pending sweep.
 	h.AssertNumPendingSweeps(hn, 1)
-
-	// Mine a block to trigger the sweep.
-	h.MineEmptyBlocks(1)
 
 	// The node should now sweep the funds, clean up by mining the sweeping
 	// tx.
@@ -1976,7 +1973,8 @@ func (h *HarnessTest) AssertSweepFound(hn *node.HarnessNode,
 			return nil
 		}
 
-		return fmt.Errorf("sweep tx %v not found", sweep)
+		return fmt.Errorf("sweep tx %v not found in resp %v", sweep,
+			sweepResp)
 	}, wait.DefaultTimeout)
 	require.NoError(h, err, "%s: timeout checking sweep tx", hn.Name())
 }

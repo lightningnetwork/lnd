@@ -28,9 +28,6 @@ type commitSweepResolver struct {
 	// this HTLC on-chain.
 	commitResolution lnwallet.CommitOutputResolution
 
-	// resolved reflects if the contract has been fully resolved or not.
-	resolved bool
-
 	// broadcastHeight is the height that the original contract was
 	// broadcast to the main-chain at. We'll use this value to bound any
 	// historical queries to the chain for spends/confirmations.
@@ -77,7 +74,7 @@ func newCommitSweepResolver(res lnwallet.CommitOutputResolution,
 		chanPoint:           chanPoint,
 	}
 
-	r.initLogger(r)
+	r.initLogger(fmt.Sprintf("%T(%v)", r, r.commitResolution.SelfOutPoint))
 	r.initReport()
 
 	return r
@@ -156,13 +153,219 @@ func (c *commitSweepResolver) getCommitTxConfHeight() (uint32, error) {
 // NOTE: This function MUST be run as a goroutine.
 func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// If we're already resolved, then we can exit early.
-	if c.resolved {
+	if c.IsResolved() {
+		c.log.Errorf("already resolved")
 		return nil, nil
+	}
+
+	var sweepTxID chainhash.Hash
+
+	// Sweeper is going to join this input with other inputs if possible
+	// and publish the sweep tx. When the sweep tx confirms, it signals us
+	// through the result channel with the outcome. Wait for this to
+	// happen.
+	outcome := channeldb.ResolverOutcomeClaimed
+	select {
+	case sweepResult := <-c.sweepResultChan:
+		switch sweepResult.Err {
+		// If the remote party was able to sweep this output it's
+		// likely what we sent was actually a revoked commitment.
+		// Report the error and continue to wrap up the contract.
+		case sweep.ErrRemoteSpend:
+			c.log.Warnf("local commitment output was swept by "+
+				"remote party via %v", sweepResult.Tx.TxHash())
+			outcome = channeldb.ResolverOutcomeUnclaimed
+
+		// No errors, therefore continue processing.
+		case nil:
+			c.log.Infof("local commitment output fully resolved by "+
+				"sweep tx: %v", sweepResult.Tx.TxHash())
+		// Unknown errors.
+		default:
+			c.log.Errorf("unable to sweep input: %v",
+				sweepResult.Err)
+
+			return nil, sweepResult.Err
+		}
+
+		sweepTxID = sweepResult.Tx.TxHash()
+
+	case <-c.quit:
+		return nil, errResolverShuttingDown
+	}
+
+	// Funds have been swept and balance is no longer in limbo.
+	c.reportLock.Lock()
+	if outcome == channeldb.ResolverOutcomeClaimed {
+		// We only record the balance as recovered if it actually came
+		// back to us.
+		c.currentReport.RecoveredBalance = c.currentReport.LimboBalance
+	}
+	c.currentReport.LimboBalance = 0
+	c.reportLock.Unlock()
+	report := c.currentReport.resolverReport(
+		&sweepTxID, channeldb.ResolverTypeCommit, outcome,
+	)
+	c.resolved.Store(true)
+
+	// Checkpoint the resolver with a closure that will write the outcome
+	// of the resolver and its sweep transaction to disk.
+	return nil, c.Checkpoint(c, report)
+}
+
+// Stop signals the resolver to cancel any current resolution processes, and
+// suspend.
+//
+// NOTE: Part of the ContractResolver interface.
+func (c *commitSweepResolver) Stop() {
+	c.log.Debugf("stopping...")
+	close(c.quit)
+}
+
+// SupplementState allows the user of a ContractResolver to supplement it with
+// state required for the proper resolution of a contract.
+//
+// NOTE: Part of the ContractResolver interface.
+func (c *commitSweepResolver) SupplementState(state *channeldb.OpenChannel) {
+	if state.ChanType.HasLeaseExpiration() {
+		c.leaseExpiry = state.ThawHeight
+	}
+	c.channelInitiator = state.IsInitiator
+	c.chanType = state.ChanType
+}
+
+// hasCLTV denotes whether the resolver must wait for an additional CLTV to
+// expire before resolving the contract.
+func (c *commitSweepResolver) hasCLTV() bool {
+	return c.channelInitiator && c.leaseExpiry > 0
+}
+
+// Encode writes an encoded version of the ContractResolver into the passed
+// Writer.
+//
+// NOTE: Part of the ContractResolver interface.
+func (c *commitSweepResolver) Encode(w io.Writer) error {
+	if err := encodeCommitResolution(w, &c.commitResolution); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, endian, c.IsResolved()); err != nil {
+		return err
+	}
+	if err := binary.Write(w, endian, c.broadcastHeight); err != nil {
+		return err
+	}
+	if _, err := w.Write(c.chanPoint.Hash[:]); err != nil {
+		return err
+	}
+	err := binary.Write(w, endian, c.chanPoint.Index)
+	if err != nil {
+		return err
+	}
+
+	// Previously a sweep tx was serialized at this point. Refactoring
+	// removed this, but keep in mind that this data may still be present in
+	// the database.
+
+	return nil
+}
+
+// newCommitSweepResolverFromReader attempts to decode an encoded
+// ContractResolver from the passed Reader instance, returning an active
+// ContractResolver instance.
+func newCommitSweepResolverFromReader(r io.Reader, resCfg ResolverConfig) (
+	*commitSweepResolver, error) {
+
+	c := &commitSweepResolver{
+		contractResolverKit: *newContractResolverKit(resCfg),
+	}
+
+	if err := decodeCommitResolution(r, &c.commitResolution); err != nil {
+		return nil, err
+	}
+
+	var resolved bool
+	if err := binary.Read(r, endian, &resolved); err != nil {
+		return nil, err
+	}
+	c.resolved.Store(resolved)
+
+	if err := binary.Read(r, endian, &c.broadcastHeight); err != nil {
+		return nil, err
+	}
+	_, err := io.ReadFull(r, c.chanPoint.Hash[:])
+	if err != nil {
+		return nil, err
+	}
+	err = binary.Read(r, endian, &c.chanPoint.Index)
+	if err != nil {
+		return nil, err
+	}
+
+	// Previously a sweep tx was deserialized at this point. Refactoring
+	// removed this, but keep in mind that this data may still be present in
+	// the database.
+
+	c.initLogger(fmt.Sprintf("%T(%v)", c, c.commitResolution.SelfOutPoint))
+	c.initReport()
+
+	return c, nil
+}
+
+// report returns a report on the resolution state of the contract.
+func (c *commitSweepResolver) report() *ContractReport {
+	c.reportLock.Lock()
+	defer c.reportLock.Unlock()
+
+	cpy := c.currentReport
+	return &cpy
+}
+
+// initReport initializes the pending channels report for this resolver.
+func (c *commitSweepResolver) initReport() {
+	amt := btcutil.Amount(
+		c.commitResolution.SelfOutputSignDesc.Output.Value,
+	)
+
+	// Set the initial report. All fields are filled in, except for the
+	// maturity height which remains 0 until Resolve() is executed.
+	//
+	// TODO(joostjager): Resolvers only activate after the commit tx
+	// confirms. With more refactoring in channel arbitrator, it would be
+	// possible to make the confirmation height part of ResolverConfig and
+	// populate MaturityHeight here.
+	c.currentReport = ContractReport{
+		Outpoint:         c.commitResolution.SelfOutPoint,
+		Type:             ReportOutputUnencumbered,
+		Amount:           amt,
+		LimboBalance:     amt,
+		RecoveredBalance: 0,
+	}
+}
+
+// A compile time assertion to ensure commitSweepResolver meets the
+// ContractResolver interface.
+var _ reportingContractResolver = (*commitSweepResolver)(nil)
+
+// Launch constructs a commit input and offers it to the sweeper.
+func (c *commitSweepResolver) Launch() error {
+	if c.launched.Load() {
+		c.log.Tracef("already launched")
+		return nil
+	}
+
+	c.log.Debugf("launching resolver...")
+	c.launched.Store(true)
+
+	// If we're already resolved, then we can exit early.
+	if c.IsResolved() {
+		c.log.Errorf("already resolved")
+		return nil
 	}
 
 	confHeight, err := c.getCommitTxConfHeight()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// Wait up until the CSV expires, unless we also have a CLTV that
@@ -173,9 +376,6 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 			float64(unlockHeight), float64(c.leaseExpiry),
 		))
 	}
-
-	c.log.Debugf("commit conf_height=%v, unlock_height=%v",
-		confHeight, unlockHeight)
 
 	// Update report now that we learned the confirmation height.
 	c.reportLock.Lock()
@@ -208,8 +408,9 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	}
 	isDelayedOutput := c.commitResolution.MaturityDelay != 0
 
-	c.log.Debugf("isDelayedOutput=%v, isLocalCommitTx=%v", isDelayedOutput,
-		isLocalCommitTx)
+	c.log.Debugf("commit conf_height=%v, unlock_height=%v, "+
+		"isDelayedOutput=%v, isLocalCommitTx=%v", confHeight,
+		unlockHeight, isDelayedOutput, isLocalCommitTx)
 
 	// There're three types of commitments, those that have tweaks for the
 	// remote key (us in this case), those that don't, and a third where
@@ -255,8 +456,6 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		witnessType = input.CommitmentNoDelay
 	}
 
-	c.log.Infof("Sweeping with witness type: %v", witnessType)
-
 	// We'll craft an input with all the information required for the
 	// sweeper to create a fully valid sweeping transaction to recover
 	// these coins.
@@ -284,7 +483,8 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		btcutil.Amount(inp.SignDesc().Output.Value),
 		c.Budget.ToLocalRatio, c.Budget.ToLocal,
 	)
-	c.log.Infof("Sweeping commit output using budget=%v", budget)
+	c.log.Infof("sweeping commit output %v using budget=%v", witnessType,
+		budget)
 
 	// With our input constructed, we'll now offer it to the sweeper.
 	resultChan, err := c.Sweeper.SweepInput(
@@ -299,198 +499,10 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	if err != nil {
 		c.log.Errorf("unable to sweep input: %v", err)
 
-		return nil, err
-	}
-
-	var sweepTxID chainhash.Hash
-
-	// Sweeper is going to join this input with other inputs if possible
-	// and publish the sweep tx. When the sweep tx confirms, it signals us
-	// through the result channel with the outcome. Wait for this to
-	// happen.
-	outcome := channeldb.ResolverOutcomeClaimed
-	select {
-	case sweepResult := <-resultChan:
-		switch sweepResult.Err {
-		// If the remote party was able to sweep this output it's
-		// likely what we sent was actually a revoked commitment.
-		// Report the error and continue to wrap up the contract.
-		case sweep.ErrRemoteSpend:
-			c.log.Warnf("local commitment output was swept by "+
-				"remote party via %v", sweepResult.Tx.TxHash())
-			outcome = channeldb.ResolverOutcomeUnclaimed
-
-		// No errors, therefore continue processing.
-		case nil:
-			c.log.Infof("local commitment output fully resolved by "+
-				"sweep tx: %v", sweepResult.Tx.TxHash())
-		// Unknown errors.
-		default:
-			c.log.Errorf("unable to sweep input: %v",
-				sweepResult.Err)
-
-			return nil, sweepResult.Err
-		}
-
-		sweepTxID = sweepResult.Tx.TxHash()
-
-	case <-c.quit:
-		return nil, errResolverShuttingDown
-	}
-
-	// Funds have been swept and balance is no longer in limbo.
-	c.reportLock.Lock()
-	if outcome == channeldb.ResolverOutcomeClaimed {
-		// We only record the balance as recovered if it actually came
-		// back to us.
-		c.currentReport.RecoveredBalance = c.currentReport.LimboBalance
-	}
-	c.currentReport.LimboBalance = 0
-	c.reportLock.Unlock()
-	report := c.currentReport.resolverReport(
-		&sweepTxID, channeldb.ResolverTypeCommit, outcome,
-	)
-	c.resolved = true
-
-	// Checkpoint the resolver with a closure that will write the outcome
-	// of the resolver and its sweep transaction to disk.
-	return nil, c.Checkpoint(c, report)
-}
-
-// Stop signals the resolver to cancel any current resolution processes, and
-// suspend.
-//
-// NOTE: Part of the ContractResolver interface.
-func (c *commitSweepResolver) Stop() {
-	close(c.quit)
-}
-
-// IsResolved returns true if the stored state in the resolve is fully
-// resolved. In this case the target output can be forgotten.
-//
-// NOTE: Part of the ContractResolver interface.
-func (c *commitSweepResolver) IsResolved() bool {
-	return c.resolved
-}
-
-// SupplementState allows the user of a ContractResolver to supplement it with
-// state required for the proper resolution of a contract.
-//
-// NOTE: Part of the ContractResolver interface.
-func (c *commitSweepResolver) SupplementState(state *channeldb.OpenChannel) {
-	if state.ChanType.HasLeaseExpiration() {
-		c.leaseExpiry = state.ThawHeight
-	}
-	c.channelInitiator = state.IsInitiator
-	c.chanType = state.ChanType
-}
-
-// hasCLTV denotes whether the resolver must wait for an additional CLTV to
-// expire before resolving the contract.
-func (c *commitSweepResolver) hasCLTV() bool {
-	return c.channelInitiator && c.leaseExpiry > 0
-}
-
-// Encode writes an encoded version of the ContractResolver into the passed
-// Writer.
-//
-// NOTE: Part of the ContractResolver interface.
-func (c *commitSweepResolver) Encode(w io.Writer) error {
-	if err := encodeCommitResolution(w, &c.commitResolution); err != nil {
 		return err
 	}
 
-	if err := binary.Write(w, endian, c.resolved); err != nil {
-		return err
-	}
-	if err := binary.Write(w, endian, c.broadcastHeight); err != nil {
-		return err
-	}
-	if _, err := w.Write(c.chanPoint.Hash[:]); err != nil {
-		return err
-	}
-	err := binary.Write(w, endian, c.chanPoint.Index)
-	if err != nil {
-		return err
-	}
-
-	// Previously a sweep tx was serialized at this point. Refactoring
-	// removed this, but keep in mind that this data may still be present in
-	// the database.
+	c.sweepResultChan = resultChan
 
 	return nil
 }
-
-// newCommitSweepResolverFromReader attempts to decode an encoded
-// ContractResolver from the passed Reader instance, returning an active
-// ContractResolver instance.
-func newCommitSweepResolverFromReader(r io.Reader, resCfg ResolverConfig) (
-	*commitSweepResolver, error) {
-
-	c := &commitSweepResolver{
-		contractResolverKit: *newContractResolverKit(resCfg),
-	}
-
-	if err := decodeCommitResolution(r, &c.commitResolution); err != nil {
-		return nil, err
-	}
-
-	if err := binary.Read(r, endian, &c.resolved); err != nil {
-		return nil, err
-	}
-	if err := binary.Read(r, endian, &c.broadcastHeight); err != nil {
-		return nil, err
-	}
-	_, err := io.ReadFull(r, c.chanPoint.Hash[:])
-	if err != nil {
-		return nil, err
-	}
-	err = binary.Read(r, endian, &c.chanPoint.Index)
-	if err != nil {
-		return nil, err
-	}
-
-	// Previously a sweep tx was deserialized at this point. Refactoring
-	// removed this, but keep in mind that this data may still be present in
-	// the database.
-
-	c.initLogger(c)
-	c.initReport()
-
-	return c, nil
-}
-
-// report returns a report on the resolution state of the contract.
-func (c *commitSweepResolver) report() *ContractReport {
-	c.reportLock.Lock()
-	defer c.reportLock.Unlock()
-
-	cpy := c.currentReport
-	return &cpy
-}
-
-// initReport initializes the pending channels report for this resolver.
-func (c *commitSweepResolver) initReport() {
-	amt := btcutil.Amount(
-		c.commitResolution.SelfOutputSignDesc.Output.Value,
-	)
-
-	// Set the initial report. All fields are filled in, except for the
-	// maturity height which remains 0 until Resolve() is executed.
-	//
-	// TODO(joostjager): Resolvers only activate after the commit tx
-	// confirms. With more refactoring in channel arbitrator, it would be
-	// possible to make the confirmation height part of ResolverConfig and
-	// populate MaturityHeight here.
-	c.currentReport = ContractReport{
-		Outpoint:         c.commitResolution.SelfOutPoint,
-		Type:             ReportOutputUnencumbered,
-		Amount:           amt,
-		LimboBalance:     amt,
-		RecoveredBalance: 0,
-	}
-}
-
-// A compile time assertion to ensure commitSweepResolver meets the
-// ContractResolver interface.
-var _ reportingContractResolver = (*commitSweepResolver)(nil)

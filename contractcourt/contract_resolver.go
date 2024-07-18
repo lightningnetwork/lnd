@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync/atomic"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/sweep"
 )
 
 var (
@@ -35,6 +37,17 @@ type ContractResolver interface {
 	// for this particular resolver within the chain the original contract
 	// resides within.
 	ResolverKey() []byte
+
+	// Launch starts the resolver by constructing an input and offering it
+	// to the sweeper. Once offered, it's expected to monitor the sweeping
+	// result in a goroutine invoked by calling Resolve.
+	//
+	// NOTE: We can call `Resolve` inside a goroutine at the end of this
+	// method to avoid calling it in the ChannelArbitrator. However, there
+	// are some DB-related operations such as SwapContract/ResolveContract
+	// which need to be done inside the resolvers instead, which needs a
+	// deeper refactoring.
+	Launch() error
 
 	// Resolve instructs the contract resolver to resolve the output
 	// on-chain. Once the output has been *fully* resolved, the function
@@ -110,6 +123,18 @@ type contractResolverKit struct {
 	log btclog.Logger
 
 	quit chan struct{}
+
+	// sweepResultChan is the result chan returned from calling
+	// `SweepInput`. It should be mounted to the specific resolver once the
+	// input has been offered to the sweeper.
+	sweepResultChan chan sweep.Result
+
+	// launched specifies whether the resolver has been launched. Calling
+	// `Launch` will be a no-op if this is true.
+	launched atomic.Bool
+
+	// resolved reflects if the contract has been fully resolved or not.
+	resolved atomic.Bool
 }
 
 // newContractResolverKit instantiates the mix-in struct.
@@ -121,9 +146,24 @@ func newContractResolverKit(cfg ResolverConfig) *contractResolverKit {
 }
 
 // initLogger initializes the resolver-specific logger.
-func (r *contractResolverKit) initLogger(resolver ContractResolver) {
-	logPrefix := fmt.Sprintf("%T(%v):", resolver, r.ChanPoint)
+func (r *contractResolverKit) initLogger(prefix string) {
+	logPrefix := fmt.Sprintf("ChannelArbitrator(%v): %s:", r.ShortChanID,
+		prefix)
+
+	if r.ShortChanID.IsDefault() {
+		logPrefix = fmt.Sprintf("ChannelArbitrator(%v): %s:",
+			r.ChanPoint, prefix)
+	}
+
 	r.log = build.NewPrefixLog(logPrefix, log)
+}
+
+// IsResolved returns true if the stored state in the resolve is fully
+// resolved. In this case the target output can be forgotten.
+//
+// NOTE: Part of the ContractResolver interface.
+func (r *contractResolverKit) IsResolved() bool {
+	return r.resolved.Load()
 }
 
 var (

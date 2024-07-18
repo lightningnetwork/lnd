@@ -197,7 +197,8 @@ func (h *HarnessTest) mineTillForceCloseResolved(hn *node.HarnessNode) {
 		return nil
 	}, DefaultTimeout)
 
-	require.NoErrorf(h, err, "assert force close resolved timeout")
+	require.NoErrorf(h, err, "%s: assert force close resolved timeout",
+		hn.Name())
 }
 
 // AssertTxInMempool asserts a given transaction can be found in the mempool.

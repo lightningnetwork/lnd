@@ -2932,9 +2932,11 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 			)
 
 			if h == 0 {
-				processFeeUpdate(
-					entry, &newView.FeePerKw, nextHeight,
-					whoseCommitChain,
+				// If the update wasn't already locked in,
+				// update the current fee rate to reflect this
+				// update.
+				newView.FeePerKw = chainfee.SatPerKWeight(
+					entry.Amount.ToSatoshis(),
 				)
 
 				if mutateState {
@@ -2997,10 +2999,13 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 			)
 
 			if h == 0 {
-				processFeeUpdate(
-					entry, &newView.FeePerKw, nextHeight,
-					whoseCommitChain,
+				// If the update wasn't already locked in,
+				// update the current fee rate to reflect this
+				// update.
+				newView.FeePerKw = chainfee.SatPerKWeight(
+					entry.Amount.ToSatoshis(),
 				)
+
 
 				if mutateState {
 					entry.addCommitHeights.SetForParty(
@@ -3210,17 +3215,6 @@ func processRemoveEntry(htlc *paymentDescriptor, ourBalance,
 	case !isIncoming && (htlc.EntryType == Fail || htlc.EntryType == MalformedFail):
 		*ourBalance += htlc.Amount
 	}
-}
-
-// processFeeUpdate processes a log update that updates the current commitment
-// fee.
-func processFeeUpdate(feeUpdate *paymentDescriptor,
-	feeRef *chainfee.SatPerKWeight, nextHeight uint64,
-	whoseCommitChain lntypes.ChannelParty) {
-
-	// If the update wasn't already locked in, update the current fee rate
-	// to reflect this update.
-	*feeRef = chainfee.SatPerKWeight(feeUpdate.Amount.ToSatoshis())
 }
 
 // generateRemoteHtlcSigJobs generates a series of HTLC signature jobs for the

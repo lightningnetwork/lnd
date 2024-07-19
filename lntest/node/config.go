@@ -223,7 +223,6 @@ func (cfg *BaseNodeConfig) GenArgs(isLitd bool) []string {
 		"--caches.rpc-graph-cache-duration=100ms",
 		"--default-remote-max-htlcs=483",
 		"--rpcmiddleware.enable",
-		"--debuglevel=trace,GRPC=error,BTCN=info",
 
 		// Use a small batch delay so we can broadcast the
 		// announcements quickly in the tests.

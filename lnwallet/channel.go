@@ -2583,16 +2583,14 @@ func fundingTxIn(chanState *channeldb.OpenChannel) wire.TxIn {
 // returned reflects the current state of HTLCs within the remote or local
 // commitment chain, and the current commitment fee rate.
 //
-// If mutateState is set to true, then the add height of all added HTLCs
-// will be set to nextHeight, and the remove height of all removed HTLCs
-// will be set to nextHeight. This should therefore only be set to true
-// once for each height, and only in concert with signing a new commitment.
-// TODO(halseth): return htlcs to mutate instead of mutating inside
-// method.
+// The return values of this function are as follows:
+// 1. The new htlcView reflecting the current channel state.
+// 2. A Dual of the updates which have not yet been committed in
+// 'whoseCommitChain's commitment chain.
 func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
-	whoseCommitChain lntypes.ChannelParty, mutateState bool,
-) (*htlcView, error) {
+	theirBalance *lnwire.MilliSatoshi,
+	whoseCommitChain lntypes.ChannelParty) (*htlcView,
+	lntypes.Dual[[]*paymentDescriptor], error) {
 
 	// We initialize the view's fee rate to the fee rate of the unfiltered
 	// view. If any fee updates are found when evaluating the view, it will
@@ -2628,34 +2626,15 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 				newView.feePerKw = chainfee.SatPerKWeight(
 					entry.Amount.ToSatoshis(),
 				)
-
-				if mutateState {
-					entry.addCommitHeights.SetParty(
-						whoseCommitChain, nextHeight,
-					)
-
-					entry.removeCommitHeights.SetParty(
-						whoseCommitChain, nextHeight,
-					)
-				}
 			}
 			continue
-		}
-
-		// If we're settling an inbound HTLC, and it hasn't been
-		// processed yet, then increment our state tracking the total
-		// number of satoshis we've received within the channel.
-		if mutateState && entry.EntryType == Settle &&
-			whoseCommitChain.IsLocal() &&
-			entry.removeCommitHeights.Local == 0 {
-			lc.channelState.TotalMSatReceived += entry.Amount
 		}
 
 		addEntry, err := lc.fetchParent(
 			entry, whoseCommitChain, lntypes.Remote,
 		)
 		if err != nil {
-			return nil, err
+			return nil, lntypes.Dual[[]*paymentDescriptor]{}, err
 		}
 
 		skipThem[addEntry.HtlcIndex] = struct{}{}
@@ -2667,14 +2646,10 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 				entry, ourBalance, theirBalance,
 				whoseCommitChain, true,
 			)
-
-			if mutateState {
-				rmvHeights.SetParty(
-					whoseCommitChain, nextHeight,
-				)
-			}
 		}
 	}
+
+	// Do the same for our peer's updates.
 	for _, entry := range view.theirUpdates {
 		switch entry.EntryType {
 		// Skip adds for now. They will be processed below.
@@ -2692,37 +2667,15 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 				newView.feePerKw = chainfee.SatPerKWeight(
 					entry.Amount.ToSatoshis(),
 				)
-
-
-				if mutateState {
-					entry.addCommitHeights.SetParty(
-						whoseCommitChain, nextHeight,
-					)
-
-					entry.removeCommitHeights.SetParty(
-						whoseCommitChain, nextHeight,
-					)
-				}
 			}
 			continue
-		}
-
-		// If the remote party is settling one of our outbound HTLC's,
-		// and it hasn't been processed, yet, the increment our state
-		// tracking the total number of satoshis we've sent within the
-		// channel.
-		if mutateState && entry.EntryType == Settle &&
-			whoseCommitChain.IsLocal() &&
-			entry.removeCommitHeights.Local == 0 {
-
-			lc.channelState.TotalMSatSent += entry.Amount
 		}
 
 		addEntry, err := lc.fetchParent(
 			entry, whoseCommitChain, lntypes.Local,
 		)
 		if err != nil {
-			return nil, err
+			return nil, lntypes.Dual[[]*paymentDescriptor]{}, err
 		}
 
 		skipUs[addEntry.HtlcIndex] = struct{}{}
@@ -2734,12 +2687,6 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 				entry, ourBalance, theirBalance,
 				whoseCommitChain, false,
 			)
-
-			if mutateState {
-				rmvHeights.SetParty(
-					whoseCommitChain, nextHeight,
-				)
-			}
 		}
 	}
 
@@ -2761,19 +2708,12 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 				entry, ourBalance, theirBalance,
 				whoseCommitChain, false,
 			)
-
-			// If we are mutating the state, then set the add
-			// height for the appropriate commitment chain to the
-			// next height.
-			if mutateState {
-				addHeights.SetParty(
-					whoseCommitChain, nextHeight,
-				)
-			}
 		}
 
 		newView.ourUpdates = append(newView.ourUpdates, entry)
 	}
+
+	// Again, we do the same for our peer's updates.
 	for _, entry := range view.theirUpdates {
 		isAdd := entry.EntryType == Add
 		if _, ok := skipThem[entry.HtlcIndex]; !isAdd || ok {
@@ -2789,21 +2729,39 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 				entry, ourBalance, theirBalance,
 				whoseCommitChain, true,
 			)
-
-			// If we are mutating the state, then set the add
-			// height for the appropriate commitment chain to the
-			// next height.
-			if mutateState {
-				addHeights.SetParty(
-					whoseCommitChain, nextHeight,
-				)
-			}
 		}
 
 		newView.theirUpdates = append(newView.theirUpdates, entry)
 	}
 
-	return newView, nil
+	// Create a function that is capable of identifying whether or not the
+	// paymentDescriptor has been committed in the commitment chain
+	// corresponding to whoseCommitmentChain.
+	isUncommitted := func(update *paymentDescriptor) bool {
+		switch update.EntryType {
+		case Add:
+			h := update.addCommitHeights.GetParty(whoseCommitChain)
+			return h == 0
+		case FeeUpdate:
+			h := update.addCommitHeights.GetParty(whoseCommitChain)
+			return h == 0
+		case Settle, Fail, MalformedFail:
+			h := update.removeCommitHeights.
+				GetParty(whoseCommitChain)
+			return h == 0
+		default:
+			panic("invalid paymentDescriptor EntryType")
+		}
+	}
+
+	// Collect all of the updates that haven't had their commit heights sent
+	// for the commitment chain corresponding to whoseCommitmentChain.
+	uncommittedUpdates := lntypes.Dual[[]*paymentDescriptor]{
+		Local:  fn.Filter(isUncommitted, view.ourUpdates),
+		Remote: fn.Filter(isUncommitted, view.theirUpdates),
+	}
+
+	return newView, uncommittedUpdates, nil
 }
 
 // fetchParent is a helper that looks up update log parent entries in the
@@ -4182,11 +4140,59 @@ func (lc *LightningChannel) computeView(view *htlcView,
 	// channel constraints to the final commitment state. If any fee
 	// updates are found in the logs, the commitment fee rate should be
 	// changed, so we'll also set the feePerKw to this new value.
-	filteredHTLCView, err := lc.evaluateHTLCView(view, &ourBalance,
-		&theirBalance, nextHeight, whoseCommitChain, updateState)
+	filteredHTLCView, uncommitted, err := lc.evaluateHTLCView(
+		view, &ourBalance, &theirBalance, whoseCommitChain,
+	)
 	if err != nil {
 		return 0, 0, 0, nil, err
 	}
+	if updateState {
+		state := lc.channelState
+		received := &state.TotalMSatReceived
+		sent := &state.TotalMSatSent
+
+		setHeights := func(u *paymentDescriptor) {
+			switch u.EntryType {
+			case Add:
+				u.addCommitHeights.SetParty(
+					whoseCommitChain, nextHeight,
+				)
+			case Settle, Fail, MalformedFail:
+				u.removeCommitHeights.SetParty(
+					whoseCommitChain, nextHeight,
+				)
+			case FeeUpdate:
+				u.addCommitHeights.SetParty(
+					whoseCommitChain, nextHeight,
+				)
+				u.removeCommitHeights.SetParty(
+					whoseCommitChain, nextHeight,
+				)
+			}
+		}
+
+		recordFlow := func(acc *lnwire.MilliSatoshi,
+			u *paymentDescriptor) {
+
+			if u.EntryType == Settle {
+				*acc += u.Amount
+			}
+		}
+
+		for _, u := range uncommitted.Local {
+			setHeights(u)
+			if whoseCommitChain == lntypes.Local {
+				recordFlow(received, u)
+			}
+		}
+		for _, u := range uncommitted.Remote {
+			setHeights(u)
+			if whoseCommitChain == lntypes.Local {
+				recordFlow(sent, u)
+			}
+		}
+	}
+
 	feePerKw := filteredHTLCView.feePerKw
 
 	// Here we override the view's fee-rate if a dry-run fee-rate was

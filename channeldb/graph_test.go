@@ -3986,6 +3986,26 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	require.Nil(t, getSingleChannel())
 }
 
+func waitForGraphCache(graph *ChannelGraph, timeout time.Duration) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeoutChan := time.After(timeout)
+	for {
+		select {
+		case <-timeoutChan:
+			return fmt.Errorf("timed out waiting for graphCache " +
+				"to be ready")
+		case <-ticker.C:
+			if graphCache, err := graph.getGraphCache(); err != nil {
+				return fmt.Errorf("error getting graphCache: %v", err)
+			} else if graphCache != nil {
+				return nil
+			}
+		}
+	}
+}
+
 // TestGraphLoading asserts that the cache is properly reconstructed after a
 // restart.
 func TestGraphLoading(t *testing.T) {
@@ -4007,6 +4027,7 @@ func TestGraphLoading(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	waitForGraphCache(graph, 5*time.Second)
 	_, err = graph.getGraphCache()
 	require.NoError(t, err)
 
@@ -4024,6 +4045,7 @@ func TestGraphLoading(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	waitForGraphCache(graphReloaded, 5*time.Second)
 	_, err = graphReloaded.getGraphCache()
 	require.NoError(t, err)
 

@@ -228,6 +228,13 @@ itest-parallel: build-itest db-instance
 	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_parallel.sh $(ITEST_PARALLELISM) $(NUM_ITEST_TRANCHES) $(TEST_FLAGS) $(ITEST_FLAGS)
 	$(COLLECT_ITEST_COVERAGE)
 
+#? itest-litd-parallel: Build and run integration tests in parallel mode, running up to ITEST_PARALLELISM test tranches in parallel (default 4)
+itest-litd-parallel: build-itest db-instance
+	@$(call print, "Running tests")
+	rm -rf itest/*.log itest/.logs-*; date
+	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_litd_parallel.sh $(ITEST_PARALLELISM) $(NUM_ITEST_TRANCHES) $(TEST_FLAGS) $(ITEST_FLAGS)
+	$(COLLECT_ITEST_COVERAGE)
+
 #? itest-clean: Kill all running itest processes
 itest-clean:
 	@$(call print, "Cleaning old itest processes")

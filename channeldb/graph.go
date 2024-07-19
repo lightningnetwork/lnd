@@ -295,7 +295,7 @@ func (c *ChannelGraph) populateGraphCache() {
 	c.graphCacheReady.Store(true)
 }
 
-func (c *ChannelGraph) getGraphCache() (*GraphCache, error) {
+func (c *ChannelGraph) GetGraphCache() (*GraphCache, error) {
 	if c.graphCache == nil {
 		return nil, nil
 	}
@@ -526,7 +526,7 @@ func (c *ChannelGraph) ForEachChannel(cb func(*models.ChannelEdgeInfo,
 func (c *ChannelGraph) ForEachNodeDirectedChannel(tx kvdb.RTx,
 	node route.Vertex, cb func(channel *DirectedChannel) error) error {
 
-	graphCache, err := c.getGraphCache()
+	graphCache, err := c.GetGraphCache()
 	if err == nil && graphCache != nil {
 		return graphCache.ForEachChannel(node, cb)
 	}
@@ -584,7 +584,7 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(tx kvdb.RTx,
 func (c *ChannelGraph) FetchNodeFeatures(
 	node route.Vertex) (*lnwire.FeatureVector, error) {
 
-	graphCache, err := c.getGraphCache()
+	graphCache, err := c.GetGraphCache()
 	if err == nil && graphCache != nil {
 		return graphCache.GetFeatures(node), nil
 	}
@@ -615,7 +615,7 @@ func (c *ChannelGraph) FetchNodeFeatures(
 func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
 	chans map[uint64]*DirectedChannel) error) error {
 
-	graphCache, err := c.getGraphCache()
+	graphCache, err := c.GetGraphCache()
 	if err == nil && graphCache != nil {
 		return graphCache.ForEachNode(cb)
 	}
@@ -895,7 +895,7 @@ func (c *ChannelGraph) AddLightningNode(node *LightningNode,
 
 	r := &batch.Request{
 		Update: func(tx kvdb.RwTx) error {
-			graphCache, err := c.getGraphCache()
+			graphCache, err := c.GetGraphCache()
 			if err != nil {
 				if errors.Is(err, ErrGraphCacheNotReady) {
 					// Queue this update function
@@ -1001,7 +1001,7 @@ func (c *ChannelGraph) DeleteLightningNode(nodePub route.Vertex) error {
 			return ErrGraphNodeNotFound
 		}
 
-		graphCache, err := c.getGraphCache()
+		graphCache, err := c.GetGraphCache()
 		if err != nil {
 			if errors.Is(err, ErrGraphCacheNotReady) {
 				// Queue this delete function
@@ -1146,7 +1146,7 @@ func (c *ChannelGraph) addChannelEdge(tx kvdb.RwTx,
 		return ErrEdgeAlreadyExist
 	}
 
-	graphCache, err := c.getGraphCache()
+	graphCache, err := c.GetGraphCache()
 	if err != nil {
 		if errors.Is(err, ErrGraphCacheNotReady) {
 			// Queue this function
@@ -1363,7 +1363,7 @@ func (c *ChannelGraph) UpdateChannelEdge(edge *models.ChannelEdgeInfo) error {
 			return ErrEdgeNotFound
 		}
 
-		graphCache, err := c.getGraphCache()
+		graphCache, err := c.GetGraphCache()
 		if err != nil {
 			if errors.Is(err, ErrGraphCacheNotReady) {
 				// Queue this update function
@@ -1612,7 +1612,7 @@ func (c *ChannelGraph) pruneGraphNodes(nodes kvdb.RwBucket,
 		return err
 	}
 
-	graphCache, err := c.getGraphCache()
+	graphCache, err := c.GetGraphCache()
 	if err != nil {
 		if errors.Is(err, ErrGraphCacheNotReady) {
 			// Queue this prune operation
@@ -2668,7 +2668,7 @@ func (c *ChannelGraph) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 		return err
 	}
 
-	graphCache, err := c.getGraphCache()
+	graphCache, err := c.GetGraphCache()
 	if err != nil {
 		if errors.Is(err, ErrGraphCacheNotReady) {
 			// Queue this delete function
@@ -2683,8 +2683,10 @@ func (c *ChannelGraph) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 					strictZombie,
 				)
 			})
+
 			return nil
 		}
+
 		return err
 	}
 
@@ -2945,7 +2947,7 @@ func updateEdgePolicy(tx kvdb.RwTx, edge *models.ChannelEdgePolicy,
 	copy(fromNodePubKey[:], fromNode)
 	copy(toNodePubKey[:], toNode)
 
-	graphCache, err := c.getGraphCache()
+	graphCache, err := c.GetGraphCache()
 	if err != nil {
 		if errors.Is(err, ErrGraphCacheNotReady) {
 			// Queue this update function
@@ -2953,8 +2955,10 @@ func updateEdgePolicy(tx kvdb.RwTx, edge *models.ChannelEdgePolicy,
 				_, err := updateEdgePolicy(tx, edge, c)
 				return err
 			})
+
 			return false, nil
 		}
+
 		return false, err
 	}
 
@@ -3838,7 +3842,7 @@ func (c *ChannelGraph) MarkEdgeZombie(chanID uint64,
 				"bucket: %w", err)
 		}
 
-		graphCache, err := c.getGraphCache()
+		graphCache, err := c.GetGraphCache()
 		if err != nil {
 			if errors.Is(err, ErrGraphCacheNotReady) {
 				// Queue this function
@@ -3849,8 +3853,10 @@ func (c *ChannelGraph) MarkEdgeZombie(chanID uint64,
 						pubKey2,
 					)
 				})
+
 				return nil
 			}
+
 			return err
 		}
 
@@ -3938,13 +3944,14 @@ func (c *ChannelGraph) markEdgeLiveUnsafe(tx kvdb.RwTx, chanID uint64) error {
 
 	// We need to add the channel back into our graph cache, otherwise we
 	// won't use it for path finding.
-	graphCache, err := c.getGraphCache()
+	graphCache, err := c.GetGraphCache()
 	if err != nil {
 		if errors.Is(err, ErrGraphCacheNotReady) {
 			// Queue the operation to add the channel back.
 			c.enqueueWriteOperation(func() error {
 				return c.markEdgeLiveUnsafe(tx, chanID)
 			})
+
 			return nil
 		}
 		return err

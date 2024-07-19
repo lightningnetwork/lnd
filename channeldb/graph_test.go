@@ -82,6 +82,9 @@ func MakeTestGraph(t testing.TB, modifiers ...OptionModifier) (*ChannelGraph, er
 		backendCleanup()
 	})
 
+	// Wait for graph cache to be up and running.
+	_ = waitForGraphCache(graph, 5*time.Second)
+
 	return graph, nil
 }
 
@@ -3997,8 +4000,10 @@ func waitForGraphCache(graph *ChannelGraph, timeout time.Duration) error {
 			return fmt.Errorf("timed out waiting for graphCache " +
 				"to be ready")
 		case <-ticker.C:
-			if graphCache, err := graph.getGraphCache(); err != nil {
-				return fmt.Errorf("error getting graphCache: %v", err)
+			graphCache, err := graph.GetGraphCache()
+			if err != nil {
+				return fmt.Errorf("error getting graphCache: "+
+					"%v", err)
 			} else if graphCache != nil {
 				return nil
 			}
@@ -4027,10 +4032,6 @@ func TestGraphLoading(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	waitForGraphCache(graph, 5*time.Second)
-	_, err = graph.getGraphCache()
-	require.NoError(t, err)
-
 	// Populate the graph with test data.
 	const numNodes = 100
 	const numChannels = 4
@@ -4045,8 +4046,8 @@ func TestGraphLoading(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	waitForGraphCache(graphReloaded, 5*time.Second)
-	_, err = graphReloaded.getGraphCache()
+	_ = waitForGraphCache(graphReloaded, 5*time.Second)
+	_, err = graphReloaded.GetGraphCache()
 	require.NoError(t, err)
 
 	// Assert that the cache content is identical.

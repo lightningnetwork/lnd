@@ -2,6 +2,7 @@ package autopilot
 
 import (
 	"bytes"
+	"fmt"
 	prand "math/rand"
 	"testing"
 	"time"
@@ -33,6 +34,9 @@ func newDiskChanGraph(t *testing.T) (testGraph, error) {
 		require.NoError(t, cdb.Close())
 	})
 
+	// Wait for graph cache to be up and running.
+	_ = waitForGraphCache(cdb.ChannelGraph(), 5*time.Second)
+
 	return &databaseChannelGraph{
 		db: cdb.ChannelGraph(),
 	}, nil
@@ -58,6 +62,28 @@ var chanGraphs = []struct {
 		name:    "mem_graph",
 		genFunc: newMemChanGraph,
 	},
+}
+
+func waitForGraphCache(g *channeldb.ChannelGraph, timeout time.Duration) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeoutChan := time.After(timeout)
+	for {
+		select {
+		case <-timeoutChan:
+			return fmt.Errorf("timed out waiting for graphCache " +
+				"to be ready")
+		case <-ticker.C:
+			graphCache, err := g.GetGraphCache()
+			if err != nil {
+				return fmt.Errorf("error getting graphCache: "+
+					"%v", err)
+			} else if graphCache != nil {
+				return nil
+			}
+		}
+	}
 }
 
 // TestPrefAttachmentSelectEmptyGraph ensures that when passed an

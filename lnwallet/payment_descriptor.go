@@ -283,3 +283,31 @@ func (pd *paymentDescriptor) toLogUpdate() channeldb.LogUpdate {
 		UpdateMsg: msg,
 	}
 }
+
+// setCommitHeight updates the appropriate addCommitHeight and/or
+// removeCommitHeight for whoseCommitChain and locks it in at nextHeight.
+func (pd *paymentDescriptor) setCommitHeight(
+	whoseCommitChain lntypes.ChannelParty, nextHeight uint64) {
+
+	switch pd.EntryType {
+	case Add:
+		pd.addCommitHeights.SetForParty(
+			whoseCommitChain, nextHeight,
+		)
+	case Settle, Fail, MalformedFail:
+		pd.removeCommitHeights.SetForParty(
+			whoseCommitChain, nextHeight,
+		)
+	case FeeUpdate:
+		// Fee updates are applied for all commitments
+		// after they are sent/received, so we consider
+		// them being added and removed at the same
+		// height.
+		pd.addCommitHeights.SetForParty(
+			whoseCommitChain, nextHeight,
+		)
+		pd.removeCommitHeights.SetForParty(
+			whoseCommitChain, nextHeight,
+		)
+	}
+}

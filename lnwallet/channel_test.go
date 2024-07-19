@@ -8956,12 +8956,38 @@ func TestEvaluateView(t *testing.T) {
 			)
 
 			// Evaluate the htlc view, mutate as test expects.
-			result, err := lc.evaluateHTLCView(
+			result, uncommitted, err := lc.evaluateHTLCView(
 				view, &ourBalance, &theirBalance, nextHeight,
-				test.whoseCommitChain, test.mutateState,
+				test.whoseCommitChain,
 			)
+
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// TODO(proofofkeags): This block is here because we
+			// extracted this code from a previous implementation
+			// of evaluateHTLCView, due to a reduced scope of
+			// responsibility of that function. Consider removing
+			// it from the test altogether.
+			if test.mutateState {
+				for _, party := range lntypes.BothParties {
+					us := uncommitted.GetForParty(party)
+					for _, u := range us {
+						u.setCommitHeight(
+							test.whoseCommitChain,
+							nextHeight,
+						)
+						if test.whoseCommitChain ==
+							lntypes.Local &&
+							u.EntryType == Settle {
+
+							lc.recordSettlement(
+								party, u.Amount,
+							)
+						}
+					}
+				}
 			}
 
 			if result.FeePerKw != test.expectedFee {

@@ -117,3 +117,5 @@ func MapDual[A, B any](d Dual[A], f func(A) B) Dual[B] {
 		Remote: f(d.Remote),
 	}
 }
+
+var BothParties []ChannelParty = []ChannelParty{Local, Remote}

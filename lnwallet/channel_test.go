@@ -8783,12 +8783,75 @@ func TestEvaluateView(t *testing.T) {
 			)
 
 			// Evaluate the htlc view, mutate as test expects.
-			result, err := lc.evaluateHTLCView(
+			result, uncommitted, err := lc.evaluateHTLCView(
 				view, &ourBalance, &theirBalance, nextHeight,
-				test.whoseCommitChain, test.mutateState,
+				test.whoseCommitChain,
 			)
+
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// TODO(proofofkeags): This block is here because we
+			// extracted this code from a previous implementation
+			// of evaluateHTLCView, due to a reduced scope of
+			// responsibility of that function. Consider removing
+			// it from the test altogether.
+			if test.mutateState {
+				state := lc.channelState
+				received := &state.TotalMSatReceived
+				sent := &state.TotalMSatSent
+
+				setHeights := func(u *paymentDescriptor) {
+					switch u.EntryType {
+					case Add:
+						u.addCommitHeights.SetForParty(
+							test.whoseCommitChain,
+							nextHeight,
+						)
+					case Settle, Fail, MalformedFail:
+						//nolint:lll
+						u.removeCommitHeights.SetForParty(
+							test.whoseCommitChain,
+							nextHeight,
+						)
+					case FeeUpdate:
+						u.addCommitHeights.SetForParty(
+							test.whoseCommitChain,
+							nextHeight,
+						)
+						//nolint:lll
+						u.removeCommitHeights.SetForParty(
+							test.whoseCommitChain,
+							nextHeight,
+						)
+					}
+				}
+
+				recordFlow := func(acc *lnwire.MilliSatoshi,
+					u *paymentDescriptor) {
+
+					if u.EntryType == Settle {
+						*acc += u.Amount
+					}
+				}
+
+				for _, u := range uncommitted.Local {
+					setHeights(u)
+					if test.whoseCommitChain ==
+						lntypes.Local {
+
+						recordFlow(received, u)
+					}
+				}
+				for _, u := range uncommitted.Remote {
+					setHeights(u)
+					if test.whoseCommitChain ==
+						lntypes.Local {
+
+						recordFlow(sent, u)
+					}
+				}
 			}
 
 			if result.FeePerKw != test.expectedFee {

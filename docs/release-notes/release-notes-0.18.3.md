@@ -29,6 +29,10 @@
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/8822) that caused
   LND to read the config only partially and continued with the startup.
 
+* [Avoids duplicate wallet addresses being
+  created](https://github.com/lightningnetwork/lnd/pull/8921) when multiple RPC
+  calls are made concurrently.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

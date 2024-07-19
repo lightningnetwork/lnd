@@ -54,6 +54,8 @@ type FailCode uint16
 
 // The currently defined onion failure types within this current version of the
 // Lightning protocol.
+//
+//nolint:lll
 const (
 	CodeNone                             FailCode = 0
 	CodeInvalidRealm                              = FlagBadOnion | 1
@@ -80,6 +82,7 @@ const (
 	CodeExpiryTooFar                     FailCode = 21
 	CodeInvalidOnionPayload                       = FlagPerm | 22
 	CodeMPPTimeout                       FailCode = 23
+	CodeInvalidBlinding                           = FlagBadOnion | FlagPerm | 24
 )
 
 // String returns the string representation of the failure code.
@@ -156,6 +159,9 @@ func (c FailCode) String() string {
 
 	case CodeMPPTimeout:
 		return "MPPTimeout"
+
+	case CodeInvalidBlinding:
+		return "InvalidBlinding"
 
 	default:
 		return "<unknown>"
@@ -569,6 +575,51 @@ func (f *FailInvalidOnionKey) Encode(w io.Writer, pver uint32) error {
 // NOTE: Implements the error interface.
 func (f *FailInvalidOnionKey) Error() string {
 	return fmt.Sprintf("InvalidOnionKey(onion_sha=%x)", f.OnionSHA256[:])
+}
+
+// FailInvalidBlinding is returned if there has been a route blinding related
+// error.
+type FailInvalidBlinding struct {
+	OnionSHA256 [sha256.Size]byte
+}
+
+// Code returns the failure unique code.
+//
+// NOTE: Part of the FailureMessage interface.
+func (f *FailInvalidBlinding) Code() FailCode {
+	return CodeInvalidBlinding
+}
+
+// Returns a human readable string describing the target FailureMessage.
+//
+// NOTE: Implements the error interface.
+func (f *FailInvalidBlinding) Error() string {
+	return f.Code().String()
+}
+
+// Decode decodes the failure from bytes stream.
+//
+// NOTE: Part of the Serializable interface.
+func (f *FailInvalidBlinding) Decode(r io.Reader, _ uint32) error {
+	return ReadElement(r, f.OnionSHA256[:])
+}
+
+// Encode writes the failure in bytes stream.
+//
+// NOTE: Part of the Serializable interface.
+func (f *FailInvalidBlinding) Encode(w *bytes.Buffer, _ uint32) error {
+	return WriteElement(w, f.OnionSHA256[:])
+}
+
+// NewInvalidBlinding creates new instance of FailInvalidBlinding.
+func NewInvalidBlinding(onion []byte) *FailInvalidBlinding {
+	// The spec allows empty onion hashes for invalid blinding, so we only
+	// include our onion hash if it's provided.
+	if onion == nil {
+		return &FailInvalidBlinding{}
+	}
+
+	return &FailInvalidBlinding{OnionSHA256: sha256.Sum256(onion)}
 }
 
 // parseChannelUpdateCompatabilityMode will attempt to parse a channel updated
@@ -1391,6 +1442,9 @@ func makeEmptyOnionError(code FailCode) (FailureMessage, error) {
 
 	case CodeMPPTimeout:
 		return &FailMPPTimeout{}, nil
+
+	case CodeInvalidBlinding:
+		return &FailInvalidBlinding{}, nil
 
 	default:
 		return nil, errors.Errorf("unknown error code: %v", code)

@@ -2664,7 +2664,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		rmvHeight := rmvHeights.GetParty(whoseCommitChain)
 		if rmvHeight == 0 {
 			processRemoveEntry(
-				entry, ourBalance, theirBalance, nextHeight,
+				entry, ourBalance, theirBalance,
 				whoseCommitChain, true,
 			)
 
@@ -2731,7 +2731,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		rmvHeight := rmvHeights.GetParty(whoseCommitChain)
 		if rmvHeight == 0 {
 			processRemoveEntry(
-				entry, ourBalance, theirBalance, nextHeight,
+				entry, ourBalance, theirBalance,
 				whoseCommitChain, false,
 			)
 
@@ -2758,7 +2758,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		addHeight := addHeights.GetParty(whoseCommitChain)
 		if addHeight == 0 {
 			processAddEntry(
-				entry, ourBalance, theirBalance, nextHeight,
+				entry, ourBalance, theirBalance,
 				whoseCommitChain, false,
 			)
 
@@ -2786,7 +2786,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		addHeight := addHeights.GetParty(whoseCommitChain)
 		if addHeight == 0 {
 			processAddEntry(
-				entry, ourBalance, theirBalance, nextHeight,
+				entry, ourBalance, theirBalance,
 				whoseCommitChain, true,
 			)
 
@@ -2855,7 +2855,7 @@ func (lc *LightningChannel) fetchParent(entry *paymentDescriptor,
 // was committed is updated. Keeping track of this inclusion height allows us to
 // later compact the log once the change is fully committed in both chains.
 func processAddEntry(htlc *paymentDescriptor, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
+	theirBalance *lnwire.MilliSatoshi,
 	whoseCommitChain lntypes.ChannelParty, isIncoming bool) {
 
 	if isIncoming {
@@ -2874,7 +2874,7 @@ func processAddEntry(htlc *paymentDescriptor, ourBalance,
 // previously added HTLC. If the removal entry has already been processed, it
 // is skipped.
 func processRemoveEntry(htlc *paymentDescriptor, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
+	theirBalance *lnwire.MilliSatoshi,
 	whoseCommitChain lntypes.ChannelParty, isIncoming bool) {
 
 	switch {

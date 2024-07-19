@@ -222,14 +222,7 @@ func (cfg *BaseNodeConfig) GenArgs(isLitd bool) []string {
 		"--gossip.sub-batch-delay=5ms",
 		"--caches.rpc-graph-cache-duration=100ms",
 		"--default-remote-max-htlcs=483",
-		"--dust-threshold=5000000",
 		"--rpcmiddleware.enable",
-		"--protocol.anchors",
-		"--protocol.option-scid-alias",
-		"--protocol.zero-conf",
-		"--protocol.simple-taproot-chans",
-		"--protocol.simple-taproot-overlay-chans",
-		"--protocol.custom-message=17",
 		"--debuglevel=trace,GRPC=error,BTCN=info",
 
 		// Use a small batch delay so we can broadcast the

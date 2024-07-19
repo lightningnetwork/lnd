@@ -10,7 +10,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
@@ -157,7 +157,7 @@ const (
 // by the remote party. It'll extract the preimage, add it to the global cache,
 // and finally send the appropriate clean up message.
 func (h *htlcTimeoutResolver) claimCleanUp(
-	commitSpend *chainntnfs.SpendDetail) (ContractResolver, error) {
+	commitSpend *chainnotif.SpendDetail) (ContractResolver, error) {
 
 	// Depending on if this is our commitment or not, then we'll be looking
 	// for a different witness pattern.
@@ -324,7 +324,7 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 
 // isPreimageSpend returns true if the passed spend on the specified commitment
 // is a success spend that reveals the pre-image or not.
-func isPreimageSpend(isTaproot bool, spend *chainntnfs.SpendDetail,
+func isPreimageSpend(isTaproot bool, spend *chainnotif.SpendDetail,
 	localCommit bool) bool {
 
 	// Based on the spending input index and transaction, obtain the
@@ -568,7 +568,7 @@ func (h *htlcTimeoutResolver) sendSecondLevelTxLegacy() error {
 // commitment, the output will be swept directly without the timeout
 // transaction.
 func (h *htlcTimeoutResolver) spendHtlcOutput(
-	immediate bool) (*chainntnfs.SpendDetail, error) {
+	immediate bool) (*chainnotif.SpendDetail, error) {
 
 	switch {
 	// If we have non-nil SignDetails, this means that have a 2nd level
@@ -602,7 +602,7 @@ func (h *htlcTimeoutResolver) spendHtlcOutput(
 // watchHtlcSpend watches for a spend of the HTLC output. For neutrino backend,
 // it will check blocks for the confirmed spend. For btcd and bitcoind, it will
 // check both the mempool and the blocks.
-func (h *htlcTimeoutResolver) watchHtlcSpend() (*chainntnfs.SpendDetail,
+func (h *htlcTimeoutResolver) watchHtlcSpend() (*chainnotif.SpendDetail,
 	error) {
 
 	// TODO(yy): outpointToWatch is always h.HtlcOutpoint(), can refactor
@@ -625,7 +625,7 @@ func (h *htlcTimeoutResolver) watchHtlcSpend() (*chainntnfs.SpendDetail,
 // waitForConfirmedSpend waits for the HTLC output to be spent and confirmed in
 // a block, returns the spend details.
 func (h *htlcTimeoutResolver) waitForConfirmedSpend(op *wire.OutPoint,
-	pkScript []byte) (*chainntnfs.SpendDetail, error) {
+	pkScript []byte) (*chainnotif.SpendDetail, error) {
 
 	log.Infof("%T(%v): waiting for spent of HTLC output %v to be "+
 		"fully confirmed", h, h.htlcResolution.ClaimOutpoint, op)
@@ -669,7 +669,7 @@ func (h *htlcTimeoutResolver) checkPointSecondLevelTx() error {
 // wallet. If the was a remote commitment, the resolver will resolve
 // immetiately.
 func (h *htlcTimeoutResolver) handleCommitSpend(
-	commitSpend *chainntnfs.SpendDetail) (ContractResolver, error) {
+	commitSpend *chainnotif.SpendDetail) (ContractResolver, error) {
 
 	var (
 		// claimOutpoint will be the outpoint of the second level
@@ -1012,7 +1012,7 @@ var _ htlcContractResolver = (*htlcTimeoutResolver)(nil)
 // mempool spend or a block spend.
 type spendResult struct {
 	// spend contains the details of the spend.
-	spend *chainntnfs.SpendDetail
+	spend *chainnotif.SpendDetail
 
 	// err is the error that occurred during the spend notification.
 	err error
@@ -1021,7 +1021,7 @@ type spendResult struct {
 // waitForMempoolOrBlockSpend waits for the htlc output to be spent by a
 // transaction that's either be found in the mempool or in a block.
 func (h *htlcTimeoutResolver) waitForMempoolOrBlockSpend(op wire.OutPoint,
-	pkScript []byte) (*chainntnfs.SpendDetail, error) {
+	pkScript []byte) (*chainnotif.SpendDetail, error) {
 
 	log.Infof("%T(%v): waiting for spent of HTLC output %v to be found "+
 		"in mempool or block", h, h.htlcResolution.ClaimOutpoint, op)
@@ -1077,7 +1077,7 @@ func (h *htlcTimeoutResolver) waitForMempoolOrBlockSpend(op wire.OutPoint,
 //
 // TODO(yy): sweep the outgoing htlc if it's confirmed.
 func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
-	blockSpent, mempoolSpent <-chan *chainntnfs.SpendDetail) {
+	blockSpent, mempoolSpent <-chan *chainnotif.SpendDetail) {
 
 	op := h.HtlcPoint()
 

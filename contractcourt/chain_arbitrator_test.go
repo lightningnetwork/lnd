@@ -6,7 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
@@ -79,9 +79,9 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 	chainArbCfg := ChainArbitratorConfig{
 		ChainIO: &mock.ChainIO{},
 		Notifier: &mock.ChainNotifier{
-			SpendChan: make(chan *chainntnfs.SpendDetail),
-			EpochChan: make(chan *chainntnfs.BlockEpoch),
-			ConfChan:  make(chan *chainntnfs.TxConfirmation),
+			SpendChan: make(chan *chainnotif.SpendDetail),
+			EpochChan: make(chan *chainnotif.BlockEpoch),
+			ConfChan:  make(chan *chainnotif.TxConfirmation),
 		},
 		PublishTx: func(tx *wire.MsgTx, _ string) error {
 			published[tx.TxHash()]++
@@ -164,9 +164,9 @@ func TestResolveContract(t *testing.T) {
 	chainArbCfg := ChainArbitratorConfig{
 		ChainIO: &mock.ChainIO{},
 		Notifier: &mock.ChainNotifier{
-			SpendChan: make(chan *chainntnfs.SpendDetail),
-			EpochChan: make(chan *chainntnfs.BlockEpoch),
-			ConfChan:  make(chan *chainntnfs.TxConfirmation),
+			SpendChan: make(chan *chainnotif.SpendDetail),
+			EpochChan: make(chan *chainnotif.BlockEpoch),
+			ConfChan:  make(chan *chainnotif.TxConfirmation),
 		},
 		PublishTx: func(tx *wire.MsgTx, _ string) error {
 			return nil

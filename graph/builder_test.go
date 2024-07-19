@@ -19,7 +19,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -1376,7 +1376,7 @@ func TestBlockDifferenceFix(t *testing.T) {
 		ctx.chain.addBlock(newBlock, uint32(currBlockHeight), nonce)
 		currHash := newBlock.Header.BlockHash()
 
-		newEpoch := &chainntnfs.BlockEpoch{
+		newEpoch := &chainnotif.BlockEpoch{
 			Height: currBlockHeight,
 			Hash:   &currHash,
 		}

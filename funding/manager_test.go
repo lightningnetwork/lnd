@@ -21,7 +21,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/chainreg"
 	acpt "github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -177,29 +177,29 @@ func (m *mockAliasMgr) DeleteSixConfs(lnwire.ShortChannelID) error {
 }
 
 type mockNotifier struct {
-	oneConfChannel chan *chainntnfs.TxConfirmation
-	sixConfChannel chan *chainntnfs.TxConfirmation
-	epochChan      chan *chainntnfs.BlockEpoch
+	oneConfChannel chan *chainnotif.TxConfirmation
+	sixConfChannel chan *chainnotif.TxConfirmation
+	epochChan      chan *chainnotif.BlockEpoch
 }
 
 func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	_ []byte, numConfs, heightHint uint32,
-	opts ...chainntnfs.NotifierOption) (*chainntnfs.ConfirmationEvent,
+	opts ...chainnotif.NotifierOption) (*chainnotif.ConfirmationEvent,
 	error) {
 
 	if numConfs == 6 {
-		return &chainntnfs.ConfirmationEvent{
+		return &chainnotif.ConfirmationEvent{
 			Confirmed: m.sixConfChannel,
 		}, nil
 	}
-	return &chainntnfs.ConfirmationEvent{
+	return &chainnotif.ConfirmationEvent{
 		Confirmed: m.oneConfChannel,
 	}, nil
 }
 
 func (m *mockNotifier) RegisterBlockEpochNtfn(
-	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
-	return &chainntnfs.BlockEpochEvent{
+	bestBlock *chainnotif.BlockEpoch) (*chainnotif.BlockEpochEvent, error) {
+	return &chainnotif.BlockEpochEvent{
 		Epochs: m.epochChan,
 		Cancel: func() {},
 	}, nil
@@ -218,9 +218,9 @@ func (m *mockNotifier) Stop() error {
 }
 
 func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
-	heightHint uint32) (*chainntnfs.SpendEvent, error) {
-	return &chainntnfs.SpendEvent{
-		Spend:  make(chan *chainntnfs.SpendDetail),
+	heightHint uint32) (*chainnotif.SpendEvent, error) {
+	return &chainnotif.SpendEvent{
+		Spend:  make(chan *chainnotif.SpendDetail),
 		Cancel: func() {},
 	}, nil
 }
@@ -355,7 +355,7 @@ func (n *testNode) RemovePendingChannel(_ lnwire.ChannelID) error {
 }
 
 func createTestWallet(cdb *channeldb.ChannelStateDB, netParams *chaincfg.Params,
-	notifier chainntnfs.ChainNotifier, wc lnwallet.WalletController,
+	notifier chainnotif.ChainNotifier, wc lnwallet.WalletController,
 	signer input.Signer, keyRing keychain.SecretKeyRing,
 	bio lnwallet.BlockChainIO,
 	estimator chainfee.Estimator) (*lnwallet.LightningWallet, error) {
@@ -390,9 +390,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	estimator := chainfee.NewStaticEstimator(62500, 0)
 
 	chainNotifier := &mockNotifier{
-		oneConfChannel: make(chan *chainntnfs.TxConfirmation, 1),
-		sixConfChannel: make(chan *chainntnfs.TxConfirmation, 1),
-		epochChan:      make(chan *chainntnfs.BlockEpoch, 2),
+		oneConfChannel: make(chan *chainnotif.TxConfirmation, 1),
+		sixConfChannel: make(chan *chainnotif.TxConfirmation, 1),
+		epochChan:      make(chan *chainnotif.BlockEpoch, 2),
 	}
 
 	aliasMgr := &mockAliasMgr{}
@@ -1475,10 +1475,10 @@ func testNormalWorkflow(t *testing.T, chanType *lnwire.ChannelType) {
 	assertErrorNotSent(t, bob.msgChan)
 
 	// Notify that transaction was mined.
-	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -1531,10 +1531,10 @@ func testNormalWorkflow(t *testing.T, chanType *lnwire.ChannelType) {
 
 	// Notify that six confirmations has been reached on funding
 	// transaction.
-	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -1788,10 +1788,10 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	alice.fundingMgr.cfg.NotifyWhenOnline = notifyWhenOnline
 
 	// Notify that transaction was mined
-	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -1887,10 +1887,10 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 
 	// Notify that six confirmations has been reached on funding
 	// transaction.
-	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -1948,10 +1948,10 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	}
 
 	// Notify that transaction was mined
-	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -2050,10 +2050,10 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 
 	// Notify that six confirmations has been reached on funding
 	// transaction.
-	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -2324,7 +2324,7 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 
 	// We expect Bob to forget the channel after 2016 blocks (2 weeks), so
 	// mine 2016-1, and check that it is still pending.
-	bob.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
+	bob.mockNotifier.epochChan <- &chainnotif.BlockEpoch{
 		Height: fundingBroadcastHeight +
 			MaxWaitNumBlocksFundingConf - 1,
 	}
@@ -2332,7 +2332,7 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 	// Bob should still be waiting for the channel to open.
 	assertNumPendingChannelsRemains(t, bob, 1)
 
-	bob.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
+	bob.mockNotifier.epochChan <- &chainnotif.BlockEpoch{
 		Height: fundingBroadcastHeight + MaxWaitNumBlocksFundingConf,
 	}
 
@@ -2381,12 +2381,12 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 
 	// Increase the height to 1 minus the MaxWaitNumBlocksFundingConf
 	// height.
-	alice.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
+	alice.mockNotifier.epochChan <- &chainnotif.BlockEpoch{
 		Height: fundingBroadcastHeight +
 			MaxWaitNumBlocksFundingConf - 1,
 	}
 
-	bob.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
+	bob.mockNotifier.epochChan <- &chainnotif.BlockEpoch{
 		Height: fundingBroadcastHeight +
 			MaxWaitNumBlocksFundingConf - 1,
 	}
@@ -2397,11 +2397,11 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 	assertNumPendingChannelsRemains(t, bob, 1)
 
 	// Increase both Alice and Bob to MaxWaitNumBlocksFundingConf height.
-	alice.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
+	alice.mockNotifier.epochChan <- &chainnotif.BlockEpoch{
 		Height: fundingBroadcastHeight + MaxWaitNumBlocksFundingConf,
 	}
 
-	bob.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
+	bob.mockNotifier.epochChan <- &chainnotif.BlockEpoch{
 		Height: fundingBroadcastHeight + MaxWaitNumBlocksFundingConf,
 	}
 
@@ -2440,10 +2440,10 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 	)
 
 	// Notify that transaction was mined
-	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -2509,10 +2509,10 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 
 	// Notify that six confirmations has been reached on funding
 	// transaction.
-	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -2553,10 +2553,10 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	)
 
 	// Notify that transaction was mined
-	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -2607,10 +2607,10 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 
 	// Notify that six confirmations has been reached on funding
 	// transaction.
-	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -2652,10 +2652,10 @@ func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 	)
 
 	// Notify that transaction was mined
-	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -2702,10 +2702,10 @@ func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 
 	// Notify that six confirmations has been reached on funding
 	// transaction.
-	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -2747,10 +2747,10 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 	)
 
 	// Notify that transaction was mined
-	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -2793,10 +2793,10 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 
 	// Notify that six confirmations has been reached on funding
 	// transaction.
-	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -2872,10 +2872,10 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	)
 
 	// Notify that transaction was mined
-	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -2923,10 +2923,10 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 
 	// Notify that six confirmations has been reached on funding
 	// transaction.
-	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -3314,10 +3314,10 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	}
 
 	// Notify that transaction was mined.
-	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -3404,10 +3404,10 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 
 	// Send along the 6-confirmation channel so that announcement sigs can
 	// be exchanged.
-	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -3649,10 +3649,10 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 
 	// Notify that the transactions were mined.
 	for i := 0; i < maxPending; i++ {
-		alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		alice.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 			Tx: txs[i],
 		}
-		bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		bob.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 			Tx: txs[i],
 		}
 
@@ -3799,7 +3799,7 @@ func TestFundingManagerMaxConfs(t *testing.T) {
 
 	// Modify the AcceptChannel message Bob is proposing to including a
 	// MinAcceptDepth Alice won't be willing to accept.
-	acceptChannelResponse.MinAcceptDepth = chainntnfs.MaxNumConfs + 1
+	acceptChannelResponse.MinAcceptDepth = chainnotif.MaxNumConfs + 1
 
 	alice.fundingMgr.ProcessFundingMsg(acceptChannelResponse, bob)
 
@@ -4577,10 +4577,10 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 	}
 
 	// We'll now confirm the funding transaction.
-	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -4606,10 +4606,10 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 
 	// Send along the 6-confirmation channel so that announcement sigs can
 	// be exchanged.
-	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
-	bob.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.sixConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -4889,11 +4889,11 @@ func TestFundingManagerCoinbase(t *testing.T) {
 	require.True(t, ok)
 
 	// Confirm the funding transaction.
-	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
-	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
@@ -4927,11 +4927,11 @@ func TestFundingManagerCoinbase(t *testing.T) {
 	// Send along the oneConfChannel again and then assert that the open
 	// event is sent. This serves as the 100 block + MinAcceptDepth
 	// confirmation.
-	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	alice.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 
-	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+	bob.mockNotifier.oneConfChannel <- &chainnotif.TxConfirmation{
 		Tx: fundingTx,
 	}
 

@@ -14,7 +14,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -151,7 +151,7 @@ type BreachConfig struct {
 
 	// Notifier provides a publish/subscribe interface for event driven
 	// notifications regarding the confirmation of txids.
-	Notifier chainntnfs.ChainNotifier
+	Notifier chainnotif.ChainNotifier
 
 	// PublishTransaction facilitates the process of broadcasting a
 	// transaction to the network.
@@ -402,7 +402,7 @@ func (b *BreachArbitrator) contractObserver() {
 // spent together with the spend details.
 type spend struct {
 	index  int
-	detail *chainntnfs.SpendDetail
+	detail *chainnotif.SpendDetail
 }
 
 // waitForSpendEvent waits for any of the breached outputs to get spent, and
@@ -410,7 +410,7 @@ type spend struct {
 // used to store registered spend subscriptions, in case we must call this
 // method multiple times.
 func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
-	spendNtfns map[wire.OutPoint]*chainntnfs.SpendEvent) ([]spend, error) {
+	spendNtfns map[wire.OutPoint]*chainnotif.SpendEvent) ([]spend, error) {
 
 	inputs := breachInfo.breachedOutputs
 
@@ -467,7 +467,7 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 		// Launch a goroutine waiting for a spend event.
 		b.wg.Add(1)
 		wg.Add(1)
-		go func(index int, spendEv *chainntnfs.SpendEvent) {
+		go func(index int, spendEv *chainnotif.SpendEvent) {
 			defer b.wg.Done()
 			defer wg.Done()
 
@@ -538,7 +538,7 @@ func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 // when we go to sweep a breached commitment transaction, but the cheating
 // party has already attempted to take it to the second level.
 func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
-	spendDetails *chainntnfs.SpendDetail) {
+	spendDetails *chainnotif.SpendDetail) {
 
 	// In this case, we'll modify the witness type of this output to
 	// actually prepare for a second level revoke.
@@ -690,7 +690,7 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 //
 //nolint:funlen
 func (b *BreachArbitrator) exactRetribution(
-	confChan *chainntnfs.ConfirmationEvent, breachInfo *retributionInfo) {
+	confChan *chainnotif.ConfirmationEvent, breachInfo *retributionInfo) {
 
 	defer b.wg.Done()
 
@@ -715,7 +715,7 @@ func (b *BreachArbitrator) exactRetribution(
 	// We may have to wait for some of the HTLC outputs to be spent to the
 	// second level before broadcasting the justice tx. We'll store the
 	// SpendEvents between each attempt to not re-register unnecessarily.
-	spendNtfns := make(map[wire.OutPoint]*chainntnfs.SpendEvent)
+	spendNtfns := make(map[wire.OutPoint]*chainnotif.SpendEvent)
 
 	// Compute both the total value of funds being swept and the
 	// amount of funds that were revoked from the counter party.

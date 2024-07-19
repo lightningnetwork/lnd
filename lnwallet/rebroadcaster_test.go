@@ -7,7 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/stretchr/testify/require"
 )
@@ -120,9 +120,9 @@ func TestWalletRebroadcaster(t *testing.T) {
 	}
 	chainIO := &mockChainIO{}
 	notifier := &mockChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail, 1),
-		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation, 1),
+		SpendChan: make(chan *chainnotif.SpendDetail, 1),
+		EpochChan: make(chan *chainnotif.BlockEpoch, 1),
+		ConfChan:  make(chan *chainnotif.TxConfirmation, 1),
 	}
 	cfg := &Config{
 		Rebroadcaster:    rebroadcaster,
@@ -190,7 +190,7 @@ func TestWalletRebroadcaster(t *testing.T) {
 
 		// We'll now mark the transaction as confirmed, and assert that
 		// the rebroadcaster was notified.
-		notifier.ConfChan <- &chainntnfs.TxConfirmation{}
+		notifier.ConfChan <- &chainnotif.TxConfirmation{}
 
 		_, err = lnutils.RecvOrTimeout(
 			rebroadcaster.confSignal, time.Second,

@@ -21,7 +21,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/build"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/channelnotifier"
@@ -251,11 +251,11 @@ type Config struct {
 
 	// ChainNotifier is used to receive confirmations of a coop close
 	// transaction.
-	ChainNotifier chainntnfs.ChainNotifier
+	ChainNotifier chainnotif.ChainNotifier
 
 	// BestBlockView is used to efficiently query for up-to-date
 	// blockchain state information
-	BestBlockView chainntnfs.BestBlockView
+	BestBlockView chainnotif.BestBlockView
 
 	// RoutingPolicy is used to set the forwarding policy for links created by
 	// the Brontide.
@@ -3333,7 +3333,7 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 // following actions: the channel point will be sent over the settleChan, and
 // finally the callback will be executed. If any error is encountered within
 // the function, then it will be sent over the errChan.
-func WaitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
+func WaitForChanToClose(bestHeight uint32, notifier chainnotif.ChainNotifier,
 	errChan chan error, chanPoint *wire.OutPoint,
 	closingTxID *chainhash.Hash, closeScript []byte, cb func()) {
 

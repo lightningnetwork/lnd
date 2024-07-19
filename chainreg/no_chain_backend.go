@@ -10,7 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/routing/chainview"
@@ -42,7 +42,7 @@ var (
 
 // NoChainBackend is a mock implementation of the following interfaces:
 //   - chainview.FilteredChainView
-//   - chainntnfs.ChainNotifier
+//   - chainnotif.ChainNotifier
 //   - chainfee.Estimator
 type NoChainBackend struct {
 }
@@ -59,22 +59,22 @@ func (n *NoChainBackend) RelayFeePerKW() chainfee.SatPerKWeight {
 
 func (n *NoChainBackend) RegisterConfirmationsNtfn(*chainhash.Hash, []byte,
 	uint32, uint32,
-	...chainntnfs.NotifierOption) (*chainntnfs.ConfirmationEvent, error) {
+	...chainnotif.NotifierOption) (*chainnotif.ConfirmationEvent, error) {
 
 	return nil, errNotImplemented
 }
 
 func (n *NoChainBackend) RegisterSpendNtfn(*wire.OutPoint, []byte,
-	uint32) (*chainntnfs.SpendEvent, error) {
+	uint32) (*chainnotif.SpendEvent, error) {
 
 	return nil, errNotImplemented
 }
 
 func (n *NoChainBackend) RegisterBlockEpochNtfn(
-	*chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
+	*chainnotif.BlockEpoch) (*chainnotif.BlockEpochEvent, error) {
 
-	epochChan := make(chan *chainntnfs.BlockEpoch)
-	return &chainntnfs.BlockEpochEvent{
+	epochChan := make(chan *chainnotif.BlockEpoch)
+	return &chainnotif.BlockEpochEvent{
 		Epochs: epochChan,
 		Cancel: func() {
 			close(epochChan)
@@ -113,7 +113,7 @@ func (n *NoChainBackend) Stop() error {
 }
 
 var _ chainview.FilteredChainView = (*NoChainBackend)(nil)
-var _ chainntnfs.ChainNotifier = (*NoChainBackend)(nil)
+var _ chainnotif.ChainNotifier = (*NoChainBackend)(nil)
 var _ chainfee.Estimator = (*NoChainBackend)(nil)
 
 // NoChainSource is a mock implementation of chain.Interface.

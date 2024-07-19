@@ -10,7 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -329,7 +329,7 @@ type mockers struct {
 	signer    *input.MockInputSigner
 	wallet    *MockWallet
 	estimator *chainfee.MockEstimator
-	notifier  *chainntnfs.MockChainNotifier
+	notifier  *chainnotif.MockChainNotifier
 
 	feeFunc *MockFeeFunction
 }
@@ -349,7 +349,7 @@ func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
 	wallet := &MockWallet{}
 
 	// Create a mock chain notifier.
-	notifier := &chainntnfs.MockChainNotifier{}
+	notifier := &chainnotif.MockChainNotifier{}
 
 	t.Cleanup(func() {
 		estimator.AssertExpectations(t)

@@ -14,7 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -3914,9 +3914,9 @@ func TestSwitchHoldForward(t *testing.T) {
 	defer c.finish()
 
 	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+		EpochChan: make(chan *chainnotif.BlockEpoch, 1),
 	}
-	notifier.EpochChan <- &chainntnfs.BlockEpoch{Height: testStartingHeight}
+	notifier.EpochChan <- &chainnotif.BlockEpoch{Height: testStartingHeight}
 
 	switchForwardInterceptor, err := NewInterceptableSwitch(
 		&InterceptableSwitchConfig{
@@ -4117,9 +4117,9 @@ func TestSwitchHoldForward(t *testing.T) {
 
 	// Test always-on interception.
 	notifier = &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+		EpochChan: make(chan *chainnotif.BlockEpoch, 1),
 	}
-	notifier.EpochChan <- &chainntnfs.BlockEpoch{Height: testStartingHeight}
+	notifier.EpochChan <- &chainnotif.BlockEpoch{Height: testStartingHeight}
 
 	switchForwardInterceptor, err = NewInterceptableSwitch(
 		&InterceptableSwitchConfig{
@@ -4205,9 +4205,9 @@ func TestInterceptableSwitchWatchDog(t *testing.T) {
 
 	// Start interceptable switch.
 	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+		EpochChan: make(chan *chainnotif.BlockEpoch, 1),
 	}
-	notifier.EpochChan <- &chainntnfs.BlockEpoch{Height: testStartingHeight}
+	notifier.EpochChan <- &chainnotif.BlockEpoch{Height: testStartingHeight}
 
 	switchForwardInterceptor, err := NewInterceptableSwitch(
 		&InterceptableSwitchConfig{
@@ -4242,7 +4242,7 @@ func TestInterceptableSwitchWatchDog(t *testing.T) {
 	)
 
 	// Htlc expires before a resolution from the interceptor.
-	notifier.EpochChan <- &chainntnfs.BlockEpoch{
+	notifier.EpochChan <- &chainnotif.BlockEpoch{
 		Height: int32(packet.incomingTimeout) -
 			int32(c.cltvRejectDelta),
 	}
@@ -5487,9 +5487,9 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 	}
 
 	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+		EpochChan: make(chan *chainnotif.BlockEpoch, 1),
 	}
-	notifier.EpochChan <- &chainntnfs.BlockEpoch{Height: testStartingHeight}
+	notifier.EpochChan <- &chainnotif.BlockEpoch{Height: testStartingHeight}
 
 	interceptSwitch, err := NewInterceptableSwitch(
 		&InterceptableSwitchConfig{

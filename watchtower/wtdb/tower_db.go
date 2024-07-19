@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 )
@@ -481,7 +481,7 @@ func (t *TowerDB) QueryMatches(breachHints []blob.BreachHint) ([]Match, error) {
 
 // SetLookoutTip stores the provided epoch as the latest lookout tip epoch in
 // the tower database.
-func (t *TowerDB) SetLookoutTip(epoch *chainntnfs.BlockEpoch) error {
+func (t *TowerDB) SetLookoutTip(epoch *chainnotif.BlockEpoch) error {
 	return kvdb.Update(t.db, func(tx kvdb.RwTx) error {
 		lookoutTip := tx.ReadWriteBucket(lookoutTipBkt)
 		if lookoutTip == nil {
@@ -494,8 +494,8 @@ func (t *TowerDB) SetLookoutTip(epoch *chainntnfs.BlockEpoch) error {
 
 // GetLookoutTip retrieves the current lookout tip block epoch from the tower
 // database.
-func (t *TowerDB) GetLookoutTip() (*chainntnfs.BlockEpoch, error) {
-	var epoch *chainntnfs.BlockEpoch
+func (t *TowerDB) GetLookoutTip() (*chainnotif.BlockEpoch, error) {
+	var epoch *chainnotif.BlockEpoch
 	err := kvdb.View(t.db, func(tx kvdb.RTx) error {
 		lookoutTip := tx.ReadBucket(lookoutTipBkt)
 		if lookoutTip == nil {
@@ -607,7 +607,7 @@ func putHintForSession(updateIndex kvdb.RwBucket, id *SessionID,
 }
 
 // putLookoutEpoch stores the given lookout tip block epoch in provided bucket.
-func putLookoutEpoch(bkt kvdb.RwBucket, epoch *chainntnfs.BlockEpoch) error {
+func putLookoutEpoch(bkt kvdb.RwBucket, epoch *chainnotif.BlockEpoch) error {
 	epochBytes := make([]byte, 36)
 	copy(epochBytes, epoch.Hash[:])
 	byteOrder.PutUint32(epochBytes[32:], uint32(epoch.Height))
@@ -617,7 +617,7 @@ func putLookoutEpoch(bkt kvdb.RwBucket, epoch *chainntnfs.BlockEpoch) error {
 
 // getLookoutEpoch retrieves the lookout tip block epoch from the given bucket.
 // A nil epoch is returned if no update exists.
-func getLookoutEpoch(bkt kvdb.RBucket) *chainntnfs.BlockEpoch {
+func getLookoutEpoch(bkt kvdb.RBucket) *chainnotif.BlockEpoch {
 	epochBytes := bkt.Get(lookoutTipKey)
 	if len(epochBytes) != 36 {
 		return nil
@@ -627,7 +627,7 @@ func getLookoutEpoch(bkt kvdb.RBucket) *chainntnfs.BlockEpoch {
 	copy(hash[:], epochBytes[:32])
 	height := byteOrder.Uint32(epochBytes[32:])
 
-	return &chainntnfs.BlockEpoch{
+	return &chainnotif.BlockEpoch{
 		Hash:   &hash,
 		Height: int32(height),
 	}

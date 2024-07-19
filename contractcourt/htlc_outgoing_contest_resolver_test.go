@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
@@ -83,7 +83,7 @@ func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 
 	spendHash := spendTx.TxHash()
 
-	ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+	ctx.notifier.SpendChan <- &chainnotif.SpendDetail{
 		SpendingTx:    spendTx,
 		SpenderTxHash: &spendHash,
 	}
@@ -126,9 +126,9 @@ type outgoingResolverTestContext struct {
 
 func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		EpochChan: make(chan *chainnotif.BlockEpoch),
+		SpendChan: make(chan *chainnotif.SpendDetail),
+		ConfChan:  make(chan *chainnotif.TxConfirmation),
 	}
 
 	checkPointChan := make(chan struct{}, 1)
@@ -221,7 +221,7 @@ func (i *outgoingResolverTestContext) resolve() {
 }
 
 func (i *outgoingResolverTestContext) notifyEpoch(height int32) {
-	i.notifier.EpochChan <- &chainntnfs.BlockEpoch{
+	i.notifier.EpochChan <- &chainnotif.BlockEpoch{
 		Height: height,
 	}
 }

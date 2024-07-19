@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
@@ -174,7 +174,7 @@ type Config struct {
 
 	// Notifier is an instance of a chain notifier that we'll use to signal
 	// the switch when a new block has arrived.
-	Notifier chainntnfs.ChainNotifier
+	Notifier chainnotif.ChainNotifier
 
 	// HtlcNotifier is an instance of a htlcNotifier which we will pipe htlc
 	// events through.
@@ -321,7 +321,7 @@ type Switch struct {
 	// blockEpochStream is an active block epoch event stream backed by an
 	// active ChainNotifier instance. This will be used to retrieve the
 	// latest height of the chain.
-	blockEpochStream *chainntnfs.BlockEpochEvent
+	blockEpochStream *chainnotif.BlockEpochEvent
 
 	// pendingSettleFails is the set of settle/fail entries that we need to
 	// ack in the forwarding package of the outgoing link. This was added to

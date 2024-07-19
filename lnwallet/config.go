@@ -3,7 +3,7 @@ package lnwallet
 import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcwallet/wallet"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -24,7 +24,7 @@ type Config struct {
 	// Notifier is used by in order to obtain notifications about funding
 	// transaction reaching a specified confirmation depth, and to catch
 	// counterparty's broadcasting revoked commitment states.
-	Notifier chainntnfs.ChainNotifier
+	Notifier chainnotif.ChainNotifier
 
 	// SecretKeyRing is used by the wallet during the funding workflow
 	// process to obtain keys to be used directly within contracts. Usage

@@ -16,7 +16,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/input"
@@ -886,9 +886,9 @@ func (m *mockSubscription) Updates() <-chan interface{} {
 // mockBlockSub mocks out the ChainNotifier.
 type mockBlockSub struct {
 	t      *testing.T
-	events chan *chainntnfs.BlockEpoch
+	events chan *chainnotif.BlockEpoch
 
-	chainntnfs.ChainNotifier
+	chainnotif.ChainNotifier
 }
 
 // newMockBlockSub creates a new mockBlockSub.
@@ -897,16 +897,16 @@ func newMockBlockSub(t *testing.T) *mockBlockSub {
 
 	return &mockBlockSub{
 		t:      t,
-		events: make(chan *chainntnfs.BlockEpoch),
+		events: make(chan *chainnotif.BlockEpoch),
 	}
 }
 
 // RegisterBlockEpochNtfn returns a channel that can be used to listen for new
 // blocks.
-func (m *mockBlockSub) RegisterBlockEpochNtfn(_ *chainntnfs.BlockEpoch) (
-	*chainntnfs.BlockEpochEvent, error) {
+func (m *mockBlockSub) RegisterBlockEpochNtfn(_ *chainnotif.BlockEpoch) (
+	*chainnotif.BlockEpochEvent, error) {
 
-	return &chainntnfs.BlockEpochEvent{
+	return &chainnotif.BlockEpochEvent{
 		Epochs: m.events,
 	}, nil
 }
@@ -914,7 +914,7 @@ func (m *mockBlockSub) RegisterBlockEpochNtfn(_ *chainntnfs.BlockEpoch) (
 // sendNewBlock will send a new block on the notification channel.
 func (m *mockBlockSub) sendNewBlock(height int32) {
 	select {
-	case m.events <- &chainntnfs.BlockEpoch{Height: height}:
+	case m.events <- &chainnotif.BlockEpoch{Height: height}:
 
 	case <-time.After(waitTime):
 		m.t.Fatalf("timed out sending block: %d", height)

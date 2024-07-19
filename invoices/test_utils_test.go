@@ -15,7 +15,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/clock"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -55,23 +55,23 @@ func (p *mockPayload) Metadata() []byte {
 }
 
 type mockChainNotifier struct {
-	chainntnfs.ChainNotifier
+	chainnotif.ChainNotifier
 
-	blockChan chan *chainntnfs.BlockEpoch
+	blockChan chan *chainnotif.BlockEpoch
 }
 
 func newMockNotifier() *mockChainNotifier {
 	return &mockChainNotifier{
-		blockChan: make(chan *chainntnfs.BlockEpoch),
+		blockChan: make(chan *chainnotif.BlockEpoch),
 	}
 }
 
 // RegisterBlockEpochNtfn mocks a block epoch notification, using the mock's
 // block channel to deliver blocks to the client.
-func (m *mockChainNotifier) RegisterBlockEpochNtfn(*chainntnfs.BlockEpoch) (
-	*chainntnfs.BlockEpochEvent, error) {
+func (m *mockChainNotifier) RegisterBlockEpochNtfn(*chainnotif.BlockEpoch) (
+	*chainnotif.BlockEpochEvent, error) {
 
-	return &chainntnfs.BlockEpochEvent{
+	return &chainnotif.BlockEpochEvent{
 		Epochs: m.blockChan,
 		Cancel: func() {},
 	}, nil
@@ -374,7 +374,7 @@ func (h *hodlExpiryTest) announceBlock(t *testing.T, height uint32) {
 	t.Helper()
 
 	select {
-	case h.mockNotifier.blockChan <- &chainntnfs.BlockEpoch{
+	case h.mockNotifier.blockChan <- &chainnotif.BlockEpoch{
 		Height: int32(height),
 	}:
 

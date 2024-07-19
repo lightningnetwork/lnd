@@ -15,7 +15,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/fn"
@@ -611,9 +611,9 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 	require.NoError(t, err)
 
 	interceptableSwitchNotifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
+		EpochChan: make(chan *chainnotif.BlockEpoch, 1),
 	}
-	interceptableSwitchNotifier.EpochChan <- &chainntnfs.BlockEpoch{
+	interceptableSwitchNotifier.EpochChan <- &chainnotif.BlockEpoch{
 		Height: 1,
 	}
 
@@ -629,9 +629,9 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 	// TODO(yy): create interface for lnwallet.LightningChannel so we can
 	// easily mock it without the following setups.
 	notifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		SpendChan: make(chan *chainnotif.SpendDetail),
+		EpochChan: make(chan *chainnotif.BlockEpoch),
+		ConfChan:  make(chan *chainnotif.TxConfirmation),
 	}
 
 	mockSwitch := &mockMessageSwitch{}

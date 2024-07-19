@@ -3,7 +3,7 @@ package lookout
 import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
@@ -33,7 +33,7 @@ type DB interface {
 	// GetLookoutTip returns the last block epoch at which the tower
 	// performed a match. If no match has been done, a nil epoch will be
 	// returned.
-	GetLookoutTip() (*chainntnfs.BlockEpoch, error)
+	GetLookoutTip() (*chainnotif.BlockEpoch, error)
 
 	// QueryMatches searches its database for any state updates matching the
 	// provided breach hints. If any matches are found, they will be
@@ -42,7 +42,7 @@ type DB interface {
 
 	// SetLookoutTip writes the best epoch for which the watchtower has
 	// queried for breach hints.
-	SetLookoutTip(*chainntnfs.BlockEpoch) error
+	SetLookoutTip(*chainnotif.BlockEpoch) error
 }
 
 // EpochRegistrar supports the ability to register for events corresponding to
@@ -50,11 +50,11 @@ type DB interface {
 type EpochRegistrar interface {
 	// RegisterBlockEpochNtfn registers for a new block epoch subscription.
 	// The implementation must support historical dispatch, starting from
-	// the provided chainntnfs.BlockEpoch when it is non-nil. The
+	// the provided chainnotif.BlockEpoch when it is non-nil. The
 	// notifications should be delivered in-order, and deliver reorged
 	// blocks.
 	RegisterBlockEpochNtfn(
-		*chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error)
+		*chainnotif.BlockEpoch) (*chainnotif.BlockEpochEvent, error)
 }
 
 // Punisher handles the construction and publication of justice transactions

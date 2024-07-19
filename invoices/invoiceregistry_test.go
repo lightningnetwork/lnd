@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/amp"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
@@ -1466,7 +1466,7 @@ func testHeightExpiryWithRegistryImpl(t *testing.T, numParts int, settle bool,
 	// until the expiry watcher consumes this height, so we can be sure
 	// that the expiry loop has run at least once after this block is
 	// consumed.
-	ctx.notifier.blockChan <- &chainntnfs.BlockEpoch{
+	ctx.notifier.blockChan <- &chainnotif.BlockEpoch{
 		Height: int32(testHtlcExpiry - 1),
 	}
 
@@ -1487,7 +1487,7 @@ func testHeightExpiryWithRegistryImpl(t *testing.T, numParts int, settle bool,
 	}
 
 	// Now we mine our htlc's expiry height.
-	ctx.notifier.blockChan <- &chainntnfs.BlockEpoch{
+	ctx.notifier.blockChan <- &chainnotif.BlockEpoch{
 		Height: int32(testHtlcExpiry),
 	}
 
@@ -1559,7 +1559,7 @@ func testMultipleSetHeightExpiry(t *testing.T,
 	// Notify the expiry height for our first htlc. We don't expect the
 	// invoice to be expired based on block height because the htlc set
 	// was never completed.
-	ctx.notifier.blockChan <- &chainntnfs.BlockEpoch{
+	ctx.notifier.blockChan <- &chainnotif.BlockEpoch{
 		Height: int32(testHtlcExpiry),
 	}
 
@@ -1594,7 +1594,7 @@ func testMultipleSetHeightExpiry(t *testing.T,
 
 	// Now we will notify the expiry height for the new set of htlcs. We
 	// expect the invoice to be canceled by the expiry watcher.
-	ctx.notifier.blockChan <- &chainntnfs.BlockEpoch{
+	ctx.notifier.blockChan <- &chainnotif.BlockEpoch{
 		Height: int32(expiry),
 	}
 

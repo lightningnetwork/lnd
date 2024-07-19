@@ -11,7 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
@@ -132,11 +132,11 @@ type ChainArbitratorConfig struct {
 
 	// Notifier is an instance of a chain notifier we'll use to watch for
 	// certain on-chain events.
-	Notifier chainntnfs.ChainNotifier
+	Notifier chainnotif.ChainNotifier
 
 	// Mempool is the a mempool watcher that allows us to watch for events
 	// happened in mempool.
-	Mempool chainntnfs.MempoolWatcher
+	Mempool chainnotif.MempoolWatcher
 
 	// Signer is a signer backed by the active lnd node. This should be
 	// capable of producing a signature as specified by a valid
@@ -782,7 +782,7 @@ type blockRecipient struct {
 // blocks to each of the chain arb's active channel arbitrators. This function
 // must be run in a goroutine.
 func (c *ChainArbitrator) dispatchBlocks(
-	blockEpoch *chainntnfs.BlockEpochEvent) {
+	blockEpoch *chainnotif.BlockEpochEvent) {
 
 	// getRecipients is a helper function which acquires the chain arb
 	// lock and returns a set of block recipients which can be used to

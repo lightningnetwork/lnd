@@ -10,7 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn"
@@ -172,7 +172,7 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	}
 
 	// Alice should be waiting in a goroutine for a confirmation.
-	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
+	notifier.ConfChan <- &chainnotif.TxConfirmation{}
 }
 
 // TestPeerChannelClosureAcceptFeeInitiator tests the shutdown initiator's
@@ -292,7 +292,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	}
 
 	// Alice should be waiting on a single confirmation for the coop close tx.
-	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
+	notifier.ConfChan <- &chainnotif.TxConfirmation{}
 }
 
 // TestPeerChannelClosureFeeNegotiationsResponder tests the shutdown
@@ -476,7 +476,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	}
 
 	// Alice should be waiting on a single confirmation for the coop close tx.
-	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
+	notifier.ConfChan <- &chainnotif.TxConfirmation{}
 }
 
 // TestPeerChannelClosureFeeNegotiationsInitiator tests the shutdown
@@ -672,7 +672,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	}
 
 	// Alice should be waiting on a single confirmation for the coop close tx.
-	notifier.ConfChan <- &chainntnfs.TxConfirmation{}
+	notifier.ConfChan <- &chainnotif.TxConfirmation{}
 }
 
 // TestChooseDeliveryScript tests that chooseDeliveryScript correctly errors

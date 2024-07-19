@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
@@ -248,7 +248,7 @@ type TxPublisherConfig struct {
 	Estimator chainfee.Estimator
 
 	// Notifier is used to monitor the confirmation status of the tx.
-	Notifier chainntnfs.ChainNotifier
+	Notifier chainnotif.ChainNotifier
 }
 
 // TxPublisher is an implementation of the Bumper interface. It utilizes the
@@ -697,7 +697,7 @@ func (t *TxPublisher) Stop() {
 // to be bumped. If so, it will attempt to bump the fee of the tx.
 //
 // NOTE: Must be run as a goroutine.
-func (t *TxPublisher) monitor(blockEvent *chainntnfs.BlockEpochEvent) {
+func (t *TxPublisher) monitor(blockEvent *chainnotif.BlockEpochEvent) {
 	defer blockEvent.Cancel()
 	defer t.wg.Done()
 

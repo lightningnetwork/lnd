@@ -356,7 +356,7 @@ type CheckReservedValueTxReq struct {
 //
 // NOTE: At the moment the wallet requires a btcd full node, as it's dependent
 // on btcd's websockets notifications as event triggers during the lifetime of a
-// channel. However, once the chainntnfs package is complete, the wallet will
+// channel. However, once the chainnotif package is complete, the wallet will
 // be compatible with multiple RPC/notification services such as Electrum,
 // Bitcoin Core + ZeroMQ, etc. Eventually, the wallet won't require a full-node
 // at all, as SPV support is integrated into btcwallet.

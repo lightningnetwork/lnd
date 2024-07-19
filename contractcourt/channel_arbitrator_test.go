@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
@@ -358,9 +358,9 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 		OutgoingBroadcastDelta: 5,
 		IncomingBroadcastDelta: 5,
 		Notifier: &mock.ChainNotifier{
-			EpochChan: make(chan *chainntnfs.BlockEpoch),
-			SpendChan: make(chan *chainntnfs.SpendDetail),
-			ConfChan:  make(chan *chainntnfs.TxConfirmation),
+			EpochChan: make(chan *chainnotif.BlockEpoch),
+			SpendChan: make(chan *chainnotif.SpendDetail),
+			ConfChan:  make(chan *chainnotif.TxConfirmation),
 		},
 		IncubateOutputs: func(wire.OutPoint,
 			fn.Option[lnwallet.OutgoingHtlcResolution],
@@ -577,7 +577,7 @@ func TestChannelArbitratorRemoteForceClose(t *testing.T) {
 	chanArbCtx.AssertState(StateDefault)
 
 	// Send a remote force close event.
-	commitSpend := &chainntnfs.SpendDetail{
+	commitSpend := &chainnotif.SpendDetail{
 		SpenderTxHash: &chainhash.Hash{},
 	}
 
@@ -692,7 +692,7 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 
 	// Now notify about the local force close getting confirmed.
 	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
-		SpendDetail: &chainntnfs.SpendDetail{},
+		SpendDetail: &chainnotif.SpendDetail{},
 		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
 			CloseTx:         &wire.MsgTx{},
 			HtlcResolutions: &lnwallet.HtlcResolutions{},
@@ -968,7 +968,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	}
 
 	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
-		SpendDetail: &chainntnfs.SpendDetail{},
+		SpendDetail: &chainnotif.SpendDetail{},
 		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
 			CloseTx: closeTx,
 			HtlcResolutions: &lnwallet.HtlcResolutions{
@@ -1063,7 +1063,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	}
 
 	// Send a notification that the expiry height has been reached.
-	oldNotifier.EpochChan <- &chainntnfs.BlockEpoch{Height: 10}
+	oldNotifier.EpochChan <- &chainnotif.BlockEpoch{Height: 10}
 
 	// htlcOutgoingContestResolver is now transforming into a
 	// htlcTimeoutResolver and should send the contract off for incubation.
@@ -1075,7 +1075,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 
 	// Notify resolver that the HTLC output of the commitment has been
 	// spent.
-	oldNotifier.SpendChan <- &chainntnfs.SpendDetail{SpendingTx: closeTx}
+	oldNotifier.SpendChan <- &chainnotif.SpendDetail{SpendingTx: closeTx}
 
 	// Finally, we should also receive a resolution message instructing the
 	// switch to cancel back the HTLC.
@@ -1103,7 +1103,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	}
 
 	// Notify resolver that the second level transaction is spent.
-	oldNotifier.SpendChan <- &chainntnfs.SpendDetail{SpendingTx: closeTx}
+	oldNotifier.SpendChan <- &chainnotif.SpendDetail{SpendingTx: closeTx}
 
 	// At this point channel should be marked as resolved.
 	chanArbCtxNew.AssertStateTransitions(StateFullyResolved)
@@ -1197,7 +1197,7 @@ func TestChannelArbitratorLocalForceCloseRemoteConfirmed(t *testing.T) {
 	chanArbCtx.AssertState(StateCommitmentBroadcasted)
 
 	// Now notify about the _REMOTE_ commitment getting confirmed.
-	commitSpend := &chainntnfs.SpendDetail{
+	commitSpend := &chainnotif.SpendDetail{
 		SpenderTxHash: &chainhash.Hash{},
 	}
 	uniClose := &lnwallet.UnilateralCloseSummary{
@@ -1303,7 +1303,7 @@ func TestChannelArbitratorLocalForceDoubleSpend(t *testing.T) {
 	chanArbCtx.AssertState(StateCommitmentBroadcasted)
 
 	// Now notify about the _REMOTE_ commitment getting confirmed.
-	commitSpend := &chainntnfs.SpendDetail{
+	commitSpend := &chainnotif.SpendDetail{
 		SpenderTxHash: &chainhash.Hash{},
 	}
 	uniClose := &lnwallet.UnilateralCloseSummary{
@@ -1348,7 +1348,7 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 	chanArbCtx.AssertState(StateDefault)
 
 	// Send a remote force close event.
-	commitSpend := &chainntnfs.SpendDetail{
+	commitSpend := &chainnotif.SpendDetail{
 		SpenderTxHash: &chainhash.Hash{},
 	}
 
@@ -1593,7 +1593,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 		{
 			closeType: channeldb.RemoteForceClose,
 			sendEvent: func(chanArb *ChannelArbitrator) {
-				commitSpend := &chainntnfs.SpendDetail{
+				commitSpend := &chainnotif.SpendDetail{
 					SpenderTxHash: &chainhash.Hash{},
 				}
 
@@ -1611,7 +1611,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 			closeType: channeldb.LocalForceClose,
 			sendEvent: func(chanArb *ChannelArbitrator) {
 				chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
-					SpendDetail: &chainntnfs.SpendDetail{},
+					SpendDetail: &chainnotif.SpendDetail{},
 					LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
 						CloseTx:         &wire.MsgTx{},
 						HtlcResolutions: &lnwallet.HtlcResolutions{},
@@ -1943,7 +1943,7 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 			// resolutions sent since we have none on our
 			// commitment transaction.
 			uniCloseInfo := &LocalUnilateralCloseInfo{
-				SpendDetail: &chainntnfs.SpendDetail{},
+				SpendDetail: &chainnotif.SpendDetail{},
 				LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
 					CloseTx:         closeTx,
 					HtlcResolutions: &lnwallet.HtlcResolutions{},
@@ -2097,7 +2097,7 @@ func TestRemoteCloseInitiator(t *testing.T) {
 	getCloseSummary := func(channel *channeldb.OpenChannel) *RemoteUnilateralCloseInfo {
 		return &RemoteUnilateralCloseInfo{
 			UnilateralCloseSummary: &lnwallet.UnilateralCloseSummary{
-				SpendDetail: &chainntnfs.SpendDetail{
+				SpendDetail: &chainnotif.SpendDetail{
 					SpenderTxHash: &chainhash.Hash{},
 					SpendingTx: &wire.MsgTx{
 						TxIn:  []*wire.TxIn{},
@@ -2753,7 +2753,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 	}
 
 	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
-		SpendDetail: &chainntnfs.SpendDetail{},
+		SpendDetail: &chainnotif.SpendDetail{},
 		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
 			CloseTx:          closeTx,
 			HtlcResolutions:  &lnwallet.HtlcResolutions{},

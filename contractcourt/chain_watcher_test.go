@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntest/mock"
@@ -33,9 +33,9 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 	// With the channels created, we'll now create a chain watcher instance
 	// which will be watching for any closes of Alice's channel.
 	aliceNotifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		SpendChan: make(chan *chainnotif.SpendDetail),
+		EpochChan: make(chan *chainnotif.BlockEpoch),
+		ConfChan:  make(chan *chainnotif.TxConfirmation),
 	}
 	aliceChainWatcher, err := newChainWatcher(chainWatcherConfig{
 		chanState:           aliceChannel.State(),
@@ -56,7 +56,7 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 	// Bob, then the chain watcher should detect this case.
 	bobCommit := bobChannel.State().LocalCommitment.CommitTx
 	bobTxHash := bobCommit.TxHash()
-	bobSpend := &chainntnfs.SpendDetail{
+	bobSpend := &chainnotif.SpendDetail{
 		SpenderTxHash: &bobTxHash,
 		SpendingTx:    bobCommit,
 	}
@@ -117,9 +117,9 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 	// With the channels created, we'll now create a chain watcher instance
 	// which will be watching for any closes of Alice's channel.
 	aliceNotifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		SpendChan: make(chan *chainnotif.SpendDetail),
+		EpochChan: make(chan *chainnotif.BlockEpoch),
+		ConfChan:  make(chan *chainnotif.TxConfirmation),
 	}
 	aliceChainWatcher, err := newChainWatcher(chainWatcherConfig{
 		chanState:           aliceChannel.State(),
@@ -162,7 +162,7 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 	// commit broadcast based on the state hints in the commitment.
 	bobCommit := bobPendingCommit.Commitment.CommitTx
 	bobTxHash := bobCommit.TxHash()
-	bobSpend := &chainntnfs.SpendDetail{
+	bobSpend := &chainnotif.SpendDetail{
 		SpenderTxHash: &bobTxHash,
 		SpendingTx:    bobCommit,
 	}
@@ -281,9 +281,9 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 		// instance which will be watching for any closes of Alice's
 		// channel.
 		aliceNotifier := &mock.ChainNotifier{
-			SpendChan: make(chan *chainntnfs.SpendDetail),
-			EpochChan: make(chan *chainntnfs.BlockEpoch),
-			ConfChan:  make(chan *chainntnfs.TxConfirmation),
+			SpendChan: make(chan *chainnotif.SpendDetail),
+			EpochChan: make(chan *chainnotif.BlockEpoch),
+			ConfChan:  make(chan *chainnotif.TxConfirmation),
 		}
 		aliceChainWatcher, err := newChainWatcher(chainWatcherConfig{
 			chanState: aliceChanState,
@@ -323,7 +323,7 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 		// scenario.
 		bobCommit := bobChannel.State().LocalCommitment.CommitTx
 		bobTxHash := bobCommit.TxHash()
-		bobSpend := &chainntnfs.SpendDetail{
+		bobSpend := &chainnotif.SpendDetail{
 			SpenderTxHash: &bobTxHash,
 			SpendingTx:    bobCommit,
 		}
@@ -455,9 +455,9 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 		// instance which will be watching for any closes of Alice's
 		// channel.
 		aliceNotifier := &mock.ChainNotifier{
-			SpendChan: make(chan *chainntnfs.SpendDetail),
-			EpochChan: make(chan *chainntnfs.BlockEpoch),
-			ConfChan:  make(chan *chainntnfs.TxConfirmation),
+			SpendChan: make(chan *chainnotif.SpendDetail),
+			EpochChan: make(chan *chainnotif.BlockEpoch),
+			ConfChan:  make(chan *chainnotif.TxConfirmation),
 		}
 		aliceChainWatcher, err := newChainWatcher(chainWatcherConfig{
 			chanState:           aliceChanState,
@@ -494,7 +494,7 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 		}
 
 		aliceTxHash := aliceCommit.TxHash()
-		aliceSpend := &chainntnfs.SpendDetail{
+		aliceSpend := &chainnotif.SpendDetail{
 			SpenderTxHash: &aliceTxHash,
 			SpendingTx:    aliceCommit,
 		}

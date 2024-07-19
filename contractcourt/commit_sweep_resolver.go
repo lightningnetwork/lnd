@@ -11,7 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
@@ -97,7 +97,7 @@ func (c *commitSweepResolver) ResolverKey() []byte {
 
 // waitForHeight registers for block notifications and waits for the provided
 // block height to be reached.
-func waitForHeight(waitHeight uint32, notifier chainntnfs.ChainNotifier,
+func waitForHeight(waitHeight uint32, notifier chainnotif.ChainNotifier,
 	quit <-chan struct{}) error {
 
 	// Register for block epochs. After registration, the current height
@@ -128,8 +128,8 @@ func waitForHeight(waitHeight uint32, notifier chainntnfs.ChainNotifier,
 // waitForSpend waits for the given outpoint to be spent, and returns the
 // details of the spending tx.
 func waitForSpend(op *wire.OutPoint, pkScript []byte, heightHint uint32,
-	notifier chainntnfs.ChainNotifier, quit <-chan struct{}) (
-	*chainntnfs.SpendDetail, error) {
+	notifier chainnotif.ChainNotifier, quit <-chan struct{}) (
+	*chainnotif.SpendDetail, error) {
 
 	spendNtfn, err := notifier.RegisterSpendNtfn(
 		op, pkScript, heightHint,

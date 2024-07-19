@@ -17,7 +17,7 @@ import (
 	"github.com/lightninglabs/neutrino/cache"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightningnetwork/lnd/batch"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/graph"
@@ -183,7 +183,7 @@ type Config struct {
 	//
 	// TODO(roasbeef): could possibly just replace this with an epoch
 	// channel.
-	Notifier chainntnfs.ChainNotifier
+	Notifier chainnotif.ChainNotifier
 
 	// Broadcast broadcasts a particular set of announcements to all peers
 	// that the daemon is connected to. If supplied, the exclude parameter
@@ -426,7 +426,7 @@ type AuthenticatedGossiper struct {
 
 	// blockEpochs encapsulates a stream of block epochs that are sent at
 	// every new block height.
-	blockEpochs *chainntnfs.BlockEpochEvent
+	blockEpochs *chainnotif.BlockEpochEvent
 
 	// prematureChannelUpdates is a map of ChannelUpdates we have received
 	// that wasn't associated with any channel we know about.  We store

@@ -6,7 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
@@ -29,9 +29,9 @@ func newCommitSweepResolverTestContext(t *testing.T,
 	resolution *lnwallet.CommitOutputResolution) *commitSweepResolverTestContext {
 
 	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		EpochChan: make(chan *chainnotif.BlockEpoch),
+		SpendChan: make(chan *chainnotif.SpendDetail),
+		ConfChan:  make(chan *chainnotif.TxConfirmation),
 	}
 
 	sweeper := newMockSweeper()
@@ -91,7 +91,7 @@ func (i *commitSweepResolverTestContext) resolve() {
 }
 
 func (i *commitSweepResolverTestContext) notifyEpoch(height int32) {
-	i.notifier.EpochChan <- &chainntnfs.BlockEpoch{
+	i.notifier.EpochChan <- &chainnotif.BlockEpoch{
 		Height: height,
 	}
 }
@@ -201,7 +201,7 @@ func TestCommitSweepResolverNoDelay(t *testing.T) {
 
 	spendTx := &wire.MsgTx{}
 	spendHash := spendTx.TxHash()
-	ctx.notifier.ConfChan <- &chainntnfs.TxConfirmation{
+	ctx.notifier.ConfChan <- &chainnotif.TxConfirmation{
 		Tx: spendTx,
 	}
 
@@ -279,7 +279,7 @@ func testCommitSweepResolverDelay(t *testing.T, sweepErr error) {
 
 	ctx.resolve()
 
-	ctx.notifier.ConfChan <- &chainntnfs.TxConfirmation{
+	ctx.notifier.ConfChan <- &chainnotif.TxConfirmation{
 		BlockHeight: testInitialBlockHeight - 1,
 	}
 

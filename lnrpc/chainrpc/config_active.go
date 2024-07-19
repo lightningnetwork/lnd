@@ -4,7 +4,7 @@
 package chainrpc
 
 import (
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
 )
@@ -32,7 +32,7 @@ type Config struct {
 	// ChainNotifier is the chain notifier instance that backs the chain
 	// notifier RPC server. The job of the chain notifier RPC server is
 	// simply to proxy valid requests to the active chain notifier instance.
-	ChainNotifier chainntnfs.ChainNotifier
+	ChainNotifier chainnotif.ChainNotifier
 
 	// Chain provides access to the most up-to-date blockchain data.
 	Chain lnwallet.BlockChainIO

@@ -10,7 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
@@ -44,9 +44,9 @@ func newHtlcResolverTestContext(t *testing.T,
 		cfg ResolverConfig) ContractResolver) *htlcResolverTestContext {
 
 	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch, 1),
-		SpendChan: make(chan *chainntnfs.SpendDetail, 1),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation, 1),
+		EpochChan: make(chan *chainnotif.BlockEpoch, 1),
+		SpendChan: make(chan *chainnotif.SpendDetail, 1),
+		ConfChan:  make(chan *chainnotif.TxConfirmation, 1),
 	}
 
 	testCtx := &htlcResolverTestContext{
@@ -190,7 +190,7 @@ func TestHtlcSuccessSingleStage(t *testing.T) {
 
 				// The resolver will offer the input to the
 				// sweeper.
-				details := &chainntnfs.SpendDetail{
+				details := &chainnotif.SpendDetail{
 					SpendingTx:    sweepTx,
 					SpenderTxHash: &sweepTxid,
 				}
@@ -277,7 +277,7 @@ func TestHtlcSuccessSecondStageResolution(t *testing.T) {
 			preCheckpoint: func(ctx *htlcResolverTestContext,
 				_ bool) error {
 
-				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+				ctx.notifier.SpendChan <- &chainnotif.SpendDetail{
 					SpendingTx:    sweepTx,
 					SpenderTxHash: &sweepHash,
 				}
@@ -407,7 +407,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 						commitOutpoint)
 				}
 
-				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+				ctx.notifier.SpendChan <- &chainnotif.SpendDetail{
 					SpendingTx:        reSignedSuccessTx,
 					SpenderTxHash:     &reSignedHash,
 					SpenderInputIndex: 1,
@@ -429,7 +429,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				// expect the resolver to re-subscribe to a
 				// spend, hence we must resend it.
 				if resumed {
-					ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+					ctx.notifier.SpendChan <- &chainnotif.SpendDetail{
 						SpendingTx:        reSignedSuccessTx,
 						SpenderTxHash:     &reSignedHash,
 						SpenderInputIndex: 1,
@@ -437,7 +437,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 					}
 				}
 
-				ctx.notifier.EpochChan <- &chainntnfs.BlockEpoch{
+				ctx.notifier.EpochChan <- &chainnotif.BlockEpoch{
 					Height: 13,
 				}
 
@@ -457,7 +457,7 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 
 				// Notify about the spend, which should resolve
 				// the resolver.
-				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
+				ctx.notifier.SpendChan <- &chainnotif.SpendDetail{
 					SpendingTx:     sweepTx,
 					SpenderTxHash:  &sweepHash,
 					SpendingHeight: 14,

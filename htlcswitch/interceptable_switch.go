@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -73,12 +73,12 @@ type InterceptableSwitch struct {
 
 	// notifier is an instance of a chain notifier that we'll use to signal
 	// the switch when a new block has arrived.
-	notifier chainntnfs.ChainNotifier
+	notifier chainnotif.ChainNotifier
 
 	// blockEpochStream is an active block epoch event stream backed by an
 	// active ChainNotifier instance. This will be used to retrieve the
 	// latest height of the chain.
-	blockEpochStream *chainntnfs.BlockEpochEvent
+	blockEpochStream *chainnotif.BlockEpochEvent
 
 	// currentHeight is the currently best known height.
 	currentHeight int32
@@ -141,7 +141,7 @@ type InterceptableSwitchConfig struct {
 
 	// Notifier is an instance of a chain notifier that we'll use to signal
 	// the switch when a new block has arrived.
-	Notifier chainntnfs.ChainNotifier
+	Notifier chainnotif.ChainNotifier
 
 	// CltvRejectDelta defines the number of blocks before the expiry of the
 	// htlc where we auto-fail an intercepted htlc to prevent channel

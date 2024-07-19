@@ -22,7 +22,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightninglabs/neutrino/cache"
 	"github.com/lightningnetwork/lnd/batch"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/graph"
@@ -393,26 +393,26 @@ func (r *mockGraphSource) MarkEdgeZombie(chanID lnwire.ShortChannelID, pubKey1,
 
 type mockNotifier struct {
 	clientCounter uint32
-	epochClients  map[uint32]chan *chainntnfs.BlockEpoch
+	epochClients  map[uint32]chan *chainnotif.BlockEpoch
 
 	sync.RWMutex
 }
 
 func newMockNotifier() *mockNotifier {
 	return &mockNotifier{
-		epochClients: make(map[uint32]chan *chainntnfs.BlockEpoch),
+		epochClients: make(map[uint32]chan *chainnotif.BlockEpoch),
 	}
 }
 
 func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	_ []byte, numConfs, _ uint32,
-	opts ...chainntnfs.NotifierOption) (*chainntnfs.ConfirmationEvent, error) {
+	opts ...chainnotif.NotifierOption) (*chainnotif.ConfirmationEvent, error) {
 
 	return nil, nil
 }
 
 func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
-	_ uint32) (*chainntnfs.SpendEvent, error) {
+	_ uint32) (*chainnotif.SpendEvent, error) {
 	return nil, nil
 }
 
@@ -421,7 +421,7 @@ func (m *mockNotifier) notifyBlock(hash chainhash.Hash, height uint32) {
 	defer m.RUnlock()
 
 	for _, client := range m.epochClients {
-		client <- &chainntnfs.BlockEpoch{
+		client <- &chainnotif.BlockEpoch{
 			Height: int32(height),
 			Hash:   &hash,
 		}
@@ -429,16 +429,16 @@ func (m *mockNotifier) notifyBlock(hash chainhash.Hash, height uint32) {
 }
 
 func (m *mockNotifier) RegisterBlockEpochNtfn(
-	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
+	bestBlock *chainnotif.BlockEpoch) (*chainnotif.BlockEpochEvent, error) {
 	m.RLock()
 	defer m.RUnlock()
 
-	epochChan := make(chan *chainntnfs.BlockEpoch)
+	epochChan := make(chan *chainnotif.BlockEpoch)
 	clientID := m.clientCounter
 	m.clientCounter++
 	m.epochClients[clientID] = epochChan
 
-	return &chainntnfs.BlockEpochEvent{
+	return &chainnotif.BlockEpochEvent{
 		Epochs: epochChan,
 		Cancel: func() {},
 	}, nil

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -313,9 +313,9 @@ type incomingResolverTestContext struct {
 
 func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolverTestContext {
 	notifier := &mock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		EpochChan: make(chan *chainnotif.BlockEpoch),
+		SpendChan: make(chan *chainnotif.SpendDetail),
+		ConfChan:  make(chan *chainnotif.TxConfirmation),
 	}
 	witnessBeacon := newMockWitnessBeacon()
 	registry := &mockRegistry{
@@ -404,7 +404,7 @@ func (i *incomingResolverTestContext) resolve() {
 }
 
 func (i *incomingResolverTestContext) notifyEpoch(height int32) {
-	i.notifier.EpochChan <- &chainntnfs.BlockEpoch{
+	i.notifier.EpochChan <- &chainnotif.BlockEpoch{
 		Height: height,
 	}
 }

@@ -31,8 +31,8 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/blockcache"
-	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
+	"github.com/lightningnetwork/lnd/chainnotif"
+	"github.com/lightningnetwork/lnd/chainnotif/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -309,7 +309,7 @@ func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,
 // createTestWallet creates a test LightningWallet will a total of 20BTC
 // available for funding channels.
 func createTestWallet(tempTestDir string, miningNode *rpctest.Harness,
-	netParams *chaincfg.Params, notifier chainntnfs.ChainNotifier,
+	netParams *chaincfg.Params, notifier chainnotif.ChainNotifier,
 	wc lnwallet.WalletController, keyRing keychain.SecretKeyRing,
 	signer input.Signer, bio lnwallet.BlockChainIO) (*lnwallet.LightningWallet, error) {
 
@@ -3137,7 +3137,7 @@ func TestLightningWallet(t *testing.T, targetBackEnd string) {
 func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 	backEnd string, miningNode *rpctest.Harness,
 	rpcConfig rpcclient.ConnConfig,
-	chainNotifier chainntnfs.ChainNotifier) bool {
+	chainNotifier chainnotif.ChainNotifier) bool {
 
 	var (
 		bio lnwallet.BlockChainIO

@@ -16,7 +16,7 @@ import (
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -301,19 +301,19 @@ func (w *mockWalletController) CheckMempoolAcceptance(tx *wire.MsgTx) error {
 
 // mockChainNotifier is a mock implementation of the ChainNotifier interface.
 type mockChainNotifier struct {
-	SpendChan chan *chainntnfs.SpendDetail
-	EpochChan chan *chainntnfs.BlockEpoch
-	ConfChan  chan *chainntnfs.TxConfirmation
+	SpendChan chan *chainnotif.SpendDetail
+	EpochChan chan *chainnotif.BlockEpoch
+	ConfChan  chan *chainnotif.TxConfirmation
 }
 
 // RegisterConfirmationsNtfn returns a ConfirmationEvent that contains a channel
 // that the tx confirmation will go over.
 func (c *mockChainNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	pkScript []byte, numConfs, heightHint uint32,
-	opts ...chainntnfs.NotifierOption) (*chainntnfs.ConfirmationEvent,
+	opts ...chainnotif.NotifierOption) (*chainnotif.ConfirmationEvent,
 	error) {
 
-	return &chainntnfs.ConfirmationEvent{
+	return &chainnotif.ConfirmationEvent{
 		Confirmed: c.ConfChan,
 		Cancel:    func() {},
 	}, nil
@@ -322,9 +322,9 @@ func (c *mockChainNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 // RegisterSpendNtfn returns a SpendEvent that contains a channel that the spend
 // details will go over.
 func (c *mockChainNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	pkScript []byte, heightHint uint32) (*chainnotif.SpendEvent, error) {
 
-	return &chainntnfs.SpendEvent{
+	return &chainnotif.SpendEvent{
 		Spend:  c.SpendChan,
 		Cancel: func() {},
 	}, nil
@@ -333,10 +333,10 @@ func (c *mockChainNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 // RegisterBlockEpochNtfn returns a BlockEpochEvent that contains a channel that
 // block epochs will go over.
 func (c *mockChainNotifier) RegisterBlockEpochNtfn(
-	blockEpoch *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent,
+	blockEpoch *chainnotif.BlockEpoch) (*chainnotif.BlockEpochEvent,
 	error) {
 
-	return &chainntnfs.BlockEpochEvent{
+	return &chainnotif.BlockEpochEvent{
 		Epochs: c.EpochChan,
 		Cancel: func() {},
 	}, nil

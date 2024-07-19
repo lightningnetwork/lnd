@@ -9,7 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/fn"
@@ -96,7 +96,7 @@ type Config struct {
 		*channeldb.ChannelCloseSummary, error)
 
 	// ChainNotifier can be used to subscribe to block notifications.
-	ChainNotifier chainntnfs.ChainNotifier
+	ChainNotifier chainnotif.ChainNotifier
 
 	// BuildBreachRetribution is a function closure that allows the client
 	// fetch the breach retribution info for a certain channel at a certain
@@ -847,7 +847,7 @@ func (m *Manager) handleClosedChannel(chanID lnwire.ChannelID,
 // tower is informed that it can delete the session, and then we also delete it
 // from our DB.
 func (m *Manager) handleClosableSessions(
-	blocksChan *chainntnfs.BlockEpochEvent) {
+	blocksChan *chainnotif.BlockEpochEvent) {
 
 	defer m.wg.Done()
 

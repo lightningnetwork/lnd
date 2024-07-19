@@ -20,7 +20,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -1646,7 +1646,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	notifier := brar.cfg.Notifier.(*mock.SpendNotifier)
 
 	select {
-	case notifier.ConfChan <- &chainntnfs.TxConfirmation{}:
+	case notifier.ConfChan <- &chainnotif.TxConfirmation{}:
 	case <-time.After(15 * time.Second):
 		t.Fatalf("conf not delivered")
 	}
@@ -1856,7 +1856,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	notifier := brar.cfg.Notifier.(*mock.SpendNotifier)
 
 	select {
-	case notifier.ConfChan <- &chainntnfs.TxConfirmation{}:
+	case notifier.ConfChan <- &chainnotif.TxConfirmation{}:
 	case <-time.After(defaultTimeout):
 		t.Fatalf("conf not delivered")
 	}
@@ -1884,7 +1884,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	// confirming.
 	const pollInterval = 500 * time.Millisecond
 	for i := int32(0); i <= 3; i++ {
-		notifier.EpochChan <- &chainntnfs.BlockEpoch{
+		notifier.EpochChan <- &chainnotif.BlockEpoch{
 			Height: blockHeight + i,
 		}
 
@@ -1899,7 +1899,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	// Now mine another block without the justice tx confirming. This
 	// should lead to the BreachArbitrator publishing the split justice tx
 	// variants.
-	notifier.EpochChan <- &chainntnfs.BlockEpoch{
+	notifier.EpochChan <- &chainnotif.BlockEpoch{
 		Height: blockHeight + 4,
 	}
 

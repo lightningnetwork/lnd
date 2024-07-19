@@ -14,7 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
@@ -373,9 +373,9 @@ func (s *Server) RegisterConfirmationsNtfn(in *ConfRequest,
 	var txid chainhash.Hash
 	copy(txid[:], in.Txid)
 
-	var opts []chainntnfs.NotifierOption
+	var opts []chainnotif.NotifierOption
 	if in.IncludeBlock {
-		opts = append(opts, chainntnfs.WithIncludeBlock())
+		opts = append(opts, chainnotif.WithIncludeBlock())
 	}
 
 	// We'll then register for the spend notification of the request.
@@ -396,7 +396,7 @@ func (s *Server) RegisterConfirmationsNtfn(in *ConfRequest,
 		// dispatch an event to the caller indicating so.
 		case details, ok := <-confEvent.Confirmed:
 			if !ok {
-				return chainntnfs.ErrChainNotifierShuttingDown
+				return chainnotif.ErrChainNotifierShuttingDown
 			}
 
 			var rawTxBuf bytes.Buffer
@@ -440,7 +440,7 @@ func (s *Server) RegisterConfirmationsNtfn(in *ConfRequest,
 		// of the chain, so we'll send an event describing it.
 		case _, ok := <-confEvent.NegativeConf:
 			if !ok {
-				return chainntnfs.ErrChainNotifierShuttingDown
+				return chainnotif.ErrChainNotifierShuttingDown
 			}
 
 			reorg := &ConfEvent{
@@ -455,7 +455,7 @@ func (s *Server) RegisterConfirmationsNtfn(in *ConfRequest,
 		// so we can safely exit.
 		case _, ok := <-confEvent.Done:
 			if !ok {
-				return chainntnfs.ErrChainNotifierShuttingDown
+				return chainnotif.ErrChainNotifierShuttingDown
 			}
 
 			return nil
@@ -518,7 +518,7 @@ func (s *Server) RegisterSpendNtfn(in *SpendRequest,
 		// includes the details of the spending transaction.
 		case details, ok := <-spendEvent.Spend:
 			if !ok {
-				return chainntnfs.ErrChainNotifierShuttingDown
+				return chainnotif.ErrChainNotifierShuttingDown
 			}
 
 			var rawSpendingTxBuf bytes.Buffer
@@ -551,7 +551,7 @@ func (s *Server) RegisterSpendNtfn(in *SpendRequest,
 		// the chain. We'll return an event to the caller indicating so.
 		case _, ok := <-spendEvent.Reorg:
 			if !ok {
-				return chainntnfs.ErrChainNotifierShuttingDown
+				return chainnotif.ErrChainNotifierShuttingDown
 			}
 
 			reorg := &SpendEvent{
@@ -566,7 +566,7 @@ func (s *Server) RegisterSpendNtfn(in *SpendRequest,
 		// of the chain, so we can safely exit.
 		case _, ok := <-spendEvent.Done:
 			if !ok {
-				return chainntnfs.ErrChainNotifierShuttingDown
+				return chainnotif.ErrChainNotifierShuttingDown
 			}
 
 			return nil
@@ -614,9 +614,9 @@ func (s *Server) RegisterBlockEpochNtfn(in *BlockEpoch,
 	// should deliver a backlog of notifications from the given block
 	// (hash/height tuple) until tip, and continue delivering epochs for
 	// new blocks.
-	var blockEpoch *chainntnfs.BlockEpoch
-	if hash != chainntnfs.ZeroHash && in.Height != 0 {
-		blockEpoch = &chainntnfs.BlockEpoch{
+	var blockEpoch *chainnotif.BlockEpoch
+	if hash != chainnotif.ZeroHash && in.Height != 0 {
+		blockEpoch = &chainnotif.BlockEpoch{
 			Hash:   &hash,
 			Height: int32(in.Height),
 		}
@@ -634,7 +634,7 @@ func (s *Server) RegisterBlockEpochNtfn(in *BlockEpoch,
 		// either be a new block or stale.
 		case blockEpoch, ok := <-epochEvent.Epochs:
 			if !ok {
-				return chainntnfs.ErrChainNotifierShuttingDown
+				return chainnotif.ErrChainNotifierShuttingDown
 			}
 
 			epoch := &BlockEpoch{

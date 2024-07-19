@@ -4,7 +4,7 @@ import (
 	"math"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 )
@@ -36,7 +36,7 @@ func (h *htlcLeaseResolver) hasCLTV() bool {
 // deriveWaitHeight computes the height the resolver needs to wait until it can
 // sweep the input.
 func (h *htlcLeaseResolver) deriveWaitHeight(csvDelay uint32,
-	commitSpend *chainntnfs.SpendDetail) uint32 {
+	commitSpend *chainnotif.SpendDetail) uint32 {
 
 	waitHeight := uint32(commitSpend.SpendingHeight) + csvDelay - 1
 	if h.hasCLTV() {

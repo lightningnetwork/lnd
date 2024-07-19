@@ -10,7 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -282,7 +282,7 @@ type UtxoSweeper struct {
 	cfg *UtxoSweeperConfig
 
 	newInputs chan *sweepInputMessage
-	spendChan chan *chainntnfs.SpendDetail
+	spendChan chan *chainnotif.SpendDetail
 
 	// pendingSweepsReq is a channel that will be sent requests by external
 	// callers in order to retrieve the set of pending inputs the
@@ -329,11 +329,11 @@ type UtxoSweeperConfig struct {
 
 	// Notifier is an instance of a chain notifier we'll use to watch for
 	// certain on-chain events.
-	Notifier chainntnfs.ChainNotifier
+	Notifier chainnotif.ChainNotifier
 
 	// Mempool is the mempool watcher that will be used to query whether a
 	// given input is already being spent by a transaction in the mempool.
-	Mempool chainntnfs.MempoolWatcher
+	Mempool chainnotif.MempoolWatcher
 
 	// Store stores the published sweeper txes.
 	Store SweeperStore
@@ -389,7 +389,7 @@ func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 	return &UtxoSweeper{
 		cfg:               cfg,
 		newInputs:         make(chan *sweepInputMessage),
-		spendChan:         make(chan *chainntnfs.SpendDetail),
+		spendChan:         make(chan *chainnotif.SpendDetail),
 		updateReqs:        make(chan *updateReq),
 		pendingSweepsReqs: make(chan *pendingSweepsReq),
 		quit:              make(chan struct{}),
@@ -610,7 +610,7 @@ func (s *UtxoSweeper) removeConflictSweepDescendants(
 
 // collector is the sweeper main loop. It processes new inputs, spend
 // notifications and counts down to publication of the sweep tx.
-func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
+func (s *UtxoSweeper) collector(blockEpochs <-chan *chainnotif.BlockEpoch) {
 	// We registered for the block epochs with a nil request. The notifier
 	// should send us the current best block immediately. So we need to wait
 	// for it here because we need to know the current best height.
@@ -1340,7 +1340,7 @@ func (s *UtxoSweeper) handleExistingInput(input *sweepInputMessage,
 
 // handleInputSpent takes a spend event of our input and updates the sweeper's
 // internal state to remove the input.
-func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail) {
+func (s *UtxoSweeper) handleInputSpent(spend *chainnotif.SpendDetail) {
 	// Query store to find out if we ever published this tx.
 	spendHash := *spend.SpenderTxHash
 	isOurTx, err := s.cfg.Store.IsOurTx(spendHash)

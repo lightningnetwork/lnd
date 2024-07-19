@@ -6,29 +6,29 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 )
 
 type MockBackend struct {
 	mu sync.RWMutex
 
-	blocks chan *chainntnfs.BlockEpoch
+	blocks chan *chainnotif.BlockEpoch
 	epochs map[chainhash.Hash]*wire.MsgBlock
 	quit   chan struct{}
 }
 
 func NewMockBackend() *MockBackend {
 	return &MockBackend{
-		blocks: make(chan *chainntnfs.BlockEpoch),
+		blocks: make(chan *chainnotif.BlockEpoch),
 		epochs: make(map[chainhash.Hash]*wire.MsgBlock),
 		quit:   make(chan struct{}),
 	}
 }
 
-func (m *MockBackend) RegisterBlockEpochNtfn(*chainntnfs.BlockEpoch) (
-	*chainntnfs.BlockEpochEvent, error) {
+func (m *MockBackend) RegisterBlockEpochNtfn(*chainnotif.BlockEpoch) (
+	*chainnotif.BlockEpochEvent, error) {
 
-	return &chainntnfs.BlockEpochEvent{
+	return &chainnotif.BlockEpochEvent{
 		Epochs: m.blocks,
 	}, nil
 }
@@ -45,7 +45,7 @@ func (m *MockBackend) GetBlock(hash *chainhash.Hash) (*wire.MsgBlock, error) {
 	return block, nil
 }
 
-func (m *MockBackend) ConnectEpoch(epoch *chainntnfs.BlockEpoch,
+func (m *MockBackend) ConnectEpoch(epoch *chainnotif.BlockEpoch,
 	block *wire.MsgBlock) {
 
 	m.mu.Lock()

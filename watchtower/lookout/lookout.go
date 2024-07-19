@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 )
 
@@ -108,7 +108,7 @@ func (l *Lookout) Stop() error {
 // justice for the victim.
 //
 // This method MUST be run as a goroutine.
-func (l *Lookout) watchBlocks(epochs *chainntnfs.BlockEpochEvent) {
+func (l *Lookout) watchBlocks(epochs *chainnotif.BlockEpochEvent) {
 	defer l.wg.Done()
 	defer epochs.Cancel()
 
@@ -147,7 +147,7 @@ func (l *Lookout) watchBlocks(epochs *chainntnfs.BlockEpochEvent) {
 // updates for the confirmed transactions. If any are found, the lookout
 // responds by attempting to decrypt the encrypted blob and publishing the
 // justice transaction.
-func (l *Lookout) processEpoch(epoch *chainntnfs.BlockEpoch,
+func (l *Lookout) processEpoch(epoch *chainnotif.BlockEpoch,
 	block *wire.MsgBlock) error {
 
 	numTxnsInBlock := len(block.Transactions)

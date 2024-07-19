@@ -6,7 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,19 +46,19 @@ func TestHeightHintCacheConfirms(t *testing.T) {
 	// return an error indication so.
 	var unknownHash chainhash.Hash
 	copy(unknownHash[:], bytes.Repeat([]byte{0x01}, 32))
-	unknownConfRequest := chainntnfs.ConfRequest{TxID: unknownHash}
+	unknownConfRequest := chainnotif.ConfRequest{TxID: unknownHash}
 	_, err := hintCache.QueryConfirmHint(unknownConfRequest)
-	require.ErrorIs(t, err, chainntnfs.ErrConfirmHintNotFound)
+	require.ErrorIs(t, err, chainnotif.ErrConfirmHintNotFound)
 
 	// Now, we'll create some transaction hashes and commit them to the
 	// cache with the same confirm hint.
 	const height = 100
 	const numHashes = 5
-	confRequests := make([]chainntnfs.ConfRequest, numHashes)
+	confRequests := make([]chainnotif.ConfRequest, numHashes)
 	for i := 0; i < numHashes; i++ {
 		var txHash chainhash.Hash
 		copy(txHash[:], bytes.Repeat([]byte{byte(i + 1)}, 32))
-		confRequests[i] = chainntnfs.ConfRequest{TxID: txHash}
+		confRequests[i] = chainnotif.ConfRequest{TxID: txHash}
 	}
 
 	err = hintCache.CommitConfirmHint(height, confRequests...)
@@ -81,7 +81,7 @@ func TestHeightHintCacheConfirms(t *testing.T) {
 	// to find a hint for any of them.
 	for _, confRequest := range confRequests {
 		_, err := hintCache.QueryConfirmHint(confRequest)
-		require.ErrorIs(t, err, chainntnfs.ErrConfirmHintNotFound)
+		require.ErrorIs(t, err, chainnotif.ErrConfirmHintNotFound)
 	}
 }
 
@@ -95,19 +95,19 @@ func TestHeightHintCacheSpends(t *testing.T) {
 	// Querying for an outpoint not found within the cache should return an
 	// error indication so.
 	unknownOutPoint := wire.OutPoint{Index: 1}
-	unknownSpendRequest := chainntnfs.SpendRequest{
+	unknownSpendRequest := chainnotif.SpendRequest{
 		OutPoint: unknownOutPoint,
 	}
 	_, err := hintCache.QuerySpendHint(unknownSpendRequest)
-	require.ErrorIs(t, err, chainntnfs.ErrSpendHintNotFound)
+	require.ErrorIs(t, err, chainnotif.ErrSpendHintNotFound)
 
 	// Now, we'll create some outpoints and commit them to the cache with
 	// the same spend hint.
 	const height = 100
 	const numOutpoints = 5
-	spendRequests := make([]chainntnfs.SpendRequest, numOutpoints)
+	spendRequests := make([]chainnotif.SpendRequest, numOutpoints)
 	for i := uint32(0); i < numOutpoints; i++ {
-		spendRequests[i] = chainntnfs.SpendRequest{
+		spendRequests[i] = chainnotif.SpendRequest{
 			OutPoint: wire.OutPoint{Index: i + 1},
 		}
 	}
@@ -132,7 +132,7 @@ func TestHeightHintCacheSpends(t *testing.T) {
 	// not to find a hint for any of them.
 	for _, spendRequest := range spendRequests {
 		_, err = hintCache.QuerySpendHint(spendRequest)
-		require.ErrorIs(t, err, chainntnfs.ErrSpendHintNotFound)
+		require.ErrorIs(t, err, chainnotif.ErrSpendHintNotFound)
 	}
 }
 
@@ -147,7 +147,7 @@ func TestQueryDisable(t *testing.T) {
 
 	// Insert a new confirmation hint with a non-zero height.
 	const confHeight = 100
-	confRequest := chainntnfs.ConfRequest{
+	confRequest := chainnotif.ConfRequest{
 		TxID: chainhash.Hash{0x01, 0x02, 0x03},
 	}
 	err := hintCache.CommitConfirmHint(confHeight, confRequest)
@@ -160,7 +160,7 @@ func TestQueryDisable(t *testing.T) {
 
 	// Insert a new spend hint with a non-zero height.
 	const spendHeight = 200
-	spendRequest := chainntnfs.SpendRequest{
+	spendRequest := chainnotif.SpendRequest{
 		OutPoint: wire.OutPoint{
 			Hash:  chainhash.Hash{0x4, 0x05, 0x06},
 			Index: 42,

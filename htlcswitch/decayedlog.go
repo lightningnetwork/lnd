@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/kvdb"
 )
 
@@ -82,7 +82,7 @@ type DecayedLog struct {
 
 	db kvdb.Backend
 
-	notifier chainntnfs.ChainNotifier
+	notifier chainnotif.ChainNotifier
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -92,7 +92,7 @@ type DecayedLog struct {
 // shared secrets. Entries are evicted as their cltv expires using block epochs
 // from the given notifier.
 func NewDecayedLog(db kvdb.Backend,
-	notifier chainntnfs.ChainNotifier) *DecayedLog {
+	notifier chainnotif.ChainNotifier) *DecayedLog {
 
 	return &DecayedLog{
 		db:       db,
@@ -163,7 +163,7 @@ func (d *DecayedLog) Stop() error {
 
 // garbageCollector deletes entries from sharedHashBucket whose expiry height
 // has already past. This function MUST be run as a goroutine.
-func (d *DecayedLog) garbageCollector(epochClient *chainntnfs.BlockEpochEvent) {
+func (d *DecayedLog) garbageCollector(epochClient *chainnotif.BlockEpochEvent) {
 	defer d.wg.Done()
 	defer epochClient.Cancel()
 

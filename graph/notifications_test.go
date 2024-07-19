@@ -16,7 +16,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -1153,9 +1153,9 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	chainView := newMockChainView(chain)
 
 	notifier := &lnmock.ChainNotifier{
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		EpochChan: make(chan *chainnotif.BlockEpoch),
+		SpendChan: make(chan *chainnotif.SpendDetail),
+		ConfChan:  make(chan *chainnotif.TxConfirmation),
 	}
 
 	selfnode, err := graphInstance.graph.SourceNode()

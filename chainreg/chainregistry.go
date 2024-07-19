@@ -18,10 +18,10 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/blockcache"
-	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/chainntnfs/bitcoindnotify"
-	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
-	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
+	"github.com/lightningnetwork/lnd/chainnotif"
+	"github.com/lightningnetwork/lnd/chainnotif/bitcoindnotify"
+	"github.com/lightningnetwork/lnd/chainnotif/btcdnotify"
+	"github.com/lightningnetwork/lnd/chainnotif/neutrinonotify"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
@@ -152,15 +152,15 @@ type PartialChainControl struct {
 
 	// ChainNotifier is used to receive blockchain events that we are
 	// interested in.
-	ChainNotifier chainntnfs.ChainNotifier
+	ChainNotifier chainnotif.ChainNotifier
 
 	// BestBlockTracker is used to maintain a view of the global
 	// chain state that changes over time
-	BestBlockTracker *chainntnfs.BestBlockTracker
+	BestBlockTracker *chainnotif.BestBlockTracker
 
 	// MempoolNotifier is used to watch for spending events happened in
 	// mempool.
-	MempoolNotifier chainntnfs.MempoolWatcher
+	MempoolNotifier chainnotif.MempoolWatcher
 
 	// ChainView is used in the router for maintaining an up-to-date graph.
 	ChainView chainview.FilteredChainView
@@ -690,7 +690,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	}
 
 	cc.BestBlockTracker =
-		chainntnfs.NewBestBlockTracker(cc.ChainNotifier)
+		chainnotif.NewBestBlockTracker(cc.ChainNotifier)
 
 	switch {
 	// If the fee URL isn't set, and the user is running mainnet, then

@@ -15,7 +15,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/batch"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
@@ -76,7 +76,7 @@ type Config struct {
 
 	// Notifier is a reference to the ChainNotifier, used to grab
 	// the latest blocks if the router is missing any.
-	Notifier chainntnfs.ChainNotifier
+	Notifier chainnotif.ChainNotifier
 
 	// ChannelPruneExpiry is the duration used to determine if a channel
 	// should be pruned or not. If the delta between now and when the
@@ -931,7 +931,7 @@ func (b *Builder) getMissingBlocks(currentHeight uint32,
 		return err
 	}
 
-	outdatedBlock := &chainntnfs.BlockEpoch{
+	outdatedBlock := &chainnotif.BlockEpoch{
 		Height: int32(currentHeight),
 		Hash:   outdatedHash,
 	}
@@ -950,7 +950,7 @@ func (b *Builder) getMissingBlocks(currentHeight uint32,
 	// to update the graph with any closed channels from them.
 	for i := 0; i < blockDifference; i++ {
 		var (
-			missingBlock *chainntnfs.BlockEpoch
+			missingBlock *chainnotif.BlockEpoch
 			ok           bool
 		)
 

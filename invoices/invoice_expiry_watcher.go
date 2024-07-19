@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/queue"
@@ -73,7 +73,7 @@ type InvoiceExpiryWatcher struct {
 	clock clock.Clock
 
 	// notifier provides us with block height updates.
-	notifier chainntnfs.ChainNotifier
+	notifier chainnotif.ChainNotifier
 
 	// blockExpiryDelta is the number of blocks before a htlc's expiry that
 	// we expire the invoice based on expiry height. We use a delta because
@@ -116,7 +116,7 @@ type InvoiceExpiryWatcher struct {
 // NewInvoiceExpiryWatcher creates a new InvoiceExpiryWatcher instance.
 func NewInvoiceExpiryWatcher(clock clock.Clock,
 	expiryDelta, startHeight uint32, startHash *chainhash.Hash,
-	notifier chainntnfs.ChainNotifier) *InvoiceExpiryWatcher {
+	notifier chainnotif.ChainNotifier) *InvoiceExpiryWatcher {
 
 	return &InvoiceExpiryWatcher{
 		clock:            clock,
@@ -146,7 +146,7 @@ func (ew *InvoiceExpiryWatcher) Start(
 	ew.started = true
 	ew.cancelInvoice = cancelInvoice
 
-	ntfn, err := ew.notifier.RegisterBlockEpochNtfn(&chainntnfs.BlockEpoch{
+	ntfn, err := ew.notifier.RegisterBlockEpochNtfn(&chainnotif.BlockEpoch{
 		Height: int32(ew.currentHeight),
 		Hash:   ew.currentHash,
 	})
@@ -387,7 +387,7 @@ func (ew *InvoiceExpiryWatcher) pushInvoices(invoices []invoiceExpiry) {
 
 // mainLoop is a goroutine that receives new invoices and handles cancellation
 // of expired invoices.
-func (ew *InvoiceExpiryWatcher) mainLoop(blockNtfns *chainntnfs.BlockEpochEvent) {
+func (ew *InvoiceExpiryWatcher) mainLoop(blockNtfns *chainnotif.BlockEpochEvent) {
 	defer func() {
 		blockNtfns.Cancel()
 		ew.wg.Done()

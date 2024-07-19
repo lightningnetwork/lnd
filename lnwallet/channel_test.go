@@ -19,7 +19,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -5669,7 +5669,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 	// Alice.
 	closeTx := bobForceClose.CloseTx
 	commitTxHash := closeTx.TxHash()
-	spendDetail := &chainntnfs.SpendDetail{
+	spendDetail := &chainnotif.SpendDetail{
 		SpendingTx:    closeTx,
 		SpenderTxHash: &commitTxHash,
 	}
@@ -5814,7 +5814,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 	// the commitment due to an issue.
 	bobCommit := aliceChannel.remoteCommitChain.tip().txn
 	bobTxHash := bobCommit.TxHash()
-	spendDetail := &chainntnfs.SpendDetail{
+	spendDetail := &chainnotif.SpendDetail{
 		SpenderTxHash: &bobTxHash,
 		SpendingTx:    bobCommit,
 	}

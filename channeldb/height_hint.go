@@ -3,7 +3,7 @@ package channeldb
 import (
 	"bytes"
 
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/kvdb"
 )
 
@@ -39,8 +39,8 @@ type HeightHintCache struct {
 
 // Compile-time checks to ensure HeightHintCache satisfies the SpendHintCache
 // and ConfirmHintCache interfaces.
-var _ chainntnfs.SpendHintCache = (*HeightHintCache)(nil)
-var _ chainntnfs.ConfirmHintCache = (*HeightHintCache)(nil)
+var _ chainnotif.SpendHintCache = (*HeightHintCache)(nil)
+var _ chainnotif.ConfirmHintCache = (*HeightHintCache)(nil)
 
 // NewHeightHintCache returns a new height hint cache backed by a database.
 func NewHeightHintCache(cfg CacheConfig, db kvdb.Backend) (*HeightHintCache,
@@ -70,7 +70,7 @@ func (c *HeightHintCache) initBuckets() error {
 
 // CommitSpendHint commits a spend hint for the outpoints to the cache.
 func (c *HeightHintCache) CommitSpendHint(height uint32,
-	spendRequests ...chainntnfs.SpendRequest) error {
+	spendRequests ...chainnotif.SpendRequest) error {
 
 	if len(spendRequests) == 0 {
 		return nil
@@ -82,7 +82,7 @@ func (c *HeightHintCache) CommitSpendHint(height uint32,
 	return kvdb.Batch(c.db, func(tx kvdb.RwTx) error {
 		spendHints := tx.ReadWriteBucket(spendHintBucket)
 		if spendHints == nil {
-			return chainntnfs.ErrCorruptedHeightHintCache
+			return chainnotif.ErrCorruptedHeightHintCache
 		}
 
 		var hint bytes.Buffer
@@ -110,7 +110,7 @@ func (c *HeightHintCache) CommitSpendHint(height uint32,
 // ErrSpendHintNotFound is returned if a spend hint does not exist within the
 // cache for the outpoint.
 func (c *HeightHintCache) QuerySpendHint(
-	spendRequest chainntnfs.SpendRequest) (uint32, error) {
+	spendRequest chainnotif.SpendRequest) (uint32, error) {
 
 	var hint uint32
 	if c.cfg.QueryDisable {
@@ -121,7 +121,7 @@ func (c *HeightHintCache) QuerySpendHint(
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		spendHints := tx.ReadBucket(spendHintBucket)
 		if spendHints == nil {
-			return chainntnfs.ErrCorruptedHeightHintCache
+			return chainnotif.ErrCorruptedHeightHintCache
 		}
 
 		spendHintKey, err := spendHintKey(&spendRequest)
@@ -130,7 +130,7 @@ func (c *HeightHintCache) QuerySpendHint(
 		}
 		spendHint := spendHints.Get(spendHintKey)
 		if spendHint == nil {
-			return chainntnfs.ErrSpendHintNotFound
+			return chainnotif.ErrSpendHintNotFound
 		}
 
 		return ReadElement(bytes.NewReader(spendHint), &hint)
@@ -146,7 +146,7 @@ func (c *HeightHintCache) QuerySpendHint(
 
 // PurgeSpendHint removes the spend hint for the outpoints from the cache.
 func (c *HeightHintCache) PurgeSpendHint(
-	spendRequests ...chainntnfs.SpendRequest) error {
+	spendRequests ...chainnotif.SpendRequest) error {
 
 	if len(spendRequests) == 0 {
 		return nil
@@ -157,7 +157,7 @@ func (c *HeightHintCache) PurgeSpendHint(
 	return kvdb.Batch(c.db, func(tx kvdb.RwTx) error {
 		spendHints := tx.ReadWriteBucket(spendHintBucket)
 		if spendHints == nil {
-			return chainntnfs.ErrCorruptedHeightHintCache
+			return chainnotif.ErrCorruptedHeightHintCache
 		}
 
 		for _, spendRequest := range spendRequests {
@@ -177,7 +177,7 @@ func (c *HeightHintCache) PurgeSpendHint(
 
 // CommitConfirmHint commits a confirm hint for the transactions to the cache.
 func (c *HeightHintCache) CommitConfirmHint(height uint32,
-	confRequests ...chainntnfs.ConfRequest) error {
+	confRequests ...chainnotif.ConfRequest) error {
 
 	if len(confRequests) == 0 {
 		return nil
@@ -189,7 +189,7 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32,
 	return kvdb.Batch(c.db, func(tx kvdb.RwTx) error {
 		confirmHints := tx.ReadWriteBucket(confirmHintBucket)
 		if confirmHints == nil {
-			return chainntnfs.ErrCorruptedHeightHintCache
+			return chainnotif.ErrCorruptedHeightHintCache
 		}
 
 		var hint bytes.Buffer
@@ -217,7 +217,7 @@ func (c *HeightHintCache) CommitConfirmHint(height uint32,
 // ErrConfirmHintNotFound is returned if a confirm hint does not exist within
 // the cache for the transaction hash.
 func (c *HeightHintCache) QueryConfirmHint(
-	confRequest chainntnfs.ConfRequest) (uint32, error) {
+	confRequest chainnotif.ConfRequest) (uint32, error) {
 
 	var hint uint32
 	if c.cfg.QueryDisable {
@@ -228,7 +228,7 @@ func (c *HeightHintCache) QueryConfirmHint(
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		confirmHints := tx.ReadBucket(confirmHintBucket)
 		if confirmHints == nil {
-			return chainntnfs.ErrCorruptedHeightHintCache
+			return chainnotif.ErrCorruptedHeightHintCache
 		}
 
 		confHintKey, err := confHintKey(&confRequest)
@@ -237,7 +237,7 @@ func (c *HeightHintCache) QueryConfirmHint(
 		}
 		confirmHint := confirmHints.Get(confHintKey)
 		if confirmHint == nil {
-			return chainntnfs.ErrConfirmHintNotFound
+			return chainnotif.ErrConfirmHintNotFound
 		}
 
 		return ReadElement(bytes.NewReader(confirmHint), &hint)
@@ -254,7 +254,7 @@ func (c *HeightHintCache) QueryConfirmHint(
 // PurgeConfirmHint removes the confirm hint for the transactions from the
 // cache.
 func (c *HeightHintCache) PurgeConfirmHint(
-	confRequests ...chainntnfs.ConfRequest) error {
+	confRequests ...chainnotif.ConfRequest) error {
 
 	if len(confRequests) == 0 {
 		return nil
@@ -265,7 +265,7 @@ func (c *HeightHintCache) PurgeConfirmHint(
 	return kvdb.Batch(c.db, func(tx kvdb.RwTx) error {
 		confirmHints := tx.ReadWriteBucket(confirmHintBucket)
 		if confirmHints == nil {
-			return chainntnfs.ErrCorruptedHeightHintCache
+			return chainnotif.ErrCorruptedHeightHintCache
 		}
 
 		for _, confRequest := range confRequests {
@@ -285,8 +285,8 @@ func (c *HeightHintCache) PurgeConfirmHint(
 
 // confHintKey returns the key that will be used to index the confirmation
 // request's hint within the height hint cache.
-func confHintKey(r *chainntnfs.ConfRequest) ([]byte, error) {
-	if r.TxID == chainntnfs.ZeroHash {
+func confHintKey(r *chainnotif.ConfRequest) ([]byte, error) {
+	if r.TxID == chainnotif.ZeroHash {
 		return r.PkScript.Script(), nil
 	}
 
@@ -300,8 +300,8 @@ func confHintKey(r *chainntnfs.ConfRequest) ([]byte, error) {
 
 // spendHintKey returns the key that will be used to index the spend request's
 // hint within the height hint cache.
-func spendHintKey(r *chainntnfs.SpendRequest) ([]byte, error) {
-	if r.OutPoint == chainntnfs.ZeroOutPoint {
+func spendHintKey(r *chainnotif.SpendRequest) ([]byte, error) {
+	if r.OutPoint == chainnotif.ZeroOutPoint {
 		return r.PkScript.Script(), nil
 	}
 

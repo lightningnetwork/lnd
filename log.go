@@ -7,7 +7,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
@@ -139,7 +139,7 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 
 	AddSubLogger(root, "LNWL", interceptor, lnwallet.UseLogger)
 	AddSubLogger(root, "DISC", interceptor, discovery.UseLogger)
-	AddSubLogger(root, "NTFN", interceptor, chainntnfs.UseLogger)
+	AddSubLogger(root, "NTFN", interceptor, chainnotif.UseLogger)
 	AddSubLogger(root, "CHDB", interceptor, channeldb.UseLogger)
 	AddSubLogger(root, "HSWC", interceptor, htlcswitch.UseLogger)
 	AddSubLogger(root, "CNCT", interceptor, contractcourt.UseLogger)

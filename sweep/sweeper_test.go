@@ -9,7 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -406,7 +406,7 @@ func TestMempoolLookup(t *testing.T) {
 	op := wire.OutPoint{Index: 1}
 
 	// Create a mock mempool watcher.
-	mockMempool := chainntnfs.NewMockMempoolWatcher()
+	mockMempool := chainnotif.NewMockMempoolWatcher()
 	defer mockMempool.AssertExpectations(t)
 
 	// Create a test sweeper without a mempool.
@@ -554,7 +554,7 @@ func TestDecideStateAndRBFInfo(t *testing.T) {
 	op := wire.OutPoint{Index: 1}
 
 	// Create a mock mempool watcher and a mock sweeper store.
-	mockMempool := chainntnfs.NewMockMempoolWatcher()
+	mockMempool := chainnotif.NewMockMempoolWatcher()
 	defer mockMempool.AssertExpectations(t)
 	mockStore := NewMockSweeperStore()
 	defer mockStore.AssertExpectations(t)

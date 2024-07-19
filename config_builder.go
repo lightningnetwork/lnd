@@ -29,7 +29,7 @@ import (
 	"github.com/lightninglabs/neutrino/headerfs"
 	"github.com/lightninglabs/neutrino/pushtx"
 	"github.com/lightningnetwork/lnd/blockcache"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
@@ -611,7 +611,7 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 
 // proxyBlockEpoch proxies a block epoch subsections to the underlying neutrino
 // rebroadcaster client.
-func proxyBlockEpoch(notifier chainntnfs.ChainNotifier,
+func proxyBlockEpoch(notifier chainnotif.ChainNotifier,
 ) func() (*blockntfns.Subscription, error) {
 
 	return func() (*blockntfns.Subscription, error) {

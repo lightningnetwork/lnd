@@ -3,7 +3,7 @@ package wtmock
 import (
 	"sync"
 
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
@@ -11,7 +11,7 @@ import (
 // TowerDB is a mock, in-memory implementation of a watchtower.DB.
 type TowerDB struct {
 	mu        sync.Mutex
-	lastEpoch *chainntnfs.BlockEpoch
+	lastEpoch *chainnotif.BlockEpoch
 	sessions  map[wtdb.SessionID]*wtdb.SessionInfo
 	blobs     map[blob.BreachHint]map[wtdb.SessionID]*wtdb.SessionStateUpdate
 }
@@ -168,14 +168,14 @@ func (db *TowerDB) QueryMatches(
 
 // SetLookoutTip stores the provided epoch as the latest lookout tip epoch in
 // the tower database.
-func (db *TowerDB) SetLookoutTip(epoch *chainntnfs.BlockEpoch) error {
+func (db *TowerDB) SetLookoutTip(epoch *chainnotif.BlockEpoch) error {
 	db.lastEpoch = epoch
 	return nil
 }
 
 // GetLookoutTip retrieves the current lookout tip block epoch from the tower
 // database.
-func (db *TowerDB) GetLookoutTip() (*chainntnfs.BlockEpoch, error) {
+func (db *TowerDB) GetLookoutTip() (*chainnotif.BlockEpoch, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 

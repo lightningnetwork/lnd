@@ -23,7 +23,7 @@ import (
 	"github.com/btcsuite/btclog"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/build"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
@@ -6614,7 +6614,7 @@ type CommitOutputResolution struct {
 type UnilateralCloseSummary struct {
 	// SpendDetail is a struct that describes how and when the funding
 	// output was spent.
-	*chainntnfs.SpendDetail
+	*chainnotif.SpendDetail
 
 	// ChannelCloseSummary is a struct describing the final state of the
 	// channel and in which state is was closed.
@@ -6655,7 +6655,7 @@ type UnilateralCloseSummary struct {
 // which case we will attempt to sweep the non-HTLC output using the passed
 // commitPoint.
 func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Signer,
-	commitSpend *chainntnfs.SpendDetail,
+	commitSpend *chainnotif.SpendDetail,
 	remoteCommit channeldb.ChannelCommitment,
 	commitPoint *btcec.PublicKey) (*UnilateralCloseSummary, error) {
 

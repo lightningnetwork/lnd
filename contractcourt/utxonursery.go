@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
@@ -193,7 +193,7 @@ type NurseryConfig struct {
 	// Notifier provides the utxo nursery the ability to subscribe to
 	// transaction confirmation events, which advance outputs through their
 	// persistence state transitions.
-	Notifier chainntnfs.ChainNotifier
+	Notifier chainnotif.ChainNotifier
 
 	// PublishTransaction facilitates the process of broadcasting a signed
 	// transaction to the appropriate network.
@@ -301,7 +301,7 @@ func (u *UtxoNursery) Start() error {
 
 	// Start watching for new blocks, as this will drive the nursery store's
 	// state machine.
-	newBlockChan, err := u.cfg.Notifier.RegisterBlockEpochNtfn(&chainntnfs.BlockEpoch{
+	newBlockChan, err := u.cfg.Notifier.RegisterBlockEpochNtfn(&chainnotif.BlockEpoch{
 		Height: bestHeight,
 		Hash:   bestHash,
 	})
@@ -729,7 +729,7 @@ func (u *UtxoNursery) reloadClasses(bestHeight uint32) error {
 // confirmation of these spends will either 1) move a crib output into the
 // kindergarten bucket or 2) move a kindergarten output into the graduated
 // bucket.
-func (u *UtxoNursery) incubator(newBlockChan *chainntnfs.BlockEpochEvent) {
+func (u *UtxoNursery) incubator(newBlockChan *chainnotif.BlockEpochEvent) {
 	defer u.wg.Done()
 	defer newBlockChan.Cancel()
 
@@ -1002,7 +1002,7 @@ func (u *UtxoNursery) registerTimeoutConf(baby *babyOutput,
 // transaction, and attempts to move the htlc output from the crib bucket to the
 // kindergarten bucket upon success.
 func (u *UtxoNursery) waitForTimeoutConf(baby *babyOutput,
-	confChan *chainntnfs.ConfirmationEvent) {
+	confChan *chainnotif.ConfirmationEvent) {
 
 	defer u.wg.Done()
 
@@ -1081,7 +1081,7 @@ func (u *UtxoNursery) registerPreschoolConf(kid *kidOutput, heightHint uint32) e
 // add it to the "kindergarten" database bucket.  This is the second step in
 // the output incubation process.
 func (u *UtxoNursery) waitForPreschoolConf(kid *kidOutput,
-	confChan *chainntnfs.ConfirmationEvent) {
+	confChan *chainnotif.ConfirmationEvent) {
 
 	defer u.wg.Done()
 

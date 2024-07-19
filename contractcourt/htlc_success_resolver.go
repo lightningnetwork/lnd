@@ -10,7 +10,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
@@ -232,7 +232,7 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx(immediate bool) (
 
 	// Keep track of the tx spending the HTLC output on the commitment, as
 	// this will be the confirmed second-level tx we'll ultimately sweep.
-	var commitSpend *chainntnfs.SpendDetail
+	var commitSpend *chainnotif.SpendDetail
 
 	// We will have to let the sweeper re-sign the success tx and wait for
 	// it to confirm, if we haven't already.

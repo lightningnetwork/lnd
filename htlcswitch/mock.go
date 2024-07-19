@@ -21,7 +21,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
@@ -188,9 +188,9 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 			}, nil
 		},
 		Notifier: &mock.ChainNotifier{
-			SpendChan: make(chan *chainntnfs.SpendDetail),
-			EpochChan: make(chan *chainntnfs.BlockEpoch),
-			ConfChan:  make(chan *chainntnfs.TxConfirmation),
+			SpendChan: make(chan *chainnotif.SpendDetail),
+			EpochChan: make(chan *chainnotif.BlockEpoch),
+			ConfChan:  make(chan *chainnotif.TxConfirmation),
 		},
 		FwdEventTicker: ticker.NewForce(
 			DefaultFwdEventInterval,
@@ -977,15 +977,15 @@ type mockInvoiceRegistry struct {
 }
 
 type mockChainNotifier struct {
-	chainntnfs.ChainNotifier
+	chainnotif.ChainNotifier
 }
 
 // RegisterBlockEpochNtfn mocks a successful call to register block
 // notifications.
-func (m *mockChainNotifier) RegisterBlockEpochNtfn(*chainntnfs.BlockEpoch) (
-	*chainntnfs.BlockEpochEvent, error) {
+func (m *mockChainNotifier) RegisterBlockEpochNtfn(*chainnotif.BlockEpoch) (
+	*chainnotif.BlockEpochEvent, error) {
 
-	return &chainntnfs.BlockEpochEvent{
+	return &chainnotif.BlockEpochEvent{
 		Cancel: func() {},
 	}, nil
 }

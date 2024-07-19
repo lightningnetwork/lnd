@@ -8,7 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 )
 
 var (
@@ -21,9 +21,9 @@ var (
 // MockNotifier simulates the chain notifier for test purposes. This type is
 // exported because it is used in nursery tests.
 type MockNotifier struct {
-	confChannel map[chainhash.Hash]chan *chainntnfs.TxConfirmation
-	epochChan   map[chan *chainntnfs.BlockEpoch]int32
-	spendChan   map[wire.OutPoint][]chan *chainntnfs.SpendDetail
+	confChannel map[chainhash.Hash]chan *chainnotif.TxConfirmation
+	epochChan   map[chan *chainnotif.BlockEpoch]int32
+	spendChan   map[wire.OutPoint][]chan *chainnotif.SpendDetail
 	spends      map[wire.OutPoint]*wire.MsgTx
 	mutex       sync.RWMutex
 	t           *testing.T
@@ -32,9 +32,9 @@ type MockNotifier struct {
 // NewMockNotifier instantiates a new mock notifier.
 func NewMockNotifier(t *testing.T) *MockNotifier {
 	return &MockNotifier{
-		confChannel: make(map[chainhash.Hash]chan *chainntnfs.TxConfirmation),
-		epochChan:   make(map[chan *chainntnfs.BlockEpoch]int32),
-		spendChan:   make(map[wire.OutPoint][]chan *chainntnfs.SpendDetail),
+		confChannel: make(map[chainhash.Hash]chan *chainnotif.TxConfirmation),
+		epochChan:   make(map[chan *chainnotif.BlockEpoch]int32),
+		spendChan:   make(map[wire.OutPoint][]chan *chainnotif.SpendDetail),
 		spends:      make(map[wire.OutPoint]*wire.MsgTx),
 		t:           t,
 	}
@@ -55,7 +55,7 @@ func (m *MockNotifier) NotifyEpochNonBlocking(height int32) {
 		log.Debugf("Notifying height %v to listener", height)
 
 		select {
-		case epochChan <- &chainntnfs.BlockEpoch{Height: height}:
+		case epochChan <- &chainnotif.BlockEpoch{Height: height}:
 		default:
 		}
 	}
@@ -75,7 +75,7 @@ func (m *MockNotifier) NotifyEpoch(height int32) {
 		log.Debugf("Notifying height %v to listener", height)
 
 		select {
-		case epochChan <- &chainntnfs.BlockEpoch{
+		case epochChan <- &chainnotif.BlockEpoch{
 			Height: height,
 		}:
 		case <-time.After(defaultTestTimeout):
@@ -86,7 +86,7 @@ func (m *MockNotifier) NotifyEpoch(height int32) {
 
 // ConfirmTx simulates a tx confirming.
 func (m *MockNotifier) ConfirmTx(txid *chainhash.Hash, height uint32) error {
-	confirm := &chainntnfs.TxConfirmation{
+	confirm := &chainnotif.TxConfirmation{
 		BlockHeight: height,
 	}
 	select {
@@ -116,14 +116,14 @@ func (m *MockNotifier) SpendOutpoint(outpoint wire.OutPoint,
 	m.spends[outpoint] = &spendingTx
 }
 
-func (m *MockNotifier) sendSpend(channel chan *chainntnfs.SpendDetail,
+func (m *MockNotifier) sendSpend(channel chan *chainnotif.SpendDetail,
 	outpoint *wire.OutPoint,
 	spendingTx *wire.MsgTx) {
 
 	log.Debugf("Notifying spend of outpoint %v", outpoint)
 
 	spenderTxHash := spendingTx.TxHash()
-	channel <- &chainntnfs.SpendDetail{
+	channel <- &chainnotif.SpendDetail{
 		SpenderTxHash: &spenderTxHash,
 		SpendingTx:    spendingTx,
 		SpentOutPoint: outpoint,
@@ -133,15 +133,15 @@ func (m *MockNotifier) sendSpend(channel chan *chainntnfs.SpendDetail,
 // RegisterConfirmationsNtfn registers for tx confirm notifications.
 func (m *MockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	_ []byte, numConfs, heightHint uint32,
-	opt ...chainntnfs.NotifierOption) (*chainntnfs.ConfirmationEvent, error) {
+	opt ...chainnotif.NotifierOption) (*chainnotif.ConfirmationEvent, error) {
 
-	return &chainntnfs.ConfirmationEvent{
+	return &chainnotif.ConfirmationEvent{
 		Confirmed: m.getConfChannel(txid),
 	}, nil
 }
 
 func (m *MockNotifier) getConfChannel(
-	txid *chainhash.Hash) chan *chainntnfs.TxConfirmation {
+	txid *chainhash.Hash) chan *chainnotif.TxConfirmation {
 
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -150,7 +150,7 @@ func (m *MockNotifier) getConfChannel(
 	if ok {
 		return channel
 	}
-	channel = make(chan *chainntnfs.TxConfirmation)
+	channel = make(chan *chainnotif.TxConfirmation)
 	m.confChannel[*txid] = channel
 
 	return channel
@@ -158,12 +158,12 @@ func (m *MockNotifier) getConfChannel(
 
 // RegisterBlockEpochNtfn registers a block notification.
 func (m *MockNotifier) RegisterBlockEpochNtfn(
-	bestBlock *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent, error) {
+	bestBlock *chainnotif.BlockEpoch) (*chainnotif.BlockEpochEvent, error) {
 
 	log.Tracef("Mock block ntfn registered")
 
 	m.mutex.Lock()
-	epochChan := make(chan *chainntnfs.BlockEpoch, 1)
+	epochChan := make(chan *chainnotif.BlockEpoch, 1)
 
 	// The real notifier returns a notification with the current block hash
 	// and height immediately if no best block hash or height is specified
@@ -171,7 +171,7 @@ func (m *MockNotifier) RegisterBlockEpochNtfn(
 	// mock.
 	switch {
 	case bestBlock == nil:
-		epochChan <- &chainntnfs.BlockEpoch{
+		epochChan <- &chainnotif.BlockEpoch{
 			Hash:   mockChainHash,
 			Height: mockChainHeight,
 		}
@@ -181,7 +181,7 @@ func (m *MockNotifier) RegisterBlockEpochNtfn(
 	}
 	m.mutex.Unlock()
 
-	return &chainntnfs.BlockEpochEvent{
+	return &chainnotif.BlockEpochEvent{
 		Epochs: epochChan,
 		Cancel: func() {
 			log.Tracef("Mock block ntfn canceled")
@@ -209,7 +209,7 @@ func (m *MockNotifier) Stop() error {
 
 // RegisterSpendNtfn registers for spend notifications.
 func (m *MockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	_ []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+	_ []byte, heightHint uint32) (*chainnotif.SpendEvent, error) {
 
 	log.Debugf("RegisterSpendNtfn for outpoint %v", outpoint)
 
@@ -218,10 +218,10 @@ func (m *MockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 
 	channels, ok := m.spendChan[*outpoint]
 	if !ok {
-		channels = make([]chan *chainntnfs.SpendDetail, 0)
+		channels = make([]chan *chainnotif.SpendDetail, 0)
 	}
 
-	channel := make(chan *chainntnfs.SpendDetail, 1)
+	channel := make(chan *chainnotif.SpendDetail, 1)
 	channels = append(channels, channel)
 	m.spendChan[*outpoint] = channels
 
@@ -236,7 +236,7 @@ func (m *MockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		m.sendSpend(channel, outpoint, spendingTx)
 	}
 
-	return &chainntnfs.SpendEvent{
+	return &chainnotif.SpendEvent{
 		Spend: channel,
 		Cancel: func() {
 			log.Infof("Cancelling RegisterSpendNtfn for %v",

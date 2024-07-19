@@ -18,7 +18,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -379,7 +379,7 @@ type Config struct {
 	// Notifier is used by the FundingManager to determine when the
 	// channel's funding transaction has been confirmed on the blockchain
 	// so that the channel creation process can be completed.
-	Notifier chainntnfs.ChainNotifier
+	Notifier chainnotif.ChainNotifier
 
 	// ChannelDB is the database that keeps track of all channel state.
 	ChannelDB *channeldb.ChannelStateDB
@@ -2003,9 +2003,9 @@ func (f *Manager) funderProcessAcceptChannel(peer lnpeer.Peer,
 	// The required number of confirmations should not be greater than the
 	// maximum number of confirmations required by the ChainNotifier to
 	// properly dispatch confirmations.
-	if msg.MinAcceptDepth > chainntnfs.MaxNumConfs {
+	if msg.MinAcceptDepth > chainnotif.MaxNumConfs {
 		err := lnwallet.ErrNumConfsTooLarge(
-			msg.MinAcceptDepth, chainntnfs.MaxNumConfs,
+			msg.MinAcceptDepth, chainnotif.MaxNumConfs,
 		)
 		log.Warnf("Unacceptable channel constraints: %v", err)
 		f.failFundingFlow(peer, cid, err)
@@ -2938,7 +2938,7 @@ func (f *Manager) waitForFundingConfirmation(
 	log.Infof("Waiting for funding tx (%v) to reach %v confirmations",
 		txid, numConfs)
 
-	var confDetails *chainntnfs.TxConfirmation
+	var confDetails *chainnotif.TxConfirmation
 	var ok bool
 
 	// Wait until the specified number of confirmations has been reached,
@@ -3610,7 +3610,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 // confirmed SCID to the graph, and then announce after six confs.
 func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel) error {
 	// First we'll check whether the channel is confirmed on-chain. If it
-	// is already confirmed, the chainntnfs subsystem will return with the
+	// is already confirmed, the chainnotif subsystem will return with the
 	// confirmed tx. Otherwise, we'll wait here until confirmation occurs.
 	confChan, err := f.waitForFundingWithTimeout(c)
 	if err != nil {

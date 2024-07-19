@@ -10,7 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/chainnotif"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
@@ -217,7 +217,7 @@ func TestLookoutBreachMatching(t *testing.T) {
 		Transactions: []*wire.MsgTx{tx},
 	}
 	blockHash := block.BlockHash()
-	epoch := &chainntnfs.BlockEpoch{
+	epoch := &chainnotif.BlockEpoch{
 		Hash:   &blockHash,
 		Height: 1,
 	}
@@ -253,7 +253,7 @@ func TestLookoutBreachMatching(t *testing.T) {
 		Transactions: []*wire.MsgTx{tx2},
 	}
 	blockHash2 := block2.BlockHash()
-	epoch2 := &chainntnfs.BlockEpoch{
+	epoch2 := &chainnotif.BlockEpoch{
 		Hash:   &blockHash2,
 		Height: 2,
 	}

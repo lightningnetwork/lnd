@@ -2859,7 +2859,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 		rmvHeight := rmvHeights.GetForParty(whoseCommitChain)
 		if rmvHeight == 0 {
 			processRemoveEntry(
-				entry, ourBalance, theirBalance, nextHeight,
+				entry, ourBalance, theirBalance,
 				whoseCommitChain, true,
 			)
 
@@ -2889,7 +2889,6 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 				newView.FeePerKw = chainfee.SatPerKWeight(
 					entry.Amount.ToSatoshis(),
 				)
-
 
 				if mutateState {
 					entry.addCommitHeights.SetForParty(
@@ -2928,7 +2927,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 		rmvHeight := rmvHeights.GetForParty(whoseCommitChain)
 		if rmvHeight == 0 {
 			processRemoveEntry(
-				entry, ourBalance, theirBalance, nextHeight,
+				entry, ourBalance, theirBalance,
 				whoseCommitChain, false,
 			)
 
@@ -2955,7 +2954,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 		addHeight := addHeights.GetForParty(whoseCommitChain)
 		if addHeight == 0 {
 			processAddEntry(
-				entry, ourBalance, theirBalance, nextHeight,
+				entry, ourBalance, theirBalance,
 				whoseCommitChain, false,
 			)
 
@@ -2983,7 +2982,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 		addHeight := addHeights.GetForParty(whoseCommitChain)
 		if addHeight == 0 {
 			processAddEntry(
-				entry, ourBalance, theirBalance, nextHeight,
+				entry, ourBalance, theirBalance,
 				whoseCommitChain, true,
 			)
 
@@ -3052,8 +3051,8 @@ func (lc *LightningChannel) fetchParent(entry *paymentDescriptor,
 // was committed is updated. Keeping track of this inclusion height allows us to
 // later compact the log once the change is fully committed in both chains.
 func processAddEntry(htlc *paymentDescriptor, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, _ uint64,
-	_ lntypes.ChannelParty, isIncoming bool) {
+	theirBalance *lnwire.MilliSatoshi, _ lntypes.ChannelParty,
+	isIncoming bool) {
 
 	if isIncoming {
 		// If this is a new incoming (un-committed) HTLC, then we need
@@ -3071,8 +3070,8 @@ func processAddEntry(htlc *paymentDescriptor, ourBalance,
 // previously added HTLC. If the removal entry has already been processed, it
 // is skipped.
 func processRemoveEntry(htlc *paymentDescriptor, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, _ uint64,
-	_ lntypes.ChannelParty, isIncoming bool) {
+	theirBalance *lnwire.MilliSatoshi, _ lntypes.ChannelParty,
+	isIncoming bool) {
 
 	switch {
 	// If an incoming HTLC is being settled, then this means that we've

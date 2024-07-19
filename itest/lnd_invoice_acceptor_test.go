@@ -17,6 +17,10 @@ import (
 // testInvoiceHtlcModifierBasic tests the basic functionality of the invoice
 // HTLC modifier RPC server.
 func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
+	if isLitd {
+		ht.Skipf("skipping HTLC modifier tests for litd")
+	}
+
 	ts := newAcceptorTestScenario(ht)
 
 	alice, bob, carol := ts.alice, ts.bob, ts.carol

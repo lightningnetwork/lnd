@@ -587,6 +587,10 @@ type interceptorTestScenario struct {
 func newInterceptorTestScenario(
 	ht *lntest.HarnessTest) *interceptorTestScenario {
 
+	if isLitd {
+		ht.Skipf("skipping forward interceptor tests for litd")
+	}
+
 	alice, bob := ht.Alice, ht.Bob
 	carol := ht.NewNode("carol", nil)
 	dave := ht.NewNode("dave", nil)

@@ -20,6 +20,10 @@ import (
 // testRPCMiddlewareInterceptor tests that the RPC middleware interceptor can
 // be used correctly and in a safe way.
 func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
+	if isLitd {
+		ht.Skipf("skipping middleware interceptor tests for litd")
+	}
+
 	// Let's first enable the middleware interceptor.
 	//
 	// NOTE: we cannot use standby nodes here as the test messes with

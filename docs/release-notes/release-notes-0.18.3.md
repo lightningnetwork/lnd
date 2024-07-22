@@ -87,6 +87,9 @@ commitment when the channel was force closed.
 * Commitment fees are now taken into account when [calculating the fee
   exposure threshold](https://github.com/lightningnetwork/lnd/pull/8824).
 
+* [Allow](https://github.com/lightningnetwork/lnd/pull/8845) multiple etcd hosts
+  to be specified in db.etcd.host.
+
 ## RPC Updates
 
 * [`xImportMissionControl`](https://github.com/lightningnetwork/lnd/pull/8779) 

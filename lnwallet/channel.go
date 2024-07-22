@@ -2603,8 +2603,8 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	// keep track of which entries we need to skip when creating the final
 	// htlc view. We skip an entry whenever we find a settle or a timeout
 	// modifying an entry.
-	skipUs := make(map[uint64]struct{})
-	skipThem := make(map[uint64]struct{})
+	skipUs := fn.NewSet[uint64]()
+	skipThem := fn.NewSet[uint64]()
 
 	// First we run through non-add entries in both logs, populating the
 	// skip sets and mutating the current chain state (crediting balances,
@@ -2637,7 +2637,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			return nil, lntypes.Dual[[]*paymentDescriptor]{}, err
 		}
 
-		skipThem[addEntry.HtlcIndex] = struct{}{}
+		skipThem.Add(addEntry.HtlcIndex)
 
 		rmvHeights := &entry.removeCommitHeights
 		rmvHeight := rmvHeights.GetParty(whoseCommitChain)
@@ -2678,7 +2678,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			return nil, lntypes.Dual[[]*paymentDescriptor]{}, err
 		}
 
-		skipUs[addEntry.HtlcIndex] = struct{}{}
+		skipUs.Add(addEntry.HtlcIndex)
 
 		rmvHeights := &entry.removeCommitHeights
 		rmvHeight := rmvHeights.GetParty(whoseCommitChain)
@@ -2695,7 +2695,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	// added HTLCs.
 	for _, entry := range view.ourUpdates {
 		isAdd := entry.EntryType == Add
-		if _, ok := skipUs[entry.HtlcIndex]; !isAdd || ok {
+		if skipUs.Contains(entry.HtlcIndex) || !isAdd {
 			continue
 		}
 
@@ -2716,7 +2716,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	// Again, we do the same for our peer's updates.
 	for _, entry := range view.theirUpdates {
 		isAdd := entry.EntryType == Add
-		if _, ok := skipThem[entry.HtlcIndex]; !isAdd || ok {
+		if skipThem.Contains(entry.HtlcIndex) || !isAdd {
 			continue
 		}
 

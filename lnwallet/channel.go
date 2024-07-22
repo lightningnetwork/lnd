@@ -2839,7 +2839,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 		if rmvHeight == 0 {
 			processRemoveEntry(
 				entry, ourBalance, theirBalance,
-				whoseCommitChain, true,
+				whoseCommitChain, lntypes.Remote,
 			)
 		}
 	}
@@ -2883,7 +2883,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 		if rmvHeight == 0 {
 			processRemoveEntry(
 				entry, ourBalance, theirBalance,
-				whoseCommitChain, false,
+				whoseCommitChain, lntypes.Local,
 			)
 		}
 	}
@@ -2904,7 +2904,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 		if addHeight == 0 {
 			processAddEntry(
 				entry, ourBalance, theirBalance,
-				whoseCommitChain, false,
+				whoseCommitChain, lntypes.Local,
 			)
 		}
 
@@ -2925,7 +2925,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 		if addHeight == 0 {
 			processAddEntry(
 				entry, ourBalance, theirBalance,
-				whoseCommitChain, true,
+				whoseCommitChain, lntypes.Remote,
 			)
 		}
 
@@ -3022,10 +3022,9 @@ func (lc *LightningChannel) fetchParent(entry *paymentDescriptor,
 // was committed is updated. Keeping track of this inclusion height allows us to
 // later compact the log once the change is fully committed in both chains.
 func processAddEntry(htlc *paymentDescriptor, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, _ lntypes.ChannelParty,
-	isIncoming bool) {
+	theirBalance *lnwire.MilliSatoshi, _, originator lntypes.ChannelParty) {
 
-	if isIncoming {
+	if originator == lntypes.Remote {
 		// If this is a new incoming (un-committed) HTLC, then we need
 		// to update their balance accordingly by subtracting the
 		// amount of the HTLC that are funds pending.
@@ -3041,32 +3040,35 @@ func processAddEntry(htlc *paymentDescriptor, ourBalance,
 // previously added HTLC. If the removal entry has already been processed, it
 // is skipped.
 func processRemoveEntry(htlc *paymentDescriptor, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, _ lntypes.ChannelParty,
-	isIncoming bool) {
+	theirBalance *lnwire.MilliSatoshi, _, originator lntypes.ChannelParty) {
 
 	switch {
 	// If an incoming HTLC is being settled, then this means that we've
 	// received the preimage either from another subsystem, or the
 	// upstream peer in the route. Therefore, we increase our balance by
 	// the HTLC amount.
-	case isIncoming && htlc.EntryType == Settle:
+	case originator == lntypes.Remote && htlc.EntryType == Settle:
 		*ourBalance += htlc.Amount
 
 	// Otherwise, this HTLC is being failed out, therefore the value of the
 	// HTLC should return to the remote party.
-	case isIncoming && (htlc.EntryType == Fail || htlc.EntryType == MalformedFail):
+	case originator == lntypes.Remote &&
+		(htlc.EntryType == Fail || htlc.EntryType == MalformedFail):
+
 		*theirBalance += htlc.Amount
 
 	// If an outgoing HTLC is being settled, then this means that the
 	// downstream party resented the preimage or learned of it via a
 	// downstream peer. In either case, we credit their settled value with
 	// the value of the HTLC.
-	case !isIncoming && htlc.EntryType == Settle:
+	case originator == lntypes.Local && htlc.EntryType == Settle:
 		*theirBalance += htlc.Amount
 
 	// Otherwise, one of our outgoing HTLC's has timed out, so the value of
 	// the HTLC should be returned to our settled balance.
-	case !isIncoming && (htlc.EntryType == Fail || htlc.EntryType == MalformedFail):
+	case originator == lntypes.Local &&
+		(htlc.EntryType == Fail || htlc.EntryType == MalformedFail):
+
 		*ourBalance += htlc.Amount
 	}
 }

@@ -2910,7 +2910,8 @@ func (s *Switch) handlePacketAdd(packet *htlcPacket,
 	// Choose a random link out of the set of links that can forward this
 	// htlc. The reason for randomization is to evenly distribute the htlc
 	// load without making assumptions about what the best channel is.
-	destination := destinations[rand.Intn(len(destinations))] // nolint:gosec
+	//nolint:gosec
+	destination := destinations[rand.Intn(len(destinations))]
 
 	// Retrieve the incoming link by its ShortChannelID. Note that the
 	// incomingChanID is never set to hop.Source here.

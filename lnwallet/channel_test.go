@@ -8757,7 +8757,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 		name                 string
 		startHeights         heights
 		whoseCommitChain     lntypes.ChannelParty
-		isIncoming           bool
+		originator           lntypes.ChannelParty
 		mutateState          bool
 		ourExpectedBalance   lnwire.MilliSatoshi
 		theirExpectedBalance lnwire.MilliSatoshi
@@ -8773,7 +8773,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				remoteRemove: 0,
 			},
 			whoseCommitChain:     lntypes.Remote,
-			isIncoming:           false,
+			originator:           lntypes.Local,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance,
@@ -8794,7 +8794,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				remoteRemove: 0,
 			},
 			whoseCommitChain:     lntypes.Local,
-			isIncoming:           false,
+			originator:           lntypes.Local,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance,
@@ -8815,7 +8815,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				remoteRemove: 0,
 			},
 			whoseCommitChain:     lntypes.Local,
-			isIncoming:           true,
+			originator:           lntypes.Remote,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance - updateAmount,
@@ -8836,7 +8836,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				remoteRemove: 0,
 			},
 			whoseCommitChain:     lntypes.Local,
-			isIncoming:           true,
+			originator:           lntypes.Remote,
 			mutateState:          true,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance - updateAmount,
@@ -8858,7 +8858,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				remoteRemove: 0,
 			},
 			whoseCommitChain:     lntypes.Remote,
-			isIncoming:           false,
+			originator:           lntypes.Local,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance - updateAmount,
 			theirExpectedBalance: startBalance,
@@ -8879,7 +8879,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				remoteRemove: 0,
 			},
 			whoseCommitChain:     lntypes.Remote,
-			isIncoming:           false,
+			originator:           lntypes.Local,
 			mutateState:          true,
 			ourExpectedBalance:   startBalance - updateAmount,
 			theirExpectedBalance: startBalance,
@@ -8900,7 +8900,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				remoteRemove: removeHeight,
 			},
 			whoseCommitChain:     lntypes.Remote,
-			isIncoming:           false,
+			originator:           lntypes.Local,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance,
@@ -8921,7 +8921,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				remoteRemove: 0,
 			},
 			whoseCommitChain:     lntypes.Local,
-			isIncoming:           false,
+			originator:           lntypes.Local,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance,
@@ -8944,7 +8944,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				remoteRemove: 0,
 			},
 			whoseCommitChain:     lntypes.Remote,
-			isIncoming:           true,
+			originator:           lntypes.Remote,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance + updateAmount,
 			theirExpectedBalance: startBalance,
@@ -8967,7 +8967,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				remoteRemove: 0,
 			},
 			whoseCommitChain:     lntypes.Remote,
-			isIncoming:           false,
+			originator:           lntypes.Local,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance + updateAmount,
@@ -8990,7 +8990,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				remoteRemove: 0,
 			},
 			whoseCommitChain:     lntypes.Remote,
-			isIncoming:           true,
+			originator:           lntypes.Remote,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance,
 			theirExpectedBalance: startBalance + updateAmount,
@@ -9013,7 +9013,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				remoteRemove: 0,
 			},
 			whoseCommitChain:     lntypes.Remote,
-			isIncoming:           false,
+			originator:           lntypes.Local,
 			mutateState:          false,
 			ourExpectedBalance:   startBalance + updateAmount,
 			theirExpectedBalance: startBalance,
@@ -9038,7 +9038,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				remoteRemove: 0,
 			},
 			whoseCommitChain:     lntypes.Local,
-			isIncoming:           true,
+			originator:           lntypes.Remote,
 			mutateState:          true,
 			ourExpectedBalance:   startBalance + updateAmount,
 			theirExpectedBalance: startBalance,
@@ -9063,7 +9063,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				remoteRemove: 0,
 			},
 			whoseCommitChain:     lntypes.Remote,
-			isIncoming:           true,
+			originator:           lntypes.Remote,
 			mutateState:          true,
 			ourExpectedBalance:   startBalance + updateAmount,
 			theirExpectedBalance: startBalance,
@@ -9119,7 +9119,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				process(
 					update, &ourBalance, &theirBalance,
 					test.whoseCommitChain,
-					test.isIncoming,
+					test.originator,
 				)
 
 				if test.mutateState {

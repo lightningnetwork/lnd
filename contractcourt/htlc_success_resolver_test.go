@@ -277,10 +277,12 @@ func TestHtlcSuccessSecondStageResolution(t *testing.T) {
 			preCheckpoint: func(ctx *htlcResolverTestContext,
 				_ bool) error {
 
-				ctx.notifier.SpendChan <- &chainnotif.SpendDetail{
+				detail := &chainnotif.SpendDetail{
 					SpendingTx:    sweepTx,
 					SpenderTxHash: &sweepHash,
 				}
+
+				ctx.notifier.SpendChan <- detail
 
 				return nil
 			},
@@ -407,12 +409,15 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 						commitOutpoint)
 				}
 
-				ctx.notifier.SpendChan <- &chainnotif.SpendDetail{
+				detail := &chainnotif.SpendDetail{
 					SpendingTx:        reSignedSuccessTx,
 					SpenderTxHash:     &reSignedHash,
 					SpenderInputIndex: 1,
 					SpendingHeight:    10,
 				}
+
+				ctx.notifier.SpendChan <- detail
+
 				return nil
 			},
 			// incubating=true is used to signal that the
@@ -429,17 +434,21 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 				// expect the resolver to re-subscribe to a
 				// spend, hence we must resend it.
 				if resumed {
-					ctx.notifier.SpendChan <- &chainnotif.SpendDetail{
+					detail := &chainnotif.SpendDetail{
 						SpendingTx:        reSignedSuccessTx,
 						SpenderTxHash:     &reSignedHash,
 						SpenderInputIndex: 1,
 						SpendingHeight:    10,
 					}
+
+					ctx.notifier.SpendChan <- detail
 				}
 
-				ctx.notifier.EpochChan <- &chainnotif.BlockEpoch{
+				epoch := &chainnotif.BlockEpoch{
 					Height: 13,
 				}
+
+				ctx.notifier.EpochChan <- epoch
 
 				// We expect it to sweep the second-level
 				// transaction we notfied about above.
@@ -457,11 +466,13 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 
 				// Notify about the spend, which should resolve
 				// the resolver.
-				ctx.notifier.SpendChan <- &chainnotif.SpendDetail{
+				detail := &chainnotif.SpendDetail{
 					SpendingTx:     sweepTx,
 					SpenderTxHash:  &sweepHash,
 					SpendingHeight: 14,
 				}
+
+				ctx.notifier.SpendChan <- detail
 
 				return nil
 			},

@@ -57,8 +57,8 @@ func (b *BtcdNotifier) UnsafeStart(bestHeight int32, bestHash *chainhash.Hash,
 					break loop
 				}
 			case <-timeout:
-				return fmt.Errorf("unable to catch up to height %d",
-					syncHeight)
+				return fmt.Errorf("unable to catch up to "+
+					"height %d", syncHeight)
 			}
 		}
 	}

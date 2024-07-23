@@ -268,7 +268,9 @@ func (b *BtcdNotifier) startNotifier() error {
 // onBlockConnected implements on OnBlockConnected callback for rpcclient.
 // Ingesting a block updates the wallet's internal utxo state based on the
 // outputs created and destroyed within each block.
-func (b *BtcdNotifier) onBlockConnected(hash *chainhash.Hash, height int32, t time.Time) {
+func (b *BtcdNotifier) onBlockConnected(hash *chainhash.Hash, height int32,
+	_ time.Time) {
+
 	// Append this new chain update to the end of the queue of new chain
 	// updates.
 	select {
@@ -301,7 +303,9 @@ type filteredBlock struct {
 }
 
 // onBlockDisconnected implements on OnBlockDisconnected callback for rpcclient.
-func (b *BtcdNotifier) onBlockDisconnected(hash *chainhash.Hash, height int32, t time.Time) {
+func (b *BtcdNotifier) onBlockDisconnected(hash *chainhash.Hash, height int32,
+	_ time.Time) {
+
 	// Append this new chain update to the end of the queue of new chain
 	// updates.
 	select {
@@ -316,7 +320,9 @@ func (b *BtcdNotifier) onBlockDisconnected(hash *chainhash.Hash, height int32, t
 }
 
 // onRedeemingTx implements on OnRedeemingTx callback for rpcclient.
-func (b *BtcdNotifier) onRedeemingTx(tx *btcutil.Tx, details *btcjson.BlockDetails) {
+func (b *BtcdNotifier) onRedeemingTx(tx *btcutil.Tx,
+	details *btcjson.BlockDetails) {
+
 	// Append this new transaction update to the end of the queue of new
 	// chain updates.
 	select {
@@ -338,7 +344,8 @@ out:
 			switch msg := cancelMsg.(type) {
 			case *epochCancel:
 				chainnotif.Log.Infof("Cancelling epoch "+
-					"notification, epoch_id=%v", msg.epochID)
+					"notification, epoch_id=%v",
+					msg.epochID)
 
 				// First, we'll lookup the original
 				// registration in order to stop the active
@@ -349,15 +356,15 @@ out:
 				// Next, close the cancel channel for this
 				// specific client, and wait for the client to
 				// exit.
-				close(b.blockEpochClients[msg.epochID].cancelChan)
-				b.blockEpochClients[msg.epochID].wg.Wait()
+				close(reg.cancelChan)
+				reg.wg.Wait()
 
 				// Once the client has exited, we can then
 				// safely close the channel used to send epoch
 				// notifications, in order to notify any
 				// listeners that the intent has been
 				// canceled.
-				close(b.blockEpochClients[msg.epochID].epochChan)
+				close(reg.epochChan)
 				delete(b.blockEpochClients, msg.epochID)
 			}
 		case registerMsg := <-b.notificationRegistry:
@@ -368,7 +375,8 @@ out:
 				// We'll do this in a goroutine to prevent
 				// blocking potentially long rescans.
 				//
-				// TODO(wilmer): add retry logic if rescan fails?
+				// TODO(wilmer): add retry logic if rescan
+				// fails?
 				b.wg.Add(1)
 
 				//nolint:lll
@@ -400,7 +408,8 @@ out:
 				}(msg)
 
 			case *blockEpochRegistration:
-				chainnotif.Log.Infof("New block epoch subscription")
+				chainnotif.Log.Infof("New block epoch " +
+					"subscription")
 
 				b.blockEpochClients[msg.epochID] = msg
 
@@ -421,10 +430,11 @@ out:
 				// Otherwise, we'll attempt to deliver the
 				// backlog of notifications from their best
 				// known block.
-				missedBlocks, err := chainnotif.GetClientMissedBlocks(
-					b.chainConn, msg.bestBlock,
-					b.bestBlock.Height, true,
-				)
+				missedBlocks, err :=
+					chainnotif.GetClientMissedBlocks(
+						b.chainConn, msg.bestBlock,
+						b.bestBlock.Height, true,
+					)
 				if err != nil {
 					msg.errorChan <- err
 					continue
@@ -447,8 +457,8 @@ out:
 					update.blockHash,
 				)
 				if err != nil {
-					chainnotif.Log.Errorf("Unable to fetch "+
-						"block header: %v", err)
+					chainnotif.Log.Errorf("Unable to "+
+						"fetch block header: %v", err)
 					continue
 				}
 
@@ -467,17 +477,23 @@ out:
 							true,
 						)
 					if err != nil {
-						// Set the bestBlock here in case
-						// a catch up partially completed.
+						// Set the bestBlock here in
+						// case a catch up partially
+						// completed.
 						b.bestBlock = newBestBlock
 						chainnotif.Log.Error(err)
 						continue
 					}
 
 					for _, block := range missedBlocks {
-						err := b.handleBlockConnected(block)
+						err := b.handleBlockConnected(
+							block,
+						)
 						if err != nil {
-							chainnotif.Log.Error(err)
+							chainnotif.Log.Error(
+								err,
+							)
+
 							continue out
 						}
 					}
@@ -488,9 +504,12 @@ out:
 					Hash:        update.blockHash,
 					BlockHeader: blockHeader,
 				}
-				if err := b.handleBlockConnected(newBlock); err != nil {
+				if err := b.handleBlockConnected(
+					newBlock,
+				); err != nil {
 					chainnotif.Log.Error(err)
 				}
+
 				continue
 			}
 
@@ -506,7 +525,8 @@ out:
 			if err != nil {
 				chainnotif.Log.Errorf("Unable to rewind chain "+
 					"from height %d to height %d: %v",
-					b.bestBlock.Height, update.blockHeight-1, err)
+					b.bestBlock.Height,
+					update.blockHeight-1, err)
 			}
 
 			// Set the bestBlock here in case a chain rewind
@@ -751,8 +771,9 @@ func (b *BtcdNotifier) notifyBlockEpochs(newHeight int32,
 
 // notifyBlockEpochClient sends a registered block epoch client a notification
 // about a specific block.
-func (b *BtcdNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistration,
-	height int32, sha *chainhash.Hash, blockHeader *wire.BlockHeader) {
+func (b *BtcdNotifier) notifyBlockEpochClient(
+	epochClient *blockEpochRegistration, height int32, sha *chainhash.Hash,
+	blockHeader *wire.BlockHeader) {
 
 	epoch := &chainnotif.BlockEpoch{
 		Height:      height,
@@ -841,6 +862,7 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 
 		asyncResult := b.chainConn.RescanAsync(startHash, addrs, nil)
 		go func() {
+			//nolint:lll
 			if rescanErr := asyncResult.Receive(); rescanErr != nil {
 				chainnotif.Log.Errorf("Rescan to determine "+
 					"the spend details of %v failed: %v",
@@ -922,7 +944,9 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 				"block %v: %v", blockHash, err)
 		}
 
-		if uint32(blockHeader.Height) > ntfn.HistoricalDispatch.StartHeight {
+		if uint32(blockHeader.Height) >
+			ntfn.HistoricalDispatch.StartHeight {
+
 			startHash, err = b.chainConn.GetBlockHash(
 				int64(blockHeader.Height),
 			)
@@ -968,7 +992,8 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 // sent across the 'Confirmed' channel.
 func (b *BtcdNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	pkScript []byte, numConfs, heightHint uint32,
-	opts ...chainnotif.NotifierOption) (*chainnotif.ConfirmationEvent, error) {
+	opts ...chainnotif.NotifierOption) (*chainnotif.ConfirmationEvent,
+	error) {
 
 	// Register the conf notification with the TxNotifier. A non-nil value
 	// for `dispatch` will be returned if we are required to perform a
@@ -1047,6 +1072,7 @@ func (b *BtcdNotifier) RegisterBlockEpochNtfn(
 		for {
 			select {
 			case ntfn := <-reg.epochQueue.ChanOut():
+				//nolint:forcetypeassert
 				blockNtfn := ntfn.(*chainnotif.BlockEpoch)
 				select {
 				case reg.epochChan <- blockNtfn:
@@ -1074,7 +1100,7 @@ func (b *BtcdNotifier) RegisterBlockEpochNtfn(
 		reg.epochQueue.Stop()
 
 		return nil, errors.New("chainnotif: system interrupt while " +
-			"attempting to register for block epoch notification.")
+			"attempting to register for block epoch notification")
 	case b.notificationRegistry <- reg:
 		return &chainnotif.BlockEpochEvent{
 			Epochs: reg.epochChan,
@@ -1083,7 +1109,8 @@ func (b *BtcdNotifier) RegisterBlockEpochNtfn(
 					epochID: reg.epochID,
 				}
 
-				// Submit epoch cancellation to notification dispatcher.
+				// Submit epoch cancellation to notification
+				// dispatcher.
 				select {
 				case b.notificationCancels <- cancel:
 					// Cancellation is being handled, drain

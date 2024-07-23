@@ -19,7 +19,9 @@ import (
 var (
 	// ErrChainNotifierShuttingDown is used when we are trying to
 	// measure a spend notification when notifier is already stopped.
-	ErrChainNotifierShuttingDown = errors.New("chain notifier shutting down")
+	ErrChainNotifierShuttingDown = errors.New(
+		"chain notifier shutting down",
+	)
 )
 
 // TxConfStatus denotes the status of a transaction's lookup.
@@ -102,7 +104,8 @@ func WithIncludeBlock() NotifierOption {
 // ZeroMQ notifications, various Bitcoin API services, Electrum servers, etc.
 //
 // Concrete implementations of ChainNotifier should be able to support multiple
-// concurrent client requests, as well as multiple concurrent notification events.
+// concurrent client requests, as well as multiple concurrent notification
+// events.
 type ChainNotifier interface {
 	// RegisterConfirmationsNtfn registers an intent to be notified once
 	// txid reaches numConfs confirmations. We also pass in the pkScript as
@@ -168,7 +171,8 @@ type ChainNotifier interface {
 	// ready, and able to receive notification registrations from clients.
 	Start() error
 
-	// Started returns true if this instance has been started, and false otherwise.
+	// Started returns true if this instance has been started, and false
+	// otherwise.
 	Started() bool
 
 	// Stops the concrete ChainNotifier. Once stopped, the ChainNotifier
@@ -267,9 +271,9 @@ func NewConfirmationEvent(numConfs uint32, cancel func()) *ConfirmationEvent {
 }
 
 // SpendDetail contains details pertaining to a spent output. This struct itself
-// is the spentness notification. It includes the original outpoint which triggered
-// the notification, the hash of the transaction spending the output, the
-// spending transaction itself, and finally the input index which spent the
+// is the spentness notification. It includes the original outpoint which
+// triggered the notification, the hash of the transaction spending the output,
+// the spending transaction itself, and finally the input index which spent the
 // target output.
 type SpendDetail struct {
 	SpentOutPoint     *wire.OutPoint
@@ -513,7 +517,8 @@ func GetCommonBlockAncestorHeight(chainConn ChainConn, reorgHash,
 // best block has been reorged out of the chain, rewind to the common ancestor
 // and return blocks starting right after the common ancestor.
 func GetClientMissedBlocks(chainConn ChainConn, clientBestBlock *BlockEpoch,
-	notifierBestHeight int32, backendStoresReorgs bool) ([]BlockEpoch, error) {
+	notifierBestHeight int32, backendStoresReorgs bool) ([]BlockEpoch,
+	error) {
 
 	startingHeight := clientBestBlock.Height
 	if backendStoresReorgs {
@@ -531,13 +536,14 @@ func GetClientMissedBlocks(chainConn ChainConn, clientBestBlock *BlockEpoch,
 			chainConn, *clientBestBlock.Hash, *hashAtBestHeight,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to find common ancestor: "+
-				"%v", err)
+			return nil, fmt.Errorf("unable to find common "+
+				"ancestor: %v", err)
 		}
 	}
 
 	// We want to start dispatching historical notifications from the block
-	// right after the client's best block, to avoid a redundant notification.
+	// right after the client's best block, to avoid a redundant
+	// notification.
 	missedBlocks, err := getMissedBlocks(
 		chainConn, startingHeight+1, notifierBestHeight+1,
 	)
@@ -593,8 +599,8 @@ func RewindChain(chainConn ChainConn, txNotifier *TxNotifier,
 // HandleMissedBlocks is called when the chain backend for a notifier misses a
 // series of blocks, handling a reorg if necessary. Its backendStoresReorgs
 // parameter tells it whether or not the notifier's chainConn stores
-// information about blocks that have been reorged out of the chain, which allows
-// HandleMissedBlocks to check whether the notifier's best block has been
+// information about blocks that have been reorged out of the chain, which
+// allows HandleMissedBlocks to check whether the notifier's best block has been
 // reorged out, and rewind the chain accordingly. It returns the best block for
 // the notifier and a slice of the missed blocks. The new best block needs to be
 // returned in case a chain rewind occurs and partially completes before
@@ -638,7 +644,9 @@ func HandleMissedBlocks(chainConn ChainConn, txNotifier *TxNotifier,
 
 	// We want to start dispatching historical notifications from the block
 	// right after our best block, to avoid a redundant notification.
-	missedBlocks, err := getMissedBlocks(chainConn, startingHeight+1, newHeight)
+	missedBlocks, err := getMissedBlocks(
+		chainConn, startingHeight+1, newHeight,
+	)
 	if err != nil {
 		return currBestBlock, nil, fmt.Errorf("unable to get missed "+
 			"blocks: %v", err)

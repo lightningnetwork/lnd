@@ -18,13 +18,14 @@ type SpendNotifier struct {
 
 // MakeMockSpendNotifier creates a SpendNotifier.
 func MakeMockSpendNotifier() *SpendNotifier {
+	spendMap := make(map[wire.OutPoint][]chan *chainnotif.SpendDetail)
 	return &SpendNotifier{
 		ChainNotifier: &ChainNotifier{
 			SpendChan: make(chan *chainnotif.SpendDetail),
 			EpochChan: make(chan *chainnotif.BlockEpoch),
 			ConfChan:  make(chan *chainnotif.TxConfirmation),
 		},
-		spendMap: make(map[wire.OutPoint][]chan *chainnotif.SpendDetail),
+		spendMap: spendMap,
 		spends:   make(map[wire.OutPoint]*chainnotif.SpendDetail),
 	}
 }

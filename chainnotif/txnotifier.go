@@ -179,7 +179,9 @@ type ConfRequest struct {
 // NewConfRequest creates a request for a confirmation notification of either a
 // txid or output script. A nil txid or an allocated ZeroHash can be used to
 // dispatch the confirmation notification on the script.
-func NewConfRequest(txid *chainhash.Hash, pkScript []byte) (ConfRequest, error) {
+func NewConfRequest(txid *chainhash.Hash, pkScript []byte) (ConfRequest,
+	error) {
+
 	var r ConfRequest
 	outputScript, err := txscript.ParsePkScript(pkScript)
 	if err != nil {
@@ -244,15 +246,16 @@ type ConfNtfn struct {
 	// notification is to be sent.
 	NumConfirmations uint32
 
-	// Event contains references to the channels that the notifications are to
-	// be sent over.
+	// Event contains references to the channels that the notifications are
+	// to be sent over.
 	Event *ConfirmationEvent
 
 	// HeightHint is the minimum height in the chain that we expect to find
 	// this txid.
 	HeightHint uint32
 
-	// dispatched is false if the confirmed notification has not been sent yet.
+	// dispatched is false if the confirmed notification has not been sent
+	// yet.
 	dispatched bool
 
 	// includeBlock is true if the dispatched notification should also have
@@ -536,6 +539,8 @@ func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
 	confirmHintCache ConfirmHintCache,
 	spendHintCache SpendHintCache) *TxNotifier {
 
+	spendsByHeight := make(map[uint32]map[SpendRequest]struct{})
+
 	return &TxNotifier{
 		currentHeight:        startHeight,
 		reorgSafetyLimit:     reorgSafetyLimit,
@@ -543,7 +548,7 @@ func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
 		confsByInitialHeight: make(map[uint32]map[ConfRequest]struct{}),
 		ntfnsByConfirmHeight: make(map[uint32]map[*ConfNtfn]struct{}),
 		spendNotifications:   make(map[SpendRequest]*spendNtfnSet),
-		spendsByHeight:       make(map[uint32]map[SpendRequest]struct{}),
+		spendsByHeight:       spendsByHeight,
 		confirmHintCache:     confirmHintCache,
 		spendHintCache:       spendHintCache,
 		quit:                 make(chan struct{}),
@@ -944,8 +949,8 @@ func (n *TxNotifier) dispatchConfDetails(
 			return ErrTxNotifierExiting
 		}
 	} else {
-		Log.Debugf("Queueing %v confirmation notification for %v at tip ",
-			ntfn.NumConfirmations, ntfn.ConfRequest)
+		Log.Debugf("Queueing %v confirmation notification for %v at "+
+			"tip ", ntfn.NumConfirmations, ntfn.ConfRequest)
 
 		// Otherwise, we'll keep track of the notification
 		// request by the height at which we should dispatch the
@@ -1293,8 +1298,8 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 		if err != nil {
 			// The error is not fatal as this is an optimistic
 			// optimization, so we'll avoid returning an error.
-			Log.Debugf("Unable to update spend hint to %d for %v: %v",
-				n.currentHeight, spendRequest, err)
+			Log.Debugf("Unable to update spend hint to %d for %v: "+
+				"%v", n.currentHeight, spendRequest, err)
 		}
 
 		Log.Debugf("Updated spend hint to height=%v for unconfirmed "+
@@ -1354,7 +1359,9 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 // dispatchSpendDetails dispatches a spend notification to the client.
 //
 // NOTE: This must be called with the TxNotifier's lock held.
-func (n *TxNotifier) dispatchSpendDetails(ntfn *SpendNtfn, details *SpendDetail) error {
+func (n *TxNotifier) dispatchSpendDetails(ntfn *SpendNtfn,
+	details *SpendDetail) error {
+
 	// If there are no spend details to dispatch or if the notification has
 	// already been dispatched, then we can skip dispatching to this client.
 	if details == nil || ntfn.dispatched {
@@ -1456,8 +1463,8 @@ func (n *TxNotifier) ConnectTip(block *btcutil.Block,
 	// the chain.
 	if blockHeight >= n.reorgSafetyLimit {
 		matureBlockHeight := blockHeight - n.reorgSafetyLimit
-		for confRequest := range n.confsByInitialHeight[matureBlockHeight] {
-			confSet := n.confNotifications[confRequest]
+		for confReq := range n.confsByInitialHeight[matureBlockHeight] {
+			confSet := n.confNotifications[confReq]
 			for _, ntfn := range confSet.ntfns {
 				select {
 				case ntfn.Event.Done <- struct{}{}:
@@ -1466,7 +1473,7 @@ func (n *TxNotifier) ConnectTip(block *btcutil.Block,
 				}
 			}
 
-			delete(n.confNotifications, confRequest)
+			delete(n.confNotifications, confReq)
 		}
 		delete(n.confsByInitialHeight, matureBlockHeight)
 
@@ -1918,7 +1925,9 @@ func (n *TxNotifier) updateHints(height uint32) {
 	for spendRequest := range n.spendsByHeight[height] {
 		spendRequests = append(spendRequests, spendRequest)
 	}
-	err = n.spendHintCache.CommitSpendHint(n.currentHeight, spendRequests...)
+	err = n.spendHintCache.CommitSpendHint(
+		n.currentHeight, spendRequests...,
+	)
 	if err != nil {
 		// The error is not fatal as this is an optimistic optimization,
 		// so we'll avoid returning an error.

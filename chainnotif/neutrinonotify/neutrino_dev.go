@@ -37,15 +37,14 @@ func (n *NeutrinoNotifier) UnsafeStart(bestHeight int32,
 	// rescan. To get around this, we'll add a "zero" outpoint, that won't
 	// actually be matched.
 	var zeroInput neutrino.InputWithScript
+	notificationHandlers := rpcclient.NotificationHandlers{
+		OnFilteredBlockConnected:    n.onFilteredBlockConnected,
+		OnFilteredBlockDisconnected: n.onFilteredBlockDisconnected,
+	}
 	rescanOptions := []neutrino.RescanOption{
 		neutrino.StartBlock(startingPoint),
 		neutrino.QuitChan(n.quit),
-		neutrino.NotificationHandlers(
-			rpcclient.NotificationHandlers{
-				OnFilteredBlockConnected:    n.onFilteredBlockConnected,
-				OnFilteredBlockDisconnected: n.onFilteredBlockDisconnected,
-			},
-		),
+		neutrino.NotificationHandlers(notificationHandlers),
 		neutrino.WatchInputs(zeroInput),
 	}
 
@@ -81,12 +80,12 @@ func (n *NeutrinoNotifier) UnsafeStart(bestHeight int32,
 		for {
 			select {
 			case ntfn := <-n.chainUpdates:
-				lastReceivedNtfn := ntfn
-				if lastReceivedNtfn.height >= uint32(syncHeight) {
+				if ntfn.height >= uint32(syncHeight) {
 					break loop
 				}
 			case <-timeout:
-				return fmt.Errorf("unable to catch up to height %d",
+				return fmt.Errorf(
+					"unable to catch up to height %d",
 					syncHeight)
 			}
 		}

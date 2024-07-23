@@ -144,7 +144,9 @@ func testHistoricalConfDetailsTxIndex(t *testing.T, rpcPolling bool) {
 	// fallback methods.
 	var unknownHash chainhash.Hash
 	copy(unknownHash[:], bytes.Repeat([]byte{0x10}, 32))
-	unknownConfReq, err := chainnotif.NewConfRequest(&unknownHash, testScript)
+	unknownConfReq, err := chainnotif.NewConfRequest(
+		&unknownHash, testScript,
+	)
 	require.NoError(t, err, "unable to create conf request")
 	_, txStatus, err := notifier.historicalConfDetails(unknownConfReq, 0, 0)
 	require.NoError(t, err, "unable to retrieve historical conf details")
@@ -152,9 +154,11 @@ func testHistoricalConfDetailsTxIndex(t *testing.T, rpcPolling bool) {
 	switch txStatus {
 	case chainnotif.TxNotFoundIndex:
 	case chainnotif.TxNotFoundManually:
-		t.Fatal("should not have proceeded with fallback method, but did")
+		t.Fatal("should not have proceeded with fallback method, " +
+			"but did")
 	default:
-		t.Fatal("should not have found non-existent transaction, but did")
+		t.Fatal("should not have found non-existent transaction, " +
+			"but did")
 	}
 
 	// Now, we'll create a test transaction, confirm it, and attempt to
@@ -229,27 +233,33 @@ func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcpolling bool) {
 	hintCache := initHintCache(t)
 	blockCache := blockcache.NewBlockCache(10000)
 
-	notifier := setUpNotifier(t, bitcoindConn, hintCache, hintCache, blockCache)
+	notifier := setUpNotifier(
+		t, bitcoindConn, hintCache, hintCache, blockCache,
+	)
 
 	// Since the node has its txindex disabled, we fall back to scanning the
 	// chain manually. A transaction unknown to the network should not be
 	// found.
 	var unknownHash chainhash.Hash
 	copy(unknownHash[:], bytes.Repeat([]byte{0x10}, 32))
-	unknownConfReq, err := chainnotif.NewConfRequest(&unknownHash, testScript)
+	unknownConfReq, err := chainnotif.NewConfRequest(
+		&unknownHash, testScript,
+	)
 	require.NoError(t, err, "unable to create conf request")
 	broadcastHeight := syncNotifierWithMiner(t, notifier, miner)
 	_, txStatus, err := notifier.historicalConfDetails(
-		unknownConfReq, uint32(broadcastHeight), uint32(broadcastHeight),
+		unknownConfReq, broadcastHeight, broadcastHeight,
 	)
 	require.NoError(t, err, "unable to retrieve historical conf details")
 
 	switch txStatus {
 	case chainnotif.TxNotFoundManually:
 	case chainnotif.TxNotFoundIndex:
-		t.Fatal("should have proceeded with fallback method, but did not")
+		t.Fatal("should have proceeded with fallback method, " +
+			"but did not")
 	default:
-		t.Fatal("should not have found non-existent transaction, but did")
+		t.Fatal("should not have found non-existent transaction, " +
+			"but did")
 	}
 
 	// Now, we'll create a test transaction and attempt to retrieve its
@@ -272,7 +282,9 @@ func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcpolling bool) {
 
 	// Ensure the notifier and miner are synced to the same height to ensure
 	// we can find the transaction when manually scanning the chain.
-	confReq, err := chainnotif.NewConfRequest(&outpoint.Hash, output.PkScript)
+	confReq, err := chainnotif.NewConfRequest(
+		&outpoint.Hash, output.PkScript,
+	)
 	require.NoError(t, err, "unable to create conf request")
 	currentHeight := syncNotifierWithMiner(t, notifier, miner)
 	_, txStatus, err = notifier.historicalConfDetails(

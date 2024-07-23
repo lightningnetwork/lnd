@@ -192,6 +192,7 @@ func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 			Confirmed: m.sixConfChannel,
 		}, nil
 	}
+
 	return &chainnotif.ConfirmationEvent{
 		Confirmed: m.oneConfChannel,
 	}, nil
@@ -199,6 +200,7 @@ func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 
 func (m *mockNotifier) RegisterBlockEpochNtfn(
 	bestBlock *chainnotif.BlockEpoch) (*chainnotif.BlockEpochEvent, error) {
+
 	return &chainnotif.BlockEpochEvent{
 		Epochs: m.epochChan,
 		Cancel: func() {},
@@ -219,6 +221,7 @@ func (m *mockNotifier) Stop() error {
 
 func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
 	heightHint uint32) (*chainnotif.SpendEvent, error) {
+
 	return &chainnotif.SpendEvent{
 		Spend:  make(chan *chainnotif.SpendDetail),
 		Cancel: func() {},

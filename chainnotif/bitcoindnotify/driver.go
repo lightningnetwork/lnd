@@ -26,8 +26,9 @@ func createNewNotifier(args ...interface{}) (chainnotif.ChainNotifier, error) {
 
 	chainParams, ok := args[1].(*chaincfg.Params)
 	if !ok {
-		return nil, errors.New("second argument to bitcoindnotify.New " +
-			"is incorrect, expected a *chaincfg.Params")
+		return nil, errors.New("second argument to " +
+			"bitcoindnotify.New is incorrect, expected a " +
+			"*chaincfg.Params")
 	}
 
 	spendHintCache, ok := args[2].(chainnotif.SpendHintCache)
@@ -38,8 +39,9 @@ func createNewNotifier(args ...interface{}) (chainnotif.ChainNotifier, error) {
 
 	confirmHintCache, ok := args[3].(chainnotif.ConfirmHintCache)
 	if !ok {
-		return nil, errors.New("fourth argument to bitcoindnotify.New " +
-			"is incorrect, expected a chainnotif.ConfirmHintCache")
+		return nil, errors.New("fourth argument to " +
+			"bitcoindnotify.New is incorrect, expected a " +
+			"chainnotif.ConfirmHintCache")
 	}
 
 	blockCache, ok := args[4].(*blockcache.BlockCache)

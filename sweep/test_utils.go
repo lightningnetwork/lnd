@@ -31,11 +31,15 @@ type MockNotifier struct {
 
 // NewMockNotifier instantiates a new mock notifier.
 func NewMockNotifier(t *testing.T) *MockNotifier {
+	confChannel := make(map[chainhash.Hash]chan *chainnotif.TxConfirmation)
+	epochChan := make(map[chan *chainnotif.BlockEpoch]int32)
+	spendChan := make(map[wire.OutPoint][]chan *chainnotif.SpendDetail)
+	spends := make(map[wire.OutPoint]*wire.MsgTx)
 	return &MockNotifier{
-		confChannel: make(map[chainhash.Hash]chan *chainnotif.TxConfirmation),
-		epochChan:   make(map[chan *chainnotif.BlockEpoch]int32),
-		spendChan:   make(map[wire.OutPoint][]chan *chainnotif.SpendDetail),
-		spends:      make(map[wire.OutPoint]*wire.MsgTx),
+		confChannel: confChannel,
+		epochChan:   epochChan,
+		spendChan:   spendChan,
+		spends:      spends,
 		t:           t,
 	}
 }
@@ -133,7 +137,8 @@ func (m *MockNotifier) sendSpend(channel chan *chainnotif.SpendDetail,
 // RegisterConfirmationsNtfn registers for tx confirm notifications.
 func (m *MockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	_ []byte, numConfs, heightHint uint32,
-	opt ...chainnotif.NotifierOption) (*chainnotif.ConfirmationEvent, error) {
+	_ ...chainnotif.NotifierOption) (*chainnotif.ConfirmationEvent,
+	error) {
 
 	return &chainnotif.ConfirmationEvent{
 		Confirmed: m.getConfChannel(txid),
@@ -209,7 +214,7 @@ func (m *MockNotifier) Stop() error {
 
 // RegisterSpendNtfn registers for spend notifications.
 func (m *MockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
-	_ []byte, heightHint uint32) (*chainnotif.SpendEvent, error) {
+	_ []byte, _ uint32) (*chainnotif.SpendEvent, error) {
 
 	log.Debugf("RegisterSpendNtfn for outpoint %v", outpoint)
 

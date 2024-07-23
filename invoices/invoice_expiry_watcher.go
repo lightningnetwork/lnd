@@ -387,7 +387,9 @@ func (ew *InvoiceExpiryWatcher) pushInvoices(invoices []invoiceExpiry) {
 
 // mainLoop is a goroutine that receives new invoices and handles cancellation
 // of expired invoices.
-func (ew *InvoiceExpiryWatcher) mainLoop(blockNtfns *chainnotif.BlockEpochEvent) {
+func (ew *InvoiceExpiryWatcher) mainLoop(
+	blockNtfns *chainnotif.BlockEpochEvent) {
+
 	defer func() {
 		blockNtfns.Cancel()
 		ew.wg.Done()

@@ -49,7 +49,8 @@ func createNewNotifier(args ...interface{}) (chainnotif.ChainNotifier, error) {
 	}
 
 	return New(
-		config, chainParams, spendHintCache, confirmHintCache, blockCache,
+		config, chainParams, spendHintCache, confirmHintCache,
+		blockCache,
 	)
 }
 

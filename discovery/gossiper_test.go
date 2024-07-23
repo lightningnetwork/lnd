@@ -405,14 +405,15 @@ func newMockNotifier() *mockNotifier {
 }
 
 func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
-	_ []byte, numConfs, _ uint32,
-	opts ...chainnotif.NotifierOption) (*chainnotif.ConfirmationEvent, error) {
+	_ []byte, numConfs, _ uint32, opts ...chainnotif.NotifierOption) (
+	*chainnotif.ConfirmationEvent, error) {
 
 	return nil, nil
 }
 
 func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
 	_ uint32) (*chainnotif.SpendEvent, error) {
+
 	return nil, nil
 }
 
@@ -430,6 +431,7 @@ func (m *mockNotifier) notifyBlock(hash chainhash.Hash, height uint32) {
 
 func (m *mockNotifier) RegisterBlockEpochNtfn(
 	bestBlock *chainnotif.BlockEpoch) (*chainnotif.BlockEpochEvent, error) {
+
 	m.RLock()
 	defer m.RUnlock()
 

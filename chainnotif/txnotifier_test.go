@@ -2,6 +2,7 @@ package chainnotif_test
 
 import (
 	"bytes"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -60,7 +61,9 @@ func (c *mockHintCache) CommitSpendHint(heightHint uint32,
 	return nil
 }
 
-func (c *mockHintCache) QuerySpendHint(spendRequest chainnotif.SpendRequest) (uint32, error) {
+func (c *mockHintCache) QuerySpendHint(spendRequest chainnotif.SpendRequest) (
+	uint32, error) {
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -72,7 +75,9 @@ func (c *mockHintCache) QuerySpendHint(spendRequest chainnotif.SpendRequest) (ui
 	return hint, nil
 }
 
-func (c *mockHintCache) PurgeSpendHint(spendRequests ...chainnotif.SpendRequest) error {
+func (c *mockHintCache) PurgeSpendHint(
+	spendRequests ...chainnotif.SpendRequest) error {
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -96,7 +101,9 @@ func (c *mockHintCache) CommitConfirmHint(heightHint uint32,
 	return nil
 }
 
-func (c *mockHintCache) QueryConfirmHint(confRequest chainnotif.ConfRequest) (uint32, error) {
+func (c *mockHintCache) QueryConfirmHint(confRequest chainnotif.ConfRequest) (
+	uint32, error) {
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -108,7 +115,9 @@ func (c *mockHintCache) QueryConfirmHint(confRequest chainnotif.ConfRequest) (ui
 	return hint, nil
 }
 
-func (c *mockHintCache) PurgeConfirmHint(confRequests ...chainnotif.ConfRequest) error {
+func (c *mockHintCache) PurgeConfirmHint(
+	confRequests ...chainnotif.ConfRequest) error {
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -176,7 +185,8 @@ func TestTxNotifierRegistrationValidation(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			hintCache := newMockHintCache()
 			n := chainnotif.NewTxNotifier(
-				10, chainnotif.ReorgSafetyLimit, hintCache, hintCache,
+				10, chainnotif.ReorgSafetyLimit, hintCache,
+				hintCache,
 			)
 
 			_, err := n.RegisterConf(
@@ -278,8 +288,8 @@ func TestTxNotifierFutureConfDispatch(t *testing.T) {
 		t.Fatal("Expected confirmation update for tx1")
 	}
 
-	// A confirmation notification for this transaction should be dispatched,
-	// as it only required one confirmation.
+	// A confirmation notification for this transaction should be
+	// dispatched, as it only required one confirmation.
 	select {
 	case txConf := <-ntfn1.Event.Confirmed:
 		expectedConf := chainnotif.TxConfirmation{
@@ -404,7 +414,9 @@ func TestTxNotifierHistoricalConfDispatch(t *testing.T) {
 		TxIndex:     1,
 		Tx:          &tx1,
 	}
-	err = n.UpdateConfDetails(ntfn1.HistoricalDispatch.ConfRequest, &txConf1)
+	err = n.UpdateConfDetails(
+		ntfn1.HistoricalDispatch.ConfRequest, &txConf1,
+	)
 	require.NoError(t, err, "unable to update conf details")
 	select {
 	case numConfsLeft := <-ntfn1.Event.Updates:
@@ -436,7 +448,9 @@ func TestTxNotifierHistoricalConfDispatch(t *testing.T) {
 		TxIndex:     2,
 		Tx:          &tx2,
 	}
-	err = n.UpdateConfDetails(ntfn2.HistoricalDispatch.ConfRequest, &txConf2)
+	err = n.UpdateConfDetails(
+		ntfn2.HistoricalDispatch.ConfRequest, &txConf2,
+	)
 	require.NoError(t, err, "unable to update conf details")
 	select {
 	case numConfsLeft := <-ntfn2.Event.Updates:
@@ -852,7 +866,9 @@ func TestTxNotifierMultipleHistoricalConfRescans(t *testing.T) {
 	confDetails := &chainnotif.TxConfirmation{
 		BlockHeight: startingHeight - 1,
 	}
-	err = n.UpdateConfDetails(ntfn1.HistoricalDispatch.ConfRequest, confDetails)
+	err = n.UpdateConfDetails(
+		ntfn1.HistoricalDispatch.ConfRequest, confDetails,
+	)
 	require.NoError(t, err, "unable to update conf details")
 
 	ntfn3, err := n.RegisterConf(&chainnotif.ZeroHash, testRawScript, 1, 1)
@@ -960,8 +976,8 @@ func TestTxNotifierMultipleHistoricalNtfns(t *testing.T) {
 	for i, ntfn := range confNtfns {
 		select {
 		case <-ntfn.Event.Confirmed:
-			t.Fatalf("request #%d received unexpected confirmation "+
-				"notification", i)
+			t.Fatalf("request #%d received unexpected "+
+				"confirmation notification", i)
 		default:
 		}
 	}
@@ -974,7 +990,8 @@ func TestTxNotifierMultipleHistoricalNtfns(t *testing.T) {
 		Tx:          wire.NewMsgTx(1),
 	}
 	err := n.UpdateConfDetails(
-		confNtfns[0].HistoricalDispatch.ConfRequest, expectedConfDetails,
+		confNtfns[0].HistoricalDispatch.ConfRequest,
+		expectedConfDetails,
 	)
 	require.NoError(t, err, "unable to update conf details")
 
@@ -1013,7 +1030,8 @@ func TestTxNotifierMultipleHistoricalNtfns(t *testing.T) {
 	for i := uint64(0); i < numNtfns; i++ {
 		ntfn, err := n.RegisterSpend(&op, testRawScript, 1)
 		if err != nil {
-			t.Fatalf("unable to register spend ntfn #%d: %v", i, err)
+			t.Fatalf("unable to register spend ntfn #%d: %v", i,
+				err)
 		}
 		spendNtfns[i] = ntfn
 	}
@@ -1046,7 +1064,8 @@ func TestTxNotifierMultipleHistoricalNtfns(t *testing.T) {
 		SpendingHeight:    startingHeight - 1,
 	}
 	err = n.UpdateSpendDetails(
-		spendNtfns[0].HistoricalDispatch.SpendRequest, expectedSpendDetails,
+		spendNtfns[0].HistoricalDispatch.SpendRequest,
+		expectedSpendDetails,
 	)
 	require.NoError(t, err, "unable to update spend details")
 
@@ -1055,7 +1074,9 @@ func TestTxNotifierMultipleHistoricalNtfns(t *testing.T) {
 	for i, ntfn := range spendNtfns {
 		select {
 		case spendDetails := <-ntfn.Event.Spend:
-			assertSpendDetails(t, spendDetails, expectedSpendDetails)
+			assertSpendDetails(
+				t, spendDetails, expectedSpendDetails,
+			)
 		default:
 			t.Fatalf("request #%d expected to received spend "+
 				"notification", i)
@@ -1431,8 +1452,9 @@ func TestTxNotifierConfReorg(t *testing.T) {
 	select {
 	case reorgDepth := <-ntfn2.Event.NegativeConf:
 		if reorgDepth != 1 {
-			t.Fatalf("Incorrect value for negative conf notification: "+
-				"expected %d, got %d", 1, reorgDepth)
+			t.Fatalf("Incorrect value for negative conf "+
+				"notification: expected %d, got %d", 1,
+				reorgDepth)
 		}
 	default:
 		t.Fatalf("Expected negative conf notification for tx1")
@@ -1519,8 +1541,9 @@ func TestTxNotifierConfReorg(t *testing.T) {
 		case numConfsLeft := <-ntfn3.Event.Updates:
 			expected := tx3NumConfs - i
 			if numConfsLeft != expected {
-				t.Fatalf("Received incorrect confirmation update: tx3 "+
-					"expected %d confirmations left, got %d",
+				t.Fatalf("Received incorrect confirmation "+
+					"update: tx3 expected %d "+
+					"confirmations left, got %d",
 					expected, numConfsLeft)
 			}
 		default:
@@ -1866,15 +1889,19 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 
 	// Both transactions should not have a height hint set, as RegisterConf
 	// should not alter the cache state.
-	_, err = hintCache.QueryConfirmHint(ntfn1.HistoricalDispatch.ConfRequest)
-	if err != chainnotif.ErrConfirmHintNotFound {
+	_, err = hintCache.QueryConfirmHint(
+		ntfn1.HistoricalDispatch.ConfRequest,
+	)
+	if !errors.Is(err, chainnotif.ErrConfirmHintNotFound) {
 		t.Fatalf("unexpected error when querying for height hint "+
 			"want: %v, got %v",
 			chainnotif.ErrConfirmHintNotFound, err)
 	}
 
-	_, err = hintCache.QueryConfirmHint(ntfn2.HistoricalDispatch.ConfRequest)
-	if err != chainnotif.ErrConfirmHintNotFound {
+	_, err = hintCache.QueryConfirmHint(
+		ntfn2.HistoricalDispatch.ConfRequest,
+	)
+	if !errors.Is(err, chainnotif.ErrConfirmHintNotFound) {
 		t.Fatalf("unexpected error when querying for height hint "+
 			"want: %v, got %v",
 			chainnotif.ErrConfirmHintNotFound, err)
@@ -1897,15 +1924,19 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 	// the height hints should remain unchanged. This simulates blocks
 	// confirming while the historical dispatch is processing the
 	// registration.
-	hint, err := hintCache.QueryConfirmHint(ntfn1.HistoricalDispatch.ConfRequest)
-	if err != chainnotif.ErrConfirmHintNotFound {
+	_, err = hintCache.QueryConfirmHint(
+		ntfn1.HistoricalDispatch.ConfRequest,
+	)
+	if !errors.Is(err, chainnotif.ErrConfirmHintNotFound) {
 		t.Fatalf("unexpected error when querying for height hint "+
 			"want: %v, got %v",
 			chainnotif.ErrConfirmHintNotFound, err)
 	}
 
-	hint, err = hintCache.QueryConfirmHint(ntfn2.HistoricalDispatch.ConfRequest)
-	if err != chainnotif.ErrConfirmHintNotFound {
+	_, err = hintCache.QueryConfirmHint(
+		ntfn2.HistoricalDispatch.ConfRequest,
+	)
+	if !errors.Is(err, chainnotif.ErrConfirmHintNotFound) {
 		t.Fatalf("unexpected error when querying for height hint "+
 			"want: %v, got %v",
 			chainnotif.ErrConfirmHintNotFound, err)
@@ -1933,14 +1964,18 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 	// Now that both notifications are waiting at tip for confirmations,
 	// they should have their height hints updated to the latest block
 	// height.
-	hint, err = hintCache.QueryConfirmHint(ntfn1.HistoricalDispatch.ConfRequest)
+	hint, err := hintCache.QueryConfirmHint(
+		ntfn1.HistoricalDispatch.ConfRequest,
+	)
 	require.NoError(t, err, "unable to query for hint")
 	if hint != tx1Height {
 		t.Fatalf("expected hint %d, got %d",
 			tx1Height, hint)
 	}
 
-	hint, err = hintCache.QueryConfirmHint(ntfn2.HistoricalDispatch.ConfRequest)
+	hint, err = hintCache.QueryConfirmHint(
+		ntfn2.HistoricalDispatch.ConfRequest,
+	)
 	require.NoError(t, err, "unable to query for hint")
 	if hint != tx1Height {
 		t.Fatalf("expected hint %d, got %d",
@@ -1960,7 +1995,9 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 	}
 
 	// The height hint for the first transaction should remain the same.
-	hint, err = hintCache.QueryConfirmHint(ntfn1.HistoricalDispatch.ConfRequest)
+	hint, err = hintCache.QueryConfirmHint(
+		ntfn1.HistoricalDispatch.ConfRequest,
+	)
 	require.NoError(t, err, "unable to query for hint")
 	if hint != tx1Height {
 		t.Fatalf("expected hint %d, got %d",
@@ -1969,7 +2006,9 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 
 	// The height hint for the second transaction should now be updated to
 	// reflect its confirmation.
-	hint, err = hintCache.QueryConfirmHint(ntfn2.HistoricalDispatch.ConfRequest)
+	hint, err = hintCache.QueryConfirmHint(
+		ntfn2.HistoricalDispatch.ConfRequest,
+	)
 	require.NoError(t, err, "unable to query for hint")
 	if hint != tx2Height {
 		t.Fatalf("expected hint %d, got %d",
@@ -1984,7 +2023,9 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 
 	// This should update the second transaction's height hint within the
 	// cache to the previous height.
-	hint, err = hintCache.QueryConfirmHint(ntfn2.HistoricalDispatch.ConfRequest)
+	hint, err = hintCache.QueryConfirmHint(
+		ntfn2.HistoricalDispatch.ConfRequest,
+	)
 	require.NoError(t, err, "unable to query for hint")
 	if hint != tx1Height {
 		t.Fatalf("expected hint %d, got %d",
@@ -1993,7 +2034,9 @@ func TestTxNotifierConfirmHintCache(t *testing.T) {
 
 	// The first transaction's height hint should remain at the original
 	// confirmation height.
-	hint, err = hintCache.QueryConfirmHint(ntfn2.HistoricalDispatch.ConfRequest)
+	hint, err = hintCache.QueryConfirmHint(
+		ntfn2.HistoricalDispatch.ConfRequest,
+	)
 	require.NoError(t, err, "unable to query for hint")
 	if hint != tx1Height {
 		t.Fatalf("expected hint %d, got %d",
@@ -2035,13 +2078,13 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	// we must first determine whether they have already been spent in the
 	// chain.
 	_, err = hintCache.QuerySpendHint(ntfn1.HistoricalDispatch.SpendRequest)
-	if err != chainnotif.ErrSpendHintNotFound {
+	if !errors.Is(err, chainnotif.ErrSpendHintNotFound) {
 		t.Fatalf("unexpected error when querying for height hint "+
 			"expected: %v, got %v", chainnotif.ErrSpendHintNotFound,
 			err)
 	}
 	_, err = hintCache.QuerySpendHint(ntfn2.HistoricalDispatch.SpendRequest)
-	if err != chainnotif.ErrSpendHintNotFound {
+	if !errors.Is(err, chainnotif.ErrSpendHintNotFound) {
 		t.Fatalf("unexpected error when querying for height hint "+
 			"expected: %v, got %v", chainnotif.ErrSpendHintNotFound,
 			err)
@@ -2059,13 +2102,13 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	// outpoints, this implies that there is a still a pending historical
 	// rescan for them, so their spend hints should not be created/updated.
 	_, err = hintCache.QuerySpendHint(ntfn1.HistoricalDispatch.SpendRequest)
-	if err != chainnotif.ErrSpendHintNotFound {
+	if !errors.Is(err, chainnotif.ErrSpendHintNotFound) {
 		t.Fatalf("unexpected error when querying for height hint "+
 			"expected: %v, got %v", chainnotif.ErrSpendHintNotFound,
 			err)
 	}
 	_, err = hintCache.QuerySpendHint(ntfn2.HistoricalDispatch.SpendRequest)
-	if err != chainnotif.ErrSpendHintNotFound {
+	if !errors.Is(err, chainnotif.ErrSpendHintNotFound) {
 		t.Fatalf("unexpected error when querying for height hint "+
 			"expected: %v, got %v", chainnotif.ErrSpendHintNotFound,
 			err)
@@ -2098,12 +2141,16 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	// Both outpoints should have their spend hints reflect the height of
 	// the new block being connected due to the first outpoint being spent
 	// at this height, and the second outpoint still being unspent.
-	op1Hint, err := hintCache.QuerySpendHint(ntfn1.HistoricalDispatch.SpendRequest)
+	op1Hint, err := hintCache.QuerySpendHint(
+		ntfn1.HistoricalDispatch.SpendRequest,
+	)
 	require.NoError(t, err, "unable to query for spend hint of op1")
 	if op1Hint != op1Height {
 		t.Fatalf("expected hint %d, got %d", op1Height, op1Hint)
 	}
-	op2Hint, err := hintCache.QuerySpendHint(ntfn2.HistoricalDispatch.SpendRequest)
+	op2Hint, err := hintCache.QuerySpendHint(
+		ntfn2.HistoricalDispatch.SpendRequest,
+	)
 	require.NoError(t, err, "unable to query for spend hint of op2")
 	if op2Hint != op1Height {
 		t.Fatalf("expected hint %d, got %d", op1Height, op2Hint)
@@ -2127,12 +2174,16 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	// Only the second outpoint should have its spend hint updated due to
 	// being spent within the new block. The first outpoint's spend hint
 	// should remain the same as it's already been spent before.
-	op1Hint, err = hintCache.QuerySpendHint(ntfn1.HistoricalDispatch.SpendRequest)
+	op1Hint, err = hintCache.QuerySpendHint(
+		ntfn1.HistoricalDispatch.SpendRequest,
+	)
 	require.NoError(t, err, "unable to query for spend hint of op1")
 	if op1Hint != op1Height {
 		t.Fatalf("expected hint %d, got %d", op1Height, op1Hint)
 	}
-	op2Hint, err = hintCache.QuerySpendHint(ntfn2.HistoricalDispatch.SpendRequest)
+	op2Hint, err = hintCache.QuerySpendHint(
+		ntfn2.HistoricalDispatch.SpendRequest,
+	)
 	require.NoError(t, err, "unable to query for spend hint of op2")
 	if op2Hint != op2Height {
 		t.Fatalf("expected hint %d, got %d", op2Height, op2Hint)
@@ -2148,12 +2199,16 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 	// to the previous height, as that's where its spending transaction was
 	// included in within the chain. The first outpoint's spend hint should
 	// remain the same.
-	op1Hint, err = hintCache.QuerySpendHint(ntfn1.HistoricalDispatch.SpendRequest)
+	op1Hint, err = hintCache.QuerySpendHint(
+		ntfn1.HistoricalDispatch.SpendRequest,
+	)
 	require.NoError(t, err, "unable to query for spend hint of op1")
 	if op1Hint != op1Height {
 		t.Fatalf("expected hint %d, got %d", op1Height, op1Hint)
 	}
-	op2Hint, err = hintCache.QuerySpendHint(ntfn2.HistoricalDispatch.SpendRequest)
+	op2Hint, err = hintCache.QuerySpendHint(
+		ntfn2.HistoricalDispatch.SpendRequest,
+	)
 	require.NoError(t, err, "unable to query for spend hint of op2")
 	if op2Hint != op1Height {
 		t.Fatalf("expected hint %d, got %d", op1Height, op2Hint)
@@ -2189,13 +2244,14 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 	}
 
 	if ntfn1.HistoricalDispatch.EndHeight != startingHeight {
-		t.Fatalf("expected historical dispatch to end at current height")
+		t.Fatalf("expected historical dispatch to end at current " +
+			"height")
 	}
 
 	// It should not have a spend hint set upon registration, as we must
 	// first determine whether it has already been spent in the chain.
 	_, err = hintCache.QuerySpendHint(ntfn1.HistoricalDispatch.SpendRequest)
-	if err != chainnotif.ErrSpendHintNotFound {
+	if !errors.Is(err, chainnotif.ErrSpendHintNotFound) {
 		t.Fatalf("unexpected error when querying for height hint "+
 			"expected: %v, got %v", chainnotif.ErrSpendHintNotFound,
 			err)
@@ -2213,7 +2269,7 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 	// Since we haven't called UpdateSpendDetails yet, there should be no
 	// spend hint found.
 	_, err = hintCache.QuerySpendHint(ntfn1.HistoricalDispatch.SpendRequest)
-	if err != chainnotif.ErrSpendHintNotFound {
+	if !errors.Is(err, chainnotif.ErrSpendHintNotFound) {
 		t.Fatalf("unexpected error when querying for height hint "+
 			"expected: %v, got %v", chainnotif.ErrSpendHintNotFound,
 			err)
@@ -2304,7 +2360,9 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 
 	// The outpoint's spend hint should remain the same as it's already
 	// been spent before.
-	op1Hint, err = hintCache.QuerySpendHint(ntfn1.HistoricalDispatch.SpendRequest)
+	op1Hint, err = hintCache.QuerySpendHint(
+		ntfn1.HistoricalDispatch.SpendRequest,
+	)
 	require.NoError(t, err, "unable to query for spend hint of op1")
 	if op1Hint != spendHeight {
 		t.Fatalf("expected hint %d, got %d", spendHeight, op1Hint)
@@ -2335,7 +2393,9 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 	}
 
 	// Finally, check that the height hint is still there, unchanged.
-	op1Hint, err = hintCache.QuerySpendHint(ntfn1.HistoricalDispatch.SpendRequest)
+	op1Hint, err = hintCache.QuerySpendHint(
+		ntfn1.HistoricalDispatch.SpendRequest,
+	)
 	require.NoError(t, err, "unable to query for spend hint of op1")
 	if op1Hint != spendHeight {
 		t.Fatalf("expected hint %d, got %d", spendHeight, op1Hint)
@@ -2350,13 +2410,19 @@ func TestTxNotifierNtfnDone(t *testing.T) {
 
 	hintCache := newMockHintCache()
 	const reorgSafetyLimit = 100
-	n := chainnotif.NewTxNotifier(10, reorgSafetyLimit, hintCache, hintCache)
+	n := chainnotif.NewTxNotifier(
+		10, reorgSafetyLimit, hintCache, hintCache,
+	)
 
 	// We'll start by creating two notification requests: one confirmation
 	// and one spend.
-	confNtfn, err := n.RegisterConf(&chainnotif.ZeroHash, testRawScript, 1, 1)
+	confNtfn, err := n.RegisterConf(
+		&chainnotif.ZeroHash, testRawScript, 1, 1,
+	)
 	require.NoError(t, err, "unable to register conf ntfn")
-	spendNtfn, err := n.RegisterSpend(&chainnotif.ZeroOutPoint, testRawScript, 1)
+	spendNtfn, err := n.RegisterSpend(
+		&chainnotif.ZeroOutPoint, testRawScript, 1,
+	)
 	require.NoError(t, err, "unable to register spend")
 
 	// We'll create two transactions that will satisfy the notification
@@ -2396,7 +2462,8 @@ func TestTxNotifierNtfnDone(t *testing.T) {
 	// are still under the risk of being reorged out the chain.
 	select {
 	case <-confNtfn.Event.Done:
-		t.Fatal("received unexpected done notification for confirmation")
+		t.Fatal("received unexpected done notification for " +
+			"confirmation")
 	case <-spendNtfn.Event.Done:
 		t.Fatal("received unexpected done notification for spend")
 	default:
@@ -2411,7 +2478,8 @@ func TestTxNotifierNtfnDone(t *testing.T) {
 	select {
 	case <-confNtfn.Event.NegativeConf:
 	default:
-		t.Fatal("expected to receive reorg notification for confirmation")
+		t.Fatal("expected to receive reorg notification for " +
+			"confirmation")
 	}
 
 	select {
@@ -2454,7 +2522,8 @@ func TestTxNotifierNtfnDone(t *testing.T) {
 	select {
 	case <-confNtfn.Event.Done:
 	default:
-		t.Fatal("expected to receive done notification for confirmation")
+		t.Fatal("expected to receive done notification for " +
+			"confirmation")
 	}
 
 	select {
@@ -2476,9 +2545,13 @@ func TestTxNotifierTearDown(t *testing.T) {
 
 	// To begin the test, we'll register for a confirmation and spend
 	// notification.
-	confNtfn, err := n.RegisterConf(&chainnotif.ZeroHash, testRawScript, 1, 1)
+	confNtfn, err := n.RegisterConf(
+		&chainnotif.ZeroHash, testRawScript, 1, 1,
+	)
 	require.NoError(t, err, "unable to register conf ntfn")
-	spendNtfn, err := n.RegisterSpend(&chainnotif.ZeroOutPoint, testRawScript, 1)
+	spendNtfn, err := n.RegisterSpend(
+		&chainnotif.ZeroOutPoint, testRawScript, 1,
+	)
 	require.NoError(t, err, "unable to register spend ntfn")
 
 	// With the notifications registered, we'll now tear down the notifier.
@@ -2490,7 +2563,8 @@ func TestTxNotifierTearDown(t *testing.T) {
 	select {
 	case _, ok := <-confNtfn.Event.Confirmed:
 		if ok {
-			t.Fatal("expected closed Confirmed channel for conf ntfn")
+			t.Fatal("expected closed Confirmed channel for conf " +
+				"ntfn")
 		}
 	case _, ok := <-confNtfn.Event.Updates:
 		if ok {
@@ -2498,7 +2572,8 @@ func TestTxNotifierTearDown(t *testing.T) {
 		}
 	case _, ok := <-confNtfn.Event.NegativeConf:
 		if ok {
-			t.Fatal("expected closed NegativeConf channel for conf ntfn")
+			t.Fatal("expected closed NegativeConf channel for " +
+				"conf ntfn")
 		}
 	case _, ok := <-spendNtfn.Event.Spend:
 		if ok {
@@ -2524,7 +2599,9 @@ func TestTxNotifierTearDown(t *testing.T) {
 	}
 }
 
-func assertConfDetails(t *testing.T, result, expected *chainnotif.TxConfirmation) {
+func assertConfDetails(t *testing.T, result,
+	expected *chainnotif.TxConfirmation) {
+
 	t.Helper()
 
 	if result.BlockHeight != expected.BlockHeight {
@@ -2547,7 +2624,9 @@ func assertConfDetails(t *testing.T, result, expected *chainnotif.TxConfirmation
 	}
 }
 
-func assertSpendDetails(t *testing.T, result, expected *chainnotif.SpendDetail) {
+func assertSpendDetails(t *testing.T, result,
+	expected *chainnotif.SpendDetail) {
+
 	t.Helper()
 
 	if *result.SpentOutPoint != *expected.SpentOutPoint {

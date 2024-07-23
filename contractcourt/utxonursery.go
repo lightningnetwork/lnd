@@ -301,10 +301,12 @@ func (u *UtxoNursery) Start() error {
 
 	// Start watching for new blocks, as this will drive the nursery store's
 	// state machine.
-	newBlockChan, err := u.cfg.Notifier.RegisterBlockEpochNtfn(&chainnotif.BlockEpoch{
-		Height: bestHeight,
-		Hash:   bestHash,
-	})
+	newBlockChan, err := u.cfg.Notifier.RegisterBlockEpochNtfn(
+		&chainnotif.BlockEpoch{
+			Height: bestHeight,
+			Hash:   bestHash,
+		},
+	)
 	if err != nil {
 		close(u.quit)
 		return err

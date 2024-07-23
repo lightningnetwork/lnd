@@ -17,7 +17,8 @@ type ChainNotifier struct {
 // that the tx confirmation will go over.
 func (c *ChainNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	pkScript []byte, numConfs, heightHint uint32,
-	opts ...chainnotif.NotifierOption) (*chainnotif.ConfirmationEvent, error) {
+	opts ...chainnotif.NotifierOption) (*chainnotif.ConfirmationEvent,
+	error) {
 
 	return &chainnotif.ConfirmationEvent{
 		Confirmed: c.ConfChan,
@@ -38,7 +39,8 @@ func (c *ChainNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 
 // RegisterBlockEpochNtfn returns a BlockEpochEvent that contains a channel that
 // block epochs will go over.
-func (c *ChainNotifier) RegisterBlockEpochNtfn(blockEpoch *chainnotif.BlockEpoch) (
+func (c *ChainNotifier) RegisterBlockEpochNtfn(
+	blockEpoch *chainnotif.BlockEpoch) (
 	*chainnotif.BlockEpochEvent, error) {
 
 	return &chainnotif.BlockEpochEvent{

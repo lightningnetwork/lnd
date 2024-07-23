@@ -25,8 +25,8 @@ func createNewNotifier(args ...interface{}) (chainnotif.ChainNotifier, error) {
 
 	spendHintCache, ok := args[1].(chainnotif.SpendHintCache)
 	if !ok {
-		return nil, errors.New("second argument to neutrinonotify.New " +
-			"is  incorrect, expected a chainntfs.SpendHintCache")
+		return nil, errors.New("second argument to neutrinonotify.New" +
+			" is  incorrect, expected a chainntfs.SpendHintCache")
 	}
 
 	confirmHintCache, ok := args[2].(chainnotif.ConfirmHintCache)
@@ -37,8 +37,8 @@ func createNewNotifier(args ...interface{}) (chainnotif.ChainNotifier, error) {
 
 	blockCache, ok := args[3].(*blockcache.BlockCache)
 	if !ok {
-		return nil, errors.New("fourth argument to neutrinonotify.New " +
-			"is incorrect, expected a *blockcache.BlockCache")
+		return nil, errors.New("fourth argument to neutrinonotify.New" +
+			" is incorrect, expected a *blockcache.BlockCache")
 	}
 
 	return New(config, spendHintCache, confirmHintCache, blockCache), nil

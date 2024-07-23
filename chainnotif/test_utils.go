@@ -76,10 +76,12 @@ func WaitForMempoolTx(miner *rpctest.Harness, txid *chainhash.Hash) error {
 		// Check for the harness' knowledge of the txid.
 		tx, err := miner.Client.GetRawTransaction(txid)
 		if err != nil {
-			jsonErr, ok := err.(*btcjson.RPCError)
+			var jsonErr btcjson.RPCError
+			ok := errors.As(err, &jsonErr)
 			if ok && jsonErr.Code == btcjson.ErrRPCNoTxInfo {
 				continue
 			}
+
 			return err
 		}
 
@@ -110,7 +112,8 @@ func WaitForMempoolTx(miner *rpctest.Harness, txid *chainhash.Hash) error {
 // CreateSpendableOutput creates and returns an output that can be spent later
 // on.
 func CreateSpendableOutput(t *testing.T,
-	miner *rpctest.Harness) (*wire.OutPoint, *wire.TxOut, *btcec.PrivateKey) {
+	miner *rpctest.Harness) (*wire.OutPoint, *wire.TxOut,
+	*btcec.PrivateKey) {
 
 	t.Helper()
 
@@ -141,7 +144,10 @@ func CreateSpendTx(t *testing.T, prevOutPoint *wire.OutPoint,
 
 	spendingTx := wire.NewMsgTx(1)
 	spendingTx.AddTxIn(&wire.TxIn{PreviousOutPoint: *prevOutPoint})
-	spendingTx.AddTxOut(&wire.TxOut{Value: 1e8, PkScript: prevOutput.PkScript})
+	spendingTx.AddTxOut(&wire.TxOut{
+		Value:    1e8,
+		PkScript: prevOutput.PkScript,
+	})
 
 	sigScript, err := txscript.SignatureScript(
 		spendingTx, 0, prevOutput.PkScript, txscript.SigHashAll,

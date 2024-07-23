@@ -1045,7 +1045,9 @@ func (c *chainWatcher) toSelfAmount(tx *wire.MsgTx) btcutil.Amount {
 // transaction, then clean up the database state. We'll also dispatch a
 // notification to all subscribers that the channel has been closed in this
 // manner.
-func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainnotif.SpendDetail) error {
+func (c *chainWatcher) dispatchCooperativeClose(
+	commitSpend *chainnotif.SpendDetail) error {
+
 	broadcastTx := commitSpend.SpendingTx
 
 	log.Infof("Cooperative closure for ChannelPoint(%v): %v",
@@ -1238,7 +1240,8 @@ func (c *chainWatcher) dispatchRemoteForceClose(
 // broadcast a prior revoked commitment state. This method well prepare all the
 // materials required to bring the cheater to justice, then notify all
 // registered subscribers of this event.
-func (c *chainWatcher) dispatchContractBreach(spendEvent *chainnotif.SpendDetail,
+func (c *chainWatcher) dispatchContractBreach(
+	spendEvent *chainnotif.SpendDetail,
 	chainSet *chainSet, broadcastStateNum uint64,
 	retribution *lnwallet.BreachRetribution,
 	anchorRes *lnwallet.AnchorResolution) error {

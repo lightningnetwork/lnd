@@ -300,6 +300,8 @@ func (b *Builder) Start() error {
 	b.wg.Add(1)
 	go b.networkHandler()
 
+	log.Debug("Builder started")
+
 	return nil
 }
 
@@ -312,7 +314,6 @@ func (b *Builder) Stop() error {
 	}
 
 	log.Info("Builder shutting down...")
-	defer log.Debug("Builder shutdown complete")
 
 	// Our filtered chain view could've only been started if
 	// AssumeChannelValid isn't present.
@@ -324,6 +325,8 @@ func (b *Builder) Stop() error {
 
 	close(b.quit)
 	b.wg.Wait()
+
+	log.Debug("Builder shutdown complete")
 
 	return nil
 }

@@ -225,7 +225,7 @@ implementation project(":lndmobile", { "default" })
 
 In LND v0.15+ all API methods have prefixed the generated methods with the subserver name. This is required to support subservers with name conflicts.
 
-eg. `QueryScores` is now `AutopilotQueryScores`. `GetBlockHeader` is now `NeutrinoKitGetBlockHeader`.
+e.g. `QueryScores` is now `AutopilotQueryScores`. `GetBlockHeader` is now `NeutrinoKitGetBlockHeader`.
 
 ## API docs
 

@@ -3,7 +3,8 @@
 There are two flavors of Dockerfiles available:
  - `Dockerfile`: Used for production builds. Checks out the source code from
    GitHub during build. The build argument `--build-arg checkout=v0.x.x-beta`
-   can be used to specify what git tag or commit to check out before building.
+   can be used to specify what git tag or commit to `git checkout` 
+   before building.
  - `dev.Dockerfile` Used for development or testing builds. Uses the local code
    when building and allows local changes to be tested more easily.
 
@@ -32,7 +33,7 @@ You first need to build the `lnd` docker image:
 $  docker build --tag=myrepository/lnd --build-arg checkout=v0.14.1-beta .
 ```
 
-It is recommended that you checkout the latest released tag.
+It is recommended that you check out the latest released tag.
 
 You can continue by creating and running the container:
 

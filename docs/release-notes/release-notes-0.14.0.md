@@ -226,7 +226,7 @@ documentation](../psbt.md#use-the-batchopenchannel-rpc-for-safe-batch-channel-fu
   discussion](https://github.com/lightningnetwork/lnd/pull/4685#discussion_r503080709)).
   This synchronization check is put back now as we want to make the integration
   test more robust in catching real world situations. This also means it might
-  take longer to start a `lnd` node when running in `simnet` or `regtest`,
+  take longer to start an `lnd` node when running in `simnet` or `regtest`,
   something developers need to watch out from this release.
 
 ### Remote signing

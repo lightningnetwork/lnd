@@ -9,7 +9,7 @@ account path (`m/purpose'/coin_type'/account'`) or at the address index path
 the `WalletKit` APIs.
 
 Note that in order to follow the rest of this document and/or use the
-`WalletKit` APIs, users will need to obtain a `lnd` build compiled with the
+`WalletKit` APIs, users will need to obtain an `lnd` build compiled with the
 `walletrpc` tag. Our release builds already include this tag by default, so this
 would only be necessary when compiling from source.
 

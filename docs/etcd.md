@@ -2,7 +2,7 @@
 
 With the recent introduction of the `kvdb` interface LND can support multiple
 database backends allowing experimentation with the storage model as well as
-improving robustness through eg. replicating essential data.
+improving robustness through e.g. replicating essential data.
 
 Building on `kvdb` in v0.11.0 we're adding experimental [etcd](https://etcd.io)
 support to LND. As this is an unstable feature heavily in development, it still
@@ -21,7 +21,7 @@ $  make tags="kvdb_etcd"
 The important tag is the `kvdb_etcd`, without which the binary is built without
 the etcd driver.
 
-For development it is advised to set the `GOFLAGS` environment variable to 
+For development, it is advised to set the `GOFLAGS` environment variable to 
 `"-tags=test"` otherwise `gopls` won't work on code in `channeldb/kvdb/etcd`
 directory.
 

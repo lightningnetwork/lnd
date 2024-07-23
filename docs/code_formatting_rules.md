@@ -180,8 +180,8 @@ like `require.NoErrorf()`.
 
 ### Wrapping long function definitions
 
-If one is forced to wrap lines of function arguments that exceed the 80
-character limit, then indentation must be kept on the following lines. Also,
+If one is forced to wrap lines of function arguments that exceed the 
+80-character limit, then indentation must be kept on the following lines. Also,
 lines should not end with an open parenthesis if the function definition isn't
 finished yet.
 
@@ -241,7 +241,7 @@ support the `EditorConfig` scheme (for example GoLand, GitHub, GitLab,
 VisualStudio). In addition, specific settings for Visual Studio Code are checked
 into the code base as well.
 
-Other editors (for example Atom, Nodepad++, Vim, Emacs and so on) might install
+Other editors (for example Atom, Notepad++, Vim, Emacs and so on) might install
 a plugin to understand the rules in the `.editorconfig` file.
 
-In Vim you might want to use `set colorcolumn=80`.
+In Vim, you might want to use `set colorcolumn=80`.

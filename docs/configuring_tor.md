@@ -86,8 +86,8 @@ Tor:
       --tor.privatekeypath=                                   The path to the private key of the onion service being created
 ```
 
-There are a couple things here, so let's dissect them. The `--tor.active` flag
-allows `lnd` to route all outbound and inbound connections through Tor.
+There are a couple of things here, so let's dissect them. The `--tor.active`
+flag allows `lnd` to route all outbound and inbound connections through Tor.
 
 Outbound connections are possible with the use of the `--tor.socks` and
 `--tor.dns` arguments. The `--tor.socks` argument should point to the interface
@@ -125,7 +125,7 @@ disabled to prevent inadvertent leaks.
 ## Tor Stream Isolation
 
 Our support for Tor also has an additional privacy enhancing modified: stream
-isolation. Usage of this mode means that Tor will always use  _new circuit_ for
+isolation. Usage of this mode means that Tor will always use _new circuit_ for
 each connection. This added features means that it's harder to correlate
 connections. As otherwise, several applications using Tor might share the same
 circuit.
@@ -160,7 +160,7 @@ authentication methods (arguably, from most to least secure):
 
 In order to listen for inbound connections through Tor, an onion service must be
 created. There are two types of onion services: v2 and v3. v3 onion services
-are the latest generation of onion services and they provide a number of
+are the latest generation of onion services, and they provide a number of
 advantages over the legacy v2 onion services. To learn more about these
 benefits, see [Intro to Next Gen Onion Services](https://trac.torproject.org/projects/tor/wiki/doc/NextGenOnions).
 

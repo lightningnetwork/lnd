@@ -11,7 +11,7 @@ process. A lack of a birthday means that wallets don’t know how far
 back to look in the chain to ensure that they derive all the proper
 user addresses. Additionally, BIP39 use a very weak [KDF](https://en.wikipedia.org/wiki/Key_derivation_function). We use
 scrypt with modern parameters (n=32768, r=8, p=1). A set of benchmarks has
-been added, on my laptop I get about 100ms per attempt):
+been added, on my laptop I get about 100ms per attempt:
 
 ```shell
 $  go test -run=XXX -bench=.
@@ -48,13 +48,13 @@ the keys of the wallet.
 
 The 2 byte timestamp is expressed in Bitcoin Days Genesis, meaning that
 the number of days since the timestamp in Bitcoin’s genesis block. This
-allow us to save space, and also avoid using a wasteful level of
+allows us to save space, and also avoid using a wasteful level of
 granularity. This can currently express time up until 2188.
 
 Finally, the entropy is raw entropy that should be used to derive the
 wallet’s HD root.
 
-## aezeed enciphering/deciperhing
+## aezeed enciphering/deciphering
 
 Next, we’ll take the plaintext seed described above and encipher it to
 procure a final cipher text. We’ll then take this cipher text (the

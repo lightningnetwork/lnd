@@ -51,7 +51,7 @@ said, the current status of `lnd`'s BOLT compliance is:
 The daemon has been designed to be as developer friendly as possible in order
 to facilitate application development on top of `lnd`. Two primary RPC
 interfaces are exported: an HTTP REST API, and a [gRPC](https://grpc.io/)
-service. The exported API's are not yet stable, so be warned: they may change
+service. The exported APIs are not yet stable, so be warned: they may change
 drastically in the near future.
 
 An automatically generated set of documentation for the RPC APIs can be found

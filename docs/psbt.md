@@ -129,7 +129,7 @@ $  bitcoin-cli decodepsbt cHNidP8BAHECAAAAAeJQY2VLRtutKgQYFUajEKpjFfl0Uyrm6x23Ou
 
 Let's now look at how we can implement manual coin selection by using the `fund`
 command. We again want to send half a coin to
-`bcrt1qjrdns4f5zwkv29ln86plqzs092yd5fg6nsz8re` but we want to select our inputs
+`bcrt1qjrdns4f5zwkv29ln86plqzs092yd5fg6nsz8re`, but we want to select our inputs
 manually.
 
 The first step is to look at all available UTXOs and choose. To do so, we use
@@ -183,7 +183,7 @@ $  lncli wallet psbt fund --outputs='{"bcrt1qjrdns4f5zwkv29ln86plqzs092yd5fg6nsz
 }
 ```
 
-Inspecting this PSBT, we notice that the two inputs were chosen and a large
+Inspecting this PSBT, we notice that the two inputs were chosen, and a large
 change output was added at index 1:
 
 ```shell
@@ -319,7 +319,7 @@ outputs are used to fund a channel. See
 This is a step-by-step guide on how to open a channel with `lnd` by using a PSBT
 as the funding transaction.  
 We will use `bitcoind` to create and sign the transaction just to keep the
-example simple. Of course any other PSBT compatible wallet could be used and the
+example simple. Of course any other PSBT compatible wallet could be used, and the
 process would likely be spread out over multiple signing steps. The goal of this
 example is not to cover each and every possible edge case but to help users of
 `lnd` understand what inputs the `lncli` utility expects.

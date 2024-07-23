@@ -29,7 +29,7 @@
 This chapter describes the security/safety mechanisms that are implemented in
 `lnd`. We encourage every person that is planning on putting mainnet funds into
 a Lightning Network channel using `lnd` to read this guide carefully.   
-As of this writing, `lnd` is still in beta and it is considered `#reckless` to
+As of this writing, `lnd` is still in beta, and it is considered `#reckless` to
 put any life altering amounts of BTC into the network.   
 That said, we constantly put in a lot of effort to make `lnd` safer to use and
 more secure. We will update this documentation with each safety mechanism that
@@ -77,7 +77,7 @@ But the node will need to be restored using the
 
 ### TLS
 
-By default the two API connections `lnd` offers (gRPC on port 10009 and REST on
+By default, the two API connections `lnd` offers (gRPC on port 10009 and REST on
 port 8080) use TLS with a self-signed certificate for transport level security.
 Specifying the certificate on the client side (for example `lncli`) is only a
 protection against man-in-the-middle attacks and does not provide any
@@ -211,14 +211,14 @@ line, it is hashed and only the hash (or to be more exact, the BIP32 extended
 root key) is stored in the `wallet.db` file.   
 There is
 [a tool being worked on](https://github.com/lightningnetwork/lnd/pull/2373)
-that can extract the BIP32 extended root key but currently you cannot restore
+that can extract the BIP32 extended root key, but currently you cannot restore
 lnd with only this root key.
 
 Important to know:
 * Setting a password/passphrase for the aezeed is meant to protect it from
   an attacker that finds the paper/storage device. Writing down the password
   alongside the 24 seed words does not enhance the security in any way.
-  Therefore the password should be stored in a separate place.
+  Therefore, the password should be stored in a separate place.
 
 ### File based backups
 
@@ -231,7 +231,7 @@ those risks.
 The single most important file that needs to be backed up whenever it changes
 is the `<lnddir>/data/chain/bitcoin/mainnet/channel.backup` file which holds
 the Static Channel Backups (SCBs). This file is only updated every time `lnd`
-starts, a channel is opened or a channel is closed.
+starts, a channel is opened, or a channel is closed.
 
 Most consumer Lightning wallet apps upload the file to the cloud automatically.
 
@@ -295,10 +295,9 @@ online.
 
 Funds that are in such channels are at great risk, as is described quite
 dramatically in
-[this article](https://medium.com/@gcomxx/get-rid-of-those-zombie-channels-1267d5a2a708?)
-.
+[this article](https://medium.com/@gcomxx/get-rid-of-those-zombie-channels-1267d5a2a708?).
 
-The TL;DR of the article is that if you have funds in a zombie channel and you
+The TL;DR of the article is that if you have funds in a zombie channel, and you
 need to recover your node after a failure, SCBs won't be able to recover those
 funds. Because SCB restore
 [relies on the remote node cooperating](#static-channel-backups-scbs).
@@ -328,7 +327,7 @@ fallback way to do it.
 This option works very well if the new device runs the same operating system on
 the same (or at least very similar) architecture. If that is the case, the whole
 `/home/<user>/.lnd` directory in Linux (or
-`$HOME/Library/Application Support/lnd` in MacOS, `%LOCALAPPDATA%\lnd` in
+`$HOME/Library/Application Support/lnd` in macOS, `%LOCALAPPDATA%\lnd` in
 Windows) can be moved to the new device and `lnd` started there. It is important
 to shut down `lnd` on the old device before moving the directory!   
 **Not supported/untested** is moving the data directory between different
@@ -427,11 +426,11 @@ The following (non-exhaustive) list of things can lead to data corruption:
   architectures.
 
 To avoid most of these factors, it is recommended to store `lnd`'s main data
-directory on an Solid State Drive (SSD) of a reliable manufacturer.
+directory on a Solid State Drive (SSD) of a reliable manufacturer.
 An alternative or extension to that is to use a replicated disk setup. Making
-sure a power failure does not interrupt the node by running a UPS (
-uninterruptible power supply) might also make sense depending on the reliability
-of the local power grid and the amount of funds at stake.
+sure a power failure does not interrupt the node by running a UPS
+(uninterruptible power supply) might also make sense depending on the
+reliability of the local power grid and the amount of funds at stake.
 
 ### Don't interrupt `lncli` commands
 

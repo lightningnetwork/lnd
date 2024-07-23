@@ -5496,6 +5496,14 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 				localCommitmentView.customBlob, auxLeaf,
 			)
 
+			// As this HTLC has a custom sign associated with it,
+			// store in the custom records map so we can write to
+			// disk later.
+			sigType := htlcCustomSigType.TypeVal()
+			htlc.CustomRecords[uint64(sigType)] = auxSig.UnwrapOr(
+				nil,
+			)
+
 			auxVerifyJobs = append(auxVerifyJobs, auxVerifyJob)
 		}
 

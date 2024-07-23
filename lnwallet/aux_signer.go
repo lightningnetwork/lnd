@@ -125,6 +125,10 @@ func NewAuxVerifyJob(sig fn.Option[tlv.Blob], keyRing CommitmentKeyRing,
 	}
 }
 
+// htlcCustomSigType is the TLV type that is used to encode the custom HTLC
+// signatures within the custom data for an existing HTLC.
+var htlcCustomSigType tlv.TlvType65543
+
 // AuxSigner is an interface that is used to sign and verify HTLCs for custom
 // channels. It is similar to the existing SigPool, but uses opaque blobs to
 // shuffle around signature information and other metadata.

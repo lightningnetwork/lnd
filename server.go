@@ -2024,12 +2024,6 @@ func (s *server) Start() error {
 			return
 		}
 
-		cleanup = cleanup.add(s.authGossiper.Stop)
-		if err := s.authGossiper.Start(); err != nil {
-			startErr = err
-			return
-		}
-
 		cleanup = cleanup.add(s.graphBuilder.Stop)
 		if err := s.graphBuilder.Start(); err != nil {
 			startErr = err
@@ -2038,6 +2032,13 @@ func (s *server) Start() error {
 
 		cleanup = cleanup.add(s.chanRouter.Stop)
 		if err := s.chanRouter.Start(); err != nil {
+			startErr = err
+			return
+		}
+		// The authGossiper depends on the chanRouter and therefore
+		// should be started after it.
+		cleanup = cleanup.add(s.authGossiper.Stop)
+		if err := s.authGossiper.Start(); err != nil {
 			startErr = err
 			return
 		}

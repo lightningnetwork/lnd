@@ -40,11 +40,10 @@ jobs:
         run: SKIP_VERSION_CHECK=1 make release tag=${{ env.RELEASE_VERSION }}
 
       - name: Create Release
-        uses: lightninglabs/gh-actions/action-gh-release@2021.01.25.00
+        uses: lightninglabs/gh-actions/action-gh-release@c7149b6a7818d1c39b36b69e727569897b6f2c5a
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ env.RELEASE_VERSION }}
           name: lnd ${{ env.RELEASE_VERSION }}
           draft: true
           prerelease: false

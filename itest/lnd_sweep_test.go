@@ -2,7 +2,6 @@ package itest
 
 import (
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -61,10 +60,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 
 	// Set up the fee estimator to return the testing fee rate when the
 	// conf target is the deadline.
-	//
-	// TODO(yy): switch to conf when `blockbeat` is in place.
-	// ht.SetFeeEstimateWithConf(startFeeRateAnchor, deadlineDeltaAnchor)
-	ht.SetFeeEstimate(startFeeRateAnchor)
+	ht.SetFeeEstimateWithConf(startFeeRateAnchor, deadlineDeltaAnchor)
 
 	// htlcValue is the outgoing HTLC's value.
 	htlcValue := invoiceAmt
@@ -167,52 +163,26 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	))
 	ht.MineEmptyBlocks(int(numBlocks))
 
-	// Assert Bob's force closing tx has been broadcast.
-	closeTxid := ht.Miner.AssertNumTxsInMempool(1)[0]
+	// Assert Bob's force closing tx has been broadcast. We should see two
+	// txns in the mempool:
+	// 1. Bob's force closing tx.
+	// 2. Bob's anchor sweeping tx CPFPing the force close tx.
+	_, sweepTx := ht.AssertForceCloseAndAnchorTxnsInMempool()
 
 	// Remember the force close height so we can calculate the deadline
 	// height.
 	_, forceCloseHeight := ht.Miner.GetBestBlock()
 
-	// Bob should have two pending sweeps,
+	// Bob should have one pending sweep,
 	// - anchor sweeping from his local commitment.
-	// - anchor sweeping from his remote commitment (invalid).
-	//
-	// TODO(yy): consider only sweeping the anchor from the local
-	// commitment. Previously we would sweep up to three versions of
-	// anchors because we don't know which one will be confirmed - if we
-	// only broadcast the local anchor sweeping, our peer can broadcast
-	// their commitment tx and replaces ours. With the new fee bumping, we
-	// should be safe to only sweep our local anchor since we RBF it on
-	// every new block, which destroys the remote's ability to pin us.
-	sweeps := ht.AssertNumPendingSweeps(bob, 2)
+	anchorSweep := ht.AssertNumPendingSweeps(bob, 1)[0]
 
-	// The two anchor sweeping should have the same deadline height.
+	// The anchor sweeping should have the expected deadline height.
 	deadlineHeight := uint32(forceCloseHeight) + deadlineDeltaAnchor
-	require.Equal(ht, deadlineHeight, sweeps[0].DeadlineHeight)
-	require.Equal(ht, deadlineHeight, sweeps[1].DeadlineHeight)
+	require.Equal(ht, deadlineHeight, anchorSweep.DeadlineHeight)
 
 	// Remember the deadline height for the CPFP anchor.
-	anchorDeadline := sweeps[0].DeadlineHeight
-
-	// Mine a block so Bob's force closing tx stays in the mempool, which
-	// also triggers the CPFP anchor sweep.
-	ht.MineEmptyBlocks(1)
-
-	// Bob should still have two pending sweeps,
-	// - anchor sweeping from his local commitment.
-	// - anchor sweeping from his remote commitment (invalid).
-	ht.AssertNumPendingSweeps(bob, 2)
-
-	// We now check the expected fee and fee rate are used for Bob's anchor
-	// sweeping tx.
-	//
-	// We should see Bob's anchor sweeping tx triggered by the above
-	// block, along with his force close tx.
-	txns := ht.Miner.GetNumTxsFromMempool(2)
-
-	// Find the sweeping tx.
-	sweepTx := ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
+	anchorDeadline := anchorSweep.DeadlineHeight
 
 	// Get the weight for Bob's anchor sweeping tx.
 	txWeight := ht.CalculateTxWeight(sweepTx)
@@ -224,11 +194,10 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	fee := uint64(ht.CalculateTxFee(sweepTx))
 	feeRate := uint64(ht.CalculateTxFeeRate(sweepTx))
 
-	// feeFuncWidth is the width of the fee function. By the time we got
-	// here, we've already mined one block, and the fee function maxes
-	// out one block before the deadline, so the width is the original
-	// deadline minus 2.
-	feeFuncWidth := deadlineDeltaAnchor - 2
+	// feeFuncWidth is the width of the fee function. The fee function
+	// maxes out one block before the deadline, so the width is the
+	// original deadline minus 1.
+	feeFuncWidth := deadlineDeltaAnchor - 1
 
 	// Calculate the expected delta increased per block.
 	feeDelta := (cpfpBudget - startFeeAnchor).MulF64(
@@ -254,10 +223,10 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 		// Bob's fee bumper should increase its fees.
 		ht.MineEmptyBlocks(1)
 
-		// Bob should still have two pending sweeps,
-		// - anchor sweeping from his local commitment.
-		// - anchor sweeping from his remote commitment (invalid).
-		ht.AssertNumPendingSweeps(bob, 2)
+		// Bob should still have the anchor sweeping from his local
+		// commitment. His anchor sweeping from his remote commitment
+		// is invalid and should be removed.
+		ht.AssertNumPendingSweeps(bob, 1)
 
 		// Make sure Bob's old sweeping tx has been removed from the
 		// mempool.
@@ -266,7 +235,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 		// We expect to see two txns in the mempool,
 		// - Bob's force close tx.
 		// - Bob's anchor sweep tx.
-		ht.Miner.AssertNumTxsInMempool(2)
+		_, sweepTx := ht.AssertForceCloseAndAnchorTxnsInMempool()
 
 		// We expect the fees to increase by i*delta.
 		expectedFee := startFeeAnchor + feeDelta.MulF64(float64(i))
@@ -276,11 +245,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 
 		// We should see Bob's anchor sweeping tx being fee bumped
 		// since it's not confirmed, along with his force close tx.
-		txns = ht.Miner.GetNumTxsFromMempool(2)
-
-		// Find the sweeping tx.
-		sweepTx = ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
-
+		//
 		// Calculate the fee rate of Bob's new sweeping tx.
 		feeRate = uint64(ht.CalculateTxFeeRate(sweepTx))
 
@@ -315,17 +280,13 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 
 	// Get the last sweeping tx - we should see two txns here, Bob's anchor
 	// sweeping tx and his force close tx.
-	txns = ht.Miner.GetNumTxsFromMempool(2)
-
-	// Find the sweeping tx.
-	sweepTx = ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
+	_, sweepTx = ht.AssertForceCloseAndAnchorTxnsInMempool()
 
 	// Calculate the fee of Bob's new sweeping tx.
 	fee = uint64(ht.CalculateTxFee(sweepTx))
 
-	// Assert the budget is now used up.
-	require.InEpsilonf(ht, uint64(cpfpBudget), fee, 0.01, "want %d, got %d",
-		cpfpBudget, fee)
+	// Bob should have the anchor sweeping from his local commitment.
+	ht.AssertNumPendingSweeps(bob, 1)
 
 	// Mine one more block. Since Bob's budget has been used up, there
 	// won't be any more sweeping attempts. We now assert this by checking
@@ -336,10 +297,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	//
 	// We expect two txns here, one for the anchor sweeping, the other for
 	// the force close tx.
-	txns = ht.Miner.GetNumTxsFromMempool(2)
-
-	// Find the sweeping tx.
-	currentSweepTx := ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
+	_, currentSweepTx := ht.AssertForceCloseAndAnchorTxnsInMempool()
 
 	// Assert the anchor sweep tx stays unchanged.
 	require.Equal(ht, sweepTx.TxHash(), currentSweepTx.TxHash())
@@ -400,10 +358,7 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 
 	// Set up the fee estimator to return the testing fee rate when the
 	// conf target is the deadline.
-	//
-	// TODO(yy): switch to conf when `blockbeat` is in place.
-	// ht.SetFeeEstimateWithConf(startFeeRateAnchor, deadlineDeltaAnchor)
-	ht.SetFeeEstimate(startFeeRateAnchor)
+	ht.SetFeeEstimateWithConf(startFeeRateAnchor, deadlineDeltaAnchor)
 
 	// Create a preimage, that will be held by Carol.
 	var preimage lntypes.Preimage
@@ -516,40 +471,22 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	numBlocks := forceCloseHeight - uint32(currentHeight)
 	ht.MineEmptyBlocks(int(numBlocks))
 
-	// Assert Bob's force closing tx has been broadcast.
-	closeTxid := ht.Miner.AssertNumTxsInMempool(1)[0]
+	// Assert Bob's force closing tx has been broadcast. We should see two
+	// txns in the mempool:
+	// 1. Bob's force closing tx.
+	// 2. Bob's anchor sweeping tx CPFPing the force close tx.
+	_, sweepTx := ht.AssertForceCloseAndAnchorTxnsInMempool()
 
-	// Bob should have two pending sweeps,
+	// Bob should have one pending sweep,
 	// - anchor sweeping from his local commitment.
-	// - anchor sweeping from his remote commitment (invalid).
-	sweeps := ht.AssertNumPendingSweeps(bob, 2)
+	anchorSweep := ht.AssertNumPendingSweeps(bob, 1)[0]
 
-	// The two anchor sweeping should have the same deadline height.
+	// The anchor sweeping should have the expected deadline height.
 	deadlineHeight := forceCloseHeight + deadlineDeltaAnchor
-	require.Equal(ht, deadlineHeight, sweeps[0].DeadlineHeight)
-	require.Equal(ht, deadlineHeight, sweeps[1].DeadlineHeight)
+	require.Equal(ht, deadlineHeight, anchorSweep.DeadlineHeight)
 
 	// Remember the deadline height for the CPFP anchor.
-	anchorDeadline := sweeps[0].DeadlineHeight
-
-	// Mine a block so Bob's force closing tx stays in the mempool, which
-	// also triggers the CPFP anchor sweep.
-	ht.MineEmptyBlocks(1)
-
-	// Bob should still have two pending sweeps,
-	// - anchor sweeping from his local commitment.
-	// - anchor sweeping from his remote commitment (invalid).
-	ht.AssertNumPendingSweeps(bob, 2)
-
-	// We now check the expected fee and fee rate are used for Bob's anchor
-	// sweeping tx.
-	//
-	// We should see Bob's anchor sweeping tx triggered by the above
-	// block, along with his force close tx.
-	txns := ht.Miner.GetNumTxsFromMempool(2)
-
-	// Find the sweeping tx.
-	sweepTx := ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
+	anchorDeadline := anchorSweep.DeadlineHeight
 
 	// Get the weight for Bob's anchor sweeping tx.
 	txWeight := ht.CalculateTxWeight(sweepTx)
@@ -561,11 +498,10 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	fee := uint64(ht.CalculateTxFee(sweepTx))
 	feeRate := uint64(ht.CalculateTxFeeRate(sweepTx))
 
-	// feeFuncWidth is the width of the fee function. By the time we got
-	// here, we've already mined one block, and the fee function maxes
-	// out one block before the deadline, so the width is the original
-	// deadline minus 2.
-	feeFuncWidth := deadlineDeltaAnchor - 2
+	// feeFuncWidth is the width of the fee function. The fee function
+	// maxes out one block before the deadline, so the width is the
+	// original deadline minus 1.
+	feeFuncWidth := deadlineDeltaAnchor - 1
 
 	// Calculate the expected delta increased per block.
 	feeDelta := (cpfpBudget - startFeeAnchor).MulF64(
@@ -591,10 +527,10 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 		// Bob's fee bumper should increase its fees.
 		ht.MineEmptyBlocks(1)
 
-		// Bob should still have two pending sweeps,
-		// - anchor sweeping from his local commitment.
-		// - anchor sweeping from his remote commitment (invalid).
-		ht.AssertNumPendingSweeps(bob, 2)
+		// Bob should still have the anchor sweeping from his local
+		// commitment. His anchor sweeping from his remote commitment
+		// is invalid and should be removed.
+		ht.AssertNumPendingSweeps(bob, 1)
 
 		// Make sure Bob's old sweeping tx has been removed from the
 		// mempool.
@@ -603,20 +539,13 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 		// We expect to see two txns in the mempool,
 		// - Bob's force close tx.
 		// - Bob's anchor sweep tx.
-		ht.Miner.AssertNumTxsInMempool(2)
+		_, sweepTx := ht.AssertForceCloseAndAnchorTxnsInMempool()
 
 		// We expect the fees to increase by i*delta.
 		expectedFee := startFeeAnchor + feeDelta.MulF64(float64(i))
 		expectedFeeRate := chainfee.NewSatPerKWeight(
 			expectedFee, txWeight,
 		)
-
-		// We should see Bob's anchor sweeping tx being fee bumped
-		// since it's not confirmed, along with his force close tx.
-		txns = ht.Miner.GetNumTxsFromMempool(2)
-
-		// Find the sweeping tx.
-		sweepTx = ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
 
 		// Calculate the fee rate of Bob's new sweeping tx.
 		feeRate = uint64(ht.CalculateTxFeeRate(sweepTx))
@@ -652,10 +581,7 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 
 	// Get the last sweeping tx - we should see two txns here, Bob's anchor
 	// sweeping tx and his force close tx.
-	txns = ht.Miner.GetNumTxsFromMempool(2)
-
-	// Find the sweeping tx.
-	sweepTx = ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
+	_, sweepTx = ht.AssertForceCloseAndAnchorTxnsInMempool()
 
 	// Calculate the fee of Bob's new sweeping tx.
 	fee = uint64(ht.CalculateTxFee(sweepTx))
@@ -673,10 +599,7 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	//
 	// We expect two txns here, one for the anchor sweeping, the other for
 	// the force close tx.
-	txns = ht.Miner.GetNumTxsFromMempool(2)
-
-	// Find the sweeping tx.
-	currentSweepTx := ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
+	_, currentSweepTx := ht.AssertForceCloseAndAnchorTxnsInMempool()
 
 	// Assert the anchor sweep tx stays unchanged.
 	require.Equal(ht, sweepTx.TxHash(), currentSweepTx.TxHash())
@@ -729,7 +652,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// Start tracking the deadline delta of Bob's HTLCs. We need one block
 	// for the CSV lock, and another block to trigger the sweeper to sweep.
 	outgoingHTLCDeadline := int32(cltvDelta - 2)
-	incomingHTLCDeadline := int32(lncfg.DefaultIncomingBroadcastDelta - 2)
+	incomingHTLCDeadline := int32(lncfg.DefaultIncomingBroadcastDelta - 3)
 
 	// startFeeRate1 and startFeeRate2 are returned by the fee estimator in
 	// sat/kw. They will be used as the starting fee rate for the linear
@@ -884,34 +807,33 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 
 	// Bob should now have two pending sweeps, one for the anchor on the
 	// local commitment, the other on the remote commitment.
-	ht.AssertNumPendingSweeps(bob, 2)
+	ht.AssertNumPendingSweeps(bob, 1)
 
-	// Assert Bob's force closing tx has been broadcast.
-	ht.Miner.AssertNumTxsInMempool(1)
+	// We expect to see two txns in the mempool:
+	// 1. Bob's force closing tx.
+	// 1. Bob's anchor CPFP sweeping tx.
+	ht.Miner.AssertNumTxsInMempool(2)
 
-	// Mine the force close tx, which triggers Bob's contractcourt to offer
-	// his outgoing HTLC to his sweeper.
+	// Mine the force close tx and CPFP sweeping tx, which triggers Bob's
+	// contractcourt to offer his outgoing HTLC to his sweeper.
 	//
 	// NOTE: HTLC outputs are only offered to sweeper when the force close
 	// tx is confirmed and the CSV has reached.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
+	ht.MineBlocksAndAssertNumTxes(1, 2)
 
 	// Update the blocks left till Bob force closes Alice->Bob.
 	blocksTillIncomingSweep--
 
-	// Bob should have two pending sweeps, one for the anchor sweeping, the
-	// other for the outgoing HTLC.
-	ht.AssertNumPendingSweeps(bob, 2)
-
-	// Mine one block to confirm Bob's anchor sweeping tx, which will
-	// trigger his sweeper to publish the HTLC sweeping tx.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
-
-	// Update the blocks left till Bob force closes Alice->Bob.
-	blocksTillIncomingSweep--
-
-	// Bob should now have one sweep and one sweeping tx in the mempool.
+	// Bob should have one pending sweep for the outgoing HTLC.
 	ht.AssertNumPendingSweeps(bob, 1)
+
+	// Mine a block to trigger Bob's sweeper to sweep his outgoing HTLC.
+	ht.MineEmptyBlocks(1)
+
+	// Update the blocks left till Bob force closes Alice->Bob.
+	blocksTillIncomingSweep--
+
+	// Bob should have one sweeping tx in the mempool.
 	outgoingSweep := ht.Miner.GetNumTxsFromMempool(1)[0]
 
 	// Check the shape of the sweeping tx - we expect it to be
@@ -1009,21 +931,24 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// Update Bob's fee function position.
 	outgoingFuncPosition++
 
-	// Bob should now have three pending sweeps:
+	// Bob should now have two pending sweeps:
 	// 1. the outgoing HTLC output.
 	// 2. the anchor output from his local commitment.
-	// 3. the anchor output from his remote commitment.
-	ht.AssertNumPendingSweeps(bob, 3)
+	ht.AssertNumPendingSweeps(bob, 2)
 
-	// We should see two txns in the mempool:
+	// We should see three txns in the mempool:
 	// 1. Bob's outgoing HTLC sweeping tx.
 	// 2. Bob's force close tx for Alice->Bob.
-	txns := ht.Miner.GetNumTxsFromMempool(2)
+	// 2. Bob's anchor CPFP sweeping tx for Alice->Bob.
+	txns := ht.Miner.GetNumTxsFromMempool(3)
 
 	// Find the force close tx - we expect it to have a single input.
 	closeTx := txns[0]
 	if len(closeTx.TxIn) != 1 {
 		closeTx = txns[1]
+	}
+	if len(closeTx.TxIn) != 1 {
+		closeTx = txns[2]
 	}
 
 	// We don't care the behavior of the anchor sweep in this test, so we
@@ -1032,6 +957,10 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	ht.Miner.MineBlockWithTx(closeTx)
 
 	// Update Bob's fee function position.
+	outgoingFuncPosition++
+
+	// Mine a block to trigger the sweep.
+	ht.MineEmptyBlocks(1)
 	outgoingFuncPosition++
 
 	// Bob should now have three pending sweeps:
@@ -1228,10 +1157,15 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// config.
 	deadline := uint32(1000)
 
-	// The actual deadline used by the fee function will be one block off
-	// from the deadline configured as we require one block to be mined to
-	// trigger the sweep.
-	deadlineA, deadlineB := deadline-1, deadline-1
+	// For Alice, since her commit output is offered to the sweeper at
+	// CSV-1. With a deadline of 1000, her actual width of her fee func is
+	// CSV+1000-1.
+	deadlineA := deadline + 1
+
+	// For Bob, the actual deadline used by the fee function will be one
+	// block off from the deadline configured as we require one block to be
+	// mined to trigger the sweep.
+	deadlineB := deadline - 1
 
 	// startFeeRate is returned by the fee estimator in sat/kw. This
 	// will be used as the starting fee rate for the linear fee func used
@@ -1242,7 +1176,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 
 	// Set up the fee estimator to return the testing fee rate when the
 	// conf target is the deadline.
-	ht.SetFeeEstimateWithConf(startFeeRate, deadlineA)
+	ht.SetFeeEstimateWithConf(startFeeRate, deadlineB)
 
 	// toLocalCSV is the CSV delay for Alice's to_local output. We use a
 	// small value to save us from mining blocks.
@@ -1250,25 +1184,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// NOTE: once the force close tx is confirmed, we expect anchor
 	// sweeping starts. Then two more block later the commit output
 	// sweeping starts.
-	//
-	// NOTE: The CSV value is chosen to be 3 instead of 2, to reduce the
-	// possibility of flakes as there is a race between the two goroutines:
-	// G1 - Alice's sweeper receives the commit output.
-	// G2 - Alice's sweeper receives the new block mined.
-	// G1 is triggered by the same block being received by Alice's
-	// contractcourt, deciding the commit output is mature and offering it
-	// to her sweeper. Normally, we'd expect G2 to be finished before G1
-	// because it's the same block processed by both contractcourt and
-	// sweeper. However, if G2 is delayed (maybe the sweeper is slow in
-	// finishing its previous round), G1 may finish before G2. This will
-	// cause the sweeper to add the commit output to its pending inputs,
-	// and once G2 fires, it will then start sweeping this output,
-	// resulting a valid sweep tx being created using her commit and anchor
-	// outputs.
-	//
-	// TODO(yy): fix the above issue by making sure subsystems share the
-	// same view on current block height.
-	toLocalCSV := 3
+	toLocalCSV := 2
 
 	// htlcAmt is the amount of the HTLC in sats, this should be Alice's
 	// to_remote amount that goes to Bob.
@@ -1362,36 +1278,66 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	ht.AssertNumPendingSweeps(bob, 2)
 
 	// Mine one more empty block should trigger Bob's sweeping. Since we
-	// use a CSV of 3, this means Alice's to_local output is one block away
-	// from being mature.
+	// use a CSV of 2, this means Alice's to_local output is now mature.
 	ht.MineEmptyBlocks(1)
 
-	// We expect to see one sweeping tx in the mempool:
-	// - Alice's anchor sweeping tx must have been failed due to the fee
-	//   rate chosen in this test - the anchor sweep tx has no output.
-	// - Bob's sweeping tx, which sweeps both his anchor and commit outputs.
-	bobSweepTx := ht.Miner.GetNumTxsFromMempool(1)[0]
-
 	// We expect two pending sweeps for Bob - anchor and commit outputs.
-	pendingSweepBob := ht.AssertNumPendingSweeps(bob, 2)[0]
+	ht.AssertNumPendingSweeps(bob, 2)
 
-	// The sweeper may be one block behind contractcourt, so we double
-	// check the actual deadline.
-	//
-	// TODO(yy): assert they are equal once blocks are synced via
-	// `blockbeat`.
-	_, currentHeight := ht.Miner.GetBestBlock()
-	actualDeadline := int32(pendingSweepBob.DeadlineHeight) - currentHeight
-	if actualDeadline != int32(deadlineB) {
-		ht.Logf("!!! Found unsynced block between sweeper and "+
-			"contractcourt, expected deadline=%v, got=%v",
-			deadlineB, actualDeadline)
+	// We expect two pending sweeps for Alice - anchor and commit outputs.
+	ht.AssertNumPendingSweeps(alice, 2)
 
-		deadlineB = uint32(actualDeadline)
+	// We also remember the positions of fee functions used by Alice and
+	// Bob. They will be used to calculate the expected fee rates later.
+	alicePosition, bobPosition := uint32(0), uint32(0)
+
+	// We should see two txns in the mempool:
+	// - Alice's sweeping tx, which sweeps her commit output at the
+	//   starting fee rate - Alice's anchor output won't be swept with her
+	//   commit output together because they have different deadlines.
+	// - Bob's previous sweeping tx, which sweeps both his anchor and
+	//   commit outputs, at the starting fee rate.
+	txns := ht.Miner.GetNumTxsFromMempool(2)
+
+	// Assume the first tx is Alice's sweeping tx, if the second tx has a
+	// larger output value, then that's Alice's as her to_local value is
+	// much gearter.
+	aliceSweepTx, bobSweepTx := txns[0], txns[1]
+
+	// Swap them if bobSweepTx is smaller.
+	if bobSweepTx.TxOut[0].Value > aliceSweepTx.TxOut[0].Value {
+		aliceSweepTx, bobSweepTx = bobSweepTx, aliceSweepTx
 	}
 
-	// Alice should still have one pending sweep - the anchor output.
-	ht.AssertNumPendingSweeps(alice, 1)
+	// We now check Alice's sweeping tx.
+	//
+	// Alice's sweeping tx should have a shape of 1-in-1-out since it's not
+	// used for CPFP, so it shouldn't take any wallet utxos.
+	require.Len(ht, aliceSweepTx.TxIn, 1)
+	require.Len(ht, aliceSweepTx.TxOut, 1)
+
+	// Alice's sweeping tx should use the min relay fee rate as there's no
+	// deadline pressure.
+	aliceStartingFeeRate := chainfee.FeePerKwFloor
+
+	// With Alice's starting fee rate being validated, we now calculate her
+	// ending fee rate and fee rate delta.
+	//
+	// Alice sweeps two inputs - anchor and commit, so the starting budget
+	// should come from the sum of these two. However, due to the value
+	// being too large, the actual ending fee rate used should be the
+	// sweeper's max fee rate configured.
+	aliceTxWeight := uint64(ht.CalculateTxWeight(aliceSweepTx))
+	aliceEndingFeeRate := sweep.DefaultMaxFeeRate.FeePerKWeight()
+	aliceFeeRateDelta := (aliceEndingFeeRate - aliceStartingFeeRate) /
+		chainfee.SatPerKWeight(deadlineA)
+
+	aliceFeeRate := ht.CalculateTxFeeRate(aliceSweepTx)
+	expectedFeeRateAlice := aliceStartingFeeRate +
+		aliceFeeRateDelta*chainfee.SatPerKWeight(alicePosition)
+	require.InEpsilonf(ht, uint64(expectedFeeRateAlice),
+		uint64(aliceFeeRate), 0.02, "want %v, got %v",
+		expectedFeeRateAlice, aliceFeeRate)
 
 	// We now check Bob's sweeping tx.
 	//
@@ -1421,250 +1367,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	bobFeeRateDelta := (bobEndingFeeRate - bobStartFeeRate) /
 		chainfee.SatPerKWeight(deadlineB-1)
 
-	// Mine an empty block, which should trigger Alice's contractcourt to
-	// offer her commit output to the sweeper.
-	ht.MineEmptyBlocks(1)
-
-	// Alice should have both anchor and commit as the pending sweep
-	// requests.
-	aliceSweeps := ht.AssertNumPendingSweeps(alice, 2)
-	aliceAnchor, aliceCommit := aliceSweeps[0], aliceSweeps[1]
-	if aliceAnchor.AmountSat > aliceCommit.AmountSat {
-		aliceAnchor, aliceCommit = aliceCommit, aliceAnchor
-	}
-
-	// The sweeper may be one block behind contractcourt, so we double
-	// check the actual deadline.
-	//
-	// TODO(yy): assert they are equal once blocks are synced via
-	// `blockbeat`.
-	_, currentHeight = ht.Miner.GetBestBlock()
-	actualDeadline = int32(aliceCommit.DeadlineHeight) - currentHeight
-	if actualDeadline != int32(deadlineA) {
-		ht.Logf("!!! Found unsynced block between Alice's sweeper and "+
-			"contractcourt, expected deadline=%v, got=%v",
-			deadlineA, actualDeadline)
-
-		deadlineA = uint32(actualDeadline)
-	}
-
-	// We now wait for 30 seconds to overcome the flake - there's a block
-	// race between contractcourt and sweeper, causing the sweep to be
-	// broadcast earlier.
-	//
-	// TODO(yy): remove this once `blockbeat` is in place.
-	aliceStartPosition := 0
-	var aliceFirstSweepTx *wire.MsgTx
-	err := wait.NoError(func() error {
-		mem := ht.Miner.GetRawMempool()
-		if len(mem) != 2 {
-			return fmt.Errorf("want 2, got %v in mempool: %v",
-				len(mem), mem)
-		}
-
-		// If there are two txns, it means Alice's sweep tx has been
-		// created and published.
-		aliceStartPosition = 1
-
-		txns := ht.Miner.GetNumTxsFromMempool(2)
-		aliceFirstSweepTx = txns[0]
-
-		// Reassign if the second tx is larger.
-		if txns[1].TxOut[0].Value > aliceFirstSweepTx.TxOut[0].Value {
-			aliceFirstSweepTx = txns[1]
-		}
-
-		return nil
-	}, wait.DefaultTimeout)
-	ht.Logf("Checking mempool got: %v", err)
-
-	// Mine an empty block, which should trigger Alice's sweeper to publish
-	// her commit sweep along with her anchor output.
-	ht.MineEmptyBlocks(1)
-
-	// If Alice has already published her initial sweep tx, the above mined
-	// block would trigger an RBF. We now need to assert the mempool has
-	// removed the replaced tx.
-	if aliceFirstSweepTx != nil {
-		ht.Miner.AssertTxNotInMempool(aliceFirstSweepTx.TxHash())
-	}
-
-	// We also remember the positions of fee functions used by Alice and
-	// Bob. They will be used to calculate the expected fee rates later.
-	//
-	// Alice's sweeping tx has just been created, so she is at the starting
-	// position. For Bob, due to the above mined blocks, his fee function
-	// is now at position 2.
-	alicePosition, bobPosition := uint32(aliceStartPosition), uint32(2)
-
-	// We should see two txns in the mempool:
-	// - Alice's sweeping tx, which sweeps her commit output at the
-	//   starting fee rate - Alice's anchor output won't be swept with her
-	//   commit output together because they have different deadlines.
-	// - Bob's previous sweeping tx, which sweeps both his anchor and
-	//   commit outputs, at the starting fee rate.
-	txns := ht.Miner.GetNumTxsFromMempool(2)
-
-	// Assume the first tx is Alice's sweeping tx, if the second tx has a
-	// larger output value, then that's Alice's as her to_local value is
-	// much gearter.
-	aliceSweepTx := txns[0]
-	bobSweepTx = txns[1]
-
-	// Swap them if bobSweepTx is smaller.
-	if bobSweepTx.TxOut[0].Value > aliceSweepTx.TxOut[0].Value {
-		aliceSweepTx, bobSweepTx = bobSweepTx, aliceSweepTx
-	}
-
-	// We now check Alice's sweeping tx.
-	//
-	// Alice's sweeping tx should have a shape of 1-in-1-out since it's not
-	// used for CPFP, so it shouldn't take any wallet utxos.
-	require.Len(ht, aliceSweepTx.TxIn, 1)
-	require.Len(ht, aliceSweepTx.TxOut, 1)
-
-	// We now check Alice's sweeping tx to see if it's already published.
-	//
-	// TODO(yy): remove this check once we have better block control.
-	aliceSweeps = ht.AssertNumPendingSweeps(alice, 2)
-	aliceCommit = aliceSweeps[0]
-	if aliceCommit.AmountSat < aliceSweeps[1].AmountSat {
-		aliceCommit = aliceSweeps[1]
-	}
-	if aliceCommit.BroadcastAttempts > 1 {
-		ht.Logf("!!! Alice's commit sweep has already been broadcast, "+
-			"broadcast_attempts=%v", aliceCommit.BroadcastAttempts)
-		alicePosition = aliceCommit.BroadcastAttempts
-	}
-
-	// Alice's sweeping tx should use the min relay fee rate as there's no
-	// deadline pressure.
-	aliceStartingFeeRate := chainfee.FeePerKwFloor
-
-	// With Alice's starting fee rate being validated, we now calculate her
-	// ending fee rate and fee rate delta.
-	//
-	// Alice sweeps two inputs - anchor and commit, so the starting budget
-	// should come from the sum of these two. However, due to the value
-	// being too large, the actual ending fee rate used should be the
-	// sweeper's max fee rate configured.
-	aliceTxWeight := uint64(ht.CalculateTxWeight(aliceSweepTx))
-	aliceEndingFeeRate := sweep.DefaultMaxFeeRate.FeePerKWeight()
-	aliceFeeRateDelta := (aliceEndingFeeRate - aliceStartingFeeRate) /
-		chainfee.SatPerKWeight(deadlineA-1)
-
-	aliceFeeRate := ht.CalculateTxFeeRate(aliceSweepTx)
-	expectedFeeRateAlice := aliceStartingFeeRate +
-		aliceFeeRateDelta*chainfee.SatPerKWeight(alicePosition)
-	require.InEpsilonf(ht, uint64(expectedFeeRateAlice),
-		uint64(aliceFeeRate), 0.02, "want %v, got %v",
-		expectedFeeRateAlice, aliceFeeRate)
-
-	// We now check Bob' sweeping tx.
-	//
-	// The above mined block will trigger Bob's sweeper to RBF his previous
-	// sweeping tx, which will fail due to RBF rule#4 - the additional fees
-	// paid are not sufficient. This happens as our default incremental
-	// relay fee rate is 1 sat/vb, with the tx size of 771 weight units, or
-	// 192 vbytes, we need to pay at least 192 sats more to be able to RBF.
-	// However, since Bob's budget delta is (100_000 + 330) * 0.5 / 1008 =
-	// 49.77 sats, it means Bob can only perform a successful RBF every 4
-	// blocks.
-	//
-	// Assert Bob's sweeping tx is not RBFed.
-	bobFeeRate := ht.CalculateTxFeeRate(bobSweepTx)
 	expectedFeeRateBob := bobStartFeeRate
-	require.InEpsilonf(ht, uint64(expectedFeeRateBob), uint64(bobFeeRate),
-		0.01, "want %d, got %d", expectedFeeRateBob, bobFeeRate)
-
-	// reloclateAlicePosition is a temp hack to find the actual fee
-	// function position used for Alice. Due to block sync issue among the
-	// subsystems, we can end up having this situation:
-	// - sweeper is at block 2, starts sweeping an input with deadline 100.
-	// - fee bumper is at block 1, and thinks the conf target is 99.
-	// - new block 3 arrives, the func now is at position 2.
-	//
-	// TODO(yy): fix it using `blockbeat`.
-	reloclateAlicePosition := func() {
-		// Mine an empty block to trigger the possible RBF attempts.
-		ht.MineEmptyBlocks(1)
-
-		// Increase the positions for both fee functions.
-		alicePosition++
-		bobPosition++
-
-		// We expect two pending sweeps for both nodes as we are mining
-		// empty blocks.
-		ht.AssertNumPendingSweeps(alice, 2)
-		ht.AssertNumPendingSweeps(bob, 2)
-
-		// We expect to see both Alice's and Bob's sweeping txns in the
-		// mempool.
-		ht.Miner.AssertNumTxsInMempool(2)
-
-		// Make sure Alice's old sweeping tx has been removed from the
-		// mempool.
-		ht.Miner.AssertTxNotInMempool(aliceSweepTx.TxHash())
-
-		// We should see two txns in the mempool:
-		// - Alice's sweeping tx, which sweeps both her anchor and
-		//   commit outputs, using the increased fee rate.
-		// - Bob's previous sweeping tx, which sweeps both his anchor
-		//   and commit outputs, at the possible increased fee rate.
-		txns = ht.Miner.GetNumTxsFromMempool(2)
-
-		// Assume the first tx is Alice's sweeping tx, if the second tx
-		// has a larger output value, then that's Alice's as her
-		// to_local value is much gearter.
-		aliceSweepTx = txns[0]
-		bobSweepTx = txns[1]
-
-		// Swap them if bobSweepTx is smaller.
-		if bobSweepTx.TxOut[0].Value > aliceSweepTx.TxOut[0].Value {
-			aliceSweepTx, bobSweepTx = bobSweepTx, aliceSweepTx
-		}
-
-		// Alice's sweeping tx should be increased.
-		aliceFeeRate := ht.CalculateTxFeeRate(aliceSweepTx)
-		expectedFeeRate := aliceStartingFeeRate +
-			aliceFeeRateDelta*chainfee.SatPerKWeight(alicePosition)
-
-		ht.Logf("Alice(deadline=%v): txWeight=%v, want feerate=%v, "+
-			"got feerate=%v, delta=%v", deadlineA-alicePosition,
-			aliceTxWeight, expectedFeeRate, aliceFeeRate,
-			aliceFeeRateDelta)
-
-		nextPosition := alicePosition + 1
-		nextFeeRate := aliceStartingFeeRate +
-			aliceFeeRateDelta*chainfee.SatPerKWeight(nextPosition)
-
-		// Calculate the distances.
-		delta := math.Abs(float64(aliceFeeRate - expectedFeeRate))
-		deltaNext := math.Abs(float64(aliceFeeRate - nextFeeRate))
-
-		// Exit early if the first distance is smaller - it means we
-		// are at the right fee func position.
-		if delta < deltaNext {
-			require.InEpsilonf(ht, uint64(expectedFeeRate),
-				uint64(aliceFeeRate), 0.02, "want %v, got %v "+
-					"in tx=%v", expectedFeeRate,
-				aliceFeeRate, aliceSweepTx.TxHash())
-
-			return
-		}
-
-		alicePosition++
-		ht.Logf("Jump position for Alice(deadline=%v): txWeight=%v, "+
-			"want feerate=%v, got feerate=%v, delta=%v",
-			deadlineA-alicePosition, aliceTxWeight, nextFeeRate,
-			aliceFeeRate, aliceFeeRateDelta)
-
-		require.InEpsilonf(ht, uint64(nextFeeRate),
-			uint64(aliceFeeRate), 0.02, "want %v, got %v in tx=%v",
-			nextFeeRate, aliceFeeRate, aliceSweepTx.TxHash())
-	}
-
-	reloclateAlicePosition()
 
 	// We now mine 7 empty blocks. For each block mined, we'd see Alice's
 	// sweeping tx being RBFed. For Bob, he performs a fee bump every
@@ -1672,7 +1375,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// the fee bumps is not sufficient to meet the fee requirements
 	// enforced by RBF. Since his fee function is already at position 1,
 	// mining 7 more blocks means he will RBF his sweeping tx twice.
-	for i := 1; i < 7; i++ {
+	for i := 1; i < 8; i++ {
 		// Mine an empty block to trigger the possible RBF attempts.
 		ht.MineEmptyBlocks(1)
 

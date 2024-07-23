@@ -1,7 +1,6 @@
 package contractcourt
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
@@ -346,18 +346,18 @@ type ChannelArbitrator struct {
 	// to do its duty.
 	cfg ChannelArbitratorConfig
 
-	// blocks is a channel that the arbitrator will receive new blocks on.
-	// This channel should be buffered by so that it does not block the
-	// sender.
-	blocks chan int32
+	// blockBeatChan is a channel to receive blocks from BlockBeat. The
+	// received block contains the best known height and the transactions
+	// confirmed in this block.
+	blockBeatChan chan chainio.Beat
 
 	// signalUpdates is a channel that any new live signals for the channel
 	// we're watching over will be sent.
 	signalUpdates chan *signalUpdateMsg
 
-	// activeResolvers is a slice of any active resolvers. This is used to
-	// be able to signal them for shutdown in the case that we shutdown.
-	activeResolvers []ContractResolver
+	// activeResolvers is a map of active resolvers. It uses the resolver
+	// as the key and a block chan as the value.
+	activeResolvers map[ContractResolver]chan int32
 
 	// activeResolversLock prevents simultaneous read and write to the
 	// resolvers slice.
@@ -399,8 +399,10 @@ func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 	}
 
 	return &ChannelArbitrator{
-		log:              log,
-		blocks:           make(chan int32, arbitratorBlockBufferSize),
+		log: log,
+		blockBeatChan: make(
+			chan chainio.Beat, arbitratorBlockBufferSize,
+		),
 		signalUpdates:    make(chan *signalUpdateMsg),
 		resolutionSignal: make(chan struct{}),
 		forceCloseReqs:   make(chan *forceCloseReq),
@@ -410,6 +412,9 @@ func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 		quit:             make(chan struct{}),
 	}
 }
+
+// Compile-time check for the WebFeeService interface.
+var _ chainio.Consumer = (*ChannelArbitrator)(nil)
 
 // chanArbStartState contains the information from disk that we need to start
 // up a channel arbitrator.
@@ -787,7 +792,7 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 		// TODO(roasbeef): this isn't re-launched?
 	}
 
-	c.launchResolvers(unresolvedContracts, true)
+	c.launchResolvers(unresolvedContracts)
 
 	return nil
 }
@@ -798,7 +803,7 @@ func (c *ChannelArbitrator) Report() []*ContractReport {
 	defer c.activeResolversLock.RUnlock()
 
 	var reports []*ContractReport
-	for _, resolver := range c.activeResolvers {
+	for resolver := range c.activeResolvers {
 		r, ok := resolver.(reportingContractResolver)
 		if !ok {
 			continue
@@ -828,7 +833,7 @@ func (c *ChannelArbitrator) Stop() error {
 	}
 
 	c.activeResolversLock.RLock()
-	for _, activeResolver := range c.activeResolvers {
+	for activeResolver := range c.activeResolvers {
 		activeResolver.Stop()
 	}
 	c.activeResolversLock.RUnlock()
@@ -1245,7 +1250,7 @@ func (c *ChannelArbitrator) stateStep(
 
 		// Finally, we'll launch all the required contract resolvers.
 		// Once they're all resolved, we're no longer needed.
-		c.launchResolvers(resolvers, false)
+		c.launchResolvers(resolvers)
 
 		nextState = StateWaitingFullResolution
 
@@ -1576,16 +1581,20 @@ func (c *ChannelArbitrator) findCommitmentDeadlineAndValue(heightHint uint32,
 }
 
 // launchResolvers updates the activeResolvers list and starts the resolvers.
-func (c *ChannelArbitrator) launchResolvers(resolvers []ContractResolver,
-	immediate bool) {
-
+func (c *ChannelArbitrator) launchResolvers(resolvers []ContractResolver) {
 	c.activeResolversLock.Lock()
 	defer c.activeResolversLock.Unlock()
 
-	c.activeResolvers = resolvers
+	c.activeResolvers = make(map[ContractResolver]chan int32)
+
 	for _, contract := range resolvers {
 		c.wg.Add(1)
-		go c.resolveContract(contract, immediate)
+
+		// Create a block chan for each contract resolver.
+		blockChan := make(chan int32, arbitratorBlockBufferSize)
+		c.activeResolvers[contract] = blockChan
+
+		go c.resolveContract(contract, blockChan)
 	}
 }
 
@@ -1609,8 +1618,8 @@ func (c *ChannelArbitrator) advanceState(
 	for {
 		priorState = c.state
 		log.Debugf("ChannelArbitrator(%v): attempting state step with "+
-			"trigger=%v from state=%v", c.cfg.ChanPoint, trigger,
-			priorState)
+			"trigger=%v from state=%v at height=%v",
+			c.cfg.ChanPoint, trigger, priorState, triggerHeight)
 
 		nextState, closeTx, err := c.stateStep(
 			triggerHeight, trigger, confCommitSet,
@@ -2579,15 +2588,15 @@ func (c *ChannelArbitrator) replaceResolver(oldResolver,
 	c.activeResolversLock.Lock()
 	defer c.activeResolversLock.Unlock()
 
-	oldKey := oldResolver.ResolverKey()
-	for i, r := range c.activeResolvers {
-		if bytes.Equal(r.ResolverKey(), oldKey) {
-			c.activeResolvers[i] = newResolver
-			return nil
-		}
+	blockChan, ok := c.activeResolvers[oldResolver]
+	if !ok {
+		return errors.New("resolver to be replaced not found")
 	}
 
-	return errors.New("resolver to be replaced not found")
+	c.activeResolvers[newResolver] = blockChan
+	delete(c.activeResolvers, oldResolver)
+
+	return nil
 }
 
 // resolveContract is a goroutine tasked with fully resolving an unresolved
@@ -2599,7 +2608,7 @@ func (c *ChannelArbitrator) replaceResolver(oldResolver,
 //
 // NOTE: This MUST be run as a goroutine.
 func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver,
-	immediate bool) {
+	blockChan <-chan int32) {
 
 	defer c.wg.Done()
 
@@ -2621,7 +2630,7 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver,
 		default:
 			// Otherwise, we'll attempt to resolve the current
 			// contract.
-			nextContract, err := currentContract.Resolve(immediate)
+			nextContract, err := currentContract.Resolve(blockChan)
 			if err != nil {
 				if err == errResolverShuttingDown {
 					return
@@ -2765,6 +2774,32 @@ func (c *ChannelArbitrator) updateActiveHTLCs() {
 	}
 }
 
+// notifyResolvers will send the block height to all the active resolvers.
+func (c *ChannelArbitrator) notifyResolvers(height int32) {
+	c.activeResolversLock.RLock()
+	defer c.activeResolversLock.RUnlock()
+
+	log.Debugf("Notifying %v resolvers of new block height %v",
+		len(c.activeResolvers), height)
+
+	// notifyHeight is a helper closure that sends the block height to a
+	// single resolver.
+	notifyHeight := func(height int32, blockChan chan int32) {
+		select {
+		case blockChan <- height:
+		case <-c.quit:
+		}
+	}
+
+	// Notify all resolvers in parallel.
+	for _, blockChan := range c.activeResolvers {
+		go notifyHeight(height, blockChan)
+	}
+
+	log.Debugf("Notified %v resolvers of new block height %v",
+		len(c.activeResolvers), height)
+}
+
 // channelAttendant is the primary goroutine that acts at the judicial
 // arbitrator between our channel state, the remote channel peer, and the
 // blockchain (Our judge). This goroutine will ensure that we faithfully execute
@@ -2790,31 +2825,23 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// A new block has arrived, we'll examine all the active HTLC's
 		// to see if any of them have expired, and also update our
 		// track of the best current height.
-		case blockHeight, ok := <-c.blocks:
+		case beat, ok := <-c.blockBeatChan:
 			if !ok {
 				return
 			}
-			bestHeight = blockHeight
 
-			// If we're not in the default state, then we can
-			// ignore this signal as we're waiting for contract
-			// resolution.
-			if c.state != StateDefault {
-				continue
-			}
+			log.Debugf("ChannelArbitrator(%v): new block height=%v",
+				c.cfg.ChanPoint, beat.Epoch.Height)
 
-			// Now that a new block has arrived, we'll attempt to
-			// advance our state forward.
-			nextState, _, err := c.advanceState(
-				uint32(bestHeight), chainTrigger, nil,
-			)
+			err := c.handleBlockbeat(beat)
 			if err != nil {
-				log.Errorf("Unable to advance state: %v", err)
+				log.Errorf("Handle block=%v got err: %v",
+					beat.Epoch.Height, err)
 			}
 
 			// If as a result of this trigger, the contract is
 			// fully resolved, then well exit.
-			if nextState == StateFullyResolved {
+			if c.state == StateFullyResolved {
 				return
 			}
 
@@ -2863,15 +2890,17 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// We have broadcasted our commitment, and it is now confirmed
 		// on-chain.
 		case closeInfo := <-c.cfg.ChainEvents.LocalUnilateralClosure:
-			log.Infof("ChannelArbitrator(%v): local on-chain "+
-				"channel close", c.cfg.ChanPoint)
-
 			if c.state != StateCommitmentBroadcasted {
 				log.Errorf("ChannelArbitrator(%v): unexpected "+
 					"local on-chain channel close",
 					c.cfg.ChanPoint)
 			}
+
 			closeTx := closeInfo.CloseTx
+
+			log.Infof("ChannelArbitrator(%v): local force close "+
+				"tx=%v confirmed", c.cfg.ChanPoint,
+				closeTx.TxHash())
 
 			contractRes := &ContractResolutions{
 				CommitHash:       closeTx.TxHash(),
@@ -3138,6 +3167,58 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			return
 		}
 	}
+}
+
+// handleBlockbeat processes a newly received blockbeat.
+func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Beat) error {
+	// Notify we've processed the block.
+	defer fn.SendOrQuit(beat.Err, nil, c.quit)
+
+	bestHeight := beat.Epoch.Height
+
+	// Notify all resolvers about this new block.
+	c.notifyResolvers(bestHeight)
+
+	// If we're not in the default state, then we can ignore this signal as
+	// we're waiting for contract resolution.
+	if c.state != StateDefault {
+		return nil
+	}
+
+	// Now that a new block has arrived, we'll attempt to advance our state
+	// forward.
+	_, _, err := c.advanceState(
+		uint32(bestHeight), chainTrigger, nil,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to advance state: %w", err)
+	}
+
+	return nil
+}
+
+// ProcessBlock sends the specified blockbeat to the channel arbitrator's inner
+// loop for processing.
+//
+// NOTE: Part of chainio.Consumer interface.
+func (c *ChannelArbitrator) ProcessBlock(beat chainio.Beat) <-chan error {
+	select {
+	case c.blockBeatChan <- beat:
+		log.Debugf("Received block beat for height=%d",
+			beat.Epoch.Height)
+
+	case <-c.quit:
+		return nil
+	}
+
+	return beat.Err
+}
+
+// Name returns a human-readable string for this subsystem.
+//
+// NOTE: Part of chainio.Consumer interface.
+func (c *ChannelArbitrator) Name() string {
+	return fmt.Sprint("ChannelArbitrator(%v)", c.cfg.ChanPoint)
 }
 
 // checkLegacyBreach returns StateFullyResolved if the channel was closed with

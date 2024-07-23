@@ -68,7 +68,7 @@ func (t *BestBlockTracker) BestBlockHeader() (*wire.BlockHeader, error) {
 		return nil, errors.New("best block header not yet known")
 	}
 
-	return epoch.BlockHeader, nil
+	return &epoch.Block.Header, nil
 }
 
 // updateLoop is a helper that subscribes to the underlying BlockEpochEvent

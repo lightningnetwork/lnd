@@ -35,7 +35,7 @@ require (
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20230823005744-06182b1d7d2f
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
-	github.com/lightningnetwork/lnd/fn v1.0.9
+	github.com/lightningnetwork/lnd/fn v1.2.0
 	github.com/lightningnetwork/lnd/healthcheck v1.2.4
 	github.com/lightningnetwork/lnd/kvdb v1.4.8
 	github.com/lightningnetwork/lnd/queue v1.1.1
@@ -55,7 +55,7 @@ require (
 	golang.org/x/exp v0.0.0-20240325151524-a685a6edb6d8
 	golang.org/x/mobile v0.0.0-20190719004257-d2bd2a29d028
 	golang.org/x/net v0.24.0
-	golang.org/x/sync v0.6.0
+	golang.org/x/sync v0.7.0
 	golang.org/x/term v0.19.0
 	golang.org/x/time v0.3.0
 	google.golang.org/grpc v1.59.0

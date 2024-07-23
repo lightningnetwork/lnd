@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -76,9 +77,9 @@ type HarnessTest struct {
 	// Embed the standbyNodes so we can easily access them via `ht.Alice`.
 	standbyNodes
 
-	// Miner is a reference to a running full node that can be used to
+	// miner is a reference to a running full node that can be used to
 	// create new blocks on the network.
-	Miner *HarnessMiner
+	miner *miner.HarnessMiner
 
 	// manager handles the start and stop of a given node.
 	manager *nodeManager
@@ -104,6 +105,9 @@ type HarnessTest struct {
 	// cleaned specifies whether the cleanup has been applied for the
 	// current HarnessTest.
 	cleaned bool
+
+	// currentHeight is the current height of the chain backend.
+	currentHeight uint32
 }
 
 // harnessOpts contains functional option to modify the behavior of the various
@@ -158,7 +162,9 @@ func NewHarnessTest(t *testing.T, lndBinary string, feeService WebFeeService,
 
 // Start will assemble the chain backend and the miner for the HarnessTest. It
 // also starts the fee service and watches lnd process error.
-func (h *HarnessTest) Start(chain node.BackendConfig, miner *HarnessMiner) {
+func (h *HarnessTest) Start(chain node.BackendConfig,
+	miner *miner.HarnessMiner) {
+
 	// Spawn a new goroutine to watch for any fatal errors that any of the
 	// running lnd processes encounter. If an error occurs, then the test
 	// case should naturally as a result and we log the server error here
@@ -185,7 +191,7 @@ func (h *HarnessTest) Start(chain node.BackendConfig, miner *HarnessMiner) {
 	h.manager.feeServiceURL = h.feeService.URL()
 
 	// Assemble the miner.
-	h.Miner = miner
+	h.miner = miner
 }
 
 // ChainBackendName returns the chain backend name used in the test.
@@ -251,7 +257,7 @@ func (h *HarnessTest) createAndSendOutput(target *node.HarnessNode,
 		PkScript: addrScript,
 		Value:    int64(amt),
 	}
-	h.Miner.SendOutput(output, defaultMinerFeeRate)
+	h.miner.SendOutput(output, defaultMinerFeeRate)
 }
 
 // SetupRemoteSigningStandbyNodes starts the initial seeder nodes within the
@@ -353,11 +359,6 @@ func (h *HarnessTest) Stop() {
 		return
 	}
 
-	// Stop all running nodes.
-	for _, node := range h.manager.activeNodes {
-		h.Shutdown(node)
-	}
-
 	close(h.lndErrorChan)
 
 	// Stop the fee service.
@@ -368,7 +369,7 @@ func (h *HarnessTest) Stop() {
 	h.stopChainBackend()
 
 	// Stop the miner.
-	h.Miner.Stop()
+	h.miner.Stop()
 }
 
 // RunTestCase executes a harness test case. Any errors or panics will be
@@ -411,7 +412,7 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	st := &HarnessTest{
 		T:            t,
 		manager:      h.manager,
-		Miner:        h.Miner,
+		miner:        h.miner,
 		standbyNodes: h.standbyNodes,
 		feeService:   h.feeService,
 		lndErrorChan: make(chan error, lndErrorChanSize),
@@ -421,7 +422,7 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	st.runCtx, st.cancel = context.WithCancel(h.runCtx)
 
 	// Inherit the subtest for the miner.
-	st.Miner.T = st.T
+	st.miner.T = st.T
 
 	// Reset the standby nodes.
 	st.resetStandbyNodes(t)
@@ -430,10 +431,11 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	st.feeService.Reset()
 
 	// Record block height.
-	_, startHeight := h.Miner.GetBestBlock()
+	h.updateCurrentHeight()
+	startHeight := int32(h.CurrentHeight())
 
 	st.Cleanup(func() {
-		_, endHeight := h.Miner.GetBestBlock()
+		_, endHeight := h.GetBestBlock()
 
 		st.Logf("finished test: %s, start height=%d, end height=%d, "+
 			"mined blocks=%d", st.manager.currentTestCase,
@@ -464,7 +466,7 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 		st.shutdownNonStandbyNodes()
 
 		// We require the mempool to be cleaned from the test.
-		require.Empty(st, st.Miner.GetRawMempool(), "mempool not "+
+		require.Empty(st, st.miner.GetRawMempool(), "mempool not "+
 			"cleaned, please mine blocks to clean them all.")
 
 		// Finally, cancel the run context. We have to do it here
@@ -1190,7 +1192,7 @@ func (h *HarnessTest) openChannel(alice, bob *node.HarnessNode,
 
 	// Check that the funding tx is found in the first block.
 	fundingTxID := h.GetChanPointFundingTxid(fundingChanPoint)
-	h.Miner.AssertTxInBlock(block, fundingTxID)
+	h.AssertTxInBlock(block, fundingTxID)
 
 	// Check that both alice and bob have seen the channel from their
 	// network topology.
@@ -1295,7 +1297,7 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 		pendingClose.ClosePending.Txid)
 
 	// Assert the closing tx is in the mempool.
-	h.Miner.AssertTxInMempool(closeTxid)
+	h.miner.AssertTxInMempool(closeTxid)
 
 	return stream, closeTxid
 }
@@ -1393,7 +1395,7 @@ func (h *HarnessTest) fundCoins(amt btcutil.Amount, target *node.HarnessNode,
 		PkScript: addrScript,
 		Value:    int64(amt),
 	}
-	h.Miner.SendOutput(output, defaultMinerFeeRate)
+	h.miner.SendOutput(output, defaultMinerFeeRate)
 
 	// Encode the pkScript in hex as this the format that it will be
 	// returned via rpc.
@@ -1411,24 +1413,24 @@ func (h *HarnessTest) fundCoins(amt btcutil.Amount, target *node.HarnessNode,
 		pkScriptStr := utxos[0].PkScript
 		require.Equal(h, pkScriptStr, expPkScriptStr,
 			"pkscript mismatch")
+
+		expectedBalance := btcutil.Amount(
+			initialBalance.UnconfirmedBalance,
+		) + amt
+		h.WaitForBalanceUnconfirmed(target, expectedBalance)
 	}
 
 	// If the transaction should remain unconfirmed, then we'll wait until
 	// the target node's unconfirmed balance reflects the expected balance
 	// and exit.
-	if !confirmed && !h.IsNeutrinoBackend() {
-		expectedBalance := btcutil.Amount(
-			initialBalance.UnconfirmedBalance,
-		) + amt
-		h.WaitForBalanceUnconfirmed(target, expectedBalance)
-
+	if !confirmed {
 		return
 	}
 
 	// Otherwise, we'll generate 1 new blocks to ensure the output gains a
 	// sufficient number of confirmations and wait for the balance to
 	// reflect what's expected.
-	h.MineBlocks(1)
+	h.MineBlocksAndAssertNumTxes(1, 1)
 
 	expectedBalance := btcutil.Amount(initialBalance.ConfirmedBalance) + amt
 	h.WaitForBalanceConfirmed(target, expectedBalance)
@@ -1599,7 +1601,7 @@ func (h *HarnessTest) OpenChannelPsbt(srcNode, destNode *node.HarnessNode,
 	// Make sure the channel funding address has the correct type for the
 	// given commitment type.
 	fundingAddr, err := btcutil.DecodeAddress(
-		upd.PsbtFund.FundingAddress, harnessNetParams,
+		upd.PsbtFund.FundingAddress, miner.HarnessNetParams,
 	)
 	require.NoError(h, err)
 
@@ -1644,40 +1646,6 @@ func (h *HarnessTest) CleanupForceClose(hn *node.HarnessNode) {
 	// Mine blocks to get any second level HTLC resolved. If there are no
 	// HTLCs, this will behave like h.AssertNumPendingCloseChannels.
 	h.mineTillForceCloseResolved(hn)
-}
-
-// mineTillForceCloseResolved asserts that the number of pending close channels
-// are zero. Each time it checks, a new block is mined using MineBlocksSlow to
-// give the node some time to catch up the chain.
-//
-// NOTE: this method is a workaround to make sure we have a clean mempool at
-// the end of a channel force closure. We cannot directly mine blocks and
-// assert channels being fully closed because the subsystems in lnd don't share
-// the same block height. This is especially the case when blocks are produced
-// too fast.
-// TODO(yy): remove this workaround when syncing blocks are unified in all the
-// subsystems.
-func (h *HarnessTest) mineTillForceCloseResolved(hn *node.HarnessNode) {
-	_, startHeight := h.Miner.GetBestBlock()
-
-	err := wait.NoError(func() error {
-		resp := hn.RPC.PendingChannels()
-		total := len(resp.PendingForceClosingChannels)
-		if total != 0 {
-			h.MineBlocks(1)
-
-			return fmt.Errorf("expected num of pending force " +
-				"close channel to be zero")
-		}
-
-		_, height := h.Miner.GetBestBlock()
-		h.Logf("Mined %d blocks while waiting for force closed "+
-			"channel to be resolved", height-startHeight)
-
-		return nil
-	}, DefaultTimeout)
-
-	require.NoErrorf(h, err, "assert force close resolved timeout")
 }
 
 // CreatePayReqs is a helper method that will create a slice of payment
@@ -1739,92 +1707,6 @@ func (h *HarnessTest) RestartNodeAndRestoreDB(hn *node.HarnessNode) {
 	h.WaitForBlockchainSync(hn)
 }
 
-// MineBlocks mines blocks and asserts all active nodes have synced to the
-// chain.
-//
-// NOTE: this differs from miner's `MineBlocks` as it requires the nodes to be
-// synced.
-func (h *HarnessTest) MineBlocks(num uint32) []*wire.MsgBlock {
-	require.Less(h, num, uint32(maxBlocksAllowed),
-		"too many blocks to mine")
-
-	// Mining the blocks slow to give `lnd` more time to sync.
-	blocks := h.Miner.MineBlocksSlow(num)
-
-	// Make sure all the active nodes are synced.
-	bestBlock := blocks[len(blocks)-1]
-	h.AssertActiveNodesSyncedTo(bestBlock)
-
-	return blocks
-}
-
-// MineBlocksAndAssertNumTxes mines blocks and asserts the number of
-// transactions are found in the first block. It also asserts all active nodes
-// have synced to the chain.
-//
-// NOTE: this differs from miner's `MineBlocks` as it requires the nodes to be
-// synced.
-//
-// TODO(yy): change the APIs to force callers to think about blocks and txns:
-// - MineBlocksAndAssertNumTxes -> MineBlocks
-// - add more APIs to mine a single tx.
-func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
-	numTxs int) []*wire.MsgBlock {
-
-	// If we expect transactions to be included in the blocks we'll mine,
-	// we wait here until they are seen in the miner's mempool.
-	txids := h.Miner.AssertNumTxsInMempool(numTxs)
-
-	// Mine blocks.
-	blocks := h.Miner.MineBlocksSlow(num)
-
-	// Assert that all the transactions were included in the first block.
-	for _, txid := range txids {
-		h.Miner.AssertTxInBlock(blocks[0], txid)
-	}
-
-	// Make sure the mempool has been updated.
-	for _, txid := range txids {
-		h.Miner.AssertTxNotInMempool(*txid)
-	}
-
-	// Finally, make sure all the active nodes are synced.
-	bestBlock := blocks[len(blocks)-1]
-	h.AssertActiveNodesSyncedTo(bestBlock)
-
-	return blocks
-}
-
-// cleanMempool mines blocks till the mempool is empty and asserts all active
-// nodes have synced to the chain.
-func (h *HarnessTest) cleanMempool() {
-	_, startHeight := h.Miner.GetBestBlock()
-
-	// Mining the blocks slow to give `lnd` more time to sync.
-	var bestBlock *wire.MsgBlock
-	err := wait.NoError(func() error {
-		// If mempool is empty, exit.
-		mem := h.Miner.GetRawMempool()
-		if len(mem) == 0 {
-			_, height := h.Miner.GetBestBlock()
-			h.Logf("Mined %d blocks when cleanup the mempool",
-				height-startHeight)
-
-			return nil
-		}
-
-		// Otherwise mine a block.
-		blocks := h.Miner.MineBlocksSlow(1)
-		bestBlock = blocks[len(blocks)-1]
-
-		// Make sure all the active nodes are synced.
-		h.AssertActiveNodesSyncedTo(bestBlock)
-
-		return fmt.Errorf("still have %d txes in mempool", len(mem))
-	}, wait.MinerMempoolTimeout)
-	require.NoError(h, err, "timeout cleaning up mempool")
-}
-
 // CleanShutDown is used to quickly end a test by shutting down all non-standby
 // nodes and mining blocks to empty the mempool.
 //
@@ -1838,21 +1720,6 @@ func (h *HarnessTest) CleanShutDown() {
 
 	// Now mine blocks till the mempool is empty.
 	h.cleanMempool()
-}
-
-// MineEmptyBlocks mines a given number of empty blocks.
-//
-// NOTE: this differs from miner's `MineEmptyBlocks` as it requires the nodes
-// to be synced.
-func (h *HarnessTest) MineEmptyBlocks(num int) []*wire.MsgBlock {
-	require.Less(h, num, maxBlocksAllowed, "too many blocks to mine")
-
-	blocks := h.Miner.MineEmptyBlocks(num)
-
-	// Finally, make sure all the active nodes are synced.
-	h.AssertActiveNodesSynced()
-
-	return blocks
 }
 
 // QueryChannelByChanPoint tries to find a channel matching the channel point
@@ -2035,7 +1902,7 @@ func (h *HarnessTest) CalculateTxFee(tx *wire.MsgTx) btcutil.Amount {
 	var balance btcutil.Amount
 	for _, in := range tx.TxIn {
 		parentHash := in.PreviousOutPoint.Hash
-		rawTx := h.Miner.GetRawTransaction(&parentHash)
+		rawTx := h.miner.GetRawTransaction(&parentHash)
 		parent := rawTx.MsgTx()
 		value := parent.TxOut[in.PreviousOutPoint.Index].Value
 
@@ -2147,19 +2014,6 @@ func findSweepInDetails(ht *HarnessTest, sweepTxid string,
 	return false
 }
 
-// ConnectMiner connects the miner with the chain backend in the network.
-func (h *HarnessTest) ConnectMiner() {
-	err := h.manager.chainBackend.ConnectMiner()
-	require.NoError(h, err, "failed to connect miner")
-}
-
-// DisconnectMiner removes the connection between the miner and the chain
-// backend in the network.
-func (h *HarnessTest) DisconnectMiner() {
-	err := h.manager.chainBackend.DisconnectMiner()
-	require.NoError(h, err, "failed to disconnect miner")
-}
-
 // QueryRoutesAndRetry attempts to keep querying a route until timeout is
 // reached.
 //
@@ -2266,12 +2120,12 @@ func (h *HarnessTest) ReceiveChannelEvent(
 func (h *HarnessTest) GetOutputIndex(txid *chainhash.Hash, addr string) int {
 	// We'll then extract the raw transaction from the mempool in order to
 	// determine the index of the p2tr output.
-	tx := h.Miner.GetRawTransaction(txid)
+	tx := h.miner.GetRawTransaction(txid)
 
 	p2trOutputIndex := -1
 	for i, txOut := range tx.MsgTx().TxOut {
 		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-			txOut.PkScript, h.Miner.ActiveNet,
+			txOut.PkScript, h.miner.ActiveNet,
 		)
 		require.NoError(h, err)
 
@@ -2303,7 +2157,7 @@ func (h *HarnessTest) SendCoins(a, b *node.HarnessNode,
 		TargetConf: 6,
 	}
 	a.RPC.SendCoins(sendReq)
-	tx := h.Miner.GetNumTxsFromMempool(1)[0]
+	tx := h.GetNumTxsFromMempool(1)[0]
 
 	return tx
 }

@@ -96,8 +96,8 @@ func testNonStdSweepInner(ht *lntest.HarnessTest, address string) {
 	carol.RPC.SendCoins(sendReq)
 
 	// Fetch the txid so we can grab the raw transaction.
-	txid := ht.Miner.AssertNumTxsInMempool(1)[0]
-	tx := ht.Miner.GetRawTransaction(txid)
+	txid := ht.AssertNumTxsInMempool(1)[0]
+	tx := ht.GetRawTransaction(txid)
 
 	msgTx := tx.MsgTx()
 
@@ -111,7 +111,7 @@ func testNonStdSweepInner(ht *lntest.HarnessTest, address string) {
 	for _, inp := range msgTx.TxIn {
 		// Fetch the previous outpoint's value.
 		prevOut := inp.PreviousOutPoint
-		ptx := ht.Miner.GetRawTransaction(&prevOut.Hash)
+		ptx := ht.GetRawTransaction(&prevOut.Hash)
 
 		pout := ptx.MsgTx().TxOut[prevOut.Index]
 		inputVal += int(pout.Value)
@@ -125,7 +125,7 @@ func testNonStdSweepInner(ht *lntest.HarnessTest, address string) {
 
 	// Fetch the vsize of the transaction so we can determine if the
 	// transaction pays >= 1 sat/vbyte.
-	rawTx := ht.Miner.GetRawTransactionVerbose(txid)
+	rawTx := ht.Miner().GetRawTransactionVerbose(txid)
 
 	// Require fee >= vbytes.
 	require.True(ht, fee >= int(rawTx.Vsize))

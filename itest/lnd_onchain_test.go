@@ -321,7 +321,7 @@ func testAnchorReservedValue(ht *lntest.HarnessTest) {
 
 	// Alice tries to send all funds to an external address, the reserved
 	// value must stay in her wallet.
-	minerAddr := ht.Miner.NewMinerAddress()
+	minerAddr := ht.NewMinerAddress()
 
 	sweepReq = &lnrpc.SendCoinsRequest{
 		Addr:       minerAddr.String(),
@@ -486,7 +486,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 
 	// We now update the anchor sweep's deadline to be different than the
 	// commit sweep so they can won't grouped together.
-	_, currentHeight := ht.Miner.GetBestBlock()
+	currentHeight := int32(ht.CurrentHeight())
 	deadline := int32(commit.DeadlineHeight) - currentHeight
 	require.Positive(ht, deadline)
 	ht.Logf("Found commit deadline %d, anchor deadline %d",
@@ -520,7 +520,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// Mine one block to trigger Alice's sweeper to reconsider the anchor
 	// sweeping - it will be swept with her commit output together in one
 	// tx.
-	txns := ht.Miner.GetNumTxsFromMempool(2)
+	txns := ht.GetNumTxsFromMempool(2)
 	aliceSweep := txns[0]
 	if aliceSweep.TxOut[0].Value > txns[1].TxOut[0].Value {
 		aliceSweep = txns[1]
@@ -544,7 +544,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// With the anchor output located, and the main commitment mined we'll
 	// instruct the wallet to send all coins in the wallet to a new address
 	// (to the miner), including unconfirmed change.
-	minerAddr := ht.Miner.NewMinerAddress()
+	minerAddr := ht.NewMinerAddress()
 	sweepReq := &lnrpc.SendCoinsRequest{
 		Addr:             minerAddr.String(),
 		SendAll:          true,
@@ -574,7 +574,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// mine a transaction that double spends the output.
 	thirdPartyAnchorSweep := genAnchorSweep(ht, aliceSweep, anchor.Outpoint)
 	ht.Logf("Third party tx=%v", thirdPartyAnchorSweep.TxHash())
-	ht.Miner.MineBlockWithTx(thirdPartyAnchorSweep)
+	ht.MineBlockWithTx(thirdPartyAnchorSweep)
 
 	// At this point, we should no longer find Alice's transaction that
 	// tried to sweep the anchor in her wallet.
@@ -600,8 +600,8 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 		Hash:  *forceCloseTxID,
 		Index: 1,
 	}
-	ht.Miner.AssertOutpointInMempool(commitSweepOp)
-	ht.MineBlocks(1)
+	ht.AssertOutpointInMempool(commitSweepOp)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	ht.AssertNumWaitingClose(alice, 0)
 }
@@ -673,7 +673,7 @@ func genAnchorSweep(ht *lntest.HarnessTest, aliceSweep *wire.MsgTx,
 	aliceAnchorTxIn.Witness[0] = nil
 	aliceAnchorTxIn.Sequence = 16
 
-	minerAddr := ht.Miner.NewMinerAddress()
+	minerAddr := ht.NewMinerAddress()
 	addrScript, err := txscript.PayToAddrScript(minerAddr)
 	require.NoError(ht, err, "unable to gen addr script")
 
@@ -717,7 +717,7 @@ func testRemoveTx(ht *lntest.HarnessTest) {
 		TargetConf: 6,
 	}
 	alice.RPC.SendCoins(sendReq)
-	txID := ht.Miner.AssertNumTxsInMempool(1)[0]
+	txID := ht.AssertNumTxsInMempool(1)[0]
 
 	// Make sure the unspent number of utxos is 2 and the unconfirmed
 	// balances add up.
@@ -727,7 +727,7 @@ func testRemoveTx(ht *lntest.HarnessTest) {
 	require.Lenf(ht, unconfirmed, 2, "number of unconfirmed tx")
 
 	// Get the raw transaction to calculate the exact fee.
-	tx := ht.Miner.GetNumTxsFromMempool(1)[0]
+	tx := ht.GetNumTxsFromMempool(1)[0]
 
 	// Calculate the tx fee so we can compare the end amounts. We are
 	// sending from the internal wallet to the internal wallet so only
@@ -766,8 +766,8 @@ func testRemoveTx(ht *lntest.HarnessTest) {
 	// Mine a block and make sure the transaction previously broadcasted
 	// shows up in alice's wallet although we removed the transaction from
 	// the wallet when it was unconfirmed.
-	block := ht.Miner.MineBlocks(1)[0]
-	ht.Miner.AssertTxInBlock(block, txID)
+	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	ht.AssertTxInBlock(block, txID)
 
 	// Verify that alice has 2 confirmed unspent utxos in her default
 	// wallet.
@@ -836,7 +836,7 @@ func testListSweeps(ht *lntest.HarnessTest) {
 	ht.MineEmptyBlocks(1)
 
 	// Get the current block height.
-	_, blockHeight := ht.Miner.GetBestBlock()
+	blockHeight := int32(ht.CurrentHeight())
 
 	// Close the second channel and also sweep the funds.
 	ht.ForceCloseChannel(alice, chanPoints[1])
@@ -861,7 +861,7 @@ func testListSweeps(ht *lntest.HarnessTest) {
 	ht.MineEmptyBlocks(1)
 
 	// Now we can expect that the sweep has been broadcast.
-	ht.Miner.AssertNumTxsInMempool(1)
+	ht.AssertNumTxsInMempool(1)
 
 	// List all unconfirmed sweeps that alice's node had broadcast.
 	sweepResp := alice.RPC.ListSweeps(false, -1)

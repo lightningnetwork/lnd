@@ -316,7 +316,7 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 	ht.AssertNumNodeAnns(alice, alice.PubKeyStr, 1)
 	ht.AssertNumNodeAnns(alice, bob.PubKeyStr, 1)
 
-	_, blockHeight := ht.Miner.GetBestBlock()
+	blockHeight := ht.CurrentHeight()
 
 	// Now we'll test that updates are properly sent after channels are
 	// closed within the network.
@@ -326,7 +326,7 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 	// notification indicating so.
 	closedChan := ht.AssertTopologyChannelClosed(alice, chanPoint)
 
-	require.Equal(ht, uint32(blockHeight+1), closedChan.ClosedHeight,
+	require.Equal(ht, blockHeight+1, closedChan.ClosedHeight,
 		"close heights of channel mismatch")
 
 	fundingTxid := ht.OutPointFromChannelPoint(chanPoint)

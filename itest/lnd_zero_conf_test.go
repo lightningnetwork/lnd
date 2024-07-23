@@ -110,7 +110,7 @@ func testZeroConfChannelOpen(ht *lntest.HarnessTest) {
 
 	fundingTxID := ht.GetChanPointFundingTxid(fundingPoint2)
 
-	ht.Miner.AssertTxInBlock(block, fundingTxID)
+	ht.AssertTxInBlock(block, fundingTxID)
 
 	daveInvoiceResp3 := dave.RPC.AddInvoice(daveInvoiceParams)
 	ht.CompletePaymentRequests(
@@ -159,7 +159,7 @@ func testZeroConfChannelOpen(ht *lntest.HarnessTest) {
 	block = ht.MineBlocksAndAssertNumTxes(6, 1)[0]
 
 	fundingTxID = ht.GetChanPointFundingTxid(fundingPoint3)
-	ht.Miner.AssertTxInBlock(block, fundingTxID)
+	ht.AssertTxInBlock(block, fundingTxID)
 
 	// Wait until Eve's ZeroConf channel is replaced by the confirmed SCID
 	// in her graph.
@@ -950,7 +950,7 @@ func testZeroConfReorg(ht *lntest.HarnessTest) {
 	// exists in the graph.
 	//
 	// First, we'll setup a new miner that we can use to cause a reorg.
-	tempMiner := ht.Miner.SpawnTempMiner()
+	tempMiner := ht.SpawnTempMiner()
 
 	// We now cause a fork, by letting our original miner mine 1 block and
 	// our new miner will mine 2. We also expect the funding transition to
@@ -959,10 +959,10 @@ func testZeroConfReorg(ht *lntest.HarnessTest) {
 	tempMiner.MineEmptyBlocks(2)
 
 	// Ensure the temp miner is one block ahead.
-	ht.Miner.AssertMinerBlockHeightDelta(tempMiner, 1)
+	ht.AssertMinerBlockHeightDelta(tempMiner, 1)
 
 	// Wait for Carol to sync to the original miner's chain.
-	_, minerHeight := ht.Miner.GetBestBlock()
+	minerHeight := int32(ht.CurrentHeight())
 	ht.WaitForNodeBlockHeight(carol, minerHeight)
 
 	// Now we'll disconnect Carol's chain backend from the original miner
@@ -972,14 +972,14 @@ func testZeroConfReorg(ht *lntest.HarnessTest) {
 
 	// Connecting to the temporary miner should cause the original miner to
 	// reorg to the longer chain.
-	ht.Miner.ConnectMiner(tempMiner)
+	ht.ConnectToMiner(tempMiner)
 
 	// They should now be on the same chain.
-	ht.Miner.AssertMinerBlockHeightDelta(tempMiner, 0)
+	ht.AssertMinerBlockHeightDelta(tempMiner, 0)
 
 	// Now we disconnect the two miners and reconnect our original chain
 	// backend.
-	ht.Miner.DisconnectMiner(tempMiner)
+	ht.DisconnectFromMiner(tempMiner)
 
 	ht.ConnectMiner()
 

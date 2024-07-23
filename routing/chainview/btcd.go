@@ -135,6 +135,9 @@ func (b *BtcdFilteredChainView) Start() error {
 //
 // NOTE: This is part of the FilteredChainView interface.
 func (b *BtcdFilteredChainView) Stop() error {
+	log.Debug("BtcdFilteredChainView stopping")
+	defer log.Debug("BtcdFilteredChainView stopped")
+
 	// Already shutting down?
 	if atomic.AddInt32(&b.stopped, 1) != 1 {
 		return nil
@@ -145,8 +148,6 @@ func (b *BtcdFilteredChainView) Stop() error {
 	b.btcdConn.Shutdown()
 
 	b.blockQueue.Stop()
-
-	log.Infof("FilteredChainView stopping")
 
 	close(b.quit)
 	b.wg.Wait()

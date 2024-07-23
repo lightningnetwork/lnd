@@ -96,7 +96,7 @@ func testTaprootSendCoinsKeySpendBip86(ht *lntest.HarnessTest,
 
 	// Assert this is a segwit v1 address that starts with bcrt1p.
 	require.Contains(
-		ht, p2trResp.Address, ht.Miner.ActiveNet.Bech32HRPSegwit+"1p",
+		ht, p2trResp.Address, ht.Miner().ActiveNet.Bech32HRPSegwit+"1p",
 	)
 
 	// Send the coins from Alice's wallet to her own, but to the new p2tr
@@ -107,7 +107,7 @@ func testTaprootSendCoinsKeySpendBip86(ht *lntest.HarnessTest,
 		TargetConf: 6,
 	})
 
-	txid := ht.Miner.AssertNumTxsInMempool(1)[0]
+	txid := ht.AssertNumTxsInMempool(1)[0]
 
 	// Wait until bob has seen the tx and considers it as owned.
 	p2trOutputIndex := ht.GetOutputIndex(txid, p2trResp.Address)
@@ -162,7 +162,7 @@ func testTaprootComputeInputScriptKeySpendBip86(ht *lntest.HarnessTest,
 	alice.RPC.SendCoins(req)
 
 	// Wait until bob has seen the tx and considers it as owned.
-	txid := ht.Miner.AssertNumTxsInMempool(1)[0]
+	txid := ht.AssertNumTxsInMempool(1)[0]
 	p2trOutputIndex := ht.GetOutputIndex(txid, p2trAddr.String())
 	op := &lnrpc.OutPoint{
 		TxidBytes:   txid[:],
@@ -1413,7 +1413,7 @@ func clearWalletImportedTapscriptBalance(ht *lntest.HarnessTest,
 	// Mine one block which should contain the sweep transaction.
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	sweepTxHash := sweepTx.TxHash()
-	ht.Miner.AssertTxInBlock(block, &sweepTxHash)
+	ht.AssertTxInBlock(block, &sweepTxHash)
 }
 
 // testScriptHashLock returns a simple bitcoin script that locks the funds to
@@ -1481,7 +1481,7 @@ func sendToTaprootOutput(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	hn.RPC.SendCoins(req)
 
 	// Wait until the TX is found in the mempool.
-	txid := ht.Miner.AssertNumTxsInMempool(1)[0]
+	txid := ht.AssertNumTxsInMempool(1)[0]
 	p2trOutputIndex := ht.GetOutputIndex(txid, tapScriptAddr.String())
 	p2trOutpoint := wire.OutPoint{
 		Hash:  *txid,
@@ -1535,13 +1535,13 @@ func publishTxAndConfirmSweep(ht *lntest.HarnessTest, node *node.HarnessNode,
 	// Before we publish the tx that spends the p2tr transaction, we want to
 	// register a spend listener that we expect to fire after mining the
 	// block.
-	_, currentHeight := ht.Miner.GetBestBlock()
+	currentHeight := ht.CurrentHeight()
 
 	// For a Taproot output we cannot leave the outpoint empty. Let's make
 	// sure the API returns the correct error here.
 	req := &chainrpc.SpendRequest{
 		Script:     spendRequest.Script,
-		HeightHint: uint32(currentHeight),
+		HeightHint: currentHeight,
 	}
 	spendClient := node.RPC.RegisterSpendNtfn(req)
 
@@ -1556,7 +1556,7 @@ func publishTxAndConfirmSweep(ht *lntest.HarnessTest, node *node.HarnessNode,
 	req = &chainrpc.SpendRequest{
 		Outpoint:   spendRequest.Outpoint,
 		Script:     spendRequest.Script,
-		HeightHint: uint32(currentHeight),
+		HeightHint: currentHeight,
 	}
 	spendClient = node.RPC.RegisterSpendNtfn(req)
 
@@ -1582,7 +1582,7 @@ func publishTxAndConfirmSweep(ht *lntest.HarnessTest, node *node.HarnessNode,
 	require.NoError(ht, err)
 	spend := spendMsg.GetSpend()
 	require.NotNil(ht, spend)
-	require.Equal(ht, spend.SpendingHeight, uint32(currentHeight+1))
+	require.Equal(ht, spend.SpendingHeight, currentHeight+1)
 }
 
 // confirmAddress makes sure that a transaction in the mempool spends funds to
@@ -1592,7 +1592,7 @@ func confirmAddress(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	addrString string) {
 
 	// Wait until the tx that sends to the address is found.
-	txid := ht.Miner.AssertNumTxsInMempool(1)[0]
+	txid := ht.AssertNumTxsInMempool(1)[0]
 
 	// Wait until bob has seen the tx and considers it as owned.
 	addrOutputIndex := ht.GetOutputIndex(txid, addrString)
@@ -1609,11 +1609,11 @@ func confirmAddress(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	addrPkScript, err := txscript.PayToAddrScript(parsedAddr)
 	require.NoError(ht, err)
 
-	_, currentHeight := ht.Miner.GetBestBlock()
+	currentHeight := ht.CurrentHeight()
 	req := &chainrpc.ConfRequest{
 		Script:       addrPkScript,
 		Txid:         txid[:],
-		HeightHint:   uint32(currentHeight),
+		HeightHint:   currentHeight,
 		NumConfs:     1,
 		IncludeBlock: true,
 	}
@@ -1628,7 +1628,7 @@ func confirmAddress(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	require.NoError(ht, err)
 	conf := confMsg.GetConf()
 	require.NotNil(ht, conf)
-	require.Equal(ht, conf.BlockHeight, uint32(currentHeight+1))
+	require.Equal(ht, conf.BlockHeight, currentHeight+1)
 	require.NotNil(ht, conf.RawBlock)
 
 	// We should also be able to decode the raw block.
@@ -1850,7 +1850,7 @@ func testTaprootCoopClose(ht *lntest.HarnessTest) {
 	// assertTaprootDeliveryUsed returns true if a Taproot addr was used in
 	// the co-op close transaction.
 	assertTaprootDeliveryUsed := func(closingTxid *chainhash.Hash) bool {
-		tx := ht.Miner.GetRawTransaction(closingTxid)
+		tx := ht.GetRawTransaction(closingTxid)
 		for _, txOut := range tx.MsgTx().TxOut {
 			if !txscript.IsPayToTaproot(txOut.PkScript) {
 				return false

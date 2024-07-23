@@ -149,6 +149,9 @@ func (d *DecayedLog) initBuckets() error {
 
 // Stop halts the garbage collector and closes boltdb.
 func (d *DecayedLog) Stop() error {
+	log.Debugf("DecayedLog shutting down...")
+	defer log.Debugf("DecayedLog shutdown complete")
+
 	if !atomic.CompareAndSwapInt32(&d.stopped, 0, 1) {
 		return nil
 	}

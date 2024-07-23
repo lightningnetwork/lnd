@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -30,9 +31,9 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 	}
 
 	// Create a temp miner.
-	tempMiner := ht.Miner.SpawnTempMiner()
+	tempMiner := ht.SpawnTempMiner()
 
-	miner := ht.Miner
+	miner := ht.Miner()
 	alice, bob := ht.Alice, ht.Bob
 
 	// Create a new channel that requires 1 confs before it's considered
@@ -45,7 +46,7 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 
 	// Wait for miner to have seen the funding tx. The temporary miner is
 	// disconnected, and won't see the transaction.
-	ht.Miner.AssertNumTxsInMempool(1)
+	ht.AssertNumTxsInMempool(1)
 
 	// At this point, the channel's funding transaction will have been
 	// broadcast, but not confirmed, and the channel should be pending.
@@ -58,8 +59,8 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 	// and our new miner mine 15. This will also confirm our pending
 	// channel on the original miner's chain, which should be considered
 	// open.
-	block := ht.MineBlocks(10)[0]
-	ht.Miner.AssertTxInBlock(block, fundingTxID)
+	block := ht.MineBlocksAndAssertNumTxes(10, 1)[0]
+	ht.AssertTxInBlock(block, fundingTxID)
 	_, err = tempMiner.Client.Generate(15)
 	require.NoError(ht, err, "unable to generate blocks")
 
@@ -115,7 +116,7 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 
 	// Cleanup by mining the funding tx again, then closing the channel.
 	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-	ht.Miner.AssertTxInBlock(block, fundingTxID)
+	ht.AssertTxInBlock(block, fundingTxID)
 
 	ht.CloseChannel(alice, chanPoint)
 }
@@ -767,6 +768,18 @@ func testFundingExpiryBlocksOnPending(ht *lntest.HarnessTest) {
 	// channel.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 	chanPoint := lntest.ChanPointFromPendingUpdate(update)
+
+	// TODO(yy): remove the sleep once the following bug is fixed.
+	//
+	// We may get the error `unable to gracefully close channel
+	// while peer is offline (try force closing it instead):
+	// channel link not found`. This happens because the channel
+	// link hasn't been added yet but we now proceed to closing the
+	// channel. We may need to revisit how the channel open event
+	// is created and make sure the event is only sent after all
+	// relevant states have been updated.
+	time.Sleep(2 * time.Second)
+
 	ht.CloseChannel(alice, chanPoint)
 }
 

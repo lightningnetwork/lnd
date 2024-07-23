@@ -53,10 +53,16 @@ func CopyFile(dest, src string) error {
 
 // errNumNotMatched is a helper method to return a nicely formatted error.
 func errNumNotMatched(name string, subject string,
-	want, got, total, old int) error {
+	want, got, total, old int, desc ...any) error {
 
-	return fmt.Errorf("%s: assert %s failed: want %d, got: %d, total: "+
+	err := fmt.Errorf("%s: assert %s failed: want %d, got: %d, total: "+
 		"%d, previously had: %d", name, subject, want, got, total, old)
+
+	if len(desc) > 0 {
+		err = fmt.Errorf("%w, desc: %v", err, desc)
+	}
+
+	return err
 }
 
 // parseDerivationPath parses a path in the form of m/x'/y'/z'/a/b into a slice

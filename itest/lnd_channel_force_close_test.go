@@ -160,7 +160,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Fetch starting height of this test so we can compute the block
 	// heights we expect certain events to take place.
-	_, curHeight := ht.Miner.GetBestBlock()
+	curHeight := int32(ht.CurrentHeight())
 
 	// Using the current height of the chain, derive the relevant heights
 	// for incubating two-stage htlcs.
@@ -214,7 +214,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	ht.AssertNumUTXOs(alice, expectedUtxos)
 
 	// We expect to see Alice's force close tx in the mempool.
-	ht.Miner.GetNumTxsFromMempool(1)
+	ht.GetNumTxsFromMempool(1)
 
 	// Mine a block which should confirm the commitment transaction
 	// broadcast as a result of the force closure. Once mined, we also
@@ -278,7 +278,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Carol's sweep tx should be in the mempool already, as her output is
 	// not timelocked.
-	carolTx := ht.Miner.GetNumTxsFromMempool(1)[0]
+	carolTx := ht.GetNumTxsFromMempool(1)[0]
 
 	// Carol's sweeping tx should have 2-input-1-output shape.
 	require.Len(ht, carolTx.TxIn, 2)
@@ -389,11 +389,11 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// So we fetch the node's mempool to ensure it has been properly
 	// broadcast.
 	ht.MineEmptyBlocks(1)
-	sweepingTXID := ht.Miner.AssertNumTxsInMempool(1)[0]
+	sweepingTXID := ht.AssertNumTxsInMempool(1)[0]
 
 	// Fetch the sweep transaction, all input it's spending should be from
 	// the commitment transaction which was broadcast on-chain.
-	sweepTx := ht.Miner.GetRawTransaction(sweepingTXID)
+	sweepTx := ht.GetRawTransaction(sweepingTXID)
 	for _, txIn := range sweepTx.MsgTx().TxIn {
 		require.Equal(ht, &txIn.PreviousOutPoint.Hash, closingTxID,
 			"sweep transaction not spending from commit")
@@ -431,7 +431,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Update current height
-	_, curHeight = ht.Miner.GetBestBlock()
+	curHeight = int32(ht.CurrentHeight())
 
 	// checkForceClosedChannelNumHtlcs verifies that a force closed channel
 	// has the proper number of htlcs.
@@ -485,7 +485,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// number of blocks we have generated since adding it to the nursery,
 	// and take an additional block off so that we end up one block shy of
 	// the expiry height, and add the block padding.
-	_, currentHeight := ht.Miner.GetBestBlock()
+	currentHeight := int32(ht.CurrentHeight())
 	cltvHeightDelta := int(htlcExpiryHeight - uint32(currentHeight) - 1)
 
 	// Advance the blockchain until just before the CLTV expires, nothing
@@ -547,7 +547,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// NOTE: after restart, all the htlc timeout txns will be offered to
 	// the sweeper with `Immediate` set to true, so they won't be
 	// aggregated.
-	htlcTxIDs := ht.Miner.AssertNumTxsInMempool(numInvoices)
+	htlcTxIDs := ht.AssertNumTxsInMempool(numInvoices)
 
 	// Retrieve each htlc timeout txn from the mempool, and ensure it is
 	// well-formed. This entails verifying that each only spends from
@@ -567,7 +567,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 		// on-chain. In case of an anchor type channel, we expect one
 		// extra input that is not spending from the commitment, that
 		// is added for fees.
-		htlcTx := ht.Miner.GetRawTransaction(htlcTxID)
+		htlcTx := ht.GetRawTransaction(htlcTxID)
 
 		// Ensure the htlc transaction has the expected number of
 		// inputs.
@@ -662,7 +662,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Advance the chain until just before the 2nd-layer CSV delays expire.
 	// For anchor channels this is one block earlier.
-	_, currentHeight = ht.Miner.GetBestBlock()
+	currentHeight = int32(ht.CurrentHeight())
 	ht.Logf("current height: %v, htlcCsvMaturityHeight=%v", currentHeight,
 		htlcCsvMaturityHeight)
 	numBlocks := int(htlcCsvMaturityHeight - uint32(currentHeight) - 2)
@@ -709,7 +709,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 		// NOTE: we don't check `len(mempool) == 1` because it will
 		// give us false positive.
 		err := wait.NoError(func() error {
-			mempool := ht.Miner.GetRawMempool()
+			mempool := ht.Miner().GetRawMempool()
 			if len(mempool) == 2 {
 				return nil
 			}
@@ -733,10 +733,10 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	}
 
 	// Wait for the single sweep txn to appear in the mempool.
-	htlcSweepTxID := ht.Miner.AssertNumTxsInMempool(1)[0]
+	htlcSweepTxID := ht.AssertNumTxsInMempool(1)[0]
 
 	// Fetch the htlc sweep transaction from the mempool.
-	htlcSweepTx := ht.Miner.GetRawTransaction(htlcSweepTxID)
+	htlcSweepTx := ht.GetRawTransaction(htlcSweepTxID)
 
 	// Ensure the htlc sweep transaction only has one input for each htlc
 	// Alice extended before force closing.
@@ -818,7 +818,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// Generate the final block that sweeps all htlc funds into the user's
 	// wallet, and make sure the sweep is in this block.
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-	ht.Miner.AssertTxInBlock(block, htlcSweepTxID)
+	ht.AssertTxInBlock(block, htlcSweepTxID)
 
 	// Now that the channel has been fully swept, it should no longer show
 	// up within the pending channels RPC.
@@ -935,7 +935,7 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 	ht.MineEmptyBlocks(1)
 
 	// Carol should have broadcast her sweeping tx.
-	ht.Miner.AssertNumTxsInMempool(1)
+	ht.AssertNumTxsInMempool(1)
 
 	// Mine two blocks to confirm Carol's sweeping tx, which will by now
 	// Alice's commit output should be offered to her sweeper.

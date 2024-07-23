@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainreg"
-	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
@@ -292,6 +291,24 @@ func testUnconfirmedChannelFunding(ht *lntest.HarnessTest) {
 	// We'll send her some unconfirmed funds.
 	ht.FundCoinsUnconfirmed(2*chanAmt, carol)
 
+	// For neutrino backend, we will confirm the coins sent above and let
+	// Carol send all her funds to herself to create unconfirmed output.
+	if ht.IsNeutrinoBackend() {
+		// Confirm the above coins.
+		ht.MineBlocksAndAssertNumTxes(1, 1)
+
+		// Create a new address and send to herself.
+		resp := carol.RPC.NewAddress(&lnrpc.NewAddressRequest{
+			Type: lnrpc.AddressType_TAPROOT_PUBKEY,
+		})
+
+		// Once sent, Carol would have one unconfirmed UTXO.
+		carol.RPC.SendCoins(&lnrpc.SendCoinsRequest{
+			Addr:    resp.Address,
+			SendAll: true,
+		})
+	}
+
 	// Now, we'll connect her to Alice so that they can open a channel
 	// together. The funding flow should select Carol's unconfirmed output
 	// as she doesn't have any other funds since it's a new node.
@@ -362,11 +379,7 @@ func testUnconfirmedChannelFunding(ht *lntest.HarnessTest) {
 	// parties. For neutrino backend, the funding transaction should be
 	// mined. Otherwise, two transactions should be mined, the unconfirmed
 	// spend and the funding tx.
-	if ht.IsNeutrinoBackend() {
-		ht.MineBlocksAndAssertNumTxes(6, 1)
-	} else {
-		ht.MineBlocksAndAssertNumTxes(6, 2)
-	}
+	ht.MineBlocksAndAssertNumTxes(6, 2)
 
 	chanPoint := ht.WaitForChannelOpenEvent(chanOpenUpdate)
 
@@ -859,10 +872,10 @@ func testChannelFundingPersistence(ht *lntest.HarnessTest) {
 	// channel has been opened. The funding transaction should be found
 	// within the newly mined block.
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-	ht.Miner.AssertTxInBlock(block, fundingTxID)
+	ht.AssertTxInBlock(block, fundingTxID)
 
 	// Get the height that our transaction confirmed at.
-	_, height := ht.Miner.GetBestBlock()
+	height := int32(ht.CurrentHeight())
 
 	// Restart both nodes to test that the appropriate state has been
 	// persisted and that both nodes recover gracefully.
@@ -1047,13 +1060,13 @@ func testBatchChanFunding(ht *lntest.HarnessTest) {
 
 	// Mine the batch transaction and check the network topology.
 	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
-	ht.Miner.AssertTxInBlock(block, txHash)
+	ht.AssertTxInBlock(block, txHash)
 	ht.AssertTopologyChannelOpen(alice, chanPoint1)
 	ht.AssertTopologyChannelOpen(alice, chanPoint2)
 	ht.AssertTopologyChannelOpen(alice, chanPoint3)
 
 	// Check if the change type from the batch_open_channel funding is P2TR.
-	rawTx := ht.Miner.GetRawTransaction(txHash)
+	rawTx := ht.GetRawTransaction(txHash)
 	require.Len(ht, rawTx.MsgTx().TxOut, 5)
 
 	// For calculating the change output index we use the formula for the
@@ -1182,9 +1195,9 @@ func deriveFundingShim(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	var txid *chainhash.Hash
 	targetOutputs := []*wire.TxOut{fundingOutput}
 	if publish {
-		txid = ht.Miner.SendOutputsWithoutChange(targetOutputs, 5)
+		txid = ht.SendOutputsWithoutChange(targetOutputs, 5)
 	} else {
-		tx := ht.Miner.CreateTransaction(targetOutputs, 5)
+		tx := ht.CreateTransaction(targetOutputs, 5)
 
 		txHash := tx.TxHash()
 		txid = &txHash
@@ -1341,22 +1354,22 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// that by dave force-closing the channel. Which let's carol sweep its
 	// to_remote output which is not encumbered by any relative locktime.
 	ht.CloseChannelAssertPending(dave, chanPoint2, true)
+
 	// Mine the force close commitment transaction.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Make sure Carol sees her to_remote output from the force close tx.
+	ht.AssertNumPendingSweeps(carol, 1)
 
 	// Mine one block to trigger the sweep transaction.
 	ht.MineEmptyBlocks(1)
 
 	// We need to wait for carol initiating the sweep of the to_remote
 	// output of chanPoint2.
-	utxos := ht.AssertNumUTXOsUnconfirmed(carol, 1)
+	utxo := ht.AssertNumUTXOsUnconfirmed(carol, 1)[0]
 
-	// We filter for the unconfirmed utxo and try to open a channel with
-	// that utxo.
-	utxoOpt := fn.Find(func(u *lnrpc.Utxo) bool {
-		return u.Confirmations == 0
-	}, utxos)
-	fundingUtxo := utxoOpt.UnwrapOrFail(ht.T)
+	// We now try to open channel using the unconfirmed utxo.
+	fundingUtxo := utxo
 
 	// Now try to open the channel with this utxo and expect an error.
 	expectedErr := fmt.Errorf("outpoint already spent or "+
@@ -1404,6 +1417,9 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// by force-closing a channel from dave's side.
 	ht.CloseChannelAssertPending(dave, chanPoint3, true)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Make sure Carol sees her to_remote output from the force close tx.
+	ht.AssertNumPendingSweeps(carol, 1)
 
 	// Mine one block to trigger the sweep transaction.
 	ht.MineEmptyBlocks(1)

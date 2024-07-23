@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/lightningnetwork/lnd/lntest/node"
 )
 
@@ -53,12 +54,14 @@ func (b BtcdBackendConfig) GenArgs() []string {
 
 // ConnectMiner is called to establish a connection to the test miner.
 func (b BtcdBackendConfig) ConnectMiner() error {
-	return b.harness.Client.Node(btcjson.NConnect, b.minerAddr, &temp)
+	return b.harness.Client.Node(btcjson.NConnect, b.minerAddr, &miner.Temp)
 }
 
 // DisconnectMiner is called to disconnect the miner.
 func (b BtcdBackendConfig) DisconnectMiner() error {
-	return b.harness.Client.Node(btcjson.NDisconnect, b.minerAddr, &temp)
+	return b.harness.Client.Node(
+		btcjson.NDisconnect, b.minerAddr, &miner.Temp,
+	)
 }
 
 // Credentials returns the rpc username, password and host for the backend.

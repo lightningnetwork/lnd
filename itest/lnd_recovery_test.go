@@ -252,7 +252,7 @@ func testOnchainFundRecovery(ht *lntest.HarnessTest) {
 	promptChangeAddr := func(node *node.HarnessNode) {
 		ht.Helper()
 
-		minerAddr := ht.Miner.NewMinerAddress()
+		minerAddr := ht.NewMinerAddress()
 		req := &lnrpc.SendCoinsRequest{
 			Addr:       minerAddr.String(),
 			Amount:     minerAmt,
@@ -260,11 +260,11 @@ func testOnchainFundRecovery(ht *lntest.HarnessTest) {
 		}
 		resp := node.RPC.SendCoins(req)
 
-		txid := ht.Miner.AssertNumTxsInMempool(1)[0]
+		txid := ht.AssertNumTxsInMempool(1)[0]
 		require.Equal(ht, txid.String(), resp.Txid)
 
-		block := ht.MineBlocks(1)[0]
-		ht.Miner.AssertTxInBlock(block, txid)
+		block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+		ht.AssertTxInBlock(block, txid)
 	}
 	restoreCheckBalance(finalBalance, 9, 20, promptChangeAddr)
 
@@ -428,8 +428,7 @@ func testRescanAddressDetection(ht *lntest.HarnessTest) {
 	})
 
 	// Wait until the spending tx is found and mine a block to confirm it.
-	ht.Miner.AssertNumTxsInMempool(1)
-	ht.MineBlocks(1)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// The wallet should still just see a single UTXO of the change output
 	// created earlier.

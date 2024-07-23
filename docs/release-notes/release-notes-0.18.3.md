@@ -116,6 +116,11 @@
 
 ## Tooling and Documentation
 
+* [`lntest.HarnessTest` no longer exposes `Miner`
+  instance](https://github.com/lightningnetwork/lnd/pull/8892). Instead, it's
+  changed into a private `miner` instance and all mining related assertions are
+  now only accessible via the harness.
+
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath

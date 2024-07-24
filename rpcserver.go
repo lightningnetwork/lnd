@@ -1360,7 +1360,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		sweepTxPkg, err := sweep.CraftSweepAllTx(
 			feePerKw, maxFeeRate, uint32(bestHeight), nil,
 			targetAddr, wallet, wallet, wallet.WalletController,
-			r.server.cc.Signer, minConfs,
+			r.server.cc.Signer, minConfs, 0,
 		)
 		if err != nil {
 			return nil, err
@@ -1386,38 +1386,66 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			sweepTxPkg.CancelSweepAttempt()
 
 			rpcsLog.Debugf("Reserved value %v not satisfied after "+
-				"send_all, trying with change output",
+				"send_all, trying to exclude one input",
 				reservedVal)
 
-			// We'll request a change address from the wallet,
-			// where we'll send this reserved value back to. This
-			// ensures this is an address the wallet knows about,
-			// allowing us to pass the reserved value check.
-			changeAddr, err := r.server.cc.Wallet.NewAddress(
-				lnwallet.TaprootPubkey, true,
-				lnwallet.DefaultAccountName,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			// Send the reserved value to this change address, the
-			// remaining funds will go to the targetAddr.
-			outputs := []sweep.DeliveryAddr{
-				{
-					Addr: changeAddr,
-					Amt:  reservedVal,
-				},
-			}
-
+			// Try to exlude an input of value exactly reservedVal.
+			// It is likely to exist as an output of previous
+			// SendAll tx.
 			sweepTxPkg, err = sweep.CraftSweepAllTx(
-				feePerKw, maxFeeRate, uint32(bestHeight),
-				outputs, targetAddr, wallet, wallet,
-				wallet.WalletController,
-				r.server.cc.Signer, minConfs,
+				feePerKw, maxFeeRate, uint32(bestHeight), nil,
+				targetAddr, wallet, wallet,
+				wallet.WalletController, r.server.cc.Signer,
+				minConfs, reservedVal,
 			)
-			if err != nil {
+			missingInput := errors.Is(
+				err, sweep.ErrMissingInputToSkip,
+			)
+			if err != nil && !missingInput {
+				// Unexpected error.
 				return nil, err
+			}
+
+			// If there is no such input to skip of needed value to
+			// satisfy reservation requirements, add an output.
+			if missingInput {
+				rpcsLog.Debugf("Can not find an input of value"+
+					" %v for send_all, trying with change "+
+					"output", reservedVal)
+
+				// We'll request a change address from the
+				// wallet, where we'll send this reserved value
+				// back to. This ensures this is an address the
+				// wallet knows about, allowing us to pass the
+				// reserved value check.
+				newAddress := r.server.cc.Wallet.NewAddress
+				changeAddr, err := newAddress(
+					lnwallet.TaprootPubkey, true,
+					lnwallet.DefaultAccountName,
+				)
+				if err != nil {
+					return nil, err
+				}
+
+				// Send the reserved value to this change
+				// address, the remaining funds will go to the
+				// targetAddr.
+				outputs := []sweep.DeliveryAddr{
+					{
+						Addr: changeAddr,
+						Amt:  reservedVal,
+					},
+				}
+
+				sweepTxPkg, err = sweep.CraftSweepAllTx(
+					feePerKw, maxFeeRate,
+					uint32(bestHeight), outputs, targetAddr,
+					wallet, wallet, wallet.WalletController,
+					r.server.cc.Signer, minConfs, 0,
+				)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			// Sanity check the new tx by re-doing the check.

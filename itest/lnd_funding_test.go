@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -968,11 +969,16 @@ func testBatchChanFunding(ht *lntest.HarnessTest) {
 	ht.EnsureConnected(alice, dave)
 	ht.EnsureConnected(alice, eve)
 
+	expectedFeeRate := chainfee.SatPerKWeight(2500)
+
+	// We verify that the channel opening uses the correct fee rate.
+	ht.SetFeeEstimateWithConf(expectedFeeRate, 3)
+
 	// Let's create our batch TX request. This first one should fail as we
 	// open a channel to Carol that is too small for her min chan size.
 	batchReq := &lnrpc.BatchOpenChannelRequest{
-		SatPerVbyte: 12,
-		MinConfs:    1,
+		TargetConf: 3,
+		MinConfs:   1,
 		Channels: []*lnrpc.BatchOpenChannel{{
 			NodePubkey:         bob.PubKey[:],
 			LocalFundingAmount: 100_000,
@@ -1068,6 +1074,12 @@ func testBatchChanFunding(ht *lntest.HarnessTest) {
 	// Check if the change type from the batch_open_channel funding is P2TR.
 	rawTx := ht.GetRawTransaction(txHash)
 	require.Len(ht, rawTx.MsgTx().TxOut, 5)
+
+	// Check the fee rate of the batch-opening transaction. We expect slight
+	// inaccuracies because of the DER signature fee estimation.
+	openingFeeRate := ht.CalculateTxFeeRate(rawTx.MsgTx())
+	require.InEpsilonf(ht, uint64(expectedFeeRate), uint64(openingFeeRate),
+		0.01, "want %v, got %v", expectedFeeRate, openingFeeRate)
 
 	// For calculating the change output index we use the formula for the
 	// sum of consecutive of integers (n(n+1)/2). All the channel point

@@ -178,7 +178,8 @@ func (b *BitcoindNotifier) startNotifier() error {
 	if err != nil {
 		return err
 	}
-	blockHeader, err := b.chainConn.GetBlockHeader(currentHash)
+
+	block, err := b.GetBlock(currentHash)
 	if err != nil {
 		return err
 	}
@@ -189,9 +190,9 @@ func (b *BitcoindNotifier) startNotifier() error {
 	)
 
 	b.bestBlock = chainntnfs.BlockEpoch{
-		Height:      currentHeight,
-		Hash:        currentHash,
-		BlockHeader: blockHeader,
+		Height: currentHeight,
+		Hash:   currentHash,
+		Block:  *block,
 	}
 
 	b.wg.Add(1)
@@ -350,9 +351,7 @@ out:
 				// a notification for the current tip.
 				if msg.bestBlock == nil {
 					b.notifyBlockEpochClient(
-						msg, b.bestBlock.Height,
-						b.bestBlock.Hash,
-						b.bestBlock.BlockHeader,
+						msg, b.bestBlock,
 					)
 
 					msg.errorChan <- nil
@@ -372,10 +371,7 @@ out:
 				}
 
 				for _, block := range missedBlocks {
-					b.notifyBlockEpochClient(
-						msg, block.Height, block.Hash,
-						block.BlockHeader,
-					)
+					b.notifyBlockEpochClient(msg, block)
 				}
 
 				msg.errorChan <- nil
@@ -384,15 +380,14 @@ out:
 		case ntfn := <-b.chainConn.Notifications():
 			switch item := ntfn.(type) {
 			case chain.BlockConnected:
-				blockHeader, err :=
-					b.chainConn.GetBlockHeader(&item.Hash)
+				block, err := b.GetBlock(&item.Hash)
 				if err != nil {
 					chainntnfs.Log.Errorf("Unable to fetch "+
 						"block header: %v", err)
 					continue
 				}
 
-				if blockHeader.PrevBlock != *b.bestBlock.Hash {
+				if block.Header.PrevBlock != *b.bestBlock.Hash {
 					// Handle the case where the notifier
 					// missed some blocks from its chain
 					// backend.
@@ -424,9 +419,9 @@ out:
 				}
 
 				newBlock := chainntnfs.BlockEpoch{
-					Height:      item.Height,
-					Hash:        &item.Hash,
-					BlockHeader: blockHeader,
+					Height: item.Height,
+					Hash:   &item.Hash,
+					Block:  *block,
 				}
 				if err := b.handleBlockConnected(newBlock); err != nil {
 					chainntnfs.Log.Error(err)
@@ -631,61 +626,49 @@ func (b *BitcoindNotifier) confDetailsManually(confRequest chainntnfs.ConfReques
 // handleBlockConnected applies a chain update for a new block. Any watched
 // transactions included this block will processed to either send notifications
 // now or after numConfirmations confs.
-func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) error {
-	// First, we'll fetch the raw block as we'll need to gather all the
-	// transactions to determine whether any are relevant to our registered
-	// clients.
-	rawBlock, err := b.GetBlock(block.Hash)
-	if err != nil {
-		return fmt.Errorf("unable to get block: %w", err)
-	}
-	utilBlock := btcutil.NewBlock(rawBlock)
+func (b *BitcoindNotifier) handleBlockConnected(
+	epoch chainntnfs.BlockEpoch) error {
+
+	utilBlock := btcutil.NewBlock(&epoch.Block)
 
 	// We'll then extend the txNotifier's height with the information of
 	// this new block, which will handle all of the notification logic for
 	// us.
-	err = b.txNotifier.ConnectTip(utilBlock, uint32(block.Height))
+	err := b.txNotifier.ConnectTip(utilBlock, uint32(epoch.Height))
 	if err != nil {
 		return fmt.Errorf("unable to connect tip: %w", err)
 	}
 
-	chainntnfs.Log.Infof("New block: height=%v, sha=%v", block.Height,
-		block.Hash)
+	chainntnfs.Log.Infof("New block: height=%v, sha=%v", epoch.Height,
+		epoch.Hash)
 
 	// Now that we've guaranteed the new block extends the txNotifier's
 	// current tip, we'll proceed to dispatch notifications to all of our
 	// registered clients whom have had notifications fulfilled. Before
 	// doing so, we'll make sure update our in memory state in order to
 	// satisfy any client requests based upon the new block.
-	b.bestBlock = block
+	b.bestBlock = epoch
 
-	b.notifyBlockEpochs(block.Height, block.Hash, block.BlockHeader)
-	return b.txNotifier.NotifyHeight(uint32(block.Height))
+	b.notifyBlockEpochs(epoch)
+
+	return b.txNotifier.NotifyHeight(uint32(epoch.Height))
 }
 
 // notifyBlockEpochs notifies all registered block epoch clients of the newly
 // connected block to the main chain.
-func (b *BitcoindNotifier) notifyBlockEpochs(newHeight int32, newSha *chainhash.Hash,
-	blockHeader *wire.BlockHeader) {
-
+func (b *BitcoindNotifier) notifyBlockEpochs(block chainntnfs.BlockEpoch) {
 	for _, client := range b.blockEpochClients {
-		b.notifyBlockEpochClient(client, newHeight, newSha, blockHeader)
+		b.notifyBlockEpochClient(client, block)
 	}
 }
 
 // notifyBlockEpochClient sends a registered block epoch client a notification
 // about a specific block.
-func (b *BitcoindNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistration,
-	height int32, sha *chainhash.Hash, header *wire.BlockHeader) {
-
-	epoch := &chainntnfs.BlockEpoch{
-		Height:      height,
-		Hash:        sha,
-		BlockHeader: header,
-	}
+func (b *BitcoindNotifier) notifyBlockEpochClient(
+	epochClient *blockEpochRegistration, epoch chainntnfs.BlockEpoch) {
 
 	select {
-	case epochClient.epochQueue.ChanIn() <- epoch:
+	case epochClient.epochQueue.ChanIn() <- &epoch:
 	case <-epochClient.cancelChan:
 	case <-b.quit:
 	}

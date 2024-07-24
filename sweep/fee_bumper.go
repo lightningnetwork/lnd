@@ -52,7 +52,7 @@ type Bumper interface {
 	// and monitors its confirmation status for potential fee bumping. It
 	// returns a chan that the caller can use to receive updates about the
 	// broadcast result and potential RBF attempts.
-	Broadcast(req *BumpRequest) (<-chan *BumpResult, error)
+	Broadcast(req *BumpRequest) <-chan *BumpResult
 }
 
 // BumpEvent represents the event of a fee bumping attempt.
@@ -71,6 +71,9 @@ const (
 	// TxConfirmed is sent when the tx is confirmed.
 	TxConfirmed
 
+	// TxError is sent when there's an error creating the tx.
+	TxError
+
 	// sentinalEvent is used to check if an event is unknown.
 	sentinalEvent
 )
@@ -86,6 +89,8 @@ func (e BumpEvent) String() string {
 		return "Replaced"
 	case TxConfirmed:
 		return "Confirmed"
+	case TxError:
+		return "Error"
 	default:
 		return "Unknown"
 	}
@@ -119,6 +124,10 @@ type BumpRequest struct {
 	// StartingFeeRate is an optional parameter that can be used to specify
 	// the initial fee rate to use for the fee function.
 	StartingFeeRate fn.Option[chainfee.SatPerKWeight]
+
+	// Immediate is an optional parameter that can be used to specify that
+	// the tx should be broadcast immediately.
+	Immediate bool
 }
 
 // MaxFeeRateAllowed returns the maximum fee rate allowed for the given
@@ -202,6 +211,16 @@ type BumpResult struct {
 
 	// requestID is the ID of the request that created this record.
 	requestID uint64
+}
+
+// String returns a human-readable string for the result.
+func (b *BumpResult) String() string {
+	desc := fmt.Sprintf("Event=%v", b.Event)
+	if b.Tx != nil {
+		desc += fmt.Sprintf(", Tx=%v", b.Tx.TxHash())
+	}
+
+	return fmt.Sprintf("[%s]", desc)
 }
 
 // Validate validates the BumpResult so it's safe to use.
@@ -304,42 +323,44 @@ func (t *TxPublisher) isNeutrinoBackend() bool {
 	return t.cfg.Wallet.BackEnd() == "neutrino"
 }
 
-// Broadcast is used to publish the tx created from the given inputs. It will,
-// 1. init a fee function based on the given strategy.
-// 2. create an RBF-compliant tx and monitor it for confirmation.
-// 3. notify the initial broadcast result back to the caller.
-// The initial broadcast is guaranteed to be RBF-compliant unless the budget
-// specified cannot cover the fee.
+// Broadcast is used to publish the tx created from the given inputs. It will
+// register the broadcast request and return a chan to the caller to subscribe
+// the broadcast result. The initial broadcast is guaranteed to be
+// RBF-compliant unless the budget specified cannot cover the fee.
 //
 // NOTE: part of the Bumper interface.
-func (t *TxPublisher) Broadcast(req *BumpRequest) (<-chan *BumpResult, error) {
+func (t *TxPublisher) Broadcast(req *BumpRequest) <-chan *BumpResult {
 	log.Tracef("Received broadcast request: %s", newLogClosure(
 		func() string {
 			return spew.Sdump(req)
 		})())
 
-	// Attempt an initial broadcast which is guaranteed to comply with the
-	// RBF rules.
-	result, err := t.initialBroadcast(req)
-	if err != nil {
-		log.Errorf("Initial broadcast failed: %v", err)
+	// Increase the request counter.
+	//
+	// NOTE: this is the only place where we increase the counter.
+	requestID := t.requestCounter.Add(1)
 
-		return nil, err
-	}
+	// Register the record.
+	record := &monitorRecord{req: req}
+	t.records.Store(requestID, record)
 
 	// Create a chan to send the result to the caller.
 	subscriber := make(chan *BumpResult, 1)
-	t.subscriberChans.Store(result.requestID, subscriber)
+	t.subscriberChans.Store(requestID, subscriber)
 
-	// Send the initial broadcast result to the caller.
-	t.handleResult(result)
+	// Publish the tx immediately if specified.
+	if req.Immediate {
+		t.handleInitialBroadcast(record, requestID)
+	}
 
-	return subscriber, nil
+	return subscriber
 }
 
 // initialBroadcast initializes a fee function, creates an RBF-compliant tx and
 // broadcasts it.
-func (t *TxPublisher) initialBroadcast(req *BumpRequest) (*BumpResult, error) {
+func (t *TxPublisher) initialBroadcast(requestID uint64,
+	req *BumpRequest) (*BumpResult, error) {
+
 	// Create a fee bumping algorithm to be used for future RBF.
 	feeAlgo, err := t.initializeFeeFunction(req)
 	if err != nil {
@@ -348,7 +369,7 @@ func (t *TxPublisher) initialBroadcast(req *BumpRequest) (*BumpResult, error) {
 
 	// Create the initial tx to be broadcasted. This tx is guaranteed to
 	// comply with the RBF restrictions.
-	requestID, err := t.createRBFCompliantTx(req, feeAlgo)
+	err = t.createRBFCompliantTx(requestID, req, feeAlgo)
 	if err != nil {
 		return nil, fmt.Errorf("create RBF-compliant tx: %w", err)
 	}
@@ -395,8 +416,8 @@ func (t *TxPublisher) initializeFeeFunction(
 // so by creating a tx, validate it using `TestMempoolAccept`, and bump its fee
 // and redo the process until the tx is valid, or return an error when non-RBF
 // related errors occur or the budget has been used up.
-func (t *TxPublisher) createRBFCompliantTx(req *BumpRequest,
-	f FeeFunction) (uint64, error) {
+func (t *TxPublisher) createRBFCompliantTx(requestID uint64, req *BumpRequest,
+	f FeeFunction) error {
 
 	for {
 		// Create a new tx with the given fee rate and check its
@@ -405,15 +426,15 @@ func (t *TxPublisher) createRBFCompliantTx(req *BumpRequest,
 
 		switch {
 		case err == nil:
-			// The tx is valid, return the request ID.
-			requestID := t.storeRecord(tx, req, f, fee)
+			// The tx is valid, store it.
+			t.storeRecord(requestID, tx, req, f, fee)
 
-			log.Infof("Created tx %v for %v inputs: feerate=%v, "+
-				"fee=%v, inputs=%v", tx.TxHash(),
+			log.Infof("Created initial sweep tx=%v for %v inputs: "+
+				"feerate=%v, fee=%v, inputs:\n%v", tx.TxHash(),
 				len(req.Inputs), f.FeeRate(), fee,
 				inputTypeSummary(req.Inputs))
 
-			return requestID, nil
+			return nil
 
 		// If the error indicates the fees paid is not enough, we will
 		// ask the fee function to increase the fee rate and retry.
@@ -444,7 +465,7 @@ func (t *TxPublisher) createRBFCompliantTx(req *BumpRequest,
 				// cluster these inputs differetly.
 				increased, err = f.Increment()
 				if err != nil {
-					return 0, err
+					return err
 				}
 			}
 
@@ -454,20 +475,14 @@ func (t *TxPublisher) createRBFCompliantTx(req *BumpRequest,
 		// mempool acceptance.
 		default:
 			log.Debugf("Failed to create RBF-compliant tx: %v", err)
-			return 0, err
+			return err
 		}
 	}
 }
 
 // storeRecord stores the given record in the records map.
-func (t *TxPublisher) storeRecord(tx *wire.MsgTx, req *BumpRequest,
-	f FeeFunction, fee btcutil.Amount) uint64 {
-
-	// Increase the request counter.
-	//
-	// NOTE: this is the only place where we increase the
-	// counter.
-	requestID := t.requestCounter.Add(1)
+func (t *TxPublisher) storeRecord(requestID uint64, tx *wire.MsgTx,
+	req *BumpRequest, f FeeFunction, fee btcutil.Amount) {
 
 	// Register the record.
 	t.records.Store(requestID, &monitorRecord{
@@ -476,8 +491,6 @@ func (t *TxPublisher) storeRecord(tx *wire.MsgTx, req *BumpRequest,
 		feeFunction: f,
 		fee:         fee,
 	})
-
-	return requestID
 }
 
 // createAndCheckTx creates a tx based on the given inputs, change output
@@ -592,8 +605,7 @@ func (t *TxPublisher) notifyResult(result *BumpResult) {
 		return
 	}
 
-	log.Debugf("Sending result for requestID=%v, tx=%v", id,
-		result.Tx.TxHash())
+	log.Debugf("Sending result %v for requestID=%v", result, id)
 
 	select {
 	// Send the result to the subscriber.
@@ -611,20 +623,24 @@ func (t *TxPublisher) notifyResult(result *BumpResult) {
 func (t *TxPublisher) removeResult(result *BumpResult) {
 	id := result.requestID
 
-	// Remove the record from the maps if there's an error. This means this
-	// tx has failed its broadcast and cannot be retried. There are two
-	// cases,
+	// Remove the record from the maps if there's an error or the tx is
+	// confirmed. When there's an error, it means this tx has failed its
+	// broadcast and cannot be retried. There are two cases,
 	// - when the budget cannot cover the fee.
-	// - when a non-RBF related error occurs.
+	// - when a non-fee related error returned from PublishTransaction.
 	switch result.Event {
 	case TxFailed:
 		log.Errorf("Removing monitor record=%v, tx=%v, due to err: %v",
 			id, result.Tx.TxHash(), result.Err)
 
 	case TxConfirmed:
-		// Remove the record is the tx is confirmed.
+		// Remove the record if the tx is confirmed.
 		log.Debugf("Removing confirmed monitor record=%v, tx=%v", id,
 			result.Tx.TxHash())
+
+	case TxError:
+		// Remove the record if there's an error.
+		log.Debugf("Removing monitor record=%v due to error", id)
 
 	// Do nothing if it's neither failed or confirmed.
 	default:
@@ -738,18 +754,27 @@ func (t *TxPublisher) processRecords() {
 	// confirmed.
 	confirmedRecords := make(map[uint64]*monitorRecord)
 
-	// feeBumpRecords stores a map of the records which need to be bumped.
+	// feeBumpRecords stores a map of records which need to be bumped.
 	feeBumpRecords := make(map[uint64]*monitorRecord)
 
-	// failedRecords stores a map of the records which has inputs being
-	// spent by a third party.
+	// failedRecords stores a map of records which has inputs being spent
+	// by a third party.
 	//
 	// NOTE: this is only used for neutrino backend.
 	failedRecords := make(map[uint64]*monitorRecord)
 
+	// initialRecords stores a map of records which are being created and
+	// published for the first time.
+	initialRecords := make(map[uint64]*monitorRecord)
+
 	// visitor is a helper closure that visits each record and divides them
 	// into two groups.
 	visitor := func(requestID uint64, r *monitorRecord) error {
+		if r.tx == nil {
+			initialRecords[requestID] = r
+			return nil
+		}
+
 		log.Tracef("Checking monitor recordID=%v for tx=%v", requestID,
 			r.tx.TxHash())
 
@@ -777,8 +802,14 @@ func (t *TxPublisher) processRecords() {
 		return nil
 	}
 
-	// Iterate through all the records and divide them into two groups.
+	// Iterate through all the records and divide them into four groups.
 	t.records.ForEach(visitor)
+
+	// Handle the initial broadcast.
+	for requestID, r := range initialRecords {
+		rec := r
+		t.handleInitialBroadcast(rec, requestID)
+	}
 
 	// For records that are confirmed, we'll notify the caller about this
 	// result.
@@ -832,6 +863,72 @@ func (t *TxPublisher) handleTxConfirmed(r *monitorRecord, requestID uint64) {
 	}
 
 	// Notify that this tx is confirmed and remove the record from the map.
+	t.handleResult(result)
+}
+
+// handleInitialBroadcast is called when a new request is received. It will
+// handle the initial tx creation and broadcast. In details,
+// 1. init a fee function based on the given strategy.
+// 2. create an RBF-compliant tx and monitor it for confirmation.
+// 3. notify the initial broadcast result back to the caller.
+func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord,
+	requestID uint64) {
+
+	log.Debugf("Initial broadcast for requestID=%v", requestID)
+
+	var (
+		result *BumpResult
+		err    error
+	)
+
+	// Attempt an initial broadcast which is guaranteed to comply with the
+	// RBF rules.
+	result, err = t.initialBroadcast(requestID, r.req)
+	if err != nil {
+		log.Errorf("Initial broadcast failed: %v", err)
+
+		// Create a tx so the caller knows which inputs have failed.
+		sweepTx := wire.NewMsgTx(2)
+		for _, o := range r.req.Inputs {
+			sweepTx.AddTxIn(&wire.TxIn{
+				PreviousOutPoint: o.OutPoint(),
+				Sequence:         o.BlocksToMaturity(),
+			})
+		}
+
+		// We now decide what type of event to send.
+		var event BumpEvent
+
+		switch {
+		// When the error is due to a dust output, we'll send a
+		// TxFailed so these inputs can be retried with a different
+		// group in the next block.
+		case errors.Is(err, ErrTxNoOutput):
+			event = TxFailed
+
+		// When the error is due to budget being used up, we'll send a
+		// TxFailed so these inputs can be retried with a different
+		// group in the next block.
+		case errors.Is(err, ErrMaxPosition):
+			event = TxFailed
+
+		// When the error is due to zero fee rate delta, we'll send a
+		// TxFailed so these inputs can be retried in the next block.
+		case errors.Is(err, ErrZeroFeeRateDelta):
+			event = TxFailed
+
+		default:
+			event = TxError
+		}
+
+		result = &BumpResult{
+			Event:     event,
+			Err:       err,
+			requestID: requestID,
+			Tx:        sweepTx,
+		}
+	}
+
 	t.handleResult(result)
 }
 

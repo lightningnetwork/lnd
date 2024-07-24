@@ -410,17 +410,14 @@ func testBlockEpochNotification(miner *rpctest.Harness,
 				// and that header matches the contained header
 				// hash.
 				blockEpoch := <-epochClient.Epochs
-				if blockEpoch.BlockHeader == nil {
-					t.Logf("%d", i)
-					clientErrors <- fmt.Errorf("block " +
-						"header is nil")
-					return
-				}
-				if blockEpoch.BlockHeader.BlockHash() !=
-					*blockEpoch.Hash {
+				t.Logf("%d", i)
 
-					clientErrors <- fmt.Errorf("block " +
-						"header hash mismatch")
+				got := blockEpoch.Block.Header.BlockHash()
+				want := *blockEpoch.Hash
+				if got != want {
+					clientErrors <- fmt.Errorf("block "+
+						"header hash mismatch: "+
+						"want=%v, got=%v", want, got)
 					return
 				}
 

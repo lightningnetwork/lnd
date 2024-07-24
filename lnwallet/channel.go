@@ -2632,18 +2632,16 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		// populating the skip sets and mutating the current chain
 		// state (crediting balances, etc) to reflect the
 		// settle/timeout entry encountered.
-		for _, entry := range view.updates.GetParty(party) {
-			switch entry.EntryType {
-			// Skip adds for now. They will be processed below.
-			case Add:
-				continue
-
-			// Skip fee updates because we've already dealt with
-			// them above.
-			case FeeUpdate:
-				continue
+		resolutions := fn.Filter(func(pd *paymentDescriptor) bool {
+			switch pd.EntryType {
+			case Settle, Fail, MalformedFail:
+				return true
+			default:
+				return false
 			}
+		}, view.updates.GetParty(party))
 
+		for _, entry := range resolutions {
 			addEntry, err := lc.fetchParent(
 				entry, whoseCommitChain, party.CounterParty(),
 			)
@@ -2669,13 +2667,12 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	// settled HTLCs, and debiting the chain state balance due to any newly
 	// added HTLCs.
 	for _, party := range parties {
-		for _, entry := range view.updates.GetParty(party) {
-			isAdd := entry.EntryType == Add
-			skipSet := skip.GetParty(party)
-			if skipSet.Contains(entry.HtlcIndex) || !isAdd {
-				continue
-			}
+		liveAdds := fn.Filter(func(pd *paymentDescriptor) bool {
+			return pd.EntryType == Add &&
+				!skip.GetParty(party).Contains(pd.HtlcIndex)
+		}, view.updates.GetParty(party))
 
+		for _, entry := range liveAdds {
 			// Skip the entries that have already had their add
 			// commit height set for this commit chain.
 			addHeights := &entry.addCommitHeights
@@ -2686,12 +2683,9 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 					whoseCommitChain, party,
 				)
 			}
-
-			prevUpdates := newView.updates.GetParty(party)
-			newView.updates.SetParty(
-				party, append(prevUpdates, entry),
-			)
 		}
+
+		newView.updates.SetParty(party, liveAdds)
 	}
 
 	// Create a function that is capable of identifying whether or not the

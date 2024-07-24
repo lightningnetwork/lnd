@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntest/unittest"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +37,7 @@ func randPubKeyHashScript() ([]byte, *btcec.PrivateKey, error) {
 	}
 
 	pubKeyHash := btcutil.Hash160(privKey.PubKey().SerializeCompressed())
-	addrScript, err := btcutil.NewAddressPubKeyHash(
+	addrScript, err := btcutil.NewAddressWitnessPubKeyHash(
 		pubKeyHash, unittest.NetParams,
 	)
 	if err != nil {
@@ -139,16 +140,26 @@ func CreateSpendTx(t *testing.T, prevOutPoint *wire.OutPoint,
 
 	t.Helper()
 
-	spendingTx := wire.NewMsgTx(1)
-	spendingTx.AddTxIn(&wire.TxIn{PreviousOutPoint: *prevOutPoint})
-	spendingTx.AddTxOut(&wire.TxOut{Value: 1e8, PkScript: prevOutput.PkScript})
+	// Create a new output.
+	outputAmt := int64(1e8)
+	witnessProgram, _, err := randPubKeyHashScript()
+	require.NoError(t, err, "unable to generate pkScript")
+	output := wire.NewTxOut(outputAmt, witnessProgram)
 
-	sigScript, err := txscript.SignatureScript(
-		spendingTx, 0, prevOutput.PkScript, txscript.SigHashAll,
-		privKey, true,
+	// Create a new tx.
+	tx := wire.NewMsgTx(2)
+	tx.AddTxIn(wire.NewTxIn(prevOutPoint, nil, nil))
+	tx.AddTxOut(output)
+
+	// Generate the witness.
+	sigHashes := input.NewTxSigHashesV0Only(tx)
+	witnessScript, err := txscript.WitnessSignature(
+		tx, sigHashes, 0, prevOutput.Value, prevOutput.PkScript,
+		txscript.SigHashAll, privKey, true,
 	)
 	require.NoError(t, err, "unable to sign tx")
-	spendingTx.TxIn[0].SignatureScript = sigScript
 
-	return spendingTx
+	tx.TxIn[0].Witness = witnessScript
+
+	return tx
 }

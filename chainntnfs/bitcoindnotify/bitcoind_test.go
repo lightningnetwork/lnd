@@ -93,6 +93,9 @@ func syncNotifierWithMiner(t *testing.T, notifier *BitcoindNotifier,
 				"height: %v", err)
 		}
 
+		t.Logf("miner height=%v, bitcoind height=%v", minerHeight,
+			bitcoindHeight)
+
 		if bitcoindHeight == minerHeight {
 			return uint32(bitcoindHeight)
 		}

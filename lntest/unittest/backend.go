@@ -59,6 +59,12 @@ func NewMiner(t *testing.T, netParams *chaincfg.Params, extraArgs []string,
 		t.Fatalf("unable to set up backend node: %v", err)
 	}
 
+	// Next mine enough blocks in order for segwit and the CSV package
+	// soft-fork to activate.
+	numBlocks := netParams.MinerConfirmationWindow*2 + 17
+	_, err = node.Client.Generate(numBlocks)
+	require.NoError(t, err, "failed to generate blocks")
+
 	return node
 }
 

@@ -2933,18 +2933,16 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 	for _, party := range parties {
 		// First we run through non-add entries in both logs,
 		// populating the skip sets.
-		for _, entry := range view.Updates.GetForParty(party) {
-			switch entry.EntryType {
-			// Skip adds for now. They will be processed below.
-			case Add:
-				continue
-
-			// Skip fee updates because we've already dealt with
-			// them above.
-			case FeeUpdate:
-				continue
+		resolutions := fn.Filter(func(pd *paymentDescriptor) bool {
+			switch pd.EntryType {
+			case Settle, Fail, MalformedFail:
+				return true
+			default:
+				return false
 			}
+		}, view.Updates.GetForParty(party))
 
+		for _, entry := range resolutions {
 			addEntry, err := lc.fetchParent(
 				entry, whoseCommitChain, party.CounterParty(),
 			)
@@ -2971,13 +2969,12 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 	// settled HTLCs, and debiting the chain state balance due to any newly
 	// added HTLCs.
 	for _, party := range parties {
-		for _, entry := range view.Updates.GetForParty(party) {
-			isAdd := entry.EntryType == Add
-			skipSet := skip.GetForParty(party)
-			if skipSet.Contains(entry.HtlcIndex) || !isAdd {
-				continue
-			}
+		liveAdds := fn.Filter(func(pd *paymentDescriptor) bool {
+			return pd.EntryType == Add &&
+				!skip.GetForParty(party).Contains(pd.HtlcIndex)
+		}, view.Updates.GetForParty(party))
 
+		for _, entry := range liveAdds {
 			// Skip the entries that have already had their add
 			// commit height set for this commit chain.
 			addHeight := entry.addCommitHeights.GetForParty(
@@ -2988,12 +2985,9 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 					entry, ourBalance, theirBalance, party,
 				)
 			}
-
-			prevUpdates := newView.Updates.GetForParty(party)
-			newView.Updates.SetForParty(
-				party, append(prevUpdates, entry),
-			)
 		}
+
+		newView.Updates.SetForParty(party, liveAdds)
 	}
 
 	// Create a function that is capable of identifying whether or not the

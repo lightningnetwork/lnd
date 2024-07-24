@@ -4578,16 +4578,15 @@ func (s *server) OpenChannel(
 		return req.Updates, req.Err
 	}
 
-	// If the fee rate wasn't specified, then we'll use a default
-	// confirmation target.
+	// If the fee rate wasn't specified at this point we fail the funding
+	// because of the missing fee rate information. The caller of the
+	// `OpenChannel` method needs to make sure that default values for the
+	// fee rate are set beforehand.
 	if req.FundingFeePerKw == 0 {
-		estimator := s.cc.FeeEstimator
-		feeRate, err := estimator.EstimateFeePerKW(6)
-		if err != nil {
-			req.Err <- err
-			return req.Updates, req.Err
-		}
-		req.FundingFeePerKw = feeRate
+		req.Err <- fmt.Errorf("no FundingFeePerKw specified for " +
+			"the channel opening transaction")
+
+		return req.Updates, req.Err
 	}
 
 	// Spawn a goroutine to send the funding workflow request to the funding

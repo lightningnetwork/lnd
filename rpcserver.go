@@ -5772,10 +5772,10 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	defaultDelta := r.cfg.Bitcoin.TimeLockDelta
 
 	blindingRestrictions := &routing.BlindedPathRestrictions{
-		MinDistanceFromIntroNode: r.server.cfg.Invoices.BlindedPaths.
+		MinDistanceFromIntroNode: r.server.cfg.Routing.BlindedPaths.
 			MinNumRealHops,
-		NumHops:     r.server.cfg.Invoices.BlindedPaths.NumHops,
-		MaxNumPaths: r.server.cfg.Invoices.BlindedPaths.MaxNumPaths,
+		NumHops:     r.server.cfg.Routing.BlindedPaths.NumHops,
+		MaxNumPaths: r.server.cfg.Routing.BlindedPaths.MaxNumPaths,
 	}
 
 	addInvoiceCfg := &invoicesrpc.AddInvoiceConfig{
@@ -5812,9 +5812,9 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		},
 		GetAlias:   r.server.aliasMgr.GetPeerAlias,
 		BestHeight: r.server.cc.BestBlockTracker.BestHeight,
-		BlindedRoutePolicyIncrMultiplier: r.server.cfg.Invoices.
+		BlindedRoutePolicyIncrMultiplier: r.server.cfg.Routing.
 			BlindedPaths.PolicyIncreaseMultiplier,
-		BlindedRoutePolicyDecrMultiplier: r.server.cfg.Invoices.
+		BlindedRoutePolicyDecrMultiplier: r.server.cfg.Routing.
 			BlindedPaths.PolicyDecreaseMultiplier,
 		QueryBlindedRoutes: func(amt lnwire.MilliSatoshi) (
 			[]*route.Route, error) {
@@ -5825,7 +5825,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 				blindingRestrictions,
 			)
 		},
-		MinNumHops: r.server.cfg.Invoices.BlindedPaths.NumHops,
+		MinNumHops: r.server.cfg.Routing.BlindedPaths.NumHops,
 	}
 
 	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)

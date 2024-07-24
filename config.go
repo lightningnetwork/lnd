@@ -680,6 +680,8 @@ func DefaultConfig() Config {
 		},
 		Invoices: &lncfg.Invoices{
 			HoldExpiryDelta: lncfg.DefaultHoldInvoiceExpiryDelta,
+		},
+		Routing: &lncfg.Routing{
 			BlindedPaths: lncfg.BlindedPaths{
 				MinNumRealHops:           lncfg.DefaultMinNumRealBlindedPathHops,
 				NumHops:                  lncfg.DefaultNumBlindedPathHops,
@@ -1686,6 +1688,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.Sweeper,
 		cfg.Htlcswitch,
 		cfg.Invoices,
+		cfg.Routing,
 	)
 	if err != nil {
 		return nil, err

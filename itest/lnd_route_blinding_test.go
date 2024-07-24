@@ -367,8 +367,8 @@ func (b *blindedForwardTest) setupNetwork(ctx context.Context,
 	// Bob to himself.
 	b.dave = b.ht.NewNode("Dave", []string{
 		"--bitcoin.timelockdelta=18",
-		"--invoices.blinding.min-num-real-hops=2",
-		"--invoices.blinding.num-hops=2",
+		"--routing.blinding.min-num-real-hops=2",
+		"--routing.blinding.num-hops=2",
 	})
 
 	b.channels = setupFourHopNetwork(b.ht, b.carol, b.dave)
@@ -625,8 +625,8 @@ func testBlindedRouteInvoices(ht *lntest.HarnessTest) {
 	// Restart Dave with blinded path restrictions that will result in him
 	// creating a blinded path that uses himself as the introduction node.
 	ht.RestartNodeWithExtraArgs(testCase.dave, []string{
-		"--invoices.blinding.min-num-real-hops=0",
-		"--invoices.blinding.num-hops=0",
+		"--routing.blinding.min-num-real-hops=0",
+		"--routing.blinding.num-hops=0",
 	})
 	ht.EnsureConnected(testCase.dave, testCase.carol)
 
@@ -901,8 +901,8 @@ func testMPPToSingleBlindedPath(ht *lntest.HarnessTest) {
 	// Restrict Dave so that he only ever chooses the Carol->Dave path for
 	// a blinded route.
 	dave := ht.NewNode("dave", []string{
-		"--invoices.blinding.min-num-real-hops=1",
-		"--invoices.blinding.num-hops=1",
+		"--routing.blinding.min-num-real-hops=1",
+		"--routing.blinding.num-hops=1",
 	})
 	carol := ht.NewNode("carol", nil)
 	eve := ht.NewNode("eve", nil)
@@ -1098,8 +1098,8 @@ func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
 	// Configure Dave so that all blinded paths always contain 2 hops and
 	// so that there is no minimum number of real hops.
 	dave := ht.NewNode("dave", []string{
-		"--invoices.blinding.min-num-real-hops=0",
-		"--invoices.blinding.num-hops=2",
+		"--routing.blinding.min-num-real-hops=0",
+		"--routing.blinding.num-hops=2",
 	})
 
 	ht.EnsureConnected(alice, bob)
@@ -1183,8 +1183,8 @@ func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
 	// of hops to 2 meaning that one dummy hop should be added.
 	ht.RestartNodeWithExtraArgs(carol, nil)
 	ht.RestartNodeWithExtraArgs(dave, []string{
-		"--invoices.blinding.min-num-real-hops=1",
-		"--invoices.blinding.num-hops=2",
+		"--routing.blinding.min-num-real-hops=1",
+		"--routing.blinding.num-hops=2",
 	})
 	ht.EnsureConnected(bob, carol)
 	ht.EnsureConnected(carol, dave)

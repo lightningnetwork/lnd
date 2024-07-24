@@ -884,7 +884,9 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 // The following graph is created where Dave is the destination node, and he
 // will choose Carol as the introduction node. The channel capacities are set in
 // such a way that Alice will have to split the payment to dave over both the
-// A->B->C-D and A->E->C->D routes.
+// A->B->C-D and A->E->C->D routes. The Carol-Dave channel will also be made
+// a private channel so that we can test that Dave's private channels are in
+// fact being used in the chosen blinded paths.
 //
 //		    ---- Bob ---
 //	          /		\
@@ -953,24 +955,32 @@ func testMPPToSingleBlindedPath(ht *lntest.HarnessTest) {
 			},
 		},
 		{
+			// Note that this is a private channel.
 			Local:  carol,
 			Remote: dave,
 			Param: lntest.OpenChannelParams{
-				Amt: paymentAmt * 2,
+				Amt:     paymentAmt * 2,
+				Private: true,
 			},
 		},
 	}
 
 	channelPoints := ht.OpenMultiChannelsAsync(reqs)
 
-	// Make sure every node has heard about every channel.
+	// Make sure every node has heard about every public channel.
 	for _, hn := range nodes {
-		for _, cp := range channelPoints {
+		var numPublic int
+		for i, cp := range channelPoints {
+			if reqs[i].Param.Private {
+				continue
+			}
+
+			numPublic++
 			ht.AssertTopologyChannelOpen(hn, cp)
 		}
 
-		// Each node should have exactly 5 edges.
-		ht.AssertNumEdges(hn, len(channelPoints), false)
+		// Each node should have exactly numPublic edges.
+		ht.AssertNumEdges(hn, numPublic, false)
 	}
 
 	// Make Dave create an invoice with a blinded path for Alice to pay.

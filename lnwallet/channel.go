@@ -2417,9 +2417,8 @@ func HtlcIsDust(chanType channeldb.ChannelType,
 // htlcView represents the "active" HTLCs at a particular point within the
 // history of the HTLC update log.
 type htlcView struct {
-	ourUpdates   []*paymentDescriptor
-	theirUpdates []*paymentDescriptor
-	feePerKw     chainfee.SatPerKWeight
+	updates  lntypes.Dual[[]*paymentDescriptor]
+	feePerKw chainfee.SatPerKWeight
 }
 
 // fetchHTLCView returns all the candidate HTLC updates which should be
@@ -2451,8 +2450,10 @@ func (lc *LightningChannel) fetchHTLCView(theirLogIndex, ourLogIndex uint64) *ht
 	}
 
 	return &htlcView{
-		ourUpdates:   ourHTLCs,
-		theirUpdates: theirHTLCs,
+		updates: lntypes.Dual[[]*paymentDescriptor]{
+			Local:  ourHTLCs,
+			Remote: theirHTLCs,
+		},
 	}
 }
 
@@ -2549,12 +2550,16 @@ func (lc *LightningChannel) fetchCommitmentView(
 	// In order to ensure _none_ of the HTLC's associated with this new
 	// commitment are mutated, we'll manually copy over each HTLC to its
 	// respective slice.
-	c.outgoingHTLCs = make([]paymentDescriptor, len(filteredHTLCView.ourUpdates))
-	for i, htlc := range filteredHTLCView.ourUpdates {
+	c.outgoingHTLCs = make(
+		[]paymentDescriptor, len(filteredHTLCView.updates.Local),
+	)
+	for i, htlc := range filteredHTLCView.updates.Local {
 		c.outgoingHTLCs[i] = *htlc
 	}
-	c.incomingHTLCs = make([]paymentDescriptor, len(filteredHTLCView.theirUpdates))
-	for i, htlc := range filteredHTLCView.theirUpdates {
+	c.incomingHTLCs = make(
+		[]paymentDescriptor, len(filteredHTLCView.updates.Remote),
+	)
+	for i, htlc := range filteredHTLCView.updates.Remote {
 		c.incomingHTLCs[i] = *htlc
 	}
 
@@ -2609,7 +2614,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	// First we run through non-add entries in both logs, populating the
 	// skip sets and mutating the current chain state (crediting balances,
 	// etc) to reflect the settle/timeout entry encountered.
-	for _, entry := range view.ourUpdates {
+	for _, entry := range view.updates.Local {
 		switch entry.EntryType {
 		// Skip adds for now. They will be processed below.
 		case Add:
@@ -2650,7 +2655,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	}
 
 	// Do the same for our peer's updates.
-	for _, entry := range view.theirUpdates {
+	for _, entry := range view.updates.Remote {
 		switch entry.EntryType {
 		// Skip adds for now. They will be processed below.
 		case Add:
@@ -2693,7 +2698,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 	// Next we take a second pass through all the log entries, skipping any
 	// settled HTLCs, and debiting the chain state balance due to any newly
 	// added HTLCs.
-	for _, entry := range view.ourUpdates {
+	for _, entry := range view.updates.Local {
 		isAdd := entry.EntryType == Add
 		if skipUs.Contains(entry.HtlcIndex) || !isAdd {
 			continue
@@ -2710,11 +2715,11 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			)
 		}
 
-		newView.ourUpdates = append(newView.ourUpdates, entry)
+		newView.updates.Local = append(newView.updates.Local, entry)
 	}
 
 	// Again, we do the same for our peer's updates.
-	for _, entry := range view.theirUpdates {
+	for _, entry := range view.updates.Remote {
 		isAdd := entry.EntryType == Add
 		if skipThem.Contains(entry.HtlcIndex) || !isAdd {
 			continue
@@ -2731,7 +2736,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			)
 		}
 
-		newView.theirUpdates = append(newView.theirUpdates, entry)
+		newView.updates.Remote = append(newView.updates.Remote, entry)
 	}
 
 	// Create a function that is capable of identifying whether or not the
@@ -2756,10 +2761,12 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 
 	// Collect all of the updates that haven't had their commit heights sent
 	// for the commitment chain corresponding to whoseCommitmentChain.
-	uncommittedUpdates := lntypes.Dual[[]*paymentDescriptor]{
-		Local:  fn.Filter(isUncommitted, view.ourUpdates),
-		Remote: fn.Filter(isUncommitted, view.theirUpdates),
-	}
+	uncommittedUpdates := lntypes.MapDual(
+		func(us []*paymentDescriptor) []*paymentDescriptor {
+			return fn.Filter(isUncommitted, us)
+		},
+		view.updates,
+	)
 
 	return newView, uncommittedUpdates, nil
 }
@@ -3326,10 +3333,12 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	// appropriate update log, in order to validate the sanity of the
 	// commitment resulting from _actually adding_ this HTLC to the state.
 	if predictOurAdd != nil {
-		view.ourUpdates = append(view.ourUpdates, predictOurAdd)
+		view.updates.Local = append(view.updates.Local, predictOurAdd)
 	}
 	if predictTheirAdd != nil {
-		view.theirUpdates = append(view.theirUpdates, predictTheirAdd)
+		view.updates.Remote = append(
+			view.updates.Remote, predictTheirAdd,
+		)
 	}
 
 	ourBalance, theirBalance, commitWeight, filteredView, err := lc.computeView(
@@ -3484,7 +3493,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	// First check that the remote updates won't violate it's channel
 	// constraints.
 	err = validateUpdates(
-		filteredView.theirUpdates, &lc.channelState.RemoteChanCfg,
+		filteredView.updates.Remote, &lc.channelState.RemoteChanCfg,
 	)
 	if err != nil {
 		return err
@@ -3493,7 +3502,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	// Secondly check that our updates won't violate our channel
 	// constraints.
 	err = validateUpdates(
-		filteredView.ourUpdates, &lc.channelState.LocalChanCfg,
+		filteredView.updates.Local, &lc.channelState.LocalChanCfg,
 	)
 	if err != nil {
 		return err
@@ -4221,7 +4230,7 @@ func (lc *LightningChannel) computeView(view *htlcView,
 	// Now go through all HTLCs at this stage, to calculate the total
 	// weight, needed to calculate the transaction fee.
 	var totalHtlcWeight lntypes.WeightUnit
-	for _, htlc := range filteredHTLCView.ourUpdates {
+	for _, htlc := range filteredHTLCView.updates.Local {
 		if HtlcIsDust(
 			lc.channelState.ChanType, false, whoseCommitChain,
 			feePerKw, htlc.Amount.ToSatoshis(), dustLimit,
@@ -4232,7 +4241,7 @@ func (lc *LightningChannel) computeView(view *htlcView,
 
 		totalHtlcWeight += input.HTLCWeight
 	}
-	for _, htlc := range filteredHTLCView.theirUpdates {
+	for _, htlc := range filteredHTLCView.updates.Remote {
 		if HtlcIsDust(
 			lc.channelState.ChanType, true, whoseCommitChain,
 			feePerKw, htlc.Amount.ToSatoshis(), dustLimit,

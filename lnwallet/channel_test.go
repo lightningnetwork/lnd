@@ -8574,9 +8574,11 @@ func TestEvaluateView(t *testing.T) {
 			}
 
 			view := &htlcView{
-				ourUpdates:   test.ourHtlcs,
-				theirUpdates: test.theirHtlcs,
-				feePerKw:     feePerKw,
+				updates: lntypes.Dual[[]*paymentDescriptor]{
+					Local:  test.ourHtlcs,
+					Remote: test.theirHtlcs,
+				},
+				feePerKw: feePerKw,
 			}
 
 			var (
@@ -8664,11 +8666,12 @@ func TestEvaluateView(t *testing.T) {
 			}
 
 			checkExpectedHtlcs(
-				t, result.ourUpdates, test.ourExpectedHtlcs,
+				t, result.updates.Local, test.ourExpectedHtlcs,
 			)
 
 			checkExpectedHtlcs(
-				t, result.theirUpdates, test.theirExpectedHtlcs,
+				t, result.updates.Remote,
+				test.theirExpectedHtlcs,
 			)
 
 			if lc.channelState.TotalMSatSent != test.expectSent {

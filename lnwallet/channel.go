@@ -2789,6 +2789,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 		FeePerKw:   view.FeePerKw,
 		NextHeight: nextHeight,
 	}
+	noUncommitted := lntypes.Dual[[]*paymentDescriptor]{}
 
 	// The fee rate of our view is always the last UpdateFee message from
 	// the channel's OpeningParty.
@@ -2806,115 +2807,77 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 	// keep track of which entries we need to skip when creating the final
 	// htlc view. We skip an entry whenever we find a settle or a timeout
 	// modifying an entry.
-	skipUs := fn.NewSet[uint64]()
-	skipThem := fn.NewSet[uint64]()
-
-	// First we run through non-add entries in both logs, populating the
-	// skip sets and mutating the current chain state (crediting balances,
-	// etc) to reflect the settle/timeout entry encountered.
-	for _, entry := range view.Updates.Local {
-		switch entry.EntryType {
-		// Skip adds for now. They will be processed below.
-		case Add:
-			continue
-
-		// Skip fee updates because we've already dealt with them above.
-		case FeeUpdate:
-			continue
-		}
-
-		addEntry, err := lc.fetchParent(
-			entry, whoseCommitChain, lntypes.Remote,
-		)
-		if err != nil {
-			return nil, lntypes.Dual[[]*paymentDescriptor]{}, err
-		}
-
-		skipThem.Add(addEntry.HtlcIndex)
-
-		rmvHeights := &entry.removeCommitHeights
-		rmvHeight := rmvHeights.GetForParty(whoseCommitChain)
-		if rmvHeight == 0 {
-			processRemoveEntry(
-				entry, ourBalance, theirBalance,
-				whoseCommitChain, lntypes.Remote,
-			)
-		}
+	skip := lntypes.Dual[fn.Set[uint64]]{
+		Local:  fn.NewSet[uint64](),
+		Remote: fn.NewSet[uint64](),
 	}
 
-	// Do the same for our peer's updates.
-	for _, entry := range view.Updates.Remote {
-		switch entry.EntryType {
-		// Skip adds for now. They will be processed below.
-		case Add:
-			continue
+	parties := [2]lntypes.ChannelParty{lntypes.Local, lntypes.Remote}
+	for _, party := range parties {
+		// First we run through non-add entries in both logs,
+		// populating the skip sets and mutating the current chain
+		// state (crediting balances, etc) to reflect the
+		// settle/timeout entry encountered.
+		for _, entry := range view.Updates.GetForParty(party) {
+			switch entry.EntryType {
+			// Skip adds for now. They will be processed below.
+			case Add:
+				continue
 
-		// Skip fee updates because we've already dealt with them above.
-		case FeeUpdate:
-			continue
-		}
+			// Skip fee updates because we've already dealt with
+			// them above.
+			case FeeUpdate:
+				continue
+			}
 
-		addEntry, err := lc.fetchParent(
-			entry, whoseCommitChain, lntypes.Local,
-		)
-		if err != nil {
-			return nil, lntypes.Dual[[]*paymentDescriptor]{}, err
-		}
-
-		skipUs.Add(addEntry.HtlcIndex)
-
-		rmvHeights := &entry.removeCommitHeights
-		rmvHeight := rmvHeights.GetForParty(whoseCommitChain)
-		if rmvHeight == 0 {
-			processRemoveEntry(
-				entry, ourBalance, theirBalance,
-				whoseCommitChain, lntypes.Local,
+			addEntry, err := lc.fetchParent(
+				entry, whoseCommitChain, party.CounterParty(),
 			)
+			if err != nil {
+				return nil, noUncommitted, err
+			}
+
+			skipSet := skip.GetForParty(party.CounterParty())
+			skipSet.Add(addEntry.HtlcIndex)
+
+			rmvHeights := &entry.removeCommitHeights
+			rmvHeight := rmvHeights.GetForParty(whoseCommitChain)
+			if rmvHeight == 0 {
+				processRemoveEntry(
+					entry, ourBalance, theirBalance,
+					whoseCommitChain, party.CounterParty(),
+				)
+			}
 		}
 	}
 
 	// Next we take a second pass through all the log entries, skipping any
 	// settled HTLCs, and debiting the chain state balance due to any newly
 	// added HTLCs.
-	for _, entry := range view.Updates.Local {
-		isAdd := entry.EntryType == Add
-		if skipUs.Contains(entry.HtlcIndex) || !isAdd {
-			continue
-		}
+	for _, party := range parties {
+		for _, entry := range view.Updates.GetForParty(party) {
+			isAdd := entry.EntryType == Add
+			skipSet := skip.GetForParty(party)
+			if skipSet.Contains(entry.HtlcIndex) || !isAdd {
+				continue
+			}
 
-		// Skip the entries that have already had their add commit
-		// height set for this commit chain.
-		addHeights := &entry.addCommitHeights
-		addHeight := addHeights.GetForParty(whoseCommitChain)
-		if addHeight == 0 {
-			processAddEntry(
-				entry, ourBalance, theirBalance,
-				whoseCommitChain, lntypes.Local,
+			// Skip the entries that have already had their add
+			// commit height set for this commit chain.
+			addHeights := &entry.addCommitHeights
+			addHeight := addHeights.GetForParty(whoseCommitChain)
+			if addHeight == 0 {
+				processAddEntry(
+					entry, ourBalance, theirBalance,
+					whoseCommitChain, party,
+				)
+			}
+
+			prevUpdates := newView.Updates.GetForParty(party)
+			newView.Updates.SetForParty(
+				party, append(prevUpdates, entry),
 			)
 		}
-
-		newView.Updates.Local = append(newView.Updates.Local, entry)
-	}
-
-	// Again, we do the same for our peer's updates.
-	for _, entry := range view.Updates.Remote {
-		isAdd := entry.EntryType == Add
-		if skipThem.Contains(entry.HtlcIndex) || !isAdd {
-			continue
-		}
-
-		// Skip the entries that have already had their add commit
-		// height set for this commit chain.
-		addHeights := &entry.addCommitHeights
-		addHeight := addHeights.GetForParty(whoseCommitChain)
-		if addHeight == 0 {
-			processAddEntry(
-				entry, ourBalance, theirBalance,
-				whoseCommitChain, lntypes.Remote,
-			)
-		}
-
-		newView.Updates.Remote = append(newView.Updates.Remote, entry)
 	}
 
 	// Create a function that is capable of identifying whether or not the

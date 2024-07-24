@@ -33,6 +33,9 @@
   created](https://github.com/lightningnetwork/lnd/pull/8921) when multiple RPC
   calls are made concurrently.
 
+* [Uses the openchannel sync call](https://github.com/lightningnetwork/lnd/pull/8934)
+ when opening a channel via the `lncli` in the non-blocking case.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

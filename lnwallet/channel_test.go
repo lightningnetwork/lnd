@@ -8477,6 +8477,7 @@ func TestEvaluateView(t *testing.T) {
 		name             string
 		ourHtlcs         []*paymentDescriptor
 		theirHtlcs       []*paymentDescriptor
+		channelInitiator lntypes.ChannelParty
 		whoseCommitChain lntypes.ChannelParty
 		mutateState      bool
 
@@ -8506,6 +8507,7 @@ func TestEvaluateView(t *testing.T) {
 	}{
 		{
 			name:             "our fee update is applied",
+			channelInitiator: lntypes.Local,
 			whoseCommitChain: lntypes.Local,
 			mutateState:      false,
 			ourHtlcs: []*paymentDescriptor{
@@ -8523,6 +8525,7 @@ func TestEvaluateView(t *testing.T) {
 		},
 		{
 			name:             "their fee update is applied",
+			channelInitiator: lntypes.Remote,
 			whoseCommitChain: lntypes.Local,
 			mutateState:      false,
 			ourHtlcs:         []*paymentDescriptor{},
@@ -8738,8 +8741,10 @@ func TestEvaluateView(t *testing.T) {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
+			isInitiator := test.channelInitiator == lntypes.Local
 			lc := LightningChannel{
 				channelState: &channeldb.OpenChannel{
+					IsInitiator:       isInitiator,
 					TotalMSatSent:     0,
 					TotalMSatReceived: 0,
 				},

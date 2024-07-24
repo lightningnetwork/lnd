@@ -2604,6 +2604,18 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		feePerKw: view.feePerKw,
 	}
 
+	// The fee rate of our view is always the last UpdateFee message from
+	// the channel's OpeningParty.
+	openerUpdates := view.updates.GetParty(lc.channelState.Initiator())
+	feeUpdates := fn.Filter(func(u *paymentDescriptor) bool {
+		return u.EntryType == FeeUpdate
+	}, openerUpdates)
+	if len(feeUpdates) > 0 {
+		newView.feePerKw = chainfee.SatPerKWeight(
+			feeUpdates[len(feeUpdates)-1].Amount.ToSatoshis(),
+		)
+	}
+
 	// We use two maps, one for the local log and one for the remote log to
 	// keep track of which entries we need to skip when creating the final
 	// htlc view. We skip an entry whenever we find a settle or a timeout
@@ -2620,18 +2632,8 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		case Add:
 			continue
 
-		// Process fee updates, updating the current feePerKw.
+		// Skip fee updates because we've already dealt with them above.
 		case FeeUpdate:
-			h := entry.addCommitHeights.GetParty(whoseCommitChain)
-
-			if h == 0 {
-				// If the update wasn't already locked in,
-				// update the current fee rate to reflect this
-				// update.
-				newView.feePerKw = chainfee.SatPerKWeight(
-					entry.Amount.ToSatoshis(),
-				)
-			}
 			continue
 		}
 
@@ -2661,18 +2663,8 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 		case Add:
 			continue
 
-		// Process fee updates, updating the current feePerKw.
+		// Skip fee updates because we've already dealt with them above.
 		case FeeUpdate:
-			h := entry.addCommitHeights.GetParty(whoseCommitChain)
-
-			if h == 0 {
-				// If the update wasn't already locked in,
-				// update the current fee rate to reflect this
-				// update.
-				newView.feePerKw = chainfee.SatPerKWeight(
-					entry.Amount.ToSatoshis(),
-				)
-			}
 			continue
 		}
 

@@ -48,7 +48,7 @@ jobs:
         run: rm -rf /opt/hostedtoolcache
 
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
@@ -74,7 +74,7 @@ jobs:
         run: rm -rf /opt/hostedtoolcache
 
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
@@ -105,7 +105,7 @@ jobs:
         run: rm -rf /opt/hostedtoolcache
 
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -131,7 +131,7 @@ jobs:
         run: rm -rf /opt/hostedtoolcache
 
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -174,7 +174,7 @@ jobs:
         run: rm -rf /opt/hostedtoolcache
 
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
@@ -197,7 +197,7 @@ jobs:
         run: rm -rf /opt/hostedtoolcache
 
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
@@ -230,7 +230,7 @@ jobs:
         run: rm -rf /opt/hostedtoolcache
 
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -239,7 +239,7 @@ jobs:
         uses: ./.github/actions/rebase
 
       - name: git checkout fuzzing seeds
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: lightninglabs/lnd-fuzz
           path: lnd-fuzz
@@ -293,7 +293,7 @@ jobs:
         run: rm -rf /opt/hostedtoolcache
 
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -360,7 +360,7 @@ jobs:
             args: backend=bitcoind dbbackend=postgres nativesql=true
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -411,7 +411,7 @@ jobs:
     if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -455,7 +455,7 @@ jobs:
     if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -504,7 +504,7 @@ jobs:
         run: rm -rf /opt/hostedtoolcache
 
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: ensure dependencies at correct version
         run: if ! grep -q "${{ matrix.pinned_dep }}" go.mod; then echo dependency ${{ matrix.pinned_dep }} should not be altered ; exit 1 ; fi
@@ -521,7 +521,7 @@ jobs:
         run: rm -rf /opt/hostedtoolcache
 
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: release notes check
         run: scripts/check-release-notes.sh

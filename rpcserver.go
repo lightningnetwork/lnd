@@ -1356,8 +1356,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// transaction that will sweep ALL outputs from the wallet in a
 		// single transaction. This will be generated in a concurrent
 		// safe manner, so no need to worry about locking. The tx will
-		// pay to the change address created above if we needed to
-		// reserve any value, the rest will go to targetAddr.
+		// pay everything to targetAddr.
 		sweepTxPkg, err := sweep.CraftSweepAllTx(
 			feePerKw, maxFeeRate, uint32(bestHeight), nil,
 			targetAddr, wallet, wallet, wallet.WalletController,

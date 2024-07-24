@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing"
@@ -473,7 +474,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	}
 
 	log.Tracef("[addinvoice] adding new invoice %v",
-		newLogClosure(func() string {
+		lnutils.NewLogClosure(func() string {
 			return spew.Sdump(newInvoice)
 		}),
 	)

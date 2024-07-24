@@ -7,6 +7,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnutils"
 )
 
 // ChannelRestorer is an interface that allows the Recover method to map the
@@ -63,7 +64,7 @@ func Recover(backups []Single, restorer ChannelRestorer,
 		log.Infof("Attempting to connect to node=%x (addrs=%v) to "+
 			"restore ChannelPoint(%v)",
 			backup.RemoteNodePub.SerializeCompressed(),
-			newLogClosure(func() string {
+			lnutils.NewLogClosure(func() string {
 				return spew.Sdump(backups[i].Addresses)
 			}), backup.FundingOutpoint)
 

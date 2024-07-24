@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -2536,10 +2537,10 @@ func (l *channelLink) updateCommitTx() error {
 		l.log.Tracef("revocation window exhausted, unable to send: "+
 			"%v, pend_updates=%v, dangling_closes%v",
 			l.channel.PendingLocalUpdateCount(),
-			newLogClosure(func() string {
+			lnutils.NewLogClosure(func() string {
 				return spew.Sdump(l.openedCircuits)
 			}),
-			newLogClosure(func() string {
+			lnutils.NewLogClosure(func() string {
 				return spew.Sdump(l.closedCircuits)
 			}),
 		)

@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -732,9 +733,10 @@ justiceTxBroadcast:
 	}
 	finalTx := justiceTxs.spendAll
 
-	brarLog.Debugf("Broadcasting justice tx: %v", newLogClosure(func() string {
-		return spew.Sdump(finalTx)
-	}))
+	brarLog.Debugf("Broadcasting justice tx: %v", lnutils.NewLogClosure(
+		func() string {
+			return spew.Sdump(finalTx)
+		}))
 
 	// We'll now attempt to broadcast the transaction which finalized the
 	// channel's retribution against the cheating counter party.
@@ -857,7 +859,7 @@ Loop:
 
 				brarLog.Debugf("Broadcasting justice tx "+
 					"spending commitment outs: %v",
-					newLogClosure(func() string {
+					lnutils.NewLogClosure(func() string {
 						return spew.Sdump(tx)
 					}))
 
@@ -874,7 +876,7 @@ Loop:
 
 				brarLog.Debugf("Broadcasting justice tx "+
 					"spending HTLC outs: %v",
-					newLogClosure(func() string {
+					lnutils.NewLogClosure(func() string {
 						return spew.Sdump(tx)
 					}))
 
@@ -891,7 +893,7 @@ Loop:
 
 				brarLog.Debugf("Broadcasting justice tx "+
 					"spending second-level HTLC output: %v",
-					newLogClosure(func() string {
+					lnutils.NewLogClosure(func() string {
 						return spew.Sdump(tx)
 					}))
 

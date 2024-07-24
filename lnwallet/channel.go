@@ -29,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -1869,7 +1870,7 @@ func (lc *LightningChannel) restoreCommitState(
 	lc.localCommitChain.addCommitment(localCommit)
 
 	lc.log.Tracef("starting local commitment: %v",
-		newLogClosure(func() string {
+		lnutils.NewLogClosure(func() string {
 			return spew.Sdump(lc.localCommitChain.tail())
 		}),
 	)
@@ -1885,7 +1886,7 @@ func (lc *LightningChannel) restoreCommitState(
 	lc.remoteCommitChain.addCommitment(remoteCommit)
 
 	lc.log.Tracef("starting remote commitment: %v",
-		newLogClosure(func() string {
+		lnutils.NewLogClosure(func() string {
 			return spew.Sdump(lc.remoteCommitChain.tail())
 		}),
 	)
@@ -1920,7 +1921,7 @@ func (lc *LightningChannel) restoreCommitState(
 		lc.remoteCommitChain.addCommitment(pendingRemoteCommit)
 
 		lc.log.Debugf("pending remote commitment: %v",
-			newLogClosure(func() string {
+			lnutils.NewLogClosure(func() string {
 				return spew.Sdump(lc.remoteCommitChain.tip())
 			}),
 		)
@@ -3245,9 +3246,9 @@ func (lc *LightningChannel) fetchParent(entry *PaymentDescriptor,
 		return nil, fmt.Errorf("unable to find parent entry "+
 			"%d in %v update log: %v\nUpdatelog: %v",
 			entry.ParentIndex, logName,
-			newLogClosure(func() string {
+			lnutils.NewLogClosure(func() string {
 				return spew.Sdump(entry)
-			}), newLogClosure(func() string {
+			}), lnutils.NewLogClosure(func() string {
 				return spew.Sdump(updateLog)
 			}),
 		)
@@ -4249,7 +4250,7 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 		"their_balance=%v, commit_tx: %v",
 		newCommitView.ourBalance,
 		newCommitView.theirBalance,
-		newLogClosure(func() string {
+		lnutils.NewLogClosure(func() string {
 			return spew.Sdump(newCommitView.txn)
 		}),
 	)
@@ -5209,7 +5210,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 	lc.log.Tracef("local chain: our_balance=%v, "+
 		"their_balance=%v, commit_tx: %v",
 		localCommitmentView.ourBalance, localCommitmentView.theirBalance,
-		newLogClosure(func() string {
+		lnutils.NewLogClosure(func() string {
 			return spew.Sdump(localCommitmentView.txn)
 		}),
 	)

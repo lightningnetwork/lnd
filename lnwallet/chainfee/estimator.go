@@ -15,6 +15,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/lightningnetwork/lnd/lnutils"
 )
 
 const (
@@ -1004,7 +1005,7 @@ func (w *WebAPIEstimator) updateFeeEstimates() {
 		return
 	}
 
-	log.Debugf("Received response from source: %s", newLogClosure(
+	log.Debugf("Received response from source: %s", lnutils.NewLogClosure(
 		func() string {
 			resp, _ := json.Marshal(resp)
 			return string(resp)

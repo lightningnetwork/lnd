@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/graph"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -432,7 +433,7 @@ func (p *paymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate,
 	policy.FeeProportionalMillionths = lnwire.MilliSatoshi(msg.FeeRate)
 
 	log.Debugf("New private channel update applied: %v",
-		newLogClosure(func() string { return spew.Sdump(msg) }))
+		lnutils.NewLogClosure(func() string { return spew.Sdump(msg) }))
 
 	return true
 }

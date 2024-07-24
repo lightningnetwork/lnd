@@ -313,7 +313,7 @@ func (t *TxPublisher) isNeutrinoBackend() bool {
 //
 // NOTE: part of the Bumper interface.
 func (t *TxPublisher) Broadcast(req *BumpRequest) (<-chan *BumpResult, error) {
-	log.Tracef("Received broadcast request: %s", newLogClosure(
+	log.Tracef("Received broadcast request: %s", lnutils.NewLogClosure(
 		func() string {
 			return spew.Sdump(req)
 		})())

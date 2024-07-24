@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -869,7 +870,7 @@ func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
 		// With the closing transaction crafted, we'll now broadcast it
 		// to the network.
 		chancloserLog.Infof("Broadcasting cooperative close tx: %v",
-			newLogClosure(func() string {
+			lnutils.NewLogClosure(func() string {
 				return spew.Sdump(closeTx)
 			}),
 		)

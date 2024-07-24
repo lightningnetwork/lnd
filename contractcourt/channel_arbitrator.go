@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -465,7 +466,7 @@ func (c *ChannelArbitrator) Start(state *chanArbStartState) error {
 	}
 
 	log.Debugf("Starting ChannelArbitrator(%v), htlc_set=%v, state=%v",
-		c.cfg.ChanPoint, newLogClosure(func() string {
+		c.cfg.ChanPoint, lnutils.NewLogClosure(func() string {
 			return spew.Sdump(c.activeHTLCs)
 		}), state.currentState,
 	)
@@ -959,7 +960,7 @@ func (c *ChannelArbitrator) stateStep(
 		// commitment transaction has already been broadcast.
 		log.Tracef("ChannelArbitrator(%v): logging chain_actions=%v",
 			c.cfg.ChanPoint,
-			newLogClosure(func() string {
+			lnutils.NewLogClosure(func() string {
 				return spew.Sdump(chainActions)
 			}))
 
@@ -1097,7 +1098,7 @@ func (c *ChannelArbitrator) stateStep(
 		log.Infof("Broadcasting force close transaction %v, "+
 			"ChannelPoint(%v): %v", closeTx.TxHash(),
 			c.cfg.ChanPoint,
-			newLogClosure(func() string {
+			lnutils.NewLogClosure(func() string {
 				return spew.Sdump(closeTx)
 			}))
 
@@ -1224,7 +1225,7 @@ func (c *ChannelArbitrator) stateStep(
 		if len(pktsToSend) != 0 {
 			log.Debugf("ChannelArbitrator(%v): sending "+
 				"resolution message=%v", c.cfg.ChanPoint,
-				newLogClosure(func() string {
+				lnutils.NewLogClosure(func() string {
 					return spew.Sdump(pktsToSend)
 				}))
 
@@ -2742,7 +2743,7 @@ func (c *ChannelArbitrator) notifyContractUpdate(upd *ContractUpdate) {
 
 	log.Tracef("ChannelArbitrator(%v): fresh set of htlcs=%v",
 		c.cfg.ChanPoint,
-		newLogClosure(func() string {
+		lnutils.NewLogClosure(func() string {
 			return spew.Sdump(upd)
 		}),
 	)

@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
 )
@@ -947,7 +948,7 @@ func (u *UtxoNursery) waitForSweepConf(classHeight uint32,
 func (u *UtxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) error {
 	utxnLog.Infof("Publishing CLTV-delayed HTLC output using timeout tx "+
 		"(txid=%v): %v", baby.timeoutTx.TxHash(),
-		newLogClosure(func() string {
+		lnutils.NewLogClosure(func() string {
 			return spew.Sdump(baby.timeoutTx)
 		}),
 	)

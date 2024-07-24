@@ -1432,7 +1432,9 @@ func (b *Builder) processUpdate(msg interface{},
 		}
 
 		log.Tracef("New channel update applied: %v",
-			newLogClosure(func() string { return spew.Sdump(msg) }))
+			lnutils.NewLogClosure(func() string {
+				return spew.Sdump(msg)
+			}))
 		b.stats.incNumChannelUpdates()
 
 	default:

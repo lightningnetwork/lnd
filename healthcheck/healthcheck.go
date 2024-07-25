@@ -234,14 +234,13 @@ func (o *Observation) monitor(shutdown shutdownFunc, quit chan struct{}) {
 			// the max attempts are reached. In that case we will
 			// stop the ticker and quit.
 			if o.retryCheck(quit, shutdown) {
-				log.Debugf("Health check: max attempts " +
-					"failed, monitor exiting")
+				o.Debugf("max attempts failed, monitor exiting")
 				return
 			}
 
 		// Exit if we receive the instruction to shutdown.
 		case <-quit:
-			log.Debug("Health check: monitor quit")
+			o.Debugf("monitor quit")
 			return
 		}
 	}
@@ -270,7 +269,7 @@ func (o *Observation) retryCheck(quit chan struct{},
 			// so we'll invoke our success callback if defined and
 			// then exit.
 			if err == nil {
-				log.Debug("invoking success callback")
+				o.Debugf("invoking success callback")
 
 				// Invoke the success callback.
 				o.OnSuccess()
@@ -283,7 +282,7 @@ func (o *Observation) retryCheck(quit chan struct{},
 				"%v", o, o.Timeout)
 
 		case <-quit:
-			log.Debug("Health check: monitor quit")
+			o.Debugf("monitor quit")
 			return false
 		}
 
@@ -291,17 +290,18 @@ func (o *Observation) retryCheck(quit chan struct{},
 		// check has failed so we'll fire the on failure callback
 		// and request shutdown.
 		if count == o.Attempts {
-			log.Debug("invoking failure callback")
+			o.Debugf("invoking failure callback")
 
 			o.OnFailure()
 
-			shutdown("Health check: %v failed after %v "+
-				"calls", o, o.Attempts)
+			shutdown("Health check: %v failed after %v calls", o,
+				o.Attempts)
+
 			return true
 		}
 
-		log.Infof("Health check: %v, call: %v failed with: %v, "+
-			"backing off for: %v", o, count, err, o.Backoff)
+		o.Infof("failed with: %v, attempts: %v backing off for: %v",
+			err, count, o.Backoff)
 
 		// If we are still within the number of calls allowed for this
 		// check, we wait for our back off period to elapse, or exit if
@@ -310,10 +310,22 @@ func (o *Observation) retryCheck(quit chan struct{},
 		case <-time.After(o.Backoff):
 
 		case <-quit:
-			log.Debug("Health check: monitor quit")
+			o.Debugf("monitor quit")
 			return false
 		}
 	}
 
 	return false
+}
+
+// Infof logs an info message for an observation prefixed with the health check
+// name.
+func (o *Observation) Infof(format string, params ...interface{}) {
+	log.Debugf(fmt.Sprintf("Health check: %v ", o)+format, params...)
+}
+
+// Debugf logs a debug message for an observation prefixed with the health check
+// name.
+func (o *Observation) Debugf(format string, params ...interface{}) {
+	log.Debugf(fmt.Sprintf("Health check: %v ", o)+format, params...)
 }

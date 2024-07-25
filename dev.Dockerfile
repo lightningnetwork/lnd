@@ -1,10 +1,9 @@
 # If you change this value, please change it in the following files as well:
-# /.travis.yml
 # /Dockerfile
 # /make/builder.Dockerfile
 # /.github/workflows/main.yml
 # /.github/workflows/release.yml
-FROM golang:1.22.3-alpine as builder
+FROM golang:1.22.5-alpine as builder
 
 LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 

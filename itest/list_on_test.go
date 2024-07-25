@@ -234,6 +234,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testEtcdFailover,
 	},
 	{
+		Name:     "leader health check",
+		TestFunc: testLeaderHealthCheck,
+	},
+	{
 		Name:     "hold invoice force close",
 		TestFunc: testHoldInvoiceForceClose,
 	},

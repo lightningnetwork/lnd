@@ -8781,18 +8781,14 @@ func TestEvaluateView(t *testing.T) {
 			}
 
 			var (
-				// Create vars to store balance changes. We do
-				// not check these values in this test because
-				// balance modification happens on the htlc
-				// processing level.
-				ourBalance   lnwire.MilliSatoshi
-				theirBalance lnwire.MilliSatoshi
 			)
 
 			// Evaluate the htlc view, mutate as test expects.
-			result, uncommitted, err := lc.evaluateHTLCView(
-				view, &ourBalance, &theirBalance, nextHeight,
-				test.whoseCommitChain,
+			// We do not check the balance deltas in this test
+			// because balance modification happens on the htlc
+			// processing level.
+			result, uncommitted, _, err := lc.evaluateHTLCView(
+				view, test.whoseCommitChain, nextHeight,
 			)
 
 			if err != nil {

@@ -99,7 +99,25 @@ func (e *etcdLeaderElector) Leader(ctx context.Context) (string, error) {
 		return "", err
 	}
 
+	if resp == nil || len(resp.Kvs) == 0 {
+		return "", nil
+	}
+
 	return string(resp.Kvs[0].Value), nil
+}
+
+// IsLeader returns true if the caller is the leader.
+func (e *etcdLeaderElector) IsLeader(ctx context.Context) (bool, error) {
+	resp, err := e.election.Leader(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	if resp == nil || len(resp.Kvs) == 0 {
+		return false, nil
+	}
+
+	return string(resp.Kvs[0].Value) == e.id, nil
 }
 
 // Campaign will start a new leader election campaign. Campaign will block until
@@ -110,6 +128,6 @@ func (e *etcdLeaderElector) Campaign(ctx context.Context) error {
 
 // Resign resigns the leader role allowing other election members to take
 // the place.
-func (e *etcdLeaderElector) Resign() error {
-	return e.election.Resign(context.Background())
+func (e *etcdLeaderElector) Resign(ctx context.Context) error {
+	return e.election.Resign(ctx)
 }

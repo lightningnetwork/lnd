@@ -33,6 +33,10 @@
   created](https://github.com/lightningnetwork/lnd/pull/8921) when multiple RPC
   calls are made concurrently.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/8883) when RPC call
+  is made to list payments with the counting total number of payments enabled.
+
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions
@@ -128,5 +132,6 @@
 * Elle Mouton
 * Matheus Degiovani
 * Oliver Gugger
+* Pins
 * Slyghtning
 * Yong Yu

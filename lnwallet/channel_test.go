@@ -9126,7 +9126,6 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			if heightDual.GetParty(test.whoseCommitChain) == 0 {
 				process(
 					update, &ourBalance, &theirBalance,
-					test.whoseCommitChain,
 					test.originator,
 				)
 

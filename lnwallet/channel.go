@@ -2657,7 +2657,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			if rmvHeight == 0 {
 				processRemoveEntry(
 					entry, ourBalance, theirBalance,
-					whoseCommitChain, party.CounterParty(),
+					party.CounterParty(),
 				)
 			}
 		}
@@ -2680,7 +2680,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *htlcView, ourBalance,
 			if addHeight == 0 {
 				processAddEntry(
 					entry, ourBalance, theirBalance,
-					whoseCommitChain, party,
+					party,
 				)
 			}
 		}
@@ -2770,7 +2770,7 @@ func (lc *LightningChannel) fetchParent(entry *paymentDescriptor,
 // later compact the log once the change is fully committed in both chains.
 func processAddEntry(htlc *paymentDescriptor, ourBalance,
 	theirBalance *lnwire.MilliSatoshi,
-	whoseCommitChain, originator lntypes.ChannelParty) {
+	originator lntypes.ChannelParty) {
 
 	if originator == lntypes.Remote {
 		// If this is a new incoming (un-committed) HTLC, then we need
@@ -2789,7 +2789,7 @@ func processAddEntry(htlc *paymentDescriptor, ourBalance,
 // is skipped.
 func processRemoveEntry(htlc *paymentDescriptor, ourBalance,
 	theirBalance *lnwire.MilliSatoshi,
-	whoseCommitChain, originator lntypes.ChannelParty) {
+	originator lntypes.ChannelParty) {
 
 	switch {
 	// If an incoming HTLC is being settled, then this means that we've

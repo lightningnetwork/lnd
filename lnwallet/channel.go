@@ -2893,10 +2893,9 @@ func fundingTxIn(chanState *channeldb.OpenChannel) wire.TxIn {
 // 1. The new htlcView reflecting the current channel state.
 // 2. A Dual of the updates which have not yet been committed in
 // 'whoseCommitChain's commitment chain.
-func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
-	whoseCommitChain lntypes.ChannelParty) (*HtlcView,
-	lntypes.Dual[[]*paymentDescriptor], error) {
+func (lc *LightningChannel) evaluateHTLCView(view *HtlcView,
+	whoseCommitChain lntypes.ChannelParty, nextHeight uint64) (*HtlcView,
+	lntypes.Dual[[]*paymentDescriptor], lntypes.Dual[int64], error) {
 
 	// We initialize the view's fee rate to the fee rate of the unfiltered
 	// view. If any fee updates are found when evaluating the view, it will
@@ -2929,6 +2928,8 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 		Remote: fn.NewSet[uint64](),
 	}
 
+	balanceDeltas := lntypes.Dual[int64]{}
+
 	parties := [2]lntypes.ChannelParty{lntypes.Local, lntypes.Remote}
 	for _, party := range parties {
 		// First we run through non-add entries in both logs,
@@ -2947,7 +2948,8 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 				entry, whoseCommitChain, party.CounterParty(),
 			)
 			if err != nil {
-				return nil, noUncommitted, err
+				noDeltas := lntypes.Dual[int64]{}
+				return nil, noUncommitted, noDeltas, err
 			}
 
 			skipSet := skip.GetForParty(party.CounterParty())
@@ -2959,41 +2961,30 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 			if rmvHeight == 0 {
 				switch {
 				// If an incoming HTLC is being settled, then
-				// this means that we've received the preimage
-				// either from another subsystem, or the
-				// upstream peer in the route. Therefore, we
-				// increase our balance by the HTLC amount.
-				case party.CounterParty() == lntypes.Remote &&
-					entry.EntryType == Settle:
-
-					*ourBalance += entry.Amount
+				// this means that the preimage has been
+				// received by the settling party Therefore, we
+				// increase the settling party's balance by the
+				// HTLC amount.
+				case entry.EntryType == Settle:
+					delta := int64(entry.Amount)
+					balanceDeltas.ModifyForParty(
+						party,
+						func(acc int64) int64 {
+							return acc + delta
+						},
+					)
 
 				// Otherwise, this HTLC is being failed out,
 				// therefore the value of the HTLC should
-				// return to the remote party.
-				case party.CounterParty() == lntypes.Remote &&
-					entry.EntryType != Settle:
-
-					*theirBalance += entry.Amount
-
-				// If an outgoing HTLC is being settled, then
-				// this means that the downstream party
-				// resented the preimage or learned of it via a
-				// downstream peer. In either case, we credit
-				// their settled value with the value of the
-				// HTLC.
-				case party.CounterParty() == lntypes.Local &&
-					entry.EntryType == Settle:
-
-					*theirBalance += entry.Amount
-
-				// Otherwise, one of our outgoing HTLC's has
-				// timed out, so the value of the HTLC should
-				// be returned to our settled balance.
-				case party.CounterParty() == lntypes.Local &&
-					entry.EntryType != Settle:
-
-					*ourBalance += entry.Amount
+				// return to the failing party's counterparty.
+				case entry.EntryType != Settle:
+					delta := int64(entry.Amount)
+					balanceDeltas.ModifyForParty(
+						party.CounterParty(),
+						func(acc int64) int64 {
+							return acc + delta
+						},
+					)
 				}
 			}
 		}
@@ -3015,19 +3006,19 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 				whoseCommitChain,
 			)
 			if addHeight == 0 {
-				if party == lntypes.Remote {
-					// If this is a new incoming
-					// (un-committed) HTLC, then we need
-					// to update their balance accordingly
-					// by subtracting the amount of the
-					// HTLC that are funds pending.
-					*theirBalance -= entry.Amount
-				} else {
-					// Similarly, we need to debit our
-					// balance if this is an out going HTLC
-					// to reflect the pending balance.
-					*ourBalance -= entry.Amount
-				}
+				// If this is a new incoming (un-committed)
+				// HTLC, then we need to update their balance
+				// accordingly by subtracting the amount of
+				// the HTLC that are funds pending.
+				// Similarly, we need to debit our balance if
+				// this is an out going HTLC to reflect the
+				// pending balance.
+				balanceDeltas.ModifyForParty(
+					party,
+					func(acc int64) int64 {
+						return acc - int64(entry.Amount)
+					},
+				)
 			}
 		}
 
@@ -3068,7 +3059,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 		},
 	)
 
-	return newView, uncommittedUpdates, nil
+	return newView, uncommittedUpdates, balanceDeltas, nil
 }
 
 // fetchParent is a helper that looks up update log parent entries in the
@@ -4589,11 +4580,24 @@ func (lc *LightningChannel) computeView(view *HtlcView,
 	// channel constraints to the final commitment state. If any fee
 	// updates are found in the logs, the commitment fee rate should be
 	// changed, so we'll also set the feePerKw to this new value.
-	filteredHTLCView, uncommitted, err := lc.evaluateHTLCView(
-		view, &ourBalance, &theirBalance, nextHeight, whoseCommitChain,
+	filteredHTLCView, uncommitted, deltas, err := lc.evaluateHTLCView(
+		view, whoseCommitChain, nextHeight,
 	)
 	if err != nil {
 		return 0, 0, 0, nil, err
+	}
+
+	// Add the balance deltas to the balances we got from the commitment
+	// state.
+	if deltas.Local >= 0 {
+		ourBalance += lnwire.MilliSatoshi(deltas.Local)
+	} else {
+		ourBalance -= lnwire.MilliSatoshi(-1 * deltas.Local)
+	}
+	if deltas.Remote >= 0 {
+		theirBalance += lnwire.MilliSatoshi(deltas.Remote)
+	} else {
+		theirBalance -= lnwire.MilliSatoshi(-1 * deltas.Remote)
 	}
 
 	if updateState {
@@ -4619,8 +4623,8 @@ func (lc *LightningChannel) computeView(view *HtlcView,
 	}
 
 	// We need to first check ourBalance and theirBalance to be negative
-	// because MilliSathoshi is a unsigned type and can underflow in
-	// `evaluateHTLCView`. This should never happen for views which do not
+	// because MilliSathoshi is a unsigned type and can underflow in the
+	// code above. This should never happen for views which do not
 	// include new updates (remote or local).
 	if int64(ourBalance) < 0 {
 		err := fmt.Errorf("%w: our balance", ErrBelowChanReserve)

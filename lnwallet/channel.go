@@ -2841,10 +2841,44 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 			rmvHeights := &entry.removeCommitHeights
 			rmvHeight := rmvHeights.GetForParty(whoseCommitChain)
 			if rmvHeight == 0 {
-				processRemoveEntry(
-					entry, ourBalance, theirBalance,
-					party.CounterParty(),
-				)
+				switch {
+				// If an incoming HTLC is being settled, then
+				// this means that we've received the preimage
+				// either from another subsystem, or the
+				// upstream peer in the route. Therefore, we
+				// increase our balance by the HTLC amount.
+				case party.CounterParty() == lntypes.Remote &&
+					entry.EntryType == Settle:
+
+					*ourBalance += entry.Amount
+
+				// Otherwise, this HTLC is being failed out,
+				// therefore the value of the HTLC should
+				// return to the remote party.
+				case party.CounterParty() == lntypes.Remote &&
+					entry.EntryType != Settle:
+
+					*theirBalance += entry.Amount
+
+				// If an outgoing HTLC is being settled, then
+				// this means that the downstream party
+				// resented the preimage or learned of it via a
+				// downstream peer. In either case, we credit
+				// their settled value with the value of the
+				// HTLC.
+				case party.CounterParty() == lntypes.Local &&
+					entry.EntryType == Settle:
+
+					*theirBalance += entry.Amount
+
+				// Otherwise, one of our outgoing HTLC's has
+				// timed out, so the value of the HTLC should
+				// be returned to our settled balance.
+				case party.CounterParty() == lntypes.Local &&
+					entry.EntryType != Settle:
+
+					*ourBalance += entry.Amount
+				}
 			}
 		}
 	}
@@ -2864,10 +2898,19 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 			addHeights := &entry.addCommitHeights
 			addHeight := addHeights.GetForParty(whoseCommitChain)
 			if addHeight == 0 {
-				processAddEntry(
-					entry, ourBalance, theirBalance,
-					party,
-				)
+				if party == lntypes.Remote {
+					// If this is a new incoming
+					// (un-committed) HTLC, then we need
+					// to update their balance accordingly
+					// by subtracting the amount of the
+					// HTLC that are funds pending.
+					*theirBalance -= entry.Amount
+				} else {
+					// Similarly, we need to debit our
+					// balance if this is an out going HTLC
+					// to reflect the pending balance.
+					*ourBalance -= entry.Amount
+				}
 			}
 		}
 
@@ -2959,62 +3002,6 @@ func (lc *LightningChannel) fetchParent(entry *paymentDescriptor,
 	}
 
 	return addEntry, nil
-}
-
-// processAddEntry evaluates the effect of an add entry within the HTLC log.
-// If the HTLC hasn't yet been committed in either chain, then the height it
-// was committed is updated. Keeping track of this inclusion height allows us to
-// later compact the log once the change is fully committed in both chains.
-func processAddEntry(htlc *paymentDescriptor, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, originator lntypes.ChannelParty) {
-
-	if originator == lntypes.Remote {
-		// If this is a new incoming (un-committed) HTLC, then we need
-		// to update their balance accordingly by subtracting the
-		// amount of the HTLC that are funds pending.
-		*theirBalance -= htlc.Amount
-	} else {
-		// Similarly, we need to debit our balance if this is an out
-		// going HTLC to reflect the pending balance.
-		*ourBalance -= htlc.Amount
-	}
-}
-
-// processRemoveEntry processes a log entry which settles or times out a
-// previously added HTLC. If the removal entry has already been processed, it
-// is skipped.
-func processRemoveEntry(htlc *paymentDescriptor, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, originator lntypes.ChannelParty) {
-
-	switch {
-	// If an incoming HTLC is being settled, then this means that we've
-	// received the preimage either from another subsystem, or the
-	// upstream peer in the route. Therefore, we increase our balance by
-	// the HTLC amount.
-	case originator == lntypes.Remote && htlc.EntryType == Settle:
-		*ourBalance += htlc.Amount
-
-	// Otherwise, this HTLC is being failed out, therefore the value of the
-	// HTLC should return to the remote party.
-	case originator == lntypes.Remote &&
-		(htlc.EntryType == Fail || htlc.EntryType == MalformedFail):
-
-		*theirBalance += htlc.Amount
-
-	// If an outgoing HTLC is being settled, then this means that the
-	// downstream party resented the preimage or learned of it via a
-	// downstream peer. In either case, we credit their settled value with
-	// the value of the HTLC.
-	case originator == lntypes.Local && htlc.EntryType == Settle:
-		*theirBalance += htlc.Amount
-
-	// Otherwise, one of our outgoing HTLC's has timed out, so the value of
-	// the HTLC should be returned to our settled balance.
-	case originator == lntypes.Local &&
-		(htlc.EntryType == Fail || htlc.EntryType == MalformedFail):
-
-		*ourBalance += htlc.Amount
-	}
 }
 
 // generateRemoteHtlcSigJobs generates a series of HTLC signature jobs for the

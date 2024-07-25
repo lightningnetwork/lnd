@@ -217,7 +217,7 @@ func (h *HarnessTest) AssertTxNotInMempool(txid chainhash.Hash) *wire.MsgTx {
 }
 
 // AssertNumTxsInMempool polls until finding the desired number of transactions
-// in the provided miner's mempool. It will asserrt if this number is not met
+// in the provided miner's mempool. It will assert if this number is not met
 // after the given timeout.
 func (h *HarnessTest) AssertNumTxsInMempool(n int) []*chainhash.Hash {
 	return h.miner.AssertNumTxsInMempool(n)

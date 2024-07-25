@@ -2610,10 +2610,10 @@ func exportChanBackup(ctx *cli.Context) error {
 
 		printJSON(struct {
 			ChanPoint  string `json:"chan_point"`
-			ChanBackup []byte `json:"chan_backup"`
+			ChanBackup string `json:"chan_backup"`
 		}{
 			ChanPoint:  chanPoint.String(),
-			ChanBackup: chanBackup.ChanBackup,
+			ChanBackup: hex.EncodeToString(chanBackup.ChanBackup),
 		})
 		return nil
 	}

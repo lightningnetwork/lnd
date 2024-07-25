@@ -6473,29 +6473,72 @@ func (lc *LightningChannel) AbsoluteThawHeight() (uint32, error) {
 	return lc.channelState.AbsoluteThawHeight()
 }
 
-// getSignedCommitTx function take the latest commitment transaction and
-// populate it with witness data.
-func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
-	// Fetch the current commitment transaction, along with their signature
-	// for the transaction.
-	localCommit := lc.channelState.LocalCommitment
-	commitTx := localCommit.CommitTx.Copy()
+// SignedCommitTxInputs contains data needed to create a signed commit
+// transaction using a signer. See GetSignedCommitTx.
+type SignedCommitTxInputs struct {
+	// CommitTx is the latest version of the commitment state, broadcast
+	// able by us.
+	CommitTx *wire.MsgTx
 
-	ourKey := lc.channelState.LocalChanCfg.MultiSigKey
-	theirKey := lc.channelState.RemoteChanCfg.MultiSigKey
+	// CommitSig is one half of the signature required to fully complete
+	// the script for the commitment transaction above. This is the
+	// signature signed by the remote party for our version of the
+	// commitment transactions.
+	CommitSig []byte
+
+	// OurKey is our key to be used within the 2-of-2 output script
+	// for the owner of this channel config.
+	OurKey keychain.KeyDescriptor
+
+	// TheirKey is their key to be used within the 2-of-2 output script
+	// for the owner of this channel config.
+	TheirKey keychain.KeyDescriptor
+
+	// SignDesc is the primary sign descriptor that is capable of signing
+	// the commitment transaction that spends the multi-sig output.
+	SignDesc *input.SignDescriptor
+
+	// Taproot holds fields needed in case of a taproot channel.
+	// If and only if the channel is of taproot type, this field is filled.
+	Taproot *TaprootSignedCommitTxInputs
+}
+
+// TaprootSignedCommitTxInputs contains additional data needed to create a
+// signed commit transaction using a signer, used in case of a taproot channel.
+// See GetSignedCommitTx.
+type TaprootSignedCommitTxInputs struct {
+	// CommitHeight is the update number that this ChannelDelta represents
+	// the total number of commitment updates to this point. This can be
+	// viewed as sort of a "commitment height" as this number is
+	// monotonically increasing.
+	CommitHeight uint64
+
+	// TaprootNonceProducer is used to generate a shachain tree for the
+	// purpose of generating verification nonces for taproot channels.
+	TaprootNonceProducer shachain.Producer
+}
+
+// GetSignedCommitTx function takes the latest commitment transaction and
+// populates it with witness data. This pure function is needed to be able
+// to store the inputs without a signature in SCB and sign the transaction
+// in chantools scbforceclose.
+func GetSignedCommitTx(inputs SignedCommitTxInputs,
+	signer input.Signer) (*wire.MsgTx, error) {
+
+	commitTx := inputs.CommitTx.Copy()
 
 	var witness wire.TxWitness
 	switch {
 	// If this is a taproot channel, then we'll need to re-derive the nonce
 	// we need to generate a new signature
-	case lc.channelState.ChanType.IsTaproot():
+	case inputs.Taproot != nil:
 		// First, we'll need to re-derive the local nonce we sent to
 		// the remote party to create this musig session. We pass in
 		// the same height here as we're generating the nonce needed
 		// for the _current_ state.
 		localNonce, err := channeldb.NewMusigVerificationNonce(
-			ourKey.PubKey, lc.currentHeight,
-			lc.taprootNonceProducer,
+			inputs.OurKey.PubKey, inputs.Taproot.CommitHeight,
+			inputs.Taproot.TaprootNonceProducer,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to re-derive "+
@@ -6505,13 +6548,13 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 		// Now that we have the local nonce, we'll re-create the musig
 		// session we had for this height.
 		musigSession := NewPartialMusigSession(
-			*localNonce, ourKey, theirKey, lc.Signer,
-			&lc.fundingOutput, LocalMusigCommit,
+			*localNonce, inputs.OurKey, inputs.TheirKey, signer,
+			inputs.SignDesc.Output, LocalMusigCommit,
 		)
 
 		var remoteSig lnwire.PartialSigWithNonce
 		err = remoteSig.Decode(
-			bytes.NewReader(localCommit.CommitSig),
+			bytes.NewReader(inputs.CommitSig),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode remote "+
@@ -6557,15 +6600,15 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 	// Otherwise, the final witness we generate will be a normal p2wsh
 	// multi-sig spend.
 	default:
-		theirSig, err := ecdsa.ParseDERSignature(localCommit.CommitSig)
+		theirSig, err := ecdsa.ParseDERSignature(inputs.CommitSig)
 		if err != nil {
 			return nil, err
 		}
 
 		// With this, we then generate the full witness so the caller
 		// can broadcast a fully signed transaction.
-		lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(commitTx)
-		ourSig, err := lc.Signer.SignOutputRaw(commitTx, lc.signDesc)
+		inputs.SignDesc.SigHashes = input.NewTxSigHashesV0Only(commitTx)
+		ourSig, err := signer.SignOutputRaw(commitTx, inputs.SignDesc)
 		if err != nil {
 			return nil, err
 		}
@@ -6573,15 +6616,40 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 		// With the final signature generated, create the witness stack
 		// required to spend from the multi-sig output.
 		witness = input.SpendMultiSig(
-			lc.signDesc.WitnessScript,
-			ourKey.PubKey.SerializeCompressed(), ourSig,
-			theirKey.PubKey.SerializeCompressed(), theirSig,
+			inputs.SignDesc.WitnessScript,
+			inputs.OurKey.PubKey.SerializeCompressed(), ourSig,
+			inputs.TheirKey.PubKey.SerializeCompressed(), theirSig,
 		)
 	}
 
 	commitTx.TxIn[0].Witness = witness
 
 	return commitTx, nil
+}
+
+// getSignedCommitTx method takes the latest commitment transaction and
+// populates it with witness data.
+func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
+	// Fetch the current commitment transaction, along with their signature
+	// for the transaction.
+	localCommit := lc.channelState.LocalCommitment
+
+	inputs := SignedCommitTxInputs{
+		CommitTx:  localCommit.CommitTx,
+		CommitSig: localCommit.CommitSig,
+		OurKey:    lc.channelState.LocalChanCfg.MultiSigKey,
+		TheirKey:  lc.channelState.RemoteChanCfg.MultiSigKey,
+		SignDesc:  lc.signDesc,
+	}
+
+	if lc.channelState.ChanType.IsTaproot() {
+		inputs.Taproot = &TaprootSignedCommitTxInputs{
+			CommitHeight:         lc.currentHeight,
+			TaprootNonceProducer: lc.taprootNonceProducer,
+		}
+	}
+
+	return GetSignedCommitTx(inputs, lc.Signer)
 }
 
 // CommitOutputResolution carries the necessary information required to allow

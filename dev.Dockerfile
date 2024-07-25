@@ -1,5 +1,4 @@
 # If you change this value, please change it in the following files as well:
-# /.travis.yml
 # /Dockerfile
 # /make/builder.Dockerfile
 # /.github/workflows/main.yml

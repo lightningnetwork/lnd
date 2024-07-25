@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -801,10 +800,8 @@ func (cm *circuitMap) CommitCircuits(circuits ...*PaymentCircuit) (
 		inKeys = append(inKeys, circuit.Incoming)
 	}
 
-	log.Tracef("Committing fresh circuits: %v", lnutils.NewLogClosure(
-		func() string {
-			return spew.Sdump(inKeys)
-		}))
+	log.Tracef("Committing fresh circuits: %v", lnutils.SpewLogClosure(
+		inKeys))
 
 	actions := &CircuitFwdActions{}
 
@@ -950,10 +947,8 @@ func (cm *circuitMap) OpenCircuits(keystones ...Keystone) error {
 		return nil
 	}
 
-	log.Tracef("Opening finalized circuits: %v", lnutils.NewLogClosure(
-		func() string {
-			return spew.Sdump(keystones)
-		}))
+	log.Tracef("Opening finalized circuits: %v", lnutils.SpewLogClosure(
+		keystones))
 
 	// Check that all keystones correspond to committed-but-unopened
 	// circuits.
@@ -1081,10 +1076,8 @@ func (cm *circuitMap) CloseCircuit(outKey CircuitKey) (*PaymentCircuit, error) {
 // circuit was already cleaned up at a different point in time.
 func (cm *circuitMap) DeleteCircuits(inKeys ...CircuitKey) error {
 
-	log.Tracef("Deleting resolved circuits: %v", lnutils.NewLogClosure(
-		func() string {
-			return spew.Sdump(inKeys)
-		}))
+	log.Tracef("Deleting resolved circuits: %v", lnutils.SpewLogClosure(
+		inKeys))
 
 	var (
 		closingCircuits = make(map[CircuitKey]struct{})

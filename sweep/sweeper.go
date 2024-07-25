@@ -1377,10 +1377,7 @@ func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail) {
 
 		log.Debugf("Detected third party spend related to in flight "+
 			"inputs (is_ours=%v): %v", isOurTx,
-			lnutils.NewLogClosure(func() string {
-				return spew.Sdump(spend.SpendingTx)
-			}),
-		)
+			lnutils.SpewLogClosure(spend.SpendingTx))
 	}
 
 	// We now use the spending tx to update the state of the inputs.

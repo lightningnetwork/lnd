@@ -14,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
@@ -466,10 +465,8 @@ func (c *ChannelArbitrator) Start(state *chanArbStartState) error {
 	}
 
 	log.Debugf("Starting ChannelArbitrator(%v), htlc_set=%v, state=%v",
-		c.cfg.ChanPoint, lnutils.NewLogClosure(func() string {
-			return spew.Sdump(c.activeHTLCs)
-		}), state.currentState,
-	)
+		c.cfg.ChanPoint, lnutils.SpewLogClosure(c.activeHTLCs),
+		state.currentState)
 
 	// Set our state from our starting state.
 	c.state = state.currentState
@@ -959,10 +956,7 @@ func (c *ChannelArbitrator) stateStep(
 		// Otherwise, we'll log that we checked the HTLC actions as the
 		// commitment transaction has already been broadcast.
 		log.Tracef("ChannelArbitrator(%v): logging chain_actions=%v",
-			c.cfg.ChanPoint,
-			lnutils.NewLogClosure(func() string {
-				return spew.Sdump(chainActions)
-			}))
+			c.cfg.ChanPoint, lnutils.SpewLogClosure(chainActions))
 
 		// Depending on the type of trigger, we'll either "tunnel"
 		// through to a farther state, or just proceed linearly to the
@@ -1097,10 +1091,7 @@ func (c *ChannelArbitrator) stateStep(
 		// channel resolution state.
 		log.Infof("Broadcasting force close transaction %v, "+
 			"ChannelPoint(%v): %v", closeTx.TxHash(),
-			c.cfg.ChanPoint,
-			lnutils.NewLogClosure(func() string {
-				return spew.Sdump(closeTx)
-			}))
+			c.cfg.ChanPoint, lnutils.SpewLogClosure(closeTx))
 
 		// At this point, we'll now broadcast the commitment
 		// transaction itself.
@@ -1225,9 +1216,7 @@ func (c *ChannelArbitrator) stateStep(
 		if len(pktsToSend) != 0 {
 			log.Debugf("ChannelArbitrator(%v): sending "+
 				"resolution message=%v", c.cfg.ChanPoint,
-				lnutils.NewLogClosure(func() string {
-					return spew.Sdump(pktsToSend)
-				}))
+				lnutils.SpewLogClosure(pktsToSend))
 
 			err := c.cfg.DeliverResolutionMsg(pktsToSend...)
 			if err != nil {
@@ -2742,11 +2731,7 @@ func (c *ChannelArbitrator) notifyContractUpdate(upd *ContractUpdate) {
 	c.unmergedSet[upd.HtlcKey] = newHtlcSet(upd.Htlcs)
 
 	log.Tracef("ChannelArbitrator(%v): fresh set of htlcs=%v",
-		c.cfg.ChanPoint,
-		lnutils.NewLogClosure(func() string {
-			return spew.Sdump(upd)
-		}),
-	)
+		c.cfg.ChanPoint, lnutils.SpewLogClosure(upd))
 }
 
 // updateActiveHTLCs merges the unmerged set of HTLCs from the link with

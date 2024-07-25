@@ -1870,10 +1870,7 @@ func (lc *LightningChannel) restoreCommitState(
 	lc.localCommitChain.addCommitment(localCommit)
 
 	lc.log.Tracef("starting local commitment: %v",
-		lnutils.NewLogClosure(func() string {
-			return spew.Sdump(lc.localCommitChain.tail())
-		}),
-	)
+		lnutils.SpewLogClosure(lc.localCommitChain.tail()))
 
 	// We'll also do the same for the remote commitment chain.
 	remoteCommit, err := lc.diskCommitToMemCommit(
@@ -1886,10 +1883,7 @@ func (lc *LightningChannel) restoreCommitState(
 	lc.remoteCommitChain.addCommitment(remoteCommit)
 
 	lc.log.Tracef("starting remote commitment: %v",
-		lnutils.NewLogClosure(func() string {
-			return spew.Sdump(lc.remoteCommitChain.tail())
-		}),
-	)
+		lnutils.SpewLogClosure(lc.remoteCommitChain.tail()))
 
 	var (
 		pendingRemoteCommit     *commitment
@@ -1921,10 +1915,7 @@ func (lc *LightningChannel) restoreCommitState(
 		lc.remoteCommitChain.addCommitment(pendingRemoteCommit)
 
 		lc.log.Debugf("pending remote commitment: %v",
-			lnutils.NewLogClosure(func() string {
-				return spew.Sdump(lc.remoteCommitChain.tip())
-			}),
-		)
+			lnutils.SpewLogClosure(lc.remoteCommitChain.tip()))
 
 		// We'll also re-create the set of commitment keys needed to
 		// fully re-derive the state.
@@ -3246,12 +3237,8 @@ func (lc *LightningChannel) fetchParent(entry *PaymentDescriptor,
 		return nil, fmt.Errorf("unable to find parent entry "+
 			"%d in %v update log: %v\nUpdatelog: %v",
 			entry.ParentIndex, logName,
-			lnutils.NewLogClosure(func() string {
-				return spew.Sdump(entry)
-			}), lnutils.NewLogClosure(func() string {
-				return spew.Sdump(updateLog)
-			}),
-		)
+			lnutils.SpewLogClosure(entry),
+			lnutils.SpewLogClosure(updateLog))
 
 	// The parent add height should never be zero at this point. If
 	// that's the case we probably forgot to send a new commitment.
@@ -4250,10 +4237,7 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 		"their_balance=%v, commit_tx: %v",
 		newCommitView.ourBalance,
 		newCommitView.theirBalance,
-		lnutils.NewLogClosure(func() string {
-			return spew.Sdump(newCommitView.txn)
-		}),
-	)
+		lnutils.SpewLogClosure(newCommitView.txn))
 
 	// With the commitment view constructed, if there are any HTLC's, we'll
 	// need to generate signatures of each of them for the remote party's
@@ -5210,10 +5194,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 	lc.log.Tracef("local chain: our_balance=%v, "+
 		"their_balance=%v, commit_tx: %v",
 		localCommitmentView.ourBalance, localCommitmentView.theirBalance,
-		lnutils.NewLogClosure(func() string {
-			return spew.Sdump(localCommitmentView.txn)
-		}),
-	)
+		lnutils.SpewLogClosure(localCommitmentView.txn))
 
 	// As an optimization, we'll generate a series of jobs for the worker
 	// pool to verify each of the HTLC signatures presented. Once

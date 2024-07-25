@@ -670,10 +670,7 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 	}
 
 	go log.Tracef("Obtained path to send %v to %x: %v",
-		req.Amount, req.Target, lnutils.NewLogClosure(func() string {
-			return spew.Sdump(route)
-		}),
-	)
+		req.Amount, req.Target, lnutils.SpewLogClosure(route))
 
 	return route, probability, nil
 }
@@ -1091,11 +1088,8 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 		return nil, err
 	}
 
-	log.Tracef("Dispatching SendToRoute for HTLC hash %v: %v",
-		htlcHash, lnutils.NewLogClosure(func() string {
-			return spew.Sdump(rt)
-		}),
-	)
+	log.Tracef("Dispatching SendToRoute for HTLC hash %v: %v", htlcHash,
+		lnutils.SpewLogClosure(rt))
 
 	// Since the HTLC hashes and preimages are specified manually over the
 	// RPC for SendToRoute requests, we don't have to worry about creating

@@ -2184,9 +2184,7 @@ func (p *Brontide) logWireMessage(msg lnwire.Message, read bool) {
 		prefix = "writeMessage to peer"
 	}
 
-	p.log.Tracef(prefix+": %v", lnutils.NewLogClosure(func() string {
-		return spew.Sdump(msg)
-	}))
+	p.log.Tracef(prefix+": %v", lnutils.SpewLogClosure(msg))
 }
 
 // writeMessage writes and flushes the target lnwire.Message to the remote peer.

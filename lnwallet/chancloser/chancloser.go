@@ -870,10 +870,7 @@ func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
 		// With the closing transaction crafted, we'll now broadcast it
 		// to the network.
 		chancloserLog.Infof("Broadcasting cooperative close tx: %v",
-			lnutils.NewLogClosure(func() string {
-				return spew.Sdump(closeTx)
-			}),
-		)
+			lnutils.SpewLogClosure(closeTx))
 
 		// Create a close channel label.
 		chanID := c.cfg.Channel.ShortChanID()

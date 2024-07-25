@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
@@ -733,10 +732,8 @@ justiceTxBroadcast:
 	}
 	finalTx := justiceTxs.spendAll
 
-	brarLog.Debugf("Broadcasting justice tx: %v", lnutils.NewLogClosure(
-		func() string {
-			return spew.Sdump(finalTx)
-		}))
+	brarLog.Debugf("Broadcasting justice tx: %v", lnutils.SpewLogClosure(
+		finalTx))
 
 	// We'll now attempt to broadcast the transaction which finalized the
 	// channel's retribution against the cheating counter party.
@@ -859,9 +856,7 @@ Loop:
 
 				brarLog.Debugf("Broadcasting justice tx "+
 					"spending commitment outs: %v",
-					lnutils.NewLogClosure(func() string {
-						return spew.Sdump(tx)
-					}))
+					lnutils.SpewLogClosure(tx))
 
 				err = b.cfg.PublishTransaction(tx, label)
 				if err != nil {
@@ -876,9 +871,7 @@ Loop:
 
 				brarLog.Debugf("Broadcasting justice tx "+
 					"spending HTLC outs: %v",
-					lnutils.NewLogClosure(func() string {
-						return spew.Sdump(tx)
-					}))
+					lnutils.SpewLogClosure(tx))
 
 				err = b.cfg.PublishTransaction(tx, label)
 				if err != nil {
@@ -893,9 +886,7 @@ Loop:
 
 				brarLog.Debugf("Broadcasting justice tx "+
 					"spending second-level HTLC output: %v",
-					lnutils.NewLogClosure(func() string {
-						return spew.Sdump(tx)
-					}))
+					lnutils.SpewLogClosure(tx))
 
 				err = b.cfg.PublishTransaction(tx, label)
 				if err != nil {

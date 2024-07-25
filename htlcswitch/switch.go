@@ -614,10 +614,8 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 func (s *Switch) UpdateForwardingPolicies(
 	chanPolicies map[wire.OutPoint]models.ForwardingPolicy) {
 
-	log.Tracef("Updating link policies: %v", lnutils.NewLogClosure(
-		func() string {
-			return spew.Sdump(chanPolicies)
-		}))
+	log.Tracef("Updating link policies: %v", lnutils.SpewLogClosure(
+		chanPolicies))
 
 	s.indexMtx.RLock()
 
@@ -1216,9 +1214,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				log.Warnf("unable to find err source for "+
 					"outgoing_link=%v, errors=%v",
 					packet.outgoingChanID,
-					lnutils.NewLogClosure(func() string {
-						return spew.Sdump(linkErrs)
-					}))
+					lnutils.SpewLogClosure(linkErrs))
 			}
 
 			log.Tracef("incoming HTLC(%x) violated "+
@@ -1999,9 +1995,7 @@ out:
 
 			log.Tracef("Acked %d settle fails: %v",
 				len(s.pendingSettleFails),
-				lnutils.NewLogClosure(func() string {
-					return spew.Sdump(s.pendingSettleFails)
-				}))
+				lnutils.SpewLogClosure(s.pendingSettleFails))
 
 			// Reset the pendingSettleFails buffer while keeping acquired
 			// memory.

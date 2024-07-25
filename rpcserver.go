@@ -5846,9 +5846,7 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 	}
 
 	rpcsLog.Tracef("[lookupinvoice] located invoice %v",
-		lnutils.NewLogClosure(func() string {
-			return spew.Sdump(invoice)
-		}))
+		lnutils.SpewLogClosure(invoice))
 
 	rpcInvoice, err := invoicesrpc.CreateRPCInvoice(
 		&invoice, r.cfg.ActiveNetParams.Params,

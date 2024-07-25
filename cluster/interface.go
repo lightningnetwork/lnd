@@ -19,8 +19,11 @@ type LeaderElector interface {
 
 	// Resign resigns from the leader role, allowing other election members
 	// to take on leadership.
-	Resign() error
+	Resign(ctx context.Context) error
 
 	// Leader returns the leader value for the current election.
 	Leader(ctx context.Context) (string, error)
+
+	// IsLeader returns true if the caller is the leader.
+	IsLeader(ctx context.Context) (bool, error)
 }

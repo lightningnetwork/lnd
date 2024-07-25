@@ -169,6 +169,17 @@ const (
 	defaultRSBackoff  = time.Second * 30
 	defaultRSAttempts = 1
 
+	// Set defaults for a health check which ensures that the leader
+	// election is functioning correctly. Although this check is off by
+	// default (as etcd leader election is only used in a clustered setup),
+	// we still set the default values so that the health check can be
+	// easily enabled with sane defaults. Note that by default we only run
+	// this check once, as it is not critical for the node's operation.
+	defaultLeaderCheckInterval = time.Minute
+	defaultLeaderCheckTimeout  = time.Second * 5
+	defaultLeaderCheckBackoff  = time.Second * 5
+	defaultLeaderCheckAttempts = 1
+
 	// defaultRemoteMaxHtlcs specifies the default limit for maximum
 	// concurrent HTLCs the remote party may add to commitment transactions.
 	// This value can be overridden with --default-remote-max-htlcs.
@@ -671,6 +682,12 @@ func DefaultConfig() Config {
 				Timeout:  defaultRSTimeout,
 				Attempts: defaultRSAttempts,
 				Backoff:  defaultRSBackoff,
+			},
+			LeaderCheck: &lncfg.CheckConfig{
+				Interval: defaultLeaderCheckInterval,
+				Timeout:  defaultLeaderCheckTimeout,
+				Attempts: defaultLeaderCheckAttempts,
+				Backoff:  defaultLeaderCheckBackoff,
 			},
 		},
 		Gossip: &lncfg.Gossip{

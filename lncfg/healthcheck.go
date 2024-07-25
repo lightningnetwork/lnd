@@ -34,6 +34,8 @@ type HealthCheckConfig struct {
 	TorConnection *CheckConfig `group:"torconnection" namespace:"torconnection"`
 
 	RemoteSigner *CheckConfig `group:"remotesigner" namespace:"remotesigner"`
+
+	LeaderCheck *CheckConfig `group:"leader" namespace:"leader"`
 }
 
 // Validate checks the values configured for our health checks.

@@ -36,6 +36,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/cluster"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
@@ -484,8 +485,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	nodeKeyDesc *keychain.KeyDescriptor,
 	chansToRestore walletunlocker.ChannelsToRecover,
 	chanPredicate chanacceptor.ChannelAcceptor,
-	torController *tor.Controller, tlsManager *TLSManager) (*server,
-	error) {
+	torController *tor.Controller, tlsManager *TLSManager,
+	leaderElector cluster.LeaderElector) (*server, error) {
 
 	var (
 		err         error
@@ -1676,7 +1677,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	// Create liveness monitor.
-	s.createLivenessMonitor(cfg, cc)
+	s.createLivenessMonitor(cfg, cc, leaderElector)
 
 	// Create the connection manager which will be responsible for
 	// maintaining persistent outbound connections and also accepting new
@@ -1723,7 +1724,9 @@ func (s *server) signAliasUpdate(u *lnwire.ChannelUpdate) (*ecdsa.Signature,
 //
 // If a health check has been disabled by setting attempts to 0, our monitor
 // will not run it.
-func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl) {
+func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl,
+	leaderElector cluster.LeaderElector) {
+
 	chainBackendAttempts := cfg.HealthChecks.ChainCheck.Attempts
 	if cfg.Bitcoin.Node == "nochainbackend" {
 		srvrLog.Info("Disabling chain backend checks for " +
@@ -1837,6 +1840,49 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl) {
 			cfg.HealthChecks.RemoteSigner.Attempts,
 		)
 		checks = append(checks, remoteSignerConnectionCheck)
+	}
+
+	// If we have a leader elector, we add a health check to ensure we are
+	// still the leader. During normal operation, we should always be the
+	// leader, but there are circumstances where this may change, such as
+	// when we lose network connectivity for long enough expiring out lease.
+	if leaderElector != nil {
+		leaderCheck := healthcheck.NewObservation(
+			"leader status",
+			func() error {
+				// Check if we are still the leader. Note that
+				// we don't need to use a timeout context here
+				// as the healthcheck observer will handle the
+				// timeout case for us.
+				timeoutCtx, cancel := context.WithTimeout(
+					context.Background(),
+					cfg.HealthChecks.LeaderCheck.Timeout,
+				)
+				defer cancel()
+
+				leader, err := leaderElector.IsLeader(
+					timeoutCtx,
+				)
+				if err != nil {
+					return fmt.Errorf("unable to check if "+
+						"still leader: %v", err)
+				}
+
+				if !leader {
+					srvrLog.Debug("Not the current leader")
+					return fmt.Errorf("not the current " +
+						"leader")
+				}
+
+				return nil
+			},
+			cfg.HealthChecks.LeaderCheck.Interval,
+			cfg.HealthChecks.LeaderCheck.Timeout,
+			cfg.HealthChecks.LeaderCheck.Backoff,
+			cfg.HealthChecks.LeaderCheck.Attempts,
+		)
+
+		checks = append(checks, leaderCheck)
 	}
 
 	// If we have not disabled all of our health checks, we create a

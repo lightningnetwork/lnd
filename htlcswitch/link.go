@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -25,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -2536,13 +2536,9 @@ func (l *channelLink) updateCommitTx() error {
 		l.log.Tracef("revocation window exhausted, unable to send: "+
 			"%v, pend_updates=%v, dangling_closes%v",
 			l.channel.PendingLocalUpdateCount(),
-			newLogClosure(func() string {
-				return spew.Sdump(l.openedCircuits)
-			}),
-			newLogClosure(func() string {
-				return spew.Sdump(l.closedCircuits)
-			}),
-		)
+			lnutils.SpewLogClosure(l.openedCircuits),
+			lnutils.SpewLogClosure(l.closedCircuits))
+
 		return nil
 	} else if err != nil {
 		return err

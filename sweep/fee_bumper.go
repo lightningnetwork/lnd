@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
@@ -313,10 +312,8 @@ func (t *TxPublisher) isNeutrinoBackend() bool {
 //
 // NOTE: part of the Bumper interface.
 func (t *TxPublisher) Broadcast(req *BumpRequest) (<-chan *BumpResult, error) {
-	log.Tracef("Received broadcast request: %s", newLogClosure(
-		func() string {
-			return spew.Sdump(req)
-		})())
+	log.Tracef("Received broadcast request: %s", lnutils.SpewLogClosure(
+		req))
 
 	// Attempt an initial broadcast which is guaranteed to comply with the
 	// RBF rules.

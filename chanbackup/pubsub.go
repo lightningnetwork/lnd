@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnutils"
 )
 
 // Swapper is an interface that allows the chanbackup.SubSwapper to update the
@@ -278,9 +279,8 @@ func (s *SubSwapper) backupUpdater() {
 			)
 			for i, closedChan := range chanUpdate.ClosedChans {
 				log.Debugf("Removing channel %v from backup "+
-					"state", newLogClosure(func() string {
-					return chanUpdate.ClosedChans[i].String()
-				}))
+					"state", lnutils.NewLogClosure(
+					chanUpdate.ClosedChans[i].String))
 
 				delete(s.backupState, closedChan)
 

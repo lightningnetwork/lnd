@@ -53,7 +53,7 @@ func (s SatPerKVByte) FeePerKWeight() SatPerKWeight {
 
 // String returns a human-readable string of the fee rate.
 func (s SatPerKVByte) String() string {
-	return fmt.Sprintf("%v sat/kb", int64(s))
+	return fmt.Sprintf("%v sat/kvb", int64(s))
 }
 
 // SatPerKWeight represents a fee rate in sat/kw.

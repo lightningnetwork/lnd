@@ -4,9 +4,9 @@ import (
 	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnutils"
 )
 
 // ChannelRestorer is an interface that allows the Recover method to map the
@@ -63,9 +63,8 @@ func Recover(backups []Single, restorer ChannelRestorer,
 		log.Infof("Attempting to connect to node=%x (addrs=%v) to "+
 			"restore ChannelPoint(%v)",
 			backup.RemoteNodePub.SerializeCompressed(),
-			newLogClosure(func() string {
-				return spew.Sdump(backups[i].Addresses)
-			}), backup.FundingOutpoint)
+			lnutils.SpewLogClosure(backups[i].Addresses),
+			backup.FundingOutpoint)
 
 		err = peerConnector.ConnectPeer(
 			backup.RemoteNodePub, backup.Addresses,

@@ -5,11 +5,11 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btclog"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/graph"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -432,7 +432,7 @@ func (p *paymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate,
 	policy.FeeProportionalMillionths = lnwire.MilliSatoshi(msg.FeeRate)
 
 	log.Debugf("New private channel update applied: %v",
-		newLogClosure(func() string { return spew.Sdump(msg) }))
+		lnutils.SpewLogClosure(msg))
 
 	return true
 }

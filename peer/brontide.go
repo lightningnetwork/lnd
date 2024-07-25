@@ -2156,7 +2156,7 @@ func (p *Brontide) logWireMessage(msg lnwire.Message, read bool) {
 		summaryPrefix = "Sending"
 	}
 
-	p.log.Debugf("%v", newLogClosure(func() string {
+	p.log.Debugf("%v", lnutils.NewLogClosure(func() string {
 		// Debug summary of message.
 		summary := messageSummary(msg)
 		if len(summary) > 0 {
@@ -2184,9 +2184,7 @@ func (p *Brontide) logWireMessage(msg lnwire.Message, read bool) {
 		prefix = "writeMessage to peer"
 	}
 
-	p.log.Tracef(prefix+": %v", newLogClosure(func() string {
-		return spew.Sdump(msg)
-	}))
+	p.log.Tracef(prefix+": %v", lnutils.SpewLogClosure(msg))
 }
 
 // writeMessage writes and flushes the target lnwire.Message to the remote peer.

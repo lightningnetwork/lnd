@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -1432,7 +1431,7 @@ func (b *Builder) processUpdate(msg interface{},
 		}
 
 		log.Tracef("New channel update applied: %v",
-			newLogClosure(func() string { return spew.Sdump(msg) }))
+			lnutils.SpewLogClosure(msg))
 		b.stats.incNumChannelUpdates()
 
 	default:

@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -613,9 +614,8 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 func (s *Switch) UpdateForwardingPolicies(
 	chanPolicies map[wire.OutPoint]models.ForwardingPolicy) {
 
-	log.Tracef("Updating link policies: %v", newLogClosure(func() string {
-		return spew.Sdump(chanPolicies)
-	}))
+	log.Tracef("Updating link policies: %v", lnutils.SpewLogClosure(
+		chanPolicies))
 
 	s.indexMtx.RLock()
 
@@ -1213,9 +1213,8 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				)
 				log.Warnf("unable to find err source for "+
 					"outgoing_link=%v, errors=%v",
-					packet.outgoingChanID, newLogClosure(func() string {
-						return spew.Sdump(linkErrs)
-					}))
+					packet.outgoingChanID,
+					lnutils.SpewLogClosure(linkErrs))
 			}
 
 			log.Tracef("incoming HTLC(%x) violated "+
@@ -1994,10 +1993,9 @@ out:
 				continue
 			}
 
-			log.Tracef("Acked %d settle fails: %v", len(s.pendingSettleFails),
-				newLogClosure(func() string {
-					return spew.Sdump(s.pendingSettleFails)
-				}))
+			log.Tracef("Acked %d settle fails: %v",
+				len(s.pendingSettleFails),
+				lnutils.SpewLogClosure(s.pendingSettleFails))
 
 			// Reset the pendingSettleFails buffer while keeping acquired
 			// memory.

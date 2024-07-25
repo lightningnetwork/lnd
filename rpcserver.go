@@ -63,6 +63,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -5845,9 +5846,7 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 	}
 
 	rpcsLog.Tracef("[lookupinvoice] located invoice %v",
-		newLogClosure(func() string {
-			return spew.Sdump(invoice)
-		}))
+		lnutils.SpewLogClosure(invoice))
 
 	rpcInvoice, err := invoicesrpc.CreateRPCInvoice(
 		&invoice, r.cfg.ActiveNetParams.Params,

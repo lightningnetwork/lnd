@@ -14,8 +14,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/bech32"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/miekg/dns"
@@ -431,10 +431,7 @@ search:
 		}
 
 		log.Tracef("Retrieved SRV records from dns seed: %v",
-			newLogClosure(func() string {
-				return spew.Sdump(addrs)
-			}),
-		)
+			lnutils.SpewLogClosure(addrs))
 
 		// Next, we'll need to issue an A record request for each of
 		// the nodes, skipping it if nothing comes back.

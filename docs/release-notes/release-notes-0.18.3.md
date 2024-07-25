@@ -55,6 +55,24 @@
 
 # Improvements
 ## Functional Updates
+
+* A new field, `min_relay_feerate`, is [now
+  expected](https://github.com/lightningnetwork/lnd/pull/8891) in the response
+  from querying the external fee estimation URL. The new response should have
+  the format, 
+  ```json
+    {
+        "fee_by_block_target": {
+            "2": 5076,
+            "3": 4228,
+            "26": 4200
+        },
+        "min_relay_feerate": 1000
+    }
+  ```
+  All units are `sats/kvB`. If the new field `min_relay_feerate` is not set,
+  the default floor feerate (1012 sats/kvB) will be used.
+
 ## RPC Updates
 
 * [`xImportMissionControl`](https://github.com/lightningnetwork/lnd/pull/8779) 

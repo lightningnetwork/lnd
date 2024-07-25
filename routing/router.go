@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -669,10 +670,7 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 	}
 
 	go log.Tracef("Obtained path to send %v to %x: %v",
-		req.Amount, req.Target, newLogClosure(func() string {
-			return spew.Sdump(route)
-		}),
-	)
+		req.Amount, req.Target, lnutils.SpewLogClosure(route))
 
 	return route, probability, nil
 }
@@ -704,7 +702,7 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte,
 	}
 
 	log.Tracef("Constructed per-hop payloads for payment_hash=%x: %v",
-		paymentHash[:], newLogClosure(func() string {
+		paymentHash, lnutils.NewLogClosure(func() string {
 			path := make(
 				[]sphinx.OnionHop, sphinxPath.TrueRouteLength(),
 			)
@@ -734,7 +732,7 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte,
 	}
 
 	log.Tracef("Generated sphinx packet: %v",
-		newLogClosure(func() string {
+		lnutils.NewLogClosure(func() string {
 			// We make a copy of the ephemeral key and unset the
 			// internal curve here in order to keep the logs from
 			// getting noisy.
@@ -945,8 +943,8 @@ func (r *ChannelRouter) SendPaymentAsync(ctx context.Context,
 
 // spewPayment returns a log closures that provides a spewed string
 // representation of the passed payment.
-func spewPayment(payment *LightningPayment) logClosure {
-	return newLogClosure(func() string {
+func spewPayment(payment *LightningPayment) lnutils.LogClosure {
+	return lnutils.NewLogClosure(func() string {
 		// Make a copy of the payment with a nilled Curve
 		// before spewing.
 		var routeHints [][]zpay32.HopHint
@@ -1090,11 +1088,8 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 		return nil, err
 	}
 
-	log.Tracef("Dispatching SendToRoute for HTLC hash %v: %v",
-		htlcHash, newLogClosure(func() string {
-			return spew.Sdump(rt)
-		}),
-	)
+	log.Tracef("Dispatching SendToRoute for HTLC hash %v: %v", htlcHash,
+		lnutils.SpewLogClosure(rt))
 
 	// Since the HTLC hashes and preimages are specified manually over the
 	// RPC for SendToRoute requests, we don't have to worry about creating

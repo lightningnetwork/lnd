@@ -860,6 +860,12 @@ func (h *HarnessTest) SetFeeEstimateWithConf(
 	h.feeService.SetFeeRate(fee, conf)
 }
 
+// SetMinRelayFeerate sets a min relay fee rate to be returned from fee
+// estimator.
+func (h *HarnessTest) SetMinRelayFeerate(fee chainfee.SatPerKVByte) {
+	h.feeService.SetMinRelayFeerate(fee)
+}
+
 // validateNodeState checks that the node doesn't have any uncleaned states
 // which will affect its following tests.
 func (h *HarnessTest) validateNodeState(hn *node.HarnessNode) error {

@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -728,7 +729,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			edge.capacity,
 		)
 
-		log.Trace(newLogClosure(func() string {
+		log.Trace(lnutils.NewLogClosure(func() string {
 			return fmt.Sprintf("path finding probability: fromnode=%v,"+
 				" tonode=%v, amt=%v, cap=%v, probability=%v",
 				fromVertex, toNodeDist.node, amountToSend,

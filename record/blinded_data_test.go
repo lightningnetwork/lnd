@@ -196,6 +196,10 @@ func TestDummyHopBlindedDataEncoding(t *testing.T) {
 	encoded, err := EncodeBlindedRouteData(routeData)
 	require.NoError(t, err)
 
+	// Assert the size of an average dummy hop payload in case we need to
+	// update this constant in future.
+	require.Len(t, encoded, AverageDummyHopPayloadSize)
+
 	b := bytes.NewBuffer(encoded)
 	decodedData, err := DecodeBlindedRouteData(b)
 	require.NoError(t, err)

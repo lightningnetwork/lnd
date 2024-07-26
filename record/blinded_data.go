@@ -10,6 +10,13 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+// AverageDummyHopPayloadSize is the size of a standard blinded path dummy hop
+// payload. In most cases, this is larger than the other payload types and so
+// to make sure that a sender cannot use this fact to know if a dummy hop is
+// present or not, we'll make sure to always pad all payloads to at least this
+// size.
+const AverageDummyHopPayloadSize = 51
+
 // BlindedRouteData contains the information that is included in a blinded
 // route encrypted data blob that is created by the recipient to provide
 // forwarding information.

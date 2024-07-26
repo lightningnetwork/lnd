@@ -257,7 +257,9 @@ func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 
 	// Add padding to each route data instance until the encrypted data
 	// blobs are all the same size.
-	paymentPath, _, err := padHopInfo(hopDataSet, true)
+	paymentPath, _, err := padHopInfo(
+		hopDataSet, true, record.AverageDummyHopPayloadSize,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -731,9 +733,10 @@ type padStats struct {
 // edges. The number of iterations that this function takes is also returned for
 // testing purposes. If prePad is true, then zero byte padding is added to each
 // payload that does not yet have padding. This will save some iterations for
-// the majority of cases.
-func padHopInfo(hopInfo []*hopData, prePad bool) ([]*sphinx.HopInfo, *padStats,
-	error) {
+// the majority of cases. minSize can be used to specify a minimum size that all
+// payloads should be.
+func padHopInfo(hopInfo []*hopData, prePad bool, minSize int) (
+	[]*sphinx.HopInfo, *padStats, error) {
 
 	var (
 		paymentPath = make([]*sphinx.HopInfo, len(hopInfo))
@@ -759,7 +762,7 @@ func padHopInfo(hopInfo []*hopData, prePad bool) ([]*sphinx.HopInfo, *padStats,
 		// current largest encoded data blob size. This will be the
 		// size we aim to get the others to match.
 		var (
-			maxLen int
+			maxLen = minSize
 			minLen = math.MaxInt8
 		)
 		for i, hop := range hopInfo {

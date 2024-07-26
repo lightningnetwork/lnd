@@ -237,6 +237,10 @@ func TestPadBlindedHopInfo(t *testing.T) {
 		// prePad is true if all the hop payloads should be pre-padded
 		// with a zero length TLV Padding field.
 		prePad bool
+
+		// minPayloadSize can be used to set the minimum number of bytes
+		// that the resulting records should be.
+		minPayloadSize int
 	}{
 		{
 			// If there is only one entry, then no padding is
@@ -249,6 +253,15 @@ func TestPadBlindedHopInfo(t *testing.T) {
 			// bytes, and it will be prefixed by type and value
 			// bytes.
 			expectedFinalSize: 12,
+		},
+		{
+			// Same as the above example but with a minimum final
+			// size specified.
+			name:               "single entry with min size",
+			expectedIterations: 2,
+			pathIDs:            []int{10},
+			minPayloadSize:     500,
+			expectedFinalSize:  504,
 		},
 		{
 			// All the payloads are the same size from the get go
@@ -376,7 +389,7 @@ func TestPadBlindedHopInfo(t *testing.T) {
 			}
 
 			hopInfo, stats, err := padHopInfo(
-				hopDataSet, test.prePad,
+				hopDataSet, test.prePad, test.minPayloadSize,
 			)
 			require.NoError(t, err)
 			require.Equal(t, test.expectedIterations,
@@ -400,7 +413,7 @@ func TestPadBlindedHopInfo(t *testing.T) {
 // asserts that the resulting padded set always has the same encoded length.
 func TestPadBlindedHopInfoBlackBox(t *testing.T) {
 	fn := func(data hopDataList) bool {
-		resultList, _, err := padHopInfo(data, true)
+		resultList, _, err := padHopInfo(data, true, 0)
 		require.NoError(t, err)
 
 		// There should be a resulting sphinx.HopInfo struct for each

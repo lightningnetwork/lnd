@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -118,5 +119,94 @@ func TestParseTimeLockDelta(t *testing.T) {
 		} else {
 			require.NoError(t, err)
 		}
+	}
+}
+
+// TestParseRouteHints tests parseRouteHints with various
+// valid and invalid input values and verifies the output.
+func TestParseRouteHints(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		routeHints  string
+		expected    []*lnrpc.HopHint
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "InvalidChanID",
+			routeHints: `[{"node_id":"0323...", ` +
+				`"chan_id":"invalid"}]`,
+			expectError: true,
+			errorMsg: "error parsing route hints JSON: " +
+				"json: cannot unmarshal string into " +
+				"Go struct field HopHint.chan_id of " +
+				"type uint64",
+		},
+		{
+			name: "ValidSingleHint",
+			routeHints: `[{"node_id":"0323...", ` +
+				`"chan_id":1234567890, ` +
+				`"fee_base_msat":1000}]`,
+			expected: []*lnrpc.HopHint{
+				{
+					NodeId:      "0323...",
+					ChanId:      1234567890,
+					FeeBaseMsat: 1000,
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "ValidMultipleHints",
+			routeHints: `[{"node_id":"0323...", ` +
+				`"chan_id":1234567890, ` +
+				`"fee_base_msat":1000}, ` +
+				`{"node_id":"0245...", ` +
+				`"chan_id":987654321, ` +
+				`"fee_base_msat":2000}]`,
+			expected: []*lnrpc.HopHint{
+				{
+					NodeId:      "0323...",
+					ChanId:      1234567890,
+					FeeBaseMsat: 1000,
+				},
+				{
+					NodeId:      "0245...",
+					ChanId:      987654321,
+					FeeBaseMsat: 2000,
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:        "MissingChanID",
+			routeHints:  `[{"node_id":"0323..."}]`,
+			expectError: true,
+			errorMsg: "chan_id is missing or invalid in route " +
+				"hint",
+		},
+		{
+			name:        "EmptyJSON",
+			routeHints:  `[]`,
+			expectError: true,
+			errorMsg:    "no valid route hints found in JSON",
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			invoiceHints, err := parseRouteHints(tc.routeHints)
+			if tc.expectError {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errorMsg)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.expected, invoiceHints)
+			}
+		})
 	}
 }

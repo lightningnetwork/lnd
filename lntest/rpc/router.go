@@ -36,9 +36,24 @@ func (h *HarnessRPC) SendPayment(
 	req *routerrpc.SendPaymentRequest) PaymentClient {
 
 	// SendPayment needs to have the context alive for the entire test case
-	// as the router relies on the context to propagate HTLCs. Thus we use
+	// as the router relies on the context to propagate HTLCs. Thus, we use
 	// runCtx here instead of a timeout context.
 	stream, err := h.Router.SendPaymentV2(h.runCtx, req)
+	h.NoError(err, "SendPaymentV2")
+
+	return stream
+}
+
+// SendPaymentWithContext sends a payment using the given node and payment
+// request and does so with the passed in context.
+func (h *HarnessRPC) SendPaymentWithContext(context context.Context,
+	req *routerrpc.SendPaymentRequest) PaymentClient {
+
+	require.NotNil(h.T, context, "context must not be nil")
+
+	// SendPayment needs to have the context alive for the entire test case
+	// as the router relies on the context to propagate HTLCs.
+	stream, err := h.Router.SendPaymentV2(context, req)
 	h.NoError(err, "SendPaymentV2")
 
 	return stream

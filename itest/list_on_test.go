@@ -194,6 +194,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testPaymentFollowingChannelOpen,
 	},
 	{
+		Name:     "payment failure reason canceled",
+		TestFunc: testPaymentFailureReasonCanceled,
+	},
+	{
 		Name:     "invoice update subscription",
 		TestFunc: testInvoiceSubscriptions,
 	},

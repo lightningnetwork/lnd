@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -13,7 +14,9 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
 )
 
@@ -766,4 +769,134 @@ func assertChannelState(ht *lntest.HarnessTest, hn *node.HarnessNode,
 		return nil
 	}, lntest.DefaultTimeout)
 	require.NoError(ht, err, "timeout while chekcing for balance")
+}
+
+// testPaymentFailureReasonCanceled ensures that the cancellation of a
+// SendPayment request results in the payment failure reason
+// FAILURE_REASON_CANCELED. This failure reason indicates that the context was
+// cancelled manually by the user. It does not interrupt the current payment
+// attempt, but will prevent any further payment attempts. The test steps are:
+// 1.) Alice pays Carol's invoice through Bob.
+// 2.) Bob intercepts the htlc, keeping the payment pending.
+// 3.) Alice cancels the payment context, the payment is still pending.
+// 4.) Bob fails OR resumes the intercepted HTLC.
+// 5.) Alice observes a failed OR succeeded payment with failure reason
+// FAILURE_REASON_CANCELED which suppresses further payment attempts.
+func testPaymentFailureReasonCanceled(ht *lntest.HarnessTest) {
+	// Initialize the test context with 3 connected nodes.
+	ts := newInterceptorTestScenario(ht)
+
+	alice, bob, carol := ts.alice, ts.bob, ts.carol
+
+	// Open and wait for channels.
+	const chanAmt = btcutil.Amount(300000)
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntest.OpenChannelRequest{
+		{Local: alice, Remote: bob, Param: p},
+		{Local: bob, Remote: carol, Param: p},
+	}
+	resp := ht.OpenMultiChannelsAsync(reqs)
+	cpAB, cpBC := resp[0], resp[1]
+
+	// Make sure Alice is aware of channel Bob=>Carol.
+	ht.AssertTopologyChannelOpen(alice, cpBC)
+
+	// First we check that the payment is successful when bob resumes the
+	// htlc even though the payment context was canceled before invoice
+	// settlement.
+	sendPaymentInterceptAndCancel(
+		ht, ts, cpAB, routerrpc.ResolveHoldForwardAction_RESUME,
+		lnrpc.Payment_SUCCEEDED,
+	)
+
+	// Next we check that the context cancellation results in the expected
+	// failure reason while the htlc is being held and failed after
+	// cancellation.
+	// Note that we'd have to reset Alice's mission control if we tested the
+	// htlc fail case before the htlc resume case.
+	sendPaymentInterceptAndCancel(
+		ht, ts, cpAB, routerrpc.ResolveHoldForwardAction_FAIL,
+		lnrpc.Payment_FAILED,
+	)
+
+	// Finally, close channels.
+	ht.CloseChannel(alice, cpAB)
+	ht.CloseChannel(bob, cpBC)
+}
+
+func sendPaymentInterceptAndCancel(ht *lntest.HarnessTest,
+	ts *interceptorTestScenario, cpAB *lnrpc.ChannelPoint,
+	interceptorAction routerrpc.ResolveHoldForwardAction,
+	expectedPaymentStatus lnrpc.Payment_PaymentStatus) {
+
+	// Prepare the test cases.
+	alice, bob, carol := ts.alice, ts.bob, ts.carol
+
+	// Connect the interceptor.
+	interceptor, cancelInterceptor := bob.RPC.HtlcInterceptor()
+
+	// Prepare the test cases.
+	addResponse := carol.RPC.AddInvoice(&lnrpc.Invoice{
+		ValueMsat: 1000,
+	})
+	invoice := carol.RPC.LookupInvoice(addResponse.RHash)
+
+	// We initiate a payment from Alice and define the payment context
+	// cancellable.
+	ctx, cancelPaymentContext := context.WithCancel(context.Background())
+	var paymentStream rpc.PaymentClient
+	go func() {
+		req := &routerrpc.SendPaymentRequest{
+			PaymentRequest: invoice.PaymentRequest,
+			TimeoutSeconds: 60,
+			FeeLimitSat:    100000,
+			Cancelable:     true,
+		}
+
+		paymentStream = alice.RPC.SendPaymentWithContext(ctx, req)
+	}()
+
+	// We start the htlc interceptor with a simple implementation that
+	// saves all intercepted packets. These packets are held to simulate a
+	// pending payment.
+	packet := ht.ReceiveHtlcInterceptor(interceptor)
+
+	// Here we should wait for the channel to contain a pending htlc, and
+	// also be shown as being active.
+	ht.AssertIncomingHTLCActive(bob, cpAB, invoice.RHash)
+
+	// Ensure that Alice's payment is in-flight because Bob is holding the
+	// htlc.
+	ht.AssertPaymentStatusFromStream(paymentStream, lnrpc.Payment_IN_FLIGHT)
+
+	// Cancel the payment context. This should end the payment stream
+	// context, but the payment should still be in state in-flight without a
+	// failure reason.
+	cancelPaymentContext()
+
+	var preimage lntypes.Preimage
+	copy(preimage[:], invoice.RPreimage)
+	payment := ht.AssertPaymentStatus(
+		alice, preimage, lnrpc.Payment_IN_FLIGHT,
+	)
+	reasonNone := lnrpc.PaymentFailureReason_FAILURE_REASON_NONE
+	require.Equal(ht, reasonNone, payment.FailureReason)
+
+	// Bob sends the interceptor action to the intercepted htlc.
+	err := interceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey: packet.IncomingCircuitKey,
+		Action:             interceptorAction,
+	})
+	require.NoError(ht, err, "failed to send request")
+
+	// Assert that the payment status is as expected.
+	ht.AssertPaymentStatus(alice, preimage, expectedPaymentStatus)
+
+	// Since the payment context was cancelled, no further payment attempts
+	// should've been made, and we observe FAILURE_REASON_CANCELED.
+	expectedReason := lnrpc.PaymentFailureReason_FAILURE_REASON_CANCELED
+	ht.AssertPaymentFailureReason(alice, preimage, expectedReason)
+
+	// Cancel the context, which will disconnect the above interceptor.
+	cancelInterceptor()
 }

@@ -36,6 +36,10 @@
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/8896) that caused
   LND to use a default fee rate for the batch channel opening flow.
 
+* The fee limit for payments [was made
+  compatible](https://github.com/lightningnetwork/lnd/pull/8941) with inbound
+  fees.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions
@@ -150,6 +154,7 @@
 # Contributors (Alphabetical Order)
 
 * Andras Banki-Horvath
+* bitromortac
 * Bufo
 * Elle Mouton
 * Matheus Degiovani

@@ -1397,12 +1397,8 @@ func testFeeLimitAfterQueryRoutes(ht *lntest.HarnessTest) {
 		FeeLimitMsat:   0,
 	}
 
-	// We assert that the payment fails because the fee limit doesn't work
-	// correctly. This is fixed in the next commit.
-	ht.SendPaymentAssertFail(
-		alice, sendReq,
-		lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE,
-	)
+	// We assert that a route compatible with the fee limit is available.
+	ht.SendPaymentAssertSettled(alice, sendReq)
 
 	// Once we're done, close the channels.
 	ht.CloseChannel(alice, chanPointAliceBob)

@@ -8,7 +8,9 @@ import (
 	"sort"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -43,6 +45,9 @@ type BuildBlindedPathCfg struct {
 	FetchChannelEdgesByID func(chanID uint64) (*models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error)
 
+	// FetchOurOpenChannels fetches this node's set of open channels.
+	FetchOurOpenChannels func() ([]*channeldb.OpenChannel, error)
+
 	// BestHeight can be used to fetch the best block height that this node
 	// is aware of.
 	BestHeight func() (uint32, error)
@@ -53,7 +58,7 @@ type BuildBlindedPathCfg struct {
 	// during the lifetime of the blinded path, then the path remains valid
 	// and so probing is more difficult. Note that this will only be called
 	// for the policies of real nodes and won't be applied to
-	// DummyHopPolicy.
+	// DefaultDummyHopPolicy.
 	AddPolicyBuffer func(policy *BlindedHopPolicy) (*BlindedHopPolicy,
 		error)
 
@@ -86,9 +91,13 @@ type BuildBlindedPathCfg struct {
 	// route.
 	MinNumHops uint8
 
-	// DummyHopPolicy holds the policy values that should be used for dummy
-	// hops. Note that these will _not_ be buffered via AddPolicyBuffer.
-	DummyHopPolicy *BlindedHopPolicy
+	// DefaultDummyHopPolicy holds the policy values that should be used for
+	// dummy hops in the cases where it cannot be derived via other means
+	// such as averaging the policy values of other hops on the path. This
+	// would happen in the case where the introduction node is also the
+	// introduction node. If these default policy values are used, then
+	// the MaxHTLCMsat value must be carefully chosen.
+	DefaultDummyHopPolicy *BlindedHopPolicy
 }
 
 // BuildBlindedPaymentPaths uses the passed config to construct a set of blinded
@@ -334,42 +343,100 @@ type hopRelayInfo struct {
 // Therefore, when we go through the route and its hops to collect policies, our
 // index for collecting public keys will be trailing that of the channel IDs by
 // 1.
+//
+// For any dummy hops on the route, this function also decides what to use as
+// policy values for the dummy hops. If there are other real hops, then the
+// dummy hop policy values are derived by taking the average of the real
+// policy values. If there are no real hops (in other words we are the
+// introduction node), then we use some default routing values and we use the
+// average of our channel capacities for the MaxHTLC value.
 func collectRelayInfo(cfg *BuildBlindedPathCfg, path *candidatePath) (
 	[]*hopRelayInfo, lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
 
+	var (
+		// The first pub key is that of the introduction node.
+		hopSource = path.introNode
+
+		// A collection of the policy values of real hops on the path.
+		policies = make(map[uint64]*BlindedHopPolicy)
+
+		hasDummyHops bool
+	)
+
+	// On this first iteration, we just collect policy values of the real
+	// hops on the path.
+	for _, hop := range path.hops {
+		// Once we have hit a dummy hop, all hops after will be dummy
+		// hops too.
+		if hop.isDummy {
+			hasDummyHops = true
+
+			break
+		}
+
+		// For real hops, retrieve the channel policy for this hop's
+		// channel ID in the direction pointing away from the hopSource
+		// node.
+		policy, err := getNodeChannelPolicy(
+			cfg, hop.channelID, hopSource,
+		)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+
+		policies[hop.channelID] = policy
+
+		// This hop's pub key will be the policy creator for the next
+		// hop.
+		hopSource = hop.pubKey
+	}
+
+	var (
+		dummyHopPolicy *BlindedHopPolicy
+		err            error
+	)
+
+	// If the path does have dummy hops, we need to decide which policy
+	// values to use for these hops.
+	if hasDummyHops {
+		dummyHopPolicy, err = computeDummyHopPolicy(
+			cfg.DefaultDummyHopPolicy, cfg.FetchOurOpenChannels,
+			policies,
+		)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+	}
+
+	// We iterate through the hops one more time. This time it is to
+	// buffer the policy values, collect the payment relay info to send to
+	// each hop, and to compute the min and max HTLC values for the path.
 	var (
 		hops    = make([]*hopRelayInfo, 0, len(path.hops))
 		minHTLC lnwire.MilliSatoshi
 		maxHTLC lnwire.MilliSatoshi
 	)
-
-	var (
-		// The first pub key is that of the introduction node.
-		hopSource = path.introNode
-	)
+	// The first pub key is that of the introduction node.
+	hopSource = path.introNode
 	for _, hop := range path.hops {
 		var (
-			// For dummy hops, we use pre-configured policy values.
-			policy = cfg.DummyHopPolicy
+			policy = dummyHopPolicy
+			ok     bool
 			err    error
 		)
-		if !hop.isDummy {
-			// For real hops, retrieve the channel policy for this
-			// hop's channel ID in the direction pointing away from
-			// the hopSource node.
-			policy, err = getNodeChannelPolicy(
-				cfg, hop.channelID, hopSource,
-			)
-			if err != nil {
-				return nil, 0, 0, err
-			}
 
-			// Apply any policy changes now before caching the
-			// policy.
-			policy, err = cfg.AddPolicyBuffer(policy)
-			if err != nil {
-				return nil, 0, 0, err
+		if !hop.isDummy {
+			policy, ok = policies[hop.channelID]
+			if !ok {
+				return nil, 0, 0, fmt.Errorf("no cached "+
+					"policy found for channel ID: %d",
+					hop.channelID)
 			}
+		}
+
+		policy, err = cfg.AddPolicyBuffer(policy)
+		if err != nil {
+			return nil, 0, 0, err
 		}
 
 		// If this is the first policy we are collecting, then use this
@@ -433,6 +500,79 @@ func buildDummyRouteData(node route.Vertex, relayInfo *record.PaymentRelayInfo,
 		),
 		nodeID: nodeID,
 	}, nil
+}
+
+// computeDummyHopPolicy determines policy values to use for a dummy hop on a
+// blinded path. If other real policy values exist, then we use the average of
+// those values for the dummy hop policy values. Otherwise, in the case were
+// there are no real policy values due to this node being the introduction node,
+// we use the provided default policy values, and we get the average capacity of
+// this node's channels to compute a MaxHTLC value.
+func computeDummyHopPolicy(defaultPolicy *BlindedHopPolicy,
+	fetchOurChannels func() ([]*channeldb.OpenChannel, error),
+	policies map[uint64]*BlindedHopPolicy) (*BlindedHopPolicy, error) {
+
+	numPolicies := len(policies)
+
+	// If there are no real policies to calculate an average policy from,
+	// then we use the default. The only thing we need to calculate here
+	// though is the MaxHTLC value.
+	if numPolicies == 0 {
+		chans, err := fetchOurChannels()
+		if err != nil {
+			return nil, err
+		}
+
+		if len(chans) == 0 {
+			return nil, fmt.Errorf("node has no channels to " +
+				"receive on")
+		}
+
+		// Calculate the average channel capacity and use this as the
+		// MaxHTLC value.
+		var maxHTLC btcutil.Amount
+		for _, c := range chans {
+			maxHTLC += c.Capacity
+		}
+
+		maxHTLC = btcutil.Amount(float64(maxHTLC) / float64(len(chans)))
+
+		return &BlindedHopPolicy{
+			CLTVExpiryDelta: defaultPolicy.CLTVExpiryDelta,
+			FeeRate:         defaultPolicy.FeeRate,
+			BaseFee:         defaultPolicy.BaseFee,
+			MinHTLCMsat:     defaultPolicy.MinHTLCMsat,
+			MaxHTLCMsat:     lnwire.NewMSatFromSatoshis(maxHTLC),
+		}, nil
+	}
+
+	var avgPolicy BlindedHopPolicy
+
+	for _, policy := range policies {
+		avgPolicy.MinHTLCMsat += policy.MinHTLCMsat
+		avgPolicy.MaxHTLCMsat += policy.MaxHTLCMsat
+		avgPolicy.BaseFee += policy.BaseFee
+		avgPolicy.FeeRate += policy.FeeRate
+		avgPolicy.CLTVExpiryDelta += policy.CLTVExpiryDelta
+	}
+
+	avgPolicy.MinHTLCMsat = lnwire.MilliSatoshi(
+		float64(avgPolicy.MinHTLCMsat) / float64(numPolicies),
+	)
+	avgPolicy.MaxHTLCMsat = lnwire.MilliSatoshi(
+		float64(avgPolicy.MaxHTLCMsat) / float64(numPolicies),
+	)
+	avgPolicy.BaseFee = lnwire.MilliSatoshi(
+		float64(avgPolicy.BaseFee) / float64(numPolicies),
+	)
+	avgPolicy.FeeRate = uint32(
+		float64(avgPolicy.FeeRate) / float64(numPolicies),
+	)
+	avgPolicy.CLTVExpiryDelta = uint16(
+		float64(avgPolicy.CLTVExpiryDelta) / float64(numPolicies),
+	)
+
+	return &avgPolicy, nil
 }
 
 // buildHopRouteData constructs the record.BlindedRouteData struct for the given

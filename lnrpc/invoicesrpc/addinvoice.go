@@ -109,10 +109,15 @@ type AddInvoiceConfig struct {
 	// appropriate values (like maximum HTLC) by 10%.
 	BlindedRoutePolicyDecrMultiplier float64
 
-	// MinNumHops is the minimum number of hops that a blinded path should
-	// be. Dummy hops will be used to pad any route with a length less than
-	// this.
-	MinNumHops uint8
+	// MinNumBlindedPathHops is the minimum number of hops that a blinded
+	// path should be. Dummy hops will be used to pad any route with a
+	// length less than this.
+	MinNumBlindedPathHops uint8
+
+	// DefaultDummyHopPolicy holds the default policy values to use for
+	// dummy hops in a blinded path in the case where they cant be derived
+	// through other means.
+	DefaultDummyHopPolicy *blindedpath.BlindedHopPolicy
 }
 
 // AddInvoiceData contains the required data to create a new invoice.
@@ -508,6 +513,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 			&blindedpath.BuildBlindedPathCfg{
 				FindRoutes:              cfg.QueryBlindedRoutes,
 				FetchChannelEdgesByID:   cfg.Graph.FetchChannelEdgesByID,
+				FetchOurOpenChannels:    cfg.ChanDB.FetchAllOpenChannels,
 				PathID:                  paymentAddr[:],
 				ValueMsat:               invoice.Value,
 				BestHeight:              cfg.BestHeight,
@@ -523,15 +529,8 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 						cfg.BlindedRoutePolicyDecrMultiplier,
 					)
 				},
-				MinNumHops: cfg.MinNumHops,
-				// TODO: make configurable
-				DummyHopPolicy: &blindedpath.BlindedHopPolicy{
-					CLTVExpiryDelta: 80,
-					FeeRate:         100,
-					BaseFee:         100,
-					MinHTLCMsat:     0,
-					MaxHTLCMsat:     lnwire.MaxMilliSatoshi,
-				},
+				MinNumHops:            cfg.MinNumBlindedPathHops,
+				DefaultDummyHopPolicy: cfg.DefaultDummyHopPolicy,
 			},
 		)
 		if err != nil {

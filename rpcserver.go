@@ -75,6 +75,7 @@ import (
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/blindedpath"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
@@ -5825,7 +5826,18 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 				blindingRestrictions,
 			)
 		},
-		MinNumHops: r.server.cfg.Routing.BlindedPaths.NumHops,
+		MinNumBlindedPathHops: r.server.cfg.Routing.BlindedPaths.
+			NumHops,
+		DefaultDummyHopPolicy: &blindedpath.BlindedHopPolicy{
+			CLTVExpiryDelta: uint16(defaultDelta),
+			FeeRate:         uint32(r.server.cfg.Bitcoin.FeeRate),
+			BaseFee:         r.server.cfg.Bitcoin.BaseFee,
+			MinHTLCMsat:     r.server.cfg.Bitcoin.MinHTLCIn,
+
+			// MaxHTLCMsat will be calculated on the fly by using
+			// the introduction node's channel's capacities.
+			MaxHTLCMsat: 0,
+		},
 	}
 
 	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)

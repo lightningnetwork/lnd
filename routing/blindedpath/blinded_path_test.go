@@ -802,7 +802,7 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 		// hops to be added to the real route.
 		MinNumHops: 4,
 
-		DummyHopPolicy: &BlindedHopPolicy{
+		DefaultDummyHopPolicy: &BlindedHopPolicy{
 			CLTVExpiryDelta: 50,
 			FeeRate:         100,
 			BaseFee:         100,
@@ -817,8 +817,8 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 
 	// Check that all the accumulated policy values are correct.
 	require.EqualValues(t, 403, path.FeeBaseMsat)
-	require.EqualValues(t, 1203, path.FeeRate)
-	require.EqualValues(t, 400, path.CltvExpiryDelta)
+	require.EqualValues(t, 2003, path.FeeRate)
+	require.EqualValues(t, 588, path.CltvExpiryDelta)
 	require.EqualValues(t, 1000, path.HTLCMinMsat)
 	require.EqualValues(t, lnwire.MaxMilliSatoshi, path.HTLCMaxMsat)
 
@@ -861,7 +861,7 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 	}, data.RelayInfo.UnwrapOrFail(t).Val)
 
 	require.Equal(t, record.PaymentConstraints{
-		MaxCltvExpiry:   1600,
+		MaxCltvExpiry:   1788,
 		HtlcMinimumMsat: 1000,
 	}, data.Constraints.UnwrapOrFail(t).Val)
 
@@ -883,7 +883,7 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 	}, data.RelayInfo.UnwrapOrFail(t).Val)
 
 	require.Equal(t, record.PaymentConstraints{
-		MaxCltvExpiry:   1456,
+		MaxCltvExpiry:   1644,
 		HtlcMinimumMsat: 1000,
 	}, data.Constraints.UnwrapOrFail(t).Val)
 

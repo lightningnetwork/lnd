@@ -17,15 +17,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testSendDirectPayment creates a topology Alice->Bob and then tests that
-// Alice can send a direct payment to Bob. This test modifies the fee estimator
-// to return floor fee rate(1 sat/vb).
+// testSendDirectPayment creates a topology Alice->Bob and then tests that Alice
+// can send a direct payment to Bob. This test modifies the fee estimator to
+// return floor fee rate(1 sat/vb).
 func testSendDirectPayment(ht *lntest.HarnessTest) {
 	// Grab Alice and Bob's nodes for convenience.
 	alice, bob := ht.Alice, ht.Bob
 
 	// Create a list of commitment types we want to test.
-	commitTyes := []lnrpc.CommitmentType{
+	commitmentTypes := []lnrpc.CommitmentType{
 		lnrpc.CommitmentType_ANCHORS,
 		lnrpc.CommitmentType_SIMPLE_TAPROOT,
 	}
@@ -109,7 +109,7 @@ func testSendDirectPayment(ht *lntest.HarnessTest) {
 	}
 
 	// Run the test cases.
-	for _, ct := range commitTyes {
+	for _, ct := range commitmentTypes {
 		ht.Run(ct.String(), func(t *testing.T) {
 			st := ht.Subtest(t)
 
@@ -132,8 +132,9 @@ func testSendDirectPayment(ht *lntest.HarnessTest) {
 			}
 
 			// Open private channel for taproot channels.
-			params.Private = ct ==
-				lnrpc.CommitmentType_SIMPLE_TAPROOT
+			if ct == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+				params.Private = true
+			}
 
 			testSendPayment(st, params)
 		})
@@ -429,7 +430,7 @@ func runAsyncPayments(ht *lntest.HarnessTest, alice, bob *node.HarnessNode,
 	// likely be lower, but we can't guarantee that any more HTLCs will
 	// succeed due to the limited path diversity and inability of the router
 	// to retry via another path.
-	numInvoices := int(input.MaxHTLCNumber / 2)
+	numInvoices := input.MaxHTLCNumber / 2
 
 	bobAmt := int64(numInvoices * paymentAmt)
 	aliceAmt := info.LocalBalance - bobAmt
@@ -534,10 +535,10 @@ func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 
 	// We'll create a number of invoices equal the max number of HTLCs that
 	// can be carried in one direction. The number on the commitment will
-	// likely be lower, but we can't guarantee that any more HTLCs will
-	// succeed due to the limited path diversity and inability of the router
-	// to retry via another path.
-	numInvoices := int(input.MaxHTLCNumber / 2)
+	// likely be lower, but we can't guarantee that more HTLCs will succeed
+	// due to the limited path diversity and inability of the router to
+	// retry via another path.
+	numInvoices := input.MaxHTLCNumber / 2
 
 	// Nodes should exchange the same amount of money and because of this
 	// at the end balances should remain the same.
@@ -597,7 +598,7 @@ func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 	assertChannelState(ht, alice, chanPoint, aliceAmt, bobAmt)
 
 	// Next query for Bob's and Alice's channel states, in order to confirm
-	// that all payment have been successful transmitted.
+	// that all payment have been successfully transmitted.
 	assertChannelState(ht, bob, chanPoint, bobAmt, aliceAmt)
 
 	// Finally, immediately close the channel. This function will also
@@ -662,7 +663,7 @@ func testInvoiceSubscriptions(ht *lntest.HarnessTest) {
 
 	// Now that the set of invoices has been added, we'll re-register for
 	// streaming invoice notifications for Bob, this time specifying the
-	// add invoice of the last prior invoice.
+	// add index of the last prior invoice.
 	req = &lnrpc.InvoiceSubscription{AddIndex: lastAddIndex}
 	bobInvoiceSubscription = bob.RPC.SubscribeInvoices(req)
 

@@ -33,6 +33,10 @@
   created](https://github.com/lightningnetwork/lnd/pull/8921) when multiple RPC
   calls are made concurrently.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/8857) to correctly 
+  propagate mission control and debug level config values to the main LND config
+  struct so that the GetDebugInfo response is accurate.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions
@@ -127,6 +131,7 @@
 * Bufo
 * Elle Mouton
 * Matheus Degiovani
+* Pins
 * Oliver Gugger
 * Slyghtning
 * Yong Yu

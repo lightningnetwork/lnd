@@ -32,6 +32,9 @@
 * [Avoids duplicate wallet addresses being
   created](https://github.com/lightningnetwork/lnd/pull/8921) when multiple RPC
   calls are made concurrently.
+  
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/8896) that caused
+  LND to use a default fee rate for the batch channel opening flow.
 
 # New Features
 ## Functional Enhancements
@@ -148,3 +151,4 @@
 * Oliver Gugger
 * Slyghtning
 * Yong Yu
+* Ziggie

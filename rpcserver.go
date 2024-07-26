@@ -2159,29 +2159,23 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 		return nil, fmt.Errorf("cannot open channel to self")
 	}
 
-	var feeRate chainfee.SatPerKWeight
+	// NOTE: We also need to do the fee rate calculation for the psbt
+	// funding flow because the `batchfund` depends on it.
+	targetConf := maybeUseDefaultConf(
+		in.SatPerByte, in.SatPerVbyte, uint32(in.TargetConf),
+	)
 
-	// Skip estimating fee rate for PSBT funding.
-	if in.FundingShim == nil || in.FundingShim.GetPsbtShim() == nil {
-		// Keep the old behavior prior to 0.18.0 - when the user
-		// doesn't set fee rate or conf target, the default conf target
-		// of 6 is used.
-		targetConf := maybeUseDefaultConf(
-			in.SatPerByte, in.SatPerVbyte, uint32(in.TargetConf),
-		)
-
-		// Calculate an appropriate fee rate for this transaction.
-		feeRate, err = lnrpc.CalculateFeeRate(
-			uint64(in.SatPerByte), in.SatPerVbyte,
-			targetConf, r.server.cc.FeeEstimator,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		rpcsLog.Debugf("[openchannel]: using fee of %v sat/kw for "+
-			"funding tx", int64(feeRate))
+	// Calculate an appropriate fee rate for this transaction.
+	feeRate, err := lnrpc.CalculateFeeRate(
+		uint64(in.SatPerByte), in.SatPerVbyte,
+		targetConf, r.server.cc.FeeEstimator,
+	)
+	if err != nil {
+		return nil, err
 	}
+
+	rpcsLog.Debugf("[openchannel]: using fee of %v sat/kw for "+
+		"funding tx", int64(feeRate))
 
 	script, err := chancloser.ParseUpfrontShutdownAddress(
 		in.CloseAddress, r.cfg.ActiveNetParams.Params,

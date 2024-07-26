@@ -355,6 +355,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testRouteFeeCutoff,
 	},
 	{
+		Name:     "route fee limit after queryroutes",
+		TestFunc: testFeeLimitAfterQueryRoutes,
+	},
+	{
 		Name:     "rpc middleware interceptor",
 		TestFunc: testRPCMiddlewareInterceptor,
 	},

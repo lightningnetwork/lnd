@@ -1331,6 +1331,84 @@ func testRouteFeeCutoff(ht *lntest.HarnessTest) {
 	ht.CloseChannel(carol, chanPointCarolDave)
 }
 
+// testFeeLimitAfterQueryRoutes tests that a payment's fee limit is consistent
+// with the fee of a queried route.
+func testFeeLimitAfterQueryRoutes(ht *lntest.HarnessTest) {
+	// Create a three hop network: Alice -> Bob -> Carol.
+	chanAmt := btcutil.Amount(100000)
+	chanPoints, nodes := createSimpleNetwork(
+		ht, []string{}, 3, lntest.OpenChannelParams{Amt: chanAmt},
+	)
+	alice, bob, carol := nodes[0], nodes[1], nodes[2]
+	chanPointAliceBob, chanPointBobCarol := chanPoints[0], chanPoints[1]
+
+	// We set an inbound fee discount on Bob's channel to Alice to
+	// effectively set the outbound fees charged to Carol to zero.
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:             1000,
+		FeeRateMilliMsat:        1,
+		InboundFeeBaseMsat:      -1000,
+		InboundFeeRateMilliMsat: -1,
+		TimeLockDelta: uint32(
+			chainreg.DefaultBitcoinTimeLockDelta,
+		),
+		MinHtlc:     1000,
+		MaxHtlcMsat: lntest.CalculateMaxHtlc(chanAmt),
+	}
+
+	updateFeeReq := &lnrpc.PolicyUpdateRequest{
+		Scope: &lnrpc.PolicyUpdateRequest_ChanPoint{
+			ChanPoint: chanPointAliceBob,
+		},
+		BaseFeeMsat:   expectedPolicy.FeeBaseMsat,
+		FeeRatePpm:    uint32(expectedPolicy.FeeRateMilliMsat),
+		TimeLockDelta: expectedPolicy.TimeLockDelta,
+		MaxHtlcMsat:   expectedPolicy.MaxHtlcMsat,
+		InboundFee: &lnrpc.InboundFee{
+			BaseFeeMsat: expectedPolicy.InboundFeeBaseMsat,
+			FeeRatePpm:  expectedPolicy.InboundFeeRateMilliMsat,
+		},
+	}
+	bob.RPC.UpdateChannelPolicy(updateFeeReq)
+
+	// Wait for Alice to receive the channel update from Bob.
+	ht.AssertChannelPolicyUpdate(
+		alice, bob, expectedPolicy, chanPointAliceBob, false,
+	)
+
+	// We query the only route available to Carol.
+	queryRoutesReq := &lnrpc.QueryRoutesRequest{
+		PubKey: carol.PubKeyStr,
+		Amt:    paymentAmt,
+	}
+	routesResp := alice.RPC.QueryRoutes(queryRoutesReq)
+
+	// Verify that the route has zero fees.
+	require.Len(ht, routesResp.Routes, 1)
+	require.Len(ht, routesResp.Routes[0].Hops, 2)
+	require.Zero(ht, routesResp.Routes[0].TotalFeesMsat)
+
+	// Attempt a payment with a fee limit of zero.
+	invoice := &lnrpc.Invoice{Value: paymentAmt}
+	invoiceResp := carol.RPC.AddInvoice(invoice)
+	sendReq := &routerrpc.SendPaymentRequest{
+		PaymentRequest: invoiceResp.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   0,
+	}
+
+	// We assert that the payment fails because the fee limit doesn't work
+	// correctly. This is fixed in the next commit.
+	ht.SendPaymentAssertFail(
+		alice, sendReq,
+		lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE,
+	)
+
+	// Once we're done, close the channels.
+	ht.CloseChannel(alice, chanPointAliceBob)
+	ht.CloseChannel(bob, chanPointBobCarol)
+}
+
 // computeFee calculates the payment fee as specified in BOLT07.
 func computeFee(baseFee, feeRate, amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 	return baseFee + amt*feeRate/1000000

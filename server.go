@@ -2105,6 +2105,9 @@ func (s *server) Start() error {
 			}
 		}
 
+		// chanSubSwapper must be started after the `channelNotifier`
+		// because it depends on channel events as a synchronization
+		// point.
 		cleanup = cleanup.add(s.chanSubSwapper.Stop)
 		if err := s.chanSubSwapper.Start(); err != nil {
 			startErr = err

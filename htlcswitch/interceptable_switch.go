@@ -242,7 +242,11 @@ func (s *InterceptableSwitch) Stop() error {
 	close(s.quit)
 	s.wg.Wait()
 
-	s.blockEpochStream.Cancel()
+	// We need to check whether the start routine run and initialized the
+	// `blockEpochStream`.
+	if s.blockEpochStream != nil {
+		s.blockEpochStream.Cancel()
+	}
 
 	log.Debug("InterceptableSwitch shutdown complete")
 

@@ -753,7 +753,12 @@ func (d *AuthenticatedGossiper) stop() {
 	log.Debug("Authenticated Gossiper is stopping")
 	defer log.Debug("Authenticated Gossiper stopped")
 
-	d.blockEpochs.Cancel()
+	// `blockEpochs` is only initialized in the start routine so we make
+	// sure we don't panic here in the case where the `Stop` method is
+	// called when the `Start` method does not complete.
+	if d.blockEpochs != nil {
+		d.blockEpochs.Cancel()
+	}
 
 	d.syncMgr.Stop()
 

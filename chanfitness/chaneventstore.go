@@ -226,11 +226,17 @@ func (c *ChannelEventStore) Stop() error {
 
 	// Stop the ticker after the goroutine reading from it has exited, to
 	// avoid a race.
-	c.cfg.FlapCountTicker.Stop()
+	var err error
+	if c.cfg.FlapCountTicker == nil {
+		err = fmt.Errorf("ChannelEventStore FlapCountTicker not " +
+			"initialized")
+	} else {
+		c.cfg.FlapCountTicker.Stop()
+	}
 
 	log.Debugf("ChannelEventStore shutdown complete")
 
-	return nil
+	return err
 }
 
 // addChannel checks whether we are already tracking a channel's peer, creates a

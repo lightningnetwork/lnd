@@ -152,7 +152,12 @@ func (n *NeutrinoNotifier) Stop() error {
 
 		close(epochClient.epochChan)
 	}
-	n.txNotifier.TearDown()
+
+	// The txNotifier is only initialized in the start method therefore we
+	// need to make sure we don't access a nil pointer here.
+	if n.txNotifier != nil {
+		n.txNotifier.TearDown()
+	}
 
 	return nil
 }

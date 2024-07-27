@@ -261,7 +261,13 @@ func (i *InvoiceRegistry) Stop() error {
 	log.Info("InvoiceRegistry shutting down...")
 	defer log.Debug("InvoiceRegistry shutdown complete")
 
-	i.expiryWatcher.Stop()
+	var err error
+	if i.expiryWatcher == nil {
+		err = fmt.Errorf("InvoiceRegistry expiryWatcher is not " +
+			"initialized")
+	} else {
+		i.expiryWatcher.Stop()
+	}
 
 	close(i.quit)
 
@@ -269,7 +275,7 @@ func (i *InvoiceRegistry) Stop() error {
 
 	log.Debug("InvoiceRegistry shutdown complete")
 
-	return nil
+	return err
 }
 
 // invoiceEvent represents a new event that has modified on invoice on disk.

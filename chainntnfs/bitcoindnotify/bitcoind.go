@@ -151,7 +151,12 @@ func (b *BitcoindNotifier) Stop() error {
 
 		close(epochClient.epochChan)
 	}
-	b.txNotifier.TearDown()
+
+	// The txNotifier is only initialized in the start method therefore we
+	// need to make sure we don't access a nil pointer here.
+	if b.txNotifier != nil {
+		b.txNotifier.TearDown()
+	}
 
 	// Stop the mempool notifier.
 	b.memNotifier.TearDown()

@@ -562,14 +562,18 @@ func (l *channelLink) Stop() {
 	}
 
 	// Ensure the channel for the timer is drained.
-	if !l.updateFeeTimer.Stop() {
-		select {
-		case <-l.updateFeeTimer.C:
-		default:
+	if l.updateFeeTimer != nil {
+		if !l.updateFeeTimer.Stop() {
+			select {
+			case <-l.updateFeeTimer.C:
+			default:
+			}
 		}
 	}
 
-	l.hodlQueue.Stop()
+	if l.hodlQueue != nil {
+		l.hodlQueue.Stop()
+	}
 
 	close(l.quit)
 	l.wg.Wait()

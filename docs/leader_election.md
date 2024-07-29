@@ -89,7 +89,7 @@ readinessProbe:
       command: [
         "/bin/sh",
         "-c",
-        "set -e; set -o pipefail; curl -s -k -o - https://localhost:8080/v1/state | jq .'State' | grep -E 'NON_EXISTING|LOCKED|UNLOCKED|RPC_ACTIVE'",
+        "set -e; set -o pipefail; curl -s -k -o - https://localhost:8080/v1/state | jq .'State' | grep -E 'NON_EXISTING|LOCKED|UNLOCKED|RPC_ACTIVE|SERVER_ACTIVE'",
       ]
     periodSeconds: 1
 ```

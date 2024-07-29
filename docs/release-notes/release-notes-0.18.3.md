@@ -39,6 +39,10 @@
 * The fee limit for payments [was made
   compatible](https://github.com/lightningnetwork/lnd/pull/8941) with inbound
   fees.
+  
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8946) a case where 
+bumping an anchor channel closing was not possible when no HTLCs were on the
+commitment when the channel was force closed.
 
 # New Features
 ## Functional Enhancements

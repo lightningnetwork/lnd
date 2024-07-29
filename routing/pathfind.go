@@ -697,7 +697,6 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// processEdge is a helper closure that will be used to make sure edges
 	// satisfy our specific requirements.
 	processEdge := func(fromVertex route.Vertex,
-		fromFeatures *lnwire.FeatureVector,
 		edge *unifiedEdge, toNodeDist *nodeWithDist) {
 
 		edgesExpanded++
@@ -783,6 +782,17 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// Check if accumulated fees would exceed fee limit when this
 		// node would be added to the path.
 		totalFee := int64(netAmountToReceive) - int64(amt)
+
+		log.Trace(lnutils.NewLogClosure(func() string {
+			return fmt.Sprintf(
+				"Checking fromVertex (%v) with "+
+					"minInboundFee=%v, inboundFee=%v, "+
+					"amountToSend=%v, amt=%v, totalFee=%v",
+				fromVertex, minInboundFee, inboundFee,
+				amountToSend, amt, totalFee,
+			)
+		}))
+
 		if totalFee > 0 && lnwire.MilliSatoshi(totalFee) > r.FeeLimit {
 			return
 		}
@@ -1035,7 +1045,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 			// Check if this candidate node is better than what we
 			// already have.
-			processEdge(fromNode, fromFeatures, edge, partialPath)
+			processEdge(fromNode, edge, partialPath)
 		}
 
 		if nodeHeap.Len() == 0 {

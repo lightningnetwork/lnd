@@ -823,7 +823,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// weight composed of the fee that this node will charge and
 		// the amount that will be locked for timeLockDelta blocks in
 		// the HTLC that is handed out to fromVertex.
-		weight := edgeWeight(netAmountToReceive, fee, timeLockDelta)
+		weight := edgeWeight(amountToSend, fee, timeLockDelta)
 
 		// Compute the tentative weight to this new channel/edge
 		// which is the weight from our toNode to the target node

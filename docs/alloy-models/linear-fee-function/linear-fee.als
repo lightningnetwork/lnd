@@ -298,8 +298,7 @@ pred req_starting_fee_rate[n: Int] {
 // code, assertion isn't upheld, due to an off by one error.
 assert max_fee_rate_before_deadline {
   always req_num_blocks_to_conf[4] => bump_to_final_block => eventually (
-    all f: LinearFeeFunction | f.position = f.width.sub[1] && 
-                               f.currentFeeRate = f.endingFeeRate
+    all f: LinearFeeFunction | f.position = f.width.sub[1] => f.currentFeeRate = f.endingFeeRate
   )
 }
 

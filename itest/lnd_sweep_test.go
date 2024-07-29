@@ -73,9 +73,11 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	htlcBudget := htlcValue.MulF64(contractcourt.DefaultBudgetRatio)
 
 	// cpfpBudget is the budget used to sweep the CPFP anchor.
+	// In addition to the htlc amount to protect we also need to include
+	// the anchor amount itself for the budget.
 	cpfpBudget := (htlcValue - htlcBudget).MulF64(
 		contractcourt.DefaultBudgetRatio,
-	)
+	) + contractcourt.AnchorOutputValue
 
 	// Create a preimage, that will be held by Carol.
 	var preimage lntypes.Preimage
@@ -488,9 +490,11 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	htlcBudget := htlcValue.MulF64(contractcourt.DefaultBudgetRatio)
 
 	// cpfpBudget is the budget used to sweep the CPFP anchor.
+	// In addition to the htlc amount to protect we also need to include
+	// the anchor amount itself for the budget.
 	cpfpBudget := (htlcValue - htlcBudget).MulF64(
 		contractcourt.DefaultBudgetRatio,
-	)
+	) + contractcourt.AnchorOutputValue
 
 	// Carol should have one incoming HTLC on channel Bob -> Carol.
 	ht.AssertIncomingHTLCActive(carol, bcChanPoint, payHash[:])
@@ -1342,9 +1346,13 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// PendingChannels RPC under the waiting close section.
 	ht.AssertChannelWaitingClose(alice, chanPoint)
 
-	// We should see neither Alice or Bob has any pending sweeps as there
-	// are no time-sensitive HTLCs.
-	ht.AssertNumPendingSweeps(alice, 0)
+	// Alice should see 2 anchor sweeps for the local and remote commitment.
+	// Even without HTLCs at stake the anchors are registered with the
+	// sweeper subsytem.
+	ht.AssertNumPendingSweeps(alice, 2)
+
+	// Bob did not force close the channel therefore he should have no
+	// pending sweeps.
 	ht.AssertNumPendingSweeps(bob, 0)
 
 	// Mine a block to confirm Alice's force closing tx. Once it's

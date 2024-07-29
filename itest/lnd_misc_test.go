@@ -758,9 +758,9 @@ func testAbandonChannel(ht *lntest.HarnessTest) {
 	ht.ForceCloseChannel(bob, chanPoint)
 }
 
-// testSweepAllCoins tests that we're able to properly sweep all coins from the
+// testSendAllCoins tests that we're able to properly sweep all coins from the
 // wallet into a single target address at the specified fee rate.
-func testSweepAllCoins(ht *lntest.HarnessTest) {
+func testSendAllCoins(ht *lntest.HarnessTest) {
 	// First, we'll make a new node, Ainz who'll we'll use to test wallet
 	// sweeping.
 	//
@@ -777,20 +777,22 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	sendCoinsLabel := "send all coins"
 
 	// Ensure that we can't send coins to our own Pubkey.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	err := ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
 		Addr:       ainz.RPC.GetInfo().IdentityPubkey,
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
 	})
+	require.ErrorContains(ht, err, "cannot send coins to pubkeys")
 
 	// Ensure that we can't send coins to another user's Pubkey.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	err = ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
 		Addr:       ht.Alice.RPC.GetInfo().IdentityPubkey,
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
 	})
+	require.ErrorContains(ht, err, "cannot send coins to pubkey")
 
 	// With the two coins above mined, we'll now instruct Ainz to sweep all
 	// the coins to an external address not under its control. We will first
@@ -800,20 +802,23 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// same network as the user.
 
 	// Send coins to a testnet3 address.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	err = ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
 		Addr:       "tb1qfc8fusa98jx8uvnhzavxccqlzvg749tvjw82tg",
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
 	})
+	require.ErrorContains(ht, err, "not valid for this network")
 
 	// Send coins to a mainnet address.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	err = ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
 		Addr:       "1MPaXKp5HhsLNjVSqaL7fChE3TVyrTMRT3",
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
 	})
+	// TODO(yy): should instead return "not valid for this network".
+	require.ErrorContains(ht, err, "unknown address type")
 
 	// TODO(yy): we still allow default values to be used when neither conf
 	// target or fee rate is set in 0.18.0. When future release forbidden
@@ -883,7 +888,7 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// label our transaction with an empty label, and check that we fail as
 	// expected.
 	sweepHash := sweepTx.TxHash()
-	err := ainz.RPC.LabelTransactionAssertErr(
+	err = ainz.RPC.LabelTransactionAssertErr(
 		&walletrpc.LabelTransactionRequest{
 			Txid:      sweepHash[:],
 			Label:     "",
@@ -929,13 +934,14 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 
 	// If we try again, but this time specifying an amount, then the call
 	// should fail.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	err = ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
 		Addr:       ht.NewMinerAddress().String(),
 		Amount:     10000,
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
 	})
+	require.ErrorContains(ht, err, "amount set while SendAll is active")
 
 	// With all the edge cases tested, we'll now test the happy paths of
 	// change output types.

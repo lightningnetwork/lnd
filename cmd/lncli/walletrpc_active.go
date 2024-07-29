@@ -496,7 +496,7 @@ func bumpForceCloseFee(ctx *cli.Context) error {
 
 	// `sat_per_byte` was deprecated we only use sats/vbyte now.
 	if ctx.IsSet("sat_per_byte") {
-		return fmt.Errorf("deprecated, use sat_per_vbyte instead.")
+		return fmt.Errorf("deprecated, use sat_per_vbyte instead")
 	}
 
 	// Retrieve pending sweeps.

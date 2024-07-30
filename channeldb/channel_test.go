@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lntest/channels"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -1084,13 +1085,17 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 			},
 		)
 
-		if err := channel.MarkCommitmentBroadcasted(closeTx, true); err != nil {
+		if err := channel.MarkCommitmentBroadcasted(
+			closeTx, lntypes.Local,
+		); err != nil {
 			t.Fatalf("unable to mark commitment broadcast: %v", err)
 		}
 
 		// Now try to marking a coop close with a nil tx. This should
 		// succeed, but it shouldn't exit when queried.
-		if err = channel.MarkCoopBroadcasted(nil, true); err != nil {
+		if err = channel.MarkCoopBroadcasted(
+			nil, lntypes.Local,
+		); err != nil {
 			t.Fatalf("unable to mark nil coop broadcast: %v", err)
 		}
 		_, err := channel.BroadcastedCooperative()
@@ -1102,7 +1107,9 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 		// it as coop closed. Later we will test that distinct
 		// transactions are returned for both coop and force closes.
 		closeTx.TxIn[0].PreviousOutPoint.Index ^= 1
-		if err := channel.MarkCoopBroadcasted(closeTx, true); err != nil {
+		if err := channel.MarkCoopBroadcasted(
+			closeTx, lntypes.Local,
+		); err != nil {
 			t.Fatalf("unable to mark coop broadcast: %v", err)
 		}
 	}
@@ -1324,7 +1331,7 @@ func TestCloseInitiator(t *testing.T) {
 			// by the local party.
 			updateChannel: func(c *OpenChannel) error {
 				return c.MarkCoopBroadcasted(
-					&wire.MsgTx{}, true,
+					&wire.MsgTx{}, lntypes.Local,
 				)
 			},
 			expectedStatuses: []ChannelStatus{
@@ -1338,7 +1345,7 @@ func TestCloseInitiator(t *testing.T) {
 			// by the remote party.
 			updateChannel: func(c *OpenChannel) error {
 				return c.MarkCoopBroadcasted(
-					&wire.MsgTx{}, false,
+					&wire.MsgTx{}, lntypes.Remote,
 				)
 			},
 			expectedStatuses: []ChannelStatus{
@@ -1352,7 +1359,7 @@ func TestCloseInitiator(t *testing.T) {
 			// local initiator.
 			updateChannel: func(c *OpenChannel) error {
 				return c.MarkCommitmentBroadcasted(
-					&wire.MsgTx{}, true,
+					&wire.MsgTx{}, lntypes.Local,
 				)
 			},
 			expectedStatuses: []ChannelStatus{

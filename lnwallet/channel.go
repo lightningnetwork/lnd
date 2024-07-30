@@ -8460,7 +8460,12 @@ func (lc *LightningChannel) MarkCommitmentBroadcasted(tx *wire.MsgTx,
 	lc.Lock()
 	defer lc.Unlock()
 
-	return lc.channelState.MarkCommitmentBroadcasted(tx, locallyInitiated)
+	party := lntypes.Remote
+	if locallyInitiated {
+		party = lntypes.Local
+	}
+
+	return lc.channelState.MarkCommitmentBroadcasted(tx, party)
 }
 
 // MarkCoopBroadcasted marks the channel as a cooperative close transaction has
@@ -8473,7 +8478,12 @@ func (lc *LightningChannel) MarkCoopBroadcasted(tx *wire.MsgTx,
 	lc.Lock()
 	defer lc.Unlock()
 
-	return lc.channelState.MarkCoopBroadcasted(tx, localInitiated)
+	party := lntypes.Remote
+	if localInitiated {
+		party = lntypes.Local
+	}
+
+	return lc.channelState.MarkCoopBroadcasted(tx, party)
 }
 
 // MarkShutdownSent persists the given ShutdownInfo. The existence of the

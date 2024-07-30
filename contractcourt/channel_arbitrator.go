@@ -129,7 +129,7 @@ type ChannelArbitratorConfig struct {
 
 	// MarkCommitmentBroadcasted should mark the channel as the commitment
 	// being broadcast, and we are waiting for the commitment to confirm.
-	MarkCommitmentBroadcasted func(*wire.MsgTx, bool) error
+	MarkCommitmentBroadcasted func(*wire.MsgTx, lntypes.ChannelParty) error
 
 	// MarkChannelClosed marks the channel closed in the database, with the
 	// passed close summary. After this method successfully returns we can
@@ -1084,7 +1084,7 @@ func (c *ChannelArbitrator) stateStep(
 		// database, such that we can re-publish later in case it
 		// didn't propagate. We initiated the force close, so we
 		// mark broadcast with local initiator set to true.
-		err = c.cfg.MarkCommitmentBroadcasted(closeTx, true)
+		err = c.cfg.MarkCommitmentBroadcasted(closeTx, lntypes.Local)
 		if err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to "+
 				"mark commitment broadcasted: %v",

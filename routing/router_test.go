@@ -1588,6 +1588,28 @@ func TestBuildRoute(t *testing.T) {
 			MaxHTLC:  lnwire.MilliSatoshi(20100),
 			Features: paymentAddrFeatures,
 		}, 8),
+
+		// Create a route with inbound fees.
+		symmetricTestChannel("a", "d", chanCapSat, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 20000,
+			MinHTLC: lnwire.NewMSatFromSatoshis(5),
+			MaxHTLC: lnwire.NewMSatFromSatoshis(
+				chanCapSat,
+			),
+			InboundFeeBaseMsat: -1000,
+			InboundFeeRate:     -1000,
+		}, 9),
+		symmetricTestChannel("d", "f", chanCapSat, &testChannelPolicy{
+			Expiry:   144,
+			FeeRate:  60000,
+			MinHTLC:  lnwire.NewMSatFromSatoshis(20),
+			MaxHTLC:  lnwire.NewMSatFromSatoshis(120),
+			Features: paymentAddrFeatures,
+			// The inbound fee will not be active for the last hop.
+			InboundFeeBaseMsat: 2000,
+			InboundFeeRate:     2000,
+		}, 10),
 	}
 
 	testGraph, err := createTestGraphFromChannels(
@@ -1686,6 +1708,30 @@ func TestBuildRoute(t *testing.T) {
 	require.Equal(t, lnwire.MilliSatoshi(21200), rt.TotalAmount)
 	require.Equal(t, lnwire.MilliSatoshi(20000), rt.Hops[1].AmtToForward)
 
+	// Check that we compute a correct forwarding amount that involves
+	// inbound fees. We expect a similar amount as for the above case of
+	// b->c, but reduced by the inbound discount on the channel a->d.
+	// We get 106000 - 1000 (base in) - 0.001 * 106000 (rate in) = 104894.
+	hops = []route.Vertex{ctx.aliases["d"], ctx.aliases["f"]}
+	amt = lnwire.NewMSatFromSatoshis(100)
+	rt, err = ctx.router.BuildRoute(&amt, hops, nil, 40, &payAddr)
+	require.NoError(t, err)
+	checkHops(rt, []uint64{9, 10}, payAddr)
+	require.EqualValues(t, 104894, rt.TotalAmount)
+
+	// Also check the min amount with inbound fees. The min amount bumps
+	// this to 20000 msat for the last hop. The outbound fee is 1200 msat,
+	// the inbound fee is -1021.2 msat (rounded down). This results in a
+	// total fee of 179 msat, giving a sender amount of 20179 msat. The
+	// determined receiver amount however reduces this to 20001 msat again
+	// due to rounding. This would not be compatible with the sender amount
+	// of 20179 msat, which results in underpayment of 1 msat in fee. There
+	// is a third pass through newRoute in which this gets corrected to end
+	hops = []route.Vertex{ctx.aliases["d"], ctx.aliases["f"]}
+	rt, err = ctx.router.BuildRoute(nil, hops, nil, 40, &payAddr)
+	require.NoError(t, err)
+	checkHops(rt, []uint64{9, 10}, payAddr)
+	require.EqualValues(t, 20180, rt.TotalAmount, "%v", rt.TotalAmount)
 }
 
 // TestReceiverAmtForwardPass tests that the forward pass returns the expected
@@ -1831,6 +1877,9 @@ func TestSenderAmtBackwardPass(t *testing.T) {
 					policy: &models.CachedEdgePolicy{
 						FeeBaseMSat: 112,
 					},
+					inboundFees: models.InboundFee{
+						Base: 111,
+					},
 					capacity: capacity,
 				},
 			},
@@ -1840,6 +1889,9 @@ func TestSenderAmtBackwardPass(t *testing.T) {
 				{
 					policy: &models.CachedEdgePolicy{
 						FeeBaseMSat: 222,
+					},
+					inboundFees: models.InboundFee{
+						Base: 222,
 					},
 					capacity: capacity,
 				},
@@ -1852,6 +1904,12 @@ func TestSenderAmtBackwardPass(t *testing.T) {
 						FeeBaseMSat: 333,
 						MinHTLC:     minHTLC,
 					},
+					// In pathfinding, inbound fees are not
+					// populated for exit hops because the
+					// newNodeEdgeUnifier enforces this.
+					// This is important as otherwise we
+					// would not fail the min HTLC check in
+					// getEdge.
 					capacity: capacity,
 				},
 			},
@@ -1870,20 +1928,51 @@ func TestSenderAmtBackwardPass(t *testing.T) {
 		edgeUnifiers, true, 1, &bandwidthHints,
 	)
 	require.NoError(t, err)
-	require.Equal(t, minHTLC+333+222, senderAmount)
+	require.Equal(t, minHTLC+333+222+222+111, senderAmount)
 
 	// Do a search for a specific amount.
 	unifiedEdges, senderAmount, err = senderAmtBackwardPass(
 		edgeUnifiers, false, testReceiverAmt, &bandwidthHints,
 	)
 	require.NoError(t, err)
-	require.Equal(t, testReceiverAmt+333+222, senderAmount)
+	require.Equal(t, testReceiverAmt+333+222+222+111, senderAmount)
 
 	// Check that we arrive at the same receiver amount by doing a forward
 	// pass.
 	receiverAmt, err := receiverAmtForwardPass(senderAmount, unifiedEdges)
 	require.NoError(t, err)
 	require.Equal(t, testReceiverAmt, receiverAmt)
+
+	// Insert a policy that leads to rounding.
+	edgeUnifiers[1] = &edgeUnifier{
+		edges: []*unifiedEdge{
+			{
+				policy: &models.CachedEdgePolicy{
+					FeeBaseMSat:               20,
+					FeeProportionalMillionths: 100,
+				},
+				inboundFees: models.InboundFee{
+					Base: -10,
+					Rate: -50,
+				},
+				capacity: capacity,
+			},
+		},
+	}
+
+	unifiedEdges, senderAmount, err = senderAmtBackwardPass(
+		edgeUnifiers, false, testReceiverAmt, &bandwidthHints,
+	)
+	require.NoError(t, err)
+
+	// For this route, we have some rounding errors, so we can't expect the
+	// exact amount, but it should be higher than the exact amount, to not
+	// end up below a min HTLC constraint.
+	receiverAmt, err = receiverAmtForwardPass(senderAmount, unifiedEdges)
+	require.NoError(t, err)
+	require.NotEqual(t, testReceiverAmt, receiverAmt)
+	require.InDelta(t, int64(testReceiverAmt), int64(receiverAmt), 1)
+	require.GreaterOrEqual(t, int64(receiverAmt), int64(testReceiverAmt))
 }
 
 // TestInboundOutbound tests the functions that computes the incoming and

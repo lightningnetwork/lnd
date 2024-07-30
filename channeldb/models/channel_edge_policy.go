@@ -113,19 +113,3 @@ func (c *ChannelEdgePolicy) ComputeFee(
 
 	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
 }
-
-// divideCeil divides dividend by factor and rounds the result up.
-func divideCeil(dividend, factor lnwire.MilliSatoshi) lnwire.MilliSatoshi {
-	return (dividend + factor - 1) / factor
-}
-
-// ComputeFeeFromIncoming computes the fee to forward an HTLC given the incoming
-// amount.
-func (c *ChannelEdgePolicy) ComputeFeeFromIncoming(
-	incomingAmt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
-
-	return incomingAmt - divideCeil(
-		feeRateParts*(incomingAmt-c.FeeBaseMSat),
-		feeRateParts+c.FeeProportionalMillionths,
-	)
-}

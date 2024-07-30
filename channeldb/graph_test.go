@@ -3688,7 +3688,7 @@ func TestLightningNodeSigVerification(t *testing.T) {
 	}
 }
 
-// TestComputeFee tests fee calculation based on both in- and outgoing amt.
+// TestComputeFee tests fee calculation based on the outgoing amt.
 func TestComputeFee(t *testing.T) {
 	var (
 		policy = models.ChannelEdgePolicy{
@@ -3702,11 +3702,6 @@ func TestComputeFee(t *testing.T) {
 	fee := policy.ComputeFee(outgoingAmt)
 	if fee != expectedFee {
 		t.Fatalf("expected fee %v, got %v", expectedFee, fee)
-	}
-
-	fwdFee := policy.ComputeFeeFromIncoming(outgoingAmt + fee)
-	if fwdFee != expectedFee {
-		t.Fatalf("expected fee %v, but got %v", fee, fwdFee)
 	}
 }
 

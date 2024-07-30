@@ -1095,7 +1095,7 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 	case isIncoming && ourCommit:
 		htlcScriptTree, err = input.ReceiverHTLCScriptTaproot(
 			timeout, keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
-			keyRing.RevocationKey, rHash[:], ourCommit,
+			keyRing.RevocationKey, rHash[:], lntypes.Local,
 		)
 
 	// We're being paid via an HTLC by the remote party, and the HTLC is
@@ -1104,7 +1104,7 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 	case isIncoming && !ourCommit:
 		htlcScriptTree, err = input.SenderHTLCScriptTaproot(
 			keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
-			keyRing.RevocationKey, rHash[:], ourCommit,
+			keyRing.RevocationKey, rHash[:], lntypes.Remote,
 		)
 
 	// We're sending an HTLC which is being added to our commitment
@@ -1113,7 +1113,7 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 	case !isIncoming && ourCommit:
 		htlcScriptTree, err = input.SenderHTLCScriptTaproot(
 			keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
-			keyRing.RevocationKey, rHash[:], ourCommit,
+			keyRing.RevocationKey, rHash[:], lntypes.Local,
 		)
 
 	// Finally, we're paying the remote party via an HTLC, which is being
@@ -1122,7 +1122,7 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 	case !isIncoming && !ourCommit:
 		htlcScriptTree, err = input.ReceiverHTLCScriptTaproot(
 			timeout, keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
-			keyRing.RevocationKey, rHash[:], ourCommit,
+			keyRing.RevocationKey, rHash[:], lntypes.Remote,
 		)
 	}
 

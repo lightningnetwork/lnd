@@ -14,7 +14,7 @@ type Config struct {
 
 	EmbeddedLogFile string `long:"embedded_log_file" description:"Optional log file to use for embedded instance logs. note: use for testing only."`
 
-	Host string `long:"host" description:"Etcd database host."`
+	Host string `long:"host" description:"Etcd database host. Supports multiple hosts separated by a comma."`
 
 	User string `long:"user" description:"Etcd database user."`
 

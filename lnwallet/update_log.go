@@ -101,6 +101,7 @@ func (u *updateLog) lookupHtlc(i uint64) *PaymentDescriptor {
 		return nil
 	}
 
+	//nolint:forcetypeassert
 	return htlc.Value.(*PaymentDescriptor)
 }
 
@@ -164,6 +165,7 @@ func compactLogs(ourLog, theirLog *updateLog,
 			// chain, the skip it.
 			if htlc.removeCommitHeightRemote == 0 ||
 				htlc.removeCommitHeightLocal == 0 {
+
 				continue
 			}
 
@@ -187,7 +189,6 @@ func compactLogs(ourLog, theirLog *updateLog,
 				logA.removeUpdate(htlc.LogIndex)
 				logB.removeHtlc(htlc.ParentIndex)
 			}
-
 		}
 	}
 

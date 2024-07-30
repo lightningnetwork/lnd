@@ -221,7 +221,7 @@ func (nw *nodeWatcher) WaitForChannelPolicyUpdate(
 		select {
 		// Send a watch request every second.
 		case <-ticker.C:
-			// Did the event can close in the meantime? We want to
+			// Did the event chan close in the meantime? We want to
 			// avoid a "close of closed channel" panic since we're
 			// re-using the same event chan for multiple requests.
 			select {

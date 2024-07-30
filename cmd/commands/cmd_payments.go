@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/urfave/cli"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -319,6 +320,9 @@ func SendPayment(ctx *cli.Context) error {
 		return nil
 	}
 
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
+
 	args := ctx.Args()
 
 	// If a payment request was provided, we can exit early since all of the
@@ -343,7 +347,9 @@ func SendPayment(ctx *cli.Context) error {
 
 		req.PaymentAddr = payAddr
 
-		return SendPaymentRequest(ctx, req)
+		return SendPaymentRequest(
+			ctx, req, conn, conn, routerRPCSendPayment,
+		)
 	}
 
 	var (
@@ -451,19 +457,29 @@ func SendPayment(ctx *cli.Context) error {
 
 	req.PaymentAddr = payAddr
 
-	return SendPaymentRequest(ctx, req)
+	return SendPaymentRequest(ctx, req, conn, conn, routerRPCSendPayment)
 }
 
-func SendPaymentRequest(ctx *cli.Context,
-	req *routerrpc.SendPaymentRequest) error {
+// SendPaymentFn is a function type that abstracts the SendPaymentV2 call of the
+// router client.
+type SendPaymentFn func(ctx context.Context, payConn grpc.ClientConnInterface,
+	req *routerrpc.SendPaymentRequest) (PaymentResultStream, error)
+
+// routerRPCSendPayment is the default implementation of the SendPaymentFn type
+// that uses the lnd routerrpc.SendPaymentV2 call.
+func routerRPCSendPayment(ctx context.Context, payConn grpc.ClientConnInterface,
+	req *routerrpc.SendPaymentRequest) (PaymentResultStream, error) {
+
+	return routerrpc.NewRouterClient(payConn).SendPaymentV2(ctx, req)
+}
+
+func SendPaymentRequest(ctx *cli.Context, req *routerrpc.SendPaymentRequest,
+	lnConn, paymentConn grpc.ClientConnInterface,
+	callSendPayment SendPaymentFn) error {
 
 	ctxc := getContext()
 
-	conn := getClientConn(ctx, false)
-	defer conn.Close()
-
-	client := lnrpc.NewLightningClient(conn)
-	routerClient := routerrpc.NewRouterClient(conn)
+	lnClient := lnrpc.NewLightningClient(lnConn)
 
 	outChan := ctx.Int64Slice("outgoing_chan_id")
 	if len(outChan) != 0 {
@@ -543,7 +559,7 @@ func SendPaymentRequest(ctx *cli.Context,
 	if req.PaymentRequest != "" {
 		// Decode payment request to find out the amount.
 		decodeReq := &lnrpc.PayReqString{PayReq: req.PaymentRequest}
-		decodeResp, err := client.DecodePayReq(ctxc, decodeReq)
+		decodeResp, err := lnClient.DecodePayReq(ctxc, decodeReq)
 		if err != nil {
 			return err
 		}
@@ -587,14 +603,12 @@ func SendPaymentRequest(ctx *cli.Context,
 	printJSON := ctx.Bool(jsonFlag.Name)
 	req.NoInflightUpdates = !ctx.Bool(inflightUpdatesFlag.Name) && printJSON
 
-	stream, err := routerClient.SendPaymentV2(ctxc, req)
+	stream, err := callSendPayment(ctxc, paymentConn, req)
 	if err != nil {
 		return err
 	}
 
-	finalState, err := PrintLivePayment(
-		ctxc, stream, client, printJSON,
-	)
+	finalState, err := PrintLivePayment(ctxc, stream, lnClient, printJSON)
 	if err != nil {
 		return err
 	}
@@ -656,20 +670,25 @@ func trackPayment(ctx *cli.Context) error {
 	return err
 }
 
+// PaymentResultStream is an interface that abstracts the Recv method of the
+// SendPaymentV2 or TrackPaymentV2 client stream.
+type PaymentResultStream interface {
+	Recv() (*lnrpc.Payment, error)
+}
+
 // PrintLivePayment receives payment updates from the given stream and either
 // outputs them as json or as a more user-friendly formatted table. The table
 // option uses terminal control codes to rewrite the output. This call
 // terminates when the payment reaches a final state.
-func PrintLivePayment(ctxc context.Context,
-	stream routerrpc.Router_TrackPaymentV2Client,
-	client lnrpc.LightningClient, json bool) (*lnrpc.Payment, error) {
+func PrintLivePayment(ctxc context.Context, stream PaymentResultStream,
+	lnClient lnrpc.LightningClient, json bool) (*lnrpc.Payment, error) {
 
 	// Terminal escape codes aren't supported on Windows, fall back to json.
 	if !json && runtime.GOOS == "windows" {
 		json = true
 	}
 
-	aliases := newAliasCache(client)
+	aliases := newAliasCache(lnClient)
 
 	first := true
 	var lastLineCount int
@@ -691,17 +710,17 @@ func PrintLivePayment(ctxc context.Context,
 			// Write raw json to stdout.
 			printRespJSON(payment)
 		} else {
-			table := formatPayment(ctxc, payment, aliases)
+			resultTable := formatPayment(ctxc, payment, aliases)
 
 			// Clear all previously written lines and print the
 			// updated table.
 			clearLines(lastLineCount)
-			fmt.Print(table)
+			fmt.Print(resultTable)
 
 			// Store the number of lines written for the next update
 			// pass.
 			lastLineCount = 0
-			for _, b := range table {
+			for _, b := range resultTable {
 				if b == '\n' {
 					lastLineCount++
 				}
@@ -870,6 +889,9 @@ var payInvoiceCommand = cli.Command{
 }
 
 func payInvoice(ctx *cli.Context) error {
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
+
 	args := ctx.Args()
 
 	var payReq string
@@ -889,7 +911,7 @@ func payInvoice(ctx *cli.Context) error {
 		Amp:               ctx.Bool(ampFlag.Name),
 	}
 
-	return SendPaymentRequest(ctx, req)
+	return SendPaymentRequest(ctx, req, conn, conn, routerRPCSendPayment)
 }
 
 var sendToRouteCommand = cli.Command{

@@ -681,6 +681,15 @@ func DefaultConfig() Config {
 		Invoices: &lncfg.Invoices{
 			HoldExpiryDelta: lncfg.DefaultHoldInvoiceExpiryDelta,
 		},
+		Routing: &lncfg.Routing{
+			BlindedPaths: lncfg.BlindedPaths{
+				MinNumRealHops:           lncfg.DefaultMinNumRealBlindedPathHops,
+				NumHops:                  lncfg.DefaultNumBlindedPathHops,
+				MaxNumPaths:              lncfg.DefaultMaxNumBlindedPaths,
+				PolicyIncreaseMultiplier: lncfg.DefaultBlindedPathPolicyIncreaseMultiplier,
+				PolicyDecreaseMultiplier: lncfg.DefaultBlindedPathPolicyDecreaseMultiplier,
+			},
+		},
 		MaxOutgoingCltvExpiry:     htlcswitch.DefaultMaxOutgoingCltvExpiry,
 		MaxChannelFeeAllocation:   htlcswitch.DefaultMaxLinkFeeAllocation,
 		MaxCommitFeeRateAnchors:   lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
@@ -1656,18 +1665,6 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		return nil, mkErr("error parsing gossip syncer: %v", err)
 	}
 
-	// Log a warning if our expiry delta is not greater than our incoming
-	// broadcast delta. We do not fail here because this value may be set
-	// to zero to intentionally keep lnd's behavior unchanged from when we
-	// didn't auto-cancel these invoices.
-	if cfg.Invoices.HoldExpiryDelta <= lncfg.DefaultIncomingBroadcastDelta {
-		ltndLog.Warnf("Invoice hold expiry delta: %v <= incoming "+
-			"delta: %v, accepted hold invoices will force close "+
-			"channels if they are not canceled manually",
-			cfg.Invoices.HoldExpiryDelta,
-			lncfg.DefaultIncomingBroadcastDelta)
-	}
-
 	// If the experimental protocol options specify any protocol messages
 	// that we want to handle as custom messages, set them now.
 	customMsg := cfg.ProtocolOptions.CustomMessageOverrides()
@@ -1690,6 +1687,8 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.RemoteSigner,
 		cfg.Sweeper,
 		cfg.Htlcswitch,
+		cfg.Invoices,
+		cfg.Routing,
 	)
 	if err != nil {
 		return nil, err

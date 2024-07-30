@@ -117,6 +117,11 @@
 * [Groundwork](https://github.com/lightningnetwork/lnd/pull/8752) in preparation
   for implementing route blinding receives.
 
+* [Generate and send to](https://github.com/lightningnetwork/lnd/pull/8735) an
+  invoice with blinded paths. With this, the `--blind` flag can be used with 
+  the `lncli addinvoice` command to instruct LND to include blinded paths in the
+  invoice. 
+
 ## Testing
 ## Database
 

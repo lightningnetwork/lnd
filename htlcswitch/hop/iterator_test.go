@@ -111,7 +111,7 @@ func TestForwardingAmountCalc(t *testing.T) {
 	tests := []struct {
 		name           string
 		incomingAmount lnwire.MilliSatoshi
-		baseFee        uint32
+		baseFee        lnwire.MilliSatoshi
 		proportional   uint32
 		forwardAmount  lnwire.MilliSatoshi
 		expectErr      bool
@@ -177,11 +177,11 @@ func (m *mockProcessor) NextEphemeral(*btcec.PublicKey) (*btcec.PublicKey,
 	return nil, nil
 }
 
-// TestDecryptAndValidateFwdInfo tests deriving forwarding info using a
+// TestParseAndValidateRecipientData tests deriving forwarding info using a
 // blinding kit. This test does not cover assertions on the calculations of
 // forwarding information, because this is covered in a test dedicated to those
 // calculations.
-func TestDecryptAndValidateFwdInfo(t *testing.T) {
+func TestParseAndValidateRecipientData(t *testing.T) {
 	t.Parallel()
 
 	// Encode valid blinding data that we'll fake decrypting for our test.
@@ -205,6 +205,9 @@ func TestDecryptAndValidateFwdInfo(t *testing.T) {
 
 	// Mocked error.
 	errDecryptFailed := errors.New("could not decrypt")
+
+	nodeKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
 
 	tests := []struct {
 		name              string
@@ -282,12 +285,19 @@ func TestDecryptAndValidateFwdInfo(t *testing.T) {
 					tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](testCase.updateAddBlinding),
 				)
 			}
-			_, err := kit.DecryptAndValidateFwdInfo(
-				&Payload{
+			iterator := &sphinxHopIterator{
+				blindingKit: kit,
+				router: sphinx.NewRouter(
+					&sphinx.PrivKeyECDH{PrivKey: nodeKey},
+					sphinx.NewMemoryReplayLog(),
+				),
+			}
+
+			_, _, err = parseAndValidateRecipientData(
+				iterator, &Payload{
 					encryptedData: testCase.data,
 					blindingPoint: testCase.payloadBlinding,
-				}, false,
-				make(map[tlv.Type][]byte),
+				}, false, RouteRoleCleartext,
 			)
 			require.ErrorIs(t, err, testCase.expectedErr)
 		})

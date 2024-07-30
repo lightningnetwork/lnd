@@ -518,9 +518,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	replayLog := htlcswitch.NewDecayedLog(
 		dbs.DecayedLogDB, cc.ChainNotifier,
 	)
-	sphinxRouter := sphinx.NewRouter(
-		nodeKeyECDH, cfg.ActiveNetParams.Params, replayLog,
-	)
+	sphinxRouter := sphinx.NewRouter(nodeKeyECDH, replayLog)
 
 	writeBufferPool := pool.NewWriteBuffer(
 		pool.DefaultWriteBufferGCInterval,

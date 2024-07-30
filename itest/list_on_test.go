@@ -563,8 +563,8 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testQueryBlindedRoutes,
 	},
 	{
-		Name:     "forward blinded",
-		TestFunc: testForwardBlindedRoute,
+		Name:     "route blinding invoices",
+		TestFunc: testBlindedRouteInvoices,
 	},
 	{
 		Name:     "receiver blinded error",
@@ -585,6 +585,14 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "on chain to blinded",
 		TestFunc: testErrorHandlingOnChainFailure,
+	},
+	{
+		Name:     "mpp to single blinded path",
+		TestFunc: testMPPToSingleBlindedPath,
+	},
+	{
+		Name:     "route blinding dummy hops",
+		TestFunc: testBlindedRouteDummyHops,
 	},
 	{
 		Name:     "removetx",

@@ -223,7 +223,7 @@ const (
 	// able and willing to accept keysend payments.
 	KeysendOptional = 55
 
-	// ScriptEnforcedLeaseOptional is an optional feature bit that signals
+	// ScriptEnforcedLeaseRequired is a required feature bit that signals
 	// that the node requires channels having zero-fee second-level HTLC
 	// transactions, which also imply anchor commitments, along with an
 	// additional CLTV constraint of a channel lease's expiration height
@@ -241,18 +241,17 @@ const (
 	// TODO: Decide on actual feature bit value.
 	ScriptEnforcedLeaseOptional FeatureBit = 2023
 
-	// SimpleTaprootChannelsRequredFinal is a required bit that indicates
+	// SimpleTaprootChannelsRequiredFinal is a required bit that indicates
 	// the node is able to create taproot-native channels. This is the
 	// final feature bit to be used once the channel type is finalized.
 	SimpleTaprootChannelsRequiredFinal = 80
 
 	// SimpleTaprootChannelsOptionalFinal is an optional bit that indicates
 	// the node is able to create taproot-native channels. This is the
-	// final
-	// feature bit to be used once the channel type is finalized.
+	// final feature bit to be used once the channel type is finalized.
 	SimpleTaprootChannelsOptionalFinal = 81
 
-	// SimpleTaprootChannelsRequredStaging is a required bit that indicates
+	// SimpleTaprootChannelsRequiredStaging is a required bit that indicates
 	// the node is able to create taproot-native channels. This is a
 	// feature bit used in the wild while the channel type is still being
 	// finalized.
@@ -260,10 +259,19 @@ const (
 
 	// SimpleTaprootChannelsOptionalStaging is an optional bit that
 	// indicates the node is able to create taproot-native channels. This
-	// is a feature
-	// bit used in the wild while the channel type is still being
-	// finalized.
+	// is a feature bit used in the wild while the channel type is still
+	// being finalized.
 	SimpleTaprootChannelsOptionalStaging = 181
+
+	// Bolt11BlindedPathsRequired is a required feature bit that indicates
+	// that the node is able to understand the blinded path tagged field in
+	// a BOLT 11 invoice.
+	Bolt11BlindedPathsRequired = 260
+
+	// Bolt11BlindedPathsOptional is an optional feature bit that indicates
+	// that the node is able to understand the blinded path tagged field in
+	// a BOLT 11 invoice.
+	Bolt11BlindedPathsOptional = 261
 
 	// MaxBolt11Feature is the maximum feature bit value allowed in bolt 11
 	// invoices.
@@ -331,6 +339,8 @@ var Features = map[FeatureBit]string{
 	SimpleTaprootChannelsOptionalFinal:   "simple-taproot-chans",
 	SimpleTaprootChannelsRequiredStaging: "simple-taproot-chans-x",
 	SimpleTaprootChannelsOptionalStaging: "simple-taproot-chans-x",
+	Bolt11BlindedPathsOptional:           "bolt-11-blinded-paths",
+	Bolt11BlindedPathsRequired:           "bolt-11-blinded-paths",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

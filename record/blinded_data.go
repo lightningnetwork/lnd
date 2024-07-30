@@ -10,6 +10,13 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+// AverageDummyHopPayloadSize is the size of a standard blinded path dummy hop
+// payload. In most cases, this is larger than the other payload types and so
+// to make sure that a sender cannot use this fact to know if a dummy hop is
+// present or not, we'll make sure to always pad all payloads to at least this
+// size.
+const AverageDummyHopPayloadSize = 51
+
 // BlindedRouteData contains the information that is included in a blinded
 // route encrypted data blob that is created by the recipient to provide
 // forwarding information.
@@ -21,6 +28,11 @@ type BlindedRouteData struct {
 
 	// ShortChannelID is the channel ID of the next hop.
 	ShortChannelID tlv.OptionalRecordT[tlv.TlvType2, lnwire.ShortChannelID]
+
+	// NextNodeID is the node ID of the next node on the path. In the
+	// context of blinded path payments, this is used to indicate the
+	// presence of dummy hops that need to be peeled from the onion.
+	NextNodeID tlv.OptionalRecordT[tlv.TlvType4, *btcec.PublicKey]
 
 	// PathID is a secret set of bytes that the blinded path creator will
 	// set so that they can check the value on decryption to ensure that the
@@ -98,6 +110,26 @@ func NewFinalHopBlindedRouteData(constraints *PaymentConstraints,
 	return &data
 }
 
+// NewDummyHopRouteData creates the data that's provided for any hop preceding
+// a dummy hop. The presence of such a payload indicates to the reader that
+// they are the intended recipient and should peel the remainder of the onion.
+func NewDummyHopRouteData(ourPubKey *btcec.PublicKey,
+	relayInfo PaymentRelayInfo,
+	constraints PaymentConstraints) *BlindedRouteData {
+
+	return &BlindedRouteData{
+		NextNodeID: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType4](ourPubKey),
+		),
+		RelayInfo: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType10](relayInfo),
+		),
+		Constraints: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType12](constraints),
+		),
+	}
+}
+
 // DecodeBlindedRouteData decodes the data provided within a blinded route.
 func DecodeBlindedRouteData(r io.Reader) (*BlindedRouteData, error) {
 	var (
@@ -105,6 +137,7 @@ func DecodeBlindedRouteData(r io.Reader) (*BlindedRouteData, error) {
 
 		padding          = d.Padding.Zero()
 		scid             = d.ShortChannelID.Zero()
+		nextNodeID       = d.NextNodeID.Zero()
 		pathID           = d.PathID.Zero()
 		blindingOverride = d.NextBlindingOverride.Zero()
 		relayInfo        = d.RelayInfo.Zero()
@@ -118,8 +151,8 @@ func DecodeBlindedRouteData(r io.Reader) (*BlindedRouteData, error) {
 	}
 
 	typeMap, err := tlvRecords.ExtractRecords(
-		&padding, &scid, &pathID, &blindingOverride, &relayInfo,
-		&constraints, &features,
+		&padding, &scid, &nextNodeID, &pathID, &blindingOverride,
+		&relayInfo, &constraints, &features,
 	)
 	if err != nil {
 		return nil, err
@@ -132,6 +165,10 @@ func DecodeBlindedRouteData(r io.Reader) (*BlindedRouteData, error) {
 
 	if val, ok := typeMap[d.ShortChannelID.TlvType()]; ok && val == nil {
 		d.ShortChannelID = tlv.SomeRecordT(scid)
+	}
+
+	if val, ok := typeMap[d.NextNodeID.TlvType()]; ok && val == nil {
+		d.NextNodeID = tlv.SomeRecordT(nextNodeID)
 	}
 
 	if val, ok := typeMap[d.PathID.TlvType()]; ok && val == nil {
@@ -173,6 +210,12 @@ func EncodeBlindedRouteData(data *BlindedRouteData) ([]byte, error) {
 		lnwire.ShortChannelID]) {
 
 		recordProducers = append(recordProducers, &scid)
+	})
+
+	data.NextNodeID.WhenSome(func(f tlv.RecordT[tlv.TlvType4,
+		*btcec.PublicKey]) {
+
+		recordProducers = append(recordProducers, &f)
 	})
 
 	data.PathID.WhenSome(func(pathID tlv.RecordT[tlv.TlvType6, []byte]) {
@@ -232,8 +275,8 @@ type PaymentRelayInfo struct {
 	// satoshi.
 	FeeRate uint32
 
-	// BaseFee is the per-htlc fee charged.
-	BaseFee uint32
+	// BaseFee is the per-htlc fee charged in milli-satoshis.
+	BaseFee lnwire.MilliSatoshi
 }
 
 // Record creates a tlv.Record that encodes the payment relay (type 10) type for
@@ -242,7 +285,7 @@ func (i *PaymentRelayInfo) Record() tlv.Record {
 	return tlv.MakeDynamicRecord(
 		10, &i, func() uint64 {
 			// uint16 + uint32 + tuint32
-			return 2 + 4 + tlv.SizeTUint32(i.BaseFee)
+			return 2 + 4 + tlv.SizeTUint32(uint32(i.BaseFee))
 		}, encodePaymentRelay, decodePaymentRelay,
 	)
 }
@@ -258,9 +301,11 @@ func encodePaymentRelay(w io.Writer, val interface{}, buf *[8]byte) error {
 			return err
 		}
 
+		baseFee := uint32(relayInfo.BaseFee)
+
 		// We can safely reuse buf here because we overwrite its
 		// contents.
-		return tlv.ETUint32(w, &relayInfo.BaseFee, buf)
+		return tlv.ETUint32(w, &baseFee, buf)
 	}
 
 	return tlv.NewTypeForEncodingErr(val, "**hop.PaymentRelayInfo")
@@ -297,7 +342,15 @@ func decodePaymentRelay(r io.Reader, val interface{}, buf *[8]byte,
 		// is okay.
 		b := bytes.NewBuffer(scratch[6:])
 
-		return tlv.DTUint32(b, &relayInfo.BaseFee, buf, l-6)
+		var baseFee uint32
+		err = tlv.DTUint32(b, &baseFee, buf, l-6)
+		if err != nil {
+			return err
+		}
+
+		relayInfo.BaseFee = lnwire.MilliSatoshi(baseFee)
+
+		return nil
 	}
 
 	return tlv.NewTypeForDecodingErr(val, "*hop.paymentRelayInfo", l, 10)

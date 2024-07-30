@@ -15,6 +15,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	pubkeyBytes, _ = hex.DecodeString(
+		"598ec453728e0ffe0ae2f5e174243cf58f2" +
+			"a3f2c83d2457b43036db568b11093",
+	)
+	pubKeyY = new(btcec.FieldVal)
+	_       = pubKeyY.SetByteSlice(pubkeyBytes)
+	pubkey  = btcec.NewPublicKey(new(btcec.FieldVal).SetInt(4), pubKeyY)
+)
+
 type hopHintsConfigMock struct {
 	t *testing.T
 	mock.Mock
@@ -84,16 +94,6 @@ func (h *hopHintsConfigMock) FetchChannelEdgesByID(chanID uint64) (
 
 // getTestPubKey returns a valid parsed pub key to be used in our tests.
 func getTestPubKey() *btcec.PublicKey {
-	pubkeyBytes, _ := hex.DecodeString(
-		"598ec453728e0ffe0ae2f5e174243cf58f2" +
-			"a3f2c83d2457b43036db568b11093",
-	)
-	pubKeyY := new(btcec.FieldVal)
-	_ = pubKeyY.SetByteSlice(pubkeyBytes)
-	pubkey := btcec.NewPublicKey(
-		new(btcec.FieldVal).SetInt(4),
-		pubKeyY,
-	)
 	return pubkey
 }
 

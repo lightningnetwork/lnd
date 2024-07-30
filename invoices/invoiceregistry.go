@@ -902,6 +902,8 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		mpp:                  payload.MultiPath(),
 		amp:                  payload.AMPRecord(),
 		metadata:             payload.Metadata(),
+		pathID:               payload.PathID(),
+		totalAmtMsat:         payload.TotalAmtMsat(),
 	}
 
 	switch {

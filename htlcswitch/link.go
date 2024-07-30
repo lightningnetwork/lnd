@@ -2730,7 +2730,12 @@ func (l *channelLink) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 func (l *channelLink) getDustSum(remote bool,
 	dryRunFee fn.Option[chainfee.SatPerKWeight]) lnwire.MilliSatoshi {
 
-	return l.channel.GetDustSum(remote, dryRunFee)
+	party := lntypes.Local
+	if remote {
+		party = lntypes.Remote
+	}
+
+	return l.channel.GetDustSum(party, dryRunFee)
 }
 
 // getFeeRate is a wrapper method that retrieves the underlying channel's
@@ -2893,13 +2898,13 @@ func dustHelper(chantype channeldb.ChannelType, localDustLimit,
 
 		if localCommit {
 			return lnwallet.HtlcIsDust(
-				chantype, incoming, true, feerate, amt,
+				chantype, incoming, lntypes.Local, feerate, amt,
 				localDustLimit,
 			)
 		}
 
 		return lnwallet.HtlcIsDust(
-			chantype, incoming, false, feerate, amt,
+			chantype, incoming, lntypes.Remote, feerate, amt,
 			remoteDustLimit,
 		)
 	}

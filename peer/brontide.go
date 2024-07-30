@@ -36,6 +36,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -3017,6 +3018,10 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 		maxFee = req.MaxFee
 	}
 
+	closer := lntypes.Remote
+	if locallyInitiated {
+		closer = lntypes.Local
+	}
 	chanCloser := chancloser.NewChanCloser(
 		chancloser.ChanCloseCfg{
 			Channel:      channel,
@@ -3039,7 +3044,7 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 		fee,
 		uint32(startingHeight),
 		req,
-		locallyInitiated,
+		closer,
 	)
 
 	return chanCloser, nil

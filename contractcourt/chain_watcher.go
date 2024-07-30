@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -418,7 +419,7 @@ func (c *chainWatcher) handleUnknownLocalState(
 	// and remote keys for this state. We use our point as only we can
 	// revoke our own commitment.
 	commitKeyRing := lnwallet.DeriveCommitmentKeys(
-		commitPoint, true, c.cfg.chanState.ChanType,
+		commitPoint, lntypes.Local, c.cfg.chanState.ChanType,
 		&c.cfg.chanState.LocalChanCfg, &c.cfg.chanState.RemoteChanCfg,
 	)
 
@@ -891,7 +892,7 @@ func (c *chainWatcher) handlePossibleBreach(commitSpend *chainntnfs.SpendDetail,
 	// Create an AnchorResolution for the breached state.
 	anchorRes, err := lnwallet.NewAnchorResolution(
 		c.cfg.chanState, commitSpend.SpendingTx, retribution.KeyRing,
-		false,
+		lntypes.Remote,
 	)
 	if err != nil {
 		return false, fmt.Errorf("unable to create anchor "+

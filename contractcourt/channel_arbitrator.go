@@ -40,6 +40,12 @@ const (
 	// arbitratorBlockBufferSize is the size of the buffer we give to each
 	// channel arbitrator.
 	arbitratorBlockBufferSize = 20
+
+	// AnchorOutputValue is the output value for the anchor output of an
+	// anchor channel.
+	// See BOLT 03 for more details:
+	// https://github.com/lightning/bolts/blob/master/03-transactions.md
+	AnchorOutputValue = btcutil.Amount(330)
 )
 
 // WitnessSubscription represents an intent to be notified once new witnesses
@@ -1313,13 +1319,14 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 		}
 
 		// If we cannot find a deadline, it means there's no HTLCs at
-		// stake, which means we can relax our anchor sweeping as we
-		// don't have any time sensitive outputs to sweep.
+		// stake, which means we can relax our anchor sweeping
+		// conditions as we don't have any time sensitive outputs to
+		// sweep. However we need to register the anchor output with the
+		// sweeper so we are later able to bump the close fee.
 		if deadline.IsNone() {
 			log.Infof("ChannelArbitrator(%v): no HTLCs at stake, "+
-				"skipped anchor CPFP", c.cfg.ChanPoint)
-
-			return nil
+				"sweeping anchor with default deadline",
+				c.cfg.ChanPoint)
 		}
 
 		witnessType := input.CommitmentAnchor
@@ -1357,10 +1364,13 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 		// Calculate the budget based on the value under protection,
 		// which is the sum of all HTLCs on this commitment subtracted
 		// by their budgets.
+		// The anchor output in itself has a small output value of 330
+		// sats so we also include it in the budget to pay for the
+		// cpfp transaction.
 		budget := calculateBudget(
 			value, c.cfg.Budget.AnchorCPFPRatio,
 			c.cfg.Budget.AnchorCPFP,
-		)
+		) + AnchorOutputValue
 
 		log.Infof("ChannelArbitrator(%v): offering anchor from %s "+
 			"commitment %v to sweeper with deadline=%v, budget=%v",

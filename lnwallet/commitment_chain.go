@@ -42,11 +42,13 @@ func (s *commitmentChain) advanceTail() {
 
 // tip returns the latest commitment added to the chain.
 func (s *commitmentChain) tip() *commitment {
+	//nolint:forcetypeassert
 	return s.commitments.Back().Value.(*commitment)
 }
 
 // tail returns the lowest unrevoked commitment transaction in the chain.
 func (s *commitmentChain) tail() *commitment {
+	//nolint:forcetypeassert
 	return s.commitments.Front().Value.(*commitment)
 }
 

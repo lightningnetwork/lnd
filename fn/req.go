@@ -11,9 +11,27 @@ type Req[Input any, Output any] struct {
 	// processing.
 	Request Input
 
-	// Response is the channel on which we will receive the result of the
+	// response is the channel on which we will receive the result of the
 	// remote computation.
-	Response chan<- Output
+	response chan<- Output
+}
+
+// Dispatch is a convenience method that lifts a function that transforms the
+// Input to the Output type into a full request handling cycle.
+func (r *Req[Input, Output]) Dispatch(handler func(Input) Output) {
+	r.Resolve(handler(r.Request))
+}
+
+// Resolve is a function that is used to send a value of the Output type back
+// to the requesting thread.
+func (r *Req[Input, Output]) Resolve(output Output) {
+	select {
+	case r.response <- output:
+	default:
+		// We do nothing here because the only situation in which this
+		// case will fire is if the request handler attempts to resolve
+		// a request more than once which is explicitly forbidden.
+	}
 }
 
 // NewReq is the base constructor of the Req type. It returns both the packaged
@@ -29,6 +47,6 @@ func NewReq[Input, Output any](input Input) (
 
 	return Req[Input, Output]{
 		Request:  input,
-		Response: responseChan,
+		response: responseChan,
 	}, responseChan
 }

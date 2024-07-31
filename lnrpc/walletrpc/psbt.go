@@ -62,7 +62,7 @@ func lockInputs(w lnwallet.WalletController,
 			return nil, fmt.Errorf("fetch outpoint info: %w", err)
 		}
 
-		expiration, _, _, err := w.LeaseOutput(
+		expiration, err := w.LeaseOutput(
 			lock.LockID, lock.Outpoint,
 			chanfunding.DefaultLockDuration,
 		)

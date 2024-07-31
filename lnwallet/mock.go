@@ -201,9 +201,9 @@ func (w *mockWalletController) ListTransactionDetails(int32, int32,
 
 // LeaseOutput returns the current time and a nil error.
 func (w *mockWalletController) LeaseOutput(wtxmgr.LockID, wire.OutPoint,
-	time.Duration) (time.Time, []byte, btcutil.Amount, error) {
+	time.Duration) (time.Time, error) {
 
-	return time.Now(), nil, 0, nil
+	return time.Now(), nil
 }
 
 // ReleaseOutput currently does nothing.

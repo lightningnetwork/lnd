@@ -490,7 +490,7 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 	// other concurrent processes attempting to lease the same UTXO.
 	var expiration time.Time
 	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
-		expiration, _, _, err = w.cfg.Wallet.LeaseOutput(
+		expiration, err = w.cfg.Wallet.LeaseOutput(
 			lockID, *op, duration,
 		)
 		return err

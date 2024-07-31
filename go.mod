@@ -209,6 +209,6 @@ replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
 // If you change this please also update .github/pull_request_template.md and
 // docs/INSTALL.md.
-go 1.21.4
+go 1.22.3
 
 retract v0.0.2

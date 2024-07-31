@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -278,6 +279,10 @@ type ChannelLinkConfig struct {
 	// by failing back any blinding-related payloads as if they were
 	// invalid.
 	DisallowRouteBlinding bool
+
+	// MaxFeeExposure is the threshold in milli-satoshis after which we'll
+	// restrict the flow of HTLCs and fee updates.
+	MaxFeeExposure lnwire.MilliSatoshi
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -446,6 +451,11 @@ func NewChannelLink(cfg ChannelLinkConfig,
 	channel *lnwallet.LightningChannel) ChannelLink {
 
 	logPrefix := fmt.Sprintf("ChannelLink(%v):", channel.ChannelPoint())
+
+	// If the max fee exposure isn't set, use the default.
+	if cfg.MaxFeeExposure == 0 {
+		cfg.MaxFeeExposure = DefaultMaxFeeExposure
+	}
 
 	return &channelLink{
 		cfg:                 cfg,
@@ -1591,6 +1601,20 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 		return nil
 	}
 
+	// Check if we can add the HTLC here without exceededing the max fee
+	// exposure threshold.
+	if l.isOverexposedWithHtlc(htlc, false) {
+		l.log.Debugf("Unable to handle downstream HTLC - max fee " +
+			"exposure exceeded")
+
+		l.mailBox.FailAdd(pkt)
+
+		return NewDetailedLinkError(
+			lnwire.NewTemporaryChannelFailure(nil),
+			OutgoingFailureDownstreamHtlcAdd,
+		)
+	}
+
 	// A new payment has been initiated via the downstream channel,
 	// so we add the new HTLC to our local log, then update the
 	// commitment chains.
@@ -1954,6 +1978,18 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			l.fail(LinkFailureError{code: ErrInvalidUpdate},
 				"blinding point included when route blinding "+
 					"is disabled")
+
+			return
+		}
+
+		// We have to check the limit here rather than later in the
+		// switch because the counterparty can keep sending HTLC's
+		// without sending a revoke. This would mean that the switch
+		// check would only occur later.
+		if l.isOverexposedWithHtlc(msg, true) {
+			l.fail(LinkFailureError{code: ErrInternalError},
+				"peer sent us an HTLC that exceeded our max "+
+					"fee exposure")
 
 			return
 		}
@@ -2375,9 +2411,32 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		l.RWMutex.Unlock()
 
 	case *lnwire.UpdateFee:
+		// Check and see if their proposed fee-rate would make us
+		// exceed the fee threshold.
+		fee := chainfee.SatPerKWeight(msg.FeePerKw)
+
+		isDust, err := l.exceedsFeeExposureLimit(fee)
+		if err != nil {
+			// This shouldn't typically happen. If it does, it
+			// indicates something is wrong with our channel state.
+			l.log.Errorf("Unable to determine if fee threshold " +
+				"exceeded")
+			l.fail(LinkFailureError{code: ErrInternalError},
+				"error calculating fee exposure: %v", err)
+
+			return
+		}
+
+		if isDust {
+			// The proposed fee-rate makes us exceed the fee
+			// threshold.
+			l.fail(LinkFailureError{code: ErrInternalError},
+				"fee threshold exceeded: %v", err)
+			return
+		}
+
 		// We received fee update from peer. If we are the initiator we
 		// will fail the channel, if not we will apply the update.
-		fee := chainfee.SatPerKWeight(msg.FeePerKw)
 		if err := l.channel.ReceiveUpdateFee(fee); err != nil {
 			l.fail(LinkFailureError{code: ErrInvalidUpdate},
 				"error receiving fee update: %v", err)
@@ -2668,8 +2727,10 @@ func (l *channelLink) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 // method.
 //
 // NOTE: Part of the dustHandler interface.
-func (l *channelLink) getDustSum(remote bool) lnwire.MilliSatoshi {
-	return l.channel.GetDustSum(remote)
+func (l *channelLink) getDustSum(remote bool,
+	dryRunFee fn.Option[chainfee.SatPerKWeight]) lnwire.MilliSatoshi {
+
+	return l.channel.GetDustSum(remote, dryRunFee)
 }
 
 // getFeeRate is a wrapper method that retrieves the underlying channel's
@@ -2690,6 +2751,130 @@ func (l *channelLink) getDustClosure() dustClosure {
 	chanType := l.channel.State().ChanType
 
 	return dustHelper(chanType, localDustLimit, remoteDustLimit)
+}
+
+// getCommitFee returns either the local or remote CommitFee in satoshis. This
+// is used so that the Switch can have access to the commitment fee without
+// needing to have a *LightningChannel. This doesn't include dust.
+//
+// NOTE: Part of the dustHandler interface.
+func (l *channelLink) getCommitFee(remote bool) btcutil.Amount {
+	if remote {
+		return l.channel.State().RemoteCommitment.CommitFee
+	}
+
+	return l.channel.State().LocalCommitment.CommitFee
+}
+
+// exceedsFeeExposureLimit returns whether or not the new proposed fee-rate
+// increases the total dust and fees within the channel past the configured
+// fee threshold. It first calculates the dust sum over every update in the
+// update log with the proposed fee-rate and taking into account both the local
+// and remote dust limits. It uses every update in the update log instead of
+// what is actually on the local and remote commitments because it is assumed
+// that in a worst-case scenario, every update in the update log could
+// theoretically be on either commitment transaction and this needs to be
+// accounted for with this fee-rate. It then calculates the local and remote
+// commitment fees given the proposed fee-rate. Finally, it tallies the results
+// and determines if the fee threshold has been exceeded.
+func (l *channelLink) exceedsFeeExposureLimit(
+	feePerKw chainfee.SatPerKWeight) (bool, error) {
+
+	dryRunFee := fn.Some[chainfee.SatPerKWeight](feePerKw)
+
+	// Get the sum of dust for both the local and remote commitments using
+	// this "dry-run" fee.
+	localDustSum := l.getDustSum(false, dryRunFee)
+	remoteDustSum := l.getDustSum(true, dryRunFee)
+
+	// Calculate the local and remote commitment fees using this dry-run
+	// fee.
+	localFee, remoteFee, err := l.channel.CommitFeeTotalAt(feePerKw)
+	if err != nil {
+		return false, err
+	}
+
+	// Finally, check whether the max fee exposure was exceeded on either
+	// future commitment transaction with the fee-rate.
+	totalLocalDust := localDustSum + lnwire.NewMSatFromSatoshis(localFee)
+	if totalLocalDust > l.cfg.MaxFeeExposure {
+		return true, nil
+	}
+
+	totalRemoteDust := remoteDustSum + lnwire.NewMSatFromSatoshis(
+		remoteFee,
+	)
+
+	return totalRemoteDust > l.cfg.MaxFeeExposure, nil
+}
+
+// isOverexposedWithHtlc calculates whether the proposed HTLC will make the
+// channel exceed the fee threshold. It first fetches the largest fee-rate that
+// may be on any unrevoked commitment transaction. Then, using this fee-rate,
+// determines if the to-be-added HTLC is dust. If the HTLC is dust, it adds to
+// the overall dust sum. If it is not dust, it contributes to weight, which
+// also adds to the overall dust sum by an increase in fees. If the dust sum on
+// either commitment exceeds the configured fee threshold, this function
+// returns true.
+func (l *channelLink) isOverexposedWithHtlc(htlc *lnwire.UpdateAddHTLC,
+	incoming bool) bool {
+
+	dustClosure := l.getDustClosure()
+
+	feeRate := l.channel.WorstCaseFeeRate()
+
+	amount := htlc.Amount.ToSatoshis()
+
+	// See if this HTLC is dust on both the local and remote commitments.
+	isLocalDust := dustClosure(feeRate, incoming, true, amount)
+	isRemoteDust := dustClosure(feeRate, incoming, false, amount)
+
+	// Calculate the dust sum for the local and remote commitments.
+	localDustSum := l.getDustSum(false, fn.None[chainfee.SatPerKWeight]())
+	remoteDustSum := l.getDustSum(true, fn.None[chainfee.SatPerKWeight]())
+
+	// Grab the larger of the local and remote commitment fees w/o dust.
+	commitFee := l.getCommitFee(false)
+
+	if l.getCommitFee(true) > commitFee {
+		commitFee = l.getCommitFee(true)
+	}
+
+	localDustSum += lnwire.NewMSatFromSatoshis(commitFee)
+	remoteDustSum += lnwire.NewMSatFromSatoshis(commitFee)
+
+	// Calculate the additional fee increase if this is a non-dust HTLC.
+	weight := lntypes.WeightUnit(input.HTLCWeight)
+	additional := lnwire.NewMSatFromSatoshis(
+		feeRate.FeeForWeight(weight),
+	)
+
+	if isLocalDust {
+		// If this is dust, it doesn't contribute to weight but does
+		// contribute to the overall dust sum.
+		localDustSum += lnwire.NewMSatFromSatoshis(amount)
+	} else {
+		// Account for the fee increase that comes with an increase in
+		// weight.
+		localDustSum += additional
+	}
+
+	if localDustSum > l.cfg.MaxFeeExposure {
+		// The max fee exposure was exceeded.
+		return true
+	}
+
+	if isRemoteDust {
+		// If this is dust, it doesn't contribute to weight but does
+		// contribute to the overall dust sum.
+		remoteDustSum += lnwire.NewMSatFromSatoshis(amount)
+	} else {
+		// Account for the fee increase that comes with an increase in
+		// weight.
+		remoteDustSum += additional
+	}
+
+	return remoteDustSum > l.cfg.MaxFeeExposure
 }
 
 // dustClosure is a function that evaluates whether an HTLC is dust. It returns
@@ -3058,6 +3243,19 @@ func (l *channelLink) updateChannelFee(feePerKw chainfee.SatPerKWeight) error {
 	if !l.EligibleToUpdate() {
 		l.log.Debugf("skipping fee update for inactive channel")
 		return nil
+	}
+
+	// Check and see if our proposed fee-rate would make us exceed the fee
+	// threshold.
+	thresholdExceeded, err := l.exceedsFeeExposureLimit(feePerKw)
+	if err != nil {
+		// This shouldn't typically happen. If it does, it indicates
+		// something is wrong with our channel state.
+		return err
+	}
+
+	if thresholdExceeded {
+		return fmt.Errorf("link fee threshold exceeded")
 	}
 
 	// First, we'll update the local fee on our commitment.

@@ -84,6 +84,9 @@ commitment when the channel was force closed.
   All units are `sats/kvB`. If the new field `min_relay_feerate` is not set,
   the default floor feerate (1012 sats/kvB) will be used.
 
+* Commitment fees are now taken into account when [calculating the fee
+  exposure threshold](https://github.com/lightningnetwork/lnd/pull/8824).
+
 ## RPC Updates
 
 * [`xImportMissionControl`](https://github.com/lightningnetwork/lnd/pull/8779) 
@@ -161,6 +164,7 @@ commitment when the channel was force closed.
 * bitromortac
 * Bufo
 * Elle Mouton
+* Eugene Siegel
 * Matheus Degiovani
 * Oliver Gugger
 * Slyghtning

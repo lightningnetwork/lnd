@@ -1156,7 +1156,7 @@ type blindedPathRestrictions struct {
 // path.
 type blindedHop struct {
 	vertex       route.Vertex
-	edgePolicy   *models.CachedEdgePolicy
+	channelID    uint64
 	edgeCapacity btcutil.Amount
 }
 
@@ -1296,7 +1296,7 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 
 			hop := blindedHop{
 				vertex:       channel.OtherNode,
-				edgePolicy:   channel.InPolicy,
+				channelID:    channel.ChannelID,
 				edgeCapacity: channel.Capacity,
 			}
 

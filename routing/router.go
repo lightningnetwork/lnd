@@ -722,7 +722,7 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 
 			hops = append(hops, &route.Hop{
 				PubKeyBytes: path[j].vertex,
-				ChannelID:   path[j-1].edgePolicy.ChannelID,
+				ChannelID:   path[j-1].channelID,
 			})
 
 			prevNode = path[j].vertex

@@ -76,4 +76,8 @@ type Config struct {
 	// CoinSelectionStrategy is the strategy that is used for selecting
 	// coins when funding a transaction.
 	CoinSelectionStrategy wallet.CoinSelectionStrategy
+
+	// RemoteSigner is the remote signer that the WalletKit will use to
+	// sign transactions, if enabled.
+	RemoteSigner RemoteSigner
 }

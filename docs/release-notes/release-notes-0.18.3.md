@@ -54,6 +54,10 @@ commitment when the channel was force closed.
   send payment stream context, or automatically at the end of the timeout period 
   if the user provided `timeout_seconds`.
 
+* [SignCoordinatorStreams](https://github.com/lightningnetwork/lnd/pull/8754)
+  allows a remote signer to connect to the lnd node, if the
+  `remotesigner.signertype` cfg value has been set to `outbound`.
+
 ## lncli Additions
 
 * [Added](https://github.com/lightningnetwork/lnd/pull/8491) the `cltv_expiry`
@@ -86,6 +90,11 @@ commitment when the channel was force closed.
 
 * Commitment fees are now taken into account when [calculating the fee
   exposure threshold](https://github.com/lightningnetwork/lnd/pull/8824).
+
+* [Added](https://github.com/lightningnetwork/lnd/pull/8754) support for a new
+  remote signer type `outbound`, which makes an outbound connection to the
+  watch-only node, instead of requiring on an inbound connection from the
+  watch-only node.
 
 ## RPC Updates
 
@@ -168,5 +177,6 @@ commitment when the channel was force closed.
 * Matheus Degiovani
 * Oliver Gugger
 * Slyghtning
+* Viktor Tigerström
 * Yong Yu
 * Ziggie

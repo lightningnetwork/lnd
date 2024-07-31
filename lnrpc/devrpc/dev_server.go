@@ -54,6 +54,8 @@ type ServerShell struct {
 // RPC server allows developers to set and query LND state that is not possible
 // during normal operation.
 type Server struct {
+	injected int32 // To be used atomically.
+
 	started  int32 // To be used atomically.
 	shutdown int32 // To be used atomically.
 
@@ -74,14 +76,10 @@ var _ DevServer = (*Server)(nil)
 // If the macaroons we need aren't found in the filepath, then we'll create them
 // on start up. If we're unable to locate, or create the macaroons we need, then
 // we'll return with an error.
-func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
+func New() (*Server, lnrpc.MacaroonPerms, error) {
 	// We don't create any new macaroons for this subserver, instead reuse
 	// existing onchain/offchain permissions.
-	server := &Server{
-		cfg: cfg,
-	}
-
-	return server, macPermissions, nil
+	return &Server{cfg: &Config{}}, macPermissions, nil
 }
 
 // Start launches any helper goroutines required for the Server to function.
@@ -102,6 +100,29 @@ func (s *Server) Stop() error {
 	if atomic.AddInt32(&s.shutdown, 1) != 1 {
 		return nil
 	}
+
+	return nil
+}
+
+// InjectDependencies populates the sub-server's dependencies. If the
+// finalizeDependencies boolean is true, then the sub-server will finalize its
+// dependencies and return an error if any required dependencies are missing.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) InjectDependencies(
+	configRegistry lnrpc.SubServerConfigDispatcher,
+	finalizeDependencies bool) error {
+
+	if finalizeDependencies && atomic.AddInt32(&s.injected, 1) != 1 {
+		return lnrpc.ErrDependenciesFinalized
+	}
+
+	cfg, err := getConfig(configRegistry, finalizeDependencies)
+	if err != nil {
+		return err
+	}
+
+	s.cfg = cfg
 
 	return nil
 }
@@ -153,17 +174,15 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 	return nil
 }
 
-// CreateSubServer populates the subserver's dependencies using the passed
-// SubServerConfigDispatcher. This method should fully initialize the
-// sub-server instance, making it ready for action. It returns the macaroon
-// permissions that the sub-server wishes to pass on to the root server for all
-// methods routed towards it.
+// CreateSubServer creates an instance of the sub-server, and returns the
+// macaroon permissions that the sub-server wishes to pass on to the root server
+// for all methods routed towards it.
 //
 // NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
+func (r *ServerShell) CreateSubServer() (
 	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
 
-	subServer, macPermissions, err := createNewSubServer(configRegistry)
+	subServer, macPermissions, err := New()
 	if err != nil {
 		return nil, nil, err
 	}

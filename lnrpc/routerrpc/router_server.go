@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -1411,10 +1412,10 @@ func (s *Server) BuildRoute(_ context.Context,
 	}
 
 	// Prepare BuildRoute call parameters from rpc request.
-	var amt *lnwire.MilliSatoshi
+	var amt fn.Option[lnwire.MilliSatoshi]
 	if req.AmtMsat != 0 {
 		rpcAmt := lnwire.MilliSatoshi(req.AmtMsat)
-		amt = &rpcAmt
+		amt = fn.Some(rpcAmt)
 	}
 
 	var outgoingChan *uint64

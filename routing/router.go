@@ -1406,7 +1406,7 @@ func (e ErrNoChannel) Error() string {
 // BuildRoute returns a fully specified route based on a list of pubkeys. If
 // amount is nil, the minimum routable amount is used. To force a specific
 // outgoing channel, use the outgoingChan parameter.
-func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
+func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
 	hops []route.Vertex, outgoingChan *uint64,
 	finalCltvDelta int32, payAddr *[32]byte) (*route.Route, error) {
 
@@ -1439,43 +1439,36 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		return nil, err
 	}
 
-	// If no amount is specified, we need to build a route for the minimum
-	// amount that this route can carry.
-	useMinAmt := amt == nil
-
 	var (
 		receiverAmt lnwire.MilliSatoshi
+		senderAmt   lnwire.MilliSatoshi
 		pathEdges   []*unifiedEdge
 	)
 
-	if useMinAmt {
-		// For minimum amount routes, aim to deliver at least 1 msat to
-		// the destination. There are nodes in the wild that have a
-		// min_htlc channel policy of zero, which could lead to a zero
-		// amount payment being made.
-		var senderAmt lnwire.MilliSatoshi
-		pathEdges, senderAmt, err = senderAmtBackwardPass(
-			unifiers, useMinAmt, 1, bandwidthHints,
-		)
-		if err != nil {
-			return nil, err
-		}
+	// We determine the edges compatible with the requested amount, as well
+	// as the amount to send, which can be used to determine the final
+	// receiver amount, if a minimal amount was requested.
+	pathEdges, senderAmt, err = senderAmtBackwardPass(
+		unifiers, amt, bandwidthHints,
+	)
+	if err != nil {
+		return nil, err
+	}
 
-		receiverAmt, err = receiverAmtForwardPass(senderAmt, pathEdges)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		// If an amount is specified, we need to build a route that
-		// delivers exactly this amount to the final destination.
-		pathEdges, _, err = senderAmtBackwardPass(
-			unifiers, useMinAmt, *amt, bandwidthHints,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		receiverAmt = *amt
+	// For the minimal amount search, we need to do a forward pass to find a
+	// larger receiver amount due to possible min HTLC bumps, otherwise we
+	// just use the requested amount.
+	receiverAmt, err = fn.ElimOption(
+		amt,
+		func() fn.Result[lnwire.MilliSatoshi] {
+			return fn.NewResult(
+				receiverAmtForwardPass(senderAmt, pathEdges),
+			)
+		},
+		fn.Ok[lnwire.MilliSatoshi],
+	).Unpack()
+	if err != nil {
+		return nil, err
 	}
 
 	// Fetch the current block height outside the routing transaction, to
@@ -1545,9 +1538,9 @@ func getEdgeUnifiers(source route.Vertex, hops []route.Vertex,
 
 // senderAmtBackwardPass returns a list of unified edges for the given route and
 // determines the amount that should be sent to fulfill min HTLC requirements.
-// The minimal sender amount can be searched for by activating useMinAmt.
-func senderAmtBackwardPass(unifiers []*edgeUnifier, useMinAmt bool,
-	receiverAmt lnwire.MilliSatoshi,
+// The minimal sender amount can be searched for by using amt=None.
+func senderAmtBackwardPass(unifiers []*edgeUnifier,
+	amt fn.Option[lnwire.MilliSatoshi],
 	bandwidthHints bandwidthHints) ([]*unifiedEdge, lnwire.MilliSatoshi,
 	error) {
 
@@ -1563,11 +1556,15 @@ func senderAmtBackwardPass(unifiers []*edgeUnifier, useMinAmt bool,
 	// incomingAmt tracks the amount that is forwarded on the edges of a
 	// route. The last hop only forwards the amount that the receiver should
 	// receive, as there are no fees paid to the last node.
-	incomingAmt := receiverAmt
+	// For minimum amount routes, aim to deliver at least 1 msat to
+	// the destination. There are nodes in the wild that have a
+	// min_htlc channel policy of zero, which could lead to a zero
+	// amount payment being made.
+	incomingAmt := amt.UnwrapOr(1)
 
 	// If using min amt, increase the amount if needed to fulfill min HTLC
 	// requirements.
-	if useMinAmt {
+	if amt.IsNone() {
 		min := edgeUnifier.minAmt()
 		if min > incomingAmt {
 			incomingAmt = min
@@ -1591,7 +1588,7 @@ func senderAmtBackwardPass(unifiers []*edgeUnifier, useMinAmt bool,
 
 		// If using min amt, increase the amount if needed to fulfill
 		// min HTLC requirements.
-		if useMinAmt {
+		if amt.IsNone() {
 			min := edgeUnifier.minAmt()
 			if min > incomingAmt {
 				incomingAmt = min

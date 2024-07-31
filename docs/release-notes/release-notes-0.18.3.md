@@ -127,7 +127,11 @@ that validate `ChannelAnnouncement` messages.
   ```
 
 * The `EstimateFee` call on the `walletrpc` sub-server now [also returns the
-  current `min_relay_fee`](https://github.com/lightningnetwork/lnd/pull/8986). 
+  current `min_relay_fee`](https://github.com/lightningnetwork/lnd/pull/8986).
+
+* [SignCoordinatorStreams](https://github.com/lightningnetwork/lnd/pull/8754)
+  allows a remote signer to connect to the lnd node, if the
+  `remotesigner.signertype` cfg value has been set to `outbound`.
 
 ## lncli Additions
 
@@ -180,7 +184,12 @@ that validate `ChannelAnnouncement` messages.
 * Improved the internal [`LeaseOutput`
   method](https://github.com/lightningnetwork/lnd/pull/8961) to be more
   efficient, which improves the performance of related RPC calls such as
-  `LeaseOutput`, `SendCoins`, and PSBT funding process. 
+  `LeaseOutput`, `SendCoins`, and PSBT funding process.
+
+ * [Added](https://github.com/lightningnetwork/lnd/pull/8754) support for a new
+  remote signer type `outbound`, which makes an outbound connection to the
+  watch-only node, instead of requiring on an inbound connection from the
+  watch-only node.
 
 ## RPC Updates
 
@@ -287,5 +296,6 @@ that validate `ChannelAnnouncement` messages.
 * Olaoluwa Osuntokun
 * Oliver Gugger
 * Slyghtning
+* Viktor Tigerström
 * Yong Yu
 * Ziggie

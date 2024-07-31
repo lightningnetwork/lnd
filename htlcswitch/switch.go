@@ -2788,8 +2788,12 @@ func (s *Switch) dustExceedsFeeThreshold(link ChannelLink,
 	isDust := link.getDustClosure()
 
 	// Evaluate if the HTLC is dust on either sides' commitment.
-	isLocalDust := isDust(feeRate, incoming, true, amount.ToSatoshis())
-	isRemoteDust := isDust(feeRate, incoming, false, amount.ToSatoshis())
+	isLocalDust := isDust(
+		feeRate, incoming, lntypes.Local, amount.ToSatoshis(),
+	)
+	isRemoteDust := isDust(
+		feeRate, incoming, lntypes.Remote, amount.ToSatoshis(),
+	)
 
 	if !(isLocalDust || isRemoteDust) {
 		// If the HTLC is not dust on either commitment, it's fine to
@@ -2807,7 +2811,7 @@ func (s *Switch) dustExceedsFeeThreshold(link ChannelLink,
 	// sum for it.
 	if isLocalDust {
 		localSum := link.getDustSum(
-			false, fn.None[chainfee.SatPerKWeight](),
+			lntypes.Local, fn.None[chainfee.SatPerKWeight](),
 		)
 		localSum += localMailDust
 
@@ -2827,7 +2831,7 @@ func (s *Switch) dustExceedsFeeThreshold(link ChannelLink,
 	// reached this point.
 	if isRemoteDust {
 		remoteSum := link.getDustSum(
-			true, fn.None[chainfee.SatPerKWeight](),
+			lntypes.Remote, fn.None[chainfee.SatPerKWeight](),
 		)
 		remoteSum += remoteMailDust
 

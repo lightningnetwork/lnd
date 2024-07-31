@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -660,7 +661,8 @@ func (m *memoryMailBox) DustPackets() (lnwire.MilliSatoshi,
 
 		// Evaluate whether this HTLC is dust on the local commitment.
 		if m.isDust(
-			m.feeRate, false, true, addPkt.amount.ToSatoshis(),
+			m.feeRate, false, lntypes.Local,
+			addPkt.amount.ToSatoshis(),
 		) {
 
 			localDustSum += addPkt.amount
@@ -668,7 +670,8 @@ func (m *memoryMailBox) DustPackets() (lnwire.MilliSatoshi,
 
 		// Evaluate whether this HTLC is dust on the remote commitment.
 		if m.isDust(
-			m.feeRate, false, false, addPkt.amount.ToSatoshis(),
+			m.feeRate, false, lntypes.Remote,
+			addPkt.amount.ToSatoshis(),
 		) {
 
 			remoteDustSum += addPkt.amount

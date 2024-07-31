@@ -63,7 +63,7 @@ type dustHandler interface {
 	// getDustSum returns the dust sum on either the local or remote
 	// commitment. An optional fee parameter can be passed in which is used
 	// to calculate the dust sum.
-	getDustSum(remote bool,
+	getDustSum(whoseCommit lntypes.ChannelParty,
 		fee fn.Option[chainfee.SatPerKWeight]) lnwire.MilliSatoshi
 
 	// getFeeRate returns the current channel feerate.

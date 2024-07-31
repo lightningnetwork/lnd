@@ -4319,7 +4319,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	}
 
 	checkAlmostDust := func(link *channelLink, mbox MailBox,
-		remote bool) bool {
+		whoseCommit lntypes.ChannelParty) bool {
 
 		timeout := time.After(15 * time.Second)
 		pollInterval := 300 * time.Millisecond
@@ -4335,12 +4335,12 @@ func TestSwitchDustForwarding(t *testing.T) {
 			}
 
 			linkDust := link.getDustSum(
-				remote, fn.None[chainfee.SatPerKWeight](),
+				whoseCommit, fn.None[chainfee.SatPerKWeight](),
 			)
 			localMailDust, remoteMailDust := mbox.DustPackets()
 
 			totalDust := linkDust
-			if remote {
+			if whoseCommit.IsRemote() {
 				totalDust += remoteMailDust
 			} else {
 				totalDust += localMailDust
@@ -4359,7 +4359,11 @@ func TestSwitchDustForwarding(t *testing.T) {
 		n.firstBobChannelLink.ChanID(),
 		n.firstBobChannelLink.ShortChanID(),
 	)
-	require.True(t, checkAlmostDust(n.firstBobChannelLink, bobMbox, false))
+	require.True(
+		t, checkAlmostDust(
+			n.firstBobChannelLink, bobMbox, lntypes.Local,
+		),
+	)
 
 	// Sending one more HTLC should fail. SendHTLC won't error, but the
 	// HTLC should be failed backwards.
@@ -4408,7 +4412,9 @@ func TestSwitchDustForwarding(t *testing.T) {
 		aliceBobFirstHop, uint64(bobAttemptID), nondustHtlc,
 	)
 	require.NoError(t, err)
-	require.True(t, checkAlmostDust(n.firstBobChannelLink, bobMbox, false))
+	require.True(t, checkAlmostDust(
+		n.firstBobChannelLink, bobMbox, lntypes.Local,
+	))
 
 	// Check that the HTLC failed.
 	bobResultChan, err = n.bobServer.htlcSwitch.GetAttemptResult(
@@ -4486,7 +4492,11 @@ func TestSwitchDustForwarding(t *testing.T) {
 	aliceMbox := aliceOrch.GetOrCreateMailBox(
 		n.aliceChannelLink.ChanID(), n.aliceChannelLink.ShortChanID(),
 	)
-	require.True(t, checkAlmostDust(n.aliceChannelLink, aliceMbox, true))
+	require.True(
+		t, checkAlmostDust(
+			n.aliceChannelLink, aliceMbox, lntypes.Remote,
+		),
+	)
 
 	err = n.aliceServer.htlcSwitch.SendHTLC(
 		n.aliceChannelLink.ShortChanID(), uint64(aliceAttemptID),

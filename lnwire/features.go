@@ -265,6 +265,14 @@ const (
 	// finalized.
 	SimpleTaprootChannelsOptionalStaging = 181
 
+	// ExperimentalEndorsementRequired is a required feature bit that
+	// indicates that the node will relay experimental endorsement signals.
+	ExperimentalEndorsementRequired FeatureBit = 260
+
+	// ExperimentalEndorsementOptional is an optional feature bit that
+	// indicates that the node will relay experimental endorsement signals.
+	ExperimentalEndorsementOptional FeatureBit = 261
+
 	// SimpleTaprootOverlayChansRequired is a required bit that indicates
 	// support for the special custom taproot overlay channel.
 	SimpleTaprootOverlayChansOptional = 2025
@@ -339,6 +347,8 @@ var Features = map[FeatureBit]string{
 	SimpleTaprootChannelsOptionalFinal:   "simple-taproot-chans",
 	SimpleTaprootChannelsRequiredStaging: "simple-taproot-chans-x",
 	SimpleTaprootChannelsOptionalStaging: "simple-taproot-chans-x",
+	ExperimentalEndorsementRequired:      "endorsement-x",
+	ExperimentalEndorsementOptional:      "endorsement-x",
 	SimpleTaprootOverlayChansOptional:    "taproot-overlay-chans",
 	SimpleTaprootOverlayChansRequired:    "taproot-overlay-chans",
 }

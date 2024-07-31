@@ -9,11 +9,18 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-// OnionPacketSize is the size of the serialized Sphinx onion packet included
-// in each UpdateAddHTLC message. The breakdown of the onion packet is as
-// follows: 1-byte version, 33-byte ephemeral public key (for ECDH), 1300-bytes
-// of per-hop data, and a 32-byte HMAC over the entire packet.
-const OnionPacketSize = 1366
+const (
+	// OnionPacketSize is the size of the serialized Sphinx onion packet
+	// included in each UpdateAddHTLC message. The breakdown of the onion
+	// packet is as follows: 1-byte version, 33-byte ephemeral public key
+	// (for ECDH), 1300-bytes of per-hop data, and a 32-byte HMAC over the
+	// entire packet.
+	OnionPacketSize = 1366
+
+	// ExperimentalEndorsementType is the TLV type used for a custom
+	// record that sets an experimental endorsement value.
+	ExperimentalEndorsementType tlv.Type = 106823
+)
 
 type (
 	// BlindingPointTlvType is the type for ephemeral pubkeys used in

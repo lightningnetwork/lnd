@@ -66,6 +66,10 @@ type Config struct {
 	// NoTaprootOverlay unsets the taproot overlay channel feature bits.
 	NoTaprootOverlay bool
 
+	// NoExperimentalEndorsement unsets any bits that signal support for
+	// forwarding experimental endorsement.
+	NoExperimentalEndorsement bool
+
 	// CustomFeatures is a set of custom features to advertise in each
 	// set.
 	CustomFeatures map[Set][]lnwire.FeatureBit
@@ -195,6 +199,12 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.SimpleTaprootOverlayChansOptional)
 			raw.Unset(lnwire.SimpleTaprootOverlayChansRequired)
 		}
+
+		if cfg.NoExperimentalEndorsement {
+			raw.Unset(lnwire.ExperimentalEndorsementOptional)
+			raw.Unset(lnwire.ExperimentalEndorsementRequired)
+		}
+
 		for _, custom := range cfg.CustomFeatures[set] {
 			if custom > set.Maximum() {
 				return nil, fmt.Errorf("feature bit: %v "+

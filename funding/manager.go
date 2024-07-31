@@ -1875,10 +1875,10 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		msg.PendingChannelID)
 	bounds := remoteContribution.ChannelConfig.ChannelStateBounds
 	log.Debugf("Remote party accepted channel state space bounds: %v",
-		spew.Sdump(bounds))
+		lnutils.SpewLogClosure(bounds))
 	params := remoteContribution.ChannelConfig.CommitmentParams
 	log.Debugf("Remote party accepted commitment rendering params: %v",
-		spew.Sdump(params))
+		lnutils.SpewLogClosure(params))
 
 	// With the initiator's contribution recorded, respond with our
 	// contribution in the next message of the workflow.
@@ -2167,10 +2167,10 @@ func (f *Manager) funderProcessAcceptChannel(peer lnpeer.Peer,
 		msg.CsvDelay)
 	bounds = remoteContribution.ChannelConfig.ChannelStateBounds
 	log.Debugf("Remote party accepted channel state space bounds: %v",
-		spew.Sdump(bounds))
+		lnutils.SpewLogClosure(bounds))
 	commitParams = remoteContribution.ChannelConfig.CommitmentParams
 	log.Debugf("Remote party accepted commitment rendering params: %v",
-		spew.Sdump(commitParams))
+		lnutils.SpewLogClosure(commitParams))
 
 	// If the user requested funding through a PSBT, we cannot directly
 	// continue now and need to wait for the fully funded and signed PSBT

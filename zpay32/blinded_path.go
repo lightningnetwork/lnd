@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -21,6 +20,12 @@ const (
 	// proposal](https://github.com/lightning/blips/pull/39) for a detailed
 	// calculation.
 	maxNumHopsPerPath = 7
+
+	// maxCipherTextLength defines the largest cipher text size allowed.
+	// This is derived by using the `data_length` upper bound of 639 bytes
+	// and then assuming the case of a path with only a single hop (meaning
+	// the cipher text may be as large as possible).
+	maxCipherTextLength = 535
 )
 
 var (
@@ -215,6 +220,12 @@ func DecodeBlindedHop(r io.Reader) (*sphinx.BlindedHopInfo, error) {
 		return nil, err
 	}
 
+	if dataLen > maxCipherTextLength {
+		return nil, fmt.Errorf("a blinded hop cipher text blob may "+
+			"not exceed the maximum of %d bytes",
+			maxCipherTextLength)
+	}
+
 	encryptedData := make([]byte, dataLen)
 	_, err = r.Read(encryptedData)
 	if err != nil {
@@ -238,9 +249,9 @@ func EncodeBlindedHop(w io.Writer, hop *sphinx.BlindedHopInfo) error {
 		return err
 	}
 
-	if len(hop.CipherText) > math.MaxUint16 {
+	if len(hop.CipherText) > maxCipherTextLength {
 		return fmt.Errorf("encrypted recipient data can not exceed a "+
-			"length of %d bytes", math.MaxUint16)
+			"length of %d bytes", maxCipherTextLength)
 	}
 
 	err = tlv.WriteVarInt(w, uint64(len(hop.CipherText)), &[8]byte{})

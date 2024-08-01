@@ -341,6 +341,7 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		notifier:   notifier,
 		publishTx:  publishTx,
 		mockSwitch: mockSwitch,
+		mockConn:   params.mockConn,
 	}, nil
 }
 
@@ -493,10 +494,14 @@ func (m *mockMessageConn) Flush() (int, error) {
 // the bytes sent into the mock's writtenMessages channel.
 func (m *mockMessageConn) WriteMessage(msg []byte) error {
 	m.writeRaceDetectingCounter++
+
+	msgCopy := make([]byte, len(msg))
+	copy(msgCopy, msg)
+
 	select {
-	case m.writtenMessages <- msg:
+	case m.writtenMessages <- msgCopy:
 	case <-time.After(timeout):
-		m.t.Fatalf("timeout sending message: %v", msg)
+		m.t.Fatalf("timeout sending message: %v", msgCopy)
 	}
 
 	return nil
@@ -713,6 +718,11 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 			return nil
 		},
 		PongBuf: make([]byte, lnwire.MaxPongBytes),
+		FetchLastChanUpdate: func(chanID lnwire.ShortChannelID,
+		) (*lnwire.ChannelUpdate, error) {
+
+			return &lnwire.ChannelUpdate{}, nil
+		},
 	}
 
 	alicePeer := NewBrontide(*cfg)

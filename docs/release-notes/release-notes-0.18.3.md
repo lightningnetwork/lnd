@@ -48,6 +48,9 @@
 bumping an anchor channel closing was not possible when no HTLCs were on the
 commitment when the channel was force closed.
 
+* We'll now always send [channel updates to our remote peer for open
+  channels](https://github.com/lightningnetwork/lnd/pull/8963).
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions
@@ -189,6 +192,7 @@ commitment when the channel was force closed.
 * Elle Mouton
 * Eugene Siegel
 * Matheus Degiovani
+* Olaoluwa Osuntokun
 * Oliver Gugger
 * Slyghtning
 * Yong Yu

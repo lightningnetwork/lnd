@@ -33,7 +33,7 @@ func DefaultCluster() *Cluster {
 	return &Cluster{
 		LeaderElector:      cluster.EtcdLeaderElector,
 		EtcdElectionPrefix: DefaultEtcdElectionPrefix,
-		LeaderSessionTTL:   60,
+		LeaderSessionTTL:   90,
 		ID:                 hostname,
 	}
 }

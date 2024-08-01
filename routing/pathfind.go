@@ -136,9 +136,8 @@ type finalHopParams struct {
 // NOTE: If a non-nil blinded path is provided it is assumed to have been
 // validated by the caller.
 func newRoute(sourceVertex route.Vertex,
-	pathEdges []*unifiedEdge, currentHeight uint32,
-	finalHop finalHopParams, blindedPath *sphinx.BlindedPath) (
-	*route.Route, error) {
+	pathEdges []*unifiedEdge, currentHeight uint32, finalHop finalHopParams,
+	blindedPathSet *BlindedPaymentPathSet) (*route.Route, error) {
 
 	var (
 		hops []*route.Hop
@@ -153,6 +152,8 @@ func newRoute(sourceVertex route.Vertex,
 		// backwards below, this next hop gets closer and closer to the
 		// sender of the payment.
 		nextIncomingAmount lnwire.MilliSatoshi
+
+		blindedPayment *BlindedPayment
 	)
 
 	pathLength := len(pathEdges)
@@ -160,6 +161,15 @@ func newRoute(sourceVertex route.Vertex,
 		// Now we'll start to calculate the items within the per-hop
 		// payload for the hop this edge is leading to.
 		edge := pathEdges[i].policy
+
+		// If this is an edge from a blinded path and the
+		// blindedPayment variable has not been set yet, then set it now
+		// by extracting the corresponding blinded payment from the
+		// edge.
+		isBlindedEdge := pathEdges[i].blindedPayment != nil
+		if isBlindedEdge && blindedPayment == nil {
+			blindedPayment = pathEdges[i].blindedPayment
+		}
 
 		// We'll calculate the amounts, timelocks, and fees for each hop
 		// in the route. The base case is the final hop which includes
@@ -200,20 +210,12 @@ func newRoute(sourceVertex route.Vertex,
 			// reporting through RPC. Set to zero for the final hop.
 			fee = 0
 
-			// Only include the final hop CLTV delta in the total
-			// time lock value if this is not a route to a blinded
-			// path. For blinded paths, the total time-lock from the
-			// whole path will be deduced from the introduction
-			// node's CLTV delta. The exception is for the case
-			// where the final hop is the blinded path introduction
-			// node.
-			if blindedPath == nil ||
-				len(blindedPath.BlindedHops) == 1 {
-
-				// As this is the last hop, we'll use the
-				// specified final CLTV delta value instead of
-				// the value from the last link in the route.
+			if blindedPathSet == nil {
 				totalTimeLock += uint32(finalHop.cltvDelta)
+			} else {
+				totalTimeLock += uint32(
+					blindedPathSet.FinalCLTVDelta(),
+				)
 			}
 			outgoingTimeLock = totalTimeLock
 
@@ -240,7 +242,7 @@ func newRoute(sourceVertex route.Vertex,
 
 			metadata = finalHop.metadata
 
-			if blindedPath != nil {
+			if blindedPathSet != nil {
 				totalAmtMsatBlinded = finalHop.totalAmt
 			}
 		} else {
@@ -300,10 +302,28 @@ func newRoute(sourceVertex route.Vertex,
 	// If we are creating a route to a blinded path, we need to add some
 	// additional data to the route that is required for blinded forwarding.
 	// We do another pass on our edges to append this data.
-	if blindedPath != nil {
+	if blindedPathSet != nil {
+		// If the passed in BlindedPaymentPathSet is non-nil but no
+		// edge had a BlindedPayment attached, it means that the path
+		// chosen was an introduction-node-only path. So in this case,
+		// we can assume the relevant payment is the only one in the
+		// payment set.
+		if blindedPayment == nil {
+			var err error
+			blindedPayment, err = blindedPathSet.IntroNodeOnlyPath()
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		var (
 			inBlindedRoute bool
 			dataIndex      = 0
+
+			blindedPath = blindedPayment.BlindedPath
+			numHops     = len(blindedPath.BlindedHops)
+			realFinal   = blindedPath.BlindedHops[numHops-1].
+					BlindedNodePub
 
 			introVertex = route.NewVertex(
 				blindedPath.IntroductionPoint,
@@ -332,6 +352,11 @@ func newRoute(sourceVertex route.Vertex,
 			if i != len(hops)-1 {
 				hop.AmtToForward = 0
 				hop.OutgoingTimeLock = 0
+			} else {
+				// For the final hop, we swap out the pub key
+				// bytes to the original destination node pub
+				// key for that payment path.
+				hop.PubKeyBytes = route.NewVertex(realFinal)
 			}
 
 			dataIndex++
@@ -437,9 +462,9 @@ type RestrictParams struct {
 	// the payee.
 	Metadata []byte
 
-	// BlindedPayment is necessary to determine the hop size of the
+	// BlindedPaymentPathSet is necessary to determine the hop size of the
 	// last/exit hop.
-	BlindedPayment *BlindedPayment
+	BlindedPaymentPathSet *BlindedPaymentPathSet
 }
 
 // PathFindingConfig defines global parameters that control the trade-off in
@@ -1131,7 +1156,7 @@ type blindedPathRestrictions struct {
 // path.
 type blindedHop struct {
 	vertex       route.Vertex
-	edgePolicy   *models.CachedEdgePolicy
+	channelID    uint64
 	edgeCapacity btcutil.Amount
 }
 
@@ -1271,7 +1296,7 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 
 			hop := blindedHop{
 				vertex:       channel.OtherNode,
-				edgePolicy:   channel.InPolicy,
+				channelID:    channel.ChannelID,
 				edgeCapacity: channel.Capacity,
 			}
 
@@ -1365,9 +1390,11 @@ func getProbabilityBasedDist(weight int64, probability float64,
 func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
 	amount lnwire.MilliSatoshi) uint64 {
 
-	if r.BlindedPayment != nil {
-		blindedPath := r.BlindedPayment.BlindedPath.BlindedHops
-		blindedPoint := r.BlindedPayment.BlindedPath.BlindingPoint
+	if r.BlindedPaymentPathSet != nil {
+		paymentPath := r.BlindedPaymentPathSet.
+			LargestLastHopPayloadPath()
+		blindedPath := paymentPath.BlindedPath.BlindedHops
+		blindedPoint := paymentPath.BlindedPath.BlindingPoint
 
 		encryptedData := blindedPath[len(blindedPath)-1].CipherText
 		finalHop := route.Hop{

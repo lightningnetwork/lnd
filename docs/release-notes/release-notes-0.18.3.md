@@ -57,6 +57,9 @@ commitment when the channel was force closed.
   [here](https://github.com/lightningnetwork/lnd/issues/8146) for a summary of
   the issue.
 
+* We'll now always send [channel updates to our remote peer for open
+  channels](https://github.com/lightningnetwork/lnd/pull/8963).
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions
@@ -243,6 +246,7 @@ commitment when the channel was force closed.
 * Elle Mouton
 * Eugene Siegel
 * Matheus Degiovani
+* Olaoluwa Osuntokun
 * Oliver Gugger
 * Slyghtning
 * Yong Yu

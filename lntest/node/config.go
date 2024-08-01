@@ -315,6 +315,9 @@ func ExtraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool,
 				leaderSessionTTL),
 		}
 		extraArgs = append(extraArgs, clusterArgs...)
+		extraArgs = append(
+			extraArgs, "--healthcheck.leader.interval=10s",
+		)
 	}
 
 	return extraArgs

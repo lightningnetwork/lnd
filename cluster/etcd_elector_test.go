@@ -87,12 +87,12 @@ func TestEtcdElector(t *testing.T) {
 	tmp := <-ch
 	first, err := tmp.Leader(ctxb)
 	require.NoError(t, err)
-	require.NoError(t, tmp.Resign())
+	require.NoError(t, tmp.Resign(ctxb))
 
 	tmp = <-ch
 	second, err := tmp.Leader(ctxb)
 	require.NoError(t, err)
-	require.NoError(t, tmp.Resign())
+	require.NoError(t, tmp.Resign(ctxb))
 
 	require.Contains(t, []string{id1, id2}, first)
 	require.Contains(t, []string{id1, id2}, second)

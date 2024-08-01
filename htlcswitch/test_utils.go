@@ -1053,17 +1053,17 @@ func serverOptionRejectHtlc(alice, bob, carol bool) serverOption {
 	}
 }
 
-// createTwoClusterChannels creates lightning channels which are needed for
-// a 2 hop network cluster to be initialized.
-func createTwoClusterChannels(t *testing.T, aliceToBob,
-	bobToCarol btcutil.Amount) (*testLightningChannel,
+// createMirroredChannel creates two LightningChannel objects which represent
+// the state machines on either side of a single channel between alice and bob.
+func createMirroredChannel(t *testing.T, aliceToBob,
+	bobToAlice btcutil.Amount) (*testLightningChannel,
 	*testLightningChannel, error) {
 
 	_, _, firstChanID, _ := genIDs()
 
-	// Create lightning channels between Alice<->Bob and Bob<->Carol
+	// Create lightning channels between Alice<->Bob for Alice and Bob
 	alice, bob, err := createTestChannel(t, alicePrivKey, bobPrivKey,
-		aliceToBob, aliceToBob, 0, 0, firstChanID,
+		aliceToBob, bobToAlice, 0, 0, firstChanID,
 	)
 	if err != nil {
 		return nil, nil, errors.Errorf("unable to create "+

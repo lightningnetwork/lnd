@@ -444,7 +444,7 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 	t.Parallel()
 
 	// Setup a alice-bob network.
-	alice, bob, err := createTwoClusterChannels(
+	alice, bob, err := createMirroredChannel(
 		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
 	)
 	require.NoError(t, err, "unable to create channel")
@@ -6318,7 +6318,7 @@ func TestChannelLinkCanceledInvoice(t *testing.T) {
 	t.Parallel()
 
 	// Setup a alice-bob network.
-	alice, bob, err := createTwoClusterChannels(
+	alice, bob, err := createMirroredChannel(
 		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
 	)
 	require.NoError(t, err, "unable to create channel")
@@ -6374,7 +6374,7 @@ type hodlInvoiceTestCtx struct {
 
 func newHodlInvoiceTestCtx(t *testing.T) (*hodlInvoiceTestCtx, error) {
 	// Setup a alice-bob network.
-	alice, bob, err := createTwoClusterChannels(
+	alice, bob, err := createMirroredChannel(
 		t, btcutil.SatoshiPerBitcoin*3, btcutil.SatoshiPerBitcoin*5,
 	)
 	require.NoError(t, err, "unable to create channel")

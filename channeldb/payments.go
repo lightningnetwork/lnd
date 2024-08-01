@@ -104,7 +104,7 @@ var (
 )
 
 var (
-	// ErrNoSequenceNumber is returned if we lookup a payment which does
+	// ErrNoSequenceNumber is returned if we look up a payment which does
 	// not have a sequence number.
 	ErrNoSequenceNumber = errors.New("sequence number not found")
 
@@ -147,18 +147,20 @@ const (
 	// balance to complete the payment.
 	FailureReasonInsufficientBalance FailureReason = 4
 
-	// TODO(halseth): cancel state.
+	// FailureReasonCanceled indicates that the payment was canceled by the
+	// user.
+	FailureReasonCanceled FailureReason = 5
 
 	// TODO(joostjager): Add failure reasons for:
 	// LocalLiquidityInsufficient, RemoteCapacityInsufficient.
 )
 
-// Error returns a human readable error string for the FailureReason.
+// Error returns a human-readable error string for the FailureReason.
 func (r FailureReason) Error() string {
 	return r.String()
 }
 
-// String returns a human readable FailureReason.
+// String returns a human-readable FailureReason.
 func (r FailureReason) String() string {
 	switch r {
 	case FailureReasonTimeout:
@@ -171,6 +173,8 @@ func (r FailureReason) String() string {
 		return "incorrect_payment_details"
 	case FailureReasonInsufficientBalance:
 		return "insufficient_balance"
+	case FailureReasonCanceled:
+		return "canceled"
 	}
 
 	return "unknown"

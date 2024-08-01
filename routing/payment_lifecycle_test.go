@@ -772,17 +772,17 @@ func TestResumePaymentFailContextCancel(t *testing.T) {
 	cancel()
 
 	m.control.On(
-		"FailPayment", p.identifier, channeldb.FailureReasonTimeout,
+		"FailPayment", p.identifier, channeldb.FailureReasonCanceled,
 	).Return(nil).Once()
 
-	// 5. decideNextStep now returns stepExit.
+	// 4. decideNextStep now returns stepExit.
 	m.payment.On("AllowMoreAttempts").Return(false, nil).Once().
 		On("NeedWaitAttempts").Return(false, nil).Once()
 
-	// 6. Control tower deletes failed attempts.
+	// 5. Control tower deletes failed attempts.
 	m.control.On("DeleteFailedAttempts", p.identifier).Return(nil).Once()
 
-	// 7. We will observe FailureReasonError if the context was cancelled.
+	// 6. We will observe FailureReasonError if the context was cancelled.
 	reason := channeldb.FailureReasonError
 	m.payment.On("TerminalInfo").Return(nil, &reason)
 

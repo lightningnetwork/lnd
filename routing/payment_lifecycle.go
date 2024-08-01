@@ -322,10 +322,13 @@ func (p *paymentLifecycle) checkContext(ctx context.Context) error {
 		// user-provided timeout was reached, or the context was
 		// canceled, either to a manual cancellation or due to an
 		// unknown error.
+		var reason channeldb.FailureReason
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			reason = channeldb.FailureReasonTimeout
 			log.Warnf("Payment attempt not completed before "+
 				"timeout, id=%s", p.identifier.String())
 		} else {
+			reason = channeldb.FailureReasonCanceled
 			log.Warnf("Payment attempt context canceled, id=%s",
 				p.identifier.String())
 		}
@@ -334,7 +337,6 @@ func (p *paymentLifecycle) checkContext(ctx context.Context) error {
 		// inflight HTLCs or not, its status will now either be
 		// `StatusInflight` or `StatusFailed`. In either case, no more
 		// HTLCs will be attempted.
-		reason := channeldb.FailureReasonTimeout
 		err := p.router.cfg.Control.FailPayment(p.identifier, reason)
 		if err != nil {
 			return fmt.Errorf("FailPayment got %w", err)

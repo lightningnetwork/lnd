@@ -4050,6 +4050,11 @@ enum PaymentFailureReason {
     Insufficient local balance.
     */
     FAILURE_REASON_INSUFFICIENT_BALANCE = 5;
+
+    /*
+    The payment was canceled.
+    */
+    FAILURE_REASON_CANCELED = 6;
 }
 
 message Payment {

@@ -114,6 +114,11 @@ commitment when the channel was force closed.
   `--amp` flag when sending a payment specifying the payment request.
 
 ## Code Health
+
+* [Added](https://github.com/lightningnetwork/lnd/pull/8836) a new failure
+  reason `FailureReasonCanceled` to the list of payment failure reasons. It
+  indicates that a payment was manually cancelled by the user.
+ 
 ## Breaking Changes
 ## Performance Improvements
 

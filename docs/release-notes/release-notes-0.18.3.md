@@ -150,6 +150,10 @@ commitment when the channel was force closed.
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/8854) pagination issues
   in SQL invoicedb queries.
 
+* [Check](https://github.com/lightningnetwork/lnd/pull/8938) leader status with
+  our health checker to correctly shut down LND if network partitioning occurs
+  towards the etcd cluster.
+
 ## Code Health
 
 * [Move graph building and

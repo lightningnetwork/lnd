@@ -814,7 +814,7 @@ func (f *mockChannelLink) handleSwitchPacket(pkt *htlcPacket) error {
 	return nil
 }
 
-func (f *mockChannelLink) getDustSum(remote bool,
+func (f *mockChannelLink) getDustSum(whoseCommit lntypes.ChannelParty,
 	dryRunFee fn.Option[chainfee.SatPerKWeight]) lnwire.MilliSatoshi {
 
 	return 0

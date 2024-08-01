@@ -2727,10 +2727,10 @@ func (l *channelLink) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 // method.
 //
 // NOTE: Part of the dustHandler interface.
-func (l *channelLink) getDustSum(remote bool,
+func (l *channelLink) getDustSum(whoseCommit lntypes.ChannelParty,
 	dryRunFee fn.Option[chainfee.SatPerKWeight]) lnwire.MilliSatoshi {
 
-	return l.channel.GetDustSum(remote, dryRunFee)
+	return l.channel.GetDustSum(whoseCommit, dryRunFee)
 }
 
 // getFeeRate is a wrapper method that retrieves the underlying channel's
@@ -2784,8 +2784,8 @@ func (l *channelLink) exceedsFeeExposureLimit(
 
 	// Get the sum of dust for both the local and remote commitments using
 	// this "dry-run" fee.
-	localDustSum := l.getDustSum(false, dryRunFee)
-	remoteDustSum := l.getDustSum(true, dryRunFee)
+	localDustSum := l.getDustSum(lntypes.Local, dryRunFee)
+	remoteDustSum := l.getDustSum(lntypes.Remote, dryRunFee)
 
 	// Calculate the local and remote commitment fees using this dry-run
 	// fee.
@@ -2826,12 +2826,16 @@ func (l *channelLink) isOverexposedWithHtlc(htlc *lnwire.UpdateAddHTLC,
 	amount := htlc.Amount.ToSatoshis()
 
 	// See if this HTLC is dust on both the local and remote commitments.
-	isLocalDust := dustClosure(feeRate, incoming, true, amount)
-	isRemoteDust := dustClosure(feeRate, incoming, false, amount)
+	isLocalDust := dustClosure(feeRate, incoming, lntypes.Local, amount)
+	isRemoteDust := dustClosure(feeRate, incoming, lntypes.Remote, amount)
 
 	// Calculate the dust sum for the local and remote commitments.
-	localDustSum := l.getDustSum(false, fn.None[chainfee.SatPerKWeight]())
-	remoteDustSum := l.getDustSum(true, fn.None[chainfee.SatPerKWeight]())
+	localDustSum := l.getDustSum(
+		lntypes.Local, fn.None[chainfee.SatPerKWeight](),
+	)
+	remoteDustSum := l.getDustSum(
+		lntypes.Remote, fn.None[chainfee.SatPerKWeight](),
+	)
 
 	// Grab the larger of the local and remote commitment fees w/o dust.
 	commitFee := l.getCommitFee(false)
@@ -2882,25 +2886,26 @@ func (l *channelLink) isOverexposedWithHtlc(htlc *lnwire.UpdateAddHTLC,
 // the HTLC is incoming (i.e. one that the remote sent), a boolean denoting
 // whether to evaluate on the local or remote commit, and finally an HTLC
 // amount to test.
-type dustClosure func(chainfee.SatPerKWeight, bool, bool, btcutil.Amount) bool
+type dustClosure func(feerate chainfee.SatPerKWeight, incoming bool,
+	whoseCommit lntypes.ChannelParty, amt btcutil.Amount) bool
 
 // dustHelper is used to construct the dustClosure.
 func dustHelper(chantype channeldb.ChannelType, localDustLimit,
 	remoteDustLimit btcutil.Amount) dustClosure {
 
-	isDust := func(feerate chainfee.SatPerKWeight, incoming,
-		localCommit bool, amt btcutil.Amount) bool {
+	isDust := func(feerate chainfee.SatPerKWeight, incoming bool,
+		whoseCommit lntypes.ChannelParty, amt btcutil.Amount) bool {
 
-		if localCommit {
-			return lnwallet.HtlcIsDust(
-				chantype, incoming, true, feerate, amt,
-				localDustLimit,
-			)
+		var dustLimit btcutil.Amount
+		if whoseCommit.IsLocal() {
+			dustLimit = localDustLimit
+		} else {
+			dustLimit = remoteDustLimit
 		}
 
 		return lnwallet.HtlcIsDust(
-			chantype, incoming, false, feerate, amt,
-			remoteDustLimit,
+			chantype, incoming, whoseCommit, feerate, amt,
+			dustLimit,
 		)
 	}
 

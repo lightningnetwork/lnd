@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"golang.org/x/crypto/ripemd160"
 )
@@ -789,10 +790,10 @@ func senderHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 // unilaterally spend the created output.
 func SenderHTLCScriptTaproot(senderHtlcKey, receiverHtlcKey,
 	revokeKey *btcec.PublicKey, payHash []byte,
-	localCommit bool) (*HtlcScriptTree, error) {
+	whoseCommit lntypes.ChannelParty) (*HtlcScriptTree, error) {
 
 	var hType htlcType
-	if localCommit {
+	if whoseCommit.IsLocal() {
 		hType = htlcLocalOutgoing
 	} else {
 		hType = htlcRemoteIncoming
@@ -1348,10 +1349,11 @@ func receiverHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 // the tap leaf are returned.
 func ReceiverHTLCScriptTaproot(cltvExpiry uint32,
 	senderHtlcKey, receiverHtlcKey, revocationKey *btcec.PublicKey,
-	payHash []byte, ourCommit bool) (*HtlcScriptTree, error) {
+	payHash []byte, whoseCommit lntypes.ChannelParty,
+) (*HtlcScriptTree, error) {
 
 	var hType htlcType
-	if ourCommit {
+	if whoseCommit.IsLocal() {
 		hType = htlcLocalIncoming
 	} else {
 		hType = htlcRemoteOutgoing

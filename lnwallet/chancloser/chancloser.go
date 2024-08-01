@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -207,8 +208,8 @@ type ChanCloser struct {
 	// settled channel funds to.
 	remoteDeliveryScript []byte
 
-	// locallyInitiated is true if we initiated the channel close.
-	locallyInitiated bool
+	// closer is ChannelParty who initiated the coop close
+	closer lntypes.ChannelParty
 
 	// cachedClosingSigned is a cached copy of a received ClosingSigned that
 	// we use to handle a specific race condition caused by the independent
@@ -267,7 +268,8 @@ func (d *SimpleCoopFeeEstimator) EstimateFee(chanType channeldb.ChannelType,
 // be populated iff, we're the initiator of this closing request.
 func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 	idealFeePerKw chainfee.SatPerKWeight, negotiationHeight uint32,
-	closeReq *htlcswitch.ChanClose, locallyInitiated bool) *ChanCloser {
+	closeReq *htlcswitch.ChanClose,
+	closer lntypes.ChannelParty) *ChanCloser {
 
 	chanPoint := cfg.Channel.ChannelPoint()
 	cid := lnwire.NewChanIDFromOutPoint(chanPoint)
@@ -283,7 +285,7 @@ func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 		priorFeeOffers: make(
 			map[btcutil.Amount]*lnwire.ClosingSigned,
 		),
-		locallyInitiated: locallyInitiated,
+		closer: closer,
 	}
 }
 
@@ -366,7 +368,7 @@ func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 	// message we are about to send in order to ensure that if a
 	// re-establish occurs then we will re-send the same Shutdown message.
 	shutdownInfo := channeldb.NewShutdownInfo(
-		c.localDeliveryScript, c.locallyInitiated,
+		c.localDeliveryScript, c.closer.IsLocal(),
 	)
 	err := c.cfg.Channel.MarkShutdownSent(shutdownInfo)
 	if err != nil {
@@ -650,7 +652,7 @@ func (c *ChanCloser) BeginNegotiation() (fn.Option[lnwire.ClosingSigned],
 		// externally consistent, and reflect that the channel is being
 		// shutdown by the time the closing request returns.
 		err := c.cfg.Channel.MarkCoopBroadcasted(
-			nil, c.locallyInitiated,
+			nil, c.closer,
 		)
 		if err != nil {
 			return noClosingSigned, err
@@ -861,7 +863,7 @@ func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
 		// database, such that it can be republished if something goes
 		// wrong.
 		err = c.cfg.Channel.MarkCoopBroadcasted(
-			closeTx, c.locallyInitiated,
+			closeTx, c.closer,
 		)
 		if err != nil {
 			return noClosing, err

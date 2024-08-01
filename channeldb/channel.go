@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -1690,11 +1691,11 @@ func (c *OpenChannel) isBorked(chanBucket kvdb.RBucket) (bool, error) {
 // republish this tx at startup to ensure propagation, and we should still
 // handle the case where a different tx actually hits the chain.
 func (c *OpenChannel) MarkCommitmentBroadcasted(closeTx *wire.MsgTx,
-	locallyInitiated bool) error {
+	closer lntypes.ChannelParty) error {
 
 	return c.markBroadcasted(
 		ChanStatusCommitBroadcasted, forceCloseTxKey, closeTx,
-		locallyInitiated,
+		closer,
 	)
 }
 
@@ -1706,11 +1707,11 @@ func (c *OpenChannel) MarkCommitmentBroadcasted(closeTx *wire.MsgTx,
 // ensure propagation, and we should still handle the case where a different tx
 // actually hits the chain.
 func (c *OpenChannel) MarkCoopBroadcasted(closeTx *wire.MsgTx,
-	locallyInitiated bool) error {
+	closer lntypes.ChannelParty) error {
 
 	return c.markBroadcasted(
 		ChanStatusCoopBroadcasted, coopCloseTxKey, closeTx,
-		locallyInitiated,
+		closer,
 	)
 }
 
@@ -1719,7 +1720,7 @@ func (c *OpenChannel) MarkCoopBroadcasted(closeTx *wire.MsgTx,
 // which should specify either a coop or force close. It adds a status which
 // indicates the party that initiated the channel close.
 func (c *OpenChannel) markBroadcasted(status ChannelStatus, key []byte,
-	closeTx *wire.MsgTx, locallyInitiated bool) error {
+	closeTx *wire.MsgTx, closer lntypes.ChannelParty) error {
 
 	c.Lock()
 	defer c.Unlock()
@@ -1741,7 +1742,7 @@ func (c *OpenChannel) markBroadcasted(status ChannelStatus, key []byte,
 	// Add the initiator status to the status provided. These statuses are
 	// set in addition to the broadcast status so that we do not need to
 	// migrate the original logic which does not store initiator.
-	if locallyInitiated {
+	if closer.IsLocal() {
 		status |= ChanStatusLocalCloseInitiator
 	} else {
 		status |= ChanStatusRemoteCloseInitiator
@@ -4484,6 +4485,15 @@ func NewShutdownInfo(deliveryScript lnwire.DeliveryAddress,
 			locallyInitiated,
 		),
 	}
+}
+
+// Closer identifies the ChannelParty that initiated the coop-closure process.
+func (s ShutdownInfo) Closer() lntypes.ChannelParty {
+	if s.LocalInitiator.Val {
+		return lntypes.Local
+	}
+
+	return lntypes.Remote
 }
 
 // encode serialises the ShutdownInfo to the given io.Writer.

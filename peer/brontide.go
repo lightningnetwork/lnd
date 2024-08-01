@@ -36,6 +36,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -1069,7 +1070,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 
 			chanCloser, err := p.createChanCloser(
 				lnChan, info.DeliveryScript.Val, feePerKw, nil,
-				info.LocalInitiator.Val,
+				info.Closer(),
 			)
 			if err != nil {
 				shutdownInfoErr = fmt.Errorf("unable to "+
@@ -2732,7 +2733,7 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 	}
 
 	chanCloser, err = p.createChanCloser(
-		channel, deliveryScript, feePerKw, nil, false,
+		channel, deliveryScript, feePerKw, nil, lntypes.Remote,
 	)
 	if err != nil {
 		p.log.Errorf("unable to create chan closer: %v", err)
@@ -2969,12 +2970,13 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 
 	// Determine whether we or the peer are the initiator of the coop
 	// close attempt by looking at the channel's status.
-	locallyInitiated := c.HasChanStatus(
-		channeldb.ChanStatusLocalCloseInitiator,
-	)
+	closingParty := lntypes.Remote
+	if c.HasChanStatus(channeldb.ChanStatusLocalCloseInitiator) {
+		closingParty = lntypes.Local
+	}
 
 	chanCloser, err := p.createChanCloser(
-		lnChan, deliveryScript, feePerKw, nil, locallyInitiated,
+		lnChan, deliveryScript, feePerKw, nil, closingParty,
 	)
 	if err != nil {
 		p.log.Errorf("unable to create chan closer: %v", err)
@@ -3003,7 +3005,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 	deliveryScript lnwire.DeliveryAddress, fee chainfee.SatPerKWeight,
 	req *htlcswitch.ChanClose,
-	locallyInitiated bool) (*chancloser.ChanCloser, error) {
+	closer lntypes.ChannelParty) (*chancloser.ChanCloser, error) {
 
 	_, startingHeight, err := p.cfg.ChainIO.GetBestBlock()
 	if err != nil {
@@ -3039,7 +3041,7 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 		fee,
 		uint32(startingHeight),
 		req,
-		locallyInitiated,
+		closer,
 	)
 
 	return chanCloser, nil
@@ -3096,7 +3098,8 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 		}
 
 		chanCloser, err := p.createChanCloser(
-			channel, deliveryScript, req.TargetFeePerKw, req, true,
+			channel, deliveryScript, req.TargetFeePerKw, req,
+			lntypes.Local,
 		)
 		if err != nil {
 			p.log.Errorf(err.Error())

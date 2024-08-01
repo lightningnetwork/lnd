@@ -787,7 +787,9 @@ func (p *Brontide) Start() error {
 	//
 	// TODO(wilmer): Remove this once we're able to query for node
 	// announcements through their timestamps.
+	p.wg.Add(2)
 	go p.maybeSendNodeAnn(activeChans)
+	go p.maybeSendChannelUpdates(activeChans)
 
 	return nil
 }
@@ -1218,6 +1220,8 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 // maybeSendNodeAnn sends our node announcement to the remote peer if at least
 // one confirmed public channel exists with them.
 func (p *Brontide) maybeSendNodeAnn(channels []*channeldb.OpenChannel) {
+	defer p.wg.Done()
+
 	hasConfirmedPublicChan := false
 	for _, channel := range channels {
 		if channel.IsPending {
@@ -1242,6 +1246,62 @@ func (p *Brontide) maybeSendNodeAnn(channels []*channeldb.OpenChannel) {
 
 	if err := p.SendMessageLazy(false, &ourNodeAnn); err != nil {
 		p.log.Debugf("Unable to resend node announcement: %v", err)
+	}
+}
+
+// maybeSendChannelUpdates sends our channel updates to the remote peer if we
+// have any active channels with them.
+func (p *Brontide) maybeSendChannelUpdates(chans []*channeldb.OpenChannel) {
+	defer p.wg.Done()
+
+	// If we don't have any active channels, then we can exit early.
+	if len(chans) == 0 {
+		return
+	}
+
+	// We only care about channels that are in the default state, which
+	// means they have no other modifiers compared to the normal state a
+	// channel is in after open.
+	activeChans := fn.Filter(func(c *channeldb.OpenChannel) bool {
+		return c.HasChanStatus(channeldb.ChanStatusDefault)
+	}, chans)
+
+	for _, dbChan := range activeChans {
+		scid := func() lnwire.ShortChannelID {
+			switch {
+			// Otherwise if it's a zero conf channel and confirmed,
+			// then we need to use the "real" scid.
+			case !dbChan.IsZeroConf() && dbChan.ZeroConfConfirmed():
+				return dbChan.ZeroConfRealScid()
+
+			// Otherwise, we can use the normal scid.
+			default:
+				return dbChan.ShortChanID()
+			}
+		}()
+
+		// Now that we know the channel is in a good state, we'll try
+		// to fetch the update to send to the remote peer. If the
+		// channel is pending, and not a zero conf channel, we'll get
+		// an error here which we'll ignore.
+		chanUpd, err := p.cfg.FetchLastChanUpdate(scid)
+		if err != nil {
+			p.log.Debugf("Unable to fetch channel update for "+
+				"ChannelPoint(%v), scid=%v: %v",
+				dbChan.FundingOutpoint, dbChan.ShortChanID, err)
+			continue
+		}
+
+		p.log.Debugf("Sending channel update for ChannelPoint(%v), "+
+			"scid=%v", dbChan.FundingOutpoint, dbChan.ShortChanID)
+
+		// We'll send it as a normal message instead of using the lazy
+		// queue to prioritize transmission of the fresh update.
+		if err := p.SendMessage(false, chanUpd); err != nil {
+			p.log.Debugf("Unable to send channel update for "+
+				"ChannelPoint(%v), scid=%v: %v",
+				dbChan.FundingOutpoint, dbChan.ShortChanID, err)
+		}
 	}
 }
 

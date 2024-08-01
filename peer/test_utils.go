@@ -341,6 +341,7 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		notifier:   notifier,
 		publishTx:  publishTx,
 		mockSwitch: mockSwitch,
+		mockConn:   params.mockConn,
 	}, nil
 }
 
@@ -713,6 +714,11 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 			return nil
 		},
 		PongBuf: make([]byte, lnwire.MaxPongBytes),
+		FetchLastChanUpdate: func(chanID lnwire.ShortChannelID,
+		) (*lnwire.ChannelUpdate, error) {
+
+			return &lnwire.ChannelUpdate{}, nil
+		},
 	}
 
 	alicePeer := NewBrontide(*cfg)

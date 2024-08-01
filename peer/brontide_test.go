@@ -1100,6 +1100,53 @@ func TestUpdateNextRevocation(t *testing.T) {
 	// `lnwallet.LightningWallet` once it's interfaced.
 }
 
+func assertMsgSent(t *testing.T, conn *mockMessageConn,
+	msgType lnwire.MessageType) {
+
+	t.Helper()
+
+	require := require.New(t)
+
+	rawMsg, err := fn.RecvOrTimeout(conn.writtenMessages, timeout)
+	require.NoError(err)
+
+	msgReader := bytes.NewReader(rawMsg)
+	msg, err := lnwire.ReadMessage(msgReader, 0)
+	require.NoError(err)
+
+	require.Equal(msgType, msg.MsgType())
+}
+
+// TestAlwaysSendChannelUpdate tests that each time we connect to the peer if
+// an active channel, we always send the latest channel update.
+func TestAlwaysSendChannelUpdate(t *testing.T) {
+	require := require.New(t)
+
+	var channel *channeldb.OpenChannel
+	channelIntercept := func(a, b *channeldb.OpenChannel) {
+		channel = a
+	}
+
+	harness, err := createTestPeerWithChannel(t, channelIntercept)
+	require.NoError(err, "unable to create test channels")
+
+	// Avoid the need to mock the channel graph by marking the channel
+	// borked. Borked channels still get a reestablish message sent on
+	// reconnect, while skipping channel graph checks and link creation.
+	require.NoError(channel.MarkBorked())
+
+	// Start the peer, which'll trigger the normal init and start up logic.
+	startPeerDone := startPeer(t, harness.mockConn, harness.peer)
+	_, err = fn.RecvOrTimeout(startPeerDone, 2*timeout)
+	require.NoError(err)
+
+	go harness.peer.maybeSendChannelUpdates()
+
+	// Assert that we eventually send a channel update.
+	assertMsgSent(t, harness.mockConn, lnwire.MsgChannelReestablish)
+	assertMsgSent(t, harness.mockConn, lnwire.MsgChannelUpdate)
+}
+
 // TODO(yy): add test for `addActiveChannel` and `handleNewActiveChannel` once
 // we have interfaced `lnwallet.LightningChannel` and
 // `*contractcourt.ChainArbitrator`.

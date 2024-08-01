@@ -884,7 +884,9 @@ func (w *WebAPIEstimator) Stop() error {
 		return nil
 	}
 
-	w.updateFeeTicker.Stop()
+	if w.updateFeeTicker != nil {
+		w.updateFeeTicker.Stop()
+	}
 
 	close(w.quit)
 	w.wg.Wait()

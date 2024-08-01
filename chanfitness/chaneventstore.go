@@ -12,7 +12,9 @@ package chanfitness
 
 import (
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
@@ -48,6 +50,9 @@ var (
 // ChannelEventStore maintains a set of event logs for the node's channels to
 // provide insight into the performance and health of channels.
 type ChannelEventStore struct {
+	started atomic.Bool
+	stopped atomic.Bool
+
 	cfg *Config
 
 	// peers tracks all of our currently monitored peers and their channels.
@@ -142,7 +147,11 @@ func NewChannelEventStore(config *Config) *ChannelEventStore {
 // information from the store. If this function fails, it cancels its existing
 // subscriptions and returns an error.
 func (c *ChannelEventStore) Start() error {
-	log.Info("ChannelEventStore starting")
+	log.Info("ChannelEventStore starting...")
+
+	if c.started.Swap(true) {
+		return fmt.Errorf("ChannelEventStore started more than once")
+	}
 
 	// Create a subscription to channel events.
 	channelClient, err := c.cfg.SubscribeChannelEvents()
@@ -198,13 +207,18 @@ func (c *ChannelEventStore) Start() error {
 		cancel:         cancel,
 	})
 
+	log.Debug("ChannelEventStore started")
+
 	return nil
 }
 
 // Stop terminates all goroutines started by the event store.
-func (c *ChannelEventStore) Stop() {
+func (c *ChannelEventStore) Stop() error {
 	log.Info("ChannelEventStore shutting down...")
-	defer log.Debug("ChannelEventStore shutdown complete")
+
+	if c.stopped.Swap(true) {
+		return fmt.Errorf("ChannelEventStore stopped more than once")
+	}
 
 	// Stop the consume goroutine.
 	close(c.quit)
@@ -212,7 +226,17 @@ func (c *ChannelEventStore) Stop() {
 
 	// Stop the ticker after the goroutine reading from it has exited, to
 	// avoid a race.
-	c.cfg.FlapCountTicker.Stop()
+	var err error
+	if c.cfg.FlapCountTicker == nil {
+		err = fmt.Errorf("ChannelEventStore FlapCountTicker not " +
+			"initialized")
+	} else {
+		c.cfg.FlapCountTicker.Stop()
+	}
+
+	log.Debugf("ChannelEventStore shutdown complete")
+
+	return err
 }
 
 // addChannel checks whether we are already tracking a channel's peer, creates a

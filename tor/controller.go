@@ -186,6 +186,10 @@ func (c *Controller) Stop() error {
 	// Reset service ID.
 	c.activeServiceID = ""
 
+	if c.conn == nil {
+		return fmt.Errorf("no connection available to the tor server")
+	}
+
 	return c.conn.Close()
 }
 

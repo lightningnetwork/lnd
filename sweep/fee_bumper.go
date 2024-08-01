@@ -261,6 +261,9 @@ type TxPublisherConfig struct {
 // until the tx is confirmed or the fee rate reaches the maximum fee rate
 // specified by the caller.
 type TxPublisher struct {
+	started atomic.Bool
+	stopped atomic.Bool
+
 	wg sync.WaitGroup
 
 	// cfg specifies the configuration of the TxPublisher.
@@ -666,7 +669,10 @@ type monitorRecord struct {
 // off the monitor loop.
 func (t *TxPublisher) Start() error {
 	log.Info("TxPublisher starting...")
-	defer log.Debugf("TxPublisher started")
+
+	if t.started.Swap(true) {
+		return fmt.Errorf("TxPublisher started more than once")
+	}
 
 	blockEvent, err := t.cfg.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
@@ -676,17 +682,25 @@ func (t *TxPublisher) Start() error {
 	t.wg.Add(1)
 	go t.monitor(blockEvent)
 
+	log.Debugf("TxPublisher started")
+
 	return nil
 }
 
 // Stop stops the publisher and waits for the monitor loop to exit.
-func (t *TxPublisher) Stop() {
+func (t *TxPublisher) Stop() error {
 	log.Info("TxPublisher stopping...")
-	defer log.Debugf("TxPublisher stopped")
+
+	if t.stopped.Swap(true) {
+		return fmt.Errorf("TxPublisher stopped more than once")
+	}
 
 	close(t.quit)
-
 	t.wg.Wait()
+
+	log.Debug("TxPublisher stopped")
+
+	return nil
 }
 
 // monitor is the main loop driven by new blocks. Whevenr a new block arrives,

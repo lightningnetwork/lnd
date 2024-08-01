@@ -694,11 +694,33 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		bestHeight)
 
 	// With all the relevant chains initialized, we can finally start the
-	// server itself.
-	if err := server.Start(); err != nil {
+	// server itself. We start the server in an asynchronous goroutine so
+	// that we are able to interrupt and shutdown the daemon gracefully in
+	// case the startup of the subservers do not behave as expected.
+	errChan := make(chan error)
+	go func() {
+		errChan <- server.Start()
+	}()
+
+	defer func() {
+		err := server.Stop()
+		if err != nil {
+			ltndLog.Warnf("Stopping the server including all "+
+				"its subsystems failed with %v", err)
+		}
+	}()
+
+	select {
+	case err := <-errChan:
+		if err == nil {
+			break
+		}
+
 		return mkErr("unable to start server: %v", err)
+
+	case <-interceptor.ShutdownChannel():
+		return nil
 	}
-	defer server.Stop()
 
 	// We transition the server state to Active, as the server is up.
 	interceptorChain.SetServerActive()

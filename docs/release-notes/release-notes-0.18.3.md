@@ -35,6 +35,10 @@
   
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/8896) that caused
   LND to use a default fee rate for the batch channel opening flow.
+  
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8497) a case where LND
+  would not shut down properly when interrupted via e.g. SIGTERM. Moreover, LND
+  now shutsdown correctly in case one subsystem fails to startup.
 
 * The fee limit for payments [was made
   compatible](https://github.com/lightningnetwork/lnd/pull/8941) with inbound

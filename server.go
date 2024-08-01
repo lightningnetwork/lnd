@@ -1923,6 +1923,8 @@ func (c cleaner) run() {
 // Start starts the main daemon server, all requested listeners, and any helper
 // goroutines.
 // NOTE: This function is safe for concurrent access.
+//
+//nolint:funlen
 func (s *server) Start() error {
 	var startErr error
 
@@ -1932,26 +1934,26 @@ func (s *server) Start() error {
 	cleanup := cleaner{}
 
 	s.start.Do(func() {
+		cleanup = cleanup.add(s.customMessageServer.Stop)
 		if err := s.customMessageServer.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.customMessageServer.Stop)
 
 		if s.hostAnn != nil {
+			cleanup = cleanup.add(s.hostAnn.Stop)
 			if err := s.hostAnn.Start(); err != nil {
 				startErr = err
 				return
 			}
-			cleanup = cleanup.add(s.hostAnn.Stop)
 		}
 
 		if s.livenessMonitor != nil {
+			cleanup = cleanup.add(s.livenessMonitor.Stop)
 			if err := s.livenessMonitor.Start(); err != nil {
 				startErr = err
 				return
 			}
-			cleanup = cleanup.add(s.livenessMonitor.Stop)
 		}
 
 		// Start the notification server. This is used so channel
@@ -1959,167 +1961,163 @@ func (s *server) Start() error {
 		// transaction reaches a sufficient number of confirmations, or
 		// when the input for the funding transaction is spent in an
 		// attempt at an uncooperative close by the counterparty.
+		cleanup = cleanup.add(s.sigPool.Stop)
 		if err := s.sigPool.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.sigPool.Stop)
 
+		cleanup = cleanup.add(s.writePool.Stop)
 		if err := s.writePool.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.writePool.Stop)
 
+		cleanup = cleanup.add(s.readPool.Stop)
 		if err := s.readPool.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.readPool.Stop)
 
+		cleanup = cleanup.add(s.cc.ChainNotifier.Stop)
 		if err := s.cc.ChainNotifier.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.cc.ChainNotifier.Stop)
 
+		cleanup = cleanup.add(s.cc.BestBlockTracker.Stop)
 		if err := s.cc.BestBlockTracker.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.cc.BestBlockTracker.Stop)
 
+		cleanup = cleanup.add(s.channelNotifier.Stop)
 		if err := s.channelNotifier.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.channelNotifier.Stop)
 
+		cleanup = cleanup.add(func() error {
+			return s.peerNotifier.Stop()
+		})
 		if err := s.peerNotifier.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(func() error {
-			return s.peerNotifier.Stop()
-		})
+
+		cleanup = cleanup.add(s.htlcNotifier.Stop)
 		if err := s.htlcNotifier.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.htlcNotifier.Stop)
 
 		if s.towerClientMgr != nil {
+			cleanup = cleanup.add(s.towerClientMgr.Stop)
 			if err := s.towerClientMgr.Start(); err != nil {
 				startErr = err
 				return
 			}
-			cleanup = cleanup.add(s.towerClientMgr.Stop)
 		}
 
+		cleanup = cleanup.add(s.txPublisher.Stop)
 		if err := s.txPublisher.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(func() error {
-			s.txPublisher.Stop()
-			return nil
-		})
 
+		cleanup = cleanup.add(s.sweeper.Stop)
 		if err := s.sweeper.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.sweeper.Stop)
 
+		cleanup = cleanup.add(s.utxoNursery.Stop)
 		if err := s.utxoNursery.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.utxoNursery.Stop)
 
+		cleanup = cleanup.add(s.breachArbitrator.Stop)
 		if err := s.breachArbitrator.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.breachArbitrator.Stop)
 
+		cleanup = cleanup.add(s.fundingMgr.Stop)
 		if err := s.fundingMgr.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.fundingMgr.Stop)
 
 		// htlcSwitch must be started before chainArb since the latter
 		// relies on htlcSwitch to deliver resolution message upon
 		// start.
+		cleanup = cleanup.add(s.htlcSwitch.Stop)
 		if err := s.htlcSwitch.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.htlcSwitch.Stop)
 
+		cleanup = cleanup.add(s.interceptableSwitch.Stop)
 		if err := s.interceptableSwitch.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.interceptableSwitch.Stop)
 
+		cleanup = cleanup.add(s.chainArb.Stop)
 		if err := s.chainArb.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.chainArb.Stop)
 
-		if err := s.authGossiper.Start(); err != nil {
-			startErr = err
-			return
-		}
-		cleanup = cleanup.add(s.authGossiper.Stop)
-
+		cleanup = cleanup.add(s.graphBuilder.Stop)
 		if err := s.graphBuilder.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.graphBuilder.Stop)
 
+		cleanup = cleanup.add(s.chanRouter.Stop)
 		if err := s.chanRouter.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.chanRouter.Stop)
+		// The authGossiper depends on the chanRouter and therefore
+		// should be started after it.
+		cleanup = cleanup.add(s.authGossiper.Stop)
+		if err := s.authGossiper.Start(); err != nil {
+			startErr = err
+			return
+		}
 
+		cleanup = cleanup.add(s.invoices.Stop)
 		if err := s.invoices.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.invoices.Stop)
 
+		cleanup = cleanup.add(s.sphinx.Stop)
 		if err := s.sphinx.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.sphinx.Stop)
 
+		cleanup = cleanup.add(s.chanStatusMgr.Stop)
 		if err := s.chanStatusMgr.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.chanStatusMgr.Stop)
 
+		cleanup = cleanup.add(s.chanEventStore.Stop)
 		if err := s.chanEventStore.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(func() error {
-			s.chanEventStore.Stop()
-			return nil
-		})
 
-		s.missionControl.RunStoreTicker()
 		cleanup.add(func() error {
 			s.missionControl.StopStoreTicker()
 			return nil
 		})
+		s.missionControl.RunStoreTicker()
 
 		// Before we start the connMgr, we'll check to see if we have
 		// any backups to recover. We do this now as we want to ensure
@@ -2153,18 +2151,21 @@ func (s *server) Start() error {
 			}
 		}
 
+		// chanSubSwapper must be started after the `channelNotifier`
+		// because it depends on channel events as a synchronization
+		// point.
+		cleanup = cleanup.add(s.chanSubSwapper.Stop)
 		if err := s.chanSubSwapper.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.chanSubSwapper.Stop)
 
 		if s.torController != nil {
+			cleanup = cleanup.add(s.torController.Stop)
 			if err := s.createNewHiddenService(); err != nil {
 				startErr = err
 				return
 			}
-			cleanup = cleanup.add(s.torController.Stop)
 		}
 
 		if s.natTraversal != nil {
@@ -2173,11 +2174,11 @@ func (s *server) Start() error {
 		}
 
 		// Start connmgr last to prevent connections before init.
-		s.connMgr.Start()
 		cleanup = cleanup.add(func() error {
 			s.connMgr.Stop()
 			return nil
 		})
+		s.connMgr.Start()
 
 		// If peers are specified as a config option, we'll add those
 		// peers first.
@@ -2364,9 +2365,9 @@ func (s *server) Stop() error {
 		if err := s.sweeper.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop sweeper: %v", err)
 		}
-
-		s.txPublisher.Stop()
-
+		if err := s.txPublisher.Stop(); err != nil {
+			srvrLog.Warnf("failed to stop txPublisher: %v", err)
+		}
 		if err := s.channelNotifier.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop channelNotifier: %v", err)
 		}
@@ -2386,7 +2387,10 @@ func (s *server) Stop() error {
 			srvrLog.Warnf("Unable to stop BestBlockTracker: %v",
 				err)
 		}
-		s.chanEventStore.Stop()
+		if err := s.chanEventStore.Stop(); err != nil {
+			srvrLog.Warnf("Unable to stop ChannelEventStore: %v",
+				err)
+		}
 		s.missionControl.StopStoreTicker()
 
 		// Disconnect from each active peers to ensure that

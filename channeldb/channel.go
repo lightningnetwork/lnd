@@ -3980,9 +3980,8 @@ func fundingTxPresent(channel *OpenChannel) bool {
 		!channel.hasChanStatus(ChanStatusRestored)
 }
 
-func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
-	var w bytes.Buffer
-	if err := WriteElements(&w,
+func serializeChanInfo(w io.Writer, channel *OpenChannel) error {
+	if err := WriteElements(w,
 		channel.ChanType, channel.ChainHash, channel.FundingOutpoint,
 		channel.ShortChannelID, channel.IsPending, channel.IsInitiator,
 		channel.chanStatus, channel.FundingBroadcastHeight,
@@ -3996,15 +3995,15 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	// For single funder channels that we initiated, and we have the
 	// funding transaction, then write the funding txn.
 	if fundingTxPresent(channel) {
-		if err := WriteElement(&w, channel.FundingTxn); err != nil {
+		if err := WriteElement(w, channel.FundingTxn); err != nil {
 			return err
 		}
 	}
 
-	if err := writeChanConfig(&w, &channel.LocalChanCfg); err != nil {
+	if err := writeChanConfig(w, &channel.LocalChanCfg); err != nil {
 		return err
 	}
-	if err := writeChanConfig(&w, &channel.RemoteChanCfg); err != nil {
+	if err := writeChanConfig(w, &channel.RemoteChanCfg); err != nil {
 		return err
 	}
 
@@ -4032,7 +4031,12 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 		return err
 	}
 
-	if err := tlvStream.Encode(&w); err != nil {
+	return tlvStream.Encode(w)
+}
+
+func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
+	var w bytes.Buffer
+	if err := serializeChanInfo(&w, channel); err != nil {
 		return err
 	}
 
@@ -4142,10 +4146,9 @@ func putChanCommitments(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	)
 }
 
-func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
-	var b bytes.Buffer
+func serializeChanRevocationState(w io.Writer, channel *OpenChannel) error {
 	err := WriteElements(
-		&b, channel.RemoteCurrentRevocation, channel.RevocationProducer,
+		w, channel.RemoteCurrentRevocation, channel.RevocationProducer,
 		channel.RevocationStore,
 	)
 	if err != nil {
@@ -4155,10 +4158,18 @@ func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) erro
 	// If the next revocation is present, which is only the case after the
 	// ChannelReady message has been sent, then we'll write it to disk.
 	if channel.RemoteNextRevocation != nil {
-		err = WriteElements(&b, channel.RemoteNextRevocation)
-		if err != nil {
-			return err
-		}
+		return WriteElements(w, channel.RemoteNextRevocation)
+	}
+
+	return nil
+}
+
+func putChanRevocationState(chanBucket kvdb.RwBucket,
+	channel *OpenChannel) error {
+
+	var b bytes.Buffer
+	if err := serializeChanRevocationState(&b, channel); err != nil {
+		return err
 	}
 
 	return chanBucket.Put(revocationStateKey, b.Bytes())
@@ -4174,13 +4185,7 @@ func readChanConfig(b io.Reader, c *ChannelConfig) error {
 	)
 }
 
-func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
-	infoBytes := chanBucket.Get(chanInfoKey)
-	if infoBytes == nil {
-		return ErrNoChanInfoFound
-	}
-	r := bytes.NewReader(infoBytes)
-
+func deserializeChanInfo(r io.Reader, channel *OpenChannel) error {
 	if err := ReadElements(r,
 		&channel.ChanType, &channel.ChainHash, &channel.FundingOutpoint,
 		&channel.ShortChannelID, &channel.IsPending, &channel.IsInitiator,
@@ -4205,21 +4210,6 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	}
 	if err := readChanConfig(r, &channel.RemoteChanCfg); err != nil {
 		return err
-	}
-
-	// Retrieve the boolean stored under lastWasRevokeKey.
-	lastWasRevokeBytes := chanBucket.Get(lastWasRevokeKey)
-	if lastWasRevokeBytes == nil {
-		// If nothing has been stored under this key, we store false in the
-		// OpenChannel struct.
-		channel.LastWasRevoke = false
-	} else {
-		// Otherwise, read the value into the LastWasRevoke field.
-		revokeReader := bytes.NewReader(lastWasRevokeBytes)
-		err := ReadElements(revokeReader, &channel.LastWasRevoke)
-		if err != nil {
-			return err
-		}
 	}
 
 	// Create balance fields in uint64, and Memo field as byte slice.
@@ -4260,6 +4250,35 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	// Attach the memo field if non-empty.
 	if len(memo) > 0 {
 		channel.Memo = memo
+	}
+
+	return nil
+}
+
+func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
+	infoBytes := chanBucket.Get(chanInfoKey)
+	if infoBytes == nil {
+		return ErrNoChanInfoFound
+	}
+
+	r := bytes.NewReader(infoBytes)
+	if err := deserializeChanInfo(r, channel); err != nil {
+		return err
+	}
+
+	// Retrieve the boolean stored under lastWasRevokeKey.
+	lastWasRevokeBytes := chanBucket.Get(lastWasRevokeKey)
+	if lastWasRevokeBytes == nil {
+		// If nothing has been stored under this key, we store false in
+		// the OpenChannel struct.
+		channel.LastWasRevoke = false
+	} else {
+		// Otherwise, read the value into the LastWasRevoke field.
+		revokeReader := bytes.NewReader(lastWasRevokeBytes)
+		err := ReadElements(revokeReader, &channel.LastWasRevoke)
+		if err != nil {
+			return err
+		}
 	}
 
 	channel.Packager = NewChannelPackager(channel.ShortChannelID)
@@ -4334,12 +4353,8 @@ func fetchChanCommitments(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	return nil
 }
 
-func fetchChanRevocationState(chanBucket kvdb.RBucket, channel *OpenChannel) error {
-	revBytes := chanBucket.Get(revocationStateKey)
-	if revBytes == nil {
-		return ErrNoRevocationsFound
-	}
-	r := bytes.NewReader(revBytes)
+func deserializeChanRevocationState(r *bytes.Reader,
+	channel *OpenChannel) error {
 
 	err := ReadElements(
 		r, &channel.RemoteCurrentRevocation, &channel.RevocationProducer,
@@ -4358,6 +4373,18 @@ func fetchChanRevocationState(chanBucket kvdb.RBucket, channel *OpenChannel) err
 	// Otherwise we'll read the next revocation for the remote party which
 	// is always the last item within the buffer.
 	return ReadElements(r, &channel.RemoteNextRevocation)
+}
+
+func fetchChanRevocationState(chanBucket kvdb.RBucket,
+	channel *OpenChannel) error {
+
+	revBytes := chanBucket.Get(revocationStateKey)
+	if revBytes == nil {
+		return ErrNoRevocationsFound
+	}
+	r := bytes.NewReader(revBytes)
+
+	return deserializeChanRevocationState(r, channel)
 }
 
 func deleteOpenChannel(chanBucket kvdb.RwBucket) error {

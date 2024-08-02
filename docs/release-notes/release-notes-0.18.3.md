@@ -68,6 +68,10 @@ commitment when the channel was force closed.
   command returns the fee rate estimate for on-chain transactions in sat/kw and
   sat/vb to achieve a given confirmation target.
 
+* [`updatechanpolicy`](https://github.com/lightningnetwork/lnd/pull/8805) will
+  now update the channel policy if the edge was not found in the graph
+  database if the `create_missing_edge` flag is set.
+
 # Improvements
 ## Functional Updates
 

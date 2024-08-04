@@ -24,6 +24,10 @@ var (
 	// ErrFeePreferenceConflict is returned when both a fee rate and a conf
 	// target is set for a fee preference.
 	ErrFeePreferenceConflict = errors.New("fee preference conflict")
+
+	// ErrMissingInputToSkip is returned by CraftSweepAllTx if argument
+	// skipInputAmount is not 0 and there is no such an input of that value.
+	ErrMissingInputToSkip = errors.New("no input of desired value")
 )
 
 // FeePreference defines an interface that allows the caller to specify how the
@@ -212,12 +216,15 @@ type DeliveryAddr struct {
 // leftover amount after these outputs and transaction fee, is sent to a single
 // output, as specified by the change address. The sweep transaction will be
 // crafted with the target fee rate, and will use the utxoSource and
-// outputLeaser as sources for wallet funds.
+// outputLeaser as sources for wallet funds. If skipInputAmount is not 0, one
+// input of value exactly skipInputAmount is skipped, if it is present, or an
+// error wrapping ErrMissingInputToSkip is returned and coins are not locked.
 func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 	blockHeight uint32, deliveryAddrs []DeliveryAddr,
 	changeAddr btcutil.Address, coinSelectLocker CoinSelectionLocker,
 	utxoSource UtxoSource, outputLeaser OutputLeaser,
-	signer input.Signer, minConfs int32) (*WalletSweepPackage, error) {
+	signer input.Signer, minConfs int32, skipInputAmount btcutil.Amount) (
+	*WalletSweepPackage, error) {
 
 	// TODO(roasbeef): turn off ATPL as well when available?
 
@@ -260,6 +267,27 @@ func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 
 		log.Trace("[WithCoinSelectLock] finished fetching UTXOs")
 
+		if skipInputAmount != 0 {
+			// Filter out one input of value skipInputAmount.
+			utxos2 := make([]*lnwallet.Utxo, 0, len(utxos))
+			skipped := false
+			for _, utxo := range utxos {
+				if !skipped && utxo.Value == skipInputAmount {
+					log.Trace("skipped UTXO %v of value %v",
+						utxo.OutPoint, utxo.Value)
+					skipped = true
+					continue
+				}
+				utxos2 = append(utxos2, utxo)
+			}
+			utxos = utxos2
+
+			// Make sure we have found and excluded a coin.
+			if !skipped {
+				return ErrMissingInputToSkip
+			}
+		}
+
 		// We'll now lock each UTXO to ensure that other callers don't
 		// attempt to use these UTXOs in transactions while we're
 		// crafting out sweep all transaction.
@@ -288,7 +316,7 @@ func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 		unlockOutputs()
 
 		return nil, fmt.Errorf("unable to fetch+lock wallet "+
-			"utxos: %v", err)
+			"utxos: %w", err)
 	}
 
 	// Now that we've locked all the potential outputs to sweep, we'll

@@ -345,13 +345,43 @@ func testAnchorReservedValue(ht *lntest.HarnessTest) {
 	// The reserved value is now back in Alice's wallet.
 	aliceBalance := waitForConfirmedBalance()
 
+	// Send more coins to Alice.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+
+	// Make sure wallet balance increased.
+	newBalance := waitForConfirmedBalance()
+	require.Greater(ht, newBalance, aliceBalance,
+		"Alice's balance did not increase after receiving a coin")
+
+	// Send all to external address. We already have a coin of value
+	// reserved to bump anchor outputs, so fee efficient SendAll should keep
+	// that coin untouched instead of recreating new reserved output.
+	sweepReq = &lnrpc.SendCoinsRequest{
+		Addr:       minerAddr.String(),
+		SendAll:    true,
+		TargetConf: 6,
+	}
+	alice.RPC.SendCoins(sweepReq)
+
+	// We'll mine a block which should include the sweep transaction we
+	// generated above.
+	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+
+	// The sweep transaction should have 1 input and 1 output. Reserved
+	// coin is not touched.
+	sweepTx = block.Transactions[1]
+	assertNumTxInAndTxOut(sweepTx, 1, 1)
+
+	// Record wallet balance before closing channels.
+	aliceBalance = waitForConfirmedBalance()
+
 	// Alice closes channel, should now be allowed to send everything to an
 	// external address.
 	for _, chanPoint := range chanPoints {
 		ht.CloseChannel(alice, chanPoint)
 	}
 
-	newBalance := waitForConfirmedBalance()
+	newBalance = waitForConfirmedBalance()
 	require.Greater(ht, newBalance, aliceBalance,
 		"Alice's balance did not increase after channel close")
 

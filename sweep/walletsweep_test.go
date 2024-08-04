@@ -339,7 +339,7 @@ func TestCraftSweepAllTxCoinSelectFail(t *testing.T) {
 
 	_, err := CraftSweepAllTx(
 		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLeaser,
-		nil, 0,
+		nil, 0, 0,
 	)
 
 	// Since we instructed the coin select locker to fail above, we should
@@ -365,7 +365,7 @@ func TestCraftSweepAllTxUnknownWitnessType(t *testing.T) {
 
 	_, err := CraftSweepAllTx(
 		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLeaser,
-		nil, 0,
+		nil, 0, 0,
 	)
 
 	// Since passed in a p2wsh output, which is unknown, we should fail to
@@ -399,7 +399,7 @@ func TestCraftSweepAllTx(t *testing.T) {
 
 	sweepPkg, err := CraftSweepAllTx(
 		0, 0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
-		utxoLeaser, signer, 0,
+		utxoLeaser, signer, 0, 0,
 	)
 	require.NoError(t, err, "unable to make sweep tx")
 
@@ -439,4 +439,63 @@ func TestCraftSweepAllTx(t *testing.T) {
 	// UTXOs within the sweep transaction are now unlocked.
 	sweepPkg.CancelSweepAttempt()
 	assertUtxosReleased(t, utxoLeaser, testUtxos[:2])
+}
+
+// TestCraftSweepAllTxSkipInput tests that we'll skip the input of requested
+// value if it exists and return wrapped ErrMissingInputToSkip, if it doesn't
+// exist. In the later case coins are not locked.
+func TestCraftSweepAllTxSkipInput(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll make a mock signer along with a fee estimator, We'll
+	// use zero fees to we can assert a precise output value.
+	signer := &mock.DummySigner{}
+
+	// For our UTXO source, we'll pass in all the UTXOs that we know of,
+	// other than the final one which is of an unknown witness type.
+	targetUTXOs := testUtxos[:2]
+	utxoSource := newMockUtxoSource(targetUTXOs)
+	coinSelectLocker := &mockCoinSelectionLocker{}
+	utxoLeaser := newMockOutputLeaser()
+
+	// Try to skip a coin of value 1500. There is no such coin.
+	const skipInputAmountMissing = 1500
+	_, err := CraftSweepAllTx(
+		0, 0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
+		utxoLeaser, signer, 0, skipInputAmountMissing,
+	)
+	require.ErrorIs(t, err, ErrMissingInputToSkip)
+
+	// No UTXOs should be leased.
+	require.Empty(t, utxoLeaser.leasedOutputs)
+
+	// Now skip a coin of value 1000. There is a coin of that value.
+	const skipInputAmount = 1000
+	sweepPkg, err := CraftSweepAllTx(
+		0, 0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
+		utxoLeaser, signer, 0, skipInputAmount,
+	)
+	require.NoError(t, err, "unable to make sweep tx")
+
+	// At this point, the second UTXO that we made above should be locked
+	// and none of them unlocked.
+	assertUtxosLeased(t, utxoLeaser, testUtxos[1:2])
+	assertNoUtxosReleased(t, utxoLeaser, testUtxos[1:2])
+
+	// The transaction is expected to have the second UTXO as its input
+	// and to have a single output.
+	sweepTx := sweepPkg.SweepTx
+	require.Equal(t, 1, len(sweepTx.TxIn))
+
+	// We should have a single output that pays to our sweep script
+	// generated above.
+	require.Equal(t, 1, len(sweepTx.TxOut))
+	output := sweepTx.TxOut[0]
+	require.Equal(t, int64(2000), output.Value)
+	require.Equal(t, sweepScript, output.PkScript)
+
+	// If we cancel the sweep attempt, then we should find that the second
+	// UTXO is now unlocked.
+	sweepPkg.CancelSweepAttempt()
+	assertUtxosReleased(t, utxoLeaser, testUtxos[1:2])
 }

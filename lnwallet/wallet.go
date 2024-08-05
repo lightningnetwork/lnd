@@ -1379,7 +1379,7 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 	)
 
 	reservation.partialState.RevocationProducer = producer
-	reservation.ourContribution.ChannelConstraints.DustLimit =
+	reservation.ourContribution.CommitmentParams.DustLimit =
 		DustLimitUnknownWitness()
 
 	// If taproot channels are active, then we'll generate our verification

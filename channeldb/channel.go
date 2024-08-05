@@ -395,19 +395,11 @@ func (c ChannelType) IsTaproot() bool {
 	return c&SimpleTaprootFeatureBit == SimpleTaprootFeatureBit
 }
 
-// ChannelConstraints represents a set of constraints meant to allow a node to
-// limit their exposure, enact flow control and ensure that all HTLCs are
-// economically relevant. This struct will be mirrored for both sides of the
-// channel, as each side will enforce various constraints that MUST be adhered
-// to for the life time of the channel. The parameters for each of these
-// constraints are static for the duration of the channel, meaning the channel
-// must be torn down for them to change.
-type ChannelConstraints struct {
-	// DustLimit is the threshold (in satoshis) below which any outputs
-	// should be trimmed. When an output is trimmed, it isn't materialized
-	// as an actual output, but is instead burned to miner's fees.
-	DustLimit btcutil.Amount
-
+// ChannelStateBounds are the parameters from OpenChannel and AcceptChannel
+// that are responsible for providing bounds on the state space of the abstract
+// channel state. These values must be remembered for normal channel operation
+// but they do not impact how we compute the commitment transactions themselves.
+type ChannelStateBounds struct {
 	// ChanReserve is an absolute reservation on the channel for the
 	// owner of this set of constraints. This means that the current
 	// settled balance for this node CANNOT dip below the reservation
@@ -433,6 +425,19 @@ type ChannelConstraints struct {
 	// acted upon in the case of a unilateral channel closure or a contract
 	// breach.
 	MaxAcceptedHtlcs uint16
+}
+
+// CommitmentParams are the parameters from OpenChannel and
+// AcceptChannel that are required to render an abstract channel state to a
+// concrete commitment transaction. These values are necessary to (re)compute
+// the commitment transaction. We treat these differently than the state space
+// bounds because their history needs to be stored in order to properly handle
+// chain resolution.
+type CommitmentParams struct {
+	// DustLimit is the threshold (in satoshis) below which any outputs
+	// should be trimmed. When an output is trimmed, it isn't materialized
+	// as an actual output, but is instead burned to miner's fees.
+	DustLimit btcutil.Amount
 
 	// CsvDelay is the relative time lock delay expressed in blocks. Any
 	// settled outputs that pay to the owner of this channel configuration
@@ -448,12 +453,17 @@ type ChannelConstraints struct {
 // nature of HTLC's allotted, the keys to be used for delivery, and relative
 // time lock parameters.
 type ChannelConfig struct {
-	// ChannelConstraints is the set of constraints that must be upheld for
-	// the duration of the channel for the owner of this channel
+	// ChannelStateBounds is the set of constraints that must be
+	// upheld for the duration of the channel for the owner of this channel
 	// configuration. Constraints govern a number of flow control related
 	// parameters, also including the smallest HTLC that will be accepted
 	// by a participant.
-	ChannelConstraints
+	ChannelStateBounds
+
+	// CommitmentParams is an embedding of the parameters
+	// required to render an abstract channel state into a concrete
+	// commitment transaction.
+	CommitmentParams
 
 	// MultiSigKey is the key to be used within the 2-of-2 output script
 	// for the owner of this channel config.

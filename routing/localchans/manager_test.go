@@ -125,14 +125,14 @@ func TestManager(t *testing.T) {
 			return &channeldb.OpenChannel{}, channeldb.ErrChannelNotFound
 		}
 
-		constraints := channeldb.ChannelConstraints{
+		bounds := channeldb.ChannelStateBounds{
 			MaxPendingAmount: maxPendingAmount,
 			MinHTLC:          minHTLC,
 		}
 
 		return &channeldb.OpenChannel{
 			LocalChanCfg: channeldb.ChannelConfig{
-				ChannelConstraints: constraints,
+				ChannelStateBounds: bounds,
 			},
 		}, nil
 	}

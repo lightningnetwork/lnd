@@ -363,13 +363,7 @@ func (b *blindedForwardTest) setupNetwork(ctx context.Context,
 		require.NoError(b.ht, err, "interceptor")
 	}
 
-	// Restrict Dave so that he only ever creates a single blinded path from
-	// Bob to himself.
-	b.dave = b.ht.NewNode("Dave", []string{
-		"--bitcoin.timelockdelta=18",
-		"--routing.blinding.min-num-real-hops=2",
-		"--routing.blinding.num-hops=2",
-	})
+	b.dave = b.ht.NewNode("Dave", []string{"--bitcoin.timelockdelta=18"})
 
 	b.channels = setupFourHopNetwork(b.ht, b.carol, b.dave)
 }
@@ -378,11 +372,20 @@ func (b *blindedForwardTest) setupNetwork(ctx context.Context,
 // acting as the introduction point.
 func (b *blindedForwardTest) buildBlindedPath() *lnrpc.BlindedPaymentPath {
 	// Let Dave add a blinded invoice.
+	// Add restrictions so that he only ever creates a single blinded path
+	// from Bob to himself.
+	var (
+		minNumRealHops uint32 = 2
+		numHops        uint32 = 2
+	)
 	invoice := b.dave.RPC.AddInvoice(&lnrpc.Invoice{
 		RPreimage: b.preimage[:],
 		Memo:      "test",
 		ValueMsat: 10_000_000,
-		Blind:     true,
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			MinNumRealHops: &minNumRealHops,
+			NumHops:        &numHops,
+		},
 	})
 
 	// Assert that only one blinded path is selected and that it contains
@@ -613,29 +616,37 @@ func testBlindedRouteInvoices(ht *lntest.HarnessTest) {
 	testCase.setupNetwork(ctx, false)
 
 	// Let Dave add a blinded invoice.
+	// Add restrictions so that he only ever creates a single blinded path
+	// from Bob to himself.
+	var (
+		minNumRealHops uint32 = 2
+		numHops        uint32 = 2
+	)
 	invoice := testCase.dave.RPC.AddInvoice(&lnrpc.Invoice{
 		Memo:      "test",
 		ValueMsat: 10_000_000,
-		Blind:     true,
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			MinNumRealHops: &minNumRealHops,
+			NumHops:        &numHops,
+		},
 	})
 
 	// Now let Alice pay the invoice.
 	ht.CompletePaymentRequests(ht.Alice, []string{invoice.PaymentRequest})
 
-	// Restart Dave with blinded path restrictions that will result in him
-	// creating a blinded path that uses himself as the introduction node.
-	ht.RestartNodeWithExtraArgs(testCase.dave, []string{
-		"--routing.blinding.min-num-real-hops=0",
-		"--routing.blinding.num-hops=0",
-	})
-	ht.EnsureConnected(testCase.dave, testCase.carol)
-
 	// Let Dave add a blinded invoice.
 	// Once again let Dave create a blinded invoice.
+	// This time, add path restrictions that will result in him
+	// creating a blinded path that uses himself as the introduction node.
+	minNumRealHops = 0
+	numHops = 0
 	invoice = testCase.dave.RPC.AddInvoice(&lnrpc.Invoice{
 		Memo:      "test",
 		ValueMsat: 10_000_000,
-		Blind:     true,
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			MinNumRealHops: &minNumRealHops,
+			NumHops:        &numHops,
+		},
 	})
 
 	// Assert that it contains a single blinded path with only an
@@ -898,12 +909,7 @@ func testMPPToSingleBlindedPath(ht *lntest.HarnessTest) {
 	// nodes.
 	alice, bob := ht.Alice, ht.Bob
 
-	// Restrict Dave so that he only ever chooses the Carol->Dave path for
-	// a blinded route.
-	dave := ht.NewNode("dave", []string{
-		"--routing.blinding.min-num-real-hops=1",
-		"--routing.blinding.num-hops=1",
-	})
+	dave := ht.NewNode("dave", nil)
 	carol := ht.NewNode("carol", nil)
 	eve := ht.NewNode("eve", nil)
 
@@ -984,10 +990,19 @@ func testMPPToSingleBlindedPath(ht *lntest.HarnessTest) {
 	}
 
 	// Make Dave create an invoice with a blinded path for Alice to pay.
+	// Restrict the blinded path config such that Dave only ever chooses
+	// the Carol->Dave path for a blinded route.
+	var (
+		numHops        uint32 = 1
+		minNumRealHops uint32 = 1
+	)
 	invoice := &lnrpc.Invoice{
 		Memo:  "test",
 		Value: int64(paymentAmt),
-		Blind: true,
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			NumHops:        &numHops,
+			MinNumRealHops: &minNumRealHops,
+		},
 	}
 	invoiceResp := dave.RPC.AddInvoice(invoice)
 
@@ -1095,12 +1110,7 @@ func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
 		"--protocol.no-route-blinding",
 	})
 
-	// Configure Dave so that all blinded paths always contain 2 hops and
-	// so that there is no minimum number of real hops.
-	dave := ht.NewNode("dave", []string{
-		"--routing.blinding.min-num-real-hops=0",
-		"--routing.blinding.num-hops=2",
-	})
+	dave := ht.NewNode("dave", nil)
 
 	ht.EnsureConnected(alice, bob)
 	ht.EnsureConnected(bob, carol)
@@ -1150,10 +1160,19 @@ func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
 	}
 
 	// Make Dave create an invoice with a blinded path for Alice to pay.
+	// Configure the invoice so that all blinded paths always contain 2 hops
+	// and so that there is no minimum number of real hops.
+	var (
+		minNumRealHops uint32 = 0
+		numHops        uint32 = 2
+	)
 	invoice := &lnrpc.Invoice{
 		Memo:  "test",
 		Value: int64(paymentAmt),
-		Blind: true,
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			MinNumRealHops: &minNumRealHops,
+			NumHops:        &numHops,
+		},
 	}
 	invoiceResp := dave.RPC.AddInvoice(invoice)
 
@@ -1178,18 +1197,24 @@ func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
 	require.Equal(ht, lnrpc.Invoice_SETTLED, inv.State)
 
 	// Let's also test the case where Dave is not the introduction node.
-	// We restart Carol so that she supports route blinding. We also restart
-	// Dave and force a minimum of 1 real blinded hop. We keep the number
-	// of hops to 2 meaning that one dummy hop should be added.
+	// We restart Carol so that she supports route blinding.
 	ht.RestartNodeWithExtraArgs(carol, nil)
-	ht.RestartNodeWithExtraArgs(dave, []string{
-		"--routing.blinding.min-num-real-hops=1",
-		"--routing.blinding.num-hops=2",
-	})
 	ht.EnsureConnected(bob, carol)
 	ht.EnsureConnected(carol, dave)
 
 	// Make Dave create an invoice with a blinded path for Alice to pay.
+	// This time, configure the invoice so that there is always a minimum
+	// of 1 real blinded hop. We keep the number of total hops to 2 meaning
+	// that one dummy hop should be added.
+	minNumRealHops = 1
+	invoice = &lnrpc.Invoice{
+		Memo:  "test",
+		Value: int64(paymentAmt),
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			MinNumRealHops: &minNumRealHops,
+			NumHops:        &numHops,
+		},
+	}
 	invoiceResp = dave.RPC.AddInvoice(invoice)
 
 	// Assert that it contains a single blinded path and that the
@@ -1248,10 +1273,7 @@ func testMPPToMultipleBlindedPaths(ht *lntest.HarnessTest) {
 
 	// Create a four-node context consisting of Alice, Bob and three new
 	// nodes.
-	dave := ht.NewNode("dave", []string{
-		"--routing.blinding.min-num-real-hops=1",
-		"--routing.blinding.num-hops=1",
-	})
+	dave := ht.NewNode("dave", nil)
 	carol := ht.NewNode("carol", nil)
 
 	// Connect nodes to ensure propagation of channels.
@@ -1311,10 +1333,17 @@ func testMPPToMultipleBlindedPaths(ht *lntest.HarnessTest) {
 	// Ok now make a payment that must be split to succeed.
 
 	// Make Dave create an invoice for Alice to pay
+	var (
+		minNumRealHops uint32 = 1
+		numHops        uint32 = 1
+	)
 	invoice := &lnrpc.Invoice{
 		Memo:  "test",
 		Value: int64(paymentAmt),
-		Blind: true,
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			MinNumRealHops: &minNumRealHops,
+			NumHops:        &numHops,
+		},
 	}
 	invoiceResp := dave.RPC.AddInvoice(invoice)
 

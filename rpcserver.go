@@ -5777,13 +5777,40 @@ func (r *rpcServer) sendPaymentSync(
 func (r *rpcServer) AddInvoice(ctx context.Context,
 	invoice *lnrpc.Invoice) (*lnrpc.AddInvoiceResponse, error) {
 
-	defaultDelta := r.cfg.Bitcoin.TimeLockDelta
+	var (
+		defaultDelta = r.cfg.Bitcoin.TimeLockDelta
+		blindCfg     = invoice.BlindedPathConfig
+		blind        = blindCfg != nil
+	)
 
+	globalBlindCfg := r.server.cfg.Routing.BlindedPaths
 	blindingRestrictions := &routing.BlindedPathRestrictions{
-		MinDistanceFromIntroNode: r.server.cfg.Routing.BlindedPaths.
-			MinNumRealHops,
-		NumHops:     r.server.cfg.Routing.BlindedPaths.NumHops,
-		MaxNumPaths: r.server.cfg.Routing.BlindedPaths.MaxNumPaths,
+		MinDistanceFromIntroNode: globalBlindCfg.MinNumRealHops,
+		NumHops:                  globalBlindCfg.NumHops,
+		MaxNumPaths:              globalBlindCfg.MaxNumPaths,
+	}
+
+	if blind {
+		if blindCfg.MinNumRealHops != nil {
+			blindingRestrictions.MinDistanceFromIntroNode =
+				uint8(*blindCfg.MinNumRealHops)
+		}
+		if blindCfg.NumHops != nil {
+			blindingRestrictions.NumHops = uint8(*blindCfg.NumHops)
+		}
+		if blindCfg.MaxNumPaths != nil {
+			blindingRestrictions.MaxNumPaths =
+				uint8(*blindCfg.MaxNumPaths)
+		}
+	}
+
+	if blindingRestrictions.MinDistanceFromIntroNode >
+		blindingRestrictions.NumHops {
+
+		return nil, fmt.Errorf("the minimum number of real " +
+			"hops in a blinded path must be smaller than " +
+			"or equal to the number of hops expected to " +
+			"be included in each path")
 	}
 
 	addInvoiceCfg := &invoicesrpc.AddInvoiceConfig{
@@ -5797,7 +5824,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		GenInvoiceFeatures: func() *lnwire.FeatureVector {
 			v := r.server.featureMgr.Get(feature.SetInvoice)
 
-			if invoice.Blind {
+			if blind {
 				// If an invoice includes blinded paths, then a
 				// payment address is not required since we use
 				// the PathID in the final hop's encrypted data
@@ -5843,7 +5870,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	}
 
 	var blindedPathCfg *invoicesrpc.BlindedPathConfig
-	if invoice.Blind {
+	if blind {
 		bpConfig := r.server.cfg.Routing.BlindedPaths
 
 		blindedPathCfg = &invoicesrpc.BlindedPathConfig{
@@ -5864,8 +5891,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 				// capacities.
 				MaxHTLCMsat: 0,
 			},
-			MinNumPathHops: r.server.cfg.Routing.BlindedPaths.
-				NumHops,
+			MinNumPathHops: blindingRestrictions.NumHops,
 		}
 	}
 

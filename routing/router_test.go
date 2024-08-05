@@ -2234,6 +2234,7 @@ func TestNewRouteRequest(t *testing.T) {
 			var (
 				blindedPathInfo *BlindedPaymentPathSet
 				expectedTarget  = testCase.expectedTarget
+				err             error
 			)
 			if testCase.blindedPayment != nil {
 				blindedPathInfo, err = NewBlindedPaymentPathSet(

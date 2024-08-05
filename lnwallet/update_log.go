@@ -1,6 +1,8 @@
 package lnwallet
 
-import "container/list"
+import (
+	"github.com/lightningnetwork/lnd/fn"
+)
 
 // updateLog is an append-only log that stores updates to a node's commitment
 // chain. This structure can be seen as the "mempool" within Lightning where
@@ -27,16 +29,16 @@ type updateLog struct {
 
 	// List is the updatelog itself, we embed this value so updateLog has
 	// access to all the method of a list.List.
-	*list.List
+	*fn.List[*PaymentDescriptor]
 
 	// updateIndex maps a `logIndex` to a particular update entry. It
 	// deals with the four update types:
 	//   `Fail|MalformedFail|Settle|FeeUpdate`
-	updateIndex map[uint64]*list.Element
+	updateIndex map[uint64]*fn.Node[*PaymentDescriptor]
 
 	// htlcIndex maps a `htlcCounter` to an offered HTLC entry, hence the
 	// `Add` update.
-	htlcIndex map[uint64]*list.Element
+	htlcIndex map[uint64]*fn.Node[*PaymentDescriptor]
 
 	// modifiedHtlcs is a set that keeps track of all the current modified
 	// htlcs, hence update types `Fail|MalformedFail|Settle`. A modified
@@ -48,9 +50,9 @@ type updateLog struct {
 // newUpdateLog creates a new updateLog instance.
 func newUpdateLog(logIndex, htlcCounter uint64) *updateLog {
 	return &updateLog{
-		List:          list.New(),
-		updateIndex:   make(map[uint64]*list.Element),
-		htlcIndex:     make(map[uint64]*list.Element),
+		List:          fn.NewList[*PaymentDescriptor](),
+		updateIndex:   make(map[uint64]*fn.Node[*PaymentDescriptor]),
+		htlcIndex:     make(map[uint64]*fn.Node[*PaymentDescriptor]),
 		logIndex:      logIndex,
 		htlcCounter:   htlcCounter,
 		modifiedHtlcs: make(map[uint64]struct{}),
@@ -101,8 +103,7 @@ func (u *updateLog) lookupHtlc(i uint64) *PaymentDescriptor {
 		return nil
 	}
 
-	//nolint:forcetypeassert
-	return htlc.Value.(*PaymentDescriptor)
+	return htlc.Value
 }
 
 // remove attempts to remove an entry from the update log. If the entry is
@@ -145,15 +146,14 @@ func compactLogs(ourLog, theirLog *updateLog,
 	localChainTail, remoteChainTail uint64) {
 
 	compactLog := func(logA, logB *updateLog) {
-		var nextA *list.Element
+		var nextA *fn.Node[*PaymentDescriptor]
 		for e := logA.Front(); e != nil; e = nextA {
 			// Assign next iteration element at top of loop because
 			// we may remove the current element from the list,
 			// which can change the iterated sequence.
 			nextA = e.Next()
 
-			//nolint:forcetypeassert
-			htlc := e.Value.(*PaymentDescriptor)
+			htlc := e.Value
 
 			// We skip Adds, as they will be removed along with the
 			// fail/settles below.

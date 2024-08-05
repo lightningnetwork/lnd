@@ -1,6 +1,8 @@
 package lnwallet
 
-import "container/list"
+import (
+	"github.com/lightningnetwork/lnd/fn"
+)
 
 // commitmentChain represents a chain of unrevoked commitments. The tail of the
 // chain is the latest fully signed, yet unrevoked commitment. Two chains are
@@ -15,13 +17,13 @@ type commitmentChain struct {
 	// commitments are added to the end of the chain with increase height.
 	// Once a commitment transaction is revoked, the tail is incremented,
 	// freeing up the revocation window for new commitments.
-	commitments *list.List
+	commitments *fn.List[*commitment]
 }
 
 // newCommitmentChain creates a new commitment chain.
 func newCommitmentChain() *commitmentChain {
 	return &commitmentChain{
-		commitments: list.New(),
+		commitments: fn.NewList[*commitment](),
 	}
 }
 
@@ -42,14 +44,12 @@ func (s *commitmentChain) advanceTail() {
 
 // tip returns the latest commitment added to the chain.
 func (s *commitmentChain) tip() *commitment {
-	//nolint:forcetypeassert
-	return s.commitments.Back().Value.(*commitment)
+	return s.commitments.Back().Value
 }
 
 // tail returns the lowest unrevoked commitment transaction in the chain.
 func (s *commitmentChain) tail() *commitment {
-	//nolint:forcetypeassert
-	return s.commitments.Front().Value.(*commitment)
+	return s.commitments.Front().Value
 }
 
 // hasUnackedCommitment returns true if the commitment chain has more than one

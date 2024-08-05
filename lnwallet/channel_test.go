@@ -2,7 +2,6 @@ package lnwallet
 
 import (
 	"bytes"
-	"container/list"
 	"crypto/sha256"
 	"fmt"
 	"math/rand"
@@ -1906,7 +1905,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 
 	// Newly generated pkScripts for HTLCs should be the same as in the old channel.
 	for _, entry := range aliceChannel.localUpdateLog.htlcIndex {
-		htlc := entry.Value.(*PaymentDescriptor)
+		htlc := entry.Value
 		restoredHtlc := aliceChannelNew.localUpdateLog.lookupHtlc(htlc.HtlcIndex)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
 			t.Fatalf("alice ourPkScript in ourLog: expected %X, got %X",
@@ -1918,7 +1917,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 		}
 	}
 	for _, entry := range aliceChannel.remoteUpdateLog.htlcIndex {
-		htlc := entry.Value.(*PaymentDescriptor)
+		htlc := entry.Value
 		restoredHtlc := aliceChannelNew.remoteUpdateLog.lookupHtlc(htlc.HtlcIndex)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
 			t.Fatalf("alice ourPkScript in theirLog: expected %X, got %X",
@@ -1930,7 +1929,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 		}
 	}
 	for _, entry := range bobChannel.localUpdateLog.htlcIndex {
-		htlc := entry.Value.(*PaymentDescriptor)
+		htlc := entry.Value
 		restoredHtlc := bobChannelNew.localUpdateLog.lookupHtlc(htlc.HtlcIndex)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
 			t.Fatalf("bob ourPkScript in ourLog: expected %X, got %X",
@@ -1942,7 +1941,7 @@ func TestStateUpdatePersistence(t *testing.T) {
 		}
 	}
 	for _, entry := range bobChannel.remoteUpdateLog.htlcIndex {
-		htlc := entry.Value.(*PaymentDescriptor)
+		htlc := entry.Value
 		restoredHtlc := bobChannelNew.remoteUpdateLog.lookupHtlc(htlc.HtlcIndex)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
 			t.Fatalf("bob ourPkScript in theirLog: expected %X, got %X",
@@ -4472,7 +4471,7 @@ func TestFeeUpdateOldDiskFormat(t *testing.T) {
 	countLog := func(log *updateLog) (int, int) {
 		var numUpdates, numFee int
 		for e := log.Front(); e != nil; e = e.Next() {
-			htlc := e.Value.(*PaymentDescriptor)
+			htlc := e.Value
 			if htlc.EntryType == FeeUpdate {
 				numFee++
 			}
@@ -6755,14 +6754,14 @@ func compareHtlcs(htlc1, htlc2 *PaymentDescriptor) error {
 }
 
 // compareIndexes is a helper method to compare two index maps.
-func compareIndexes(a, b map[uint64]*list.Element) error {
+func compareIndexes(a, b map[uint64]*fn.Node[*PaymentDescriptor]) error {
 	for k1, e1 := range a {
 		e2, ok := b[k1]
 		if !ok {
 			return fmt.Errorf("element with key %d "+
 				"not found in b", k1)
 		}
-		htlc1, htlc2 := e1.Value.(*PaymentDescriptor), e2.Value.(*PaymentDescriptor)
+		htlc1, htlc2 := e1.Value, e2.Value
 		if err := compareHtlcs(htlc1, htlc2); err != nil {
 			return err
 		}
@@ -6774,7 +6773,7 @@ func compareIndexes(a, b map[uint64]*list.Element) error {
 			return fmt.Errorf("element with key %d not "+
 				"found in a", k1)
 		}
-		htlc1, htlc2 := e1.Value.(*PaymentDescriptor), e2.Value.(*PaymentDescriptor)
+		htlc1, htlc2 := e1.Value, e2.Value
 		if err := compareHtlcs(htlc1, htlc2); err != nil {
 			return err
 		}
@@ -6809,7 +6808,7 @@ func compareLogs(a, b *updateLog) error {
 
 	e1, e2 := a.Front(), b.Front()
 	for ; e1 != nil; e1, e2 = e1.Next(), e2.Next() {
-		htlc1, htlc2 := e1.Value.(*PaymentDescriptor), e2.Value.(*PaymentDescriptor)
+		htlc1, htlc2 := e1.Value, e2.Value
 		if err := compareHtlcs(htlc1, htlc2); err != nil {
 			return err
 		}
@@ -6917,7 +6916,7 @@ func TestChannelRestoreUpdateLogs(t *testing.T) {
 func fetchNumUpdates(t updateType, log *updateLog) int {
 	num := 0
 	for e := log.Front(); e != nil; e = e.Next() {
-		htlc := e.Value.(*PaymentDescriptor)
+		htlc := e.Value
 		if htlc.EntryType == t {
 			num++
 		}

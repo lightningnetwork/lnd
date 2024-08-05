@@ -3705,7 +3705,26 @@ func TestFindBlindedPaths(t *testing.T) {
 		"charlie,eve,bob,dave",
 	})
 
-	// 4) Finally, we will test the special case where the destination node
+	// 4) Repeat the above test but instruct the function to never use
+	// charlie.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops: 2,
+		maxNumHops: 3,
+		nodeOmissionSet: fn.NewSet[route.Vertex](
+			ctx.keyFromAlias("charlie"),
+		),
+	})
+	require.NoError(t, err)
+
+	// We expect the following paths:
+	//	- F, B, D
+	// 	- E, B, D
+	assertPaths(paths, []string{
+		"frank,bob,dave",
+		"eve,bob,dave",
+	})
+
+	// 5) Finally, we will test the special case where the destination node
 	// is also the recipient.
 	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
 		minNumHops: 0,

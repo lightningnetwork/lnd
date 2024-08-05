@@ -110,6 +110,12 @@ var addInvoiceCommand = cli.Command{
 				"to an invoice. This option will only be " +
 				"used if `--blind` has also been set.",
 		},
+		cli.StringSliceFlag{
+			Name: "blinded_path_omit_node",
+			Usage: "The pub key (in hex) of a node not to " +
+				"use on a blinded path. The flag may be " +
+				"specified multiple times.",
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -219,6 +225,17 @@ func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 	if ctx.IsSet("max_blinded_paths") {
 		maxPaths := uint32(ctx.Uint("max_blinded_paths"))
 		blindCfg.MaxNumPaths = &maxPaths
+	}
+
+	for _, pubKey := range ctx.StringSlice("blinded_path_omit_node") {
+		pubKeyBytes, err := hex.DecodeString(pubKey)
+		if err != nil {
+			return nil, err
+		}
+
+		blindCfg.NodeOmissionList = append(
+			blindCfg.NodeOmissionList, pubKeyBytes,
+		)
 	}
 
 	return &blindCfg, nil

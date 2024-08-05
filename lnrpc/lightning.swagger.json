@@ -3561,6 +3561,14 @@
           "type": "integer",
           "format": "int64",
           "description": "The maximum number of blinded paths to select and add to an invoice."
+        },
+        "node_omission_list": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "A list of node IDs of nodes that should not be used in any of our generated\nblinded paths."
         }
       }
     },

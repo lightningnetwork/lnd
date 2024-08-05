@@ -3867,6 +3867,12 @@ message BlindedPathConfig {
     The maximum number of blinded paths to select and add to an invoice.
     */
     optional uint32 max_num_paths = 3;
+
+    /*
+    A list of node IDs of nodes that should not be used in any of our generated
+    blinded paths.
+    */
+    repeated bytes node_omission_list = 4;
 }
 
 enum InvoiceHTLCState {

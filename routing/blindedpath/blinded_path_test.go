@@ -922,6 +922,75 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 		HtlcMinimumMsat: 1000,
 	}, data.Constraints.UnwrapOrFail(t).Val)
 	require.Equal(t, []byte{1, 2, 3}, data.PathID.UnwrapOrFail(t).Val)
+
+	// Demonstrate that BuildBlindedPaymentPaths continues to use any
+	// functioning paths even if some routes cant be used to build a blinded
+	// path. We do this by forcing FetchChannelEdgesByID to error out for
+	// the first 2 calls. FindRoutes returns 3 routes and so by the end, we
+	// still get 1 valid path.
+	var errCount int
+	paths, err = BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
+		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
+			error) {
+
+			return []*route.Route{realRoute, realRoute, realRoute},
+				nil
+		},
+		FetchChannelEdgesByID: func(chanID uint64) (
+			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy, error) {
+
+			// Force the call to error for the first 2 channels.
+			if errCount < 2 {
+				errCount++
+
+				return nil, nil, nil,
+					fmt.Errorf("edge not found")
+			}
+
+			policy, ok := realPolicies[chanID]
+			if !ok {
+				return nil, nil, nil,
+					fmt.Errorf("edge not found")
+			}
+
+			return nil, policy, nil, nil
+		},
+		BestHeight: func() (uint32, error) {
+			return 1000, nil
+		},
+		// In the spec example, all the policies get replaced with
+		// the same static values.
+		AddPolicyBuffer: func(_ *BlindedHopPolicy) (
+			*BlindedHopPolicy, error) {
+
+			return &BlindedHopPolicy{
+				FeeRate:         500,
+				BaseFee:         100,
+				CLTVExpiryDelta: 144,
+				MinHTLCMsat:     1000,
+				MaxHTLCMsat:     lnwire.MaxMilliSatoshi,
+			}, nil
+		},
+		PathID:                  []byte{1, 2, 3},
+		ValueMsat:               1000,
+		MinFinalCLTVExpiryDelta: 12,
+		BlocksUntilExpiry:       200,
+
+		// By setting the minimum number of hops to 4, we force 2 dummy
+		// hops to be added to the real route.
+		MinNumHops: 4,
+
+		DefaultDummyHopPolicy: &BlindedHopPolicy{
+			CLTVExpiryDelta: 50,
+			FeeRate:         100,
+			BaseFee:         100,
+			MinHTLCMsat:     1000,
+			MaxHTLCMsat:     lnwire.MaxMilliSatoshi,
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, paths, 1)
 }
 
 // TestSingleHopBlindedPath tests that blinded path construction is done

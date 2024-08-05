@@ -197,6 +197,10 @@ commitment when the channel was force closed.
 * Add the ability to [send to use multiple blinded payment
   paths](https://github.com/lightningnetwork/lnd/pull/8764) in an MP payment.
 
+* [Improve route blinding invoice generation 
+  UX](https://github.com/lightningnetwork/lnd/pull/8976) by making various 
+  params configurable on a per-RPC basis.
+
 ## Testing
 ## Database
 

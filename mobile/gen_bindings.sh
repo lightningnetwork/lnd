@@ -48,7 +48,7 @@ for file in $PROTOS; do
 
   protoc -I/usr/local/include -I. \
          --plugin=protoc-gen-custom=$falafel\
-         --custom_out=./build \
+         --custom_out=. \
          --custom_opt="$opts" \
          --proto_path=../lnrpc \
          "${file}"
@@ -78,7 +78,7 @@ do
     protoc -I/usr/local/include -I. \
            -I../lnrpc \
            --plugin=protoc-gen-custom=$falafel \
-           --custom_out=./build \
+           --custom_out=. \
            --custom_opt="$opts" \
            --proto_path=${DIRECTORY} \
            ${file}

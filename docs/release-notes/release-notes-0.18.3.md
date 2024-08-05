@@ -118,6 +118,10 @@ commitment when the channel was force closed.
 * [Added](https://github.com/lightningnetwork/lnd/pull/8836) a new failure
   reason `FailureReasonCanceled` to the list of payment failure reasons. It
   indicates that a payment was manually cancelled by the user.
+
+* [Update the version](https://github.com/lightningnetwork/lnd/pull/8974) of 
+  [falafel](https://github.com/lightninglabs/falafel) used to generate JSON/wasm 
+  stubs. This latest version of falafel also supports proto3 optional fields. 
  
 ## Breaking Changes
 ## Performance Improvements

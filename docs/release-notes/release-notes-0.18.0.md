@@ -300,6 +300,9 @@
 * [Added](https://github.com/lightningnetwork/lnd/pull/8142) full validation 
   for blinded path payloads to allow fuzzing before LND fully supports 
   blinded payment relay.
+* [Add retry logic for block fetching](https://github.com/lightningnetwork/lnd/pull/8381)
+  block fetching to retry indefinitely with an exponential back-off between
+  retries for watchtower server.
 
 * Allow `healthcheck` package users to provide [custom
   callbacks](https://github.com/lightningnetwork/lnd/pull/8504) which will
@@ -551,6 +554,7 @@
 * Alex Sears
 * Amin Bashiri
 * Andras Banki-Horvath
+* Animesh Bilthare
 * AtomicInnovation321
 * bartoli
 * BitcoinerCoderBob

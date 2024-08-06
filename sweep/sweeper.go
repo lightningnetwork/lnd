@@ -1513,6 +1513,17 @@ func (s *UtxoSweeper) updateSweeperInputs() InputsMap {
 			continue
 		}
 
+		// If the input has a deadline that's two weeks away, we won't
+		// attempt to create a sweeping tx and fee bump it now.
+		deadline := input.params.DeadlineHeight.UnwrapOr(0)
+		if deadline > s.currentHeight+DefaultDeadlineDelta*2 {
+			log.Infof("Skipping input %v since its deadline=%v is "+
+				"far in the future, current height is %v", op,
+				deadline, s.currentHeight)
+
+			continue
+		}
+
 		// If this input is new or has been failed to be published,
 		// we'd retry it. The assumption here is that when an error is
 		// returned from `PublishTransaction`, it means the tx has

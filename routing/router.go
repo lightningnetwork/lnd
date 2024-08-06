@@ -262,9 +262,9 @@ type Config struct {
 	// sessions.
 	SessionSource PaymentSessionSource
 
-	// QueryBandwidth is a method that allows the router to query the lower
-	// link layer to determine the up-to-date available bandwidth at a
-	// prospective link to be traversed. If the  link isn't available, then
+	// GetLink is a method that allows the router to query the lower link
+	// layer to determine the up-to-date available bandwidth at a
+	// prospective link to be traversed. If the link isn't available, then
 	// a value of zero should be returned. Otherwise, the current up-to-
 	// date knowledge of the available bandwidth of the link should be
 	// returned.

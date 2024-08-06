@@ -2814,16 +2814,18 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 
 	// We expect two anchor inputs, the local and the remote to be swept.
 	// Thus we should expect there are two deadlines used, both are equal
-	// to htlcWithPreimage's CLTV.
-	require.Equal(t, 2, len(chanArbCtx.sweeper.deadlines))
-	require.EqualValues(t,
-		heightHint+deadlinePreimageDelta/2,
-		chanArbCtx.sweeper.deadlines[0],
-	)
-	require.EqualValues(t,
-		heightHint+deadlinePreimageDelta/2,
-		chanArbCtx.sweeper.deadlines[1],
-	)
+	// to htlcWithPreimage's CLTV. In addition, since the anchor is
+	// re-offered, we expect this anchor sweeping to use the non-CPFP
+	// deadline.
+	//
+	// Convert it to a set which should have two unique deadline values.
+	deadlines := fn.NewSet(chanArbCtx.sweeper.deadlines...)
+	require.Len(t, deadlines, 2, deadlines)
+
+	// Check the expected deadline values are found.
+	cpfpDeadline := int(heightHint + deadlinePreimageDelta/2)
+	require.True(t, deadlines.Contains(cpfpDeadline))
+	require.True(t, deadlines.Contains(int(anchorSweepDeadline)))
 }
 
 // TestChannelArbitratorStartForceCloseFail tests that when we run into the

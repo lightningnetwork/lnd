@@ -14,6 +14,24 @@ import (
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
+var (
+	// anchorSweepDeadline is the deadline for the anchor sweep. This value
+	// is chosen to be 10x the DefaultDeadlineDelta so anchor inputs are
+	// less likely to be grouped with other inputs.
+	//
+	// NOTE: This doesn't completely prevent grouping as the user may
+	// choose to update other inputs with a large deadline. Moreover the
+	// anchor input may be sitting in the mempool for quite some time,
+	// causing it to be grouped with newly requested inputs from a more
+	// recent channel force close. Given 10 weeks is a long time the chance
+	// is small. However, to properly fix it we should add a new param,
+	// `GroupID`, to `sweep.Params` and only group the inputs with the same
+	// group ID.
+	//
+	// TODO(yy): fix the grouping issue in 0.19.0.
+	anchorSweepDeadline = int32(10080)
+)
+
 // anchorResolver is a resolver that will attempt to sweep our anchor output.
 type anchorResolver struct {
 	// anchorSignDescriptor contains the information that is required to
@@ -119,9 +137,10 @@ func (c *anchorResolver) Resolve(_ bool) (ContractResolver, error) {
 				anchorInput.SignDesc().Output.Value,
 			),
 
-			// There's no rush to sweep the anchor, so we use a nil
-			// deadline here.
-			DeadlineHeight: fn.None[int32](),
+			// There's no rush to sweep the anchor, so we use a
+			// large deadline here to prevent it from being grouped
+			// with other inputs.
+			DeadlineHeight: fn.Some(anchorSweepDeadline),
 		},
 	)
 	if err != nil {

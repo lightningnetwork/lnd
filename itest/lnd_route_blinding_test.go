@@ -1220,10 +1220,6 @@ func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
 	// Assert that it contains a single blinded path and that the
 	// introduction node is Carol.
 	payReq = dave.RPC.DecodePayReq(invoiceResp.PaymentRequest)
-	for _, path := range payReq.BlindedPaths {
-		ht.Logf("intro node: %x", path.BlindedPath.IntroductionNode)
-	}
-
 	require.Len(ht, payReq.BlindedPaths, 1)
 
 	// The total number of hop payloads is 3: one for the introduction node

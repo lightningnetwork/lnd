@@ -94,6 +94,12 @@ commitment when the channel was force closed.
 * [Allow](https://github.com/lightningnetwork/lnd/pull/8845) multiple etcd hosts
   to be specified in db.etcd.host.
 
+* The deadline delta used for sweeping non-CPFP-purpose anchor inputs is now
+  [changed](https://github.com/lightningnetwork/lnd/pull/8983), which prevents
+  the anchors to be grouped with other kinds of inputs. In addition, the
+  sweeping of inputs with large deadlines (more than two weeks away) is paused
+  and will only be resumed when they are within the two weeks range again.
+
 ## RPC Updates
 
 * [`xImportMissionControl`](https://github.com/lightningnetwork/lnd/pull/8779) 

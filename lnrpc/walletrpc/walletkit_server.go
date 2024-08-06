@@ -849,8 +849,11 @@ func (w *WalletKit) EstimateFee(ctx context.Context,
 		return nil, err
 	}
 
+	relayFeePerKw := w.cfg.FeeEstimator.RelayFeePerKW()
+
 	return &EstimateFeeResponse{
-		SatPerKw: int64(satPerKw),
+		SatPerKw:            int64(satPerKw),
+		MinRelayFeeSatPerKw: int64(relayFeePerKw),
 	}, nil
 }
 

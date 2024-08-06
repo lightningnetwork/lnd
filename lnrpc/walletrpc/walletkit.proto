@@ -839,6 +839,9 @@ message EstimateFeeResponse {
     confirmation target in the request.
     */
     int64 sat_per_kw = 1;
+
+    // The current minimum relay fee based on our chain backend in sat/kw.
+    int64 min_relay_fee_sat_per_kw = 2;
 }
 
 enum WitnessType {

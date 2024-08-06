@@ -97,6 +97,9 @@ commitment when the channel was force closed.
       SendCoins(req)
   ```
 
+* The `EstimateFee` call on the `walletrpc` sub-server now [also returns the
+  current `min_relay_fee`](https://github.com/lightningnetwork/lnd/pull/8986). 
+
 ## lncli Additions
 
 * [Added](https://github.com/lightningnetwork/lnd/pull/8491) the `cltv_expiry`

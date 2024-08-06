@@ -264,10 +264,10 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	ht.RestartNode(alice)
 
 	// Carol should offer her commit and anchor outputs to the sweeper.
-	sweepTxns := ht.AssertNumPendingSweeps(carol, 2)
+	pendingSweeps := ht.AssertNumPendingSweeps(carol, 2)
 
 	// Find Carol's anchor sweep.
-	var carolAnchor, carolCommit = sweepTxns[0], sweepTxns[1]
+	var carolAnchor, carolCommit = pendingSweeps[0], pendingSweeps[1]
 	if carolAnchor.AmountSat != uint32(anchorSize) {
 		carolAnchor, carolCommit = carolCommit, carolAnchor
 	}
@@ -280,25 +280,28 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// not timelocked.
 	carolTx := ht.GetNumTxsFromMempool(1)[0]
 
-	// Carol's sweeping tx should have 2-input-1-output shape.
-	require.Len(ht, carolTx.TxIn, 2)
+	// Carol's sweeping tx should have 1-input-1-output shape.
+	require.Len(ht, carolTx.TxIn, 1)
 	require.Len(ht, carolTx.TxOut, 1)
 
 	// Calculate the total fee Carol paid.
 	totalFeeCarol := ht.CalculateTxFee(carolTx)
 
 	// If we have anchors, add an anchor resolution for carol.
-	op := fmt.Sprintf("%v:%v", carolAnchor.Outpoint.TxidStr,
-		carolAnchor.Outpoint.OutputIndex)
-	carolReports[op] = &lnrpc.Resolution{
-		ResolutionType: lnrpc.ResolutionType_ANCHOR,
-		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
-		SweepTxid:      carolTx.TxHash().String(),
-		AmountSat:      anchorSize,
-		Outpoint:       carolAnchor.Outpoint,
-	}
+	//
+	// NOTE: The anchor report is commented out instead of removed in case
+	// we want to bring it back in 0.19.0.
+	// op := fmt.Sprintf("%v:%v", carolAnchor.Outpoint.TxidStr,
+	// 	carolAnchor.Outpoint.OutputIndex)
+	// carolReports[op] = &lnrpc.Resolution{
+	// 	ResolutionType: lnrpc.ResolutionType_ANCHOR,
+	// 	Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
+	// 	SweepTxid:      carolTx.TxHash().String(),
+	// 	AmountSat:      anchorSize,
+	// 	Outpoint:       carolAnchor.Outpoint,
+	// }
 
-	op = fmt.Sprintf("%v:%v", carolCommit.Outpoint.TxidStr,
+	op := fmt.Sprintf("%v:%v", carolCommit.Outpoint.TxidStr,
 		carolCommit.Outpoint.OutputIndex)
 	carolReports[op] = &lnrpc.Resolution{
 		ResolutionType: lnrpc.ResolutionType_COMMIT,
@@ -411,15 +414,18 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	}
 
 	// Add alice's anchor to our expected set of reports.
-	op = fmt.Sprintf("%v:%v", aliceAnchor.Outpoint.TxidStr,
-		aliceAnchor.Outpoint.OutputIndex)
-	aliceReports[op] = &lnrpc.Resolution{
-		ResolutionType: lnrpc.ResolutionType_ANCHOR,
-		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
-		SweepTxid:      sweepingTXID.String(),
-		Outpoint:       aliceAnchor.Outpoint,
-		AmountSat:      uint64(anchorSize),
-	}
+	//
+	// NOTE: The anchor report is commented out instead of removed in case
+	// we want to bring it back in 0.19.0.
+	// op = fmt.Sprintf("%v:%v", aliceAnchor.Outpoint.TxidStr,
+	// 	aliceAnchor.Outpoint.OutputIndex)
+	// aliceReports[op] = &lnrpc.Resolution{
+	// 	ResolutionType: lnrpc.ResolutionType_ANCHOR,
+	// 	Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
+	// 	SweepTxid:      sweepingTXID.String(),
+	// 	Outpoint:       aliceAnchor.Outpoint,
+	// 	AmountSat:      uint64(anchorSize),
+	// }
 
 	// Check that we can find the commitment sweep in our set of known
 	// sweeps, using the simple transaction id ListSweeps output.
@@ -539,8 +545,9 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Since Alice had numInvoices (6) htlcs extended to Carol before force
 	// closing, we expect Alice to broadcast an htlc timeout txn for each
-	// one.
-	ht.AssertNumPendingSweeps(alice, numInvoices)
+	// one. Also since Alice's anchor is never swept, it should also be
+	// found in the pending sweeps.
+	ht.AssertNumPendingSweeps(alice, numInvoices+1)
 
 	// Wait for them all to show up in the mempool
 	//
@@ -689,9 +696,10 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	require.NoError(ht, err, "timeout while checking force closed channel")
 
 	// Generate a block that causes Alice to sweep the htlc outputs in the
-	// kindergarten bucket.
+	// kindergarten bucket. Also since Alice's anchor is never swept, it
+	// should also be found in the pending sweeps.
 	ht.MineEmptyBlocks(1)
-	ht.AssertNumPendingSweeps(alice, numInvoices)
+	ht.AssertNumPendingSweeps(alice, numInvoices+1)
 
 	// Mine a block to trigger the sweep.
 	ht.MineEmptyBlocks(1)
@@ -846,12 +854,6 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// push amount sent by Alice and minus the miner fee paid.
 	carolExpectedBalance := btcutil.Amount(carolStartingBalance) +
 		pushAmt - totalFeeCarol
-
-	// In addition, if this is an anchor-enabled channel, further add the
-	// anchor size.
-	if lntest.CommitTypeHasAnchors(channelType) {
-		carolExpectedBalance += btcutil.Amount(anchorSize)
-	}
 
 	require.Equal(ht, carolExpectedBalance,
 		btcutil.Amount(carolBalResp.ConfirmedBalance),

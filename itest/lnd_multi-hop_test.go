@@ -993,14 +993,8 @@ func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	// We need to generate an additional block to expire the CSV 1.
 	ht.MineEmptyBlocks(1)
 
-	// For script-enforced leased channels, Bob has failed to sweep his
-	// anchor output before, so it's still pending.
-	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-		ht.AssertNumPendingSweeps(bob, 2)
-	} else {
-		// Bob should have a pending sweep request.
-		ht.AssertNumPendingSweeps(bob, 1)
-	}
+	// Bob should have a pending anchor sweep and a 2nd stage HTLC sweep.
+	ht.AssertNumPendingSweeps(bob, 2)
 
 	// Mine a block to trigger the sweeper to sweep it.
 	ht.MineEmptyBlocks(1)
@@ -1158,16 +1152,14 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 
 	var expectedTxes int
 	switch c {
-	// Alice will sweep her commitment and anchor output immediately. Bob
-	// will also offer his anchor to his sweeper.
+	// Alice will sweep her commitment output immediately. Bob will also
+	// offer his anchor to his sweeper.
 	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
 		ht.AssertNumPendingSweeps(alice, 2)
 		ht.AssertNumPendingSweeps(bob, 1)
 
 		// We expect to see only one sweeping tx to be published from
-		// Alice, which sweeps her commit and anchor outputs in the
-		// same tx. For Bob, since his anchor is not used for CPFP,
-		// it'd be uneconomical to sweep so it will fail.
+		// Alice, which sweeps her commit output.
 		expectedTxes = 1
 
 	// Alice will offer her anchor output to her sweeper. Her commitment
@@ -1179,7 +1171,7 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 
 		// We expect to see only no sweeping txns to be published,
 		// neither Alice's or Bob's anchor sweep can succeed due to
-		// it's uneconomical.
+		// they are uneconomical and their deadlines are far away.
 		expectedTxes = 0
 
 	default:
@@ -1246,9 +1238,8 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	// commitment and anchor outputs, we'd expect to see three txns,
 	// - Carol's second level HTLC transaction.
 	// - Carol's anchor sweeping txns since it's used for CPFP.
-	// - Bob's sweep tx spending his commitment output, and two anchor
-	//   outputs, one from channel Alice to Bob and the other from channel
-	//   Bob to Carol.
+	// - Bob's sweep tx spending his commitment output - note that his two
+	//   anchor outputs won't be swept as they have a large deadline.
 	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
 		ht.AssertNumPendingSweeps(bob, 3)
 		expectedTxes = 3
@@ -1259,11 +1250,9 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	// script-enforced leased channel:
 	// - Carol's second level HTLC transaction.
 	// - Carol's anchor sweeping txns since it's used for CPFP.
-	// - Bob's sweep tx spending his two anchor outputs, one from channel
-	//   Alice to Bob and the other from channel Bob to Carol.
 	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
 		ht.AssertNumPendingSweeps(bob, 2)
-		expectedTxes = 3
+		expectedTxes = 2
 
 	default:
 		ht.Fatalf("unhandled commitment type %v", c)
@@ -1292,8 +1281,10 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 
 	// When Bob notices Carol's second level transaction in the block, he
 	// will extract the preimage and broadcast a second level tx to claim
-	// the HTLC in his (already closed) channel with Alice.
-	ht.AssertNumPendingSweeps(bob, 1)
+	// the HTLC in his (already closed) channel with Alice. In addition,
+	// there are two anchor sweepings - one from the local commit, the
+	// other from the remote.
+	ht.AssertNumPendingSweeps(bob, 3)
 
 	// Mine a block to trigger the sweep of the second level tx.
 	ht.MineEmptyBlocks(1)
@@ -1347,8 +1338,10 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	// Carol's sweep tx should be broadcast.
 	carolSweep := ht.AssertNumTxsInMempool(1)[0]
 
-	// Bob should offer his second level tx to his sweeper.
-	ht.AssertNumPendingSweeps(bob, 1)
+	// Bob should offer his second level tx to his sweeper. In addition,
+	// there are two anchor sweepings - one from the local commit, the
+	// other from the remote.
+	ht.AssertNumPendingSweeps(bob, 3)
 
 	// Mining one additional block, Bob's second level tx is mature, and he
 	// can sweep the output.
@@ -1388,9 +1381,10 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 		// Both Alice and Bob should now offer their commit outputs to
 		// the sweeper. For Alice, she still has her anchor output as
 		// pending sweep as it's not used for CPFP, thus it's
-		// uneconomical to sweep it alone.
+		// uneconomical to sweep it alone. For Bob, he still has the
+		// two pending anchor sweeps.
 		ht.AssertNumPendingSweeps(alice, 2)
-		ht.AssertNumPendingSweeps(bob, 1)
+		ht.AssertNumPendingSweeps(bob, 3)
 
 		// Mine a block to trigger the sweeps.
 		ht.MineEmptyBlocks(1)
@@ -1583,23 +1577,25 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 	// Restart bob again.
 	require.NoError(ht, restartBob())
 
+	var expectedTxes int
+
 	// After the force close transaction is mined, we should expect Bob and
 	// Carol to broadcast some transactions depending on the channel
 	// commitment type.
 	switch c {
 	// Carol should broadcast her second level HTLC transaction and Bob
-	// should broadcast a sweeping tx to sweep his commitment output and
-	// anchor outputs from the two channels.
+	// should broadcast a sweeping tx to sweep his commitment output.
 	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
 		ht.AssertNumPendingSweeps(bob, 3)
+		expectedTxes = 2
 
-	// Carol should broadcast her second level HTLC transaction and Bob
-	// should broadcast a transaction to sweep his anchor outputs. Bob
-	// can't sweep his commitment output yet as he has incurred an
-	// additional CLTV due to being the channel initiator of a force closed
+	// Carol should broadcast her second level HTLC transaction. Bob can't
+	// sweep his commitment output yet as he has incurred an additional
+	// CLTV due to being the channel initiator of a force closed
 	// script-enforced leased channel.
 	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
 		ht.AssertNumPendingSweeps(bob, 2)
+		expectedTxes = 1
 
 	default:
 		ht.Fatalf("unhandled commitment type %v", c)
@@ -1612,14 +1608,15 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 	// anchor sweeping.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 	carolSecondLevelCSV--
-	ht.AssertNumTxsInMempool(2)
 
 	// Mine a block to confirm the expected transactions.
-	ht.MineBlocksAndAssertNumTxes(1, 2)
+	ht.MineBlocksAndAssertNumTxes(1, expectedTxes)
 
 	// When Bob notices Carol's second level transaction in the block, he
-	// will extract the preimage and offer the HTLC to his sweeper.
-	ht.AssertNumPendingSweeps(bob, 1)
+	// will extract the preimage and offer the HTLC to his sweeper. In
+	// addition, there are two anchor sweepings - one from the local
+	// commit, the other from the remote.
+	ht.AssertNumPendingSweeps(bob, 3)
 
 	// NOTE: after Bob is restarted, the sweeping of the direct preimage
 	// spent will happen immediately so we don't need to mine a block to
@@ -1683,7 +1680,10 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 
 		// Both Alice and Bob should offer their commit sweeps.
 		ht.AssertNumPendingSweeps(alice, 2)
-		ht.AssertNumPendingSweeps(bob, 1)
+
+		// In addition, Bob should still have the two anchor sweepings
+		// - one from the local commit, the other from the remote.
+		ht.AssertNumPendingSweeps(bob, 3)
 
 		// Mine a block to trigger the sweeps.
 		ht.MineEmptyBlocks(1)

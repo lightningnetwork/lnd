@@ -477,10 +477,10 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// other for commit output.
 	sweeps := ht.AssertNumPendingSweeps(alice, 2)
 
-	// Identify the sweep requests - the anchor sweep should have a smaller
-	// deadline height since it's been offered to the sweeper earlier.
+	// Identify the sweep requests - the anchor sweep should have a much
+	// larger deadline.
 	anchor, commit := sweeps[0], sweeps[1]
-	if anchor.DeadlineHeight > commit.DeadlineHeight {
+	if anchor.DeadlineHeight < commit.DeadlineHeight {
 		anchor, commit = commit, anchor
 	}
 

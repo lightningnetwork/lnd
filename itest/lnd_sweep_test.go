@@ -1381,7 +1381,15 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	bobSweepTx := ht.GetNumTxsFromMempool(1)[0]
 
 	// We expect two pending sweeps for Bob - anchor and commit outputs.
-	pendingSweepBob := ht.AssertNumPendingSweeps(bob, 2)[0]
+	pendingSweeps := ht.AssertNumPendingSweeps(bob, 2)
+
+	// Find the pending sweep for the commit output - since the anchor
+	// sweep has a much larger deadline, we will compare the deadlines to
+	// find the commit sweep.
+	pendingSweepBob := pendingSweeps[0]
+	if pendingSweepBob.DeadlineHeight > pendingSweeps[1].DeadlineHeight {
+		pendingSweepBob = pendingSweeps[1]
+	}
 
 	// The sweeper may be one block behind contractcourt, so we double
 	// check the actual deadline.
@@ -1403,9 +1411,8 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 
 	// We now check Bob's sweeping tx.
 	//
-	// Bob's sweeping tx should have 2 inputs, one from his commit output,
-	// the other from his anchor output.
-	require.Len(ht, bobSweepTx.TxIn, 2)
+	// Bob's sweeping tx should have 1 input which is his commit output.
+	require.Len(ht, bobSweepTx.TxIn, 1)
 
 	// Because Bob is sweeping without deadline pressure, the starting fee
 	// rate should be the min relay fee rate.
@@ -1417,9 +1424,8 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// With Bob's starting fee rate being validated, we now calculate his
 	// ending fee rate and fee rate delta.
 	//
-	// Bob sweeps two inputs - anchor and commit, so the starting budget
-	// should come from the sum of these two.
-	bobValue := btcutil.Amount(bobToLocal + 330)
+	// Bob sweeps only his commit output, so it will be the starting budget.
+	bobValue := btcutil.Amount(bobToLocal)
 	bobBudget := bobValue.MulF64(contractcourt.DefaultBudgetRatio)
 
 	// Calculate the ending fee rate and fee rate delta used in his fee
@@ -1632,6 +1638,15 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 			aliceSweepTx, bobSweepTx = bobSweepTx, aliceSweepTx
 		}
 
+		accumulatedDelta := bobFeeRateDelta *
+			chainfee.SatPerKWeight(bobPosition)
+
+		// Bob's sweeping tx will only be successfully RBFed every 3
+		// blocks.
+		if bobPosition%3 == 0 {
+			expectedFeeRateBob = bobStartFeeRate + accumulatedDelta
+		}
+
 		// Alice's sweeping tx should be increased.
 		aliceFeeRate := ht.CalculateTxFeeRate(aliceSweepTx)
 		expectedFeeRate := aliceStartingFeeRate +
@@ -1674,13 +1689,13 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 
 	reloclateAlicePosition()
 
-	// We now mine 7 empty blocks. For each block mined, we'd see Alice's
+	// We now mine 5 empty blocks. For each block mined, we'd see Alice's
 	// sweeping tx being RBFed. For Bob, he performs a fee bump every
-	// block, but will only publish a tx every 4 blocks mined as some of
+	// block, but will only publish a tx every 5 blocks mined as some of
 	// the fee bumps is not sufficient to meet the fee requirements
 	// enforced by RBF. Since his fee function is already at position 1,
-	// mining 7 more blocks means he will RBF his sweeping tx twice.
-	for i := 1; i < 7; i++ {
+	// mining 9 more blocks means he will RBF his sweeping tx twice.
+	for i := 1; i < 5; i++ {
 		// Mine an empty block to trigger the possible RBF attempts.
 		ht.MineEmptyBlocks(1)
 
@@ -1703,17 +1718,17 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 
 		// Make sure Bob's old sweeping tx has been removed from the
 		// mempool. Since Bob's sweeping tx will only be successfully
-		// RBFed every 4 blocks, his old sweeping tx only will be
-		// removed when there are 4 blocks increased.
-		if bobPosition%4 == 0 {
+		// RBFed every 3 blocks, his old sweeping tx only will be
+		// removed when there are 3 blocks increased.
+		if bobPosition%3 == 0 {
 			ht.AssertTxNotInMempool(bobSweepTx.TxHash())
 		}
 
 		// We should see two txns in the mempool:
 		// - Alice's sweeping tx, which sweeps both her anchor and
 		//   commit outputs, using the increased fee rate.
-		// - Bob's previous sweeping tx, which sweeps both his anchor
-		//   and commit outputs, at the possible increased fee rate.
+		// - Bob's previous sweeping tx, which sweeps both his commit
+		//   output, at the possible increased fee rate.
 		txns := ht.GetNumTxsFromMempool(2)
 
 		// Assume the first tx is Alice's sweeping tx, if the second tx
@@ -1759,9 +1774,9 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 		accumulatedDelta := bobFeeRateDelta *
 			chainfee.SatPerKWeight(bobPosition)
 
-		// Bob's sweeping tx will only be successfully RBFed every 4
+		// Bob's sweeping tx will only be successfully RBFed every 3
 		// blocks.
-		if bobPosition%4 == 0 {
+		if bobPosition%3 == 0 {
 			expectedFeeRateBob = bobStartFeeRate + accumulatedDelta
 		}
 

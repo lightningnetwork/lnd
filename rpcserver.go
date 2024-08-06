@@ -5210,6 +5210,7 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 	if rpcPayReq.PaymentRequest != "" {
 		payReq, err := zpay32.Decode(
 			rpcPayReq.PaymentRequest, r.cfg.ActiveNetParams.Params,
+			zpay32.WithErrorOnUnknownFeatureBit(),
 		)
 		if err != nil {
 			return payIntent, err

@@ -76,6 +76,10 @@
   All units are `sats/kvB`. If the new field `min_relay_feerate` is not set,
   the default floor feerate (1012 sats/kvB) will be used.
 
+* [nodeannouncement](https://github.com/lightningnetwork/lnd/pull/8825)
+  previously configured is now resued when a node restarts, instead of going
+  back to the default.
+
 ## RPC Updates
 
 * [`xImportMissionControl`](https://github.com/lightningnetwork/lnd/pull/8779) 
@@ -144,6 +148,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Abdullahi Yunus
 * Andras Banki-Horvath
 * Bufo
 * Elle Mouton

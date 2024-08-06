@@ -18,12 +18,16 @@ const testMaxRecords = 2
 
 var (
 	// mcStoreTestRoute is a test route for the mission control store tests.
-	mcStoreTestRoute = route.Route{
-		SourcePubKey: route.Vertex{1},
-		Hops: []*route.Hop{
+	mcStoreTestRoute = mcRoute{
+		totalAmount:  lnwire.MilliSatoshi(5),
+		sourcePubKey: route.Vertex{1},
+		hops: []*mcHop{
 			{
-				PubKeyBytes:   route.Vertex{2},
-				LegacyPayload: true,
+				pubKeyBytes:      route.Vertex{2},
+				channelID:        4,
+				amtToFwd:         lnwire.MilliSatoshi(7),
+				hasCustomRecords: true,
+				hasBlindingPoint: false,
 			},
 		},
 	}

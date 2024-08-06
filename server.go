@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"image/color"
 	"math/big"
 	prand "math/rand"
 	"net"
@@ -810,29 +811,39 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// configuration so we can send it out as a sort of heart beat within
 	// the network.
 	//
-	// We'll start by parsing the node color from configuration.
-	color, err := lncfg.ParseHexColor(cfg.Color)
+	color, alias, address, features, err := resolveNodeAnnouncementDetails(
+		cfg, chanGraph, s, serializedPubKey,
+	)
 	if err != nil {
-		srvrLog.Errorf("unable to parse color: %v\n", err)
 		return nil, err
 	}
 
-	// If no alias is provided, default to first 10 characters of public
-	// key.
-	alias := cfg.Alias
-	if alias == "" {
-		alias = hex.EncodeToString(serializedPubKey[:10])
+	// Create a map to track existing addresses for quick lookup
+	addressMap := make(map[string]struct{}, len(selfAddrs))
+	// Populate the map with the existing addresses
+	for _, existingAddr := range selfAddrs {
+		addressMap[existingAddr.String()] = struct{}{}
 	}
+	// Append unique addresses from the persisted list to the node's
+	// address list
+	for _, addr := range address {
+		if _, found := addressMap[addr.String()]; !found {
+			selfAddrs = append(selfAddrs, addr)
+			addressMap[addr.String()] = struct{}{}
+		}
+	}
+
 	nodeAlias, err := lnwire.NewNodeAlias(alias)
 	if err != nil {
 		return nil, err
 	}
+
 	selfNode := &channeldb.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Now(),
 		Addresses:            selfAddrs,
 		Alias:                nodeAlias.String(),
-		Features:             s.featureMgr.Get(feature.SetNodeAnn),
+		Features:             features,
 		Color:                color,
 	}
 	copy(selfNode.PubKeyBytes[:], nodeKeyDesc.PubKey.SerializeCompressed())
@@ -4828,4 +4839,64 @@ func shouldPeerBootstrap(cfg *Config) bool {
 	// TODO(yy): remove the check on simnet/regtest such that the itest is
 	// covering the bootstrapping process.
 	return !cfg.NoNetBootstrap && !isDevNetwork
+}
+
+// resolveNodeAnnouncementDetails fetches and populates the alias, color,
+// addresses, and feature bits for the given NodeAnnouncement.
+func resolveNodeAnnouncementDetails(
+	cfg *Config, chanGraph *channeldb.ChannelGraph,
+	s *server, serializedPubKey [33]byte,
+) (color.RGBA, string, []net.Addr, *lnwire.FeatureVector, error) {
+	// Fetch the source node from the channel graph. If a source node is
+	// found, we'll use its values for our initial node announcement.
+	persistedNode, err := chanGraph.SourceNode()
+	if err != nil {
+		srvrLog.Errorf("unable to fetch source node: %v", err)
+	}
+
+	// If the node is restarted, we should use the previously persisted
+	// values for the node's alias, color, addresses, and features.
+	// Otherwise, we'll use the configured values.
+	var (
+		color    color.RGBA
+		alias    = cfg.Alias
+		features *lnwire.FeatureVector
+		addr     []net.Addr
+	)
+
+	// If the node was previously persisted, we'll use the saved values.
+	if persistedNode != nil {
+		// If the color is still set to the default, we'll use the
+		// persisted color.
+		if cfg.Color == defaultColor {
+			color = persistedNode.Color
+		}
+
+		// If an alias was not specified in the configuration,
+		// we'll use the saved alias.
+		if alias == "" {
+			alias = persistedNode.Alias
+		}
+
+		addr = persistedNode.Addresses
+
+		features = persistedNode.Features
+	} else {
+		color, err = lncfg.ParseHexColor(cfg.Color)
+		if err != nil {
+			srvrLog.Errorf("unable to parse color: %v\n", err)
+
+			return color, alias, addr, features, err
+		}
+
+		// If an alias was not specified, we'll generate one based on
+		// the serialized public key.
+		if alias == "" {
+			alias = hex.EncodeToString(serializedPubKey[:10])
+		}
+
+		features = s.featureMgr.Get(feature.SetNodeAnn)
+	}
+
+	return color, alias, addr, features, nil
 }

@@ -199,7 +199,7 @@ type MissionControlPairSnapshot struct {
 type paymentResult struct {
 	id                 uint64
 	timeFwd, timeReply time.Time
-	route              *route.Route
+	route              *mcRoute
 	success            bool
 	failureSourceIdx   *int
 	failure            lnwire.FailureMessage
@@ -421,7 +421,7 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 		id:               paymentID,
 		failureSourceIdx: failureSourceIdx,
 		failure:          failure,
-		route:            rt,
+		route:            extractMCRoute(rt),
 	}
 
 	return m.processPaymentResult(result)
@@ -439,7 +439,7 @@ func (m *MissionControl) ReportPaymentSuccess(paymentID uint64,
 		timeReply: timestamp,
 		id:        paymentID,
 		success:   true,
-		route:     rt,
+		route:     extractMCRoute(rt),
 	}
 
 	_, err := m.processPaymentResult(result)

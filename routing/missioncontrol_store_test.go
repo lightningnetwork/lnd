@@ -18,12 +18,11 @@ const testMaxRecords = 2
 
 var (
 	// mcStoreTestRoute is a test route for the mission control store tests.
-	mcStoreTestRoute = route.Route{
-		SourcePubKey: route.Vertex{1},
-		Hops: []*route.Hop{
+	mcStoreTestRoute = mcRoute{
+		sourcePubKey: route.Vertex{1},
+		hops: []*mcHop{
 			{
-				PubKeyBytes:   route.Vertex{2},
-				LegacyPayload: true,
+				pubKeyBytes: route.Vertex{2},
 			},
 		},
 	}

@@ -79,12 +79,26 @@ func (r Result[T]) MapErr(f func(error) error) Result[T] {
 }
 
 // Option returns the success value as an Option.
+//
+// Deprecated: Use OkToSome instead.
 func (r Result[T]) Option() Option[T] {
 	return r.Either.LeftToOption()
 }
 
+// OkToSome mutes the error value of the result.
+func (r Result[T]) OkToSome() Option[T] {
+	return r.Either.LeftToOption()
+}
+
 // WhenResult executes the given function if the Result is a success.
+//
+// Deprecated: Use WhenOk instead.
 func (r Result[T]) WhenResult(f func(T)) {
+	r.WhenLeft(f)
+}
+
+// WhenOk executes the given function if the Result is a success.
+func (r Result[T]) WhenOk(f func(T)) {
 	r.WhenLeft(f)
 }
 

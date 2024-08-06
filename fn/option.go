@@ -1,6 +1,7 @@
 package fn
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -231,4 +232,22 @@ func OptionToRight[O, L, R any](o Option[O], l L) Either[L, O] {
 	}
 
 	return NewLeft[L, O](l)
+}
+
+// SomeToOk allows you to convert an Option value to a Result with your own
+// error. If the Option contained a Some, then the supplied error is ignored
+// and Some is converted to Ok.
+func (o Option[A]) SomeToOk(err error) Result[A] {
+	return Result[A]{
+		OptionToLeft[A, A, error](o, err),
+	}
+}
+
+// SomeToOkf allows you to convert an Option value to a Result with your own
+// error message. If the Option contains a Some, then the supplied message is
+// ignored and Some is converted to Ok.
+func (o Option[A]) SomeToOkf(errString string, args ...interface{}) Result[A] {
+	return Result[A]{
+		OptionToLeft[A, A, error](o, fmt.Errorf(errString, args...)),
+	}
 }

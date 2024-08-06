@@ -2,6 +2,7 @@ package fn
 
 import (
 	"fmt"
+	"math/rand"
 	"slices"
 	"testing"
 	"testing/quick"
@@ -413,6 +414,122 @@ func TestPropTailDecrementsLength(t *testing.T) {
 	require.NoError(t, quick.Check(f, nil))
 }
 
+func TestSingletonTailIsEmpty(t *testing.T) {
+	require.Equal(t, Tail([]int{1}), Some([]int{}))
+}
+
+func TestSingletonInitIsEmpty(t *testing.T) {
+	require.Equal(t, Init([]int{1}), Some([]int{}))
+}
+
+// TestPropAlwaysNoneEmptyFilterMap ensures the property that if we were to
+// always return none from our filter function then we would end up with an
+// empty slice.
+func TestPropAlwaysNoneEmptyFilterMap(t *testing.T) {
+	f := func(s []int) bool {
+		filtered := FilterMap(s, Const[Option[int], int](None[int]()))
+		return len(filtered) == 0
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+// TestPropFilterMapSomeIdentity ensures that if the filter function is a
+// trivial lift into Option space, then we will get back the original slice.
+func TestPropFilterMapSomeIdentity(t *testing.T) {
+	f := func(s []int) bool {
+		filtered := FilterMap(s, Some[int])
+		return slices.Equal(s, filtered)
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+// TestPropFilterMapCantGrow ensures that regardless of the filter functions
+// return values, we will never end up with a slice larger than the original.
+func TestPropFilterMapCantGrow(t *testing.T) {
+	f := func(s []int) bool {
+		filterFunc := func(i int) Option[int] {
+			if rand.Int()%2 == 0 {
+				return None[int]()
+			}
+
+			return Some(i + rand.Int())
+		}
+
+		return len(FilterMap(s, filterFunc)) <= len(s)
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+// TestPropFilterMapBisectIdentity ensures that the concatenation of the
+// FilterMaps is the same as the FilterMap of the concatenation.
+func TestPropFilterMapBisectIdentity(t *testing.T) {
+	f := func(s []int) bool {
+		sz := len(s)
+		first := s[0 : sz/2]
+		second := s[sz/2 : sz]
+
+		filterFunc := func(i int) Option[int] {
+			if i%2 == 0 {
+				return None[int]()
+			}
+
+			return Some(i)
+		}
+
+		firstFiltered := FilterMap(first, filterFunc)
+		secondFiltered := FilterMap(second, filterFunc)
+		allFiltered := FilterMap(s, filterFunc)
+		reassembled := slices.Concat(firstFiltered, secondFiltered)
+
+		return slices.Equal(allFiltered, reassembled)
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+// TestTraverseOkIdentity ensures that trivially lifting the elements of a slice
+// via the Ok function during a Traverse is equivalent to just lifting the
+// entire slice via the Ok function.
+func TestPropTraverseOkIdentity(t *testing.T) {
+	f := func(s []int) bool {
+		traversed := TraverseResult(s, Ok[int])
+
+		traversedOk := traversed.UnwrapOrFail(t)
+
+		return slices.Equal(s, traversedOk)
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+// TestPropTraverseSingleErrEjection ensures that if the traverse function
+// returns even a single error, then the entire Traverse will error.
+func TestPropTraverseSingleErrEjection(t *testing.T) {
+	f := func(s []int, errIdx uint8) bool {
+		if len(s) == 0 {
+			return true
+		}
+
+		errIdxMut := int(errIdx) % len(s)
+		f := func(i int) Result[int] {
+			if errIdxMut == 0 {
+				return Errf[int]("err")
+			}
+
+			errIdxMut--
+
+			return Ok(i)
+		}
+
+		return TraverseResult(s, f).IsErr()
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
 func TestPropInitDecrementsLength(t *testing.T) {
 	f := func(s []uint8) bool {
 		if len(s) == 0 {
@@ -425,10 +542,137 @@ func TestPropInitDecrementsLength(t *testing.T) {
 	require.NoError(t, quick.Check(f, nil))
 }
 
-func TestSingletonTailIsEmpty(t *testing.T) {
-	require.Equal(t, Tail([]int{1}), Some([]int{}))
+// TestPropTrimNonesEqualsFilterMapIden checks that if we use the Iden
+// function when calling FilterMap on a slice of Options that we get the same
+// result as we would if we called TrimNones on it.
+func TestPropTrimNonesEqualsFilterMapIden(t *testing.T) {
+	f := func(s []uint8) bool {
+		withNones := make([]Option[uint8], len(s))
+		for i, x := range s {
+			if x%3 == 0 {
+				withNones[i] = None[uint8]()
+			} else {
+				withNones[i] = Some(x)
+			}
+		}
+
+		return slices.Equal(
+			FilterMap(withNones, Iden[Option[uint8]]),
+			TrimNones(withNones),
+		)
+	}
+
+	require.NoError(t, quick.Check(f, nil))
 }
 
-func TestSingletonInitIsEmpty(t *testing.T) {
-	require.Equal(t, Init([]int{1}), Some([]int{}))
+// TestPropCollectResultsSingleErrEjection ensures that if there is even a
+// single error in the batch, then CollectResults will return an error.
+func TestPropCollectResultsSingleErrEjection(t *testing.T) {
+	f := func(s []int, errIdx uint8) bool {
+		if len(s) == 0 {
+			return true
+		}
+
+		errIdxMut := int(errIdx) % len(s)
+		f := func(i int) Result[int] {
+			if errIdxMut == 0 {
+				return Errf[int]("err")
+			}
+
+			errIdxMut--
+
+			return Ok(i)
+		}
+
+		return CollectResults(Map(f, s)).IsErr()
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+// TestPropCollectResultsNoErrUnwrap ensures that if there are no errors in the
+// results then we end up with unwrapping all of the Results in the slice.
+func TestPropCollectResultsNoErrUnwrap(t *testing.T) {
+	f := func(s []int) bool {
+		res := CollectResults(Map(Ok[int], s))
+		return !res.isRight && slices.Equal(res.left, s)
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+// TestPropTraverseSomeIdentity ensures that trivially lifting the elements of a
+// slice via the Some function during a Traverse is equivalent to just lifting
+// the entire slice via the Some function.
+func TestPropTraverseSomeIdentity(t *testing.T) {
+	f := func(s []int) bool {
+		traversed := TraverseOption(s, Some[int])
+
+		traversedSome := traversed.UnwrapOrFail(t)
+
+		return slices.Equal(s, traversedSome)
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+// TestTraverseSingleNoneEjection ensures that if the traverse function returns
+// even a single None, then the entire Traverse will return None.
+func TestTraverseSingleNoneEjection(t *testing.T) {
+	f := func(s []int, errIdx uint8) bool {
+		if len(s) == 0 {
+			return true
+		}
+
+		errIdxMut := int(errIdx) % len(s)
+		f := func(i int) Option[int] {
+			if errIdxMut == 0 {
+				return None[int]()
+			}
+
+			errIdxMut--
+
+			return Some(i)
+		}
+
+		return TraverseOption(s, f).IsNone()
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+// TestPropCollectOptionsSingleNoneEjection ensures that if there is even a
+// single None in the batch, then CollectOptions will return a None.
+func TestPropCollectOptionsSingleNoneEjection(t *testing.T) {
+	f := func(s []int, errIdx uint8) bool {
+		if len(s) == 0 {
+			return true
+		}
+
+		errIdxMut := int(errIdx) % len(s)
+		f := func(i int) Option[int] {
+			if errIdxMut == 0 {
+				return None[int]()
+			}
+
+			errIdxMut--
+
+			return Some(i)
+		}
+
+		return CollectOptions(Map(f, s)).IsNone()
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+// TestPropCollectOptionsNoNoneUnwrap ensures that if there are no nones in the
+// options then we end up with unwrapping all of the Options in the slice.
+func TestPropCollectOptionsNoNoneUnwrap(t *testing.T) {
+	f := func(s []int) bool {
+		res := CollectOptions(Map(Some[int], s))
+		return res.isSome && slices.Equal(res.some, s)
+	}
+
+	require.NoError(t, quick.Check(f, nil))
 }

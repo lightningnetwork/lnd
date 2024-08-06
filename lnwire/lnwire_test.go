@@ -438,6 +438,22 @@ func TestLightningWireProtocol(t *testing.T) {
 	// are too complex for the testing/quick package to automatically
 	// generate.
 	customTypeGen := map[MessageType]func([]reflect.Value, *rand.Rand){
+		MsgStfu: func(v []reflect.Value, r *rand.Rand) {
+			req := Stfu{}
+			if _, err := r.Read(req.ChanID[:]); err != nil {
+				t.Fatalf("unable to generate ChanID: %v", err)
+			}
+
+			// 1/2 chance of being initiator
+			req.Initiator = r.Intn(2) == 1
+
+			// 1/2 chance additional TLV data.
+			if r.Intn(2) == 0 {
+				req.ExtraData = []byte{0xfd, 0x00, 0xff, 0x00}
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
 		MsgInit: func(v []reflect.Value, r *rand.Rand) {
 			req := NewInitMessage(
 				randRawFeatureVector(r),
@@ -1384,6 +1400,12 @@ func TestLightningWireProtocol(t *testing.T) {
 		msgType  MessageType
 		scenario interface{}
 	}{
+		{
+			msgType: MsgStfu,
+			scenario: func(m Stfu) bool {
+				return mainScenario(&m)
+			},
+		},
 		{
 			msgType: MsgInit,
 			scenario: func(m Init) bool {

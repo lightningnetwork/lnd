@@ -43,6 +43,7 @@ import (
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/blindedpath"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -183,6 +184,9 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	AddSubLogger(root, peersrpc.Subsystem, interceptor, peersrpc.UseLogger)
 	AddSubLogger(root, graph.Subsystem, interceptor, graph.UseLogger)
 	AddSubLogger(root, lncfg.Subsystem, interceptor, lncfg.UseLogger)
+	AddSubLogger(
+		root, blindedpath.Subsystem, interceptor, blindedpath.UseLogger,
+	)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

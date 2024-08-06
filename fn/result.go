@@ -81,8 +81,20 @@ func (r Result[T]) Option() Option[T] {
 	return r.Either.LeftToOption()
 }
 
+// Hush mutes the error value of the result.
+func (r Result[T]) Hush() Option[T] {
+	return r.Either.LeftToOption()
+}
+
 // WhenResult executes the given function if the Result is a success.
+//
+// Deprecated: Use WhenOk instead.
 func (r Result[T]) WhenResult(f func(T)) {
+	r.WhenLeft(f)
+}
+
+// WhenOk executes the given function if the Result is a success.
+func (r Result[T]) WhenOk(f func(T)) {
 	r.WhenLeft(f)
 }
 

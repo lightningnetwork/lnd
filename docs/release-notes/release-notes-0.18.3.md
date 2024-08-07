@@ -102,6 +102,9 @@ commitment when the channel was force closed.
 * [`ChanInfoRequest`](https://github.com/lightningnetwork/lnd/pull/8813)
   adds support for channel points.
 
+* [BuildRoute](https://github.com/lightningnetwork/lnd/pull/8886) now supports
+  inbound fees.
+
 ## lncli Updates
 
 * [`importmc`](https://github.com/lightningnetwork/lnd/pull/8779) now accepts

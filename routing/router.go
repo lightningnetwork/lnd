@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/big"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -797,6 +798,7 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte,
 				hopCopy := sphinxPath[i]
 				path[i] = hopCopy
 			}
+
 			return spew.Sdump(path)
 		}),
 	)
@@ -1350,47 +1352,28 @@ func (r *ChannelRouter) extractChannelUpdate(
 // channels that satisfy all requirements.
 type ErrNoChannel struct {
 	position int
-	fromNode route.Vertex
 }
 
 // Error returns a human-readable string describing the error.
 func (e ErrNoChannel) Error() string {
 	return fmt.Sprintf("no matching outgoing channel available for "+
-		"node %v (%v)", e.position, e.fromNode)
+		"node index %v", e.position)
 }
 
 // BuildRoute returns a fully specified route based on a list of pubkeys. If
 // amount is nil, the minimum routable amount is used. To force a specific
 // outgoing channel, use the outgoingChan parameter.
-func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
+func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
 	hops []route.Vertex, outgoingChan *uint64,
 	finalCltvDelta int32, payAddr *[32]byte) (*route.Route, error) {
 
-	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v",
-		len(hops), amt)
+	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v", len(hops), amt)
 
 	var outgoingChans map[uint64]struct{}
 	if outgoingChan != nil {
 		outgoingChans = map[uint64]struct{}{
 			*outgoingChan: {},
 		}
-	}
-
-	// If no amount is specified, we need to build a route for the minimum
-	// amount that this route can carry.
-	useMinAmt := amt == nil
-
-	var runningAmt lnwire.MilliSatoshi
-	if useMinAmt {
-		// For minimum amount routes, aim to deliver at least 1 msat to
-		// the destination. There are nodes in the wild that have a
-		// min_htlc channel policy of zero, which could lead to a zero
-		// amount payment being made.
-		runningAmt = 1
-	} else {
-		// If an amount is specified, we need to build a route that
-		// delivers exactly this amount to the final destination.
-		runningAmt = *amt
 	}
 
 	// We'll attempt to obtain a set of bandwidth hints that helps us select
@@ -1402,25 +1385,52 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		return nil, err
 	}
 
+	sourceNode := r.cfg.SelfNode
+
+	// We check that each node in the route has a connection to others that
+	// can forward in principle.
+	unifiers, err := getEdgeUnifiers(
+		r.cfg.SelfNode, hops, outgoingChans, r.cfg.RoutingGraph,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		receiverAmt lnwire.MilliSatoshi
+		senderAmt   lnwire.MilliSatoshi
+		pathEdges   []*unifiedEdge
+	)
+
+	// We determine the edges compatible with the requested amount, as well
+	// as the amount to send, which can be used to determine the final
+	// receiver amount, if a minimal amount was requested.
+	pathEdges, senderAmt, err = senderAmtBackwardPass(
+		unifiers, amt, bandwidthHints,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// For the minimal amount search, we need to do a forward pass to find a
+	// larger receiver amount due to possible min HTLC bumps, otherwise we
+	// just use the requested amount.
+	receiverAmt, err = fn.ElimOption(
+		amt,
+		func() fn.Result[lnwire.MilliSatoshi] {
+			return fn.NewResult(
+				receiverAmtForwardPass(senderAmt, pathEdges),
+			)
+		},
+		fn.Ok[lnwire.MilliSatoshi],
+	).Unpack()
+	if err != nil {
+		return nil, err
+	}
+
 	// Fetch the current block height outside the routing transaction, to
 	// prevent the rpc call blocking the database.
 	_, height, err := r.cfg.Chain.GetBestBlock()
-	if err != nil {
-		return nil, err
-	}
-
-	sourceNode := r.cfg.SelfNode
-	unifiers, senderAmt, err := getRouteUnifiers(
-		sourceNode, hops, useMinAmt, runningAmt, outgoingChans,
-		r.cfg.RoutingGraph, bandwidthHints,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	pathEdges, receiverAmt, err := getPathEdges(
-		sourceNode, senderAmt, unifiers, bandwidthHints, hops,
-	)
 	if err != nil {
 		return nil, err
 	}
@@ -1438,12 +1448,10 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	)
 }
 
-// getRouteUnifiers returns a list of edge unifiers for the given route.
-func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
-	useMinAmt bool, runningAmt lnwire.MilliSatoshi,
-	outgoingChans map[uint64]struct{}, graph Graph,
-	bandwidthHints *bandwidthManager) ([]*edgeUnifier, lnwire.MilliSatoshi,
-	error) {
+// getEdgeUnifiers returns a list of edge unifiers for the given route.
+func getEdgeUnifiers(source route.Vertex, hops []route.Vertex,
+	outgoingChans map[uint64]struct{},
+	graph Graph) ([]*edgeUnifier, error) {
 
 	// Allocate a list that will contain the edge unifiers for this route.
 	unifiers := make([]*edgeUnifier, len(hops))
@@ -1459,100 +1467,388 @@ func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
 			fromNode = hops[i-1]
 		}
 
-		localChan := i == 0
-
 		// Build unified policies for this hop based on the channels
-		// known in the graph. Don't use inbound fees.
-		//
-		// TODO: Add inbound fees support for BuildRoute.
+		// known in the graph. Inbound fees are only active if the edge
+		// is not the last hop.
+		isExitHop := i == len(hops)-1
 		u := newNodeEdgeUnifier(
-			source, toNode, false, outgoingChans,
+			source, toNode, !isExitHop, outgoingChans,
 		)
 
 		err := u.addGraphPolicies(graph)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 
 		// Exit if there are no channels.
 		edgeUnifier, ok := u.edgeUnifiers[fromNode]
 		if !ok {
 			log.Errorf("Cannot find policy for node %v", fromNode)
-			return nil, 0, ErrNoChannel{
-				fromNode: fromNode,
-				position: i,
-			}
+			return nil, ErrNoChannel{position: i}
 		}
-
-		// If using min amt, increase amt if needed.
-		if useMinAmt {
-			min := edgeUnifier.minAmt()
-			if min > runningAmt {
-				runningAmt = min
-			}
-		}
-
-		// Get an edge for the specific amount that we want to forward.
-		edge := edgeUnifier.getEdge(runningAmt, bandwidthHints, 0)
-		if edge == nil {
-			log.Errorf("Cannot find policy with amt=%v for node %v",
-				runningAmt, fromNode)
-
-			return nil, 0, ErrNoChannel{
-				fromNode: fromNode,
-				position: i,
-			}
-		}
-
-		// Add fee for this hop.
-		if !localChan {
-			runningAmt += edge.policy.ComputeFee(runningAmt)
-		}
-
-		log.Tracef("Select channel %v at position %v",
-			edge.policy.ChannelID, i)
 
 		unifiers[i] = edgeUnifier
 	}
 
-	return unifiers, runningAmt, nil
+	return unifiers, nil
 }
 
-// getPathEdges returns the edges that make up the path and the total amount,
-// including fees, to send the payment.
-func getPathEdges(source route.Vertex, receiverAmt lnwire.MilliSatoshi,
-	unifiers []*edgeUnifier, bandwidthHints *bandwidthManager,
-	hops []route.Vertex) ([]*unifiedEdge,
-	lnwire.MilliSatoshi, error) {
+// senderAmtBackwardPass returns a list of unified edges for the given route and
+// determines the amount that should be sent to fulfill min HTLC requirements.
+// The minimal sender amount can be searched for by using amt=None.
+func senderAmtBackwardPass(unifiers []*edgeUnifier,
+	amt fn.Option[lnwire.MilliSatoshi],
+	bandwidthHints bandwidthHints) ([]*unifiedEdge, lnwire.MilliSatoshi,
+	error) {
+
+	if len(unifiers) == 0 {
+		return nil, 0, fmt.Errorf("no unifiers provided")
+	}
+
+	var unifiedEdges = make([]*unifiedEdge, len(unifiers))
+
+	// We traverse the route backwards and handle the last hop separately.
+	edgeUnifier := unifiers[len(unifiers)-1]
+
+	// incomingAmt tracks the amount that is forwarded on the edges of a
+	// route. The last hop only forwards the amount that the receiver should
+	// receive, as there are no fees paid to the last node.
+	// For minimum amount routes, aim to deliver at least 1 msat to
+	// the destination. There are nodes in the wild that have a
+	// min_htlc channel policy of zero, which could lead to a zero
+	// amount payment being made.
+	incomingAmt := amt.UnwrapOr(1)
+
+	// If using min amt, increase the amount if needed to fulfill min HTLC
+	// requirements.
+	if amt.IsNone() {
+		min := edgeUnifier.minAmt()
+		if min > incomingAmt {
+			incomingAmt = min
+		}
+	}
+
+	// Get an edge for the specific amount that we want to forward.
+	edge := edgeUnifier.getEdge(incomingAmt, bandwidthHints, 0)
+	if edge == nil {
+		log.Errorf("Cannot find policy with amt=%v "+
+			"for hop %v", incomingAmt, len(unifiers)-1)
+
+		return nil, 0, ErrNoChannel{position: len(unifiers) - 1}
+	}
+
+	unifiedEdges[len(unifiers)-1] = edge
+
+	// Handle the rest of the route except the last hop.
+	for i := len(unifiers) - 2; i >= 0; i-- {
+		edgeUnifier = unifiers[i]
+
+		// If using min amt, increase the amount if needed to fulfill
+		// min HTLC requirements.
+		if amt.IsNone() {
+			min := edgeUnifier.minAmt()
+			if min > incomingAmt {
+				incomingAmt = min
+			}
+		}
+
+		// A --current hop-- B --next hop: incomingAmt-- C
+		// The outbound fee paid to the current end node B is based on
+		// the amount that the next hop forwards and B's policy for that
+		// hop.
+		outboundFee := unifiedEdges[i+1].policy.ComputeFee(
+			incomingAmt,
+		)
+
+		netAmount := incomingAmt + outboundFee
+
+		// We need to select an edge that can forward the requested
+		// amount.
+		edge = edgeUnifier.getEdge(
+			netAmount, bandwidthHints, outboundFee,
+		)
+		if edge == nil {
+			return nil, 0, ErrNoChannel{position: i}
+		}
+
+		// The fee paid to B depends on the current hop's inbound fee
+		// policy and on the outbound fee for the next hop as any
+		// inbound fee discount is capped by the outbound fee such that
+		// the total fee for B can't become negative.
+		inboundFee := calcCappedInboundFee(edge, netAmount, outboundFee)
+
+		fee := lnwire.MilliSatoshi(int64(outboundFee) + inboundFee)
+
+		log.Tracef("Select channel %v at position %v",
+			edge.policy.ChannelID, i)
+
+		// Finally, we update the amount that needs to flow into node B
+		// from A, which is the next hop's forwarding amount plus the
+		// fee for B: A --current hop: incomingAmt-- B --next hop-- C
+		incomingAmt += fee
+
+		unifiedEdges[i] = edge
+	}
+
+	return unifiedEdges, incomingAmt, nil
+}
+
+// receiverAmtForwardPass returns the amount that a receiver will receive after
+// deducting all fees from the sender amount.
+func receiverAmtForwardPass(runningAmt lnwire.MilliSatoshi,
+	unifiedEdges []*unifiedEdge) (lnwire.MilliSatoshi, error) {
+
+	if len(unifiedEdges) == 0 {
+		return 0, fmt.Errorf("no edges to forward through")
+	}
+
+	inEdge := unifiedEdges[0]
+	if !inEdge.amtInRange(runningAmt) {
+		log.Errorf("Amount %v not in range for hop index %v",
+			runningAmt, 0)
+
+		return 0, ErrNoChannel{position: 0}
+	}
 
 	// Now that we arrived at the start of the route and found out the route
 	// total amount, we make a forward pass. Because the amount may have
 	// been increased in the backward pass, fees need to be recalculated and
 	// amount ranges re-checked.
-	var pathEdges []*unifiedEdge
-	for i, unifier := range unifiers {
-		edge := unifier.getEdge(receiverAmt, bandwidthHints, 0)
-		if edge == nil {
-			fromNode := source
-			if i > 0 {
-				fromNode = hops[i-1]
-			}
+	for i := 1; i < len(unifiedEdges); i++ {
+		inEdge := unifiedEdges[i-1]
+		outEdge := unifiedEdges[i]
 
-			return nil, 0, ErrNoChannel{
-				fromNode: fromNode,
-				position: i,
-			}
+		// Decrease the amount to send while going forward.
+		runningAmt = outgoingFromIncoming(runningAmt, inEdge, outEdge)
+
+		if !outEdge.amtInRange(runningAmt) {
+			log.Errorf("Amount %v not in range for hop index %v",
+				runningAmt, i)
+
+			return 0, ErrNoChannel{position: i}
 		}
-
-		if i > 0 {
-			// Decrease the amount to send while going forward.
-			receiverAmt -= edge.policy.ComputeFeeFromIncoming(
-				receiverAmt,
-			)
-		}
-
-		pathEdges = append(pathEdges, edge)
 	}
 
-	return pathEdges, receiverAmt, nil
+	return runningAmt, nil
+}
+
+// incomingFromOutgoing computes the incoming amount based on the outgoing
+// amount by adding fees to the outgoing amount, replicating the path finding
+// and routing process, see also CheckHtlcForward.
+func incomingFromOutgoing(outgoingAmt lnwire.MilliSatoshi,
+	incoming, outgoing *unifiedEdge) lnwire.MilliSatoshi {
+
+	outgoingFee := outgoing.policy.ComputeFee(outgoingAmt)
+
+	// Net amount is the amount the inbound fees are calculated with.
+	netAmount := outgoingAmt + outgoingFee
+
+	inboundFee := incoming.inboundFees.CalcFee(netAmount)
+
+	// The inbound fee is not allowed to reduce the incoming amount below
+	// the outgoing amount.
+	if int64(outgoingFee)+inboundFee < 0 {
+		return outgoingAmt
+	}
+
+	return netAmount + lnwire.MilliSatoshi(inboundFee)
+}
+
+// outgoingFromIncoming computes the outgoing amount based on the incoming
+// amount by subtracting fees from the incoming amount. Note that this is not
+// exactly the inverse of incomingFromOutgoing, because of some rounding.
+func outgoingFromIncoming(incomingAmt lnwire.MilliSatoshi,
+	incoming, outgoing *unifiedEdge) lnwire.MilliSatoshi {
+
+	// Convert all quantities to big.Int to be able to hande negative
+	// values. The formulas to compute the outgoing amount involve terms
+	// with PPM*PPM*A, which can easily overflow an int64.
+	A := big.NewInt(int64(incomingAmt))
+	Ro := big.NewInt(int64(outgoing.policy.FeeProportionalMillionths))
+	Bo := big.NewInt(int64(outgoing.policy.FeeBaseMSat))
+	Ri := big.NewInt(int64(incoming.inboundFees.Rate))
+	Bi := big.NewInt(int64(incoming.inboundFees.Base))
+	PPM := big.NewInt(1_000_000)
+
+	// The following discussion was contributed by user feelancer21, see
+	//nolint:lll
+	// https://github.com/feelancer21/lnd/commit/f6f05fa930985aac0d27c3f6681aada1b599162a.
+
+	// The incoming amount Ai based on the outgoing amount Ao is computed by
+	// Ai = max(Ai(Ao), Ao), which caps the incoming amount such that the
+	// total node fee (Ai - Ao) is non-negative. This is commonly enforced
+	// by routing nodes.
+
+	// The function Ai(Ao) is given by:
+	// Ai(Ao) = (Ao + Bo + Ro/PPM) + (Bi + (Ao + Ro/PPM + Bo)*Ri/PPM), where
+	// the first term is the net amount (the outgoing amount plus the
+	// outbound fee), and the second is the inbound fee computed based on
+	// the net amount.
+
+	// Ai(Ao) can potentially become more negative in absolute value than
+	// Ao, which is why the above mentioned capping is needed. We can
+	// abbreviate Ai(Ao) with Ai(Ao) = m*Ao + n, where m and n are:
+	// m := (1 + Ro/PPM) * (1 + Ri/PPM)
+	// n := Bi + Bo*(1 + Ri/PPM)
+
+	// If we know that m > 0, this is equivalent of Ri/PPM > -1, because Ri
+	// is the only factor that can become negative. A value or Ri/PPM = -1,
+	// means that the routing node is willing to give up on 100% of the
+	// net amount (based on the fee rate), which is likely to not happen in
+	// practice. This condition will be important for a later trick.
+
+	// If we want to compute the incoming amount based on the outgoing
+	// amount, which is the reverse problem, we need to solve Ai =
+	// max(Ai(Ao), Ao) for Ao(Ai). Given an incoming amount A,
+	// we look for an Ao such that A = max(Ai(Ao), Ao).
+
+	// The max function separates this into two cases. The case to take is
+	// not clear yet, because we don't know Ao, but later we see a trick
+	// how to determine which case is the one to take.
+
+	// first case: Ai(Ao) <= Ao:
+	// Therefore, A = max(Ai(Ao), Ao) = Ao, we find Ao = A.
+	// This also leads to Ai(A) <= A by substitution into the condition.
+
+	// second case: Ai(Ao) > Ao:
+	// Therefore, A = max(Ai(Ao), Ao) = Ai(Ao) = m*Ao + n. Solving for Ao
+	// gives Ao = (A - n)/m.
+	//
+	// We know
+	// Ai(Ao) > Ao  <=>  A = Ai(Ao) > Ao = (A - n)/m,
+	// so A > (A - n)/m.
+	//
+	// **Assuming m > 0**, by multiplying with m, we can transform this to
+	// A * m + n > A.
+	//
+	// We know Ai(A) = A*m + n, therefore Ai(A) > A.
+	//
+	// This means that if we apply the incoming amount calculation to the
+	// **incoming** amount, and this condition holds, then we know that we
+	// deal with the second case, being able to compute the outgoing amount
+	// based off the formula Ao = (A - n)/m, otherwise we will just return
+	// the incoming amount.
+
+	// In case the inbound fee rate is less than -1 (-100%), we fail to
+	// compute the outbound amount and return the incoming amount. This also
+	// protects against zero division later.
+
+	// We compute m in terms of big.Int to be safe from overflows and to be
+	// consistent with later calculations.
+	// m := (PPM*PPM + Ri*PPM + Ro*PPM + Ro*Ri)/(PPM*PPM)
+
+	// Compute terms in (PPM*PPM + Ri*PPM + Ro*PPM + Ro*Ri).
+	m1 := new(big.Int).Mul(PPM, PPM)
+	m2 := new(big.Int).Mul(Ri, PPM)
+	m3 := new(big.Int).Mul(Ro, PPM)
+	m4 := new(big.Int).Mul(Ro, Ri)
+
+	// Add up terms m1..m4.
+	m := big.NewInt(0)
+	m.Add(m, m1)
+	m.Add(m, m2)
+	m.Add(m, m3)
+	m.Add(m, m4)
+
+	// Since we compare to 0, we can multiply by PPM*PPM to avoid the
+	// division.
+	if m.Int64() <= 0 {
+		return incomingAmt
+	}
+
+	// In order to decide if the total fee is negative, we apply the fee
+	// to the *incoming* amount as mentioned before.
+
+	// We compute the test amount in terms of big.Int to be safe from
+	// overflows and to be consistent later calculations.
+	// testAmtF := A*m + n =
+	// = A + Bo + Bi + (PPM*(A*Ri + A*Ro + Ro*Ri) + A*Ri*Ro)/(PPM*PPM)
+
+	// Compute terms in (A*Ri + A*Ro + Ro*Ri).
+	t1 := new(big.Int).Mul(A, Ri)
+	t2 := new(big.Int).Mul(A, Ro)
+	t3 := new(big.Int).Mul(Ro, Ri)
+
+	// Sum up terms t1-t3.
+	t4 := big.NewInt(0)
+	t4.Add(t4, t1)
+	t4.Add(t4, t2)
+	t4.Add(t4, t3)
+
+	// Compute PPM*(A*Ri + A*Ro + Ro*Ri).
+	t6 := new(big.Int).Mul(PPM, t4)
+
+	// Compute A*Ri*Ro.
+	t7 := new(big.Int).Mul(A, Ri)
+	t7.Mul(t7, Ro)
+
+	// Compute (PPM*(A*Ri + A*Ro + Ro*Ri) + A*Ri*Ro)/(PPM*PPM).
+	num := new(big.Int).Add(t6, t7)
+	denom := new(big.Int).Mul(PPM, PPM)
+	fraction := new(big.Int).Div(num, denom)
+
+	// Sum up all terms.
+	testAmt := big.NewInt(0)
+	testAmt.Add(testAmt, A)
+	testAmt.Add(testAmt, Bo)
+	testAmt.Add(testAmt, Bi)
+	testAmt.Add(testAmt, fraction)
+
+	// Protect against negative values for the integer cast to Msat.
+	if testAmt.Int64() < 0 {
+		return incomingAmt
+	}
+
+	// If the second case holds, we have to compute the outgoing amount.
+	if lnwire.MilliSatoshi(testAmt.Int64()) > incomingAmt {
+		// Compute the outgoing amount by integer ceiling division. This
+		// precision is needed because PPM*PPM*A and other terms can
+		// easily overflow with int64, which happens with about
+		// A = 10_000 sat.
+
+		// out := (A - n) / m = numerator / denominator
+		// numerator := PPM*(PPM*(A - Bo - Bi) - Bo*Ri)
+		// denominator := PPM*(PPM + Ri + Ro) + Ri*Ro
+
+		var numerator big.Int
+
+		// Compute (A - Bo - Bi).
+		temp1 := new(big.Int).Sub(A, Bo)
+		temp2 := new(big.Int).Sub(temp1, Bi)
+
+		// Compute terms in (PPM*(A - Bo - Bi) - Bo*Ri).
+		temp3 := new(big.Int).Mul(PPM, temp2)
+		temp4 := new(big.Int).Mul(Bo, Ri)
+
+		// Compute PPM*(PPM*(A - Bo - Bi) - Bo*Ri)
+		temp5 := new(big.Int).Sub(temp3, temp4)
+		numerator.Mul(PPM, temp5)
+
+		var denominator big.Int
+
+		// Compute (PPM + Ri + Ro).
+		temp1 = new(big.Int).Add(PPM, Ri)
+		temp2 = new(big.Int).Add(temp1, Ro)
+
+		// Compute PPM*(PPM + Ri + Ro) + Ri*Ro.
+		temp3 = new(big.Int).Mul(PPM, temp2)
+		temp4 = new(big.Int).Mul(Ri, Ro)
+		denominator.Add(temp3, temp4)
+
+		// We overestimate the outgoing amount by taking the ceiling of
+		// the division. This means that we may round slightly up by a
+		// MilliSatoshi, but this helps to ensure that we don't hit min
+		// HTLC constrains in the context of finding the minimum amount
+		// of a route.
+		// ceil = floor((numerator + denominator - 1) / denominator)
+		ceil := new(big.Int).Add(&numerator, &denominator)
+		ceil.Sub(ceil, big.NewInt(1))
+		ceil.Div(ceil, &denominator)
+
+		return lnwire.MilliSatoshi(ceil.Int64())
+	}
+
+	// Otherwise the inbound fee made up for the outbound fee, which is why
+	// we just return the incoming amount.
+	return incomingAmt
 }

@@ -1401,6 +1401,10 @@ func (s *Server) trackPaymentStream(context context.Context,
 func (s *Server) BuildRoute(_ context.Context,
 	req *BuildRouteRequest) (*BuildRouteResponse, error) {
 
+	if len(req.HopPubkeys) == 0 {
+		return nil, errors.New("no hops specified")
+	}
+
 	// Unmarshall hop list.
 	hops := make([]route.Vertex, len(req.HopPubkeys))
 	for i, pubkeyBytes := range req.HopPubkeys {

@@ -349,22 +349,12 @@ type commitment struct {
 
 // locateOutputIndex is a small helper function to locate the output index of a
 // particular HTLC within the current commitment transaction. The duplicate map
-// massed in is to be retained for each output within the commitment
+// passed in is to be retained for each output within the commitment
 // transition.  This ensures that we don't assign multiple HTLCs to the same
 // index within the commitment transaction.
 func locateOutputIndex(p *PaymentDescriptor, tx *wire.MsgTx,
 	whoseCommit lntypes.ChannelParty, dups map[PaymentHash][]int32,
 	cltvs []uint32) (int32, error) {
-
-	// Checks to see if element (e) exists in slice (s).
-	contains := func(s []int32, e int32) bool {
-		for _, a := range s {
-			if a == e {
-				return true
-			}
-		}
-		return false
-	}
 
 	// If this is their commitment transaction, we'll be trying to locate
 	// their pkScripts, otherwise we'll be looking for ours. This is
@@ -385,7 +375,7 @@ func locateOutputIndex(p *PaymentDescriptor, tx *wire.MsgTx,
 			// If this payment hash and index has already been
 			// found, then we'll continue in order to avoid any
 			// duplicate indexes.
-			if contains(dups[p.RHash], int32(i)) {
+			if fn.Elem(int32(i), dups[p.RHash]) {
 				continue
 			}
 
@@ -576,7 +566,7 @@ func (c *commitment) toDiskCommit(
 // restore commitment state written to disk back into memory once we need to
 // restart a channel session.
 func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
-	commitHeight uint64, htlc *channeldb.HTLC, localCommitKeys,
+	htlc *channeldb.HTLC, localCommitKeys *CommitmentKeyRing,
 	remoteCommitKeys *CommitmentKeyRing, whoseCommit lntypes.ChannelParty,
 ) (PaymentDescriptor, error) {
 
@@ -664,8 +654,8 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 // to a set of incoming and outgoing payment descriptors. Once reconstructed,
 // these payment descriptors can be re-inserted into the in-memory updateLog
 // for each side.
-func (lc *LightningChannel) extractPayDescs(commitHeight uint64,
-	feeRate chainfee.SatPerKWeight, htlcs []channeldb.HTLC, localCommitKeys,
+func (lc *LightningChannel) extractPayDescs(feeRate chainfee.SatPerKWeight,
+	htlcs []channeldb.HTLC, localCommitKeys *CommitmentKeyRing,
 	remoteCommitKeys *CommitmentKeyRing, whoseCommit lntypes.ChannelParty,
 ) ([]PaymentDescriptor, []PaymentDescriptor, error) {
 
@@ -685,7 +675,7 @@ func (lc *LightningChannel) extractPayDescs(commitHeight uint64,
 		htlc := htlc
 
 		payDesc, err := lc.diskHtlcToPayDesc(
-			feeRate, commitHeight, &htlc,
+			feeRate, &htlc,
 			localCommitKeys, remoteCommitKeys,
 			whoseCommit,
 		)
@@ -738,7 +728,6 @@ func (lc *LightningChannel) diskCommitToMemCommit(
 	// HTLC"s into PaymentDescriptor's so we can re-insert them into our
 	// update log.
 	incomingHtlcs, outgoingHtlcs, err := lc.extractPayDescs(
-		diskCommit.CommitHeight,
 		chainfee.SatPerKWeight(diskCommit.FeePerKw),
 		diskCommit.Htlcs, localCommitKeys, remoteCommitKeys,
 		whoseCommit,

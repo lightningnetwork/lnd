@@ -46,8 +46,16 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testDataLossProtection,
 	},
 	{
-		Name:     "sweep coins",
-		TestFunc: testSweepAllCoins,
+		Name:     "send all coins",
+		TestFunc: testSendAllCoins,
+	},
+	{
+		Name:     "send selected coins",
+		TestFunc: testSendSelectedCoins,
+	},
+	{
+		Name:     "send selected coins channel reserve",
+		TestFunc: testSendSelectedCoinsChannelReserve,
 	},
 	{
 		Name:     "disconnecting target peer",

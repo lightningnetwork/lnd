@@ -16,6 +16,7 @@ import (
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -32,6 +33,10 @@ type WalletController struct {
 	index                 uint32
 	Utxos                 []*lnwallet.Utxo
 }
+
+// A compile time check to ensure this mocked WalletController implements the
+// WalletController.
+var _ lnwallet.WalletController = (*WalletController)(nil)
 
 // BackEnd returns "mock" to signify a mock wallet controller.
 func (w *WalletController) BackEnd() string {
@@ -140,15 +145,15 @@ func (w *WalletController) ImportTaprootScript(waddrmgr.KeyScope,
 }
 
 // SendOutputs currently returns dummy values.
-func (w *WalletController) SendOutputs([]*wire.TxOut,
-	chainfee.SatPerKWeight, int32, string,
-	base.CoinSelectionStrategy) (*wire.MsgTx, error) {
+func (w *WalletController) SendOutputs(fn.Set[wire.OutPoint], []*wire.TxOut,
+	chainfee.SatPerKWeight, int32, string, base.CoinSelectionStrategy) (
+	*wire.MsgTx, error) {
 
 	return nil, nil
 }
 
 // CreateSimpleTx currently returns dummy values.
-func (w *WalletController) CreateSimpleTx([]*wire.TxOut,
+func (w *WalletController) CreateSimpleTx(fn.Set[wire.OutPoint], []*wire.TxOut,
 	chainfee.SatPerKWeight, int32, base.CoinSelectionStrategy,
 	bool) (*txauthor.AuthoredTx, error) {
 

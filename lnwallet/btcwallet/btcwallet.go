@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/btcsuite/btcwallet/wallet"
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wallet/txrules"
@@ -26,6 +27,7 @@ import (
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/blockcache"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -977,8 +979,9 @@ func (b *BtcWallet) ImportTaprootScript(scope waddrmgr.KeyScope,
 // NOTE: This method requires the global coin selection lock to be held.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeRate chainfee.SatPerKWeight, minConfs int32, label string,
+func (b *BtcWallet) SendOutputs(inputs fn.Set[wire.OutPoint],
+	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
+	minConfs int32, label string,
 	strategy base.CoinSelectionStrategy) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
@@ -993,6 +996,14 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 	// Sanity check minConfs.
 	if minConfs < 0 {
 		return nil, lnwallet.ErrInvalidMinconf
+	}
+
+	// Use selected UTXOs if specified, otherwise default selection.
+	if len(inputs) != 0 {
+		return b.wallet.SendOutputsWithInput(
+			outputs, nil, defaultAccount, minConfs, feeSatPerKB,
+			strategy, label, inputs.ToSlice(),
+		)
 	}
 
 	return b.wallet.SendOutputs(
@@ -1014,10 +1025,10 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 // NOTE: This method requires the global coin selection lock to be held.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
-	feeRate chainfee.SatPerKWeight, minConfs int32,
-	strategy base.CoinSelectionStrategy,
-	dryRun bool) (*txauthor.AuthoredTx, error) {
+func (b *BtcWallet) CreateSimpleTx(inputs fn.Set[wire.OutPoint],
+	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight, minConfs int32,
+	strategy base.CoinSelectionStrategy, dryRun bool) (
+	*txauthor.AuthoredTx, error) {
 
 	// The fee rate is passed in using units of sat/kw, so we'll convert
 	// this to sat/KB as the CreateSimpleTx method requires this unit.
@@ -1047,9 +1058,12 @@ func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
 		}
 	}
 
+	// Add the optional inputs to the transaction.
+	optFunc := wallet.WithCustomSelectUtxos(inputs.ToSlice())
+
 	return b.wallet.CreateSimpleTx(
 		nil, defaultAccount, outputs, minConfs, feeSatPerKB,
-		strategy, dryRun,
+		strategy, dryRun, []wallet.TxCreateOption{optFunc}...,
 	)
 }
 

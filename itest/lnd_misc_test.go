@@ -758,9 +758,9 @@ func testAbandonChannel(ht *lntest.HarnessTest) {
 	ht.ForceCloseChannel(bob, chanPoint)
 }
 
-// testSweepAllCoins tests that we're able to properly sweep all coins from the
+// testSendAllCoins tests that we're able to properly sweep all coins from the
 // wallet into a single target address at the specified fee rate.
-func testSweepAllCoins(ht *lntest.HarnessTest) {
+func testSendAllCoins(ht *lntest.HarnessTest) {
 	// First, we'll make a new node, Ainz who'll we'll use to test wallet
 	// sweeping.
 	//
@@ -777,20 +777,22 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	sendCoinsLabel := "send all coins"
 
 	// Ensure that we can't send coins to our own Pubkey.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	err := ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
 		Addr:       ainz.RPC.GetInfo().IdentityPubkey,
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
 	})
+	require.ErrorContains(ht, err, "cannot send coins to pubkeys")
 
 	// Ensure that we can't send coins to another user's Pubkey.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	err = ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
 		Addr:       ht.Alice.RPC.GetInfo().IdentityPubkey,
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
 	})
+	require.ErrorContains(ht, err, "cannot send coins to pubkey")
 
 	// With the two coins above mined, we'll now instruct Ainz to sweep all
 	// the coins to an external address not under its control. We will first
@@ -800,20 +802,23 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// same network as the user.
 
 	// Send coins to a testnet3 address.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	err = ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
 		Addr:       "tb1qfc8fusa98jx8uvnhzavxccqlzvg749tvjw82tg",
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
 	})
+	require.ErrorContains(ht, err, "not valid for this network")
 
 	// Send coins to a mainnet address.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	err = ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
 		Addr:       "1MPaXKp5HhsLNjVSqaL7fChE3TVyrTMRT3",
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
 	})
+	// TODO(yy): should instead return "not valid for this network".
+	require.ErrorContains(ht, err, "unknown address type")
 
 	// TODO(yy): we still allow default values to be used when neither conf
 	// target or fee rate is set in 0.18.0. When future release forbidden
@@ -883,7 +888,7 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// label our transaction with an empty label, and check that we fail as
 	// expected.
 	sweepHash := sweepTx.TxHash()
-	err := ainz.RPC.LabelTransactionAssertErr(
+	err = ainz.RPC.LabelTransactionAssertErr(
 		&walletrpc.LabelTransactionRequest{
 			Txid:      sweepHash[:],
 			Label:     "",
@@ -929,13 +934,14 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 
 	// If we try again, but this time specifying an amount, then the call
 	// should fail.
-	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+	err = ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
 		Addr:       ht.NewMinerAddress().String(),
 		Amount:     10000,
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
 	})
+	require.ErrorContains(ht, err, "amount set while SendAll is active")
 
 	// With all the edge cases tested, we'll now test the happy paths of
 	// change output types.
@@ -1301,4 +1307,196 @@ func testNativeSQLNoMigration(ht *lntest.HarnessTest) {
 	// Reset the extra args and restart alice.
 	alice.SetExtraArgs(nil)
 	require.NoError(ht, alice.Start(ht.Context()))
+}
+
+// testSendSelectedCoins tests that we're able to properly send the selected
+// coins from the wallet to a single target address.
+func testSendSelectedCoins(ht *lntest.HarnessTest) {
+	// First, we'll make a new node, Alice who'll we'll use to test wallet
+	// sweeping.
+	alice := ht.NewNode("Alice", nil)
+
+	// Next, we'll give Alice exactly 3 utxos of 1 BTC of different address
+	// types.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+	ht.FundCoinsNP2WKH(btcutil.SatoshiPerBitcoin, alice)
+	ht.FundCoinsP2TR(btcutil.SatoshiPerBitcoin, alice)
+
+	// Get all the utxos in the wallet and assert there are three.
+	utxos := ht.AssertNumUTXOs(alice, 3)
+
+	// Ensure that we can't send duplicate coins.
+	//
+	// Create duplciate outpoints.
+	dupOutpoints := []*lnrpc.OutPoint{
+		utxos[0].Outpoint,
+		utxos[0].Outpoint,
+	}
+
+	// Send the duplicate outpoints and assert there's an error.
+	err := alice.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+		Addr:      ht.NewMinerAddress().String(),
+		Outpoints: dupOutpoints,
+	})
+	require.ErrorContains(ht, err, "selected outpoints contain duplicate")
+
+	// Send a selected coin with a specific amount.
+	//
+	// We'll send the first utxo with an amount of 0.5 BTC.
+	amt := btcutil.Amount(0.5 * btcutil.SatoshiPerBitcoin)
+	alice.RPC.SendCoins(&lnrpc.SendCoinsRequest{
+		Addr: ht.NewMinerAddress().String(),
+		Outpoints: []*lnrpc.OutPoint{
+			utxos[0].Outpoint,
+		},
+		Amount: int64(amt),
+	})
+
+	// We expect to see the above tx in the mempool.
+	tx := ht.GetNumTxsFromMempool(1)[0]
+
+	// Assert the tx has the expected shape. It should have 1 input and 2
+	// outputs - the input is the selected UTXO, and the outputs are the
+	// specified amount and the change amount.
+	require.Len(ht, tx.TxIn, 1)
+	require.Len(ht, tx.TxOut, 2)
+
+	// Check it's using the selected UTXO as input.
+	require.Equal(ht, utxos[0].Outpoint.TxidStr,
+		tx.TxIn[0].PreviousOutPoint.Hash.String())
+
+	// Mine a block to confirm the above tx.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// We now test we can send the selected coins to a single target
+	// address with `SendAll` flag.
+	//
+	// Get all the utxos in the wallet and assert there are three.
+	utxos = ht.AssertNumUTXOs(alice, 3)
+
+	// Select the first two coins and send them to a single target address.
+	alice.RPC.SendCoins(&lnrpc.SendCoinsRequest{
+		Addr: ht.NewMinerAddress().String(),
+		Outpoints: []*lnrpc.OutPoint{
+			utxos[0].Outpoint,
+			utxos[1].Outpoint,
+		},
+		SendAll: true,
+	})
+
+	// We expect to see the above tx in the mempool.
+	tx = ht.GetNumTxsFromMempool(1)[0]
+
+	// Assert the tx has the expected shape. It should have 2 inputs and 1
+	// output.
+	require.Len(ht, tx.TxIn, 2)
+	require.Len(ht, tx.TxOut, 1)
+
+	// Check it's using the selected UTXOs as inputs.
+	prevOutpoint1 := tx.TxIn[0].PreviousOutPoint.Hash.String()
+	prevOutpoint2 := tx.TxIn[1].PreviousOutPoint.Hash.String()
+
+	if prevOutpoint1 == utxos[0].Outpoint.TxidStr {
+		require.Equal(ht, utxos[1].Outpoint.TxidStr, prevOutpoint2)
+	} else {
+		require.Equal(ht, utxos[1].Outpoint.TxidStr, prevOutpoint1)
+		require.Equal(ht, utxos[0].Outpoint.TxidStr, prevOutpoint2)
+	}
+
+	// Mine a block to confirm the above tx.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Since the first two UTXOs have been sent to an address outside her
+	// wallet, Alice should see a single UTXO now.
+	ht.AssertNumUTXOs(alice, 1)
+}
+
+// testSendSelectedCoinsChannelReserve tests that if sending selected coins
+// would violate the channel reserve requirement the RPC call will fail. It
+// also checks that change outputs will be created automatically if `SendAll`
+// flag is set.
+func testSendSelectedCoinsChannelReserve(ht *lntest.HarnessTest) {
+	chanAmt := btcutil.Amount(100_000)
+
+	// Create a two-hop network: Alice -> Bob.
+	//
+	// NOTE: Alice will have one UTXO after the funding.
+	_, nodes := createSimpleNetwork(
+		ht, []string{"--protocol.anchors"}, 2,
+		lntest.OpenChannelParams{
+			Amt: chanAmt,
+		},
+	)
+
+	alice := nodes[0]
+
+	// Fund Alice one more UTXO.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+
+	// Get all the utxos in the wallet and assert there are two:
+	// - one from the above `FundCoins`.
+	// - one from the change output after the channel funding.
+	utxos := ht.AssertNumUTXOs(alice, 2)
+
+	// Get all the outpoints.
+	outpoints := []*lnrpc.OutPoint{
+		utxos[0].Outpoint,
+		utxos[1].Outpoint,
+	}
+
+	// Calculate the total amount of the two UTXOs.
+	totalAmt := utxos[0].AmountSat + utxos[1].AmountSat
+
+	// Send the total amount of the two UTXOs and expect an error since
+	// fees cannot be covered.
+	err := alice.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+		Addr:      ht.NewMinerAddress().String(),
+		Outpoints: outpoints,
+		Amount:    totalAmt,
+	})
+	require.ErrorContains(ht, err, "insufficient funds available to "+
+		"construct transaction")
+
+	// Get the required reserve amount.
+	resp := alice.RPC.RequiredReserve(
+		&walletrpc.RequiredReserveRequest{
+			AdditionalPublicChannels: 1,
+		},
+	)
+
+	// Calculate an amount which, after sending it, would violate the
+	// channel reserve requirement.
+	amt := totalAmt - resp.RequiredReserve
+
+	// Send the amount and expect an error since the channel reserve cannot
+	// be covered.
+	err = alice.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+		Addr:      ht.NewMinerAddress().String(),
+		Outpoints: outpoints,
+		Amount:    amt,
+	})
+	require.ErrorContains(ht, err, "reserved wallet balance invalidated")
+
+	// Finally, check that we can send all the selected coins with the help
+	// of the `SendAll` flag as it will automatically handle reserving
+	// change outputs based on the channel reserve requirements.
+	alice.RPC.SendCoins(&lnrpc.SendCoinsRequest{
+		Addr:      ht.NewMinerAddress().String(),
+		Outpoints: outpoints,
+		SendAll:   true,
+	})
+
+	// We expect to see the above tx in the mempool.
+	tx := ht.GetNumTxsFromMempool(1)[0]
+
+	// Assert the tx has the expected shape. It should have 2 inputs and 2
+	// outputs.
+	require.Len(ht, tx.TxIn, 2)
+	require.Len(ht, tx.TxOut, 2)
+
+	// Mine a block to confirm the above tx.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Alice should have one reserved UTXO now.
+	ht.AssertNumUTXOs(alice, 1)
 }

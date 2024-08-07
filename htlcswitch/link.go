@@ -619,18 +619,21 @@ func (l *channelLink) WaitForShutdown() {
 // we are eligible to update AND the channel isn't currently flushing the
 // outgoing half of the channel.
 func (l *channelLink) EligibleToForward() bool {
-	return l.EligibleToUpdate() &&
+	l.RLock()
+	defer l.RUnlock()
+
+	return l.eligibleToUpdate() &&
 		!l.IsFlushing(Outgoing)
 }
 
-// EligibleToUpdate returns a bool indicating if the channel is able to update
+// eligibleToUpdate returns a bool indicating if the channel is able to update
 // channel state. We're able to update channel state if we know the remote
 // party's next revocation point. Otherwise, we can't initiate new channel
 // state. We also require that the short channel ID not be the all-zero source
 // ID, meaning that the channel has had its ID finalized.
-func (l *channelLink) EligibleToUpdate() bool {
+func (l *channelLink) eligibleToUpdate() bool {
 	return l.channel.RemoteNextRevocation() != nil &&
-		l.ShortChanID() != hop.Source &&
+		l.channel.ShortChanID() != hop.Source &&
 		l.isReestablished()
 }
 
@@ -3249,7 +3252,7 @@ func (l *channelLink) updateChannelFee(feePerKw chainfee.SatPerKWeight) error {
 
 	// We skip sending the UpdateFee message if the channel is not
 	// currently eligible to forward messages.
-	if !l.EligibleToUpdate() {
+	if !l.eligibleToUpdate() {
 		l.log.Debugf("skipping fee update for inactive channel")
 		return nil
 	}

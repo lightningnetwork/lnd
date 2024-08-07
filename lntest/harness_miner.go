@@ -167,16 +167,9 @@ func (h *HarnessTest) cleanMempool() {
 }
 
 // mineTillForceCloseResolved asserts that the number of pending close channels
-// are zero. Each time it checks, a new block is mined using MineBlocksSlow to
-// give the node some time to catch up the chain.
-//
-// NOTE: this method is a workaround to make sure we have a clean mempool at
-// the end of a channel force closure. We cannot directly mine blocks and
-// assert channels being fully closed because the subsystems in lnd don't share
-// the same block height. This is especially the case when blocks are produced
-// too fast.
-// TODO(yy): remove this workaround when syncing blocks are unified in all the
-// subsystems.
+// are zero. Each time it checks, an empty block is mined, followed by a
+// mempool check to see if there are any sweeping txns. If found, these txns
+// are then mined to clean up the mempool.
 func (h *HarnessTest) mineTillForceCloseResolved(hn *node.HarnessNode) {
 	_, startHeight := h.GetBestBlock()
 
@@ -184,7 +177,15 @@ func (h *HarnessTest) mineTillForceCloseResolved(hn *node.HarnessNode) {
 		resp := hn.RPC.PendingChannels()
 		total := len(resp.PendingForceClosingChannels)
 		if total != 0 {
-			h.MineBlocks(1)
+			// Mine an empty block first.
+			h.MineEmptyBlocks(1)
+
+			// If there are new sweeping txns, mine a block to
+			// confirm it.
+			mem := h.GetRawMempool()
+			if len(mem) != 0 {
+				h.MineBlocksAndAssertNumTxes(1, len(mem))
+			}
 
 			return fmt.Errorf("expected num of pending force " +
 				"close channel to be zero")

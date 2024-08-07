@@ -399,6 +399,8 @@ func (h *HarnessTest) resetStandbyNodes(t *testing.T) {
 		// config for the coming test. This will also inherit the
 		// test's running context.
 		h.RestartNodeWithExtraArgs(hn, hn.Cfg.OriginalExtraArgs)
+
+		hn.AddToLogf("Finished test case %v", h.manager.currentTestCase)
 	}
 }
 
@@ -1624,30 +1626,13 @@ func (h *HarnessTest) OpenChannelPsbt(srcNode, destNode *node.HarnessNode,
 	return respStream, upd.PsbtFund.Psbt
 }
 
-// CleanupForceClose mines a force close commitment found in the mempool and
-// the following sweep transaction from the force closing node.
+// CleanupForceClose mines blocks to clean up the force close process. This is
+// used for tests that are not asserting the expected behavior is found during
+// the force close process, e.g., num of sweeps, etc. Instead, it provides a
+// shortcut to move the test forward with a clean mempool.
 func (h *HarnessTest) CleanupForceClose(hn *node.HarnessNode) {
 	// Wait for the channel to be marked pending force close.
 	h.AssertNumPendingForceClose(hn, 1)
-
-	// Mine enough blocks for the node to sweep its funds from the force
-	// closed channel. The commit sweep resolver is able to offer the input
-	// to the sweeper at defaulCSV-1, and broadcast the sweep tx once one
-	// more block is mined.
-	//
-	// NOTE: we might empty blocks here as we don't know the exact number
-	// of blocks to mine. This may end up mining more blocks than needed.
-	h.MineEmptyBlocks(node.DefaultCSV - 1)
-
-	// Assert there is one pending sweep.
-	h.AssertNumPendingSweeps(hn, 1)
-
-	// Mine a block to trigger the sweep.
-	h.MineEmptyBlocks(1)
-
-	// The node should now sweep the funds, clean up by mining the sweeping
-	// tx.
-	h.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Mine blocks to get any second level HTLC resolved. If there are no
 	// HTLCs, this will behave like h.AssertNumPendingCloseChannels.
@@ -1769,6 +1754,14 @@ func (h *HarnessTest) SendPaymentAssertSettled(hn *node.HarnessNode,
 	req *routerrpc.SendPaymentRequest) *lnrpc.Payment {
 
 	return h.SendPaymentAndAssertStatus(hn, req, lnrpc.Payment_SUCCEEDED)
+}
+
+// SendPaymentAssertInflight sends a payment from the passed node and asserts
+// the payment is inflight.
+func (h *HarnessTest) SendPaymentAssertInflight(hn *node.HarnessNode,
+	req *routerrpc.SendPaymentRequest) *lnrpc.Payment {
+
+	return h.SendPaymentAndAssertStatus(hn, req, lnrpc.Payment_IN_FLIGHT)
 }
 
 // OpenChannelRequest is used to open a channel using the method

@@ -135,6 +135,16 @@ type PaymentAttemptDispatcher interface {
 	// NOTE: New payment attempts MUST NOT be made after the keepPids map
 	// has been created and this method has returned.
 	CleanStore(keepPids map[uint64]struct{}) error
+
+	// HasAttemptResult reads the network result store to fetch the
+	// specified attempt. Returns true if the attempt result exists.
+	//
+	// NOTE: This method is used and should only be used by the router to
+	// resume payments during startup. It can be viewed as a subset of
+	// `GetAttemptResult` in terms of its functionality, and can be removed
+	// once we move the construction of `UpdateAddHTLC` and
+	// `ErrorDecrypter` into `htlcswitch`.
+	HasAttemptResult(attemptID uint64) (bool, error)
 }
 
 // PaymentSessionSource is an interface that defines a source for the router to
@@ -252,9 +262,9 @@ type Config struct {
 	// sessions.
 	SessionSource PaymentSessionSource
 
-	// QueryBandwidth is a method that allows the router to query the lower
-	// link layer to determine the up-to-date available bandwidth at a
-	// prospective link to be traversed. If the  link isn't available, then
+	// GetLink is a method that allows the router to query the lower link
+	// layer to determine the up-to-date available bandwidth at a
+	// prospective link to be traversed. If the link isn't available, then
 	// a value of zero should be returned. Otherwise, the current up-to-
 	// date knowledge of the available bandwidth of the link should be
 	// returned.
@@ -275,6 +285,11 @@ type Config struct {
 	// ApplyChannelUpdate can be called to apply a new channel update to the
 	// graph that we received from a payment failure.
 	ApplyChannelUpdate func(msg *lnwire.ChannelUpdate) bool
+
+	// ClosedSCIDs is used by the router to fetch closed channels.
+	//
+	// TODO(yy): remove it once the root cause of stuck payments is found.
+	ClosedSCIDs map[lnwire.ShortChannelID]struct{}
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -336,88 +351,8 @@ func (r *ChannelRouter) Start() error {
 
 	// If any payments are still in flight, we resume, to make sure their
 	// results are properly handled.
-	payments, err := r.cfg.Control.FetchInFlightPayments()
-	if err != nil {
-		return err
-	}
-
-	// Before we restart existing payments and start accepting more
-	// payments to be made, we clean the network result store of the
-	// Switch. We do this here at startup to ensure no more payments can be
-	// made concurrently, so we know the toKeep map will be up-to-date
-	// until the cleaning has finished.
-	toKeep := make(map[uint64]struct{})
-	for _, p := range payments {
-		for _, a := range p.HTLCs {
-			toKeep[a.AttemptID] = struct{}{}
-		}
-	}
-
-	log.Debugf("Cleaning network result store.")
-	if err := r.cfg.Payer.CleanStore(toKeep); err != nil {
-		return err
-	}
-
-	for _, payment := range payments {
-		log.Infof("Resuming payment %v", payment.Info.PaymentIdentifier)
-		r.wg.Add(1)
-		go func(payment *channeldb.MPPayment) {
-			defer r.wg.Done()
-
-			// Get the hashes used for the outstanding HTLCs.
-			htlcs := make(map[uint64]lntypes.Hash)
-			for _, a := range payment.HTLCs {
-				a := a
-
-				// We check whether the individual attempts
-				// have their HTLC hash set, if not we'll fall
-				// back to the overall payment hash.
-				hash := payment.Info.PaymentIdentifier
-				if a.Hash != nil {
-					hash = *a.Hash
-				}
-
-				htlcs[a.AttemptID] = hash
-			}
-
-			// Since we are not supporting creating more shards
-			// after a restart (only receiving the result of the
-			// shards already outstanding), we create a simple
-			// shard tracker that will map the attempt IDs to
-			// hashes used for the HTLCs. This will be enough also
-			// for AMP payments, since we only need the hashes for
-			// the individual HTLCs to regenerate the circuits, and
-			// we don't currently persist the root share necessary
-			// to re-derive them.
-			shardTracker := shards.NewSimpleShardTracker(
-				payment.Info.PaymentIdentifier, htlcs,
-			)
-
-			// We create a dummy, empty payment session such that
-			// we won't make another payment attempt when the
-			// result for the in-flight attempt is received.
-			paySession := r.cfg.SessionSource.NewPaymentSessionEmpty()
-
-			// We pass in a non-timeout context, to indicate we
-			// don't need it to timeout. It will stop immediately
-			// after the existing attempt has finished anyway. We
-			// also set a zero fee limit, as no more routes should
-			// be tried.
-			noTimeout := time.Duration(0)
-			_, _, err := r.sendPayment(
-				context.Background(), 0,
-				payment.Info.PaymentIdentifier, noTimeout,
-				paySession, shardTracker,
-			)
-			if err != nil {
-				log.Errorf("Resuming payment %v failed: %v.",
-					payment.Info.PaymentIdentifier, err)
-				return
-			}
-
-			log.Infof("Resumed payment %v completed.",
-				payment.Info.PaymentIdentifier)
-		}(payment)
+	if err := r.resumePayments(); err != nil {
+		log.Error("Failed to resume payments during startup")
 	}
 
 	return nil
@@ -1133,6 +1068,9 @@ func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
 func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	skipTempErr bool) (*channeldb.HTLCAttempt, error) {
 
+	log.Debugf("SendToRoute for payment %v with skipTempErr=%v",
+		htlcHash, skipTempErr)
+
 	// Calculate amount paid to receiver.
 	amt := rt.ReceiverAmt()
 
@@ -1446,6 +1384,204 @@ func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
 			paymentAddr: payAddr,
 		}, nil,
 	)
+}
+
+// resumePayments fetches inflight payments and resumes their payment
+// lifecycles.
+func (r *ChannelRouter) resumePayments() error {
+	// Get all payments that are inflight.
+	payments, err := r.cfg.Control.FetchInFlightPayments()
+	if err != nil {
+		return err
+	}
+
+	// Before we restart existing payments and start accepting more
+	// payments to be made, we clean the network result store of the
+	// Switch. We do this here at startup to ensure no more payments can be
+	// made concurrently, so we know the toKeep map will be up-to-date
+	// until the cleaning has finished.
+	toKeep := make(map[uint64]struct{})
+	for _, p := range payments {
+		for _, a := range p.HTLCs {
+			toKeep[a.AttemptID] = struct{}{}
+
+			// Try to fail the attempt if the route contains a dead
+			// channel.
+			r.failStaleAttempt(a, p.Info.PaymentIdentifier)
+		}
+	}
+
+	log.Debugf("Cleaning network result store.")
+	if err := r.cfg.Payer.CleanStore(toKeep); err != nil {
+		return err
+	}
+
+	// launchPayment is a helper closure that handles resuming the payment.
+	launchPayment := func(payment *channeldb.MPPayment) {
+		defer r.wg.Done()
+
+		// Get the hashes used for the outstanding HTLCs.
+		htlcs := make(map[uint64]lntypes.Hash)
+		for _, a := range payment.HTLCs {
+			a := a
+
+			// We check whether the individual attempts have their
+			// HTLC hash set, if not we'll fall back to the overall
+			// payment hash.
+			hash := payment.Info.PaymentIdentifier
+			if a.Hash != nil {
+				hash = *a.Hash
+			}
+
+			htlcs[a.AttemptID] = hash
+		}
+
+		payHash := payment.Info.PaymentIdentifier
+
+		// Since we are not supporting creating more shards after a
+		// restart (only receiving the result of the shards already
+		// outstanding), we create a simple shard tracker that will map
+		// the attempt IDs to hashes used for the HTLCs. This will be
+		// enough also for AMP payments, since we only need the hashes
+		// for the individual HTLCs to regenerate the circuits, and we
+		// don't currently persist the root share necessary to
+		// re-derive them.
+		shardTracker := shards.NewSimpleShardTracker(payHash, htlcs)
+
+		// We create a dummy, empty payment session such that we won't
+		// make another payment attempt when the result for the
+		// in-flight attempt is received.
+		paySession := r.cfg.SessionSource.NewPaymentSessionEmpty()
+
+		// We pass in a non-timeout context, to indicate we don't need
+		// it to timeout. It will stop immediately after the existing
+		// attempt has finished anyway. We also set a zero fee limit,
+		// as no more routes should be tried.
+		noTimeout := time.Duration(0)
+		_, _, err := r.sendPayment(
+			context.Background(), 0, payHash, noTimeout, paySession,
+			shardTracker,
+		)
+		if err != nil {
+			log.Errorf("Resuming payment %v failed: %v", payHash,
+				err)
+
+			return
+		}
+
+		log.Infof("Resumed payment %v completed", payHash)
+	}
+
+	for _, payment := range payments {
+		log.Infof("Resuming payment %v", payment.Info.PaymentIdentifier)
+
+		r.wg.Add(1)
+		go launchPayment(payment)
+	}
+
+	return nil
+}
+
+// failStaleAttempt will fail an HTLC attempt if it's using an unknown channel
+// in its route. It first consults the switch to see if there's already a
+// network result stored for this attempt. If not, it will check whether the
+// first hop of this attempt is using an active channel known to us. If
+// inactive, this attempt will be failed.
+//
+// NOTE: there's an unknown bug that caused the network result for a particular
+// attempt to NOT be saved, resulting a payment being stuck forever. More info:
+// - https://github.com/lightningnetwork/lnd/issues/8146
+// - https://github.com/lightningnetwork/lnd/pull/8174
+func (r *ChannelRouter) failStaleAttempt(a channeldb.HTLCAttempt,
+	payHash lntypes.Hash) {
+
+	// We can only fail inflight HTLCs so we skip the settled/failed ones.
+	if a.Failure != nil || a.Settle != nil {
+		return
+	}
+
+	// First, check if we've already had a network result for this attempt.
+	// If no result is found, we'll check whether the reference link is
+	// still known to us.
+	ok, err := r.cfg.Payer.HasAttemptResult(a.AttemptID)
+	if err != nil {
+		log.Errorf("Failed to fetch network result for attempt=%v",
+			a.AttemptID)
+		return
+	}
+
+	// There's already a network result, no need to fail it here as the
+	// payment lifecycle will take care of it, so we can exit early.
+	if ok {
+		log.Debugf("Already have network result for attempt=%v",
+			a.AttemptID)
+		return
+	}
+
+	// We now need to decide whether this attempt should be failed here.
+	// For very old payments, it's possible that the network results were
+	// never saved, causing the payments to be stuck inflight. We now check
+	// whether the first hop is referencing an active channel ID and, if
+	// not, we will fail the attempt as it has no way to be retried again.
+	var shouldFail bool
+
+	// Validate that the attempt has hop info. If this attempt has no hop
+	// info it indicates an error in our db.
+	if len(a.Route.Hops) == 0 {
+		log.Errorf("Found empty hop for attempt=%v", a.AttemptID)
+
+		shouldFail = true
+	} else {
+		// Get the short channel ID.
+		chanID := a.Route.Hops[0].ChannelID
+		scid := lnwire.NewShortChanIDFromInt(chanID)
+
+		// Check whether this link is active. If so, we won't fail the
+		// attempt but keep waiting for its result.
+		_, err := r.cfg.GetLink(scid)
+		if err == nil {
+			return
+		}
+
+		// We should get the link not found err. If not, we will log an
+		// error and skip failing this attempt since an unknown error
+		// occurred.
+		if !errors.Is(err, htlcswitch.ErrChannelLinkNotFound) {
+			log.Errorf("Failed to get link for attempt=%v for "+
+				"payment=%v: %v", a.AttemptID, payHash, err)
+
+			return
+		}
+
+		// The channel link is not active, we now check whether this
+		// channel is already closed. If so, we fail the HTLC attempt
+		// as there's no need to wait for its network result because
+		// there's no link. If the channel is still pending, we'll keep
+		// waiting for the result as we may get a contract resolution
+		// for this HTLC.
+		if _, ok := r.cfg.ClosedSCIDs[scid]; ok {
+			shouldFail = true
+		}
+	}
+
+	// Exit if there's no need to fail.
+	if !shouldFail {
+		return
+	}
+
+	log.Errorf("Failing stale attempt=%v for payment=%v", a.AttemptID,
+		payHash)
+
+	// Fail the attempt in db. If there's an error, there's nothing we can
+	// do here but logging it.
+	failInfo := &channeldb.HTLCFailInfo{
+		Reason:   channeldb.HTLCFailUnknown,
+		FailTime: r.cfg.Clock.Now(),
+	}
+	_, err = r.cfg.Control.FailAttempt(payHash, a.AttemptID, failInfo)
+	if err != nil {
+		log.Errorf("Fail attempt=%v got error: %v", a.AttemptID, err)
+	}
 }
 
 // getEdgeUnifiers returns a list of edge unifiers for the given route.

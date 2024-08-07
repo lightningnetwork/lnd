@@ -93,6 +93,8 @@ func (c *testCtx) getChannelIDFromAlias(t *testing.T, a, b string) uint64 {
 	return channelID
 }
 
+var mockClosedSCIDs map[lnwire.ShortChannelID]struct{}
+
 func createTestCtxFromGraphInstance(t *testing.T, startingHeight uint32,
 	graphInstance *testGraphInstance) *testCtx {
 
@@ -161,6 +163,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		PathFindingConfig:  pathFindingConfig,
 		Clock:              clock.NewTestClock(time.Unix(1, 0)),
 		ApplyChannelUpdate: graphBuilder.ApplyChannelUpdate,
+		ClosedSCIDs:        mockClosedSCIDs,
 	})
 	require.NoError(t, router.Start(), "unable to start router")
 
@@ -2170,6 +2173,7 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
+		ClosedSCIDs: mockClosedSCIDs,
 	}}
 
 	// Register mockers with the expected method calls.
@@ -2253,6 +2257,7 @@ func TestSendToRouteSkipTempErrNonMPP(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
+		ClosedSCIDs: mockClosedSCIDs,
 	}}
 
 	// Expect an error to be returned.
@@ -2307,6 +2312,7 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
+		ClosedSCIDs: mockClosedSCIDs,
 	}}
 
 	// Create the error to be returned.
@@ -2389,6 +2395,7 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
+		ClosedSCIDs: mockClosedSCIDs,
 	}}
 
 	// Create the error to be returned.
@@ -2475,6 +2482,7 @@ func TestSendToRouteTempFailure(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
+		ClosedSCIDs: mockClosedSCIDs,
 	}}
 
 	// Create the error to be returned.

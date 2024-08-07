@@ -424,7 +424,9 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 		// Ensure we aren't sending more than the total payment amount.
 		sentAmt, _ := payment.SentAmt()
 		if sentAmt+amt > payment.Info.Value {
-			return ErrValueExceedsAmt
+			return fmt.Errorf("%w: attempted=%v, payment amount="+
+				"%v", ErrValueExceedsAmt, sentAmt+amt,
+				payment.Info.Value)
 		}
 
 		htlcsBucket, err := bucket.CreateBucketIfNotExists(

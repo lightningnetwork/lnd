@@ -48,6 +48,15 @@
 bumping an anchor channel closing was not possible when no HTLCs were on the
 commitment when the channel was force closed.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8174) old payments that
+  are stuck inflight. Though the root cause is unknown, it's possible the
+  network result for a given HTLC attempt was not saved, which is now fixed.
+  Check
+  [here](https://github.com/lightningnetwork/lnd/pull/8174#issue-1992055103)
+  for the details about the analysis, and
+  [here](https://github.com/lightningnetwork/lnd/issues/8146) for a summary of
+  the issue.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

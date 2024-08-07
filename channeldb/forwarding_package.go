@@ -211,6 +211,11 @@ func (f *PkgFilter) Decode(r io.Reader) error {
 	return err
 }
 
+// String returns a human-readable string.
+func (f *PkgFilter) String() string {
+	return fmt.Sprintf("count=%v, filter=%v", f.count, f.filter)
+}
+
 // FwdPkg records all adds, settles, and fails that were locked in as a result
 // of the remote peer sending us a revocation. Each package is identified by
 // the short chanid and remote commitment height corresponding to the revocation

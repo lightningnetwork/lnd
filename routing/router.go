@@ -746,7 +746,7 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 
 	// Sort the routes based on probability.
 	sort.Slice(routes, func(i, j int) bool {
-		return routes[i].probability < routes[j].probability
+		return routes[i].probability > routes[j].probability
 	})
 
 	// Now just choose the best paths up until the maximum number of allowed

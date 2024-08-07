@@ -3150,7 +3150,7 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 		}
 
 		for i, path := range expectedPaths {
-			require.Equal(t, expectedPaths[i], path)
+			require.Equal(t, path, actualPaths[i])
 		}
 	}
 

@@ -1142,7 +1142,7 @@ func (w *WalletKit) sweepNewInput(op *wire.OutPoint, currentHeight uint32,
 	//
 	// We'll gather all of the information required by the UtxoSweeper in
 	// order to sweep the output.
-	utxo, err := w.cfg.Wallet.FetchInputInfo(op)
+	utxo, err := w.cfg.Wallet.FetchOutpointInfo(op)
 	if err != nil {
 		return err
 	}

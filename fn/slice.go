@@ -65,6 +65,32 @@ func Filter[A any](pred Pred[A], s []A) []A {
 	return res
 }
 
+// FilterMap takes a function argument that optionally produces a value and
+// returns a slice of the 'Some' return values.
+func FilterMap[A, B any](as []A, f func(A) Option[B]) []B {
+	bs := make([]B, 0)
+	for _, a := range as {
+		f(a).WhenSome(func(b B) {
+			bs = append(bs, b)
+		})
+	}
+	return bs
+}
+
+// TrimNones takes a slice of Option values and returns a slice of the Some
+// values in it.
+func TrimNones[A any](as []Option[A]) []A {
+	somes := make([]A, 0)
+
+	for _, a := range as {
+		a.WhenSome(func(b A) {
+			somes = append(somes, b)
+		})
+	}
+
+	return somes
+}
+
 // Foldl iterates through all members of the slice left to right and reduces
 // them pairwise with an accumulator value that is seeded with the seed value in
 // the argument.
@@ -257,4 +283,69 @@ func ForEachConc[A, B any](f func(A) B,
 	wait.Wait()
 
 	return bs
+}
+
+// CollectOptions collects a list of Options into a single Option of the list of
+// Some values in it. If there are any Nones present it will return None.
+func CollectOptions[A any](options []Option[A]) Option[[]A] {
+	// We intentionally do a separate None checking pass here to avoid
+	// allocating a new slice for the values until we're sure we need to.
+	for _, r := range options {
+		if r.IsNone() {
+			return None[[]A]()
+		}
+	}
+
+	// Now that we're sure we have no Nones, we can just do an unchecked
+	// index into the some value of the option.
+	return Some(Map(func(o Option[A]) A { return o.some }, options))
+
+}
+
+// CollectResults collects a list of Results into a single Result of the list of
+// Ok values in it. If there are any errors present it will return the first
+// error encountered.
+func CollectResults[A any](results []Result[A]) Result[[]A] {
+	// We intentionally do a separate error checking pass here to avoid
+	// allocating a new slice for the results until we're sure we need to.
+	for _, r := range results {
+		if r.IsErr() {
+			return Err[[]A](r.right)
+		}
+	}
+
+	// Now that we're sure we have no errors, we can just do an unchecked
+	// index into the left side of the result.
+	return Ok(Map(func(r Result[A]) A { return r.left }, results))
+}
+
+// TraverseOption traverses a slice of A values, applying the provided
+// function to each, collecting the results into an Option of a slice of B
+// values. If any of the results are None, the entire result is None.
+func TraverseOption[A, B any](as []A, f func(A) Option[B]) Option[[]B] {
+	var bs []B
+	for _, a := range as {
+		b := f(a)
+		if b.IsNone() {
+			return None[[]B]()
+		}
+		bs = append(bs, b.some)
+	}
+	return Some(bs)
+}
+
+// TraverseResult traverses a slice of A values, applying the provided
+// function to each, collecting the results into a Result of a slice of B
+// values. If any of the results are Err, the entire result is the first
+// error encountered.
+func TraverseResult[A, B any](as []A, f func(A) Result[B]) Result[[]B] {
+	var bs []B
+	for _, a := range as {
+		b := f(a)
+		if b.IsErr() {
+			return Err[[]B](b.right)
+		}
+		bs = append(bs, b.left)
+	}
+	return Ok(bs)
 }

@@ -164,13 +164,20 @@ func estimateFeeRate(ctx *cli.Context) error {
 
 	rateKW := chainfee.SatPerKWeight(resp.SatPerKw)
 	rateVB := rateKW.FeePerVByte()
+	relayFeeKW := chainfee.SatPerKWeight(resp.MinRelayFeeSatPerKw)
+	relayFeeVB := relayFeeKW.FeePerVByte()
 
 	printJSON(struct {
-		SatPerKw    int64 `json:"sat_per_kw"`
-		SatPerVByte int64 `json:"sat_per_vbyte"`
+		SatPerKw            int64 `json:"sat_per_kw"`
+		SatPerVByte         int64 `json:"sat_per_vbyte"`
+		MinRelayFeeSatPerKw int64 `json:"min_relay_fee_sat_per_kw"`
+		//nolint:lll
+		MinRelayFeeSatPerVByte int64 `json:"min_relay_fee_sat_per_vbyte"`
 	}{
-		SatPerKw:    int64(rateKW),
-		SatPerVByte: int64(rateVB),
+		SatPerKw:               int64(rateKW),
+		SatPerVByte:            int64(rateVB),
+		MinRelayFeeSatPerKw:    int64(relayFeeKW),
+		MinRelayFeeSatPerVByte: int64(relayFeeVB),
 	})
 
 	return nil

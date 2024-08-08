@@ -19,44 +19,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
-// FetchInputInfo queries for the WalletController's knowledge of the passed
-// outpoint. If the base wallet determines this output is under its control,
-// then the original txout should be returned. Otherwise, a non-nil error value
-// of ErrNotMine should be returned instead.
-//
-// This is a part of the WalletController interface.
-func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo,
-	error) {
-
-	prevTx, txOut, bip32, confirmations, err := b.wallet.FetchInputInfo(
-		prevOut,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Then, we'll populate all of the information required by the struct.
-	addressType := lnwallet.UnknownAddressType
-	switch {
-	case txscript.IsPayToWitnessPubKeyHash(txOut.PkScript):
-		addressType = lnwallet.WitnessPubKey
-	case txscript.IsPayToScriptHash(txOut.PkScript):
-		addressType = lnwallet.NestedWitnessPubKey
-	case txscript.IsPayToTaproot(txOut.PkScript):
-		addressType = lnwallet.TaprootPubkey
-	}
-
-	return &lnwallet.Utxo{
-		AddressType:   addressType,
-		Value:         btcutil.Amount(txOut.Value),
-		PkScript:      txOut.PkScript,
-		Confirmations: confirmations,
-		OutPoint:      *prevOut,
-		Derivation:    bip32,
-		PrevTx:        prevTx,
-	}, nil
-}
-
 // FetchOutpointInfo queries for the WalletController's knowledge of the passed
 // outpoint. If the base wallet determines this output is under its control,
 // then the original txout should be returned. Otherwise, a non-nil error value

@@ -126,8 +126,7 @@ type Utxo struct {
 	Confirmations int64
 	PkScript      []byte
 	wire.OutPoint
-	Derivation *psbt.Bip32Derivation
-	PrevTx     *wire.MsgTx
+	PrevTx *wire.MsgTx
 }
 
 // OutputDetail contains additional information on a destination address.
@@ -227,11 +226,6 @@ type TransactionSubscription interface {
 // behavior of all interface methods in order to ensure identical behavior
 // across all concrete implementations.
 type WalletController interface {
-	// FetchInputInfo queries for the WalletController's knowledge of the
-	// passed outpoint. It returns the same info as `FetchOutpointInfo`
-	// plus the Bip32Derivation info.
-	FetchInputInfo(prevOut *wire.OutPoint) (*Utxo, error)
-
 	// FetchOutpointInfo queries for the WalletController's knowledge of
 	// the passed outpoint. If the base wallet determines this output is
 	// under its control, then the original txout should be returned.

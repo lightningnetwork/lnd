@@ -43,21 +43,6 @@ func (w *WalletController) BackEnd() string {
 	return "mock"
 }
 
-// FetchInputInfo will be called to get info about the inputs to the funding
-// transaction.
-func (w *WalletController) FetchInputInfo(
-	prevOut *wire.OutPoint) (*lnwallet.Utxo, error) {
-
-	utxo := &lnwallet.Utxo{
-		AddressType:   lnwallet.WitnessPubKey,
-		Value:         10 * btcutil.SatoshiPerBitcoin,
-		PkScript:      []byte("dummy"),
-		Confirmations: 1,
-		OutPoint:      *prevOut,
-	}
-	return utxo, nil
-}
-
 // FetchOutpointInfo will be called to get info about the inputs to the funding
 // transaction.
 func (w *WalletController) FetchOutpointInfo(

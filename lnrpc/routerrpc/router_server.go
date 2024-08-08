@@ -11,11 +11,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -82,11 +85,19 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/routerrpc.Router/SendOnion": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
 		"/routerrpc.Router/TrackPaymentV2": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
 		"/routerrpc.Router/TrackPayments": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/routerrpc.Router/TrackOnion": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
@@ -119,6 +130,10 @@ var (
 			Action: "write",
 		}},
 		"/routerrpc.Router/BuildRoute": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/routerrpc.Router/BuildOnion": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
@@ -885,6 +900,343 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 	}
 
 	return nil, err
+}
+
+// BuildOnion constructs a sphinx onion packet for the given route.
+func (s *Server) BuildOnion(_ context.Context,
+	req *BuildOnionRequest) (*BuildOnionResponse, error) {
+
+	if req.Route == nil {
+		return nil, status.Error(codes.InvalidArgument,
+			"route information is required")
+	}
+	if len(req.PaymentHash) == 0 {
+		return nil, status.Error(codes.InvalidArgument,
+			"payment hash is required")
+	}
+
+	var sessionKey *btcec.PrivateKey
+	var err error
+	if len(req.SessionKey) == 0 {
+		sessionKey, err = routing.GenerateNewSessionKey()
+		if err != nil {
+			return nil, status.Errorf(codes.Internal,
+				"failed to generate session key: %v", err)
+		}
+	} else {
+		sessionKey, _ = btcec.PrivKeyFromBytes(req.SessionKey)
+	}
+
+	// Convert the route to a Sphinx path.
+	route, err := s.cfg.RouterBackend.UnmarshallRoute(req.Route)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"invalid route: %v", err)
+	}
+
+	// Generate the onion packet.
+	onionBlob, circuit, err := routing.GenerateSphinxPacket(
+		route, req.PaymentHash, sessionKey,
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"failed to create onion blob: %v", err)
+	}
+
+	// We'll provide the list of hop public keys for caller convenience.
+	// They may wish to use them + the session key in a future call to
+	// SendOnion so that the server can decrypt and handle errors.
+	hopPubKeys := make([][]byte, len(circuit.PaymentPath))
+	for i, pubKey := range circuit.PaymentPath {
+		hopPubKeys[i] = pubKey.SerializeCompressed()
+	}
+
+	return &BuildOnionResponse{
+		OnionBlob:  onionBlob,
+		SessionKey: sessionKey.Serialize(),
+		HopPubkeys: hopPubKeys,
+	}, nil
+}
+
+// SendOnion handles the incoming request to send a payment using a
+// preconstructed onion blob provided by the caller.
+func (s *Server) SendOnion(_ context.Context,
+	req *SendOnionRequest) (*SendOnionResponse, error) {
+
+	if len(req.OnionBlob) == 0 {
+		return nil, status.Error(codes.InvalidArgument,
+			"onion blob is required")
+	}
+	if len(req.OnionBlob) > lnwire.OnionPacketSize {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"onion blob size exceeds limit of %d bytes",
+			lnwire.OnionPacketSize)
+	}
+
+	if len(req.FirstHopPubkey) == 0 {
+		return nil, status.Error(codes.InvalidArgument,
+			"first hop pubkey is required")
+	}
+
+	if len(req.PaymentHash) == 0 {
+		return nil, status.Error(codes.InvalidArgument,
+			"payment hash is required")
+	}
+
+	if req.Amount <= 0 {
+		return nil, status.Error(codes.InvalidArgument,
+			"amount must be greater than zero")
+	}
+
+	hash, err := lntypes.MakeHash(req.PaymentHash)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"invalid payment hash: %v", err)
+	}
+
+	// Convert the first hop pubkey into a format usable by the forwarding
+	// subsystem (eg: HTLCSwitch).
+	//
+	// NOTE(calvin): We'll either need to require clients provide the short
+	// channel ID to use as a first hop OR lookup an acceptable channel ID
+	// for the given first hop public key.
+	firstHop, err := btcec.ParsePubKey(req.FirstHopPubkey)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"invalid first hop pubkey: %v", err)
+	}
+
+	// Convert public key to channel ID.
+	//
+	// NOTE(calvin): This allows us to preserve non-strict forwarding and
+	// provide a slightly more user friendly API to callers. An alternative
+	// would be to require the caller to provide the channel ID directly.
+	chanID, err := s.findEligibleChannelID(
+		firstHop, lnwire.MilliSatoshi(req.Amount),
+	)
+	if err != nil {
+		// NOTE(calvin): Should this error be communicated via RPC proto?
+		return nil, status.Errorf(codes.Internal,
+			"unable to find eligible channel ID: %v", err)
+	}
+
+	// Craft an HTLC packet to send to the htlcswitch. The metadata within
+	// this packet will be used to route the payment through the network,
+	// starting with the first-hop.
+	htlcAdd := &lnwire.UpdateAddHTLC{
+		Amount:      lnwire.MilliSatoshi(req.Amount),
+		Expiry:      req.Timelock,
+		PaymentHash: hash,
+		OnionBlob:   [1366]byte(req.OnionBlob),
+	}
+
+	log.Debugf("Dispatching SendOnion for HTLC hash %x via %s",
+		htlcAdd.PaymentHash, chanID)
+
+	// Send the HTLC to the first hop directly by way of the HTLCSwitch.
+	err = s.cfg.HtlcDispatcher.SendHTLC(chanID, req.AttemptId, htlcAdd)
+	if err != nil {
+		// message, code := s.translateErrorForRPC(err)
+		message, code := htlcswitch.TranslateErrorForRPC(err)
+		return &SendOnionResponse{
+			Success:      false,
+			ErrorMessage: message,
+			ErrorCode:    code,
+		}, nil
+	}
+
+	return &SendOnionResponse{Success: true}, nil
+}
+
+// TrackOnion provides callers the means to query whether or not a payment
+// dispatched via SendOnion succeeded or failed.
+func (s *Server) TrackOnion(ctx context.Context,
+	req *TrackOnionRequest) (*TrackOnionResponse, error) {
+
+	// NOTE(calvin): In order to decrypt errors server side we require
+	// either the combination of session key and hop public keys from which
+	// we can construct the shared secrets used to build the
+	// onion or, alternatively, the caller can provide the list of shared
+	// secrets used during onion construction directly.
+	//
+	// If we want to support completely "oblivious sends", then we'll need
+	// to update the Switch such that it doesn't fall over with a nil
+	// error decryptor. In this scenario, we should defer all error handling
+	// and return raw error blobs to the caller.
+	log.Debugf("Looking up status of onion payment for HTLC hash %x and "+
+		"attempt_id=%d", req.PaymentHash, req.AttemptId)
+
+	// Attempt to build the error decryptor with the provided session key
+	// and hop public keys.
+	errorDecryptor, err := buildErrorDecryptor(
+		req.SessionKey, req.HopPubkeys,
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"error building decryptor: %v", err)
+	}
+
+	if errorDecryptor == nil {
+		log.Debug("Unable to build error decrypter with information " +
+			"provided. Will defer error handling to caller")
+	}
+
+	// Query the switch for the result of the payment attempt via onion.
+	resultChan, err := s.cfg.HtlcDispatcher.GetAttemptResult(
+		req.AttemptId, lntypes.Hash(req.PaymentHash), errorDecryptor,
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"failed locate payment attempt: %v", err)
+	}
+
+	// The switch knows about this payment, we'll wait for a result to be
+	// available.
+	var (
+		result *htlcswitch.PaymentResult
+		ok     bool
+	)
+
+	select {
+	case result, ok = <-resultChan:
+		if !ok {
+			// NOTE(calvin): Can RPC clients see this error type or
+			// will they need to string match?
+			return nil, status.Errorf(codes.Internal,
+				"failed locate payment attempt: %v",
+				htlcswitch.ErrSwitchExiting)
+		}
+
+	case <-ctx.Done():
+		return nil, nil
+	}
+
+	// In case of a payment failure, fail the attempt with the control
+	// tower and return.
+	if result.Error != nil {
+		log.Errorf("Payment via onion failed for hash %x",
+			req.PaymentHash)
+
+		// TODO(calvin): Check error handling to see if we need to
+		// include a code.
+		message, _ := htlcswitch.TranslateErrorForRPC(result.Error)
+
+		return &TrackOnionResponse{
+			Success:      false,
+			ErrorMessage: message,
+		}, nil
+	}
+
+	// In case we don't process the error, we'll return the encrypted
+	// error blob for handling by the caller.
+	if result.EncryptedError != nil {
+		log.Errorf("Payment via onion failed for hash %x",
+			req.PaymentHash)
+
+		// NOTE(calvin): gRPC will not return a response object if the
+		// error is non-nil. So if we want to return the encrypted
+		// error blob to the caller, then we need to return a nil error.
+		return &TrackOnionResponse{
+			Success:        false,
+			EncryptedError: result.EncryptedError,
+		}, nil
+	}
+
+	return &TrackOnionResponse{
+		Success:  true,
+		Preimage: result.Preimage[:],
+	}, nil
+}
+
+func buildErrorDecryptor(sessionKeyBytes []byte,
+	hopPubkeys [][]byte) (htlcswitch.ErrorDecrypter, error) {
+
+	if len(sessionKeyBytes) == 0 || len(hopPubkeys) == 0 {
+		return nil, nil
+	}
+
+	// TODO(calvin): Validate that the session key makes a valid private
+	// key? This is untrusted input received via RPC.
+	sessionKey, _ := btcec.PrivKeyFromBytes(sessionKeyBytes)
+
+	var pubKeys []*btcec.PublicKey
+	for _, keyBytes := range hopPubkeys {
+		pubKey, err := btcec.ParsePubKey(keyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("invalid public key: %w", err)
+		}
+		pubKeys = append(pubKeys, pubKey)
+	}
+
+	// Construct the sphinx circuit needed for error decryption using the
+	// provided session key and hop public keys.
+	// NOTE(calvin): Could also provide an lnrpc.Route in TrackOnionRequest
+	// and use with routing.GenerateSphinxPacket(...).
+	circuit := reconstructCircuit(sessionKey, pubKeys)
+
+	// Using the created circuit, initialize the error decrypter so we can
+	// parse+decode any failures incurred by this payment within the
+	// switch.
+	return &htlcswitch.SphinxErrorDecrypter{
+		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
+	}, nil
+}
+
+func reconstructCircuit(sessionKey *btcec.PrivateKey,
+	pubKeys []*btcec.PublicKey) *sphinx.Circuit {
+
+	return &sphinx.Circuit{
+		SessionKey:  sessionKey,
+		PaymentPath: pubKeys,
+	}
+}
+
+// ChannelInfoAccessor defines an interface for accessing channel information
+// necessary for routing payments, specifically methods for fetching links by
+// public key.
+type ChannelInfoAccessor interface {
+	GetLinksByPubkey(pubKey [33]byte) ([]htlcswitch.ChannelInfoProvider,
+		error)
+}
+
+// findEligibleChannelID attempts to find an eligible channel based on the
+// provided public key and the amount to be sent. It returns a channel ID that
+// can carry the given payment amount.
+func (s *Server) findEligibleChannelID(pubKey *btcec.PublicKey,
+	amount lnwire.MilliSatoshi) (lnwire.ShortChannelID, error) {
+
+	var pubKeyArray [33]byte
+	copy(pubKeyArray[:], pubKey.SerializeCompressed())
+	links, err := s.cfg.ChannelInfoAccessor.GetLinksByPubkey(pubKeyArray)
+	if err != nil {
+		return lnwire.ShortChannelID{},
+			fmt.Errorf("failed to retrieve channels: %w", err)
+	}
+
+	// NOTE(calvin): This is NOT duplicating the checks that the Switch
+	// itself will perform as those are only performed in ForwardPackets().
+	for _, link := range links {
+		log.Debugf("Considering channel link scid=%v",
+			link.ShortChanID())
+
+		// Ensure the link is eligible to forward payments.
+		if !link.EligibleToForward() {
+			continue
+		}
+
+		// Check if the channel has sufficient bandwidth.
+		if link.Bandwidth() >= amount {
+			// Check if adding an HTLC of this amount is possible.
+			if err := link.MayAddOutgoingHtlc(amount); err == nil {
+
+				return link.ShortChanID(), nil
+			}
+		}
+	}
+
+	return lnwire.ShortChannelID{},
+		fmt.Errorf("no suitable channel found for amount: %d msat",
+			amount)
 }
 
 // ResetMissionControl clears all mission control state and starts with a clean

@@ -674,4 +674,12 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "send to route failed htlc timeout",
 		TestFunc: testSendToRouteFailHTLCTimeout,
 	},
+	{
+		Name:     "send onion",
+		TestFunc: testSendOnion,
+	},
+	{
+		Name:     "track onion",
+		TestFunc: testTrackOnion,
+	},
 }

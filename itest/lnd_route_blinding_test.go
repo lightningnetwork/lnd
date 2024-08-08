@@ -382,6 +382,7 @@ func (b *blindedForwardTest) buildBlindedPath() *lnrpc.BlindedPaymentPath {
 		RPreimage: b.preimage[:],
 		Memo:      "test",
 		ValueMsat: 10_000_000,
+		IsBlinded: true,
 		BlindedPathConfig: &lnrpc.BlindedPathConfig{
 			MinNumRealHops: &minNumRealHops,
 			NumHops:        &numHops,
@@ -625,6 +626,7 @@ func testBlindedRouteInvoices(ht *lntest.HarnessTest) {
 	invoice := testCase.dave.RPC.AddInvoice(&lnrpc.Invoice{
 		Memo:      "test",
 		ValueMsat: 10_000_000,
+		IsBlinded: true,
 		BlindedPathConfig: &lnrpc.BlindedPathConfig{
 			MinNumRealHops: &minNumRealHops,
 			NumHops:        &numHops,
@@ -643,6 +645,7 @@ func testBlindedRouteInvoices(ht *lntest.HarnessTest) {
 	invoice = testCase.dave.RPC.AddInvoice(&lnrpc.Invoice{
 		Memo:      "test",
 		ValueMsat: 10_000_000,
+		IsBlinded: true,
 		BlindedPathConfig: &lnrpc.BlindedPathConfig{
 			MinNumRealHops: &minNumRealHops,
 			NumHops:        &numHops,
@@ -997,8 +1000,9 @@ func testMPPToSingleBlindedPath(ht *lntest.HarnessTest) {
 		minNumRealHops uint32 = 1
 	)
 	invoice := &lnrpc.Invoice{
-		Memo:  "test",
-		Value: int64(paymentAmt),
+		Memo:      "test",
+		Value:     int64(paymentAmt),
+		IsBlinded: true,
 		BlindedPathConfig: &lnrpc.BlindedPathConfig{
 			NumHops:        &numHops,
 			MinNumRealHops: &minNumRealHops,
@@ -1167,8 +1171,9 @@ func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
 		numHops        uint32 = 2
 	)
 	invoice := &lnrpc.Invoice{
-		Memo:  "test",
-		Value: int64(paymentAmt),
+		Memo:      "test",
+		Value:     int64(paymentAmt),
+		IsBlinded: true,
 		BlindedPathConfig: &lnrpc.BlindedPathConfig{
 			MinNumRealHops: &minNumRealHops,
 			NumHops:        &numHops,
@@ -1208,8 +1213,9 @@ func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
 	// that one dummy hop should be added.
 	minNumRealHops = 1
 	invoice = &lnrpc.Invoice{
-		Memo:  "test",
-		Value: int64(paymentAmt),
+		Memo:      "test",
+		Value:     int64(paymentAmt),
+		IsBlinded: true,
 		BlindedPathConfig: &lnrpc.BlindedPathConfig{
 			MinNumRealHops: &minNumRealHops,
 			NumHops:        &numHops,
@@ -1334,8 +1340,9 @@ func testMPPToMultipleBlindedPaths(ht *lntest.HarnessTest) {
 		numHops        uint32 = 1
 	)
 	invoice := &lnrpc.Invoice{
-		Memo:  "test",
-		Value: int64(paymentAmt),
+		Memo:      "test",
+		Value:     int64(paymentAmt),
+		IsBlinded: true,
 		BlindedPathConfig: &lnrpc.BlindedPathConfig{
 			MinNumRealHops: &minNumRealHops,
 			NumHops:        &numHops,

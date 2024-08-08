@@ -3843,7 +3843,14 @@ message Invoice {
     Signals that the invoice should include blinded paths to hide the true
     identity of the recipient.
     */
-    BlindedPathConfig blinded_path_config = 29;
+    bool is_blinded = 29;
+
+    /*
+    Config values to use when creating blinded paths for this invoice. These
+    can be used to override the defaults config values provided in by the
+    global config. This field is only used if is_blinded is true.
+    */
+    BlindedPathConfig blinded_path_config = 30;
 }
 
 message BlindedPathConfig {

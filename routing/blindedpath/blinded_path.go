@@ -896,7 +896,7 @@ func padHopInfo(hopInfo []*hopData, prePad bool, minSize int) (
 
 	var (
 		paymentPath = make([]*sphinx.HopInfo, len(hopInfo))
-		stats       padStats
+		stats       = padStats{finalPaddedSize: minSize}
 	)
 
 	// Pre-pad each payload with zero byte padding (if it does not yet have

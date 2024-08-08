@@ -5781,7 +5781,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	var (
 		defaultDelta = r.cfg.Bitcoin.TimeLockDelta
 		blindCfg     = invoice.BlindedPathConfig
-		blind        = blindCfg != nil
+		blind        = invoice.IsBlinded
 	)
 
 	globalBlindCfg := r.server.cfg.Routing.BlindedPaths
@@ -5792,7 +5792,12 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		NodeOmissionSet:          fn.NewSet[route.Vertex](),
 	}
 
-	if blind {
+	if blindCfg != nil && !blind {
+		return nil, fmt.Errorf("blinded path config provided but " +
+			"IsBlinded not set")
+	}
+
+	if blind && blindCfg != nil {
 		if blindCfg.MinNumRealHops != nil {
 			blindingRestrictions.MinDistanceFromIntroNode =
 				uint8(*blindCfg.MinNumRealHops)

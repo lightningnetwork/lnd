@@ -1412,6 +1412,11 @@
           "type": "string",
           "format": "int64",
           "description": "The amount of satoshis per kw that should be used in order to reach the\nconfirmation target in the request."
+        },
+        "min_relay_fee_sat_per_kw": {
+          "type": "string",
+          "format": "int64",
+          "description": "The current minimum relay fee based on our chain backend in sat/kw."
         }
       }
     },

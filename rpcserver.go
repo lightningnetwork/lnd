@@ -7056,6 +7056,9 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 		return nil, err
 	}
 
+	// Propagate the new config level to the main config struct.
+	r.cfg.DebugLevel = req.LevelSpec
+
 	return &lnrpc.DebugLevelResponse{}, nil
 }
 

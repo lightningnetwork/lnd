@@ -57,6 +57,10 @@ commitment when the channel was force closed.
   [here](https://github.com/lightningnetwork/lnd/issues/8146) for a summary of
   the issue.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/8857) to correctly 
+  propagate mission control and debug level config values to the main LND config
+  struct so that the GetDebugInfo response is accurate.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions
@@ -247,6 +251,7 @@ commitment when the channel was force closed.
 * Elle Mouton
 * Eugene Siegel
 * Matheus Degiovani
+* Pins
 * Oliver Gugger
 * Slyghtning
 * Yong Yu

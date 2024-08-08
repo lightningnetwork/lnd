@@ -561,7 +561,7 @@ func (m *SyncManager) removeGossipSyncer(peer route.Vertex) {
 		return
 	}
 
-	log.Debugf("Replaced active GossipSyncer(%x) with GossipSyncer(%x)",
+	log.Debugf("Replaced active GossipSyncer(%v) with GossipSyncer(%x)",
 		peer, newActiveSyncer.cfg.peerPub)
 }
 

@@ -6,6 +6,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -69,7 +70,12 @@ func (u updateType) String() string {
 //
 // TODO(roasbeef): LogEntry interface??
 //   - need to separate attrs for cancel/add/settle/feeupdate
-type PaymentDescriptor struct {
+type paymentDescriptor struct {
+	// ChanID is the ChannelID of the LightningChannel that this
+	// PaymentDescriptor belongs to. We track this here so we can
+	// reconstruct the Messages that this PaymentDescriptor is built from.
+	ChanID lnwire.ChannelID
+
 	// RHash is the payment hash for this HTLC. The HTLC can be settled iff
 	// the preimage to this hash is presented.
 	RHash PaymentHash
@@ -160,22 +166,20 @@ type PaymentDescriptor struct {
 	// which included this HTLC on either the remote or local commitment
 	// chain. This value is used to determine when an HTLC is fully
 	// "locked-in".
-	addCommitHeightRemote uint64
-	addCommitHeightLocal  uint64
+	addCommitHeights lntypes.Dual[uint64]
 
 	// removeCommitHeight[Remote|Local] encodes the height of the
 	// commitment which removed the parent pointer of this
 	// PaymentDescriptor either due to a timeout or a settle. Once both
 	// these heights are below the tail of both chains, the log entries can
 	// safely be removed.
-	removeCommitHeightRemote uint64
-	removeCommitHeightLocal  uint64
+	removeCommitHeights lntypes.Dual[uint64]
 
 	// OnionBlob is an opaque blob which is used to complete multi-hop
 	// routing.
 	//
 	// NOTE: Populated only on add payment descriptor entry types.
-	OnionBlob []byte
+	OnionBlob [1366]byte
 
 	// ShaOnionBlob is a sha of the onion blob.
 	//
@@ -221,4 +225,53 @@ type PaymentDescriptor struct {
 	// blinded route (ie, not the introduction node) from update_add_htlc's
 	// TLVs.
 	BlindingPoint lnwire.BlindingPointRecord
+}
+
+// asLogUpdate recovers the underlying LogUpdate from the paymentDescriptor.
+// This operation is lossy and will forget some extra information tracked by the
+// paymentDescriptor but the function is total in that all paymentDescriptors
+// can be converted back to LogUpdates.
+func (pd *paymentDescriptor) asLogUpdate() channeldb.LogUpdate {
+	var msg lnwire.Message
+	switch pd.EntryType {
+	case Add:
+		msg = &lnwire.UpdateAddHTLC{
+			ChanID:        pd.ChanID,
+			ID:            pd.HtlcIndex,
+			Amount:        pd.Amount,
+			PaymentHash:   pd.RHash,
+			Expiry:        pd.Timeout,
+			OnionBlob:     pd.OnionBlob,
+			BlindingPoint: pd.BlindingPoint,
+		}
+	case Settle:
+		msg = &lnwire.UpdateFulfillHTLC{
+			ChanID:          pd.ChanID,
+			ID:              pd.ParentIndex,
+			PaymentPreimage: pd.RPreimage,
+		}
+	case Fail:
+		msg = &lnwire.UpdateFailHTLC{
+			ChanID: pd.ChanID,
+			ID:     pd.ParentIndex,
+			Reason: pd.FailReason,
+		}
+	case MalformedFail:
+		msg = &lnwire.UpdateFailMalformedHTLC{
+			ChanID:       pd.ChanID,
+			ID:           pd.ParentIndex,
+			ShaOnionBlob: pd.ShaOnionBlob,
+			FailureCode:  pd.FailCode,
+		}
+	case FeeUpdate:
+		msg = &lnwire.UpdateFee{
+			ChanID:   pd.ChanID,
+			FeePerKw: uint32(pd.Amount.ToSatoshis()),
+		}
+	}
+
+	return channeldb.LogUpdate{
+		LogIndex:  pd.LogIndex,
+		UpdateMsg: msg,
+	}
 }

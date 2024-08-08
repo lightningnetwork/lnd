@@ -61,6 +61,22 @@ func (w *mockWalletController) FetchInputInfo(
 	return utxo, nil
 }
 
+// FetchOutpointInfo will be called to get info about the inputs to the funding
+// transaction.
+func (w *mockWalletController) FetchOutpointInfo(
+	prevOut *wire.OutPoint) (*Utxo, error) {
+
+	utxo := &Utxo{
+		AddressType:   WitnessPubKey,
+		Value:         10 * btcutil.SatoshiPerBitcoin,
+		PkScript:      []byte("dummy"),
+		Confirmations: 1,
+		OutPoint:      *prevOut,
+	}
+
+	return utxo, nil
+}
+
 // ScriptForOutput returns the address, witness program and redeem script for a
 // given UTXO. An error is returned if the UTXO does not belong to our wallet or
 // it is not a managed pubKey address.
@@ -298,6 +314,14 @@ func (w *mockWalletController) FetchTx(chainhash.Hash) (*wire.MsgTx, error) {
 
 func (w *mockWalletController) RemoveDescendants(*wire.MsgTx) error {
 	return nil
+}
+
+// FetchDerivationInfo queries for the wallet's knowledge of the passed
+// pkScript and constructs the derivation info and returns it.
+func (w *mockWalletController) FetchDerivationInfo(
+	pkScript []byte) (*psbt.Bip32Derivation, error) {
+
+	return nil, nil
 }
 
 func (w *mockWalletController) CheckMempoolAcceptance(tx *wire.MsgTx) error {

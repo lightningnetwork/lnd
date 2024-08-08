@@ -228,10 +228,20 @@ type TransactionSubscription interface {
 // across all concrete implementations.
 type WalletController interface {
 	// FetchInputInfo queries for the WalletController's knowledge of the
-	// passed outpoint. If the base wallet determines this output is under
-	// its control, then the original txout should be returned.  Otherwise,
-	// a non-nil error value of ErrNotMine should be returned instead.
+	// passed outpoint. It returns the same info as `FetchOutpointInfo`
+	// plus the Bip32Derivation info.
 	FetchInputInfo(prevOut *wire.OutPoint) (*Utxo, error)
+
+	// FetchOutpointInfo queries for the WalletController's knowledge of
+	// the passed outpoint. If the base wallet determines this output is
+	// under its control, then the original txout should be returned.
+	// Otherwise, a non-nil error value of ErrNotMine should be returned
+	// instead.
+	FetchOutpointInfo(prevOut *wire.OutPoint) (*Utxo, error)
+
+	// FetchDerivationInfo queries for the wallet's knowledge of the passed
+	// pkScript and constructs the derivation info and returns it.
+	FetchDerivationInfo(pkScript []byte) (*psbt.Bip32Derivation, error)
 
 	// ScriptForOutput returns the address, witness program and redeem
 	// script for a given UTXO. An error is returned if the UTXO does not

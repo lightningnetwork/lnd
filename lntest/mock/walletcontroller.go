@@ -58,6 +58,21 @@ func (w *WalletController) FetchInputInfo(
 	return utxo, nil
 }
 
+// FetchOutpointInfo will be called to get info about the inputs to the funding
+// transaction.
+func (w *WalletController) FetchOutpointInfo(
+	prevOut *wire.OutPoint) (*lnwallet.Utxo, error) {
+
+	utxo := &lnwallet.Utxo{
+		AddressType:   lnwallet.WitnessPubKey,
+		Value:         10 * btcutil.SatoshiPerBitcoin,
+		PkScript:      []byte("dummy"),
+		Confirmations: 1,
+		OutPoint:      *prevOut,
+	}
+	return utxo, nil
+}
+
 // ScriptForOutput returns the address, witness program and redeem script for a
 // given UTXO. An error is returned if the UTXO does not belong to our wallet or
 // it is not a managed pubKey address.
@@ -291,4 +306,12 @@ func (w *WalletController) RemoveDescendants(*wire.MsgTx) error {
 
 func (w *WalletController) CheckMempoolAcceptance(tx *wire.MsgTx) error {
 	return nil
+}
+
+// FetchDerivationInfo queries for the wallet's knowledge of the passed
+// pkScript and constructs the derivation info and returns it.
+func (w *WalletController) FetchDerivationInfo(
+	pkScript []byte) (*psbt.Bip32Derivation, error) {
+
+	return nil, nil
 }

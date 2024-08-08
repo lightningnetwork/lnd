@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -54,6 +55,49 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo,
 		Derivation:    bip32,
 		PrevTx:        prevTx,
 	}, nil
+}
+
+// FetchOutpointInfo queries for the WalletController's knowledge of the passed
+// outpoint. If the base wallet determines this output is under its control,
+// then the original txout should be returned. Otherwise, a non-nil error value
+// of ErrNotMine should be returned instead.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) FetchOutpointInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo,
+	error) {
+
+	prevTx, txOut, confirmations, err := b.wallet.FetchOutpointInfo(prevOut)
+	if err != nil {
+		return nil, err
+	}
+
+	// Then, we'll populate all of the information required by the struct.
+	addressType := lnwallet.UnknownAddressType
+	switch {
+	case txscript.IsPayToWitnessPubKeyHash(txOut.PkScript):
+		addressType = lnwallet.WitnessPubKey
+	case txscript.IsPayToScriptHash(txOut.PkScript):
+		addressType = lnwallet.NestedWitnessPubKey
+	case txscript.IsPayToTaproot(txOut.PkScript):
+		addressType = lnwallet.TaprootPubkey
+	}
+
+	return &lnwallet.Utxo{
+		AddressType:   addressType,
+		Value:         btcutil.Amount(txOut.Value),
+		PkScript:      txOut.PkScript,
+		Confirmations: confirmations,
+		OutPoint:      *prevOut,
+		PrevTx:        prevTx,
+	}, nil
+}
+
+// FetchDerivationInfo queries for the wallet's knowledge of the passed
+// pkScript and constructs the derivation info and returns it.
+func (b *BtcWallet) FetchDerivationInfo(
+	pkScript []byte) (*psbt.Bip32Derivation, error) {
+
+	return b.wallet.FetchDerivationInfo(pkScript)
 }
 
 // ScriptForOutput returns the address, witness program and redeem script for a

@@ -489,6 +489,15 @@ func (i *Invoice) IsAMP() bool {
 	)
 }
 
+// IsBlinded returns true if the invoice contains blinded paths.
+func (i *Invoice) IsBlinded() bool {
+	if i.Terms.Features == nil {
+		return false
+	}
+
+	return i.Terms.Features.IsSet(lnwire.Bolt11BlindedPathsRequired)
+}
+
 // HtlcState defines the states an htlc paying to an invoice can be in.
 type HtlcState uint8
 

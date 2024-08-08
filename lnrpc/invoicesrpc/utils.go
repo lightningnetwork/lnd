@@ -176,6 +176,7 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 		IsKeysend:       invoice.IsKeysend(),
 		PaymentAddr:     invoice.Terms.PaymentAddr[:],
 		IsAmp:           invoice.IsAMP(),
+		IsBlinded:       invoice.IsBlinded(),
 	}
 
 	rpcInvoice.AmpInvoiceState = make(map[string]*lnrpc.AMPInvoiceState)

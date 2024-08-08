@@ -183,6 +183,7 @@ func addInvoice(ctx *cli.Context) error {
 		CltvExpiry:        ctx.Uint64("cltv_expiry_delta"),
 		Private:           ctx.Bool("private"),
 		IsAmp:             ctx.Bool("amp"),
+		IsBlinded:         ctx.Bool("blind"),
 		BlindedPathConfig: blindedPathCfg,
 	}
 

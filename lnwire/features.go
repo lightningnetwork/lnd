@@ -266,12 +266,12 @@ const (
 	// Bolt11BlindedPathsRequired is a required feature bit that indicates
 	// that the node is able to understand the blinded path tagged field in
 	// a BOLT 11 invoice.
-	Bolt11BlindedPathsRequired = 260
+	Bolt11BlindedPathsRequired = 262
 
 	// Bolt11BlindedPathsOptional is an optional feature bit that indicates
 	// that the node is able to understand the blinded path tagged field in
 	// a BOLT 11 invoice.
-	Bolt11BlindedPathsOptional = 261
+	Bolt11BlindedPathsOptional = 263
 
 	// MaxBolt11Feature is the maximum feature bit value allowed in bolt 11
 	// invoices.

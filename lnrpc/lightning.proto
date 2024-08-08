@@ -3843,7 +3843,36 @@ message Invoice {
     Signals that the invoice should include blinded paths to hide the true
     identity of the recipient.
     */
-    bool blind = 29;
+    BlindedPathConfig blinded_path_config = 29;
+}
+
+message BlindedPathConfig {
+    /*
+    The minimum number of real hops to include in a blinded path. This doesn't
+    include our node, so if the minimum is 1, then the path will contain at
+    minimum our node along with an introduction node hop. If it is zero then
+    the shortest path will use our node as an introduction node.
+    */
+    optional uint32 min_num_real_hops = 1;
+
+    /*
+    The number of hops to include in a blinded path. This doesn't include our
+    node, so if it is 1, then the path will contain our node along with an
+    introduction node or dummy node hop. If paths shorter than NumHops is
+    found, then they will be padded using dummy hops.
+    */
+    optional uint32 num_hops = 2;
+
+    /*
+    The maximum number of blinded paths to select and add to an invoice.
+    */
+    optional uint32 max_num_paths = 3;
+
+    /*
+    A list of node IDs of nodes that should not be used in any of our generated
+    blinded paths.
+    */
+    repeated bytes node_omission_list = 4;
 }
 
 enum InvoiceHTLCState {

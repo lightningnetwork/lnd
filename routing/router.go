@@ -599,6 +599,10 @@ type BlindedPathRestrictions struct {
 
 	// MaxNumPaths is the maximum number of blinded paths to select.
 	MaxNumPaths uint8
+
+	// NodeOmissionSet is a set of nodes that should not be used within any
+	// of the blinded paths that we generate.
+	NodeOmissionSet fn.Set[route.Vertex]
 }
 
 // FindBlindedPaths finds a selection of paths to the destination node that can
@@ -611,8 +615,9 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 	// path length restrictions.
 	paths, err := findBlindedPaths(
 		r.cfg.RoutingGraph, destination, &blindedPathRestrictions{
-			minNumHops: restrictions.MinDistanceFromIntroNode,
-			maxNumHops: restrictions.NumHops,
+			minNumHops:      restrictions.MinDistanceFromIntroNode,
+			maxNumHops:      restrictions.NumHops,
+			nodeOmissionSet: restrictions.NodeOmissionSet,
 		},
 	)
 	if err != nil {
@@ -681,7 +686,7 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 
 	// Sort the routes based on probability.
 	sort.Slice(routes, func(i, j int) bool {
-		return routes[i].probability < routes[j].probability
+		return routes[i].probability > routes[j].probability
 	})
 
 	// Now just choose the best paths up until the maximum number of allowed

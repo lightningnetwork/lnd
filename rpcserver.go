@@ -5210,6 +5210,7 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 	if rpcPayReq.PaymentRequest != "" {
 		payReq, err := zpay32.Decode(
 			rpcPayReq.PaymentRequest, r.cfg.ActiveNetParams.Params,
+			zpay32.WithErrorOnUnknownFeatureBit(),
 		)
 		if err != nil {
 			return payIntent, err
@@ -5777,13 +5778,50 @@ func (r *rpcServer) sendPaymentSync(
 func (r *rpcServer) AddInvoice(ctx context.Context,
 	invoice *lnrpc.Invoice) (*lnrpc.AddInvoiceResponse, error) {
 
-	defaultDelta := r.cfg.Bitcoin.TimeLockDelta
+	var (
+		defaultDelta = r.cfg.Bitcoin.TimeLockDelta
+		blindCfg     = invoice.BlindedPathConfig
+		blind        = blindCfg != nil
+	)
 
+	globalBlindCfg := r.server.cfg.Routing.BlindedPaths
 	blindingRestrictions := &routing.BlindedPathRestrictions{
-		MinDistanceFromIntroNode: r.server.cfg.Routing.BlindedPaths.
-			MinNumRealHops,
-		NumHops:     r.server.cfg.Routing.BlindedPaths.NumHops,
-		MaxNumPaths: r.server.cfg.Routing.BlindedPaths.MaxNumPaths,
+		MinDistanceFromIntroNode: globalBlindCfg.MinNumRealHops,
+		NumHops:                  globalBlindCfg.NumHops,
+		MaxNumPaths:              globalBlindCfg.MaxNumPaths,
+		NodeOmissionSet:          fn.NewSet[route.Vertex](),
+	}
+
+	if blind {
+		if blindCfg.MinNumRealHops != nil {
+			blindingRestrictions.MinDistanceFromIntroNode =
+				uint8(*blindCfg.MinNumRealHops)
+		}
+		if blindCfg.NumHops != nil {
+			blindingRestrictions.NumHops = uint8(*blindCfg.NumHops)
+		}
+		if blindCfg.MaxNumPaths != nil {
+			blindingRestrictions.MaxNumPaths =
+				uint8(*blindCfg.MaxNumPaths)
+		}
+
+		for _, nodeIDBytes := range blindCfg.NodeOmissionList {
+			vertex, err := route.NewVertexFromBytes(nodeIDBytes)
+			if err != nil {
+				return nil, err
+			}
+
+			blindingRestrictions.NodeOmissionSet.Add(vertex)
+		}
+	}
+
+	if blindingRestrictions.MinDistanceFromIntroNode >
+		blindingRestrictions.NumHops {
+
+		return nil, fmt.Errorf("the minimum number of real " +
+			"hops in a blinded path must be smaller than " +
+			"or equal to the number of hops expected to " +
+			"be included in each path")
 	}
 
 	addInvoiceCfg := &invoicesrpc.AddInvoiceConfig{
@@ -5797,7 +5835,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		GenInvoiceFeatures: func() *lnwire.FeatureVector {
 			v := r.server.featureMgr.Get(feature.SetInvoice)
 
-			if invoice.Blind {
+			if blind {
 				// If an invoice includes blinded paths, then a
 				// payment address is not required since we use
 				// the PathID in the final hop's encrypted data
@@ -5820,10 +5858,6 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		},
 		GetAlias:   r.server.aliasMgr.GetPeerAlias,
 		BestHeight: r.server.cc.BestBlockTracker.BestHeight,
-		BlindedRoutePolicyIncrMultiplier: r.server.cfg.Routing.
-			BlindedPaths.PolicyIncreaseMultiplier,
-		BlindedRoutePolicyDecrMultiplier: r.server.cfg.Routing.
-			BlindedPaths.PolicyDecreaseMultiplier,
 		QueryBlindedRoutes: func(amt lnwire.MilliSatoshi) (
 			[]*route.Route, error) {
 
@@ -5832,18 +5866,6 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 				r.server.missionControl.GetProbability,
 				blindingRestrictions,
 			)
-		},
-		MinNumBlindedPathHops: r.server.cfg.Routing.BlindedPaths.
-			NumHops,
-		DefaultDummyHopPolicy: &blindedpath.BlindedHopPolicy{
-			CLTVExpiryDelta: uint16(defaultDelta),
-			FeeRate:         uint32(r.server.cfg.Bitcoin.FeeRate),
-			BaseFee:         r.server.cfg.Bitcoin.BaseFee,
-			MinHTLCMsat:     r.server.cfg.Bitcoin.MinHTLCIn,
-
-			// MaxHTLCMsat will be calculated on the fly by using
-			// the introduction node's channel's capacities.
-			MaxHTLCMsat: 0,
 		},
 	}
 
@@ -5857,6 +5879,33 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
+	var blindedPathCfg *invoicesrpc.BlindedPathConfig
+	if blind {
+		bpConfig := r.server.cfg.Routing.BlindedPaths
+
+		blindedPathCfg = &invoicesrpc.BlindedPathConfig{
+			RoutePolicyIncrMultiplier: bpConfig.
+				PolicyIncreaseMultiplier,
+			RoutePolicyDecrMultiplier: bpConfig.
+				PolicyDecreaseMultiplier,
+			DefaultDummyHopPolicy: &blindedpath.BlindedHopPolicy{
+				CLTVExpiryDelta: uint16(defaultDelta),
+				FeeRate: uint32(
+					r.server.cfg.Bitcoin.FeeRate,
+				),
+				BaseFee:     r.server.cfg.Bitcoin.BaseFee,
+				MinHTLCMsat: r.server.cfg.Bitcoin.MinHTLCIn,
+
+				// MaxHTLCMsat will be calculated on the fly by
+				// using the introduction node's channel's
+				// capacities.
+				MaxHTLCMsat: 0,
+			},
+			MinNumPathHops: blindingRestrictions.NumHops,
+		}
+	}
+
 	addInvoiceData := &invoicesrpc.AddInvoiceData{
 		Memo:            invoice.Memo,
 		Value:           value,
@@ -5867,7 +5916,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		Private:         invoice.Private,
 		RouteHints:      routeHints,
 		Amp:             invoice.IsAmp,
-		Blind:           invoice.Blind,
+		BlindedPathCfg:  blindedPathCfg,
 	}
 
 	if invoice.RPreimage != nil {

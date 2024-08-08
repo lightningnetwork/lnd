@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -1150,6 +1151,10 @@ type blindedPathRestrictions struct {
 	// path. This doesn't include our node, so if the maximum is 1, then
 	// the path will contain our node along with an introduction node hop.
 	maxNumHops uint8
+
+	// nodeOmissionSet holds a set of node IDs of nodes that we should
+	// ignore during blinded path selection.
+	nodeOmissionSet fn.Set[route.Vertex]
 }
 
 // blindedHop holds the information about a hop we have selected for a blinded
@@ -1250,6 +1255,12 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 	// If we have already visited this peer on this path, then we skip
 	// processing it again.
 	if alreadyVisited[node] {
+		return nil, false, nil
+	}
+
+	// If we have explicitly been told to ignore this node for blinded paths
+	// then we skip it too.
+	if restrictions.nodeOmissionSet.Contains(node) {
 		return nil, false, nil
 	}
 

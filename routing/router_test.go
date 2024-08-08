@@ -3158,7 +3158,7 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 		}
 
 		for i, path := range expectedPaths {
-			require.Equal(t, expectedPaths[i], path)
+			require.Equal(t, path, actualPaths[i])
 		}
 	}
 
@@ -3243,5 +3243,20 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 	assertPaths(routes, []string{
 		"alice,bob,dave",
 		"alice,frank,dave",
+	})
+
+	// Test that if the user explicitly indicates that we should ignore
+	// the Frank node during path selection, then this is done.
+	routes, err = ctx.router.FindBlindedPaths(
+		dave, 1000, probabilitySrc, &BlindedPathRestrictions{
+			MinDistanceFromIntroNode: 2,
+			NumHops:                  2,
+			MaxNumPaths:              3,
+			NodeOmissionSet:          fn.NewSet(frank),
+		},
+	)
+	require.NoError(t, err)
+	assertPaths(routes, []string{
+		"alice,bob,dave",
 	})
 }

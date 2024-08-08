@@ -96,28 +96,6 @@ type AddInvoiceConfig struct {
 	// QueryBlindedRoutes can be used to generate a few routes to this node
 	// that can then be used in the construction of a blinded payment path.
 	QueryBlindedRoutes func(lnwire.MilliSatoshi) ([]*route.Route, error)
-
-	// BlindedRoutePolicyIncrMultiplier is the amount by which policy values
-	// for hops in a blinded route will be bumped to avoid easy probing. For
-	// example, a multiplier of 1.1 will bump all appropriate the values
-	// (base fee, fee rate, CLTV delta and min HLTC) by 10%.
-	BlindedRoutePolicyIncrMultiplier float64
-
-	// BlindedRoutePolicyDecrMultiplier is the amount by which appropriate
-	// policy values for hops in a blinded route will be decreased to avoid
-	// easy probing. For example, a multiplier of 0.9 will reduce
-	// appropriate values (like maximum HTLC) by 10%.
-	BlindedRoutePolicyDecrMultiplier float64
-
-	// MinNumBlindedPathHops is the minimum number of hops that a blinded
-	// path should be. Dummy hops will be used to pad any route with a
-	// length less than this.
-	MinNumBlindedPathHops uint8
-
-	// DefaultDummyHopPolicy holds the default policy values to use for
-	// dummy hops in a blinded path in the case where they cant be derived
-	// through other means.
-	DefaultDummyHopPolicy *blindedpath.BlindedHopPolicy
 }
 
 // AddInvoiceData contains the required data to create a new invoice.
@@ -168,14 +146,42 @@ type AddInvoiceData struct {
 	// NOTE: Preimage should always be set to nil when this value is true.
 	Amp bool
 
-	// Blind signals that this invoice should disguise the location of the
-	// recipient by adding blinded payment paths to the invoice instead of
-	// revealing the destination node's real pub key.
-	Blind bool
+	// BlindedPathCfg holds the config values to use when constructing
+	// blinded paths to add to the invoice. A non-nil BlindedPathCfg signals
+	// that this invoice should disguise the location of the recipient by
+	// adding blinded payment paths to the invoice instead of revealing the
+	// destination node's real pub key.
+	BlindedPathCfg *BlindedPathConfig
 
 	// RouteHints are optional route hints that can each be individually
 	// used to assist in reaching the invoice's destination.
 	RouteHints [][]zpay32.HopHint
+}
+
+// BlindedPathConfig holds the configuration values required for blinded path
+// generation for invoices.
+type BlindedPathConfig struct {
+	// RoutePolicyIncrMultiplier is the amount by which policy values for
+	// hops in a blinded route will be bumped to avoid easy probing. For
+	// example, a multiplier of 1.1 will bump all appropriate the values
+	// (base fee, fee rate, CLTV delta and min HLTC) by 10%.
+	RoutePolicyIncrMultiplier float64
+
+	// RoutePolicyDecrMultiplier is the amount by which appropriate policy
+	// values for hops in a blinded route will be decreased to avoid easy
+	// probing. For example, a multiplier of 0.9 will reduce appropriate
+	// values (like maximum HTLC) by 10%.
+	RoutePolicyDecrMultiplier float64
+
+	// MinNumPathHops is the minimum number of hops that a blinded path
+	// should be. Dummy hops will be used to pad any route with a length
+	// less than this.
+	MinNumPathHops uint8
+
+	// DefaultDummyHopPolicy holds the default policy values to use for
+	// dummy hops in a blinded path in the case where they cant be derived
+	// through other means.
+	DefaultDummyHopPolicy *blindedpath.BlindedHopPolicy
 }
 
 // paymentHashAndPreimage returns the payment hash and preimage for this invoice
@@ -277,7 +283,9 @@ func (d *AddInvoiceData) mppPaymentHashAndPreimage() (*lntypes.Preimage,
 func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	invoice *AddInvoiceData) (*lntypes.Hash, *invoices.Invoice, error) {
 
-	if invoice.Amp && invoice.Blind {
+	blind := invoice.BlindedPathCfg != nil
+
+	if invoice.Amp && blind {
 		return nil, nil, fmt.Errorf("AMP invoices with blinded paths " +
 			"are not yet supported")
 	}
@@ -420,7 +428,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	// Only include a final CLTV expiry delta if this is not a blinded
 	// invoice. In a blinded invoice, this value will be added to the total
 	// blinded route CLTV delta value
-	if !invoice.Blind {
+	if !blind {
 		options = append(options, zpay32.CLTVExpiry(cltvExpiryDelta))
 	}
 
@@ -433,7 +441,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	// Include route hints if needed.
 	if len(invoice.RouteHints) > 0 || invoice.Private {
-		if invoice.Blind {
+		if blind {
 			return nil, nil, fmt.Errorf("can't set both hop " +
 				"hints and add blinded payment paths")
 		}
@@ -492,7 +500,9 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		return nil, nil, err
 	}
 
-	if invoice.Blind {
+	if blind {
+		blindCfg := invoice.BlindedPathCfg
+
 		// Use the 10-min-per-block assumption to get a rough estimate
 		// of the number of blocks until the invoice expires. We want
 		// to make sure that the blinded path definitely does not expire
@@ -525,12 +535,12 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 					//nolint:lll
 					return blindedpath.AddPolicyBuffer(
-						p, cfg.BlindedRoutePolicyIncrMultiplier,
-						cfg.BlindedRoutePolicyDecrMultiplier,
+						p, blindCfg.RoutePolicyIncrMultiplier,
+						blindCfg.RoutePolicyDecrMultiplier,
 					)
 				},
-				MinNumHops:            cfg.MinNumBlindedPathHops,
-				DefaultDummyHopPolicy: cfg.DefaultDummyHopPolicy,
+				MinNumHops:            blindCfg.MinNumPathHops,
+				DefaultDummyHopPolicy: blindCfg.DefaultDummyHopPolicy,
 			},
 		)
 		if err != nil {
@@ -560,7 +570,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 			// For an invoice without a blinded path, the main node
 			// key is used to sign the invoice so that the sender
 			// can derive the true pub key of the recipient.
-			if !invoice.Blind {
+			if !blind {
 				return cfg.NodeSigner.SignMessageCompact(
 					msg, false,
 				)

@@ -132,20 +132,28 @@ func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) (
 	// For each route returned, we will construct the associated blinded
 	// payment path.
 	for _, route := range routes {
-		path, err := buildBlindedPaymentPath(
-			cfg, extractCandidatePath(route),
-		)
+		// Extract the information we need from the route.
+		candidatePath := extractCandidatePath(route)
+
+		// Pad the given route with dummy hops until the minimum number
+		// of hops is met.
+		candidatePath.padWithDummyHops(cfg.MinNumHops)
+
+		path, err := buildBlindedPaymentPath(cfg, candidatePath)
 		if errors.Is(err, errInvalidBlindedPath) {
 			log.Debugf("Not using route (%s) as a blinded path "+
 				"since it resulted in an invalid blinded path",
 				route)
 
 			continue
+		} else if err != nil {
+			log.Errorf("Not using route (%s) as a blinded path: %v",
+				err)
+
+			continue
 		}
 
-		if err != nil {
-			return nil, err
-		}
+		log.Debugf("Route selected for blinded path: %s", candidatePath)
 
 		paths = append(paths, path)
 	}
@@ -161,13 +169,6 @@ func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) (
 // and uses the given config to convert it into a blinded payment path.
 func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 	*zpay32.BlindedPaymentPath, error) {
-
-	// Pad the given route with dummy hops until the minimum number of hops
-	// is met.
-	err := path.padWithDummyHops(cfg.MinNumHops)
-	if err != nil {
-		return nil, err
-	}
 
 	hops, minHTLC, maxHTLC, err := collectRelayInfo(cfg, path)
 	if err != nil {
@@ -663,19 +664,34 @@ type candidatePath struct {
 	hops        []*blindedPathHop
 }
 
+// String returns a string representation of the candidatePath which can be
+// useful for logging and debugging.
+func (c *candidatePath) String() string {
+	str := fmt.Sprintf("[%s (intro node)]", c.introNode)
+
+	for _, hop := range c.hops {
+		if hop.isDummy {
+			str += "--->[dummy hop]"
+			continue
+		}
+
+		str += fmt.Sprintf("--<%d>-->[%s]", hop.channelID, hop.pubKey)
+	}
+
+	return str
+}
+
 // padWithDummyHops will append n dummy hops to the candidatePath hop set. The
 // pub key for the dummy hop will be the same as the pub key for the final hop
 // of the path. That way, the final hop will be able to decrypt the data
 // encrypted for each dummy hop.
-func (c *candidatePath) padWithDummyHops(n uint8) error {
+func (c *candidatePath) padWithDummyHops(n uint8) {
 	for len(c.hops) < int(n) {
 		c.hops = append(c.hops, &blindedPathHop{
 			pubKey:  c.finalNodeID,
 			isDummy: true,
 		})
 	}
-
-	return nil
 }
 
 // blindedPathHop holds the information we need to know about a hop in a route

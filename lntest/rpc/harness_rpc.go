@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/neutrinorpc"
 	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
@@ -42,6 +43,7 @@ type HarnessRPC struct {
 	ChainKit         chainrpc.ChainKitClient
 	NeutrinoKit      neutrinorpc.NeutrinoKitClient
 	Peer             peersrpc.PeersClient
+	Dev              devrpc.DevClient
 
 	// Name is the HarnessNode's name.
 	Name string
@@ -73,6 +75,7 @@ func NewHarnessRPC(ctxt context.Context, t *testing.T, c *grpc.ClientConn,
 		ChainKit:         chainrpc.NewChainKitClient(c),
 		NeutrinoKit:      neutrinorpc.NewNeutrinoKitClient(c),
 		Peer:             peersrpc.NewPeersClient(c),
+		Dev:              devrpc.NewDevClient(c),
 		Name:             name,
 	}
 

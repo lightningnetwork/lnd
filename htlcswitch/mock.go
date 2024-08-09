@@ -152,8 +152,10 @@ type mockServer struct {
 
 	t testing.TB
 
-	name     string
-	messages chan lnwire.Message
+	name             string
+	messages         chan lnwire.Message
+	protocolTraceMtx sync.Mutex
+	protocolTrace    []lnwire.Message
 
 	id         [33]byte
 	htlcSwitch *Switch
@@ -288,6 +290,10 @@ func (s *mockServer) Start() error {
 		for {
 			select {
 			case msg := <-s.messages:
+				s.protocolTraceMtx.Lock()
+				s.protocolTrace = append(s.protocolTrace, msg)
+				s.protocolTraceMtx.Unlock()
+
 				var shouldSkip bool
 
 				for _, interceptor := range s.interceptorFuncs {
@@ -626,6 +632,8 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 		targetChan = msg.ChanID
 	case *lnwire.UpdateFee:
 		targetChan = msg.ChanID
+	case *lnwire.Stfu:
+		targetChan = msg.ChanID
 	default:
 		return fmt.Errorf("unknown message type: %T", msg)
 	}
@@ -946,6 +954,12 @@ func (f *mockChannelLink) OnFlushedOnce(func()) {
 }
 func (f *mockChannelLink) OnCommitOnce(LinkDirection, func()) {
 	// TODO(proofofkeags): Implement
+}
+func (f *mockChannelLink) InitStfu() <-chan fn.Option[lntypes.ChannelParty] {
+	// TODO(proofofkeags): Implement
+	c := make(chan fn.Option[lntypes.ChannelParty])
+	close(c) // This indicates the attempt failed
+	return c
 }
 
 var _ ChannelLink = (*mockChannelLink)(nil)

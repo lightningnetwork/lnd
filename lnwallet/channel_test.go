@@ -5230,7 +5230,7 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 	// transaction.
 	remoteCommitWeight := func(lc *LightningChannel) lntypes.WeightUnit {
 		remoteACKedIndex :=
-			lc.commitChains.Local.tip().theirMessageIndex
+			lc.commitChains.Local.tip().messageIndices.Remote
 
 		htlcView := lc.fetchHTLCView(remoteACKedIndex,
 			lc.updateLogs.Local.logIndex)

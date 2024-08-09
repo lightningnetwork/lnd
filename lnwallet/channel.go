@@ -282,8 +282,7 @@ type commitment struct {
 	// new commitment sent to the remote party includes an index in the
 	// shared log which details which of their updates we're including in
 	// this new commitment.
-	ourMessageIndex   uint64
-	theirMessageIndex uint64
+	messageIndices lntypes.Dual[uint64]
 
 	// [our|their]HtlcIndex are the current running counters for the HTLCs
 	// offered by either party. This value is incremented each time a party
@@ -500,9 +499,9 @@ func (c *commitment) toDiskCommit(
 
 	commit := &channeldb.ChannelCommitment{
 		CommitHeight:    c.height,
-		LocalLogIndex:   c.ourMessageIndex,
+		LocalLogIndex:   c.messageIndices.Local,
 		LocalHtlcIndex:  c.ourHtlcIndex,
-		RemoteLogIndex:  c.theirMessageIndex,
+		RemoteLogIndex:  c.messageIndices.Remote,
 		RemoteHtlcIndex: c.theirHtlcIndex,
 		LocalBalance:    c.ourBalance,
 		RemoteBalance:   c.theirBalance,
@@ -772,24 +771,28 @@ func (lc *LightningChannel) diskCommitToMemCommit(
 		return nil, err
 	}
 
+	messageIndices := lntypes.Dual[uint64]{
+		Local:  diskCommit.LocalLogIndex,
+		Remote: diskCommit.RemoteLogIndex,
+	}
+
 	// With the necessary items generated, we'll now re-construct the
 	// commitment state as it was originally present in memory.
 	commit := &commitment{
-		height:            diskCommit.CommitHeight,
-		whoseCommit:       whoseCommit,
-		ourBalance:        diskCommit.LocalBalance,
-		theirBalance:      diskCommit.RemoteBalance,
-		ourMessageIndex:   diskCommit.LocalLogIndex,
-		ourHtlcIndex:      diskCommit.LocalHtlcIndex,
-		theirMessageIndex: diskCommit.RemoteLogIndex,
-		theirHtlcIndex:    diskCommit.RemoteHtlcIndex,
-		txn:               diskCommit.CommitTx,
-		sig:               diskCommit.CommitSig,
-		fee:               diskCommit.CommitFee,
-		feePerKw:          chainfee.SatPerKWeight(diskCommit.FeePerKw),
-		incomingHTLCs:     incomingHtlcs,
-		outgoingHTLCs:     outgoingHtlcs,
-		customBlob:        diskCommit.CustomBlob,
+		height:         diskCommit.CommitHeight,
+		whoseCommit:    whoseCommit,
+		ourBalance:     diskCommit.LocalBalance,
+		theirBalance:   diskCommit.RemoteBalance,
+		messageIndices: messageIndices,
+		ourHtlcIndex:   diskCommit.LocalHtlcIndex,
+		theirHtlcIndex: diskCommit.RemoteHtlcIndex,
+		txn:            diskCommit.CommitTx,
+		sig:            diskCommit.CommitSig,
+		fee:            diskCommit.CommitFee,
+		feePerKw:       chainfee.SatPerKWeight(diskCommit.FeePerKw),
+		incomingHTLCs:  incomingHtlcs,
+		outgoingHTLCs:  outgoingHtlcs,
+		customBlob:     diskCommit.CustomBlob,
 	}
 	if whoseCommit.IsLocal() {
 		commit.dustLimit = lc.channelState.LocalChanCfg.DustLimit
@@ -1758,7 +1761,7 @@ func (lc *LightningChannel) restorePendingRemoteUpdates(
 		// height as this commitment will include these updates for
 		// their new remote commitment.
 		if pendingRemoteCommit != nil {
-			if logIdx < pendingRemoteCommit.theirMessageIndex {
+			if logIdx < pendingRemoteCommit.messageIndices.Remote {
 				height = pendingRemoteCommit.height
 				heightSet = true
 			}
@@ -2751,22 +2754,26 @@ func (lc *LightningChannel) fetchCommitmentView(
 		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
 	}
 
+	messageIndices := lntypes.Dual[uint64]{
+		Local:  ourLogIndex,
+		Remote: theirLogIndex,
+	}
+
 	// With the commitment view created, store the resulting balances and
 	// transaction with the other parameters for this height.
 	c := &commitment{
-		ourBalance:        commitTx.ourBalance,
-		theirBalance:      commitTx.theirBalance,
-		txn:               commitTx.txn,
-		fee:               commitTx.fee,
-		ourMessageIndex:   ourLogIndex,
-		ourHtlcIndex:      ourHtlcIndex,
-		theirMessageIndex: theirLogIndex,
-		theirHtlcIndex:    theirHtlcIndex,
-		height:            nextHeight,
-		feePerKw:          feePerKw,
-		dustLimit:         dustLimit,
-		whoseCommit:       whoseCommitChain,
-		customBlob:        newCommitBlob,
+		ourBalance:     commitTx.ourBalance,
+		theirBalance:   commitTx.theirBalance,
+		txn:            commitTx.txn,
+		fee:            commitTx.fee,
+		messageIndices: messageIndices,
+		ourHtlcIndex:   ourHtlcIndex,
+		theirHtlcIndex: theirHtlcIndex,
+		height:         nextHeight,
+		feePerKw:       feePerKw,
+		dustLimit:      dustLimit,
+		whoseCommit:    whoseCommitChain,
+		customBlob:     newCommitBlob,
 	}
 
 	// In order to ensure _none_ of the HTLC's associated with this new
@@ -3493,10 +3500,12 @@ func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
 	chanID := lnwire.NewChanIDFromOutPoint(lc.channelState.FundingOutpoint)
 
 	// Fetch the last remote update that we have signed for.
-	lastRemoteCommitted := lc.commitChains.Remote.tail().theirMessageIndex
+	lastRemoteCommitted :=
+		lc.commitChains.Remote.tail().messageIndices.Remote
 
 	// Fetch the last remote update that we have acked.
-	lastLocalCommitted := lc.commitChains.Local.tail().theirMessageIndex
+	lastLocalCommitted :=
+		lc.commitChains.Local.tail().messageIndices.Remote
 
 	// We'll now run through the remote update log to locate the items that
 	// we haven't signed for yet. This will be the set of items we need to
@@ -3982,7 +3991,7 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	}
 
 	// Determine the last update on the remote log that has been locked in.
-	remoteACKedIndex := lc.commitChains.Local.tail().theirMessageIndex
+	remoteACKedIndex := lc.commitChains.Local.tail().messageIndices.Remote
 	remoteHtlcIndex := lc.commitChains.Local.tail().theirHtlcIndex
 
 	// Before we extend this new commitment to the remote commitment chain,
@@ -4982,7 +4991,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 	}
 
 	// Determine the last update on the local log that has been locked in.
-	localACKedIndex := lc.commitChains.Remote.tail().ourMessageIndex
+	localACKedIndex := lc.commitChains.Remote.tail().messageIndices.Local
 	localHtlcIndex := lc.commitChains.Remote.tail().ourHtlcIndex
 
 	// Ensure that this new local update from the remote node respects all
@@ -5313,13 +5322,13 @@ func (lc *LightningChannel) oweCommitment(issuer lntypes.ChannelParty) bool {
 		// There are local updates pending if our local update log is
 		// not in sync with our remote commitment tx.
 		localUpdatesPending = lc.updateLogs.Local.logIndex !=
-			lastRemoteCommit.ourMessageIndex
+			lastRemoteCommit.messageIndices.Local
 
 		// There are remote updates pending if their remote commitment
 		// tx (our local commitment tx) contains updates that we don't
 		// have added to our remote commitment tx yet.
-		remoteUpdatesPending = lastLocalCommit.theirMessageIndex !=
-			lastRemoteCommit.theirMessageIndex
+		remoteUpdatesPending = lastLocalCommit.messageIndices.Remote !=
+			lastRemoteCommit.messageIndices.Remote
 	} else {
 		perspective = "remote"
 
@@ -5328,13 +5337,13 @@ func (lc *LightningChannel) oweCommitment(issuer lntypes.ChannelParty) bool {
 		// updates to their remote tx pending for which they haven't
 		// signed yet.
 		localUpdatesPending = lc.updateLogs.Remote.logIndex !=
-			lastLocalCommit.theirMessageIndex
+			lastLocalCommit.messageIndices.Remote
 
 		// There are remote updates pending (remote updates from the
 		// perspective of the remote party) if we have updates on our
 		// remote commitment tx that they haven't added to theirs yet.
-		remoteUpdatesPending = lastRemoteCommit.ourMessageIndex !=
-			lastLocalCommit.ourMessageIndex
+		remoteUpdatesPending = lastRemoteCommit.messageIndices.Local !=
+			lastLocalCommit.messageIndices.Local
 	}
 
 	// If any of the conditions above is true, we owe a commitment
@@ -5356,7 +5365,8 @@ func (lc *LightningChannel) PendingLocalUpdateCount() uint64 {
 
 	lastRemoteCommit := lc.commitChains.Remote.tip()
 
-	return lc.updateLogs.Local.logIndex - lastRemoteCommit.ourMessageIndex
+	return lc.updateLogs.Local.logIndex -
+		lastRemoteCommit.messageIndices.Local
 }
 
 // RevokeCurrentCommitment revokes the next lowest unrevoked commitment
@@ -5615,8 +5625,8 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 
 	// We use the remote commitment chain's tip as it will soon become the tail
 	// once advanceTail is called.
-	remoteMessageIndex := lc.commitChains.Remote.tip().ourMessageIndex
-	localMessageIndex := lc.commitChains.Local.tail().ourMessageIndex
+	remoteMessageIndex := lc.commitChains.Remote.tip().messageIndices.Local
+	localMessageIndex := lc.commitChains.Local.tail().messageIndices.Local
 
 	localPeerUpdates := lc.unsignedLocalUpdates(
 		remoteMessageIndex, localMessageIndex, chanID,
@@ -5938,7 +5948,7 @@ func (lc *LightningChannel) validateAddHtlc(pd *PaymentDescriptor,
 	buffer BufferType) error {
 	// Make sure adding this HTLC won't violate any of the constraints we
 	// must keep on the commitment transactions.
-	remoteACKedIndex := lc.commitChains.Local.tail().theirMessageIndex
+	remoteACKedIndex := lc.commitChains.Local.tail().messageIndices.Remote
 
 	// First we'll check whether this HTLC can be added to the remote
 	// commitment transaction without violation any of the constraints.
@@ -5994,7 +6004,7 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64,
 		// PR).
 	}
 
-	localACKedIndex := lc.commitChains.Remote.tail().ourMessageIndex
+	localACKedIndex := lc.commitChains.Remote.tail().messageIndices.Local
 
 	// Clamp down on the number of HTLC's we can receive by checking the
 	// commitment sanity.
@@ -8140,7 +8150,7 @@ func (lc *LightningChannel) availableBalance(
 
 	// We'll grab the current set of log updates that the remote has
 	// ACKed.
-	remoteACKedIndex := lc.commitChains.Local.tip().theirMessageIndex
+	remoteACKedIndex := lc.commitChains.Local.tip().messageIndices.Remote
 	htlcView := lc.fetchHTLCView(remoteACKedIndex,
 		lc.updateLogs.Local.logIndex)
 

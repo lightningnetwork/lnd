@@ -63,6 +63,25 @@ const (
 	MsgKickoffSig                          = 777
 )
 
+// IsChannelUpdate is a filter function that discerns channel update messages
+// from the other messages in the Lightning Network Protocol.
+func (t MessageType) IsChannelUpdate() bool {
+	switch t {
+	case MsgUpdateAddHTLC:
+		return true
+	case MsgUpdateFulfillHTLC:
+		return true
+	case MsgUpdateFailHTLC:
+		return true
+	case MsgUpdateFailMalformedHTLC:
+		return true
+	case MsgUpdateFee:
+		return true
+	default:
+		return false
+	}
+}
+
 // ErrorEncodeMessage is used when failed to encode the message payload.
 func ErrorEncodeMessage(err error) error {
 	return fmt.Errorf("failed to encode message to buffer, got %w", err)

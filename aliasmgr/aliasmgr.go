@@ -16,6 +16,10 @@ import (
 // latest values of the alias manager.
 type UpdateLinkAliases func(shortID lnwire.ShortChannelID) error
 
+// ScidAliasMap is a map from a base short channel ID to a set of alias short
+// channel IDs.
+type ScidAliasMap map[lnwire.ShortChannelID][]lnwire.ShortChannelID
+
 var (
 	// aliasBucket stores aliases as keys and their base SCIDs as values.
 	// This is used to populate the maps that the Manager uses. The keys
@@ -94,7 +98,7 @@ type Manager struct {
 	// baseToSet is a mapping from the "base" SCID to the set of aliases
 	// for this channel. This mapping includes all channels that
 	// negotiated the option-scid-alias feature bit.
-	baseToSet map[lnwire.ShortChannelID][]lnwire.ShortChannelID
+	baseToSet ScidAliasMap
 
 	// aliasToBase is a mapping that maps all aliases for a given channel
 	// to its base SCID. This is only used for channels that have
@@ -117,10 +121,10 @@ func NewManager(db kvdb.Backend, linkAliasUpdater UpdateLinkAliases) (*Manager,
 
 	m := &Manager{
 		backend:          db,
+		baseToSet:        make(ScidAliasMap),
 		linkAliasUpdater: linkAliasUpdater,
 	}
 
-	m.baseToSet = make(map[lnwire.ShortChannelID][]lnwire.ShortChannelID)
 	m.aliasToBase = make(map[lnwire.ShortChannelID]lnwire.ShortChannelID)
 	m.peerAlias = make(map[lnwire.ChannelID]lnwire.ShortChannelID)
 
@@ -543,11 +547,11 @@ func (m *Manager) RequestAlias() (lnwire.ShortChannelID, error) {
 
 // ListAliases returns a carbon copy of baseToSet. This is used by the rpc
 // layer.
-func (m *Manager) ListAliases() map[lnwire.ShortChannelID][]lnwire.ShortChannelID {
+func (m *Manager) ListAliases() ScidAliasMap {
 	m.RLock()
 	defer m.RUnlock()
 
-	baseCopy := make(map[lnwire.ShortChannelID][]lnwire.ShortChannelID)
+	baseCopy := make(ScidAliasMap)
 
 	for k, v := range m.baseToSet {
 		setCopy := make([]lnwire.ShortChannelID, len(v))

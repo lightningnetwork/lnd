@@ -5,6 +5,7 @@ import (
 	"container/list"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"sync"
 	"time"
@@ -187,7 +188,7 @@ func serializeResult(rp *paymentResult) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
-	if err := channeldb.SerializeRoute(&b, *rp.route); err != nil {
+	if err := serializeRoute(&b, rp.route); err != nil {
 		return nil, nil, err
 	}
 
@@ -209,6 +210,88 @@ func serializeResult(rp *paymentResult) ([]byte, []byte, error) {
 	key := getResultKey(rp)
 
 	return key, b.Bytes(), nil
+}
+
+// deserializeRoute deserializes the mcRoute from the given io.Reader.
+func deserializeRoute(r io.Reader) (*mcRoute, error) {
+	var rt mcRoute
+	if err := channeldb.ReadElements(r, &rt.totalAmount); err != nil {
+		return nil, err
+	}
+
+	var pub []byte
+	if err := channeldb.ReadElements(r, &pub); err != nil {
+		return nil, err
+	}
+	copy(rt.sourcePubKey[:], pub)
+
+	var numHops uint32
+	if err := channeldb.ReadElements(r, &numHops); err != nil {
+		return nil, err
+	}
+
+	var hops []*mcHop
+	for i := uint32(0); i < numHops; i++ {
+		hop, err := deserializeHop(r)
+		if err != nil {
+			return nil, err
+		}
+		hops = append(hops, hop)
+	}
+	rt.hops = hops
+
+	return &rt, nil
+}
+
+// deserializeHop deserializes the mcHop from the given io.Reader.
+func deserializeHop(r io.Reader) (*mcHop, error) {
+	var h mcHop
+
+	var pub []byte
+	if err := channeldb.ReadElements(r, &pub); err != nil {
+		return nil, err
+	}
+	copy(h.pubKeyBytes[:], pub)
+
+	if err := channeldb.ReadElements(r,
+		&h.channelID, &h.amtToFwd, &h.hasBlindingPoint,
+	); err != nil {
+		return nil, err
+	}
+
+	return &h, nil
+}
+
+// serializeRoute serializes a mcRouter and writes the resulting bytes to the
+// given io.Writer.
+func serializeRoute(w io.Writer, r *mcRoute) error {
+	err := channeldb.WriteElements(w, r.totalAmount, r.sourcePubKey[:])
+	if err != nil {
+		return err
+	}
+
+	if err := channeldb.WriteElements(w, uint32(len(r.hops))); err != nil {
+		return err
+	}
+
+	for _, h := range r.hops {
+		if err := serializeHop(w, h); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// serializeHop serializes a mcHop and writes the resulting bytes to the given
+// io.Writer.
+func serializeHop(w io.Writer, h *mcHop) error {
+	return channeldb.WriteElements(w,
+		h.pubKeyBytes[:],
+		h.channelID,
+		h.amtToFwd,
+		h.hasBlindingPoint,
+	)
 }
 
 // deserializeResult deserializes a payment result.
@@ -244,11 +327,11 @@ func deserializeResult(k, v []byte) (*paymentResult, error) {
 	}
 
 	// Read route.
-	route, err := channeldb.DeserializeRoute(r)
+	route, err := deserializeRoute(r)
 	if err != nil {
 		return nil, err
 	}
-	result.route = &route
+	result.route = route
 
 	// Read failure.
 	failureBytes, err := wire.ReadVarBytes(
@@ -499,7 +582,7 @@ func getResultKey(rp *paymentResult) []byte {
 	// chronologically.
 	byteOrder.PutUint64(keyBytes[:], uint64(rp.timeReply.UnixNano()))
 	byteOrder.PutUint64(keyBytes[8:], rp.id)
-	copy(keyBytes[16:], rp.route.SourcePubKey[:])
+	copy(keyBytes[16:], rp.route.sourcePubKey[:])
 
 	return keyBytes[:]
 }

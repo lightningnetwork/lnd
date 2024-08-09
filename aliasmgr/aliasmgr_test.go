@@ -200,7 +200,7 @@ func TestGetNextScid(t *testing.T) {
 			name:    "starting alias",
 			current: StartingAlias,
 			expected: lnwire.ShortChannelID{
-				BlockHeight: startingBlockHeight,
+				BlockHeight: AliasStartBlockHeight,
 				TxIndex:     0,
 				TxPosition:  1,
 			},

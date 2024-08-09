@@ -60,6 +60,10 @@ commitment when the channel was force closed.
 * We'll now always send [channel updates to our remote peer for open
   channels](https://github.com/lightningnetwork/lnd/pull/8963).
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/8883) when RPC call
+  is made to list payments with the counting total number of payments enabled.
+
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions
@@ -255,6 +259,7 @@ commitment when the channel was force closed.
 * Matheus Degiovani
 * Olaoluwa Osuntokun
 * Oliver Gugger
+* Pins
 * Slyghtning
 * Yong Yu
 * Ziggie

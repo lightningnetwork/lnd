@@ -60,6 +60,9 @@ commitment when the channel was force closed.
 * We'll now always send [channel updates to our remote peer for open
   channels](https://github.com/lightningnetwork/lnd/pull/8963).
 
+* [Uses the openchannel sync call](https://github.com/lightningnetwork/lnd/pull/8934)
+ when opening a channel via the `lncli` in the non-blocking case.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

@@ -460,6 +460,22 @@ func openChannel(ctx *cli.Context) error {
 			"combination with the --psbt flag")
 	}
 
+	// In case we dont want to wait until the channel is fully confirmed
+	// onchain we use the `OpenChannelSync` rpc call.
+	if !ctx.Bool("block") {
+		pendingChan, err := client.OpenChannelSync(ctxc, req)
+		if err != nil {
+			return err
+		}
+
+		err = printPendingChanPoint(pendingChan)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
 	stream, err := client.OpenChannel(ctxc, req)
 	if err != nil {
 		return err
@@ -478,10 +494,6 @@ func openChannel(ctx *cli.Context) error {
 			err := printChanPending(update)
 			if err != nil {
 				return err
-			}
-
-			if !ctx.Bool("block") {
-				return nil
 			}
 
 		case *lnrpc.OpenStatusUpdate_ChanOpen:
@@ -950,6 +962,37 @@ func printChanOpen(update *lnrpc.OpenStatusUpdate_ChanOpen) error {
 	}{
 		ChannelPoint: fmt.Sprintf("%v:%v", txid, index),
 	})
+	return nil
+}
+
+// printPendingChan prints the funding txID of the pending channel opening.
+func printPendingChanPoint(pendingChan *lnrpc.ChannelPoint) error {
+	var txidHash []byte
+
+	switch pendingChan.GetFundingTxid().(type) {
+	case *lnrpc.ChannelPoint_FundingTxidBytes:
+		txidHash = pendingChan.GetFundingTxidBytes()
+	case *lnrpc.ChannelPoint_FundingTxidStr:
+		s := pendingChan.GetFundingTxidStr()
+		h, err := chainhash.NewHashFromStr(s)
+		if err != nil {
+			return err
+		}
+
+		txidHash = h[:]
+	}
+
+	txID, err := chainhash.NewHash(txidHash)
+	if err != nil {
+		return err
+	}
+
+	printJSON(struct {
+		FundingTxid string `json:"funding_txid"`
+	}{
+		FundingTxid: txID.String(),
+	})
+
 	return nil
 }
 

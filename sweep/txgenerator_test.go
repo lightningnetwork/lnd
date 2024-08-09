@@ -51,7 +51,7 @@ func TestWeightEstimate(t *testing.T) {
 	}
 
 	_, estimator, err := getWeightEstimate(
-		inputs, nil, 0, 0, changePkScript,
+		inputs, nil, 0, 0, [][]byte{changePkScript},
 	)
 	require.NoError(t, err)
 
@@ -153,7 +153,7 @@ func testUnknownScriptInner(t *testing.T, pkscript []byte, expectFail bool) {
 		))
 	}
 
-	_, _, err := getWeightEstimate(inputs, nil, 0, 0, pkscript)
+	_, _, err := getWeightEstimate(inputs, nil, 0, 0, [][]byte{pkscript})
 	if expectFail {
 		require.Error(t, err)
 	} else {

@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 )
 
 // preimageSubscriber reprints an active subscription to be notified once the
@@ -101,10 +102,11 @@ func (p *preimageBeacon) SubscribeUpdates(
 			ChanID: chanID,
 			HtlcID: htlc.HtlcIndex,
 		},
-		OutgoingChanID: payload.FwdInfo.NextHop,
-		OutgoingExpiry: payload.FwdInfo.OutgoingCTLV,
-		OutgoingAmount: payload.FwdInfo.AmountToForward,
-		CustomRecords:  payload.CustomRecords(),
+		OutgoingChanID:            payload.FwdInfo.NextHop,
+		OutgoingExpiry:            payload.FwdInfo.OutgoingCTLV,
+		OutgoingAmount:            payload.FwdInfo.AmountToForward,
+		CustomRecords:             payload.CustomRecords(),
+		IncomingWireCustomRecords: record.CustomSet(htlc.CustomRecords),
 	}
 	copy(packet.OnionBlob[:], nextHopOnionBlob)
 

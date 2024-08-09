@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -25,7 +26,8 @@ type mockBandwidthHints struct {
 }
 
 func (m *mockBandwidthHints) availableChanBandwidth(channelID uint64,
-	_ lnwire.MilliSatoshi) (lnwire.MilliSatoshi, bool) {
+	_ lnwire.MilliSatoshi,
+	htlcBlob fn.Option[[]byte]) (lnwire.MilliSatoshi, bool) {
 
 	if m.hints == nil {
 		return 0, false
@@ -227,6 +229,7 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 		// Find a route.
 		route, err := session.RequestRoute(
 			amtRemaining, lnwire.MaxMilliSatoshi, inFlightHtlcs, 0,
+			nil,
 		)
 		if err != nil {
 			return attempts, err

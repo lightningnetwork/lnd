@@ -112,15 +112,16 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 		}
 
 		rpcHtlc := lnrpc.InvoiceHTLC{
-			ChanId:          key.ChanID.ToUint64(),
-			HtlcIndex:       key.HtlcID,
-			AcceptHeight:    int32(htlc.AcceptHeight),
-			AcceptTime:      htlc.AcceptTime.Unix(),
-			ExpiryHeight:    int32(htlc.Expiry),
-			AmtMsat:         uint64(htlc.Amt),
-			State:           state,
-			CustomRecords:   htlc.CustomRecords,
-			MppTotalAmtMsat: uint64(htlc.MppTotalAmt),
+			ChanId:            key.ChanID.ToUint64(),
+			HtlcIndex:         key.HtlcID,
+			AcceptHeight:      int32(htlc.AcceptHeight),
+			AcceptTime:        htlc.AcceptTime.Unix(),
+			ExpiryHeight:      int32(htlc.Expiry),
+			AmtMsat:           uint64(htlc.Amt),
+			State:             state,
+			CustomRecords:     htlc.CustomRecords,
+			WireCustomRecords: htlc.WireCustomRecords,
+			MppTotalAmtMsat:   uint64(htlc.MppTotalAmt),
 		}
 
 		// Populate any fields relevant to AMP payments.

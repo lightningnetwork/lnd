@@ -3,9 +3,11 @@ package lnd
 import (
 	"errors"
 
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 )
 
 var (
@@ -48,6 +50,14 @@ func (f *interceptedForward) Packet() htlcswitch.InterceptedPacket {
 // basically means the caller wants to resume with the default behavior for this
 // htlc which usually means forward it.
 func (f *interceptedForward) Resume() error {
+	return ErrCannotResume
+}
+
+// ResumeModified notifies the intention to resume an existing hold forward with
+// a modified htlc.
+func (f *interceptedForward) ResumeModified(_, _ fn.Option[lnwire.MilliSatoshi],
+	_ fn.Option[record.CustomSet]) error {
+
 	return ErrCannotResume
 }
 

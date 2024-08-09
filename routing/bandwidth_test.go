@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -115,11 +116,13 @@ func TestBandwidthManager(t *testing.T) {
 
 			m, err := newBandwidthManager(
 				g, sourceNode.pubkey, testCase.linkQuery,
+				fn.None[TlvTrafficShaper](),
 			)
 			require.NoError(t, err)
 
 			bandwidth, found := m.availableChanBandwidth(
 				testCase.channelID, 10,
+				fn.None[[]byte](),
 			)
 			require.Equal(t, testCase.expectedBandwidth, bandwidth)
 			require.Equal(t, testCase.expectFound, found)

@@ -30,7 +30,9 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/ticker"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 func init() {
@@ -2206,6 +2208,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			CommitSig:  msg.CommitSig,
 			HtlcSigs:   msg.HtlcSigs,
 			PartialSig: msg.PartialSig,
+			AuxSigBlob: msg.ExtraData,
 		})
 		if err != nil {
 			// If we were unable to reconstruct their proposed
@@ -2638,6 +2641,7 @@ func (l *channelLink) updateCommitTx() error {
 		CommitSig:  newCommit.CommitSig,
 		HtlcSigs:   newCommit.HtlcSigs,
 		PartialSig: newCommit.PartialSig,
+		ExtraData:  newCommit.AuxSigBlob,
 	}
 	l.cfg.Peer.SendMessage(false, commitSig)
 
@@ -3630,7 +3634,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				}
 
 				// Otherwise, it was already processed, we can
-				// can collect it and continue.
+				// collect it and continue.
 				addMsg := &lnwire.UpdateAddHTLC{
 					Expiry:        fwdInfo.OutgoingCTLV,
 					Amount:        fwdInfo.AmountToForward,
@@ -3663,6 +3667,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					outgoingTimeout: fwdInfo.OutgoingCTLV,
 					customRecords:   pld.CustomRecords(),
 					inboundFee:      inboundFee,
+					incomingCustomRecords: record.CustomSet(
+						pd.CustomRecords,
+					),
 				}
 				switchPackets = append(
 					switchPackets, updatePacket,
@@ -3731,6 +3738,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					outgoingTimeout: fwdInfo.OutgoingCTLV,
 					customRecords:   pld.CustomRecords(),
 					inboundFee:      inboundFee,
+					incomingCustomRecords: record.CustomSet(
+						pd.CustomRecords,
+					),
 				}
 
 				fwdPkg.FwdFilter.Set(idx)
@@ -3783,13 +3793,24 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		return nil
 	}
 
-	// As we're the exit hop, we'll double check the hop-payload included in
-	// the HTLC to ensure that it was crafted correctly by the sender and
-	// is compatible with the HTLC we were extended.
-	if pd.Amount < fwdInfo.AmountToForward {
+	// As we're the exit hop, we'll double-check the hop-payload included
+	// in the HTLC to ensure that it was crafted correctly by the sender
+	// and is compatible with the HTLC we were extended.
+	//
+	// For a special case, if the fwdInfo doesn't have any blinded path
+	// information, and the incoming HTLC had special extra data, then
+	// we'll skip this amount check. The invoice acceptor will make sure we
+	// reject the HTLC if it's not containing the correct amount after
+	// examining the custom data.
+	hasBlindedPath := fwdInfo.NextBlinding.IsSome()
+	customHTLC := len(pd.CustomRecords) > 0 && !hasBlindedPath
+	log.Tracef("Exit hop has_blinded_path=%v custom_htlc_bypass=%v",
+		hasBlindedPath, customHTLC)
+
+	if !customHTLC && pd.Amount < fwdInfo.AmountToForward {
 		l.log.Errorf("onion payload of incoming htlc(%x) has "+
-			"incompatible value: expected <=%v, got %v", pd.RHash,
-			pd.Amount, fwdInfo.AmountToForward)
+			"incompatible value: expected >=%v, got %v", pd.RHash,
+			fwdInfo.AmountToForward, pd.Amount)
 
 		failure := NewLinkError(
 			lnwire.NewFinalIncorrectHtlcAmount(pd.Amount),
@@ -3826,7 +3847,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
 		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
-		circuitKey, l.hodlQueue.ChanIn(), payload,
+		circuitKey, l.hodlQueue.ChanIn(), pd.CustomRecords, payload,
 	)
 	if err != nil {
 		return err
@@ -4099,4 +4120,17 @@ func (l *channelLink) fail(linkErr LinkFailureError,
 	// the peer about the failure.
 	l.failed = true
 	l.cfg.OnChannelFailure(l.ChanID(), l.ShortChanID(), linkErr)
+}
+
+// FundingCustomBlob returns the custom funding blob of the channel that this
+// link is associated with. The funding blob represents static information about
+// the channel that was created at channel funding time.
+func (l *channelLink) FundingCustomBlob() fn.Option[tlv.Blob] {
+	return l.channel.State().CustomBlob
+}
+
+// CommitmentCustomBlob returns the custom blob of the current local commitment
+// of the channel that this link is associated with.
+func (l *channelLink) CommitmentCustomBlob() fn.Option[tlv.Blob] {
+	return l.channel.LocalCommitmentBlob()
 }

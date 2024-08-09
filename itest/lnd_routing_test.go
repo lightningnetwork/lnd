@@ -3,6 +3,7 @@ package itest
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -744,6 +745,207 @@ func testInvoiceRoutingHints(ht *lntest.HarnessTest) {
 	// The channel between Alice and Eve should be force closed since Eve
 	// is offline.
 	ht.ForceCloseChannel(alice, chanPointEve)
+}
+
+// testScidAliasRoutingHints tests that dynamically created aliases via the RPC
+// are properly used when routing.
+func testScidAliasRoutingHints(ht *lntest.HarnessTest) {
+	const chanAmt = btcutil.Amount(100000)
+
+	// Option-scid-alias is opt-in, as is anchors.
+	scidAliasArgs := []string{
+		"--protocol.option-scid-alias",
+		"--protocol.anchors",
+	}
+
+	carol := ht.NewNode("Carol", scidAliasArgs)
+	dave := ht.NewNode("Dave", scidAliasArgs)
+
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
+
+	ht.ConnectNodes(carol, dave)
+
+	// Create a channel between Carol and Dave, which uses the scid alias
+	// feature.
+	chanPointCD := ht.OpenChannel(
+		carol, dave, lntest.OpenChannelParams{
+			Amt:       chanAmt,
+			PushAmt:   chanAmt / 2,
+			ScidAlias: true,
+			Private:   true,
+		},
+	)
+
+	// Find the channel ID of the channel between Carol and Dave.
+	carolDaveChan := ht.QueryChannelByChanPoint(carol, chanPointCD)
+
+	// Make sure we can't add an alias that's not actually in the alias
+	// range (which is the case with the base SCID).
+	err := carol.RPC.XAddLocalChanAliasesErr(&routerrpc.AddAliasesRequest{
+		AliasMaps: []*lnrpc.AliasMap{
+			{
+				BaseScid: carolDaveChan.ChanId,
+				Aliases: []uint64{
+					carolDaveChan.ChanId,
+				},
+			},
+		},
+	})
+	require.ErrorContains(ht, err, "not a valid alias")
+
+	// Create an ephemeral alias that will be used as a routing hint.
+	ephemeralChanPoint := lnwire.ShortChannelID{
+		BlockHeight: 16_100_000,
+		TxIndex:     1,
+		TxPosition:  1,
+	}
+	ephemeralAlias := ephemeralChanPoint.ToUint64()
+
+	// Add the alias to Carol.
+	carol.RPC.XAddLocalChanAliases(&routerrpc.AddAliasesRequest{
+		AliasMaps: []*lnrpc.AliasMap{
+			{
+				BaseScid: carolDaveChan.ChanId,
+				Aliases: []uint64{
+					ephemeralAlias,
+				},
+			},
+		},
+	})
+
+	// We shouldn't be able to add the same alias again.
+	err = carol.RPC.XAddLocalChanAliasesErr(&routerrpc.AddAliasesRequest{
+		AliasMaps: []*lnrpc.AliasMap{
+			{
+				BaseScid: carolDaveChan.ChanId,
+				Aliases: []uint64{
+					ephemeralAlias,
+				},
+			},
+		},
+	})
+	require.ErrorContains(ht, err, routerrpc.ErrAliasAlreadyExists.Error())
+
+	// Add the alias to Dave.
+	dave.RPC.XAddLocalChanAliases(&routerrpc.AddAliasesRequest{
+		AliasMaps: []*lnrpc.AliasMap{
+			{
+				BaseScid: carolDaveChan.ChanId,
+				Aliases: []uint64{
+					ephemeralAlias,
+				},
+			},
+		},
+	})
+
+	carolChans := carol.RPC.ListChannels(&lnrpc.ListChannelsRequest{})
+	require.Len(ht, carolChans.Channels, 1, "expected one channel")
+
+	// Get the alias scids for Carol's channel.
+	aliases := carolChans.Channels[0].AliasScids
+
+	// There should be two aliases.
+	require.Len(ht, aliases, 2, "expected two aliases")
+
+	// The ephemeral alias should be included.
+	require.Contains(
+		ht, aliases, ephemeralAlias, "expected ephemeral alias",
+	)
+
+	// List Dave's Channels.
+	daveChans := dave.RPC.ListChannels(&lnrpc.ListChannelsRequest{})
+
+	require.Len(ht, daveChans.Channels, 1, "expected one channel")
+
+	// Get the alias scids for his channel.
+	aliases = daveChans.Channels[0].AliasScids
+
+	// There should be two aliases.
+	require.Len(ht, aliases, 2, "expected two aliases")
+
+	// The ephemeral alias should be included.
+	require.Contains(
+		ht, aliases, ephemeralAlias, "expected ephemeral alias",
+	)
+
+	// Connect the existing Alice node with Dave via a public channel.
+	ht.ConnectNodes(ht.Alice, dave)
+	chanPointDA := ht.OpenChannel(
+		dave, ht.Alice, lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: chanAmt / 2,
+		},
+	)
+
+	// Create the hop hint that Carol will use to craft her invoice. The
+	// goal here is to define only the ephemeral alias as a hop hint.
+	hopHint := &lnrpc.HopHint{
+		NodeId: dave.PubKeyStr,
+		ChanId: ephemeralAlias,
+		FeeBaseMsat: uint32(
+			chainreg.DefaultBitcoinBaseFeeMSat,
+		),
+		FeeProportionalMillionths: uint32(
+			chainreg.DefaultBitcoinFeeRate,
+		),
+		CltvExpiryDelta: chainreg.DefaultBitcoinTimeLockDelta,
+	}
+
+	// Define the invoice that Carol will add to her node.
+	invoice := &lnrpc.Invoice{
+		Memo:  "dynamic alias",
+		Value: int64(chanAmt / 4),
+		RouteHints: []*lnrpc.RouteHint{
+			{
+				HopHints: []*lnrpc.HopHint{hopHint},
+			},
+		},
+	}
+
+	// Add the invoice and retrieve the payreq.
+	payReq := carol.RPC.AddInvoice(invoice).PaymentRequest
+
+	// Now Alice will try to pay to that payreq.
+	timeout := time.Second * 15
+	stream := ht.Alice.RPC.SendPayment(&routerrpc.SendPaymentRequest{
+		PaymentRequest: payReq,
+		TimeoutSeconds: int32(timeout.Seconds()),
+		FeeLimitSat:    math.MaxInt64,
+	})
+
+	// Payment should eventually succeed.
+	ht.AssertPaymentSucceedWithTimeout(stream, timeout)
+
+	// Check that Carol's invoice appears as settled.
+	invoices := carol.RPC.ListInvoices(&lnrpc.ListInvoiceRequest{})
+	require.Len(ht, invoices.Invoices, 1, "expected one invoice")
+	require.Equal(ht, invoices.Invoices[0].State, lnrpc.Invoice_SETTLED,
+		"expected settled invoice")
+
+	// We'll now delete the alias again, but only on Dave's end. That should
+	// be enough to make the payment fail, since he doesn't know about the
+	// alias in the hop hint anymore.
+	dave.RPC.XDeleteLocalChanAliases(&routerrpc.DeleteAliasesRequest{
+		AliasMaps: []*lnrpc.AliasMap{
+			{
+				BaseScid: carolDaveChan.ChanId,
+				Aliases: []uint64{
+					ephemeralAlias,
+				},
+			},
+		},
+	})
+	payReq2 := carol.RPC.AddInvoice(invoice).PaymentRequest
+	stream2 := ht.Alice.RPC.SendPayment(&routerrpc.SendPaymentRequest{
+		PaymentRequest: payReq2,
+		TimeoutSeconds: int32(timeout.Seconds()),
+		FeeLimitSat:    math.MaxInt64,
+	})
+	ht.AssertPaymentStatusFromStream(stream2, lnrpc.Payment_FAILED)
+
+	ht.CloseChannel(dave, chanPointDA)
+	ht.CloseChannel(carol, chanPointCD)
 }
 
 // testMultiHopOverPrivateChannels tests that private channels can be used as

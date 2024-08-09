@@ -23,6 +23,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	// htlcModifierMock is a mock implementation of the invoice HtlcModifier
+	// interface.
+	htlcModifierMock = &invpkg.MockHtlcModifier{}
+)
+
 // TestInvoiceRegistry is a master test which encompasses all tests using an
 // InvoiceDB instance. The purpose of this test is to be able to run all tests
 // with a custom DB instance, so that we can test the same logic with different
@@ -239,7 +245,8 @@ func testSettleInvoice(t *testing.T,
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoice.Terms.Value,
 		uint32(testCurrentHeight)+testInvoiceCltvDelta-1,
-		testCurrentHeight, getCircuitKey(10), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(10), hodlChan,
+		nil, testPayload,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -255,7 +262,7 @@ func testSettleInvoice(t *testing.T,
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, testHtlcExpiry,
 		testCurrentHeight, getCircuitKey(0), hodlChan,
-		testPayload,
+		nil, testPayload,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -296,7 +303,8 @@ func testSettleInvoice(t *testing.T,
 	// behaviour after a restart.
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(0), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(0), hodlChan,
+		nil, testPayload,
 	)
 	require.NoError(t, err, "unexpected NotifyExitHopHtlc error")
 	require.NotNil(t, resolution)
@@ -310,7 +318,8 @@ func testSettleInvoice(t *testing.T,
 	// paid invoice that may open up a probe vector.
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid+600, testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(1), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(1), hodlChan,
+		nil, testPayload,
 	)
 	require.NoError(t, err, "unexpected NotifyExitHopHtlc error")
 	require.NotNil(t, resolution)
@@ -325,7 +334,8 @@ func testSettleInvoice(t *testing.T,
 	// would have failed if it were the first payment.
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid-600, testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(2), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(2), hodlChan,
+		nil, testPayload,
 	)
 	require.NoError(t, err, "unexpected NotifyExitHopHtlc error")
 	require.NotNil(t, resolution)
@@ -462,7 +472,8 @@ func testCancelInvoiceImpl(t *testing.T, gc bool,
 	hodlChan := make(chan interface{})
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoiceAmount, testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(0), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(0), hodlChan,
+		nil, testPayload,
 	)
 	if err != nil {
 		t.Fatal("expected settlement of a canceled invoice to succeed")
@@ -517,6 +528,7 @@ func testSettleHoldInvoice(t *testing.T,
 	cfg := invpkg.RegistryConfig{
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		Clock:                clock,
+		HtlcModifier:         htlcModifierMock,
 	}
 
 	expiryWatcher := invpkg.NewInvoiceExpiryWatcher(
@@ -570,7 +582,8 @@ func testSettleHoldInvoice(t *testing.T,
 	// should be possible.
 	resolution, err := registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(0), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(0), hodlChan,
+		nil, testPayload,
 	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
@@ -582,7 +595,8 @@ func testSettleHoldInvoice(t *testing.T,
 	// Test idempotency.
 	resolution, err = registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(0), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(0), hodlChan,
+		nil, testPayload,
 	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
@@ -595,7 +609,8 @@ func testSettleHoldInvoice(t *testing.T,
 	// is a replay.
 	resolution, err = registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, testHtlcExpiry,
-		testCurrentHeight+10, getCircuitKey(0), hodlChan, testPayload,
+		testCurrentHeight+10, getCircuitKey(0), hodlChan,
+		nil, testPayload,
 	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
@@ -608,7 +623,7 @@ func testSettleHoldInvoice(t *testing.T,
 	// requirement. It should be rejected.
 	resolution, err = registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, 1, testCurrentHeight,
-		getCircuitKey(1), hodlChan, testPayload,
+		getCircuitKey(1), hodlChan, nil, testPayload,
 	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
@@ -683,6 +698,7 @@ func testCancelHoldInvoice(t *testing.T,
 	cfg := invpkg.RegistryConfig{
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		Clock:                testClock,
+		HtlcModifier:         htlcModifierMock,
 	}
 	expiryWatcher := invpkg.NewInvoiceExpiryWatcher(
 		cfg.Clock, 0, uint32(testCurrentHeight), nil, newMockNotifier(),
@@ -711,7 +727,8 @@ func testCancelHoldInvoice(t *testing.T,
 	// should be possible.
 	resolution, err := registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(0), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(0), hodlChan,
+		nil, testPayload,
 	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
@@ -733,7 +750,8 @@ func testCancelHoldInvoice(t *testing.T,
 	// accept height.
 	resolution, err = registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amtPaid, testHtlcExpiry,
-		testCurrentHeight+1, getCircuitKey(0), hodlChan, testPayload,
+		testCurrentHeight+1, getCircuitKey(0), hodlChan,
+		nil, testPayload,
 	)
 	if err != nil {
 		t.Fatalf("expected settle to succeed but got %v", err)
@@ -762,7 +780,7 @@ func testUnknownInvoice(t *testing.T,
 	amt := lnwire.MilliSatoshi(100000)
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, amt, testHtlcExpiry, testCurrentHeight,
-		getCircuitKey(0), hodlChan, testPayload,
+		getCircuitKey(0), hodlChan, nil, testPayload,
 	)
 	if err != nil {
 		t.Fatal("unexpected error")
@@ -823,7 +841,7 @@ func testKeySendImpl(t *testing.T, keySendEnabled bool,
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		hash, amt, expiry,
 		testCurrentHeight, getCircuitKey(10), hodlChan,
-		invalidKeySendPayload,
+		nil, invalidKeySendPayload,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -844,8 +862,8 @@ func testKeySendImpl(t *testing.T, keySendEnabled bool,
 	}
 
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
-		hash, amt, expiry,
-		testCurrentHeight, getCircuitKey(10), hodlChan, keySendPayload,
+		hash, amt, expiry, testCurrentHeight, getCircuitKey(10),
+		hodlChan, nil, keySendPayload,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -873,8 +891,8 @@ func testKeySendImpl(t *testing.T, keySendEnabled bool,
 	// Replay the same keysend payment. We expect an identical resolution,
 	// but no event should be generated.
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
-		hash, amt, expiry,
-		testCurrentHeight, getCircuitKey(10), hodlChan, keySendPayload,
+		hash, amt, expiry, testCurrentHeight, getCircuitKey(10),
+		hodlChan, nil, keySendPayload,
 	)
 	require.Nil(t, err)
 	checkSettleResolution(t, resolution, preimage)
@@ -897,8 +915,8 @@ func testKeySendImpl(t *testing.T, keySendEnabled bool,
 	}
 
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
-		hash2, amt, expiry,
-		testCurrentHeight, getCircuitKey(20), hodlChan, keySendPayload2,
+		hash2, amt, expiry, testCurrentHeight, getCircuitKey(20),
+		hodlChan, nil, keySendPayload2,
 	)
 	require.Nil(t, err)
 
@@ -956,8 +974,8 @@ func testHoldKeysendImpl(t *testing.T, timeoutKeysend bool,
 	}
 
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
-		hash, amt, expiry,
-		testCurrentHeight, getCircuitKey(10), hodlChan, keysendPayload,
+		hash, amt, expiry, testCurrentHeight, getCircuitKey(10),
+		hodlChan, nil, keysendPayload,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1039,8 +1057,8 @@ func testMppPayment(t *testing.T,
 	hodlChan1 := make(chan interface{}, 1)
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoice.Terms.Value/2,
-		testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(10), hodlChan1, mppPayload,
+		testHtlcExpiry, testCurrentHeight, getCircuitKey(10),
+		hodlChan1, nil, mppPayload,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1067,8 +1085,8 @@ func testMppPayment(t *testing.T,
 	hodlChan2 := make(chan interface{}, 1)
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoice.Terms.Value/2,
-		testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(11), hodlChan2, mppPayload,
+		testHtlcExpiry, testCurrentHeight, getCircuitKey(11),
+		hodlChan2, nil, mppPayload,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1081,8 +1099,8 @@ func testMppPayment(t *testing.T,
 	hodlChan3 := make(chan interface{}, 1)
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoice.Terms.Value/2,
-		testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(12), hodlChan3, mppPayload,
+		testHtlcExpiry, testCurrentHeight, getCircuitKey(12),
+		hodlChan3, nil, mppPayload,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -1141,7 +1159,7 @@ func testMppPaymentWithOverpayment(t *testing.T,
 		resolution, err := ctx.registry.NotifyExitHopHtlc(
 			testInvoicePaymentHash, testInvoice.Terms.Value/2,
 			testHtlcExpiry, testCurrentHeight, getCircuitKey(11),
-			hodlChan1, mppPayload,
+			hodlChan1, nil, mppPayload,
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -1156,7 +1174,7 @@ func testMppPaymentWithOverpayment(t *testing.T,
 			testInvoicePaymentHash,
 			testInvoice.Terms.Value/2+overpayment, testHtlcExpiry,
 			testCurrentHeight, getCircuitKey(12), hodlChan2,
-			mppPayload,
+			nil, mppPayload,
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -1200,6 +1218,7 @@ func testInvoiceExpiryWithRegistry(t *testing.T,
 	cfg := invpkg.RegistryConfig{
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		Clock:                testClock,
+		HtlcModifier:         htlcModifierMock,
 	}
 
 	expiryWatcher := invpkg.NewInvoiceExpiryWatcher(
@@ -1310,6 +1329,7 @@ func testOldInvoiceRemovalOnStart(t *testing.T,
 		FinalCltvRejectDelta:        testFinalCltvRejectDelta,
 		Clock:                       testClock,
 		GcCanceledInvoicesOnStartup: true,
+		HtlcModifier:                htlcModifierMock,
 	}
 
 	expiryWatcher := invpkg.NewInvoiceExpiryWatcher(
@@ -1439,7 +1459,7 @@ func testHeightExpiryWithRegistryImpl(t *testing.T, numParts int, settle bool,
 		resolution, err := ctx.registry.NotifyExitHopHtlc(
 			testInvoicePaymentHash, htlcAmt, expiry,
 			testCurrentHeight, getCircuitKey(uint64(i)), hodlChan,
-			payLoad,
+			nil, payLoad,
 		)
 		require.NoError(t, err)
 		require.Nil(t, resolution, "did not expect direct resolution")
@@ -1541,8 +1561,8 @@ func testMultipleSetHeightExpiry(t *testing.T,
 	hodlChan1 := make(chan interface{}, 1)
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoice.Terms.Value/2,
-		testHtlcExpiry,
-		testCurrentHeight, getCircuitKey(10), hodlChan1, mppPayload,
+		testHtlcExpiry, testCurrentHeight, getCircuitKey(10),
+		hodlChan1, nil, mppPayload,
 	)
 	require.NoError(t, err)
 	require.Nil(t, resolution, "did not expect direct resolution")
@@ -1571,7 +1591,8 @@ func testMultipleSetHeightExpiry(t *testing.T,
 	hodlChan2 := make(chan interface{}, 1)
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoice.Terms.Value/2, expiry,
-		testCurrentHeight, getCircuitKey(11), hodlChan2, mppPayload,
+		testCurrentHeight, getCircuitKey(11), hodlChan2,
+		nil, mppPayload,
 	)
 	require.NoError(t, err)
 	require.Nil(t, resolution, "did not expect direct resolution")
@@ -1580,7 +1601,8 @@ func testMultipleSetHeightExpiry(t *testing.T,
 	hodlChan3 := make(chan interface{}, 1)
 	resolution, err = ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, testInvoice.Terms.Value/2, expiry,
-		testCurrentHeight, getCircuitKey(12), hodlChan3, mppPayload,
+		testCurrentHeight, getCircuitKey(12), hodlChan3,
+		nil, mppPayload,
 	)
 	require.NoError(t, err)
 	require.Nil(t, resolution, "did not expect direct resolution")
@@ -1685,7 +1707,8 @@ func testSettleInvoicePaymentAddrRequired(t *testing.T,
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
 		testInvoicePaymentHash, invoice.Terms.Value,
 		uint32(testCurrentHeight)+testInvoiceCltvDelta-1,
-		testCurrentHeight, getCircuitKey(10), hodlChan, testPayload,
+		testCurrentHeight, getCircuitKey(10), hodlChan,
+		nil, testPayload,
 	)
 	require.NoError(t, err)
 
@@ -1774,9 +1797,9 @@ func testSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T,
 	// no problem as we should allow these existing invoices to be settled.
 	hodlChan := make(chan interface{}, 1)
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
-		testInvoicePaymentHash, testInvoiceAmount,
-		testHtlcExpiry, testCurrentHeight,
-		getCircuitKey(10), hodlChan, testPayload,
+		testInvoicePaymentHash, testInvoiceAmount, testHtlcExpiry,
+		testCurrentHeight, getCircuitKey(10), hodlChan,
+		nil, testPayload,
 	)
 	require.NoError(t, err)
 
@@ -1838,8 +1861,8 @@ func testAMPWithoutMPPPayload(t *testing.T,
 
 	hodlChan := make(chan interface{}, 1)
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
-		lntypes.Hash{}, shardAmt, expiry,
-		testCurrentHeight, getCircuitKey(uint64(10)), hodlChan,
+		lntypes.Hash{}, shardAmt, expiry, testCurrentHeight,
+		getCircuitKey(uint64(10)), hodlChan, nil,
 		payload,
 	)
 	require.NoError(t, err)
@@ -2007,8 +2030,8 @@ func testSpontaneousAmpPaymentImpl(
 		}
 
 		resolution, err := ctx.registry.NotifyExitHopHtlc(
-			child.Hash, shardAmt, expiry,
-			testCurrentHeight, getCircuitKey(uint64(i)), hodlChan,
+			child.Hash, shardAmt, expiry, testCurrentHeight,
+			getCircuitKey(uint64(i)), hodlChan, nil,
 			payload,
 		)
 		require.NoError(t, err)

@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -125,6 +126,7 @@ func TestNeedWalletInput(t *testing.T) {
 	// Create a mock input that doesn't have required outputs.
 	mockInput := &input.MockInput{}
 	mockInput.On("RequiredTxOut").Return(nil)
+	mockInput.On("ResolutionBlob").Return(fn.None[tlv.Blob]())
 	defer mockInput.AssertExpectations(t)
 
 	// Create a mock input that has required outputs.

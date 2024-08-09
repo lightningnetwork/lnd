@@ -217,6 +217,18 @@ type ChainArbitratorConfig struct {
 	// meanwhile, turn `PaymentCircuit` into an interface or bring it to a
 	// lower package.
 	QueryIncomingCircuit func(circuit models.CircuitKey) *models.CircuitKey
+
+	// AuxLeafStore is an optional store that can be used to store auxiliary
+	// leaves for certain custom channel types.
+	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
+
+	// AuxSigner is an optional signer that can be used to sign auxiliary
+	// leaves for certain custom channel types.
+	AuxSigner fn.Option[lnwallet.AuxSigner]
+
+	// AuxResolver is an optional interface that can be used to modify the
+	// way contracts are resolved.
+	AuxResolver fn.Option[lnwallet.AuxContractResolver]
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all
@@ -299,8 +311,19 @@ func (a *arbChannel) NewAnchorResolutions() (*lnwallet.AnchorResolutions,
 		return nil, err
 	}
 
+	var chanOpts []lnwallet.ChannelOpt
+	a.c.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
+		chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
+	})
+	a.c.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
+		chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
+	})
+	a.c.cfg.AuxResolver.WhenSome(func(s lnwallet.AuxContractResolver) {
+		chanOpts = append(chanOpts, lnwallet.WithAuxResolver(s))
+	})
+
 	chanMachine, err := lnwallet.NewLightningChannel(
-		a.c.cfg.Signer, channel, nil,
+		a.c.cfg.Signer, channel, nil, chanOpts...,
 	)
 	if err != nil {
 		return nil, err
@@ -344,10 +367,21 @@ func (a *arbChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) 
 		return nil, err
 	}
 
+	var chanOpts []lnwallet.ChannelOpt
+	a.c.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
+		chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
+	})
+	a.c.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
+		chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
+	})
+	a.c.cfg.AuxResolver.WhenSome(func(s lnwallet.AuxContractResolver) {
+		chanOpts = append(chanOpts, lnwallet.WithAuxResolver(s))
+	})
+
 	// Finally, we'll force close the channel completing
 	// the force close workflow.
 	chanMachine, err := lnwallet.NewLightningChannel(
-		a.c.cfg.Signer, channel, nil,
+		a.c.cfg.Signer, channel, nil, chanOpts...,
 	)
 	if err != nil {
 		return nil, err
@@ -557,6 +591,8 @@ func (c *ChainArbitrator) Start() error {
 				isOurAddr:           c.cfg.IsOurAddress,
 				contractBreach:      breachClosure,
 				extractStateNumHint: lnwallet.GetStateNumHint,
+				auxLeafStore:        c.cfg.AuxLeafStore,
+				auxResolver:         c.cfg.AuxResolver,
 			},
 		)
 		if err != nil {
@@ -1186,6 +1222,8 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 				)
 			},
 			extractStateNumHint: lnwallet.GetStateNumHint,
+			auxLeafStore:        c.cfg.AuxLeafStore,
+			auxResolver:         c.cfg.AuxResolver,
 		},
 	)
 	if err != nil {

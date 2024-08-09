@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -230,12 +231,14 @@ func (c *mockChannel) createRemoteCommitTx(t *testing.T) {
 
 	// Construct the to-local witness script.
 	toLocalScriptTree, err := input.NewLocalCommitScriptTree(
-		c.csvDelay, c.toLocalPK, c.revPK,
+		c.csvDelay, c.toLocalPK, c.revPK, fn.None[txscript.TapLeaf](),
 	)
 	require.NoError(t, err, "unable to create to-local script")
 
 	// Construct the to-remote witness script.
-	toRemoteScriptTree, err := input.NewRemoteCommitScriptTree(c.toRemotePK)
+	toRemoteScriptTree, err := input.NewRemoteCommitScriptTree(
+		c.toRemotePK, fn.None[txscript.TapLeaf](),
+	)
 	require.NoError(t, err, "unable to create to-remote script")
 
 	// Compute the to-local witness script hash.

@@ -2090,6 +2090,26 @@ func (s *Switch) addLiveLink(link ChannelLink) {
 	}
 	s.interfaceIndex[peerPub][link.ChanID()] = link
 
+	s.updateLinkAliases(link)
+}
+
+// UpdateLinkAliases is the externally exposed wrapper for updating link
+// aliases. It acquires the indexMtx and calls the internal method.
+func (s *Switch) UpdateLinkAliases(link ChannelLink) {
+	s.indexMtx.Lock()
+	defer s.indexMtx.Unlock()
+
+	s.updateLinkAliases(link)
+}
+
+// updateLinkAliases updates the aliases for a given link. This will cause the
+// htlcswitch to consult the alias manager on the up to date values of its
+// alias maps.
+//
+// NOTE: this MUST be called with the indexMtx held.
+func (s *Switch) updateLinkAliases(link ChannelLink) {
+	linkScid := link.ShortChanID()
+
 	aliases := link.getAliases()
 	if link.isZeroConf() {
 		if link.zeroConfConfirmed() {
@@ -2114,6 +2134,21 @@ func (s *Switch) addLiveLink(link ChannelLink) {
 			s.baseIndex[alias] = linkScid
 		}
 	} else if link.negotiatedAliasFeature() {
+		// First, we flush any alias mappings for this link's scid
+		// before we populate the map again, in order to get rid of old
+		// values that no longer exist.
+		for alias, real := range s.aliasToReal {
+			if real == linkScid {
+				delete(s.aliasToReal, alias)
+			}
+		}
+
+		for alias, real := range s.baseIndex {
+			if real == linkScid {
+				delete(s.baseIndex, alias)
+			}
+		}
+
 		// The link's SCID is the confirmed SCID for non-zero-conf
 		// option-scid-alias feature bit channels.
 		for _, alias := range aliases {

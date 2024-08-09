@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -206,4 +207,65 @@ type InvoiceUpdater interface {
 
 	// Finalize finalizes the update before it is written to the database.
 	Finalize(updateType UpdateType) error
+}
+
+// HtlcModifyRequest is the request that is passed to the client via callback
+// during a HTLC interceptor session. The request contains the invoice that the
+// given HTLC is attempting to settle.
+type HtlcModifyRequest struct {
+	// WireCustomRecords are the custom records that were parsed from the
+	// HTLC wire message. These are the records of the current HTLC to be
+	// accepted/settled. All previously accepted/settled HTLCs for the same
+	// invoice are present in the Invoice field below.
+	WireCustomRecords lnwire.CustomRecords
+
+	// ExitHtlcCircuitKey is the circuit key that identifies the HTLC which
+	// is involved in the invoice settlement.
+	ExitHtlcCircuitKey CircuitKey
+
+	// ExitHtlcAmt is the amount of the HTLC which is involved in the
+	// invoice settlement.
+	ExitHtlcAmt lnwire.MilliSatoshi
+
+	// ExitHtlcExpiry is the absolute expiry height of the HTLC which is
+	// involved in the invoice settlement.
+	ExitHtlcExpiry uint32
+
+	// CurrentHeight is the current block height.
+	CurrentHeight uint32
+
+	// Invoice is the invoice that is being intercepted. The HTLCs within
+	// the invoice are only those previously accepted/settled for the same
+	// invoice.
+	Invoice Invoice
+}
+
+// HtlcModifyResponse is the response that the client should send back to the
+// interceptor after processing the HTLC modify request.
+type HtlcModifyResponse struct {
+	// AmountPaid is the amount that the client has decided the HTLC is
+	// actually worth. This might be different from the amount that the
+	// HTLC was originally sent with, in case additional value is carried
+	// along with it (which might be the case in custom channels).
+	AmountPaid lnwire.MilliSatoshi
+}
+
+// HtlcModifyCallback is a function that is called when an invoice is
+// intercepted by the invoice interceptor.
+type HtlcModifyCallback func(HtlcModifyRequest) error
+
+// HtlcModifier is an interface that allows the caller to intercept and modify
+// aspects of HTLCs that are settling an invoice.
+type HtlcModifier interface {
+	// Intercept generates a new intercept session for the given invoice.
+	// The session is returned to the caller so that they can block until
+	// the client resolution is received.
+	Intercept(HtlcModifyRequest) fn.Option[InterceptSession]
+
+	// SetClientCallback sets the client callback function that is called
+	// when an invoice is intercepted.
+	SetClientCallback(HtlcModifyCallback)
+
+	// Modify changes parts of the HTLC based on the client's response.
+	Modify(htlc CircuitKey, amountPaid lnwire.MilliSatoshi) error
 }

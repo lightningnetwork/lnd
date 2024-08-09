@@ -87,6 +87,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -579,6 +580,17 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 	}
 }
 
+// AuxDataParser is an interface that is used to parse auxiliary custom data
+// within RPC messages. This is used to transform binary blobs to human-readable
+// JSON representations.
+type AuxDataParser interface {
+	// InlineParseCustomData replaces any custom data binary blob in the
+	// given RPC message with its corresponding JSON formatted data. This
+	// transforms the binary (likely TLV encoded) data to a human-readable
+	// JSON representation (still as byte slice).
+	InlineParseCustomData(msg proto.Message) error
+}
+
 // rpcServer is a gRPC, RPC front end to the lnd daemon.
 // TODO(roasbeef): pagination support for the list-style calls
 type rpcServer struct {
@@ -672,7 +684,8 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, atpl *autopilot.Manager,
 	invoiceRegistry *invoices.InvoiceRegistry, tower *watchtower.Standalone,
-	chanPredicate chanacceptor.MultiplexAcceptor) error {
+	chanPredicate chanacceptor.MultiplexAcceptor,
+	invoiceHtlcModifier *invoices.HtlcModificationInterceptor) error {
 
 	// Set up router rpc backend.
 	selfNode, err := s.graphDB.SourceNode()
@@ -761,7 +774,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		s.sweeper, tower, s.towerClientMgr, r.cfg.net.ResolveTCPAddr,
 		genInvoiceFeatures, genAmpInvoiceFeatures,
 		s.getNodeAnnouncement, s.updateAndBrodcastSelfNode, parseAddr,
-		rpcsLog, s.aliasMgr.GetPeerAlias,
+		rpcsLog, s.aliasMgr, invoiceHtlcModifier,
 	)
 	if err != nil {
 		return err
@@ -2281,6 +2294,29 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 
 		*channelType = lnwire.ChannelType(*fv)
 
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY:
+		// If the taproot overlay channel type is being set, then the
+		// channel MUST be private.
+		if !in.Private {
+			return nil, fmt.Errorf("taproot overlay channels " +
+				"must be private")
+		}
+
+		channelType = new(lnwire.ChannelType)
+		fv := lnwire.NewRawFeatureVector(
+			lnwire.SimpleTaprootOverlayChansRequired,
+		)
+
+		if in.ZeroConf {
+			fv.Set(lnwire.ZeroConfRequired)
+		}
+
+		if in.ScidAlias {
+			fv.Set(lnwire.ScidAliasRequired)
+		}
+
+		*channelType = lnwire.ChannelType(*fv)
+
 	default:
 		return nil, fmt.Errorf("unhandled request channel type %v",
 			in.CommitmentType)
@@ -2657,7 +2693,6 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	// transaction here rather than going to the switch as we don't require
 	// interaction from the peer.
 	if force {
-
 		// As we're force closing this channel, as a precaution, we'll
 		// ensure that the switch doesn't continue to see this channel
 		// as eligible for forwarding HTLC's. If the peer is online,
@@ -2697,15 +2732,19 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 		errChan = make(chan error, 1)
 		notifier := r.server.cc.ChainNotifier
-		go peer.WaitForChanToClose(uint32(bestHeight), notifier, errChan, chanPoint,
+		go peer.WaitForChanToClose(
+			uint32(bestHeight), notifier, errChan, chanPoint,
 			&closingTxid, closingTx.TxOut[0].PkScript, func() {
 				// Respond to the local subsystem which
 				// requested the channel closure.
 				updateChan <- &peer.ChannelCloseUpdate{
 					ClosingTxid: closingTxid[:],
 					Success:     true,
+					// Force closure transactions don't have
+					// additional local/remote outputs.
 				}
-			})
+			},
+		)
 	} else {
 		// If this is a frozen channel, then we only allow the co-op
 		// close to proceed if we were the responder to this channel if
@@ -2829,6 +2868,19 @@ out:
 				return err
 			}
 
+			err = fn.MapOptionZ(
+				r.server.implCfg.AuxDataParser,
+				func(parser AuxDataParser) error {
+					return parser.InlineParseCustomData(
+						rpcClosingUpdate,
+					)
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("error parsing custom data: "+
+					"%w", err)
+			}
+
 			rpcsLog.Tracef("[closechannel] sending update: %v",
 				rpcClosingUpdate)
 
@@ -2854,19 +2906,84 @@ out:
 	return nil
 }
 
-func createRPCCloseUpdate(update interface{}) (
-	*lnrpc.CloseStatusUpdate, error) {
+func createRPCCloseUpdate(
+	update interface{}) (*lnrpc.CloseStatusUpdate, error) {
 
 	switch u := update.(type) {
 	case *peer.ChannelCloseUpdate:
+		ccu := &lnrpc.ChannelCloseUpdate{
+			ClosingTxid: u.ClosingTxid,
+			Success:     u.Success,
+		}
+
+		err := fn.MapOptionZ(
+			u.LocalCloseOutput,
+			func(closeOut chancloser.CloseOutput) error {
+				cr, err := closeOut.ShutdownRecords.Serialize()
+				if err != nil {
+					return fmt.Errorf("error serializing "+
+						"local close out custom "+
+						"records: %w", err)
+				}
+
+				rpcCloseOut := &lnrpc.CloseOutput{
+					AmountSat:         int64(closeOut.Amt),
+					PkScript:          closeOut.PkScript,
+					IsLocal:           true,
+					CustomChannelData: cr,
+				}
+				ccu.LocalCloseOutput = rpcCloseOut
+
+				return nil
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		err = fn.MapOptionZ(
+			u.RemoteCloseOutput,
+			func(closeOut chancloser.CloseOutput) error {
+				cr, err := closeOut.ShutdownRecords.Serialize()
+				if err != nil {
+					return fmt.Errorf("error serializing "+
+						"remote close out custom "+
+						"records: %w", err)
+				}
+
+				rpcCloseOut := &lnrpc.CloseOutput{
+					AmountSat:         int64(closeOut.Amt),
+					PkScript:          closeOut.PkScript,
+					CustomChannelData: cr,
+				}
+				ccu.RemoteCloseOutput = rpcCloseOut
+
+				return nil
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		u.AuxOutputs.WhenSome(func(outs chancloser.AuxCloseOutputs) {
+			for _, out := range outs.ExtraCloseOutputs {
+				ccu.AdditionalOutputs = append(
+					ccu.AdditionalOutputs,
+					&lnrpc.CloseOutput{
+						AmountSat: out.Value,
+						PkScript:  out.PkScript,
+						IsLocal:   out.IsLocal,
+					},
+				)
+			}
+		})
+
 		return &lnrpc.CloseStatusUpdate{
 			Update: &lnrpc.CloseStatusUpdate_ChanClose{
-				ChanClose: &lnrpc.ChannelCloseUpdate{
-					ClosingTxid: u.ClosingTxid,
-					Success:     u.Success,
-				},
+				ChanClose: ccu,
 			},
 		}, nil
+
 	case *peer.PendingUpdate:
 		return &lnrpc.CloseStatusUpdate{
 			Update: &lnrpc.CloseStatusUpdate_ClosePending{
@@ -3536,9 +3653,16 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 		unsettledRemoteBalance   lnwire.MilliSatoshi
 		pendingOpenLocalBalance  lnwire.MilliSatoshi
 		pendingOpenRemoteBalance lnwire.MilliSatoshi
+		customDataBuf            bytes.Buffer
 	)
 
 	openChannels, err := r.server.chanStateDB.FetchAllOpenChannels()
+	if err != nil {
+		return nil, err
+	}
+
+	// Encode the number of open channels to the custom data buffer.
+	err = wire.WriteVarInt(&customDataBuf, 0, uint64(len(openChannels)))
 	if err != nil {
 		return nil, err
 	}
@@ -3556,9 +3680,22 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 				unsettledRemoteBalance += htlc.Amt
 			}
 		}
+
+		// Encode the custom data for this open channel.
+		openChanData := channel.LocalCommitment.CustomBlob.UnwrapOr(nil)
+		err = wire.WriteVarBytes(&customDataBuf, 0, openChanData)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	pendingChannels, err := r.server.chanStateDB.FetchPendingChannels()
+	if err != nil {
+		return nil, err
+	}
+
+	// Encode the number of pending channels to the custom data buffer.
+	err = wire.WriteVarInt(&customDataBuf, 0, uint64(len(pendingChannels)))
 	if err != nil {
 		return nil, err
 	}
@@ -3567,6 +3704,13 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 		c := channel.LocalCommitment
 		pendingOpenLocalBalance += c.LocalBalance
 		pendingOpenRemoteBalance += c.RemoteBalance
+
+		// Encode the custom data for this pending channel.
+		openChanData := channel.LocalCommitment.CustomBlob.UnwrapOr(nil)
+		err = wire.WriteVarBytes(&customDataBuf, 0, openChanData)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	rpcsLog.Debugf("[channelbalance] local_balance=%v remote_balance=%v "+
@@ -3576,7 +3720,7 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 		unsettledRemoteBalance, pendingOpenLocalBalance,
 		pendingOpenRemoteBalance)
 
-	return &lnrpc.ChannelBalanceResponse{
+	resp := &lnrpc.ChannelBalanceResponse{
 		LocalBalance: &lnrpc.Amount{
 			Sat:  uint64(localBalance.ToSatoshis()),
 			Msat: uint64(localBalance),
@@ -3601,11 +3745,24 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 			Sat:  uint64(pendingOpenRemoteBalance.ToSatoshis()),
 			Msat: uint64(pendingOpenRemoteBalance),
 		},
+		CustomChannelData: customDataBuf.Bytes(),
 
 		// Deprecated fields.
 		Balance:            int64(localBalance.ToSatoshis()),
 		PendingOpenBalance: int64(pendingOpenLocalBalance.ToSatoshis()),
-	}, nil
+	}
+
+	err = fn.MapOptionZ(
+		r.server.implCfg.AuxDataParser,
+		func(parser AuxDataParser) error {
+			return parser.InlineParseCustomData(resp)
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing custom data: %w", err)
+	}
+
+	return resp, nil
 }
 
 type (
@@ -3661,6 +3818,12 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 			pendingChan.BroadcastHeight()
 		fundingExpiryBlocks := int32(maxFundingHeight) - currentHeight
 
+		customChanBytes, err := encodeCustomChanData(pendingChan)
+		if err != nil {
+			return nil, fmt.Errorf("unable to encode open chan "+
+				"data: %w", err)
+		}
+
 		result[i] = &lnrpc.PendingChannelsResponse_PendingOpenChannel{
 			Channel: &lnrpc.PendingChannelsResponse_PendingChannel{
 				RemoteNodePub:        hex.EncodeToString(pub),
@@ -3674,6 +3837,7 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 				CommitmentType:       rpcCommitmentType(pendingChan.ChanType),
 				Private:              isPrivate(pendingChan),
 				Memo:                 string(pendingChan.Memo),
+				CustomChannelData:    customChanBytes,
 			},
 			CommitWeight:        commitWeight,
 			CommitFee:           int64(localCommitment.CommitFee),
@@ -4040,6 +4204,16 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	resp.WaitingCloseChannels = waitingCloseChannels
 	resp.TotalLimboBalance += limbo
 
+	err = fn.MapOptionZ(
+		r.server.implCfg.AuxDataParser,
+		func(parser AuxDataParser) error {
+			return parser.InlineParseCustomData(resp)
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing custom data: %w", err)
+	}
+
 	return resp, nil
 }
 
@@ -4354,6 +4528,16 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		resp.Channels = append(resp.Channels, channel)
 	}
 
+	err = fn.MapOptionZ(
+		r.server.implCfg.AuxDataParser,
+		func(parser AuxDataParser) error {
+			return parser.InlineParseCustomData(resp)
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing custom data: %w", err)
+	}
+
 	return resp, nil
 }
 
@@ -4366,6 +4550,9 @@ func rpcCommitmentType(chanType channeldb.ChannelType) lnrpc.CommitmentType {
 	switch {
 	case chanType.IsTaproot():
 		return lnrpc.CommitmentType_SIMPLE_TAPROOT
+
+	case chanType.HasTapscriptRoot():
+		return lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY
 
 	case chanType.HasLeaseExpiration():
 		return lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE
@@ -4402,6 +4589,30 @@ func isPrivate(dbChannel *channeldb.OpenChannel) bool {
 		return false
 	}
 	return dbChannel.ChannelFlags&lnwire.FFAnnounceChannel != 1
+}
+
+// encodeCustomChanData encodes the custom channel data for the open channel.
+// It encodes that data as a pair of var bytes blobs.
+func encodeCustomChanData(lnChan *channeldb.OpenChannel) ([]byte, error) {
+	customOpenChanData := lnChan.CustomBlob.UnwrapOr(nil)
+	customLocalCommitData := lnChan.LocalCommitment.CustomBlob.UnwrapOr(nil)
+
+	// We'll encode our custom channel data as two blobs. The first is a
+	// set of var bytes encoding of the open chan data, the second is an
+	// encoding of the local commitment data.
+	var customChanDataBuf bytes.Buffer
+	err := wire.WriteVarBytes(&customChanDataBuf, 0, customOpenChanData)
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode open chan "+
+			"data: %w", err)
+	}
+	err = wire.WriteVarBytes(&customChanDataBuf, 0, customLocalCommitData)
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode local commit "+
+			"data: %w", err)
+	}
+
+	return customChanDataBuf.Bytes(), nil
 }
 
 // createRPCOpenChannel creates an *lnrpc.Channel from the *channeldb.Channel.
@@ -4458,6 +4669,14 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	// is returned and peerScidAlias will be an empty ShortChannelID.
 	peerScidAlias, _ := r.server.aliasMgr.GetPeerAlias(chanID)
 
+	// Finally we'll attempt to encode the custom channel data if any
+	// exists.
+	customChanBytes, err := encodeCustomChanData(dbChannel)
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode open chan data: %w",
+			err)
+	}
+
 	channel := &lnrpc.Channel{
 		Active:                isActive,
 		Private:               isPrivate(dbChannel),
@@ -4490,6 +4709,7 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 		ZeroConf:              dbChannel.IsZeroConf(),
 		ZeroConfConfirmedScid: dbChannel.ZeroConfRealScid().ToUint64(),
 		Memo:                  string(dbChannel.Memo),
+		CustomChannelData:     customChanBytes,
 		// TODO: remove the following deprecated fields
 		CsvDelay:             uint32(dbChannel.LocalChanCfg.CsvDelay),
 		LocalChanReserveSat:  int64(dbChannel.LocalChanCfg.ChanReserve),
@@ -8548,17 +8768,8 @@ func (r *rpcServer) ListAliases(ctx context.Context,
 		AliasMaps: make([]*lnrpc.AliasMap, 0),
 	}
 
-	for base, set := range mapAliases {
-		rpcMap := &lnrpc.AliasMap{
-			BaseScid: base.ToUint64(),
-		}
-		for _, alias := range set {
-			rpcMap.Aliases = append(
-				rpcMap.Aliases, alias.ToUint64(),
-			)
-		}
-		resp.AliasMaps = append(resp.AliasMaps, rpcMap)
-	}
+	// Now we need to parse the created mappings into an rpc response.
+	resp.AliasMaps = lnrpc.MarshalAliasMap(mapAliases)
 
 	return resp, nil
 }

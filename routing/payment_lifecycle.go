@@ -11,9 +11,11 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/routing/shards"
 )
@@ -31,6 +33,7 @@ type paymentLifecycle struct {
 	paySession    PaymentSession
 	shardTracker  shards.ShardTracker
 	currentHeight int32
+	firstHopTLVs  record.CustomSet
 
 	// quit is closed to signal the sub goroutines of the payment lifecycle
 	// to stop.
@@ -52,8 +55,8 @@ type paymentLifecycle struct {
 // newPaymentLifecycle initiates a new payment lifecycle and returns it.
 func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
 	identifier lntypes.Hash, paySession PaymentSession,
-	shardTracker shards.ShardTracker,
-	currentHeight int32) *paymentLifecycle {
+	shardTracker shards.ShardTracker, currentHeight int32,
+	firstHopTLVs record.CustomSet) *paymentLifecycle {
 
 	p := &paymentLifecycle{
 		router:          r,
@@ -64,6 +67,7 @@ func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
 		currentHeight:   currentHeight,
 		quit:            make(chan struct{}),
 		resultCollected: make(chan error, 1),
+		firstHopTLVs:    firstHopTLVs,
 	}
 
 	// Mount the result collector.
@@ -364,6 +368,7 @@ func (p *paymentLifecycle) requestRoute(
 	rt, err := p.paySession.RequestRoute(
 		ps.RemainingAmt, remainingFees,
 		uint32(ps.NumAttemptsInFlight), uint32(p.currentHeight),
+		p.firstHopTLVs,
 	)
 
 	// Exit early if there's no error.
@@ -677,9 +682,42 @@ func (p *paymentLifecycle) sendAttempt(
 	// this packet will be used to route the payment through the network,
 	// starting with the first-hop.
 	htlcAdd := &lnwire.UpdateAddHTLC{
-		Amount:      rt.TotalAmount,
-		Expiry:      rt.TotalTimeLock,
-		PaymentHash: *attempt.Hash,
+		Amount:        rt.TotalAmount,
+		Expiry:        rt.TotalTimeLock,
+		PaymentHash:   *attempt.Hash,
+		CustomRecords: lnwire.CustomRecords(p.firstHopTLVs),
+	}
+
+	// If a hook exists that may affect our outgoing message, we call it now
+	// and apply its side effects to the UpdateAddHTLC message.
+	err := fn.MapOptionZ(
+		p.router.cfg.TrafficShaper,
+		func(ts TlvTrafficShaper) error {
+			newAmt, newData, err := ts.ProduceHtlcExtraData(
+				rt.TotalAmount, htlcAdd.CustomRecords,
+			)
+			if err != nil {
+				return err
+			}
+
+			customRecords, err := lnwire.ParseCustomRecords(newData)
+			if err != nil {
+				return err
+			}
+
+			log.Debugf("TLV traffic shaper returned custom "+
+				"records %v and amount %d msat for HTLC",
+				spew.Sdump(customRecords), newAmt)
+
+			htlcAdd.CustomRecords = customRecords
+			htlcAdd.Amount = newAmt
+
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("traffic shaper failed to produce "+
+			"extra data: %w", err)
 	}
 
 	// Generate the raw encoded sphinx packet to be included along

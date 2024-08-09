@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/txsort"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -386,6 +387,12 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		)
 	})
 
+	t.Run("taproot with tapscript root", func(t *testing.T) {
+		flags := channeldb.SimpleTaprootFeatureBit |
+			channeldb.TapscriptRootBit
+		testAddSettleWorkflow(t, true, flags, false)
+	})
+
 	t.Run("storeFinalHtlcResolutions=true", func(t *testing.T) {
 		testAddSettleWorkflow(t, false, 0, true)
 	})
@@ -706,7 +713,7 @@ func TestCooperativeChannelClosure(t *testing.T) {
 		testCoopClose(t, &coopCloseTestCase{
 			chanType: channeldb.SingleFunderTweaklessBit |
 				channeldb.AnchorOutputsBit,
-			anchorAmt: anchorSize * 2,
+			anchorAmt: AnchorSize * 2,
 		})
 	})
 }
@@ -816,7 +823,7 @@ func TestForceClose(t *testing.T) {
 			chanType: channeldb.SingleFunderTweaklessBit |
 				channeldb.AnchorOutputsBit,
 			expectedCommitWeight: input.AnchorCommitWeight,
-			anchorAmt:            anchorSize * 2,
+			anchorAmt:            AnchorSize * 2,
 		})
 	})
 	t.Run("taproot", func(t *testing.T) {
@@ -825,7 +832,17 @@ func TestForceClose(t *testing.T) {
 				channeldb.AnchorOutputsBit |
 				channeldb.SimpleTaprootFeatureBit,
 			expectedCommitWeight: input.TaprootCommitWeight,
-			anchorAmt:            anchorSize * 2,
+			anchorAmt:            AnchorSize * 2,
+		})
+	})
+	t.Run("taproot with tapscript root", func(t *testing.T) {
+		testForceClose(t, &forceCloseTestCase{
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.SimpleTaprootFeatureBit |
+				channeldb.TapscriptRootBit,
+			expectedCommitWeight: input.TaprootCommitWeight,
+			anchorAmt:            AnchorSize * 2,
 		})
 	})
 }
@@ -911,7 +928,7 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 			t.Fatal("commit tx not referenced by anchor res")
 		}
 		if anchorRes.AnchorSignDescriptor.Output.Value !=
-			int64(anchorSize) {
+			int64(AnchorSize) {
 
 			t.Fatal("unexpected anchor size")
 		}
@@ -5678,6 +5695,7 @@ func TestChannelUnilateralCloseHtlcResolution(t *testing.T) {
 		spendDetail,
 		aliceChannel.channelState.RemoteCommitment,
 		aliceChannel.channelState.RemoteCurrentRevocation,
+		fn.None[AuxLeafStore](), fn.None[AuxContractResolver](),
 	)
 	require.NoError(t, err, "unable to create alice close summary")
 
@@ -5827,6 +5845,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		spendDetail,
 		aliceChannel.channelState.RemoteCommitment,
 		aliceChannel.channelState.RemoteCurrentRevocation,
+		fn.None[AuxLeafStore](), fn.None[AuxContractResolver](),
 	)
 	require.NoError(t, err, "unable to create alice close summary")
 
@@ -5844,6 +5863,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 		spendDetail,
 		aliceRemoteChainTip.Commitment,
 		aliceChannel.channelState.RemoteNextRevocation,
+		fn.None[AuxLeafStore](), fn.None[AuxContractResolver](),
 	)
 	require.NoError(t, err, "unable to create alice close summary")
 
@@ -6724,6 +6744,7 @@ func TestNewBreachRetributionSkipsDustHtlcs(t *testing.T) {
 	breachTx := aliceChannel.channelState.RemoteCommitment.CommitTx
 	breachRet, err := NewBreachRetribution(
 		aliceChannel.channelState, revokedStateNum, 100, breachTx,
+		fn.None[AuxLeafStore](), fn.None[AuxContractResolver](),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 
@@ -8525,10 +8546,10 @@ func TestEvaluateView(t *testing.T) {
 				}
 			}
 
-			view := &htlcView{
-				ourUpdates:   test.ourHtlcs,
-				theirUpdates: test.theirHtlcs,
-				feePerKw:     feePerKw,
+			view := &HtlcView{
+				OurUpdates:   test.ourHtlcs,
+				TheirUpdates: test.theirHtlcs,
+				FeePerKw:     feePerKw,
 			}
 
 			var (
@@ -8549,17 +8570,17 @@ func TestEvaluateView(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			if result.feePerKw != test.expectedFee {
+			if result.FeePerKw != test.expectedFee {
 				t.Fatalf("expected fee: %v, got: %v",
-					test.expectedFee, result.feePerKw)
+					test.expectedFee, result.FeePerKw)
 			}
 
 			checkExpectedHtlcs(
-				t, result.ourUpdates, test.ourExpectedHtlcs,
+				t, result.OurUpdates, test.ourExpectedHtlcs,
 			)
 
 			checkExpectedHtlcs(
-				t, result.theirUpdates, test.theirExpectedHtlcs,
+				t, result.TheirUpdates, test.theirExpectedHtlcs,
 			)
 
 			if lc.channelState.TotalMSatSent != test.expectSent {
@@ -8782,15 +8803,15 @@ func TestProcessFeeUpdate(t *testing.T) {
 				EntryType:                FeeUpdate,
 			}
 
-			view := &htlcView{
-				feePerKw: chainfee.SatPerKWeight(feePerKw),
+			view := &HtlcView{
+				FeePerKw: chainfee.SatPerKWeight(feePerKw),
 			}
 			processFeeUpdate(
 				update, nextHeight, test.whoseCommitChain,
 				test.mutate, view,
 			)
 
-			if view.feePerKw != test.expectedFee {
+			if view.FeePerKw != test.expectedFee {
 				t.Fatalf("expected fee: %v, got: %v",
 					test.expectedFee, feePerKw)
 			}
@@ -9940,15 +9961,17 @@ func TestCreateHtlcRetribution(t *testing.T) {
 		aliceChannel.channelState,
 	)
 	htlc := &channeldb.HTLCEntry{
-		Amt:         testAmt,
-		Incoming:    true,
-		OutputIndex: 1,
+		Amt: tlv.NewRecordT[tlv.TlvType4](
+			tlv.NewBigSizeT(testAmt),
+		),
+		Incoming:    tlv.NewPrimitiveRecord[tlv.TlvType3](true),
+		OutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType2, uint16](1),
 	}
 
 	// Create the htlc retribution.
 	hr, err := createHtlcRetribution(
 		aliceChannel.channelState, keyRing, commitHash,
-		dummyPrivate, leaseExpiry, htlc,
+		dummyPrivate, leaseExpiry, htlc, fn.None[CommitAuxLeaves](),
 	)
 	// Expect no error.
 	require.NoError(t, err)
@@ -9956,8 +9979,8 @@ func TestCreateHtlcRetribution(t *testing.T) {
 	// Check the fields have expected values.
 	require.EqualValues(t, testAmt, hr.SignDesc.Output.Value)
 	require.Equal(t, commitHash, hr.OutPoint.Hash)
-	require.EqualValues(t, htlc.OutputIndex, hr.OutPoint.Index)
-	require.Equal(t, htlc.Incoming, hr.IsIncoming)
+	require.EqualValues(t, htlc.OutputIndex.Val, hr.OutPoint.Index)
+	require.Equal(t, htlc.Incoming.Val, hr.IsIncoming)
 }
 
 // TestCreateBreachRetribution checks that `createBreachRetribution` behaves as
@@ -9997,30 +10020,31 @@ func TestCreateBreachRetribution(t *testing.T) {
 		aliceChannel.channelState,
 	)
 	htlc := &channeldb.HTLCEntry{
-		Amt:         btcutil.Amount(testAmt),
-		Incoming:    true,
-		OutputIndex: uint16(htlcIndex),
+		Amt: tlv.NewRecordT[tlv.TlvType4](
+			tlv.NewBigSizeT(btcutil.Amount(testAmt)),
+		),
+		Incoming: tlv.NewPrimitiveRecord[tlv.TlvType3](true),
+		OutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType2](
+			uint16(htlcIndex),
+		),
 	}
 
 	// Create a dummy revocation log.
 	ourAmtMsat := lnwire.MilliSatoshi(ourAmt * 1000)
 	theirAmtMsat := lnwire.MilliSatoshi(theirAmt * 1000)
-	revokedLog := channeldb.RevocationLog{
-		CommitTxHash:     commitHash,
-		OurOutputIndex:   uint16(localIndex),
-		TheirOutputIndex: uint16(remoteIndex),
-		HTLCEntries:      []*channeldb.HTLCEntry{htlc},
-		TheirBalance:     &theirAmtMsat,
-		OurBalance:       &ourAmtMsat,
-	}
+	revokedLog := channeldb.NewRevocationLog(
+		uint16(localIndex), uint16(remoteIndex), commitHash,
+		fn.Some(ourAmtMsat), fn.Some(theirAmtMsat),
+		[]*channeldb.HTLCEntry{htlc}, fn.None[tlv.Blob](),
+	)
 
 	// Create a log with an empty local output index.
 	revokedLogNoLocal := revokedLog
-	revokedLogNoLocal.OurOutputIndex = channeldb.OutputIndexEmpty
+	revokedLogNoLocal.OurOutputIndex.Val = channeldb.OutputIndexEmpty
 
 	// Create a log with an empty remote output index.
 	revokedLogNoRemote := revokedLog
-	revokedLogNoRemote.TheirOutputIndex = channeldb.OutputIndexEmpty
+	revokedLogNoRemote.TheirOutputIndex.Val = channeldb.OutputIndexEmpty
 
 	testCases := []struct {
 		name             string
@@ -10050,14 +10074,20 @@ func TestCreateBreachRetribution(t *testing.T) {
 		{
 			name: "fail due to our index too big",
 			revocationLog: &channeldb.RevocationLog{
-				OurOutputIndex: uint16(htlcIndex + 1),
+				//nolint:lll
+				OurOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType0](
+					uint16(htlcIndex + 1),
+				),
 			},
 			expectedErr: ErrOutputIndexOutOfRange,
 		},
 		{
 			name: "fail due to their index too big",
 			revocationLog: &channeldb.RevocationLog{
-				TheirOutputIndex: uint16(htlcIndex + 1),
+				//nolint:lll
+				TheirOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType1](
+					uint16(htlcIndex + 1),
+				),
 			},
 			expectedErr: ErrOutputIndexOutOfRange,
 		},
@@ -10126,11 +10156,12 @@ func TestCreateBreachRetribution(t *testing.T) {
 		require.Equal(t, remote, br.RemoteOutpoint)
 
 		for _, hr := range br.HtlcRetributions {
-			require.EqualValues(t, testAmt,
-				hr.SignDesc.Output.Value)
+			require.EqualValues(
+				t, testAmt, hr.SignDesc.Output.Value,
+			)
 			require.Equal(t, commitHash, hr.OutPoint.Hash)
 			require.EqualValues(t, htlcIndex, hr.OutPoint.Index)
-			require.Equal(t, htlc.Incoming, hr.IsIncoming)
+			require.Equal(t, htlc.Incoming.Val, hr.IsIncoming)
 		}
 	}
 
@@ -10146,6 +10177,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 				tc.revocationLog, tx,
 				aliceChannel.channelState, keyRing,
 				dummyPrivate, leaseExpiry,
+				fn.None[CommitAuxLeaves](),
 			)
 
 			// Check the error if expected.
@@ -10264,6 +10296,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	// error as there are no past delta state saved as revocation logs yet.
 	_, err = NewBreachRetribution(
 		aliceChannel.channelState, stateNum, breachHeight, breachTx,
+		fn.None[AuxLeafStore](), fn.None[AuxContractResolver](),
 	)
 	require.ErrorIs(t, err, channeldb.ErrNoPastDeltas)
 
@@ -10271,6 +10304,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	// provided.
 	_, err = NewBreachRetribution(
 		aliceChannel.channelState, stateNum, breachHeight, nil,
+		fn.None[AuxLeafStore](), fn.None[AuxContractResolver](),
 	)
 	require.ErrorIs(t, err, channeldb.ErrNoPastDeltas)
 
@@ -10316,6 +10350,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	// successfully.
 	br, err := NewBreachRetribution(
 		aliceChannel.channelState, stateNum, breachHeight, breachTx,
+		fn.None[AuxLeafStore](), fn.None[AuxContractResolver](),
 	)
 	require.NoError(t, err)
 
@@ -10327,6 +10362,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	// since the necessary info should now be found in the revocation log.
 	br, err = NewBreachRetribution(
 		aliceChannel.channelState, stateNum, breachHeight, nil,
+		fn.None[AuxLeafStore](), fn.None[AuxContractResolver](),
 	)
 	require.NoError(t, err)
 	assertRetribution(br, 1, 0)
@@ -10335,6 +10371,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	// error.
 	_, err = NewBreachRetribution(
 		aliceChannel.channelState, stateNum+1, breachHeight, breachTx,
+		fn.None[AuxLeafStore](), fn.None[AuxContractResolver](),
 	)
 	require.ErrorIs(t, err, channeldb.ErrLogEntryNotFound)
 
@@ -10342,6 +10379,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	// provided.
 	_, err = NewBreachRetribution(
 		aliceChannel.channelState, stateNum+1, breachHeight, nil,
+		fn.None[AuxLeafStore](), fn.None[AuxContractResolver](),
 	)
 	require.ErrorIs(t, err, channeldb.ErrLogEntryNotFound)
 }
@@ -10379,7 +10417,7 @@ func TestExtractPayDescs(t *testing.T) {
 	// NOTE: we use nil commitment key rings to avoid checking the htlc
 	// scripts(`genHtlcScript`) as it should be tested independently.
 	incomingPDs, outgoingPDs, err := lnChan.extractPayDescs(
-		0, htlcs, nil, nil, lntypes.Local,
+		0, htlcs, nil, nil, lntypes.Local, fn.None[CommitAuxLeaves](),
 	)
 	require.NoError(t, err)
 
@@ -11070,4 +11108,317 @@ func TestBlindingPointPersistence(t *testing.T) {
 	require.Len(t, bobCommit.incomingHTLCs, 1)
 	require.Equal(t, blinding,
 		bobCommit.incomingHTLCs[0].BlindingPoint.UnwrapOrFailV(t))
+}
+
+// TestCreateCooperativeCloseTx tests that the cooperative close transaction is
+// properly created based on the standard and also optional parameters.
+func TestCreateCooperativeCloseTx(t *testing.T) {
+	t.Parallel()
+
+	fundingTxIn := &wire.TxIn{}
+
+	localDust := btcutil.Amount(400)
+	remoteDust := btcutil.Amount(400)
+
+	localScript := []byte{0}
+	localExtraScript := []byte{2}
+
+	remoteScript := []byte{1}
+	remoteExtraScript := []byte{3}
+
+	tests := []struct {
+		name string
+
+		enableRBF bool
+
+		localBalance  btcutil.Amount
+		remoteBalance btcutil.Amount
+
+		extraCloseOutputs []CloseOutput
+
+		expectedTx *wire.MsgTx
+	}{
+		{
+			name:          "no dust, no extra outputs",
+			localBalance:  1_000,
+			remoteBalance: 1_000,
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    1_000,
+						PkScript: localScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: remoteScript,
+					},
+				},
+			},
+		},
+		{
+			name:          "local dust, no extra outputs",
+			localBalance:  100,
+			remoteBalance: 1_000,
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    1_000,
+						PkScript: remoteScript,
+					},
+				},
+			},
+		},
+		{
+			name:          "remote dust, no extra outputs",
+			localBalance:  1_000,
+			remoteBalance: 100,
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    1_000,
+						PkScript: localScript,
+					},
+				},
+			},
+		},
+		{
+			name:          "no dust, local extra output",
+			localBalance:  10_000,
+			remoteBalance: 10_000,
+			extraCloseOutputs: []CloseOutput{
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+					IsLocal: true,
+				},
+			},
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    10_000,
+						PkScript: remoteScript,
+					},
+					{
+						Value:    9_000,
+						PkScript: localScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+				},
+			},
+		},
+		{
+			name:          "no dust, remote extra output",
+			localBalance:  10_000,
+			remoteBalance: 10_000,
+			extraCloseOutputs: []CloseOutput{
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+					IsLocal: false,
+				},
+			},
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    10_000,
+						PkScript: localScript,
+					},
+					{
+						Value:    9_000,
+						PkScript: remoteScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+				},
+			},
+		},
+		{
+			name:          "no dust, local+remote extra output",
+			localBalance:  10_000,
+			remoteBalance: 10_000,
+			extraCloseOutputs: []CloseOutput{
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+					IsLocal: false,
+				},
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+					IsLocal: true,
+				},
+			},
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    9_000,
+						PkScript: localScript,
+					},
+					{
+						Value:    9_000,
+						PkScript: remoteScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+				},
+			},
+		},
+		{
+			name: "no dust, local+remote extra output, " +
+				"remote can't afford",
+			localBalance:  10_000,
+			remoteBalance: 1_000,
+			extraCloseOutputs: []CloseOutput{
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+					IsLocal: false,
+				},
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+					IsLocal: true,
+				},
+			},
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    9_000,
+						PkScript: localScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+				},
+			},
+		},
+		{
+			name: "no dust, local+remote extra output, " +
+				"local can't afford",
+			localBalance:  1_000,
+			remoteBalance: 10_000,
+			extraCloseOutputs: []CloseOutput{
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+					IsLocal: false,
+				},
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+					IsLocal: true,
+				},
+			},
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    9_000,
+						PkScript: remoteScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var opts []CloseTxOpt
+			if test.extraCloseOutputs != nil {
+				opts = append(
+					opts,
+					WithExtraTxCloseOutputs(
+						test.extraCloseOutputs,
+					),
+				)
+			}
+
+			closeTx, err := CreateCooperativeCloseTx(
+				*fundingTxIn, localDust, remoteDust,
+				test.localBalance, test.remoteBalance,
+				localScript, remoteScript, opts...,
+			)
+			require.NoError(t, err)
+
+			txsort.InPlaceSort(test.expectedTx)
+
+			require.Equal(
+				t, test.expectedTx, closeTx,
+				"expected %v, got %v",
+				spew.Sdump(test.expectedTx),
+				spew.Sdump(closeTx),
+			)
+		})
+	}
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -54,6 +55,10 @@ var (
 	errMissingRoute = errors.New("missing route")
 
 	errUnexpectedFailureSource = errors.New("unexpected failure source")
+
+	// ErrAliasAlreadyExists is returned if a new SCID alias is attempted
+	// to be added that already exists.
+	ErrAliasAlreadyExists = errors.New("alias already exists")
 
 	// macaroonOps are the set of capabilities that our minted macaroon (if
 	// it doesn't already exist) will have.
@@ -139,6 +144,14 @@ var (
 			Action: "write",
 		}},
 		"/routerrpc.Router/UpdateChanStatus": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/routerrpc.Router/XAddLocalChanAliases": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/routerrpc.Router/XDeleteLocalChanAliases": {{
 			Entity: "offchain",
 			Action: "write",
 		}},
@@ -1313,7 +1326,7 @@ func (s *Server) trackPayment(subscription routing.ControlTowerSubscriber,
 
 	// Otherwise, we will log and return the error as the stream has
 	// received an error from the payment lifecycle.
-	log.Errorf("TrackPayment got error for payment %x: %v", identifier, err)
+	log.Errorf("TrackPayment got error for payment %v: %v", identifier, err)
 
 	return err
 }
@@ -1525,10 +1538,142 @@ func (s *Server) HtlcInterceptor(stream Router_HtlcInterceptorServer) error {
 	}
 	defer atomic.CompareAndSwapInt32(&s.forwardInterceptorActive, 1, 0)
 
-	// run the forward interceptor.
+	// Run the forward interceptor.
 	return newForwardInterceptor(
 		s.cfg.RouterBackend.InterceptableForwarder, stream,
 	).run()
+}
+
+// XAddLocalChanAliases is an experimental API that creates a set of new
+// channel SCID alias mappings. The list of successfully created mappings is
+// returned. This is only a locally stored alias, and will not be communicated
+// to the channel peer via any message. Therefore, routing over such an alias
+// will only work if the peer also calls this same RPC on their end. If an
+// alias already exists, an error is returned
+func (s *Server) XAddLocalChanAliases(_ context.Context,
+	in *AddAliasesRequest) (*AddAliasesResponse, error) {
+
+	existingAliases := s.cfg.AliasMgr.ListAliases()
+
+	// aliasExists checks if the new alias already exists in the alias map.
+	aliasExists := func(newAlias uint64,
+		baseScid lnwire.ShortChannelID) (bool, error) {
+
+		// First check that we actually have a channel for the given
+		// base scid. This should succeed for any channel where the
+		// option-scid-alias feature bit was negotiated.
+		if _, ok := existingAliases[baseScid]; !ok {
+			return false, fmt.Errorf("base scid %v not found",
+				baseScid)
+		}
+
+		for base, aliases := range existingAliases {
+			for _, alias := range aliases {
+				exists := alias.ToUint64() == newAlias
+
+				// Trying to add an alias that we already have
+				// for another channel is wrong.
+				if exists && base != baseScid {
+					return true, fmt.Errorf("%w: alias %v "+
+						"already exists for base scid "+
+						"%v", ErrAliasAlreadyExists,
+						alias, base)
+				}
+
+				if exists {
+					return true, nil
+				}
+			}
+		}
+
+		return false, nil
+	}
+
+	// Create a map that will store the successfully created scid mappings.
+	scidMap := make(
+		map[lnwire.ShortChannelID][]lnwire.ShortChannelID,
+	)
+
+	for _, v := range in.AliasMaps {
+		baseScid := lnwire.NewShortChanIDFromInt(v.BaseScid)
+
+		for _, rpcAlias := range v.Aliases {
+			exists, err := aliasExists(rpcAlias, baseScid)
+			if err != nil {
+				return nil, err
+			}
+
+			// If the alias already exists, we see that as an error.
+			// This is to avoid "silent" collisions.
+			if exists {
+				return nil, fmt.Errorf("%w: SCID alias %v "+
+					"already exists", ErrAliasAlreadyExists,
+					rpcAlias)
+			}
+
+			// If not, let's add it to the alias manager now.
+			aliasScid := lnwire.NewShortChanIDFromInt(rpcAlias)
+
+			// But we only add it, if it's a valid alias, as defined
+			// by the BOLT spec.
+			if !aliasmgr.IsAlias(aliasScid) {
+				return nil, fmt.Errorf("SCID alias %v is not "+
+					"a valid alias", aliasScid)
+			}
+
+			err = s.cfg.AliasMgr.AddLocalAlias(
+				aliasScid, baseScid, false, true,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error adding scid "+
+					"alias, base_scid=%v, alias_scid=%v",
+					baseScid, aliasScid)
+			}
+
+			scidMap[baseScid] = append(scidMap[baseScid], aliasScid)
+		}
+	}
+
+	return &AddAliasesResponse{
+		AliasMaps: lnrpc.MarshalAliasMap(scidMap),
+	}, nil
+}
+
+// XDeleteLocalChanAliases is an experimental API that deletes a set of new
+// alias mappings. The list of successfully deleted mappings is returned. The
+// deletion will not be communicated to the channel peer via any message.
+func (s *Server) XDeleteLocalChanAliases(_ context.Context,
+	in *DeleteAliasesRequest) (*DeleteAliasesResponse,
+	error) {
+
+	// Create a map that will store the successfully deleted scid alias
+	// mappings.
+	scidMap := make(
+		map[lnwire.ShortChannelID][]lnwire.ShortChannelID,
+	)
+
+	for _, v := range in.AliasMaps {
+		baseScid := lnwire.NewShortChanIDFromInt(v.BaseScid)
+
+		for _, alias := range v.Aliases {
+			aliasScid := lnwire.NewShortChanIDFromInt(alias)
+
+			err := s.cfg.AliasMgr.DeleteLocalAlias(
+				aliasScid, baseScid,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error deleting scid "+
+					"alias, base_scid=%v, alias_scid=%v",
+					baseScid, aliasScid)
+			}
+
+			scidMap[baseScid] = append(scidMap[baseScid], aliasScid)
+		}
+	}
+
+	return &DeleteAliasesResponse{
+		AliasMaps: lnrpc.MarshalAliasMap(scidMap),
+	}, nil
 }
 
 func extractOutPoint(req *UpdateChanStatusRequest) (*wire.OutPoint, error) {

@@ -514,6 +514,72 @@
         ]
       }
     },
+    "/v2/router/x/addaliases": {
+      "post": {
+        "summary": "XAddLocalChanAliases is an experimental API that creates a set of new\nchannel SCID alias mappings. The list of successfully created mappings is\nreturned. This is only a locally stored alias, and will not be communicated\nto the channel peer via any message. Therefore, routing over such an alias\nwill only work if the peer also calls this same RPC on their end. If an\nalias already exists, an error is returned",
+        "operationId": "Router_XAddLocalChanAliases",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcAddAliasesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcAddAliasesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
+    "/v2/router/x/deletealiases": {
+      "post": {
+        "summary": "XDeleteLocalChanAliases is an experimental API that deletes a set of new\nalias mappings. The list of successfully deleted mappings is returned. The\ndeletion will not be communicated to the channel peer via any message.",
+        "operationId": "Router_XDeleteLocalChanAliases",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcDeleteAliasesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcDeleteAliasesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
     "/v2/router/x/importhistory": {
       "post": {
         "summary": "lncli: `importmc`\nXImportMissionControl is an experimental API that imports the state provided\nto the internal mission control's state, using all results which are more\nrecent than our existing values. These values will only be imported\nin-memory, and will not be persisted across restarts.",
@@ -616,6 +682,24 @@
         "child_index": {
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "lnrpcAliasMap": {
+      "type": "object",
+      "properties": {
+        "base_scid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "For non-zero-conf channels, this is the confirmed SCID. Otherwise, this is\nthe first assigned \"base\" alias."
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "The set of all aliases stored for the base SCID."
         }
       }
     },
@@ -1102,6 +1186,28 @@
         }
       }
     },
+    "routerrpcAddAliasesRequest": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
+        }
+      }
+    },
+    "routerrpcAddAliasesResponse": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
+        }
+      }
+    },
     "routerrpcAprioriParameters": {
       "type": "object",
       "properties": {
@@ -1213,6 +1319,28 @@
         }
       }
     },
+    "routerrpcDeleteAliasesRequest": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
+        }
+      }
+    },
+    "routerrpcDeleteAliasesResponse": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
+        }
+      }
+    },
     "routerrpcFailureDetail": {
       "type": "string",
       "enum": [
@@ -1319,6 +1447,14 @@
           "type": "integer",
           "format": "int32",
           "description": "The block height at which this htlc will be auto-failed to prevent the\nchannel from force-closing."
+        },
+        "incoming_htlc_wire_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The custom records of the peer's incoming wire message."
         }
       }
     },
@@ -1346,9 +1482,27 @@
         "failure_code": {
           "$ref": "#/definitions/FailureFailureCode",
           "description": "Return the specified failure code in case the resolve action is Fail. The\nmessage data fields are populated automatically.\n\nIf a non-zero failure_code is specified, failure_message must not be set.\n\nFor backwards-compatibility reasons, TEMPORARY_CHANNEL_FAILURE is the\ndefault value for this field."
+        },
+        "incoming_amount_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "incoming_amount_msat is used to set the p2p message incoming amount field\nfor validating an incoming HTLC."
+        },
+        "outgoing_amount_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "outgoing_amount_msat is used to set the p2p message outgoing amount field\nfor resuming a HTLC."
+        },
+        "outgoing_htlc_wire_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Outgoing htlc wire custom records is used to set the p2p message custom\nrecords field for resuming a HTLC."
         }
       },
-      "description": "*\nForwardHtlcInterceptResponse enables the caller to resolve a previously hold\nforward. The caller can choose either to:\n- `Resume`: Execute the default behavior (usually forward).\n- `Reject`: Fail the htlc backwards.\n- `Settle`: Settle this htlc with a given preimage."
+      "description": "*\nForwardHtlcInterceptResponse enables the caller to resolve a previously hold\nforward. The caller can choose either to:\n- `Resume`: Execute the default behavior (usually forward).\n- `ResumeModified`: Execute the default behavior (usually forward) with HTLC\nfield modifications.\n- `Reject`: Fail the htlc backwards.\n- `Settle`: Settle this htlc with a given preimage."
     },
     "routerrpcGetMissionControlConfigResponse": {
       "type": "object",
@@ -1635,9 +1789,11 @@
       "enum": [
         "SETTLE",
         "FAIL",
-        "RESUME"
+        "RESUME",
+        "RESUME_MODIFIED"
       ],
-      "default": "SETTLE"
+      "default": "SETTLE",
+      "description": " - RESUME_MODIFIED: RESUME_MODIFIED is an action that is used to resume a hold forward HTLC\nwith modifications specified during interception."
     },
     "routerrpcRouteFeeRequest": {
       "type": "object",
@@ -1809,6 +1965,14 @@
         "cancelable": {
           "type": "boolean",
           "description": "If set, the payment loop can be interrupted by manually canceling the\npayment context, even before the payment timeout is reached. Note that the\npayment may still succeed after cancellation, as in-flight attempts can\nstill settle afterwards. Canceling will only prevent further attempts from\nbeing sent."
+        },
+        "first_hop_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto the first hop peer of this payment. This can be used to pass application\nspecific data during the payment attempt. Record types are required to be in\nthe custom range \u003e= 65536. When using REST, the values must be encoded as\nbase64."
         }
       }
     },

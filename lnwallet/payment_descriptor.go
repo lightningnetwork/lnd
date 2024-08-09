@@ -6,6 +6,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -221,4 +222,36 @@ type PaymentDescriptor struct {
 	// blinded route (ie, not the introduction node) from update_add_htlc's
 	// TLVs.
 	BlindingPoint lnwire.BlindingPointRecord
+
+	// CustomRecords also stores the set of optional custom records that
+	// may have been attached to a sent HTLC.
+	CustomRecords lnwire.CustomRecords
+}
+
+// AddHeight returns a pointer to the height at which the HTLC was added to the
+// commitment chain. The height is returned based on the chain the HTLC is
+// being added to (local or remote chain). It is returned as a pointer, which
+// allows the caller to mutate the underlying value if necessary.
+func AddHeight(htlc *PaymentDescriptor,
+	whoseCommitChain lntypes.ChannelParty) *uint64 {
+
+	if whoseCommitChain.IsRemote() {
+		return &htlc.addCommitHeightRemote
+	}
+
+	return &htlc.addCommitHeightLocal
+}
+
+// RemoveHeight returns a pointer to the height at which the HTLC was removed
+// from the commitment chain. The height is returned based on the chain the HTLC
+// is being removed from (local or remote chain). It is returned as a pointer,
+// which allows the caller to mutate the underlying value if necessary.
+func RemoveHeight(htlc *PaymentDescriptor,
+	whoseCommitChain lntypes.ChannelParty) *uint64 {
+
+	if whoseCommitChain.IsRemote() {
+		return &htlc.removeCommitHeightRemote
+	}
+
+	return &htlc.removeCommitHeightLocal
 }

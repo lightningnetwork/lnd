@@ -21,12 +21,14 @@ import (
 
 var (
 	// Create  a taproot change script.
-	changePkScript = []byte{
-		0x51, 0x20,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	changePkScript = lnwallet.AddrWithKey{
+		DeliveryAddress: []byte{
+			0x51, 0x20,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		},
 	}
 
 	testInputCount atomic.Uint64
@@ -117,7 +119,9 @@ func TestCalcSweepTxWeight(t *testing.T) {
 	require.Zero(t, weight)
 
 	// Use a correct change script to test the success case.
-	weight, err = calcSweepTxWeight([]input.Input{&inp}, changePkScript)
+	weight, err = calcSweepTxWeight(
+		[]input.Input{&inp}, changePkScript.DeliveryAddress,
+	)
 	require.NoError(t, err)
 
 	// BaseTxSize 8 bytes
@@ -137,7 +141,9 @@ func TestBumpRequestMaxFeeRateAllowed(t *testing.T) {
 	inp := createTestInput(100, input.WitnessKeyHash)
 
 	// The weight is 487.
-	weight, err := calcSweepTxWeight([]input.Input{&inp}, changePkScript)
+	weight, err := calcSweepTxWeight(
+		[]input.Input{&inp}, changePkScript.DeliveryAddress,
+	)
 	require.NoError(t, err)
 
 	// Define a test budget and calculates its fee rate.
@@ -154,7 +160,9 @@ func TestBumpRequestMaxFeeRateAllowed(t *testing.T) {
 			// Use a wrong change script to test the error case.
 			name: "error calc weight",
 			req: &BumpRequest{
-				DeliveryAddress: []byte{1},
+				DeliveryAddress: lnwallet.AddrWithKey{
+					DeliveryAddress: []byte{1},
+				},
 			},
 			expectedMaxFeeRate: 0,
 			expectedErr:        true,
@@ -451,7 +459,7 @@ func TestCreateAndCheckTx(t *testing.T) {
 
 		t.Run(tc.name, func(t *testing.T) {
 			// Call the method under test.
-			_, _, err := tp.createAndCheckTx(tc.req, m.feeFunc)
+			_, err := tp.createAndCheckTx(tc.req, m.feeFunc)
 
 			// Check the result is as expected.
 			require.ErrorIs(t, err, tc.expectedErr)

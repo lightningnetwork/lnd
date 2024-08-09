@@ -30,6 +30,11 @@ type Config struct {
 	// created by the daemon.
 	InvoiceRegistry *invoices.InvoiceRegistry
 
+	// HtlcModifier is a service which intercepts invoice HTLCs during the
+	// settlement phase, enabling a subscribed client to modify certain
+	// aspects of those HTLCs.
+	HtlcModifier invoices.HtlcModifier
+
 	// IsChannelActive is used to generate valid hop hints.
 	IsChannelActive func(chanID lnwire.ChannelID) bool
 

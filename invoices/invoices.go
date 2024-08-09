@@ -547,6 +547,11 @@ type InvoiceHTLC struct {
 	// the htlc.
 	CustomRecords record.CustomSet
 
+	// WireCustomRecords contains the custom key/value pairs that were only
+	// included in p2p wire message of the HTLC and not in the onion
+	// payload.
+	WireCustomRecords record.CustomSet
+
 	// AMP encapsulates additional data relevant to AMP HTLCs. This includes
 	// the AMP onion record, in addition to the HTLC's payment hash and
 	// preimage since these are unique to each AMP HTLC, and not the invoice
@@ -564,6 +569,11 @@ func (h *InvoiceHTLC) Copy() *InvoiceHTLC {
 	result.CustomRecords = make(record.CustomSet)
 	for k, v := range h.CustomRecords {
 		result.CustomRecords[k] = v
+	}
+
+	result.WireCustomRecords = make(record.CustomSet)
+	for k, v := range h.WireCustomRecords {
+		result.WireCustomRecords[k] = v
 	}
 
 	result.AMP = h.AMP.Copy()
@@ -655,6 +665,11 @@ type HtlcAcceptDesc struct {
 	// CustomRecords contains the custom key/value pairs that accompanied
 	// the htlc.
 	CustomRecords record.CustomSet
+
+	// WireCustomRecords contains the custom key/value pairs that were only
+	// included in p2p wire message of the HTLC and not in the onion
+	// payload.
+	WireCustomRecords record.CustomSet
 
 	// AMP encapsulates additional data relevant to AMP HTLCs. This includes
 	// the AMP onion record, in addition to the HTLC's payment hash and

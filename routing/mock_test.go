@@ -9,6 +9,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -104,7 +105,8 @@ type mockPaymentSessionSourceOld struct {
 var _ PaymentSessionSource = (*mockPaymentSessionSourceOld)(nil)
 
 func (m *mockPaymentSessionSourceOld) NewPaymentSession(
-	_ *LightningPayment) (PaymentSession, error) {
+	_ *LightningPayment,
+	_ fn.Option[TlvTrafficShaper]) (PaymentSession, error) {
 
 	return &mockPaymentSessionOld{
 		routes:  m.routes,
@@ -166,7 +168,7 @@ type mockPaymentSessionOld struct {
 var _ PaymentSession = (*mockPaymentSessionOld)(nil)
 
 func (m *mockPaymentSessionOld) RequestRoute(_, _ lnwire.MilliSatoshi,
-	_, height uint32) (*route.Route, error) {
+	_, height uint32, records record.CustomSet) (*route.Route, error) {
 
 	if m.release != nil {
 		m.release <- struct{}{}
@@ -630,7 +632,8 @@ type mockPaymentSessionSource struct {
 var _ PaymentSessionSource = (*mockPaymentSessionSource)(nil)
 
 func (m *mockPaymentSessionSource) NewPaymentSession(
-	payment *LightningPayment) (PaymentSession, error) {
+	payment *LightningPayment,
+	tlvShaper fn.Option[TlvTrafficShaper]) (PaymentSession, error) {
 
 	args := m.Called(payment)
 	return args.Get(0).(PaymentSession), args.Error(1)
@@ -690,7 +693,8 @@ type mockPaymentSession struct {
 var _ PaymentSession = (*mockPaymentSession)(nil)
 
 func (m *mockPaymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
-	activeShards, height uint32) (*route.Route, error) {
+	activeShards, height uint32,
+	records record.CustomSet) (*route.Route, error) {
 
 	args := m.Called(maxAmt, feeLimit, activeShards, height)
 

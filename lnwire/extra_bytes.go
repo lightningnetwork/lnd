@@ -15,6 +15,41 @@ import (
 // upgrades to the network in a forwards compatible manner.
 type ExtraOpaqueData []byte
 
+// NewExtraOpaqueDataFromTlvTypeMap creates a new ExtraOpaqueData instance from
+// a tlv.TypeMap.
+func NewExtraOpaqueDataFromTlvTypeMap(tlvMap tlv.TypeMap) (ExtraOpaqueData,
+	error) {
+
+	extraData := ExtraOpaqueData{}
+
+	// If the tlv map is empty, return an empty extra data instance.
+	if len(tlvMap) == 0 {
+		return extraData, nil
+	}
+
+	// Convert the tlv map to a generic type map.
+	tlvMapGeneric := make(map[uint64][]byte)
+	for k, v := range tlvMap {
+		tlvMapGeneric[uint64(k)] = v
+	}
+
+	// Convert the generic type map to a slice of records.
+	records := tlv.MapToRecords(tlvMapGeneric)
+
+	// Encode the records into the extra data byte slice.
+	tlvStream, err := tlv.NewStream(records...)
+	if err != nil {
+		return nil, err
+	}
+
+	var bytesWriter bytes.Buffer
+	if err := tlvStream.Encode(&bytesWriter); err != nil {
+		return nil, err
+	}
+
+	return bytesWriter.Bytes(), nil
+}
+
 // Encode attempts to encode the raw extra bytes into the passed io.Writer.
 func (e *ExtraOpaqueData) Encode(w *bytes.Buffer) error {
 	eBytes := []byte((*e)[:])
@@ -103,6 +138,45 @@ func (e *ExtraOpaqueData) ExtractRecords(recordProducers ...tlv.RecordProducer) 
 	// Since ExtraOpaqueData is provided by a potentially malicious peer,
 	// pass it into the P2P decoding variant.
 	return tlvStream.DecodeWithParsedTypesP2P(extraBytesReader)
+}
+
+// RecordProducers parses ExtraOpaqueData into a slice of TLV record producers
+// by interpreting it as a TLV map.
+func (e *ExtraOpaqueData) RecordProducers() ([]tlv.RecordProducer, error) {
+	var recordProducers []tlv.RecordProducer
+
+	// If the instance is nil or empty, return an empty slice.
+	if e == nil || len(*e) == 0 {
+		return recordProducers, nil
+	}
+
+	// Parse the extra opaque data as a TLV map.
+	tlvMap, err := e.ExtractRecords()
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert the TLV map into a slice of records.
+	tlvMapGeneric := make(map[uint64][]byte)
+	for k, v := range tlvMap {
+		tlvMapGeneric[uint64(k)] = v
+	}
+	records := tlv.MapToRecords(tlvMapGeneric)
+
+	// Convert the records to record producers.
+	recordProducers = make([]tlv.RecordProducer, len(records))
+	for i, record := range records {
+		recordProducers[i] = &recordProducer{record}
+	}
+
+	return recordProducers, nil
+}
+
+// Copy returns a copy of the target ExtraOpaqueData instance.
+func (e *ExtraOpaqueData) Copy() ExtraOpaqueData {
+	copyData := make([]byte, len(*e))
+	copy(copyData, *e)
+	return copyData
 }
 
 // EncodeMessageExtraData encodes the given recordProducers into the given

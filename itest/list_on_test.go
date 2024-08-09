@@ -359,6 +359,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testInvoiceRoutingHints,
 	},
 	{
+		Name:     "scid alias routing hints",
+		TestFunc: testScidAliasRoutingHints,
+	},
+	{
 		Name:     "multi-hop payments over private channels",
 		TestFunc: testMultiHopOverPrivateChannels,
 	},
@@ -449,6 +453,18 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "forward interceptor",
 		TestFunc: testForwardInterceptorBasic,
+	},
+	{
+		Name:     "forward interceptor modified htlc",
+		TestFunc: testForwardInterceptorModifiedHtlc,
+	},
+	{
+		Name:     "forward interceptor wire records",
+		TestFunc: testForwardInterceptorWireRecords,
+	},
+	{
+		Name:     "invoice HTLC modifier basic",
+		TestFunc: testInvoiceHtlcModifierBasic,
 	},
 	{
 		Name:     "zero conf channel open",

@@ -7,6 +7,7 @@ import (
 	"math"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -16,16 +17,15 @@ import (
 const (
 	// OutputIndexEmpty is used when the output index doesn't exist.
 	OutputIndexEmpty = math.MaxUint16
+)
 
-	// A set of tlv type definitions used to serialize the body of
-	// revocation logs to the database.
-	//
-	// NOTE: A migration should be added whenever this list changes.
-	revLogOurOutputIndexType   tlv.Type = 0
-	revLogTheirOutputIndexType tlv.Type = 1
-	revLogCommitTxHashType     tlv.Type = 2
-	revLogOurBalanceType       tlv.Type = 3
-	revLogTheirBalanceType     tlv.Type = 4
+type (
+	// BigSizeAmount is a type alias for a TLV record of a btcutil.Amount.
+	BigSizeAmount = tlv.BigSizeT[btcutil.Amount]
+
+	// BigSizeMilliSatoshi is a type alias for a TLV record of a
+	// lnwire.MilliSatoshi.
+	BigSizeMilliSatoshi = tlv.BigSizeT[lnwire.MilliSatoshi]
 )
 
 var (
@@ -54,6 +54,74 @@ var (
 	ErrOutputIndexTooBig = errors.New("output index is over uint16")
 )
 
+// SparsePayHash is a type alias for a 32 byte array, which when serialized is
+// able to save some space by not including an empty payment hash on disk.
+type SparsePayHash [32]byte
+
+// NewSparsePayHash creates a new SparsePayHash from a 32 byte array.
+func NewSparsePayHash(rHash [32]byte) SparsePayHash {
+	return SparsePayHash(rHash)
+}
+
+// Record returns a tlv record for the SparsePayHash.
+func (s *SparsePayHash) Record() tlv.Record {
+	// We use a zero for the type here, as this'll be used along with the
+	// RecordT type.
+	return tlv.MakeDynamicRecord(
+		0, s, s.hashLen,
+		sparseHashEncoder, sparseHashDecoder,
+	)
+}
+
+// hashLen is used by MakeDynamicRecord to return the size of the RHash.
+//
+// NOTE: for zero hash, we return a length 0.
+func (s *SparsePayHash) hashLen() uint64 {
+	if bytes.Equal(s[:], lntypes.ZeroHash[:]) {
+		return 0
+	}
+
+	return 32
+}
+
+// sparseHashEncoder is the customized encoder which skips encoding the empty
+// hash.
+func sparseHashEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
+	v, ok := val.(*SparsePayHash)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(val, "SparsePayHash")
+	}
+
+	// If the value is an empty hash, we will skip encoding it.
+	if bytes.Equal(v[:], lntypes.ZeroHash[:]) {
+		return nil
+	}
+
+	vArray := (*[32]byte)(v)
+
+	return tlv.EBytes32(w, vArray, buf)
+}
+
+// sparseHashDecoder is the customized decoder which skips decoding the empty
+// hash.
+func sparseHashDecoder(r io.Reader, val interface{}, buf *[8]byte,
+	l uint64) error {
+
+	v, ok := val.(*SparsePayHash)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(val, "SparsePayHash")
+	}
+
+	// If the length is zero, we will skip encoding the empty hash.
+	if l == 0 {
+		return nil
+	}
+
+	vArray := (*[32]byte)(v)
+
+	return tlv.DBytes32(r, vArray, buf, 32)
+}
+
 // HTLCEntry specifies the minimal info needed to be stored on disk for ALL the
 // historical HTLCs, which is useful for constructing RevocationLog when a
 // breach is detected.
@@ -72,116 +140,84 @@ var (
 // made into tlv records without further conversion.
 type HTLCEntry struct {
 	// RHash is the payment hash of the HTLC.
-	RHash [32]byte
+	RHash tlv.RecordT[tlv.TlvType0, SparsePayHash]
 
 	// RefundTimeout is the absolute timeout on the HTLC that the sender
 	// must wait before reclaiming the funds in limbo.
-	RefundTimeout uint32
+	RefundTimeout tlv.RecordT[tlv.TlvType1, uint32]
 
 	// OutputIndex is the output index for this particular HTLC output
 	// within the commitment transaction.
 	//
 	// NOTE: we use uint16 instead of int32 here to save us 2 bytes, which
 	// gives us a max number of HTLCs of 65K.
-	OutputIndex uint16
+	OutputIndex tlv.RecordT[tlv.TlvType2, uint16]
 
 	// Incoming denotes whether we're the receiver or the sender of this
 	// HTLC.
-	//
-	// NOTE: this field is the memory representation of the field
-	// incomingUint.
-	Incoming bool
+	Incoming tlv.RecordT[tlv.TlvType3, bool]
 
 	// Amt is the amount of satoshis this HTLC escrows.
-	//
-	// NOTE: this field is the memory representation of the field amtUint.
-	Amt btcutil.Amount
+	Amt tlv.RecordT[tlv.TlvType4, tlv.BigSizeT[btcutil.Amount]]
 
-	// amtTlv is the uint64 format of Amt. This field is created so we can
-	// easily make it into a tlv record and save it to disk.
-	//
-	// NOTE: we keep this field for accounting purpose only. If the disk
-	// space becomes an issue, we could delete this field to save us extra
-	// 8 bytes.
-	amtTlv uint64
+	// CustomBlob is an optional blob that can be used to store information
+	// specific to revocation handling for a custom channel type.
+	CustomBlob tlv.OptionalRecordT[tlv.TlvType5, tlv.Blob]
 
-	// incomingTlv is the uint8 format of Incoming. This field is created
-	// so we can easily make it into a tlv record and save it to disk.
-	incomingTlv uint8
-}
-
-// RHashLen is used by MakeDynamicRecord to return the size of the RHash.
-//
-// NOTE: for zero hash, we return a length 0.
-func (h *HTLCEntry) RHashLen() uint64 {
-	if h.RHash == lntypes.ZeroHash {
-		return 0
-	}
-	return 32
-}
-
-// RHashEncoder is the customized encoder which skips encoding the empty hash.
-func RHashEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
-	v, ok := val.(*[32]byte)
-	if !ok {
-		return tlv.NewTypeForEncodingErr(val, "RHash")
-	}
-
-	// If the value is an empty hash, we will skip encoding it.
-	if *v == lntypes.ZeroHash {
-		return nil
-	}
-
-	return tlv.EBytes32(w, v, buf)
-}
-
-// RHashDecoder is the customized decoder which skips decoding the empty hash.
-func RHashDecoder(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
-	v, ok := val.(*[32]byte)
-	if !ok {
-		return tlv.NewTypeForEncodingErr(val, "RHash")
-	}
-
-	// If the length is zero, we will skip encoding the empty hash.
-	if l == 0 {
-		return nil
-	}
-
-	return tlv.DBytes32(r, v, buf, 32)
+	// HtlcIndex is the index of the HTLC in the channel.
+	HtlcIndex tlv.RecordT[tlv.TlvType6, uint16]
 }
 
 // toTlvStream converts an HTLCEntry record into a tlv representation.
 func (h *HTLCEntry) toTlvStream() (*tlv.Stream, error) {
-	const (
-		// A set of tlv type definitions used to serialize htlc entries
-		// to the database. We define it here instead of the head of
-		// the file to avoid naming conflicts.
-		//
-		// NOTE: A migration should be added whenever this list
-		// changes.
-		rHashType         tlv.Type = 0
-		refundTimeoutType tlv.Type = 1
-		outputIndexType   tlv.Type = 2
-		incomingType      tlv.Type = 3
-		amtType           tlv.Type = 4
-	)
+	records := []tlv.Record{
+		h.RHash.Record(),
+		h.RefundTimeout.Record(),
+		h.OutputIndex.Record(),
+		h.Incoming.Record(),
+		h.Amt.Record(),
+		h.HtlcIndex.Record(),
+	}
 
-	return tlv.NewStream(
-		tlv.MakeDynamicRecord(
-			rHashType, &h.RHash, h.RHashLen,
-			RHashEncoder, RHashDecoder,
+	h.CustomBlob.WhenSome(func(r tlv.RecordT[tlv.TlvType5, tlv.Blob]) {
+		records = append(records, r.Record())
+	})
+
+	tlv.SortRecords(records)
+
+	return tlv.NewStream(records...)
+}
+
+// NewHTLCEntryFromHTLC creates a new HTLCEntry from an HTLC.
+func NewHTLCEntryFromHTLC(htlc HTLC) *HTLCEntry {
+	h := &HTLCEntry{
+		RHash: tlv.NewRecordT[tlv.TlvType0](
+			NewSparsePayHash(htlc.RHash),
 		),
-		tlv.MakePrimitiveRecord(
-			refundTimeoutType, &h.RefundTimeout,
+		RefundTimeout: tlv.NewPrimitiveRecord[tlv.TlvType1](
+			htlc.RefundTimeout,
 		),
-		tlv.MakePrimitiveRecord(
-			outputIndexType, &h.OutputIndex,
+		OutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType2](
+			uint16(htlc.OutputIndex),
 		),
-		tlv.MakePrimitiveRecord(incomingType, &h.incomingTlv),
-		// We will save 3 bytes if the amount is less or equal to
-		// 4,294,967,295 msat, or roughly 0.043 bitcoin.
-		tlv.MakeBigSizeRecord(amtType, &h.amtTlv),
-	)
+		Incoming: tlv.NewPrimitiveRecord[tlv.TlvType3](htlc.Incoming),
+		Amt: tlv.NewRecordT[tlv.TlvType4](
+			tlv.NewBigSizeT(htlc.Amt.ToSatoshis()),
+		),
+		HtlcIndex: tlv.NewPrimitiveRecord[tlv.TlvType6](
+			uint16(htlc.HtlcIndex),
+		),
+	}
+
+	if len(htlc.ExtraData) != 0 {
+		h.CustomBlob = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType5, tlv.Blob](
+				htlc.ExtraData,
+			),
+		)
+	}
+
+	return h
 }
 
 // RevocationLog stores the info needed to construct a breach retribution. Its
@@ -191,15 +227,15 @@ func (h *HTLCEntry) toTlvStream() (*tlv.Stream, error) {
 type RevocationLog struct {
 	// OurOutputIndex specifies our output index in this commitment. In a
 	// remote commitment transaction, this is the to remote output index.
-	OurOutputIndex uint16
+	OurOutputIndex tlv.RecordT[tlv.TlvType0, uint16]
 
 	// TheirOutputIndex specifies their output index in this commitment. In
 	// a remote commitment transaction, this is the to local output index.
-	TheirOutputIndex uint16
+	TheirOutputIndex tlv.RecordT[tlv.TlvType1, uint16]
 
 	// CommitTxHash is the hash of the latest version of the commitment
 	// state, broadcast able by us.
-	CommitTxHash [32]byte
+	CommitTxHash tlv.RecordT[tlv.TlvType2, [32]byte]
 
 	// HTLCEntries is the set of HTLCEntry's that are pending at this
 	// particular commitment height.
@@ -209,21 +245,65 @@ type RevocationLog struct {
 	// directly spendable by us. In other words, it is the value of the
 	// to_remote output on the remote parties' commitment transaction.
 	//
-	// NOTE: this is a pointer so that it is clear if the value is zero or
+	// NOTE: this is an option so that it is clear if the value is zero or
 	// nil. Since migration 30 of the channeldb initially did not include
 	// this field, it could be the case that the field is not present for
 	// all revocation logs.
-	OurBalance *lnwire.MilliSatoshi
+	OurBalance tlv.OptionalRecordT[tlv.TlvType3, BigSizeMilliSatoshi]
 
 	// TheirBalance is the current available balance within the channel
 	// directly spendable by the remote node. In other words, it is the
 	// value of the to_local output on the remote parties' commitment.
 	//
-	// NOTE: this is a pointer so that it is clear if the value is zero or
+	// NOTE: this is an option so that it is clear if the value is zero or
 	// nil. Since migration 30 of the channeldb initially did not include
 	// this field, it could be the case that the field is not present for
 	// all revocation logs.
-	TheirBalance *lnwire.MilliSatoshi
+	TheirBalance tlv.OptionalRecordT[tlv.TlvType4, BigSizeMilliSatoshi]
+
+	// CustomBlob is an optional blob that can be used to store information
+	// specific to a custom channel type. This information is only created
+	// at channel funding time, and after wards is to be considered
+	// immutable.
+	CustomBlob tlv.OptionalRecordT[tlv.TlvType5, tlv.Blob]
+}
+
+// NewRevocationLog creates a new RevocationLog from the given parameters.
+func NewRevocationLog(ourOutputIndex uint16, theirOutputIndex uint16,
+	commitHash [32]byte, ourBalance,
+	theirBalance fn.Option[lnwire.MilliSatoshi], htlcs []*HTLCEntry,
+	customBlob fn.Option[tlv.Blob]) RevocationLog {
+
+	rl := RevocationLog{
+		OurOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType0](
+			ourOutputIndex,
+		),
+		TheirOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType1](
+			theirOutputIndex,
+		),
+		CommitTxHash: tlv.NewPrimitiveRecord[tlv.TlvType2](commitHash),
+		HTLCEntries:  htlcs,
+	}
+
+	ourBalance.WhenSome(func(balance lnwire.MilliSatoshi) {
+		rl.OurBalance = tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType3](
+			tlv.NewBigSizeT(balance),
+		))
+	})
+
+	theirBalance.WhenSome(func(balance lnwire.MilliSatoshi) {
+		rl.TheirBalance = tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType4](
+			tlv.NewBigSizeT(balance),
+		))
+	})
+
+	customBlob.WhenSome(func(blob tlv.Blob) {
+		rl.CustomBlob = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType5, tlv.Blob](blob),
+		)
+	})
+
+	return rl
 }
 
 // putRevocationLog uses the fields `CommitTx` and `Htlcs` from a
@@ -242,15 +322,32 @@ func putRevocationLog(bucket kvdb.RwBucket, commit *ChannelCommitment,
 	}
 
 	rl := &RevocationLog{
-		OurOutputIndex:   uint16(ourOutputIndex),
-		TheirOutputIndex: uint16(theirOutputIndex),
-		CommitTxHash:     commit.CommitTx.TxHash(),
-		HTLCEntries:      make([]*HTLCEntry, 0, len(commit.Htlcs)),
+		OurOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType0](
+			uint16(ourOutputIndex),
+		),
+		TheirOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType1](
+			uint16(theirOutputIndex),
+		),
+		CommitTxHash: tlv.NewPrimitiveRecord[tlv.TlvType2, [32]byte](
+			commit.CommitTx.TxHash(),
+		),
+		HTLCEntries: make([]*HTLCEntry, 0, len(commit.Htlcs)),
 	}
 
+	commit.CustomBlob.WhenSome(func(blob tlv.Blob) {
+		rl.CustomBlob = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType5, tlv.Blob](blob),
+		)
+	})
+
 	if !noAmtData {
-		rl.OurBalance = &commit.LocalBalance
-		rl.TheirBalance = &commit.RemoteBalance
+		rl.OurBalance = tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType3](
+			tlv.NewBigSizeT(commit.LocalBalance),
+		))
+
+		rl.TheirBalance = tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType4](
+			tlv.NewBigSizeT(commit.RemoteBalance),
+		))
 	}
 
 	for _, htlc := range commit.Htlcs {
@@ -265,13 +362,7 @@ func putRevocationLog(bucket kvdb.RwBucket, commit *ChannelCommitment,
 			return ErrOutputIndexTooBig
 		}
 
-		entry := &HTLCEntry{
-			RHash:         htlc.RHash,
-			RefundTimeout: htlc.RefundTimeout,
-			Incoming:      htlc.Incoming,
-			OutputIndex:   uint16(htlc.OutputIndex),
-			Amt:           htlc.Amt.ToSatoshis(),
-		}
+		entry := NewHTLCEntryFromHTLC(htlc)
 		rl.HTLCEntries = append(rl.HTLCEntries, entry)
 	}
 
@@ -306,31 +397,27 @@ func fetchRevocationLog(log kvdb.RBucket,
 func serializeRevocationLog(w io.Writer, rl *RevocationLog) error {
 	// Add the tlv records for all non-optional fields.
 	records := []tlv.Record{
-		tlv.MakePrimitiveRecord(
-			revLogOurOutputIndexType, &rl.OurOutputIndex,
-		),
-		tlv.MakePrimitiveRecord(
-			revLogTheirOutputIndexType, &rl.TheirOutputIndex,
-		),
-		tlv.MakePrimitiveRecord(
-			revLogCommitTxHashType, &rl.CommitTxHash,
-		),
+		rl.OurOutputIndex.Record(),
+		rl.TheirOutputIndex.Record(),
+		rl.CommitTxHash.Record(),
 	}
 
 	// Now we add any optional fields that are non-nil.
-	if rl.OurBalance != nil {
-		lb := uint64(*rl.OurBalance)
-		records = append(records, tlv.MakeBigSizeRecord(
-			revLogOurBalanceType, &lb,
-		))
-	}
+	rl.OurBalance.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType3, BigSizeMilliSatoshi]) {
+			records = append(records, r.Record())
+		},
+	)
 
-	if rl.TheirBalance != nil {
-		rb := uint64(*rl.TheirBalance)
-		records = append(records, tlv.MakeBigSizeRecord(
-			revLogTheirBalanceType, &rb,
-		))
-	}
+	rl.TheirBalance.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType4, BigSizeMilliSatoshi]) {
+			records = append(records, r.Record())
+		},
+	)
+
+	rl.CustomBlob.WhenSome(func(r tlv.RecordT[tlv.TlvType5, tlv.Blob]) {
+		records = append(records, r.Record())
+	})
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(records...)
@@ -351,14 +438,6 @@ func serializeRevocationLog(w io.Writer, rl *RevocationLog) error {
 // format.
 func serializeHTLCEntries(w io.Writer, htlcs []*HTLCEntry) error {
 	for _, htlc := range htlcs {
-		// Patch the incomingTlv field.
-		if htlc.Incoming {
-			htlc.incomingTlv = 1
-		}
-
-		// Patch the amtTlv field.
-		htlc.amtTlv = uint64(htlc.Amt)
-
 		// Create the tlv stream.
 		tlvStream, err := htlc.toTlvStream()
 		if err != nil {
@@ -376,27 +455,20 @@ func serializeHTLCEntries(w io.Writer, htlcs []*HTLCEntry) error {
 
 // deserializeRevocationLog deserializes a RevocationLog based on tlv format.
 func deserializeRevocationLog(r io.Reader) (RevocationLog, error) {
-	var (
-		rl           RevocationLog
-		ourBalance   uint64
-		theirBalance uint64
-	)
+	var rl RevocationLog
+
+	ourBalance := rl.OurBalance.Zero()
+	theirBalance := rl.TheirBalance.Zero()
+	customBlob := rl.CustomBlob.Zero()
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(
-		tlv.MakePrimitiveRecord(
-			revLogOurOutputIndexType, &rl.OurOutputIndex,
-		),
-		tlv.MakePrimitiveRecord(
-			revLogTheirOutputIndexType, &rl.TheirOutputIndex,
-		),
-		tlv.MakePrimitiveRecord(
-			revLogCommitTxHashType, &rl.CommitTxHash,
-		),
-		tlv.MakeBigSizeRecord(revLogOurBalanceType, &ourBalance),
-		tlv.MakeBigSizeRecord(
-			revLogTheirBalanceType, &theirBalance,
-		),
+		rl.OurOutputIndex.Record(),
+		rl.TheirOutputIndex.Record(),
+		rl.CommitTxHash.Record(),
+		ourBalance.Record(),
+		theirBalance.Record(),
+		customBlob.Record(),
 	)
 	if err != nil {
 		return rl, err
@@ -408,14 +480,16 @@ func deserializeRevocationLog(r io.Reader) (RevocationLog, error) {
 		return rl, err
 	}
 
-	if t, ok := parsedTypes[revLogOurBalanceType]; ok && t == nil {
-		lb := lnwire.MilliSatoshi(ourBalance)
-		rl.OurBalance = &lb
+	if t, ok := parsedTypes[ourBalance.TlvType()]; ok && t == nil {
+		rl.OurBalance = tlv.SomeRecordT(ourBalance)
 	}
 
-	if t, ok := parsedTypes[revLogTheirBalanceType]; ok && t == nil {
-		rb := lnwire.MilliSatoshi(theirBalance)
-		rl.TheirBalance = &rb
+	if t, ok := parsedTypes[theirBalance.TlvType()]; ok && t == nil {
+		rl.TheirBalance = tlv.SomeRecordT(theirBalance)
+	}
+
+	if t, ok := parsedTypes[customBlob.TlvType()]; ok && t == nil {
+		rl.CustomBlob = tlv.SomeRecordT(customBlob)
 	}
 
 	// Read the HTLC entries.
@@ -432,14 +506,27 @@ func deserializeHTLCEntries(r io.Reader) ([]*HTLCEntry, error) {
 	for {
 		var htlc HTLCEntry
 
+		customBlob := htlc.CustomBlob.Zero()
+
 		// Create the tlv stream.
-		tlvStream, err := htlc.toTlvStream()
+		records := []tlv.Record{
+			htlc.RHash.Record(),
+			htlc.RefundTimeout.Record(),
+			htlc.OutputIndex.Record(),
+			htlc.Incoming.Record(),
+			htlc.Amt.Record(),
+			customBlob.Record(),
+			htlc.HtlcIndex.Record(),
+		}
+
+		tlvStream, err := tlv.NewStream(records...)
 		if err != nil {
 			return nil, err
 		}
 
 		// Read the HTLC entry.
-		if _, err := readTlvStream(r, tlvStream); err != nil {
+		parsedTypes, err := readTlvStream(r, tlvStream)
+		if err != nil {
 			// We've reached the end when hitting an EOF.
 			if err == io.ErrUnexpectedEOF {
 				break
@@ -447,13 +534,9 @@ func deserializeHTLCEntries(r io.Reader) ([]*HTLCEntry, error) {
 			return nil, err
 		}
 
-		// Patch the Incoming field.
-		if htlc.incomingTlv == 1 {
-			htlc.Incoming = true
+		if t, ok := parsedTypes[customBlob.TlvType()]; ok && t == nil {
+			htlc.CustomBlob = tlv.SomeRecordT(customBlob)
 		}
-
-		// Patch the Amt field.
-		htlc.Amt = btcutil.Amount(htlc.amtTlv)
 
 		// Append the entry.
 		htlcs = append(htlcs, &htlc)
@@ -469,6 +552,7 @@ func writeTlvStream(w io.Writer, s *tlv.Stream) error {
 	if err := s.Encode(&b); err != nil {
 		return err
 	}
+
 	// Write the stream's length as a varint.
 	err := tlv.WriteVarInt(w, uint64(b.Len()), &[8]byte{})
 	if err != nil {

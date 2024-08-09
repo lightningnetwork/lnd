@@ -28,6 +28,11 @@ var importMissionControlCommand = cli.Command{
 			Name:  "force",
 			Usage: "whether to force the history entry import",
 		},
+		cli.BoolFlag{
+			Name: "persist_mc",
+			Usage: "whether to persist the imported mission " +
+				"control to disk",
+		},
 	},
 }
 
@@ -91,7 +96,8 @@ func importMissionControl(ctx *cli.Context) error {
 		Pairs: []*routerrpc.PairHistory{
 			importResult,
 		},
-		Force: ctx.IsSet("force"),
+		Force:     ctx.IsSet("force"),
+		PersistMc: ctx.IsSet("persist_mc"),
 	}
 
 	rpcCtx := context.Background()

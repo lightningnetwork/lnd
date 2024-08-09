@@ -55,7 +55,8 @@ type RouterClient interface {
 	SendToRouteV2(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*lnrpc.HTLCAttempt, error)
 	// lncli: `resetmc`
 	// ResetMissionControl clears all mission control state and starts with a clean
-	// slate.
+	// state. If the reset_imported_persisted_mc flag is set to true, it also
+	// resets the imported and persisted mission control data on disk.
 	ResetMissionControl(ctx context.Context, in *ResetMissionControlRequest, opts ...grpc.CallOption) (*ResetMissionControlResponse, error)
 	// lncli: `querymc`
 	// QueryMissionControl exposes the internal mission control state to callers.
@@ -491,7 +492,8 @@ type RouterServer interface {
 	SendToRouteV2(context.Context, *SendToRouteRequest) (*lnrpc.HTLCAttempt, error)
 	// lncli: `resetmc`
 	// ResetMissionControl clears all mission control state and starts with a clean
-	// slate.
+	// state. If the reset_imported_persisted_mc flag is set to true, it also
+	// resets the imported and persisted mission control data on disk.
 	ResetMissionControl(context.Context, *ResetMissionControlRequest) (*ResetMissionControlResponse, error)
 	// lncli: `querymc`
 	// QueryMissionControl exposes the internal mission control state to callers.

@@ -1078,11 +1078,15 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 			return preImage, nil
 		})
 
-	ctx.router.cfg.MissionControl.(*MissionControl).ResetHistory()
+	mc, ok := ctx.router.cfg.MissionControl.(*MissionControl)
+	require.True(t, ok, "MissionControl type assertion failed")
+
+	err := mc.ResetHistory(false)
+	require.NoError(t, err, "reset history failed")
 
 	// When we try to dispatch that payment, we should receive an error as
 	// both attempts should fail and cause both routes to be pruned.
-	_, _, err := ctx.router.SendPayment(payment)
+	_, _, err = ctx.router.SendPayment(payment)
 	require.Error(t, err, "payment didn't return error")
 
 	// The final error returned should also indicate that the peer wasn't
@@ -1099,14 +1103,17 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	// We expect the first attempt to have failed with a
 	// TemporaryChannelFailure, the second with UnknownNextPeer.
 	msg := htlcs[0].Failure.Message
-	_, ok := msg.(*lnwire.FailTemporaryChannelFailure)
+	_, ok = msg.(*lnwire.FailTemporaryChannelFailure)
 	require.True(t, ok, "unexpected fail message")
 
 	msg = htlcs[1].Failure.Message
 	_, ok = msg.(*lnwire.FailUnknownNextPeer)
 	require.True(t, ok, "unexpected fail message")
 
-	err = ctx.router.cfg.MissionControl.(*MissionControl).ResetHistory()
+	mc, ok = ctx.router.cfg.MissionControl.(*MissionControl)
+	require.True(t, ok, "MissionControl type assertion failed")
+
+	err = mc.ResetHistory(false)
 	require.NoError(t, err, "reset history failed")
 
 	// Next, we'll modify the SendToSwitch method to indicate that the
@@ -1141,7 +1148,11 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		getAliasFromPubKey(rt.Hops[0].PubKeyBytes, ctx.aliases),
 	)
 
-	ctx.router.cfg.MissionControl.(*MissionControl).ResetHistory()
+	mc, ok = ctx.router.cfg.MissionControl.(*MissionControl)
+	require.True(t, ok, "MissionControl type assertion failed")
+
+	err = mc.ResetHistory(false)
+	require.NoError(t, err, "reset history failed")
 
 	// Finally, we'll modify the SendToSwitch function to indicate that the
 	// roasbeef -> luoji channel has insufficient capacity. This should

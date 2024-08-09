@@ -355,6 +355,13 @@ var resetMissionControlCommand = cli.Command{
 	Category: "Mission Control",
 	Usage:    "Reset internal mission control state.",
 	Action:   actionDecorator(resetMissionControl),
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name: "reset_imported_persisted_mc",
+			Usage: "whether to reset the imported and persisted " +
+				"mission control state on disk.",
+		},
+	},
 }
 
 func resetMissionControl(ctx *cli.Context) error {
@@ -364,7 +371,10 @@ func resetMissionControl(ctx *cli.Context) error {
 
 	client := routerrpc.NewRouterClient(conn)
 
-	req := &routerrpc.ResetMissionControlRequest{}
+	resetImportedPersistedMC := ctx.IsSet("reset_imported_persisted_mc")
+	req := &routerrpc.ResetMissionControlRequest{
+		ResetImportedPersistedMc: resetImportedPersistedMC,
+	}
 	_, err := client.ResetMissionControl(ctxc, req)
 	return err
 }

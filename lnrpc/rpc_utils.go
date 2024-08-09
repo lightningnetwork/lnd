@@ -197,6 +197,32 @@ func GetChanPointFundingTxid(chanPoint *ChannelPoint) (*chainhash.Hash, error) {
 	return chainhash.NewHash(txid)
 }
 
+// GetChannelOutPoint returns the outpoint of the related channel point.
+func GetChannelOutPoint(chanPoint *ChannelPoint) (*OutPoint, error) {
+	var txid []byte
+
+	// A channel point's funding txid can be get/set as a byte slice or a
+	// string. In the case it is a string, decode it.
+	switch chanPoint.GetFundingTxid().(type) {
+	case *ChannelPoint_FundingTxidBytes:
+		txid = chanPoint.GetFundingTxidBytes()
+
+	case *ChannelPoint_FundingTxidStr:
+		s := chanPoint.GetFundingTxidStr()
+		h, err := chainhash.NewHashFromStr(s)
+		if err != nil {
+			return nil, err
+		}
+
+		txid = h[:]
+	}
+
+	return &OutPoint{
+		TxidBytes:   txid,
+		OutputIndex: chanPoint.OutputIndex,
+	}, nil
+}
+
 // CalculateFeeRate uses either satPerByte or satPerVByte, but not both, from a
 // request to calculate the fee rate. It provides compatibility for the
 // deprecated field, satPerByte. Once the field is safe to be removed, the

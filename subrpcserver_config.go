@@ -202,6 +202,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 					cc.Wallet.Cfg.CoinSelectionStrategy,
 				),
 			)
+			subCfgValue.FieldByName("ChanStateDB").Set(
+				reflect.ValueOf(chanStateDB),
+			)
 
 		case *autopilotrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)

@@ -2154,3 +2154,157 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	// Clean up the mempol.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
 }
+
+// testBumpForceCloseFee tests that when a force close transaction, in
+// particular a commitment which has no HTLCs at stake, can be bumped via the
+// rpc endpoint `BumpForceCloseFee`.
+//
+// NOTE: This test does not check for a specific fee rate because channel force
+// closures should be bumped taking a budget into account not a specific
+// fee rate.
+func testBumpForceCloseFee(ht *lntest.HarnessTest) {
+	// Skip this test for neutrino, as it's not aware of mempool
+	// transactions.
+	if ht.IsNeutrinoBackend() {
+		ht.Skipf("skipping BumpForceCloseFee test for neutrino backend")
+	}
+	// fundAmt is the funding amount.
+	fundAmt := btcutil.Amount(1_000_000)
+
+	// We add a push amount because otherwise no anchor for the counter
+	// party will be created which influences the commitment fee
+	// calculation.
+	pushAmt := btcutil.Amount(50_000)
+
+	openChannelParams := lntest.OpenChannelParams{
+		Amt:     fundAmt,
+		PushAmt: pushAmt,
+	}
+
+	// Bumping the close fee rate is only possible for anchor channels.
+	cfg := []string{
+		"--protocol.anchors",
+	}
+
+	// Create a two hop network: Alice -> Bob.
+	chanPoints, nodes := createSimpleNetwork(ht, cfg, 2, openChannelParams)
+
+	// Unwrap the results.
+	chanPoint := chanPoints[0]
+	alice := nodes[0]
+
+	// We need to fund alice with 2 wallet inputs so that we can test to
+	// increase the fee rate of the anchor cpfp via two subsequent calls of
+	// the`BumpForceCloseFee` rpc cmd.
+	//
+	// TODO (ziggie): Make sure we use enough wallet inputs so that both
+	// anchor transactions (local, remote commitment tx) can be created and
+	// broadcasted. Not sure if we really need this, because we can be sure
+	// as soon as one anchor transactions makes it into the mempool that the
+	// others will fail anyways?
+	ht.FundCoinsP2TR(btcutil.SatoshiPerBitcoin, alice)
+
+	// Alice force closes the channel which has no HTLCs at stake.
+	_, closingTxID := ht.CloseChannelAssertPending(alice, chanPoint, true)
+	require.NotNil(ht, closingTxID)
+
+	// Alice should see one waiting close channel.
+	ht.AssertNumWaitingClose(alice, 1)
+
+	// Alice should have 2 registered sweep inputs. The anchor of the local
+	// commitment tx and the anchor of the remote commitment tx.
+	ht.AssertNumPendingSweeps(alice, 2)
+
+	// Calculate the commitment tx fee rate.
+	closingTx := ht.AssertTxInMempool(closingTxID)
+	require.NotNil(ht, closingTx)
+
+	// The default commitment fee for anchor channels is capped at 2500
+	// sat/kw but there might be some inaccuracies because of the witness
+	// signature length therefore we calculate the exact value here.
+	closingFeeRate := ht.CalculateTxFeeRate(closingTx)
+
+	// We increase the fee rate of the fee function by 100% to make sure
+	// we trigger a cpfp-transaction.
+	newFeeRate := closingFeeRate * 2
+
+	// We need to make sure that the budget can cover the fees for bumping.
+	// However we also want to make sure that the budget is not too large
+	// so that the delta of the fee function does not increase the feerate
+	// by a single sat hence NOT rbfing the anchor sweep every time a new
+	// block is found and a new sweep broadcast is triggered.
+	//
+	// NOTE:
+	// We expect an anchor sweep with 2 inputs (anchor input + a wallet
+	// input) and 1 p2tr output. This transaction has a weight of approx.
+	// 725 wu. This info helps us to calculate the delta of the fee
+	// function.
+	// EndFeeRate: 100_000 sats/725 wu * 1000 = 137931 sat/kw
+	// StartingFeeRate: 5000 sat/kw
+	// delta = (137931-5000)/1008 = 132 sat/kw (which is lower than
+	// 250 sat/kw) => hence we are violating BIP 125 Rule 4, which is
+	// exactly what we want here to test the subsequent calling of the
+	// bumpclosefee rpc.
+	cpfpBudget := 100_000
+
+	bumpFeeReq := &walletrpc.BumpForceCloseFeeRequest{
+		ChanPoint:       chanPoint,
+		StartingFeerate: uint64(newFeeRate.FeePerVByte()),
+		Budget:          uint64(cpfpBudget),
+		// We use a force param to create the sweeping tx immediately.
+		Immediate: true,
+	}
+	alice.RPC.BumpForceCloseFee(bumpFeeReq)
+
+	// We expect the initial closing transaction and the local anchor cpfp
+	// transaction because alice force closed the channel.
+	//
+	// NOTE: We don't compare a feerate but only make sure that a cpfp
+	// transaction was triggered. The sweeper increases the fee rate
+	// periodically with every new incoming block and the selected fee
+	// function.
+	ht.AssertNumTxsInMempool(2)
+
+	// Identify the cpfp anchor sweep.
+	txns := ht.GetNumTxsFromMempool(2)
+	cpfpSweep1 := ht.FindSweepingTxns(txns, 1, closingTx.TxHash())[0]
+
+	// Mine an empty block and make sure the anchor cpfp is still in the
+	// mempool hence the new block did not let the sweeper subsystem rbf
+	// this anchor sweep transaction (because of the small fee delta).
+	ht.MineEmptyBlocks(1)
+	cpfpHash1 := cpfpSweep1.TxHash()
+	ht.AssertTxInMempool(&cpfpHash1)
+
+	// Now Bump the fee rate again with a bigger starting fee rate of the
+	// fee function.
+	newFeeRate = closingFeeRate * 3
+
+	bumpFeeReq = &walletrpc.BumpForceCloseFeeRequest{
+		ChanPoint:       chanPoint,
+		StartingFeerate: uint64(newFeeRate.FeePerVByte()),
+		// The budget needs to be high enough to pay for the fee because
+		// the anchor does not have an output value high enough to pay
+		// for itself.
+		Budget: uint64(cpfpBudget),
+		// We use a force param to create the sweeping tx immediately.
+		Immediate: true,
+	}
+	alice.RPC.BumpForceCloseFee(bumpFeeReq)
+
+	// Make sure the old sweep is not in the mempool anymore, which proofs
+	// that a new cpfp transaction replaced the old one paying higher fees.
+	ht.AssertTxNotInMempool(cpfpHash1)
+
+	// Identify the new cpfp transaction.
+	// Both anchor sweeps result from the same closing tx (the local
+	// commitment) hence proofing that the remote commitment transaction
+	// and its cpfp transaction is invalid and not accepted into the
+	// mempool.
+	txns = ht.GetNumTxsFromMempool(2)
+	ht.FindSweepingTxns(txns, 1, closingTx.TxHash())
+
+	// Mine both transactions, the closing tx and the anchor cpfp tx.
+	// This is needed to clean up the mempool.
+	ht.MineBlocksAndAssertNumTxes(1, 2)
+}

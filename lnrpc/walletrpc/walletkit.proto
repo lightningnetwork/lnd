@@ -273,6 +273,13 @@ service WalletKit {
     */
     rpc BumpFee (BumpFeeRequest) returns (BumpFeeResponse);
 
+    /* lncli: `wallet bumpforceclosefee`
+   BumpForceCloseFee is an endpoint that allows users to bump the fee of a
+   channel force close. This only works for channels with option_anchors.
+   */
+    rpc BumpForceCloseFee (BumpForceCloseFeeRequest)
+        returns (BumpForceCloseFeeResponse);
+
     /* lncli: `wallet listsweeps`
     ListSweeps returns a list of the sweep transactions our node has produced.
     Note that these sweeps may not be confirmed yet, as we record sweeps on
@@ -1223,6 +1230,46 @@ message BumpFeeRequest {
 
 message BumpFeeResponse {
     // The status of the bump fee operation.
+    string status = 1;
+}
+
+message BumpForceCloseFeeRequest {
+    // The channel point which force close transaction we are attempting to
+    // bump the fee rate for.
+    lnrpc.ChannelPoint chan_point = 1;
+
+    // Optional. The deadline delta in number of blocks that the anchor output
+    // should be spent within to bump the closing transaction.
+    uint32 deadline_delta = 2;
+
+    /*
+    Optional. The starting fee rate, expressed in sat/vbyte. This value will be
+    used by the sweeper's fee function as its starting fee rate. When not set,
+    the sweeper will use the estimated fee rate using the target_conf as the
+    starting fee rate.
+    */
+    uint64 starting_feerate = 3;
+
+    /*
+    Optional. Whether this cpfp transaction will be triggered immediately. When
+    set to true, the sweeper will consider all currently registered sweeps and
+    trigger new batch transactions including the sweeping of the anchor output
+    related to the selected force close transaction.
+    */
+    bool immediate = 4;
+
+    /*
+    Optional. The max amount in sats that can be used as the fees. For already
+    registered anchor outputs if not set explicitly the old value will be used.
+    For channel force closes which have no HTLCs in their commitment transaction
+    this value has to be set to an appropriate amount to pay for the cpfp
+    transaction of the force closed channel otherwise the fee bumping will fail.
+    */
+    uint64 budget = 5;
+}
+
+message BumpForceCloseFeeResponse {
+    // The status of the force close fee bump operation.
     string status = 1;
 }
 

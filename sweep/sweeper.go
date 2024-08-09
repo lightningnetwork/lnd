@@ -645,6 +645,12 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 
 			// If this input is forced, we perform an sweep
 			// immediately.
+			//
+			// TODO(ziggie): Make sure when `immediate` is selected
+			// as a parameter that we only trigger the sweeping of
+			// this specific input rather than triggering the sweeps
+			// of all current pending inputs registered with the
+			// sweeper.
 			if input.params.Immediate {
 				inputs := s.updateSweeperInputs()
 				s.sweepPendingInputs(inputs)

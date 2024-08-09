@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -281,8 +282,6 @@ func (h *HarnessMiner) GetRawTransactionVerbose(
 
 // AssertTxInMempool asserts a given transaction can be found in the mempool.
 func (h *HarnessMiner) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
-	var msgTx *wire.MsgTx
-
 	err := wait.NoError(func() error {
 		// We require the RPC call to be succeeded and won't wait for
 		// it as it's an unexpected behavior.
@@ -292,20 +291,22 @@ func (h *HarnessMiner) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
 			return fmt.Errorf("empty mempool")
 		}
 
-		for _, memTx := range mempool {
-			// Check the values are equal.
-			if *memTx == *txid {
-				return nil
-			}
+		isEqual := func(memTx *chainhash.Hash) bool {
+			return *memTx == *txid
+		}
+		result := fn.Find(isEqual, mempool)
+
+		if result.IsNone() {
+			return fmt.Errorf("txid %v not found in "+
+				"mempool: %v", txid, mempool)
 		}
 
-		return fmt.Errorf("txid %v not found in mempool: %v", txid,
-			mempool)
+		return nil
 	}, wait.MinerMempoolTimeout)
 
 	require.NoError(h, err, "timeout checking mempool")
 
-	return msgTx
+	return h.GetRawTransaction(txid).MsgTx()
 }
 
 // AssertTxNotInMempool asserts a given transaction cannot be found in the

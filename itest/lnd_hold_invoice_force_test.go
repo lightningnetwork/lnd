@@ -95,10 +95,6 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	// We first mine enough blocks to trigger an invoice cancelation.
 	ht.MineBlocks(int(blocksTillCancel))
 
-	// Wait for the nodes to be synced.
-	ht.WaitForBlockchainSync(alice)
-	ht.WaitForBlockchainSync(bob)
-
 	// Check that the invoice is canceled by Bob.
 	err := wait.NoError(func() error {
 		inv := bob.RPC.LookupInvoice(payHash[:])
@@ -134,10 +130,6 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	// than Bob's INVC, causing the channel being force closed before the
 	// invoice cancelation message was received by Alice.
 	ht.MineBlocks(int(blocksTillForce - blocksTillCancel))
-
-	// Wait for the nodes to be synced.
-	ht.WaitForBlockchainSync(alice)
-	ht.WaitForBlockchainSync(bob)
 
 	// Check that Alice has not closed the channel because there are no
 	// outgoing HTLCs in her channel as the only HTLC has already been

@@ -179,7 +179,7 @@ type OutputLeaser interface {
 	// LeaseOutput leases a target output, rendering it unusable for coin
 	// selection.
 	LeaseOutput(i wtxmgr.LockID, o wire.OutPoint, d time.Duration) (
-		time.Time, []byte, btcutil.Amount, error)
+		time.Time, error)
 
 	// ReleaseOutput releases a target output, allowing it to be used for
 	// coin selection once again.
@@ -284,7 +284,7 @@ func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 			log.Tracef("[WithCoinSelectLock] leasing utxo: %v",
 				utxo.OutPoint)
 
-			_, _, _, err = outputLeaser.LeaseOutput(
+			_, err = outputLeaser.LeaseOutput(
 				chanfunding.LndInternalLockID, utxo.OutPoint,
 				chanfunding.DefaultLockDuration,
 			)

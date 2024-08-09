@@ -1079,36 +1079,20 @@ func (b *BtcWallet) CreateSimpleTx(inputs fn.Set[wire.OutPoint],
 //
 // NOTE: This method requires the global coin selection lock to be held.
 func (b *BtcWallet) LeaseOutput(id wtxmgr.LockID, op wire.OutPoint,
-	duration time.Duration) (time.Time, []byte, btcutil.Amount, error) {
+	duration time.Duration) (time.Time, error) {
 
 	// Make sure we don't attempt to double lock an output that's been
 	// locked by the in-memory implementation.
 	if b.wallet.LockedOutpoint(op) {
-		return time.Time{}, nil, 0, wtxmgr.ErrOutputAlreadyLocked
+		return time.Time{}, wtxmgr.ErrOutputAlreadyLocked
 	}
 
 	lockedUntil, err := b.wallet.LeaseOutput(id, op, duration)
 	if err != nil {
-		return time.Time{}, nil, 0, err
+		return time.Time{}, err
 	}
 
-	// Get the pkScript and value for this lock from the list of all leased
-	// outputs.
-	allLeases, err := b.wallet.ListLeasedOutputs()
-	if err != nil {
-		return time.Time{}, nil, 0, err
-	}
-
-	for _, lease := range allLeases {
-		if lease.Outpoint == op {
-			return lockedUntil, lease.PkScript,
-				btcutil.Amount(lease.Value), nil
-		}
-	}
-
-	// We MUST find the leased output in the loop above, otherwise something
-	// is seriously wrong.
-	return time.Time{}, nil, 0, wtxmgr.ErrUnknownOutput
+	return lockedUntil, nil
 }
 
 // ListLeasedOutputs returns a list of all currently locked outputs.

@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -18,18 +19,16 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
-// FetchInputInfo queries for the WalletController's knowledge of the passed
+// FetchOutpointInfo queries for the WalletController's knowledge of the passed
 // outpoint. If the base wallet determines this output is under its control,
 // then the original txout should be returned. Otherwise, a non-nil error value
 // of ErrNotMine should be returned instead.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo,
+func (b *BtcWallet) FetchOutpointInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo,
 	error) {
 
-	prevTx, txOut, bip32, confirmations, err := b.wallet.FetchInputInfo(
-		prevOut,
-	)
+	prevTx, txOut, confirmations, err := b.wallet.FetchOutpointInfo(prevOut)
 	if err != nil {
 		return nil, err
 	}
@@ -51,9 +50,16 @@ func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo,
 		PkScript:      txOut.PkScript,
 		Confirmations: confirmations,
 		OutPoint:      *prevOut,
-		Derivation:    bip32,
 		PrevTx:        prevTx,
 	}, nil
+}
+
+// FetchDerivationInfo queries for the wallet's knowledge of the passed
+// pkScript and constructs the derivation info and returns it.
+func (b *BtcWallet) FetchDerivationInfo(
+	pkScript []byte) (*psbt.Bip32Derivation, error) {
+
+	return b.wallet.FetchDerivationInfo(pkScript)
 }
 
 // ScriptForOutput returns the address, witness program and redeem script for a

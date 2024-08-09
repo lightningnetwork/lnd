@@ -1646,7 +1646,7 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 			[]*input.Script, 0, len(ourContribution.Inputs),
 		)
 		for _, txIn := range fundingTx.TxIn {
-			_, err := l.FetchInputInfo(&txIn.PreviousOutPoint)
+			_, err := l.FetchOutpointInfo(&txIn.PreviousOutPoint)
 			if err != nil {
 				continue
 			}
@@ -2592,7 +2592,7 @@ func (c *CoinSource) ListCoins(minConfs int32,
 // its outpoint. If the coin isn't under the control of the backing CoinSource,
 // then an error should be returned.
 func (c *CoinSource) CoinFromOutPoint(op wire.OutPoint) (*wallet.Coin, error) {
-	inputInfo, err := c.wallet.FetchInputInfo(&op)
+	inputInfo, err := c.wallet.FetchOutpointInfo(&op)
 	if err != nil {
 		return nil, err
 	}
@@ -2689,7 +2689,7 @@ func NewWalletPrevOutputFetcher(wc WalletController) *WalletPrevOutputFetcher {
 // passed outpoint. A nil value will be returned if the passed outpoint doesn't
 // exist.
 func (w *WalletPrevOutputFetcher) FetchPrevOutput(op wire.OutPoint) *wire.TxOut {
-	utxo, err := w.wc.FetchInputInfo(&op)
+	utxo, err := w.wc.FetchOutpointInfo(&op)
 	if err != nil {
 		return nil
 	}

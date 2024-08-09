@@ -852,10 +852,6 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	ht.AssertNumPendingSweeps(ht.Bob, 0)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
-	// Assert that the HTLC has cleared.
-	ht.WaitForBlockchainSync(ht.Bob)
-	ht.WaitForBlockchainSync(ht.Alice)
-
 	ht.AssertHTLCNotActive(ht.Bob, testCase.channels[0], hash[:])
 	ht.AssertHTLCNotActive(ht.Alice, testCase.channels[0], hash[:])
 

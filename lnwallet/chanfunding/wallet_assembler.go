@@ -525,7 +525,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 		for _, coin := range selectedCoins {
 			outpoint := coin.OutPoint
 
-			_, _, _, err = w.cfg.CoinLeaser.LeaseOutput(
+			_, err = w.cfg.CoinLeaser.LeaseOutput(
 				LndInternalLockID, outpoint,
 				DefaultReservationTimeout,
 			)

@@ -14,7 +14,7 @@ var cid = lnwire.ChannelID(bytes.Repeat([]byte{0x00}, 32))
 
 type quiescerTestHarness struct {
 	pendingUpdates lntypes.Dual[uint64]
-	quiescer       Quiescer
+	quiescer       *QuiescerLive
 	conn           <-chan lnwire.Stfu
 }
 
@@ -27,14 +27,16 @@ func initQuiescerTestHarness(
 		conn:           conn,
 	}
 
-	harness.quiescer = NewQuiescer(QuiescerCfg{
+	quiescer, _ := NewQuiescer(QuiescerCfg{
 		chanID:           cid,
 		channelInitiator: channelInitiator,
 		sendMsg: func(msg lnwire.Stfu) error {
 			conn <- msg
 			return nil
 		},
-	})
+	}).(*QuiescerLive)
+
+	harness.quiescer = quiescer
 
 	return harness
 }

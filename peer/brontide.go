@@ -411,6 +411,10 @@ type Config struct {
 	// invalid.
 	DisallowRouteBlinding bool
 
+	// DisallowQuiescence is a flag that indicates whether the Brontide
+	// should have the quiescence feature disabled.
+	DisallowQuiescence bool
+
 	// MaxFeeExposure limits the number of outstanding fees in a channel.
 	// This value will be passed to created links.
 	MaxFeeExposure lnwire.MilliSatoshi
@@ -1324,6 +1328,8 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		DisallowRouteBlinding:   p.cfg.DisallowRouteBlinding,
 		MaxFeeExposure:          p.cfg.MaxFeeExposure,
 		ShouldFwdExpEndorsement: p.cfg.ShouldFwdExpEndorsement,
+		DisallowQuiescence: p.cfg.DisallowQuiescence ||
+			!p.remoteFeatures.HasFeature(lnwire.QuiescenceOptional),
 	}
 
 	// Before adding our new link, purge the switch of any pending or live

@@ -282,6 +282,10 @@ type ChannelLinkConfig struct {
 	// invalid.
 	DisallowRouteBlinding bool
 
+	// DisallowQuiescence is a flag that can be used to disable the
+	// quiescence protocol.
+	DisallowQuiescence bool
+
 	// MaxFeeExposure is the threshold in milli-satoshis after which we'll
 	// restrict the flow of HTLCs and fee updates.
 	MaxFeeExposure lnwire.MilliSatoshi
@@ -482,16 +486,21 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		cfg.MaxFeeExposure = DefaultMaxFeeExposure
 	}
 
-	qsm := newQuiescer(quiescerCfg{
-		chanID: lnwire.NewChanIDFromOutPoint(
-			channel.ChannelPoint(),
-		),
-		channelInitiator:  channel.Initiator(),
-		numPendingUpdates: channel.NumPendingUpdates,
-		sendMsg: func(s lnwire.Stfu) error {
-			return cfg.Peer.SendMessage(false, &s)
-		},
-	})
+	var qsm quiescer
+	if !cfg.DisallowQuiescence {
+		qsm = newQuiescer(quiescerCfg{
+			chanID: lnwire.NewChanIDFromOutPoint(
+				channel.ChannelPoint(),
+			),
+			channelInitiator:  channel.Initiator(),
+			numPendingUpdates: channel.NumPendingUpdates,
+			sendMsg: func(s lnwire.Stfu) error {
+				return cfg.Peer.SendMessage(false, &s)
+			},
+		})
+	} else {
+		qsm = &quiescerNoop{}
+	}
 
 	quiescenceReqs := make(
 		chan fn.Req[fn.Unit, fn.Result[lntypes.ChannelParty]], 1,

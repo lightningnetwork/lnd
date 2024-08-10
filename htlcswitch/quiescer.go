@@ -41,6 +41,43 @@ var (
 
 type StfuReq = fn.Req[fn.Unit, fn.Result[lntypes.ChannelParty]]
 
+type quiescer interface {
+	// isQuiescent returns true if the state machine has been driven all the
+	// way to completion. If this returns true, processes that depend on
+	// channel quiescence may proceed.
+	isQuiescent() bool
+
+	// initStfu instructs the quiescer that we intend to begin a quiescence
+	// negotiation where we are the initiator. We don't yet send stfu yet
+	// because we need to wait for the link to give us a valid opportunity
+	// to do so.
+	initStfu(req StfuReq)
+
+	// recvStfu is called when we receive an Stfu message from the remote.
+	recvStfu(stfu lnwire.Stfu) error
+
+	// canRecvUpdates returns true if we haven't yet received an Stfu which
+	// would mark the end of the remote's ability to send updates.
+	canRecvUpdates() bool
+
+	// canSendUpdates returns true if we haven't yet sent an Stfu which
+	// would mark the end of our ability to send updates.
+	canSendUpdates() bool
+
+	// drive drives the quiescence machine forward. It returns an error if
+	// the state machine is in an invalid state.
+	drive() error
+
+	// onResume accepts a no return closure that will run when the quiescer
+	// is resumed.
+	onResume(hook func())
+
+	// resume runs all of the deferred actions that have accumulated while
+	// the channel has been quiescent and then resets the quiescer state to
+	// its initial state.
+	resume()
+}
+
 type quiescerCfg struct {
 	// chanID marks what channel we are managing the state machine for. This
 	// is important because the quiescer is responsible for constructing the
@@ -65,9 +102,9 @@ type quiescerCfg struct {
 	sendMsg func(lnwire.Stfu) error
 }
 
-// quiescer is a state machine that tracks progression through the quiescence
-// protocol.
-type quiescer struct {
+// quiescerLive is a state machine that tracks progression through the
+// quiescence protocol.
+type quiescerLive struct {
 	cfg quiescerCfg
 
 	// localInit indicates whether our path through this state machine was
@@ -98,13 +135,13 @@ type quiescer struct {
 
 // newQuiescer creates a new quiescer for the given channel.
 func newQuiescer(cfg quiescerCfg) quiescer {
-	return quiescer{
+	return &quiescerLive{
 		cfg: cfg,
 	}
 }
 
 // recvStfu is called when we receive an Stfu message from the remote.
-func (q *quiescer) recvStfu(msg lnwire.Stfu) error {
+func (q *quiescerLive) recvStfu(msg lnwire.Stfu) error {
 	// At the time of this writing, this check that we have already received
 	// an Stfu is not strictly necessary, according to the specification.
 	// However, it is fishy if we do and it is unclear how we should handle
@@ -135,7 +172,7 @@ func (q *quiescer) recvStfu(msg lnwire.Stfu) error {
 
 // makeStfu is called when we are ready to send an Stfu message. It returns the
 // Stfu message to be sent.
-func (q *quiescer) makeStfu() fn.Result[lnwire.Stfu] {
+func (q *quiescerLive) makeStfu() fn.Result[lnwire.Stfu] {
 	if q.sent {
 		return fn.Errf[lnwire.Stfu]("%w for channel %v",
 			ErrStfuAlreadySent, q.cfg.chanID)
@@ -157,27 +194,27 @@ func (q *quiescer) makeStfu() fn.Result[lnwire.Stfu] {
 // oweStfu returns true if we owe the other party an Stfu. We owe the remote an
 // Stfu when we have received but not yet sent an Stfu, or we are the initiator
 // but have not yet sent an Stfu.
-func (q *quiescer) oweStfu() bool {
+func (q *quiescerLive) oweStfu() bool {
 	return (q.received || q.localInit) && !q.sent
 }
 
 // needStfu returns true if the remote owes us an Stfu. They owe us an Stfu when
 // we have sent but not yet received an Stfu.
-func (q *quiescer) needStfu() bool {
+func (q *quiescerLive) needStfu() bool {
 	return q.sent && !q.received
 }
 
 // isQuiescent returns true if the state machine has been driven all the way to
 // completion. If this returns true, processes that depend on channel quiescence
 // may proceed.
-func (q *quiescer) isQuiescent() bool {
+func (q *quiescerLive) isQuiescent() bool {
 	return q.sent && q.received
 }
 
 // quiescenceInitiator determines which ChannelParty is the initiator of
 // quiescence for the purposes of downstream protocols. If the channel is not
 // currently quiescent, this method will return ErrNoDownstreamLeader.
-func (q *quiescer) quiescenceInitiator() fn.Result[lntypes.ChannelParty] {
+func (q *quiescerLive) quiescenceInitiator() fn.Result[lntypes.ChannelParty] {
 	switch {
 	case !q.isQuiescent():
 		return fn.Err[lntypes.ChannelParty](ErrNoQuiescenceInitiator)
@@ -203,31 +240,31 @@ func (q *quiescer) quiescenceInitiator() fn.Result[lntypes.ChannelParty] {
 
 // canSendUpdates returns true if we haven't yet sent an Stfu which would mark
 // the end of our ability to send updates.
-func (q *quiescer) canSendUpdates() bool {
+func (q *quiescerLive) canSendUpdates() bool {
 	return !q.sent && !q.localInit
 }
 
 // canRecvUpdates returns true if we haven't yet received an Stfu which would
 // mark the end of the remote's ability to send updates.
-func (q *quiescer) canRecvUpdates() bool {
+func (q *quiescerLive) canRecvUpdates() bool {
 	return !q.received
 }
 
 // canSendStfu returns true if we can send an Stfu.
-func (q *quiescer) canSendStfu() bool {
+func (q *quiescerLive) canSendStfu() bool {
 	return q.cfg.numPendingUpdates(lntypes.Local, lntypes.Local) == 0 &&
 		q.cfg.numPendingUpdates(lntypes.Local, lntypes.Remote) == 0
 }
 
 // canRecvStfu returns true if we can receive an Stfu.
-func (q *quiescer) canRecvStfu() bool {
+func (q *quiescerLive) canRecvStfu() bool {
 	return q.cfg.numPendingUpdates(lntypes.Remote, lntypes.Local) == 0 &&
 		q.cfg.numPendingUpdates(lntypes.Remote, lntypes.Remote) == 0
 }
 
 // drive drives the quiescence machine forward. It returns an error if the state
 // machine is in an invalid state.
-func (q *quiescer) drive() error {
+func (q *quiescerLive) drive() error {
 	if !q.oweStfu() || !q.canSendStfu() {
 		return nil
 	}
@@ -253,7 +290,7 @@ func (q *quiescer) drive() error {
 
 // tryResolveStfuReq attempts to resolve the active quiescence request if the
 // state machine has reached a quiescent state.
-func (q *quiescer) tryResolveStfuReq() {
+func (q *quiescerLive) tryResolveStfuReq() {
 	q.activeQuiescenceReq.WhenSome(
 		func(req StfuReq) {
 			if q.isQuiescent() {
@@ -267,7 +304,7 @@ func (q *quiescer) tryResolveStfuReq() {
 // initStfu instructs the quiescer that we intend to begin a quiescence
 // negotiation where we are the initiator. We don't yet send stfu yet because
 // we need to wait for the link to give us a valid opportunity to do so.
-func (q *quiescer) initStfu(req StfuReq) {
+func (q *quiescerLive) initStfu(req StfuReq) {
 	if q.localInit {
 		req.Resolve(fn.Errf[lntypes.ChannelParty](
 			"quiescence already requested",
@@ -282,14 +319,14 @@ func (q *quiescer) initStfu(req StfuReq) {
 
 // onResume accepts a no return closure that will run when the quiescer is
 // resumed.
-func (q *quiescer) onResume(hook func()) {
+func (q *quiescerLive) onResume(hook func()) {
 	q.resumeQueue = append(q.resumeQueue, hook)
 }
 
 // resume runs all of the deferred actions that have accumulated while the
 // channel has been quiescent and then resets the quiescer state to its initial
 // state.
-func (q *quiescer) resume() {
+func (q *quiescerLive) resume() {
 	for _, hook := range q.resumeQueue {
 		hook()
 	}
@@ -299,3 +336,18 @@ func (q *quiescer) resume() {
 	q.received = false
 	q.resumeQueue = nil
 }
+
+type quiescerNoop struct{}
+
+var _ quiescer = (*quiescerNoop)(nil)
+
+func (q *quiescerNoop) initStfu(req StfuReq) {
+	req.Resolve(fn.Errf[lntypes.ChannelParty]("quiescence not supported"))
+}
+func (q *quiescerNoop) recvStfu(_ lnwire.Stfu) error { return nil }
+func (q *quiescerNoop) canRecvUpdates() bool         { return true }
+func (q *quiescerNoop) canSendUpdates() bool         { return true }
+func (q *quiescerNoop) drive() error                 { return nil }
+func (q *quiescerNoop) isQuiescent() bool            { return false }
+func (q *quiescerNoop) onResume(hook func())         { hook() }
+func (q *quiescerNoop) resume()                      {}

@@ -6098,8 +6098,15 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 		endHeight = req.EndHeight
 	}
 
+	// To remain backward compatible, If the number of transactions was not
+	// specified, then we'll default to returning the entire transactions
+	if req.MaxTransactions == 0 {
+		req.MaxTransactions = -1
+	}
+
 	transactions, err := r.server.cc.Wallet.ListTransactionDetails(
-		req.StartHeight, endHeight, req.Account,
+		req.StartHeight, endHeight, req.Account, int(req.IndexOffset),
+		int(req.MaxTransactions),
 	)
 	if err != nil {
 		return nil, err

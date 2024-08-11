@@ -6476,15 +6476,16 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 		endHeight = req.EndHeight
 	}
 
-	transactions, err := r.server.cc.Wallet.ListTransactionDetails(
-		req.StartHeight, endHeight, req.Account, req.IndexOffset,
-		req.MaxTransactions,
-	)
+	txns, firstIdx, lastIdx, err :=
+		r.server.cc.Wallet.ListTransactionDetails(
+			req.StartHeight, endHeight, req.Account,
+			req.IndexOffset, req.MaxTransactions,
+		)
 	if err != nil {
 		return nil, err
 	}
 
-	return lnrpc.RPCTransactionDetails(transactions), nil
+	return lnrpc.RPCTransactionDetails(txns, firstIdx, lastIdx), nil
 }
 
 // DescribeGraph returns a description of the latest graph state from the PoV

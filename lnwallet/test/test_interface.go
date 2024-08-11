@@ -199,7 +199,7 @@ func assertTxInWallet(t *testing.T, w *lnwallet.LightningWallet,
 	// We'll fetch all of our transaction and go through each one until
 	// finding the expected transaction with its expected confirmation
 	// status.
-	txs, err := w.ListTransactionDetails(
+	txs, _, _, err := w.ListTransactionDetails(
 		0, btcwallet.UnconfirmedHeight, "", 0, 1000,
 	)
 	require.NoError(t, err, "unable to retrieve transactions")
@@ -1103,7 +1103,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	// should be confirmed.
 	err = waitForWalletSync(miner, alice)
 	require.NoError(t, err, "Couldn't sync Alice's wallet")
-	txDetails, err := alice.ListTransactionDetails(
+	txDetails, _, _, err := alice.ListTransactionDetails(
 		startHeight, chainTip, "", 0, 1000,
 	)
 	require.NoError(t, err, "unable to fetch tx details")
@@ -1215,7 +1215,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	// unconfirmed transactions. The transaction above should be included
 	// with a confirmation height of 0, indicating that it has not been
 	// mined yet.
-	txDetails, err = alice.ListTransactionDetails(
+	txDetails, _, _, err = alice.ListTransactionDetails(
 		chainTip, btcwallet.UnconfirmedHeight, "", 0, 1000,
 	)
 	require.NoError(t, err, "unable to fetch tx details")
@@ -1268,7 +1268,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	// transactions from the last block.
 	err = waitForWalletSync(miner, alice)
 	require.NoError(t, err, "Couldn't sync Alice's wallet")
-	txDetails, err = alice.ListTransactionDetails(
+	txDetails, _, _, err = alice.ListTransactionDetails(
 		chainTip, chainTip, "", 0, 1000,
 	)
 	require.NoError(t, err, "unable to fetch tx details")
@@ -1311,7 +1311,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 
 	// Query for transactions only in the latest block. We do not expect
 	// any transactions to be returned.
-	txDetails, err = alice.ListTransactionDetails(
+	txDetails, _, _, err = alice.ListTransactionDetails(
 		chainTip, chainTip, "", 0, 1000,
 	)
 	require.NoError(t, err, "unexpected error")

@@ -117,9 +117,13 @@ func RPCTransaction(tx *lnwallet.TransactionDetail) *Transaction {
 }
 
 // RPCTransactionDetails returns a set of rpc transaction details.
-func RPCTransactionDetails(txns []*lnwallet.TransactionDetail) *TransactionDetails {
+func RPCTransactionDetails(txns []*lnwallet.TransactionDetail, firstIdx,
+	lastIdx uint64) *TransactionDetails {
+
 	txDetails := &TransactionDetails{
 		Transactions: make([]*Transaction, len(txns)),
+		FirstIndex:   firstIdx,
+		LastIndex:    lastIdx,
 	}
 
 	for i, tx := range txns {

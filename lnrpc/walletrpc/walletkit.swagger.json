@@ -1166,6 +1166,16 @@
             "$ref": "#/definitions/lnrpcTransaction"
           },
           "description": "The list of transactions relevant to the wallet."
+        },
+        "last_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The index of the last item in the set of returned transactions. This can be\nused to seek further, pagination style."
+        },
+        "first_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The index of the last item in the set of returned transactions. This can be\nused to seek backwards, pagination style."
         }
       }
     },

@@ -755,6 +755,19 @@ message GetTransactionsRequest {
 
     // An optional filter to only include transactions relevant to an account.
     string account = 3;
+
+    /*
+    The index of a transaction that will be used in a query to determine which
+    transaction should be returned in the response, where the index_offset is
+    excluded.
+    */
+    uint64 index_offset = 4;
+
+    /*
+    The maximal number of transactions returned in the response to this query.
+    This value should be set to -1 to return the entire transactions.
+    */
+    int64 max_transactions = 5;
 }
 
 message TransactionDetails {

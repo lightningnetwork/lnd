@@ -393,7 +393,8 @@ type WalletController interface {
 	// retrieve the transactions relevant to a specific account. When
 	// empty, transactions of all wallet accounts are returned.
 	ListTransactionDetails(startHeight, endHeight int32,
-		accountFilter string) ([]*TransactionDetail, error)
+		accountFilter string, indexOffset uint,
+		maxTransactions int) ([]*TransactionDetail, error)
 
 	// LeaseOutput locks an output to the given ID, preventing it from being
 	// available for any future coin selection attempts. The absolute time

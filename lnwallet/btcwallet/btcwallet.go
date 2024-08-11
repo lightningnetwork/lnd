@@ -1556,7 +1556,8 @@ func unminedTransactionsToDetail(
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
-	accountFilter string) ([]*lnwallet.TransactionDetail, error) {
+	accountFilter string, indexOffset uint,
+	maxTransactons int) ([]*lnwallet.TransactionDetail, error) {
 
 	// Grab the best block the wallet knows of, we'll use this to calculate
 	// # of confirmations shortly below.
@@ -1596,7 +1597,21 @@ func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
 		txDetails = append(txDetails, detail)
 	}
 
-	return txDetails, nil
+	// Return empty transaction list, if offset is more than all
+	// transactions.
+	if int(indexOffset) >= len(txDetails) {
+		return []*lnwallet.TransactionDetail{}, nil
+	}
+
+	end := int(indexOffset) + maxTransactons
+	if end > len(txDetails) {
+		end = len(txDetails)
+	}
+	if maxTransactons == -1 {
+		return txDetails[indexOffset:], nil
+	}
+
+	return txDetails[indexOffset:end], nil
 }
 
 // txSubscriptionClient encapsulates the transaction notification client from

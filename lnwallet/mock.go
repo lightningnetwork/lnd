@@ -198,7 +198,7 @@ func (w *mockWalletController) ListUnspentWitness(int32, int32,
 
 // ListTransactionDetails currently returns dummy values.
 func (w *mockWalletController) ListTransactionDetails(int32, int32,
-	string) ([]*TransactionDetail, error) {
+	string, uint32, uint32) ([]*TransactionDetail, error) {
 
 	return nil, nil
 }

@@ -1378,7 +1378,7 @@ func (w *WalletKit) ListSweeps(ctx context.Context,
 	// the default wallet account.
 	transactions, err := w.cfg.Wallet.ListTransactionDetails(
 		in.StartHeight, btcwallet.UnconfirmedHeight,
-		lnwallet.DefaultAccountName,
+		lnwallet.DefaultAccountName, 0, 0,
 	)
 	if err != nil {
 		return nil, err

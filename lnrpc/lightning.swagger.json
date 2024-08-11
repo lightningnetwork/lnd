@@ -2591,6 +2591,22 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "index_offset",
+            "description": "The index of a transaction that will be used in a query to determine which\ntransaction should be returned in the response.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "max_transactions",
+            "description": "The maximal number of transactions returned in the response to this query.\nThis value should be set to 0 to return all transactions.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
           }
         ],
         "tags": [
@@ -2774,6 +2790,22 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "index_offset",
+            "description": "The index of a transaction that will be used in a query to determine which\ntransaction should be returned in the response.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "max_transactions",
+            "description": "The maximal number of transactions returned in the response to this query.\nThis value should be set to 0 to return all transactions.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
           }
         ],
         "tags": [

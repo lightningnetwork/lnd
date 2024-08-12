@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/stretchr/testify/require"
 )
@@ -75,8 +76,9 @@ func randInvoice(value lnwire.MilliSatoshi) (*invpkg.Invoice, error) {
 			Value:           value,
 			Features:        emptyFeatures,
 		},
-		Htlcs:    map[models.CircuitKey]*invpkg.InvoiceHTLC{},
-		AMPState: map[invpkg.SetID]invpkg.InvoiceStateAMP{},
+		Htlcs:        map[models.CircuitKey]*invpkg.InvoiceHTLC{},
+		AMPState:     map[invpkg.SetID]invpkg.InvoiceStateAMP{},
+		BlindedPaths: map[route.Vertex]*models.BlindedPathInfo{},
 	}
 	i.Memo = []byte("memo")
 

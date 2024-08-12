@@ -846,8 +846,9 @@ func CopyInvoice(src *Invoice) (*Invoice, error) {
 		Htlcs: make(
 			map[CircuitKey]*InvoiceHTLC, len(src.Htlcs),
 		),
-		AMPState:    make(map[SetID]InvoiceStateAMP),
-		HodlInvoice: src.HodlInvoice,
+		AMPState:     make(map[SetID]InvoiceStateAMP),
+		BlindedPaths: make(models.BlindedPathsInfo),
+		HodlInvoice:  src.HodlInvoice,
 	}
 
 	dest.Terms.Features = src.Terms.Features.Clone()
@@ -861,7 +862,7 @@ func CopyInvoice(src *Invoice) (*Invoice, error) {
 		dest.Htlcs[k] = v.Copy()
 	}
 
-	// Lastly, copy the amp invoice state.
+	// Copy the amp invoice state.
 	for k, v := range src.AMPState {
 		ampInvState, err := v.copy()
 		if err != nil {
@@ -869,6 +870,13 @@ func CopyInvoice(src *Invoice) (*Invoice, error) {
 		}
 
 		dest.AMPState[k] = ampInvState
+	}
+
+	// Lastly, copy the blinded path info.
+	for k, info := range src.BlindedPaths {
+		info := info.Copy()
+
+		dest.BlindedPaths[k] = info
 	}
 
 	return &dest, nil

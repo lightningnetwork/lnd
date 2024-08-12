@@ -427,7 +427,7 @@ func TestSingletonInitIsEmpty(t *testing.T) {
 // empty slice.
 func TestPropAlwaysNoneEmptyFilterMap(t *testing.T) {
 	f := func(s []int) bool {
-		filtered := FilterMap(s, Const[Option[int], int](None[int]()))
+		filtered := FilterMap(s, Const[int](None[int]()))
 		return len(filtered) == 0
 	}
 

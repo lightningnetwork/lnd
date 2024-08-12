@@ -1936,17 +1936,6 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 
 	expectedTxes := 0
 	switch c {
-	// With the closing transaction confirmed, we should expect Bob's HTLC
-	// timeout transactions to be broadcast due to the expiry being reached.
-	// We will also expect the success transactions, since he learnt the
-	// preimages from Alice. We also expect Carol to sweep her commitment
-	// output.
-	case lnrpc.CommitmentType_LEGACY:
-		ht.AssertNumPendingSweeps(bob, numInvoices*2+1)
-		ht.AssertNumPendingSweeps(carol, 1)
-
-		expectedTxes = 2*numInvoices + 1
-
 	// In case of anchors, all success transactions will be aggregated into
 	// one, the same is the case for the timeout transactions. In this case
 	// Carol will also sweep her commitment and anchor output in a single
@@ -2068,12 +2057,6 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	}
 
 	switch c {
-	// In case this is a non-anchor channel type, we must mine 2 blocks, as
-	// the nursery waits an extra block before sweeping. Before the blocks
-	// are mined, we should expect to see Bob's commit sweep in the mempool.
-	case lnrpc.CommitmentType_LEGACY:
-		ht.MineBlocksAndAssertNumTxes(2, 1)
-
 	// Mining one additional block, Bob's second level tx is mature, and he
 	// can sweep the output. Before the blocks are mined, we should expect
 	// to see Bob's commit sweep in the mempool.
@@ -2478,11 +2461,6 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
 
 	switch c {
-	// For non-anchor channel type, we should expect to see Bob's commit
-	// sweep in the mempool.
-	case lnrpc.CommitmentType_LEGACY:
-		numTxesMempool++
-
 	// For anchor channel type, we should expect to see Bob's commit output
 	// and his anchor output be swept in a single tx in the mempool.
 	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
@@ -2665,10 +2643,6 @@ func runExtraPreimageFromLocalCommit(ht *lntest.HarnessTest,
 	// - Bob's local output sweep tx, if this is NOT script enforced lease.
 	// - Carol's anchor sweep tx cannot be broadcast as it's uneconomical.
 	switch c {
-	case lnrpc.CommitmentType_LEGACY:
-		htlcOutpoint.Index = 0
-		ht.AssertNumTxsInMempool(2)
-
 	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
 		htlcOutpoint.Index = 2
 		ht.AssertNumTxsInMempool(2)

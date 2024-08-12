@@ -76,3 +76,6 @@ http:
     - selector: walletrpc.WalletKit.RemoveTransaction
       post: "/v2/wallet/removetx"
       body: "*"
+    - selector: walletrpc.WalletKit.BumpForceCloseFee
+      post: "/v2/wallet/BumpForceCloseFee"
+      body: "*"

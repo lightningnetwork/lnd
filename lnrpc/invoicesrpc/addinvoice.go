@@ -500,6 +500,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		return nil, nil, err
 	}
 
+	blindedPathMap := make(models.BlindedPathsInfo)
 	if blind {
 		blindCfg := invoice.BlindedPathCfg
 
@@ -551,6 +552,13 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 			options = append(options, zpay32.WithBlindedPaymentPath(
 				path.Path,
 			))
+
+			lastEphem := route.NewVertex(path.LastEphemeralKey)
+
+			blindedPathMap[lastEphem] = &models.BlindedPathInfo{
+				Route:      path.Route,
+				SessionKey: path.SessionKey,
+			}
 		}
 	} else {
 		options = append(options, zpay32.PaymentAddr(paymentAddr))
@@ -606,7 +614,8 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 			PaymentAddr:     paymentAddr,
 			Features:        invoiceFeatures,
 		},
-		HodlInvoice: invoice.HodlInvoice,
+		HodlInvoice:  invoice.HodlInvoice,
+		BlindedPaths: blindedPathMap,
 	}
 
 	log.Tracef("[addinvoice] adding new invoice %v",

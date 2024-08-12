@@ -216,7 +216,7 @@ func (o Option[A]) UnsafeFromSome() A {
 
 // OptionToLeft can be used to convert an Option value into an Either, by
 // providing the Right value that should be used if the Option value is None.
-func OptionToLeft[O, L, R any](o Option[O], r R) Either[O, R] {
+func OptionToLeft[O, R any](o Option[O], r R) Either[O, R] {
 	if o.IsSome() {
 		return NewLeft[O, R](o.some)
 	}
@@ -226,7 +226,7 @@ func OptionToLeft[O, L, R any](o Option[O], r R) Either[O, R] {
 
 // OptionToRight can be used to convert an Option value into an Either, by
 // providing the Left value that should be used if the Option value is None.
-func OptionToRight[O, L, R any](o Option[O], l L) Either[L, O] {
+func OptionToRight[O, L any](o Option[O], l L) Either[L, O] {
 	if o.IsSome() {
 		return NewRight[L, O](o.some)
 	}
@@ -239,7 +239,7 @@ func OptionToRight[O, L, R any](o Option[O], l L) Either[L, O] {
 // and Some is converted to Ok.
 func (o Option[A]) SomeToOk(err error) Result[A] {
 	return Result[A]{
-		OptionToLeft[A, A, error](o, err),
+		OptionToLeft(o, err),
 	}
 }
 
@@ -248,7 +248,7 @@ func (o Option[A]) SomeToOk(err error) Result[A] {
 // ignored and Some is converted to Ok.
 func (o Option[A]) SomeToOkf(errString string, args ...interface{}) Result[A] {
 	return Result[A]{
-		OptionToLeft[A, A, error](o, fmt.Errorf(errString, args...)),
+		OptionToLeft(o, fmt.Errorf(errString, args...)),
 	}
 }
 

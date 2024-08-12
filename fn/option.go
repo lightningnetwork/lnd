@@ -1,6 +1,10 @@
 package fn
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 // Option[A] represents a value which may or may not be there. This is very
 // often preferable to nil-able pointers.
@@ -61,14 +65,9 @@ func (o Option[A]) UnwrapOrFunc(f func() A) A {
 func (o Option[A]) UnwrapOrFail(t *testing.T) A {
 	t.Helper()
 
-	if o.isSome {
-		return o.some
-	}
+	require.True(t, o.isSome, "Option[%T] was None()", o.some)
 
-	t.Fatalf("Option[%T] was None()", o.some)
-
-	var zero A
-	return zero
+	return o.some
 }
 
 // UnwrapOrErr is used to extract a value from an option, if the option is

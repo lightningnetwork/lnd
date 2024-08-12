@@ -3,6 +3,8 @@ package fn
 import (
 	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Result represents a value that can either be a success (T) or an error.
@@ -114,13 +116,11 @@ func (r Result[T]) UnwrapOrElse(f func() T) T {
 func (r Result[T]) UnwrapOrFail(t *testing.T) T {
 	t.Helper()
 
-	if r.IsErr() {
-		t.Fatalf("Result[%T] contained error: %v", r.left, r.right)
-	}
+	require.True(
+		t, r.IsOk(), "Result[%T] contained error: %v", r.left, r.right,
+	)
 
-	var zero T
-
-	return zero
+	return r.left
 }
 
 // FlatMap applies a function that returns a Result to the success value if it

@@ -1208,10 +1208,11 @@ func (w *WalletKit) ListSweeps(ctx context.Context,
 	// can match our list of sweeps against the list of transactions that
 	// the wallet is still tracking. Sweeps are currently always swept to
 	// the default wallet account.
-	transactions, err := w.cfg.Wallet.ListTransactionDetails(
-		in.StartHeight, btcwallet.UnconfirmedHeight,
-		lnwallet.DefaultAccountName, 0, -1,
-	)
+	transactions, firstIdx, lastIdx, err :=
+		w.cfg.Wallet.ListTransactionDetails(
+			in.StartHeight, btcwallet.UnconfirmedHeight,
+			lnwallet.DefaultAccountName, 0, -1,
+		)
 	if err != nil {
 		return nil, err
 	}
@@ -1240,7 +1241,7 @@ func (w *WalletKit) ListSweeps(ctx context.Context,
 		return &ListSweepsResponse{
 			Sweeps: &ListSweepsResponse_TransactionDetails{
 				TransactionDetails: lnrpc.RPCTransactionDetails(
-					txDetails,
+					txDetails, firstIdx, lastIdx,
 				),
 			},
 		}, nil

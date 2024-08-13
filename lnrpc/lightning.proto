@@ -773,6 +773,18 @@ message GetTransactionsRequest {
 message TransactionDetails {
     // The list of transactions relevant to the wallet.
     repeated Transaction transactions = 1;
+
+    /*
+    The index of the last item in the set of returned transactions. This can be
+    used to seek further, pagination style.
+    */
+    uint64 last_index_offset = 2;
+
+    /*
+    The index of the last item in the set of returned transactions. This can be
+    used to seek backwards, pagination style.
+    */
+    uint64 first_index_offset = 3;
 }
 
 message FeeLimit {

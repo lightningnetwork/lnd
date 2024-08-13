@@ -1557,7 +1557,8 @@ func unminedTransactionsToDetail(
 // This is a part of the WalletController interface.
 func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
 	accountFilter string, indexOffset uint,
-	maxTransactons int) ([]*lnwallet.TransactionDetail, error) {
+	maxTransactions int) ([]*lnwallet.TransactionDetail, uint64, uint64,
+	error) {
 
 	// Grab the best block the wallet knows of, we'll use this to calculate
 	// # of confirmations shortly below.
@@ -1569,7 +1570,7 @@ func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
 	stop := base.NewBlockIdentifierFromHeight(endHeight)
 	txns, err := b.wallet.GetTransactions(start, stop, accountFilter, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, 0, err
 	}
 
 	txDetails := make([]*lnwallet.TransactionDetail, 0,
@@ -1583,7 +1584,7 @@ func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
 			currentHeight, blockPackage, b.netParams,
 		)
 		if err != nil {
-			return nil, err
+			return nil, 0, 0, err
 		}
 
 		txDetails = append(txDetails, details...)
@@ -1591,27 +1592,52 @@ func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
 	for _, tx := range txns.UnminedTransactions {
 		detail, err := unminedTransactionsToDetail(tx, b.netParams)
 		if err != nil {
-			return nil, err
+			return nil, 0, 0, err
 		}
 
 		txDetails = append(txDetails, detail)
 	}
 
+	var (
+		firstIdx = indexOffset + 1
+		lastIdx  = int(indexOffset) + maxTransactions
+	)
+
 	// Return empty transaction list, if offset is more than all
 	// transactions.
 	if int(indexOffset) >= len(txDetails) {
-		return []*lnwallet.TransactionDetail{}, nil
+		firstIdx = 0
+		lastIdx = 0
+		txDetails = []*lnwallet.TransactionDetail{}
+
+		return txDetails, uint64(firstIdx), uint64(lastIdx), nil
 	}
 
-	end := int(indexOffset) + maxTransactons
+	// If maxTransactions is set to -1, then we'll return all transactions
+	// starting from the offset.
+	if maxTransactions == -1 {
+		lastIdx = len(txDetails)
+		txDetails = txDetails[indexOffset:]
+
+		return txDetails, uint64(firstIdx), uint64(lastIdx), nil
+	}
+
+	// If maxTransactions is set to a value less than -1, we should return
+	// an error.
+	if maxTransactions < -1 {
+		return nil, 0, 0, fmt.Errorf("maxTransactions must be " +
+			"equal to or greater than -1")
+	}
+
+	end := int(indexOffset) + maxTransactions
 	if end > len(txDetails) {
 		end = len(txDetails)
-	}
-	if maxTransactons == -1 {
-		return txDetails[indexOffset:], nil
+		lastIdx = len(txDetails)
 	}
 
-	return txDetails[indexOffset:end], nil
+	txDetails = txDetails[indexOffset:end]
+
+	return txDetails, uint64(firstIdx), uint64(lastIdx), nil
 }
 
 // txSubscriptionClient encapsulates the transaction notification client from

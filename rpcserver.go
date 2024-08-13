@@ -6099,20 +6099,21 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 	}
 
 	// To remain backward compatible, If the number of transactions was not
-	// specified, then we'll default to returning the entire transactions
+	// specified, then we'll default to returning the entire transactions.
 	if req.MaxTransactions == 0 {
 		req.MaxTransactions = -1
 	}
 
-	transactions, err := r.server.cc.Wallet.ListTransactionDetails(
-		req.StartHeight, endHeight, req.Account, int(req.IndexOffset),
-		int(req.MaxTransactions),
-	)
+	transactions, firstIdx, lastIdx, err :=
+		r.server.cc.Wallet.ListTransactionDetails(
+			req.StartHeight, endHeight, req.Account,
+			uint(req.IndexOffset), int(req.MaxTransactions),
+		)
 	if err != nil {
 		return nil, err
 	}
 
-	return lnrpc.RPCTransactionDetails(transactions), nil
+	return lnrpc.RPCTransactionDetails(transactions, firstIdx, lastIdx), nil
 }
 
 // DescribeGraph returns a description of the latest graph state from the PoV

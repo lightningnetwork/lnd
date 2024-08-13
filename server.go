@@ -275,7 +275,8 @@ type server struct {
 
 	breachArbitrator *contractcourt.BreachArbitrator
 
-	missionControl *routing.MissionController
+	missionController *routing.MissionController
+	defaultMC         *routing.MissionControl
 
 	graphBuilder *graph.Builder
 
@@ -955,11 +956,20 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		McFlushInterval:         routingConfig.McFlushInterval,
 		MinFailureRelaxInterval: routing.DefaultMinFailureRelaxInterval,
 	}
-	s.missionControl, err = routing.NewMissionController(
+
+	s.missionController, err = routing.NewMissionController(
 		dbs.ChanStateDB, selfNode.PubKeyBytes, mcCfg,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("can't create mission control: %w", err)
+		return nil, fmt.Errorf("can't create mission control "+
+			"manager: %w", err)
+	}
+	s.defaultMC, err = s.missionController.GetNamespacedStore(
+		routing.DefaultMissionControlNamespace,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("can't create mission control in the "+
+			"default namespace: %w", err)
 	}
 
 	srvrLog.Debugf("Instantiating payment session source with config: "+
@@ -985,7 +995,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			chanGraph,
 		),
 		SourceNode:        sourceNode,
-		MissionControl:    s.missionControl.GetDefaultStore(),
+		MissionControl:    s.defaultMC,
 		GetLink:           s.htlcSwitch.GetLinkByShortID,
 		PathFindingConfig: pathFindingConfig,
 	}
@@ -1020,7 +1030,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Chain:              cc.ChainIO,
 		Payer:              s.htlcSwitch,
 		Control:            s.controlTower,
-		MissionControl:     s.missionControl.GetDefaultStore(),
+		MissionControl:     s.defaultMC,
 		SessionSource:      paymentSessionSource,
 		GetLink:            s.htlcSwitch.GetLinkByShortID,
 		NextPaymentID:      sequencer.NextID,
@@ -2182,10 +2192,10 @@ func (s *server) Start() error {
 		}
 
 		cleanup.add(func() error {
-			s.missionControl.StopStoreTicker()
+			s.missionController.StopStoreTickers()
 			return nil
 		})
-		s.missionControl.RunStoreTicker()
+		s.missionController.RunStoreTickers()
 
 		// Before we start the connMgr, we'll check to see if we have
 		// any backups to recover. We do this now as we want to ensure
@@ -2467,7 +2477,7 @@ func (s *server) Stop() error {
 			srvrLog.Warnf("Unable to stop ChannelEventStore: %v",
 				err)
 		}
-		s.missionControl.StopStoreTicker()
+		s.missionController.StopStoreTickers()
 
 		// Disconnect from each active peers to ensure that
 		// peerTerminationWatchers signal completion to each peer.

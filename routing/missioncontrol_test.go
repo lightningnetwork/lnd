@@ -41,10 +41,11 @@ var (
 )
 
 type mcTestContext struct {
-	t  *testing.T
-	mc *MissionControl
+	t *testing.T
 
-	clock *testClock
+	mcController *MissionController
+	mc           *MissionControl
+	clock        *testClock
 
 	db     kvdb.Backend
 	dbPath string
@@ -88,8 +89,10 @@ func createMcTestContext(t *testing.T) *mcTestContext {
 func (ctx *mcTestContext) restartMc() {
 	// Since we don't run a timer to store results in unit tests, we store
 	// them here before fetching back everything in NewMissionController.
-	if ctx.mc != nil {
-		require.NoError(ctx.t, ctx.mc.store.storeResults())
+	if ctx.mcController != nil {
+		for _, mc := range ctx.mcController.mc {
+			require.NoError(ctx.t, mc.store.storeResults())
+		}
 	}
 
 	aCfg := AprioriConfig{
@@ -101,7 +104,7 @@ func (ctx *mcTestContext) restartMc() {
 	estimator, err := NewAprioriEstimator(aCfg)
 	require.NoError(ctx.t, err)
 
-	mc, err := NewMissionController(
+	ctx.mcController, err = NewMissionController(
 		ctx.db, mcTestSelf,
 		&MissionControlConfig{Estimator: estimator},
 	)
@@ -109,8 +112,18 @@ func (ctx *mcTestContext) restartMc() {
 		ctx.t.Fatal(err)
 	}
 
-	mc.cfg.clock = ctx.clock
-	ctx.mc = mc.GetDefaultStore()
+	ctx.mcController.cfg.clock = ctx.clock
+
+	// By default, select the default namespace.
+	ctx.setNamespacedMC(DefaultMissionControlNamespace)
+}
+
+// setNamespacedMC sets the currently selected MissionControl instance of the
+// mcTextContext to the one with the given namespace.
+func (ctx *mcTestContext) setNamespacedMC(namespace string) {
+	var err error
+	ctx.mc, err = ctx.mcController.GetNamespacedStore(namespace)
+	require.NoError(ctx.t, err)
 }
 
 // Assert that mission control returns a probability for an edge.
@@ -231,6 +244,71 @@ func TestMissionControlChannelUpdate(t *testing.T) {
 		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate1{}),
 	)
 	ctx.expectP(100, 0)
+}
+
+// TestMissionControlNamespaces tests that the results reported to a
+// MissionControl instance in one namespace does not affect the query results in
+// another namespace.
+func TestMissionControlNamespaces(t *testing.T) {
+	// Create a new MC context. This will select the default namespace
+	// MissionControl instance.
+	ctx := createMcTestContext(t)
+
+	// Initially, the controller should only be aware of the default
+	// namespace.
+	require.ElementsMatch(t, ctx.mcController.ListNamespaces(), []string{
+		DefaultMissionControlNamespace,
+	})
+
+	// Initial probability is expected to be the apriori.
+	ctx.expectP(1000, testAprioriHopProbability)
+
+	// Expect probability to be zero after reporting the edge as failed.
+	ctx.reportFailure(1000, lnwire.NewTemporaryChannelFailure(nil))
+	ctx.expectP(1000, 0)
+
+	// Now, switch namespaces.
+	const newNs = "new-namespace"
+	ctx.setNamespacedMC(newNs)
+
+	// Now, the controller should only be aware of the default namespace and
+	// the new one.
+	require.ElementsMatch(t, ctx.mcController.ListNamespaces(), []string{
+		DefaultMissionControlNamespace,
+		newNs,
+	})
+
+	// Since this new namespace has no idea about the reported failure, the
+	// expected probability should once again be the apriori probability.
+	ctx.expectP(1000, testAprioriHopProbability)
+
+	// Report a success in the new namespace.
+	ctx.reportSuccess()
+
+	// The probability of the pair should now have increased.
+	ctx.expectP(1000, testAprioriHopProbability+0.05)
+
+	// Switch back to the default namespace.
+	ctx.setNamespacedMC(DefaultMissionControlNamespace)
+
+	// The probability in the default namespace should still be zero.
+	ctx.expectP(1000, 0)
+
+	// We also want to test that the initial loading of the namespaces is
+	// done correctly. So let's reload the controller and assert that the
+	// probabilities in both namespaces remain the same after restart.
+	ctx.restartMc()
+
+	// Assert that both namespaces were loaded.
+	require.ElementsMatch(t, ctx.mcController.ListNamespaces(), []string{
+		DefaultMissionControlNamespace,
+		newNs,
+	})
+
+	// Assert that the probabilities in both namespaces remain unchanged.
+	ctx.expectP(1000, 0)
+	ctx.setNamespacedMC(newNs)
+	ctx.expectP(1000, testAprioriHopProbability+0.05)
 }
 
 // testClock is an implementation of clock.Clock that lets the caller overwrite

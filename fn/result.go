@@ -223,3 +223,15 @@ func AndThen2[A, B, C any](ra Result[A], rb Result[B],
 		})
 	})
 }
+
+// TransposeResOpt transposes the Result[Option[A]] into a Option[Result[A]].
+// This has the effect of leaving an A value alone while inverting the Result
+// and Option layers. If there is no internal A value, it will convert the
+// non-success value to the proper one in the transposition.
+func TransposeResOpt[A any](r Result[Option[A]]) Option[Result[A]] {
+	if r.IsErr() {
+		return Some(Err[A](r.right))
+	}
+
+	return MapOption(Ok[A])(r.left)
+}

@@ -251,3 +251,15 @@ func (o Option[A]) SomeToOkf(errString string, args ...interface{}) Result[A] {
 		OptionToLeft[A, A, error](o, fmt.Errorf(errString, args...)),
 	}
 }
+
+// TransposeOptRes transposes the Option[Result[A]] into a Result[Option[A]].
+// This has the effect of leaving an A value alone while inverting the Option
+// and Result layers. If there is no internal A value, it will convert the
+// non-success value to the proper one in the transposition.
+func TransposeOptRes[A any](o Option[Result[A]]) Result[Option[A]] {
+	if o.IsNone() {
+		return Ok(None[A]())
+	}
+
+	return Result[Option[A]]{MapLeft[A, error](Some[A])(o.some.Either)}
+}

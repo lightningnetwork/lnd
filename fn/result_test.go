@@ -45,3 +45,28 @@ func TestFlattenResult(t *testing.T) {
 
 	require.NoError(t, quick.Check(f, nil))
 }
+
+func TestPropTransposeResOptInverts(t *testing.T) {
+	f := func(i uint) bool {
+		var r Result[Option[uint]]
+		switch i % 3 {
+		case 0:
+			r = Ok(Some(i))
+		case 1:
+			r = Ok(None[uint]())
+		case 2:
+			r = Errf[Option[uint]]("error")
+		default:
+			return false
+		}
+
+		odd := TransposeResOpt(TransposeOptRes(TransposeResOpt(r))) ==
+			TransposeResOpt(r)
+
+		even := TransposeOptRes(TransposeResOpt(r)) == r
+
+		return odd && even
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}

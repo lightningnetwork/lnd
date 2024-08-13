@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -40,9 +41,10 @@ var (
 )
 
 type mcTestContext struct {
-	t   *testing.T
-	mc  *MissionControl
-	now time.Time
+	t  *testing.T
+	mc *MissionControl
+
+	clock *testClock
 
 	db     kvdb.Backend
 	dbPath string
@@ -52,8 +54,8 @@ type mcTestContext struct {
 
 func createMcTestContext(t *testing.T) *mcTestContext {
 	ctx := &mcTestContext{
-		t:   t,
-		now: mcTestTime,
+		t:     t,
+		clock: newTestClock(mcTestTime),
 	}
 
 	file, err := os.CreateTemp("", "*.db")
@@ -85,7 +87,7 @@ func createMcTestContext(t *testing.T) *mcTestContext {
 // restartMc creates a new instances of mission control on the same database.
 func (ctx *mcTestContext) restartMc() {
 	// Since we don't run a timer to store results in unit tests, we store
-	// them here before fetching back everything in NewMissionControl.
+	// them here before fetching back everything in NewMissionController.
 	if ctx.mc != nil {
 		require.NoError(ctx.t, ctx.mc.store.storeResults())
 	}
@@ -99,7 +101,7 @@ func (ctx *mcTestContext) restartMc() {
 	estimator, err := NewAprioriEstimator(aCfg)
 	require.NoError(ctx.t, err)
 
-	mc, err := NewMissionControl(
+	mc, err := NewMissionController(
 		ctx.db, mcTestSelf,
 		&MissionControlConfig{Estimator: estimator},
 	)
@@ -107,8 +109,8 @@ func (ctx *mcTestContext) restartMc() {
 		ctx.t.Fatal(err)
 	}
 
-	mc.now = func() time.Time { return ctx.now }
-	ctx.mc = mc
+	mc.cfg.clock = ctx.clock
+	ctx.mc = mc.GetDefaultStore()
 }
 
 // Assert that mission control returns a probability for an edge.
@@ -150,7 +152,7 @@ func (ctx *mcTestContext) reportSuccess() {
 func TestMissionControl(t *testing.T) {
 	ctx := createMcTestContext(t)
 
-	ctx.now = testTime
+	ctx.clock.setTime(testTime)
 
 	testTime := time.Date(2018, time.January, 9, 14, 00, 00, 0, time.UTC)
 
@@ -178,7 +180,7 @@ func TestMissionControl(t *testing.T) {
 	// Edge decay started. The node probability weighted average should now
 	// have shifted from 1:1 to 1:0.5 -> 60%. The connection probability is
 	// half way through the recovery, so we expect 30% here.
-	ctx.now = testTime.Add(30 * time.Minute)
+	ctx.clock.setTime(testTime.Add(30 * time.Minute))
 	ctx.expectP(1000, 0.3)
 
 	// Edge fails again, this time without a min penalization amt. The edge
@@ -188,7 +190,7 @@ func TestMissionControl(t *testing.T) {
 	ctx.expectP(500, 0)
 
 	// Edge decay started.
-	ctx.now = testTime.Add(60 * time.Minute)
+	ctx.clock.setTime(testTime.Add(60 * time.Minute))
 	ctx.expectP(1000, 0.3)
 
 	// Restart mission control to test persistence.
@@ -229,4 +231,30 @@ func TestMissionControlChannelUpdate(t *testing.T) {
 		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate1{}),
 	)
 	ctx.expectP(100, 0)
+}
+
+// testClock is an implementation of clock.Clock that lets the caller overwrite
+// the current time at any point.
+type testClock struct {
+	now time.Time
+	clock.Clock
+}
+
+// newTestClock constructs a new testClock.
+func newTestClock(startTime time.Time) *testClock {
+	return &testClock{
+		now: startTime,
+	}
+}
+
+// Now returns the underlying current time.
+//
+// NOTE: this is part of the clock.Clock interface.
+func (c *testClock) Now() time.Time {
+	return c.now
+}
+
+// setTime overwrites the current time.
+func (c *testClock) setTime(n time.Time) {
+	c.now = n
 }

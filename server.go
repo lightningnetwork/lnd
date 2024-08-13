@@ -275,7 +275,7 @@ type server struct {
 
 	breachArbitrator *contractcourt.BreachArbitrator
 
-	missionControl *routing.MissionControl
+	missionControl *routing.MissionController
 
 	graphBuilder *graph.Builder
 
@@ -955,7 +955,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		McFlushInterval:         routingConfig.McFlushInterval,
 		MinFailureRelaxInterval: routing.DefaultMinFailureRelaxInterval,
 	}
-	s.missionControl, err = routing.NewMissionControl(
+	s.missionControl, err = routing.NewMissionController(
 		dbs.ChanStateDB, selfNode.PubKeyBytes, mcCfg,
 	)
 	if err != nil {
@@ -985,7 +985,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			chanGraph,
 		),
 		SourceNode:        sourceNode,
-		MissionControl:    s.missionControl,
+		MissionControl:    s.missionControl.GetDefaultStore(),
 		GetLink:           s.htlcSwitch.GetLinkByShortID,
 		PathFindingConfig: pathFindingConfig,
 	}
@@ -1020,7 +1020,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Chain:              cc.ChainIO,
 		Payer:              s.htlcSwitch,
 		Control:            s.controlTower,
-		MissionControl:     s.missionControl,
+		MissionControl:     s.missionControl.GetDefaultStore(),
 		SessionSource:      paymentSessionSource,
 		GetLink:            s.htlcSwitch.GetLinkByShortID,
 		NextPaymentID:      sequencer.NextID,

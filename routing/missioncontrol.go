@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -90,6 +91,16 @@ var (
 // NodeResults contains previous results from a node to its peers.
 type NodeResults map[route.Vertex]TimedPairResult
 
+// mcConfig holds various config members that will be required by all
+// MissionControl instances and will be the same regardless of namespace.
+type mcConfig struct {
+	// clock is a time source used by mission control.
+	clock clock.Clock
+
+	// selfNode is our pubkey.
+	selfNode route.Vertex
+}
+
 // MissionControl contains state which summarizes the past attempts of HTLC
 // routing by external callers when sending payments throughout the network. It
 // acts as a shared memory during routing attempts with the goal to optimize the
@@ -100,16 +111,11 @@ type NodeResults map[route.Vertex]TimedPairResult
 // since the last failure is used to estimate a success probability that is fed
 // into the path finding process for subsequent payment attempts.
 type MissionControl struct {
+	cfg *mcConfig
+
 	// state is the internal mission control state that is input for
 	// probability estimation.
 	state *missionControlState
-
-	// now is expected to return the current time. It is supplied as an
-	// external function to enable deterministic unit tests.
-	now func() time.Time
-
-	// selfNode is our pubkey.
-	selfNode route.Vertex
 
 	store *missionControlStore
 
@@ -122,11 +128,29 @@ type MissionControl struct {
 	onConfigUpdate fn.Option[func(cfg *MissionControlConfig)]
 
 	mu sync.Mutex
+}
+
+// MissionController manages MissionControl instances in various namespaces.
+//
+// NOTE: currently it only has a MissionControl in the default namespace.
+type MissionController struct {
+	cfg *mcConfig
+
+	mc *MissionControl
+	mu sync.Mutex
 
 	// TODO(roasbeef): further counters, if vertex continually unavailable,
 	// add to another generation
 
 	// TODO(roasbeef): also add favorable metrics for nodes
+}
+
+// GetDefaultStore returns the MissionControl in the default namespace.
+func (m *MissionController) GetDefaultStore() *MissionControl {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.mc
 }
 
 // MissionControlConfig defines parameters that control mission control
@@ -220,9 +244,9 @@ type paymentResult struct {
 	failure            lnwire.FailureMessage
 }
 
-// NewMissionControl returns a new instance of missionControl.
-func NewMissionControl(db kvdb.Backend, self route.Vertex,
-	cfg *MissionControlConfig) (*MissionControl, error) {
+// NewMissionController returns a new instance of MissionController.
+func NewMissionController(db kvdb.Backend, self route.Vertex,
+	cfg *MissionControlConfig) (*MissionController, error) {
 
 	log.Debugf("Instantiating mission control with config: %v, %v", cfg,
 		cfg.Estimator)
@@ -239,18 +263,26 @@ func NewMissionControl(db kvdb.Backend, self route.Vertex,
 		return nil, err
 	}
 
-	mc := &MissionControl{
-		state: newMissionControlState(
-			cfg.MinFailureRelaxInterval,
-		),
-		now:            time.Now,
-		selfNode:       self,
+	mcCfg := &mcConfig{
+		clock:    clock.NewDefaultClock(),
+		selfNode: self,
+	}
+
+	// Create a mission control in the default namespace.
+	defaultMC := &MissionControl{
+		cfg:            mcCfg,
+		state:          newMissionControlState(cfg.MinFailureRelaxInterval),
 		store:          store,
 		estimator:      cfg.Estimator,
 		onConfigUpdate: cfg.OnConfigUpdate,
 	}
 
-	if err := mc.init(); err != nil {
+	mc := &MissionController{
+		cfg: mcCfg,
+		mc:  defaultMC,
+	}
+
+	if err := mc.mc.init(); err != nil {
 		return nil, err
 	}
 
@@ -258,21 +290,30 @@ func NewMissionControl(db kvdb.Backend, self route.Vertex,
 }
 
 // RunStoreTicker runs the mission control store's ticker.
-func (m *MissionControl) RunStoreTicker() {
-	m.store.run()
+func (m *MissionController) RunStoreTicker() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.mc.store.run()
 }
 
 // StopStoreTicker stops the mission control store's ticker.
-func (m *MissionControl) StopStoreTicker() {
+func (m *MissionController) StopStoreTicker() {
 	log.Debug("Stopping mission control store ticker")
 	defer log.Debug("Mission control store ticker stopped")
 
-	m.store.stop()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.mc.store.stop()
 }
 
 // init initializes mission control with historical data.
 func (m *MissionControl) init() error {
 	log.Debugf("Mission control state reconstruction started")
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	start := time.Now()
 
@@ -282,7 +323,7 @@ func (m *MissionControl) init() error {
 	}
 
 	for _, result := range results {
-		m.applyPaymentResult(result)
+		_ = m.applyPaymentResult(result)
 	}
 
 	log.Debugf("Mission control state reconstruction finished: "+
@@ -360,11 +401,11 @@ func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	now := m.now()
+	now := m.cfg.clock.Now()
 	results, _ := m.state.getLastPairResult(fromNode)
 
 	// Use a distinct probability estimation function for local channels.
-	if fromNode == m.selfNode {
+	if fromNode == m.cfg.selfNode {
 		return m.estimator.LocalPairProbability(now, results, toNode)
 	}
 
@@ -436,7 +477,7 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 	failureSourceIdx *int, failure lnwire.FailureMessage) (
 	*channeldb.FailureReason, error) {
 
-	timestamp := m.now()
+	timestamp := m.cfg.clock.Now()
 
 	result := &paymentResult{
 		success:          false,
@@ -456,7 +497,7 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 func (m *MissionControl) ReportPaymentSuccess(paymentID uint64,
 	rt *route.Route) error {
 
-	timestamp := m.now()
+	timestamp := m.cfg.clock.Now()
 
 	result := &paymentResult{
 		timeFwd:   timestamp,

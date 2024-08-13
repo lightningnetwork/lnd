@@ -128,10 +128,11 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 
 	mcConfig := &MissionControlConfig{Estimator: estimator}
 
-	mc, err := NewMissionControl(
+	mcController, err := NewMissionController(
 		graphInstance.graphBackend, route.Vertex{}, mcConfig,
 	)
 	require.NoError(t, err, "failed to create missioncontrol")
+	mc := mcController.GetDefaultStore()
 
 	sourceNode, err := graphInstance.graph.SourceNode()
 	require.NoError(t, err)
@@ -1081,11 +1082,15 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 			return preImage, nil
 		})
 
-	ctx.router.cfg.MissionControl.(*MissionControl).ResetHistory()
+	require.IsType(t, ctx.router.cfg.MissionControl, &MissionControl{})
+	mc, _ := ctx.router.cfg.MissionControl.(*MissionControl)
+
+	err := mc.ResetHistory()
+	require.NoError(t, err)
 
 	// When we try to dispatch that payment, we should receive an error as
 	// both attempts should fail and cause both routes to be pruned.
-	_, _, err := ctx.router.SendPayment(payment)
+	_, _, err = ctx.router.SendPayment(payment)
 	require.Error(t, err, "payment didn't return error")
 
 	// The final error returned should also indicate that the peer wasn't
@@ -1102,12 +1107,10 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	// We expect the first attempt to have failed with a
 	// TemporaryChannelFailure, the second with UnknownNextPeer.
 	msg := htlcs[0].Failure.Message
-	_, ok := msg.(*lnwire.FailTemporaryChannelFailure)
-	require.True(t, ok, "unexpected fail message")
+	require.IsType(t, msg, &lnwire.FailTemporaryChannelFailure{})
 
 	msg = htlcs[1].Failure.Message
-	_, ok = msg.(*lnwire.FailUnknownNextPeer)
-	require.True(t, ok, "unexpected fail message")
+	require.IsType(t, msg, &lnwire.FailUnknownNextPeer{})
 
 	err = ctx.router.cfg.MissionControl.(*MissionControl).ResetHistory()
 	require.NoError(t, err, "reset history failed")
@@ -1144,7 +1147,11 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		getAliasFromPubKey(rt.Hops[0].PubKeyBytes, ctx.aliases),
 	)
 
-	ctx.router.cfg.MissionControl.(*MissionControl).ResetHistory()
+	require.IsType(t, ctx.router.cfg.MissionControl, &MissionControl{})
+	mc, _ = ctx.router.cfg.MissionControl.(*MissionControl)
+
+	err = mc.ResetHistory()
+	require.NoError(t, err)
 
 	// Finally, we'll modify the SendToSwitch function to indicate that the
 	// roasbeef -> luoji channel has insufficient capacity. This should

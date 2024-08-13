@@ -729,7 +729,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 			return info.NodeKey1Bytes, info.NodeKey2Bytes, nil
 		},
 		FindRoute:              s.chanRouter.FindRoute,
-		MissionControl:         s.missionControl,
+		MissionControl:         s.missionControl.GetDefaultStore(),
 		ActiveNetParams:        r.cfg.ActiveNetParams.Params,
 		Tower:                  s.controlTower,
 		MaxTotalTimelock:       r.cfg.MaxOutgoingCltvExpiry,
@@ -6071,7 +6071,8 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 			return r.server.chanRouter.FindBlindedPaths(
 				r.selfNode, amt,
-				r.server.missionControl.GetProbability,
+				r.server.missionControl.GetDefaultStore().
+					GetProbability,
 				blindingRestrictions,
 			)
 		},

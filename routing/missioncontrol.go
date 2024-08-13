@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -226,7 +227,8 @@ func NewMissionControl(db kvdb.Backend, self route.Vertex,
 	}
 
 	store, err := newMissionControlStore(
-		db, cfg.MaxMcHistory, cfg.McFlushInterval,
+		newNamespacedDB(db), cfg.MaxMcHistory,
+		cfg.McFlushInterval,
 	)
 	if err != nil {
 		return nil, err
@@ -544,4 +546,75 @@ func (m *MissionControl) applyPaymentResult(
 	}
 
 	return i.finalFailureReason
+}
+
+// namespacedDB is an implementation of the missionControlDB that gives a user
+// of the interface access to the top level mission control bucket. In a
+// follow-up commit (accompanied by a migration), this will change to giving
+// the user of the interface access to a namespaced sub-bucket instead.
+type namespacedDB struct {
+	topLevelBucketKey []byte
+	db                kvdb.Backend
+}
+
+// A compile-time check to ensure that namespacedDB implements missionControlDB.
+var _ missionControlDB = (*namespacedDB)(nil)
+
+// newNamespacedDB creates a new instance of missionControlDB where the DB will
+// have access to the top level bucket.
+func newNamespacedDB(db kvdb.Backend) missionControlDB {
+	return &namespacedDB{
+		db:                db,
+		topLevelBucketKey: resultsKey,
+	}
+}
+
+// update can be used to perform reads and writes on the given bucket.
+//
+// NOTE: this is part of the missionControlDB interface.
+func (n *namespacedDB) update(f func(bkt walletdb.ReadWriteBucket) error,
+	reset func()) error {
+
+	return n.db.Update(func(tx kvdb.RwTx) error {
+		mcStoreBkt, err := tx.CreateTopLevelBucket(n.topLevelBucketKey)
+		if err != nil {
+			return fmt.Errorf("cannot create top level mission "+
+				"control bucket: %w", err)
+		}
+
+		return f(mcStoreBkt)
+	}, reset)
+}
+
+// view can be used to perform reads on the given bucket.
+//
+// NOTE: this is part of the missionControlDB interface.
+func (n *namespacedDB) view(f func(bkt walletdb.ReadBucket) error,
+	reset func()) error {
+
+	return n.db.View(func(tx kvdb.RTx) error {
+		mcStoreBkt := tx.ReadBucket(n.topLevelBucketKey)
+		if mcStoreBkt == nil {
+			return fmt.Errorf("top level mission control bucket " +
+				"not found")
+		}
+
+		return f(mcStoreBkt)
+	}, reset)
+}
+
+// purge will delete all the contents in the namespace.
+//
+// NOTE: this is part of the missionControlDB interface.
+func (n *namespacedDB) purge() error {
+	return n.db.Update(func(tx kvdb.RwTx) error {
+		err := tx.DeleteTopLevelBucket(n.topLevelBucketKey)
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.CreateTopLevelBucket(n.topLevelBucketKey)
+
+		return err
+	}, func() {})
 }

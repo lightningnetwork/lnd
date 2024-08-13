@@ -198,7 +198,7 @@ func assertTxInWallet(t *testing.T, w *lnwallet.LightningWallet,
 	// We'll fetch all of our transaction and go through each one until
 	// finding the expected transaction with its expected confirmation
 	// status.
-	txs, err := w.ListTransactionDetails(
+	txs, _, _, err := w.ListTransactionDetails(
 		0, btcwallet.UnconfirmedHeight, "", 0, 1000,
 	)
 	require.NoError(t, err, "unable to retrieve transactions")
@@ -1101,7 +1101,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	// should be confirmed.
 	err = waitForWalletSync(miner, alice)
 	require.NoError(t, err, "Couldn't sync Alice's wallet")
-	txDetails, err := alice.ListTransactionDetails(
+	txDetails, _, _, err := alice.ListTransactionDetails(
 		startHeight, chainTip, "", 0, 1000,
 	)
 	require.NoError(t, err, "unable to fetch tx details")
@@ -1213,7 +1213,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	// unconfirmed transactions. The transaction above should be included
 	// with a confirmation height of 0, indicating that it has not been
 	// mined yet.
-	txDetails, err = alice.ListTransactionDetails(
+	txDetails, _, _, err = alice.ListTransactionDetails(
 		chainTip, btcwallet.UnconfirmedHeight, "", 0, 1000,
 	)
 	require.NoError(t, err, "unable to fetch tx details")
@@ -1266,7 +1266,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	// transactions from the last block.
 	err = waitForWalletSync(miner, alice)
 	require.NoError(t, err, "Couldn't sync Alice's wallet")
-	txDetails, err = alice.ListTransactionDetails(
+	txDetails, _, _, err = alice.ListTransactionDetails(
 		chainTip, chainTip, "", 0, 1000,
 	)
 	require.NoError(t, err, "unable to fetch tx details")
@@ -1309,13 +1309,56 @@ func testListTransactionDetails(miner *rpctest.Harness,
 
 	// Query for transactions only in the latest block. We do not expect
 	// any transactions to be returned.
-	txDetails, err = alice.ListTransactionDetails(
+	txDetails, _, _, err = alice.ListTransactionDetails(
 		chainTip, chainTip, "", 0, 1000,
 	)
 	require.NoError(t, err, "unexpected error")
 	if len(txDetails) != 0 {
 		t.Fatalf("expected 0 transactions, got: %v", len(txDetails))
 	}
+
+	// Next we try to query for only 5 transactions.
+	var (
+		firstIdx, lastIdx uint64
+	)
+	txDetails, firstIdx, lastIdx, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", 0, 5,
+	)
+	require.NoError(t, err, "unexpected error")
+	require.Len(t, txDetails, 5)
+	require.EqualValues(t, 1, firstIdx)
+	require.EqualValues(t, 5, lastIdx)
+
+	// Query for transactions, setting max_transactions to zero. We expect
+	// no transactions to be returned.
+	txDetails, _, _, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", 0, 0,
+	)
+	require.NoError(t, err, "unexpected error")
+	require.Len(t, txDetails, 0)
+
+	// Query for transactions, more than we have in the wallet (10). We
+	// expect less transactions to be returned.
+	txDetails, _, _, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", 0, 1000,
+	)
+	require.NoError(t, err, "unexpected error")
+	require.Less(t, len(txDetails), 1000)
+
+	// Query for transactions, using a negative value as the
+	// max_transactions. We expect to get the whole (10) transactions.
+	txDetails, _, _, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", 0, -1,
+	)
+	require.NoError(t, err, "unexpected error")
+	require.Len(t, txDetails, 10)
+
+	// Query for transactions, using a negative value less than -1 as the
+	// max_transactions. We expect to get an error.
+	_, _, _, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", 0, -10,
+	)
+	require.Error(t, err, "unexpected error")
 }
 
 func testTransactionSubscriptions(miner *rpctest.Harness,

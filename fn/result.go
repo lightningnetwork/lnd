@@ -64,17 +64,34 @@ func (r Result[T]) IsErr() bool {
 	return r.IsRight()
 }
 
-// Map applies a function to the success value if it exists.
+// Map applies an endomorphic function to the success value if it exists.
+//
+// Deprecated: Use MapOk instead.
 func (r Result[T]) Map(f func(T) T) Result[T] {
 	return Result[T]{
 		MapLeft[T, error](f)(r.Either),
 	}
 }
 
-// MapErr applies a function to the error value if it exists.
+// MapOk applies an endomorphic function to the success value if it exists.
+func (r Result[T]) MapOk(f func(T) T) Result[T] {
+	return Result[T]{
+		MapLeft[T, error](f)(r.Either),
+	}
+}
+
+// MapErr applies an endomorphic function to the error value if it exists.
 func (r Result[T]) MapErr(f func(error) error) Result[T] {
 	return Result[T]{
 		MapRight[T](f)(r.Either),
+	}
+}
+
+// MapOk applies a non-endomorphic function to the success value if it exists
+// and returns a Result of the new type.
+func MapOk[A, B any](f func(A) B) func(Result[A]) Result[B] {
+	return func(r Result[A]) Result[B] {
+		return Result[B]{MapLeft[A, error](f)(r.Either)}
 	}
 }
 
@@ -137,8 +154,22 @@ func (r Result[T]) UnwrapOrFail(t *testing.T) T {
 	return r.left
 }
 
-// FlatMap applies a function that returns a Result to the success value if it
-// exists.
+// FlattenResult takes a nested Result and joins the two functor layers into
+// one.
+func FlattenResult[A any](r Result[Result[A]]) Result[A] {
+	if r.IsErr() {
+		return Err[A](r.right)
+	}
+
+	if r.left.IsErr() {
+		return Err[A](r.left.right)
+	}
+
+	return r.left
+}
+
+// FlatMap applies a kleisli endomorphic function that returns a Result to the
+// success value if it exists.
 func (r Result[T]) FlatMap(f func(T) Result[T]) Result[T] {
 	if r.IsOk() {
 		return r

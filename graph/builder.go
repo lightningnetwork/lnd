@@ -681,7 +681,7 @@ func (b *Builder) handleNetworkUpdate(vb *ValidationBarrier,
 			update.err <- err
 
 		case IsError(err, ErrParentValidationFailed):
-			update.err <- newErrf(ErrIgnored, err.Error())
+			update.err <- NewErrf(ErrIgnored, err.Error()) //nolint
 
 		default:
 			log.Warnf("unexpected error during validation "+
@@ -1053,7 +1053,7 @@ func (b *Builder) assertNodeAnnFreshness(node route.Vertex,
 			"existence of node: %v", err)
 	}
 	if !exists {
-		return newErrf(ErrIgnored, "Ignoring node announcement"+
+		return NewErrf(ErrIgnored, "Ignoring node announcement"+
 			" for node not found in channel graph (%x)",
 			node[:])
 	}
@@ -1063,7 +1063,7 @@ func (b *Builder) assertNodeAnnFreshness(node route.Vertex,
 	// if not then we won't accept the new data as it would override newer
 	// data.
 	if !lastUpdate.Before(msgTimestamp) {
-		return newErrf(ErrOutdated, "Ignoring outdated "+
+		return NewErrf(ErrOutdated, "Ignoring outdated "+
 			"announcement for %x", node[:])
 	}
 
@@ -1193,11 +1193,11 @@ func (b *Builder) processUpdate(msg interface{},
 				"existence: %v", err)
 		}
 		if isZombie {
-			return newErrf(ErrIgnored, "ignoring msg for zombie "+
+			return NewErrf(ErrIgnored, "ignoring msg for zombie "+
 				"chan_id=%v", msg.ChannelID)
 		}
 		if exists {
-			return newErrf(ErrIgnored, "ignoring msg for known "+
+			return NewErrf(ErrIgnored, "ignoring msg for known "+
 				"chan_id=%v", msg.ChannelID)
 		}
 
@@ -1259,7 +1259,7 @@ func (b *Builder) processUpdate(msg interface{},
 			default:
 			}
 
-			return newErrf(ErrNoFundingTransaction, "unable to "+
+			return NewErrf(ErrNoFundingTransaction, "unable to "+
 				"locate funding tx: %v", err)
 		}
 
@@ -1294,7 +1294,7 @@ func (b *Builder) processUpdate(msg interface{},
 				return err
 			}
 
-			return newErrf(ErrInvalidFundingOutput, "output "+
+			return NewErrf(ErrInvalidFundingOutput, "output "+
 				"failed validation: %w", err)
 		}
 
@@ -1313,7 +1313,7 @@ func (b *Builder) processUpdate(msg interface{},
 				}
 			}
 
-			return newErrf(ErrChannelSpent, "unable to fetch utxo "+
+			return NewErrf(ErrChannelSpent, "unable to fetch utxo "+
 				"for chan_id=%v, chan_point=%v: %v",
 				msg.ChannelID, fundingPoint, err)
 		}
@@ -1378,7 +1378,7 @@ func (b *Builder) processUpdate(msg interface{},
 			b.cfg.ChannelPruneExpiry
 
 		if isZombie && isStaleUpdate {
-			return newErrf(ErrIgnored, "ignoring stale update "+
+			return NewErrf(ErrIgnored, "ignoring stale update "+
 				"(flags=%v|%v) for zombie chan_id=%v",
 				msg.MessageFlags, msg.ChannelFlags,
 				msg.ChannelID)
@@ -1387,7 +1387,7 @@ func (b *Builder) processUpdate(msg interface{},
 		// If the channel doesn't exist in our database, we cannot
 		// apply the updated policy.
 		if !exists {
-			return newErrf(ErrIgnored, "ignoring update "+
+			return NewErrf(ErrIgnored, "ignoring update "+
 				"(flags=%v|%v) for unknown chan_id=%v",
 				msg.MessageFlags, msg.ChannelFlags,
 				msg.ChannelID)
@@ -1405,7 +1405,7 @@ func (b *Builder) processUpdate(msg interface{},
 
 			// Ignore outdated message.
 			if !edge1Timestamp.Before(msg.LastUpdate) {
-				return newErrf(ErrOutdated, "Ignoring "+
+				return NewErrf(ErrOutdated, "Ignoring "+
 					"outdated update (flags=%v|%v) for "+
 					"known chan_id=%v", msg.MessageFlags,
 					msg.ChannelFlags, msg.ChannelID)
@@ -1417,7 +1417,7 @@ func (b *Builder) processUpdate(msg interface{},
 
 			// Ignore outdated message.
 			if !edge2Timestamp.Before(msg.LastUpdate) {
-				return newErrf(ErrOutdated, "Ignoring "+
+				return NewErrf(ErrOutdated, "Ignoring "+
 					"outdated update (flags=%v|%v) for "+
 					"known chan_id=%v", msg.MessageFlags,
 					msg.ChannelFlags, msg.ChannelID)

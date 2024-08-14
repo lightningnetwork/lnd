@@ -60,6 +60,10 @@ commitment when the channel was force closed.
 * We'll now always send [channel updates to our remote peer for open
   channels](https://github.com/lightningnetwork/lnd/pull/8963).
 
+* [A bug has been fixed that could cause invalid channel
+  announcements](https://github.com/lightningnetwork/lnd/pull/9002) to be
+  generated if the inbound fee discount is used.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

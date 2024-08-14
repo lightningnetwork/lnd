@@ -174,13 +174,13 @@ type MissionControlQuerier interface {
 	// input for future probability estimates. It returns a bool indicating
 	// whether this error is a final error and no further payment attempts
 	// need to be made.
-	ReportPaymentFail(attemptID uint64, rt *route.Route,
+	ReportPaymentFail(attemptID uint64, rt *models.MCRoute,
 		failureSourceIdx *int, failure lnwire.FailureMessage) (
 		*channeldb.FailureReason, error)
 
 	// ReportPaymentSuccess reports a successful payment to mission control
 	// as input for future probability estimates.
-	ReportPaymentSuccess(attemptID uint64, rt *route.Route) error
+	ReportPaymentSuccess(attemptID uint64, rt *models.MCRoute) error
 
 	// GetProbability is expected to return the success probability of a
 	// payment from fromNode along edge.

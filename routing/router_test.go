@@ -2230,7 +2230,7 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	})
 
 	missionControl.On("ReportPaymentSuccess",
-		mock.Anything, rt,
+		mock.Anything, models.ToMCRoute(rt),
 	).Return(nil)
 
 	// Mock the control tower to return the mocked payment.
@@ -2373,7 +2373,8 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 	// Mock the mission control to return a nil reason from reporting the
 	// attempt failure.
 	missionControl.On("ReportPaymentFail",
-		mock.Anything, rt, mock.Anything, mock.Anything,
+		mock.Anything, models.ToMCRoute(rt), mock.Anything,
+		mock.Anything,
 	).Return(nil, nil)
 
 	// Mock the payment to return nil failure reason.
@@ -2457,7 +2458,8 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 
 	failureReason := channeldb.FailureReasonPaymentDetails
 	missionControl.On("ReportPaymentFail",
-		mock.Anything, rt, mock.Anything, mock.Anything,
+		mock.Anything, models.ToMCRoute(rt), mock.Anything,
+		mock.Anything,
 	).Return(&failureReason, nil)
 
 	// Mock the control tower to return the mocked payment.
@@ -2550,7 +2552,8 @@ func TestSendToRouteTempFailure(t *testing.T) {
 
 	// Return a nil reason to mock a temporary failure.
 	missionControl.On("ReportPaymentFail",
-		mock.Anything, rt, mock.Anything, mock.Anything,
+		mock.Anything, models.ToMCRoute(rt), mock.Anything,
+		mock.Anything,
 	).Return(nil, nil)
 
 	// Expect a failed send to route.

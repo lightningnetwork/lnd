@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -13,19 +14,17 @@ import (
 )
 
 var (
-	mcTestRoute = &route.Route{
+	mcTestRoute = &models.MCRoute{
 		SourcePubKey: mcTestSelf,
-		Hops: []*route.Hop{
+		Hops: []*models.MCHop{
 			{
-				ChannelID:     1,
-				PubKeyBytes:   route.Vertex{11},
-				AmtToForward:  1000,
-				LegacyPayload: true,
+				ChannelID:   1,
+				PubKeyBytes: route.Vertex{11},
+				AmtToFwd:    1000,
 			},
 			{
-				ChannelID:     2,
-				PubKeyBytes:   route.Vertex{12},
-				LegacyPayload: true,
+				ChannelID:   2,
+				PubKeyBytes: route.Vertex{12},
 			},
 		},
 	}
@@ -143,7 +142,7 @@ func (ctx *mcTestContext) expectP(amt lnwire.MilliSatoshi, expected float64) {
 func (ctx *mcTestContext) reportFailure(amt lnwire.MilliSatoshi,
 	failure lnwire.FailureMessage) {
 
-	mcTestRoute.Hops[0].AmtToForward = amt
+	mcTestRoute.Hops[0].AmtToFwd = amt
 
 	errorSourceIdx := 1
 	ctx.mc.ReportPaymentFail(

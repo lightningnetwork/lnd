@@ -585,7 +585,7 @@ func (m *MissionControl) GetPairHistorySnapshot(
 // failure source. If it is nil, the failure source is unknown. This function
 // returns a reason if this failure is a final failure. In that case no further
 // payment attempts need to be made.
-func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
+func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *models.MCRoute,
 	failureSourceIdx *int, failure lnwire.FailureMessage) (
 	*channeldb.FailureReason, error) {
 
@@ -598,7 +598,7 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 		id:               paymentID,
 		failureSourceIdx: failureSourceIdx,
 		failure:          failure,
-		route:            models.ToMCRoute(rt),
+		route:            rt,
 	}
 
 	return m.processPaymentResult(result)
@@ -607,7 +607,7 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 // ReportPaymentSuccess reports a successful payment to mission control as input
 // for future probability estimates.
 func (m *MissionControl) ReportPaymentSuccess(paymentID uint64,
-	rt *route.Route) error {
+	rt *models.MCRoute) error {
 
 	timestamp := m.cfg.clock.Now()
 
@@ -616,7 +616,7 @@ func (m *MissionControl) ReportPaymentSuccess(paymentID uint64,
 		timeReply: timestamp,
 		id:        paymentID,
 		success:   true,
-		route:     models.ToMCRoute(rt),
+		route:     rt,
 	}
 
 	_, err := m.processPaymentResult(result)

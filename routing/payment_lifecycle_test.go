@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnmock"
@@ -1514,7 +1515,7 @@ func TestCollectResultExitOnSettleErr(t *testing.T) {
 	// Once the result is received, `ReportPaymentSuccess` should be
 	// called.
 	m.missionControl.On("ReportPaymentSuccess",
-		attempt.AttemptID, &attempt.Route,
+		attempt.AttemptID, models.ToMCRoute(&attempt.Route),
 	).Return(nil).Once()
 
 	// Now mock an error being returned from `SettleAttempt`.
@@ -1561,7 +1562,7 @@ func TestCollectResultSuccess(t *testing.T) {
 	// Once the result is received, `ReportPaymentSuccess` should be
 	// called.
 	m.missionControl.On("ReportPaymentSuccess",
-		attempt.AttemptID, &attempt.Route,
+		attempt.AttemptID, models.ToMCRoute(&attempt.Route),
 	).Return(nil).Once()
 
 	// Now the settled htlc being returned from `SettleAttempt`.
@@ -1609,7 +1610,7 @@ func TestCollectResultAsyncSuccess(t *testing.T) {
 	// Once the result is received, `ReportPaymentSuccess` should be
 	// called.
 	m.missionControl.On("ReportPaymentSuccess",
-		attempt.AttemptID, &attempt.Route,
+		attempt.AttemptID, models.ToMCRoute(&attempt.Route),
 	).Return(nil).Once()
 
 	// Now the settled htlc being returned from `SettleAttempt`.

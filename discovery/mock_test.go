@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
@@ -14,9 +15,10 @@ import (
 // mockPeer implements the lnpeer.Peer interface and is used to test the
 // gossiper's interaction with peers.
 type mockPeer struct {
-	pk       *btcec.PublicKey
-	sentMsgs chan lnwire.Message
-	quit     chan struct{}
+	pk           *btcec.PublicKey
+	sentMsgs     chan lnwire.Message
+	quit         chan struct{}
+	disconnected atomic.Bool
 }
 
 var _ lnpeer.Peer = (*mockPeer)(nil)
@@ -72,6 +74,10 @@ func (p *mockPeer) AddPendingChannel(_ lnwire.ChannelID,
 
 func (p *mockPeer) RemovePendingChannel(_ lnwire.ChannelID) error {
 	return nil
+}
+
+func (p *mockPeer) Disconnect(err error) {
+	p.disconnected.Store(true)
 }
 
 // mockMessageStore is an in-memory implementation of the MessageStore interface

@@ -684,6 +684,8 @@ func (s *mockServer) RemoteFeatures() *lnwire.FeatureVector {
 	return nil
 }
 
+func (s *mockServer) Disconnect(err error) {}
+
 func (s *mockServer) Stop() error {
 	if !atomic.CompareAndSwapInt32(&s.shutdown, 0, 1) {
 		return nil

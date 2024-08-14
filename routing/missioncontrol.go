@@ -78,6 +78,11 @@ const (
 	// control name space. This is used as the sub-bucket key within the
 	// top level DB bucket to store mission control results.
 	DefaultMissionControlNamespace = "default"
+
+	// BlindedPathMissionControlNamespace is the name of the mission control
+	// namespace where results from successful blinded path receives will
+	// be stored.
+	BlindedPathMissionControlNamespace = "blinded-paths"
 )
 
 var (

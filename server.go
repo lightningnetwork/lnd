@@ -953,7 +953,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	blindedPathMC, err := s.missionController.GetNamespacedStore(
-		"blinded-path",
+		routing.BlindedPathMissionControlNamespace,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("can't create mission control in the "+

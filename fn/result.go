@@ -224,6 +224,16 @@ func AndThen2[A, B, C any](ra Result[A], rb Result[B],
 	})
 }
 
+// Sink consumes a Result, either propagating its error or processing its
+// success value with a function that can fail.
+func (r Result[A]) Sink(f func(A) error) error {
+	if r.IsErr() {
+		return r.right
+	}
+
+	return f(r.left)
+}
+
 // TransposeResOpt transposes the Result[Option[A]] into a Option[Result[A]].
 // This has the effect of leaving an A value alone while inverting the Result
 // and Option layers. If there is no internal A value, it will convert the

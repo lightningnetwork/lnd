@@ -42,6 +42,9 @@
 
 * [Allow](https://github.com/lightningnetwork/lnd/pull/9017) the compression of logs during rotation with ZSTD via the `logcompressor` startup argument.
 
+* Start [reporting successful recieves from blinded 
+  paths](https://github.com/lightningnetwork/lnd/pull/9004) to mission control.
+
 ## RPC Updates
 
 ## lncli Updates

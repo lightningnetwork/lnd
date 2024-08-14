@@ -65,13 +65,15 @@ func TestMessageRouterOperation(t *testing.T) {
 		// First, we'll add the funding endpoint to the router.
 		require.NoError(t, msgRouter.RegisterEndpoint(fundingEndpoint))
 
+		endpoints, err := msgRouter.endpoints().Unpack()
+		require.NoError(t, err)
+
 		// There should be a single endpoint registered.
-		require.Len(t, msgRouter.Endpoints(), 1)
+		require.Len(t, endpoints, 1)
 
 		// The name of the registered endpoint should be "funding".
 		require.Equal(
-			t, "funding",
-			msgRouter.Endpoints()[fundingEndpointName].Name(),
+			t, "funding", endpoints[fundingEndpointName].Name(),
 		)
 	})
 
@@ -127,8 +129,11 @@ func TestMessageRouterOperation(t *testing.T) {
 			t, msgRouter.UnregisterEndpoint(commitEndpointName),
 		)
 
+		endpoints, err := msgRouter.endpoints().Unpack()
+		require.NoError(t, err)
+
 		// There should be no endpoints registered.
-		require.Len(t, msgRouter.Endpoints(), 0)
+		require.Len(t, endpoints, 0)
 
 		// Trying to route a message should fail.
 		require.ErrorIs(

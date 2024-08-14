@@ -166,11 +166,8 @@ func (p *MultiMsgRouter) RouteMsg(msg lnwire.Message) error {
 }
 
 // Endpoints returns a list of all registered endpoints.
-func (p *MultiMsgRouter) Endpoints() EndpointsMap {
-	return fn.ElimEither(
-		fn.Iden, fn.Const[EndpointsMap, error](nil),
-		sendQuery(p.endpointQueries, nil, p.quit).Either,
-	)
+func (p *MultiMsgRouter) endpoints() fn.Result[EndpointsMap] {
+	return sendQuery(p.endpointQueries, nil, p.quit)
 }
 
 // msgRouter is the main goroutine that handles all incoming messages.

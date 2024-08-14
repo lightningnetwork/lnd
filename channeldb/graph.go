@@ -2143,6 +2143,21 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 					zombieIndex, scid,
 				)
 
+				// TODO(ziggie): Make sure that for the strict
+				// pruning case we compare the pubkeys and
+				// whether the right timestamp is not older than
+				// the `ChannelPruneExpiry`.
+				//
+				// NOTE: The timestamp data has no verification
+				// attached to it in the `ReplyChannelRange` msg
+				// so we are trusting this data at this point.
+				// However it is not critical because we are
+				// just removing the channel from the db when
+				// the timestamps are more recent. During the
+				// querying of the gossip msg verification
+				// happens as usual.
+				// However we should start punishing peers when
+				// they don't provide us honest data ?
 				isStillZombie := isZombieChan(
 					info.Node1UpdateTimestamp,
 					info.Node2UpdateTimestamp,

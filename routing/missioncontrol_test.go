@@ -152,7 +152,9 @@ func (ctx *mcTestContext) reportFailure(amt lnwire.MilliSatoshi,
 
 // reportSuccess reports a success by using a test route.
 func (ctx *mcTestContext) reportSuccess() {
-	err := ctx.mc.ReportPaymentSuccess(ctx.pid, mcTestRoute)
+	err := ctx.mc.ReportPaymentSuccess(
+		ctx.pid, mcTestRoute,
+	)
 	if err != nil {
 		ctx.t.Fatal(err)
 	}

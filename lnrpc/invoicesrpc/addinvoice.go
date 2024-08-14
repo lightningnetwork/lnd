@@ -549,7 +549,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 		for _, path := range paths {
 			options = append(options, zpay32.WithBlindedPaymentPath(
-				path,
+				path.Path,
 			))
 		}
 	} else {

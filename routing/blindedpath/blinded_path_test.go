@@ -591,7 +591,7 @@ func TestBuildBlindedPath(t *testing.T) {
 		},
 	}
 
-	paths, err := BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
+	pathInfos, err := BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
 		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
 			error) {
 
@@ -625,9 +625,9 @@ func TestBuildBlindedPath(t *testing.T) {
 		BlocksUntilExpiry:       200,
 	})
 	require.NoError(t, err)
-	require.Len(t, paths, 1)
+	require.Len(t, pathInfos, 1)
 
-	path := paths[0]
+	path := pathInfos[0].Path
 
 	// Check that all the accumulated policy values are correct.
 	require.EqualValues(t, 201, path.FeeBaseMsat)
@@ -759,7 +759,7 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 		},
 	}
 
-	paths, err := BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
+	pathInfos, err := BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
 		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
 			error) {
 
@@ -811,9 +811,9 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Len(t, paths, 1)
+	require.Len(t, pathInfos, 1)
 
-	path := paths[0]
+	path := pathInfos[0].Path
 
 	// Check that all the accumulated policy values are correct.
 	require.EqualValues(t, 403, path.FeeBaseMsat)
@@ -929,7 +929,7 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 	// the first 2 calls. FindRoutes returns 3 routes and so by the end, we
 	// still get 1 valid path.
 	var errCount int
-	paths, err = BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
+	pathInfos, err = BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
 		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
 			error) {
 
@@ -990,7 +990,7 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Len(t, paths, 1)
+	require.Len(t, pathInfos, 1)
 }
 
 // TestSingleHopBlindedPath tests that blinded path construction is done
@@ -1009,7 +1009,7 @@ func TestSingleHopBlindedPath(t *testing.T) {
 		Hops: []*route.Hop{},
 	}
 
-	paths, err := BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
+	pathInfos, err := BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
 		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
 			error) {
 
@@ -1024,9 +1024,9 @@ func TestSingleHopBlindedPath(t *testing.T) {
 		BlocksUntilExpiry:       200,
 	})
 	require.NoError(t, err)
-	require.Len(t, paths, 1)
+	require.Len(t, pathInfos, 1)
 
-	path := paths[0]
+	path := pathInfos[0].Path
 
 	// Check that all the accumulated policy values are correct. Since this
 	// is a unique case where the destination node is also the introduction

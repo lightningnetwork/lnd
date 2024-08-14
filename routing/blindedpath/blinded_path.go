@@ -109,11 +109,28 @@ type BuildBlindedPathCfg struct {
 	DefaultDummyHopPolicy *BlindedHopPolicy
 }
 
+// PathInfo holds a constructed blinded path along with other useful items
+// related to the construction of the path which may be useful.
+type PathInfo struct {
+	// Path holds the constructed blinded path which will be encoded within
+	// an invoice.
+	Path *zpay32.BlindedPaymentPath
+
+	// SessionKey is the private key used for the first ephemeral blinding
+	// key of the path. This can be used later on to decrypt the hop
+	// payloads in the Path that have been encrypted for the various hops
+	// along the path.
+	SessionKey *btcec.PrivateKey
+
+	// LastEphemeralKey is the very last public blinding key of the path.
+	// This can be used to uniquely identify a path when an incoming payment
+	// is received.
+	LastEphemeralKey *btcec.PublicKey
+}
+
 // BuildBlindedPaymentPaths uses the passed config to construct a set of blinded
 // payment paths that can be added to the invoice.
-func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) (
-	[]*zpay32.BlindedPaymentPath, error) {
-
+func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) ([]*PathInfo, error) {
 	// Find some appropriate routes for the value to be routed. This will
 	// return a set of routes made up of real nodes.
 	routes, err := cfg.FindRoutes(cfg.ValueMsat)
@@ -129,7 +146,7 @@ func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) (
 	// Not every route returned will necessarily result in a usable blinded
 	// path and so the number of paths returned might be less than the
 	// number of real routes returned by FindRoutes above.
-	paths := make([]*zpay32.BlindedPaymentPath, 0, len(routes))
+	paths := make([]*PathInfo, 0, len(routes))
 
 	// For each route returned, we will construct the associated blinded
 	// payment path.
@@ -170,7 +187,7 @@ func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) (
 // buildBlindedPaymentPath takes a route from an introduction node to this node
 // and uses the given config to convert it into a blinded payment path.
 func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
-	*zpay32.BlindedPaymentPath, error) {
+	*PathInfo, error) {
 
 	hops, minHTLC, maxHTLC, err := collectRelayInfo(cfg, path)
 	if err != nil {
@@ -301,7 +318,7 @@ func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 		blindedPathInfo.Path.IntroductionPoint
 
 	// Now construct a z32 blinded path.
-	return &zpay32.BlindedPaymentPath{
+	zpay32Path := &zpay32.BlindedPaymentPath{
 		FeeBaseMsat:                 uint32(baseFee),
 		FeeRate:                     feeRate,
 		CltvExpiryDelta:             cltvDelta,
@@ -310,6 +327,12 @@ func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 		Features:                    lnwire.EmptyFeatureVector(),
 		FirstEphemeralBlindingPoint: blindedPathInfo.Path.BlindingPoint,
 		Hops:                        blindedPathInfo.Path.BlindedHops,
+	}
+
+	return &PathInfo{
+		Path:             zpay32Path,
+		SessionKey:       sessionKey,
+		LastEphemeralKey: blindedPathInfo.LastEphemeralKey,
 	}, nil
 }
 

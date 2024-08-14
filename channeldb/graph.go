@@ -153,6 +153,14 @@ var (
 	// case we'll remove all entries from the prune log with a block height
 	// that no longer exists.
 	pruneLogBucket = []byte("prune-log")
+
+	// closedScidBucket is a top-level bucket that stores scids for
+	// channels that we know to be closed. This is used so that we don't
+	// need to perform expensive validation checks if we receive a channel
+	// announcement for the channel again.
+	//
+	// maps: scid -> []byte{}
+	closedScidBucket = []byte("closed-scid")
 )
 
 const (
@@ -318,6 +326,7 @@ var graphTopLevelBuckets = [][]byte{
 	nodeBucket,
 	edgeBucket,
 	graphMetaBucket,
+	closedScidBucket,
 }
 
 // Wipe completely deletes all saved state within all used buckets within the
@@ -3882,6 +3891,53 @@ func (c *ChannelGraph) NumZombies() (uint64, error) {
 	}
 
 	return numZombies, nil
+}
+
+// PutClosedScid stores a SCID for a closed channel in the database. This is so
+// that we can ignore channel announcements that we know to be closed without
+// having to validate them and fetch a block.
+func (c *ChannelGraph) PutClosedScid(scid lnwire.ShortChannelID) error {
+	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+		closedScids, err := tx.CreateTopLevelBucket(closedScidBucket)
+		if err != nil {
+			return err
+		}
+
+		var k [8]byte
+		byteOrder.PutUint64(k[:], scid.ToUint64())
+
+		return closedScids.Put(k[:], []byte{})
+	}, func() {})
+}
+
+// IsClosedScid checks whether a channel identified by the passed in scid is
+// closed. This helps avoid having to perform expensive validation checks.
+// TODO: Add an LRU cache to cut down on disc reads.
+func (c *ChannelGraph) IsClosedScid(scid lnwire.ShortChannelID) (bool, error) {
+	var isClosed bool
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+		closedScids := tx.ReadBucket(closedScidBucket)
+		if closedScids == nil {
+			return ErrClosedScidsNotFound
+		}
+
+		var k [8]byte
+		byteOrder.PutUint64(k[:], scid.ToUint64())
+
+		if closedScids.Get(k[:]) != nil {
+			isClosed = true
+			return nil
+		}
+
+		return nil
+	}, func() {
+		isClosed = false
+	})
+	if err != nil {
+		return false, err
+	}
+
+	return isClosed, nil
 }
 
 func putLightningNode(nodeBucket kvdb.RwBucket, aliasBucket kvdb.RwBucket, // nolint:dupl

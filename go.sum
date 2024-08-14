@@ -464,8 +464,6 @@ github.com/lightningnetwork/lnd/kvdb v1.4.12 h1:Y0WY5Tbjyjn6eCYh068qkWur5oFtioJl
 github.com/lightningnetwork/lnd/kvdb v1.4.12/go.mod h1:hx9buNcxsZpZwh8m1sjTQwy2SOeBoWWOZ3RnOQkMsxI=
 github.com/lightningnetwork/lnd/queue v1.1.1 h1:99ovBlpM9B0FRCGYJo6RSFDlt8/vOkQQZznVb18iNMI=
 github.com/lightningnetwork/lnd/queue v1.1.1/go.mod h1:7A6nC1Qrm32FHuhx/mi1cieAiBZo5O6l8IBIoQxvkz4=
-github.com/lightningnetwork/lnd/sqldb v1.0.6 h1:LJdDSVdN33bVBIefsaJlPW9PDAm6GrXlyFucmzSJ3Ts=
-github.com/lightningnetwork/lnd/sqldb v1.0.6/go.mod h1:OG09zL/PHPaBJefp4HsPz2YLUJ+zIQHbpgCtLnOx8I4=
 github.com/lightningnetwork/lnd/ticker v1.1.1 h1:J/b6N2hibFtC7JLV77ULQp++QLtCwT6ijJlbdiZFbSM=
 github.com/lightningnetwork/lnd/ticker v1.1.1/go.mod h1:waPTRAAcwtu7Ji3+3k+u/xH5GHovTsCoSVpho0KDvdA=
 github.com/lightningnetwork/lnd/tlv v1.3.0 h1:exS/KCPEgpOgviIttfiXAPaUqw2rHQrnUOpP7HPBPiY=

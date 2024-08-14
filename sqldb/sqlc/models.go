@@ -28,6 +28,23 @@ type AmpSubInvoiceHtlc struct {
 	Preimage   []byte
 }
 
+type BlindedPath struct {
+	ID               int64
+	InvoiceID        int64
+	LastEphemeralPub []byte
+	SessionKey       []byte
+	IntroductionNode []byte
+	AmountMsat       int64
+}
+
+type BlindedPathHop struct {
+	BlindedPathID int64
+	HopIndex      int64
+	ChannelID     int64
+	NodePubKey    []byte
+	AmountToFwd   int64
+}
+
 type Invoice struct {
 	ID                 int64
 	Hash               []byte

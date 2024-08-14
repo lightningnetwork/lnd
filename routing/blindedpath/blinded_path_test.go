@@ -844,48 +844,67 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 		data          *record.BlindedRouteData
 	)
 
+	// checkCarolData is a helper that we can use to check that the blinded
+	// path record contains the info we expect for Carol.
+	checkCarolData := func(data *record.BlindedRouteData) {
+		require.Equal(
+			t, lnwire.NewShortChanIDFromInt(chanCB),
+			data.ShortChannelID.UnwrapOrFail(t).Val,
+		)
+
+		require.Equal(t, record.PaymentRelayInfo{
+			CltvExpiryDelta: 144,
+			FeeRate:         500,
+			BaseFee:         100,
+		}, data.RelayInfo.UnwrapOrFail(t).Val)
+
+		require.Equal(t, record.PaymentConstraints{
+			MaxCltvExpiry:   1788,
+			HtlcMinimumMsat: 1000,
+		}, data.Constraints.UnwrapOrFail(t).Val)
+	}
+
+	// We make a copy of the cipher text here because we want to also check
+	// later that we can do this same decryption from Alice's (the path
+	// creator's) perspective later on.
+	carolCipherText := make([]byte, len(hop.CipherText))
+	copy(carolCipherText, hop.CipherText)
+
 	// Check that Carol's info is correct.
 	data, blindingPoint = decryptAndDecodeHopData(
 		t, privC, blindingPoint, hop.CipherText,
 	)
-
-	require.Equal(
-		t, lnwire.NewShortChanIDFromInt(chanCB),
-		data.ShortChannelID.UnwrapOrFail(t).Val,
-	)
-
-	require.Equal(t, record.PaymentRelayInfo{
-		CltvExpiryDelta: 144,
-		FeeRate:         500,
-		BaseFee:         100,
-	}, data.RelayInfo.UnwrapOrFail(t).Val)
-
-	require.Equal(t, record.PaymentConstraints{
-		MaxCltvExpiry:   1788,
-		HtlcMinimumMsat: 1000,
-	}, data.Constraints.UnwrapOrFail(t).Val)
+	checkCarolData(data)
 
 	// Check that all Bob's info is correct.
+	checkBobData := func(data *record.BlindedRouteData) {
+		require.Equal(
+			t, lnwire.NewShortChanIDFromInt(chanBA),
+			data.ShortChannelID.UnwrapOrFail(t).Val,
+		)
+
+		require.Equal(t, record.PaymentRelayInfo{
+			CltvExpiryDelta: 144,
+			FeeRate:         500,
+			BaseFee:         100,
+		}, data.RelayInfo.UnwrapOrFail(t).Val)
+
+		require.Equal(t, record.PaymentConstraints{
+			MaxCltvExpiry:   1644,
+			HtlcMinimumMsat: 1000,
+		}, data.Constraints.UnwrapOrFail(t).Val)
+	}
+
 	hop = path.Hops[1]
+
+	bobCipherText := make([]byte, len(hop.CipherText))
+	copy(bobCipherText, hop.CipherText)
+
+	// Decrypt and check the data from Bob's perspective.
 	data, blindingPoint = decryptAndDecodeHopData(
 		t, privB, blindingPoint, hop.CipherText,
 	)
-
-	require.Equal(
-		t, lnwire.NewShortChanIDFromInt(chanBA),
-		data.ShortChannelID.UnwrapOrFail(t).Val,
-	)
-
-	require.Equal(t, record.PaymentRelayInfo{
-		CltvExpiryDelta: 144,
-		FeeRate:         500,
-		BaseFee:         100,
-	}, data.RelayInfo.UnwrapOrFail(t).Val)
-
-	require.Equal(t, record.PaymentConstraints{
-		MaxCltvExpiry:   1644,
-		HtlcMinimumMsat: 1000,
-	}, data.Constraints.UnwrapOrFail(t).Val)
+	checkBobData(data)
 
 	// Check that all Alice's info is correct. The payload should contain
 	// a next_node_id field that is equal to Alice's public key. This
@@ -922,6 +941,23 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 		HtlcMinimumMsat: 1000,
 	}, data.Constraints.UnwrapOrFail(t).Val)
 	require.Equal(t, []byte{1, 2, 3}, data.PathID.UnwrapOrFail(t).Val)
+
+	// Now, we demonstrate that from Alice's perspective, we can also
+	// decrypt the payloads that were encrypted for Carol and Bob. Alice can
+	// do this using the session key for the path.
+	ephemPrivKey := pathInfos[0].SessionKey
+	data, _ = decryptAndDecodeHopData(t, ephemPrivKey, pkC, carolCipherText)
+	checkCarolData(data)
+
+	// Let Alice calculate the next ephemeral private key so that she can
+	// then also decrypt Bob's payload.
+	ephemPrivKey, err = sphinx.NextEphemeralPriv(
+		&sphinx.PrivKeyECDH{PrivKey: ephemPrivKey}, pkC,
+	)
+	require.NoError(t, err)
+
+	data, _ = decryptAndDecodeHopData(t, ephemPrivKey, pkB, bobCipherText)
+	checkBobData(data)
 
 	// Demonstrate that BuildBlindedPaymentPaths continues to use any
 	// functioning paths even if some routes cant be used to build a blinded

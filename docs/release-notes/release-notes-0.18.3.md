@@ -64,6 +64,10 @@ commitment when the channel was force closed.
   cause UpdateAddHTLC message with blinding point fields to not be re-forwarded
   correctly on restart.
  
+* [A bug has been fixed that could cause invalid channel
+  announcements](https://github.com/lightningnetwork/lnd/pull/9002) to be
+  generated if the inbound fee discount is used.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

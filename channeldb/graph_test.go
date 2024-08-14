@@ -4037,3 +4037,28 @@ func TestGraphLoading(t *testing.T) {
 		graphReloaded.graphCache.nodeFeatures,
 	)
 }
+
+// TestClosedScid tests that we can correctly insert a SCID into the index of
+// closed short channel ids.
+func TestClosedScid(t *testing.T) {
+	t.Parallel()
+
+	graph, err := MakeTestGraph(t)
+	require.Nil(t, err)
+
+	scid := lnwire.ShortChannelID{}
+
+	// The scid should not exist in the closedScidBucket.
+	exists, err := graph.IsClosedScid(scid)
+	require.Nil(t, err)
+	require.False(t, exists)
+
+	// After we call PutClosedScid, the call to IsClosedScid should return
+	// true.
+	err = graph.PutClosedScid(scid)
+	require.Nil(t, err)
+
+	exists, err = graph.IsClosedScid(scid)
+	require.Nil(t, err)
+	require.True(t, exists)
+}

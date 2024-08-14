@@ -57,7 +57,7 @@ linters-settings:
       - G306 # Poor file permissions used when writing to a new file.
 
   staticcheck:
-    go: "1.22.5"
+    go: "1.22.6"
     checks: ["-SA1019"]
 
   lll:

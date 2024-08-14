@@ -283,12 +283,12 @@ func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 	}
 
 	// Encrypt the hop info.
-	blindedPath, err := sphinx.BuildBlindedPath(sessionKey, paymentPath)
+	blindedPathInfo, err := sphinx.BuildBlindedPath(sessionKey, paymentPath)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(blindedPath.BlindedHops) < 1 {
+	if len(blindedPathInfo.Path.BlindedHops) < 1 {
 		return nil, fmt.Errorf("blinded path must have at least one " +
 			"hop")
 	}
@@ -297,8 +297,8 @@ func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 	// pub key since then we can use this more compact format in the
 	// invoice without needing to encode the un-used blinded node pub key of
 	// the intro node.
-	blindedPath.BlindedHops[0].BlindedNodePub =
-		blindedPath.IntroductionPoint
+	blindedPathInfo.Path.BlindedHops[0].BlindedNodePub =
+		blindedPathInfo.Path.IntroductionPoint
 
 	// Now construct a z32 blinded path.
 	return &zpay32.BlindedPaymentPath{
@@ -308,8 +308,8 @@ func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 		HTLCMinMsat:                 uint64(minHTLC),
 		HTLCMaxMsat:                 uint64(maxHTLC),
 		Features:                    lnwire.EmptyFeatureVector(),
-		FirstEphemeralBlindingPoint: blindedPath.BlindingPoint,
-		Hops:                        blindedPath.BlindedHops,
+		FirstEphemeralBlindingPoint: blindedPathInfo.Path.BlindingPoint,
+		Hops:                        blindedPathInfo.Path.BlindedHops,
 	}, nil
 }
 

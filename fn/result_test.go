@@ -70,3 +70,29 @@ func TestPropTransposeResOptInverts(t *testing.T) {
 
 	require.NoError(t, quick.Check(f, nil))
 }
+
+func TestSinkOnErrNoContinutationCall(t *testing.T) {
+	called := false
+	res := Err[uint8](errors.New("err")).Sink(
+		func(a uint8) error {
+			called = true
+			return nil
+		},
+	)
+
+	require.False(t, called)
+	require.NotNil(t, res)
+}
+
+func TestSinkOnOkContinuationCall(t *testing.T) {
+	called := false
+	res := Ok(uint8(1)).Sink(
+		func(a uint8) error {
+			called = true
+			return nil
+		},
+	)
+
+	require.True(t, called)
+	require.Nil(t, res)
+}

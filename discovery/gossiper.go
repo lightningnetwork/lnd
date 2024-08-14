@@ -2232,7 +2232,7 @@ func (d *AuthenticatedGossiper) updateChannel(info *models.ChannelEdgeInfo,
 			BitcoinKey1:     info.BitcoinKey1Bytes,
 			Features:        lnwire.NewRawFeatureVector(),
 			BitcoinKey2:     info.BitcoinKey2Bytes,
-			ExtraOpaqueData: edge.ExtraOpaqueData,
+			ExtraOpaqueData: info.ExtraOpaqueData,
 		}
 		chanAnn.NodeSig1, err = lnwire.NewSigFromECDSARawSignature(
 			info.AuthProof.NodeSig1Bytes,

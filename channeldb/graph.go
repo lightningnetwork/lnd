@@ -2211,6 +2211,29 @@ type ChannelUpdateInfo struct {
 	Node2UpdateTimestamp time.Time
 }
 
+// NewChannelUpdateInfo is a constructor which makes sure we initialize the
+// timestamps with zero seconds unix timestamp which equals
+// `January 1, 1970, 00:00:00 UTC` in case the value is `time.Time{}`.
+func NewChannelUpdateInfo(scid lnwire.ShortChannelID, node1Timestamp,
+	node2Timestamp time.Time) ChannelUpdateInfo {
+
+	chanInfo := ChannelUpdateInfo{
+		ShortChannelID:       scid,
+		Node1UpdateTimestamp: node1Timestamp,
+		Node2UpdateTimestamp: node2Timestamp,
+	}
+
+	if node1Timestamp.IsZero() {
+		chanInfo.Node1UpdateTimestamp = time.Unix(0, 0)
+	}
+
+	if node2Timestamp.IsZero() {
+		chanInfo.Node2UpdateTimestamp = time.Unix(0, 0)
+	}
+
+	return chanInfo
+}
+
 // BlockChannelRange represents a range of channels for a given block height.
 type BlockChannelRange struct {
 	// Height is the height of the block all of the channels below were
@@ -2284,9 +2307,9 @@ func (c *ChannelGraph) FilterChannelRange(startHeight,
 			rawCid := byteOrder.Uint64(k)
 			cid := lnwire.NewShortChanIDFromInt(rawCid)
 
-			chanInfo := ChannelUpdateInfo{
-				ShortChannelID: cid,
-			}
+			chanInfo := NewChannelUpdateInfo(
+				cid, time.Time{}, time.Time{},
+			)
 
 			if !withTimestamps {
 				channelsPerBlock[cid.BlockHeight] = append(

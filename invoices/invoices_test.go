@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
@@ -31,6 +32,15 @@ var (
 			lnwire.TLVOnionPayloadRequired,
 			lnwire.PaymentAddrOptional,
 			lnwire.AMPRequired,
+		),
+		lnwire.Features,
+	)
+
+	blindedPathFeatures = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.TLVOnionPayloadOptional,
+			lnwire.RouteBlindingOptional,
+			lnwire.Bolt11BlindedPathsRequired,
 		),
 		lnwire.Features,
 	)
@@ -188,6 +198,10 @@ func TestInvoices(t *testing.T) {
 		{
 			name: "AddInvoiceWithHTLCs",
 			test: testAddInvoiceWithHTLCs,
+		},
+		{
+			name: "AddInvoiceWithBlindedPathInfo",
+			test: testAddInvoiceWithBlindedPathInfo,
 		},
 		{
 			name: "SetIDIndex",
@@ -2086,6 +2100,83 @@ func TestHTLCSet(t *testing.T) {
 
 		checkHTLCSets()
 	}
+}
+
+func testAddInvoiceWithBlindedPathInfo(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
+
+	t.Parallel()
+	db := makeDB(t)
+
+	testInvoice, err := randInvoice(1000)
+	require.Nil(t, err)
+
+	testInvoice.Terms.Features = blindedPathFeatures
+
+	path := models.BlindedPathsInfo{
+		genPubKey(t): {
+			Route: &models.MCRoute{
+				SourcePubKey: genPubKey(t),
+				TotalAmount:  10000,
+				Hops: []*models.MCHop{
+					{
+						PubKeyBytes:      genPubKey(t),
+						AmtToFwd:         60,
+						ChannelID:        40,
+						HasBlindingPoint: true,
+					},
+					{
+						PubKeyBytes:      genPubKey(t),
+						AmtToFwd:         50,
+						ChannelID:        10,
+						HasBlindingPoint: true,
+					},
+				},
+			},
+			SessionKey: genPrivKey(t),
+		},
+		genPubKey(t): {
+			Route: &models.MCRoute{
+				SourcePubKey: genPubKey(t),
+				TotalAmount:  30,
+				Hops: []*models.MCHop{
+					{
+						PubKeyBytes:      genPubKey(t),
+						AmtToFwd:         50,
+						ChannelID:        10,
+						HasBlindingPoint: true,
+					},
+				},
+			},
+			SessionKey: genPrivKey(t),
+		},
+	}
+	testInvoice.BlindedPaths = path
+
+	ctx := context.Background()
+
+	payHash := testInvoice.Terms.PaymentPreimage.Hash()
+	_, err = db.AddInvoice(ctx, testInvoice, payHash)
+	require.NoError(t, err)
+
+	inv, err := db.LookupInvoice(ctx, invpkg.InvoiceRefByHash(payHash))
+	require.NoError(t, err)
+
+	require.EqualValues(t, path, inv.BlindedPaths)
+}
+
+func genPubKey(t *testing.T) route.Vertex {
+	pk, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	return route.NewVertex(pk.PubKey())
+}
+
+func genPrivKey(t *testing.T) *btcec.PrivateKey {
+	pk, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	return pk
 }
 
 // testAddInvoiceWithHTLCs asserts that you can't insert an invoice that already

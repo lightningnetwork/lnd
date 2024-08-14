@@ -238,12 +238,12 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 	// is closed, or the set of jobs exits.
 	select {
 	case <-v.quit:
-		return newErrf(ErrVBarrierShuttingDown,
+		return NewErrf(ErrVBarrierShuttingDown,
 			"validation barrier shutting down")
 
 	case <-signals.deny:
 		log.Debugf("Signal deny for %s", jobDesc)
-		return newErrf(ErrParentValidationFailed,
+		return NewErrf(ErrParentValidationFailed,
 			"parent validation failed")
 
 	case <-signals.allow:

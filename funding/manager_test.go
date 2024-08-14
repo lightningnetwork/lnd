@@ -283,6 +283,8 @@ type testNode struct {
 
 var _ lnpeer.Peer = (*testNode)(nil)
 
+func (n *testNode) Disconnect(err error) {}
+
 func (n *testNode) IdentityKey() *btcec.PublicKey {
 	return n.addr.IdentityKey
 }

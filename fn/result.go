@@ -173,9 +173,9 @@ func (r Result[T]) OrElse(f func() Result[T]) Result[T] {
 	return f()
 }
 
-// FlatMap applies a function that returns a Result[B] to the success value if
-// it exists.
-func FlatMap[A, B any](r Result[A], f func(A) Result[B]) Result[B] {
+// FlatMapResult applies a function that returns a Result[B] to the success
+// value if it exists.
+func FlatMapResult[A, B any](r Result[A], f func(A) Result[B]) Result[B] {
 	if r.IsOk() {
 		return f(r.left)
 	}
@@ -186,7 +186,7 @@ func FlatMap[A, B any](r Result[A], f func(A) Result[B]) Result[B] {
 // AndThen is an alias for FlatMap. This along with OrElse can be used to
 // Railway Oriented Programming (ROP).
 func AndThen[A, B any](r Result[A], f func(A) Result[B]) Result[B] {
-	return FlatMap(r, f)
+	return FlatMapResult(r, f)
 }
 
 // LiftA2Result lifts a two-argument function to a function that can operate

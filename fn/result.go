@@ -189,16 +189,22 @@ func AndThen[A, B any](r Result[A], f func(A) Result[B]) Result[B] {
 	return FlatMap(r, f)
 }
 
-// AndThen2 applies a function that returns a Result[C] to the success values
-// of two Result types if both exist.
-func AndThen2[A, B, C any](ra Result[A], rb Result[B],
-	f func(A, B) Result[C]) Result[C] {
+// LiftA2Result lifts a two-argument function to a function that can operate
+// over results of its arguments.
+func LiftA2Result[A, B, C any](f func(A, B) C,
+) func(Result[A], Result[B]) Result[C] {
 
-	return AndThen(ra, func(a A) Result[C] {
-		return AndThen(rb, func(b B) Result[C] {
-			return f(a, b)
-		})
-	})
+	return func(ra Result[A], rb Result[B]) Result[C] {
+		if ra.IsErr() {
+			return Err[C](ra.right)
+		}
+
+		if rb.IsErr() {
+			return Err[C](rb.right)
+		}
+
+		return Ok(f(ra.left, rb.left))
+	}
 }
 
 // Sink consumes a Result, either propagating its error or processing its

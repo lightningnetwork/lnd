@@ -63,6 +63,10 @@ commitment when the channel was force closed.
 * [A bug has been fixed that could cause invalid channel
   announcements](https://github.com/lightningnetwork/lnd/pull/9002) to be
   generated if the inbound fee discount is used.
+  
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/9011) a timestamp issue
+  in the `ReplyChannelRange` msg and introduced a check that ChanUpdates with a
+  timestamp too far into the future will be discarded.
 
 # New Features
 ## Functional Enhancements

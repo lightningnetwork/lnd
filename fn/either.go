@@ -20,7 +20,7 @@ func NewRight[L any, R any](r R) Either[L, R] {
 // ElimEither is the universal Either eliminator. It can be used to safely
 // handle all possible values inside the Either by supplying two continuations,
 // one for each side of the Either.
-func ElimEither[L, R, O any](f func(L) O, g func(R) O, e Either[L, R]) O {
+func ElimEither[L, R, O any](e Either[L, R], f func(L) O, g func(R) O) O {
 	if !e.isRight {
 		return f(e.left)
 	}
@@ -52,9 +52,9 @@ func (e Either[L, R]) IsRight() bool {
 	return e.isRight
 }
 
-// LeftToOption converts a Left value to an Option, returning None if the inner
+// LeftToSome converts a Left value to an Option, returning None if the inner
 // Either value is a Right value.
-func (e Either[L, R]) LeftToOption() Option[L] {
+func (e Either[L, R]) LeftToSome() Option[L] {
 	if e.isRight {
 		return None[L]()
 	}
@@ -62,9 +62,9 @@ func (e Either[L, R]) LeftToOption() Option[L] {
 	return Some(e.left)
 }
 
-// RightToOption converts a Right value to an Option, returning None if the
+// RightToSome converts a Right value to an Option, returning None if the
 // inner Either value is a Left value.
-func (e Either[L, R]) RightToOption() Option[R] {
+func (e Either[L, R]) RightToSome() Option[R] {
 	if !e.isRight {
 		return None[R]()
 	}

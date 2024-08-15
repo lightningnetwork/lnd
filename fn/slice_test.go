@@ -383,7 +383,7 @@ func TestPropLastTailIsLast(t *testing.T) {
 			return true
 		}
 
-		return Last(s) == ChainOption(Last[uint8])(Tail(s))
+		return Last(s) == FlatMapOption(Last[uint8])(Tail(s))
 	}
 
 	require.NoError(t, quick.Check(f, nil))
@@ -396,7 +396,7 @@ func TestPropHeadInitIsHead(t *testing.T) {
 			return true
 		}
 
-		return Head(s) == ChainOption(Head[uint8])(Init(s))
+		return Head(s) == FlatMapOption(Head[uint8])(Init(s))
 	}
 
 	require.NoError(t, quick.Check(f, nil))

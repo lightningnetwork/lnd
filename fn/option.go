@@ -133,11 +133,11 @@ func FlattenOption[A any](oo Option[Option[A]]) Option[A] {
 	return oo.some
 }
 
-// ChainOption transforms a function A -> Option[B] into one that accepts an
+// FlatMapOption transforms a function A -> Option[B] into one that accepts an
 // Option[A] as an argument.
 //
-// ChainOption : (A -> Option[B]) -> Option[A] -> Option[B].
-func ChainOption[A, B any](f func(A) Option[B]) func(Option[A]) Option[B] {
+// FlatMapOption : (A -> Option[B]) -> Option[A] -> Option[B].
+func FlatMapOption[A, B any](f func(A) Option[B]) func(Option[A]) Option[B] {
 	return func(o Option[A]) Option[B] {
 		if o.isSome {
 			return f(o.some)

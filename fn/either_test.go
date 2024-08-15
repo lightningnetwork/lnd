@@ -100,14 +100,14 @@ func TestPropToOptionIdentities(t *testing.T) {
 			e = NewRight[int, string](s)
 
 			r2O := e.RightToSome() == Some(s)
-			o2R := e == OptionToRight(Some(s), i)
+			o2R := e == SomeToRight(Some(s), i)
 			l2O := e.LeftToSome() == None[int]()
 
 			return r2O && o2R && l2O
 		} else {
 			e = NewLeft[int, string](i)
 			l2O := e.LeftToSome() == Some(i)
-			o2L := e == OptionToLeft(Some(i), s)
+			o2L := e == SomeToLeft(Some(i), s)
 			r2O := e.RightToSome() == None[string]()
 
 			return l2O && o2L && r2O

@@ -743,7 +743,7 @@ func TestFilterIdempotence(t *testing.T) {
 
 				filtered := l.Filter(pred)
 
-				filteredAgain := Filter(pred, filtered)
+				filteredAgain := Filter(filtered, pred)
 
 				return slices.Equal(filtered, filteredAgain)
 			},

@@ -17,7 +17,7 @@ type Number interface {
 
 // All returns true when the supplied predicate evaluates to true for all of
 // the values in the slice.
-func All[A any](pred func(A) bool, s []A) bool {
+func All[A any](s []A, pred Pred[A]) bool {
 	for _, val := range s {
 		if !pred(val) {
 			return false
@@ -29,7 +29,7 @@ func All[A any](pred func(A) bool, s []A) bool {
 
 // Any returns true when the supplied predicate evaluates to true for any of
 // the values in the slice.
-func Any[A any](pred func(A) bool, s []A) bool {
+func Any[A any](s []A, pred Pred[A]) bool {
 	for _, val := range s {
 		if pred(val) {
 			return true
@@ -41,7 +41,7 @@ func Any[A any](pred func(A) bool, s []A) bool {
 
 // Map applies the function argument to all members of the slice and returns a
 // slice of those return values.
-func Map[A, B any](f func(A) B, s []A) []B {
+func Map[A, B any](s []A, f func(A) B) []B {
 	res := make([]B, 0, len(s))
 
 	for _, val := range s {
@@ -53,7 +53,7 @@ func Map[A, B any](f func(A) B, s []A) []B {
 
 // Filter creates a new slice of values where all the members of the returned
 // slice pass the predicate that is supplied in the argument.
-func Filter[A any](pred Pred[A], s []A) []A {
+func Filter[A any](s []A, pred Pred[A]) []A {
 	res := make([]A, 0)
 
 	for _, val := range s {
@@ -96,7 +96,7 @@ func TrimNones[A any](as []Option[A]) []A {
 // Foldl iterates through all members of the slice left to right and reduces
 // them pairwise with an accumulator value that is seeded with the seed value in
 // the argument.
-func Foldl[A, B any](f func(B, A) B, seed B, s []A) B {
+func Foldl[A, B any](seed B, s []A, f func(B, A) B) B {
 	acc := seed
 
 	for _, val := range s {
@@ -108,7 +108,7 @@ func Foldl[A, B any](f func(B, A) B, seed B, s []A) B {
 
 // Foldr, is exactly like Foldl except that it iterates over the slice from
 // right to left.
-func Foldr[A, B any](f func(A, B) B, seed B, s []A) B {
+func Foldr[A, B any](seed B, s []A, f func(A, B) B) B {
 	acc := seed
 
 	for i := range s {
@@ -120,7 +120,7 @@ func Foldr[A, B any](f func(A, B) B, seed B, s []A) B {
 
 // Find returns the first value that passes the supplied predicate, or None if
 // the value wasn't found.
-func Find[A any](pred Pred[A], s []A) Option[A] {
+func Find[A any](s []A, pred Pred[A]) Option[A] {
 	for _, val := range s {
 		if pred(val) {
 			return Some(val)
@@ -132,7 +132,7 @@ func Find[A any](pred Pred[A], s []A) Option[A] {
 
 // FindIdx returns the first value that passes the supplied predicate along with
 // its index in the slice. If no satisfactory value is found, None is returned.
-func FindIdx[A any](pred Pred[A], s []A) Option[T2[int, A]] {
+func FindIdx[A any](s []A, pred Pred[A]) Option[T2[int, A]] {
 	for i, val := range s {
 		if pred(val) {
 			return Some(NewT2[int, A](i, val))
@@ -144,16 +144,14 @@ func FindIdx[A any](pred Pred[A], s []A) Option[T2[int, A]] {
 
 // Elem returns true if the element in the argument is found in the slice
 func Elem[A comparable](a A, s []A) bool {
-	return Any(Eq(a), s)
+	return Any(s, Eq(a))
 }
 
 // Flatten takes a slice of slices and returns a concatenation of those slices.
 func Flatten[A any](s [][]A) []A {
-	sz := Foldr(
-		func(l []A, acc uint64) uint64 {
-			return uint64(len(l)) + acc
-		}, 0, s,
-	)
+	sz := Foldr(0, s, func(l []A, acc uint64) uint64 {
+		return uint64(len(l)) + acc
+	})
 
 	res := make([]A, 0, sz)
 
@@ -178,7 +176,7 @@ func Replicate[A any](n uint, val A) []A {
 // Span, applied to a predicate and a slice, returns two slices where the first
 // element is the longest prefix (possibly empty) of slice elements that
 // satisfy the predicate and second element is the remainder of the slice.
-func Span[A any](pred func(A) bool, s []A) ([]A, []A) {
+func Span[A any](s []A, pred Pred[A]) ([]A, []A) {
 	for i := range s {
 		if !pred(s[i]) {
 			fst := make([]A, i)
@@ -211,7 +209,7 @@ func SplitAt[A any](n uint, s []A) ([]A, []A) {
 
 // ZipWith combines slice elements with the same index using the function
 // argument, returning a slice of the results.
-func ZipWith[A, B, C any](f func(A, B) C, a []A, b []B) []C {
+func ZipWith[A, B, C any](a []A, b []B, f func(A, B) C) []C {
 	var l uint
 
 	if la, lb := len(a), len(b); la < lb {
@@ -246,9 +244,9 @@ func SliceToMap[A any, K comparable, V any](s []A, keyFunc func(A) K,
 
 // Sum calculates the sum of a slice of numbers, `items`.
 func Sum[B Number](items []B) B {
-	return Foldl(func(a, b B) B {
+	return Foldl(0, items, func(a, b B) B {
 		return a + b
-	}, 0, items)
+	})
 }
 
 // HasDuplicates checks if the given slice contains any duplicate elements.
@@ -261,9 +259,7 @@ func HasDuplicates[A comparable](items []A) bool {
 // ForEachConc maps the argument function over the slice, spawning a new
 // goroutine for each element in the slice and then awaits all results before
 // returning them.
-func ForEachConc[A, B any](f func(A) B,
-	as []A) []B {
-
+func ForEachConc[A, B any](as []A, f func(A) B) []B {
 	var wait sync.WaitGroup
 	ctx := context.Background()
 
@@ -360,7 +356,7 @@ func CollectOptions[A any](options []Option[A]) Option[[]A] {
 
 	// Now that we're sure we have no Nones, we can just do an unchecked
 	// index into the some value of the option.
-	return Some(Map(func(o Option[A]) A { return o.some }, options))
+	return Some(Map(options, func(o Option[A]) A { return o.some }))
 }
 
 // CollectResults collects a list of Results into a single Result of the list of
@@ -377,7 +373,7 @@ func CollectResults[A any](results []Result[A]) Result[[]A] {
 
 	// Now that we're sure we have no errors, we can just do an unchecked
 	// index into the left side of the result.
-	return Ok(Map(func(r Result[A]) A { return r.left }, results))
+	return Ok(Map(results, func(r Result[A]) A { return r.left }))
 }
 
 // TraverseOption traverses a slice of A values, applying the provided

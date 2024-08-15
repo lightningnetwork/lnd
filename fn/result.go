@@ -99,12 +99,12 @@ func MapOk[A, B any](f func(A) B) func(Result[A]) Result[B] {
 //
 // Deprecated: Use OkToSome instead.
 func (r Result[T]) Option() Option[T] {
-	return r.Either.LeftToOption()
+	return r.Either.LeftToSome()
 }
 
 // OkToSome mutes the error value of the result.
 func (r Result[T]) OkToSome() Option[T] {
-	return r.Either.LeftToOption()
+	return r.Either.LeftToSome()
 }
 
 // WhenResult executes the given function if the Result is a success.

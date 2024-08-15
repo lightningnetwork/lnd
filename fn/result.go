@@ -64,15 +64,6 @@ func (r Result[T]) IsErr() bool {
 	return r.IsRight()
 }
 
-// Map applies an endomorphic function to the success value if it exists.
-//
-// Deprecated: Use MapOk instead.
-func (r Result[T]) Map(f func(T) T) Result[T] {
-	return Result[T]{
-		MapLeft[T, error](f)(r.Either),
-	}
-}
-
 // MapOk applies an endomorphic function to the success value if it exists.
 func (r Result[T]) MapOk(f func(T) T) Result[T] {
 	return Result[T]{
@@ -95,23 +86,9 @@ func MapOk[A, B any](f func(A) B) func(Result[A]) Result[B] {
 	}
 }
 
-// Option returns the success value as an Option.
-//
-// Deprecated: Use OkToSome instead.
-func (r Result[T]) Option() Option[T] {
-	return r.Either.LeftToSome()
-}
-
 // OkToSome mutes the error value of the result.
 func (r Result[T]) OkToSome() Option[T] {
 	return r.Either.LeftToSome()
-}
-
-// WhenResult executes the given function if the Result is a success.
-//
-// Deprecated: Use WhenOk instead.
-func (r Result[T]) WhenResult(f func(T)) {
-	r.WhenLeft(f)
 }
 
 // WhenOk executes the given function if the Result is a success.

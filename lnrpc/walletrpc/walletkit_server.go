@@ -1511,9 +1511,13 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 			req.GetSatPerVbyte() * 1000,
 		).FeePerKWeight()
 
+	case req.GetSatPerKw() != 0:
+		feeSatPerKW = chainfee.SatPerKWeight(req.GetSatPerKw())
+
 	default:
 		return nil, fmt.Errorf("fee definition missing, need to " +
-			"specify either target_conf or sat_per_vbyte")
+			"specify either target_conf, sat_per_vbyte or " +
+			"sat_per_kw")
 	}
 
 	// Then, we'll extract the minimum number of confirmations that each

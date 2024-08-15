@@ -112,9 +112,9 @@ func (r Result[T]) UnwrapOr(defaultValue T) T {
 
 // UnwrapOrElse returns the success value or computes a value from a function
 // if it's an error.
-func (r Result[T]) UnwrapOrElse(f func() T) T {
+func (r Result[T]) UnwrapOrElse(f func(error) T) T {
 	if r.IsErr() {
-		return f()
+		return f(r.right)
 	}
 
 	return r.left
@@ -165,12 +165,12 @@ func (r Result[T]) AndThen(f func(T) Result[T]) Result[T] {
 // OrElse returns the original Result if it is a success, otherwise it returns
 // the provided alternative Result. This along with AndThen can be used to
 // Railway Oriented Programming (ROP).
-func (r Result[T]) OrElse(f func() Result[T]) Result[T] {
+func (r Result[T]) OrElse(f func(error) Result[T]) Result[T] {
 	if r.IsOk() {
 		return r
 	}
 
-	return f()
+	return f(r.right)
 }
 
 // FlatMapResult applies a function that returns a Result[B] to the success

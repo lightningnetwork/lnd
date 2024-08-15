@@ -16,30 +16,30 @@ func odd(a int) bool  { return a%2 != 0 }
 
 func TestAll(t *testing.T) {
 	x := []int{0, 2, 4, 6, 8}
-	require.True(t, All(even, x))
-	require.False(t, All(odd, x))
+	require.True(t, All(x, even))
+	require.False(t, All(x, odd))
 
 	y := []int{1, 3, 5, 7, 9}
-	require.False(t, All(even, y))
-	require.True(t, All(odd, y))
+	require.False(t, All(y, even))
+	require.True(t, All(y, odd))
 
 	z := []int{0, 2, 4, 6, 9}
-	require.False(t, All(even, z))
-	require.False(t, All(odd, z))
+	require.False(t, All(z, even))
+	require.False(t, All(z, odd))
 }
 
 func TestAny(t *testing.T) {
 	x := []int{1, 3, 5, 7, 9}
-	require.False(t, Any(even, x))
-	require.True(t, Any(odd, x))
+	require.False(t, Any(x, even))
+	require.True(t, Any(x, odd))
 
 	y := []int{0, 3, 5, 7, 9}
-	require.True(t, Any(even, y))
-	require.True(t, Any(odd, y))
+	require.True(t, Any(y, even))
+	require.True(t, Any(y, odd))
 
 	z := []int{0, 2, 4, 6, 8}
-	require.True(t, Any(even, z))
-	require.False(t, Any(odd, z))
+	require.True(t, Any(z, even))
+	require.False(t, Any(z, odd))
 }
 
 func TestMap(t *testing.T) {
@@ -47,7 +47,7 @@ func TestMap(t *testing.T) {
 
 	x := []int{0, 2, 4, 6, 8}
 
-	y := Map(inc, x)
+	y := Map(x, inc)
 
 	z := []int{1, 3, 5, 7, 9}
 
@@ -57,11 +57,11 @@ func TestMap(t *testing.T) {
 func TestFilter(t *testing.T) {
 	x := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 
-	y := Filter(even, x)
+	y := Filter(x, even)
 
-	require.True(t, All(even, y))
+	require.True(t, All(y, even))
 
-	z := Filter(odd, y)
+	z := Filter(y, odd)
 
 	require.Zero(t, len(z))
 }
@@ -72,7 +72,7 @@ func TestFoldl(t *testing.T) {
 
 	x := []int{0, 1, 2, 3, 4}
 
-	r := Foldl(stupid, seed, x)
+	r := Foldl(seed, x, stupid)
 
 	require.True(t, slices.Equal(x, r))
 }
@@ -83,7 +83,7 @@ func TestFoldr(t *testing.T) {
 
 	x := []int{0, 1, 2, 3, 4}
 
-	z := Foldr(stupid, seed, x)
+	z := Foldr(seed, x, stupid)
 
 	slices.Reverse[[]int](x)
 
@@ -96,9 +96,9 @@ func TestFind(t *testing.T) {
 	div3 := func(a int) bool { return a%3 == 0 }
 	div8 := func(a int) bool { return a%8 == 0 }
 
-	require.Equal(t, Find(div3, x), Some(12))
+	require.Equal(t, Find(x, div3), Some(12))
 
-	require.Equal(t, Find(div8, x), None[int]())
+	require.Equal(t, Find(x, div8), None[int]())
 }
 
 func TestFlatten(t *testing.T) {
@@ -117,7 +117,7 @@ func TestSpan(t *testing.T) {
 	x := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 	lt5 := func(a int) bool { return a < 5 }
 
-	low, high := Span(lt5, x)
+	low, high := Span(x, lt5)
 
 	require.True(t, slices.Equal(low, []int{0, 1, 2, 3, 4}))
 	require.True(t, slices.Equal(high, []int{5, 6, 7, 8, 9}))
@@ -135,7 +135,7 @@ func TestZipWith(t *testing.T) {
 	eq := func(a, b int) bool { return a == b }
 	x := []int{0, 1, 2, 3, 4}
 	y := Replicate(5, 1)
-	z := ZipWith(eq, x, y)
+	z := ZipWith(x, y, eq)
 	require.True(t, slices.Equal(
 		z, []bool{false, true, false, false, false},
 	))
@@ -290,8 +290,8 @@ func TestHasDuplicates(t *testing.T) {
 func TestPropForEachConcMapIsomorphism(t *testing.T) {
 	f := func(incSize int, s []int) bool {
 		inc := func(i int) int { return i + incSize }
-		mapped := Map(inc, s)
-		conc := ForEachConc(inc, s)
+		mapped := Map(s, inc)
+		conc := ForEachConc(s, inc)
 
 		return slices.Equal(mapped, conc)
 	}
@@ -319,7 +319,7 @@ func TestPropForEachConcOutperformsMapWhenExpensive(t *testing.T) {
 		c := make(chan bool, 1)
 
 		go func() {
-			Map(inc, s)
+			Map(s, inc)
 			select {
 			case c <- false:
 			default:
@@ -327,7 +327,7 @@ func TestPropForEachConcOutperformsMapWhenExpensive(t *testing.T) {
 		}()
 
 		go func() {
-			ForEachConc(inc, s)
+			ForEachConc(s, inc)
 			select {
 			case c <- true:
 			default:
@@ -352,14 +352,14 @@ func TestPropFindIdxFindIdentity(t *testing.T) {
 			return i%div == mod
 		}
 
-		foundIdx := FindIdx(pred, s)
+		foundIdx := FindIdx(s, pred)
 
 		// onlyVal :: Option[T2[A, B]] -> Option[B]
 		onlyVal := MapOption(func(t2 T2[int, uint8]) uint8 {
 			return t2.Second()
 		})
 
-		valuesEqual := Find(pred, s) == onlyVal(foundIdx)
+		valuesEqual := Find(s, pred) == onlyVal(foundIdx)
 
 		idxGetsVal := ElimOption(
 			foundIdx,
@@ -584,7 +584,7 @@ func TestPropCollectResultsSingleErrEjection(t *testing.T) {
 			return Ok(i)
 		}
 
-		return CollectResults(Map(f, s)).IsErr()
+		return CollectResults(Map(s, f)).IsErr()
 	}
 
 	require.NoError(t, quick.Check(f, nil))
@@ -594,7 +594,7 @@ func TestPropCollectResultsSingleErrEjection(t *testing.T) {
 // results then we end up with unwrapping all of the Results in the slice.
 func TestPropCollectResultsNoErrUnwrap(t *testing.T) {
 	f := func(s []int) bool {
-		res := CollectResults(Map(Ok[int], s))
+		res := CollectResults(Map(s, Ok[int]))
 		return !res.isRight && slices.Equal(res.left, s)
 	}
 
@@ -660,7 +660,7 @@ func TestPropCollectOptionsSingleNoneEjection(t *testing.T) {
 			return Some(i)
 		}
 
-		return CollectOptions(Map(f, s)).IsNone()
+		return CollectOptions(Map(s, f)).IsNone()
 	}
 
 	require.NoError(t, quick.Check(f, nil))
@@ -670,7 +670,7 @@ func TestPropCollectOptionsSingleNoneEjection(t *testing.T) {
 // options then we end up with unwrapping all of the Options in the slice.
 func TestPropCollectOptionsNoNoneUnwrap(t *testing.T) {
 	f := func(s []int) bool {
-		res := CollectOptions(Map(Some[int], s))
+		res := CollectOptions(Map(s, Some[int]))
 		return res.isSome && slices.Equal(res.some, s)
 	}
 

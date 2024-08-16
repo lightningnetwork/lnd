@@ -211,7 +211,11 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 		markGraphSynced:          func() {},
 		maxQueryChanRangeReplies: maxQueryChanRangeReplies,
 	}
-	syncer := newGossipSyncer(cfg)
+
+	syncerSema := make(chan struct{}, 1)
+	syncerSema <- struct{}{}
+
+	syncer := newGossipSyncer(cfg, syncerSema)
 
 	return msgChan, syncer, cfg.channelSeries.(*mockChannelGraphTimeSeries)
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -90,12 +91,13 @@ func makeTestDB(t *testing.T) (*channeldb.DB, error) {
 type mockGraphSource struct {
 	bestHeight uint32
 
-	mu            sync.Mutex
-	nodes         []channeldb.LightningNode
-	infos         map[uint64]models.ChannelEdgeInfo
-	edges         map[uint64][]models.ChannelEdgePolicy
-	zombies       map[uint64][][33]byte
-	chansToReject map[uint64]struct{}
+	mu             sync.Mutex
+	nodes          []channeldb.LightningNode
+	infos          map[uint64]models.ChannelEdgeInfo
+	edges          map[uint64][]models.ChannelEdgePolicy
+	zombies        map[uint64][][33]byte
+	chansToReject  map[uint64]struct{}
+	addEdgeErrCode fn.Option[graph.ErrorCode]
 }
 
 func newMockRouter(height uint32) *mockGraphSource {
@@ -126,6 +128,12 @@ func (r *mockGraphSource) AddEdge(info *models.ChannelEdgeInfo,
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	if r.addEdgeErrCode.IsSome() {
+		return graph.NewErrf(
+			r.addEdgeErrCode.UnsafeFromSome(), "received error",
+		)
+	}
+
 	if _, ok := r.infos[info.ChannelID]; ok {
 		return errors.New("info already exist")
 	}
@@ -136,6 +144,14 @@ func (r *mockGraphSource) AddEdge(info *models.ChannelEdgeInfo,
 
 	r.infos[info.ChannelID] = *info
 	return nil
+}
+
+func (r *mockGraphSource) resetAddEdgeErrCode() {
+	r.addEdgeErrCode = fn.None[graph.ErrorCode]()
+}
+
+func (r *mockGraphSource) setAddEdgeErrCode(code graph.ErrorCode) {
+	r.addEdgeErrCode = fn.Some[graph.ErrorCode](code)
 }
 
 func (r *mockGraphSource) queueValidationFail(chanID uint64) {
@@ -707,7 +723,9 @@ type testCtx struct {
 	broadcastedMessage chan msgWithSenders
 }
 
-func createTestCtx(t *testing.T, startHeight uint32) (*testCtx, error) {
+func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
+	*testCtx, error) {
+
 	// Next we'll initialize an instance of the channel router with mock
 	// versions of the chain and channel notifier. As we don't need to test
 	// any p2p functionality, the peer send and switch send,
@@ -803,6 +821,7 @@ func createTestCtx(t *testing.T, startHeight uint32) (*testCtx, error) {
 		FindBaseByAlias:       findBaseByAlias,
 		GetAlias:              getAlias,
 		FindChannel:           mockFindChannel,
+		ScidCloser:            newMockScidCloser(isChanPeer),
 	}, selfKeyDesc)
 
 	if err := gossiper.Start(); err != nil {
@@ -831,7 +850,7 @@ func TestProcessAnnouncement(t *testing.T) {
 	t.Parallel()
 
 	timestamp := testTimestamp
-	ctx, err := createTestCtx(t, 0)
+	ctx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "can't create context")
 
 	assertSenderExistence := func(sender *btcec.PublicKey, msg msgWithSenders) {
@@ -947,7 +966,7 @@ func TestPrematureAnnouncement(t *testing.T) {
 
 	timestamp := testTimestamp
 
-	ctx, err := createTestCtx(t, 0)
+	ctx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "can't create context")
 
 	_, err = createNodeAnnouncement(remoteKeyPriv1, timestamp)
@@ -978,7 +997,7 @@ func TestPrematureAnnouncement(t *testing.T) {
 func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	t.Parallel()
 
-	ctx, err := createTestCtx(t, proofMatureDelta)
+	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "can't create context")
 
 	// Set up a channel that we can use to inspect the messages sent
@@ -1154,7 +1173,7 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 func TestOrphanSignatureAnnouncement(t *testing.T) {
 	t.Parallel()
 
-	ctx, err := createTestCtx(t, proofMatureDelta)
+	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "can't create context")
 
 	// Set up a channel that we can use to inspect the messages sent
@@ -1341,7 +1360,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 	t.Parallel()
 
-	ctx, err := createTestCtx(t, proofMatureDelta)
+	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "can't create context")
 
 	batch, err := createLocalAnnouncements(0)
@@ -1576,7 +1595,7 @@ out:
 func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	t.Parallel()
 
-	ctx, err := createTestCtx(t, proofMatureDelta)
+	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "can't create context")
 
 	batch, err := createLocalAnnouncements(0)
@@ -2016,7 +2035,7 @@ func TestForwardPrivateNodeAnnouncement(t *testing.T) {
 		timestamp      = 123456
 	)
 
-	ctx, err := createTestCtx(t, startingHeight)
+	ctx, err := createTestCtx(t, startingHeight, false)
 	require.NoError(t, err, "can't create context")
 
 	// We'll start off by processing a channel announcement without a proof
@@ -2115,7 +2134,7 @@ func TestRejectZombieEdge(t *testing.T) {
 
 	// We'll start by creating our test context with a batch of
 	// announcements.
-	ctx, err := createTestCtx(t, 0)
+	ctx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "unable to create test context")
 
 	batch, err := createRemoteAnnouncements(0)
@@ -2216,7 +2235,7 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 
 	// We'll start by creating our test context with a batch of
 	// announcements.
-	ctx, err := createTestCtx(t, 0)
+	ctx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "unable to create test context")
 
 	batch, err := createRemoteAnnouncements(0)
@@ -2373,7 +2392,7 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	t.Parallel()
 
-	ctx, err := createTestCtx(t, proofMatureDelta)
+	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "can't create context")
 
 	batch, err := createLocalAnnouncements(0)
@@ -2572,7 +2591,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 func TestExtraDataChannelAnnouncementValidation(t *testing.T) {
 	t.Parallel()
 
-	ctx, err := createTestCtx(t, 0)
+	ctx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "can't create context")
 
 	remotePeer := &mockPeer{
@@ -2605,7 +2624,7 @@ func TestExtraDataChannelUpdateValidation(t *testing.T) {
 	t.Parallel()
 
 	timestamp := testTimestamp
-	ctx, err := createTestCtx(t, 0)
+	ctx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "can't create context")
 
 	remotePeer := &mockPeer{
@@ -2658,7 +2677,7 @@ func TestExtraDataChannelUpdateValidation(t *testing.T) {
 func TestExtraDataNodeAnnouncementValidation(t *testing.T) {
 	t.Parallel()
 
-	ctx, err := createTestCtx(t, 0)
+	ctx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "can't create context")
 
 	remotePeer := &mockPeer{
@@ -2728,7 +2747,7 @@ func assertProcessAnnouncement(t *testing.T, result chan error) {
 func TestRetransmit(t *testing.T) {
 	t.Parallel()
 
-	ctx, err := createTestCtx(t, proofMatureDelta)
+	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "can't create context")
 
 	batch, err := createLocalAnnouncements(0)
@@ -2834,7 +2853,7 @@ func TestRetransmit(t *testing.T) {
 func TestNodeAnnouncementNoChannels(t *testing.T) {
 	t.Parallel()
 
-	ctx, err := createTestCtx(t, 0)
+	ctx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "can't create context")
 
 	batch, err := createRemoteAnnouncements(0)
@@ -2919,7 +2938,7 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 	t.Parallel()
 
-	ctx, err := createTestCtx(t, 0)
+	ctx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "can't create context")
 
 	processRemoteAnnouncement := ctx.gossiper.ProcessRemoteAnnouncement
@@ -3018,7 +3037,7 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 
 	// We'll start by creating our test context and a batch of
 	// announcements.
-	ctx, err := createTestCtx(t, proofMatureDelta)
+	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "unable to create test context")
 
 	batch, err := createLocalAnnouncements(0)
@@ -3372,7 +3391,7 @@ func TestPropagateChanPolicyUpdate(t *testing.T) {
 	// First, we'll make out test context and add 3 random channels to the
 	// graph.
 	startingHeight := uint32(10)
-	ctx, err := createTestCtx(t, startingHeight)
+	ctx, err := createTestCtx(t, startingHeight, false)
 	require.NoError(t, err, "unable to create test context")
 
 	const numChannels = 3
@@ -3553,7 +3572,7 @@ func TestProcessChannelAnnouncementOptionalMsgFields(t *testing.T) {
 
 	// We'll start by creating our test context and a set of test channel
 	// announcements.
-	ctx, err := createTestCtx(t, 0)
+	ctx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "unable to create test context")
 
 	chanAnn1 := createAnnouncementWithoutProof(
@@ -3614,7 +3633,7 @@ func assertMessage(t *testing.T, expected, got lnwire.Message) {
 func TestSplitAnnouncementsCorrectSubBatches(t *testing.T) {
 	// Create our test harness.
 	const blockHeight = 100
-	ctx, err := createTestCtx(t, blockHeight)
+	ctx, err := createTestCtx(t, blockHeight, false)
 	require.NoError(t, err, "can't create context")
 
 	const subBatchSize = 10
@@ -3726,7 +3745,7 @@ func (m *SyncManager) markGraphSyncing() {
 func TestBroadcastAnnsAfterGraphSynced(t *testing.T) {
 	t.Parallel()
 
-	ctx, err := createTestCtx(t, 10)
+	ctx, err := createTestCtx(t, 10, false)
 	require.NoError(t, err, "can't create context")
 
 	// We'll mark the graph as not synced. This should prevent us from
@@ -3801,7 +3820,7 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 
 	// Create our test harness.
 	const blockHeight = 100
-	ctx, err := createTestCtx(t, blockHeight)
+	ctx, err := createTestCtx(t, blockHeight, false)
 	require.NoError(t, err, "can't create context")
 	ctx.gossiper.cfg.RebroadcastInterval = time.Hour
 	ctx.gossiper.cfg.MaxChannelUpdateBurst = 5
@@ -3951,7 +3970,7 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 func TestIgnoreOwnAnnouncement(t *testing.T) {
 	t.Parallel()
 
-	ctx, err := createTestCtx(t, proofMatureDelta)
+	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "can't create context")
 
 	batch, err := createLocalAnnouncements(0)
@@ -4095,7 +4114,7 @@ func TestIgnoreOwnAnnouncement(t *testing.T) {
 func TestRejectCacheChannelAnn(t *testing.T) {
 	t.Parallel()
 
-	ctx, err := createTestCtx(t, proofMatureDelta)
+	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "can't create context")
 
 	// First, we create a channel announcement to send over to our test
@@ -4168,4 +4187,135 @@ func TestFutureMsgCacheEviction(t *testing.T) {
 	item, err := c.Get(2)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, item.height, "should be the second item")
+}
+
+// TestChanAnnBanningNonChanPeer asserts that non-channel peers who send bogus
+// channel announcements are banned properly.
+func TestChanAnnBanningNonChanPeer(t *testing.T) {
+	t.Parallel()
+
+	ctx, err := createTestCtx(t, 1000, false)
+	require.NoError(t, err, "can't create context")
+
+	nodePeer1 := &mockPeer{
+		remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
+	}
+	nodePeer2 := &mockPeer{
+		remoteKeyPriv2.PubKey(), nil, nil, atomic.Bool{},
+	}
+
+	ctx.router.setAddEdgeErrCode(graph.ErrInvalidFundingOutput)
+
+	// Loop 100 times to get nodePeer banned.
+	for i := 0; i < 100; i++ {
+		// Craft a valid channel announcement for a channel we don't
+		// have. We will ensure that it fails validation by modifying
+		// the router.
+		ca, err := createRemoteChannelAnnouncement(uint32(i))
+		require.NoError(t, err, "can't create channel announcement")
+
+		select {
+		case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
+			ca, nodePeer1,
+		):
+			require.True(
+				t, graph.IsError(
+					err, graph.ErrInvalidFundingOutput,
+				),
+			)
+
+		case <-time.After(2 * time.Second):
+			t.Fatalf("remote announcement not processed")
+		}
+	}
+
+	// The peer should be banned now.
+	require.True(t, ctx.gossiper.IsBanned(nodePeer1.PubKey()))
+
+	// Assert that nodePeer has been disconnected.
+	require.True(t, nodePeer1.disconnected.Load())
+
+	ca, err := createRemoteChannelAnnouncement(101)
+	require.NoError(t, err, "can't create channel announcement")
+
+	// Set the error to ErrChannelSpent so that we can test that the
+	// gossiper ignores closed channels.
+	ctx.router.setAddEdgeErrCode(graph.ErrChannelSpent)
+
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(ca, nodePeer2):
+		require.True(t, graph.IsError(err, graph.ErrChannelSpent))
+
+	case <-time.After(2 * time.Second):
+		t.Fatalf("remote announcement not processed")
+	}
+
+	// Check that the announcement's scid is marked as closed.
+	isClosed, err := ctx.gossiper.cfg.ScidCloser.IsClosedScid(
+		ca.ShortChannelID,
+	)
+	require.Nil(t, err)
+	require.True(t, isClosed)
+
+	// Remove the scid from the reject cache.
+	key := newRejectCacheKey(
+		ca.ShortChannelID.ToUint64(),
+		sourceToPub(nodePeer2.IdentityKey()),
+	)
+
+	ctx.gossiper.recentRejects.Delete(key)
+
+	// Reset the AddEdge error and pass the same announcement again. An
+	// error should be returned even though AddEdge won't fail.
+	ctx.router.resetAddEdgeErrCode()
+
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(ca, nodePeer2):
+		require.NotNil(t, err)
+
+	case <-time.After(2 * time.Second):
+		t.Fatalf("remote announcement not processed")
+	}
+}
+
+// TestChanAnnBanningChanPeer asserts that channel peers that are banned don't
+// get disconnected.
+func TestChanAnnBanningChanPeer(t *testing.T) {
+	t.Parallel()
+
+	ctx, err := createTestCtx(t, 1000, true)
+	require.NoError(t, err, "can't create context")
+
+	nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{}}
+
+	ctx.router.setAddEdgeErrCode(graph.ErrInvalidFundingOutput)
+
+	// Loop 100 times to get nodePeer banned.
+	for i := 0; i < 100; i++ {
+		// Craft a valid channel announcement for a channel we don't
+		// have. We will ensure that it fails validation by modifying
+		// the router.
+		ca, err := createRemoteChannelAnnouncement(uint32(i))
+		require.NoError(t, err, "can't create channel announcement")
+
+		select {
+		case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
+			ca, nodePeer,
+		):
+			require.True(
+				t, graph.IsError(
+					err, graph.ErrInvalidFundingOutput,
+				),
+			)
+
+		case <-time.After(2 * time.Second):
+			t.Fatalf("remote announcement not processed")
+		}
+	}
+
+	// The peer should be banned now.
+	require.True(t, ctx.gossiper.IsBanned(nodePeer.PubKey()))
+
+	// Assert that the peer wasn't disconnected.
+	require.False(t, nodePeer.disconnected.Load())
 }

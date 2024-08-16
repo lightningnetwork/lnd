@@ -256,6 +256,11 @@ type Config struct {
 	// here?
 	AnnSigner lnwallet.MessageSigner
 
+	// ScidCloser is an instance of ClosedChannelTracker that helps the
+	// gossiper cut down on spam channel announcements for already closed
+	// channels.
+	ScidCloser ClosedChannelTracker
+
 	// NumActiveSyncers is the number of peers for which we should have
 	// active syncers with. After reaching NumActiveSyncers, any future
 	// gossip syncers will be passive.
@@ -434,6 +439,9 @@ type AuthenticatedGossiper struct {
 	// ChannelAnnouncement for the channel is received.
 	prematureChannelUpdates *lru.Cache[uint64, *cachedNetworkMsg]
 
+	// banman tracks our peer's ban status.
+	banman *banman
+
 	// networkMsgs is a channel that carries new network broadcasted
 	// message from outside the gossiper service to be processed by the
 	// networkHandler.
@@ -512,6 +520,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 			maxRejectedUpdates,
 		),
 		chanUpdateRateLimiter: make(map[uint64][2]*rate.Limiter),
+		banman:                newBanman(),
 	}
 
 	gossiper.syncMgr = newSyncManager(&SyncManagerCfg{
@@ -605,6 +614,8 @@ func (d *AuthenticatedGossiper) start() error {
 	}
 
 	d.syncMgr.Start()
+
+	d.banman.start()
 
 	// Start receiving blocks in its dedicated goroutine.
 	d.wg.Add(2)
@@ -761,6 +772,8 @@ func (d *AuthenticatedGossiper) stop() {
 	}
 
 	d.syncMgr.Stop()
+
+	d.banman.stop()
 
 	close(d.quit)
 	d.wg.Wait()
@@ -2459,6 +2472,31 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 		return nil, true
 	}
 
+	// Check if the channel is already closed in which case we can ignore
+	// it.
+	closed, err := d.cfg.ScidCloser.IsClosedScid(scid)
+	if err != nil {
+		log.Errorf("failed to check if scid %v is closed: %v", scid,
+			err)
+		nMsg.err <- err
+
+		return nil, false
+	}
+
+	if closed {
+		// Increment the peer's ban score if they are sending closed
+		// channel announcements.
+		if nMsg.isRemote {
+			d.banman.incrementBanScore(nMsg.peer.PubKey())
+		}
+
+		err = fmt.Errorf("ignoring closed channel %v", scid)
+		log.Error(err)
+		nMsg.err <- err
+
+		return nil, false
+	}
+
 	// If this is a remote channel announcement, then we'll validate all
 	// the signatures within the proof as it should be well formed.
 	var proof *models.ChannelAuthProof
@@ -2533,7 +2571,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 	// database and is now making decisions based on this DB state, before
 	// it writes to the DB.
 	d.channelMtx.Lock(scid.ToUint64())
-	err := d.cfg.Graph.AddEdge(edge, ops...)
+	err = d.cfg.Graph.AddEdge(edge, ops...)
 	if err != nil {
 		log.Debugf("Graph rejected edge for short_chan_id(%v): %v",
 			scid.ToUint64(), err)
@@ -2543,7 +2581,8 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 		// If the edge was rejected due to already being known, then it
 		// may be the case that this new message has a fresh channel
 		// proof, so we'll check.
-		if graph.IsError(err, graph.ErrIgnored) {
+		switch {
+		case graph.IsError(err, graph.ErrIgnored):
 			// Attempt to process the rejected message to see if we
 			// get any new announcements.
 			anns, rErr := d.processRejectedEdge(ann, proof)
@@ -2571,13 +2610,90 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 			nMsg.err <- nil
 
 			return anns, true
-		} else {
+
+		case graph.IsError(
+			err, graph.ErrNoFundingTransaction,
+			graph.ErrInvalidFundingOutput,
+		):
+			key := newRejectCacheKey(
+				scid.ToUint64(),
+				sourceToPub(nMsg.source),
+			)
+			_, _ = d.recentRejects.Put(key, &cachedReject{})
+
+			// Increment the peer's ban score. We check isRemote
+			// so we don't actually ban the peer in case of a local
+			// bug.
+			if nMsg.isRemote {
+				d.banman.incrementBanScore(nMsg.peer.PubKey())
+			}
+
+		case graph.IsError(err, graph.ErrChannelSpent):
+			key := newRejectCacheKey(
+				scid.ToUint64(),
+				sourceToPub(nMsg.source),
+			)
+			_, _ = d.recentRejects.Put(key, &cachedReject{})
+
+			// Since this channel has already been closed, we'll
+			// add it to the graph's closed channel index such that
+			// we won't attempt to do expensive validation checks
+			// on it again.
+			// TODO: Populate the ScidCloser by using closed
+			// channel notifications.
+			dbErr := d.cfg.ScidCloser.PutClosedScid(scid)
+			if dbErr != nil {
+				log.Errorf("failed to mark scid(%v) as "+
+					"closed: %v", scid, dbErr)
+
+				nMsg.err <- dbErr
+
+				return nil, false
+			}
+
+			// Increment the peer's ban score. We check isRemote
+			// so we don't accidentally ban ourselves in case of a
+			// bug.
+			if nMsg.isRemote {
+				d.banman.incrementBanScore(nMsg.peer.PubKey())
+			}
+
+		default:
 			// Otherwise, this is just a regular rejected edge.
 			key := newRejectCacheKey(
 				scid.ToUint64(),
 				sourceToPub(nMsg.source),
 			)
 			_, _ = d.recentRejects.Put(key, &cachedReject{})
+		}
+
+		if !nMsg.isRemote {
+			log.Errorf("failed to add edge for local channel: %v",
+				err)
+			nMsg.err <- err
+
+			return nil, false
+		}
+
+		// If the peer is banned, check if it's a channel peer. We do
+		// the IsBanned check first to not incur the cost of a db
+		// lookup.
+		if d.IsBanned(nMsg.peer.PubKey()) {
+			chanPeer, dbErr := d.IsChannelPeer(
+				nMsg.peer.IdentityKey(),
+			)
+			if dbErr != nil {
+				log.Errorf("failed to check if peer %x is a "+
+					"channel peer: %v", nMsg.peer.PubKey(),
+					dbErr)
+				nMsg.err <- dbErr
+
+				return nil, false
+			}
+
+			if !chanPeer {
+				nMsg.peer.Disconnect(ErrPeerBanned)
+			}
 		}
 
 		nMsg.err <- err
@@ -3384,4 +3500,23 @@ func (d *AuthenticatedGossiper) handleAnnSig(nMsg *networkMsg,
 
 	nMsg.err <- nil
 	return announcements, true
+}
+
+// IsBanned returns true if the peer identified by pubkey is banned for sending
+// invalid channel announcements.
+func (d *AuthenticatedGossiper) IsBanned(pubkey [33]byte) bool {
+	return d.banman.isBanned(pubkey)
+}
+
+// IsChannelPeer returns true if the peer denoted by pubkey is one we have a
+// channel peer.
+func (d *AuthenticatedGossiper) IsChannelPeer(pubkey *btcec.PublicKey) (bool,
+	error) {
+
+	chanPeer, err := d.cfg.ScidCloser.IsChannelPeer(pubkey)
+	if err != nil {
+		return false, err
+	}
+
+	return chanPeer, nil
 }

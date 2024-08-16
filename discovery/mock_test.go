@@ -161,3 +161,40 @@ func (s *mockMessageStore) MessagesForPeer(pubKey [33]byte) ([]lnwire.Message, e
 
 	return msgs, nil
 }
+
+type mockScidCloser struct {
+	m           map[lnwire.ShortChannelID]struct{}
+	channelPeer bool
+
+	sync.Mutex
+}
+
+func newMockScidCloser(channelPeer bool) *mockScidCloser {
+	return &mockScidCloser{
+		m:           make(map[lnwire.ShortChannelID]struct{}),
+		channelPeer: channelPeer,
+	}
+}
+
+func (m *mockScidCloser) PutClosedScid(scid lnwire.ShortChannelID) error {
+	m.Lock()
+	m.m[scid] = struct{}{}
+	m.Unlock()
+
+	return nil
+}
+
+func (m *mockScidCloser) IsClosedScid(scid lnwire.ShortChannelID) (bool,
+	error) {
+
+	m.Lock()
+	defer m.Unlock()
+
+	_, ok := m.m[scid]
+
+	return ok, nil
+}
+
+func (m *mockScidCloser) IsChannelPeer(pubkey *btcec.PublicKey) (bool, error) {
+	return m.channelPeer, nil
+}

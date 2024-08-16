@@ -1026,6 +1026,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
+	scidCloserMan := discovery.NewScidCloserMan(s.graphDB, s.chanStateDB)
+
 	s.authGossiper = discovery.New(discovery.Config{
 		Graph:                 s.graphBuilder,
 		Notifier:              s.cc.ChainNotifier,
@@ -1063,6 +1065,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		GetAlias:                s.aliasMgr.GetPeerAlias,
 		FindChannel:             s.findChannel,
 		IsStillZombieChannel:    s.graphBuilder.IsZombieChannel,
+		ScidCloser:              scidCloserMan,
 	}, nodeKeyDesc)
 
 	//nolint:lll
@@ -3639,10 +3642,23 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	}
 
 	nodePub := conn.(*brontide.Conn).RemotePub()
-	pubStr := string(nodePub.SerializeCompressed())
+	pubSer := nodePub.SerializeCompressed()
+	pubStr := string(pubSer)
+
+	var pubBytes [33]byte
+	copy(pubBytes[:], pubSer)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// If the remote node's public key is banned, drop the connection.
+	if s.authGossiper.IsBanned(pubBytes) {
+		srvrLog.Debugf("Dropping connection for %v since they are "+
+			"banned.", pubSer)
+
+		conn.Close()
+		return
+	}
 
 	// If we already have an outbound connection to this peer, then ignore
 	// this new connection.
@@ -3726,10 +3742,26 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	}
 
 	nodePub := conn.(*brontide.Conn).RemotePub()
-	pubStr := string(nodePub.SerializeCompressed())
+	pubSer := nodePub.SerializeCompressed()
+	pubStr := string(pubSer)
+
+	var pubBytes [33]byte
+	copy(pubBytes[:], pubSer)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// If the remote node's public key is banned, drop the connection.
+	if s.authGossiper.IsBanned(pubBytes) {
+		srvrLog.Debugf("Dropping  connection for %v since they are "+
+			"banned.", pubSer)
+
+		if connReq != nil {
+			s.connMgr.Remove(connReq.ID())
+		}
+		conn.Close()
+		return
+	}
 
 	// If we already have an inbound connection to this peer, then ignore
 	// this new connection.

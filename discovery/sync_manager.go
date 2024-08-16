@@ -22,6 +22,9 @@ const (
 	// force a historical sync to ensure we have as much of the public
 	// network as possible.
 	DefaultHistoricalSyncInterval = time.Hour
+
+	// filterSemaSize is the capacity of gossipFilterSema.
+	filterSemaSize = 5
 )
 
 var (
@@ -161,12 +164,22 @@ type SyncManager struct {
 	// duration of the connection.
 	pinnedActiveSyncers map[route.Vertex]*GossipSyncer
 
+	// gossipFilterSema contains semaphores for the gossip timestamp
+	// queries.
+	gossipFilterSema chan struct{}
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
 
 // newSyncManager constructs a new SyncManager backed by the given config.
 func newSyncManager(cfg *SyncManagerCfg) *SyncManager {
+
+	filterSema := make(chan struct{}, filterSemaSize)
+	for i := 0; i < filterSemaSize; i++ {
+		filterSema <- struct{}{}
+	}
+
 	return &SyncManager{
 		cfg:          *cfg,
 		newSyncers:   make(chan *newSyncer),
@@ -178,7 +191,8 @@ func newSyncManager(cfg *SyncManagerCfg) *SyncManager {
 		pinnedActiveSyncers: make(
 			map[route.Vertex]*GossipSyncer, len(cfg.PinnedSyncers),
 		),
-		quit: make(chan struct{}),
+		gossipFilterSema: filterSema,
+		quit:             make(chan struct{}),
 	}
 }
 
@@ -507,7 +521,7 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 		maxQueryChanRangeReplies:  maxQueryChanRangeReplies,
 		noTimestampQueryOption:    m.cfg.NoTimestampQueries,
 		isStillZombieChannel:      m.cfg.IsStillZombieChannel,
-	})
+	}, m.gossipFilterSema)
 
 	// Gossip syncers are initialized by default in a PassiveSync type
 	// and chansSynced state so that they can reply to any peer queries or

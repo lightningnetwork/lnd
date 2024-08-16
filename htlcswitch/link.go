@@ -1532,8 +1532,11 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 		// result.
 		failure := getResolutionFailure(res, htlc.pd.Amount)
 
+		//nolint:forcetypeassert
+		add := htlc.pd.ToLogUpdate().UpdateMsg.(*lnwire.UpdateAddHTLC)
 		l.sendHTLCError(
-			htlc.pd, failure, htlc.obfuscator, true,
+			*add, *htlc.pd.SourceRef, failure, htlc.obfuscator,
+			true,
 		)
 		return nil
 
@@ -3535,8 +3538,13 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// payloads. Deferring this non-trival effort till a
 			// later date
 			failure := lnwire.NewInvalidOnionPayload(failedType, 0)
+
+			addMsg := pd.ToLogUpdate().UpdateMsg
+			//nolint:forcetypeassert
+			add := *addMsg.(*lnwire.UpdateAddHTLC)
 			l.sendHTLCError(
-				pd, NewLinkError(failure), obfuscator, false,
+				add, *pd.SourceRef, NewLinkError(failure),
+				obfuscator, false,
 			)
 
 			l.log.Errorf("unable to decode forwarding "+
@@ -3578,8 +3586,13 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			failure := lnwire.NewInvalidBlinding(
 				fn.Some(pd.OnionBlob),
 			)
+
+			addMsg := pd.ToLogUpdate().UpdateMsg
+			//nolint:forcetypeassert
+			add := *addMsg.(*lnwire.UpdateAddHTLC)
 			l.sendHTLCError(
-				pd, NewLinkError(failure), obfuscator, false,
+				add, *pd.SourceRef, NewLinkError(failure),
+				obfuscator, false,
 			)
 
 			l.log.Error("rejected htlc that uses use as an " +
@@ -3699,8 +3712,13 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					true, hop.Source, cb,
 				)
 
+				addMsg := pd.ToLogUpdate().UpdateMsg
+				//nolint:forcetypeassert
+				add := *addMsg.(*lnwire.UpdateAddHTLC)
 				l.sendHTLCError(
-					pd, NewLinkError(failure), obfuscator, false,
+					add, *pd.SourceRef,
+					NewLinkError(failure), obfuscator,
+					false,
 				)
 				continue
 			}
@@ -3794,7 +3812,11 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		failure := NewLinkError(
 			lnwire.NewFinalIncorrectHtlcAmount(pd.Amount),
 		)
-		l.sendHTLCError(pd, failure, obfuscator, true)
+
+		addMsg := pd.ToLogUpdate().UpdateMsg
+		//nolint:forcetypeassert
+		add := *addMsg.(*lnwire.UpdateAddHTLC)
+		l.sendHTLCError(add, *pd.SourceRef, failure, obfuscator, true)
 
 		return nil
 	}
@@ -3809,7 +3831,11 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		failure := NewLinkError(
 			lnwire.NewFinalIncorrectCltvExpiry(pd.Timeout),
 		)
-		l.sendHTLCError(pd, failure, obfuscator, true)
+
+		addMsg := pd.ToLogUpdate().UpdateMsg
+		//nolint:forcetypeassert
+		add := *addMsg.(*lnwire.UpdateAddHTLC)
+		l.sendHTLCError(add, *pd.SourceRef, failure, obfuscator, true)
 
 		return nil
 	}
@@ -3920,8 +3946,9 @@ func (l *channelLink) forwardBatch(replay bool, packets ...*htlcPacket) {
 
 // sendHTLCError functions cancels HTLC and send cancel message back to the
 // peer from which HTLC was received.
-func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
-	failure *LinkError, e hop.ErrorEncrypter, isReceive bool) {
+func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
+	sourceRef channeldb.AddRef, failure *LinkError,
+	e hop.ErrorEncrypter, isReceive bool) {
 
 	reason, err := e.EncryptFirstHop(failure.WireMessage())
 	if err != nil {
@@ -3929,7 +3956,7 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 		return
 	}
 
-	err = l.channel.FailHTLC(pd.HtlcIndex, reason, pd.SourceRef, nil, nil)
+	err = l.channel.FailHTLC(add.ID, reason, &sourceRef, nil, nil)
 	if err != nil {
 		l.log.Errorf("unable cancel htlc: %v", err)
 		return
@@ -3938,7 +3965,7 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 	// Send the appropriate failure message depending on whether we're
 	// in a blinded route or not.
 	if err := l.sendIncomingHTLCFailureMsg(
-		pd.HtlcIndex, e, reason,
+		add.ID, e, reason,
 	); err != nil {
 		l.log.Errorf("unable to send HTLC failure: %v", err)
 		return
@@ -3958,12 +3985,12 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 		HtlcKey{
 			IncomingCircuit: models.CircuitKey{
 				ChanID: l.ShortChanID(),
-				HtlcID: pd.HtlcIndex,
+				HtlcID: add.ID,
 			},
 		},
 		HtlcInfo{
-			IncomingTimeLock: pd.Timeout,
-			IncomingAmt:      pd.Amount,
+			IncomingTimeLock: add.Expiry,
+			IncomingAmt:      add.Amount,
 		},
 		eventType,
 		failure,

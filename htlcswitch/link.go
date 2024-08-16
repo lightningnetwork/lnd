@@ -1009,15 +1009,7 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) error {
 	// shove the entire, original set of adds down the pipeline so that the
 	// batch of adds presented to the sphinx router does not ever change.
 	if !fwdPkg.AckFilter.IsFull() {
-		adds, err := lnwallet.PayDescsFromRemoteLogUpdates(
-			fwdPkg.Source, fwdPkg.Height, fwdPkg.Adds,
-		)
-		if err != nil {
-			l.log.Errorf("unable to process remote log updates: %v",
-				err)
-			return err
-		}
-		l.processRemoteAdds(fwdPkg, adds)
+		l.processRemoteAdds(fwdPkg)
 
 		// If the link failed during processing the adds, we must
 		// return to ensure we won't attempted to update the state
@@ -2337,7 +2329,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 
 		// We now process the message and advance our remote commit
 		// chain.
-		fwdPkg, adds, settleFails, remoteHTLCs, err := l.channel.
+		fwdPkg, _, settleFails, remoteHTLCs, err := l.channel.
 			ReceiveRevocation(msg)
 		if err != nil {
 			// TODO(halseth): force close?
@@ -2389,7 +2381,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 		l.processRemoteSettleFails(fwdPkg, settleFails)
-		l.processRemoteAdds(fwdPkg, adds)
+		l.processRemoteAdds(fwdPkg)
 
 		// If the link failed during processing the adds, we must
 		// return to ensure we won't attempted to update the state
@@ -3405,32 +3397,29 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 // indicating whether this is the first time these Adds are being processed, or
 // whether we are reprocessing as a result of a failure or restart. Adds that
 // have already been acknowledged in the forwarding package will be ignored.
-func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
-	lockedInHtlcs []*lnwallet.PaymentDescriptor) {
-
+//
+//nolint:funlen
+func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 	l.log.Tracef("processing %d remote adds for height %d",
-		len(lockedInHtlcs), fwdPkg.Height)
+		len(fwdPkg.Adds), fwdPkg.Height)
 
 	decodeReqs := make(
-		[]hop.DecodeHopIteratorRequest, 0, len(lockedInHtlcs),
+		[]hop.DecodeHopIteratorRequest, 0, len(fwdPkg.Adds),
 	)
-	for _, pd := range lockedInHtlcs {
-		switch pd.EntryType {
-
-		// TODO(conner): remove type switch?
-		case lnwallet.Add:
+	for _, update := range fwdPkg.Adds {
+		if msg, ok := update.UpdateMsg.(*lnwire.UpdateAddHTLC); ok {
 			// Before adding the new htlc to the state machine,
 			// parse the onion object in order to obtain the
 			// routing information with DecodeHopIterator function
 			// which process the Sphinx packet.
-			onionReader := bytes.NewReader(pd.OnionBlob[:])
+			onionReader := bytes.NewReader(msg.OnionBlob[:])
 
 			req := hop.DecodeHopIteratorRequest{
 				OnionReader:    onionReader,
-				RHash:          pd.RHash[:],
-				IncomingCltv:   pd.Timeout,
-				IncomingAmount: pd.Amount,
-				BlindingPoint:  pd.BlindingPoint,
+				RHash:          msg.PaymentHash[:],
+				IncomingCltv:   msg.Expiry,
+				IncomingAmount: msg.Amount,
+				BlindingPoint:  msg.BlindingPoint,
 			}
 
 			decodeReqs = append(decodeReqs, req)
@@ -3452,8 +3441,12 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 	var switchPackets []*htlcPacket
 
-	for i, pd := range lockedInHtlcs {
+	for i, update := range fwdPkg.Adds {
 		idx := uint16(i)
+
+		//nolint:forcetypeassert
+		add := *update.UpdateMsg.(*lnwire.UpdateAddHTLC)
+		sourceRef := fwdPkg.SourceRef(idx)
 
 		if fwdPkg.State == channeldb.FwdStateProcessed &&
 			fwdPkg.AckFilter.Contains(idx) {
@@ -3480,8 +3473,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// If we're unable to process the onion blob then we
 			// should send the malformed htlc error to payment
 			// sender.
-			l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
-				pd.OnionBlob, pd.SourceRef)
+			l.sendMalformedHTLCError(
+				add.ID, failureCode, add.OnionBlob, &sourceRef,
+			)
 
 			l.log.Errorf("unable to decode onion hop "+
 				"iterator: %v", failureCode)
@@ -3525,8 +3519,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				// We can't process this htlc, send back
 				// malformed.
 				l.sendMalformedHTLCError(
-					pd.HtlcIndex, failureCode,
-					pd.OnionBlob, pd.SourceRef,
+					add.ID, failureCode, add.OnionBlob,
+					&sourceRef,
 				)
 
 				continue
@@ -3540,11 +3534,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// later date
 			failure := lnwire.NewInvalidOnionPayload(failedType, 0)
 
-			addMsg := pd.ToLogUpdate().UpdateMsg
-			//nolint:forcetypeassert
-			add := *addMsg.(*lnwire.UpdateAddHTLC)
 			l.sendHTLCError(
-				add, *pd.SourceRef, NewLinkError(failure),
+				add, sourceRef, NewLinkError(failure),
 				obfuscator, false,
 			)
 
@@ -3565,8 +3556,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// should send the malformed htlc error to payment
 			// sender.
 			l.sendMalformedHTLCError(
-				pd.HtlcIndex, failureCode, pd.OnionBlob,
-				pd.SourceRef,
+				add.ID, failureCode, add.OnionBlob,
+				&sourceRef,
 			)
 
 			l.log.Errorf("unable to decode onion "+
@@ -3585,14 +3576,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			l.cfg.DisallowRouteBlinding {
 
 			failure := lnwire.NewInvalidBlinding(
-				fn.Some(pd.OnionBlob),
+				fn.Some(add.OnionBlob),
 			)
 
-			addMsg := pd.ToLogUpdate().UpdateMsg
-			//nolint:forcetypeassert
-			add := *addMsg.(*lnwire.UpdateAddHTLC)
 			l.sendHTLCError(
-				add, *pd.SourceRef, NewLinkError(failure),
+				add, sourceRef, NewLinkError(failure),
 				obfuscator, false,
 			)
 
@@ -3605,11 +3593,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 		switch fwdInfo.NextHop {
 		case hop.Exit:
-			addMsg := pd.ToLogUpdate().UpdateMsg
-			//nolint:forcetypeassert
-			add := *addMsg.(*lnwire.UpdateAddHTLC)
 			err := l.processExitHop(
-				add, *pd.SourceRef, obfuscator, fwdInfo,
+				add, sourceRef, obfuscator, fwdInfo,
 				heightNow, pld,
 			)
 			if err != nil {
@@ -3644,18 +3629,20 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				}
 
 				// Otherwise, it was already processed, we can
-				// collect it and continue.
-				addMsg := &lnwire.UpdateAddHTLC{
+				// can collect it and continue.
+				outgoingAdd := &lnwire.UpdateAddHTLC{
 					Expiry:        fwdInfo.OutgoingCTLV,
 					Amount:        fwdInfo.AmountToForward,
-					PaymentHash:   pd.RHash,
+					PaymentHash:   add.PaymentHash,
 					BlindingPoint: fwdInfo.NextBlinding,
 				}
 
 				// Finally, we'll encode the onion packet for
 				// the _next_ hop using the hop iterator
 				// decoded for the current hop.
-				buf := bytes.NewBuffer(addMsg.OnionBlob[0:0])
+				buf := bytes.NewBuffer(
+					outgoingAdd.OnionBlob[0:0],
+				)
 
 				// We know this cannot fail, as this ADD
 				// was marked forwarded in a previous
@@ -3667,18 +3654,18 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				//nolint:lll
 				updatePacket := &htlcPacket{
 					incomingChanID:       l.ShortChanID(),
-					incomingHTLCID:       pd.HtlcIndex,
+					incomingHTLCID:       add.ID,
 					outgoingChanID:       fwdInfo.NextHop,
-					sourceRef:            pd.SourceRef,
-					incomingAmount:       pd.Amount,
-					amount:               addMsg.Amount,
-					htlc:                 addMsg,
+					sourceRef:            &sourceRef,
+					incomingAmount:       add.Amount,
+					amount:               outgoingAdd.Amount,
+					htlc:                 outgoingAdd,
 					obfuscator:           obfuscator,
-					incomingTimeout:      pd.Timeout,
+					incomingTimeout:      add.Expiry,
 					outgoingTimeout:      fwdInfo.OutgoingCTLV,
 					inOnionCustomRecords: pld.CustomRecords(),
 					inboundFee:           inboundFee,
-					inWireCustomRecords:  pd.CustomRecords.Copy(),
+					inWireCustomRecords:  add.CustomRecords.Copy(),
 				}
 				switchPackets = append(
 					switchPackets, updatePacket,
@@ -3696,7 +3683,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			addMsg := &lnwire.UpdateAddHTLC{
 				Expiry:        fwdInfo.OutgoingCTLV,
 				Amount:        fwdInfo.AmountToForward,
-				PaymentHash:   pd.RHash,
+				PaymentHash:   add.PaymentHash,
 				BlindingPoint: fwdInfo.NextBlinding,
 			}
 
@@ -3717,13 +3704,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					true, hop.Source, cb,
 				)
 
-				addMsg := pd.ToLogUpdate().UpdateMsg
-				//nolint:forcetypeassert
-				add := *addMsg.(*lnwire.UpdateAddHTLC)
 				l.sendHTLCError(
-					add, *pd.SourceRef,
-					NewLinkError(failure), obfuscator,
-					false,
+					add, sourceRef, NewLinkError(failure),
+					obfuscator, false,
 				)
 				continue
 			}
@@ -3742,18 +3725,18 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				//nolint:lll
 				updatePacket := &htlcPacket{
 					incomingChanID:       l.ShortChanID(),
-					incomingHTLCID:       pd.HtlcIndex,
+					incomingHTLCID:       add.ID,
 					outgoingChanID:       fwdInfo.NextHop,
-					sourceRef:            pd.SourceRef,
-					incomingAmount:       pd.Amount,
+					sourceRef:            &sourceRef,
+					incomingAmount:       add.Amount,
 					amount:               addMsg.Amount,
 					htlc:                 addMsg,
 					obfuscator:           obfuscator,
-					incomingTimeout:      pd.Timeout,
+					incomingTimeout:      add.Expiry,
 					outgoingTimeout:      fwdInfo.OutgoingCTLV,
 					inOnionCustomRecords: pld.CustomRecords(),
 					inboundFee:           inboundFee,
-					inWireCustomRecords:  pd.CustomRecords.Copy(),
+					inWireCustomRecords:  add.CustomRecords.Copy(),
 				}
 
 				fwdPkg.FwdFilter.Set(idx)

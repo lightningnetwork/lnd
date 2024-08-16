@@ -5375,15 +5375,10 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 // The returned values correspond to:
 //  1. The forwarding package corresponding to the remote commitment height
 //     that was revoked.
-//  2. The PaymentDescriptor of any Add HTLCs that were locked in by this
-//     revocation.
-//  3. The PaymentDescriptor of any Settle/Fail HTLCs that were locked in by
-//     this revocation.
-//  4. The set of HTLCs present on the current valid commitment transaction
+//  2. The set of HTLCs present on the current valid commitment transaction
 //     for the remote party.
 func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
-	*channeldb.FwdPkg, []*PaymentDescriptor, []*PaymentDescriptor,
-	[]channeldb.HTLC, error) {
+	*channeldb.FwdPkg, []channeldb.HTLC, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -5392,10 +5387,10 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	store := lc.channelState.RevocationStore
 	revocation, err := chainhash.NewHash(revMsg.Revocation[:])
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, err
 	}
 	if err := store.AddNextEntry(revocation); err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	// Verify that if we use the commitment point computed based off of the
@@ -5404,7 +5399,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	currentCommitPoint := lc.channelState.RemoteCurrentRevocation
 	derivedCommitPoint := input.ComputeCommitmentPoint(revMsg.Revocation[:])
 	if !derivedCommitPoint.IsEqual(currentCommitPoint) {
-		return nil, nil, nil, nil, fmt.Errorf("revocation key mismatch")
+		return nil, nil, fmt.Errorf("revocation key mismatch")
 	}
 
 	// Now that we've verified that the prior commitment has been properly
@@ -5434,10 +5429,8 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// updates to disk and optimistically buffer the forwarding package in
 	// memory.
 	var (
-		addsToForward        []*PaymentDescriptor
-		addUpdates           []channeldb.LogUpdate
-		settleFailsToForward []*PaymentDescriptor
-		settleFailUpdates    []channeldb.LogUpdate
+		addUpdatesToForward        []channeldb.LogUpdate
+		settleFailUpdatesToForward []channeldb.LogUpdate
 	)
 
 	var addIndex, settleFailIndex uint16
@@ -5489,7 +5482,13 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 			addIndex++
 
 			pd.isForwarded = true
-			addsToForward = append(addsToForward, pd)
+
+			// At this point we put the update into our list of
+			// updates that we will eventually put into the
+			// FwdPkg at this height.
+			addUpdatesToForward = append(
+				addUpdatesToForward, pd.ToLogUpdate(),
+			)
 
 		case pd.EntryType != Add && committedRmv && shouldFwdRmv:
 			// Construct a reference specifying the location that
@@ -5503,27 +5502,16 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 			settleFailIndex++
 
 			pd.isForwarded = true
-			settleFailsToForward = append(settleFailsToForward, pd)
+
+			// At this point we put the update into our list of
+			// updates that we will eventually put into the
+			// FwdPkg at this height.
+			settleFailUpdatesToForward = append(
+				settleFailUpdatesToForward, pd.ToLogUpdate(),
+			)
 
 		default:
 			continue
-		}
-
-		// If we've reached this point, this HTLC will be added to the
-		// forwarding package at the height of the remote commitment.
-		// We'll map the type of the PaymentDescriptor to one of the
-		// four messages that it corresponds to and separate the
-		// updates into Adds and Settle/Fail/MalformedFail such that
-		// they can be written in the forwarding package. Adds are
-		// aggregated separately from the other types of HTLCs.
-		switch pd.EntryType {
-		case Add:
-			addUpdates = append(addUpdates, pd.ToLogUpdate())
-
-		case Settle, Fail, MalformedFail:
-			settleFailUpdates = append(
-				settleFailUpdates, pd.ToLogUpdate(),
-			)
 		}
 	}
 
@@ -5540,7 +5528,8 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// type, construct a forwarding package using the height that the remote
 	// commitment chain will be extended after persisting the revocation.
 	fwdPkg := channeldb.NewFwdPkg(
-		source, remoteChainTail, addUpdates, settleFailUpdates,
+		source, remoteChainTail, addUpdatesToForward,
+		settleFailUpdatesToForward,
 	)
 
 	// We will soon be saving the current remote commitment to revocation
@@ -5553,7 +5542,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		revocation, lc.channelState, lc.leafStore,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	// Now that we have a new verification nonce from them, we can refresh
@@ -5561,7 +5550,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	if lc.channelState.ChanType.IsTaproot() {
 		localNonce, err := revMsg.LocalNonce.UnwrapOrErrV(errNoNonce)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, err
 		}
 
 		session, err := lc.musigSessions.RemoteSession.Refresh(
@@ -5570,7 +5559,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 			},
 		)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, err
 		}
 
 		lc.musigSessions.RemoteSession = session
@@ -5586,7 +5575,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		ourOutputIndex, theirOutputIndex,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	// Since they revoked the current lowest height in their commitment
@@ -5603,7 +5592,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 
 	remoteHTLCs := lc.channelState.RemoteCommitment.Htlcs
 
-	return fwdPkg, addsToForward, settleFailsToForward, remoteHTLCs, nil
+	return fwdPkg, remoteHTLCs, nil
 }
 
 // LoadFwdPkgs loads any pending log updates from disk and returns the payment

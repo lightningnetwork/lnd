@@ -2321,8 +2321,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 
 		// We now process the message and advance our remote commit
 		// chain.
-		fwdPkg, _, _, remoteHTLCs, err := l.channel.
-			ReceiveRevocation(msg)
+		fwdPkg, remoteHTLCs, err := l.channel.ReceiveRevocation(msg)
 		if err != nil {
 			// TODO(halseth): force close?
 			l.failf(

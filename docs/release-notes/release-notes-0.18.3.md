@@ -75,6 +75,11 @@ blinded path expiry.
 
 # New Features
 ## Functional Enhancements
+
+* LND will now [temporarily ban peers](https://github.com/lightningnetwork/lnd/pull/9009)
+that send too many invalid `ChannelAnnouncement`. This is only done for LND nodes
+that validate `ChannelAnnouncement` messages.
+
 ## RPC Additions
 
 * The [SendPaymentRequest](https://github.com/lightningnetwork/lnd/pull/8734) 

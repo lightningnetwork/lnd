@@ -442,7 +442,8 @@ func (m *hookMap) invoke() {
 
 // hodlHtlc contains htlc data that is required for resolution.
 type hodlHtlc struct {
-	pd         *lnwallet.PaymentDescriptor
+	add        lnwire.UpdateAddHTLC
+	sourceRef  channeldb.AddRef
 	obfuscator hop.ErrorEncrypter
 }
 
@@ -1521,7 +1522,7 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 			"with outcome: %v", circuitKey, res.Outcome)
 
 		return l.settleHTLC(
-			res.Preimage, htlc.pd.HtlcIndex, *htlc.pd.SourceRef,
+			res.Preimage, htlc.add.ID, htlc.sourceRef,
 		)
 
 	// For htlc failures, we get the relevant failure message based
@@ -1532,12 +1533,10 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 
 		// Get the lnwire failure message based on the resolution
 		// result.
-		failure := getResolutionFailure(res, htlc.pd.Amount)
+		failure := getResolutionFailure(res, htlc.add.Amount)
 
-		//nolint:forcetypeassert
-		add := htlc.pd.ToLogUpdate().UpdateMsg.(*lnwire.UpdateAddHTLC)
 		l.sendHTLCError(
-			*add, *htlc.pd.SourceRef, failure, htlc.obfuscator,
+			htlc.add, htlc.sourceRef, failure, htlc.obfuscator,
 			true,
 		)
 		return nil
@@ -3860,16 +3859,8 @@ func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
 
 	// Create a hodlHtlc struct and decide either resolved now or later.
 	htlc := hodlHtlc{
-		pd: &lnwallet.PaymentDescriptor{
-			EntryType:     lnwallet.Add,
-			ChanID:        add.ChanID,
-			RHash:         add.PaymentHash,
-			Timeout:       add.Expiry,
-			Amount:        add.Amount,
-			HtlcIndex:     add.ID,
-			SourceRef:     &sourceRef,
-			BlindingPoint: add.BlindingPoint,
-		},
+		add:        add,
+		sourceRef:  sourceRef,
 		obfuscator: obfuscator,
 	}
 

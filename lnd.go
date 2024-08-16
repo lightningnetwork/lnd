@@ -600,6 +600,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
 		activeChainControl.Cfg.WalletUnlockParams.ChansToRestore,
 		multiAcceptor, torController, tlsManager, leaderElector,
+		implCfg,
 	)
 	if err != nil {
 		return mkErr("unable to create server: %v", err)

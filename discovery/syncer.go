@@ -181,9 +181,6 @@ const (
 	// requestBatchSize is the maximum number of channels we will query the
 	// remote peer for in a QueryShortChanIDs message.
 	requestBatchSize = 500
-
-	// filterSemaSize is the capacity of gossipFilterSema.
-	filterSemaSize = 5
 )
 
 var (
@@ -400,9 +397,11 @@ type GossipSyncer struct {
 	// GossipSyncer reaches its terminal chansSynced state.
 	syncedSignal chan struct{}
 
-	sync.Mutex
+	// syncerSema is used to more finely control the syncer's ability to
+	// respond to gossip timestamp range messages.
+	syncerSema chan struct{}
 
-	gossipFilterSema chan struct{}
+	sync.Mutex
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -410,7 +409,7 @@ type GossipSyncer struct {
 
 // newGossipSyncer returns a new instance of the GossipSyncer populated using
 // the passed config.
-func newGossipSyncer(cfg gossipSyncerCfg) *GossipSyncer {
+func newGossipSyncer(cfg gossipSyncerCfg, sema chan struct{}) *GossipSyncer {
 	// If no parameter was specified for max undelayed query replies, set it
 	// to the default of 5 queries.
 	if cfg.maxUndelayedQueryReplies <= 0 {
@@ -432,11 +431,6 @@ func newGossipSyncer(cfg gossipSyncerCfg) *GossipSyncer {
 		interval, cfg.maxUndelayedQueryReplies,
 	)
 
-	filterSema := make(chan struct{}, filterSemaSize)
-	for i := 0; i < filterSemaSize; i++ {
-		filterSema <- struct{}{}
-	}
-
 	return &GossipSyncer{
 		cfg:                cfg,
 		rateLimiter:        rateLimiter,
@@ -444,7 +438,7 @@ func newGossipSyncer(cfg gossipSyncerCfg) *GossipSyncer {
 		historicalSyncReqs: make(chan *historicalSyncReq),
 		gossipMsgs:         make(chan lnwire.Message, 100),
 		queryMsgs:          make(chan lnwire.Message, 100),
-		gossipFilterSema:   filterSema,
+		syncerSema:         sema,
 		quit:               make(chan struct{}),
 	}
 }
@@ -1332,12 +1326,25 @@ func (g *GossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) er
 		return nil
 	}
 
+	select {
+	case <-g.syncerSema:
+	case <-g.quit:
+		return ErrGossipSyncerExiting
+	}
+
+	// We don't put this in a defer because if the goroutine is launched,
+	// it needs to be called when the goroutine is stopped.
+	returnSema := func() {
+		g.syncerSema <- struct{}{}
+	}
+
 	// Now that the remote peer has applied their filter, we'll query the
 	// database for all the messages that are beyond this filter.
 	newUpdatestoSend, err := g.cfg.channelSeries.UpdatesInHorizon(
 		g.cfg.chainHash, startTime, endTime,
 	)
 	if err != nil {
+		returnSema()
 		return err
 	}
 
@@ -1347,22 +1354,15 @@ func (g *GossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) er
 
 	// If we don't have any to send, then we can return early.
 	if len(newUpdatestoSend) == 0 {
+		returnSema()
 		return nil
-	}
-
-	select {
-	case <-g.gossipFilterSema:
-	case <-g.quit:
-		return ErrGossipSyncerExiting
 	}
 
 	// We'll conclude by launching a goroutine to send out any updates.
 	g.wg.Add(1)
 	go func() {
 		defer g.wg.Done()
-		defer func() {
-			g.gossipFilterSema <- struct{}{}
-		}()
+		defer returnSema()
 
 		for _, msg := range newUpdatestoSend {
 			err := g.cfg.sendToPeerSync(msg)

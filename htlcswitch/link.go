@@ -3606,8 +3606,12 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 		switch fwdInfo.NextHop {
 		case hop.Exit:
+			addMsg := pd.ToLogUpdate().UpdateMsg
+			//nolint:forcetypeassert
+			add := *addMsg.(*lnwire.UpdateAddHTLC)
 			err := l.processExitHop(
-				pd, obfuscator, fwdInfo, heightNow, pld,
+				add, *pd.SourceRef, obfuscator, fwdInfo,
+				heightNow, pld,
 			)
 			if err != nil {
 				l.failf(LinkFailureError{
@@ -3790,9 +3794,10 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 // processExitHop handles an htlc for which this link is the exit hop. It
 // returns a boolean indicating whether the commitment tx needs an update.
-func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
-	obfuscator hop.ErrorEncrypter, fwdInfo hop.ForwardingInfo,
-	heightNow uint32, payload invoices.Payload) error {
+func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
+	sourceRef channeldb.AddRef, obfuscator hop.ErrorEncrypter,
+	fwdInfo hop.ForwardingInfo, heightNow uint32,
+	payload invoices.Payload) error {
 
 	// If hodl.ExitSettle is requested, we will not validate the final hop's
 	// ADD, nor will we settle the corresponding invoice or respond with the
@@ -3806,38 +3811,31 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// As we're the exit hop, we'll double check the hop-payload included in
 	// the HTLC to ensure that it was crafted correctly by the sender and
 	// is compatible with the HTLC we were extended.
-	if pd.Amount < fwdInfo.AmountToForward {
+	if add.Amount < fwdInfo.AmountToForward {
 		l.log.Errorf("onion payload of incoming htlc(%x) has "+
-			"incompatible value: expected <=%v, got %v", pd.RHash,
-			pd.Amount, fwdInfo.AmountToForward)
+			"incompatible value: expected <=%v, got %v",
+			add.PaymentHash, add.Amount, fwdInfo.AmountToForward)
 
 		failure := NewLinkError(
-			lnwire.NewFinalIncorrectHtlcAmount(pd.Amount),
+			lnwire.NewFinalIncorrectHtlcAmount(add.Amount),
 		)
-
-		addMsg := pd.ToLogUpdate().UpdateMsg
-		//nolint:forcetypeassert
-		add := *addMsg.(*lnwire.UpdateAddHTLC)
-		l.sendHTLCError(add, *pd.SourceRef, failure, obfuscator, true)
+		l.sendHTLCError(add, sourceRef, failure, obfuscator, true)
 
 		return nil
 	}
 
 	// We'll also ensure that our time-lock value has been computed
 	// correctly.
-	if pd.Timeout < fwdInfo.OutgoingCTLV {
+	if add.Expiry < fwdInfo.OutgoingCTLV {
 		l.log.Errorf("onion payload of incoming htlc(%x) has "+
 			"incompatible time-lock: expected <=%v, got %v",
-			pd.RHash[:], pd.Timeout, fwdInfo.OutgoingCTLV)
+			add.PaymentHash, add.Expiry, fwdInfo.OutgoingCTLV)
 
 		failure := NewLinkError(
-			lnwire.NewFinalIncorrectCltvExpiry(pd.Timeout),
+			lnwire.NewFinalIncorrectCltvExpiry(add.Expiry),
 		)
 
-		addMsg := pd.ToLogUpdate().UpdateMsg
-		//nolint:forcetypeassert
-		add := *addMsg.(*lnwire.UpdateAddHTLC)
-		l.sendHTLCError(add, *pd.SourceRef, failure, obfuscator, true)
+		l.sendHTLCError(add, sourceRef, failure, obfuscator, true)
 
 		return nil
 	}
@@ -3845,15 +3843,15 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// Notify the invoiceRegistry of the exit hop htlc. If we crash right
 	// after this, this code will be re-executed after restart. We will
 	// receive back a resolution event.
-	invoiceHash := lntypes.Hash(pd.RHash)
+	invoiceHash := lntypes.Hash(add.PaymentHash)
 
 	circuitKey := models.CircuitKey{
 		ChanID: l.ShortChanID(),
-		HtlcID: pd.HtlcIndex,
+		HtlcID: add.ID,
 	}
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
-		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
+		invoiceHash, add.Amount, add.Expiry, int32(heightNow),
 		circuitKey, l.hodlQueue.ChanIn(), payload,
 	)
 	if err != nil {
@@ -3862,7 +3860,16 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	// Create a hodlHtlc struct and decide either resolved now or later.
 	htlc := hodlHtlc{
-		pd:         pd,
+		pd: &lnwallet.PaymentDescriptor{
+			EntryType:     lnwallet.Add,
+			ChanID:        add.ChanID,
+			RHash:         add.PaymentHash,
+			Timeout:       add.Expiry,
+			Amount:        add.Amount,
+			HtlcIndex:     add.ID,
+			SourceRef:     &sourceRef,
+			BlindingPoint: add.BlindingPoint,
+		},
 		obfuscator: obfuscator,
 	}
 

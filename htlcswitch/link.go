@@ -993,15 +993,7 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) error {
 	// If the package is fully acked but not completed, it must still have
 	// settles and fails to propagate.
 	if !fwdPkg.SettleFailFilter.IsFull() {
-		settleFails, err := lnwallet.PayDescsFromRemoteLogUpdates(
-			fwdPkg.Source, fwdPkg.Height, fwdPkg.SettleFails,
-		)
-		if err != nil {
-			l.log.Errorf("unable to process remote log updates: %v",
-				err)
-			return err
-		}
-		l.processRemoteSettleFails(fwdPkg, settleFails)
+		l.processRemoteSettleFails(fwdPkg)
 	}
 
 	// Finally, replay *ALL ADDS* in this forwarding package. The
@@ -2329,7 +2321,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 
 		// We now process the message and advance our remote commit
 		// chain.
-		fwdPkg, _, settleFails, remoteHTLCs, err := l.channel.
+		fwdPkg, _, _, remoteHTLCs, err := l.channel.
 			ReceiveRevocation(msg)
 		if err != nil {
 			// TODO(halseth): force close?
@@ -2380,7 +2372,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			}
 		}
 
-		l.processRemoteSettleFails(fwdPkg, settleFails)
+		l.processRemoteSettleFails(fwdPkg)
 		l.processRemoteAdds(fwdPkg)
 
 		// If the link failed during processing the adds, we must
@@ -3287,17 +3279,17 @@ func (l *channelLink) updateChannelFee(feePerKw chainfee.SatPerKWeight) error {
 // the context of the provided forwarding package. Any settles or fails that
 // have already been acknowledged in the forwarding package will not be sent to
 // the switch.
-func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
-	settleFails []*lnwallet.PaymentDescriptor) {
-
-	if len(settleFails) == 0 {
+func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg) {
+	if len(fwdPkg.SettleFails) == 0 {
 		return
 	}
 
 	l.log.Debugf("settle-fail-filter: %v", fwdPkg.SettleFailFilter)
 
 	var switchPackets []*htlcPacket
-	for i, pd := range settleFails {
+	for i, update := range fwdPkg.SettleFails {
+		destRef := fwdPkg.DestRef(uint16(i))
+
 		// Skip any settles or fails that have already been
 		// acknowledged by the incoming link that originated the
 		// forwarded Add.
@@ -3308,12 +3300,11 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 		// TODO(roasbeef): rework log entries to a shared
 		// interface.
 
-		switch pd.EntryType {
-
+		switch msg := update.UpdateMsg.(type) {
 		// A settle for an HTLC we previously forwarded HTLC has been
 		// received. So we'll forward the HTLC to the switch which will
 		// handle propagating the settle to the prior hop.
-		case lnwallet.Settle:
+		case *lnwire.UpdateFulfillHTLC:
 			// If hodl.SettleIncoming is requested, we will not
 			// forward the SETTLE to the switch and will not signal
 			// a free slot on the commitment transaction.
@@ -3324,11 +3315,9 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 
 			settlePacket := &htlcPacket{
 				outgoingChanID: l.ShortChanID(),
-				outgoingHTLCID: pd.ParentIndex,
-				destRef:        pd.DestRef,
-				htlc: &lnwire.UpdateFulfillHTLC{
-					PaymentPreimage: pd.RPreimage,
-				},
+				outgoingHTLCID: msg.ID,
+				destRef:        &destRef,
+				htlc:           msg,
 			}
 
 			// Add the packet to the batch to be forwarded, and
@@ -3340,7 +3329,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 		// been received. As a result a new slot will be freed up in
 		// our commitment state, so we'll forward this to the switch so
 		// the backwards undo can continue.
-		case lnwallet.Fail:
+		case *lnwire.UpdateFailHTLC:
 			// If hodl.SettleIncoming is requested, we will not
 			// forward the FAIL to the switch and will not signal a
 			// free slot on the commitment transaction.
@@ -3355,16 +3344,12 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 			// set on the packet.
 			failPacket := &htlcPacket{
 				outgoingChanID: l.ShortChanID(),
-				outgoingHTLCID: pd.ParentIndex,
-				destRef:        pd.DestRef,
-				htlc: &lnwire.UpdateFailHTLC{
-					Reason: lnwire.OpaqueReason(
-						pd.FailReason,
-					),
-				},
+				outgoingHTLCID: msg.ID,
+				destRef:        &destRef,
+				htlc:           msg,
 			}
 
-			l.log.Debugf("Failed to send %s", pd.Amount)
+			l.log.Debugf("Failed to send HTLC with ID=%d", msg.ID)
 
 			// If the failure message lacks an HMAC (but includes
 			// the 4 bytes for encoding the message and padding
@@ -3374,7 +3359,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 			// to an actual error, by encrypting it as if we were
 			// the originating hop.
 			convertedErrorSize := lnwire.FailureMessageLength + 4
-			if len(pd.FailReason) == convertedErrorSize {
+			if len(msg.Reason) == convertedErrorSize {
 				failPacket.convertedError = true
 			}
 

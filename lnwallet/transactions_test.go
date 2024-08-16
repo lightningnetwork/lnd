@@ -366,7 +366,7 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	revMsg, _, _, err := remoteChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
 
-	_, _, _, _, err = localChannel.ReceiveRevocation(revMsg)
+	_, _, err = localChannel.ReceiveRevocation(revMsg)
 	require.NoError(t, err)
 
 	remoteNewCommit, err := remoteChannel.SignNextCommitment()

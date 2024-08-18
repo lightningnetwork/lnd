@@ -3972,7 +3972,7 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 	)
 }
 
-// sendPeerHTLCFailure handles sending a HTLC failure message back to the
+// sendIncomingHTLCFailureMsg handles sending a HTLC failure message back to the
 // peer from which the HTLC was received. This function is primarily used to
 // handle the special requirements of route blinding, specifically:
 // - Forwarding nodes must switch out any errors with MalformedFailHTLC

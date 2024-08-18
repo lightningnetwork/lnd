@@ -1212,7 +1212,7 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	}
 
 	// Now that the links have been notified of any state changes to their
-	// HTLCs, we'll go ahead and notify any clients wiaiting on the invoice
+	// HTLCs, we'll go ahead and notify any clients waiting on the invoice
 	// state changes.
 	if updateSubscribers {
 		// We'll add a setID onto the notification, but only if this is

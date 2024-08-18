@@ -973,6 +973,10 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	}
 
 	if invoiceToExpire != nil {
+		// At this point there is already a timestamp expiryWatcher
+		// registered, however in case the invoice expires earlier than
+		// the accepted htlc whose expiry is based on blockheight, the
+		// htlc and the invoice will not be canceled.
 		i.expiryWatcher.AddInvoices(invoiceToExpire)
 	}
 

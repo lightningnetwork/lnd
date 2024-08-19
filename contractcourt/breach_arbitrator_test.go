@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1630,7 +1631,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 		ShortChanID:             state.ShortChanID(),
 		RemoteCurrentRevocation: state.RemoteCurrentRevocation,
 		RemoteNextRevocation:    state.RemoteNextRevocation,
-		LocalChanConfig:         state.LocalChanCfg,
+		LocalChanConfig:         state.ChanCfgs.Local,
 	})
 	require.NoError(t, err, "unable to close channel")
 
@@ -1841,7 +1842,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 		ShortChanID:             state.ShortChanID(),
 		RemoteCurrentRevocation: state.RemoteCurrentRevocation,
 		RemoteNextRevocation:    state.RemoteNextRevocation,
-		LocalChanConfig:         state.LocalChanCfg,
+		LocalChanConfig:         state.ChanCfgs.Local,
 	})
 	require.NoError(t, err, "unable to close channel")
 
@@ -2320,8 +2321,10 @@ func createInitChannels(t *testing.T) (
 	)
 
 	aliceChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            aliceCfg,
-		RemoteChanCfg:           bobCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  aliceCfg,
+			Remote: bobCfg,
+		},
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,
@@ -2338,8 +2341,10 @@ func createInitChannels(t *testing.T) (
 		FundingTxn:              channels.TestFundingTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            bobCfg,
-		RemoteChanCfg:           aliceCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  bobCfg,
+			Remote: aliceCfg,
+		},
 		IdentityPub:             bobKeyPub,
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,

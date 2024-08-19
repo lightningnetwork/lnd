@@ -963,7 +963,8 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	}
 
 	// The rest of the close summary should have been populated properly.
-	aliceDelayPoint := aliceChannel.channelState.LocalChanCfg.DelayBasePoint
+	aliceDelayPoint :=
+		aliceChannel.channelState.ChanCfgs.Local.DelayBasePoint
 	if !aliceCommitResolution.SelfOutputSignDesc.KeyDesc.PubKey.IsEqual(
 		aliceDelayPoint.PubKey,
 	) {
@@ -991,11 +992,11 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	// Alice's listed CSV delay should also match the delay that was
 	// pre-committed to at channel opening.
 	if aliceCommitResolution.MaturityDelay !=
-		uint32(aliceChannel.channelState.LocalChanCfg.CsvDelay) {
+		uint32(aliceChannel.channelState.ChanCfgs.Local.CsvDelay) {
 
 		t.Fatalf("alice: incorrect local CSV delay in ForceCloseSummary, "+
 			"expected %v, got %v",
-			aliceChannel.channelState.LocalChanCfg.CsvDelay,
+			aliceChannel.channelState.ChanCfgs.Local.CsvDelay,
 			aliceCommitResolution.MaturityDelay)
 	}
 
@@ -1039,7 +1040,7 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	})
 	htlcResolution.SweepSignDesc.InputIndex = 0
 
-	csvDelay := uint32(aliceChannel.channelState.LocalChanCfg.CsvDelay)
+	csvDelay := uint32(aliceChannel.channelState.ChanCfgs.Local.CsvDelay)
 	if testCase.chanType.IsTaproot() {
 		sweepTx.TxIn[0].Sequence = input.LockTimeToSequence(
 			false, csvDelay,
@@ -1141,7 +1142,8 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 		sweepTx.TxIn[0].Witness, err = input.HtlcSpendSuccess(
 			aliceChannel.Signer, &inHtlcResolution.SweepSignDesc,
 			sweepTx,
-			uint32(aliceChannel.channelState.LocalChanCfg.CsvDelay),
+			//nolint:lll
+			uint32(aliceChannel.channelState.ChanCfgs.Local.CsvDelay),
 		)
 	}
 	require.NoError(t, err, "unable to gen witness for timeout output")
@@ -1171,7 +1173,7 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	if bobCommitResolution == nil {
 		t.Fatalf("bob fails to include to-self output in ForceCloseSummary")
 	}
-	bobDelayPoint := bobChannel.channelState.LocalChanCfg.DelayBasePoint
+	bobDelayPoint := bobChannel.channelState.ChanCfgs.Local.DelayBasePoint
 	if !bobCommitResolution.SelfOutputSignDesc.KeyDesc.PubKey.IsEqual(bobDelayPoint.PubKey) {
 		t.Fatalf("bob incorrect pubkey in SelfOutputSignDesc")
 	}
@@ -1184,11 +1186,11 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 			int64(bobCommitResolution.SelfOutputSignDesc.Output.Value))
 	}
 	if bobCommitResolution.MaturityDelay !=
-		uint32(bobChannel.channelState.LocalChanCfg.CsvDelay) {
+		uint32(bobChannel.channelState.ChanCfgs.Local.CsvDelay) {
 
 		t.Fatalf("bob: incorrect local CSV delay in ForceCloseSummary, "+
 			"expected %v, got %v",
-			bobChannel.channelState.LocalChanCfg.CsvDelay,
+			bobChannel.channelState.ChanCfgs.Local.CsvDelay,
 			bobCommitResolution.MaturityDelay)
 	}
 
@@ -1234,10 +1236,10 @@ func TestForceCloseDustOutput(t *testing.T) {
 	// We set both node's channel reserves to 0, to make sure
 	// they can create small dust outputs without going under
 	// their channel reserves.
-	aliceChannel.channelState.LocalChanCfg.ChanReserve = 0
-	bobChannel.channelState.LocalChanCfg.ChanReserve = 0
-	aliceChannel.channelState.RemoteChanCfg.ChanReserve = 0
-	bobChannel.channelState.RemoteChanCfg.ChanReserve = 0
+	aliceChannel.channelState.ChanCfgs.Local.ChanReserve = 0
+	bobChannel.channelState.ChanCfgs.Local.ChanReserve = 0
+	aliceChannel.channelState.ChanCfgs.Remote.ChanReserve = 0
+	bobChannel.channelState.ChanCfgs.Remote.ChanReserve = 0
 
 	htlcAmount := lnwire.NewMSatFromSatoshis(500)
 
@@ -1280,7 +1282,7 @@ func TestForceCloseDustOutput(t *testing.T) {
 			"ForceCloseSummary")
 	}
 	if !commitResolution.SelfOutputSignDesc.KeyDesc.PubKey.IsEqual(
-		aliceChannel.channelState.LocalChanCfg.DelayBasePoint.PubKey,
+		aliceChannel.channelState.ChanCfgs.Local.DelayBasePoint.PubKey,
 	) {
 		t.Fatalf("alice incorrect pubkey in SelfOutputSignDesc")
 	}
@@ -1293,10 +1295,11 @@ func TestForceCloseDustOutput(t *testing.T) {
 	}
 
 	if commitResolution.MaturityDelay !=
-		uint32(aliceChannel.channelState.LocalChanCfg.CsvDelay) {
+		uint32(aliceChannel.channelState.ChanCfgs.Local.CsvDelay) {
+
 		t.Fatalf("alice: incorrect local CSV delay in ForceCloseSummary, "+
 			"expected %v, got %v",
-			aliceChannel.channelState.LocalChanCfg.CsvDelay,
+			aliceChannel.channelState.ChanCfgs.Local.CsvDelay,
 			commitResolution.MaturityDelay)
 	}
 
@@ -1657,8 +1660,8 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 
 	// To allow Alice's balance to get beneath her dust limit, set the
 	// channel reserve to be 0.
-	aliceChannel.channelState.LocalChanCfg.ChanReserve = 0
-	bobChannel.channelState.RemoteChanCfg.ChanReserve = 0
+	aliceChannel.channelState.ChanCfgs.Local.ChanReserve = 0
+	bobChannel.channelState.ChanCfgs.Remote.ChanReserve = 0
 
 	// This amount should leave an amount larger than Alice's dust limit
 	// once fees have been subtracted, but smaller than Bob's dust limit.
@@ -2180,10 +2183,10 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	)
 
 	setDustLimit := func(dustVal btcutil.Amount) {
-		aliceChannel.channelState.LocalChanCfg.DustLimit = dustVal
-		aliceChannel.channelState.RemoteChanCfg.DustLimit = dustVal
-		bobChannel.channelState.LocalChanCfg.DustLimit = dustVal
-		bobChannel.channelState.RemoteChanCfg.DustLimit = dustVal
+		aliceChannel.channelState.ChanCfgs.Local.DustLimit = dustVal
+		aliceChannel.channelState.ChanCfgs.Remote.DustLimit = dustVal
+		bobChannel.channelState.ChanCfgs.Local.DustLimit = dustVal
+		bobChannel.channelState.ChanCfgs.Remote.DustLimit = dustVal
 	}
 
 	resetChannelState := func() {
@@ -2871,7 +2874,7 @@ func TestAddHTLCNegativeBalance(t *testing.T) {
 
 	// We set the channel reserve to 0, such that we can add HTLCs all the
 	// way to a negative balance.
-	aliceChannel.channelState.LocalChanCfg.ChanReserve = 0
+	aliceChannel.channelState.ChanCfgs.Local.ChanReserve = 0
 
 	// First, we'll add 3 HTLCs of 1 BTC each to Alice's commitment.
 	const numHTLCs = 3
@@ -4971,7 +4974,7 @@ func TestChanAvailableBandwidth(t *testing.T) {
 	require.NoError(t, err, "unable to create test channels")
 
 	aliceReserve := lnwire.NewMSatFromSatoshis(
-		aliceChannel.channelState.LocalChanCfg.ChanReserve,
+		aliceChannel.channelState.ChanCfgs.Local.ChanReserve,
 	)
 	feeRate := chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
@@ -5117,14 +5120,14 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 	bobBalance := lnwire.NewMSatFromSatoshis(5 * btcutil.SatoshiPerBitcoin)
 
 	aliceReserve := lnwire.NewMSatFromSatoshis(
-		aliceChannel.channelState.LocalChanCfg.ChanReserve,
+		aliceChannel.channelState.ChanCfgs.Local.ChanReserve,
 	)
 	bobReserve := lnwire.NewMSatFromSatoshis(
-		bobChannel.channelState.LocalChanCfg.ChanReserve,
+		bobChannel.channelState.ChanCfgs.Local.ChanReserve,
 	)
 
 	aliceDustlimit := lnwire.NewMSatFromSatoshis(
-		aliceChannel.channelState.LocalChanCfg.DustLimit,
+		aliceChannel.channelState.ChanCfgs.Local.DustLimit,
 	)
 	feeRate := chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
@@ -5304,10 +5307,10 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 	require.NoError(t, err, "unable to create test channels")
 
 	aliceDustlimit := lnwire.NewMSatFromSatoshis(
-		aliceChannel.channelState.LocalChanCfg.DustLimit,
+		aliceChannel.channelState.ChanCfgs.Local.DustLimit,
 	)
 	bobDustlimit := lnwire.NewMSatFromSatoshis(
-		bobChannel.channelState.LocalChanCfg.DustLimit,
+		bobChannel.channelState.ChanCfgs.Local.DustLimit,
 	)
 
 	feeRate := chainfee.SatPerKWeight(
@@ -6171,14 +6174,14 @@ func TestMaxAcceptedHTLCs(t *testing.T) {
 
 	// Set the remote's required MaxAcceptedHtlcs. This means that Alice
 	// can only offer the remote up to numHTLCs HTLCs.
-	aliceChannel.channelState.LocalChanCfg.MaxAcceptedHtlcs = numHTLCs
-	bobChannel.channelState.RemoteChanCfg.MaxAcceptedHtlcs = numHTLCs
+	aliceChannel.channelState.ChanCfgs.Local.MaxAcceptedHtlcs = numHTLCs
+	bobChannel.channelState.ChanCfgs.Remote.MaxAcceptedHtlcs = numHTLCs
 
 	// Similarly, set the remote config's MaxAcceptedHtlcs. This means
 	// that the remote will be aware that Bob will only accept up to
 	// numHTLCs at a time.
-	aliceChannel.channelState.RemoteChanCfg.MaxAcceptedHtlcs = numHTLCs
-	bobChannel.channelState.LocalChanCfg.MaxAcceptedHtlcs = numHTLCs
+	aliceChannel.channelState.ChanCfgs.Remote.MaxAcceptedHtlcs = numHTLCs
+	bobChannel.channelState.ChanCfgs.Local.MaxAcceptedHtlcs = numHTLCs
 
 	// Each HTLC amount is 0.1 BTC.
 	htlcAmt := lnwire.NewMSatFromSatoshis(0.1 * btcutil.SatoshiPerBitcoin)
@@ -6298,14 +6301,14 @@ func TestMaxAsynchronousHtlcs(t *testing.T) {
 
 	// Set the remote's required MaxAcceptedHtlcs. This means that Alice
 	// can only offer the remote up to numHTLCs HTLCs.
-	aliceChannel.channelState.LocalChanCfg.MaxAcceptedHtlcs = numHTLCs
-	bobChannel.channelState.RemoteChanCfg.MaxAcceptedHtlcs = numHTLCs
+	aliceChannel.channelState.ChanCfgs.Local.MaxAcceptedHtlcs = numHTLCs
+	bobChannel.channelState.ChanCfgs.Remote.MaxAcceptedHtlcs = numHTLCs
 
 	// Similarly, set the remote config's MaxAcceptedHtlcs. This means
 	// that the remote will be aware that Bob will only accept up to
 	// numHTLCs at a time.
-	aliceChannel.channelState.RemoteChanCfg.MaxAcceptedHtlcs = numHTLCs
-	bobChannel.channelState.LocalChanCfg.MaxAcceptedHtlcs = numHTLCs
+	aliceChannel.channelState.ChanCfgs.Remote.MaxAcceptedHtlcs = numHTLCs
+	bobChannel.channelState.ChanCfgs.Local.MaxAcceptedHtlcs = numHTLCs
 
 	// Each HTLC amount is 0.1 BTC.
 	htlcAmt := lnwire.NewMSatFromSatoshis(0.1 * btcutil.SatoshiPerBitcoin)
@@ -6413,8 +6416,8 @@ func TestMaxPendingAmount(t *testing.T) {
 	// We set the max pending amount of Alice's config. This mean that she
 	// cannot offer Bob HTLCs with a total value above this limit at a given
 	// time.
-	aliceChannel.channelState.LocalChanCfg.MaxPendingAmount = maxPending
-	bobChannel.channelState.RemoteChanCfg.MaxPendingAmount = maxPending
+	aliceChannel.channelState.ChanCfgs.Local.MaxPendingAmount = maxPending
+	bobChannel.channelState.ChanCfgs.Remote.MaxPendingAmount = maxPending
 
 	// First, we'll add 2 HTLCs of 1.5 BTC each to Alice's commitment.
 	// This won't trigger Alice's ErrMaxPendingAmount error.
@@ -6497,20 +6500,24 @@ func TestChanReserve(t *testing.T) {
 
 		// Alice will need to keep her reserve above aliceMinReserve,
 		// so set this limit to here local config.
-		aliceChannel.channelState.LocalChanCfg.ChanReserve = aliceMinReserve
+		aliceChannel.channelState.ChanCfgs.Local.ChanReserve =
+			aliceMinReserve
 
 		// During channel opening Bob will also get to know Alice's
 		// minimum reserve, and this will be found in his remote
 		// config.
-		bobChannel.channelState.RemoteChanCfg.ChanReserve = aliceMinReserve
+		bobChannel.channelState.ChanCfgs.Remote.ChanReserve =
+			aliceMinReserve
 
 		// We set Bob's channel reserve to a value that is larger than
 		// his current balance in the channel. This will ensure that
 		// after a channel is first opened, Bob can still receive HTLCs
 		// even though his balance is less than his channel reserve.
 		bobMinReserve := btcutil.Amount(6 * btcutil.SatoshiPerBitcoin)
-		bobChannel.channelState.LocalChanCfg.ChanReserve = bobMinReserve
-		aliceChannel.channelState.RemoteChanCfg.ChanReserve = bobMinReserve
+		bobChannel.channelState.ChanCfgs.Local.ChanReserve =
+			bobMinReserve
+		aliceChannel.channelState.ChanCfgs.Remote.ChanReserve =
+			bobMinReserve
 
 		return aliceChannel, bobChannel
 	}
@@ -6693,8 +6700,8 @@ func TestChanReserveRemoteInitiator(t *testing.T) {
 	commitFee := aliceChannel.channelState.LocalCommitment.CommitFee
 	aliceMinReserve := 5*btcutil.SatoshiPerBitcoin - commitFee
 
-	aliceChannel.channelState.LocalChanCfg.ChanReserve = aliceMinReserve
-	bobChannel.channelState.RemoteChanCfg.ChanReserve = aliceMinReserve
+	aliceChannel.channelState.ChanCfgs.Local.ChanReserve = aliceMinReserve
+	bobChannel.channelState.ChanCfgs.Remote.ChanReserve = aliceMinReserve
 
 	// Now let Bob attempt to add an HTLC of 0.1 BTC. He has plenty of
 	// money available to spend, but Alice, which is the initiator, cannot
@@ -6748,8 +6755,8 @@ func TestChanReserveLocalInitiatorDustHtlc(t *testing.T) {
 	commitFee := aliceChannel.channelState.LocalCommitment.CommitFee
 	aliceMinReserve := 5*btcutil.SatoshiPerBitcoin - commitFee - htlcSat
 
-	aliceChannel.channelState.LocalChanCfg.ChanReserve = aliceMinReserve
-	bobChannel.channelState.RemoteChanCfg.ChanReserve = aliceMinReserve
+	aliceChannel.channelState.ChanCfgs.Local.ChanReserve = aliceMinReserve
+	bobChannel.channelState.ChanCfgs.Remote.ChanReserve = aliceMinReserve
 
 	htlcDustAmt := lnwire.NewMSatFromSatoshis(htlcSat)
 	htlc, _ := createHTLC(0, htlcDustAmt)
@@ -6778,8 +6785,8 @@ func TestMinHTLC(t *testing.T) {
 
 	// Setting the min value in Alice's local config means that the
 	// remote will not accept any HTLCs of value less than specified.
-	aliceChannel.channelState.LocalChanCfg.MinHTLC = minValue
-	bobChannel.channelState.RemoteChanCfg.MinHTLC = minValue
+	aliceChannel.channelState.ChanCfgs.Local.MinHTLC = minValue
+	bobChannel.channelState.ChanCfgs.Remote.MinHTLC = minValue
 
 	// First, we will add an HTLC of 0.5 BTC. This will not trigger
 	// ErrBelowMinHTLC.
@@ -6823,8 +6830,8 @@ func TestInvalidHTLCAmt(t *testing.T) {
 
 	// We'll set the min HTLC values for each party to zero, which
 	// technically would permit zero-value HTLCs.
-	aliceChannel.channelState.LocalChanCfg.MinHTLC = 0
-	bobChannel.channelState.RemoteChanCfg.MinHTLC = 0
+	aliceChannel.channelState.ChanCfgs.Local.MinHTLC = 0
+	bobChannel.channelState.ChanCfgs.Remote.MinHTLC = 0
 
 	// Create a zero-value HTLC.
 	htlcAmt := lnwire.MilliSatoshi(0)
@@ -6862,10 +6869,10 @@ func TestNewBreachRetributionSkipsDustHtlcs(t *testing.T) {
 	// We'll modify the dust settings on both channels to be a predictable
 	// value for the prurpose of the test.
 	dustValue := btcutil.Amount(200)
-	aliceChannel.channelState.LocalChanCfg.DustLimit = dustValue
-	aliceChannel.channelState.RemoteChanCfg.DustLimit = dustValue
-	bobChannel.channelState.LocalChanCfg.DustLimit = dustValue
-	bobChannel.channelState.RemoteChanCfg.DustLimit = dustValue
+	aliceChannel.channelState.ChanCfgs.Local.DustLimit = dustValue
+	aliceChannel.channelState.ChanCfgs.Remote.DustLimit = dustValue
+	bobChannel.channelState.ChanCfgs.Local.DustLimit = dustValue
+	bobChannel.channelState.ChanCfgs.Remote.DustLimit = dustValue
 
 	// We'll now create a series of dust HTLC's, and send then from Alice
 	// to Bob, finally locking both of them in.
@@ -9272,7 +9279,7 @@ func TestMayAddOutgoingHtlc(t *testing.T) {
 
 	// Hard set alice's min htlc to zero and test the case where we just
 	// fall back to a non-zero value.
-	aliceChannel.channelState.LocalChanCfg.MinHTLC = 0
+	aliceChannel.channelState.ChanCfgs.Local.MinHTLC = 0
 	require.NoError(t, aliceChannel.MayAddOutgoingHtlc(0))
 }
 
@@ -9605,12 +9612,12 @@ func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
 func deriveDummyRetributionParams(chanState *channeldb.OpenChannel) (uint32,
 	*CommitmentKeyRing, chainhash.Hash) {
 
-	config := chanState.RemoteChanCfg
+	config := chanState.ChanCfgs.Remote
 	commitHash := chanState.RemoteCommitment.CommitTx.TxHash()
 	keyRing := DeriveCommitmentKeys(
 		config.RevocationBasePoint.PubKey, lntypes.Remote,
-		chanState.ChanType, &chanState.LocalChanCfg,
-		&chanState.RemoteChanCfg,
+		chanState.ChanType, &chanState.ChanCfgs.Local,
+		&chanState.ChanCfgs.Remote,
 	)
 	leaseExpiry := chanState.ThawHeight
 	return leaseExpiry, keyRing, commitHash
@@ -9966,7 +9973,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	breachHeight := uint32(101)
 	stateNum := uint64(0)
 	chainHash := aliceChannel.channelState.ChainHash
-	theirDelay := uint32(aliceChannel.channelState.RemoteChanCfg.CsvDelay)
+	theirDelay := uint32(aliceChannel.channelState.ChanCfgs.Remote.CsvDelay)
 	breachTx := aliceChannel.channelState.RemoteCommitment.CommitTx
 
 	// Create a breach retribution at height 0, which should give us an
@@ -10313,7 +10320,7 @@ func TestAsynchronousSendingContraint(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	aliceReserve := aliceChannel.channelState.LocalChanCfg.ChanReserve
+	aliceReserve := aliceChannel.channelState.ChanCfgs.Local.ChanReserve
 
 	capacity := aliceChannel.channelState.Capacity
 
@@ -10348,7 +10355,7 @@ func TestAsynchronousSendingContraint(t *testing.T) {
 	// We need to take the remote dustlimit amount, because it the greater
 	// one.
 	htlcAmt2 := lnwire.NewMSatFromSatoshis(
-		aliceChannel.channelState.RemoteChanCfg.DustLimit + htlcFee,
+		aliceChannel.channelState.ChanCfgs.Remote.DustLimit + htlcFee,
 	)
 	htlc2, _ := createHTLC(0, htlcAmt2)
 
@@ -10446,7 +10453,7 @@ func TestAsynchronousSendingWithFeeBuffer(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	aliceReserve := aliceChannel.channelState.LocalChanCfg.ChanReserve
+	aliceReserve := aliceChannel.channelState.ChanCfgs.Local.ChanReserve
 
 	capacity := aliceChannel.channelState.Capacity
 
@@ -10480,7 +10487,7 @@ func TestAsynchronousSendingWithFeeBuffer(t *testing.T) {
 	// make sure this htlc is non-dust for alice.
 	htlcFee := HtlcSuccessFee(channeldb.SingleFunderTweaklessBit, feePerKw)
 	htlcAmt2 := lnwire.NewMSatFromSatoshis(
-		aliceChannel.channelState.LocalChanCfg.DustLimit + htlcFee,
+		aliceChannel.channelState.ChanCfgs.Local.DustLimit + htlcFee,
 	)
 	htlc2, _ := createHTLC(0, htlcAmt2)
 	_, err = bobChannel.AddHTLC(htlc2, nil)
@@ -10564,7 +10571,7 @@ func TestAsynchronousSendingWithFeeBuffer(t *testing.T) {
 	// Update the non-dust amount because we updated the fee by 100%.
 	htlcFee = HtlcSuccessFee(channeldb.SingleFunderTweaklessBit, feePerKw*2)
 	htlcAmt3 := lnwire.NewMSatFromSatoshis(
-		aliceChannel.channelState.LocalChanCfg.DustLimit + htlcFee,
+		aliceChannel.channelState.ChanCfgs.Local.DustLimit + htlcFee,
 	)
 	htlc3, _ := createHTLC(1, htlcAmt3)
 	_, err = bobChannel.AddHTLC(htlc3, nil)
@@ -10641,7 +10648,7 @@ func TestEnforceFeeBuffer(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	aliceReserve := aliceChannel.channelState.LocalChanCfg.ChanReserve
+	aliceReserve := aliceChannel.channelState.ChanCfgs.Local.ChanReserve
 
 	capacity := aliceChannel.channelState.Capacity
 

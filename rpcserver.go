@@ -3661,8 +3661,10 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 				Capacity:             int64(pendingChan.Capacity),
 				LocalBalance:         int64(localCommitment.LocalBalance.ToSatoshis()),
 				RemoteBalance:        int64(localCommitment.RemoteBalance.ToSatoshis()),
-				LocalChanReserveSat:  int64(pendingChan.LocalChanCfg.ChanReserve),
-				RemoteChanReserveSat: int64(pendingChan.RemoteChanCfg.ChanReserve),
+				//nolint:lll
+				LocalChanReserveSat: int64(pendingChan.ChanCfgs.Local.ChanReserve),
+				//nolint:lll
+				RemoteChanReserveSat: int64(pendingChan.ChanCfgs.Remote.ChanReserve),
 				Initiator:            rpcInitiator(pendingChan.IsInitiator),
 				CommitmentType:       rpcCommitmentType(pendingChan.ChanType),
 				Private:              isPrivate(pendingChan),
@@ -3951,8 +3953,10 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 			Capacity:              int64(waitingClose.Capacity),
 			LocalBalance:          int64(waitingClose.LocalCommitment.LocalBalance.ToSatoshis()),
 			RemoteBalance:         int64(waitingClose.LocalCommitment.RemoteBalance.ToSatoshis()),
-			LocalChanReserveSat:   int64(waitingClose.LocalChanCfg.ChanReserve),
-			RemoteChanReserveSat:  int64(waitingClose.RemoteChanCfg.ChanReserve),
+			//nolint:lll
+			LocalChanReserveSat: int64(waitingClose.ChanCfgs.Local.ChanReserve),
+			//nolint:lll
+			RemoteChanReserveSat:  int64(waitingClose.ChanCfgs.Remote.ChanReserve),
 			Initiator:             rpcInitiator(waitingClose.IsInitiator),
 			CommitmentType:        rpcCommitmentType(waitingClose.ChanType),
 			NumForwardingPackages: int64(len(fwdPkgs)),
@@ -4473,10 +4477,10 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 		CommitmentType:        commitmentType,
 		ThawHeight:            dbChannel.ThawHeight,
 		LocalConstraints: createChannelConstraint(
-			&dbChannel.LocalChanCfg,
+			&dbChannel.ChanCfgs.Local,
 		),
 		RemoteConstraints: createChannelConstraint(
-			&dbChannel.RemoteChanCfg,
+			&dbChannel.ChanCfgs.Remote,
 		),
 		AliasScids:            make([]uint64, 0, len(channelAliases)),
 		PeerScidAlias:         peerScidAlias.ToUint64(),
@@ -4484,9 +4488,11 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 		ZeroConfConfirmedScid: dbChannel.ZeroConfRealScid().ToUint64(),
 		Memo:                  string(dbChannel.Memo),
 		// TODO: remove the following deprecated fields
-		CsvDelay:             uint32(dbChannel.LocalChanCfg.CsvDelay),
-		LocalChanReserveSat:  int64(dbChannel.LocalChanCfg.ChanReserve),
-		RemoteChanReserveSat: int64(dbChannel.RemoteChanCfg.ChanReserve),
+		CsvDelay: uint32(dbChannel.ChanCfgs.Local.CsvDelay),
+		//nolint:lll
+		LocalChanReserveSat: int64(dbChannel.ChanCfgs.Local.ChanReserve),
+		//nolint:lll
+		RemoteChanReserveSat: int64(dbChannel.ChanCfgs.Remote.ChanReserve),
 	}
 
 	// Look up our channel peer's node alias if the caller requests it.

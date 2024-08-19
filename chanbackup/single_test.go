@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnencrypt"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/stretchr/testify/require"
@@ -194,9 +195,11 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 		),
 		ThawHeight:         rand.Uint32(),
 		IdentityPub:        pub,
-		LocalChanCfg:       localCfg,
-		RemoteChanCfg:      remoteCfg,
 		RevocationProducer: shaChainProducer,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  localCfg,
+			Remote: remoteCfg,
+		},
 	}, nil
 }
 

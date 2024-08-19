@@ -2241,8 +2241,8 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// As we've completed the funding process, we'll no convert the
 	// contribution structs into their underlying channel config objects to
 	// he stored within the database.
-	res.partialState.LocalChanCfg = res.ourContribution.toChanConfig()
-	res.partialState.RemoteChanCfg = res.theirContribution.toChanConfig()
+	res.partialState.ChanCfgs.Local = res.ourContribution.toChanConfig()
+	res.partialState.ChanCfgs.Remote = res.theirContribution.toChanConfig()
 
 	// We'll also record the finalized funding txn, which will allow us to
 	// rebroadcast on startup in case we fail.
@@ -2418,8 +2418,10 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 
 	// Add the complete funding transaction to the DB, in it's open bucket
 	// which will be used for the lifetime of this channel.
-	chanState.LocalChanCfg = pendingReservation.ourContribution.toChanConfig()
-	chanState.RemoteChanCfg = pendingReservation.theirContribution.toChanConfig()
+	chanState.ChanCfgs.Local =
+		pendingReservation.ourContribution.toChanConfig()
+	chanState.ChanCfgs.Remote =
+		pendingReservation.theirContribution.toChanConfig()
 
 	chanState.RevocationKeyLocator = pendingReservation.nextRevocationKeyLoc
 
@@ -2510,8 +2512,8 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 		return err
 	}
 
-	localKey := channelState.LocalChanCfg.MultiSigKey.PubKey
-	remoteKey := channelState.RemoteChanCfg.MultiSigKey.PubKey
+	localKey := channelState.ChanCfgs.Local.MultiSigKey.PubKey
+	remoteKey := channelState.ChanCfgs.Remote.MultiSigKey.PubKey
 
 	// We'll also need the multi-sig witness script itself so the
 	// chanvalidate package can check it for correctness against the

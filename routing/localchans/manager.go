@@ -295,9 +295,9 @@ func (r *Manager) createEdge(channel *channeldb.OpenChannel,
 
 	nodeKey1Bytes := r.SelfPub.SerializeCompressed()
 	nodeKey2Bytes := channel.IdentityPub.SerializeCompressed()
-	bitcoinKey1Bytes := channel.LocalChanCfg.MultiSigKey.PubKey.
+	bitcoinKey1Bytes := channel.ChanCfgs.Local.MultiSigKey.PubKey.
 		SerializeCompressed()
-	bitcoinKey2Bytes := channel.RemoteChanCfg.MultiSigKey.PubKey.
+	bitcoinKey2Bytes := channel.ChanCfgs.Remote.MultiSigKey.PubKey.
 		SerializeCompressed()
 	channelFlags := lnwire.ChanUpdateChanFlags(0)
 
@@ -449,9 +449,9 @@ func (r *Manager) getHtlcAmtLimits(ch *channeldb.OpenChannel) (
 	// capacity AND less than or equal to the max in-flight HTLC value.
 	// Since the latter is always less than or equal to the former, just
 	// return the max in-flight value.
-	maxAmt := ch.LocalChanCfg.ChannelStateBounds.MaxPendingAmount
+	maxAmt := ch.ChanCfgs.Local.ChannelStateBounds.MaxPendingAmount
 
-	return ch.LocalChanCfg.MinHTLC, maxAmt, nil
+	return ch.ChanCfgs.Local.MinHTLC, maxAmt, nil
 }
 
 // makeFailureItem creates a lnrpc.FailedUpdate object.

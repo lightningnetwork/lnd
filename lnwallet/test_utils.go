@@ -322,8 +322,10 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	)
 
 	aliceChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            aliceCfg,
-		RemoteChanCfg:           bobCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  aliceCfg,
+			Remote: bobCfg,
+		},
 		IdentityPub:             aliceKeys[0].PubKey(),
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,
@@ -340,8 +342,10 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		FundingTxn:              testTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            bobCfg,
-		RemoteChanCfg:           aliceCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  bobCfg,
+			Remote: aliceCfg,
+		},
 		IdentityPub:             bobKeys[0].PubKey(),
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,

@@ -2946,8 +2946,8 @@ func (l *channelLink) getFeeRate() chainfee.SatPerKWeight {
 //
 // NOTE: Part of the dustHandler interface.
 func (l *channelLink) getDustClosure() dustClosure {
-	localDustLimit := l.channel.State().LocalChanCfg.DustLimit
-	remoteDustLimit := l.channel.State().RemoteChanCfg.DustLimit
+	localDustLimit := l.channel.State().ChanCfgs.Local.DustLimit
+	remoteDustLimit := l.channel.State().ChanCfgs.Remote.DustLimit
 	chanType := l.channel.State().ChanType
 
 	return dustHelper(chanType, localDustLimit, remoteDustLimit)

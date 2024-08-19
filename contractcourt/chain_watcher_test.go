@@ -347,7 +347,8 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 			// key for this output.
 			sweepTweak := input.SingleTweakBytes(
 				dlpPoint,
-				aliceChannel.State().LocalChanCfg.PaymentBasePoint.PubKey,
+				//nolint:lll
+				aliceChannel.State().ChanCfgs.Local.PaymentBasePoint.PubKey,
 			)
 			commitResolution := uniClose.CommitResolution
 			resolutionTweak := commitResolution.SelfOutputSignDesc.SingleTweak

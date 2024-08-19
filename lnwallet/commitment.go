@@ -649,14 +649,14 @@ func NewCommitmentBuilder(chanState *channeldb.OpenChannel,
 func createStateHintObfuscator(state *channeldb.OpenChannel) [StateHintSize]byte {
 	if state.IsInitiator {
 		return DeriveStateHintObfuscator(
-			state.LocalChanCfg.PaymentBasePoint.PubKey,
-			state.RemoteChanCfg.PaymentBasePoint.PubKey,
+			state.ChanCfgs.Local.PaymentBasePoint.PubKey,
+			state.ChanCfgs.Remote.PaymentBasePoint.PubKey,
 		)
 	}
 
 	return DeriveStateHintObfuscator(
-		state.RemoteChanCfg.PaymentBasePoint.PubKey,
-		state.LocalChanCfg.PaymentBasePoint.PubKey,
+		state.ChanCfgs.Remote.PaymentBasePoint.PubKey,
+		state.ChanCfgs.Local.PaymentBasePoint.PubKey,
 	)
 }
 
@@ -696,9 +696,9 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	filteredHTLCView *HtlcView, keyRing *CommitmentKeyRing,
 	prevCommit *commitment) (*unsignedCommitmentTx, error) {
 
-	dustLimit := cb.chanState.LocalChanCfg.DustLimit
+	dustLimit := cb.chanState.ChanCfgs.Local.DustLimit
 	if whoseCommit.IsRemote() {
-		dustLimit = cb.chanState.RemoteChanCfg.DustLimit
+		dustLimit = cb.chanState.ChanCfgs.Remote.DustLimit
 	}
 
 	numHTLCs := int64(0)
@@ -785,7 +785,8 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	if whoseCommit.IsLocal() {
 		commitTx, err = CreateCommitTx(
 			cb.chanState.ChanType, fundingTxIn(cb.chanState), keyRing,
-			&cb.chanState.LocalChanCfg, &cb.chanState.RemoteChanCfg,
+			&cb.chanState.ChanCfgs.Local,
+			&cb.chanState.ChanCfgs.Remote,
 			ourBalance.ToSatoshis(), theirBalance.ToSatoshis(),
 			numHTLCs, cb.chanState.IsInitiator, leaseExpiry,
 			auxResult.AuxLeaves,
@@ -793,7 +794,8 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	} else {
 		commitTx, err = CreateCommitTx(
 			cb.chanState.ChanType, fundingTxIn(cb.chanState), keyRing,
-			&cb.chanState.RemoteChanCfg, &cb.chanState.LocalChanCfg,
+			&cb.chanState.ChanCfgs.Remote,
+			&cb.chanState.ChanCfgs.Local,
 			theirBalance.ToSatoshis(), ourBalance.ToSatoshis(),
 			numHTLCs, !cb.chanState.IsInitiator, leaseExpiry,
 			auxResult.AuxLeaves,
@@ -1284,13 +1286,13 @@ func findOutputIndexesFromRemote(revocationPreimage *chainhash.Hash,
 	// which will be used to generate the output scripts.
 	keyRing := DeriveCommitmentKeys(
 		commitmentPoint, lntypes.Remote, chanState.ChanType,
-		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+		&chanState.ChanCfgs.Local, &chanState.ChanCfgs.Remote,
 	)
 
 	// Since it's remote commitment chain, we'd used the mirrored values.
 	//
 	// We use the remote's channel config for the csv delay.
-	theirDelay := uint32(chanState.RemoteChanCfg.CsvDelay)
+	theirDelay := uint32(chanState.ChanCfgs.Remote.CsvDelay)
 
 	// If we are the initiator of this channel, then it's be false from the
 	// remote's PoV.

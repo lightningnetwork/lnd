@@ -938,11 +938,8 @@ type OpenChannel struct {
 	// opening.
 	InitialRemoteBalance lnwire.MilliSatoshi
 
-	// LocalChanCfg is the channel configuration for the local node.
-	LocalChanCfg ChannelConfig
-
-	// RemoteChanCfg is the channel configuration for the remote node.
-	RemoteChanCfg ChannelConfig
+	// ChanCfgs is the channel configuration for the local and remote nodes.
+	ChanCfgs lntypes.Dual[ChannelConfig]
 
 	// LocalCommitment is the current local commitment state for the local
 	// party. This is stored distinct from the state of the remote party
@@ -1823,7 +1820,7 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 		}
 
 		nextNonce, err := NewMusigVerificationNonce(
-			c.LocalChanCfg.MultiSigKey.PubKey,
+			c.ChanCfgs.Local.MultiSigKey.PubKey,
 			nextLocalCommitHeight, taprootRevProducer,
 		)
 		if err != nil {
@@ -4112,7 +4109,7 @@ func putChannelCloseSummary(tx kvdb.RwTx, chanID []byte,
 
 	summary.RemoteCurrentRevocation = lastChanState.RemoteCurrentRevocation
 	summary.RemoteNextRevocation = lastChanState.RemoteNextRevocation
-	summary.LocalChanConfig = lastChanState.LocalChanCfg
+	summary.LocalChanConfig = lastChanState.ChanCfgs.Local
 
 	var b bytes.Buffer
 	if err := serializeChannelCloseSummary(&b, summary); err != nil {
@@ -4302,10 +4299,10 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 		}
 	}
 
-	if err := writeChanConfig(&w, &channel.LocalChanCfg); err != nil {
+	if err := writeChanConfig(&w, &channel.ChanCfgs.Local); err != nil {
 		return err
 	}
-	if err := writeChanConfig(&w, &channel.RemoteChanCfg); err != nil {
+	if err := writeChanConfig(&w, &channel.ChanCfgs.Remote); err != nil {
 		return err
 	}
 
@@ -4484,10 +4481,10 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 		}
 	}
 
-	if err := readChanConfig(r, &channel.LocalChanCfg); err != nil {
+	if err := readChanConfig(r, &channel.ChanCfgs.Local); err != nil {
 		return err
 	}
-	if err := readChanConfig(r, &channel.RemoteChanCfg); err != nil {
+	if err := readChanConfig(r, &channel.ChanCfgs.Remote); err != nil {
 		return err
 	}
 

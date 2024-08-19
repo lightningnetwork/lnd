@@ -250,13 +250,13 @@ func newChainWatcher(cfg chainWatcherConfig) (*chainWatcher, error) {
 	chanState := cfg.chanState
 	if chanState.IsInitiator {
 		stateHint = lnwallet.DeriveStateHintObfuscator(
-			chanState.LocalChanCfg.PaymentBasePoint.PubKey,
-			chanState.RemoteChanCfg.PaymentBasePoint.PubKey,
+			chanState.ChanCfgs.Local.PaymentBasePoint.PubKey,
+			chanState.ChanCfgs.Remote.PaymentBasePoint.PubKey,
 		)
 	} else {
 		stateHint = lnwallet.DeriveStateHintObfuscator(
-			chanState.RemoteChanCfg.PaymentBasePoint.PubKey,
-			chanState.LocalChanCfg.PaymentBasePoint.PubKey,
+			chanState.ChanCfgs.Remote.PaymentBasePoint.PubKey,
+			chanState.ChanCfgs.Local.PaymentBasePoint.PubKey,
 		)
 	}
 
@@ -306,8 +306,8 @@ func (c *chainWatcher) Start() error {
 		}
 	}
 
-	localKey := chanState.LocalChanCfg.MultiSigKey.PubKey
-	remoteKey := chanState.RemoteChanCfg.MultiSigKey.PubKey
+	localKey := chanState.ChanCfgs.Local.MultiSigKey.PubKey
+	remoteKey := chanState.ChanCfgs.Remote.MultiSigKey.PubKey
 
 	var (
 		err error
@@ -426,7 +426,8 @@ func (c *chainWatcher) handleUnknownLocalState(
 	// revoke our own commitment.
 	commitKeyRing := lnwallet.DeriveCommitmentKeys(
 		commitPoint, lntypes.Local, c.cfg.chanState.ChanType,
-		&c.cfg.chanState.LocalChanCfg, &c.cfg.chanState.RemoteChanCfg,
+		&c.cfg.chanState.ChanCfgs.Local,
+		&c.cfg.chanState.ChanCfgs.Remote,
 	)
 
 	auxResult, err := fn.MapOptionZ(
@@ -475,7 +476,7 @@ func (c *chainWatcher) handleUnknownLocalState(
 	localScript, err := lnwallet.CommitScriptToSelf(
 		c.cfg.chanState.ChanType, c.cfg.chanState.IsInitiator,
 		commitKeyRing.ToLocalKey, commitKeyRing.RevocationKey,
-		uint32(c.cfg.chanState.LocalChanCfg.CsvDelay), leaseExpiry,
+		uint32(c.cfg.chanState.ChanCfgs.Local.CsvDelay), leaseExpiry,
 		localAuxLeaf,
 	)
 	if err != nil {
@@ -1106,7 +1107,7 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 		IsPending:               true,
 		RemoteCurrentRevocation: c.cfg.chanState.RemoteCurrentRevocation,
 		RemoteNextRevocation:    c.cfg.chanState.RemoteNextRevocation,
-		LocalChanConfig:         c.cfg.chanState.LocalChanCfg,
+		LocalChanConfig:         c.cfg.chanState.ChanCfgs.Local,
 	}
 
 	// Attempt to add a channel sync message to the close summary.
@@ -1171,7 +1172,7 @@ func (c *chainWatcher) dispatchLocalForceClose(
 		CloseHeight:             uint32(commitSpend.SpendingHeight),
 		RemoteCurrentRevocation: c.cfg.chanState.RemoteCurrentRevocation,
 		RemoteNextRevocation:    c.cfg.chanState.RemoteNextRevocation,
-		LocalChanConfig:         c.cfg.chanState.LocalChanCfg,
+		LocalChanConfig:         c.cfg.chanState.ChanCfgs.Local,
 	}
 
 	// If our commitment output isn't dust or we have active HTLC's on the
@@ -1312,7 +1313,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		ShortChanID:             c.cfg.chanState.ShortChanID(),
 		RemoteCurrentRevocation: c.cfg.chanState.RemoteCurrentRevocation,
 		RemoteNextRevocation:    c.cfg.chanState.RemoteNextRevocation,
-		LocalChanConfig:         c.cfg.chanState.LocalChanCfg,
+		LocalChanConfig:         c.cfg.chanState.ChanCfgs.Local,
 	}
 
 	// Attempt to add a channel sync message to the close summary.

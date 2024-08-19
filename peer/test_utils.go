@@ -244,8 +244,10 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 	)
 
 	aliceChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            aliceCfg,
-		RemoteChanCfg:           bobCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  aliceCfg,
+			Remote: bobCfg,
+		},
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,
@@ -262,8 +264,10 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		FundingTxn:              channels.TestFundingTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            bobCfg,
-		RemoteChanCfg:           aliceCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  bobCfg,
+			Remote: aliceCfg,
+		},
 		IdentityPub:             bobKeyPub,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunderTweaklessBit,

@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
@@ -131,8 +132,10 @@ func TestManager(t *testing.T) {
 		}
 
 		return &channeldb.OpenChannel{
-			LocalChanCfg: channeldb.ChannelConfig{
-				ChannelStateBounds: bounds,
+			ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+				Local: channeldb.ChannelConfig{
+					ChannelStateBounds: bounds,
+				},
 			},
 		}, nil
 	}

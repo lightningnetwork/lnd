@@ -211,8 +211,8 @@ func NewSingle(channel *channeldb.OpenChannel,
 		RemoteNodePub:    channel.IdentityPub,
 		Addresses:        nodeAddrs,
 		Capacity:         channel.Capacity,
-		LocalChanCfg:     channel.LocalChanCfg,
-		RemoteChanCfg:    channel.RemoteChanCfg,
+		LocalChanCfg:     channel.ChanCfgs.Local,
+		RemoteChanCfg:    channel.ChanCfgs.Remote,
 		ShaChainRootDesc: shaChainRootDesc,
 	}
 

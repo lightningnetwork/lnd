@@ -1430,7 +1430,7 @@ func (c *ChannelStateDB) AbandonChannel(chanPoint *wire.OutPoint,
 		ShortChanID:             dbChan.ShortChanID(),
 		RemoteCurrentRevocation: dbChan.RemoteCurrentRevocation,
 		RemoteNextRevocation:    dbChan.RemoteNextRevocation,
-		LocalChanConfig:         dbChan.LocalChanCfg,
+		LocalChanConfig:         dbChan.ChanCfgs.Local,
 	}
 
 	// Finally, we'll close the channel in the DB, and return back to the

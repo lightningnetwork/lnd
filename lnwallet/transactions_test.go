@@ -971,8 +971,10 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 	)
 
 	remoteChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            remoteCfg,
-		RemoteChanCfg:           localCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  remoteCfg,
+			Remote: localCfg,
+		},
 		IdentityPub:             remoteDummy2.PubKey(),
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,
@@ -989,8 +991,10 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		FundingTxn:              tc.fundingTx.MsgTx(),
 	}
 	localChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            localCfg,
-		RemoteChanCfg:           remoteCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  localCfg,
+			Remote: remoteCfg,
+		},
 		IdentityPub:             localDummy2.PubKey(),
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,

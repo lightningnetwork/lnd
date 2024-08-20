@@ -38,6 +38,10 @@
 
 ## RPC Updates
 
+* [Add peer info](https://github.com/lightningnetwork/lnd/pull/9018) in
+  `BatchOpenChannel` rpc return error as soon as the batch opening fails due
+  to a specific peer interaction.
+
 ## lncli Updates
 
 ## Code Health

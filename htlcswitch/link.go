@@ -1154,10 +1154,11 @@ func (l *channelLink) htlcManager() {
 				// be updated when the close transaction is
 				// ready to avoid that we go down before
 				// storing the transaction in the db.
-				l.fail(
+				l.failf(
+					//nolint:lll
 					LinkFailureError{
 						code:          ErrSyncError,
-						FailureAction: LinkFailureForceClose, //nolint:lll
+						FailureAction: LinkFailureForceClose,
 					},
 					"unable to synchronize channel "+
 						"states: %v", err,
@@ -1195,7 +1196,7 @@ func (l *channelLink) htlcManager() {
 			default:
 			}
 
-			l.fail(
+			l.failf(
 				LinkFailureError{
 					code:          ErrRecoveryError,
 					FailureAction: LinkFailureForceNone,
@@ -1259,14 +1260,14 @@ func (l *channelLink) htlcManager() {
 		// If the duplicate keystone error was encountered, we'll fail
 		// without sending an Error message to the peer.
 		case ErrDuplicateKeystone:
-			l.fail(LinkFailureError{code: ErrCircuitError},
+			l.failf(LinkFailureError{code: ErrCircuitError},
 				"temporary circuit error: %v", err)
 			return
 
 		// A non-nil error was encountered, send an Error message to
 		// the peer.
 		default:
-			l.fail(LinkFailureError{code: ErrInternalError},
+			l.failf(LinkFailureError{code: ErrInternalError},
 				"unable to resolve fwd pkgs: %v", err)
 			return
 		}
@@ -1405,7 +1406,7 @@ func (l *channelLink) htlcManager() {
 			}
 
 		case <-l.cfg.PendingCommitTicker.Ticks():
-			l.fail(
+			l.failf(
 				LinkFailureError{
 					code:          ErrRemoteUnresponsive,
 					FailureAction: LinkFailureDisconnect,
@@ -1438,19 +1439,19 @@ func (l *channelLink) htlcManager() {
 			// If the duplicate keystone error was encountered,
 			// fail back gracefully.
 			case ErrDuplicateKeystone:
-				l.fail(LinkFailureError{code: ErrCircuitError},
-					fmt.Sprintf("process hodl queue: "+
-						"temporary circuit error: %v",
-						err,
-					),
+				l.failf(LinkFailureError{
+					code: ErrCircuitError,
+				}, "process hodl queue: "+
+					"temporary circuit error: %v",
+					err,
 				)
 
 			// Send an Error message to the peer.
 			default:
-				l.fail(LinkFailureError{code: ErrInternalError},
-					fmt.Sprintf("process hodl queue: "+
-						"unable to update commitment:"+
-						" %v", err),
+				l.failf(LinkFailureError{
+					code: ErrInternalError,
+				}, "process hodl queue: unable to update "+
+					"commitment: %v", err,
 				)
 			}
 
@@ -1960,7 +1961,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			// handle message ordering due to concurrency choices.
 			// An issue has been filed to address this here:
 			// https://github.com/lightningnetwork/lnd/issues/8393
-			l.fail(
+			l.failf(
 				LinkFailureError{
 					code:             ErrInvalidUpdate,
 					FailureAction:    LinkFailureDisconnect,
@@ -1979,7 +1980,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// where we are a relaying node (as the blinding point will
 		// be in the payload when we're the introduction node).
 		if msg.BlindingPoint.IsSome() && l.cfg.DisallowRouteBlinding {
-			l.fail(LinkFailureError{code: ErrInvalidUpdate},
+			l.failf(LinkFailureError{code: ErrInvalidUpdate},
 				"blinding point included when route blinding "+
 					"is disabled")
 
@@ -1991,7 +1992,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// without sending a revoke. This would mean that the switch
 		// check would only occur later.
 		if l.isOverexposedWithHtlc(msg, true) {
-			l.fail(LinkFailureError{code: ErrInternalError},
+			l.failf(LinkFailureError{code: ErrInternalError},
 				"peer sent us an HTLC that exceeded our max "+
 					"fee exposure")
 
@@ -2003,7 +2004,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// "settle" list in the event that we know the preimage.
 		index, err := l.channel.ReceiveHTLC(msg)
 		if err != nil {
-			l.fail(LinkFailureError{code: ErrInvalidUpdate},
+			l.failf(LinkFailureError{code: ErrInvalidUpdate},
 				"unable to handle upstream add HTLC: %v", err)
 			return
 		}
@@ -2029,7 +2030,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 		if !lockedin {
-			l.fail(
+			l.failf(
 				LinkFailureError{code: ErrInvalidUpdate},
 				"unable to handle upstream settle",
 			)
@@ -2037,7 +2038,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 		if err := l.channel.ReceiveHTLCSettle(pre, idx); err != nil {
-			l.fail(
+			l.failf(
 				LinkFailureError{
 					code:          ErrInvalidUpdate,
 					FailureAction: LinkFailureForceClose,
@@ -2126,7 +2127,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// message to the usual HTLC fail message.
 		err := l.channel.ReceiveFailHTLC(msg.ID, b.Bytes())
 		if err != nil {
-			l.fail(LinkFailureError{code: ErrInvalidUpdate},
+			l.failf(LinkFailureError{code: ErrInvalidUpdate},
 				"unable to handle upstream fail HTLC: %v", err)
 			return
 		}
@@ -2164,7 +2165,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		idx := msg.ID
 		err := l.channel.ReceiveFailHTLC(idx, msg.Reason[:])
 		if err != nil {
-			l.fail(LinkFailureError{code: ErrInvalidUpdate},
+			l.failf(LinkFailureError{code: ErrInvalidUpdate},
 				"unable to handle upstream fail HTLC: %v", err)
 			return
 		}
@@ -2183,7 +2184,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			l.uncommittedPreimages...,
 		)
 		if err != nil {
-			l.fail(
+			l.failf(
 				LinkFailureError{code: ErrInternalError},
 				"unable to add preimages=%v to cache: %v",
 				l.uncommittedPreimages, err,
@@ -2219,7 +2220,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			case *lnwallet.InvalidHtlcSigError:
 				sendData = []byte(err.Error())
 			}
-			l.fail(
+			l.failf(
 				LinkFailureError{
 					code:          ErrInvalidCommitment,
 					FailureAction: LinkFailureForceClose,
@@ -2248,7 +2249,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			// NOTE: We do not trigger a force close because this
 			// could resolve itself in case our db was just busy
 			// not accepting new transactions.
-			l.fail(
+			l.failf(
 				LinkFailureError{
 					code:          ErrInternalError,
 					Warning:       true,
@@ -2336,7 +2337,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			ReceiveRevocation(msg)
 		if err != nil {
 			// TODO(halseth): force close?
-			l.fail(
+			l.failf(
 				LinkFailureError{
 					code:          ErrInvalidRevocation,
 					FailureAction: LinkFailureDisconnect,
@@ -2376,9 +2377,9 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				&chanID, state.RemoteCommitment.CommitHeight-1,
 			)
 			if err != nil {
-				l.fail(LinkFailureError{code: ErrInternalError},
-					"unable to queue breach backup: %v",
-					err)
+				l.failf(LinkFailureError{
+					code: ErrInternalError,
+				}, "unable to queue breach backup: %v", err)
 				return
 			}
 		}
@@ -2425,7 +2426,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			// indicates something is wrong with our channel state.
 			l.log.Errorf("Unable to determine if fee threshold " +
 				"exceeded")
-			l.fail(LinkFailureError{code: ErrInternalError},
+			l.failf(LinkFailureError{code: ErrInternalError},
 				"error calculating fee exposure: %v", err)
 
 			return
@@ -2434,7 +2435,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		if isDust {
 			// The proposed fee-rate makes us exceed the fee
 			// threshold.
-			l.fail(LinkFailureError{code: ErrInternalError},
+			l.failf(LinkFailureError{code: ErrInternalError},
 				"fee threshold exceeded: %v", err)
 			return
 		}
@@ -2442,7 +2443,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// We received fee update from peer. If we are the initiator we
 		// will fail the channel, if not we will apply the update.
 		if err := l.channel.ReceiveUpdateFee(fee); err != nil {
-			l.fail(LinkFailureError{code: ErrInvalidUpdate},
+			l.failf(LinkFailureError{code: ErrInvalidUpdate},
 				"error receiving fee update: %v", err)
 			return
 		}
@@ -2461,7 +2462,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// Error received from remote, MUST fail channel, but should
 		// only print the contents of the error message if all
 		// characters are printable ASCII.
-		l.fail(
+		l.failf(
 			LinkFailureError{
 				code: ErrRemoteError,
 
@@ -2550,14 +2551,14 @@ func (l *channelLink) updateCommitTxOrFail() bool {
 	// A duplicate keystone error should be resolved and is not fatal, so
 	// we won't send an Error message to the peer.
 	case ErrDuplicateKeystone:
-		l.fail(LinkFailureError{code: ErrCircuitError},
+		l.failf(LinkFailureError{code: ErrCircuitError},
 			"temporary circuit error: %v", err)
 		return false
 
 	// Any other error is treated results in an Error message being sent to
 	// the peer.
 	default:
-		l.fail(LinkFailureError{code: ErrInternalError},
+		l.failf(LinkFailureError{code: ErrInternalError},
 			"unable to update commitment: %v", err)
 		return false
 	}
@@ -3440,7 +3441,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		fwdPkg.ID(), decodeReqs,
 	)
 	if sphinxErr != nil {
-		l.fail(LinkFailureError{code: ErrInternalError},
+		l.failf(LinkFailureError{code: ErrInternalError},
 			"unable to decode hop iterators: %v", sphinxErr)
 		return
 	}
@@ -3599,9 +3600,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				pd, obfuscator, fwdInfo, heightNow, pld,
 			)
 			if err != nil {
-				l.fail(LinkFailureError{code: ErrInternalError},
-					err.Error(),
-				)
+				l.failf(LinkFailureError{
+					code: ErrInternalError,
+				}, err.Error()) //nolint
 
 				return
 			}
@@ -3745,7 +3746,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 	if fwdPkg.State == channeldb.FwdStateLockedIn {
 		err := l.channel.SetFwdFilter(fwdPkg.Height, fwdPkg.FwdFilter)
 		if err != nil {
-			l.fail(LinkFailureError{code: ErrInternalError},
+			l.failf(LinkFailureError{code: ErrInternalError},
 				"unable to set fwd filter: %v", err)
 			return
 		}
@@ -4077,13 +4078,14 @@ func (l *channelLink) sendMalformedHTLCError(htlcIndex uint64,
 	})
 }
 
-// fail is a function which is used to encapsulate the action necessary for
+// failf is a function which is used to encapsulate the action necessary for
 // properly failing the link. It takes a LinkFailureError, which will be passed
 // to the OnChannelFailure closure, in order for it to determine if we should
 // force close the channel, and if we should send an error message to the
 // remote peer.
-func (l *channelLink) fail(linkErr LinkFailureError,
-	format string, a ...interface{}) {
+func (l *channelLink) failf(linkErr LinkFailureError, format string,
+	a ...interface{}) {
+
 	reason := fmt.Errorf(format, a...)
 
 	// Return if we have already notified about a failure.

@@ -201,7 +201,7 @@ func Decode(invoice string, net *chaincfg.Params, opts ...DecodeOption) (
 				errStr += fmt.Sprintf(" %d,", bit)
 			}
 
-			return nil, fmt.Errorf(strings.TrimRight(errStr, ","))
+			return nil, errors.New(strings.TrimRight(errStr, ","))
 		}
 	}
 

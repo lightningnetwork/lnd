@@ -1,10 +1,5 @@
 package msgmux
 
-// For some reason golangci-lint has a false positive on the sort order of the
-// imports for the new "maps" package... We need the nolint directive here to
-// ignore that.
-//
-//nolint:gci
 import (
 	"fmt"
 	"maps"

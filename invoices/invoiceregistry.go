@@ -1056,8 +1056,8 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		), nil, nil
 	}
 
-	switch err {
-	case ErrInvoiceNotFound:
+	switch {
+	case errors.Is(err, ErrInvoiceNotFound):
 		// If the invoice was not found, return a failure resolution
 		// with an invoice not found result.
 		return NewFailResolution(
@@ -1065,13 +1065,13 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 			ResultInvoiceNotFound,
 		), nil, nil
 
-	case ErrInvRefEquivocation:
+	case errors.Is(err, ErrInvRefEquivocation):
 		return NewFailResolution(
 			ctx.circuitKey, ctx.currentHeight,
 			ResultInvoiceNotFound,
 		), nil, nil
 
-	case nil:
+	case err == nil:
 
 	default:
 		ctx.log(err.Error())

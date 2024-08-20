@@ -4879,7 +4879,8 @@ func (h *persistentLinkHarness) restartLink(
 		FetchLastChannelUpdate: mockGetChanUpdateMessage,
 		PreimageCache:          pCache,
 		OnChannelFailure: func(lnwire.ChannelID,
-			lnwire.ShortChannelID, LinkFailureError) { // nolint:whitespace
+			lnwire.ShortChannelID, LinkFailureError) {
+
 		},
 		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 			return nil
@@ -5834,7 +5835,7 @@ func TestChannelLinkFail(t *testing.T) {
 				c.cfg.Peer.(*mockPeer).disconnected = true
 			},
 			func(*testing.T, *Switch, *channelLink,
-				*lnwallet.LightningChannel) { //nolint:whitespace,lll
+				*lnwallet.LightningChannel) {
 
 				// Should fail at startup.
 			},
@@ -5854,7 +5855,7 @@ func TestChannelLinkFail(t *testing.T) {
 				c.channel.State().Packager = pkg
 			},
 			func(*testing.T, *Switch, *channelLink,
-				*lnwallet.LightningChannel) { //nolint:whitespace,lll
+				*lnwallet.LightningChannel) {
 
 				// Should fail at startup.
 			},

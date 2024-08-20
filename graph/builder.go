@@ -681,7 +681,7 @@ func (b *Builder) handleNetworkUpdate(vb *ValidationBarrier,
 			update.err <- err
 
 		case IsError(err, ErrParentValidationFailed):
-			update.err <- newErrf(ErrIgnored, err.Error())
+			update.err <- newErrf(ErrIgnored, err.Error()) //nolint
 
 		default:
 			log.Warnf("unexpected error during validation "+

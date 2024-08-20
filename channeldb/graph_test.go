@@ -2382,7 +2382,7 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 				methodsMu.Unlock()
 
 				err := fn()
-				require.NoErrorf(t, err, fmt.Sprintf(name))
+				require.NoErrorf(t, err, name)
 			}
 		})
 	}

@@ -2,7 +2,7 @@ package itest
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -219,7 +219,7 @@ func runFundMaxTestCase(ht *lntest.HarnessTest, alice, bob *node.HarnessNode,
 	// If we don't expect the channel opening to be
 	// successful, simply check for an error.
 	if testCase.chanOpenShouldFail {
-		expectedErr := fmt.Errorf(testCase.expectedErrStr)
+		expectedErr := errors.New(testCase.expectedErrStr)
 		ht.OpenChannelAssertErr(
 			alice, bob, chanParams, expectedErr,
 		)

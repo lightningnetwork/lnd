@@ -131,25 +131,15 @@ linters:
     - gochecknoinits
 
     # Deprecated linters. See https://golangci-lint.run/usage/linters/.
-    - interfacer
-    - golint
-    - maligned
-    - scopelint
-    - exhaustivestruct
     - bodyclose
     - contextcheck
     - nilerr
     - noctx
     - rowserrcheck
     - sqlclosecheck
-    - structcheck
     - tparallel
     - unparam
     - wastedassign
-    - ifshort
-    - varcheck
-    - deadcode
-    - nosnakecase
 
 
     # Disable gofumpt as it has weird behavior regarding formatting multiple
@@ -189,7 +179,7 @@ linters:
     - wrapcheck
 
     # Allow dynamic errors.
-    - goerr113
+    - err113
 
     # We use ErrXXX instead.
     - errname

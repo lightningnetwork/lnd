@@ -197,11 +197,25 @@ linters:
     # The linter is too aggressive and doesn't add much value since reviewers
     # will also catch magic numbers that make sense to extract.
     - gomnd
+    - mnd
 
-      # Some of the tests cannot be parallelized. On the other hand, we don't
-      # gain much performance with this check so we disable it for now until
-      # unit tests become our CI bottleneck.
+    # Some of the tests cannot be parallelized. On the other hand, we don't
+    # gain much performance with this check so we disable it for now until
+    # unit tests become our CI bottleneck.
     - paralleltest
+
+    # New linters that we haven't had time to address yet.
+    - testifylint
+    - perfsprint
+    - inamedparam
+    - copyloopvar
+    - tagalign
+    - protogetter
+    - revive
+    - depguard
+    - gosmopolitan
+    - intrange
+
 
 issues:
   # Only show newly introduced problems.

@@ -1982,9 +1982,11 @@ func (c *ChannelArbitrator) isPreimageAvailable(hash lntypes.Hash) (bool,
 	// have the incoming contest resolver decide that we don't want to
 	// settle this invoice.
 	invoice, err := c.cfg.Registry.LookupInvoice(context.Background(), hash)
-	switch err {
-	case nil:
-	case invoices.ErrInvoiceNotFound, invoices.ErrNoInvoicesCreated:
+	switch {
+	case err == nil:
+	case errors.Is(err, invoices.ErrInvoiceNotFound) ||
+		errors.Is(err, invoices.ErrNoInvoicesCreated):
+
 		return false, nil
 	default:
 		return false, err

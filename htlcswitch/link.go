@@ -3482,7 +3482,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// should send the malformed htlc error to payment
 			// sender.
 			l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
-				onionBlob[:], pd.SourceRef)
+				pd.OnionBlob, pd.SourceRef)
 
 			l.log.Errorf("unable to decode onion hop "+
 				"iterator: %v", failureCode)
@@ -3527,7 +3527,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				// malformed.
 				l.sendMalformedHTLCError(
 					pd.HtlcIndex, failureCode,
-					onionBlob[:], pd.SourceRef,
+					pd.OnionBlob, pd.SourceRef,
 				)
 
 				continue
@@ -3561,7 +3561,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// should send the malformed htlc error to payment
 			// sender.
 			l.sendMalformedHTLCError(
-				pd.HtlcIndex, failureCode, onionBlob[:],
+				pd.HtlcIndex, failureCode, pd.OnionBlob,
 				pd.SourceRef,
 			)
 
@@ -4065,9 +4065,10 @@ func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
 // sendMalformedHTLCError helper function which sends the malformed HTLC update
 // to the payment sender.
 func (l *channelLink) sendMalformedHTLCError(htlcIndex uint64,
-	code lnwire.FailCode, onionBlob []byte, sourceRef *channeldb.AddRef) {
+	code lnwire.FailCode, onionBlob [lnwire.OnionPacketSize]byte,
+	sourceRef *channeldb.AddRef) {
 
-	shaOnionBlob := sha256.Sum256(onionBlob)
+	shaOnionBlob := sha256.Sum256(onionBlob[:])
 	err := l.channel.MalformedFailHTLC(htlcIndex, code, shaOnionBlob, sourceRef)
 	if err != nil {
 		l.log.Errorf("unable cancel htlc: %v", err)

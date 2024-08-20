@@ -3468,11 +3468,6 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		// or are able to settle it (and it adheres to our fee related
 		// constraints).
 
-		// Fetch the onion blob that was included within this processed
-		// payment descriptor.
-		var onionBlob [lnwire.OnionPacketSize]byte
-		copy(onionBlob[:], pd.OnionBlob[:])
-
 		// Before adding the new htlc to the state machine, parse the
 		// onion object in order to obtain the routing information with
 		// DecodeHopIterator function which process the Sphinx packet.
@@ -3581,7 +3576,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			l.cfg.DisallowRouteBlinding {
 
 			failure := lnwire.NewInvalidBlinding(
-				onionBlob[:],
+				fn.Some(pd.OnionBlob),
 			)
 			l.sendHTLCError(
 				pd, NewLinkError(failure), obfuscator, false,
@@ -4027,7 +4022,9 @@ func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
 
 		// The specification does not require that we set the onion
 		// blob.
-		failureMsg := lnwire.NewInvalidBlinding(nil)
+		failureMsg := lnwire.NewInvalidBlinding(
+			fn.None[[lnwire.OnionPacketSize]byte](),
+		)
 		reason, err := e.EncryptFirstHop(failureMsg)
 		if err != nil {
 			return err

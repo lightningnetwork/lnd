@@ -51,6 +51,9 @@
 * Add new [lnwire](https://github.com/lightningnetwork/lnd/pull/8044) messages
   for the Gossip 1.75 protocol.
 
+* Add new [channeldb](https://github.com/lightningnetwork/lnd/pull/8164) types
+  required for the Gossip 1.75 protocol.
+
 ## Testing
 ## Database
 

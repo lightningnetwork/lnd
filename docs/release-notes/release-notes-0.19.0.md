@@ -48,6 +48,9 @@
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 
+* Add new [lnwire](https://github.com/lightningnetwork/lnd/pull/8044) messages
+  for the Gossip 1.75 protocol.
+
 ## Testing
 ## Database
 

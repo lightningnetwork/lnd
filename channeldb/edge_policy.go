@@ -176,29 +176,26 @@ func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
 	chanID []byte) (*models.ChannelEdgePolicy1, *models.ChannelEdgePolicy1,
 	error) {
 
-	edgeInfo := edgeIndex.Get(chanID)
-	if edgeInfo == nil {
-		return nil, nil, fmt.Errorf("%w: chanID=%x", ErrEdgeNotFound,
-			chanID)
+	edgeInfoBytes := edgeIndex.Get(chanID)
+	if edgeInfoBytes == nil {
+		return nil, nil, ErrEdgeNotFound
 	}
 
-	// The first node is contained within the first half of the edge
-	// information. We only propagate the error here and below if it's
-	// something other than edge non-existence.
-	node1Pub := edgeInfo[:33]
-	edge1, err := fetchChanEdgePolicy(edges, chanID, node1Pub)
+	edgeInfo, err := deserializeChanEdgeInfo(bytes.NewReader(edgeInfoBytes))
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: node1Pub=%x", ErrEdgeNotFound,
-			node1Pub)
+		return nil, nil, err
 	}
 
-	// Similarly, the second node is contained within the latter
-	// half of the edge information.
-	node2Pub := edgeInfo[33:66]
-	edge2, err := fetchChanEdgePolicy(edges, chanID, node2Pub)
+	node1Pub := edgeInfo.Node1Bytes()
+	edge1, err := fetchChanEdgePolicy(edges, chanID, node1Pub[:])
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: node2Pub=%x", ErrEdgeNotFound,
-			node2Pub)
+		return nil, nil, err
+	}
+
+	node2Pub := edgeInfo.Node2Bytes()
+	edge2, err := fetchChanEdgePolicy(edges, chanID, node2Pub[:])
+	if err != nil {
+		return nil, nil, err
 	}
 
 	return edge1, edge2, nil

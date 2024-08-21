@@ -1578,7 +1578,6 @@ func sendAllCoinsToAddrType(ht *lntest.HarnessTest,
 	})
 
 	ht.MineBlocksAndAssertNumTxes(1, 1)
-	ht.WaitForBlockchainSync(hn)
 }
 
 // testPsbtChanFundingFailFlow tests the failing of a funding flow by the

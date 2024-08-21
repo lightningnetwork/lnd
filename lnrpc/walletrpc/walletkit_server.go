@@ -496,7 +496,7 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 	// other concurrent processes attempting to lease the same UTXO.
 	var expiration time.Time
 	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
-		expiration, _, _, err = w.cfg.Wallet.LeaseOutput(
+		expiration, err = w.cfg.Wallet.LeaseOutput(
 			lockID, *op, duration,
 		)
 		return err
@@ -1296,7 +1296,7 @@ func (w *WalletKit) sweepNewInput(op *wire.OutPoint, currentHeight uint32,
 	//
 	// We'll gather all of the information required by the UtxoSweeper in
 	// order to sweep the output.
-	utxo, err := w.cfg.Wallet.FetchInputInfo(op)
+	utxo, err := w.cfg.Wallet.FetchOutpointInfo(op)
 	if err != nil {
 		return err
 	}

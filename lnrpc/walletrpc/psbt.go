@@ -56,7 +56,13 @@ func lockInputs(w lnwallet.WalletController,
 			},
 		}
 
-		expiration, pkScript, value, err := w.LeaseOutput(
+		// Get the details about this outpoint.
+		utxo, err := w.FetchOutpointInfo(&lock.Outpoint)
+		if err != nil {
+			return nil, fmt.Errorf("fetch outpoint info: %w", err)
+		}
+
+		expiration, err := w.LeaseOutput(
 			lock.LockID, lock.Outpoint,
 			chanfunding.DefaultLockDuration,
 		)
@@ -80,8 +86,8 @@ func lockInputs(w lnwallet.WalletController,
 		}
 
 		lock.Expiration = expiration
-		lock.PkScript = pkScript
-		lock.Value = int64(value)
+		lock.PkScript = utxo.PkScript
+		lock.Value = int64(utxo.Value)
 		locks[idx] = lock
 	}
 

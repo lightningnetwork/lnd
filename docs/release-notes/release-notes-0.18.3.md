@@ -159,6 +159,11 @@ commitment when the channel was force closed.
 * [Allow](https://github.com/lightningnetwork/lnd/pull/8845) multiple etcd hosts
   to be specified in db.etcd.host.
 
+* Improved the internal [`LeaseOutput`
+  method](https://github.com/lightningnetwork/lnd/pull/8961) to be more
+  efficient, which improves the performance of related RPC calls such as
+  `LeaseOutput`, `SendCoins`, and PSBT funding process. 
+
 ## RPC Updates
 
 * [`xImportMissionControl`](https://github.com/lightningnetwork/lnd/pull/8779) 

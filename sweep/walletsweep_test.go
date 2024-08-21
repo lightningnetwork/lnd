@@ -199,11 +199,11 @@ func newMockOutputLeaser() *mockOutputLeaser {
 }
 
 func (m *mockOutputLeaser) LeaseOutput(_ wtxmgr.LockID, o wire.OutPoint,
-	t time.Duration) (time.Time, []byte, btcutil.Amount, error) {
+	t time.Duration) (time.Time, error) {
 
 	m.leasedOutputs[o] = struct{}{}
 
-	return time.Now().Add(t), nil, 0, nil
+	return time.Now().Add(t), nil
 }
 
 func (m *mockOutputLeaser) ReleaseOutput(_ wtxmgr.LockID,

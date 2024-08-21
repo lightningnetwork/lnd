@@ -3488,14 +3488,7 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 		return nil, err
 	}
 	for _, leasedOutput := range leases {
-		utxoInfo, err := r.server.cc.Wallet.FetchInputInfo(
-			&leasedOutput.Outpoint,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		lockedBalance += utxoInfo.Value
+		lockedBalance += btcutil.Amount(leasedOutput.Value)
 	}
 
 	// Get the current number of non-private anchor channels.

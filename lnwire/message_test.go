@@ -645,11 +645,11 @@ func newMsgChannelReestablish(t testing.TB,
 }
 
 func newMsgChannelAnnouncement(t testing.TB,
-	r *rand.Rand) *lnwire.ChannelAnnouncement {
+	r *rand.Rand) *lnwire.ChannelAnnouncement1 {
 
 	t.Helper()
 
-	msg := &lnwire.ChannelAnnouncement{
+	msg := &lnwire.ChannelAnnouncement1{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(uint64(r.Int63())),
 		Features:        rawFeatureVector(),
 		NodeID1:         randRawKey(t),

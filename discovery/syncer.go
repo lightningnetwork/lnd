@@ -1453,7 +1453,7 @@ func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 		// For each channel announcement message, we'll only send this
 		// message if the channel updates for the channel are between
 		// our time range.
-		case *lnwire.ChannelAnnouncement:
+		case *lnwire.ChannelAnnouncement1:
 			// First, we'll check if the channel updates are in
 			// this message batch.
 			chanUpdates, ok := chanUpdateIndex[msg.ShortChannelID]

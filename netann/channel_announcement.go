@@ -14,14 +14,14 @@ import (
 // peer's initial routing table upon connect.
 func CreateChanAnnouncement(chanProof *models.ChannelAuthProof,
 	chanInfo *models.ChannelEdgeInfo,
-	e1, e2 *models.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement,
+	e1, e2 *models.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement1,
 	*lnwire.ChannelUpdate, *lnwire.ChannelUpdate, error) {
 
 	// First, using the parameters of the channel, along with the channel
 	// authentication chanProof, we'll create re-create the original
 	// authenticated channel announcement.
 	chanID := lnwire.NewShortChanIDFromInt(chanInfo.ChannelID)
-	chanAnn := &lnwire.ChannelAnnouncement{
+	chanAnn := &lnwire.ChannelAnnouncement1{
 		ShortChannelID:  chanID,
 		NodeID1:         chanInfo.NodeKey1Bytes,
 		NodeID2:         chanInfo.NodeKey2Bytes,

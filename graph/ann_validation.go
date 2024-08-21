@@ -15,7 +15,7 @@ import (
 // ValidateChannelAnn validates the channel announcement message and checks
 // that node signatures covers the announcement message, and that the bitcoin
 // signatures covers the node keys.
-func ValidateChannelAnn(a *lnwire.ChannelAnnouncement) error {
+func ValidateChannelAnn(a *lnwire.ChannelAnnouncement1) error {
 	// First, we'll compute the digest (h) which is to be signed by each of
 	// the keys included within the node announcement message. This hash
 	// digest includes all the keys, so the (up to 4 signatures) will

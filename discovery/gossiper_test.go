@@ -476,7 +476,7 @@ type annBatch struct {
 	nodeAnn1 *lnwire.NodeAnnouncement
 	nodeAnn2 *lnwire.NodeAnnouncement
 
-	chanAnn *lnwire.ChannelAnnouncement
+	chanAnn *lnwire.ChannelAnnouncement1
 
 	chanUpdAnn1 *lnwire.ChannelUpdate
 	chanUpdAnn2 *lnwire.ChannelUpdate
@@ -635,9 +635,9 @@ func signUpdate(nodeKey *btcec.PrivateKey, a *lnwire.ChannelUpdate) error {
 
 func createAnnouncementWithoutProof(blockHeight uint32,
 	key1, key2 *btcec.PublicKey,
-	extraBytes ...[]byte) *lnwire.ChannelAnnouncement {
+	extraBytes ...[]byte) *lnwire.ChannelAnnouncement1 {
 
-	a := &lnwire.ChannelAnnouncement{
+	a := &lnwire.ChannelAnnouncement1{
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
 			TxIndex:     0,
@@ -657,13 +657,13 @@ func createAnnouncementWithoutProof(blockHeight uint32,
 }
 
 func createRemoteChannelAnnouncement(blockHeight uint32,
-	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement, error) {
+	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement1, error) {
 
 	return createChannelAnnouncement(blockHeight, remoteKeyPriv1, remoteKeyPriv2, extraBytes...)
 }
 
 func createChannelAnnouncement(blockHeight uint32, key1, key2 *btcec.PrivateKey,
-	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement, error) {
+	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement1, error) {
 
 	a := createAnnouncementWithoutProof(blockHeight, key1.PubKey(), key2.PubKey(), extraBytes...)
 
@@ -1768,9 +1768,10 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	// We expect the gossiper to send this message to the remote peer.
 	select {
 	case msg := <-sentToPeer:
-		_, ok := msg.(*lnwire.ChannelAnnouncement)
+		_, ok := msg.(*lnwire.ChannelAnnouncement1)
 		if !ok {
-			t.Fatalf("expected ChannelAnnouncement, instead got %T", msg)
+			t.Fatalf("expected ChannelAnnouncement1, instead got "+
+				"%T", msg)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not send local proof to peer")
@@ -2811,7 +2812,7 @@ func TestRetransmit(t *testing.T) {
 		var chanAnn, chanUpd, nodeAnn int
 		for _, msg := range anns {
 			switch msg.(type) {
-			case *lnwire.ChannelAnnouncement:
+			case *lnwire.ChannelAnnouncement1:
 				chanAnn++
 			case *lnwire.ChannelUpdate:
 				chanUpd++

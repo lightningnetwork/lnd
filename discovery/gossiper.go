@@ -322,7 +322,7 @@ type Config struct {
 
 	// SignAliasUpdate is used to re-sign a channel update using the
 	// remote's alias if the option-scid-alias feature bit was negotiated.
-	SignAliasUpdate func(u *lnwire.ChannelUpdate) (*ecdsa.Signature,
+	SignAliasUpdate func(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
 		error)
 
 	// FindBaseByAlias finds the SCID stored in the graph by an alias SCID.
@@ -1035,7 +1035,7 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 
 	// Channel updates are identified by the (short channel id,
 	// channelflags) tuple.
-	case *lnwire.ChannelUpdate:
+	case *lnwire.ChannelUpdate1:
 		sender := route.NewVertex(message.source)
 		deDupKey := channelUpdateID{
 			msg.ShortChannelID,
@@ -1047,7 +1047,15 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 		if ok {
 			// If we already have seen this message, record its
 			// timestamp.
-			oldTimestamp = mws.msg.(*lnwire.ChannelUpdate).Timestamp
+			update, ok := mws.msg.(*lnwire.ChannelUpdate1)
+			if !ok {
+				log.Errorf("Expected *lnwire.ChannelUpdate1, "+
+					"got: %T", mws.msg)
+
+				return
+			}
+
+			oldTimestamp = update.Timestamp
 		}
 
 		// If we already had this message with a strictly newer
@@ -1582,7 +1590,7 @@ func (d *AuthenticatedGossiper) isRecentlyRejectedMsg(msg lnwire.Message,
 
 	var scid uint64
 	switch m := msg.(type) {
-	case *lnwire.ChannelUpdate:
+	case *lnwire.ChannelUpdate1:
 		scid = m.ShortChannelID.ToUint64()
 
 	case *lnwire.ChannelAnnouncement1:
@@ -2035,7 +2043,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 	// A new authenticated channel edge update has arrived. This indicates
 	// that the directional information for an already known channel has
 	// been updated.
-	case *lnwire.ChannelUpdate:
+	case *lnwire.ChannelUpdate1:
 		return d.handleChanUpdate(nMsg, msg, schedulerOp)
 
 	// A new signature announcement has been received. This indicates
@@ -2058,7 +2066,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 // should be inspected.
 func (d *AuthenticatedGossiper) processZombieUpdate(
 	chanInfo *models.ChannelEdgeInfo, scid lnwire.ShortChannelID,
-	msg *lnwire.ChannelUpdate) error {
+	msg *lnwire.ChannelUpdate1) error {
 
 	// The least-significant bit in the flag on the channel update tells us
 	// which edge is being updated.
@@ -2151,7 +2159,7 @@ func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 		// can safely delete the local proof from the database.
 		return chanInfo.AuthProof != nil
 
-	case *lnwire.ChannelUpdate:
+	case *lnwire.ChannelUpdate1:
 		_, p1, p2, err := d.cfg.Graph.GetChannelByID(msg.ShortChannelID)
 
 		// If the channel cannot be found, it is most likely a leftover
@@ -2196,7 +2204,7 @@ func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 // the underlying graph with the new state.
 func (d *AuthenticatedGossiper) updateChannel(info *models.ChannelEdgeInfo,
 	edge *models.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement1,
-	*lnwire.ChannelUpdate, error) {
+	*lnwire.ChannelUpdate1, error) {
 
 	// Parse the unsigned edge into a channel update.
 	chanUpdate := netann.UnsignedChannelUpdateFromEdge(info, edge)
@@ -2284,7 +2292,7 @@ func (d *AuthenticatedGossiper) SyncManager() *SyncManager {
 // IsKeepAliveUpdate determines whether this channel update is considered a
 // keep-alive update based on the previous channel update processed for the same
 // direction.
-func IsKeepAliveUpdate(update *lnwire.ChannelUpdate,
+func IsKeepAliveUpdate(update *lnwire.ChannelUpdate1,
 	prev *models.ChannelEdgePolicy) bool {
 
 	// Both updates should be from the same direction.
@@ -2753,7 +2761,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 			// Reprocess the message, making sure we return an
 			// error to the original caller in case the gossiper
 			// shuts down.
-			case *lnwire.ChannelUpdate:
+			case *lnwire.ChannelUpdate1:
 				log.Debugf("Reprocessing ChannelUpdate for "+
 					"shortChanID=%v", scid.ToUint64())
 
@@ -2796,7 +2804,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 
 // handleChanUpdate processes a new channel update.
 func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
-	upd *lnwire.ChannelUpdate,
+	upd *lnwire.ChannelUpdate1,
 	ops []batch.SchedulerOption) ([]networkMsg, bool) {
 
 	log.Debugf("Processing ChannelUpdate: peer=%v, short_chan_id=%v, ",

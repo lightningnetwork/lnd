@@ -2,8 +2,10 @@ package lnwire
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
@@ -183,4 +185,78 @@ func (a *ChannelAnnouncement1) DataToSign() ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+// Validate validates the channel announcement message and checks that node
+// signatures covers the announcement message, and that the bitcoin signatures
+// covers the node keys.
+func (a *ChannelAnnouncement1) Validate(_ func(id *ShortChannelID) (
+	[]byte, error)) error {
+
+	// First, we'll compute the digest (h) which is to be signed by each of
+	// the keys included within the node announcement message. This hash
+	// digest includes all the keys, so the (up to 4 signatures) will
+	// attest to the validity of each of the keys.
+	data, err := a.DataToSign()
+	if err != nil {
+		return err
+	}
+	dataHash := chainhash.DoubleHashB(data)
+
+	// First we'll verify that the passed bitcoin key signature is indeed a
+	// signature over the computed hash digest.
+	bitcoinSig1, err := a.BitcoinSig1.ToSignature()
+	if err != nil {
+		return err
+	}
+	bitcoinKey1, err := btcec.ParsePubKey(a.BitcoinKey1[:])
+	if err != nil {
+		return err
+	}
+	if !bitcoinSig1.Verify(dataHash, bitcoinKey1) {
+		return fmt.Errorf("can't verify first bitcoin signature")
+	}
+
+	// If that checks out, then we'll verify that the second bitcoin
+	// signature is a valid signature of the bitcoin public key over hash
+	// digest as well.
+	bitcoinSig2, err := a.BitcoinSig2.ToSignature()
+	if err != nil {
+		return err
+	}
+	bitcoinKey2, err := btcec.ParsePubKey(a.BitcoinKey2[:])
+	if err != nil {
+		return err
+	}
+	if !bitcoinSig2.Verify(dataHash, bitcoinKey2) {
+		return fmt.Errorf("can't verify second bitcoin signature")
+	}
+
+	// Both node signatures attached should indeed be a valid signature
+	// over the selected digest of the channel announcement signature.
+	nodeSig1, err := a.NodeSig1.ToSignature()
+	if err != nil {
+		return err
+	}
+	nodeKey1, err := btcec.ParsePubKey(a.NodeID1[:])
+	if err != nil {
+		return err
+	}
+	if !nodeSig1.Verify(dataHash, nodeKey1) {
+		return fmt.Errorf("can't verify data in first node signature")
+	}
+
+	nodeSig2, err := a.NodeSig2.ToSignature()
+	if err != nil {
+		return err
+	}
+	nodeKey2, err := btcec.ParsePubKey(a.NodeID2[:])
+	if err != nil {
+		return err
+	}
+	if !nodeSig2.Verify(dataHash, nodeKey2) {
+		return fmt.Errorf("can't verify data in second node signature")
+	}
+
+	return nil
 }

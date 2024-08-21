@@ -4012,7 +4012,9 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 // remote party. These commitments are read from disk to ensure that only the
 // latest fully committed state is returned. The first commitment returned is
 // the local commitment, and the second returned is the remote commitment.
-func (c *OpenChannel) LatestCommitments() (*ChannelCommitment, *ChannelCommitment, error) {
+//
+//nolint:lll
+func (c *OpenChannel) LatestCommitments() fn.Result[*lntypes.Dual[ChannelCommitment]] {
 	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
 			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
@@ -4024,10 +4026,10 @@ func (c *OpenChannel) LatestCommitments() (*ChannelCommitment, *ChannelCommitmen
 		return fetchChanCommitments(chanBucket, c)
 	}, func() {})
 	if err != nil {
-		return nil, nil, err
+		return fn.Err[*lntypes.Dual[ChannelCommitment]](err)
 	}
 
-	return &c.Commitments.Local, &c.Commitments.Remote, nil
+	return fn.Ok(&c.Commitments)
 }
 
 // RemoteRevocationStore returns the most up to date commitment version of the

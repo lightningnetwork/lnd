@@ -2334,11 +2334,13 @@ func createInitChannels(t *testing.T) (
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         aliceCommit,
-		RemoteCommitment:        aliceCommit,
-		Db:                      dbAlice.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
-		FundingTxn:              channels.TestFundingTx,
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  aliceCommit,
+			Remote: aliceCommit,
+		},
+		Db:         dbAlice.ChannelStateDB(),
+		Packager:   channeldb.NewChannelPackager(shortChanID),
+		FundingTxn: channels.TestFundingTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
 		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
@@ -2354,10 +2356,12 @@ func createInitChannels(t *testing.T) (
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         bobCommit,
-		RemoteCommitment:        bobCommit,
-		Db:                      dbBob.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  bobCommit,
+			Remote: bobCommit,
+		},
+		Db:       dbBob.ChannelStateDB(),
+		Packager: channeldb.NewChannelPackager(shortChanID),
 	}
 
 	aliceSigner := input.NewMockSigner(

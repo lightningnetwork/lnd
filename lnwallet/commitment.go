@@ -1283,7 +1283,7 @@ func findOutputIndexesFromRemote(revocationPreimage *chainhash.Hash,
 	ourIndex := uint32(channeldb.OutputIndexEmpty)
 	theirIndex := uint32(channeldb.OutputIndexEmpty)
 
-	chanCommit := chanState.RemoteCommitment
+	chanCommit := chanState.Commitments.Remote
 	_, commitmentPoint := btcec.PrivKeyFromBytes(revocationPreimage[:])
 
 	// With the commitment point generated, we can now derive the king ring

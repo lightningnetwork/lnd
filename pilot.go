@@ -265,7 +265,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			chanState := make([]autopilot.LocalChannel,
 				len(activeChannels))
 			for i, channel := range activeChannels {
-				localCommit := channel.LocalCommitment
+				localCommit := channel.Commitments.Local
 				balance := localCommit.LocalBalance.ToSatoshis()
 
 				chanState[i] = autopilot.LocalChannel{
@@ -287,7 +287,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 				return nil, err
 			}
 
-			localCommit := channel.LocalCommitment
+			localCommit := channel.Commitments.Local
 			return &autopilot.LocalChannel{
 				ChanID:  channel.ShortChanID(),
 				Balance: localCommit.LocalBalance.ToSatoshis(),

@@ -2361,7 +2361,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			chanID := l.ChanID()
 
 			err = l.cfg.TowerClient.BackupState(
-				&chanID, state.RemoteCommitment.CommitHeight-1,
+				&chanID,
+				state.Commitments.Remote.CommitHeight-1,
 			)
 			if err != nil {
 				l.failf(LinkFailureError{
@@ -2752,10 +2753,10 @@ func (l *channelLink) getDustClosure() dustClosure {
 // NOTE: Part of the dustHandler interface.
 func (l *channelLink) getCommitFee(remote bool) btcutil.Amount {
 	if remote {
-		return l.channel.State().RemoteCommitment.CommitFee
+		return l.channel.State().Commitments.Remote.CommitFee
 	}
 
-	return l.channel.State().LocalCommitment.CommitFee
+	return l.channel.State().Commitments.Local.CommitFee
 }
 
 // exceedsFeeExposureLimit returns whether or not the new proposed fee-rate

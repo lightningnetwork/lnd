@@ -3537,7 +3537,7 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 	}
 
 	for _, channel := range openChannels {
-		c := channel.LocalCommitment
+		c := channel.Commitments.Local
 		localBalance += c.LocalBalance
 		remoteBalance += c.RemoteBalance
 
@@ -3557,7 +3557,7 @@ func (r *rpcServer) ChannelBalance(ctx context.Context,
 	}
 
 	for _, channel := range pendingChannels {
-		c := channel.LocalCommitment
+		c := channel.Commitments.Local
 		pendingOpenLocalBalance += c.LocalBalance
 		pendingOpenRemoteBalance += c.RemoteBalance
 	}
@@ -3643,7 +3643,7 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 			witnessWeight = input.WitnessCommitmentTxWeight
 		}
 
-		localCommitment := pendingChan.LocalCommitment
+		localCommitment := pendingChan.Commitments.Local
 		utx := btcutil.NewTx(localCommitment.CommitTx)
 		commitBaseWeight := blockchain.GetTransactionWeight(utx)
 		commitWeight := commitBaseWeight + witnessWeight
@@ -3656,11 +3656,14 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 
 		result[i] = &lnrpc.PendingChannelsResponse_PendingOpenChannel{
 			Channel: &lnrpc.PendingChannelsResponse_PendingChannel{
-				RemoteNodePub:        hex.EncodeToString(pub),
-				ChannelPoint:         pendingChan.FundingOutpoint.String(),
-				Capacity:             int64(pendingChan.Capacity),
-				LocalBalance:         int64(localCommitment.LocalBalance.ToSatoshis()),
-				RemoteBalance:        int64(localCommitment.RemoteBalance.ToSatoshis()),
+				RemoteNodePub: hex.EncodeToString(pub),
+				//nolint:lll
+				ChannelPoint: pendingChan.FundingOutpoint.String(),
+				Capacity:     int64(pendingChan.Capacity),
+				//nolint:lll
+				LocalBalance: int64(localCommitment.LocalBalance.ToSatoshis()),
+				//nolint:lll
+				RemoteBalance: int64(localCommitment.RemoteBalance.ToSatoshis()),
 				//nolint:lll
 				LocalChanReserveSat: int64(pendingChan.ChanCfgs.Local.ChanReserve),
 				//nolint:lll
@@ -3753,9 +3756,8 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 			}
 			channel.NumForwardingPackages = int64(len(fwdPkgs))
 
-			channel.RemoteBalance = int64(
-				historical.LocalCommitment.RemoteBalance.ToSatoshis(),
-			)
+			//nolint:lll
+			channel.RemoteBalance = int64(historical.Commitments.Local.RemoteBalance.ToSatoshis())
 
 			channel.Private = isPrivate(historical)
 			channel.Memo = string(historical.Memo)
@@ -3886,24 +3888,25 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 		var commitments lnrpc.PendingChannelsResponse_Commitments
 
 		// Report local commit. May not be present when DLP is active.
-		if waitingClose.LocalCommitment.CommitTx != nil {
+		if waitingClose.Commitments.Local.CommitTx != nil {
 			commitments.LocalTxid =
-				waitingClose.LocalCommitment.CommitTx.TxHash().
-					String()
+				waitingClose.Commitments.Local.CommitTx.
+					TxHash().String()
 
 			commitments.LocalCommitFeeSat = uint64(
-				waitingClose.LocalCommitment.CommitFee,
+				waitingClose.Commitments.Local.CommitFee,
 			)
 		}
 
 		// Report remote commit. May not be present when DLP is active.
-		if waitingClose.RemoteCommitment.CommitTx != nil {
+		if waitingClose.Commitments.Remote.CommitTx != nil {
 			commitments.RemoteTxid =
-				waitingClose.RemoteCommitment.CommitTx.TxHash().
-					String()
+				waitingClose.Commitments.Remote.CommitTx.
+					TxHash().String()
 
 			commitments.RemoteCommitFeeSat = uint64(
-				waitingClose.RemoteCommitment.CommitFee,
+				waitingClose.Commitments.Remote.
+					CommitFee,
 			)
 		}
 
@@ -3948,11 +3951,13 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 		}
 
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
-			RemoteNodePub:         hex.EncodeToString(pub),
-			ChannelPoint:          chanPoint.String(),
-			Capacity:              int64(waitingClose.Capacity),
-			LocalBalance:          int64(waitingClose.LocalCommitment.LocalBalance.ToSatoshis()),
-			RemoteBalance:         int64(waitingClose.LocalCommitment.RemoteBalance.ToSatoshis()),
+			RemoteNodePub: hex.EncodeToString(pub),
+			ChannelPoint:  chanPoint.String(),
+			Capacity:      int64(waitingClose.Capacity),
+			//nolint:lll
+			LocalBalance: int64(waitingClose.Commitments.Local.LocalBalance.ToSatoshis()),
+			//nolint:lll
+			RemoteBalance: int64(waitingClose.Commitments.Local.RemoteBalance.ToSatoshis()),
 			//nolint:lll
 			LocalChanReserveSat: int64(waitingClose.ChanCfgs.Local.ChanReserve),
 			//nolint:lll
@@ -4422,7 +4427,7 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 		witnessWeight = input.WitnessCommitmentTxWeight
 	}
 
-	localCommit := dbChannel.LocalCommitment
+	localCommit := dbChannel.Commitments.Local
 	utx := btcutil.NewTx(localCommit.CommitTx)
 	commitBaseWeight := blockchain.GetTransactionWeight(utx)
 	commitWeight := commitBaseWeight + witnessWeight

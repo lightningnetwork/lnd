@@ -435,17 +435,23 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 			IsInitiator:  initiator,
 			ChannelFlags: req.Flags,
 			Capacity:     capacity,
-			LocalCommitment: channeldb.ChannelCommitment{
-				LocalBalance:  ourBalance,
-				RemoteBalance: theirBalance,
-				FeePerKw:      btcutil.Amount(req.CommitFeePerKw),
-				CommitFee:     commitFee,
-			},
-			RemoteCommitment: channeldb.ChannelCommitment{
-				LocalBalance:  ourBalance,
-				RemoteBalance: theirBalance,
-				FeePerKw:      btcutil.Amount(req.CommitFeePerKw),
-				CommitFee:     commitFee,
+			Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+				Local: channeldb.ChannelCommitment{
+					LocalBalance:  ourBalance,
+					RemoteBalance: theirBalance,
+					FeePerKw: btcutil.Amount(
+						req.CommitFeePerKw,
+					),
+					CommitFee: commitFee,
+				},
+				Remote: channeldb.ChannelCommitment{
+					LocalBalance:  ourBalance,
+					RemoteBalance: theirBalance,
+					FeePerKw: btcutil.Amount(
+						req.CommitFeePerKw,
+					),
+					CommitFee: commitFee,
+				},
 			},
 			ThawHeight:           thawHeight,
 			Db:                   wallet.Cfg.Database,

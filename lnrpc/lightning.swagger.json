@@ -4424,6 +4424,70 @@
         }
       }
     },
+    "lnrpcChannelUpdate2": {
+      "type": "object",
+      "properties": {
+        "signature": {
+          "type": "string",
+          "format": "byte",
+          "description": "The signature that validates the announced data and proves the ownership\nof node id."
+        },
+        "chain_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The target chain that this channel was opened within. This value\nshould be the genesis hash of the target chain. Along with the short\nchannel ID, this uniquely identifies the channel globally in a\nblockchain."
+        },
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique description of the funding transaction."
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "A block height that allows ordering in the case of multiple announcements.\nWe should ignore the message if block_height is not greater than the\nlast-received."
+        },
+        "disabled_flags": {
+          "type": "integer",
+          "format": "int64",
+          "description": "A bit field describing the disabled bits set on the update."
+        },
+        "direction": {
+          "type": "boolean",
+          "description": "If true, this update is from node 2. Otherwise, it is from node 1."
+        },
+        "time_lock_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The minimum number of blocks this node requires to be added to the expiry\nof HTLCs. This is a security parameter determined by the node operator.\nThis value represents the required gap between the time locks of the\nincoming and outgoing HTLC's set to this node."
+        },
+        "base_fee": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The base fee that must be used for incoming HTLC's to this particular\nchannel. This value will be tacked onto the required for a payment\nindependent of the size of the payment."
+        },
+        "fee_rate": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The fee rate that will be charged per millionth of a satoshi."
+        },
+        "htlc_minimum_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The minimum HTLC value which will be accepted."
+        },
+        "htlc_maximum_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The maximum HTLC value which will be accepted."
+        },
+        "extra_opaque_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "The set of data that was appended to this message, some of which we may\nnot actually know how to iterate or parse. By holding onto this data, we\nensure that we're able to properly validate the set of signatures that\ncover these new fields, and ensure we're able to make upgrades to the\nnetwork in a forwards compatible manner."
+        }
+      }
+    },
     "lnrpcCheckMacPermRequest": {
       "type": "object",
       "properties": {
@@ -4688,6 +4752,10 @@
           "type": "integer",
           "format": "int64",
           "description": "A failure type-dependent block height."
+        },
+        "channel_update_2": {
+          "$ref": "#/definitions/lnrpcChannelUpdate2",
+          "description": "An optional channel update 2 message."
         }
       }
     },
@@ -6965,6 +7033,10 @@
         "inbound_fee_rate_milli_msat": {
           "type": "integer",
           "format": "int32"
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int64"
         }
       }
     },

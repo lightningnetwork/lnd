@@ -191,15 +191,17 @@ type WaitingProofKey [9]byte
 // needed to make channel proof exchange persistent, so that after client
 // restart we may receive remote/local half proof and process it.
 type WaitingProof struct {
-	*lnwire.AnnounceSignatures
+	*lnwire.AnnounceSignatures1
 	isRemote bool
 }
 
 // NewWaitingProof constructs a new waiting prof instance.
-func NewWaitingProof(isRemote bool, proof *lnwire.AnnounceSignatures) *WaitingProof {
+func NewWaitingProof(isRemote bool,
+	proof *lnwire.AnnounceSignatures1) *WaitingProof {
+
 	return &WaitingProof{
-		AnnounceSignatures: proof,
-		isRemote:           isRemote,
+		AnnounceSignatures1: proof,
+		isRemote:            isRemote,
 	}
 }
 
@@ -238,7 +240,7 @@ func (p *WaitingProof) Encode(w io.Writer) error {
 		return fmt.Errorf("expect io.Writer to be *bytes.Buffer")
 	}
 
-	if err := p.AnnounceSignatures.Encode(buf, 0); err != nil {
+	if err := p.AnnounceSignatures1.Encode(buf, 0); err != nil {
 		return err
 	}
 
@@ -252,11 +254,12 @@ func (p *WaitingProof) Decode(r io.Reader) error {
 		return err
 	}
 
-	msg := &lnwire.AnnounceSignatures{}
+	msg := &lnwire.AnnounceSignatures1{}
 	if err := msg.Decode(r, 0); err != nil {
 		return err
 	}
 
-	(*p).AnnounceSignatures = msg
+	p.AnnounceSignatures1 = msg
+
 	return nil
 }

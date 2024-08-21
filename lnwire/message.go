@@ -267,7 +267,7 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 	case MsgPing:
 		msg = &Ping{}
 	case MsgAnnounceSignatures:
-		msg = &AnnounceSignatures{}
+		msg = &AnnounceSignatures1{}
 	case MsgPong:
 		msg = &Pong{}
 	case MsgQueryShortChanIDs:

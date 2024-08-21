@@ -83,7 +83,7 @@ func NewMessageStore(db kvdb.Backend) (*MessageStore, error) {
 func msgShortChanID(msg lnwire.Message) (lnwire.ShortChannelID, error) {
 	var shortChanID lnwire.ShortChannelID
 	switch msg := msg.(type) {
-	case *lnwire.AnnounceSignatures:
+	case *lnwire.AnnounceSignatures1:
 		shortChanID = msg.ShortChannelID
 	case *lnwire.ChannelUpdate:
 		shortChanID = msg.ShortChannelID

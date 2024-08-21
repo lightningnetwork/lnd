@@ -5,7 +5,6 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -137,7 +136,7 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 		if edge1 != nil {
 			// We don't want to send channel updates that don't
 			// conform to the spec (anymore).
-			err := graph.ValidateChannelUpdateFields(0, edge1)
+			err := edge1.Validate(0)
 			if err != nil {
 				log.Errorf("not sending invalid channel "+
 					"update %v: %v", edge1, err)
@@ -146,7 +145,7 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 			}
 		}
 		if edge2 != nil {
-			err := graph.ValidateChannelUpdateFields(0, edge2)
+			err := edge2.Validate(0)
 			if err != nil {
 				log.Errorf("not sending invalid channel "+
 					"update %v: %v", edge2, err)

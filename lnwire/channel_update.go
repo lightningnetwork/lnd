@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/davecgh/go-spew/spew"
 )
 
 // ChanUpdateMsgFlags is a bitfield that signals whether optional fields are
@@ -278,4 +281,51 @@ func (a *ChannelUpdate1) DataToSign() ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+// Validate validates the channel update's message flags and corresponding
+// update fields.
+func (a *ChannelUpdate1) Validate(capacity btcutil.Amount) error {
+	// The maxHTLC flag is mandatory.
+	if !a.MessageFlags.HasMaxHtlc() {
+		return fmt.Errorf("max htlc flag not set for channel update %v",
+			spew.Sdump(a))
+	}
+
+	maxHtlc := a.HtlcMaximumMsat
+	if maxHtlc == 0 || maxHtlc < a.HtlcMinimumMsat {
+		return fmt.Errorf("invalid max htlc for channel update %v",
+			spew.Sdump(a))
+	}
+
+	// For light clients, the capacity will not be set, so we'll skip
+	// checking whether the MaxHTLC value respects the channel's capacity.
+	capacityMsat := NewMSatFromSatoshis(capacity)
+	if capacityMsat != 0 && maxHtlc > capacityMsat {
+		return fmt.Errorf("max_htlc (%v) for channel update greater "+
+			"than capacity (%v)", maxHtlc, capacityMsat)
+	}
+
+	return nil
+}
+
+// VerifySig verifies that the channel update message was signed by the party
+// with the given node public key.
+func (a *ChannelUpdate1) VerifySig(pubKey *btcec.PublicKey) error {
+	data, err := a.DataToSign()
+	if err != nil {
+		return fmt.Errorf("unable to reconstruct message data: %w", err)
+	}
+
+	dataHash := chainhash.DoubleHashB(data)
+	nodeSig, err := a.Signature.ToSignature()
+	if err != nil {
+		return err
+	}
+	if !nodeSig.Verify(dataHash, pubKey) {
+		return fmt.Errorf("invalid signature for channel update %v",
+			spew.Sdump(a))
+	}
+
+	return nil
 }

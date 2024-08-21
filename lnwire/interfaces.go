@@ -1,6 +1,10 @@
 package lnwire
 
-import "github.com/btcsuite/btcd/chaincfg/chainhash"
+import (
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+)
 
 // AnnounceSignatures is an interface that represents a message used to
 // exchange signatures of a ChannelAnnouncment message during the funding flow.
@@ -36,4 +40,18 @@ type ChannelAnnouncement interface {
 	Validate(fetchPKScript func(id *ShortChannelID) ([]byte, error)) error
 
 	Message
+}
+
+// ValidateChannelUpdateAnn validates the channel update announcement by
+// checking (1) that the included signature covers the announcement and has been
+// signed by the node's private key, and (2) that the announcement's message
+// flags and optional fields are sane.
+func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey, capacity btcutil.Amount,
+	a *ChannelUpdate1) error {
+
+	if err := a.Validate(capacity); err != nil {
+		return err
+	}
+
+	return a.VerifySig(pubKey)
 }

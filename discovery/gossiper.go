@@ -2100,7 +2100,7 @@ func (d *AuthenticatedGossiper) processZombieUpdate(
 			"with chan_id=%v", msg.ShortChannelID)
 	}
 
-	err := graph.VerifyChannelUpdateSignature(msg, pubKey)
+	err := msg.VerifySig(pubKey)
 	if err != nil {
 		return fmt.Errorf("unable to verify channel "+
 			"update signature: %v", err)
@@ -2237,7 +2237,7 @@ func (d *AuthenticatedGossiper) updateChannel(info *models.ChannelEdgeInfo,
 
 	// To ensure that our signature is valid, we'll verify it ourself
 	// before committing it to the slice returned.
-	err = graph.ValidateChannelUpdateAnn(
+	err = lnwire.ValidateChannelUpdateAnn(
 		d.selfKey, info.Capacity, chanUpdate,
 	)
 	if err != nil {
@@ -3028,7 +3028,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 	// Validate the channel announcement with the expected public key and
 	// channel capacity. In the case of an invalid channel update, we'll
 	// return an error to the caller and exit early.
-	err = graph.ValidateChannelUpdateAnn(pubKey, chanInfo.Capacity, upd)
+	err = lnwire.ValidateChannelUpdateAnn(pubKey, chanInfo.Capacity, upd)
 	if err != nil {
 		rErr := fmt.Errorf("unable to validate channel update "+
 			"announcement for short_chan_id=%v: %v",

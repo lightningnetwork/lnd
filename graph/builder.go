@@ -1484,7 +1484,7 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 		return false
 	}
 
-	err = ValidateChannelUpdateAnn(pubKey, ch.Capacity, msg)
+	err = lnwire.ValidateChannelUpdateAnn(pubKey, ch.Capacity, msg)
 	if err != nil {
 		log.Errorf("Unable to validate channel update: %v", err)
 		return false

@@ -7,7 +7,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
-	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -182,9 +181,7 @@ func TestUpdateDisableFlag(t *testing.T) {
 
 			// Finally, validate the signature using the router's
 			// verification logic.
-			err = graph.VerifyChannelUpdateSignature(
-				newUpdate, pubKey,
-			)
+			err = newUpdate.VerifySig(pubKey)
 			if err != nil {
 				t.Fatalf("channel update failed to "+
 					"validate: %v", err)

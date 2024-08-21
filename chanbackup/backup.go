@@ -66,7 +66,7 @@ func buildCloseTxInputs(
 	log.Debugf("Crafting CloseTxInputs for ChannelPoint(%v)",
 		targetChan.FundingOutpoint)
 
-	localCommit := targetChan.LocalCommitment
+	localCommit := targetChan.Commitments.Local
 
 	if localCommit.CommitTx == nil {
 		log.Infof("CommitTx is nil for ChannelPoint(%v), "+

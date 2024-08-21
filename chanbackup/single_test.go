@@ -242,7 +242,9 @@ func genRandomOpenChannelShell() (*channeldb.OpenChannel, error) {
 		),
 		ThawHeight:         rand.Uint32(),
 		IdentityPub:        pub,
-		LocalCommitment:    localCommit,
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local: localCommit,
+		},
 		RevocationProducer: shaChainProducer,
 		TapscriptRoot:      tapscriptRootOption,
 		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{

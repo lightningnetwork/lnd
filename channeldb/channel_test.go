@@ -118,7 +118,7 @@ func openChannelOption() testChannelOption {
 // commitment.
 func localHtlcsOption(htlcs []HTLC) testChannelOption {
 	return func(params *testChannelParams) {
-		params.channel.LocalCommitment.Htlcs = htlcs
+		params.channel.Commitments.Local.Htlcs = htlcs
 	}
 }
 
@@ -126,7 +126,7 @@ func localHtlcsOption(htlcs []HTLC) testChannelOption {
 // commitment.
 func remoteHtlcsOption(htlcs []HTLC) testChannelOption {
 	return func(params *testChannelParams) {
-		params.channel.RemoteCommitment.Htlcs = htlcs
+		params.channel.Commitments.Remote.Htlcs = htlcs
 	}
 }
 
@@ -331,39 +331,41 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 	copy(tapscriptRoot[:], bytes.Repeat([]byte{1}, 32))
 
 	return &OpenChannel{
-		ChanType:          SingleFunderBit | FrozenBit,
-		ChainHash:         key,
-		FundingOutpoint:   op,
-		ShortChannelID:    chanID,
-		IsInitiator:       true,
-		IsPending:         true,
-		IdentityPub:       pubKey,
-		Capacity:          btcutil.Amount(10000),
+		ChanType:        SingleFunderBit | FrozenBit,
+		ChainHash:       key,
+		FundingOutpoint: op,
+		ShortChannelID:  chanID,
+		IsInitiator:     true,
+		IsPending:       true,
+		IdentityPub:     pubKey,
+		Capacity:        btcutil.Amount(10000),
 		ChanCfgs: lntypes.Dual[ChannelConfig]{
 			Local:  localCfg,
 			Remote: remoteCfg,
 		},
 		TotalMSatSent:     8,
 		TotalMSatReceived: 2,
-		LocalCommitment: ChannelCommitment{
-			CommitHeight:  0,
-			LocalBalance:  lnwire.MilliSatoshi(9000),
-			RemoteBalance: lnwire.MilliSatoshi(3000),
-			CommitFee:     btcutil.Amount(rand.Int63()),
-			FeePerKw:      btcutil.Amount(5000),
-			CommitTx:      channels.TestFundingTx,
-			CommitSig:     bytes.Repeat([]byte{1}, 71),
-			CustomBlob:    fn.Some([]byte{1, 2, 3}),
-		},
-		RemoteCommitment: ChannelCommitment{
-			CommitHeight:  0,
-			LocalBalance:  lnwire.MilliSatoshi(3000),
-			RemoteBalance: lnwire.MilliSatoshi(9000),
-			CommitFee:     btcutil.Amount(rand.Int63()),
-			FeePerKw:      btcutil.Amount(5000),
-			CommitTx:      channels.TestFundingTx,
-			CommitSig:     bytes.Repeat([]byte{1}, 71),
-			CustomBlob:    fn.Some([]byte{4, 5, 6}),
+		Commitments: lntypes.Dual[ChannelCommitment]{
+			Local: ChannelCommitment{
+				CommitHeight:  0,
+				LocalBalance:  lnwire.MilliSatoshi(9000),
+				RemoteBalance: lnwire.MilliSatoshi(3000),
+				CommitFee:     btcutil.Amount(rand.Int63()),
+				FeePerKw:      btcutil.Amount(5000),
+				CommitTx:      channels.TestFundingTx,
+				CommitSig:     bytes.Repeat([]byte{1}, 71),
+				CustomBlob:    fn.Some([]byte{1, 2, 3}),
+			},
+			Remote: ChannelCommitment{
+				CommitHeight:  0,
+				LocalBalance:  lnwire.MilliSatoshi(3000),
+				RemoteBalance: lnwire.MilliSatoshi(9000),
+				CommitFee:     btcutil.Amount(rand.Int63()),
+				FeePerKw:      btcutil.Amount(5000),
+				CommitTx:      channels.TestFundingTx,
+				CommitSig:     bytes.Repeat([]byte{1}, 71),
+				CustomBlob:    fn.Some([]byte{4, 5, 6}),
+			},
 		},
 		NumConfsRequired:        4,
 		RemoteCurrentRevocation: privKey.PubKey(),
@@ -661,7 +663,7 @@ func TestChannelStateTransition(t *testing.T) {
 	// Additionally, modify the signature and commitment transaction.
 	newSequence := uint32(129498)
 	newSig := bytes.Repeat([]byte{3}, 71)
-	newTx := channel.LocalCommitment.CommitTx.Copy()
+	newTx := channel.Commitments.Local.CommitTx.Copy()
 	newTx.TxIn[0].Sequence = newSequence
 	commitment := ChannelCommitment{
 		CommitHeight:    1,
@@ -714,11 +716,9 @@ func TestChannelStateTransition(t *testing.T) {
 	// have been updated.
 	updatedChannel, err := cdb.FetchOpenChannels(channel.IdentityPub)
 	require.NoError(t, err, "unable to fetch updated channel")
-
 	assertCommitmentEqual(
-		t, &commitment, &updatedChannel[0].LocalCommitment,
+		t, &commitment, &updatedChannel[0].Commitments.Local,
 	)
-
 	numDiskUpdates, err := updatedChannel[0].CommitmentHeight()
 	require.NoError(t, err, "unable to read commitment height from disk")
 
@@ -790,7 +790,7 @@ func TestChannelStateTransition(t *testing.T) {
 
 	// We'll save the old remote commitment as this will be added to the
 	// revocation log shortly.
-	oldRemoteCommit := channel.RemoteCommitment
+	oldRemoteCommit := channel.Commitments.Remote
 
 	// Next, write to the log which tracks the necessary revocation state
 	// needed to rectify any fishy behavior by the remote party. Modify the
@@ -842,7 +842,7 @@ func TestChannelStateTransition(t *testing.T) {
 		t.Fatal("update number doesn't match")
 	}
 
-	oldRemoteCommit = channel.RemoteCommitment
+	oldRemoteCommit = channel.Commitments.Remote
 
 	// Next modify the posted diff commitment slightly, then create a new
 	// commitment diff and advance the tail.
@@ -1019,15 +1019,17 @@ func TestFetchClosedChannels(t *testing.T) {
 	// Next, close the channel by including a close channel summary in the
 	// database.
 	summary := &ChannelCloseSummary{
-		ChanPoint:         state.FundingOutpoint,
-		ClosingTXID:       rev,
-		RemotePub:         state.IdentityPub,
-		Capacity:          state.Capacity,
-		SettledBalance:    state.LocalCommitment.LocalBalance.ToSatoshis(),
-		TimeLockedBalance: state.RemoteCommitment.LocalBalance.ToSatoshis() + 10000,
-		CloseType:         RemoteForceClose,
-		IsPending:         true,
-		LocalChanConfig:   state.ChanCfgs.Local,
+		ChanPoint:   state.FundingOutpoint,
+		ClosingTXID: rev,
+		RemotePub:   state.IdentityPub,
+		Capacity:    state.Capacity,
+		SettledBalance: state.Commitments.Local.
+			LocalBalance.ToSatoshis(),
+		TimeLockedBalance: state.Commitments.Remote.
+			LocalBalance.ToSatoshis() + 10000,
+		CloseType:       RemoteForceClose,
+		IsPending:       true,
+		LocalChanConfig: state.ChanCfgs.Local,
 	}
 	if err := state.CloseChannel(summary); err != nil {
 		t.Fatalf("unable to close channel: %v", err)

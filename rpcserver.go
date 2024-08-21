@@ -6231,7 +6231,11 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 			return nil
 		}
 
-		edge := marshalDBEdge(edgeInfo, c1, c2)
+		edge, err := marshalDBEdge(edgeInfo, c1, c2)
+		if err != nil {
+			return err
+		}
+
 		resp.Edges = append(resp.Edges, edge)
 
 		return nil
@@ -6293,70 +6297,93 @@ func extractInboundFeeSafe(data lnwire.ExtraOpaqueData) lnwire.Fee {
 	return inboundFee
 }
 
-func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo1,
-	c1, c2 *models.ChannelEdgePolicy1) *lnrpc.ChannelEdge {
+func marshalDBEdge(edgeInfo models.ChannelEdgeInfo,
+	c1, c2 models.ChannelEdgePolicy) (*lnrpc.ChannelEdge, error) {
 
 	// Make sure the policies match the node they belong to. c1 should point
 	// to the policy for NodeKey1, and c2 for NodeKey2.
-	if c1 != nil && c1.ChannelFlags&lnwire.ChanUpdateDirection == 1 ||
-		c2 != nil && c2.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
-
+	if c1 != nil && !c1.IsNode1() || c2 != nil && c2.IsNode1() {
 		c2, c1 = c1, c2
 	}
 
-	var lastUpdate int64
-	if c1 != nil {
-		lastUpdate = c1.LastUpdate.Unix()
-	}
-	if c2 != nil && c2.LastUpdate.Unix() > lastUpdate {
-		lastUpdate = c2.LastUpdate.Unix()
-	}
-
-	customRecords := marshalExtraOpaqueData(edgeInfo.ExtraOpaqueData)
+	var (
+		node1 = edgeInfo.Node1Bytes()
+		node2 = edgeInfo.Node2Bytes()
+	)
 
 	edge := &lnrpc.ChannelEdge{
-		ChannelId: edgeInfo.ChannelID,
-		ChanPoint: edgeInfo.ChannelPoint.String(),
-		// TODO(roasbeef): update should be on edge info itself
-		LastUpdate:    uint32(lastUpdate),
-		Node1Pub:      hex.EncodeToString(edgeInfo.NodeKey1Bytes[:]),
-		Node2Pub:      hex.EncodeToString(edgeInfo.NodeKey2Bytes[:]),
-		Capacity:      int64(edgeInfo.Capacity),
-		CustomRecords: customRecords,
+		ChannelId: edgeInfo.GetChanID(),
+		ChanPoint: edgeInfo.GetChanPoint().String(),
+		Node1Pub:  hex.EncodeToString(node1[:]),
+		Node2Pub:  hex.EncodeToString(node2[:]),
+		Capacity:  int64(edgeInfo.GetCapacity()),
 	}
 
+	var err error
 	if c1 != nil {
-		edge.Node1Policy = marshalDBRoutingPolicy(c1)
+		edge.Node1Policy, err = marshalDBRoutingPolicy(c1)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if c2 != nil {
-		edge.Node2Policy = marshalDBRoutingPolicy(c2)
+		edge.Node2Policy, err = marshalDBRoutingPolicy(c2)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return edge
+	switch info := edgeInfo.(type) {
+	case *models.ChannelEdgeInfo1:
+		customRecords := marshalExtraOpaqueData(info.ExtraOpaqueData)
+		edge.CustomRecords = customRecords
+	case *models.ChannelEdgeInfo2:
+		customRecords := marshalExtraOpaqueData(info.ExtraOpaqueData)
+		edge.CustomRecords = customRecords
+	default:
+		return nil, fmt.Errorf("unhandled implementation of "+
+			"models.ChannelEdgeInfo: %T", edgeInfo)
+	}
+
+	return edge, nil
 }
 
-func marshalDBRoutingPolicy(
-	policy *models.ChannelEdgePolicy1) *lnrpc.RoutingPolicy {
+func marshalDBRoutingPolicy(policy models.ChannelEdgePolicy) (
+	*lnrpc.RoutingPolicy, error) {
 
-	disabled := policy.ChannelFlags&lnwire.ChanUpdateDisabled != 0
+	fwd := policy.ForwardingPolicy()
 
-	customRecords := marshalExtraOpaqueData(policy.ExtraOpaqueData)
-	inboundFee := extractInboundFeeSafe(policy.ExtraOpaqueData)
-
-	return &lnrpc.RoutingPolicy{
-		TimeLockDelta:    uint32(policy.TimeLockDelta),
-		MinHtlc:          int64(policy.MinHTLC),
-		MaxHtlcMsat:      uint64(policy.MaxHTLC),
-		FeeBaseMsat:      int64(policy.FeeBaseMSat),
-		FeeRateMilliMsat: int64(policy.FeeProportionalMillionths),
-		Disabled:         disabled,
-		LastUpdate:       uint32(policy.LastUpdate.Unix()),
-		CustomRecords:    customRecords,
-
-		InboundFeeBaseMsat:      inboundFee.BaseFee,
-		InboundFeeRateMilliMsat: inboundFee.FeeRate,
+	routingPolicy := &lnrpc.RoutingPolicy{
+		TimeLockDelta:    uint32(fwd.TimeLockDelta),
+		MinHtlc:          int64(fwd.MinHTLC),
+		MaxHtlcMsat:      uint64(fwd.MaxHTLC),
+		FeeBaseMsat:      int64(fwd.BaseFee),
+		FeeRateMilliMsat: int64(fwd.FeeRate),
+		Disabled:         policy.IsDisabled(),
 	}
+
+	switch p := policy.(type) {
+	case *models.ChannelEdgePolicy1:
+		customRecords := marshalExtraOpaqueData(p.ExtraOpaqueData)
+		inboundFee := extractInboundFeeSafe(p.ExtraOpaqueData)
+
+		routingPolicy.CustomRecords = customRecords
+		routingPolicy.LastUpdate = uint32(p.LastUpdate.Unix())
+		routingPolicy.InboundFeeBaseMsat = inboundFee.BaseFee
+		routingPolicy.InboundFeeRateMilliMsat = inboundFee.FeeRate
+
+	case *models.ChannelEdgePolicy2:
+		customRecords := marshalExtraOpaqueData(p.ExtraOpaqueData)
+		routingPolicy.CustomRecords = customRecords
+		routingPolicy.BlockHeight = p.BlockHeight.Val
+
+	default:
+		return nil, fmt.Errorf("unhandled implementation of "+
+			"models.ChannelEdgePolicy: %T", policy)
+	}
+
+	return routingPolicy, nil
 }
 
 // GetNodeMetrics returns all available node metrics calculated from the
@@ -6458,7 +6485,10 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 	// Convert the database's edge format into the network/RPC edge format
 	// which couples the edge itself along with the directional node
 	// routing policies of each node involved within the channel.
-	channelEdge := marshalDBEdge(edgeInfo, edge1, edge2)
+	channelEdge, err := marshalDBEdge(edgeInfo, edge1, edge2)
+	if err != nil {
+		return nil, err
+	}
 
 	return channelEdge, nil
 }
@@ -6515,7 +6545,11 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 
 				// Convert the database's edge format into the
 				// network/RPC edge format.
-				channelEdge := marshalDBEdge(edge, c1, c2)
+				channelEdge, err := marshalDBEdge(edge, c1, c2)
+				if err != nil {
+					return nil
+				}
+
 				channels = append(channels, channelEdge)
 			}
 

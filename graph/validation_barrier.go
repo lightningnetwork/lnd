@@ -102,7 +102,7 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
 	// ChannelUpdates for the same channel, or NodeAnnouncements of nodes
 	// that are involved in this channel. This goes for both the wire
 	// type,s and also the types that we use within the database.
-	case *lnwire.ChannelAnnouncement:
+	case *lnwire.ChannelAnnouncement1:
 
 		// We ensure that we only create a new announcement signal iff,
 		// one doesn't already exist, as there may be duplicate
@@ -219,7 +219,7 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 	case *lnwire.AnnounceSignatures1:
 		// TODO(roasbeef): need to wait on chan ann?
 	case *models.ChannelEdgeInfo:
-	case *lnwire.ChannelAnnouncement:
+	case *lnwire.ChannelAnnouncement1:
 	}
 
 	// Release the lock once the above read is finished.
@@ -275,7 +275,7 @@ func (v *ValidationBarrier) SignalDependants(job interface{}, allow bool) {
 			}
 			delete(v.chanAnnFinSignal, shortID)
 		}
-	case *lnwire.ChannelAnnouncement:
+	case *lnwire.ChannelAnnouncement1:
 		finSignals, ok := v.chanAnnFinSignal[msg.ShortChannelID]
 		if ok {
 			if allow {

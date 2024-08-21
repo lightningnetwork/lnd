@@ -259,7 +259,7 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 	case MsgError:
 		msg = &Error{}
 	case MsgChannelAnnouncement:
-		msg = &ChannelAnnouncement{}
+		msg = &ChannelAnnouncement1{}
 	case MsgChannelUpdate:
 		msg = &ChannelUpdate{}
 	case MsgNodeAnnouncement:

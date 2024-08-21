@@ -979,7 +979,7 @@ func TestLightningWireProtocol(t *testing.T) {
 		},
 		MsgChannelAnnouncement: func(v []reflect.Value, r *rand.Rand) {
 			var err error
-			req := ChannelAnnouncement{
+			req := ChannelAnnouncement1{
 				ShortChannelID:  NewShortChanIDFromInt(uint64(r.Int63())),
 				Features:        randRawFeatureVector(r),
 				ExtraOpaqueData: make([]byte, 0),
@@ -1631,7 +1631,7 @@ func TestLightningWireProtocol(t *testing.T) {
 		},
 		{
 			msgType: MsgChannelAnnouncement,
-			scenario: func(m ChannelAnnouncement) bool {
+			scenario: func(m ChannelAnnouncement1) bool {
 				return mainScenario(&m)
 			},
 		},

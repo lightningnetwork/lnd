@@ -6220,7 +6220,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// Next, for each active channel we know of within the graph, create a
 	// similar response which details both the edge information as well as
 	// the routing policies of th nodes connecting the two edges.
-	err = graph.ForEachChannel(func(edgeInfo *models.ChannelEdgeInfo,
+	err = graph.ForEachChannel(func(edgeInfo *models.ChannelEdgeInfo1,
 		c1, c2 *models.ChannelEdgePolicy1) error {
 
 		// Do not include unannounced channels unless specifically
@@ -6293,7 +6293,7 @@ func extractInboundFeeSafe(data lnwire.ExtraOpaqueData) lnwire.Fee {
 	return inboundFee
 }
 
-func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
+func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo1,
 	c1, c2 *models.ChannelEdgePolicy1) *lnrpc.ChannelEdge {
 
 	// Make sure the policies match the node they belong to. c1 should point
@@ -6427,7 +6427,7 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 	graph := r.server.graphDB
 
 	var (
-		edgeInfo     *models.ChannelEdgeInfo
+		edgeInfo     *models.ChannelEdgeInfo1
 		edge1, edge2 *models.ChannelEdgePolicy1
 		err          error
 	)
@@ -6497,7 +6497,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	)
 
 	err = graph.ForEachNodeChannel(node.PubKeyBytes,
-		func(_ kvdb.RTx, edge *models.ChannelEdgeInfo,
+		func(_ kvdb.RTx, edge *models.ChannelEdgeInfo1,
 			c1, c2 *models.ChannelEdgePolicy1) error {
 
 			numChannels++
@@ -7156,7 +7156,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 
 	var feeReports []*lnrpc.ChannelFeeReport
 	err = channelGraph.ForEachNodeChannel(selfNode.PubKeyBytes,
-		func(_ kvdb.RTx, chanInfo *models.ChannelEdgeInfo,
+		func(_ kvdb.RTx, chanInfo *models.ChannelEdgeInfo1,
 			edgePolicy, _ *models.ChannelEdgePolicy1) error {
 
 			// Self node should always have policies for its

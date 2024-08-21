@@ -540,14 +540,14 @@ func (b *Builder) pruneZombieChans() error {
 	log.Infof("Examining channel graph for zombie channels")
 
 	// A helper method to detect if the channel belongs to this node
-	isSelfChannelEdge := func(info *models.ChannelEdgeInfo) bool {
+	isSelfChannelEdge := func(info *models.ChannelEdgeInfo1) bool {
 		return info.NodeKey1Bytes == b.cfg.SelfNode ||
 			info.NodeKey2Bytes == b.cfg.SelfNode
 	}
 
 	// First, we'll collect all the channels which are eligible for garbage
 	// collection due to being zombies.
-	filterPruneChans := func(info *models.ChannelEdgeInfo,
+	filterPruneChans := func(info *models.ChannelEdgeInfo1,
 		e1, e2 *models.ChannelEdgePolicy1) error {
 
 		// Exit early in case this channel is already marked to be
@@ -1181,8 +1181,8 @@ func (b *Builder) processUpdate(msg interface{},
 		log.Tracef("Updated vertex data for node=%x", msg.PubKeyBytes)
 		b.stats.incNumNodeUpdates()
 
-	case *models.ChannelEdgeInfo:
-		log.Debugf("Received ChannelEdgeInfo for channel %v",
+	case *models.ChannelEdgeInfo1:
+		log.Debugf("Received ChannelEdgeInfo1 for channel %v",
 			msg.ChannelID)
 
 		// Prior to processing the announcement we first check if we
@@ -1543,7 +1543,7 @@ func (b *Builder) AddNode(node *channeldb.LightningNode,
 // in construction of payment path.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) AddEdge(edge *models.ChannelEdgeInfo,
+func (b *Builder) AddEdge(edge *models.ChannelEdgeInfo1,
 	op ...batch.SchedulerOption) error {
 
 	rMsg := &routingMsg{
@@ -1610,7 +1610,7 @@ func (b *Builder) SyncedHeight() uint32 {
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) GetChannelByID(chanID lnwire.ShortChannelID) (
-	*models.ChannelEdgeInfo,
+	*models.ChannelEdgeInfo1,
 	*models.ChannelEdgePolicy1,
 	*models.ChannelEdgePolicy1, error) {
 
@@ -1645,10 +1645,10 @@ func (b *Builder) ForEachNode(
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) ForAllOutgoingChannels(cb func(kvdb.RTx,
-	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy1) error) error {
+	*models.ChannelEdgeInfo1, *models.ChannelEdgePolicy1) error) error {
 
 	return b.cfg.Graph.ForEachNodeChannel(b.cfg.SelfNode,
-		func(tx kvdb.RTx, c *models.ChannelEdgeInfo,
+		func(tx kvdb.RTx, c *models.ChannelEdgeInfo1,
 			e *models.ChannelEdgePolicy1,
 			_ *models.ChannelEdgePolicy1) error {
 

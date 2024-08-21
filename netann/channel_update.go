@@ -84,7 +84,7 @@ func SignChannelUpdate(signer lnwallet.MessageSigner, keyLoc keychain.KeyLocator
 //
 // NOTE: The passed policies can be nil.
 func ExtractChannelUpdate(ownerPubKey []byte,
-	info *models.ChannelEdgeInfo,
+	info *models.ChannelEdgeInfo1,
 	policies ...*models.ChannelEdgePolicy1) (
 	*lnwire.ChannelUpdate1, error) {
 
@@ -117,7 +117,7 @@ func ExtractChannelUpdate(ownerPubKey []byte,
 
 // UnsignedChannelUpdateFromEdge reconstructs an unsigned ChannelUpdate from the
 // given edge info and policy.
-func UnsignedChannelUpdateFromEdge(info *models.ChannelEdgeInfo,
+func UnsignedChannelUpdateFromEdge(info *models.ChannelEdgeInfo1,
 	policy *models.ChannelEdgePolicy1) *lnwire.ChannelUpdate1 {
 
 	return &lnwire.ChannelUpdate1{
@@ -137,7 +137,7 @@ func UnsignedChannelUpdateFromEdge(info *models.ChannelEdgeInfo,
 
 // ChannelUpdateFromEdge reconstructs a signed ChannelUpdate from the given edge
 // info and policy.
-func ChannelUpdateFromEdge(info *models.ChannelEdgeInfo,
+func ChannelUpdateFromEdge(info *models.ChannelEdgeInfo1,
 	policy *models.ChannelEdgePolicy1) (*lnwire.ChannelUpdate1, error) {
 
 	update := UnsignedChannelUpdateFromEdge(info, policy)

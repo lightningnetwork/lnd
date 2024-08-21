@@ -3229,7 +3229,7 @@ func (s *server) establishPersistentConnections() error {
 	selfPub := s.identityECDH.PubKey().SerializeCompressed()
 	err = s.graphDB.ForEachNodeChannel(sourceNode.PubKeyBytes, func(
 		tx kvdb.RTx,
-		chanInfo *models.ChannelEdgeInfo,
+		chanInfo *models.ChannelEdgeInfo1,
 		policy, _ *models.ChannelEdgePolicy1) error {
 
 		// If the remote party has announced the channel to us, but we

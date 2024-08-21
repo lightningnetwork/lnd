@@ -32,7 +32,7 @@ type Manager struct {
 	// ForAllOutgoingChannels is required to iterate over all our local
 	// channels.
 	ForAllOutgoingChannels func(cb func(kvdb.RTx,
-		*models.ChannelEdgeInfo,
+		*models.ChannelEdgeInfo1,
 		*models.ChannelEdgePolicy1) error) error
 
 	// FetchChannel is used to query local channel parameters. Optionally an
@@ -74,7 +74,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 	// otherwise we'll collect them all.
 	err := r.ForAllOutgoingChannels(func(
 		tx kvdb.RTx,
-		info *models.ChannelEdgeInfo,
+		info *models.ChannelEdgeInfo1,
 		edge *models.ChannelEdgePolicy1) error {
 
 		// If we have a channel filter, and this channel isn't a part

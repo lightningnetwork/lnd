@@ -553,7 +553,7 @@ type chainSet struct {
 func newChainSet(chanState *channeldb.OpenChannel) (*chainSet, error) {
 	// First, we'll grab the current unrevoked commitments for ourselves
 	// and the remote party.
-	localCommit, remoteCommit, err := chanState.LatestCommitments()
+	commitments, err := chanState.LatestCommitments().Unpack()
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch channel state for "+
 			"chan_point=%v", chanState.FundingOutpoint)
@@ -561,14 +561,14 @@ func newChainSet(chanState *channeldb.OpenChannel) (*chainSet, error) {
 
 	log.Tracef("ChannelPoint(%v): local_commit_type=%v, local_commit=%v",
 		chanState.FundingOutpoint, chanState.ChanType,
-		spew.Sdump(localCommit))
+		spew.Sdump(commitments.Local))
 	log.Tracef("ChannelPoint(%v): remote_commit_type=%v, remote_commit=%v",
 		chanState.FundingOutpoint, chanState.ChanType,
-		spew.Sdump(remoteCommit))
+		spew.Sdump(commitments.Remote))
 
 	// Fetch the current known commit height for the remote party, and
 	// their pending commitment chain tip if it exists.
-	remoteStateNum := remoteCommit.CommitHeight
+	remoteStateNum := commitments.Remote.CommitHeight
 	remoteChainTip, err := chanState.RemoteCommitChainTip()
 	if err != nil && err != channeldb.ErrNoPendingCommit {
 		return nil, fmt.Errorf("unable to obtain chain tip for "+
@@ -581,8 +581,8 @@ func newChainSet(chanState *channeldb.OpenChannel) (*chainSet, error) {
 	// duty.
 	commitSet := CommitSet{
 		HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
-			LocalHtlcSet:  localCommit.Htlcs,
-			RemoteHtlcSet: remoteCommit.Htlcs,
+			LocalHtlcSet:  commitments.Local.Htlcs,
+			RemoteHtlcSet: commitments.Remote.Htlcs,
 		},
 	}
 
@@ -612,8 +612,8 @@ func newChainSet(chanState *channeldb.OpenChannel) (*chainSet, error) {
 	return &chainSet{
 		remoteStateNum:      remoteStateNum,
 		commitSet:           commitSet,
-		localCommit:         *localCommit,
-		remoteCommit:        *remoteCommit,
+		localCommit:         commitments.Local,
+		remoteCommit:        commitments.Remote,
 		remotePendingCommit: remotePendingCommit,
 	}, nil
 }

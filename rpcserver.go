@@ -6221,7 +6221,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// similar response which details both the edge information as well as
 	// the routing policies of th nodes connecting the two edges.
 	err = graph.ForEachChannel(func(edgeInfo *models.ChannelEdgeInfo,
-		c1, c2 *models.ChannelEdgePolicy) error {
+		c1, c2 *models.ChannelEdgePolicy1) error {
 
 		// Do not include unannounced channels unless specifically
 		// requested. Unannounced channels include both private channels as
@@ -6294,7 +6294,7 @@ func extractInboundFeeSafe(data lnwire.ExtraOpaqueData) lnwire.Fee {
 }
 
 func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
-	c1, c2 *models.ChannelEdgePolicy) *lnrpc.ChannelEdge {
+	c1, c2 *models.ChannelEdgePolicy1) *lnrpc.ChannelEdge {
 
 	// Make sure the policies match the node they belong to. c1 should point
 	// to the policy for NodeKey1, and c2 for NodeKey2.
@@ -6337,7 +6337,7 @@ func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
 }
 
 func marshalDBRoutingPolicy(
-	policy *models.ChannelEdgePolicy) *lnrpc.RoutingPolicy {
+	policy *models.ChannelEdgePolicy1) *lnrpc.RoutingPolicy {
 
 	disabled := policy.ChannelFlags&lnwire.ChanUpdateDisabled != 0
 
@@ -6428,7 +6428,7 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 
 	var (
 		edgeInfo     *models.ChannelEdgeInfo
-		edge1, edge2 *models.ChannelEdgePolicy
+		edge1, edge2 *models.ChannelEdgePolicy1
 		err          error
 	)
 
@@ -6498,7 +6498,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 
 	err = graph.ForEachNodeChannel(node.PubKeyBytes,
 		func(_ kvdb.RTx, edge *models.ChannelEdgeInfo,
-			c1, c2 *models.ChannelEdgePolicy) error {
+			c1, c2 *models.ChannelEdgePolicy1) error {
 
 			numChannels++
 			totalCapacity += edge.Capacity
@@ -7157,7 +7157,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 	var feeReports []*lnrpc.ChannelFeeReport
 	err = channelGraph.ForEachNodeChannel(selfNode.PubKeyBytes,
 		func(_ kvdb.RTx, chanInfo *models.ChannelEdgeInfo,
-			edgePolicy, _ *models.ChannelEdgePolicy) error {
+			edgePolicy, _ *models.ChannelEdgePolicy1) error {
 
 			// Self node should always have policies for its
 			// channels.

@@ -39,7 +39,7 @@ type ChannelGraphSource interface {
 
 	// UpdateEdge is used to update edge information, without this message
 	// edge considered as not fully constructed.
-	UpdateEdge(policy *models.ChannelEdgePolicy,
+	UpdateEdge(policy *models.ChannelEdgePolicy1,
 		op ...batch.SchedulerOption) error
 
 	// IsStaleNode returns true if the graph source has a node announcement
@@ -71,7 +71,7 @@ type ChannelGraphSource interface {
 	// star-graph.
 	ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 		c *models.ChannelEdgeInfo,
-		e *models.ChannelEdgePolicy) error) error
+		e *models.ChannelEdgePolicy1) error) error
 
 	// CurrentBlockHeight returns the block height from POV of the router
 	// subsystem.
@@ -79,8 +79,8 @@ type ChannelGraphSource interface {
 
 	// GetChannelByID return the channel by the channel id.
 	GetChannelByID(chanID lnwire.ShortChannelID) (
-		*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy, error)
+		*models.ChannelEdgeInfo, *models.ChannelEdgePolicy1,
+		*models.ChannelEdgePolicy1, error)
 
 	// FetchLightningNode attempts to look up a target node by its identity
 	// public key. channeldb.ErrGraphNodeNotFound is returned if the node
@@ -188,11 +188,11 @@ type DB interface {
 	// either direction.
 	//
 	// ErrZombieEdge an be returned if the edge is currently marked as a
-	// zombie within the database. In this case, the ChannelEdgePolicy's
+	// zombie within the database. In this case, the ChannelEdgePolicy1's
 	// will be nil, and the ChannelEdgeInfo will only include the public
 	// keys of each node.
 	FetchChannelEdgesByID(chanID uint64) (*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error)
+		*models.ChannelEdgePolicy1, *models.ChannelEdgePolicy1, error)
 
 	// AddLightningNode adds a vertex/node to the graph database. If the
 	// node is not in the database from before, this will add a new,
@@ -220,13 +220,13 @@ type DB interface {
 
 	// UpdateEdgePolicy updates the edge routing policy for a single
 	// directed edge within the database for the referenced channel. The
-	// `flags` attribute within the ChannelEdgePolicy determines which of
+	// `flags` attribute within the ChannelEdgePolicy1 determines which of
 	// the directed edges are being updated. If the flag is 1, then the
 	// first node's information is being updated, otherwise it's the second
 	// node's information. The node ordering is determined by the
 	// lexicographical ordering of the identity public keys of the nodes on
 	// either side of the channel.
-	UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
+	UpdateEdgePolicy(edge *models.ChannelEdgePolicy1,
 		op ...batch.SchedulerOption) error
 
 	// HasLightningNode determines if the graph has a vertex identified by
@@ -259,8 +259,8 @@ type DB interface {
 	// Unknown policies are passed into the callback as nil values.
 	ForEachNodeChannel(nodePub route.Vertex, cb func(kvdb.RTx,
 		*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error) error
+		*models.ChannelEdgePolicy1,
+		*models.ChannelEdgePolicy1) error) error
 
 	// UpdateChannelEdge retrieves and update edge of the graph database.
 	// Method only reserved for updating an edge info after its already been

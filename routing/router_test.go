@@ -2739,7 +2739,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// We must add the edge policy to be able to use the edge for route
 	// finding.
-	edgePolicy := &models.ChannelEdgePolicy{
+	edgePolicy := &models.ChannelEdgePolicy1{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -2754,7 +2754,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
 
 	// Create edge in the other direction as well.
-	edgePolicy = &models.ChannelEdgePolicy{
+	edgePolicy = &models.ChannelEdgePolicy1{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -2817,7 +2817,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	require.NoError(t, ctx.graph.AddChannelEdge(edge))
 
-	edgePolicy = &models.ChannelEdgePolicy{
+	edgePolicy = &models.ChannelEdgePolicy1{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -2831,7 +2831,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
 
-	edgePolicy = &models.ChannelEdgePolicy{
+	edgePolicy = &models.ChannelEdgePolicy1{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -2928,12 +2928,12 @@ func createDummyLightningPayment(t *testing.T,
 
 type mockGraphBuilder struct {
 	rejectUpdate bool
-	updateEdge   func(update *models.ChannelEdgePolicy) error
+	updateEdge   func(update *models.ChannelEdgePolicy1) error
 }
 
 func newMockGraphBuilder(graph graph.DB) *mockGraphBuilder {
 	return &mockGraphBuilder{
-		updateEdge: func(update *models.ChannelEdgePolicy) error {
+		updateEdge: func(update *models.ChannelEdgePolicy1) error {
 			return graph.UpdateEdgePolicy(update)
 		},
 	}
@@ -2948,7 +2948,7 @@ func (m *mockGraphBuilder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 		return false
 	}
 
-	err := m.updateEdge(&models.ChannelEdgePolicy{
+	err := m.updateEdge(&models.ChannelEdgePolicy1{
 		SigBytes:                  msg.Signature.ToSignatureBytes(),
 		ChannelID:                 msg.ShortChannelID.ToUint64(),
 		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),

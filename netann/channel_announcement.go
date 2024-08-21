@@ -15,7 +15,7 @@ import (
 func CreateChanAnnouncement(chanProof *models.ChannelAuthProof,
 	chanInfo *models.ChannelEdgeInfo,
 	e1, e2 *models.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement1,
-	*lnwire.ChannelUpdate, *lnwire.ChannelUpdate, error) {
+	*lnwire.ChannelUpdate1, *lnwire.ChannelUpdate1, error) {
 
 	// First, using the parameters of the channel, along with the channel
 	// authentication chanProof, we'll create re-create the original
@@ -68,7 +68,7 @@ func CreateChanAnnouncement(chanProof *models.ChannelAuthProof,
 	// Since it's up to a node's policy as to whether they advertise the
 	// edge in a direction, we don't create an advertisement if the edge is
 	// nil.
-	var edge1Ann, edge2Ann *lnwire.ChannelUpdate
+	var edge1Ann, edge2Ann *lnwire.ChannelUpdate1
 	if e1 != nil {
 		edge1Ann, err = ChannelUpdateFromEdge(chanInfo, e1)
 		if err != nil {

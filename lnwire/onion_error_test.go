@@ -20,7 +20,7 @@ var (
 	testType          = uint64(3)
 	testOffset        = uint16(24)
 	sig, _            = NewSigFromSignature(testSig)
-	testChannelUpdate = ChannelUpdate{
+	testChannelUpdate = ChannelUpdate1{
 		Signature:       sig,
 		ShortChannelID:  NewShortChanIDFromInt(1),
 		Timestamp:       1,
@@ -137,7 +137,7 @@ func TestChannelUpdateCompatibilityParsing(t *testing.T) {
 	// Now that we have the set of bytes encoded, we'll ensure that we're
 	// able to decode it using our compatibility method, as it's a regular
 	// encoded channel update message.
-	var newChanUpdate ChannelUpdate
+	var newChanUpdate ChannelUpdate1
 	err := parseChannelUpdateCompatibilityMode(
 		&b, uint16(b.Len()), &newChanUpdate, 0,
 	)
@@ -164,7 +164,7 @@ func TestChannelUpdateCompatibilityParsing(t *testing.T) {
 
 	// We should be able to properly parse the encoded channel update
 	// message even with the extra two bytes.
-	var newChanUpdate2 ChannelUpdate
+	var newChanUpdate2 ChannelUpdate1
 	err = parseChannelUpdateCompatibilityMode(
 		&b, uint16(b.Len()), &newChanUpdate2, 0,
 	)

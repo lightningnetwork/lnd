@@ -182,7 +182,7 @@ func (m *mockPaymentSessionOld) RequestRoute(_, _ lnwire.MilliSatoshi,
 	return r, nil
 }
 
-func (m *mockPaymentSessionOld) UpdateAdditionalEdge(_ *lnwire.ChannelUpdate,
+func (m *mockPaymentSessionOld) UpdateAdditionalEdge(_ *lnwire.ChannelUpdate1,
 	_ *btcec.PublicKey, _ *models.CachedEdgePolicy) bool {
 
 	return false
@@ -702,7 +702,7 @@ func (m *mockPaymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	return args.Get(0).(*route.Route), args.Error(1)
 }
 
-func (m *mockPaymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate,
+func (m *mockPaymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate1,
 	pubKey *btcec.PublicKey, policy *models.CachedEdgePolicy) bool {
 
 	args := m.Called(msg, pubKey, policy)

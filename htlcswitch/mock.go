@@ -166,7 +166,7 @@ type mockServer struct {
 var _ lnpeer.Peer = (*mockServer)(nil)
 
 func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) {
-	signAliasUpdate := func(u *lnwire.ChannelUpdate) (*ecdsa.Signature,
+	signAliasUpdate := func(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
 		error) {
 
 		return testSig, nil
@@ -182,9 +182,9 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 			events: make(map[time.Time]channeldb.ForwardingEvent),
 		},
 		FetchLastChannelUpdate: func(scid lnwire.ShortChannelID) (
-			*lnwire.ChannelUpdate, error) {
+			*lnwire.ChannelUpdate1, error) {
 
-			return &lnwire.ChannelUpdate{
+			return &lnwire.ChannelUpdate1{
 				ShortChannelID: scid,
 			}, nil
 		},
@@ -734,7 +734,7 @@ type mockChannelLink struct {
 	checkHtlcForwardResult *LinkError
 
 	failAliasUpdate func(sid lnwire.ShortChannelID,
-		incoming bool) *lnwire.ChannelUpdate
+		incoming bool) *lnwire.ChannelUpdate1
 
 	confirmedZC bool
 }
@@ -869,7 +869,7 @@ func (f *mockChannelLink) AttachMailBox(mailBox MailBox) {
 }
 
 func (f *mockChannelLink) attachFailAliasUpdate(closure func(
-	sid lnwire.ShortChannelID, incoming bool) *lnwire.ChannelUpdate) {
+	sid lnwire.ShortChannelID, incoming bool) *lnwire.ChannelUpdate1) {
 
 	f.failAliasUpdate = closure
 }

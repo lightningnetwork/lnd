@@ -1605,7 +1605,7 @@ func marshallWireError(msg lnwire.FailureMessage,
 
 // marshallChannelUpdate marshalls a channel update as received over the wire to
 // the router rpc format.
-func marshallChannelUpdate(update *lnwire.ChannelUpdate) *lnrpc.ChannelUpdate {
+func marshallChannelUpdate(update *lnwire.ChannelUpdate1) *lnrpc.ChannelUpdate {
 	if update == nil {
 		return nil
 	}

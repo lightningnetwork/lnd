@@ -56,11 +56,11 @@ func (c ChanUpdateChanFlags) String() string {
 	return fmt.Sprintf("%08b", c)
 }
 
-// ChannelUpdate message is used after channel has been initially announced.
+// ChannelUpdate1 message is used after channel has been initially announced.
 // Each side independently announces its fees and minimum expiry for HTLCs and
 // other parameters. Also this message is used to redeclare initially set
 // channel parameters.
-type ChannelUpdate struct {
+type ChannelUpdate1 struct {
 	// Signature is used to validate the announced data and prove the
 	// ownership of node id.
 	Signature Sig
@@ -122,13 +122,13 @@ type ChannelUpdate struct {
 
 // A compile time check to ensure ChannelUpdate implements the lnwire.Message
 // interface.
-var _ Message = (*ChannelUpdate)(nil)
+var _ Message = (*ChannelUpdate1)(nil)
 
 // Decode deserializes a serialized ChannelUpdate stored in the passed
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
+func (a *ChannelUpdate1) Decode(r io.Reader, pver uint32) error {
 	err := ReadElements(r,
 		&a.Signature,
 		a.ChainHash[:],
@@ -159,7 +159,7 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdate) Encode(w *bytes.Buffer, pver uint32) error {
+func (a *ChannelUpdate1) Encode(w *bytes.Buffer, pver uint32) error {
 	if err := WriteSig(w, a.Signature); err != nil {
 		return err
 	}
@@ -217,13 +217,13 @@ func (a *ChannelUpdate) Encode(w *bytes.Buffer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdate) MsgType() MessageType {
+func (a *ChannelUpdate1) MsgType() MessageType {
 	return MsgChannelUpdate
 }
 
 // DataToSign is used to retrieve part of the announcement message which should
 // be signed.
-func (a *ChannelUpdate) DataToSign() ([]byte, error) {
+func (a *ChannelUpdate1) DataToSign() ([]byte, error) {
 	// We should not include the signatures itself.
 	b := make([]byte, 0, MaxMsgBody)
 	buf := bytes.NewBuffer(b)

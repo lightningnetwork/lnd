@@ -1047,7 +1047,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				maxHtlc = 0
 			}
 
-			req := ChannelUpdate{
+			req := ChannelUpdate1{
 				ShortChannelID:  NewShortChanIDFromInt(uint64(r.Int63())),
 				Timestamp:       uint32(r.Int31()),
 				MessageFlags:    msgFlags,
@@ -1565,7 +1565,7 @@ func TestLightningWireProtocol(t *testing.T) {
 		},
 		{
 			msgType: MsgChannelUpdate,
-			scenario: func(m ChannelUpdate) bool {
+			scenario: func(m ChannelUpdate1) bool {
 				return mainScenario(&m)
 			},
 		},

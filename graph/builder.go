@@ -1521,7 +1521,7 @@ type routingMsg struct {
 
 // ApplyChannelUpdate validates a channel update and if valid, applies it to the
 // database. It returns a bool indicating whether the updates were successful.
-func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate) bool {
+func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 	ch, _, _, err := b.GetChannelByID(msg.ShortChannelID)
 	if err != nil {
 		log.Errorf("Unable to retrieve channel by id: %v", err)

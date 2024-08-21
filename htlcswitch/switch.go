@@ -173,7 +173,8 @@ type Config struct {
 	// specified when we receive an incoming HTLC.  This will be used to
 	// provide payment senders our latest policy when sending encrypted
 	// error messages.
-	FetchLastChannelUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error)
+	FetchLastChannelUpdate func(lnwire.ShortChannelID) (
+		*lnwire.ChannelUpdate1, error)
 
 	// Notifier is an instance of a chain notifier that we'll use to signal
 	// the switch when a new block has arrived.
@@ -220,7 +221,7 @@ type Config struct {
 	// option_scid_alias channels. This avoids a potential privacy leak by
 	// replacing the public, confirmed SCID with the alias in the
 	// ChannelUpdate.
-	SignAliasUpdate func(u *lnwire.ChannelUpdate) (*ecdsa.Signature,
+	SignAliasUpdate func(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
 		error)
 
 	// IsAlias returns whether or not a given SCID is an alias.
@@ -2615,7 +2616,7 @@ func (s *Switch) failMailboxUpdate(outgoingScid,
 // and the caller is expected to handle this properly. In this case, a return
 // to the original non-alias behavior is expected.
 func (s *Switch) failAliasUpdate(scid lnwire.ShortChannelID,
-	incoming bool) *lnwire.ChannelUpdate {
+	incoming bool) *lnwire.ChannelUpdate1 {
 
 	// This function does not defer the unlocking because of the database
 	// lookups for ChannelUpdate.

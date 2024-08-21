@@ -600,7 +600,7 @@ func (f *FailInvalidOnionKey) Error() string {
 // unable to pull out a fully valid version, then we'll fall back to the
 // regular parsing mechanism which includes the length prefix an NO type byte.
 func parseChannelUpdateCompatibilityMode(reader io.Reader, length uint16,
-	chanUpdate *ChannelUpdate, pver uint32) error {
+	chanUpdate *ChannelUpdate1, pver uint32) error {
 
 	// Instantiate a LimitReader because there may be additional data
 	// present after the channel update. Without limiting the stream, the
@@ -647,11 +647,13 @@ type FailTemporaryChannelFailure struct {
 	// which caused the failure.
 	//
 	// NOTE: This field is optional.
-	Update *ChannelUpdate
+	Update *ChannelUpdate1
 }
 
 // NewTemporaryChannelFailure creates new instance of the FailTemporaryChannelFailure.
-func NewTemporaryChannelFailure(update *ChannelUpdate) *FailTemporaryChannelFailure {
+func NewTemporaryChannelFailure(
+	update *ChannelUpdate1) *FailTemporaryChannelFailure {
+
 	return &FailTemporaryChannelFailure{Update: update}
 }
 
@@ -685,7 +687,7 @@ func (f *FailTemporaryChannelFailure) Decode(r io.Reader, pver uint32) error {
 	}
 
 	if length != 0 {
-		f.Update = &ChannelUpdate{}
+		f.Update = &ChannelUpdate1{}
 
 		return parseChannelUpdateCompatibilityMode(
 			r, length, f.Update, pver,
@@ -720,12 +722,12 @@ type FailAmountBelowMinimum struct {
 
 	// Update is used to update information about state of the channel
 	// which caused the failure.
-	Update ChannelUpdate
+	Update ChannelUpdate1
 }
 
 // NewAmountBelowMinimum creates new instance of the FailAmountBelowMinimum.
 func NewAmountBelowMinimum(htlcMsat MilliSatoshi,
-	update ChannelUpdate) *FailAmountBelowMinimum {
+	update ChannelUpdate1) *FailAmountBelowMinimum {
 
 	return &FailAmountBelowMinimum{
 		HtlcMsat: htlcMsat,
@@ -761,7 +763,7 @@ func (f *FailAmountBelowMinimum) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	f.Update = ChannelUpdate{}
+	f.Update = ChannelUpdate1{}
 
 	return parseChannelUpdateCompatibilityMode(
 		r, length, &f.Update, pver,
@@ -790,12 +792,12 @@ type FailFeeInsufficient struct {
 
 	// Update is used to update information about state of the channel
 	// which caused the failure.
-	Update ChannelUpdate
+	Update ChannelUpdate1
 }
 
 // NewFeeInsufficient creates new instance of the FailFeeInsufficient.
 func NewFeeInsufficient(htlcMsat MilliSatoshi,
-	update ChannelUpdate) *FailFeeInsufficient {
+	update ChannelUpdate1) *FailFeeInsufficient {
 	return &FailFeeInsufficient{
 		HtlcMsat: htlcMsat,
 		Update:   update,
@@ -830,7 +832,7 @@ func (f *FailFeeInsufficient) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	f.Update = ChannelUpdate{}
+	f.Update = ChannelUpdate1{}
 
 	return parseChannelUpdateCompatibilityMode(
 		r, length, &f.Update, pver,
@@ -861,12 +863,12 @@ type FailIncorrectCltvExpiry struct {
 
 	// Update is used to update information about state of the channel
 	// which caused the failure.
-	Update ChannelUpdate
+	Update ChannelUpdate1
 }
 
 // NewIncorrectCltvExpiry creates new instance of the FailIncorrectCltvExpiry.
 func NewIncorrectCltvExpiry(cltvExpiry uint32,
-	update ChannelUpdate) *FailIncorrectCltvExpiry {
+	update ChannelUpdate1) *FailIncorrectCltvExpiry {
 
 	return &FailIncorrectCltvExpiry{
 		CltvExpiry: cltvExpiry,
@@ -899,7 +901,7 @@ func (f *FailIncorrectCltvExpiry) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	f.Update = ChannelUpdate{}
+	f.Update = ChannelUpdate1{}
 
 	return parseChannelUpdateCompatibilityMode(
 		r, length, &f.Update, pver,
@@ -924,11 +926,11 @@ func (f *FailIncorrectCltvExpiry) Encode(w *bytes.Buffer, pver uint32) error {
 type FailExpiryTooSoon struct {
 	// Update is used to update information about state of the channel
 	// which caused the failure.
-	Update ChannelUpdate
+	Update ChannelUpdate1
 }
 
 // NewExpiryTooSoon creates new instance of the FailExpiryTooSoon.
-func NewExpiryTooSoon(update ChannelUpdate) *FailExpiryTooSoon {
+func NewExpiryTooSoon(update ChannelUpdate1) *FailExpiryTooSoon {
 	return &FailExpiryTooSoon{
 		Update: update,
 	}
@@ -957,7 +959,7 @@ func (f *FailExpiryTooSoon) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	f.Update = ChannelUpdate{}
+	f.Update = ChannelUpdate1{}
 
 	return parseChannelUpdateCompatibilityMode(
 		r, length, &f.Update, pver,
@@ -983,11 +985,13 @@ type FailChannelDisabled struct {
 
 	// Update is used to update information about state of the channel
 	// which caused the failure.
-	Update ChannelUpdate
+	Update ChannelUpdate1
 }
 
 // NewChannelDisabled creates new instance of the FailChannelDisabled.
-func NewChannelDisabled(flags uint16, update ChannelUpdate) *FailChannelDisabled {
+func NewChannelDisabled(flags uint16,
+	update ChannelUpdate1) *FailChannelDisabled {
+
 	return &FailChannelDisabled{
 		Flags:  flags,
 		Update: update,
@@ -1022,7 +1026,7 @@ func (f *FailChannelDisabled) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	f.Update = ChannelUpdate{}
+	f.Update = ChannelUpdate1{}
 
 	return parseChannelUpdateCompatibilityMode(
 		r, length, &f.Update, pver,
@@ -1510,7 +1514,7 @@ func makeEmptyOnionError(code FailCode) (FailureMessage, error) {
 // writeOnionErrorChanUpdate writes out a ChannelUpdate using the onion error
 // format. The format is that we first write out the true serialized length of
 // the channel update, followed by the serialized channel update itself.
-func writeOnionErrorChanUpdate(w *bytes.Buffer, chanUpdate *ChannelUpdate,
+func writeOnionErrorChanUpdate(w *bytes.Buffer, chanUpdate *ChannelUpdate1,
 	pver uint32) error {
 
 	// First, we encode the channel update in a temporary buffer in order

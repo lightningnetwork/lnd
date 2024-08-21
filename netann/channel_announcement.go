@@ -12,7 +12,7 @@ import (
 // function is used to transform out database structs into the corresponding wire
 // structs for announcing new channels to other peers, or simply syncing up a
 // peer's initial routing table upon connect.
-func CreateChanAnnouncement(chanProof *models.ChannelAuthProof,
+func CreateChanAnnouncement(chanProof *models.ChannelAuthProof1,
 	chanInfo *models.ChannelEdgeInfo,
 	e1, e2 *models.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement1,
 	*lnwire.ChannelUpdate1, *lnwire.ChannelUpdate1, error) {

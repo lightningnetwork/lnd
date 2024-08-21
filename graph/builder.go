@@ -1667,7 +1667,7 @@ func (b *Builder) ForAllOutgoingChannels(cb func(kvdb.RTx,
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) AddProof(chanID lnwire.ShortChannelID,
-	proof *models.ChannelAuthProof) error {
+	proof *models.ChannelAuthProof1) error {
 
 	info, _, _, err := b.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
 	if err != nil {

@@ -52,7 +52,7 @@ type ChannelEdgeInfo struct {
 	// AuthProof is the authentication proof for this channel. This proof
 	// contains a set of signatures binding four identities, which attests
 	// to the legitimacy of the advertised channel.
-	AuthProof *ChannelAuthProof
+	AuthProof *ChannelAuthProof1
 
 	// ChannelPoint is the funding outpoint of the channel. This can be
 	// used to uniquely identify the channel within the channel graph.

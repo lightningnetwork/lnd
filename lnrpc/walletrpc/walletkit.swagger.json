@@ -1564,6 +1564,11 @@
           "format": "uint64",
           "description": "The fee rate, expressed in sat/vbyte, that should be used to spend the\ninput with."
         },
+        "sat_per_kw": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The fee rate, expressed in sat/kWU, that should be used to spend the\ninput with."
+        },
         "account": {
           "type": "string",
           "description": "The name of the account to fund the PSBT with. If empty, the default wallet\naccount is used."

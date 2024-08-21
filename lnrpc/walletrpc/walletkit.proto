@@ -1388,6 +1388,12 @@ message FundPsbtRequest {
         input with.
         */
         uint64 sat_per_vbyte = 4;
+
+        /*
+        The fee rate, expressed in sat/kWU, that should be used to spend the
+        input with.
+        */
+        uint64 sat_per_kw = 11;
     }
 
     /*

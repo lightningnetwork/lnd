@@ -31,7 +31,15 @@
   `BumpForceCloseFee` which moves the functionality soley available in the
   `lncli` to LND hence making it more universal.
 
+* [The `walletrpc.FundPsbt` RPC method now has an option to specify the fee as
+  `sat_per_kw` which allows for more precise
+  fees](https://github.com/lightningnetwork/lnd/pull/9013).
+
 ## lncli Additions
+
+* [The `lncli wallet fundpsbt` sub command now has a `--sat_per_kw` flag to
+  specify more precise fee
+  rates](https://github.com/lightningnetwork/lnd/pull/9013).
 
 # Improvements
 ## Functional Updates

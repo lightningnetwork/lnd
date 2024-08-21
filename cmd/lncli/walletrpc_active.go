@@ -1160,7 +1160,8 @@ var fundPsbtCommand = cli.Command{
 	Name:  "fund",
 	Usage: "Fund a Partially Signed Bitcoin Transaction (PSBT).",
 	ArgsUsage: "[--template_psbt=T | [--outputs=O [--inputs=I]]] " +
-		"[--conf_target=C | --sat_per_vbyte=S] [--change_type=A]",
+		"[--conf_target=C | --sat_per_vbyte=S | --sat_per_kw=K] " +
+		"[--change_type=A]",
 	Description: `
 	The fund command creates a fully populated PSBT that contains enough
 	inputs to fund the outputs specified in either the PSBT or the
@@ -1220,6 +1221,11 @@ var fundPsbtCommand = cli.Command{
 		cli.Uint64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "a manual fee expressed in sat/vbyte that " +
+				"should be used when creating the transaction",
+		},
+		cli.Uint64Flag{
+			Name: "sat_per_kw",
+			Usage: "a manual fee expressed in sat/kw that " +
 				"should be used when creating the transaction",
 		},
 		cli.StringFlag{
@@ -1302,10 +1308,11 @@ func fundPsbt(ctx *cli.Context) error {
 		)
 
 		if len(ctx.String("outputs")) > 0 {
-			// Parse the address to amount map as JSON now. At least one
-			// entry must be present.
+			// Parse the address to amount map as JSON now. At least
+			// one entry must be present.
 			jsonMap := []byte(ctx.String("outputs"))
-			if err := json.Unmarshal(jsonMap, &amountToAddr); err != nil {
+			err := json.Unmarshal(jsonMap, &amountToAddr)
+			if err != nil {
 				return fmt.Errorf("error parsing outputs "+
 					"JSON: %w", err)
 			}
@@ -1317,7 +1324,8 @@ func fundPsbt(ctx *cli.Context) error {
 			var inputs []string
 
 			jsonList := []byte(ctx.String("inputs"))
-			if err := json.Unmarshal(jsonList, &inputs); err != nil {
+			err := json.Unmarshal(jsonList, &inputs)
+			if err != nil {
 				return fmt.Errorf("error parsing inputs JSON: "+
 					"%v", err)
 			}
@@ -1344,13 +1352,21 @@ func fundPsbt(ctx *cli.Context) error {
 
 	// Parse fee flags.
 	switch {
-	case ctx.IsSet("conf_target") && ctx.IsSet("sat_per_vbyte"):
-		return fmt.Errorf("cannot set conf_target and sat_per_vbyte " +
-			"at the same time")
+	case ctx.IsSet("conf_target") && ctx.IsSet("sat_per_vbyte") ||
+		ctx.IsSet("conf_target") && ctx.IsSet("sat_per_kw") ||
+		ctx.IsSet("sat_per_vbyte") && ctx.IsSet("sat_per_kw"):
+
+		return fmt.Errorf("only one of conf_target, sat_per_vbyte, " +
+			"or sat_per_kw can be set at the same time")
 
 	case ctx.Uint64("sat_per_vbyte") > 0:
 		req.Fees = &walletrpc.FundPsbtRequest_SatPerVbyte{
 			SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
+		}
+
+	case ctx.Uint64("sat_per_kw") > 0:
+		req.Fees = &walletrpc.FundPsbtRequest_SatPerKw{
+			SatPerKw: ctx.Uint64("sat_per_kw"),
 		}
 
 	// Check conf_target last because it has a default value.

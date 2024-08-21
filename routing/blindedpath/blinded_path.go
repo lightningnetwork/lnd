@@ -43,7 +43,7 @@ type BuildBlindedPathCfg struct {
 	// FetchChannelEdgesByID attempts to look up the two directed edges for
 	// the channel identified by the channel ID.
 	FetchChannelEdgesByID func(chanID uint64) (*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error)
+		*models.ChannelEdgePolicy1, *models.ChannelEdgePolicy1, error)
 
 	// FetchOurOpenChannels fetches this node's set of open channels.
 	FetchOurOpenChannels func() ([]*channeldb.OpenChannel, error)
@@ -652,7 +652,7 @@ func getNodeChannelPolicy(cfg *BuildBlindedPathCfg, chanID uint64,
 	// node in question. We know the update is the correct one if the
 	// "ToNode" for the fetched policy is _not_ equal to the node ID in
 	// question.
-	var policy *models.ChannelEdgePolicy
+	var policy *models.ChannelEdgePolicy1
 	switch {
 	case update1 != nil && !bytes.Equal(update1.ToNode[:], nodeID[:]):
 		policy = update1

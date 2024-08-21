@@ -7,12 +7,12 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// ChannelEdgePolicy represents a *directed* edge within the channel graph. For
+// ChannelEdgePolicy1 represents a *directed* edge within the channel graph. For
 // each channel in the database, there are two distinct edges: one for each
 // possible direction of travel along the channel. The edges themselves hold
 // information concerning fees, and minimum time-lock information which is
 // utilized during path finding.
-type ChannelEdgePolicy struct {
+type ChannelEdgePolicy1 struct {
 	// SigBytes is the raw bytes of the signature of the channel edge
 	// policy. We'll only parse these if the caller needs to access the
 	// signature for validation purposes. Do not set SigBytes directly, but
@@ -78,7 +78,7 @@ type ChannelEdgePolicy struct {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the signature if absolutely necessary.
-func (c *ChannelEdgePolicy) Signature() (*ecdsa.Signature, error) {
+func (c *ChannelEdgePolicy1) Signature() (*ecdsa.Signature, error) {
 	if c.sig != nil {
 		return c.sig, nil
 	}
@@ -95,20 +95,20 @@ func (c *ChannelEdgePolicy) Signature() (*ecdsa.Signature, error) {
 
 // SetSigBytes updates the signature and invalidates the cached parsed
 // signature.
-func (c *ChannelEdgePolicy) SetSigBytes(sig []byte) {
+func (c *ChannelEdgePolicy1) SetSigBytes(sig []byte) {
 	c.SigBytes = sig
 	c.sig = nil
 }
 
 // IsDisabled determines whether the edge has the disabled bit set.
-func (c *ChannelEdgePolicy) IsDisabled() bool {
+func (c *ChannelEdgePolicy1) IsDisabled() bool {
 	return c.ChannelFlags.IsDisabled()
 }
 
 // ComputeFee computes the fee to forward an HTLC of `amt` milli-satoshis over
 // the passed active payment channel. This value is currently computed as
 // specified in BOLT07, but will likely change in the near future.
-func (c *ChannelEdgePolicy) ComputeFee(
+func (c *ChannelEdgePolicy1) ComputeFee(
 	amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
 	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts

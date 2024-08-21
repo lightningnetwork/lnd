@@ -93,7 +93,7 @@ type mockGraphSource struct {
 
 	mu             sync.Mutex
 	nodes          []channeldb.LightningNode
-	infos          map[uint64]models.ChannelEdgeInfo
+	infos          map[uint64]models.ChannelEdgeInfo1
 	edges          map[uint64][]models.ChannelEdgePolicy1
 	zombies        map[uint64][][33]byte
 	chansToReject  map[uint64]struct{}
@@ -103,7 +103,7 @@ type mockGraphSource struct {
 func newMockRouter(height uint32) *mockGraphSource {
 	return &mockGraphSource{
 		bestHeight:    height,
-		infos:         make(map[uint64]models.ChannelEdgeInfo),
+		infos:         make(map[uint64]models.ChannelEdgeInfo1),
 		edges:         make(map[uint64][]models.ChannelEdgePolicy1),
 		zombies:       make(map[uint64][][33]byte),
 		chansToReject: make(map[uint64]struct{}),
@@ -122,7 +122,7 @@ func (r *mockGraphSource) AddNode(node *channeldb.LightningNode,
 	return nil
 }
 
-func (r *mockGraphSource) AddEdge(info *models.ChannelEdgeInfo,
+func (r *mockGraphSource) AddEdge(info *models.ChannelEdgeInfo1,
 	_ ...batch.SchedulerOption) error {
 
 	r.mu.Lock()
@@ -207,7 +207,7 @@ func (r *mockGraphSource) ForEachNode(func(node *channeldb.LightningNode) error)
 }
 
 func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
-	i *models.ChannelEdgeInfo,
+	i *models.ChannelEdgeInfo1,
 	c *models.ChannelEdgePolicy1) error) error {
 
 	r.mu.Lock()
@@ -239,7 +239,7 @@ func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 }
 
 func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
-	*models.ChannelEdgeInfo,
+	*models.ChannelEdgeInfo1,
 	*models.ChannelEdgePolicy1,
 	*models.ChannelEdgePolicy1, error) {
 
@@ -254,7 +254,7 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 			return nil, nil, nil, channeldb.ErrEdgeNotFound
 		}
 
-		return &models.ChannelEdgeInfo{
+		return &models.ChannelEdgeInfo1{
 			NodeKey1Bytes: pubKeys[0],
 			NodeKey2Bytes: pubKeys[1],
 		}, nil, nil, channeldb.ErrZombieEdge
@@ -3483,7 +3483,7 @@ out:
 	var edgesToUpdate []EdgeWithInfo
 	err = ctx.router.ForAllOutgoingChannels(func(
 		_ kvdb.RTx,
-		info *models.ChannelEdgeInfo,
+		info *models.ChannelEdgeInfo1,
 		edge *models.ChannelEdgePolicy1) error {
 
 		edge.TimeLockDelta = uint16(newTimeLockDelta)

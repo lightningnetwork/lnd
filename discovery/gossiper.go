@@ -563,7 +563,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 // EdgeWithInfo contains the information that is required to update an edge.
 type EdgeWithInfo struct {
 	// Info describes the channel.
-	Info *models.ChannelEdgeInfo
+	Info *models.ChannelEdgeInfo1
 
 	// Edge describes the policy in one direction of the channel.
 	Edge *models.ChannelEdgePolicy1
@@ -1627,7 +1627,7 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 	// Iterate over all of our channels and check if any of them fall
 	// within the prune interval or re-broadcast interval.
 	type updateTuple struct {
-		info *models.ChannelEdgeInfo
+		info *models.ChannelEdgeInfo1
 		edge *models.ChannelEdgePolicy1
 	}
 
@@ -1637,7 +1637,7 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 	)
 	err := d.cfg.Graph.ForAllOutgoingChannels(func(
 		_ kvdb.RTx,
-		info *models.ChannelEdgeInfo,
+		info *models.ChannelEdgeInfo1,
 		edge *models.ChannelEdgePolicy1) error {
 
 		// If there's no auth proof attached to this edge, it means
@@ -1843,8 +1843,8 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 }
 
 // remotePubFromChanInfo returns the public key of the remote peer given a
-// ChannelEdgeInfo that describe a channel we have with them.
-func remotePubFromChanInfo(chanInfo *models.ChannelEdgeInfo,
+// ChannelEdgeInfo1 that describe a channel we have with them.
+func remotePubFromChanInfo(chanInfo *models.ChannelEdgeInfo1,
 	chanFlags lnwire.ChanUpdateChanFlags) [33]byte {
 
 	var remotePubKey [33]byte
@@ -2083,10 +2083,10 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 // processZombieUpdate determines whether the provided channel update should
 // resurrect a given zombie edge.
 //
-// NOTE: only the NodeKey1Bytes and NodeKey2Bytes members of the ChannelEdgeInfo
-// should be inspected.
+// NOTE: only the NodeKey1Bytes and NodeKey2Bytes members of the
+// ChannelEdgeInfo1 should be inspected.
 func (d *AuthenticatedGossiper) processZombieUpdate(
-	chanInfo *models.ChannelEdgeInfo, scid lnwire.ShortChannelID,
+	chanInfo *models.ChannelEdgeInfo1, scid lnwire.ShortChannelID,
 	msg *lnwire.ChannelUpdate1) error {
 
 	// The least-significant bit in the flag on the channel update tells us
@@ -2223,7 +2223,7 @@ func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 
 // updateChannel creates a new fully signed update for the channel, and updates
 // the underlying graph with the new state.
-func (d *AuthenticatedGossiper) updateChannel(info *models.ChannelEdgeInfo,
+func (d *AuthenticatedGossiper) updateChannel(info *models.ChannelEdgeInfo1,
 	edge *models.ChannelEdgePolicy1) (*lnwire.ChannelAnnouncement1,
 	*lnwire.ChannelUpdate1, error) {
 
@@ -2586,7 +2586,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 		return nil, false
 	}
 
-	edge := &models.ChannelEdgeInfo{
+	edge := &models.ChannelEdgeInfo1{
 		ChannelID:        scid.ToUint64(),
 		ChainHash:        ann.ChainHash,
 		NodeKey1Bytes:    ann.NodeID1,

@@ -34,7 +34,7 @@ const (
 // structs for announcing new channels to other peers, or simply syncing up a
 // peer's initial routing table upon connect.
 func CreateChanAnnouncement(chanProof *models.ChannelAuthProof1,
-	chanInfo *models.ChannelEdgeInfo,
+	chanInfo *models.ChannelEdgeInfo1,
 	e1, e2 *models.ChannelEdgePolicy1) (*lnwire.ChannelAnnouncement1,
 	*lnwire.ChannelUpdate1, *lnwire.ChannelUpdate1, error) {
 

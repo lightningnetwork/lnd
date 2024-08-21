@@ -257,11 +257,13 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         aliceCommit,
-		RemoteCommitment:        aliceCommit,
-		Db:                      dbAlice.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
-		FundingTxn:              channels.TestFundingTx,
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  aliceCommit,
+			Remote: aliceCommit,
+		},
+		Db:         dbAlice.ChannelStateDB(),
+		Packager:   channeldb.NewChannelPackager(shortChanID),
+		FundingTxn: channels.TestFundingTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
 		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
@@ -276,10 +278,12 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         bobCommit,
-		RemoteCommitment:        bobCommit,
-		Db:                      dbBob.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  bobCommit,
+			Remote: bobCommit,
+		},
+		Db:       dbBob.ChannelStateDB(),
+		Packager: channeldb.NewChannelPackager(shortChanID),
 	}
 
 	// Set custom values on the channel states.

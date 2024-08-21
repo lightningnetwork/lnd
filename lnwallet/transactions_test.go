@@ -984,11 +984,13 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		RemoteCurrentRevocation: localCommitPoint,
 		RevocationProducer:      remotePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         remoteCommit,
-		RemoteCommitment:        remoteCommit,
-		Db:                      dbRemote.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
-		FundingTxn:              tc.fundingTx.MsgTx(),
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  remoteCommit,
+			Remote: remoteCommit,
+		},
+		Db:         dbRemote.ChannelStateDB(),
+		Packager:   channeldb.NewChannelPackager(shortChanID),
+		FundingTxn: tc.fundingTx.MsgTx(),
 	}
 	localChannelState := &channeldb.OpenChannel{
 		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
@@ -1004,11 +1006,13 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		RemoteCurrentRevocation: remoteCommitPoint,
 		RevocationProducer:      localPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         localCommit,
-		RemoteCommitment:        localCommit,
-		Db:                      dbLocal.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
-		FundingTxn:              tc.fundingTx.MsgTx(),
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  localCommit,
+			Remote: localCommit,
+		},
+		Db:         dbLocal.ChannelStateDB(),
+		Packager:   channeldb.NewChannelPackager(shortChanID),
+		FundingTxn: tc.fundingTx.MsgTx(),
 	}
 
 	// Create mock signers that can sign for the keys that are used.

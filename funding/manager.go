@@ -2542,7 +2542,8 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 	// we use this convenience method to delete the pending OpenChannel
 	// from the database.
 	deleteFromDatabase := func() {
-		localBalance := completeChan.LocalCommitment.LocalBalance.ToSatoshis()
+		localBalance := completeChan.Commitments.Local.
+			LocalBalance.ToSatoshis()
 		closeInfo := &channeldb.ChannelCloseSummary{
 			ChanPoint:               completeChan.FundingOutpoint,
 			ChainHash:               completeChan.ChainHash,
@@ -2907,7 +2908,7 @@ func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
 	// We'll get a timeout if the number of blocks mined since the channel
 	// was initiated reaches MaxWaitNumBlocksFundingConf and we are not the
 	// channel initiator.
-	localBalance := c.LocalCommitment.LocalBalance.ToSatoshis()
+	localBalance := c.Commitments.Local.LocalBalance.ToSatoshis()
 	closeInfo := &channeldb.ChannelCloseSummary{
 		ChainHash:               c.ChainHash,
 		ChanPoint:               c.FundingOutpoint,
@@ -3865,7 +3866,7 @@ func genFirstStateMusigNonce(channel *channeldb.OpenChannel,
 	// nonce for the next state the remote party will sign for us.
 	verNonce, err := channeldb.NewMusigVerificationNonce(
 		channel.ChanCfgs.Local.MultiSigKey.PubKey,
-		channel.LocalCommitment.CommitHeight+1,
+		channel.Commitments.Local.CommitHeight+1,
 		musig2ShaChain,
 	)
 	if err != nil {

@@ -32,7 +32,7 @@ type Manager struct {
 	// ForAllOutgoingChannels is required to iterate over all our local
 	// channels.
 	ForAllOutgoingChannels func(cb func(kvdb.RTx,
-		*models.ChannelEdgeInfo1,
+		models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy1) error) error
 
 	// FetchChannel is used to query local channel parameters. Optionally an
@@ -74,25 +74,27 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 	// otherwise we'll collect them all.
 	err := r.ForAllOutgoingChannels(func(
 		tx kvdb.RTx,
-		info *models.ChannelEdgeInfo1,
+		info models.ChannelEdgeInfo,
 		edge *models.ChannelEdgePolicy1) error {
+
+		var chanPoint = info.GetChanPoint()
 
 		// If we have a channel filter, and this channel isn't a part
 		// of it, then we'll skip it.
-		_, ok := unprocessedChans[info.ChannelPoint]
+		_, ok := unprocessedChans[chanPoint]
 		if !ok && haveChanFilter {
 			return nil
 		}
 
 		// Mark this channel as found by removing it. unprocessedChans
 		// will be used to report invalid channels later on.
-		delete(unprocessedChans, info.ChannelPoint)
+		delete(unprocessedChans, chanPoint)
 
 		// Apply the new policy to the edge.
-		err := r.updateEdge(tx, info.ChannelPoint, edge, newSchema)
+		err := r.updateEdge(tx, chanPoint, edge, newSchema)
 		if err != nil {
 			failedUpdates = append(failedUpdates,
-				makeFailureItem(info.ChannelPoint,
+				makeFailureItem(chanPoint,
 					lnrpc.UpdateFailure_UPDATE_FAILURE_INVALID_PARAMETER,
 					err.Error(),
 				))
@@ -115,7 +117,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		inboundFee := models.NewInboundFeeFromWire(inboundWireFee)
 
 		// Add updated policy to list of policies to send to switch.
-		policiesToUpdate[info.ChannelPoint] = models.ForwardingPolicy{
+		policiesToUpdate[chanPoint] = models.ForwardingPolicy{
 			BaseFee:       edge.FeeBaseMSat,
 			FeeRate:       edge.FeeProportionalMillionths,
 			TimeLockDelta: uint32(edge.TimeLockDelta),

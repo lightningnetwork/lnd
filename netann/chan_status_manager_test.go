@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -24,10 +26,17 @@ import (
 var (
 	testKeyLoc = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
 
-	// testSigBytes specifies a testing signature with the minimal length.
-	testSigBytes = []byte{
-		0x30, 0x06, 0x02, 0x01, 0x00, 0x02, 0x01, 0x00,
-	}
+	testRBytes, _ = hex.DecodeString("8ce2bc69281ce27da07e6683571319d18e" +
+		"949ddfa2965fb6caa1bf0314f882d7")
+	testSBytes, _ = hex.DecodeString("299105481d63e0f4bc2a88121167221b67" +
+		"00d72a0ead154c03be696a292d24ae")
+	testRScalar = new(btcec.ModNScalar)
+	testSScalar = new(btcec.ModNScalar)
+	_           = testRScalar.SetByteSlice(testRBytes)
+	_           = testSScalar.SetByteSlice(testSBytes)
+	testSig     = ecdsa.NewSignature(testRScalar, testSScalar)
+
+	testSigBytes = testSig.Serialize()
 )
 
 // randOutpoint creates a random wire.Outpoint.
@@ -121,7 +130,7 @@ func createEdgePolicies(t *testing.T, channel *channeldb.OpenChannel,
 type mockGraph struct {
 	mu        sync.Mutex
 	channels  []*channeldb.OpenChannel
-	chanInfos map[wire.OutPoint]*models.ChannelEdgeInfo1
+	chanInfos map[wire.OutPoint]models.ChannelEdgeInfo
 	chanPols1 map[wire.OutPoint]*models.ChannelEdgePolicy1
 	chanPols2 map[wire.OutPoint]*models.ChannelEdgePolicy1
 	sidToCid  map[lnwire.ShortChannelID]wire.OutPoint
@@ -134,7 +143,7 @@ func newMockGraph(t *testing.T, numChannels int,
 
 	g := &mockGraph{
 		channels:  make([]*channeldb.OpenChannel, 0, numChannels),
-		chanInfos: make(map[wire.OutPoint]*models.ChannelEdgeInfo1),
+		chanInfos: make(map[wire.OutPoint]models.ChannelEdgeInfo),
 		chanPols1: make(map[wire.OutPoint]*models.ChannelEdgePolicy1),
 		chanPols2: make(map[wire.OutPoint]*models.ChannelEdgePolicy1),
 		sidToCid:  make(map[lnwire.ShortChannelID]wire.OutPoint),
@@ -160,7 +169,7 @@ func (g *mockGraph) FetchAllOpenChannels() ([]*channeldb.OpenChannel, error) {
 }
 
 func (g *mockGraph) FetchChannelEdgesByOutpoint(
-	op *wire.OutPoint) (*models.ChannelEdgeInfo1,
+	op *wire.OutPoint) (models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy1, *models.ChannelEdgePolicy1, error) {
 
 	g.mu.Lock()

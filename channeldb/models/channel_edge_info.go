@@ -347,6 +347,8 @@ func (c *ChannelEdgeInfo1) FundingScript() ([]byte, error) {
 			return nil, err
 		}
 
+		// TODO(roasbeef): add tapscript root to gossip v1.5
+
 		return fundingScript, nil
 	}
 

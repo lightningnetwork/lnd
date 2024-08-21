@@ -28,7 +28,7 @@ type GraphCacheNode interface {
 	// error, then the iteration is halted with the error propagated back up
 	// to the caller.
 	ForEachChannel(kvdb.RTx,
-		func(kvdb.RTx, *models.ChannelEdgeInfo1,
+		func(kvdb.RTx, models.ChannelEdgeInfo,
 			*models.ChannelEdgePolicy1,
 			*models.ChannelEdgePolicy1) error) error
 }
@@ -142,7 +142,7 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 	c.AddNodeFeatures(node)
 
 	return node.ForEachChannel(
-		tx, func(tx kvdb.RTx, info *models.ChannelEdgeInfo1,
+		tx, func(tx kvdb.RTx, info models.ChannelEdgeInfo,
 			outPolicy *models.ChannelEdgePolicy1,
 			inPolicy *models.ChannelEdgePolicy1) error {
 

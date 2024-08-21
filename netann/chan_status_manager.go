@@ -661,7 +661,8 @@ func (m *ChanStatusManager) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (
 	update, err := ExtractChannelUpdate(
 		m.ourPubKeyBytes, info, edge1, edge2,
 	)
-	return update, info.AuthProof == nil, err
+
+	return update, info.GetAuthProof() == nil, err
 }
 
 // loadInitialChanState determines the initial ChannelState for a particular

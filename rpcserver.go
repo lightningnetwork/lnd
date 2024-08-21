@@ -690,7 +690,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 			if err != nil {
 				return 0, err
 			}
-			return info.Capacity, nil
+			return info.GetCapacity(), nil
 		},
 		FetchAmountPairCapacity: func(nodeFrom, nodeTo route.Vertex,
 			amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
@@ -713,7 +713,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 						chanID, err)
 			}
 
-			return info.NodeKey1Bytes, info.NodeKey2Bytes, nil
+			return info.Node1Bytes(), info.Node1Bytes(), nil
 		},
 		FindRoute:              s.chanRouter.FindRoute,
 		MissionControl:         s.missionControl,
@@ -6220,14 +6220,14 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// Next, for each active channel we know of within the graph, create a
 	// similar response which details both the edge information as well as
 	// the routing policies of th nodes connecting the two edges.
-	err = graph.ForEachChannel(func(edgeInfo *models.ChannelEdgeInfo1,
+	err = graph.ForEachChannel(func(edgeInfo models.ChannelEdgeInfo,
 		c1, c2 *models.ChannelEdgePolicy1) error {
 
 		// Do not include unannounced channels unless specifically
 		// requested. Unannounced channels include both private channels as
 		// well as public channels whose authentication proof were not
 		// confirmed yet, hence were not announced.
-		if !includeUnannounced && edgeInfo.AuthProof == nil {
+		if !includeUnannounced && edgeInfo.GetAuthProof() == nil {
 			return nil
 		}
 
@@ -6454,7 +6454,7 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 	graph := r.server.graphDB
 
 	var (
-		edgeInfo     *models.ChannelEdgeInfo1
+		edgeInfo     models.ChannelEdgeInfo
 		edge1, edge2 *models.ChannelEdgePolicy1
 		err          error
 	)
@@ -6527,11 +6527,11 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	)
 
 	err = graph.ForEachNodeChannel(node.PubKeyBytes,
-		func(_ kvdb.RTx, edge *models.ChannelEdgeInfo1,
+		func(_ kvdb.RTx, edge models.ChannelEdgeInfo,
 			c1, c2 *models.ChannelEdgePolicy1) error {
 
 			numChannels++
-			totalCapacity += edge.Capacity
+			totalCapacity += edge.GetCapacity()
 
 			// Only populate the node's channels if the user
 			// requested them.
@@ -6539,7 +6539,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 				// Do not include unannounced channels - private
 				// channels or public channels whose
 				// authentication proof were not confirmed yet.
-				if edge.AuthProof == nil {
+				if edge.GetAuthProof() == nil {
 					return nil
 				}
 
@@ -7190,14 +7190,14 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 
 	var feeReports []*lnrpc.ChannelFeeReport
 	err = channelGraph.ForEachNodeChannel(selfNode.PubKeyBytes,
-		func(_ kvdb.RTx, chanInfo *models.ChannelEdgeInfo1,
+		func(_ kvdb.RTx, chanInfo models.ChannelEdgeInfo,
 			edgePolicy, _ *models.ChannelEdgePolicy1) error {
 
 			// Self node should always have policies for its
 			// channels.
 			if edgePolicy == nil {
 				return fmt.Errorf("no policy for outgoing "+
-					"channel %v ", chanInfo.ChannelID)
+					"channel %v ", chanInfo.GetChanID())
 			}
 
 			// We'll compute the effective fee rate by converting
@@ -7221,8 +7221,8 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 			// TODO(roasbeef): also add stats for revenue for each
 			// channel
 			feeReports = append(feeReports, &lnrpc.ChannelFeeReport{
-				ChanId:       chanInfo.ChannelID,
-				ChannelPoint: chanInfo.ChannelPoint.String(),
+				ChanId:       chanInfo.GetChanID(),
+				ChannelPoint: chanInfo.GetChanPoint().String(),
 				BaseFeeMsat:  int64(edgePolicy.FeeBaseMSat),
 				FeePerMil:    int64(feeRateFixedPoint),
 				FeeRate:      feeRate,

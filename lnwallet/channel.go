@@ -910,8 +910,8 @@ func NewLightningChannel(signer input.Signer,
 		optFunc(opts)
 	}
 
-	localCommit := state.LocalCommitment
-	remoteCommit := state.RemoteCommitment
+	localCommit := state.Commitments.Local
+	remoteCommit := state.Commitments.Remote
 
 	// First, initialize the update logs with their current counter values
 	// from the local and remote commitments.
@@ -2214,7 +2214,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			KeyRing:        keyRing,
 			CsvDelay:       ourDelay,
 			BreachCsvDelay: fn.Some(theirDelay),
-			CommitFee:      chanState.RemoteCommitment.CommitFee,
+			CommitFee:      chanState.Commitments.Remote.CommitFee,
 		}
 		if revokedLog != nil {
 			resolveReq.CommitBlob = revokedLog.CustomBlob.ValOpt()
@@ -2294,7 +2294,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			KeyRing:        keyRing,
 			CsvDelay:       theirDelay,
 			BreachCsvDelay: fn.Some(theirDelay),
-			CommitFee:      chanState.RemoteCommitment.CommitFee,
+			CommitFee:      chanState.Commitments.Remote.CommitFee,
 		}
 		if revokedLog != nil {
 			resolveReq.CommitBlob = revokedLog.CustomBlob.ValOpt()
@@ -5805,7 +5805,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		remoteChainTail,
 	)
 
-	remoteHTLCs := lc.channelState.RemoteCommitment.Htlcs
+	remoteHTLCs := lc.channelState.Commitments.Remote.Htlcs
 
 	return fwdPkg, remoteHTLCs, nil
 }
@@ -5926,11 +5926,11 @@ func (lc *LightningChannel) GetDustSum(whoseCommit lntypes.ChannelParty,
 	var dustSum lnwire.MilliSatoshi
 
 	dustLimit := lc.channelState.ChanCfgs.Local.DustLimit
-	commit := lc.channelState.LocalCommitment
+	commit := lc.channelState.Commitments.Local
 	if whoseCommit.IsRemote() {
 		// Calculate dust sum on the remote's commitment.
 		dustLimit = lc.channelState.ChanCfgs.Remote.DustLimit
-		commit = lc.channelState.RemoteCommitment
+		commit = lc.channelState.Commitments.Remote
 	}
 
 	chanType := lc.channelState.ChanType
@@ -6618,7 +6618,7 @@ func GetSignedCommitTx(inputs SignedCommitTxInputs,
 func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 	// Fetch the current commitment transaction, along with their signature
 	// for the transaction.
-	localCommit := lc.channelState.LocalCommitment
+	localCommit := lc.channelState.Commitments.Local
 
 	inputs := SignedCommitTxInputs{
 		CommitTx:  localCommit.CommitTx,
@@ -6852,7 +6852,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, //nolint:funlen
 			ChanType:      chanState.ChanType,
 			ShortChanID:   chanState.ShortChanID(),
 			Initiator:     chanState.IsInitiator,
-			CommitBlob:    chanState.RemoteCommitment.CustomBlob,
+			CommitBlob:    chanState.Commitments.Remote.CustomBlob,
 			FundingBlob:   chanState.CustomBlob,
 			Type:          input.TaprootRemoteCommitSpend,
 			CloseType:     RemoteForceClose,
@@ -6861,7 +6861,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, //nolint:funlen
 			SignDesc:      commitResolution.SelfOutputSignDesc,
 			KeyRing:       keyRing,
 			CsvDelay:      maturityDelay,
-			CommitFee:     chanState.RemoteCommitment.CommitFee,
+			CommitFee:     chanState.Commitments.Remote.CommitFee,
 		}
 		resolveBlob := fn.MapOptionZ(
 			auxResolver,
@@ -7128,7 +7128,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 			ChanType:      chanType,
 			ShortChanID:   chanState.ShortChanID(),
 			Initiator:     chanState.IsInitiator,
-			CommitBlob:    chanState.RemoteCommitment.CustomBlob,
+			CommitBlob:    chanState.Commitments.Remote.CustomBlob,
 			FundingBlob:   chanState.CustomBlob,
 			Type:          input.TaprootHtlcOfferedRemoteTimeout,
 			CloseType:     RemoteForceClose,
@@ -7138,7 +7138,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 			KeyRing:       keyRing,
 			CsvDelay:      htlcCsvDelay,
 			CltvDelay:     fn.Some(htlc.RefundTimeout),
-			CommitFee:     chanState.RemoteCommitment.CommitFee,
+			CommitFee:     chanState.Commitments.Remote.CommitFee,
 			HtlcID:        fn.Some(htlc.HtlcIndex),
 			PayHash:       fn.Some(htlc.RHash),
 		}
@@ -7339,7 +7339,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 				ChanType:       chanType,
 				ShortChanID:    chanState.ShortChanID(),
 				Initiator:      chanState.IsInitiator,
-				CommitBlob:     chanState.LocalCommitment.CustomBlob, //nolint:lll
+				CommitBlob:     chanState.Commitments.Local.CustomBlob, //nolint:lll
 				FundingBlob:    chanState.CustomBlob,
 				Type:           input.TaprootHtlcLocalOfferedTimeout, //nolint:lll
 				CloseType:      LocalForceClose,
@@ -7351,7 +7351,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 				HtlcAmt:        btcutil.Amount(txOut.Value),
 				CommitCsvDelay: csvDelay,
 				CltvDelay:      fn.Some(htlc.RefundTimeout),
-				CommitFee:      chanState.LocalCommitment.CommitFee, //nolint:lll
+				CommitFee:      chanState.Commitments.Local.CommitFee, //nolint:lll
 				HtlcID:         fn.Some(htlc.HtlcIndex),
 				PayHash:        fn.Some(htlc.RHash),
 				AuxSigDesc: fn.Some(AuxSigDesc{
@@ -7474,7 +7474,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 			ChanType:       chanType,
 			ShortChanID:    chanState.ShortChanID(),
 			Initiator:      chanState.IsInitiator,
-			CommitBlob:     chanState.RemoteCommitment.CustomBlob,
+			CommitBlob:     chanState.Commitments.Remote.CustomBlob,
 			Type:           input.TaprootHtlcAcceptedRemoteSuccess,
 			FundingBlob:    chanState.CustomBlob,
 			CloseType:      RemoteForceClose,
@@ -7485,7 +7485,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 			HtlcID:         fn.Some(htlc.HtlcIndex),
 			CsvDelay:       htlcCsvDelay,
 			CltvDelay:      fn.Some(htlc.RefundTimeout),
-			CommitFee:      chanState.RemoteCommitment.CommitFee,
+			CommitFee:      chanState.Commitments.Remote.CommitFee,
 			PayHash:        fn.Some(htlc.RHash),
 			CommitCsvDelay: csvDelay,
 			HtlcAmt:        htlc.Amt.ToSatoshis(),
@@ -7679,7 +7679,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 				ChanType:      chanType,
 				ShortChanID:   chanState.ShortChanID(),
 				Initiator:     chanState.IsInitiator,
-				CommitBlob:    chanState.LocalCommitment.CustomBlob,  //nolint:lll
+				CommitBlob:    chanState.Commitments.Local.CustomBlob,  //nolint:lll
 				Type:          input.TaprootHtlcAcceptedLocalSuccess, //nolint:lll
 				FundingBlob:   chanState.CustomBlob,
 				CloseType:     LocalForceClose,
@@ -7689,7 +7689,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 				KeyRing:       keyRing,
 				HtlcID:        fn.Some(htlc.HtlcIndex),
 				CsvDelay:      htlcCsvDelay,
-				CommitFee:     chanState.LocalCommitment.CommitFee, //nolint:lll
+				CommitFee:     chanState.Commitments.Local.CommitFee, //nolint:lll
 				PayHash:       fn.Some(htlc.RHash),
 				AuxSigDesc: fn.Some(AuxSigDesc{
 					SignDetails: *txSignDetails,
@@ -7952,7 +7952,7 @@ func (lc *LightningChannel) ForceClose(opts ...ForceCloseOpt) (
 		}, nil
 	}
 
-	localCommitment := lc.channelState.LocalCommitment
+	localCommitment := lc.channelState.Commitments.Local
 	summary, err := NewLocalForceCloseSummary(
 		lc.channelState, lc.Signer, commitTx,
 		localCommitment.CommitHeight, lc.leafStore, lc.auxResolver,
@@ -7999,7 +7999,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 		leafStore, func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
 			return s.FetchLeavesFromCommit(
 				NewAuxChanState(chanState),
-				chanState.LocalCommitment, *keyRing,
+				chanState.Commitments.Local, *keyRing,
 				lntypes.Local,
 			)
 		},
@@ -8111,7 +8111,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 					ChanType:      chanState.ChanType,
 					ShortChanID:   chanState.ShortChanID(),
 					Initiator:     chanState.IsInitiator,
-					CommitBlob:    chanState.LocalCommitment.CustomBlob,
+					CommitBlob:    chanState.Commitments.Local.CustomBlob,
 					FundingBlob:   chanState.CustomBlob,
 					Type:          input.TaprootLocalCommitSpend,
 					CloseType:     LocalForceClose,
@@ -8120,7 +8120,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 					SignDesc:      commitResolution.SelfOutputSignDesc,
 					KeyRing:       keyRing,
 					CsvDelay:      csvTimeout,
-					CommitFee:     chanState.LocalCommitment.CommitFee,
+					CommitFee:     chanState.Commitments.Local.CommitFee,
 				})
 			},
 		)
@@ -8136,7 +8136,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	// outgoing HTLC's that we'll need to claim as well. If this is after
 	// recovery there is not much we can do with HTLCs, so we'll always
 	// use what we have in our latest state when extracting resolutions.
-	localCommit := chanState.LocalCommitment
+	localCommit := chanState.Commitments.Local
 	htlcResolutions, err := extractHtlcResolutions(
 		chainfee.SatPerKWeight(localCommit.FeePerKw), lntypes.Local,
 		signer, localCommit.Htlcs, keyRing, &chanState.ChanCfgs.Local,
@@ -8259,9 +8259,9 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	ourBalance, theirBalance, err := CoopCloseBalance(
 		lc.channelState.ChanType, lc.channelState.IsInitiator,
 		proposedFee,
-		lc.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
-		lc.channelState.LocalCommitment.RemoteBalance.ToSatoshis(),
-		lc.channelState.LocalCommitment.CommitFee,
+		lc.channelState.Commitments.Local.LocalBalance.ToSatoshis(),
+		lc.channelState.Commitments.Local.RemoteBalance.ToSatoshis(),
+		lc.channelState.Commitments.Local.CommitFee,
 	)
 	if err != nil {
 		return nil, nil, 0, err
@@ -8362,9 +8362,9 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	ourBalance, theirBalance, err := CoopCloseBalance(
 		lc.channelState.ChanType, lc.channelState.IsInitiator,
 		proposedFee,
-		lc.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
-		lc.channelState.LocalCommitment.RemoteBalance.ToSatoshis(),
-		lc.channelState.LocalCommitment.CommitFee,
+		lc.channelState.Commitments.Local.LocalBalance.ToSatoshis(),
+		lc.channelState.Commitments.Local.RemoteBalance.ToSatoshis(),
+		lc.channelState.Commitments.Local.CommitFee,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -8520,7 +8520,7 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 		&lc.channelState.ChanCfgs.Remote,
 	)
 	localRes, err := NewAnchorResolution(
-		lc.channelState, lc.channelState.LocalCommitment.CommitTx,
+		lc.channelState, lc.channelState.Commitments.Local.CommitTx,
 		localKeyRing, lntypes.Local,
 	)
 	if err != nil {
@@ -8535,7 +8535,7 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 		&lc.channelState.ChanCfgs.Remote,
 	)
 	remoteRes, err := NewAnchorResolution(
-		lc.channelState, lc.channelState.RemoteCommitment.CommitTx,
+		lc.channelState, lc.channelState.Commitments.Remote.CommitTx,
 		remoteKeyRing, lntypes.Remote,
 	)
 	if err != nil {
@@ -9308,7 +9308,7 @@ func (lc *LightningChannel) LocalBalanceDust() (bool, btcutil.Amount) {
 	defer lc.RUnlock()
 
 	chanState := lc.channelState
-	localBalance := chanState.LocalCommitment.LocalBalance.ToSatoshis()
+	localBalance := chanState.Commitments.Local.LocalBalance.ToSatoshis()
 
 	// If this is an anchor channel, and we're the initiator, then we'll
 	// regain the stats allocated to the anchor outputs with the co-op
@@ -9330,7 +9330,7 @@ func (lc *LightningChannel) RemoteBalanceDust() (bool, btcutil.Amount) {
 	defer lc.RUnlock()
 
 	chanState := lc.channelState
-	remoteBalance := chanState.RemoteCommitment.RemoteBalance.ToSatoshis()
+	remoteBalance := chanState.Commitments.Remote.RemoteBalance.ToSatoshis()
 
 	// If this is an anchor channel, and they're the initiator, then we'll
 	// regain the stats allocated to the anchor outputs with the co-op
@@ -9351,7 +9351,7 @@ func (lc *LightningChannel) CommitBalances() (btcutil.Amount, btcutil.Amount) {
 	defer lc.RUnlock()
 
 	chanState := lc.channelState
-	localCommit := lc.channelState.LocalCommitment
+	localCommit := lc.channelState.Commitments.Local
 
 	localBalance := localCommit.LocalBalance.ToSatoshis()
 	remoteBalance := localCommit.RemoteBalance.ToSatoshis()
@@ -9372,7 +9372,7 @@ func (lc *LightningChannel) CommitFee() btcutil.Amount {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	return lc.channelState.LocalCommitment.CommitFee
+	return lc.channelState.Commitments.Local.CommitFee
 }
 
 // CalcFee returns the commitment fee to use for the given fee rate
@@ -9530,7 +9530,9 @@ func (lc *LightningChannel) CommitFeeRate() chainfee.SatPerKWeight {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	return chainfee.SatPerKWeight(lc.channelState.LocalCommitment.FeePerKw)
+	return chainfee.SatPerKWeight(
+		lc.channelState.Commitments.Local.FeePerKw,
+	)
 }
 
 // WorstCaseFeeRate returns the higher feerate from either the local commitment
@@ -9539,8 +9541,8 @@ func (lc *LightningChannel) WorstCaseFeeRate() chainfee.SatPerKWeight {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	localFeeRate := lc.channelState.LocalCommitment.FeePerKw
-	remoteFeeRate := lc.channelState.RemoteCommitment.FeePerKw
+	localFeeRate := lc.channelState.Commitments.Local.FeePerKw
+	remoteFeeRate := lc.channelState.Commitments.Remote.FeePerKw
 
 	if localFeeRate > remoteFeeRate {
 		return chainfee.SatPerKWeight(localFeeRate)
@@ -9803,7 +9805,7 @@ func (lc *LightningChannel) LocalCommitmentBlob() fn.Option[tlv.Blob] {
 	defer lc.RUnlock()
 
 	chanState := lc.channelState
-	localBalance := chanState.LocalCommitment.CustomBlob
+	localBalance := chanState.Commitments.Local.CustomBlob
 
 	return fn.MapOption(func(b tlv.Blob) tlv.Blob {
 		newBlob := make([]byte, len(b))

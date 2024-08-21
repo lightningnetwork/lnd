@@ -335,11 +335,13 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         aliceLocalCommit,
-		RemoteCommitment:        aliceRemoteCommit,
-		Db:                      dbAlice.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
-		FundingTxn:              testTx,
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  aliceLocalCommit,
+			Remote: aliceRemoteCommit,
+		},
+		Db:         dbAlice.ChannelStateDB(),
+		Packager:   channeldb.NewChannelPackager(shortChanID),
+		FundingTxn: testTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
 		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
@@ -355,10 +357,12 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         bobLocalCommit,
-		RemoteCommitment:        bobRemoteCommit,
-		Db:                      dbBob.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  bobLocalCommit,
+			Remote: bobRemoteCommit,
+		},
+		Db:       dbBob.ChannelStateDB(),
+		Packager: channeldb.NewChannelPackager(shortChanID),
 	}
 
 	// If the channel type has a tapscript root, then we'll also specify

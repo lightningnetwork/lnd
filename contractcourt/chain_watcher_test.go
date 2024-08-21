@@ -55,7 +55,7 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 
 	// If we simulate an immediate broadcast of the current commitment by
 	// Bob, then the chain watcher should detect this case.
-	bobCommit := bobChannel.State().LocalCommitment.CommitTx
+	bobCommit := bobChannel.State().Commitments.Local.CommitTx
 	bobTxHash := bobCommit.TxHash()
 	bobSpend := &chainntnfs.SpendDetail{
 		SpenderTxHash: &bobTxHash,
@@ -320,7 +320,7 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 
 		// Now we'll trigger the channel close event to trigger the
 		// scenario.
-		bobCommit := bobChannel.State().LocalCommitment.CommitTx
+		bobCommit := bobChannel.State().Commitments.Local.CommitTx
 		bobTxHash := bobCommit.TxHash()
 		bobSpend := &chainntnfs.SpendDetail{
 			SpenderTxHash: &bobTxHash,
@@ -480,7 +480,7 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 		// Next, we'll obtain Alice's commitment transaction and
 		// trigger a force close. This should cause her to detect a
 		// local force close, and dispatch a local close event.
-		aliceCommit := aliceChannel.State().LocalCommitment.CommitTx
+		aliceCommit := aliceChannel.State().Commitments.Local.CommitTx
 
 		// Since this is Alice's commitment, her output is always first
 		// since she's the one creating the HTLCs (lower balance). In

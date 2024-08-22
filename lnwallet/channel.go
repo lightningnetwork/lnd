@@ -205,7 +205,7 @@ func PayDescsFromRemoteLogUpdates(chanID lnwire.ShortChannelID, height uint64,
 					Height: height,
 					Index:  uint16(i),
 				},
-				BlindingPoint: pd.BlindingPoint,
+				BlindingPoint: wireMsg.BlindingPoint,
 			}
 			pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
 			copy(pd.OnionBlob[:], wireMsg.OnionBlob[:])

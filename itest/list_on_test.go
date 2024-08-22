@@ -579,6 +579,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testUpdateOnPendingOpenChannels,
 	},
 	{
+		Name:     "blinded payment htlc re-forward",
+		TestFunc: testBlindedPaymentHTLCReForward,
+	},
+	{
 		Name:     "query blinded route",
 		TestFunc: testQueryBlindedRoutes,
 	},

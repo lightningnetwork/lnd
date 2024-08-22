@@ -59,7 +59,11 @@ commitment when the channel was force closed.
 
 * We'll now always send [channel updates to our remote peer for open
   channels](https://github.com/lightningnetwork/lnd/pull/8963).
-
+ 
+* [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9023) that would
+  cause UpdateAddHTLC message with blinding point fields to not be re-forwarded
+  correctly on restart.
+ 
 # New Features
 ## Functional Enhancements
 ## RPC Additions

@@ -81,6 +81,10 @@ blinded path expiry.
   cause UpdateAddHTLC message with blinding point fields to not be re-forwarded
   correctly on restart.
  
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/9022) a native SQL
+  invoice issue where AMP subinvoice HTLCs are sometimes updated incorrectly on
+  settlement.
+
 # New Features
 ## Functional Enhancements
 
@@ -278,6 +282,7 @@ that validate `ChannelAnnouncement` messages.
 
 # Contributors (Alphabetical Order)
 
+* Alex Akselrod
 * Andras Banki-Horvath
 * bitromortac
 * Bufo

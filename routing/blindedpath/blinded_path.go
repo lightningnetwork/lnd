@@ -437,9 +437,25 @@ func collectRelayInfo(cfg *BuildBlindedPathCfg, path *candidatePath) (
 			}
 		}
 
-		policy, err = cfg.AddPolicyBuffer(policy)
+		if policy.MinHTLCMsat > cfg.ValueMsat {
+			return nil, 0, 0, fmt.Errorf("%w: minHTLC of hop "+
+				"policy larger than payment amt: sentAmt(%v), "+
+				"minHTLC(%v)", errInvalidBlindedPath,
+				cfg.ValueMsat, policy.MinHTLCMsat)
+		}
+
+		bufferPolicy, err := cfg.AddPolicyBuffer(policy)
 		if err != nil {
 			return nil, 0, 0, err
+		}
+
+		// We only use the new buffered policy if the new minHTLC value
+		// does not violate the sender amount.
+		//
+		// NOTE: We don't check this for maxHTLC, because the payment
+		// amount can always be splitted using MPP.
+		if bufferPolicy.MinHTLCMsat <= cfg.ValueMsat {
+			policy = bufferPolicy
 		}
 
 		// If this is the first policy we are collecting, then use this

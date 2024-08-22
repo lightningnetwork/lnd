@@ -1432,10 +1432,6 @@ func testMPPToMultipleBlindedPaths(ht *lntest.HarnessTest) {
 // a blinded path payment since this adds a new blinding point field to
 // UpdateAddHTLC which we need to ensure gets included in the message on
 // restart.
-//
-// NOTE: this first version of this test asserts that this fails. This is to
-// demonstrate that a bug exists in the reloading and forwarding code. This will
-// be fixed in a following commit.
 func testBlindedPaymentHTLCReForward(ht *lntest.HarnessTest) {
 	// Setup a test case.
 	ctx, testCase := newBlindedForwardTest(ht)
@@ -1456,9 +1452,6 @@ func testBlindedPaymentHTLCReForward(ht *lntest.HarnessTest) {
 	}
 
 	// In a goroutine, we let Alice pay the invoice from dave.
-	//
-	// NOTE: for now, we assert that this attempt fails. Once the noted bug
-	// is fixed, this will be changed to a success assertion.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -1468,7 +1461,7 @@ func testBlindedPaymentHTLCReForward(ht *lntest.HarnessTest) {
 		)
 		require.NoError(testCase.ht, err)
 		require.Equal(
-			testCase.ht, lnrpc.HTLCAttempt_FAILED,
+			testCase.ht, lnrpc.HTLCAttempt_SUCCEEDED,
 			htlcAttempt.Status,
 		)
 	}()

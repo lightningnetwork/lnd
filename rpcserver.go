@@ -760,9 +760,6 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		},
 	}
 
-	genInvoiceFeatures := func() *lnwire.FeatureVector {
-		return s.featureMgr.Get(feature.SetInvoice)
-	}
 	genAmpInvoiceFeatures := func() *lnwire.FeatureVector {
 		return s.featureMgr.Get(feature.SetInvoiceAmp)
 	}
@@ -786,7 +783,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		s.htlcSwitch, r.cfg.ActiveNetParams.Params, s.chanRouter,
 		routerBackend, s.nodeSigner, s.graphDB, s.chanStateDB,
 		s.sweeper, tower, s.towerClientMgr, r.cfg.net.ResolveTCPAddr,
-		genInvoiceFeatures, genAmpInvoiceFeatures,
+		r.genInvoiceFeatures, genAmpInvoiceFeatures,
 		s.getNodeAnnouncement, s.updateAndBrodcastSelfNode, parseAddr,
 		rpcsLog, s.aliasMgr, r.implCfg.AuxDataParser,
 		invoiceHtlcModifier,
@@ -6032,34 +6029,14 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	}
 
 	addInvoiceCfg := &invoicesrpc.AddInvoiceConfig{
-		AddInvoice:        r.server.invoices.AddInvoice,
-		IsChannelActive:   r.server.htlcSwitch.HasActiveLink,
-		ChainParams:       r.cfg.ActiveNetParams.Params,
-		NodeSigner:        r.server.nodeSigner,
-		DefaultCLTVExpiry: defaultDelta,
-		ChanDB:            r.server.chanStateDB,
-		Graph:             r.server.graphDB,
-		GenInvoiceFeatures: func() *lnwire.FeatureVector {
-			v := r.server.featureMgr.Get(feature.SetInvoice)
-
-			if blind {
-				// If an invoice includes blinded paths, then a
-				// payment address is not required since we use
-				// the PathID in the final hop's encrypted data
-				// as equivalent to the payment address
-				v.Unset(lnwire.PaymentAddrRequired)
-				v.Set(lnwire.PaymentAddrOptional)
-
-				// The invoice payer will also need to
-				// understand the new BOLT 11 tagged field
-				// containing the blinded path, so we switch
-				// the bit to required.
-				v.Unset(lnwire.Bolt11BlindedPathsOptional)
-				v.Set(lnwire.Bolt11BlindedPathsRequired)
-			}
-
-			return v
-		},
+		AddInvoice:         r.server.invoices.AddInvoice,
+		IsChannelActive:    r.server.htlcSwitch.HasActiveLink,
+		ChainParams:        r.cfg.ActiveNetParams.Params,
+		NodeSigner:         r.server.nodeSigner,
+		DefaultCLTVExpiry:  defaultDelta,
+		ChanDB:             r.server.chanStateDB,
+		Graph:              r.server.graphDB,
+		GenInvoiceFeatures: r.genInvoiceFeatures,
 		GenAmpInvoiceFeatures: func() *lnwire.FeatureVector {
 			return r.server.featureMgr.Get(feature.SetInvoiceAmp)
 		},
@@ -8793,6 +8770,31 @@ func (r *rpcServer) SubscribeCustomMessages(req *lnrpc.SubscribeCustomMessagesRe
 			}
 		}
 	}
+}
+
+// genInvoiceFeatures creates a feature vector containing all the feature bits
+// that we want our invoices to include. The blind argument must be true if the
+// invoice will contain a blinded path.
+func (r *rpcServer) genInvoiceFeatures(blind bool) *lnwire.FeatureVector {
+	v := r.server.featureMgr.Get(feature.SetInvoice)
+
+	if blind {
+		// If an invoice includes blinded paths, then a
+		// payment address is not required since we use
+		// the PathID in the final hop's encrypted data
+		// as equivalent to the payment address
+		v.Unset(lnwire.PaymentAddrRequired)
+		v.Set(lnwire.PaymentAddrOptional)
+
+		// The invoice payer will also need to
+		// understand the new BOLT 11 tagged field
+		// containing the blinded path, so we switch
+		// the bit to required.
+		v.Unset(lnwire.Bolt11BlindedPathsOptional)
+		v.Set(lnwire.Bolt11BlindedPathsRequired)
+	}
+
+	return v
 }
 
 // ListAliases returns the set of all aliases we have ever allocated along with

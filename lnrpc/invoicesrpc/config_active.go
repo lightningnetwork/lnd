@@ -61,7 +61,7 @@ type Config struct {
 
 	// GenInvoiceFeatures returns a feature containing feature bits that
 	// should be advertised on freshly generated invoices.
-	GenInvoiceFeatures func() *lnwire.FeatureVector
+	GenInvoiceFeatures func(blinded bool) *lnwire.FeatureVector
 
 	// GenAmpInvoiceFeatures returns a feature containing feature bits that
 	// should be advertised on freshly generated AMP invoices.

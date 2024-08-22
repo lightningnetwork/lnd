@@ -78,8 +78,10 @@ type AddInvoiceConfig struct {
 	Graph *channeldb.ChannelGraph
 
 	// GenInvoiceFeatures returns a feature containing feature bits that
-	// should be advertised on freshly generated invoices.
-	GenInvoiceFeatures func() *lnwire.FeatureVector
+	// should be advertised on freshly generated invoices. The blinded
+	// boolean is true if the features are for an invoice containing a
+	// blinded path.
+	GenInvoiceFeatures func(blinded bool) *lnwire.FeatureVector
 
 	// GenAmpInvoiceFeatures returns a feature containing feature bits that
 	// should be advertised on freshly generated AMP invoices.
@@ -484,7 +486,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	if invoice.Amp {
 		invoiceFeatures = cfg.GenAmpInvoiceFeatures()
 	} else {
-		invoiceFeatures = cfg.GenInvoiceFeatures()
+		invoiceFeatures = cfg.GenInvoiceFeatures(blind)
 	}
 	options = append(options, zpay32.Features(invoiceFeatures))
 

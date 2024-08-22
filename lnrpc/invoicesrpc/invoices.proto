@@ -128,6 +128,19 @@ message AddHoldInvoiceRequest {
 
     // Whether this invoice should include routing hints for private channels.
     bool private = 9;
+
+    /*
+    Signals that the invoice should include blinded paths to hide the true
+    identity of the recipient.
+    */
+    bool is_blinded = 11;
+
+    /*
+    Config values to use when creating blinded paths for this invoice. These
+    can be used to override the defaults config values provided in by the
+    global config. This field is only used if is_blinded is true.
+    */
+    lnrpc.BlindedPathConfig blinded_path_config = 12;
 }
 
 message AddHoldInvoiceResp {

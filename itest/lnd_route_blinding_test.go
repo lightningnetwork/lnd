@@ -1424,3 +1424,75 @@ func testMPPToMultipleBlindedPaths(ht *lntest.HarnessTest) {
 		ht.AssertNumWaitingClose(hn, 0)
 	}
 }
+
+// testBlindedPaymentHTLCReForward tests that an UpdateAddHTLC message is
+// correctly persisted, reloaded and resent to the next peer on restart in the
+// case where the sending peer does not get a chance to send the message before
+// restarting. This test specifically tests that this is done correctly for
+// a blinded path payment since this adds a new blinding point field to
+// UpdateAddHTLC which we need to ensure gets included in the message on
+// restart.
+//
+// NOTE: this first version of this test asserts that this fails. This is to
+// demonstrate that a bug exists in the reloading and forwarding code. This will
+// be fixed in a following commit.
+func testBlindedPaymentHTLCReForward(ht *lntest.HarnessTest) {
+	// Setup a test case.
+	ctx, testCase := newBlindedForwardTest(ht)
+	defer testCase.cleanup()
+
+	// Set up network with carol interceptor.
+	testCase.setupNetwork(ctx, true)
+
+	// Let dave create invoice.
+	blindedPaymentPath := testCase.buildBlindedPath()
+	route := testCase.createRouteToBlinded(10_000_000, blindedPaymentPath)
+
+	// Once our interceptor is set up, we can send the blinded payment.
+	hash := sha256.Sum256(testCase.preimage[:])
+	sendReq := &routerrpc.SendToRouteRequest{
+		PaymentHash: hash[:],
+		Route:       route,
+	}
+
+	// In a goroutine, we let Alice pay the invoice from dave.
+	//
+	// NOTE: for now, we assert that this attempt fails. Once the noted bug
+	// is fixed, this will be changed to a success assertion.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+
+		htlcAttempt, err := testCase.ht.Alice.RPC.Router.SendToRouteV2(
+			ctx, sendReq,
+		)
+		require.NoError(testCase.ht, err)
+		require.Equal(
+			testCase.ht, lnrpc.HTLCAttempt_FAILED,
+			htlcAttempt.Status,
+		)
+	}()
+
+	// Wait for the HTLC to be active on Alice and Bob's channels.
+	ht.AssertOutgoingHTLCActive(ht.Alice, testCase.channels[0], hash[:])
+	ht.AssertOutgoingHTLCActive(ht.Bob, testCase.channels[1], hash[:])
+
+	// Intercept the forward on Carol's link. At this point, we know she
+	// has received the HTLC and so will persist this packet.
+	_, err := testCase.carolInterceptor.Recv()
+	require.NoError(ht, err)
+
+	// Now, restart Carol. This time, don't require an interceptor. This
+	// means that Carol should load up any previously persisted
+	// UpdateAddHTLC messages and continue the processing of them.
+	ht.RestartNodeWithExtraArgs(
+		testCase.carol, []string{"--bitcoin.timelockdelta=18"},
+	)
+
+	// Now, wait for the payment to complete.
+	select {
+	case <-done:
+	case <-time.After(defaultTimeout):
+		require.Fail(ht, "timeout waiting for sending payment")
+	}
+}

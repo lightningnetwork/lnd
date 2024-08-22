@@ -76,6 +76,11 @@ blinded path expiry.
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/9021) an issue with some
   command-line arguments not being passed when running `make itest-parallel`.
 
+ 
+* [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9039) that would
+  cause UpdateAddHTLC message with blinding point fields to not be re-forwarded
+  correctly on restart.
+ 
 # New Features
 ## Functional Enhancements
 ## RPC Additions

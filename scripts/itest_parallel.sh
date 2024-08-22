@@ -3,8 +3,9 @@
 # Get all the variables.
 PROCESSES=$1
 TRANCHES=$2
-TEST_FLAGS=$3
-ITEST_FLAGS=$4
+
+# Here we also shift 2 times and get the rest of our flags to pass on in $@.
+shift 2
 
 # Create a variable to hold the final exit code.
 exit_code=0
@@ -12,7 +13,7 @@ exit_code=0
 # Run commands using xargs in parallel and capture their PIDs
 pids=()
 for ((i=0; i<PROCESSES; i++)); do 
-    scripts/itest_part.sh $i $TRANCHES $TEST_FLAGS $ITEST_FLAGS &
+    scripts/itest_part.sh $i $TRANCHES $@ &
     pids+=($!)
 done
 

@@ -150,7 +150,7 @@ func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) (
 			continue
 		} else if err != nil {
 			log.Errorf("Not using route (%s) as a blinded path: %v",
-				err)
+				route, err)
 
 			continue
 		}

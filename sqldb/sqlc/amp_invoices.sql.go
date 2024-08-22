@@ -268,15 +268,16 @@ func (q *Queries) InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubI
 
 const updateAMPSubInvoiceHTLCPreimage = `-- name: UpdateAMPSubInvoiceHTLCPreimage :execresult
 UPDATE amp_sub_invoice_htlcs AS a
-SET preimage = $4
+SET preimage = $5
 WHERE a.invoice_id = $1 AND a.set_id = $2 AND a.htlc_id = (
-    SELECT id FROM invoice_htlcs AS i WHERE i.htlc_id = $3
+    SELECT id FROM invoice_htlcs AS i WHERE i.chan_id = $3 AND i.htlc_id = $4
 )
 `
 
 type UpdateAMPSubInvoiceHTLCPreimageParams struct {
 	InvoiceID int64
 	SetID     []byte
+	ChanID    string
 	HtlcID    int64
 	Preimage  []byte
 }
@@ -285,6 +286,7 @@ func (q *Queries) UpdateAMPSubInvoiceHTLCPreimage(ctx context.Context, arg Updat
 	return q.db.ExecContext(ctx, updateAMPSubInvoiceHTLCPreimage,
 		arg.InvoiceID,
 		arg.SetID,
+		arg.ChanID,
 		arg.HtlcID,
 		arg.Preimage,
 	)

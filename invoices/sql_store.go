@@ -1116,6 +1116,9 @@ func (s *sqlInvoiceUpdater) AddAmpHtlcPreimage(setID [32]byte,
 			SetID:     setID[:],
 			HtlcID:    int64(circuitKey.HtlcID),
 			Preimage:  preimage[:],
+			ChanID: strconv.FormatUint(
+				circuitKey.ChanID.ToUint64(), 10,
+			),
 		},
 	)
 	if err != nil {

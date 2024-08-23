@@ -54,6 +54,9 @@
 * Add new [channeldb](https://github.com/lightningnetwork/lnd/pull/8164) types
   required for the Gossip 1.75 protocol.
 
+* Use the new interfaces added for Gossip 1.75 throughout the codebase
+    [1](https://github.com/lightningnetwork/lnd/pull/8252/).
+
 ## Testing
 ## Database
 

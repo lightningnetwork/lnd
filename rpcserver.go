@@ -182,6 +182,10 @@ var (
 			Entity: "macaroon",
 			Action: "write",
 		},
+		{
+			Entity: "remotesigner",
+			Action: "generate",
+		},
 	}
 
 	// invoicePermissions is a slice of all the entities that allows a user
@@ -216,7 +220,7 @@ var (
 	// implemented.
 	validActions  = []string{"read", "write", "generate"}
 	validEntities = []string{
-		"onchain", "offchain", "address", "message",
+		"onchain", "offchain", "address", "message", "remotesigner",
 		"peers", "info", "invoices", "signer", "macaroon",
 		macaroons.PermissionEntityCustomURI,
 	}

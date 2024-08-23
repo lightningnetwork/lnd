@@ -73,6 +73,9 @@ would create a blinded route with a minHTLC greater than the actual payment
 amount. Moreover remove strict correlation between min_cltv_delta and the
 blinded path expiry.
 
+* [Uses the openchannel sync call](https://github.com/lightningnetwork/lnd/pull/8934)
+ when opening a channel via the `lncli` in the non-blocking case.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

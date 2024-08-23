@@ -243,6 +243,17 @@ func (h *HarnessRPC) OpenChannel(req *lnrpc.OpenChannelRequest) OpenChanClient {
 	return stream
 }
 
+// OpenChannelSync makes a rpc call to LightningClient and returns the pending
+// channel point.
+func (h *HarnessRPC) OpenChannelSync(
+	req *lnrpc.OpenChannelRequest) *lnrpc.ChannelPoint {
+
+	chanPoint, err := h.LN.OpenChannelSync(h.runCtx, req)
+	h.NoError(err, "OpenChannelSync")
+
+	return chanPoint
+}
+
 type CloseChanClient lnrpc.Lightning_CloseChannelClient
 
 // CloseChannel makes a rpc call to LightningClient and returns the close

@@ -172,12 +172,12 @@ type DB interface {
 	DisconnectBlockAtHeight(height uint32) ([]models.ChannelEdgeInfo, error)
 
 	// HasChannelEdge returns true if the database knows of a channel edge
-	// with the passed channel ID, and false otherwise. If an edge with that
-	// ID is found within the graph, then two time stamps representing the
-	// last time the edge was updated for both directed edges are returned
-	// along with the boolean. If it is not found, then the zombie index is
-	// checked and its result is returned as the second boolean.
-	HasChannelEdge(chanID uint64) (time.Time, time.Time, bool, bool, error)
+	// with the passed channel ID, and false otherwise. If an edge is not
+	// found, then the zombie index is checked and its result is returned as
+	// the second boolean.
+	HasChannelEdge(chanID uint64) (bool, bool, error)
+
+	HasChannelEdge1(chanID uint64) (time.Time, time.Time, bool, bool, error)
 
 	// FetchChannelEdgesByID attempts to lookup the two directed edges for
 	// the channel identified by the channel ID. If the channel can't be

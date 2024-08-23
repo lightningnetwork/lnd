@@ -1157,13 +1157,84 @@ func (c *ChannelGraph) addChannelEdge(tx kvdb.RwTx,
 	return chanIndex.Put(b.Bytes(), chanKey[:])
 }
 
-// HasChannelEdge returns true if the database knows of a channel edge with the
+func (c *ChannelGraph) HasChannelEdge(chanID uint64) (bool, bool, error) {
+	var (
+		exists   bool
+		isZombie bool
+	)
+
+	// We'll query the cache with the shared lock held to allow multiple
+	// readers to access values in the cache concurrently if they exist.
+	c.cacheMu.RLock()
+	if entry, ok := c.rejectCache.get(chanID); ok {
+		c.cacheMu.RUnlock()
+		exists, isZombie = entry.flags.unpack()
+
+		return exists, isZombie, nil
+	}
+	c.cacheMu.RUnlock()
+
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	// The item was not found with the shared lock, so we'll acquire the
+	// exclusive lock and check the cache again in case another method added
+	// the entry to the cache while no lock was held.
+	if entry, ok := c.rejectCache.get(chanID); ok && entry.times != nil {
+		exists, isZombie = entry.flags.unpack()
+
+		return exists, isZombie, nil
+	}
+
+	if err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+		edges := tx.ReadBucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		edgeIndex := edges.NestedReadBucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		var channelID [8]byte
+		byteOrder.PutUint64(channelID[:], chanID)
+
+		// If the edge doesn't exist, then we'll also check our zombie
+		// index.
+		if edgeIndex.Get(channelID[:]) == nil {
+			exists = false
+			zombieIndex := edges.NestedReadBucket(zombieBucket)
+			if zombieIndex != nil {
+				isZombie, _, _ = isZombieEdge(
+					zombieIndex, chanID,
+				)
+			}
+
+			return nil
+		}
+
+		exists = true
+		isZombie = false
+
+		return nil
+	}, func() {}); err != nil {
+		return exists, isZombie, err
+	}
+
+	c.rejectCache.insert(chanID, rejectCacheEntry{
+		flags: packRejectFlags(exists, isZombie),
+	})
+
+	return exists, isZombie, nil
+}
+
+// HasChannelEdge1 returns true if the database knows of a channel edge with the
 // passed channel ID, and false otherwise. If an edge with that ID is found
 // within the graph, then two time stamps representing the last time the edge
 // was updated for both directed edges are returned along with the boolean. If
 // it is not found, then the zombie index is checked and its result is returned
 // as the second boolean.
-func (c *ChannelGraph) HasChannelEdge(
+func (c *ChannelGraph) HasChannelEdge1(
 	chanID uint64) (time.Time, time.Time, bool, bool, error) {
 
 	var (
@@ -1277,6 +1348,122 @@ func (c *ChannelGraph) HasChannelEdge(
 	})
 
 	return upd1Time, upd2Time, exists, isZombie, nil
+}
+
+func (c *ChannelGraph) HasChannelEdge2(
+	chanID uint64) (uint32, uint32, bool, bool, error) {
+
+	var (
+		upd1Height uint32
+		upd2Height uint32
+		exists     bool
+		isZombie   bool
+	)
+
+	// We'll query the cache with the shared lock held to allow multiple
+	// readers to access values in the cache concurrently if they exist.
+	c.cacheMu.RLock()
+	if entry, ok := c.rejectCache.get(chanID); ok && entry.blocks != nil {
+		c.cacheMu.RUnlock()
+		exists, isZombie = entry.flags.unpack()
+
+		return entry.blocks.updBlock1, entry.blocks.updBlock2, exists,
+			isZombie, nil
+	}
+	c.cacheMu.RUnlock()
+
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	// The item was not found with the shared lock, so we'll acquire the
+	// exclusive lock and check the cache again in case another method added
+	// the entry to the cache while no lock was held.
+	if entry, ok := c.rejectCache.get(chanID); ok && entry.blocks != nil {
+		exists, isZombie = entry.flags.unpack()
+
+		return entry.blocks.updBlock1, entry.blocks.updBlock2, exists,
+			isZombie, nil
+	}
+
+	if err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+		edges := tx.ReadBucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		edgeIndex := edges.NestedReadBucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		var channelID [8]byte
+		byteOrder.PutUint64(channelID[:], chanID)
+
+		// If the edge doesn't exist, then we'll also check our zombie
+		// index.
+		if edgeIndex.Get(channelID[:]) == nil {
+			exists = false
+			zombieIndex := edges.NestedReadBucket(zombieBucket)
+			if zombieIndex != nil {
+				isZombie, _, _ = isZombieEdge(
+					zombieIndex, chanID,
+				)
+			}
+
+			return nil
+		}
+
+		exists = true
+		isZombie = false
+
+		// If the channel has been found in the graph, then retrieve
+		// the edges itself so we can return the last updated
+		// timestamps.
+		nodes := tx.ReadBucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNodeNotFound
+		}
+
+		edge1, edge2, err := fetchChanEdgePolicies(
+			edgeIndex, edges, channelID[:],
+		)
+		if err != nil {
+			return err
+		}
+
+		// As we may have only one of the edges populated, only set the
+		// update time if the edge was found in the database.
+		if edge1 != nil {
+			e1, ok := edge1.(*models.ChannelEdgePolicy2)
+			if !ok {
+				return fmt.Errorf("expected "+
+					"*ChannelEdgePolicy2, got: %T", edge1)
+			}
+			upd1Height = e1.BlockHeight.Val
+		}
+		if edge2 != nil {
+			e2, ok := edge2.(*models.ChannelEdgePolicy2)
+			if !ok {
+				return fmt.Errorf("expected "+
+					"*ChannelEdgePolicy2, got: %T", edge2)
+			}
+
+			upd2Height = e2.BlockHeight.Val
+		}
+
+		return nil
+	}, func() {}); err != nil {
+		return 0, 0, exists, isZombie, err
+	}
+
+	c.rejectCache.insert(chanID, rejectCacheEntry{
+		blocks: &updateBlocks{
+			updBlock1: upd1Height,
+			updBlock2: upd2Height,
+		},
+		flags: packRejectFlags(exists, isZombie),
+	})
+
+	return upd1Height, upd2Height, exists, isZombie, nil
 }
 
 // UpdateChannelEdge retrieves and update edge of the graph database. Method

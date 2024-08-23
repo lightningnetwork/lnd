@@ -888,11 +888,14 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 }
 
 // ResetMissionControl clears all mission control state and starts with a clean
-// slate.
+// state. If the ResetImportedPersistedMc flag is set to true, it also resets
+// the imported and persisted mission control data on disk.
 func (s *Server) ResetMissionControl(ctx context.Context,
 	req *ResetMissionControlRequest) (*ResetMissionControlResponse, error) {
 
-	err := s.cfg.RouterBackend.MissionControl.ResetHistory()
+	err := s.cfg.RouterBackend.MissionControl.ResetHistory(
+		req.ResetImportedPersistedMc,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1116,7 +1119,7 @@ func (s *Server) XImportMissionControl(_ context.Context,
 	}
 
 	err := s.cfg.RouterBackend.MissionControl.ImportHistory(
-		snapshot, req.Force,
+		snapshot, req.Force, req.PersistMc,
 	)
 	if err != nil {
 		return nil, err

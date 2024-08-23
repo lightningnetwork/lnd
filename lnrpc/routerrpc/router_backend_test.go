@@ -251,7 +251,7 @@ func (m *mockMissionControl) GetProbability(fromNode, toNode route.Vertex,
 	return testMissionControlProb
 }
 
-func (m *mockMissionControl) ResetHistory() error {
+func (m *mockMissionControl) ResetHistory(resetImportedPersistedMC bool) error {
 	return nil
 }
 

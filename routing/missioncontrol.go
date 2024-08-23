@@ -278,8 +278,23 @@ func (m *MissionControl) init() error {
 		m.applyPaymentResult(result)
 	}
 
+	mcSnapshots, err := m.store.fetchMCData()
+	if err != nil {
+		return err
+	}
+
+	mcPairsPersisted := 0
+	for _, mcSnapshot := range mcSnapshots {
+		err := m.ImportHistory(mcSnapshot, false, true)
+		if err != nil {
+			return err
+		}
+		mcPairsPersisted += len(mcSnapshot.Pairs)
+	}
+
 	log.Debugf("Mission control state reconstruction finished: "+
-		"n=%v, time=%v", len(results), time.Since(start))
+		"raw_payment_results_count=%v, persisted_mc_pairs_count=%v, "+
+		"time=%v", len(results), mcPairsPersisted, time.Since(start))
 
 	return nil
 }
@@ -329,8 +344,10 @@ func (m *MissionControl) SetConfig(cfg *MissionControlConfig) error {
 }
 
 // ResetHistory resets the history of MissionControl returning it to a state as
-// if no payment attempts have been made.
-func (m *MissionControl) ResetHistory() error {
+// if no payment attempts have been made. If the resetImportedPersistedMC
+// flag is set to true, it also resets the imported and persisted mission
+// control data on disk.
+func (m *MissionControl) ResetHistory(resetImportedPersistedMC bool) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -339,6 +356,13 @@ func (m *MissionControl) ResetHistory() error {
 	}
 
 	m.state.resetHistory()
+
+	if resetImportedPersistedMC {
+		err := m.store.resetMCData()
+		if err != nil {
+			return err
+		}
+	}
 
 	log.Debugf("Mission control history cleared")
 
@@ -377,11 +401,11 @@ func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
 	return m.state.getSnapshot()
 }
 
-// ImportHistory imports the set of mission control results provided to our
-// in-memory state. These results are not persisted, so will not survive
-// restarts.
+// ImportHistory imports the set of mission control results to our in-memory
+// state and disk, ensuring that the mission control data is available across
+// restarts (if persistMC flag is set).
 func (m *MissionControl) ImportHistory(history *MissionControlSnapshot,
-	force bool) error {
+	force bool, persistMC bool) error {
 
 	if history == nil {
 		return errors.New("cannot import nil history")
@@ -394,6 +418,13 @@ func (m *MissionControl) ImportHistory(history *MissionControlSnapshot,
 		len(history.Pairs))
 
 	imported := m.state.importSnapshot(history, force)
+
+	if persistMC {
+		err := m.store.persistMCData(history)
+		if err != nil {
+			return err
+		}
+	}
 
 	log.Infof("Imported %v results to mission control", imported)
 

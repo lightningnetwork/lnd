@@ -80,7 +80,8 @@ service Router {
 
     /* lncli: `resetmc`
     ResetMissionControl clears all mission control state and starts with a clean
-    slate.
+    state. If the reset_imported_persisted_mc flag is set to true, it also
+    resets the imported and persisted mission control data on disk.
     */
     rpc ResetMissionControl (ResetMissionControlRequest)
         returns (ResetMissionControlResponse);
@@ -443,6 +444,9 @@ message SendToRouteResponse {
 }
 
 message ResetMissionControlRequest {
+    // Whether to reset the imported and persisted mission control state on
+    // disk.
+    bool reset_imported_persisted_mc = 1;
 }
 
 message ResetMissionControlResponse {
@@ -467,6 +471,9 @@ message XImportMissionControlRequest {
     // override the failure pair is imported before the success pair and both
     // still clamp existing failure/success amounts.
     bool force = 2;
+
+    // Whether to persist the imported mission control to disk.
+    bool persist_mc = 3;
 }
 
 message XImportMissionControlResponse {

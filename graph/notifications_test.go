@@ -1086,6 +1086,28 @@ func (c *testCtx) RestartBuilder(t *testing.T) {
 	c.builder = builder
 }
 
+func waitForGraphCache(g *channeldb.ChannelGraph, timeout time.Duration) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeoutChan := time.After(timeout)
+	for {
+		select {
+		case <-timeoutChan:
+			return fmt.Errorf("timed out waiting for graphCache " +
+				"to be ready")
+		case <-ticker.C:
+			graphCache, err := g.GetGraphCache()
+			if err != nil {
+				return fmt.Errorf("error getting graphCache: "+
+					"%v", err)
+			} else if graphCache != nil {
+				return nil
+			}
+		}
+	}
+}
+
 // makeTestGraph creates a new instance of a channeldb.ChannelGraph for testing
 // purposes.
 func makeTestGraph(t *testing.T, useCache bool) (*channeldb.ChannelGraph,
@@ -1108,6 +1130,9 @@ func makeTestGraph(t *testing.T, useCache bool) (*channeldb.ChannelGraph,
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// Wait for graph cache to be up and running.
+	_ = waitForGraphCache(graph, 5*time.Second)
 
 	return graph, backend, nil
 }

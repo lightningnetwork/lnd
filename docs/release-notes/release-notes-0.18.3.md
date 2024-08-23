@@ -68,6 +68,11 @@ commitment when the channel was force closed.
   in the `ReplyChannelRange` msg and introduced a check that ChanUpdates with a
   timestamp too far into the future will be discarded.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/9026) a bug where we
+would create a blinded route with a minHTLC greater than the actual payment
+amount. Moreover remove strict correlation between min_cltv_delta and the
+blinded path expiry.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

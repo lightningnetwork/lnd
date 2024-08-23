@@ -387,6 +387,8 @@ func (s *InterceptableSwitch) setInterceptor(interceptor ForwardInterceptor) {
 	})
 }
 
+// resolve processes a HTLC given the resolution type specified by the
+// intercepting client.
 func (s *InterceptableSwitch) resolve(res *FwdResolution) error {
 	intercepted, err := s.heldHtlcSet.pop(res.Key)
 	if err != nil {

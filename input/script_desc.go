@@ -33,17 +33,17 @@ const (
 	ScriptPathDelay
 )
 
-// ScriptDesciptor is an interface that abstracts over the various ways a
+// ScriptDescriptor is an interface that abstracts over the various ways a
 // pkScript can be spent from an output. This supports both normal p2wsh
-// (witness script, etc), and also tapscript paths which have distinct
+// (witness script, etc.), and also tapscript paths which have distinct
 // tapscript leaves.
 type ScriptDescriptor interface {
 	// PkScript is the public key script that commits to the final
 	// contract.
 	PkScript() []byte
 
-	// WitnessScript returns the witness script that we'll use when signing
-	// for the remote party, and also verifying signatures on our
+	// WitnessScriptToSign returns the witness script that we'll use when
+	// signing for the remote party, and also verifying signatures on our
 	// transactions. As an example, when we create an outgoing HTLC for the
 	// remote party, we want to sign their success path.
 	//
@@ -73,6 +73,9 @@ type TapscriptDescriptor interface {
 
 	// TapScriptTree returns the underlying tapscript tree.
 	TapScriptTree() *txscript.IndexedTapScriptTree
+
+	// Tree returns the underlying ScriptTree.
+	Tree() ScriptTree
 }
 
 // ScriptTree holds the contents needed to spend a script within a tapscript

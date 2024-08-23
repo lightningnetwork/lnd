@@ -259,8 +259,8 @@ issues:
         - forbidigo
         - godot
 
-    # Allow fmt.Printf() in lncli.
-    - path: cmd/lncli/*
+    # Allow fmt.Printf() in commands.
+    - path: cmd/commands/*
       linters:
         - forbidigo
 

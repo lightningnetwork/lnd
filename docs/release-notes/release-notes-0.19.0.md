@@ -59,6 +59,10 @@
     [2](https://github.com/lightningnetwork/lnd/pull/8253).
     [3](https://github.com/lightningnetwork/lnd/pull/8254).
 
+* Update the [gossip
+  protocol](https://github.com/lightningnetwork/lnd/pull/8255) to be able to
+  gossip new Gossip 1.75 messages.
+
 ## Testing
 ## Database
 

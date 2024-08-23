@@ -56,6 +56,7 @@
 
 * Use the new interfaces added for Gossip 1.75 throughout the codebase
     [1](https://github.com/lightningnetwork/lnd/pull/8252/).
+    [2](https://github.com/lightningnetwork/lnd/pull/8253).
 
 ## Testing
 ## Database

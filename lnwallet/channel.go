@@ -4946,6 +4946,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 					CommitSig:  newCommit.CommitSig,
 					HtlcSigs:   newCommit.HtlcSigs,
 					PartialSig: newCommit.PartialSig,
+					ExtraData:  newCommit.AuxSigBlob,
 				}
 
 				updates = append(updates, commitSig)
@@ -5500,9 +5501,9 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 			// store in the custom records map so we can write to
 			// disk later.
 			sigType := htlcCustomSigType.TypeVal()
-			htlc.CustomRecords[uint64(sigType)] = auxSig.UnwrapOr(
-				nil,
-			)
+			auxSig.WhenSome(func(sigB tlv.Blob) {
+				htlc.CustomRecords[uint64(sigType)] = sigB
+			})
 
 			auxVerifyJobs = append(auxVerifyJobs, auxVerifyJob)
 		}

@@ -9,6 +9,41 @@ import (
 	"github.com/urfave/cli"
 )
 
+var (
+	blindFlag = cli.BoolFlag{
+		Name: "blind",
+		Usage: "creates an invoice that contains blinded paths. Note " +
+			"that invoices with blinded paths will be signed " +
+			"using a random ephemeral key so as not to reveal " +
+			"the real node ID of this node.",
+	}
+	minRealBlindedHops = cli.UintFlag{
+		Name: "min_real_blinded_hops",
+		Usage: "The minimum number of real hops to use in a blinded " +
+			"path. This option will only be used if `--blind` " +
+			"has also been set.",
+	}
+	numBlindedHops = cli.UintFlag{
+		Name: "num_blinded_hops",
+		Usage: "The number of hops to use for each blinded path " +
+			"included in the invoice. This option will only be " +
+			"used if `--blind` has also been set. Dummy hops " +
+			"will be used to pad paths shorter than this.",
+	}
+	maxBlindedPaths = cli.UintFlag{
+		Name: "max_blinded_paths",
+		Usage: "The maximum number of blinded paths to add to an " +
+			"invoice. This option will only be used if `--blind` " +
+			"has also been set.",
+	}
+	blindedPathNodeOmissions = cli.StringSliceFlag{
+		Name: "blinded_path_omit_node",
+		Usage: "The pub key (in hex) of a node not to use on a " +
+			"blinded path. The flag may be specified multiple " +
+			"times.",
+	}
+)
+
 var AddInvoiceCommand = cli.Command{
 	Name:     "addinvoice",
 	Category: "Invoices",
@@ -82,40 +117,11 @@ var AddInvoiceCommand = cli.Command{
 			Usage: "creates an AMP invoice. If true, preimage " +
 				"should not be set.",
 		},
-		cli.BoolFlag{
-			Name: "blind",
-			Usage: "creates an invoice that contains blinded " +
-				"paths. Note that invoices with blinded " +
-				"paths will be signed using a random " +
-				"ephemeral key so as not to reveal the real " +
-				"node ID of this node.",
-		},
-		cli.UintFlag{
-			Name: "min_real_blinded_hops",
-			Usage: "The minimum number of real hops to use in a " +
-				"blinded path. This option will only be used " +
-				"if `--blind` has also been set.",
-		},
-		cli.UintFlag{
-			Name: "num_blinded_hops",
-			Usage: "The number of hops to use for each " +
-				"blinded path included in the invoice. This " +
-				"option will only be used if `--blind` has " +
-				"also been set. Dummy hops will be used to " +
-				"pad paths shorter than this.",
-		},
-		cli.UintFlag{
-			Name: "max_blinded_paths",
-			Usage: "The maximum number of blinded paths to add " +
-				"to an invoice. This option will only be " +
-				"used if `--blind` has also been set.",
-		},
-		cli.StringSliceFlag{
-			Name: "blinded_path_omit_node",
-			Usage: "The pub key (in hex) of a node not to " +
-				"use on a blinded path. The flag may be " +
-				"specified multiple times.",
-		},
+		blindFlag,
+		minRealBlindedHops,
+		numBlindedHops,
+		maxBlindedPaths,
+		blindedPathNodeOmissions,
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -183,7 +189,7 @@ func addInvoice(ctx *cli.Context) error {
 		CltvExpiry:        ctx.Uint64("cltv_expiry_delta"),
 		Private:           ctx.Bool("private"),
 		IsAmp:             ctx.Bool("amp"),
-		IsBlinded:         ctx.Bool("blind"),
+		IsBlinded:         ctx.Bool(blindFlag.Name),
 		BlindedPathConfig: blindedPathCfg,
 	}
 
@@ -198,11 +204,11 @@ func addInvoice(ctx *cli.Context) error {
 }
 
 func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
-	if !ctx.Bool("blind") {
-		if ctx.IsSet("min_real_blinded_hops") ||
-			ctx.IsSet("num_blinded_hops") ||
-			ctx.IsSet("max_blinded_paths") ||
-			ctx.IsSet("blinded_path_omit_node") {
+	if !ctx.Bool(blindFlag.Name) {
+		if ctx.IsSet(minRealBlindedHops.Name) ||
+			ctx.IsSet(numBlindedHops.Name) ||
+			ctx.IsSet(maxBlindedPaths.Name) ||
+			ctx.IsSet(blindedPathNodeOmissions.Name) {
 
 			return nil, fmt.Errorf("blinded path options are " +
 				"only used if the `--blind` options is set")
@@ -213,22 +219,22 @@ func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 
 	var blindCfg lnrpc.BlindedPathConfig
 
-	if ctx.IsSet("min_real_blinded_hops") {
-		minNumRealHops := uint32(ctx.Uint("min_real_blinded_hops"))
+	if ctx.IsSet(minRealBlindedHops.Name) {
+		minNumRealHops := uint32(ctx.Uint(minRealBlindedHops.Name))
 		blindCfg.MinNumRealHops = &minNumRealHops
 	}
 
-	if ctx.IsSet("num_blinded_hops") {
-		numHops := uint32(ctx.Uint("num_blinded_hops"))
+	if ctx.IsSet(numBlindedHops.Name) {
+		numHops := uint32(ctx.Uint(numBlindedHops.Name))
 		blindCfg.NumHops = &numHops
 	}
 
-	if ctx.IsSet("max_blinded_paths") {
-		maxPaths := uint32(ctx.Uint("max_blinded_paths"))
+	if ctx.IsSet(maxBlindedPaths.Name) {
+		maxPaths := uint32(ctx.Uint(maxBlindedPaths.Name))
 		blindCfg.MaxNumPaths = &maxPaths
 	}
 
-	for _, pubKey := range ctx.StringSlice("blinded_path_omit_node") {
+	for _, pubKey := range ctx.StringSlice(blindedPathNodeOmissions.Name) {
 		pubKeyBytes, err := hex.DecodeString(pubKey)
 		if err != nil {
 			return nil, err

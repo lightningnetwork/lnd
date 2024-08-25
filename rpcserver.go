@@ -6040,17 +6040,9 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		GenAmpInvoiceFeatures: func() *lnwire.FeatureVector {
 			return r.server.featureMgr.Get(feature.SetInvoiceAmp)
 		},
-		GetAlias:   r.server.aliasMgr.GetPeerAlias,
-		BestHeight: r.server.cc.BestBlockTracker.BestHeight,
-		QueryBlindedRoutes: func(amt lnwire.MilliSatoshi) (
-			[]*route.Route, error) {
-
-			return r.server.chanRouter.FindBlindedPaths(
-				r.selfNode, amt,
-				r.server.missionControl.GetProbability,
-				blindingRestrictions,
-			)
-		},
+		GetAlias:           r.server.aliasMgr.GetPeerAlias,
+		BestHeight:         r.server.cc.BestBlockTracker.BestHeight,
+		QueryBlindedRoutes: r.queryBlindedRoutes,
 	}
 
 	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)
@@ -6086,7 +6078,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 				// capacities.
 				MaxHTLCMsat: 0,
 			},
-			MinNumPathHops: blindingRestrictions.NumHops,
+			Restrictions: blindingRestrictions,
 		}
 	}
 
@@ -8770,6 +8762,18 @@ func (r *rpcServer) SubscribeCustomMessages(req *lnrpc.SubscribeCustomMessagesRe
 			}
 		}
 	}
+}
+
+// queryBlindedRoutes can be used to generate a few routes to this node that can
+// then be used in the construction of a blinded payment path.
+func (r *rpcServer) queryBlindedRoutes(
+	restrictions *routing.BlindedPathRestrictions,
+	amt lnwire.MilliSatoshi) ([]*route.Route, error) {
+
+	return r.server.chanRouter.FindBlindedPaths(
+		r.selfNode, amt, r.server.missionControl.GetProbability,
+		restrictions,
+	)
 }
 
 // genInvoiceFeatures creates a feature vector containing all the feature bits

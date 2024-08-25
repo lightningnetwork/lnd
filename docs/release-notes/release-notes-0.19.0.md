@@ -26,6 +26,11 @@
 * [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9134) that would 
   cause a nil pointer dereference during the probing of a payment request that 
   does not contain a payment address.
+  
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9033) where we
+  would not signal an error when trying to bump an non-anchor channel but
+  instead report a successful cpfp registration although no fee bumping is
+  possible for non-anchor channels anyways.
 
 # New Features
 ## Functional Enhancements

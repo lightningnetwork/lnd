@@ -73,6 +73,9 @@ would create a blinded route with a minHTLC greater than the actual payment
 amount. Moreover remove strict correlation between min_cltv_delta and the
 blinded path expiry.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/9021) an issue with some
+  command-line arguments not being passed when running `make itest-parallel`.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

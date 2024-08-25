@@ -1035,12 +1035,11 @@ func (i *mockInvoiceRegistry) SettleHodlInvoice(
 
 func (i *mockInvoiceRegistry) NotifyExitHopHtlc(rhash lntypes.Hash,
 	amt lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	circuitKey models.CircuitKey, hodlChan chan<- interface{},
+	circuitKey models.CircuitKey,
 	payload invoices.Payload) (invoices.HtlcResolution, error) {
 
 	event, err := i.registry.NotifyExitHopHtlc(
-		rhash, amt, expiry, currentHeight, circuitKey, hodlChan,
-		payload,
+		rhash, amt, expiry, currentHeight, circuitKey, payload,
 	)
 	if err != nil {
 		return nil, err
@@ -1065,10 +1064,22 @@ func (i *mockInvoiceRegistry) AddInvoice(ctx context.Context,
 	return err
 }
 
-func (i *mockInvoiceRegistry) HodlUnsubscribeAll(
-	subscriber chan<- interface{}) {
+// func (i *mockInvoiceRegistry) HodlUnsubscribeAll(
+// 	subscriber chan<- interface{}) {
 
-	i.registry.HodlUnsubscribeAll(subscriber)
+// 	i.registry.HodlUnsubscribeAll(subscriber)
+// }
+
+func (i *mockInvoiceRegistry) RegisterHodlSubscriber(
+	receiver fn.EventReceiver[invoices.HtlcResolution], _, _ bool) error {
+
+	return nil
+}
+
+func (i *mockInvoiceRegistry) RemoveHodlSubscriber(
+	subscriber fn.EventReceiver[invoices.HtlcResolution]) error {
+
+	return nil
 }
 
 var _ InvoiceDatabase = (*mockInvoiceRegistry)(nil)

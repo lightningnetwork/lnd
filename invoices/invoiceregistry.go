@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
@@ -129,25 +130,18 @@ type InvoiceRegistry struct {
 	// carried.
 	invoiceEvents chan *invoiceEvent
 
-	// hodlSubscriptionsMux locks the hodlSubscriptions and
-	// hodlReverseSubscriptions. Using a separate mutex for these maps is
-	// necessary to avoid deadlocks in the registry when processing invoice
-	// events.
-	hodlSubscriptionsMux sync.RWMutex
-
-	// hodlSubscriptions is a map from a circuit key to a list of
-	// subscribers. It is used for efficient notification of links.
-	hodlSubscriptions map[CircuitKey]map[chan<- interface{}]struct{}
-
-	// reverseSubscriptions tracks circuit keys subscribed to per
-	// subscriber. This is used to unsubscribe from all hashes efficiently.
-	hodlReverseSubscriptions map[chan<- interface{}]map[CircuitKey]struct{}
-
 	// htlcAutoReleaseChan contains the new htlcs that need to be
 	// auto-released.
 	htlcAutoReleaseChan chan *htlcReleaseEvent
 
 	expiryWatcher *InvoiceExpiryWatcher
+
+	// hodlHtlcDisp handles the interaction between hodl htlcs and the
+	// external subscribers. It follows the event distribution design. It
+	// does NOT broadcasst every hodl invoice to every subscriber but rather
+	// associates every htlc with a speocfic subscriber and only notifies
+	// this specific one.
+	hodlHtlcDisp hodlHTLCNotifier
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -167,16 +161,11 @@ func NewRegistry(idb InvoiceDB, expiryWatcher *InvoiceExpiryWatcher,
 		notificationClients:       notificationClients,
 		singleNotificationClients: singleNotificationClients,
 		invoiceEvents:             make(chan *invoiceEvent, 100),
-		hodlSubscriptions: make(
-			map[CircuitKey]map[chan<- interface{}]struct{},
-		),
-		hodlReverseSubscriptions: make(
-			map[chan<- interface{}]map[CircuitKey]struct{},
-		),
-		cfg:                 cfg,
-		htlcAutoReleaseChan: make(chan *htlcReleaseEvent),
-		expiryWatcher:       expiryWatcher,
-		quit:                make(chan struct{}),
+		cfg:                       cfg,
+		htlcAutoReleaseChan:       make(chan *htlcReleaseEvent),
+		expiryWatcher:             expiryWatcher,
+		quit:                      make(chan struct{}),
+		hodlHtlcDisp:              newHodlHTLCResDistributor(),
 	}
 }
 
@@ -245,6 +234,12 @@ func (i *InvoiceRegistry) Start() error {
 		_ = i.Stop()
 	}
 
+	// Start the hodl HTLC notifier.
+	err = i.hodlHtlcDisp.Start()
+	if err != nil {
+		_ = i.Stop()
+	}
+
 	log.Debug("InvoiceRegistry started")
 
 	return err
@@ -267,6 +262,11 @@ func (i *InvoiceRegistry) Stop() error {
 			"initialized")
 	} else {
 		i.expiryWatcher.Stop()
+	}
+
+	err = i.hodlHtlcDisp.Stop()
+	if err != nil {
+		err = fmt.Errorf("hodlHtlcDisp failed to stop with: %w ", err)
 	}
 
 	close(i.quit)
@@ -751,7 +751,7 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef InvoiceRef,
 			key, int32(htlc.AcceptHeight), result,
 		)
 
-		i.notifyHodlSubscribers(resolution)
+		i.hodlHtlcDisp.publishSubscriberEvent(resolution)
 	}
 	return nil
 }
@@ -913,8 +913,7 @@ func (i *InvoiceRegistry) processAMP(ctx invoiceUpdateCtx) error {
 // held htlc.
 func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	amtPaid lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	circuitKey CircuitKey, hodlChan chan<- interface{},
-	payload Payload) (HtlcResolution, error) {
+	circuitKey CircuitKey, payload Payload) (HtlcResolution, error) {
 
 	// Create the update context containing the relevant details of the
 	// incoming htlc.
@@ -964,9 +963,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 
 	// Execute locked notify exit hop logic.
 	i.Lock()
-	resolution, invoiceToExpire, err := i.notifyExitHopHtlcLocked(
-		&ctx, hodlChan,
-	)
+	resolution, invoiceToExpire, err := i.notifyExitHopHtlcLocked(&ctx)
 	i.Unlock()
 	if err != nil {
 		return nil, err
@@ -1020,7 +1017,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 // that should be executed inside the registry lock. The returned invoiceExpiry
 // (if not nil) needs to be added to the expiry watcher outside of the lock.
 func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
-	ctx *invoiceUpdateCtx, hodlChan chan<- interface{}) (
+	ctx *invoiceUpdateCtx) (
 	HtlcResolution, invoiceExpiry, error) {
 
 	// We'll attempt to settle an invoice matching this rHash on disk (if
@@ -1117,7 +1114,9 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 				key, int32(htlc.AcceptHeight), res.Outcome,
 			)
 
-			i.notifyHodlSubscribers(htlcFailResolution)
+			i.hodlHtlcDisp.publishSubscriberEvent(
+				htlcFailResolution,
+			)
 		}
 
 	// If the htlc was settled, we will settle any previously accepted
@@ -1150,7 +1149,9 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 
 			// Notify subscribers that the htlc should be settled
 			// with our peer.
-			i.notifyHodlSubscribers(htlcSettleResolution)
+			i.hodlHtlcDisp.publishSubscriberEvent(
+				htlcSettleResolution,
+			)
 		}
 
 		// If concurrent payments were attempted to this invoice before
@@ -1158,7 +1159,7 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		// the HTLCs immediately. As a result of the settle, the HTLCs
 		// in other HTLC sets are automatically converted to a canceled
 		// state when updating the invoice.
-		//
+
 		// TODO(roasbeef): can remove now??
 		canceledHtlcSet := invoice.HTLCSetCompliment(
 			setID, HtlcStateCanceled,
@@ -1169,7 +1170,9 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 				ResultInvoiceAlreadySettled,
 			)
 
-			i.notifyHodlSubscribers(htlcFailResolution)
+			i.hodlHtlcDisp.publishSubscriberEvent(
+				htlcFailResolution,
+			)
 		}
 
 	// If we accepted the htlc, subscribe to the hodl invoice and return
@@ -1209,7 +1212,8 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 			invoiceToExpire = makeInvoiceExpiry(ctx.hash, invoice)
 		}
 
-		i.hodlSubscribe(hodlChan, ctx.circuitKey)
+		// Record the hodl HTLC with the hodl HTLC notifier.
+		i.hodlHtlcDisp.recordHTLC(res.circuitKey)
 
 	default:
 		panic("unknown action")
@@ -1288,7 +1292,7 @@ func (i *InvoiceRegistry) SettleHodlInvoice(ctx context.Context,
 			preimage, key, int32(htlc.AcceptHeight), ResultSettled,
 		)
 
-		i.notifyHodlSubscribers(resolution)
+		i.hodlHtlcDisp.publishSubscriberEvent(resolution)
 	}
 	i.notifyClients(hash, invoice, nil)
 
@@ -1378,7 +1382,7 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(ctx context.Context,
 			continue
 		}
 
-		i.notifyHodlSubscribers(
+		i.hodlHtlcDisp.publishSubscriberEvent(
 			NewFailResolution(
 				key, int32(htlc.AcceptHeight), ResultCanceled,
 			),
@@ -1706,73 +1710,6 @@ func (i *InvoiceRegistry) SubscribeSingleInvoice(ctx context.Context,
 	return client, nil
 }
 
-// notifyHodlSubscribers sends out the htlc resolution to all current
-// subscribers.
-func (i *InvoiceRegistry) notifyHodlSubscribers(htlcResolution HtlcResolution) {
-	i.hodlSubscriptionsMux.Lock()
-	defer i.hodlSubscriptionsMux.Unlock()
-
-	subscribers, ok := i.hodlSubscriptions[htlcResolution.CircuitKey()]
-	if !ok {
-		return
-	}
-
-	// Notify all interested subscribers and remove subscription from both
-	// maps. The subscription can be removed as there only ever will be a
-	// single resolution for each hash.
-	for subscriber := range subscribers {
-		select {
-		case subscriber <- htlcResolution:
-		case <-i.quit:
-			return
-		}
-
-		delete(
-			i.hodlReverseSubscriptions[subscriber],
-			htlcResolution.CircuitKey(),
-		)
-	}
-
-	delete(i.hodlSubscriptions, htlcResolution.CircuitKey())
-}
-
-// hodlSubscribe adds a new invoice subscription.
-func (i *InvoiceRegistry) hodlSubscribe(subscriber chan<- interface{},
-	circuitKey CircuitKey) {
-
-	i.hodlSubscriptionsMux.Lock()
-	defer i.hodlSubscriptionsMux.Unlock()
-
-	log.Debugf("Hodl subscribe for %v", circuitKey)
-
-	subscriptions, ok := i.hodlSubscriptions[circuitKey]
-	if !ok {
-		subscriptions = make(map[chan<- interface{}]struct{})
-		i.hodlSubscriptions[circuitKey] = subscriptions
-	}
-	subscriptions[subscriber] = struct{}{}
-
-	reverseSubscriptions, ok := i.hodlReverseSubscriptions[subscriber]
-	if !ok {
-		reverseSubscriptions = make(map[CircuitKey]struct{})
-		i.hodlReverseSubscriptions[subscriber] = reverseSubscriptions
-	}
-	reverseSubscriptions[circuitKey] = struct{}{}
-}
-
-// HodlUnsubscribeAll cancels the subscription.
-func (i *InvoiceRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) {
-	i.hodlSubscriptionsMux.Lock()
-	defer i.hodlSubscriptionsMux.Unlock()
-
-	hashes := i.hodlReverseSubscriptions[subscriber]
-	for hash := range hashes {
-		delete(i.hodlSubscriptions[hash], subscriber)
-	}
-
-	delete(i.hodlReverseSubscriptions, subscriber)
-}
-
 // copySingleClients copies i.SingleInvoiceSubscription inside a lock. This is
 // useful when we need to iterate the map to send notifications.
 func (i *InvoiceRegistry) copySingleClients() map[uint32]*SingleInvoiceSubscription { //nolint:lll
@@ -1808,4 +1745,20 @@ func (i *InvoiceRegistry) deleteClient(clientID uint32) {
 	log.Infof("Cancelling invoice subscription for client=%v", clientID)
 	delete(i.notificationClients, clientID)
 	delete(i.singleNotificationClients, clientID)
+}
+
+// RegisterHodlSubscriber registers a hodl HTLC receiver with the hodl HTLC
+// notifier.
+func (i *InvoiceRegistry) RegisterHodlSubscriber(
+	receiver fn.EventReceiver[HtlcResolution], _, _ bool) error {
+
+	return i.hodlHtlcDisp.RegisterSubscriber(receiver, false, false)
+}
+
+// RemoveHodlSubscriber removes a hodl HTLC subscriber from the hodl HTLC
+// notifier.
+func (i *InvoiceRegistry) RemoveHodlSubscriber(
+	subscriber fn.EventReceiver[HtlcResolution]) error {
+
+	return i.hodlHtlcDisp.RemoveSubscriber(subscriber)
 }

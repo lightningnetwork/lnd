@@ -31,7 +31,7 @@ type InvoiceDatabase interface {
 	// for decoding purposes.
 	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
 		expiry uint32, currentHeight int32,
-		circuitKey models.CircuitKey, hodlChan chan<- interface{},
+		circuitKey models.CircuitKey,
 		payload invoices.Payload) (invoices.HtlcResolution, error)
 
 	// CancelInvoice attempts to cancel the invoice corresponding to the
@@ -41,8 +41,16 @@ type InvoiceDatabase interface {
 	// SettleHodlInvoice settles a hold invoice.
 	SettleHodlInvoice(ctx context.Context, preimage lntypes.Preimage) error
 
-	// HodlUnsubscribeAll unsubscribes from all htlc resolutions.
-	HodlUnsubscribeAll(subscriber chan<- interface{})
+	// // HodlUnsubscribeAll unsubscribes from all htlc resolutions.
+	// HodlUnsubscribeAll(subscriber chan<- interface{})
+
+	// RegisterSubscriber...
+	RegisterHodlSubscriber(receiver fn.EventReceiver[invoices.HtlcResolution],
+		_, _ bool) error
+
+	// RemoveSubscriber...
+	RemoveHodlSubscriber(
+		subscriber fn.EventReceiver[invoices.HtlcResolution]) error
 }
 
 // packetHandler is an interface used exclusively by the Switch to handle

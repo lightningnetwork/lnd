@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -22,18 +23,26 @@ type Registry interface {
 	// byte payment hash.
 	LookupInvoice(context.Context, lntypes.Hash) (invoices.Invoice, error)
 
-	// NotifyExitHopHtlc attempts to mark an invoice as settled. If the
-	// invoice is a debug invoice, then this method is a noop as debug
-	// invoices are never fully settled. The return value describes how the
-	// htlc should be resolved. If the htlc cannot be resolved immediately,
-	// the resolution is sent on the passed in hodlChan later.
+	// // NotifyExitHopHtlc attempts to mark an invoice as settled. If the
+	// // invoice is a debug invoice, then this method is a noop as debug
+	// // invoices are never fully settled. The return value describes how the
+	// // htlc should be resolved. If the htlc cannot be resolved immediately,
+	// // the resolution is sent on the passed in hodlChan later.
 	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
 		expiry uint32, currentHeight int32,
-		circuitKey models.CircuitKey, hodlChan chan<- interface{},
+		circuitKey models.CircuitKey,
 		payload invoices.Payload) (invoices.HtlcResolution, error)
 
-	// HodlUnsubscribeAll unsubscribes from all htlc resolutions.
-	HodlUnsubscribeAll(subscriber chan<- interface{})
+	// // HodlUnsubscribeAll unsubscribes from all htlc resolutions.
+	// HodlUnsubscribeAll(subscriber chan<- interface{})
+
+	// RegisterSubscriber...
+	RegisterHodlSubscriber(receiver fn.EventReceiver[invoices.HtlcResolution],
+		_, _ bool) error
+
+	// RemoveSubscriber...
+	RemoveHodlSubscriber(
+		subscriber fn.EventReceiver[invoices.HtlcResolution]) error
 }
 
 // OnionProcessor is an interface used to decode onion blobs.

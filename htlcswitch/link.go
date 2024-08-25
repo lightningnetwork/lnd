@@ -387,6 +387,9 @@ type channelLink struct {
 
 	wg   sync.WaitGroup
 	quit chan struct{}
+
+	// hodlHTLCReceiver ...
+	hodlHTLCReceiver fn.EventReceiver[invoices.HtlcResolution]
 }
 
 // hookMap is a data structure that is used to track the hooks that need to be
@@ -487,6 +490,15 @@ func (l *channelLink) Start() error {
 
 	l.log.Info("starting")
 
+	// Subscribe to HodlInvoices
+	l.hodlHTLCReceiver = invoices.NewHodlHTLCSub(l.ShortChanID(), 100)
+	err := l.cfg.Registry.RegisterHodlSubscriber(
+		l.hodlHTLCReceiver, false, false,
+	)
+	if err != nil {
+		return err
+	}
+
 	// If the config supplied watchtower client, ensure the channel is
 	// registered before trying to use it during operation.
 	if l.cfg.TowerClient != nil {
@@ -565,7 +577,7 @@ func (l *channelLink) Stop() {
 
 	// As the link is stopping, we are no longer interested in htlc
 	// resolutions coming from the invoice registry.
-	l.cfg.Registry.HodlUnsubscribeAll(l.hodlQueue.ChanIn())
+	l.cfg.Registry.RemoveHodlSubscriber(l.hodlHTLCReceiver)
 
 	if l.cfg.ChainEvents.Cancel != nil {
 		l.cfg.ChainEvents.Cancel()
@@ -606,6 +618,9 @@ func (l *channelLink) Stop() {
 		l.log.Errorf("unable to add preimages=%v to cache: %v",
 			l.uncommittedPreimages, err)
 	}
+
+	// Remove Subscriber
+	// l.cfg.Registry.RemoveHodlHTLCSub(l.hodlHtlcReceiver)
 }
 
 // WaitForShutdown blocks until the link finishes shutting down, which includes
@@ -1429,7 +1444,9 @@ func (l *channelLink) htlcManager() {
 
 		// A htlc resolution is received. This means that we now have a
 		// resolution for a previously accepted htlc.
-		case hodlItem := <-l.hodlQueue.ChanOut():
+		case hodlItem := <-l.hodlHTLCReceiver.NewItemCreated().
+			ChanOut():
+
 			htlcResolution := hodlItem.(invoices.HtlcResolution)
 			err := l.processHodlQueue(htlcResolution)
 			switch err {
@@ -3827,7 +3844,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
 		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
-		circuitKey, l.hodlQueue.ChanIn(), payload,
+		circuitKey, payload,
 	)
 	if err != nil {
 		return err

@@ -1458,7 +1458,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	SetupLoggers(cfg.LogWriter, interceptor)
 	err = cfg.LogWriter.InitLogRotator(
 		filepath.Join(cfg.LogDir, defaultLogFilename),
-		cfg.MaxLogFileSize, cfg.MaxLogFiles,
+		cfg.LogCompressor, cfg.MaxLogFileSize, cfg.MaxLogFiles,
 	)
 	if err != nil {
 		str := "log rotation setup failed: %v"

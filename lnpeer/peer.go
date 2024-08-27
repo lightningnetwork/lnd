@@ -74,4 +74,7 @@ type Peer interface {
 	// by the remote peer. This allows sub-systems that use this interface
 	// to gate their behavior off the set of negotiated feature bits.
 	RemoteFeatures() *lnwire.FeatureVector
+
+	// Disconnect halts communication with the peer.
+	Disconnect(error)
 }

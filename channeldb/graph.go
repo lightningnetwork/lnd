@@ -2143,6 +2143,21 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 					zombieIndex, scid,
 				)
 
+				// TODO(ziggie): Make sure that for the strict
+				// pruning case we compare the pubkeys and
+				// whether the right timestamp is not older than
+				// the `ChannelPruneExpiry`.
+				//
+				// NOTE: The timestamp data has no verification
+				// attached to it in the `ReplyChannelRange` msg
+				// so we are trusting this data at this point.
+				// However it is not critical because we are
+				// just removing the channel from the db when
+				// the timestamps are more recent. During the
+				// querying of the gossip msg verification
+				// happens as usual.
+				// However we should start punishing peers when
+				// they don't provide us honest data ?
 				isStillZombie := isZombieChan(
 					info.Node1UpdateTimestamp,
 					info.Node2UpdateTimestamp,
@@ -2209,6 +2224,29 @@ type ChannelUpdateInfo struct {
 	// from the node 2 channel peer. This will be set to zero time if no
 	// update has yet been received from this node.
 	Node2UpdateTimestamp time.Time
+}
+
+// NewChannelUpdateInfo is a constructor which makes sure we initialize the
+// timestamps with zero seconds unix timestamp which equals
+// `January 1, 1970, 00:00:00 UTC` in case the value is `time.Time{}`.
+func NewChannelUpdateInfo(scid lnwire.ShortChannelID, node1Timestamp,
+	node2Timestamp time.Time) ChannelUpdateInfo {
+
+	chanInfo := ChannelUpdateInfo{
+		ShortChannelID:       scid,
+		Node1UpdateTimestamp: node1Timestamp,
+		Node2UpdateTimestamp: node2Timestamp,
+	}
+
+	if node1Timestamp.IsZero() {
+		chanInfo.Node1UpdateTimestamp = time.Unix(0, 0)
+	}
+
+	if node2Timestamp.IsZero() {
+		chanInfo.Node2UpdateTimestamp = time.Unix(0, 0)
+	}
+
+	return chanInfo
 }
 
 // BlockChannelRange represents a range of channels for a given block height.
@@ -2284,9 +2322,9 @@ func (c *ChannelGraph) FilterChannelRange(startHeight,
 			rawCid := byteOrder.Uint64(k)
 			cid := lnwire.NewShortChanIDFromInt(rawCid)
 
-			chanInfo := ChannelUpdateInfo{
-				ShortChannelID: cid,
-			}
+			chanInfo := NewChannelUpdateInfo(
+				cid, time.Time{}, time.Time{},
+			)
 
 			if !withTimestamps {
 				channelsPerBlock[cid.BlockHeight] = append(

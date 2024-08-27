@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"golang.org/x/time/rate"
@@ -787,6 +788,16 @@ func isLegacyReplyChannelRange(query *lnwire.QueryChannelRange,
 // reply to the initial range query to discover new channels that it didn't
 // previously know of.
 func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) error {
+	// isStale returns whether the timestamp is too far into the past.
+	isStale := func(timestamp time.Time) bool {
+		return time.Since(timestamp) > graph.DefaultChannelPruneExpiry
+	}
+
+	// isSkewed returns whether the timestamp is too far into the future.
+	isSkewed := func(timestamp time.Time) bool {
+		return time.Until(timestamp) > graph.DefaultChannelPruneExpiry
+	}
+
 	// If we're not communicating with a legacy node, we'll apply some
 	// further constraints on their reply to ensure it satisfies our query.
 	if !isLegacyReplyChannelRange(g.curQueryRangeMsg, msg) {
@@ -838,9 +849,9 @@ func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 	}
 
 	for i, scid := range msg.ShortChanIDs {
-		info := channeldb.ChannelUpdateInfo{
-			ShortChannelID: scid,
-		}
+		info := channeldb.NewChannelUpdateInfo(
+			scid, time.Time{}, time.Time{},
+		)
 
 		if len(msg.Timestamps) != 0 {
 			t1 := time.Unix(int64(msg.Timestamps[i].Timestamp1), 0)
@@ -848,6 +859,32 @@ func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 
 			t2 := time.Unix(int64(msg.Timestamps[i].Timestamp2), 0)
 			info.Node2UpdateTimestamp = t2
+
+			// Sort out all channels with outdated or skewed
+			// timestamps. Both timestamps need to be out of
+			// boundaries for us to skip the channel and not query
+			// it later on.
+			switch {
+			case isStale(info.Node1UpdateTimestamp) &&
+				isStale(info.Node2UpdateTimestamp):
+
+				continue
+
+			case isSkewed(info.Node1UpdateTimestamp) &&
+				isSkewed(info.Node2UpdateTimestamp):
+
+				continue
+
+			case isStale(info.Node1UpdateTimestamp) &&
+				isSkewed(info.Node2UpdateTimestamp):
+
+				continue
+
+			case isStale(info.Node2UpdateTimestamp) &&
+				isSkewed(info.Node1UpdateTimestamp):
+
+				continue
+			}
 		}
 
 		g.bufferedChanRangeReplies = append(

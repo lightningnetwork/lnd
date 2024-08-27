@@ -76,6 +76,10 @@ blinded path expiry.
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/9021) an issue with some
   command-line arguments not being passed when running `make itest-parallel`.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/8883) when RPC call
+  is made to list payments with the counting total number of payments enabled.
+
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions
@@ -276,6 +280,7 @@ blinded path expiry.
 * Matheus Degiovani
 * Olaoluwa Osuntokun
 * Oliver Gugger
+* Pins
 * Slyghtning
 * Yong Yu
 * Ziggie

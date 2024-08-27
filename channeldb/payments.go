@@ -533,6 +533,22 @@ func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 			return fmt.Errorf("index bucket does not exist")
 		}
 
+		// Helper function to check if a payment meets the creation time
+		// criteria.
+		paymentInRange := func(payment *MPPayment) bool {
+			createTime := payment.Info.CreationTime.Unix()
+			if createTime < query.CreationDateStart {
+				return false
+			}
+			if query.CreationDateEnd != 0 &&
+				createTime > query.CreationDateEnd {
+
+				return false
+			}
+
+			return true
+		}
+
 		// accumulatePayments gets payments with the sequence number
 		// and hash provided and adds them to our list of payments if
 		// they meet the criteria of our query. It returns the number
@@ -561,21 +577,8 @@ func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 				return false, err
 			}
 
-			// Get the creation time in Unix seconds, this always
-			// rounds down the nanoseconds to full seconds.
-			createTime := payment.Info.CreationTime.Unix()
-
-			// Skip any payments that were created before the
-			// specified time.
-			if createTime < query.CreationDateStart {
-				return false, nil
-			}
-
-			// Skip any payments that were created after the
-			// specified time.
-			if query.CreationDateEnd != 0 &&
-				createTime > query.CreationDateEnd {
-
+			// Check if the payment is within the time range.
+			if !paymentInRange(payment) {
 				return false, nil
 			}
 
@@ -605,19 +608,32 @@ func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 				totalPayments uint64
 				err           error
 			)
-			countFn := func(_, _ []byte) error {
-				totalPayments++
 
+			countFn := func(sequenceKey, hash []byte) error {
+				r := bytes.NewReader(hash)
+				paymentHash, err := deserializePaymentIndex(r)
+				if err != nil {
+					return err
+				}
+
+				payment, err := fetchPaymentWithSequenceNumber(
+					tx, paymentHash, sequenceKey,
+				)
+
+				if err != nil {
+					return err
+				}
+				// Check if the payment is within the time
+				// range.
+				if !paymentInRange(payment) {
+					return nil
+				}
+
+				totalPayments++
 				return nil
 			}
-
-			// In non-boltdb database backends, there's a faster
-			// ForAll query that allows for batch fetching items.
-			if fastBucket, ok := indexes.(kvdb.ExtendedRBucket); ok {
-				err = fastBucket.ForAll(countFn)
-			} else {
-				err = indexes.ForEach(countFn)
-			}
+			// TODO Waiting a better way to do it on SQL databases
+			err = indexes.ForEach(countFn)
 			if err != nil {
 				return fmt.Errorf("error counting payments: %w",
 					err)

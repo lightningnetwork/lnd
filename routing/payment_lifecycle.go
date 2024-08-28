@@ -109,7 +109,7 @@ const (
 
 // decideNextStep is used to determine the next step in the payment lifecycle.
 func (p *paymentLifecycle) decideNextStep(
-	payment dbMPPayment) (stateStep, error) {
+	payment DBMPPayment) (stateStep, error) {
 
 	// Check whether we could make new HTLC attempts.
 	allow, err := payment.AllowMoreAttempts()

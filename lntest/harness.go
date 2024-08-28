@@ -769,7 +769,7 @@ func (h *HarnessTest) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
 func (h *HarnessTest) NewNodeWatchOnly(name string, extraArgs []string,
 	password []byte, watchOnly *lnrpc.WatchOnly) *node.HarnessNode {
 
-	hn := h.CreateNewNode(name, extraArgs, password)
+	hn := h.CreateNewNode(name, extraArgs, password, true)
 
 	h.StartWatchOnly(hn, name, password, watchOnly)
 
@@ -779,9 +779,9 @@ func (h *HarnessTest) NewNodeWatchOnly(name string, extraArgs []string,
 // CreateNodeWatchOnly creates a new node and asserts its creation. The function
 // will only create the node and will not start it.
 func (h *HarnessTest) CreateNewNode(name string, extraArgs []string,
-	password []byte) *node.HarnessNode {
+	password []byte, noAuth bool) *node.HarnessNode {
 
-	hn, err := h.manager.newNode(h.T, name, extraArgs, password, true)
+	hn, err := h.manager.newNode(h.T, name, extraArgs, password, noAuth)
 	require.NoErrorf(h, err, "unable to create new node for %s", name)
 
 	return hn

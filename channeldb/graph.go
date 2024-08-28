@@ -2335,15 +2335,6 @@ func (c *ChannelGraph) FilterChannelRange(startHeight,
 				cid, time.Time{}, time.Time{},
 			)
 
-			if !withTimestamps {
-				channelsPerBlock[cid.BlockHeight] = append(
-					channelsPerBlock[cid.BlockHeight],
-					chanInfo,
-				)
-
-				continue
-			}
-
 			node1Key, node2Key := computeEdgePolicyKeys(&edgeInfo)
 
 			rawPolicy := edges.Get(node1Key)
@@ -2374,6 +2365,15 @@ func (c *ChannelGraph) FilterChannelRange(startHeight,
 				}
 
 				chanInfo.Node2UpdateTimestamp = edge.LastUpdate
+			}
+
+			//nolint:lll
+			// We don't serve Channels we havn't seen any ChanUpdate
+			// msg from.
+			if chanInfo.Node1UpdateTimestamp.Equal(time.Unix(0, 0)) &&
+				chanInfo.Node2UpdateTimestamp.Equal(time.Unix(0, 0)) {
+
+				continue
 			}
 
 			channelsPerBlock[cid.BlockHeight] = append(

@@ -3,6 +3,7 @@ package itest
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
@@ -13,6 +14,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/stretchr/testify/require"
 )
 
@@ -324,7 +327,7 @@ func testOutboundRemoteSigner(ht *lntest.HarnessTest) {
 				"--remotesigner.timeout=30s",
 				"--remotesigner.requesttimeout=30s",
 			}, commitArgs...),
-			password,
+			password, true,
 		)
 
 		// As the signer node will make an outbound connection to the
@@ -410,6 +413,100 @@ func testOutboundRemoteSigner(ht *lntest.HarnessTest) {
 			return
 		}
 	}
+}
+
+// testOutboundRSMacaroonEnforcement tests that a valid macaroon including
+// the `remotesigner` entity is required to connect to a watch-only node that
+// uses an outbound remote signer, while the watch-only node is in the state
+// where it waits for the signer to connect.
+func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
+	// Ensure that the watch-only node uses a configuration that requires an
+	// outbound remote signer during startup.
+	watchOnlyArgs := []string{
+		"--remotesigner.enable",
+		"--remotesigner.signertype=outbound",
+		"--remotesigner.timeout=15s",
+		"--remotesigner.requesttimeout=15s",
+	}
+
+	// Create the watch-only node. Note that we require authentication for
+	// the watch-only node, as we want to test that the macaroon enforcement
+	// works as expected.
+	watchOnly := ht.CreateNewNode("WatchOnly", watchOnlyArgs, nil, false)
+
+	startChan := make(chan error)
+
+	// Start the watch-only node in a goroutine as it requires a remote
+	// signer to connect before it can fully start.
+	go func() {
+		startChan <- watchOnly.Start(ht.Context())
+	}()
+
+	// Wait and ensure that the watch-only node reaches the state where
+	// it waits for the remote signer to connect, as this is the state where
+	// we want to test the macaroon enforcement.
+	err := wait.Predicate(func() bool {
+		if watchOnly.RPC == nil {
+			return false
+		}
+
+		state, err := watchOnly.RPC.State.GetState(
+			ht.Context(), &lnrpc.GetStateRequest{},
+		)
+		if err != nil {
+			return false
+		}
+
+		return state.State == lnrpc.WalletState_ALLOW_REMOTE_SIGNER
+	}, 5*time.Second)
+	require.NoError(ht, err)
+
+	// Set up a connection to the watch-only node. However, instead of using
+	// the watch-only node's admin macaroon, we'll use the invoice macaroon.
+	// The connection should not be allowed using this macaroon because it
+	// lacks the `remotesigner` entity required when the signer node
+	// connects to the watch-only node.
+	streamFeeder := rpcwallet.NewStreamFeeder(
+		watchOnly.Cfg.RPCAddr(), watchOnly.Cfg.InvoiceMacPath,
+		watchOnly.Cfg.TLSCertPath, 10*time.Second,
+	)
+
+	stream, cleanup, err := streamFeeder.GetStream(ht.Context())
+	require.NoError(ht, err)
+
+	defer cleanup()
+
+	// Since we're using an unauthorized macaroon, we should expect to be
+	// denied access to the watch-only node.
+	_, err = stream.Recv()
+	require.ErrorContains(ht, err, "permission denied")
+
+	// Finally, connect a real signer to the watch-only node so that
+	// it can start up properly.
+	signerArgs := []string{
+		"--remotesigner.signertype=signer",
+		"--remotesigner.timeout=30s",
+		"--remotesigner.requesttimeout=10s",
+		fmt.Sprintf(
+			"--remotesigner.rpchost=localhost:%d",
+			watchOnly.Cfg.RPCPort,
+		),
+		fmt.Sprintf(
+			"--remotesigner.tlscertpath=%s",
+			watchOnly.Cfg.TLSCertPath,
+		),
+		fmt.Sprintf(
+			"--remotesigner.macaroonpath=%s",
+			watchOnly.Cfg.AdminMacPath, // An authorized macaroon.
+		),
+	}
+
+	_ = ht.NewNode("Signer", signerArgs)
+
+	// Finally, wait and ensure that the watch-only node is able to start
+	// up properly.
+	err = <-startChan
+	require.NoError(ht, err, "Shouldn't error on watch-only node startup")
 }
 
 // deriveCustomScopeAccounts derives the first 255 default accounts of the custom lnd

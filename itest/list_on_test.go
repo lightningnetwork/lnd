@@ -520,6 +520,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testAsyncPayments,
 	},
 	{
+		Name:     "outbound remote signer macaroon enforcement",
+		TestFunc: testOutboundRSMacaroonEnforcement,
+	},
+	{
 		Name:     "taproot coop close",
 		TestFunc: testTaprootCoopClose,
 	},

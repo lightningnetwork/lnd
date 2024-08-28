@@ -3046,19 +3046,11 @@ func restartChannel(channelOld *LightningChannel) (*LightningChannel, error) {
 	return channelNew, nil
 }
 
-// TestChanSyncOweCommitment tests that if Bob restarts (and then Alice) before
-// he receives Alice's CommitSig message, then Alice concludes that she needs
-// to re-send the CommitDiff. After the diff has been sent, both nodes should
-// resynchronize and be able to complete the dangling commit.
-func TestChanSyncOweCommitment(t *testing.T) {
-	t.Parallel()
-
+func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
-	)
+	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
 	require.NoError(t, err, "unable to create test channels")
 
 	var fakeOnionBlob [lnwire.OnionPacketSize]byte
@@ -3133,6 +3125,15 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	aliceNewCommit, err := aliceChannel.SignNextCommitment()
 	require.NoError(t, err, "unable to sign commitment")
 
+	// If this is a taproot channel, then we'll generate fresh verification
+	// nonce for both sides.
+	if chanType.IsTaproot() {
+		_, err = aliceChannel.GenMusigNonces()
+		require.NoError(t, err)
+		_, err = bobChannel.GenMusigNonces()
+		require.NoError(t, err)
+	}
+
 	// Bob doesn't get this message so upon reconnection, they need to
 	// synchronize. Alice should conclude that she owes Bob a commitment,
 	// while Bob should think he's properly synchronized.
@@ -3144,7 +3145,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	// This is a helper function that asserts Alice concludes that she
 	// needs to retransmit the exact commitment that we failed to send
 	// above.
-	assertAliceCommitRetransmit := func() {
+	assertAliceCommitRetransmit := func() *lnwire.CommitSig {
 		aliceMsgsToSend, _, _, err := aliceChannel.ProcessChanSyncMsg(
 			bobSyncMsg,
 		)
@@ -3209,12 +3210,25 @@ func TestChanSyncOweCommitment(t *testing.T) {
 				len(commitSigMsg.HtlcSigs))
 		}
 		for i, htlcSig := range commitSigMsg.HtlcSigs {
-			if htlcSig != aliceNewCommit.HtlcSigs[i] {
+			if !bytes.Equal(htlcSig.RawBytes(),
+				aliceNewCommit.HtlcSigs[i].RawBytes()) {
+
 				t.Fatalf("htlc sig msgs don't match: "+
-					"expected %x got %x",
-					aliceNewCommit.HtlcSigs[i], htlcSig)
+					"expected %v got %v",
+					spew.Sdump(aliceNewCommit.HtlcSigs[i]),
+					spew.Sdump(htlcSig))
 			}
 		}
+
+		// If this is a taproot channel, then partial sig information
+		// should be present in the commit sig sent over. This
+		// signature will be re-regenerated, so we can't compare it
+		// with the old one.
+		if chanType.IsTaproot() {
+			require.True(t, commitSigMsg.PartialSig.IsSome())
+		}
+
+		return commitSigMsg
 	}
 
 	// Alice should detect that she needs to re-send 5 messages: the 3
@@ -3235,14 +3249,19 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	// send the exact same set of messages.
 	aliceChannel, err = restartChannel(aliceChannel)
 	require.NoError(t, err, "unable to restart alice")
-	assertAliceCommitRetransmit()
 
-	// TODO(roasbeef): restart bob as well???
+	// To properly simulate a restart, we'll use the *new* signature that
+	// would send in an actual p2p setting.
+	aliceReCommitSig := assertAliceCommitRetransmit()
 
 	// At this point, we should be able to resume the prior state update
 	// without any issues, resulting in Alice settling the 3 htlc's, and
 	// adding one of her own.
-	err = bobChannel.ReceiveNewCommitment(aliceNewCommit.CommitSigs)
+	err = bobChannel.ReceiveNewCommitment(&CommitSigs{
+		CommitSig:  aliceReCommitSig.CommitSig,
+		HtlcSigs:   aliceReCommitSig.HtlcSigs,
+		PartialSig: aliceReCommitSig.PartialSig,
+	})
 	require.NoError(t, err, "bob unable to process alice's commitment")
 	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "unable to revoke bob commitment")
@@ -3329,16 +3348,53 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	}
 }
 
-// TestChanSyncOweCommitmentPendingRemote asserts that local updates are applied
-// to the remote commit across restarts.
-func TestChanSyncOweCommitmentPendingRemote(t *testing.T) {
+// TestChanSyncOweCommitment tests that if Bob restarts (and then Alice) before
+// he receives Alice's CommitSig message, then Alice concludes that she needs
+// to re-send the CommitDiff. After the diff has been sent, both nodes should
+// resynchronize and be able to complete the dangling commit.
+func TestChanSyncOweCommitment(t *testing.T) {
 	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		chanType channeldb.ChannelType
+	}{
+		{
+			name:     "tweakless",
+			chanType: channeldb.SingleFunderTweaklessBit,
+		},
+		{
+			name: "anchors",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit,
+		},
+		{
+			name: "taproot",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.SimpleTaprootFeatureBit,
+		},
+		{
+			name: "taproot with tapscript root",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.SimpleTaprootFeatureBit |
+				channeldb.TapscriptRootBit,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			testChanSyncOweCommitment(t, tc.chanType)
+		})
+	}
+}
+
+func testChanSyncOweCommitmentPendingRemote(t *testing.T,
+	chanType channeldb.ChannelType) {
 
 	// Create a test channel which will be used for the duration of this
 	// unittest.
-	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
-	)
+	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
 	require.NoError(t, err, "unable to create test channels")
 
 	var fakeOnionBlob [lnwire.OnionPacketSize]byte
@@ -3421,6 +3477,12 @@ func TestChanSyncOweCommitmentPendingRemote(t *testing.T) {
 	bobChannel, err = restartChannel(bobChannel)
 	require.NoError(t, err, "unable to restart bob")
 
+	// If this is a taproot channel, then since Bob just restarted, we need
+	// to exchange nonces once again.
+	if chanType.IsTaproot() {
+		require.NoError(t, initMusigNonce(aliceChannel, bobChannel))
+	}
+
 	// Bob signs the commitment he owes.
 	bobNewCommit, err := bobChannel.SignNextCommitment()
 	require.NoError(t, err, "unable to sign commitment")
@@ -3443,6 +3505,45 @@ func TestChanSyncOweCommitmentPendingRemote(t *testing.T) {
 	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevoke)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestChanSyncOweCommitmentPendingRemote asserts that local updates are applied
+// to the remote commit across restarts.
+func TestChanSyncOweCommitmentPendingRemote(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		chanType channeldb.ChannelType
+	}{
+		{
+			name:     "tweakless",
+			chanType: channeldb.SingleFunderTweaklessBit,
+		},
+		{
+			name: "anchors",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit,
+		},
+		{
+			name: "taproot",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.SimpleTaprootFeatureBit,
+		},
+		{
+			name: "taproot with tapscript root",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.SimpleTaprootFeatureBit |
+				channeldb.TapscriptRootBit,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			testChanSyncOweCommitmentPendingRemote(t, tc.chanType)
+		})
 	}
 }
 
@@ -3595,8 +3696,6 @@ func testChanSyncOweRevocation(t *testing.T, chanType channeldb.ChannelType) {
 
 	assertAliceOwesRevoke()
 
-	// TODO(roasbeef): restart bob too???
-
 	// We'll continue by then allowing bob to process Alice's revocation
 	// message.
 	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
@@ -3642,6 +3741,15 @@ func TestChanSyncOweRevocation(t *testing.T) {
 			channeldb.AnchorOutputsBit |
 			channeldb.ZeroHtlcTxFeeBit |
 			channeldb.SingleFunderTweaklessBit
+
+		testChanSyncOweRevocation(t, taprootBits)
+	})
+	t.Run("taproot with tapscript root", func(t *testing.T) {
+		taprootBits := channeldb.SimpleTaprootFeatureBit |
+			channeldb.AnchorOutputsBit |
+			channeldb.ZeroHtlcTxFeeBit |
+			channeldb.SingleFunderTweaklessBit |
+			channeldb.TapscriptRootBit
 
 		testChanSyncOweRevocation(t, taprootBits)
 	})
@@ -3774,6 +3882,14 @@ func testChanSyncOweRevocationAndCommit(t *testing.T,
 					bobNewCommit.HtlcSigs[i])
 			}
 		}
+
+		// If this is a taproot channel, then partial sig information
+		// should be present in the commit sig sent over. This
+		// signature will be re-regenerated, so we can't compare it
+		// with the old one.
+		if chanType.IsTaproot() {
+			require.True(t, bobReCommitSigMsg.PartialSig.IsSome())
+		}
 	}
 
 	// We expect Bob to send exactly two messages: first his revocation
@@ -3827,6 +3943,15 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 			channeldb.AnchorOutputsBit |
 			channeldb.ZeroHtlcTxFeeBit |
 			channeldb.SingleFunderTweaklessBit
+
+		testChanSyncOweRevocationAndCommit(t, taprootBits)
+	})
+	t.Run("taproot with tapscript root", func(t *testing.T) {
+		taprootBits := channeldb.SimpleTaprootFeatureBit |
+			channeldb.AnchorOutputsBit |
+			channeldb.ZeroHtlcTxFeeBit |
+			channeldb.SingleFunderTweaklessBit |
+			channeldb.TapscriptRootBit
 
 		testChanSyncOweRevocationAndCommit(t, taprootBits)
 	})
@@ -4056,6 +4181,17 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 			channeldb.AnchorOutputsBit |
 			channeldb.ZeroHtlcTxFeeBit |
 			channeldb.SingleFunderTweaklessBit
+
+		testChanSyncOweRevocationAndCommitForceTransition(
+			t, taprootBits,
+		)
+	})
+	t.Run("taproot with tapscript root", func(t *testing.T) {
+		taprootBits := channeldb.SimpleTaprootFeatureBit |
+			channeldb.AnchorOutputsBit |
+			channeldb.ZeroHtlcTxFeeBit |
+			channeldb.SingleFunderTweaklessBit |
+			channeldb.TapscriptRootBit
 
 		testChanSyncOweRevocationAndCommitForceTransition(
 			t, taprootBits,

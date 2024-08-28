@@ -3,16 +3,20 @@ package itest
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/stretchr/testify/require"
 )
 
@@ -285,7 +289,7 @@ func prepareOutboundRemoteSignerTest(ht *lntest.HarnessTest,
 			"--remotesigner.timeout=30s",
 			"--remotesigner.requesttimeout=30s",
 		}, commitArgs...),
-		password,
+		password, true,
 	)
 
 	// As the signer node will make an outbound connection to the
@@ -696,6 +700,107 @@ func testRemoteSignerTaproot(ht *lntest.HarnessTest) {
 
 func testRemoteSignerTaprootOutbound(ht *lntest.HarnessTest) {
 	executeRemoteSignerTestCase(ht, taprootTestCase(true), true)
+}
+
+// testOutboundRSMacaroonEnforcement tests that a valid macaroon including
+// the `remotesigner` entity is required to connect to a watch-only node that
+// uses an outbound remote signer, while the watch-only node is in the state
+// where it waits for the signer to connect.
+func testOutboundRSMacaroonEnforcement(ht *lntest.HarnessTest) {
+	// Ensure that the watch-only node uses a configuration that requires an
+	// outbound remote signer during startup.
+	watchOnlyArgs := []string{
+		"--remotesigner.enable",
+		"--remotesigner.allowinboundconnection",
+		"--remotesigner.timeout=15s",
+		"--remotesigner.requesttimeout=15s",
+	}
+
+	// Create the watch-only node. Note that we require authentication for
+	// the watch-only node, as we want to test that the macaroon enforcement
+	// works as expected.
+	watchOnly := ht.CreateNewNode("WatchOnly", watchOnlyArgs, nil, false)
+
+	startChan := make(chan error)
+
+	// Start the watch-only node in a goroutine as it requires a remote
+	// signer to connect before it can fully start.
+	go func() {
+		startChan <- watchOnly.Start(ht.Context())
+	}()
+
+	// Wait and ensure that the watch-only node reaches the state where
+	// it waits for the remote signer to connect, as this is the state where
+	// we want to test the macaroon enforcement.
+	err := wait.Predicate(func() bool {
+		if watchOnly.RPC == nil {
+			return false
+		}
+
+		state, err := watchOnly.RPC.State.GetState(
+			ht.Context(), &lnrpc.GetStateRequest{},
+		)
+		if err != nil {
+			return false
+		}
+
+		return state.State == lnrpc.WalletState_ALLOW_REMOTE_SIGNER
+	}, 15*time.Second)
+	require.NoError(ht, err)
+
+	// Set up a connection to the watch-only node. However, instead of using
+	// the watch-only node's admin macaroon, we'll use the invoice macaroon.
+	// The connection should not be allowed using this macaroon because it
+	// lacks the `remotesigner` entity required when the signer node
+	// connects to the watch-only node.
+	connectionCfg := lncfg.ConnectionCfg{
+		RPCHost:        watchOnly.Cfg.RPCAddr(),
+		MacaroonPath:   watchOnly.Cfg.InvoiceMacPath,
+		TLSCertPath:    watchOnly.Cfg.TLSCertPath,
+		Timeout:        10 * time.Second,
+		RequestTimeout: 10 * time.Second,
+	}
+
+	streamFeeder := rpcwallet.NewStreamFeeder(connectionCfg)
+
+	stream, err := streamFeeder.GetStream(ht.Context())
+	require.NoError(ht, err)
+
+	defer func() {
+		require.NoError(ht, stream.Close())
+	}()
+
+	// Since we're using an unauthorized macaroon, we should expect to be
+	// denied access to the watch-only node.
+	_, err = stream.Recv()
+	require.ErrorContains(ht, err, "permission denied")
+
+	// Finally, connect a real signer to the watch-only node so that
+	// it can start up properly.
+	signerArgs := []string{
+		"--watchonlynode.enable",
+		"--watchonlynode.timeout=30s",
+		"--watchonlynode.requesttimeout=10s",
+		fmt.Sprintf(
+			"--watchonlynode.rpchost=localhost:%d",
+			watchOnly.Cfg.RPCPort,
+		),
+		fmt.Sprintf(
+			"--watchonlynode.tlscertpath=%s",
+			watchOnly.Cfg.TLSCertPath,
+		),
+		fmt.Sprintf(
+			"--watchonlynode.macaroonpath=%s",
+			watchOnly.Cfg.AdminMacPath, // An authorized macaroon.
+		),
+	}
+
+	_ = ht.NewNode("Signer", signerArgs)
+
+	// Finally, wait and ensure that the watch-only node is able to start
+	// up properly.
+	err = <-startChan
+	require.NoError(ht, err, "Shouldn't error on watch-only node startup")
 }
 
 // deriveCustomScopeAccounts derives the first 255 default accounts of the custom lnd

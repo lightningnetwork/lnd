@@ -4547,11 +4547,11 @@ func rpcCommitmentType(chanType channeldb.ChannelType) lnrpc.CommitmentType {
 	// first check whether it has anchors, since in that case it would also
 	// be tweakless.
 	switch {
-	case chanType.IsTaproot():
-		return lnrpc.CommitmentType_SIMPLE_TAPROOT
-
 	case chanType.HasTapscriptRoot():
 		return lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY
+
+	case chanType.IsTaproot():
+		return lnrpc.CommitmentType_SIMPLE_TAPROOT
 
 	case chanType.HasLeaseExpiration():
 		return lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE
@@ -4561,6 +4561,7 @@ func rpcCommitmentType(chanType channeldb.ChannelType) lnrpc.CommitmentType {
 
 	case chanType.IsTweakless():
 		return lnrpc.CommitmentType_STATIC_REMOTE_KEY
+
 	default:
 
 		return lnrpc.CommitmentType_LEGACY

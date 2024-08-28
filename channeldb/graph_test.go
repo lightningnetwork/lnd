@@ -1980,9 +1980,9 @@ func TestFilterKnownChanIDs(t *testing.T) {
 			t.Fatalf("unable to create channel edge: %v", err)
 		}
 
-		chanIDs = append(chanIDs, ChannelUpdateInfo{
-			ShortChannelID: chanID,
-		})
+		chanIDs = append(chanIDs, NewChannelUpdateInfo(
+			chanID, time.Time{}, time.Time{},
+		))
 	}
 
 	const numZombies = 5
@@ -2024,20 +2024,28 @@ func TestFilterKnownChanIDs(t *testing.T) {
 		// should get the same set back.
 		{
 			queryIDs: []ChannelUpdateInfo{
-				{ShortChannelID: lnwire.ShortChannelID{
-					BlockHeight: 99,
-				}},
-				{ShortChannelID: lnwire.ShortChannelID{
-					BlockHeight: 100,
-				}},
+				{
+					ShortChannelID: lnwire.ShortChannelID{
+						BlockHeight: 99,
+					},
+				},
+				{
+					ShortChannelID: lnwire.ShortChannelID{
+						BlockHeight: 100,
+					},
+				},
 			},
 			resp: []ChannelUpdateInfo{
-				{ShortChannelID: lnwire.ShortChannelID{
-					BlockHeight: 99,
-				}},
-				{ShortChannelID: lnwire.ShortChannelID{
-					BlockHeight: 100,
-				}},
+				{
+					ShortChannelID: lnwire.ShortChannelID{
+						BlockHeight: 99,
+					},
+				},
+				{
+					ShortChannelID: lnwire.ShortChannelID{
+						BlockHeight: 100,
+					},
+				},
 			},
 		},
 
@@ -2419,7 +2427,7 @@ func TestFilterChannelRange(t *testing.T) {
 		)
 	)
 
-	updateTimeSeed := int64(1)
+	updateTimeSeed := time.Now().Unix()
 	maybeAddPolicy := func(chanID uint64, node *LightningNode,
 		node2 bool) time.Time {
 
@@ -2428,7 +2436,7 @@ func TestFilterChannelRange(t *testing.T) {
 			chanFlags = lnwire.ChanUpdateDirection
 		}
 
-		var updateTime time.Time
+		var updateTime = time.Unix(0, 0)
 		if rand.Int31n(2) == 0 {
 			updateTime = time.Unix(updateTimeSeed, 0)
 			err = graph.UpdateEdgePolicy(&models.ChannelEdgePolicy{
@@ -2456,11 +2464,16 @@ func TestFilterChannelRange(t *testing.T) {
 		)
 		require.NoError(t, graph.AddChannelEdge(&channel2))
 
+		chanInfo1 := NewChannelUpdateInfo(
+			chanID1, time.Time{}, time.Time{},
+		)
+		chanInfo2 := NewChannelUpdateInfo(
+			chanID2, time.Time{}, time.Time{},
+		)
 		channelRanges = append(channelRanges, BlockChannelRange{
 			Height: chanHeight,
 			Channels: []ChannelUpdateInfo{
-				{ShortChannelID: chanID1},
-				{ShortChannelID: chanID2},
+				chanInfo1, chanInfo2,
 			},
 		})
 
@@ -2471,20 +2484,17 @@ func TestFilterChannelRange(t *testing.T) {
 			time4 = maybeAddPolicy(channel2.ChannelID, node2, true)
 		)
 
+		chanInfo1 = NewChannelUpdateInfo(
+			chanID1, time1, time2,
+		)
+		chanInfo2 = NewChannelUpdateInfo(
+			chanID2, time3, time4,
+		)
 		channelRangesWithTimestamps = append(
 			channelRangesWithTimestamps, BlockChannelRange{
 				Height: chanHeight,
 				Channels: []ChannelUpdateInfo{
-					{
-						ShortChannelID:       chanID1,
-						Node1UpdateTimestamp: time1,
-						Node2UpdateTimestamp: time2,
-					},
-					{
-						ShortChannelID:       chanID2,
-						Node1UpdateTimestamp: time3,
-						Node2UpdateTimestamp: time4,
-					},
+					chanInfo1, chanInfo2,
 				},
 			},
 		)
@@ -4026,4 +4036,29 @@ func TestGraphLoading(t *testing.T) {
 		t, graph.graphCache.nodeFeatures,
 		graphReloaded.graphCache.nodeFeatures,
 	)
+}
+
+// TestClosedScid tests that we can correctly insert a SCID into the index of
+// closed short channel ids.
+func TestClosedScid(t *testing.T) {
+	t.Parallel()
+
+	graph, err := MakeTestGraph(t)
+	require.Nil(t, err)
+
+	scid := lnwire.ShortChannelID{}
+
+	// The scid should not exist in the closedScidBucket.
+	exists, err := graph.IsClosedScid(scid)
+	require.Nil(t, err)
+	require.False(t, exists)
+
+	// After we call PutClosedScid, the call to IsClosedScid should return
+	// true.
+	err = graph.PutClosedScid(scid)
+	require.Nil(t, err)
+
+	exists, err = graph.IsClosedScid(scid)
+	require.Nil(t, err)
+	require.True(t, exists)
 }

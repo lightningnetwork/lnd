@@ -211,7 +211,11 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 		markGraphSynced:          func() {},
 		maxQueryChanRangeReplies: maxQueryChanRangeReplies,
 	}
-	syncer := newGossipSyncer(cfg)
+
+	syncerSema := make(chan struct{}, 1)
+	syncerSema <- struct{}{}
+
+	syncer := newGossipSyncer(cfg, syncerSema)
 
 	return msgChan, syncer, cfg.channelSeries.(*mockChannelGraphTimeSeries)
 }
@@ -1229,6 +1233,12 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 	query, err := syncer.genChanRangeQuery(true)
 	require.NoError(t, err, "unable to generate channel range query")
 
+	currentTimestamp := time.Now().Unix()
+	// Timestamp more than 2 weeks in the past hence expired.
+	expiredTimestamp := time.Unix(0, 0).Unix()
+	// Timestamp three weeks in the future.
+	skewedTimestamp := time.Now().Add(time.Hour * 24 * 18).Unix()
+
 	// When interpreting block ranges, the first reply should start from
 	// our requested first block, and the last should end at our requested
 	// last block.
@@ -1253,11 +1263,75 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 		},
 		{
 			FirstBlockHeight: 12,
-			NumBlocks:        query.NumBlocks - 12,
-			Complete:         1,
+			NumBlocks:        1,
 			ShortChanIDs: []lnwire.ShortChannelID{
 				{
 					BlockHeight: 12,
+				},
+			},
+		},
+		{
+			FirstBlockHeight: 13,
+			NumBlocks:        query.NumBlocks - 13,
+			Complete:         1,
+			ShortChanIDs: []lnwire.ShortChannelID{
+				{
+					BlockHeight: 13,
+					TxIndex:     1,
+				},
+				{
+					BlockHeight: 13,
+					TxIndex:     2,
+				},
+				{
+					BlockHeight: 13,
+					TxIndex:     3,
+				},
+				{
+					BlockHeight: 13,
+					TxIndex:     4,
+				},
+				{
+					BlockHeight: 13,
+					TxIndex:     5,
+				},
+				{
+					BlockHeight: 13,
+					TxIndex:     6,
+				},
+			},
+			Timestamps: []lnwire.ChanUpdateTimestamps{
+				{
+					// Both timestamps are valid.
+					Timestamp1: uint32(currentTimestamp),
+					Timestamp2: uint32(currentTimestamp),
+				},
+				{
+					// One of the timestamps is valid.
+					Timestamp1: uint32(currentTimestamp),
+					Timestamp2: uint32(expiredTimestamp),
+				},
+				{
+					// Both timestamps are expired.
+					Timestamp1: uint32(expiredTimestamp),
+					Timestamp2: uint32(expiredTimestamp),
+				},
+				{
+					// Both timestamps are skewed.
+					Timestamp1: uint32(skewedTimestamp),
+					Timestamp2: uint32(skewedTimestamp),
+				},
+				{
+					// One timestamp is skewed the other
+					// expired.
+					Timestamp1: uint32(expiredTimestamp),
+					Timestamp2: uint32(skewedTimestamp),
+				},
+				{
+					// One timestamp is skewed the other
+					// expired.
+					Timestamp1: uint32(skewedTimestamp),
+					Timestamp2: uint32(expiredTimestamp),
 				},
 			},
 		},
@@ -1274,6 +1348,9 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 
 		replies[2].FirstBlockHeight = query.FirstBlockHeight
 		replies[2].NumBlocks = query.NumBlocks
+
+		replies[3].FirstBlockHeight = query.FirstBlockHeight
+		replies[3].NumBlocks = query.NumBlocks
 	}
 
 	// We'll begin by sending the syncer a set of non-complete channel
@@ -1282,6 +1359,9 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 		t.Fatalf("unable to process reply: %v", err)
 	}
 	if err := syncer.processChanRangeReply(replies[1]); err != nil {
+		t.Fatalf("unable to process reply: %v", err)
+	}
+	if err := syncer.processChanRangeReply(replies[2]); err != nil {
 		t.Fatalf("unable to process reply: %v", err)
 	}
 
@@ -1300,6 +1380,14 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 		},
 		{
 			BlockHeight: 12,
+		},
+		{
+			BlockHeight: 13,
+			TxIndex:     1,
+		},
+		{
+			BlockHeight: 13,
+			TxIndex:     2,
 		},
 	}
 
@@ -1335,7 +1423,7 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 
 	// If we send the final message, then we should transition to
 	// queryNewChannels as we've sent a non-empty set of new channels.
-	if err := syncer.processChanRangeReply(replies[2]); err != nil {
+	if err := syncer.processChanRangeReply(replies[3]); err != nil {
 		t.Fatalf("unable to process reply: %v", err)
 	}
 

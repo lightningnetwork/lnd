@@ -79,3 +79,5 @@ func (m *MockPeer) RemoteFeatures() *lnwire.FeatureVector {
 	args := m.Called()
 	return args.Get(0).(*lnwire.FeatureVector)
 }
+
+func (m *MockPeer) Disconnect(err error) {}

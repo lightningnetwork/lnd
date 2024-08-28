@@ -1275,7 +1275,7 @@ func newChannelEdgeInfo(t *testing.T, ctx *testCtx, fundingHeight uint32,
 }
 
 func assertChanChainRejection(t *testing.T, ctx *testCtx,
-	edge *models.ChannelEdgeInfo, failCode errorCode) {
+	edge *models.ChannelEdgeInfo, failCode ErrorCode) {
 
 	t.Helper()
 

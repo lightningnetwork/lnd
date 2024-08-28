@@ -2072,6 +2072,8 @@ func (m *mockPeer) QuitSignal() <-chan struct{} {
 	return m.quit
 }
 
+func (m *mockPeer) Disconnect(err error) {}
+
 var _ lnpeer.Peer = (*mockPeer)(nil)
 
 func (m *mockPeer) SendMessage(sync bool, msgs ...lnwire.Message) error {

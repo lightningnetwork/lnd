@@ -43,6 +43,10 @@ var (
 	// created.
 	ErrMetaNotFound = fmt.Errorf("unable to locate meta information")
 
+	// ErrClosedScidsNotFound is returned when the closed scid bucket
+	// hasn't been created.
+	ErrClosedScidsNotFound = fmt.Errorf("closed scid bucket doesn't exist")
+
 	// ErrGraphNotFound is returned when at least one of the components of
 	// graph doesn't exist.
 	ErrGraphNotFound = fmt.Errorf("graph bucket not initialized")

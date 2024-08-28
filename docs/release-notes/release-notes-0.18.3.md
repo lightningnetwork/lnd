@@ -64,8 +64,26 @@ commitment when the channel was force closed.
   cause UpdateAddHTLC message with blinding point fields to not be re-forwarded
   correctly on restart.
  
+* [A bug has been fixed that could cause invalid channel
+  announcements](https://github.com/lightningnetwork/lnd/pull/9002) to be
+  generated if the inbound fee discount is used.
+  
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/9011) a timestamp issue
+  in the `ReplyChannelRange` msg and introduced a check that ChanUpdates with a
+  timestamp too far into the future will be discarded.
+
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/9026) a bug where we
+would create a blinded route with a minHTLC greater than the actual payment
+amount. Moreover remove strict correlation between min_cltv_delta and the
+blinded path expiry.
+
 # New Features
 ## Functional Enhancements
+
+* LND will now [temporarily ban peers](https://github.com/lightningnetwork/lnd/pull/9009)
+that send too many invalid `ChannelAnnouncement`. This is only done for LND nodes
+that validate `ChannelAnnouncement` messages.
+
 ## RPC Additions
 
 * The [SendPaymentRequest](https://github.com/lightningnetwork/lnd/pull/8734) 

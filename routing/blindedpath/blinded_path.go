@@ -82,7 +82,16 @@ type BuildBlindedPathCfg struct {
 	MinFinalCLTVExpiryDelta uint32
 
 	// BlocksUntilExpiry is the number of blocks that this blinded path
-	// should remain valid for.
+	// should remain valid for. This is a relative number of blocks. This
+	// number in addition with a potential minimum cltv delta for the last
+	// hop and some block padding will be the payment constraint which is
+	// part of the blinded hop info. Every htlc using the provided blinded
+	// hops cannot have a higher cltv delta otherwise it will get rejected
+	// by the forwarding nodes or the final node.
+	//
+	// This number should at least be greater than the invoice expiry time
+	// so that the blinded route is always valid as long as the invoice is
+	// valid.
 	BlocksUntilExpiry uint32
 
 	// MinNumHops is the minimum number of hops that each blinded path
@@ -104,13 +113,6 @@ type BuildBlindedPathCfg struct {
 // payment paths that can be added to the invoice.
 func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) (
 	[]*zpay32.BlindedPaymentPath, error) {
-
-	if cfg.MinFinalCLTVExpiryDelta >= cfg.BlocksUntilExpiry {
-		return nil, fmt.Errorf("blinded path CLTV expiry delta (%d) "+
-			"must be greater than the minimum final CLTV expiry "+
-			"delta (%d)", cfg.BlocksUntilExpiry,
-			cfg.MinFinalCLTVExpiryDelta)
-	}
 
 	// Find some appropriate routes for the value to be routed. This will
 	// return a set of routes made up of real nodes.
@@ -148,7 +150,7 @@ func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) (
 			continue
 		} else if err != nil {
 			log.Errorf("Not using route (%s) as a blinded path: %v",
-				err)
+				route, err)
 
 			continue
 		}
@@ -435,9 +437,25 @@ func collectRelayInfo(cfg *BuildBlindedPathCfg, path *candidatePath) (
 			}
 		}
 
-		policy, err = cfg.AddPolicyBuffer(policy)
+		if policy.MinHTLCMsat > cfg.ValueMsat {
+			return nil, 0, 0, fmt.Errorf("%w: minHTLC of hop "+
+				"policy larger than payment amt: sentAmt(%v), "+
+				"minHTLC(%v)", errInvalidBlindedPath,
+				cfg.ValueMsat, policy.MinHTLCMsat)
+		}
+
+		bufferPolicy, err := cfg.AddPolicyBuffer(policy)
 		if err != nil {
 			return nil, 0, 0, err
+		}
+
+		// We only use the new buffered policy if the new minHTLC value
+		// does not violate the sender amount.
+		//
+		// NOTE: We don't check this for maxHTLC, because the payment
+		// amount can always be splitted using MPP.
+		if bufferPolicy.MinHTLCMsat <= cfg.ValueMsat {
+			policy = bufferPolicy
 		}
 
 		// If this is the first policy we are collecting, then use this

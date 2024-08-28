@@ -153,6 +153,14 @@ var (
 	// case we'll remove all entries from the prune log with a block height
 	// that no longer exists.
 	pruneLogBucket = []byte("prune-log")
+
+	// closedScidBucket is a top-level bucket that stores scids for
+	// channels that we know to be closed. This is used so that we don't
+	// need to perform expensive validation checks if we receive a channel
+	// announcement for the channel again.
+	//
+	// maps: scid -> []byte{}
+	closedScidBucket = []byte("closed-scid")
 )
 
 const (
@@ -318,6 +326,7 @@ var graphTopLevelBuckets = [][]byte{
 	nodeBucket,
 	edgeBucket,
 	graphMetaBucket,
+	closedScidBucket,
 }
 
 // Wipe completely deletes all saved state within all used buckets within the
@@ -2143,6 +2152,21 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 					zombieIndex, scid,
 				)
 
+				// TODO(ziggie): Make sure that for the strict
+				// pruning case we compare the pubkeys and
+				// whether the right timestamp is not older than
+				// the `ChannelPruneExpiry`.
+				//
+				// NOTE: The timestamp data has no verification
+				// attached to it in the `ReplyChannelRange` msg
+				// so we are trusting this data at this point.
+				// However it is not critical because we are
+				// just removing the channel from the db when
+				// the timestamps are more recent. During the
+				// querying of the gossip msg verification
+				// happens as usual.
+				// However we should start punishing peers when
+				// they don't provide us honest data ?
 				isStillZombie := isZombieChan(
 					info.Node1UpdateTimestamp,
 					info.Node2UpdateTimestamp,
@@ -2209,6 +2233,29 @@ type ChannelUpdateInfo struct {
 	// from the node 2 channel peer. This will be set to zero time if no
 	// update has yet been received from this node.
 	Node2UpdateTimestamp time.Time
+}
+
+// NewChannelUpdateInfo is a constructor which makes sure we initialize the
+// timestamps with zero seconds unix timestamp which equals
+// `January 1, 1970, 00:00:00 UTC` in case the value is `time.Time{}`.
+func NewChannelUpdateInfo(scid lnwire.ShortChannelID, node1Timestamp,
+	node2Timestamp time.Time) ChannelUpdateInfo {
+
+	chanInfo := ChannelUpdateInfo{
+		ShortChannelID:       scid,
+		Node1UpdateTimestamp: node1Timestamp,
+		Node2UpdateTimestamp: node2Timestamp,
+	}
+
+	if node1Timestamp.IsZero() {
+		chanInfo.Node1UpdateTimestamp = time.Unix(0, 0)
+	}
+
+	if node2Timestamp.IsZero() {
+		chanInfo.Node2UpdateTimestamp = time.Unix(0, 0)
+	}
+
+	return chanInfo
 }
 
 // BlockChannelRange represents a range of channels for a given block height.
@@ -2284,9 +2331,9 @@ func (c *ChannelGraph) FilterChannelRange(startHeight,
 			rawCid := byteOrder.Uint64(k)
 			cid := lnwire.NewShortChanIDFromInt(rawCid)
 
-			chanInfo := ChannelUpdateInfo{
-				ShortChannelID: cid,
-			}
+			chanInfo := NewChannelUpdateInfo(
+				cid, time.Time{}, time.Time{},
+			)
 
 			if !withTimestamps {
 				channelsPerBlock[cid.BlockHeight] = append(
@@ -3844,6 +3891,53 @@ func (c *ChannelGraph) NumZombies() (uint64, error) {
 	}
 
 	return numZombies, nil
+}
+
+// PutClosedScid stores a SCID for a closed channel in the database. This is so
+// that we can ignore channel announcements that we know to be closed without
+// having to validate them and fetch a block.
+func (c *ChannelGraph) PutClosedScid(scid lnwire.ShortChannelID) error {
+	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+		closedScids, err := tx.CreateTopLevelBucket(closedScidBucket)
+		if err != nil {
+			return err
+		}
+
+		var k [8]byte
+		byteOrder.PutUint64(k[:], scid.ToUint64())
+
+		return closedScids.Put(k[:], []byte{})
+	}, func() {})
+}
+
+// IsClosedScid checks whether a channel identified by the passed in scid is
+// closed. This helps avoid having to perform expensive validation checks.
+// TODO: Add an LRU cache to cut down on disc reads.
+func (c *ChannelGraph) IsClosedScid(scid lnwire.ShortChannelID) (bool, error) {
+	var isClosed bool
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+		closedScids := tx.ReadBucket(closedScidBucket)
+		if closedScids == nil {
+			return ErrClosedScidsNotFound
+		}
+
+		var k [8]byte
+		byteOrder.PutUint64(k[:], scid.ToUint64())
+
+		if closedScids.Get(k[:]) != nil {
+			isClosed = true
+			return nil
+		}
+
+		return nil
+	}, func() {
+		isClosed = false
+	})
+	if err != nil {
+		return false, err
+	}
+
+	return isClosed, nil
 }
 
 func putLightningNode(nodeBucket kvdb.RwBucket, aliasBucket kvdb.RwBucket, // nolint:dupl

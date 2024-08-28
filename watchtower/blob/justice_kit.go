@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -307,9 +308,11 @@ func newTaprootJusticeKit(sweepScript []byte,
 
 	keyRing := breachInfo.KeyRing
 
+	// TODO(roasbeef): aux leaf tower updates needed
+
 	tree, err := input.NewLocalCommitScriptTree(
 		breachInfo.RemoteDelay, keyRing.ToLocalKey,
-		keyRing.RevocationKey,
+		keyRing.RevocationKey, fn.None[txscript.TapLeaf](),
 	)
 	if err != nil {
 		return nil, err
@@ -416,7 +419,9 @@ func (t *taprootJusticeKit) ToRemoteOutputSpendInfo() (*txscript.PkScript,
 		return nil, nil, 0, err
 	}
 
-	scriptTree, err := input.NewRemoteCommitScriptTree(toRemotePk)
+	scriptTree, err := input.NewRemoteCommitScriptTree(
+		toRemotePk, fn.None[txscript.TapLeaf](),
+	)
 	if err != nil {
 		return nil, nil, 0, err
 	}

@@ -534,6 +534,7 @@ func (p *PsbtAssembler) ProvisionChannel(req *Request) (Intent, error) {
 		ShimIntent: ShimIntent{
 			localFundingAmt: p.fundingAmt,
 			musig2:          req.Musig2,
+			tapscriptRoot:   req.TapscriptRoot,
 		},
 		State:         PsbtShimRegistered,
 		BasePsbt:      p.basePsbt,

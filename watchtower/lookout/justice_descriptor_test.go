@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -123,7 +124,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 
 	if isTaprootChannel {
 		toLocalCommitTree, err = input.NewLocalCommitScriptTree(
-			csvDelay, toLocalPK, revPK,
+			csvDelay, toLocalPK, revPK, fn.None[txscript.TapLeaf](),
 		)
 		require.NoError(t, err)
 
@@ -174,7 +175,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 		toRemoteSequence = 1
 
 		commitScriptTree, err := input.NewRemoteCommitScriptTree(
-			toRemotePK,
+			toRemotePK, fn.None[txscript.TapLeaf](),
 		)
 		require.NoError(t, err)
 

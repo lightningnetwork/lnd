@@ -260,7 +260,8 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
 	invoiceNtfn := ht.ReceiveInvoiceUpdate(invSubscription)
 
 	// The notification should signal that the invoice is now settled, and
-	// should also include the set ID, and show the proper amount paid.
+	// should also include the set ID, show the proper amount paid, and have
+	// the correct settle index and time.
 	require.True(ht, invoiceNtfn.Settled)
 	require.Equal(ht, lnrpc.Invoice_SETTLED, invoiceNtfn.State)
 	require.Equal(ht, paymentAmt, int(invoiceNtfn.AmtPaidSat))
@@ -270,6 +271,9 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
 		firstSetID, _ = hex.DecodeString(setIDStr)
 		require.Equal(ht, lnrpc.InvoiceHTLCState_SETTLED,
 			ampState.State)
+		require.GreaterOrEqual(ht, ampState.SettleTime,
+			rpcInvoice.CreationDate)
+		require.Equal(ht, uint64(1), ampState.SettleIndex)
 	}
 
 	// Pay the invoice again, we should get another notification that Dave

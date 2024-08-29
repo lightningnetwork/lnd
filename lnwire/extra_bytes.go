@@ -1,9 +1,15 @@
 package lnwire
 
+// For some reason golangci-lint has a false positive on the sort order of the
+// imports for the new "maps" package... We need the nolint directive here to
+// ignore that.
+//
+//nolint:gci
 import (
 	"bytes"
 	"fmt"
 	"io"
+	"maps"
 
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -193,4 +199,58 @@ func EncodeMessageExtraData(extraData *ExtraOpaqueData,
 	// pass them in doesn't matter, as the method will ensure that things
 	// are all properly sorted.
 	return extraData.PackRecords(recordProducers...)
+}
+
+// wireTlvMap is a struct that holds the official records and custom records in
+// a TLV type map. This is useful for ensuring that the set of custom TLV
+// records are handled properly and don't overlap with the official records.
+type wireTlvMap struct {
+	// officialTypes is the set of official records that are defined in the
+	// spec.
+	officialTypes tlv.TypeMap
+
+	// customTypes is the set of custom records that are not defined in
+	// spec, and are used by higher level applications.
+	customTypes tlv.TypeMap
+}
+
+// newWireTlvMap creates a new tlv.TypeMap from the given set of parsed TLV
+// records. A struct with two maps are returned:
+//
+//  1. officialTypes: the set of official records that are defined in the
+//     spec.
+//
+//  2. customTypes: the set of custom records that are not defined in
+//     the spec.
+func newWireTlvMap(typeMap tlv.TypeMap) wireTlvMap {
+	officialRecords := maps.Clone(typeMap)
+
+	// Any records from the extra data TLV map which are in the custom
+	// records TLV type range will be included in the custom records field
+	// and removed from the extra data field.
+	customRecordsTlvMap := make(tlv.TypeMap, len(typeMap))
+	for k, v := range typeMap {
+		// Skip records that are not in the custom records TLV type
+		// range.
+		if k < MinCustomRecordsTlvType {
+			continue
+		}
+
+		// Include the record in the custom records map.
+		customRecordsTlvMap[k] = v
+
+		// Now that the record is included in the custom records map,
+		// we can remove it from the extra data TLV map.
+		delete(officialRecords, k)
+	}
+
+	return wireTlvMap{
+		officialTypes: officialRecords,
+		customTypes:   customRecordsTlvMap,
+	}
+}
+
+// Len returns the total number of records in the wireTlvMap.
+func (w *wireTlvMap) Len() int {
+	return len(w.officialTypes) + len(w.customTypes)
 }

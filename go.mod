@@ -62,6 +62,7 @@ require (
 	google.golang.org/protobuf v1.33.0
 	gopkg.in/macaroon-bakery.v2 v2.0.1
 	gopkg.in/macaroon.v2 v2.0.0
+	pgregory.net/rapid v1.1.0
 )
 
 require (

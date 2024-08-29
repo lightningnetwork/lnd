@@ -1283,6 +1283,13 @@ func (s *sqlInvoiceUpdater) UpdateAmpState(setID [32]byte,
 		return err
 	}
 
+	if settleIndex.Valid {
+		updatedState := s.invoice.AMPState[setID]
+		updatedState.SettleIndex = uint64(settleIndex.Int64)
+		updatedState.SettleDate = s.updateTime.UTC()
+		s.invoice.AMPState[setID] = updatedState
+	}
+
 	return nil
 }
 

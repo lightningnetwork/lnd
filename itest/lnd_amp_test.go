@@ -303,9 +303,9 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
 	// return the "projected" sub-invoice for a given setID.
 	require.Equal(ht, 1, len(invoiceNtfn.Htlcs))
 
-	// However the AMP state index should show that there've been two
-	// repeated payments to this invoice so far.
-	require.Equal(ht, 2, len(invoiceNtfn.AmpInvoiceState))
+	// The AMP state should also be restricted to a single entry for the
+	// "projected" sub-invoice.
+	require.Equal(ht, 1, len(invoiceNtfn.AmpInvoiceState))
 
 	// Now we'll look up the invoice using the new LookupInvoice2 RPC call
 	// by the set ID of each of the invoices.
@@ -364,7 +364,7 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
 	// through.
 	backlogInv := ht.ReceiveInvoiceUpdate(invSub2)
 	require.Equal(ht, 1, len(backlogInv.Htlcs))
-	require.Equal(ht, 2, len(backlogInv.AmpInvoiceState))
+	require.Equal(ht, 1, len(backlogInv.AmpInvoiceState))
 	require.True(ht, backlogInv.Settled)
 	require.Equal(ht, paymentAmt*2, int(backlogInv.AmtPaidSat))
 }

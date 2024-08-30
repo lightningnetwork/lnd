@@ -1682,21 +1682,22 @@ func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
 
 	return &lnrpc.Payment{
 		// TODO: set this to setID for AMP-payments?
-		PaymentHash:     hex.EncodeToString(paymentID[:]),
-		Value:           satValue,
-		ValueMsat:       msatValue,
-		ValueSat:        satValue,
-		CreationDate:    payment.Info.CreationTime.Unix(),
-		CreationTimeNs:  creationTimeNS,
-		Fee:             int64(fee.ToSatoshis()),
-		FeeSat:          int64(fee.ToSatoshis()),
-		FeeMsat:         int64(fee),
-		PaymentPreimage: hex.EncodeToString(preimage[:]),
-		PaymentRequest:  string(payment.Info.PaymentRequest),
-		Status:          status,
-		Htlcs:           htlcs,
-		PaymentIndex:    payment.SequenceNum,
-		FailureReason:   failureReason,
+		PaymentHash:           hex.EncodeToString(paymentID[:]),
+		Value:                 satValue,
+		ValueMsat:             msatValue,
+		ValueSat:              satValue,
+		CreationDate:          payment.Info.CreationTime.Unix(),
+		CreationTimeNs:        creationTimeNS,
+		Fee:                   int64(fee.ToSatoshis()),
+		FeeSat:                int64(fee.ToSatoshis()),
+		FeeMsat:               int64(fee),
+		PaymentPreimage:       hex.EncodeToString(preimage[:]),
+		PaymentRequest:        string(payment.Info.PaymentRequest),
+		Status:                status,
+		Htlcs:                 htlcs,
+		PaymentIndex:          payment.SequenceNum,
+		FailureReason:         failureReason,
+		FirstHopCustomRecords: payment.Info.FirstHopCustomRecords,
 	}, nil
 }
 

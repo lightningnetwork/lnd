@@ -4162,6 +4162,12 @@ message Payment {
     uint64 payment_index = 15;
 
     PaymentFailureReason failure_reason = 16;
+
+    /*
+    The custom TLV records that were sent to the first hop as part of the HTLC
+    wire message for this payment.
+    */
+    map<uint64, bytes> first_hop_custom_records = 17;
 }
 
 message HTLCAttempt {

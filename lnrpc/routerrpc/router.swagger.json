@@ -1095,6 +1095,14 @@
         },
         "failure_reason": {
           "$ref": "#/definitions/lnrpcPaymentFailureReason"
+        },
+        "first_hop_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The custom TLV records that were sent to the first hop as part of the HTLC\nwire message for this payment."
         }
       }
     },

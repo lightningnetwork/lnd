@@ -10433,8 +10433,11 @@ type Route struct {
 	FirstHopAmountMsat int64 `protobuf:"varint,7,opt,name=first_hop_amount_msat,json=firstHopAmountMsat,proto3" json:"first_hop_amount_msat,omitempty"`
 	// Custom channel data that might be populated in custom channels.
 	CustomChannelData []byte `protobuf:"bytes,8,opt,name=custom_channel_data,json=customChannelData,proto3" json:"custom_channel_data,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The source node from whose perspective the route was built. Defaults to
+	// the node's own public key.
+	SourcePubKey  string `protobuf:"bytes,9,opt,name=source_pub_key,json=sourcePubKey,proto3" json:"source_pub_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Route) Reset() {
@@ -10523,6 +10526,13 @@ func (x *Route) GetCustomChannelData() []byte {
 		return x.CustomChannelData
 	}
 	return nil
+}
+
+func (x *Route) GetSourcePubKey() string {
+	if x != nil {
+		return x.SourcePubKey
+	}
+	return ""
 }
 
 type NodeInfoRequest struct {
@@ -19304,7 +19314,7 @@ const file_lightning_proto_rawDesc = "" +
 	"root_share\x18\x01 \x01(\fR\trootShare\x12\x15\n" +
 	"\x06set_id\x18\x02 \x01(\fR\x05setId\x12\x1f\n" +
 	"\vchild_index\x18\x03 \x01(\rR\n" +
-	"childIndex\"\xc4\x02\n" +
+	"childIndex\"\xea\x02\n" +
 	"\x05Route\x12&\n" +
 	"\x0ftotal_time_lock\x18\x01 \x01(\rR\rtotalTimeLock\x12!\n" +
 	"\n" +
@@ -19315,7 +19325,8 @@ const file_lightning_proto_rawDesc = "" +
 	"\x0ftotal_fees_msat\x18\x05 \x01(\x03R\rtotalFeesMsat\x12$\n" +
 	"\x0etotal_amt_msat\x18\x06 \x01(\x03R\ftotalAmtMsat\x121\n" +
 	"\x15first_hop_amount_msat\x18\a \x01(\x03R\x12firstHopAmountMsat\x12.\n" +
-	"\x13custom_channel_data\x18\b \x01(\fR\x11customChannelData\"\x83\x01\n" +
+	"\x13custom_channel_data\x18\b \x01(\fR\x11customChannelData\x12$\n" +
+	"\x0esource_pub_key\x18\t \x01(\tR\fsourcePubKey\"\x83\x01\n" +
 	"\x0fNodeInfoRequest\x12\x17\n" +
 	"\apub_key\x18\x01 \x01(\tR\x06pubKey\x12)\n" +
 	"\x10include_channels\x18\x02 \x01(\bR\x0fincludeChannels\x12,\n" +

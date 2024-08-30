@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -3368,6 +3369,10 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	}
 }
 
+type testSigBlob struct {
+	BlobInt tlv.RecordT[tlv.TlvType65634, uint16]
+}
+
 // TestChanSyncOweCommitmentAuxSigner tests that when one party owes a
 // signature after a channel reest, if an aux signer is present, then the
 // signature message sent includes the additional aux sigs as extra data.
@@ -3411,12 +3416,23 @@ func TestChanSyncOweCommitmentAuxSigner(t *testing.T) {
 
 	// We'll set up the mock to expect calls to PackSigs and also
 	// SubmitSubmitSecondLevelSigBatch.
-	sigBlobs := bytes.Repeat([]byte{0x01}, 64)
+	var sigBlobBuf bytes.Buffer
+	sigBlob := testSigBlob{
+		BlobInt: tlv.NewPrimitiveRecord[tlv.TlvType65634, uint16](5),
+	}
+	tlvStream, err := tlv.NewStream(sigBlob.BlobInt.Record())
+	require.NoError(t, err, "unable to create tlv stream")
+	require.NoError(t, tlvStream.Encode(&sigBlobBuf))
+
 	auxSigner.On(
 		"SubmitSecondLevelSigBatch", mock.Anything, mock.Anything,
 		mock.Anything,
 	).Return(nil).Twice()
-	auxSigner.On("PackSigs", mock.Anything).Return(fn.Some(sigBlobs), nil)
+	auxSigner.On(
+		"PackSigs", mock.Anything,
+	).Return(
+		fn.Some(sigBlobBuf.Bytes()), nil,
+	)
 
 	_, err = aliceChannel.SignNextCommitment()
 	require.NoError(t, err, "unable to sign commitment")
@@ -3443,10 +3459,8 @@ func TestChanSyncOweCommitmentAuxSigner(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, sigMsg.PartialSig.IsSome())
 
-	// The signature should have the ExtraData field set.
-	require.NotNil(t, sigMsg.ExtraData)
-
-	// TODO(roasbeef): also make one for owe revocation
+	// The signature should have the CustomRecords field set.
+	require.NotEmpty(t, sigMsg.CustomRecords)
 }
 
 func testChanSyncOweCommitmentPendingRemote(t *testing.T,

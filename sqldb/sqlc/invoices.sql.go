@@ -78,7 +78,7 @@ WHERE (
     created_at >= $6 OR
     $6 IS NULL
 ) AND (
-    created_at <= $7 OR 
+    created_at < $7 OR 
     $7 IS NULL
 ) AND (
     CASE

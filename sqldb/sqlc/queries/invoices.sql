@@ -76,7 +76,7 @@ WHERE (
     created_at >= sqlc.narg('created_after') OR
     sqlc.narg('created_after') IS NULL
 ) AND (
-    created_at <= sqlc.narg('created_before') OR 
+    created_at < sqlc.narg('created_before') OR 
     sqlc.narg('created_before') IS NULL
 ) AND (
     CASE

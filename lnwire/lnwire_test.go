@@ -915,6 +915,8 @@ func TestLightningWireProtocol(t *testing.T) {
 				}
 			}
 
+			req.CustomRecords = randCustomRecords(t, r)
+
 			// 50/50 chance to attach a partial sig.
 			if r.Int31()%2 == 0 {
 				req.PartialSig = somePartialSigWithNonce(t, r)

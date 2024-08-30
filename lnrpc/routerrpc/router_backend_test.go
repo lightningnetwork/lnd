@@ -3,6 +3,7 @@ package routerrpc
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"testing"
 	"time"
 
@@ -988,4 +989,134 @@ func TestMarshallRouteChanCapacity(t *testing.T) {
 	require.EqualValues(
 		t, hop1Forward.ToSatoshis(), rpcRoute.Hops[1].ChanCapacity,
 	)
+}
+
+// TestUnmarshallRouteSourcePubKey tests that UnmarshallRoute correctly handles
+// the source_pub_key field on the Route proto message.
+func TestUnmarshallRouteSourcePubKey(t *testing.T) {
+	t.Parallel()
+
+	// Define test vertices. The self node is the default source used
+	// when source_pub_key is empty.
+	selfNode := route.Vertex{1, 2, 3}
+	overrideSource := route.Vertex{4, 5, 6}
+
+	// A hop target that will appear in the route.
+	hopTarget := route.Vertex{7, 8, 9}
+
+	backend := &RouterBackend{
+		SelfNode: selfNode,
+		FetchChannelEndpoints: func(chanID uint64) (route.Vertex,
+			route.Vertex, error) {
+
+			// For channel 12345, return overrideSource and
+			// hopTarget as the two endpoints.
+			if chanID == 12345 {
+				return overrideSource, hopTarget, nil
+			}
+
+			return route.Vertex{}, route.Vertex{},
+				fmt.Errorf("unknown channel: %d", chanID)
+		},
+	}
+
+	t.Run("default source when empty", func(t *testing.T) {
+		t.Parallel()
+
+		rpcRoute := &lnrpc.Route{
+			TotalAmtMsat:  1000,
+			TotalTimeLock: 144,
+			Hops: []*lnrpc.Hop{
+				{
+					PubKey: hex.EncodeToString(
+						hopTarget[:],
+					),
+					ChanId:       12345,
+					AmtToForward: 1000,
+				},
+			},
+		}
+
+		r, err := backend.UnmarshallRoute(rpcRoute)
+		require.NoError(t, err)
+
+		// With no SourcePubKey set, the route source should
+		// default to the backend's SelfNode.
+		require.Equal(t, selfNode, r.SourcePubKey)
+	})
+
+	t.Run("override source with valid pubkey", func(t *testing.T) {
+		t.Parallel()
+
+		rpcRoute := &lnrpc.Route{
+			TotalAmtMsat:  1000,
+			TotalTimeLock: 144,
+			SourcePubKey:  hex.EncodeToString(overrideSource[:]),
+			Hops: []*lnrpc.Hop{
+				{
+					PubKey: hex.EncodeToString(
+						hopTarget[:],
+					),
+					ChanId:       12345,
+					AmtToForward: 1000,
+				},
+			},
+		}
+
+		r, err := backend.UnmarshallRoute(rpcRoute)
+		require.NoError(t, err)
+
+		// The route source should match the override.
+		require.Equal(t, overrideSource, r.SourcePubKey)
+	})
+
+	t.Run("invalid source pubkey", func(t *testing.T) {
+		t.Parallel()
+
+		rpcRoute := &lnrpc.Route{
+			TotalAmtMsat:  1000,
+			TotalTimeLock: 144,
+			SourcePubKey:  "not-a-valid-hex-pubkey",
+			Hops: []*lnrpc.Hop{
+				{
+					PubKey: hex.EncodeToString(
+						hopTarget[:],
+					),
+					ChanId:       12345,
+					AmtToForward: 1000,
+				},
+			},
+		}
+
+		_, err := backend.UnmarshallRoute(rpcRoute)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid source pubkey")
+	})
+
+	t.Run("implicit hop resolution with src override ", func(t *testing.T) {
+		t.Parallel()
+
+		// Hop omits PubKey, forcing implicit resolution via
+		// FetchChannelEndpoints using the override source.
+		rpcRoute := &lnrpc.Route{
+			TotalAmtMsat:  1000,
+			TotalTimeLock: 144,
+			SourcePubKey:  hex.EncodeToString(overrideSource[:]),
+			Hops: []*lnrpc.Hop{
+				{
+					ChanId:       12345,
+					AmtToForward: 1000,
+				},
+			},
+		}
+
+		r, err := backend.UnmarshallRoute(rpcRoute)
+		require.NoError(t, err)
+
+		// The hop should resolve to hopTarget (the other
+		// endpoint of channel 12345, since the source is
+		// overrideSource).
+		require.Equal(t, hopTarget, r.Hops[0].PubKeyBytes)
+		require.Equal(t, overrideSource, r.SourcePubKey)
+	})
 }

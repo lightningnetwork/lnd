@@ -645,6 +645,7 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 		TotalAmtMsat:       int64(route.TotalAmount),
 		Hops:               make([]*lnrpc.Hop, len(route.Hops)),
 		FirstHopAmountMsat: int64(route.FirstHopAmount.Val.Int()),
+		SourcePubKey:       route.SourcePubKey.String(),
 	}
 
 	// Encode the route's custom channel data (if available).
@@ -839,7 +840,25 @@ func (r *RouterBackend) UnmarshallHop(rpcHop *lnrpc.Hop,
 func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 	*route.Route, error) {
 
-	prevNodePubKey := r.SelfNode
+	var err error
+
+	// Most routes we construct are from our node's perspective.
+	sourcePubKey := r.SelfNode
+
+	// Optionally override with supplied public key.
+	if rpcroute.SourcePubKey != "" {
+		sourcePubKey, err = route.NewVertexFromStr(
+			rpcroute.SourcePubKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("invalid source pubkey: %w", err)
+		}
+	}
+
+	// The previous node starts as the source of the route. This is
+	// used for implicit hop pubkey resolution when hops only specify
+	// a channel ID.
+	prevNodePubKey := sourcePubKey
 
 	hops := make([]*route.Hop, len(rpcroute.Hops))
 	for i, hop := range rpcroute.Hops {
@@ -849,14 +868,13 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 		}
 
 		hops[i] = routeHop
-
 		prevNodePubKey = routeHop.PubKeyBytes
 	}
 
 	route, err := route.NewRouteFromHops(
 		lnwire.MilliSatoshi(rpcroute.TotalAmtMsat),
 		rpcroute.TotalTimeLock,
-		r.SelfNode,
+		sourcePubKey,
 		hops,
 	)
 	if err != nil {

@@ -195,6 +195,11 @@ type PaymentCreationInfo struct {
 
 	// PaymentRequest is the full payment request, if any.
 	PaymentRequest []byte
+
+	// FirstHopCustomRecords are the TLV records that are to be sent to the
+	// first hop of this payment. These records will be transmitted via the
+	// wire message only and therefore do not affect the onion payload size.
+	FirstHopCustomRecords lnwire.CustomRecords
 }
 
 // htlcBucketKey creates a composite key from prefix and id where the result is
@@ -1010,10 +1015,21 @@ func serializePaymentCreationInfo(w io.Writer, c *PaymentCreationInfo) error {
 		return err
 	}
 
+	// Any remaining bytes are TLV encoded records. Currently, these are
+	// only the custom records provided by the user to be sent to the first
+	// hop. But this can easily be extended with further records by merging
+	// the records into a single TLV stream.
+	err := c.FirstHopCustomRecords.SerializeTo(w)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo, error) {
+func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo,
+	error) {
+
 	var scratch [8]byte
 
 	c := &PaymentCreationInfo{}
@@ -1045,6 +1061,15 @@ func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo, error) {
 		}
 	}
 	c.PaymentRequest = payReq
+
+	// Any remaining bytes are TLV encoded records. Currently, these are
+	// only the custom records provided by the user to be sent to the first
+	// hop. But this can easily be extended with further records by merging
+	// the records into a single TLV stream.
+	c.FirstHopCustomRecords, err = lnwire.ParseCustomRecordsFrom(r)
+	if err != nil {
+		return nil, err
+	}
 
 	return c, nil
 }

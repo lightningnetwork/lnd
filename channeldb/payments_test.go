@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -149,20 +150,34 @@ func TestSentPaymentSerialization(t *testing.T) {
 	require.NoError(t, err, "deserialize")
 	require.Equal(t, c, newCreationInfo)
 
+	b.Reset()
 	require.NoError(t, serializeHTLCAttemptInfo(&b, s), "serialize")
 
 	newWireInfo, err := deserializeHTLCAttemptInfo(&b)
 	require.NoError(t, err, "deserialize")
-	newWireInfo.AttemptID = s.AttemptID
 
-	// First we verify all the records match up properly, as they aren't
-	// able to be properly compared using reflect.DeepEqual.
-	err = assertRouteEqual(&s.Route, &newWireInfo.Route)
-	require.NoError(t, err)
+	// First we verify all the records match up properly.
+	require.Equal(t, s.Route, newWireInfo.Route)
+
+	// We now add the new fields and custom records to the route and
+	// serialize it again.
+	b.Reset()
+	s.Route.FirstHopAmount = tlv.NewRecordT[tlv.TlvType0](
+		tlv.NewBigSizeT(lnwire.MilliSatoshi(1234)),
+	)
+	s.Route.FirstHopWireCustomRecords = lnwire.CustomRecords{
+		lnwire.MinCustomRecordsTlvType + 3: []byte{4, 5, 6},
+	}
+	require.NoError(t, serializeHTLCAttemptInfo(&b, s), "serialize")
+
+	newWireInfo, err = deserializeHTLCAttemptInfo(&b)
+	require.NoError(t, err, "deserialize")
+	require.Equal(t, s.Route, newWireInfo.Route)
 
 	// Clear routes to allow DeepEqual to compare the remaining fields.
 	newWireInfo.Route = route.Route{}
 	s.Route = route.Route{}
+	newWireInfo.AttemptID = s.AttemptID
 
 	// Call session key method to set our cached session key so we can use
 	// DeepEqual, and assert that our key equals the original key.

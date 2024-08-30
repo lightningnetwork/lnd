@@ -1096,6 +1096,25 @@ func serializeHTLCAttemptInfo(w io.Writer, a *HTLCAttemptInfo) error {
 		return err
 	}
 
+	// Merge the fixed/known records together with the custom records to
+	// serialize them as a single blob. We can't do this in SerializeRoute
+	// because we're in the middle of the byte stream there. We can only do
+	// TLV serialization at the end of the stream, since EOF is allowed for
+	// a stream if no more data is expected.
+	producers := []tlv.RecordProducer{
+		&a.Route.FirstHopAmount,
+	}
+	tlvData, err := lnwire.MergeAndEncode(
+		producers, nil, a.Route.FirstHopWireCustomRecords,
+	)
+	if err != nil {
+		return err
+	}
+
+	if _, err := w.Write(tlvData); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -1132,6 +1151,22 @@ func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
 	}
 
 	a.Hash = &hash
+
+	// Read any remaining data (if any) and parse it into the known records
+	// and custom records.
+	extraData, err := io.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+
+	customRecords, _, _, err := lnwire.ParseAndExtractCustomRecords(
+		extraData, &a.Route.FirstHopAmount,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	a.Route.FirstHopWireCustomRecords = customRecords
 
 	return a, nil
 }
@@ -1398,6 +1433,8 @@ func SerializeRoute(w io.Writer, r route.Route) error {
 		}
 	}
 
+	// Any new/extra TLV data is encoded in serializeHTLCAttemptInfo!
+
 	return nil
 }
 
@@ -1430,6 +1467,8 @@ func DeserializeRoute(r io.Reader) (route.Route, error) {
 		hops = append(hops, hop)
 	}
 	rt.Hops = hops
+
+	// Any new/extra TLV data is decoded in deserializeHTLCAttemptInfo!
 
 	return rt, nil
 }

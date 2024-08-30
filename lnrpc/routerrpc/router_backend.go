@@ -578,13 +578,28 @@ func (r *RouterBackend) rpcEdgeToPair(e *lnrpc.EdgeLocator) (
 // MarshallRoute marshalls an internal route to an rpc route struct.
 func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) {
 	resp := &lnrpc.Route{
-		TotalTimeLock: route.TotalTimeLock,
-		TotalFees:     int64(route.TotalFees().ToSatoshis()),
-		TotalFeesMsat: int64(route.TotalFees()),
-		TotalAmt:      int64(route.TotalAmount.ToSatoshis()),
-		TotalAmtMsat:  int64(route.TotalAmount),
-		Hops:          make([]*lnrpc.Hop, len(route.Hops)),
+		TotalTimeLock:      route.TotalTimeLock,
+		TotalFees:          int64(route.TotalFees().ToSatoshis()),
+		TotalFeesMsat:      int64(route.TotalFees()),
+		TotalAmt:           int64(route.TotalAmount.ToSatoshis()),
+		TotalAmtMsat:       int64(route.TotalAmount),
+		Hops:               make([]*lnrpc.Hop, len(route.Hops)),
+		FirstHopAmountMsat: int64(route.FirstHopAmount.Val.Int()),
 	}
+
+	// Encode the route's custom channel data (if available).
+	if len(route.FirstHopWireCustomRecords) > 0 {
+		customData, err := route.FirstHopWireCustomRecords.Serialize()
+		if err != nil {
+			return nil, err
+		}
+
+		resp.CustomChannelData = customData
+
+		// TODO(guggero): Feed the route into the custom data parser
+		// (part 3 of the mega PR series).
+	}
+
 	incomingAmt := route.TotalAmount
 	for i, hop := range route.Hops {
 		fee := route.HopFee(i)

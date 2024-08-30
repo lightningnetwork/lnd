@@ -26,7 +26,11 @@ WHERE invoice_id = $1;
 -- name: GetInvoice :many
 SELECT i.*
 FROM invoices i
-LEFT JOIN amp_sub_invoices a on i.id = a.invoice_id
+LEFT JOIN amp_sub_invoices a 
+ON i.id = a.invoice_id
+AND (
+    a.set_id = sqlc.narg('set_id') OR sqlc.narg('set_id') IS NULL
+)
 WHERE (
     i.id = sqlc.narg('add_index') OR 
     sqlc.narg('add_index') IS NULL
@@ -39,12 +43,15 @@ WHERE (
 ) AND (
     i.payment_addr = sqlc.narg('payment_addr') OR 
     sqlc.narg('payment_addr') IS NULL
-) AND (
-    a.set_id = sqlc.narg('set_id') OR
-    sqlc.narg('set_id') IS NULL
 )
 GROUP BY i.id
 LIMIT 2;
+
+-- name: GetInvoiceBySetID :many
+SELECT i.*
+FROM invoices i
+INNER JOIN amp_sub_invoices a 
+ON i.id = a.invoice_id AND a.set_id = $1;
 
 -- name: FilterInvoices :many
 SELECT

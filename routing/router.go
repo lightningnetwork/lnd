@@ -1022,10 +1022,11 @@ func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 	//
 	// TODO(roasbeef): store records as part of creation info?
 	info := &channeldb.PaymentCreationInfo{
-		PaymentIdentifier: payment.Identifier(),
-		Value:             payment.Amount,
-		CreationTime:      r.cfg.Clock.Now(),
-		PaymentRequest:    payment.PaymentRequest,
+		PaymentIdentifier:     payment.Identifier(),
+		Value:                 payment.Amount,
+		CreationTime:          r.cfg.Clock.Now(),
+		PaymentRequest:        payment.PaymentRequest,
+		FirstHopCustomRecords: payment.FirstHopCustomRecords,
 	}
 
 	// Create a new ShardTracker that we'll use during the life cycle of
@@ -1120,10 +1121,11 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// Record this payment hash with the ControlTower, ensuring it is not
 	// already in-flight.
 	info := &channeldb.PaymentCreationInfo{
-		PaymentIdentifier: paymentIdentifier,
-		Value:             amt,
-		CreationTime:      r.cfg.Clock.Now(),
-		PaymentRequest:    nil,
+		PaymentIdentifier:     paymentIdentifier,
+		Value:                 amt,
+		CreationTime:          r.cfg.Clock.Now(),
+		PaymentRequest:        nil,
+		FirstHopCustomRecords: firstHopCustomRecords,
 	}
 
 	err := r.cfg.Control.InitPayment(paymentIdentifier, info)
@@ -1483,7 +1485,7 @@ func (r *ChannelRouter) resumePayments() error {
 		noTimeout := time.Duration(0)
 		_, _, err := r.sendPayment(
 			context.Background(), 0, payHash, noTimeout, paySession,
-			shardTracker, nil,
+			shardTracker, payment.Info.FirstHopCustomRecords,
 		)
 		if err != nil {
 			log.Errorf("Resuming payment %v failed: %v", payHash,

@@ -925,8 +925,10 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 			}
 
 			if q.CreationDateEnd != 0 {
+				// We need to add 1 to the end date as we're
+				// checking less than the end date in SQL.
 				params.CreatedBefore = sqldb.SQLTime(
-					time.Unix(q.CreationDateEnd, 0).UTC(),
+					time.Unix(q.CreationDateEnd+1, 0).UTC(),
 				)
 			}
 

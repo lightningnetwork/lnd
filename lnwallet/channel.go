@@ -4028,6 +4028,10 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 	if err != nil {
 		return nil, fmt.Errorf("error packing aux sigs: %w", err)
 	}
+	auxBlobRecords, err := lnwire.ParseCustomRecords(auxSigBlob)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing aux sigs: %w", err)
+	}
 
 	return &channeldb.CommitDiff{
 		Commitment: *diskCommit,
@@ -4035,9 +4039,9 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 			ChanID: lnwire.NewChanIDFromOutPoint(
 				lc.channelState.FundingOutpoint,
 			),
-			CommitSig: commitSig,
-			HtlcSigs:  htlcSigs,
-			ExtraData: auxSigBlob,
+			CommitSig:     commitSig,
+			HtlcSigs:      htlcSigs,
+			CustomRecords: auxBlobRecords,
 		},
 		LogUpdates:        logUpdates,
 		OpenedCircuitKeys: openCircuitKeys,
@@ -4737,12 +4741,18 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	// latest commitment update.
 	lc.remoteCommitChain.addCommitment(newCommitView)
 
+	auxSigBlob, err := commitDiff.CommitSig.CustomRecords.Serialize()
+	if err != nil {
+		return nil, fmt.Errorf("unable to serialize aux sig "+
+			"blob: %v", err)
+	}
+
 	return &NewCommitState{
 		CommitSigs: &CommitSigs{
 			CommitSig:  sig,
 			HtlcSigs:   htlcSigs,
 			PartialSig: lnwire.MaybePartialSigWithNonce(partialSig),
-			AuxSigBlob: commitDiff.CommitSig.ExtraData,
+			AuxSigBlob: auxSigBlob,
 		},
 		PendingHTLCs: commitDiff.Commitment.Htlcs,
 	}, nil
@@ -4960,14 +4970,23 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			// If we signed this state, then we'll accumulate
 			// another update to send over.
 			case err == nil:
+				blobRecords, err := lnwire.ParseCustomRecords(
+					newCommit.AuxSigBlob,
+				)
+				if err != nil {
+					sErr := fmt.Errorf("error parsing "+
+						"aux sigs: %w", err)
+					return nil, nil, nil, sErr
+				}
+
 				commitSig := &lnwire.CommitSig{
 					ChanID: lnwire.NewChanIDFromOutPoint(
 						lc.channelState.FundingOutpoint,
 					),
-					CommitSig:  newCommit.CommitSig,
-					HtlcSigs:   newCommit.HtlcSigs,
-					PartialSig: newCommit.PartialSig,
-					ExtraData:  newCommit.AuxSigBlob,
+					CommitSig:     newCommit.CommitSig,
+					HtlcSigs:      newCommit.HtlcSigs,
+					PartialSig:    newCommit.PartialSig,
+					CustomRecords: blobRecords,
 				}
 
 				updates = append(updates, commitSig)

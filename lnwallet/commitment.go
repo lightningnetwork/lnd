@@ -825,7 +825,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// number of existing outputs, since any outputs already added are
 	// commitment outputs and should correspond to zero values for the
 	// purposes of sorting.
-	cltvs := make([]uint32, len(commitTx.TxOut))
+	cltvs := make([]uint32, 0, len(commitTx.TxOut))
 	htlcIndexes := make([]input.HtlcIndex, len(commitTx.TxOut))
 	for _, htlc := range filteredHTLCView.OurUpdates {
 		if HtlcIsDust(

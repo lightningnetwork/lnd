@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -736,4 +737,27 @@ func FetchFundingTx(chain BlockChainIO,
 	}
 
 	return fundingBlock.Transactions[chanID.TxIndex].Copy(), nil
+}
+
+// FetchPKScriptWithQuit fetches the output script for the given SCID and exits
+// early with an error if the provided quit channel is closed before
+// completion.
+func FetchPKScriptWithQuit(chain BlockChainIO, chanID *lnwire.ShortChannelID,
+	quit chan struct{}) ([]byte, error) {
+
+	tx, err := FetchFundingTxWrapper(chain, chanID, quit)
+	if err != nil {
+		return nil, err
+	}
+
+	outputLocator := chanvalidate.ShortChanIDChanLocator{
+		ID: *chanID,
+	}
+
+	output, _, err := outputLocator.Locate(tx)
+	if err != nil {
+		return nil, err
+	}
+
+	return output.PkScript, nil
 }

@@ -171,6 +171,10 @@ type Config struct {
 	// order to be included in the LN graph.
 	Graph graph.ChannelGraphSource
 
+	// ChainIO represents an abstraction over a source that can query the
+	// blockchain.
+	ChainIO lnwallet.BlockChainIO
+
 	// ChanSeries is an interfaces that provides access to a time series
 	// view of the current known channel graph. Each GossipSyncer enabled
 	// peer will utilize this in order to create and respond to channel
@@ -1928,6 +1932,13 @@ func (d *AuthenticatedGossiper) processRejectedEdge(
 	}
 
 	return announcements, nil
+}
+
+// fetchPKScript fetches the output script for the given SCID.
+func (d *AuthenticatedGossiper) fetchPKScript(chanID *lnwire.ShortChannelID) (
+	[]byte, error) {
+
+	return lnwallet.FetchPKScriptWithQuit(d.cfg.ChainIO, chanID, d.quit)
 }
 
 // addNode processes the given node announcement, and adds it to our channel

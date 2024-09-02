@@ -69,7 +69,8 @@ func (s *SecretKeyRing) SignMessageCompact(_ keychain.KeyLocator,
 	} else {
 		digest = chainhash.HashB(msg)
 	}
-	return ecdsa.SignCompact(s.RootKey, digest, true)
+
+	return ecdsa.SignCompact(s.RootKey, digest, true), nil
 }
 
 // SignMessageSchnorr signs the passed message and ignores the KeyDescriptor.

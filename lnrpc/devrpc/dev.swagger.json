@@ -225,6 +225,10 @@
         "inbound_fee_rate_milli_msat": {
           "type": "integer",
           "format": "int32"
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int64"
         }
       }
     },

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -84,7 +85,7 @@ func SignChannelUpdate(signer lnwallet.MessageSigner, keyLoc keychain.KeyLocator
 //
 // NOTE: The passed policies can be nil.
 func ExtractChannelUpdate(ownerPubKey []byte,
-	info *models.ChannelEdgeInfo1,
+	info models.ChannelEdgeInfo,
 	policies ...*models.ChannelEdgePolicy1) (
 	*lnwire.ChannelUpdate1, error) {
 
@@ -117,11 +118,24 @@ func ExtractChannelUpdate(ownerPubKey []byte,
 
 // UnsignedChannelUpdateFromEdge reconstructs an unsigned ChannelUpdate from the
 // given edge info and policy.
-func UnsignedChannelUpdateFromEdge(info *models.ChannelEdgeInfo1,
+func UnsignedChannelUpdateFromEdge(chainHash chainhash.Hash,
+	policy models.ChannelEdgePolicy) (*lnwire.ChannelUpdate1, error) {
+
+	switch p := policy.(type) {
+	case *models.ChannelEdgePolicy1:
+		return unsignedChanPolicy1ToUpdate(chainHash, p), nil
+
+	default:
+		return nil, fmt.Errorf("unhandled implementation of the "+
+			"models.ChanelEdgePolicy interface: %T", policy)
+	}
+}
+
+func unsignedChanPolicy1ToUpdate(chainHash chainhash.Hash,
 	policy *models.ChannelEdgePolicy1) *lnwire.ChannelUpdate1 {
 
 	return &lnwire.ChannelUpdate1{
-		ChainHash:       info.ChainHash,
+		ChainHash:       chainHash,
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(policy.ChannelID),
 		Timestamp:       uint32(policy.LastUpdate.Unix()),
 		ChannelFlags:    policy.ChannelFlags,
@@ -135,20 +149,23 @@ func UnsignedChannelUpdateFromEdge(info *models.ChannelEdgeInfo1,
 	}
 }
 
-// ChannelUpdateFromEdge reconstructs a signed ChannelUpdate from the given edge
-// info and policy.
-func ChannelUpdateFromEdge(info *models.ChannelEdgeInfo1,
+// ChannelUpdateFromEdge reconstructs a signed ChannelUpdate from the given
+// edge info and policy.
+func ChannelUpdateFromEdge(info models.ChannelEdgeInfo,
 	policy *models.ChannelEdgePolicy1) (*lnwire.ChannelUpdate1, error) {
 
-	update := UnsignedChannelUpdateFromEdge(info, policy)
-
-	var err error
-	update.Signature, err = lnwire.NewSigFromECDSARawSignature(
-		policy.SigBytes,
-	)
+	sig, err := policy.Signature()
 	if err != nil {
 		return nil, err
 	}
+
+	s, err := lnwire.NewSigFromSignature(sig)
+	if err != nil {
+		return nil, err
+	}
+
+	update := unsignedChanPolicy1ToUpdate(info.GetChainHash(), policy)
+	update.Signature = s
 
 	return update, nil
 }

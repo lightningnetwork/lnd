@@ -11,7 +11,7 @@ const (
 )
 
 // CachedEdgePolicy is a struct that only caches the information of a
-// ChannelEdgePolicy1 that we actually use for pathfinding and therefore need to
+// ChannelEdgePolicy that we actually use for pathfinding and therefore need to
 // store in the cache.
 type CachedEdgePolicy struct {
 	// ChannelID is the unique channel ID for the channel. The first 3
@@ -19,13 +19,12 @@ type CachedEdgePolicy struct {
 	// and the last 2 bytes are the output index for the channel.
 	ChannelID uint64
 
-	// MessageFlags is a bitfield which indicates the presence of optional
-	// fields (like max_htlc) in the policy.
-	MessageFlags lnwire.ChanUpdateMsgFlags
+	// HasMaxHTLC is true if the policy update includes a value for MaxHTLC.
+	HasMaxHTLC bool
 
-	// ChannelFlags is a bitfield which signals the capabilities of the
-	// channel as well as the directed edge this update applies to.
-	ChannelFlags lnwire.ChanUpdateChanFlags
+	// IsDisabled is true if this policy is signalling that the channel is
+	// disabled.
+	IsDisabled bool
 
 	// TimeLockDelta is the number of blocks this node will subtract from
 	// the expiry of an incoming HTLC. This value expresses the time buffer
@@ -72,15 +71,17 @@ func (c *CachedEdgePolicy) ComputeFee(
 }
 
 // NewCachedPolicy turns a full policy into a minimal one that can be cached.
-func NewCachedPolicy(policy *ChannelEdgePolicy1) *CachedEdgePolicy {
+func NewCachedPolicy(policy ChannelEdgePolicy) *CachedEdgePolicy {
+	fwdingPolicy := policy.ForwardingPolicy()
+
 	return &CachedEdgePolicy{
-		ChannelID:                 policy.ChannelID,
-		MessageFlags:              policy.MessageFlags,
-		ChannelFlags:              policy.ChannelFlags,
-		TimeLockDelta:             policy.TimeLockDelta,
-		MinHTLC:                   policy.MinHTLC,
-		MaxHTLC:                   policy.MaxHTLC,
-		FeeBaseMSat:               policy.FeeBaseMSat,
-		FeeProportionalMillionths: policy.FeeProportionalMillionths,
+		ChannelID:                 policy.SCID().ToUint64(),
+		HasMaxHTLC:                fwdingPolicy.HasMaxHTLC,
+		IsDisabled:                policy.IsDisabled(),
+		TimeLockDelta:             fwdingPolicy.TimeLockDelta,
+		MinHTLC:                   fwdingPolicy.MinHTLC,
+		MaxHTLC:                   fwdingPolicy.MaxHTLC,
+		FeeBaseMSat:               fwdingPolicy.BaseFee,
+		FeeProportionalMillionths: fwdingPolicy.FeeRate,
 	}
 }

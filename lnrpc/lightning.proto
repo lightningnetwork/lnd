@@ -3359,6 +3359,8 @@ message RoutingPolicy {
 
     int32 inbound_fee_base_msat = 9;
     int32 inbound_fee_rate_milli_msat = 10;
+
+    uint32 block_height = 11;
 }
 
 /*
@@ -4793,6 +4795,9 @@ message Failure {
 
     // A failure type-dependent block height.
     uint32 height = 9;
+
+    // An optional channel update 2 message.
+    ChannelUpdate2 channel_update_2 = 10;
 }
 
 message ChannelUpdate {
@@ -4862,6 +4867,83 @@ message ChannelUpdate {
     The fee rate that will be charged per millionth of a satoshi.
     */
     uint32 fee_rate = 9;
+
+    /*
+    The maximum HTLC value which will be accepted.
+    */
+    uint64 htlc_maximum_msat = 11;
+
+    /*
+    The set of data that was appended to this message, some of which we may
+    not actually know how to iterate or parse. By holding onto this data, we
+    ensure that we're able to properly validate the set of signatures that
+    cover these new fields, and ensure we're able to make upgrades to the
+    network in a forwards compatible manner.
+    */
+    bytes extra_opaque_data = 12;
+}
+
+message ChannelUpdate2 {
+    /*
+    The signature that validates the announced data and proves the ownership
+    of node id.
+    */
+    bytes signature = 1;
+
+    /*
+    The target chain that this channel was opened within. This value
+    should be the genesis hash of the target chain. Along with the short
+    channel ID, this uniquely identifies the channel globally in a
+    blockchain.
+    */
+    bytes chain_hash = 2;
+
+    /*
+    The unique description of the funding transaction.
+    */
+    uint64 chan_id = 3 [jstype = JS_STRING];
+
+    /*
+    A block height that allows ordering in the case of multiple announcements.
+    We should ignore the message if block_height is not greater than the
+    last-received.
+    */
+    uint32 block_height = 4;
+
+    /*
+    A bit field describing the disabled bits set on the update.
+    */
+    uint32 disabled_flags = 5;
+
+    /*
+    If true, this update is from node 2. Otherwise, it is from node 1.
+    */
+    bool direction = 6;
+
+    /*
+    The minimum number of blocks this node requires to be added to the expiry
+    of HTLCs. This is a security parameter determined by the node operator.
+    This value represents the required gap between the time locks of the
+    incoming and outgoing HTLC's set to this node.
+    */
+    uint32 time_lock_delta = 7;
+
+    /*
+    The base fee that must be used for incoming HTLC's to this particular
+    channel. This value will be tacked onto the required for a payment
+    independent of the size of the payment.
+    */
+    uint32 base_fee = 8;
+
+    /*
+    The fee rate that will be charged per millionth of a satoshi.
+    */
+    uint32 fee_rate = 9;
+
+    /*
+    The minimum HTLC value which will be accepted.
+    */
+    uint64 htlc_minimum_msat = 10;
 
     /*
     The maximum HTLC value which will be accepted.

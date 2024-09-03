@@ -93,7 +93,7 @@ type mockGraphSource struct {
 
 	mu             sync.Mutex
 	nodes          []channeldb.LightningNode
-	infos          map[uint64]models.ChannelEdgeInfo1
+	infos          map[uint64]models.ChannelEdgeInfo
 	edges          map[uint64][]models.ChannelEdgePolicy1
 	zombies        map[uint64][][33]byte
 	chansToReject  map[uint64]struct{}
@@ -103,7 +103,7 @@ type mockGraphSource struct {
 func newMockRouter(height uint32) *mockGraphSource {
 	return &mockGraphSource{
 		bestHeight:    height,
-		infos:         make(map[uint64]models.ChannelEdgeInfo1),
+		infos:         make(map[uint64]models.ChannelEdgeInfo),
 		edges:         make(map[uint64][]models.ChannelEdgePolicy1),
 		zombies:       make(map[uint64][][33]byte),
 		chansToReject: make(map[uint64]struct{}),
@@ -122,7 +122,7 @@ func (r *mockGraphSource) AddNode(node *channeldb.LightningNode,
 	return nil
 }
 
-func (r *mockGraphSource) AddEdge(info *models.ChannelEdgeInfo1,
+func (r *mockGraphSource) AddEdge(info models.ChannelEdgeInfo,
 	_ ...batch.SchedulerOption) error {
 
 	r.mu.Lock()
@@ -134,15 +134,16 @@ func (r *mockGraphSource) AddEdge(info *models.ChannelEdgeInfo1,
 		)
 	}
 
-	if _, ok := r.infos[info.ChannelID]; ok {
+	if _, ok := r.infos[info.GetChanID()]; ok {
 		return errors.New("info already exist")
 	}
 
-	if _, ok := r.chansToReject[info.ChannelID]; ok {
+	if _, ok := r.chansToReject[info.GetChanID()]; ok {
 		return errors.New("validation failed")
 	}
 
-	r.infos[info.ChannelID] = *info
+	r.infos[info.GetChanID()] = info
+
 	return nil
 }
 
@@ -196,8 +197,14 @@ func (r *mockGraphSource) AddProof(chanID lnwire.ShortChannelID,
 		return errors.New("channel does not exist")
 	}
 
-	info.AuthProof = proof
-	r.infos[chanIDInt] = info
+	infoCP := info.Copy()
+
+	err := infoCP.SetAuthProof(proof)
+	if err != nil {
+		return err
+	}
+
+	r.infos[chanIDInt] = infoCP
 
 	return nil
 }
@@ -207,7 +214,7 @@ func (r *mockGraphSource) ForEachNode(func(node *channeldb.LightningNode) error)
 }
 
 func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
-	i *models.ChannelEdgeInfo1,
+	i models.ChannelEdgeInfo,
 	c *models.ChannelEdgePolicy1) error) error {
 
 	r.mu.Lock()
@@ -217,9 +224,9 @@ func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 	for _, info := range r.infos {
 		info := info
 
-		edgeInfo := chans[info.ChannelID]
-		edgeInfo.Info = &info
-		chans[info.ChannelID] = edgeInfo
+		edgeInfo := chans[info.GetChanID()]
+		edgeInfo.Info = info
+		chans[info.GetChanID()] = edgeInfo
 	}
 	for _, edges := range r.edges {
 		edges := edges
@@ -230,7 +237,14 @@ func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 	}
 
 	for _, channel := range chans {
-		if err := cb(nil, channel.Info, channel.Policy1); err != nil {
+		pol, ok := channel.Policy1.(*models.ChannelEdgePolicy1)
+		if !ok {
+			return fmt.Errorf("expected "+
+				"*models.ChannelEdgePolicy1, got %T",
+				channel.Policy1)
+		}
+
+		if err := cb(nil, channel.Info, pol); err != nil {
 			return err
 		}
 	}
@@ -239,7 +253,7 @@ func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 }
 
 func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
-	*models.ChannelEdgeInfo1,
+	models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy1,
 	*models.ChannelEdgePolicy1, error) {
 
@@ -262,7 +276,7 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 
 	edges := r.edges[chanID.ToUint64()]
 	if len(edges) == 0 {
-		return &chanInfo, nil, nil, nil
+		return chanInfo, nil, nil, nil
 	}
 
 	var edge1 *models.ChannelEdgePolicy1
@@ -275,7 +289,7 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 		edge2 = &edges[1]
 	}
 
-	return &chanInfo, edge1, edge2, nil
+	return chanInfo, edge1, edge2, nil
 }
 
 func (r *mockGraphSource) FetchLightningNode(
@@ -307,10 +321,10 @@ func (r *mockGraphSource) IsStaleNode(nodePub route.Vertex, timestamp time.Time)
 	// require the node to already have a channel in the graph to not be
 	// considered stale.
 	for _, info := range r.infos {
-		if info.NodeKey1Bytes == nodePub {
+		if info.Node1Bytes() == nodePub {
 			return false
 		}
-		if info.NodeKey2Bytes == nodePub {
+		if info.Node2Bytes() == nodePub {
 			return false
 		}
 	}
@@ -321,12 +335,15 @@ func (r *mockGraphSource) IsStaleNode(nodePub route.Vertex, timestamp time.Time)
 // the graph from the graph's source node's point of view.
 func (r *mockGraphSource) IsPublicNode(node route.Vertex) (bool, error) {
 	for _, info := range r.infos {
-		if !bytes.Equal(node[:], info.NodeKey1Bytes[:]) &&
-			!bytes.Equal(node[:], info.NodeKey2Bytes[:]) {
+		node1 := info.Node1Bytes()
+		node2 := info.Node2Bytes()
+		if !bytes.Equal(node[:], node1[:]) &&
+			!bytes.Equal(node[:], node2[:]) {
+
 			continue
 		}
 
-		if info.AuthProof != nil {
+		if info.GetAuthProof() != nil {
 			return true, nil
 		}
 	}
@@ -3483,7 +3500,7 @@ out:
 	var edgesToUpdate []EdgeWithInfo
 	err = ctx.router.ForAllOutgoingChannels(func(
 		_ kvdb.RTx,
-		info *models.ChannelEdgeInfo1,
+		info models.ChannelEdgeInfo,
 		edge *models.ChannelEdgePolicy1) error {
 
 		edge.TimeLockDelta = uint16(newTimeLockDelta)
@@ -3594,13 +3611,13 @@ func TestProcessChannelAnnouncementOptionalMsgFields(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to get channel by id: %v", err)
 		}
-		if edge.Capacity != capacity {
+		if edge.GetCapacity() != capacity {
 			t.Fatalf("expected capacity %v, got %v", capacity,
-				edge.Capacity)
+				edge.GetCapacity())
 		}
-		if edge.ChannelPoint != channelPoint {
+		if edge.GetChanPoint() != channelPoint {
 			t.Fatalf("expected channel point %v, got %v",
-				channelPoint, edge.ChannelPoint)
+				channelPoint, edge.GetChanPoint())
 		}
 	}
 

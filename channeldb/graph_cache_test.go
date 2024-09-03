@@ -42,7 +42,7 @@ func (n *node) Features() *lnwire.FeatureVector {
 }
 
 func (n *node) ForEachChannel(tx kvdb.RTx,
-	cb func(kvdb.RTx, *models.ChannelEdgeInfo1, *models.ChannelEdgePolicy1,
+	cb func(kvdb.RTx, models.ChannelEdgeInfo, *models.ChannelEdgePolicy1,
 		*models.ChannelEdgePolicy1) error) error {
 
 	for idx := range n.edgeInfos {
@@ -153,21 +153,19 @@ func TestGraphCacheAddNode(t *testing.T) {
 	runTest(pubKey2, pubKey1)
 }
 
-func assertCachedPolicyEqual(t *testing.T, original *models.ChannelEdgePolicy1,
+func assertCachedPolicyEqual(t *testing.T, original models.ChannelEdgePolicy,
 	cached *models.CachedEdgePolicy) {
 
-	require.Equal(t, original.ChannelID, cached.ChannelID)
-	require.Equal(t, original.MessageFlags, cached.MessageFlags)
-	require.Equal(t, original.ChannelFlags, cached.ChannelFlags)
-	require.Equal(t, original.TimeLockDelta, cached.TimeLockDelta)
-	require.Equal(t, original.MinHTLC, cached.MinHTLC)
-	require.Equal(t, original.MaxHTLC, cached.MaxHTLC)
-	require.Equal(t, original.FeeBaseMSat, cached.FeeBaseMSat)
+	ogFwd := original.ForwardingPolicy()
+
+	require.Equal(t, original.SCID().ToUint64(), cached.ChannelID)
+	require.Equal(t, ogFwd.HasMaxHTLC, cached.HasMaxHTLC)
+	require.Equal(t, original.IsDisabled(), cached.IsDisabled)
+	require.Equal(t, ogFwd.TimeLockDelta, cached.TimeLockDelta)
+	require.Equal(t, ogFwd.MinHTLC, cached.MinHTLC)
+	require.Equal(t, ogFwd.MaxHTLC, cached.MaxHTLC)
+	require.Equal(t, ogFwd.BaseFee, cached.FeeBaseMSat)
 	require.Equal(
-		t, original.FeeProportionalMillionths,
-		cached.FeeProportionalMillionths,
-	)
-	require.Equal(
-		t, route.Vertex(original.ToNode), cached.ToNodePubKey(),
+		t, route.Vertex(original.GetToNode()), cached.ToNodePubKey(),
 	)
 }

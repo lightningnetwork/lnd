@@ -120,13 +120,13 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 		// If the channel hasn't been fully advertised yet, or is a
 		// private channel, then we'll skip it as we can't construct a
 		// full authentication proof if one is requested.
-		if channel.Info.AuthProof == nil {
+		if channel.Info.GetAuthProof() == nil {
 			continue
 		}
 
 		chanAnn, edge1, edge2, err := netann.CreateChanAnnouncement(
-			channel.Info.AuthProof, channel.Info, channel.Policy1,
-			channel.Policy2,
+			channel.Info.GetAuthProof(), channel.Info,
+			channel.Policy1, channel.Policy2,
 		)
 		if err != nil {
 			return nil, err
@@ -264,13 +264,13 @@ func (c *ChanSeries) FetchChanAnns(chain chainhash.Hash,
 		// If the channel doesn't have an authentication proof, then we
 		// won't send it over as it may not yet be finalized, or be a
 		// non-advertised channel.
-		if channel.Info.AuthProof == nil {
+		if channel.Info.GetAuthProof() == nil {
 			continue
 		}
 
 		chanAnn, edge1, edge2, err := netann.CreateChanAnnouncement(
-			channel.Info.AuthProof, channel.Info, channel.Policy1,
-			channel.Policy2,
+			channel.Info.GetAuthProof(), channel.Info,
+			channel.Policy1, channel.Policy2,
 		)
 		if err != nil {
 			return nil, err

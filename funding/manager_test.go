@@ -16,6 +16,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -36,7 +37,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
-	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
@@ -106,13 +106,21 @@ var (
 		Address:     bobTCPAddr,
 	}
 
-	testRBytes, _ = hex.DecodeString("8ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa1bf0314f882d7")
-	testSBytes, _ = hex.DecodeString("299105481d63e0f4bc2a88121167221b6700d72a0ead154c03be696a292d24ae")
-	testRScalar   = new(btcec.ModNScalar)
-	testSScalar   = new(btcec.ModNScalar)
-	_             = testRScalar.SetByteSlice(testRBytes)
-	_             = testSScalar.SetByteSlice(testSBytes)
-	testSig       = ecdsa.NewSignature(testRScalar, testSScalar)
+	testRBytes, _ = hex.DecodeString(
+		"8ce2bc69281ce27da07e6683571319d18e" +
+			"949ddfa2965fb6caa1bf0314f882d7",
+	)
+	testSBytes, _ = hex.DecodeString(
+		"299105481d63e0f4bc2a88121167221b6" +
+			"700d72a0ead154c03be696a292d24ae",
+	)
+	testRScalar    = new(btcec.ModNScalar)
+	testSScalar    = new(btcec.ModNScalar)
+	_              = testRScalar.SetByteSlice(testRBytes)
+	_              = testSScalar.SetByteSlice(testSBytes)
+	testSig        = ecdsa.NewSignature(testRScalar, testSScalar)
+	zeroVal        btcec.FieldVal
+	testSchnorrSig = schnorr.NewSignature(&zeroVal, testSScalar)
 
 	testKeyLoc = keychain.KeyLocator{Family: keychain.KeyFamilyNodeKey}
 
@@ -448,18 +456,25 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 
 	chainedAcceptor := acpt.NewChainedAcceptor()
 
-	fundingCfg := Config{
-		IDKey:        privKey.PubKey(),
-		IDKeyLoc:     testKeyLoc,
-		Wallet:       lnw,
-		Notifier:     chainNotifier,
-		ChannelDB:    cdb,
-		FeeEstimator: estimator,
-		SignMessage: func(_ keychain.KeyLocator,
-			_ []byte, _ bool) (*ecdsa.Signature, error) {
+	keyFetcher := func(desc *keychain.KeyDescriptor) (*btcec.PrivateKey,
+		error) {
 
-			return testSig, nil
-		},
+		if desc.KeyLocator == testKeyLoc {
+			return privKey, nil
+		}
+
+		return keyRing.DerivePrivKey(*desc)
+	}
+
+	fundingCfg := Config{
+		IDKey:         privKey.PubKey(),
+		IDKeyLoc:      testKeyLoc,
+		Wallet:        lnw,
+		Notifier:      chainNotifier,
+		ChannelDB:     cdb,
+		FeeEstimator:  estimator,
+		MessageSigner: &mockSigner{},
+		MuSig2Signer:  input.NewMusigSessionManager(keyFetcher),
 		SendAnnouncement: func(msg lnwire.Message,
 			_ ...discovery.OptionalMsgField) chan error {
 
@@ -567,6 +582,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		AuxLeafStore: fn.Some[lnwallet.AuxLeafStore](
 			&lnwallet.MockAuxLeafStore{},
 		),
+		BestBlockView: &mockBlockView{},
 	}
 
 	for _, op := range options {
@@ -619,18 +635,25 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 
 	chainedAcceptor := acpt.NewChainedAcceptor()
 
-	f, err := NewFundingManager(Config{
-		IDKey:        oldCfg.IDKey,
-		IDKeyLoc:     oldCfg.IDKeyLoc,
-		Wallet:       oldCfg.Wallet,
-		Notifier:     oldCfg.Notifier,
-		ChannelDB:    oldCfg.ChannelDB,
-		FeeEstimator: oldCfg.FeeEstimator,
-		SignMessage: func(_ keychain.KeyLocator,
-			_ []byte, _ bool) (*ecdsa.Signature, error) {
+	keyFetcher := func(desc *keychain.KeyDescriptor) (*btcec.PrivateKey,
+		error) {
 
-			return testSig, nil
-		},
+		if desc.KeyLocator == oldCfg.IDKeyLoc {
+			return alice.privKey, nil
+		}
+
+		return alice.fundingMgr.cfg.Wallet.DerivePrivKey(*desc)
+	}
+
+	f, err := NewFundingManager(Config{
+		IDKey:         oldCfg.IDKey,
+		IDKeyLoc:      oldCfg.IDKeyLoc,
+		Wallet:        oldCfg.Wallet,
+		Notifier:      oldCfg.Notifier,
+		ChannelDB:     oldCfg.ChannelDB,
+		FeeEstimator:  oldCfg.FeeEstimator,
+		MessageSigner: &mockSigner{},
+		MuSig2Signer:  input.NewMusigSessionManager(keyFetcher),
 		SendAnnouncement: func(msg lnwire.Message,
 			_ ...discovery.OptionalMsgField) chan error {
 
@@ -677,6 +700,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		DeleteAliasEdge:       oldCfg.DeleteAliasEdge,
 		AliasManager:          oldCfg.AliasManager,
 		AuxLeafStore:          oldCfg.AuxLeafStore,
+		BestBlockView:         &mockBlockView{},
 	})
 	require.NoError(t, err, "failed recreating aliceFundingManager")
 
@@ -803,12 +827,6 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		ChannelType:     chanType,
 		Updates:         updateChan,
 		Err:             errChan,
-	}
-
-	// If this is a taproot channel, then we want to force it to be a
-	// private channel, as that's the only channel type supported for now.
-	if isTaprootChanType(chanType) {
-		initReq.Private = true
 	}
 
 	alice.fundingMgr.InitFundingWorkflow(initReq)
@@ -1299,7 +1317,7 @@ func assertAnnouncementSignatures(t *testing.T, alice, bob *testNode) {
 		gotNodeAnnouncement := false
 		for _, msg := range announcements {
 			switch msg.(type) {
-			case *lnwire.AnnounceSignatures1:
+			case lnwire.AnnounceSignatures:
 				gotAnnounceSignatures = true
 			case *lnwire.NodeAnnouncement:
 				gotNodeAnnouncement = true
@@ -1313,25 +1331,6 @@ func assertAnnouncementSignatures(t *testing.T, alice, bob *testNode) {
 		if !gotNodeAnnouncement {
 			t.Fatalf("did not get NodeAnnouncement from node %d", j)
 		}
-	}
-}
-
-func assertType[T any](t *testing.T, typ any) T {
-	value, ok := typ.(T)
-	require.True(t, ok)
-
-	return value
-}
-
-func assertNodeAnnSent(t *testing.T, alice, bob *testNode) {
-	t.Helper()
-
-	for _, node := range []*testNode{alice, bob} {
-		nodeAnn, err := lnutils.RecvOrTimeout(
-			node.msgChan, time.Second*5,
-		)
-		require.NoError(t, err)
-		assertType[*lnwire.NodeAnnouncement](t, *nodeAnn)
 	}
 }
 
@@ -1453,11 +1452,11 @@ func testNormalWorkflow(t *testing.T, chanType *lnwire.ChannelType) {
 		// test.
 		featureBits := []lnwire.FeatureBit{
 			lnwire.ZeroConfOptional,
-			lnwire.ScidAliasOptional,
 			lnwire.ExplicitChannelTypeOptional,
 			lnwire.StaticRemoteKeyOptional,
 			lnwire.AnchorsZeroFeeHtlcTxOptional,
 			lnwire.SimpleTaprootChannelsOptionalStaging,
+			lnwire.TaprootGossipOptionalStaging,
 		}
 		alice.localFeatures = featureBits
 		alice.remoteFeatures = featureBits
@@ -1547,20 +1546,7 @@ func testNormalWorkflow(t *testing.T, chanType *lnwire.ChannelType) {
 		Tx: fundingTx,
 	}
 
-	switch {
-	// For taproot channels, we expect them to only send a node
-	// announcement message at this point. These channels aren't advertised
-	// so we don't expect the other messages.
-	case isTaprootChanType(chanType):
-		assertNodeAnnSent(t, alice, bob)
-
-	// For regular channels, we'll make sure the fundingManagers exchange
-	// announcement signatures.
-	case chanType == nil:
-		fallthrough
-	default:
-		assertAnnouncementSignatures(t, alice, bob)
-	}
+	assertAnnouncementSignatures(t, alice, bob)
 
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
@@ -4496,6 +4482,7 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 		lnwire.StaticRemoteKeyOptional,
 		lnwire.AnchorsZeroFeeHtlcTxOptional,
 		lnwire.SimpleTaprootChannelsOptionalStaging,
+		lnwire.TaprootGossipOptionalStaging,
 	}
 	alice.localFeatures = featureBits
 	alice.remoteFeatures = featureBits
@@ -4593,12 +4580,9 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 		Tx: fundingTx,
 	}
 
-	// For taproot channels, we don't expect them to be announced atm.
-	if !isTaprootChanType(chanType) {
-		assertChannelAnnouncements(
-			t, alice, bob, fundingAmt, nil, nil, nil, nil,
-		)
-	}
+	assertChannelAnnouncements(
+		t, alice, bob, fundingAmt, nil, nil, nil, nil,
+	)
 
 	// Both Alice and Bob should send on reportScidChan.
 	select {
@@ -4622,20 +4606,7 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 		Tx: fundingTx,
 	}
 
-	switch {
-	// For taproot channels, we expect them to only send a node
-	// announcement message at this point. These channels aren't advertised
-	// so we don't expect the other messages.
-	case isTaprootChanType(chanType):
-		assertNodeAnnSent(t, alice, bob)
-
-	// For regular channels, we'll make sure the fundingManagers exchange
-	// announcement signatures.
-	case chanType == nil:
-		fallthrough
-	default:
-		assertAnnouncementSignatures(t, alice, bob)
-	}
+	assertAnnouncementSignatures(t, alice, bob)
 
 	// Assert that the channel state is deleted from the fundingmanager's
 	// datastore.
@@ -4969,4 +4940,29 @@ func TestFundingManagerCoinbase(t *testing.T) {
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
 	assertHandleChannelReady(t, alice, bob)
+}
+
+type mockSigner struct {
+	keychain.MessageSignerRing
+}
+
+func (m *mockSigner) SignMessage(_ keychain.KeyLocator, _ []byte,
+	_ bool) (*ecdsa.Signature, error) {
+
+	return testSig, nil
+}
+
+func (m *mockSigner) SignMessageSchnorr(keyLoc keychain.KeyLocator, msg []byte,
+	doubleHash bool, taprootTweak, tag []byte) (*schnorr.Signature,
+	error) {
+
+	return testSchnorrSig, nil
+}
+
+type mockBlockView struct {
+	chainntnfs.BestBlockView
+}
+
+func (m *mockBlockView) BestHeight() (uint32, error) {
+	return 0, nil
 }

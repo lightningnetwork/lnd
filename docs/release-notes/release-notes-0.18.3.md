@@ -88,6 +88,10 @@ blinded path expiry.
 that send too many invalid `ChannelAnnouncement`. This is only done for LND nodes
 that validate `ChannelAnnouncement` messages.
 
+* Compatibility with [`bitcoind 
+  v28.0`](https://github.com/lightningnetwork/lnd/pull/9059) was ensured by
+  updating the version the CI pipeline is running against.
+
 ## RPC Additions
 
 * The [SendPaymentRequest](https://github.com/lightningnetwork/lnd/pull/8734) 

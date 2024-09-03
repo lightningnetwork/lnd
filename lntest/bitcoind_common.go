@@ -115,6 +115,7 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 	zmqTxAddr := fmt.Sprintf("tcp://127.0.0.1:%d", port.NextAvailablePort())
 	rpcPort := port.NextAvailablePort()
 	p2pPort := port.NextAvailablePort()
+	torBindPort := port.NextAvailablePort()
 
 	cmdArgs := []string{
 		"-datadir=" + tempBitcoindDir,
@@ -124,6 +125,7 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 			"220110063096c221be9933c82d38e1",
 		fmt.Sprintf("-rpcport=%d", rpcPort),
 		fmt.Sprintf("-port=%d", p2pPort),
+		fmt.Sprintf("-bind=127.0.0.1:%d=onion", torBindPort),
 		"-zmqpubrawblock=" + zmqBlockAddr,
 		"-zmqpubrawtx=" + zmqTxAddr,
 		"-debug",

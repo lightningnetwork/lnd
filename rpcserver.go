@@ -6221,7 +6221,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// similar response which details both the edge information as well as
 	// the routing policies of th nodes connecting the two edges.
 	err = graph.ForEachChannel(func(edgeInfo models.ChannelEdgeInfo,
-		c1, c2 *models.ChannelEdgePolicy1) error {
+		c1, c2 models.ChannelEdgePolicy) error {
 
 		// Do not include unannounced channels unless specifically
 		// requested. Unannounced channels include both private channels as
@@ -6455,7 +6455,7 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 
 	var (
 		edgeInfo     models.ChannelEdgeInfo
-		edge1, edge2 *models.ChannelEdgePolicy1
+		edge1, edge2 models.ChannelEdgePolicy
 		err          error
 	)
 
@@ -6528,7 +6528,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 
 	err = graph.ForEachNodeChannel(node.PubKeyBytes,
 		func(_ kvdb.RTx, edge models.ChannelEdgeInfo,
-			c1, c2 *models.ChannelEdgePolicy1) error {
+			c1, c2 models.ChannelEdgePolicy) error {
 
 			numChannels++
 			totalCapacity += edge.GetCapacity()
@@ -7191,7 +7191,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 	var feeReports []*lnrpc.ChannelFeeReport
 	err = channelGraph.ForEachNodeChannel(selfNode.PubKeyBytes,
 		func(_ kvdb.RTx, chanInfo models.ChannelEdgeInfo,
-			edgePolicy, _ *models.ChannelEdgePolicy1) error {
+			edgePolicy, _ models.ChannelEdgePolicy) error {
 
 			// Self node should always have policies for its
 			// channels.
@@ -7205,17 +7205,18 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 			// rate. The fee rate field in the database the amount
 			// of mSAT charged per 1mil mSAT sent, so will divide by
 			// this to get the proper fee rate.
-			feeRateFixedPoint :=
-				edgePolicy.FeeProportionalMillionths
+			fwdPol := edgePolicy.ForwardingPolicy()
+			feeRateFixedPoint := fwdPol.FeeRate
 			feeRate := float64(feeRateFixedPoint) / feeBase
 
 			// Decode inbound fee from extra data.
 			var inboundFee lnwire.Fee
-			_, err := edgePolicy.ExtraOpaqueData.ExtractRecords(
-				&inboundFee,
-			)
-			if err != nil {
-				return err
+
+			if pol, ok := edgePolicy.(*models.ChannelEdgePolicy1); ok {
+				_, err := pol.ExtraOpaqueData.ExtractRecords(&inboundFee)
+				if err != nil {
+					return err
+				}
 			}
 
 			// TODO(roasbeef): also add stats for revenue for each
@@ -7223,7 +7224,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 			feeReports = append(feeReports, &lnrpc.ChannelFeeReport{
 				ChanId:       chanInfo.GetChanID(),
 				ChannelPoint: chanInfo.GetChanPoint().String(),
-				BaseFeeMsat:  int64(edgePolicy.FeeBaseMSat),
+				BaseFeeMsat:  int64(fwdPol.BaseFee),
 				FeePerMil:    int64(feeRateFixedPoint),
 				FeeRate:      feeRate,
 

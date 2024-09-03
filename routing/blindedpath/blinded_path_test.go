@@ -580,12 +580,12 @@ func TestBuildBlindedPath(t *testing.T) {
 		},
 	}
 
-	realPolicies := map[uint64]*models.ChannelEdgePolicy1{
-		chanCB: {
+	realPolicies := map[uint64]models.ChannelEdgePolicy{
+		chanCB: &models.ChannelEdgePolicy1{
 			ChannelID: chanCB,
 			ToNode:    bob,
 		},
-		chanBA: {
+		chanBA: &models.ChannelEdgePolicy1{
 			ChannelID: chanBA,
 			ToNode:    alice,
 		},
@@ -598,8 +598,8 @@ func TestBuildBlindedPath(t *testing.T) {
 			return []*route.Route{realRoute}, nil
 		},
 		FetchChannelEdgesByID: func(chanID uint64) (
-			models.ChannelEdgeInfo, *models.ChannelEdgePolicy1,
-			*models.ChannelEdgePolicy1, error) {
+			models.ChannelEdgeInfo, models.ChannelEdgePolicy,
+			models.ChannelEdgePolicy, error) {
 
 			return nil, realPolicies[chanID], nil, nil
 		},
@@ -766,8 +766,8 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 			return []*route.Route{realRoute}, nil
 		},
 		FetchChannelEdgesByID: func(chanID uint64) (
-			models.ChannelEdgeInfo, *models.ChannelEdgePolicy1,
-			*models.ChannelEdgePolicy1, error) {
+			models.ChannelEdgeInfo, models.ChannelEdgePolicy,
+			models.ChannelEdgePolicy, error) {
 
 			policy, ok := realPolicies[chanID]
 			if !ok {
@@ -937,8 +937,8 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 				nil
 		},
 		FetchChannelEdgesByID: func(chanID uint64) (
-			models.ChannelEdgeInfo, *models.ChannelEdgePolicy1,
-			*models.ChannelEdgePolicy1, error) {
+			models.ChannelEdgeInfo, models.ChannelEdgePolicy,
+			models.ChannelEdgePolicy, error) {
 
 			// Force the call to error for the first 2 channels.
 			if errCount < 2 {

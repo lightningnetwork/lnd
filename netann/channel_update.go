@@ -85,8 +85,7 @@ func SignChannelUpdate(signer lnwallet.MessageSigner, keyLoc keychain.KeyLocator
 //
 // NOTE: The passed policies can be nil.
 func ExtractChannelUpdate(ownerPubKey []byte,
-	info models.ChannelEdgeInfo,
-	policies ...*models.ChannelEdgePolicy1) (
+	info models.ChannelEdgeInfo, policies ...models.ChannelEdgePolicy) (
 	*lnwire.ChannelUpdate1, error) {
 
 	// Helper function to extract the owner of the given policy.
@@ -108,7 +107,13 @@ func ExtractChannelUpdate(ownerPubKey []byte,
 
 	// Extract the channel update from the policy we own, if any.
 	for _, edge := range policies {
-		if edge != nil && bytes.Equal(ownerPubKey, owner(edge)) {
+		e, ok := edge.(*models.ChannelEdgePolicy1)
+		if !ok {
+			return nil, fmt.Errorf("expected "+
+				"*models.ChannelEdgePolicy1, got: %T", edge)
+		}
+
+		if edge != nil && bytes.Equal(ownerPubKey, owner(e)) {
 			return ChannelUpdateFromEdge(info, edge)
 		}
 	}
@@ -152,20 +157,27 @@ func unsignedChanPolicy1ToUpdate(chainHash chainhash.Hash,
 // ChannelUpdateFromEdge reconstructs a signed ChannelUpdate from the given
 // edge info and policy.
 func ChannelUpdateFromEdge(info models.ChannelEdgeInfo,
-	policy *models.ChannelEdgePolicy1) (*lnwire.ChannelUpdate1, error) {
+	policy models.ChannelEdgePolicy) (*lnwire.ChannelUpdate1, error) {
 
-	sig, err := policy.Signature()
-	if err != nil {
-		return nil, err
+	switch p := policy.(type) {
+	case *models.ChannelEdgePolicy1:
+		sig, err := p.Signature()
+		if err != nil {
+			return nil, err
+		}
+
+		s, err := lnwire.NewSigFromSignature(sig)
+		if err != nil {
+			return nil, err
+		}
+
+		update := unsignedChanPolicy1ToUpdate(info.GetChainHash(), p)
+		update.Signature = s
+
+		return update, nil
+
+	default:
+		return nil, fmt.Errorf("unhandled implementation of the "+
+			"models.ChanelEdgePolicy interface: %T", policy)
 	}
-
-	s, err := lnwire.NewSigFromSignature(sig)
-	if err != nil {
-		return nil, err
-	}
-
-	update := unsignedChanPolicy1ToUpdate(info.GetChainHash(), policy)
-	update.Signature = s
-
-	return update, nil
 }

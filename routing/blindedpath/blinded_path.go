@@ -43,7 +43,7 @@ type BuildBlindedPathCfg struct {
 	// FetchChannelEdgesByID attempts to look up the two directed edges for
 	// the channel identified by the channel ID.
 	FetchChannelEdgesByID func(chanID uint64) (models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy1, *models.ChannelEdgePolicy1, error)
+		models.ChannelEdgePolicy, models.ChannelEdgePolicy, error)
 
 	// FetchOurOpenChannels fetches this node's set of open channels.
 	FetchOurOpenChannels func() ([]*channeldb.OpenChannel, error)
@@ -648,16 +648,24 @@ func getNodeChannelPolicy(cfg *BuildBlindedPathCfg, chanID uint64,
 		return nil, err
 	}
 
+	var update1ToNode, update2ToNode [33]byte
+	if update1 != nil {
+		update1ToNode = update1.GetToNode()
+	}
+	if update2 != nil {
+		update2ToNode = update2.GetToNode()
+	}
+
 	// Now we need to determine which of the updates was created by the
 	// node in question. We know the update is the correct one if the
 	// "ToNode" for the fetched policy is _not_ equal to the node ID in
 	// question.
-	var policy *models.ChannelEdgePolicy1
+	var policy models.ChannelEdgePolicy
 	switch {
-	case update1 != nil && !bytes.Equal(update1.ToNode[:], nodeID[:]):
+	case update1 != nil && !bytes.Equal(update1ToNode[:], nodeID[:]):
 		policy = update1
 
-	case update2 != nil && !bytes.Equal(update2.ToNode[:], nodeID[:]):
+	case update2 != nil && !bytes.Equal(update2ToNode[:], nodeID[:]):
 		policy = update2
 
 	default:
@@ -665,12 +673,14 @@ func getNodeChannelPolicy(cfg *BuildBlindedPathCfg, chanID uint64,
 			"%s for channel %d", nodeID, chanID)
 	}
 
+	fwdPolicy := policy.ForwardingPolicy()
+
 	return &BlindedHopPolicy{
-		CLTVExpiryDelta: policy.TimeLockDelta,
-		FeeRate:         uint32(policy.FeeProportionalMillionths),
-		BaseFee:         policy.FeeBaseMSat,
-		MinHTLCMsat:     policy.MinHTLC,
-		MaxHTLCMsat:     policy.MaxHTLC,
+		CLTVExpiryDelta: fwdPolicy.TimeLockDelta,
+		FeeRate:         uint32(fwdPolicy.FeeRate),
+		BaseFee:         fwdPolicy.BaseFee,
+		MinHTLCMsat:     fwdPolicy.MinHTLC,
+		MaxHTLCMsat:     fwdPolicy.MaxHTLC,
 	}, nil
 }
 

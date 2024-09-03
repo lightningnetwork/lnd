@@ -1455,20 +1455,21 @@ func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 		// For each channel announcement message, we'll only send this
 		// message if the channel updates for the channel are between
 		// our time range.
-		case *lnwire.ChannelAnnouncement1:
+		case lnwire.ChannelAnnouncement:
+			scid := msg.SCID()
+
 			// First, we'll check if the channel updates are in
 			// this message batch.
-			chanUpdates, ok := chanUpdateIndex[msg.ShortChannelID]
+			chanUpdates, ok := chanUpdateIndex[scid]
 			if !ok {
 				// If not, we'll attempt to query the database
 				// to see if we know of the updates.
 				chanUpdates, err = g.cfg.channelSeries.FetchChanUpdates(
-					g.cfg.chainHash, msg.ShortChannelID,
+					g.cfg.chainHash, scid,
 				)
 				if err != nil {
-					log.Warnf("no channel updates found for "+
-						"short_chan_id=%v",
-						msg.ShortChannelID)
+					log.Warnf("no channel updates found "+
+						"for short_chan_id=%v", scid)
 					continue
 				}
 			}

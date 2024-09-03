@@ -1051,25 +1051,27 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		var forwardingPolicy *models.ForwardingPolicy
 		if selfPolicy != nil {
 			var inboundWireFee lnwire.Fee
-			_, err := selfPolicy.ExtraOpaqueData.ExtractRecords(
-				&inboundWireFee,
-			)
-			if err != nil {
-				return nil, err
+			if pol, ok := selfPolicy.(*models.ChannelEdgePolicy1); ok {
+				_, err := pol.ExtraOpaqueData.ExtractRecords(
+					&inboundWireFee,
+				)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			inboundFee := models.NewInboundFeeFromWire(
 				inboundWireFee,
 			)
 
+			pol := selfPolicy.ForwardingPolicy()
 			forwardingPolicy = &models.ForwardingPolicy{
-				MinHTLCOut:    selfPolicy.MinHTLC,
-				MaxHTLC:       selfPolicy.MaxHTLC,
-				BaseFee:       selfPolicy.FeeBaseMSat,
-				FeeRate:       selfPolicy.FeeProportionalMillionths,
-				TimeLockDelta: uint32(selfPolicy.TimeLockDelta),
-
-				InboundFee: inboundFee,
+				MinHTLCOut:    pol.MinHTLC,
+				MaxHTLC:       pol.MaxHTLC,
+				BaseFee:       pol.BaseFee,
+				FeeRate:       pol.FeeRate,
+				TimeLockDelta: uint32(pol.TimeLockDelta),
+				InboundFee:    inboundFee,
 			}
 		} else {
 			p.log.Warnf("Unable to find our forwarding policy "+
@@ -1965,8 +1967,10 @@ out:
 
 		case *lnwire.ChannelUpdate1,
 			*lnwire.ChannelAnnouncement1,
+			*lnwire.ChannelAnnouncement2,
 			*lnwire.NodeAnnouncement,
 			*lnwire.AnnounceSignatures1,
+			*lnwire.AnnounceSignatures2,
 			*lnwire.GossipTimestampRange,
 			*lnwire.QueryShortChanIDs,
 			*lnwire.QueryChannelRange,
@@ -2224,13 +2228,13 @@ func messageSummary(msg lnwire.Message) string {
 	case *lnwire.Error:
 		return fmt.Sprintf("%v", msg.Error())
 
-	case *lnwire.AnnounceSignatures1:
-		return fmt.Sprintf("chan_id=%v, short_chan_id=%v", msg.ChannelID,
-			msg.ShortChannelID.ToUint64())
+	case lnwire.AnnounceSignatures:
+		return fmt.Sprintf("chan_id=%v, short_chan_id=%v", msg.SCID(),
+			msg.SCID().ToUint64())
 
-	case *lnwire.ChannelAnnouncement1:
+	case lnwire.ChannelAnnouncement:
 		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v",
-			msg.ChainHash, msg.ShortChannelID.ToUint64())
+			msg.GetChainHash(), msg.SCID().ToUint64())
 
 	case *lnwire.ChannelUpdate1:
 		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v, "+

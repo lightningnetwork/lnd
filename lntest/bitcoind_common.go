@@ -126,6 +126,8 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 		fmt.Sprintf("-port=%d", p2pPort),
 		"-zmqpubrawblock=" + zmqBlockAddr,
 		"-zmqpubrawtx=" + zmqTxAddr,
+		"-debug",
+		"-debugexclude=libevent",
 		"-debuglogfile=" + logFile,
 	}
 	cmdArgs = append(cmdArgs, extraArgs...)

@@ -1413,16 +1413,16 @@ func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 	// to quickly check if we should forward a chan ann, based on the known
 	// channel updates for a channel.
 	chanUpdateIndex := make(
-		map[lnwire.ShortChannelID][]*lnwire.ChannelUpdate1,
+		map[lnwire.ShortChannelID][]lnwire.ChannelUpdate,
 	)
 	for _, msg := range msgs {
-		chanUpdate, ok := msg.msg.(*lnwire.ChannelUpdate1)
+		chanUpdate, ok := msg.msg.(lnwire.ChannelUpdate)
 		if !ok {
 			continue
 		}
 
-		chanUpdateIndex[chanUpdate.ShortChannelID] = append(
-			chanUpdateIndex[chanUpdate.ShortChannelID], chanUpdate,
+		chanUpdateIndex[chanUpdate.SCID()] = append(
+			chanUpdateIndex[chanUpdate.SCID()], chanUpdate,
 		)
 	}
 
@@ -1475,7 +1475,16 @@ func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 			}
 
 			for _, chanUpdate := range chanUpdates {
-				if passesFilter(chanUpdate.Timestamp) {
+				update, ok := chanUpdate.(*lnwire.ChannelUpdate1)
+				if !ok {
+					log.Errorf("expected "+
+						"*lnwire.ChannelUpdate1, "+
+						"got: %T", update)
+
+					continue
+				}
+
+				if passesFilter(update.Timestamp) {
 					msgsToSend = append(msgsToSend, msg)
 					break
 				}

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -94,7 +93,7 @@ type mockGraphSource struct {
 	mu             sync.Mutex
 	nodes          []channeldb.LightningNode
 	infos          map[uint64]models.ChannelEdgeInfo
-	edges          map[uint64][]models.ChannelEdgePolicy1
+	edges          map[uint64][]models.ChannelEdgePolicy
 	zombies        map[uint64][][33]byte
 	chansToReject  map[uint64]struct{}
 	addEdgeErrCode fn.Option[graph.ErrorCode]
@@ -104,7 +103,7 @@ func newMockRouter(height uint32) *mockGraphSource {
 	return &mockGraphSource{
 		bestHeight:    height,
 		infos:         make(map[uint64]models.ChannelEdgeInfo),
-		edges:         make(map[uint64][]models.ChannelEdgePolicy1),
+		edges:         make(map[uint64][]models.ChannelEdgePolicy),
 		zombies:       make(map[uint64][][33]byte),
 		chansToReject: make(map[uint64]struct{}),
 	}
@@ -162,20 +161,22 @@ func (r *mockGraphSource) queueValidationFail(chanID uint64) {
 	r.chansToReject[chanID] = struct{}{}
 }
 
-func (r *mockGraphSource) UpdateEdge(edge *models.ChannelEdgePolicy1,
+func (r *mockGraphSource) UpdateEdge(edge models.ChannelEdgePolicy,
 	_ ...batch.SchedulerOption) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if len(r.edges[edge.ChannelID]) == 0 {
-		r.edges[edge.ChannelID] = make([]models.ChannelEdgePolicy1, 2)
+	chanID := edge.SCID().ToUint64()
+
+	if len(r.edges[chanID]) == 0 {
+		r.edges[chanID] = make([]models.ChannelEdgePolicy, 2)
 	}
 
-	if edge.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
-		r.edges[edge.ChannelID][0] = *edge
+	if edge.IsNode1() {
+		r.edges[chanID][0] = edge
 	} else {
-		r.edges[edge.ChannelID][1] = *edge
+		r.edges[chanID][1] = edge
 	}
 
 	return nil
@@ -219,7 +220,6 @@ func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
 	chans := make(map[uint64]channeldb.ChannelEdge)
 	for _, info := range r.infos {
 		info := info
@@ -231,9 +231,9 @@ func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 	for _, edges := range r.edges {
 		edges := edges
 
-		edge := chans[edges[0].ChannelID]
-		edge.Policy1 = &edges[0]
-		chans[edges[0].ChannelID] = edge
+		edge := chans[edges[0].SCID().ToUint64()]
+		edge.Policy1 = edges[0]
+		chans[edges[0].SCID().ToUint64()] = edge
 	}
 
 	for _, channel := range chans {
@@ -241,7 +241,6 @@ func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -267,22 +266,24 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 		}, nil, nil, channeldb.ErrZombieEdge
 	}
 
+	chanInfoCP := chanInfo.Copy()
+
 	edges := r.edges[chanID.ToUint64()]
 	if len(edges) == 0 {
-		return chanInfo, nil, nil, nil
+		return chanInfoCP, nil, nil, nil
 	}
 
-	var edge1 *models.ChannelEdgePolicy1
+	var edge1 models.ChannelEdgePolicy
 	if !reflect.DeepEqual(edges[0], models.ChannelEdgePolicy1{}) {
-		edge1 = &edges[0]
+		edge1 = edges[0]
 	}
 
-	var edge2 *models.ChannelEdgePolicy1
+	var edge2 models.ChannelEdgePolicy
 	if !reflect.DeepEqual(edges[1], models.ChannelEdgePolicy1{}) {
-		edge2 = &edges[1]
+		edge2 = edges[1]
 	}
 
-	return chanInfo, edge1, edge2, nil
+	return chanInfoCP, edge1, edge2, nil
 }
 
 func (r *mockGraphSource) FetchLightningNode(
@@ -358,10 +359,17 @@ func (r *mockGraphSource) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
 // IsStaleEdgePolicy returns true if the graph source has a channel edge for
 // the passed channel ID (and flags) that have a more recent timestamp.
 func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
-	timestamp time.Time, flags lnwire.ChanUpdateChanFlags) bool {
+	policy lnwire.ChannelUpdate) bool {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	pol, ok := policy.(*lnwire.ChannelUpdate1)
+	if !ok {
+		panic("expected chan update 1")
+	}
+
+	timestamp := time.Unix(int64(pol.Timestamp), 0)
 
 	chanIDInt := chanID.ToUint64()
 	edges, ok := r.edges[chanIDInt]
@@ -372,7 +380,6 @@ func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 		if !isZombie {
 			return false
 		}
-
 		// Since it exists within our zombie index, we'll check that it
 		// respects the router's live edge horizon to determine whether
 		// it is stale or not.
@@ -380,15 +387,21 @@ func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	}
 
 	switch {
-	case flags&lnwire.ChanUpdateDirection == 0 &&
-		!reflect.DeepEqual(edges[0], models.ChannelEdgePolicy1{}):
+	case policy.IsNode1() && edges[0] != nil:
+		switch edge := edges[0].(type) {
+		case *models.ChannelEdgePolicy1:
+			return !timestamp.After(edge.LastUpdate)
+		default:
+			panic(fmt.Sprintf("unhandled: %T", edges[0]))
+		}
 
-		return !timestamp.After(edges[0].LastUpdate)
-
-	case flags&lnwire.ChanUpdateDirection == 1 &&
-		!reflect.DeepEqual(edges[1], models.ChannelEdgePolicy1{}):
-
-		return !timestamp.After(edges[1].LastUpdate)
+	case !policy.IsNode1() && edges[1] != nil:
+		switch edge := edges[1].(type) {
+		case *models.ChannelEdgePolicy1:
+			return !timestamp.After(edge.LastUpdate)
+		default:
+			panic(fmt.Sprintf("unhandled: %T", edges[1]))
+		}
 
 	default:
 		return false
@@ -759,10 +772,8 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 		return false
 	}
 
-	signAliasUpdate := func(*lnwire.ChannelUpdate1) (*ecdsa.Signature,
-		error) {
-
-		return nil, nil
+	signAliasUpdate := func(lnwire.ChannelUpdate) error {
+		return nil
 	}
 
 	findBaseByAlias := func(lnwire.ShortChannelID) (lnwire.ShortChannelID,
@@ -1472,10 +1483,8 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		return false
 	}
 
-	signAliasUpdate := func(*lnwire.ChannelUpdate1) (*ecdsa.Signature,
-		error) {
-
-		return nil, nil
+	signAliasUpdate := func(lnwire.ChannelUpdate) error {
+		return nil
 	}
 
 	findBaseByAlias := func(lnwire.ShortChannelID) (lnwire.ShortChannelID,
@@ -1881,7 +1890,8 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	assertChannelUpdate := func(channelUpdate *lnwire.ChannelUpdate1) {
 		channelKey := channelUpdateID{
 			ua3.ShortChannelID,
-			ua3.ChannelFlags,
+			ua3.IsDisabled(),
+			ua3.IsNode1(),
 		}
 
 		mws, ok := announcements.channelUpdates[channelKey]
@@ -2824,7 +2834,7 @@ func TestRetransmit(t *testing.T) {
 			switch msg.(type) {
 			case lnwire.ChannelAnnouncement:
 				chanAnn++
-			case *lnwire.ChannelUpdate1:
+			case lnwire.ChannelUpdate:
 				chanUpd++
 			case *lnwire.NodeAnnouncement:
 				nodeAnn++
@@ -3311,7 +3321,7 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 		}
 
 		switch msg := msg.(type) {
-		case *lnwire.ChannelUpdate1:
+		case lnwire.ChannelUpdate:
 			assertMessage(t, staleChannelUpdate, msg)
 		case *lnwire.AnnounceSignatures1:
 			assertMessage(t, batch.localProofAnn, msg)

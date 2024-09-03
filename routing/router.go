@@ -284,7 +284,7 @@ type Config struct {
 
 	// ApplyChannelUpdate can be called to apply a new channel update to the
 	// graph that we received from a payment failure.
-	ApplyChannelUpdate func(msg *lnwire.ChannelUpdate1) bool
+	ApplyChannelUpdate func(msg lnwire.ChannelUpdate) bool
 
 	// ClosedSCIDs is used by the router to fetch closed channels.
 	//
@@ -1270,20 +1270,20 @@ func (r *ChannelRouter) sendPayment(ctx context.Context,
 
 // extractChannelUpdate examines the error and extracts the channel update.
 func (r *ChannelRouter) extractChannelUpdate(
-	failure lnwire.FailureMessage) *lnwire.ChannelUpdate1 {
+	failure lnwire.FailureMessage) lnwire.ChannelUpdate {
 
-	var update *lnwire.ChannelUpdate1
+	var update lnwire.ChannelUpdate
 	switch onionErr := failure.(type) {
 	case *lnwire.FailExpiryTooSoon:
-		update = &onionErr.Update
+		update = onionErr.Update
 	case *lnwire.FailAmountBelowMinimum:
-		update = &onionErr.Update
+		update = onionErr.Update
 	case *lnwire.FailFeeInsufficient:
-		update = &onionErr.Update
+		update = onionErr.Update
 	case *lnwire.FailIncorrectCltvExpiry:
-		update = &onionErr.Update
+		update = onionErr.Update
 	case *lnwire.FailChannelDisabled:
-		update = &onionErr.Update
+		update = onionErr.Update
 	case *lnwire.FailTemporaryChannelFailure:
 		update = onionErr.Update
 	}

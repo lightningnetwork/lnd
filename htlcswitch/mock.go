@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
@@ -166,10 +165,20 @@ type mockServer struct {
 var _ lnpeer.Peer = (*mockServer)(nil)
 
 func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) {
-	signAliasUpdate := func(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
-		error) {
+	signAliasUpdate := func(update lnwire.ChannelUpdate) error {
+		s, err := lnwire.NewSigFromSignature(testSig)
+		if err != nil {
+			return err
+		}
 
-		return testSig, nil
+		switch u := update.(type) {
+		case *lnwire.ChannelUpdate1:
+			u.Signature = s
+		case *lnwire.ChannelUpdate2:
+			u.Signature = s
+		}
+
+		return nil
 	}
 
 	cfg := Config{
@@ -182,7 +191,7 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 			events: make(map[time.Time]channeldb.ForwardingEvent),
 		},
 		FetchLastChannelUpdate: func(scid lnwire.ShortChannelID) (
-			*lnwire.ChannelUpdate1, error) {
+			lnwire.ChannelUpdate, error) {
 
 			return &lnwire.ChannelUpdate1{
 				ShortChannelID: scid,
@@ -734,7 +743,7 @@ type mockChannelLink struct {
 	checkHtlcForwardResult *LinkError
 
 	failAliasUpdate func(sid lnwire.ShortChannelID,
-		incoming bool) *lnwire.ChannelUpdate1
+		incoming bool) lnwire.ChannelUpdate
 
 	confirmedZC bool
 }
@@ -869,7 +878,7 @@ func (f *mockChannelLink) AttachMailBox(mailBox MailBox) {
 }
 
 func (f *mockChannelLink) attachFailAliasUpdate(closure func(
-	sid lnwire.ShortChannelID, incoming bool) *lnwire.ChannelUpdate1) {
+	sid lnwire.ShortChannelID, incoming bool) lnwire.ChannelUpdate) {
 
 	f.failAliasUpdate = closure
 }

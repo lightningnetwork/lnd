@@ -6166,13 +6166,13 @@ func TestForwardingAsymmetricTimeLockPolicies(t *testing.T) {
 // forwarding policy.
 func TestCheckHtlcForward(t *testing.T) {
 	fetchLastChannelUpdate := func(lnwire.ShortChannelID) (
-		*lnwire.ChannelUpdate1, error) {
+		lnwire.ChannelUpdate, error) {
 
 		return &lnwire.ChannelUpdate1{}, nil
 	}
 
 	failAliasUpdate := func(sid lnwire.ShortChannelID,
-		incoming bool) *lnwire.ChannelUpdate1 {
+		incoming bool) lnwire.ChannelUpdate {
 
 		return nil
 	}

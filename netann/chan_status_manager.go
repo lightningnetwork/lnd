@@ -7,9 +7,9 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -49,7 +49,10 @@ type ChanStatusConfig struct {
 	OurKeyLoc keychain.KeyLocator
 
 	// MessageSigner signs messages that validate under OurPubKey.
-	MessageSigner lnwallet.MessageSigner
+	MessageSigner keychain.MessageSignerRing
+
+	// BestBlockView gives access to the current best block.
+	BestBlockView chainntnfs.BestBlockView
 
 	// IsChannelActive checks whether the channel identified by the provided
 	// ChannelID is considered active. This should only return true if the
@@ -60,7 +63,7 @@ type ChanStatusConfig struct {
 	// ApplyChannelUpdate processes new ChannelUpdates signed by our node by
 	// updating our local routing table and broadcasting the update to our
 	// peers.
-	ApplyChannelUpdate func(*lnwire.ChannelUpdate1, *wire.OutPoint,
+	ApplyChannelUpdate func(lnwire.ChannelUpdate, *wire.OutPoint,
 		bool) error
 
 	// DB stores the set of channels that are to be monitored.
@@ -634,9 +637,14 @@ func (m *ChanStatusManager) signAndSendNextUpdate(outpoint wire.OutPoint,
 		return err
 	}
 
+	height, err := m.cfg.BestBlockView.BestHeight()
+	if err != nil {
+		return err
+	}
+
 	err = SignChannelUpdate(
 		m.cfg.MessageSigner, m.cfg.OurKeyLoc, chanUpdate,
-		ChanUpdSetDisable(disabled), ChanUpdSetTimestamp,
+		ChanUpdSetDisable(disabled), ChanUpdSetTimestamp(height),
 	)
 	if err != nil {
 		return err
@@ -650,7 +658,7 @@ func (m *ChanStatusManager) signAndSendNextUpdate(outpoint wire.OutPoint,
 // in case our ChannelEdgePolicy is not found in the database. Also returns if
 // the channel is private by checking AuthProof for nil.
 func (m *ChanStatusManager) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (
-	*lnwire.ChannelUpdate1, bool, error) {
+	lnwire.ChannelUpdate, bool, error) {
 
 	// Get the edge info and policies for this channel from the graph.
 	info, edge1, edge2, err := m.cfg.Graph.FetchChannelEdgesByOutpoint(&op)
@@ -681,7 +689,7 @@ func (m *ChanStatusManager) loadInitialChanState(
 	// Determine the channel's starting status by inspecting the disable bit
 	// on last announcement we sent out.
 	var initialStatus ChanStatus
-	if lastUpdate.ChannelFlags&lnwire.ChanUpdateDisabled == 0 {
+	if !lastUpdate.IsDisabled() {
 		initialStatus = ChanStatusEnabled
 	} else {
 		initialStatus = ChanStatusDisabled

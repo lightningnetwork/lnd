@@ -702,7 +702,7 @@ func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
 			return err
 		}
 
-		failureMsg = lnwire.NewExpiryTooSoon(*update)
+		failureMsg = lnwire.NewExpiryTooSoon(update)
 
 	default:
 		return ErrUnsupportedFailureCode

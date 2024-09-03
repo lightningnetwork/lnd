@@ -262,6 +262,12 @@ type SingleKeyMessageSigner interface {
 	// hashing it first, with the wrapped private key and returns the
 	// signature in the compact, public key recoverable format.
 	SignMessageCompact(message []byte, doubleHash bool) ([]byte, error)
+
+	// SignMessageSchnorr signs the given message, single or double SHA256
+	// hashing it first, with the private key described in the key locator
+	// and the optional Taproot tweak applied to the private key.
+	SignMessageSchnorr(keyLoc KeyLocator, msg []byte, doubleHash bool,
+		taprootTweak, tag []byte) (*schnorr.Signature, error)
 }
 
 // ECDHRing is an interface that abstracts away basic low-level ECDH shared key

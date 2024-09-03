@@ -39,7 +39,7 @@ type ChannelGraphSource interface {
 
 	// UpdateEdge is used to update edge information, without this message
 	// edge considered as not fully constructed.
-	UpdateEdge(policy *models.ChannelEdgePolicy1,
+	UpdateEdge(policy models.ChannelEdgePolicy,
 		op ...batch.SchedulerOption) error
 
 	// IsStaleNode returns true if the graph source has a node announcement
@@ -59,8 +59,8 @@ type ChannelGraphSource interface {
 	// IsStaleEdgePolicy returns true if the graph source has a channel
 	// edge for the passed channel ID (and flags) that have a more recent
 	// timestamp.
-	IsStaleEdgePolicy(chanID lnwire.ShortChannelID, timestamp time.Time,
-		flags lnwire.ChanUpdateChanFlags) bool
+	IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
+		policy lnwire.ChannelUpdate) bool
 
 	// MarkEdgeLive clears an edge from our zombie index, deeming it as
 	// live.

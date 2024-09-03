@@ -14,6 +14,8 @@ import (
 )
 
 type mockSigner struct {
+	keychain.MessageSignerRing
+
 	err error
 }
 
@@ -43,7 +45,7 @@ type updateDisableTest struct {
 	startEnabled bool
 	disable      bool
 	startTime    time.Time
-	signer       lnwallet.MessageSigner
+	signer       keychain.MessageSignerRing
 	expErr       error
 }
 
@@ -131,7 +133,7 @@ func TestUpdateDisableFlag(t *testing.T) {
 			err := netann.SignChannelUpdate(
 				tc.signer, testKeyLoc, newUpdate,
 				netann.ChanUpdSetDisable(tc.disable),
-				netann.ChanUpdSetTimestamp,
+				netann.ChanUpdSetTimestamp(0),
 			)
 
 			var fail bool

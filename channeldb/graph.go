@@ -2129,7 +2129,7 @@ type ChannelEdge struct {
 // ChanUpdatesInHorizon returns all the known channel edges which have at least
 // one edge that has an update timestamp within the specified horizon.
 func (c *ChannelGraph) ChanUpdatesInHorizon(startTime,
-	endTime time.Time) ([]ChannelEdge, error) {
+	endTime time.Time, startBlock, endBlock uint32) ([]ChannelEdge, error) {
 
 	// To ensure we don't return duplicate ChannelEdges, we'll use an
 	// additional map to keep track of the edges already seen to prevent
@@ -2138,50 +2138,30 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime,
 	var edgesToCache map[uint64]ChannelEdge
 	var edgesInHorizon []ChannelEdge
 
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
 	var hits int
-	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
-		edges := tx.ReadBucket(edgeBucket)
-		if edges == nil {
-			return ErrGraphNoEdgesFound
-		}
-		edgeIndex := edges.NestedReadBucket(edgeIndexBucket)
-		if edgeIndex == nil {
-			return ErrGraphNoEdgesFound
-		}
-		edgeUpdateIndex := edges.NestedReadBucket(edgeUpdateIndexBucket)
+	fetchUpdates := func(tx kvdb.RTx, edges, edgeIndex, nodes kvdb.RBucket,
+		updateIndexBkt []byte, startBytes, endBytes []byte,
+		chanIDFromKey func([]byte) []byte) error {
+
+		edgeUpdateIndex := edges.NestedReadBucket(updateIndexBkt)
 		if edgeUpdateIndex == nil {
 			return ErrGraphNoEdgesFound
-		}
-
-		nodes := tx.ReadBucket(nodeBucket)
-		if nodes == nil {
-			return ErrGraphNodesNotFound
 		}
 
 		// We'll now obtain a cursor to perform a range query within
 		// the index to find all channels within the horizon.
 		updateCursor := edgeUpdateIndex.ReadCursor()
 
-		var startTimeBytes, endTimeBytes [8 + 8]byte
-		byteOrder.PutUint64(
-			startTimeBytes[:8], uint64(startTime.Unix()),
-		)
-		byteOrder.PutUint64(
-			endTimeBytes[:8], uint64(endTime.Unix()),
-		)
-
 		// With our start and end times constructed, we'll step through
 		// the index collecting the info and policy of each update of
 		// each channel that has a last update within the time range.
-		for indexKey, _ := updateCursor.Seek(startTimeBytes[:]); indexKey != nil &&
-			bytes.Compare(indexKey, endTimeBytes[:]) <= 0; indexKey, _ = updateCursor.Next() {
+		//nolint:lll
+		for indexKey, _ := updateCursor.Seek(startBytes); indexKey != nil &&
+			bytes.Compare(indexKey, endBytes) <= 0; indexKey, _ = updateCursor.Next() { //nolint:whitespace
 
 			// We have a new eligible entry, so we'll slice of the
 			// chan ID so we can query it in the DB.
-			chanID := indexKey[8:]
+			chanID := chanIDFromKey(indexKey)
 
 			// If we've already retrieved the info and policies for
 			// this edge, then we can skip it as we don't need to do
@@ -2218,15 +2198,14 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime,
 					err)
 			}
 
-			var (
-				node1Bytes = edgeInfo.Node1Bytes()
-				node2Bytes = edgeInfo.Node2Bytes()
-			)
+			node1Bytes := edgeInfo.Node1Bytes()
 
 			node1, err := fetchLightningNode(nodes, node1Bytes[:])
 			if err != nil {
 				return err
 			}
+
+			node2Bytes := edgeInfo.Node2Bytes()
 
 			node2, err := fetchLightningNode(nodes, node2Bytes[:])
 			if err != nil {
@@ -2245,6 +2224,66 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime,
 			}
 			edgesInHorizon = append(edgesInHorizon, channel)
 			edgesToCache[chanIDInt] = channel
+		}
+
+		return nil
+	}
+
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+		edges := tx.ReadBucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		edgeIndex := edges.NestedReadBucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		nodes := tx.ReadBucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNodesNotFound
+		}
+
+		var startTimeBytes, endTimeBytes [8 + 8]byte
+		byteOrder.PutUint64(
+			startTimeBytes[:8], uint64(startTime.Unix()),
+		)
+		byteOrder.PutUint64(
+			endTimeBytes[:8], uint64(endTime.Unix()),
+		)
+
+		var noEdgesFound bool
+		err := fetchUpdates(
+			tx, edges, edgeIndex, nodes, edgeUpdateIndexBucket,
+			startTimeBytes[:], endTimeBytes[:],
+			func(key []byte) []byte {
+				return key[8:]
+			},
+		)
+		if errors.Is(err, ErrGraphNoEdgesFound) {
+			noEdgesFound = true
+		} else if err != nil {
+			return err
+		}
+
+		var startBlockBytes, endBlockBytes [4 + 8]byte
+		byteOrder.PutUint32(startTimeBytes[:4], startBlock)
+		byteOrder.PutUint32(endTimeBytes[:4], endBlock)
+
+		err = fetchUpdates(
+			tx, edges, edgeIndex, nodes, edgeUpdate2IndexBucket,
+			startBlockBytes[:], endBlockBytes[:],
+			func(key []byte) []byte {
+				return key[4:]
+			},
+		)
+		if errors.Is(err, ErrGraphNoEdgesFound) && noEdgesFound {
+			return err
+		} else if err != nil {
+			return err
 		}
 
 		return nil
@@ -3664,7 +3703,9 @@ func (c *ChannelGraph) FetchOtherNode(tx kvdb.RTx,
 	// otherwise we can use the existing db transaction.
 	var err error
 	if tx == nil {
-		err = kvdb.View(c.db, fetchNodeFunc, func() { targetNode = nil })
+		err = kvdb.View(c.db, fetchNodeFunc, func() {
+			targetNode = nil
+		})
 	} else {
 		err = fetchNodeFunc(tx)
 	}

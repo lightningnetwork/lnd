@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 	"golang.org/x/time/rate"
 )
 
@@ -621,8 +622,12 @@ func (g *GossipSyncer) channelGraphSyncer() {
 			if g.localUpdateHorizon == nil &&
 				syncType.IsActiveSync() {
 
+				startBlock := g.cfg.bestHeight()
+				blockRange := uint32(math.MaxUint32)
+
 				err := g.sendGossipTimestampRange(
 					time.Now(), math.MaxUint32,
+					&startBlock, &blockRange,
 				)
 				if err != nil {
 					log.Errorf("Unable to send update "+
@@ -689,11 +694,22 @@ func (g *GossipSyncer) replyHandler() {
 // sendGossipTimestampRange constructs and sets a GossipTimestampRange for the
 // syncer and sends it to the remote peer.
 func (g *GossipSyncer) sendGossipTimestampRange(firstTimestamp time.Time,
-	timestampRange uint32) error {
+	timestampRange uint32, firstBlock, blockRange *uint32) error {
 
 	endTimestamp := firstTimestamp.Add(
 		time.Duration(timestampRange) * time.Second,
 	)
+
+	if firstBlock != nil && blockRange != nil {
+		log.Infof("GossipSyncer(%x): applying "+
+			"gossipFilter(start-time=%v, end-time=%v, "+
+			"start-block=%v, block-range=%v)", g.cfg.peerPub[:],
+			firstTimestamp, endTimestamp, *firstBlock, *blockRange)
+	} else {
+		log.Infof("GossipSyncer(%x): applying "+
+			"gossipFilter(start-time=%v, end-time=%v",
+			g.cfg.peerPub[:], firstTimestamp, endTimestamp)
+	}
 
 	log.Infof("GossipSyncer(%x): applying gossipFilter(start=%v, end=%v)",
 		g.cfg.peerPub[:], firstTimestamp, endTimestamp)
@@ -704,11 +720,28 @@ func (g *GossipSyncer) sendGossipTimestampRange(firstTimestamp time.Time,
 		TimestampRange: timestampRange,
 	}
 
+	if firstBlock != nil {
+		first := tlv.ZeroRecordT[tlv.TlvType2, uint32]()
+		first.Val = *firstBlock
+
+		localUpdateHorizon.FirstBlockHeight = tlv.SomeRecordT(first)
+	}
+
+	if blockRange != nil {
+		bRange := tlv.ZeroRecordT[tlv.TlvType4, uint32]()
+		bRange.Val = *blockRange
+
+		localUpdateHorizon.BlockRange = tlv.SomeRecordT(bRange)
+	}
+
 	if err := g.cfg.sendToPeer(localUpdateHorizon); err != nil {
 		return err
 	}
 
-	if firstTimestamp == zeroTimestamp && timestampRange == 0 {
+	noTimeStamps := firstTimestamp == zeroTimestamp && timestampRange == 0
+	noBlockHeights := firstBlock == nil && blockRange == nil
+
+	if noTimeStamps && noBlockHeights {
 		g.localUpdateHorizon = nil
 	} else {
 		g.localUpdateHorizon = localUpdateHorizon
@@ -1318,6 +1351,13 @@ func (g *GossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) er
 		time.Duration(g.remoteUpdateHorizon.TimestampRange) * time.Second,
 	)
 
+	var (
+		startBlock = tlv.ZeroRecordT[tlv.TlvType2, uint32]()
+		endBlock   = tlv.ZeroRecordT[tlv.TlvType4, uint32]()
+	)
+	startBlock = g.remoteUpdateHorizon.FirstBlockHeight.UnwrapOr(startBlock)
+	endBlock = g.remoteUpdateHorizon.BlockRange.UnwrapOr(endBlock)
+
 	g.Unlock()
 
 	// If requested, don't reply with historical gossip data when the remote
@@ -1341,7 +1381,7 @@ func (g *GossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) er
 	// Now that the remote peer has applied their filter, we'll query the
 	// database for all the messages that are beyond this filter.
 	newUpdatestoSend, err := g.cfg.channelSeries.UpdatesInHorizon(
-		g.cfg.chainHash, startTime, endTime,
+		startTime, endTime, startBlock.Val, endBlock.Val,
 	)
 	if err != nil {
 		returnSema()
@@ -1433,12 +1473,23 @@ func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 	endTime := startTime.Add(
 		time.Duration(g.remoteUpdateHorizon.TimestampRange) * time.Second,
 	)
+
+	var (
+		startBlock tlv.RecordT[tlv.TlvType2, uint32]
+		endBlock   tlv.RecordT[tlv.TlvType4, uint32]
+	)
+	startBlock = g.remoteUpdateHorizon.FirstBlockHeight.UnwrapOr(startBlock)
+	endBlock = g.remoteUpdateHorizon.BlockRange.UnwrapOr(endBlock)
 	g.Unlock()
 
-	passesFilter := func(timeStamp uint32) bool {
+	passesTimestampFilter := func(timeStamp uint32) bool {
 		t := time.Unix(int64(timeStamp), 0)
 		return t.Equal(startTime) ||
 			(t.After(startTime) && t.Before(endTime))
+	}
+
+	passesBlockHeightFilter := func(height uint32) bool {
+		return height >= startBlock.Val && height < endBlock.Val
 	}
 
 	msgsToSend := make([]lnwire.Message, 0, len(msgs))
@@ -1475,18 +1526,29 @@ func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 			}
 
 			for _, chanUpdate := range chanUpdates {
-				update, ok := chanUpdate.(*lnwire.ChannelUpdate1)
-				if !ok {
-					log.Errorf("expected "+
-						"*lnwire.ChannelUpdate1, "+
-						"got: %T", update)
+				switch update := chanUpdate.(type) {
+				case *lnwire.ChannelUpdate1:
+					if passesTimestampFilter(
+						update.Timestamp,
+					) {
 
-					continue
-				}
+						msgsToSend = append(
+							msgsToSend, msg,
+						)
 
-				if passesFilter(update.Timestamp) {
-					msgsToSend = append(msgsToSend, msg)
-					break
+						break
+					}
+				case *lnwire.ChannelUpdate2:
+					if passesBlockHeightFilter(
+						update.BlockHeight.Val,
+					) {
+
+						msgsToSend = append(
+							msgsToSend, msg,
+						)
+
+						break
+					}
 				}
 			}
 
@@ -1494,17 +1556,24 @@ func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 				msgsToSend = append(msgsToSend, msg)
 			}
 
-		// For each channel update, we'll only send if it the timestamp
+		// For each channel update 1, we'll only send if the timestamp
 		// is between our time range.
 		case *lnwire.ChannelUpdate1:
-			if passesFilter(msg.Timestamp) {
+			if passesTimestampFilter(msg.Timestamp) {
+				msgsToSend = append(msgsToSend, msg)
+			}
+
+		// For each channel update 2, we'll only send if the block
+		// height is between our block range.
+		case *lnwire.ChannelUpdate2:
+			if passesBlockHeightFilter(msg.BlockHeight.Val) {
 				msgsToSend = append(msgsToSend, msg)
 			}
 
 		// Similarly, we only send node announcements if the update
 		// timestamp ifs between our set gossip filter time range.
 		case *lnwire.NodeAnnouncement:
-			if passesFilter(msg.Timestamp) {
+			if passesTimestampFilter(msg.Timestamp) {
 				msgsToSend = append(msgsToSend, msg)
 			}
 		}
@@ -1624,6 +1693,8 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 	var (
 		firstTimestamp time.Time
 		timestampRange uint32
+		firstBlock     *uint32
+		blockRange     *uint32
 	)
 
 	switch req.newSyncType {
@@ -1632,6 +1703,10 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 	case ActiveSync, PinnedSync:
 		firstTimestamp = time.Now()
 		timestampRange = math.MaxUint32
+		bestHeight := g.cfg.bestHeight()
+		firstBlock = &bestHeight
+		heightRange := uint32(math.MaxUint32)
+		blockRange = &heightRange
 
 	// If a PassiveSync transition has been requested, then we should no
 	// longer receive any new updates from the remote peer. We can do this
@@ -1646,7 +1721,9 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 			req.newSyncType)
 	}
 
-	err := g.sendGossipTimestampRange(firstTimestamp, timestampRange)
+	err := g.sendGossipTimestampRange(
+		firstTimestamp, timestampRange, firstBlock, blockRange,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to send local update horizon: %w",
 			err)

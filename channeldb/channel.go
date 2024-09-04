@@ -260,6 +260,10 @@ type openChannelTlvData struct {
 	// customBlob is an optional TLV encoded blob of data representing
 	// custom channel funding information.
 	customBlob tlv.OptionalRecordT[tlv.TlvType7, tlv.Blob]
+
+	// commitChainEpochHistory is the optional TLV encoded blob of data
+	// representing the commit chain epoch history for the channel.
+	commitChainEpochHistory tlv.OptionalRecordT[tlv.TlvType8, CommitChainEpochHistory] //nolint:lll
 }
 
 // encode serializes the openChannelTlvData to the given io.Writer.
@@ -281,6 +285,11 @@ func (c *openChannelTlvData) encode(w io.Writer) error {
 	c.customBlob.WhenSome(func(blob tlv.RecordT[tlv.TlvType7, tlv.Blob]) {
 		tlvRecords = append(tlvRecords, blob.Record())
 	})
+	c.commitChainEpochHistory.WhenSome(
+		func(hist tlv.RecordT[tlv.TlvType8, CommitChainEpochHistory]) {
+			tlvRecords = append(tlvRecords, hist.Record())
+		},
+	)
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(tlvRecords...)
@@ -296,6 +305,7 @@ func (c *openChannelTlvData) decode(r io.Reader) error {
 	memo := c.memo.Zero()
 	tapscriptRoot := c.tapscriptRoot.Zero()
 	blob := c.customBlob.Zero()
+	commitChainEpochHistory := c.commitChainEpochHistory.Zero()
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(
@@ -306,6 +316,7 @@ func (c *openChannelTlvData) decode(r io.Reader) error {
 		memo.Record(),
 		tapscriptRoot.Record(),
 		blob.Record(),
+		commitChainEpochHistory.Record(),
 	)
 	if err != nil {
 		return err
@@ -324,6 +335,10 @@ func (c *openChannelTlvData) decode(r io.Reader) error {
 	}
 	if _, ok := tlvs[c.customBlob.TlvType()]; ok {
 		c.customBlob = tlv.SomeRecordT(blob)
+	}
+	if _, ok := tlvs[c.commitChainEpochHistory.TlvType()]; ok {
+		c.commitChainEpochHistory =
+			tlv.SomeRecordT(commitChainEpochHistory)
 	}
 
 	return nil
@@ -947,6 +962,10 @@ type OpenChannel struct {
 	// commitment.
 	Commitments lntypes.Dual[ChannelCommitment]
 
+	// CommitChainEpochHistory is the history of the CommitmentParams for
+	// each side of the channel.
+	CommitChainEpochHistory CommitChainEpochHistory
+
 	// RemoteCurrentRevocation is the current revocation for their
 	// commitment transaction. However, since this the derived public key,
 	// we don't yet have the private key so we aren't yet able to verify
@@ -1207,6 +1226,11 @@ func (c *OpenChannel) amendTlvData(auxData openChannelTlvData) {
 	auxData.customBlob.WhenSomeV(func(blob tlv.Blob) {
 		c.CustomBlob = fn.Some(blob)
 	})
+	auxData.commitChainEpochHistory.WhenSomeV(
+		func(history CommitChainEpochHistory) {
+			c.CommitChainEpochHistory = history
+		},
+	)
 }
 
 // extractTlvData creates a new openChannelTlvData from the given channel.
@@ -1223,6 +1247,11 @@ func (c *OpenChannel) extractTlvData() openChannelTlvData {
 		),
 		realScid: tlv.NewRecordT[tlv.TlvType4](
 			c.confirmedScid,
+		),
+		commitChainEpochHistory: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType8](
+				c.CommitChainEpochHistory,
+			),
 		),
 	}
 
@@ -4507,6 +4536,22 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	// Assign all the relevant fields from the aux data into the actual
 	// open channel.
 	channel.amendTlvData(auxData)
+
+	// Now that we've extracted the aux data, we can initialize the
+	// CommitChainEpochHistory. If we don't find it in the aux data,
+	// then we initialize it with the original CommitmentParams from
+	// the ChannelConfig.
+	histVal := auxData.commitChainEpochHistory.ValOpt()
+	channel.CommitChainEpochHistory = histVal.UnwrapOr(
+		BeginChainEpochHistory(
+			lntypes.MapDual(
+				channel.ChanCfgs,
+				func(cfg ChannelConfig) CommitmentParams {
+					return cfg.CommitmentParams
+				},
+			),
+		),
+	)
 
 	channel.Packager = NewChannelPackager(channel.ShortChannelID)
 

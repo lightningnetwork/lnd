@@ -2321,6 +2321,16 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// he stored within the database.
 	res.partialState.ChanCfgs.Local = res.ourContribution.toChanConfig()
 	res.partialState.ChanCfgs.Remote = res.theirContribution.toChanConfig()
+	res.partialState.CommitChainEpochHistory =
+		channeldb.BeginChainEpochHistory(
+			lntypes.MapDual(
+				res.partialState.ChanCfgs,
+				//nolint:lll
+				func(cfg channeldb.ChannelConfig) channeldb.CommitmentParams {
+					return cfg.CommitmentParams
+				},
+			),
+		)
 
 	// We'll also record the finalized funding txn, which will allow us to
 	// rebroadcast on startup in case we fail.
@@ -2532,6 +2542,16 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		pendingReservation.ourContribution.toChanConfig()
 	chanState.ChanCfgs.Remote =
 		pendingReservation.theirContribution.toChanConfig()
+	chanState.CommitChainEpochHistory =
+		channeldb.BeginChainEpochHistory(
+			lntypes.MapDual(
+				chanState.ChanCfgs,
+				//nolint:lll
+				func(cfg channeldb.ChannelConfig) channeldb.CommitmentParams {
+					return cfg.CommitmentParams
+				},
+			),
+		)
 
 	chanState.RevocationKeyLocator = pendingReservation.nextRevocationKeyLoc
 

@@ -343,6 +343,12 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 			Local:  localCfg,
 			Remote: remoteCfg,
 		},
+		CommitChainEpochHistory: BeginChainEpochHistory(
+			lntypes.Dual[CommitmentParams]{
+				Local:  localRenderingParams,
+				Remote: remoteRenderingParams,
+			},
+		),
 		TotalMSatSent:     8,
 		TotalMSatReceived: 2,
 		Commitments: lntypes.Dual[ChannelCommitment]{

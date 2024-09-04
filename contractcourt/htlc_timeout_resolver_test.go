@@ -294,12 +294,13 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
 			Notifier:   notifier,
+			Sweeper:    newMockSweeper(),
 			PreimageDB: witnessBeacon,
 			IncubateOutputs: func(wire.OutPoint,
 				fn.Option[lnwallet.OutgoingHtlcResolution],
 				fn.Option[lnwallet.IncomingHtlcResolution],
-				uint32, fn.Option[int32],
-			) error {
+				uint32, fn.Option[int32]) error {
+
 				incubateChan <- struct{}{}
 				return nil
 			},
@@ -311,17 +312,19 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 				}
 
 				resolutionChan <- msgs[0]
+
 				return nil
 			},
 			Budget: *DefaultBudgetConfig(),
 			QueryIncomingCircuit: func(circuit models.CircuitKey,
 			) *models.CircuitKey {
+
 				return nil
 			},
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
-			_ *channeldb.ResolverReport,
-		) error {
+			_ *channeldb.ResolverReport) error {
+
 			return nil
 		},
 	}
@@ -329,8 +332,8 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 	cfg := ResolverConfig{
 		ChannelArbitratorConfig: chainCfg,
 		Checkpoint: func(_ ContractResolver,
-			reports ...*channeldb.ResolverReport,
-		) error {
+			reports ...*channeldb.ResolverReport) error {
+
 			checkPointChan <- struct{}{}
 
 			// Send all of our reports into the channel.
@@ -367,13 +370,15 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 
 		if testCase.timeout {
 			timeoutTxID := timeoutTx.TxHash()
-			reports = append(reports, &channeldb.ResolverReport{
-				OutPoint:        timeoutTx.TxIn[0].PreviousOutPoint,
+			report := &channeldb.ResolverReport{
+				OutPoint:        timeoutTx.TxIn[0].PreviousOutPoint, //nolint:lll
 				Amount:          testHtlcAmt.ToSatoshis(),
-				ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
-				ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
+				ResolverType:    channeldb.ResolverTypeOutgoingHtlc,  //nolint:lll
+				ResolverOutcome: channeldb.ResolverOutcomeFirstStage, //nolint:lll
 				SpendTxID:       &timeoutTxID,
-			})
+			}
+
+			reports = append(reports, report)
 		}
 	}
 
@@ -391,10 +396,21 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 		}
 	}()
 
-	// As the output isn't yet in the nursery, we expect that we
-	// should receive an incubation request.
+	// If this is a remote commit, then we expct the outputs should receive
+	// an incubation request to go through the sweeper, otherwise the
+	// nursery.
+	var sweepChan chan input.Input
+	if testCase.remoteCommit {
+		mockSweeper, ok := resolver.Sweeper.(*mockSweeper)
+		require.True(t, ok)
+		sweepChan = mockSweeper.sweptInputs
+	}
+
+	// The output should be offered to either the sweeper or
+	// the nursery.
 	select {
 	case <-incubateChan:
+	case <-sweepChan:
 	case err := <-resolveErr:
 		t.Fatalf("unable to resolve HTLC: %v", err)
 	case <-time.After(time.Second * 5):
@@ -450,7 +466,6 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 			t.Fatalf("resolution not sent")
 		}
 	} else {
-
 		// Otherwise, the HTLC should now timeout.  First, we
 		// should get a resolution message with a populated
 		// failure message.
@@ -560,10 +575,6 @@ func TestHtlcTimeoutSingleStage(t *testing.T) {
 
 	checkpoints := []checkpoint{
 		{
-			// Output should be handed off to the nursery.
-			incubating: true,
-		},
-		{
 			// We send a confirmation the sweep tx from published
 			// by the nursery.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
@@ -594,7 +605,7 @@ func TestHtlcTimeoutSingleStage(t *testing.T) {
 			// After the sweep has confirmed, we expect the
 			// checkpoint to be resolved, and with the above
 			// report.
-			incubating: true,
+			incubating: false,
 			resolved:   true,
 			reports: []*channeldb.ResolverReport{
 				claim,
@@ -849,9 +860,9 @@ func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 	)
 }
 
-// TestHtlcTimeoutSecondStageRemoteSpend tests that when a remite commitment
-// confirms, and the remote spends the output using the success tx, we
-// properly detect this and extract the preimage.
+// TestHtlcTimeoutSecondStageRemoteSpend tests that when a remote commitment
+// confirms, and the remote spends the output using the success tx, we properly
+// detect this and extract the preimage.
 func TestHtlcTimeoutSecondStageRemoteSpend(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 2}
 
@@ -895,10 +906,6 @@ func TestHtlcTimeoutSecondStageRemoteSpend(t *testing.T) {
 	}
 
 	checkpoints := []checkpoint{
-		{
-			// Output should be handed off to the nursery.
-			incubating: true,
-		},
 		{
 			// We send a confirmation for the remote's second layer
 			// success transcation.
@@ -944,7 +951,7 @@ func TestHtlcTimeoutSecondStageRemoteSpend(t *testing.T) {
 			// After the sweep has confirmed, we expect the
 			// checkpoint to be resolved, and with the above
 			// report.
-			incubating: true,
+			incubating: false,
 			resolved:   true,
 			reports: []*channeldb.ResolverReport{
 				claim,
@@ -1321,8 +1328,8 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 }
 
 func testHtlcTimeout(t *testing.T, resolution lnwallet.OutgoingHtlcResolution,
-	checkpoints []checkpoint,
-) {
+	checkpoints []checkpoint) {
+
 	t.Helper()
 
 	defer timeout()()

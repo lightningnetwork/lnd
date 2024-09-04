@@ -549,7 +549,6 @@ func (h *htlcTimeoutResolver) sweepSecondLevelTx(immediate bool) error {
 		return err
 	}
 
-	// TODO(yy): checkpoint here?
 	return err
 }
 
@@ -573,6 +572,59 @@ func (h *htlcTimeoutResolver) sendSecondLevelTxLegacy() error {
 	return h.Checkpoint(h)
 }
 
+// sweepDirectHtlcOutput sends the direct spend of the HTLC output to the
+// sweeper. This is used when the remote party goes on chain, and we're able to
+// sweep an HTLC we offered after a timeout. Only the CLTV encumbered outputs
+// are resolved via this path.
+func (h *htlcTimeoutResolver) sweepDirectHtlcOutput(immediate bool) error {
+	var htlcWitnessType input.StandardWitnessType
+	if h.isTaproot() {
+		htlcWitnessType = input.TaprootHtlcOfferedRemoteTimeout
+	} else {
+		htlcWitnessType = input.HtlcOfferedRemoteTimeout
+	}
+
+	sweepInput := input.NewCsvInputWithCltv(
+		&h.htlcResolution.ClaimOutpoint, htlcWitnessType,
+		&h.htlcResolution.SweepSignDesc, h.broadcastHeight,
+		h.htlcResolution.CsvDelay, h.htlcResolution.Expiry,
+	)
+
+	// Calculate the budget.
+	//
+	// TODO(yy): the budget is twice the output's value, which is needed as
+	// we don't force sweep the output now. To prevent cascading force
+	// closes, we use all its output value plus a wallet input as the
+	// budget. This is a temporary solution until we can optionally cancel
+	// the incoming HTLC, more details in,
+	// - https://github.com/lightningnetwork/lnd/issues/7969
+	budget := calculateBudget(
+		btcutil.Amount(sweepInput.SignDesc().Output.Value), 2, 0,
+	)
+
+	log.Infof("%T(%x): offering offered remote timeout HTLC output to "+
+		"sweeper with deadline %v and budget=%v at height=%v",
+		h, h.htlc.RHash[:], h.incomingHTLCExpiryHeight, budget,
+		h.broadcastHeight)
+
+	_, err := h.Sweeper.SweepInput(
+		sweepInput,
+		sweep.Params{
+			Budget: budget,
+
+			// This is an outgoing HTLC, so we want to make sure
+			// that we sweep it before the incoming HTLC expires.
+			DeadlineHeight: h.incomingHTLCExpiryHeight,
+			Immediate:      immediate,
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // spendHtlcOutput handles the initial spend of an HTLC output via the timeout
 // clause. If this is our local commitment, the second-level timeout TX will be
 // used to spend the output into the next stage. If this is the remote
@@ -593,8 +645,18 @@ func (h *htlcTimeoutResolver) spendHtlcOutput(
 			return nil, err
 		}
 
-	// If we have no SignDetails, and we haven't already sent the output to
-	// the utxo nursery, then we'll do so now.
+	// If this is a remote commitment there's no second level timeout txn,
+	// and we can just send this directly to the sweeper.
+	case h.htlcResolution.SignedTimeoutTx == nil && !h.outputIncubating:
+		if err := h.sweepDirectHtlcOutput(immediate); err != nil {
+			log.Errorf("Sending direct spend to sweeper: %v", err)
+
+			return nil, err
+		}
+
+	// If we have a SignedTimeoutTx but no SignDetails, this is a local
+	// commitment for a non-anchor channel, so we'll send it to the utxo
+	// nursery.
 	case h.htlcResolution.SignDetails == nil && !h.outputIncubating:
 		if err := h.sendSecondLevelTxLegacy(); err != nil {
 			log.Errorf("Sending timeout tx to nursery: %v", err)
@@ -701,6 +763,13 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 	)
 
 	switch {
+
+	// If we swept an HTLC directly off the remote party's commitment
+	// transaction, then we can exit here as there's no second level sweep
+	// to do.
+	case h.htlcResolution.SignedTimeoutTx == nil:
+		break
+
 	// If the sweeper is handling the second level transaction, wait for
 	// the CSV and possible CLTV lock to expire, before sweeping the output
 	// on the second-level.
@@ -774,6 +843,7 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 			h.htlcResolution.CsvDelay,
 			uint32(commitSpend.SpendingHeight), h.htlc.RHash,
 		)
+
 		// Calculate the budget for this sweep.
 		budget := calculateBudget(
 			btcutil.Amount(inp.SignDesc().Output.Value),
@@ -811,6 +881,7 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 	case h.htlcResolution.SignedTimeoutTx != nil:
 		log.Infof("%T(%v): waiting for nursery/sweeper to spend CSV "+
 			"delayed output", h, claimOutpoint)
+
 		sweepTx, err := waitForSpend(
 			&claimOutpoint,
 			h.htlcResolution.SweepSignDesc.Output.PkScript,
@@ -877,9 +948,11 @@ func (h *htlcTimeoutResolver) IsResolved() bool {
 
 // report returns a report on the resolution state of the contract.
 func (h *htlcTimeoutResolver) report() *ContractReport {
-	// If the sign details are nil, the report will be created by handled
-	// by the nursery.
-	if h.htlcResolution.SignDetails == nil {
+	// If we have a SignedTimeoutTx but no SignDetails, this is a local
+	// commitment for a non-anchor channel, which was handled by the utxo
+	// nursery.
+	if h.htlcResolution.SignDetails == nil && h.
+		htlcResolution.SignedTimeoutTx != nil {
 		return nil
 	}
 
@@ -899,13 +972,20 @@ func (h *htlcTimeoutResolver) initReport() {
 		)
 	}
 
+	// If there's no timeout transaction, then we're already effectively in
+	// level two.
+	stage := uint32(1)
+	if h.htlcResolution.SignedTimeoutTx == nil {
+		stage = 2
+	}
+
 	h.currentReport = ContractReport{
 		Outpoint:       h.htlcResolution.ClaimOutpoint,
 		Type:           ReportOutputOutgoingHtlc,
 		Amount:         finalAmt,
 		MaturityHeight: h.htlcResolution.Expiry,
 		LimboBalance:   finalAmt,
-		Stage:          1,
+		Stage:          stage,
 	}
 }
 

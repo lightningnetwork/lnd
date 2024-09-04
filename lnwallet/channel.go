@@ -7712,6 +7712,7 @@ func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
 
 	return summary, nil
 }
+
 // NewLocalForceCloseSummary generates a LocalForceCloseSummary from the given
 // channel state.  The passed commitTx must be a fully signed commitment
 // transaction corresponding to localCommit.

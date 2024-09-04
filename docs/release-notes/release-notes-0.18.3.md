@@ -80,6 +80,10 @@ blinded path expiry.
 * [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9039) that would
   cause UpdateAddHTLC message with blinding point fields to not be re-forwarded
   correctly on restart.
+
+* [A bug related to sending dangling channel
+  updates](https://github.com/lightningnetwork/lnd/pull/9046) after a
+  reconnection for taproot channels has been fixed.
  
 # New Features
 ## Functional Enhancements

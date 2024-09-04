@@ -399,7 +399,7 @@ type jsonTweakSignCase struct {
 	AggNonce string      `json:"agg_nonce"`
 
 	ExpectedSig   string `json:"expected_sig"`
-	ExpectedError string `json:"expected_error`
+	ExpectedError string `json:"expected_error"`
 }
 
 type jsonSignTestCase struct {

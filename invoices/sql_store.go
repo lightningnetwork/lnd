@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -45,6 +46,9 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 
 	GetInvoice(ctx context.Context,
 		arg sqlc.GetInvoiceParams) ([]sqlc.Invoice, error)
+
+	GetInvoiceBySetID(ctx context.Context, setID []byte) ([]sqlc.Invoice,
+		error)
 
 	GetInvoiceFeatures(ctx context.Context,
 		invoiceID int64) ([]sqlc.InvoiceFeature, error)
@@ -343,7 +347,22 @@ func (i *SQLStore) fetchInvoice(ctx context.Context,
 		params.SetID = ref.SetID()[:]
 	}
 
-	rows, err := db.GetInvoice(ctx, params)
+	var (
+		rows []sqlc.Invoice
+		err  error
+	)
+
+	// We need to split the query based on how we intend to look up the
+	// invoice. If only the set ID is given then we want to have an exact
+	// match on the set ID. If other fields are given, we want to match on
+	// those fields and the set ID but with a less strict join condition.
+	if params.Hash == nil && params.PaymentAddr == nil &&
+		params.SetID != nil {
+
+		rows, err = db.GetInvoiceBySetID(ctx, params.SetID)
+	} else {
+		rows, err = db.GetInvoice(ctx, params)
+	}
 	switch {
 	case len(rows) == 0:
 		return nil, ErrInvoiceNotFound
@@ -351,8 +370,8 @@ func (i *SQLStore) fetchInvoice(ctx context.Context,
 	case len(rows) > 1:
 		// In case the reference is ambiguous, meaning it matches more
 		// than	one invoice, we'll return an error.
-		return nil, fmt.Errorf("ambiguous invoice ref: %s",
-			ref.String())
+		return nil, fmt.Errorf("ambiguous invoice ref: %s: %s",
+			ref.String(), spew.Sdump(rows))
 
 	case err != nil:
 		return nil, fmt.Errorf("unable to fetch invoice: %w", err)
@@ -906,8 +925,10 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 			}
 
 			if q.CreationDateEnd != 0 {
+				// We need to add 1 to the end date as we're
+				// checking less than the end date in SQL.
 				params.CreatedBefore = sqldb.SQLTime(
-					time.Unix(q.CreationDateEnd, 0).UTC(),
+					time.Unix(q.CreationDateEnd+1, 0).UTC(),
 				)
 			}
 
@@ -1116,6 +1137,9 @@ func (s *sqlInvoiceUpdater) AddAmpHtlcPreimage(setID [32]byte,
 			SetID:     setID[:],
 			HtlcID:    int64(circuitKey.HtlcID),
 			Preimage:  preimage[:],
+			ChanID: strconv.FormatUint(
+				circuitKey.ChanID.ToUint64(), 10,
+			),
 		},
 	)
 	if err != nil {
@@ -1280,6 +1304,13 @@ func (s *sqlInvoiceUpdater) UpdateAmpState(setID [32]byte,
 		return err
 	}
 
+	if settleIndex.Valid {
+		updatedState := s.invoice.AMPState[setID]
+		updatedState.SettleIndex = uint64(settleIndex.Int64)
+		updatedState.SettleDate = s.updateTime.UTC()
+		s.invoice.AMPState[setID] = updatedState
+	}
+
 	return nil
 }
 
@@ -1298,13 +1329,24 @@ func (s *sqlInvoiceUpdater) Finalize(_ UpdateType) error {
 // invoice and is therefore atomic. The fields to update are controlled by the
 // supplied callback.
 func (i *SQLStore) UpdateInvoice(ctx context.Context, ref InvoiceRef,
-	_ *SetID, callback InvoiceUpdateCallback) (
+	setID *SetID, callback InvoiceUpdateCallback) (
 	*Invoice, error) {
 
 	var updatedInvoice *Invoice
 
 	txOpt := SQLInvoiceQueriesTxOptions{readOnly: false}
 	txErr := i.db.ExecTx(ctx, &txOpt, func(db SQLInvoiceQueries) error {
+		if setID != nil {
+			// Make sure to use the set ID if this is an AMP update.
+			var setIDBytes [32]byte
+			copy(setIDBytes[:], setID[:])
+			ref.setID = &setIDBytes
+
+			// If we're updating an AMP invoice, we'll also only
+			// need to fetch the HTLCs for the given set ID.
+			ref.refModifier = HtlcSetOnlyModifier
+		}
+
 		invoice, err := i.fetchInvoice(ctx, db, ref)
 		if err != nil {
 			return err

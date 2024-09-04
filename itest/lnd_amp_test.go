@@ -260,7 +260,8 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
 	invoiceNtfn := ht.ReceiveInvoiceUpdate(invSubscription)
 
 	// The notification should signal that the invoice is now settled, and
-	// should also include the set ID, and show the proper amount paid.
+	// should also include the set ID, show the proper amount paid, and have
+	// the correct settle index and time.
 	require.True(ht, invoiceNtfn.Settled)
 	require.Equal(ht, lnrpc.Invoice_SETTLED, invoiceNtfn.State)
 	require.Equal(ht, paymentAmt, int(invoiceNtfn.AmtPaidSat))
@@ -270,6 +271,9 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
 		firstSetID, _ = hex.DecodeString(setIDStr)
 		require.Equal(ht, lnrpc.InvoiceHTLCState_SETTLED,
 			ampState.State)
+		require.GreaterOrEqual(ht, ampState.SettleTime,
+			rpcInvoice.CreationDate)
+		require.Equal(ht, uint64(1), ampState.SettleIndex)
 	}
 
 	// Pay the invoice again, we should get another notification that Dave
@@ -299,9 +303,9 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
 	// return the "projected" sub-invoice for a given setID.
 	require.Equal(ht, 1, len(invoiceNtfn.Htlcs))
 
-	// However the AMP state index should show that there've been two
-	// repeated payments to this invoice so far.
-	require.Equal(ht, 2, len(invoiceNtfn.AmpInvoiceState))
+	// The AMP state should also be restricted to a single entry for the
+	// "projected" sub-invoice.
+	require.Equal(ht, 1, len(invoiceNtfn.AmpInvoiceState))
 
 	// Now we'll look up the invoice using the new LookupInvoice2 RPC call
 	// by the set ID of each of the invoices.
@@ -360,7 +364,7 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
 	// through.
 	backlogInv := ht.ReceiveInvoiceUpdate(invSub2)
 	require.Equal(ht, 1, len(backlogInv.Htlcs))
-	require.Equal(ht, 2, len(backlogInv.AmpInvoiceState))
+	require.Equal(ht, 1, len(backlogInv.AmpInvoiceState))
 	require.True(ht, backlogInv.Settled)
 	require.Equal(ht, paymentAmt*2, int(backlogInv.AmtPaidSat))
 }

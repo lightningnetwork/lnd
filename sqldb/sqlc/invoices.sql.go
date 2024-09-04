@@ -78,7 +78,7 @@ WHERE (
     created_at >= $6 OR
     $6 IS NULL
 ) AND (
-    created_at <= $7 OR 
+    created_at < $7 OR 
     $7 IS NULL
 ) AND (
     CASE
@@ -170,21 +170,22 @@ const getInvoice = `-- name: GetInvoice :many
 
 SELECT i.id, i.hash, i.preimage, i.settle_index, i.settled_at, i.memo, i.amount_msat, i.cltv_delta, i.expiry, i.payment_addr, i.payment_request, i.payment_request_hash, i.state, i.amount_paid_msat, i.is_amp, i.is_hodl, i.is_keysend, i.created_at
 FROM invoices i
-LEFT JOIN amp_sub_invoices a on i.id = a.invoice_id
+LEFT JOIN amp_sub_invoices a 
+ON i.id = a.invoice_id
+AND (
+    a.set_id = $1 OR $1 IS NULL
+)
 WHERE (
-    i.id = $1 OR 
-    $1 IS NULL
-) AND (
-    i.hash = $2 OR 
+    i.id = $2 OR 
     $2 IS NULL
 ) AND (
-    i.preimage = $3 OR 
+    i.hash = $3 OR 
     $3 IS NULL
 ) AND (
-    i.payment_addr = $4 OR 
+    i.preimage = $4 OR 
     $4 IS NULL
 ) AND (
-    a.set_id = $5 OR
+    i.payment_addr = $5 OR 
     $5 IS NULL
 )
 GROUP BY i.id
@@ -192,11 +193,11 @@ LIMIT 2
 `
 
 type GetInvoiceParams struct {
+	SetID       []byte
 	AddIndex    sql.NullInt64
 	Hash        []byte
 	Preimage    []byte
 	PaymentAddr []byte
-	SetID       []byte
 }
 
 // This method may return more than one invoice if filter using multiple fields
@@ -204,12 +205,61 @@ type GetInvoiceParams struct {
 // we bubble up an error in those cases.
 func (q *Queries) GetInvoice(ctx context.Context, arg GetInvoiceParams) ([]Invoice, error) {
 	rows, err := q.db.QueryContext(ctx, getInvoice,
+		arg.SetID,
 		arg.AddIndex,
 		arg.Hash,
 		arg.Preimage,
 		arg.PaymentAddr,
-		arg.SetID,
 	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Invoice
+	for rows.Next() {
+		var i Invoice
+		if err := rows.Scan(
+			&i.ID,
+			&i.Hash,
+			&i.Preimage,
+			&i.SettleIndex,
+			&i.SettledAt,
+			&i.Memo,
+			&i.AmountMsat,
+			&i.CltvDelta,
+			&i.Expiry,
+			&i.PaymentAddr,
+			&i.PaymentRequest,
+			&i.PaymentRequestHash,
+			&i.State,
+			&i.AmountPaidMsat,
+			&i.IsAmp,
+			&i.IsHodl,
+			&i.IsKeysend,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getInvoiceBySetID = `-- name: GetInvoiceBySetID :many
+SELECT i.id, i.hash, i.preimage, i.settle_index, i.settled_at, i.memo, i.amount_msat, i.cltv_delta, i.expiry, i.payment_addr, i.payment_request, i.payment_request_hash, i.state, i.amount_paid_msat, i.is_amp, i.is_hodl, i.is_keysend, i.created_at
+FROM invoices i
+INNER JOIN amp_sub_invoices a 
+ON i.id = a.invoice_id AND a.set_id = $1
+`
+
+func (q *Queries) GetInvoiceBySetID(ctx context.Context, setID []byte) ([]Invoice, error) {
+	rows, err := q.db.QueryContext(ctx, getInvoiceBySetID, setID)
 	if err != nil {
 		return nil, err
 	}

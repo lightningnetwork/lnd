@@ -21,6 +21,7 @@ type Querier interface {
 	// from different invoices. It is the caller's responsibility to ensure that
 	// we bubble up an error in those cases.
 	GetInvoice(ctx context.Context, arg GetInvoiceParams) ([]Invoice, error)
+	GetInvoiceBySetID(ctx context.Context, setID []byte) ([]Invoice, error)
 	GetInvoiceFeatures(ctx context.Context, invoiceID int64) ([]InvoiceFeature, error)
 	GetInvoiceHTLCCustomRecords(ctx context.Context, invoiceID int64) ([]GetInvoiceHTLCCustomRecordsRow, error)
 	GetInvoiceHTLCs(ctx context.Context, invoiceID int64) ([]InvoiceHtlc, error)

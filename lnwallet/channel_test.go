@@ -47,8 +47,8 @@ func createHTLC(id int, amount lnwire.MilliSatoshi) (*lnwire.UpdateAddHTLC, [32]
 }
 
 func assertOutputExistsByValue(t *testing.T, commitTx *wire.MsgTx,
-	value btcutil.Amount) {
-
+	value btcutil.Amount,
+) {
 	for _, txOut := range commitTx.TxOut {
 		if txOut.Value == int64(value) {
 			return
@@ -63,8 +63,8 @@ func assertOutputExistsByValue(t *testing.T, commitTx *wire.MsgTx,
 // add, the settle an HTLC between themselves.
 func testAddSettleWorkflow(t *testing.T, tweakless bool,
 	chanTypeModifier channeldb.ChannelType,
-	storeFinalHtlcResolutions bool) {
-
+	storeFinalHtlcResolutions bool,
+) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -514,7 +514,6 @@ func TestCheckCommitTxSize(t *testing.T) {
 		if 0 > diff || BaseCommitmentTxSizeEstimationError < diff {
 			t.Fatalf("estimation is wrong, diff: %v", diff)
 		}
-
 	}
 
 	// Create a test channel which will be used for the duration of this
@@ -1467,8 +1466,8 @@ func TestHTLCSigNumber(t *testing.T) {
 	// createChanWithHTLC is a helper method that sets ut two channels, and
 	// adds HTLCs with the passed values to the channels.
 	createChanWithHTLC := func(htlcValues ...btcutil.Amount) (
-		*LightningChannel, *LightningChannel) {
-
+		*LightningChannel, *LightningChannel,
+	) {
 		// Create a test channel funded evenly with Alice having 5 BTC,
 		// and Bob having 5 BTC. Alice's dustlimit is 200 sat, while
 		// Bob has 1300 sat.
@@ -2367,7 +2366,6 @@ func TestUpdateFeeFail(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected bob to fail receiving alice's signature")
 	}
-
 }
 
 // TestUpdateFeeConcurrentSig tests that the channel can properly handle a fee
@@ -2547,7 +2545,6 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	// Bob receives revocation from Alice.
 	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to process alice's revocation")
-
 }
 
 // TestUpdateFeeReceiverCommits tests that the state machine progresses as
@@ -2857,8 +2854,8 @@ func TestAddHTLCNegativeBalance(t *testing.T) {
 // two channels conclude that they're fully synchronized and don't need to
 // retransmit any new messages.
 func assertNoChanSyncNeeded(t *testing.T, aliceChannel *LightningChannel,
-	bobChannel *LightningChannel) {
-
+	bobChannel *LightningChannel,
+) {
 	_, _, line, _ := runtime.Caller(1)
 
 	aliceChanSyncMsg, err := aliceChannel.channelState.ChanSyncMsg()
@@ -3007,19 +3004,11 @@ func restartChannel(channelOld *LightningChannel) (*LightningChannel, error) {
 	return channelNew, nil
 }
 
-// TestChanSyncOweCommitment tests that if Bob restarts (and then Alice) before
-// he receives Alice's CommitSig message, then Alice concludes that she needs
-// to re-send the CommitDiff. After the diff has been sent, both nodes should
-// resynchronize and be able to complete the dangling commit.
-func TestChanSyncOweCommitment(t *testing.T) {
-	t.Parallel()
-
+func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
-	)
+	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
 	require.NoError(t, err, "unable to create test channels")
 
 	var fakeOnionBlob [lnwire.OnionPacketSize]byte
@@ -3094,6 +3083,15 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	aliceNewCommit, err := aliceChannel.SignNextCommitment()
 	require.NoError(t, err, "unable to sign commitment")
 
+	// If this is a taproot channel, then we'll generate fresh verification
+	// nonce for both sides.
+	if chanType.IsTaproot() {
+		_, err = aliceChannel.GenMusigNonces()
+		require.NoError(t, err)
+		_, err = bobChannel.GenMusigNonces()
+		require.NoError(t, err)
+	}
+
 	// Bob doesn't get this message so upon reconnection, they need to
 	// synchronize. Alice should conclude that she owes Bob a commitment,
 	// while Bob should think he's properly synchronized.
@@ -3105,7 +3103,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	// This is a helper function that asserts Alice concludes that she
 	// needs to retransmit the exact commitment that we failed to send
 	// above.
-	assertAliceCommitRetransmit := func() {
+	assertAliceCommitRetransmit := func() *lnwire.CommitSig {
 		aliceMsgsToSend, _, _, err := aliceChannel.ProcessChanSyncMsg(
 			bobSyncMsg,
 		)
@@ -3170,12 +3168,25 @@ func TestChanSyncOweCommitment(t *testing.T) {
 				len(commitSigMsg.HtlcSigs))
 		}
 		for i, htlcSig := range commitSigMsg.HtlcSigs {
-			if htlcSig != aliceNewCommit.HtlcSigs[i] {
+			if !bytes.Equal(htlcSig.RawBytes(),
+				aliceNewCommit.HtlcSigs[i].RawBytes()) {
+
 				t.Fatalf("htlc sig msgs don't match: "+
-					"expected %x got %x",
-					aliceNewCommit.HtlcSigs[i], htlcSig)
+					"expected %v got %v",
+					spew.Sdump(aliceNewCommit.HtlcSigs[i]),
+					spew.Sdump(htlcSig))
 			}
 		}
+
+		// If this is a taproot channel, then partial sig information
+		// should be present in the commit sig sent over. This
+		// signature will be re-regenerated, so we can't compare it
+		// with the old one.
+		if chanType.IsTaproot() {
+			require.True(t, commitSigMsg.PartialSig.IsSome())
+		}
+
+		return commitSigMsg
 	}
 
 	// Alice should detect that she needs to re-send 5 messages: the 3
@@ -3196,14 +3207,19 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	// send the exact same set of messages.
 	aliceChannel, err = restartChannel(aliceChannel)
 	require.NoError(t, err, "unable to restart alice")
-	assertAliceCommitRetransmit()
 
-	// TODO(roasbeef): restart bob as well???
+	// To properly simulate a restart, we'll use the *new* signature that
+	// would send in an actual p2p setting.
+	aliceReCommitSig := assertAliceCommitRetransmit()
 
 	// At this point, we should be able to resume the prior state update
 	// without any issues, resulting in Alice settling the 3 htlc's, and
 	// adding one of her own.
-	err = bobChannel.ReceiveNewCommitment(aliceNewCommit.CommitSigs)
+	err = bobChannel.ReceiveNewCommitment(&CommitSigs{
+		CommitSig:  aliceReCommitSig.CommitSig,
+		HtlcSigs:   aliceReCommitSig.HtlcSigs,
+		PartialSig: aliceReCommitSig.PartialSig,
+	})
 	require.NoError(t, err, "bob unable to process alice's commitment")
 	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "unable to revoke bob commitment")
@@ -3290,16 +3306,46 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	}
 }
 
-// TestChanSyncOweCommitmentPendingRemote asserts that local updates are applied
-// to the remote commit across restarts.
-func TestChanSyncOweCommitmentPendingRemote(t *testing.T) {
+// TestChanSyncOweCommitment tests that if Bob restarts (and then Alice) before
+// he receives Alice's CommitSig message, then Alice concludes that she needs
+// to re-send the CommitDiff. After the diff has been sent, both nodes should
+// resynchronize and be able to complete the dangling commit.
+func TestChanSyncOweCommitment(t *testing.T) {
 	t.Parallel()
 
+	testCases := []struct {
+		name     string
+		chanType channeldb.ChannelType
+	}{
+		{
+			name:     "tweakless",
+			chanType: channeldb.SingleFunderTweaklessBit,
+		},
+		{
+			name: "anchors",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit,
+		},
+		{
+			name: "taproot",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.SimpleTaprootFeatureBit,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			testChanSyncOweCommitment(t, tc.chanType)
+		})
+	}
+}
+
+func testChanSyncOweCommitmentPendingRemote(t *testing.T,
+	chanType channeldb.ChannelType,
+) {
 	// Create a test channel which will be used for the duration of this
 	// unittest.
-	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
-	)
+	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
 	require.NoError(t, err, "unable to create test channels")
 
 	var fakeOnionBlob [lnwire.OnionPacketSize]byte
@@ -3382,6 +3428,12 @@ func TestChanSyncOweCommitmentPendingRemote(t *testing.T) {
 	bobChannel, err = restartChannel(bobChannel)
 	require.NoError(t, err, "unable to restart bob")
 
+	// If this is a taproot channel, then since Bob just restarted, we need
+	// to exchange nonces once again.
+	if chanType.IsTaproot() {
+		require.NoError(t, initMusigNonce(aliceChannel, bobChannel))
+	}
+
 	// Bob signs the commitment he owes.
 	bobNewCommit, err := bobChannel.SignNextCommitment()
 	require.NoError(t, err, "unable to sign commitment")
@@ -3404,6 +3456,38 @@ func TestChanSyncOweCommitmentPendingRemote(t *testing.T) {
 	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevoke)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestChanSyncOweCommitmentPendingRemote asserts that local updates are applied
+// to the remote commit across restarts.
+func TestChanSyncOweCommitmentPendingRemote(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		chanType channeldb.ChannelType
+	}{
+		{
+			name:     "tweakless",
+			chanType: channeldb.SingleFunderTweaklessBit,
+		},
+		{
+			name: "anchors",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit,
+		},
+		{
+			name: "taproot",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.SimpleTaprootFeatureBit,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			testChanSyncOweCommitmentPendingRemote(t, tc.chanType)
+		})
 	}
 }
 
@@ -3556,8 +3640,6 @@ func testChanSyncOweRevocation(t *testing.T, chanType channeldb.ChannelType) {
 
 	assertAliceOwesRevoke()
 
-	// TODO(roasbeef): restart bob too???
-
 	// We'll continue by then allowing bob to process Alice's revocation
 	// message.
 	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
@@ -3606,11 +3688,19 @@ func TestChanSyncOweRevocation(t *testing.T) {
 
 		testChanSyncOweRevocation(t, taprootBits)
 	})
+	t.Run("taproot", func(t *testing.T) {
+		taprootBits := channeldb.SimpleTaprootFeatureBit |
+			channeldb.AnchorOutputsBit |
+			channeldb.ZeroHtlcTxFeeBit |
+			channeldb.SingleFunderTweaklessBit
+
+		testChanSyncOweRevocation(t, taprootBits)
+	})
 }
 
 func testChanSyncOweRevocationAndCommit(t *testing.T,
-	chanType channeldb.ChannelType) {
-
+	chanType channeldb.ChannelType,
+) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -3735,6 +3825,14 @@ func testChanSyncOweRevocationAndCommit(t *testing.T,
 					bobNewCommit.HtlcSigs[i])
 			}
 		}
+
+		// If this is a taproot channel, then partial sig information
+		// should be present in the commit sig sent over. This
+		// signature will be re-regenerated, so we can't compare it
+		// with the old one.
+		if chanType.IsTaproot() {
+			require.True(t, bobReCommitSigMsg.PartialSig.IsSome())
+		}
 	}
 
 	// We expect Bob to send exactly two messages: first his revocation
@@ -3794,8 +3892,8 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 }
 
 func testChanSyncOweRevocationAndCommitForceTransition(t *testing.T,
-	chanType channeldb.ChannelType) {
-
+	chanType channeldb.ChannelType,
+) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -4803,8 +4901,8 @@ func TestChanAvailableBandwidth(t *testing.T) {
 	)
 
 	assertBandwidthEstimateCorrect := func(aliceInitiate bool,
-		numNonDustHtlcsOnCommit lntypes.WeightUnit) {
-
+		numNonDustHtlcsOnCommit lntypes.WeightUnit,
+	) {
 		// With the HTLC's added, we'll now query the AvailableBalance
 		// method for the current available channel bandwidth from
 		// Alice's PoV.
@@ -4976,8 +5074,8 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 
 	// Helper method to check the current reported balance.
 	checkBalance := func(t *testing.T, expBalanceAlice,
-		expBalanceBob lnwire.MilliSatoshi) {
-
+		expBalanceBob lnwire.MilliSatoshi,
+	) {
 		t.Helper()
 		aliceBalance := aliceChannel.AvailableBalance()
 		if aliceBalance != expBalanceAlice {
@@ -6248,8 +6346,8 @@ func TestMaxPendingAmount(t *testing.T) {
 }
 
 func assertChannelBalances(t *testing.T, alice, bob *LightningChannel,
-	aliceBalance, bobBalance btcutil.Amount) {
-
+	aliceBalance, bobBalance btcutil.Amount,
+) {
 	_, _, line, _ := runtime.Caller(1)
 
 	aliceSelfBalance := alice.channelState.LocalCommitment.LocalBalance.ToSatoshis()
@@ -6940,7 +7038,8 @@ func assertInLog(t *testing.T, log *updateLog, numAdds, numFails int) {
 // assertInLogs asserts that the expected number of Adds and Fails occurs in
 // the local and remote update log of the given channel.
 func assertInLogs(t *testing.T, channel *LightningChannel, numAddsLocal,
-	numFailsLocal, numAddsRemote, numFailsRemote int) {
+	numFailsLocal, numAddsRemote, numFailsRemote int,
+) {
 	assertInLog(t, channel.localUpdateLog, numAddsLocal, numFailsLocal)
 	assertInLog(t, channel.remoteUpdateLog, numAddsRemote, numFailsRemote)
 }
@@ -6949,8 +7048,8 @@ func assertInLogs(t *testing.T, channel *LightningChannel, numAddsLocal,
 // state, and asserts that the new channel has had its logs restored to the
 // expected state.
 func restoreAndAssert(t *testing.T, channel *LightningChannel, numAddsLocal,
-	numFailsLocal, numAddsRemote, numFailsRemote int) {
-
+	numFailsLocal, numAddsRemote, numFailsRemote int,
+) {
 	newChannel, err := NewLightningChannel(
 		channel.Signer, channel.channelState,
 		channel.sigPool,
@@ -7211,8 +7310,8 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	// log after a restore.
 	restoreAndAssertCommitHeights := func(t *testing.T,
 		channel *LightningChannel, remoteLog bool, htlcIndex uint64,
-		expLocal, expRemote uint64) *LightningChannel {
-
+		expLocal, expRemote uint64,
+	) *LightningChannel {
 		newChannel, err := NewLightningChannel(
 			channel.Signer, channel.channelState, channel.sigPool,
 		)
@@ -7667,10 +7766,9 @@ func TestIdealCommitFeeRate(t *testing.T) {
 	// inputs fed to IdealCommitFeeRate.
 	propertyTest := func(c *LightningChannel) func(ma maxAlloc,
 		netFee, minRelayFee, maxAnchorFee fee) bool {
-
 		return func(ma maxAlloc, netFee, minRelayFee,
-			maxAnchorFee fee) bool {
-
+			maxAnchorFee fee,
+		) bool {
 			idealFeeRate := c.IdealCommitFeeRate(
 				chainfee.SatPerKWeight(netFee),
 				chainfee.SatPerKWeight(minRelayFee),
@@ -7715,8 +7813,8 @@ func TestIdealCommitFeeRate(t *testing.T) {
 	// a channel is allowed to allocate to fees. It does not take a minimum
 	// fee rate into account.
 	maxFeeRate := func(c *LightningChannel,
-		maxFeeAlloc float64) chainfee.SatPerKWeight {
-
+		maxFeeAlloc float64,
+	) chainfee.SatPerKWeight {
 		balance, weight := c.availableBalance(AdditionalHtlc)
 		feeRate := c.localCommitChain.tip().feePerKw
 		currentFee := feeRate.FeeForWeight(weight)
@@ -7885,8 +7983,8 @@ func TestIdealCommitFeeRate(t *testing.T) {
 
 	assertIdealFeeRate := func(c *LightningChannel, netFee, minRelay,
 		maxAnchorCommit chainfee.SatPerKWeight,
-		maxFeeAlloc float64, expectedFeeRate chainfee.SatPerKWeight) {
-
+		maxFeeAlloc float64, expectedFeeRate chainfee.SatPerKWeight,
+	) {
 		feeRate := c.IdealCommitFeeRate(
 			netFee, minRelay, maxAnchorCommit, maxFeeAlloc,
 		)
@@ -8582,8 +8680,8 @@ func TestEvaluateView(t *testing.T) {
 // checkExpectedHtlcs checks that a set of htlcs that we have contains all the
 // htlcs we expect.
 func checkExpectedHtlcs(t *testing.T, actual []*PaymentDescriptor,
-	expected map[uint64]bool) {
-
+	expected map[uint64]bool,
+) {
 	if len(expected) != len(actual) {
 		t.Fatalf("expected: %v htlcs, got: %v",
 			len(expected), len(actual))
@@ -9178,13 +9276,11 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 				EntryType:                test.updateType,
 			}
 
-			var (
-				// Start both parties off with an initial
-				// balance. Copy by value here so that we do
-				// not mutate the startBalance constant.
-				ourBalance, theirBalance = startBalance,
-					startBalance
-			)
+			// Start both parties off with an initial
+			// balance. Copy by value here so that we do
+			// not mutate the startBalance constant.
+			ourBalance, theirBalance := startBalance,
+				startBalance
 
 			// Choose the processing function we need based on the
 			// update type. Process remove is used for settles,
@@ -9710,8 +9806,8 @@ func TestIsChannelClean(t *testing.T) {
 // assertCleanOrDirty is a helper function that asserts that both channels are
 // clean if clean is true, and dirty if clean is false.
 func assertCleanOrDirty(clean bool, alice, bob *LightningChannel,
-	t *testing.T) {
-
+	t *testing.T,
+) {
 	t.Helper()
 
 	if clean {
@@ -9749,8 +9845,8 @@ func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
 	// Use a function closure to assert the dust sum for a passed channel's
 	// local and remote commitments match the expected values.
 	checkDust := func(c *LightningChannel, expLocal,
-		expRemote lnwire.MilliSatoshi) {
-
+		expRemote lnwire.MilliSatoshi,
+	) {
 		localDustSum := c.GetDustSum(
 			lntypes.Local, fn.None[chainfee.SatPerKWeight](),
 		)
@@ -9905,8 +10001,8 @@ func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
 // deriveDummyRetributionParams is a helper function that derives a list of
 // dummy params to assist retribution creation related tests.
 func deriveDummyRetributionParams(chanState *channeldb.OpenChannel) (uint32,
-	*CommitmentKeyRing, chainhash.Hash) {
-
+	*CommitmentKeyRing, chainhash.Hash,
+) {
 	config := chanState.RemoteChanCfg
 	commitHash := chanState.RemoteCommitment.CommitTx.TxHash()
 	keyRing := DeriveCommitmentKeys(
@@ -10283,8 +10379,8 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	// assertRetribution is a helper closure that checks a given breach
 	// retribution has the expected values on certain fields.
 	assertRetribution := func(br *BreachRetribution,
-		localIndex, remoteIndex uint32) {
-
+		localIndex, remoteIndex uint32,
+	) {
 		require.Equal(t, txid, br.BreachTxHash)
 		require.Equal(t, chainHash, br.ChainHash)
 		require.Equal(t, breachHeight, br.BreachHeight)
@@ -10399,8 +10495,8 @@ func TestExtractPayDescs(t *testing.T) {
 // assertPayDescMatchHTLC compares a PaymentDescriptor to a channeldb.HTLC and
 // asserts that the fields are matched.
 func assertPayDescMatchHTLC(t *testing.T, pd PaymentDescriptor,
-	htlc channeldb.HTLC) {
-
+	htlc channeldb.HTLC,
+) {
 	require := require.New(t)
 
 	require.EqualValues(htlc.RHash, pd.RHash, "RHash")

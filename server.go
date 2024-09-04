@@ -55,6 +55,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
@@ -2249,7 +2250,9 @@ func (s *server) Start() error {
 				peerAddr, true,
 				s.cfg.ConnectionTimeout,
 			)
-			if err != nil {
+			if err != nil &&
+				!lnutils.ErrorAs[*errPeerAlreadyConnected](err) {
+
 				startErr = fmt.Errorf("unable to connect to "+
 					"peer address provided as a config "+
 					"option: %v", err)

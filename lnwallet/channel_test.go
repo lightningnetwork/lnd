@@ -9673,7 +9673,7 @@ func TestCreateHtlcRetribution(t *testing.T) {
 
 	// Create the htlc retribution.
 	hr, err := createHtlcRetribution(
-		aliceChannel.channelState, keyRing, commitHash,
+		aliceChannel.channelState, 0,keyRing, commitHash,
 		dummyPrivate, leaseExpiry, htlc, fn.None[CommitAuxLeaves](),
 	)
 	// Expect no error.
@@ -9878,7 +9878,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 
 			br, our, their, err := createBreachRetribution(
 				tc.revocationLog, tx,
-				aliceChannel.channelState, keyRing,
+				aliceChannel.channelState, 0, keyRing,
 				dummyPrivate, leaseExpiry,
 				fn.None[CommitAuxLeaves](),
 			)
@@ -9937,7 +9937,7 @@ func TestCreateBreachRetributionLegacy(t *testing.T) {
 
 	// Create the breach retribution using the legacy format.
 	br, ourAmt, theirAmt, err := createBreachRetributionLegacy(
-		&revokedLog, aliceChannel.channelState, keyRing,
+		&revokedLog, aliceChannel.channelState, 0, keyRing,
 		dummyPrivate, ourScript, theirScript, leaseExpiry,
 	)
 	require.NoError(t, err)

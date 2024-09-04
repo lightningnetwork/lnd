@@ -2061,7 +2061,12 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			return l.LocalAuxLeaf
 		},
 	)(auxResult.AuxLeaves)
-	theirDelay := uint32(chanState.ChanCfgs.Remote.CsvDelay)
+	theirDelay := uint32(
+		chanState.CommitChainEpochHistory.NormalizedParamsAt(
+			lntypes.Remote, stateNum,
+		).CsvDelay,
+	)
+
 	theirScript, err := CommitScriptToSelf(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToLocalKey,
 		keyRing.RevocationKey, theirDelay, leaseExpiry, localAuxLeaf,
@@ -2081,7 +2086,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// we need.
 	if revokedLog != nil {
 		br, ourAmt, theirAmt, err = createBreachRetribution(
-			revokedLog, spendTx, chanState, keyRing,
+			revokedLog, spendTx, chanState, stateNum, keyRing,
 			commitmentSecret, leaseExpiry, auxResult.AuxLeaves,
 		)
 		if err != nil {
@@ -2096,8 +2101,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// data can still function. This branch can be deleted once we
 		// are confident that no legacy format is in use.
 		br, ourAmt, theirAmt, err = createBreachRetributionLegacy(
-			revokedLogLegacy, chanState, keyRing, commitmentSecret,
-			ourScript, theirScript, leaseExpiry,
+			revokedLogLegacy, chanState, stateNum, keyRing,
+			commitmentSecret, ourScript, theirScript, leaseExpiry,
 		)
 		if err != nil {
 			return nil, err
@@ -2213,7 +2218,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 // createHtlcRetribution is a helper function to construct an HtlcRetribution
 // based on the passed params.
-func createHtlcRetribution(chanState *channeldb.OpenChannel,
+func createHtlcRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	keyRing *CommitmentKeyRing, commitHash chainhash.Hash,
 	commitmentSecret *btcec.PrivateKey, leaseExpiry uint32,
 	htlc *channeldb.HTLCEntry,
@@ -2221,7 +2226,11 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 
 	var emptyRetribution HtlcRetribution
 
-	theirDelay := uint32(chanState.ChanCfgs.Remote.CsvDelay)
+	theirDelay := uint32(
+		chanState.CommitChainEpochHistory.NormalizedParamsAt(
+			lntypes.Remote, stateNum,
+		).CsvDelay,
+	)
 	isRemoteInitiator := !chanState.IsInitiator
 
 	// We'll generate the original second level witness script now, as
@@ -2334,7 +2343,7 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 // see if these fields are present there. If they are not, then
 // ErrRevLogDataMissing is returned.
 func createBreachRetribution(revokedLog *channeldb.RevocationLog,
-	spendTx *wire.MsgTx, chanState *channeldb.OpenChannel,
+	spendTx *wire.MsgTx, chanState *channeldb.OpenChannel, stateNum uint64,
 	keyRing *CommitmentKeyRing, commitmentSecret *btcec.PrivateKey,
 	leaseExpiry uint32,
 	auxLeaves fn.Option[CommitAuxLeaves]) (*BreachRetribution, int64, int64,
@@ -2346,7 +2355,7 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 	htlcRetributions := make([]HtlcRetribution, len(revokedLog.HTLCEntries))
 	for i, htlc := range revokedLog.HTLCEntries {
 		hr, err := createHtlcRetribution(
-			chanState, keyRing, commitHash.Val,
+			chanState, stateNum, keyRing, commitHash.Val,
 			commitmentSecret, leaseExpiry, htlc, auxLeaves,
 		)
 		if err != nil {
@@ -2450,8 +2459,8 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 // BreachRetribution using a ChannelCommitment. Returns the constructed
 // retribution, our amount, their amount, and a possible non-nil error.
 func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
-	chanState *channeldb.OpenChannel, keyRing *CommitmentKeyRing,
-	commitmentSecret *btcec.PrivateKey,
+	chanState *channeldb.OpenChannel, stateNum uint64,
+	keyRing *CommitmentKeyRing, commitmentSecret *btcec.PrivateKey,
 	ourScript, theirScript input.ScriptDescriptor,
 	leaseExpiry uint32) (*BreachRetribution, int64, int64, error) {
 
@@ -2497,7 +2506,7 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 		}
 
 		hr, err := createHtlcRetribution(
-			chanState, keyRing, commitHash,
+			chanState, stateNum, keyRing, commitHash,
 			commitmentSecret, leaseExpiry, entry,
 			fn.None[CommitAuxLeaves](),
 		)

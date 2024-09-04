@@ -73,7 +73,6 @@ func (m *mockWitnessBeacon) AddPreimages(preimages ...lntypes.Preimage) error {
 // variations of possible local+remote spends.
 func TestHtlcTimeoutResolver(t *testing.T) {
 	t.Parallel()
-
 	fakePreimageBytes := bytes.Repeat([]byte{1}, lntypes.HashSize)
 
 	var (
@@ -284,6 +283,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 			chainCfg := ChannelArbitratorConfig{
 				ChainArbitratorConfig: ChainArbitratorConfig{
 					Notifier:   notifier,
+					Sweeper:    newMockSweeper(),
 					PreimageDB: witnessBeacon,
 					IncubateOutputs: func(wire.OutPoint,
 						fn.Option[lnwallet.OutgoingHtlcResolution],
@@ -380,9 +380,17 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				}
 			}()
 
-			// As the output isn't yet in the nursery, we expect that we
-			// should receive an incubation request.
+			// If this is a remote commit, then we expct the outputs
+			// to go through the sweeper, otherwise the nursery.
+			var sweepChan chan input.Input
+			if testCase.remoteCommit {
+				sweepChan = resolver.Sweeper.(*mockSweeper).sweptInputs
+			}
+
+			// The output should be offered to either the sweeper or
+			// the nursery.
 			select {
+			case <-sweepChan:
 			case <-incubateChan:
 			case err := <-resolveErr:
 				t.Fatalf("unable to resolve HTLC: %v", err)
@@ -537,10 +545,6 @@ func TestHtlcTimeoutSingleStage(t *testing.T) {
 
 	checkpoints := []checkpoint{
 		{
-			// Output should be handed off to the nursery.
-			incubating: true,
-		},
-		{
 			// We send a confirmation the sweep tx from published
 			// by the nursery.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
@@ -571,7 +575,7 @@ func TestHtlcTimeoutSingleStage(t *testing.T) {
 			// After the sweep has confirmed, we expect the
 			// checkpoint to be resolved, and with the above
 			// report.
-			incubating: true,
+			incubating: false,
 			resolved:   true,
 			reports: []*channeldb.ResolverReport{
 				claim,
@@ -826,9 +830,9 @@ func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 	)
 }
 
-// TestHtlcTimeoutSecondStageRemoteSpend tests that when a remite commitment
-// confirms, and the remote spends the output using the success tx, we
-// properly detect this and extract the preimage.
+// TestHtlcTimeoutSecondStageRemoteSpend tests that when a remote commitment
+// confirms, and the remote spends the output using the success tx, we properly
+// detect this and extract the preimage.
 func TestHtlcTimeoutSecondStageRemoteSpend(t *testing.T) {
 	commitOutpoint := wire.OutPoint{Index: 2}
 
@@ -872,10 +876,6 @@ func TestHtlcTimeoutSecondStageRemoteSpend(t *testing.T) {
 	}
 
 	checkpoints := []checkpoint{
-		{
-			// Output should be handed off to the nursery.
-			incubating: true,
-		},
 		{
 			// We send a confirmation for the remote's second layer
 			// success transcation.
@@ -921,7 +921,7 @@ func TestHtlcTimeoutSecondStageRemoteSpend(t *testing.T) {
 			// After the sweep has confirmed, we expect the
 			// checkpoint to be resolved, and with the above
 			// report.
-			incubating: true,
+			incubating: false,
 			resolved:   true,
 			reports: []*channeldb.ResolverReport{
 				claim,

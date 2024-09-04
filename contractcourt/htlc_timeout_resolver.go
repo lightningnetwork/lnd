@@ -72,8 +72,8 @@ type htlcTimeoutResolver struct {
 // newTimeoutResolver instantiates a new timeout htlc resolver.
 func newTimeoutResolver(res lnwallet.OutgoingHtlcResolution,
 	broadcastHeight uint32, htlc channeldb.HTLC,
-	resCfg ResolverConfig) *htlcTimeoutResolver {
-
+	resCfg ResolverConfig,
+) *htlcTimeoutResolver {
 	h := &htlcTimeoutResolver{
 		contractResolverKit: *newContractResolverKit(resCfg),
 		htlcResolution:      res,
@@ -157,8 +157,8 @@ const (
 // by the remote party. It'll extract the preimage, add it to the global cache,
 // and finally send the appropriate clean up message.
 func (h *htlcTimeoutResolver) claimCleanUp(
-	commitSpend *chainntnfs.SpendDetail) (ContractResolver, error) {
-
+	commitSpend *chainntnfs.SpendDetail,
+) (ContractResolver, error) {
 	// Depending on if this is our commitment or not, then we'll be looking
 	// for a different witness pattern.
 	spenderIndex := commitSpend.SpenderInputIndex
@@ -325,8 +325,8 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 // isPreimageSpend returns true if the passed spend on the specified commitment
 // is a success spend that reveals the pre-image or not.
 func isPreimageSpend(isTaproot bool, spend *chainntnfs.SpendDetail,
-	localCommit bool) bool {
-
+	localCommit bool,
+) bool {
 	// Based on the spending input index and transaction, obtain the
 	// witness that tells us what type of spend this is.
 	spenderIndex := spend.SpenderInputIndex
@@ -419,8 +419,8 @@ func checkSizeAndIndex(witness wire.TxWitness, size, index int) bool {
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcTimeoutResolver) Resolve(
-	immediate bool) (ContractResolver, error) {
-
+	immediate bool,
+) (ContractResolver, error) {
 	// If we're already resolved, then we can exit early.
 	if h.resolved {
 		return nil, nil
@@ -538,7 +538,6 @@ func (h *htlcTimeoutResolver) sweepSecondLevelTx(immediate bool) error {
 		return err
 	}
 
-	// TODO(yy): checkpoint here?
 	return err
 }
 
@@ -562,14 +561,67 @@ func (h *htlcTimeoutResolver) sendSecondLevelTxLegacy() error {
 	return h.Checkpoint(h)
 }
 
+// sweepDirectHtlcOutput sends the direct spend of the HTLC output to the
+// sweeper. This is used when the remote party goes on chain, and we're able to
+// sweep an HTLC we offered after a timeout. Only the CLTV encumbered outputs
+// are resolved via this path.
+func (h *htlcTimeoutResolver) sweepDirectHtlcOutput(immediate bool) error {
+	var htlcWitnessType input.StandardWitnessType
+	if h.isTaproot() {
+		htlcWitnessType = input.TaprootHtlcOfferedRemoteTimeout
+	} else {
+		htlcWitnessType = input.HtlcOfferedRemoteTimeout
+	}
+
+	sweepInput := input.NewCsvInputWithCltv(
+		&h.htlcResolution.ClaimOutpoint, htlcWitnessType,
+		&h.htlcResolution.SweepSignDesc, h.broadcastHeight,
+		h.htlcResolution.CsvDelay, h.htlcResolution.Expiry,
+	)
+
+	// Calculate the budget.
+	//
+	// TODO(yy): the budget is twice the output's value, which is needed as
+	// we don't force sweep the output now. To prevent cascading force
+	// closes, we use all its output value plus a wallet input as the
+	// budget. This is a temporary solution until we can optionally cancel
+	// the incoming HTLC, more details in,
+	// - https://github.com/lightningnetwork/lnd/issues/7969
+	budget := calculateBudget(
+		btcutil.Amount(sweepInput.SignDesc().Output.Value), 2, 0,
+	)
+
+	log.Infof("%T(%x): offering offered remote timeout HTLC output to "+
+		"sweeper with deadline %v and budget=%v at height=%v",
+		h, h.htlc.RHash[:], h.incomingHTLCExpiryHeight, budget,
+		h.broadcastHeight)
+
+	_, err := h.Sweeper.SweepInput(
+		sweepInput,
+		sweep.Params{
+			Budget: budget,
+
+			// This is an outgoing HTLC, so we want to make sure
+			// that we sweep it before the incoming HTLC expires.
+			DeadlineHeight: h.incomingHTLCExpiryHeight,
+			Immediate:      immediate,
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // spendHtlcOutput handles the initial spend of an HTLC output via the timeout
 // clause. If this is our local commitment, the second-level timeout TX will be
 // used to spend the output into the next stage. If this is the remote
 // commitment, the output will be swept directly without the timeout
 // transaction.
 func (h *htlcTimeoutResolver) spendHtlcOutput(
-	immediate bool) (*chainntnfs.SpendDetail, error) {
-
+	immediate bool,
+) (*chainntnfs.SpendDetail, error) {
 	switch {
 	// If we have non-nil SignDetails, this means that have a 2nd level
 	// HTLC transaction that is signed using sighash SINGLE|ANYONECANPAY
@@ -578,6 +630,16 @@ func (h *htlcTimeoutResolver) spendHtlcOutput(
 	case h.htlcResolution.SignDetails != nil && !h.outputIncubating:
 		if err := h.sweepSecondLevelTx(immediate); err != nil {
 			log.Errorf("Sending timeout tx to sweeper: %v", err)
+
+			return nil, err
+		}
+
+	// If this is an anchor, and there's no second level txn (direct spend
+	// from remote commitment), then we'll just send this directly to the
+	// sweeper.
+	case h.htlcResolution.SignedTimeoutTx == nil && !h.outputIncubating:
+		if err := h.sweepDirectHtlcOutput(immediate); err != nil {
+			log.Errorf("Sending direct spend to sweeper: %v", err)
 
 			return nil, err
 		}
@@ -603,8 +665,8 @@ func (h *htlcTimeoutResolver) spendHtlcOutput(
 // it will check blocks for the confirmed spend. For btcd and bitcoind, it will
 // check both the mempool and the blocks.
 func (h *htlcTimeoutResolver) watchHtlcSpend() (*chainntnfs.SpendDetail,
-	error) {
-
+	error,
+) {
 	// TODO(yy): outpointToWatch is always h.HtlcOutpoint(), can refactor
 	// to remove the redundancy.
 	outpointToWatch, scriptToWatch, err := h.chainDetailsToWatch()
@@ -625,8 +687,8 @@ func (h *htlcTimeoutResolver) watchHtlcSpend() (*chainntnfs.SpendDetail,
 // waitForConfirmedSpend waits for the HTLC output to be spent and confirmed in
 // a block, returns the spend details.
 func (h *htlcTimeoutResolver) waitForConfirmedSpend(op *wire.OutPoint,
-	pkScript []byte) (*chainntnfs.SpendDetail, error) {
-
+	pkScript []byte,
+) (*chainntnfs.SpendDetail, error) {
 	log.Infof("%T(%v): waiting for spent of HTLC output %v to be "+
 		"fully confirmed", h, h.htlcResolution.ClaimOutpoint, op)
 
@@ -669,8 +731,8 @@ func (h *htlcTimeoutResolver) checkPointSecondLevelTx() error {
 // wallet. If the was a remote commitment, the resolver will resolve
 // immetiately.
 func (h *htlcTimeoutResolver) handleCommitSpend(
-	commitSpend *chainntnfs.SpendDetail) (ContractResolver, error) {
-
+	commitSpend *chainntnfs.SpendDetail,
+) (ContractResolver, error) {
 	var (
 		// claimOutpoint will be the outpoint of the second level
 		// transaction, or on the remote commitment directly. It will
@@ -690,6 +752,13 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 	)
 
 	switch {
+
+	// If we swept an HTLC directly off the remote party's commitment
+	// transaction, then we can exit here as there's no second level sweep
+	// to do.
+	case h.htlcResolution.SignedTimeoutTx == nil:
+		break
+
 	// If the sweeper is handling the second level transaction, wait for
 	// the CSV and possible CLTV lock to expire, before sweeping the output
 	// on the second-level.
@@ -763,6 +832,7 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 			h.htlcResolution.CsvDelay,
 			uint32(commitSpend.SpendingHeight), h.htlc.RHash,
 		)
+
 		// Calculate the budget for this sweep.
 		budget := calculateBudget(
 			btcutil.Amount(inp.SignDesc().Output.Value),
@@ -800,6 +870,7 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 	case h.htlcResolution.SignedTimeoutTx != nil:
 		log.Infof("%T(%v): waiting for nursery/sweeper to spend CSV "+
 			"delayed output", h, claimOutpoint)
+
 		sweepTx, err := waitForSpend(
 			&claimOutpoint,
 			h.htlcResolution.SweepSignDesc.Output.PkScript,
@@ -866,9 +937,10 @@ func (h *htlcTimeoutResolver) IsResolved() bool {
 
 // report returns a report on the resolution state of the contract.
 func (h *htlcTimeoutResolver) report() *ContractReport {
-	// If the sign details are nil, the report will be created by handled
-	// by the nursery.
-	if h.htlcResolution.SignDetails == nil {
+	// If the sign details are nil, the report will be created by handled by
+	// the nursery.
+	if h.htlcResolution.SignDetails == nil && h.
+		htlcResolution.SignedTimeoutTx != nil {
 		return nil
 	}
 
@@ -888,13 +960,20 @@ func (h *htlcTimeoutResolver) initReport() {
 		)
 	}
 
+	// If there's no timeout transaction, then we're already effectively in
+	// level two.
+	stage := uint32(1)
+	if h.htlcResolution.SignedTimeoutTx == nil {
+		stage = 2
+	}
+
 	h.currentReport = ContractReport{
 		Outpoint:       h.htlcResolution.ClaimOutpoint,
 		Type:           ReportOutputOutgoingHtlc,
 		Amount:         finalAmt,
 		MaturityHeight: h.htlcResolution.Expiry,
 		LimboBalance:   finalAmt,
-		Stage:          1,
+		Stage:          stage,
 	}
 }
 
@@ -938,8 +1017,8 @@ func (h *htlcTimeoutResolver) Encode(w io.Writer) error {
 // from the passed Reader instance, returning an active ContractResolver
 // instance.
 func newTimeoutResolverFromReader(r io.Reader, resCfg ResolverConfig) (
-	*htlcTimeoutResolver, error) {
-
+	*htlcTimeoutResolver, error,
+) {
 	h := &htlcTimeoutResolver{
 		contractResolverKit: *newContractResolverKit(resCfg),
 	}
@@ -1021,8 +1100,8 @@ type spendResult struct {
 // waitForMempoolOrBlockSpend waits for the htlc output to be spent by a
 // transaction that's either be found in the mempool or in a block.
 func (h *htlcTimeoutResolver) waitForMempoolOrBlockSpend(op wire.OutPoint,
-	pkScript []byte) (*chainntnfs.SpendDetail, error) {
-
+	pkScript []byte,
+) (*chainntnfs.SpendDetail, error) {
 	log.Infof("%T(%v): waiting for spent of HTLC output %v to be found "+
 		"in mempool or block", h, h.htlcResolution.ClaimOutpoint, op)
 
@@ -1077,8 +1156,8 @@ func (h *htlcTimeoutResolver) waitForMempoolOrBlockSpend(op wire.OutPoint,
 //
 // TODO(yy): sweep the outgoing htlc if it's confirmed.
 func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
-	blockSpent, mempoolSpent <-chan *chainntnfs.SpendDetail) {
-
+	blockSpent, mempoolSpent <-chan *chainntnfs.SpendDetail,
+) {
 	op := h.HtlcPoint()
 
 	// Create a result chan to hold the results.

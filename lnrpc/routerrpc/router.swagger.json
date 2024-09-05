@@ -1147,6 +1147,30 @@
         }
       }
     },
+    "routerrpcBuildOnionResponse": {
+      "type": "object",
+      "properties": {
+        "onion_blob": {
+          "type": "string",
+          "format": "byte",
+          "description": "The constructed onion packet in bytes."
+        },
+        "session_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The session key used for building the onion packet."
+        },
+        "hop_pubkeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The serialized public keys of all nodes along the route for the\nconstructed onion."
+        }
+      },
+      "description": "BuildOnionResponse contains the constructed onion packet."
+    },
     "routerrpcBuildRouteRequest": {
       "type": "object",
       "properties": {
@@ -1682,6 +1706,23 @@
         }
       }
     },
+    "routerrpcSendOnionResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean",
+          "description": "Indicates if the onion was successfully sent or not."
+        },
+        "error_message": {
+          "type": "string",
+          "description": "In case of failure, this field will provide more information about the\nerror."
+        },
+        "error_code": {
+          "type": "string",
+          "description": "A code representing the type of error that occurred. This can be used\nto programmatically distinguish between different kinds of errors."
+        }
+      }
+    },
     "routerrpcSendPaymentRequest": {
       "type": "object",
       "properties": {
@@ -1868,6 +1909,29 @@
     },
     "routerrpcSubscribedEvent": {
       "type": "object"
+    },
+    "routerrpcTrackOnionResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean",
+          "description": "Indicates if the onion was successfully sent or not."
+        },
+        "preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The preimage obtained by making the payment."
+        },
+        "error_message": {
+          "type": "string",
+          "description": "In case of failure, this field will provide more information about the\nerror."
+        },
+        "encrypted_error": {
+          "type": "string",
+          "format": "byte",
+          "description": "If the caller provides no means to decrypt the error then we'll defer\nerror decryption on the server and return the encrypted error blob."
+        }
+      }
     },
     "routerrpcUpdateChanStatusRequest": {
       "type": "object",

@@ -3293,6 +3293,20 @@ message Route {
     The total amount in millisatoshis.
     */
     int64 total_amt_msat = 6;
+
+    /*
+    The actual on-chain amount that was sent out to the first hop. This value is
+    only different from the total_amt_msat field if this is a custom channel
+    payment and the value transported in the HTLC is different from the BTC
+    amount in the HTLC. If this value is zero, then this is an old payment that
+    didn't have this value yet and can be ignored.
+    */
+    int64 first_hop_amount_msat = 7;
+
+    /*
+    Custom channel data that might be populated in custom channels.
+    */
+    bytes custom_channel_data = 8;
 }
 
 message NodeInfoRequest {
@@ -4162,6 +4176,12 @@ message Payment {
     uint64 payment_index = 15;
 
     PaymentFailureReason failure_reason = 16;
+
+    /*
+    The custom TLV records that were sent to the first hop as part of the HTLC
+    wire message for this payment.
+    */
+    map<uint64, bytes> first_hop_custom_records = 17;
 }
 
 message HTLCAttempt {

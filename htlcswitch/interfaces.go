@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // InvoiceDatabase is an interface which represents the persistent subsystem
@@ -278,6 +279,16 @@ type ChannelLink interface {
 	// have buffered messages.
 	AttachMailBox(MailBox)
 
+	// FundingCustomBlob returns the custom funding blob of the channel that
+	// this link is associated with. The funding blob represents static
+	// information about the channel that was created at channel funding
+	// time.
+	FundingCustomBlob() fn.Option[tlv.Blob]
+
+	// CommitmentCustomBlob returns the custom blob of the current local
+	// commitment of the channel that this link is associated with.
+	CommitmentCustomBlob() fn.Option[tlv.Blob]
+
 	// Start/Stop are used to initiate the start/stop of the channel link
 	// functioning.
 	Start() error
@@ -357,12 +368,16 @@ type InterceptedPacket struct {
 	// IncomingAmount is the amount of the accepted htlc.
 	IncomingAmount lnwire.MilliSatoshi
 
-	// CustomRecords are user-defined records in the custom type range that
-	// were included in the payload.
-	CustomRecords record.CustomSet
+	// InOnionCustomRecords are user-defined records in the custom type
+	// range that were included in the payload.
+	InOnionCustomRecords record.CustomSet
 
 	// OnionBlob is the onion packet for the next hop
 	OnionBlob [lnwire.OnionPacketSize]byte
+
+	// InWireCustomRecords are user-defined p2p wire message records that
+	// were defined by the peer that forwarded this HTLC to us.
+	InWireCustomRecords lnwire.CustomRecords
 
 	// AutoFailHeight is the block height at which this intercept will be
 	// failed back automatically.
@@ -382,6 +397,12 @@ type InterceptedForward interface {
 	// basically means the caller wants to resume with the default behavior for
 	// this htlc which usually means forward it.
 	Resume() error
+
+	// ResumeModified notifies the intention to resume an existing hold
+	// forward with modified fields.
+	ResumeModified(inAmountMsat,
+		outAmountMsat fn.Option[lnwire.MilliSatoshi],
+		outWireCustomRecords fn.Option[lnwire.CustomRecords]) error
 
 	// Settle notifies the intention to settle an existing hold
 	// forward with a given preimage.

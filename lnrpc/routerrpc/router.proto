@@ -176,6 +176,25 @@ service Router {
     */
     rpc UpdateChanStatus (UpdateChanStatusRequest)
         returns (UpdateChanStatusResponse);
+
+    /*
+    XAddLocalChanAliases is an experimental API that creates a set of new
+    channel SCID alias mappings. The final total set of aliases in the manager
+    after the add operation is returned. This is only a locally stored alias,
+    and will not be communicated to the channel peer via any message. Therefore,
+    routing over such an alias will only work if the peer also calls this same
+    RPC on their end. If an alias already exists, an error is returned
+    */
+    rpc XAddLocalChanAliases (AddAliasesRequest) returns (AddAliasesResponse);
+
+    /*
+    XDeleteLocalChanAliases is an experimental API that deletes a set of alias
+    mappings. The final total set of aliases in the manager after the delete
+    operation is returned. The deletion will not be communicated to the channel
+    peer via any message.
+    */
+    rpc XDeleteLocalChanAliases (DeleteAliasesRequest)
+        returns (DeleteAliasesResponse);
 }
 
 message SendPaymentRequest {
@@ -339,6 +358,15 @@ message SendPaymentRequest {
     being sent.
     */
     bool cancelable = 24;
+
+    /*
+    An optional field that can be used to pass an arbitrary set of TLV records
+    to the first hop peer of this payment. This can be used to pass application
+    specific data during the payment attempt. Record types are required to be in
+    the custom range >= 65536. When using REST, the values must be encoded as
+    base64.
+    */
+    map<uint64, bytes> first_hop_custom_records = 25;
 }
 
 message TrackPaymentRequest {
@@ -432,6 +460,15 @@ message SendToRouteRequest {
     routes, incorrect payment details, or insufficient funds.
     */
     bool skip_temp_err = 3;
+
+    /*
+    An optional field that can be used to pass an arbitrary set of TLV records
+    to the first hop peer of this payment. This can be used to pass application
+    specific data during the payment attempt. Record types are required to be in
+    the custom range >= 65536. When using REST, the values must be encoded as
+    base64.
+    */
+    map<uint64, bytes> first_hop_custom_records = 4;
 }
 
 message SendToRouteResponse {
@@ -707,6 +744,15 @@ message BuildRouteRequest {
     This is also called payment secret in specifications (e.g. BOLT 11).
     */
     bytes payment_addr = 5;
+
+    /*
+    An optional field that can be used to pass an arbitrary set of TLV records
+    to the first hop peer of this payment. This can be used to pass application
+    specific data during the payment attempt. Record types are required to be in
+    the custom range >= 65536. When using REST, the values must be encoded as
+    base64.
+    */
+    map<uint64, bytes> first_hop_custom_records = 6;
 }
 
 message BuildRouteResponse {
@@ -963,12 +1009,17 @@ message ForwardHtlcInterceptRequest {
     // The block height at which this htlc will be auto-failed to prevent the
     // channel from force-closing.
     int32 auto_fail_height = 10;
+
+    // The custom records of the peer's incoming p2p wire message.
+    map<uint64, bytes> in_wire_custom_records = 11;
 }
 
 /**
 ForwardHtlcInterceptResponse enables the caller to resolve a previously hold
 forward. The caller can choose either to:
 - `Resume`: Execute the default behavior (usually forward).
+- `ResumeModified`: Execute the default behavior (usually forward) with HTLC
+                    field modifications.
 - `Reject`: Fail the htlc backwards.
 - `Settle`: Settle this htlc with a given preimage.
 */
@@ -999,12 +1050,36 @@ message ForwardHtlcInterceptResponse {
     // For backwards-compatibility reasons, TEMPORARY_CHANNEL_FAILURE is the
     // default value for this field.
     lnrpc.Failure.FailureCode failure_code = 5;
+
+    // The amount that was set on the p2p wire message of the incoming HTLC.
+    // This field is ignored if the action is not RESUME_MODIFIED or the amount
+    // is zero.
+    uint64 in_amount_msat = 6;
+
+    // The amount to set on the p2p wire message of the resumed HTLC. This field
+    // is ignored if the action is not RESUME_MODIFIED or the amount is zero.
+    uint64 out_amount_msat = 7;
+
+    // Any custom records that should be set on the p2p wire message message of
+    // the resumed HTLC. This field is ignored if the action is not
+    // RESUME_MODIFIED.
+    map<uint64, bytes> out_wire_custom_records = 8;
 }
 
 enum ResolveHoldForwardAction {
+    // SETTLE is an action that is used to settle an HTLC instead of forwarding
+    // it.
     SETTLE = 0;
+
+    // FAIL is an action that is used to fail an HTLC backwards.
     FAIL = 1;
+
+    // RESUME is an action that is used to resume a forward HTLC.
     RESUME = 2;
+
+    // RESUME_MODIFIED is an action that is used to resume a hold forward HTLC
+    // with modifications specified during interception.
+    RESUME_MODIFIED = 3;
 }
 
 message UpdateChanStatusRequest {
@@ -1020,4 +1095,20 @@ enum ChanStatusAction {
 }
 
 message UpdateChanStatusResponse {
+}
+
+message AddAliasesRequest {
+    repeated lnrpc.AliasMap alias_maps = 1;
+}
+
+message AddAliasesResponse {
+    repeated lnrpc.AliasMap alias_maps = 1;
+}
+
+message DeleteAliasesRequest {
+    repeated lnrpc.AliasMap alias_maps = 1;
+}
+
+message DeleteAliasesResponse {
+    repeated lnrpc.AliasMap alias_maps = 1;
 }

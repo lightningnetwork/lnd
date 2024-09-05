@@ -5,10 +5,21 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"golang.org/x/exp/maps"
 )
+
+// UpdateLinkAliases is a function type for a function that locates the active
+// link that matches the given shortID and triggers an update based on the
+// latest values of the alias manager.
+type UpdateLinkAliases func(shortID lnwire.ShortChannelID) error
+
+// ScidAliasMap is a map from a base short channel ID to a set of alias short
+// channel IDs.
+type ScidAliasMap map[lnwire.ShortChannelID][]lnwire.ShortChannelID
 
 var (
 	// aliasBucket stores aliases as keys and their base SCIDs as values.
@@ -47,17 +58,18 @@ var (
 	// operations.
 	byteOrder = binary.BigEndian
 
-	// startBlockHeight is the starting block height of the alias range.
-	startingBlockHeight = 16_000_000
+	// AliasStartBlockHeight is the starting block height of the alias
+	// range.
+	AliasStartBlockHeight uint32 = 16_000_000
 
-	// endBlockHeight is the ending block height of the alias range.
-	endBlockHeight = 16_250_000
+	// AliasEndBlockHeight is the ending block height of the alias range.
+	AliasEndBlockHeight uint32 = 16_250_000
 
 	// StartingAlias is the first alias ShortChannelID that will get
 	// assigned by RequestAlias. The starting BlockHeight is chosen so that
 	// legitimate SCIDs in integration tests aren't mistaken for an alias.
 	StartingAlias = lnwire.ShortChannelID{
-		BlockHeight: uint32(startingBlockHeight),
+		BlockHeight: AliasStartBlockHeight,
 		TxIndex:     0,
 		TxPosition:  0,
 	}
@@ -68,6 +80,10 @@ var (
 	// errNoPeerAlias is returned when the peer's alias for a given
 	// channel is not found.
 	errNoPeerAlias = fmt.Errorf("no peer alias found")
+
+	// ErrAliasNotFound is returned when the alias is not found and can't
+	// be mapped to a base SCID.
+	ErrAliasNotFound = fmt.Errorf("alias not found")
 )
 
 // Manager is a struct that handles aliases for LND. It has an underlying
@@ -77,10 +93,14 @@ var (
 type Manager struct {
 	backend kvdb.Backend
 
+	// linkAliasUpdater is a function used by the alias manager to
+	// facilitate live update of aliases in other subsystems.
+	linkAliasUpdater UpdateLinkAliases
+
 	// baseToSet is a mapping from the "base" SCID to the set of aliases
 	// for this channel. This mapping includes all channels that
 	// negotiated the option-scid-alias feature bit.
-	baseToSet map[lnwire.ShortChannelID][]lnwire.ShortChannelID
+	baseToSet ScidAliasMap
 
 	// aliasToBase is a mapping that maps all aliases for a given channel
 	// to its base SCID. This is only used for channels that have
@@ -98,9 +118,15 @@ type Manager struct {
 }
 
 // NewManager initializes an alias Manager from the passed database backend.
-func NewManager(db kvdb.Backend) (*Manager, error) {
-	m := &Manager{backend: db}
-	m.baseToSet = make(map[lnwire.ShortChannelID][]lnwire.ShortChannelID)
+func NewManager(db kvdb.Backend, linkAliasUpdater UpdateLinkAliases) (*Manager,
+	error) {
+
+	m := &Manager{
+		backend:          db,
+		baseToSet:        make(ScidAliasMap),
+		linkAliasUpdater: linkAliasUpdater,
+	}
+
 	m.aliasToBase = make(map[lnwire.ShortChannelID]lnwire.ShortChannelID)
 	m.peerAlias = make(map[lnwire.ChannelID]lnwire.ShortChannelID)
 
@@ -215,12 +241,22 @@ func (m *Manager) populateMaps() error {
 // AddLocalAlias adds a database mapping from the passed alias to the passed
 // base SCID. The gossip boolean marks whether or not to create a mapping
 // that the gossiper will use. It is set to false for the upgrade path where
-// the feature-bit is toggled on and there are existing channels.
+// the feature-bit is toggled on and there are existing channels. The linkUpdate
+// flag is used to signal whether this function should also trigger an update
+// on the htlcswitch scid alias maps.
 func (m *Manager) AddLocalAlias(alias, baseScid lnwire.ShortChannelID,
-	gossip bool) error {
+	gossip, linkUpdate bool) error {
 
+	// We need to lock the manager for the whole duration of this method,
+	// except for the very last part where we call the link updater. In
+	// order for us to safely use a defer _and_ still be able to manually
+	// unlock, we use a sync.Once.
 	m.Lock()
-	defer m.Unlock()
+	unlockOnce := sync.Once{}
+	unlock := func() {
+		unlockOnce.Do(m.Unlock)
+	}
+	defer unlock()
 
 	err := kvdb.Update(m.backend, func(tx kvdb.RwTx) error {
 		// If the caller does not want to allow the alias to be used
@@ -268,6 +304,18 @@ func (m *Manager) AddLocalAlias(alias, baseScid lnwire.ShortChannelID,
 	// Only store the gossiper map if gossip is true.
 	if gossip {
 		m.aliasToBase[alias] = baseScid
+	}
+
+	// We definitely need to unlock the Manager before calling the link
+	// updater. If we don't, we'll deadlock. We use a sync.Once to ensure
+	// that we only unlock once.
+	unlock()
+
+	// Finally, we trigger a htlcswitch update if the flag is set, in order
+	// for any future htlc that references the added alias to be properly
+	// routed.
+	if linkUpdate {
+		return m.linkAliasUpdater(baseScid)
 	}
 
 	return nil
@@ -340,6 +388,74 @@ func (m *Manager) DeleteSixConfs(baseScid lnwire.ShortChannelID) error {
 	return nil
 }
 
+// DeleteLocalAlias removes a mapping from the database and the Manager's maps.
+func (m *Manager) DeleteLocalAlias(alias,
+	baseScid lnwire.ShortChannelID) error {
+
+	// We need to lock the manager for the whole duration of this method,
+	// except for the very last part where we call the link updater. In
+	// order for us to safely use a defer _and_ still be able to manually
+	// unlock, we use a sync.Once.
+	m.Lock()
+	unlockOnce := sync.Once{}
+	unlock := func() {
+		unlockOnce.Do(m.Unlock)
+	}
+	defer unlock()
+
+	err := kvdb.Update(m.backend, func(tx kvdb.RwTx) error {
+		aliasToBaseBucket, err := tx.CreateTopLevelBucket(aliasBucket)
+		if err != nil {
+			return err
+		}
+
+		var aliasBytes [8]byte
+		byteOrder.PutUint64(aliasBytes[:], alias.ToUint64())
+
+		// If the user attempts to delete an alias that doesn't exist,
+		// we'll want to inform them about it and not just do nothing.
+		if aliasToBaseBucket.Get(aliasBytes[:]) == nil {
+			return ErrAliasNotFound
+		}
+
+		return aliasToBaseBucket.Delete(aliasBytes[:])
+	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	// Now that the database state has been updated, we'll delete the
+	// mapping from the Manager's maps.
+	aliasSet, ok := m.baseToSet[baseScid]
+	if !ok {
+		return ErrAliasNotFound
+	}
+
+	// We'll filter the alias set and remove the alias from it.
+	aliasSet = fn.Filter(func(a lnwire.ShortChannelID) bool {
+		return a.ToUint64() != alias.ToUint64()
+	}, aliasSet)
+
+	// If the alias set is empty, we'll delete the base SCID from the
+	// baseToSet map.
+	if len(aliasSet) == 0 {
+		delete(m.baseToSet, baseScid)
+	} else {
+		m.baseToSet[baseScid] = aliasSet
+	}
+
+	// Finally, we'll delete the aliasToBase mapping from the Manager's
+	// cache (but this is only set if we gossip the alias).
+	delete(m.aliasToBase, alias)
+
+	// We definitely need to unlock the Manager before calling the link
+	// updater. If we don't, we'll deadlock. We use a sync.Once to ensure
+	// that we only unlock once.
+	unlock()
+
+	return m.linkAliasUpdater(baseScid)
+}
+
 // PutPeerAlias stores the peer's alias SCID once we learn of it in the
 // channel_ready message.
 func (m *Manager) PutPeerAlias(chanID lnwire.ChannelID,
@@ -392,6 +508,19 @@ func (m *Manager) GetPeerAlias(chanID lnwire.ChannelID) (lnwire.ShortChannelID,
 func (m *Manager) RequestAlias() (lnwire.ShortChannelID, error) {
 	var nextAlias lnwire.ShortChannelID
 
+	m.RLock()
+	defer m.RUnlock()
+
+	// haveAlias returns true if the passed alias is already assigned to a
+	// channel in the baseToSet map.
+	haveAlias := func(maybeNextAlias lnwire.ShortChannelID) bool {
+		return fn.Any(func(aliasList []lnwire.ShortChannelID) bool {
+			return fn.Any(func(alias lnwire.ShortChannelID) bool {
+				return alias == maybeNextAlias
+			}, aliasList)
+		}, maps.Values(m.baseToSet))
+	}
+
 	err := kvdb.Update(m.backend, func(tx kvdb.RwTx) error {
 		bucket, err := tx.CreateTopLevelBucket(aliasAllocBucket)
 		if err != nil {
@@ -403,6 +532,29 @@ func (m *Manager) RequestAlias() (lnwire.ShortChannelID, error) {
 			// If the key does not exist, then we can write the
 			// StartingAlias to it.
 			nextAlias = StartingAlias
+
+			// If the very first alias is already assigned, we'll
+			// keep incrementing until we find an unassigned alias.
+			// This is to avoid collision with custom added SCID
+			// aliases that fall into the same range as the ones we
+			// generate here monotonically. Those custom SCIDs are
+			// stored in a different bucket, but we can just check
+			// the in-memory map for simplicity.
+			for {
+				if !haveAlias(nextAlias) {
+					break
+				}
+
+				nextAlias = getNextScid(nextAlias)
+
+				// Abort if we've reached the end of the range.
+				if nextAlias.BlockHeight >=
+					AliasEndBlockHeight {
+
+					return fmt.Errorf("range for custom " +
+						"aliases exhausted")
+				}
+			}
 
 			var scratch [8]byte
 			byteOrder.PutUint64(scratch[:], nextAlias.ToUint64())
@@ -417,6 +569,26 @@ func (m *Manager) RequestAlias() (lnwire.ShortChannelID, error) {
 			byteOrder.Uint64(lastBytes),
 		)
 		nextAlias = getNextScid(lastScid)
+
+		// If the next alias is already assigned, we'll keep
+		// incrementing until we find an unassigned alias. This is to
+		// avoid collision with custom added SCID aliases that fall into
+		// the same range as the ones we generate here monotonically.
+		// Those custom SCIDs are stored in a different bucket, but we
+		// can just check the in-memory map for simplicity.
+		for {
+			if !haveAlias(nextAlias) {
+				break
+			}
+
+			nextAlias = getNextScid(nextAlias)
+
+			// Abort if we've reached the end of the range.
+			if nextAlias.BlockHeight >= AliasEndBlockHeight {
+				return fmt.Errorf("range for custom " +
+					"aliases exhausted")
+			}
+		}
 
 		var scratch [8]byte
 		byteOrder.PutUint64(scratch[:], nextAlias.ToUint64())
@@ -433,11 +605,11 @@ func (m *Manager) RequestAlias() (lnwire.ShortChannelID, error) {
 
 // ListAliases returns a carbon copy of baseToSet. This is used by the rpc
 // layer.
-func (m *Manager) ListAliases() map[lnwire.ShortChannelID][]lnwire.ShortChannelID {
+func (m *Manager) ListAliases() ScidAliasMap {
 	m.RLock()
 	defer m.RUnlock()
 
-	baseCopy := make(map[lnwire.ShortChannelID][]lnwire.ShortChannelID)
+	baseCopy := make(ScidAliasMap)
 
 	for k, v := range m.baseToSet {
 		setCopy := make([]lnwire.ShortChannelID, len(v))
@@ -496,10 +668,10 @@ func getNextScid(last lnwire.ShortChannelID) lnwire.ShortChannelID {
 
 // IsAlias returns true if the passed SCID is an alias. The function determines
 // this by looking at the BlockHeight. If the BlockHeight is greater than
-// startingBlockHeight and less than endBlockHeight, then it is an alias
+// AliasStartBlockHeight and less than AliasEndBlockHeight, then it is an alias
 // assigned by RequestAlias. These bounds only apply to aliases we generate.
 // Our peers are free to use any range they choose.
 func IsAlias(scid lnwire.ShortChannelID) bool {
-	return scid.BlockHeight >= uint32(startingBlockHeight) &&
-		scid.BlockHeight < uint32(endBlockHeight)
+	return scid.BlockHeight >= AliasStartBlockHeight &&
+		scid.BlockHeight < AliasEndBlockHeight
 }

@@ -9,8 +9,10 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -109,6 +111,10 @@ const (
 
 	// FwdActionFail fails the intercepted packet back to the sender.
 	FwdActionFail
+
+	// FwdActionResumeModified forwards the intercepted packet to the switch
+	// with modifications.
+	FwdActionResumeModified
 )
 
 // FwdResolution defines the action to be taken on an intercepted packet.
@@ -122,6 +128,18 @@ type FwdResolution struct {
 	// Preimage is the preimage that is to be used for settling if Action is
 	// FwdActionSettle.
 	Preimage lntypes.Preimage
+
+	// InAmountMsat is the amount that is to be used for validating if
+	// Action is FwdActionResumeModified.
+	InAmountMsat fn.Option[lnwire.MilliSatoshi]
+
+	// OutAmountMsat is the amount that is to be used for forwarding if
+	// Action is FwdActionResumeModified.
+	OutAmountMsat fn.Option[lnwire.MilliSatoshi]
+
+	// OutWireCustomRecords is the custom records that are to be used for
+	// forwarding if Action is FwdActionResumeModified.
+	OutWireCustomRecords fn.Option[lnwire.CustomRecords]
 
 	// FailureMessage is the encrypted failure message that is to be passed
 	// back to the sender if action is FwdActionFail.
@@ -399,6 +417,12 @@ func (s *InterceptableSwitch) resolve(res *FwdResolution) error {
 	case FwdActionResume:
 		return intercepted.Resume()
 
+	case FwdActionResumeModified:
+		return intercepted.ResumeModified(
+			res.InAmountMsat, res.OutAmountMsat,
+			res.OutWireCustomRecords,
+		)
+
 	case FwdActionSettle:
 		return intercepted.Settle(res.Preimage)
 
@@ -622,20 +646,87 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 			ChanID: f.packet.incomingChanID,
 			HtlcID: f.packet.incomingHTLCID,
 		},
-		OutgoingChanID: f.packet.outgoingChanID,
-		Hash:           f.htlc.PaymentHash,
-		OutgoingExpiry: f.htlc.Expiry,
-		OutgoingAmount: f.htlc.Amount,
-		IncomingAmount: f.packet.incomingAmount,
-		IncomingExpiry: f.packet.incomingTimeout,
-		CustomRecords:  f.packet.customRecords,
-		OnionBlob:      f.htlc.OnionBlob,
-		AutoFailHeight: f.autoFailHeight,
+		OutgoingChanID:       f.packet.outgoingChanID,
+		Hash:                 f.htlc.PaymentHash,
+		OutgoingExpiry:       f.htlc.Expiry,
+		OutgoingAmount:       f.htlc.Amount,
+		IncomingAmount:       f.packet.incomingAmount,
+		IncomingExpiry:       f.packet.incomingTimeout,
+		InOnionCustomRecords: f.packet.inOnionCustomRecords,
+		OnionBlob:            f.htlc.OnionBlob,
+		AutoFailHeight:       f.autoFailHeight,
+		InWireCustomRecords:  f.packet.inWireCustomRecords,
 	}
 }
 
 // Resume resumes the default behavior as if the packet was not intercepted.
 func (f *interceptedForward) Resume() error {
+	// Forward to the switch. A link quit channel isn't needed, because we
+	// are on a different thread now.
+	return f.htlcSwitch.ForwardPackets(nil, f.packet)
+}
+
+// ResumeModified resumes the default behavior with field modifications. The
+// input amount (if provided) specifies that the value of the inbound HTLC
+// should be interpreted differently from the on-chain amount during further
+// validation. The presence of an output amount and/or custom records indicates
+// that those values should be modified on the outgoing HTLC.
+func (f *interceptedForward) ResumeModified(
+	inAmountMsat fn.Option[lnwire.MilliSatoshi],
+	outAmountMsat fn.Option[lnwire.MilliSatoshi],
+	outWireCustomRecords fn.Option[lnwire.CustomRecords]) error {
+
+	// Convert the optional custom records to the correct type and validate
+	// them.
+	validatedRecords, err := fn.MapOptionZ(
+		outWireCustomRecords,
+		func(cr lnwire.CustomRecords) fn.Result[lnwire.CustomRecords] {
+			if len(cr) == 0 {
+				return fn.Ok[lnwire.CustomRecords](nil)
+			}
+
+			// Type cast and validate custom records.
+			err := cr.Validate()
+			if err != nil {
+				return fn.Err[lnwire.CustomRecords](
+					fmt.Errorf("failed to validate "+
+						"custom records: %w", err),
+				)
+			}
+
+			return fn.Ok(cr)
+		},
+	).Unpack()
+	if err != nil {
+		return fmt.Errorf("failed to encode custom records: %w",
+			err)
+	}
+
+	// Set the incoming amount, if it is provided, on the packet.
+	inAmountMsat.WhenSome(func(amount lnwire.MilliSatoshi) {
+		f.packet.incomingAmount = amount
+	})
+
+	// Modify the wire message contained in the packet.
+	switch htlc := f.packet.htlc.(type) {
+	case *lnwire.UpdateAddHTLC:
+		outAmountMsat.WhenSome(func(amount lnwire.MilliSatoshi) {
+			f.packet.amount = amount
+			htlc.Amount = amount
+		})
+
+		if len(validatedRecords) > 0 {
+			htlc.CustomRecords = validatedRecords
+		}
+
+	case *lnwire.UpdateFulfillHTLC:
+		if len(validatedRecords) > 0 {
+			htlc.CustomRecords = validatedRecords
+		}
+	}
+
+	log.Tracef("Forwarding packet %v", lnutils.SpewLogClosure(f.packet))
+
 	// Forward to the switch. A link quit channel isn't needed, because we
 	// are on a different thread now.
 	return f.htlcSwitch.ForwardPackets(nil, f.packet)

@@ -1600,13 +1600,16 @@ func (h *HarnessTest) findPayment(hn *node.HarnessNode,
 	return nil
 }
 
+// PaymentCheck is a function that checks a payment for a specific condition.
+type PaymentCheck func(*lnrpc.Payment) error
+
 // AssertPaymentStatus asserts that the given node list a payment with the
 // given preimage has the expected status. It also checks that the payment has
 // the expected preimage, which is empty when it's not settled and matches the
 // given preimage when it's succeeded.
 func (h *HarnessTest) AssertPaymentStatus(hn *node.HarnessNode,
-	preimage lntypes.Preimage,
-	status lnrpc.Payment_PaymentStatus) *lnrpc.Payment {
+	preimage lntypes.Preimage, status lnrpc.Payment_PaymentStatus,
+	checks ...PaymentCheck) *lnrpc.Payment {
 
 	var target *lnrpc.Payment
 	payHash := preimage.Hash()
@@ -1634,6 +1637,11 @@ func (h *HarnessTest) AssertPaymentStatus(hn *node.HarnessNode,
 	default:
 		require.Equal(h, (lntypes.Preimage{}).String(),
 			target.PaymentPreimage, "expected zero preimage")
+	}
+
+	// Perform any additional checks on the payment.
+	for _, check := range checks {
+		require.NoError(h, check(target))
 	}
 
 	return target

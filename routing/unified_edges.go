@@ -247,8 +247,13 @@ func (u *edgeUnifier) getEdgeLocal(netAmtReceived lnwire.MilliSatoshi,
 		// local channel.
 		amt := netAmtReceived + lnwire.MilliSatoshi(inboundFee)
 
-		// Check valid amount range for the channel.
-		if !edge.amtInRange(amt) {
+		// Check valid amount range for the channel. We skip this test
+		// for payments with custom HTLC data, as the amount sent on
+		// the BTC layer may differ from the amount that is actually
+		// forwarded in custom channels.
+		if bandwidthHints.firstHopCustomBlob().IsNone() &&
+			!edge.amtInRange(amt) {
+
 			log.Debugf("Amount %v not in range for edge %v",
 				netAmtReceived, edge.policy.ChannelID)
 

@@ -35,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 func isAlias(scid lnwire.ShortChannelID) bool {
@@ -948,6 +949,14 @@ func (f *mockChannelLink) OnFlushedOnce(func()) {
 }
 func (f *mockChannelLink) OnCommitOnce(LinkDirection, func()) {
 	// TODO(proofofkeags): Implement
+}
+
+func (f *mockChannelLink) FundingCustomBlob() fn.Option[tlv.Blob] {
+	return fn.None[tlv.Blob]()
+}
+
+func (f *mockChannelLink) CommitmentCustomBlob() fn.Option[tlv.Blob] {
+	return fn.None[tlv.Blob]()
 }
 
 var _ ChannelLink = (*mockChannelLink)(nil)

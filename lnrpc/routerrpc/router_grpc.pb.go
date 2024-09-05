@@ -116,6 +116,18 @@ type RouterClient interface {
 	// channel to stay disabled until a subsequent manual request of either
 	// "enable" or "auto".
 	UpdateChanStatus(ctx context.Context, in *UpdateChanStatusRequest, opts ...grpc.CallOption) (*UpdateChanStatusResponse, error)
+	// XAddLocalChanAliases is an experimental API that creates a set of new
+	// channel SCID alias mappings. The final total set of aliases in the manager
+	// after the add operation is returned. This is only a locally stored alias,
+	// and will not be communicated to the channel peer via any message. Therefore,
+	// routing over such an alias will only work if the peer also calls this same
+	// RPC on their end. If an alias already exists, an error is returned
+	XAddLocalChanAliases(ctx context.Context, in *AddAliasesRequest, opts ...grpc.CallOption) (*AddAliasesResponse, error)
+	// XDeleteLocalChanAliases is an experimental API that deletes a set of alias
+	// mappings. The final total set of aliases in the manager after the delete
+	// operation is returned. The deletion will not be communicated to the channel
+	// peer via any message.
+	XDeleteLocalChanAliases(ctx context.Context, in *DeleteAliasesRequest, opts ...grpc.CallOption) (*DeleteAliasesResponse, error)
 }
 
 type routerClient struct {
@@ -451,6 +463,24 @@ func (c *routerClient) UpdateChanStatus(ctx context.Context, in *UpdateChanStatu
 	return out, nil
 }
 
+func (c *routerClient) XAddLocalChanAliases(ctx context.Context, in *AddAliasesRequest, opts ...grpc.CallOption) (*AddAliasesResponse, error) {
+	out := new(AddAliasesResponse)
+	err := c.cc.Invoke(ctx, "/routerrpc.Router/XAddLocalChanAliases", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *routerClient) XDeleteLocalChanAliases(ctx context.Context, in *DeleteAliasesRequest, opts ...grpc.CallOption) (*DeleteAliasesResponse, error) {
+	out := new(DeleteAliasesResponse)
+	err := c.cc.Invoke(ctx, "/routerrpc.Router/XDeleteLocalChanAliases", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RouterServer is the server API for Router service.
 // All implementations must embed UnimplementedRouterServer
 // for forward compatibility
@@ -552,6 +582,18 @@ type RouterServer interface {
 	// channel to stay disabled until a subsequent manual request of either
 	// "enable" or "auto".
 	UpdateChanStatus(context.Context, *UpdateChanStatusRequest) (*UpdateChanStatusResponse, error)
+	// XAddLocalChanAliases is an experimental API that creates a set of new
+	// channel SCID alias mappings. The final total set of aliases in the manager
+	// after the add operation is returned. This is only a locally stored alias,
+	// and will not be communicated to the channel peer via any message. Therefore,
+	// routing over such an alias will only work if the peer also calls this same
+	// RPC on their end. If an alias already exists, an error is returned
+	XAddLocalChanAliases(context.Context, *AddAliasesRequest) (*AddAliasesResponse, error)
+	// XDeleteLocalChanAliases is an experimental API that deletes a set of alias
+	// mappings. The final total set of aliases in the manager after the delete
+	// operation is returned. The deletion will not be communicated to the channel
+	// peer via any message.
+	XDeleteLocalChanAliases(context.Context, *DeleteAliasesRequest) (*DeleteAliasesResponse, error)
 	mustEmbedUnimplementedRouterServer()
 }
 
@@ -612,6 +654,12 @@ func (UnimplementedRouterServer) HtlcInterceptor(Router_HtlcInterceptorServer) e
 }
 func (UnimplementedRouterServer) UpdateChanStatus(context.Context, *UpdateChanStatusRequest) (*UpdateChanStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateChanStatus not implemented")
+}
+func (UnimplementedRouterServer) XAddLocalChanAliases(context.Context, *AddAliasesRequest) (*AddAliasesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method XAddLocalChanAliases not implemented")
+}
+func (UnimplementedRouterServer) XDeleteLocalChanAliases(context.Context, *DeleteAliasesRequest) (*DeleteAliasesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method XDeleteLocalChanAliases not implemented")
 }
 func (UnimplementedRouterServer) mustEmbedUnimplementedRouterServer() {}
 
@@ -976,6 +1024,42 @@ func _Router_UpdateChanStatus_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Router_XAddLocalChanAliases_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddAliasesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RouterServer).XAddLocalChanAliases(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/routerrpc.Router/XAddLocalChanAliases",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RouterServer).XAddLocalChanAliases(ctx, req.(*AddAliasesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Router_XDeleteLocalChanAliases_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteAliasesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RouterServer).XDeleteLocalChanAliases(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/routerrpc.Router/XDeleteLocalChanAliases",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RouterServer).XDeleteLocalChanAliases(ctx, req.(*DeleteAliasesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Router_ServiceDesc is the grpc.ServiceDesc for Router service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1026,6 +1110,14 @@ var Router_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateChanStatus",
 			Handler:    _Router_UpdateChanStatus_Handler,
+		},
+		{
+			MethodName: "XAddLocalChanAliases",
+			Handler:    _Router_XAddLocalChanAliases_Handler,
+		},
+		{
+			MethodName: "XDeleteLocalChanAliases",
+			Handler:    _Router_XDeleteLocalChanAliases_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

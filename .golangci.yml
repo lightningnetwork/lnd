@@ -104,11 +104,13 @@ linters-settings:
       - 'errors.Wrap'
   
   gomoddirectives:
+    replace-local: true
     replace-allow-list:
       # See go.mod for the explanation why these are needed.
       - github.com/ulikunitz/xz
       - github.com/gogo/protobuf
       - google.golang.org/protobuf
+      - github.com/lightningnetwork/lnd/sqldb
 
 
 linters:

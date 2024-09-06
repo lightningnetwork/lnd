@@ -3905,6 +3905,27 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	}, nil
 }
 
+// resignMusigCommit is used to resign a commitment transaction for taproot
+// channels when we need to retransmit a signature after a channel reestablish
+// message. Taproot channels use musig2, which means we must use fresh nonces
+// each time. After we receive the channel reestablish message, we learn the
+// nonce we need to use for the remote party. As a result, we need to generate
+// the partial signature again with the new nonce.
+func (lc *LightningChannel) resignMusigCommit(commitTx *wire.MsgTx,
+) (lnwire.OptPartialSigWithNonceTLV, error) {
+
+	remoteSession := lc.musigSessions.RemoteSession
+	musig, err := remoteSession.SignCommit(commitTx)
+	if err != nil {
+		var none lnwire.OptPartialSigWithNonceTLV
+		return none, err
+	}
+
+	partialSig := lnwire.MaybePartialSigWithNonce(musig.ToWireSig())
+
+	return partialSig, nil
+}
+
 // ProcessChanSyncMsg processes a ChannelReestablish message sent by the remote
 // connection upon re establishment of our connection with them. This method
 // will return a single message if we are currently out of sync, otherwise a
@@ -4182,12 +4203,23 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			commitUpdates = append(commitUpdates, logUpdate.UpdateMsg)
 		}
 
+		// If this is a taproot channel, then we need to regenerate the
+		// musig2 signature for the remote party, using their fresh
+		// nonce.
+		if lc.channelState.ChanType.IsTaproot() {
+			partialSig, err := lc.resignMusigCommit(
+				commitDiff.Commitment.CommitTx,
+			)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+
+			commitDiff.CommitSig.PartialSig = partialSig
+		}
+
 		// With the batch of updates accumulated, we'll now re-send the
 		// original CommitSig message required to re-sync their remote
 		// commitment chain with our local version of their chain.
-		//
-		// TODO(roasbeef): need to re-sign commitment states w/
-		// fresh nonce
 		commitUpdates = append(commitUpdates, commitDiff.CommitSig)
 
 		// NOTE: If a revocation is not owed, then updates is empty.

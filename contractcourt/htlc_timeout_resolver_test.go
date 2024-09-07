@@ -48,8 +48,8 @@ func newMockWitnessBeacon() *mockWitnessBeacon {
 func (m *mockWitnessBeacon) SubscribeUpdates(
 	chanID lnwire.ShortChannelID, htlc *channeldb.HTLC,
 	payload *hop.Payload,
-	nextHopOnionBlob []byte) (*WitnessSubscription, error) {
-
+	nextHopOnionBlob []byte,
+) (*WitnessSubscription, error) {
 	return &WitnessSubscription{
 		WitnessUpdates:     m.preImageUpdates,
 		CancelSubscription: func() {},
@@ -274,234 +274,234 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 	witnessBeacon := newMockWitnessBeacon()
 
 	for _, testCase := range testCases {
-		t.Logf("Running test case: %v", testCase.name)
+		t.Run(testCase.name, func(t *testing.T) {
+			checkPointChan := make(chan struct{}, 1)
+			incubateChan := make(chan struct{}, 1)
+			resolutionChan := make(chan ResolutionMsg, 1)
+			reportChan := make(chan *channeldb.ResolverReport)
 
-		checkPointChan := make(chan struct{}, 1)
-		incubateChan := make(chan struct{}, 1)
-		resolutionChan := make(chan ResolutionMsg, 1)
-		reportChan := make(chan *channeldb.ResolverReport)
+			//nolint:lll
+			chainCfg := ChannelArbitratorConfig{
+				ChainArbitratorConfig: ChainArbitratorConfig{
+					Notifier:   notifier,
+					PreimageDB: witnessBeacon,
+					IncubateOutputs: func(wire.OutPoint,
+						fn.Option[lnwallet.OutgoingHtlcResolution],
+						fn.Option[lnwallet.IncomingHtlcResolution],
+						uint32, fn.Option[int32],
+					) error {
+						incubateChan <- struct{}{}
+						return nil
+					},
+					DeliverResolutionMsg: func(msgs ...ResolutionMsg) error {
+						if len(msgs) != 1 {
+							return fmt.Errorf("expected 1 "+
+								"resolution msg, instead got %v",
+								len(msgs))
+						}
 
-		//nolint:lll
-		chainCfg := ChannelArbitratorConfig{
-			ChainArbitratorConfig: ChainArbitratorConfig{
-				Notifier:   notifier,
-				PreimageDB: witnessBeacon,
-				IncubateOutputs: func(wire.OutPoint,
-					fn.Option[lnwallet.OutgoingHtlcResolution],
-					fn.Option[lnwallet.IncomingHtlcResolution],
-					uint32, fn.Option[int32]) error {
-
-					incubateChan <- struct{}{}
+						resolutionChan <- msgs[0]
+						return nil
+					},
+					Budget: *DefaultBudgetConfig(),
+					QueryIncomingCircuit: func(circuit models.CircuitKey) *models.CircuitKey {
+						return nil
+					},
+				},
+				PutResolverReport: func(_ kvdb.RwTx,
+					_ *channeldb.ResolverReport,
+				) error {
 					return nil
 				},
-				DeliverResolutionMsg: func(msgs ...ResolutionMsg) error {
-					if len(msgs) != 1 {
-						return fmt.Errorf("expected 1 "+
-							"resolution msg, instead got %v",
-							len(msgs))
+			}
+
+			cfg := ResolverConfig{
+				ChannelArbitratorConfig: chainCfg,
+				Checkpoint: func(_ ContractResolver,
+					reports ...*channeldb.ResolverReport,
+				) error {
+					checkPointChan <- struct{}{}
+
+					// Send all of our reports into the channel.
+					for _, report := range reports {
+						reportChan <- report
 					}
 
-					resolutionChan <- msgs[0]
 					return nil
 				},
-				Budget: *DefaultBudgetConfig(),
-				QueryIncomingCircuit: func(circuit models.CircuitKey) *models.CircuitKey {
-					return nil
+			}
+			resolver := &htlcTimeoutResolver{
+				htlcResolution: lnwallet.OutgoingHtlcResolution{
+					ClaimOutpoint: testChanPoint2,
+					SweepSignDesc: *fakeSignDesc,
 				},
-			},
-			PutResolverReport: func(_ kvdb.RwTx,
-				_ *channeldb.ResolverReport) error {
-
-				return nil
-			},
-		}
-
-		cfg := ResolverConfig{
-			ChannelArbitratorConfig: chainCfg,
-			Checkpoint: func(_ ContractResolver,
-				reports ...*channeldb.ResolverReport) error {
-
-				checkPointChan <- struct{}{}
-
-				// Send all of our reports into the channel.
-				for _, report := range reports {
-					reportChan <- report
-				}
-
-				return nil
-			},
-		}
-		resolver := &htlcTimeoutResolver{
-			htlcResolution: lnwallet.OutgoingHtlcResolution{
-				ClaimOutpoint: testChanPoint2,
-				SweepSignDesc: *fakeSignDesc,
-			},
-			contractResolverKit: *newContractResolverKit(
-				cfg,
-			),
-			htlc: channeldb.HTLC{
-				Amt: testHtlcAmt,
-			},
-		}
-
-		var reports []*channeldb.ResolverReport
-
-		// If the test case needs the remote commitment to be
-		// broadcast, then we'll set the timeout commit to a fake
-		// transaction to force the code path.
-		if !testCase.remoteCommit {
-			timeoutTx, err := testCase.txToBroadcast()
-			require.NoError(t, err)
-
-			resolver.htlcResolution.SignedTimeoutTx = timeoutTx
-
-			if testCase.timeout {
-				timeoutTxID := timeoutTx.TxHash()
-				reports = append(reports, &channeldb.ResolverReport{
-					OutPoint:        timeoutTx.TxIn[0].PreviousOutPoint,
-					Amount:          testHtlcAmt.ToSatoshis(),
-					ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
-					ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
-					SpendTxID:       &timeoutTxID,
-				})
-			}
-		}
-
-		// With all the setup above complete, we can initiate the
-		// resolution process, and the bulk of our test.
-		var wg sync.WaitGroup
-		resolveErr := make(chan error, 1)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			_, err := resolver.Resolve(false)
-			if err != nil {
-				resolveErr <- err
-			}
-		}()
-
-		// At the output isn't yet in the nursery, we expect that we
-		// should receive an incubation request.
-		select {
-		case <-incubateChan:
-		case err := <-resolveErr:
-			t.Fatalf("unable to resolve HTLC: %v", err)
-		case <-time.After(time.Second * 5):
-			t.Fatalf("failed to receive incubation request")
-		}
-
-		// Next, the resolver should request a spend notification for
-		// the direct HTLC output. We'll use the txToBroadcast closure
-		// for the test case to generate the transaction that we'll
-		// send to the resolver.
-		spendingTx, err := testCase.txToBroadcast()
-		if err != nil {
-			t.Fatalf("unable to generate tx: %v", err)
-		}
-		spendTxHash := spendingTx.TxHash()
-
-		select {
-		case notifier.SpendChan <- &chainntnfs.SpendDetail{
-			SpendingTx:    spendingTx,
-			SpenderTxHash: &spendTxHash,
-		}:
-		case <-time.After(time.Second * 5):
-			t.Fatalf("failed to request spend ntfn")
-		}
-
-		if !testCase.timeout {
-			// If the resolver should settle now, then we'll
-			// extract the pre-image to be extracted and the
-			// resolution message sent.
-			select {
-			case newPreimage := <-witnessBeacon.newPreimages:
-				if newPreimage[0] != fakePreimage {
-					t.Fatalf("wrong pre-image: "+
-						"expected %v, got %v",
-						fakePreimage, newPreimage)
-				}
-
-			case <-time.After(time.Second * 5):
-				t.Fatalf("pre-image not added")
+				contractResolverKit: *newContractResolverKit(
+					cfg,
+				),
+				htlc: channeldb.HTLC{
+					Amt: testHtlcAmt,
+				},
 			}
 
-			// Finally, we should get a resolution message with the
-			// pre-image set within the message.
-			select {
-			case resolutionMsg := <-resolutionChan:
-				// Once again, the pre-images should match up.
-				if *resolutionMsg.PreImage != fakePreimage {
-					t.Fatalf("wrong pre-image: "+
-						"expected %v, got %v",
-						fakePreimage, resolutionMsg.PreImage)
-				}
-			case <-time.After(time.Second * 5):
-				t.Fatalf("resolution not sent")
-			}
-		} else {
+			var reports []*channeldb.ResolverReport
 
-			// Otherwise, the HTLC should now timeout.  First, we
-			// should get a resolution message with a populated
-			// failure message.
-			select {
-			case resolutionMsg := <-resolutionChan:
-				if resolutionMsg.Failure == nil {
-					t.Fatalf("expected failure resolution msg")
-				}
-			case <-time.After(time.Second * 5):
-				t.Fatalf("resolution not sent")
-			}
-
-			// We should also get another request for the spend
-			// notification of the second-level transaction to
-			// indicate that it's been swept by the nursery, but
-			// only if this is a local commitment transaction.
+			// If the test case needs the remote commitment to be
+			// broadcast, then we'll set the timeout commit to a fake
+			// transaction to force the code path.
 			if !testCase.remoteCommit {
-				select {
-				case notifier.SpendChan <- &chainntnfs.SpendDetail{
-					SpendingTx:    spendingTx,
-					SpenderTxHash: &spendTxHash,
-				}:
-				case <-time.After(time.Second * 5):
-					t.Fatalf("failed to request spend ntfn")
+				timeoutTx, err := testCase.txToBroadcast()
+				require.NoError(t, err)
+
+				resolver.htlcResolution.SignedTimeoutTx = timeoutTx
+
+				if testCase.timeout {
+					timeoutTxID := timeoutTx.TxHash()
+					reports = append(reports, &channeldb.ResolverReport{
+						OutPoint:        timeoutTx.TxIn[0].PreviousOutPoint,
+						Amount:          testHtlcAmt.ToSatoshis(),
+						ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
+						ResolverOutcome: channeldb.ResolverOutcomeFirstStage,
+						SpendTxID:       &timeoutTxID,
+					})
 				}
 			}
-		}
 
-		// In any case, before the resolver exits, it should checkpoint
-		// its final state.
-		select {
-		case <-checkPointChan:
-		case err := <-resolveErr:
-			t.Fatalf("unable to resolve HTLC: %v", err)
-		case <-time.After(time.Second * 5):
-			t.Fatalf("check point not received")
-		}
+			// With all the setup above complete, we can initiate the
+			// resolution process, and the bulk of our test.
+			var wg sync.WaitGroup
+			resolveErr := make(chan error, 1)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
 
-		// Add a report to our set of expected reports with the outcome
-		// that the test specifies (either success or timeout).
-		spendTxID := spendingTx.TxHash()
-		amt := btcutil.Amount(fakeSignDesc.Output.Value)
+				_, err := resolver.Resolve(false)
+				if err != nil {
+					resolveErr <- err
+				}
+			}()
 
-		reports = append(reports, &channeldb.ResolverReport{
-			OutPoint:        testChanPoint2,
-			Amount:          amt,
-			ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
-			ResolverOutcome: testCase.outcome,
-			SpendTxID:       &spendTxID,
+			// As the output isn't yet in the nursery, we expect that we
+			// should receive an incubation request.
+			select {
+			case <-incubateChan:
+			case err := <-resolveErr:
+				t.Fatalf("unable to resolve HTLC: %v", err)
+			case <-time.After(time.Second * 5):
+				t.Fatalf("failed to receive incubation request")
+			}
+
+			// Next, the resolver should request a spend notification for
+			// the direct HTLC output. We'll use the txToBroadcast closure
+			// for the test case to generate the transaction that we'll
+			// send to the resolver.
+			spendingTx, err := testCase.txToBroadcast()
+			if err != nil {
+				t.Fatalf("unable to generate tx: %v", err)
+			}
+			spendTxHash := spendingTx.TxHash()
+
+			select {
+			case notifier.SpendChan <- &chainntnfs.SpendDetail{
+				SpendingTx:    spendingTx,
+				SpenderTxHash: &spendTxHash,
+			}:
+			case <-time.After(time.Second * 5):
+				t.Fatalf("failed to request spend ntfn")
+			}
+
+			if !testCase.timeout {
+				// If the resolver should settle now, then we'll
+				// extract the pre-image to be extracted and the
+				// resolution message sent.
+				select {
+				case newPreimage := <-witnessBeacon.newPreimages:
+					if newPreimage[0] != fakePreimage {
+						t.Fatalf("wrong pre-image: "+
+							"expected %v, got %v",
+							fakePreimage, newPreimage)
+					}
+
+				case <-time.After(time.Second * 5):
+					t.Fatalf("pre-image not added")
+				}
+
+				// Finally, we should get a resolution message with the
+				// pre-image set within the message.
+				select {
+				case resolutionMsg := <-resolutionChan:
+					// Once again, the pre-images should match up.
+					if *resolutionMsg.PreImage != fakePreimage {
+						t.Fatalf("wrong pre-image: "+
+							"expected %v, got %v",
+							fakePreimage, resolutionMsg.PreImage)
+					}
+				case <-time.After(time.Second * 5):
+					t.Fatalf("resolution not sent")
+				}
+			} else {
+
+				// Otherwise, the HTLC should now timeout.  First, we
+				// should get a resolution message with a populated
+				// failure message.
+				select {
+				case resolutionMsg := <-resolutionChan:
+					if resolutionMsg.Failure == nil {
+						t.Fatalf("expected failure resolution msg")
+					}
+				case <-time.After(time.Second * 5):
+					t.Fatalf("resolution not sent")
+				}
+
+				// We should also get another request for the spend
+				// notification of the second-level transaction to
+				// indicate that it's been swept by the nursery, but
+				// only if this is a local commitment transaction.
+				if !testCase.remoteCommit {
+					select {
+					case notifier.SpendChan <- &chainntnfs.SpendDetail{
+						SpendingTx:    spendingTx,
+						SpenderTxHash: &spendTxHash,
+					}:
+					case <-time.After(time.Second * 5):
+						t.Fatalf("failed to request spend ntfn")
+					}
+				}
+			}
+
+			// In any case, before the resolver exits, it should checkpoint
+			// its final state.
+			select {
+			case <-checkPointChan:
+			case err := <-resolveErr:
+				t.Fatalf("unable to resolve HTLC: %v", err)
+			case <-time.After(time.Second * 5):
+				t.Fatalf("check point not received")
+			}
+
+			// Add a report to our set of expected reports with the outcome
+			// that the test specifies (either success or timeout).
+			spendTxID := spendingTx.TxHash()
+			amt := btcutil.Amount(fakeSignDesc.Output.Value)
+
+			reports = append(reports, &channeldb.ResolverReport{
+				OutPoint:        testChanPoint2,
+				Amount:          amt,
+				ResolverType:    channeldb.ResolverTypeOutgoingHtlc,
+				ResolverOutcome: testCase.outcome,
+				SpendTxID:       &spendTxID,
+			})
+
+			for _, report := range reports {
+				assertResolverReport(t, reportChan, report)
+			}
+
+			wg.Wait()
+
+			// Finally, the resolver should be marked as resolved.
+			if !resolver.resolved {
+				t.Fatalf("resolver should be marked as resolved")
+			}
 		})
-
-		for _, report := range reports {
-			assertResolverReport(t, reportChan, report)
-		}
-
-		wg.Wait()
-
-		// Finally, the resolver should be marked as resolved.
-		if !resolver.resolved {
-			t.Fatalf("resolver should be marked as resolved")
-		}
 	}
 }
 
@@ -544,7 +544,8 @@ func TestHtlcTimeoutSingleStage(t *testing.T) {
 			// We send a confirmation the sweep tx from published
 			// by the nursery.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
-				_ bool) error {
+				_ bool,
+			) error {
 				// The nursery will create and publish a sweep
 				// tx.
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
@@ -652,7 +653,8 @@ func TestHtlcTimeoutSecondStage(t *testing.T) {
 			// We send a confirmation for our sweep tx to indicate
 			// that our sweep succeeded.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
-				_ bool) error {
+				_ bool,
+			) error {
 				// The nursery will publish the timeout tx.
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 					SpendingTx:    timeoutTx,
@@ -768,8 +770,8 @@ func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 			// We send a spend notification for a remote spend with
 			// the preimage.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
-				_ bool) error {
-
+				_ bool,
+			) error {
 				witnessBeacon := ctx.resolver.(*htlcTimeoutResolver).PreimageDB.(*mockWitnessBeacon)
 
 				// The remote spends the output directly with
@@ -878,8 +880,8 @@ func TestHtlcTimeoutSecondStageRemoteSpend(t *testing.T) {
 			// We send a confirmation for the remote's second layer
 			// success transcation.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
-				_ bool) error {
-
+				_ bool,
+			) error {
 				ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 					SpendingTx:    remoteSuccessTx,
 					SpenderTxHash: &successTxid,
@@ -1032,8 +1034,8 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 		{
 			// The output should be given to the sweeper.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
-				_ bool) error {
-
+				_ bool,
+			) error {
 				resolver := ctx.resolver.(*htlcTimeoutResolver)
 				inp := <-resolver.Sweeper.(*mockSweeper).sweptInputs
 				op := inp.OutPoint()
@@ -1062,8 +1064,8 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 			// We send a confirmation for our sweep tx to indicate
 			// that our sweep succeeded.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
-				resumed bool) error {
-
+				resumed bool,
+			) error {
 				// If we are resuming from a checkpoint, we
 				// expect the resolver to re-subscribe to a
 				// spend, hence we must resend it.
@@ -1207,8 +1209,8 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 		{
 			// The output should be given to the sweeper.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
-				_ bool) error {
-
+				_ bool,
+			) error {
 				resolver := ctx.resolver.(*htlcTimeoutResolver)
 				inp := <-resolver.Sweeper.(*mockSweeper).sweptInputs
 				op := inp.OutPoint()
@@ -1235,8 +1237,8 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 			// We send a confirmation for our sweep tx to indicate
 			// that our sweep succeeded.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
-				resumed bool) error {
-
+				resumed bool,
+			) error {
 				// If we are resuming from a checkpoint, we
 				// expect the resolver to re-subscribe to a
 				// spend, hence we must resend it.
@@ -1296,7 +1298,9 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 }
 
 func testHtlcTimeout(t *testing.T, resolution lnwallet.OutgoingHtlcResolution,
-	checkpoints []checkpoint) {
+	checkpoints []checkpoint,
+) {
+	t.Helper()
 
 	defer timeout()()
 

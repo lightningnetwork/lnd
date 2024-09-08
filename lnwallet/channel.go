@@ -2,12 +2,13 @@ package lnwallet
 
 import (
 	"bytes"
+	"cmp"
 	"container/list"
 	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 	"sync"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -4626,6 +4627,17 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// We'll need to send over the signatures to the remote party in the
+	// order as they appear on the commitment transaction after BIP 69
+	// sorting.
+	slices.SortFunc(sigBatch, func(i, j SignJob) int {
+		return cmp.Compare(i.OutputIndex, j.OutputIndex)
+	})
+	slices.SortFunc(auxSigBatch, func(i, j AuxSigJob) int {
+		return cmp.Compare(i.OutputIndex, j.OutputIndex)
+	})
+
 	lc.sigPool.SubmitSignBatch(sigBatch)
 
 	err = fn.MapOptionZ(lc.auxSigner, func(a AuxSigner) error {
@@ -4675,18 +4687,8 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 		}
 	}
 
-	// We'll need to send over the signatures to the remote party in the
-	// order as they appear on the commitment transaction after BIP 69
-	// sorting.
-	sort.Slice(sigBatch, func(i, j int) bool {
-		return sigBatch[i].OutputIndex < sigBatch[j].OutputIndex
-	})
-	sort.Slice(auxSigBatch, func(i, j int) bool {
-		return auxSigBatch[i].OutputIndex < auxSigBatch[j].OutputIndex
-	})
-
-	// With the jobs sorted, we'll now iterate through all the responses to
-	// gather each of the signatures in order.
+	// Iterate through all the responses to gather each of the signatures
+	// in the order they were submitted.
 	htlcSigs = make([]lnwire.Sig, 0, len(sigBatch))
 	auxSigs := make([]fn.Option[tlv.Blob], 0, len(auxSigBatch))
 	for i := range sigBatch {

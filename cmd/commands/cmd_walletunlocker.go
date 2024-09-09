@@ -34,17 +34,16 @@ var createCommand = cli.Command{
 	Usage:    "Initialize a wallet when starting lnd for the first time.",
 	Description: `
 	The create command is used to initialize an lnd wallet from scratch for
-	the very first time. This is interactive command with one required
-	argument (the password), and one optional argument (the mnemonic
-	passphrase).
+	the very first time. This is an interactive command with one required
+	input (the password), and one optional input (the mnemonic passphrase).
 
-	The first argument (the password) is required and MUST be greater than
-	8 characters. This will be used to encrypt the wallet within lnd. This
+	The first input (the password) is required and MUST be greater than 8
+	characters. This will be used to encrypt the wallet within lnd. This
 	MUST be remembered as it will be required to fully start up the daemon.
 
-	The second argument is an optional 24-word mnemonic derived from BIP
-	39. If provided, then the internal wallet will use the seed derived
-	from this mnemonic to generate all keys.
+	The second input is an optional 24-word mnemonic derived from BIP 39.
+	If provided, then the internal wallet will use the seed derived from
+	this mnemonic to generate all keys.
 
 	This command returns a 24-word seed in the scenario that NO mnemonic
 	was provided by the user. This should be written down as it can be used

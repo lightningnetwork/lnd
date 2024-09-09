@@ -51,11 +51,15 @@
 ## Testing
 ## Database
 
+* Add [new SQL tables](https://github.com/lightningnetwork/lnd/pull/9003) for 
+  blinded paths. 
+
 ## Code Health
 
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
 
+* Elle Mouton
 * Pins
 * Ziggie

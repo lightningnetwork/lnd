@@ -9,9 +9,9 @@ import (
 	"github.com/lightningnetwork/lnd/queue"
 )
 
-// dbMPPayment is an interface derived from channeldb.MPPayment that is used by
+// DBMPPayment is an interface derived from channeldb.MPPayment that is used by
 // the payment lifecycle.
-type dbMPPayment interface {
+type DBMPPayment interface {
 	// GetState returns the current state of the payment.
 	GetState() *channeldb.MPPaymentState
 
@@ -76,7 +76,7 @@ type ControlTower interface {
 
 	// FetchPayment fetches the payment corresponding to the given payment
 	// hash.
-	FetchPayment(paymentHash lntypes.Hash) (dbMPPayment, error)
+	FetchPayment(paymentHash lntypes.Hash) (DBMPPayment, error)
 
 	// FailPayment transitions a payment into the Failed state, and records
 	// the ultimate reason the payment failed. Note that this should only
@@ -273,7 +273,7 @@ func (p *controlTower) FailAttempt(paymentHash lntypes.Hash,
 
 // FetchPayment fetches the payment corresponding to the given payment hash.
 func (p *controlTower) FetchPayment(paymentHash lntypes.Hash) (
-	dbMPPayment, error) {
+	DBMPPayment, error) {
 
 	return p.db.FetchPayment(paymentHash)
 }

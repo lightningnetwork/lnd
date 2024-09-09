@@ -584,7 +584,7 @@ type MusigSessionCfg struct {
 	// funding input.
 	InputTxOut *wire.TxOut
 
-	// TapscriptRoot is an optional tweak that can be used to modify the
+	// TapscriptTweak is an optional tweak that can be used to modify the
 	// MuSig2 public key used in the session.
 	TapscriptTweak fn.Option[chainhash.Hash]
 }

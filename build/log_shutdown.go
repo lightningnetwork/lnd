@@ -1,6 +1,8 @@
 package build
 
 import (
+	"context"
+
 	"github.com/btcsuite/btclog"
 )
 
@@ -38,6 +40,18 @@ func (s *ShutdownLogger) Criticalf(format string, params ...interface{}) {
 // Note: it is part of the btclog.Logger interface.
 func (s *ShutdownLogger) Critical(v ...interface{}) {
 	s.Logger.Critical(v)
+	s.Logger.Info("Sending request for shutdown")
+	s.shutdown()
+}
+
+// CriticalS writes a structured log with the given message and key-value pair
+// attributes with LevelCritical to the log.
+//
+// Note: it is part of the btclog.Logger interface.
+func (s *ShutdownLogger) CriticalS(ctx context.Context, msg string, err error,
+	attr ...interface{}) {
+
+	s.Logger.CriticalS(ctx, msg, err, attr...)
 	s.Logger.Info("Sending request for shutdown")
 	s.shutdown()
 }

@@ -43,6 +43,16 @@
 ## lncli Updates
 
 ## Code Health
+
+* [Update to use structured 
+  logging](https://github.com/lightningnetwork/lnd/pull/9083). This also 
+  introduces a new `--logging.console.disable` option to disable logs being 
+  written to stdout and a new `--logging.file.disable` option to disable writing 
+  logs to the standard log file. It also adds `--logging.console.no-timestamps`
+  and `--logging.file.no-timestamps` which can be used to omit timestamps in
+  log messages for the respective loggers. Finally, the new 
+  `--logging.console.style` option can be used to manipulate the style
+  formatting of the console logger.
  
 ## Breaking Changes
 ## Performance Improvements
@@ -66,5 +76,6 @@
 # Contributors (Alphabetical Order)
 
 * CharlieZKSmith
+* Elle Mouton
 * Pins
 * Ziggie

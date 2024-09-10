@@ -373,7 +373,8 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	)
 
 	var errInsufficientFunds *ErrInsufficientFunds
-	if err == nil { //nolint:gocritic,ifElseChain
+	switch {
+	case err == nil:
 		// If the coin selection succeeds we check if our total balance
 		// covers the selected set of coins including fees plus an
 		// optional anchor reserve.
@@ -396,11 +397,13 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 			// our total balance minus reserve and fees.
 			selectSubtractFee = true
 		}
-	} else if errors.As(err, &errInsufficientFunds) {
+
+	case errors.As(err, &errInsufficientFunds):
 		// If the initial coin selection fails due to insufficient funds
 		// we select our total available balance minus fees.
 		selectSubtractFee = true
-	} else {
+
+	default:
 		return nil, 0, 0, err
 	}
 

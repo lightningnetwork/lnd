@@ -494,9 +494,11 @@ type Config struct {
 
 	GRPC *GRPCConfig `group:"grpc" namespace:"grpc"`
 
-	// LogWriter is the root logger that all of the daemon's subloggers are
+	// SubLogMgr is the root logger that all the daemon's subloggers are
 	// hooked up to.
-	LogWriter *build.RotatingLogWriter
+	SubLogMgr  *build.SubLoggerManager
+	LogWriter  *build.LogWriter
+	LogRotator *build.RotatingLogWriter
 
 	// networkDir is the path to the directory of the currently active
 	// network. This path will hold the files related to each different
@@ -714,7 +716,7 @@ func DefaultConfig() Config {
 		MaxChannelFeeAllocation:   htlcswitch.DefaultMaxLinkFeeAllocation,
 		MaxCommitFeeRateAnchors:   lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
 		MaxFeeExposure:            uint64(htlcswitch.DefaultMaxFeeExposure.ToSatoshis()),
-		LogWriter:                 build.NewRotatingLogWriter(),
+		LogWriter:                 &build.LogWriter{},
 		DB:                        lncfg.DefaultDB(),
 		Cluster:                   lncfg.DefaultCluster(),
 		RPCMiddleware:             lncfg.DefaultRPCMiddleware(),
@@ -1411,16 +1413,19 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			cfg.LogCompressor)
 	}
 
+	cfg.LogRotator = build.NewRotatingLogWriter(cfg.LogWriter)
+	cfg.SubLogMgr = build.NewSubLoggerManager(cfg.LogWriter)
+
 	// Initialize logging at the default logging level.
-	SetupLoggers(cfg.LogWriter, interceptor)
+	SetupLoggers(cfg.SubLogMgr, interceptor)
 
 	// Special show command to list supported subsystems and exit.
 	if cfg.DebugLevel == "show" {
 		fmt.Println("Supported subsystems",
-			cfg.LogWriter.SupportedSubsystems())
+			cfg.SubLogMgr.SupportedSubsystems())
 		os.Exit(0)
 	}
-	err = cfg.LogWriter.InitLogRotator(
+	err = cfg.LogRotator.InitLogRotator(
 		filepath.Join(cfg.LogDir, defaultLogFilename),
 		cfg.LogCompressor, cfg.MaxLogFileSize, cfg.MaxLogFiles,
 	)
@@ -1430,7 +1435,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	}
 
 	// Parse, validate, and set debug log level(s).
-	err = build.ParseAndSetDebugLevels(cfg.DebugLevel, cfg.LogWriter)
+	err = build.ParseAndSetDebugLevels(cfg.DebugLevel, cfg.SubLogMgr)
 	if err != nil {
 		str := "error parsing debug level: %v"
 		return nil, &lncfg.UsageError{Err: mkErr(str, err)}

@@ -692,10 +692,11 @@ func FuzzProbability(f *testing.F) {
 		BimodalConfig: BimodalConfig{BimodalScaleMsat: scale},
 	}
 
-	// We don't start fuzzing at zero, because that would cause an error.
-	f.Add(uint64(1), uint64(0), uint64(0), uint64(0))
-
 	f.Fuzz(func(t *testing.T, capacity, successAmt, failAmt, amt uint64) {
+		if capacity == 0 {
+			return
+		}
+
 		_, err := estimator.probabilityFormula(
 			lnwire.MilliSatoshi(capacity),
 			lnwire.MilliSatoshi(successAmt),

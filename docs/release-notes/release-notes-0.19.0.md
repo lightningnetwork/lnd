@@ -75,6 +75,16 @@
   config settings to its own dedicated group. The old ones still work but will
   be removed in a future release.
  
+* [Update to use structured 
+  logging](https://github.com/lightningnetwork/lnd/pull/9083). This also 
+  introduces a new `--logging.console.disable` option to disable logs being 
+  written to stdout and a new `--logging.file.disable` option to disable writing 
+  logs to the standard log file. It also adds `--logging.console.no-timestamps`
+  and `--logging.file.no-timestamps` which can be used to omit timestamps in
+  log messages for the respective loggers. Finally, the new 
+  `--logging.console.style` option can be used under the `dev` build tag to add
+   styling to console logging.
+ 
 ## Breaking Changes
 ## Performance Improvements
 

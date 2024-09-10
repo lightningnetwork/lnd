@@ -2,7 +2,6 @@ package build
 
 import (
 	"fmt"
-	"io"
 	"sort"
 	"strings"
 	"sync"
@@ -30,10 +29,12 @@ type SubLoggerManager struct {
 var _ LeveledSubLogger = (*SubLoggerManager)(nil)
 
 // NewSubLoggerManager constructs a new SubLoggerManager.
-func NewSubLoggerManager(w io.Writer) *SubLoggerManager {
+func NewSubLoggerManager(handlers ...btclog.Handler) *SubLoggerManager {
 	return &SubLoggerManager{
-		loggers:   SubLoggers{},
-		genLogger: btclog.NewBackend(w),
+		loggers: make(SubLoggers),
+		genLogger: newSubLogGenerator(
+			newHandlerSet(btclog.LevelInfo, handlers...),
+		),
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btclog"
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/autopilot"
@@ -497,7 +498,6 @@ type Config struct {
 	// SubLogMgr is the root logger that all the daemon's subloggers are
 	// hooked up to.
 	SubLogMgr  *build.SubLoggerManager
-	LogWriter  *build.LogWriter
 	LogRotator *build.RotatingLogWriter
 
 	// networkDir is the path to the directory of the currently active
@@ -716,7 +716,7 @@ func DefaultConfig() Config {
 		MaxChannelFeeAllocation:   htlcswitch.DefaultMaxLinkFeeAllocation,
 		MaxCommitFeeRateAnchors:   lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
 		MaxFeeExposure:            uint64(htlcswitch.DefaultMaxFeeExposure.ToSatoshis()),
-		LogWriter:                 &build.LogWriter{},
+		LogRotator:                build.NewRotatingLogWriter(),
 		DB:                        lncfg.DefaultDB(),
 		Cluster:                   lncfg.DefaultCluster(),
 		RPCMiddleware:             lncfg.DefaultRPCMiddleware(),
@@ -1438,14 +1438,21 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
-	// A log writer must be passed in, otherwise we can't function and would
-	// run into a panic later on.
-	if cfg.LogWriter == nil {
-		return nil, mkErr("log writer missing in config")
+	var (
+		consoleLogHander = btclog.NewDefaultHandler(os.Stdout)
+		logHandlers      []btclog.Handler
+	)
+	switch build.LoggingType {
+	case build.LogTypeStdOut:
+		logHandlers = []btclog.Handler{consoleLogHander}
+	case build.LogTypeDefault:
+		logHandlers = []btclog.Handler{
+			consoleLogHander,
+			btclog.NewDefaultHandler(cfg.LogRotator),
+		}
 	}
 
-	cfg.LogRotator = build.NewRotatingLogWriter(cfg.LogWriter)
-	cfg.SubLogMgr = build.NewSubLoggerManager(cfg.LogWriter)
+	cfg.SubLogMgr = build.NewSubLoggerManager(logHandlers...)
 
 	// Special show command to list supported subsystems and exit.
 	if cfg.DebugLevel == "show" {

@@ -208,7 +208,7 @@ endif
 itest-only: db-instance
 	@$(call print, "Running integration tests with ${backend} backend.")
 	rm -rf itest/*.log itest/.logs-*; date
-	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_part.sh 0 1 $(TEST_FLAGS) $(ITEST_FLAGS)
+	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_part.sh 0 1 $(TEST_FLAGS) $(ITEST_FLAGS) -test.v
 	$(COLLECT_ITEST_COVERAGE)
 
 #? itest: Build and run integration tests

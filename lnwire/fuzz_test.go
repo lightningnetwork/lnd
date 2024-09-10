@@ -494,9 +494,47 @@ func FuzzReplyChannelRange(f *testing.F) {
 		// Prefix with MsgReplyChannelRange.
 		data = prefixWithMsgType(data, MsgReplyChannelRange)
 
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		// Because require.Equal considers nil slices and empty slices
+		// to be non-equal, we must manually compare the Timestamps
+		// field rather than using the harness.
+
+		if len(data) > MaxSliceLength {
+			return
+		}
+
+		r := bytes.NewReader(data)
+		msg, err := ReadMessage(r, 0)
+		if err != nil {
+			return
+		}
+
+		// We will serialize the message into a new bytes buffer.
+		var b bytes.Buffer
+		_, err = WriteMessage(&b, msg, 0)
+		require.NoError(t, err)
+
+		// Deserialize the message from the serialized bytes buffer, and
+		// then assert that the original message is equal to the newly
+		// deserialized message.
+		newMsg, err := ReadMessage(&b, 0)
+		require.NoError(t, err)
+
+		require.IsType(t, &ReplyChannelRange{}, msg)
+		first, _ := msg.(*ReplyChannelRange)
+		require.IsType(t, &ReplyChannelRange{}, newMsg)
+		second, _ := newMsg.(*ReplyChannelRange)
+
+		// We can't use require.Equal for Timestamps, since we consider
+		// the empty slice and nil to be equivalent.
+		require.Equal(t, len(first.Timestamps), len(second.Timestamps))
+		for i, ts1 := range first.Timestamps {
+			ts2 := second.Timestamps[i]
+			require.Equal(t, ts1, ts2)
+		}
+		first.Timestamps = nil
+		second.Timestamps = nil
+
+		require.Equal(t, first, second)
 	})
 }
 

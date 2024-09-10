@@ -104,6 +104,12 @@ func (c *ReplyChannelRange) Decode(r io.Reader, pver uint32) error {
 	// Set the corresponding TLV types if they were included in the stream.
 	if val, ok := typeMap[TimestampsRecordType]; ok && val == nil {
 		c.Timestamps = timeStamps
+
+		// Check that a timestamp was provided for each SCID.
+		if len(c.Timestamps) != len(c.ShortChanIDs) {
+			return fmt.Errorf("number of timestamps does not " +
+				"match number of SCIDs")
+		}
 	}
 
 	if len(tlvRecords) != 0 {

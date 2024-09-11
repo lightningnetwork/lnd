@@ -499,6 +499,7 @@ type Config struct {
 	// hooked up to.
 	SubLogMgr  *build.SubLoggerManager
 	LogRotator *build.RotatingLogWriter
+	LogConfig  *build.LogConfig `group:"logging" namespace:"logging"`
 
 	// networkDir is the path to the directory of the currently active
 	// network. This path will hold the files related to each different
@@ -738,6 +739,7 @@ func DefaultConfig() Config {
 			ServerPingTimeout: defaultGrpcServerPingTimeout,
 			ClientPingMinWait: defaultGrpcClientPingMinWait,
 		},
+		LogConfig:         build.DefaultLogConfig(),
 		WtClient:          lncfg.DefaultWtClientCfg(),
 		HTTPHeaderTimeout: DefaultHTTPHeaderTimeout,
 	}
@@ -1402,18 +1404,26 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
-	var (
-		consoleLogHander = btclog.NewDefaultHandler(os.Stdout)
-		logHandlers      []btclog.Handler
+	var logCfg = cfg.LogConfig
+	consoleLogHandler := btclog.NewDefaultHandler(
+		os.Stdout, logCfg.Console.HandlerOptions()...,
 	)
+	logFileHandler := btclog.NewDefaultHandler(
+		cfg.LogRotator, logCfg.File.HandlerOptions()...,
+	)
+
+	var logHandlers []btclog.Handler
+	maybeAddLogger := func(cmdOptionDisable bool, handler btclog.Handler) {
+		if !cmdOptionDisable {
+			logHandlers = append(logHandlers, handler)
+		}
+	}
 	switch build.LoggingType {
 	case build.LogTypeStdOut:
-		logHandlers = []btclog.Handler{consoleLogHander}
+		maybeAddLogger(logCfg.Console.Disable, consoleLogHandler)
 	case build.LogTypeDefault:
-		logHandlers = []btclog.Handler{
-			consoleLogHander,
-			btclog.NewDefaultHandler(cfg.LogRotator),
-		}
+		maybeAddLogger(logCfg.Console.Disable, consoleLogHandler)
+		maybeAddLogger(logCfg.File.Disable, logFileHandler)
 	}
 
 	if !build.SuportedLogCompressor(cfg.LogCompressor) {

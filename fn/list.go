@@ -300,3 +300,18 @@ func (l *List[A]) PushFrontList(other *List[A]) {
 		n = n.Prev()
 	}
 }
+
+// Filter gives a slice of all of the node values that satisfy the given
+// predicate.
+func (l *List[A]) Filter(f Pred[A]) []A {
+	var acc []A
+
+	for cursor := l.Front(); cursor != nil; cursor = cursor.Next() {
+		a := cursor.Value
+		if f(a) {
+			acc = append(acc, a)
+		}
+	}
+
+	return acc
+}

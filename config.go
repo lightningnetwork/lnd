@@ -499,6 +499,7 @@ type Config struct {
 	// hooked up to.
 	SubLogMgr  *build.SubLoggerManager
 	LogRotator *build.RotatingLogWriter
+	LogConfig  *build.LogConfig `group:"logging" namespace:"logging"`
 
 	// networkDir is the path to the directory of the currently active
 	// network. This path will hold the files related to each different
@@ -738,6 +739,7 @@ func DefaultConfig() Config {
 			ServerPingTimeout: defaultGrpcServerPingTimeout,
 			ClientPingMinWait: defaultGrpcClientPingMinWait,
 		},
+		LogConfig:         build.DefaultLogConfig(),
 		WtClient:          lncfg.DefaultWtClientCfg(),
 		HTTPHeaderTimeout: DefaultHTTPHeaderTimeout,
 	}
@@ -1439,17 +1441,34 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	)
 
 	var (
-		consoleLogHander = btclog.NewDefaultHandler(os.Stdout)
-		logHandlers      []btclog.Handler
+		logCfg      = cfg.LogConfig
+		consoleOpts []btclog.HandlerOption
+		fileOpts    []btclog.HandlerOption
 	)
+	if logCfg.Console.NoTimestamps {
+		consoleOpts = append(consoleOpts, btclog.WithNoTimestamp())
+	}
+	if logCfg.Console.Style {
+		consoleOpts = append(consoleOpts, btclog.WithStyledOutput())
+	}
+	if logCfg.File.NoTimestamps {
+		fileOpts = append(fileOpts, btclog.WithNoTimestamp())
+	}
+	consoleLogHandler := btclog.NewDefaultHandler(os.Stdout, consoleOpts...)
+	logFileHandler := btclog.NewDefaultHandler(cfg.LogRotator, fileOpts...)
+
+	var logHandlers []btclog.Handler
+	maybeAddLogger := func(cmdOptionDisable bool, handler btclog.Handler) {
+		if !cmdOptionDisable {
+			logHandlers = append(logHandlers, handler)
+		}
+	}
 	switch build.LoggingType {
 	case build.LogTypeStdOut:
-		logHandlers = []btclog.Handler{consoleLogHander}
+		maybeAddLogger(logCfg.Console.Disable, consoleLogHandler)
 	case build.LogTypeDefault:
-		logHandlers = []btclog.Handler{
-			consoleLogHander,
-			btclog.NewDefaultHandler(cfg.LogRotator),
-		}
+		maybeAddLogger(logCfg.Console.Disable, consoleLogHandler)
+		maybeAddLogger(logCfg.File.Disable, logFileHandler)
 	}
 
 	cfg.SubLogMgr = build.NewSubLoggerManager(logHandlers...)

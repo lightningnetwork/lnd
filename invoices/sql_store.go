@@ -122,6 +122,16 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 
 	OnAMPSubInvoiceSettled(ctx context.Context,
 		arg sqlc.OnAMPSubInvoiceSettledParams) error
+
+	// Migration specific methods.
+	InsertInvoicePaymentHashAndKey(ctx context.Context,
+		arg sqlc.InsertInvoicePaymentHashAndKeyParams) error
+
+	SetInvoicePaymentHashAddIndex(ctx context.Context,
+		arg sqlc.SetInvoicePaymentHashAddIndexParams) error
+
+	GetInvoicePaymentHashByAddIndex(ctx context.Context,
+		addIndex sql.NullInt64) ([]byte, error)
 }
 
 var _ InvoiceDB = (*SQLStore)(nil)

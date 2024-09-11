@@ -835,12 +835,6 @@ func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 	}
 
 	g.prevReplyChannelRange = msg
-	if len(msg.Timestamps) != 0 &&
-		len(msg.Timestamps) != len(msg.ShortChanIDs) {
-
-		return fmt.Errorf("number of timestamps not equal to " +
-			"number of SCIDs")
-	}
 
 	for i, scid := range msg.ShortChanIDs {
 		info := channeldb.NewChannelUpdateInfo(

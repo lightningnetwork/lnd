@@ -162,7 +162,7 @@ func ChannelUpdateFromEdge(info *models.ChannelEdgeInfo,
 // signed by the node's private key, and (2) that the announcement's message
 // flags and optional fields are sane.
 func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey, capacity btcutil.Amount,
-	a *lnwire.ChannelUpdate1) error {
+	a lnwire.ChannelUpdate) error {
 
 	if err := ValidateChannelUpdateFields(capacity, a); err != nil {
 		return err
@@ -173,7 +173,21 @@ func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey, capacity btcutil.Amount,
 
 // VerifyChannelUpdateSignature verifies that the channel update message was
 // signed by the party with the given node public key.
-func VerifyChannelUpdateSignature(msg *lnwire.ChannelUpdate1,
+func VerifyChannelUpdateSignature(msg lnwire.ChannelUpdate,
+	pubKey *btcec.PublicKey) error {
+
+	switch u := msg.(type) {
+	case *lnwire.ChannelUpdate1:
+		return verifyChannelUpdate1Signature(u, pubKey)
+	default:
+		return fmt.Errorf("unhandled implementation of "+
+			"lnwire.ChannelUpdate: %T", msg)
+	}
+}
+
+// verifyChannelUpdateSignature1 verifies that the channel update message was
+// signed by the party with the given node public key.
+func verifyChannelUpdate1Signature(msg *lnwire.ChannelUpdate1,
 	pubKey *btcec.PublicKey) error {
 
 	data, err := msg.DataToSign()
@@ -198,6 +212,20 @@ func VerifyChannelUpdateSignature(msg *lnwire.ChannelUpdate1,
 // ValidateChannelUpdateFields validates a channel update's message flags and
 // corresponding update fields.
 func ValidateChannelUpdateFields(capacity btcutil.Amount,
+	msg lnwire.ChannelUpdate) error {
+
+	switch u := msg.(type) {
+	case *lnwire.ChannelUpdate1:
+		return validateChannelUpdate1Fields(capacity, u)
+	default:
+		return fmt.Errorf("unhandled implementation of "+
+			"lnwire.ChannelUpdate: %T", msg)
+	}
+}
+
+// validateChannelUpdate1Fields validates a channel update's message flags and
+// corresponding update fields.
+func validateChannelUpdate1Fields(capacity btcutil.Amount,
 	msg *lnwire.ChannelUpdate1) error {
 
 	// The maxHTLC flag is mandatory.

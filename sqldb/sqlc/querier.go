@@ -11,6 +11,7 @@ import (
 )
 
 type Querier interface {
+	ClearKVInvoiceHashIndex(ctx context.Context) error
 	DeleteCanceledInvoices(ctx context.Context) (sql.Result, error)
 	DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) (sql.Result, error)
 	FetchAMPSubInvoiceHTLCs(ctx context.Context, arg FetchAMPSubInvoiceHTLCsParams) ([]FetchAMPSubInvoiceHTLCsRow, error)
@@ -27,6 +28,7 @@ type Querier interface {
 	GetInvoiceFeatures(ctx context.Context, invoiceID int64) ([]InvoiceFeature, error)
 	GetInvoiceHTLCCustomRecords(ctx context.Context, invoiceID int64) ([]GetInvoiceHTLCCustomRecordsRow, error)
 	GetInvoiceHTLCs(ctx context.Context, invoiceID int64) ([]InvoiceHtlc, error)
+	GetKVInvoicePaymentHashByAddIndex(ctx context.Context, addIndex int64) ([]byte, error)
 	GetMigration(ctx context.Context, version int32) (time.Time, error)
 	InsertAMPSubInvoice(ctx context.Context, arg InsertAMPSubInvoiceParams) error
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error
@@ -34,6 +36,7 @@ type Querier interface {
 	InsertInvoiceFeature(ctx context.Context, arg InsertInvoiceFeatureParams) error
 	InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCParams) (int64, error)
 	InsertInvoiceHTLCCustomRecord(ctx context.Context, arg InsertInvoiceHTLCCustomRecordParams) error
+	InsertKVInvoiceKeyAndAddIndex(ctx context.Context, arg InsertKVInvoiceKeyAndAddIndexParams) error
 	InsertMigratedInvoice(ctx context.Context, arg InsertMigratedInvoiceParams) (int64, error)
 	NextInvoiceSettleIndex(ctx context.Context) (int64, error)
 	OnAMPSubInvoiceCanceled(ctx context.Context, arg OnAMPSubInvoiceCanceledParams) error
@@ -42,6 +45,7 @@ type Querier interface {
 	OnInvoiceCanceled(ctx context.Context, arg OnInvoiceCanceledParams) error
 	OnInvoiceCreated(ctx context.Context, arg OnInvoiceCreatedParams) error
 	OnInvoiceSettled(ctx context.Context, arg OnInvoiceSettledParams) error
+	SetKVInvoicePaymentHash(ctx context.Context, arg SetKVInvoicePaymentHashParams) error
 	SetMigration(ctx context.Context, arg SetMigrationParams) error
 	UpdateAMPSubInvoiceHTLCPreimage(ctx context.Context, arg UpdateAMPSubInvoiceHTLCPreimageParams) (sql.Result, error)
 	UpdateAMPSubInvoiceState(ctx context.Context, arg UpdateAMPSubInvoiceStateParams) error

@@ -53,7 +53,7 @@ func (c ShortChannelID) ToUint64() uint64 {
 
 // String generates a human-readable representation of the channel ID.
 func (c ShortChannelID) String() string {
-	return fmt.Sprintf("%d:%d:%d", c.BlockHeight, c.TxIndex, c.TxPosition)
+	return fmt.Sprintf("%dx%dx%d", c.BlockHeight, c.TxIndex, c.TxPosition)
 }
 
 // Record returns a TLV record that can be used to encode/decode a

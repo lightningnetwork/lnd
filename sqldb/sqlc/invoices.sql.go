@@ -11,6 +11,15 @@ import (
 	"time"
 )
 
+const clearKVInvoiceHashIndex = `-- name: ClearKVInvoiceHashIndex :exec
+DELETE FROM invoice_payment_hashes
+`
+
+func (q *Queries) ClearKVInvoiceHashIndex(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, clearKVInvoiceHashIndex)
+	return err
+}
+
 const deleteCanceledInvoices = `-- name: DeleteCanceledInvoices :execresult
 DELETE
 FROM invoices
@@ -405,6 +414,19 @@ func (q *Queries) GetInvoiceHTLCs(ctx context.Context, invoiceID int64) ([]Invoi
 	return items, nil
 }
 
+const getKVInvoicePaymentHashByAddIndex = `-- name: GetKVInvoicePaymentHashByAddIndex :one
+SELECT hash
+FROM invoice_payment_hashes
+WHERE add_index = $1
+`
+
+func (q *Queries) GetKVInvoicePaymentHashByAddIndex(ctx context.Context, addIndex int64) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, getKVInvoicePaymentHashByAddIndex, addIndex)
+	var hash []byte
+	err := row.Scan(&hash)
+	return hash, err
+}
+
 const insertInvoice = `-- name: InsertInvoice :one
 INSERT INTO invoices (
     hash, preimage, memo, amount_msat, cltv_delta, expiry, payment_addr, 
@@ -533,6 +555,24 @@ func (q *Queries) InsertInvoiceHTLCCustomRecord(ctx context.Context, arg InsertI
 	return err
 }
 
+const insertKVInvoiceKeyAndAddIndex = `-- name: InsertKVInvoiceKeyAndAddIndex :exec
+INSERT INTO invoice_payment_hashes (
+    id, add_index
+) VALUES (
+    $1, $2
+)
+`
+
+type InsertKVInvoiceKeyAndAddIndexParams struct {
+	ID       int32
+	AddIndex int64
+}
+
+func (q *Queries) InsertKVInvoiceKeyAndAddIndex(ctx context.Context, arg InsertKVInvoiceKeyAndAddIndexParams) error {
+	_, err := q.db.ExecContext(ctx, insertKVInvoiceKeyAndAddIndex, arg.ID, arg.AddIndex)
+	return err
+}
+
 const insertMigratedInvoice = `-- name: InsertMigratedInvoice :one
 INSERT INTO invoices (
     hash, preimage, settle_index, settled_at, memo, amount_msat, cltv_delta, 
@@ -599,6 +639,22 @@ func (q *Queries) NextInvoiceSettleIndex(ctx context.Context) (int64, error) {
 	var current_value int64
 	err := row.Scan(&current_value)
 	return current_value, err
+}
+
+const setKVInvoicePaymentHash = `-- name: SetKVInvoicePaymentHash :exec
+UPDATE invoice_payment_hashes
+SET hash = $2
+WHERE id = $1
+`
+
+type SetKVInvoicePaymentHashParams struct {
+	ID   int32
+	Hash []byte
+}
+
+func (q *Queries) SetKVInvoicePaymentHash(ctx context.Context, arg SetKVInvoicePaymentHashParams) error {
+	_, err := q.db.ExecContext(ctx, setKVInvoicePaymentHash, arg.ID, arg.Hash)
+	return err
 }
 
 const updateInvoiceAmountPaid = `-- name: UpdateInvoiceAmountPaid :execresult

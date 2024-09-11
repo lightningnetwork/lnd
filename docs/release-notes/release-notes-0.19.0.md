@@ -55,7 +55,12 @@
 
 ## Tooling and Documentation
 
+* [Improved `lncli create` command help text](https://github.com/lightningnetwork/lnd/pull/9077)
+  by replacing the word `argument` with `input` in the command description,
+  clarifying that the command requires interactive inputs rather than arguments.
+
 # Contributors (Alphabetical Order)
 
+* CharlieZKSmith
 * Pins
 * Ziggie

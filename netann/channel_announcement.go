@@ -3,6 +3,7 @@ package netann
 import (
 	"bytes"
 	"errors"
+	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -88,10 +89,25 @@ func CreateChanAnnouncement(chanProof *models.ChannelAuthProof,
 	return chanAnn, edge1Ann, edge2Ann, nil
 }
 
-// ValidateChannelAnn validates the channel announcement message and checks
+// FetchPkScript defines a function that can be used to fetch the output script
+// for the transaction with the given SCID.
+type FetchPkScript func(*lnwire.ShortChannelID) ([]byte, error)
+
+// ValidateChannelAnn validates the channel announcement.
+func ValidateChannelAnn(a lnwire.ChannelAnnouncement, _ FetchPkScript) error {
+	switch ann := a.(type) {
+	case *lnwire.ChannelAnnouncement1:
+		return validateChannelAnn1(ann)
+	default:
+		return fmt.Errorf("unhandled implementation of "+
+			"lnwire.ChannelAnnouncement: %T", a)
+	}
+}
+
+// validateChannelAnn1 validates the channel announcement message and checks
 // that node signatures covers the announcement message, and that the bitcoin
 // signatures covers the node keys.
-func ValidateChannelAnn(a *lnwire.ChannelAnnouncement1) error {
+func validateChannelAnn1(a *lnwire.ChannelAnnouncement1) error {
 	// First, we'll compute the digest (h) which is to be signed by each of
 	// the keys included within the node announcement message. This hash
 	// digest includes all the keys, so the (up to 4 signatures) will

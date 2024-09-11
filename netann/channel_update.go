@@ -16,6 +16,20 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	// chanUpdate2MsgName is a string representing the name of the
+	// ChannelUpdate2 message. This string will be used during the
+	// construction of the tagged hash message to be signed when producing
+	// the signature for the ChannelUpdate2 message.
+	chanUpdate2MsgName = "channel_update_2"
+
+	// chanUpdate2SigField is the name of the signature field of the
+	// ChannelUpdate2 message. This string will be used during the
+	// construction of the tagged hash message to be signed when producing
+	// the signature for the ChannelUpdate2 message.
+	chanUpdate2SigField = "signature"
+)
+
 // ErrUnableToExtractChanUpdate is returned when a channel update cannot be
 // found for one of our active channels.
 var ErrUnableToExtractChanUpdate = fmt.Errorf("unable to extract ChannelUpdate")
@@ -179,6 +193,8 @@ func VerifyChannelUpdateSignature(msg lnwire.ChannelUpdate,
 	switch u := msg.(type) {
 	case *lnwire.ChannelUpdate1:
 		return verifyChannelUpdate1Signature(u, pubKey)
+	case *lnwire.ChannelUpdate2:
+		return verifyChannelUpdate2Signature(u, pubKey)
 	default:
 		return fmt.Errorf("unhandled implementation of "+
 			"lnwire.ChannelUpdate: %T", msg)
@@ -209,6 +225,29 @@ func verifyChannelUpdate1Signature(msg *lnwire.ChannelUpdate1,
 	return nil
 }
 
+// verifyChannelUpdateSignature2 verifies that the channel update message was
+// signed by the party with the given node public key.
+func verifyChannelUpdate2Signature(c *lnwire.ChannelUpdate2,
+	pubKey *btcec.PublicKey) error {
+
+	digest, err := chanUpdate2DigestToSign(c)
+	if err != nil {
+		return fmt.Errorf("unable to reconstruct message data: %w", err)
+	}
+
+	nodeSig, err := c.Signature.ToSignature()
+	if err != nil {
+		return err
+	}
+
+	if !nodeSig.Verify(digest, pubKey) {
+		return fmt.Errorf("invalid signature for channel update %v",
+			spew.Sdump(c))
+	}
+
+	return nil
+}
+
 // ValidateChannelUpdateFields validates a channel update's message flags and
 // corresponding update fields.
 func ValidateChannelUpdateFields(capacity btcutil.Amount,
@@ -217,6 +256,8 @@ func ValidateChannelUpdateFields(capacity btcutil.Amount,
 	switch u := msg.(type) {
 	case *lnwire.ChannelUpdate1:
 		return validateChannelUpdate1Fields(capacity, u)
+	case *lnwire.ChannelUpdate2:
+		return validateChannelUpdate2Fields(capacity, u)
 	default:
 		return fmt.Errorf("unhandled implementation of "+
 			"lnwire.ChannelUpdate: %T", msg)
@@ -250,4 +291,44 @@ func validateChannelUpdate1Fields(capacity btcutil.Amount,
 	}
 
 	return nil
+}
+
+// validateChannelUpdate2Fields validates a channel update's message flags and
+// corresponding update fields.
+func validateChannelUpdate2Fields(capacity btcutil.Amount,
+	c *lnwire.ChannelUpdate2) error {
+
+	maxHtlc := c.HTLCMaximumMsat.Val
+	if maxHtlc == 0 || maxHtlc < c.HTLCMinimumMsat.Val {
+		return fmt.Errorf("invalid max htlc for channel update %v",
+			spew.Sdump(c))
+	}
+
+	// Checking whether the MaxHTLC value respects the channel's capacity.
+	capacityMsat := lnwire.NewMSatFromSatoshis(capacity)
+	if maxHtlc > capacityMsat {
+		return fmt.Errorf("max_htlc (%v) for channel update greater "+
+			"than capacity (%v)", maxHtlc, capacityMsat)
+	}
+
+	return nil
+}
+
+// ChanUpdate2DigestTag returns the tag to be used when signing the digest of
+// a channel_update_2 message.
+func ChanUpdate2DigestTag() []byte {
+	return MsgTag(chanUpdate2MsgName, chanUpdate2SigField)
+}
+
+// chanUpdate2DigestToSign computes the digest of the ChannelUpdate2 message to
+// be signed.
+func chanUpdate2DigestToSign(c *lnwire.ChannelUpdate2) ([]byte, error) {
+	data, err := c.DataToSign()
+	if err != nil {
+		return nil, err
+	}
+
+	hash := MsgHash(chanUpdate2MsgName, chanUpdate2SigField, data)
+
+	return hash[:], nil
 }

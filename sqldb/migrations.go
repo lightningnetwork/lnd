@@ -56,6 +56,11 @@ var (
 			Version:       5,
 			SchemaVersion: 5,
 		},
+		{
+			Name:          "000006_invoice_migration",
+			Version:       6,
+			SchemaVersion: 6,
+		},
 	}
 )
 

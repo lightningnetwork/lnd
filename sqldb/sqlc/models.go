@@ -87,6 +87,12 @@ type InvoiceHtlcCustomRecord struct {
 	HtlcID int64
 }
 
+type InvoicePaymentHash struct {
+	Hash     []byte
+	ID       int64
+	AddIndex sql.NullInt64
+}
+
 type InvoiceSequence struct {
 	Name         string
 	CurrentValue int64

@@ -11,6 +11,15 @@ import (
 	"time"
 )
 
+const clearInvoiceHashIndex = `-- name: ClearInvoiceHashIndex :exec
+DELETE FROM invoice_payment_hashes
+`
+
+func (q *Queries) ClearInvoiceHashIndex(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, clearInvoiceHashIndex)
+	return err
+}
+
 const deleteCanceledInvoices = `-- name: DeleteCanceledInvoices :execresult
 DELETE
 FROM invoices
@@ -405,6 +414,19 @@ func (q *Queries) GetInvoiceHTLCs(ctx context.Context, invoiceID int64) ([]Invoi
 	return items, nil
 }
 
+const getInvoicePaymentHashByAddIndex = `-- name: GetInvoicePaymentHashByAddIndex :one
+SELECT hash
+FROM invoice_payment_hashes
+WHERE add_index = $1
+`
+
+func (q *Queries) GetInvoicePaymentHashByAddIndex(ctx context.Context, addIndex sql.NullInt64) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, getInvoicePaymentHashByAddIndex, addIndex)
+	var hash []byte
+	err := row.Scan(&hash)
+	return hash, err
+}
+
 const insertInvoice = `-- name: InsertInvoice :one
 INSERT INTO invoices (
     hash, preimage, settle_index, settled_at, memo, amount_msat, cltv_delta, 
@@ -537,6 +559,24 @@ func (q *Queries) InsertInvoiceHTLCCustomRecord(ctx context.Context, arg InsertI
 	return err
 }
 
+const insertInvoicePaymentHashAndKey = `-- name: InsertInvoicePaymentHashAndKey :exec
+INSERT INTO invoice_payment_hashes (
+    hash, id
+) VALUES (
+    $1, $2
+)
+`
+
+type InsertInvoicePaymentHashAndKeyParams struct {
+	Hash []byte
+	ID   int64
+}
+
+func (q *Queries) InsertInvoicePaymentHashAndKey(ctx context.Context, arg InsertInvoicePaymentHashAndKeyParams) error {
+	_, err := q.db.ExecContext(ctx, insertInvoicePaymentHashAndKey, arg.Hash, arg.ID)
+	return err
+}
+
 const nextInvoiceSettleIndex = `-- name: NextInvoiceSettleIndex :one
 UPDATE invoice_sequences SET current_value = current_value + 1
 WHERE name = 'settle_index'
@@ -548,6 +588,22 @@ func (q *Queries) NextInvoiceSettleIndex(ctx context.Context) (int64, error) {
 	var current_value int64
 	err := row.Scan(&current_value)
 	return current_value, err
+}
+
+const setInvoicePaymentHashAddIndex = `-- name: SetInvoicePaymentHashAddIndex :exec
+UPDATE invoice_payment_hashes
+SET add_index = $2
+WHERE id = $1
+`
+
+type SetInvoicePaymentHashAddIndexParams struct {
+	ID       int64
+	AddIndex sql.NullInt64
+}
+
+func (q *Queries) SetInvoicePaymentHashAddIndex(ctx context.Context, arg SetInvoicePaymentHashAddIndexParams) error {
+	_, err := q.db.ExecContext(ctx, setInvoicePaymentHashAddIndex, arg.ID, arg.AddIndex)
+	return err
 }
 
 const updateInvoiceAmountPaid = `-- name: UpdateInvoiceAmountPaid :execresult

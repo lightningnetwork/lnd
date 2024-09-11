@@ -6,10 +6,14 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/pkg/errors"
 )
 
 // ErrUnableToExtractChanUpdate is returned when a channel update cannot be
@@ -151,4 +155,71 @@ func ChannelUpdateFromEdge(info *models.ChannelEdgeInfo,
 	}
 
 	return update, nil
+}
+
+// ValidateChannelUpdateAnn validates the channel update announcement by
+// checking (1) that the included signature covers the announcement and has been
+// signed by the node's private key, and (2) that the announcement's message
+// flags and optional fields are sane.
+func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey, capacity btcutil.Amount,
+	a *lnwire.ChannelUpdate1) error {
+
+	if err := ValidateChannelUpdateFields(capacity, a); err != nil {
+		return err
+	}
+
+	return VerifyChannelUpdateSignature(a, pubKey)
+}
+
+// VerifyChannelUpdateSignature verifies that the channel update message was
+// signed by the party with the given node public key.
+func VerifyChannelUpdateSignature(msg *lnwire.ChannelUpdate1,
+	pubKey *btcec.PublicKey) error {
+
+	data, err := msg.DataToSign()
+	if err != nil {
+		return fmt.Errorf("unable to reconstruct message data: %w", err)
+	}
+	dataHash := chainhash.DoubleHashB(data)
+
+	nodeSig, err := msg.Signature.ToSignature()
+	if err != nil {
+		return err
+	}
+
+	if !nodeSig.Verify(dataHash, pubKey) {
+		return fmt.Errorf("invalid signature for channel update %v",
+			spew.Sdump(msg))
+	}
+
+	return nil
+}
+
+// ValidateChannelUpdateFields validates a channel update's message flags and
+// corresponding update fields.
+func ValidateChannelUpdateFields(capacity btcutil.Amount,
+	msg *lnwire.ChannelUpdate1) error {
+
+	// The maxHTLC flag is mandatory.
+	if !msg.MessageFlags.HasMaxHtlc() {
+		return errors.Errorf("max htlc flag not set for channel "+
+			"update %v", spew.Sdump(msg))
+	}
+
+	maxHtlc := msg.HtlcMaximumMsat
+	if maxHtlc == 0 || maxHtlc < msg.HtlcMinimumMsat {
+		return errors.Errorf("invalid max htlc for channel "+
+			"update %v", spew.Sdump(msg))
+	}
+
+	// For light clients, the capacity will not be set so we'll skip
+	// checking whether the MaxHTLC value respects the channel's
+	// capacity.
+	capacityMsat := lnwire.NewMSatFromSatoshis(capacity)
+	if capacityMsat != 0 && maxHtlc > capacityMsat {
+		return errors.Errorf("max_htlc (%v) for channel update "+
+			"greater than capacity (%v)", maxHtlc, capacityMsat)
+	}
+
+	return nil
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
+	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -1484,7 +1485,7 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 		return false
 	}
 
-	err = ValidateChannelUpdateAnn(pubKey, ch.Capacity, msg)
+	err = netann.ValidateChannelUpdateAnn(pubKey, ch.Capacity, msg)
 	if err != nil {
 		log.Errorf("Unable to validate channel update: %v", err)
 		return false

@@ -8,9 +8,9 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
-	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -440,7 +440,7 @@ func (p *paymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate1,
 	pubKey *btcec.PublicKey, policy *models.CachedEdgePolicy) bool {
 
 	// Validate the message signature.
-	if err := graph.VerifyChannelUpdateSignature(msg, pubKey); err != nil {
+	if err := netann.VerifyChannelUpdateSignature(msg, pubKey); err != nil {
 		log.Errorf(
 			"Unable to validate channel update signature: %v", err,
 		)

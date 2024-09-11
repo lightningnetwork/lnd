@@ -169,3 +169,23 @@ INSERT INTO invoice_htlc_custom_records (
 SELECT ihcr.htlc_id, key, value
 FROM invoice_htlcs ih JOIN invoice_htlc_custom_records ihcr ON ih.id=ihcr.htlc_id 
 WHERE ih.invoice_id = $1;
+
+-- name: InsertInvoicePaymentHashAndKey :exec
+INSERT INTO invoice_payment_hashes (
+    hash, id
+) VALUES (
+    $1, $2
+);
+
+-- name: SetInvoicePaymentHashAddIndex :exec
+UPDATE invoice_payment_hashes
+SET add_index = $2
+WHERE id = $1;
+
+-- name: GetInvoicePaymentHashByAddIndex :one
+SELECT hash
+FROM invoice_payment_hashes
+WHERE add_index = $1;
+
+-- name: ClearInvoiceHashIndex :exec
+DELETE FROM invoice_payment_hashes;

@@ -44,7 +44,8 @@ type TlvTrafficShaper interface {
 	// is a custom channel that should be handled by the traffic shaper, the
 	// HandleTraffic method should be called first.
 	PaymentBandwidth(htlcBlob, commitmentBlob fn.Option[tlv.Blob],
-		linkBandwidth lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error)
+		linkBandwidth,
+		htlcAmt lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error)
 }
 
 // AuxHtlcModifier is an interface that allows the sender to modify the outgoing
@@ -166,7 +167,7 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 		// Ask for a specific bandwidth to be used for the channel.
 		commitmentBlob := link.CommitmentCustomBlob()
 		auxBandwidth, err = ts.PaymentBandwidth(
-			htlcBlob, commitmentBlob, linkBandwidth,
+			htlcBlob, commitmentBlob, linkBandwidth, htlcAmount,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to get bandwidth from "+

@@ -2,7 +2,7 @@ module github.com/lightningnetwork/lnd/kvdb
 
 require (
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
-	github.com/btcsuite/btcwallet/walletdb v1.3.6-0.20210803004036-eebed51155ec
+	github.com/btcsuite/btcwallet/walletdb v1.4.4
 	github.com/davecgh/go-spew v1.1.1
 	github.com/fergusstrange/embedded-postgres v1.25.0
 	github.com/google/btree v1.0.1

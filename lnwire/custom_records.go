@@ -89,6 +89,22 @@ func (c CustomRecords) Copy() CustomRecords {
 	return customRecords
 }
 
+// MergedCopy creates a copy of the records and merges them with the given
+// records. If the same key is present in both sets, the value from the other
+// records will be used.
+func (c CustomRecords) MergedCopy(other CustomRecords) CustomRecords {
+	copiedRecords := make(CustomRecords, len(c))
+	for k, v := range c {
+		copiedRecords[k] = v
+	}
+
+	for k, v := range other {
+		copiedRecords[k] = v
+	}
+
+	return copiedRecords
+}
+
 // ExtendRecordProducers extends the given records slice with the custom
 // records. The resultant records slice will be sorted if the given records
 // slice contains TLV types greater than or equal to MinCustomRecordsTlvType.

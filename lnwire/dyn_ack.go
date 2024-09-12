@@ -24,6 +24,10 @@ type DynAck struct {
 	// a dynamic commitment negotiation
 	ChanID ChannelID
 
+	// Sig is a signature that acknowledges and approves the parameters
+	// that were requested in the DynPropose
+	Sig Sig
+
 	// LocalNonce is an optional field that is transmitted when accepting
 	// a dynamic commitment upgrade to Taproot Channels. This nonce will be
 	// used to verify the first commitment transaction signature. This will
@@ -51,6 +55,10 @@ var _ SizeableMessage = (*DynAck)(nil)
 // This is a part of the lnwire.Message interface.
 func (da *DynAck) Encode(w *bytes.Buffer, _ uint32) error {
 	if err := WriteChannelID(w, da.ChanID); err != nil {
+		return err
+	}
+
+	if err := WriteSig(w, da.Sig); err != nil {
 		return err
 	}
 
@@ -88,7 +96,7 @@ func (da *DynAck) Encode(w *bytes.Buffer, _ uint32) error {
 // This is a part of the lnwire.Message interface.
 func (da *DynAck) Decode(r io.Reader, _ uint32) error {
 	// Parse out main message.
-	if err := ReadElements(r, &da.ChanID); err != nil {
+	if err := ReadElements(r, &da.ChanID, &da.Sig); err != nil {
 		return err
 	}
 

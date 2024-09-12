@@ -62,14 +62,19 @@ func (u updateType) String() string {
 	}
 }
 
-// PaymentDescriptor represents a commitment state update which either adds,
-// settles, or removes an HTLC. PaymentDescriptors encapsulate all necessary
+// paymentDescriptor represents a commitment state update which either adds,
+// settles, or removes an HTLC. paymentDescriptors encapsulate all necessary
 // metadata w.r.t to an HTLC, and additional data pairing a settle message to
 // the original added HTLC.
 //
 // TODO(roasbeef): LogEntry interface??
 //   - need to separate attrs for cancel/add/settle/feeupdate
-type PaymentDescriptor struct {
+type paymentDescriptor struct {
+	// ChanID is the ChannelID of the LightningChannel that this
+	// paymentDescriptor belongs to. We track this here so we can
+	// reconstruct the Messages that this paymentDescriptor is built from.
+	ChanID lnwire.ChannelID
+
 	// RHash is the payment hash for this HTLC. The HTLC can be settled iff
 	// the preimage to this hash is presented.
 	RHash PaymentHash
@@ -165,7 +170,7 @@ type PaymentDescriptor struct {
 
 	// removeCommitHeight[Remote|Local] encodes the height of the
 	// commitment which removed the parent pointer of this
-	// PaymentDescriptor either due to a timeout or a settle. Once both
+	// paymentDescriptor either due to a timeout or a settle. Once both
 	// these heights are below the tail of both chains, the log entries can
 	// safely be removed.
 	removeCommitHeightRemote uint64
@@ -175,7 +180,7 @@ type PaymentDescriptor struct {
 	// routing.
 	//
 	// NOTE: Populated only on add payment descriptor entry types.
-	OnionBlob []byte
+	OnionBlob [lnwire.OnionPacketSize]byte
 
 	// ShaOnionBlob is a sha of the onion blob.
 	//
@@ -194,7 +199,7 @@ type PaymentDescriptor struct {
 
 	// [our|their|]PkScript are the raw public key scripts that encodes the
 	// redemption rules for this particular HTLC. These fields will only be
-	// populated iff the EntryType of this PaymentDescriptor is Add.
+	// populated iff the EntryType of this paymentDescriptor is Add.
 	// ourPkScript is the ourPkScript from the context of our local
 	// commitment chain. theirPkScript is the latest pkScript from the
 	// context of the remote commitment chain.
@@ -207,7 +212,7 @@ type PaymentDescriptor struct {
 	theirPkScript      []byte
 	theirWitnessScript []byte
 
-	// EntryType denotes the exact type of the PaymentDescriptor. In the
+	// EntryType denotes the exact type of the paymentDescriptor. In the
 	// case of a Timeout, or Settle type, then the Parent field will point
 	// into the log to the HTLC being modified.
 	EntryType updateType
@@ -225,4 +230,57 @@ type PaymentDescriptor struct {
 	// CustomRecords also stores the set of optional custom records that
 	// may have been attached to a sent HTLC.
 	CustomRecords lnwire.CustomRecords
+}
+
+// toLogUpdate recovers the underlying LogUpdate from the paymentDescriptor.
+// This operation is lossy and will forget some extra information tracked by the
+// paymentDescriptor but the function is total in that all paymentDescriptors
+// can be converted back to LogUpdates.
+func (pd *paymentDescriptor) toLogUpdate() channeldb.LogUpdate {
+	var msg lnwire.Message
+	switch pd.EntryType {
+	case Add:
+		msg = &lnwire.UpdateAddHTLC{
+			ChanID:        pd.ChanID,
+			ID:            pd.HtlcIndex,
+			Amount:        pd.Amount,
+			PaymentHash:   pd.RHash,
+			Expiry:        pd.Timeout,
+			OnionBlob:     pd.OnionBlob,
+			BlindingPoint: pd.BlindingPoint,
+			CustomRecords: pd.CustomRecords.Copy(),
+		}
+	case Settle:
+		msg = &lnwire.UpdateFulfillHTLC{
+			ChanID:          pd.ChanID,
+			ID:              pd.ParentIndex,
+			PaymentPreimage: pd.RPreimage,
+		}
+	case Fail:
+		msg = &lnwire.UpdateFailHTLC{
+			ChanID: pd.ChanID,
+			ID:     pd.ParentIndex,
+			Reason: pd.FailReason,
+		}
+	case MalformedFail:
+		msg = &lnwire.UpdateFailMalformedHTLC{
+			ChanID:       pd.ChanID,
+			ID:           pd.ParentIndex,
+			ShaOnionBlob: pd.ShaOnionBlob,
+			FailureCode:  pd.FailCode,
+		}
+	case FeeUpdate:
+		// The Amount field holds the feerate denominated in
+		// msat. Since feerates are only denominated in sat/kw,
+		// we can convert it without loss of precision.
+		msg = &lnwire.UpdateFee{
+			ChanID:   pd.ChanID,
+			FeePerKw: uint32(pd.Amount.ToSatoshis()),
+		}
+	}
+
+	return channeldb.LogUpdate{
+		LogIndex:  pd.LogIndex,
+		UpdateMsg: msg,
+	}
 }

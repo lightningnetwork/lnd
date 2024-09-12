@@ -442,7 +442,8 @@ func (m *hookMap) invoke() {
 
 // hodlHtlc contains htlc data that is required for resolution.
 type hodlHtlc struct {
-	pd         *lnwallet.PaymentDescriptor
+	add        lnwire.UpdateAddHTLC
+	sourceRef  channeldb.AddRef
 	obfuscator hop.ErrorEncrypter
 }
 
@@ -992,15 +993,7 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) error {
 	// If the package is fully acked but not completed, it must still have
 	// settles and fails to propagate.
 	if !fwdPkg.SettleFailFilter.IsFull() {
-		settleFails, err := lnwallet.PayDescsFromRemoteLogUpdates(
-			fwdPkg.Source, fwdPkg.Height, fwdPkg.SettleFails,
-		)
-		if err != nil {
-			l.log.Errorf("unable to process remote log updates: %v",
-				err)
-			return err
-		}
-		l.processRemoteSettleFails(fwdPkg, settleFails)
+		l.processRemoteSettleFails(fwdPkg)
 	}
 
 	// Finally, replay *ALL ADDS* in this forwarding package. The
@@ -1008,15 +1001,7 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) error {
 	// shove the entire, original set of adds down the pipeline so that the
 	// batch of adds presented to the sphinx router does not ever change.
 	if !fwdPkg.AckFilter.IsFull() {
-		adds, err := lnwallet.PayDescsFromRemoteLogUpdates(
-			fwdPkg.Source, fwdPkg.Height, fwdPkg.Adds,
-		)
-		if err != nil {
-			l.log.Errorf("unable to process remote log updates: %v",
-				err)
-			return err
-		}
-		l.processRemoteAdds(fwdPkg, adds)
+		l.processRemoteAdds(fwdPkg)
 
 		// If the link failed during processing the adds, we must
 		// return to ensure we won't attempted to update the state
@@ -1520,7 +1505,9 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 		l.log.Debugf("received settle resolution for %v "+
 			"with outcome: %v", circuitKey, res.Outcome)
 
-		return l.settleHTLC(res.Preimage, htlc.pd)
+		return l.settleHTLC(
+			res.Preimage, htlc.add.ID, htlc.sourceRef,
+		)
 
 	// For htlc failures, we get the relevant failure message based
 	// on the failure resolution and then fail the htlc.
@@ -1530,10 +1517,11 @@ func (l *channelLink) processHtlcResolution(resolution invoices.HtlcResolution,
 
 		// Get the lnwire failure message based on the resolution
 		// result.
-		failure := getResolutionFailure(res, htlc.pd.Amount)
+		failure := getResolutionFailure(res, htlc.add.Amount)
 
 		l.sendHTLCError(
-			htlc.pd, failure, htlc.obfuscator, true,
+			htlc.add, htlc.sourceRef, failure, htlc.obfuscator,
+			true,
 		)
 		return nil
 
@@ -2333,8 +2321,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 
 		// We now process the message and advance our remote commit
 		// chain.
-		fwdPkg, adds, settleFails, remoteHTLCs, err := l.channel.
-			ReceiveRevocation(msg)
+		fwdPkg, remoteHTLCs, err := l.channel.ReceiveRevocation(msg)
 		if err != nil {
 			// TODO(halseth): force close?
 			l.failf(
@@ -2384,8 +2371,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			}
 		}
 
-		l.processRemoteSettleFails(fwdPkg, settleFails)
-		l.processRemoteAdds(fwdPkg, adds)
+		l.processRemoteSettleFails(fwdPkg)
+		l.processRemoteAdds(fwdPkg)
 
 		// If the link failed during processing the adds, we must
 		// return to ensure we won't attempted to update the state
@@ -3291,17 +3278,17 @@ func (l *channelLink) updateChannelFee(feePerKw chainfee.SatPerKWeight) error {
 // the context of the provided forwarding package. Any settles or fails that
 // have already been acknowledged in the forwarding package will not be sent to
 // the switch.
-func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
-	settleFails []*lnwallet.PaymentDescriptor) {
-
-	if len(settleFails) == 0 {
+func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg) {
+	if len(fwdPkg.SettleFails) == 0 {
 		return
 	}
 
 	l.log.Debugf("settle-fail-filter: %v", fwdPkg.SettleFailFilter)
 
 	var switchPackets []*htlcPacket
-	for i, pd := range settleFails {
+	for i, update := range fwdPkg.SettleFails {
+		destRef := fwdPkg.DestRef(uint16(i))
+
 		// Skip any settles or fails that have already been
 		// acknowledged by the incoming link that originated the
 		// forwarded Add.
@@ -3312,12 +3299,11 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 		// TODO(roasbeef): rework log entries to a shared
 		// interface.
 
-		switch pd.EntryType {
-
+		switch msg := update.UpdateMsg.(type) {
 		// A settle for an HTLC we previously forwarded HTLC has been
 		// received. So we'll forward the HTLC to the switch which will
 		// handle propagating the settle to the prior hop.
-		case lnwallet.Settle:
+		case *lnwire.UpdateFulfillHTLC:
 			// If hodl.SettleIncoming is requested, we will not
 			// forward the SETTLE to the switch and will not signal
 			// a free slot on the commitment transaction.
@@ -3328,11 +3314,9 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 
 			settlePacket := &htlcPacket{
 				outgoingChanID: l.ShortChanID(),
-				outgoingHTLCID: pd.ParentIndex,
-				destRef:        pd.DestRef,
-				htlc: &lnwire.UpdateFulfillHTLC{
-					PaymentPreimage: pd.RPreimage,
-				},
+				outgoingHTLCID: msg.ID,
+				destRef:        &destRef,
+				htlc:           msg,
 			}
 
 			// Add the packet to the batch to be forwarded, and
@@ -3344,7 +3328,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 		// been received. As a result a new slot will be freed up in
 		// our commitment state, so we'll forward this to the switch so
 		// the backwards undo can continue.
-		case lnwallet.Fail:
+		case *lnwire.UpdateFailHTLC:
 			// If hodl.SettleIncoming is requested, we will not
 			// forward the FAIL to the switch and will not signal a
 			// free slot on the commitment transaction.
@@ -3359,16 +3343,12 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 			// set on the packet.
 			failPacket := &htlcPacket{
 				outgoingChanID: l.ShortChanID(),
-				outgoingHTLCID: pd.ParentIndex,
-				destRef:        pd.DestRef,
-				htlc: &lnwire.UpdateFailHTLC{
-					Reason: lnwire.OpaqueReason(
-						pd.FailReason,
-					),
-				},
+				outgoingHTLCID: msg.ID,
+				destRef:        &destRef,
+				htlc:           msg,
 			}
 
-			l.log.Debugf("Failed to send %s", pd.Amount)
+			l.log.Debugf("Failed to send HTLC with ID=%d", msg.ID)
 
 			// If the failure message lacks an HMAC (but includes
 			// the 4 bytes for encoding the message and padding
@@ -3378,7 +3358,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 			// to an actual error, by encrypting it as if we were
 			// the originating hop.
 			convertedErrorSize := lnwire.FailureMessageLength + 4
-			if len(pd.FailReason) == convertedErrorSize {
+			if len(msg.Reason) == convertedErrorSize {
 				failPacket.convertedError = true
 			}
 
@@ -3401,32 +3381,29 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 // indicating whether this is the first time these Adds are being processed, or
 // whether we are reprocessing as a result of a failure or restart. Adds that
 // have already been acknowledged in the forwarding package will be ignored.
-func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
-	lockedInHtlcs []*lnwallet.PaymentDescriptor) {
-
+//
+//nolint:funlen
+func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 	l.log.Tracef("processing %d remote adds for height %d",
-		len(lockedInHtlcs), fwdPkg.Height)
+		len(fwdPkg.Adds), fwdPkg.Height)
 
 	decodeReqs := make(
-		[]hop.DecodeHopIteratorRequest, 0, len(lockedInHtlcs),
+		[]hop.DecodeHopIteratorRequest, 0, len(fwdPkg.Adds),
 	)
-	for _, pd := range lockedInHtlcs {
-		switch pd.EntryType {
-
-		// TODO(conner): remove type switch?
-		case lnwallet.Add:
+	for _, update := range fwdPkg.Adds {
+		if msg, ok := update.UpdateMsg.(*lnwire.UpdateAddHTLC); ok {
 			// Before adding the new htlc to the state machine,
 			// parse the onion object in order to obtain the
 			// routing information with DecodeHopIterator function
 			// which process the Sphinx packet.
-			onionReader := bytes.NewReader(pd.OnionBlob)
+			onionReader := bytes.NewReader(msg.OnionBlob[:])
 
 			req := hop.DecodeHopIteratorRequest{
 				OnionReader:    onionReader,
-				RHash:          pd.RHash[:],
-				IncomingCltv:   pd.Timeout,
-				IncomingAmount: pd.Amount,
-				BlindingPoint:  pd.BlindingPoint,
+				RHash:          msg.PaymentHash[:],
+				IncomingCltv:   msg.Expiry,
+				IncomingAmount: msg.Amount,
+				BlindingPoint:  msg.BlindingPoint,
 			}
 
 			decodeReqs = append(decodeReqs, req)
@@ -3448,8 +3425,12 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 	var switchPackets []*htlcPacket
 
-	for i, pd := range lockedInHtlcs {
+	for i, update := range fwdPkg.Adds {
 		idx := uint16(i)
+
+		//nolint:forcetypeassert
+		add := *update.UpdateMsg.(*lnwire.UpdateAddHTLC)
+		sourceRef := fwdPkg.SourceRef(idx)
 
 		if fwdPkg.State == channeldb.FwdStateProcessed &&
 			fwdPkg.AckFilter.Contains(idx) {
@@ -3468,11 +3449,6 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		// or are able to settle it (and it adheres to our fee related
 		// constraints).
 
-		// Fetch the onion blob that was included within this processed
-		// payment descriptor.
-		var onionBlob [lnwire.OnionPacketSize]byte
-		copy(onionBlob[:], pd.OnionBlob)
-
 		// Before adding the new htlc to the state machine, parse the
 		// onion object in order to obtain the routing information with
 		// DecodeHopIterator function which process the Sphinx packet.
@@ -3481,8 +3457,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// If we're unable to process the onion blob then we
 			// should send the malformed htlc error to payment
 			// sender.
-			l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
-				onionBlob[:], pd.SourceRef)
+			l.sendMalformedHTLCError(
+				add.ID, failureCode, add.OnionBlob, &sourceRef,
+			)
 
 			l.log.Errorf("unable to decode onion hop "+
 				"iterator: %v", failureCode)
@@ -3526,8 +3503,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				// We can't process this htlc, send back
 				// malformed.
 				l.sendMalformedHTLCError(
-					pd.HtlcIndex, failureCode,
-					onionBlob[:], pd.SourceRef,
+					add.ID, failureCode, add.OnionBlob,
+					&sourceRef,
 				)
 
 				continue
@@ -3540,8 +3517,10 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// payloads. Deferring this non-trival effort till a
 			// later date
 			failure := lnwire.NewInvalidOnionPayload(failedType, 0)
+
 			l.sendHTLCError(
-				pd, NewLinkError(failure), obfuscator, false,
+				add, sourceRef, NewLinkError(failure),
+				obfuscator, false,
 			)
 
 			l.log.Errorf("unable to decode forwarding "+
@@ -3561,8 +3540,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// should send the malformed htlc error to payment
 			// sender.
 			l.sendMalformedHTLCError(
-				pd.HtlcIndex, failureCode, onionBlob[:],
-				pd.SourceRef,
+				add.ID, failureCode, add.OnionBlob,
+				&sourceRef,
 			)
 
 			l.log.Errorf("unable to decode onion "+
@@ -3581,10 +3560,12 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			l.cfg.DisallowRouteBlinding {
 
 			failure := lnwire.NewInvalidBlinding(
-				onionBlob[:],
+				fn.Some(add.OnionBlob),
 			)
+
 			l.sendHTLCError(
-				pd, NewLinkError(failure), obfuscator, false,
+				add, sourceRef, NewLinkError(failure),
+				obfuscator, false,
 			)
 
 			l.log.Error("rejected htlc that uses use as an " +
@@ -3597,7 +3578,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		switch fwdInfo.NextHop {
 		case hop.Exit:
 			err := l.processExitHop(
-				pd, obfuscator, fwdInfo, heightNow, pld,
+				add, sourceRef, obfuscator, fwdInfo,
+				heightNow, pld,
 			)
 			if err != nil {
 				l.failf(LinkFailureError{
@@ -3631,18 +3613,20 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				}
 
 				// Otherwise, it was already processed, we can
-				// collect it and continue.
-				addMsg := &lnwire.UpdateAddHTLC{
+				// can collect it and continue.
+				outgoingAdd := &lnwire.UpdateAddHTLC{
 					Expiry:        fwdInfo.OutgoingCTLV,
 					Amount:        fwdInfo.AmountToForward,
-					PaymentHash:   pd.RHash,
+					PaymentHash:   add.PaymentHash,
 					BlindingPoint: fwdInfo.NextBlinding,
 				}
 
 				// Finally, we'll encode the onion packet for
 				// the _next_ hop using the hop iterator
 				// decoded for the current hop.
-				buf := bytes.NewBuffer(addMsg.OnionBlob[0:0])
+				buf := bytes.NewBuffer(
+					outgoingAdd.OnionBlob[0:0],
+				)
 
 				// We know this cannot fail, as this ADD
 				// was marked forwarded in a previous
@@ -3654,18 +3638,18 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				//nolint:lll
 				updatePacket := &htlcPacket{
 					incomingChanID:       l.ShortChanID(),
-					incomingHTLCID:       pd.HtlcIndex,
+					incomingHTLCID:       add.ID,
 					outgoingChanID:       fwdInfo.NextHop,
-					sourceRef:            pd.SourceRef,
-					incomingAmount:       pd.Amount,
-					amount:               addMsg.Amount,
-					htlc:                 addMsg,
+					sourceRef:            &sourceRef,
+					incomingAmount:       add.Amount,
+					amount:               outgoingAdd.Amount,
+					htlc:                 outgoingAdd,
 					obfuscator:           obfuscator,
-					incomingTimeout:      pd.Timeout,
+					incomingTimeout:      add.Expiry,
 					outgoingTimeout:      fwdInfo.OutgoingCTLV,
 					inOnionCustomRecords: pld.CustomRecords(),
 					inboundFee:           inboundFee,
-					inWireCustomRecords:  pd.CustomRecords.Copy(),
+					inWireCustomRecords:  add.CustomRecords.Copy(),
 				}
 				switchPackets = append(
 					switchPackets, updatePacket,
@@ -3683,7 +3667,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			addMsg := &lnwire.UpdateAddHTLC{
 				Expiry:        fwdInfo.OutgoingCTLV,
 				Amount:        fwdInfo.AmountToForward,
-				PaymentHash:   pd.RHash,
+				PaymentHash:   add.PaymentHash,
 				BlindingPoint: fwdInfo.NextBlinding,
 			}
 
@@ -3705,7 +3689,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				)
 
 				l.sendHTLCError(
-					pd, NewLinkError(failure), obfuscator, false,
+					add, sourceRef, NewLinkError(failure),
+					obfuscator, false,
 				)
 				continue
 			}
@@ -3724,18 +3709,18 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				//nolint:lll
 				updatePacket := &htlcPacket{
 					incomingChanID:       l.ShortChanID(),
-					incomingHTLCID:       pd.HtlcIndex,
+					incomingHTLCID:       add.ID,
 					outgoingChanID:       fwdInfo.NextHop,
-					sourceRef:            pd.SourceRef,
-					incomingAmount:       pd.Amount,
+					sourceRef:            &sourceRef,
+					incomingAmount:       add.Amount,
 					amount:               addMsg.Amount,
 					htlc:                 addMsg,
 					obfuscator:           obfuscator,
-					incomingTimeout:      pd.Timeout,
+					incomingTimeout:      add.Expiry,
 					outgoingTimeout:      fwdInfo.OutgoingCTLV,
 					inOnionCustomRecords: pld.CustomRecords(),
 					inboundFee:           inboundFee,
-					inWireCustomRecords:  pd.CustomRecords.Copy(),
+					inWireCustomRecords:  add.CustomRecords.Copy(),
 				}
 
 				fwdPkg.FwdFilter.Set(idx)
@@ -3775,9 +3760,10 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 // processExitHop handles an htlc for which this link is the exit hop. It
 // returns a boolean indicating whether the commitment tx needs an update.
-func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
-	obfuscator hop.ErrorEncrypter, fwdInfo hop.ForwardingInfo,
-	heightNow uint32, payload invoices.Payload) error {
+func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
+	sourceRef channeldb.AddRef, obfuscator hop.ErrorEncrypter,
+	fwdInfo hop.ForwardingInfo, heightNow uint32,
+	payload invoices.Payload) error {
 
 	// If hodl.ExitSettle is requested, we will not validate the final hop's
 	// ADD, nor will we settle the corresponding invoice or respond with the
@@ -3791,30 +3777,31 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// As we're the exit hop, we'll double check the hop-payload included in
 	// the HTLC to ensure that it was crafted correctly by the sender and
 	// is compatible with the HTLC we were extended.
-	if pd.Amount < fwdInfo.AmountToForward {
+	if add.Amount < fwdInfo.AmountToForward {
 		l.log.Errorf("onion payload of incoming htlc(%x) has "+
-			"incompatible value: expected <=%v, got %v", pd.RHash,
-			pd.Amount, fwdInfo.AmountToForward)
+			"incompatible value: expected <=%v, got %v",
+			add.PaymentHash, add.Amount, fwdInfo.AmountToForward)
 
 		failure := NewLinkError(
-			lnwire.NewFinalIncorrectHtlcAmount(pd.Amount),
+			lnwire.NewFinalIncorrectHtlcAmount(add.Amount),
 		)
-		l.sendHTLCError(pd, failure, obfuscator, true)
+		l.sendHTLCError(add, sourceRef, failure, obfuscator, true)
 
 		return nil
 	}
 
 	// We'll also ensure that our time-lock value has been computed
 	// correctly.
-	if pd.Timeout < fwdInfo.OutgoingCTLV {
+	if add.Expiry < fwdInfo.OutgoingCTLV {
 		l.log.Errorf("onion payload of incoming htlc(%x) has "+
 			"incompatible time-lock: expected <=%v, got %v",
-			pd.RHash[:], pd.Timeout, fwdInfo.OutgoingCTLV)
+			add.PaymentHash, add.Expiry, fwdInfo.OutgoingCTLV)
 
 		failure := NewLinkError(
-			lnwire.NewFinalIncorrectCltvExpiry(pd.Timeout),
+			lnwire.NewFinalIncorrectCltvExpiry(add.Expiry),
 		)
-		l.sendHTLCError(pd, failure, obfuscator, true)
+
+		l.sendHTLCError(add, sourceRef, failure, obfuscator, true)
 
 		return nil
 	}
@@ -3822,15 +3809,15 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// Notify the invoiceRegistry of the exit hop htlc. If we crash right
 	// after this, this code will be re-executed after restart. We will
 	// receive back a resolution event.
-	invoiceHash := lntypes.Hash(pd.RHash)
+	invoiceHash := lntypes.Hash(add.PaymentHash)
 
 	circuitKey := models.CircuitKey{
 		ChanID: l.ShortChanID(),
-		HtlcID: pd.HtlcIndex,
+		HtlcID: add.ID,
 	}
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
-		invoiceHash, pd.Amount, pd.Timeout, int32(heightNow),
+		invoiceHash, add.Amount, add.Expiry, int32(heightNow),
 		circuitKey, l.hodlQueue.ChanIn(), payload,
 	)
 	if err != nil {
@@ -3839,7 +3826,8 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	// Create a hodlHtlc struct and decide either resolved now or later.
 	htlc := hodlHtlc{
-		pd:         pd,
+		add:        add,
+		sourceRef:  sourceRef,
 		obfuscator: obfuscator,
 	}
 
@@ -3856,14 +3844,14 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 // settleHTLC settles the HTLC on the channel.
 func (l *channelLink) settleHTLC(preimage lntypes.Preimage,
-	pd *lnwallet.PaymentDescriptor) error {
+	htlcIndex uint64, sourceRef channeldb.AddRef) error {
 
 	hash := preimage.Hash()
 
 	l.log.Infof("settling htlc %v as exit hop", hash)
 
 	err := l.channel.SettleHTLC(
-		preimage, pd.HtlcIndex, pd.SourceRef, nil, nil,
+		preimage, htlcIndex, &sourceRef, nil, nil,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to settle htlc: %w", err)
@@ -3881,7 +3869,7 @@ func (l *channelLink) settleHTLC(preimage lntypes.Preimage,
 	// remote peer.
 	l.cfg.Peer.SendMessage(false, &lnwire.UpdateFulfillHTLC{
 		ChanID:          l.ChanID(),
-		ID:              pd.HtlcIndex,
+		ID:              htlcIndex,
 		PaymentPreimage: preimage,
 	})
 
@@ -3890,7 +3878,7 @@ func (l *channelLink) settleHTLC(preimage lntypes.Preimage,
 		HtlcKey{
 			IncomingCircuit: models.CircuitKey{
 				ChanID: l.ShortChanID(),
-				HtlcID: pd.HtlcIndex,
+				HtlcID: htlcIndex,
 			},
 		},
 		preimage,
@@ -3925,8 +3913,9 @@ func (l *channelLink) forwardBatch(replay bool, packets ...*htlcPacket) {
 
 // sendHTLCError functions cancels HTLC and send cancel message back to the
 // peer from which HTLC was received.
-func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
-	failure *LinkError, e hop.ErrorEncrypter, isReceive bool) {
+func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
+	sourceRef channeldb.AddRef, failure *LinkError,
+	e hop.ErrorEncrypter, isReceive bool) {
 
 	reason, err := e.EncryptFirstHop(failure.WireMessage())
 	if err != nil {
@@ -3934,7 +3923,7 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 		return
 	}
 
-	err = l.channel.FailHTLC(pd.HtlcIndex, reason, pd.SourceRef, nil, nil)
+	err = l.channel.FailHTLC(add.ID, reason, &sourceRef, nil, nil)
 	if err != nil {
 		l.log.Errorf("unable cancel htlc: %v", err)
 		return
@@ -3943,7 +3932,7 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 	// Send the appropriate failure message depending on whether we're
 	// in a blinded route or not.
 	if err := l.sendIncomingHTLCFailureMsg(
-		pd.HtlcIndex, e, reason,
+		add.ID, e, reason,
 	); err != nil {
 		l.log.Errorf("unable to send HTLC failure: %v", err)
 		return
@@ -3963,12 +3952,12 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 		HtlcKey{
 			IncomingCircuit: models.CircuitKey{
 				ChanID: l.ShortChanID(),
-				HtlcID: pd.HtlcIndex,
+				HtlcID: add.ID,
 			},
 		},
 		HtlcInfo{
-			IncomingTimeLock: pd.Timeout,
-			IncomingAmt:      pd.Amount,
+			IncomingTimeLock: add.Expiry,
+			IncomingAmt:      add.Amount,
 		},
 		eventType,
 		failure,
@@ -4027,7 +4016,9 @@ func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
 
 		// The specification does not require that we set the onion
 		// blob.
-		failureMsg := lnwire.NewInvalidBlinding(nil)
+		failureMsg := lnwire.NewInvalidBlinding(
+			fn.None[[lnwire.OnionPacketSize]byte](),
+		)
 		reason, err := e.EncryptFirstHop(failureMsg)
 		if err != nil {
 			return err
@@ -4065,9 +4056,10 @@ func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
 // sendMalformedHTLCError helper function which sends the malformed HTLC update
 // to the payment sender.
 func (l *channelLink) sendMalformedHTLCError(htlcIndex uint64,
-	code lnwire.FailCode, onionBlob []byte, sourceRef *channeldb.AddRef) {
+	code lnwire.FailCode, onionBlob [lnwire.OnionPacketSize]byte,
+	sourceRef *channeldb.AddRef) {
 
-	shaOnionBlob := sha256.Sum256(onionBlob)
+	shaOnionBlob := sha256.Sum256(onionBlob[:])
 	err := l.channel.MalformedFailHTLC(htlcIndex, code, shaOnionBlob, sourceRef)
 	if err != nil {
 		l.log.Errorf("unable cancel htlc: %v", err)

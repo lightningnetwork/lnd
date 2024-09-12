@@ -132,7 +132,7 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool,
 	// Alice then processes this revocation, sending her own revocation for
 	// her prior commitment transaction. Alice shouldn't have any HTLCs to
 	// forward since she's sending an outgoing HTLC.
-	fwdPkg, _, _, _, err := aliceChannel.ReceiveRevocation(bobRevocation)
+	fwdPkg, _, err := aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "alice unable to process bob's revocation")
 	if len(fwdPkg.Adds) != 0 {
 		t.Fatalf("alice forwards %v add htlcs, should forward none",
@@ -157,7 +157,7 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool,
 	// is fully locked in within both commitment transactions. Bob should
 	// also be able to forward an HTLC now that the HTLC has been locked
 	// into both commitment transactions.
-	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	fwdPkg, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to process alice's revocation")
 	if len(fwdPkg.Adds) != 1 {
 		t.Fatalf("bob forwards %v add htlcs, should only forward one",
@@ -249,7 +249,7 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool,
 	aliceNewCommit, err = aliceChannel.SignNextCommitment()
 	require.NoError(t, err, "alice unable to sign new commitment")
 
-	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation2)
+	fwdPkg, _, err = bobChannel.ReceiveRevocation(aliceRevocation2)
 	require.NoError(t, err, "bob unable to process alice's revocation")
 	if len(fwdPkg.Adds) != 0 {
 		t.Fatalf("bob forwards %v add htlcs, should forward none",
@@ -286,7 +286,7 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool,
 		}
 	}
 
-	fwdPkg, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation2)
+	fwdPkg, _, err = aliceChannel.ReceiveRevocation(bobRevocation2)
 	require.NoError(t, err, "alice unable to process bob's revocation")
 	if len(fwdPkg.Adds) != 0 {
 		// Alice should now be able to forward the settlement HTLC to
@@ -468,7 +468,7 @@ func TestChannelZeroAddLocalHeight(t *testing.T) {
 	aliceRevocation, _, _, err := aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
 
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err)
 
 	// We now restore Alice's channel as this was the point at which
@@ -644,7 +644,7 @@ func testCommitHTLCSigTieBreak(t *testing.T, restart bool) {
 
 	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "unable to revoke bob's commitment")
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "unable to receive bob's revocation")
 
 	// Now have Bob initiate the second half of the commitment dance. Here
@@ -2556,7 +2556,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	// Alice receives the revocation of the old one, and can now assume
 	// that Bob's received everything up to the signature she sent,
 	// including the HTLC and fee update.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "alice unable to process bob's revocation")
 
 	// Alice receives new signature from Bob, and assumes this covers the
@@ -2584,7 +2584,7 @@ func TestUpdateFeeSenderCommits(t *testing.T) {
 	}
 
 	// Bob receives revocation from Alice.
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to process alice's revocation")
 
 }
@@ -2644,7 +2644,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	require.NoError(t, err, "unable to generate bob revocation")
 
 	// Bob receives the revocation of the old commitment
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "alice unable to process bob's revocation")
 
 	// Alice will sign next commitment. Since she sent the revocation, she
@@ -2685,7 +2685,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 
 	// Alice receives revocation from Bob, and can now be sure that Bob
 	// received the two updates, and they are considered locked in.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "bob unable to process alice's revocation")
 
 	// Alice will receive the signature from Bob, which will cover what was
@@ -2713,7 +2713,7 @@ func TestUpdateFeeReceiverCommits(t *testing.T) {
 	}
 
 	// Bob receives revocation from Alice.
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to process alice's revocation")
 }
 
@@ -2822,7 +2822,7 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	// Alice receives the revocation of the old one, and can now assume that
 	// Bob's received everything up to the signature she sent, including the
 	// HTLC and fee update.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "alice unable to process bob's revocation")
 
 	// Alice receives new signature from Bob, and assumes this covers the
@@ -2852,7 +2852,7 @@ func TestUpdateFeeMultipleUpdates(t *testing.T) {
 	}
 
 	// Bob receives revocation from Alice.
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to process alice's revocation")
 }
 
@@ -3267,13 +3267,13 @@ func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
 	require.NoError(t, err, "unable to revoke bob commitment")
 	bobNewCommit, err := bobChannel.SignNextCommitment()
 	require.NoError(t, err, "bob unable to sign commitment")
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "alice unable to recv revocation")
 	err = aliceChannel.ReceiveNewCommitment(bobNewCommit.CommitSigs)
 	require.NoError(t, err, "alice unable to rev bob's commitment")
 	aliceRevocation, _, _, err := aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "alice unable to revoke commitment")
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to recv revocation")
 
 	// At this point, we'll now assert that their log states are what we
@@ -3466,7 +3466,7 @@ func testChanSyncOweCommitmentPendingRemote(t *testing.T,
 			t.Fatalf("unable to revoke commitment: %v", err)
 		}
 
-		_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevoke)
+		_, _, err = aliceChannel.ReceiveRevocation(bobRevoke)
 		if err != nil {
 			t.Fatalf("unable to revoke commitment: %v", err)
 		}
@@ -3502,7 +3502,7 @@ func testChanSyncOweCommitmentPendingRemote(t *testing.T,
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevoke)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevoke)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3603,7 +3603,7 @@ func testChanSyncOweRevocation(t *testing.T, chanType channeldb.ChannelType) {
 	bobNewCommit, err := bobChannel.SignNextCommitment()
 	require.NoError(t, err, "bob unable to sign commitment")
 
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "alice unable to recv revocation")
 	err = aliceChannel.ReceiveNewCommitment(bobNewCommit.CommitSigs)
 	require.NoError(t, err, "alice unable to rev bob's commitment")
@@ -3698,7 +3698,7 @@ func testChanSyncOweRevocation(t *testing.T, chanType channeldb.ChannelType) {
 
 	// We'll continue by then allowing bob to process Alice's revocation
 	// message.
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to recv revocation")
 
 	// Finally, Alice will add an HTLC over her own such that we assert the
@@ -3916,13 +3916,13 @@ func testChanSyncOweRevocationAndCommit(t *testing.T,
 
 	// We'll now finish the state transition by having Alice process both
 	// messages, and send her final revocation.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "alice unable to recv revocation")
 	err = aliceChannel.ReceiveNewCommitment(bobNewCommit.CommitSigs)
 	require.NoError(t, err, "alice unable to recv bob's commitment")
 	aliceRevocation, _, _, err := aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "alice unable to revoke commitment")
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to recv revocation")
 }
 
@@ -4016,7 +4016,7 @@ func testChanSyncOweRevocationAndCommitForceTransition(t *testing.T,
 	// local commit chain getting height > remote commit chain.
 	aliceRevocation, _, _, err := aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "alice unable to revoke commitment")
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to recv revocation")
 
 	// Next, Alice will settle that incoming HTLC, then we'll start the
@@ -4148,7 +4148,7 @@ func testChanSyncOweRevocationAndCommitForceTransition(t *testing.T,
 	// Now, we'll continue the exchange, sending Bob's revocation and
 	// signature message to Alice, ending with Alice sending her revocation
 	// message to Bob.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "alice unable to recv revocation")
 	err = aliceChannel.ReceiveNewCommitment(&CommitSigs{
 		CommitSig:  bobSigMsg.CommitSig,
@@ -4158,7 +4158,7 @@ func testChanSyncOweRevocationAndCommitForceTransition(t *testing.T,
 	require.NoError(t, err, "alice unable to rev bob's commitment")
 	aliceRevocation, _, _, err = aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "alice unable to revoke commitment")
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to recv revocation")
 }
 
@@ -4584,13 +4584,13 @@ func TestChannelRetransmissionFeeUpdate(t *testing.T) {
 	require.NoError(t, err, "unable to revoke bob commitment")
 	bobNewCommit, err := bobChannel.SignNextCommitment()
 	require.NoError(t, err, "bob unable to sign commitment")
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "alice unable to recv revocation")
 	err = aliceChannel.ReceiveNewCommitment(bobNewCommit.CommitSigs)
 	require.NoError(t, err, "alice unable to rev bob's commitment")
 	aliceRevocation, _, _, err := aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "alice unable to revoke commitment")
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to recv revocation")
 
 	// Both parties should now have the latest fee rate locked-in.
@@ -4782,13 +4782,13 @@ func TestFeeUpdateOldDiskFormat(t *testing.T) {
 	require.NoError(t, err, "unable to revoke bob commitment")
 	bobNewCommitSigs, err := bobChannel.SignNextCommitment()
 	require.NoError(t, err, "bob unable to sign commitment")
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "alice unable to recv revocation")
 	err = aliceChannel.ReceiveNewCommitment(bobNewCommitSigs.CommitSigs)
 	require.NoError(t, err, "alice unable to rev bob's commitment")
 	aliceRevocation, _, _, err := aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "alice unable to revoke commitment")
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to recv revocation")
 
 	// Both parties should now have the latest fee rate locked-in.
@@ -5497,7 +5497,7 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	}
 
 	// Alice should detect that she doesn't need to forward any HTLC's.
-	fwdPkg, _, _, _, err := aliceChannel.ReceiveRevocation(bobRevocation)
+	fwdPkg, _, err := aliceChannel.ReceiveRevocation(bobRevocation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -5528,7 +5528,7 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 
 	// Bob should now detect that he now has 2 incoming HTLC's that he can
 	// forward along.
-	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	fwdPkg, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -5573,7 +5573,7 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 	// At this point, Bob receives the revocation from Alice, which is now
 	// his signal to examine all the HTLC's that have been locked in to
 	// process.
-	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	fwdPkg, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -5622,22 +5622,31 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 
 	// Alice should detect that she doesn't need to forward any Adds's, but
 	// that the Fail has been locked in an can be forwarded.
-	_, adds, settleFails, _, err := aliceChannel.ReceiveRevocation(bobRevocation)
+	fwdPkg, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	adds := fwdPkg.Adds
+	settleFails := fwdPkg.SettleFails
 	if len(adds) != 0 {
 		t.Fatalf("alice shouldn't forward any HTLC's, instead wants to "+
-			"forward %v htlcs", len(adds))
+			"forward %v htlcs", len(fwdPkg.Adds))
 	}
 	if len(settleFails) != 1 {
 		t.Fatalf("alice should only forward %d HTLC's, instead wants to "+
-			"forward %v htlcs", 1, len(settleFails))
+			"forward %v htlcs", 1, len(fwdPkg.SettleFails))
 	}
-	if settleFails[0].ParentIndex != htlc.ID {
+
+	fail, ok := settleFails[0].UpdateMsg.(*lnwire.UpdateFailHTLC)
+	if !ok {
+		t.Fatalf("expected UpdateFailHTLC, got %T",
+			settleFails[0].UpdateMsg)
+	}
+	if fail.ID != htlc.ID {
 		t.Fatalf("alice should forward fail for htlcid=%d, instead "+
 			"forwarding id=%d", htlc.ID,
-			settleFails[0].ParentIndex)
+			fail.ID)
 	}
 
 	// We'll now restart both Alice and Bob. This emulates a reconnection
@@ -5671,7 +5680,7 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 
 	// Alice should detect that she doesn't need to forward any HTLC's, as
 	// the updates haven't been committed by Bob yet.
-	fwdPkg, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	fwdPkg, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -5702,7 +5711,7 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 
 	// Bob should detect that he has nothing to forward, as he hasn't
 	// received any HTLCs.
-	fwdPkg, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	fwdPkg, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -5732,10 +5741,13 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 
 	// When Alice receives the revocation, she should detect that she
 	// can now forward the freshly locked-in Fail.
-	_, adds, settleFails, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	fwdPkg, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	adds = fwdPkg.Adds
+	settleFails = fwdPkg.SettleFails
 	if len(adds) != 0 {
 		t.Fatalf("alice shouldn't forward any HTLC's, instead wants to "+
 			"forward %v htlcs", len(adds))
@@ -5744,10 +5756,16 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 		t.Fatalf("alice should only forward one HTLC, instead wants to "+
 			"forward %v htlcs", len(settleFails))
 	}
-	if settleFails[0].ParentIndex != htlc2.ID {
+
+	fail, ok = settleFails[0].UpdateMsg.(*lnwire.UpdateFailHTLC)
+	if !ok {
+		t.Fatalf("expected UpdateFailHTLC, got %T",
+			settleFails[0].UpdateMsg)
+	}
+	if fail.ID != htlc2.ID {
 		t.Fatalf("alice should forward fail for htlcid=%d, instead "+
 			"forwarding id=%d", htlc2.ID,
-			settleFails[0].ParentIndex)
+			fail.ID)
 	}
 }
 
@@ -6347,13 +6365,13 @@ func TestMaxAsynchronousHtlcs(t *testing.T) {
 	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "unable to revoke revocation")
 
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "unable to receive revocation")
 
 	aliceRevocation, _, _, err := aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "unable to revoke revocation")
 
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "unable to receive revocation")
 
 	// Send the final Add which should succeed as in step 6.
@@ -6916,8 +6934,8 @@ func TestNewBreachRetributionSkipsDustHtlcs(t *testing.T) {
 	}
 }
 
-// compareHtlcs compares two PaymentDescriptors.
-func compareHtlcs(htlc1, htlc2 *PaymentDescriptor) error {
+// compareHtlcs compares two paymentDescriptors.
+func compareHtlcs(htlc1, htlc2 *paymentDescriptor) error {
 	if htlc1.LogIndex != htlc2.LogIndex {
 		return fmt.Errorf("htlc log index did not match")
 	}
@@ -6935,7 +6953,7 @@ func compareHtlcs(htlc1, htlc2 *PaymentDescriptor) error {
 }
 
 // compareIndexes is a helper method to compare two index maps.
-func compareIndexes(a, b map[uint64]*fn.Node[*PaymentDescriptor]) error {
+func compareIndexes(a, b map[uint64]*fn.Node[*paymentDescriptor]) error {
 	for k1, e1 := range a {
 		e2, ok := b[k1]
 		if !ok {
@@ -7035,7 +7053,7 @@ func TestChannelRestoreUpdateLogs(t *testing.T) {
 	// sent. However her local commitment chain still won't include the
 	// state with the HTLC, since she hasn't received a new commitment
 	// signature from Bob yet.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "unable to receive revocation")
 
 	// Now make Alice send and sign an additional HTLC. We don't let Bob
@@ -7211,7 +7229,7 @@ func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {
 
 	aliceRevocation, _, _, err := aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "unable to revoke commitment")
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to process alice's revocation")
 
 	// At this point Alice has advanced her local commitment chain to a
@@ -7241,7 +7259,7 @@ func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {
 	// the corresponding Fail from the local update log.
 	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "unable to revoke commitment")
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "unable to receive revocation")
 
 	assertInLogs(t, aliceChannel, 0, 0, 0, 0)
@@ -7404,7 +7422,7 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 			t.Fatalf("unable to create new channel: %v", err)
 		}
 
-		var pd *PaymentDescriptor
+		var pd *paymentDescriptor
 		if remoteLog {
 			h := newChannel.updateLogs.Local.lookupHtlc(htlcIndex)
 			if h != nil {
@@ -7466,7 +7484,7 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 1, 0)
 
 	// Alice receives the revocation, ACKing her pending commitment.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "unable to receive revocation")
 
 	// However, the HTLC is still not locked into her local commitment, so
@@ -7495,7 +7513,7 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 		t, aliceChannel, false, 0, 1, 1,
 	)
 
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "unable to receive revocation")
 
 	// Alice ACKing Bob's pending commitment shouldn't change the heights
@@ -7540,7 +7558,7 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 1, 2, 0)
 
 	// Alice receives the revocation, ACKing her pending commitment for Bob.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "unable to receive revocation")
 
 	// Alice receiving Bob's revocation should bump both addCommitHeightRemote
@@ -7578,7 +7596,7 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 
 	// Bob receives the revocation, which should set both addCommitHeightRemote
 	// fields to 2.
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "unable to receive revocation")
 
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 0, 2, 2)
@@ -7681,7 +7699,7 @@ func TestForceCloseBorkedState(t *testing.T) {
 
 	// At this point, all channel mutating methods should now fail as they
 	// shouldn't be able to proceed if the channel is borked.
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(revokeMsg)
+	_, _, err = aliceChannel.ReceiveRevocation(revokeMsg)
 	if err != channeldb.ErrChanBorked {
 		t.Fatalf("advance commitment tail should have failed")
 	}
@@ -8173,8 +8191,8 @@ func TestFetchParent(t *testing.T) {
 		name             string
 		whoseCommitChain lntypes.ChannelParty
 		whoseUpdateLog   lntypes.ChannelParty
-		localEntries     []*PaymentDescriptor
-		remoteEntries    []*PaymentDescriptor
+		localEntries     []*paymentDescriptor
+		remoteEntries    []*paymentDescriptor
 
 		// parentIndex is the parent index of the entry that we will
 		// lookup with fetch parent.
@@ -8208,7 +8226,7 @@ func TestFetchParent(t *testing.T) {
 		{
 			name:         "remote log + chain, remote add height 0",
 			localEntries: nil,
-			remoteEntries: []*PaymentDescriptor{
+			remoteEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
 					HtlcIndex:             1,
@@ -8230,7 +8248,7 @@ func TestFetchParent(t *testing.T) {
 		},
 		{
 			name: "remote log, local chain, local add height 0",
-			remoteEntries: []*PaymentDescriptor{
+			remoteEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
 					HtlcIndex:             1,
@@ -8253,7 +8271,7 @@ func TestFetchParent(t *testing.T) {
 		},
 		{
 			name: "local log + chain, local add height 0",
-			localEntries: []*PaymentDescriptor{
+			localEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
 					HtlcIndex:             1,
@@ -8277,7 +8295,7 @@ func TestFetchParent(t *testing.T) {
 
 		{
 			name: "local log + remote chain, remote add height 0",
-			localEntries: []*PaymentDescriptor{
+			localEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
 					HtlcIndex:             1,
@@ -8301,7 +8319,7 @@ func TestFetchParent(t *testing.T) {
 		{
 			name:         "remote log found",
 			localEntries: nil,
-			remoteEntries: []*PaymentDescriptor{
+			remoteEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
 					HtlcIndex:             1,
@@ -8324,7 +8342,7 @@ func TestFetchParent(t *testing.T) {
 		},
 		{
 			name: "local log found",
-			localEntries: []*PaymentDescriptor{
+			localEntries: []*paymentDescriptor{
 				// This entry will be added at log index =0.
 				{
 					HtlcIndex:             1,
@@ -8370,7 +8388,7 @@ func TestFetchParent(t *testing.T) {
 			}
 
 			parent, err := lc.fetchParent(
-				&PaymentDescriptor{
+				&paymentDescriptor{
 					ParentIndex: test.parentIndex,
 				},
 				test.whoseCommitChain,
@@ -8433,8 +8451,8 @@ func TestEvaluateView(t *testing.T) {
 
 	tests := []struct {
 		name             string
-		ourHtlcs         []*PaymentDescriptor
-		theirHtlcs       []*PaymentDescriptor
+		ourHtlcs         []*paymentDescriptor
+		theirHtlcs       []*paymentDescriptor
 		whoseCommitChain lntypes.ChannelParty
 		mutateState      bool
 
@@ -8466,7 +8484,7 @@ func TestEvaluateView(t *testing.T) {
 			name:             "our fee update is applied",
 			whoseCommitChain: lntypes.Local,
 			mutateState:      false,
-			ourHtlcs: []*PaymentDescriptor{
+			ourHtlcs: []*paymentDescriptor{
 				{
 					Amount:    ourFeeUpdateAmt,
 					EntryType: FeeUpdate,
@@ -8483,8 +8501,8 @@ func TestEvaluateView(t *testing.T) {
 			name:             "their fee update is applied",
 			whoseCommitChain: lntypes.Local,
 			mutateState:      false,
-			ourHtlcs:         []*PaymentDescriptor{},
-			theirHtlcs: []*PaymentDescriptor{
+			ourHtlcs:         []*paymentDescriptor{},
+			theirHtlcs: []*paymentDescriptor{
 				{
 					Amount:    theirFeeUpdateAmt,
 					EntryType: FeeUpdate,
@@ -8501,14 +8519,14 @@ func TestEvaluateView(t *testing.T) {
 			name:             "htlcs adds without settles",
 			whoseCommitChain: lntypes.Local,
 			mutateState:      false,
-			ourHtlcs: []*PaymentDescriptor{
+			ourHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex: 0,
 					Amount:    htlcAddAmount,
 					EntryType: Add,
 				},
 			},
-			theirHtlcs: []*PaymentDescriptor{
+			theirHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex: 0,
 					Amount:    htlcAddAmount,
@@ -8535,7 +8553,7 @@ func TestEvaluateView(t *testing.T) {
 			name:             "our htlc settled, state mutated",
 			whoseCommitChain: lntypes.Local,
 			mutateState:      true,
-			ourHtlcs: []*PaymentDescriptor{
+			ourHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex:            0,
 					Amount:               htlcAddAmount,
@@ -8543,7 +8561,7 @@ func TestEvaluateView(t *testing.T) {
 					addCommitHeightLocal: addHeight,
 				},
 			},
-			theirHtlcs: []*PaymentDescriptor{
+			theirHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex: 0,
 					Amount:    htlcAddAmount,
@@ -8570,7 +8588,7 @@ func TestEvaluateView(t *testing.T) {
 			name:             "our htlc settled, state not mutated",
 			whoseCommitChain: lntypes.Local,
 			mutateState:      false,
-			ourHtlcs: []*PaymentDescriptor{
+			ourHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex:            0,
 					Amount:               htlcAddAmount,
@@ -8578,7 +8596,7 @@ func TestEvaluateView(t *testing.T) {
 					addCommitHeightLocal: addHeight,
 				},
 			},
-			theirHtlcs: []*PaymentDescriptor{
+			theirHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex: 0,
 					Amount:    htlcAddAmount,
@@ -8605,7 +8623,7 @@ func TestEvaluateView(t *testing.T) {
 			name:             "their htlc settled, state mutated",
 			whoseCommitChain: lntypes.Local,
 			mutateState:      true,
-			ourHtlcs: []*PaymentDescriptor{
+			ourHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex: 0,
 					Amount:    htlcAddAmount,
@@ -8620,7 +8638,7 @@ func TestEvaluateView(t *testing.T) {
 					ParentIndex: 1,
 				},
 			},
-			theirHtlcs: []*PaymentDescriptor{
+			theirHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex:            0,
 					Amount:               htlcAddAmount,
@@ -8649,7 +8667,7 @@ func TestEvaluateView(t *testing.T) {
 
 			whoseCommitChain: lntypes.Local,
 			mutateState:      false,
-			ourHtlcs: []*PaymentDescriptor{
+			ourHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex: 0,
 					Amount:    htlcAddAmount,
@@ -8664,7 +8682,7 @@ func TestEvaluateView(t *testing.T) {
 					ParentIndex: 0,
 				},
 			},
-			theirHtlcs: []*PaymentDescriptor{
+			theirHtlcs: []*paymentDescriptor{
 				{
 					HtlcIndex:            0,
 					Amount:               htlcAddAmount,
@@ -8771,7 +8789,7 @@ func TestEvaluateView(t *testing.T) {
 
 // checkExpectedHtlcs checks that a set of htlcs that we have contains all the
 // htlcs we expect.
-func checkExpectedHtlcs(t *testing.T, actual []*PaymentDescriptor,
+func checkExpectedHtlcs(t *testing.T, actual []*paymentDescriptor,
 	expected map[uint64]bool) {
 
 	if len(expected) != len(actual) {
@@ -8963,7 +8981,7 @@ func TestProcessFeeUpdate(t *testing.T) {
 			// Create a fee update with add and remove heights as
 			// set in the test.
 			heights := test.startHeights
-			update := &PaymentDescriptor{
+			update := &paymentDescriptor{
 				Amount:                   ourFeeUpdateAmt,
 				addCommitHeightRemote:    heights.remoteAdd,
 				addCommitHeightLocal:     heights.localAdd,
@@ -8990,7 +9008,7 @@ func TestProcessFeeUpdate(t *testing.T) {
 	}
 }
 
-func checkHeights(t *testing.T, update *PaymentDescriptor, expected heights) {
+func checkHeights(t *testing.T, update *paymentDescriptor, expected heights) {
 	updateHeights := heights{
 		localAdd:     update.addCommitHeightLocal,
 		localRemove:  update.removeCommitHeightLocal,
@@ -9359,7 +9377,7 @@ func TestProcessAddRemoveEntry(t *testing.T) {
 			t.Parallel()
 
 			heights := test.startHeights
-			update := &PaymentDescriptor{
+			update := &paymentDescriptor{
 				Amount:                   updateAmount,
 				addCommitHeightLocal:     heights.localAdd,
 				addCommitHeightRemote:    heights.remoteAdd,
@@ -9477,7 +9495,7 @@ func TestChannelUnsignedAckedFailure(t *testing.T) {
 	// -----rev----->
 	aliceRevocation, _, _, err := aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err)
 
 	// Alice should sign the next commitment and go down before
@@ -9502,7 +9520,7 @@ func TestChannelUnsignedAckedFailure(t *testing.T) {
 	// <----rev------
 	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
-	_, _, _, _, err = newAliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = newAliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err)
 
 	// Now Bob sends an HTLC to Alice.
@@ -9588,7 +9606,7 @@ func TestChannelLocalUnsignedUpdatesFailure(t *testing.T) {
 	// <----rev-----
 	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err)
 
 	// Restart Alice and assert that she can receive Bob's next commitment
@@ -9672,7 +9690,7 @@ func TestChannelSignedAckRegression(t *testing.T) {
 	// <----rev-----
 	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err)
 
 	// <----sig-----
@@ -9699,7 +9717,7 @@ func TestChannelSignedAckRegression(t *testing.T) {
 	// <----rev-----
 	bobRevocation, _, _, err = bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err)
 
 	// Restart Bob's channel state here.
@@ -9712,7 +9730,7 @@ func TestChannelSignedAckRegression(t *testing.T) {
 	// -----rev---->
 	aliceRevocation, _, _, err := aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
-	fwdPkg, _, _, _, err := newBobChannel.ReceiveRevocation(aliceRevocation)
+	fwdPkg, _, err := newBobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err)
 
 	// Assert that the fwdpkg is not empty.
@@ -9804,7 +9822,7 @@ func TestIsChannelClean(t *testing.T) {
 	// <---rev---
 	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err)
 	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
 
@@ -9818,7 +9836,7 @@ func TestIsChannelClean(t *testing.T) {
 	// ---rev--->
 	aliceRevocation, _, _, err := aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err)
 	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
 
@@ -9839,7 +9857,7 @@ func TestIsChannelClean(t *testing.T) {
 	// ---rev--->
 	aliceRevocation, _, _, err = aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err)
 	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
 
@@ -9853,7 +9871,7 @@ func TestIsChannelClean(t *testing.T) {
 	// <---rev---
 	bobRevocation, _, _, err = bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err)
 	assertCleanOrDirty(true, aliceChannel, bobChannel, t)
 
@@ -9877,7 +9895,7 @@ func TestIsChannelClean(t *testing.T) {
 	// <---rev---
 	bobRevocation, _, _, err = bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err)
 	assertCleanOrDirty(false, aliceChannel, bobChannel, t)
 
@@ -9892,7 +9910,7 @@ func TestIsChannelClean(t *testing.T) {
 	// ---rev--->
 	aliceRevocation, _, _, err = aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err)
 	assertCleanOrDirty(true, aliceChannel, bobChannel, t)
 }
@@ -10035,7 +10053,7 @@ func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
 	// dust.
 	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err)
 	checkDust(aliceChannel, htlc2Amt, htlc2Amt)
 	checkDust(bobChannel, htlc2Amt, htlc2Amt)
@@ -10048,7 +10066,7 @@ func testGetDustSum(t *testing.T, chantype channeldb.ChannelType) {
 	require.NoError(t, err)
 	aliceRevocation, _, _, err := aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
-	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
+	_, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err)
 	checkDust(aliceChannel, htlc2Amt, htlc2Amt)
 	checkDust(bobChannel, htlc2Amt, htlc2Amt)
@@ -10554,7 +10572,7 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 }
 
 // TestExtractPayDescs asserts that `extractPayDescs` can correctly turn a
-// slice of htlcs into two slices of PaymentDescriptors.
+// slice of htlcs into two slices of paymentDescriptors.
 func TestExtractPayDescs(t *testing.T) {
 	t.Parallel()
 
@@ -10591,22 +10609,22 @@ func TestExtractPayDescs(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Assert the incoming PaymentDescriptors are matched.
+	// Assert the incoming paymentDescriptors are matched.
 	for i, pd := range incomingPDs {
 		htlc := incomings[i]
 		assertPayDescMatchHTLC(t, pd, htlc)
 	}
 
-	// Assert the outgoing PaymentDescriptors are matched.
+	// Assert the outgoing paymentDescriptors are matched.
 	for i, pd := range outgoingPDs {
 		htlc := outgoings[i]
 		assertPayDescMatchHTLC(t, pd, htlc)
 	}
 }
 
-// assertPayDescMatchHTLC compares a PaymentDescriptor to a channeldb.HTLC and
+// assertPayDescMatchHTLC compares a paymentDescriptor to a channeldb.HTLC and
 // asserts that the fields are matched.
-func assertPayDescMatchHTLC(t *testing.T, pd PaymentDescriptor,
+func assertPayDescMatchHTLC(t *testing.T, pd paymentDescriptor,
 	htlc channeldb.HTLC) {
 
 	require := require.New(t)
@@ -11008,7 +11026,7 @@ func TestAsynchronousSendingWithFeeBuffer(t *testing.T) {
 
 	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
-	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	_, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err)
 
 	// Before testing the behavior of the fee buffer, we are going to fail

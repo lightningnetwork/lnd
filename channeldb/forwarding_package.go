@@ -286,6 +286,27 @@ func NewFwdPkg(source lnwire.ShortChannelID, height uint64,
 	}
 }
 
+// SourceRef is a convenience method that returns an AddRef to this forwarding
+// package for the index in the argument. It is the caller's responsibility
+// to ensure that the index is in bounds.
+func (f *FwdPkg) SourceRef(i uint16) AddRef {
+	return AddRef{
+		Height: f.Height,
+		Index:  i,
+	}
+}
+
+// DestRef is a convenience method that returns a SettleFailRef to this
+// forwarding package for the index in the argument. It is the caller's
+// responsibility to ensure that the index is in bounds.
+func (f *FwdPkg) DestRef(i uint16) SettleFailRef {
+	return SettleFailRef{
+		Source: f.Source,
+		Height: f.Height,
+		Index:  i,
+	}
+}
+
 // ID returns an unique identifier for this package, used to ensure that sphinx
 // replay processing of this batch is idempotent.
 func (f *FwdPkg) ID() []byte {

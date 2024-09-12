@@ -2335,7 +2335,7 @@ func handleStateUpdate(link *channelLink,
 	if !ok {
 		return fmt.Errorf("expected RevokeAndAck got %T", msg)
 	}
-	_, _, _, _, err = remoteChannel.ReceiveRevocation(revoke)
+	_, _, err = remoteChannel.ReceiveRevocation(revoke)
 	if err != nil {
 		return fmt.Errorf("unable to receive "+
 			"revocation: %v", err)
@@ -2389,7 +2389,7 @@ func updateState(batchTick chan time.Time, link *channelLink,
 		return fmt.Errorf("expected RevokeAndAck got %T",
 			msg)
 	}
-	_, _, _, _, err = remoteChannel.ReceiveRevocation(revoke)
+	_, _, err = remoteChannel.ReceiveRevocation(revoke)
 	if err != nil {
 		return fmt.Errorf("unable to receive "+
 			"revocation: %v", err)
@@ -3643,7 +3643,7 @@ func TestChannelLinkTrimCircuitsRemoteCommit(t *testing.T) {
 	rev, _, _, err := harness.bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "unable to revoke current commitment")
 
-	_, _, _, _, err = alice.channel.ReceiveRevocation(rev)
+	_, _, err = alice.channel.ReceiveRevocation(rev)
 	require.NoError(t, err, "unable to receive revocation")
 
 	// Restart Alice's link, which simulates a disconnection with the remote

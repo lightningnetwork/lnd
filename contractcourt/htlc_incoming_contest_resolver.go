@@ -17,7 +17,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/queue"
 )
 
 // htlcIncomingContestResolver is a ContractResolver that's able to resolve an
@@ -287,15 +286,18 @@ func (h *htlcIncomingContestResolver) Resolve(
 	}
 
 	var (
-		hodlChan       <-chan interface{}
+		subsriber      *invoices.HodlHTLCSub[invoices.HtlcResolution]
 		witnessUpdates <-chan lntypes.Preimage
 	)
 	if payload.FwdInfo.NextHop == hop.Exit {
-		// Create a buffered hodl chan to prevent deadlock.
-		hodlQueue := queue.NewConcurrentQueue(10)
-		hodlQueue.Start()
-
-		hodlChan = hodlQueue.ChanOut()
+		// Create new subscriber for the hodl htlc notification.
+		subsriber = invoices.NewHodlHTLCSub(h.ShortChanID, 100)
+		err := h.Registry.RegisterHodlSubscriber(
+			subsriber, false, false,
+		)
+		if err != nil {
+			return nil, err
+		}
 
 		// Notify registry that we are potentially resolving as an exit
 		// hop on-chain. If this HTLC indeed pays to an existing
@@ -308,16 +310,14 @@ func (h *htlcIncomingContestResolver) Resolve(
 
 		resolution, err := h.Registry.NotifyExitHopHtlc(
 			h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, currentHeight,
-			circuitKey, hodlQueue.ChanIn(), payload,
+			circuitKey, payload,
 		)
 		if err != nil {
 			return nil, err
 		}
 
 		defer func() {
-			h.Registry.HodlUnsubscribeAll(hodlQueue.ChanIn())
-
-			hodlQueue.Stop()
+			h.Registry.RemoveHodlSubscriber(subsriber)
 		}()
 
 		// Take action based on the resolution we received. If the htlc
@@ -399,7 +399,7 @@ func (h *htlcIncomingContestResolver) Resolve(
 			// it can continue contract resolution.
 			return h.htlcSuccessResolver, nil
 
-		case hodlItem := <-hodlChan:
+		case hodlItem := <-subsriber.NewItemList.ChanOut():
 			htlcResolution := hodlItem.(invoices.HtlcResolution)
 			return processHtlcResolution(htlcResolution)
 

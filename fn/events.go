@@ -18,33 +18,58 @@ var (
 	nextID uint64
 )
 
-// EventReceiver is a struct type that holds two queues for new and removed
+// EventReceiver defines the methods that an event receiver should implement.
+type EventReceiver[T any] interface {
+	// ID returns the internal process-unique ID of the subscription.
+	ID() uint64
+
+	// Stop stops the receiver from processing events.
+	Stop()
+
+	// NewItemCreated returns the channel for new items created.
+	NewItemCreated() *ConcurrentQueue[T]
+
+	// ItemRemoved returns the channel for items removed.
+	ItemRemoved() *ConcurrentQueue[T]
+}
+
+// EventReceiverImpl is a struct type that holds two queues for new and removed
 // items respectively.
-type EventReceiver[T any] struct {
+type EventReceiverImpl[T any] struct {
 	// id is the internal process-unique ID of the subscription.
 	id uint64
 
 	// NewItemCreated is sent to when a new item was created successfully.
-	NewItemCreated *ConcurrentQueue[T]
+	NewItemList *ConcurrentQueue[T]
 
 	// ItemRemoved is sent to when an existing item was removed.
-	ItemRemoved *ConcurrentQueue[T]
+	ItemRemovedList *ConcurrentQueue[T]
 }
 
 // ID returns the internal process-unique ID of the subscription.
-func (e *EventReceiver[T]) ID() uint64 {
+func (e *EventReceiverImpl[T]) ID() uint64 {
 	return e.id
 }
 
 // Stop stops the receiver from processing events.
-func (e *EventReceiver[T]) Stop() {
-	e.NewItemCreated.Stop()
-	e.ItemRemoved.Stop()
+func (e *EventReceiverImpl[T]) Stop() {
+	e.NewItemList.Stop()
+	e.ItemRemovedList.Stop()
 }
 
-// NewEventReceiver creates a new event receiver with concurrent queues of the
-// given size.
-func NewEventReceiver[T any](queueSize int) *EventReceiver[T] {
+// NewItemCreated returns the channel for new items created.
+func (e *EventReceiverImpl[T]) NewItemCreated() *ConcurrentQueue[T] {
+	return e.NewItemList
+}
+
+// ItemRemoved returns the channel for items removed.
+func (e *EventReceiverImpl[T]) ItemRemoved() *ConcurrentQueue[T] {
+	return e.ItemRemovedList
+}
+
+// NewEventReceiverImpl creates a new event receiver with concurrent queues of
+// the given size.
+func NewEventReceiverImpl[T any](queueSize int) *EventReceiverImpl[T] {
 	created := NewConcurrentQueue[T](queueSize)
 	created.Start()
 	removed := NewConcurrentQueue[T](queueSize)
@@ -52,12 +77,16 @@ func NewEventReceiver[T any](queueSize int) *EventReceiver[T] {
 
 	id := atomic.AddUint64(&nextID, 1)
 
-	return &EventReceiver[T]{
-		id:             id,
-		NewItemCreated: created,
-		ItemRemoved:    removed,
+	return &EventReceiverImpl[T]{
+		id:              id,
+		NewItemList:     created,
+		ItemRemovedList: removed,
 	}
 }
+
+// A compile-time assertion to make sure EventReceiverImpl satisfies the
+// EventReceiver interface.
+var _ EventReceiver[any] = (*EventReceiverImpl[any])(nil)
 
 // EventPublisher is an interface type for a component that offers event based
 // subscriptions for publishing events.
@@ -69,12 +98,12 @@ type EventPublisher[T any, Q any] interface {
 	// which timestamp/index/marker onward existing items should be
 	// delivered on startup. If deliverFrom is nil/zero/empty then all
 	// existing items will be delivered.
-	RegisterSubscriber(receiver *EventReceiver[T], deliverExisting bool,
+	RegisterSubscriber(receiver EventReceiver[T], deliverExisting bool,
 		deliverFrom Q) error
 
 	// RemoveSubscriber removes the given subscriber and also stops it from
 	// processing events.
-	RemoveSubscriber(subscriber *EventReceiver[T]) error
+	RemoveSubscriber(subscriber EventReceiver[T]) error
 }
 
 // Event is a generic event that can be sent to a subscriber.
@@ -87,7 +116,7 @@ type Event interface {
 type EventDistributor[T any] struct {
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
-	subscribers map[uint64]*EventReceiver[T]
+	subscribers map[uint64]EventReceiver[T]
 
 	// subscriberMtx guards the subscribers map and access to the
 	// subscriptionID.
@@ -97,12 +126,12 @@ type EventDistributor[T any] struct {
 // NewEventDistributor creates a new event distributor of the declared type.
 func NewEventDistributor[T any]() *EventDistributor[T] {
 	return &EventDistributor[T]{
-		subscribers: make(map[uint64]*EventReceiver[T]),
+		subscribers: make(map[uint64]EventReceiver[T]),
 	}
 }
 
 // RegisterSubscriber adds a new subscriber for receiving events.
-func (d *EventDistributor[T]) RegisterSubscriber(subscriber *EventReceiver[T]) {
+func (d *EventDistributor[T]) RegisterSubscriber(subscriber EventReceiver[T]) {
 	d.subscriberMtx.Lock()
 	defer d.subscriberMtx.Unlock()
 
@@ -112,7 +141,7 @@ func (d *EventDistributor[T]) RegisterSubscriber(subscriber *EventReceiver[T]) {
 // RemoveSubscriber removes the given subscriber and also stops it from
 // processing events.
 func (d *EventDistributor[T]) RemoveSubscriber(
-	subscriber *EventReceiver[T]) error {
+	subscriber EventReceiver[T]) error {
 
 	d.subscriberMtx.Lock()
 	defer d.subscriberMtx.Unlock()
@@ -135,7 +164,7 @@ func (d *EventDistributor[T]) NotifySubscribers(events ...T) {
 	for i := range events {
 		event := events[i]
 		for id := range d.subscribers {
-			d.subscribers[id].NewItemCreated.ChanIn() <- event
+			d.subscribers[id].NewItemCreated().ChanIn() <- event
 		}
 	}
 	d.subscriberMtx.Unlock()

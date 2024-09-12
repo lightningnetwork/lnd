@@ -5602,6 +5602,11 @@
         "amp": {
           "$ref": "#/definitions/lnrpcAMP",
           "description": "Details relevant to AMP HTLCs, only populated if this is an AMP HTLC."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Custom channel data that might be populated in custom channels."
         }
       },
       "title": "Details of an HTLC that paid to an invoice"

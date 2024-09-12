@@ -788,7 +788,8 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		s.sweeper, tower, s.towerClientMgr, r.cfg.net.ResolveTCPAddr,
 		genInvoiceFeatures, genAmpInvoiceFeatures,
 		s.getNodeAnnouncement, s.updateAndBrodcastSelfNode, parseAddr,
-		rpcsLog, s.aliasMgr, invoiceHtlcModifier,
+		rpcsLog, s.aliasMgr, r.implCfg.AuxDataParser,
+		invoiceHtlcModifier,
 	)
 	if err != nil {
 		return err
@@ -6124,6 +6125,19 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 		return nil, err
 	}
 
+	// Give the aux data parser a chance to format the custom data in the
+	// invoice HTLCs.
+	err = fn.MapOptionZ(
+		r.server.implCfg.AuxDataParser,
+		func(parser AuxDataParser) error {
+			return parser.InlineParseCustomData(rpcInvoice)
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing custom data: %w",
+			err)
+	}
+
 	return rpcInvoice, nil
 }
 
@@ -6179,6 +6193,21 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
+
+		// Give the aux data parser a chance to format the custom data
+		// in the invoice HTLCs.
+		err = fn.MapOptionZ(
+			r.server.implCfg.AuxDataParser,
+			func(parser AuxDataParser) error {
+				return parser.InlineParseCustomData(
+					resp.Invoices[i],
+				)
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing custom data: %w",
+				err)
+		}
 	}
 
 	return resp, nil
@@ -6207,6 +6236,21 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 				return err
 			}
 
+			// Give the aux data parser a chance to format the
+			// custom data in the invoice HTLCs.
+			err = fn.MapOptionZ(
+				r.server.implCfg.AuxDataParser,
+				func(parser AuxDataParser) error {
+					return parser.InlineParseCustomData(
+						rpcInvoice,
+					)
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("error parsing custom data: "+
+					"%w", err)
+			}
+
 			if err := updateStream.Send(rpcInvoice); err != nil {
 				return err
 			}
@@ -6217,6 +6261,21 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 			)
 			if err != nil {
 				return err
+			}
+
+			// Give the aux data parser a chance to format the
+			// custom data in the invoice HTLCs.
+			err = fn.MapOptionZ(
+				r.server.implCfg.AuxDataParser,
+				func(parser AuxDataParser) error {
+					return parser.InlineParseCustomData(
+						rpcInvoice,
+					)
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("error parsing custom data: "+
+					"%w", err)
 			}
 
 			if err := updateStream.Send(rpcInvoice); err != nil {

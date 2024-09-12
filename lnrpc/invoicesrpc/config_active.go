@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/netann"
+	"google.golang.org/protobuf/proto"
 )
 
 // Config is the primary configuration struct for the invoices RPC server. It
@@ -69,4 +70,8 @@ type Config struct {
 	// GetAlias returns the peer's alias SCID if it exists given the
 	// 32-byte ChannelID.
 	GetAlias func(lnwire.ChannelID) (lnwire.ShortChannelID, error)
+
+	// ParseAuxData is a function that can be used to parse the auxiliary
+	// data from the invoice.
+	ParseAuxData func(message proto.Message) error
 }

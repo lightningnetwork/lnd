@@ -3952,6 +3952,11 @@ message InvoiceHTLC {
 
     // Details relevant to AMP HTLCs, only populated if this is an AMP HTLC.
     AMP amp = 11;
+
+    /*
+    Custom channel data that might be populated in custom channels.
+    */
+    bytes custom_channel_data = 12;
 }
 
 // Details specific to AMP HTLCs.

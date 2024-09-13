@@ -3539,8 +3539,8 @@ func (lc *LightningChannel) applyCommitFee(
 // or nil otherwise.
 func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	ourLogCounter uint64, whoseCommitChain lntypes.ChannelParty,
-	buffer BufferType, predictOurAdd, predictTheirAdd *paymentDescriptor,
-) error {
+	buffer BufferType, skipOpenerReserveCHeck bool, predictOurAdd,
+	predictTheirAdd *paymentDescriptor) error {
 
 	// First fetch the initial balance before applying any updates.
 	commitChain := lc.commitChains.Local
@@ -3638,30 +3638,82 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	commitFee := feePerKw.FeeForWeight(commitWeight)
 	commitFeeMsat := lnwire.NewMSatFromSatoshis(commitFee)
 
+	// We only check the reserve requirements if the new balance decreased.
+	// This is sufficient because there are cases where one side can be
+	// below its reserve if we are already below the reserve and nothing
+	// changes on the corresponding balance we allow this contraint
+	// violation. For example the initial channel opening when the peer
+	// has zero balance on his side.
+	localBelowReserve := ourBalance < ourInitialBalance &&
+		ourBalance < ourReserve
+
+	remoteBelowReserve := theirBalance < theirInitialBalance &&
+		theirBalance < theirReserve
+
+	// There are special cases where we allow one side of the channel to
+	// dip below its reserve because there is no disadvantage in doing so
+	// or use cases like splicing need this exception to work properly.
+	// In gerneral we only allow the channel opener who pays the channel
+	// fees to dip below its reserve the counterpart is not allowed to.
 	switch {
-	// TODO(ziggie): Allow the peer dip us below the channel reserve when
-	// our local balance would increase during this commitment dance or
-	// allow us to dip the peer below its reserve then their balance would
-	// increase during this commitment dance. This is needed for splicing
-	// when e.g. a new channel (bigger capacity) has a higher required
-	// reserve and the peer would need to add an additional htlc to push the
-	// missing amount to our side and viceversa.
-	// See: https://github.com/lightningnetwork/lnd/issues/8249
-	case ourBalance < ourInitialBalance && ourBalance < ourReserve:
-		lc.log.Debugf("Funds below chan reserve: ourBalance=%v, "+
-			"ourReserve=%v, commitFee=%v, feeBuffer=%v "+
+	// Disallow the remote dip into its reserve if the remote peer is not
+	// the channel opener.
+	case lc.channelState.IsInitiator && remoteBelowReserve:
+		lc.log.Errorf("Funds below chan reserve: theirBalance=%v, "+
+			"theirReserve=%v, chan_initiator=%v", theirBalance,
+			theirReserve, lc.channelState.IsInitiator)
+
+		return fmt.Errorf("%w: their balance below chan reserve",
+			ErrBelowChanReserve)
+
+	// Disallow the local dip into its reserve if the local peer is not
+	// the channel opener.
+	case !lc.channelState.IsInitiator && localBelowReserve:
+		lc.log.Errorf("Funds below chan reserve: ourBalance=%v, "+
+			"ourReserve=%v, commitFee=%v, feeBuffer=%v, "+
 			"chan_initiator=%v", ourBalance, ourReserve,
 			commitFeeMsat, bufferAmt, lc.channelState.IsInitiator)
 
 		return fmt.Errorf("%w: our balance below chan reserve",
 			ErrBelowChanReserve)
+	}
 
-	case theirBalance < theirInitialBalance && theirBalance < theirReserve:
-		lc.log.Debugf("Funds below chan reserve: theirBalance=%v, "+
-			"theirReserve=%v", theirBalance, theirReserve)
+	// Special cases when we allow the channel opener to dip into its
+	// reserve. This special case is signaled via `allowBelowReserve`
+	// and depends on which update is added to the channel state.
+	switch {
+	case lc.channelState.IsInitiator && localBelowReserve:
+		if !skipOpenerReserveCHeck {
+			lc.log.Errorf("Funds below chan reserve: "+
+				"ourBalance=%v, ourReserve=%v, commitFee=%v, "+
+				"feeBuffer=%v, chan_initiator=%v", ourBalance,
+				ourReserve, commitFeeMsat, bufferAmt,
+				lc.channelState.IsInitiator)
 
-		return fmt.Errorf("%w: their balance below chan reserve",
-			ErrBelowChanReserve)
+			return fmt.Errorf("%w: their balance below chan "+
+				"reserve", ErrBelowChanReserve)
+		}
+
+		lc.log.Debugf("Funds temporary below chan reserve: "+
+			"ourBalance=%v, ourReserve=%v, commitFee=%v, "+
+			"feeBuffer=%v, chan_initiator=%v", ourBalance,
+			ourReserve, commitFeeMsat, bufferAmt,
+			lc.channelState.IsInitiator)
+
+	case !lc.channelState.IsInitiator && remoteBelowReserve:
+		if !skipOpenerReserveCHeck {
+			lc.log.Errorf("Funds below chan reserve: "+
+				"theirBalance=%v, theirReserve=%v, "+
+				"chan_initiator=%v", theirBalance, theirReserve,
+				lc.channelState.IsInitiator)
+
+			return fmt.Errorf("%w: their balance below chan "+
+				"reserve", ErrBelowChanReserve)
+		}
+
+		lc.log.Debugf("Funds temporary below chan reserve: "+
+			"theirBalance=%v, theirReserve=%v, chan_initiator=%v",
+			theirBalance, theirReserve, lc.channelState.IsInitiator)
 	}
 
 	// validateUpdates take a set of updates, and validates them against
@@ -3813,9 +3865,17 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	// We do not enforce the FeeBuffer here because when we reach this
 	// point all updates will have to get locked-in so we enforce the
 	// minimum requirement.
+	// We allow the peer who initiated the channel to dip into its reserve
+	// here because the current protocol allows for concurrent state updates
+	// and we already safeguard the reserve check every time we receive or
+	// add a new channel update (feeupdate or htlc update). We basically
+	// ignore the reserve check here because we cannot easily tell which
+	// peer dipped the opener into the reserve.
+	//
+	// TODO(ziggie): Get rid of this commitment sanity check all together?
 	err := lc.validateCommitmentSanity(
 		remoteACKedIndex, lc.updateLogs.Local.logIndex, lntypes.Remote,
-		NoBuffer, nil, nil,
+		NoBuffer, true, nil, nil,
 	)
 	if err != nil {
 		return nil, err
@@ -4842,9 +4902,17 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 	// point all updates will have to get locked-in (we already received
 	// the UpdateAddHTLC msg from our peer prior to receiving the
 	// commit-sig).
+	// We allow the peer who initiated the channel to dip into its reserve
+	// here because the current protocol allows for concurrent state updates
+	// and we already safeguard the reserve check every time we receive or
+	// add a new channel update (fee update and htlc update). We basically
+	// ignore the reserve check here because we cannot easily tell which
+	// peer dipped the opener into the reserve.
+	//
+	// TODO(ziggie): Get rid of this commitment sanity check all together?
 	err := lc.validateCommitmentSanity(
 		lc.updateLogs.Remote.logIndex, localACKedIndex, lntypes.Local,
-		NoBuffer, nil, nil,
+		NoBuffer, true, nil, nil,
 	)
 	if err != nil {
 		return err
@@ -5748,9 +5816,16 @@ func (lc *LightningChannel) validateAddHtlc(pd *paymentDescriptor,
 
 	// First we'll check whether this HTLC can be added to the remote
 	// commitment transaction without violation any of the constraints.
+	//
+	// NOTE: The specification would allow us to dip the channel opener into
+	// its reserve when he has not enough balance to pay the fees. However
+	// we don't allow this and always make sure the reserve contraints are
+	// met. This might be change when "splicing" is introduced which has
+	// some edge cases where we might push the remote into its reserve when
+	// he is the opener of the channel hence pays the fees.
 	err := lc.validateCommitmentSanity(
 		remoteACKedIndex, lc.updateLogs.Local.logIndex, lntypes.Remote,
-		buffer, pd, nil,
+		buffer, false, pd, nil,
 	)
 	if err != nil {
 		return err
@@ -5761,9 +5836,11 @@ func (lc *LightningChannel) validateAddHtlc(pd *paymentDescriptor,
 	// totally bullet proof, as the remote might be adding updates
 	// concurrently, but if we fail this check there is for sure not
 	// possible for us to add the HTLC.
+	// We also make sure the reserve requirments for the channel opener are
+	// met.
 	err = lc.validateCommitmentSanity(
 		lc.updateLogs.Remote.logIndex, lc.updateLogs.Local.logIndex,
-		lntypes.Local, buffer, pd, nil,
+		lntypes.Local, buffer, false, pd, nil,
 	)
 	if err != nil {
 		return err
@@ -5807,9 +5884,12 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64,
 	// was introduced is to protect against asynchronous sending of htlcs so
 	// we use it here. The current lightning protocol does not allow to
 	// reject ADDs already sent by the peer.
+	// We allow the local peer dip into its reserve in case local is the
+	// channel opener hence pays the fees for the commitment transaction.
+	allowLocalDipBelowReserve := lc.channelState.IsInitiator
 	err := lc.validateCommitmentSanity(
 		lc.updateLogs.Remote.logIndex, localACKedIndex, lntypes.Local,
-		NoBuffer, nil, pd,
+		NoBuffer, allowLocalDipBelowReserve, nil, pd,
 	)
 	if err != nil {
 		return 0, err
@@ -8185,6 +8265,7 @@ func (lc *LightningChannel) UpdateFee(feePerKw chainfee.SatPerKWeight) error {
 	}
 
 	// Ensure that the passed fee rate meets our current requirements.
+	// TODO(ziggie): Call `validateCommitmentSanity` instead ?
 	if err := lc.validateFeeRate(feePerKw); err != nil {
 		return err
 	}
@@ -8267,6 +8348,24 @@ func (lc *LightningChannel) ReceiveUpdateFee(feePerKw chainfee.SatPerKWeight) er
 		LogIndex:  lc.updateLogs.Remote.logIndex,
 		Amount:    lnwire.NewMSatFromSatoshis(btcutil.Amount(feePerKw)),
 		EntryType: FeeUpdate,
+	}
+
+	// Determine the last update on the local log that has been locked in.
+	localACKedIndex := lc.commitChains.Remote.tail().messageIndices.Local
+
+	// We make sure the new fee update does not violate any constraints of
+	// the commitment. We do NOT allow the peer to dip into its reserve here
+	// because we evaluate the contraints against all signed local updates.
+	// There is the possiblity that the peer dips below the reserve when
+	// taking all unsigned outgoing HTLCs into account, this however will
+	// be evaluated when signing the next state or receiving the next commit
+	// sig.
+	err := lc.validateCommitmentSanity(
+		lc.updateLogs.Remote.logIndex, localACKedIndex, lntypes.Local,
+		NoBuffer, false, nil, pd,
+	)
+	if err != nil {
+		return err
 	}
 
 	lc.updateLogs.Remote.appendUpdate(pd)

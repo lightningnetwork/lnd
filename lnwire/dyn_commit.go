@@ -278,3 +278,20 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 func (dc *DynCommit) MsgType() MessageType {
 	return MsgDynCommit
 }
+
+// NegotiateDynCommit constructs a DynCommit message from the prior DynPropose
+// and DynAck messages exchanged during the negotiation.
+func NegotiateDynCommit(propose DynPropose, ack DynAck) DynCommit {
+	return DynCommit{
+		ChanID:           propose.ChanID,
+		Sig:              ack.Sig,
+		DustLimit:        propose.DustLimit,
+		MaxValueInFlight: propose.MaxValueInFlight,
+		ChannelReserve:   propose.ChannelReserve,
+		CsvDelay:         propose.CsvDelay,
+		MaxAcceptedHTLCs: propose.MaxAcceptedHTLCs,
+		FundingKey:       propose.FundingKey,
+		ChannelType:      propose.ChannelType,
+		KickoffFeerate:   propose.KickoffFeerate,
+	}
+}

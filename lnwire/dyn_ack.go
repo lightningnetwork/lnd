@@ -2,9 +2,12 @@ package lnwire
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -143,4 +146,44 @@ func (da *DynAck) Decode(r io.Reader, _ uint32) error {
 // This is part of the lnwire.Message interface.
 func (da *DynAck) MsgType() MessageType {
 	return MsgDynAck
+}
+
+// Validate does DynAck signature validation for a given prior DynPropose
+// message.
+func (da *DynAck) Validate(propose DynPropose, nextHeight uint64,
+	pubkey *secp256k1.PublicKey) error {
+
+	cSig, err := da.Sig.ToSignature()
+	if err != nil {
+		return err
+	}
+
+	var msg bytes.Buffer
+	err = WriteChannelID(&msg, da.ChanID)
+	if err != nil {
+		return err
+	}
+
+	err = WriteElement(&msg, nextHeight)
+	if err != nil {
+		return err
+	}
+
+	tlvData, err := propose.SerializeTlvData()
+	if err != nil {
+		return err
+	}
+
+	msg.Write(tlvData)
+
+	digest := chainhash.DoubleHashB(msg.Bytes())
+
+	if !cSig.Verify(digest, pubkey) {
+		return fmt.Errorf(
+			"invalid signature for dyn_ack: %v @ %v by %v",
+			propose, nextHeight, pubkey,
+		)
+	}
+
+	return nil
 }

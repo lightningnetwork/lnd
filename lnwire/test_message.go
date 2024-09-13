@@ -817,7 +817,6 @@ var _ TestMessage = (*DynPropose)(nil)
 func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 	msg := &DynPropose{
 		ChanID:    RandChannelID(t),
-		Initiator: rapid.Bool().Draw(t, "initiator"),
 		ExtraData: RandExtraOpaqueData(t, nil),
 	}
 

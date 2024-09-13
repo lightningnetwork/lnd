@@ -52,12 +52,6 @@ type DynPropose struct {
 	// re-negotiate.
 	ChanID ChannelID
 
-	// Initiator is a byte that identifies whether this message was sent as
-	// the initiator of a dynamic commitment negotiation or the responder
-	// of a dynamic commitment negotiation. bool true indicates it is the
-	// initiator
-	Initiator bool
-
 	// DustLimit, if not nil, proposes a change to the dust_limit_satoshis
 	// for the sender's commitment transaction.
 	DustLimit fn.Option[btcutil.Amount]
@@ -195,10 +189,6 @@ func (dp *DynPropose) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	if err := WriteBool(w, dp.Initiator); err != nil {
-		return err
-	}
-
 	return WriteBytes(w, dp.ExtraData)
 }
 
@@ -209,7 +199,7 @@ func (dp *DynPropose) Encode(w *bytes.Buffer, _ uint32) error {
 // This is a part of the lnwire.Message interface.
 func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 	// Parse out the only required field.
-	if err := ReadElements(r, &dp.ChanID, &dp.Initiator); err != nil {
+	if err := ReadElements(r, &dp.ChanID); err != nil {
 		return err
 	}
 

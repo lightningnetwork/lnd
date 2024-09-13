@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/switchrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
@@ -80,6 +81,10 @@ type subRPCServerConfigs struct {
 	// payment related queries such as requests for estimates of off-chain
 	// fees.
 	RouterRPC *routerrpc.Config `group:"routerrpc" namespace:"routerrpc"`
+
+	// SwitchRPC is a sub-RPC server the exposes functionality that allows
+	// clients to read and manipulate HTLCSwitch store information.
+	SwitchRPC *switchrpc.Config `group:"switchrpc" namespace:"switchrpc"`
 
 	// WatchtowerRPC is a sub-RPC server that exposes functionality allowing
 	// clients to monitor and control their embedded watchtower.
@@ -306,6 +311,13 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 
 			subCfgValue.FieldByName("AliasMgr").Set(
 				reflect.ValueOf(aliasMgr),
+			)
+
+		case *switchrpc.Config:
+			subCfgValue := extractReflectValue(subCfg)
+
+			subCfgValue.FieldByName("Switch").Set(
+				reflect.ValueOf(htlcSwitch),
 			)
 
 		case *watchtowerrpc.Config:

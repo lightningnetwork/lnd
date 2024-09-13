@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -306,4 +307,135 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 // This is part of the lnwire.Message interface.
 func (dp *DynPropose) MsgType() MessageType {
 	return MsgDynPropose
+}
+
+// SerializeTlvData takes just the TLV data of DynPropose (which covers all of
+// the parameters on deck for changing) and serializes just this component. The
+// main purpose of this is to make it easier to validate the DynAck signature.
+func (dp *DynPropose) SerializeTlvData() ([]byte, error) {
+	var tlvRecords []tlv.Record
+	dp.DustLimit.WhenSome(func(dl btcutil.Amount) {
+		protoSats := uint64(dl)
+		tlvRecords = append(
+			tlvRecords, tlv.MakePrimitiveRecord(
+				DPDustLimitSatoshis, &protoSats,
+			),
+		)
+	})
+	dp.MaxValueInFlight.WhenSome(func(max MilliSatoshi) {
+		protoSats := uint64(max)
+		tlvRecords = append(
+			tlvRecords, tlv.MakePrimitiveRecord(
+				DPMaxHtlcValueInFlightMsat, &protoSats,
+			),
+		)
+	})
+	dp.ChannelReserve.WhenSome(func(min btcutil.Amount) {
+		channelReserve := uint64(min)
+		tlvRecords = append(
+			tlvRecords, tlv.MakePrimitiveRecord(
+				DPChannelReserveSatoshis, &channelReserve,
+			),
+		)
+	})
+	dp.CsvDelay.WhenSome(func(wait uint16) {
+		tlvRecords = append(
+			tlvRecords, tlv.MakePrimitiveRecord(
+				DPToSelfDelay, &wait,
+			),
+		)
+	})
+	dp.MaxAcceptedHTLCs.WhenSome(func(max uint16) {
+		tlvRecords = append(
+			tlvRecords, tlv.MakePrimitiveRecord(
+				DPMaxAcceptedHtlcs, &max,
+			),
+		)
+	})
+	dp.FundingKey.WhenSome(func(key btcec.PublicKey) {
+		keyScratch := &key
+		tlvRecords = append(
+			tlvRecords, tlv.MakePrimitiveRecord(
+				DPFundingPubkey, &keyScratch,
+			),
+		)
+	})
+	dp.ChannelType.WhenSome(func(ty ChannelType) {
+		tlvRecords = append(
+			tlvRecords, tlv.MakeDynamicRecord(
+				DPChannelType, &ty,
+				ty.featureBitLen,
+				channelTypeEncoder, channelTypeDecoder,
+			),
+		)
+	})
+	dp.KickoffFeerate.WhenSome(func(kickoffFeerate chainfee.SatPerKWeight) {
+		protoSats := uint32(kickoffFeerate)
+		tlvRecords = append(
+			tlvRecords, tlv.MakePrimitiveRecord(
+				DPKickoffFeerate, &protoSats,
+			),
+		)
+	})
+	tlv.SortRecords(tlvRecords)
+
+	tlvStream, err := tlv.NewStream(tlvRecords...)
+	if err != nil {
+		return nil, err
+	}
+
+	var outBuf bytes.Buffer
+	err = tlvStream.Encode(&outBuf)
+	if err != nil {
+		return nil, err
+	}
+
+	return outBuf.Bytes(), nil
+}
+
+// Accept provides a convenience method for taking a DynPropose and issuing a
+// corresponding DynAck using the provided MessageSignerRing.
+func (dp *DynPropose) Accept(nextHeight uint64,
+	signer keychain.MessageSignerRing) (DynAck, error) {
+
+	var msg bytes.Buffer
+	err := WriteChannelID(&msg, dp.ChanID)
+	if err != nil {
+		return DynAck{}, err
+	}
+
+	err = WriteElement(&msg, nextHeight)
+	if err != nil {
+		return DynAck{}, err
+	}
+
+	tlvData, err := dp.SerializeTlvData()
+	if err != nil {
+		return DynAck{}, err
+	}
+
+	msg.Write(tlvData)
+
+	nodeKeyLoc := keychain.KeyLocator{
+		Family: keychain.KeyFamilyNodeKey,
+		Index:  0,
+	}
+
+	rawSig, err := signer.SignMessageCompact(nodeKeyLoc, msg.Bytes(), false)
+	if err != nil {
+		return DynAck{}, err
+	}
+
+	var sigFixed [64]byte
+	copy(sigFixed[:], rawSig[0:64])
+
+	sig := Sig{
+		bytes:   sigFixed,
+		sigType: sigTypeECDSA,
+	}
+
+	return DynAck{
+		ChanID: dp.ChanID,
+		Sig:    sig,
+	}, nil
 }

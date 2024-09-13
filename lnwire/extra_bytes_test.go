@@ -7,8 +7,11 @@ import (
 	"testing"
 	"testing/quick"
 
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
+	"pgregory.net/rapid"
 )
 
 // TestExtraOpaqueDataEncodeDecode tests that we're able to encode/decode
@@ -205,4 +208,48 @@ func TestPackRecords(t *testing.T) {
 	require.Equal(t, recordBytes1, extractedRecords[tlvType1.TypeVal()])
 	require.Equal(t, recordBytes2, extractedRecords[tlvType2.TypeVal()])
 	require.Equal(t, recordBytes3, extractedRecords[tlvType3.TypeVal()])
+}
+
+// TestNewWireTlvMap tests the newWireTlvMap function using property-based
+// testing.
+func TestNewWireTlvMap(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		// Make a random type map, using the generic Make which'll
+		// figure out what type to generate.
+		tlvTypeMap := rapid.Make[tlv.TypeMap]().Draw(t, "typeMap")
+
+		// Create a wireTlvMap from the generated type map, this'll
+		// operate on our random input.
+		result := newWireTlvMap(tlvTypeMap)
+
+		// Property 1: The sum of lengths of officialTypes and
+		// customTypes should equal the length of the input typeMap.
+		require.Equal(t, len(tlvTypeMap), result.Len())
+
+		// Property 2: All types in customTypes should be >=
+		// MinCustomRecordsTlvType.
+		require.True(t, fn.All(func(k tlv.Type) bool {
+			return uint64(k) >= uint64(MinCustomRecordsTlvType)
+		}, maps.Keys(result.customTypes)))
+
+		// Property 3: All types in officialTypes should be <
+		// MinCustomRecordsTlvType.
+		require.True(t, fn.All(func(k tlv.Type) bool {
+			return uint64(k) < uint64(MinCustomRecordsTlvType)
+		}, maps.Keys(result.officialTypes)))
+
+		// Property 4: The union of officialTypes and customTypes
+		// should equal the input typeMap.
+		unionMap := make(tlv.TypeMap)
+		maps.Copy(unionMap, result.officialTypes)
+		maps.Copy(unionMap, result.customTypes)
+		require.Equal(t, tlvTypeMap, unionMap)
+
+		// Property 5: No type should appear in both officialTypes and
+		// customTypes.
+		require.True(t, fn.All(func(k tlv.Type) bool {
+			_, exists := result.officialTypes[k]
+			return !exists
+		}, maps.Keys(result.customTypes)))
+	})
 }

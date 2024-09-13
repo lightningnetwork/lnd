@@ -2164,11 +2164,21 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// We just received a new updates to our local commitment
 		// chain, validate this new commitment, closing the link if
 		// invalid.
+		auxSigBlob, err := msg.CustomRecords.Serialize()
+		if err != nil {
+			l.fail(
+				LinkFailureError{code: ErrInternalError},
+				"unable to serialize custom records: %v",
+				err,
+			)
+
+			return
+		}
 		err = l.channel.ReceiveNewCommitment(&lnwallet.CommitSigs{
 			CommitSig:  msg.CommitSig,
 			HtlcSigs:   msg.HtlcSigs,
 			PartialSig: msg.PartialSig,
-			AuxSigBlob: msg.ExtraData,
+			AuxSigBlob: auxSigBlob,
 		})
 		if err != nil {
 			// If we were unable to reconstruct their proposed
@@ -2577,12 +2587,17 @@ func (l *channelLink) updateCommitTx() error {
 	default:
 	}
 
+	auxBlobRecords, err := lnwire.ParseCustomRecords(newCommit.AuxSigBlob)
+	if err != nil {
+		return fmt.Errorf("error parsing aux sigs: %w", err)
+	}
+
 	commitSig := &lnwire.CommitSig{
-		ChanID:     l.ChanID(),
-		CommitSig:  newCommit.CommitSig,
-		HtlcSigs:   newCommit.HtlcSigs,
-		PartialSig: newCommit.PartialSig,
-		ExtraData:  newCommit.AuxSigBlob,
+		ChanID:        l.ChanID(),
+		CommitSig:     newCommit.CommitSig,
+		HtlcSigs:      newCommit.HtlcSigs,
+		PartialSig:    newCommit.PartialSig,
+		CustomRecords: auxBlobRecords,
 	}
 	l.cfg.Peer.SendMessage(false, commitSig)
 

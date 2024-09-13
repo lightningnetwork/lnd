@@ -131,29 +131,14 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 		delete(extraDataTlvMap, c.BlindingPoint.TlvType())
 	}
 
-	// Any records from the extra data TLV map which are in the custom
-	// records TLV type range will be included in the custom records field
-	// and removed from the extra data field.
-	customRecordsTlvMap := make(tlv.TypeMap, len(extraDataTlvMap))
-	for k, v := range extraDataTlvMap {
-		// Skip records that are not in the custom records TLV type
-		// range.
-		if k < MinCustomRecordsTlvType {
-			continue
-		}
-
-		// Include the record in the custom records map.
-		customRecordsTlvMap[k] = v
-
-		// Now that the record is included in the custom records map,
-		// we can remove it from the extra data TLV map.
-		delete(extraDataTlvMap, k)
-	}
+	// Parse through the remaining extra data map to separate the custom
+	// records, from the set of official records.
+	tlvTypes := newWireTlvMap(extraDataTlvMap)
 
 	// Set the custom records field to the custom records specific TLV
 	// record map.
 	customRecords, err := NewCustomRecordsFromTlvTypeMap(
-		customRecordsTlvMap,
+		tlvTypes.customTypes,
 	)
 	if err != nil {
 		return err
@@ -162,21 +147,23 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 
 	// Set custom records to nil if we didn't parse anything out of it so
 	// that we can use assert.Equal in tests.
-	if len(customRecordsTlvMap) == 0 {
+	if len(customRecords) == 0 {
 		c.CustomRecords = nil
 	}
 
 	// Set extra data to nil if we didn't parse anything out of it so that
 	// we can use assert.Equal in tests.
-	if len(extraDataTlvMap) == 0 {
+	if len(tlvTypes.officialTypes) == 0 {
 		c.ExtraData = nil
 		return nil
 	}
 
 	// Encode the remaining records back into the extra data field. These
-	// records are not in the custom records TLV type range and do not
-	// have associated fields in the UpdateAddHTLC struct.
-	c.ExtraData, err = NewExtraOpaqueDataFromTlvTypeMap(extraDataTlvMap)
+	// records are not in the custom records TLV type range and do not have
+	// associated fields in the UpdateAddHTLC struct.
+	c.ExtraData, err = NewExtraOpaqueDataFromTlvTypeMap(
+		tlvTypes.officialTypes,
+	)
 	if err != nil {
 		return err
 	}

@@ -4028,6 +4028,10 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 	if err != nil {
 		return nil, fmt.Errorf("error packing aux sigs: %w", err)
 	}
+	auxBlobRecords, err := lnwire.ParseCustomRecords(auxSigBlob)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing aux sigs: %w", err)
+	}
 
 	return &channeldb.CommitDiff{
 		Commitment: *diskCommit,
@@ -4035,9 +4039,9 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 			ChanID: lnwire.NewChanIDFromOutPoint(
 				lc.channelState.FundingOutpoint,
 			),
-			CommitSig: commitSig,
-			HtlcSigs:  htlcSigs,
-			ExtraData: auxSigBlob,
+			CommitSig:     commitSig,
+			HtlcSigs:      htlcSigs,
+			CustomRecords: auxBlobRecords,
 		},
 		LogUpdates:        logUpdates,
 		OpenedCircuitKeys: openCircuitKeys,
@@ -4737,15 +4741,42 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	// latest commitment update.
 	lc.remoteCommitChain.addCommitment(newCommitView)
 
+	auxSigBlob, err := commitDiff.CommitSig.CustomRecords.Serialize()
+	if err != nil {
+		return nil, fmt.Errorf("unable to serialize aux sig "+
+			"blob: %v", err)
+	}
+
 	return &NewCommitState{
 		CommitSigs: &CommitSigs{
 			CommitSig:  sig,
 			HtlcSigs:   htlcSigs,
 			PartialSig: lnwire.MaybePartialSigWithNonce(partialSig),
-			AuxSigBlob: commitDiff.CommitSig.ExtraData,
+			AuxSigBlob: auxSigBlob,
 		},
 		PendingHTLCs: commitDiff.Commitment.Htlcs,
 	}, nil
+}
+
+// resignMusigCommit is used to resign a commitment transaction for taproot
+// channels when we need to retransmit a signature after a channel reestablish
+// message. Taproot channels use musig2, which means we must use fresh nonces
+// each time. After we receive the channel reestablish message, we learn the
+// nonce we need to use for the remote party. As a result, we need to generate
+// the partial signature again with the new nonce.
+func (lc *LightningChannel) resignMusigCommit(commitTx *wire.MsgTx,
+) (lnwire.OptPartialSigWithNonceTLV, error) {
+
+	remoteSession := lc.musigSessions.RemoteSession
+	musig, err := remoteSession.SignCommit(commitTx)
+	if err != nil {
+		var none lnwire.OptPartialSigWithNonceTLV
+		return none, err
+	}
+
+	partialSig := lnwire.MaybePartialSigWithNonce(musig.ToWireSig())
+
+	return partialSig, nil
 }
 
 // ProcessChanSyncMsg processes a ChannelReestablish message sent by the remote
@@ -4939,13 +4970,23 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			// If we signed this state, then we'll accumulate
 			// another update to send over.
 			case err == nil:
+				blobRecords, err := lnwire.ParseCustomRecords(
+					newCommit.AuxSigBlob,
+				)
+				if err != nil {
+					sErr := fmt.Errorf("error parsing "+
+						"aux sigs: %w", err)
+					return nil, nil, nil, sErr
+				}
+
 				commitSig := &lnwire.CommitSig{
 					ChanID: lnwire.NewChanIDFromOutPoint(
 						lc.channelState.FundingOutpoint,
 					),
-					CommitSig:  newCommit.CommitSig,
-					HtlcSigs:   newCommit.HtlcSigs,
-					PartialSig: newCommit.PartialSig,
+					CommitSig:     newCommit.CommitSig,
+					HtlcSigs:      newCommit.HtlcSigs,
+					PartialSig:    newCommit.PartialSig,
+					CustomRecords: blobRecords,
 				}
 
 				updates = append(updates, commitSig)
@@ -5025,12 +5066,23 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			commitUpdates = append(commitUpdates, logUpdate.UpdateMsg)
 		}
 
+		// If this is a taproot channel, then we need to regenerate the
+		// musig2 signature for the remote party, using their fresh
+		// nonce.
+		if lc.channelState.ChanType.IsTaproot() {
+			partialSig, err := lc.resignMusigCommit(
+				commitDiff.Commitment.CommitTx,
+			)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+
+			commitDiff.CommitSig.PartialSig = partialSig
+		}
+
 		// With the batch of updates accumulated, we'll now re-send the
 		// original CommitSig message required to re-sync their remote
 		// commitment chain with our local version of their chain.
-		//
-		// TODO(roasbeef): need to re-sign commitment states w/
-		// fresh nonce
 		commitUpdates = append(commitUpdates, commitDiff.CommitSig)
 
 		// NOTE: If a revocation is not owed, then updates is empty.
@@ -5500,9 +5552,9 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 			// store in the custom records map so we can write to
 			// disk later.
 			sigType := htlcCustomSigType.TypeVal()
-			htlc.CustomRecords[uint64(sigType)] = auxSig.UnwrapOr(
-				nil,
-			)
+			auxSig.WhenSome(func(sigB tlv.Blob) {
+				htlc.CustomRecords[uint64(sigType)] = sigB
+			})
 
 			auxVerifyJobs = append(auxVerifyJobs, auxVerifyJob)
 		}

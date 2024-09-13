@@ -17,7 +17,11 @@ import (
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/stretchr/testify/mock"
 )
 
 var (
@@ -383,4 +387,47 @@ func (*mockChainIO) GetBlockHeader(
 	blockHash *chainhash.Hash) (*wire.BlockHeader, error) {
 
 	return nil, nil
+}
+
+type auxSignerMock struct {
+	mock.Mock
+}
+
+func (a *auxSignerMock) SubmitSecondLevelSigBatch(
+	chanState *channeldb.OpenChannel,
+	commitTx *wire.MsgTx, sigJobs []AuxSigJob) error {
+
+	args := a.Called(chanState, commitTx, sigJobs)
+
+	// While we return, we'll also send back an instant response for the
+	// set of jobs.
+	for _, sigJob := range sigJobs {
+		sigJob.Resp <- AuxSigJobResp{}
+	}
+
+	return args.Error(0)
+}
+
+func (a *auxSignerMock) PackSigs(sigs []fn.Option[tlv.Blob],
+) (fn.Option[tlv.Blob], error) {
+
+	args := a.Called(sigs)
+
+	return args.Get(0).(fn.Option[tlv.Blob]), args.Error(1)
+}
+
+func (a *auxSignerMock) UnpackSigs(sigs fn.Option[tlv.Blob]) (
+	[]fn.Option[tlv.Blob], error) {
+
+	args := a.Called(sigs)
+
+	return args.Get(0).([]fn.Option[tlv.Blob]), args.Error(1)
+}
+
+func (a *auxSignerMock) VerifySecondLevelSigs(chanState *channeldb.OpenChannel,
+	commitTx *wire.MsgTx, verifyJob []AuxVerifyJob) error {
+
+	args := a.Called(chanState, commitTx, verifyJob)
+
+	return args.Error(0)
 }

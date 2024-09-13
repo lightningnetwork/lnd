@@ -650,8 +650,19 @@ func FuzzDynReject(f *testing.F) {
 
 func FuzzDynAck(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		// Prefix with DynReject.
+		// Prefix with DynAck.
 		data = prefixWithMsgType(data, MsgDynAck)
+
+		// Pass the message into our general fuzz harness for wire
+		// messages!
+		harness(t, data)
+	})
+}
+
+func FuzzDynCommit(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Prefix with DynCommit
+		data = prefixWithMsgType(data, MsgDynCommit)
 
 		// Pass the message into our general fuzz harness for wire
 		// messages!

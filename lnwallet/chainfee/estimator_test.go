@@ -188,6 +188,9 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 
 		minFeeUpdateTimeout = 5 * time.Minute
 		maxFeeUpdateTimeout = 20 * time.Minute
+
+		// Equivalent to 200 sat/vbyte.
+		maxMinRelayFeeRate SatPerKWeight = 50000
 	)
 
 	testCases := []struct {
@@ -250,6 +253,7 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 
 	estimator, _ := NewWebAPIEstimator(
 		feeSource, false, minFeeUpdateTimeout, maxFeeUpdateTimeout,
+		maxMinRelayFeeRate,
 	)
 
 	// Test that when the estimator is not started, an error is returned.
@@ -301,11 +305,15 @@ func TestGetCachedFee(t *testing.T) {
 
 		minFeeUpdateTimeout = 5 * time.Minute
 		maxFeeUpdateTimeout = 20 * time.Minute
+
+		// Equivalent to 200 sat/vbyte.
+		maxMinRelayFeeRate SatPerKWeight = 50000
 	)
 
 	// Create a dummy estimator without WebAPIFeeSource.
 	estimator, _ := NewWebAPIEstimator(
 		nil, false, minFeeUpdateTimeout, maxFeeUpdateTimeout,
+		maxMinRelayFeeRate,
 	)
 
 	// When the cache is empty, an error should be returned.
@@ -378,10 +386,14 @@ func TestRandomFeeUpdateTimeout(t *testing.T) {
 	var (
 		minFeeUpdateTimeout = 1 * time.Minute
 		maxFeeUpdateTimeout = 2 * time.Minute
+
+		// Equivalent to 200 sat/vbyte.
+		maxMinRelayFeeRate SatPerKWeight = 50000
 	)
 
 	estimator, _ := NewWebAPIEstimator(
 		nil, false, minFeeUpdateTimeout, maxFeeUpdateTimeout,
+		maxMinRelayFeeRate,
 	)
 
 	for i := 0; i < 1000; i++ {
@@ -398,10 +410,14 @@ func TestInvalidFeeUpdateTimeout(t *testing.T) {
 	var (
 		minFeeUpdateTimeout = 2 * time.Minute
 		maxFeeUpdateTimeout = 1 * time.Minute
+
+		// Equivalent to 200 sat/vbyte.
+		maxMinRelayFeeRate SatPerKWeight = 50000
 	)
 
 	_, err := NewWebAPIEstimator(
 		nil, false, minFeeUpdateTimeout, maxFeeUpdateTimeout,
+		maxMinRelayFeeRate,
 	)
 	require.Error(t, err, "NewWebAPIEstimator should return an error "+
 		"when minFeeUpdateTimeout > maxFeeUpdateTimeout")

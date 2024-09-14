@@ -598,8 +598,10 @@ func DefaultConfig() Config {
 		ConnectionTimeout:  tor.DefaultConnTimeout,
 
 		Fee: &lncfg.Fee{
-			MinUpdateTimeout: lncfg.DefaultMinUpdateTimeout,
-			MaxUpdateTimeout: lncfg.DefaultMaxUpdateTimeout,
+			MinUpdateTimeout:   lncfg.DefaultMinUpdateTimeout,
+			MaxUpdateTimeout:   lncfg.DefaultMaxUpdateTimeout,
+			MaxMinRelayFeeRate: lncfg.DefaultMaxMinRelayFeeRate,
+			FallbackFeeRate:    lncfg.DefaultFallbackFeeRate,
 		},
 
 		SubRPCServers: &subRPCServerConfigs{

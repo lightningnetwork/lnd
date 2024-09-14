@@ -400,10 +400,16 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			// if we're using bitcoind as a backend, then we can
 			// use live fee estimates, rather than a statically
 			// coded value.
-			fallBackFeeRate := chainfee.SatPerKVByte(25 * 1000)
 			cc.FeeEstimator, err = chainfee.NewBitcoindEstimator(
 				*rpcConfig, bitcoindMode.EstimateMode,
-				fallBackFeeRate.FeePerKWeight(),
+				chainfee.EstimatorConfig{
+					FallbackFeePerKW: chainfee.SatPerVByte(
+						cfg.Fee.FallbackFeeRate,
+					).FeePerKWeight(),
+					MaxMinRelayFeePerKW: chainfee.SatPerVByte(
+						cfg.Fee.MaxMinRelayFeeRate,
+					).FeePerKWeight(),
+				},
 			)
 			if err != nil {
 				return nil, nil, err
@@ -665,9 +671,15 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			// if we're using btcd as a backend, then we can use
 			// live fee estimates, rather than a statically coded
 			// value.
-			fallBackFeeRate := chainfee.SatPerKVByte(25 * 1000)
 			cc.FeeEstimator, err = chainfee.NewBtcdEstimator(
-				*rpcConfig, fallBackFeeRate.FeePerKWeight(),
+				*rpcConfig, chainfee.EstimatorConfig{
+					FallbackFeePerKW: chainfee.SatPerVByte(
+						cfg.Fee.FallbackFeeRate,
+					).FeePerKWeight(),
+					MaxMinRelayFeePerKW: chainfee.SatPerVByte(
+						cfg.Fee.MaxMinRelayFeeRate,
+					).FeePerKWeight(),
+				},
 			)
 			if err != nil {
 				return nil, nil, err
@@ -725,6 +737,8 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			!cacheFees,
 			cfg.Fee.MinUpdateTimeout,
 			cfg.Fee.MaxUpdateTimeout,
+			chainfee.SatPerVByte(cfg.Fee.MaxMinRelayFeeRate).
+				FeePerKWeight(),
 		)
 		if err != nil {
 			return nil, nil, err

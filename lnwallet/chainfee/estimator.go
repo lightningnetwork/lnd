@@ -58,6 +58,12 @@ var (
 	errEmptyCache = errors.New("fee rate cache is empty")
 )
 
+// EstimatorConfig is the configuration for the fee estimator.
+type EstimatorConfig struct {
+	MaxMinRelayFeePerKW SatPerKWeight
+	FallbackFeePerKW    SatPerKWeight
+}
+
 // Estimator provides the ability to estimate on-chain transaction fees for
 // various combinations of transaction sizes and desired confirmation time
 // (measured by number of blocks).
@@ -147,6 +153,10 @@ type BtcdEstimator struct {
 	// produce fee estimates.
 	fallbackFeePerKW SatPerKWeight
 
+	// maxMinRelayFeePerKW is the maximum minimum relay fee rate in sat/kw
+	// that we will use.
+	maxMinRelayFeePerKW SatPerKWeight
+
 	// minFeeManager is used to query the current minimum fee, in sat/kw,
 	// that we should enforce. This will be used to determine fee rate for
 	// a transaction when the estimated fee rate is too low to allow the
@@ -167,7 +177,7 @@ type BtcdEstimator struct {
 // the occasion that the estimator has insufficient data, or returns zero for a
 // fee estimate.
 func NewBtcdEstimator(rpcConfig rpcclient.ConnConfig,
-	fallBackFeeRate SatPerKWeight) (*BtcdEstimator, error) {
+	cfg EstimatorConfig) (*BtcdEstimator, error) {
 
 	rpcConfig.DisableConnectOnNew = true
 	rpcConfig.DisableAutoReconnect = false
@@ -181,9 +191,10 @@ func NewBtcdEstimator(rpcConfig rpcclient.ConnConfig,
 	}
 
 	return &BtcdEstimator{
-		fallbackFeePerKW: fallBackFeeRate,
-		btcdConn:         chainConn,
-		filterManager:    newFilterManager(fetchCb),
+		fallbackFeePerKW:    cfg.FallbackFeePerKW,
+		maxMinRelayFeePerKW: cfg.MaxMinRelayFeePerKW,
+		btcdConn:            chainConn,
+		filterManager:       newFilterManager(fetchCb),
 	}, nil
 }
 
@@ -200,7 +211,8 @@ func (b *BtcdEstimator) Start() error {
 	// can initialise the minimum relay fee manager which queries the
 	// chain backend for the minimum relay fee on construction.
 	minRelayFeeManager, err := newMinFeeManager(
-		defaultUpdateInterval, b.fetchMinRelayFee,
+		defaultUpdateInterval, b.maxMinRelayFeePerKW,
+		b.fetchMinRelayFee,
 	)
 	if err != nil {
 		return err
@@ -340,6 +352,10 @@ type BitcoindEstimator struct {
 	// produce fee estimates.
 	fallbackFeePerKW SatPerKWeight
 
+	// maxMinRelayFeePerKW is the maximum minimum relay fee rate in sat/kw
+	// that we will use.
+	maxMinRelayFeePerKW SatPerKWeight
+
 	// minFeeManager is used to keep track of the minimum fee, in sat/kw,
 	// that we should enforce. This will be used as the default fee rate
 	// for a transaction when the estimated fee rate is too low to allow
@@ -367,7 +383,7 @@ type BitcoindEstimator struct {
 // in the occasion that the estimator has insufficient data, or returns zero
 // for a fee estimate.
 func NewBitcoindEstimator(rpcConfig rpcclient.ConnConfig, feeMode string,
-	fallBackFeeRate SatPerKWeight) (*BitcoindEstimator, error) {
+	cfg EstimatorConfig) (*BitcoindEstimator, error) {
 
 	rpcConfig.DisableConnectOnNew = true
 	rpcConfig.DisableAutoReconnect = false
@@ -383,10 +399,11 @@ func NewBitcoindEstimator(rpcConfig rpcclient.ConnConfig, feeMode string,
 	}
 
 	return &BitcoindEstimator{
-		fallbackFeePerKW: fallBackFeeRate,
-		bitcoindConn:     chainConn,
-		feeMode:          feeMode,
-		filterManager:    newFilterManager(fetchCb),
+		fallbackFeePerKW:    cfg.FallbackFeePerKW,
+		maxMinRelayFeePerKW: cfg.MaxMinRelayFeePerKW,
+		bitcoindConn:        chainConn,
+		feeMode:             feeMode,
+		filterManager:       newFilterManager(fetchCb),
 	}, nil
 }
 
@@ -399,7 +416,7 @@ func (b *BitcoindEstimator) Start() error {
 	// initialise the minimum relay fee manager which will query
 	// the backend node for its minimum mempool fee.
 	relayFeeManager, err := newMinFeeManager(
-		defaultUpdateInterval,
+		defaultUpdateInterval, b.maxMinRelayFeePerKW,
 		b.fetchMinMempoolFee,
 	)
 	if err != nil {
@@ -756,6 +773,10 @@ type WebAPIEstimator struct {
 	// web estimator will request fresh fees from its API.
 	maxFeeUpdateTimeout time.Duration
 
+	// maxMinRelayFeeRate is the maximum minimum relay fee rate which will
+	// be used.
+	maxMinRelayFeeRate SatPerKWeight
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -763,8 +784,8 @@ type WebAPIEstimator struct {
 // NewWebAPIEstimator creates a new WebAPIEstimator from a given URL and a
 // fallback default fee. The fees are updated whenever a new block is mined.
 func NewWebAPIEstimator(api WebAPIFeeSource, noCache bool,
-	minFeeUpdateTimeout time.Duration,
-	maxFeeUpdateTimeout time.Duration) (*WebAPIEstimator, error) {
+	minFeeUpdateTimeout time.Duration, maxFeeUpdateTimeout time.Duration,
+	maxMinRelayFeeRate SatPerKWeight) (*WebAPIEstimator, error) {
 
 	if minFeeUpdateTimeout == 0 || maxFeeUpdateTimeout == 0 {
 		return nil, fmt.Errorf("minFeeUpdateTimeout and " +
@@ -784,6 +805,7 @@ func NewWebAPIEstimator(api WebAPIFeeSource, noCache bool,
 		quit:                make(chan struct{}),
 		minFeeUpdateTimeout: minFeeUpdateTimeout,
 		maxFeeUpdateTimeout: maxFeeUpdateTimeout,
+		maxMinRelayFeeRate:  maxMinRelayFeeRate,
 	}, nil
 }
 
@@ -911,7 +933,14 @@ func (w *WebAPIEstimator) RelayFeePerKW() SatPerKWeight {
 	log.Infof("Web API returning %v for min relay feerate",
 		w.minRelayFeerate)
 
-	return w.minRelayFeerate.FeePerKWeight()
+	minRelayFee := w.minRelayFeerate.FeePerKWeight()
+
+	// Clamp the minimum relay fee rate.
+	if minRelayFee > w.maxMinRelayFeeRate {
+		minRelayFee = w.maxMinRelayFeeRate
+	}
+
+	return minRelayFee
 }
 
 // randomFeeUpdateTimeout returns a random timeout between minFeeUpdateTimeout

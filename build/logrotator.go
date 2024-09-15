@@ -1,6 +1,7 @@
 package build
 
 import (
+	"compress/gzip"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btclog"
 	"github.com/jrick/logrotate/rotator"
+	"github.com/klauspost/compress/zstd"
 )
 
 // RotatingLogWriter is a wrapper around the LogWriter that supports log file
@@ -58,8 +60,8 @@ func (r *RotatingLogWriter) RegisterSubLogger(subsystem string,
 // InitLogRotator initializes the log file rotator to write logs to logFile and
 // create roll files in the same directory. It should be called as early on
 // startup and possible and must be closed on shutdown by calling `Close`.
-func (r *RotatingLogWriter) InitLogRotator(logFile string, maxLogFileSize int,
-	maxLogFiles int) error {
+func (r *RotatingLogWriter) InitLogRotator(logFile, logCompressor string,
+	maxLogFileSize int, maxLogFiles int) error {
 
 	logDir, _ := filepath.Split(logFile)
 	err := os.MkdirAll(logDir, 0700)
@@ -72,6 +74,27 @@ func (r *RotatingLogWriter) InitLogRotator(logFile string, maxLogFileSize int,
 	if err != nil {
 		return fmt.Errorf("failed to create file rotator: %w", err)
 	}
+
+	// Reject unknown compressors.
+	if !SuportedLogCompressor(logCompressor) {
+		return fmt.Errorf("unknown log compressor: %v", logCompressor)
+	}
+
+	var c rotator.Compressor
+	switch logCompressor {
+	case Gzip:
+		c = gzip.NewWriter(nil)
+
+	case Zstd:
+		c, err = zstd.NewWriter(nil)
+		if err != nil {
+			return fmt.Errorf("failed to create zstd compressor: "+
+				"%w", err)
+		}
+	}
+
+	// Apply the compressor and its file suffix to the log rotator.
+	r.logRotator.SetCompressor(c, logCompressors[logCompressor])
 
 	// Run rotator as a goroutine now but make sure we catch any errors
 	// that happen in case something with the rotation goes wrong during

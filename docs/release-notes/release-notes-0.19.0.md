@@ -36,6 +36,8 @@
 # Improvements
 ## Functional Updates
 
+* [Allow](https://github.com/lightningnetwork/lnd/pull/9017) the compression of logs during rotation with ZSTD via the `logcompressor` startup argument.
+
 ## RPC Updates
 
 ## lncli Updates
@@ -44,6 +46,8 @@
  
 ## Breaking Changes
 ## Performance Improvements
+
+* Log rotation can now use ZSTD 
 
 # Technical and Architectural Updates
 ## BOLT Spec Updates

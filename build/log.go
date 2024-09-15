@@ -36,6 +36,32 @@ func (t LogType) String() string {
 	}
 }
 
+// Declare the supported log file compressors as exported consts for easier use
+// from other projects.
+const (
+	// Gzip is the default compressor.
+	Gzip = "gzip"
+
+	// Zstd is a modern compressor that compresses better than Gzip, in less
+	// time.
+	Zstd = "zstd"
+)
+
+// logCompressors maps the identifier for each supported compression algorithm
+// to the extension used for the compressed log files.
+var logCompressors = map[string]string{
+	Gzip: "gz",
+	Zstd: "zst",
+}
+
+// SuportedLogCompressor returns whether or not logCompressor is a supported
+// compression algorithm for log files.
+func SuportedLogCompressor(logCompressor string) bool {
+	_, ok := logCompressors[logCompressor]
+
+	return ok
+}
+
 // LogWriter is a stub type whose behavior can be changed using the build flags
 // "stdlog" and "nolog". The default behavior is to write to both stdout and the
 // RotatorPipe. Passing "stdlog" will cause it only to write to stdout, and

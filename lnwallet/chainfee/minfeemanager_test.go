@@ -33,6 +33,8 @@ func TestMinFeeManager(t *testing.T) {
 	// once.
 	feeManager, err := newMinFeeManager(
 		100*time.Millisecond,
+		// 200 sat/vbyte
+		SatPerKWeight(50000),
 		chainBackend.fetchFee,
 	)
 	require.NoError(t, err)

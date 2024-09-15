@@ -5,17 +5,20 @@ import (
 	"time"
 )
 
-const defaultUpdateInterval = 10 * time.Minute
+const (
+	defaultUpdateInterval = 10 * time.Minute
+)
 
 // minFeeManager is used to store and update the minimum fee that is required
 // by a transaction to be accepted to the mempool. The minFeeManager ensures
 // that the backend used to fetch the fee is not queried too regularly.
 type minFeeManager struct {
-	mu                sync.Mutex
-	minFeePerKW       SatPerKWeight
-	lastUpdatedTime   time.Time
-	minUpdateInterval time.Duration
-	fetchFeeFunc      fetchFee
+	mu                  sync.Mutex
+	minFeePerKW         SatPerKWeight
+	maxMinRelayFeePerKW SatPerKWeight
+	lastUpdatedTime     time.Time
+	minUpdateInterval   time.Duration
+	fetchFeeFunc        fetchFee
 }
 
 // fetchFee represents a function that can be used to fetch a fee.
@@ -25,6 +28,7 @@ type fetchFee func() (SatPerKWeight, error)
 // given fetchMinFee function to set the minFeePerKW of the minFeeManager.
 // This function requires the fetchMinFee function to succeed.
 func newMinFeeManager(minUpdateInterval time.Duration,
+	maxMinRelayFeePerKW SatPerKWeight,
 	fetchMinFee fetchFee) (*minFeeManager, error) {
 
 	minFee, err := fetchMinFee()
@@ -39,10 +43,11 @@ func newMinFeeManager(minUpdateInterval time.Duration,
 	}
 
 	return &minFeeManager{
-		minFeePerKW:       minFee,
-		lastUpdatedTime:   time.Now(),
-		minUpdateInterval: minUpdateInterval,
-		fetchFeeFunc:      fetchMinFee,
+		minFeePerKW:         minFee,
+		maxMinRelayFeePerKW: maxMinRelayFeePerKW,
+		lastUpdatedTime:     time.Now(),
+		minUpdateInterval:   minUpdateInterval,
+		fetchFeeFunc:        fetchMinFee,
 	}, nil
 }
 
@@ -64,6 +69,13 @@ func (m *minFeeManager) fetchMinFee() SatPerKWeight {
 			"backend. Using last known min fee instead: %v", err)
 
 		return m.minFeePerKW
+	}
+
+	// Clamp the minimum relay fee rate. This also protects against
+	// high config setting scenarios in the bitcoin.conf file
+	// (minrelaytxfee).
+	if newMinFee > m.maxMinRelayFeePerKW {
+		newMinFee = m.maxMinRelayFeePerKW
 	}
 
 	// By default, we'll use the backend node's minimum fee as the

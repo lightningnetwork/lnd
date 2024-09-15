@@ -36,6 +36,9 @@
 # Improvements
 ## Functional Updates
 
+* [Clamp the min relay fee rate](https://github.com/lightningnetwork/lnd/pull/9106)
+  to prevent misconfigured bitcoin backends from causing too high fee estimates.
+
 ## RPC Updates
 
 ## lncli Updates

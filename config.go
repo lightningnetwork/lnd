@@ -1441,23 +1441,12 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	)
 
 	var (
-		logCfg      = cfg.LogConfig
-		consoleOpts []btclog.HandlerOption
-		fileOpts    []btclog.HandlerOption
+		logCfg                            = cfg.LogConfig
+		logHandlers                       []btclog.Handler
+		consoleLogHandler, logFileHandler = build.NewDefaultLoggers(
+			logCfg, cfg.LogRotator,
+		)
 	)
-	if logCfg.Console.NoTimestamps {
-		consoleOpts = append(consoleOpts, btclog.WithNoTimestamp())
-	}
-	if logCfg.Console.Style {
-		consoleOpts = append(consoleOpts, btclog.WithStyledOutput())
-	}
-	if logCfg.File.NoTimestamps {
-		fileOpts = append(fileOpts, btclog.WithNoTimestamp())
-	}
-	consoleLogHandler := btclog.NewDefaultHandler(os.Stdout, consoleOpts...)
-	logFileHandler := btclog.NewDefaultHandler(cfg.LogRotator, fileOpts...)
-
-	var logHandlers []btclog.Handler
 	maybeAddLogger := func(cmdOptionDisable bool, handler btclog.Handler) {
 		if !cmdOptionDisable {
 			logHandlers = append(logHandlers, handler)

@@ -87,6 +87,8 @@ type DB struct {
 
 	UseNativeSQL bool `long:"use-native-sql" description:"Use native SQL for tables that already support it."`
 
+	SkipSQLInvoiceMigration bool `long:"skip-sql-invoice-migration" description:"Do not migrate invoices stored in our key-value database to native SQL."`
+
 	NoGraphCache bool `long:"no-graph-cache" description:"Don't use the in-memory graph cache for path finding. Much slower but uses less RAM. Can only be used with a bolt database backend."`
 
 	PruneRevocation bool `long:"prune-revocation" description:"Run the optional migration that prunes the revocation logs to save disk space."`
@@ -115,7 +117,8 @@ func DefaultDB() *DB {
 			MaxConnections: defaultSqliteMaxConnections,
 			BusyTimeout:    defaultSqliteBusyTimeout,
 		},
-		UseNativeSQL: false,
+		UseNativeSQL:            false,
+		SkipSQLInvoiceMigration: false,
 	}
 }
 

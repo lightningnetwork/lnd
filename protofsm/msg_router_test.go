@@ -18,16 +18,16 @@ func (m *mockEndpoint) Name() string {
 	return args.String(0)
 }
 
-func (m *mockEndpoint) CanHandle(msg PeerMsg) bool {
+func (m *mockEndpoint) CanHandle(msg PeerMsg) (bool, error) {
 	args := m.Called(msg)
 
-	return args.Bool(0)
+	return args.Bool(0), nil
 }
 
-func (m *mockEndpoint) SendMessage(msg PeerMsg) bool {
+func (m *mockEndpoint) SendMessage(msg PeerMsg) (bool, error) {
 	args := m.Called(msg)
 
-	return args.Bool(0)
+	return args.Bool(0), nil
 }
 
 // TestMessageRouterOperation tests the basic operation of the message router:

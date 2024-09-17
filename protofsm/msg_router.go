@@ -47,11 +47,11 @@ type MsgEndpoint interface {
 
 	// CanHandle returns true if the target message can be routed to this
 	// endpoint.
-	CanHandle(msg PeerMsg) bool
+	CanHandle(msg PeerMsg) (bool, error)
 
 	// SendMessage handles the target message, and returns true if the
 	// message was able being processed.
-	SendMessage(msg PeerMsg) bool
+	SendMessage(msg PeerMsg) (bool, error)
 }
 
 // MsgRouter is an interface that represents a message router, which is generic
@@ -274,12 +274,20 @@ func (p *MultiMsgRouter) msgRouter() {
 			// to those that can handle it the message.
 			var couldSend bool
 			for _, endpoint := range endpoints {
-				if endpoint.CanHandle(msg) {
+				canHandle, err := endpoint.CanHandle(msg)
+				if err != nil {
+					msgQuery.SendError(err)
+				}
+
+				if canHandle {
 					log.Debugf("MsgRouter: sending msg %T "+
 						"to endpoint %s", msg.Message,
 						endpoint.Name())
 
-					sent := endpoint.SendMessage(msg)
+					sent, err := endpoint.SendMessage(msg)
+					if err != nil {
+						msgQuery.SendError(err)
+					}
 					couldSend = couldSend || sent
 				}
 			}

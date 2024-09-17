@@ -198,6 +198,10 @@ The underlying functionality between those two options remain the same.
   store](https://github.com/lightningnetwork/lnd/pull/9001) so that results are 
   namespaced. All existing results are written to the "default" namespace.
 
+* [Migrate KV invoices to
+  SQL](https://github.com/lightningnetwork/lnd/pull/8831) as part of a larger
+  effort to support SQL databases natively in LND.
+
 ## Code Health
 
 * A code refactor that [moves all the graph related DB code out of the 
@@ -217,6 +221,7 @@ The underlying functionality between those two options remain the same.
 # Contributors (Alphabetical Order)
 
 * Abdullahi Yunus
+* Andras Banki-Horvath
 * Animesh Bilthare
 * Boris Nagaev
 * Carla Kirk-Cohen

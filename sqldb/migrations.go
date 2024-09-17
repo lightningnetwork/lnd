@@ -61,6 +61,10 @@ var (
 			Name:          "000006_invoice_migration",
 			Version:       6,
 			SchemaVersion: 6,
+			// A migration function is may be attached to this
+			// migration to migrate KV invoices to the native SQL
+			// schema. This is optional and can be disabled by the
+			// user.
 		},
 	}
 )

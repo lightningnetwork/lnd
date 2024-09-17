@@ -52,6 +52,10 @@ const (
 	// SimpleTaprootVersion is a version that denotes this channel is using
 	// the musig2 based taproot commitment format.
 	SimpleTaprootVersion = 5
+
+	// TapscriptRootVersion is a version that denotes this is a MuSig2
+	// channel with a top level tapscript commitment.
+	TapscriptRootVersion = 6
 )
 
 // Single is a static description of an existing channel that can be used for
@@ -218,7 +222,11 @@ func NewSingle(channel *channeldb.OpenChannel,
 
 	switch {
 	case channel.ChanType.IsTaproot():
-		single.Version = SimpleTaprootVersion
+		if channel.ChanType.HasTapscriptRoot() {
+			single.Version = TapscriptRootVersion
+		} else {
+			single.Version = SimpleTaprootVersion
+		}
 
 	case channel.ChanType.HasLeaseExpiration():
 		single.Version = ScriptEnforcedLeaseVersion
@@ -252,6 +260,7 @@ func (s *Single) Serialize(w io.Writer) error {
 	case AnchorsZeroFeeHtlcTxCommitVersion:
 	case ScriptEnforcedLeaseVersion:
 	case SimpleTaprootVersion:
+	case TapscriptRootVersion:
 	default:
 		return fmt.Errorf("unable to serialize w/ unknown "+
 			"version: %v", s.Version)
@@ -429,6 +438,7 @@ func (s *Single) Deserialize(r io.Reader) error {
 	case AnchorsZeroFeeHtlcTxCommitVersion:
 	case ScriptEnforcedLeaseVersion:
 	case SimpleTaprootVersion:
+	case TapscriptRootVersion:
 	default:
 		return fmt.Errorf("unable to de-serialize w/ unknown "+
 			"version: %v", s.Version)

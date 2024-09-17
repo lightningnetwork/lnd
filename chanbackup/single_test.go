@@ -250,10 +250,17 @@ func TestSinglePackUnpack(t *testing.T) {
 			valid:   true,
 		},
 
-		// The new taproot channel lease version should
+		// The new taproot channel version should
 		// pack/unpack with no problem.
 		{
 			version: SimpleTaprootVersion,
+			valid:   true,
+		},
+
+		// The new tapscript root channel version should pack/unpack
+		// with no problem.
+		{
+			version: TapscriptRootVersion,
 			valid:   true,
 		},
 

@@ -60,6 +60,12 @@ import (
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
+const (
+	// invoiceMigrationBatchSize is the number of invoices that will be
+	// migrated in a single batch.
+	invoiceMigrationBatchSize = 10
+)
+
 // GrpcRegistrar is an interface that must be satisfied by an external subserver
 // that wants to be able to register its own gRPC server onto lnd's main
 // grpc.Server instance.
@@ -1079,45 +1085,8 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 	// Instantiate a native SQL invoice store if the flag is set.
 	if d.cfg.DB.UseNativeSQL {
-		// We need to apply all migrations to the native SQL store
-		// before we can use it.
-		err := dbs.NativeSQLStore.ApplyAllMigrations()
-		if err != nil {
-			cleanUp()
-			err := fmt.Errorf("unable to apply migrations: %w", err)
-			d.logger.Error(err)
-
-			return nil, nil, err
-		}
-
-		// KV invoice db resides in the same database as the channel
-		// state DB. Let's query the database to see if we have any
-		// invoices there. If we do, we won't allow the user to start
-		// lnd with native SQL enabled, as we don't currently migrate
-		// the invoices to the new database schema.
-		invoiceSlice, err := dbs.ChanStateDB.QueryInvoices(
-			ctx, invoices.InvoiceQuery{
-				NumMaxInvoices: 1,
-			},
-		)
-		if err != nil {
-			cleanUp()
-			d.logger.Errorf("Unable to query KV invoice DB: %v",
-				err)
-
-			return nil, nil, err
-		}
-
-		if len(invoiceSlice.Invoices) > 0 {
-			cleanUp()
-			err := fmt.Errorf("found invoices in the KV invoice " +
-				"DB, migration to native SQL is not yet " +
-				"supported")
-			d.logger.Error(err)
-
-			return nil, nil, err
-		}
-
+		// Prepare the invoice DB so we can use it to run the in-code
+		// invoice migration if needed.
 		baseDB := dbs.NativeSQLStore.GetBaseDB()
 		executor := sqldb.NewTransactionExecutor(
 			baseDB,
@@ -1126,9 +1095,41 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			},
 		)
 
-		dbs.InvoiceDB = invoices.NewSQLStore(
+		sqlInvoiceDB := invoices.NewSQLStore(
 			executor, clock.NewDefaultClock(),
 		)
+
+		migrations := []sqldb.MigrationConfig{
+			{
+				Name:    "kv-invoices-to-sql",
+				Version: 6,
+				MigrationFn: func(db *sqldb.BaseDB) error {
+					return invoices.MigrateInvoicesToSQL(
+						ctx, dbs.ChanStateDB.Backend,
+						dbs.ChanStateDB,
+						sqlInvoiceDB,
+						invoiceMigrationBatchSize,
+					)
+				},
+			},
+		}
+
+		// TODO(bhandras): re-add a flag to skip the migration if
+		// possible to do it in a safe way.
+
+		// We need to apply all migrations to the native SQL store
+		// before we can use it.
+		err := dbs.NativeSQLStore.ApplyAllMigrations(migrations...)
+		if err != nil {
+			cleanUp()
+			err = fmt.Errorf("faild to run migrations for the "+
+				"native SQL store: %w", err)
+			d.logger.Error(err)
+
+			return nil, nil, err
+		}
+
+		dbs.InvoiceDB = sqlInvoiceDB
 	} else {
 		dbs.InvoiceDB = dbs.ChanStateDB
 	}

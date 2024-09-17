@@ -26,6 +26,7 @@ type Querier interface {
 	GetInvoiceHTLCCustomRecords(ctx context.Context, invoiceID int64) ([]GetInvoiceHTLCCustomRecordsRow, error)
 	GetInvoiceHTLCs(ctx context.Context, invoiceID int64) ([]InvoiceHtlc, error)
 	GetInvoicePaymentHashByAddIndex(ctx context.Context, addIndex sql.NullInt64) ([]byte, error)
+	GetMigration(ctx context.Context, migrationID string) (MigrationTracker, error)
 	InsertAMPSubInvoice(ctx context.Context, arg InsertAMPSubInvoiceParams) (sql.Result, error)
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error
 	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)
@@ -47,6 +48,7 @@ type Querier interface {
 	UpdateInvoiceHTLC(ctx context.Context, arg UpdateInvoiceHTLCParams) error
 	UpdateInvoiceHTLCs(ctx context.Context, arg UpdateInvoiceHTLCsParams) error
 	UpdateInvoiceState(ctx context.Context, arg UpdateInvoiceStateParams) (sql.Result, error)
+	UpdateMigration(ctx context.Context, arg UpdateMigrationParams) error
 	UpsertAMPSubInvoice(ctx context.Context, arg UpsertAMPSubInvoiceParams) (sql.Result, error)
 }
 

@@ -99,6 +99,13 @@ type ResolverConfig struct {
 	// which contains information about the outcome and should be written
 	// to disk if non-nil.
 	Checkpoint func(ContractResolver, ...*channeldb.ResolverReport) error
+
+	// FetchCanceledHTLCs fetches all canceled HTLCs from the database so
+	// no HTLCs are failed back more than once.
+	FetchCanceledHTLCs func() (fn.Set[uint64], error)
+
+	// InsertCanceledHTLCs inserts a list of canceled HTLCs in the database.
+	InsertCanceledHTLCs func(fn.Set[uint64]) error
 }
 
 // contractResolverKit is meant to be used as a mix-in struct to be embedded within a

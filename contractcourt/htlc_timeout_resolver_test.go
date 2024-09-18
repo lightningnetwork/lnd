@@ -343,6 +343,12 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 
 			return nil
 		},
+		InsertCanceledHTLCs: func(htlcIDs fn.Set[uint64]) error {
+			return nil
+		},
+		FetchCanceledHTLCs: func() (fn.Set[uint64], error) {
+			return fn.NewSet[uint64](), nil
+		},
 	}
 	resolver := &htlcTimeoutResolver{
 		htlcResolution: lnwallet.OutgoingHtlcResolution{

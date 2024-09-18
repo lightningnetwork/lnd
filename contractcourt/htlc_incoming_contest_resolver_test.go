@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -371,6 +372,12 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 
 			checkPointChan <- struct{}{}
 			return nil
+		},
+		InsertCanceledHTLCs: func(_ fn.Set[uint64]) error {
+			return nil
+		},
+		FetchCanceledHTLCs: func() (fn.Set[uint64], error) {
+			return fn.NewSet[uint64](), nil
 		},
 	}
 

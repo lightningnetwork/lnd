@@ -2299,6 +2299,12 @@ func (c *ChannelArbitrator) prepContractResolutions(
 
 			return c.log.InsertUnresolvedContracts(reports, res)
 		},
+		InsertCanceledHTLCs: func(htlcIDs fn.Set[uint64]) error {
+			return c.log.InsertCanceledHTLCs(htlcIDs)
+		},
+		FetchCanceledHTLCs: func() (fn.Set[uint64], error) {
+			return c.log.FetchCanceledHTLCs()
+		},
 	}
 
 	commitHash := contractResolutions.CommitHash

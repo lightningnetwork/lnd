@@ -580,6 +580,8 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 	resolverCfg := ResolverConfig{
 		ChannelArbitratorConfig: b.cfg,
 		Checkpoint:              b.checkpointContract,
+		FetchCanceledHTLCs:      b.FetchCanceledHTLCs,
+		InsertCanceledHTLCs:     b.InsertCanceledHTLCs,
 	}
 	var contracts []ContractResolver
 	err := kvdb.View(b.db, func(tx kvdb.RTx) error {

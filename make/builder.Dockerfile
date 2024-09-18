@@ -2,7 +2,7 @@
 # /Dockerfile
 # /dev.Dockerfile
 # /.github/workflows/main.yml
-# /.github/workflows/release.yml
+# /.github/workflows/release.yaml
 FROM golang:1.22.6-bookworm@sha256:d31e093e3aeaee68ccee6c4c96e554ef0f192ea37ae684d91b206bec17377f19
 
 MAINTAINER Olaoluwa Osuntokun <laolu@lightning.engineering>

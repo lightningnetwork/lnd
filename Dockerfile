@@ -2,7 +2,7 @@
 # /dev.Dockerfile
 # /make/builder.Dockerfile
 # /.github/workflows/main.yml
-# /.github/workflows/release.yml
+# /.github/workflows/release.yaml
 FROM golang:1.22.6-alpine@sha256:1a478681b671001b7f029f94b5016aed984a23ad99c707f6a0ab6563860ae2f3 as builder
 
 # Force Go to use the cgo based DNS resolver. This is required to ensure DNS

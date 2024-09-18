@@ -998,7 +998,8 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	select {
 	case msgs := <-chanArbCtx.resolutions:
 		if len(msgs) != 1 {
-			t.Fatalf("expected 1 message, instead got %v", len(msgs))
+			t.Fatalf("expected 1 message, instead got %v",
+				len(msgs))
 		}
 
 		if msgs[0].HtlcIndex != outgoingDustHtlc.HtlcIndex {

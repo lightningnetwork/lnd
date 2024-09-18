@@ -6,10 +6,28 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/pkg/errors"
+)
+
+const (
+	// chanUpdate2MsgName is a string representing the name of the
+	// ChannelUpdate2 message. This string will be used during the
+	// construction of the tagged hash message to be signed when producing
+	// the signature for the ChannelUpdate2 message.
+	chanUpdate2MsgName = "channel_update_2"
+
+	// chanUpdate2SigField is the name of the signature field of the
+	// ChannelUpdate2 message. This string will be used during the
+	// construction of the tagged hash message to be signed when producing
+	// the signature for the ChannelUpdate2 message.
+	chanUpdate2SigField = "signature"
 )
 
 // ErrUnableToExtractChanUpdate is returned when a channel update cannot be
@@ -18,12 +36,12 @@ var ErrUnableToExtractChanUpdate = fmt.Errorf("unable to extract ChannelUpdate")
 
 // ChannelUpdateModifier is a closure that makes in-place modifications to an
 // lnwire.ChannelUpdate.
-type ChannelUpdateModifier func(*lnwire.ChannelUpdate)
+type ChannelUpdateModifier func(*lnwire.ChannelUpdate1)
 
 // ChanUpdSetDisable is a functional option that sets the disabled channel flag
 // if disabled is true, and clears the bit otherwise.
 func ChanUpdSetDisable(disabled bool) ChannelUpdateModifier {
-	return func(update *lnwire.ChannelUpdate) {
+	return func(update *lnwire.ChannelUpdate1) {
 		if disabled {
 			// Set the bit responsible for marking a channel as
 			// disabled.
@@ -39,7 +57,7 @@ func ChanUpdSetDisable(disabled bool) ChannelUpdateModifier {
 // ChanUpdSetTimestamp is a functional option that sets the timestamp of the
 // update to the current time, or increments it if the timestamp is already in
 // the future.
-func ChanUpdSetTimestamp(update *lnwire.ChannelUpdate) {
+func ChanUpdSetTimestamp(update *lnwire.ChannelUpdate1) {
 	newTimestamp := uint32(time.Now().Unix())
 	if newTimestamp <= update.Timestamp {
 		// Increment the prior value to ensure the timestamp
@@ -57,7 +75,7 @@ func ChanUpdSetTimestamp(update *lnwire.ChannelUpdate) {
 //
 // NOTE: This method modifies the given update.
 func SignChannelUpdate(signer lnwallet.MessageSigner, keyLoc keychain.KeyLocator,
-	update *lnwire.ChannelUpdate, mods ...ChannelUpdateModifier) error {
+	update *lnwire.ChannelUpdate1, mods ...ChannelUpdateModifier) error {
 
 	// Apply the requested changes to the channel update.
 	for _, modifier := range mods {
@@ -86,7 +104,7 @@ func SignChannelUpdate(signer lnwallet.MessageSigner, keyLoc keychain.KeyLocator
 func ExtractChannelUpdate(ownerPubKey []byte,
 	info *models.ChannelEdgeInfo,
 	policies ...*models.ChannelEdgePolicy) (
-	*lnwire.ChannelUpdate, error) {
+	*lnwire.ChannelUpdate1, error) {
 
 	// Helper function to extract the owner of the given policy.
 	owner := func(edge *models.ChannelEdgePolicy) []byte {
@@ -118,9 +136,9 @@ func ExtractChannelUpdate(ownerPubKey []byte,
 // UnsignedChannelUpdateFromEdge reconstructs an unsigned ChannelUpdate from the
 // given edge info and policy.
 func UnsignedChannelUpdateFromEdge(info *models.ChannelEdgeInfo,
-	policy *models.ChannelEdgePolicy) *lnwire.ChannelUpdate {
+	policy *models.ChannelEdgePolicy) *lnwire.ChannelUpdate1 {
 
-	return &lnwire.ChannelUpdate{
+	return &lnwire.ChannelUpdate1{
 		ChainHash:       info.ChainHash,
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(policy.ChannelID),
 		Timestamp:       uint32(policy.LastUpdate.Unix()),
@@ -138,7 +156,7 @@ func UnsignedChannelUpdateFromEdge(info *models.ChannelEdgeInfo,
 // ChannelUpdateFromEdge reconstructs a signed ChannelUpdate from the given edge
 // info and policy.
 func ChannelUpdateFromEdge(info *models.ChannelEdgeInfo,
-	policy *models.ChannelEdgePolicy) (*lnwire.ChannelUpdate, error) {
+	policy *models.ChannelEdgePolicy) (*lnwire.ChannelUpdate1, error) {
 
 	update := UnsignedChannelUpdateFromEdge(info, policy)
 
@@ -151,4 +169,166 @@ func ChannelUpdateFromEdge(info *models.ChannelEdgeInfo,
 	}
 
 	return update, nil
+}
+
+// ValidateChannelUpdateAnn validates the channel update announcement by
+// checking (1) that the included signature covers the announcement and has been
+// signed by the node's private key, and (2) that the announcement's message
+// flags and optional fields are sane.
+func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey, capacity btcutil.Amount,
+	a lnwire.ChannelUpdate) error {
+
+	if err := ValidateChannelUpdateFields(capacity, a); err != nil {
+		return err
+	}
+
+	return VerifyChannelUpdateSignature(a, pubKey)
+}
+
+// VerifyChannelUpdateSignature verifies that the channel update message was
+// signed by the party with the given node public key.
+func VerifyChannelUpdateSignature(msg lnwire.ChannelUpdate,
+	pubKey *btcec.PublicKey) error {
+
+	switch u := msg.(type) {
+	case *lnwire.ChannelUpdate1:
+		return verifyChannelUpdate1Signature(u, pubKey)
+	case *lnwire.ChannelUpdate2:
+		return verifyChannelUpdate2Signature(u, pubKey)
+	default:
+		return fmt.Errorf("unhandled implementation of "+
+			"lnwire.ChannelUpdate: %T", msg)
+	}
+}
+
+// verifyChannelUpdateSignature1 verifies that the channel update message was
+// signed by the party with the given node public key.
+func verifyChannelUpdate1Signature(msg *lnwire.ChannelUpdate1,
+	pubKey *btcec.PublicKey) error {
+
+	data, err := msg.DataToSign()
+	if err != nil {
+		return fmt.Errorf("unable to reconstruct message data: %w", err)
+	}
+	dataHash := chainhash.DoubleHashB(data)
+
+	nodeSig, err := msg.Signature.ToSignature()
+	if err != nil {
+		return err
+	}
+
+	if !nodeSig.Verify(dataHash, pubKey) {
+		return fmt.Errorf("invalid signature for channel update %v",
+			spew.Sdump(msg))
+	}
+
+	return nil
+}
+
+// verifyChannelUpdateSignature2 verifies that the channel update message was
+// signed by the party with the given node public key.
+func verifyChannelUpdate2Signature(c *lnwire.ChannelUpdate2,
+	pubKey *btcec.PublicKey) error {
+
+	digest, err := chanUpdate2DigestToSign(c)
+	if err != nil {
+		return fmt.Errorf("unable to reconstruct message data: %w", err)
+	}
+
+	nodeSig, err := c.Signature.ToSignature()
+	if err != nil {
+		return err
+	}
+
+	if !nodeSig.Verify(digest, pubKey) {
+		return fmt.Errorf("invalid signature for channel update %v",
+			spew.Sdump(c))
+	}
+
+	return nil
+}
+
+// ValidateChannelUpdateFields validates a channel update's message flags and
+// corresponding update fields.
+func ValidateChannelUpdateFields(capacity btcutil.Amount,
+	msg lnwire.ChannelUpdate) error {
+
+	switch u := msg.(type) {
+	case *lnwire.ChannelUpdate1:
+		return validateChannelUpdate1Fields(capacity, u)
+	case *lnwire.ChannelUpdate2:
+		return validateChannelUpdate2Fields(capacity, u)
+	default:
+		return fmt.Errorf("unhandled implementation of "+
+			"lnwire.ChannelUpdate: %T", msg)
+	}
+}
+
+// validateChannelUpdate1Fields validates a channel update's message flags and
+// corresponding update fields.
+func validateChannelUpdate1Fields(capacity btcutil.Amount,
+	msg *lnwire.ChannelUpdate1) error {
+
+	// The maxHTLC flag is mandatory.
+	if !msg.MessageFlags.HasMaxHtlc() {
+		return errors.Errorf("max htlc flag not set for channel "+
+			"update %v", spew.Sdump(msg))
+	}
+
+	maxHtlc := msg.HtlcMaximumMsat
+	if maxHtlc == 0 || maxHtlc < msg.HtlcMinimumMsat {
+		return errors.Errorf("invalid max htlc for channel "+
+			"update %v", spew.Sdump(msg))
+	}
+
+	// For light clients, the capacity will not be set so we'll skip
+	// checking whether the MaxHTLC value respects the channel's
+	// capacity.
+	capacityMsat := lnwire.NewMSatFromSatoshis(capacity)
+	if capacityMsat != 0 && maxHtlc > capacityMsat {
+		return errors.Errorf("max_htlc (%v) for channel update "+
+			"greater than capacity (%v)", maxHtlc, capacityMsat)
+	}
+
+	return nil
+}
+
+// validateChannelUpdate2Fields validates a channel update's message flags and
+// corresponding update fields.
+func validateChannelUpdate2Fields(capacity btcutil.Amount,
+	c *lnwire.ChannelUpdate2) error {
+
+	maxHtlc := c.HTLCMaximumMsat.Val
+	if maxHtlc == 0 || maxHtlc < c.HTLCMinimumMsat.Val {
+		return fmt.Errorf("invalid max htlc for channel update %v",
+			spew.Sdump(c))
+	}
+
+	// Checking whether the MaxHTLC value respects the channel's capacity.
+	capacityMsat := lnwire.NewMSatFromSatoshis(capacity)
+	if maxHtlc > capacityMsat {
+		return fmt.Errorf("max_htlc (%v) for channel update greater "+
+			"than capacity (%v)", maxHtlc, capacityMsat)
+	}
+
+	return nil
+}
+
+// ChanUpdate2DigestTag returns the tag to be used when signing the digest of
+// a channel_update_2 message.
+func ChanUpdate2DigestTag() []byte {
+	return MsgTag(chanUpdate2MsgName, chanUpdate2SigField)
+}
+
+// chanUpdate2DigestToSign computes the digest of the ChannelUpdate2 message to
+// be signed.
+func chanUpdate2DigestToSign(c *lnwire.ChannelUpdate2) ([]byte, error) {
+	data, err := c.DataToSign()
+	if err != nil {
+		return nil, err
+	}
+
+	hash := MsgHash(chanUpdate2MsgName, chanUpdate2SigField, data)
+
+	return hash[:], nil
 }

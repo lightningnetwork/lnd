@@ -7,10 +7,10 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
-// ChannelAnnouncement message is used to announce the existence of a channel
+// ChannelAnnouncement1 message is used to announce the existence of a channel
 // between two peers in the overlay, which is propagated by the discovery
 // service over broadcast handler.
-type ChannelAnnouncement struct {
+type ChannelAnnouncement1 struct {
 	// This signatures are used by nodes in order to create cross
 	// references between node's channel and node. Requiring both nodes
 	// to sign indicates they are both willing to route other payments via
@@ -60,13 +60,13 @@ type ChannelAnnouncement struct {
 
 // A compile time check to ensure ChannelAnnouncement implements the
 // lnwire.Message interface.
-var _ Message = (*ChannelAnnouncement)(nil)
+var _ Message = (*ChannelAnnouncement1)(nil)
 
 // Decode deserializes a serialized ChannelAnnouncement stored in the passed
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
+func (a *ChannelAnnouncement1) Decode(r io.Reader, pver uint32) error {
 	return ReadElements(r,
 		&a.NodeSig1,
 		&a.NodeSig2,
@@ -87,7 +87,7 @@ func (a *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelAnnouncement) Encode(w *bytes.Buffer, pver uint32) error {
+func (a *ChannelAnnouncement1) Encode(w *bytes.Buffer, pver uint32) error {
 	if err := WriteSig(w, a.NodeSig1); err != nil {
 		return err
 	}
@@ -139,13 +139,13 @@ func (a *ChannelAnnouncement) Encode(w *bytes.Buffer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelAnnouncement) MsgType() MessageType {
+func (a *ChannelAnnouncement1) MsgType() MessageType {
 	return MsgChannelAnnouncement
 }
 
 // DataToSign is used to retrieve part of the announcement message which should
 // be signed.
-func (a *ChannelAnnouncement) DataToSign() ([]byte, error) {
+func (a *ChannelAnnouncement1) DataToSign() ([]byte, error) {
 	// We should not include the signatures itself.
 	b := make([]byte, 0, MaxMsgBody)
 	buf := bytes.NewBuffer(b)
@@ -184,3 +184,38 @@ func (a *ChannelAnnouncement) DataToSign() ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
+
+// Node1KeyBytes returns the bytes representing the public key of node 1 in the
+// channel.
+//
+// NOTE: This is part of the ChannelAnnouncement interface.
+func (a *ChannelAnnouncement1) Node1KeyBytes() [33]byte {
+	return a.NodeID1
+}
+
+// Node2KeyBytes returns the bytes representing the public key of node 2 in the
+// channel.
+//
+// NOTE: This is part of the ChannelAnnouncement interface.
+func (a *ChannelAnnouncement1) Node2KeyBytes() [33]byte {
+	return a.NodeID2
+}
+
+// GetChainHash returns the hash of the chain which this channel's funding
+// transaction is confirmed in.
+//
+// NOTE: This is part of the ChannelAnnouncement interface.
+func (a *ChannelAnnouncement1) GetChainHash() chainhash.Hash {
+	return a.ChainHash
+}
+
+// SCID returns the short channel ID of the channel.
+//
+// NOTE: This is part of the ChannelAnnouncement interface.
+func (a *ChannelAnnouncement1) SCID() ShortChannelID {
+	return a.ShortChannelID
+}
+
+// A compile-time check to ensure that ChannelAnnouncement1 implements the
+// ChannelAnnouncement interface.
+var _ ChannelAnnouncement = (*ChannelAnnouncement1)(nil)

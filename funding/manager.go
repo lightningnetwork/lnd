@@ -4143,9 +4143,9 @@ func (f *Manager) ensureInitialForwardingPolicy(chanID lnwire.ChannelID,
 // chanAnnouncement encapsulates the two authenticated announcements that we
 // send out to the network after a new channel has been created locally.
 type chanAnnouncement struct {
-	chanAnn       *lnwire.ChannelAnnouncement
-	chanUpdateAnn *lnwire.ChannelUpdate
-	chanProof     *lnwire.AnnounceSignatures
+	chanAnn       *lnwire.ChannelAnnouncement1
+	chanUpdateAnn *lnwire.ChannelUpdate1
+	chanProof     *lnwire.AnnounceSignatures1
 }
 
 // newChanAnnouncement creates the authenticated channel announcement messages
@@ -4168,7 +4168,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// The unconditional section of the announcement is the ShortChannelID
 	// itself which compactly encodes the location of the funding output
 	// within the blockchain.
-	chanAnn := &lnwire.ChannelAnnouncement{
+	chanAnn := &lnwire.ChannelAnnouncement1{
 		ShortChannelID: shortChanID,
 		Features:       lnwire.NewRawFeatureVector(),
 		ChainHash:      chainHash,
@@ -4238,7 +4238,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 
 	// We announce the channel with the default values. Some of
 	// these values can later be changed by crafting a new ChannelUpdate.
-	chanUpdateAnn := &lnwire.ChannelUpdate{
+	chanUpdateAnn := &lnwire.ChannelUpdate1{
 		ShortChannelID: shortChanID,
 		ChainHash:      chainHash,
 		Timestamp:      uint32(time.Now().Unix()),
@@ -4337,7 +4337,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// Finally, we'll generate the announcement proof which we'll use to
 	// provide the other side with the necessary signatures required to
 	// allow them to reconstruct the full channel announcement.
-	proof := &lnwire.AnnounceSignatures{
+	proof := &lnwire.AnnounceSignatures1{
 		ChannelID:      chanID,
 		ShortChannelID: shortChanID,
 	}

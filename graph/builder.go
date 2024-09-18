@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
+	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -1231,7 +1232,9 @@ func (b *Builder) processUpdate(msg interface{},
 		// to obtain the full funding outpoint that's encoded within
 		// the channel ID.
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		fundingTx, err := b.fetchFundingTxWrapper(&channelID)
+		fundingTx, err := lnwallet.FetchFundingTxWrapper(
+			b.cfg.Chain, &channelID, b.quit,
+		)
 		if err != nil {
 			//nolint:lll
 			//
@@ -1448,69 +1451,6 @@ func (b *Builder) processUpdate(msg interface{},
 	return nil
 }
 
-// fetchFundingTxWrapper is a wrapper around fetchFundingTx, except that it
-// will exit if the router has stopped.
-func (b *Builder) fetchFundingTxWrapper(chanID *lnwire.ShortChannelID) (
-	*wire.MsgTx, error) {
-
-	txChan := make(chan *wire.MsgTx, 1)
-	errChan := make(chan error, 1)
-
-	go func() {
-		tx, err := b.fetchFundingTx(chanID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-
-		txChan <- tx
-	}()
-
-	select {
-	case tx := <-txChan:
-		return tx, nil
-
-	case err := <-errChan:
-		return nil, err
-
-	case <-b.quit:
-		return nil, ErrGraphBuilderShuttingDown
-	}
-}
-
-// fetchFundingTx returns the funding transaction identified by the passed
-// short channel ID.
-//
-// TODO(roasbeef): replace with call to GetBlockTransaction? (would allow to
-// later use getblocktxn).
-func (b *Builder) fetchFundingTx(
-	chanID *lnwire.ShortChannelID) (*wire.MsgTx, error) {
-
-	// First fetch the block hash by the block number encoded, then use
-	// that hash to fetch the block itself.
-	blockNum := int64(chanID.BlockHeight)
-	blockHash, err := b.cfg.Chain.GetBlockHash(blockNum)
-	if err != nil {
-		return nil, err
-	}
-	fundingBlock, err := b.cfg.Chain.GetBlock(blockHash)
-	if err != nil {
-		return nil, err
-	}
-
-	// As a sanity check, ensure that the advertised transaction index is
-	// within the bounds of the total number of transactions within a
-	// block.
-	numTxns := uint32(len(fundingBlock.Transactions))
-	if chanID.TxIndex > numTxns-1 {
-		return nil, fmt.Errorf("tx_index=#%v "+
-			"is out of range (max_index=%v), network_chan_id=%v",
-			chanID.TxIndex, numTxns-1, chanID)
-	}
-
-	return fundingBlock.Transactions[chanID.TxIndex].Copy(), nil
-}
-
 // routingMsg couples a routing related routing topology update to the
 // error channel.
 type routingMsg struct {
@@ -1521,7 +1461,7 @@ type routingMsg struct {
 
 // ApplyChannelUpdate validates a channel update and if valid, applies it to the
 // database. It returns a bool indicating whether the updates were successful.
-func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate) bool {
+func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 	ch, _, _, err := b.GetChannelByID(msg.ShortChannelID)
 	if err != nil {
 		log.Errorf("Unable to retrieve channel by id: %v", err)
@@ -1545,7 +1485,7 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate) bool {
 		return false
 	}
 
-	err = ValidateChannelUpdateAnn(pubKey, ch.Capacity, msg)
+	err = netann.ValidateChannelUpdateAnn(pubKey, ch.Capacity, msg)
 	if err != nil {
 		log.Errorf("Unable to validate channel update: %v", err)
 		return false

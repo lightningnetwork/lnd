@@ -8,9 +8,9 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
-	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -147,8 +147,8 @@ type PaymentSession interface {
 	// (private channels) and applies the update from the message. Returns
 	// a boolean to indicate whether the update has been applied without
 	// error.
-	UpdateAdditionalEdge(msg *lnwire.ChannelUpdate, pubKey *btcec.PublicKey,
-		policy *models.CachedEdgePolicy) bool
+	UpdateAdditionalEdge(msg *lnwire.ChannelUpdate1,
+		pubKey *btcec.PublicKey, policy *models.CachedEdgePolicy) bool
 
 	// GetAdditionalEdgePolicy uses the public key and channel ID to query
 	// the ephemeral channel edge policy for additional edges. Returns a nil
@@ -436,11 +436,11 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 // validates the message signature and checks it's up to date, then applies the
 // updates to the supplied policy. It returns a boolean to indicate whether
 // there's an error when applying the updates.
-func (p *paymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate,
+func (p *paymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate1,
 	pubKey *btcec.PublicKey, policy *models.CachedEdgePolicy) bool {
 
 	// Validate the message signature.
-	if err := graph.VerifyChannelUpdateSignature(msg, pubKey); err != nil {
+	if err := netann.VerifyChannelUpdateSignature(msg, pubKey); err != nil {
 		log.Errorf(
 			"Unable to validate channel update signature: %v", err,
 		)

@@ -52,15 +52,15 @@ func randCompressedPubKey(t *testing.T) [33]byte {
 	return compressedPubKey
 }
 
-func randAnnounceSignatures() *lnwire.AnnounceSignatures {
-	return &lnwire.AnnounceSignatures{
+func randAnnounceSignatures() *lnwire.AnnounceSignatures1 {
+	return &lnwire.AnnounceSignatures1{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(rand.Uint64()),
 		ExtraOpaqueData: make([]byte, 0),
 	}
 }
 
-func randChannelUpdate() *lnwire.ChannelUpdate {
-	return &lnwire.ChannelUpdate{
+func randChannelUpdate() *lnwire.ChannelUpdate1 {
+	return &lnwire.ChannelUpdate1{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(rand.Uint64()),
 		ExtraOpaqueData: make([]byte, 0),
 	}
@@ -116,9 +116,9 @@ func TestMessageStoreMessages(t *testing.T) {
 		for _, msg := range peerMsgs {
 			var shortChanID uint64
 			switch msg := msg.(type) {
-			case *lnwire.AnnounceSignatures:
+			case *lnwire.AnnounceSignatures1:
 				shortChanID = msg.ShortChannelID.ToUint64()
-			case *lnwire.ChannelUpdate:
+			case *lnwire.ChannelUpdate1:
 				shortChanID = msg.ShortChannelID.ToUint64()
 			default:
 				t.Fatalf("found unexpected message type %T", msg)

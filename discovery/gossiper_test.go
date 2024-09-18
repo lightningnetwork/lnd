@@ -476,13 +476,13 @@ type annBatch struct {
 	nodeAnn1 *lnwire.NodeAnnouncement
 	nodeAnn2 *lnwire.NodeAnnouncement
 
-	chanAnn *lnwire.ChannelAnnouncement
+	chanAnn *lnwire.ChannelAnnouncement1
 
-	chanUpdAnn1 *lnwire.ChannelUpdate
-	chanUpdAnn2 *lnwire.ChannelUpdate
+	chanUpdAnn1 *lnwire.ChannelUpdate1
+	chanUpdAnn2 *lnwire.ChannelUpdate1
 
-	localProofAnn  *lnwire.AnnounceSignatures
-	remoteProofAnn *lnwire.AnnounceSignatures
+	localProofAnn  *lnwire.AnnounceSignatures1
+	remoteProofAnn *lnwire.AnnounceSignatures1
 }
 
 func createLocalAnnouncements(blockHeight uint32) (*annBatch, error) {
@@ -513,7 +513,7 @@ func createAnnouncements(blockHeight uint32, key1, key2 *btcec.PrivateKey) (*ann
 		return nil, err
 	}
 
-	batch.remoteProofAnn = &lnwire.AnnounceSignatures{
+	batch.remoteProofAnn = &lnwire.AnnounceSignatures1{
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
 		},
@@ -521,7 +521,7 @@ func createAnnouncements(blockHeight uint32, key1, key2 *btcec.PrivateKey) (*ann
 		BitcoinSignature: batch.chanAnn.BitcoinSig2,
 	}
 
-	batch.localProofAnn = &lnwire.AnnounceSignatures{
+	batch.localProofAnn = &lnwire.AnnounceSignatures1{
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
 		},
@@ -585,12 +585,12 @@ func createNodeAnnouncement(priv *btcec.PrivateKey,
 func createUpdateAnnouncement(blockHeight uint32,
 	flags lnwire.ChanUpdateChanFlags,
 	nodeKey *btcec.PrivateKey, timestamp uint32,
-	extraBytes ...[]byte) (*lnwire.ChannelUpdate, error) {
+	extraBytes ...[]byte) (*lnwire.ChannelUpdate1, error) {
 
 	var err error
 
 	htlcMinMsat := lnwire.MilliSatoshi(prand.Int63())
-	a := &lnwire.ChannelUpdate{
+	a := &lnwire.ChannelUpdate1{
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
 		},
@@ -618,7 +618,7 @@ func createUpdateAnnouncement(blockHeight uint32,
 	return a, nil
 }
 
-func signUpdate(nodeKey *btcec.PrivateKey, a *lnwire.ChannelUpdate) error {
+func signUpdate(nodeKey *btcec.PrivateKey, a *lnwire.ChannelUpdate1) error {
 	signer := mock.SingleSigner{Privkey: nodeKey}
 	sig, err := netann.SignAnnouncement(&signer, testKeyLoc, a)
 	if err != nil {
@@ -635,9 +635,9 @@ func signUpdate(nodeKey *btcec.PrivateKey, a *lnwire.ChannelUpdate) error {
 
 func createAnnouncementWithoutProof(blockHeight uint32,
 	key1, key2 *btcec.PublicKey,
-	extraBytes ...[]byte) *lnwire.ChannelAnnouncement {
+	extraBytes ...[]byte) *lnwire.ChannelAnnouncement1 {
 
-	a := &lnwire.ChannelAnnouncement{
+	a := &lnwire.ChannelAnnouncement1{
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
 			TxIndex:     0,
@@ -657,13 +657,13 @@ func createAnnouncementWithoutProof(blockHeight uint32,
 }
 
 func createRemoteChannelAnnouncement(blockHeight uint32,
-	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement, error) {
+	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement1, error) {
 
 	return createChannelAnnouncement(blockHeight, remoteKeyPriv1, remoteKeyPriv2, extraBytes...)
 }
 
 func createChannelAnnouncement(blockHeight uint32, key1, key2 *btcec.PrivateKey,
-	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement, error) {
+	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement1, error) {
 
 	a := createAnnouncementWithoutProof(blockHeight, key1.PubKey(), key2.PubKey(), extraBytes...)
 
@@ -749,7 +749,7 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 		return false
 	}
 
-	signAliasUpdate := func(*lnwire.ChannelUpdate) (*ecdsa.Signature,
+	signAliasUpdate := func(*lnwire.ChannelUpdate1) (*ecdsa.Signature,
 		error) {
 
 		return nil, nil
@@ -1462,7 +1462,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		return false
 	}
 
-	signAliasUpdate := func(*lnwire.ChannelUpdate) (*ecdsa.Signature,
+	signAliasUpdate := func(*lnwire.ChannelUpdate1) (*ecdsa.Signature,
 		error) {
 
 		return nil, nil
@@ -1540,7 +1540,7 @@ out:
 		case msg := <-sentToPeer:
 			// Since the ChannelUpdate will also be resent as it is
 			// sent reliably, we'll need to filter it out.
-			if _, ok := msg.(*lnwire.AnnounceSignatures); !ok {
+			if _, ok := msg.(*lnwire.AnnounceSignatures1); !ok {
 				continue
 			}
 
@@ -1768,9 +1768,10 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	// We expect the gossiper to send this message to the remote peer.
 	select {
 	case msg := <-sentToPeer:
-		_, ok := msg.(*lnwire.ChannelAnnouncement)
+		_, ok := msg.(*lnwire.ChannelAnnouncement1)
 		if !ok {
-			t.Fatalf("expected ChannelAnnouncement, instead got %T", msg)
+			t.Fatalf("expected ChannelAnnouncement1, instead got "+
+				"%T", msg)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not send local proof to peer")
@@ -1867,7 +1868,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 		t.Fatal("channel update not replaced in batch")
 	}
 
-	assertChannelUpdate := func(channelUpdate *lnwire.ChannelUpdate) {
+	assertChannelUpdate := func(channelUpdate *lnwire.ChannelUpdate1) {
 		channelKey := channelUpdateID{
 			ua3.ShortChannelID,
 			ua3.ChannelFlags,
@@ -2811,9 +2812,9 @@ func TestRetransmit(t *testing.T) {
 		var chanAnn, chanUpd, nodeAnn int
 		for _, msg := range anns {
 			switch msg.(type) {
-			case *lnwire.ChannelAnnouncement:
+			case *lnwire.ChannelAnnouncement1:
 				chanAnn++
-			case *lnwire.ChannelUpdate:
+			case *lnwire.ChannelUpdate1:
 				chanUpd++
 			case *lnwire.NodeAnnouncement:
 				nodeAnn++
@@ -3246,7 +3247,7 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	// already been announced. We'll keep track of the old message that is
 	// now stale to use later on.
 	staleChannelUpdate := batch.chanUpdAnn1
-	newChannelUpdate := &lnwire.ChannelUpdate{}
+	newChannelUpdate := &lnwire.ChannelUpdate1{}
 	*newChannelUpdate = *staleChannelUpdate
 	newChannelUpdate.Timestamp++
 	if err := signUpdate(selfKeyPriv, newChannelUpdate); err != nil {
@@ -3300,9 +3301,9 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 		}
 
 		switch msg := msg.(type) {
-		case *lnwire.ChannelUpdate:
+		case *lnwire.ChannelUpdate1:
 			assertMessage(t, staleChannelUpdate, msg)
-		case *lnwire.AnnounceSignatures:
+		case *lnwire.AnnounceSignatures1:
 			assertMessage(t, batch.localProofAnn, msg)
 		default:
 			t.Fatalf("send unexpected %v message", msg.MsgType())
@@ -3504,7 +3505,7 @@ out:
 	// being the channel our first private channel.
 	for i := 0; i < numChannels-1; i++ {
 		assertBroadcastMsg(t, ctx, func(msg lnwire.Message) error {
-			upd, ok := msg.(*lnwire.ChannelUpdate)
+			upd, ok := msg.(*lnwire.ChannelUpdate1)
 			if !ok {
 				return fmt.Errorf("channel update not "+
 					"broadcast, instead %T was", msg)
@@ -3528,7 +3529,7 @@ out:
 	// remote peer via the reliable sender.
 	select {
 	case msg := <-sentMsgs:
-		upd, ok := msg.(*lnwire.ChannelUpdate)
+		upd, ok := msg.(*lnwire.ChannelUpdate1)
 		if !ok {
 			t.Fatalf("channel update not "+
 				"broadcast, instead %T was", msg)
@@ -3552,7 +3553,7 @@ out:
 	for {
 		select {
 		case msg := <-ctx.broadcastedMessage:
-			if upd, ok := msg.msg.(*lnwire.ChannelUpdate); ok {
+			if upd, ok := msg.msg.(*lnwire.ChannelUpdate1); ok {
 				if upd.ShortChannelID == firstChanID {
 					t.Fatalf("chan update msg received: %v",
 						spew.Sdump(msg))
@@ -3884,7 +3885,7 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 
 	// We'll define a helper to assert whether updates should be rate
 	// limited or not depending on their contents.
-	assertRateLimit := func(update *lnwire.ChannelUpdate, peer lnpeer.Peer,
+	assertRateLimit := func(update *lnwire.ChannelUpdate1, peer lnpeer.Peer,
 		shouldRateLimit bool) {
 
 		t.Helper()

@@ -5,11 +5,11 @@ import (
 	"io"
 )
 
-// AnnounceSignatures is a direct message between two endpoints of a
+// AnnounceSignatures1 is a direct message between two endpoints of a
 // channel and serves as an opt-in mechanism to allow the announcement of
 // the channel to the rest of the network. It contains the necessary
 // signatures by the sender to construct the channel announcement message.
-type AnnounceSignatures struct {
+type AnnounceSignatures1 struct {
 	// ChannelID is the unique description of the funding transaction.
 	// Channel id is better for users and debugging and short channel id is
 	// used for quick test on existence of the particular utxo inside the
@@ -43,15 +43,19 @@ type AnnounceSignatures struct {
 	ExtraOpaqueData ExtraOpaqueData
 }
 
-// A compile time check to ensure AnnounceSignatures implements the
+// A compile time check to ensure AnnounceSignatures1 implements the
 // lnwire.Message interface.
-var _ Message = (*AnnounceSignatures)(nil)
+var _ Message = (*AnnounceSignatures1)(nil)
 
-// Decode deserializes a serialized AnnounceSignatures stored in the passed
+// A compile time check to ensure AnnounceSignatures1 implements the
+// lnwire.AnnounceSignatures interface.
+var _ AnnounceSignatures = (*AnnounceSignatures1)(nil)
+
+// Decode deserializes a serialized AnnounceSignatures1 stored in the passed
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (a *AnnounceSignatures) Decode(r io.Reader, pver uint32) error {
+func (a *AnnounceSignatures1) Decode(r io.Reader, _ uint32) error {
 	return ReadElements(r,
 		&a.ChannelID,
 		&a.ShortChannelID,
@@ -61,11 +65,11 @@ func (a *AnnounceSignatures) Decode(r io.Reader, pver uint32) error {
 	)
 }
 
-// Encode serializes the target AnnounceSignatures into the passed io.Writer
+// Encode serializes the target AnnounceSignatures1 into the passed io.Writer
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (a *AnnounceSignatures) Encode(w *bytes.Buffer, pver uint32) error {
+func (a *AnnounceSignatures1) Encode(w *bytes.Buffer, _ uint32) error {
 	if err := WriteChannelID(w, a.ChannelID); err != nil {
 		return err
 	}
@@ -89,6 +93,20 @@ func (a *AnnounceSignatures) Encode(w *bytes.Buffer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (a *AnnounceSignatures) MsgType() MessageType {
+func (a *AnnounceSignatures1) MsgType() MessageType {
 	return MsgAnnounceSignatures
+}
+
+// SCID returns the ShortChannelID of the channel.
+//
+// This is part of the lnwire.AnnounceSignatures interface.
+func (a *AnnounceSignatures1) SCID() ShortChannelID {
+	return a.ShortChannelID
+}
+
+// ChanID returns the ChannelID identifying the channel.
+//
+// This is part of the lnwire.AnnounceSignatures interface.
+func (a *AnnounceSignatures1) ChanID() ChannelID {
+	return a.ChannelID
 }

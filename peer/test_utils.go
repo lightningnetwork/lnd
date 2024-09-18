@@ -611,7 +611,7 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 		IsChannelActive: func(lnwire.ChannelID) bool {
 			return true
 		},
-		ApplyChannelUpdate: func(*lnwire.ChannelUpdate,
+		ApplyChannelUpdate: func(*lnwire.ChannelUpdate1,
 			*wire.OutPoint, bool) error {
 
 			return nil
@@ -719,9 +719,9 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 		},
 		PongBuf: make([]byte, lnwire.MaxPongBytes),
 		FetchLastChanUpdate: func(chanID lnwire.ShortChannelID,
-		) (*lnwire.ChannelUpdate, error) {
+		) (*lnwire.ChannelUpdate1, error) {
 
-			return &lnwire.ChannelUpdate{}, nil
+			return &lnwire.ChannelUpdate1{}, nil
 		},
 	}
 

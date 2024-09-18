@@ -305,6 +305,8 @@ type server struct {
 
 	tlsManager *TLSManager
 
+	remoteSignerClient rpcwallet.RemoteSignerClient
+
 	// featureMgr dispatches feature vectors for various contexts within the
 	// daemon.
 	featureMgr *feature.Manager
@@ -488,8 +490,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	chansToRestore walletunlocker.ChannelsToRecover,
 	chanPredicate chanacceptor.ChannelAcceptor,
 	torController *tor.Controller, tlsManager *TLSManager,
-	leaderElector cluster.LeaderElector,
-	implCfg *ImplementationCfg) (*server, error) {
+	leaderElector cluster.LeaderElector, implCfg *ImplementationCfg,
+	remoteSignerClient rpcwallet.RemoteSignerClient) (*server, error) {
 
 	var (
 		err         error
@@ -621,6 +623,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		customMessageServer: subscribe.NewServer(),
 
 		tlsManager: tlsManager,
+
+		remoteSignerClient: remoteSignerClient,
 
 		featureMgr: featureMgr,
 		quit:       make(chan struct{}),
@@ -1869,27 +1873,30 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl,
 	// If remote signing is enabled, add the healthcheck for the remote
 	// signing RPC interface.
 	if s.cfg.RemoteSigner != nil && s.cfg.RemoteSigner.Enable {
-		// Because we have two cascading timeouts here, we need to add
-		// some slack to the "outer" one of them in case the "inner"
-		// returns exactly on time.
-		overhead := time.Millisecond * 10
+		if rpckKeyRing, ok := cc.Wc.(*rpcwallet.RPCKeyRing); ok {
+			timeout := cfg.HealthChecks.RemoteSigner.Timeout
+			// Because we have two cascading timeouts here, we need
+			// to add some slack to the "outer" one of them in case
+			// the "inner" returns exactly on time.
+			outerTimeout := timeout + time.Millisecond*10
 
-		remoteSignerConnectionCheck := healthcheck.NewObservation(
-			"remote signer connection",
-			rpcwallet.HealthCheck(
-				s.cfg.RemoteSigner,
-
-				// For the health check we might to be even
-				// stricter than the initial/normal connect, so
-				// we use the health check timeout here.
-				cfg.HealthChecks.RemoteSigner.Timeout,
-			),
-			cfg.HealthChecks.RemoteSigner.Interval,
-			cfg.HealthChecks.RemoteSigner.Timeout+overhead,
-			cfg.HealthChecks.RemoteSigner.Backoff,
-			cfg.HealthChecks.RemoteSigner.Attempts,
-		)
-		checks = append(checks, remoteSignerConnectionCheck)
+			rsConnectionCheck := healthcheck.NewObservation(
+				"remote signer connection",
+				rpcwallet.HealthCheck(
+					rpckKeyRing.RemoteSigner(),
+					// For the health check we might to be
+					// even stricter than the initial/normal
+					// connect, so we use the health check
+					// timeout.
+					timeout,
+				),
+				cfg.HealthChecks.RemoteSigner.Interval,
+				outerTimeout,
+				cfg.HealthChecks.RemoteSigner.Backoff,
+				cfg.HealthChecks.RemoteSigner.Attempts,
+			)
+			checks = append(checks, rsConnectionCheck)
+		}
 	}
 
 	// If we have a leader elector, we add a health check to ensure we are
@@ -2006,6 +2013,12 @@ func (s *server) Start() error {
 				startErr = err
 				return
 			}
+		}
+
+		cleanup = cleanup.add(s.remoteSignerClient.Stop)
+		if err := s.remoteSignerClient.Start(); err != nil {
+			startErr = err
+			return
 		}
 
 		// Start the notification server. This is used so channel
@@ -2438,6 +2451,10 @@ func (s *server) Stop() error {
 		if err := s.cc.BestBlockTracker.Stop(); err != nil {
 			srvrLog.Warnf("Unable to stop BestBlockTracker: %v",
 				err)
+		}
+		if err := s.remoteSignerClient.Stop(); err != nil {
+			srvrLog.Warnf("Unable to stop remote signer "+
+				"client: %v", err)
 		}
 		if err := s.chanEventStore.Stop(); err != nil {
 			srvrLog.Warnf("Unable to stop ChannelEventStore: %v",

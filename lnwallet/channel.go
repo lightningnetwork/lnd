@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"container/list"
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -138,6 +139,10 @@ var (
 	// errNoPartialSig is returned when a partial signature is required,
 	// but none is found.
 	errNoPartialSig = errors.New("no partial signature found")
+
+	// errQuit is returned when a quit signal was received, interrupting the
+	// current operation.
+	errQuit = errors.New("received quit signal")
 )
 
 // ErrCommitSyncLocalDataLoss is returned in the case that we receive a valid
@@ -4526,7 +4531,9 @@ type NewCommitState struct {
 // for the remote party's commitment are also returned.
 //
 //nolint:funlen
-func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
+func (lc *LightningChannel) SignNextCommitment(
+	ctx context.Context) (*NewCommitState, error) {
+
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -4693,7 +4700,13 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	auxSigs := make([]fn.Option[tlv.Blob], 0, len(auxSigBatch))
 	for i := range sigBatch {
 		htlcSigJob := sigBatch[i]
-		jobResp := <-htlcSigJob.Resp
+		var jobResp SignJobResp
+
+		select {
+		case jobResp = <-htlcSigJob.Resp:
+		case <-ctx.Done():
+			return nil, errQuit
+		}
 
 		// If an error occurred, then we'll cancel any other active
 		// jobs.
@@ -4709,7 +4722,13 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 		}
 
 		auxHtlcSigJob := auxSigBatch[i]
-		auxJobResp := <-auxHtlcSigJob.Resp
+		var auxJobResp AuxSigJobResp
+
+		select {
+		case auxJobResp = <-auxHtlcSigJob.Resp:
+		case <-ctx.Done():
+			return nil, errQuit
+		}
 
 		// If an error occurred, then we'll cancel any other active
 		// jobs.
@@ -4802,7 +4821,7 @@ func (lc *LightningChannel) resignMusigCommit(commitTx *wire.MsgTx,
 // previous commitment txn. This allows the link to clear its mailbox of those
 // circuits in case they are still in memory, and ensure the switch's circuit
 // map has been updated by deleting the closed circuits.
-func (lc *LightningChannel) ProcessChanSyncMsg(
+func (lc *LightningChannel) ProcessChanSyncMsg(ctx context.Context,
 	msg *lnwire.ChannelReestablish) ([]lnwire.Message, []models.CircuitKey,
 	[]models.CircuitKey, error) {
 
@@ -4966,7 +4985,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// revocation, but also initiate a state transition to re-sync
 		// them.
 		if lc.OweCommitment() {
-			newCommit, err := lc.SignNextCommitment()
+			newCommit, err := lc.SignNextCommitment(ctx)
 			switch {
 
 			// If we signed this state, then we'll accumulate

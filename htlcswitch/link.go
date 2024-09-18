@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"bytes"
+	"context"
 	crand "crypto/rand"
 	"crypto/sha256"
 	"fmt"
@@ -382,8 +383,9 @@ type channelLink struct {
 	// our next CommitSig.
 	incomingCommitHooks hookMap
 
-	wg   sync.WaitGroup
-	quit chan struct{}
+	wg       sync.WaitGroup
+	quit     context.Context //nolint:containedctx
+	quitFunc context.CancelFunc
 }
 
 // hookMap is a data structure that is used to track the hooks that need to be
@@ -448,6 +450,10 @@ func NewChannelLink(cfg ChannelLinkConfig,
 	channel *lnwallet.LightningChannel) ChannelLink {
 
 	logPrefix := fmt.Sprintf("ChannelLink(%v):", channel.ChannelPoint())
+	quitCtx, quitFunc := context.WithCancel(context.Background())
+
+	// Initialize the Done channel for our quit context.
+	_ = quitCtx.Done()
 
 	return &channelLink{
 		cfg:                 cfg,
@@ -458,7 +464,8 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		flushHooks:          newHookMap(),
 		outgoingCommitHooks: newHookMap(),
 		incomingCommitHooks: newHookMap(),
-		quit:                make(chan struct{}),
+		quit:                quitCtx,
+		quitFunc:            quitFunc,
 	}
 }
 
@@ -573,7 +580,7 @@ func (l *channelLink) Stop() {
 
 	l.hodlQueue.Stop()
 
-	close(l.quit)
+	l.quitFunc()
 	l.wg.Wait()
 
 	// Now that the htlcManager has completely exited, reset the packet
@@ -660,7 +667,7 @@ func (l *channelLink) IsFlushing(linkDirection LinkDirection) bool {
 func (l *channelLink) OnFlushedOnce(hook func()) {
 	select {
 	case l.flushHooks.newTransients <- hook:
-	case <-l.quit:
+	case <-l.quit.Done():
 	}
 }
 
@@ -679,7 +686,7 @@ func (l *channelLink) OnCommitOnce(direction LinkDirection, hook func()) {
 
 	select {
 	case queue <- hook:
-	case <-l.quit:
+	case <-l.quit.Done():
 	}
 }
 
@@ -889,7 +896,7 @@ func (l *channelLink) syncChanStates() error {
 		// party, so we'll process the message  in order to determine
 		// if we need to re-transmit any messages to the remote party.
 		msgsToReSend, openedCircuits, closedCircuits, err =
-			l.channel.ProcessChanSyncMsg(remoteChanSyncMsg)
+			l.channel.ProcessChanSyncMsg(l.quit, remoteChanSyncMsg)
 		if err != nil {
 			return err
 		}
@@ -918,7 +925,7 @@ func (l *channelLink) syncChanStates() error {
 			l.cfg.Peer.SendMessage(false, msg)
 		}
 
-	case <-l.quit:
+	case <-l.quit.Done():
 		return ErrLinkShuttingDown
 	}
 
@@ -1041,7 +1048,7 @@ func (l *channelLink) fwdPkgGarbager() {
 					err)
 				continue
 			}
-		case <-l.quit:
+		case <-l.quit.Done():
 			return
 		}
 	}
@@ -1442,7 +1449,7 @@ func (l *channelLink) htlcManager() {
 				)
 			}
 
-		case <-l.quit:
+		case <-l.quit.Done():
 			return
 		}
 	}
@@ -2272,7 +2279,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 		select {
-		case <-l.quit:
+		case <-l.quit.Done():
 			return
 		default:
 		}
@@ -2334,7 +2341,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 		select {
-		case <-l.quit:
+		case <-l.quit.Done():
 			return
 		default:
 		}
@@ -2541,7 +2548,7 @@ func (l *channelLink) updateCommitTx() error {
 		return nil
 	}
 
-	newCommit, err := l.channel.SignNextCommitment()
+	newCommit, err := l.channel.SignNextCommitment(l.quit)
 	if err == lnwallet.ErrNoWindow {
 		l.cfg.PendingCommitTicker.Resume()
 		l.log.Trace("PendingCommitTicker resumed")
@@ -2582,7 +2589,7 @@ func (l *channelLink) updateCommitTx() error {
 	}
 
 	select {
-	case <-l.quit:
+	case <-l.quit.Done():
 		return ErrLinkShuttingDown
 	default:
 	}
@@ -3057,7 +3064,7 @@ func (l *channelLink) handleSwitchPacket(pkt *htlcPacket) error {
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) HandleChannelUpdate(message lnwire.Message) {
 	select {
-	case <-l.quit:
+	case <-l.quit.Done():
 		// Return early if the link is already in the process of
 		// quitting. It doesn't make sense to hand the message to the
 		// mailbox here.
@@ -3744,7 +3751,7 @@ func (l *channelLink) forwardBatch(replay bool, packets ...*htlcPacket) {
 		filteredPkts = append(filteredPkts, pkt)
 	}
 
-	err := l.cfg.ForwardPackets(l.quit, replay, filteredPkts...)
+	err := l.cfg.ForwardPackets(l.quit.Done(), replay, filteredPkts...)
 	if err != nil {
 		log.Errorf("Unhandled error while reforwarding htlc "+
 			"settle/fail over htlcswitch: %v", err)

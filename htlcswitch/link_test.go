@@ -2244,12 +2244,14 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 		return aliceSwitch.AddLink(aliceLink)
 	}
 	go func() {
-		for {
-			select {
-			case <-notifyUpdateChan:
-			case <-aliceLink.(*channelLink).quit:
-				close(doneChan)
-				return
+		if chanLink, ok := aliceLink.(*channelLink); ok {
+			for {
+				select {
+				case <-notifyUpdateChan:
+				case <-chanLink.quit.Done():
+					close(doneChan)
+					return
+				}
 			}
 		}
 	}()
@@ -2316,7 +2318,7 @@ func handleStateUpdate(link *channelLink,
 	}
 	link.HandleChannelUpdate(remoteRev)
 
-	remoteSigs, err := remoteChannel.SignNextCommitment()
+	remoteSigs, err := remoteChannel.SignNextCommitment(link.quit)
 	if err != nil {
 		return err
 	}
@@ -2359,7 +2361,7 @@ func updateState(batchTick chan time.Time, link *channelLink,
 		// Trigger update by ticking the batchTicker.
 		select {
 		case batchTick <- time.Now():
-		case <-link.quit:
+		case <-link.quit.Done():
 			return fmt.Errorf("link shutting down")
 		}
 		return handleStateUpdate(link, remoteChannel)
@@ -2367,7 +2369,7 @@ func updateState(batchTick chan time.Time, link *channelLink,
 
 	// The remote is triggering the state update, emulate this by
 	// signing and sending CommitSig to the link.
-	remoteSigs, err := remoteChannel.SignNextCommitment()
+	remoteSigs, err := remoteChannel.SignNextCommitment(link.quit)
 	if err != nil {
 		return err
 	}
@@ -4912,12 +4914,14 @@ func (h *persistentLinkHarness) restartLink(
 		return nil, nil, err
 	}
 	go func() {
-		for {
-			select {
-			case <-notifyUpdateChan:
-			case <-aliceLink.(*channelLink).quit:
-				close(doneChan)
-				return
+		if chanLink, ok := aliceLink.(*channelLink); ok {
+			for {
+				select {
+				case <-notifyUpdateChan:
+				case <-chanLink.quit.Done():
+					close(doneChan)
+					return
+				}
 			}
 		}
 	}()
@@ -5900,7 +5904,9 @@ func TestChannelLinkFail(t *testing.T) {
 
 				// Sign a commitment that will include
 				// signature for the HTLC just sent.
-				sigs, err := remoteChannel.SignNextCommitment()
+				sigs, err := remoteChannel.SignNextCommitment(
+					c.quit,
+				)
 				if err != nil {
 					t.Fatalf("error signing commitment: %v",
 						err)
@@ -5942,7 +5948,9 @@ func TestChannelLinkFail(t *testing.T) {
 
 				// Sign a commitment that will include
 				// signature for the HTLC just sent.
-				sigs, err := remoteChannel.SignNextCommitment()
+				sigs, err := remoteChannel.SignNextCommitment(
+					c.quit,
+				)
 				if err != nil {
 					t.Fatalf("error signing commitment: %v",
 						err)

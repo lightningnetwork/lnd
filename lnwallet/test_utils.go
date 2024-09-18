@@ -1,6 +1,7 @@
 package lnwallet
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
@@ -100,6 +101,11 @@ var (
 	bobDustLimit   = btcutil.Amount(1300)
 
 	testChannelCapacity float64 = 10
+
+	// testQuit is a context that will never be cancelled, that is used in
+	// place of a real quit context.
+	testQuit, testQuitFunc = context.WithCancel(context.Background())
+	_                      = testQuitFunc
 )
 
 // CreateTestChannels creates to fully populated channels to be used within
@@ -541,7 +547,7 @@ func calcStaticFee(chanType channeldb.ChannelType, numHTLCs int) btcutil.Amount 
 // pending updates. This method is useful when testing interactions between two
 // live state machines.
 func ForceStateTransition(chanA, chanB *LightningChannel) error {
-	aliceNewCommit, err := chanA.SignNextCommitment()
+	aliceNewCommit, err := chanA.SignNextCommitment(testQuit)
 	if err != nil {
 		return err
 	}
@@ -554,7 +560,7 @@ func ForceStateTransition(chanA, chanB *LightningChannel) error {
 	if err != nil {
 		return err
 	}
-	bobNewCommit, err := chanB.SignNextCommitment()
+	bobNewCommit, err := chanB.SignNextCommitment(testQuit)
 	if err != nil {
 		return err
 	}

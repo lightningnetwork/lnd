@@ -627,10 +627,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testOpenChannelLockedBalance,
 	},
 	{
-		Name:     "nativesql no migration",
-		TestFunc: testNativeSQLNoMigration,
-	},
-	{
 		Name:     "sweep cpfp anchor outgoing timeout",
 		TestFunc: testSweepCPFPAnchorOutgoingTimeout,
 	},

@@ -43,7 +43,8 @@ type mockArbitratorLog struct {
 	resolutions     *ContractResolutions
 	resolvers       map[ContractResolver]struct{}
 
-	commitSet *CommitSet
+	commitSet     *CommitSet
+	canceledHTLCs fn.Set[uint64]
 
 	sync.Mutex
 }
@@ -147,6 +148,18 @@ func (b *mockArbitratorLog) FetchConfirmedCommitSet(kvdb.RTx) (*CommitSet, error
 
 func (b *mockArbitratorLog) WipeHistory() error {
 	return nil
+}
+
+func (b *mockArbitratorLog) InsertCanceledHTLCs(
+	canceledHTLCs fn.Set[uint64]) error {
+
+	b.canceledHTLCs = canceledHTLCs
+
+	return nil
+}
+
+func (b *mockArbitratorLog) FetchCanceledHTLCs() (fn.Set[uint64], error) {
+	return b.canceledHTLCs, nil
 }
 
 // testArbLog is a wrapper around an existing (ideally fully concrete

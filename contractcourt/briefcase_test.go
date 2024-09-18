@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnmock"
@@ -779,7 +780,35 @@ func TestCommitSetStorage(t *testing.T) {
 			}
 		}
 	}
+}
 
+// TestCanceledHTLCStorage tests that we're able to properly read/write a set
+// of canceled HTLCs.
+func TestCanceledHTLCStorage(t *testing.T) {
+	t.Parallel()
+
+	testLog, err := newTestBoltArbLog(
+		t, testChainHash, testChanPoint1,
+	)
+	require.NoError(t, err, "unable to create test log")
+
+	canceledHTLCs := fn.NewSet[uint64](1, 2, 3, 4, 5)
+
+	err = testLog.InsertCanceledHTLCs(canceledHTLCs)
+	if err != nil {
+		t.Fatalf("unable to write canceled htlcs: %v", err)
+	}
+
+	diskCanceledHTLCs, err := testLog.FetchCanceledHTLCs()
+	if err != nil {
+		t.Fatalf("unable to read canceled htlcs: %v", err)
+	}
+
+	if !reflect.DeepEqual(canceledHTLCs, diskCanceledHTLCs) {
+		t.Fatalf("canceled htlcs mismatch: expected %v, got %v",
+			spew.Sdump(canceledHTLCs),
+			spew.Sdump(diskCanceledHTLCs))
+	}
 }
 
 func init() {

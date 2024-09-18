@@ -1133,6 +1133,7 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 		return nil
 	}
 
+	//nolint:lll
 	link := NewChannelLink(
 		ChannelLinkConfig{
 			BestHeight:    server.htlcSwitch.BestHeight,
@@ -1174,6 +1175,7 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 			NotifyInactiveLinkEvent: func(wire.OutPoint) {},
 			HtlcNotifier:            server.htlcSwitch.cfg.HtlcNotifier,
 			GetAliases:              getAliases,
+			ShouldFwdExpEndorsement: func() bool { return true },
 		},
 		channel,
 	)

@@ -104,6 +104,10 @@ type RouterBackend struct {
 	// TODO(yy): remove this config after the new status code is fully
 	// deployed to the network(v0.20.0).
 	UseStatusInitiated bool
+
+	// ShouldSetExpEndorsement returns a boolean indicating whether the
+	// experimental endorsement bit should be set.
+	ShouldSetExpEndorsement func() bool
 }
 
 // MissionControl defines the mission control dependencies of routerrpc.
@@ -878,6 +882,23 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		return nil, err
 	}
 	payIntent.FirstHopCustomRecords = firstHopRecords
+
+	// If the experimental endorsement signal is not already set, propagate
+	// a zero value field if configured to set this signal.
+	if r.ShouldSetExpEndorsement() {
+		if payIntent.FirstHopCustomRecords == nil {
+			payIntent.FirstHopCustomRecords = make(
+				map[uint64][]byte,
+			)
+		}
+
+		t := uint64(lnwire.ExperimentalEndorsementType)
+		if _, set := payIntent.FirstHopCustomRecords[t]; !set {
+			payIntent.FirstHopCustomRecords[t] = []byte{
+				lnwire.ExperimentalUnendorsed,
+			}
+		}
+	}
 
 	payIntent.PayAttemptTimeout = time.Second *
 		time.Duration(rpcPayReq.TimeoutSeconds)

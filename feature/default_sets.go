@@ -95,4 +95,7 @@ var defaultSetDesc = setDesc{
 	lnwire.Bolt11BlindedPathsOptional: {
 		SetInvoice: {}, // I
 	},
+	lnwire.ExperimentalEndorsementOptional: {
+		SetNodeAnn: {}, // N
+	},
 }

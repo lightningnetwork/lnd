@@ -263,6 +263,14 @@ const (
 	// being finalized.
 	SimpleTaprootChannelsOptionalStaging = 181
 
+	// ExperimentalEndorsementRequired is a required feature bit that
+	// indicates that the node will relay experimental endorsement signals.
+	ExperimentalEndorsementRequired FeatureBit = 260
+
+	// ExperimentalEndorsementOptional is an optional feature bit that
+	// indicates that the node will relay experimental endorsement signals.
+	ExperimentalEndorsementOptional FeatureBit = 261
+
 	// Bolt11BlindedPathsRequired is a required feature bit that indicates
 	// that the node is able to understand the blinded path tagged field in
 	// a BOLT 11 invoice.
@@ -339,6 +347,8 @@ var Features = map[FeatureBit]string{
 	SimpleTaprootChannelsOptionalFinal:   "simple-taproot-chans",
 	SimpleTaprootChannelsRequiredStaging: "simple-taproot-chans-x",
 	SimpleTaprootChannelsOptionalStaging: "simple-taproot-chans-x",
+	ExperimentalEndorsementRequired:      "endorsement-x",
+	ExperimentalEndorsementOptional:      "endorsement-x",
 	Bolt11BlindedPathsOptional:           "bolt-11-blinded-paths",
 	Bolt11BlindedPathsRequired:           "bolt-11-blinded-paths",
 }

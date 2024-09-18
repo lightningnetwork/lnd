@@ -494,6 +494,10 @@
   [spec change](https://github.com/lightning/bolts/pull/1092/commits/e0ee59f3c92b7c98be8dfc47b7db358b45baf9de)
   that meant we shouldn't require it.
 
+* [Respect local dustlimit on cooperative close](https://github.com/lightningnetwork/lnd/pull/8767)
+  This change removes any output below its own dustlimit according to the
+  [spec](https://github.com/lightning/bolts/blob/5f8fea8dc3c8c612167dd9645c4a21fe9de2f147/03-transactions.md?plain=1#L373).
+
 ## Testing
 
 * Added fuzz tests for [onion

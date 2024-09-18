@@ -3389,8 +3389,14 @@ func TestChanSyncOweCommitmentAuxSigner(t *testing.T) {
 	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
 	require.NoError(t, err, "unable to create test channels")
 
-	// We'll now manually attach an aux signer to Alice's channel.
-	auxSigner := &auxSignerMock{}
+	// We'll now manually attach an aux signer to Alice's channel. We'll
+	// set each aux sig job to receive an instant response.
+	emptyAuxSigJobResponder := func(jobs []AuxSigJob) {
+		for _, sigJob := range jobs {
+			sigJob.Resp <- AuxSigJobResp{}
+		}
+	}
+	auxSigner := NewAuxSignerMock(emptyAuxSigJobResponder)
 	aliceChannel.auxSigner = fn.Some[AuxSigner](auxSigner)
 
 	var fakeOnionBlob [lnwire.OnionPacketSize]byte
@@ -3414,8 +3420,8 @@ func TestChanSyncOweCommitmentAuxSigner(t *testing.T) {
 	_, err = aliceChannel.AddHTLC(h, nil)
 	require.NoError(t, err, "unable to recv bob's htlc: %v", err)
 
-	// We'll set up the mock to expect calls to PackSigs and also
-	// SubmitSubmitSecondLevelSigBatch.
+	// We'll set up the mock aux signer to expect calls to PackSigs and also
+	// SubmitSecondLevelSigBatch.
 	var sigBlobBuf bytes.Buffer
 	sigBlob := testSigBlob{
 		BlobInt: tlv.NewPrimitiveRecord[tlv.TlvType65634, uint16](5),

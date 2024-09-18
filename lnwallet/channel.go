@@ -5553,6 +5553,11 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 			// disk later.
 			sigType := htlcCustomSigType.TypeVal()
 			auxSig.WhenSome(func(sigB tlv.Blob) {
+				if htlc.CustomRecords == nil {
+					htlc.CustomRecords =
+						make(lnwire.CustomRecords)
+				}
+
 				htlc.CustomRecords[uint64(sigType)] = sigB
 			})
 

@@ -250,11 +250,39 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		if err != nil {
 			return mkErr("unable to create CPU profile: %v", err)
 		}
-		_ = runtimePprof.StartCPUProfile(f)
+		err = runtimePprof.StartCPUProfile(f)
+		if err != nil {
+			return mkErr("unable to start CPU profile: %v", err)
+		}
 		defer func() {
-			_ = f.Close()
+			runtimePprof.StopCPUProfile()
+			err := f.Close()
+			if err != nil {
+				ltndLog.Errorf("Unable to close CPU profile "+
+					"file: %v", err)
+			}
 		}()
-		defer runtimePprof.StopCPUProfile()
+	}
+
+	// Write memory profile if requested.
+	if cfg.MemProfile != "" {
+		f, err := os.Create(cfg.MemProfile)
+		if err != nil {
+			return mkErr("unable to create mem profile: %v", err)
+		}
+		defer func() {
+			runtime.GC()
+			err := runtimePprof.WriteHeapProfile(f)
+			if err != nil {
+				ltndLog.Errorf("Unable to write memory " +
+					"profile: %v")
+			}
+			err = f.Close()
+			if err != nil {
+				ltndLog.Errorf("Unable to close memory "+
+					"profile file: %v", err)
+			}
+		}()
 	}
 
 	// Run configuration dependent DB pre-initialization. Note that this

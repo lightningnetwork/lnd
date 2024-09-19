@@ -233,6 +233,10 @@
   [README.md](https://github.com/lightningnetwork/lnd/pull/8674) is added to
   explain this new approach.
 
+* A new flag [`--memprofile`](https://github.com/lightningnetwork/lnd/pull/8365)
+  was added to lnd to perform memory profiling directly to a file. This allows
+  consistently recording the final state of the app to the profile.
+
 ## RPC Additions
 
 * [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)
@@ -578,6 +582,7 @@
 * kilrau
 * mani2310
 * Marcos Fernandez Perez
+* Matheus Degiovani
 * Matt Morehouse
 * Michael Rooke
 * Mohamed Awnallah

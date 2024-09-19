@@ -1626,11 +1626,17 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 			return nil, fmt.Errorf("unknown change output type")
 		}
 
+		maxFeeRatio := chanfunding.DefaultMaxFeeRatio
+
+		if req.MaxFeeRatio != 0 {
+			maxFeeRatio = req.MaxFeeRatio
+		}
+
 		// Run the actual funding process now, using the channel funding
 		// coin selection algorithm.
 		return w.fundPsbtCoinSelect(
 			account, changeIndex, packet, minConfs, changeType,
-			feeSatPerKW, coinSelectionStrategy,
+			feeSatPerKW, coinSelectionStrategy, maxFeeRatio,
 		)
 
 	// The template is specified as a RPC message. We need to create a new
@@ -1833,8 +1839,8 @@ func (w *WalletKit) fundPsbtInternalWallet(account string,
 func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 	packet *psbt.Packet, minConfs int32,
 	changeType chanfunding.ChangeAddressType,
-	feeRate chainfee.SatPerKWeight, strategy base.CoinSelectionStrategy) (
-	*FundPsbtResponse, error) {
+	feeRate chainfee.SatPerKWeight, strategy base.CoinSelectionStrategy,
+	maxFeeRatio float64) (*FundPsbtResponse, error) {
 
 	// We want to make sure we don't select any inputs that are already
 	// specified in the template. To do that, we require those inputs to
@@ -1921,7 +1927,8 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 
 		changeAmt, needMore, err := chanfunding.CalculateChangeAmount(
 			inputSum, outputSum, packetFeeNoChange,
-			packetFeeWithChange, changeDustLimit, changeType, 0,
+			packetFeeWithChange, changeDustLimit, changeType,
+			maxFeeRatio,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error calculating change "+
@@ -1978,7 +1985,7 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 
 		selectedCoins, changeAmount, err := chanfunding.CoinSelect(
 			feeRate, fundingAmount, changeDustLimit, coins,
-			strategy, estimator, changeType, 0,
+			strategy, estimator, changeType, maxFeeRatio,
 		)
 		if err != nil {
 			return fmt.Errorf("error selecting coins: %w", err)

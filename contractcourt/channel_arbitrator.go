@@ -964,6 +964,14 @@ func (c *ChannelArbitrator) stateStep(
 		log.Tracef("ChannelArbitrator(%v): logging chain_actions=%v",
 			c.cfg.ChanPoint, lnutils.SpewLogClosure(chainActions))
 
+		// Cancel all the outgoing dust htlcs available either on the
+		// local or the remote/remote pending commitment transaction.
+		dustHTLCs := chainActions[HtlcFailDustAction]
+		err = c.cancelDustHTLCs(dustHTLCs)
+		if err != nil {
+			return StateError, closeTx, err
+		}
+
 		// Depending on the type of trigger, we'll either "tunnel"
 		// through to a farther state, or just proceed linearly to the
 		// next state.
@@ -2538,6 +2546,12 @@ func (c *ChannelArbitrator) resolveIncomingHTLCs(
 	trigger transitionTrigger,
 	confCommitSet *CommitSet) error {
 
+	// Fetch all already canceled HTLCs.
+	canceledHTLCs, err := c.log.FetchCanceledHTLCs()
+	if err != nil {
+		return err
+	}
+
 	// First, we'll reconstruct a fresh set of chain actions as the set of
 	// actions we need to act on may differ based on if it was our
 	// commitment, or they're commitment that hit the chain.
@@ -2553,6 +2567,13 @@ func (c *ChannelArbitrator) resolveIncomingHTLCs(
 	cancelIncoming := func(newCanceledHTLCs fn.Set[uint64]) error {
 		// Send the failure messages to the switch.
 		err := c.cancelIncomingHTLCs(newCanceledHTLCs)
+		if err != nil {
+			return err
+		}
+
+		// Persist the complete set of canceled HTLCs.
+		canceledHTLCs = canceledHTLCs.Union(newCanceledHTLCs)
+		err = c.log.InsertCanceledHTLCs(canceledHTLCs)
 		if err != nil {
 			return err
 		}
@@ -2573,7 +2594,14 @@ func (c *ChannelArbitrator) resolveIncomingHTLCs(
 			}
 
 			for _, htlc := range htlcs {
-				if htlc.Incoming {
+				// Dust htlcs are already canceled elsewhere.
+				if htlc.Incoming || htlc.OutputIndex < 0 {
+					continue
+				}
+
+				// We don't fail HTLCs more than once in case
+				// of a restart for example.
+				if canceledHTLCs.Contains(htlc.HtlcIndex) {
 					continue
 				}
 
@@ -2589,11 +2617,19 @@ func (c *ChannelArbitrator) resolveIncomingHTLCs(
 	// confirmed, in which case we'll need an HTLC resolver.
 	for htlcAction, htlcs := range htlcActions {
 		switch htlcAction {
-		// If we can fail an HTLC immediately (an outgoing HTLC with no
-		// contract and it was not canceled before), then we'll assemble
-		// an HTLC fail packet to send.
-		case HtlcFailDanglingAction, HtlcFailDustAction:
+		// We can fail dangling HTLCs here immediately because the
+		// commitment tx confirmed so there is no chance of the dangling
+		// HTLC being resolved onchain because the htlc set is fixed at
+		// this point. We do NOT cancel dust htlcs here because this
+		// is already done elsewhere.
+		case HtlcFailDanglingAction:
 			for _, htlc := range htlcs {
+				// Only fail HTLCs that have not been canceled
+				// back earlier.
+				if canceledHTLCs.Contains(htlc.HtlcIndex) {
+					continue
+				}
+
 				newCanceledHTLCs.Add(htlc.HtlcIndex)
 			}
 
@@ -3252,6 +3288,33 @@ func (c *ChannelArbitrator) cancelIncomingHTLCs(
 	err := c.cfg.DeliverResolutionMsg(msgsToSend...)
 	if err != nil {
 		log.Errorf("unable to send pkts: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+// cancelDustHTLCs cancels back the incoming dust htlcs for their corresponding
+// outgoing htlc and also persists the canceled htlcs to the database.
+func (c *ChannelArbitrator) cancelDustHTLCs(dustHTLCs []channeldb.HTLC) error {
+	dustHTLCSet := fn.SliceToMap(dustHTLCs,
+		func(htlc channeldb.HTLC) uint64 {
+			return htlc.HtlcIndex
+		},
+		func(htlc channeldb.HTLC) struct{} {
+			return struct{}{}
+		},
+	)
+
+	err := c.cancelIncomingHTLCs(dustHTLCSet)
+	if err != nil {
+		return err
+	}
+
+	// This is the first time we persist canceled htlcs to the db,
+	// so there is no need to fetch the prior state.
+	err = c.log.InsertCanceledHTLCs(dustHTLCSet)
+	if err != nil {
 		return err
 	}
 

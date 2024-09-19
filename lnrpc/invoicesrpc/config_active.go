@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/netann"
+	"google.golang.org/protobuf/proto"
 )
 
 // Config is the primary configuration struct for the invoices RPC server. It
@@ -29,6 +30,11 @@ type Config struct {
 	// InvoiceRegistry is a central registry of all the outstanding invoices
 	// created by the daemon.
 	InvoiceRegistry *invoices.InvoiceRegistry
+
+	// HtlcModifier is a service which intercepts invoice HTLCs during the
+	// settlement phase, enabling a subscribed client to modify certain
+	// aspects of those HTLCs.
+	HtlcModifier invoices.HtlcModifier
 
 	// IsChannelActive is used to generate valid hop hints.
 	IsChannelActive func(chanID lnwire.ChannelID) bool
@@ -64,4 +70,8 @@ type Config struct {
 	// GetAlias returns the peer's alias SCID if it exists given the
 	// 32-byte ChannelID.
 	GetAlias func(lnwire.ChannelID) (lnwire.ShortChannelID, error)
+
+	// ParseAuxData is a function that can be used to parse the auxiliary
+	// data from the invoice.
+	ParseAuxData func(message proto.Message) error
 }

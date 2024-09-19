@@ -153,6 +153,7 @@ func defaultRegistryConfig() invpkg.RegistryConfig {
 	return invpkg.RegistryConfig{
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		HtlcHoldDuration:     30 * time.Second,
+		HtlcInterceptor:      &invpkg.MockHtlcModifier{},
 	}
 }
 

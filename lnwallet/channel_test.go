@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/txsort"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -11475,4 +11476,317 @@ func TestBlindingPointPersistence(t *testing.T) {
 	require.Len(t, bobCommit.incomingHTLCs, 1)
 	require.Equal(t, blinding,
 		bobCommit.incomingHTLCs[0].BlindingPoint.UnwrapOrFailV(t))
+}
+
+// TestCreateCooperativeCloseTx tests that the cooperative close transaction is
+// properly created based on the standard and also optional parameters.
+func TestCreateCooperativeCloseTx(t *testing.T) {
+	t.Parallel()
+
+	fundingTxIn := &wire.TxIn{}
+
+	localDust := btcutil.Amount(400)
+	remoteDust := btcutil.Amount(400)
+
+	localScript := []byte{0}
+	localExtraScript := []byte{2}
+
+	remoteScript := []byte{1}
+	remoteExtraScript := []byte{3}
+
+	tests := []struct {
+		name string
+
+		enableRBF bool
+
+		localBalance  btcutil.Amount
+		remoteBalance btcutil.Amount
+
+		extraCloseOutputs []CloseOutput
+
+		expectedTx *wire.MsgTx
+	}{
+		{
+			name:          "no dust, no extra outputs",
+			localBalance:  1_000,
+			remoteBalance: 1_000,
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    1_000,
+						PkScript: localScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: remoteScript,
+					},
+				},
+			},
+		},
+		{
+			name:          "local dust, no extra outputs",
+			localBalance:  100,
+			remoteBalance: 1_000,
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    1_000,
+						PkScript: remoteScript,
+					},
+				},
+			},
+		},
+		{
+			name:          "remote dust, no extra outputs",
+			localBalance:  1_000,
+			remoteBalance: 100,
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    1_000,
+						PkScript: localScript,
+					},
+				},
+			},
+		},
+		{
+			name:          "no dust, local extra output",
+			localBalance:  10_000,
+			remoteBalance: 10_000,
+			extraCloseOutputs: []CloseOutput{
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+					IsLocal: true,
+				},
+			},
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    10_000,
+						PkScript: remoteScript,
+					},
+					{
+						Value:    9_000,
+						PkScript: localScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+				},
+			},
+		},
+		{
+			name:          "no dust, remote extra output",
+			localBalance:  10_000,
+			remoteBalance: 10_000,
+			extraCloseOutputs: []CloseOutput{
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+					IsLocal: false,
+				},
+			},
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    10_000,
+						PkScript: localScript,
+					},
+					{
+						Value:    9_000,
+						PkScript: remoteScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+				},
+			},
+		},
+		{
+			name:          "no dust, local+remote extra output",
+			localBalance:  10_000,
+			remoteBalance: 10_000,
+			extraCloseOutputs: []CloseOutput{
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+					IsLocal: false,
+				},
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+					IsLocal: true,
+				},
+			},
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    9_000,
+						PkScript: localScript,
+					},
+					{
+						Value:    9_000,
+						PkScript: remoteScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+				},
+			},
+		},
+		{
+			name: "no dust, local+remote extra output, " +
+				"remote can't afford",
+			localBalance:  10_000,
+			remoteBalance: 1_000,
+			extraCloseOutputs: []CloseOutput{
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+					IsLocal: false,
+				},
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+					IsLocal: true,
+				},
+			},
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    9_000,
+						PkScript: localScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+				},
+			},
+		},
+		{
+			name: "no dust, local+remote extra output, " +
+				"local can't afford",
+			localBalance:  1_000,
+			remoteBalance: 10_000,
+			extraCloseOutputs: []CloseOutput{
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+					IsLocal: false,
+				},
+				{
+					TxOut: wire.TxOut{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+					IsLocal: true,
+				},
+			},
+			expectedTx: &wire.MsgTx{
+				TxIn: []*wire.TxIn{
+					fundingTxIn,
+				},
+				Version: 2,
+				TxOut: []*wire.TxOut{
+					{
+						Value:    9_000,
+						PkScript: remoteScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: remoteExtraScript,
+					},
+					{
+						Value:    1_000,
+						PkScript: localExtraScript,
+					},
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var opts []CloseTxOpt
+			if test.extraCloseOutputs != nil {
+				opts = append(
+					opts,
+					WithExtraTxCloseOutputs(
+						test.extraCloseOutputs,
+					),
+				)
+			}
+
+			closeTx, err := CreateCooperativeCloseTx(
+				*fundingTxIn, localDust, remoteDust,
+				test.localBalance, test.remoteBalance,
+				localScript, remoteScript, opts...,
+			)
+			require.NoError(t, err)
+
+			txsort.InPlaceSort(test.expectedTx)
+
+			require.Equal(
+				t, test.expectedTx, closeTx,
+				"expected %v, got %v",
+				spew.Sdump(test.expectedTx),
+				spew.Sdump(closeTx),
+			)
+		})
+	}
 }

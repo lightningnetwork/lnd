@@ -2095,6 +2095,24 @@ func (c *ChannelArbitrator) checkRemoteDanglingActions(
 			continue
 		}
 
+		// Dust htlcs can be canceled back even before the commitment
+		// transaction confirms. Dust htlcs are not enforceable onchain.
+		// If another version of the commit tx would confirm we either
+		// gain or lose those dust amounts but there is no other way
+		// than cancelling the incoming back because we will never learn
+		// the preimage.
+		if htlc.OutputIndex < 0 {
+			log.Infof("ChannelArbitrator(%v): fail dangling dust "+
+				"htlc=%x from local/remote commitments diff",
+				c.cfg.ChanPoint, htlc.RHash[:])
+
+			actionMap[HtlcFailDustAction] = append(
+				actionMap[HtlcFailDustAction], htlc,
+			)
+
+			continue
+		}
+
 		log.Infof("ChannelArbitrator(%v): fail dangling htlc=%x from "+
 			"local/remote commitments diff",
 			c.cfg.ChanPoint, htlc.RHash[:])

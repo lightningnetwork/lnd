@@ -2192,10 +2192,20 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// We just received a new updates to our local commitment
 		// chain, validate this new commitment, closing the link if
 		// invalid.
+		auxSigBlob, err := msg.CustomRecords.Serialize()
+		if err != nil {
+			l.failf(
+				LinkFailureError{code: ErrInvalidCommitment},
+				"unable to serialize custom records: %v", err,
+			)
+
+			return
+		}
 		err = l.channel.ReceiveNewCommitment(&lnwallet.CommitSigs{
 			CommitSig:  msg.CommitSig,
 			HtlcSigs:   msg.HtlcSigs,
 			PartialSig: msg.PartialSig,
+			AuxSigBlob: auxSigBlob,
 		})
 		if err != nil {
 			// If we were unable to reconstruct their proposed
@@ -2622,11 +2632,17 @@ func (l *channelLink) updateCommitTx() error {
 	default:
 	}
 
+	auxBlobRecords, err := lnwire.ParseCustomRecords(newCommit.AuxSigBlob)
+	if err != nil {
+		return fmt.Errorf("error parsing aux sigs: %w", err)
+	}
+
 	commitSig := &lnwire.CommitSig{
-		ChanID:     l.ChanID(),
-		CommitSig:  newCommit.CommitSig,
-		HtlcSigs:   newCommit.HtlcSigs,
-		PartialSig: newCommit.PartialSig,
+		ChanID:        l.ChanID(),
+		CommitSig:     newCommit.CommitSig,
+		HtlcSigs:      newCommit.HtlcSigs,
+		PartialSig:    newCommit.PartialSig,
+		CustomRecords: auxBlobRecords,
 	}
 	l.cfg.Peer.SendMessage(false, commitSig)
 
@@ -3778,7 +3794,18 @@ func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
 	// As we're the exit hop, we'll double check the hop-payload included in
 	// the HTLC to ensure that it was crafted correctly by the sender and
 	// is compatible with the HTLC we were extended.
-	if add.Amount < fwdInfo.AmountToForward {
+	//
+	// For a special case, if the fwdInfo doesn't have any blinded path
+	// information, and the incoming HTLC had special extra data, then
+	// we'll skip this amount check. The invoice acceptor will make sure we
+	// reject the HTLC if it's not containing the correct amount after
+	// examining the custom data.
+	hasBlindedPath := fwdInfo.NextBlinding.IsSome()
+	customHTLC := len(add.CustomRecords) > 0 && !hasBlindedPath
+	log.Tracef("Exit hop has_blinded_path=%v custom_htlc_bypass=%v",
+		hasBlindedPath, customHTLC)
+
+	if !customHTLC && add.Amount < fwdInfo.AmountToForward {
 		l.log.Errorf("onion payload of incoming htlc(%x) has "+
 			"incompatible value: expected <=%v, got %v",
 			add.PaymentHash, add.Amount, fwdInfo.AmountToForward)

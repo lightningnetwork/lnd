@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/zpay32"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -104,6 +105,10 @@ type RouterBackend struct {
 	// TODO(yy): remove this config after the new status code is fully
 	// deployed to the network(v0.20.0).
 	UseStatusInitiated bool
+
+	// ParseCustomChannelData is a function that can be used to parse custom
+	// channel data from the first hop of a route.
+	ParseCustomChannelData func(message proto.Message) error
 }
 
 // MissionControl defines the mission control dependencies of routerrpc.
@@ -596,8 +601,14 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 
 		resp.CustomChannelData = customData
 
-		// TODO(guggero): Feed the route into the custom data parser
-		// (part 3 of the mega PR series).
+		// Allow the aux data parser to parse the custom records into
+		// a human-readable JSON (if available).
+		if r.ParseCustomChannelData != nil {
+			err := r.ParseCustomChannelData(resp)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	incomingAmt := route.TotalAmount

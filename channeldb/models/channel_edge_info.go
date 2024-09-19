@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 )
 
 // ChannelEdgeInfo represents a fully authenticated channel along with all its
@@ -61,6 +62,11 @@ type ChannelEdgeInfo struct {
 	// Capacity is the total capacity of the channel, this is determined by
 	// the value output in the outpoint that created this channel.
 	Capacity btcutil.Amount
+
+	// TapscriptRoot is the optional Merkle root of the tapscript tree if
+	// this channel is a taproot channel that also commits to a tapscript
+	// tree (custom channel).
+	TapscriptRoot fn.Option[chainhash.Hash]
 
 	// ExtraOpaqueData is the set of data that was appended to this
 	// message, some of which we may not actually know how to iterate or

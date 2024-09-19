@@ -1093,8 +1093,8 @@ func (b *Builder) addZombieEdge(chanID uint64) error {
 // segwit v1 (taproot) channels.
 //
 // TODO(roasbeef: export and use elsewhere?
-func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte,
-	chanFeatures []byte) ([]byte, error) {
+func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte, chanFeatures []byte,
+	tapscriptRoot fn.Option[chainhash.Hash]) ([]byte, error) {
 
 	legacyFundingScript := func() ([]byte, error) {
 		witnessScript, err := input.GenMultiSigScript(
@@ -1141,7 +1141,7 @@ func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte,
 		}
 
 		fundingScript, _, err := input.GenTaprootFundingScript(
-			pubKey1, pubKey2, 0, fn.None[chainhash.Hash](),
+			pubKey1, pubKey2, 0, tapscriptRoot,
 		)
 		if err != nil {
 			return nil, err
@@ -1275,7 +1275,7 @@ func (b *Builder) processUpdate(msg interface{},
 		// reality.
 		fundingPkScript, err := makeFundingScript(
 			msg.BitcoinKey1Bytes[:], msg.BitcoinKey2Bytes[:],
-			msg.Features,
+			msg.Features, msg.TapscriptRoot,
 		)
 		if err != nil {
 			return err

@@ -45,17 +45,17 @@ type VerifyJob struct {
 	// party's update log.
 	HtlcIndex uint64
 
-	// Cancel is a channel that should be closed if the caller wishes to
+	// Cancel is a channel that is closed by the caller if they wish to
 	// cancel all pending verification jobs part of a single batch. This
-	// channel is to be closed in the case that a single signature in a
-	// batch has been returned as invalid, as there is no need to verify
-	// the remainder of the signatures.
-	Cancel chan struct{}
+	// channel is closed in the case that a single signature in a batch has
+	// been returned as invalid, as there is no need to verify the remainder
+	// of the signatures.
+	Cancel <-chan struct{}
 
 	// ErrResp is the channel that the result of the signature verification
 	// is to be sent over. In the see that the signature is valid, a nil
 	// error will be passed. Otherwise, a concrete error detailing the
-	// issue will be passed.
+	// issue will be passed. This channel MUST be buffered.
 	ErrResp chan *HtlcIndexErr
 }
 
@@ -86,12 +86,13 @@ type SignJob struct {
 	// transaction being signed.
 	OutputIndex int32
 
-	// Cancel is a channel that should be closed if the caller wishes to
-	// abandon all pending sign jobs part of a single batch.
-	Cancel chan struct{}
+	// Cancel is a channel that is closed by the caller if they wish to
+	// abandon all pending sign jobs part of a single batch. This should
+	// never be closed by the validator.
+	Cancel <-chan struct{}
 
 	// Resp is the channel that the response to this particular SignJob
-	// will be sent over.
+	// will be sent over. This channel MUST be buffered.
 	//
 	// TODO(roasbeef): actually need to allow caller to set, need to retain
 	// order mark commit sig as special

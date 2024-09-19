@@ -353,8 +353,11 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	)
 
 	alicePool := lnwallet.NewSigPool(runtime.NumCPU(), aliceSigner)
+	signerMock := lnwallet.NewDefaultAuxSignerMock(t)
 	channelAlice, err := lnwallet.NewLightningChannel(
 		aliceSigner, aliceChannelState, alicePool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(signerMock),
 	)
 	if err != nil {
 		return nil, nil, err
@@ -364,6 +367,8 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	bobPool := lnwallet.NewSigPool(runtime.NumCPU(), bobSigner)
 	channelBob, err := lnwallet.NewLightningChannel(
 		bobSigner, bobChannelState, bobPool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(signerMock),
 	)
 	if err != nil {
 		return nil, nil, err
@@ -425,6 +430,8 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 
 		newAliceChannel, err := lnwallet.NewLightningChannel(
 			aliceSigner, aliceStoredChannel, alicePool,
+			lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+			lnwallet.WithAuxSigner(signerMock),
 		)
 		if err != nil {
 			return nil, errors.Errorf("unable to create new channel: %v",
@@ -471,6 +478,8 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 
 		newBobChannel, err := lnwallet.NewLightningChannel(
 			bobSigner, bobStoredChannel, bobPool,
+			lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+			lnwallet.WithAuxSigner(signerMock),
 		)
 		if err != nil {
 			return nil, errors.Errorf("unable to create new channel: %v",

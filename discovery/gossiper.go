@@ -58,9 +58,9 @@ const (
 	DefaultSubBatchDelay = 5 * time.Second
 
 	// maxRejectedUpdates tracks the max amount of rejected channel updates
-	// we'll maintain. This is the global size across all peers. We'll
-	// allocate ~3 MB max to the cache.
-	maxRejectedUpdates = 10_000
+	// we'll maintain. This is the global size across all peers. Each entry
+	// has ~42 Bytes. We'll allocate ~4,2 MB max to the cache.
+	maxRejectedUpdates = 100_000
 )
 
 var (
@@ -2867,6 +2867,13 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		)
 
 		nMsg.err <- nil
+
+		key := newRejectCacheKey(
+			upd.ShortChannelID.ToUint64(),
+			sourceToPub(nMsg.source),
+		)
+		_, _ = d.recentRejects.Put(key, &cachedReject{})
+
 		return nil, true
 	}
 
@@ -2882,6 +2889,12 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 
 		nMsg.err <- fmt.Errorf("skewed timestamp of edge policy, "+
 			"timestamp too far in the future: %v", timestamp.Unix())
+
+		key := newRejectCacheKey(
+			upd.ShortChannelID.ToUint64(),
+			sourceToPub(nMsg.source),
+		)
+		_, _ = d.recentRejects.Put(key, &cachedReject{})
 
 		return nil, false
 	}

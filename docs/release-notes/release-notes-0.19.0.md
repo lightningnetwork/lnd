@@ -23,6 +23,11 @@
   propagate mission control and debug level config values to the main LND config
   struct so that the GetDebugInfo response is accurate.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9068) where dust
+  htlcs although not being able to be resolved onchain were not canceled
+  back before the commitment tx was confirmed causing potentially force closes
+  of the incoming channel.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

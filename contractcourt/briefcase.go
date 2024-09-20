@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 
@@ -10,9 +11,11 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // ContractResolutions is a wrapper struct around the two forms of resolutions
@@ -122,6 +125,12 @@ type ArbitratorLog interface {
 	// fully resolved, and the channel closure if finalized. This method
 	// will delete all on-disk state within the persistent log.
 	WipeHistory() error
+
+	// InsertCanceledHTLCs inserts a set of canceled HTLCs into the db.
+	InsertCanceledHTLCs(fn.Set[uint64]) error
+
+	// FetchCanceledHTLCs fetches the set of canceled HTLCs from the db.
+	FetchCanceledHTLCs() (fn.Set[uint64], error)
 }
 
 // ArbitratorState is an enum that details the current state of the
@@ -366,6 +375,11 @@ var (
 	// taprootDataKey is the key we'll use to store taproot specific data
 	// for the set of channels we'll need to sweep/claim.
 	taprootDataKey = []byte("taproot-data")
+
+	// canceledHTLCsKey is the primary key under the logScope that we'll
+	// use to store the set canceled HTLCs. We will use tlv records for
+	// the encoding.
+	canceledHTLCsKey = []byte("canceled-htlcs")
 )
 
 var (
@@ -389,6 +403,10 @@ var (
 	// This can happen if the channel hasn't closed yet, or a client is
 	// running an older version that didn't yet write this state.
 	errNoCommitSet = fmt.Errorf("no commit set exists")
+
+	// errNoCanceledHTLCs is returned when the log doesn't contain any
+	// canceled HTLCs.
+	errNoCanceledHTLCs = fmt.Errorf("no canceled HTLCs exist")
 )
 
 // boltArbitratorLog is an implementation of the ArbitratorLog interface backed
@@ -562,6 +580,8 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 	resolverCfg := ResolverConfig{
 		ChannelArbitratorConfig: b.cfg,
 		Checkpoint:              b.checkpointContract,
+		FetchCanceledHTLCs:      b.FetchCanceledHTLCs,
+		InsertCanceledHTLCs:     b.InsertCanceledHTLCs,
 	}
 	var contracts []ContractResolver
 	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
@@ -1182,6 +1202,137 @@ func (b *boltArbitratorLog) checkpointContract(c ContractResolver,
 
 		return nil
 	}, func() {})
+}
+
+// InsertCanceledHTLCs inserts the given set of canceled HTLCs into the
+// database. It converts the set to a slice and persists the slice.
+//
+// NOTE: Part of the ArbitratorLog interface.
+func (b *boltArbitratorLog) InsertCanceledHTLCs(
+	canceledHTLCs fn.Set[uint64]) error {
+
+	return kvdb.Batch(b.db, func(tx kvdb.RwTx) error {
+		scopeBucket, err := tx.CreateTopLevelBucket(b.scopeKey[:])
+		if err != nil {
+			return err
+		}
+
+		var w bytes.Buffer
+		err = encodeHtlcSet(&w, canceledHTLCs)
+		if err != nil {
+			return err
+		}
+
+		return scopeBucket.Put(canceledHTLCsKey, w.Bytes())
+	})
+}
+
+// FetchCanceledHTLCs fetches the set of canceled HTLCs from the database.
+//
+// NOTE: Part of the ArbitratorLog interface.
+func (b *boltArbitratorLog) FetchCanceledHTLCs() (fn.Set[uint64], error) {
+	canceledHTLCs := fn.NewSet[uint64]()
+
+	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
+		scopeBucket := tx.ReadBucket(b.scopeKey[:])
+		if scopeBucket == nil {
+			return errScopeBucketNoExist
+		}
+
+		canceledHTLCsBytes := scopeBucket.Get(canceledHTLCsKey)
+		if canceledHTLCsBytes == nil {
+			return errNoCanceledHTLCs
+		}
+
+		var r io.Reader = bytes.NewReader(canceledHTLCsBytes)
+
+		var err error
+		canceledHTLCs, err = decodeHtlcSet(r)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}, func() {
+		canceledHTLCs = fn.NewSet[uint64]()
+	})
+	if err != nil && !errors.Is(err, errNoCanceledHTLCs) &&
+		!errors.Is(err, errScopeBucketNoExist) {
+
+		return nil, err
+	}
+
+	return canceledHTLCs, nil
+}
+
+// encodeHtlcSet encodes the given htlc set to the writer.
+func encodeHtlcSet(w io.Writer, htlcSet fn.Set[uint64]) error {
+	// Tlv records which are part of the canceled htlcs entry.
+	htlcIDRecord := tlv.NewPrimitiveRecord[tlv.TlvType1, uint64](0)
+
+	for htlcID := range htlcSet {
+		htlcIDRecord.Val = htlcID
+		tlvStream, err := tlv.NewStream(htlcIDRecord.Record())
+		if err != nil {
+			return err
+		}
+
+		// Encode the tlv stream to a buffer.
+		var b bytes.Buffer
+		if err := tlvStream.Encode(&b); err != nil {
+			return err
+		}
+
+		err = binary.Write(w, byteOrder, uint64(b.Len()))
+		if err != nil {
+			return err
+		}
+
+		if _, err := w.Write(b.Bytes()); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func decodeHtlcSet(r io.Reader) (fn.Set[uint64], error) {
+	htlcSet := fn.NewSet[uint64]()
+
+	// Tlv records which are part of the canceled htlcs entry.
+	htlcIDRecord := tlv.NewPrimitiveRecord[tlv.TlvType1, uint64](0)
+
+	for {
+		// Read the length of the tlv stream for this htlc.
+		var streamLen int64
+		err := binary.Read(r, byteOrder, &streamLen)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+
+			return nil, err
+		}
+
+		// Limit the reader so that it stops at the end of an
+		// htlc stream.
+		htlcReader := io.LimitReader(r, streamLen)
+		tlvStream, err := tlv.NewStream(
+			htlcIDRecord.Record(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		err = tlvStream.Decode(htlcReader)
+		if err != nil {
+			return nil, err
+		}
+
+		htlcSet.Add(htlcIDRecord.Val)
+	}
+
+	return htlcSet, nil
 }
 
 // encodeSignDetails encodes the given SignDetails struct to the writer.

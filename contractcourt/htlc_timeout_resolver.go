@@ -450,20 +450,36 @@ func (h *htlcTimeoutResolver) Resolve(
 		return h.claimCleanUp(commitSpend)
 	}
 
-	log.Infof("%T(%v): resolving htlc with incoming fail msg, fully "+
-		"confirmed", h, h.htlcResolution.ClaimOutpoint)
-
 	// At this point, the second-level transaction is sufficiently
 	// confirmed, or a transaction directly spending the output is.
 	// Therefore, we can now send back our clean up message, failing the
-	// HTLC on the incoming link.
-	failureMsg := &lnwire.FailPermanentChannelFailure{}
-	if err := h.DeliverResolutionMsg(ResolutionMsg{
-		SourceChan: h.ShortChanID,
-		HtlcIndex:  h.htlc.HtlcIndex,
-		Failure:    failureMsg,
-	}); err != nil {
+	// HTLC on the incoming link. We also make sure we have not already
+	// failed this HTLC.
+	canceledHTLCs, err := h.FetchCanceledHTLCs()
+	if err != nil {
 		return nil, err
+	}
+
+	if !canceledHTLCs.Contains(h.htlc.HtlcIndex) {
+		log.Infof("%T(%v): resolving htlc with incoming fail msg, "+
+			"fully confirmed", h, h.htlcResolution.ClaimOutpoint)
+
+		failureMsg := &lnwire.FailPermanentChannelFailure{}
+		err := h.DeliverResolutionMsg(ResolutionMsg{
+			SourceChan: h.ShortChanID,
+			HtlcIndex:  h.htlc.HtlcIndex,
+			Failure:    failureMsg,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		// Add this HTLC to the canceled HTLCs set.
+		canceledHTLCs.Add(h.htlc.HtlcIndex)
+		err = h.InsertCanceledHTLCs(canceledHTLCs)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Depending on whether this was a local or remote commit, we must

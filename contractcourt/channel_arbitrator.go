@@ -964,6 +964,14 @@ func (c *ChannelArbitrator) stateStep(
 		log.Tracef("ChannelArbitrator(%v): logging chain_actions=%v",
 			c.cfg.ChanPoint, lnutils.SpewLogClosure(chainActions))
 
+		// Cancel all the outgoing dust htlcs available either on the
+		// local or the remote/remote pending commitment transaction.
+		dustHTLCs := chainActions[HtlcFailDustAction]
+		err = c.cancelDustHTLCs(dustHTLCs)
+		if err != nil {
+			return StateError, closeTx, err
+		}
+
 		// Depending on the type of trigger, we'll either "tunnel"
 		// through to a farther state, or just proceed linearly to the
 		// next state.
@@ -1204,10 +1212,20 @@ func (c *ChannelArbitrator) stateStep(
 			break
 		}
 
+		// With the commitment confirmed, we'll then send over all
+		// messages we can send immediately.
+		err = c.resolveIncomingHTLCs(
+			contractResolutions, triggerHeight, trigger,
+			confCommitSet,
+		)
+		if err != nil {
+			return StateError, closeTx, err
+		}
+
 		// Now that we know we'll need to act, we'll process all the
 		// resolvers, then create the structures we need to resolve all
 		// outstanding contracts.
-		resolvers, pktsToSend, err := c.prepContractResolutions(
+		resolvers, err := c.prepContractResolutions(
 			contractResolutions, triggerHeight, trigger,
 			confCommitSet,
 		)
@@ -1215,20 +1233,6 @@ func (c *ChannelArbitrator) stateStep(
 			log.Errorf("ChannelArbitrator(%v): unable to "+
 				"resolve contracts: %v", c.cfg.ChanPoint, err)
 			return StateError, closeTx, err
-		}
-
-		// With the commitment broadcast, we'll then send over all
-		// messages we can send immediately.
-		if len(pktsToSend) != 0 {
-			log.Debugf("ChannelArbitrator(%v): sending "+
-				"resolution message=%v", c.cfg.ChanPoint,
-				lnutils.SpewLogClosure(pktsToSend))
-
-			err := c.cfg.DeliverResolutionMsg(pktsToSend...)
-			if err != nil {
-				log.Errorf("unable to send pkts: %v", err)
-				return StateError, closeTx, err
-			}
 		}
 
 		log.Debugf("ChannelArbitrator(%v): inserting %v contract "+
@@ -1664,10 +1668,13 @@ const (
 	// before its timeout period.
 	HtlcClaimAction = 2
 
-	// HtlcFailNowAction indicates that we should fail an outgoing HTLC
-	// immediately by cancelling it backwards as it has no corresponding
-	// output in our commitment transaction.
-	HtlcFailNowAction = 3
+	// HtlcFailDustAction indicates that we should fail an outgoing dust
+	// HTLC immediately (even before the commitment transaction is
+	// confirmed in case we (local) broadcasted the commitment tx) by
+	// cancelling it backwards as it has no output on the commitment
+	// transaction. This also includes dangling outgoing dust htlcs as
+	// well.
+	HtlcFailDustAction = 3
 
 	// HtlcOutgoingWatchAction indicates that we can't yet timeout this
 	// HTLC, but we had to go to chain on order to resolve an existing
@@ -1686,6 +1693,13 @@ const (
 	// HtlcIncomingDustFinalAction indicates that we should mark an incoming
 	// dust htlc as final because it can't be claimed on-chain.
 	HtlcIncomingDustFinalAction = 6
+
+	// HtlcFailDanglingAction indicates that we should fail an outgoing HTLC
+	// immediately after the commitment transaction has confirmed by
+	// cancelling it backwards as it has no corresponding output on the
+	// commitment transaction. This category does NOT include any dust htlcs
+	// which are mapped in the "HtlcFailDustAction" category.
+	HtlcFailDanglingAction = 7
 )
 
 // String returns a human readable string describing a chain action.
@@ -1700,8 +1714,8 @@ func (c ChainAction) String() string {
 	case HtlcClaimAction:
 		return "HtlcClaimAction"
 
-	case HtlcFailNowAction:
-		return "HtlcFailNowAction"
+	case HtlcFailDustAction:
+		return "HtlcFailDustAction"
 
 	case HtlcOutgoingWatchAction:
 		return "HtlcOutgoingWatchAction"
@@ -1711,6 +1725,9 @@ func (c ChainAction) String() string {
 
 	case HtlcIncomingDustFinalAction:
 		return "HtlcIncomingDustFinalAction"
+
+	case HtlcFailDanglingAction:
+		return "HtlcFailDanglingAction"
 
 	default:
 		return "<unknown action>"
@@ -1892,8 +1909,8 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 				"failing dust htlc=%x", c.cfg.ChanPoint,
 				htlc.RHash[:])
 
-			actionMap[HtlcFailNowAction] = append(
-				actionMap[HtlcFailNowAction], htlc,
+			actionMap[HtlcFailDustAction] = append(
+				actionMap[HtlcFailDustAction], htlc,
 			)
 
 		// If we don't need to immediately act on this HTLC, then we'll
@@ -2086,12 +2103,30 @@ func (c *ChannelArbitrator) checkRemoteDanglingActions(
 			continue
 		}
 
+		// Dust htlcs can be canceled back even before the commitment
+		// transaction confirms. Dust htlcs are not enforceable onchain.
+		// If another version of the commit tx would confirm we either
+		// gain or lose those dust amounts but there is no other way
+		// than cancelling the incoming back because we will never learn
+		// the preimage.
+		if htlc.OutputIndex < 0 {
+			log.Infof("ChannelArbitrator(%v): fail dangling dust "+
+				"htlc=%x from local/remote commitments diff",
+				c.cfg.ChanPoint, htlc.RHash[:])
+
+			actionMap[HtlcFailDustAction] = append(
+				actionMap[HtlcFailDustAction], htlc,
+			)
+
+			continue
+		}
+
 		log.Infof("ChannelArbitrator(%v): fail dangling htlc=%x from "+
 			"local/remote commitments diff",
 			c.cfg.ChanPoint, htlc.RHash[:])
 
-		actionMap[HtlcFailNowAction] = append(
-			actionMap[HtlcFailNowAction], htlc,
+		actionMap[HtlcFailDanglingAction] = append(
+			actionMap[HtlcFailDanglingAction], htlc,
 		)
 	}
 
@@ -2180,8 +2215,8 @@ func (c *ChannelArbitrator) checkRemoteDiffActions(
 			continue
 		}
 
-		actionMap[HtlcFailNowAction] = append(
-			actionMap[HtlcFailNowAction], htlc,
+		actionMap[HtlcFailDanglingAction] = append(
+			actionMap[HtlcFailDanglingAction], htlc,
 		)
 
 		log.Infof("ChannelArbitrator(%v): fail dangling htlc=%x from "+
@@ -2247,7 +2282,7 @@ func (c *ChannelArbitrator) constructChainActions(confCommitSet *CommitSet,
 func (c *ChannelArbitrator) prepContractResolutions(
 	contractResolutions *ContractResolutions, height uint32,
 	trigger transitionTrigger,
-	confCommitSet *CommitSet) ([]ContractResolver, []ResolutionMsg, error) {
+	confCommitSet *CommitSet) ([]ContractResolver, error) {
 
 	// First, we'll reconstruct a fresh set of chain actions as the set of
 	// actions we need to act on may differ based on if it was our
@@ -2256,7 +2291,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		confCommitSet, height, trigger,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// We'll also fetch the historical state of this channel, as it should
@@ -2275,15 +2310,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 			"state", c.cfg.ChanPoint)
 
 	case err != nil:
-		return nil, nil, err
+		return nil, err
 	}
-
-	// There may be a class of HTLC's which we can fail back immediately,
-	// for those we'll prepare a slice of packets to add to our outbox. Any
-	// packets we need to send, will be cancels.
-	var (
-		msgsToSend []ResolutionMsg
-	)
 
 	incomingResolutions := contractResolutions.HtlcResolutions.IncomingHTLCs
 	outgoingResolutions := contractResolutions.HtlcResolutions.OutgoingHTLCs
@@ -2310,10 +2338,15 @@ func (c *ChannelArbitrator) prepContractResolutions(
 
 			return c.log.InsertUnresolvedContracts(reports, res)
 		},
+		InsertCanceledHTLCs: func(htlcIDs fn.Set[uint64]) error {
+			return c.log.InsertCanceledHTLCs(htlcIDs)
+		},
+		FetchCanceledHTLCs: func() (fn.Set[uint64], error) {
+			return c.log.FetchCanceledHTLCs()
+		},
 	}
 
 	commitHash := contractResolutions.CommitHash
-	failureMsg := &lnwire.FailPermanentChannelFailure{}
 
 	var htlcResolvers []ContractResolver
 
@@ -2337,37 +2370,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		breachResolver := newBreachResolver(resolverCfg)
 		htlcResolvers = append(htlcResolvers, breachResolver)
 
-		// We'll use the CommitSet, we'll fail back all outgoing HTLC's
-		// that exist on either of the remote commitments. The map is
-		// used to deduplicate any shared htlc's.
-		remoteOutgoing := make(map[uint64]channeldb.HTLC)
-		for htlcSetKey, htlcs := range confCommitSet.HtlcSets {
-			if !htlcSetKey.IsRemote {
-				continue
-			}
-
-			for _, htlc := range htlcs {
-				if htlc.Incoming {
-					continue
-				}
-
-				remoteOutgoing[htlc.HtlcIndex] = htlc
-			}
-		}
-
-		// Now we'll loop over the map and create ResolutionMsgs for
-		// each of them.
-		for _, htlc := range remoteOutgoing {
-			failMsg := ResolutionMsg{
-				SourceChan: c.cfg.ShortChanID,
-				HtlcIndex:  htlc.HtlcIndex,
-				Failure:    failureMsg,
-			}
-
-			msgsToSend = append(msgsToSend, failMsg)
-		}
-
-		return htlcResolvers, msgsToSend, nil
+		return htlcResolvers, nil
 	}
 
 	// For each HTLC, we'll either act immediately, meaning we'll instantly
@@ -2375,20 +2378,6 @@ func (c *ChannelArbitrator) prepContractResolutions(
 	// confirmed, in which case we'll need an HTLC resolver.
 	for htlcAction, htlcs := range htlcActions {
 		switch htlcAction {
-
-		// If we can fail an HTLC immediately (an outgoing HTLC with no
-		// contract), then we'll assemble an HTLC fail packet to send.
-		case HtlcFailNowAction:
-			for _, htlc := range htlcs {
-				failMsg := ResolutionMsg{
-					SourceChan: c.cfg.ShortChanID,
-					HtlcIndex:  htlc.HtlcIndex,
-					Failure:    failureMsg,
-				}
-
-				msgsToSend = append(msgsToSend, failMsg)
-			}
-
 		// If we can claim this HTLC, we'll create an HTLC resolver to
 		// claim the HTLC (second-level or directly), then add the pre
 		case HtlcClaimAction:
@@ -2487,36 +2476,6 @@ func (c *ChannelArbitrator) prepContractResolutions(
 				htlcResolvers = append(htlcResolvers, resolver)
 			}
 
-		// We've lost an htlc because it isn't manifested on the
-		// commitment transaction that closed the channel.
-		case HtlcIncomingDustFinalAction:
-			for _, htlc := range htlcs {
-				htlc := htlc
-
-				key := models.CircuitKey{
-					ChanID: c.cfg.ShortChanID,
-					HtlcID: htlc.HtlcIndex,
-				}
-
-				// Mark this dust htlc as final failed.
-				chainArbCfg := c.cfg.ChainArbitratorConfig
-				err := chainArbCfg.PutFinalHtlcOutcome(
-					key.ChanID, key.HtlcID, false,
-				)
-				if err != nil {
-					return nil, nil, err
-				}
-
-				// Send notification.
-				chainArbCfg.HtlcNotifier.NotifyFinalHtlcEvent(
-					key,
-					channeldb.FinalHtlcInfo{
-						Settled:  false,
-						Offchain: false,
-					},
-				)
-			}
-
 		// Finally, if this is an outgoing HTLC we've sent, then we'll
 		// launch a resolver to watch for the pre-image (and settle
 		// backwards), or just timeout.
@@ -2531,9 +2490,11 @@ func (c *ChannelArbitrator) prepContractResolutions(
 
 				resolution, ok := outResolutionMap[htlcOp]
 				if !ok {
-					log.Errorf("ChannelArbitrator(%v) unable to find "+
-						"outgoing resolution: %v",
+					log.Errorf("ChannelArbitrator(%v) "+
+						"unable to find outgoing "+
+						"resolution: %v",
 						c.cfg.ChanPoint, htlcOp)
+
 					continue
 				}
 
@@ -2570,7 +2531,139 @@ func (c *ChannelArbitrator) prepContractResolutions(
 		htlcResolvers = append(htlcResolvers, resolver)
 	}
 
-	return htlcResolvers, msgsToSend, nil
+	return htlcResolvers, nil
+}
+
+// resolveIncomingHTLCs filters out all HTLCs for which an action can be
+// taken immediately and performs that action. It also makes sure it does not
+// fail HTLCs more than once by checking already canceled HTLCs which were
+// canceled back earlier.
+//
+// TODO(ziggie): Also cancel non-dust HTLCs up to a certain
+// total amount after the commitment tx is confirmed.
+func (c *ChannelArbitrator) resolveIncomingHTLCs(
+	contractResolutions *ContractResolutions, height uint32,
+	trigger transitionTrigger,
+	confCommitSet *CommitSet) error {
+
+	// Fetch all already canceled HTLCs.
+	canceledHTLCs, err := c.log.FetchCanceledHTLCs()
+	if err != nil {
+		return err
+	}
+
+	// First, we'll reconstruct a fresh set of chain actions as the set of
+	// actions we need to act on may differ based on if it was our
+	// commitment, or they're commitment that hit the chain.
+	htlcActions, err := c.constructChainActions(
+		confCommitSet, height, trigger,
+	)
+	if err != nil {
+		return err
+	}
+
+	newCanceledHTLCs := fn.NewSet[uint64]()
+
+	cancelIncoming := func(newCanceledHTLCs fn.Set[uint64]) error {
+		// Send the failure messages to the switch.
+		err := c.cancelIncomingHTLCs(newCanceledHTLCs)
+		if err != nil {
+			return err
+		}
+
+		// Persist the complete set of canceled HTLCs.
+		canceledHTLCs = canceledHTLCs.Union(newCanceledHTLCs)
+		err = c.log.InsertCanceledHTLCs(canceledHTLCs)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	// If this is a breach close, we'll create a breach resolver, determine
+	// the htlc's to fail back, and exit. This is done because the other
+	// steps taken for non-breach-closes do not matter for breach-closes.
+	if contractResolutions.BreachResolution != nil {
+		// We'll use the CommitSet, we'll fail back all outgoing HTLC's
+		// that exist on either of the remote commitments. The map is
+		// used to deduplicate any shared htlc's.
+		for htlcSetKey, htlcs := range confCommitSet.HtlcSets {
+			if !htlcSetKey.IsRemote {
+				continue
+			}
+
+			for _, htlc := range htlcs {
+				// Dust htlcs are already canceled elsewhere.
+				if htlc.Incoming || htlc.OutputIndex < 0 {
+					continue
+				}
+
+				// We don't fail HTLCs more than once in case
+				// of a restart for example.
+				if canceledHTLCs.Contains(htlc.HtlcIndex) {
+					continue
+				}
+
+				newCanceledHTLCs.Add(htlc.HtlcIndex)
+			}
+		}
+
+		return cancelIncoming(newCanceledHTLCs)
+	}
+
+	// For each HTLC, we'll either act immediately, meaning we'll instantly
+	// fail the HTLC, or we'll act only once the transaction has been
+	// confirmed, in which case we'll need an HTLC resolver.
+	for htlcAction, htlcs := range htlcActions {
+		switch htlcAction {
+		// We can fail dangling HTLCs here immediately because the
+		// commitment tx confirmed so there is no chance of the dangling
+		// HTLC being resolved onchain because the htlc set is fixed at
+		// this point. We do NOT cancel dust htlcs here because this
+		// is already done elsewhere.
+		case HtlcFailDanglingAction:
+			for _, htlc := range htlcs {
+				// Only fail HTLCs that have not been canceled
+				// back earlier.
+				if canceledHTLCs.Contains(htlc.HtlcIndex) {
+					continue
+				}
+
+				newCanceledHTLCs.Add(htlc.HtlcIndex)
+			}
+
+		// We've lost an htlc because it isn't manifested on the
+		// commitment transaction that closed the channel.
+		case HtlcIncomingDustFinalAction:
+			for _, htlc := range htlcs {
+				key := models.CircuitKey{
+					ChanID: c.cfg.ShortChanID,
+					HtlcID: htlc.HtlcIndex,
+				}
+
+				// Mark this dust htlc as final failed.
+				chainArbCfg := c.cfg.ChainArbitratorConfig
+				err := chainArbCfg.PutFinalHtlcOutcome(
+					key.ChanID, key.HtlcID, false,
+				)
+				if err != nil {
+					return err
+				}
+
+				// Send notification.
+				chainArbCfg.HtlcNotifier.NotifyFinalHtlcEvent(
+					key,
+					channeldb.FinalHtlcInfo{
+						Settled:  false,
+						Offchain: false,
+					},
+				)
+			}
+		}
+	}
+
+	return cancelIncoming(newCanceledHTLCs)
 }
 
 // replaceResolver replaces a in the list of active resolvers. If the resolver
@@ -3158,4 +3251,72 @@ func (c *ChannelArbitrator) checkLegacyBreach() (ArbitratorState, error) {
 
 	// This is a modern breach close with resolvers.
 	return StateContractClosed, nil
+}
+
+// cancelIncomingHTLCs cancels back the incoming htlcs for the corresponding
+// outgoing htlc. An example could be dust htlcs which cannot be enforced
+// onchain therefore we can immediately cancel back the corresponding incoming
+// htlc even if the commitment tx is still not confirmed and there is a risk of
+// another state confirming e.g. the remote pending commitment. However we
+// might in the future cancel back non-dust HTLCs that's why this function is
+// kept generic and not only for dust HTLCs.
+func (c *ChannelArbitrator) cancelIncomingHTLCs(
+	htlcs fn.Set[uint64]) error {
+
+	var msgsToSend []ResolutionMsg
+	failureMsg := &lnwire.FailPermanentChannelFailure{}
+
+	for idx := range htlcs {
+		failMsg := ResolutionMsg{
+			SourceChan: c.cfg.ShortChanID,
+			HtlcIndex:  idx,
+			Failure:    failureMsg,
+		}
+
+		msgsToSend = append(msgsToSend, failMsg)
+	}
+
+	// Send the msg to the switch.
+	if len(msgsToSend) == 0 {
+		return nil
+	}
+
+	log.Debugf("ChannelArbitrator(%v): sending "+
+		"resolution message=%v", c.cfg.ChanPoint,
+		lnutils.SpewLogClosure(msgsToSend))
+
+	err := c.cfg.DeliverResolutionMsg(msgsToSend...)
+	if err != nil {
+		log.Errorf("unable to send pkts: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+// cancelDustHTLCs cancels back the incoming dust htlcs for their corresponding
+// outgoing htlc and also persists the canceled htlcs to the database.
+func (c *ChannelArbitrator) cancelDustHTLCs(dustHTLCs []channeldb.HTLC) error {
+	dustHTLCSet := fn.SliceToMap(dustHTLCs,
+		func(htlc channeldb.HTLC) uint64 {
+			return htlc.HtlcIndex
+		},
+		func(htlc channeldb.HTLC) struct{} {
+			return struct{}{}
+		},
+	)
+
+	err := c.cancelIncomingHTLCs(dustHTLCSet)
+	if err != nil {
+		return err
+	}
+
+	// This is the first time we persist canceled htlcs to the db,
+	// so there is no need to fetch the prior state.
+	err = c.log.InsertCanceledHTLCs(dustHTLCSet)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

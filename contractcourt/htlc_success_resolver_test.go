@@ -117,6 +117,12 @@ func newHtlcResolverTestContext(t *testing.T,
 	cfg := ResolverConfig{
 		ChannelArbitratorConfig: chainCfg,
 		Checkpoint:              checkpointFunc,
+		InsertCanceledHTLCs: func(_ fn.Set[uint64]) error {
+			return nil
+		},
+		FetchCanceledHTLCs: func() (fn.Set[uint64], error) {
+			return fn.NewSet[uint64](), nil
+		},
 	}
 
 	htlc := channeldb.HTLC{

@@ -612,6 +612,10 @@ type BlindedPathRestrictions struct {
 	// NodeOmissionSet is a set of nodes that should not be used within any
 	// of the blinded paths that we generate.
 	NodeOmissionSet fn.Set[route.Vertex]
+
+	// NodePenultimateSet holds a set of node IDs of nodes that we should
+	// use as penultimate hope during blinded path selection.	
+	NodePenultimateSet fn.Set[route.Vertex]
 }
 
 // FindBlindedPaths finds a selection of paths to the destination node that can
@@ -627,6 +631,7 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 			minNumHops:      restrictions.MinDistanceFromIntroNode,
 			maxNumHops:      restrictions.NumHops,
 			nodeOmissionSet: restrictions.NodeOmissionSet,
+			nodePenultimateSet: restrictions.NodePenultimateSet,
 		},
 	)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/urfave/cli"
@@ -116,6 +117,12 @@ var AddInvoiceCommand = cli.Command{
 				"use on a blinded path. The flag may be " +
 				"specified multiple times.",
 		},
+		cli.StringFlag{
+			Name: "blinded_path_incoming_channel_list",
+			Usage: "The chained channels specified via channel " +
+				"id (separated by commas), starting from a " +
+				"channel which points to the receiver node.",
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -202,7 +209,8 @@ func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 		if ctx.IsSet("min_real_blinded_hops") ||
 			ctx.IsSet("num_blinded_hops") ||
 			ctx.IsSet("max_blinded_paths") ||
-			ctx.IsSet("blinded_path_omit_node") {
+			ctx.IsSet("blinded_path_omit_node") ||
+			ctx.IsSet("blinded_path_incoming_channel_list") {
 
 			return nil, fmt.Errorf("blinded path options are " +
 				"only used if the `--blind` options is set")
@@ -237,6 +245,21 @@ func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 		blindCfg.NodeOmissionList = append(
 			blindCfg.NodeOmissionList, pubKeyBytes,
 		)
+	}
+
+	if ctx.IsSet("blinded_path_incoming_channel_list") {
+		channels := strings.Split(
+			ctx.String("blinded_path_incoming_channel_list"), ",",
+		)
+		for _, channelID := range channels {
+			chanID, err := strconv.ParseUint(channelID, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			blindCfg.IncomingChannelList = append(
+				blindCfg.IncomingChannelList, chanID,
+			)
+		}
 	}
 
 	return &blindCfg, nil

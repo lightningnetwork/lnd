@@ -3894,6 +3894,12 @@ message BlindedPathConfig {
     blinded paths.
     */
     repeated bytes node_omission_list = 4;
+
+    /*
+    A list of node IDs of nodes that should be used in any of our generated
+    blinded paths as penultimate nodes.
+    */
+    repeated bytes node_penultimate_list = 5;
 }
 
 enum InvoiceHTLCState {

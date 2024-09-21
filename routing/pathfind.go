@@ -1165,6 +1165,14 @@ type blindedPathRestrictions struct {
 	// nodeOmissionSet holds a set of node IDs of nodes that we should
 	// ignore during blinded path selection.
 	nodeOmissionSet fn.Set[route.Vertex]
+
+	// nodeIncomeSet holds a set of node IDs of nodes that we should
+	// use as income hope during blinded path selection.
+	nodeIncomeSet fn.Set[route.Vertex]
+
+	// channelIncomeSet holds a set of channel IDs of channels that we
+	// should use as income channel during blinded path selection.
+	channelIncomeSet fn.Set[uint64]
 }
 
 // blindedHop holds the information about a hop we have selected for a blinded
@@ -1274,6 +1282,15 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 		return nil, false, nil
 	}
 
+	// If we have explicity been told to consider this node as the
+	// income hope.
+	if !restrictions.nodeIncomeSet.IsEmpty() {
+		if len(alreadyVisited) == 1 &&
+			!restrictions.nodeIncomeSet.Contains(node) {
+			return nil, false, nil
+		}
+	}
+
 	supports, err := supportsRouteBlinding(node)
 	if err != nil {
 		return nil, false, err
@@ -1300,6 +1317,16 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 	// node that can be used for blinded paths
 	err = g.ForEachNodeChannel(node,
 		func(channel *channeldb.DirectedChannel) error {
+			// If we have explicity been told to consider this
+			// channel as the income hope.
+			channelIncomeSet := restrictions.channelIncomeSet
+			if !channelIncomeSet.IsEmpty() {
+				if len(alreadyVisited) == 0 &&
+					!channelIncomeSet.Contains(channel.ChannelID) {
+					return nil
+				}
+			}
+
 			// Keep track of how many incoming channels this node
 			// has. We only use a node as an introduction node if it
 			// has channels other than the one that lead us to it.

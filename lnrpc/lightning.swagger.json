@@ -3569,6 +3569,14 @@
             "format": "byte"
           },
           "description": "A list of node IDs of nodes that should not be used in any of our generated\nblinded paths."
+        },
+        "node_penultimate_list": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "A list of node IDs of nodes that should be used in any of our generated\nblinded paths as penultimate nodes."
         }
       }
     },

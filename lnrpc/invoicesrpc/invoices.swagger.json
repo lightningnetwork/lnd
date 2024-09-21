@@ -529,6 +529,14 @@
             "format": "byte"
           },
           "description": "A list of node IDs of nodes that should not be used in any of our generated\nblinded paths."
+        },
+        "channel_income_list": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "A list of chained channels that should be used in any of our\ngenerated blinded paths as income hops."
         }
       }
     },

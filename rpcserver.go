@@ -6020,6 +6020,8 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		NumHops:                  globalBlindCfg.NumHops,
 		MaxNumPaths:              globalBlindCfg.MaxNumPaths,
 		NodeOmissionSet:          fn.NewSet[route.Vertex](),
+		NodeIncomeSet:            fn.NewSet[route.Vertex](),
+		ChannelIncomeSet:         fn.NewSet[uint64](),
 	}
 
 	if blindCfg != nil && !blind {
@@ -6047,6 +6049,19 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			}
 
 			blindingRestrictions.NodeOmissionSet.Add(vertex)
+		}
+
+		for _, nodeIDBytes := range blindCfg.NodeIncomeList {
+			vertex, err := route.NewVertexFromBytes(nodeIDBytes)
+			if err != nil {
+				return nil, err
+			}
+
+			blindingRestrictions.NodeIncomeSet.Add(vertex)
+		}
+
+		for _, channelId := range blindCfg.ChannelIncomeList {
+			blindingRestrictions.ChannelIncomeSet.Add(channelId)
 		}
 	}
 

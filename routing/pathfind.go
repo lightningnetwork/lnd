@@ -1192,6 +1192,10 @@ type blindedPathRestrictions struct {
 	// nodeOmissionSet holds a set of node IDs of nodes that we should
 	// ignore during blinded path selection.
 	nodeOmissionSet fn.Set[route.Vertex]
+
+	// incomingChainedChannels holds a route of chained channels that we
+	// should use as incoming hops during blinded path selection.
+	incomingChainedChannels []uint64
 }
 
 // blindedHop holds the information about a hop we have selected for a blinded
@@ -1237,16 +1241,74 @@ func findBlindedPaths(g Graph, target route.Vertex,
 		return features.HasFeature(lnwire.RouteBlindingOptional), nil
 	}
 
+	// Initialize the map to track visited vertices.
+	alreadyVisited := map[route.Vertex]bool{}
+	partiallySpecifiedPath := make([]blindedHop, 0)
+
+	// Sanity checking the partially specified blinded path.
+	// Check if the order makes sense (ie, the chain is valid).
+	// Check if the all the channels exist.
+	// Check if all the nodes involved are advertising route blinding.
+	node := target
+	for _, chanID := range restrictions.incomingChainedChannels {
+		channelFound := false
+		// iterate over the node's channels in search for paths to the
+		// currentTarget.
+		err := g.ForEachNodeChannel(node,
+			func(channel *graphdb.DirectedChannel) error {
+				_, err := supportsRouteBlinding(
+					channel.OtherNode)
+				if err != nil {
+					return err
+				}
+				if channel.ChannelID == chanID {
+					// Add this node to the visited set.
+					alreadyVisited[node] = true
+					hop := blindedHop{
+						vertex:       channel.OtherNode,
+						channelID:    channel.ChannelID,
+						edgeCapacity: channel.Capacity,
+					}
+					partiallySpecifiedPath =
+						append(partiallySpecifiedPath,
+							hop)
+					node = channel.OtherNode
+					channelFound = true
+				}
+
+				return nil
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+		if !channelFound {
+			return nil, fmt.Errorf("specified path %v not found",
+				restrictions.incomingChainedChannels)
+		}
+	}
+
 	// This function will have some recursion. We will spin out from the
 	// target node & append edges to the paths until we reach various exit
 	// conditions such as: The maxHops number being reached or reaching
 	// a node that doesn't have any other edges - in that final case, the
 	// whole path should be ignored.
-	paths, _, err := processNodeForBlindedPath(
-		g, target, supportsRouteBlinding, nil, restrictions,
-	)
+	paths, _, err := processNodeForBlindedPath(g, node,
+		supportsRouteBlinding, alreadyVisited, restrictions)
 	if err != nil {
 		return nil, err
+	}
+
+	// Append the partially specified path to each returned path.
+	for i := range paths {
+		paths[i] = append(partiallySpecifiedPath, paths[i]...)
+	}
+
+	// Partially specified path is big enought to be a path.
+	if len(partiallySpecifiedPath) > 0 &&
+		len(partiallySpecifiedPath) >= int(restrictions.minNumHops) {
+
+		paths = append(paths, partiallySpecifiedPath)
 	}
 
 	// Reverse each path so that the order is correct (from introduction

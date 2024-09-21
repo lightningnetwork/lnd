@@ -6049,6 +6049,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		NumHops:                  globalBlindCfg.NumHops,
 		MaxNumPaths:              globalBlindCfg.MaxNumPaths,
 		NodeOmissionSet:          fn.NewSet[route.Vertex](),
+		IncomingChainedChannels:  make([]uint64, 0),
 	}
 
 	if blindCfg != nil && !blind {
@@ -6068,6 +6069,10 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			blindingRestrictions.MaxNumPaths =
 				uint8(*blindCfg.MaxNumPaths)
 		}
+		if blindingRestrictions.MaxNumPaths == 0 {
+			return nil, fmt.Errorf("blinded max num paths cannot " +
+				"be 0")
+		}
 
 		for _, nodeIDBytes := range blindCfg.NodeOmissionList {
 			vertex, err := route.NewVertexFromBytes(nodeIDBytes)
@@ -6077,6 +6082,27 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 			blindingRestrictions.NodeOmissionSet.Add(vertex)
 		}
+
+		blindingRestrictions.IncomingChainedChannels = append(
+			blindingRestrictions.IncomingChainedChannels,
+			blindCfg.IncomingChannelList...,
+		)
+
+		numChainedChannels :=
+			uint8(len(blindingRestrictions.IncomingChainedChannels))
+
+		// When selecting the blinded incoming channel list parameter
+		// the maximum number of hops is implictitly set.
+		if numChainedChannels > blindingRestrictions.NumHops {
+			rpcsLog.Warnf("Changing the num_blinded_hops "+
+				"from (%d) to (%d)",
+				blindingRestrictions.NumHops,
+				numChainedChannels)
+
+			blindingRestrictions.NumHops =
+				numChainedChannels
+		}
+
 	}
 
 	if blindingRestrictions.MinDistanceFromIntroNode >

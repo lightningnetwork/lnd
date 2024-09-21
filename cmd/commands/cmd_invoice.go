@@ -116,6 +116,19 @@ var AddInvoiceCommand = cli.Command{
 				"use on a blinded path. The flag may be " +
 				"specified multiple times.",
 		},
+		cli.StringSliceFlag{
+			Name: "blinded_path_income_node",
+			Usage: "The pub key (in hex) of a node to be " +
+				"used in a blinded path as the income " +
+				"node. The flag may be specified multiple " +
+				"times.",
+		},
+		cli.StringSliceFlag{
+			Name: "blinded_path_income_channel",
+			Usage: "The channel id to be used in a blinded path " +
+				"as the income channel. The flag may be " +
+				"specified multiple times.",
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -202,13 +215,25 @@ func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 		if ctx.IsSet("min_real_blinded_hops") ||
 			ctx.IsSet("num_blinded_hops") ||
 			ctx.IsSet("max_blinded_paths") ||
-			ctx.IsSet("blinded_path_omit_node") {
+			ctx.IsSet("blinded_path_omit_node") ||
+			ctx.IsSet("blinded_path_income_node") ||
+			ctx.IsSet("blinded_path_income_channel") {
 
 			return nil, fmt.Errorf("blinded path options are " +
 				"only used if the `--blind` options is set")
 		}
 
 		return nil, nil
+	}
+
+	if ctx.IsSet("blinded_path_income_channel") {
+		if ctx.IsSet("blinded_path_income_node") {
+
+			return nil, fmt.Errorf("`--blinded_path_income_node`" +
+				"is used only if the " +
+				"`--blinded_path_income_channel` is not")
+
+		}
 	}
 
 	var blindCfg lnrpc.BlindedPathConfig
@@ -236,6 +261,27 @@ func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 
 		blindCfg.NodeOmissionList = append(
 			blindCfg.NodeOmissionList, pubKeyBytes,
+		)
+	}
+
+	for _, pK := range ctx.StringSlice("blinded_path_income_node") {
+		pKBytes, err := hex.DecodeString(pK)
+		if err != nil {
+			return nil, err
+		}
+
+		blindCfg.NodeIncomeList = append(
+			blindCfg.NodeIncomeList, pKBytes,
+		)
+	}
+
+	for _, chanId := range ctx.StringSlice("blinded_path_income_channel") {
+		channelId, err := strconv.ParseUint(chanId, 10, 64)
+		if err != nil {
+			panic(err) // Handle this better in production code
+		}
+		blindCfg.ChannelIncomeList = append(
+			blindCfg.ChannelIncomeList, channelId,
 		)
 	}
 

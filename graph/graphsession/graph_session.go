@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
@@ -99,6 +100,15 @@ func (g *session) FetchNodeFeatures(nodePub route.Vertex) (
 	return g.graph.FetchNodeFeatures(nodePub)
 }
 
+// FetchChannelEdgesByID attempts to lookup the two directed edges for
+// the channel identified by the channel ID.
+func (g *session) FetchChannelEdgesByID(chanID uint64) (*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error) {
+
+	return g.graph.FetchChannelEdgesByID(chanID)
+
+}
+
 // A compile-time check to ensure that *session implements the
 // routing.Graph interface.
 var _ routing.Graph = (*session)(nil)
@@ -134,6 +144,11 @@ type graph interface {
 	// FetchNodeFeatures returns the features of a given node. If no
 	// features are known for the node, an empty feature vector is returned.
 	FetchNodeFeatures(node route.Vertex) (*lnwire.FeatureVector, error)
+
+	// FetchChannelEdgesByID attempts to lookup the two directed edges for
+	// the channel identified by the channel ID.
+	FetchChannelEdgesByID(chanID uint64) (*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error)
 }
 
 // A compile-time check to ensure that *channeldb.ChannelGraph implements the

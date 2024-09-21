@@ -612,6 +612,10 @@ type BlindedPathRestrictions struct {
 	// NodeOmissionSet is a set of nodes that should not be used within any
 	// of the blinded paths that we generate.
 	NodeOmissionSet fn.Set[route.Vertex]
+
+	// IncomingChainedChannels holds a route of chained channels that we
+	// should use as incoming hops during blinded path selection.
+	IncomingChainedChannels []uint64
 }
 
 // FindBlindedPaths finds a selection of paths to the destination node that can
@@ -622,11 +626,14 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 
 	// First, find a set of candidate paths given the destination node and
 	// path length restrictions.
+	incomingChainedChannels := restrictions.IncomingChainedChannels
+	minDistanceFromIntroNode := restrictions.MinDistanceFromIntroNode
 	paths, err := findBlindedPaths(
 		r.cfg.RoutingGraph, destination, &blindedPathRestrictions{
-			minNumHops:      restrictions.MinDistanceFromIntroNode,
-			maxNumHops:      restrictions.NumHops,
-			nodeOmissionSet: restrictions.NodeOmissionSet,
+			minNumHops:              minDistanceFromIntroNode,
+			maxNumHops:              restrictions.NumHops,
+			nodeOmissionSet:         restrictions.NodeOmissionSet,
+			incomingChainedChannels: incomingChainedChannels,
 		},
 	)
 	if err != nil {
@@ -678,19 +685,21 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 			prevNode = path[j].vertex
 		}
 
+		routeWithProbability := &routeWithProbability{
+			route: &route.Route{
+				SourcePubKey: introNode,
+				Hops:         hops,
+			},
+			probability: totalRouteProbability,
+		}
+
 		// Don't bother adding a route if its success probability less
 		// minimum that can be assigned to any single pair.
 		if totalRouteProbability <= DefaultMinRouteProbability {
 			continue
 		}
 
-		routes = append(routes, &routeWithProbability{
-			route: &route.Route{
-				SourcePubKey: introNode,
-				Hops:         hops,
-			},
-			probability: totalRouteProbability,
-		})
+		routes = append(routes, routeWithProbability)
 	}
 
 	// Sort the routes based on probability.

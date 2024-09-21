@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -19,6 +20,11 @@ type Graph interface {
 
 	// FetchNodeFeatures returns the features of the given node.
 	FetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
+
+	// FetchChannelEdgesByID attempts to lookup the two directed edges for
+	// the channel identified by the channel ID.
+	FetchChannelEdgesByID(chanID uint64) (*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error)
 }
 
 // GraphSessionFactory can be used to produce a new Graph instance which can

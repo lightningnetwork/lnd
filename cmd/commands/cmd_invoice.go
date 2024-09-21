@@ -116,6 +116,13 @@ var AddInvoiceCommand = cli.Command{
 				"use on a blinded path. The flag may be " +
 				"specified multiple times.",
 		},
+		cli.StringSliceFlag{
+			Name: "blinded_path_penultimate_node",
+			Usage: "The pub key (in hex) of a node to be " +
+				"used on a blinded path as the penultimate " +
+				"node. The flag may be specified multiple " +
+				"times.",
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -202,7 +209,8 @@ func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 		if ctx.IsSet("min_real_blinded_hops") ||
 			ctx.IsSet("num_blinded_hops") ||
 			ctx.IsSet("max_blinded_paths") ||
-			ctx.IsSet("blinded_path_omit_node") {
+			ctx.IsSet("blinded_path_omit_node") ||
+			ctx.IsSet("blinded_path_penultimate_node") {
 
 			return nil, fmt.Errorf("blinded path options are " +
 				"only used if the `--blind` options is set")
@@ -236,6 +244,18 @@ func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 
 		blindCfg.NodeOmissionList = append(
 			blindCfg.NodeOmissionList, pubKeyBytes,
+		)
+	}
+
+	for _, pubKey := 
+	range ctx.StringSlice("blinded_path_penultimate_node") {
+		pubKeyBytes, err := hex.DecodeString(pubKey)
+		if err != nil {
+			return nil, err
+		}
+
+		blindCfg.NodePenultimateList = append(
+			blindCfg.NodePenultimateList, pubKeyBytes,
 		)
 	}
 

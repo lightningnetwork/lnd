@@ -1168,6 +1168,10 @@ type blindedPathRestrictions struct {
 	// nodeOmissionSet holds a set of node IDs of nodes that we should
 	// ignore during blinded path selection.
 	nodeOmissionSet fn.Set[route.Vertex]
+
+	// nodePenultimateSet holds a set of node IDs of nodes that we should
+	// use as penultimate hope during blinded path selection.
+	nodePenultimateSet fn.Set[route.Vertex]
 }
 
 // blindedHop holds the information about a hop we have selected for a blinded
@@ -1275,6 +1279,15 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 	// then we skip it too.
 	if restrictions.nodeOmissionSet.Contains(node) {
 		return nil, false, nil
+	}
+
+	// If we have explicity been told to consider this node as the 
+	// penultimate hope.
+	if len(restrictions.nodePenultimateSet) > 0 {
+		if len(alreadyVisited) == 1 && 
+		!restrictions.nodePenultimateSet.Contains(node) {
+			return nil, false, nil
+		}
 	}
 
 	supports, err := supportsRouteBlinding(node)

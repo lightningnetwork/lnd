@@ -339,6 +339,7 @@ Examples of common patterns w.r.t commit structures within the project:
     skip the CI checks. When pushing to such an existing PR, the latest commit
     being pushed should end with `[skip ci]` as to not inadvertantly trigger the
     CI checks.
+
     
 ## Sign your git commits
 

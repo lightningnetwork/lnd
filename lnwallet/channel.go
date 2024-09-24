@@ -8201,6 +8201,8 @@ type chanCloseOpt struct {
 	customSort CloseSortFunc
 
 	customSequence fn.Option[uint32]
+
+	customLockTime fn.Option[uint32]
 }
 
 // ChanCloseOpt is a closure type that cen be used to modify the set of default
@@ -8234,7 +8236,7 @@ func WithExtraCloseOutputs(extraOutputs []CloseOutput) ChanCloseOpt {
 func WithCustomCoopSort(sorter CloseSortFunc) ChanCloseOpt {
 	return func(opts *chanCloseOpt) {
 		opts.customSort = sorter
-    }
+	}
 }
 
 // WithCustomSequence can be used to specify a custom sequence number for the
@@ -8242,6 +8244,14 @@ func WithCustomCoopSort(sorter CloseSortFunc) ChanCloseOpt {
 func WithCustomSequence(sequence uint32) ChanCloseOpt {
 	return func(opts *chanCloseOpt) {
 		opts.customSequence = fn.Some(sequence)
+	}
+}
+
+// WithCustomLockTime can be used to specify a custom lock time for the coop
+// close transaction.
+func WithCustomLockTime(lockTime uint32) ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.customLockTime = fn.Some(lockTime)
 	}
 }
 
@@ -8307,6 +8317,12 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	opts.customSequence.WhenSome(func(sequence uint32) {
 		closeTxOpts = append(closeTxOpts, WithCustomTxInSequence(
 			sequence,
+		))
+	})
+
+	opts.customLockTime.WhenSome(func(lockTime uint32) {
+		closeTxOpts = append(closeTxOpts, WithCustomTxLockTime(
+			lockTime,
 		))
 	})
 
@@ -8414,6 +8430,12 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	opts.customSequence.WhenSome(func(sequence uint32) {
 		closeTxOpts = append(closeTxOpts, WithCustomTxInSequence(
 			sequence,
+		))
+	})
+
+	opts.customLockTime.WhenSome(func(lockTime uint32) {
+		closeTxOpts = append(closeTxOpts, WithCustomTxLockTime(
+			lockTime,
 		))
 	})
 
@@ -9138,6 +9160,8 @@ type closeTxOpts struct {
 	// close transaction. This gives slightly more control compared to the
 	// enableRBF option.
 	customSequence fn.Option[uint32]
+
+	customLockTime fn.Option[uint32]
 }
 
 // defaultCloseTxOpts returns a closeTxOpts struct with default values.
@@ -9171,7 +9195,7 @@ func WithExtraTxCloseOutputs(extraOutputs []CloseOutput) CloseTxOpt {
 func WithCustomTxSort(sorter CloseSortFunc) CloseTxOpt {
 	return func(opts *closeTxOpts) {
 		opts.customSort = sorter
-    }
+	}
 }
 
 // WithCustomTxInSequence allows a caller to set a custom sequence on the sole
@@ -9179,6 +9203,12 @@ func WithCustomTxSort(sorter CloseSortFunc) CloseTxOpt {
 func WithCustomTxInSequence(sequence uint32) CloseTxOpt {
 	return func(o *closeTxOpts) {
 		o.customSequence = fn.Some(sequence)
+	}
+}
+
+func WithCustomTxLockTime(lockTime uint32) CloseTxOpt {
+	return func(o *closeTxOpts) {
+		o.customLockTime = fn.Some(lockTime)
 	}
 }
 
@@ -9215,6 +9245,10 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 	// be omitted.
 	closeTx := wire.NewMsgTx(2)
 	closeTx.AddTxIn(&fundingTxIn)
+
+	opts.customLockTime.WhenSome(func(lockTime uint32) {
+		closeTx.LockTime = lockTime
+	})
 
 	// TODO(roasbeef): needs support for dropping inputs
 

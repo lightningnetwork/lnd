@@ -547,8 +547,8 @@ func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 		}
 
 	case *SendOfferEvent:
-		expectedStates = []RbfState{&ClosingNegotiation{}}
 
+		expectedStates = []RbfState{&ClosingNegotiation{}}
 	case *ChannelFlushed:
 		// If we're sending a flush event here, then this means that we
 		// also have enough balance to cover the fee so we'll have
@@ -1534,7 +1534,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		feeOffer := &OfferReceivedEvent{
 			SigMsg: lnwire.ClosingComplete{
 				FeeSatoshis: absoluteFee,
-				LockTime:    10,
+				LockTime:    1,
 				ClosingSigs: lnwire.ClosingSigs{
 					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
 						remoteWireSig,

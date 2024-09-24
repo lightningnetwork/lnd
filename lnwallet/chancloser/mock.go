@@ -132,6 +132,10 @@ func (m *mockChanObserver) FinalBalances() fn.Option[ShutdownBalances] {
 	return args.Get(0).(fn.Option[ShutdownBalances])
 }
 
+func (m *mockChanObserver) DisableChannel() error {
+	return nil
+}
+
 type mockErrorReporter struct {
 	mock.Mock
 }

@@ -242,7 +242,7 @@ type ChanStateObserver interface {
 	DisableOutgoingAdds() error
 
 	// DisableChannel attempts to disable a channel (marking it ineligible
-	// to foward), and also sends out a network udpate to disable the
+	// to forward), and also sends out a network update to disable the
 	// channel.
 	DisableChannel() error
 

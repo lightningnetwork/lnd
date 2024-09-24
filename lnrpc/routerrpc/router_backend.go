@@ -16,6 +16,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -1011,7 +1012,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			if len(rpcPayReq.PaymentAddr) > 0 {
 				var addr [32]byte
 				copy(addr[:], rpcPayReq.PaymentAddr)
-				payAddr = &addr
+				payAddr = fn.Some(addr)
 			}
 		} else {
 			err = payIntent.SetPaymentHash(*payReq.PaymentHash)
@@ -1128,7 +1129,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			} else {
 				copy(payAddr[:], rpcPayReq.PaymentAddr)
 			}
-			payIntent.PaymentAddr = &payAddr
+			payIntent.PaymentAddr = fn.Some(payAddr)
 
 			// Generate random SetID and root share.
 			var setID [32]byte
@@ -1167,7 +1168,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 				var payAddr [32]byte
 				copy(payAddr[:], rpcPayReq.PaymentAddr)
 
-				payIntent.PaymentAddr = &payAddr
+				payIntent.PaymentAddr = fn.Some(payAddr)
 			}
 		}
 

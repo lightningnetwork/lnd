@@ -5328,7 +5328,7 @@ type rpcPaymentIntent struct {
 	outgoingChannelIDs []uint64
 	lastHop            *route.Vertex
 	destFeatures       *lnwire.FeatureVector
-	paymentAddr        *[32]byte
+	paymentAddr        fn.Option[[32]byte]
 	payReq             []byte
 	metadata           []byte
 	blindedPathSet     *routing.BlindedPaymentPathSet
@@ -5537,8 +5537,9 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 	// Note that the payment address for the payIntent should be nil if none
 	// was provided with the rpcPaymentRequest.
 	if len(rpcPayReq.PaymentAddr) != 0 {
-		payIntent.paymentAddr = &[32]byte{}
-		copy(payIntent.paymentAddr[:], rpcPayReq.PaymentAddr)
+		var addr [32]byte
+		copy(addr[:], rpcPayReq.PaymentAddr)
+		payIntent.paymentAddr = fn.Some(addr)
 	}
 
 	// Otherwise, If the payment request field was not specified
@@ -7384,10 +7385,7 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 	}
 
 	// Extract the payment address from the payment request, if present.
-	var paymentAddr []byte
-	if payReq.PaymentAddr != nil {
-		paymentAddr = payReq.PaymentAddr[:]
-	}
+	paymentAddr := payReq.PaymentAddr.UnwrapOr([32]byte{})
 
 	dest := payReq.Destination.SerializeCompressed()
 	return &lnrpc.PayReq{
@@ -7403,7 +7401,7 @@ func (r *rpcServer) DecodePayReq(ctx context.Context,
 		CltvExpiry:      int64(payReq.MinFinalCLTVExpiry()),
 		RouteHints:      routeHints,
 		BlindedPaths:    blindedPaymentPaths,
-		PaymentAddr:     paymentAddr,
+		PaymentAddr:     paymentAddr[:],
 		Features:        invoicesrpc.CreateRPCFeatures(payReq.Features),
 	}, nil
 }

@@ -344,7 +344,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 			// record. If it has a blinded path though, then we
 			// can split. Split payments to blinded paths won't have
 			// MPP records.
-			if p.payment.PaymentAddr == nil &&
+			if p.payment.PaymentAddr.IsNone() &&
 				p.payment.BlindedPathSet == nil {
 
 				p.log.Debugf("not splitting because payment " +

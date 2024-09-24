@@ -23,6 +23,10 @@
   propagate mission control and debug level config values to the main LND config
   struct so that the GetDebugInfo response is accurate.
 
+* [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9134) that would 
+  cause a nil pointer dereference during the probing of a payment request that 
+  does not contain a payment address.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions
@@ -69,5 +73,6 @@
 # Contributors (Alphabetical Order)
 
 * CharlieZKSmith
+* Elle Mouton
 * Pins
 * Ziggie

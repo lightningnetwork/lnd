@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -562,7 +563,7 @@ func TestDecodeEncode(t *testing.T) {
 					MilliSat:    &testMillisat25mBTC,
 					Timestamp:   time.Unix(1496314658, 0),
 					PaymentHash: &testPaymentHash,
-					PaymentAddr: &specPaymentAddr,
+					PaymentAddr: fn.Some(specPaymentAddr),
 					Description: &testCoffeeBeans,
 					Destination: testPubKey,
 					Features: lnwire.NewFeatureVector(
@@ -589,7 +590,7 @@ func TestDecodeEncode(t *testing.T) {
 					MilliSat:    &testMillisat25mBTC,
 					Timestamp:   time.Unix(1496314658, 0),
 					PaymentHash: &testPaymentHash,
-					PaymentAddr: &specPaymentAddr,
+					PaymentAddr: fn.Some(specPaymentAddr),
 					Description: &testCoffeeBeans,
 					Destination: testPubKey,
 					Features: lnwire.NewFeatureVector(
@@ -718,7 +719,7 @@ func TestDecodeEncode(t *testing.T) {
 					PaymentHash: &testPaymentHash,
 					Description: &testPaymentMetadata,
 					Destination: testPubKey,
-					PaymentAddr: &specPaymentAddr,
+					PaymentAddr: fn.Some(specPaymentAddr),
 					Features: lnwire.NewFeatureVector(
 						lnwire.NewRawFeatureVector(8, 14, 48),
 						lnwire.Features,
@@ -772,7 +773,7 @@ func TestDecodeEncode(t *testing.T) {
 					MilliSat:    &testMillisat25mBTC,
 					Timestamp:   time.Unix(1496314658, 0),
 					PaymentHash: &testPaymentHash,
-					PaymentAddr: &specPaymentAddr,
+					PaymentAddr: fn.Some(specPaymentAddr),
 					Description: &testCoffeeBeans,
 					Destination: testPubKey,
 					Features: lnwire.NewFeatureVector(
@@ -803,7 +804,7 @@ func TestDecodeEncode(t *testing.T) {
 					MilliSat:    &testMillisat25mBTC,
 					Timestamp:   time.Unix(1496314658, 0),
 					PaymentHash: &testPaymentHash,
-					PaymentAddr: &specPaymentAddr,
+					PaymentAddr: fn.Some(specPaymentAddr),
 					Description: &testCoffeeBeans,
 					Destination: testPubKey,
 					Features: lnwire.NewFeatureVector(

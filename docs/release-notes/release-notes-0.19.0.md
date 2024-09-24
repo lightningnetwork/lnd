@@ -27,6 +27,10 @@
   cause a nil pointer dereference during the probing of a payment request that 
   does not contain a payment address.
 
+* [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9137) that prevented
+  a graceful shutdown of LND during the main chain backend sync check in certain
+  cases.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions
@@ -75,4 +79,5 @@
 * CharlieZKSmith
 * Elle Mouton
 * Pins
+* Viktor Tigerström
 * Ziggie

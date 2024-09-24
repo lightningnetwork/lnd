@@ -724,7 +724,9 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 			Msgs: []lnwire.Message{&lnwire.ClosingComplete{
 				ChannelID:   env.ChanID,
 				FeeSatoshis: absoluteFee,
-				Sequence:    mempool.MaxRBFSequence,
+				// TODO(roasbeef): thread thru proper height
+				// value
+				LockTime:    mempool.MaxRBFSequence,
 				ClosingSigs: closingSigs,
 			}},
 		}}
@@ -889,12 +891,6 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 				ErrRemoteCannotPay,
 				msg.SigMsg.FeeSatoshis,
 				l.RemoteBalance.ToSatoshis())
-
-		// The sequence they send can't be the max sequence, as that would
-		// prevent RBF.
-		case msg.SigMsg.Sequence > mempool.MaxRBFSequence:
-			return nil, fmt.Errorf("%w: %v", ErrNonFinalSequence,
-				msg.SigMsg.Sequence)
 		}
 
 		// With the basic sanity checks out of the way, we'll now
@@ -929,7 +925,7 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		}
 
 		chanOpts := []lnwallet.ChanCloseOpt{
-			lnwallet.WithCustomSequence(msg.SigMsg.Sequence),
+			lnwallet.WithCustomSequence(mempool.MaxRBFSequence),
 		}
 
 		chancloserLog.Infof("responding to close w/ local_addr=%x, "+

@@ -1464,31 +1464,6 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		closeHarness.assertNoStateTransitions()
 	})
 
-	// If the remote party sends us a signature with a final sequence, then
-	// we'll error out as it can't be RBF'd
-	t.Run("recv_offer_final_sequence", func(t *testing.T) {
-		closeHarness := newCloser(t, &harnessCfg{
-			initialState: fn.Some[ProtocolState](startingState),
-		})
-		defer closeHarness.stopAndAssert()
-
-		// We should fail as they sent a non final sequence.
-		closeHarness.expectFaliure(ErrNonFinalSequence)
-
-		// We'll send an offer with something beyond the max RBF value,
-		// this should fail.
-		feeOffer := &OfferReceivedEvent{
-			SigMsg: lnwire.ClosingComplete{
-				FeeSatoshis: absoluteFee,
-				Sequence:    mempool.MaxRBFSequence + 1,
-			},
-		}
-		closeHarness.chanCloser.SendEvent(feeOffer)
-
-		// We shouldn't have transitioned to a new state.
-		closeHarness.assertNoStateTransitions()
-	})
-
 	// If our balance, is dust, then the remote party should send a
 	// signature that doesn't include our output.
 	t.Run("recv_offer_err_closer_no_closee", func(t *testing.T) {
@@ -1593,7 +1568,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		feeOffer := &OfferReceivedEvent{
 			SigMsg: lnwire.ClosingComplete{
 				FeeSatoshis: absoluteFee,
-				Sequence:    sequence,
+				LockTime:    10,
 				ClosingSigs: lnwire.ClosingSigs{
 					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:lll
 						remoteWireSig,

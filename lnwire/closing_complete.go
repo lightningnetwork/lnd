@@ -34,9 +34,9 @@ type ClosingComplete struct {
 	// channel would like to propose for the close transaction.
 	FeeSatoshis btcutil.Amount
 
-	// Sequence is the sequence number to be used in the input spending the
+	// LockTime is the locktime number to be used in the input spending the
 	// funding transaction.
-	Sequence uint32
+	LockTime uint32
 
 	// ClosingSigs houses the 3 possible signatures that can be sent.
 	ClosingSigs
@@ -79,7 +79,7 @@ func decodeClosingSigs(c *ClosingSigs, tlvRecords ExtraOpaqueData) error {
 // passed io.Reader.
 func (c *ClosingComplete) Decode(r io.Reader, _ uint32) error {
 	// First, read out all the fields that are hard coded into the message.
-	err := ReadElements(r, &c.ChannelID, &c.FeeSatoshis, &c.Sequence)
+	err := ReadElements(r, &c.ChannelID, &c.FeeSatoshis, &c.LockTime)
 	if err != nil {
 		return err
 	}
@@ -129,7 +129,7 @@ func (c *ClosingComplete) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	if err := WriteUint32(w, c.Sequence); err != nil {
+	if err := WriteUint32(w, c.LockTime); err != nil {
 		return err
 	}
 

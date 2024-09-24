@@ -1352,7 +1352,7 @@ func TestLightningWireProtocol(t *testing.T) {
 			req := ClosingComplete{
 				ChannelID:   ChannelID(c),
 				FeeSatoshis: btcutil.Amount(r.Int63()),
-				Sequence:    uint32(r.Int63()),
+				LockTime:    uint32(r.Int63()),
 				ClosingSigs: ClosingSigs{},
 			}
 

@@ -66,6 +66,9 @@ func (s *safeCallback) Exec(req HtlcModifyRequest) (*HtlcModifyResponse,
 // settle an invoice, enabling a subscribed client to modify certain aspects of
 // those HTLCs.
 type HtlcModificationInterceptor struct {
+	started atomic.Bool
+	stopped atomic.Bool
+
 	// callback is the wrapped client callback function that is called when
 	// an invoice is intercepted. This function gives the client the ability
 	// to determine how the invoice should be settled.
@@ -79,6 +82,7 @@ type HtlcModificationInterceptor struct {
 func NewHtlcModificationInterceptor() *HtlcModificationInterceptor {
 	return &HtlcModificationInterceptor{
 		callback: &safeCallback{},
+		quit:     make(chan struct{}),
 	}
 }
 
@@ -163,11 +167,19 @@ func (s *HtlcModificationInterceptor) RegisterInterceptor(
 
 // Start starts the service.
 func (s *HtlcModificationInterceptor) Start() error {
+	if !s.started.CompareAndSwap(false, true) {
+		return nil
+	}
+
 	return nil
 }
 
 // Stop stops the service.
 func (s *HtlcModificationInterceptor) Stop() error {
+	if !s.stopped.CompareAndSwap(false, true) {
+		return nil
+	}
+
 	close(s.quit)
 
 	return nil

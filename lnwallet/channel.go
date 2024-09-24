@@ -7715,6 +7715,8 @@ type chanCloseOpt struct {
 	// transaction outputs. If this isn't set, then the default BIP-69
 	// sorting is used.
 	customSort CloseSortFunc
+
+	customSequence fn.Option[uint32]
 }
 
 // ChanCloseOpt is a closure type that cen be used to modify the set of default
@@ -7748,6 +7750,16 @@ func WithExtraCloseOutputs(extraOutputs []CloseOutput) ChanCloseOpt {
 func WithCustomCoopSort(sorter CloseSortFunc) ChanCloseOpt {
 	return func(opts *chanCloseOpt) {
 		opts.customSort = sorter
+    }
+}
+
+// WithCustomSequence can be used to specify a custom sequence number for the
+// co-op close process. Otherwise, a default non-final sequence will be used.
+//
+// TODO(roasbeef): why is this useful at all?
+func WithCustomSequence(sequence uint32) ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.customSequence = fn.Some(sequence)
 	}
 }
 
@@ -7809,6 +7821,12 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 			closeTxOpts, WithCustomTxSort(opts.customSort),
 		)
 	}
+
+	opts.customSequence.WhenSome(func(sequence uint32) {
+		closeTxOpts = append(closeTxOpts, WithCustomTxInSequence(
+			sequence,
+		))
+	})
 
 	closeTx, err := CreateCooperativeCloseTx(
 		fundingTxIn(lc.channelState), lc.channelState.LocalChanCfg.DustLimit,
@@ -7910,6 +7928,12 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 			closeTxOpts, WithCustomTxSort(opts.customSort),
 		)
 	}
+
+	opts.customSequence.WhenSome(func(sequence uint32) {
+		closeTxOpts = append(closeTxOpts, WithCustomTxInSequence(
+			sequence,
+		))
+	})
 
 	// Create the transaction used to return the current settled balance
 	// on this active channel back to both parties. In this current model,
@@ -8628,6 +8652,11 @@ type closeTxOpts struct {
 	// transaction outputs. If this isn't set, then the default BIP-69
 	// sorting is used.
 	customSort CloseSortFunc
+
+	// customSequence is an optional custom sequence to set on the co-op
+	// close transaction. This gives slighty more control compared to the
+	// enableRBF option.
+	customSequence fn.Option[uint32]
 }
 
 // defaultCloseTxOpts returns a closeTxOpts struct with default values.
@@ -8661,6 +8690,14 @@ func WithExtraTxCloseOutputs(extraOutputs []CloseOutput) CloseTxOpt {
 func WithCustomTxSort(sorter CloseSortFunc) CloseTxOpt {
 	return func(opts *closeTxOpts) {
 		opts.customSort = sorter
+    }
+}
+
+// WithCustomTxInSequence allows a caller to set a custom sequence on the sole
+// input of the co-op close tx.
+func WithCustomTxInSequence(sequence uint32) CloseTxOpt {
+	return func(o *closeTxOpts) {
+		o.customSequence = fn.Some(sequence)
 	}
 }
 
@@ -8686,12 +8723,19 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 		fundingTxIn.Sequence = mempool.MaxRBFSequence
 	}
 
+	// Otherwise, a custom sequence might be specified.
+	opts.customSequence.WhenSome(func(sequence uint32) {
+		fundingTxIn.Sequence = sequence
+	})
+
 	// Construct the transaction to perform a cooperative closure of the
 	// channel. In the event that one side doesn't have any settled funds
 	// within the channel then a refund output for that particular side can
 	// be omitted.
 	closeTx := wire.NewMsgTx(2)
 	closeTx.AddTxIn(&fundingTxIn)
+
+	// TODO(roasbeef): needs support for dropping inputs
 
 	// Create both cooperative closure outputs, properly respecting the
 	// dust limits of both parties.

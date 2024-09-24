@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/msgmux"
 )
 
 const (
@@ -249,7 +250,7 @@ func (s *StateMachine[Event, Env]) SendEvent(ctx context.Context, event Event) {
 
 // CanHandle returns true if the target message can be routed to the state
 // machine.
-func (s *StateMachine[Event, Env]) CanHandle(msg lnwire.Message) bool {
+func (s *StateMachine[Event, Env]) CanHandle(msg msgmux.PeerMsg) bool {
 	cfgMapper := s.cfg.MsgMapper
 	return fn.MapOptionZ(cfgMapper, func(mapper MsgMapper[Event]) bool {
 		return mapper.MapMsg(msg).IsSome()

@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -392,7 +393,7 @@ type dummyMsgMapper struct {
 	mock.Mock
 }
 
-func (d *dummyMsgMapper) MapMsg(wireMsg lnwire.Message) fn.Option[dummyEvents] {
+func (d *dummyMsgMapper) MapMsg(wireMsg msgmux.PeerMsg) fn.Option[dummyEvents] {
 	args := d.Called(wireMsg)
 
 	//nolint:forcetypeassert
@@ -414,7 +415,9 @@ func TestStateMachineMsgMapper(t *testing.T) {
 
 	// The only thing we know how to map is the error message, which'll
 	// terminate the state machine.
-	wireError := &lnwire.Error{}
+	wireError := msgmux.PeerMsg{
+		Message: &lnwire.Error{},
+	}
 	initMsg := &lnwire.Init{}
 	dummyMapper.On("MapMsg", wireError).Return(
 		fn.Some(dummyEvents(&goToFin{})),
@@ -441,7 +444,9 @@ func TestStateMachineMsgMapper(t *testing.T) {
 
 	// First, we'll verify that the CanHandle method works as expected.
 	require.True(t, stateMachine.CanHandle(wireError))
-	require.False(t, stateMachine.CanHandle(&lnwire.Init{}))
+	require.False(t, stateMachine.CanHandle(msgmux.PeerMsg{
+		Message: &lnwire.Init{},
+	}))
 
 	// Next, we'll attempt to send the wire message into the state machine.
 	// We should transition to the final state.

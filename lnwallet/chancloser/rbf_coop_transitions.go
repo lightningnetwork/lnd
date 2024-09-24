@@ -766,9 +766,7 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 			Msgs: []lnwire.Message{&lnwire.ClosingComplete{
 				ChannelID:   env.ChanID,
 				FeeSatoshis: absoluteFee,
-				// TODO(roasbeef): thread thru proper height
-				// value
-				LockTime:    mempool.MaxRBFSequence,
+				LockTime:    0,
 				ClosingSigs: closingSigs,
 			}},
 		}}
@@ -975,6 +973,7 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 
 		chanOpts := []lnwallet.ChanCloseOpt{
 			lnwallet.WithCustomSequence(mempool.MaxRBFSequence),
+			lnwallet.WithCustomLockTime(msg.SigMsg.LockTime),
 		}
 
 		chancloserLog.Infof("responding to close w/ local_addr=%x, "+

@@ -7717,6 +7717,8 @@ type chanCloseOpt struct {
 	customSort CloseSortFunc
 
 	customSequence fn.Option[uint32]
+
+	customLockTime fn.Option[uint32]
 }
 
 // ChanCloseOpt is a closure type that cen be used to modify the set of default
@@ -7760,6 +7762,13 @@ func WithCustomCoopSort(sorter CloseSortFunc) ChanCloseOpt {
 func WithCustomSequence(sequence uint32) ChanCloseOpt {
 	return func(opts *chanCloseOpt) {
 		opts.customSequence = fn.Some(sequence)
+	}
+}
+
+// WithCustomLockTime...
+func WithCustomLockTime(lockTime uint32) ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.customLockTime = fn.Some(lockTime)
 	}
 }
 
@@ -7820,6 +7829,12 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	opts.customSequence.WhenSome(func(sequence uint32) {
 		closeTxOpts = append(closeTxOpts, WithCustomTxInSequence(
 			sequence,
+		))
+	})
+
+	opts.customLockTime.WhenSome(func(lockTime uint32) {
+		closeTxOpts = append(closeTxOpts, WithCustomTxLockTime(
+			lockTime,
 		))
 	})
 
@@ -7921,6 +7936,12 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	opts.customSequence.WhenSome(func(sequence uint32) {
 		closeTxOpts = append(closeTxOpts, WithCustomTxInSequence(
 			sequence,
+		))
+	})
+
+	opts.customLockTime.WhenSome(func(lockTime uint32) {
+		closeTxOpts = append(closeTxOpts, WithCustomTxLockTime(
+			lockTime,
 		))
 	})
 
@@ -8646,6 +8667,8 @@ type closeTxOpts struct {
 	// close transaction. This gives slighty more control compared to the
 	// enableRBF option.
 	customSequence fn.Option[uint32]
+
+	customLockTime fn.Option[uint32]
 }
 
 // defaultCloseTxOpts returns a closeTxOpts struct with default values.
@@ -8690,6 +8713,12 @@ func WithCustomTxInSequence(sequence uint32) CloseTxOpt {
 	}
 }
 
+func WithCustomTxLockTime(lockTime uint32) CloseTxOpt {
+	return func(o *closeTxOpts) {
+		o.customLockTime = fn.Some(lockTime)
+	}
+}
+
 // CreateCooperativeCloseTx creates a transaction which if signed by both
 // parties, then broadcast cooperatively closes an active channel. The creation
 // of the closure transaction is modified by a boolean indicating if the party
@@ -8723,6 +8752,10 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 	// be omitted.
 	closeTx := wire.NewMsgTx(2)
 	closeTx.AddTxIn(&fundingTxIn)
+
+	opts.customLockTime.WhenSome(func(lockTime uint32) {
+		closeTx.LockTime = lockTime
+	})
 
 	// TODO(roasbeef): needs support for dropping inputs
 

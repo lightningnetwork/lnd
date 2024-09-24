@@ -924,6 +924,7 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 
 		chanOpts := []lnwallet.ChanCloseOpt{
 			lnwallet.WithCustomSequence(mempool.MaxRBFSequence),
+			lnwallet.WithCustomLockTime(msg.SigMsg.LockTime),
 		}
 
 		chancloserLog.Infof("responding to close w/ local_addr=%x, "+

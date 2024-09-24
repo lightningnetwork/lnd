@@ -7322,10 +7322,28 @@ func (r *rpcServer) DebugLevel(ctx context.Context,
 		return nil, err
 	}
 
-	// Propagate the new config level to the main config struct.
-	r.cfg.DebugLevel = req.LevelSpec
+	subLoggers := r.cfg.LogWriter.SubLoggers()
+	// Sort alphabetically by subsystem name.
+	var tags []string
+	for t := range subLoggers {
+		tags = append(tags, t)
+	}
+	sort.Strings(tags)
 
-	return &lnrpc.DebugLevelResponse{}, nil
+	// Create the log levels string.
+	var logLevels []string
+	for _, t := range tags {
+		logLevels = append(logLevels, fmt.Sprintf("%s=%s", t,
+			subLoggers[t].Level().String()))
+	}
+	logLevelsString := strings.Join(logLevels, ", ")
+
+	// Propagate the new config level to the main config struct.
+	r.cfg.DebugLevel = logLevelsString
+
+	return &lnrpc.DebugLevelResponse{
+		SubSystems: logLevelsString,
+	}, nil
 }
 
 // DecodePayReq takes an encoded payment request string and attempts to decode

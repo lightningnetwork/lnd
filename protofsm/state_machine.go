@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/msgmux"
 )
 
 const (
@@ -242,7 +243,7 @@ func (s *StateMachine[Event, Env]) SendEvent(event Event) {
 
 // CanHandle returns true if the target message can be routed to the state
 // machine.
-func (s *StateMachine[Event, Env]) CanHandle(msg lnwire.Message) bool {
+func (s *StateMachine[Event, Env]) CanHandle(msg msgmux.PeerMsg) bool {
 	cfgMapper := s.cfg.MsgMapper
 	return fn.MapOptionZ(cfgMapper, func(mapper MsgMapper[Event]) bool {
 		return mapper.MapMsg(msg).IsSome()
@@ -258,7 +259,7 @@ func (s *StateMachine[Event, Env]) Name() string {
 // message can be mapped using the default message mapper, then true is
 // returned indicating that the message was processed. Otherwise, false is
 // returned.
-func (s *StateMachine[Event, Env]) SendMessage(msg lnwire.Message) bool {
+func (s *StateMachine[Event, Env]) SendMessage(msg msgmux.PeerMsg) bool {
 	// If we have no message mapper, then return false as we can't process
 	// this message.
 	if !s.cfg.MsgMapper.IsSome() {

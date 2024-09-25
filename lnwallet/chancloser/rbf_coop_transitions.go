@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
@@ -333,8 +334,8 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 		shutdownTransition := fn.NewRight[ShutdownComplete](*msg)
 
 		// If the channel is *already* flushed, and the close is
-		// already in progress, then we can skip the flushing state and
 		// go straight into negotiation, as this is the RBF loop.
+		// already in progress, then we can skip the flushing state and
 		var eventsToEmit fn.Option[protofsm.EmittedEvent[ProtocolEvent]]
 		finalBalances := env.ChanObserver.FinalBalances().UnwrapOr(
 			unknownBalance,
@@ -708,10 +709,10 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		// signature over our co-op close transaction. For our
 		// proposals, we'll just always use the known RBF sequence
 		// value.
-		localScript := l.CloseChannelTerms.LocalDeliveryScript
-		rawSig, _, closeBalance, err := env.CloseSigner.CreateCloseProposal(
+		localScript := l.LocalDeliveryScript
+		rawSig, closeTx, closeBalance, err := env.CloseSigner.CreateCloseProposal(
 			absoluteFee, localScript,
-			l.CloseChannelTerms.RemoteDeliveryScript,
+			l.RemoteDeliveryScript,
 			lnwallet.WithCustomSequence(mempool.MaxRBFSequence),
 		)
 		if err != nil {
@@ -726,6 +727,8 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 			"remote_addr=%x, fee=%v", localScript[:],
 			l.CloseChannelTerms.RemoteDeliveryScript[:],
 			absoluteFee)
+
+		chancloserLog.Infof("proposing closing_tx=%v", spew.Sdump(closeTx))
 
 		// Now that we have our signature, we'll set the proper
 		// closingSigs field based on if the remote party's output is
@@ -990,8 +993,8 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		// signing based on the above, as closing opt
 		rawSig, _, _, err := env.CloseSigner.CreateCloseProposal(
 			msg.SigMsg.FeeSatoshis,
-			l.CloseChannelTerms.LocalDeliveryScript,
-			l.CloseChannelTerms.RemoteDeliveryScript,
+			l.LocalDeliveryScript,
+			l.RemoteDeliveryScript,
 			chanOpts...,
 		)
 		if err != nil {
@@ -1010,11 +1013,11 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		// With our signature created, we'll now attempt to finalize
 		// the close process.
 		//
-		// TODO(roasbef); duplication
 		closeTx, _, err := env.CloseSigner.CompleteCooperativeClose(
+			// TODO(roasbef); duplication
 			localSig, remoteSig,
-			l.CloseChannelTerms.LocalDeliveryScript,
-			l.CloseChannelTerms.RemoteDeliveryScript,
+			l.LocalDeliveryScript,
+			l.RemoteDeliveryScript,
 			msg.SigMsg.FeeSatoshis, chanOpts...,
 		)
 		if err != nil {

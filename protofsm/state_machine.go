@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/msgmux"
 )
 
 const (
@@ -243,7 +244,7 @@ func (s *StateMachine[Event, Env]) SendEvent(event Event) {
 
 // CanHandle returns true if the target message can be routed to the state
 // machine.
-func (s *StateMachine[Event, Env]) CanHandle(msg lnwire.Message) bool {
+func (s *StateMachine[Event, Env]) CanHandle(msg msgmux.PeerMsg) bool {
 	cfgMapper := s.cfg.MsgMapper
 	return fn.MapOptionZ(cfgMapper, func(mapper MsgMapper[Event]) bool {
 		return mapper.MapMsg(msg).IsSome()
@@ -259,14 +260,14 @@ func (s *StateMachine[Event, Env]) Name() string {
 // message can be mapped using the default message mapper, then true is
 // returned indicating that the message was processed. Otherwise, false is
 // returned.
-func (s *StateMachine[Event, Env]) SendMessage(msg lnwire.Message) bool {
+func (s *StateMachine[Event, Env]) SendMessage(msg msgmux.PeerMsg) bool {
 	// If we have no message mapper, then return false as we can't process
 	// this message.
 	if !s.cfg.MsgMapper.IsSome() {
 		return false
 	}
 
-	log.Debugf("FSM(%v): sending msg: %v", s.cfg.Env.Name(),
+	log.Debugf("FSM(%v): new inbound msg: %v", s.cfg.Env.Name(),
 		newLogClosure(func() string {
 			return spew.Sdump(msg)
 		}),
@@ -441,7 +442,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent( //nolint:funlen
 			daemonEvent.Tx, daemonEvent.Label,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to broadcast txn: %w", err)
+			log.Errorf("unable to broadcast txn: %v", err)
 		}
 
 		return nil

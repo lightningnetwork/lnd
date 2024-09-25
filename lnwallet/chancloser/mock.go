@@ -132,6 +132,10 @@ func (m *mockChanObserver) FinalBalances() fn.Option[ShutdownBalances] {
 	return args.Get(0).(fn.Option[ShutdownBalances])
 }
 
+func (m *mockChanObserver) DisableChannel() error {
+	return nil
+}
+
 type mockErrorReporter struct {
 	mock.Mock
 }
@@ -147,11 +151,11 @@ type mockCloseSigner struct {
 func (m *mockCloseSigner) CreateCloseProposal(fee btcutil.Amount,
 	localScript []byte, remoteScript []byte,
 	closeOpt ...lnwallet.ChanCloseOpt) (
-	input.Signature, *chainhash.Hash, btcutil.Amount, error) {
+	input.Signature, *wire.MsgTx, btcutil.Amount, error) {
 
 	args := m.Called(fee, localScript, remoteScript, closeOpt)
 
-	return args.Get(0).(input.Signature), args.Get(1).(*chainhash.Hash),
+	return args.Get(0).(input.Signature), args.Get(1).(*wire.MsgTx),
 		args.Get(2).(btcutil.Amount), args.Error(3)
 }
 

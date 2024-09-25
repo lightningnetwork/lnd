@@ -6,7 +6,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -214,7 +213,7 @@ type CloseSigner interface {
 		localDeliveryScript []byte, remoteDeliveryScript []byte,
 		closeOpt ...lnwallet.ChanCloseOpt,
 	) (
-		input.Signature, *chainhash.Hash, btcutil.Amount, error)
+		input.Signature, *wire.MsgTx, btcutil.Amount, error)
 
 	// CompleteCooperativeClose persistently "completes" the cooperative
 	// close by producing a fully signed co-op close transaction.
@@ -242,7 +241,7 @@ type ChanStateObserver interface {
 	DisableOutgoingAdds() error
 
 	// DisableChannel attempts to disable a channel (marking it ineligible
-	// to foward), and also sends out a network udpate to disable the
+	// to forward), and also sends out a network update to disable the
 	// channel.
 	DisableChannel() error
 
@@ -604,6 +603,9 @@ type LocalOfferSent struct {
 	// ProposedFee is the fee we proposed to the remote party.
 	ProposedFee btcutil.Amount
 
+	// ProposedFeeRate is the fee rate we proposed to the remote party.
+	ProposedFeeRate chainfee.SatPerVByte
+
 	// LocalSig is the signature we sent to the remote party.
 	LocalSig lnwire.Sig
 
@@ -644,6 +646,9 @@ type ClosePending struct {
 
 	// CloseTx is the pending close transaction.
 	CloseTx *wire.MsgTx
+
+	// FeeRate is the fee rate of the closing transaction.
+	FeeRate chainfee.SatPerVByte
 
 	outputDaemonEvents fn.Option[protofsm.BroadcastTxn]
 }

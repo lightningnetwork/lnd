@@ -189,7 +189,7 @@ func (m *mockChannel) RemoteUpfrontShutdownScript() lnwire.DeliveryAddress {
 
 func (m *mockChannel) CreateCloseProposal(fee btcutil.Amount,
 	localScript, remoteScript []byte,
-	_ ...lnwallet.ChanCloseOpt) (input.Signature, *chainhash.Hash,
+	_ ...lnwallet.ChanCloseOpt) (input.Signature, *wire.MsgTx,
 	btcutil.Amount, error) {
 
 	if m.chanType.IsTaproot() {

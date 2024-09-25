@@ -8264,7 +8264,7 @@ func WithCustomLockTime(lockTime uint32) ChanCloseOpt {
 // returned.
 func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	localDeliveryScript []byte, remoteDeliveryScript []byte,
-	closeOpts ...ChanCloseOpt) (input.Signature, *chainhash.Hash,
+	closeOpts ...ChanCloseOpt) (input.Signature, *wire.MsgTx,
 	btcutil.Amount, error) {
 
 	lc.Lock()
@@ -8364,8 +8364,8 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		}
 	}
 
-	closeTXID := closeTx.TxHash()
-	return sig, &closeTXID, ourBalance, nil
+	return sig, closeTx, ourBalance, nil
+
 }
 
 // CompleteCooperativeClose completes the cooperative closure of the target

@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -52,17 +51,10 @@ var (
 	remoteSig     = sigMustParse(remoteSigBytes)
 	remoteWireSig = mustWireSig(&remoteSig)
 
-	localTxid  = newChainHash(bytes.Repeat([]byte{0x01}, 32))
-	remoteTxid = newChainHash(bytes.Repeat([]byte{0x02}, 32))
+	localTx = wire.MsgTx{Version: 2}
 
 	closeTx = wire.NewMsgTx(2)
 )
-
-func newChainHash(b []byte) chainhash.Hash {
-	var h chainhash.Hash
-	copy(h[:], b)
-	return h
-}
 
 func sigMustParse(sigBytes []byte) ecdsa.Signature {
 	sig, err := ecdsa.ParseSignature(sigBytes)
@@ -386,7 +378,7 @@ func (r *rbfCloserTestHarness) expectNewCloseSig(
 	r.signer.On(
 		"CreateCloseProposal", fee, localScript, remoteScript,
 		mock.Anything,
-	).Return(&localSig, &localTxid, closeBalance, nil)
+	).Return(&localSig, &localTx, closeBalance, nil)
 }
 
 func (r *rbfCloserTestHarness) waitForMsgSent() {

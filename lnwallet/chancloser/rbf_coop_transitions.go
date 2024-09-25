@@ -308,8 +308,8 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 		}
 
 		// If the channel is *already* flushed, and the close is
-		// already in progress, then we can skip the flushing state and
 		// go straight into negotiation, as this is the RBF loop.
+		// already in progress, then we can skip the flushing state and
 		var eventsToEmit fn.Option[protofsm.EmittedEvent[ProtocolEvent]]
 		finalBalances := env.ChanObserver.FinalBalances().UnwrapOr(
 			unknownBalance,

@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
@@ -310,8 +311,8 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 		}
 
 		// If the channel is *already* flushed, and the close is
-		// already in progress, then we can skip the flushing state and
 		// go straight into negotiation, as this is the RBF loop.
+		// already in progress, then we can skip the flushing state and
 		var eventsToEmit fn.Option[protofsm.EmittedEvent[ProtocolEvent]]
 		finalBalances := env.ChanObserver.FinalBalances().UnwrapOr(
 			unknownBalance,
@@ -669,7 +670,7 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		// proposals, we'll just always use the known RBF sequence
 		// value.
 		localScript := l.LocalDeliveryScript
-		rawSig, _, closeBalance, err := env.CloseSigner.CreateCloseProposal( //nolint:lll
+		rawSig, closeTx, closeBalance, err := env.CloseSigner.CreateCloseProposal( //nolint:lll
 			absoluteFee, localScript, l.RemoteDeliveryScript,
 			lnwallet.WithCustomSequence(mempool.MaxRBFSequence),
 		)
@@ -684,6 +685,8 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		chancloserLog.Infof("closing w/ local_addr=%x, "+
 			"remote_addr=%x, fee=%v", localScript[:],
 			l.RemoteDeliveryScript[:], absoluteFee)
+
+		chancloserLog.Infof("proposing closing_tx=%v", spew.Sdump(closeTx))
 
 		// Now that we have our signature, we'll set the proper
 		// closingSigs field based on if the remote party's output is
@@ -958,7 +961,6 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		// With our signature created, we'll now attempt to finalize
 		// the close process.
 		//
-		// TODO(roasbef); duplication
 		closeTx, _, err := env.CloseSigner.CompleteCooperativeClose(
 			localSig, remoteSig, l.LocalDeliveryScript,
 			l.RemoteDeliveryScript, msg.SigMsg.FeeSatoshis,

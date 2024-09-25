@@ -51,8 +51,7 @@ var (
 	remoteSig     = sigMustParse(remoteSigBytes)
 	remoteWireSig = mustWireSig(&remoteSig)
 
-	localTxid  = newChainHash(bytes.Repeat([]byte{0x01}, 32))
-	remoteTxid = newChainHash(bytes.Repeat([]byte{0x02}, 32))
+	localTx = wire.MsgTx{Version: 2}
 
 	closeTx = wire.NewMsgTx(2)
 )
@@ -417,7 +416,7 @@ func (r *rbfCloserTestHarness) expectNewCloseSig(
 	r.signer.On(
 		"CreateCloseProposal", fee, localScript[:], remoteScript[:],
 		mock.Anything,
-	).Return(&localSig, &localTxid, closeBalance, nil)
+	).Return(&localSig, &localTx, closeBalance, nil)
 }
 
 func (r *rbfCloserTestHarness) waitForMsgSent() {

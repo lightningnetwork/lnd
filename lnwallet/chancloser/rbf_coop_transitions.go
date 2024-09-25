@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
@@ -306,8 +307,8 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 		}
 
 		// If the channel is *already* flushed, and the close is
-		// already in progress, then we can skip the flushing state and
 		// go straight into negotiation, as this is the RBF loop.
+		// already in progress, then we can skip the flushing state and
 		var eventsToEmit fn.Option[protofsm.EmittedEvent[ProtocolEvent]]
 		finalBalances := env.ChanObserver.FinalBalances().UnwrapOr(
 			unknownBalance,

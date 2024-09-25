@@ -6,7 +6,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -223,7 +222,7 @@ type CloseSigner interface {
 		localDeliveryScript []byte, remoteDeliveryScript []byte,
 		closeOpt ...lnwallet.ChanCloseOpt,
 	) (
-		input.Signature, *chainhash.Hash, btcutil.Amount, error)
+		input.Signature, *wire.MsgTx, btcutil.Amount, error)
 
 	// CompleteCooperativeClose persistently "completes" the cooperative
 	// close by producing a fully signed co-op close transaction.

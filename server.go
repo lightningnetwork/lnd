@@ -2411,6 +2411,14 @@ func (s *server) Stop() error {
 		if err := s.invoices.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop invoices: %v", err)
 		}
+		if err := s.interceptableSwitch.Stop(); err != nil {
+			srvrLog.Warnf("failed to stop interceptable "+
+				"switch: %v", err)
+		}
+		if err := s.invoiceHtlcModifier.Stop(); err != nil {
+			srvrLog.Warnf("failed to stop htlc invoices "+
+				"modifier: %v", err)
+		}
 		if err := s.chanRouter.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop chanRouter: %v", err)
 		}

@@ -47,6 +47,10 @@
 ## lncli Updates
 
 ## Code Health
+
+* [Moved](https://github.com/lightningnetwork/lnd/pull/9138) profile related
+  config settings to its own dedicated group. The old ones still work but will
+  be removed in a future release.
  
 ## Breaking Changes
 ## Performance Improvements

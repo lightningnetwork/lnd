@@ -62,6 +62,10 @@
 ## Testing
 ## Database
 
+* [Migrate KV invoices to
+  SQL](https://github.com/lightningnetwork/lnd/pull/8831) as part of a larger
+  effort to support SQL databases natively in LND.
+
 ## Code Health
 
 ## Tooling and Documentation
@@ -72,6 +76,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Andras Banki-Horvath
 * CharlieZKSmith
 * Elle Mouton
 * Pins

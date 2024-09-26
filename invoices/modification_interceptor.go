@@ -2,6 +2,7 @@ package invoices
 
 import (
 	"errors"
+	"fmt"
 	"sync/atomic"
 
 	"github.com/lightningnetwork/lnd/fn"
@@ -167,20 +168,30 @@ func (s *HtlcModificationInterceptor) RegisterInterceptor(
 
 // Start starts the service.
 func (s *HtlcModificationInterceptor) Start() error {
+	log.Info("HtlcModificationInterceptor starting...")
+
 	if !s.started.CompareAndSwap(false, true) {
-		return nil
+		return fmt.Errorf("HtlcModificationInterceptor started more" +
+			"than once")
 	}
+
+	log.Debugf("HtlcModificationInterceptor started")
 
 	return nil
 }
 
 // Stop stops the service.
 func (s *HtlcModificationInterceptor) Stop() error {
+	log.Info("HtlcModificationInterceptor stopping...")
+
 	if !s.stopped.CompareAndSwap(false, true) {
-		return nil
+		return fmt.Errorf("HtlcModificationInterceptor stopped more" +
+			"than once")
 	}
 
 	close(s.quit)
+
+	log.Debug("HtlcModificationInterceptor stopped")
 
 	return nil
 }

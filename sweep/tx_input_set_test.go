@@ -92,7 +92,7 @@ func TestNewBudgetInputSet(t *testing.T) {
 	rt.ErrorContains(err, "duplicate inputs")
 	rt.Nil(set)
 
-	// Pass a slice of inputs that only one input has the deadline height,
+	// Pass a slice of inputs that only one input has the deadline height.
 	set, err = NewBudgetInputSet(
 		[]SweeperInput{input0, input3}, testHeight,
 		fn.None[AuxSweeper](),

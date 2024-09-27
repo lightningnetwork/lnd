@@ -115,13 +115,15 @@ func TestCalcSweepTxWeight(t *testing.T) {
 	inp := createTestInput(100, input.WitnessKeyHash)
 
 	// Use a wrong change script to test the error case.
-	weight, err := calcSweepTxWeight([]input.Input{&inp}, []byte{0})
+	weight, err := calcSweepTxWeight(
+		[]input.Input{&inp}, [][]byte{{0x00}},
+	)
 	require.Error(t, err)
 	require.Zero(t, weight)
 
 	// Use a correct change script to test the success case.
 	weight, err = calcSweepTxWeight(
-		[]input.Input{&inp}, changePkScript.DeliveryAddress,
+		[]input.Input{&inp}, [][]byte{changePkScript.DeliveryAddress},
 	)
 	require.NoError(t, err)
 
@@ -143,7 +145,7 @@ func TestBumpRequestMaxFeeRateAllowed(t *testing.T) {
 
 	// The weight is 487.
 	weight, err := calcSweepTxWeight(
-		[]input.Input{&inp}, changePkScript.DeliveryAddress,
+		[]input.Input{&inp}, [][]byte{changePkScript.DeliveryAddress},
 	)
 	require.NoError(t, err)
 

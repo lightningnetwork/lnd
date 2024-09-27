@@ -262,7 +262,8 @@ func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
 
 		default:
 			// Unknown script type.
-			return nil, nil, errors.New("unknown script type")
+			return nil, nil, fmt.Errorf("unknown script "+
+				"type: %x", outputPkScript)
 		}
 	}
 

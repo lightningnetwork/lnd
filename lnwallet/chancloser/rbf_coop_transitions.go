@@ -289,6 +289,46 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 			},
 		}, nil
 
+	// The remote party already sent an offer. We'll go to the
+	// ChannelFlushing case, and then emit the offer as a internal event,
+	// which'll be handled as an early offer.
+	//
+	// TODO(roasbeef): test this as well
+	case *OfferReceivedEvent:
+		chancloserLog.Infof("ChannelPoint(%v): got an early offer "+
+			"in ShutdownPending, emitting as external event", env.ChanPoint)
+
+		// If the channel is *already* flushed, and the close is
+		// already in progress, then we can skip the flushing state and
+		// go straight into negotiation, as this is the RBF loop.
+		var eventsToEmit fn.Option[protofsm.EmittedEvent[ProtocolEvent]]
+		finalBalances := env.ChanObserver.FinalBalances().UnwrapOr(
+			unknownBalance,
+		)
+		if finalBalances != unknownBalance {
+			channelFlushed := ProtocolEvent(&ChannelFlushed{
+				ShutdownBalances: finalBalances,
+			})
+
+			// We'll emit their sig as an internal event, then the
+			// channel flushed message to progress the state
+			// machine.
+			eventsToEmit = fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
+				InternalEvent: fn.Some([]ProtocolEvent{
+					msg, channelFlushed,
+				}),
+			})
+		}
+
+		return &CloseStateTransition{
+			NextState: &ChannelFlushing{
+				prevState:       s,
+				IdealFeeRate:    s.IdealFeeRate,
+				ShutdownScripts: s.ShutdownScripts,
+			},
+			NewEvents: eventsToEmit,
+		}, nil
+
 	// When we receive a shutdown from the remote party, we'll validate the
 	// shutdown message, then transition to the ChannelFlushing state.
 	case *ShutdownReceived:
@@ -339,6 +379,8 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 
 		chancloserLog.Infof("ChannelPoint(%v): waiting for channel to "+
 			"be flushed...", env.ChanPoint)
+
+		// TODO(roasbeef): auto emit next upon shutdown receipt?
 
 		// We transition to the ChannelFlushing state, where we await
 		// the ChannelFlushed event.
@@ -929,6 +971,11 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		//
 		// TODO(roasbeef): need to be able to omit an output when
 		// signing based on the above, as closing opt
+		//
+		//  * TODO(roasbeef): modify this to take from my balance
+		//     * can use the new remote vs remote options as optional
+		//       argument
+		//     * then go from there
 		rawSig, _, _, err := env.CloseSigner.CreateCloseProposal(
 			msg.SigMsg.FeeSatoshis, l.LocalDeliveryScript,
 			l.RemoteDeliveryScript, chanOpts...,

@@ -8,6 +8,7 @@ import (
 	"io"
 	mrand "math/rand"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -3180,6 +3181,54 @@ func TestSwitchGetAttemptResult(t *testing.T) {
 	}
 }
 
+func TestSwitchGetAttemptResultStress(t *testing.T) {
+	t.Parallel()
+
+	const paymentID = 123
+	var preimg lntypes.Preimage
+	preimg[0] = 3
+
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
+	require.NoError(t, err, "unable to init switch")
+	if err := s.Start(); err != nil {
+		t.Fatalf("unable to start switch: %v", err)
+	}
+	defer s.Stop()
+
+	lookup := make(chan *PaymentCircuit, 1)
+	s.circuits = &mockCircuitMap{
+		lookup: lookup,
+	}
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		for range 1000 {
+			// Next let the lookup find the circuit in the circuit map. It should
+			// subscribe to payment results, and return the result when available.
+			lookup <- &PaymentCircuit{}
+			_, err := s.GetAttemptResult(
+				paymentID, lntypes.Hash{}, newMockDeobfuscator(),
+			)
+			require.NoError(t, err, "unable to get payment result")
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		time.Sleep(10 * time.Millisecond)
+
+		s.Stop()
+	}()
+
+	wg.Wait()
+}
+
 // TestInvalidFailure tests that the switch returns an unreadable failure error
 // if the failure cannot be decrypted.
 func TestInvalidFailure(t *testing.T) {
@@ -4985,7 +5034,7 @@ func testSwitchForwardFailAlias(t *testing.T, zeroConf bool) {
 	// Pull packet from Bob's link, and do nothing with it.
 	select {
 	case <-bobLink.packets:
-	case <-s.quit:
+	case <-s.gm.Done():
 		t.Fatal("switch shutting down, failed to forward packet")
 	}
 
@@ -5046,7 +5095,8 @@ func testSwitchForwardFailAlias(t *testing.T, zeroConf bool) {
 		failMsg, ok := msg.(*lnwire.FailTemporaryChannelFailure)
 		require.True(t, ok)
 		require.Equal(t, aliceAlias, failMsg.Update.ShortChannelID)
-	case <-s2.quit:
+
+	case <-s2.gm.Done():
 		t.Fatal("switch shutting down, failed to forward packet")
 	}
 }
@@ -5229,7 +5279,8 @@ func testSwitchAliasFailAdd(t *testing.T, zeroConf, private, useAlias bool) {
 		failMsg, ok := msg.(*lnwire.FailTemporaryChannelFailure)
 		require.True(t, ok)
 		require.Equal(t, outgoingChanID, failMsg.Update.ShortChannelID)
-	case <-s.quit:
+
+	case <-s.gm.Done():
 		t.Fatal("switch shutting down, failed to receive fail packet")
 	}
 }
@@ -5429,7 +5480,8 @@ func testSwitchHandlePacketForward(t *testing.T, zeroConf, private,
 		failMsg, ok := msg.(*lnwire.FailAmountBelowMinimum)
 		require.True(t, ok)
 		require.Equal(t, outgoingChanID, failMsg.Update.ShortChannelID)
-	case <-s.quit:
+
+	case <-s.gm.Done():
 		t.Fatal("switch shutting down, failed to receive failure")
 	}
 }
@@ -5587,7 +5639,7 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 		isAlias := failScid == aliceAlias || failScid == aliceAlias2
 		require.True(t, isAlias)
 
-	case <-s.quit:
+	case <-s.gm.Done():
 		t.Fatalf("switch shutting down, failed to receive failure")
 	}
 

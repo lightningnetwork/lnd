@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
@@ -41,6 +42,19 @@ var (
 	// ErrThirdPartySpent is returned when a third party has spent the
 	// input in the sweeping tx.
 	ErrThirdPartySpent = errors.New("third party spent the output")
+)
+
+var (
+	// dummyChangePkScript is a dummy tapscript change script that's used
+	// when we don't need a real address, just something that can be used
+	// for fee estimation.
+	dummyChangePkScript = []byte{
+		0x51, 0x20,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	}
 )
 
 // Bumper defines an interface that can be used by other subsystems for fee
@@ -129,12 +143,33 @@ type BumpRequest struct {
 // compares it with the specified MaxFeeRate, and returns the smaller of the
 // two.
 func (r *BumpRequest) MaxFeeRateAllowed() (chainfee.SatPerKWeight, error) {
+	// We'll want to know if we have any blobs, as we need to factor this
+	// into the max fee rate for this bump request.
+	hasBlobs := fn.Any(func(i input.Input) bool {
+		return fn.MapOptionZ(
+			i.ResolutionBlob(), func(b tlv.Blob) bool {
+				return len(b) > 0
+			},
+		)
+	}, r.Inputs)
+
+	sweepAddrs := [][]byte{
+		r.DeliveryAddress.DeliveryAddress,
+	}
+
+	// If we have blobs, then we'll add an extra sweep addr for the size
+	// estimate below. We know that these blobs will also always be based on
+	// p2tr addrs.
+	if hasBlobs {
+		// We need to pass in a real address, so we'll use a dummy
+		// tapscript change script that's used elsewhere for tests.
+		sweepAddrs = append(sweepAddrs, dummyChangePkScript)
+	}
+
 	// Get the size of the sweep tx, which will be used to calculate the
 	// budget fee rate.
-	//
-	// TODO(roasbeef): also wants the extra change output?
 	size, err := calcSweepTxWeight(
-		r.Inputs, r.DeliveryAddress.DeliveryAddress,
+		r.Inputs, sweepAddrs,
 	)
 	if err != nil {
 		return 0, err
@@ -163,7 +198,7 @@ func (r *BumpRequest) MaxFeeRateAllowed() (chainfee.SatPerKWeight, error) {
 // calcSweepTxWeight calculates the weight of the sweep tx. It assumes a
 // sweeping tx always has a single output(change).
 func calcSweepTxWeight(inputs []input.Input,
-	outputPkScript []byte) (lntypes.WeightUnit, error) {
+	outputPkScript [][]byte) (lntypes.WeightUnit, error) {
 
 	// Use a const fee rate as we only use the weight estimator to
 	// calculate the size.
@@ -177,7 +212,7 @@ func calcSweepTxWeight(inputs []input.Input,
 	// TODO(yy): we should refactor the weight estimator to not require a
 	// fee rate and max fee rate and make it a pure tx weight calculator.
 	_, estimator, err := getWeightEstimate(
-		inputs, nil, feeRate, 0, [][]byte{outputPkScript},
+		inputs, nil, feeRate, 0, outputPkScript,
 	)
 	if err != nil {
 		return 0, err

@@ -260,10 +260,15 @@ func createDummyRoute(t *testing.T, amt lnwire.MilliSatoshi) *route.Route {
 func makeSettledAttempt(t *testing.T, total int,
 	preimage lntypes.Preimage) *channeldb.HTLCAttempt {
 
-	return &channeldb.HTLCAttempt{
+	a := &channeldb.HTLCAttempt{
 		HTLCAttemptInfo: makeAttemptInfo(t, total),
 		Settle:          &channeldb.HTLCSettleInfo{Preimage: preimage},
 	}
+
+	hash := preimage.Hash()
+	a.Hash = &hash
+
+	return a
 }
 
 func makeFailedAttempt(t *testing.T, total int) *channeldb.HTLCAttempt {
@@ -279,6 +284,7 @@ func makeAttemptInfo(t *testing.T, amt int) channeldb.HTLCAttemptInfo {
 	rt := createDummyRoute(t, lnwire.MilliSatoshi(amt))
 	return channeldb.HTLCAttemptInfo{
 		Route: *rt,
+		Hash:  &lntypes.Hash{1, 2, 3},
 	}
 }
 
@@ -1303,11 +1309,6 @@ func TestCollectResultExitOnErr(t *testing.T) {
 	paymentAmt := 10_000
 	attempt := makeFailedAttempt(t, paymentAmt)
 
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
-
 	// Mock the htlcswitch to return a dummy error.
 	m.payer.On("GetAttemptResult",
 		attempt.AttemptID, p.identifier, mock.Anything,
@@ -1347,11 +1348,6 @@ func TestCollectResultExitOnResultErr(t *testing.T) {
 
 	paymentAmt := 10_000
 	attempt := makeFailedAttempt(t, paymentAmt)
-
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
 
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
@@ -1399,11 +1395,6 @@ func TestCollectResultExitOnSwitchQuit(t *testing.T) {
 	paymentAmt := 10_000
 	attempt := makeFailedAttempt(t, paymentAmt)
 
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
-
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
@@ -1431,11 +1422,6 @@ func TestCollectResultExitOnRouterQuit(t *testing.T) {
 	paymentAmt := 10_000
 	attempt := makeFailedAttempt(t, paymentAmt)
 
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
-
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
@@ -1461,11 +1447,6 @@ func TestCollectResultExitOnLifecycleQuit(t *testing.T) {
 
 	paymentAmt := 10_000
 	attempt := makeFailedAttempt(t, paymentAmt)
-
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
 
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
@@ -1494,11 +1475,6 @@ func TestCollectResultExitOnSettleErr(t *testing.T) {
 	paymentAmt := 10_000
 	preimage := lntypes.Preimage{1}
 	attempt := makeSettledAttempt(t, paymentAmt, preimage)
-
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
 
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
@@ -1542,11 +1518,6 @@ func TestCollectResultSuccess(t *testing.T) {
 	preimage := lntypes.Preimage{1}
 	attempt := makeSettledAttempt(t, paymentAmt, preimage)
 
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
-
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
@@ -1589,11 +1560,6 @@ func TestCollectResultAsyncSuccess(t *testing.T) {
 	paymentAmt := 10_000
 	preimage := lntypes.Preimage{1}
 	attempt := makeSettledAttempt(t, paymentAmt, preimage)
-
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
 
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)

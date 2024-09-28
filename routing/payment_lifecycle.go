@@ -488,17 +488,9 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 
 	log.Tracef("Collecting result for attempt %v", spew.Sdump(attempt))
 
-	// We'll retrieve the hash specific to this shard from the
-	// shardTracker, since it will be needed to regenerate the circuit
-	// below.
-	hash, err := p.shardTracker.GetHash(attempt.AttemptID)
-	if err != nil {
-		return p.failAttempt(attempt.AttemptID, err)
-	}
-
 	// Regenerate the circuit for this attempt.
 	_, circuit, err := generateSphinxPacket(
-		&attempt.Route, hash[:], attempt.SessionKey(),
+		&attempt.Route, attempt.Hash[:], attempt.SessionKey(),
 	)
 	// TODO(yy): We generate this circuit to create the error decryptor,
 	// which is then used in htlcswitch as the deobfuscator to decode the

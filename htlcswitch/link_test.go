@@ -1622,6 +1622,12 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	attempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: pid,
+		},
+	}
+
 	// Send payment and expose err channel.
 	err = n.aliceServer.htlcSwitch.SendHTLC(
 		n.firstBobChannelLink.ShortChanID(), pid, htlc,
@@ -1629,7 +1635,7 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 	require.NoError(t, err, "unable to get send payment")
 
 	resultChan, err := n.aliceServer.htlcSwitch.GetAttemptResult(
-		pid, htlc.PaymentHash, newMockDeobfuscator(),
+		attempt, htlc.PaymentHash, newMockDeobfuscator(),
 	)
 	require.NoError(t, err, "unable to get payment result")
 
@@ -4539,6 +4545,12 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	attempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: pid,
+		},
+	}
+
 	err = n.carolServer.registry.AddInvoice(
 		context.Background(), *invoice, htlc.PaymentHash,
 	)
@@ -4552,7 +4564,7 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 	require.NoError(t, err, "unable to send payment to carol")
 
 	resultChan, err := n.aliceServer.htlcSwitch.GetAttemptResult(
-		pid, htlc.PaymentHash, newMockDeobfuscator(),
+		attempt, htlc.PaymentHash, newMockDeobfuscator(),
 	)
 	require.NoError(t, err, "unable to get payment result")
 

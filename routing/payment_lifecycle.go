@@ -512,7 +512,7 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 	// only create the decryptor when received a failure, further saving us
 	// a few CPU cycles.
 	resultChan, err := p.router.cfg.Payer.GetAttemptResult(
-		attempt.AttemptID, p.identifier, errorDecryptor,
+		attempt, p.identifier, errorDecryptor,
 	)
 	// Handle the switch error.
 	if err != nil {

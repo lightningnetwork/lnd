@@ -123,7 +123,8 @@ type PaymentAttemptDispatcher interface {
 	// longer be in flight.  The switch shutting down is signaled by
 	// closing the channel. If the attemptID is unknown,
 	// ErrPaymentIDNotFound will be returned.
-	GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
+	GetAttemptResult(attempt *channeldb.HTLCAttempt,
+		paymentHash lntypes.Hash,
 		deobfuscator htlcswitch.ErrorDecrypter) (
 		<-chan *htlcswitch.PaymentResult, error)
 

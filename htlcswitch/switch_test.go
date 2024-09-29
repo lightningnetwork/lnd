@@ -2700,11 +2700,16 @@ func TestSwitchSendPayment(t *testing.T) {
 		Amount:      1,
 	}
 	paymentID := uint64(123)
+	attempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: paymentID,
+		},
+	}
 
 	// First check that the switch will correctly respond that this payment
 	// ID is unknown.
 	_, err = s.GetAttemptResult(
-		paymentID, rhash, newMockDeobfuscator(),
+		attempt, rhash, newMockDeobfuscator(),
 	)
 	if err != ErrPaymentIDNotFound {
 		t.Fatalf("expected ErrPaymentIDNotFound, got %v", err)
@@ -2722,7 +2727,7 @@ func TestSwitchSendPayment(t *testing.T) {
 		}
 
 		resultChan, err := s.GetAttemptResult(
-			paymentID, rhash, newMockDeobfuscator(),
+			attempt, rhash, newMockDeobfuscator(),
 		)
 		if err != nil {
 			errChan <- err
@@ -3087,6 +3092,12 @@ func TestSwitchGetAttemptResult(t *testing.T) {
 	var preimg lntypes.Preimage
 	preimg[0] = 3
 
+	attempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: paymentID,
+		},
+	}
+
 	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
@@ -3105,7 +3116,7 @@ func TestSwitchGetAttemptResult(t *testing.T) {
 	// returned.
 	lookup <- nil
 	_, err = s.GetAttemptResult(
-		paymentID, lntypes.Hash{}, newMockDeobfuscator(),
+		attempt, lntypes.Hash{}, newMockDeobfuscator(),
 	)
 	if err != ErrPaymentIDNotFound {
 		t.Fatalf("expected ErrPaymentIDNotFound, got %v", err)
@@ -3115,7 +3126,7 @@ func TestSwitchGetAttemptResult(t *testing.T) {
 	// subscribe to payment results, and return the result when available.
 	lookup <- &PaymentCircuit{}
 	resultChan, err := s.GetAttemptResult(
-		paymentID, lntypes.Hash{}, newMockDeobfuscator(),
+		attempt, lntypes.Hash{}, newMockDeobfuscator(),
 	)
 	require.NoError(t, err, "unable to get payment result")
 
@@ -3156,7 +3167,7 @@ func TestSwitchGetAttemptResult(t *testing.T) {
 	// store.
 	lookup <- nil
 	resultChan, err = s.GetAttemptResult(
-		paymentID, lntypes.Hash{}, newMockDeobfuscator(),
+		attempt, lntypes.Hash{}, newMockDeobfuscator(),
 	)
 	require.NoError(t, err, "unable to get payment result")
 
@@ -3218,6 +3229,11 @@ func TestInvalidFailure(t *testing.T) {
 	}
 
 	paymentID := uint64(123)
+	attempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: paymentID,
+		},
+	}
 
 	// Send the request.
 	err = s.SendHTLC(
@@ -3262,7 +3278,7 @@ func TestInvalidFailure(t *testing.T) {
 	}
 
 	resultChan, err := s.GetAttemptResult(
-		paymentID, rhash, &deobfuscator,
+		attempt, rhash, &deobfuscator,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -3288,7 +3304,7 @@ func TestInvalidFailure(t *testing.T) {
 	}
 
 	resultChan, err = s.GetAttemptResult(
-		paymentID, rhash, &deobfuscator,
+		attempt, rhash, &deobfuscator,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -4294,6 +4310,17 @@ func TestSwitchDustForwarding(t *testing.T) {
 	// of 700sats.
 	numHTLCs := 354
 	aliceAttemptID, bobAttemptID := numHTLCs, numHTLCs
+	aliceAttempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: uint64(aliceAttemptID),
+		},
+	}
+	bobAttempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: uint64(bobAttemptID),
+		},
+	}
+
 	amt := lnwire.NewMSatFromSatoshis(700)
 	aliceBobFirstHop := n.aliceChannelLink.ShortChanID()
 
@@ -4375,7 +4402,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	// Use the network result store to ensure the HTLC was failed
 	// backwards.
 	bobResultChan, err := n.bobServer.htlcSwitch.GetAttemptResult(
-		uint64(bobAttemptID), failingHash, newMockDeobfuscator(),
+		bobAttempt, failingHash, newMockDeobfuscator(),
 	)
 	require.NoError(t, err)
 
@@ -4418,7 +4445,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 
 	// Check that the HTLC failed.
 	bobResultChan, err = n.bobServer.htlcSwitch.GetAttemptResult(
-		uint64(bobAttemptID), nondustHash, newMockDeobfuscator(),
+		bobAttempt, nondustHash, newMockDeobfuscator(),
 	)
 	require.NoError(t, err)
 
@@ -4450,6 +4477,11 @@ func TestSwitchDustForwarding(t *testing.T) {
 
 	// Initialize Carol's attempt ID.
 	carolAttemptID := 0
+	carolAttempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: uint64(carolAttemptID),
+		},
+	}
 
 	err = n.carolServer.htlcSwitch.SendHTLC(
 		n.carolChannelLink.ShortChanID(), uint64(carolAttemptID),
@@ -4458,7 +4490,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	require.NoError(t, err)
 
 	carolResultChan, err := n.carolServer.htlcSwitch.GetAttemptResult(
-		uint64(carolAttemptID), carolHash, newMockDeobfuscator(),
+		carolAttempt, carolHash, newMockDeobfuscator(),
 	)
 	require.NoError(t, err)
 
@@ -4505,7 +4537,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	require.Nil(t, err)
 
 	aliceResultChan, err := n.aliceServer.htlcSwitch.GetAttemptResult(
-		uint64(aliceAttemptID), aliceMultihopHash,
+		aliceAttempt, aliceMultihopHash,
 		newMockDeobfuscator(),
 	)
 	require.NoError(t, err)

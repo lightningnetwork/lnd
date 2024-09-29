@@ -456,7 +456,8 @@ func (s *Switch) HasAttemptResult(attemptID uint64) (bool, error) {
 // received on the channel, the HTLC is guaranteed to no longer be in flight.
 // The switch shutting down is signaled by closing the channel. If the
 // attemptID is unknown, ErrPaymentIDNotFound will be returned.
-func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
+func (s *Switch) GetAttemptResult(attempt *channeldb.HTLCAttempt,
+	paymentHash lntypes.Hash,
 	deobfuscator ErrorDecrypter) (<-chan *PaymentResult, error) {
 
 	var (
@@ -464,7 +465,7 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 		err   error
 		inKey = CircuitKey{
 			ChanID: hop.Source,
-			HtlcID: attemptID,
+			HtlcID: attempt.AttemptID,
 		}
 	)
 
@@ -472,7 +473,7 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 	// is already available.
 	// Assumption: no one will add this attempt ID other than the caller.
 	if s.circuits.LookupCircuit(inKey) == nil {
-		res, err := s.networkResults.getResult(attemptID)
+		res, err := s.networkResults.getResult(attempt.AttemptID)
 		if err != nil {
 			return nil, err
 		}
@@ -482,7 +483,7 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 	} else {
 		// The HTLC was committed to the circuits, subscribe for a
 		// result.
-		nChan, err = s.networkResults.subscribeResult(attemptID)
+		nChan, err = s.networkResults.subscribeResult(attempt.AttemptID)
 		if err != nil {
 			return nil, err
 		}
@@ -509,11 +510,11 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 		}
 
 		log.Debugf("Received network result %T for attemptID=%v", n.msg,
-			attemptID)
+			attempt.AttemptID)
 
 		// Extract the result and pass it to the result channel.
 		result, err := s.extractResult(
-			deobfuscator, n, attemptID, paymentHash,
+			deobfuscator, n, attempt.AttemptID, paymentHash,
 		)
 		if err != nil {
 			e := fmt.Errorf("unable to extract result: %w", err)

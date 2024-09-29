@@ -796,6 +796,12 @@ func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 		return nil, nil, err
 	}
 
+	attempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: pid,
+		},
+	}
+
 	// Check who is last in the route and add invoice to server registry.
 	hash := invoice.Terms.PaymentPreimage.Hash()
 	if err := receiver.registry.AddInvoice(
@@ -813,7 +819,7 @@ func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 			return err
 		}
 		resultChan, err := sender.htlcSwitch.GetAttemptResult(
-			pid, hash, newMockDeobfuscator(),
+			attempt, hash, newMockDeobfuscator(),
 		)
 		if err != nil {
 			return err
@@ -1356,6 +1362,12 @@ func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 		return paymentErr
 	}
 
+	attempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: pid,
+		},
+	}
+
 	// Check who is last in the route and add invoice to server registry.
 	if err := receiver.registry.AddInvoice(
 		context.Background(), *invoice, rhash,
@@ -1373,7 +1385,7 @@ func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 
 	go func() {
 		resultChan, err := sender.htlcSwitch.GetAttemptResult(
-			pid, rhash, newMockDeobfuscator(),
+			attempt, rhash, newMockDeobfuscator(),
 		)
 		if err != nil {
 			paymentErr <- err

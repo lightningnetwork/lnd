@@ -489,9 +489,8 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 	log.Tracef("Collecting result for attempt %v", spew.Sdump(attempt))
 
 	// Regenerate the circuit for this attempt.
-	_, circuit, err := generateSphinxPacket(
-		&attempt.Route, attempt.Hash[:], attempt.SessionKey(),
-	)
+	circuit, err := attempt.Circuit()
+
 	// TODO(yy): We generate this circuit to create the error decryptor,
 	// which is then used in htlcswitch as the deobfuscator to decode the
 	// error from `UpdateFailHTLC`. However, suppose it's an
@@ -667,11 +666,9 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
 
 	// We now have all the information needed to populate the current
 	// attempt information.
-	attempt := channeldb.NewHtlcAttempt(
+	return channeldb.NewHtlcAttempt(
 		attemptID, sessionKey, *rt, p.router.cfg.Clock.Now(), &hash,
 	)
-
-	return attempt, nil
 }
 
 // sendAttempt attempts to send the current attempt to the switch to complete
@@ -703,9 +700,7 @@ func (p *paymentLifecycle) sendAttempt(
 	// Generate the raw encoded sphinx packet to be included along
 	// with the htlcAdd message that we send directly to the
 	// switch.
-	onionBlob, _, err := generateSphinxPacket(
-		&rt, attempt.Hash[:], attempt.SessionKey(),
-	)
+	onionBlob, err := attempt.OnionBlob()
 	if err != nil {
 		log.Errorf("Failed to create onion blob: attempt=%d in "+
 			"payment=%v, err:%v", attempt.AttemptID,
@@ -714,7 +709,7 @@ func (p *paymentLifecycle) sendAttempt(
 		return p.failAttempt(attempt.AttemptID, err)
 	}
 
-	copy(htlcAdd.OnionBlob[:], onionBlob)
+	htlcAdd.OnionBlob = onionBlob
 
 	// Send it to the Switch. When this method returns we assume
 	// the Switch successfully has persisted the payment attempt,

@@ -100,6 +100,10 @@ var (
 	bobDustLimit   = btcutil.Amount(1300)
 
 	testChannelCapacity float64 = 10
+
+	// testQuitChan is a channel that will never be closed, that matches the
+	// signature of a channel used to send a quit signal.
+	testQuitChan = make(chan struct{})
 )
 
 // CreateTestChannels creates to fully populated channels to be used within
@@ -541,7 +545,7 @@ func calcStaticFee(chanType channeldb.ChannelType, numHTLCs int) btcutil.Amount 
 // pending updates. This method is useful when testing interactions between two
 // live state machines.
 func ForceStateTransition(chanA, chanB *LightningChannel) error {
-	aliceNewCommit, err := chanA.SignNextCommitment()
+	aliceNewCommit, err := chanA.SignNextCommitment(testQuitChan)
 	if err != nil {
 		return err
 	}
@@ -554,7 +558,7 @@ func ForceStateTransition(chanA, chanB *LightningChannel) error {
 	if err != nil {
 		return err
 	}
-	bobNewCommit, err := chanB.SignNextCommitment()
+	bobNewCommit, err := chanB.SignNextCommitment(testQuitChan)
 	if err != nil {
 		return err
 	}

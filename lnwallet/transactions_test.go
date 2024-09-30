@@ -357,7 +357,7 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 
 	// Execute commit dance to arrive at the point where the local node has
 	// received the test commitment and the remote signature.
-	localNewCommit, err := localChannel.SignNextCommitment()
+	localNewCommit, err := localChannel.SignNextCommitment(testQuitChan)
 	require.NoError(t, err, "local unable to sign commitment")
 
 	err = remoteChannel.ReceiveNewCommitment(localNewCommit.CommitSigs)
@@ -369,7 +369,7 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	_, _, _, _, err = localChannel.ReceiveRevocation(revMsg)
 	require.NoError(t, err)
 
-	remoteNewCommit, err := remoteChannel.SignNextCommitment()
+	remoteNewCommit, err := remoteChannel.SignNextCommitment(testQuitChan)
 	require.NoError(t, err)
 
 	require.Equal(

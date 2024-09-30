@@ -889,7 +889,7 @@ func (l *channelLink) syncChanStates() error {
 		// party, so we'll process the message  in order to determine
 		// if we need to re-transmit any messages to the remote party.
 		msgsToReSend, openedCircuits, closedCircuits, err =
-			l.channel.ProcessChanSyncMsg(remoteChanSyncMsg)
+			l.channel.ProcessChanSyncMsg(l.quit, remoteChanSyncMsg)
 		if err != nil {
 			return err
 		}
@@ -2541,7 +2541,7 @@ func (l *channelLink) updateCommitTx() error {
 		return nil
 	}
 
-	newCommit, err := l.channel.SignNextCommitment()
+	newCommit, err := l.channel.SignNextCommitment(l.quit)
 	if err == lnwallet.ErrNoWindow {
 		l.cfg.PendingCommitTicker.Resume()
 		l.log.Trace("PendingCommitTicker resumed")

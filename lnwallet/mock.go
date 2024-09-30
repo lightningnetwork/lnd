@@ -391,6 +391,14 @@ func (*mockChainIO) GetBlockHeader(
 
 type auxSignerMock struct {
 	mock.Mock
+
+	jobHandlerFunc func([]AuxSigJob)
+}
+
+func NewAuxSignerMock(jobHandler func([]AuxSigJob)) *auxSignerMock {
+	return &auxSignerMock{
+		jobHandlerFunc: jobHandler,
+	}
 }
 
 func (a *auxSignerMock) SubmitSecondLevelSigBatch(
@@ -398,12 +406,7 @@ func (a *auxSignerMock) SubmitSecondLevelSigBatch(
 	commitTx *wire.MsgTx, sigJobs []AuxSigJob) error {
 
 	args := a.Called(chanState, commitTx, sigJobs)
-
-	// While we return, we'll also send back an instant response for the
-	// set of jobs.
-	for _, sigJob := range sigJobs {
-		sigJob.Resp <- AuxSigJobResp{}
-	}
+	a.jobHandlerFunc(sigJobs)
 
 	return args.Error(0)
 }

@@ -94,7 +94,8 @@ func (l *linkTestContext) receiveHtlcAliceToBob() {
 func (l *linkTestContext) sendCommitSigBobToAlice(expHtlcs int) {
 	l.t.Helper()
 
-	sigs, err := l.bobChannel.SignNextCommitment()
+	testQuitChan := make(chan struct{})
+	sigs, err := l.bobChannel.SignNextCommitment(testQuitChan)
 	if err != nil {
 		l.t.Fatalf("error signing commitment: %v", err)
 	}

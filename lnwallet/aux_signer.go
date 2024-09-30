@@ -47,18 +47,19 @@ type AuxSigJob struct {
 	BaseAuxJob
 
 	// Resp is a channel that will be used to send the result of the sign
-	// job.
+	// job. This channel MUST be buffered.
 	Resp chan AuxSigJobResp
 
-	// Cancel is a channel that should be closed if the caller wishes to
-	// abandon all pending sign jobs part of a single batch.
-	Cancel chan struct{}
+	// Cancel is a channel that is closed by the caller if they wish to
+	// abandon all pending sign jobs part of a single batch. This should
+	// never be closed by the validator.
+	Cancel <-chan struct{}
 }
 
 // NewAuxSigJob creates a new AuxSigJob.
 func NewAuxSigJob(sigJob SignJob, keyRing CommitmentKeyRing, incoming bool,
 	htlc PaymentDescriptor, commitBlob fn.Option[tlv.Blob],
-	htlcLeaf input.AuxTapLeaf, cancelChan chan struct{}) AuxSigJob {
+	htlcLeaf input.AuxTapLeaf, cancelChan <-chan struct{}) AuxSigJob {
 
 	return AuxSigJob{
 		SignDesc: sigJob.SignDesc,

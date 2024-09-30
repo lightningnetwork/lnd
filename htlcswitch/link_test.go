@@ -2312,7 +2312,7 @@ func handleStateUpdate(link *channelLink,
 	}
 	link.HandleChannelUpdate(remoteRev)
 
-	remoteSigs, err := remoteChannel.SignNextCommitment()
+	remoteSigs, err := remoteChannel.SignNextCommitment(link.quit)
 	if err != nil {
 		return err
 	}
@@ -2363,7 +2363,7 @@ func updateState(batchTick chan time.Time, link *channelLink,
 
 	// The remote is triggering the state update, emulate this by
 	// signing and sending CommitSig to the link.
-	remoteSigs, err := remoteChannel.SignNextCommitment()
+	remoteSigs, err := remoteChannel.SignNextCommitment(link.quit)
 	if err != nil {
 		return err
 	}
@@ -5892,7 +5892,9 @@ func TestChannelLinkFail(t *testing.T) {
 
 				// Sign a commitment that will include
 				// signature for the HTLC just sent.
-				sigs, err := remoteChannel.SignNextCommitment()
+				sigs, err := remoteChannel.SignNextCommitment(
+					c.quit,
+				)
 				if err != nil {
 					t.Fatalf("error signing commitment: %v",
 						err)
@@ -5934,7 +5936,9 @@ func TestChannelLinkFail(t *testing.T) {
 
 				// Sign a commitment that will include
 				// signature for the HTLC just sent.
-				sigs, err := remoteChannel.SignNextCommitment()
+				sigs, err := remoteChannel.SignNextCommitment(
+					c.quit,
+				)
 				if err != nil {
 					t.Fatalf("error signing commitment: %v",
 						err)

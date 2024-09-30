@@ -145,7 +145,8 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 
 	// With the HTLC added, we'll now manually initiate a state transition
 	// from Alice to Bob.
-	_, err = aliceChannel.SignNextCommitment()
+	testQuitChan := make(chan struct{})
+	_, err = aliceChannel.SignNextCommitment(testQuitChan)
 	if err != nil {
 		t.Fatal(err)
 	}

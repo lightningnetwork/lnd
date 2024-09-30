@@ -3,6 +3,7 @@ package lnwallet
 import (
 	"bytes"
 	"container/list"
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"runtime"
 	"testing"
 	"testing/quick"
+	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -3505,6 +3507,75 @@ func TestAuxSignerShutdown(t *testing.T) {
 
 	_, err = aliceChannel.SignNextCommitment(testQuit)
 	require.ErrorIs(t, err, auxSignerShutdownErr)
+}
+
+// TestQuitDuringSignNextCommitment tests that the channel state machine can
+// successfully exit on receiving a quit signal when signing a new commitment.
+func TestQuitDuringSignNextCommitment(t *testing.T) {
+	t.Parallel()
+
+	// We'll kick off the test by creating our channels which both are
+	// loaded with 5 BTC each.
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err, "unable to create test channels")
+
+	// We'll simulate an aux signer that was started successfully, but is
+	// now frozen / inactive. This could happen if the aux signer shut down
+	// without sending an error on any aux sig job error channel.
+	noopAuxSigJob := func(jobs []AuxSigJob) {}
+
+	auxSigner := NewAuxSignerMock(noopAuxSigJob)
+	aliceChannel.auxSigner = fn.Some[AuxSigner](auxSigner)
+
+	// Each HTLC amount is 0.01 BTC.
+	htlcAmt := lnwire.NewMSatFromSatoshis(0.01 * btcutil.SatoshiPerBitcoin)
+
+	// Create enough HTLCs to create multiple sig jobs (one job per HTLC).
+	const numHTLCs = 24
+
+	// Send the specified number of HTLCs.
+	for i := 0; i < numHTLCs; i++ {
+		htlc, _ := createHTLC(i, htlcAmt)
+		addAndReceiveHTLC(t, aliceChannel, bobChannel, htlc, nil)
+	}
+
+	// We'll set up the mock aux signer to expect calls to PackSigs and also
+	// SubmitSecondLevelSigBatch. The direct return values for this mock aux
+	// signer are nil. The expected error comes from the behavior of
+	// noopAuxSigJob above, which mimics a faulty aux signer.
+	var sigBlobBuf bytes.Buffer
+	sigBlob := testSigBlob{
+		BlobInt: tlv.NewPrimitiveRecord[tlv.TlvType65634, uint16](5),
+	}
+	tlvStream, err := tlv.NewStream(sigBlob.BlobInt.Record())
+	require.NoError(t, err, "unable to create tlv stream")
+	require.NoError(t, tlvStream.Encode(&sigBlobBuf))
+
+	auxSigner.On(
+		"SubmitSecondLevelSigBatch", mock.Anything, mock.Anything,
+		mock.Anything,
+	).Return(nil).Twice()
+	auxSigner.On(
+		"PackSigs", mock.Anything,
+	).Return(
+		fn.Some(sigBlobBuf.Bytes()), nil,
+	)
+
+	quitDelay := time.Millisecond * 20
+	quit, quitFunc := context.WithCancel(context.Background())
+
+	// Alice's channel will be stuck waiting for aux sig job responses until
+	// we send the quit signal. We add an explicit sleep here so that we can
+	// cause a failure if we run the test with a very short timeout.
+	go func() {
+		time.Sleep(quitDelay)
+		quitFunc()
+	}()
+
+	_, err = aliceChannel.SignNextCommitment(quit)
+	require.ErrorIs(t, err, errQuit)
 }
 
 func testChanSyncOweCommitmentPendingRemote(t *testing.T,

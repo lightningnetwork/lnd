@@ -27,6 +27,10 @@
   cause a nil pointer dereference during the probing of a payment request that 
   does not contain a payment address.
 
+* [Use the required route blinding 
+  feature-bit](https://github.com/lightningnetwork/lnd/pull/9143) for invoices 
+  containing blinded paths.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

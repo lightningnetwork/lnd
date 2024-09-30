@@ -279,13 +279,6 @@ lifecycle:
 
 		log.Tracef("Found route: %s", spew.Sdump(rt.Hops))
 
-		// Allow the traffic shaper to add custom records to the
-		// outgoing HTLC and also adjust the amount if needed.
-		err = p.amendFirstHopData(rt)
-		if err != nil {
-			return exitWithErr(err)
-		}
-
 		// We found a route to try, create a new HTLC attempt to try.
 		attempt, err := p.registerAttempt(rt, ps.RemainingAmt)
 		if err != nil {
@@ -382,6 +375,13 @@ func (p *paymentLifecycle) requestRoute(
 
 	// Exit early if there's no error.
 	if err == nil {
+		// Allow the traffic shaper to add custom records to the
+		// outgoing HTLC and also adjust the amount if needed.
+		err = p.amendFirstHopData(rt)
+		if err != nil {
+			return nil, err
+		}
+
 		return rt, nil
 	}
 

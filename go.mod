@@ -5,7 +5,7 @@ require (
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344
 	github.com/andybalholm/brotli v1.0.4
 	github.com/btcsuite/btcd v0.24.2-beta.rc1.0.20240625142744-cc26860b4026
-	github.com/btcsuite/btcd/btcec/v2 v2.3.3
+	github.com/btcsuite/btcd/btcec/v2 v2.3.4
 	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
@@ -210,3 +210,5 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 go 1.22.6
 
 retract v0.0.2
+
+replace github.com/btcsuite/btcd v0.24.2-beta.rc1.0.20240625142744-cc26860b4026 => github.com/ziggie1984/btcd v0.23.5-0.20240930132350-cc4d6a3a6610

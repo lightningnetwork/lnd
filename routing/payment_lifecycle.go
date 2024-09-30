@@ -8,7 +8,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
@@ -477,42 +476,10 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 
 	log.Tracef("Collecting result for attempt %v", spew.Sdump(attempt))
 
-	// Regenerate the circuit for this attempt.
-	circuit, err := attempt.Circuit()
-
-	// TODO(yy): We generate this circuit to create the error decryptor,
-	// which is then used in htlcswitch as the deobfuscator to decode the
-	// error from `UpdateFailHTLC`. However, suppose it's an
-	// `UpdateFulfillHTLC` message yet for some reason the sphinx packet is
-	// failed to be generated, we'd miss settling it. This means we should
-	// give it a second chance to try the settlement path in case
-	// `GetAttemptResult` gives us back the preimage. And move the circuit
-	// creation into htlcswitch so it's only constructed when there's a
-	// failure message we need to decode.
-	if err != nil {
-		log.Debugf("Unable to generate circuit for attempt %v: %v",
-			attempt.AttemptID, err)
-
-		return p.failAttempt(attempt.AttemptID, err)
-	}
-
-	// Using the created circuit, initialize the error decrypter, so we can
-	// parse+decode any failures incurred by this payment within the
-	// switch.
-	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
-		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
-	}
-
 	// Now ask the switch to return the result of the payment when
 	// available.
-	//
-	// TODO(yy): consider using htlcswitch to create the `errorDecryptor`
-	// since the htlc is already in db. This will also make the interface
-	// `PaymentAttemptDispatcher` deeper and easier to use. Moreover, we'd
-	// only create the decryptor when received a failure, further saving us
-	// a few CPU cycles.
 	resultChan, err := p.router.cfg.Payer.GetAttemptResult(
-		attempt, p.identifier, errorDecryptor,
+		attempt, p.identifier,
 	)
 	// Handle the switch error.
 	if err != nil {

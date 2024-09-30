@@ -69,8 +69,7 @@ func (m *mockPaymentAttemptDispatcherOld) HasAttemptResult(
 }
 
 func (m *mockPaymentAttemptDispatcherOld) GetAttemptResult(
-	attempt *channeldb.HTLCAttempt, _ lntypes.Hash,
-	_ htlcswitch.ErrorDecrypter) (
+	attempt *channeldb.HTLCAttempt, _ lntypes.Hash) (
 	<-chan *htlcswitch.PaymentResult, error) {
 
 	c := make(chan *htlcswitch.PaymentResult, 1)
@@ -225,8 +224,7 @@ func (m *mockPayerOld) HasAttemptResult(attemptID uint64) (bool, error) {
 }
 
 func (m *mockPayerOld) GetAttemptResult(attempt *channeldb.HTLCAttempt,
-	_ lntypes.Hash,
-	_ htlcswitch.ErrorDecrypter) (<-chan *htlcswitch.PaymentResult, error) {
+	_ lntypes.Hash) (<-chan *htlcswitch.PaymentResult, error) {
 
 	select {
 	case res, ok := <-m.paymentResult:
@@ -609,11 +607,10 @@ func (m *mockPaymentAttemptDispatcher) HasAttemptResult(
 }
 
 func (m *mockPaymentAttemptDispatcher) GetAttemptResult(
-	attempt *channeldb.HTLCAttempt, paymentHash lntypes.Hash,
-	deobfuscator htlcswitch.ErrorDecrypter) (
+	attempt *channeldb.HTLCAttempt, paymentHash lntypes.Hash) (
 	<-chan *htlcswitch.PaymentResult, error) {
 
-	args := m.Called(attempt, paymentHash, deobfuscator)
+	args := m.Called(attempt, paymentHash)
 
 	resultChan := args.Get(0)
 	if resultChan == nil {

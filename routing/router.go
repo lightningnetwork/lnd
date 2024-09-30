@@ -124,8 +124,7 @@ type PaymentAttemptDispatcher interface {
 	// closing the channel. If the attemptID is unknown,
 	// ErrPaymentIDNotFound will be returned.
 	GetAttemptResult(attempt *channeldb.HTLCAttempt,
-		paymentHash lntypes.Hash,
-		deobfuscator htlcswitch.ErrorDecrypter) (
+		paymentHash lntypes.Hash) (
 		<-chan *htlcswitch.PaymentResult, error)
 
 	// CleanStore calls the underlying result store, telling it is safe to

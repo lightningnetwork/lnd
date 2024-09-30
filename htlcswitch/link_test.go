@@ -1635,7 +1635,7 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 	require.NoError(t, err, "unable to get send payment")
 
 	resultChan, err := n.aliceServer.htlcSwitch.GetAttemptResult(
-		attempt, htlc.PaymentHash, newMockDeobfuscator(),
+		attempt, htlc.PaymentHash,
 	)
 	require.NoError(t, err, "unable to get payment result")
 
@@ -4564,7 +4564,7 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 	require.NoError(t, err, "unable to send payment to carol")
 
 	resultChan, err := n.aliceServer.htlcSwitch.GetAttemptResult(
-		attempt, htlc.PaymentHash, newMockDeobfuscator(),
+		attempt, htlc.PaymentHash,
 	)
 	require.NoError(t, err, "unable to get payment result")
 

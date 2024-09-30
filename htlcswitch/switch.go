@@ -27,6 +27,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
+
+	sphinx "github.com/lightningnetwork/lightning-onion"
 )
 
 const (
@@ -457,8 +459,7 @@ func (s *Switch) HasAttemptResult(attemptID uint64) (bool, error) {
 // The switch shutting down is signaled by closing the channel. If the
 // attemptID is unknown, ErrPaymentIDNotFound will be returned.
 func (s *Switch) GetAttemptResult(attempt *channeldb.HTLCAttempt,
-	paymentHash lntypes.Hash,
-	deobfuscator ErrorDecrypter) (<-chan *PaymentResult, error) {
+	paymentHash lntypes.Hash) (<-chan *PaymentResult, error) {
 
 	var (
 		nChan <-chan *networkResult
@@ -513,9 +514,7 @@ func (s *Switch) GetAttemptResult(attempt *channeldb.HTLCAttempt,
 			attempt.AttemptID)
 
 		// Extract the result and pass it to the result channel.
-		result, err := s.extractResult(
-			deobfuscator, n, attempt.AttemptID, paymentHash,
-		)
+		result, err := s.extractResult(n, attempt, paymentHash)
 		if err != nil {
 			e := fmt.Errorf("unable to extract result: %w", err)
 			log.Error(e)
@@ -1005,8 +1004,8 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 
 // extractResult uses the given deobfuscator to extract the payment result from
 // the given network message.
-func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
-	attemptID uint64, paymentHash lntypes.Hash) (*PaymentResult, error) {
+func (s *Switch) extractResult(n *networkResult, attempt *channeldb.HTLCAttempt,
+	paymentHash lntypes.Hash) (*PaymentResult, error) {
 
 	switch htlc := n.msg.(type) {
 
@@ -1020,11 +1019,23 @@ func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
 	// We've received a fail update which means we can finalize the
 	// user payment and return fail response.
 	case *lnwire.UpdateFailHTLC:
-		// TODO(yy): construct deobfuscator here to avoid creating it
-		// in paymentLifecycle even for settled HTLCs.
+		// Regenerate the circuit for this attempt.
+		circuit, err := attempt.Circuit()
+		if err != nil {
+			return nil, err
+		}
+
+		// Using the created circuit, initialize the error decrypter,
+		// so we can parse+decode any failures incurred by this payment
+		// within the switch.
+		decryptor := sphinx.NewOnionErrorDecrypter(circuit)
+		deobfuscator := &SphinxErrorDecrypter{
+			OnionErrorDecrypter: decryptor,
+		}
+
 		paymentErr := s.parseFailedPayment(
-			deobfuscator, attemptID, paymentHash, n.unencrypted,
-			n.isResolution, htlc,
+			deobfuscator, attempt.AttemptID, paymentHash,
+			n.unencrypted, n.isResolution, htlc,
 		)
 
 		return &PaymentResult{

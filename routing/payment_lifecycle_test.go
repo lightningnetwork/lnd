@@ -1311,7 +1311,7 @@ func TestCollectResultExitOnErr(t *testing.T) {
 
 	// Mock the htlcswitch to return a dummy error.
 	m.payer.On("GetAttemptResult",
-		attempt, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(nil, errDummy).Once()
 
 	// The above error will end up being handled by `handleSwitchErr`, in
@@ -1352,7 +1352,7 @@ func TestCollectResultExitOnResultErr(t *testing.T) {
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
-		attempt, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(resultChan, nil).Once().Run(func(args mock.Arguments) {
 		// Send an error to the result chan.
 		resultChan <- &htlcswitch.PaymentResult{
@@ -1398,7 +1398,7 @@ func TestCollectResultExitOnSwitchQuit(t *testing.T) {
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
-		attempt, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(resultChan, nil).Once().Run(func(args mock.Arguments) {
 		// Close the result chan to simulate a htlcswitch quit.
 		close(resultChan)
@@ -1425,7 +1425,7 @@ func TestCollectResultExitOnRouterQuit(t *testing.T) {
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
-		attempt, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(resultChan, nil).Once().Run(func(args mock.Arguments) {
 		// Close the channel router.
 		close(p.router.quit)
@@ -1451,7 +1451,7 @@ func TestCollectResultExitOnLifecycleQuit(t *testing.T) {
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
-		attempt, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(resultChan, nil).Once().Run(func(args mock.Arguments) {
 		// Stop the lifecycle.
 		p.stop()
@@ -1479,7 +1479,7 @@ func TestCollectResultExitOnSettleErr(t *testing.T) {
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
-		attempt, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(resultChan, nil).Once().Run(func(args mock.Arguments) {
 		// Send the preimage to the result chan.
 		resultChan <- &htlcswitch.PaymentResult{
@@ -1521,7 +1521,7 @@ func TestCollectResultSuccess(t *testing.T) {
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
-		attempt, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(resultChan, nil).Once().Run(func(args mock.Arguments) {
 		// Send the preimage to the result chan.
 		resultChan <- &htlcswitch.PaymentResult{
@@ -1564,7 +1564,7 @@ func TestCollectResultAsyncSuccess(t *testing.T) {
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
-		attempt, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(resultChan, nil).Once().Run(func(args mock.Arguments) {
 		// Send the preimage to the result chan.
 		resultChan <- &htlcswitch.PaymentResult{

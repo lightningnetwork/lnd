@@ -2191,7 +2191,7 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	// Create a buffered chan and it will be returned by GetAttemptResult.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	payer.On("GetAttemptResult",
-		mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything,
 	).Return(resultChan, nil).Run(func(_ mock.Arguments) {
 		// Send a successful payment result.
 		resultChan <- &htlcswitch.PaymentResult{}

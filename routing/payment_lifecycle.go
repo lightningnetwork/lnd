@@ -175,18 +175,9 @@ func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
 	// If we had any existing attempts outstanding, we'll start by spinning
 	// up goroutines that'll collect their results and deliver them to the
 	// lifecycle loop below.
-	payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
+	payment, err := p.reloadInflightAttempts()
 	if err != nil {
 		return [32]byte{}, nil, err
-	}
-
-	for _, a := range payment.InFlightHTLCs() {
-		a := a
-
-		log.Infof("Resuming HTLC attempt %v for payment %v",
-			a.AttemptID, p.identifier)
-
-		p.resultCollector(&a)
 	}
 
 	// Get the payment status.
@@ -1083,4 +1074,25 @@ func marshallError(sendError error, time time.Time) *channeldb.HTLCFailInfo {
 	}
 
 	return response
+}
+
+// reloadInflightAttempts is called when the payment lifecycle is resumed after
+// a restart. It reloads all inflight attempts from the control tower and
+// collects the results of the attempts that have been sent before.
+func (p *paymentLifecycle) reloadInflightAttempts() (DBMPPayment, error) {
+	payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, a := range payment.InFlightHTLCs() {
+		a := a
+
+		log.Infof("Resuming HTLC attempt %v for payment %v",
+			a.AttemptID, p.identifier)
+
+		p.resultCollector(&a)
+	}
+
+	return payment, nil
 }

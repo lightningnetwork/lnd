@@ -9,4 +9,64 @@ option go_package = "github.com/lightningnetwork/lnd/lnrpc/switchrpc";
 // Switch is a service that offers advanced interaction with the HTLC fowarding
 // subsystem of the daemon.
 service Switch {
+    /*
+    SendOnion attempts to make a payment via the specified onion. This
+    method differs from SendPayment in that the instance need not be aware of
+    the full details of the payment route.
+    */
+    rpc SendOnion (SendOnionRequest) returns (SendOnionResponse);
+}
+
+message SendOnionRequest {
+    // The raw onion packet to be sent across the network.
+    bytes onion_blob = 1;
+
+    // The first hop's public key where the onion will be sent.
+    bytes first_hop_pubkey = 2;
+
+    // The total amount in millisatoshis required to complete a payment over
+    // this route. This value includes the cumulative fees at each hop. The HTLC
+    // extended to the first-hop in the route will need to have at least this
+    // many (milli)satoshis.
+    int64 amount = 3;
+
+    // The absolute timelock or CLTV value that should be extended to the first
+    // hop in the route. All other hops will decrement the time-lock as
+    // described by the onion.
+    uint32 timelock = 4;
+
+    // The payment hash associated with the HTLC. This is needed for tracking
+    // and debugging purposes.
+    bytes payment_hash = 5;
+
+    // The attempt ID uniquely identifying this payment attempt. The caller can
+    // expect to track results for the payment via this attempt ID.
+    uint64 attempt_id = 6;
+}
+
+message SendOnionResponse {
+    // Indicates if the onion was successfully sent or not.
+    // Equivalent to `error_code == ERROR_CODE_UNSPECIFIED`.
+    bool success = 1;
+
+    // In case of failure, this field will provide more information about the
+    // error.
+    string error_message = 2;
+
+    // A code representing the type of error that occurred. This can be used
+    // to programmatically distinguish between different kinds of errors.
+    ErrorCode error_code = 3;
+}
+
+enum ErrorCode {
+    ERROR_CODE_UNSPECIFIED = 0;           // Default value for unset errors.
+    ERROR_CODE_PAYMENT_ID_NOT_FOUND = 1;  // Payment ID was not found.
+    ERROR_CODE_FORWARDING_ERROR = 2;      // Error occurred during forwarding.
+    ERROR_CODE_CLEAR_TEXT_ERROR = 3;      // Clear text error.
+    ERROR_CODE_UNREADABLE_FAILURE_MESSAGE =
+        4;                          // Failure message could not be read.
+    ERROR_CODE_DUPLICATE_HTLC = 5;  // HTLC with same ID currently in flight.
+    ERROR_CODE_NO_LINK = 6;         // No link available for payment.
+    ERROR_CODE_SWITCH_EXITING = 7;  // HTLC switch is exiting.
+    ERROR_CODE_INTERNAL = 8;        // Opaque internal server error.
 }

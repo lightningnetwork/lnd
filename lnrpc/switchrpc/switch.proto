@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package switchrpc;
 
+import "lightning.proto";
+
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/switchrpc";
 
 // Switch is a service that offers advanced interaction with the HTLC fowarding
@@ -13,6 +15,22 @@ service Switch {
     the full details of the payment route.
     */
     rpc SendOnion (SendOnionRequest) returns (SendOnionResponse);
+
+    /*
+    TrackOnion allows callers to query whether or not a payment dispatched via
+    SendOnion succeeded or failed.
+
+    This RPC is designed to be called after a successful dispatch has been
+    explicitly confirmed via the SendOnion RPC. It should not be used to
+    determine whether an HTLC dispatch was received in an ambiguous network
+    scenario. That ambiguity must be resolved by retrying the idempotent
+    SendOnion RPC until a definitive acknowledgement is received from the Switch
+    RPC server.
+
+    Once dispatch is confirmed, TrackOnion provides the mechanism to wait for
+    the result of the in-flight HTLC.
+    */
+    rpc TrackOnion (TrackOnionRequest) returns (TrackOnionResponse);
 }
 
 message SendOnionRequest {
@@ -116,4 +134,38 @@ enum ErrorCode {
     Opaque internal server error.
     */
     INTERNAL = 8;
+}
+
+message TrackOnionRequest {
+    // The payment hash associated with the HTLC. This is needed for tracking
+    // and debugging purposes.
+    bytes payment_hash = 1;
+
+    // The attempt ID uniquely identifying this payment attempt. The caller can
+    // expect to track results for the payment via this attempt ID.
+    uint64 attempt_id = 2;
+
+    // Optional: Session key used to generate the onion/sphinx packet.
+    bytes session_key = 3;
+
+    // Optional: Public keys of nodes along the route, used with session_key.
+    repeated bytes hop_pubkeys = 4;
+}
+
+message TrackOnionResponse {
+    // The preimage obtained by making the payment. If this field is set,
+    // the payment succeeded.
+    bytes preimage = 1;
+
+    // In case of failure, this field will provide more information about the
+    // error.
+    string error_message = 2;
+
+    // A code representing the type of error that occurred. This can be used
+    // to programmatically distinguish between different kinds of errors.
+    ErrorCode error_code = 3;
+
+    // If the caller provides no means to decrypt the error, then we'll defer
+    // error decryption on the server and return the encrypted error blob.
+    bytes encrypted_error = 4;
 }

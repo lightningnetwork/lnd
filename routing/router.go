@@ -167,9 +167,9 @@ type PaymentSessionSource interface {
 	NewPaymentSessionEmpty() PaymentSession
 }
 
-// MissionController is an interface that exposes failure reporting and
+// MissionControlQuerier is an interface that exposes failure reporting and
 // probability estimation.
-type MissionController interface {
+type MissionControlQuerier interface {
 	// ReportPaymentFail reports a failed payment to mission control as
 	// input for future probability estimates. It returns a bool indicating
 	// whether this error is a final error and no further payment attempts
@@ -260,7 +260,7 @@ type Config struct {
 	// Each run will then take into account this set of pruned
 	// vertexes/edges to reduce route failure and pass on graph information
 	// gained to the next execution.
-	MissionControl MissionController
+	MissionControl MissionControlQuerier
 
 	// SessionSource defines a source for the router to retrieve new payment
 	// sessions.

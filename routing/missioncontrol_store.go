@@ -32,6 +32,21 @@ const (
 	unknownFailureSourceIdx = -1
 )
 
+// missionControlDB is an interface that defines the database methods that a
+// single missionControlStore has access to. It allows the missionControlStore
+// to be unaware of the overall DB structure and restricts its access to the DB
+// by only providing it the bucket that it needs to care about.
+type missionControlDB interface {
+	// update can be used to perform reads and writes on the given bucket.
+	update(f func(bkt kvdb.RwBucket) error, reset func()) error
+
+	// view can be used to perform reads on the given bucket.
+	view(f func(bkt kvdb.RBucket) error, reset func()) error
+
+	// purge will delete all the contents in this store.
+	purge() error
+}
+
 // missionControlStore is a bolt db based implementation of a mission control
 // store. It stores the raw payment attempt data from which the internal mission
 // controls state can be rederived on startup. This allows the mission control
@@ -41,7 +56,7 @@ const (
 type missionControlStore struct {
 	done chan struct{}
 	wg   sync.WaitGroup
-	db   kvdb.Backend
+	db   missionControlDB
 
 	// queueCond is signalled when items are put into the queue.
 	queueCond *sync.Cond
@@ -67,7 +82,7 @@ type missionControlStore struct {
 	flushInterval time.Duration
 }
 
-func newMissionControlStore(db kvdb.Backend, maxRecords int,
+func newMissionControlStore(db missionControlDB, maxRecords int,
 	flushInterval time.Duration) (*missionControlStore, error) {
 
 	var (
@@ -76,13 +91,7 @@ func newMissionControlStore(db kvdb.Backend, maxRecords int,
 	)
 
 	// Create buckets if not yet existing.
-	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
-		resultsBucket, err := tx.CreateTopLevelBucket(resultsKey)
-		if err != nil {
-			return fmt.Errorf("cannot create results bucket: %w",
-				err)
-		}
-
+	err := db.update(func(resultsBucket kvdb.RwBucket) error {
 		// Collect all keys to be able to quickly calculate the
 		// difference when updating the DB state.
 		c := resultsBucket.ReadCursor()
@@ -119,20 +128,12 @@ func (b *missionControlStore) clear() error {
 	b.queueCond.L.Lock()
 	defer b.queueCond.L.Unlock()
 
-	err := kvdb.Update(b.db, func(tx kvdb.RwTx) error {
-		if err := tx.DeleteTopLevelBucket(resultsKey); err != nil {
-			return err
-		}
-
-		_, err := tx.CreateTopLevelBucket(resultsKey)
-		return err
-	}, func() {})
-
-	if err != nil {
+	if err := b.db.purge(); err != nil {
 		return err
 	}
 
 	b.queue = list.New()
+
 	return nil
 }
 
@@ -140,8 +141,7 @@ func (b *missionControlStore) clear() error {
 func (b *missionControlStore) fetchAll() ([]*paymentResult, error) {
 	var results []*paymentResult
 
-	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
-		resultBucket := tx.ReadBucket(resultsKey)
+	err := b.db.view(func(resultBucket kvdb.RBucket) error {
 		results = make([]*paymentResult, 0)
 
 		return resultBucket.ForEach(func(k, v []byte) error {
@@ -511,9 +511,7 @@ func (b *missionControlStore) storeResults() error {
 		}
 	}
 
-	err := kvdb.Update(b.db, func(tx kvdb.RwTx) error {
-		bucket := tx.ReadWriteBucket(resultsKey)
-
+	err := b.db.update(func(bucket kvdb.RwBucket) error {
 		for e := l.Front(); e != nil; e = e.Next() {
 			pr, ok := e.Value.(*paymentResult)
 			if !ok {

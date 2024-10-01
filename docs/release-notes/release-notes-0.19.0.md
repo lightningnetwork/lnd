@@ -66,6 +66,10 @@
   store](https://github.com/lightningnetwork/lnd/pull/8911) to use a more 
   minimal encoding for payment attempt routes.
 
+* [Migrate the mission control 
+  store](https://github.com/lightningnetwork/lnd/pull/9001) so that results are 
+  namespaced. All existing results are written to the "default" namespace.
+
 ## Code Health
 
 ## Tooling and Documentation

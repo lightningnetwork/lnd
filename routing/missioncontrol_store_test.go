@@ -62,7 +62,9 @@ func newMCStoreTestHarness(t testing.TB, maxRecords int,
 		require.NoError(t, db.Close())
 	})
 
-	store, err := newMissionControlStore(db, maxRecords, flushInterval)
+	store, err := newMissionControlStore(
+		newDefaultNamespacedStore(db), maxRecords, flushInterval,
+	)
 	require.NoError(t, err)
 
 	return mcStoreTestHarness{db: db, store: store}
@@ -115,7 +117,9 @@ func TestMissionControlStore(t *testing.T) {
 	require.Equal(t, &result2, results[1])
 
 	// Recreate store to test pruning.
-	store, err = newMissionControlStore(db, testMaxRecords, time.Second)
+	store, err = newMissionControlStore(
+		newDefaultNamespacedStore(db), testMaxRecords, time.Second,
+	)
 	require.NoError(t, err)
 
 	// Add a newer result which failed due to mpp timeout.
@@ -213,7 +217,9 @@ func TestMissionControlStoreFlushing(t *testing.T) {
 	store.stop()
 
 	// Recreate store.
-	store, err := newMissionControlStore(db, testMaxRecords, flushInterval)
+	store, err := newMissionControlStore(
+		newDefaultNamespacedStore(db), testMaxRecords, flushInterval,
+	)
 	require.NoError(t, err)
 	store.run()
 	defer store.stop()

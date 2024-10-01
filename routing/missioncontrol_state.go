@@ -37,7 +37,8 @@ func newMissionControlState(
 	}
 }
 
-// getLastPairResult returns the current state for connections to the given node.
+// getLastPairResult returns the current state for connections to the given
+// node.
 func (m *missionControlState) getLastPairResult(node route.Vertex) (NodeResults,
 	bool) {
 
@@ -45,8 +46,8 @@ func (m *missionControlState) getLastPairResult(node route.Vertex) (NodeResults,
 	return result, ok
 }
 
-// ResetHistory resets the history of MissionControl returning it to a state as
-// if no payment attempts have been made.
+// ResetHistory resets the history of missionControlState returning it to a
+// state as if no payment attempts have been made.
 func (m *missionControlState) resetHistory() {
 	m.lastPairResult = make(map[route.Vertex]NodeResults)
 	m.lastSecondChance = make(map[DirectedNodePair]time.Time)

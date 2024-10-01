@@ -163,12 +163,15 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 		}
 	})
 
-	// Instantiate a new mission control with the current configuration
+	// Instantiate a new mission controller with the current configuration
 	// values.
-	mc, err := NewMissionControl(db, c.source.pubkey, &c.mcCfg)
-	if err != nil {
-		c.t.Fatal(err)
-	}
+	mcController, err := NewMissionController(db, c.source.pubkey, &c.mcCfg)
+	require.NoError(c.t, err)
+
+	mc, err := mcController.GetNamespacedStore(
+		DefaultMissionControlNamespace,
+	)
+	require.NoError(c.t, err)
 
 	getBandwidthHints := func(_ Graph) (bandwidthHints, error) {
 		// Create bandwidth hints based on local channel balances.

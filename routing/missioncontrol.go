@@ -7,7 +7,11 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -68,6 +72,11 @@ const (
 	// FeeEstimationTimeout. It defines the maximum duration that the
 	// probing fee estimation is allowed to take.
 	DefaultFeeEstimationTimeout = time.Minute
+
+	// DefaultMissionControlNamespace is the name of the default mission
+	// control name space. This is used as the sub-bucket key within the
+	// top level DB bucket to store mission control results.
+	DefaultMissionControlNamespace = "default"
 )
 
 var (
@@ -84,6 +93,16 @@ var (
 // NodeResults contains previous results from a node to its peers.
 type NodeResults map[route.Vertex]TimedPairResult
 
+// mcConfig holds various config members that will be required by all
+// MissionControl instances and will be the same regardless of namespace.
+type mcConfig struct {
+	// clock is a time source used by mission control.
+	clock clock.Clock
+
+	// selfNode is our pubkey.
+	selfNode route.Vertex
+}
+
 // MissionControl contains state which summarizes the past attempts of HTLC
 // routing by external callers when sending payments throughout the network. It
 // acts as a shared memory during routing attempts with the goal to optimize the
@@ -94,16 +113,11 @@ type NodeResults map[route.Vertex]TimedPairResult
 // since the last failure is used to estimate a success probability that is fed
 // into the path finding process for subsequent payment attempts.
 type MissionControl struct {
+	cfg *mcConfig
+
 	// state is the internal mission control state that is input for
 	// probability estimation.
 	state *missionControlState
-
-	// now is expected to return the current time. It is supplied as an
-	// external function to enable deterministic unit tests.
-	now func() time.Time
-
-	// selfNode is our pubkey.
-	selfNode route.Vertex
 
 	store *missionControlStore
 
@@ -115,12 +129,53 @@ type MissionControl struct {
 	// mission control state is updated.
 	onConfigUpdate fn.Option[func(cfg *MissionControlConfig)]
 
-	sync.Mutex
+	log btclog.Logger
+
+	mu sync.Mutex
+}
+
+// MissionController manages MissionControl instances in various namespaces.
+type MissionController struct {
+	db           kvdb.Backend
+	cfg          *mcConfig
+	defaultMCCfg *MissionControlConfig
+
+	mc map[string]*MissionControl
+	mu sync.Mutex
 
 	// TODO(roasbeef): further counters, if vertex continually unavailable,
 	// add to another generation
 
 	// TODO(roasbeef): also add favorable metrics for nodes
+}
+
+// GetNamespacedStore returns the MissionControl in the given namespace. If one
+// does not yet exist, then it is initialised.
+func (m *MissionController) GetNamespacedStore(ns string) (*MissionControl,
+	error) {
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if mc, ok := m.mc[ns]; ok {
+		return mc, nil
+	}
+
+	return m.initMissionControl(ns)
+}
+
+// ListNamespaces returns a list of the namespaces that the MissionController
+// is aware of.
+func (m *MissionController) ListNamespaces() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	namespaces := make([]string, 0, len(m.mc))
+	for ns := range m.mc {
+		namespaces = append(namespaces, ns)
+	}
+
+	return namespaces
 }
 
 // MissionControlConfig defines parameters that control mission control
@@ -214,9 +269,9 @@ type paymentResult struct {
 	failure            lnwire.FailureMessage
 }
 
-// NewMissionControl returns a new instance of missionControl.
-func NewMissionControl(db kvdb.Backend, self route.Vertex,
-	cfg *MissionControlConfig) (*MissionControl, error) {
+// NewMissionController returns a new instance of MissionController.
+func NewMissionController(db kvdb.Backend, self route.Vertex,
+	cfg *MissionControlConfig) (*MissionController, error) {
 
 	log.Debugf("Instantiating mission control with config: %v, %v", cfg,
 		cfg.Estimator)
@@ -225,47 +280,151 @@ func NewMissionControl(db kvdb.Backend, self route.Vertex,
 		return nil, err
 	}
 
+	mcCfg := &mcConfig{
+		clock:    clock.NewDefaultClock(),
+		selfNode: self,
+	}
+
+	mgr := &MissionController{
+		db:           db,
+		defaultMCCfg: cfg,
+		cfg:          mcCfg,
+		mc:           make(map[string]*MissionControl),
+	}
+
+	if err := mgr.loadMissionControls(); err != nil {
+		return nil, err
+	}
+
+	for _, mc := range mgr.mc {
+		if err := mc.init(); err != nil {
+			return nil, err
+		}
+	}
+
+	return mgr, nil
+}
+
+// loadMissionControls initialises a MissionControl in the default namespace if
+// one does not yet exist. It then initialises a MissionControl for all other
+// namespaces found in the DB.
+//
+// NOTE: this should only be called once during MissionController construction.
+func (m *MissionController) loadMissionControls() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Always initialise the default namespace.
+	_, err := m.initMissionControl(DefaultMissionControlNamespace)
+	if err != nil {
+		return err
+	}
+
+	namespaces := make(map[string]struct{})
+	err = m.db.View(func(tx walletdb.ReadTx) error {
+		mcStoreBkt := tx.ReadBucket(resultsKey)
+		if mcStoreBkt == nil {
+			return fmt.Errorf("top level mission control bucket " +
+				"not found")
+		}
+
+		// Iterate through all the keys in the bucket and collect the
+		// namespaces.
+		return mcStoreBkt.ForEach(func(k, _ []byte) error {
+			// We've already initialised the default namespace so
+			// we can skip it.
+			if string(k) == DefaultMissionControlNamespace {
+				return nil
+			}
+
+			namespaces[string(k)] = struct{}{}
+
+			return nil
+		})
+	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	// Now, iterate through all the namespaces and initialise them.
+	for ns := range namespaces {
+		_, err = m.initMissionControl(ns)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// initMissionControl creates a new MissionControl instance with the given
+// namespace if one does not yet exist.
+//
+// NOTE: the MissionController's mutex must be held before calling this method.
+func (m *MissionController) initMissionControl(namespace string) (
+	*MissionControl, error) {
+
+	// If a mission control with this namespace has already been initialised
+	// then there is nothing left to do.
+	if mc, ok := m.mc[namespace]; ok {
+		return mc, nil
+	}
+
+	cfg := m.defaultMCCfg
+
 	store, err := newMissionControlStore(
-		db, cfg.MaxMcHistory, cfg.McFlushInterval,
+		newNamespacedDB(m.db, namespace), cfg.MaxMcHistory,
+		cfg.McFlushInterval,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	mc := &MissionControl{
-		state: newMissionControlState(
-			cfg.MinFailureRelaxInterval,
+		cfg:       m.cfg,
+		state:     newMissionControlState(cfg.MinFailureRelaxInterval),
+		store:     store,
+		estimator: cfg.Estimator,
+		log: build.NewPrefixLog(
+			fmt.Sprintf("[%s]:", namespace), log,
 		),
-		now:            time.Now,
-		selfNode:       self,
-		store:          store,
-		estimator:      cfg.Estimator,
 		onConfigUpdate: cfg.OnConfigUpdate,
 	}
 
-	if err := mc.init(); err != nil {
-		return nil, err
-	}
+	m.mc[namespace] = mc
 
 	return mc, nil
 }
 
-// RunStoreTicker runs the mission control store's ticker.
-func (m *MissionControl) RunStoreTicker() {
-	m.store.run()
+// RunStoreTickers runs the mission controller store's tickers.
+func (m *MissionController) RunStoreTickers() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, mc := range m.mc {
+		mc.store.run()
+	}
 }
 
-// StopStoreTicker stops the mission control store's ticker.
-func (m *MissionControl) StopStoreTicker() {
+// StopStoreTickers stops the mission control store's tickers.
+func (m *MissionController) StopStoreTickers() {
 	log.Debug("Stopping mission control store ticker")
 	defer log.Debug("Mission control store ticker stopped")
 
-	m.store.stop()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, mc := range m.mc {
+		mc.store.stop()
+	}
 }
 
 // init initializes mission control with historical data.
 func (m *MissionControl) init() error {
-	log.Debugf("Mission control state reconstruction started")
+	m.log.Debugf("Mission control state reconstruction started")
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	start := time.Now()
 
@@ -275,10 +434,10 @@ func (m *MissionControl) init() error {
 	}
 
 	for _, result := range results {
-		m.applyPaymentResult(result)
+		_ = m.applyPaymentResult(result)
 	}
 
-	log.Debugf("Mission control state reconstruction finished: "+
+	m.log.Debugf("Mission control state reconstruction finished: "+
 		"n=%v, time=%v", len(results), time.Since(start))
 
 	return nil
@@ -288,8 +447,8 @@ func (m *MissionControl) init() error {
 // with. All fields are copied by value, so we do not need to worry about
 // mutation.
 func (m *MissionControl) GetConfig() *MissionControlConfig {
-	m.Lock()
-	defer m.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	return &MissionControlConfig{
 		Estimator:               m.estimator,
@@ -310,10 +469,10 @@ func (m *MissionControl) SetConfig(cfg *MissionControlConfig) error {
 		return err
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	log.Infof("Active mission control cfg: %v, estimator: %v", cfg,
+	m.log.Infof("Active mission control cfg: %v, estimator: %v", cfg,
 		cfg.Estimator)
 
 	m.store.maxRecords = cfg.MaxMcHistory
@@ -331,8 +490,8 @@ func (m *MissionControl) SetConfig(cfg *MissionControlConfig) error {
 // ResetHistory resets the history of MissionControl returning it to a state as
 // if no payment attempts have been made.
 func (m *MissionControl) ResetHistory() error {
-	m.Lock()
-	defer m.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if err := m.store.clear(); err != nil {
 		return err
@@ -340,7 +499,7 @@ func (m *MissionControl) ResetHistory() error {
 
 	m.state.resetHistory()
 
-	log.Debugf("Mission control history cleared")
+	m.log.Debugf("Mission control history cleared")
 
 	return nil
 }
@@ -350,14 +509,14 @@ func (m *MissionControl) ResetHistory() error {
 func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
 	amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
 
-	m.Lock()
-	defer m.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	now := m.now()
+	now := m.cfg.clock.Now()
 	results, _ := m.state.getLastPairResult(fromNode)
 
 	// Use a distinct probability estimation function for local channels.
-	if fromNode == m.selfNode {
+	if fromNode == m.cfg.selfNode {
 		return m.estimator.LocalPairProbability(now, results, toNode)
 	}
 
@@ -369,10 +528,10 @@ func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
 // GetHistorySnapshot takes a snapshot from the current mission control state
 // and actual probability estimates.
 func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {
-	m.Lock()
-	defer m.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	log.Debugf("Requesting history snapshot from mission control")
+	m.log.Debugf("Requesting history snapshot from mission control")
 
 	return m.state.getSnapshot()
 }
@@ -387,15 +546,15 @@ func (m *MissionControl) ImportHistory(history *MissionControlSnapshot,
 		return errors.New("cannot import nil history")
 	}
 
-	m.Lock()
-	defer m.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	log.Infof("Importing history snapshot with %v pairs to mission control",
-		len(history.Pairs))
+	m.log.Infof("Importing history snapshot with %v pairs to mission "+
+		"control", len(history.Pairs))
 
 	imported := m.state.importSnapshot(history, force)
 
-	log.Infof("Imported %v results to mission control", imported)
+	m.log.Infof("Imported %v results to mission control", imported)
 
 	return nil
 }
@@ -404,8 +563,8 @@ func (m *MissionControl) ImportHistory(history *MissionControlSnapshot,
 func (m *MissionControl) GetPairHistorySnapshot(
 	fromNode, toNode route.Vertex) TimedPairResult {
 
-	m.Lock()
-	defer m.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	results, ok := m.state.getLastPairResult(fromNode)
 	if !ok {
@@ -429,7 +588,7 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 	failureSourceIdx *int, failure lnwire.FailureMessage) (
 	*channeldb.FailureReason, error) {
 
-	timestamp := m.now()
+	timestamp := m.cfg.clock.Now()
 
 	result := &paymentResult{
 		success:          false,
@@ -449,7 +608,7 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 func (m *MissionControl) ReportPaymentSuccess(paymentID uint64,
 	rt *route.Route) error {
 
-	timestamp := m.now()
+	timestamp := m.cfg.clock.Now()
 
 	result := &paymentResult{
 		timeFwd:   timestamp,
@@ -471,8 +630,8 @@ func (m *MissionControl) processPaymentResult(result *paymentResult) (
 	// Store complete result in database.
 	m.store.AddResult(result)
 
-	m.Lock()
-	defer m.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	// Apply result to update mission control state.
 	reason := m.applyPaymentResult(result)
@@ -519,7 +678,7 @@ func (m *MissionControl) applyPaymentResult(
 	// that case, a node-level failure would not be applied to untried
 	// channels.
 	if i.nodeFailure != nil {
-		log.Debugf("Reporting node failure to Mission Control: "+
+		m.log.Debugf("Reporting node failure to Mission Control: "+
 			"node=%v", *i.nodeFailure)
 
 		m.state.setAllFail(*i.nodeFailure, result.timeReply)
@@ -529,11 +688,11 @@ func (m *MissionControl) applyPaymentResult(
 		pairResult := pairResult
 
 		if pairResult.success {
-			log.Debugf("Reporting pair success to Mission "+
+			m.log.Debugf("Reporting pair success to Mission "+
 				"Control: pair=%v, amt=%v",
 				pair, pairResult.amt)
 		} else {
-			log.Debugf("Reporting pair failure to Mission "+
+			m.log.Debugf("Reporting pair failure to Mission "+
 				"Control: pair=%v, amt=%v",
 				pair, pairResult.amt)
 		}
@@ -544,4 +703,103 @@ func (m *MissionControl) applyPaymentResult(
 	}
 
 	return i.finalFailureReason
+}
+
+// namespacedDB is an implementation of the missionControlDB that gives a user
+// of the interface access to a namespaced bucket within the top level mission
+// control bucket.
+type namespacedDB struct {
+	topLevelBucketKey []byte
+	namespace         []byte
+	db                kvdb.Backend
+}
+
+// A compile-time check to ensure that namespacedDB implements missionControlDB.
+var _ missionControlDB = (*namespacedDB)(nil)
+
+// newDefaultNamespacedStore creates an instance of namespaceDB that uses the
+// default namespace.
+func newDefaultNamespacedStore(db kvdb.Backend) missionControlDB {
+	return newNamespacedDB(db, DefaultMissionControlNamespace)
+}
+
+// newNamespacedDB creates a new instance of missionControlDB where the DB will
+// have access to a namespaced bucket within the top level mission control
+// bucket.
+func newNamespacedDB(db kvdb.Backend, namespace string) missionControlDB {
+	return &namespacedDB{
+		db:                db,
+		namespace:         []byte(namespace),
+		topLevelBucketKey: resultsKey,
+	}
+}
+
+// update can be used to perform reads and writes on the given bucket.
+//
+// NOTE: this is part of the missionControlDB interface.
+func (n *namespacedDB) update(f func(bkt walletdb.ReadWriteBucket) error,
+	reset func()) error {
+
+	return n.db.Update(func(tx kvdb.RwTx) error {
+		mcStoreBkt, err := tx.CreateTopLevelBucket(n.topLevelBucketKey)
+		if err != nil {
+			return fmt.Errorf("cannot create top level mission "+
+				"control bucket: %w", err)
+		}
+
+		namespacedBkt, err := mcStoreBkt.CreateBucketIfNotExists(
+			n.namespace,
+		)
+		if err != nil {
+			return fmt.Errorf("cannot create namespaced bucket "+
+				"(%s) in mission control store: %w",
+				n.namespace, err)
+		}
+
+		return f(namespacedBkt)
+	}, reset)
+}
+
+// view can be used to perform reads on the given bucket.
+//
+// NOTE: this is part of the missionControlDB interface.
+func (n *namespacedDB) view(f func(bkt walletdb.ReadBucket) error,
+	reset func()) error {
+
+	return n.db.View(func(tx kvdb.RTx) error {
+		mcStoreBkt := tx.ReadBucket(n.topLevelBucketKey)
+		if mcStoreBkt == nil {
+			return fmt.Errorf("top level mission control bucket " +
+				"not found")
+		}
+
+		namespacedBkt := mcStoreBkt.NestedReadBucket(n.namespace)
+		if namespacedBkt == nil {
+			return fmt.Errorf("namespaced bucket (%s) not found "+
+				"in mission control store", n.namespace)
+		}
+
+		return f(namespacedBkt)
+	}, reset)
+}
+
+// purge will delete all the contents in the namespace.
+//
+// NOTE: this is part of the missionControlDB interface.
+func (n *namespacedDB) purge() error {
+	return n.db.Update(func(tx kvdb.RwTx) error {
+		mcStoreBkt := tx.ReadWriteBucket(n.topLevelBucketKey)
+		if mcStoreBkt == nil {
+			return nil
+		}
+
+		err := mcStoreBkt.DeleteNestedBucket(n.namespace)
+		if err != nil {
+			return err
+		}
+
+		_, err = mcStoreBkt.CreateBucket(n.namespace)
+
+		return err
+	}, func() {})
 }

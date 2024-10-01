@@ -223,7 +223,7 @@ func createTestCtxFromFile(t *testing.T,
 // Add valid signature to channel update simulated as error received from the
 // network.
 func signErrChanUpdate(t *testing.T, key *btcec.PrivateKey,
-	errChanUpdate *lnwire.ChannelUpdate) {
+	errChanUpdate *lnwire.ChannelUpdate1) {
 
 	chanUpdateMsg, err := errChanUpdate.DataToSign()
 	require.NoError(t, err, "failed to retrieve data to sign")
@@ -488,7 +488,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	// Set up a channel update message with an invalid signature to be
 	// returned to the sender.
 	var invalidSignature lnwire.Sig
-	errChanUpdate := lnwire.ChannelUpdate{
+	errChanUpdate := lnwire.ChannelUpdate1{
 		Signature:       invalidSignature,
 		FeeRate:         500,
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(1),
@@ -593,7 +593,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to fetch chan id")
 
-	errChanUpdate := lnwire.ChannelUpdate{
+	errChanUpdate := lnwire.ChannelUpdate1{
 		ShortChannelID: lnwire.NewShortChanIDFromInt(
 			songokuSophonChanID,
 		),
@@ -712,7 +712,7 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	// Prepare an error update for the private channel, with twice the
 	// original fee.
 	updatedFeeBaseMSat := feeBaseMSat * 2
-	errChanUpdate := lnwire.ChannelUpdate{
+	errChanUpdate := lnwire.ChannelUpdate1{
 		ShortChannelID: lnwire.NewShortChanIDFromInt(privateChannelID),
 		Timestamp:      uint32(testTime.Add(time.Minute).Unix()),
 		BaseFee:        updatedFeeBaseMSat,
@@ -838,7 +838,7 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 	// Prepare an error update for the private channel. The updated fee
 	// will exceeds the feeLimit.
 	updatedFeeBaseMSat := feeBaseMSat + uint32(feeLimit)
-	errChanUpdate := lnwire.ChannelUpdate{
+	errChanUpdate := lnwire.ChannelUpdate1{
 		ShortChannelID: lnwire.NewShortChanIDFromInt(privateChannelID),
 		Timestamp:      uint32(testTime.Add(time.Minute).Unix()),
 		BaseFee:        updatedFeeBaseMSat,
@@ -939,7 +939,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	_, _, edgeUpdateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
 	require.NoError(t, err, "unable to fetch chan id")
 
-	errChanUpdate := lnwire.ChannelUpdate{
+	errChanUpdate := lnwire.ChannelUpdate1{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(chanID),
 		Timestamp:       uint32(edgeUpdateToFail.LastUpdate.Unix()),
 		MessageFlags:    edgeUpdateToFail.MessageFlags,
@@ -1402,7 +1402,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	testCases := map[int]lnwire.FailureMessage{
 		finalHopIndex: lnwire.NewFailIncorrectDetails(payAmt, 100),
 		1: &lnwire.FailFeeInsufficient{
-			Update: lnwire.ChannelUpdate{},
+			Update: lnwire.ChannelUpdate1{},
 		},
 	}
 
@@ -1653,14 +1653,14 @@ func TestBuildRoute(t *testing.T) {
 	// Test that we can't build a route when no hops are given.
 	hops = []route.Vertex{}
 	_, err = ctx.router.BuildRoute(
-		noAmt, hops, nil, 40, nil, fn.None[[]byte](),
+		noAmt, hops, nil, 40, fn.None[[32]byte](), fn.None[[]byte](),
 	)
 	require.Error(t, err)
 
 	// Create hop list for an unknown destination.
 	hops := []route.Vertex{ctx.aliases["b"], ctx.aliases["y"]}
 	_, err = ctx.router.BuildRoute(
-		noAmt, hops, nil, 40, &payAddr, fn.None[[]byte](),
+		noAmt, hops, nil, 40, fn.Some(payAddr), fn.None[[]byte](),
 	)
 	noChanErr := ErrNoChannel{}
 	require.ErrorAs(t, err, &noChanErr)
@@ -1672,7 +1672,8 @@ func TestBuildRoute(t *testing.T) {
 
 	// Build the route for the given amount.
 	rt, err := ctx.router.BuildRoute(
-		fn.Some(amt), hops, nil, 40, &payAddr, fn.None[[]byte](),
+		fn.Some(amt), hops, nil, 40, fn.Some(payAddr),
+		fn.None[[]byte](),
 	)
 	require.NoError(t, err)
 
@@ -1684,7 +1685,7 @@ func TestBuildRoute(t *testing.T) {
 
 	// Build the route for the minimum amount.
 	rt, err = ctx.router.BuildRoute(
-		noAmt, hops, nil, 40, &payAddr, fn.None[[]byte](),
+		noAmt, hops, nil, 40, fn.Some(payAddr), fn.None[[]byte](),
 	)
 	require.NoError(t, err)
 
@@ -1702,7 +1703,7 @@ func TestBuildRoute(t *testing.T) {
 	// There is no amount that can pass through both channel 5 and 4.
 	hops = []route.Vertex{ctx.aliases["e"], ctx.aliases["c"]}
 	_, err = ctx.router.BuildRoute(
-		noAmt, hops, nil, 40, nil, fn.None[[]byte](),
+		noAmt, hops, nil, 40, fn.None[[32]byte](), fn.None[[]byte](),
 	)
 	require.Error(t, err)
 	noChanErr = ErrNoChannel{}
@@ -1722,7 +1723,7 @@ func TestBuildRoute(t *testing.T) {
 	// policy of channel 3.
 	hops = []route.Vertex{ctx.aliases["b"], ctx.aliases["z"]}
 	rt, err = ctx.router.BuildRoute(
-		noAmt, hops, nil, 40, &payAddr, fn.None[[]byte](),
+		noAmt, hops, nil, 40, fn.Some(payAddr), fn.None[[]byte](),
 	)
 	require.NoError(t, err)
 	checkHops(rt, []uint64{1, 8}, payAddr)
@@ -1736,7 +1737,8 @@ func TestBuildRoute(t *testing.T) {
 	hops = []route.Vertex{ctx.aliases["d"], ctx.aliases["f"]}
 	amt = lnwire.NewMSatFromSatoshis(100)
 	rt, err = ctx.router.BuildRoute(
-		fn.Some(amt), hops, nil, 40, &payAddr, fn.None[[]byte](),
+		fn.Some(amt), hops, nil, 40, fn.Some(payAddr),
+		fn.None[[]byte](),
 	)
 	require.NoError(t, err)
 	checkHops(rt, []uint64{9, 10}, payAddr)
@@ -1752,7 +1754,7 @@ func TestBuildRoute(t *testing.T) {
 	// is a third pass through newRoute in which this gets corrected to end
 	hops = []route.Vertex{ctx.aliases["d"], ctx.aliases["f"]}
 	rt, err = ctx.router.BuildRoute(
-		noAmt, hops, nil, 40, &payAddr, fn.None[[]byte](),
+		noAmt, hops, nil, 40, fn.Some(payAddr), fn.None[[]byte](),
 	)
 	require.NoError(t, err)
 	checkHops(rt, []uint64{9, 10}, payAddr)
@@ -2967,7 +2969,7 @@ func (m *mockGraphBuilder) setNextReject(reject bool) {
 	m.rejectUpdate = reject
 }
 
-func (m *mockGraphBuilder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate) bool {
+func (m *mockGraphBuilder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 	if m.rejectUpdate {
 		return false
 	}

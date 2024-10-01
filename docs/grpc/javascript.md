@@ -235,9 +235,9 @@ client.getInfo({}, (err, response) => {
 With the above, you should have all the `lnd` related `gRPC` dependencies
 installed locally in your project. In order to get up to speed with `protofbuf`
 usage from Javascript, see [this official `protobuf` reference for
-Javascript](https://developers.google.com/protocol-buffers/docs/reference/javascript-generated).
+Javascript](https://protobuf.dev/protobuf-javascript/).
 Additionally, [this official gRPC
-resource](http://www.grpc.io/docs/tutorials/basic/node.html) provides more
+resource](https://grpc.io/docs/languages/node/basics/) provides more
 details around how to drive `gRPC` from `node.js`.
 
 ## API documentation

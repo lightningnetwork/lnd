@@ -219,4 +219,4 @@ client.GetInfo(new GetInfoRequest());
 
 ### Conclusion
 
-With the above, you should have all the `lnd` related `gRPC` dependencies installed locally in your project. In order to get up to speed with `protobuf` usage from C#, see [this official `protobuf` tutorial for C#](https://developers.google.com/protocol-buffers/docs/csharptutorial). Additionally, [this official gRPC resource](http://www.grpc.io/docs/tutorials/basic/csharp.html) provides more details around how to drive `gRPC` from C#.
+With the above, you should have all the `lnd` related `gRPC` dependencies installed locally in your project. In order to get up to speed with `protobuf` usage from C#, see [this official `protobuf` tutorial for C#](https://developers.google.com/protocol-buffers/docs/csharptutorial). Additionally, [this official gRPC resource](https://grpc.io/docs/languages/csharp/) provides more details around how to drive `gRPC` from C#.

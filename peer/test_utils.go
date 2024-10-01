@@ -304,6 +304,8 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 	alicePool := lnwallet.NewSigPool(1, aliceSigner)
 	channelAlice, err := lnwallet.NewLightningChannel(
 		aliceSigner, aliceChannelState, alicePool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(&lnwallet.MockAuxSigner{}),
 	)
 	if err != nil {
 		return nil, err
@@ -316,6 +318,8 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 	bobPool := lnwallet.NewSigPool(1, bobSigner)
 	channelBob, err := lnwallet.NewLightningChannel(
 		bobSigner, bobChannelState, bobPool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(&lnwallet.MockAuxSigner{}),
 	)
 	if err != nil {
 		return nil, err
@@ -611,7 +615,7 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 		IsChannelActive: func(lnwire.ChannelID) bool {
 			return true
 		},
-		ApplyChannelUpdate: func(*lnwire.ChannelUpdate,
+		ApplyChannelUpdate: func(*lnwire.ChannelUpdate1,
 			*wire.OutPoint, bool) error {
 
 			return nil
@@ -719,9 +723,9 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 		},
 		PongBuf: make([]byte, lnwire.MaxPongBytes),
 		FetchLastChanUpdate: func(chanID lnwire.ShortChannelID,
-		) (*lnwire.ChannelUpdate, error) {
+		) (*lnwire.ChannelUpdate1, error) {
 
-			return &lnwire.ChannelUpdate{}, nil
+			return &lnwire.ChannelUpdate1{}, nil
 		},
 	}
 

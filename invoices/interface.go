@@ -207,3 +207,71 @@ type InvoiceUpdater interface {
 	// Finalize finalizes the update before it is written to the database.
 	Finalize(updateType UpdateType) error
 }
+
+// HtlcModifyRequest is the request that is passed to the client via callback
+// during a HTLC interceptor session. The request contains the invoice that the
+// given HTLC is attempting to settle.
+type HtlcModifyRequest struct {
+	// WireCustomRecords are the custom records that were parsed from the
+	// HTLC wire message. These are the records of the current HTLC to be
+	// accepted/settled. All previously accepted/settled HTLCs for the same
+	// invoice are present in the Invoice field below.
+	WireCustomRecords lnwire.CustomRecords
+
+	// ExitHtlcCircuitKey is the circuit key that identifies the HTLC which
+	// is involved in the invoice settlement.
+	ExitHtlcCircuitKey CircuitKey
+
+	// ExitHtlcAmt is the amount of the HTLC which is involved in the
+	// invoice settlement.
+	ExitHtlcAmt lnwire.MilliSatoshi
+
+	// ExitHtlcExpiry is the absolute expiry height of the HTLC which is
+	// involved in the invoice settlement.
+	ExitHtlcExpiry uint32
+
+	// CurrentHeight is the current block height.
+	CurrentHeight uint32
+
+	// Invoice is the invoice that is being intercepted. The HTLCs within
+	// the invoice are only those previously accepted/settled for the same
+	// invoice.
+	Invoice Invoice
+}
+
+// HtlcModifyResponse is the response that the client should send back to the
+// interceptor after processing the HTLC modify request.
+type HtlcModifyResponse struct {
+	// AmountPaid is the amount that the client has decided the HTLC is
+	// actually worth. This might be different from the amount that the
+	// HTLC was originally sent with, in case additional value is carried
+	// along with it (which might be the case in custom channels).
+	AmountPaid lnwire.MilliSatoshi
+}
+
+// HtlcModifyCallback is a function that is called when an invoice is
+// intercepted by the invoice interceptor.
+type HtlcModifyCallback func(HtlcModifyRequest) (*HtlcModifyResponse, error)
+
+// HtlcModifier is an interface that allows an intercept client to register
+// itself as a modifier of HTLCs that are settling an invoice. The client can
+// then modify the HTLCs based on the invoice and the HTLC that is settling it.
+type HtlcModifier interface {
+	// RegisterInterceptor sets the client callback function that will be
+	// called when an invoice is intercepted. If a callback is already set,
+	// an error is returned. The returned function must be used to reset the
+	// callback to nil once the client is done or disconnects. The read-only
+	// channel closes when the server stops.
+	RegisterInterceptor(HtlcModifyCallback) (func(), <-chan struct{}, error)
+}
+
+// HtlcInterceptor is an interface that allows the invoice registry to let
+// clients intercept invoices before they are settled.
+type HtlcInterceptor interface {
+	// Intercept generates a new intercept session for the given invoice.
+	// The call blocks until the client has responded to the request or an
+	// error occurs. The response callback is only called if a session was
+	// created in the first place, which is only the case if a client is
+	// registered.
+	Intercept(HtlcModifyRequest, func(HtlcModifyResponse)) error
+}

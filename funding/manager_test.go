@@ -567,6 +567,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		AuxLeafStore: fn.Some[lnwallet.AuxLeafStore](
 			&lnwallet.MockAuxLeafStore{},
 		),
+		AuxSigner: fn.Some[lnwallet.AuxSigner](
+			&lnwallet.MockAuxSigner{},
+		),
 	}
 
 	for _, op := range options {
@@ -677,6 +680,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		DeleteAliasEdge:       oldCfg.DeleteAliasEdge,
 		AliasManager:          oldCfg.AliasManager,
 		AuxLeafStore:          oldCfg.AuxLeafStore,
+		AuxSigner:             oldCfg.AuxSigner,
 	})
 	require.NoError(t, err, "failed recreating aliceFundingManager")
 
@@ -1208,9 +1212,9 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 		gotChannelUpdate := false
 		for _, msg := range announcements {
 			switch m := msg.(type) {
-			case *lnwire.ChannelAnnouncement:
+			case *lnwire.ChannelAnnouncement1:
 				gotChannelAnnouncement = true
-			case *lnwire.ChannelUpdate:
+			case *lnwire.ChannelUpdate1:
 
 				// The channel update sent by the node should
 				// advertise the MinHTLC value required by the
@@ -1297,7 +1301,7 @@ func assertAnnouncementSignatures(t *testing.T, alice, bob *testNode) {
 		gotNodeAnnouncement := false
 		for _, msg := range announcements {
 			switch msg.(type) {
-			case *lnwire.AnnounceSignatures:
+			case *lnwire.AnnounceSignatures1:
 				gotAnnounceSignatures = true
 			case *lnwire.NodeAnnouncement:
 				gotNodeAnnouncement = true

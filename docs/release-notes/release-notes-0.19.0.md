@@ -24,6 +24,10 @@
   propagate mission control and debug level config values to the main LND config
   struct so that the GetDebugInfo response is accurate.
 
+* [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9134) that would 
+  cause a nil pointer dereference during the probing of a payment request that 
+  does not contain a payment address.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions
@@ -58,6 +62,9 @@
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 
+* Add new [lnwire](https://github.com/lightningnetwork/lnd/pull/8044) messages
+  for the Gossip 1.75 protocol.
+
 ## Testing
 ## Database
 
@@ -72,6 +79,7 @@
 # Contributors (Alphabetical Order)
 
 * CharlieZKSmith
+* Elle Mouton
 * Pins
 * Ziggie
 * Animesh Bilthare

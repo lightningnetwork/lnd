@@ -221,6 +221,10 @@ type ChainArbitratorConfig struct {
 	// AuxLeafStore is an optional store that can be used to store auxiliary
 	// leaves for certain custom channel types.
 	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
+
+	// AuxSigner is an optional signer that can be used to sign auxiliary
+	// leaves for certain custom channel types.
+	AuxSigner fn.Option[lnwallet.AuxSigner]
 }
 
 // ChainArbitrator is a sub-system that oversees the on-chain resolution of all
@@ -307,6 +311,9 @@ func (a *arbChannel) NewAnchorResolutions() (*lnwallet.AnchorResolutions,
 	a.c.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
 		chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
 	})
+	a.c.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
+		chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
+	})
 
 	chanMachine, err := lnwallet.NewLightningChannel(
 		a.c.cfg.Signer, channel, nil, chanOpts...,
@@ -356,6 +363,9 @@ func (a *arbChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) 
 	var chanOpts []lnwallet.ChannelOpt
 	a.c.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
 		chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
+	})
+	a.c.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
+		chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
 	})
 
 	// Finally, we'll force close the channel completing

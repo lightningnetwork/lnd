@@ -3951,7 +3951,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	// Simulate an error during the composition of the failure message.
 	currentCallback := c.s.cfg.FetchLastChannelUpdate
 	c.s.cfg.FetchLastChannelUpdate = func(
-		lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
+		lnwire.ShortChannelID) (*lnwire.ChannelUpdate1, error) {
 
 		return nil, errors.New("cannot fetch update")
 	}

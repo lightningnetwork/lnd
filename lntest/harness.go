@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest/miner"
@@ -2071,8 +2072,42 @@ func (h *HarnessTest) ReceiveHtlcInterceptor(
 		require.Fail(h, "timeout", "timeout intercepting htlc")
 
 	case err := <-errChan:
-		require.Failf(h, "err from stream",
-			"received err from stream: %v", err)
+		require.Failf(h, "err from HTLC interceptor stream",
+			"received err from HTLC interceptor stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}
+
+// ReceiveInvoiceHtlcModification waits until a message is received on the
+// invoice HTLC modifier stream or the timeout is reached.
+func (h *HarnessTest) ReceiveInvoiceHtlcModification(
+	stream rpc.InvoiceHtlcModifierClient) *invoicesrpc.HtlcModifyRequest {
+
+	chanMsg := make(chan *invoicesrpc.HtlcModifyRequest)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout invoice HTLC modifier")
+
+	case err := <-errChan:
+		require.Failf(h, "err from invoice HTLC modifier stream",
+			"received err from invoice HTLC modifier stream: %v",
+			err)
 
 	case updateMsg := <-chanMsg:
 		return updateMsg

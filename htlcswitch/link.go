@@ -120,7 +120,8 @@ type ChannelLinkConfig struct {
 	// specified when we receive an incoming HTLC.  This will be used to
 	// provide payment senders our latest policy when sending encrypted
 	// error messages.
-	FetchLastChannelUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error)
+	FetchLastChannelUpdate func(lnwire.ShortChannelID) (
+		*lnwire.ChannelUpdate1, error)
 
 	// Peer is a lightning network node with which we have the channel link
 	// opened.
@@ -262,7 +263,7 @@ type ChannelLinkConfig struct {
 	// FailAliasUpdate is a function used to fail an HTLC for an
 	// option_scid_alias channel.
 	FailAliasUpdate func(sid lnwire.ShortChannelID,
-		incoming bool) *lnwire.ChannelUpdate
+		incoming bool) *lnwire.ChannelUpdate1
 
 	// GetAliases is used by the link and switch to fetch the set of
 	// aliases for a given link.
@@ -765,7 +766,7 @@ func shouldAdjustCommitFee(netFee, chanFee,
 }
 
 // failCb is used to cut down on the argument verbosity.
-type failCb func(update *lnwire.ChannelUpdate) lnwire.FailureMessage
+type failCb func(update *lnwire.ChannelUpdate1) lnwire.FailureMessage
 
 // createFailureWithUpdate creates a ChannelUpdate when failing an incoming or
 // outgoing HTLC. It may return a FailureMessage that references a channel's
@@ -2191,10 +2192,20 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// We just received a new updates to our local commitment
 		// chain, validate this new commitment, closing the link if
 		// invalid.
+		auxSigBlob, err := msg.CustomRecords.Serialize()
+		if err != nil {
+			l.failf(
+				LinkFailureError{code: ErrInvalidCommitment},
+				"unable to serialize custom records: %v", err,
+			)
+
+			return
+		}
 		err = l.channel.ReceiveNewCommitment(&lnwallet.CommitSigs{
 			CommitSig:  msg.CommitSig,
 			HtlcSigs:   msg.HtlcSigs,
 			PartialSig: msg.PartialSig,
+			AuxSigBlob: auxSigBlob,
 		})
 		if err != nil {
 			// If we were unable to reconstruct their proposed
@@ -2621,11 +2632,17 @@ func (l *channelLink) updateCommitTx() error {
 	default:
 	}
 
+	auxBlobRecords, err := lnwire.ParseCustomRecords(newCommit.AuxSigBlob)
+	if err != nil {
+		return fmt.Errorf("error parsing aux sigs: %w", err)
+	}
+
 	commitSig := &lnwire.CommitSig{
-		ChanID:     l.ChanID(),
-		CommitSig:  newCommit.CommitSig,
-		HtlcSigs:   newCommit.HtlcSigs,
-		PartialSig: newCommit.PartialSig,
+		ChanID:        l.ChanID(),
+		CommitSig:     newCommit.CommitSig,
+		HtlcSigs:      newCommit.HtlcSigs,
+		PartialSig:    newCommit.PartialSig,
+		CustomRecords: auxBlobRecords,
 	}
 	l.cfg.Peer.SendMessage(false, commitSig)
 
@@ -2949,7 +2966,7 @@ func (l *channelLink) getAliases() []lnwire.ShortChannelID {
 //
 // Part of the scidAliasHandler interface.
 func (l *channelLink) attachFailAliasUpdate(closure func(
-	sid lnwire.ShortChannelID, incoming bool) *lnwire.ChannelUpdate) {
+	sid lnwire.ShortChannelID, incoming bool) *lnwire.ChannelUpdate1) {
 
 	l.Lock()
 	l.cfg.FailAliasUpdate = closure
@@ -3041,7 +3058,7 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 
 		// As part of the returned error, we'll send our latest routing
 		// policy so the sending node obtains the most up to date data.
-		cb := func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
 			return lnwire.NewFeeInsufficient(amtToForward, *upd)
 		}
 		failure := l.createFailureWithUpdate(false, originalScid, cb)
@@ -3069,7 +3086,7 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 
 		// Grab the latest routing policy so the sending node is up to
 		// date with our current policy.
-		cb := func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
 			return lnwire.NewIncorrectCltvExpiry(
 				incomingTimeout, *upd,
 			)
@@ -3118,7 +3135,7 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 
 		// As part of the returned error, we'll send our latest routing
 		// policy so the sending node obtains the most up to date data.
-		cb := func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
 			return lnwire.NewAmountBelowMinimum(amt, *upd)
 		}
 		failure := l.createFailureWithUpdate(false, originalScid, cb)
@@ -3133,7 +3150,7 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 
 		// As part of the returned error, we'll send our latest routing
 		// policy so the sending node obtains the most up-to-date data.
-		cb := func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
 			return lnwire.NewTemporaryChannelFailure(upd)
 		}
 		failure := l.createFailureWithUpdate(false, originalScid, cb)
@@ -3148,7 +3165,7 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 			"outgoing_expiry=%v, best_height=%v", payHash[:],
 			timeout, heightNow)
 
-		cb := func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
 			return lnwire.NewExpiryTooSoon(*upd)
 		}
 		failure := l.createFailureWithUpdate(false, originalScid, cb)
@@ -3168,7 +3185,7 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 	if amt > l.Bandwidth() {
 		l.log.Warnf("insufficient bandwidth to route htlc: %v is "+
 			"larger than %v", amt, l.Bandwidth())
-		cb := func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
 			return lnwire.NewTemporaryChannelFailure(upd)
 		}
 		failure := l.createFailureWithUpdate(false, originalScid, cb)
@@ -3680,7 +3697,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 				l.log.Errorf("unable to encode the "+
 					"remaining route %v", err)
 
-				cb := func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+				cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage { //nolint:lll
 					return lnwire.NewTemporaryChannelFailure(upd)
 				}
 
@@ -3777,7 +3794,18 @@ func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
 	// As we're the exit hop, we'll double check the hop-payload included in
 	// the HTLC to ensure that it was crafted correctly by the sender and
 	// is compatible with the HTLC we were extended.
-	if add.Amount < fwdInfo.AmountToForward {
+	//
+	// For a special case, if the fwdInfo doesn't have any blinded path
+	// information, and the incoming HTLC had special extra data, then
+	// we'll skip this amount check. The invoice acceptor will make sure we
+	// reject the HTLC if it's not containing the correct amount after
+	// examining the custom data.
+	hasBlindedPath := fwdInfo.NextBlinding.IsSome()
+	customHTLC := len(add.CustomRecords) > 0 && !hasBlindedPath
+	log.Tracef("Exit hop has_blinded_path=%v custom_htlc_bypass=%v",
+		hasBlindedPath, customHTLC)
+
+	if !customHTLC && add.Amount < fwdInfo.AmountToForward {
 		l.log.Errorf("onion payload of incoming htlc(%x) has "+
 			"incompatible value: expected <=%v, got %v",
 			add.PaymentHash, add.Amount, fwdInfo.AmountToForward)
@@ -3818,7 +3846,7 @@ func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
 
 	event, err := l.cfg.Registry.NotifyExitHopHtlc(
 		invoiceHash, add.Amount, add.Expiry, int32(heightNow),
-		circuitKey, l.hodlQueue.ChanIn(), payload,
+		circuitKey, l.hodlQueue.ChanIn(), add.CustomRecords, payload,
 	)
 	if err != nil {
 		return err

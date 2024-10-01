@@ -268,9 +268,12 @@ func TestChannelLinkRevThenSig(t *testing.T) {
 
 	// Restart Bob as well by calling NewLightningChannel.
 	bobSigner := harness.bobChannel.Signer
+	signerMock := lnwallet.NewDefaultAuxSignerMock(t)
 	bobPool := lnwallet.NewSigPool(runtime.NumCPU(), bobSigner)
 	bobChannel, err := lnwallet.NewLightningChannel(
 		bobSigner, harness.bobChannel.State(), bobPool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(signerMock),
 	)
 	require.NoError(t, err)
 	err = bobPool.Start()
@@ -403,9 +406,12 @@ func TestChannelLinkSigThenRev(t *testing.T) {
 
 	// Restart Bob as well by calling NewLightningChannel.
 	bobSigner := harness.bobChannel.Signer
+	signerMock := lnwallet.NewDefaultAuxSignerMock(t)
 	bobPool := lnwallet.NewSigPool(runtime.NumCPU(), bobSigner)
 	bobChannel, err := lnwallet.NewLightningChannel(
 		bobSigner, harness.bobChannel.State(), bobPool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(signerMock),
 	)
 	require.NoError(t, err)
 	err = bobPool.Start()
@@ -6166,13 +6172,13 @@ func TestForwardingAsymmetricTimeLockPolicies(t *testing.T) {
 // forwarding policy.
 func TestCheckHtlcForward(t *testing.T) {
 	fetchLastChannelUpdate := func(lnwire.ShortChannelID) (
-		*lnwire.ChannelUpdate, error) {
+		*lnwire.ChannelUpdate1, error) {
 
-		return &lnwire.ChannelUpdate{}, nil
+		return &lnwire.ChannelUpdate1{}, nil
 	}
 
 	failAliasUpdate := func(sid lnwire.ShortChannelID,
-		incoming bool) *lnwire.ChannelUpdate {
+		incoming bool) *lnwire.ChannelUpdate1 {
 
 		return nil
 	}

@@ -18,7 +18,7 @@ func TestWaitingProofStore(t *testing.T) {
 	db, err := MakeTestDB(t)
 	require.NoError(t, err, "failed to make test database")
 
-	proof1 := NewWaitingProof(true, &lnwire.AnnounceSignatures{
+	proof1 := NewWaitingProof(true, &lnwire.AnnounceSignatures1{
 		NodeSignature:    wireSig,
 		BitcoinSignature: wireSig,
 		ExtraOpaqueData:  make([]byte, 0),

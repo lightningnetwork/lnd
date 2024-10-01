@@ -187,6 +187,11 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 			return err
 		}
 
+	case PartialSig:
+		if err := e.Encode(w); err != nil {
+			return err
+		}
+
 	case PingPayload:
 		var l [2]byte
 		binary.BigEndian.PutUint16(l[:], uint16(len(e)))
@@ -935,6 +940,13 @@ func ReadElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = addrBytes[:length]
+
+	case *PartialSig:
+		var sig PartialSig
+		if err = sig.Decode(r); err != nil {
+			return err
+		}
+		*e = sig
 
 	case *ExtraOpaqueData:
 		return e.Decode(r)

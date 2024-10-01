@@ -177,6 +177,17 @@ func runPsbtChanFunding(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 		},
 	)
 
+	// If this is a taproot channel, then we'll decode the PSBT to assert
+	// that an internal key is included.
+	if commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		decodedPSBT, err := psbt.NewFromRawBytes(
+			bytes.NewReader(tempPsbt), false,
+		)
+		require.NoError(ht, err)
+
+		require.Len(ht, decodedPSBT.Outputs[0].TaprootInternalKey, 32)
+	}
+
 	// Let's add a second channel to the batch. This time between Carol and
 	// Alice. We will publish the batch TX once this channel funding is
 	// complete.

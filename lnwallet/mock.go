@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/stretchr/testify/mock"
 )
 
 var (
@@ -440,4 +441,55 @@ func (*MockAuxLeafStore) ApplyHtlcView(
 	_ CommitDiffAuxInput) fn.Result[fn.Option[tlv.Blob]] {
 
 	return fn.Ok(fn.None[tlv.Blob]())
+}
+
+// MockAuxSigner is a mock implementation of the AuxSigner interface.
+type MockAuxSigner struct {
+	mock.Mock
+}
+
+// SubmitSecondLevelSigBatch takes a batch of aux sign jobs and
+// processes them asynchronously.
+func (a *MockAuxSigner) SubmitSecondLevelSigBatch(chanState AuxChanState,
+	tx *wire.MsgTx, jobs []AuxSigJob) error {
+
+	args := a.Called(chanState, tx, jobs)
+
+	// While we return, we'll also send back an instant response for the
+	// set of jobs.
+	for _, sigJob := range jobs {
+		sigJob.Resp <- AuxSigJobResp{}
+	}
+
+	return args.Error(0)
+}
+
+// PackSigs takes a series of aux signatures and packs them into a
+// single blob that can be sent alongside the CommitSig messages.
+func (a *MockAuxSigner) PackSigs(
+	sigs []fn.Option[tlv.Blob]) fn.Result[fn.Option[tlv.Blob]] {
+
+	args := a.Called(sigs)
+
+	return args.Get(0).(fn.Result[fn.Option[tlv.Blob]])
+}
+
+// UnpackSigs takes a packed blob of signatures and returns the
+// original signatures for each HTLC, keyed by HTLC index.
+func (a *MockAuxSigner) UnpackSigs(
+	sigs fn.Option[tlv.Blob]) fn.Result[[]fn.Option[tlv.Blob]] {
+
+	args := a.Called(sigs)
+
+	return args.Get(0).(fn.Result[[]fn.Option[tlv.Blob]])
+}
+
+// VerifySecondLevelSigs attempts to synchronously verify a batch of aux
+// sig jobs.
+func (a *MockAuxSigner) VerifySecondLevelSigs(chanState AuxChanState,
+	tx *wire.MsgTx, jobs []AuxVerifyJob) error {
+
+	args := a.Called(chanState, tx, jobs)
+
+	return args.Error(0)
 }

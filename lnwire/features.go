@@ -642,31 +642,39 @@ func (fv *RawFeatureVector) sizeFunc() uint64 {
 // Record returns a TLV record that can be used to encode/decode raw feature
 // vectors. Note that the length of the feature vector is not included, because
 // it is covered by the TLV record's length field.
-func (fv *RawFeatureVector) Record(recordType tlv.Type) tlv.Record {
+func (fv *RawFeatureVector) Record() tlv.Record {
 	return tlv.MakeDynamicRecord(
-		recordType, fv, fv.sizeFunc, rawFeatureEncoder,
-		rawFeatureDecoder,
+		0, fv, fv.sizeFunc, rawFeatureEncoder, rawFeatureDecoder,
 	)
 }
 
 // rawFeatureEncoder is a custom TLV encoder for raw feature vectors.
 func rawFeatureEncoder(w io.Writer, val interface{}, _ *[8]byte) error {
-	if f, ok := val.(*RawFeatureVector); ok {
-		return f.encode(w, f.SerializeSize(), 8)
+	if v, ok := val.(*RawFeatureVector); ok {
+		// Encode the feature bits as a byte slice without its length
+		// prepended, as that's already taken care of by the TLV record.
+		fv := *v
+		return fv.encode(w, fv.SerializeSize(), 8)
 	}
 
-	return tlv.NewTypeForEncodingErr(val, "*lnwire.RawFeatureVector")
+	return tlv.NewTypeForEncodingErr(val, "lnwire.RawFeatureVector")
 }
 
 // rawFeatureDecoder is a custom TLV decoder for raw feature vectors.
 func rawFeatureDecoder(r io.Reader, val interface{}, _ *[8]byte,
 	l uint64) error {
 
-	if f, ok := val.(*RawFeatureVector); ok {
-		return f.decode(r, int(l), 8)
+	if v, ok := val.(*RawFeatureVector); ok {
+		fv := NewRawFeatureVector()
+		if err := fv.decode(r, int(l), 8); err != nil {
+			return err
+		}
+		*v = *fv
+
+		return nil
 	}
 
-	return tlv.NewTypeForEncodingErr(val, "*lnwire.RawFeatureVector")
+	return tlv.NewTypeForEncodingErr(val, "lnwire.RawFeatureVector")
 }
 
 // FeatureVector represents a set of enabled features. The set stores

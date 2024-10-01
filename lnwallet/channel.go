@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 	"sync"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -760,6 +760,10 @@ type LightningChannel struct {
 	// signatures, of which there may be hundreds.
 	sigPool *SigPool
 
+	// auxSigner is a special signer used to obtain opaque signatures for
+	// custom channel variants.
+	auxSigner fn.Option[AuxSigner]
+
 	// Capacity is the total capacity of this channel.
 	Capacity btcutil.Amount
 
@@ -821,6 +825,7 @@ type channelOpts struct {
 	remoteNonce *musig2.Nonces
 
 	leafStore fn.Option[AuxLeafStore]
+	auxSigner fn.Option[AuxSigner]
 
 	skipNonceInit bool
 }
@@ -856,6 +861,13 @@ func WithSkipNonceInit() ChannelOpt {
 func WithLeafStore(store AuxLeafStore) ChannelOpt {
 	return func(o *channelOpts) {
 		o.leafStore = fn.Some[AuxLeafStore](store)
+	}
+}
+
+// WithAuxSigner is used to specify a custom aux signer for the channel.
+func WithAuxSigner(signer AuxSigner) ChannelOpt {
+	return func(o *channelOpts) {
+		o.auxSigner = fn.Some[AuxSigner](signer)
 	}
 }
 
@@ -911,6 +923,7 @@ func NewLightningChannel(signer input.Signer,
 	lc := &LightningChannel{
 		Signer:        signer,
 		leafStore:     opts.leafStore,
+		auxSigner:     opts.auxSigner,
 		sigPool:       sigPool,
 		currentHeight: localCommit.CommitHeight,
 		commitChains:  commitChains,
@@ -2545,6 +2558,18 @@ type HtlcView struct {
 	FeePerKw chainfee.SatPerKWeight
 }
 
+// AuxOurUpdates returns the outgoing HTLCs as a read-only copy of
+// AuxHtlcDescriptors.
+func (v *HtlcView) AuxOurUpdates() []AuxHtlcDescriptor {
+	return fn.Map(newAuxHtlcDescriptor, v.OurUpdates)
+}
+
+// AuxTheirUpdates returns the incoming HTLCs as a read-only copy of
+// AuxHtlcDescriptors.
+func (v *HtlcView) AuxTheirUpdates() []AuxHtlcDescriptor {
+	return fn.Map(newAuxHtlcDescriptor, v.TheirUpdates)
+}
+
 // fetchHTLCView returns all the candidate HTLC updates which should be
 // considered for inclusion within a commitment based on the passed HTLC log
 // indexes.
@@ -3064,7 +3089,8 @@ func processFeeUpdate(feeUpdate *paymentDescriptor, nextHeight uint64,
 func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	chanState *channeldb.OpenChannel, leaseExpiry uint32,
 	remoteCommitView *commitment,
-	leafStore fn.Option[AuxLeafStore]) ([]SignJob, chan struct{}, error) {
+	leafStore fn.Option[AuxLeafStore]) ([]SignJob, []AuxSigJob,
+	chan struct{}, error) {
 
 	var (
 		isRemoteInitiator = !chanState.IsInitiator
@@ -3084,6 +3110,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 	numSigs := len(remoteCommitView.incomingHTLCs) +
 		len(remoteCommitView.outgoingHTLCs)
 	sigBatch := make([]SignJob, 0, numSigs)
+	auxSigBatch := make([]AuxSigJob, 0, numSigs)
 
 	var err error
 	cancelChan := make(chan struct{})
@@ -3098,8 +3125,8 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		},
 	).Unpack()
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to fetch aux leaves: %w",
-			err)
+		return nil, nil, nil, fmt.Errorf("unable to fetch aux leaves: "+
+			"%w", err)
 	}
 
 	// For each outgoing and incoming HTLC, if the HTLC isn't considered a
@@ -3148,11 +3175,8 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			auxLeaf,
 		)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
-
-		// TODO(roasbeef): hook up signer interface here (later commit
-		// in this PR).
 
 		// Construct a full hash cache as we may be signing a segwit v1
 		// sighash.
@@ -3185,6 +3209,11 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		}
 
 		sigBatch = append(sigBatch, sigJob)
+
+		auxSigBatch = append(auxSigBatch, NewAuxSigJob(
+			sigJob, *keyRing, true, newAuxHtlcDescriptor(&htlc),
+			remoteCommitView.customBlob, auxLeaf, cancelChan,
+		))
 	}
 	for _, htlc := range remoteCommitView.outgoingHTLCs {
 		if HtlcIsDust(
@@ -3228,7 +3257,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			auxLeaf,
 		)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 
 		// Construct a full hash cache as we may be signing a segwit v1
@@ -3257,13 +3286,19 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		// If this is a taproot channel, then we'll need to set the
 		// method type to ensure we generate a valid signature.
 		if chanType.IsTaproot() {
-			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod //nolint:lll
+			//nolint:lll
+			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod
 		}
 
 		sigBatch = append(sigBatch, sigJob)
+
+		auxSigBatch = append(auxSigBatch, NewAuxSigJob(
+			sigJob, *keyRing, false, newAuxHtlcDescriptor(&htlc),
+			remoteCommitView.customBlob, auxLeaf, cancelChan,
+		))
 	}
 
-	return sigBatch, cancelChan, nil
+	return sigBatch, auxSigBatch, cancelChan, nil
 }
 
 // createCommitDiff will create a commit diff given a new pending commitment
@@ -3272,7 +3307,8 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 // new commitment to the remote party. The commit diff returned contains all
 // information necessary for retransmission.
 func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
-	commitSig lnwire.Sig, htlcSigs []lnwire.Sig) *channeldb.CommitDiff {
+	commitSig lnwire.Sig, htlcSigs []lnwire.Sig,
+	auxSigs []fn.Option[tlv.Blob]) (*channeldb.CommitDiff, error) {
 
 	var (
 		logUpdates        []channeldb.LogUpdate
@@ -3341,21 +3377,71 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 	// disk.
 	diskCommit := newCommit.toDiskCommit(lntypes.Remote)
 
-	return &channeldb.CommitDiff{
-		Commitment: *diskCommit,
-		CommitSig: &lnwire.CommitSig{
-			ChanID: lnwire.NewChanIDFromOutPoint(
-				lc.channelState.FundingOutpoint,
-			),
-			CommitSig: commitSig,
-			HtlcSigs:  htlcSigs,
+	// We prepare the commit sig message to be sent to the remote party.
+	commitSigMsg := &lnwire.CommitSig{
+		ChanID: lnwire.NewChanIDFromOutPoint(
+			lc.channelState.FundingOutpoint,
+		),
+		CommitSig: commitSig,
+		HtlcSigs:  htlcSigs,
+	}
+
+	// Encode and check the size of the custom records now.
+	auxCustomRecords, err := fn.MapOptionZ(
+		lc.auxSigner,
+		func(s AuxSigner) fn.Result[lnwire.CustomRecords] {
+			blobOption, err := s.PackSigs(auxSigs).Unpack()
+			if err != nil {
+				return fn.Err[lnwire.CustomRecords](err)
+			}
+
+			// We now serialize the commit sig message without the
+			// custom records to make sure we have space for them.
+			var buf bytes.Buffer
+			err = commitSigMsg.Encode(&buf, 0)
+			if err != nil {
+				return fn.Err[lnwire.CustomRecords](err)
+			}
+
+			// The number of available bytes is the max message size
+			// minus the size of the message without the custom
+			// records. We also subtract 8 bytes for encoding
+			// overhead of the custom records (just some safety
+			// padding).
+			available := lnwire.MaxMsgBody - buf.Len() - 8
+
+			blob := blobOption.UnwrapOr(nil)
+			if len(blob) > available {
+				err = fmt.Errorf("aux sigs size %d exceeds "+
+					"max allowed size of %d", len(blob),
+					available)
+
+				return fn.Err[lnwire.CustomRecords](err)
+			}
+
+			records, err := lnwire.ParseCustomRecords(blob)
+			if err != nil {
+				return fn.Err[lnwire.CustomRecords](err)
+			}
+
+			return fn.Ok(records)
 		},
+	).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("error packing aux sigs: %w", err)
+	}
+
+	commitSigMsg.CustomRecords = auxCustomRecords
+
+	return &channeldb.CommitDiff{
+		Commitment:        *diskCommit,
+		CommitSig:         commitSigMsg,
 		LogUpdates:        logUpdates,
 		OpenedCircuitKeys: openCircuitKeys,
 		ClosedCircuitKeys: closedCircuitKeys,
 		AddAcks:           ackAddRefs,
 		SettleFailAcks:    settleFailRefs,
-	}
+	}, nil
 }
 
 // getUnsignedAckedUpdates returns all remote log updates that we haven't
@@ -3748,6 +3834,10 @@ type CommitSigs struct {
 	// PartialSig is the musig2 partial signature for taproot commitment
 	// transactions.
 	PartialSig lnwire.OptPartialSigWithNonceTLV
+
+	// AuxSigBlob is the blob containing all the auxiliary signatures for
+	// this new commitment state.
+	AuxSigBlob tlv.Blob
 }
 
 // NewCommitState wraps the various signatures needed to properly
@@ -3772,6 +3862,8 @@ type NewCommitState struct {
 // any). The HTLC signatures are sorted according to the BIP 69 order of the
 // HTLC's on the commitment transaction. Finally, the new set of pending HTLCs
 // for the remote party's commitment are also returned.
+//
+//nolint:funlen
 func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	lc.Lock()
 	defer lc.Unlock()
@@ -3864,14 +3956,36 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	if lc.channelState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = lc.channelState.ThawHeight
 	}
-	sigBatch, cancelChan, err := genRemoteHtlcSigJobs(
+	sigBatch, auxSigBatch, cancelChan, err := genRemoteHtlcSigJobs(
 		keyRing, lc.channelState, leaseExpiry, newCommitView,
 		lc.leafStore,
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	// We'll need to send over the signatures to the remote party in the
+	// order as they appear on the commitment transaction after BIP 69
+	// sorting.
+	slices.SortFunc(sigBatch, func(i, j SignJob) int {
+		return int(i.OutputIndex - j.OutputIndex)
+	})
+	slices.SortFunc(auxSigBatch, func(i, j AuxSigJob) int {
+		return int(i.OutputIndex - j.OutputIndex)
+	})
+
 	lc.sigPool.SubmitSignBatch(sigBatch)
+
+	err = fn.MapOptionZ(lc.auxSigner, func(a AuxSigner) error {
+		return a.SubmitSecondLevelSigBatch(
+			NewAuxChanState(lc.channelState), newCommitView.txn,
+			auxSigBatch,
+		)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error submitting second level sig "+
+			"batch: %w", err)
+	}
 
 	// While the jobs are being carried out, we'll Sign their version of
 	// the new commitment transaction while we're waiting for the rest of
@@ -3910,17 +4024,12 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 		}
 	}
 
-	// We'll need to send over the signatures to the remote party in the
-	// order as they appear on the commitment transaction after BIP 69
-	// sorting.
-	sort.Slice(sigBatch, func(i, j int) bool {
-		return sigBatch[i].OutputIndex < sigBatch[j].OutputIndex
-	})
-
-	// With the jobs sorted, we'll now iterate through all the responses to
-	// gather each of the signatures in order.
+	// Iterate through all the responses to gather each of the signatures
+	// in the order they were submitted.
 	htlcSigs = make([]lnwire.Sig, 0, len(sigBatch))
-	for _, htlcSigJob := range sigBatch {
+	auxSigs := make([]fn.Option[tlv.Blob], 0, len(auxSigBatch))
+	for i := range sigBatch {
+		htlcSigJob := sigBatch[i]
 		jobResp := <-htlcSigJob.Resp
 
 		// If an error occurred, then we'll cancel any other active
@@ -3931,12 +4040,34 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 		}
 
 		htlcSigs = append(htlcSigs, jobResp.Sig)
+
+		if lc.auxSigner.IsNone() {
+			continue
+		}
+
+		auxHtlcSigJob := auxSigBatch[i]
+		auxJobResp := <-auxHtlcSigJob.Resp
+
+		// If an error occurred, then we'll cancel any other active
+		// jobs.
+		if auxJobResp.Err != nil {
+			close(cancelChan)
+			return nil, auxJobResp.Err
+		}
+
+		auxSigs = append(auxSigs, auxJobResp.SigBlob)
 	}
 
 	// As we're about to proposer a new commitment state for the remote
 	// party, we'll write this pending state to disk before we exit, so we
 	// can retransmit it if necessary.
-	commitDiff := lc.createCommitDiff(newCommitView, sig, htlcSigs)
+	commitDiff, err := lc.createCommitDiff(
+		newCommitView, sig, htlcSigs, auxSigs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	err = lc.channelState.AppendRemoteCommitChain(commitDiff)
 	if err != nil {
 		return nil, err
@@ -3950,11 +4081,18 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	// latest commitment update.
 	lc.commitChains.Remote.addCommitment(newCommitView)
 
+	auxSigBlob, err := commitDiff.CommitSig.CustomRecords.Serialize()
+	if err != nil {
+		return nil, fmt.Errorf("unable to serialize aux sig blob: %w",
+			err)
+	}
+
 	return &NewCommitState{
 		CommitSigs: &CommitSigs{
 			CommitSig:  sig,
 			HtlcSigs:   htlcSigs,
 			PartialSig: lnwire.MaybePartialSigWithNonce(partialSig),
+			AuxSigBlob: auxSigBlob,
 		},
 		PendingHTLCs: commitDiff.Commitment.Htlcs,
 	}, nil
@@ -3966,8 +4104,8 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 // each time. After we receive the channel reestablish message, we learn the
 // nonce we need to use for the remote party. As a result, we need to generate
 // the partial signature again with the new nonce.
-func (lc *LightningChannel) resignMusigCommit(commitTx *wire.MsgTx,
-) (lnwire.OptPartialSigWithNonceTLV, error) {
+func (lc *LightningChannel) resignMusigCommit(
+	commitTx *wire.MsgTx) (lnwire.OptPartialSigWithNonceTLV, error) {
 
 	remoteSession := lc.musigSessions.RemoteSession
 	musig, err := remoteSession.SignCommit(commitTx)
@@ -4172,13 +4310,23 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			// If we signed this state, then we'll accumulate
 			// another update to send over.
 			case err == nil:
+				customRecords, err := lnwire.ParseCustomRecords(
+					newCommit.AuxSigBlob,
+				)
+				if err != nil {
+					sErr := fmt.Errorf("error parsing aux "+
+						"sigs: %w", err)
+					return nil, nil, nil, sErr
+				}
+
 				commitSig := &lnwire.CommitSig{
 					ChanID: lnwire.NewChanIDFromOutPoint(
 						lc.channelState.FundingOutpoint,
 					),
-					CommitSig:  newCommit.CommitSig,
-					HtlcSigs:   newCommit.HtlcSigs,
-					PartialSig: newCommit.PartialSig,
+					CommitSig:     newCommit.CommitSig,
+					HtlcSigs:      newCommit.HtlcSigs,
+					PartialSig:    newCommit.PartialSig,
+					CustomRecords: customRecords,
 				}
 
 				updates = append(updates, commitSig)
@@ -4396,6 +4544,7 @@ func (lc *LightningChannel) computeView(view *HtlcView,
 	// need this to determine which HTLCs are dust, and also the final fee
 	// rate.
 	view.FeePerKw = commitChain.tip().feePerKw
+	view.NextHeight = nextHeight
 
 	// We evaluate the view at this stage, meaning settled and failed HTLCs
 	// will remove their corresponding added HTLCs.  The resulting filtered
@@ -4471,7 +4620,8 @@ func (lc *LightningChannel) computeView(view *HtlcView,
 func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 	localCommitmentView *commitment, keyRing *CommitmentKeyRing,
 	htlcSigs []lnwire.Sig, leaseExpiry uint32,
-	leafStore fn.Option[AuxLeafStore]) ([]VerifyJob, error) {
+	leafStore fn.Option[AuxLeafStore], auxSigner fn.Option[AuxSigner],
+	sigBlob fn.Option[tlv.Blob]) ([]VerifyJob, []AuxVerifyJob, error) {
 
 	var (
 		isLocalInitiator = chanState.IsInitiator
@@ -4490,6 +4640,7 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 	numHtlcs := len(localCommitmentView.incomingHTLCs) +
 		len(localCommitmentView.outgoingHTLCs)
 	verifyJobs := make([]VerifyJob, 0, numHtlcs)
+	auxVerifyJobs := make([]AuxVerifyJob, 0, numHtlcs)
 
 	diskCommit := localCommitmentView.toDiskCommit(lntypes.Local)
 	auxResult, err := fn.MapOptionZ(
@@ -4501,7 +4652,20 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 		},
 	).Unpack()
 	if err != nil {
-		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+		return nil, nil, fmt.Errorf("unable to fetch aux leaves: %w",
+			err)
+	}
+
+	// If we have a sig blob, then we'll attempt to map that to individual
+	// blobs for each HTLC we might need a signature for.
+	auxHtlcSigs, err := fn.MapOptionZ(
+		auxSigner, func(a AuxSigner) fn.Result[[]fn.Option[tlv.Blob]] {
+			return a.UnpackSigs(sigBlob)
+		},
+	).Unpack()
+	if err != nil {
+		return nil, nil, fmt.Errorf("error unpacking aux sigs: %w",
+			err)
 	}
 
 	// We'll iterate through each output in the commitment transaction,
@@ -4514,6 +4678,9 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 			htlcIndex uint64
 			sigHash   func() ([]byte, error)
 			sig       input.Signature
+			htlc      *paymentDescriptor
+			incoming  bool
+			auxLeaf   input.AuxTapLeaf
 			err       error
 		)
 
@@ -4523,10 +4690,12 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 		// If this output index is found within the incoming HTLC
 		// index, then this means that we need to generate an HTLC
 		// success transaction in order to validate the signature.
+		//nolint:lll
 		case localCommitmentView.incomingHTLCIndex[outputIndex] != nil:
-			htlc := localCommitmentView.incomingHTLCIndex[outputIndex]
+			htlc = localCommitmentView.incomingHTLCIndex[outputIndex]
 
 			htlcIndex = htlc.HtlcIndex
+			incoming = true
 
 			sigHash = func() ([]byte, error) {
 				op := wire.OutPoint{
@@ -4592,7 +4761,7 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 
 			// Make sure there are more signatures left.
 			if i >= len(htlcSigs) {
-				return nil, fmt.Errorf("not enough HTLC " +
+				return nil, nil, fmt.Errorf("not enough HTLC " +
 					"signatures")
 			}
 
@@ -4608,15 +4777,16 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 			// is valid.
 			sig, err = htlcSigs[i].ToSignature()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			htlc.sig = sig
 
 		// Otherwise, if this is an outgoing HTLC, then we'll need to
 		// generate a timeout transaction so we can verify the
 		// signature presented.
+		//nolint:lll
 		case localCommitmentView.outgoingHTLCIndex[outputIndex] != nil:
-			htlc := localCommitmentView.outgoingHTLCIndex[outputIndex]
+			htlc = localCommitmentView.outgoingHTLCIndex[outputIndex]
 
 			htlcIndex = htlc.HtlcIndex
 
@@ -4687,7 +4857,7 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 
 			// Make sure there are more signatures left.
 			if i >= len(htlcSigs) {
-				return nil, fmt.Errorf("not enough HTLC " +
+				return nil, nil, fmt.Errorf("not enough HTLC " +
 					"signatures")
 			}
 
@@ -4703,7 +4873,7 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 			// is valid.
 			sig, err = htlcSigs[i].ToSignature()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 
 			htlc.sig = sig
@@ -4719,17 +4889,40 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 			SigHash:   sigHash,
 		})
 
+		if len(auxHtlcSigs) > i {
+			auxSig := auxHtlcSigs[i]
+			auxVerifyJob := NewAuxVerifyJob(
+				auxSig, *keyRing, incoming,
+				newAuxHtlcDescriptor(htlc),
+				localCommitmentView.customBlob, auxLeaf,
+			)
+
+			if htlc.CustomRecords == nil {
+				htlc.CustomRecords = make(lnwire.CustomRecords)
+			}
+
+			// As this HTLC has a custom signature associated with
+			// it, store it in the custom records map so we can
+			// write to disk later.
+			sigType := htlcCustomSigType.TypeVal()
+			htlc.CustomRecords[uint64(sigType)] = auxSig.UnwrapOr(
+				nil,
+			)
+
+			auxVerifyJobs = append(auxVerifyJobs, auxVerifyJob)
+		}
+
 		i++
 	}
 
 	// If we received a number of HTLC signatures that doesn't match our
 	// commitment, we'll return an error now.
 	if len(htlcSigs) != i {
-		return nil, fmt.Errorf("number of htlc sig mismatch. "+
+		return nil, nil, fmt.Errorf("number of htlc sig mismatch. "+
 			"Expected %v sigs, got %v", i, len(htlcSigs))
 	}
 
-	return verifyJobs, nil
+	return verifyJobs, auxVerifyJobs, nil
 }
 
 // InvalidCommitSigError is a struct that implements the error interface to
@@ -4888,6 +5081,11 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 		localCommitmentView.ourBalance, localCommitmentView.theirBalance,
 		lnutils.SpewLogClosure(localCommitmentView.txn))
 
+	var auxSigBlob fn.Option[tlv.Blob]
+	if commitSigs.AuxSigBlob != nil {
+		auxSigBlob = fn.Some(commitSigs.AuxSigBlob)
+	}
+
 	// As an optimization, we'll generate a series of jobs for the worker
 	// pool to verify each of the HTLC signatures presented. Once
 	// generated, we'll submit these jobs to the worker pool.
@@ -4895,9 +5093,10 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 	if lc.channelState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = lc.channelState.ThawHeight
 	}
-	verifyJobs, err := genHtlcSigValidationJobs(
+	verifyJobs, auxVerifyJobs, err := genHtlcSigValidationJobs(
 		lc.channelState, localCommitmentView, keyRing,
-		commitSigs.HtlcSigs, leaseExpiry, lc.leafStore,
+		commitSigs.HtlcSigs, leaseExpiry, lc.leafStore, lc.auxSigner,
+		auxSigBlob,
 	)
 	if err != nil {
 		return err
@@ -5048,6 +5247,18 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 				commitTx:     txBytes.Bytes(),
 			}
 		}
+	}
+
+	// Now that we know all the normal sigs are valid, we'll also verify
+	// the aux jobs, if any exist.
+	err = fn.MapOptionZ(lc.auxSigner, func(a AuxSigner) error {
+		return a.VerifySecondLevelSigs(
+			NewAuxChanState(lc.channelState), localCommitTx,
+			auxVerifyJobs,
+		)
+	})
+	if err != nil {
+		return fmt.Errorf("unable to validate aux sigs: %w", err)
 	}
 
 	// The signature checks out, so we can now add the new commitment to
@@ -5782,8 +5993,9 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64,
 	defer lc.Unlock()
 
 	if htlc.ID != lc.updateLogs.Remote.htlcCounter {
-		return 0, fmt.Errorf("ID %d on HTLC add does not match expected next "+
-			"ID %d", htlc.ID, lc.updateLogs.Remote.htlcCounter)
+		return 0, fmt.Errorf("ID %d on HTLC add does not match "+
+			"expected next ID %d", htlc.ID,
+			lc.updateLogs.Remote.htlcCounter)
 	}
 
 	pd := &paymentDescriptor{
@@ -7479,10 +7691,30 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	}, nil
 }
 
+// CloseOutput wraps a normal tx out with additional metadata that indicates if
+// the output belongs to the initiator of the channel or not.
+type CloseOutput struct {
+	wire.TxOut
+
+	// IsLocal indicates if the output belong to the local party.
+	IsLocal bool
+}
+
+// CloseSortFunc is a function type alias for a function that sorts the closing
+// transaction.
+type CloseSortFunc func(*wire.MsgTx) error
+
 // chanCloseOpt is a functional option that can be used to modify the co-op
 // close process.
 type chanCloseOpt struct {
 	musigSession *MusigSession
+
+	extraCloseOutputs []CloseOutput
+
+	// customSort is a custom function that can be used to sort the
+	// transaction outputs. If this isn't set, then the default BIP-69
+	// sorting is used.
+	customSort CloseSortFunc
 }
 
 // ChanCloseOpt is a closure type that cen be used to modify the set of default
@@ -7503,6 +7735,22 @@ func WithCoopCloseMusigSession(session *MusigSession) ChanCloseOpt {
 	}
 }
 
+// WithExtraCloseOutputs can be used to add extra outputs to the cooperative
+// transaction.
+func WithExtraCloseOutputs(extraOutputs []CloseOutput) ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.extraCloseOutputs = extraOutputs
+	}
+}
+
+// WithCustomCoopSort can be used to modify the way the co-op close transaction
+// is sorted.
+func WithCustomCoopSort(sorter CloseSortFunc) ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.customSort = sorter
+	}
+}
+
 // CreateCloseProposal is used by both parties in a cooperative channel close
 // workflow to generate proposed close transactions and signatures. This method
 // should only be executed once all pending HTLCs (if any) on the channel have
@@ -7510,9 +7758,6 @@ func WithCoopCloseMusigSession(session *MusigSession) ChanCloseOpt {
 // the "closing" state, which indicates that all incoming/outgoing HTLC
 // requests should be rejected. A signature for the closing transaction is
 // returned.
-//
-// TODO(roasbeef): caller should initiate signal to reject all incoming HTLCs,
-// settle any in flight.
 func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	localDeliveryScript []byte, remoteDeliveryScript []byte,
 	closeOpts ...ChanCloseOpt) (input.Signature, *chainhash.Hash,
@@ -7523,7 +7768,6 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 
 	// If we're already closing the channel, then ignore this request.
 	if lc.isClosed {
-		// TODO(roasbeef): check to ensure no pending payments
 		return nil, nil, 0, ErrChanClosing
 	}
 
@@ -7537,7 +7781,10 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	// during the channel closing process.
 	ourBalance, theirBalance, err := CoopCloseBalance(
 		lc.channelState.ChanType, lc.channelState.IsInitiator,
-		proposedFee, lc.channelState.LocalCommitment,
+		proposedFee,
+		lc.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
+		lc.channelState.LocalCommitment.RemoteBalance.ToSatoshis(),
+		lc.channelState.LocalCommitment.CommitFee,
 	)
 	if err != nil {
 		return nil, nil, 0, err
@@ -7550,11 +7797,27 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		closeTxOpts = append(closeTxOpts, WithRBFCloseTx())
 	}
 
-	closeTx := CreateCooperativeCloseTx(
+	// If we have any extra outputs to pass along, then we'll map that to
+	// the co-op close option txn type.
+	if opts.extraCloseOutputs != nil {
+		closeTxOpts = append(closeTxOpts, WithExtraTxCloseOutputs(
+			opts.extraCloseOutputs,
+		))
+	}
+	if opts.customSort != nil {
+		closeTxOpts = append(
+			closeTxOpts, WithCustomTxSort(opts.customSort),
+		)
+	}
+
+	closeTx, err := CreateCooperativeCloseTx(
 		fundingTxIn(lc.channelState), lc.channelState.LocalChanCfg.DustLimit,
 		lc.channelState.RemoteChanCfg.DustLimit, ourBalance, theirBalance,
 		localDeliveryScript, remoteDeliveryScript, closeTxOpts...,
 	)
+	if err != nil {
+		return nil, nil, 0, err
+	}
 
 	// Ensure that the transaction doesn't explicitly violate any
 	// consensus rules such as being too big, or having any value with a
@@ -7619,7 +7882,10 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	// Get the final balances after subtracting the proposed fee.
 	ourBalance, theirBalance, err := CoopCloseBalance(
 		lc.channelState.ChanType, lc.channelState.IsInitiator,
-		proposedFee, lc.channelState.LocalCommitment,
+		proposedFee,
+		lc.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
+		lc.channelState.LocalCommitment.RemoteBalance.ToSatoshis(),
+		lc.channelState.LocalCommitment.CommitFee,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -7632,14 +7898,30 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 		closeTxOpts = append(closeTxOpts, WithRBFCloseTx())
 	}
 
+	// If we have any extra outputs to pass along, then we'll map that to
+	// the co-op close option txn type.
+	if opts.extraCloseOutputs != nil {
+		closeTxOpts = append(closeTxOpts, WithExtraTxCloseOutputs(
+			opts.extraCloseOutputs,
+		))
+	}
+	if opts.customSort != nil {
+		closeTxOpts = append(
+			closeTxOpts, WithCustomTxSort(opts.customSort),
+		)
+	}
+
 	// Create the transaction used to return the current settled balance
 	// on this active channel back to both parties. In this current model,
 	// the initiator pays full fees for the cooperative close transaction.
-	closeTx := CreateCooperativeCloseTx(
+	closeTx, err := CreateCooperativeCloseTx(
 		fundingTxIn(lc.channelState), lc.channelState.LocalChanCfg.DustLimit,
 		lc.channelState.RemoteChanCfg.DustLimit, ourBalance, theirBalance,
 		localDeliveryScript, remoteDeliveryScript, closeTxOpts...,
 	)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	// Ensure that the transaction doesn't explicitly validate any
 	// consensus rules such as being too big, or having any value with a
@@ -8337,6 +8619,15 @@ type closeTxOpts struct {
 	// enableRBF indicates whether the cooperative close tx should signal
 	// RBF or not.
 	enableRBF bool
+
+	// extraCloseOutputs is a set of additional outputs that should be
+	// added the co-op close transaction.
+	extraCloseOutputs []CloseOutput
+
+	// customSort is a custom function that can be used to sort the
+	// transaction outputs. If this isn't set, then the default BIP-69
+	// sorting is used.
+	customSort CloseSortFunc
 }
 
 // defaultCloseTxOpts returns a closeTxOpts struct with default values.
@@ -8357,6 +8648,22 @@ func WithRBFCloseTx() CloseTxOpt {
 	}
 }
 
+// WithExtraTxCloseOutputs can be used to add extra outputs to the cooperative
+// transaction.
+func WithExtraTxCloseOutputs(extraOutputs []CloseOutput) CloseTxOpt {
+	return func(o *closeTxOpts) {
+		o.extraCloseOutputs = extraOutputs
+	}
+}
+
+// WithCustomTxSort can be used to modify the way the close transaction is
+// sorted.
+func WithCustomTxSort(sorter CloseSortFunc) CloseTxOpt {
+	return func(opts *closeTxOpts) {
+		opts.customSort = sorter
+	}
+}
+
 // CreateCooperativeCloseTx creates a transaction which if signed by both
 // parties, then broadcast cooperatively closes an active channel. The creation
 // of the closure transaction is modified by a boolean indicating if the party
@@ -8366,7 +8673,7 @@ func WithRBFCloseTx() CloseTxOpt {
 func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 	localDust, remoteDust, ourBalance, theirBalance btcutil.Amount,
 	ourDeliveryScript, theirDeliveryScript []byte,
-	closeOpts ...CloseTxOpt) *wire.MsgTx {
+	closeOpts ...CloseTxOpt) (*wire.MsgTx, error) {
 
 	opts := defaultCloseTxOpts()
 	for _, optFunc := range closeOpts {
@@ -8388,28 +8695,132 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 
 	// Create both cooperative closure outputs, properly respecting the
 	// dust limits of both parties.
-	if ourBalance >= localDust {
+	var localOutputIdx fn.Option[int]
+	haveLocalOutput := ourBalance >= localDust
+	if haveLocalOutput {
 		closeTx.AddTxOut(&wire.TxOut{
 			PkScript: ourDeliveryScript,
 			Value:    int64(ourBalance),
 		})
+
+		localOutputIdx = fn.Some(len(closeTx.TxOut) - 1)
 	}
-	if theirBalance >= remoteDust {
+
+	var remoteOutputIdx fn.Option[int]
+	haveRemoteOutput := theirBalance >= remoteDust
+	if haveRemoteOutput {
 		closeTx.AddTxOut(&wire.TxOut{
 			PkScript: theirDeliveryScript,
 			Value:    int64(theirBalance),
 		})
+
+		remoteOutputIdx = fn.Some(len(closeTx.TxOut) - 1)
 	}
 
-	txsort.InPlaceSort(closeTx)
+	// If we have extra outputs to add to the co-op close transaction, then
+	// we'll examine them now. We'll deduct the output's value from the
+	// owning party. In the case that a party can't pay for the output, then
+	// their normal output will be omitted.
+	for _, extraTxOut := range opts.extraCloseOutputs {
+		switch {
+		// For additional local outputs, add the output, then deduct
+		// the balance from our local balance.
+		case extraTxOut.IsLocal:
+			// The extraCloseOutputs in the options just indicate if
+			// an extra output should be added in general. But we
+			// only add one if we actually _need_ one, based on the
+			// balance. If we don't have enough local balance to
+			// cover the extra output, then localOutputIdx is None.
+			localOutputIdx.WhenSome(func(idx int) {
+				// The output that currently represents the
+				// local balance, which means:
+				// 	txOut.Value == ourBalance.
+				txOut := closeTx.TxOut[idx]
 
-	return closeTx
+				// The extra output (if one exists) is the more
+				// important one, as in custom channels it might
+				// carry some additional values. The normal
+				// output is just an address that sends the
+				// local balance back to our wallet. The extra
+				// one also goes to our wallet, but might also
+				// carry other values, so it has higher
+				// priority. Do we have enough balance to have
+				// both the extra output with the given value
+				// (which is subtracted from our balance) and
+				// still an above-dust normal output? If not, we
+				// skip the extra output and just overwrite the
+				// existing output script with the one from the
+				// extra output.
+				amtAfterOutput := btcutil.Amount(
+					txOut.Value - extraTxOut.Value,
+				)
+				if amtAfterOutput <= localDust {
+					txOut.PkScript = extraTxOut.PkScript
+
+					return
+				}
+
+				txOut.Value -= extraTxOut.Value
+				closeTx.AddTxOut(&extraTxOut.TxOut)
+			})
+
+		// For extra remote outputs, we'll do the opposite.
+		case !extraTxOut.IsLocal:
+			// The extraCloseOutputs in the options just indicate if
+			// an extra output should be added in general. But we
+			// only add one if we actually _need_ one, based on the
+			// balance. If we don't have enough remote balance to
+			// cover the extra output, then remoteOutputIdx is None.
+			remoteOutputIdx.WhenSome(func(idx int) {
+				// The output that currently represents the
+				// remote balance, which means:
+				// 	txOut.Value == theirBalance.
+				txOut := closeTx.TxOut[idx]
+
+				// The extra output (if one exists) is the more
+				// important one, as in custom channels it might
+				// carry some additional values. The normal
+				// output is just an address that sends the
+				// remote balance back to their wallet. The
+				// extra one also goes to their wallet, but
+				// might also carry other values, so it has
+				// higher priority. Do they have enough balance
+				// to have both the extra output with the given
+				// value (which is subtracted from their
+				// balance) and still an above-dust normal
+				// output? If not, we skip the extra output and
+				// just overwrite the existing output script
+				// with the one from the extra output.
+				amtAfterOutput := btcutil.Amount(
+					txOut.Value - extraTxOut.Value,
+				)
+				if amtAfterOutput <= remoteDust {
+					txOut.PkScript = extraTxOut.PkScript
+
+					return
+				}
+
+				txOut.Value -= extraTxOut.Value
+				closeTx.AddTxOut(&extraTxOut.TxOut)
+			})
+		}
+	}
+
+	if opts.customSort != nil {
+		if err := opts.customSort(closeTx); err != nil {
+			return nil, err
+		}
+	} else {
+		txsort.InPlaceSort(closeTx)
+	}
+
+	return closeTx, nil
 }
 
 // LocalBalanceDust returns true if when creating a co-op close transaction,
 // the balance of the local party will be dust after accounting for any anchor
 // outputs.
-func (lc *LightningChannel) LocalBalanceDust() bool {
+func (lc *LightningChannel) LocalBalanceDust() (bool, btcutil.Amount) {
 	lc.RLock()
 	defer lc.RUnlock()
 
@@ -8423,13 +8834,15 @@ func (lc *LightningChannel) LocalBalanceDust() bool {
 		localBalance += 2 * AnchorSize
 	}
 
-	return localBalance <= chanState.LocalChanCfg.DustLimit
+	localDust := chanState.LocalChanCfg.DustLimit
+
+	return localBalance <= localDust, localDust
 }
 
 // RemoteBalanceDust returns true if when creating a co-op close transaction,
 // the balance of the remote party will be dust after accounting for any anchor
 // outputs.
-func (lc *LightningChannel) RemoteBalanceDust() bool {
+func (lc *LightningChannel) RemoteBalanceDust() (bool, btcutil.Amount) {
 	lc.RLock()
 	defer lc.RUnlock()
 
@@ -8443,7 +8856,40 @@ func (lc *LightningChannel) RemoteBalanceDust() bool {
 		remoteBalance += 2 * AnchorSize
 	}
 
-	return remoteBalance <= chanState.RemoteChanCfg.DustLimit
+	remoteDust := chanState.RemoteChanCfg.DustLimit
+
+	return remoteBalance <= remoteDust, remoteDust
+}
+
+// CommitBalances returns the local and remote balances in the current
+// commitment state.
+func (lc *LightningChannel) CommitBalances() (btcutil.Amount, btcutil.Amount) {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	chanState := lc.channelState
+	localCommit := lc.channelState.LocalCommitment
+
+	localBalance := localCommit.LocalBalance.ToSatoshis()
+	remoteBalance := localCommit.RemoteBalance.ToSatoshis()
+
+	if chanState.ChanType.HasAnchors() {
+		if chanState.IsInitiator {
+			localBalance += 2 * AnchorSize
+		} else {
+			remoteBalance += 2 * AnchorSize
+		}
+	}
+
+	return localBalance, remoteBalance
+}
+
+// CommitFee returns the commitment fee for the current commitment state.
+func (lc *LightningChannel) CommitFee() btcutil.Amount {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.channelState.LocalCommitment.CommitFee
 }
 
 // CalcFee returns the commitment fee to use for the given fee rate
@@ -8882,4 +9328,17 @@ func (lc *LightningChannel) LocalCommitmentBlob() fn.Option[tlv.Blob] {
 
 		return newBlob
 	})(localBalance)
+}
+
+// FundingBlob returns the funding custom blob.
+func (lc *LightningChannel) FundingBlob() fn.Option[tlv.Blob] {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return fn.MapOption(func(b tlv.Blob) tlv.Blob {
+		newBlob := make([]byte, len(b))
+		copy(newBlob, b)
+
+		return newBlob
+	})(lc.channelState.CustomBlob)
 }

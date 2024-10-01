@@ -77,7 +77,7 @@ security and performance implications.
 
 # Required Reading
 
-- [Effective Go](http://golang.org/doc/effective_go.html) - The entire `lnd` 
+- [Effective Go](https://golang.org/doc/effective_go.html) - The entire `lnd` 
   project follows the guidelines in this document.  For your code to be accepted,
   it must follow the guidelines therein.
 - [Original Satoshi Whitepaper](https://bitcoin.org/bitcoin.pdf) - This is the white paper that started it all.  Having a solid
@@ -85,7 +85,7 @@ security and performance implications.
 - [Lightning Network Whitepaper](https://lightning.network/lightning-network-paper.pdf) - This is the white paper that kicked off the Layer 2 revolution. Having a good grasp of the concepts of Lightning will make the core logic within the daemon much more comprehensible: Bitcoin Script, off-chain blockchain protocols, payment channels, bidirectional payment channels, relative and absolute time-locks, commitment state revocations, and Segregated Witness. 
     - The original LN was written for a rather narrow audience, the paper may be a bit unapproachable to many. Thanks to the Bitcoin community, there exist many easily accessible supplemental resources which can help one see how all the pieces fit together from double-spend protection all the way up to commitment state transitions and Hash Time Locked Contracts (HTLCs): 
         - [Lightning Network Summary](https://lightning.network/lightning-network-summary.pdf)
-        - [Understanding the Lightning Network 3-Part series](https://bitcoinmagazine.com/articles/understanding-the-lightning-network-part-building-a-bidirectional-payment-channel-1464710791) 
+        - [Understanding the Lightning Network 3-Part series](https://bitcoinmagazine.com/technical/understanding-the-lightning-network-part-building-a-bidirectional-payment-channel-1464710791) 
         - [Deployable Lightning](https://github.com/ElementsProject/lightning/blob/master/doc/miscellaneous/deployable-lightning.pdf)
 
 
@@ -140,7 +140,7 @@ code works correctly when it is fed correct data as well as incorrect data
 
 Go provides an excellent test framework that makes writing test code and
 checking coverage statistics straightforward.  For more information about the
-test coverage tools, see the [golang cover blog post](http://blog.golang.org/cover).
+test coverage tools, see the [golang cover blog post](https://blog.golang.org/cover).
 
 A quick summary of test practices follows:
 - All new code should be accompanied by tests that ensure the code behaves
@@ -168,7 +168,7 @@ extensively using the commands within our `Makefile`. As a result, we recommend
 - At a minimum every function must be commented with its intended purpose and
   any assumptions that it makes
   - Function comments must always begin with the name of the function per
-    [Effective Go](http://golang.org/doc/effective_go.html)
+    [Effective Go](https://golang.org/doc/effective_go.html)
   - Function comments should be complete sentences since they allow a wide
     variety of automated presentations such as [godoc.org](https://godoc.org)
   - The general rule of thumb is to look at it as if you were completely

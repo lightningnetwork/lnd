@@ -45,6 +45,7 @@ require (
 	github.com/lightningnetwork/lnd/tor v1.1.2
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v1.1.43
+	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.11.1
 	github.com/stretchr/testify v1.9.0
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
@@ -135,7 +136,6 @@ require (
 	github.com/opencontainers/image-spec v1.0.2 // indirect
 	github.com/opencontainers/runc v1.1.12 // indirect
 	github.com/ory/dockertest/v3 v3.10.0 // indirect
-	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.26.0 // indirect

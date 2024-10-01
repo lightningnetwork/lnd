@@ -68,6 +68,10 @@ type Config struct {
 	// leaves for certain custom channel types.
 	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
 
+	// AuxSigner is an optional signer that can be used to sign auxiliary
+	// leaves for certain custom channel types.
+	AuxSigner fn.Option[lnwallet.AuxSigner]
+
 	// BlockCache is the main cache for storing block information.
 	BlockCache *blockcache.BlockCache
 

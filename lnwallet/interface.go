@@ -21,6 +21,8 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 const (
@@ -670,4 +672,92 @@ func SupportedWallets() []string {
 	}
 
 	return supportedWallets
+}
+
+// FetchFundingTxWrapper is a wrapper around FetchFundingTx, except that it will
+// exit when the supplied quit channel is closed.
+func FetchFundingTxWrapper(chain BlockChainIO, chanID *lnwire.ShortChannelID,
+	quit chan struct{}) (*wire.MsgTx, error) {
+
+	txChan := make(chan *wire.MsgTx, 1)
+	errChan := make(chan error, 1)
+
+	go func() {
+		tx, err := FetchFundingTx(chain, chanID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		txChan <- tx
+	}()
+
+	select {
+	case tx := <-txChan:
+		return tx, nil
+
+	case err := <-errChan:
+		return nil, err
+
+	case <-quit:
+		return nil, fmt.Errorf("quit channel passed to " +
+			"lnwallet.FetchFundingTxWrapper has been closed")
+	}
+}
+
+// FetchFundingTx uses the given BlockChainIO to fetch and return the funding
+// transaction identified by the passed short channel ID.
+//
+// TODO(roasbeef): replace with call to GetBlockTransaction? (would allow to
+// later use getblocktxn).
+func FetchFundingTx(chain BlockChainIO,
+	chanID *lnwire.ShortChannelID) (*wire.MsgTx, error) {
+
+	// First fetch the block hash by the block number encoded, then use
+	// that hash to fetch the block itself.
+	blockNum := int64(chanID.BlockHeight)
+	blockHash, err := chain.GetBlockHash(blockNum)
+	if err != nil {
+		return nil, err
+	}
+
+	fundingBlock, err := chain.GetBlock(blockHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// As a sanity check, ensure that the advertised transaction index is
+	// within the bounds of the total number of transactions within a
+	// block.
+	numTxns := uint32(len(fundingBlock.Transactions))
+	if chanID.TxIndex > numTxns-1 {
+		return nil, fmt.Errorf("tx_index=#%v "+
+			"is out of range (max_index=%v), network_chan_id=%v",
+			chanID.TxIndex, numTxns-1, chanID)
+	}
+
+	return fundingBlock.Transactions[chanID.TxIndex].Copy(), nil
+}
+
+// FetchPKScriptWithQuit fetches the output script for the given SCID and exits
+// early with an error if the provided quit channel is closed before
+// completion.
+func FetchPKScriptWithQuit(chain BlockChainIO, chanID *lnwire.ShortChannelID,
+	quit chan struct{}) ([]byte, error) {
+
+	tx, err := FetchFundingTxWrapper(chain, chanID, quit)
+	if err != nil {
+		return nil, err
+	}
+
+	outputLocator := chanvalidate.ShortChanIDChanLocator{
+		ID: *chanID,
+	}
+
+	output, _, err := outputLocator.Locate(tx)
+	if err != nil {
+		return nil, err
+	}
+
+	return output.PkScript, nil
 }

@@ -2360,9 +2360,12 @@ func createInitChannels(t *testing.T) (
 	)
 	bobSigner := input.NewMockSigner([]*btcec.PrivateKey{bobKeyPriv}, nil)
 
+	signerMock := lnwallet.NewDefaultAuxSignerMock(t)
 	alicePool := lnwallet.NewSigPool(1, aliceSigner)
 	channelAlice, err := lnwallet.NewLightningChannel(
 		aliceSigner, aliceChannelState, alicePool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(signerMock),
 	)
 	if err != nil {
 		return nil, nil, err
@@ -2375,6 +2378,8 @@ func createInitChannels(t *testing.T) (
 	bobPool := lnwallet.NewSigPool(1, bobSigner)
 	channelBob, err := lnwallet.NewLightningChannel(
 		bobSigner, bobChannelState, bobPool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(signerMock),
 	)
 	if err != nil {
 		return nil, nil, err

@@ -33,6 +33,7 @@ type InvoiceDatabase interface {
 	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
 		expiry uint32, currentHeight int32,
 		circuitKey models.CircuitKey, hodlChan chan<- interface{},
+		wireCustomRecords lnwire.CustomRecords,
 		payload invoices.Payload) (invoices.HtlcResolution, error)
 
 	// CancelInvoice attempts to cancel the invoice corresponding to the
@@ -86,7 +87,7 @@ type scidAliasHandler interface {
 	// HTLCs on option_scid_alias channels.
 	attachFailAliasUpdate(failClosure func(
 		sid lnwire.ShortChannelID,
-		incoming bool) *lnwire.ChannelUpdate)
+		incoming bool) *lnwire.ChannelUpdate1)
 
 	// getAliases fetches the link's underlying aliases. This is used by
 	// the Switch to determine whether to forward an HTLC and where to

@@ -109,7 +109,7 @@ func TestMailBoxCouriers(t *testing.T) {
 		t.Fatalf("recvd packets mismatched: expected %v, got %v",
 			spew.Sdump(sentPackets), spew.Sdump(recvdPackets))
 	}
-	if !reflect.DeepEqual(recvdMessages, recvdMessages) {
+	if !reflect.DeepEqual(sentMessages, recvdMessages) {
 		t.Fatalf("recvd messages mismatched: expected %v, got %v",
 			spew.Sdump(sentMessages), spew.Sdump(recvdMessages))
 	}

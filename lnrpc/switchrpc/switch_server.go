@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -54,6 +56,10 @@ var (
 		"/switchrpc.Switch/SendOnion": {{
 			Entity: "offchain",
 			Action: "write",
+		}},
+		"/switchrpc.Switch/TrackOnion": {{
+			Entity: "offchain",
+			Action: "read",
 		}},
 	}
 
@@ -342,6 +348,188 @@ func (s *Server) findEligibleChannelID(pubKey *btcec.PublicKey,
 	return lnwire.ShortChannelID{},
 		fmt.Errorf("no suitable channel found for amount: %d msat",
 			amount)
+}
+
+// TrackOnion provides callers the means to query whether or not a payment
+// dispatched via SendOnion succeeded or failed.
+func (s *Server) TrackOnion(ctx context.Context,
+	req *TrackOnionRequest) (*TrackOnionResponse, error) {
+
+	hash, err := lntypes.MakeHash(req.PaymentHash)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"invalid payment_hash=%x: %v", req.PaymentHash, err)
+	}
+
+	if req.SharedSecrets != nil {
+		return nil, status.Errorf(codes.Unimplemented,
+			"unable to process shared secrets")
+	}
+
+	// NOTE(calvin): In order to decrypt errors server side we require
+	// either the combination of session key and hop public keys from which
+	// we can construct the shared secrets used to build the onion or,
+	// alternatively, the caller can provide the list of shared secrets used
+	// during onion construction directly if they wish to maintain route
+	// privacy from the server.
+	//
+	// TODO: If we want to support "oblivious sends", then we'll need to
+	// pass the shared secrets to the sphinx library.
+	log.Debugf("Looking up status of onion attempt_id=%d for payment=%v",
+		req.AttemptId, hash)
+
+	// Attempt to build the error decryptor with the provided session key
+	// and hop public keys.
+	errorDecryptor, err := buildErrorDecryptor(
+		req.SessionKey, req.HopPubkeys,
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"error building decryptor: %v", err)
+	}
+
+	if errorDecryptor == nil {
+		log.Debug("Unable to build error decrypter with information " +
+			"provided. Will defer error handling to caller")
+	}
+
+	// Query the switch for the result of the payment attempt via onion.
+	resultChan, err := s.cfg.HtlcDispatcher.GetAttemptResult(
+		req.AttemptId, hash, errorDecryptor,
+	)
+	if err != nil {
+		message, code := TranslateErrorForRPC(err)
+
+		log.Errorf("GetAttemptResult failed for attempt_id=%d of "+
+			" payment=%v: %v", hash, message)
+
+		// If this is a htlcswitch.ErrPaymentIDNotFound error, we need
+		// to transmit that fact to the client so they can know with
+		// certainty that no HTLC by that attempt ID is in-flight and
+		// that it is safe to retry.
+		return &TrackOnionResponse{
+			ErrorCode:    code,
+			ErrorMessage: message,
+		}, nil
+	}
+
+	// The switch knows about this payment, we'll wait for a result to be
+	// available.
+	var (
+		result *htlcswitch.PaymentResult
+		ok     bool
+	)
+
+	select {
+	case result, ok = <-resultChan:
+		if !ok {
+			// NOTE(calvin): Transport via protobuf message if
+			// string matching is not preferred in client.
+			return nil, status.Errorf(codes.Internal,
+				"failed locate payment attempt: %v",
+				htlcswitch.ErrSwitchExiting)
+		}
+
+	case <-ctx.Done():
+		return nil, nil
+	}
+
+	// The attempt result arrived so the HTLC is no longer in-flight.
+	if result.Error != nil {
+		message, code := TranslateErrorForRPC(result.Error)
+
+		log.Errorf("Payment via onion failed for payment=%v: %v",
+			hash, message)
+
+		return &TrackOnionResponse{
+			ErrorCode:    code,
+			ErrorMessage: message,
+		}, nil
+	}
+
+	// In case we don't process the error, we'll return the encrypted
+	// error blob for handling by the caller.
+	if result.EncryptedError != nil {
+		log.Errorf("Payment via onion failed for payment=%v", hash)
+
+		return &TrackOnionResponse{
+			EncryptedError: result.EncryptedError,
+		}, nil
+	}
+
+	return &TrackOnionResponse{
+		Preimage: result.Preimage[:],
+	}, nil
+}
+
+// buildErrorDecryptor constructs an error decrypter given a sphinx session
+// key and hop public keys for a payment route.
+func buildErrorDecryptor(sessionKeyBytes []byte,
+	hopPubkeys [][]byte) (htlcswitch.ErrorDecrypter, error) {
+
+	if len(sessionKeyBytes) == 0 || len(hopPubkeys) == 0 {
+		return nil, nil
+	}
+
+	if err := validateSessionKey(sessionKeyBytes); err != nil {
+		return nil, fmt.Errorf("invalid session key: %w", err)
+	}
+
+	// TODO(calvin): Validate that the session key makes a valid private
+	// key? This is untrusted input received via RPC.
+	sessionKey, _ := btcec.PrivKeyFromBytes(sessionKeyBytes)
+
+	pubKeys := make([]*btcec.PublicKey, 0, len(hopPubkeys))
+	for _, keyBytes := range hopPubkeys {
+		pubKey, err := btcec.ParsePubKey(keyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("invalid public key: %w", err)
+		}
+		pubKeys = append(pubKeys, pubKey)
+	}
+
+	// Construct the sphinx circuit needed for error decryption using the
+	// provided session key and hop public keys.
+	circuit := reconstructCircuit(sessionKey, pubKeys)
+
+	// Using the created circuit, initialize the error decrypter so we can
+	// parse+decode any failures incurred by this payment within the
+	// switch.
+	return &htlcswitch.SphinxErrorDecrypter{
+		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
+	}, nil
+}
+
+// validateSessionKey validates the session key to ensure it has the correct
+// length and is within the expected range [1, N-1] for the secp256k1 curve. If
+// the session key is invalid, an error is returned.
+func validateSessionKey(sessionKeyBytes []byte) error {
+	const expectedKeyLength = 32
+
+	// Check length of session key.
+	if len(sessionKeyBytes) != expectedKeyLength {
+		return fmt.Errorf("invalid session key length: got %d, "+
+			"expected %d", len(sessionKeyBytes), expectedKeyLength)
+	}
+
+	// Interpret the key as a big-endian unsigned integer.
+	keyValue := new(big.Int).SetBytes(sessionKeyBytes)
+
+	// Check if the key is in the valid range [1, N-1].
+	if keyValue.Sign() <= 0 || keyValue.Cmp(btcec.S256().N) >= 0 {
+		return fmt.Errorf("session key is out of range")
+	}
+
+	return nil
+}
+
+func reconstructCircuit(sessionKey *btcec.PrivateKey,
+	pubKeys []*btcec.PublicKey) *sphinx.Circuit {
+
+	return &sphinx.Circuit{
+		SessionKey:  sessionKey,
+		PaymentPath: pubKeys,
+	}
 }
 
 // TranslateErrorForRPC converts an error from the underlying HTLC switch to

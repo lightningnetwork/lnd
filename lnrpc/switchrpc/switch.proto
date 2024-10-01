@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package switchrpc;
 
-// import "lightning.proto";
+import "lightning.proto";
 
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/switchrpc";
 
@@ -15,6 +15,12 @@ service Switch {
     the full details of the payment route.
     */
     rpc SendOnion (SendOnionRequest) returns (SendOnionResponse);
+
+    /*
+    TrackOnion allows callers to query whether or not a payment dispatched via
+    SendOnion succeeded or failed.
+    */
+    rpc TrackOnion (TrackOnionRequest) returns (TrackOnionResponse);
 }
 
 message SendOnionRequest {
@@ -69,4 +75,43 @@ enum ErrorCode {
     ERROR_CODE_NO_LINK = 6;         // No link available for payment.
     ERROR_CODE_SWITCH_EXITING = 7;  // HTLC switch is exiting.
     ERROR_CODE_INTERNAL = 8;        // Opaque internal server error.
+}
+
+message TrackOnionRequest {
+    // The payment hash associated with the HTLC. This is needed for tracking
+    // and debugging purposes.
+    bytes payment_hash = 1;
+
+    // The attempt ID uniquely identifying this payment attempt. The caller can
+    // expect to track results for the payment via this attempt ID.
+    uint64 attempt_id = 2;
+
+    // Optional: Session key used to generate the onion/sphinx packet.
+    bytes session_key = 3;
+
+    // Optional: Public keys of nodes along the route, used with session_key.
+    repeated bytes hop_pubkeys = 4;
+
+    // Optional: list of shared secrets for deobfuscating errors server side.
+    // If not included, then it will be the caller's responsibility to decrypt
+    // any errors from the SendOnion attempt.
+    repeated bytes shared_secrets = 5;
+}
+
+message TrackOnionResponse {
+    // The preimage obtained by making the payment. If this field is set,
+    // the payment succeeded.
+    bytes preimage = 1;
+
+    // In case of failure, this field will provide more information about the
+    // error.
+    string error_message = 2;
+
+    // A code representing the type of error that occurred. This can be used
+    // to programmatically distinguish between different kinds of errors.
+    ErrorCode error_code = 3;
+
+    // If the caller provides no means to decrypt the error, then we'll defer
+    // error decryption on the server and return the encrypted error blob.
+    bytes encrypted_error = 4;
 }

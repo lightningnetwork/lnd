@@ -62,6 +62,10 @@
 ## Testing
 ## Database
 
+* [Migrate the mission control 
+  store](https://github.com/lightningnetwork/lnd/pull/8911) to use a more 
+  minimal encoding for payment attempt routes.
+
 ## Code Health
 
 ## Tooling and Documentation

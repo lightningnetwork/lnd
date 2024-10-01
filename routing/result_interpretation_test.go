@@ -4,7 +4,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -15,109 +14,105 @@ var (
 		{1, 0}, {1, 1}, {1, 2}, {1, 3}, {1, 4},
 	}
 
-	// blindingPoint provides a non-nil blinding point (value is never
-	// used).
-	blindingPoint = &btcec.PublicKey{}
-
-	routeOneHop = route.Route{
-		SourcePubKey: hops[0],
-		TotalAmount:  100,
-		Hops: []*route.Hop{
-			{PubKeyBytes: hops[1], AmtToForward: 99},
+	routeOneHop = mcRoute{
+		sourcePubKey: hops[0],
+		totalAmount:  100,
+		hops: []*mcHop{
+			{pubKeyBytes: hops[1], amtToFwd: 99},
 		},
 	}
 
-	routeTwoHop = route.Route{
-		SourcePubKey: hops[0],
-		TotalAmount:  100,
-		Hops: []*route.Hop{
-			{PubKeyBytes: hops[1], AmtToForward: 99},
-			{PubKeyBytes: hops[2], AmtToForward: 97},
+	routeTwoHop = mcRoute{
+		sourcePubKey: hops[0],
+		totalAmount:  100,
+		hops: []*mcHop{
+			{pubKeyBytes: hops[1], amtToFwd: 99},
+			{pubKeyBytes: hops[2], amtToFwd: 97},
 		},
 	}
 
-	routeThreeHop = route.Route{
-		SourcePubKey: hops[0],
-		TotalAmount:  100,
-		Hops: []*route.Hop{
-			{PubKeyBytes: hops[1], AmtToForward: 99},
-			{PubKeyBytes: hops[2], AmtToForward: 97},
-			{PubKeyBytes: hops[3], AmtToForward: 94},
+	routeThreeHop = mcRoute{
+		sourcePubKey: hops[0],
+		totalAmount:  100,
+		hops: []*mcHop{
+			{pubKeyBytes: hops[1], amtToFwd: 99},
+			{pubKeyBytes: hops[2], amtToFwd: 97},
+			{pubKeyBytes: hops[3], amtToFwd: 94},
 		},
 	}
 
-	routeFourHop = route.Route{
-		SourcePubKey: hops[0],
-		TotalAmount:  100,
-		Hops: []*route.Hop{
-			{PubKeyBytes: hops[1], AmtToForward: 99},
-			{PubKeyBytes: hops[2], AmtToForward: 97},
-			{PubKeyBytes: hops[3], AmtToForward: 94},
-			{PubKeyBytes: hops[4], AmtToForward: 90},
+	routeFourHop = mcRoute{
+		sourcePubKey: hops[0],
+		totalAmount:  100,
+		hops: []*mcHop{
+			{pubKeyBytes: hops[1], amtToFwd: 99},
+			{pubKeyBytes: hops[2], amtToFwd: 97},
+			{pubKeyBytes: hops[3], amtToFwd: 94},
+			{pubKeyBytes: hops[4], amtToFwd: 90},
 		},
 	}
 
 	// blindedMultiHop is a blinded path where there are cleartext hops
 	// before the introduction node, and an intermediate blinded hop before
 	// the recipient after it.
-	blindedMultiHop = route.Route{
-		SourcePubKey: hops[0],
-		TotalAmount:  100,
-		Hops: []*route.Hop{
-			{PubKeyBytes: hops[1], AmtToForward: 99},
+	blindedMultiHop = mcRoute{
+		sourcePubKey: hops[0],
+		totalAmount:  100,
+		hops: []*mcHop{
+			{pubKeyBytes: hops[1], amtToFwd: 99},
 			{
-				PubKeyBytes:   hops[2],
-				AmtToForward:  95,
-				BlindingPoint: blindingPoint,
+				pubKeyBytes:      hops[2],
+				amtToFwd:         95,
+				hasBlindingPoint: true,
 			},
-			{PubKeyBytes: hops[3], AmtToForward: 88},
-			{PubKeyBytes: hops[4], AmtToForward: 77},
+			{pubKeyBytes: hops[3], amtToFwd: 88},
+			{pubKeyBytes: hops[4], amtToFwd: 77},
 		},
 	}
 
 	// blindedSingleHop is a blinded path with a single blinded hop after
 	// the introduction node.
-	blindedSingleHop = route.Route{
-		SourcePubKey: hops[0],
-		TotalAmount:  100,
-		Hops: []*route.Hop{
-			{PubKeyBytes: hops[1], AmtToForward: 99},
+	blindedSingleHop = mcRoute{
+		sourcePubKey: hops[0],
+		totalAmount:  100,
+		hops: []*mcHop{
+			{pubKeyBytes: hops[1], amtToFwd: 99},
 			{
-				PubKeyBytes:   hops[2],
-				AmtToForward:  95,
-				BlindingPoint: blindingPoint,
+				pubKeyBytes:      hops[2],
+				amtToFwd:         95,
+				hasBlindingPoint: true,
 			},
-			{PubKeyBytes: hops[3], AmtToForward: 88},
+			{pubKeyBytes: hops[3], amtToFwd: 88},
 		},
 	}
 
 	// blindedMultiToIntroduction is a blinded path which goes directly
 	// to the introduction node, with multiple blinded hops after it.
-	blindedMultiToIntroduction = route.Route{
-		SourcePubKey: hops[0],
-		TotalAmount:  100,
-		Hops: []*route.Hop{
+	blindedMultiToIntroduction = mcRoute{
+		sourcePubKey: hops[0],
+		totalAmount:  100,
+		hops: []*mcHop{
 			{
-				PubKeyBytes:   hops[1],
-				AmtToForward:  90,
-				BlindingPoint: blindingPoint,
+				pubKeyBytes:      hops[1],
+				amtToFwd:         90,
+				hasBlindingPoint: true,
 			},
-			{PubKeyBytes: hops[2], AmtToForward: 75},
-			{PubKeyBytes: hops[3], AmtToForward: 58},
+			{pubKeyBytes: hops[2], amtToFwd: 75},
+			{pubKeyBytes: hops[3], amtToFwd: 58},
 		},
 	}
 
 	// blindedIntroReceiver is a blinded path where the introduction node
 	// is the recipient.
-	blindedIntroReceiver = route.Route{
-		SourcePubKey: hops[0],
-		TotalAmount:  100,
-		Hops: []*route.Hop{
-			{PubKeyBytes: hops[1], AmtToForward: 95},
+	blindedIntroReceiver = mcRoute{
+		sourcePubKey: hops[0],
+		totalAmount:  100,
+		hops: []*mcHop{
+			{pubKeyBytes: hops[1], amtToFwd: 95},
 			{
-				PubKeyBytes:   hops[2],
-				AmtToForward:  90,
-				BlindingPoint: blindingPoint,
+				pubKeyBytes:      hops[2],
+				amtToFwd:         90,
+				hasBlindingPoint: true,
 			},
 		},
 	}
@@ -134,7 +129,7 @@ func getPolicyFailure(from, to int) *DirectedNodePair {
 
 type resultTestCase struct {
 	name          string
-	route         *route.Route
+	route         *mcRoute
 	success       bool
 	failureSrcIdx int
 	failure       lnwire.FailureMessage
@@ -159,7 +154,7 @@ var resultTestCases = []resultTestCase{
 		},
 	},
 
-	// Tests that a expiry too soon failure result is properly interpreted.
+	// Tests that an expiry too soon failure result is properly interpreted.
 	{
 		name:          "fail expiry too soon",
 		route:         &routeFourHop,

@@ -55,9 +55,9 @@
 * Log rotation can now use ZSTD 
 ## Misc
 
-* [Add retry logic for block fetching](https://github.com/lightningnetwork/lnd/pull/8381)
-  block fetching to retry indefinitely with an exponential back-off between
-  retries for watchtower server.
+* [Add retry logic](https://github.com/lightningnetwork/lnd/pull/8381) for
+  watchtower block fetching with a max number of attempts and exponential
+  back-off.
 
 # Technical and Architectural Updates
 ## BOLT Spec Updates
@@ -78,8 +78,8 @@
 
 # Contributors (Alphabetical Order)
 
+* Animesh Bilthare
 * CharlieZKSmith
 * Elle Mouton
 * Pins
 * Ziggie
-* Animesh Bilthare

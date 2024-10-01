@@ -22,6 +22,19 @@ type SwitchClient interface {
 	// method differs from SendPayment in that the instance need not be aware of
 	// the full details of the payment route.
 	SendOnion(ctx context.Context, in *SendOnionRequest, opts ...grpc.CallOption) (*SendOnionResponse, error)
+	// TrackOnion allows callers to query whether or not a payment dispatched via
+	// SendOnion succeeded or failed.
+	//
+	// This RPC is designed to be called after a successful dispatch has been
+	// explicitly confirmed via the SendOnion RPC. It should not be used to
+	// determine whether an HTLC dispatch was received in an ambiguous network
+	// scenario. That ambiguity must be resolved by retrying the idempotent
+	// SendOnion RPC until a definitive acknowledgement is received from the Switch
+	// RPC server.
+	//
+	// Once dispatch is confirmed, TrackOnion provides the mechanism to wait for
+	// the result of the in-flight HTLC.
+	TrackOnion(ctx context.Context, in *TrackOnionRequest, opts ...grpc.CallOption) (*TrackOnionResponse, error)
 }
 
 type switchClient struct {
@@ -41,6 +54,15 @@ func (c *switchClient) SendOnion(ctx context.Context, in *SendOnionRequest, opts
 	return out, nil
 }
 
+func (c *switchClient) TrackOnion(ctx context.Context, in *TrackOnionRequest, opts ...grpc.CallOption) (*TrackOnionResponse, error) {
+	out := new(TrackOnionResponse)
+	err := c.cc.Invoke(ctx, "/switchrpc.Switch/TrackOnion", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SwitchServer is the server API for Switch service.
 // All implementations must embed UnimplementedSwitchServer
 // for forward compatibility
@@ -49,6 +71,19 @@ type SwitchServer interface {
 	// method differs from SendPayment in that the instance need not be aware of
 	// the full details of the payment route.
 	SendOnion(context.Context, *SendOnionRequest) (*SendOnionResponse, error)
+	// TrackOnion allows callers to query whether or not a payment dispatched via
+	// SendOnion succeeded or failed.
+	//
+	// This RPC is designed to be called after a successful dispatch has been
+	// explicitly confirmed via the SendOnion RPC. It should not be used to
+	// determine whether an HTLC dispatch was received in an ambiguous network
+	// scenario. That ambiguity must be resolved by retrying the idempotent
+	// SendOnion RPC until a definitive acknowledgement is received from the Switch
+	// RPC server.
+	//
+	// Once dispatch is confirmed, TrackOnion provides the mechanism to wait for
+	// the result of the in-flight HTLC.
+	TrackOnion(context.Context, *TrackOnionRequest) (*TrackOnionResponse, error)
 	mustEmbedUnimplementedSwitchServer()
 }
 
@@ -58,6 +93,9 @@ type UnimplementedSwitchServer struct {
 
 func (UnimplementedSwitchServer) SendOnion(context.Context, *SendOnionRequest) (*SendOnionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendOnion not implemented")
+}
+func (UnimplementedSwitchServer) TrackOnion(context.Context, *TrackOnionRequest) (*TrackOnionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TrackOnion not implemented")
 }
 func (UnimplementedSwitchServer) mustEmbedUnimplementedSwitchServer() {}
 
@@ -90,6 +128,24 @@ func _Switch_SendOnion_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Switch_TrackOnion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TrackOnionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SwitchServer).TrackOnion(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/switchrpc.Switch/TrackOnion",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SwitchServer).TrackOnion(ctx, req.(*TrackOnionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Switch_ServiceDesc is the grpc.ServiceDesc for Switch service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -100,6 +156,10 @@ var Switch_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendOnion",
 			Handler:    _Switch_SendOnion_Handler,
+		},
+		{
+			MethodName: "TrackOnion",
+			Handler:    _Switch_TrackOnion_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

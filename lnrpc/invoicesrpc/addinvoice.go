@@ -78,8 +78,10 @@ type AddInvoiceConfig struct {
 	Graph *channeldb.ChannelGraph
 
 	// GenInvoiceFeatures returns a feature containing feature bits that
-	// should be advertised on freshly generated invoices.
-	GenInvoiceFeatures func() *lnwire.FeatureVector
+	// should be advertised on freshly generated invoices. The blinded
+	// boolean is true if the features are for an invoice containing a
+	// blinded path.
+	GenInvoiceFeatures func(blinded bool) *lnwire.FeatureVector
 
 	// GenAmpInvoiceFeatures returns a feature containing feature bits that
 	// should be advertised on freshly generated AMP invoices.
@@ -95,7 +97,8 @@ type AddInvoiceConfig struct {
 
 	// QueryBlindedRoutes can be used to generate a few routes to this node
 	// that can then be used in the construction of a blinded payment path.
-	QueryBlindedRoutes func(lnwire.MilliSatoshi) ([]*route.Route, error)
+	QueryBlindedRoutes func(*routing.BlindedPathRestrictions,
+		lnwire.MilliSatoshi) ([]*route.Route, error)
 }
 
 // AddInvoiceData contains the required data to create a new invoice.
@@ -173,10 +176,9 @@ type BlindedPathConfig struct {
 	// values (like maximum HTLC) by 10%.
 	RoutePolicyDecrMultiplier float64
 
-	// MinNumPathHops is the minimum number of hops that a blinded path
-	// should be. Dummy hops will be used to pad any route with a length
-	// less than this.
-	MinNumPathHops uint8
+	// Restrictions are the various rules that should be followed when
+	// constructing the blinded path.
+	Restrictions *routing.BlindedPathRestrictions
 
 	// DefaultDummyHopPolicy holds the default policy values to use for
 	// dummy hops in a blinded path in the case where they cant be derived
@@ -484,7 +486,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	if invoice.Amp {
 		invoiceFeatures = cfg.GenAmpInvoiceFeatures()
 	} else {
-		invoiceFeatures = cfg.GenInvoiceFeatures()
+		invoiceFeatures = cfg.GenInvoiceFeatures(blind)
 	}
 	options = append(options, zpay32.Features(invoiceFeatures))
 
@@ -521,7 +523,13 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		//nolint:lll
 		paths, err := blindedpath.BuildBlindedPaymentPaths(
 			&blindedpath.BuildBlindedPathCfg{
-				FindRoutes:              cfg.QueryBlindedRoutes,
+				FindRoutes: func(value lnwire.MilliSatoshi) (
+					[]*route.Route, error) {
+
+					return cfg.QueryBlindedRoutes(
+						blindCfg.Restrictions, value,
+					)
+				},
 				FetchChannelEdgesByID:   cfg.Graph.FetchChannelEdgesByID,
 				FetchOurOpenChannels:    cfg.ChanDB.FetchAllOpenChannels,
 				PathID:                  paymentAddr[:],
@@ -539,7 +547,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 						blindCfg.RoutePolicyDecrMultiplier,
 					)
 				},
-				MinNumHops:            blindCfg.MinNumPathHops,
+				MinNumHops:            blindCfg.Restrictions.NumHops,
 				DefaultDummyHopPolicy: blindCfg.DefaultDummyHopPolicy,
 			},
 		)

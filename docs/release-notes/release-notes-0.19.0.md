@@ -29,6 +29,10 @@
 
 # New Features
 ## Functional Enhancements
+
+* Add route blinding receive functionality to for [hodl 
+  invoices](https://github.com/lightningnetwork/lnd/pull/9034).
+ 
 ## RPC Additions
 
 * [Add a new rpc endpoint](https://github.com/lightningnetwork/lnd/pull/8843)

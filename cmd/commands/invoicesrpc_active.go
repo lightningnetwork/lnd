@@ -198,6 +198,11 @@ var addHoldInvoiceCommand = cli.Command{
 				"private channels in order to assist the " +
 				"payer in reaching you",
 		},
+		blindFlag,
+		minRealBlindedHops,
+		numBlindedHops,
+		maxBlindedPaths,
+		blindedPathNodeOmissions,
 	},
 	Action: actionDecorator(addHoldInvoice),
 }
@@ -241,16 +246,24 @@ func addHoldInvoice(ctx *cli.Context) error {
 		return fmt.Errorf("unable to parse description_hash: %w", err)
 	}
 
+	blindedPathCfg, err := parseBlindedPathCfg(ctx)
+	if err != nil {
+		return fmt.Errorf("could not parse blinded path config: %w",
+			err)
+	}
+
 	invoice := &invoicesrpc.AddHoldInvoiceRequest{
-		Memo:            ctx.String("memo"),
-		Hash:            hash,
-		Value:           amt,
-		ValueMsat:       amtMsat,
-		DescriptionHash: descHash,
-		FallbackAddr:    ctx.String("fallback_addr"),
-		Expiry:          ctx.Int64("expiry"),
-		CltvExpiry:      ctx.Uint64("cltv_expiry_delta"),
-		Private:         ctx.Bool("private"),
+		Memo:              ctx.String("memo"),
+		Hash:              hash,
+		Value:             amt,
+		ValueMsat:         amtMsat,
+		DescriptionHash:   descHash,
+		FallbackAddr:      ctx.String("fallback_addr"),
+		Expiry:            ctx.Int64("expiry"),
+		CltvExpiry:        ctx.Uint64("cltv_expiry_delta"),
+		Private:           ctx.Bool("private"),
+		IsBlinded:         ctx.Bool(blindFlag.Name),
+		BlindedPathConfig: blindedPathCfg,
 	}
 
 	resp, err := client.AddHoldInvoice(ctxc, invoice)

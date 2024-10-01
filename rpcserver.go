@@ -760,15 +760,18 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		},
 	}
 
-	genInvoiceFeatures := func() *lnwire.FeatureVector {
-		return s.featureMgr.Get(feature.SetInvoice)
-	}
 	genAmpInvoiceFeatures := func() *lnwire.FeatureVector {
 		return s.featureMgr.Get(feature.SetInvoiceAmp)
 	}
 
 	parseAddr := func(addr string) (net.Addr, error) {
 		return parseAddr(addr, r.cfg.net)
+	}
+
+	bestHeight := func() (uint32, error) {
+		_, bestHeight, err := r.server.cc.ChainIO.GetBestBlock()
+
+		return uint32(bestHeight), err
 	}
 
 	var (
@@ -786,10 +789,11 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		s.htlcSwitch, r.cfg.ActiveNetParams.Params, s.chanRouter,
 		routerBackend, s.nodeSigner, s.graphDB, s.chanStateDB,
 		s.sweeper, tower, s.towerClientMgr, r.cfg.net.ResolveTCPAddr,
-		genInvoiceFeatures, genAmpInvoiceFeatures,
+		r.genInvoiceFeatures, genAmpInvoiceFeatures,
 		s.getNodeAnnouncement, s.updateAndBrodcastSelfNode, parseAddr,
 		rpcsLog, s.aliasMgr, r.implCfg.AuxDataParser,
-		invoiceHtlcModifier,
+		invoiceHtlcModifier, bestHeight, r.blindedPathCfg,
+		r.queryBlindedRoutes,
 	)
 	if err != nil {
 		return err
@@ -5981,100 +5985,21 @@ func (r *rpcServer) sendPaymentSync(
 func (r *rpcServer) AddInvoice(ctx context.Context,
 	invoice *lnrpc.Invoice) (*lnrpc.AddInvoiceResponse, error) {
 
-	var (
-		defaultDelta = r.cfg.Bitcoin.TimeLockDelta
-		blindCfg     = invoice.BlindedPathConfig
-		blind        = invoice.IsBlinded
-	)
-
-	globalBlindCfg := r.server.cfg.Routing.BlindedPaths
-	blindingRestrictions := &routing.BlindedPathRestrictions{
-		MinDistanceFromIntroNode: globalBlindCfg.MinNumRealHops,
-		NumHops:                  globalBlindCfg.NumHops,
-		MaxNumPaths:              globalBlindCfg.MaxNumPaths,
-		NodeOmissionSet:          fn.NewSet[route.Vertex](),
-	}
-
-	if blindCfg != nil && !blind {
-		return nil, fmt.Errorf("blinded path config provided but " +
-			"IsBlinded not set")
-	}
-
-	if blind && blindCfg != nil {
-		if blindCfg.MinNumRealHops != nil {
-			blindingRestrictions.MinDistanceFromIntroNode =
-				uint8(*blindCfg.MinNumRealHops)
-		}
-		if blindCfg.NumHops != nil {
-			blindingRestrictions.NumHops = uint8(*blindCfg.NumHops)
-		}
-		if blindCfg.MaxNumPaths != nil {
-			blindingRestrictions.MaxNumPaths =
-				uint8(*blindCfg.MaxNumPaths)
-		}
-
-		for _, nodeIDBytes := range blindCfg.NodeOmissionList {
-			vertex, err := route.NewVertexFromBytes(nodeIDBytes)
-			if err != nil {
-				return nil, err
-			}
-
-			blindingRestrictions.NodeOmissionSet.Add(vertex)
-		}
-	}
-
-	if blindingRestrictions.MinDistanceFromIntroNode >
-		blindingRestrictions.NumHops {
-
-		return nil, fmt.Errorf("the minimum number of real " +
-			"hops in a blinded path must be smaller than " +
-			"or equal to the number of hops expected to " +
-			"be included in each path")
-	}
-
 	addInvoiceCfg := &invoicesrpc.AddInvoiceConfig{
-		AddInvoice:        r.server.invoices.AddInvoice,
-		IsChannelActive:   r.server.htlcSwitch.HasActiveLink,
-		ChainParams:       r.cfg.ActiveNetParams.Params,
-		NodeSigner:        r.server.nodeSigner,
-		DefaultCLTVExpiry: defaultDelta,
-		ChanDB:            r.server.chanStateDB,
-		Graph:             r.server.graphDB,
-		GenInvoiceFeatures: func() *lnwire.FeatureVector {
-			v := r.server.featureMgr.Get(feature.SetInvoice)
-
-			if blind {
-				// If an invoice includes blinded paths, then a
-				// payment address is not required since we use
-				// the PathID in the final hop's encrypted data
-				// as equivalent to the payment address
-				v.Unset(lnwire.PaymentAddrRequired)
-				v.Set(lnwire.PaymentAddrOptional)
-
-				// The invoice payer will also need to
-				// understand the new BOLT 11 tagged field
-				// containing the blinded path, so we switch
-				// the bit to required.
-				v.Unset(lnwire.Bolt11BlindedPathsOptional)
-				v.Set(lnwire.Bolt11BlindedPathsRequired)
-			}
-
-			return v
-		},
+		AddInvoice:         r.server.invoices.AddInvoice,
+		IsChannelActive:    r.server.htlcSwitch.HasActiveLink,
+		ChainParams:        r.cfg.ActiveNetParams.Params,
+		NodeSigner:         r.server.nodeSigner,
+		DefaultCLTVExpiry:  r.cfg.Bitcoin.TimeLockDelta,
+		ChanDB:             r.server.chanStateDB,
+		Graph:              r.server.graphDB,
+		GenInvoiceFeatures: r.genInvoiceFeatures,
 		GenAmpInvoiceFeatures: func() *lnwire.FeatureVector {
 			return r.server.featureMgr.Get(feature.SetInvoiceAmp)
 		},
-		GetAlias:   r.server.aliasMgr.GetPeerAlias,
-		BestHeight: r.server.cc.BestBlockTracker.BestHeight,
-		QueryBlindedRoutes: func(amt lnwire.MilliSatoshi) (
-			[]*route.Route, error) {
-
-			return r.server.chanRouter.FindBlindedPaths(
-				r.selfNode, amt,
-				r.server.missionControl.GetProbability,
-				blindingRestrictions,
-			)
-		},
+		GetAlias:           r.server.aliasMgr.GetPeerAlias,
+		BestHeight:         r.server.cc.BestBlockTracker.BestHeight,
+		QueryBlindedRoutes: r.queryBlindedRoutes,
 	}
 
 	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)
@@ -6088,30 +6013,11 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		return nil, err
 	}
 
-	var blindedPathCfg *invoicesrpc.BlindedPathConfig
-	if blind {
-		bpConfig := r.server.cfg.Routing.BlindedPaths
-
-		blindedPathCfg = &invoicesrpc.BlindedPathConfig{
-			RoutePolicyIncrMultiplier: bpConfig.
-				PolicyIncreaseMultiplier,
-			RoutePolicyDecrMultiplier: bpConfig.
-				PolicyDecreaseMultiplier,
-			DefaultDummyHopPolicy: &blindedpath.BlindedHopPolicy{
-				CLTVExpiryDelta: uint16(defaultDelta),
-				FeeRate: uint32(
-					r.server.cfg.Bitcoin.FeeRate,
-				),
-				BaseFee:     r.server.cfg.Bitcoin.BaseFee,
-				MinHTLCMsat: r.server.cfg.Bitcoin.MinHTLCIn,
-
-				// MaxHTLCMsat will be calculated on the fly by
-				// using the introduction node's channel's
-				// capacities.
-				MaxHTLCMsat: 0,
-			},
-			MinNumPathHops: blindingRestrictions.NumHops,
-		}
+	blindedPathCfg, err := r.blindedPathCfg(
+		invoice.IsBlinded, invoice.BlindedPathConfig,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	addInvoiceData := &invoicesrpc.AddInvoiceData{
@@ -8791,6 +8697,113 @@ func (r *rpcServer) SubscribeCustomMessages(req *lnrpc.SubscribeCustomMessagesRe
 			}
 		}
 	}
+}
+
+// queryBlindedRoutes can be used to generate a few routes to this node that can
+// then be used in the construction of a blinded payment path.
+func (r *rpcServer) queryBlindedRoutes(
+	restrictions *routing.BlindedPathRestrictions,
+	amt lnwire.MilliSatoshi) ([]*route.Route, error) {
+
+	return r.server.chanRouter.FindBlindedPaths(
+		r.selfNode, amt, r.server.missionControl.GetProbability,
+		restrictions,
+	)
+}
+
+// genInvoiceFeatures creates a feature vector containing all the feature bits
+// that we want our invoices to include. The blind argument must be true if the
+// invoice will contain a blinded path.
+func (r *rpcServer) genInvoiceFeatures(blind bool) *lnwire.FeatureVector {
+	v := r.server.featureMgr.Get(feature.SetInvoice)
+
+	if blind {
+		// If an invoice includes blinded paths, then a
+		// payment address is not required since we use
+		// the PathID in the final hop's encrypted data
+		// as equivalent to the payment address
+		v.Unset(lnwire.PaymentAddrRequired)
+		v.Set(lnwire.PaymentAddrOptional)
+
+		// The invoice payer will also need to
+		// understand the new BOLT 11 tagged field
+		// containing the blinded path, so we switch
+		// the bit to required.
+		v.Unset(lnwire.Bolt11BlindedPathsOptional)
+		v.Set(lnwire.Bolt11BlindedPathsRequired)
+	}
+
+	return v
+}
+
+// blindedPathCfg takes the global routing blinded path policies and the given
+// per-payment blinded path config values and uses these to construct the config
+// values passed to the invoice server.
+func (r *rpcServer) blindedPathCfg(blind bool, cfg *lnrpc.BlindedPathConfig) (
+	*invoicesrpc.BlindedPathConfig, error) {
+
+	if !blind {
+		return nil, nil
+	}
+
+	if cfg != nil && !blind {
+		return nil, fmt.Errorf("blinded path config provided but " +
+			"IsBlinded not set")
+	}
+
+	bpConfig := r.server.cfg.Routing.BlindedPaths
+	defaultDelta := r.cfg.Bitcoin.TimeLockDelta
+
+	globalBlindCfg := r.server.cfg.Routing.BlindedPaths
+	restrictions := &routing.BlindedPathRestrictions{
+		MinDistanceFromIntroNode: globalBlindCfg.MinNumRealHops,
+		NumHops:                  globalBlindCfg.NumHops,
+		MaxNumPaths:              globalBlindCfg.MaxNumPaths,
+		NodeOmissionSet:          fn.NewSet[route.Vertex](),
+	}
+
+	if cfg.MinNumRealHops != nil {
+		restrictions.MinDistanceFromIntroNode =
+			uint8(*cfg.MinNumRealHops)
+	}
+	if cfg.NumHops != nil {
+		restrictions.NumHops = uint8(*cfg.NumHops)
+	}
+	if cfg.MaxNumPaths != nil {
+		restrictions.MaxNumPaths = uint8(*cfg.MaxNumPaths)
+	}
+
+	for _, nodeIDBytes := range cfg.NodeOmissionList {
+		vertex, err := route.NewVertexFromBytes(nodeIDBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		restrictions.NodeOmissionSet.Add(vertex)
+	}
+
+	if restrictions.MinDistanceFromIntroNode > restrictions.NumHops {
+		return nil, fmt.Errorf("the minimum number of real hops in a " +
+			"blinded path must be smaller than or equal to the " +
+			"number of hops expected to be included in each path")
+	}
+
+	return &invoicesrpc.BlindedPathConfig{
+		RoutePolicyIncrMultiplier: bpConfig.PolicyIncreaseMultiplier,
+		RoutePolicyDecrMultiplier: bpConfig.PolicyDecreaseMultiplier,
+		DefaultDummyHopPolicy: &blindedpath.BlindedHopPolicy{
+			CLTVExpiryDelta: uint16(defaultDelta),
+			FeeRate:         uint32(r.server.cfg.Bitcoin.FeeRate),
+			BaseFee:         r.server.cfg.Bitcoin.BaseFee,
+			MinHTLCMsat:     r.server.cfg.Bitcoin.MinHTLCIn,
+
+			// MaxHTLCMsat will be calculated on the fly by
+			// using the introduction node's channel's
+			// capacities.
+			MaxHTLCMsat: 0,
+		},
+		Restrictions: restrictions,
+	}, nil
 }
 
 // ListAliases returns the set of all aliases we have ever allocated along with

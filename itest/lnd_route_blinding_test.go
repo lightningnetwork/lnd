@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
@@ -607,7 +608,7 @@ func setupFourHopNetwork(ht *lntest.HarnessTest,
 // testBlindedRouteInvoices tests lnd's ability to create a blinded payment path
 // which it then inserts into an invoice, sending to an invoice with a blinded
 // path and forward payments in a blinded route and finally, receiving the
-// payment.
+// payment. It also tests that blinded paths work for hodl invoices.
 func testBlindedRouteInvoices(ht *lntest.HarnessTest) {
 	ctx, testCase := newBlindedForwardTest(ht)
 	defer testCase.cleanup()
@@ -662,6 +663,56 @@ func testBlindedRouteInvoices(ht *lntest.HarnessTest) {
 
 	// Now let Alice pay the invoice.
 	ht.CompletePaymentRequests(ht.Alice, []string{invoice.PaymentRequest})
+
+	// We'll also test the invoice flow for HODL invoices.
+	preimage, err := lntypes.MakePreimage(testCase.preimage[:])
+	require.NoError(ht, err)
+	hash := preimage.Hash()
+
+	// Register the HODL invoice on Dave's node.
+	minNumRealHops = 2
+	numHops = 2
+	hodlResp := testCase.dave.RPC.AddHoldInvoice(
+		&invoicesrpc.AddHoldInvoiceRequest{
+			Memo:      "test",
+			Hash:      hash[:],
+			ValueMsat: 10_000_000,
+			IsBlinded: true,
+			BlindedPathConfig: &lnrpc.BlindedPathConfig{
+				MinNumRealHops: &minNumRealHops,
+				NumHops:        &numHops,
+			},
+		},
+	)
+
+	// Subscribe to HOLD invoice stream on Dave's side.
+	invStream := testCase.dave.RPC.SubscribeSingleInvoice(hash[:])
+
+	// Assert that the invoice is open.
+	ht.AssertInvoiceState(invStream, lnrpc.Invoice_OPEN)
+
+	// From Alice, we will now attempt to settle the invoice.
+	sendReq := &routerrpc.SendPaymentRequest{
+		PaymentRequest: hodlResp.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitSat:    1000000,
+	}
+	payStream := ht.Alice.RPC.SendPayment(sendReq)
+
+	// From Alice's side, the payment should now be in-flight.
+	ht.AssertPaymentStatusFromStream(
+		payStream, lnrpc.Payment_IN_FLIGHT,
+	)
+
+	// From Dave's side, the invoice should be in the accepted state.
+	ht.AssertInvoiceState(invStream, lnrpc.Invoice_ACCEPTED)
+
+	// Now, let Dave settle the invoice.
+	testCase.dave.RPC.SettleInvoice(preimage[:])
+	ht.AssertInvoiceState(invStream, lnrpc.Invoice_SETTLED)
+
+	// And that Alice has received the preimage.
+	ht.AssertPaymentStatus(ht.Alice, preimage, lnrpc.Payment_SUCCEEDED)
 }
 
 // testReceiverBlindedError tests handling of errors from the receiving node in

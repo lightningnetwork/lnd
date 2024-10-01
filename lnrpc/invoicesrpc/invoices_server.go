@@ -339,6 +339,13 @@ func (s *Server) CancelInvoice(ctx context.Context,
 func (s *Server) AddHoldInvoice(ctx context.Context,
 	invoice *AddHoldInvoiceRequest) (*AddHoldInvoiceResp, error) {
 
+	blindedPathCfg, err := s.cfg.BlindedPathCfg(
+		invoice.IsBlinded, invoice.BlindedPathConfig,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	addInvoiceCfg := &AddInvoiceConfig{
 		AddInvoice:            s.cfg.InvoiceRegistry.AddInvoice,
 		IsChannelActive:       s.cfg.IsChannelActive,
@@ -350,6 +357,8 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		GenInvoiceFeatures:    s.cfg.GenInvoiceFeatures,
 		GenAmpInvoiceFeatures: s.cfg.GenAmpInvoiceFeatures,
 		GetAlias:              s.cfg.GetAlias,
+		BestHeight:            s.cfg.BestHeight,
+		QueryBlindedRoutes:    s.cfg.QueryBlindedRoutes,
 	}
 
 	hash, err := lntypes.MakeHash(invoice.Hash)
@@ -379,6 +388,7 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		HodlInvoice:     true,
 		Preimage:        nil,
 		RouteHints:      routeHints,
+		BlindedPathCfg:  blindedPathCfg,
 	}
 
 	_, dbInvoice, err := AddInvoice(ctx, addInvoiceCfg, addInvoiceData)

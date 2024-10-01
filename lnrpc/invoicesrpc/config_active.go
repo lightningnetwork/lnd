@@ -7,9 +7,12 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -61,7 +64,7 @@ type Config struct {
 
 	// GenInvoiceFeatures returns a feature containing feature bits that
 	// should be advertised on freshly generated invoices.
-	GenInvoiceFeatures func() *lnwire.FeatureVector
+	GenInvoiceFeatures func(blinded bool) *lnwire.FeatureVector
 
 	// GenAmpInvoiceFeatures returns a feature containing feature bits that
 	// should be advertised on freshly generated AMP invoices.
@@ -74,4 +77,19 @@ type Config struct {
 	// ParseAuxData is a function that can be used to parse the auxiliary
 	// data from the invoice.
 	ParseAuxData func(message proto.Message) error
+
+	// BlindedPathCfg takes the global routing blinded path policies and the
+	// given per-payment blinded path config values and uses these to
+	// construct the config values passed to the invoice server.
+	BlindedPathCfg func(bool, *lnrpc.BlindedPathConfig) (
+		*BlindedPathConfig, error)
+
+	// BestHeight can be used to get the current best block height known to
+	// LND.
+	BestHeight func() (uint32, error)
+
+	// QueryBlindedRoutes can be used to generate a few routes to this node
+	// that can then be used in the construction of a blinded payment path.
+	QueryBlindedRoutes func(*routing.BlindedPathRestrictions,
+		lnwire.MilliSatoshi) ([]*route.Route, error)
 }

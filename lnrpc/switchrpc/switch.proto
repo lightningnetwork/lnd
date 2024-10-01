@@ -7,4 +7,113 @@ option go_package = "github.com/lightningnetwork/lnd/lnrpc/switchrpc";
 // Switch is a service that offers advanced interaction with the HTLC fowarding
 // subsystem of the daemon.
 service Switch {
+    /*
+    SendOnion attempts to make a payment via the specified onion. This
+    method differs from SendPayment in that the instance need not be aware of
+    the full details of the payment route.
+    */
+    rpc SendOnion (SendOnionRequest) returns (SendOnionResponse);
+}
+
+message SendOnionRequest {
+    // The raw onion packet to be sent across the network.
+    bytes onion_blob = 1;
+
+    // The attempt ID uniquely identifying this payment attempt. The caller can
+    // expect to track results for the payment via this attempt ID.
+    uint64 attempt_id = 2;
+
+    // The first hop's public key where the onion will be sent.
+    // The first hop must be specified either by channel ID or public key.
+    bytes first_hop_pubkey = 3;
+
+    // The channel id of the channel that must be taken to the first hop.
+    // The first hop must be specified either by channel ID or public key.
+    uint64 first_hop_chan_id = 4;
+
+    // The total amount in millisatoshis required to complete a payment over
+    // this route. This value includes the cumulative fees at each hop. The HTLC
+    // extended to the first-hop in the route will need to have at least this
+    // many (milli)satoshis.
+    int64 amount = 5;
+
+    // The absolute timelock or CLTV value that should be extended to the first
+    // hop in the route. All other hops will decrement the time-lock as
+    // described by the onion.
+    uint32 timelock = 6;
+
+    // The payment hash associated with the HTLC. This is needed for tracking
+    // and debugging purposes.
+    bytes payment_hash = 7;
+
+    // The optional blinding point to use when constructing the HTLC.
+    // If set, this will be used to blind the next hop in the route.
+    bytes blinding_point = 8;
+
+    // Optional custom TLV records to include in the UpdateAddHTLC message.
+    map<uint64, bytes> custom_records = 9;
+
+    // Optional opaque extra data to attach to the UpdateAddHTLC message.
+    bytes extra_data = 10;
+}
+
+message SendOnionResponse {
+    // Indicates if the onion was successfully sent or not.
+    // Equivalent to `error_code == ERROR_CODE_UNSPECIFIED`.
+    bool success = 1;
+
+    // In case of failure, this field will provide more information about the
+    // error.
+    string error_message = 2;
+
+    // A code representing the type of error that occurred. This can be used
+    // to programmatically distinguish between different kinds of errors.
+    ErrorCode error_code = 3;
+}
+
+enum ErrorCode {
+    /*
+    Default value for unset errors.
+    */
+    UNSPECIFIED = 0;
+
+    /*
+    Payment ID was not found.
+    */
+    PAYMENT_ID_NOT_FOUND = 1;
+
+    /*
+    Error occurred during forwarding.
+    */
+    FORWARDING_ERROR = 2;
+
+    /*
+    Clear text error.
+    */
+    CLEAR_TEXT_ERROR = 3;
+
+    /*
+    Failure message could not be read.
+    */
+    UNREADABLE_FAILURE_MESSAGE = 4;
+
+    /*
+    An HTLC with same ID is already in flight.
+    */
+    DUPLICATE_HTLC = 5;
+
+    /*
+    No link available for payment.
+    */
+    NO_LINK = 6;
+
+    /*
+    HTLC switch is exiting.
+    */
+    SWITCH_EXITING = 7;
+
+    /*
+    Opaque internal server error.
+    */
+    INTERNAL = 8;
 }

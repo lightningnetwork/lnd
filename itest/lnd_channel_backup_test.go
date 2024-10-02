@@ -786,8 +786,22 @@ func runChanRestoreScenarioForceClose(ht *lntest.HarnessTest, zeroConf bool) {
 	ht.AssertNumTxsInMempool(1)
 
 	// Now that we're able to make our restored now, we'll shutdown the old
-	// Dave node as we'll be storing it shortly below.
-	ht.Shutdown(dave)
+	// Dave node as we'll be storing it shortly below. Use SuspendNode, not
+	// Shutdown to keep its directory including channel.backup file.
+	ht.SuspendNode(dave)
+
+	// Read Dave's channel.backup file again to make sure it was updated
+	// upon Dave's shutdown. In case LND state is lost and DLP protocol
+	// fails, the channel.backup file and the commit tx in it are the
+	// measure of last resort to recover funds from the channel. The file
+	// is updated upon LND server shutdown to update the commit tx just in
+	// case it is used this way. If an outdated commit tx is broadcasted,
+	// the funds may be lost in a justice transaction. The file is encrypted
+	// and we can't decrypt it here, so we just check that the content of
+	// the file has changed.
+	multi2, err := os.ReadFile(backupFilePath)
+	require.NoError(ht, err)
+	require.NotEqual(ht, multi, multi2)
 
 	// Mine a block to confirm the closing tx from Dave.
 	ht.MineBlocksAndAssertNumTxes(1, 1)

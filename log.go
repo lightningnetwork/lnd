@@ -2,6 +2,7 @@ package lnd
 
 import (
 	"github.com/btcsuite/btcd/connmgr"
+	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btclog"
 	"github.com/lightninglabs/neutrino"
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -133,6 +134,7 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	// can be overwritten later.
 	AddSubLogger(root, "BTCN", interceptor, neutrino.UseLogger)
 	AddSubLogger(root, "CMGR", interceptor, connmgr.UseLogger)
+	AddSubLogger(root, "RPCC", interceptor, rpcclient.UseLogger)
 
 	// Some of the loggers declared in the main lnd package are also used
 	// in sub packages.

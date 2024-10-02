@@ -85,7 +85,7 @@ func (p *PrivKeyMessageSigner) SignMessageCompact(msg []byte,
 	} else {
 		digest = chainhash.HashB(msg)
 	}
-	return ecdsa.SignCompact(p.privKey, digest, true)
+	return ecdsa.SignCompact(p.privKey, digest, true), nil
 }
 
 var _ SingleKeyMessageSigner = (*PubKeyMessageSigner)(nil)

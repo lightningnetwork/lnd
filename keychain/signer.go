@@ -73,6 +73,7 @@ func (p *PrivKeyMessageSigner) SignMessage(msg []byte,
 	} else {
 		digest = chainhash.HashB(msg)
 	}
+
 	return ecdsa.Sign(p.privKey, digest), nil
 }
 
@@ -85,7 +86,8 @@ func (p *PrivKeyMessageSigner) SignMessageCompact(msg []byte,
 	} else {
 		digest = chainhash.HashB(msg)
 	}
-	return ecdsa.SignCompact(p.privKey, digest, true)
+
+	return ecdsa.SignCompact(p.privKey, digest, true), nil
 }
 
 var _ SingleKeyMessageSigner = (*PubKeyMessageSigner)(nil)

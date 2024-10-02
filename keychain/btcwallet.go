@@ -448,7 +448,8 @@ func (b *BtcWalletKeyRing) SignMessageCompact(keyLoc KeyLocator,
 	} else {
 		digest = chainhash.HashB(msg)
 	}
-	return ecdsa.SignCompact(privKey, digest, true)
+
+	return ecdsa.SignCompact(privKey, digest, true), nil
 }
 
 // SignMessageSchnorr uses the Schnorr signature algorithm to sign the given

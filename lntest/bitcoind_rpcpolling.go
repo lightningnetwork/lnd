@@ -13,7 +13,6 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 	*BitcoindBackendConfig, func() error, error) {
 
 	extraArgs := []string{
-		"-debug",
 		"-regtest",
 		"-txindex",
 		"-disablewallet",

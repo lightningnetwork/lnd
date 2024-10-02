@@ -2,7 +2,6 @@ package migration_01_to_11
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
 	"time"
 
@@ -154,12 +153,7 @@ func signDigestCompact(hash []byte) ([]byte, error) {
 	privKey, _ := btcec.PrivKeyFromBytes(testPrivKeyBytes)
 
 	// ecdsa.SignCompact returns a pubkey-recoverable signature
-	sig, err := ecdsa.SignCompact(privKey, hash, isCompressedKey)
-	if err != nil {
-		return nil, fmt.Errorf("can't sign the hash: %w", err)
-	}
-
-	return sig, nil
+	return ecdsa.SignCompact(privKey, hash, isCompressedKey), nil
 }
 
 // getPayReq creates a payment request for the given net.

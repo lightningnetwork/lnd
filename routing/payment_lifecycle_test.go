@@ -617,8 +617,8 @@ func TestDecideNextStep(t *testing.T) {
 
 		// Send a nil error to the attemptResultChan if requested.
 		if tc.closeResultChan {
-			p.resultCollected = make(chan error, 1)
-			p.resultCollected <- nil
+			p.resultCollected = make(chan struct{}, 1)
+			p.resultCollected <- struct{}{}
 		}
 
 		// Quit the router if requested.
@@ -1333,7 +1333,7 @@ func TestCollectResultExitOnErr(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, errDummy, "expected dummy error")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1379,7 +1379,7 @@ func TestCollectResultExitOnResultErr(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, errDummy, "expected dummy error")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1405,7 +1405,7 @@ func TestCollectResultExitOnSwitchQuit(t *testing.T) {
 	})
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, htlcswitch.ErrSwitchExiting,
 		"expected switch exit")
 	require.Nil(t, result, "expected nil attempt")
@@ -1432,7 +1432,7 @@ func TestCollectResultExitOnRouterQuit(t *testing.T) {
 	})
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, ErrRouterShuttingDown, "expected router exit")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1458,7 +1458,7 @@ func TestCollectResultExitOnLifecycleQuit(t *testing.T) {
 	})
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, ErrPaymentLifecycleExiting,
 		"expected lifecycle exit")
 	require.Nil(t, result, "expected nil attempt")
@@ -1502,7 +1502,7 @@ func TestCollectResultExitOnSettleErr(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, errDummy, "expected settle error")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1544,7 +1544,7 @@ func TestCollectResultSuccess(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.NoError(t, err, "expected no error")
 	require.Equal(t, preimage, result.attempt.Settle.Preimage,
 		"preimage mismatch")
@@ -1590,13 +1590,9 @@ func TestCollectResultAsyncSuccess(t *testing.T) {
 	p.collectResultAsync(attempt)
 
 	// Assert the result is returned within 5 seconds.
-	var err error
 	waitErr := wait.NoError(func() error {
-		err = <-p.resultCollected
+		<-p.resultCollected
 		return nil
 	}, testTimeout)
 	require.NoError(t, waitErr, "timeout waiting for result")
-
-	// Assert that a nil error is received.
-	require.NoError(t, err, "expected no error")
 }

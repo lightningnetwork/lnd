@@ -522,7 +522,8 @@ func TestRequestRouteFailPaymentError(t *testing.T) {
 	ct.AssertExpectations(t)
 }
 
-// TestDecideNextStep checks the method `decideNextStep` behaves as expected.
+// TestDecideNextStep checks the method `decideNextStep` behaves as expected
+// given the returned values from `AllowMoreAttempts` and `NeedWaitAttempts`.
 func TestDecideNextStep(t *testing.T) {
 	t.Parallel()
 
@@ -537,15 +538,8 @@ func TestDecideNextStep(t *testing.T) {
 		name              string
 		allowMoreAttempts *mockReturn
 		needWaitAttempts  *mockReturn
-
-		// When the attemptResultChan has returned.
-		closeResultChan bool
-
-		// Whether the router has quit.
-		routerQuit bool
-
-		expectedStep stateStep
-		expectedErr  error
+		expectedStep      stateStep
+		expectedErr       error
 	}{
 		{
 			name:              "allow more attempts",
@@ -554,41 +548,24 @@ func TestDecideNextStep(t *testing.T) {
 			expectedErr:       nil,
 		},
 		{
-			name:              "error on allow more attempts",
+			name:              "error checking allow more attempts",
 			allowMoreAttempts: &mockReturn{false, errDummy},
 			expectedStep:      stepExit,
 			expectedErr:       errDummy,
 		},
 		{
-			name:              "no wait and exit",
+			name:              "no need to wait attempts",
 			allowMoreAttempts: &mockReturn{false, nil},
 			needWaitAttempts:  &mockReturn{false, nil},
 			expectedStep:      stepExit,
 			expectedErr:       nil,
 		},
 		{
-			name:              "wait returns an error",
+			name:              "error checking wait attempts",
 			allowMoreAttempts: &mockReturn{false, nil},
 			needWaitAttempts:  &mockReturn{false, errDummy},
 			expectedStep:      stepExit,
 			expectedErr:       errDummy,
-		},
-
-		{
-			name:              "wait and exit on result chan",
-			allowMoreAttempts: &mockReturn{false, nil},
-			needWaitAttempts:  &mockReturn{true, nil},
-			closeResultChan:   true,
-			expectedStep:      stepSkip,
-			expectedErr:       nil,
-		},
-		{
-			name:              "wait and exit on router quit",
-			allowMoreAttempts: &mockReturn{false, nil},
-			needWaitAttempts:  &mockReturn{true, nil},
-			routerQuit:        true,
-			expectedStep:      stepExit,
-			expectedErr:       ErrRouterShuttingDown,
 		},
 	}
 
@@ -596,10 +573,11 @@ func TestDecideNextStep(t *testing.T) {
 		tc := tc
 
 		// Create a test paymentLifecycle.
-		p := createTestPaymentLifecycle()
+		p, _ := newTestPaymentLifecycle(t)
 
 		// Make a mock payment.
 		payment := &mockMPPayment{}
+		defer payment.AssertExpectations(t)
 
 		// Mock the method AllowMoreAttempts.
 		payment.On("AllowMoreAttempts").Return(
@@ -615,27 +593,188 @@ func TestDecideNextStep(t *testing.T) {
 			).Once()
 		}
 
-		// Send a nil error to the attemptResultChan if requested.
-		if tc.closeResultChan {
-			p.resultCollected = make(chan error, 1)
-			p.resultCollected <- nil
-		}
-
-		// Quit the router if requested.
-		if tc.routerQuit {
-			close(p.router.quit)
-		}
-
 		// Once the setup is finished, run the test cases.
 		t.Run(tc.name, func(t *testing.T) {
 			step, err := p.decideNextStep(payment)
 			require.Equal(t, tc.expectedStep, step)
 			require.ErrorIs(t, tc.expectedErr, err)
 		})
-
-		// Check the payment's methods are called as expected.
-		payment.AssertExpectations(t)
 	}
+}
+
+// TestDecideNextStepOnRouterQuit checks the method `decideNextStep` behaves as
+// expected when the router is quit.
+func TestDecideNextStepOnRouterQuit(t *testing.T) {
+	t.Parallel()
+
+	// Create a test paymentLifecycle.
+	p, _ := newTestPaymentLifecycle(t)
+
+	// Make a mock payment.
+	payment := &mockMPPayment{}
+	defer payment.AssertExpectations(t)
+
+	// Mock the method AllowMoreAttempts to return false.
+	payment.On("AllowMoreAttempts").Return(false, nil).Once()
+
+	// Mock the method NeedWaitAttempts to wait for results.
+	payment.On("NeedWaitAttempts").Return(true, nil).Once()
+
+	// Quit the router.
+	close(p.router.quit)
+
+	// Call the method under test.
+	step, err := p.decideNextStep(payment)
+
+	// We expect stepExit and an error to be returned.
+	require.Equal(t, stepExit, step)
+	require.ErrorIs(t, err, ErrRouterShuttingDown)
+}
+
+// TestDecideNextStepOnLifecycleQuit checks the method `decideNextStep` behaves
+// as expected when the lifecycle is quit.
+func TestDecideNextStepOnLifecycleQuit(t *testing.T) {
+	t.Parallel()
+
+	// Create a test paymentLifecycle.
+	p, _ := newTestPaymentLifecycle(t)
+
+	// Make a mock payment.
+	payment := &mockMPPayment{}
+	defer payment.AssertExpectations(t)
+
+	// Mock the method AllowMoreAttempts to return false.
+	payment.On("AllowMoreAttempts").Return(false, nil).Once()
+
+	// Mock the method NeedWaitAttempts to wait for results.
+	payment.On("NeedWaitAttempts").Return(true, nil).Once()
+
+	// Quit the paymentLifecycle.
+	close(p.quit)
+
+	// Call the method under test.
+	step, err := p.decideNextStep(payment)
+
+	// We expect stepExit and an error to be returned.
+	require.Equal(t, stepExit, step)
+	require.ErrorIs(t, err, ErrPaymentLifecycleExiting)
+}
+
+// TestDecideNextStepHandleAttemptResultSucceed checks the method
+// `decideNextStep` behaves as expected when successfully handled the attempt
+// result.
+func TestDecideNextStepHandleAttemptResultSucceed(t *testing.T) {
+	t.Parallel()
+
+	// Create a test paymentLifecycle.
+	p, m := newTestPaymentLifecycle(t)
+
+	// Mock the clock to return a current time.
+	m.clock.On("Now").Return(time.Now())
+
+	// Make a mock payment.
+	payment := &mockMPPayment{}
+	defer payment.AssertExpectations(t)
+
+	// Mock the method AllowMoreAttempts to return false.
+	payment.On("AllowMoreAttempts").Return(false, nil).Once()
+
+	// Mock the method NeedWaitAttempts to wait for results.
+	payment.On("NeedWaitAttempts").Return(true, nil).Once()
+
+	paymentAmt := 10_000
+	preimage := lntypes.Preimage{1}
+	attempt := makeSettledAttempt(t, paymentAmt, preimage)
+
+	// Create a result that contains a preimage.
+	result := &htlcswitch.PaymentResult{
+		Preimage: preimage,
+	}
+
+	// Create a switch result and send it to the `resultCollected`` chan.
+	r := &switchResult{
+		attempt: attempt,
+		result:  result,
+	}
+	p.resultCollected <- r
+
+	// We now mock the behavior of `handleAttemptResult` - we are not
+	// testing this method's behavior here, so we simply mock it to return
+	// no error.
+	//
+	// Since the result doesn't contain an error, `ReportPaymentSuccess`
+	// should be called.
+	m.missionControl.On("ReportPaymentSuccess", mock.Anything,
+		mock.Anything).Return(nil).Once()
+
+	// The settled htlc should be returned from `SettleAttempt`.
+	m.control.On("SettleAttempt", mock.Anything, mock.Anything,
+		mock.Anything).Return(attempt, nil).Once()
+
+	// Call the method under test.
+	step, err := p.decideNextStep(payment)
+
+	// We expect stepSkip and no error to be returned.
+	require.Equal(t, stepSkip, step)
+	require.NoError(t, err)
+}
+
+// TestDecideNextStepHandleAttemptResultFail checks the method `decideNextStep`
+// behaves as expected when it fails to handle the attempt result.
+func TestDecideNextStepHandleAttemptResultFail(t *testing.T) {
+	t.Parallel()
+
+	// Create a test paymentLifecycle.
+	p, m := newTestPaymentLifecycle(t)
+
+	// Mock the clock to return a current time.
+	m.clock.On("Now").Return(time.Now())
+
+	// Make a mock payment.
+	payment := &mockMPPayment{}
+	defer payment.AssertExpectations(t)
+
+	// Mock the method AllowMoreAttempts to return false.
+	payment.On("AllowMoreAttempts").Return(false, nil).Once()
+
+	// Mock the method NeedWaitAttempts to wait for results.
+	payment.On("NeedWaitAttempts").Return(true, nil).Once()
+
+	paymentAmt := 10_000
+	preimage := lntypes.Preimage{1}
+	attempt := makeSettledAttempt(t, paymentAmt, preimage)
+
+	// Create a result that contains a preimage.
+	result := &htlcswitch.PaymentResult{
+		Preimage: preimage,
+	}
+
+	// Create a switch result and send it to the `resultCollected`` chan.
+	r := &switchResult{
+		attempt: attempt,
+		result:  result,
+	}
+	p.resultCollected <- r
+
+	// We now mock the behavior of `handleAttemptResult` - we are not
+	// testing this method's behavior here, so we simply mock it to return
+	// an error.
+	//
+	// Since the result doesn't contain an error, `ReportPaymentSuccess`
+	// should be called.
+	m.missionControl.On("ReportPaymentSuccess",
+		mock.Anything, mock.Anything).Return(nil).Once()
+
+	// Mock SettleAttempt to return an error.
+	m.control.On("SettleAttempt", mock.Anything, mock.Anything,
+		mock.Anything).Return(attempt, errDummy).Once()
+
+	// Call the method under test.
+	step, err := p.decideNextStep(payment)
+
+	// We expect stepExit and the above error to be returned.
+	require.Equal(t, stepExit, step)
+	require.ErrorIs(t, err, errDummy)
 }
 
 // TestResumePaymentFailOnFetchPayment checks when we fail to fetch the
@@ -1333,7 +1472,7 @@ func TestCollectResultExitOnErr(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, errDummy, "expected dummy error")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1379,7 +1518,7 @@ func TestCollectResultExitOnResultErr(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, errDummy, "expected dummy error")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1405,7 +1544,7 @@ func TestCollectResultExitOnSwitchQuit(t *testing.T) {
 	})
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, htlcswitch.ErrSwitchExiting,
 		"expected switch exit")
 	require.Nil(t, result, "expected nil attempt")
@@ -1432,7 +1571,7 @@ func TestCollectResultExitOnRouterQuit(t *testing.T) {
 	})
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, ErrRouterShuttingDown, "expected router exit")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1458,7 +1597,7 @@ func TestCollectResultExitOnLifecycleQuit(t *testing.T) {
 	})
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, ErrPaymentLifecycleExiting,
 		"expected lifecycle exit")
 	require.Nil(t, result, "expected nil attempt")
@@ -1502,7 +1641,7 @@ func TestCollectResultExitOnSettleErr(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, errDummy, "expected settle error")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1544,7 +1683,7 @@ func TestCollectResultSuccess(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.NoError(t, err, "expected no error")
 	require.Equal(t, preimage, result.attempt.Settle.Preimage,
 		"preimage mismatch")
@@ -1561,19 +1700,97 @@ func TestCollectResultAsyncSuccess(t *testing.T) {
 	preimage := lntypes.Preimage{1}
 	attempt := makeSettledAttempt(t, paymentAmt, preimage)
 
+	// Create a mock result returned from the switch.
+	result := &htlcswitch.PaymentResult{
+		Preimage: preimage,
+	}
+
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
 		attempt.AttemptID, p.identifier, mock.Anything,
 	).Return(resultChan, nil).Once().Run(func(args mock.Arguments) {
 		// Send the preimage to the result chan.
-		resultChan <- &htlcswitch.PaymentResult{
-			Preimage: preimage,
-		}
+		resultChan <- result
 	})
 
-	// Once the result is received, `ReportPaymentSuccess` should be
-	// called.
+	// Now call the method under test.
+	p.collectResultAsync(attempt)
+
+	var r *switchResult
+
+	// Assert the result is returned within 5 seconds.
+	waitErr := wait.NoError(func() error {
+		r = <-p.resultCollected
+		return nil
+	}, testTimeout)
+	require.NoError(t, waitErr, "timeout waiting for result")
+
+	// Assert the result is received as expected.
+	require.Equal(t, attempt, r.attempt)
+	require.Equal(t, result, r.result)
+}
+
+// TestHandleAttemptResultWithError checks that when the `Error` field in the
+// result is not nil, it's properly handled by `handleAttemptResult`.
+func TestHandleAttemptResultWithError(t *testing.T) {
+	t.Parallel()
+
+	// Create a test paymentLifecycle with the initial two calls mocked.
+	p, m := newTestPaymentLifecycle(t)
+
+	paymentAmt := 10_000
+	preimage := lntypes.Preimage{1}
+	attempt := makeSettledAttempt(t, paymentAmt, preimage)
+
+	// Create a result that contains an error.
+	//
+	// NOTE: The error is chosen so we can quickly exit `handleSwitchErr`
+	// since we are not testing its behavior here.
+	result := &htlcswitch.PaymentResult{
+		Error: htlcswitch.ErrPaymentIDNotFound,
+	}
+
+	// The above error will end up being handled by `handleSwitchErr`, in
+	// which we'd cancel the shard and fail the attempt.
+	//
+	// `CancelShard` should be called with the attemptID.
+	m.shardTracker.On("CancelShard", attempt.AttemptID).Return(nil).Once()
+
+	// Mock `FailAttempt` to return a dummy error.
+	m.control.On("FailAttempt",
+		p.identifier, attempt.AttemptID, mock.Anything,
+	).Return(nil, errDummy).Once()
+
+	// Mock the clock to return a current time.
+	m.clock.On("Now").Return(time.Now())
+
+	// Call the method under test and expect the dummy error to be
+	// returned.
+	attemptResult, err := p.handleAttemptResult(attempt, result)
+	require.ErrorIs(t, err, errDummy, "expected fail error")
+	require.Nil(t, attemptResult, "expected nil attempt result")
+}
+
+// TestHandleAttemptResultSuccess checks that when the result contains no error
+// but a preimage, it's handled correctly by `handleAttemptResult`.
+func TestHandleAttemptResultSuccess(t *testing.T) {
+	t.Parallel()
+
+	// Create a test paymentLifecycle with the initial two calls mocked.
+	p, m := newTestPaymentLifecycle(t)
+
+	paymentAmt := 10_000
+	preimage := lntypes.Preimage{1}
+	attempt := makeSettledAttempt(t, paymentAmt, preimage)
+
+	// Create a result that contains a preimage.
+	result := &htlcswitch.PaymentResult{
+		Preimage: preimage,
+	}
+
+	// Since the result doesn't contain an error, `ReportPaymentSuccess`
+	// should be called.
 	m.missionControl.On("ReportPaymentSuccess",
 		attempt.AttemptID, &attempt.Route,
 	).Return(nil).Once()
@@ -1586,17 +1803,9 @@ func TestCollectResultAsyncSuccess(t *testing.T) {
 	// Mock the clock to return a current time.
 	m.clock.On("Now").Return(time.Now())
 
-	// Now call the method under test.
-	p.collectResultAsync(attempt)
-
-	// Assert the result is returned within 5 seconds.
-	var err error
-	waitErr := wait.NoError(func() error {
-		err = <-p.resultCollected
-		return nil
-	}, testTimeout)
-	require.NoError(t, waitErr, "timeout waiting for result")
-
-	// Assert that a nil error is received.
+	// Call the method under test and expect the dummy error to be
+	// returned.
+	attemptResult, err := p.handleAttemptResult(attempt, result)
 	require.NoError(t, err, "expected no error")
+	require.Equal(t, attempt, attemptResult.attempt)
 }

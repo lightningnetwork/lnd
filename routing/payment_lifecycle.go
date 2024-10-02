@@ -202,23 +202,18 @@ func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
 	// critical error during path finding.
 lifecycle:
 	for {
-		// We update the payment state on every iteration. Since the
-		// payment state is affected by multiple goroutines (ie,
-		// collectResultAsync), it is NOT guaranteed that we always
-		// have the latest state here. This is fine as long as the
-		// state is consistent as a whole.
-		payment, err = p.router.cfg.Control.FetchPayment(p.identifier)
+		// We update the payment state on every iteration.
+		currentPayment, ps, err := p.reloadPayment()
 		if err != nil {
 			return exitWithErr(err)
 		}
 
-		ps := payment.GetState()
-		remainingFees := p.calcFeeBudget(ps.FeesPaid)
+		// Reassign status so it can be read in `exitWithErr`.
+		status = currentPayment.GetStatus()
 
-		status = payment.GetStatus()
-		log.Debugf("Payment %v: status=%v, active_shards=%v, "+
-			"rem_value=%v, fee_limit=%v", p.identifier, status,
-			ps.NumAttemptsInFlight, ps.RemainingAmt, remainingFees)
+		// Reassign payment such that when the lifecycle exits, the
+		// latest payment can be read when we access its terminal info.
+		payment = currentPayment
 
 		// We now proceed our lifecycle with the following tasks in
 		// order,
@@ -1095,4 +1090,24 @@ func (p *paymentLifecycle) reloadInflightAttempts() (DBMPPayment, error) {
 	}
 
 	return payment, nil
+}
+
+// reloadPayment returns the latest payment found in the db (control tower).
+func (p *paymentLifecycle) reloadPayment() (DBMPPayment,
+	*channeldb.MPPaymentState, error) {
+
+	// Read the db to get the latest state of the payment.
+	payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ps := payment.GetState()
+	remainingFees := p.calcFeeBudget(ps.FeesPaid)
+
+	log.Debugf("Payment %v: status=%v, active_shards=%v, rem_value=%v, "+
+		"fee_limit=%v", p.identifier, payment.GetStatus(),
+		ps.NumAttemptsInFlight, ps.RemainingAmt, remainingFees)
+
+	return payment, ps, nil
 }

@@ -126,13 +126,13 @@ type finalHopParams struct {
 // If the route is to a blinded path, the blindedPath parameter is used to
 // back fill additional fields that are required for a blinded payment. This is
 // done in a separate pass to keep our route construction simple, as blinded
-// paths require zero expiry and amount values for intermediate hops (which
+// paths require zero expiry and amount values for intermediate Hops (which
 // makes calculating the totals during route construction difficult if we
 // include blinded paths on the first pass).
 //
 // NOTE: The passed slice of unified edges MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt. It is assumed that
-// any feature vectors on all hops have been validated for transitive
+// any feature vectors on all Hops have been validated for transitive
 // dependencies.
 // NOTE: If a non-nil blinded path is provided it is assumed to have been
 // validated by the caller.
@@ -175,7 +175,7 @@ func newRoute(sourceVertex route.Vertex,
 		// We'll calculate the amounts, timelocks, and fees for each hop
 		// in the route. The base case is the final hop which includes
 		// their amount and timelocks. These values will accumulate
-		// contributions from the preceding hops back to the sender as
+		// contributions from the preceding Hops back to the sender as
 		// we compute the route in reverse.
 		var (
 			amtToForward        lnwire.MilliSatoshi
@@ -276,7 +276,7 @@ func newRoute(sourceVertex route.Vertex,
 		}
 
 		// Since we're traversing the path backwards atm, we prepend
-		// each new hop such that, the final slice of hops will be in
+		// each new hop such that, the final slice of Hops will be in
 		// the forwards order.
 		currentHop := &route.Hop{
 			PubKeyBytes:      edge.ToNodePubKey(),
@@ -345,7 +345,7 @@ func newRoute(sourceVertex route.Vertex,
 			payload := blindedPath.BlindedHops[dataIndex].CipherText
 			hop.EncryptedData = payload
 
-			// All of the hops in a blinded route *except* the
+			// All of the Hops in a blinded route *except* the
 			// final hop should have zero amounts / time locks.
 			if i != len(hops)-1 {
 				hop.AmtToForward = 0
@@ -361,7 +361,7 @@ func newRoute(sourceVertex route.Vertex,
 		}
 	}
 
-	// With the base routing data expressed as hops, build the full route
+	// With the base routing data expressed as Hops, build the full route
 	newRoute, err := route.NewRouteFromHops(
 		nextIncomingAmount, totalTimeLock, route.Vertex(sourceVertex),
 		hops,
@@ -376,7 +376,7 @@ func newRoute(sourceVertex route.Vertex,
 // edgeWeight computes the weight of an edge. This value is used when searching
 // for the shortest path within the channel graph between two nodes. Weight is
 // is the fee itself plus a time lock penalty added to it. This benefits
-// channels with shorter time lock deltas and shorter (hops) routes in general.
+// channels with shorter time lock deltas and shorter (Hops) routes in general.
 // RiskFactor controls the influence of time lock on route selection. This is
 // currently a fixed value, but might be configurable in the future.
 func edgeWeight(lockedAmt lnwire.MilliSatoshi, fee lnwire.MilliSatoshi,
@@ -681,7 +681,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 	}
 
-	// The payload size of the final hop differ from intermediate hops
+	// The payload size of the final hop differ from intermediate Hops
 	// and depends on whether the destination is blinded or not.
 	lastHopPayloadSize := lastHopPayloadSize(r, finalHtlcExpiry, amt)
 
@@ -1140,7 +1140,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// findPath, and avoid using ChannelEdgePolicy altogether.
 	pathEdges[len(pathEdges)-1].policy.ToNodeFeatures = features
 
-	log.Debugf("Found route: probability=%v, hops=%v, fee=%v",
+	log.Debugf("Found route: probability=%v, Hops=%v, fee=%v",
 		distance[source].probability, len(pathEdges),
 		distance[source].netAmountReceived-amt)
 
@@ -1150,14 +1150,14 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 // blindedPathRestrictions are a set of constraints to adhere to when
 // choosing a set of blinded paths to this node.
 type blindedPathRestrictions struct {
-	// minNumHops is the minimum number of hops to include in a blinded
+	// minNumHops is the minimum number of Hops to include in a blinded
 	// path. This doesn't include our node, so if the minimum is 1, then
 	// the path will contain at minimum our node along with an introduction
 	// node hop. A minimum of 0 will include paths where this node is the
 	// introduction node and so should be used with caution.
 	minNumHops uint8
 
-	// maxNumHops is the maximum number of hops to include in a blinded
+	// maxNumHops is the maximum number of Hops to include in a blinded
 	// path. This doesn't include our node, so if the maximum is 1, then
 	// the path will contain our node along with an introduction node hop.
 	maxNumHops uint8
@@ -1188,9 +1188,9 @@ func findBlindedPaths(g Graph, target route.Vertex,
 
 	// Sanity check the restrictions.
 	if restrictions.minNumHops > restrictions.maxNumHops {
-		return nil, fmt.Errorf("maximum number of blinded path hops "+
+		return nil, fmt.Errorf("maximum number of blinded path Hops "+
 			"(%d) must be greater than or equal to the minimum "+
-			"number of hops (%d)", restrictions.maxNumHops,
+			"number of Hops (%d)", restrictions.maxNumHops,
 			restrictions.minNumHops)
 	}
 
@@ -1256,7 +1256,7 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 	alreadyVisited map[route.Vertex]bool,
 	restrictions *blindedPathRestrictions) ([][]blindedHop, bool, error) {
 
-	// If we have already visited the maximum number of hops, then this path
+	// If we have already visited the maximum number of Hops, then this path
 	// is complete and we can exit now.
 	if len(alreadyVisited) > int(restrictions.maxNumHops) {
 		return nil, false, nil

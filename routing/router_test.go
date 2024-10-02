@@ -85,10 +85,10 @@ func (c *testCtx) getChannelIDFromAlias(t *testing.T, a, b string) uint64 {
 	require.True(t, ok, "cannot find aliases for %s", b)
 
 	channelIDMap, ok := c.channelIDs[vertexA]
-	require.True(t, ok, "cannot find channelID map %s(%s)", vertexA, a)
+	require.True(t, ok, "cannot find ChannelID map %s(%s)", vertexA, a)
 
 	channelID, ok := channelIDMap[vertexB]
-	require.True(t, ok, "cannot find channelID using %s(%s)", vertexB, b)
+	require.True(t, ok, "cannot find ChannelID using %s(%s)", vertexB, b)
 
 	return channelID
 }
@@ -279,7 +279,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 	)
 
 	hops := route.Hops
-	require.Equal(t, 2, len(hops), "expected 2 hops")
+	require.Equal(t, 2, len(hops), "expected 2 Hops")
 
 	require.Equalf(t,
 		ctx.aliases["songoku"], hops[0].PubKeyBytes,
@@ -337,7 +337,7 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 	require.NoErrorf(t, err, "unable to send payment: %v",
 		payment.paymentHash)
 
-	// The route selected should have two hops
+	// The route selected should have two Hops
 	require.Equal(t, 2, len(route.Hops), "incorrect route length")
 
 	// The preimage should match up with the once created above.
@@ -647,7 +647,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	require.NoErrorf(t, err, "unable to send payment: %v",
 		payment.paymentHash)
 
-	// The route selected should have two hops
+	// The route selected should have two Hops
 	require.Equal(t, 2, len(route.Hops), "incorrect route length")
 
 	// The preimage should match up with the once created above.
@@ -758,7 +758,7 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 		"failed to simulate error in the first payment attempt",
 	)
 
-	// The route selected should have two hops. Make sure that,
+	// The route selected should have two Hops. Make sure that,
 	//   path: roasbeef -> son goku -> sophon -> elst
 	//   path: roasbeef -> pham nuwen -> sophon -> elst
 	// are not selected instead.
@@ -884,7 +884,7 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 		"failed to simulate error in the first payment attempt",
 	)
 
-	// The route selected should have three hops. Make sure that,
+	// The route selected should have three Hops. Make sure that,
 	//   path1: roasbeef -> son goku -> sophon -> elst
 	//   path2: roasbeef -> pham nuwen -> sophon -> elst
 	//   path3: roasbeef -> sophon -> (private channel) else
@@ -977,7 +977,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// route properly routes around the failure we've introduced in the
 	// graph.
 	assertExpectedPath := func(retPreImage [32]byte, route *route.Route) {
-		// The route selected should have two hops
+		// The route selected should have two Hops
 		require.Equal(t, 2, len(route.Hops), "incorrect route length")
 
 		// The preimage should match up with the once created above.
@@ -1182,7 +1182,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 		payment.paymentHash)
 
 	// This should succeed finally.  The route selected should have two
-	// hops.
+	// Hops.
 	require.Equal(t, 2, len(rt.Hops), "incorrect route length")
 
 	// The preimage should match up with the once created above.
@@ -1235,7 +1235,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 }
 
 // TestEmptyRoutesGenerateSphinxPacket tests that the generateSphinxPacket
-// function is able to gracefully handle being passed a nil set of hops for the
+// function is able to gracefully handle being passed a nil set of Hops for the
 // route by the caller.
 func TestEmptyRoutesGenerateSphinxPacket(t *testing.T) {
 	t.Parallel()
@@ -1471,7 +1471,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 }
 
 // TestSendToRouteMaxHops asserts that SendToRoute fails when using a route that
-// exceeds the maximum number of hops.
+// exceeds the maximum number of Hops.
 func TestSendToRouteMaxHops(t *testing.T) {
 	t.Parallel()
 
@@ -1661,7 +1661,7 @@ func TestBuildRoute(t *testing.T) {
 
 	noAmt := fn.None[lnwire.MilliSatoshi]()
 
-	// Test that we can't build a route when no hops are given.
+	// Test that we can't build a route when no Hops are given.
 	hops = []route.Vertex{}
 	_, err = ctx.router.BuildRoute(
 		noAmt, hops, nil, 40, fn.None[[32]byte](), fn.None[[]byte](),
@@ -1943,7 +1943,7 @@ func TestSenderAmtBackwardPass(t *testing.T) {
 						MinHTLC:     minHTLC,
 					},
 					// In pathfinding, inbound fees are not
-					// populated for exit hops because the
+					// populated for exit Hops because the
 					// newNodeEdgeUnifier enforces this.
 					// This is important as otherwise we
 					// would not fail the min HTLC check in

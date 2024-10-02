@@ -18,7 +18,7 @@ var (
 	ErrNoBlindedPath = errors.New("blinded path required")
 
 	// ErrInsufficientBlindedHops is returned when a blinded path does
-	// not have enough blinded hops.
+	// not have enough blinded Hops.
 	ErrInsufficientBlindedHops = errors.New("blinded path requires " +
 		"at least one hop")
 
@@ -243,7 +243,7 @@ func (s *BlindedPaymentPathSet) ToRouteHints() (RouteHints, error) {
 // payment along a blinded path.
 type BlindedPayment struct {
 	// BlindedPath contains the unblinded introduction point and blinded
-	// hops for the blinded section of the payment.
+	// Hops for the blinded section of the payment.
 	BlindedPath *sphinx.BlindedPath
 
 	// BaseFee is the total base fee to be paid for payments made over the
@@ -255,17 +255,17 @@ type BlindedPayment struct {
 	ProportionalFeeRate uint32
 
 	// CltvExpiryDelta is the total expiry delta for the blinded path. This
-	// field includes the CLTV for the blinded hops *and* the final cltv
+	// field includes the CLTV for the blinded Hops *and* the final cltv
 	// delta for the receiver.
 	CltvExpiryDelta uint16
 
 	// HtlcMinimum is the highest HLTC minimum supported along the blinded
-	// path (while some hops may have lower values, we're effectively
+	// path (while some Hops may have lower values, we're effectively
 	// bounded by the highest minimum).
 	HtlcMinimum uint64
 
 	// HtlcMaximum is the lowest HTLC maximum supported along the blinded
-	// path (while some hops may have higher values, we're effectively
+	// path (while some Hops may have higher values, we're effectively
 	// bounded by the lowest maximum).
 	HtlcMaximum uint64
 
@@ -299,8 +299,8 @@ func (b *BlindedPayment) Validate() error {
 // to the introduction point), no hints will be returned. In this case callers
 // *must* account for the blinded route's CLTV delta elsewhere (as this is
 // effectively the final_cltv_delta for the receiving introduction node). In
-// the case of multiple blinded hops, CLTV delta is fully accounted for in the
-// hints (both for intermediate hops and the final_cltv_delta for the receiving
+// the case of multiple blinded Hops, CLTV delta is fully accounted for in the
+// hints (both for intermediate Hops and the final_cltv_delta for the receiving
 // node). The pseudoTarget, if provided,  will be used to override the pub key
 // of the destination node in the path.
 func (b *BlindedPayment) toRouteHints(
@@ -360,9 +360,9 @@ func (b *BlindedPayment) toRouteHints(
 
 	hints[fromNode] = []AdditionalEdge{lastEdge}
 
-	// Start at an offset of 1 because the first node in our blinded hops
+	// Start at an offset of 1 because the first node in our blinded Hops
 	// is the introduction node and terminate at the second-last node
-	// because we're dealing with hops as pairs.
+	// because we're dealing with Hops as pairs.
 	for i := 1; i < hintCount; i++ {
 		// Set our origin node to the current
 		fromNode = route.NewVertex(

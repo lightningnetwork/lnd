@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -14,105 +15,105 @@ var (
 		{1, 0}, {1, 1}, {1, 2}, {1, 3}, {1, 4},
 	}
 
-	routeOneHop = mcRoute{
-		sourcePubKey: hops[0],
-		totalAmount:  100,
-		hops: []*mcHop{
-			{pubKeyBytes: hops[1], amtToFwd: 99},
+	routeOneHop = models.MCRoute{
+		SourcePubKey: hops[0],
+		TotalAmount:  100,
+		Hops: []*models.MCHop{
+			{PubKeyBytes: hops[1], AmtToFwd: 99},
 		},
 	}
 
-	routeTwoHop = mcRoute{
-		sourcePubKey: hops[0],
-		totalAmount:  100,
-		hops: []*mcHop{
-			{pubKeyBytes: hops[1], amtToFwd: 99},
-			{pubKeyBytes: hops[2], amtToFwd: 97},
+	routeTwoHop = models.MCRoute{
+		SourcePubKey: hops[0],
+		TotalAmount:  100,
+		Hops: []*models.MCHop{
+			{PubKeyBytes: hops[1], AmtToFwd: 99},
+			{PubKeyBytes: hops[2], AmtToFwd: 97},
 		},
 	}
 
-	routeThreeHop = mcRoute{
-		sourcePubKey: hops[0],
-		totalAmount:  100,
-		hops: []*mcHop{
-			{pubKeyBytes: hops[1], amtToFwd: 99},
-			{pubKeyBytes: hops[2], amtToFwd: 97},
-			{pubKeyBytes: hops[3], amtToFwd: 94},
+	routeThreeHop = models.MCRoute{
+		SourcePubKey: hops[0],
+		TotalAmount:  100,
+		Hops: []*models.MCHop{
+			{PubKeyBytes: hops[1], AmtToFwd: 99},
+			{PubKeyBytes: hops[2], AmtToFwd: 97},
+			{PubKeyBytes: hops[3], AmtToFwd: 94},
 		},
 	}
 
-	routeFourHop = mcRoute{
-		sourcePubKey: hops[0],
-		totalAmount:  100,
-		hops: []*mcHop{
-			{pubKeyBytes: hops[1], amtToFwd: 99},
-			{pubKeyBytes: hops[2], amtToFwd: 97},
-			{pubKeyBytes: hops[3], amtToFwd: 94},
-			{pubKeyBytes: hops[4], amtToFwd: 90},
+	routeFourHop = models.MCRoute{
+		SourcePubKey: hops[0],
+		TotalAmount:  100,
+		Hops: []*models.MCHop{
+			{PubKeyBytes: hops[1], AmtToFwd: 99},
+			{PubKeyBytes: hops[2], AmtToFwd: 97},
+			{PubKeyBytes: hops[3], AmtToFwd: 94},
+			{PubKeyBytes: hops[4], AmtToFwd: 90},
 		},
 	}
 
 	// blindedMultiHop is a blinded path where there are cleartext hops
 	// before the introduction node, and an intermediate blinded hop before
 	// the recipient after it.
-	blindedMultiHop = mcRoute{
-		sourcePubKey: hops[0],
-		totalAmount:  100,
-		hops: []*mcHop{
-			{pubKeyBytes: hops[1], amtToFwd: 99},
+	blindedMultiHop = models.MCRoute{
+		SourcePubKey: hops[0],
+		TotalAmount:  100,
+		Hops: []*models.MCHop{
+			{PubKeyBytes: hops[1], AmtToFwd: 99},
 			{
-				pubKeyBytes:      hops[2],
-				amtToFwd:         95,
-				hasBlindingPoint: true,
+				PubKeyBytes:      hops[2],
+				AmtToFwd:         95,
+				HasBlindingPoint: true,
 			},
-			{pubKeyBytes: hops[3], amtToFwd: 88},
-			{pubKeyBytes: hops[4], amtToFwd: 77},
+			{PubKeyBytes: hops[3], AmtToFwd: 88},
+			{PubKeyBytes: hops[4], AmtToFwd: 77},
 		},
 	}
 
 	// blindedSingleHop is a blinded path with a single blinded hop after
 	// the introduction node.
-	blindedSingleHop = mcRoute{
-		sourcePubKey: hops[0],
-		totalAmount:  100,
-		hops: []*mcHop{
-			{pubKeyBytes: hops[1], amtToFwd: 99},
+	blindedSingleHop = models.MCRoute{
+		SourcePubKey: hops[0],
+		TotalAmount:  100,
+		Hops: []*models.MCHop{
+			{PubKeyBytes: hops[1], AmtToFwd: 99},
 			{
-				pubKeyBytes:      hops[2],
-				amtToFwd:         95,
-				hasBlindingPoint: true,
+				PubKeyBytes:      hops[2],
+				AmtToFwd:         95,
+				HasBlindingPoint: true,
 			},
-			{pubKeyBytes: hops[3], amtToFwd: 88},
+			{PubKeyBytes: hops[3], AmtToFwd: 88},
 		},
 	}
 
 	// blindedMultiToIntroduction is a blinded path which goes directly
 	// to the introduction node, with multiple blinded hops after it.
-	blindedMultiToIntroduction = mcRoute{
-		sourcePubKey: hops[0],
-		totalAmount:  100,
-		hops: []*mcHop{
+	blindedMultiToIntroduction = models.MCRoute{
+		SourcePubKey: hops[0],
+		TotalAmount:  100,
+		Hops: []*models.MCHop{
 			{
-				pubKeyBytes:      hops[1],
-				amtToFwd:         90,
-				hasBlindingPoint: true,
+				PubKeyBytes:      hops[1],
+				AmtToFwd:         90,
+				HasBlindingPoint: true,
 			},
-			{pubKeyBytes: hops[2], amtToFwd: 75},
-			{pubKeyBytes: hops[3], amtToFwd: 58},
+			{PubKeyBytes: hops[2], AmtToFwd: 75},
+			{PubKeyBytes: hops[3], AmtToFwd: 58},
 		},
 	}
 
 	// blindedIntroReceiver is a blinded path where the introduction node
 	// is the recipient.
-	blindedIntroReceiver = mcRoute{
-		sourcePubKey: hops[0],
-		totalAmount:  100,
-		hops: []*mcHop{
-			{pubKeyBytes: hops[1], amtToFwd: 95},
+	blindedIntroReceiver = models.MCRoute{
+		SourcePubKey: hops[0],
+		TotalAmount:  100,
+		Hops: []*models.MCHop{
+			{PubKeyBytes: hops[1], AmtToFwd: 95},
 			{
-				pubKeyBytes:      hops[2],
-				amtToFwd:         90,
-				hasBlindingPoint: true,
+				PubKeyBytes:      hops[2],
+				AmtToFwd:         90,
+				HasBlindingPoint: true,
 			},
 		},
 	}
@@ -129,7 +130,7 @@ func getPolicyFailure(from, to int) *DirectedNodePair {
 
 type resultTestCase struct {
 	name          string
-	route         *mcRoute
+	route         *models.MCRoute
 	success       bool
 	failureSrcIdx int
 	failure       lnwire.FailureMessage
@@ -278,7 +279,7 @@ var resultTestCases = []resultTestCase{
 	},
 
 	// Tests an invalid onion payload from a final hop. The final hop should
-	// be failed while the proceeding hops are reproed as successes. The
+	// be failed while the proceeding Hops are reproed as successes. The
 	// failure is terminal since the receiver can't process our onion.
 	{
 		name:          "fail invalid onion payload final hop four",
@@ -415,7 +416,7 @@ var resultTestCases = []resultTestCase{
 		},
 	},
 
-	// Test a channel disabled failure from the final hop in two hops. Only the
+	// Test a channel disabled failure from the final hop in two Hops. Only the
 	// disabled channel should be penalized for any amount.
 	{
 		name:          "two hop channel disabled",
@@ -535,7 +536,7 @@ var resultTestCases = []resultTestCase{
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
-				// Failures from failing hops[1].
+				// Failures from failing Hops[1].
 				getTestPair(0, 1): failPairResult(0),
 				getTestPair(1, 0): failPairResult(0),
 				getTestPair(1, 2): failPairResult(0),
@@ -556,7 +557,7 @@ var resultTestCases = []resultTestCase{
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
 				getTestPair(0, 1): successPairResult(100),
-				// Failures from failing hops[2].
+				// Failures from failing Hops[2].
 				getTestPair(1, 2): failPairResult(0),
 				getTestPair(2, 1): failPairResult(0),
 				getTestPair(2, 3): failPairResult(0),
@@ -567,7 +568,7 @@ var resultTestCases = []resultTestCase{
 	},
 	// Test the case where an intermediate node that is not in a blinded
 	// route returns an invalid blinding error and there were no successful
-	// hops before the erring incoming link (the erring node if our peer).
+	// Hops before the erring incoming link (the erring node if our peer).
 	{
 		name:          "peer unexpected blinding",
 		route:         &routeThreeHop,
@@ -576,7 +577,7 @@ var resultTestCases = []resultTestCase{
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
-				// Failures from failing hops[1].
+				// Failures from failing Hops[1].
 				getTestPair(0, 1): failPairResult(0),
 				getTestPair(1, 0): failPairResult(0),
 				getTestPair(1, 2): failPairResult(0),

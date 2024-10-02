@@ -1186,7 +1186,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 
 	// The attempt was successfully sent, wait for the result to be
 	// available.
-	result, err = p.collectResult(attempt)
+	result, err = p.collectAndHandleResult(attempt)
 	if err != nil {
 		return nil, err
 	}

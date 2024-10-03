@@ -148,7 +148,7 @@ func (*mockTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
 // is a custom channel that should be handled by the traffic shaper, the
 // HandleTraffic method should be called first.
 func (*mockTrafficShaper) PaymentBandwidth(_, _ fn.Option[tlv.Blob],
-	linkBandwidth lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
+	linkBandwidth, _ lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
 
 	return linkBandwidth, nil
 }

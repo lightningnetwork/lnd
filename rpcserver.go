@@ -2309,6 +2309,29 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 
 		*channelType = lnwire.ChannelType(*fv)
 
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY:
+		// If the taproot overlay channel type is being set, then the
+		// channel MUST be private.
+		if !in.Private {
+			return nil, fmt.Errorf("taproot overlay channels " +
+				"must be private")
+		}
+
+		channelType = new(lnwire.ChannelType)
+		fv := lnwire.NewRawFeatureVector(
+			lnwire.SimpleTaprootOverlayChansRequired,
+		)
+
+		if in.ZeroConf {
+			fv.Set(lnwire.ZeroConfRequired)
+		}
+
+		if in.ScidAlias {
+			fv.Set(lnwire.ScidAliasRequired)
+		}
+
+		*channelType = lnwire.ChannelType(*fv)
+
 	default:
 		return nil, fmt.Errorf("unhandled request channel type %v",
 			in.CommitmentType)
@@ -4533,6 +4556,9 @@ func rpcCommitmentType(chanType channeldb.ChannelType) lnrpc.CommitmentType {
 	// first check whether it has anchors, since in that case it would also
 	// be tweakless.
 	switch {
+	case chanType.HasTapscriptRoot():
+		return lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY
+
 	case chanType.IsTaproot():
 		return lnrpc.CommitmentType_SIMPLE_TAPROOT
 
@@ -4544,6 +4570,7 @@ func rpcCommitmentType(chanType channeldb.ChannelType) lnrpc.CommitmentType {
 
 	case chanType.IsTweakless():
 		return lnrpc.CommitmentType_STATIC_REMOTE_KEY
+
 	default:
 
 		return lnrpc.CommitmentType_LEGACY

@@ -1920,22 +1920,28 @@ func TestLightningWireProtocol(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		var config *quick.Config
+		t.Run(test.msgType.String(), func(t *testing.T) {
+			var config *quick.Config
 
-		// If the type defined is within the custom type gen map above,
-		// then we'll modify the default config to use this Value
-		// function that knows how to generate the proper types.
-		if valueGen, ok := customTypeGen[test.msgType]; ok {
-			config = &quick.Config{
-				Values: valueGen,
+			// If the type defined is within the custom type gen
+			// map above, then we'll modify the default config to
+			// use this Value function that knows how to generate
+			// the proper types.
+			if valueGen, ok := customTypeGen[test.msgType]; ok {
+				config = &quick.Config{
+					Values: valueGen,
+				}
 			}
-		}
 
-		t.Logf("Running fuzz tests for msgType=%v", test.msgType)
-		if err := quick.Check(test.scenario, config); err != nil {
-			t.Fatalf("fuzz checks for msg=%v failed: %v",
-				test.msgType, err)
-		}
+			t.Logf("Running fuzz tests for msgType=%v",
+				test.msgType)
+
+			err := quick.Check(test.scenario, config)
+			if err != nil {
+				t.Fatalf("fuzz checks for msg=%v failed: %v",
+					test.msgType, err)
+			}
+		})
 	}
 
 }

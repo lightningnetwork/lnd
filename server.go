@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btcd/txscript"
@@ -521,6 +522,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	var serializedPubKey [33]byte
 	copy(serializedPubKey[:], nodeKeyDesc.PubKey.SerializeCompressed())
 
+	netParams := cfg.ActiveNetParams.Params
+
 	// Initialize the sphinx router.
 	replayLog := htlcswitch.NewDecayedLog(
 		dbs.DecayedLogDB, cc.ChainNotifier,
@@ -545,6 +548,15 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		readBufferPool, cfg.Workers.Read, pool.DefaultWorkerTimeout,
 	)
 
+	// If the taproot overlay flag is set, but we don't have an aux funding
+	// controller, then we'll exit as this is incompatible.
+	if cfg.ProtocolOptions.TaprootOverlayChans &&
+		implCfg.AuxFundingController.IsNone() {
+
+		return nil, fmt.Errorf("taproot overlay flag set, but not " +
+			"aux controllers")
+	}
+
 	//nolint:lll
 	featureMgr, err := feature.NewManager(feature.Config{
 		NoTLVOnion:               cfg.ProtocolOptions.LegacyOnion(),
@@ -558,6 +570,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoAnySegwit:              cfg.ProtocolOptions.NoAnySegwit(),
 		CustomFeatures:           cfg.ProtocolOptions.CustomFeatures(),
 		NoTaprootChans:           !cfg.ProtocolOptions.TaprootChans,
+		NoTaprootOverlay:         !cfg.ProtocolOptions.TaprootOverlayChans,
 		NoRouteBlinding:          cfg.ProtocolOptions.NoRouteBlinding(),
 	})
 	if err != nil {
@@ -1123,18 +1136,22 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	aggregator := sweep.NewBudgetAggregator(
 		cc.FeeEstimator, sweep.DefaultMaxInputsPerTx,
+		s.implCfg.AuxSweeper,
 	)
 
 	s.txPublisher = sweep.NewTxPublisher(sweep.TxPublisherConfig{
-		Signer:    cc.Wallet.Cfg.Signer,
-		Wallet:    cc.Wallet,
-		Estimator: cc.FeeEstimator,
-		Notifier:  cc.ChainNotifier,
+		Signer:     cc.Wallet.Cfg.Signer,
+		Wallet:     cc.Wallet,
+		Estimator:  cc.FeeEstimator,
+		Notifier:   cc.ChainNotifier,
+		AuxSweeper: s.implCfg.AuxSweeper,
 	})
 
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{
-		FeeEstimator:         cc.FeeEstimator,
-		GenSweepScript:       newSweepPkScriptGen(cc.Wallet),
+		FeeEstimator: cc.FeeEstimator,
+		GenSweepScript: newSweepPkScriptGen(
+			cc.Wallet, s.cfg.ActiveNetParams.Params,
+		),
 		Signer:               cc.Wallet.Cfg.Signer,
 		Wallet:               newSweeperWallet(cc.Wallet),
 		Mempool:              cc.MempoolNotifier,
@@ -1177,10 +1194,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s.breachArbitrator = contractcourt.NewBreachArbitrator(
 		&contractcourt.BreachConfig{
-			CloseLink:          closeLink,
-			DB:                 s.chanStateDB,
-			Estimator:          s.cc.FeeEstimator,
-			GenSweepScript:     newSweepPkScriptGen(cc.Wallet),
+			CloseLink: closeLink,
+			DB:        s.chanStateDB,
+			Estimator: s.cc.FeeEstimator,
+			GenSweepScript: newSweepPkScriptGen(
+				cc.Wallet, s.cfg.ActiveNetParams.Params,
+			),
 			Notifier:           cc.ChainNotifier,
 			PublishTransaction: cc.Wallet.PublishTransaction,
 			ContractBreaches:   contractBreaches,
@@ -1188,6 +1207,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			Store: contractcourt.NewRetributionStore(
 				dbs.ChanStateDB,
 			),
+			AuxSweeper: s.implCfg.AuxSweeper,
 		},
 	)
 
@@ -1196,8 +1216,17 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		ChainHash:              *s.cfg.ActiveNetParams.GenesisHash,
 		IncomingBroadcastDelta: lncfg.DefaultIncomingBroadcastDelta,
 		OutgoingBroadcastDelta: lncfg.DefaultOutgoingBroadcastDelta,
-		NewSweepAddr:           newSweepPkScriptGen(cc.Wallet),
-		PublishTx:              cc.Wallet.PublishTransaction,
+		NewSweepAddr: func() ([]byte, error) {
+			addr, err := newSweepPkScriptGen(
+				cc.Wallet, netParams,
+			)().Unpack()
+			if err != nil {
+				return nil, err
+			}
+
+			return addr.DeliveryAddress, nil
+		},
+		PublishTx: cc.Wallet.PublishTransaction,
 		DeliverResolutionMsg: func(msgs ...contractcourt.ResolutionMsg) error {
 			for _, msg := range msgs {
 				err := s.htlcSwitch.ProcessContractResolution(msg)
@@ -1304,6 +1333,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		},
 		AuxLeafStore: implCfg.AuxLeafStore,
 		AuxSigner:    implCfg.AuxSigner,
+		AuxResolver:  implCfg.AuxContractResolver,
 	}, dbs.ChanStateDB)
 
 	// Select the configuration and funding parameters for Bitcoin.
@@ -1553,6 +1583,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		IsSweeperOutpoint:    s.sweeper.IsSweeperOutpoint,
 		AuxFundingController: implCfg.AuxFundingController,
 		AuxSigner:            implCfg.AuxSigner,
+		AuxResolver:          implCfg.AuxContractResolver,
 	})
 	if err != nil {
 		return nil, err
@@ -1641,6 +1672,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			br, err := lnwallet.NewBreachRetribution(
 				channel, commitHeight, 0, nil,
 				implCfg.AuxLeafStore,
+				implCfg.AuxContractResolver,
 			)
 			if err != nil {
 				return nil, 0, err
@@ -1674,8 +1706,17 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				return s.channelNotifier.
 					SubscribeChannelEvents()
 			},
-			Signer:             cc.Wallet.Cfg.Signer,
-			NewAddress:         newSweepPkScriptGen(cc.Wallet),
+			Signer: cc.Wallet.Cfg.Signer,
+			NewAddress: func() ([]byte, error) {
+				addr, err := newSweepPkScriptGen(
+					cc.Wallet, netParams,
+				)().Unpack()
+				if err != nil {
+					return nil, err
+				}
+
+				return addr.DeliveryAddress, nil
+			},
 			SecretKeyRing:      s.cc.KeyRing,
 			Dial:               cfg.net.Dial,
 			AuthDial:           authDial,
@@ -4125,6 +4166,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		AuxSigner:              s.implCfg.AuxSigner,
 		MsgRouter:              s.implCfg.MsgRouter,
 		AuxChanCloser:          s.implCfg.AuxChanCloser,
+		AuxResolver:            s.implCfg.AuxContractResolver,
 	}
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())
@@ -4944,18 +4986,34 @@ func (s *server) SendCustomMessage(peerPub [33]byte, msgType lnwire.MessageType,
 // Specifically, the script generated is a version 0, pay-to-witness-pubkey-hash
 // (p2wkh) output.
 func newSweepPkScriptGen(
-	wallet lnwallet.WalletController) func() ([]byte, error) {
+	wallet lnwallet.WalletController,
+	netParams *chaincfg.Params) func() fn.Result[lnwallet.AddrWithKey] {
 
-	return func() ([]byte, error) {
+	return func() fn.Result[lnwallet.AddrWithKey] {
 		sweepAddr, err := wallet.NewAddress(
 			lnwallet.TaprootPubkey, false,
 			lnwallet.DefaultAccountName,
 		)
 		if err != nil {
-			return nil, err
+			return fn.Err[lnwallet.AddrWithKey](err)
 		}
 
-		return txscript.PayToAddrScript(sweepAddr)
+		addr, err := txscript.PayToAddrScript(sweepAddr)
+		if err != nil {
+			return fn.Err[lnwallet.AddrWithKey](err)
+		}
+
+		internalKeyDesc, err := lnwallet.InternalKeyForAddr(
+			wallet, netParams, addr,
+		)
+		if err != nil {
+			return fn.Err[lnwallet.AddrWithKey](err)
+		}
+
+		return fn.Ok(lnwallet.AddrWithKey{
+			DeliveryAddress: addr,
+			InternalKey:     internalKeyDesc,
+		})
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 //                          SUMMARY OF OUTPUT STATES
@@ -1423,6 +1424,7 @@ func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
 	return kidOutput{
 		breachedOutput: makeBreachedOutput(
 			outpoint, witnessType, nil, signDescriptor, heightHint,
+			fn.None[tlv.Blob](),
 		),
 		isHtlc:           isHtlc,
 		originChanPoint:  *originChanPoint,

@@ -1667,17 +1667,21 @@ func TestBuildRoute(t *testing.T) {
 
 	noAmt := fn.None[lnwire.MilliSatoshi]()
 
+	selfNode := ctx.router.cfg.SelfNode
+
 	// Test that we can't build a route when no hops are given.
 	hops = []route.Vertex{}
 	_, err = ctx.router.BuildRoute(
-		noAmt, hops, nil, 40, fn.None[[32]byte](), fn.None[[]byte](),
+		selfNode, noAmt, hops, nil, 40,
+		fn.None[[32]byte](), fn.None[[]byte](),
 	)
 	require.Error(t, err)
 
 	// Create hop list for an unknown destination.
 	hops := []route.Vertex{ctx.aliases["b"], ctx.aliases["y"]}
 	_, err = ctx.router.BuildRoute(
-		noAmt, hops, nil, 40, fn.Some(payAddr), fn.None[[]byte](),
+		selfNode, noAmt, hops, nil, 40,
+		fn.Some(payAddr), fn.None[[]byte](),
 	)
 	noChanErr := ErrNoChannel{}
 	require.ErrorAs(t, err, &noChanErr)
@@ -1689,8 +1693,8 @@ func TestBuildRoute(t *testing.T) {
 
 	// Build the route for the given amount.
 	rt, err := ctx.router.BuildRoute(
-		fn.Some(amt), hops, nil, 40, fn.Some(payAddr),
-		fn.None[[]byte](),
+		selfNode, fn.Some(amt), hops, nil, 40,
+		fn.Some(payAddr), fn.None[[]byte](),
 	)
 	require.NoError(t, err)
 
@@ -1702,7 +1706,8 @@ func TestBuildRoute(t *testing.T) {
 
 	// Build the route for the minimum amount.
 	rt, err = ctx.router.BuildRoute(
-		noAmt, hops, nil, 40, fn.Some(payAddr), fn.None[[]byte](),
+		selfNode, noAmt, hops, nil, 40,
+		fn.Some(payAddr), fn.None[[]byte](),
 	)
 	require.NoError(t, err)
 
@@ -1720,7 +1725,8 @@ func TestBuildRoute(t *testing.T) {
 	// There is no amount that can pass through both channel 5 and 4.
 	hops = []route.Vertex{ctx.aliases["e"], ctx.aliases["c"]}
 	_, err = ctx.router.BuildRoute(
-		noAmt, hops, nil, 40, fn.None[[32]byte](), fn.None[[]byte](),
+		selfNode, noAmt, hops, nil, 40,
+		fn.None[[32]byte](), fn.None[[]byte](),
 	)
 	require.Error(t, err)
 	noChanErr = ErrNoChannel{}
@@ -1740,7 +1746,8 @@ func TestBuildRoute(t *testing.T) {
 	// policy of channel 3.
 	hops = []route.Vertex{ctx.aliases["b"], ctx.aliases["z"]}
 	rt, err = ctx.router.BuildRoute(
-		noAmt, hops, nil, 40, fn.Some(payAddr), fn.None[[]byte](),
+		selfNode, noAmt, hops, nil, 40,
+		fn.Some(payAddr), fn.None[[]byte](),
 	)
 	require.NoError(t, err)
 	checkHops(rt, []uint64{1, 8}, payAddr)
@@ -1754,8 +1761,8 @@ func TestBuildRoute(t *testing.T) {
 	hops = []route.Vertex{ctx.aliases["d"], ctx.aliases["f"]}
 	amt = lnwire.NewMSatFromSatoshis(100)
 	rt, err = ctx.router.BuildRoute(
-		fn.Some(amt), hops, nil, 40, fn.Some(payAddr),
-		fn.None[[]byte](),
+		selfNode, fn.Some(amt), hops, nil, 40,
+		fn.Some(payAddr), fn.None[[]byte](),
 	)
 	require.NoError(t, err)
 	checkHops(rt, []uint64{9, 10}, payAddr)
@@ -1771,11 +1778,24 @@ func TestBuildRoute(t *testing.T) {
 	// is a third pass through newRoute in which this gets corrected to end
 	hops = []route.Vertex{ctx.aliases["d"], ctx.aliases["f"]}
 	rt, err = ctx.router.BuildRoute(
-		noAmt, hops, nil, 40, fn.Some(payAddr), fn.None[[]byte](),
+		selfNode, noAmt, hops, nil, 40,
+		fn.Some(payAddr), fn.None[[]byte](),
 	)
 	require.NoError(t, err)
 	checkHops(rt, []uint64{9, 10}, payAddr)
 	require.EqualValues(t, 20180, rt.TotalAmount, "%v", rt.TotalAmount)
+
+	// Test a route built from an alternate source node (d --> f).
+	hops = []route.Vertex{ctx.aliases["f"]}
+	rt, err = ctx.router.BuildRoute(
+		ctx.aliases["d"], fn.Some(amt), hops, nil, 40,
+		fn.Some(payAddr), fn.None[[]byte](),
+	)
+	require.NoError(t, err)
+	require.Equal(t, ctx.aliases["d"], rt.SourcePubKey,
+		"expected 'd' as source")
+	checkHops(rt, []uint64{10}, payAddr)
+
 }
 
 // TestReceiverAmtForwardPass tests that the forward pass returns the expected

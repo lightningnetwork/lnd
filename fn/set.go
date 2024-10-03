@@ -31,6 +31,16 @@ func (s Set[T]) Contains(e T) bool {
 	return ok
 }
 
+// IsEmpty returns true if the set is empty.
+func (s Set[T]) IsEmpty() bool {
+	return len(s) == 0
+}
+
+// Size returns the number of elements in the set.
+func (s Set[T]) Size() uint {
+	return uint(len(s))
+}
+
 // Diff returns the difference between two sets.
 func (s Set[T]) Diff(other Set[T]) Set[T] {
 	diff := make(Set[T])

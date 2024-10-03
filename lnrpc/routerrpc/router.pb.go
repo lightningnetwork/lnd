@@ -2026,8 +2026,11 @@ type BuildRouteRequest struct {
 	// the custom range >= 65536. When using REST, the values must be encoded as
 	// base64.
 	FirstHopCustomRecords map[uint64][]byte `protobuf:"bytes,6,rep,name=first_hop_custom_records,json=firstHopCustomRecords,proto3" json:"first_hop_custom_records,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// An optional source node public key from whose perspective the route is to be
+	// built. If empty, the router's identity key is assumed.
+	SourcePubKey  []byte `protobuf:"bytes,7,opt,name=source_pub_key,json=sourcePubKey,proto3" json:"source_pub_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BuildRouteRequest) Reset() {
@@ -2098,6 +2101,13 @@ func (x *BuildRouteRequest) GetPaymentAddr() []byte {
 func (x *BuildRouteRequest) GetFirstHopCustomRecords() map[uint64][]byte {
 	if x != nil {
 		return x.FirstHopCustomRecords
+	}
+	return nil
+}
+
+func (x *BuildRouteRequest) GetSourcePubKey() []byte {
+	if x != nil {
+		return x.SourcePubKey
 	}
 	return nil
 }
@@ -3721,7 +3731,7 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\bamt_msat\x18\x03 \x01(\x03R\aamtMsat\"k\n" +
 	"\x18QueryProbabilityResponse\x12 \n" +
 	"\vprobability\x18\x01 \x01(\x01R\vprobability\x12-\n" +
-	"\ahistory\x18\x02 \x01(\v2\x13.routerrpc.PairDataR\ahistory\"\x86\x03\n" +
+	"\ahistory\x18\x02 \x01(\v2\x13.routerrpc.PairDataR\ahistory\"\xac\x03\n" +
 	"\x11BuildRouteRequest\x12\x19\n" +
 	"\bamt_msat\x18\x01 \x01(\x03R\aamtMsat\x12(\n" +
 	"\x10final_cltv_delta\x18\x02 \x01(\x05R\x0efinalCltvDelta\x12,\n" +
@@ -3729,7 +3739,8 @@ const file_routerrpc_router_proto_rawDesc = "" +
 	"\vhop_pubkeys\x18\x04 \x03(\fR\n" +
 	"hopPubkeys\x12!\n" +
 	"\fpayment_addr\x18\x05 \x01(\fR\vpaymentAddr\x12p\n" +
-	"\x18first_hop_custom_records\x18\x06 \x03(\v27.routerrpc.BuildRouteRequest.FirstHopCustomRecordsEntryR\x15firstHopCustomRecords\x1aH\n" +
+	"\x18first_hop_custom_records\x18\x06 \x03(\v27.routerrpc.BuildRouteRequest.FirstHopCustomRecordsEntryR\x15firstHopCustomRecords\x12$\n" +
+	"\x0esource_pub_key\x18\a \x01(\fR\fsourcePubKey\x1aH\n" +
 	"\x1aFirstHopCustomRecordsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\x04R\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"8\n" +

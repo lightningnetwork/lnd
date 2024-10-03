@@ -118,9 +118,8 @@ func (r Result[T]) UnwrapOrFail(t *testing.T) T {
 		t.Fatalf("Result[%T] contained error: %v", r.left, r.right)
 	}
 
-	var zero T
 
-	return zero
+	return r.left
 }
 
 // FlatMap applies a function that returns a Result to the success value if it

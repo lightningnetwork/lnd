@@ -390,6 +390,12 @@ func (r *ChannelRouter) Stop() error {
 	return nil
 }
 
+// GetSelfNode queries the current node identity public key used by the
+// ChannelRouter.
+func (r *ChannelRouter) GetSelfNode() route.Vertex {
+	return r.cfg.SelfNode
+}
+
 // RouteRequest contains the parameters for a pathfinding request. It may
 // describe a request to make a regular payment or one to a blinded path
 // (incdicated by a non-nil BlindedPayment field).

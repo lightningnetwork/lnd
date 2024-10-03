@@ -1376,15 +1376,18 @@ func (e ErrNoChannel) Error() string {
 		"node index %v", e.position)
 }
 
-// BuildRoute returns a fully specified route based on a list of pubkeys. If
-// amount is nil, the minimum routable amount is used. To force a specific
-// outgoing channel, use the outgoingChan parameter.
-func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
-	hops []route.Vertex, outgoingChan *uint64, finalCltvDelta int32,
+// BuildRoute builds a fully specified route based on a list of pubkeys from
+// the perspective of the provided source node. If amount is nil, the minimum
+// routable amount is used. To force a specific outgoing channel, use the
+// outgoingChan parameter.
+func (r *ChannelRouter) BuildRoute(sourceNode route.Vertex,
+	amt fn.Option[lnwire.MilliSatoshi], hops []route.Vertex,
+	outgoingChan *uint64, finalCltvDelta int32,
 	payAddr fn.Option[[32]byte], firstHopBlob fn.Option[[]byte]) (
 	*route.Route, error) {
 
-	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v", len(hops), amt)
+	log.Tracef("BuildRoute called: sourceNode=%v, hopsCount=%v, amt=%v",
+		sourceNode, len(hops), amt)
 
 	var outgoingChans map[uint64]struct{}
 	if outgoingChan != nil {
@@ -1403,12 +1406,10 @@ func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
 		return nil, err
 	}
 
-	sourceNode := r.cfg.SelfNode
-
 	// We check that each node in the route has a connection to others that
 	// can forward in principle.
 	unifiers, err := getEdgeUnifiers(
-		r.cfg.SelfNode, hops, outgoingChans, r.cfg.RoutingGraph,
+		sourceNode, hops, outgoingChans, r.cfg.RoutingGraph,
 	)
 	if err != nil {
 		return nil, err

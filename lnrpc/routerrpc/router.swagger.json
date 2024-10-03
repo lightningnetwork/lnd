@@ -1313,6 +1313,11 @@
             "format": "byte"
           },
           "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto the first hop peer of this payment. This can be used to pass application\nspecific data during the payment attempt. Record types are required to be in\nthe custom range \u003e= 65536. When using REST, the values must be encoded as\nbase64."
+        },
+        "source_pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "An optional source node public key from whose perspective the route is to be\nbuilt. If empty, the router's identity key is assumed."
         }
       }
     },

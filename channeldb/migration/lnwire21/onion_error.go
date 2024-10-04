@@ -583,6 +583,10 @@ type FailInvalidBlinding struct {
 	OnionSHA256 [sha256.Size]byte
 }
 
+// A compile-time check to ensure that FailInvalidBlinding implements the
+// Serializable interface.
+var _ Serializable = (*FailInvalidBlinding)(nil)
+
 // Code returns the failure unique code.
 //
 // NOTE: Part of the FailureMessage interface.
@@ -607,7 +611,7 @@ func (f *FailInvalidBlinding) Decode(r io.Reader, _ uint32) error {
 // Encode writes the failure in bytes stream.
 //
 // NOTE: Part of the Serializable interface.
-func (f *FailInvalidBlinding) Encode(w *bytes.Buffer, _ uint32) error {
+func (f *FailInvalidBlinding) Encode(w io.Writer, _ uint32) error {
 	return WriteElement(w, f.OnionSHA256[:])
 }
 

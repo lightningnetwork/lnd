@@ -18,10 +18,8 @@ below.
 
 ## References
  * [MuSig2 paper](https://eprint.iacr.org/2020/1261.pdf)
- * [Draft MuSig
-   BIP](https://github.com/jonasnick/bips/blob/musig2/bip-musig2.mediawiki)
- * [MuSig2 implementation discussion in
-   `bitcoind`](https://github.com/bitcoin/bitcoin/issues/23326)
+ * [BIP 327 MuSig](https://github.com/bitcoin/bips/blob/master/bip-0327.mediawiki)
+ * [MuSig2 implementation discussion in `bitcoind`](https://github.com/bitcoin/bitcoin/issues/23326)
 
 ## A note on security
 

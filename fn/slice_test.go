@@ -374,3 +374,61 @@ func TestPropFindIdxFindIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPropLastTailIsLast(t *testing.T) {
+	f := func(s []uint8) bool {
+		// We exclude the singleton case because the Tail is empty.
+		if len(s) <= 1 {
+			return true
+		}
+
+		return Last(s) == ChainOption(Last[uint8])(Tail(s))
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+func TestPropHeadInitIsHead(t *testing.T) {
+	f := func(s []uint8) bool {
+		// We exclude the singleton case because the Init is empty.
+		if len(s) <= 1 {
+			return true
+		}
+
+		return Head(s) == ChainOption(Head[uint8])(Init(s))
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+func TestPropTailDecrementsLength(t *testing.T) {
+	f := func(s []uint8) bool {
+		if len(s) == 0 {
+			return true
+		}
+
+		return Some(Len(s)-1) == MapOption(Len[uint8])(Tail(s))
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+func TestPropInitDecrementsLength(t *testing.T) {
+	f := func(s []uint8) bool {
+		if len(s) == 0 {
+			return true
+		}
+
+		return Some(Len(s)-1) == MapOption(Len[uint8])(Init(s))
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+func TestSingletonTailIsEmpty(t *testing.T) {
+	require.Equal(t, Tail([]int{1}), Some([]int{}))
+}
+
+func TestSingletonInitIsEmpty(t *testing.T) {
+	require.Equal(t, Init([]int{1}), Some([]int{}))
+}

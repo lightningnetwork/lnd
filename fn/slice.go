@@ -258,3 +258,63 @@ func ForEachConc[A, B any](f func(A) B,
 
 	return bs
 }
+
+// Head returns the first element of the slice, assuming it is non-empty.
+func Head[A any](items []A) Option[A] {
+	if len(items) == 0 {
+		return None[A]()
+	}
+
+	return Some(items[0])
+}
+
+// Tail returns the slice without the first element, assuming the slice is not
+// empty. Note this makes a copy of the slice.
+func Tail[A any](items []A) Option[[]A] {
+	if len(items) == 0 {
+		return None[[]A]()
+	}
+
+	res := make([]A, len(items)-1)
+	copy(res, items[1:])
+
+	return Some(res)
+}
+
+// Init returns the slice without the last element, assuming the slice is not
+// empty. Note this makes a copy of the slice.
+func Init[A any](items []A) Option[[]A] {
+	if len(items) == 0 {
+		return None[[]A]()
+	}
+
+	res := make([]A, len(items)-1)
+	copy(res, items[0:len(items)-1])
+
+	return Some(res)
+}
+
+// Last returns the last element of the slice, assuming it is non-empty.
+func Last[A any](items []A) Option[A] {
+	if len(items) == 0 {
+		return None[A]()
+	}
+
+	return Some(items[len(items)-1])
+}
+
+// Uncons splits a slice into a pair of its Head and Tail.
+func Uncons[A any](items []A) Option[T2[A, []A]] {
+	return LiftA2Option(NewT2[A, []A])(Head(items), Tail(items))
+}
+
+// Unsnoc splits a slice into a pair of its Init and Last.
+func Unsnoc[A any](items []A) Option[T2[[]A, A]] {
+	return LiftA2Option(NewT2[[]A, A])(Init(items), Last(items))
+}
+
+// Len is the len function that is defined in a way that makes it usable in
+// higher-order contexts.
+func Len[A any](items []A) uint {
+	return uint(len(items))
+}

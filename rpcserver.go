@@ -6082,8 +6082,9 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 				// understand the new BOLT 11 tagged field
 				// containing the blinded path, so we switch
 				// the bit to required.
-				v.Unset(lnwire.Bolt11BlindedPathsOptional)
-				v.Set(lnwire.Bolt11BlindedPathsRequired)
+				v = feature.SetBit(
+					v, lnwire.Bolt11BlindedPathsRequired,
+				)
 			}
 
 			return v

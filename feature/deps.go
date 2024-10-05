@@ -103,6 +103,58 @@ func ValidateDeps(fv *lnwire.FeatureVector) error {
 	return validateDeps(features, supported)
 }
 
+// SetBit sets the given feature bit on the given feature bit vector along with
+// any of its dependencies. If the bit is required, then all the dependencies
+// are also set to required, otherwise, the optional dependency bits are set.
+// Existing bits are only upgraded from optional to required but never
+// downgraded from required to optional.
+func SetBit(vector *lnwire.FeatureVector,
+	bit lnwire.FeatureBit) *lnwire.FeatureVector {
+
+	fv := vector.Clone()
+
+	// Get the optional version of the bit since that is what the deps map
+	// uses.
+	optBit := mapToOptional(bit)
+
+	// If the bit we are setting is optional, then we set it (in its
+	// optional form) and also set all its dependents as optional if they
+	// are not already set (they may already be set in a required form in
+	// which case they should not be overridden).
+	if !bit.IsRequired() {
+		// Set the bit itself if it does not already exist. We use
+		// SafeSet here so that if the bit already exists in the
+		// required form, then this is not overwritten.
+		_ = fv.SafeSet(bit)
+
+		// Do the same for all the dependent bits.
+		for depBit := range deps[optBit] {
+			fv = SetBit(fv, depBit)
+		}
+
+		return fv
+	}
+
+	// The bit is required. In this case, we do want to override any
+	// existing optional bit for both the bit itself and for the dependent
+	// bits.
+	fv.Unset(optBit)
+	fv.Set(bit)
+
+	// Do the same for all the dependent bits.
+	for depBit := range deps[optBit] {
+		// The deps map only contains the optional versions of bits, so
+		// there is no need to first map the bit to the optional
+		// version.
+		fv.Unset(depBit)
+
+		// Set the required version of the bit instead.
+		fv = SetBit(fv, mapToRequired(depBit))
+	}
+
+	return fv
+}
+
 // validateDeps is a subroutine that recursively checks that the passed features
 // have all of their associated dependencies in the supported map.
 func validateDeps(features featureSet, supported supportedFeatures) error {
@@ -160,5 +212,15 @@ func mapToOptional(bit lnwire.FeatureBit) lnwire.FeatureBit {
 	if bit.IsRequired() {
 		bit ^= 0x01
 	}
+	return bit
+}
+
+// mapToRequired returns the required variant of a given feature bit pair.
+func mapToRequired(bit lnwire.FeatureBit) lnwire.FeatureBit {
+	if bit.IsRequired() {
+		return bit
+	}
+	bit ^= 0x01
+
 	return bit
 }

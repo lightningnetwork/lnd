@@ -9,6 +9,18 @@ import (
 	"time"
 )
 
+type AmpPayment struct {
+	PaymentID   int32
+	AmpRecordID sql.NullInt32
+}
+
+type AmpRecord struct {
+	HopID      int32
+	RootShare  []byte
+	SetID      []byte
+	ChildIndex int32
+}
+
 type AmpSubInvoice struct {
 	SetID       []byte
 	State       int16
@@ -26,6 +38,57 @@ type AmpSubInvoiceHtlc struct {
 	ChildIndex int64
 	Hash       []byte
 	Preimage   []byte
+}
+
+type BlindedDatum struct {
+	HopID         int32
+	EncryptedData []byte
+	BlindingPoint []byte
+	TotalAmt      int64
+}
+
+type CustomRecord struct {
+	TlvRecordID int32
+	HopID       sql.NullInt32
+}
+
+type FirstHopCustomRecord struct {
+	TlvRecordID int32
+	PaymentID   sql.NullInt32
+}
+
+type Hop struct {
+	ID               int32
+	RouteID          sql.NullInt32
+	PubKey           []byte
+	ChanID           string
+	OutgoingTimeLock int32
+	AmtToForward     int64
+	MetaData         []byte
+}
+
+type HtlcAttempt struct {
+	ID          int32
+	SessionKey  []byte
+	AttemptTime time.Time
+	PaymentID   sql.NullInt32
+}
+
+type HtlcFailInfo struct {
+	HtlcAttemptID  int32
+	HtlcFailReason int32
+	FailureMsg     sql.NullString
+}
+
+type HtlcFailReasonType struct {
+	ID          int32
+	Description string
+}
+
+type HtlcSettleInfo struct {
+	HtlcAttemptID int32
+	Preimage      []byte
+	SettleTime    time.Time
 }
 
 type Invoice struct {
@@ -90,4 +153,62 @@ type InvoiceHtlcCustomRecord struct {
 type InvoiceSequence struct {
 	Name         string
 	CurrentValue int64
+}
+
+type LegacyPayment struct {
+	PaymentID   int32
+	PaymentHash []byte
+}
+
+type MppPayment struct {
+	PaymentID   int32
+	MppRecordID sql.NullInt32
+}
+
+type MppRecord struct {
+	HopID       int32
+	PaymentAddr []byte
+	TotalMsat   int64
+}
+
+type Payment struct {
+	ID             int64
+	PaymentStatus  int32
+	PaymentType    int32
+	AmountMsat     int64
+	PaymentRequest []byte
+	CreatedAt      time.Time
+}
+
+type PaymentState struct {
+	PaymentID           int32
+	NumAttemptsInFlight sql.NullInt32
+	RemainingAmt        int64
+	FeesPaid            int64
+	HasSettledHtlc      bool
+	PaymentFailed       bool
+}
+
+type PaymentStatusType struct {
+	ID          int32
+	Description string
+}
+
+type PaymentType struct {
+	ID          int32
+	Description string
+}
+
+type Route struct {
+	HtlcAttemptID  int32
+	TotalTimelock  sql.NullInt32
+	TotalAmount    int64
+	SourceKey      []byte
+	FirstHopAmount sql.NullInt64
+}
+
+type TlvRecord struct {
+	ID    int32
+	Key   int64
+	Value []byte
 }

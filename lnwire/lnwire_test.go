@@ -23,7 +23,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn"
-	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/assert"
@@ -862,11 +861,6 @@ func TestLightningWireProtocol(t *testing.T) {
 				dp.ChannelType = fn.Some(v)
 			}
 
-			if rand.Uint32()%2 == 0 {
-				v := chainfee.SatPerKWeight(rand.Uint32())
-				dp.KickoffFeerate = fn.Some(v)
-			}
-
 			v[0] = reflect.ValueOf(dp)
 		},
 		MsgDynReject: func(v []reflect.Value, r *rand.Rand) {
@@ -906,9 +900,6 @@ func TestLightningWireProtocol(t *testing.T) {
 				features.Set(FeatureBit(DPChannelType))
 			}
 
-			if rand.Uint32()%2 == 0 {
-				features.Set(FeatureBit(DPKickoffFeerate))
-			}
 			dr.UpdateRejections = *features
 
 			v[0] = reflect.ValueOf(dr)
@@ -963,11 +954,6 @@ func TestLightningWireProtocol(t *testing.T) {
 			if rand.Uint32()%2 == 0 {
 				v := ChannelType(*NewRawFeatureVector())
 				dc.ChannelType = fn.Some(v)
-			}
-
-			if rand.Uint32()%2 == 0 {
-				v := chainfee.SatPerKWeight(rand.Uint32())
-				dc.KickoffFeerate = fn.Some(v)
 			}
 
 			v[0] = reflect.ValueOf(dc)

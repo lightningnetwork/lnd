@@ -7,7 +7,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/fn/v2"
-	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -101,14 +100,6 @@ func (dc *DynCommit) Encode(w *bytes.Buffer, _ uint32) error {
 			),
 		)
 	})
-	dc.KickoffFeerate.WhenSome(func(kickoffFeerate chainfee.SatPerKWeight) {
-		protoSats := uint32(kickoffFeerate)
-		tlvRecords = append(
-			tlvRecords, tlv.MakePrimitiveRecord(
-				DPKickoffFeerate, &protoSats,
-			),
-		)
-	})
 	tlv.SortRecords(tlvRecords)
 
 	tlvStream, err := tlv.NewStream(tlvRecords...)
@@ -179,15 +170,10 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 		channelTypeEncoder, channelTypeDecoder,
 	)
 
-	var kickoffFeerateScratch uint32
-	kickoffFeerate := tlv.MakePrimitiveRecord(
-		DPKickoffFeerate, &kickoffFeerateScratch,
-	)
-
 	// Create set of Records to read TLV bytestream into.
 	records := []tlv.Record{
 		dustLimit, maxValue, reserve, csvDelay, maxHtlcs, fundingKey,
-		chanType, kickoffFeerate,
+		chanType,
 	}
 	tlv.SortRecords(records)
 
@@ -224,11 +210,6 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 	}
 	if val, ok := typeMap[DPChannelType]; ok && val == nil {
 		dc.ChannelType = fn.Some(chanTypeScratch)
-	}
-	if val, ok := typeMap[DPKickoffFeerate]; ok && val == nil {
-		dc.KickoffFeerate = fn.Some(
-			chainfee.SatPerKWeight(kickoffFeerateScratch),
-		)
 	}
 
 	if len(tlvRecords) != 0 {

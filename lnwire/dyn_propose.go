@@ -7,7 +7,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/fn/v2"
-	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -39,10 +38,6 @@ const (
 	// DPChannelType is the TLV type number that identifies the record for
 	// DynPropose.ChannelType.
 	DPChannelType tlv.Type = 6
-
-	// DPKickoffFeerate is the TLV type number that identifies the record
-	// for DynPropose.KickoffFeerate.
-	DPKickoffFeerate tlv.Type = 7
 )
 
 // DynPropose is a message that is sent during a dynamic commitments negotiation
@@ -79,11 +74,6 @@ type DynPropose struct {
 	// ChannelType, if not nil, proposes a change to the channel_type
 	// parameter.
 	ChannelType fn.Option[ChannelType]
-
-	// KickoffFeerate proposes the fee rate in satoshis per kw that it
-	// is offering for a ChannelType conversion that requires a kickoff
-	// transaction.
-	KickoffFeerate fn.Option[chainfee.SatPerKWeight]
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -164,14 +154,6 @@ func (dp *DynPropose) Encode(w *bytes.Buffer, _ uint32) error {
 			),
 		)
 	})
-	dp.KickoffFeerate.WhenSome(func(kickoffFeerate chainfee.SatPerKWeight) {
-		protoSats := uint32(kickoffFeerate)
-		tlvRecords = append(
-			tlvRecords, tlv.MakePrimitiveRecord(
-				DPKickoffFeerate, &protoSats,
-			),
-		)
-	})
 	tlv.SortRecords(tlvRecords)
 
 	tlvStream, err := tlv.NewStream(tlvRecords...)
@@ -244,15 +226,10 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 		channelTypeEncoder, channelTypeDecoder,
 	)
 
-	var kickoffFeerateScratch uint32
-	kickoffFeerate := tlv.MakePrimitiveRecord(
-		DPKickoffFeerate, &kickoffFeerateScratch,
-	)
-
 	// Create set of Records to read TLV bytestream into.
 	records := []tlv.Record{
 		dustLimit, maxValue, reserve, csvDelay, maxHtlcs, fundingKey,
-		chanType, kickoffFeerate,
+		chanType,
 	}
 	tlv.SortRecords(records)
 
@@ -290,11 +267,6 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 	}
 	if val, ok := typeMap[DPChannelType]; ok && val == nil {
 		dp.ChannelType = fn.Some(chanTypeScratch)
-	}
-	if val, ok := typeMap[DPKickoffFeerate]; ok && val == nil {
-		dp.KickoffFeerate = fn.Some(
-			chainfee.SatPerKWeight(kickoffFeerateScratch),
-		)
 	}
 
 	if len(tlvRecords) != 0 {
@@ -376,14 +348,6 @@ func (dp *DynPropose) SerializeTlvData() ([]byte, error) {
 				DPChannelType, &ty,
 				ty.featureBitLen,
 				channelTypeEncoder, channelTypeDecoder,
-			),
-		)
-	})
-	dp.KickoffFeerate.WhenSome(func(kickoffFeerate chainfee.SatPerKWeight) {
-		protoSats := uint32(kickoffFeerate)
-		tlvRecords = append(
-			tlvRecords, tlv.MakePrimitiveRecord(
-				DPKickoffFeerate, &protoSats,
 			),
 		)
 	})

@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/fn/v2"
-	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
@@ -832,7 +831,6 @@ func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 	)
 	includeFundingKey := rapid.Bool().Draw(t, "includeFundingKey")
 	includeChannelType := rapid.Bool().Draw(t, "includeChannelType")
-	includeKickoffFeerate := rapid.Bool().Draw(t, "includeKickoffFeerate")
 
 	// Generate random values for each included field
 	if includeDustLimit {
@@ -866,13 +864,6 @@ func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 
 	if includeChannelType {
 		msg.ChannelType = fn.Some(*RandChannelType(t))
-	}
-
-	if includeKickoffFeerate {
-		kf := chainfee.SatPerKWeight(rapid.Uint32().Draw(
-			t, "kickoffFeerate"),
-		)
-		msg.KickoffFeerate = fn.Some(kf)
 	}
 
 	return msg

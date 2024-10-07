@@ -7,7 +7,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/fn"
-	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -50,11 +49,6 @@ type DynCommit struct {
 	// ChannelType, if not nil, proposes a change to the channel_type
 	// parameter.
 	ChannelType fn.Option[ChannelType]
-
-	// KickoffFeerate proposes the fee rate in satoshis per kw that it
-	// is offering for a ChannelType conversion that requires a kickoff
-	// transaction.
-	KickoffFeerate fn.Option[chainfee.SatPerKWeight]
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -135,14 +129,6 @@ func (dc *DynCommit) Encode(w *bytes.Buffer, _ uint32) error {
 			),
 		)
 	})
-	dc.KickoffFeerate.WhenSome(func(kickoffFeerate chainfee.SatPerKWeight) {
-		protoSats := uint32(kickoffFeerate)
-		tlvRecords = append(
-			tlvRecords, tlv.MakePrimitiveRecord(
-				DPKickoffFeerate, &protoSats,
-			),
-		)
-	})
 	tlv.SortRecords(tlvRecords)
 
 	tlvStream, err := tlv.NewStream(tlvRecords...)
@@ -212,15 +198,10 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 		channelTypeEncoder, channelTypeDecoder,
 	)
 
-	var kickoffFeerateScratch uint32
-	kickoffFeerate := tlv.MakePrimitiveRecord(
-		DPKickoffFeerate, &kickoffFeerateScratch,
-	)
-
 	// Create set of Records to read TLV bytestream into.
 	records := []tlv.Record{
 		dustLimit, maxValue, reserve, csvDelay, maxHtlcs, fundingKey,
-		chanType, kickoffFeerate,
+		chanType,
 	}
 	tlv.SortRecords(records)
 
@@ -258,11 +239,6 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 	if val, ok := typeMap[DPChannelType]; ok && val == nil {
 		dc.ChannelType = fn.Some(chanTypeScratch)
 	}
-	if val, ok := typeMap[DPKickoffFeerate]; ok && val == nil {
-		dc.KickoffFeerate = fn.Some(
-			chainfee.SatPerKWeight(kickoffFeerateScratch),
-		)
-	}
 
 	if len(tlvRecords) != 0 {
 		dc.ExtraData = tlvRecords
@@ -292,6 +268,5 @@ func NegotiateDynCommit(propose DynPropose, ack DynAck) DynCommit {
 		MaxAcceptedHTLCs: propose.MaxAcceptedHTLCs,
 		FundingKey:       propose.FundingKey,
 		ChannelType:      propose.ChannelType,
-		KickoffFeerate:   propose.KickoffFeerate,
 	}
 }

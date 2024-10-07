@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -285,6 +286,10 @@ type ChannelLinkConfig struct {
 	// MaxFeeExposure is the threshold in milli-satoshis after which we'll
 	// restrict the flow of HTLCs and fee updates.
 	MaxFeeExposure lnwire.MilliSatoshi
+
+	// ShouldFwdExpEndorsement is a closure that indicates whether the link
+	// should forward experimental endorsement signals.
+	ShouldFwdExpEndorsement func() bool
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -3651,6 +3656,13 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 				continue
 			}
 
+			endorseValue := l.experimentalEndorsement(
+				record.CustomSet(add.CustomRecords),
+			)
+			endorseType := uint64(
+				lnwire.ExperimentalEndorsementType,
+			)
+
 			switch fwdPkg.State {
 			case channeldb.FwdStateProcessed:
 				// This add was not forwarded on the previous
@@ -3671,6 +3683,14 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 					PaymentHash:   add.PaymentHash,
 					BlindingPoint: fwdInfo.NextBlinding,
 				}
+
+				endorseValue.WhenSome(func(e byte) {
+					custRecords := map[uint64][]byte{
+						endorseType: {e},
+					}
+
+					outgoingAdd.CustomRecords = custRecords
+				})
 
 				// Finally, we'll encode the onion packet for
 				// the _next_ hop using the hop iterator
@@ -3721,6 +3741,12 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 				PaymentHash:   add.PaymentHash,
 				BlindingPoint: fwdInfo.NextBlinding,
 			}
+
+			endorseValue.WhenSome(func(e byte) {
+				addMsg.CustomRecords = map[uint64][]byte{
+					endorseType: {e},
+				}
+			})
 
 			// Finally, we'll encode the onion packet for the
 			// _next_ hop using the hop iterator decoded for the
@@ -3807,6 +3833,46 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 	// opened circuits, which violates assumptions made by the circuit
 	// trimming.
 	l.forwardBatch(replay, switchPackets...)
+}
+
+// experimentalEndorsement returns the value to set for our outgoing
+// experimental endorsement field, and a boolean indicating whether it should
+// be populated on the outgoing htlc.
+func (l *channelLink) experimentalEndorsement(
+	customUpdateAdd record.CustomSet) fn.Option[byte] {
+
+	// Only relay experimental signal if we are within the experiment
+	// period.
+	if !l.cfg.ShouldFwdExpEndorsement() {
+		return fn.None[byte]()
+	}
+
+	// If we don't have any custom records or the experimental field is
+	// not set, just forward a zero value.
+	if len(customUpdateAdd) == 0 {
+		return fn.Some[byte](lnwire.ExperimentalUnendorsed)
+	}
+
+	t := uint64(lnwire.ExperimentalEndorsementType)
+	value, set := customUpdateAdd[t]
+	if !set {
+		return fn.Some[byte](lnwire.ExperimentalUnendorsed)
+	}
+
+	// We expect at least one byte for this field, consider it invalid if
+	// it has no data and just forward a zero value.
+	if len(value) == 0 {
+		return fn.Some[byte](lnwire.ExperimentalUnendorsed)
+	}
+
+	// Only forward endorsed if the incoming link is endorsed.
+	if value[0] == lnwire.ExperimentalEndorsed {
+		return fn.Some[byte](lnwire.ExperimentalEndorsed)
+	}
+
+	// Forward as unendorsed otherwise, including cases where we've
+	// received an invalid value that uses more than 3 bits of information.
+	return fn.Some[byte](lnwire.ExperimentalUnendorsed)
 }
 
 // processExitHop handles an htlc for which this link is the exit hop. It

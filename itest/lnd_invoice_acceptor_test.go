@@ -102,9 +102,12 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 		require.EqualValues(
 			ht, tc.sendAmountMsat, modifierRequest.ExitHtlcAmt,
 		)
+
+		// Expect custom records plus endorsement signal.
 		require.Equal(
-			ht, tc.lastHopCustomRecords,
-			modifierRequest.ExitHtlcWireCustomRecords,
+			ht, lntest.CustomRecordsWithUnendorsed(
+				tc.lastHopCustomRecords,
+			), modifierRequest.ExitHtlcWireCustomRecords,
 		)
 
 		// For all other packets we resolve according to the test case.
@@ -140,8 +143,9 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 
 		require.Len(ht, updatedInvoice.Htlcs, 1)
 		require.Equal(
-			ht, tc.lastHopCustomRecords,
-			updatedInvoice.Htlcs[0].CustomRecords,
+			ht, lntest.CustomRecordsWithUnendorsed(
+				tc.lastHopCustomRecords,
+			), updatedInvoice.Htlcs[0].CustomRecords,
 		)
 
 		// Make sure the custom channel data contains the encoded

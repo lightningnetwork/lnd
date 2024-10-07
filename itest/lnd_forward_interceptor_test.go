@@ -530,9 +530,10 @@ func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
 	require.NoError(ht, err, "failed to send request")
 
 	// Assert that the Alice -> Bob custom records in update_add_htlc are
-	// not propagated on the Bob -> Carol link.
+	// not propagated on the Bob -> Carol link, just an endorsement signal.
 	packet = ht.ReceiveHtlcInterceptor(carolInterceptor)
-	require.Len(ht, packet.InWireCustomRecords, 0)
+	require.Equal(ht, lntest.CustomRecordsWithUnendorsed(nil),
+		packet.InWireCustomRecords)
 
 	// We're going to tell Carol to forward 5k sats less to Dave. We need to
 	// set custom records on the HTLC as well, to make sure the HTLC isn't

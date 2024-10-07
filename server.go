@@ -133,6 +133,12 @@ var (
 	//
 	// TODO(roasbeef): add command line param to modify.
 	MaxFundingAmount = funding.MaxBtcFundingAmount
+
+	// EndorsementExperimentEnd is the time after which nodes should stop
+	// propagating experimental endorsement signals.
+	//
+	// Per blip04: January 1, 2026 12:00:00 AM UTC in unix seconds.
+	EndorsementExperimentEnd = time.Unix(1767225600, 0)
 )
 
 // errPeerAlreadyConnected is an error returned by the server when we're
@@ -4184,6 +4190,11 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		MsgRouter:              s.implCfg.MsgRouter,
 		AuxChanCloser:          s.implCfg.AuxChanCloser,
 		AuxResolver:            s.implCfg.AuxContractResolver,
+		ShouldFwdExpEndorsement: func() bool {
+			return clock.NewDefaultClock().Now().Before(
+				EndorsementExperimentEnd,
+			)
+		},
 	}
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())

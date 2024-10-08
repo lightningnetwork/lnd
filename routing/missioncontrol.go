@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -261,12 +262,52 @@ type MissionControlPairSnapshot struct {
 // paymentResult is the information that becomes available when a payment
 // attempt completes.
 type paymentResult struct {
-	id                 uint64
-	timeFwd, timeReply time.Time
-	route              *mcRoute
-	success            bool
-	failureSourceIdx   *int
-	failure            lnwire.FailureMessage
+	id               uint64
+	timeFwd          tlv.RecordT[tlv.TlvType0, uint64]
+	timeReply        tlv.RecordT[tlv.TlvType1, uint64]
+	route            tlv.RecordT[tlv.TlvType2, mcRoute]
+	success          tlv.OptionalRecordT[tlv.TlvType3, lnwire.TrueBoolean]
+	failureSourceIdx tlv.OptionalRecordT[tlv.TlvType4, uint8]
+	failure          tlv.OptionalRecordT[tlv.TlvType5, failureMessage]
+}
+
+// newPaymentResult constructs a new paymentResult.
+func newPaymentResult(id uint64, rt *mcRoute, timeFwd, timeReply time.Time,
+	success bool, failureSourceIdx *int,
+	failure lnwire.FailureMessage) *paymentResult {
+
+	result := &paymentResult{
+		id: id,
+		timeFwd: tlv.NewPrimitiveRecord[tlv.TlvType0](
+			uint64(timeFwd.UnixNano()),
+		),
+		timeReply: tlv.NewPrimitiveRecord[tlv.TlvType1](
+			uint64(timeReply.UnixNano()),
+		),
+		route: tlv.NewRecordT[tlv.TlvType2](*rt),
+	}
+
+	if success {
+		result.success = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType3](lnwire.TrueBoolean{}),
+		)
+	}
+
+	if failureSourceIdx != nil {
+		result.failureSourceIdx = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType4](
+				uint8(*failureSourceIdx),
+			),
+		)
+	}
+
+	if failure != nil {
+		result.failure = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType5](failureMessage{failure}),
+		)
+	}
+
+	return result
 }
 
 // NewMissionController returns a new instance of MissionController.
@@ -590,15 +631,10 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 
 	timestamp := m.cfg.clock.Now()
 
-	result := &paymentResult{
-		success:          false,
-		timeFwd:          timestamp,
-		timeReply:        timestamp,
-		id:               paymentID,
-		failureSourceIdx: failureSourceIdx,
-		failure:          failure,
-		route:            extractMCRoute(rt),
-	}
+	result := newPaymentResult(
+		paymentID, extractMCRoute(rt), timestamp, timestamp, false,
+		failureSourceIdx, failure,
+	)
 
 	return m.processPaymentResult(result)
 }
@@ -610,15 +646,13 @@ func (m *MissionControl) ReportPaymentSuccess(paymentID uint64,
 
 	timestamp := m.cfg.clock.Now()
 
-	result := &paymentResult{
-		timeFwd:   timestamp,
-		timeReply: timestamp,
-		id:        paymentID,
-		success:   true,
-		route:     extractMCRoute(rt),
-	}
+	result := newPaymentResult(
+		paymentID, extractMCRoute(rt), timestamp, timestamp, true, nil,
+		nil,
+	)
 
 	_, err := m.processPaymentResult(result)
+
 	return err
 }
 
@@ -647,13 +681,15 @@ func (m *MissionControl) applyPaymentResult(
 
 	// Interpret result.
 	i := interpretResult(
-		result.route, result.success, result.failureSourceIdx,
-		result.failure,
+		&result.route.Val,
+		result.success.IsSome(),
+		result.failureSourceIdx.ValOpt(),
+		result.failure.ValOpt(),
 	)
 
 	if i.policyFailure != nil {
 		if m.state.requestSecondChance(
-			result.timeReply,
+			time.Unix(0, int64(result.timeReply.Val)),
 			i.policyFailure.From, i.policyFailure.To,
 		) {
 			return nil
@@ -681,7 +717,10 @@ func (m *MissionControl) applyPaymentResult(
 		m.log.Debugf("Reporting node failure to Mission Control: "+
 			"node=%v", *i.nodeFailure)
 
-		m.state.setAllFail(*i.nodeFailure, result.timeReply)
+		m.state.setAllFail(
+			*i.nodeFailure,
+			time.Unix(0, int64(result.timeReply.Val)),
+		)
 	}
 
 	for pair, pairResult := range i.pairResults {
@@ -698,7 +737,9 @@ func (m *MissionControl) applyPaymentResult(
 		}
 
 		m.state.setLastPairResult(
-			pair.From, pair.To, result.timeReply, &pairResult, false,
+			pair.From, pair.To,
+			time.Unix(0, int64(result.timeReply.Val)), &pairResult,
+			false,
 		)
 	}
 

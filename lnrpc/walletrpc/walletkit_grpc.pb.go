@@ -164,11 +164,12 @@ type WalletKitClient interface {
 	// allows the caller to create a transaction that sends to several outputs at
 	// once. This is ideal when wanting to batch create a set of transactions.
 	SendOutputs(ctx context.Context, in *SendOutputsRequest, opts ...grpc.CallOption) (*SendOutputsResponse, error)
+	// lncli: `wallet estimatefeerate`
 	// EstimateFee attempts to query the internal fee estimator of the wallet to
 	// determine the fee (in sat/kw) to attach to a transaction in order to
 	// achieve the confirmation target.
 	EstimateFee(ctx context.Context, in *EstimateFeeRequest, opts ...grpc.CallOption) (*EstimateFeeResponse, error)
-	// lncli: `pendingsweeps`
+	// lncli: `wallet pendingsweeps`
 	// PendingSweeps returns lists of on-chain outputs that lnd is currently
 	// attempting to sweep within its central batching engine. Outputs with similar
 	// fee rates are batched together in order to sweep them within a single
@@ -688,11 +689,12 @@ type WalletKitServer interface {
 	// allows the caller to create a transaction that sends to several outputs at
 	// once. This is ideal when wanting to batch create a set of transactions.
 	SendOutputs(context.Context, *SendOutputsRequest) (*SendOutputsResponse, error)
+	// lncli: `wallet estimatefeerate`
 	// EstimateFee attempts to query the internal fee estimator of the wallet to
 	// determine the fee (in sat/kw) to attach to a transaction in order to
 	// achieve the confirmation target.
 	EstimateFee(context.Context, *EstimateFeeRequest) (*EstimateFeeResponse, error)
-	// lncli: `pendingsweeps`
+	// lncli: `wallet pendingsweeps`
 	// PendingSweeps returns lists of on-chain outputs that lnd is currently
 	// attempting to sweep within its central batching engine. Outputs with similar
 	// fee rates are batched together in order to sweep them within a single

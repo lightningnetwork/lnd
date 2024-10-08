@@ -667,25 +667,54 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	ltndLog.Infof("Waiting for chain backend to finish sync, "+
 		"start_height=%v", bestHeight)
 
+	type syncResult struct {
+		synced        bool
+		bestBlockTime int64
+		err           error
+	}
+
+	var syncedResChan = make(chan syncResult, 1)
+
 	for {
-		if !interceptor.Alive() {
+		// We check if the wallet is synced in a separate goroutine as
+		// the call is blocking, and we want to be able to interrupt it
+		// if the daemon is shutting down.
+		go func() {
+			synced, bestBlockTime, err := activeChainControl.Wallet.
+				IsSynced()
+			syncedResChan <- syncResult{synced, bestBlockTime, err}
+		}()
+
+		select {
+		case <-interceptor.ShutdownChannel():
 			return nil
+
+		case res := <-syncedResChan:
+			if res.err != nil {
+				return mkErr("unable to determine if wallet "+
+					"is synced: %v", res.err)
+			}
+
+			ltndLog.Debugf("Syncing to block timestamp: %v, is "+
+				"synced=%v", time.Unix(res.bestBlockTime, 0),
+				res.synced)
+
+			if res.synced {
+				break
+			}
+
+			// If we're not yet synced, we'll wait for a second
+			// before checking again.
+			select {
+			case <-interceptor.ShutdownChannel():
+				return nil
+
+			case <-time.After(time.Second):
+				continue
+			}
 		}
 
-		synced, ts, err := activeChainControl.Wallet.IsSynced()
-		if err != nil {
-			return mkErr("unable to determine if wallet is "+
-				"synced: %v", err)
-		}
-
-		ltndLog.Debugf("Syncing to block timestamp: %v, is synced=%v",
-			time.Unix(ts, 0), synced)
-
-		if synced {
-			break
-		}
-
-		time.Sleep(time.Second * 1)
+		break
 	}
 
 	_, bestHeight, err = activeChainControl.ChainIO.GetBestBlock()

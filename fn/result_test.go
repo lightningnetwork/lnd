@@ -1,0 +1,64 @@
+package fn
+
+import (
+	"fmt"
+	"testing"
+	"testing/quick"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestResultUnwrapOrFail(t *testing.T) {
+	require.Equal(t, Ok(1).UnwrapOrFail(t), 1)
+}
+
+func TestMapOk(t *testing.T) {
+	inc := func(i int) int {
+		return i + 1
+	}
+	f := func(i int) bool {
+		ok := Ok(i)
+		return MapOk(inc)(ok) == Ok(inc(i))
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+func TestFlattenResult(t *testing.T) {
+	f := func(i int) bool {
+		e := fmt.Errorf("error")
+
+		x := FlattenResult(Ok(Ok(i))) == Ok(i)
+		y := FlattenResult(Ok(Err[int](e))) == Err[int](e)
+		z := FlattenResult(Err[Result[int]](e)) == Err[int](e)
+
+		return x && y && z
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}
+
+func TestPropTransposeResOptInverts(t *testing.T) {
+	f := func(i uint) bool {
+		var r Result[Option[uint]]
+		switch i % 3 {
+		case 0:
+			r = Ok(Some(i))
+		case 1:
+			r = Ok(None[uint]())
+		case 2:
+			r = Errf[Option[uint]]("error")
+		default:
+			return false
+		}
+
+		odd := TransposeResOpt(TransposeOptRes(TransposeResOpt(r))) ==
+			TransposeResOpt(r)
+
+		even := TransposeOptRes(TransposeResOpt(r)) == r
+
+		return odd && even
+	}
+
+	require.NoError(t, quick.Check(f, nil))
+}

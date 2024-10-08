@@ -222,14 +222,14 @@ service WalletKit {
     */
     rpc SendOutputs (SendOutputsRequest) returns (SendOutputsResponse);
 
-    /*
+    /* lncli: `wallet estimatefeerate`
     EstimateFee attempts to query the internal fee estimator of the wallet to
     determine the fee (in sat/kw) to attach to a transaction in order to
     achieve the confirmation target.
     */
     rpc EstimateFee (EstimateFeeRequest) returns (EstimateFeeResponse);
 
-    /* lncli: `pendingsweeps`
+    /* lncli: `wallet pendingsweeps`
     PendingSweeps returns lists of on-chain outputs that lnd is currently
     attempting to sweep within its central batching engine. Outputs with similar
     fee rates are batched together in order to sweep them within a single

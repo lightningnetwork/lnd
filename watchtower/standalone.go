@@ -3,6 +3,7 @@ package watchtower
 import (
 	"net"
 	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/brontide"
@@ -65,6 +66,9 @@ func New(cfg *Config) (*Standalone, error) {
 		DB:             cfg.DB,
 		EpochRegistrar: cfg.EpochRegistrar,
 		Punisher:       punisher,
+		MinBackoff:     time.Second,
+		MaxBackoff:     time.Minute,
+		MaxNumRetries:  5,
 	})
 
 	// Create a brontide listener on each of the provided listening

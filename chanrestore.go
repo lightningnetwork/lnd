@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 )
@@ -180,12 +181,14 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 			ShortChannelID:          backup.ShortChannelID,
 			IdentityPub:             backup.RemoteNodePub,
 			IsPending:               false,
-			LocalChanCfg:            backup.LocalChanCfg,
-			RemoteChanCfg:           backup.RemoteChanCfg,
 			RemoteCurrentRevocation: backup.RemoteNodePub,
 			RevocationStore:         shachain.NewRevocationStore(),
 			RevocationProducer:      shaChainProducer,
 			ThawHeight:              backup.LeaseExpiry,
+			ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+				Local:  backup.LocalChanCfg,
+				Remote: backup.RemoteChanCfg,
+			},
 		},
 	}
 

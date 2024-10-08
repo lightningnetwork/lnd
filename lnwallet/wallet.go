@@ -1852,13 +1852,13 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 		return desc.CustomFundingBlob
 	})(req.auxFundingDesc)
 
-	chanState.LocalCommitment.CustomBlob = fn.MapOption(
+	chanState.Commitments.Local.CustomBlob = fn.MapOption(
 		func(desc AuxFundingDesc) tlv.Blob {
 			return desc.CustomLocalCommitBlob
 		},
 	)(req.auxFundingDesc)
 
-	chanState.RemoteCommitment.CustomBlob = fn.MapOption(
+	chanState.Commitments.Remote.CustomBlob = fn.MapOption(
 		func(desc AuxFundingDesc) tlv.Blob {
 			return desc.CustomRemoteCommitBlob
 		},
@@ -1931,8 +1931,9 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	}
 
 	// With the funding tx complete, create both commitment transactions.
-	localBalance := pendingReservation.partialState.LocalCommitment.LocalBalance.ToSatoshis()
-	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBalance.ToSatoshis()
+	localCommitment := pendingReservation.partialState.Commitments.Local
+	localBalance := localCommitment.LocalBalance.ToSatoshis()
+	remoteBalance := localCommitment.RemoteBalance.ToSatoshis()
 	var leaseExpiry uint32
 	if pendingReservation.partialState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = pendingReservation.partialState.ThawHeight
@@ -2007,8 +2008,8 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 
 	// Record newly available information within the open channel state.
 	chanState.FundingOutpoint = chanPoint
-	chanState.LocalCommitment.CommitTx = ourCommitTx
-	chanState.RemoteCommitment.CommitTx = theirCommitTx
+	chanState.Commitments.Local.CommitTx = ourCommitTx
+	chanState.Commitments.Remote.CommitTx = theirCommitTx
 
 	// Next, we'll obtain the funding witness script, and the funding
 	// output itself so we can generate a valid signature for the remote
@@ -2283,7 +2284,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// At this point, we can also record and verify their signature for our
 	// commitment transaction.
 	res.theirCommitmentSig = msg.theirCommitmentSig
-	commitTx := res.partialState.LocalCommitment.CommitTx
+	commitTx := res.partialState.Commitments.Local.CommitTx
 
 	err := l.verifyCommitSig(res, msg.theirCommitmentSig, commitTx)
 	if err != nil {
@@ -2294,7 +2295,7 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	}
 
 	theirCommitSigBytes := msg.theirCommitmentSig.Serialize()
-	res.partialState.LocalCommitment.CommitSig = theirCommitSigBytes
+	res.partialState.Commitments.Local.CommitSig = theirCommitSigBytes
 
 	// Funding complete, this entry can be removed from limbo.
 	l.limboMtx.Lock()
@@ -2318,8 +2319,18 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// As we've completed the funding process, we'll no convert the
 	// contribution structs into their underlying channel config objects to
 	// he stored within the database.
-	res.partialState.LocalChanCfg = res.ourContribution.toChanConfig()
-	res.partialState.RemoteChanCfg = res.theirContribution.toChanConfig()
+	res.partialState.ChanCfgs.Local = res.ourContribution.toChanConfig()
+	res.partialState.ChanCfgs.Remote = res.theirContribution.toChanConfig()
+	res.partialState.CommitChainEpochHistory =
+		channeldb.BeginChainEpochHistory(
+			lntypes.MapDual(
+				res.partialState.ChanCfgs,
+				//nolint:lll
+				func(cfg channeldb.ChannelConfig) channeldb.CommitmentParams {
+					return cfg.CommitmentParams
+				},
+			),
+		)
 
 	// We'll also record the finalized funding txn, which will allow us to
 	// rebroadcast on startup in case we fail.
@@ -2374,12 +2385,12 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	chanState.CustomBlob = fn.MapOption(func(desc AuxFundingDesc) tlv.Blob {
 		return desc.CustomFundingBlob
 	})(req.auxFundingDesc)
-	chanState.LocalCommitment.CustomBlob = fn.MapOption(
+	chanState.Commitments.Local.CustomBlob = fn.MapOption(
 		func(desc AuxFundingDesc) tlv.Blob {
 			return desc.CustomLocalCommitBlob
 		},
 	)(req.auxFundingDesc)
-	chanState.RemoteCommitment.CustomBlob = fn.MapOption(
+	chanState.Commitments.Remote.CustomBlob = fn.MapOption(
 		func(desc AuxFundingDesc) tlv.Blob {
 			return desc.CustomRemoteCommitBlob
 		},
@@ -2392,8 +2403,10 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// Now that we have the funding outpoint, we can generate both versions
 	// of the commitment transaction, and generate a signature for the
 	// remote node's commitment transactions.
-	localBalance := pendingReservation.partialState.LocalCommitment.LocalBalance.ToSatoshis()
-	remoteBalance := pendingReservation.partialState.LocalCommitment.RemoteBalance.ToSatoshis()
+	localBalance := pendingReservation.partialState.Commitments.
+		Local.LocalBalance.ToSatoshis()
+	remoteBalance := pendingReservation.partialState.Commitments.
+		Local.RemoteBalance.ToSatoshis()
 	var leaseExpiry uint32
 	if pendingReservation.partialState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = pendingReservation.partialState.ThawHeight
@@ -2445,8 +2458,8 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// without further synchronization.
 	txsort.InPlaceSort(ourCommitTx)
 	txsort.InPlaceSort(theirCommitTx)
-	chanState.LocalCommitment.CommitTx = ourCommitTx
-	chanState.RemoteCommitment.CommitTx = theirCommitTx
+	chanState.Commitments.Local.CommitTx = ourCommitTx
+	chanState.Commitments.Remote.CommitTx = theirCommitTx
 
 	walletLog.Debugf("Local commit tx for ChannelPoint(%v): %v",
 		req.fundingOutpoint, spew.Sdump(ourCommitTx))
@@ -2465,7 +2478,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	}
 
 	theirCommitSigBytes := req.theirCommitmentSig.Serialize()
-	chanState.LocalCommitment.CommitSig = theirCommitSigBytes
+	chanState.Commitments.Local.CommitSig = theirCommitSigBytes
 
 	channelValue := int64(pendingReservation.partialState.Capacity)
 	theirKey := pendingReservation.theirContribution.MultiSigKey
@@ -2525,8 +2538,20 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 
 	// Add the complete funding transaction to the DB, in it's open bucket
 	// which will be used for the lifetime of this channel.
-	chanState.LocalChanCfg = pendingReservation.ourContribution.toChanConfig()
-	chanState.RemoteChanCfg = pendingReservation.theirContribution.toChanConfig()
+	chanState.ChanCfgs.Local =
+		pendingReservation.ourContribution.toChanConfig()
+	chanState.ChanCfgs.Remote =
+		pendingReservation.theirContribution.toChanConfig()
+	chanState.CommitChainEpochHistory =
+		channeldb.BeginChainEpochHistory(
+			lntypes.MapDual(
+				chanState.ChanCfgs,
+				//nolint:lll
+				func(cfg channeldb.ChannelConfig) channeldb.CommitmentParams {
+					return cfg.CommitmentParams
+				},
+			),
+		)
 
 	chanState.RevocationKeyLocator = pendingReservation.nextRevocationKeyLoc
 
@@ -2620,8 +2645,8 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 		return err
 	}
 
-	localKey := channelState.LocalChanCfg.MultiSigKey.PubKey
-	remoteKey := channelState.RemoteChanCfg.MultiSigKey.PubKey
+	localKey := channelState.ChanCfgs.Local.MultiSigKey.PubKey
+	remoteKey := channelState.ChanCfgs.Remote.MultiSigKey.PubKey
 
 	// We'll also need the multi-sig witness script itself so the
 	// chanvalidate package can check it for correctness against the

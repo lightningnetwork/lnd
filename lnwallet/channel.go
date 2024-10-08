@@ -501,7 +501,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 	// on-disk state snapshot.
 	isDustLocal := HtlcIsDust(
 		chanType, htlc.Incoming, lntypes.Local, feeRate,
-		htlc.Amt.ToSatoshis(), lc.channelState.LocalChanCfg.DustLimit,
+		htlc.Amt.ToSatoshis(), lc.channelState.ChanCfgs.Local.DustLimit,
 	)
 	localCommitKeys := commitKeys.GetForParty(lntypes.Local)
 	if !isDustLocal && localCommitKeys != nil {
@@ -518,7 +518,8 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 	}
 	isDustRemote := HtlcIsDust(
 		chanType, htlc.Incoming, lntypes.Remote, feeRate,
-		htlc.Amt.ToSatoshis(), lc.channelState.RemoteChanCfg.DustLimit,
+		htlc.Amt.ToSatoshis(),
+		lc.channelState.ChanCfgs.Remote.DustLimit,
 	)
 	remoteCommitKeys := commitKeys.GetForParty(lntypes.Remote)
 	if !isDustRemote && remoteCommitKeys != nil {
@@ -641,16 +642,16 @@ func (lc *LightningChannel) diskCommitToMemCommit(
 		commitKeys.SetForParty(lntypes.Local, DeriveCommitmentKeys(
 			localCommitPoint, lntypes.Local,
 			lc.channelState.ChanType,
-			&lc.channelState.LocalChanCfg,
-			&lc.channelState.RemoteChanCfg,
+			&lc.channelState.ChanCfgs.Local,
+			&lc.channelState.ChanCfgs.Remote,
 		))
 	}
 	if remoteCommitPoint != nil {
 		commitKeys.SetForParty(lntypes.Remote, DeriveCommitmentKeys(
 			remoteCommitPoint, lntypes.Remote,
 			lc.channelState.ChanType,
-			&lc.channelState.LocalChanCfg,
-			&lc.channelState.RemoteChanCfg,
+			&lc.channelState.ChanCfgs.Local,
+			&lc.channelState.ChanCfgs.Remote,
 		))
 	}
 
@@ -702,9 +703,9 @@ func (lc *LightningChannel) diskCommitToMemCommit(
 		customBlob:     diskCommit.CustomBlob,
 	}
 	if whoseCommit.IsLocal() {
-		commit.dustLimit = lc.channelState.LocalChanCfg.DustLimit
+		commit.dustLimit = lc.channelState.ChanCfgs.Local.DustLimit
 	} else {
-		commit.dustLimit = lc.channelState.RemoteChanCfg.DustLimit
+		commit.dustLimit = lc.channelState.ChanCfgs.Remote.DustLimit
 	}
 
 	return commit, nil
@@ -903,8 +904,8 @@ func NewLightningChannel(signer input.Signer,
 		optFunc(opts)
 	}
 
-	localCommit := state.LocalCommitment
-	remoteCommit := state.RemoteCommitment
+	localCommit := state.Commitments.Local
+	remoteCommit := state.Commitments.Remote
 
 	// First, initialize the update logs with their current counter values
 	// from the local and remote commitments.
@@ -1001,8 +1002,8 @@ func (lc *LightningChannel) createSignDesc() error {
 	)
 
 	chanState := lc.channelState
-	localKey := chanState.LocalChanCfg.MultiSigKey.PubKey
-	remoteKey := chanState.RemoteChanCfg.MultiSigKey.PubKey
+	localKey := chanState.ChanCfgs.Local.MultiSigKey.PubKey
+	remoteKey := chanState.ChanCfgs.Remote.MultiSigKey.PubKey
 
 	if chanState.ChanType.IsTaproot() {
 		fundingPkScript, _, err = input.GenTaprootFundingScript(
@@ -1032,7 +1033,7 @@ func (lc *LightningChannel) createSignDesc() error {
 		Value:    int64(lc.channelState.Capacity),
 	}
 	lc.signDesc = &input.SignDescriptor{
-		KeyDesc:       lc.channelState.LocalChanCfg.MultiSigKey,
+		KeyDesc:       lc.channelState.ChanCfgs.Local.MultiSigKey,
 		WitnessScript: multiSigScript,
 		Output:        &lc.fundingOutput,
 		HashType:      txscript.SigHashAll,
@@ -1080,17 +1081,19 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 		// as we've included this HTLC in our local commitment chain
 		// for the remote party.
 		pd = &paymentDescriptor{
-			ChanID:                wireMsg.ChanID,
-			RHash:                 wireMsg.PaymentHash,
-			Timeout:               wireMsg.Expiry,
-			Amount:                wireMsg.Amount,
-			EntryType:             Add,
-			HtlcIndex:             wireMsg.ID,
-			LogIndex:              logUpdate.LogIndex,
-			addCommitHeightRemote: commitHeight,
-			OnionBlob:             wireMsg.OnionBlob,
-			BlindingPoint:         wireMsg.BlindingPoint,
-			CustomRecords:         wireMsg.CustomRecords.Copy(),
+			ChanID:        wireMsg.ChanID,
+			RHash:         wireMsg.PaymentHash,
+			Timeout:       wireMsg.Expiry,
+			Amount:        wireMsg.Amount,
+			EntryType:     Add,
+			HtlcIndex:     wireMsg.ID,
+			LogIndex:      logUpdate.LogIndex,
+			OnionBlob:     wireMsg.OnionBlob,
+			BlindingPoint: wireMsg.BlindingPoint,
+			CustomRecords: wireMsg.CustomRecords.Copy(),
+			addCommitHeights: lntypes.Dual[uint64]{
+				Remote: commitHeight,
+			},
 		}
 
 		isDustRemote := HtlcIsDust(
@@ -1125,14 +1128,16 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 
 		pd = &paymentDescriptor{
-			ChanID:                   wireMsg.ChanID,
-			Amount:                   ogHTLC.Amount,
-			RHash:                    ogHTLC.RHash,
-			RPreimage:                wireMsg.PaymentPreimage,
-			LogIndex:                 logUpdate.LogIndex,
-			ParentIndex:              ogHTLC.HtlcIndex,
-			EntryType:                Settle,
-			removeCommitHeightRemote: commitHeight,
+			ChanID:      wireMsg.ChanID,
+			Amount:      ogHTLC.Amount,
+			RHash:       ogHTLC.RHash,
+			RPreimage:   wireMsg.PaymentPreimage,
+			LogIndex:    logUpdate.LogIndex,
+			ParentIndex: ogHTLC.HtlcIndex,
+			EntryType:   Settle,
+			removeCommitHeights: lntypes.Dual[uint64]{
+				Remote: commitHeight,
+			},
 		}
 
 	// If we sent a failure for a prior incoming HTLC, then we'll consult
@@ -1143,14 +1148,16 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 
 		pd = &paymentDescriptor{
-			ChanID:                   wireMsg.ChanID,
-			Amount:                   ogHTLC.Amount,
-			RHash:                    ogHTLC.RHash,
-			ParentIndex:              ogHTLC.HtlcIndex,
-			LogIndex:                 logUpdate.LogIndex,
-			EntryType:                Fail,
-			FailReason:               wireMsg.Reason[:],
-			removeCommitHeightRemote: commitHeight,
+			ChanID:      wireMsg.ChanID,
+			Amount:      ogHTLC.Amount,
+			RHash:       ogHTLC.RHash,
+			ParentIndex: ogHTLC.HtlcIndex,
+			LogIndex:    logUpdate.LogIndex,
+			EntryType:   Fail,
+			FailReason:  wireMsg.Reason[:],
+			removeCommitHeights: lntypes.Dual[uint64]{
+				Remote: commitHeight,
+			},
 		}
 
 	// HTLC fails due to malformed onion blobs are treated the exact same
@@ -1160,15 +1167,17 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 		// TODO(roasbeef): err if nil?
 
 		pd = &paymentDescriptor{
-			ChanID:                   wireMsg.ChanID,
-			Amount:                   ogHTLC.Amount,
-			RHash:                    ogHTLC.RHash,
-			ParentIndex:              ogHTLC.HtlcIndex,
-			LogIndex:                 logUpdate.LogIndex,
-			EntryType:                MalformedFail,
-			FailCode:                 wireMsg.FailureCode,
-			ShaOnionBlob:             wireMsg.ShaOnionBlob,
-			removeCommitHeightRemote: commitHeight,
+			ChanID:       wireMsg.ChanID,
+			Amount:       ogHTLC.Amount,
+			RHash:        ogHTLC.RHash,
+			ParentIndex:  ogHTLC.HtlcIndex,
+			LogIndex:     logUpdate.LogIndex,
+			EntryType:    MalformedFail,
+			FailCode:     wireMsg.FailureCode,
+			ShaOnionBlob: wireMsg.ShaOnionBlob,
+			removeCommitHeights: lntypes.Dual[uint64]{
+				Remote: commitHeight,
+			},
 		}
 
 	// For fee updates we'll create a FeeUpdate type to add to the log. We
@@ -1184,9 +1193,13 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 			Amount: lnwire.NewMSatFromSatoshis(
 				btcutil.Amount(wireMsg.FeePerKw),
 			),
-			EntryType:                FeeUpdate,
-			addCommitHeightRemote:    commitHeight,
-			removeCommitHeightRemote: commitHeight,
+			EntryType: FeeUpdate,
+			addCommitHeights: lntypes.Dual[uint64]{
+				Remote: commitHeight,
+			},
+			removeCommitHeights: lntypes.Dual[uint64]{
+				Remote: commitHeight,
+			},
 		}
 	}
 
@@ -1216,14 +1229,16 @@ func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *channeldb.LogUpda
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 
 		return &paymentDescriptor{
-			ChanID:                   wireMsg.ChanID,
-			Amount:                   ogHTLC.Amount,
-			RHash:                    ogHTLC.RHash,
-			RPreimage:                wireMsg.PaymentPreimage,
-			LogIndex:                 logUpdate.LogIndex,
-			ParentIndex:              ogHTLC.HtlcIndex,
-			EntryType:                Settle,
-			removeCommitHeightRemote: commitHeight,
+			ChanID:      wireMsg.ChanID,
+			Amount:      ogHTLC.Amount,
+			RHash:       ogHTLC.RHash,
+			RPreimage:   wireMsg.PaymentPreimage,
+			LogIndex:    logUpdate.LogIndex,
+			ParentIndex: ogHTLC.HtlcIndex,
+			EntryType:   Settle,
+			removeCommitHeights: lntypes.Dual[uint64]{
+				Remote: commitHeight,
+			},
 		}, nil
 
 	// If we sent a failure for a prior incoming HTLC, then we'll consult the
@@ -1233,14 +1248,16 @@ func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *channeldb.LogUpda
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 
 		return &paymentDescriptor{
-			ChanID:                   wireMsg.ChanID,
-			Amount:                   ogHTLC.Amount,
-			RHash:                    ogHTLC.RHash,
-			ParentIndex:              ogHTLC.HtlcIndex,
-			LogIndex:                 logUpdate.LogIndex,
-			EntryType:                Fail,
-			FailReason:               wireMsg.Reason[:],
-			removeCommitHeightRemote: commitHeight,
+			ChanID:      wireMsg.ChanID,
+			Amount:      ogHTLC.Amount,
+			RHash:       ogHTLC.RHash,
+			ParentIndex: ogHTLC.HtlcIndex,
+			LogIndex:    logUpdate.LogIndex,
+			EntryType:   Fail,
+			FailReason:  wireMsg.Reason[:],
+			removeCommitHeights: lntypes.Dual[uint64]{
+				Remote: commitHeight,
+			},
 		}, nil
 
 	// HTLC fails due to malformed onion blocks are treated the exact same
@@ -1249,15 +1266,17 @@ func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *channeldb.LogUpda
 		ogHTLC := remoteUpdateLog.lookupHtlc(wireMsg.ID)
 
 		return &paymentDescriptor{
-			ChanID:                   wireMsg.ChanID,
-			Amount:                   ogHTLC.Amount,
-			RHash:                    ogHTLC.RHash,
-			ParentIndex:              ogHTLC.HtlcIndex,
-			LogIndex:                 logUpdate.LogIndex,
-			EntryType:                MalformedFail,
-			FailCode:                 wireMsg.FailureCode,
-			ShaOnionBlob:             wireMsg.ShaOnionBlob,
-			removeCommitHeightRemote: commitHeight,
+			ChanID:       wireMsg.ChanID,
+			Amount:       ogHTLC.Amount,
+			RHash:        ogHTLC.RHash,
+			ParentIndex:  ogHTLC.HtlcIndex,
+			LogIndex:     logUpdate.LogIndex,
+			EntryType:    MalformedFail,
+			FailCode:     wireMsg.FailureCode,
+			ShaOnionBlob: wireMsg.ShaOnionBlob,
+			removeCommitHeights: lntypes.Dual[uint64]{
+				Remote: commitHeight,
+			},
 		}, nil
 
 	case *lnwire.UpdateFee:
@@ -1267,9 +1286,13 @@ func (lc *LightningChannel) localLogUpdateToPayDesc(logUpdate *channeldb.LogUpda
 			Amount: lnwire.NewMSatFromSatoshis(
 				btcutil.Amount(wireMsg.FeePerKw),
 			),
-			EntryType:                FeeUpdate,
-			addCommitHeightRemote:    commitHeight,
-			removeCommitHeightRemote: commitHeight,
+			EntryType: FeeUpdate,
+			addCommitHeights: lntypes.Dual[uint64]{
+				Remote: commitHeight,
+			},
+			removeCommitHeights: lntypes.Dual[uint64]{
+				Remote: commitHeight,
+			},
 		}, nil
 
 	default:
@@ -1294,17 +1317,19 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 	switch wireMsg := logUpdate.UpdateMsg.(type) {
 	case *lnwire.UpdateAddHTLC:
 		pd := &paymentDescriptor{
-			ChanID:               wireMsg.ChanID,
-			RHash:                wireMsg.PaymentHash,
-			Timeout:              wireMsg.Expiry,
-			Amount:               wireMsg.Amount,
-			EntryType:            Add,
-			HtlcIndex:            wireMsg.ID,
-			LogIndex:             logUpdate.LogIndex,
-			addCommitHeightLocal: commitHeight,
-			OnionBlob:            wireMsg.OnionBlob,
-			BlindingPoint:        wireMsg.BlindingPoint,
-			CustomRecords:        wireMsg.CustomRecords.Copy(),
+			ChanID:        wireMsg.ChanID,
+			RHash:         wireMsg.PaymentHash,
+			Timeout:       wireMsg.Expiry,
+			Amount:        wireMsg.Amount,
+			EntryType:     Add,
+			HtlcIndex:     wireMsg.ID,
+			LogIndex:      logUpdate.LogIndex,
+			OnionBlob:     wireMsg.OnionBlob,
+			BlindingPoint: wireMsg.BlindingPoint,
+			CustomRecords: wireMsg.CustomRecords.Copy(),
+			addCommitHeights: lntypes.Dual[uint64]{
+				Local: commitHeight,
+			},
 		}
 
 		// We don't need to generate an htlc script yet. This will be
@@ -1319,14 +1344,16 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 		ogHTLC := localUpdateLog.lookupHtlc(wireMsg.ID)
 
 		return &paymentDescriptor{
-			ChanID:                  wireMsg.ChanID,
-			Amount:                  ogHTLC.Amount,
-			RHash:                   ogHTLC.RHash,
-			RPreimage:               wireMsg.PaymentPreimage,
-			LogIndex:                logUpdate.LogIndex,
-			ParentIndex:             ogHTLC.HtlcIndex,
-			EntryType:               Settle,
-			removeCommitHeightLocal: commitHeight,
+			ChanID:      wireMsg.ChanID,
+			Amount:      ogHTLC.Amount,
+			RHash:       ogHTLC.RHash,
+			RPreimage:   wireMsg.PaymentPreimage,
+			LogIndex:    logUpdate.LogIndex,
+			ParentIndex: ogHTLC.HtlcIndex,
+			EntryType:   Settle,
+			removeCommitHeights: lntypes.Dual[uint64]{
+				Local: commitHeight,
+			},
 		}, nil
 
 	// If we received a failure for a prior outgoing HTLC, then we'll
@@ -1336,14 +1363,16 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 		ogHTLC := localUpdateLog.lookupHtlc(wireMsg.ID)
 
 		return &paymentDescriptor{
-			ChanID:                  wireMsg.ChanID,
-			Amount:                  ogHTLC.Amount,
-			RHash:                   ogHTLC.RHash,
-			ParentIndex:             ogHTLC.HtlcIndex,
-			LogIndex:                logUpdate.LogIndex,
-			EntryType:               Fail,
-			FailReason:              wireMsg.Reason[:],
-			removeCommitHeightLocal: commitHeight,
+			ChanID:      wireMsg.ChanID,
+			Amount:      ogHTLC.Amount,
+			RHash:       ogHTLC.RHash,
+			ParentIndex: ogHTLC.HtlcIndex,
+			LogIndex:    logUpdate.LogIndex,
+			EntryType:   Fail,
+			FailReason:  wireMsg.Reason[:],
+			removeCommitHeights: lntypes.Dual[uint64]{
+				Local: commitHeight,
+			},
 		}, nil
 
 	// HTLC fails due to malformed onion blobs are treated the exact same
@@ -1352,15 +1381,17 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 		ogHTLC := localUpdateLog.lookupHtlc(wireMsg.ID)
 
 		return &paymentDescriptor{
-			ChanID:                  wireMsg.ChanID,
-			Amount:                  ogHTLC.Amount,
-			RHash:                   ogHTLC.RHash,
-			ParentIndex:             ogHTLC.HtlcIndex,
-			LogIndex:                logUpdate.LogIndex,
-			EntryType:               MalformedFail,
-			FailCode:                wireMsg.FailureCode,
-			ShaOnionBlob:            wireMsg.ShaOnionBlob,
-			removeCommitHeightLocal: commitHeight,
+			ChanID:       wireMsg.ChanID,
+			Amount:       ogHTLC.Amount,
+			RHash:        ogHTLC.RHash,
+			ParentIndex:  ogHTLC.HtlcIndex,
+			LogIndex:     logUpdate.LogIndex,
+			EntryType:    MalformedFail,
+			FailCode:     wireMsg.FailureCode,
+			ShaOnionBlob: wireMsg.ShaOnionBlob,
+			removeCommitHeights: lntypes.Dual[uint64]{
+				Local: commitHeight,
+			},
 		}, nil
 
 	// For fee updates we'll create a FeeUpdate type to add to the log. We
@@ -1376,9 +1407,13 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 			Amount: lnwire.NewMSatFromSatoshis(
 				btcutil.Amount(wireMsg.FeePerKw),
 			),
-			EntryType:               FeeUpdate,
-			addCommitHeightLocal:    commitHeight,
-			removeCommitHeightLocal: commitHeight,
+			EntryType: FeeUpdate,
+			addCommitHeights: lntypes.Dual[uint64]{
+				Local: commitHeight,
+			},
+			removeCommitHeights: lntypes.Dual[uint64]{
+				Local: commitHeight,
+			},
 		}, nil
 
 	default:
@@ -1473,8 +1508,8 @@ func (lc *LightningChannel) restoreCommitState(
 		pendingRemoteKeyChain = DeriveCommitmentKeys(
 			pendingCommitPoint, lntypes.Remote,
 			lc.channelState.ChanType,
-			&lc.channelState.LocalChanCfg,
-			&lc.channelState.RemoteChanCfg,
+			&lc.channelState.ChanCfgs.Local,
+			&lc.channelState.ChanCfgs.Remote,
 		)
 	}
 
@@ -1611,8 +1646,9 @@ func (lc *LightningChannel) restoreStateLogs(
 		// map we created earlier. Note that if this HTLC is not in
 		// incomingRemoteAddHeights, the remote add height will be set
 		// to zero, which indicates that it is not added yet.
-		htlc.addCommitHeightLocal = localCommitment.height
-		htlc.addCommitHeightRemote = incomingRemoteAddHeights[htlc.HtlcIndex]
+		htlc.addCommitHeights.Local = localCommitment.height
+		htlc.addCommitHeights.Remote =
+			incomingRemoteAddHeights[htlc.HtlcIndex]
 
 		// Restore the htlc back to the remote log.
 		lc.updateLogs.Remote.restoreHtlc(&htlc)
@@ -1626,8 +1662,9 @@ func (lc *LightningChannel) restoreStateLogs(
 		// As for the incoming HTLCs, we'll use the current remote
 		// commit height as remote add height, and consult the map
 		// created above for the local add height.
-		htlc.addCommitHeightRemote = remoteCommitment.height
-		htlc.addCommitHeightLocal = outgoingLocalAddHeights[htlc.HtlcIndex]
+		htlc.addCommitHeights.Remote = remoteCommitment.height
+		htlc.addCommitHeights.Local =
+			outgoingLocalAddHeights[htlc.HtlcIndex]
 
 		// Restore the htlc back to the local log.
 		lc.updateLogs.Local.restoreHtlc(&htlc)
@@ -1722,15 +1759,15 @@ func (lc *LightningChannel) restorePendingRemoteUpdates(
 		switch payDesc.EntryType {
 		case FeeUpdate:
 			if heightSet {
-				payDesc.addCommitHeightRemote = height
-				payDesc.removeCommitHeightRemote = height
+				payDesc.addCommitHeights.Remote = height
+				payDesc.removeCommitHeights.Remote = height
 			}
 
 			lc.updateLogs.Remote.restoreUpdate(payDesc)
 
 		default:
 			if heightSet {
-				payDesc.removeCommitHeightRemote = height
+				payDesc.removeCommitHeights.Remote = height
 			}
 
 			lc.updateLogs.Remote.restoreUpdate(payDesc)
@@ -1809,7 +1846,7 @@ func (lc *LightningChannel) restorePendingLocalUpdates(
 			&logUpdate, lc.updateLogs.Remote, pendingHeight,
 			chainfee.SatPerKWeight(pendingCommit.FeePerKw),
 			pendingRemoteKeys,
-			lc.channelState.RemoteChanCfg.DustLimit,
+			lc.channelState.ChanCfgs.Remote.DustLimit,
 			auxResult.AuxLeaves,
 		)
 		if err != nil {
@@ -2024,7 +2061,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// keys we'll need to reconstruct the commitment state,
 	keyRing := DeriveCommitmentKeys(
 		commitmentPoint, lntypes.Remote, chanState.ChanType,
-		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+		&chanState.ChanCfgs.Local, &chanState.ChanCfgs.Remote,
 	)
 
 	// Next, reconstruct the scripts as they were present at this state
@@ -2065,7 +2102,12 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			return l.LocalAuxLeaf
 		},
 	)(auxResult.AuxLeaves)
-	theirDelay := uint32(chanState.RemoteChanCfg.CsvDelay)
+	theirDelay := uint32(
+		chanState.CommitChainEpochHistory.NormalizedParamsAt(
+			lntypes.Remote, stateNum,
+		).CsvDelay,
+	)
+
 	theirScript, err := CommitScriptToSelf(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToLocalKey,
 		keyRing.RevocationKey, theirDelay, leaseExpiry, localAuxLeaf,
@@ -2085,7 +2127,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// we need.
 	if revokedLog != nil {
 		br, ourAmt, theirAmt, err = createBreachRetribution(
-			revokedLog, spendTx, chanState, keyRing,
+			revokedLog, spendTx, chanState, stateNum, keyRing,
 			commitmentSecret, leaseExpiry, auxResult.AuxLeaves,
 		)
 		if err != nil {
@@ -2100,8 +2142,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// data can still function. This branch can be deleted once we
 		// are confident that no legacy format is in use.
 		br, ourAmt, theirAmt, err = createBreachRetributionLegacy(
-			revokedLogLegacy, chanState, keyRing, commitmentSecret,
-			ourScript, theirScript, leaseExpiry,
+			revokedLogLegacy, chanState, stateNum, keyRing,
+			commitmentSecret, ourScript, theirScript, leaseExpiry,
 		)
 		if err != nil {
 			return nil, err
@@ -2114,7 +2156,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	//
 	// If our balance exceeds the remote party's dust limit, instantiate
 	// the sign descriptor for our output.
-	if ourAmt >= int64(chanState.RemoteChanCfg.DustLimit) {
+	if ourAmt >= int64(chanState.ChanCfgs.Remote.DustLimit) {
 		// As we're about to sweep our own output w/o a delay, we'll
 		// obtain the witness script for the success/delay path.
 		witnessScript, err := ourScript.WitnessScriptForPath(
@@ -2126,7 +2168,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 		br.LocalOutputSignDesc = &input.SignDescriptor{
 			SingleTweak:   keyRing.LocalCommitKeyTweak,
-			KeyDesc:       chanState.LocalChanCfg.PaymentBasePoint,
+			KeyDesc:       chanState.ChanCfgs.Local.PaymentBasePoint, //nolint:lll
 			WitnessScript: witnessScript,
 			Output: &wire.TxOut{
 				PkScript: ourScript.PkScript(),
@@ -2191,7 +2233,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 	// Similarly, if their balance exceeds the remote party's dust limit,
 	// assemble the sign descriptor for their output, which we can sweep.
-	if theirAmt >= int64(chanState.RemoteChanCfg.DustLimit) {
+	if theirAmt >= int64(chanState.ChanCfgs.Remote.DustLimit) {
 		// As we're trying to defend the channel against a breach
 		// attempt from the remote party, we want to obain the
 		// revocation witness script here.
@@ -2203,7 +2245,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		}
 
 		br.RemoteOutputSignDesc = &input.SignDescriptor{
-			KeyDesc: chanState.LocalChanCfg.
+			KeyDesc: chanState.ChanCfgs.Local.
 				RevocationBasePoint,
 			DoubleTweak:   commitmentSecret,
 			WitnessScript: witnessScript,
@@ -2280,7 +2322,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 // createHtlcRetribution is a helper function to construct an HtlcRetribution
 // based on the passed params.
-func createHtlcRetribution(chanState *channeldb.OpenChannel,
+func createHtlcRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	keyRing *CommitmentKeyRing, commitHash chainhash.Hash,
 	commitmentSecret *btcec.PrivateKey, leaseExpiry uint32,
 	htlc *channeldb.HTLCEntry,
@@ -2288,7 +2330,11 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 
 	var emptyRetribution HtlcRetribution
 
-	theirDelay := uint32(chanState.RemoteChanCfg.CsvDelay)
+	theirDelay := uint32(
+		chanState.CommitChainEpochHistory.NormalizedParamsAt(
+			lntypes.Remote, stateNum,
+		).CsvDelay,
+	)
 	isRemoteInitiator := !chanState.IsInitiator
 
 	// We'll generate the original second level witness script now, as
@@ -2346,7 +2392,7 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 	}
 
 	signDesc := input.SignDescriptor{
-		KeyDesc: chanState.LocalChanCfg.
+		KeyDesc: chanState.ChanCfgs.Local.
 			RevocationBasePoint,
 		DoubleTweak:   commitmentSecret,
 		WitnessScript: scriptInfo.WitnessScriptToSign(),
@@ -2401,7 +2447,7 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 // see if these fields are present there. If they are not, then
 // ErrRevLogDataMissing is returned.
 func createBreachRetribution(revokedLog *channeldb.RevocationLog,
-	spendTx *wire.MsgTx, chanState *channeldb.OpenChannel,
+	spendTx *wire.MsgTx, chanState *channeldb.OpenChannel, stateNum uint64,
 	keyRing *CommitmentKeyRing, commitmentSecret *btcec.PrivateKey,
 	leaseExpiry uint32,
 	auxLeaves fn.Option[CommitAuxLeaves]) (*BreachRetribution, int64, int64,
@@ -2413,7 +2459,7 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 	htlcRetributions := make([]HtlcRetribution, len(revokedLog.HTLCEntries))
 	for i, htlc := range revokedLog.HTLCEntries {
 		hr, err := createHtlcRetribution(
-			chanState, keyRing, commitHash.Val,
+			chanState, stateNum, keyRing, commitHash.Val,
 			commitmentSecret, leaseExpiry, htlc, auxLeaves,
 		)
 		if err != nil {
@@ -2517,8 +2563,8 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 // BreachRetribution using a ChannelCommitment. Returns the constructed
 // retribution, our amount, their amount, and a possible non-nil error.
 func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
-	chanState *channeldb.OpenChannel, keyRing *CommitmentKeyRing,
-	commitmentSecret *btcec.PrivateKey,
+	chanState *channeldb.OpenChannel, stateNum uint64,
+	keyRing *CommitmentKeyRing, commitmentSecret *btcec.PrivateKey,
 	ourScript, theirScript input.ScriptDescriptor,
 	leaseExpiry uint32) (*BreachRetribution, int64, int64, error) {
 
@@ -2552,7 +2598,7 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 			chanState.ChanType, htlc.Incoming, lntypes.Remote,
 			chainfee.SatPerKWeight(revokedLog.FeePerKw),
 			htlc.Amt.ToSatoshis(),
-			chanState.RemoteChanCfg.DustLimit,
+			chanState.ChanCfgs.Remote.DustLimit,
 		) {
 
 			continue
@@ -2564,7 +2610,7 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 		}
 
 		hr, err := createHtlcRetribution(
-			chanState, keyRing, commitHash,
+			chanState, stateNum, keyRing, commitHash,
 			commitmentSecret, leaseExpiry, entry,
 			fn.None[CommitAuxLeaves](),
 		)
@@ -2639,11 +2685,8 @@ type HtlcView struct {
 	// created using this view.
 	NextHeight uint64
 
-	// OurUpdates are our outgoing HTLCs.
-	OurUpdates []*paymentDescriptor
-
-	// TheirUpdates are their incoming HTLCs.
-	TheirUpdates []*paymentDescriptor
+	// Updates is a Dual of the Local and Remote HTLCs.
+	Updates lntypes.Dual[[]*paymentDescriptor]
 
 	// FeePerKw is the fee rate in sat/kw of the commitment transaction.
 	FeePerKw chainfee.SatPerKWeight
@@ -2652,13 +2695,13 @@ type HtlcView struct {
 // AuxOurUpdates returns the outgoing HTLCs as a read-only copy of
 // AuxHtlcDescriptors.
 func (v *HtlcView) AuxOurUpdates() []AuxHtlcDescriptor {
-	return fn.Map(newAuxHtlcDescriptor, v.OurUpdates)
+	return fn.Map(newAuxHtlcDescriptor, v.Updates.Local)
 }
 
 // AuxTheirUpdates returns the incoming HTLCs as a read-only copy of
 // AuxHtlcDescriptors.
 func (v *HtlcView) AuxTheirUpdates() []AuxHtlcDescriptor {
-	return fn.Map(newAuxHtlcDescriptor, v.TheirUpdates)
+	return fn.Map(newAuxHtlcDescriptor, v.Updates.Remote)
 }
 
 // fetchHTLCView returns all the candidate HTLC updates which should be
@@ -2692,8 +2735,10 @@ func (lc *LightningChannel) fetchHTLCView(theirLogIndex,
 	}
 
 	return &HtlcView{
-		OurUpdates:   ourHTLCs,
-		TheirUpdates: theirHTLCs,
+		Updates: lntypes.Dual[[]*paymentDescriptor]{
+			Local:  ourHTLCs,
+			Remote: theirHTLCs,
+		},
 	}
 }
 
@@ -2709,10 +2754,10 @@ func (lc *LightningChannel) fetchCommitmentView(
 	keyRing *CommitmentKeyRing) (*commitment, error) {
 
 	commitChain := lc.commitChains.Local
-	dustLimit := lc.channelState.LocalChanCfg.DustLimit
+	dustLimit := lc.channelState.ChanCfgs.Local.DustLimit
 	if whoseCommitChain.IsRemote() {
 		commitChain = lc.commitChains.Remote
-		dustLimit = lc.channelState.RemoteChanCfg.DustLimit
+		dustLimit = lc.channelState.ChanCfgs.Remote.DustLimit
 	}
 
 	nextHeight := commitChain.tip().height + 1
@@ -2817,15 +2862,15 @@ func (lc *LightningChannel) fetchCommitmentView(
 	// commitment are mutated, we'll manually copy over each HTLC to its
 	// respective slice.
 	c.outgoingHTLCs = make(
-		[]paymentDescriptor, len(filteredHTLCView.OurUpdates),
+		[]paymentDescriptor, len(filteredHTLCView.Updates.Local),
 	)
-	for i, htlc := range filteredHTLCView.OurUpdates {
+	for i, htlc := range filteredHTLCView.Updates.Local {
 		c.outgoingHTLCs[i] = *htlc
 	}
 	c.incomingHTLCs = make(
-		[]paymentDescriptor, len(filteredHTLCView.TheirUpdates),
+		[]paymentDescriptor, len(filteredHTLCView.Updates.Remote),
 	)
-	for i, htlc := range filteredHTLCView.TheirUpdates {
+	for i, htlc := range filteredHTLCView.Updates.Remote {
 		c.incomingHTLCs[i] = *htlc
 	}
 
@@ -2854,16 +2899,13 @@ func fundingTxIn(chanState *channeldb.OpenChannel) wire.TxIn {
 // returned reflects the current state of HTLCs within the remote or local
 // commitment chain, and the current commitment fee rate.
 //
-// If mutateState is set to true, then the add height of all added HTLCs
-// will be set to nextHeight, and the remove height of all removed HTLCs
-// will be set to nextHeight. This should therefore only be set to true
-// once for each height, and only in concert with signing a new commitment.
-// TODO(halseth): return htlcs to mutate instead of mutating inside
-// method.
-func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
-	whoseCommitChain lntypes.ChannelParty, mutateState bool) (*HtlcView,
-	error) {
+// The return values of this function are as follows:
+// 1. The new htlcView reflecting the current channel state.
+// 2. A Dual of the updates which have not yet been committed in
+// 'whoseCommitChain's commitment chain.
+func (lc *LightningChannel) evaluateHTLCView(view *HtlcView,
+	whoseCommitChain lntypes.ChannelParty, nextHeight uint64) (*HtlcView,
+	lntypes.Dual[[]*paymentDescriptor], lntypes.Dual[int64], error) {
 
 	// We initialize the view's fee rate to the fee rate of the unfiltered
 	// view. If any fee updates are found when evaluating the view, it will
@@ -2872,128 +2914,162 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView, ourBalance,
 		FeePerKw:   view.FeePerKw,
 		NextHeight: nextHeight,
 	}
+	noUncommitted := lntypes.Dual[[]*paymentDescriptor]{}
+
+	// The fee rate of our view is always the last UpdateFee message from
+	// the channel's OpeningParty.
+	openerUpdates := view.Updates.GetForParty(lc.channelState.Initiator())
+	feeUpdates := fn.Filter(func(u *paymentDescriptor) bool {
+		return u.EntryType == FeeUpdate
+	}, openerUpdates)
+	lastFeeUpdate := fn.Last(feeUpdates)
+	lastFeeUpdate.WhenSome(func(pd *paymentDescriptor) {
+		newView.FeePerKw = chainfee.SatPerKWeight(
+			pd.Amount.ToSatoshis(),
+		)
+	})
 
 	// We use two maps, one for the local log and one for the remote log to
 	// keep track of which entries we need to skip when creating the final
 	// htlc view. We skip an entry whenever we find a settle or a timeout
 	// modifying an entry.
-	skipUs := make(map[uint64]struct{})
-	skipThem := make(map[uint64]struct{})
-
-	// First we run through non-add entries in both logs, populating the
-	// skip sets and mutating the current chain state (crediting balances,
-	// etc) to reflect the settle/timeout entry encountered.
-	for _, entry := range view.OurUpdates {
-		switch entry.EntryType {
-		// Skip adds for now. They will be processed below.
-		case Add:
-			continue
-
-		// Process fee updates, updating the current feePerKw.
-		case FeeUpdate:
-			processFeeUpdate(
-				entry, nextHeight, whoseCommitChain,
-				mutateState, newView,
-			)
-			continue
-		}
-
-		// If we're settling an inbound HTLC, and it hasn't been
-		// processed yet, then increment our state tracking the total
-		// number of satoshis we've received within the channel.
-		if mutateState && entry.EntryType == Settle &&
-			whoseCommitChain.IsLocal() &&
-			entry.removeCommitHeightLocal == 0 {
-
-			lc.channelState.TotalMSatReceived += entry.Amount
-		}
-
-		addEntry, err := lc.fetchParent(
-			entry, whoseCommitChain, lntypes.Remote,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		skipThem[addEntry.HtlcIndex] = struct{}{}
-
-		processRemoveEntry(
-			entry, ourBalance, theirBalance, nextHeight,
-			whoseCommitChain, true, mutateState,
-		)
+	skip := lntypes.Dual[fn.Set[uint64]]{
+		Local:  fn.NewSet[uint64](),
+		Remote: fn.NewSet[uint64](),
 	}
-	for _, entry := range view.TheirUpdates {
-		switch entry.EntryType {
-		// Skip adds for now. They will be processed below.
-		case Add:
-			continue
 
-		// Process fee updates, updating the current feePerKw.
-		case FeeUpdate:
-			processFeeUpdate(
-				entry, nextHeight, whoseCommitChain,
-				mutateState, newView,
+	balanceDeltas := lntypes.Dual[int64]{}
+
+	parties := [2]lntypes.ChannelParty{lntypes.Local, lntypes.Remote}
+	for _, party := range parties {
+		// First we run through non-add entries in both logs,
+		// populating the skip sets and mutating the current chain
+		// state (crediting balances, etc) to reflect the
+		// settle/timeout entry encountered.
+		resolutions := fn.Filter(func(pd *paymentDescriptor) bool {
+			switch pd.EntryType {
+			case Settle, Fail, MalformedFail:
+				return true
+			default:
+				return false
+			}
+		}, view.Updates.GetForParty(party))
+
+		for _, entry := range resolutions {
+			addEntry, err := lc.fetchParent(
+				entry, whoseCommitChain, party.CounterParty(),
 			)
-			continue
+			if err != nil {
+				noDeltas := lntypes.Dual[int64]{}
+				return nil, noUncommitted, noDeltas, err
+			}
+
+			skipSet := skip.GetForParty(party.CounterParty())
+			skipSet.Add(addEntry.HtlcIndex)
+
+			rmvHeights := &entry.removeCommitHeights
+			rmvHeight := rmvHeights.GetForParty(whoseCommitChain)
+			if rmvHeight == 0 {
+				switch {
+				// If an incoming HTLC is being settled, then
+				// this means that the preimage has been
+				// received by the settling party Therefore, we
+				// increase the settling party's balance by the
+				// HTLC amount.
+				case entry.EntryType == Settle:
+					delta := int64(entry.Amount)
+					balanceDeltas.ModifyForParty(
+						party,
+						func(acc int64) int64 {
+							return acc + delta
+						},
+					)
+
+				// Otherwise, this HTLC is being failed out,
+				// therefore the value of the HTLC should
+				// return to the failing party's counterparty.
+				case entry.EntryType != Settle:
+					delta := int64(entry.Amount)
+					balanceDeltas.ModifyForParty(
+						party.CounterParty(),
+						func(acc int64) int64 {
+							return acc + delta
+						},
+					)
+				}
+			}
 		}
-
-		// If the remote party is settling one of our outbound HTLC's,
-		// and it hasn't been processed, yet, the increment our state
-		// tracking the total number of satoshis we've sent within the
-		// channel.
-		if mutateState && entry.EntryType == Settle &&
-			whoseCommitChain.IsLocal() &&
-			entry.removeCommitHeightLocal == 0 {
-
-			lc.channelState.TotalMSatSent += entry.Amount
-		}
-
-		addEntry, err := lc.fetchParent(
-			entry, whoseCommitChain, lntypes.Local,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		skipUs[addEntry.HtlcIndex] = struct{}{}
-
-		processRemoveEntry(
-			entry, ourBalance, theirBalance, nextHeight,
-			whoseCommitChain, false, mutateState,
-		)
 	}
 
 	// Next we take a second pass through all the log entries, skipping any
 	// settled HTLCs, and debiting the chain state balance due to any newly
 	// added HTLCs.
-	for _, entry := range view.OurUpdates {
-		isAdd := entry.EntryType == Add
-		if _, ok := skipUs[entry.HtlcIndex]; !isAdd || ok {
-			continue
+	for _, party := range parties {
+		liveAdds := fn.Filter(func(pd *paymentDescriptor) bool {
+			return pd.EntryType == Add &&
+				!skip.GetForParty(party).Contains(pd.HtlcIndex)
+		}, view.Updates.GetForParty(party))
+
+		for _, entry := range liveAdds {
+			// Skip the entries that have already had their add
+			// commit height set for this commit chain.
+			addHeights := &entry.addCommitHeights
+			addHeight := addHeights.GetForParty(whoseCommitChain)
+			if addHeight == 0 {
+				// If this is a new incoming (un-committed)
+				// HTLC, then we need to update their balance
+				// accordingly by subtracting the amount of
+				// the HTLC that are funds pending.
+				// Similarly, we need to debit our balance if
+				// this is an out going HTLC to reflect the
+				// pending balance.
+				balanceDeltas.ModifyForParty(
+					party,
+					func(acc int64) int64 {
+						return acc - int64(entry.Amount)
+					},
+				)
+			}
 		}
 
-		processAddEntry(
-			entry, ourBalance, theirBalance, nextHeight,
-			whoseCommitChain, false, mutateState,
-		)
-
-		newView.OurUpdates = append(newView.OurUpdates, entry)
+		newView.Updates.SetForParty(party, liveAdds)
 	}
-	for _, entry := range view.TheirUpdates {
-		isAdd := entry.EntryType == Add
-		if _, ok := skipThem[entry.HtlcIndex]; !isAdd || ok {
-			continue
+
+	// Create a function that is capable of identifying whether or not the
+	// paymentDescriptor has been committed in the commitment chain
+	// corresponding to whoseCommitmentChain.
+	isUncommitted := func(update *paymentDescriptor) bool {
+		switch update.EntryType {
+		case Add:
+			return 0 == update.addCommitHeights.GetForParty(
+				whoseCommitChain,
+			)
+
+		case FeeUpdate:
+			return 0 == update.addCommitHeights.GetForParty(
+				whoseCommitChain,
+			)
+
+		case Settle, Fail, MalformedFail:
+			return 0 == update.removeCommitHeights.GetForParty(
+				whoseCommitChain,
+			)
+
+		default:
+			panic("invalid paymentDescriptor EntryType")
 		}
-
-		processAddEntry(
-			entry, ourBalance, theirBalance, nextHeight,
-			whoseCommitChain, true, mutateState,
-		)
-
-		newView.TheirUpdates = append(newView.TheirUpdates, entry)
 	}
 
-	return newView, nil
+	// Collect all of the updates that haven't had their commit heights sent
+	// for the commitment chain corresponding to whoseCommitmentChain.
+	uncommittedUpdates := lntypes.MapDual(
+		view.Updates,
+		func(us []*paymentDescriptor) []*paymentDescriptor {
+			return fn.Filter(isUncommitted, us)
+		},
+	)
+
+	return newView, uncommittedUpdates, balanceDeltas, nil
 }
 
 // fetchParent is a helper that looks up update log parent entries in the
@@ -3031,144 +3107,13 @@ func (lc *LightningChannel) fetchParent(entry *paymentDescriptor,
 
 	// The parent add height should never be zero at this point. If
 	// that's the case we probably forgot to send a new commitment.
-	case whoseCommitChain.IsRemote() &&
-		addEntry.addCommitHeightRemote == 0:
-
+	case addEntry.addCommitHeights.GetForParty(whoseCommitChain) == 0:
 		return nil, fmt.Errorf("parent entry %d for update %d "+
-			"had zero remote add height", entry.ParentIndex,
-			entry.LogIndex)
-
-	case whoseCommitChain.IsLocal() &&
-		addEntry.addCommitHeightLocal == 0:
-
-		return nil, fmt.Errorf("parent entry %d for update %d "+
-			"had zero local add height", entry.ParentIndex,
-			entry.LogIndex)
+			"had zero %v add height", entry.ParentIndex,
+			entry.LogIndex, whoseCommitChain)
 	}
 
 	return addEntry, nil
-}
-
-// processAddEntry evaluates the effect of an add entry within the HTLC log.
-// If the HTLC hasn't yet been committed in either chain, then the height it
-// was committed is updated. Keeping track of this inclusion height allows us to
-// later compact the log once the change is fully committed in both chains.
-func processAddEntry(htlc *paymentDescriptor, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
-	whoseCommitChain lntypes.ChannelParty, isIncoming, mutateState bool) {
-
-	// If we're evaluating this entry for the remote chain (to create/view
-	// a new commitment), then we'll may be updating the height this entry
-	// was added to the chain. Otherwise, we may be updating the entry's
-	// height w.r.t the local chain.
-	var addHeight *uint64
-	if whoseCommitChain.IsRemote() {
-		addHeight = &htlc.addCommitHeightRemote
-	} else {
-		addHeight = &htlc.addCommitHeightLocal
-	}
-
-	if *addHeight != 0 {
-		return
-	}
-
-	if isIncoming {
-		// If this is a new incoming (un-committed) HTLC, then we need
-		// to update their balance accordingly by subtracting the
-		// amount of the HTLC that are funds pending.
-		*theirBalance -= htlc.Amount
-	} else {
-		// Similarly, we need to debit our balance if this is an out
-		// going HTLC to reflect the pending balance.
-		*ourBalance -= htlc.Amount
-	}
-
-	if mutateState {
-		*addHeight = nextHeight
-	}
-}
-
-// processRemoveEntry processes a log entry which settles or times out a
-// previously added HTLC. If the removal entry has already been processed, it
-// is skipped.
-func processRemoveEntry(htlc *paymentDescriptor, ourBalance,
-	theirBalance *lnwire.MilliSatoshi, nextHeight uint64,
-	whoseCommitChain lntypes.ChannelParty, isIncoming, mutateState bool) {
-
-	var removeHeight *uint64
-	if whoseCommitChain.IsRemote() {
-		removeHeight = &htlc.removeCommitHeightRemote
-	} else {
-		removeHeight = &htlc.removeCommitHeightLocal
-	}
-
-	// Ignore any removal entries which have already been processed.
-	if *removeHeight != 0 {
-		return
-	}
-
-	switch {
-	// If an incoming HTLC is being settled, then this means that we've
-	// received the preimage either from another subsystem, or the
-	// upstream peer in the route. Therefore, we increase our balance by
-	// the HTLC amount.
-	case isIncoming && htlc.EntryType == Settle:
-		*ourBalance += htlc.Amount
-
-	// Otherwise, this HTLC is being failed out, therefore the value of the
-	// HTLC should return to the remote party.
-	case isIncoming && (htlc.EntryType == Fail || htlc.EntryType == MalformedFail):
-		*theirBalance += htlc.Amount
-
-	// If an outgoing HTLC is being settled, then this means that the
-	// downstream party resented the preimage or learned of it via a
-	// downstream peer. In either case, we credit their settled value with
-	// the value of the HTLC.
-	case !isIncoming && htlc.EntryType == Settle:
-		*theirBalance += htlc.Amount
-
-	// Otherwise, one of our outgoing HTLC's has timed out, so the value of
-	// the HTLC should be returned to our settled balance.
-	case !isIncoming && (htlc.EntryType == Fail || htlc.EntryType == MalformedFail):
-		*ourBalance += htlc.Amount
-	}
-
-	if mutateState {
-		*removeHeight = nextHeight
-	}
-}
-
-// processFeeUpdate processes a log update that updates the current commitment
-// fee.
-func processFeeUpdate(feeUpdate *paymentDescriptor, nextHeight uint64,
-	whoseCommitChain lntypes.ChannelParty, mutateState bool,
-	view *HtlcView) {
-
-	// Fee updates are applied for all commitments after they are
-	// sent/received, so we consider them being added and removed at the
-	// same height.
-	var addHeight *uint64
-	var removeHeight *uint64
-	if whoseCommitChain.IsRemote() {
-		addHeight = &feeUpdate.addCommitHeightRemote
-		removeHeight = &feeUpdate.removeCommitHeightRemote
-	} else {
-		addHeight = &feeUpdate.addCommitHeightLocal
-		removeHeight = &feeUpdate.removeCommitHeightLocal
-	}
-
-	if *addHeight != 0 {
-		return
-	}
-
-	// If the update wasn't already locked in, update the current fee rate
-	// to reflect this update.
-	view.FeePerKw = chainfee.SatPerKWeight(feeUpdate.Amount.ToSatoshis())
-
-	if mutateState {
-		*addHeight = nextHeight
-		*removeHeight = nextHeight
-	}
 }
 
 // generateRemoteHtlcSigJobs generates a series of HTLC signature jobs for the
@@ -3185,8 +3130,8 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 
 	var (
 		isRemoteInitiator = !chanState.IsInitiator
-		localChanCfg      = chanState.LocalChanCfg
-		remoteChanCfg     = chanState.RemoteChanCfg
+		localChanCfg      = chanState.ChanCfgs.Local
+		remoteChanCfg     = chanState.ChanCfgs.Remote
 		chanType          = chanState.ChanType
 	)
 
@@ -3419,8 +3364,8 @@ func (lc *LightningChannel) createCommitDiff(newCommit *commitment,
 		// If this entry wasn't committed at the exact height of this
 		// remote commitment, then we'll skip it as it was already
 		// lingering in the log.
-		if pd.addCommitHeightRemote != newCommit.height &&
-			pd.removeCommitHeightRemote != newCommit.height {
+		if pd.addCommitHeights.Remote != newCommit.height &&
+			pd.removeCommitHeights.Remote != newCommit.height {
 
 			continue
 		}
@@ -3734,10 +3679,12 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	// appropriate update log, in order to validate the sanity of the
 	// commitment resulting from _actually adding_ this HTLC to the state.
 	if predictOurAdd != nil {
-		view.OurUpdates = append(view.OurUpdates, predictOurAdd)
+		view.Updates.Local = append(view.Updates.Local, predictOurAdd)
 	}
 	if predictTheirAdd != nil {
-		view.TheirUpdates = append(view.TheirUpdates, predictTheirAdd)
+		view.Updates.Remote = append(
+			view.Updates.Remote, predictTheirAdd,
+		)
 	}
 
 	ourBalance, theirBalance, commitWeight, filteredView, err := lc.computeView(
@@ -3805,10 +3752,10 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	// If the added HTLCs will decrease the balance, make sure they won't
 	// dip the local and remote balances below the channel reserves.
 	ourReserve := lnwire.NewMSatFromSatoshis(
-		lc.channelState.LocalChanCfg.ChanReserve,
+		lc.channelState.ChanCfgs.Local.ChanReserve,
 	)
 	theirReserve := lnwire.NewMSatFromSatoshis(
-		lc.channelState.RemoteChanCfg.ChanReserve,
+		lc.channelState.ChanCfgs.Remote.ChanReserve,
 	)
 
 	// Calculate the commitment fee to log the information if needed.
@@ -3892,7 +3839,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	// First check that the remote updates won't violate it's channel
 	// constraints.
 	err = validateUpdates(
-		filteredView.TheirUpdates, &lc.channelState.RemoteChanCfg,
+		filteredView.Updates.Remote, &lc.channelState.ChanCfgs.Remote,
 	)
 	if err != nil {
 		return err
@@ -3901,7 +3848,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	// Secondly check that our updates won't violate our channel
 	// constraints.
 	err = validateUpdates(
-		filteredView.OurUpdates, &lc.channelState.LocalChanCfg,
+		filteredView.Updates.Local, &lc.channelState.ChanCfgs.Local,
 	)
 	if err != nil {
 		return err
@@ -4009,7 +3956,8 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	// construct the commitment state.
 	keyRing := DeriveCommitmentKeys(
 		commitPoint, lntypes.Remote, lc.channelState.ChanType,
-		&lc.channelState.LocalChanCfg, &lc.channelState.RemoteChanCfg,
+		&lc.channelState.ChanCfgs.Local,
+		&lc.channelState.ChanCfgs.Remote,
 	)
 
 	// Create a new commitment view which will calculate the evaluated
@@ -4606,10 +4554,10 @@ func (lc *LightningChannel) computeView(view *HtlcView,
 	lnwire.MilliSatoshi, lntypes.WeightUnit, *HtlcView, error) {
 
 	commitChain := lc.commitChains.Local
-	dustLimit := lc.channelState.LocalChanCfg.DustLimit
+	dustLimit := lc.channelState.ChanCfgs.Local.DustLimit
 	if whoseCommitChain.IsRemote() {
 		commitChain = lc.commitChains.Remote
-		dustLimit = lc.channelState.RemoteChanCfg.DustLimit
+		dustLimit = lc.channelState.ChanCfgs.Remote.DustLimit
 	}
 
 	// Since the fetched htlc view will include all updates added after the
@@ -4643,13 +4591,73 @@ func (lc *LightningChannel) computeView(view *HtlcView,
 	// channel constraints to the final commitment state. If any fee
 	// updates are found in the logs, the commitment fee rate should be
 	// changed, so we'll also set the feePerKw to this new value.
-	filteredHTLCView, err := lc.evaluateHTLCView(
-		view, &ourBalance, &theirBalance, nextHeight, whoseCommitChain,
-		updateState,
+	filteredHTLCView, uncommitted, deltas, err := lc.evaluateHTLCView(
+		view, whoseCommitChain, nextHeight,
 	)
 	if err != nil {
 		return 0, 0, 0, nil, err
 	}
+
+	// Add the balance deltas to the balances we got from the commitment
+	// state.
+	if deltas.Local >= 0 {
+		ourBalance += lnwire.MilliSatoshi(deltas.Local)
+	} else {
+		ourBalance -= lnwire.MilliSatoshi(-1 * deltas.Local)
+	}
+	if deltas.Remote >= 0 {
+		theirBalance += lnwire.MilliSatoshi(deltas.Remote)
+	} else {
+		theirBalance -= lnwire.MilliSatoshi(-1 * deltas.Remote)
+	}
+
+	if updateState {
+		state := lc.channelState
+		received := &state.TotalMSatReceived
+		sent := &state.TotalMSatSent
+
+		setHeights := func(u *paymentDescriptor) {
+			switch u.EntryType {
+			case Add:
+				u.addCommitHeights.SetForParty(
+					whoseCommitChain, nextHeight,
+				)
+			case Settle, Fail, MalformedFail:
+				u.removeCommitHeights.SetForParty(
+					whoseCommitChain, nextHeight,
+				)
+			case FeeUpdate:
+				u.addCommitHeights.SetForParty(
+					whoseCommitChain, nextHeight,
+				)
+				u.removeCommitHeights.SetForParty(
+					whoseCommitChain, nextHeight,
+				)
+			}
+		}
+
+		recordFlow := func(acc *lnwire.MilliSatoshi,
+			u *paymentDescriptor) {
+
+			if u.EntryType == Settle {
+				*acc += u.Amount
+			}
+		}
+
+		for _, u := range uncommitted.Local {
+			setHeights(u)
+			if whoseCommitChain == lntypes.Local {
+				recordFlow(received, u)
+			}
+		}
+		for _, u := range uncommitted.Remote {
+			setHeights(u)
+			if whoseCommitChain == lntypes.Local {
+				recordFlow(sent, u)
+			}
+		}
+	}
+
 	feePerKw := filteredHTLCView.FeePerKw
 
 	// Here we override the view's fee-rate if a dry-run fee-rate was
@@ -4659,7 +4667,7 @@ func (lc *LightningChannel) computeView(view *HtlcView,
 	}
 
 	// We need to first check ourBalance and theirBalance to be negative
-	// because MilliSathoshi is a unsigned type and can underflow in
+	// because MilliSathosi is a unsigned type and can underflow in
 	// `evaluateHTLCView`. This should never happen for views which do not
 	// include new updates (remote or local).
 	if int64(ourBalance) < 0 {
@@ -4674,7 +4682,7 @@ func (lc *LightningChannel) computeView(view *HtlcView,
 	// Now go through all HTLCs at this stage, to calculate the total
 	// weight, needed to calculate the transaction fee.
 	var totalHtlcWeight lntypes.WeightUnit
-	for _, htlc := range filteredHTLCView.OurUpdates {
+	for _, htlc := range filteredHTLCView.Updates.Local {
 		if HtlcIsDust(
 			lc.channelState.ChanType, false, whoseCommitChain,
 			feePerKw, htlc.Amount.ToSatoshis(), dustLimit,
@@ -4685,7 +4693,7 @@ func (lc *LightningChannel) computeView(view *HtlcView,
 
 		totalHtlcWeight += input.HTLCWeight
 	}
-	for _, htlc := range filteredHTLCView.TheirUpdates {
+	for _, htlc := range filteredHTLCView.Updates.Remote {
 		if HtlcIsDust(
 			lc.channelState.ChanType, true, whoseCommitChain,
 			feePerKw, htlc.Amount.ToSatoshis(), dustLimit,
@@ -4716,7 +4724,7 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 
 	var (
 		isLocalInitiator = chanState.IsInitiator
-		localChanCfg     = chanState.LocalChanCfg
+		localChanCfg     = chanState.ChanCfgs.Local
 		chanType         = chanState.ChanType
 	)
 
@@ -4837,7 +4845,9 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 					)
 				}
 
-				hashCache := input.NewTxSigHashesV0Only(successTx)
+				hashCache :=
+					input.NewTxSigHashesV0Only(successTx)
+
 				sigHash, err := txscript.CalcWitnessSigHash(
 					htlc.ourWitnessScript, hashCache,
 					sigHashType, successTx, 0,
@@ -5146,7 +5156,8 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 	commitPoint := input.ComputeCommitmentPoint(commitSecret[:])
 	keyRing := DeriveCommitmentKeys(
 		commitPoint, lntypes.Local, lc.channelState.ChanType,
-		&lc.channelState.LocalChanCfg, &lc.channelState.RemoteChanCfg,
+		&lc.channelState.ChanCfgs.Local,
+		&lc.channelState.ChanCfgs.Remote,
 	)
 
 	// With the current commitment point re-calculated, construct the new
@@ -5278,7 +5289,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 			return err
 		}
 
-		verifyKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey
+		verifyKey := lc.channelState.ChanCfgs.Remote.MultiSigKey.PubKey
 
 		cSig, err := commitSigs.CommitSig.ToSignature()
 		if err != nil {
@@ -5655,19 +5666,20 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		// both of the remote and local heights are non-zero. If either
 		// of these values is zero, it has yet to be committed in both
 		// the local and remote chains.
-		committedAdd := pd.addCommitHeightRemote > 0 &&
-			pd.addCommitHeightLocal > 0
-		committedRmv := pd.removeCommitHeightRemote > 0 &&
-			pd.removeCommitHeightLocal > 0
+		committedAdd := pd.addCommitHeights.Remote > 0 &&
+			pd.addCommitHeights.Local > 0
+		committedRmv := pd.removeCommitHeights.Remote > 0 &&
+			pd.removeCommitHeights.Local > 0
 
 		// Using the height of the remote and local commitments,
 		// preemptively compute whether or not to forward this HTLC for
 		// the case in which this in an Add HTLC, or if this is a
 		// Settle, Fail, or MalformedFail.
-		shouldFwdAdd := remoteChainTail == pd.addCommitHeightRemote &&
-			localChainTail >= pd.addCommitHeightLocal
-		shouldFwdRmv := remoteChainTail == pd.removeCommitHeightRemote &&
-			localChainTail >= pd.removeCommitHeightLocal
+		shouldFwdAdd := remoteChainTail == pd.addCommitHeights.Remote &&
+			localChainTail >= pd.addCommitHeights.Local
+		shouldFwdRmv := remoteChainTail ==
+			pd.removeCommitHeights.Remote &&
+			localChainTail >= pd.removeCommitHeights.Local
 
 		// We'll only forward any new HTLC additions iff, it's "freshly
 		// locked in". Meaning that the HTLC was only *just* considered
@@ -5796,7 +5808,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		remoteChainTail,
 	)
 
-	remoteHTLCs := lc.channelState.RemoteCommitment.Htlcs
+	remoteHTLCs := lc.channelState.Commitments.Remote.Htlcs
 
 	return fwdPkg, remoteHTLCs, nil
 }
@@ -5916,12 +5928,12 @@ func (lc *LightningChannel) GetDustSum(whoseCommit lntypes.ChannelParty,
 
 	var dustSum lnwire.MilliSatoshi
 
-	dustLimit := lc.channelState.LocalChanCfg.DustLimit
-	commit := lc.channelState.LocalCommitment
+	dustLimit := lc.channelState.ChanCfgs.Local.DustLimit
+	commit := lc.channelState.Commitments.Local
 	if whoseCommit.IsRemote() {
 		// Calculate dust sum on the remote's commitment.
-		dustLimit = lc.channelState.RemoteChanCfg.DustLimit
-		commit = lc.channelState.RemoteCommitment
+		dustLimit = lc.channelState.ChanCfgs.Remote.DustLimit
+		commit = lc.channelState.Commitments.Remote
 	}
 
 	chanType := lc.channelState.ChanType
@@ -5991,8 +6003,8 @@ func (lc *LightningChannel) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 	// In absence of a specific amount, we want to use minimum htlc value
 	// for the channel. However certain implementations may set this value
 	// to zero, so we only use this value if it is non-zero.
-	case lc.channelState.LocalChanCfg.MinHTLC != 0:
-		mockHtlcAmt = lc.channelState.LocalChanCfg.MinHTLC
+	case lc.channelState.ChanCfgs.Local.MinHTLC != 0:
+		mockHtlcAmt = lc.channelState.ChanCfgs.Local.MinHTLC
 
 	// As a last resort, we just add a non-zero amount.
 	default:
@@ -6438,11 +6450,11 @@ func (lc *LightningChannel) AbsoluteThawHeight() (uint32, error) {
 func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 	// Fetch the current commitment transaction, along with their signature
 	// for the transaction.
-	localCommit := lc.channelState.LocalCommitment
+	localCommit := lc.channelState.Commitments.Local
 	commitTx := localCommit.CommitTx.Copy()
 
-	ourKey := lc.channelState.LocalChanCfg.MultiSigKey
-	theirKey := lc.channelState.RemoteChanCfg.MultiSigKey
+	ourKey := lc.channelState.ChanCfgs.Local.MultiSigKey
+	theirKey := lc.channelState.ChanCfgs.Remote.MultiSigKey
 
 	var witness wire.TxWitness
 	switch {
@@ -6635,7 +6647,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel,
 	commitType := lntypes.Remote
 	keyRing := DeriveCommitmentKeys(
 		commitPoint, commitType, chanState.ChanType,
-		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+		&chanState.ChanCfgs.Local, &chanState.ChanCfgs.Remote,
 	)
 
 	auxResult, err := fn.MapOptionZ(
@@ -6665,8 +6677,8 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel,
 	}
 	htlcResolutions, err := extractHtlcResolutions(
 		chainfee.SatPerKWeight(remoteCommit.FeePerKw), commitType,
-		signer, remoteCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
-		&chanState.RemoteChanCfg, commitSpend.SpendingTx,
+		signer, remoteCommit.Htlcs, keyRing, &chanState.ChanCfgs.Local,
+		&chanState.ChanCfgs.Remote, commitSpend.SpendingTx,
 		chanState.ChanType, isRemoteInitiator, leaseExpiry,
 		auxResult.AuxLeaves,
 	)
@@ -6707,7 +6719,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel,
 	// non-trimmed balance.
 	var commitResolution *CommitOutputResolution
 	if selfPoint != nil {
-		localPayBase := chanState.LocalChanCfg.PaymentBasePoint
+		localPayBase := chanState.ChanCfgs.Local.PaymentBasePoint
 
 		// As the remote party has force closed, we just need the
 		// success witness script.
@@ -6797,7 +6809,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel,
 		RemoteCurrentRevocation: chanState.RemoteCurrentRevocation,
 		RemoteNextRevocation:    chanState.RemoteNextRevocation,
 		ShortChanID:             chanState.ShortChanID(),
-		LocalChanConfig:         chanState.LocalChanCfg,
+		LocalChanConfig:         chanState.ChanCfgs.Local,
 	}
 
 	// Attempt to add a channel sync message to the close summary.
@@ -7635,7 +7647,7 @@ func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
 		return nil, err
 	}
 
-	localCommitment := lc.channelState.LocalCommitment
+	localCommitment := lc.channelState.Commitments.Local
 	summary, err := NewLocalForceCloseSummary(
 		lc.channelState, lc.Signer, commitTx,
 		localCommitment.CommitHeight, lc.leafStore, lc.auxResolver,
@@ -7664,7 +7676,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	// commitment transaction. We'll need this to find the corresponding
 	// output in the commitment transaction and potentially for creating
 	// the sign descriptor.
-	csvTimeout := uint32(chanState.LocalChanCfg.CsvDelay)
+	csvTimeout := uint32(chanState.ChanCfgs.Local.CsvDelay)
 
 	// We use the passed state num to derive our scripts, since in case
 	// this is after recovery, our latest channels state might not be up to
@@ -7676,14 +7688,14 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	commitPoint := input.ComputeCommitmentPoint(revocation[:])
 	keyRing := DeriveCommitmentKeys(
 		commitPoint, lntypes.Local, chanState.ChanType,
-		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+		&chanState.ChanCfgs.Local, &chanState.ChanCfgs.Remote,
 	)
 
 	auxResult, err := fn.MapOptionZ(
 		leafStore, func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
 			return s.FetchLeavesFromCommit(
 				NewAuxChanState(chanState),
-				chanState.LocalCommitment, *keyRing,
+				chanState.Commitments.Local, *keyRing,
 			)
 		},
 	).Unpack()
@@ -7751,7 +7763,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 				Index: delayIndex,
 			},
 			SelfOutputSignDesc: input.SignDescriptor{
-				KeyDesc:       chanState.LocalChanCfg.DelayBasePoint,
+				KeyDesc:       chanState.ChanCfgs.Local.DelayBasePoint, //nolint:lll
 				SingleTweak:   keyRing.LocalCommitKeyTweak,
 				WitnessScript: witnessScript,
 				Output: &wire.TxOut{
@@ -7818,11 +7830,11 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	// outgoing HTLC's that we'll need to claim as well. If this is after
 	// recovery there is not much we can do with HTLCs, so we'll always
 	// use what we have in our latest state when extracting resolutions.
-	localCommit := chanState.LocalCommitment
+	localCommit := chanState.Commitments.Local
 	htlcResolutions, err := extractHtlcResolutions(
 		chainfee.SatPerKWeight(localCommit.FeePerKw), lntypes.Local,
-		signer, localCommit.Htlcs, keyRing, &chanState.LocalChanCfg,
-		&chanState.RemoteChanCfg, commitTx, chanState.ChanType,
+		signer, localCommit.Htlcs, keyRing, &chanState.ChanCfgs.Local,
+		&chanState.ChanCfgs.Remote, commitTx, chanState.ChanType,
 		chanState.IsInitiator, leaseExpiry, auxResult.AuxLeaves,
 	)
 	if err != nil {
@@ -7938,9 +7950,9 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	ourBalance, theirBalance, err := CoopCloseBalance(
 		lc.channelState.ChanType, lc.channelState.IsInitiator,
 		proposedFee,
-		lc.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
-		lc.channelState.LocalCommitment.RemoteBalance.ToSatoshis(),
-		lc.channelState.LocalCommitment.CommitFee,
+		lc.channelState.Commitments.Local.LocalBalance.ToSatoshis(),
+		lc.channelState.Commitments.Local.RemoteBalance.ToSatoshis(),
+		lc.channelState.Commitments.Local.CommitFee,
 	)
 	if err != nil {
 		return nil, nil, 0, err
@@ -7967,9 +7979,11 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	}
 
 	closeTx, err := CreateCooperativeCloseTx(
-		fundingTxIn(lc.channelState), lc.channelState.LocalChanCfg.DustLimit,
-		lc.channelState.RemoteChanCfg.DustLimit, ourBalance, theirBalance,
-		localDeliveryScript, remoteDeliveryScript, closeTxOpts...,
+		fundingTxIn(lc.channelState),
+		lc.channelState.ChanCfgs.Local.DustLimit,
+		lc.channelState.ChanCfgs.Remote.DustLimit, ourBalance,
+		theirBalance, localDeliveryScript, remoteDeliveryScript,
+		closeTxOpts...,
 	)
 	if err != nil {
 		return nil, nil, 0, err
@@ -8039,9 +8053,9 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	ourBalance, theirBalance, err := CoopCloseBalance(
 		lc.channelState.ChanType, lc.channelState.IsInitiator,
 		proposedFee,
-		lc.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
-		lc.channelState.LocalCommitment.RemoteBalance.ToSatoshis(),
-		lc.channelState.LocalCommitment.CommitFee,
+		lc.channelState.Commitments.Local.LocalBalance.ToSatoshis(),
+		lc.channelState.Commitments.Local.RemoteBalance.ToSatoshis(),
+		lc.channelState.Commitments.Local.CommitFee,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -8071,9 +8085,11 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	// on this active channel back to both parties. In this current model,
 	// the initiator pays full fees for the cooperative close transaction.
 	closeTx, err := CreateCooperativeCloseTx(
-		fundingTxIn(lc.channelState), lc.channelState.LocalChanCfg.DustLimit,
-		lc.channelState.RemoteChanCfg.DustLimit, ourBalance, theirBalance,
-		localDeliveryScript, remoteDeliveryScript, closeTxOpts...,
+		fundingTxIn(lc.channelState),
+		lc.channelState.ChanCfgs.Local.DustLimit,
+		lc.channelState.ChanCfgs.Remote.DustLimit, ourBalance,
+		theirBalance, localDeliveryScript, remoteDeliveryScript,
+		closeTxOpts...,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -8121,9 +8137,9 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	} else {
 		// For regular channels, we'll need to , construct the witness
 		// stack minding the order of the pubkeys+sigs on the stack.
-		ourKey := lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
+		ourKey := lc.channelState.ChanCfgs.Local.MultiSigKey.PubKey.
 			SerializeCompressed()
-		theirKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.
+		theirKey := lc.channelState.ChanCfgs.Remote.MultiSigKey.PubKey.
 			SerializeCompressed()
 		witness := input.SpendMultiSig(
 			lc.signDesc.WitnessScript, ourKey, localSig, theirKey,
@@ -8191,10 +8207,11 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 	localCommitPoint := input.ComputeCommitmentPoint(revocation[:])
 	localKeyRing := DeriveCommitmentKeys(
 		localCommitPoint, lntypes.Local, lc.channelState.ChanType,
-		&lc.channelState.LocalChanCfg, &lc.channelState.RemoteChanCfg,
+		&lc.channelState.ChanCfgs.Local,
+		&lc.channelState.ChanCfgs.Remote,
 	)
 	localRes, err := NewAnchorResolution(
-		lc.channelState, lc.channelState.LocalCommitment.CommitTx,
+		lc.channelState, lc.channelState.Commitments.Local.CommitTx,
 		localKeyRing, lntypes.Local,
 	)
 	if err != nil {
@@ -8205,11 +8222,11 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 	// Add anchor for remote commitment tx, if any.
 	remoteKeyRing := DeriveCommitmentKeys(
 		lc.channelState.RemoteCurrentRevocation, lntypes.Remote,
-		lc.channelState.ChanType, &lc.channelState.LocalChanCfg,
-		&lc.channelState.RemoteChanCfg,
+		lc.channelState.ChanType, &lc.channelState.ChanCfgs.Local,
+		&lc.channelState.ChanCfgs.Remote,
 	)
 	remoteRes, err := NewAnchorResolution(
-		lc.channelState, lc.channelState.RemoteCommitment.CommitTx,
+		lc.channelState, lc.channelState.Commitments.Remote.CommitTx,
 		remoteKeyRing, lntypes.Remote,
 	)
 	if err != nil {
@@ -8226,8 +8243,9 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 	if remotePendingCommit != nil {
 		pendingRemoteKeyRing := DeriveCommitmentKeys(
 			lc.channelState.RemoteNextRevocation, lntypes.Remote,
-			lc.channelState.ChanType, &lc.channelState.LocalChanCfg,
-			&lc.channelState.RemoteChanCfg,
+			lc.channelState.ChanType,
+			&lc.channelState.ChanCfgs.Local,
+			&lc.channelState.ChanCfgs.Remote,
 		)
 		remotePendingRes, err := NewAnchorResolution(
 			lc.channelState,
@@ -8259,8 +8277,8 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 	// will differ depending on if this is our local or remote
 	// commitment.
 	localAnchor, remoteAnchor, err := CommitScriptAnchors(
-		chanState.ChanType, &chanState.LocalChanCfg,
-		&chanState.RemoteChanCfg, keyRing,
+		chanState.ChanType, &chanState.ChanCfgs.Local,
+		&chanState.ChanCfgs.Remote, keyRing,
 	)
 	if err != nil {
 		return nil, err
@@ -8297,7 +8315,7 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 
 	// Instantiate the sign descriptor that allows sweeping of the anchor.
 	signDesc := &input.SignDescriptor{
-		KeyDesc:       chanState.LocalChanCfg.MultiSigKey,
+		KeyDesc:       chanState.ChanCfgs.Local.MultiSigKey,
 		WitnessScript: anchorWitnessScript,
 		Output: &wire.TxOut{
 			PkScript: localAnchor.PkScript(),
@@ -8327,14 +8345,15 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 			// tweak.
 			signDesc.SingleTweak = keyRing.LocalCommitKeyTweak
 
-			signDesc.KeyDesc = chanState.LocalChanCfg.DelayBasePoint
+			signDesc.KeyDesc =
+				chanState.ChanCfgs.Local.DelayBasePoint
 		} else {
 			// When we're playing the force close of a remote
 			// commitment, as this is a "tweakless" channel type,
 			// we don't need a tweak value at all.
 			//
 			//nolint:lll
-			signDesc.KeyDesc = chanState.LocalChanCfg.PaymentBasePoint
+			signDesc.KeyDesc = chanState.ChanCfgs.Local.PaymentBasePoint
 		}
 
 		// Finally, as this is a keyspend method, we'll need to also
@@ -8448,7 +8467,7 @@ func (lc *LightningChannel) availableCommitmentBalance(view *HtlcView,
 	// We can never spend from the channel reserve, so we'll subtract it
 	// from our available balance.
 	ourReserve := lnwire.NewMSatFromSatoshis(
-		lc.channelState.LocalChanCfg.ChanReserve,
+		lc.channelState.ChanCfgs.Local.ChanReserve,
 	)
 	if ourReserve <= ourBalance {
 		ourBalance -= ourReserve
@@ -8502,7 +8521,7 @@ func (lc *LightningChannel) availableCommitmentBalance(view *HtlcView,
 	// enough balance to pay for the fee of our HTLC. We'll start by also
 	// subtracting our counterparty's reserve from their balance.
 	theirReserve := lnwire.NewMSatFromSatoshis(
-		lc.channelState.RemoteChanCfg.ChanReserve,
+		lc.channelState.ChanCfgs.Remote.ChanReserve,
 	)
 	if theirReserve <= theirBalance {
 		theirBalance -= theirReserve
@@ -8513,7 +8532,7 @@ func (lc *LightningChannel) availableCommitmentBalance(view *HtlcView,
 	// We'll use the dustlimit and htlcFee to find the largest HTLC value
 	// that will be considered dust on the commitment.
 	dustlimit := lnwire.NewMSatFromSatoshis(
-		lc.channelState.LocalChanCfg.DustLimit,
+		lc.channelState.ChanCfgs.Local.DustLimit,
 	)
 
 	// For an extra HTLC fee to be paid on our commitment, the HTLC must be
@@ -8526,7 +8545,7 @@ func (lc *LightningChannel) availableCommitmentBalance(view *HtlcView,
 	// dust limit and the fee for adding an HTLC success transaction.
 	if whoseCommitChain.IsRemote() {
 		dustlimit = lnwire.NewMSatFromSatoshis(
-			lc.channelState.RemoteChanCfg.DustLimit,
+			lc.channelState.ChanCfgs.Remote.DustLimit,
 		)
 		htlcFee = lnwire.NewMSatFromSatoshis(
 			HtlcSuccessFee(lc.channelState.ChanType, feePerKw),
@@ -8755,7 +8774,7 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 	// verification nonce for this target state.
 	if lc.channelState.ChanType.IsTaproot() {
 		nextVerificationNonce, err := channeldb.NewMusigVerificationNonce( //nolint:lll
-			lc.channelState.LocalChanCfg.MultiSigKey.PubKey,
+			lc.channelState.ChanCfgs.Local.MultiSigKey.PubKey,
 			revHeight, lc.taprootNonceProducer,
 		)
 		if err != nil {
@@ -8981,7 +9000,7 @@ func (lc *LightningChannel) LocalBalanceDust() (bool, btcutil.Amount) {
 	defer lc.RUnlock()
 
 	chanState := lc.channelState
-	localBalance := chanState.LocalCommitment.LocalBalance.ToSatoshis()
+	localBalance := chanState.Commitments.Local.LocalBalance.ToSatoshis()
 
 	// If this is an anchor channel, and we're the initiator, then we'll
 	// regain the stats allocated to the anchor outputs with the co-op
@@ -8990,7 +9009,7 @@ func (lc *LightningChannel) LocalBalanceDust() (bool, btcutil.Amount) {
 		localBalance += 2 * AnchorSize
 	}
 
-	localDust := chanState.LocalChanCfg.DustLimit
+	localDust := chanState.ChanCfgs.Local.DustLimit
 
 	return localBalance <= localDust, localDust
 }
@@ -9003,7 +9022,7 @@ func (lc *LightningChannel) RemoteBalanceDust() (bool, btcutil.Amount) {
 	defer lc.RUnlock()
 
 	chanState := lc.channelState
-	remoteBalance := chanState.RemoteCommitment.RemoteBalance.ToSatoshis()
+	remoteBalance := chanState.Commitments.Remote.RemoteBalance.ToSatoshis()
 
 	// If this is an anchor channel, and they're the initiator, then we'll
 	// regain the stats allocated to the anchor outputs with the co-op
@@ -9012,7 +9031,7 @@ func (lc *LightningChannel) RemoteBalanceDust() (bool, btcutil.Amount) {
 		remoteBalance += 2 * AnchorSize
 	}
 
-	remoteDust := chanState.RemoteChanCfg.DustLimit
+	remoteDust := chanState.ChanCfgs.Remote.DustLimit
 
 	return remoteBalance <= remoteDust, remoteDust
 }
@@ -9024,7 +9043,7 @@ func (lc *LightningChannel) CommitBalances() (btcutil.Amount, btcutil.Amount) {
 	defer lc.RUnlock()
 
 	chanState := lc.channelState
-	localCommit := lc.channelState.LocalCommitment
+	localCommit := lc.channelState.Commitments.Local
 
 	localBalance := localCommit.LocalBalance.ToSatoshis()
 	remoteBalance := localCommit.RemoteBalance.ToSatoshis()
@@ -9045,7 +9064,7 @@ func (lc *LightningChannel) CommitFee() btcutil.Amount {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	return lc.channelState.LocalCommitment.CommitFee
+	return lc.channelState.Commitments.Local.CommitFee
 }
 
 // CalcFee returns the commitment fee to use for the given fee rate
@@ -9061,8 +9080,8 @@ func (lc *LightningChannel) CalcFee(feeRate chainfee.SatPerKWeight) btcutil.Amou
 // Moreover it returns the share of the total balance in the range of [0,1]
 // which can be allocated to fees. When our desired fee allocation would lead to
 // a maximum fee rate below the current commitment fee rate we floor the maximum
-// at the current fee rate which leads to different fee allocations than
-// initially requested via `maxAllocation`.
+// fee rate at the current fee rate which leads to different fee allocations
+// than initially requested via `maxAllocation`.
 //
 // NOTE: This should only be used for channels in which the local commitment is
 // the initiator.
@@ -9203,7 +9222,9 @@ func (lc *LightningChannel) CommitFeeRate() chainfee.SatPerKWeight {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	return chainfee.SatPerKWeight(lc.channelState.LocalCommitment.FeePerKw)
+	return chainfee.SatPerKWeight(
+		lc.channelState.Commitments.Local.FeePerKw,
+	)
 }
 
 // WorstCaseFeeRate returns the higher feerate from either the local commitment
@@ -9212,8 +9233,8 @@ func (lc *LightningChannel) WorstCaseFeeRate() chainfee.SatPerKWeight {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	localFeeRate := lc.channelState.LocalCommitment.FeePerKw
-	remoteFeeRate := lc.channelState.RemoteCommitment.FeePerKw
+	localFeeRate := lc.channelState.Commitments.Local.FeePerKw
+	remoteFeeRate := lc.channelState.Commitments.Remote.FeePerKw
 
 	if localFeeRate > remoteFeeRate {
 		return chainfee.SatPerKWeight(localFeeRate)
@@ -9305,7 +9326,7 @@ func (lc *LightningChannel) ActiveHtlcs() []channeldb.HTLC {
 
 // LocalChanReserve returns our local ChanReserve requirement for the remote party.
 func (lc *LightningChannel) LocalChanReserve() btcutil.Amount {
-	return lc.channelState.LocalChanCfg.ChanReserve
+	return lc.channelState.ChanCfgs.Local.ChanReserve
 }
 
 // NextLocalHtlcIndex returns the next unallocated local htlc index. To ensure
@@ -9322,7 +9343,7 @@ func (lc *LightningChannel) NextLocalHtlcIndex() (uint64, error) {
 // FwdMinHtlc returns the minimum HTLC value required by the remote node, i.e.
 // the minimum value HTLC we can forward on this channel.
 func (lc *LightningChannel) FwdMinHtlc() lnwire.MilliSatoshi {
-	return lc.channelState.LocalChanCfg.MinHTLC
+	return lc.channelState.ChanCfgs.Local.MinHTLC
 }
 
 // unsignedLocalUpdates retrieves the unsigned local updates that we should
@@ -9375,7 +9396,7 @@ func (lc *LightningChannel) GenMusigNonces() (*musig2.Nonces, error) {
 	// verification nonces we'll send to the party to create our _next_
 	// state.
 	lc.pendingVerificationNonce, err = channeldb.NewMusigVerificationNonce(
-		lc.channelState.LocalChanCfg.MultiSigKey.PubKey,
+		lc.channelState.ChanCfgs.Local.MultiSigKey.PubKey,
 		lc.currentHeight+1, lc.taprootNonceProducer,
 	)
 	if err != nil {
@@ -9409,8 +9430,8 @@ func (lc *LightningChannel) InitRemoteMusigNonces(remoteNonce *musig2.Nonces,
 	// commitment of the remote party.
 	localNonce := lc.pendingVerificationNonce
 
-	localChanCfg := lc.channelState.LocalChanCfg
-	remoteChanCfg := lc.channelState.RemoteChanCfg
+	localChanCfg := lc.channelState.ChanCfgs.Local
+	remoteChanCfg := lc.channelState.ChanCfgs.Remote
 
 	// TODO(roasbeef): propagate rename of signing and verification nonces
 
@@ -9466,8 +9487,8 @@ func (lc *LightningChannel) MultiSigKeys() (keychain.KeyDescriptor,
 	lc.RLock()
 	defer lc.RUnlock()
 
-	return lc.channelState.LocalChanCfg.MultiSigKey,
-		lc.channelState.RemoteChanCfg.MultiSigKey
+	return lc.channelState.ChanCfgs.Local.MultiSigKey,
+		lc.channelState.ChanCfgs.Remote.MultiSigKey
 }
 
 // LocalCommitmentBlob returns the custom blob of the local commitment.
@@ -9476,7 +9497,7 @@ func (lc *LightningChannel) LocalCommitmentBlob() fn.Option[tlv.Blob] {
 	defer lc.RUnlock()
 
 	chanState := lc.channelState
-	localBalance := chanState.LocalCommitment.CustomBlob
+	localBalance := chanState.Commitments.Local.CustomBlob
 
 	return fn.MapOption(func(b tlv.Blob) tlv.Blob {
 		newBlob := make([]byte, len(b))

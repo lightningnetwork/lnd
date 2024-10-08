@@ -43,7 +43,7 @@ type HarnessRPC struct {
 	ChainKit         chainrpc.ChainKitClient
 	NeutrinoKit      neutrinorpc.NeutrinoKitClient
 	Peer             peersrpc.PeersClient
-	DevRPC           devrpc.DevClient
+	Dev              devrpc.DevClient
 
 	// Name is the HarnessNode's name.
 	Name string
@@ -75,7 +75,7 @@ func NewHarnessRPC(ctxt context.Context, t *testing.T, c *grpc.ClientConn,
 		ChainKit:         chainrpc.NewChainKitClient(c),
 		NeutrinoKit:      neutrinorpc.NewNeutrinoKitClient(c),
 		Peer:             peersrpc.NewPeersClient(c),
-		DevRPC:           devrpc.NewDevClient(c),
+		Dev:              devrpc.NewDevClient(c),
 		Name:             name,
 	}
 

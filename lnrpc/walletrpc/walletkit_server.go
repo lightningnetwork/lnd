@@ -1179,6 +1179,11 @@ func (w *WalletKit) BumpForceCloseFee(_ context.Context,
 		return nil, err
 	}
 
+	if !channel.ChanType.HasAnchors() {
+		return nil, fmt.Errorf("not able to bump the fee of a " +
+			"non-anchor channel")
+	}
+
 	// Match pending sweeps with commitments of the channel for which a bump
 	// is requested. Depending on the commitment state when force closing
 	// the channel we might have up to 3 commitments to consider when
@@ -1236,6 +1241,10 @@ func (w *WalletKit) BumpForceCloseFee(_ context.Context,
 
 		return commitSet.Contains(sweep.OutPoint.Hash)
 	}, pendingSweeps)
+
+	if len(anchors) == 0 {
+		return nil, fmt.Errorf("unable to find pending anchor outputs")
+	}
 
 	// Filter all relevant anchor sweeps and update the sweep request.
 	for _, anchor := range anchors {

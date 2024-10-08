@@ -411,7 +411,7 @@ func decodeDisableFlags(r io.Reader, val interface{}, buf *[8]byte,
 }
 
 // TrueBoolean is a record that indicates true or false using the presence of
-// the record. If the record is absent, it indicates false. If it is presence,
+// the record. If the record is absent, it indicates false. If it is present,
 // it indicates true.
 type TrueBoolean struct{}
 

@@ -23,7 +23,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn"
-	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/assert"
@@ -862,11 +861,6 @@ func TestLightningWireProtocol(t *testing.T) {
 				dp.ChannelType = fn.Some(v)
 			}
 
-			if rand.Uint32()%2 == 0 {
-				v := chainfee.SatPerKWeight(rand.Uint32())
-				dp.KickoffFeerate = fn.Some(v)
-			}
-
 			v[0] = reflect.ValueOf(dp)
 		},
 		MsgDynReject: func(v []reflect.Value, r *rand.Rand) {
@@ -906,9 +900,6 @@ func TestLightningWireProtocol(t *testing.T) {
 				features.Set(FeatureBit(DPChannelType))
 			}
 
-			if rand.Uint32()%2 == 0 {
-				features.Set(FeatureBit(DPKickoffFeerate))
-			}
 			dr.UpdateRejections = *features
 
 			v[0] = reflect.ValueOf(dr)
@@ -924,6 +915,48 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 
 			v[0] = reflect.ValueOf(da)
+		},
+		MsgDynCommit: func(v []reflect.Value, r *rand.Rand) {
+			var dc DynCommit
+
+			rand.Read(dc.ChanID[:])
+			rand.Read(dc.Sig.bytes[:])
+			if rand.Uint32()%2 == 0 {
+				v := btcutil.Amount(rand.Uint32())
+				dc.DustLimit = fn.Some(v)
+			}
+
+			if rand.Uint32()%2 == 0 {
+				v := MilliSatoshi(rand.Uint32())
+				dc.MaxValueInFlight = fn.Some(v)
+			}
+
+			if rand.Uint32()%2 == 0 {
+				v := btcutil.Amount(rand.Uint32())
+				dc.ChannelReserve = fn.Some(v)
+			}
+
+			if rand.Uint32()%2 == 0 {
+				v := uint16(rand.Uint32())
+				dc.CsvDelay = fn.Some(v)
+			}
+
+			if rand.Uint32()%2 == 0 {
+				v := uint16(rand.Uint32())
+				dc.MaxAcceptedHTLCs = fn.Some(v)
+			}
+
+			if rand.Uint32()%2 == 0 {
+				v, _ := btcec.NewPrivateKey()
+				dc.FundingKey = fn.Some(*v.PubKey())
+			}
+
+			if rand.Uint32()%2 == 0 {
+				v := ChannelType(*NewRawFeatureVector())
+				dc.ChannelType = fn.Some(v)
+			}
+
+			v[0] = reflect.ValueOf(dc)
 		},
 		MsgKickoffSig: func(v []reflect.Value, r *rand.Rand) {
 			ks := KickoffSig{
@@ -1776,6 +1809,12 @@ func TestLightningWireProtocol(t *testing.T) {
 		{
 			msgType: MsgDynAck,
 			scenario: func(m DynAck) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgDynCommit,
+			scenario: func(m DynCommit) bool {
 				return mainScenario(&m)
 			},
 		},

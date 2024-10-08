@@ -109,10 +109,10 @@ func newAuxHtlcDescriptor(p *paymentDescriptor) AuxHtlcDescriptor {
 		ParentIndex:              p.ParentIndex,
 		EntryType:                p.EntryType,
 		CustomRecords:            p.CustomRecords.Copy(),
-		addCommitHeightRemote:    p.addCommitHeightRemote,
-		addCommitHeightLocal:     p.addCommitHeightLocal,
-		removeCommitHeightRemote: p.removeCommitHeightRemote,
-		removeCommitHeightLocal:  p.removeCommitHeightLocal,
+		addCommitHeightRemote:    p.addCommitHeights.Remote,
+		addCommitHeightLocal:     p.addCommitHeights.Local,
+		removeCommitHeightRemote: p.removeCommitHeights.Remote,
+		removeCommitHeightLocal:  p.removeCommitHeights.Local,
 	}
 }
 

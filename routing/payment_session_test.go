@@ -251,6 +251,104 @@ func TestRequestRoute(t *testing.T) {
 	}
 }
 
+func TestRouteTransformFunc(t *testing.T) {
+	// Create a mock payment.
+	payment := &LightningPayment{
+		Amount:   1000,
+		FeeLimit: 1000,
+	}
+
+	var paymentHash [32]byte
+	err := payment.SetPaymentHash(paymentHash)
+	require.NoError(t, err, "unable to set payment hash")
+
+	// Create a mock path with multiple hops.
+	mockPath := []*unifiedEdge{
+		{
+			policy: &models.CachedEdgePolicy{
+				ToNodePubKey: func() route.Vertex {
+					return route.Vertex{1}
+				},
+				ToNodeFeatures: lnwire.NewFeatureVector(
+					nil, nil,
+				),
+			},
+		},
+		{
+			policy: &models.CachedEdgePolicy{
+				ToNodePubKey: func() route.Vertex {
+					return route.Vertex{2}
+				},
+				ToNodeFeatures: lnwire.NewFeatureVector(
+					nil, nil,
+				),
+			},
+		},
+		{
+			policy: &models.CachedEdgePolicy{
+				ToNodePubKey: func() route.Vertex {
+					return route.Vertex{3}
+				},
+				ToNodeFeatures: lnwire.NewFeatureVector(
+					nil, nil,
+				),
+			},
+		},
+	}
+
+	// Define a route transform function that trims the first hop.
+	trimFirstHop := func(r *route.Route) *route.Route {
+		trimmedRoute := &route.Route{
+			Hops:          r.Hops[1:],
+			TotalTimeLock: r.TotalTimeLock,
+		}
+
+		return trimmedRoute
+	}
+
+	// Create a new payment session and apply the route transform.
+	session, err := newPaymentSession(
+		payment, route.Vertex{1},
+		func(Graph) (bandwidthHints, error) {
+			return &mockBandwidthHints{}, nil
+		},
+		newMockGraphSessionFactory(&sessionGraph{}),
+		&MissionControl{},
+		PathFindingConfig{},
+		withRouteTransform(trimFirstHop),
+	)
+	require.NoError(t, err, "unable to create payment session")
+
+	// Mock the pathfinder to return a sample route.
+	session.pathFinder = func(_ *graphParams, r *RestrictParams,
+		_ *PathFindingConfig, _, _, _ route.Vertex,
+		_ lnwire.MilliSatoshi, _ float64, _ int32) ([]*unifiedEdge,
+		float64, error) {
+
+		return mockPath, 1.0, nil
+	}
+
+	// Call RequestRoute to obtain a route.
+	route, err := session.RequestRoute(
+		payment.Amount, payment.FeeLimit, 0, 10,
+		lnwire.CustomRecords{
+			lnwire.MinCustomRecordsTlvType + 123: []byte{1, 2, 3},
+		},
+	)
+	require.NoError(t, err)
+
+	// We expect the transformed route to have the first hop trimmed.
+	require.Len(t, route.Hops, len(mockPath)-1,
+		"expected first hop trimmed")
+
+	// Ensure the first hop of the transformed route is correct.
+	require.Equal(t, mockPath[1].policy.ToNodePubKey(),
+		route.Hops[0].PubKeyBytes,
+		"expected first hop to be %v, got %v",
+		mockPath[1].policy.ToNodePubKey(),
+		route.Hops[0].PubKeyBytes)
+}
+
 type sessionGraph struct {
 	Graph
 }

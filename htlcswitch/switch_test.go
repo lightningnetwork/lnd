@@ -2700,12 +2700,15 @@ func TestSwitchSendPayment(t *testing.T) {
 		Amount:      1,
 	}
 	paymentID := uint64(123)
+	attempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: paymentID,
+		},
+	}
 
 	// First check that the switch will correctly respond that this payment
 	// ID is unknown.
-	_, err = s.GetAttemptResult(
-		paymentID, rhash, newMockDeobfuscator(),
-	)
+	_, err = s.GetAttemptResult(attempt, rhash)
 	if err != ErrPaymentIDNotFound {
 		t.Fatalf("expected ErrPaymentIDNotFound, got %v", err)
 	}
@@ -2722,7 +2725,7 @@ func TestSwitchSendPayment(t *testing.T) {
 		}
 
 		resultChan, err := s.GetAttemptResult(
-			paymentID, rhash, newMockDeobfuscator(),
+			attempt, rhash,
 		)
 		if err != nil {
 			errChan <- err
@@ -3087,6 +3090,12 @@ func TestSwitchGetAttemptResult(t *testing.T) {
 	var preimg lntypes.Preimage
 	preimg[0] = 3
 
+	attempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: paymentID,
+		},
+	}
+
 	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	require.NoError(t, err, "unable to init switch")
 	if err := s.Start(); err != nil {
@@ -3104,9 +3113,7 @@ func TestSwitchGetAttemptResult(t *testing.T) {
 	// added anything to the store yet, ErrPaymentIDNotFound should be
 	// returned.
 	lookup <- nil
-	_, err = s.GetAttemptResult(
-		paymentID, lntypes.Hash{}, newMockDeobfuscator(),
-	)
+	_, err = s.GetAttemptResult(attempt, lntypes.Hash{})
 	if err != ErrPaymentIDNotFound {
 		t.Fatalf("expected ErrPaymentIDNotFound, got %v", err)
 	}
@@ -3114,9 +3121,7 @@ func TestSwitchGetAttemptResult(t *testing.T) {
 	// Next let the lookup find the circuit in the circuit map. It should
 	// subscribe to payment results, and return the result when available.
 	lookup <- &PaymentCircuit{}
-	resultChan, err := s.GetAttemptResult(
-		paymentID, lntypes.Hash{}, newMockDeobfuscator(),
-	)
+	resultChan, err := s.GetAttemptResult(attempt, lntypes.Hash{})
 	require.NoError(t, err, "unable to get payment result")
 
 	// Add the result to the store.
@@ -3155,9 +3160,7 @@ func TestSwitchGetAttemptResult(t *testing.T) {
 	// in the circuit map, it should be immediately available from the
 	// store.
 	lookup <- nil
-	resultChan, err = s.GetAttemptResult(
-		paymentID, lntypes.Hash{}, newMockDeobfuscator(),
-	)
+	resultChan, err = s.GetAttemptResult(attempt, lntypes.Hash{})
 	require.NoError(t, err, "unable to get payment result")
 
 	select {
@@ -3218,6 +3221,11 @@ func TestInvalidFailure(t *testing.T) {
 	}
 
 	paymentID := uint64(123)
+	attempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: paymentID,
+		},
+	}
 
 	// Send the request.
 	err = s.SendHTLC(
@@ -3255,15 +3263,13 @@ func TestInvalidFailure(t *testing.T) {
 
 	// Get payment result from switch. We expect an unreadable failure
 	// message error.
-	deobfuscator := SphinxErrorDecrypter{
-		OnionErrorDecrypter: &mockOnionErrorDecryptor{
-			err: ErrUnreadableFailureMessage,
-		},
-	}
+	// deobfuscator := SphinxErrorDecrypter{
+	// 	OnionErrorDecrypter: &mockOnionErrorDecryptor{
+	// 		err: ErrUnreadableFailureMessage,
+	// 	},
+	// }
 
-	resultChan, err := s.GetAttemptResult(
-		paymentID, rhash, &deobfuscator,
-	)
+	resultChan, err := s.GetAttemptResult(attempt, rhash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3280,16 +3286,14 @@ func TestInvalidFailure(t *testing.T) {
 
 	// Modify the decryption to simulate that decryption went alright, but
 	// the failure cannot be decoded.
-	deobfuscator = SphinxErrorDecrypter{
-		OnionErrorDecrypter: &mockOnionErrorDecryptor{
-			sourceIdx: 2,
-			message:   []byte{200},
-		},
-	}
+	// deobfuscator = SphinxErrorDecrypter{
+	// 	OnionErrorDecrypter: &mockOnionErrorDecryptor{
+	// 		sourceIdx: 2,
+	// 		message:   []byte{200},
+	// 	},
+	// }
 
-	resultChan, err = s.GetAttemptResult(
-		paymentID, rhash, &deobfuscator,
-	)
+	resultChan, err = s.GetAttemptResult(attempt, rhash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4294,6 +4298,17 @@ func TestSwitchDustForwarding(t *testing.T) {
 	// of 700sats.
 	numHTLCs := 354
 	aliceAttemptID, bobAttemptID := numHTLCs, numHTLCs
+	aliceAttempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: uint64(aliceAttemptID),
+		},
+	}
+	bobAttempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: uint64(bobAttemptID),
+		},
+	}
+
 	amt := lnwire.NewMSatFromSatoshis(700)
 	aliceBobFirstHop := n.aliceChannelLink.ShortChanID()
 
@@ -4375,7 +4390,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	// Use the network result store to ensure the HTLC was failed
 	// backwards.
 	bobResultChan, err := n.bobServer.htlcSwitch.GetAttemptResult(
-		uint64(bobAttemptID), failingHash, newMockDeobfuscator(),
+		bobAttempt, failingHash,
 	)
 	require.NoError(t, err)
 
@@ -4418,7 +4433,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 
 	// Check that the HTLC failed.
 	bobResultChan, err = n.bobServer.htlcSwitch.GetAttemptResult(
-		uint64(bobAttemptID), nondustHash, newMockDeobfuscator(),
+		bobAttempt, nondustHash,
 	)
 	require.NoError(t, err)
 
@@ -4450,6 +4465,11 @@ func TestSwitchDustForwarding(t *testing.T) {
 
 	// Initialize Carol's attempt ID.
 	carolAttemptID := 0
+	carolAttempt := &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: channeldb.HTLCAttemptInfo{
+			AttemptID: uint64(carolAttemptID),
+		},
+	}
 
 	err = n.carolServer.htlcSwitch.SendHTLC(
 		n.carolChannelLink.ShortChanID(), uint64(carolAttemptID),
@@ -4458,7 +4478,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	require.NoError(t, err)
 
 	carolResultChan, err := n.carolServer.htlcSwitch.GetAttemptResult(
-		uint64(carolAttemptID), carolHash, newMockDeobfuscator(),
+		carolAttempt, carolHash,
 	)
 	require.NoError(t, err)
 
@@ -4505,8 +4525,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	require.Nil(t, err)
 
 	aliceResultChan, err := n.aliceServer.htlcSwitch.GetAttemptResult(
-		uint64(aliceAttemptID), aliceMultihopHash,
-		newMockDeobfuscator(),
+		aliceAttempt, aliceMultihopHash,
 	)
 	require.NoError(t, err)
 

@@ -260,10 +260,15 @@ func createDummyRoute(t *testing.T, amt lnwire.MilliSatoshi) *route.Route {
 func makeSettledAttempt(t *testing.T, total int,
 	preimage lntypes.Preimage) *channeldb.HTLCAttempt {
 
-	return &channeldb.HTLCAttempt{
+	a := &channeldb.HTLCAttempt{
 		HTLCAttemptInfo: makeAttemptInfo(t, total),
 		Settle:          &channeldb.HTLCSettleInfo{Preimage: preimage},
 	}
+
+	hash := preimage.Hash()
+	a.Hash = &hash
+
+	return a
 }
 
 func makeFailedAttempt(t *testing.T, total int) *channeldb.HTLCAttempt {
@@ -279,6 +284,7 @@ func makeAttemptInfo(t *testing.T, amt int) channeldb.HTLCAttemptInfo {
 	rt := createDummyRoute(t, lnwire.MilliSatoshi(amt))
 	return channeldb.HTLCAttemptInfo{
 		Route: *rt,
+		Hash:  &lntypes.Hash{1, 2, 3},
 	}
 }
 
@@ -611,8 +617,8 @@ func TestDecideNextStep(t *testing.T) {
 
 		// Send a nil error to the attemptResultChan if requested.
 		if tc.closeResultChan {
-			p.resultCollected = make(chan error, 1)
-			p.resultCollected <- nil
+			p.resultCollected = make(chan struct{}, 1)
+			p.resultCollected <- struct{}{}
 		}
 
 		// Quit the router if requested.
@@ -1303,14 +1309,9 @@ func TestCollectResultExitOnErr(t *testing.T) {
 	paymentAmt := 10_000
 	attempt := makeFailedAttempt(t, paymentAmt)
 
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
-
 	// Mock the htlcswitch to return a dummy error.
 	m.payer.On("GetAttemptResult",
-		attempt.AttemptID, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(nil, errDummy).Once()
 
 	// The above error will end up being handled by `handleSwitchErr`, in
@@ -1332,7 +1333,7 @@ func TestCollectResultExitOnErr(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, errDummy, "expected dummy error")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1348,15 +1349,10 @@ func TestCollectResultExitOnResultErr(t *testing.T) {
 	paymentAmt := 10_000
 	attempt := makeFailedAttempt(t, paymentAmt)
 
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
-
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
-		attempt.AttemptID, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(resultChan, nil).Once().Run(func(args mock.Arguments) {
 		// Send an error to the result chan.
 		resultChan <- &htlcswitch.PaymentResult{
@@ -1383,7 +1379,7 @@ func TestCollectResultExitOnResultErr(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, errDummy, "expected dummy error")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1399,22 +1395,17 @@ func TestCollectResultExitOnSwitchQuit(t *testing.T) {
 	paymentAmt := 10_000
 	attempt := makeFailedAttempt(t, paymentAmt)
 
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
-
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
-		attempt.AttemptID, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(resultChan, nil).Once().Run(func(args mock.Arguments) {
 		// Close the result chan to simulate a htlcswitch quit.
 		close(resultChan)
 	})
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, htlcswitch.ErrSwitchExiting,
 		"expected switch exit")
 	require.Nil(t, result, "expected nil attempt")
@@ -1431,22 +1422,17 @@ func TestCollectResultExitOnRouterQuit(t *testing.T) {
 	paymentAmt := 10_000
 	attempt := makeFailedAttempt(t, paymentAmt)
 
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
-
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
-		attempt.AttemptID, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(resultChan, nil).Once().Run(func(args mock.Arguments) {
 		// Close the channel router.
 		close(p.router.quit)
 	})
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, ErrRouterShuttingDown, "expected router exit")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1462,22 +1448,17 @@ func TestCollectResultExitOnLifecycleQuit(t *testing.T) {
 	paymentAmt := 10_000
 	attempt := makeFailedAttempt(t, paymentAmt)
 
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
-
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
-		attempt.AttemptID, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(resultChan, nil).Once().Run(func(args mock.Arguments) {
 		// Stop the lifecycle.
 		p.stop()
 	})
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, ErrPaymentLifecycleExiting,
 		"expected lifecycle exit")
 	require.Nil(t, result, "expected nil attempt")
@@ -1495,15 +1476,10 @@ func TestCollectResultExitOnSettleErr(t *testing.T) {
 	preimage := lntypes.Preimage{1}
 	attempt := makeSettledAttempt(t, paymentAmt, preimage)
 
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
-
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
-		attempt.AttemptID, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(resultChan, nil).Once().Run(func(args mock.Arguments) {
 		// Send the preimage to the result chan.
 		resultChan <- &htlcswitch.PaymentResult{
@@ -1526,7 +1502,7 @@ func TestCollectResultExitOnSettleErr(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.ErrorIs(t, err, errDummy, "expected settle error")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1542,15 +1518,10 @@ func TestCollectResultSuccess(t *testing.T) {
 	preimage := lntypes.Preimage{1}
 	attempt := makeSettledAttempt(t, paymentAmt, preimage)
 
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
-
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
-		attempt.AttemptID, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(resultChan, nil).Once().Run(func(args mock.Arguments) {
 		// Send the preimage to the result chan.
 		resultChan <- &htlcswitch.PaymentResult{
@@ -1573,7 +1544,7 @@ func TestCollectResultSuccess(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectResult(attempt)
+	result, err := p.collectAndHandleResult(attempt)
 	require.NoError(t, err, "expected no error")
 	require.Equal(t, preimage, result.attempt.Settle.Preimage,
 		"preimage mismatch")
@@ -1590,15 +1561,10 @@ func TestCollectResultAsyncSuccess(t *testing.T) {
 	preimage := lntypes.Preimage{1}
 	attempt := makeSettledAttempt(t, paymentAmt, preimage)
 
-	// Mock shardTracker to return the payment hash.
-	m.shardTracker.On("GetHash",
-		attempt.AttemptID,
-	).Return(p.identifier, nil).Once()
-
 	// Mock the htlcswitch to return a the result chan.
 	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	m.payer.On("GetAttemptResult",
-		attempt.AttemptID, p.identifier, mock.Anything,
+		attempt, p.identifier,
 	).Return(resultChan, nil).Once().Run(func(args mock.Arguments) {
 		// Send the preimage to the result chan.
 		resultChan <- &htlcswitch.PaymentResult{
@@ -1624,13 +1590,9 @@ func TestCollectResultAsyncSuccess(t *testing.T) {
 	p.collectResultAsync(attempt)
 
 	// Assert the result is returned within 5 seconds.
-	var err error
 	waitErr := wait.NoError(func() error {
-		err = <-p.resultCollected
+		<-p.resultCollected
 		return nil
 	}, testTimeout)
 	require.NoError(t, waitErr, "timeout waiting for result")
-
-	// Assert that a nil error is received.
-	require.NoError(t, err, "expected no error")
 }

@@ -1,0 +1,125 @@
+erDiagram
+    payments {
+        BIGINT id PK
+        INTEGER payment_status FK
+        INTEGER payment_type FK
+        BIGINT amount_msat
+        BLOB payment_request
+        TIMESTAMP created_at
+    }
+    payment_status_types {
+        INTEGER id PK
+        TEXT description
+    }
+    payment_types {
+        INTEGER id PK
+        TEXT description
+    }
+    legacy_payments {
+        INTEGER payment_id PK,FK
+        BLOB payment_hash
+    }
+    mpp_payments {
+        INTEGER payment_id PK,FK
+        INTEGER mpp_record_id FK
+    }
+    amp_payments {
+        INTEGER payment_id PK,FK
+        INTEGER amp_record_id FK
+    }
+    payment_state {
+        INTEGER payment_id PK,FK
+        INTEGER num_attempts_in_flight
+        BIGINT remaining_amt
+        BIGINT fees_paid
+        BOOLEAN has_settled_htlc
+        BOOLEAN payment_failed
+    }
+    htlc_attempt {
+        INTEGER id PK
+        BLOB session_key
+        TIMESTAMP attempt_time
+        INTEGER payment_id FK
+    }
+    route {
+        INTEGER htlc_attempt_id PK,FK
+        INTEGER total_timeLock
+        BIGINT total_amount
+        BLOB source_key
+        BIGINT first_hop_amount
+    }
+    hop {
+        INTEGER id PK
+        INTEGER route_id FK
+        BLOB pub_key
+        TEXT chan_id
+        INTEGER outgoing_time_lock
+        BIGINT amt_to_forward
+        BLOB meta_data
+    }
+    mpp_record {
+        INTEGER hop_id PK,FK
+        BLOB payment_addr
+        BIGINT total_msat
+    }
+    amp_record {
+        INTEGER hop_id PK,FK
+        BLOB root_share
+        BLOB set_id
+        INTEGER child_index
+    }
+    tlv_records {
+        INTEGER id PK
+        BIGINT key
+        BLOB value
+    }
+    custom_records {
+        INTEGER tlv_record_id PK,FK
+        INTEGER hop_id FK
+    }
+    first_hop_custom_records {
+        INTEGER tlv_record_id PK,FK
+        INTEGER payment_id FK
+    }
+    blinded_data {
+        INTEGER hop_id PK,FK
+        BLOB encrypted_data
+        BLOB blinding_point
+        BIGINT total_amt
+    }
+    htlc_settle_info {
+        INTEGER htlc_attempt_id PK,FK
+        BLOB preimage
+        TIMESTAMP settle_time
+    }
+    htlc_fail_info {
+        INTEGER htlc_attempt_id PK,FK
+        INTEGER htlc_fail_reason FK
+        TEXT failure_msg
+    }
+    htlc_fail_reason_types {
+        INTEGER id PK
+        TEXT description
+    }
+
+    payments ||--o| legacy_payments : has
+    payments ||--o| mpp_payments : has
+    payments ||--o| amp_payments : has
+    payments ||--o| payment_state : has
+    payments ||--o{ first_hop_custom_records : has
+    payments ||--o{ htlc_attempt : has
+    payments }o--|| payment_status_types : has
+    payments }o--|| payment_types : has
+    htlc_attempt ||--o| route : has
+    route ||--o{ hop : has
+    hop ||--o| mpp_record : has
+    hop ||--o| amp_record : has
+    hop ||--o{ custom_records : has
+    hop ||--o| blinded_data : has
+    htlc_attempt ||--o| htlc_settle_info : has
+    htlc_attempt ||--o| htlc_fail_info : has
+    htlc_fail_info }o--|| htlc_fail_reason_types : has
+    mpp_record ||--|| mpp_payments : references
+    amp_record ||--|| amp_payments : references
+    tlv_records ||--o{ custom_records : has
+    tlv_records ||--o{ first_hop_custom_records : has

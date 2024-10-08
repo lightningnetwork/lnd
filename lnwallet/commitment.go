@@ -702,7 +702,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	}
 
 	numHTLCs := int64(0)
-	for _, htlc := range filteredHTLCView.OurUpdates {
+	for _, htlc := range filteredHTLCView.Updates.Local {
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
@@ -713,7 +713,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 
 		numHTLCs++
 	}
-	for _, htlc := range filteredHTLCView.TheirUpdates {
+	for _, htlc := range filteredHTLCView.Updates.Remote {
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
@@ -827,7 +827,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// purposes of sorting.
 	cltvs := make([]uint32, len(commitTx.TxOut))
 	htlcIndexes := make([]input.HtlcIndex, len(commitTx.TxOut))
-	for _, htlc := range filteredHTLCView.OurUpdates {
+	for _, htlc := range filteredHTLCView.Updates.Local {
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
@@ -855,7 +855,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		cltvs = append(cltvs, htlc.Timeout)               //nolint
 		htlcIndexes = append(htlcIndexes, htlc.HtlcIndex) //nolint
 	}
-	for _, htlc := range filteredHTLCView.TheirUpdates {
+	for _, htlc := range filteredHTLCView.Updates.Remote {
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,

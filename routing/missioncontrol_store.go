@@ -6,14 +6,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
@@ -24,12 +22,6 @@ var (
 	// Big endian is the preferred byte order, due to cursor scans over
 	// integer keys iterating in order.
 	byteOrder = binary.BigEndian
-)
-
-const (
-	// unknownFailureSourceIdx is the database encoding of an unknown error
-	// source.
-	unknownFailureSourceIdx = -1
 )
 
 // missionControlDB is an interface that defines the database methods that a
@@ -168,132 +160,30 @@ func (b *missionControlStore) fetchAll() ([]*paymentResult, error) {
 // serializeResult serializes a payment result and returns a key and value byte
 // slice to insert into the bucket.
 func serializeResult(rp *paymentResult) ([]byte, []byte, error) {
-	// Write timestamps, success status, failure source index and route.
-	var b bytes.Buffer
-
-	var dbFailureSourceIdx int32
-	if rp.failureSourceIdx == nil {
-		dbFailureSourceIdx = unknownFailureSourceIdx
-	} else {
-		dbFailureSourceIdx = int32(*rp.failureSourceIdx)
+	recordProducers := []tlv.RecordProducer{
+		&rp.timeFwd,
+		&rp.timeReply,
+		&rp.route,
 	}
 
-	err := channeldb.WriteElements(
-		&b,
-		uint64(rp.timeFwd.UnixNano()),
-		uint64(rp.timeReply.UnixNano()),
-		rp.success, dbFailureSourceIdx,
+	rp.failure.WhenSome(
+		func(failure tlv.RecordT[tlv.TlvType3, paymentFailure]) {
+			recordProducers = append(recordProducers, &failure)
+		},
 	)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if err := serializeRoute(&b, rp.route); err != nil {
-		return nil, nil, err
-	}
-
-	// Write failure. If there is no failure message, write an empty
-	// byte slice.
-	var failureBytes bytes.Buffer
-	if rp.failure != nil {
-		err := lnwire.EncodeFailureMessage(&failureBytes, rp.failure, 0)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	err = wire.WriteVarBytes(&b, 0, failureBytes.Bytes())
-	if err != nil {
-		return nil, nil, err
-	}
 
 	// Compose key that identifies this result.
 	key := getResultKey(rp)
 
-	return key, b.Bytes(), nil
-}
-
-// deserializeRoute deserializes the mcRoute from the given io.Reader.
-func deserializeRoute(r io.Reader) (*mcRoute, error) {
-	var rt mcRoute
-	if err := channeldb.ReadElements(r, &rt.totalAmount); err != nil {
-		return nil, err
-	}
-
-	var pub []byte
-	if err := channeldb.ReadElements(r, &pub); err != nil {
-		return nil, err
-	}
-	copy(rt.sourcePubKey[:], pub)
-
-	var numHops uint32
-	if err := channeldb.ReadElements(r, &numHops); err != nil {
-		return nil, err
-	}
-
-	var hops []*mcHop
-	for i := uint32(0); i < numHops; i++ {
-		hop, err := deserializeHop(r)
-		if err != nil {
-			return nil, err
-		}
-		hops = append(hops, hop)
-	}
-	rt.hops = hops
-
-	return &rt, nil
-}
-
-// deserializeHop deserializes the mcHop from the given io.Reader.
-func deserializeHop(r io.Reader) (*mcHop, error) {
-	var h mcHop
-
-	var pub []byte
-	if err := channeldb.ReadElements(r, &pub); err != nil {
-		return nil, err
-	}
-	copy(h.pubKeyBytes[:], pub)
-
-	if err := channeldb.ReadElements(r,
-		&h.channelID, &h.amtToFwd, &h.hasBlindingPoint,
-		&h.hasCustomRecords,
-	); err != nil {
-		return nil, err
-	}
-
-	return &h, nil
-}
-
-// serializeRoute serializes a mcRoute and writes the resulting bytes to the
-// given io.Writer.
-func serializeRoute(w io.Writer, r *mcRoute) error {
-	err := channeldb.WriteElements(w, r.totalAmount, r.sourcePubKey[:])
-	if err != nil {
-		return err
-	}
-
-	if err := channeldb.WriteElements(w, uint32(len(r.hops))); err != nil {
-		return err
-	}
-
-	for _, h := range r.hops {
-		if err := serializeHop(w, h); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// serializeHop serializes a mcHop and writes the resulting bytes to the given
-// io.Writer.
-func serializeHop(w io.Writer, h *mcHop) error {
-	return channeldb.WriteElements(w,
-		h.pubKeyBytes[:],
-		h.channelID,
-		h.amtToFwd,
-		h.hasBlindingPoint,
-		h.hasCustomRecords,
+	var buff bytes.Buffer
+	err := lnwire.EncodeRecordsTo(
+		&buff, lnwire.ProduceRecordsSorted(recordProducers...),
 	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return key, buff.Bytes(), err
 }
 
 // deserializeResult deserializes a payment result.
@@ -303,55 +193,113 @@ func deserializeResult(k, v []byte) (*paymentResult, error) {
 		id: byteOrder.Uint64(k[8:]),
 	}
 
+	failure := tlv.ZeroRecordT[tlv.TlvType3, paymentFailure]()
+	recordProducers := []tlv.RecordProducer{
+		&result.timeFwd,
+		&result.timeReply,
+		&result.route,
+		&failure,
+	}
+
 	r := bytes.NewReader(v)
-
-	// Read timestamps, success status and failure source index.
-	var (
-		timeFwd, timeReply uint64
-		dbFailureSourceIdx int32
-	)
-
-	err := channeldb.ReadElements(
-		r, &timeFwd, &timeReply, &result.success, &dbFailureSourceIdx,
+	typeMap, err := lnwire.DecodeRecords(
+		r, lnwire.ProduceRecordsSorted(recordProducers...)...,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert time stamps to local time zone for consistent logging.
-	result.timeFwd = time.Unix(0, int64(timeFwd)).Local()
-	result.timeReply = time.Unix(0, int64(timeReply)).Local()
-
-	// Convert from unknown index magic number to nil value.
-	if dbFailureSourceIdx != unknownFailureSourceIdx {
-		failureSourceIdx := int(dbFailureSourceIdx)
-		result.failureSourceIdx = &failureSourceIdx
-	}
-
-	// Read route.
-	route, err := deserializeRoute(r)
-	if err != nil {
-		return nil, err
-	}
-	result.route = route
-
-	// Read failure.
-	failureBytes, err := wire.ReadVarBytes(
-		r, 0, math.MaxUint16, "failure",
-	)
-	if err != nil {
-		return nil, err
-	}
-	if len(failureBytes) > 0 {
-		result.failure, err = lnwire.DecodeFailureMessage(
-			bytes.NewReader(failureBytes), 0,
-		)
-		if err != nil {
-			return nil, err
-		}
+	if _, ok := typeMap[result.failure.TlvType()]; ok {
+		result.failure = tlv.SomeRecordT(failure)
 	}
 
 	return &result, nil
+}
+
+// serializeRoute serializes a mcRoute and writes the resulting bytes to the
+// given io.Writer.
+func serializeRoute(w io.Writer, r *mcRoute) error {
+	records := lnwire.ProduceRecordsSorted(
+		&r.sourcePubKey,
+		&r.totalAmount,
+		&r.hops,
+	)
+
+	return lnwire.EncodeRecordsTo(w, records)
+}
+
+// deserializeRoute deserializes the mcRoute from the given io.Reader.
+func deserializeRoute(r io.Reader) (*mcRoute, error) {
+	var rt mcRoute
+	records := lnwire.ProduceRecordsSorted(
+		&rt.sourcePubKey,
+		&rt.totalAmount,
+		&rt.hops,
+	)
+
+	_, err := lnwire.DecodeRecords(r, records...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &rt, nil
+}
+
+// deserializeHop deserializes the mcHop from the given io.Reader.
+func deserializeHop(r io.Reader) (*mcHop, error) {
+	var (
+		h        mcHop
+		blinding = tlv.ZeroRecordT[tlv.TlvType3, lnwire.TrueBoolean]()
+		custom   = tlv.ZeroRecordT[tlv.TlvType4, lnwire.TrueBoolean]()
+	)
+	records := lnwire.ProduceRecordsSorted(
+		&h.channelID,
+		&h.pubKeyBytes,
+		&h.amtToFwd,
+		&blinding,
+		&custom,
+	)
+
+	typeMap, err := lnwire.DecodeRecords(r, records...)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, ok := typeMap[h.hasBlindingPoint.TlvType()]; ok {
+		h.hasBlindingPoint = tlv.SomeRecordT(blinding)
+	}
+
+	if _, ok := typeMap[h.hasCustomRecords.TlvType()]; ok {
+		h.hasCustomRecords = tlv.SomeRecordT(custom)
+	}
+
+	return &h, nil
+}
+
+// serializeHop serializes a mcHop and writes the resulting bytes to the given
+// io.Writer.
+func serializeHop(w io.Writer, h *mcHop) error {
+	recordProducers := []tlv.RecordProducer{
+		&h.channelID,
+		&h.pubKeyBytes,
+		&h.amtToFwd,
+	}
+
+	h.hasBlindingPoint.WhenSome(func(
+		hasBlinding tlv.RecordT[tlv.TlvType3, lnwire.TrueBoolean]) {
+
+		recordProducers = append(recordProducers, &hasBlinding)
+	})
+
+	h.hasCustomRecords.WhenSome(func(
+		hasCustom tlv.RecordT[tlv.TlvType4, lnwire.TrueBoolean]) {
+
+		recordProducers = append(recordProducers, &hasCustom)
+	})
+
+	return lnwire.EncodeRecordsTo(
+		w, lnwire.ProduceRecordsSorted(recordProducers...),
+	)
 }
 
 // AddResult adds a new result to the db.
@@ -580,9 +528,70 @@ func getResultKey(rp *paymentResult) []byte {
 	// key. This allows importing mission control data from an external
 	// source without key collisions and keeps the records sorted
 	// chronologically.
-	byteOrder.PutUint64(keyBytes[:], uint64(rp.timeReply.UnixNano()))
+	byteOrder.PutUint64(keyBytes[:], rp.timeReply.Val)
 	byteOrder.PutUint64(keyBytes[8:], rp.id)
-	copy(keyBytes[16:], rp.route.sourcePubKey[:])
+	copy(keyBytes[16:], rp.route.Val.sourcePubKey.Val[:])
 
 	return keyBytes[:]
+}
+
+// failureMessage wraps the lnwire.FailureMessage interface such that we can
+// apply a Record method and use the failureMessage in a TLV encoded type.
+type failureMessage struct {
+	lnwire.FailureMessage
+}
+
+// Record returns a TLV record that can be used to encode/decode a list of
+// failureMessage to/from a TLV stream.
+func (r *failureMessage) Record() tlv.Record {
+	recordSize := func() uint64 {
+		var (
+			b   bytes.Buffer
+			buf [8]byte
+		)
+		if err := encodeFailureMessage(&b, r, &buf); err != nil {
+			panic(err)
+		}
+
+		return uint64(len(b.Bytes()))
+	}
+
+	return tlv.MakeDynamicRecord(
+		0, r, recordSize, encodeFailureMessage, decodeFailureMessage,
+	)
+}
+
+func encodeFailureMessage(w io.Writer, val interface{}, _ *[8]byte) error {
+	if v, ok := val.(*failureMessage); ok {
+		var b bytes.Buffer
+		err := lnwire.EncodeFailureMessage(&b, v.FailureMessage, 0)
+		if err != nil {
+			return err
+		}
+
+		_, err = w.Write(b.Bytes())
+
+		return err
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "routing.failureMessage")
+}
+
+func decodeFailureMessage(r io.Reader, val interface{}, _ *[8]byte,
+	l uint64) error {
+
+	if v, ok := val.(*failureMessage); ok {
+		msg, err := lnwire.DecodeFailureMessage(r, 0)
+		if err != nil {
+			return err
+		}
+
+		*v = failureMessage{
+			FailureMessage: msg,
+		}
+
+		return nil
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "routing.failureMessage", l, l)
 }

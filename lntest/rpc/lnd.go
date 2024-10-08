@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -729,4 +730,18 @@ func (h *HarnessRPC) LookupHtlcResolutionAssertErr(
 	require.Error(h, err, "expected an error")
 
 	return err
+}
+
+// Quiesce makes an RPC call to the node's Quiesce method and returns the
+// response.
+func (h *HarnessRPC) Quiesce(
+	req *devrpc.QuiescenceRequest) *devrpc.QuiescenceResponse {
+
+	ctx, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	res, err := h.Dev.Quiesce(ctx, req)
+	h.NoError(err, "Quiesce returned an error")
+
+	return res
 }

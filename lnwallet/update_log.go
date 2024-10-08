@@ -153,6 +153,7 @@ func compactLogs(ourLog, theirLog *updateLog,
 			nextA = e.Next()
 
 			htlc := e.Value
+			rmvHeights := htlc.removeCommitHeights
 
 			// We skip Adds, as they will be removed along with the
 			// fail/settles below.
@@ -162,9 +163,7 @@ func compactLogs(ourLog, theirLog *updateLog,
 
 			// If the HTLC hasn't yet been removed from either
 			// chain, the skip it.
-			if htlc.removeCommitHeightRemote == 0 ||
-				htlc.removeCommitHeightLocal == 0 {
-
+			if rmvHeights.Remote == 0 || rmvHeights.Local == 0 {
 				continue
 			}
 
@@ -172,8 +171,8 @@ func compactLogs(ourLog, theirLog *updateLog,
 			// is at least the height in which the HTLC was
 			// removed, then evict the settle/timeout entry along
 			// with the original add entry.
-			if remoteChainTail >= htlc.removeCommitHeightRemote &&
-				localChainTail >= htlc.removeCommitHeightLocal {
+			if remoteChainTail >= rmvHeights.Remote &&
+				localChainTail >= rmvHeights.Local {
 
 				// Fee updates have no parent htlcs, so we only
 				// remove the update itself.

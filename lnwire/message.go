@@ -40,6 +40,7 @@ const (
 	MsgDynPropose                          = 111
 	MsgDynAck                              = 113
 	MsgDynReject                           = 115
+	MsgDynCommit                           = 117
 	MsgUpdateAddHTLC                       = 128
 	MsgUpdateFulfillHTLC                   = 130
 	MsgUpdateFailHTLC                      = 131
@@ -62,6 +63,25 @@ const (
 	MsgChannelUpdate2                      = 271
 	MsgKickoffSig                          = 777
 )
+
+// IsChannelUpdate is a filter function that discerns channel update messages
+// from the other messages in the Lightning Network Protocol.
+func (t MessageType) IsChannelUpdate() bool {
+	switch t {
+	case MsgUpdateAddHTLC:
+		return true
+	case MsgUpdateFulfillHTLC:
+		return true
+	case MsgUpdateFailHTLC:
+		return true
+	case MsgUpdateFailMalformedHTLC:
+		return true
+	case MsgUpdateFee:
+		return true
+	default:
+		return false
+	}
+}
 
 // ErrorEncodeMessage is used when failed to encode the message payload.
 func ErrorEncodeMessage(err error) error {
@@ -112,6 +132,8 @@ func (t MessageType) String() string {
 		return "DynAck"
 	case MsgDynReject:
 		return "DynReject"
+	case MsgDynCommit:
+		return "DynCommit"
 	case MsgKickoffSig:
 		return "KickoffSig"
 	case MsgUpdateAddHTLC:
@@ -247,6 +269,8 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &DynAck{}
 	case MsgDynReject:
 		msg = &DynReject{}
+	case MsgDynCommit:
+		msg = &DynCommit{}
 	case MsgKickoffSig:
 		msg = &KickoffSig{}
 	case MsgUpdateAddHTLC:

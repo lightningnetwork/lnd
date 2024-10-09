@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/urfave/cli"
 )
@@ -25,6 +26,13 @@ var (
 	saveToFlag = cli.StringFlag{
 		Name:  "save_to",
 		Usage: "save returned admin macaroon to this file",
+	}
+	macRootKeyFlag = cli.StringFlag{
+		Name: "mac_root_key",
+		Usage: "macaroon root key to use when initializing the " +
+			"macaroon store; allows for deterministic macaroon " +
+			"generation; if not set, a random one will be " +
+			"created",
 	}
 )
 
@@ -81,6 +89,7 @@ var createCommand = cli.Command{
 		},
 		statelessInitFlag,
 		saveToFlag,
+		macRootKeyFlag,
 	},
 	Action: actionDecorator(create),
 }
@@ -261,6 +270,7 @@ mnemonicCheck:
 		extendedRootKey         string
 		extendedRootKeyBirthday uint64
 		recoveryWindow          int32
+		macRootKey              []byte
 	)
 	switch {
 	// Use an existing cipher seed mnemonic in the aezeed format.
@@ -366,6 +376,23 @@ mnemonicCheck:
 		printCipherSeedWords(cipherSeedMnemonic)
 	}
 
+	// Parse the macaroon root key if it was specified by the user.
+	if ctx.IsSet(macRootKeyFlag.Name) {
+		macRootKey, err = hex.DecodeString(
+			ctx.String(macRootKeyFlag.Name),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to parse macaroon root key: "+
+				"%w", err)
+		}
+
+		if len(macRootKey) != macaroons.RootKeyLen {
+			return fmt.Errorf("macaroon root key must be exactly "+
+				"%v bytes, got %v", macaroons.RootKeyLen,
+				len(macRootKey))
+		}
+	}
+
 	// With either the user's prior cipher seed, or a newly generated one,
 	// we'll go ahead and initialize the wallet.
 	req := &lnrpc.InitWalletRequest{
@@ -377,6 +404,7 @@ mnemonicCheck:
 		RecoveryWindow:                     recoveryWindow,
 		ChannelBackups:                     chanBackups,
 		StatelessInit:                      statelessInit,
+		MacaroonRootKey:                    macRootKey,
 	}
 	response, err := client.InitWallet(ctxc, req)
 	if err != nil {
@@ -687,6 +715,7 @@ var createWatchOnlyCommand = cli.Command{
 	Flags: []cli.Flag{
 		statelessInitFlag,
 		saveToFlag,
+		macRootKeyFlag,
 	},
 	Action: actionDecorator(createWatchOnly),
 }
@@ -764,11 +793,30 @@ func createWatchOnly(ctx *cli.Context) error {
 		}
 	}
 
+	// Parse the macaroon root key if it was specified by the user.
+	var macRootKey []byte
+	if ctx.IsSet(macRootKeyFlag.Name) {
+		macRootKey, err = hex.DecodeString(
+			ctx.String(macRootKeyFlag.Name),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to parse macaroon root key: "+
+				"%w", err)
+		}
+
+		if len(macRootKey) != macaroons.RootKeyLen {
+			return fmt.Errorf("macaroon root key must be exactly "+
+				"%v bytes, got %v", macaroons.RootKeyLen,
+				len(macRootKey))
+		}
+	}
+
 	initResp, err := client.InitWallet(ctxc, &lnrpc.InitWalletRequest{
-		WalletPassword: walletPassword,
-		WatchOnly:      rpcResp,
-		RecoveryWindow: recoveryWindow,
-		StatelessInit:  statelessInit,
+		WalletPassword:  walletPassword,
+		WatchOnly:       rpcResp,
+		RecoveryWindow:  recoveryWindow,
+		StatelessInit:   statelessInit,
+		MacaroonRootKey: macRootKey,
 	})
 	if err != nil {
 		return err

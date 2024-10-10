@@ -1012,6 +1012,1016 @@ func (t *tlvType100) tlv() {}
 
 type TlvType100 = *tlvType100
 
+type tlvType160 struct{}
+
+func (t *tlvType160) TypeVal() Type {
+	return 160
+}
+
+func (t *tlvType160) tlv() {}
+
+type TlvType160 = *tlvType160
+
+type tlvType161 struct{}
+
+func (t *tlvType161) TypeVal() Type {
+	return 161
+}
+
+func (t *tlvType161) tlv() {}
+
+type TlvType161 = *tlvType161
+
+type tlvType162 struct{}
+
+func (t *tlvType162) TypeVal() Type {
+	return 162
+}
+
+func (t *tlvType162) tlv() {}
+
+type TlvType162 = *tlvType162
+
+type tlvType163 struct{}
+
+func (t *tlvType163) TypeVal() Type {
+	return 163
+}
+
+func (t *tlvType163) tlv() {}
+
+type TlvType163 = *tlvType163
+
+type tlvType164 struct{}
+
+func (t *tlvType164) TypeVal() Type {
+	return 164
+}
+
+func (t *tlvType164) tlv() {}
+
+type TlvType164 = *tlvType164
+
+type tlvType165 struct{}
+
+func (t *tlvType165) TypeVal() Type {
+	return 165
+}
+
+func (t *tlvType165) tlv() {}
+
+type TlvType165 = *tlvType165
+
+type tlvType166 struct{}
+
+func (t *tlvType166) TypeVal() Type {
+	return 166
+}
+
+func (t *tlvType166) tlv() {}
+
+type TlvType166 = *tlvType166
+
+type tlvType167 struct{}
+
+func (t *tlvType167) TypeVal() Type {
+	return 167
+}
+
+func (t *tlvType167) tlv() {}
+
+type TlvType167 = *tlvType167
+
+type tlvType168 struct{}
+
+func (t *tlvType168) TypeVal() Type {
+	return 168
+}
+
+func (t *tlvType168) tlv() {}
+
+type TlvType168 = *tlvType168
+
+type tlvType169 struct{}
+
+func (t *tlvType169) TypeVal() Type {
+	return 169
+}
+
+func (t *tlvType169) tlv() {}
+
+type TlvType169 = *tlvType169
+
+type tlvType170 struct{}
+
+func (t *tlvType170) TypeVal() Type {
+	return 170
+}
+
+func (t *tlvType170) tlv() {}
+
+type TlvType170 = *tlvType170
+
+type tlvType171 struct{}
+
+func (t *tlvType171) TypeVal() Type {
+	return 171
+}
+
+func (t *tlvType171) tlv() {}
+
+type TlvType171 = *tlvType171
+
+type tlvType172 struct{}
+
+func (t *tlvType172) TypeVal() Type {
+	return 172
+}
+
+func (t *tlvType172) tlv() {}
+
+type TlvType172 = *tlvType172
+
+type tlvType173 struct{}
+
+func (t *tlvType173) TypeVal() Type {
+	return 173
+}
+
+func (t *tlvType173) tlv() {}
+
+type TlvType173 = *tlvType173
+
+type tlvType174 struct{}
+
+func (t *tlvType174) TypeVal() Type {
+	return 174
+}
+
+func (t *tlvType174) tlv() {}
+
+type TlvType174 = *tlvType174
+
+type tlvType175 struct{}
+
+func (t *tlvType175) TypeVal() Type {
+	return 175
+}
+
+func (t *tlvType175) tlv() {}
+
+type TlvType175 = *tlvType175
+
+type tlvType176 struct{}
+
+func (t *tlvType176) TypeVal() Type {
+	return 176
+}
+
+func (t *tlvType176) tlv() {}
+
+type TlvType176 = *tlvType176
+
+type tlvType177 struct{}
+
+func (t *tlvType177) TypeVal() Type {
+	return 177
+}
+
+func (t *tlvType177) tlv() {}
+
+type TlvType177 = *tlvType177
+
+type tlvType178 struct{}
+
+func (t *tlvType178) TypeVal() Type {
+	return 178
+}
+
+func (t *tlvType178) tlv() {}
+
+type TlvType178 = *tlvType178
+
+type tlvType179 struct{}
+
+func (t *tlvType179) TypeVal() Type {
+	return 179
+}
+
+func (t *tlvType179) tlv() {}
+
+type TlvType179 = *tlvType179
+
+type tlvType180 struct{}
+
+func (t *tlvType180) TypeVal() Type {
+	return 180
+}
+
+func (t *tlvType180) tlv() {}
+
+type TlvType180 = *tlvType180
+
+type tlvType181 struct{}
+
+func (t *tlvType181) TypeVal() Type {
+	return 181
+}
+
+func (t *tlvType181) tlv() {}
+
+type TlvType181 = *tlvType181
+
+type tlvType182 struct{}
+
+func (t *tlvType182) TypeVal() Type {
+	return 182
+}
+
+func (t *tlvType182) tlv() {}
+
+type TlvType182 = *tlvType182
+
+type tlvType183 struct{}
+
+func (t *tlvType183) TypeVal() Type {
+	return 183
+}
+
+func (t *tlvType183) tlv() {}
+
+type TlvType183 = *tlvType183
+
+type tlvType184 struct{}
+
+func (t *tlvType184) TypeVal() Type {
+	return 184
+}
+
+func (t *tlvType184) tlv() {}
+
+type TlvType184 = *tlvType184
+
+type tlvType185 struct{}
+
+func (t *tlvType185) TypeVal() Type {
+	return 185
+}
+
+func (t *tlvType185) tlv() {}
+
+type TlvType185 = *tlvType185
+
+type tlvType186 struct{}
+
+func (t *tlvType186) TypeVal() Type {
+	return 186
+}
+
+func (t *tlvType186) tlv() {}
+
+type TlvType186 = *tlvType186
+
+type tlvType187 struct{}
+
+func (t *tlvType187) TypeVal() Type {
+	return 187
+}
+
+func (t *tlvType187) tlv() {}
+
+type TlvType187 = *tlvType187
+
+type tlvType188 struct{}
+
+func (t *tlvType188) TypeVal() Type {
+	return 188
+}
+
+func (t *tlvType188) tlv() {}
+
+type TlvType188 = *tlvType188
+
+type tlvType189 struct{}
+
+func (t *tlvType189) TypeVal() Type {
+	return 189
+}
+
+func (t *tlvType189) tlv() {}
+
+type TlvType189 = *tlvType189
+
+type tlvType190 struct{}
+
+func (t *tlvType190) TypeVal() Type {
+	return 190
+}
+
+func (t *tlvType190) tlv() {}
+
+type TlvType190 = *tlvType190
+
+type tlvType191 struct{}
+
+func (t *tlvType191) TypeVal() Type {
+	return 191
+}
+
+func (t *tlvType191) tlv() {}
+
+type TlvType191 = *tlvType191
+
+type tlvType192 struct{}
+
+func (t *tlvType192) TypeVal() Type {
+	return 192
+}
+
+func (t *tlvType192) tlv() {}
+
+type TlvType192 = *tlvType192
+
+type tlvType193 struct{}
+
+func (t *tlvType193) TypeVal() Type {
+	return 193
+}
+
+func (t *tlvType193) tlv() {}
+
+type TlvType193 = *tlvType193
+
+type tlvType194 struct{}
+
+func (t *tlvType194) TypeVal() Type {
+	return 194
+}
+
+func (t *tlvType194) tlv() {}
+
+type TlvType194 = *tlvType194
+
+type tlvType195 struct{}
+
+func (t *tlvType195) TypeVal() Type {
+	return 195
+}
+
+func (t *tlvType195) tlv() {}
+
+type TlvType195 = *tlvType195
+
+type tlvType196 struct{}
+
+func (t *tlvType196) TypeVal() Type {
+	return 196
+}
+
+func (t *tlvType196) tlv() {}
+
+type TlvType196 = *tlvType196
+
+type tlvType197 struct{}
+
+func (t *tlvType197) TypeVal() Type {
+	return 197
+}
+
+func (t *tlvType197) tlv() {}
+
+type TlvType197 = *tlvType197
+
+type tlvType198 struct{}
+
+func (t *tlvType198) TypeVal() Type {
+	return 198
+}
+
+func (t *tlvType198) tlv() {}
+
+type TlvType198 = *tlvType198
+
+type tlvType199 struct{}
+
+func (t *tlvType199) TypeVal() Type {
+	return 199
+}
+
+func (t *tlvType199) tlv() {}
+
+type TlvType199 = *tlvType199
+
+type tlvType200 struct{}
+
+func (t *tlvType200) TypeVal() Type {
+	return 200
+}
+
+func (t *tlvType200) tlv() {}
+
+type TlvType200 = *tlvType200
+
+type tlvType201 struct{}
+
+func (t *tlvType201) TypeVal() Type {
+	return 201
+}
+
+func (t *tlvType201) tlv() {}
+
+type TlvType201 = *tlvType201
+
+type tlvType202 struct{}
+
+func (t *tlvType202) TypeVal() Type {
+	return 202
+}
+
+func (t *tlvType202) tlv() {}
+
+type TlvType202 = *tlvType202
+
+type tlvType203 struct{}
+
+func (t *tlvType203) TypeVal() Type {
+	return 203
+}
+
+func (t *tlvType203) tlv() {}
+
+type TlvType203 = *tlvType203
+
+type tlvType204 struct{}
+
+func (t *tlvType204) TypeVal() Type {
+	return 204
+}
+
+func (t *tlvType204) tlv() {}
+
+type TlvType204 = *tlvType204
+
+type tlvType205 struct{}
+
+func (t *tlvType205) TypeVal() Type {
+	return 205
+}
+
+func (t *tlvType205) tlv() {}
+
+type TlvType205 = *tlvType205
+
+type tlvType206 struct{}
+
+func (t *tlvType206) TypeVal() Type {
+	return 206
+}
+
+func (t *tlvType206) tlv() {}
+
+type TlvType206 = *tlvType206
+
+type tlvType207 struct{}
+
+func (t *tlvType207) TypeVal() Type {
+	return 207
+}
+
+func (t *tlvType207) tlv() {}
+
+type TlvType207 = *tlvType207
+
+type tlvType208 struct{}
+
+func (t *tlvType208) TypeVal() Type {
+	return 208
+}
+
+func (t *tlvType208) tlv() {}
+
+type TlvType208 = *tlvType208
+
+type tlvType209 struct{}
+
+func (t *tlvType209) TypeVal() Type {
+	return 209
+}
+
+func (t *tlvType209) tlv() {}
+
+type TlvType209 = *tlvType209
+
+type tlvType210 struct{}
+
+func (t *tlvType210) TypeVal() Type {
+	return 210
+}
+
+func (t *tlvType210) tlv() {}
+
+type TlvType210 = *tlvType210
+
+type tlvType211 struct{}
+
+func (t *tlvType211) TypeVal() Type {
+	return 211
+}
+
+func (t *tlvType211) tlv() {}
+
+type TlvType211 = *tlvType211
+
+type tlvType212 struct{}
+
+func (t *tlvType212) TypeVal() Type {
+	return 212
+}
+
+func (t *tlvType212) tlv() {}
+
+type TlvType212 = *tlvType212
+
+type tlvType213 struct{}
+
+func (t *tlvType213) TypeVal() Type {
+	return 213
+}
+
+func (t *tlvType213) tlv() {}
+
+type TlvType213 = *tlvType213
+
+type tlvType214 struct{}
+
+func (t *tlvType214) TypeVal() Type {
+	return 214
+}
+
+func (t *tlvType214) tlv() {}
+
+type TlvType214 = *tlvType214
+
+type tlvType215 struct{}
+
+func (t *tlvType215) TypeVal() Type {
+	return 215
+}
+
+func (t *tlvType215) tlv() {}
+
+type TlvType215 = *tlvType215
+
+type tlvType216 struct{}
+
+func (t *tlvType216) TypeVal() Type {
+	return 216
+}
+
+func (t *tlvType216) tlv() {}
+
+type TlvType216 = *tlvType216
+
+type tlvType217 struct{}
+
+func (t *tlvType217) TypeVal() Type {
+	return 217
+}
+
+func (t *tlvType217) tlv() {}
+
+type TlvType217 = *tlvType217
+
+type tlvType218 struct{}
+
+func (t *tlvType218) TypeVal() Type {
+	return 218
+}
+
+func (t *tlvType218) tlv() {}
+
+type TlvType218 = *tlvType218
+
+type tlvType219 struct{}
+
+func (t *tlvType219) TypeVal() Type {
+	return 219
+}
+
+func (t *tlvType219) tlv() {}
+
+type TlvType219 = *tlvType219
+
+type tlvType220 struct{}
+
+func (t *tlvType220) TypeVal() Type {
+	return 220
+}
+
+func (t *tlvType220) tlv() {}
+
+type TlvType220 = *tlvType220
+
+type tlvType221 struct{}
+
+func (t *tlvType221) TypeVal() Type {
+	return 221
+}
+
+func (t *tlvType221) tlv() {}
+
+type TlvType221 = *tlvType221
+
+type tlvType222 struct{}
+
+func (t *tlvType222) TypeVal() Type {
+	return 222
+}
+
+func (t *tlvType222) tlv() {}
+
+type TlvType222 = *tlvType222
+
+type tlvType223 struct{}
+
+func (t *tlvType223) TypeVal() Type {
+	return 223
+}
+
+func (t *tlvType223) tlv() {}
+
+type TlvType223 = *tlvType223
+
+type tlvType224 struct{}
+
+func (t *tlvType224) TypeVal() Type {
+	return 224
+}
+
+func (t *tlvType224) tlv() {}
+
+type TlvType224 = *tlvType224
+
+type tlvType225 struct{}
+
+func (t *tlvType225) TypeVal() Type {
+	return 225
+}
+
+func (t *tlvType225) tlv() {}
+
+type TlvType225 = *tlvType225
+
+type tlvType226 struct{}
+
+func (t *tlvType226) TypeVal() Type {
+	return 226
+}
+
+func (t *tlvType226) tlv() {}
+
+type TlvType226 = *tlvType226
+
+type tlvType227 struct{}
+
+func (t *tlvType227) TypeVal() Type {
+	return 227
+}
+
+func (t *tlvType227) tlv() {}
+
+type TlvType227 = *tlvType227
+
+type tlvType228 struct{}
+
+func (t *tlvType228) TypeVal() Type {
+	return 228
+}
+
+func (t *tlvType228) tlv() {}
+
+type TlvType228 = *tlvType228
+
+type tlvType229 struct{}
+
+func (t *tlvType229) TypeVal() Type {
+	return 229
+}
+
+func (t *tlvType229) tlv() {}
+
+type TlvType229 = *tlvType229
+
+type tlvType230 struct{}
+
+func (t *tlvType230) TypeVal() Type {
+	return 230
+}
+
+func (t *tlvType230) tlv() {}
+
+type TlvType230 = *tlvType230
+
+type tlvType231 struct{}
+
+func (t *tlvType231) TypeVal() Type {
+	return 231
+}
+
+func (t *tlvType231) tlv() {}
+
+type TlvType231 = *tlvType231
+
+type tlvType232 struct{}
+
+func (t *tlvType232) TypeVal() Type {
+	return 232
+}
+
+func (t *tlvType232) tlv() {}
+
+type TlvType232 = *tlvType232
+
+type tlvType233 struct{}
+
+func (t *tlvType233) TypeVal() Type {
+	return 233
+}
+
+func (t *tlvType233) tlv() {}
+
+type TlvType233 = *tlvType233
+
+type tlvType234 struct{}
+
+func (t *tlvType234) TypeVal() Type {
+	return 234
+}
+
+func (t *tlvType234) tlv() {}
+
+type TlvType234 = *tlvType234
+
+type tlvType235 struct{}
+
+func (t *tlvType235) TypeVal() Type {
+	return 235
+}
+
+func (t *tlvType235) tlv() {}
+
+type TlvType235 = *tlvType235
+
+type tlvType236 struct{}
+
+func (t *tlvType236) TypeVal() Type {
+	return 236
+}
+
+func (t *tlvType236) tlv() {}
+
+type TlvType236 = *tlvType236
+
+type tlvType237 struct{}
+
+func (t *tlvType237) TypeVal() Type {
+	return 237
+}
+
+func (t *tlvType237) tlv() {}
+
+type TlvType237 = *tlvType237
+
+type tlvType238 struct{}
+
+func (t *tlvType238) TypeVal() Type {
+	return 238
+}
+
+func (t *tlvType238) tlv() {}
+
+type TlvType238 = *tlvType238
+
+type tlvType239 struct{}
+
+func (t *tlvType239) TypeVal() Type {
+	return 239
+}
+
+func (t *tlvType239) tlv() {}
+
+type TlvType239 = *tlvType239
+
+type tlvType240 struct{}
+
+func (t *tlvType240) TypeVal() Type {
+	return 240
+}
+
+func (t *tlvType240) tlv() {}
+
+type TlvType240 = *tlvType240
+
+type tlvType241 struct{}
+
+func (t *tlvType241) TypeVal() Type {
+	return 241
+}
+
+func (t *tlvType241) tlv() {}
+
+type TlvType241 = *tlvType241
+
+type tlvType242 struct{}
+
+func (t *tlvType242) TypeVal() Type {
+	return 242
+}
+
+func (t *tlvType242) tlv() {}
+
+type TlvType242 = *tlvType242
+
+type tlvType243 struct{}
+
+func (t *tlvType243) TypeVal() Type {
+	return 243
+}
+
+func (t *tlvType243) tlv() {}
+
+type TlvType243 = *tlvType243
+
+type tlvType244 struct{}
+
+func (t *tlvType244) TypeVal() Type {
+	return 244
+}
+
+func (t *tlvType244) tlv() {}
+
+type TlvType244 = *tlvType244
+
+type tlvType245 struct{}
+
+func (t *tlvType245) TypeVal() Type {
+	return 245
+}
+
+func (t *tlvType245) tlv() {}
+
+type TlvType245 = *tlvType245
+
+type tlvType246 struct{}
+
+func (t *tlvType246) TypeVal() Type {
+	return 246
+}
+
+func (t *tlvType246) tlv() {}
+
+type TlvType246 = *tlvType246
+
+type tlvType247 struct{}
+
+func (t *tlvType247) TypeVal() Type {
+	return 247
+}
+
+func (t *tlvType247) tlv() {}
+
+type TlvType247 = *tlvType247
+
+type tlvType248 struct{}
+
+func (t *tlvType248) TypeVal() Type {
+	return 248
+}
+
+func (t *tlvType248) tlv() {}
+
+type TlvType248 = *tlvType248
+
+type tlvType249 struct{}
+
+func (t *tlvType249) TypeVal() Type {
+	return 249
+}
+
+func (t *tlvType249) tlv() {}
+
+type TlvType249 = *tlvType249
+
+type tlvType250 struct{}
+
+func (t *tlvType250) TypeVal() Type {
+	return 250
+}
+
+func (t *tlvType250) tlv() {}
+
+type TlvType250 = *tlvType250
+
+type tlvType251 struct{}
+
+func (t *tlvType251) TypeVal() Type {
+	return 251
+}
+
+func (t *tlvType251) tlv() {}
+
+type TlvType251 = *tlvType251
+
+type tlvType252 struct{}
+
+func (t *tlvType252) TypeVal() Type {
+	return 252
+}
+
+func (t *tlvType252) tlv() {}
+
+type TlvType252 = *tlvType252
+
+type tlvType253 struct{}
+
+func (t *tlvType253) TypeVal() Type {
+	return 253
+}
+
+func (t *tlvType253) tlv() {}
+
+type TlvType253 = *tlvType253
+
+type tlvType254 struct{}
+
+func (t *tlvType254) TypeVal() Type {
+	return 254
+}
+
+func (t *tlvType254) tlv() {}
+
+type TlvType254 = *tlvType254
+
+type tlvType255 struct{}
+
+func (t *tlvType255) TypeVal() Type {
+	return 255
+}
+
+func (t *tlvType255) tlv() {}
+
+type TlvType255 = *tlvType255
+
+type tlvType256 struct{}
+
+func (t *tlvType256) TypeVal() Type {
+	return 256
+}
+
+func (t *tlvType256) tlv() {}
+
+type TlvType256 = *tlvType256
+
+type tlvType257 struct{}
+
+func (t *tlvType257) TypeVal() Type {
+	return 257
+}
+
+func (t *tlvType257) tlv() {}
+
+type TlvType257 = *tlvType257
+
+type tlvType258 struct{}
+
+func (t *tlvType258) TypeVal() Type {
+	return 258
+}
+
+func (t *tlvType258) tlv() {}
+
+type TlvType258 = *tlvType258
+
+type tlvType259 struct{}
+
+func (t *tlvType259) TypeVal() Type {
+	return 259
+}
+
+func (t *tlvType259) tlv() {}
+
+type TlvType259 = *tlvType259
+
+type tlvType260 struct{}
+
+func (t *tlvType260) TypeVal() Type {
+	return 260
+}
+
+func (t *tlvType260) tlv() {}
+
+type TlvType260 = *tlvType260
+
 type tlvType65536 struct{}
 
 func (t *tlvType65536) TypeVal() Type {

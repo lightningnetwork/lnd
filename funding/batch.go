@@ -30,6 +30,19 @@ var (
 	emptyChannelID = [32]byte{}
 )
 
+// errorBatchChannel represents an error that occurred during the channel
+// opening interaction with the peer.
+type errorBatchChannel struct {
+	peer []byte
+	err  error
+}
+
+// Error implements the error interface for errorBatchChannel.
+func (e *errorBatchChannel) Error() string {
+	return fmt.Sprintf("batch channel error while interacting with "+
+		"peer(%x): %v", e.peer, e.err)
+}
+
 // batchChannel is a struct that keeps track of a single channel's state within
 // the batch funding process.
 type batchChannel struct {
@@ -48,13 +61,20 @@ type batchChannel struct {
 func (c *batchChannel) processPsbtUpdate(u *lnrpc.OpenStatusUpdate) error {
 	psbtUpdate := u.GetPsbtFund()
 	if psbtUpdate == nil {
-		return fmt.Errorf("got unexpected channel update %v", u.Update)
+		return &errorBatchChannel{
+			peer: c.fundingReq.TargetPubkey.SerializeCompressed(),
+			err: fmt.Errorf("got unexpected channel update %v",
+				u.Update),
+		}
 	}
 
 	if psbtUpdate.FundingAmount != int64(c.fundingReq.LocalFundingAmt) {
-		return fmt.Errorf("got unexpected funding amount %d, wanted "+
-			"%d", psbtUpdate.FundingAmount,
-			c.fundingReq.LocalFundingAmt)
+		return &errorBatchChannel{
+			peer: c.fundingReq.TargetPubkey.SerializeCompressed(),
+			err: fmt.Errorf("got unexpected funding amount %d, "+
+				"wanted %d", psbtUpdate.FundingAmount,
+				c.fundingReq.LocalFundingAmt),
+		}
 	}
 
 	c.fundingAddr = psbtUpdate.FundingAddress
@@ -67,12 +87,21 @@ func (c *batchChannel) processPsbtUpdate(u *lnrpc.OpenStatusUpdate) error {
 func (c *batchChannel) processPendingUpdate(u *lnrpc.OpenStatusUpdate) error {
 	pendingUpd := u.GetChanPending()
 	if pendingUpd == nil {
-		return fmt.Errorf("got unexpected channel update %v", u.Update)
+		return &errorBatchChannel{
+			peer: c.fundingReq.TargetPubkey.SerializeCompressed(),
+			err: fmt.Errorf("got unexpected channel update %v",
+				u.Update),
+		}
 	}
 
 	hash, err := chainhash.NewHash(pendingUpd.Txid)
 	if err != nil {
-		return fmt.Errorf("could not parse outpoint TX hash: %w", err)
+		return &errorBatchChannel{
+			peer: c.fundingReq.TargetPubkey.SerializeCompressed(),
+			err: fmt.Errorf("could not parse outpoint TX hash: %w",
+				err),
+		}
+
 	}
 
 	c.chanPoint = &wire.OutPoint{
@@ -458,7 +487,11 @@ func (b *Batcher) waitForUpdate(channel *batchChannel, firstUpdate bool) error {
 		log.Errorf("unable to open channel to NodeKey(%x): %v",
 			channel.fundingReq.TargetPubkey.SerializeCompressed(),
 			err)
-		return err
+		return &errorBatchChannel{
+			peer: channel.fundingReq.TargetPubkey.
+				SerializeCompressed(),
+			err: err,
+		}
 
 	// Otherwise, wait for the next channel update. The first update sent
 	// must be the signal to start the PSBT funding in our case since we

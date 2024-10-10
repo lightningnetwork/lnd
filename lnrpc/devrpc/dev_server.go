@@ -262,7 +262,7 @@ func (s *Server) ImportGraph(ctx context.Context,
 	for _, rpcEdge := range graph.Edges {
 		rpcEdge := rpcEdge
 
-		edge := &models.ChannelEdgeInfo{
+		edge := &models.ChannelEdgeInfo1{
 			ChannelID: rpcEdge.ChannelId,
 			ChainHash: *s.cfg.ActiveNetParams.GenesisHash,
 			Capacity:  btcutil.Amount(rpcEdge.Capacity),
@@ -289,8 +289,8 @@ func (s *Server) ImportGraph(ctx context.Context,
 				rpcEdge.ChanPoint, err)
 		}
 
-		makePolicy := func(rpcPolicy *lnrpc.RoutingPolicy) *models.ChannelEdgePolicy { //nolint:lll
-			policy := &models.ChannelEdgePolicy{
+		makePolicy := func(rpcPolicy *lnrpc.RoutingPolicy) *models.ChannelEdgePolicy1 { //nolint:lll
+			policy := &models.ChannelEdgePolicy1{
 				ChannelID: rpcEdge.ChannelId,
 				LastUpdate: time.Unix(
 					int64(rpcPolicy.LastUpdate), 0,

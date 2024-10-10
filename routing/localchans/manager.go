@@ -32,8 +32,8 @@ type Manager struct {
 	// ForAllOutgoingChannels is required to iterate over all our local
 	// channels.
 	ForAllOutgoingChannels func(cb func(kvdb.RTx,
-		*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy) error) error
+		*models.ChannelEdgeInfo1,
+		*models.ChannelEdgePolicy1) error) error
 
 	// FetchChannel is used to query local channel parameters. Optionally an
 	// existing db tx can be supplied.
@@ -74,8 +74,8 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 	// otherwise we'll collect them all.
 	err := r.ForAllOutgoingChannels(func(
 		tx kvdb.RTx,
-		info *models.ChannelEdgeInfo,
-		edge *models.ChannelEdgePolicy) error {
+		info *models.ChannelEdgeInfo1,
+		edge *models.ChannelEdgePolicy1) error {
 
 		// If we have a channel filter, and this channel isn't a part
 		// of it, then we'll skip it.
@@ -182,7 +182,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 
 // updateEdge updates the given edge with the new schema.
 func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
-	edge *models.ChannelEdgePolicy,
+	edge *models.ChannelEdgePolicy1,
 	newSchema routing.ChannelPolicy) error {
 
 	// Update forwarding fee scheme and required time lock delta.

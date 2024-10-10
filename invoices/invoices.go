@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -419,6 +420,14 @@ type Invoice struct {
 	// HodlInvoice indicates whether the invoice should be held in the
 	// Accepted state or be settled right away.
 	HodlInvoice bool
+
+	// BlindedPaths is a map from an incoming blinding key to the associated
+	// blinded path info. An invoice may contain multiple blinded paths but
+	// each one will have a unique session key and thus a unique final
+	// ephemeral key. One receipt of a payment along a blinded path, we can
+	// use the incoming blinding key to thus identify which blinded path in
+	// the invoice was used.
+	BlindedPaths models.BlindedPathsInfo
 }
 
 // HTLCSet returns the set of HTLCs belonging to setID and in the provided
@@ -837,8 +846,9 @@ func CopyInvoice(src *Invoice) (*Invoice, error) {
 		Htlcs: make(
 			map[CircuitKey]*InvoiceHTLC, len(src.Htlcs),
 		),
-		AMPState:    make(map[SetID]InvoiceStateAMP),
-		HodlInvoice: src.HodlInvoice,
+		AMPState:     make(map[SetID]InvoiceStateAMP),
+		BlindedPaths: make(models.BlindedPathsInfo),
+		HodlInvoice:  src.HodlInvoice,
 	}
 
 	dest.Terms.Features = src.Terms.Features.Clone()
@@ -852,7 +862,7 @@ func CopyInvoice(src *Invoice) (*Invoice, error) {
 		dest.Htlcs[k] = v.Copy()
 	}
 
-	// Lastly, copy the amp invoice state.
+	// Copy the amp invoice state.
 	for k, v := range src.AMPState {
 		ampInvState, err := v.copy()
 		if err != nil {
@@ -860,6 +870,13 @@ func CopyInvoice(src *Invoice) (*Invoice, error) {
 		}
 
 		dest.AMPState[k] = ampInvState
+	}
+
+	// Lastly, copy the blinded path info.
+	for k, info := range src.BlindedPaths {
+		info := info.Copy()
+
+		dest.BlindedPaths[k] = info
 	}
 
 	return &dest, nil

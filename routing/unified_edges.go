@@ -82,7 +82,7 @@ func (u *nodeEdgeUnifier) addPolicy(fromNode route.Vertex,
 		return
 	}
 
-	// Zero inbound fee for exit hops.
+	// Zero inbound fee for exit Hops.
 	if !u.useInboundFees {
 		inboundFee = models.InboundFee{}
 	}
@@ -106,7 +106,7 @@ func (u *nodeEdgeUnifier) addGraphPolicies(g Graph) error {
 		// Add this policy to the corresponding edgeUnifier. We default
 		// to the clear hop payload size function because
 		// `addGraphPolicies` is only used for cleartext intermediate
-		// hops in a route.
+		// Hops in a route.
 		inboundFee := models.NewInboundFeeFromWire(
 			channel.InboundFee,
 		)
@@ -132,8 +132,8 @@ type unifiedEdge struct {
 
 	// hopPayloadSize supplies an edge with the ability to calculate the
 	// exact payload size if this edge would be included in a route. This
-	// is needed because hops of a blinded path differ in their payload
-	// structure compared to cleartext hops.
+	// is needed because Hops of a blinded path differ in their payload
+	// structure compared to cleartext Hops.
 	hopPayloadSizeFn PayloadSizeFunc
 
 	// blindedPayment if set, is the BlindedPayment that this edge was

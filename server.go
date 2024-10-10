@@ -578,18 +578,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	invoiceHtlcModifier := invoices.NewHtlcModificationInterceptor()
-	registryConfig := invoices.RegistryConfig{
-		FinalCltvRejectDelta:        lncfg.DefaultFinalCltvRejectDelta,
-		HtlcHoldDuration:            invoices.DefaultHtlcHoldDuration,
-		Clock:                       clock.NewDefaultClock(),
-		AcceptKeySend:               cfg.AcceptKeySend,
-		AcceptAMP:                   cfg.AcceptAMP,
-		GcCanceledInvoicesOnStartup: cfg.GcCanceledInvoicesOnStartup,
-		GcCanceledInvoicesOnTheFly:  cfg.GcCanceledInvoicesOnTheFly,
-		KeysendHoldTime:             cfg.KeysendHoldTime,
-		HtlcInterceptor:             invoiceHtlcModifier,
-	}
-
 	s := &server{
 		cfg:            cfg,
 		implCfg:        implCfg,
@@ -650,14 +638,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	if err != nil {
 		return nil, err
 	}
-
-	expiryWatcher := invoices.NewInvoiceExpiryWatcher(
-		clock.NewDefaultClock(), cfg.Invoices.HoldExpiryDelta,
-		uint32(currentHeight), currentHash, cc.ChainNotifier,
-	)
-	s.invoices = invoices.NewRegistry(
-		dbs.InvoiceDB, expiryWatcher, &registryConfig,
-	)
 
 	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
 
@@ -984,6 +964,35 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, fmt.Errorf("can't create mission control in the "+
 			"default namespace: %w", err)
 	}
+
+	blindedPathMC, err := s.missionController.GetNamespacedStore(
+		routing.BlindedPathMissionControlNamespace,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("can't create mission control in the "+
+			"blinded path namespace: %w", err)
+	}
+
+	registryConfig := invoices.RegistryConfig{
+		FinalCltvRejectDelta:        lncfg.DefaultFinalCltvRejectDelta,
+		HtlcHoldDuration:            invoices.DefaultHtlcHoldDuration,
+		Clock:                       clock.NewDefaultClock(),
+		AcceptKeySend:               cfg.AcceptKeySend,
+		AcceptAMP:                   cfg.AcceptAMP,
+		GcCanceledInvoicesOnStartup: cfg.GcCanceledInvoicesOnStartup,
+		GcCanceledInvoicesOnTheFly:  cfg.GcCanceledInvoicesOnTheFly,
+		KeysendHoldTime:             cfg.KeysendHoldTime,
+		HtlcInterceptor:             invoiceHtlcModifier,
+		ReportBlindedPathReceive:    blindedPathMC.ReportPaymentSuccess,
+	}
+
+	expiryWatcher := invoices.NewInvoiceExpiryWatcher(
+		clock.NewDefaultClock(), cfg.Invoices.HoldExpiryDelta,
+		uint32(currentHeight), currentHash, cc.ChainNotifier,
+	)
+	s.invoices = invoices.NewRegistry(
+		dbs.InvoiceDB, expiryWatcher, &registryConfig,
+	)
 
 	srvrLog.Debugf("Instantiating payment session source with config: "+
 		"AttemptCost=%v + %v%%, MinRouteProbability=%v",

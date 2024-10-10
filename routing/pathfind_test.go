@@ -1250,7 +1250,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	path, err := find(noRestrictions)
 	require.NoError(t, err, "unable to find private path to doge")
 
-	// The path should represent the following hops:
+	// The path should represent the following Hops:
 	//	roasbeef -> songoku -> doge
 	assertExpectedPath(t, graph.aliasMap, path, "songoku", "doge")
 
@@ -1355,12 +1355,12 @@ func TestNewRoute(t *testing.T) {
 		// name identifies the test case in the test output.
 		name string
 
-		// hops is the list of hops (the route) that gets passed into
+		// Hops is the list of Hops (the route) that gets passed into
 		// the call to newRoute.
 		hops []*models.CachedEdgePolicy
 
 		// paymentAmount is the amount that is send into the route
-		// indicated by hops.
+		// indicated by Hops.
 		paymentAmount lnwire.MilliSatoshi
 
 		// destFeatures is a feature vector, that if non-nil, will
@@ -1384,7 +1384,7 @@ func TestNewRoute(t *testing.T) {
 
 		// expectedTotalAmount is the total amount that is expected to
 		// be returned from newRoute. This amount should include all
-		// the fees to be paid to intermediate hops.
+		// the fees to be paid to intermediate Hops.
 		expectedTotalAmount lnwire.MilliSatoshi
 
 		// expectedTotalTimeLock is the time lock that is expected to
@@ -1617,7 +1617,7 @@ func TestNewRoute(t *testing.T) {
 func runNewRoutePathTooLong(t *testing.T, useCache bool) {
 	var testChannels []*testChannel
 
-	// Setup a linear network of 26 hops.
+	// Setup a linear network of 26 Hops.
 	fromNode := "start"
 	for i := 0; i < 26; i++ {
 		toNode := fmt.Sprintf("node-%v", i+1)
@@ -1820,7 +1820,7 @@ func runMissingFeatureDep(t *testing.T, useCache bool) {
 	// destination features are set properly from the previous assertions,
 	// but conner's feature vector in the graph is still broken. We expect
 	// errNoPathFound and not the missing feature dep err above since
-	// intermediate hops are simply skipped if they have invalid feature
+	// intermediate Hops are simply skipped if they have invalid feature
 	// vectors, leaving no possible route to joost.
 	_, err = ctx.findPath(joost, 100)
 	if err != errNoPathFound {
@@ -1881,7 +1881,7 @@ func runUnknownRequiredFeatures(t *testing.T, useCache bool) {
 	// Now, try to find a route to joost through conner. The destination
 	// features are valid, but conner's feature vector in the graph still
 	// requires feature 100. We expect errNoPathFound and not the error
-	// above since intermediate hops are simply skipped if they have invalid
+	// above since intermediate Hops are simply skipped if they have invalid
 	// feature vectors, leaving no possible route to joost. This asserts
 	// that we don't try to route _through_ nodes with unknown required
 	// features.
@@ -1989,7 +1989,7 @@ func runRouteFailMaxHTLC(t *testing.T, useCache bool) {
 	// Set up a test graph:
 	// roasbeef <--> firstHop <--> secondHop <--> target
 	// We will be adjusting the max HTLC of the edge between the first and
-	// second hops.
+	// second Hops.
 	var firstToSecondID uint64 = 1
 	testChannels := []*testChannel{
 		symmetricTestChannel("roasbeef", "first", 100000, &testChannelPolicy{
@@ -2230,7 +2230,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Now we'll examine the route returned for correctness.
 	//
 	// It should be sending the exact payment amount as there are no
-	// additional hops.
+	// additional Hops.
 	require.Equal(t, amt, route.TotalAmount)
 	require.Equal(t, amt, route.Hops[0].AmtToForward)
 	require.Zero(t, route.HopFee(0))
@@ -2254,7 +2254,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	route, _, err = ctx.router.FindRoute(req)
 	require.NoError(t, err, "unable to find routes")
 
-	// The route should be two hops.
+	// The route should be two Hops.
 	require.Len(t, route.Hops, 2)
 
 	// The total amount should factor in a fee of 10199 and also use a CLTV
@@ -2265,7 +2265,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	expectedDelta := uint32(20 + MinCLTVDelta)
 	require.Equal(t, startingHeight+expectedDelta, route.TotalTimeLock)
 
-	// Ensure that the hops of the route are properly crafted.
+	// Ensure that the Hops of the route are properly crafted.
 	//
 	// After taking the fee, Bob should be forwarding the remainder which
 	// is the exact payment to Bob.
@@ -2451,7 +2451,7 @@ func testCltvLimit(t *testing.T, useCache bool, limit uint32,
 	// Set up a test graph with three possible paths to the target. The path
 	// through a is the lowest cost with a high time lock (144). The path
 	// through b has a higher cost but a lower time lock (100). That path
-	// through c and d (two hops) has the same case as the path through b,
+	// through c and d (two Hops) has the same case as the path through b,
 	// but the total time lock is lower (60).
 	testChannels := []*testChannel{
 		symmetricTestChannel("roasbeef", "a", 100000, &testChannelPolicy{}, 1),
@@ -3660,7 +3660,7 @@ func TestFindBlindedPaths(t *testing.T) {
 		"charlie,dave",
 	})
 
-	// 2) Extend the search to include 2 hops other than the destination.
+	// 2) Extend the search to include 2 Hops other than the destination.
 	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
 		minNumHops: 1,
 		maxNumHops: 2,

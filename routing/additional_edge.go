@@ -71,7 +71,7 @@ func (p *PrivateEdge) BlindedPayment() *BlindedPayment {
 	return nil
 }
 
-// BlindedEdge implements the AdditionalEdge interface. Blinded hops are viewed
+// BlindedEdge implements the AdditionalEdge interface. Blinded Hops are viewed
 // as additional edges because they are appended at the end of a normal route.
 type BlindedEdge struct {
 	policy *models.CachedEdgePolicy

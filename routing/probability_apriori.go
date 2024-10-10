@@ -127,9 +127,9 @@ func DefaultAprioriConfig() AprioriConfig {
 
 // AprioriEstimator returns node and pair probabilities based on historical
 // payment results. It uses a preconfigured success probability value for
-// untried hops (AprioriHopProbability) and returns a high success probability
-// for hops that could previously conduct a payment (prevSuccessProbability).
-// Successful edges are retried until proven otherwise. Recently failed hops are
+// untried Hops (AprioriHopProbability) and returns a high success probability
+// for Hops that could previously conduct a payment (prevSuccessProbability).
+// Successful edges are retried until proven otherwise. Recently failed Hops are
 // penalized by an exponential time decay (PenaltyHalfLife), after which they
 // are reconsidered for routing. If information was learned about a forwarding
 // node, the information is taken into account to estimate a per node

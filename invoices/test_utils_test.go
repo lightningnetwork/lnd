@@ -46,6 +46,10 @@ func (p *mockPayload) PathID() *chainhash.Hash {
 	return p.pathID
 }
 
+func (p *mockPayload) BlindingPoint() *btcec.PublicKey {
+	return nil
+}
+
 func (p *mockPayload) TotalAmtMsat() lnwire.MilliSatoshi {
 	return p.totalAmtMsat
 }

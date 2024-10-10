@@ -28,7 +28,7 @@ func TestBlindedPathValidation(t *testing.T) {
 			err:     ErrNoBlindedPath,
 		},
 		{
-			name: "insufficient hops",
+			name: "insufficient Hops",
 			payment: &BlindedPayment{
 				BlindedPath: &sphinx.BlindedPath{
 					BlindedHops: []*sphinx.BlindedHopInfo{},
@@ -133,7 +133,7 @@ func TestBlindedPaymentToHints(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, hints)
 
-	// Populate the blinded payment with hops.
+	// Populate the blinded payment with Hops.
 	blindedPayment.BlindedPath.BlindedHops = []*sphinx.BlindedHopInfo{
 		{
 			BlindedNodePub: pkb1,

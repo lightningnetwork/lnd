@@ -174,13 +174,13 @@ type MissionControlQuerier interface {
 	// input for future probability estimates. It returns a bool indicating
 	// whether this error is a final error and no further payment attempts
 	// need to be made.
-	ReportPaymentFail(attemptID uint64, rt *route.Route,
+	ReportPaymentFail(attemptID uint64, rt *models.MCRoute,
 		failureSourceIdx *int, failure lnwire.FailureMessage) (
 		*channeldb.FailureReason, error)
 
 	// ReportPaymentSuccess reports a successful payment to mission control
 	// as input for future probability estimates.
-	ReportPaymentSuccess(attemptID uint64, rt *route.Route) error
+	ReportPaymentSuccess(attemptID uint64, rt *models.MCRoute) error
 
 	// GetProbability is expected to return the success probability of a
 	// payment from fromNode along edge.
@@ -592,16 +592,16 @@ type probabilitySource func(route.Vertex, route.Vertex, lnwire.MilliSatoshi,
 // choosing a set of blinded paths to this node.
 type BlindedPathRestrictions struct {
 	// MinDistanceFromIntroNode is the minimum number of _real_ (non-dummy)
-	// hops to include in a blinded path. Since we post-fix dummy hops, this
+	// Hops to include in a blinded path. Since we post-fix dummy Hops, this
 	// is the minimum distance between our node and the introduction node
 	// of the path. This doesn't include our node, so if the minimum is 1,
 	// then the path will contain at minimum our node along with an
 	// introduction node hop.
 	MinDistanceFromIntroNode uint8
 
-	// NumHops is the number of hops that each blinded path should consist
-	// of. If paths are found with a number of hops less that NumHops, then
-	// dummy hops will be padded on to the route. This value doesn't
+	// NumHops is the number of Hops that each blinded path should consist
+	// of. If paths are found with a number of Hops less that NumHops, then
+	// dummy Hops will be padded on to the route. This value doesn't
 	// include our node, so if the maximum is 1, then the path will contain
 	// our node along with an introduction node hop.
 	NumHops uint8
@@ -659,7 +659,7 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 			totalRouteProbability = float64(1)
 		)
 
-		// For each set of hops on the path, get the success probability
+		// For each set of Hops on the path, get the success probability
 		// of a forward between those two vertices and use that to
 		// update the overall route probability.
 		for j := 1; j < len(path); j++ {
@@ -829,7 +829,7 @@ type LightningPayment struct {
 
 	// RouteHints represents the different routing hints that can be used to
 	// assist a payment in reaching its destination successfully. These
-	// hints will act as intermediate hops along the route.
+	// hints will act as intermediate Hops along the route.
 	//
 	// NOTE: This is optional unless required by the payment. When providing
 	// multiple routes, ensure the hop hints within each route are chained
@@ -1659,7 +1659,7 @@ func getEdgeUnifiers(source route.Vertex, hops []route.Vertex,
 	// Allocate a list that will contain the edge unifiers for this route.
 	unifiers := make([]*edgeUnifier, len(hops))
 
-	// Traverse hops backwards to accumulate fees in the running amounts.
+	// Traverse Hops backwards to accumulate fees in the running amounts.
 	for i := len(hops) - 1; i >= 0; i-- {
 		toNode := hops[i]
 

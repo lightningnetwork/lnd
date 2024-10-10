@@ -32,7 +32,7 @@ require (
 	github.com/kkdai/bstream v1.0.0
 	github.com/lightninglabs/neutrino v0.16.1-0.20240425105051-602843d34ffd
 	github.com/lightninglabs/neutrino/cache v1.1.2
-	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb
+	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240815225420-8b40adf04ab9
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn v1.2.1
@@ -204,6 +204,8 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display
+
+replace github.com/lightningnetwork/lnd/sqldb => github.com/ellemouton/lnd/sqldb v0.0.0-20240909090537-0ec3cf6accd0
 
 // If you change this please also update .github/pull_request_template.md,
 // docs/INSTALL.md and GO_IMAGE in lnrpc/gen_protos_docker.sh.

@@ -109,22 +109,23 @@ const (
 	// prevents against the database being rolled back to an older
 	// format where the surrounding logic might assume a different set of
 	// fields are known.
-	memoType            tlv.Type = 0
-	payReqType          tlv.Type = 1
-	createTimeType      tlv.Type = 2
-	settleTimeType      tlv.Type = 3
-	addIndexType        tlv.Type = 4
-	settleIndexType     tlv.Type = 5
-	preimageType        tlv.Type = 6
-	valueType           tlv.Type = 7
-	cltvDeltaType       tlv.Type = 8
-	expiryType          tlv.Type = 9
-	paymentAddrType     tlv.Type = 10
-	featuresType        tlv.Type = 11
-	invStateType        tlv.Type = 12
-	amtPaidType         tlv.Type = 13
-	hodlInvoiceType     tlv.Type = 14
-	invoiceAmpStateType tlv.Type = 15
+	memoType             tlv.Type = 0
+	payReqType           tlv.Type = 1
+	createTimeType       tlv.Type = 2
+	settleTimeType       tlv.Type = 3
+	addIndexType         tlv.Type = 4
+	settleIndexType      tlv.Type = 5
+	preimageType         tlv.Type = 6
+	valueType            tlv.Type = 7
+	cltvDeltaType        tlv.Type = 8
+	expiryType           tlv.Type = 9
+	paymentAddrType      tlv.Type = 10
+	featuresType         tlv.Type = 11
+	invStateType         tlv.Type = 12
+	amtPaidType          tlv.Type = 13
+	hodlInvoiceType      tlv.Type = 14
+	invoiceAmpStateType  tlv.Type = 15
+	blindedPathsInfoType tlv.Type = 16
 
 	// A set of tlv type definitions used to serialize the invoice AMP
 	// state along-side the main invoice body.
@@ -1182,6 +1183,26 @@ func putInvoice(invoices, invoiceIndex, payAddrIndex, addIndex kvdb.RwBucket,
 	return nextAddSeqNo, nil
 }
 
+func blindedPathMapRecordSize(a models.BlindedPathsInfo) func() uint64 {
+	var (
+		b   bytes.Buffer
+		buf [8]byte
+	)
+
+	// We know that encoding works since the tests pass in the build this
+	// file is checked into, so we'll simplify things and simply encode it
+	// ourselves then report the total amount of bytes used.
+	if err := models.BlindedPathInfoEncoder(&b, a, &buf); err != nil {
+		// This should never error out, but we log it just in case it
+		// does.
+		log.Errorf("encoding the blinded path map failed: %v", err)
+	}
+
+	return func() uint64 {
+		return uint64(len(b.Bytes()))
+	}
+}
+
 // recordSize returns the amount of bytes this TLV record will occupy when
 // encoded.
 func ampRecordSize(a *invpkg.AMPInvoiceState) func() uint64 {
@@ -1276,6 +1297,14 @@ func serializeInvoice(w io.Writer, i *invpkg.Invoice) error {
 			invoiceAmpStateType, &i.AMPState,
 			ampRecordSize(&i.AMPState),
 			ampStateEncoder, ampStateDecoder,
+		),
+
+		// Blinded Path info.
+		tlv.MakeDynamicRecord(
+			blindedPathsInfoType, &i.BlindedPaths,
+			blindedPathMapRecordSize(i.BlindedPaths),
+			models.BlindedPathInfoEncoder,
+			models.BlindedPathInfoDecoder,
 		),
 	)
 	if err != nil {
@@ -1644,6 +1673,7 @@ func deserializeInvoice(r io.Reader) (invpkg.Invoice, error) {
 
 	var i invpkg.Invoice
 	i.AMPState = make(invpkg.AMPInvoiceState)
+	i.BlindedPaths = make(models.BlindedPathsInfo)
 	tlvStream, err := tlv.NewStream(
 		// Memo and payreq.
 		tlv.MakePrimitiveRecord(memoType, &i.Memo),
@@ -1673,6 +1703,13 @@ func deserializeInvoice(r io.Reader) (invpkg.Invoice, error) {
 		tlv.MakeDynamicRecord(
 			invoiceAmpStateType, &i.AMPState, nil,
 			ampStateEncoder, ampStateDecoder,
+		),
+
+		// Blinded Path info.
+		tlv.MakeDynamicRecord(
+			blindedPathsInfoType, &i.BlindedPaths, nil,
+			models.BlindedPathInfoEncoder,
+			models.BlindedPathInfoDecoder,
 		),
 	)
 	if err != nil {

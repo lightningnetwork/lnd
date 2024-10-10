@@ -8,11 +8,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 var (
@@ -78,6 +80,11 @@ type RegistryConfig struct {
 	// HtlcInterceptor is an interface that allows the invoice registry to
 	// let clients intercept invoices before they are settled.
 	HtlcInterceptor HtlcInterceptor
+
+	// ReportBlindedPathReceive can be used to indicate the successful
+	// receive along a chosen blinded path.
+	ReportBlindedPathReceive func(invoiceAddIndex uint64,
+		rt *models.MCRoute) error
 }
 
 // htlcReleaseEvent describes an htlc auto-release event. It is used to release
@@ -937,6 +944,7 @@ func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 		metadata:             payload.Metadata(),
 		pathID:               payload.PathID(),
 		totalAmtMsat:         payload.TotalAmtMsat(),
+		blindingPoint:        payload.BlindingPoint(),
 	}
 
 	switch {
@@ -1080,8 +1088,12 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	var (
 		resolution        HtlcResolution
 		updateSubscribers bool
+		blindedPath       *models.BlindedPathInfo
+		addIndex          uint64
 	)
 	callback := func(inv *Invoice) (*InvoiceUpdateDesc, error) {
+		addIndex = inv.AddIndex
+
 		updateDesc, res, err := updateInvoice(ctx, inv)
 		if err != nil {
 			return nil, err
@@ -1093,6 +1105,24 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 
 		// Assign resolution to outer scope variable.
 		resolution = res
+
+		if ctx.blindingPoint == nil {
+			return updateDesc, nil
+		}
+
+		// If this invoice was created before we started persisting the
+		// blinded path info for an invoice, exit.
+		if inv.BlindedPaths == nil {
+			return updateDesc, nil
+		}
+
+		path, ok := inv.BlindedPaths[route.NewVertex(ctx.blindingPoint)]
+		if !ok {
+			return nil, fmt.Errorf("expected a blinding path " +
+				"matching the received ephemeral key")
+		}
+
+		blindedPath = path
 
 		return updateDesc, nil
 	}
@@ -1129,6 +1159,18 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	default:
 		ctx.log(err.Error())
 		return nil, nil, err
+	}
+
+	if blindedPath != nil {
+		// Regardless of what we will do with the HTLC, we want to
+		// report to mission control that the blinded path route it
+		// chose successfully reached us.
+		err = i.cfg.ReportBlindedPathReceive(
+			addIndex, blindedPath.Route,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	var invoiceToExpire invoiceExpiry

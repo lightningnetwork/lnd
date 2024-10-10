@@ -20,7 +20,7 @@ type nodeWithDist struct {
 
 	// netAmountReceived is the amount that should be received by this node.
 	// Either as final payment to the final node or as an intermediate
-	// amount that includes also the fees for subsequent hops. This node's
+	// amount that includes also the fees for subsequent Hops. This node's
 	// inbound fee is already subtracted from the htlc amount - if
 	// applicable.
 	netAmountReceived lnwire.MilliSatoshi

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -114,6 +115,10 @@ type Payload interface {
 	// TotalAmtMsat returns the total amount sent to the final hop, as set
 	// by the payee.
 	TotalAmtMsat() lnwire.MilliSatoshi
+
+	// BlindingPoint returns the route blinding point parsed from the onion
+	// payload.
+	BlindingPoint() *btcec.PublicKey
 }
 
 // InvoiceQuery represents a query to the invoice database. The query allows a

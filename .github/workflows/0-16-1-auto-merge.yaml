@@ -1,0 +1,66 @@
+name: Merge pull request into v0.16.1
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - master
+    milestone:
+      types: [created, edited]
+      names:
+        - 'v0.16.1'
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Create pull request to merge into v0.16.1
+        uses: peter-evans/create-pull-request@v3.10.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: v0.16.1
+          commit-message: Merge pull request #${{ github.event.pull_request.number }}
+          title: Merge pull request #${{ github.event.pull_request.number }} into v0.16.1
+          body: |
+            This pull request was automatically created to merge pull request #${{ github.event.pull_request.number }}
+            into the v0.16.1 branch because it was merged into the master branch and had the v0.16.1 milestone.
+          base: v0.16.1
+          draft: false
+
+  merge-pr:
+    needs: create-pr
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Merge pull request into v0.16.1
+        uses: actions/github-script@v5
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { context } = github;
+            const prNumber = context.payload.pull_request.number;
+            const headRef = context.payload.pull_request.head.ref;
+            const baseRef = 'v0.16.1';
+
+            // Merge the pull request into the target branch
+            await github.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/heads/${baseRef}`,
+              sha: context.payload.pull_request.head.sha,
+            });
+
+            const mergeResponse = await github.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              sha: headRef,
+              merge_method: 'merge',
+            });
+
+            console.log(`Merged PR ${prNumber} into ${baseRef}: ${mergeResponse.status}`);

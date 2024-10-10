@@ -149,7 +149,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	defer func() {
 		ltndLog.Info("Shutdown complete\n")
-		err := cfg.LogWriter.Close()
+		err := cfg.LogRotator.Close()
 		if err != nil {
 			ltndLog.Errorf("Could not close log rotator: %v", err)
 		}

@@ -3,10 +3,12 @@ package lnwire
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"io"
 	"math"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -34,6 +36,40 @@ var ConnectionWideID = ChannelID{}
 // hex string encoding of the ChannelID itself.
 func (c ChannelID) String() string {
 	return hex.EncodeToString(c[:])
+}
+
+// Record returns a TLV record that can be used to encode/decode a ChannelID
+// to/from a TLV stream.
+func (c *ChannelID) Record() tlv.Record {
+	return tlv.MakeStaticRecord(0, c, 32, encodeChannelID, decodeChannelID)
+}
+
+func encodeChannelID(w io.Writer, val interface{}, buf *[8]byte) error {
+	if v, ok := val.(*ChannelID); ok {
+		bigSize := [32]byte(*v)
+
+		return tlv.EBytes32(w, &bigSize, buf)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "lnwire.ChannelID")
+}
+
+func decodeChannelID(r io.Reader, val interface{}, buf *[8]byte,
+	l uint64) error {
+
+	if v, ok := val.(*ChannelID); ok {
+		var id [32]byte
+		err := tlv.DBytes32(r, &id, buf, l)
+		if err != nil {
+			return err
+		}
+
+		*v = id
+
+		return nil
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "lnwire.ChannelID", l, l)
 }
 
 // NewChanIDFromOutPoint converts a target OutPoint into a ChannelID that is

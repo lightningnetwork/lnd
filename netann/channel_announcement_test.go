@@ -159,7 +159,7 @@ func test4of4MuSig2ChanAnnouncement(t *testing.T) {
 	sig, err := lnwire.NewSigFromSignature(s)
 	require.NoError(t, err)
 
-	ann.Signature = sig
+	ann.Signature.Val = sig
 
 	// Validate the announcement.
 	require.NoError(t, ValidateChannelAnn(ann, nil))
@@ -259,7 +259,7 @@ func test3of3MuSig2ChanAnnouncement(t *testing.T) {
 	sig, err := lnwire.NewSigFromSignature(s)
 	require.NoError(t, err)
 
-	ann.Signature = sig
+	ann.Signature.Val = sig
 
 	// Validate the announcement.
 	require.NoError(t, ValidateChannelAnn(ann, fetchTx))

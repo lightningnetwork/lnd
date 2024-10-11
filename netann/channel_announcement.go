@@ -203,7 +203,7 @@ func validateChannelAnn2(a *lnwire.ChannelAnnouncement2,
 		return err
 	}
 
-	sig, err := a.Signature.ToSignature()
+	sig, err := a.Signature.Val.ToSignature()
 	if err != nil {
 		return err
 	}
@@ -278,7 +278,7 @@ func validateChannelAnn2(a *lnwire.ChannelAnnouncement2,
 func ChanAnn2DigestToSign(a *lnwire.ChannelAnnouncement2) (*chainhash.Hash,
 	error) {
 
-	data, err := a.DataToSign()
+	data, err := lnwire.SerialiseFieldsToSign(a)
 	if err != nil {
 		return nil, err
 	}

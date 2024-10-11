@@ -587,7 +587,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 			return ecdsa.SignCompact(
 				ephemKey, chainhash.HashB(msg), true,
-			)
+			), nil
 		},
 	})
 	if err != nil {

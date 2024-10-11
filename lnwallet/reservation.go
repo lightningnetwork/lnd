@@ -415,6 +415,10 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		chanType |= channeldb.ScidAliasFeatureBit
 	}
 
+	if req.TapscriptRoot.IsSome() {
+		chanType |= channeldb.TapscriptRootBit
+	}
+
 	return &ChannelReservation{
 		ourContribution: &ChannelContribution{
 			FundingAmount: ourBalance.ToSatoshis(),
@@ -448,6 +452,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 			InitialLocalBalance:  ourBalance,
 			InitialRemoteBalance: theirBalance,
 			Memo:                 req.Memo,
+			TapscriptRoot:        req.TapscriptRoot,
 		},
 		pushMSat:      req.PushMSat,
 		pendingChanID: req.PendingChanID,

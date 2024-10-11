@@ -23,6 +23,7 @@ import (
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -209,6 +210,11 @@ type InitFundingReserveMsg struct {
 	// Memo is any arbitrary information we wish to store locally about the
 	// channel that will be useful to our future selves.
 	Memo []byte
+
+	// TapscriptRoot is the root of the tapscript tree that will be used to
+	// create the funding output. This is an optional field that should
+	// only be set for taproot channels.
+	TapscriptRoot fn.Option[chainhash.Hash]
 
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
@@ -1464,6 +1470,21 @@ func (l *LightningWallet) handleFundingCancelRequest(req *fundingReserveCancelMs
 	req.err <- nil
 }
 
+// createCommitOpts is a struct that holds the options for creating a new
+// commitment transaction.
+type createCommitOpts struct {
+	auxLeaves fn.Option[CommitAuxLeaves]
+}
+
+// defaultCommitOpts returns a new createCommitOpts with default values.
+func defaultCommitOpts() createCommitOpts {
+	return createCommitOpts{}
+}
+
+// CreateCommitOpt is a functional option that can be used to modify the way a
+// new commitment transaction is created.
+type CreateCommitOpt func(*createCommitOpts)
+
 // CreateCommitmentTxns is a helper function that creates the initial
 // commitment transaction for both parties. This function is used during the
 // initial funding workflow as both sides must generate a signature for the
@@ -1473,7 +1494,13 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	ourChanCfg, theirChanCfg *channeldb.ChannelConfig,
 	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
 	fundingTxIn wire.TxIn, chanType channeldb.ChannelType, initiator bool,
-	leaseExpiry uint32) (*wire.MsgTx, *wire.MsgTx, error) {
+	leaseExpiry uint32, opts ...CreateCommitOpt) (*wire.MsgTx, *wire.MsgTx,
+	error) {
+
+	options := defaultCommitOpts()
+	for _, optFunc := range opts {
+		optFunc(&options)
+	}
 
 	localCommitmentKeys := DeriveCommitmentKeys(
 		localCommitPoint, lntypes.Local, chanType, ourChanCfg,
@@ -1487,7 +1514,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	ourCommitTx, err := CreateCommitTx(
 		chanType, fundingTxIn, localCommitmentKeys, ourChanCfg,
 		theirChanCfg, localBalance, remoteBalance, 0, initiator,
-		leaseExpiry,
+		leaseExpiry, options.auxLeaves,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1501,7 +1528,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	theirCommitTx, err := CreateCommitTx(
 		chanType, fundingTxIn, remoteCommitmentKeys, theirChanCfg,
 		ourChanCfg, remoteBalance, localBalance, 0, !initiator,
-		leaseExpiry,
+		leaseExpiry, options.auxLeaves,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -2102,6 +2129,7 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 		if res.musigSessions == nil {
 			_, fundingOutput, err := input.GenTaprootFundingScript(
 				localKey, remoteKey, channelValue,
+				res.partialState.TapscriptRoot,
 			)
 			if err != nil {
 				return err
@@ -2341,11 +2369,14 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		fundingTxOut         *wire.TxOut
 	)
 	if chanType.IsTaproot() {
-		fundingWitnessScript, fundingTxOut, err = input.GenTaprootFundingScript( //nolint:lll
+		//nolint:lll
+		fundingWitnessScript, fundingTxOut, err = input.GenTaprootFundingScript(
 			ourKey.PubKey, theirKey.PubKey, channelValue,
+			pendingReservation.partialState.TapscriptRoot,
 		)
 	} else {
-		fundingWitnessScript, fundingTxOut, err = input.GenFundingPkScript( //nolint:lll
+		//nolint:lll
+		fundingWitnessScript, fundingTxOut, err = input.GenFundingPkScript(
 			ourKey.PubKey.SerializeCompressed(),
 			theirKey.PubKey.SerializeCompressed(), channelValue,
 		)
@@ -2465,9 +2496,16 @@ func initStateHints(commit1, commit2 *wire.MsgTx,
 func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 	fundingTx *wire.MsgTx) error {
 
+	var chanOpts []ChannelOpt
+	l.Cfg.AuxLeafStore.WhenSome(func(s AuxLeafStore) {
+		chanOpts = append(chanOpts, WithLeafStore(s))
+	})
+
 	// First, we'll obtain a fully signed commitment transaction so we can
 	// pass into it on the chanvalidate package for verification.
-	channel, err := NewLightningChannel(l.Cfg.Signer, channelState, nil)
+	channel, err := NewLightningChannel(
+		l.Cfg.Signer, channelState, nil, chanOpts...,
+	)
 	if err != nil {
 		return err
 	}
@@ -2482,6 +2520,7 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 	if channelState.ChanType.IsTaproot() {
 		fundingScript, _, err = input.GenTaprootFundingScript(
 			localKey, remoteKey, int64(channel.Capacity),
+			channelState.TapscriptRoot,
 		)
 		if err != nil {
 			return err

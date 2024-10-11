@@ -17,8 +17,10 @@ import (
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
@@ -388,4 +390,46 @@ func (*mockChainIO) GetBlockHeader(
 	blockHash *chainhash.Hash) (*wire.BlockHeader, error) {
 
 	return nil, nil
+}
+
+type MockAuxLeafStore struct{}
+
+// A compile time check to ensure that MockAuxLeafStore implements the
+// AuxLeafStore interface.
+var _ AuxLeafStore = (*MockAuxLeafStore)(nil)
+
+// FetchLeavesFromView attempts to fetch the auxiliary leaves that
+// correspond to the passed aux blob, and pending original (unfiltered)
+// HTLC view.
+func (*MockAuxLeafStore) FetchLeavesFromView(
+	_ CommitDiffAuxInput) fn.Result[CommitDiffAuxResult] {
+
+	return fn.Ok(CommitDiffAuxResult{})
+}
+
+// FetchLeavesFromCommit attempts to fetch the auxiliary leaves that
+// correspond to the passed aux blob, and an existing channel
+// commitment.
+func (*MockAuxLeafStore) FetchLeavesFromCommit(_ AuxChanState,
+	_ channeldb.ChannelCommitment,
+	_ CommitmentKeyRing) fn.Result[CommitDiffAuxResult] {
+
+	return fn.Ok(CommitDiffAuxResult{})
+}
+
+// FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
+// from a channel revocation that stores balance + blob information.
+func (*MockAuxLeafStore) FetchLeavesFromRevocation(
+	_ *channeldb.RevocationLog) fn.Result[CommitDiffAuxResult] {
+
+	return fn.Ok(CommitDiffAuxResult{})
+}
+
+// ApplyHtlcView serves as the state transition function for the custom
+// channel's blob. Given the old blob, and an HTLC view, then a new
+// blob should be returned that reflects the pending updates.
+func (*MockAuxLeafStore) ApplyHtlcView(
+	_ CommitDiffAuxInput) fn.Result[fn.Option[tlv.Blob]] {
+
+	return fn.Ok(fn.None[tlv.Blob]())
 }

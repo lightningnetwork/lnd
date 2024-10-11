@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/discovery"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -544,6 +545,10 @@ type Config struct {
 	// backed funding flow to not use utxos still being swept by the sweeper
 	// subsystem.
 	IsSweeperOutpoint func(wire.OutPoint) bool
+
+	// AuxLeafStore is an optional store that can be used to store auxiliary
+	// leaves for certain custom channel types.
+	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
 }
 
 // Manager acts as an orchestrator/bridge between the wallet's
@@ -1069,9 +1074,14 @@ func (f *Manager) advanceFundingState(channel *channeldb.OpenChannel,
 		}
 	}
 
+	var chanOpts []lnwallet.ChannelOpt
+	f.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
+		chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
+	})
+
 	// We create the state-machine object which wraps the database state.
 	lnChannel, err := lnwallet.NewLightningChannel(
-		nil, channel, nil,
+		nil, channel, nil, chanOpts...,
 	)
 	if err != nil {
 		log.Errorf("Unable to create LightningChannel(%v): %v",
@@ -2899,6 +2909,7 @@ func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
 	if channel.ChanType.IsTaproot() {
 		pkScript, _, err := input.GenTaprootFundingScript(
 			localKey, remoteKey, int64(channel.Capacity),
+			channel.TapscriptRoot,
 		)
 		if err != nil {
 			return nil, err

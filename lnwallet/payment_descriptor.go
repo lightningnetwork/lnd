@@ -221,4 +221,8 @@ type PaymentDescriptor struct {
 	// blinded route (ie, not the introduction node) from update_add_htlc's
 	// TLVs.
 	BlindingPoint lnwire.BlindingPointRecord
+
+	// CustomRecords also stores the set of optional custom records that
+	// may have been attached to a sent HTLC.
+	CustomRecords lnwire.CustomRecords
 }

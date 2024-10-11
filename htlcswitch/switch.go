@@ -1911,18 +1911,8 @@ func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*channeldb.
 // NOTE: This should mimic the behavior processRemoteSettleFails.
 func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 	for _, fwdPkg := range fwdPkgs {
-		settleFails, err := lnwallet.PayDescsFromRemoteLogUpdates(
-			fwdPkg.Source, fwdPkg.Height, fwdPkg.SettleFails,
-		)
-		if err != nil {
-			log.Errorf("Unable to process remote log updates: %v",
-				err)
-			continue
-		}
-
-		switchPackets := make([]*htlcPacket, 0, len(settleFails))
-		for i, pd := range settleFails {
-
+		switchPackets := make([]*htlcPacket, 0, len(fwdPkg.SettleFails))
+		for i, update := range fwdPkg.SettleFails {
 			// Skip any settles or fails that have already been
 			// acknowledged by the incoming link that originated the
 			// forwarded Add.
@@ -1930,20 +1920,18 @@ func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 				continue
 			}
 
-			switch pd.EntryType {
-
+			switch msg := update.UpdateMsg.(type) {
 			// A settle for an HTLC we previously forwarded HTLC has
 			// been received. So we'll forward the HTLC to the
 			// switch which will handle propagating the settle to
 			// the prior hop.
-			case lnwallet.Settle:
+			case *lnwire.UpdateFulfillHTLC:
+				destRef := fwdPkg.DestRef(uint16(i))
 				settlePacket := &htlcPacket{
 					outgoingChanID: fwdPkg.Source,
-					outgoingHTLCID: pd.ParentIndex,
-					destRef:        pd.DestRef,
-					htlc: &lnwire.UpdateFulfillHTLC{
-						PaymentPreimage: pd.RPreimage,
-					},
+					outgoingHTLCID: msg.ID,
+					destRef:        &destRef,
+					htlc:           msg,
 				}
 
 				// Add the packet to the batch to be forwarded, and
@@ -1955,7 +1943,7 @@ func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 			// received. As a result a new slot will be freed up in our
 			// commitment state, so we'll forward this to the switch so the
 			// backwards undo can continue.
-			case lnwallet.Fail:
+			case *lnwire.UpdateFailHTLC:
 				// Fetch the reason the HTLC was canceled so
 				// we can continue to propagate it. This
 				// failure originated from another node, so
@@ -1964,11 +1952,13 @@ func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 				// additional circuit information for us.
 				failPacket := &htlcPacket{
 					outgoingChanID: fwdPkg.Source,
-					outgoingHTLCID: pd.ParentIndex,
-					destRef:        pd.DestRef,
-					htlc: &lnwire.UpdateFailHTLC{
-						Reason: lnwire.OpaqueReason(pd.FailReason),
+					outgoingHTLCID: msg.ID,
+					destRef: &channeldb.SettleFailRef{
+						Source: fwdPkg.Source,
+						Height: fwdPkg.Height,
+						Index:  uint16(i),
 					},
+					htlc: msg,
 				}
 
 				// Add the packet to the batch to be forwarded, and

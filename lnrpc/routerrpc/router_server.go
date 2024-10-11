@@ -528,10 +528,15 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 		AmtMsat:          amtMsat,
 		PaymentHash:      paymentHash[:],
 		FeeLimitSat:      routeFeeLimitSat,
-		PaymentAddr:      payReq.PaymentAddr[:],
 		FinalCltvDelta:   int32(payReq.MinFinalCLTVExpiry()),
 		DestFeatures:     MarshalFeatures(payReq.Features),
 	}
+
+	// If the payment addresses is specified, then we'll also populate that
+	// now as well.
+	payReq.PaymentAddr.WhenSome(func(addr [32]byte) {
+		copy(probeRequest.PaymentAddr, addr[:])
+	})
 
 	hints := payReq.RouteHints
 
@@ -1453,12 +1458,12 @@ func (s *Server) BuildRoute(_ context.Context,
 		outgoingChan = &req.OutgoingChanId
 	}
 
-	var payAddr *[32]byte
+	var payAddr fn.Option[[32]byte]
 	if len(req.PaymentAddr) != 0 {
 		var backingPayAddr [32]byte
 		copy(backingPayAddr[:], req.PaymentAddr)
 
-		payAddr = &backingPayAddr
+		payAddr = fn.Some(backingPayAddr)
 	}
 
 	if req.FinalCltvDelta == 0 {

@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -136,7 +137,7 @@ type Invoice struct {
 
 	// PaymentAddr is the payment address to be used by payments to prevent
 	// probing of the destination.
-	PaymentAddr *[32]byte
+	PaymentAddr fn.Option[[32]byte]
 
 	// Destination is the public key of the target node. This will always
 	// be set after decoding, and can optionally be set before encoding to
@@ -301,7 +302,7 @@ func Features(features *lnwire.FeatureVector) func(*Invoice) {
 // the desired payment address that is advertised on the invoice.
 func PaymentAddr(addr [32]byte) func(*Invoice) {
 	return func(i *Invoice) {
-		i.PaymentAddr = &addr
+		i.PaymentAddr = fn.Some(addr)
 	}
 }
 

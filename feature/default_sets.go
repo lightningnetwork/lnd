@@ -92,7 +92,4 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
-	lnwire.Bolt11BlindedPathsOptional: {
-		SetInvoice: {}, // I
-	},
 }

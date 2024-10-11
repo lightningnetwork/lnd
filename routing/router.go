@@ -29,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/routing/shards"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/zpay32"
 )
 
@@ -154,7 +155,10 @@ type PaymentSessionSource interface {
 	// routes to the given target. An optional set of routing hints can be
 	// provided in order to populate additional edges to explore when
 	// finding a path to the payment's destination.
-	NewPaymentSession(p *LightningPayment) (PaymentSession, error)
+	NewPaymentSession(p *LightningPayment,
+		firstHopBlob fn.Option[tlv.Blob],
+		trafficShaper fn.Option[TlvTrafficShaper]) (PaymentSession,
+		error)
 
 	// NewPaymentSessionEmpty creates a new paymentSession instance that is
 	// empty, and will be exhausted immediately. Used for failure reporting
@@ -290,6 +294,10 @@ type Config struct {
 	//
 	// TODO(yy): remove it once the root cause of stuck payments is found.
 	ClosedSCIDs map[lnwire.ShortChannelID]struct{}
+
+	// TrafficShaper is an optional traffic shaper that can be used to
+	// control the outgoing channel of a payment.
+	TrafficShaper fn.Option[TlvTrafficShaper]
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -517,6 +525,7 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 	// eliminate certain routes early on in the path finding process.
 	bandwidthHints, err := newBandwidthManager(
 		r.cfg.RoutingGraph, r.cfg.SelfNode, r.cfg.GetLink,
+		fn.None[tlv.Blob](), r.cfg.TrafficShaper,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -865,6 +874,11 @@ type LightningPayment struct {
 	// fail.
 	DestCustomRecords record.CustomSet
 
+	// FirstHopCustomRecords are the TLV records that are to be sent to the
+	// first hop of this payment. These records will be transmitted via the
+	// wire message and therefore do not affect the onion payload size.
+	FirstHopCustomRecords lnwire.CustomRecords
+
 	// MaxParts is the maximum number of partial payments that may be used
 	// to complete the full amount.
 	MaxParts uint32
@@ -948,6 +962,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 	return r.sendPayment(
 		context.Background(), payment.FeeLimit, payment.Identifier(),
 		payment.PayAttemptTimeout, paySession, shardTracker,
+		payment.FirstHopCustomRecords,
 	)
 }
 
@@ -968,6 +983,7 @@ func (r *ChannelRouter) SendPaymentAsync(ctx context.Context,
 		_, _, err := r.sendPayment(
 			ctx, payment.FeeLimit, payment.Identifier(),
 			payment.PayAttemptTimeout, ps, st,
+			payment.FirstHopCustomRecords,
 		)
 		if err != nil {
 			log.Errorf("Payment %x failed: %v",
@@ -1002,10 +1018,29 @@ func spewPayment(payment *LightningPayment) lnutils.LogClosure {
 func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 	PaymentSession, shards.ShardTracker, error) {
 
+	// Assemble any custom data we want to send to the first hop only.
+	var firstHopData fn.Option[tlv.Blob]
+	if len(payment.FirstHopCustomRecords) > 0 {
+		if err := payment.FirstHopCustomRecords.Validate(); err != nil {
+			return nil, nil, fmt.Errorf("invalid first hop custom "+
+				"records: %w", err)
+		}
+
+		firstHopBlob, err := payment.FirstHopCustomRecords.Serialize()
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to serialize "+
+				"first hop custom records: %w", err)
+		}
+
+		firstHopData = fn.Some(firstHopBlob)
+	}
+
 	// Before starting the HTLC routing attempt, we'll create a fresh
 	// payment session which will report our errors back to mission
 	// control.
-	paySession, err := r.cfg.SessionSource.NewPaymentSession(payment)
+	paySession, err := r.cfg.SessionSource.NewPaymentSession(
+		payment, firstHopData, r.cfg.TrafficShaper,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1015,10 +1050,11 @@ func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 	//
 	// TODO(roasbeef): store records as part of creation info?
 	info := &channeldb.PaymentCreationInfo{
-		PaymentIdentifier: payment.Identifier(),
-		Value:             payment.Amount,
-		CreationTime:      r.cfg.Clock.Now(),
-		PaymentRequest:    payment.PaymentRequest,
+		PaymentIdentifier:     payment.Identifier(),
+		Value:                 payment.Amount,
+		CreationTime:          r.cfg.Clock.Now(),
+		PaymentRequest:        payment.PaymentRequest,
+		FirstHopCustomRecords: payment.FirstHopCustomRecords,
 	}
 
 	// Create a new ShardTracker that we'll use during the life cycle of
@@ -1050,18 +1086,21 @@ func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 
 // SendToRoute sends a payment using the provided route and fails the payment
 // when an error is returned from the attempt.
-func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash,
-	rt *route.Route) (*channeldb.HTLCAttempt, error) {
+func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route,
+	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
+	error) {
 
-	return r.sendToRoute(htlcHash, rt, false)
+	return r.sendToRoute(htlcHash, rt, false, firstHopCustomRecords)
 }
 
 // SendToRouteSkipTempErr sends a payment using the provided route and fails
 // the payment ONLY when a terminal error is returned from the attempt.
 func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
-	rt *route.Route) (*channeldb.HTLCAttempt, error) {
+	rt *route.Route,
+	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
+	error) {
 
-	return r.sendToRoute(htlcHash, rt, true)
+	return r.sendToRoute(htlcHash, rt, true, firstHopCustomRecords)
 }
 
 // sendToRoute attempts to send a payment with the given hash through the
@@ -1071,7 +1110,9 @@ func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
 // was initiated, both return values will be non-nil. If skipTempErr is true,
 // the payment won't be failed unless a terminal error has occurred.
 func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
-	skipTempErr bool) (*channeldb.HTLCAttempt, error) {
+	skipTempErr bool,
+	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
+	error) {
 
 	log.Debugf("SendToRoute for payment %v with skipTempErr=%v",
 		htlcHash, skipTempErr)
@@ -1108,10 +1149,11 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// Record this payment hash with the ControlTower, ensuring it is not
 	// already in-flight.
 	info := &channeldb.PaymentCreationInfo{
-		PaymentIdentifier: paymentIdentifier,
-		Value:             amt,
-		CreationTime:      r.cfg.Clock.Now(),
-		PaymentRequest:    nil,
+		PaymentIdentifier:     paymentIdentifier,
+		Value:                 amt,
+		CreationTime:          r.cfg.Clock.Now(),
+		PaymentRequest:        nil,
+		FirstHopCustomRecords: firstHopCustomRecords,
 	}
 
 	err := r.cfg.Control.InitPayment(paymentIdentifier, info)
@@ -1141,7 +1183,17 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// - nil payment session (since we already have a route).
 	// - no payment timeout.
 	// - no current block height.
-	p := newPaymentLifecycle(r, 0, paymentIdentifier, nil, shardTracker, 0)
+	p := newPaymentLifecycle(
+		r, 0, paymentIdentifier, nil, shardTracker, 0,
+		firstHopCustomRecords,
+	)
+
+	// Allow the traffic shaper to add custom records to the outgoing HTLC
+	// and also adjust the amount if needed.
+	err = p.amendFirstHopData(rt)
+	if err != nil {
+		return nil, err
+	}
 
 	// We found a route to try, create a new HTLC attempt to try.
 	//
@@ -1237,7 +1289,9 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 func (r *ChannelRouter) sendPayment(ctx context.Context,
 	feeLimit lnwire.MilliSatoshi, identifier lntypes.Hash,
 	paymentAttemptTimeout time.Duration, paySession PaymentSession,
-	shardTracker shards.ShardTracker) ([32]byte, *route.Route, error) {
+	shardTracker shards.ShardTracker,
+	firstHopCustomRecords lnwire.CustomRecords) ([32]byte, *route.Route,
+	error) {
 
 	// If the user provides a timeout, we will additionally wrap the context
 	// in a deadline.
@@ -1258,11 +1312,16 @@ func (r *ChannelRouter) sendPayment(ctx context.Context,
 		return [32]byte{}, nil, err
 	}
 
+	// Validate the custom records before we attempt to send the payment.
+	if err := firstHopCustomRecords.Validate(); err != nil {
+		return [32]byte{}, nil, err
+	}
+
 	// Now set up a paymentLifecycle struct with these params, such that we
 	// can resume the payment from the current state.
 	p := newPaymentLifecycle(
 		r, feeLimit, identifier, paySession, shardTracker,
-		currentHeight,
+		currentHeight, firstHopCustomRecords,
 	)
 
 	return p.resumePayment(ctx)
@@ -1307,8 +1366,9 @@ func (e ErrNoChannel) Error() string {
 // amount is nil, the minimum routable amount is used. To force a specific
 // outgoing channel, use the outgoingChan parameter.
 func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
-	hops []route.Vertex, outgoingChan *uint64,
-	finalCltvDelta int32, payAddr *[32]byte) (*route.Route, error) {
+	hops []route.Vertex, outgoingChan *uint64, finalCltvDelta int32,
+	payAddr *[32]byte, firstHopBlob fn.Option[[]byte]) (*route.Route,
+	error) {
 
 	log.Tracef("BuildRoute called: hopsCount=%v, amt=%v", len(hops), amt)
 
@@ -1322,7 +1382,8 @@ func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
 	// We'll attempt to obtain a set of bandwidth hints that helps us select
 	// the best outgoing channel to use in case no outgoing channel is set.
 	bandwidthHints, err := newBandwidthManager(
-		r.cfg.RoutingGraph, r.cfg.SelfNode, r.cfg.GetLink,
+		r.cfg.RoutingGraph, r.cfg.SelfNode, r.cfg.GetLink, firstHopBlob,
+		r.cfg.TrafficShaper,
 	)
 	if err != nil {
 		return nil, err
@@ -1465,7 +1526,7 @@ func (r *ChannelRouter) resumePayments() error {
 		noTimeout := time.Duration(0)
 		_, _, err := r.sendPayment(
 			context.Background(), 0, payHash, noTimeout, paySession,
-			shardTracker,
+			shardTracker, payment.Info.FirstHopCustomRecords,
 		)
 		if err != nil {
 			log.Errorf("Resuming payment %v failed: %v", payHash,

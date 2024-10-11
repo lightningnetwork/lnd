@@ -3,8 +3,10 @@ package lnwire
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"sort"
 
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -44,12 +46,12 @@ func NewCustomRecords(tlvMap tlv.TypeMap) (CustomRecords, error) {
 
 // ParseCustomRecords creates a new CustomRecords instance from a tlv.Blob.
 func ParseCustomRecords(b tlv.Blob) (CustomRecords, error) {
-	stream, err := tlv.NewStream()
-	if err != nil {
-		return nil, fmt.Errorf("error creating stream: %w", err)
-	}
+	return ParseCustomRecordsFrom(bytes.NewReader(b))
+}
 
-	typeMap, err := stream.DecodeWithParsedTypes(bytes.NewReader(b))
+// ParseCustomRecordsFrom creates a new CustomRecords instance from a reader.
+func ParseCustomRecordsFrom(r io.Reader) (CustomRecords, error) {
+	typeMap, err := DecodeRecords(r)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding HTLC record: %w", err)
 	}
@@ -121,21 +123,14 @@ func (c CustomRecords) ExtendRecordProducers(
 
 	// Convert the custom records map to a TLV record producer slice and
 	// append them to the exiting records slice.
-	crRecords := tlv.MapToRecords(c)
-	for _, record := range crRecords {
-		r := recordProducer{record}
-		producers = append(producers, &r)
-	}
+	customRecordProducers := RecordsAsProducers(tlv.MapToRecords(c))
+	producers = append(producers, customRecordProducers...)
 
 	// If the records slice which was given as an argument included TLV
 	// values greater than or equal to the minimum custom records TLV type
 	// we will sort the extended records slice to ensure that it is ordered
 	// correctly.
-	sort.Slice(producers, func(i, j int) bool {
-		recordI := producers[i].Record()
-		recordJ := producers[j].Record()
-		return recordI.Type() < recordJ.Type()
-	})
+	SortProducers(producers)
 
 	return producers, nil
 }
@@ -150,27 +145,119 @@ func (c CustomRecords) RecordProducers() []tlv.RecordProducer {
 	// Convert the custom records map to a TLV record producer slice.
 	records := tlv.MapToRecords(c)
 
-	// Convert the records to record producers.
-	producers := make([]tlv.RecordProducer, len(records))
-	for i, record := range records {
-		producers[i] = &recordProducer{record}
-	}
-
-	return producers
+	return RecordsAsProducers(records)
 }
 
 // Serialize serializes the custom records into a byte slice.
 func (c CustomRecords) Serialize() ([]byte, error) {
 	records := tlv.MapToRecords(c)
-	stream, err := tlv.NewStream(records...)
+	return EncodeRecords(records)
+}
+
+// SerializeTo serializes the custom records into the given writer.
+func (c CustomRecords) SerializeTo(w io.Writer) error {
+	records := tlv.MapToRecords(c)
+	return EncodeRecordsTo(w, records)
+}
+
+// ProduceRecordsSorted converts a slice of record producers into a slice of
+// records and then sorts it by type.
+func ProduceRecordsSorted(recordProducers ...tlv.RecordProducer) []tlv.Record {
+	records := fn.Map(func(producer tlv.RecordProducer) tlv.Record {
+		return producer.Record()
+	}, recordProducers)
+
+	// Ensure that the set of records are sorted before we attempt to
+	// decode from the stream, to ensure they're canonical.
+	tlv.SortRecords(records)
+
+	return records
+}
+
+// SortProducers sorts the given record producers by their type.
+func SortProducers(producers []tlv.RecordProducer) {
+	sort.Slice(producers, func(i, j int) bool {
+		recordI := producers[i].Record()
+		recordJ := producers[j].Record()
+		return recordI.Type() < recordJ.Type()
+	})
+}
+
+// TlvMapToRecords converts a TLV map into a slice of records.
+func TlvMapToRecords(tlvMap tlv.TypeMap) []tlv.Record {
+	tlvMapGeneric := make(map[uint64][]byte)
+	for k, v := range tlvMap {
+		tlvMapGeneric[uint64(k)] = v
+	}
+
+	return tlv.MapToRecords(tlvMapGeneric)
+}
+
+// RecordsAsProducers converts a slice of records into a slice of record
+// producers.
+func RecordsAsProducers(records []tlv.Record) []tlv.RecordProducer {
+	return fn.Map(func(record tlv.Record) tlv.RecordProducer {
+		return &record
+	}, records)
+}
+
+// EncodeRecords encodes the given records into a byte slice.
+func EncodeRecords(records []tlv.Record) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := EncodeRecordsTo(&buf, records); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// EncodeRecordsTo encodes the given records into the given writer.
+func EncodeRecordsTo(w io.Writer, records []tlv.Record) error {
+	tlvStream, err := tlv.NewStream(records...)
 	if err != nil {
-		return nil, fmt.Errorf("error creating stream: %w", err)
+		return err
 	}
 
-	var b bytes.Buffer
-	if err := stream.Encode(&b); err != nil {
-		return nil, fmt.Errorf("error encoding custom records: %w", err)
+	return tlvStream.Encode(w)
+}
+
+// DecodeRecords decodes the given byte slice into the given records and returns
+// the rest as a TLV type map.
+func DecodeRecords(r io.Reader,
+	records ...tlv.Record) (tlv.TypeMap, error) {
+
+	tlvStream, err := tlv.NewStream(records...)
+	if err != nil {
+		return nil, err
 	}
 
-	return b.Bytes(), nil
+	return tlvStream.DecodeWithParsedTypes(r)
+}
+
+// DecodeRecordsP2P decodes the given byte slice into the given records and
+// returns the rest as a TLV type map. This function is identical to
+// DecodeRecords except that the record size is capped at 65535.
+func DecodeRecordsP2P(r *bytes.Reader,
+	records ...tlv.Record) (tlv.TypeMap, error) {
+
+	tlvStream, err := tlv.NewStream(records...)
+	if err != nil {
+		return nil, err
+	}
+
+	return tlvStream.DecodeWithParsedTypesP2P(r)
+}
+
+// AssertUniqueTypes asserts that the given records have unique types.
+func AssertUniqueTypes(r []tlv.Record) error {
+	seen := make(fn.Set[tlv.Type], len(r))
+	for _, record := range r {
+		t := record.Type()
+		if seen.Contains(t) {
+			return fmt.Errorf("duplicate record type: %d", t)
+		}
+		seen.Add(t)
+	}
+
+	return nil
 }

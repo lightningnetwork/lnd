@@ -514,6 +514,72 @@
         ]
       }
     },
+    "/v2/router/x/addaliases": {
+      "post": {
+        "summary": "XAddLocalChanAliases is an experimental API that creates a set of new\nchannel SCID alias mappings. The final total set of aliases in the manager\nafter the add operation is returned. This is only a locally stored alias,\nand will not be communicated to the channel peer via any message. Therefore,\nrouting over such an alias will only work if the peer also calls this same\nRPC on their end. If an alias already exists, an error is returned",
+        "operationId": "Router_XAddLocalChanAliases",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcAddAliasesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcAddAliasesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
+    "/v2/router/x/deletealiases": {
+      "post": {
+        "summary": "XDeleteLocalChanAliases is an experimental API that deletes a set of alias\nmappings. The final total set of aliases in the manager after the delete\noperation is returned. The deletion will not be communicated to the channel\npeer via any message.",
+        "operationId": "Router_XDeleteLocalChanAliases",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcDeleteAliasesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcDeleteAliasesRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
     "/v2/router/x/importhistory": {
       "post": {
         "summary": "lncli: `importmc`\nXImportMissionControl is an experimental API that imports the state provided\nto the internal mission control's state, using all results which are more\nrecent than our existing values. These values will only be imported\nin-memory, and will not be persisted across restarts.",
@@ -616,6 +682,24 @@
         "child_index": {
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "lnrpcAliasMap": {
+      "type": "object",
+      "properties": {
+        "base_scid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "For non-zero-conf channels, this is the confirmed SCID. Otherwise, this is\nthe first assigned \"base\" alias."
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "The set of all aliases stored for the base SCID."
         }
       }
     },
@@ -1011,6 +1095,14 @@
         },
         "failure_reason": {
           "$ref": "#/definitions/lnrpcPaymentFailureReason"
+        },
+        "first_hop_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The custom TLV records that were sent to the first hop as part of the HTLC\nwire message for this payment."
         }
       }
     },
@@ -1074,6 +1166,16 @@
           "type": "string",
           "format": "int64",
           "description": "The total amount in millisatoshis."
+        },
+        "first_hop_amount_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The actual on-chain amount that was sent out to the first hop. This value is\nonly different from the total_amt_msat field if this is a custom channel\npayment and the value transported in the HTLC is different from the BTC\namount in the HTLC. If this value is zero, then this is an old payment that\ndidn't have this value yet and can be ignored."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Custom channel data that might be populated in custom channels."
         }
       },
       "description": "A path through the channel graph which runs over one or more channels in\nsuccession. This struct carries all the information required to craft the\nSphinx onion packet, and send the payment along the first hop in the path. A\nroute is only selected as valid if all the channels have sufficient capacity to\ncarry the initial payment amount after fees are accounted for."
@@ -1099,6 +1201,28 @@
         "value": {
           "type": "string",
           "format": "byte"
+        }
+      }
+    },
+    "routerrpcAddAliasesRequest": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
+        }
+      }
+    },
+    "routerrpcAddAliasesResponse": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
         }
       }
     },
@@ -1177,6 +1301,14 @@
           "type": "string",
           "format": "byte",
           "description": "An optional payment addr to be included within the last hop of the route.\nThis is also called payment secret in specifications (e.g. BOLT 11)."
+        },
+        "first_hop_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto the first hop peer of this payment. This can be used to pass application\nspecific data during the payment attempt. Record types are required to be in\nthe custom range \u003e= 65536. When using REST, the values must be encoded as\nbase64."
         }
       }
     },
@@ -1210,6 +1342,28 @@
           "type": "string",
           "format": "uint64",
           "description": "/ The index of the incoming htlc in the incoming channel."
+        }
+      }
+    },
+    "routerrpcDeleteAliasesRequest": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
+        }
+      }
+    },
+    "routerrpcDeleteAliasesResponse": {
+      "type": "object",
+      "properties": {
+        "alias_maps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcAliasMap"
+          }
         }
       }
     },
@@ -1319,6 +1473,14 @@
           "type": "integer",
           "format": "int32",
           "description": "The block height at which this htlc will be auto-failed to prevent the\nchannel from force-closing."
+        },
+        "in_wire_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The custom records of the peer's incoming p2p wire message."
         }
       }
     },
@@ -1346,9 +1508,27 @@
         "failure_code": {
           "$ref": "#/definitions/FailureFailureCode",
           "description": "Return the specified failure code in case the resolve action is Fail. The\nmessage data fields are populated automatically.\n\nIf a non-zero failure_code is specified, failure_message must not be set.\n\nFor backwards-compatibility reasons, TEMPORARY_CHANNEL_FAILURE is the\ndefault value for this field."
+        },
+        "in_amount_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount that was set on the p2p wire message of the incoming HTLC.\nThis field is ignored if the action is not RESUME_MODIFIED or the amount\nis zero."
+        },
+        "out_amount_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount to set on the p2p wire message of the resumed HTLC. This field\nis ignored if the action is not RESUME_MODIFIED or the amount is zero."
+        },
+        "out_wire_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Any custom records that should be set on the p2p wire message message of\nthe resumed HTLC. This field is ignored if the action is not\nRESUME_MODIFIED."
         }
       },
-      "description": "*\nForwardHtlcInterceptResponse enables the caller to resolve a previously hold\nforward. The caller can choose either to:\n- `Resume`: Execute the default behavior (usually forward).\n- `Reject`: Fail the htlc backwards.\n- `Settle`: Settle this htlc with a given preimage."
+      "description": "*\nForwardHtlcInterceptResponse enables the caller to resolve a previously hold\nforward. The caller can choose either to:\n- `Resume`: Execute the default behavior (usually forward).\n- `ResumeModified`: Execute the default behavior (usually forward) with HTLC\nfield modifications.\n- `Reject`: Fail the htlc backwards.\n- `Settle`: Settle this htlc with a given preimage."
     },
     "routerrpcGetMissionControlConfigResponse": {
       "type": "object",
@@ -1635,9 +1815,11 @@
       "enum": [
         "SETTLE",
         "FAIL",
-        "RESUME"
+        "RESUME",
+        "RESUME_MODIFIED"
       ],
-      "default": "SETTLE"
+      "default": "SETTLE",
+      "description": " - SETTLE: SETTLE is an action that is used to settle an HTLC instead of forwarding\nit.\n - FAIL: FAIL is an action that is used to fail an HTLC backwards.\n - RESUME: RESUME is an action that is used to resume a forward HTLC.\n - RESUME_MODIFIED: RESUME_MODIFIED is an action that is used to resume a hold forward HTLC\nwith modifications specified during interception."
     },
     "routerrpcRouteFeeRequest": {
       "type": "object",
@@ -1809,6 +1991,14 @@
         "cancelable": {
           "type": "boolean",
           "description": "If set, the payment loop can be interrupted by manually canceling the\npayment context, even before the payment timeout is reached. Note that the\npayment may still succeed after cancellation, as in-flight attempts can\nstill settle afterwards. Canceling will only prevent further attempts from\nbeing sent."
+        },
+        "first_hop_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto the first hop peer of this payment. This can be used to pass application\nspecific data during the payment attempt. Record types are required to be in\nthe custom range \u003e= 65536. When using REST, the values must be encoded as\nbase64."
         }
       }
     },
@@ -1827,6 +2017,14 @@
         "skip_temp_err": {
           "type": "boolean",
           "description": "Whether the payment should be marked as failed when a temporary error is\nreturned from the given route. Set it to true so the payment won't be\nfailed unless a terminal error is occurred, such as payment timeout, no\nroutes, incorrect payment details, or insufficient funds."
+        },
+        "first_hop_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto the first hop peer of this payment. This can be used to pass application\nspecific data during the payment attempt. Record types are required to be in\nthe custom range \u003e= 65536. When using REST, the values must be encoded as\nbase64."
         }
       }
     },

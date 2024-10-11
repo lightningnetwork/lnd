@@ -235,6 +235,9 @@ func TestRequestRoute(t *testing.T) {
 
 	route, err := session.RequestRoute(
 		payment.Amount, payment.FeeLimit, 0, height,
+		lnwire.CustomRecords{
+			lnwire.MinCustomRecordsTlvType + 123: []byte{1, 2, 3},
+		},
 	)
 	if err != nil {
 		t.Fatal(err)

@@ -44,6 +44,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/msgmux"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sqldb"
@@ -158,6 +159,10 @@ type AuxComponents struct {
 	// AuxLeafStore is an optional data source that can be used by custom
 	// channels to fetch+store various data.
 	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
+
+	// TrafficShaper is an optional traffic shaper that can be used to
+	// control the outgoing channel of a payment.
+	TrafficShaper fn.Option[routing.TlvTrafficShaper]
 
 	// MsgRouter is an optional message router that if set will be used in
 	// place of a new blank default message router.

@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/ticker"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 func init() {
@@ -3630,7 +3631,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				}
 
 				// Otherwise, it was already processed, we can
-				// can collect it and continue.
+				// collect it and continue.
 				addMsg := &lnwire.UpdateAddHTLC{
 					Expiry:        fwdInfo.OutgoingCTLV,
 					Amount:        fwdInfo.AmountToForward,
@@ -3650,19 +3651,21 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 				inboundFee := l.cfg.FwrdingPolicy.InboundFee
 
+				//nolint:lll
 				updatePacket := &htlcPacket{
-					incomingChanID:  l.ShortChanID(),
-					incomingHTLCID:  pd.HtlcIndex,
-					outgoingChanID:  fwdInfo.NextHop,
-					sourceRef:       pd.SourceRef,
-					incomingAmount:  pd.Amount,
-					amount:          addMsg.Amount,
-					htlc:            addMsg,
-					obfuscator:      obfuscator,
-					incomingTimeout: pd.Timeout,
-					outgoingTimeout: fwdInfo.OutgoingCTLV,
-					customRecords:   pld.CustomRecords(),
-					inboundFee:      inboundFee,
+					incomingChanID:       l.ShortChanID(),
+					incomingHTLCID:       pd.HtlcIndex,
+					outgoingChanID:       fwdInfo.NextHop,
+					sourceRef:            pd.SourceRef,
+					incomingAmount:       pd.Amount,
+					amount:               addMsg.Amount,
+					htlc:                 addMsg,
+					obfuscator:           obfuscator,
+					incomingTimeout:      pd.Timeout,
+					outgoingTimeout:      fwdInfo.OutgoingCTLV,
+					inOnionCustomRecords: pld.CustomRecords(),
+					inboundFee:           inboundFee,
+					inWireCustomRecords:  pd.CustomRecords.Copy(),
 				}
 				switchPackets = append(
 					switchPackets, updatePacket,
@@ -3718,19 +3721,21 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			if fwdPkg.State == channeldb.FwdStateLockedIn {
 				inboundFee := l.cfg.FwrdingPolicy.InboundFee
 
+				//nolint:lll
 				updatePacket := &htlcPacket{
-					incomingChanID:  l.ShortChanID(),
-					incomingHTLCID:  pd.HtlcIndex,
-					outgoingChanID:  fwdInfo.NextHop,
-					sourceRef:       pd.SourceRef,
-					incomingAmount:  pd.Amount,
-					amount:          addMsg.Amount,
-					htlc:            addMsg,
-					obfuscator:      obfuscator,
-					incomingTimeout: pd.Timeout,
-					outgoingTimeout: fwdInfo.OutgoingCTLV,
-					customRecords:   pld.CustomRecords(),
-					inboundFee:      inboundFee,
+					incomingChanID:       l.ShortChanID(),
+					incomingHTLCID:       pd.HtlcIndex,
+					outgoingChanID:       fwdInfo.NextHop,
+					sourceRef:            pd.SourceRef,
+					incomingAmount:       pd.Amount,
+					amount:               addMsg.Amount,
+					htlc:                 addMsg,
+					obfuscator:           obfuscator,
+					incomingTimeout:      pd.Timeout,
+					outgoingTimeout:      fwdInfo.OutgoingCTLV,
+					inOnionCustomRecords: pld.CustomRecords(),
+					inboundFee:           inboundFee,
+					inWireCustomRecords:  pd.CustomRecords.Copy(),
 				}
 
 				fwdPkg.FwdFilter.Set(idx)
@@ -4100,4 +4105,29 @@ func (l *channelLink) failf(linkErr LinkFailureError, format string,
 	// the peer about the failure.
 	l.failed = true
 	l.cfg.OnChannelFailure(l.ChanID(), l.ShortChanID(), linkErr)
+}
+
+// FundingCustomBlob returns the custom funding blob of the channel that this
+// link is associated with. The funding blob represents static information about
+// the channel that was created at channel funding time.
+func (l *channelLink) FundingCustomBlob() fn.Option[tlv.Blob] {
+	if l.channel == nil {
+		return fn.None[tlv.Blob]()
+	}
+
+	if l.channel.State() == nil {
+		return fn.None[tlv.Blob]()
+	}
+
+	return l.channel.State().CustomBlob
+}
+
+// CommitmentCustomBlob returns the custom blob of the current local commitment
+// of the channel that this link is associated with.
+func (l *channelLink) CommitmentCustomBlob() fn.Option[tlv.Blob] {
+	if l.channel == nil {
+		return fn.None[tlv.Blob]()
+	}
+
+	return l.channel.LocalCommitmentBlob()
 }

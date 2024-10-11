@@ -176,7 +176,7 @@ func TestInvoices(t *testing.T) {
 			test: testQueryInvoices,
 		},
 		{
-			name: "CustomRecords",
+			name: "OutWireCustomRecords",
 			test: testCustomRecords,
 		},
 		{

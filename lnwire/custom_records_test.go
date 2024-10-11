@@ -144,10 +144,8 @@ func TestCustomRecordsExtendRecordProducers(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			nonCustomRecords := tlv.MapToRecords(tc.existingTypes)
-			nonCustomProducers := fn.Map(
-				func(r tlv.Record) tlv.RecordProducer {
-					return &recordProducer{r}
-				}, nonCustomRecords,
+			nonCustomProducers := RecordsAsProducers(
+				nonCustomRecords,
 			)
 
 			combined, err := tc.customRecords.ExtendRecordProducers(

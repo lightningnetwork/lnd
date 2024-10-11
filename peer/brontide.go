@@ -370,7 +370,7 @@ type Config struct {
 
 	// AddLocalAlias persists an alias to an underlying alias store.
 	AddLocalAlias func(alias, base lnwire.ShortChannelID,
-		gossip bool) error
+		gossip, liveUpdate bool) error
 
 	// AuxLeafStore is an optional store that can be used to store auxiliary
 	// leaves for certain custom channel types.
@@ -912,6 +912,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 
 				err = p.cfg.AddLocalAlias(
 					aliasScid, dbChan.ShortChanID(), false,
+					false,
 				)
 				if err != nil {
 					return nil, err
@@ -2192,17 +2193,18 @@ func messageSummary(msg lnwire.Message) string {
 		)
 
 		return fmt.Sprintf("chan_id=%v, id=%v, amt=%v, expiry=%v, "+
-			"hash=%x, blinding_point=%x", msg.ChanID, msg.ID,
-			msg.Amount, msg.Expiry, msg.PaymentHash[:],
-			blindingPoint)
+			"hash=%x, blinding_point=%x, custom_records=%v",
+			msg.ChanID, msg.ID, msg.Amount, msg.Expiry,
+			msg.PaymentHash[:], blindingPoint, msg.CustomRecords)
 
 	case *lnwire.UpdateFailHTLC:
 		return fmt.Sprintf("chan_id=%v, id=%v, reason=%x", msg.ChanID,
 			msg.ID, msg.Reason)
 
 	case *lnwire.UpdateFulfillHTLC:
-		return fmt.Sprintf("chan_id=%v, id=%v, pre_image=%x",
-			msg.ChanID, msg.ID, msg.PaymentPreimage[:])
+		return fmt.Sprintf("chan_id=%v, id=%v, pre_image=%x, "+
+			"custom_records=%v", msg.ChanID, msg.ID,
+			msg.PaymentPreimage[:], msg.CustomRecords)
 
 	case *lnwire.CommitSig:
 		return fmt.Sprintf("chan_id=%v, num_htlcs=%v", msg.ChanID,

@@ -67,4 +67,8 @@ type Config struct {
 	// AuxLeafStore is an optional store that can be used to store auxiliary
 	// leaves for certain custom channel types.
 	AuxLeafStore fn.Option[AuxLeafStore]
+
+	// AuxSigner is an optional signer that can be used to sign auxiliary
+	// leaves for certain custom channel types.
+	AuxSigner fn.Option[AuxSigner]
 }

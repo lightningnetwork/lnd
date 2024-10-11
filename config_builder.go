@@ -34,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -167,6 +168,20 @@ type AuxComponents struct {
 	// MsgRouter is an optional message router that if set will be used in
 	// place of a new blank default message router.
 	MsgRouter fn.Option[msgmux.Router]
+
+	// AuxFundingController is an optional controller that can be used to
+	// modify the way we handle certain custom channel types. It's also
+	// able to automatically handle new custom protocol messages related to
+	// the funding process.
+	AuxFundingController fn.Option[funding.AuxFundingController]
+
+	// AuxSigner is an optional signer that can be used to sign auxiliary
+	// leaves for certain custom channel types.
+	AuxSigner fn.Option[lnwallet.AuxSigner]
+
+	// AuxDataParser is an optional data parser that can be used to parse
+	// auxiliary data for certain custom channel types.
+	AuxDataParser fn.Option[AuxDataParser]
 }
 
 // DefaultWalletImpl is the default implementation of our normal, btcwallet
@@ -573,6 +588,7 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 		ChanStateDB:                 dbs.ChanStateDB.ChannelStateDB(),
 		NeutrinoCS:                  neutrinoCS,
 		AuxLeafStore:                aux.AuxLeafStore,
+		AuxSigner:                   aux.AuxSigner,
 		ActiveNetParams:             d.cfg.ActiveNetParams,
 		FeeURL:                      d.cfg.FeeURL,
 		Fee: &lncfg.Fee{
@@ -730,6 +746,7 @@ func (d *DefaultWalletImpl) BuildChainControl(
 		NetParams:             *walletConfig.NetParams,
 		CoinSelectionStrategy: walletConfig.CoinSelectionStrategy,
 		AuxLeafStore:          partialChainControl.Cfg.AuxLeafStore,
+		AuxSigner:             partialChainControl.Cfg.AuxSigner,
 	}
 
 	// The broadcast is already always active for neutrino nodes, so we
@@ -912,10 +929,6 @@ type DatabaseInstances struct {
 	// for native SQL queries for tables that already support it. This may
 	// be nil if the use-native-sql flag was not set.
 	NativeSQLStore *sqldb.BaseDB
-
-	// AuxLeafStore is an optional data source that can be used by custom
-	// channels to fetch+store various data.
-	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
 }
 
 // DefaultDatabaseBuilder is a type that builds the default database backends

@@ -567,6 +567,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		AuxLeafStore: fn.Some[lnwallet.AuxLeafStore](
 			&lnwallet.MockAuxLeafStore{},
 		),
+		AuxSigner: fn.Some[lnwallet.AuxSigner](
+			&lnwallet.MockAuxSigner{},
+		),
 	}
 
 	for _, op := range options {
@@ -677,6 +680,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		DeleteAliasEdge:       oldCfg.DeleteAliasEdge,
 		AliasManager:          oldCfg.AliasManager,
 		AuxLeafStore:          oldCfg.AuxLeafStore,
+		AuxSigner:             oldCfg.AuxSigner,
 	})
 	require.NoError(t, err, "failed recreating aliceFundingManager")
 

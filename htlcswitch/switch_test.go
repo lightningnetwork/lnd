@@ -1780,7 +1780,9 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 
 	cdb2, err := channeldb.Open(tempPath)
 	require.NoError(t, err, "unable to reopen channeldb")
-	t.Cleanup(func() { cdb2.Close() })
+	t.Cleanup(func() {
+		require.NoError(t, cdb2.Close())
+	})
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	require.NoError(t, err, "unable reinit switch")
@@ -3226,7 +3228,7 @@ func TestSwitchGetAttemptResultStress(t *testing.T) {
 		// s.Stop() happens in the middle of GetAttemptResult series.
 		// The value 10ms was found empirically - this time is needed
 		// to expose the race condition (as a crash under -race) in the
-		// unfixed version of Switch, before GoroutineManager was added.
+		// version of Switch before GoroutineManager was added.
 		time.Sleep(10 * time.Millisecond)
 
 		require.NoError(t, s.Stop())

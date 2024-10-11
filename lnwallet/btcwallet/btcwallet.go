@@ -1688,7 +1688,6 @@ out:
 						}
 					}
 				}
-
 			}(txNtfn)
 
 			// Launch a goroutine to re-package and send

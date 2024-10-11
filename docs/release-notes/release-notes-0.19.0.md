@@ -46,6 +46,10 @@
 
 ## lncli Additions
 
+* [A pre-generated macaroon root key can now be specified in `lncli create` and
+  `lncli createwatchonly`](https://github.com/lightningnetwork/lnd/pull/9172) to
+  allow for deterministic macaroon generation.
+
 # Improvements
 ## Functional Updates
 

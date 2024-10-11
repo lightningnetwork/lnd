@@ -925,7 +925,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 
 	var anchorAmt btcutil.Amount
 	if chanType.HasAnchors() {
-		anchorAmt = 2 * anchorSize
+		anchorAmt = 2 * AnchorSize
 	}
 
 	remoteCommitTx, localCommitTx, err := CreateCommitmentTxns(

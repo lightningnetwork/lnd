@@ -1313,7 +1313,7 @@ func (s *Server) trackPayment(subscription routing.ControlTowerSubscriber,
 
 	// Otherwise, we will log and return the error as the stream has
 	// received an error from the payment lifecycle.
-	log.Errorf("TrackPayment got error for payment %x: %v", identifier, err)
+	log.Errorf("TrackPayment got error for payment %v: %v", identifier, err)
 
 	return err
 }
@@ -1525,7 +1525,7 @@ func (s *Server) HtlcInterceptor(stream Router_HtlcInterceptorServer) error {
 	}
 	defer atomic.CompareAndSwapInt32(&s.forwardInterceptorActive, 1, 0)
 
-	// run the forward interceptor.
+	// Run the forward interceptor.
 	return newForwardInterceptor(
 		s.cfg.RouterBackend.InterceptableForwarder, stream,
 	).run()

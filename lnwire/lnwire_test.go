@@ -1603,11 +1603,13 @@ func TestLightningWireProtocol(t *testing.T) {
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgChannelUpdate2: func(v []reflect.Value, r *rand.Rand) {
-			req := ChannelUpdate2{
-				Signature:       testSchnorrSig,
-				ExtraOpaqueData: make([]byte, 0),
-			}
+			var req ChannelUpdate2
 
+			req.ExtraSignedFields = ExtraSignedFields(
+				randSignedRangeRecords(t, r),
+			)
+
+			req.Signature.Val = testSchnorrSig
 			req.ShortChannelID.Val = NewShortChanIDFromInt(
 				uint64(r.Int63()),
 			)
@@ -1666,15 +1668,6 @@ func TestLightningWireProtocol(t *testing.T) {
 			if r.Int31()%2 == 0 {
 				req.DisabledFlags.Val |=
 					ChanUpdateDisableOutgoing
-			}
-
-			numExtraBytes := r.Int31n(1000)
-			if numExtraBytes > 0 {
-				req.ExtraOpaqueData = make(
-					[]byte, numExtraBytes,
-				)
-				_, err := r.Read(req.ExtraOpaqueData[:])
-				require.NoError(t, err)
 			}
 
 			v[0] = reflect.ValueOf(req)

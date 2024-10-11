@@ -56,6 +56,8 @@
 ## lncli Updates
 
 ## Code Health
+
+* [Introduce](https://github.com/lightningnetwork/lnd/pull/XXXX) SQL schema for payments in LND.
  
 ## Breaking Changes
 ## Performance Improvements

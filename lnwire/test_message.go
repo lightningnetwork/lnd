@@ -518,7 +518,6 @@ func (c *ChannelUpdate2) RandTestMessage(t *rapid.T) Message {
 
 	//nolint:ll
 	msg := &ChannelUpdate2{
-		Signature: RandSignature(t),
 		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
 			chainHashObj,
 		),
@@ -546,10 +545,11 @@ func (c *ChannelUpdate2) RandTestMessage(t *rapid.T) Message {
 		FeeProportionalMillionths: tlv.NewPrimitiveRecord[tlv.TlvType18, uint32](
 			feeProportionalMillionths,
 		),
-		ExtraOpaqueData: RandExtraOpaqueData(t, nil),
+		ExtraSignedFields: make(map[uint64][]byte),
 	}
 
-	msg.Signature.ForceSchnorr()
+	msg.Signature.Val = RandSignature(t)
+	msg.Signature.Val.ForceSchnorr()
 
 	if rapid.Bool().Draw(t, "isSecondPeer") {
 		msg.SecondPeer = tlv.SomeRecordT(

@@ -213,7 +213,6 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 	copy(chainHashObj[:], chainHash[:])
 
 	msg := &ChannelAnnouncement2{
-		Signature: RandSignature(t),
 		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
 			chainHashObj,
 		),
@@ -232,10 +231,16 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 		NodeID2: tlv.NewPrimitiveRecord[tlv.TlvType10, [33]byte](
 			nodeID2,
 		),
-		ExtraOpaqueData: RandExtraOpaqueData(t, nil),
+		ExtraSignedFields: make(map[uint64][]byte),
 	}
 
-	msg.Signature.ForceSchnorr()
+	msg.Signature.Val = RandSignature(t)
+	msg.Signature.Val.ForceSchnorr()
+
+	randRecs, _ := RandSignedRangeRecords(t)
+	if len(randRecs) > 0 {
+		msg.ExtraSignedFields = ExtraSignedFields(randRecs)
+	}
 
 	// Randomly include optional fields
 	if rapid.Bool().Draw(t, "includeBitcoinKey1") {
@@ -688,7 +693,7 @@ var _ TestMessage = (*CommitSig)(nil)
 //
 // This is part of the TestMessage interface.
 func (c *CommitSig) RandTestMessage(t *rapid.T) Message {
-	cr, _ := RandCustomRecords(t, nil, true)
+	cr, _ := RandCustomRecords(t, nil)
 	sig := &CommitSig{
 		ChanID:        RandChannelID(t),
 		CommitSig:     RandSignature(t),
@@ -1448,7 +1453,7 @@ func (s *Shutdown) RandTestMessage(t *rapid.T) Message {
 		shutdownNonce = SomeShutdownNonce(RandMusig2Nonce(t))
 	}
 
-	cr, _ := RandCustomRecords(t, nil, true)
+	cr, _ := RandCustomRecords(t, nil)
 
 	return &Shutdown{
 		ChannelID:     RandChannelID(t),
@@ -1505,7 +1510,7 @@ func (c *UpdateAddHTLC) RandTestMessage(t *rapid.T) Message {
 
 	numRecords := rapid.IntRange(0, 5).Draw(t, "numRecords")
 	if numRecords > 0 {
-		msg.CustomRecords, _ = RandCustomRecords(t, nil, true)
+		msg.CustomRecords, _ = RandCustomRecords(t, nil)
 	}
 
 	// 50/50 chance to add a blinding point
@@ -1586,7 +1591,7 @@ func (c *UpdateFulfillHTLC) RandTestMessage(t *rapid.T) Message {
 		PaymentPreimage: RandPaymentPreimage(t),
 	}
 
-	cr, ignoreRecords := RandCustomRecords(t, nil, true)
+	cr, ignoreRecords := RandCustomRecords(t, nil)
 	msg.CustomRecords = cr
 
 	randData := RandExtraOpaqueData(t, ignoreRecords)

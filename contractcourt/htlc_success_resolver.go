@@ -123,6 +123,17 @@ func (h *htlcSuccessResolver) Resolve(
 		return nil, nil
 	}
 
+	// If the HTLC has custom records, then for now we'll pause resolution.
+	//
+	// TODO(roasbeef): Implement resolving HTLCs with custom records
+	// (follow-up PR).
+	if len(h.htlc.CustomRecords) != 0 {
+		select { //nolint:gosimple
+		case <-h.quit:
+			return nil, errResolverShuttingDown
+		}
+	}
+
 	// If we don't have a success transaction, then this means that this is
 	// an output on the remote party's commitment transaction.
 	if h.htlcResolution.SignedSuccessTx == nil {

@@ -558,6 +558,10 @@ type Config struct {
 	// AuxSigner is an optional signer that can be used to sign auxiliary
 	// leaves for certain custom channel types.
 	AuxSigner fn.Option[lnwallet.AuxSigner]
+
+	// AuxResolver is an optional interface that can be used to modify the
+	// way contracts are resolved.
+	AuxResolver fn.Option[lnwallet.AuxContractResolver]
 }
 
 // Manager acts as an orchestrator/bridge between the wallet's
@@ -1089,6 +1093,9 @@ func (f *Manager) advanceFundingState(channel *channeldb.OpenChannel,
 	})
 	f.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
 		chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
+	})
+	f.cfg.AuxResolver.WhenSome(func(s lnwallet.AuxContractResolver) {
+		chanOpts = append(chanOpts, lnwallet.WithAuxResolver(s))
 	})
 
 	// We create the state-machine object which wraps the database state.

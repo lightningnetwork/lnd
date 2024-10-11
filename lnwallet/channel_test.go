@@ -335,21 +335,23 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool,
 	// The logs of both sides should now be cleared since the entry adding
 	// the HTLC should have been removed once both sides receive the
 	// revocation.
-	if aliceChannel.localUpdateLog.Len() != 0 {
+	if aliceChannel.updateLogs.Local.Len() != 0 {
 		t.Fatalf("alice's local not updated, should be empty, has %v "+
-			"entries instead", aliceChannel.localUpdateLog.Len())
+			"entries instead", aliceChannel.updateLogs.Local.Len())
 	}
-	if aliceChannel.remoteUpdateLog.Len() != 0 {
+	if aliceChannel.updateLogs.Remote.Len() != 0 {
 		t.Fatalf("alice's remote not updated, should be empty, has %v "+
-			"entries instead", aliceChannel.remoteUpdateLog.Len())
+			"entries instead", aliceChannel.updateLogs.Remote.Len())
 	}
-	if len(aliceChannel.localUpdateLog.updateIndex) != 0 {
-		t.Fatalf("alice's local log index not cleared, should be empty but "+
-			"has %v entries", len(aliceChannel.localUpdateLog.updateIndex))
+	if len(aliceChannel.updateLogs.Local.updateIndex) != 0 {
+		t.Fatalf("alice's local log index not cleared, should be "+
+			"empty but has %v entries",
+			len(aliceChannel.updateLogs.Local.updateIndex))
 	}
-	if len(aliceChannel.remoteUpdateLog.updateIndex) != 0 {
-		t.Fatalf("alice's remote log index not cleared, should be empty but "+
-			"has %v entries", len(aliceChannel.remoteUpdateLog.updateIndex))
+	if len(aliceChannel.updateLogs.Remote.updateIndex) != 0 {
+		t.Fatalf("alice's remote log index not cleared, should be "+
+			"empty but has %v entries",
+			len(aliceChannel.updateLogs.Remote.updateIndex))
 	}
 }
 
@@ -1434,12 +1436,12 @@ func TestHTLCDustLimit(t *testing.T) {
 	// while Bob's should not, because the value falls beneath his dust
 	// limit. The amount of the HTLC should be applied to fees in Bob's
 	// commitment transaction.
-	aliceCommitment := aliceChannel.localCommitChain.tip()
+	aliceCommitment := aliceChannel.commitChains.Local.tip()
 	if len(aliceCommitment.txn.TxOut) != 3 {
 		t.Fatalf("incorrect # of outputs: expected %v, got %v",
 			3, len(aliceCommitment.txn.TxOut))
 	}
-	bobCommitment := bobChannel.localCommitChain.tip()
+	bobCommitment := bobChannel.commitChains.Local.tip()
 	if len(bobCommitment.txn.TxOut) != 2 {
 		t.Fatalf("incorrect # of outputs: expected %v, got %v",
 			2, len(bobCommitment.txn.TxOut))
@@ -1464,7 +1466,7 @@ func TestHTLCDustLimit(t *testing.T) {
 
 	// At this point, for Alice's commitment chains, the value of the HTLC
 	// should have been added to Alice's balance and TotalSatoshisSent.
-	commitment := aliceChannel.localCommitChain.tip()
+	commitment := aliceChannel.commitChains.Local.tip()
 	if len(commitment.txn.TxOut) != 2 {
 		t.Fatalf("incorrect # of outputs: expected %v, got %v",
 			2, len(commitment.txn.TxOut))
@@ -1697,7 +1699,7 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 	// output for Alice's balance should have been removed as dust, leaving
 	// only a single output that will send the remaining funds in the
 	// channel to Bob.
-	commitment := bobChannel.localCommitChain.tip()
+	commitment := bobChannel.commitChains.Local.tip()
 	if len(commitment.txn.TxOut) != 1 {
 		t.Fatalf("incorrect # of outputs: expected %v, got %v",
 			1, len(commitment.txn.TxOut))
@@ -1772,26 +1774,26 @@ func TestStateUpdatePersistence(t *testing.T) {
 	// Helper method that asserts the expected number of updates are found
 	// in the update logs.
 	assertNumLogUpdates := func(numAliceUpdates, numBobUpdates int) {
-		if aliceChannel.localUpdateLog.Len() != numAliceUpdates {
+		if aliceChannel.updateLogs.Local.Len() != numAliceUpdates {
 			t.Fatalf("expected %d local updates, found %d",
 				numAliceUpdates,
-				aliceChannel.localUpdateLog.Len())
+				aliceChannel.updateLogs.Local.Len())
 		}
-		if aliceChannel.remoteUpdateLog.Len() != numBobUpdates {
+		if aliceChannel.updateLogs.Remote.Len() != numBobUpdates {
 			t.Fatalf("expected %d remote updates, found %d",
 				numBobUpdates,
-				aliceChannel.remoteUpdateLog.Len())
+				aliceChannel.updateLogs.Remote.Len())
 		}
 
-		if bobChannel.localUpdateLog.Len() != numBobUpdates {
+		if bobChannel.updateLogs.Local.Len() != numBobUpdates {
 			t.Fatalf("expected %d local updates, found %d",
 				numBobUpdates,
-				bobChannel.localUpdateLog.Len())
+				bobChannel.updateLogs.Local.Len())
 		}
-		if bobChannel.remoteUpdateLog.Len() != numAliceUpdates {
+		if bobChannel.updateLogs.Remote.Len() != numAliceUpdates {
 			t.Fatalf("expected %d remote updates, found %d",
 				numAliceUpdates,
-				bobChannel.remoteUpdateLog.Len())
+				bobChannel.updateLogs.Remote.Len())
 		}
 	}
 
@@ -1815,25 +1817,25 @@ func TestStateUpdatePersistence(t *testing.T) {
 
 	// After the state transition the fee update is fully locked in, and
 	// should've been removed from both channels' update logs.
-	if aliceChannel.localCommitChain.tail().feePerKw != fee {
+	if aliceChannel.commitChains.Local.tail().feePerKw != fee {
 		t.Fatalf("fee not locked in")
 	}
-	if bobChannel.localCommitChain.tail().feePerKw != fee {
+	if bobChannel.commitChains.Local.tail().feePerKw != fee {
 		t.Fatalf("fee not locked in")
 	}
 	assertNumLogUpdates(3, 1)
 
 	// The latest commitment from both sides should have all the HTLCs.
-	numAliceOutgoing := aliceChannel.localCommitChain.tail().outgoingHTLCs
-	numAliceIncoming := aliceChannel.localCommitChain.tail().incomingHTLCs
+	numAliceOutgoing := aliceChannel.commitChains.Local.tail().outgoingHTLCs
+	numAliceIncoming := aliceChannel.commitChains.Local.tail().incomingHTLCs
 	if len(numAliceOutgoing) != 3 {
 		t.Fatalf("expected %v htlcs, instead got %v", 3, numAliceOutgoing)
 	}
 	if len(numAliceIncoming) != 1 {
 		t.Fatalf("expected %v htlcs, instead got %v", 1, numAliceIncoming)
 	}
-	numBobOutgoing := bobChannel.localCommitChain.tail().outgoingHTLCs
-	numBobIncoming := bobChannel.localCommitChain.tail().incomingHTLCs
+	numBobOutgoing := bobChannel.commitChains.Local.tail().outgoingHTLCs
+	numBobIncoming := bobChannel.commitChains.Local.tail().incomingHTLCs
 	if len(numBobOutgoing) != 1 {
 		t.Fatalf("expected %v htlcs, instead got %v", 1, numBobOutgoing)
 	}
@@ -1867,62 +1869,72 @@ func TestStateUpdatePersistence(t *testing.T) {
 
 	// The state update logs of the new channels and the old channels
 	// should now be identical other than the height the HTLCs were added.
-	if aliceChannel.localUpdateLog.logIndex !=
-		aliceChannelNew.localUpdateLog.logIndex {
+	if aliceChannel.updateLogs.Local.logIndex !=
+		aliceChannelNew.updateLogs.Local.logIndex {
+
 		t.Fatalf("alice log counter: expected %v, got %v",
-			aliceChannel.localUpdateLog.logIndex,
-			aliceChannelNew.localUpdateLog.logIndex)
+			aliceChannel.updateLogs.Local.logIndex,
+			aliceChannelNew.updateLogs.Local.logIndex)
 	}
-	if aliceChannel.remoteUpdateLog.logIndex !=
-		aliceChannelNew.remoteUpdateLog.logIndex {
+	if aliceChannel.updateLogs.Remote.logIndex !=
+		aliceChannelNew.updateLogs.Remote.logIndex {
+
 		t.Fatalf("alice log counter: expected %v, got %v",
-			aliceChannel.remoteUpdateLog.logIndex,
-			aliceChannelNew.remoteUpdateLog.logIndex)
+			aliceChannel.updateLogs.Remote.logIndex,
+			aliceChannelNew.updateLogs.Remote.logIndex)
 	}
-	if aliceChannel.localUpdateLog.Len() !=
-		aliceChannelNew.localUpdateLog.Len() {
+	if aliceChannel.updateLogs.Local.Len() !=
+		aliceChannelNew.updateLogs.Local.Len() {
+
 		t.Fatalf("alice log len: expected %v, got %v",
-			aliceChannel.localUpdateLog.Len(),
-			aliceChannelNew.localUpdateLog.Len())
+			aliceChannel.updateLogs.Local.Len(),
+			aliceChannelNew.updateLogs.Local.Len())
 	}
-	if aliceChannel.remoteUpdateLog.Len() !=
-		aliceChannelNew.remoteUpdateLog.Len() {
+	if aliceChannel.updateLogs.Remote.Len() !=
+		aliceChannelNew.updateLogs.Remote.Len() {
+
 		t.Fatalf("alice log len: expected %v, got %v",
-			aliceChannel.remoteUpdateLog.Len(),
-			aliceChannelNew.remoteUpdateLog.Len())
+			aliceChannel.updateLogs.Remote.Len(),
+			aliceChannelNew.updateLogs.Remote.Len())
 	}
-	if bobChannel.localUpdateLog.logIndex !=
-		bobChannelNew.localUpdateLog.logIndex {
+	if bobChannel.updateLogs.Local.logIndex !=
+		bobChannelNew.updateLogs.Local.logIndex {
+
 		t.Fatalf("bob log counter: expected %v, got %v",
-			bobChannel.localUpdateLog.logIndex,
-			bobChannelNew.localUpdateLog.logIndex)
+			bobChannel.updateLogs.Local.logIndex,
+			bobChannelNew.updateLogs.Local.logIndex)
 	}
-	if bobChannel.remoteUpdateLog.logIndex !=
-		bobChannelNew.remoteUpdateLog.logIndex {
+	if bobChannel.updateLogs.Remote.logIndex !=
+		bobChannelNew.updateLogs.Remote.logIndex {
+
 		t.Fatalf("bob log counter: expected %v, got %v",
-			bobChannel.remoteUpdateLog.logIndex,
-			bobChannelNew.remoteUpdateLog.logIndex)
+			bobChannel.updateLogs.Remote.logIndex,
+			bobChannelNew.updateLogs.Remote.logIndex)
 	}
-	if bobChannel.localUpdateLog.Len() !=
-		bobChannelNew.localUpdateLog.Len() {
+	if bobChannel.updateLogs.Local.Len() !=
+		bobChannelNew.updateLogs.Local.Len() {
+
 		t.Fatalf("bob log len: expected %v, got %v",
-			bobChannel.localUpdateLog.Len(),
-			bobChannelNew.localUpdateLog.Len())
+			bobChannel.updateLogs.Local.Len(),
+			bobChannelNew.updateLogs.Local.Len())
 	}
-	if bobChannel.remoteUpdateLog.Len() !=
-		bobChannelNew.remoteUpdateLog.Len() {
+	if bobChannel.updateLogs.Remote.Len() !=
+		bobChannelNew.updateLogs.Remote.Len() {
+
 		t.Fatalf("bob log len: expected %v, got %v",
-			bobChannel.remoteUpdateLog.Len(),
-			bobChannelNew.remoteUpdateLog.Len())
+			bobChannel.updateLogs.Remote.Len(),
+			bobChannelNew.updateLogs.Remote.Len())
 	}
 
 	// TODO(roasbeef): expand test to also ensure state revocation log has
 	// proper pk scripts
 
 	// Newly generated pkScripts for HTLCs should be the same as in the old channel.
-	for _, entry := range aliceChannel.localUpdateLog.htlcIndex {
+	for _, entry := range aliceChannel.updateLogs.Local.htlcIndex {
 		htlc := entry.Value
-		restoredHtlc := aliceChannelNew.localUpdateLog.lookupHtlc(htlc.HtlcIndex)
+		restoredHtlc := aliceChannelNew.updateLogs.Local.lookupHtlc(
+			htlc.HtlcIndex,
+		)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
 			t.Fatalf("alice ourPkScript in ourLog: expected %X, got %X",
 				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])
@@ -1932,9 +1944,11 @@ func TestStateUpdatePersistence(t *testing.T) {
 				htlc.theirPkScript[:5], restoredHtlc.theirPkScript[:5])
 		}
 	}
-	for _, entry := range aliceChannel.remoteUpdateLog.htlcIndex {
+	for _, entry := range aliceChannel.updateLogs.Remote.htlcIndex {
 		htlc := entry.Value
-		restoredHtlc := aliceChannelNew.remoteUpdateLog.lookupHtlc(htlc.HtlcIndex)
+		restoredHtlc := aliceChannelNew.updateLogs.Remote.lookupHtlc(
+			htlc.HtlcIndex,
+		)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
 			t.Fatalf("alice ourPkScript in theirLog: expected %X, got %X",
 				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])
@@ -1944,9 +1958,11 @@ func TestStateUpdatePersistence(t *testing.T) {
 				htlc.theirPkScript[:5], restoredHtlc.theirPkScript[:5])
 		}
 	}
-	for _, entry := range bobChannel.localUpdateLog.htlcIndex {
+	for _, entry := range bobChannel.updateLogs.Local.htlcIndex {
 		htlc := entry.Value
-		restoredHtlc := bobChannelNew.localUpdateLog.lookupHtlc(htlc.HtlcIndex)
+		restoredHtlc := bobChannelNew.updateLogs.Local.lookupHtlc(
+			htlc.HtlcIndex,
+		)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
 			t.Fatalf("bob ourPkScript in ourLog: expected %X, got %X",
 				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])
@@ -1956,9 +1972,11 @@ func TestStateUpdatePersistence(t *testing.T) {
 				htlc.theirPkScript[:5], restoredHtlc.theirPkScript[:5])
 		}
 	}
-	for _, entry := range bobChannel.remoteUpdateLog.htlcIndex {
+	for _, entry := range bobChannel.updateLogs.Remote.htlcIndex {
 		htlc := entry.Value
-		restoredHtlc := bobChannelNew.remoteUpdateLog.lookupHtlc(htlc.HtlcIndex)
+		restoredHtlc := bobChannelNew.updateLogs.Remote.lookupHtlc(
+			htlc.HtlcIndex,
+		)
 		if !bytes.Equal(htlc.ourPkScript, restoredHtlc.ourPkScript) {
 			t.Fatalf("bob ourPkScript in theirLog: expected %X, got %X",
 				htlc.ourPkScript[:5], restoredHtlc.ourPkScript[:5])
@@ -2089,20 +2107,24 @@ func TestCancelHTLC(t *testing.T) {
 
 	// Now HTLCs should be present on the commitment transaction for either
 	// side.
-	if len(aliceChannel.localCommitChain.tip().outgoingHTLCs) != 0 ||
-		len(aliceChannel.remoteCommitChain.tip().outgoingHTLCs) != 0 {
+	if len(aliceChannel.commitChains.Local.tip().outgoingHTLCs) != 0 ||
+		len(aliceChannel.commitChains.Remote.tip().outgoingHTLCs) != 0 {
+
 		t.Fatalf("htlc's still active from alice's POV")
 	}
-	if len(aliceChannel.localCommitChain.tip().incomingHTLCs) != 0 ||
-		len(aliceChannel.remoteCommitChain.tip().incomingHTLCs) != 0 {
+	if len(aliceChannel.commitChains.Local.tip().incomingHTLCs) != 0 ||
+		len(aliceChannel.commitChains.Remote.tip().incomingHTLCs) != 0 {
+
 		t.Fatalf("htlc's still active from alice's POV")
 	}
-	if len(bobChannel.localCommitChain.tip().outgoingHTLCs) != 0 ||
-		len(bobChannel.remoteCommitChain.tip().outgoingHTLCs) != 0 {
+	if len(bobChannel.commitChains.Local.tip().outgoingHTLCs) != 0 ||
+		len(bobChannel.commitChains.Remote.tip().outgoingHTLCs) != 0 {
+
 		t.Fatalf("htlc's still active from bob's POV")
 	}
-	if len(bobChannel.localCommitChain.tip().incomingHTLCs) != 0 ||
-		len(bobChannel.remoteCommitChain.tip().incomingHTLCs) != 0 {
+	if len(bobChannel.commitChains.Local.tip().incomingHTLCs) != 0 ||
+		len(bobChannel.commitChains.Remote.tip().incomingHTLCs) != 0 {
+
 		t.Fatalf("htlc's still active from bob's POV")
 	}
 
@@ -3257,39 +3279,39 @@ func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
 	// Alice's local log counter should be 4 and her HTLC index 3. She
 	// should detect Bob's remote log counter as being 3 and his HTLC index
 	// 3 as well.
-	if aliceChannel.localUpdateLog.logIndex != 4 {
+	if aliceChannel.updateLogs.Local.logIndex != 4 {
 		t.Fatalf("incorrect log index: expected %v, got %v", 4,
-			aliceChannel.localUpdateLog.logIndex)
+			aliceChannel.updateLogs.Local.logIndex)
 	}
-	if aliceChannel.localUpdateLog.htlcCounter != 1 {
+	if aliceChannel.updateLogs.Local.htlcCounter != 1 {
 		t.Fatalf("incorrect htlc index: expected %v, got %v", 1,
-			aliceChannel.localUpdateLog.htlcCounter)
+			aliceChannel.updateLogs.Local.htlcCounter)
 	}
-	if aliceChannel.remoteUpdateLog.logIndex != 3 {
+	if aliceChannel.updateLogs.Remote.logIndex != 3 {
 		t.Fatalf("incorrect log index: expected %v, got %v", 3,
-			aliceChannel.localUpdateLog.logIndex)
+			aliceChannel.updateLogs.Local.logIndex)
 	}
-	if aliceChannel.remoteUpdateLog.htlcCounter != 3 {
+	if aliceChannel.updateLogs.Remote.htlcCounter != 3 {
 		t.Fatalf("incorrect htlc index: expected %v, got %v", 3,
-			aliceChannel.localUpdateLog.htlcCounter)
+			aliceChannel.updateLogs.Local.htlcCounter)
 	}
 
 	// Bob should also have the same state, but mirrored.
-	if bobChannel.localUpdateLog.logIndex != 3 {
+	if bobChannel.updateLogs.Local.logIndex != 3 {
 		t.Fatalf("incorrect log index: expected %v, got %v", 3,
-			bobChannel.localUpdateLog.logIndex)
+			bobChannel.updateLogs.Local.logIndex)
 	}
-	if bobChannel.localUpdateLog.htlcCounter != 3 {
+	if bobChannel.updateLogs.Local.htlcCounter != 3 {
 		t.Fatalf("incorrect htlc index: expected %v, got %v", 3,
-			bobChannel.localUpdateLog.htlcCounter)
+			bobChannel.updateLogs.Local.htlcCounter)
 	}
-	if bobChannel.remoteUpdateLog.logIndex != 4 {
+	if bobChannel.updateLogs.Remote.logIndex != 4 {
 		t.Fatalf("incorrect log index: expected %v, got %v", 4,
-			bobChannel.localUpdateLog.logIndex)
+			bobChannel.updateLogs.Local.logIndex)
 	}
-	if bobChannel.remoteUpdateLog.htlcCounter != 1 {
+	if bobChannel.updateLogs.Remote.htlcCounter != 1 {
 		t.Fatalf("incorrect htlc index: expected %v, got %v", 1,
-			bobChannel.localUpdateLog.htlcCounter)
+			bobChannel.updateLogs.Local.htlcCounter)
 	}
 
 	// We'll conclude the test by having Bob settle Alice's HTLC, then
@@ -4601,7 +4623,7 @@ func TestFeeUpdateOldDiskFormat(t *testing.T) {
 		t.Helper()
 
 		expUpd := expFee + expAdd
-		upd, fees := countLog(aliceChannel.localUpdateLog)
+		upd, fees := countLog(aliceChannel.updateLogs.Local)
 		if upd != expUpd {
 			t.Fatalf("expected %d updates, found %d in Alice's "+
 				"log", expUpd, upd)
@@ -4610,7 +4632,7 @@ func TestFeeUpdateOldDiskFormat(t *testing.T) {
 			t.Fatalf("expected %d fee updates, found %d in "+
 				"Alice's log", expFee, fees)
 		}
-		upd, fees = countLog(bobChannel.remoteUpdateLog)
+		upd, fees = countLog(bobChannel.updateLogs.Remote)
 		if upd != expUpd {
 			t.Fatalf("expected %d updates, found %d in Bob's log",
 				expUpd, upd)
@@ -5305,9 +5327,11 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 	// When sending htlcs we enforce the feebuffer on the commitment
 	// transaction.
 	remoteCommitWeight := func(lc *LightningChannel) lntypes.WeightUnit {
-		remoteACKedIndex := lc.localCommitChain.tip().theirMessageIndex
+		remoteACKedIndex :=
+			lc.commitChains.Local.tip().messageIndices.Remote
+
 		htlcView := lc.fetchHTLCView(remoteACKedIndex,
-			lc.localUpdateLog.logIndex)
+			lc.updateLogs.Local.logIndex)
 
 		_, w := lc.availableCommitmentBalance(
 			htlcView, lntypes.Remote, FeeBuffer,
@@ -5928,7 +5952,7 @@ func TestChannelUnilateralClosePendingCommit(t *testing.T) {
 	// At this point, Alice's commitment chain should have a new pending
 	// commit for Bob. We'll extract it so we can simulate Bob broadcasting
 	// the commitment due to an issue.
-	bobCommit := aliceChannel.remoteCommitChain.tip().txn
+	bobCommit := aliceChannel.commitChains.Remote.tip().txn
 	bobTxHash := bobCommit.TxHash()
 	spendDetail := &chainntnfs.SpendDetail{
 		SpenderTxHash: &bobTxHash,
@@ -7014,20 +7038,20 @@ func TestChannelRestoreUpdateLogs(t *testing.T) {
 
 	// compare all the logs between the old and new channels, to make sure
 	// they all got restored properly.
-	err = compareLogs(aliceChannel.localUpdateLog,
-		newAliceChannel.localUpdateLog)
+	err = compareLogs(aliceChannel.updateLogs.Local,
+		newAliceChannel.updateLogs.Local)
 	require.NoError(t, err, "alice local log not restored")
 
-	err = compareLogs(aliceChannel.remoteUpdateLog,
-		newAliceChannel.remoteUpdateLog)
+	err = compareLogs(aliceChannel.updateLogs.Remote,
+		newAliceChannel.updateLogs.Remote)
 	require.NoError(t, err, "alice remote log not restored")
 
-	err = compareLogs(bobChannel.localUpdateLog,
-		newBobChannel.localUpdateLog)
+	err = compareLogs(bobChannel.updateLogs.Local,
+		newBobChannel.updateLogs.Local)
 	require.NoError(t, err, "bob local log not restored")
 
-	err = compareLogs(bobChannel.remoteUpdateLog,
-		newBobChannel.remoteUpdateLog)
+	err = compareLogs(bobChannel.updateLogs.Remote,
+		newBobChannel.updateLogs.Remote)
 	require.NoError(t, err, "bob remote log not restored")
 }
 
@@ -7059,10 +7083,10 @@ func assertInLog(t *testing.T, log *updateLog, numAdds, numFails int) {
 // assertInLogs asserts that the expected number of Adds and Fails occurs in
 // the local and remote update log of the given channel.
 func assertInLogs(t *testing.T, channel *LightningChannel, numAddsLocal,
-	numFailsLocal, numAddsRemote, numFailsRemote int,
-) {
-	assertInLog(t, channel.localUpdateLog, numAddsLocal, numFailsLocal)
-	assertInLog(t, channel.remoteUpdateLog, numAddsRemote, numFailsRemote)
+	numFailsLocal, numAddsRemote, numFailsRemote int) {
+
+	assertInLog(t, channel.updateLogs.Local, numAddsLocal, numFailsLocal)
+	assertInLog(t, channel.updateLogs.Remote, numAddsRemote, numFailsRemote)
 }
 
 // restoreAndAssert creates a new LightningChannel from the given channel's
@@ -7077,8 +7101,10 @@ func restoreAndAssert(t *testing.T, channel *LightningChannel, numAddsLocal,
 	)
 	require.NoError(t, err, "unable to create new channel")
 
-	assertInLog(t, newChannel.localUpdateLog, numAddsLocal, numFailsLocal)
-	assertInLog(t, newChannel.remoteUpdateLog, numAddsRemote, numFailsRemote)
+	assertInLog(t, newChannel.updateLogs.Local, numAddsLocal, numFailsLocal)
+	assertInLog(
+		t, newChannel.updateLogs.Remote, numAddsRemote, numFailsRemote,
+	)
 }
 
 // TestChannelRestoreUpdateLogsFailedHTLC runs through a scenario where an
@@ -7342,16 +7368,18 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 
 		var pd *PaymentDescriptor
 		if remoteLog {
-			if newChannel.localUpdateLog.lookupHtlc(htlcIndex) != nil {
+			h := newChannel.updateLogs.Local.lookupHtlc(htlcIndex)
+			if h != nil {
 				t.Fatalf("htlc found in wrong log")
 			}
-			pd = newChannel.remoteUpdateLog.lookupHtlc(htlcIndex)
+			pd = newChannel.updateLogs.Remote.lookupHtlc(htlcIndex)
 
 		} else {
-			if newChannel.remoteUpdateLog.lookupHtlc(htlcIndex) != nil {
+			h := newChannel.updateLogs.Remote.lookupHtlc(htlcIndex)
+			if h != nil {
 				t.Fatalf("htlc found in wrong log")
 			}
-			pd = newChannel.localUpdateLog.lookupHtlc(htlcIndex)
+			pd = newChannel.updateLogs.Local.lookupHtlc(htlcIndex)
 		}
 		if pd == nil {
 			t.Fatalf("htlc not found in log")
@@ -7622,7 +7650,7 @@ func TestForceCloseBorkedState(t *testing.T) {
 
 	// We manually advance the commitment tail here since the above
 	// ReceiveRevocation call will fail before it's actually advanced.
-	aliceChannel.remoteCommitChain.advanceTail()
+	aliceChannel.commitChains.Remote.advanceTail()
 	_, err = aliceChannel.SignNextCommitment()
 	if err != channeldb.ErrChanBorked {
 		t.Fatalf("sign commitment should have failed: %v", err)
@@ -7837,7 +7865,7 @@ func TestIdealCommitFeeRate(t *testing.T) {
 		maxFeeAlloc float64,
 	) chainfee.SatPerKWeight {
 		balance, weight := c.availableBalance(AdditionalHtlc)
-		feeRate := c.localCommitChain.tip().feePerKw
+		feeRate := c.commitChains.Local.tip().feePerKw
 		currentFee := feeRate.FeeForWeight(weight)
 
 		maxBalance := balance.ToSatoshis() + currentFee
@@ -7854,7 +7882,7 @@ func TestIdealCommitFeeRate(t *testing.T) {
 	// currentFeeRate calculates the current fee rate of the channel. The
 	// ideal fee rate is floored at the current fee rate of the channel.
 	currentFeeRate := func(c *LightningChannel) chainfee.SatPerKWeight {
-		return c.localCommitChain.tip().feePerKw
+		return c.commitChains.Local.tip().feePerKw
 	}
 
 	// testCase definies the test cases when calculating the ideal fee rate
@@ -8288,16 +8316,18 @@ func TestFetchParent(t *testing.T) {
 			// Create a lightning channel with newly initialized
 			// local and remote logs.
 			lc := LightningChannel{
-				localUpdateLog:  newUpdateLog(0, 0),
-				remoteUpdateLog: newUpdateLog(0, 0),
+				updateLogs: lntypes.Dual[*updateLog]{
+					Local:  newUpdateLog(0, 0),
+					Remote: newUpdateLog(0, 0),
+				},
 			}
 
 			// Add the local and remote entries to update logs.
 			for _, entry := range test.localEntries {
-				lc.localUpdateLog.appendHtlc(entry)
+				lc.updateLogs.Local.appendHtlc(entry)
 			}
 			for _, entry := range test.remoteEntries {
-				lc.remoteUpdateLog.appendHtlc(entry)
+				lc.updateLogs.Remote.appendHtlc(entry)
 			}
 
 			parent, err := lc.fetchParent(
@@ -8624,23 +8654,25 @@ func TestEvaluateView(t *testing.T) {
 				},
 
 				// Create update logs for local and remote.
-				localUpdateLog:  newUpdateLog(0, 0),
-				remoteUpdateLog: newUpdateLog(0, 0),
+				updateLogs: lntypes.Dual[*updateLog]{
+					Local:  newUpdateLog(0, 0),
+					Remote: newUpdateLog(0, 0),
+				},
 			}
 
 			for _, htlc := range test.ourHtlcs {
 				if htlc.EntryType == Add {
-					lc.localUpdateLog.appendHtlc(htlc)
+					lc.updateLogs.Local.appendHtlc(htlc)
 				} else {
-					lc.localUpdateLog.appendUpdate(htlc)
+					lc.updateLogs.Local.appendUpdate(htlc)
 				}
 			}
 
 			for _, htlc := range test.theirHtlcs {
 				if htlc.EntryType == Add {
-					lc.remoteUpdateLog.appendHtlc(htlc)
+					lc.updateLogs.Remote.appendHtlc(htlc)
 				} else {
-					lc.remoteUpdateLog.appendUpdate(htlc)
+					lc.updateLogs.Remote.appendUpdate(htlc)
 				}
 			}
 
@@ -11195,7 +11227,7 @@ func TestBlindingPointPersistence(t *testing.T) {
 	require.NoError(t, err, "unable to restart alice")
 
 	// Assert that the blinding point is restored from disk.
-	remoteCommit := aliceChannel.remoteCommitChain.tip()
+	remoteCommit := aliceChannel.commitChains.Remote.tip()
 	require.Len(t, remoteCommit.outgoingHTLCs, 1)
 	require.Equal(t, blinding,
 		remoteCommit.outgoingHTLCs[0].BlindingPoint.UnwrapOrFailV(t))
@@ -11212,7 +11244,7 @@ func TestBlindingPointPersistence(t *testing.T) {
 	require.NoError(t, err, "unable to restart bob's channel")
 
 	// Assert that Bob is able to recover the blinding point from disk.
-	bobCommit := bobChannel.localCommitChain.tip()
+	bobCommit := bobChannel.commitChains.Local.tip()
 	require.Len(t, bobCommit.incomingHTLCs, 1)
 	require.Equal(t, blinding,
 		bobCommit.incomingHTLCs[0].BlindingPoint.UnwrapOrFailV(t))

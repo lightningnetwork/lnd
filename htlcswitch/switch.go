@@ -1763,6 +1763,7 @@ out:
 func (s *Switch) Start() error {
 	if !atomic.CompareAndSwapInt32(&s.started, 0, 1) {
 		log.Warn("Htlc Switch already started")
+
 		return errors.New("htlc switch already started")
 	}
 
@@ -1783,12 +1784,15 @@ func (s *Switch) Start() error {
 		err = fmt.Errorf("unable to start htlc forwarder: %w",
 			ErrSwitchExiting)
 		log.Errorf("%v", err)
+
 		return err
 	}
 
 	if err := s.reforwardResponses(); err != nil {
-		s.Stop()
+		// We are already stopping so we can ignore the error.
+		_ = s.Stop()
 		log.Errorf("unable to reforward responses: %v", err)
+
 		return err
 	}
 
@@ -1796,6 +1800,7 @@ func (s *Switch) Start() error {
 		// We are already stopping so we can ignore the error.
 		_ = s.Stop()
 		log.Errorf("unable to reforward resolutions: %v", err)
+
 		return err
 	}
 

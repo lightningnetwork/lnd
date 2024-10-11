@@ -684,7 +684,8 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, atpl *autopilot.Manager,
 	invoiceRegistry *invoices.InvoiceRegistry, tower *watchtower.Standalone,
-	chanPredicate chanacceptor.MultiplexAcceptor) error {
+	chanPredicate chanacceptor.MultiplexAcceptor,
+	invoiceHtlcModifier *invoices.HtlcModificationInterceptor) error {
 
 	// Set up router rpc backend.
 	selfNode, err := s.graphDB.SourceNode()
@@ -787,7 +788,8 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		s.sweeper, tower, s.towerClientMgr, r.cfg.net.ResolveTCPAddr,
 		genInvoiceFeatures, genAmpInvoiceFeatures,
 		s.getNodeAnnouncement, s.updateAndBrodcastSelfNode, parseAddr,
-		rpcsLog, s.aliasMgr,
+		rpcsLog, s.aliasMgr, r.implCfg.AuxDataParser,
+		invoiceHtlcModifier,
 	)
 	if err != nil {
 		return err
@@ -2683,7 +2685,6 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	// transaction here rather than going to the switch as we don't require
 	// interaction from the peer.
 	if force {
-
 		// As we're force closing this channel, as a precaution, we'll
 		// ensure that the switch doesn't continue to see this channel
 		// as eligible for forwarding HTLC's. If the peer is online,
@@ -2723,15 +2724,19 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 		errChan = make(chan error, 1)
 		notifier := r.server.cc.ChainNotifier
-		go peer.WaitForChanToClose(uint32(bestHeight), notifier, errChan, chanPoint,
+		go peer.WaitForChanToClose(
+			uint32(bestHeight), notifier, errChan, chanPoint,
 			&closingTxid, closingTx.TxOut[0].PkScript, func() {
 				// Respond to the local subsystem which
 				// requested the channel closure.
 				updateChan <- &peer.ChannelCloseUpdate{
 					ClosingTxid: closingTxid[:],
 					Success:     true,
+					// Force closure transactions don't have
+					// additional local/remote outputs.
 				}
-			})
+			},
+		)
 	} else {
 		// If this is a frozen channel, then we only allow the co-op
 		// close to proceed if we were the responder to this channel if
@@ -2855,6 +2860,19 @@ out:
 				return err
 			}
 
+			err = fn.MapOptionZ(
+				r.server.implCfg.AuxDataParser,
+				func(parser AuxDataParser) error {
+					return parser.InlineParseCustomData(
+						rpcClosingUpdate,
+					)
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("error parsing custom data: "+
+					"%w", err)
+			}
+
 			rpcsLog.Tracef("[closechannel] sending update: %v",
 				rpcClosingUpdate)
 
@@ -2880,19 +2898,84 @@ out:
 	return nil
 }
 
-func createRPCCloseUpdate(update interface{}) (
-	*lnrpc.CloseStatusUpdate, error) {
+func createRPCCloseUpdate(
+	update interface{}) (*lnrpc.CloseStatusUpdate, error) {
 
 	switch u := update.(type) {
 	case *peer.ChannelCloseUpdate:
+		ccu := &lnrpc.ChannelCloseUpdate{
+			ClosingTxid: u.ClosingTxid,
+			Success:     u.Success,
+		}
+
+		err := fn.MapOptionZ(
+			u.LocalCloseOutput,
+			func(closeOut chancloser.CloseOutput) error {
+				cr, err := closeOut.ShutdownRecords.Serialize()
+				if err != nil {
+					return fmt.Errorf("error serializing "+
+						"local close out custom "+
+						"records: %w", err)
+				}
+
+				rpcCloseOut := &lnrpc.CloseOutput{
+					AmountSat:         int64(closeOut.Amt),
+					PkScript:          closeOut.PkScript,
+					IsLocal:           true,
+					CustomChannelData: cr,
+				}
+				ccu.LocalCloseOutput = rpcCloseOut
+
+				return nil
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		err = fn.MapOptionZ(
+			u.RemoteCloseOutput,
+			func(closeOut chancloser.CloseOutput) error {
+				cr, err := closeOut.ShutdownRecords.Serialize()
+				if err != nil {
+					return fmt.Errorf("error serializing "+
+						"remote close out custom "+
+						"records: %w", err)
+				}
+
+				rpcCloseOut := &lnrpc.CloseOutput{
+					AmountSat:         int64(closeOut.Amt),
+					PkScript:          closeOut.PkScript,
+					CustomChannelData: cr,
+				}
+				ccu.RemoteCloseOutput = rpcCloseOut
+
+				return nil
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		u.AuxOutputs.WhenSome(func(outs chancloser.AuxCloseOutputs) {
+			for _, out := range outs.ExtraCloseOutputs {
+				ccu.AdditionalOutputs = append(
+					ccu.AdditionalOutputs,
+					&lnrpc.CloseOutput{
+						AmountSat: out.Value,
+						PkScript:  out.PkScript,
+						IsLocal:   out.IsLocal,
+					},
+				)
+			}
+		})
+
 		return &lnrpc.CloseStatusUpdate{
 			Update: &lnrpc.CloseStatusUpdate_ChanClose{
-				ChanClose: &lnrpc.ChannelCloseUpdate{
-					ClosingTxid: u.ClosingTxid,
-					Success:     u.Success,
-				},
+				ChanClose: ccu,
 			},
 		}, nil
+
 	case *peer.PendingUpdate:
 		return &lnrpc.CloseStatusUpdate{
 			Update: &lnrpc.CloseStatusUpdate_ClosePending{
@@ -6123,6 +6206,19 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 		return nil, err
 	}
 
+	// Give the aux data parser a chance to format the custom data in the
+	// invoice HTLCs.
+	err = fn.MapOptionZ(
+		r.server.implCfg.AuxDataParser,
+		func(parser AuxDataParser) error {
+			return parser.InlineParseCustomData(rpcInvoice)
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing custom data: %w",
+			err)
+	}
+
 	return rpcInvoice, nil
 }
 
@@ -6178,6 +6274,21 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
+
+		// Give the aux data parser a chance to format the custom data
+		// in the invoice HTLCs.
+		err = fn.MapOptionZ(
+			r.server.implCfg.AuxDataParser,
+			func(parser AuxDataParser) error {
+				return parser.InlineParseCustomData(
+					resp.Invoices[i],
+				)
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing custom data: %w",
+				err)
+		}
 	}
 
 	return resp, nil
@@ -6206,6 +6317,21 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 				return err
 			}
 
+			// Give the aux data parser a chance to format the
+			// custom data in the invoice HTLCs.
+			err = fn.MapOptionZ(
+				r.server.implCfg.AuxDataParser,
+				func(parser AuxDataParser) error {
+					return parser.InlineParseCustomData(
+						rpcInvoice,
+					)
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("error parsing custom data: "+
+					"%w", err)
+			}
+
 			if err := updateStream.Send(rpcInvoice); err != nil {
 				return err
 			}
@@ -6216,6 +6342,21 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 			)
 			if err != nil {
 				return err
+			}
+
+			// Give the aux data parser a chance to format the
+			// custom data in the invoice HTLCs.
+			err = fn.MapOptionZ(
+				r.server.implCfg.AuxDataParser,
+				func(parser AuxDataParser) error {
+					return parser.InlineParseCustomData(
+						rpcInvoice,
+					)
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("error parsing custom data: "+
+					"%w", err)
 			}
 
 			if err := updateStream.Send(rpcInvoice); err != nil {

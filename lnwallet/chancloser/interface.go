@@ -6,11 +6,13 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // CoopFeeEstimator is used to estimate the fee of a co-op close transaction.
@@ -31,6 +33,14 @@ type CoopFeeEstimator interface {
 type Channel interface { //nolint:interfacebloat
 	// ChannelPoint returns the channel point of the target channel.
 	ChannelPoint() wire.OutPoint
+
+	// LocalCommitmentBlob may return the auxiliary data storage blob for
+	// the local commitment transaction.
+	LocalCommitmentBlob() fn.Option[tlv.Blob]
+
+	// FundingBlob may return the auxiliary data storage blob related to
+	// funding details for the channel.
+	FundingBlob() fn.Option[tlv.Blob]
 
 	// MarkCoopBroadcasted persistently marks that the channel close
 	// transaction has been broadcast.
@@ -60,13 +70,23 @@ type Channel interface { //nolint:interfacebloat
 
 	// LocalBalanceDust returns true if when creating a co-op close
 	// transaction, the balance of the local party will be dust after
-	// accounting for any anchor outputs.
-	LocalBalanceDust() bool
+	// accounting for any anchor outputs. The dust value for the local
+	// party is also returned.
+	LocalBalanceDust() (bool, btcutil.Amount)
 
 	// RemoteBalanceDust returns true if when creating a co-op close
 	// transaction, the balance of the remote party will be dust after
-	// accounting for any anchor outputs.
-	RemoteBalanceDust() bool
+	// accounting for any anchor outputs. The dust value the remote party
+	// is also returned.
+	RemoteBalanceDust() (bool, btcutil.Amount)
+
+	// CommitBalances returns the local and remote balances in the current
+	// commitment state.
+	CommitBalances() (btcutil.Amount, btcutil.Amount)
+
+	// CommitFee returns the commitment fee for the current commitment
+	// state.
+	CommitFee() btcutil.Amount
 
 	// RemoteUpfrontShutdownScript returns the upfront shutdown script of
 	// the remote party. If the remote party didn't specify such a script,

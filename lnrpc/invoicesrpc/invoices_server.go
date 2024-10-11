@@ -30,6 +30,9 @@ const (
 )
 
 var (
+	// ErrServerShuttingDown is returned when the server is shutting down.
+	ErrServerShuttingDown = errors.New("server shutting down")
+
 	// macaroonOps are the set of capabilities that our minted macaroon (if
 	// it doesn't already exist) will have.
 	macaroonOps = []bakery.Op{
@@ -62,6 +65,10 @@ var (
 			Action: "write",
 		}},
 		"/invoicesrpc.Invoices/LookupInvoiceV2": {{
+			Entity: "invoices",
+			Action: "write",
+		}},
+		"/invoicesrpc.Invoices/HtlcModifier": {{
 			Entity: "invoices",
 			Action: "write",
 		}},
@@ -215,8 +222,9 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 // methods routed towards it.
 //
 // NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
-	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
+func (r *ServerShell) CreateSubServer(
+	configRegistry lnrpc.SubServerConfigDispatcher) (lnrpc.SubServer,
+	lnrpc.MacaroonPerms, error) {
 
 	subServer, macPermissions, err := createNewSubServer(configRegistry)
 	if err != nil {
@@ -255,6 +263,14 @@ func (s *Server) SubscribeSingleInvoice(req *SubscribeSingleInvoiceRequest,
 			)
 			if err != nil {
 				return err
+			}
+
+			// Give the aux data parser a chance to format the
+			// custom data in the invoice HTLCs.
+			err = s.cfg.ParseAuxData(rpcInvoice)
+			if err != nil {
+				return fmt.Errorf("error parsing custom data: "+
+					"%w", err)
 			}
 
 			if err := updateStream.Send(rpcInvoice); err != nil {
@@ -444,5 +460,50 @@ func (s *Server) LookupInvoiceV2(ctx context.Context,
 		return nil, err
 	}
 
-	return CreateRPCInvoice(&invoice, s.cfg.ChainParams)
+	rpcInvoice, err := CreateRPCInvoice(&invoice, s.cfg.ChainParams)
+	if err != nil {
+		return nil, err
+	}
+
+	// Give the aux data parser a chance to format the custom data in the
+	// invoice HTLCs.
+	err = s.cfg.ParseAuxData(rpcInvoice)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing custom data: %w", err)
+	}
+
+	return rpcInvoice, nil
+}
+
+// HtlcModifier is a bidirectional streaming RPC that allows a client to
+// intercept and modify the HTLCs that attempt to settle the given invoice. The
+// server will send HTLCs of invoices to the client and the client can modify
+// some aspects of the HTLC in order to pass the invoice acceptance tests.
+func (s *Server) HtlcModifier(
+	modifierServer Invoices_HtlcModifierServer) error {
+
+	modifier := newHtlcModifier(s.cfg.ChainParams, modifierServer)
+	reset, modifierQuit, err := s.cfg.HtlcModifier.RegisterInterceptor(
+		modifier.onIntercept,
+	)
+	if err != nil {
+		return fmt.Errorf("cannot register interceptor: %w", err)
+	}
+
+	defer reset()
+
+	log.Debugf("Invoice HTLC modifier client connected")
+
+	for {
+		select {
+		case <-modifierServer.Context().Done():
+			return modifierServer.Context().Err()
+
+		case <-modifierQuit:
+			return ErrServerShuttingDown
+
+		case <-s.quit:
+			return ErrServerShuttingDown
+		}
+	}
 }

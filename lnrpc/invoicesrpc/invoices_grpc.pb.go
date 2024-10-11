@@ -36,9 +36,14 @@ type InvoicesClient interface {
 	// SettleInvoice settles an accepted invoice. If the invoice is already
 	// settled, this call will succeed.
 	SettleInvoice(ctx context.Context, in *SettleInvoiceMsg, opts ...grpc.CallOption) (*SettleInvoiceResp, error)
-	// LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced
+	// LookupInvoiceV2 attempts to look up at invoice. An invoice can be referenced
 	// using either its payment hash, payment address, or set ID.
 	LookupInvoiceV2(ctx context.Context, in *LookupInvoiceMsg, opts ...grpc.CallOption) (*lnrpc.Invoice, error)
+	// HtlcModifier is a bidirectional streaming RPC that allows a client to
+	// intercept and modify the HTLCs that attempt to settle the given invoice. The
+	// server will send HTLCs of invoices to the client and the client can modify
+	// some aspects of the HTLC in order to pass the invoice acceptance tests.
+	HtlcModifier(ctx context.Context, opts ...grpc.CallOption) (Invoices_HtlcModifierClient, error)
 }
 
 type invoicesClient struct {
@@ -117,6 +122,37 @@ func (c *invoicesClient) LookupInvoiceV2(ctx context.Context, in *LookupInvoiceM
 	return out, nil
 }
 
+func (c *invoicesClient) HtlcModifier(ctx context.Context, opts ...grpc.CallOption) (Invoices_HtlcModifierClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Invoices_ServiceDesc.Streams[1], "/invoicesrpc.Invoices/HtlcModifier", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &invoicesHtlcModifierClient{stream}
+	return x, nil
+}
+
+type Invoices_HtlcModifierClient interface {
+	Send(*HtlcModifyResponse) error
+	Recv() (*HtlcModifyRequest, error)
+	grpc.ClientStream
+}
+
+type invoicesHtlcModifierClient struct {
+	grpc.ClientStream
+}
+
+func (x *invoicesHtlcModifierClient) Send(m *HtlcModifyResponse) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *invoicesHtlcModifierClient) Recv() (*HtlcModifyRequest, error) {
+	m := new(HtlcModifyRequest)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // InvoicesServer is the server API for Invoices service.
 // All implementations must embed UnimplementedInvoicesServer
 // for forward compatibility
@@ -138,9 +174,14 @@ type InvoicesServer interface {
 	// SettleInvoice settles an accepted invoice. If the invoice is already
 	// settled, this call will succeed.
 	SettleInvoice(context.Context, *SettleInvoiceMsg) (*SettleInvoiceResp, error)
-	// LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced
+	// LookupInvoiceV2 attempts to look up at invoice. An invoice can be referenced
 	// using either its payment hash, payment address, or set ID.
 	LookupInvoiceV2(context.Context, *LookupInvoiceMsg) (*lnrpc.Invoice, error)
+	// HtlcModifier is a bidirectional streaming RPC that allows a client to
+	// intercept and modify the HTLCs that attempt to settle the given invoice. The
+	// server will send HTLCs of invoices to the client and the client can modify
+	// some aspects of the HTLC in order to pass the invoice acceptance tests.
+	HtlcModifier(Invoices_HtlcModifierServer) error
 	mustEmbedUnimplementedInvoicesServer()
 }
 
@@ -162,6 +203,9 @@ func (UnimplementedInvoicesServer) SettleInvoice(context.Context, *SettleInvoice
 }
 func (UnimplementedInvoicesServer) LookupInvoiceV2(context.Context, *LookupInvoiceMsg) (*lnrpc.Invoice, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method LookupInvoiceV2 not implemented")
+}
+func (UnimplementedInvoicesServer) HtlcModifier(Invoices_HtlcModifierServer) error {
+	return status.Errorf(codes.Unimplemented, "method HtlcModifier not implemented")
 }
 func (UnimplementedInvoicesServer) mustEmbedUnimplementedInvoicesServer() {}
 
@@ -269,6 +313,32 @@ func _Invoices_LookupInvoiceV2_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Invoices_HtlcModifier_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(InvoicesServer).HtlcModifier(&invoicesHtlcModifierServer{stream})
+}
+
+type Invoices_HtlcModifierServer interface {
+	Send(*HtlcModifyRequest) error
+	Recv() (*HtlcModifyResponse, error)
+	grpc.ServerStream
+}
+
+type invoicesHtlcModifierServer struct {
+	grpc.ServerStream
+}
+
+func (x *invoicesHtlcModifierServer) Send(m *HtlcModifyRequest) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *invoicesHtlcModifierServer) Recv() (*HtlcModifyResponse, error) {
+	m := new(HtlcModifyResponse)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // Invoices_ServiceDesc is the grpc.ServiceDesc for Invoices service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -298,6 +368,12 @@ var Invoices_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "SubscribeSingleInvoice",
 			Handler:       _Invoices_SubscribeSingleInvoice_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "HtlcModifier",
+			Handler:       _Invoices_HtlcModifier_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "invoicesrpc/invoices.proto",

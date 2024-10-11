@@ -33,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -42,6 +43,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sqldb"
@@ -118,6 +120,14 @@ type ChainControlBuilder interface {
 		*btcwallet.Config) (*chainreg.ChainControl, func(), error)
 }
 
+// AuxComponents is a set of auxiliary components that can be used by lnd for
+// certain custom channel types.
+type AuxComponents struct {
+	// MsgRouter is an optional message router that if set will be used in
+	// place of a new blank default message router.
+	MsgRouter fn.Option[msgmux.Router]
+}
+
 // ImplementationCfg is a struct that holds all configuration items for
 // components that can be implemented outside lnd itself.
 type ImplementationCfg struct {
@@ -144,6 +154,10 @@ type ImplementationCfg struct {
 	// ChainControlBuilder is a type that can provide a custom wallet
 	// implementation.
 	ChainControlBuilder
+
+	// AuxComponents is a set of auxiliary components that can be used by
+	// lnd for certain custom channel types.
+	AuxComponents
 }
 
 // DefaultWalletImpl is the default implementation of our normal, btcwallet

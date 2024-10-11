@@ -42,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/queue"
@@ -386,6 +387,11 @@ type Config struct {
 	// This value will be passed to created links.
 	MaxFeeExposure lnwire.MilliSatoshi
 
+	// MsgRouter is an optional instance of the main message router that
+	// the peer will use. If None, then a new default version will be used
+	// in place.
+	MsgRouter fn.Option[msgmux.Router]
+
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
 }
@@ -522,6 +528,15 @@ type Brontide struct {
 	// potentially holding lots of un-consumed events.
 	channelEventClient *subscribe.Client
 
+	// msgRouter is an instance of the msgmux.Router which is used to send
+	// off new wire messages for handing.
+	msgRouter fn.Option[msgmux.Router]
+
+	// globalMsgRouter is a flag that indicates whether we have a global
+	// msg router. If so, then we don't worry about stopping the msg router
+	// when a peer disconnects.
+	globalMsgRouter bool
+
 	startReady chan struct{}
 	quit       chan struct{}
 	wg         sync.WaitGroup
@@ -536,6 +551,17 @@ var _ lnpeer.Peer = (*Brontide)(nil)
 // NewBrontide creates a new Brontide from a peer.Config struct.
 func NewBrontide(cfg Config) *Brontide {
 	logPrefix := fmt.Sprintf("Peer(%x):", cfg.PubKeyBytes)
+
+	// We have a global message router if one was passed in via the config.
+	// In this case, we don't need to attempt to tear it down when the peer
+	// is stopped.
+	globalMsgRouter := cfg.MsgRouter.IsSome()
+
+	// We'll either use the msg router instance passed in, or create a new
+	// blank instance.
+	msgRouter := cfg.MsgRouter.Alt(fn.Some[msgmux.Router](
+		msgmux.NewMultiMsgRouter(),
+	))
 
 	p := &Brontide{
 		cfg:           cfg,
@@ -559,6 +585,8 @@ func NewBrontide(cfg Config) *Brontide {
 		startReady:         make(chan struct{}),
 		quit:               make(chan struct{}),
 		log:                build.NewPrefixLog(logPrefix, peerLog),
+		msgRouter:          msgRouter,
+		globalMsgRouter:    globalMsgRouter,
 	}
 
 	if cfg.Conn != nil && cfg.Conn.RemoteAddr() != nil {
@@ -738,6 +766,12 @@ func (p *Brontide) Start() error {
 		return err
 	}
 
+	// Register the message router now as we may need to register some
+	// endpoints while loading the channels below.
+	p.msgRouter.WhenSome(func(router msgmux.Router) {
+		router.Start()
+	})
+
 	msgs, err := p.loadActiveChannels(activeChans)
 	if err != nil {
 		return fmt.Errorf("unable to load channels: %w", err)
@@ -913,7 +947,8 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			p.cfg.Signer, dbChan, p.cfg.SigPool,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to create channel "+
+				"state machine: %w", err)
 		}
 
 		chanPoint := dbChan.FundingOutpoint
@@ -1368,6 +1403,14 @@ func (p *Brontide) Disconnect(reason error) {
 	p.cfg.Conn.Close()
 
 	close(p.quit)
+
+	// If our msg router isn't global (local to this instance), then we'll
+	// stop it. Otherwise, we'll leave it running.
+	if !p.globalMsgRouter {
+		p.msgRouter.WhenSome(func(router msgmux.Router) {
+			router.Stop()
+		})
+	}
 }
 
 // String returns the string representation of this peer.
@@ -1807,6 +1850,22 @@ out:
 			default:
 				break out
 			}
+		}
+
+		// If a message router is active, then we'll try to have it
+		// handle this message. If it can, then we're able to skip the
+		// rest of the message handling logic.
+		err = fn.MapOptionZ(p.msgRouter, func(r msgmux.Router) error {
+			return r.RouteMsg(msgmux.PeerMsg{
+				PeerPub: *p.IdentityKey(),
+				Message: nextMsg,
+			})
+		})
+
+		// No error occurred, and the message was handled by the
+		// router.
+		if err == nil {
+			continue
 		}
 
 		var (

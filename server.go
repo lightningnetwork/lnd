@@ -661,7 +661,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
 
-	thresholdSats := btcutil.Amount(cfg.MaxFeeExposure)
+	thresholdSats := htlcswitch.DefaultMaxFeeExposure.ToSatoshis()
 	thresholdMSats := lnwire.NewMSatFromSatoshis(thresholdSats)
 
 	linkUpdater := func(shortID lnwire.ShortChannelID) error {
@@ -4088,7 +4088,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		towerClient = s.towerClientMgr
 	}
 
-	thresholdSats := btcutil.Amount(s.cfg.MaxFeeExposure)
+	thresholdSats := htlcswitch.DefaultMaxFeeExposure.ToSatoshis()
 	thresholdMSats := lnwire.NewMSatFromSatoshis(thresholdSats)
 
 	// Now that we've established a connection, create a peer, and it to the

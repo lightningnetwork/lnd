@@ -4516,8 +4516,8 @@ func TestSwitchDustForwarding(t *testing.T) {
 }
 
 // sendDustHtlcs is a helper function used to send many dust HTLC's to test the
-// Switch's dust-threshold logic. It takes a boolean denoting whether or not
-// Alice is the sender.
+// Switch's channel-max-fee-exposure logic. It takes a boolean denoting whether
+// or not Alice is the sender.
 func sendDustHtlcs(t *testing.T, n *threeHopNetwork, alice bool,
 	amt lnwire.MilliSatoshi, sid lnwire.ShortChannelID, numHTLCs int) {
 

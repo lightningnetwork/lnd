@@ -820,7 +820,7 @@ func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 	args := []string{
 		// Increase the dust threshold to avoid the payments fail due
 		// to threshold limit reached.
-		"--dust-threshold=10000000",
+		"--channel-max-fee-exposure=10000000",
 
 		// Increase the pending commit interval since there are lots of
 		// commitment dances.

@@ -2814,6 +2814,10 @@ func (l *channelLink) exceedsFeeExposureLimit(
 	// future commitment transaction with the fee-rate.
 	totalLocalDust := localDustSum + lnwire.NewMSatFromSatoshis(localFee)
 	if totalLocalDust > l.cfg.MaxFeeExposure {
+		l.log.Debugf("ChannelLink(%v): exceeds fee exposure limit: "+
+			"local dust: %v, local fee: %v", l.ShortChanID(),
+			totalLocalDust, localFee)
+
 		return true, nil
 	}
 
@@ -2821,7 +2825,15 @@ func (l *channelLink) exceedsFeeExposureLimit(
 		remoteFee,
 	)
 
-	return totalRemoteDust > l.cfg.MaxFeeExposure, nil
+	if totalRemoteDust > l.cfg.MaxFeeExposure {
+		l.log.Debugf("ChannelLink(%v): exceeds fee exposure limit: "+
+			"remote dust: %v, remote fee: %v", l.ShortChanID(),
+			totalRemoteDust, remoteFee)
+
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // isOverexposedWithHtlc calculates whether the proposed HTLC will make the
@@ -2860,8 +2872,10 @@ func (l *channelLink) isOverexposedWithHtlc(htlc *lnwire.UpdateAddHTLC,
 		commitFee = l.getCommitFee(true)
 	}
 
-	localDustSum += lnwire.NewMSatFromSatoshis(commitFee)
-	remoteDustSum += lnwire.NewMSatFromSatoshis(commitFee)
+	commitFeeMSat := lnwire.NewMSatFromSatoshis(commitFee)
+
+	localDustSum += commitFeeMSat
+	remoteDustSum += commitFeeMSat
 
 	// Calculate the additional fee increase if this is a non-dust HTLC.
 	weight := lntypes.WeightUnit(input.HTLCWeight)
@@ -2881,6 +2895,10 @@ func (l *channelLink) isOverexposedWithHtlc(htlc *lnwire.UpdateAddHTLC,
 
 	if localDustSum > l.cfg.MaxFeeExposure {
 		// The max fee exposure was exceeded.
+		l.log.Debugf("ChannelLink(%v): HTLC %v makes the channel "+
+			"overexposed, total local dust: %v (current commit "+
+			"fee: %v)", l.ShortChanID(), htlc, localDustSum)
+
 		return true
 	}
 
@@ -2894,7 +2912,16 @@ func (l *channelLink) isOverexposedWithHtlc(htlc *lnwire.UpdateAddHTLC,
 		remoteDustSum += additional
 	}
 
-	return remoteDustSum > l.cfg.MaxFeeExposure
+	if remoteDustSum > l.cfg.MaxFeeExposure {
+		// The max fee exposure was exceeded.
+		l.log.Debugf("ChannelLink(%v): HTLC %v makes the channel "+
+			"overexposed, total remote dust: %v (current commit "+
+			"fee: %v)", l.ShortChanID(), htlc, remoteDustSum)
+
+		return true
+	}
+
+	return false
 }
 
 // dustClosure is a function that evaluates whether an HTLC is dust. It returns

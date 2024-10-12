@@ -455,7 +455,9 @@ type Config struct {
 
 	GcCanceledInvoicesOnTheFly bool `long:"gc-canceled-invoices-on-the-fly" description:"If true, we'll delete newly canceled invoices on the fly."`
 
-	MaxFeeExposure uint64 `long:"dust-threshold" description:"Sets the max fee exposure in satoshis for a channel after which HTLC's will be failed."`
+	DustThreshold uint64 `long:"dust-threshold" description:"DEPRECATED: Sets the max fee exposure in satoshis for a channel after which HTLC's will be failed." hidden:"true"`
+
+	MaxFeeExposure uint64 `long:"channel-max-fee-exposure" description:" Limits the maximum fee exposure in satoshis of a channel. This value is enforced for all channels and is independent of the channel initiator."`
 
 	Fee *lncfg.Fee `group:"fee" namespace:"fee"`
 
@@ -1715,6 +1717,20 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 				"pprof.mutexprofile are mutually exclusive")
 		}
 		cfg.Pprof.MutexProfile = cfg.MutexProfile
+	}
+
+	// Don't allow both the old dust-threshold and the new
+	// channel-max-fee-exposure to be set.
+	defaultExposure := uint64(htlcswitch.DefaultMaxFeeExposure.ToSatoshis())
+	if cfg.DustThreshold != 0 && cfg.MaxFeeExposure != defaultExposure {
+		return nil, mkErr("cannot set both dust-threshold and " +
+			"channel-max-fee-exposure")
+	}
+
+	// Use the old dust-threshold as the max fee exposure if it is set and
+	// the new option is not (has the default value).
+	if cfg.DustThreshold != 0 {
+		cfg.MaxFeeExposure = cfg.DustThreshold
 	}
 
 	// Validate the subconfigs for workers, caches, and the tower client.

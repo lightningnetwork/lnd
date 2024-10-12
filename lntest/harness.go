@@ -316,7 +316,7 @@ func (h *HarnessTest) SetupStandbyNodes() {
 
 	lndArgs := []string{
 		"--default-remote-max-htlcs=483",
-		"--dust-threshold=5000000",
+		"--channel-max-fee-exposure=5000000",
 	}
 
 	// Start the initial seeder nodes within the test network.

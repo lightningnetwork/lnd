@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -125,32 +124,13 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
 			v.nodeAnnDependencies[route.Vertex(msg.NodeID1)] = signals
 			v.nodeAnnDependencies[route.Vertex(msg.NodeID2)] = signals
 		}
-	case *models.ChannelEdgeInfo:
-
-		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		if _, ok := v.chanAnnFinSignal[shortID]; !ok {
-			signals := &validationSignals{
-				allow: make(chan struct{}),
-				deny:  make(chan struct{}),
-			}
-
-			v.chanAnnFinSignal[shortID] = signals
-			v.chanEdgeDependencies[shortID] = signals
-
-			v.nodeAnnDependencies[route.Vertex(msg.NodeKey1Bytes)] = signals
-			v.nodeAnnDependencies[route.Vertex(msg.NodeKey2Bytes)] = signals
-		}
 
 	// These other types don't have any dependants, so no further
 	// initialization needs to be done beyond just occupying a job slot.
-	case *models.ChannelEdgePolicy:
-		return
 	case *lnwire.ChannelUpdate1:
 		return
 	case *lnwire.NodeAnnouncement:
 		// TODO(roasbeef): node ann needs to wait on existing channel updates
-		return
-	case *models.LightningNode:
 		return
 	case *lnwire.AnnounceSignatures1:
 		// TODO(roasbeef): need to wait on chan ann?
@@ -187,20 +167,6 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 	switch msg := job.(type) {
 	// Any ChannelUpdate or NodeAnnouncement jobs will need to wait on the
 	// completion of any active ChannelAnnouncement jobs related to them.
-	case *models.ChannelEdgePolicy:
-		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		signals, ok = v.chanEdgeDependencies[shortID]
-
-		jobDesc = fmt.Sprintf("job=lnwire.ChannelEdgePolicy, scid=%v",
-			msg.ChannelID)
-
-	case *models.LightningNode:
-		vertex := route.Vertex(msg.PubKeyBytes)
-		signals, ok = v.nodeAnnDependencies[vertex]
-
-		jobDesc = fmt.Sprintf("job=channeldb.LightningNode, pub=%s",
-			vertex)
-
 	case *lnwire.ChannelUpdate1:
 		signals, ok = v.chanEdgeDependencies[msg.ShortChannelID]
 
@@ -217,7 +183,6 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 	// return directly.
 	case *lnwire.AnnounceSignatures1:
 		// TODO(roasbeef): need to wait on chan ann?
-	case *models.ChannelEdgeInfo:
 	case *lnwire.ChannelAnnouncement1:
 	}
 
@@ -263,17 +228,6 @@ func (v *ValidationBarrier) SignalDependants(job interface{}, allow bool) {
 	// If we've just finished executing a ChannelAnnouncement, then we'll
 	// close out the signal, and remove the signal from the map of active
 	// ones. This will allow/deny any dependent jobs to continue execution.
-	case *models.ChannelEdgeInfo:
-		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		finSignals, ok := v.chanAnnFinSignal[shortID]
-		if ok {
-			if allow {
-				close(finSignals.allow)
-			} else {
-				close(finSignals.deny)
-			}
-			delete(v.chanAnnFinSignal, shortID)
-		}
 	case *lnwire.ChannelAnnouncement1:
 		finSignals, ok := v.chanAnnFinSignal[msg.ShortChannelID]
 		if ok {
@@ -290,15 +244,10 @@ func (v *ValidationBarrier) SignalDependants(job interface{}, allow bool) {
 	// For all other job types, we'll delete the tracking entries from the
 	// map, as if we reach this point, then all dependants have already
 	// finished executing and we can proceed.
-	case *models.LightningNode:
-		delete(v.nodeAnnDependencies, route.Vertex(msg.PubKeyBytes))
 	case *lnwire.NodeAnnouncement:
 		delete(v.nodeAnnDependencies, route.Vertex(msg.NodeID))
 	case *lnwire.ChannelUpdate1:
 		delete(v.chanEdgeDependencies, msg.ShortChannelID)
-	case *models.ChannelEdgePolicy:
-		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		delete(v.chanEdgeDependencies, shortID)
 
 	case *lnwire.AnnounceSignatures1:
 		return

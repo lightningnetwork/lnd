@@ -675,45 +675,20 @@ func (b *Builder) handleNetworkUpdate(vb *ValidationBarrier,
 	defer b.wg.Done()
 	defer vb.CompleteJob()
 
-	// If this message has an existing dependency, then we'll wait until
-	// that has been fully validated before we proceed.
-	err := vb.WaitForDependants(update.msg)
-	if err != nil {
-		switch {
-		case IsError(err, ErrVBarrierShuttingDown):
-			update.err <- err
-
-		case IsError(err, ErrParentValidationFailed):
-			update.err <- NewErrf(ErrIgnored, err.Error()) //nolint
-
-		default:
-			log.Warnf("unexpected error during validation "+
-				"barrier shutdown: %v", err)
-			update.err <- err
-		}
-
-		return
-	}
-
 	// Process the routing update to determine if this is either a new
 	// update from our PoV or an update to a prior vertex/edge we
 	// previously accepted.
-	err = b.processUpdate(update.msg, update.op...)
+	err := b.processUpdate(update.msg, update.op...)
 	update.err <- err
 
-	// If this message had any dependencies, then we can now signal them to
-	// continue.
-	allowDependents := err == nil || IsError(err, ErrIgnored, ErrOutdated)
-	vb.SignalDependants(update.msg, allowDependents)
+	notError := err == nil || IsError(err, ErrIgnored, ErrOutdated)
 
 	// If the error is not nil here, there's no need to send topology
 	// change.
 	if err != nil {
-		// We now decide to log an error or not. If allowDependents is
-		// false, it means there is an error and the error is neither
-		// ErrIgnored or ErrOutdated. In this case, we'll log an error.
-		// Otherwise, we'll add debug log only.
-		if allowDependents {
+		// Log as a debug message if this is not an error we need to be
+		// concerned about.
+		if notError {
 			log.Debugf("process network updates got: %v", err)
 		} else {
 			log.Errorf("process network updates got: %v", err)
@@ -789,11 +764,6 @@ func (b *Builder) networkHandler() {
 		// result we'll modify the channel graph accordingly depending
 		// on the exact type of the message.
 		case update := <-b.networkUpdates:
-			// We'll set up any dependants, and wait until a free
-			// slot for this job opens up, this allows us to not
-			// have thousands of goroutines active.
-			validationBarrier.InitJobDependencies(update.msg)
-
 			b.wg.Add(1)
 			go b.handleNetworkUpdate(validationBarrier, update)
 

@@ -840,8 +840,8 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 	// case we can safely send a new payment attempt, and wait for its
 	// result to be available.
 	if errors.Is(sendErr, htlcswitch.ErrPaymentIDNotFound) {
-		log.Debugf("Attempt ID %v for payment %v not found in the "+
-			"Switch, retrying.", attempt.AttemptID, p.identifier)
+		log.Warnf("Failing attempt=%v for payment=%v as it's not "+
+			"found in the Switch", attempt.AttemptID, p.identifier)
 
 		return p.failAttempt(attemptID, sendErr)
 	}

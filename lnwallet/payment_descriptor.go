@@ -6,6 +6,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -165,16 +166,14 @@ type paymentDescriptor struct {
 	// which included this HTLC on either the remote or local commitment
 	// chain. This value is used to determine when an HTLC is fully
 	// "locked-in".
-	addCommitHeightRemote uint64
-	addCommitHeightLocal  uint64
+	addCommitHeights lntypes.Dual[uint64]
 
 	// removeCommitHeight[Remote|Local] encodes the height of the
 	// commitment which removed the parent pointer of this
 	// paymentDescriptor either due to a timeout or a settle. Once both
 	// these heights are below the tail of both chains, the log entries can
 	// safely be removed.
-	removeCommitHeightRemote uint64
-	removeCommitHeightLocal  uint64
+	removeCommitHeights lntypes.Dual[uint64]
 
 	// OnionBlob is an opaque blob which is used to complete multi-hop
 	// routing.
@@ -282,5 +281,33 @@ func (pd *paymentDescriptor) toLogUpdate() channeldb.LogUpdate {
 	return channeldb.LogUpdate{
 		LogIndex:  pd.LogIndex,
 		UpdateMsg: msg,
+	}
+}
+
+// setCommitHeight updates the appropriate addCommitHeight and/or
+// removeCommitHeight for whoseCommitChain and locks it in at nextHeight.
+func (pd *paymentDescriptor) setCommitHeight(
+	whoseCommitChain lntypes.ChannelParty, nextHeight uint64) {
+
+	switch pd.EntryType {
+	case Add:
+		pd.addCommitHeights.SetForParty(
+			whoseCommitChain, nextHeight,
+		)
+	case Settle, Fail, MalformedFail:
+		pd.removeCommitHeights.SetForParty(
+			whoseCommitChain, nextHeight,
+		)
+	case FeeUpdate:
+		// Fee updates are applied for all commitments
+		// after they are sent/received, so we consider
+		// them being added and removed at the same
+		// height.
+		pd.addCommitHeights.SetForParty(
+			whoseCommitChain, nextHeight,
+		)
+		pd.removeCommitHeights.SetForParty(
+			whoseCommitChain, nextHeight,
+		)
 	}
 }

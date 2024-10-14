@@ -196,7 +196,7 @@ func (h *HarnessMiner) MineBlocks(num uint32) []*wire.MsgBlock {
 }
 
 // AssertNumTxsInMempool polls until finding the desired number of transactions
-// in the provided miner's mempool. It will asserrt if this number is not met
+// in the provided miner's mempool. It will assert if this number is not met
 // after the given timeout.
 func (h *HarnessMiner) AssertNumTxsInMempool(n int) []*chainhash.Hash {
 	var (

@@ -579,6 +579,7 @@
 * mani2310
 * Marcos Fernandez Perez
 * Matt Morehouse
+<<<<<<< HEAD
 * Michael Rooke
 * Mohamed Awnallah
 * Olaoluwa Osuntokun
@@ -597,6 +598,12 @@
 * Turtle
 * twofaktor
 * vuittont60
+=======
+* Ononiwu Maureen Chiamaka
+* Slyghtning
+* Tee8z
+* Turtle
+>>>>>>> e36390e08 (docs: update release notes)
 * w3irdrobot
 * weiliy
 * xiaoxianBoy

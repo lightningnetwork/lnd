@@ -101,7 +101,7 @@ type ChannelLinkConfig struct {
 	// switch. The function returns and error in case it fails to send one or
 	// more packets. The link's quit signal should be provided to allow
 	// cancellation of forwarding during link shutdown.
-	ForwardPackets func(chan struct{}, bool, ...*htlcPacket) error
+	ForwardPackets func(<-chan struct{}, bool, ...*htlcPacket) error
 
 	// DecodeHopIterators facilitates batched decoding of HTLC Sphinx onion
 	// blobs, which are then used to inform how to forward an HTLC.

@@ -81,9 +81,12 @@
   written to stdout and a new `--logging.file.disable` option to disable writing 
   logs to the standard log file. It also adds `--logging.console.no-timestamps`
   and `--logging.file.no-timestamps` which can be used to omit timestamps in
-  log messages for the respective loggers. Finally, the new 
-  `--logging.console.style` option can be used under the `dev` build tag to add
-   styling to console logging.
+  log messages for the respective loggers. The new `--logging.console.call-site`
+  and `--logging.file.call-site` options can be used to include the call-site of
+  a log line. The options for this include "off" (default), "short" (source file
+  name and line number) and "long" (full path to source file and line number). 
+  Finally, the new `--logging.console.style` option can be used under the `dev` 
+  build tag to add styling to console logging.
  
 ## Breaking Changes
 ## Performance Improvements

@@ -175,3 +175,27 @@ func (r *reducedSet) WithGroup(name string) slog.Handler {
 
 // A compile-time check to ensure that handlerSet implements slog.Handler.
 var _ slog.Handler = (*reducedSet)(nil)
+
+// subLogGenerator implements the SubLogCreator backed by a Handler.
+type subLogGenerator struct {
+	handler btclog.Handler
+}
+
+// newSubLogGenerator constructs a new subLogGenerator from a Handler.
+func newSubLogGenerator(handler btclog.Handler) *subLogGenerator {
+	return &subLogGenerator{
+		handler: handler,
+	}
+}
+
+// Logger returns a new logger for a particular sub-system.
+//
+// NOTE: this is part of the SubLogCreator interface.
+func (b *subLogGenerator) Logger(subsystemTag string) btclog.Logger {
+	handler := b.handler.SubSystem(subsystemTag)
+
+	return btclog.NewSLogger(handler)
+}
+
+// A compile-time check to ensure that handlerSet implements slog.Handler.
+var _ SubLogCreator = (*subLogGenerator)(nil)

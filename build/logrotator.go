@@ -14,7 +14,8 @@ import (
 // RotatingLogWriter is a wrapper around the LogWriter that supports log file
 // rotation.
 type RotatingLogWriter struct {
-	logWriter *LogWriter
+	// pipe is the write-end pipe for writing to the log rotator.
+	pipe *io.PipeWriter
 
 	rotator *rotator.Rotator
 }
@@ -23,8 +24,8 @@ type RotatingLogWriter struct {
 //
 // NOTE: `InitLogRotator` must be called to set up log rotation after creating
 // the writer.
-func NewRotatingLogWriter(w *LogWriter) *RotatingLogWriter {
-	return &RotatingLogWriter{logWriter: w}
+func NewRotatingLogWriter() *RotatingLogWriter {
+	return &RotatingLogWriter{}
 }
 
 // InitLogRotator initializes the log file rotator to write logs to logFile and
@@ -80,9 +81,18 @@ func (r *RotatingLogWriter) InitLogRotator(logFile, logCompressor string,
 		}
 	}()
 
-	r.logWriter.RotatorPipe = pw
+	r.pipe = pw
 
 	return nil
+}
+
+// Write writes the byte slice to the log rotator, if present.
+func (r *RotatingLogWriter) Write(b []byte) (int, error) {
+	if r.rotator != nil {
+		return r.rotator.Write(b)
+	}
+
+	return len(b), nil
 }
 
 // Close closes the underlying log rotator if it has already been created.

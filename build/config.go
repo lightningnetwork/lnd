@@ -1,3 +1,6 @@
+//go:build !dev
+// +build !dev
+
 package build
 
 import "github.com/btcsuite/btclog/v2"

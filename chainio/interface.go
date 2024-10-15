@@ -1,5 +1,11 @@
 package chainio
 
+import (
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainntnfs"
+)
+
 // Blockbeat defines an interface that can be used by subsystems to retrieve
 // block data. It is sent by the BlockbeatDispatcher whenever a new block is
 // received. Once the subsystem finishes processing the block, it must signal
@@ -32,6 +38,17 @@ type Blockbeat interface {
 	// DispatchSequential sends the blockbeat to the specified consumers
 	// sequentially.
 	DispatchSequential(consumers []Consumer) error
+
+	// HasOutpointSpentByScript queries the block to find a spending tx
+	// that spends the given outpoint using the pkScript. Return an error
+	// is the outpoint is spent but using a different pkScript.
+	HasOutpointSpentByScript(outpoint wire.OutPoint,
+		pkScript txscript.PkScript) (*chainntnfs.SpendDetail, error)
+
+	// HasOutpointSpent queries the block to find a spending tx that spends
+	// the given outpoint. Returns the spend details if found, otherwise
+	// nil.
+	HasOutpointSpent(outpoint wire.OutPoint) *chainntnfs.SpendDetail
 }
 
 // Consumer defines a blockbeat consumer interface. Subsystems that need block

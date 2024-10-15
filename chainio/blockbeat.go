@@ -1,9 +1,12 @@
 package chainio
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -161,4 +164,123 @@ func (b Beat) notifyAndWait(c Consumer) error {
 		time.Since(start))
 
 	return nil
+}
+
+// HasOutpointSpent queries the block to find a spending tx that spends the
+// given outpoint. Returns the spend details if found, otherwise nil.
+//
+// NOTE: Part of the Blockbeat interface.
+func (b Beat) HasOutpointSpent(outpoint wire.OutPoint) *chainntnfs.SpendDetail {
+	b.log.Tracef("Querying spending tx for outpoint=%v", outpoint)
+
+	// Iterate all the txns in this block.
+	for _, tx := range b.epoch.Block.Transactions {
+		txHash := tx.TxHash()
+
+		// Iterate all the inputs in this tx.
+		for i, txIn := range tx.TxIn {
+			// Skip if the input doesn't spend the outpoint.
+			if txIn.PreviousOutPoint != outpoint {
+				continue
+			}
+
+			// Found a match, return the spend details.
+			details := &chainntnfs.SpendDetail{
+				SpentOutPoint:     &outpoint,
+				SpenderTxHash:     &txHash,
+				SpendingTx:        tx,
+				SpenderInputIndex: uint32(i),
+				SpendingHeight:    b.epoch.Height,
+			}
+
+			return details
+		}
+	}
+
+	return nil
+}
+
+// ErrPkScriptMismatch is returned when the expected pkScript doesn't match the
+// actual pkScript.
+var ErrPkScriptMismatch = errors.New("pkscript mismatch")
+
+// HasOutpointSpentByScript queries the block to find a spending tx that spends
+// the given outpoint using the pkScript.
+//
+// NOTE: Part of the Blockbeat interface.
+func (b Beat) HasOutpointSpentByScript(outpoint wire.OutPoint,
+	pkScript txscript.PkScript) (*chainntnfs.SpendDetail, error) {
+
+	b.log.Tracef("Querying spending tx for outpoint=%v, pkScript=%v",
+		outpoint, pkScript)
+
+	// For taproot outputs, we will skip matching the pkScript as we cannot
+	// derive the spent pkScript directly from the witness.
+	isTaproot := pkScript.Class() == txscript.WitnessV1TaprootTy
+
+	// matchTxIn is a helper closure that checks if the txIn spends the
+	// given outpoint using the specified pkScript. Returns an error if the
+	// outpoint is found but the pkScript doesn't match.
+	matchTxIn := func(txIn *wire.TxIn) (bool, error) {
+		prevOut := txIn.PreviousOutPoint
+
+		// Exit early if the input doesn't spend the outpoint.
+		if prevOut != outpoint {
+			return false, nil
+		}
+
+		// If this is a taproot output, we skip matching the pkScript.
+		if isTaproot {
+			return true, nil
+		}
+
+		// Compute the script and matches it with the pkScript.
+		script, err := txscript.ComputePkScript(
+			txIn.SignatureScript, txIn.Witness,
+		)
+		if err != nil {
+			b.log.Errorf("Failed to compute pkscript: %v", err)
+			return false, err
+		}
+
+		// Check if the scripts match.
+		if script != pkScript {
+			return false, fmt.Errorf("%w: want %v, got %v",
+				ErrPkScriptMismatch, pkScript, script)
+		}
+
+		return true, nil
+	}
+
+	// Iterate all the txns in this block.
+	for _, tx := range b.epoch.Block.Transactions {
+		txHash := tx.TxHash()
+
+		// Iterate all the inputs in this tx.
+		for i, txIn := range tx.TxIn {
+			// Check if the input spends the outpoint.
+			found, err := matchTxIn(txIn)
+			if err != nil {
+				return nil, err
+			}
+
+			// Skip if the input cannot be matched.
+			if !found {
+				continue
+			}
+
+			// Found a match, return the spend details.
+			details := &chainntnfs.SpendDetail{
+				SpentOutPoint:     &outpoint,
+				SpenderTxHash:     &txHash,
+				SpendingTx:        tx,
+				SpenderInputIndex: uint32(i),
+				SpendingHeight:    b.epoch.Height,
+			}
+
+			return details, nil
+		}
+	}
+
+	return nil, nil
 }

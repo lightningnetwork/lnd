@@ -78,6 +78,37 @@ func (h *htlcIncomingContestResolver) processFinalHtlcFail() error {
 	return nil
 }
 
+// Launch will call the inner resolver's launch method if the preimage can be
+// found, otherwise it's a no-op.
+func (h *htlcIncomingContestResolver) Launch() error {
+	// NOTE: we don't mark this resolver as launched as the inner resolver
+	// will set it when it's launched.
+	if h.launched.Load() {
+		h.log.Tracef("already launched")
+		return nil
+	}
+
+	h.log.Debugf("launching contest resolver...")
+
+	// Query to see if we already know the preimage.
+	preimage, ok := h.PreimageDB.LookupPreimage(h.htlc.RHash)
+	if !ok {
+		return nil
+	}
+
+	h.log.Debugf("found preimage for htlc=%x, launching success resolver",
+		h.htlc.RHash)
+
+	// If the preimage is known, we'll apply it.
+	if err := h.applyPreimage(preimage); err != nil {
+		return err
+	}
+
+	// Once we've applied the preimage, we'll launch the inner resolver to
+	// attempt to claim the HTLC.
+	return h.htlcSuccessResolver.Launch()
+}
+
 // Resolve attempts to resolve this contract. As we don't yet know of the
 // preimage for the contract, we'll wait for one of two things to happen:
 //
@@ -93,7 +124,8 @@ func (h *htlcIncomingContestResolver) processFinalHtlcFail() error {
 func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// If we're already full resolved, then we don't have anything further
 	// to do.
-	if h.resolved {
+	if h.IsResolved() {
+		h.log.Errorf("already resolved")
 		return nil, nil
 	}
 
@@ -112,15 +144,14 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 	// now.
 	payload, nextHopOnionBlob, err := h.decodePayload()
 	if err != nil {
-		log.Debugf("ChannelArbitrator(%v): cannot decode payload of "+
-			"htlc %v", h.ChanPoint, h.HtlcPoint())
+		h.log.Debugf("cannot decode payload of htlc %v", h.HtlcPoint())
 
 		// If we've locked in an htlc with an invalid payload on our
 		// commitment tx, we don't need to resolve it. The other party
 		// will time it out and get their funds back. This situation
 		// can present itself when we crash before processRemoteAdds in
 		// the link has ran.
-		h.resolved = true
+		h.resolved.Store(true)
 
 		if err := h.processFinalHtlcFail(); err != nil {
 			return nil, err
@@ -173,7 +204,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		log.Infof("%T(%v): HTLC has timed out (expiry=%v, height=%v), "+
 			"abandoning", h, h.htlcResolution.ClaimOutpoint,
 			h.htlcExpiry, currentHeight)
-		h.resolved = true
+		h.resolved.Store(true)
 
 		if err := h.processFinalHtlcFail(); err != nil {
 			return nil, err
@@ -188,65 +219,6 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, h.Checkpoint(h, report)
 	}
 
-	// applyPreimage is a helper function that will populate our internal
-	// resolver with the preimage we learn of. This should be called once
-	// the preimage is revealed so the inner resolver can properly complete
-	// its duties. The error return value indicates whether the preimage
-	// was properly applied.
-	applyPreimage := func(preimage lntypes.Preimage) error {
-		// Sanity check to see if this preimage matches our htlc. At
-		// this point it should never happen that it does not match.
-		if !preimage.Matches(h.htlc.RHash) {
-			return errors.New("preimage does not match hash")
-		}
-
-		// Update htlcResolution with the matching preimage.
-		h.htlcResolution.Preimage = preimage
-
-		log.Infof("%T(%v): applied preimage=%v", h,
-			h.htlcResolution.ClaimOutpoint, preimage)
-
-		isSecondLevel := h.htlcResolution.SignedSuccessTx != nil
-
-		// If we didn't have to go to the second level to claim (this
-		// is the remote commitment transaction), then we don't need to
-		// modify our canned witness.
-		if !isSecondLevel {
-			return nil
-		}
-
-		isTaproot := txscript.IsPayToTaproot(
-			h.htlcResolution.SignedSuccessTx.TxOut[0].PkScript,
-		)
-
-		// If this is our commitment transaction, then we'll need to
-		// populate the witness for the second-level HTLC transaction.
-		switch {
-		// For taproot channels, the witness for sweeping with success
-		// looks like:
-		//   - <sender sig> <receiver sig> <preimage> <success_script>
-		//     <control_block>
-		//
-		// So we'll insert it at the 3rd index of the witness.
-		case isTaproot:
-			//nolint:lll
-			h.htlcResolution.SignedSuccessTx.TxIn[0].Witness[2] = preimage[:]
-
-		// Within the witness for the success transaction, the
-		// preimage is the 4th element as it looks like:
-		//
-		//  * <0> <sender sig> <recvr sig> <preimage> <witness script>
-		//
-		// We'll populate it within the witness, as since this
-		// was a "contest" resolver, we didn't yet know of the
-		// preimage.
-		case !isTaproot:
-			h.htlcResolution.SignedSuccessTx.TxIn[0].Witness[3] = preimage[:]
-		}
-
-		return nil
-	}
-
 	// Define a closure to process htlc resolutions either directly or
 	// triggered by future notifications.
 	processHtlcResolution := func(e invoices.HtlcResolution) (
@@ -258,7 +230,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// If the htlc resolution was a settle, apply the
 		// preimage and return a success resolver.
 		case *invoices.HtlcSettleResolution:
-			err := applyPreimage(resolution.Preimage)
+			err := h.applyPreimage(resolution.Preimage)
 			if err != nil {
 				return nil, err
 			}
@@ -273,7 +245,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 				h.htlcResolution.ClaimOutpoint,
 				h.htlcExpiry, currentHeight)
 
-			h.resolved = true
+			h.resolved.Store(true)
 
 			if err := h.processFinalHtlcFail(); err != nil {
 				return nil, err
@@ -380,7 +352,9 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			// However, we don't know how to ourselves, so we'll
 			// return our inner resolver which has the knowledge to
 			// do so.
-			if err := applyPreimage(preimage); err != nil {
+			h.log.Debugf("Found preimage for htlc=%x", h.htlc.RHash)
+
+			if err := h.applyPreimage(preimage); err != nil {
 				return nil, err
 			}
 
@@ -399,7 +373,10 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 				continue
 			}
 
-			if err := applyPreimage(preimage); err != nil {
+			h.log.Debugf("Received preimage for htlc=%x",
+				h.htlc.RHash)
+
+			if err := h.applyPreimage(preimage); err != nil {
 				return nil, err
 			}
 
@@ -426,7 +403,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 					"(expiry=%v, height=%v), abandoning", h,
 					h.htlcResolution.ClaimOutpoint,
 					h.htlcExpiry, currentHeight)
-				h.resolved = true
+				h.resolved.Store(true)
 
 				if err := h.processFinalHtlcFail(); err != nil {
 					return nil, err
@@ -444,6 +421,76 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			return nil, errResolverShuttingDown
 		}
 	}
+}
+
+// applyPreimage is a helper function that will populate our internal resolver
+// with the preimage we learn of. This should be called once the preimage is
+// revealed so the inner resolver can properly complete its duties. The error
+// return value indicates whether the preimage was properly applied.
+func (h *htlcIncomingContestResolver) applyPreimage(
+	preimage lntypes.Preimage) error {
+
+	// Sanity check to see if this preimage matches our htlc. At this point
+	// it should never happen that it does not match.
+	if !preimage.Matches(h.htlc.RHash) {
+		return errors.New("preimage does not match hash")
+	}
+
+	// We may already have the preimage since both the `Launch` and
+	// `Resolve` methods will look for it.
+	if h.htlcResolution.Preimage != lntypes.ZeroHash {
+		h.log.Debugf("already applied preimage for htlc=%x",
+			h.htlc.RHash)
+
+		return nil
+	}
+
+	// Update htlcResolution with the matching preimage.
+	h.htlcResolution.Preimage = preimage
+
+	log.Infof("%T(%v): applied preimage=%v", h,
+		h.htlcResolution.ClaimOutpoint, preimage)
+
+	isSecondLevel := h.htlcResolution.SignedSuccessTx != nil
+
+	// If we didn't have to go to the second level to claim (this
+	// is the remote commitment transaction), then we don't need to
+	// modify our canned witness.
+	if !isSecondLevel {
+		return nil
+	}
+
+	isTaproot := txscript.IsPayToTaproot(
+		h.htlcResolution.SignedSuccessTx.TxOut[0].PkScript,
+	)
+
+	// If this is our commitment transaction, then we'll need to
+	// populate the witness for the second-level HTLC transaction.
+	switch {
+	// For taproot channels, the witness for sweeping with success
+	// looks like:
+	//   - <sender sig> <receiver sig> <preimage> <success_script>
+	//     <control_block>
+	//
+	// So we'll insert it at the 3rd index of the witness.
+	case isTaproot:
+		//nolint:lll
+		h.htlcResolution.SignedSuccessTx.TxIn[0].Witness[2] = preimage[:]
+
+	// Within the witness for the success transaction, the
+	// preimage is the 4th element as it looks like:
+	//
+	//  * <0> <sender sig> <recvr sig> <preimage> <witness script>
+	//
+	// We'll populate it within the witness, as since this
+	// was a "contest" resolver, we didn't yet know of the
+	// preimage.
+	case !isTaproot:
+		//nolint:lll
+		h.htlcResolution.SignedSuccessTx.TxIn[0].Witness[3] = preimage[:]
+	}
+
+	return nil
 }
 
 // report returns a report on the resolution state of the contract.
@@ -472,15 +519,8 @@ func (h *htlcIncomingContestResolver) report() *ContractReport {
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcIncomingContestResolver) Stop() {
+	h.log.Debugf("stopping...")
 	close(h.quit)
-}
-
-// IsResolved returns true if the stored state in the resolve is fully
-// resolved. In this case the target output can be forgotten.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcIncomingContestResolver) IsResolved() bool {
-	return h.resolved
 }
 
 // Encode writes an encoded version of the ContractResolver into the passed

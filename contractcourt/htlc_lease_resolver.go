@@ -55,19 +55,16 @@ func (h *htlcLeaseResolver) makeSweepInput(op *wire.OutPoint,
 	signDesc *input.SignDescriptor,
 	csvDelay, broadcastHeight uint32, payHash [32]byte) *input.BaseInput {
 
-	if h.hasCLTV() {
-		log.Infof("%T(%x): CSV and CLTV locks expired, offering "+
-			"second-layer output to sweeper: %v", h, payHash, op)
+	log.Infof("%T(%x): offering second-layer output to sweeper: %v", h,
+		payHash, op)
 
+	if h.hasCLTV() {
 		return input.NewCsvInputWithCltv(
 			op, cltvWtype, signDesc,
 			broadcastHeight, csvDelay,
 			h.leaseExpiry,
 		)
 	}
-
-	log.Infof("%T(%x): CSV lock expired, offering second-layer output to "+
-		"sweeper: %v", h, payHash, op)
 
 	return input.NewCsvInput(op, wType, signDesc, broadcastHeight, csvDelay)
 }

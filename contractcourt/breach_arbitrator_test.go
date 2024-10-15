@@ -36,7 +36,7 @@ import (
 )
 
 var (
-	defaultTimeout = 30 * time.Second
+	defaultTimeout = 10 * time.Second
 
 	breachOutPoints = []wire.OutPoint{
 		{

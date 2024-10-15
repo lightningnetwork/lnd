@@ -126,7 +126,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	// placeholder lnd package loggers.
 	for _, l := range lndPkgLoggers {
 		l.Logger = build.NewSubLogger(l.subsystem, genLogger)
-		SetV1SubLogger(root, l.subsystem, l.Logger)
+		SetSubLogger(root, l.subsystem, l.Logger)
 	}
 
 	// Initialize loggers from packages outside of `lnd` first. The
@@ -144,54 +144,80 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	signal.UseLogger(ltndLog)
 	autopilot.UseLogger(atplLog)
 
-	AddV1SubLogger(root, "LNWL", interceptor, lnwallet.UseLogger)
-	AddV1SubLogger(root, "DISC", interceptor, discovery.UseLogger)
-	AddV1SubLogger(root, "NTFN", interceptor, chainntnfs.UseLogger)
-	AddV1SubLogger(root, "CHDB", interceptor, channeldb.UseLogger)
-	AddV1SubLogger(root, "HSWC", interceptor, htlcswitch.UseLogger)
-	AddV1SubLogger(root, "CNCT", interceptor, contractcourt.UseLogger)
-	AddV1SubLogger(root, "UTXN", interceptor, contractcourt.UseNurseryLogger)
-	AddV1SubLogger(root, "BRAR", interceptor, contractcourt.UseBreachLogger)
+	AddSubLogger(root, "LNWL", interceptor, lnwallet.UseLogger)
+	AddSubLogger(root, "DISC", interceptor, discovery.UseLogger)
+	AddSubLogger(root, "NTFN", interceptor, chainntnfs.UseLogger)
+	AddSubLogger(root, "CHDB", interceptor, channeldb.UseLogger)
+	AddSubLogger(root, "HSWC", interceptor, htlcswitch.UseLogger)
+	AddSubLogger(root, "CNCT", interceptor, contractcourt.UseLogger)
+	AddSubLogger(root, "UTXN", interceptor, contractcourt.UseNurseryLogger)
+	AddSubLogger(root, "BRAR", interceptor, contractcourt.UseBreachLogger)
 	AddV1SubLogger(root, "SPHX", interceptor, sphinx.UseLogger)
-	AddV1SubLogger(root, "SWPR", interceptor, sweep.UseLogger)
-	AddV1SubLogger(root, "SGNR", interceptor, signrpc.UseLogger)
-	AddV1SubLogger(root, "WLKT", interceptor, walletrpc.UseLogger)
-	AddV1SubLogger(root, "ARPC", interceptor, autopilotrpc.UseLogger)
-	AddV1SubLogger(root, "NRPC", interceptor, neutrinorpc.UseLogger)
-	AddV1SubLogger(root, "DRPC", interceptor, devrpc.UseLogger)
-	AddV1SubLogger(root, "INVC", interceptor, invoices.UseLogger)
-	AddV1SubLogger(root, "NANN", interceptor, netann.UseLogger)
-	AddV1SubLogger(root, "WTWR", interceptor, watchtower.UseLogger)
-	AddV1SubLogger(root, "NTFR", interceptor, chainrpc.UseLogger)
-	AddV1SubLogger(root, "IRPC", interceptor, invoicesrpc.UseLogger)
-	AddV1SubLogger(root, "CHNF", interceptor, channelnotifier.UseLogger)
-	AddV1SubLogger(root, "CHBU", interceptor, chanbackup.UseLogger)
-	AddV1SubLogger(root, "PROM", interceptor, monitoring.UseLogger)
-	AddV1SubLogger(root, "WTCL", interceptor, wtclient.UseLogger)
-	AddV1SubLogger(root, "PRNF", interceptor, peernotifier.UseLogger)
-	AddV1SubLogger(root, "CHFD", interceptor, chanfunding.UseLogger)
-	AddV1SubLogger(root, "PEER", interceptor, peer.UseLogger)
-	AddV1SubLogger(root, "CHCL", interceptor, chancloser.UseLogger)
+	AddSubLogger(root, "SWPR", interceptor, sweep.UseLogger)
+	AddSubLogger(root, "SGNR", interceptor, signrpc.UseLogger)
+	AddSubLogger(root, "WLKT", interceptor, walletrpc.UseLogger)
+	AddSubLogger(root, "ARPC", interceptor, autopilotrpc.UseLogger)
+	AddSubLogger(root, "NRPC", interceptor, neutrinorpc.UseLogger)
+	AddSubLogger(root, "DRPC", interceptor, devrpc.UseLogger)
+	AddSubLogger(root, "INVC", interceptor, invoices.UseLogger)
+	AddSubLogger(root, "NANN", interceptor, netann.UseLogger)
+	AddSubLogger(root, "WTWR", interceptor, watchtower.UseLogger)
+	AddSubLogger(root, "NTFR", interceptor, chainrpc.UseLogger)
+	AddSubLogger(root, "IRPC", interceptor, invoicesrpc.UseLogger)
+	AddSubLogger(root, "CHNF", interceptor, channelnotifier.UseLogger)
+	AddSubLogger(root, "CHBU", interceptor, chanbackup.UseLogger)
+	AddSubLogger(root, "PROM", interceptor, monitoring.UseLogger)
+	AddSubLogger(root, "WTCL", interceptor, wtclient.UseLogger)
+	AddSubLogger(root, "PRNF", interceptor, peernotifier.UseLogger)
+	AddSubLogger(root, "CHFD", interceptor, chanfunding.UseLogger)
+	AddSubLogger(root, "PEER", interceptor, peer.UseLogger)
+	AddSubLogger(root, "CHCL", interceptor, chancloser.UseLogger)
 
-	AddV1SubLogger(root, routing.Subsystem, interceptor, routing.UseLogger)
-	AddV1SubLogger(root, routerrpc.Subsystem, interceptor, routerrpc.UseLogger)
-	AddV1SubLogger(root, chanfitness.Subsystem, interceptor, chanfitness.UseLogger)
-	AddV1SubLogger(root, verrpc.Subsystem, interceptor, verrpc.UseLogger)
+	AddSubLogger(root, routing.Subsystem, interceptor, routing.UseLogger)
+	AddSubLogger(root, routerrpc.Subsystem, interceptor, routerrpc.UseLogger)
+	AddSubLogger(root, chanfitness.Subsystem, interceptor, chanfitness.UseLogger)
+	AddSubLogger(root, verrpc.Subsystem, interceptor, verrpc.UseLogger)
 	AddV1SubLogger(root, healthcheck.Subsystem, interceptor, healthcheck.UseLogger)
-	AddV1SubLogger(root, chainreg.Subsystem, interceptor, chainreg.UseLogger)
-	AddV1SubLogger(root, chanacceptor.Subsystem, interceptor, chanacceptor.UseLogger)
-	AddV1SubLogger(root, funding.Subsystem, interceptor, funding.UseLogger)
-	AddV1SubLogger(root, cluster.Subsystem, interceptor, cluster.UseLogger)
-	AddV1SubLogger(root, rpcperms.Subsystem, interceptor, rpcperms.UseLogger)
+	AddSubLogger(root, chainreg.Subsystem, interceptor, chainreg.UseLogger)
+	AddSubLogger(root, chanacceptor.Subsystem, interceptor, chanacceptor.UseLogger)
+	AddSubLogger(root, funding.Subsystem, interceptor, funding.UseLogger)
+	AddSubLogger(root, cluster.Subsystem, interceptor, cluster.UseLogger)
+	AddSubLogger(root, rpcperms.Subsystem, interceptor, rpcperms.UseLogger)
 	AddV1SubLogger(root, tor.Subsystem, interceptor, tor.UseLogger)
-	AddV1SubLogger(root, btcwallet.Subsystem, interceptor, btcwallet.UseLogger)
-	AddV1SubLogger(root, rpcwallet.Subsystem, interceptor, rpcwallet.UseLogger)
-	AddV1SubLogger(root, peersrpc.Subsystem, interceptor, peersrpc.UseLogger)
-	AddV1SubLogger(root, graph.Subsystem, interceptor, graph.UseLogger)
-	AddV1SubLogger(root, lncfg.Subsystem, interceptor, lncfg.UseLogger)
-	AddV1SubLogger(
+	AddSubLogger(root, btcwallet.Subsystem, interceptor, btcwallet.UseLogger)
+	AddSubLogger(root, rpcwallet.Subsystem, interceptor, rpcwallet.UseLogger)
+	AddSubLogger(root, peersrpc.Subsystem, interceptor, peersrpc.UseLogger)
+	AddSubLogger(root, graph.Subsystem, interceptor, graph.UseLogger)
+	AddSubLogger(root, lncfg.Subsystem, interceptor, lncfg.UseLogger)
+	AddSubLogger(
 		root, blindedpath.Subsystem, interceptor, blindedpath.UseLogger,
 	)
+}
+
+// AddSubLogger is a helper method to conveniently create and register the
+// logger of one or more sub systems.
+func AddSubLogger(root *build.SubLoggerManager, subsystem string,
+	interceptor signal.Interceptor, useLoggers ...func(btclog.Logger)) {
+
+	// genSubLogger will return a callback for creating a logger instance,
+	// which we will give to the root logger.
+	genLogger := genSubLogger(root, interceptor)
+
+	// Create and register just a single logger to prevent them from
+	// overwriting each other internally.
+	logger := build.NewSubLogger(subsystem, genLogger)
+	SetSubLogger(root, subsystem, logger, useLoggers...)
+}
+
+// SetSubLogger is a helper method to conveniently register the logger of a
+// sub system.
+func SetSubLogger(root *build.SubLoggerManager, subsystem string,
+	logger btclog.Logger, useLoggers ...func(btclog.Logger)) {
+
+	root.RegisterSubLogger(subsystem, logger)
+	for _, useLogger := range useLoggers {
+		useLogger(logger)
+	}
 }
 
 // AddV1SubLogger is a helper method to conveniently create and register the

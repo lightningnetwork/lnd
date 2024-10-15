@@ -6,7 +6,7 @@ import (
 	"reflect"
 
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/chainreg"

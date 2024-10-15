@@ -158,6 +158,46 @@ Examples:
     $  lncli --macaroonpath=/safe/location/admin.macaroon getinfo
   ```
 
+## Using deterministic/pre-generated macaroons
+
+All macaroons are derived from a secret root key (by default from the root key
+with the ID `"0"`). That root key is randomly generated when the macaroon store
+is first initialized (when the wallet is created) and is therefore not
+deterministic by default.
+
+It can be useful to use a deterministic (or pre-generated) root key, which is
+why the `InitWallet` RPC (or the `lncli create` or `lncli createwatchonly`
+counterparts) allows a root key to be specified.
+
+Using a pre-generated root key can be useful for scenarios like:
+* Testing: If a node is always initialized with the same root key for each test
+  run, then macaroons generated in one test run can be re-used in another run
+  and don't need to be re-derived.
+* Remote signing setup: When using a remote signing setup where there are two
+  related `lnd` nodes (e.g. a watch-only and a signer pair), it can be useful
+  to generate a valid macaroon _before_ any of the nodes are even started up.
+
+**Example**:
+
+The following example shows how a valid macaroon can be generated before even
+starting a node:
+
+```shell
+# Randomly generate a 32-byte long secret root key and encode it as hex.
+ROOT_KEY=$(cat /dev/urandom | head -c32 | xxd -p -c32)
+
+# Derive a read-only macaroon from that root key.
+# NOTE: When using the --root_key flag, the `lncli bakemacaroon` command is
+# fully offline and does not need to connect to any lnd node.
+lncli bakemacaroon --root_key $ROOT_KEY --save_to /tmp/info.macaroon info:read
+
+# Create the lnd node now, using the same root key.
+lncli create --mac_root_key $ROOT_KEY
+
+# Use the pre-generated macaroon for a call.
+lncli --macaroonpath /tmp/info.macaroon getinfo
+```
+
 ## Using Macaroons with GRPC clients
 
 When interacting with `lnd` using the GRPC interface, the macaroons are encoded

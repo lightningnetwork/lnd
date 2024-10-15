@@ -54,10 +54,10 @@ var (
 
 // replaceCustomData replaces the custom channel data hex string with the
 // decoded custom channel data in the JSON response.
-func replaceCustomData(jsonBytes []byte) ([]byte, error) {
+func replaceCustomData(jsonBytes []byte) []byte {
 	// If there's nothing to replace, return the original JSON.
 	if !customDataPattern.Match(jsonBytes) {
-		return jsonBytes, nil
+		return jsonBytes
 	}
 
 	replacedBytes := customDataPattern.ReplaceAllFunc(
@@ -78,10 +78,12 @@ func replaceCustomData(jsonBytes []byte) ([]byte, error) {
 	var buf bytes.Buffer
 	err := json.Indent(&buf, replacedBytes, "", "    ")
 	if err != nil {
-		return nil, err
+		// If we can't indent the JSON, it likely means the replacement
+		// data wasn't correct, so we return the original JSON.
+		return jsonBytes
 	}
 
-	return buf.Bytes(), nil
+	return buf.Bytes()
 }
 
 func getContext() context.Context {
@@ -118,11 +120,7 @@ func printRespJSON(resp proto.Message) {
 		return
 	}
 
-	jsonBytesReplaced, err := replaceCustomData(jsonBytes)
-	if err != nil {
-		fmt.Println("unable to replace custom data: ", err)
-		jsonBytesReplaced = jsonBytes
-	}
+	jsonBytesReplaced := replaceCustomData(jsonBytes)
 
 	fmt.Printf("%s\n", jsonBytesReplaced)
 }

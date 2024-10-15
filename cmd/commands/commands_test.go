@@ -131,7 +131,6 @@ func TestReplaceCustomData(t *testing.T) {
 		data        string
 		replaceData string
 		expected    string
-		expectedErr string
 	}{
 		{
 			name:     "no replacement necessary",
@@ -175,7 +174,8 @@ func TestReplaceCustomData(t *testing.T) {
 			name: "invalid json",
 			data: "this ain't json, " +
 				"\"custom_channel_data\":\"a\"",
-			expectedErr: "invalid character 'h' in literal true",
+			expected: "this ain't json, " +
+				"\"custom_channel_data\":\"a\"",
 		},
 		{
 			name:     "valid json, invalid hex, just formatted",
@@ -186,15 +186,7 @@ func TestReplaceCustomData(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := replaceCustomData([]byte(tc.data))
-
-			if tc.expectedErr != "" {
-				require.ErrorContains(t, err, tc.expectedErr)
-				return
-			}
-
-			require.NoError(t, err)
-
+			result := replaceCustomData([]byte(tc.data))
 			require.Equal(t, tc.expected, string(result))
 		})
 	}

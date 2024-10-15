@@ -4613,6 +4613,11 @@ func encodeCustomChanData(lnChan *channeldb.OpenChannel) ([]byte, error) {
 	customOpenChanData := lnChan.CustomBlob.UnwrapOr(nil)
 	customLocalCommitData := lnChan.LocalCommitment.CustomBlob.UnwrapOr(nil)
 
+	// Don't write any custom data if both blobs are empty.
+	if len(customOpenChanData) == 0 && len(customLocalCommitData) == 0 {
+		return nil, nil
+	}
+
 	// We'll encode our custom channel data as two blobs. The first is a
 	// set of var bytes encoding of the open chan data, the second is an
 	// encoding of the local commitment data.

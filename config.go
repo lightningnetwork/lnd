@@ -1404,15 +1404,13 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
-	var logCfg = cfg.LogConfig
-	consoleLogHandler := btclog.NewDefaultHandler(
-		os.Stdout, logCfg.Console.HandlerOptions()...,
+	var (
+		logCfg                            = cfg.LogConfig
+		logHandlers                       []btclog.Handler
+		consoleLogHandler, logFileHandler = build.NewDefaultLogHandlers(
+			logCfg, cfg.LogRotator,
+		)
 	)
-	logFileHandler := btclog.NewDefaultHandler(
-		cfg.LogRotator, logCfg.File.HandlerOptions()...,
-	)
-
-	var logHandlers []btclog.Handler
 	maybeAddLogger := func(cmdOptionDisable bool, handler btclog.Handler) {
 		if !cmdOptionDisable {
 			logHandlers = append(logHandlers, handler)

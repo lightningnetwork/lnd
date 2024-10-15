@@ -2,12 +2,11 @@ package build
 
 import (
 	"fmt"
-	"io"
 	"sort"
 	"strings"
 	"sync"
 
-	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btclog/v2"
 )
 
 // SubLogCreator can be used to create a new logger for a particular subsystem.
@@ -30,10 +29,12 @@ type SubLoggerManager struct {
 var _ LeveledSubLogger = (*SubLoggerManager)(nil)
 
 // NewSubLoggerManager constructs a new SubLoggerManager.
-func NewSubLoggerManager(w io.Writer) *SubLoggerManager {
+func NewSubLoggerManager(handlers ...btclog.Handler) *SubLoggerManager {
 	return &SubLoggerManager{
-		loggers:   SubLoggers{},
-		genLogger: btclog.NewBackend(w),
+		loggers: make(SubLoggers),
+		genLogger: newSubLogGenerator(
+			newHandlerSet(btclog.LevelInfo, handlers...),
+		),
 	}
 }
 

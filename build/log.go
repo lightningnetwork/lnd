@@ -1,9 +1,9 @@
 package build
 
 import (
-	"io"
+	"os"
 
-	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btclog/v2"
 )
 
 // LogType is an indicating the type of logging specified by the build flag.
@@ -60,17 +60,6 @@ func SuportedLogCompressor(logCompressor string) bool {
 	return ok
 }
 
-// LogWriter is a stub type whose behavior can be changed using the build flags
-// "stdlog" and "nolog". The default behavior is to write to both stdout and the
-// RotatorPipe. Passing "stdlog" will cause it only to write to stdout, and
-// "nolog" implements Write as a no-op.
-type LogWriter struct {
-	// RotatorPipe is the write-end pipe for writing to the log rotator.  It
-	// is written to by the Write method of the LogWriter type. This only
-	// needs to be set if neither the stdlog or nolog builds are set.
-	RotatorPipe *io.PipeWriter
-}
-
 // NewSubLogger constructs a new subsystem log from the current LogWriter
 // implementation. This is primarily intended for use with stdlog, as the actual
 // writer is shared amongst all instantiations.
@@ -104,8 +93,10 @@ func NewSubLogger(subsystem string,
 		// that they share the same backend, since all output is written
 		// to std out.
 		case LogTypeStdOut:
-			backend := btclog.NewBackend(&LogWriter{})
-			logger := backend.Logger(subsystem)
+			backend := btclog.NewDefaultHandler(os.Stdout)
+			logger := btclog.NewSLogger(
+				backend.SubSystem(subsystem),
+			)
 
 			// Set the logging level of the stdout logger to use the
 			// configured logging level specified by build flags.

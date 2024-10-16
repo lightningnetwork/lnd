@@ -16,27 +16,27 @@ const (
 
 	// DPMaxHtlcValueInFlightMsat is the TLV type number that identifies the
 	// record for DynPropose.MaxValueInFlight.
-	DPMaxHtlcValueInFlightMsat tlv.Type = 1
+	DPMaxHtlcValueInFlightMsat tlv.Type = 2
 
 	// DPHtlcMinimumMsat is the TLV type number that identifies the record
 	// for DynPropose.HtlcMinimum.
-	DPHtlcMinimumMsat tlv.Type = 7
+	DPHtlcMinimumMsat tlv.Type = 4
 
 	// DPChannelReserveSatoshis is the TLV type number that identifies the
 	// for DynPropose.ChannelReserve.
-	DPChannelReserveSatoshis tlv.Type = 2
+	DPChannelReserveSatoshis tlv.Type = 6
 
 	// DPToSelfDelay is the TLV type number that identifies the record for
 	// DynPropose.CsvDelay.
-	DPToSelfDelay tlv.Type = 3
+	DPToSelfDelay tlv.Type = 8
 
 	// DPMaxAcceptedHtlcs is the TLV type number that identifies the record
 	// for DynPropose.MaxAcceptedHTLCs.
-	DPMaxAcceptedHtlcs tlv.Type = 4
+	DPMaxAcceptedHtlcs tlv.Type = 10
 
 	// DPChannelType is the TLV type number that identifies the record for
 	// DynPropose.ChannelType.
-	DPChannelType tlv.Type = 6
+	DPChannelType tlv.Type = 12
 )
 
 // DynPropose is a message that is sent during a dynamic commitments negotiation

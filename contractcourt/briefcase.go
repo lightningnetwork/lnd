@@ -1571,6 +1571,7 @@ func encodeTaprootAuxData(w io.Writer, c *ContractResolutions) error {
 		})
 	}
 
+	htlcBlobs := newAuxHtlcBlobs()
 	for _, htlc := range c.HtlcResolutions.IncomingHTLCs {
 		htlc := htlc
 
@@ -1581,8 +1582,9 @@ func encodeTaprootAuxData(w io.Writer, c *ContractResolutions) error {
 			continue
 		}
 
+		var resID resolverID
 		if htlc.SignedSuccessTx != nil {
-			resID := newResolverID(
+			resID = newResolverID(
 				htlc.SignedSuccessTx.TxIn[0].PreviousOutPoint,
 			)
 			//nolint:lll
@@ -1598,10 +1600,14 @@ func encodeTaprootAuxData(w io.Writer, c *ContractResolutions) error {
 				tapCase.CtrlBlocks.Val.IncomingHtlcCtrlBlocks[resID] = bridgeCtrlBlock
 			}
 		} else {
-			resID := newResolverID(htlc.ClaimOutpoint)
+			resID = newResolverID(htlc.ClaimOutpoint)
 			//nolint:lll
 			tapCase.CtrlBlocks.Val.IncomingHtlcCtrlBlocks[resID] = ctrlBlock
 		}
+
+		htlc.ResolutionBlob.WhenSome(func(b []byte) {
+			htlcBlobs[resID] = b
+		})
 	}
 	for _, htlc := range c.HtlcResolutions.OutgoingHTLCs {
 		htlc := htlc
@@ -1613,8 +1619,9 @@ func encodeTaprootAuxData(w io.Writer, c *ContractResolutions) error {
 			continue
 		}
 
+		var resID resolverID
 		if htlc.SignedTimeoutTx != nil {
-			resID := newResolverID(
+			resID = newResolverID(
 				htlc.SignedTimeoutTx.TxIn[0].PreviousOutPoint,
 			)
 			//nolint:lll
@@ -1632,15 +1639,25 @@ func encodeTaprootAuxData(w io.Writer, c *ContractResolutions) error {
 				tapCase.CtrlBlocks.Val.OutgoingHtlcCtrlBlocks[resID] = bridgeCtrlBlock
 			}
 		} else {
-			resID := newResolverID(htlc.ClaimOutpoint)
+			resID = newResolverID(htlc.ClaimOutpoint)
 			//nolint:lll
 			tapCase.CtrlBlocks.Val.OutgoingHtlcCtrlBlocks[resID] = ctrlBlock
 		}
+
+		htlc.ResolutionBlob.WhenSome(func(b []byte) {
+			htlcBlobs[resID] = b
+		})
 	}
 
 	if c.AnchorResolution != nil {
 		anchorSignDesc := c.AnchorResolution.AnchorSignDescriptor
 		tapCase.TapTweaks.Val.AnchorTweak = anchorSignDesc.TapTweak
+	}
+
+	if len(htlcBlobs) != 0 {
+		tapCase.HtlcBlobs = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType4](htlcBlobs),
+		)
 	}
 
 	return tapCase.Encode(w)
@@ -1660,6 +1677,8 @@ func decodeTapRootAuxData(r io.Reader, c *ContractResolutions) error {
 			c.CommitResolution.ResolutionBlob = fn.Some(b)
 		})
 	}
+
+	htlcBlobs := tapCase.HtlcBlobs.ValOpt().UnwrapOr(newAuxHtlcBlobs())
 
 	for i := range c.HtlcResolutions.IncomingHTLCs {
 		htlc := c.HtlcResolutions.IncomingHTLCs[i]
@@ -1687,7 +1706,12 @@ func decodeTapRootAuxData(r io.Reader, c *ContractResolutions) error {
 			htlc.SweepSignDesc.ControlBlock = ctrlBlock
 		}
 
+		if htlcBlob, ok := htlcBlobs[resID]; ok {
+			htlc.ResolutionBlob = fn.Some(htlcBlob)
+		}
+
 		c.HtlcResolutions.IncomingHTLCs[i] = htlc
+
 	}
 	for i := range c.HtlcResolutions.OutgoingHTLCs {
 		htlc := c.HtlcResolutions.OutgoingHTLCs[i]
@@ -1713,6 +1737,10 @@ func decodeTapRootAuxData(r io.Reader, c *ContractResolutions) error {
 			//nolint:lll
 			ctrlBlock := tapCase.CtrlBlocks.Val.OutgoingHtlcCtrlBlocks[resID]
 			htlc.SweepSignDesc.ControlBlock = ctrlBlock
+		}
+
+		if htlcBlob, ok := htlcBlobs[resID]; ok {
+			htlc.ResolutionBlob = fn.Some(htlcBlob)
 		}
 
 		c.HtlcResolutions.OutgoingHTLCs[i] = htlc

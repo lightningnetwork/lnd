@@ -1215,6 +1215,12 @@ func (bo *breachedOutput) ResolutionBlob() fn.Option[tlv.Blob] {
 	return bo.resolutionBlob
 }
 
+// Preimage returns the preimage for the breached output if it is an HTLC
+// output.
+func (bo *breachedOutput) Preimage() fn.Option[lntypes.Preimage] {
+	return fn.None[lntypes.Preimage]()
+}
+
 // Add compile-time constraint ensuring breachedOutput implements the Input
 // interface.
 var _ input.Input = (*breachedOutput)(nil)

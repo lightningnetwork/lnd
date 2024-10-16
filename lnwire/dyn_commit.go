@@ -29,6 +29,10 @@ type DynCommit struct {
 	// max_htlc_value_in_flight_msat limit of the sender.
 	MaxValueInFlight fn.Option[MilliSatoshi]
 
+	// HtlcMinimum, if not nil, proposes a change to the htlc_minimum_msat
+	// floor of the sender.
+	HtlcMinimum fn.Option[MilliSatoshi]
+
 	// ChannelReserve, if not nil, proposes a change to the
 	// channel_reserve_satoshis requirement of the recipient.
 	ChannelReserve fn.Option[btcutil.Amount]
@@ -82,6 +86,14 @@ func (dc *DynCommit) Encode(w *bytes.Buffer, _ uint32) error {
 		tlvRecords = append(
 			tlvRecords, tlv.MakePrimitiveRecord(
 				DPMaxHtlcValueInFlightMsat, &protoSats,
+			),
+		)
+	})
+	dc.HtlcMinimum.WhenSome(func(min MilliSatoshi) {
+		protoSats := uint64(min)
+		tlvRecords = append(
+			tlvRecords, tlv.MakePrimitiveRecord(
+				DPHtlcMinimumMsat, &protoSats,
 			),
 		)
 	})
@@ -161,6 +173,11 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 		DPMaxHtlcValueInFlightMsat, &maxValueScratch,
 	)
 
+	var htlcMinScratch uint64
+	htlcMin := tlv.MakePrimitiveRecord(
+		DPHtlcMinimumMsat, &htlcMinScratch,
+	)
+
 	var reserveScratch uint64
 	reserve := tlv.MakePrimitiveRecord(
 		DPChannelReserveSatoshis, &reserveScratch,
@@ -182,7 +199,8 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 
 	// Create set of Records to read TLV bytestream into.
 	records := []tlv.Record{
-		dustLimit, maxValue, reserve, csvDelay, maxHtlcs, chanType,
+		dustLimit, maxValue, htlcMin, reserve, csvDelay, maxHtlcs,
+		chanType,
 	}
 	tlv.SortRecords(records)
 
@@ -204,6 +222,9 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 	}
 	if val, ok := typeMap[DPMaxHtlcValueInFlightMsat]; ok && val == nil {
 		dc.MaxValueInFlight = fn.Some(MilliSatoshi(maxValueScratch))
+	}
+	if val, ok := typeMap[DPHtlcMinimumMsat]; ok && val == nil {
+		dc.HtlcMinimum = fn.Some(MilliSatoshi(htlcMinScratch))
 	}
 	if val, ok := typeMap[DPChannelReserveSatoshis]; ok && val == nil {
 		dc.ChannelReserve = fn.Some(btcutil.Amount(reserveScratch))
@@ -241,6 +262,7 @@ func NegotiateDynCommit(propose DynPropose, ack DynAck) DynCommit {
 		Sig:              ack.Sig,
 		DustLimit:        propose.DustLimit,
 		MaxValueInFlight: propose.MaxValueInFlight,
+		HtlcMinimum:      propose.HtlcMinimum,
 		ChannelReserve:   propose.ChannelReserve,
 		CsvDelay:         propose.CsvDelay,
 		MaxAcceptedHTLCs: propose.MaxAcceptedHTLCs,

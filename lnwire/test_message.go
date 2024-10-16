@@ -829,7 +829,6 @@ func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 	includeMaxAcceptedHTLCs := rapid.Bool().Draw(
 		t, "includeMaxAcceptedHTLCs",
 	)
-	includeFundingKey := rapid.Bool().Draw(t, "includeFundingKey")
 	includeChannelType := rapid.Bool().Draw(t, "includeChannelType")
 
 	// Generate random values for each included field
@@ -856,10 +855,6 @@ func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 	if includeMaxAcceptedHTLCs {
 		mah := rapid.Uint16().Draw(t, "maxAcceptedHTLCs")
 		msg.MaxAcceptedHTLCs = fn.Some(mah)
-	}
-
-	if includeFundingKey {
-		msg.FundingKey = fn.Some(*RandPubKey(t))
 	}
 
 	if includeChannelType {

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -30,10 +29,6 @@ const (
 	// DPMaxAcceptedHtlcs is the TLV type number that identifies the record
 	// for DynPropose.MaxAcceptedHTLCs.
 	DPMaxAcceptedHtlcs tlv.Type = 4
-
-	// DPFundingPubkey is the TLV type number that identifies the record for
-	// DynPropose.FundingKey.
-	DPFundingPubkey tlv.Type = 5
 
 	// DPChannelType is the TLV type number that identifies the record for
 	// DynPropose.ChannelType.
@@ -66,10 +61,6 @@ type DynPropose struct {
 	// MaxAcceptedHTLCs, if not nil, proposes a change to the
 	// max_accepted_htlcs limit of the sender.
 	MaxAcceptedHTLCs fn.Option[uint16]
-
-	// FundingKey, if not nil, proposes a change to the funding_pubkey
-	// parameter of the sender.
-	FundingKey fn.Option[btcec.PublicKey]
 
 	// ChannelType, if not nil, proposes a change to the channel_type
 	// parameter.
@@ -134,14 +125,6 @@ func (dp *DynPropose) Encode(w *bytes.Buffer, _ uint32) error {
 		tlvRecords = append(
 			tlvRecords, tlv.MakePrimitiveRecord(
 				DPMaxAcceptedHtlcs, &max,
-			),
-		)
-	})
-	dp.FundingKey.WhenSome(func(key btcec.PublicKey) {
-		keyScratch := &key
-		tlvRecords = append(
-			tlvRecords, tlv.MakePrimitiveRecord(
-				DPFundingPubkey, &keyScratch,
 			),
 		)
 	})
@@ -215,11 +198,6 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 		DPMaxAcceptedHtlcs, &maxHtlcsScratch,
 	)
 
-	var fundingKeyScratch *btcec.PublicKey
-	fundingKey := tlv.MakePrimitiveRecord(
-		DPFundingPubkey, &fundingKeyScratch,
-	)
-
 	var chanTypeScratch ChannelType
 	chanType := tlv.MakeDynamicRecord(
 		DPChannelType, &chanTypeScratch, chanTypeScratch.featureBitLen,
@@ -228,8 +206,7 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 
 	// Create set of Records to read TLV bytestream into.
 	records := []tlv.Record{
-		dustLimit, maxValue, reserve, csvDelay, maxHtlcs, fundingKey,
-		chanType,
+		dustLimit, maxValue, reserve, csvDelay, maxHtlcs, chanType,
 	}
 	tlv.SortRecords(records)
 
@@ -261,9 +238,6 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 	}
 	if val, ok := typeMap[DPMaxAcceptedHtlcs]; ok && val == nil {
 		dp.MaxAcceptedHTLCs = fn.Some(maxHtlcsScratch)
-	}
-	if val, ok := typeMap[DPFundingPubkey]; ok && val == nil {
-		dp.FundingKey = fn.Some(*fundingKeyScratch)
 	}
 	if val, ok := typeMap[DPChannelType]; ok && val == nil {
 		dp.ChannelType = fn.Some(chanTypeScratch)
@@ -331,14 +305,6 @@ func (dp *DynPropose) SerializeTlvData() ([]byte, error) {
 		tlvRecords = append(
 			tlvRecords, tlv.MakePrimitiveRecord(
 				DPMaxAcceptedHtlcs, &max,
-			),
-		)
-	})
-	dp.FundingKey.WhenSome(func(key btcec.PublicKey) {
-		keyScratch := &key
-		tlvRecords = append(
-			tlvRecords, tlv.MakePrimitiveRecord(
-				DPFundingPubkey, &keyScratch,
 			),
 		)
 	})

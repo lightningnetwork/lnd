@@ -11,7 +11,9 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/neutrino/cache"
@@ -171,14 +173,9 @@ type PinnedSyncers map[route.Vertex]struct{}
 // Config defines the configuration for the service. ALL elements within the
 // configuration MUST be non-nil for the service to carry out its duties.
 type Config struct {
-	// ChainHash is a hash that indicates which resident chain of the
-	// AuthenticatedGossiper. Any announcements that don't match this
-	// chain hash will be ignored.
-	//
-	// TODO(roasbeef): eventually make into map so can de-multiplex
-	// incoming announcements
-	//   * also need to do same for Notifier
-	ChainHash chainhash.Hash
+	// ChainParams holds the chain parameters for the active network this
+	// node is participating on.
+	ChainParams *chaincfg.Params
 
 	// Graph is the subsystem which is responsible for managing the
 	// topology of lightning network. After incoming channel, node, channel
@@ -548,7 +545,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 	gossiper.vb = NewValidationBarrier(1000, gossiper.quit)
 
 	gossiper.syncMgr = newSyncManager(&SyncManagerCfg{
-		ChainHash:               cfg.ChainHash,
+		ChainHash:               *cfg.ChainParams.GenesisHash,
 		ChanSeries:              cfg.ChanSeries,
 		RotateTicker:            cfg.RotateTicker,
 		HistoricalSyncTicker:    cfg.HistoricalSyncTicker,
@@ -1967,9 +1964,28 @@ func (d *AuthenticatedGossiper) processRejectedEdge(
 
 // fetchPKScript fetches the output script for the given SCID.
 func (d *AuthenticatedGossiper) fetchPKScript(chanID lnwire.ShortChannelID) (
-	[]byte, error) {
+	txscript.ScriptClass, btcutil.Address, error) {
 
-	return lnwallet.FetchPKScriptWithQuit(d.cfg.ChainIO, chanID, d.quit)
+	pkScript, err := lnwallet.FetchPKScriptWithQuit(
+		d.cfg.ChainIO, chanID, d.quit,
+	)
+	if err != nil {
+		return txscript.WitnessUnknownTy, nil, err
+	}
+
+	scriptClass, addrs, _, err := txscript.ExtractPkScriptAddrs(
+		pkScript, d.cfg.ChainParams,
+	)
+	if err != nil {
+		return txscript.WitnessUnknownTy, nil, err
+	}
+
+	if len(addrs) != 1 {
+		return txscript.WitnessUnknownTy, nil, fmt.Errorf("expected "+
+			"1 address, got: %d", len(addrs))
+	}
+
+	return scriptClass, addrs[0], nil
 }
 
 // addNode processes the given node announcement, and adds it to our channel
@@ -2470,16 +2486,16 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 	ops []batch.SchedulerOption) ([]networkMsg, bool) {
 
 	scid := ann.ShortChannelID
+	chainHash := d.cfg.ChainParams.GenesisHash
 
 	log.Debugf("Processing ChannelAnnouncement1: peer=%v, short_chan_id=%v",
 		nMsg.peer, scid.ToUint64())
 
 	// We'll ignore any channel announcements that target any chain other
 	// than the set of chains we know of.
-	if !bytes.Equal(ann.ChainHash[:], d.cfg.ChainHash[:]) {
+	if !bytes.Equal(ann.ChainHash[:], chainHash[:]) {
 		err := fmt.Errorf("ignoring ChannelAnnouncement1 from chain=%v"+
-			", gossiper on chain=%v", ann.ChainHash,
-			d.cfg.ChainHash)
+			", gossiper on chain=%v", ann.ChainHash, chainHash)
 		log.Errorf(err.Error())
 
 		key := newRejectCacheKey(
@@ -2863,11 +2879,13 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 	log.Debugf("Processing ChannelUpdate: peer=%v, short_chan_id=%v, ",
 		nMsg.peer, upd.ShortChannelID.ToUint64())
 
+	chainHash := d.cfg.ChainParams.GenesisHash
+
 	// We'll ignore any channel updates that target any chain other than
 	// the set of chains we know of.
-	if !bytes.Equal(upd.ChainHash[:], d.cfg.ChainHash[:]) {
+	if !bytes.Equal(upd.ChainHash[:], chainHash[:]) {
 		err := fmt.Errorf("ignoring ChannelUpdate from chain=%v, "+
-			"gossiper on chain=%v", upd.ChainHash, d.cfg.ChainHash)
+			"gossiper on chain=%v", upd.ChainHash, chainHash)
 		log.Errorf(err.Error())
 
 		key := newRejectCacheKey(

@@ -874,6 +874,10 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 
 			if rand.Uint32()%2 == 0 {
+				features.Set(FeatureBit(DPHtlcMinimumMsat))
+			}
+
+			if rand.Uint32()%2 == 0 {
 				features.Set(
 					FeatureBit(DPChannelReserveSatoshis),
 				)

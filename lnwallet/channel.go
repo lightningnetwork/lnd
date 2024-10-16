@@ -2166,6 +2166,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// resolution data for this output.
 		resolveReq := ResolutionReq{
 			ChanPoint:      chanState.FundingOutpoint,
+			ChanType:       chanState.ChanType,
 			ShortChanID:    chanState.ShortChanID(),
 			Initiator:      chanState.IsInitiator,
 			FundingBlob:    chanState.CustomBlob,
@@ -2245,6 +2246,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// resolution data for this output.
 		resolveReq := ResolutionReq{
 			ChanPoint:      chanState.FundingOutpoint,
+			ChanType:       chanState.ChanType,
 			ShortChanID:    chanState.ShortChanID(),
 			Initiator:      chanState.IsInitiator,
 			FundingBlob:    chanState.CustomBlob,
@@ -6780,6 +6782,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel,
 		// resolution data for this output.
 		resolveReq := ResolutionReq{
 			ChanPoint:     chanState.FundingOutpoint,
+			ChanType:      chanState.ChanType,
 			ShortChanID:   chanState.ShortChanID(),
 			Initiator:     chanState.IsInitiator,
 			CommitBlob:    chanState.RemoteCommitment.CustomBlob,

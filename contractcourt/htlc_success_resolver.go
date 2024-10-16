@@ -123,17 +123,6 @@ func (h *htlcSuccessResolver) Resolve(
 		return nil, nil
 	}
 
-	// If the HTLC has custom records, then for now we'll pause resolution.
-	//
-	// TODO(roasbeef): Implement resolving HTLCs with custom records
-	// (follow-up PR).
-	if len(h.htlc.CustomRecords) != 0 {
-		select { //nolint:gosimple
-		case <-h.quit:
-			return nil, errResolverShuttingDown
-		}
-	}
-
 	// If we don't have a success transaction, then this means that this is
 	// an output on the remote party's commitment transaction.
 	if h.htlcResolution.SignedSuccessTx == nil {
@@ -258,6 +247,9 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx(immediate bool) (
 				h.htlcResolution.SignedSuccessTx,
 				h.htlcResolution.SignDetails, h.htlcResolution.Preimage,
 				h.broadcastHeight,
+				input.WithResolutionBlob(
+					h.htlcResolution.ResolutionBlob,
+				),
 			)
 		} else {
 			//nolint:lll
@@ -414,7 +406,7 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx(immediate bool) (
 		input.LeaseHtlcAcceptedSuccessSecondLevel,
 		&h.htlcResolution.SweepSignDesc,
 		h.htlcResolution.CsvDelay, uint32(commitSpend.SpendingHeight),
-		h.htlc.RHash,
+		h.htlc.RHash, h.htlcResolution.ResolutionBlob,
 	)
 
 	// Calculate the budget for this sweep.
@@ -470,6 +462,9 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput(immediate bool) (
 			h.htlcResolution.Preimage[:],
 			h.broadcastHeight,
 			h.htlcResolution.CsvDelay,
+			input.WithResolutionBlob(
+				h.htlcResolution.ResolutionBlob,
+			),
 		))
 	} else {
 		inp = lnutils.Ptr(input.MakeHtlcSucceedInput(

@@ -654,7 +654,7 @@ func (s *Switch) IsForwardedHTLC(chanID lnwire.ShortChannelID,
 // given to forward them through the router. The sending link's quit channel is
 // used to prevent deadlocks when the switch stops a link in the midst of
 // forwarding.
-func (s *Switch) ForwardPackets(linkQuit chan struct{},
+func (s *Switch) ForwardPackets(linkQuit <-chan struct{},
 	packets ...*htlcPacket) error {
 
 	var (
@@ -832,7 +832,7 @@ func (s *Switch) logFwdErrs(num *int, wg *sync.WaitGroup, fwdChan chan error) {
 // receive a shutdown requuest. This method does not wait for a response from
 // the htlcForwarder before returning.
 func (s *Switch) routeAsync(packet *htlcPacket, errChan chan error,
-	linkQuit chan struct{}) error {
+	linkQuit <-chan struct{}) error {
 
 	command := &plexPacket{
 		pkt: packet,

@@ -1,6 +1,7 @@
 package htlcswitch
 
 import (
+	"context"
 	"crypto/sha256"
 	"testing"
 	"time"
@@ -94,7 +95,9 @@ func (l *linkTestContext) receiveHtlcAliceToBob() {
 func (l *linkTestContext) sendCommitSigBobToAlice(expHtlcs int) {
 	l.t.Helper()
 
-	sigs, err := l.bobChannel.SignNextCommitment()
+	testQuit, testQuitFunc := context.WithCancel(context.Background())
+	_ = testQuitFunc
+	sigs, err := l.bobChannel.SignNextCommitment(testQuit)
 	if err != nil {
 		l.t.Fatalf("error signing commitment: %v", err)
 	}

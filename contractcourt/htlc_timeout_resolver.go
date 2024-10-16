@@ -426,17 +426,6 @@ func (h *htlcTimeoutResolver) Resolve(
 		return nil, nil
 	}
 
-	// If the HTLC has custom records, then for now we'll pause resolution.
-	//
-	// TODO(roasbeef): Implement resolving HTLCs with custom records
-	// (follow-up PR).
-	if len(h.htlc.CustomRecords) != 0 {
-		select { //nolint:gosimple
-		case <-h.quit:
-			return nil, errResolverShuttingDown
-		}
-	}
-
 	// Start by spending the HTLC output, either by broadcasting the
 	// second-level timeout transaction, or directly if this is the remote
 	// commitment.
@@ -499,6 +488,9 @@ func (h *htlcTimeoutResolver) sweepSecondLevelTx(immediate bool) error {
 			h.htlcResolution.SignedTimeoutTx,
 			h.htlcResolution.SignDetails,
 			h.broadcastHeight,
+			input.WithResolutionBlob(
+				h.htlcResolution.ResolutionBlob,
+			),
 		))
 	} else {
 		inp = lnutils.Ptr(input.MakeHtlcSecondLevelTimeoutAnchorInput(
@@ -592,6 +584,7 @@ func (h *htlcTimeoutResolver) sweepDirectHtlcOutput(immediate bool) error {
 		&h.htlcResolution.ClaimOutpoint, htlcWitnessType,
 		&h.htlcResolution.SweepSignDesc, h.broadcastHeight,
 		h.htlcResolution.CsvDelay, h.htlcResolution.Expiry,
+		input.WithResolutionBlob(h.htlcResolution.ResolutionBlob),
 	)
 
 	// Calculate the budget.
@@ -846,6 +839,7 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 			&h.htlcResolution.SweepSignDesc,
 			h.htlcResolution.CsvDelay,
 			uint32(commitSpend.SpendingHeight), h.htlc.RHash,
+			h.htlcResolution.ResolutionBlob,
 		)
 
 		// Calculate the budget for this sweep.

@@ -156,11 +156,16 @@ func (h *HarnessMiner) GetBestBlock() (*chainhash.Hash, int32) {
 
 // GetRawMempool makes a RPC call to the miner's GetRawMempool and
 // asserts.
-func (h *HarnessMiner) GetRawMempool() []*chainhash.Hash {
+func (h *HarnessMiner) GetRawMempool() []chainhash.Hash {
 	mempool, err := h.Client.GetRawMempool()
 	require.NoError(h, err, "unable to get mempool")
 
-	return mempool
+	txns := make([]chainhash.Hash, 0, len(mempool))
+	for _, txid := range mempool {
+		txns = append(txns, *txid)
+	}
+
+	return txns
 }
 
 // GenerateBlocks mine 'num' of blocks and returns them.
@@ -198,9 +203,9 @@ func (h *HarnessMiner) MineBlocks(num uint32) []*wire.MsgBlock {
 // AssertNumTxsInMempool polls until finding the desired number of transactions
 // in the provided miner's mempool. It will assert if this number is not met
 // after the given timeout.
-func (h *HarnessMiner) AssertNumTxsInMempool(n int) []*chainhash.Hash {
+func (h *HarnessMiner) AssertNumTxsInMempool(n int) []chainhash.Hash {
 	var (
-		mem []*chainhash.Hash
+		mem []chainhash.Hash
 		err error
 	)
 
@@ -222,7 +227,7 @@ func (h *HarnessMiner) AssertNumTxsInMempool(n int) []*chainhash.Hash {
 
 // AssertTxInBlock asserts that a given txid can be found in the passed block.
 func (h *HarnessMiner) AssertTxInBlock(block *wire.MsgBlock,
-	txid *chainhash.Hash) {
+	txid chainhash.Hash) {
 
 	blockTxes := make([]chainhash.Hash, 0)
 
@@ -264,8 +269,8 @@ func (h *HarnessMiner) MineBlocksAndAssertNumTxes(num uint32,
 
 // GetRawTransaction makes a RPC call to the miner's GetRawTransaction and
 // asserts.
-func (h *HarnessMiner) GetRawTransaction(txid *chainhash.Hash) *btcutil.Tx {
-	tx, err := h.Client.GetRawTransaction(txid)
+func (h *HarnessMiner) GetRawTransaction(txid chainhash.Hash) *btcutil.Tx {
+	tx, err := h.Client.GetRawTransaction(&txid)
 	require.NoErrorf(h, err, "failed to get raw tx: %v", txid)
 	return tx
 }
@@ -273,15 +278,15 @@ func (h *HarnessMiner) GetRawTransaction(txid *chainhash.Hash) *btcutil.Tx {
 // GetRawTransactionVerbose makes a RPC call to the miner's
 // GetRawTransactionVerbose and asserts.
 func (h *HarnessMiner) GetRawTransactionVerbose(
-	txid *chainhash.Hash) *btcjson.TxRawResult {
+	txid chainhash.Hash) *btcjson.TxRawResult {
 
-	tx, err := h.Client.GetRawTransactionVerbose(txid)
+	tx, err := h.Client.GetRawTransactionVerbose(&txid)
 	require.NoErrorf(h, err, "failed to get raw tx verbose: %v", txid)
 	return tx
 }
 
 // AssertTxInMempool asserts a given transaction can be found in the mempool.
-func (h *HarnessMiner) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
+func (h *HarnessMiner) AssertTxInMempool(txid chainhash.Hash) *wire.MsgTx {
 	err := wait.NoError(func() error {
 		// We require the RPC call to be succeeded and won't wait for
 		// it as it's an unexpected behavior.
@@ -291,8 +296,8 @@ func (h *HarnessMiner) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
 			return fmt.Errorf("empty mempool")
 		}
 
-		isEqual := func(memTx *chainhash.Hash) bool {
-			return *memTx == *txid
+		isEqual := func(memTx chainhash.Hash) bool {
+			return memTx == txid
 		}
 		result := fn.Find(isEqual, mempool)
 
@@ -325,7 +330,7 @@ func (h *HarnessMiner) AssertTxNotInMempool(txid chainhash.Hash) *wire.MsgTx {
 
 		for _, memTx := range mempool {
 			// Check the values are equal.
-			if txid.IsEqual(memTx) {
+			if txid == memTx {
 				return fmt.Errorf("expect txid %v to be NOT "+
 					"found in mempool", txid)
 			}
@@ -418,7 +423,7 @@ func (h *HarnessMiner) AssertOutpointInMempool(op wire.OutPoint) *wire.MsgTx {
 			// found. For instance, the aggregation logic used in
 			// sweeping HTLC outputs will update the mempool by
 			// replacing the HTLC spending txes with a single one.
-			tx, err := h.Client.GetRawTransaction(txid)
+			tx, err := h.Client.GetRawTransaction(&txid)
 			if err != nil {
 				return err
 			}

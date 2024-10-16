@@ -18,6 +18,10 @@ const (
 	// record for DynPropose.MaxValueInFlight.
 	DPMaxHtlcValueInFlightMsat tlv.Type = 1
 
+	// DPHtlcMinimumMsat is the TLV type number that identifies the record
+	// for DynPropose.HtlcMinimum.
+	DPHtlcMinimumMsat tlv.Type = 7
+
 	// DPChannelReserveSatoshis is the TLV type number that identifies the
 	// for DynPropose.ChannelReserve.
 	DPChannelReserveSatoshis tlv.Type = 2
@@ -49,6 +53,10 @@ type DynPropose struct {
 	// MaxValueInFlight, if not nil, proposes a change to the
 	// max_htlc_value_in_flight_msat limit of the sender.
 	MaxValueInFlight fn.Option[MilliSatoshi]
+
+	// HtlcMinimum, if not nil, proposes a change to the htlc_minimum_msat
+	// floor of the sender.
+	HtlcMinimum fn.Option[MilliSatoshi]
 
 	// ChannelReserve, if not nil, proposes a change to the
 	// channel_reserve_satoshis requirement of the recipient.
@@ -103,6 +111,14 @@ func (dp *DynPropose) Encode(w *bytes.Buffer, _ uint32) error {
 		tlvRecords = append(
 			tlvRecords, tlv.MakePrimitiveRecord(
 				DPMaxHtlcValueInFlightMsat, &protoSats,
+			),
+		)
+	})
+	dp.HtlcMinimum.WhenSome(func(min MilliSatoshi) {
+		protoSats := uint64(min)
+		tlvRecords = append(
+			tlvRecords, tlv.MakePrimitiveRecord(
+				DPHtlcMinimumMsat, &protoSats,
 			),
 		)
 	})
@@ -185,6 +201,11 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 		DPMaxHtlcValueInFlightMsat, &maxValueScratch,
 	)
 
+	var htlcMinScratch uint64
+	htlcMin := tlv.MakePrimitiveRecord(
+		DPHtlcMinimumMsat, &htlcMinScratch,
+	)
+
 	var reserveScratch uint64
 	reserve := tlv.MakePrimitiveRecord(
 		DPChannelReserveSatoshis, &reserveScratch,
@@ -206,7 +227,8 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 
 	// Create set of Records to read TLV bytestream into.
 	records := []tlv.Record{
-		dustLimit, maxValue, reserve, csvDelay, maxHtlcs, chanType,
+		dustLimit, maxValue, htlcMin, reserve, csvDelay, maxHtlcs,
+		chanType,
 	}
 	tlv.SortRecords(records)
 
@@ -229,6 +251,9 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 	}
 	if val, ok := typeMap[DPMaxHtlcValueInFlightMsat]; ok && val == nil {
 		dp.MaxValueInFlight = fn.Some(MilliSatoshi(maxValueScratch))
+	}
+	if val, ok := typeMap[DPHtlcMinimumMsat]; ok && val == nil {
+		dp.HtlcMinimum = fn.Some(MilliSatoshi(htlcMinScratch))
 	}
 	if val, ok := typeMap[DPChannelReserveSatoshis]; ok && val == nil {
 		dp.ChannelReserve = fn.Some(btcutil.Amount(reserveScratch))
@@ -283,6 +308,14 @@ func (dp *DynPropose) SerializeTlvData() ([]byte, error) {
 		tlvRecords = append(
 			tlvRecords, tlv.MakePrimitiveRecord(
 				DPMaxHtlcValueInFlightMsat, &protoSats,
+			),
+		)
+	})
+	dp.HtlcMinimum.WhenSome(func(min MilliSatoshi) {
+		protoSats := uint64(min)
+		tlvRecords = append(
+			tlvRecords, tlv.MakePrimitiveRecord(
+				DPHtlcMinimumMsat, &protoSats,
 			),
 		)
 	})

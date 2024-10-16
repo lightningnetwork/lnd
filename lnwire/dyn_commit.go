@@ -60,6 +60,14 @@ func (dc *DynCommit) Encode(w *bytes.Buffer, _ uint32) error {
 			),
 		)
 	})
+	dc.HtlcMinimum.WhenSome(func(min MilliSatoshi) {
+		protoSats := uint64(min)
+		tlvRecords = append(
+			tlvRecords, tlv.MakePrimitiveRecord(
+				DPHtlcMinimumMsat, &protoSats,
+			),
+		)
+	})
 	dc.ChannelReserve.WhenSome(func(min btcutil.Amount) {
 		channelReserve := uint64(min)
 		tlvRecords = append(
@@ -137,6 +145,11 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 		DPMaxHtlcValueInFlightMsat, &maxValueScratch,
 	)
 
+	var htlcMinScratch uint64
+	htlcMin := tlv.MakePrimitiveRecord(
+		DPHtlcMinimumMsat, &htlcMinScratch,
+	)
+
 	var reserveScratch uint64
 	reserve := tlv.MakePrimitiveRecord(
 		DPChannelReserveSatoshis, &reserveScratch,
@@ -158,7 +171,8 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 
 	// Create set of Records to read TLV bytestream into.
 	records := []tlv.Record{
-		dustLimit, maxValue, reserve, csvDelay, maxHtlcs, chanType,
+		dustLimit, maxValue, htlcMin, reserve, csvDelay, maxHtlcs,
+		chanType,
 	}
 	tlv.SortRecords(records)
 
@@ -180,6 +194,9 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 	}
 	if val, ok := typeMap[DPMaxHtlcValueInFlightMsat]; ok && val == nil {
 		dc.MaxValueInFlight = fn.Some(MilliSatoshi(maxValueScratch))
+	}
+	if val, ok := typeMap[DPHtlcMinimumMsat]; ok && val == nil {
+		dc.HtlcMinimum = fn.Some(MilliSatoshi(htlcMinScratch))
 	}
 	if val, ok := typeMap[DPChannelReserveSatoshis]; ok && val == nil {
 		dc.ChannelReserve = fn.Some(btcutil.Amount(reserveScratch))

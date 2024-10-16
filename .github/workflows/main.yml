@@ -21,7 +21,7 @@ defaults:
     shell: bash
 
 env:
-  BITCOIN_VERSION: "27"
+  BITCOIN_VERSION: "28"
   
   TRANCHES: 8
 

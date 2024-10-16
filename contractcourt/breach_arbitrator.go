@@ -1160,6 +1160,11 @@ func (bo *breachedOutput) SignDesc() *input.SignDescriptor {
 	return &bo.signDesc
 }
 
+// Preimage returns the preimage that was used to create the breached output.
+func (bo *breachedOutput) Preimage() fn.Option[lntypes.Preimage] {
+	return fn.None[lntypes.Preimage]()
+}
+
 // CraftInputScript computes a valid witness that allows us to spend from the
 // breached output. It does so by first generating and memoizing the witness
 // generation function, which parameterized primarily by the witness type and

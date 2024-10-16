@@ -36,6 +36,11 @@
   feature-bit](https://github.com/lightningnetwork/lnd/pull/9143) for invoices 
   containing blinded paths.
 
+* [Fixed an edge case](https://github.com/lightningnetwork/lnd/pull/9150) where
+  the payment may become stuck if the invoice times out while the node
+  restarts, for details check [this
+  issue](https://github.com/lightningnetwork/lnd/issues/8975#issuecomment-2270528222).
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions
@@ -103,4 +108,5 @@
 * CharlieZKSmith
 * Elle Mouton
 * Pins
+* Yong Yu
 * Ziggie

@@ -69,6 +69,9 @@ type Input interface {
 	// ResolutionBlob returns a special opaque blob to be used to
 	// sweep/resolve this input.
 	ResolutionBlob() fn.Option[tlv.Blob]
+
+	// Preimage returns the preimage for the input if it is an HTLC input.
+	Preimage() fn.Option[lntypes.Preimage]
 }
 
 // TxInfo describes properties of a parent tx that are relevant for CPFP.
@@ -285,6 +288,11 @@ func (bi *BaseInput) CraftInputScript(signer Signer, txn *wire.MsgTx,
 	return witnessFunc(txn, hashCache, txinIdx)
 }
 
+// Preimage returns the preimage for the input if it is an HTLC input.
+func (bi *BaseInput) Preimage() fn.Option[lntypes.Preimage] {
+	return fn.None[lntypes.Preimage]()
+}
+
 // HtlcSucceedInput constitutes a sweep input that needs a pre-image. The input
 // is expected to reside on the commitment tx of the remote party and should
 // not be a second level tx output.
@@ -357,7 +365,6 @@ func (h *HtlcSucceedInput) CraftInputScript(signer Signer, txn *wire.MsgTx,
 		}
 
 		desc.SignMethod = TaprootScriptSpendSignMethod
-
 		witness, err = SenderHTLCScriptTaprootRedeem(
 			signer, &desc, txn, h.preimage, nil, nil,
 		)
@@ -373,6 +380,15 @@ func (h *HtlcSucceedInput) CraftInputScript(signer Signer, txn *wire.MsgTx,
 	return &Script{
 		Witness: witness,
 	}, nil
+}
+
+// Preimage returns the preimage for the input if it is an HTLC input.
+func (h *HtlcSucceedInput) Preimage() fn.Option[lntypes.Preimage] {
+	if len(h.preimage) == 0 {
+		return fn.None[lntypes.Preimage]()
+	}
+
+	return fn.Some(lntypes.Preimage(h.preimage))
 }
 
 // HtlcSecondLevelAnchorInput is an input type used to spend HTLC outputs
@@ -391,6 +407,8 @@ type HtlcSecondLevelAnchorInput struct {
 		hashCache *txscript.TxSigHashes,
 		prevOutputFetcher txscript.PrevOutputFetcher,
 		txinIdx int) (wire.TxWitness, error)
+
+	preimage []byte
 }
 
 // RequiredTxOut returns the tx out needed to be present on the sweep tx for
@@ -425,6 +443,15 @@ func (i *HtlcSecondLevelAnchorInput) CraftInputScript(signer Signer,
 	return &Script{
 		Witness: witness,
 	}, nil
+}
+
+// Preimage returns the preimage for the input if it is an HTLC input.
+func (i *HtlcSecondLevelAnchorInput) Preimage() fn.Option[lntypes.Preimage] {
+	if len(i.preimage) == 0 {
+		return fn.None[lntypes.Preimage]()
+	}
+
+	return fn.Some(lntypes.Preimage(i.preimage))
 }
 
 // MakeHtlcSecondLevelTimeoutAnchorInput creates an input allowing the sweeper
@@ -545,6 +572,7 @@ func MakeHtlcSecondLevelSuccessAnchorInput(signedTx *wire.MsgTx,
 		SignedTx:      signedTx,
 		inputKit:      input.inputKit,
 		createWitness: createWitness,
+		preimage:      preimage[:],
 	}
 }
 
@@ -588,6 +616,7 @@ func MakeHtlcSecondLevelSuccessTaprootInput(signedTx *wire.MsgTx,
 		inputKit:      input.inputKit,
 		SignedTx:      signedTx,
 		createWitness: createWitness,
+		preimage:      preimage[:],
 	}
 }
 

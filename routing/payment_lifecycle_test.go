@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -28,7 +29,11 @@ func createTestPaymentLifecycle() *paymentLifecycle {
 	paymentHash := lntypes.Hash{1, 2, 3}
 	quitChan := make(chan struct{})
 	rt := &ChannelRouter{
-		cfg:  &Config{},
+		cfg: &Config{
+			TrafficShaper: fn.Some[TlvTrafficShaper](
+				&mockTrafficShaper{},
+			),
+		},
 		quit: quitChan,
 	}
 
@@ -78,6 +83,9 @@ func newTestPaymentLifecycle(t *testing.T) (*paymentLifecycle, *mockers) {
 			Payer:          mockPayer,
 			Clock:          mockClock,
 			MissionControl: mockMissionControl,
+			TrafficShaper: fn.Some[TlvTrafficShaper](
+				&mockTrafficShaper{},
+			),
 		},
 		quit: quitChan,
 	}
@@ -89,7 +97,7 @@ func newTestPaymentLifecycle(t *testing.T) (*paymentLifecycle, *mockers) {
 	// Create a test payment lifecycle with no fee limit and no timeout.
 	p := newPaymentLifecycle(
 		rt, noFeeLimit, paymentHash, mockPaymentSession,
-		mockShardTracker, 0,
+		mockShardTracker, 0, nil,
 	)
 
 	// Create a mock payment which is returned from mockControlTower.
@@ -372,6 +380,7 @@ func TestRequestRouteSucceed(t *testing.T) {
 	// Mock the paySession's `RequestRoute` method to return no error.
 	paySession.On("RequestRoute",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything,
 	).Return(dummyRoute, nil)
 
 	result, err := p.requestRoute(ps)
@@ -408,6 +417,7 @@ func TestRequestRouteHandleCriticalErr(t *testing.T) {
 	// Mock the paySession's `RequestRoute` method to return an error.
 	paySession.On("RequestRoute",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything,
 	).Return(nil, errDummy)
 
 	result, err := p.requestRoute(ps)
@@ -442,6 +452,7 @@ func TestRequestRouteHandleNoRouteErr(t *testing.T) {
 	// type.
 	m.paySession.On("RequestRoute",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything,
 	).Return(nil, errNoTlvPayload)
 
 	// The payment should be failed with reason no route.
@@ -489,6 +500,7 @@ func TestRequestRouteFailPaymentError(t *testing.T) {
 	// Mock the paySession's `RequestRoute` method to return an error.
 	paySession.On("RequestRoute",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything,
 	).Return(nil, errNoTlvPayload)
 
 	result, err := p.requestRoute(ps)
@@ -865,7 +877,7 @@ func TestResumePaymentFailOnRequestRouteErr(t *testing.T) {
 	// 4. mock requestRoute to return an error.
 	m.paySession.On("RequestRoute",
 		paymentAmt, p.feeLimit, uint32(ps.NumAttemptsInFlight),
-		uint32(p.currentHeight),
+		uint32(p.currentHeight), mock.Anything,
 	).Return(nil, errDummy).Once()
 
 	// Send the payment and assert it failed.
@@ -911,7 +923,7 @@ func TestResumePaymentFailOnRegisterAttemptErr(t *testing.T) {
 	// 4. mock requestRoute to return an route.
 	m.paySession.On("RequestRoute",
 		paymentAmt, p.feeLimit, uint32(ps.NumAttemptsInFlight),
-		uint32(p.currentHeight),
+		uint32(p.currentHeight), mock.Anything,
 	).Return(rt, nil).Once()
 
 	// 5. mock shardTracker used in `createNewPaymentAttempt` to return an
@@ -971,7 +983,7 @@ func TestResumePaymentFailOnSendAttemptErr(t *testing.T) {
 	// 4. mock requestRoute to return an route.
 	m.paySession.On("RequestRoute",
 		paymentAmt, p.feeLimit, uint32(ps.NumAttemptsInFlight),
-		uint32(p.currentHeight),
+		uint32(p.currentHeight), mock.Anything,
 	).Return(rt, nil).Once()
 
 	// 5. mock `registerAttempt` to return an attempt.
@@ -1063,7 +1075,7 @@ func TestResumePaymentSuccess(t *testing.T) {
 	// 1.4. mock requestRoute to return an route.
 	m.paySession.On("RequestRoute",
 		paymentAmt, p.feeLimit, uint32(ps.NumAttemptsInFlight),
-		uint32(p.currentHeight),
+		uint32(p.currentHeight), mock.Anything,
 	).Return(rt, nil).Once()
 
 	// 1.5. mock `registerAttempt` to return an attempt.
@@ -1164,7 +1176,7 @@ func TestResumePaymentSuccessWithTwoAttempts(t *testing.T) {
 	// 1.4. mock requestRoute to return an route.
 	m.paySession.On("RequestRoute",
 		paymentAmt, p.feeLimit, uint32(ps.NumAttemptsInFlight),
-		uint32(p.currentHeight),
+		uint32(p.currentHeight), mock.Anything,
 	).Return(rt, nil).Once()
 
 	// Create two attempt IDs here.
@@ -1226,7 +1238,7 @@ func TestResumePaymentSuccessWithTwoAttempts(t *testing.T) {
 	// 2.4. mock requestRoute to return an route.
 	m.paySession.On("RequestRoute",
 		paymentAmt/2, p.feeLimit, uint32(ps.NumAttemptsInFlight),
-		uint32(p.currentHeight),
+		uint32(p.currentHeight), mock.Anything,
 	).Return(rt, nil).Once()
 
 	// 2.5. mock `registerAttempt` to return an attempt.

@@ -6,11 +6,14 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -162,6 +165,13 @@ func (i *PsbtIntent) BindKeys(localKey *keychain.KeyDescriptor,
 	i.State = PsbtOutputKnown
 }
 
+// BindTapscriptRoot takes an optional tapscript root and binds it to the
+// underlying funding intent. This only applies to musig2 channels, and will be
+// used to make the musig2 funding output.
+func (i *PsbtIntent) BindTapscriptRoot(root fn.Option[chainhash.Hash]) {
+	i.tapscriptRoot = root
+}
+
 // FundingParams returns the parameters that are necessary to start funding the
 // channel output this intent was created for. It returns the P2WSH funding
 // address, the exact funding amount and a PSBT packet that contains exactly one
@@ -208,7 +218,18 @@ func (i *PsbtIntent) FundingParams() (btcutil.Address, int64, *psbt.Packet,
 		}
 	}
 	packet.UnsignedTx.TxOut = append(packet.UnsignedTx.TxOut, out)
-	packet.Outputs = append(packet.Outputs, psbt.POutput{})
+
+	var pOut psbt.POutput
+
+	// If this is a MuSig2 channel, we also need to communicate the internal
+	// key to the caller. Otherwise, they cannot verify the construction of
+	// the P2TR output script.
+	pOut.TaprootInternalKey = fn.MapOptionZ(
+		i.TaprootInternalKey(), schnorr.SerializePubKey,
+	)
+
+	packet.Outputs = append(packet.Outputs, pOut)
+
 	return addr, out.Value, packet, nil
 }
 
@@ -534,6 +555,7 @@ func (p *PsbtAssembler) ProvisionChannel(req *Request) (Intent, error) {
 		ShimIntent: ShimIntent{
 			localFundingAmt: p.fundingAmt,
 			musig2:          req.Musig2,
+			tapscriptRoot:   req.TapscriptRoot,
 		},
 		State:         PsbtShimRegistered,
 		BasePsbt:      p.basePsbt,

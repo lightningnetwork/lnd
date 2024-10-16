@@ -13,8 +13,10 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -108,7 +110,7 @@ func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
 		// Use single second precision to avoid false positive test
 		// failures due to the monotonic time component.
 		CreationTime:   time.Unix(time.Now().Unix(), 0),
-		PaymentRequest: []byte(""),
+		PaymentRequest: []byte("test"),
 	}
 
 	a := NewHtlcAttempt(
@@ -124,51 +126,64 @@ func TestSentPaymentSerialization(t *testing.T) {
 	c, s := makeFakeInfo()
 
 	var b bytes.Buffer
-	if err := serializePaymentCreationInfo(&b, c); err != nil {
-		t.Fatalf("unable to serialize creation info: %v", err)
-	}
+	require.NoError(t, serializePaymentCreationInfo(&b, c), "serialize")
+
+	// Assert the length of the serialized creation info is as expected,
+	// without any custom records.
+	baseLength := 32 + 8 + 8 + 4 + len(c.PaymentRequest)
+	require.Len(t, b.Bytes(), baseLength)
 
 	newCreationInfo, err := deserializePaymentCreationInfo(&b)
-	require.NoError(t, err, "unable to deserialize creation info")
-
-	if !reflect.DeepEqual(c, newCreationInfo) {
-		t.Fatalf("Payments do not match after "+
-			"serialization/deserialization %v vs %v",
-			spew.Sdump(c), spew.Sdump(newCreationInfo),
-		)
-	}
+	require.NoError(t, err, "deserialize")
+	require.Equal(t, c, newCreationInfo)
 
 	b.Reset()
-	if err := serializeHTLCAttemptInfo(&b, s); err != nil {
-		t.Fatalf("unable to serialize info: %v", err)
+
+	// Now we add some custom records to the creation info and serialize it
+	// again.
+	c.FirstHopCustomRecords = lnwire.CustomRecords{
+		lnwire.MinCustomRecordsTlvType: []byte{1, 2, 3},
 	}
+	require.NoError(t, serializePaymentCreationInfo(&b, c), "serialize")
+
+	newCreationInfo, err = deserializePaymentCreationInfo(&b)
+	require.NoError(t, err, "deserialize")
+	require.Equal(t, c, newCreationInfo)
+
+	b.Reset()
+	require.NoError(t, serializeHTLCAttemptInfo(&b, s), "serialize")
 
 	newWireInfo, err := deserializeHTLCAttemptInfo(&b)
-	require.NoError(t, err, "unable to deserialize info")
-	newWireInfo.AttemptID = s.AttemptID
+	require.NoError(t, err, "deserialize")
 
-	// First we verify all the records match up porperly, as they aren't
-	// able to be properly compared using reflect.DeepEqual.
-	err = assertRouteEqual(&s.Route, &newWireInfo.Route)
-	if err != nil {
-		t.Fatalf("Routes do not match after "+
-			"serialization/deserialization: %v", err)
+	// First we verify all the records match up properly.
+	require.Equal(t, s.Route, newWireInfo.Route)
+
+	// We now add the new fields and custom records to the route and
+	// serialize it again.
+	b.Reset()
+	s.Route.FirstHopAmount = tlv.NewRecordT[tlv.TlvType0](
+		tlv.NewBigSizeT(lnwire.MilliSatoshi(1234)),
+	)
+	s.Route.FirstHopWireCustomRecords = lnwire.CustomRecords{
+		lnwire.MinCustomRecordsTlvType + 3: []byte{4, 5, 6},
 	}
+	require.NoError(t, serializeHTLCAttemptInfo(&b, s), "serialize")
+
+	newWireInfo, err = deserializeHTLCAttemptInfo(&b)
+	require.NoError(t, err, "deserialize")
+	require.Equal(t, s.Route, newWireInfo.Route)
 
 	// Clear routes to allow DeepEqual to compare the remaining fields.
 	newWireInfo.Route = route.Route{}
 	s.Route = route.Route{}
+	newWireInfo.AttemptID = s.AttemptID
 
 	// Call session key method to set our cached session key so we can use
 	// DeepEqual, and assert that our key equals the original key.
 	require.Equal(t, s.cachedSessionKey, newWireInfo.SessionKey())
 
-	if !reflect.DeepEqual(s, newWireInfo) {
-		t.Fatalf("Payments do not match after "+
-			"serialization/deserialization %v vs %v",
-			spew.Sdump(s), spew.Sdump(newWireInfo),
-		)
-	}
+	require.Equal(t, s, newWireInfo)
 }
 
 // assertRouteEquals compares to routes for equality and returns an error if

@@ -1,6 +1,7 @@
 package invoices
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -345,14 +346,14 @@ func (ew *InvoiceExpiryWatcher) cancelNextHeightExpiredInvoice() {
 // unexpected error.
 func (ew *InvoiceExpiryWatcher) expireInvoice(hash lntypes.Hash, force bool) {
 	err := ew.cancelInvoice(hash, force)
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 
-	case ErrInvoiceAlreadyCanceled:
+	case errors.Is(err, ErrInvoiceAlreadyCanceled):
 
-	case ErrInvoiceAlreadySettled:
+	case errors.Is(err, ErrInvoiceAlreadySettled):
 
-	case ErrInvoiceNotFound:
+	case errors.Is(err, ErrInvoiceNotFound):
 		// It's possible that the user has manually canceled the invoice
 		// which will then be deleted by the garbage collector resulting
 		// in an ErrInvoiceNotFound error.

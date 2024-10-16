@@ -8,8 +8,10 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -37,6 +39,20 @@ var (
 	ErrSessionNotFinalized = fmt.Errorf("musig2 session not finalized")
 )
 
+// tapscriptRootToSignOpt is a function that takes a tapscript root and returns
+// a MuSig2 sign opt that'll apply the tweak when signing+verifying.
+func tapscriptRootToSignOpt(root chainhash.Hash) musig2.SignOption {
+	return musig2.WithTaprootSignTweak(root[:])
+}
+
+// TapscriptRootToTweak is a helper function that converts a tapscript root
+// into a tweak that can be used with the MuSig2 API.
+func TapscriptRootToTweak(root chainhash.Hash) input.MuSig2Tweaks {
+	return input.MuSig2Tweaks{
+		TaprootTweak: root[:],
+	}
+}
+
 // MusigPartialSig is a wrapper around the base musig2.PartialSignature type
 // that also includes information about the set of nonces used, and also the
 // signer. This allows us to implement the input.Signature interface, as that
@@ -54,25 +70,30 @@ type MusigPartialSig struct {
 
 	// signerKeys is the set of public keys of all signers.
 	signerKeys []*btcec.PublicKey
+
+	// tapscriptTweak is an optional tweak, that if specified, will be used
+	// instead of the normal BIP 86 tweak when validating the signature.
+	tapscriptTweak fn.Option[chainhash.Hash]
 }
 
-// NewMusigPartialSig creates a new musig partial signature.
-func NewMusigPartialSig(sig *musig2.PartialSignature,
-	signerNonce, combinedNonce lnwire.Musig2Nonce,
-	signerKeys []*btcec.PublicKey) *MusigPartialSig {
+// NewMusigPartialSig creates a new MuSig2 partial signature.
+func NewMusigPartialSig(sig *musig2.PartialSignature, signerNonce,
+	combinedNonce lnwire.Musig2Nonce, signerKeys []*btcec.PublicKey,
+	tapscriptTweak fn.Option[chainhash.Hash]) *MusigPartialSig {
 
 	return &MusigPartialSig{
-		sig:           sig,
-		signerNonce:   signerNonce,
-		combinedNonce: combinedNonce,
-		signerKeys:    signerKeys,
+		sig:            sig,
+		signerNonce:    signerNonce,
+		combinedNonce:  combinedNonce,
+		signerKeys:     signerKeys,
+		tapscriptTweak: tapscriptTweak,
 	}
 }
 
 // FromWireSig maps a wire partial sig to this internal type that we'll use to
 // perform signature validation.
-func (p *MusigPartialSig) FromWireSig(sig *lnwire.PartialSigWithNonce,
-) *MusigPartialSig {
+func (p *MusigPartialSig) FromWireSig(
+	sig *lnwire.PartialSigWithNonce) *MusigPartialSig {
 
 	p.sig = &musig2.PartialSignature{
 		S: &sig.Sig,
@@ -135,9 +156,15 @@ func (p *MusigPartialSig) Verify(msg []byte, pub *btcec.PublicKey) bool {
 	var m [32]byte
 	copy(m[:], msg)
 
+	// If we have a tapscript tweak, then we'll use that as a tweak
+	// otherwise, we'll fall back to the normal BIP 86 sign tweak.
+	signOpts := fn.MapOption(tapscriptRootToSignOpt)(
+		p.tapscriptTweak,
+	).UnwrapOr(musig2.WithBip86SignTweak())
+
 	return p.sig.Verify(
 		p.signerNonce, p.combinedNonce, p.signerKeys, pub, m,
-		musig2.WithSortedKeys(), musig2.WithBip86SignTweak(),
+		musig2.WithSortedKeys(), signOpts,
 	)
 }
 
@@ -158,6 +185,14 @@ func (n *MusigNoncePair) String() string {
 	return fmt.Sprintf("NoncePair(verification_nonce=%x, "+
 		"signing_nonce=%x)", n.VerificationNonce.PubNonce[:],
 		n.SigningNonce.PubNonce[:])
+}
+
+// TapscriptRootToTweak is a function that takes a MuSig2 taproot tweak and
+// returns the root hash of the tapscript tree.
+func muSig2TweakToRoot(tweak input.MuSig2Tweaks) chainhash.Hash {
+	var root chainhash.Hash
+	copy(root[:], tweak.TaprootTweak)
+	return root
 }
 
 // MusigSession abstracts over the details of a logical musig session. A single
@@ -197,15 +232,20 @@ type MusigSession struct {
 	// commitType tracks if this is the session for the local or remote
 	// commitment.
 	commitType MusigCommitType
+
+	// tapscriptTweak is an optional tweak, that if specified, will be used
+	// instead of the normal BIP 86 tweak when creating the MuSig2
+	// aggregate key and session.
+	tapscriptTweak fn.Option[input.MuSig2Tweaks]
 }
 
 // NewPartialMusigSession creates a new musig2 session given only the
 // verification nonce (local nonce), and the other information that has already
 // been bound to the session.
 func NewPartialMusigSession(verificationNonce musig2.Nonces,
-	localKey, remoteKey keychain.KeyDescriptor,
-	signer input.MuSig2Signer, inputTxOut *wire.TxOut,
-	commitType MusigCommitType) *MusigSession {
+	localKey, remoteKey keychain.KeyDescriptor, signer input.MuSig2Signer,
+	inputTxOut *wire.TxOut, commitType MusigCommitType,
+	tapscriptTweak fn.Option[input.MuSig2Tweaks]) *MusigSession {
 
 	signerKeys := []*btcec.PublicKey{localKey.PubKey, remoteKey.PubKey}
 
@@ -214,13 +254,14 @@ func NewPartialMusigSession(verificationNonce musig2.Nonces,
 	}
 
 	return &MusigSession{
-		nonces:     nonces,
-		remoteKey:  remoteKey,
-		localKey:   localKey,
-		inputTxOut: inputTxOut,
-		signerKeys: signerKeys,
-		signer:     signer,
-		commitType: commitType,
+		nonces:         nonces,
+		remoteKey:      remoteKey,
+		localKey:       localKey,
+		inputTxOut:     inputTxOut,
+		signerKeys:     signerKeys,
+		signer:         signer,
+		commitType:     commitType,
+		tapscriptTweak: tapscriptTweak,
 	}
 }
 
@@ -254,9 +295,9 @@ func (m *MusigSession) FinalizeSession(signingNonce musig2.Nonces) error {
 		remoteNonce = m.nonces.SigningNonce
 	}
 
-	tweakDesc := input.MuSig2Tweaks{
+	tweakDesc := m.tapscriptTweak.UnwrapOr(input.MuSig2Tweaks{
 		TaprootBIP0086Tweak: true,
-	}
+	})
 	m.session, err = m.signer.MuSig2CreateSession(
 		input.MuSig2Version100RC2, m.localKey.KeyLocator, m.signerKeys,
 		&tweakDesc, [][musig2.PubNonceSize]byte{remoteNonce.PubNonce},
@@ -351,8 +392,11 @@ func (m *MusigSession) SignCommit(tx *wire.MsgTx) (*MusigPartialSig, error) {
 		return nil, err
 	}
 
+	tapscriptRoot := fn.MapOption(muSig2TweakToRoot)(m.tapscriptTweak)
+
 	return NewMusigPartialSig(
 		sig, m.session.PublicNonce, m.combinedNonce, m.signerKeys,
+		tapscriptRoot,
 	), nil
 }
 
@@ -364,7 +408,7 @@ func (m *MusigSession) Refresh(verificationNonce *musig2.Nonces,
 
 	return NewPartialMusigSession(
 		*verificationNonce, m.localKey, m.remoteKey, m.signer,
-		m.inputTxOut, m.commitType,
+		m.inputTxOut, m.commitType, m.tapscriptTweak,
 	), nil
 }
 
@@ -451,9 +495,11 @@ func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
 	// When we verify a commitment signature, we always assume that we're
 	// verifying a signature on our local commitment. Therefore, we'll use:
 	// their remote nonce, and also public key.
+	tapscriptRoot := fn.MapOption(muSig2TweakToRoot)(m.tapscriptTweak)
 	partialSig := NewMusigPartialSig(
 		&musig2.PartialSignature{S: &sig.Sig},
 		m.nonces.SigningNonce.PubNonce, m.combinedNonce, m.signerKeys,
+		tapscriptRoot,
 	)
 
 	// With the partial sig loaded with the proper context, we'll now
@@ -537,6 +583,10 @@ type MusigSessionCfg struct {
 	// InputTxOut is the output that we're signing for. This will be the
 	// funding input.
 	InputTxOut *wire.TxOut
+
+	// TapscriptRoot is an optional tweak that can be used to modify the
+	// MuSig2 public key used in the session.
+	TapscriptTweak fn.Option[chainhash.Hash]
 }
 
 // MusigPairSession houses the two musig2 sessions needed to do funding and
@@ -561,13 +611,14 @@ func NewMusigPairSession(cfg *MusigSessionCfg) *MusigPairSession {
 	//
 	// Both sessions will be created using only the verification nonce for
 	// the local+remote party.
+	tapscriptTweak := fn.MapOption(TapscriptRootToTweak)(cfg.TapscriptTweak)
 	localSession := NewPartialMusigSession(
-		cfg.LocalNonce, cfg.LocalKey, cfg.RemoteKey,
-		cfg.Signer, cfg.InputTxOut, LocalMusigCommit,
+		cfg.LocalNonce, cfg.LocalKey, cfg.RemoteKey, cfg.Signer,
+		cfg.InputTxOut, LocalMusigCommit, tapscriptTweak,
 	)
 	remoteSession := NewPartialMusigSession(
-		cfg.RemoteNonce, cfg.LocalKey, cfg.RemoteKey,
-		cfg.Signer, cfg.InputTxOut, RemoteMusigCommit,
+		cfg.RemoteNonce, cfg.LocalKey, cfg.RemoteKey, cfg.Signer,
+		cfg.InputTxOut, RemoteMusigCommit, tapscriptTweak,
 	)
 
 	return &MusigPairSession{

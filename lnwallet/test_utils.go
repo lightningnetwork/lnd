@@ -1,6 +1,7 @@
 package lnwallet
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
@@ -14,12 +15,15 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -258,7 +262,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	commitFee := calcStaticFee(chanType, 0)
 	var anchorAmt btcutil.Amount
 	if chanType.HasAnchors() {
-		anchorAmt += 2 * anchorSize
+		anchorAmt += 2 * AnchorSize
 	}
 
 	aliceBalance := lnwire.NewMSatFromSatoshis(
@@ -348,14 +352,33 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
+	// If the channel type has a tapscript root, then we'll also specify
+	// one here to apply to both the channels.
+	if chanType.HasTapscriptRoot() {
+		var tapscriptRoot chainhash.Hash
+		_, err := io.ReadFull(rand.Reader, tapscriptRoot[:])
+		if err != nil {
+			return nil, nil, err
+		}
+
+		someRoot := fn.Some(tapscriptRoot)
+
+		aliceChannelState.TapscriptRoot = someRoot
+		bobChannelState.TapscriptRoot = someRoot
+	}
+
 	aliceSigner := input.NewMockSigner(aliceKeys, nil)
 	bobSigner := input.NewMockSigner(bobKeys, nil)
 
 	// TODO(roasbeef): make mock version of pre-image store
 
+	auxSigner := NewDefaultAuxSignerMock(t)
+
 	alicePool := NewSigPool(1, aliceSigner)
 	channelAlice, err := NewLightningChannel(
 		aliceSigner, aliceChannelState, alicePool,
+		WithLeafStore(&MockAuxLeafStore{}),
+		WithAuxSigner(auxSigner),
 	)
 	if err != nil {
 		return nil, nil, err
@@ -370,6 +393,8 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	bobPool := NewSigPool(1, bobSigner)
 	channelBob, err := NewLightningChannel(
 		bobSigner, bobChannelState, bobPool,
+		WithLeafStore(&MockAuxLeafStore{}),
+		WithAuxSigner(auxSigner),
 	)
 	if err != nil {
 		return nil, nil, err
@@ -550,7 +575,7 @@ func ForceStateTransition(chanA, chanB *LightningChannel) error {
 		return err
 	}
 
-	_, _, _, _, err = chanA.ReceiveRevocation(bobRevocation)
+	_, _, err = chanA.ReceiveRevocation(bobRevocation)
 	if err != nil {
 		return err
 	}
@@ -563,10 +588,45 @@ func ForceStateTransition(chanA, chanB *LightningChannel) error {
 	if err != nil {
 		return err
 	}
-	_, _, _, _, err = chanB.ReceiveRevocation(aliceRevocation)
+	_, _, err = chanB.ReceiveRevocation(aliceRevocation)
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func NewDefaultAuxSignerMock(t *testing.T) *MockAuxSigner {
+	auxSigner := &MockAuxSigner{}
+
+	type testSigBlob struct {
+		BlobInt tlv.RecordT[tlv.TlvType65634, uint16]
+	}
+
+	var sigBlobBuf bytes.Buffer
+	sigBlob := testSigBlob{
+		BlobInt: tlv.NewPrimitiveRecord[tlv.TlvType65634, uint16](5),
+	}
+	tlvStream, err := tlv.NewStream(sigBlob.BlobInt.Record())
+	require.NoError(t, err, "unable to create tlv stream")
+	require.NoError(t, tlvStream.Encode(&sigBlobBuf))
+
+	auxSigner.On(
+		"SubmitSecondLevelSigBatch", mock.Anything, mock.Anything,
+		mock.Anything,
+	).Return(nil)
+	auxSigner.On(
+		"PackSigs", mock.Anything,
+	).Return(fn.Ok(fn.Some(sigBlobBuf.Bytes())))
+	auxSigner.On(
+		"UnpackSigs", mock.Anything,
+	).Return(fn.Ok([]fn.Option[tlv.Blob]{
+		fn.Some(sigBlobBuf.Bytes()),
+	}))
+	auxSigner.On(
+		"VerifySecondLevelSigs", mock.Anything, mock.Anything,
+		mock.Anything,
+	).Return(nil)
+
+	return auxSigner
 }

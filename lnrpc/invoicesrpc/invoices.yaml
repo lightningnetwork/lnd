@@ -16,3 +16,6 @@ http:
       body: "*"
     - selector: invoicesrpc.Invoices.LookupInvoiceV2
       get: "/v2/invoices/lookup"
+    - selector: invoicesrpc.Invoices.HtlcModifier
+      post: "/v2/invoices/htlcmodifier"
+      body: "*"

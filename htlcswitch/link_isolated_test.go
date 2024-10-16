@@ -129,7 +129,7 @@ func (l *linkTestContext) receiveRevAndAckAliceToBob() {
 		l.t.Fatalf("expected RevokeAndAck, got %T", msg)
 	}
 
-	_, _, _, _, err := l.bobChannel.ReceiveRevocation(rev)
+	_, _, err := l.bobChannel.ReceiveRevocation(rev)
 	if err != nil {
 		l.t.Fatalf("bob failed receiving revocation: %v", err)
 	}

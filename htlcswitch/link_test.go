@@ -268,9 +268,12 @@ func TestChannelLinkRevThenSig(t *testing.T) {
 
 	// Restart Bob as well by calling NewLightningChannel.
 	bobSigner := harness.bobChannel.Signer
+	signerMock := lnwallet.NewDefaultAuxSignerMock(t)
 	bobPool := lnwallet.NewSigPool(runtime.NumCPU(), bobSigner)
 	bobChannel, err := lnwallet.NewLightningChannel(
 		bobSigner, harness.bobChannel.State(), bobPool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(signerMock),
 	)
 	require.NoError(t, err)
 	err = bobPool.Start()
@@ -403,9 +406,12 @@ func TestChannelLinkSigThenRev(t *testing.T) {
 
 	// Restart Bob as well by calling NewLightningChannel.
 	bobSigner := harness.bobChannel.Signer
+	signerMock := lnwallet.NewDefaultAuxSignerMock(t)
 	bobPool := lnwallet.NewSigPool(runtime.NumCPU(), bobSigner)
 	bobChannel, err := lnwallet.NewLightningChannel(
 		bobSigner, harness.bobChannel.State(), bobPool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(signerMock),
 	)
 	require.NoError(t, err)
 	err = bobPool.Start()
@@ -2335,7 +2341,7 @@ func handleStateUpdate(link *channelLink,
 	if !ok {
 		return fmt.Errorf("expected RevokeAndAck got %T", msg)
 	}
-	_, _, _, _, err = remoteChannel.ReceiveRevocation(revoke)
+	_, _, err = remoteChannel.ReceiveRevocation(revoke)
 	if err != nil {
 		return fmt.Errorf("unable to receive "+
 			"revocation: %v", err)
@@ -2389,7 +2395,7 @@ func updateState(batchTick chan time.Time, link *channelLink,
 		return fmt.Errorf("expected RevokeAndAck got %T",
 			msg)
 	}
-	_, _, _, _, err = remoteChannel.ReceiveRevocation(revoke)
+	_, _, err = remoteChannel.ReceiveRevocation(revoke)
 	if err != nil {
 		return fmt.Errorf("unable to receive "+
 			"revocation: %v", err)
@@ -3643,7 +3649,7 @@ func TestChannelLinkTrimCircuitsRemoteCommit(t *testing.T) {
 	rev, _, _, err := harness.bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "unable to revoke current commitment")
 
-	_, _, _, _, err = alice.channel.ReceiveRevocation(rev)
+	_, _, err = alice.channel.ReceiveRevocation(rev)
 	require.NoError(t, err, "unable to receive revocation")
 
 	// Restart Alice's link, which simulates a disconnection with the remote
@@ -4881,7 +4887,8 @@ func (h *persistentLinkHarness) restartLink(
 		FetchLastChannelUpdate: mockGetChanUpdateMessage,
 		PreimageCache:          pCache,
 		OnChannelFailure: func(lnwire.ChannelID,
-			lnwire.ShortChannelID, LinkFailureError) { // nolint:whitespace
+			lnwire.ShortChannelID, LinkFailureError) {
+
 		},
 		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 			return nil
@@ -5836,7 +5843,7 @@ func TestChannelLinkFail(t *testing.T) {
 				c.cfg.Peer.(*mockPeer).disconnected = true
 			},
 			func(*testing.T, *Switch, *channelLink,
-				*lnwallet.LightningChannel) { //nolint:whitespace,lll
+				*lnwallet.LightningChannel) {
 
 				// Should fail at startup.
 			},
@@ -5856,7 +5863,7 @@ func TestChannelLinkFail(t *testing.T) {
 				c.channel.State().Packager = pkg
 			},
 			func(*testing.T, *Switch, *channelLink,
-				*lnwallet.LightningChannel) { //nolint:whitespace,lll
+				*lnwallet.LightningChannel) {
 
 				// Should fail at startup.
 			},

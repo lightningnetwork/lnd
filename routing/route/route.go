@@ -488,6 +488,26 @@ type Route struct {
 	// Hops contains details concerning the specific forwarding details at
 	// each hop.
 	Hops []*Hop
+
+	// FirstHopAmount is the amount that should actually be sent to the
+	// first hop in the route. This is only different from TotalAmount above
+	// for custom channels where the on-chain amount doesn't necessarily
+	// reflect all the value of an outgoing payment.
+	FirstHopAmount tlv.RecordT[
+		tlv.TlvType0, tlv.BigSizeT[lnwire.MilliSatoshi],
+	]
+
+	// FirstHopWireCustomRecords is a set of custom records that should be
+	// included in the wire message sent to the first hop. This is only set
+	// on custom channels and is used to include additional information
+	// about the actual value of the payment.
+	//
+	// NOTE: Since these records already represent TLV records, and we
+	// enforce them to be in the custom range (e.g. >= 65536), we don't use
+	// another parent record type here. Instead, when serializing the Route
+	// we merge the TLV records together with the custom records and encode
+	// everything as a single TLV stream.
+	FirstHopWireCustomRecords lnwire.CustomRecords
 }
 
 // Copy returns a deep copy of the Route.

@@ -83,3 +83,34 @@ func (m *MockInvoiceDB) DeleteCanceledInvoices(ctx context.Context) error {
 
 	return args.Error(0)
 }
+
+// MockHtlcModifier is a mock implementation of the HtlcModifier interface.
+type MockHtlcModifier struct {
+}
+
+// Intercept generates a new intercept session for the given invoice.
+// The call blocks until the client has responded to the request or an
+// error occurs. The response callback is only called if a session was
+// created in the first place, which is only the case if a client is
+// registered.
+func (m *MockHtlcModifier) Intercept(
+	_ HtlcModifyRequest, _ func(HtlcModifyResponse)) error {
+
+	return nil
+}
+
+// RegisterInterceptor sets the client callback function that will be
+// called when an invoice is intercepted. If a callback is already set,
+// an error is returned. The returned function must be used to reset the
+// callback to nil once the client is done or disconnects. The read-only channel
+// closes when the server stops.
+func (m *MockHtlcModifier) RegisterInterceptor(HtlcModifyCallback) (func(),
+	<-chan struct{}, error) {
+
+	return func() {}, make(chan struct{}), nil
+}
+
+// Ensure that MockHtlcModifier implements the HtlcInterceptor and HtlcModifier
+// interfaces.
+var _ HtlcInterceptor = (*MockHtlcModifier)(nil)
+var _ HtlcModifier = (*MockHtlcModifier)(nil)

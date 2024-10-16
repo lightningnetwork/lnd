@@ -304,6 +304,8 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 	alicePool := lnwallet.NewSigPool(1, aliceSigner)
 	channelAlice, err := lnwallet.NewLightningChannel(
 		aliceSigner, aliceChannelState, alicePool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(&lnwallet.MockAuxSigner{}),
 	)
 	if err != nil {
 		return nil, err
@@ -316,6 +318,8 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 	bobPool := lnwallet.NewSigPool(1, bobSigner)
 	channelBob, err := lnwallet.NewLightningChannel(
 		bobSigner, bobChannelState, bobPool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(&lnwallet.MockAuxSigner{}),
 	)
 	if err != nil {
 		return nil, err

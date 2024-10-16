@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -31,6 +32,10 @@ type BudgetAggregator struct {
 	// maxInputs specifies the maximum number of inputs allowed in a single
 	// sweep tx.
 	maxInputs uint32
+
+	// auxSweeper is an optional interface that can be used to modify the
+	// way sweep transaction are generated.
+	auxSweeper fn.Option[AuxSweeper]
 }
 
 // Compile-time constraint to ensure BudgetAggregator implements UtxoAggregator.
@@ -38,11 +43,12 @@ var _ UtxoAggregator = (*BudgetAggregator)(nil)
 
 // NewBudgetAggregator creates a new instance of a BudgetAggregator.
 func NewBudgetAggregator(estimator chainfee.Estimator,
-	maxInputs uint32) *BudgetAggregator {
+	maxInputs uint32, auxSweeper fn.Option[AuxSweeper]) *BudgetAggregator {
 
 	return &BudgetAggregator{
-		estimator: estimator,
-		maxInputs: maxInputs,
+		estimator:  estimator,
+		maxInputs:  maxInputs,
+		auxSweeper: auxSweeper,
 	}
 }
 
@@ -159,7 +165,7 @@ func (b *BudgetAggregator) createInputSets(inputs []SweeperInput,
 
 		// Create an InputSet using the max allowed number of inputs.
 		set, err := NewBudgetInputSet(
-			currentInputs, deadlineHeight,
+			currentInputs, deadlineHeight, b.auxSweeper,
 		)
 		if err != nil {
 			log.Errorf("unable to create input set: %v", err)
@@ -173,7 +179,7 @@ func (b *BudgetAggregator) createInputSets(inputs []SweeperInput,
 	// Create an InputSet from the remaining inputs.
 	if len(remainingInputs) > 0 {
 		set, err := NewBudgetInputSet(
-			remainingInputs, deadlineHeight,
+			remainingInputs, deadlineHeight, b.auxSweeper,
 		)
 		if err != nil {
 			log.Errorf("unable to create input set: %v", err)

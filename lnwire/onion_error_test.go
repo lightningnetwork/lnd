@@ -9,11 +9,12 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/stretchr/testify/require"
 )
 
 var (
-	testOnionHash     = []byte{}
+	testOnionHash     = [OnionPacketSize]byte{}
 	testAmount        = MilliSatoshi(1)
 	testCtlvExpiry    = uint32(2)
 	testFlags         = uint16(2)
@@ -43,9 +44,9 @@ var onionFailures = []FailureMessage{
 	&FailMPPTimeout{},
 
 	NewFailIncorrectDetails(99, 100),
-	NewInvalidOnionVersion(testOnionHash),
-	NewInvalidOnionHmac(testOnionHash),
-	NewInvalidOnionKey(testOnionHash),
+	NewInvalidOnionVersion(testOnionHash[:]),
+	NewInvalidOnionHmac(testOnionHash[:]),
+	NewInvalidOnionKey(testOnionHash[:]),
 	NewTemporaryChannelFailure(&testChannelUpdate),
 	NewTemporaryChannelFailure(nil),
 	NewAmountBelowMinimum(testAmount, testChannelUpdate),
@@ -56,7 +57,7 @@ var onionFailures = []FailureMessage{
 	NewFinalIncorrectCltvExpiry(testCtlvExpiry),
 	NewFinalIncorrectHtlcAmount(testAmount),
 	NewInvalidOnionPayload(testType, testOffset),
-	NewInvalidBlinding(testOnionHash),
+	NewInvalidBlinding(fn.Some(testOnionHash)),
 }
 
 // TestEncodeDecodeCode tests the ability of onion errors to be properly encoded

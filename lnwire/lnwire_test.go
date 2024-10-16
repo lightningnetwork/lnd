@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	crand "crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -132,6 +133,27 @@ func randPubKey() (*btcec.PublicKey, error) {
 	}
 
 	return priv.PubKey(), nil
+}
+
+// pubkeyFromHex parses a Bitcoin public key from a hex encoded string.
+func pubkeyFromHex(keyHex string) (*btcec.PublicKey, error) {
+	pubKeyBytes, err := hex.DecodeString(keyHex)
+	if err != nil {
+		return nil, err
+	}
+
+	return btcec.ParsePubKey(pubKeyBytes)
+}
+
+// generateRandomBytes returns a slice of n random bytes.
+func generateRandomBytes(n int) ([]byte, error) {
+	b := make([]byte, n)
+	_, err := crand.Read(b)
+	if err != nil {
+		return nil, err
+	}
+
+	return b, nil
 }
 
 func randRawKey() ([33]byte, error) {
@@ -387,6 +409,37 @@ func TestEmptyMessageUnknownType(t *testing.T) {
 		t.Fatalf("should not be able to make an empty message of an " +
 			"unknown type")
 	}
+}
+
+// randCustomRecords generates a random set of custom records for testing.
+func randCustomRecords(t *testing.T, r *rand.Rand) CustomRecords {
+	var (
+		customRecords = CustomRecords{}
+
+		// We'll generate a random number of records, between 1 and 10.
+		numRecords = r.Intn(9) + 1
+	)
+
+	// For each record, we'll generate a random key and value.
+	for i := 0; i < numRecords; i++ {
+		// Keys must be equal to or greater than
+		// MinCustomRecordsTlvType.
+		keyOffset := uint64(r.Intn(100))
+		key := MinCustomRecordsTlvType + keyOffset
+
+		// Values are byte slices of any length.
+		value := make([]byte, r.Intn(10))
+		_, err := r.Read(value)
+		require.NoError(t, err)
+
+		customRecords[key] = value
+	}
+
+	// Validate the custom records as a sanity check.
+	err := customRecords.Validate()
+	require.NoError(t, err)
+
+	return customRecords
 }
 
 // TestLightningWireProtocol uses the testing/quick package to create a series
@@ -718,7 +771,6 @@ func TestLightningWireProtocol(t *testing.T) {
 			req := Shutdown{
 				ChannelID: ChannelID(c),
 				Address:   shutdownAddr,
-				ExtraData: make([]byte, 0),
 			}
 
 			if r.Int31()%2 == 0 {
@@ -880,17 +932,21 @@ func TestLightningWireProtocol(t *testing.T) {
 			// Only create the slice if there will be any signatures
 			// in it to prevent false positive test failures due to
 			// an empty slice versus a nil slice.
-			numSigs := uint16(r.Int31n(1019))
+			numSigs := uint16(r.Int31n(500))
 			if numSigs > 0 {
 				req.HtlcSigs = make([]Sig, numSigs)
 			}
 			for i := 0; i < int(numSigs); i++ {
-				req.HtlcSigs[i], err = NewSigFromSignature(testSig)
+				req.HtlcSigs[i], err = NewSigFromSignature(
+					testSig,
+				)
 				if err != nil {
 					t.Fatalf("unable to parse sig: %v", err)
 					return
 				}
 			}
+
+			req.CustomRecords = randCustomRecords(t, r)
 
 			// 50/50 chance to attach a partial sig.
 			if r.Int31()%2 == 0 {
@@ -1369,6 +1425,8 @@ func TestLightningWireProtocol(t *testing.T) {
 			_, err = r.Read(req.OnionBlob[:])
 			require.NoError(t, err)
 
+			req.CustomRecords = randCustomRecords(t, r)
+
 			// Generate a blinding point 50% of the time, since not
 			// all update adds will use route blinding.
 			if r.Int31()%2 == 0 {
@@ -1385,6 +1443,29 @@ func TestLightningWireProtocol(t *testing.T) {
 						pubkey,
 					),
 				)
+			}
+
+			v[0] = reflect.ValueOf(*req)
+		},
+		MsgUpdateFulfillHTLC: func(v []reflect.Value, r *rand.Rand) {
+			req := &UpdateFulfillHTLC{
+				ID: r.Uint64(),
+			}
+
+			_, err := r.Read(req.ChanID[:])
+			require.NoError(t, err)
+
+			_, err = r.Read(req.PaymentPreimage[:])
+			require.NoError(t, err)
+
+			req.CustomRecords = randCustomRecords(t, r)
+
+			// Generate some random TLV records 50% of the time.
+			if r.Int31()%2 == 0 {
+				req.ExtraData = []byte{
+					0x01, 0x03, 1, 2, 3,
+					0x02, 0x03, 4, 5, 6,
+				}
 			}
 
 			v[0] = reflect.ValueOf(*req)
@@ -1619,22 +1700,28 @@ func TestLightningWireProtocol(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		var config *quick.Config
+		t.Run(test.msgType.String(), func(t *testing.T) {
+			var config *quick.Config
 
-		// If the type defined is within the custom type gen map above,
-		// then we'll modify the default config to use this Value
-		// function that knows how to generate the proper types.
-		if valueGen, ok := customTypeGen[test.msgType]; ok {
-			config = &quick.Config{
-				Values: valueGen,
+			// If the type defined is within the custom type gen
+			// map above, then we'll modify the default config to
+			// use this Value function that knows how to generate
+			// the proper types.
+			if valueGen, ok := customTypeGen[test.msgType]; ok {
+				config = &quick.Config{
+					Values: valueGen,
+				}
 			}
-		}
 
-		t.Logf("Running fuzz tests for msgType=%v", test.msgType)
-		if err := quick.Check(test.scenario, config); err != nil {
-			t.Fatalf("fuzz checks for msg=%v failed: %v",
-				test.msgType, err)
-		}
+			t.Logf("Running fuzz tests for msgType=%v",
+				test.msgType)
+
+			err := quick.Check(test.scenario, config)
+			if err != nil {
+				t.Fatalf("fuzz checks for msg=%v failed: %v",
+					test.msgType, err)
+			}
+		})
 	}
 
 }

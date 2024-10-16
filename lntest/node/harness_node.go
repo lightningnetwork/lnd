@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -661,8 +660,7 @@ func (hn *HarnessNode) WaitForProcessExit() error {
 		break
 
 	case <-time.After(wait.DefaultTimeout):
-		err = errors.New("timeout waiting for process to exit")
-		hn.printErrf(err.Error())
+		hn.printErrf("timeout waiting for process to exit")
 	}
 
 	// Make sure log file is closed and renamed if necessary.

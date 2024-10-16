@@ -1,6 +1,7 @@
 package routerrpc
 
 import (
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/routing"
 )
@@ -46,6 +47,10 @@ type Config struct {
 	// RouterBackend contains shared logic between this sub server and the
 	// main rpc server.
 	RouterBackend *RouterBackend
+
+	// AliasMgr is the alias manager instance that is used to handle all the
+	// SCID alias related information for channels.
+	AliasMgr *aliasmgr.Manager
 }
 
 // DefaultConfig defines the config defaults.

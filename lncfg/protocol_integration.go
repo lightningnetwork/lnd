@@ -33,6 +33,10 @@ type ProtocolOptions struct {
 	// experimental simple taproot chans commitment type.
 	TaprootChans bool `long:"simple-taproot-chans" description:"if set, then lnd will create and accept requests for channels using the simple taproot commitment type"`
 
+	// TaprootOverlayChans should be set if we want to enable support for
+	// the experimental taproot overlay chan type.
+	TaprootOverlayChans bool `long:"simple-taproot-overlay-chans" description:"if set, then lnd will create and accept requests for channels using the taproot overlay commitment type"`
+
 	// Anchors enables anchor commitments.
 	// TODO(halseth): transition itests to anchors instead!
 	Anchors bool `long:"anchors" description:"enable support for anchor commitments"`

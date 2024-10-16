@@ -2493,10 +2493,7 @@ func (w *WalletKit) SignMessageWithAddr(_ context.Context,
 			"fetched from wallet database: %w", err)
 	}
 
-	sigBytes, err := ecdsa.SignCompact(privKey, digest, pubKey.Compressed())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create signature: %w", err)
-	}
+	sigBytes := ecdsa.SignCompact(privKey, digest, pubKey.Compressed())
 
 	// Bitcoin signatures are base64 encoded (being compatible with
 	// bitcoin-core and btcd).

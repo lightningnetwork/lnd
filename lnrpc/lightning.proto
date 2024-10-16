@@ -1388,8 +1388,14 @@ enum CommitmentType {
     A channel that uses musig2 for the funding output, and the new tapscript
     features where relevant.
     */
-    // TODO(roasbeef): need script enforce mirror type for the above as well?
     SIMPLE_TAPROOT = 5;
+
+    /*
+    Identical to the SIMPLE_TAPROOT channel type, but with extra functionality.
+    This channel type also commits to additional meta data in the tapscript
+    leaves for the scripts in a channel.
+    */
+    SIMPLE_TAPROOT_OVERLAY = 6;
 }
 
 message ChannelConstraints {
@@ -1592,6 +1598,11 @@ message Channel {
     the channel's operation.
     */
     string memo = 36;
+
+    /*
+    Custom channel data that might be populated in custom channels.
+    */
+    bytes custom_channel_data = 37;
 }
 
 message ListChannelsRequest {
@@ -2028,10 +2039,38 @@ message ChannelOpenUpdate {
     ChannelPoint channel_point = 1;
 }
 
+message CloseOutput {
+    // The amount in satoshi of this close output. This amount is the final
+    // commitment balance of the channel and the actual amount paid out on chain
+    // might be smaller due to subtracted fees.
+    int64 amount_sat = 1;
+
+    // The pkScript of the close output.
+    bytes pk_script = 2;
+
+    // Whether this output is for the local or remote node.
+    bool is_local = 3;
+
+    // The TLV encoded custom channel data records for this output, which might
+    // be set for custom channels.
+    bytes custom_channel_data = 4;
+}
+
 message ChannelCloseUpdate {
     bytes closing_txid = 1;
 
     bool success = 2;
+
+    // The local channel close output. If the local channel balance was dust to
+    // begin with, this output will not be set.
+    CloseOutput local_close_output = 3;
+
+    // The remote channel close output. If the remote channel balance was dust
+    // to begin with, this output will not be set.
+    CloseOutput remote_close_output = 4;
+
+    // Any additional outputs that might be added for custom channel types.
+    repeated CloseOutput additional_outputs = 5;
 }
 
 message CloseChannelRequest {
@@ -2709,6 +2748,11 @@ message PendingChannelsResponse {
         impacts the channel's operation.
         */
         string memo = 13;
+
+        /*
+        Custom channel data that might be populated in custom channels.
+        */
+        bytes custom_channel_data = 34;
     }
 
     message PendingOpenChannel {
@@ -2968,6 +3012,12 @@ message ChannelBalanceResponse {
 
     // Sum of channels pending remote balances.
     Amount pending_open_remote_balance = 8;
+
+    /*
+    Custom channel data that might be populated if there are custom channels
+    present.
+    */
+    bytes custom_channel_data = 9;
 }
 
 message QueryRoutesRequest {
@@ -3293,6 +3343,20 @@ message Route {
     The total amount in millisatoshis.
     */
     int64 total_amt_msat = 6;
+
+    /*
+    The actual on-chain amount that was sent out to the first hop. This value is
+    only different from the total_amt_msat field if this is a custom channel
+    payment and the value transported in the HTLC is different from the BTC
+    amount in the HTLC. If this value is zero, then this is an old payment that
+    didn't have this value yet and can be ignored.
+    */
+    int64 first_hop_amount_msat = 7;
+
+    /*
+    Custom channel data that might be populated in custom channels.
+    */
+    bytes custom_channel_data = 8;
 }
 
 message NodeInfoRequest {
@@ -3922,6 +3986,11 @@ message InvoiceHTLC {
 
     // Details relevant to AMP HTLCs, only populated if this is an AMP HTLC.
     AMP amp = 11;
+
+    /*
+    Custom channel data that might be populated in custom channels.
+    */
+    bytes custom_channel_data = 12;
 }
 
 // Details specific to AMP HTLCs.
@@ -4162,6 +4231,12 @@ message Payment {
     uint64 payment_index = 15;
 
     PaymentFailureReason failure_reason = 16;
+
+    /*
+    The custom TLV records that were sent to the first hop as part of the HTLC
+    wire message for this payment.
+    */
+    map<uint64, bytes> first_hop_custom_records = 17;
 }
 
 message HTLCAttempt {

@@ -6959,6 +6959,11 @@ type IncomingHtlcResolution struct {
 	// necessary items required to spend the sole output of the above
 	// transaction.
 	SweepSignDesc input.SignDescriptor
+
+	// ResolutionBlob is a blob used for aux channels that permits a
+	// spender of the output to properly resolve it in the case of a force
+	// close.
+	ResolutionBlob fn.Option[tlv.Blob]
 }
 
 // OutgoingHtlcResolution houses the information necessary to sweep any
@@ -7008,6 +7013,11 @@ type OutgoingHtlcResolution struct {
 	// necessary items required to spend the sole output of the above
 	// transaction.
 	SweepSignDesc input.SignDescriptor
+
+	// ResolutionBlob is a blob used for aux channels that permits a
+	// spender of the output to properly resolve it in the case of a force
+	// close.
+	ResolutionBlob fn.Option[tlv.Blob]
 }
 
 // HtlcResolutions contains the items necessary to sweep HTLC's on chain

@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
@@ -73,20 +74,25 @@ func TestChanAnnounce2Validation(t *testing.T) {
 	t.Parallel()
 
 	t.Run(
-		"test 4-of-4 MuSig2 channel announcement",
-		test4of4MuSig2ChanAnnouncement,
+		"test 4-of-4 MuSig2 P2TR channel announcement",
+		test4of4MuSig2P2TRChanAnnouncement,
 	)
 
 	t.Run(
-		"test 3-of-3 MuSig2 channel announcement",
+		"test 3-of-3 MuSig2 P2TR channel announcement",
 		test3of3MuSig2ChanAnnouncement,
+	)
+
+	t.Run(
+		"test 4-of-4 MuSig2 P2WSH channel announcement",
+		test4of4MuSig2P2WSHChanAnnouncement,
 	)
 }
 
-// test4of4MuSig2ChanAnnouncement covers the case where both bitcoin keys are
-// present in the channel announcement. In this case, the signature should be
-// a 4-of-4 MuSig2.
-func test4of4MuSig2ChanAnnouncement(t *testing.T) {
+// test4of4MuSig2P2TRChanAnnouncement covers the case where the funding
+// transaction PK script is a P2WSH. In this case, the signature should be valid
+// for the MuSig2 4-of-4 aggregation of the node keys and the bitcoin keys.
+func test4of4MuSig2P2WSHChanAnnouncement(t *testing.T) {
 	t.Parallel()
 
 	// Generate the keys for node 1 and node2.
@@ -161,8 +167,136 @@ func test4of4MuSig2ChanAnnouncement(t *testing.T) {
 
 	ann.Signature.Val = sig
 
+	// Create an accurate representation of what the on-chain pk script will
+	// look like. For this case, it is only important that we get the
+	// correct script class.
+	multiSigScript, err := input.GenMultiSigScript(
+		node1.btcPub.SerializeCompressed(),
+		node2.btcPub.SerializeCompressed(),
+	)
+	require.NoError(t, err)
+
+	scriptHash, err := input.WitnessScriptHash(multiSigScript)
+	require.NoError(t, err)
+	pkAddr, err := btcutil.NewAddressScriptHash(
+		scriptHash, &chaincfg.MainNetParams,
+	)
+	require.NoError(t, err)
+
+	// Create a mock tx fetcher that returns the expected script class and
+	// pk address.
+	fetchTx := func(lnwire.ShortChannelID) (txscript.ScriptClass,
+		btcutil.Address, error) {
+
+		return txscript.WitnessV0ScriptHashTy, pkAddr, nil
+	}
+
 	// Validate the announcement.
-	require.NoError(t, ValidateChannelAnn(ann, nil))
+	require.NoError(t, ValidateChannelAnn(ann, fetchTx))
+}
+
+// test4of4MuSig2P2TRChanAnnouncement covers the case where both bitcoin keys
+// are present in the channel announcement 2 and the funding transaction PK
+// script is a P2TR. In this case, the signature should be a 4-of-4 MuSig2.
+func test4of4MuSig2P2TRChanAnnouncement(t *testing.T) {
+	t.Parallel()
+
+	// Generate the keys for node 1 and node2.
+	node1, node2 := genChanAnnKeys(t)
+
+	// Build the unsigned channel announcement.
+	ann := buildUnsignedChanAnnouncement(node1, node2, true)
+
+	// Serialise the bytes that need to be signed.
+	msg, err := ChanAnn2DigestToSign(ann)
+	require.NoError(t, err)
+
+	var msgBytes [32]byte
+	copy(msgBytes[:], msg.CloneBytes())
+
+	// Generate the 4 nonces required for producing the signature.
+	var (
+		node1NodeNonce = genNonceForPubKey(t, node1.nodePub)
+		node1BtcNonce  = genNonceForPubKey(t, node1.btcPub)
+		node2NodeNonce = genNonceForPubKey(t, node2.nodePub)
+		node2BtcNonce  = genNonceForPubKey(t, node2.btcPub)
+	)
+
+	nonceAgg, err := musig2.AggregateNonces([][66]byte{
+		node1NodeNonce.PubNonce,
+		node1BtcNonce.PubNonce,
+		node2NodeNonce.PubNonce,
+		node2BtcNonce.PubNonce,
+	})
+	require.NoError(t, err)
+
+	pubKeys := []*btcec.PublicKey{
+		node1.nodePub, node2.nodePub, node1.btcPub, node2.btcPub,
+	}
+
+	// Let Node1 sign the announcement message with its node key.
+	psA1, err := musig2.Sign(
+		node1NodeNonce.SecNonce, node1.nodePriv, nonceAgg, pubKeys,
+		msgBytes, musig2.WithSortedKeys(),
+	)
+	require.NoError(t, err)
+
+	// Let Node1 sign the announcement message with its bitcoin key.
+	psA2, err := musig2.Sign(
+		node1BtcNonce.SecNonce, node1.btcPriv, nonceAgg, pubKeys,
+		msgBytes, musig2.WithSortedKeys(),
+	)
+	require.NoError(t, err)
+
+	// Let Node2 sign the announcement message with its node key.
+	psB1, err := musig2.Sign(
+		node2NodeNonce.SecNonce, node2.nodePriv, nonceAgg, pubKeys,
+		msgBytes, musig2.WithSortedKeys(),
+	)
+	require.NoError(t, err)
+
+	// Let Node2 sign the announcement message with its bitcoin key.
+	psB2, err := musig2.Sign(
+		node2BtcNonce.SecNonce, node2.btcPriv, nonceAgg, pubKeys,
+		msgBytes, musig2.WithSortedKeys(),
+	)
+	require.NoError(t, err)
+
+	// Finally, combine the partial signatures from Node1 and Node2 and add
+	// the signature to the announcement message.
+	s := musig2.CombineSigs(psA1.R, []*musig2.PartialSignature{
+		psA1, psA2, psB1, psB2,
+	})
+
+	sig, err := lnwire.NewSigFromSignature(s)
+	require.NoError(t, err)
+
+	ann.Signature.Val = sig
+
+	// Create an accurate representation of what the on-chain pk script will
+	// look like. For this case, it is only important that we get the
+	// correct script class.
+	combinedKey, _, _, err := musig2.AggregateKeys(
+		[]*btcec.PublicKey{node1.btcPub, node2.btcPub}, true,
+	)
+	require.NoError(t, err)
+
+	pkAddr, err := btcutil.NewAddressTaproot(
+		combinedKey.FinalKey.SerializeCompressed()[1:],
+		&chaincfg.MainNetParams,
+	)
+	require.NoError(t, err)
+
+	// Create a mock tx fetcher that returns the expected script class and
+	// pk address.
+	fetchTx := func(lnwire.ShortChannelID) (txscript.ScriptClass,
+		btcutil.Address, error) {
+
+		return txscript.WitnessV1TaprootTy, pkAddr, nil
+	}
+
+	// Validate the announcement.
+	require.NoError(t, ValidateChannelAnn(ann, fetchTx))
 }
 
 // test3of3MuSig2ChanAnnouncement covers the case where no bitcoin keys are
@@ -217,14 +351,17 @@ func test3of3MuSig2ChanAnnouncement(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	pkScript, err := input.PayToTaprootScript(outputKey)
+	pkAddr, err := btcutil.NewAddressTaproot(
+		outputKey.SerializeCompressed()[1:], &chaincfg.MainNetParams,
+	)
 	require.NoError(t, err)
 
-	// We'll pass in a mock tx fetcher that will return the funding output
-	// containing this key. This is needed since the output key can not be
-	// determined from the channel announcement itself.
-	fetchTx := func(_ lnwire.ShortChannelID) ([]byte, error) {
-		return pkScript, nil
+	// Create a mock tx fetcher that returns the expected script class
+	// and pk address.
+	fetchTx := func(lnwire.ShortChannelID) (txscript.ScriptClass,
+		btcutil.Address, error) {
+
+		return txscript.WitnessV1TaprootTy, pkAddr, nil
 	}
 
 	pubKeys := []*btcec.PublicKey{node1.nodePub, node2.nodePub, outputKey}

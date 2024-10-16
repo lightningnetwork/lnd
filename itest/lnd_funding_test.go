@@ -874,7 +874,7 @@ func testChannelFundingPersistence(ht *lntest.HarnessTest) {
 	// channel has been opened. The funding transaction should be found
 	// within the newly mined block.
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-	ht.AssertTxInBlock(block, fundingTxID)
+	ht.AssertTxInBlock(block, *fundingTxID)
 
 	// Get the height that our transaction confirmed at.
 	height := int32(ht.CurrentHeight())
@@ -1067,13 +1067,13 @@ func testBatchChanFunding(ht *lntest.HarnessTest) {
 
 	// Mine the batch transaction and check the network topology.
 	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
-	ht.AssertTxInBlock(block, txHash)
+	ht.AssertTxInBlock(block, *txHash)
 	ht.AssertTopologyChannelOpen(alice, chanPoint1)
 	ht.AssertTopologyChannelOpen(alice, chanPoint2)
 	ht.AssertTopologyChannelOpen(alice, chanPoint3)
 
 	// Check if the change type from the batch_open_channel funding is P2TR.
-	rawTx := ht.GetRawTransaction(txHash)
+	rawTx := ht.GetRawTransaction(*txHash)
 	require.Len(ht, rawTx.MsgTx().TxOut, 5)
 
 	// Check the fee rate of the batch-opening transaction. We expect slight

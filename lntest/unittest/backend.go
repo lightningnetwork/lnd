@@ -82,6 +82,7 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 	tempBitcoindDir := t.TempDir()
 
 	rpcPort := port.NextAvailablePort()
+	torBindPort := port.NextAvailablePort()
 	zmqBlockPort := port.NextAvailablePort()
 	zmqTxPort := port.NextAvailablePort()
 	zmqBlockHost := fmt.Sprintf("tcp://127.0.0.1:%d", zmqBlockPort)
@@ -94,6 +95,7 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 		"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6fd$507c670e800a95" +
 			"284294edb5773b05544b220110063096c221be9933c82d38e1",
 		fmt.Sprintf("-rpcport=%d", rpcPort),
+		fmt.Sprintf("-bind=127.0.0.1:%d=onion", torBindPort),
 		"-disablewallet",
 		"-zmqpubrawblock=" + zmqBlockHost,
 		"-zmqpubrawtx=" + zmqTxHost,

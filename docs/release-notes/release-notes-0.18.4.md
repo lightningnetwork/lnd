@@ -35,6 +35,10 @@ types](https://github.com/lightningnetwork/lnd/pull/8960).
   added [to turn on custom channel
   functionality](https://github.com/lightningnetwork/lnd/pull/8960).
 
+* Compatibility with [`bitcoind 
+  v28.0`](https://github.com/lightningnetwork/lnd/pull/9059) was ensured by
+  updating the version the CI pipeline is running against.
+
 ## RPC Additions
 
 * Some new experimental [RPCs for managing SCID

@@ -212,8 +212,8 @@ func (h *HarnessTest) AssertTxInMempool(txid chainhash.Hash) *wire.MsgTx {
 // NOTE: this should be used after `AssertTxInMempool` to ensure the tx has
 // entered the mempool before. Otherwise it might give false positive and the
 // tx may enter the mempool after the check.
-func (h *HarnessTest) AssertTxNotInMempool(txid chainhash.Hash) *wire.MsgTx {
-	return h.miner.AssertTxNotInMempool(txid)
+func (h *HarnessTest) AssertTxNotInMempool(txid chainhash.Hash) {
+	h.miner.AssertTxNotInMempool(txid)
 }
 
 // AssertNumTxsInMempool polls until finding the desired number of transactions

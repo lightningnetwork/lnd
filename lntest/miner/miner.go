@@ -320,9 +320,7 @@ func (h *HarnessMiner) AssertTxInMempool(txid chainhash.Hash) *wire.MsgTx {
 // NOTE: this should be used after `AssertTxInMempool` to ensure the tx has
 // entered the mempool before. Otherwise it might give false positive and the
 // tx may enter the mempool after the check.
-func (h *HarnessMiner) AssertTxNotInMempool(txid chainhash.Hash) *wire.MsgTx {
-	var msgTx *wire.MsgTx
-
+func (h *HarnessMiner) AssertTxNotInMempool(txid chainhash.Hash) {
 	err := wait.NoError(func() error {
 		// We require the RPC call to be succeeded and won't wait for
 		// it as it's an unexpected behavior.
@@ -340,8 +338,6 @@ func (h *HarnessMiner) AssertTxNotInMempool(txid chainhash.Hash) *wire.MsgTx {
 	}, wait.MinerMempoolTimeout)
 
 	require.NoError(h, err, "timeout checking tx not in mempool")
-
-	return msgTx
 }
 
 // SendOutputsWithoutChange uses the miner to send the given outputs using the

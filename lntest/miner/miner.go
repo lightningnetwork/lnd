@@ -314,6 +314,34 @@ func (h *HarnessMiner) AssertTxInMempool(txid chainhash.Hash) *wire.MsgTx {
 	return h.GetRawTransaction(txid).MsgTx()
 }
 
+// AssertTxnsNotInMempool asserts the given txns are not found in the mempool.
+// It assumes the mempool is not empty.
+func (h *HarnessMiner) AssertTxnsNotInMempool(txids []chainhash.Hash) {
+	err := wait.NoError(func() error {
+		// We require the RPC call to be succeeded and won't wait for
+		// it as it's an unexpected behavior.
+		mempool := h.GetRawMempool()
+
+		// Turn the mempool into a txn set for faster lookups.
+		mempoolTxns := fn.NewSet(mempool...)
+
+		// Check if any of the txids are in the mempool.
+		for _, txid := range txids {
+			// Skip if the tx is not in the mempool.
+			if !mempoolTxns.Contains(txid) {
+				continue
+			}
+
+			return fmt.Errorf("expect txid %v to be NOT found in "+
+				"mempool", txid)
+		}
+
+		return nil
+	}, wait.MinerMempoolTimeout)
+
+	require.NoError(h, err, "timeout checking txns not in mempool")
+}
+
 // AssertTxNotInMempool asserts a given transaction cannot be found in the
 // mempool. It assumes the mempool is not empty.
 //

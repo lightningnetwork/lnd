@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -41,10 +40,6 @@ type DynCommit struct {
 	// MaxAcceptedHTLCs, if not nil, proposes a change to the
 	// max_accepted_htlcs limit of the sender.
 	MaxAcceptedHTLCs fn.Option[uint16]
-
-	// FundingKey, if not nil, proposes a change to the funding_pubkey
-	// parameter of the sender.
-	FundingKey fn.Option[btcec.PublicKey]
 
 	// ChannelType, if not nil, proposes a change to the channel_type
 	// parameter.
@@ -109,14 +104,6 @@ func (dc *DynCommit) Encode(w *bytes.Buffer, _ uint32) error {
 		tlvRecords = append(
 			tlvRecords, tlv.MakePrimitiveRecord(
 				DPMaxAcceptedHtlcs, &max,
-			),
-		)
-	})
-	dc.FundingKey.WhenSome(func(key btcec.PublicKey) {
-		keyScratch := &key
-		tlvRecords = append(
-			tlvRecords, tlv.MakePrimitiveRecord(
-				DPFundingPubkey, &keyScratch,
 			),
 		)
 	})
@@ -187,11 +174,6 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 		DPMaxAcceptedHtlcs, &maxHtlcsScratch,
 	)
 
-	var fundingKeyScratch *btcec.PublicKey
-	fundingKey := tlv.MakePrimitiveRecord(
-		DPFundingPubkey, &fundingKeyScratch,
-	)
-
 	var chanTypeScratch ChannelType
 	chanType := tlv.MakeDynamicRecord(
 		DPChannelType, &chanTypeScratch, chanTypeScratch.featureBitLen,
@@ -200,8 +182,7 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 
 	// Create set of Records to read TLV bytestream into.
 	records := []tlv.Record{
-		dustLimit, maxValue, reserve, csvDelay, maxHtlcs, fundingKey,
-		chanType,
+		dustLimit, maxValue, reserve, csvDelay, maxHtlcs, chanType,
 	}
 	tlv.SortRecords(records)
 
@@ -233,9 +214,6 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 	if val, ok := typeMap[DPMaxAcceptedHtlcs]; ok && val == nil {
 		dc.MaxAcceptedHTLCs = fn.Some(maxHtlcsScratch)
 	}
-	if val, ok := typeMap[DPFundingPubkey]; ok && val == nil {
-		dc.FundingKey = fn.Some(*fundingKeyScratch)
-	}
 	if val, ok := typeMap[DPChannelType]; ok && val == nil {
 		dc.ChannelType = fn.Some(chanTypeScratch)
 	}
@@ -266,7 +244,6 @@ func NegotiateDynCommit(propose DynPropose, ack DynAck) DynCommit {
 		ChannelReserve:   propose.ChannelReserve,
 		CsvDelay:         propose.CsvDelay,
 		MaxAcceptedHTLCs: propose.MaxAcceptedHTLCs,
-		FundingKey:       propose.FundingKey,
 		ChannelType:      propose.ChannelType,
 	}
 }

@@ -852,11 +852,6 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 
 			if rand.Uint32()%2 == 0 {
-				v, _ := btcec.NewPrivateKey()
-				dp.FundingKey = fn.Some(*v.PubKey())
-			}
-
-			if rand.Uint32()%2 == 0 {
 				v := ChannelType(*NewRawFeatureVector())
 				dp.ChannelType = fn.Some(v)
 			}
@@ -890,10 +885,6 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			if rand.Uint32()%2 == 0 {
 				features.Set(FeatureBit(DPMaxAcceptedHtlcs))
-			}
-
-			if rand.Uint32()%2 == 0 {
-				features.Set(FeatureBit(DPFundingPubkey))
 			}
 
 			if rand.Uint32()%2 == 0 {
@@ -944,11 +935,6 @@ func TestLightningWireProtocol(t *testing.T) {
 			if rand.Uint32()%2 == 0 {
 				v := uint16(rand.Uint32())
 				dc.MaxAcceptedHTLCs = fn.Some(v)
-			}
-
-			if rand.Uint32()%2 == 0 {
-				v, _ := btcec.NewPrivateKey()
-				dc.FundingKey = fn.Some(*v.PubKey())
 			}
 
 			if rand.Uint32()%2 == 0 {

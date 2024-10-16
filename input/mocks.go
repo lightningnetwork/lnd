@@ -140,6 +140,17 @@ func (m *MockInput) ResolutionBlob() fn.Option[tlv.Blob] {
 	return info.(fn.Option[tlv.Blob])
 }
 
+func (m *MockInput) Preimage() fn.Option[lntypes.Preimage] {
+	args := m.Called()
+
+	info := args.Get(0)
+	if info == nil {
+		return fn.None[lntypes.Preimage]()
+	}
+
+	return info.(fn.Option[lntypes.Preimage])
+}
+
 // MockWitnessType implements the `WitnessType` interface and is used by other
 // packages for mock testing.
 type MockWitnessType struct {

@@ -1420,17 +1420,18 @@ func (c *ChannelStateDB) AbandonChannel(chanPoint *wire.OutPoint,
 	// channel as possible. We also ensure that we set Pending to false, to
 	// indicate that this channel has been "fully" closed.
 	summary := &ChannelCloseSummary{
-		CloseType:               Abandoned,
-		ChanPoint:               *chanPoint,
-		ChainHash:               dbChan.ChainHash,
-		CloseHeight:             bestHeight,
-		RemotePub:               dbChan.IdentityPub,
-		Capacity:                dbChan.Capacity,
-		SettledBalance:          dbChan.LocalCommitment.LocalBalance.ToSatoshis(),
+		CloseType:   Abandoned,
+		ChanPoint:   *chanPoint,
+		ChainHash:   dbChan.ChainHash,
+		CloseHeight: bestHeight,
+		RemotePub:   dbChan.IdentityPub,
+		Capacity:    dbChan.Capacity,
+		SettledBalance: dbChan.Commitments.Local.
+			LocalBalance.ToSatoshis(),
 		ShortChanID:             dbChan.ShortChanID(),
 		RemoteCurrentRevocation: dbChan.RemoteCurrentRevocation,
 		RemoteNextRevocation:    dbChan.RemoteNextRevocation,
-		LocalChanConfig:         dbChan.LocalChanCfg,
+		LocalChanConfig:         dbChan.ChanCfgs.Local,
 	}
 
 	// Finally, we'll close the channel in the DB, and return back to the

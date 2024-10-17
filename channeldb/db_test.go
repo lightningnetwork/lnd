@@ -296,6 +296,16 @@ func genRandomChannelShell() (*ChannelShell, error) {
 		CsvDelay: uint16(rand.Int63()),
 	}
 
+	localChanCfg := ChannelConfig{
+		CommitmentParams: commitParams,
+		PaymentBasePoint: keychain.KeyDescriptor{
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamily(rand.Int63()),
+				Index:  uint32(rand.Int63()),
+			},
+		},
+	}
+
 	return &ChannelShell{
 		NodeAddrs: []net.Addr{&net.TCPAddr{
 			IP:   net.ParseIP("127.0.0.1"),
@@ -309,14 +319,8 @@ func genRandomChannelShell() (*ChannelShell, error) {
 				uint64(rand.Int63()),
 			),
 			IdentityPub: pub,
-			LocalChanCfg: ChannelConfig{
-				CommitmentParams: commitParams,
-				PaymentBasePoint: keychain.KeyDescriptor{
-					KeyLocator: keychain.KeyLocator{
-						Family: keychain.KeyFamily(rand.Int63()),
-						Index:  uint32(rand.Int63()),
-					},
-				},
+			ChanCfgs: lntypes.Dual[ChannelConfig]{
+				Local: localChanCfg,
 			},
 			RemoteCurrentRevocation: pub,
 			IsPending:               false,

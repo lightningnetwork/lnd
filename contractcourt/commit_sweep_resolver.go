@@ -471,7 +471,7 @@ func (c *commitSweepResolver) SupplementState(state *channeldb.OpenChannel) {
 	if state.ChanType.HasLeaseExpiration() {
 		c.leaseExpiry = state.ThawHeight
 	}
-	c.localChanCfg = state.LocalChanCfg
+	c.localChanCfg = state.ChanCfgs.Local
 	c.channelInitiator = state.IsInitiator
 	c.chanType = state.ChanType
 }

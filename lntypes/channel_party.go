@@ -109,12 +109,36 @@ func (d *Dual[A]) ModifyForParty(p ChannelParty, f func(A) A) A {
 	}
 }
 
+// RefForParty allows us to get a direct pointer access to the field that is
+// associated with the given ChannelParty.
+func (d *Dual[A]) RefForParty(p ChannelParty) *A {
+	switch p {
+	case Local:
+		return &d.Local
+	case Remote:
+		return &d.Remote
+	default:
+		panic(fmt.Sprintf(
+			"switch default triggered in ForParty: %v", p,
+		))
+	}
+}
+
 // MapDual applies the function argument to both the Local and Remote fields of
 // the Dual[A] and returns a Dual[B] with that function applied.
 func MapDual[A, B any](d Dual[A], f func(A) B) Dual[B] {
 	return Dual[B]{
 		Local:  f(d.Local),
 		Remote: f(d.Remote),
+	}
+}
+
+// ZipWithDual allows us to combine two Duals into a single Dual using the
+// provided function.
+func ZipWithDual[A, B, C any](a Dual[A], b Dual[B], f func(A, B) C) Dual[C] {
+	return Dual[C]{
+		Local:  f(a.Local, b.Local),
+		Remote: f(a.Remote, b.Remote),
 	}
 }
 

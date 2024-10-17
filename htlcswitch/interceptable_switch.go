@@ -95,7 +95,7 @@ type InterceptableSwitch struct {
 
 type interceptedPackets struct {
 	packets  []*htlcPacket
-	linkQuit chan struct{}
+	linkQuit <-chan struct{}
 	isReplay bool
 }
 
@@ -465,8 +465,8 @@ func (s *InterceptableSwitch) Resolve(res *FwdResolution) error {
 // interceptor. If the interceptor signals the resume action, the htlcs are
 // forwarded to the switch. The link's quit signal should be provided to allow
 // cancellation of forwarding during link shutdown.
-func (s *InterceptableSwitch) ForwardPackets(linkQuit chan struct{}, isReplay bool,
-	packets ...*htlcPacket) error {
+func (s *InterceptableSwitch) ForwardPackets(linkQuit <-chan struct{},
+	isReplay bool, packets ...*htlcPacket) error {
 
 	// Synchronize with the main event loop. This should be light in the
 	// case where there is no interceptor.

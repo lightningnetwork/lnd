@@ -5,7 +5,6 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -43,75 +42,12 @@ func (dc *DynCommit) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	var tlvRecords []tlv.Record
-	dc.DustLimit.WhenSome(func(dl btcutil.Amount) {
-		protoSats := uint64(dl)
-		tlvRecords = append(
-			tlvRecords, tlv.MakePrimitiveRecord(
-				DPDustLimitSatoshis, &protoSats,
-			),
-		)
-	})
-	dc.MaxValueInFlight.WhenSome(func(max MilliSatoshi) {
-		protoSats := uint64(max)
-		tlvRecords = append(
-			tlvRecords, tlv.MakePrimitiveRecord(
-				DPMaxHtlcValueInFlightMsat, &protoSats,
-			),
-		)
-	})
-	dc.HtlcMinimum.WhenSome(func(min MilliSatoshi) {
-		protoSats := uint64(min)
-		tlvRecords = append(
-			tlvRecords, tlv.MakePrimitiveRecord(
-				DPHtlcMinimumMsat, &protoSats,
-			),
-		)
-	})
-	dc.ChannelReserve.WhenSome(func(min btcutil.Amount) {
-		channelReserve := uint64(min)
-		tlvRecords = append(
-			tlvRecords, tlv.MakePrimitiveRecord(
-				DPChannelReserveSatoshis, &channelReserve,
-			),
-		)
-	})
-	dc.CsvDelay.WhenSome(func(wait uint16) {
-		tlvRecords = append(
-			tlvRecords, tlv.MakePrimitiveRecord(
-				DPToSelfDelay, &wait,
-			),
-		)
-	})
-	dc.MaxAcceptedHTLCs.WhenSome(func(max uint16) {
-		tlvRecords = append(
-			tlvRecords, tlv.MakePrimitiveRecord(
-				DPMaxAcceptedHtlcs, &max,
-			),
-		)
-	})
-	dc.ChannelType.WhenSome(func(ty ChannelType) {
-		tlvRecords = append(
-			tlvRecords, tlv.MakeDynamicRecord(
-				DPChannelType, &ty,
-				ty.featureBitLen,
-				channelTypeEncoder, channelTypeDecoder,
-			),
-		)
-	})
-	tlv.SortRecords(tlvRecords)
-
-	tlvStream, err := tlv.NewStream(tlvRecords...)
+	var extra ExtraOpaqueData
+	err := extra.PackRecords(dynProposeRecords(&dc.DynPropose)...)
 	if err != nil {
 		return err
 	}
-
-	var extraBytesWriter bytes.Buffer
-	if err := tlvStream.Encode(&extraBytesWriter); err != nil {
-		return err
-	}
-
-	dc.ExtraData = ExtraOpaqueData(extraBytesWriter.Bytes())
+	dc.ExtraData = extra
 
 	return WriteBytes(w, dc.ExtraData)
 }
@@ -135,80 +71,52 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 	}
 
 	// Prepare receiving buffers to be filled by TLV extraction.
-	var dustLimitScratch uint64
-	dustLimit := tlv.MakePrimitiveRecord(
-		DPDustLimitSatoshis, &dustLimitScratch,
+	var dustLimit tlv.RecordT[tlv.TlvType0, uint64]
+	var maxValue tlv.RecordT[tlv.TlvType2, uint64]
+	var htlcMin tlv.RecordT[tlv.TlvType4, uint64]
+	var reserve tlv.RecordT[tlv.TlvType6, uint64]
+	csvDelay := dc.CsvDelay.Zero()
+	maxHtlcs := dc.MaxAcceptedHTLCs.Zero()
+	chanType := dc.ChannelType.Zero()
+
+	typeMap, err := tlvRecords.ExtractRecords(
+		&dustLimit, &maxValue, &htlcMin, &reserve, &csvDelay, &maxHtlcs,
+		&chanType,
 	)
-
-	var maxValueScratch uint64
-	maxValue := tlv.MakePrimitiveRecord(
-		DPMaxHtlcValueInFlightMsat, &maxValueScratch,
-	)
-
-	var htlcMinScratch uint64
-	htlcMin := tlv.MakePrimitiveRecord(
-		DPHtlcMinimumMsat, &htlcMinScratch,
-	)
-
-	var reserveScratch uint64
-	reserve := tlv.MakePrimitiveRecord(
-		DPChannelReserveSatoshis, &reserveScratch,
-	)
-
-	var csvDelayScratch uint16
-	csvDelay := tlv.MakePrimitiveRecord(DPToSelfDelay, &csvDelayScratch)
-
-	var maxHtlcsScratch uint16
-	maxHtlcs := tlv.MakePrimitiveRecord(
-		DPMaxAcceptedHtlcs, &maxHtlcsScratch,
-	)
-
-	var chanTypeScratch ChannelType
-	chanType := tlv.MakeDynamicRecord(
-		DPChannelType, &chanTypeScratch, chanTypeScratch.featureBitLen,
-		channelTypeEncoder, channelTypeDecoder,
-	)
-
-	// Create set of Records to read TLV bytestream into.
-	records := []tlv.Record{
-		dustLimit, maxValue, htlcMin, reserve, csvDelay, maxHtlcs,
-		chanType,
-	}
-	tlv.SortRecords(records)
-
-	// Read TLV stream into record set.
-	extraBytesReader := bytes.NewReader(tlvRecords)
-	tlvStream, err := tlv.NewStream(records...)
-	if err != nil {
-		return err
-	}
-	typeMap, err := tlvStream.DecodeWithParsedTypesP2P(extraBytesReader)
 	if err != nil {
 		return err
 	}
 
 	// Check the results of the TLV Stream decoding and appropriately set
 	// message fields.
-	if val, ok := typeMap[DPDustLimitSatoshis]; ok && val == nil {
-		dc.DustLimit = fn.Some(btcutil.Amount(dustLimitScratch))
+	if val, ok := typeMap[dc.DustLimit.TlvType()]; ok && val == nil {
+		var rec tlv.RecordT[tlv.TlvType0, btcutil.Amount]
+		rec.Val = btcutil.Amount(dustLimit.Val)
+		dc.DustLimit = tlv.SomeRecordT(rec)
 	}
-	if val, ok := typeMap[DPMaxHtlcValueInFlightMsat]; ok && val == nil {
-		dc.MaxValueInFlight = fn.Some(MilliSatoshi(maxValueScratch))
+	if val, ok := typeMap[dc.MaxValueInFlight.TlvType()]; ok && val == nil {
+		var rec tlv.RecordT[tlv.TlvType2, MilliSatoshi]
+		rec.Val = MilliSatoshi(maxValue.Val)
+		dc.MaxValueInFlight = tlv.SomeRecordT(rec)
 	}
-	if val, ok := typeMap[DPHtlcMinimumMsat]; ok && val == nil {
-		dc.HtlcMinimum = fn.Some(MilliSatoshi(htlcMinScratch))
+	if val, ok := typeMap[dc.HtlcMinimum.TlvType()]; ok && val == nil {
+		var rec tlv.RecordT[tlv.TlvType4, MilliSatoshi]
+		rec.Val = MilliSatoshi(htlcMin.Val)
+		dc.HtlcMinimum = tlv.SomeRecordT(rec)
 	}
-	if val, ok := typeMap[DPChannelReserveSatoshis]; ok && val == nil {
-		dc.ChannelReserve = fn.Some(btcutil.Amount(reserveScratch))
+	if val, ok := typeMap[dc.ChannelReserve.TlvType()]; ok && val == nil {
+		var rec tlv.RecordT[tlv.TlvType6, btcutil.Amount]
+		rec.Val = btcutil.Amount(reserve.Val)
+		dc.ChannelReserve = tlv.SomeRecordT(rec)
 	}
-	if val, ok := typeMap[DPToSelfDelay]; ok && val == nil {
-		dc.CsvDelay = fn.Some(csvDelayScratch)
+	if val, ok := typeMap[dc.CsvDelay.TlvType()]; ok && val == nil {
+		dc.CsvDelay = tlv.SomeRecordT(csvDelay)
 	}
-	if val, ok := typeMap[DPMaxAcceptedHtlcs]; ok && val == nil {
-		dc.MaxAcceptedHTLCs = fn.Some(maxHtlcsScratch)
+	if val, ok := typeMap[dc.MaxAcceptedHTLCs.TlvType()]; ok && val == nil {
+		dc.MaxAcceptedHTLCs = tlv.SomeRecordT(maxHtlcs)
 	}
-	if val, ok := typeMap[DPChannelType]; ok && val == nil {
-		dc.ChannelType = fn.Some(chanTypeScratch)
+	if val, ok := typeMap[dc.ChannelType.TlvType()]; ok && val == nil {
+		dc.ChannelType = tlv.SomeRecordT(chanType)
 	}
 
 	if len(tlvRecords) != 0 {

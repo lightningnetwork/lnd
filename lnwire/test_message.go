@@ -833,32 +833,43 @@ func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 
 	// Generate random values for each included field
 	if includeDustLimit {
-		dl := btcutil.Amount(rapid.Uint32().Draw(t, "dustLimit"))
-		msg.DustLimit = fn.Some(dl)
+		var rec tlv.RecordT[tlv.TlvType0, btcutil.Amount]
+		val := btcutil.Amount(rapid.Uint32().Draw(t, "dustLimit"))
+		rec.Val = val
+		msg.DustLimit = tlv.SomeRecordT(rec)
 	}
 
 	if includeMaxValueInFlight {
-		mvif := MilliSatoshi(rapid.Uint64().Draw(t, "maxValueInFlight"))
-		msg.MaxValueInFlight = fn.Some(mvif)
+		var rec tlv.RecordT[tlv.TlvType2, MilliSatoshi]
+		val := MilliSatoshi(rapid.Uint64().Draw(t, "maxValueInFlight"))
+		rec.Val = val
+		msg.MaxValueInFlight = tlv.SomeRecordT(rec)
 	}
 
 	if includeChannelReserve {
-		cr := btcutil.Amount(rapid.Uint32().Draw(t, "channelReserve"))
-		msg.ChannelReserve = fn.Some(cr)
+		var rec tlv.RecordT[tlv.TlvType6, btcutil.Amount]
+		val := btcutil.Amount(rapid.Uint32().Draw(t, "channelReserve"))
+		rec.Val = val
+		msg.ChannelReserve = tlv.SomeRecordT(rec)
 	}
 
 	if includeCsvDelay {
-		cd := rapid.Uint16().Draw(t, "csvDelay")
-		msg.CsvDelay = fn.Some(cd)
+		csvDelay := msg.CsvDelay.Zero()
+		val := rapid.Uint16().Draw(t, "csvDelay")
+		csvDelay.Val = val
+		msg.CsvDelay = tlv.SomeRecordT(csvDelay)
 	}
 
 	if includeMaxAcceptedHTLCs {
-		mah := rapid.Uint16().Draw(t, "maxAcceptedHTLCs")
-		msg.MaxAcceptedHTLCs = fn.Some(mah)
+		maxHtlcs := msg.MaxAcceptedHTLCs.Zero()
+		maxHtlcs.Val = rapid.Uint16().Draw(t, "maxAcceptedHTLCs")
+		msg.MaxAcceptedHTLCs = tlv.SomeRecordT(maxHtlcs)
 	}
 
 	if includeChannelType {
-		msg.ChannelType = fn.Some(*RandChannelType(t))
+		chanType := msg.ChannelType.Zero()
+		chanType.Val = *RandChannelType(t)
+		msg.ChannelType = tlv.SomeRecordT(chanType)
 	}
 
 	return msg

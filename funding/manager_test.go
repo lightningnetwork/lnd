@@ -568,7 +568,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			&lnwallet.MockAuxLeafStore{},
 		),
 		AuxSigner: fn.Some[lnwallet.AuxSigner](
-			&lnwallet.MockAuxSigner{},
+			lnwallet.NewAuxSignerMock(lnwallet.EmptyMockJobHandler),
 		),
 	}
 

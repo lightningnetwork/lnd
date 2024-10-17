@@ -932,21 +932,34 @@ func (c *ChannelArbitrator) stateStep(
 		// arbitrating for. If a commitment has confirmed, then we'll
 		// use the set snapshot from the chain, otherwise we'll use our
 		// current set.
-		var htlcs map[HtlcSetKey]htlcSet
-		if confCommitSet != nil {
-			htlcs = confCommitSet.toActiveHTLCSets()
-		} else {
+		var (
+			chainActions ChainActionMap
+			err          error
+		)
+
+		// Normally if we force close the channel locally we will have
+		// no confCommitSet. However when the remote commitment confirms
+		// without us ever broadcasting our local commitment we need to
+		// make sure we cancel all outgoing dust HTLCs as well.
+		if confCommitSet == nil {
 			// Update the set of activeHTLCs so
 			// checkLocalChainActions has an up-to-date view of the
 			// commitments.
 			c.updateActiveHTLCs()
-			htlcs = c.activeHTLCs
-		}
-		chainActions, err := c.checkLocalChainActions(
-			triggerHeight, trigger, htlcs, false,
-		)
-		if err != nil {
-			return StateDefault, nil, err
+			htlcs := c.activeHTLCs
+			chainActions, err = c.checkLocalChainActions(
+				triggerHeight, trigger, htlcs, false,
+			)
+			if err != nil {
+				return StateDefault, nil, err
+			}
+		} else {
+			chainActions, err = c.constructChainActions(
+				confCommitSet, triggerHeight, trigger,
+			)
+			if err != nil {
+				return StateDefault, nil, err
+			}
 		}
 
 		// If there are no actions to be made, then we'll remain in the
@@ -963,6 +976,28 @@ func (c *ChannelArbitrator) stateStep(
 		// commitment transaction has already been broadcast.
 		log.Tracef("ChannelArbitrator(%v): logging chain_actions=%v",
 			c.cfg.ChanPoint, lnutils.SpewLogClosure(chainActions))
+
+		// Cancel all the outgoing dust htlcs available either on the
+		// local or the remote/remote pending commitment transaction.
+		dustHTLCs := chainActions[HtlcFailDustAction]
+		if len(dustHTLCs) > 0 {
+			log.Debugf("ChannelArbitrator(%v): canceling %v dust "+
+				"HTLCs backwards", c.cfg.ChanPoint,
+				len(dustHTLCs))
+
+			dustHTLCSet := fn.SliceToMap(dustHTLCs,
+				func(htlc channeldb.HTLC) uint64 {
+					return htlc.HtlcIndex
+				},
+				func(htlc channeldb.HTLC) struct{} {
+					return struct{}{}
+				},
+			)
+			err = c.cancelIncomingHTLCs(dustHTLCSet)
+			if err != nil {
+				return StateError, closeTx, err
+			}
+		}
 
 		// Depending on the type of trigger, we'll either "tunnel"
 		// through to a farther state, or just proceed linearly to the
@@ -3173,10 +3208,9 @@ func (c *ChannelArbitrator) resolveHTLCsNow(htlcActions ChainActionMap) error {
 	// confirmed are resolved.
 	for htlcAction, htlcs := range htlcActions {
 		switch htlcAction {
-		// If we can fail an HTLC immediately (an outgoing HTLC with no
-		// contract and it was not canceled before), then we'll assemble
-		// an HTLC fail packet to send.
-		case HtlcFailDanglingAction, HtlcFailDustAction:
+		// We only fail dangling non-dust HTLCs here because dust is
+		// canceled somewhere else.
+		case HtlcFailDanglingAction:
 			for _, htlc := range htlcs {
 				cancelRemotePendingHTLCs.Add(htlc.HtlcIndex)
 			}

@@ -931,6 +931,24 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		t.Fatalf("no response received")
 	}
 
+	// We expect an immediate resolution message for the outgoing dust htlc.
+	// It is not resolvable on-chain and it can be canceled back even before
+	// the commitment transaction confirmed.
+	select {
+	case msgs := <-chanArbCtx.resolutions:
+		if len(msgs) != 1 {
+			t.Fatalf("expected 1 message, instead got %v",
+				len(msgs))
+		}
+
+		if msgs[0].HtlcIndex != outgoingDustHtlc.HtlcIndex {
+			t.Fatalf("wrong htlc index: expected %v, got %v",
+				outgoingDustHtlc.HtlcIndex, msgs[0].HtlcIndex)
+		}
+	case <-time.After(defaultTimeout):
+		t.Fatalf("resolution msgs not sent")
+	}
+
 	// Now notify about the local force close getting confirmed.
 	closeTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
@@ -992,22 +1010,6 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		StateContractClosed,
 		StateWaitingFullResolution,
 	)
-
-	// We expect an immediate resolution message for the outgoing dust htlc.
-	// It is not resolvable on-chain.
-	select {
-	case msgs := <-chanArbCtx.resolutions:
-		if len(msgs) != 1 {
-			t.Fatalf("expected 1 message, instead got %v", len(msgs))
-		}
-
-		if msgs[0].HtlcIndex != outgoingDustHtlc.HtlcIndex {
-			t.Fatalf("wrong htlc index: expected %v, got %v",
-				outgoingDustHtlc.HtlcIndex, msgs[0].HtlcIndex)
-		}
-	case <-time.After(defaultTimeout):
-		t.Fatalf("resolution msgs not sent")
-	}
 
 	// We'll grab the old notifier here as our resolvers are still holding
 	// a reference to this instance, and a new one will be created when we

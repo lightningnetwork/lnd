@@ -3,7 +3,7 @@ package build_test
 import (
 	"testing"
 
-	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/stretchr/testify/require"
 )

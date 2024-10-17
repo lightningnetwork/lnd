@@ -3,6 +3,8 @@ package fn
 import (
 	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // Result represents a value that can either be a success (T) or an error.
@@ -62,27 +64,35 @@ func (r Result[T]) IsErr() bool {
 	return r.IsRight()
 }
 
-// Map applies a function to the success value if it exists.
-func (r Result[T]) Map(f func(T) T) Result[T] {
+// MapOk applies an endomorphic function to the success value if it exists.
+func (r Result[T]) MapOk(f func(T) T) Result[T] {
 	return Result[T]{
 		MapLeft[T, error](f)(r.Either),
 	}
 }
 
-// MapErr applies a function to the error value if it exists.
+// MapErr applies an endomorphic function to the error value if it exists.
 func (r Result[T]) MapErr(f func(error) error) Result[T] {
 	return Result[T]{
 		MapRight[T](f)(r.Either),
 	}
 }
 
-// Option returns the success value as an Option.
-func (r Result[T]) Option() Option[T] {
-	return r.Either.LeftToOption()
+// MapOk applies a non-endomorphic function to the success value if it exists
+// and returns a Result of the new type.
+func MapOk[A, B any](f func(A) B) func(Result[A]) Result[B] {
+	return func(r Result[A]) Result[B] {
+		return Result[B]{MapLeft[A, error](f)(r.Either)}
+	}
 }
 
-// WhenResult executes the given function if the Result is a success.
-func (r Result[T]) WhenResult(f func(T)) {
+// OkToSome mutes the error value of the result.
+func (r Result[T]) OkToSome() Option[T] {
+	return r.Either.LeftToSome()
+}
+
+// WhenOk executes the given function if the Result is a success.
+func (r Result[T]) WhenOk(f func(T)) {
 	r.WhenLeft(f)
 }
 
@@ -102,9 +112,9 @@ func (r Result[T]) UnwrapOr(defaultValue T) T {
 
 // UnwrapOrElse returns the success value or computes a value from a function
 // if it's an error.
-func (r Result[T]) UnwrapOrElse(f func() T) T {
+func (r Result[T]) UnwrapOrElse(f func(error) T) T {
 	if r.IsErr() {
-		return f()
+		return f(r.right)
 	}
 
 	return r.left
@@ -114,17 +124,29 @@ func (r Result[T]) UnwrapOrElse(f func() T) T {
 func (r Result[T]) UnwrapOrFail(t *testing.T) T {
 	t.Helper()
 
-	if r.IsErr() {
-		t.Fatalf("Result[%T] contained error: %v", r.left, r.right)
-	}
+	require.True(
+		t, r.IsOk(), "Result[%T] contained error: %v", r.left, r.right,
+	)
 
-	var zero T
-
-	return zero
+	return r.left
 }
 
-// FlatMap applies a function that returns a Result to the success value if it
-// exists.
+// FlattenResult takes a nested Result and joins the two functor layers into
+// one.
+func FlattenResult[A any](r Result[Result[A]]) Result[A] {
+	if r.IsErr() {
+		return Err[A](r.right)
+	}
+
+	if r.left.IsErr() {
+		return Err[A](r.left.right)
+	}
+
+	return r.left
+}
+
+// FlatMap applies a kleisli endomorphic function that returns a Result to the
+// success value if it exists.
 func (r Result[T]) FlatMap(f func(T) Result[T]) Result[T] {
 	if r.IsOk() {
 		return r
@@ -143,17 +165,17 @@ func (r Result[T]) AndThen(f func(T) Result[T]) Result[T] {
 // OrElse returns the original Result if it is a success, otherwise it returns
 // the provided alternative Result. This along with AndThen can be used to
 // Railway Oriented Programming (ROP).
-func (r Result[T]) OrElse(f func() Result[T]) Result[T] {
+func (r Result[T]) OrElse(f func(error) Result[T]) Result[T] {
 	if r.IsOk() {
 		return r
 	}
 
-	return f()
+	return f(r.right)
 }
 
-// FlatMap applies a function that returns a Result[B] to the success value if
-// it exists.
-func FlatMap[A, B any](r Result[A], f func(A) Result[B]) Result[B] {
+// FlatMapResult applies a function that returns a Result[B] to the success
+// value if it exists.
+func FlatMapResult[A, B any](r Result[A], f func(A) Result[B]) Result[B] {
 	if r.IsOk() {
 		return f(r.left)
 	}
@@ -164,17 +186,45 @@ func FlatMap[A, B any](r Result[A], f func(A) Result[B]) Result[B] {
 // AndThen is an alias for FlatMap. This along with OrElse can be used to
 // Railway Oriented Programming (ROP).
 func AndThen[A, B any](r Result[A], f func(A) Result[B]) Result[B] {
-	return FlatMap(r, f)
+	return FlatMapResult(r, f)
 }
 
-// AndThen2 applies a function that returns a Result[C] to the success values
-// of two Result types if both exist.
-func AndThen2[A, B, C any](ra Result[A], rb Result[B],
-	f func(A, B) Result[C]) Result[C] {
+// LiftA2Result lifts a two-argument function to a function that can operate
+// over results of its arguments.
+func LiftA2Result[A, B, C any](f func(A, B) C,
+) func(Result[A], Result[B]) Result[C] {
 
-	return AndThen(ra, func(a A) Result[C] {
-		return AndThen(rb, func(b B) Result[C] {
-			return f(a, b)
-		})
-	})
+	return func(ra Result[A], rb Result[B]) Result[C] {
+		if ra.IsErr() {
+			return Err[C](ra.right)
+		}
+
+		if rb.IsErr() {
+			return Err[C](rb.right)
+		}
+
+		return Ok(f(ra.left, rb.left))
+	}
+}
+
+// Sink consumes a Result, either propagating its error or processing its
+// success value with a function that can fail.
+func (r Result[A]) Sink(f func(A) error) error {
+	if r.IsErr() {
+		return r.right
+	}
+
+	return f(r.left)
+}
+
+// TransposeResOpt transposes the Result[Option[A]] into a Option[Result[A]].
+// This has the effect of leaving an A value alone while inverting the Result
+// and Option layers. If there is no internal A value, it will convert the
+// non-success value to the proper one in the transposition.
+func TransposeResOpt[A any](r Result[Option[A]]) Option[Result[A]] {
+	if r.IsErr() {
+		return Some(Err[A](r.right))
+	}
+
+	return MapOption(Ok[A])(r.left)
 }

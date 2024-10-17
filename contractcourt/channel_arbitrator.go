@@ -1390,133 +1390,22 @@ func (c *ChannelArbitrator) stateStep(
 func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 	heightHint uint32) error {
 
-	// Use the chan id as the exclusive group. This prevents any of the
-	// anchors from being batched together.
-	exclusiveGroup := c.cfg.ShortChanID.ToUint64()
-
-	// sweepWithDeadline is a helper closure that takes an anchor
-	// resolution and sweeps it with its corresponding deadline.
-	sweepWithDeadline := func(anchor *lnwallet.AnchorResolution,
-		htlcs htlcSet, anchorPath string) error {
-
-		// Find the deadline for this specific anchor.
-		deadline, value, err := c.findCommitmentDeadlineAndValue(
-			heightHint, htlcs,
-		)
-		if err != nil {
-			return err
-		}
-
-		// If we cannot find a deadline, it means there's no HTLCs at
-		// stake, which means we can relax our anchor sweeping
-		// conditions as we don't have any time sensitive outputs to
-		// sweep. However we need to register the anchor output with the
-		// sweeper so we are later able to bump the close fee.
-		if deadline.IsNone() {
-			log.Infof("ChannelArbitrator(%v): no HTLCs at stake, "+
-				"sweeping anchor with default deadline",
-				c.cfg.ChanPoint)
-		}
-
-		witnessType := input.CommitmentAnchor
-
-		// For taproot channels, we need to use the proper witness
-		// type.
-		if txscript.IsPayToTaproot(
-			anchor.AnchorSignDescriptor.Output.PkScript,
-		) {
-
-			witnessType = input.TaprootAnchorSweepSpend
-		}
-
-		// Prepare anchor output for sweeping.
-		anchorInput := input.MakeBaseInput(
-			&anchor.CommitAnchor,
-			witnessType,
-			&anchor.AnchorSignDescriptor,
-			heightHint,
-			&input.TxInfo{
-				Fee:    anchor.CommitFee,
-				Weight: anchor.CommitWeight,
-			},
-		)
-
-		// If we have a deadline, we'll use it to calculate the
-		// deadline height, otherwise default to none.
-		deadlineDesc := "None"
-		deadlineHeight := fn.MapOption(func(d int32) int32 {
-			deadlineDesc = fmt.Sprintf("%d", d)
-
-			return d + int32(heightHint)
-		})(deadline)
-
-		// Calculate the budget based on the value under protection,
-		// which is the sum of all HTLCs on this commitment subtracted
-		// by their budgets.
-		// The anchor output in itself has a small output value of 330
-		// sats so we also include it in the budget to pay for the
-		// cpfp transaction.
-		budget := calculateBudget(
-			value, c.cfg.Budget.AnchorCPFPRatio,
-			c.cfg.Budget.AnchorCPFP,
-		) + AnchorOutputValue
-
-		log.Infof("ChannelArbitrator(%v): offering anchor from %s "+
-			"commitment %v to sweeper with deadline=%v, budget=%v",
-			c.cfg.ChanPoint, anchorPath, anchor.CommitAnchor,
-			deadlineDesc, budget)
-
-		// Sweep anchor output with a confirmation target fee
-		// preference. Because this is a cpfp-operation, the anchor
-		// will only be attempted to sweep when the current fee
-		// estimate for the confirmation target exceeds the commit fee
-		// rate.
-		_, err = c.cfg.Sweeper.SweepInput(
-			&anchorInput,
-			sweep.Params{
-				ExclusiveGroup: &exclusiveGroup,
-				Budget:         budget,
-				DeadlineHeight: deadlineHeight,
-			},
-		)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}
-
 	// Update the set of activeHTLCs so that the sweeping routine has an
 	// up-to-date view of the set of commitments.
 	c.updateActiveHTLCs()
 
-	// Sweep anchors based on different HTLC sets. Notice the HTLC sets may
-	// differ across commitments, thus their deadline values could vary.
-	for htlcSet, htlcs := range c.activeHTLCs {
-		switch {
-		case htlcSet == LocalHtlcSet && anchors.Local != nil:
-			err := sweepWithDeadline(anchors.Local, htlcs, "local")
-			if err != nil {
-				return err
-			}
+	// Prepare the sweeping requests for all possible versions of
+	// commitments.
+	sweepReqs, err := c.prepareAnchorSweeps(heightHint, anchors)
+	if err != nil {
+		return err
+	}
 
-		case htlcSet == RemoteHtlcSet && anchors.Remote != nil:
-			err := sweepWithDeadline(
-				anchors.Remote, htlcs, "remote",
-			)
-			if err != nil {
-				return err
-			}
-
-		case htlcSet == RemotePendingHtlcSet &&
-			anchors.RemotePending != nil:
-
-			err := sweepWithDeadline(
-				anchors.RemotePending, htlcs, "remote pending",
-			)
-			if err != nil {
-				return err
-			}
+	// Send out the sweeping requests to the sweeper.
+	for _, req := range sweepReqs {
+		_, err = c.cfg.Sweeper.SweepInput(req.input, req.params)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -2254,7 +2143,7 @@ func (c *ChannelArbitrator) checkRemoteChainActions(
 }
 
 // checkRemoteDiffActions checks the set difference of the HTLCs on the remote
-// confirmed commit and remote dangling commit for HTLCS that we need to cancel
+// confirmed commit and remote pending commit for HTLCS that we need to cancel
 // back. If we find any HTLCs on the remote pending but not the remote, then
 // we'll mark them to be failed immediately.
 func (c *ChannelArbitrator) checkRemoteDiffActions(
@@ -2277,7 +2166,7 @@ func (c *ChannelArbitrator) checkRemoteDiffActions(
 	}
 
 	// With the remote HTLCs assembled, we'll mark any HTLCs only on the
-	// remote dangling commitment to be failed asap.
+	// remote pending commitment to be failed asap.
 	actionMap := make(ChainActionMap)
 	for _, htlc := range danglingHTLCs.outgoingHTLCs {
 		if _, ok := remoteHtlcs[htlc.HtlcIndex]; ok {
@@ -3198,6 +3087,192 @@ func (c *ChannelArbitrator) checkLegacyBreach() (ArbitratorState, error) {
 
 	// This is a modern breach close with resolvers.
 	return StateContractClosed, nil
+}
+
+// sweepRequest wraps the arguments used when calling `SweepInput`.
+type sweepRequest struct {
+	// input is the input to be swept.
+	input input.Input
+
+	// params holds the sweeping parameters.
+	params sweep.Params
+}
+
+// createSweepRequest creates an anchor sweeping request for a particular
+// version (local/remote/remote pending) of the commitment.
+func (c *ChannelArbitrator) createSweepRequest(
+	anchor *lnwallet.AnchorResolution, htlcs htlcSet, anchorPath string,
+	heightHint uint32) (sweepRequest, error) {
+
+	// Use the chan id as the exclusive group. This prevents any of the
+	// anchors from being batched together.
+	exclusiveGroup := c.cfg.ShortChanID.ToUint64()
+
+	// Find the deadline for this specific anchor.
+	deadline, value, err := c.findCommitmentDeadlineAndValue(
+		heightHint, htlcs,
+	)
+	if err != nil {
+		return sweepRequest{}, err
+	}
+
+	// If we cannot find a deadline, it means there's no HTLCs at stake,
+	// which means we can relax our anchor sweeping conditions as we don't
+	// have any time sensitive outputs to sweep. However we need to
+	// register the anchor output with the sweeper so we are later able to
+	// bump the close fee.
+	if deadline.IsNone() {
+		log.Infof("ChannelArbitrator(%v): no HTLCs at stake, "+
+			"sweeping anchor with default deadline",
+			c.cfg.ChanPoint)
+	}
+
+	witnessType := input.CommitmentAnchor
+
+	// For taproot channels, we need to use the proper witness type.
+	if txscript.IsPayToTaproot(
+		anchor.AnchorSignDescriptor.Output.PkScript,
+	) {
+
+		witnessType = input.TaprootAnchorSweepSpend
+	}
+
+	// Prepare anchor output for sweeping.
+	anchorInput := input.MakeBaseInput(
+		&anchor.CommitAnchor,
+		witnessType,
+		&anchor.AnchorSignDescriptor,
+		heightHint,
+		&input.TxInfo{
+			Fee:    anchor.CommitFee,
+			Weight: anchor.CommitWeight,
+		},
+	)
+
+	// If we have a deadline, we'll use it to calculate the deadline
+	// height, otherwise default to none.
+	deadlineDesc := "None"
+	deadlineHeight := fn.MapOption(func(d int32) int32 {
+		deadlineDesc = fmt.Sprintf("%d", d)
+
+		return d + int32(heightHint)
+	})(deadline)
+
+	// Calculate the budget based on the value under protection, which is
+	// the sum of all HTLCs on this commitment subtracted by their budgets.
+	// The anchor output in itself has a small output value of 330 sats so
+	// we also include it in the budget to pay for the cpfp transaction.
+	budget := calculateBudget(
+		value, c.cfg.Budget.AnchorCPFPRatio, c.cfg.Budget.AnchorCPFP,
+	) + AnchorOutputValue
+
+	log.Infof("ChannelArbitrator(%v): offering anchor from %s commitment "+
+		"%v to sweeper with deadline=%v, budget=%v", c.cfg.ChanPoint,
+		anchorPath, anchor.CommitAnchor, deadlineDesc, budget)
+
+	// Sweep anchor output with a confirmation target fee preference.
+	// Because this is a cpfp-operation, the anchor will only be attempted
+	// to sweep when the current fee estimate for the confirmation target
+	// exceeds the commit fee rate.
+	return sweepRequest{
+		input: &anchorInput,
+		params: sweep.Params{
+			ExclusiveGroup: &exclusiveGroup,
+			Budget:         budget,
+			DeadlineHeight: deadlineHeight,
+		},
+	}, nil
+}
+
+// prepareAnchorSweeps creates a list of requests to be used by the sweeper for
+// all possible commitment versions.
+func (c *ChannelArbitrator) prepareAnchorSweeps(heightHint uint32,
+	anchors *lnwallet.AnchorResolutions) ([]sweepRequest, error) {
+
+	// requests holds all the possible anchor sweep requests. We can have
+	// up to 3 different versions of commitments (local/remote/remote
+	// dangling) to be CPFPed by the anchors.
+	requests := make([]sweepRequest, 0, 3)
+
+	// remotePendingReq holds the request for sweeping the anchor output on
+	// the remote pending commitment. It's only set when there's an actual
+	// pending remote commitment and it's used to decide whether we need to
+	// update the fee budget when sweeping the anchor output on the local
+	// commitment.
+	remotePendingReq := fn.None[sweepRequest]()
+
+	// First we check on the remote pending commitment and optionally
+	// create an anchor sweeping request.
+	htlcs, ok := c.activeHTLCs[RemotePendingHtlcSet]
+	if ok && anchors.RemotePending != nil {
+		req, err := c.createSweepRequest(
+			anchors.RemotePending, htlcs, "remote pending",
+			heightHint,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Save the request.
+		requests = append(requests, req)
+
+		// Set the optional variable.
+		remotePendingReq = fn.Some(req)
+	}
+
+	// Check the local commitment and optionally create an anchor sweeping
+	// request. The params used in this request will be influenced by the
+	// anchor sweeping request made from the pending remote commitment.
+	htlcs, ok = c.activeHTLCs[LocalHtlcSet]
+	if ok && anchors.Local != nil {
+		req, err := c.createSweepRequest(
+			anchors.Local, htlcs, "local", heightHint,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// If there's an anchor sweeping request from the pending
+		// remote commitment, we will compare its budget against the
+		// budget used here and choose the params that has a larger
+		// budget. The deadline when choosing the remote pending budget
+		// instead of the local one will always be earlier or equal to
+		// the local deadline because outgoing HTLCs are resolved on
+		// the local commitment first before they are removed from the
+		// remote one.
+		remotePendingReq.WhenSome(func(s sweepRequest) {
+			if s.params.Budget <= req.params.Budget {
+				return
+			}
+
+			log.Infof("ChannelArbitrator(%v): replaced local "+
+				"anchor(%v) sweep params with pending remote "+
+				"anchor sweep params, \nold:[%v], \nnew:[%v]",
+				c.cfg.ChanPoint, anchors.Local.CommitAnchor,
+				req.params, s.params)
+
+			req.params = s.params
+		})
+
+		// Save the request.
+		requests = append(requests, req)
+	}
+
+	// Check the remote commitment and create an anchor sweeping request if
+	// needed.
+	htlcs, ok = c.activeHTLCs[RemoteHtlcSet]
+	if ok && anchors.Remote != nil {
+		req, err := c.createSweepRequest(
+			anchors.Remote, htlcs, "remote", heightHint,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		requests = append(requests, req)
+	}
+
+	return requests, nil
 }
 
 // failIncomingDust resolves the incoming dust HTLCs because they do not have

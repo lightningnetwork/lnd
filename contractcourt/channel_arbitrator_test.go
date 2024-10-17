@@ -2256,7 +2256,7 @@ func TestFindCommitmentDeadlineAndValue(t *testing.T) {
 	mockPreimageDB := newMockWitnessBeacon()
 	mockPreimageDB.lookupPreimage[rHash] = rHash
 
-	// Attack a mock PreimageDB and Registry to channel arbitrator.
+	// Attach a mock PreimageDB and Registry to channel arbitrator.
 	chanArb := chanArbCtx.chanArb
 	chanArb.cfg.PreimageDB = mockPreimageDB
 	chanArb.cfg.Registry = &mockRegistry{}
@@ -2447,7 +2447,7 @@ func TestSweepAnchors(t *testing.T) {
 	mockPreimageDB := newMockWitnessBeacon()
 	mockPreimageDB.lookupPreimage[rHash] = rHash
 
-	// Attack a mock PreimageDB and Registry to channel arbitrator.
+	// Attach a mock PreimageDB and Registry to channel arbitrator.
 	chanArb := chanArbCtx.chanArb
 	chanArb.cfg.PreimageDB = mockPreimageDB
 	chanArb.cfg.Registry = &mockRegistry{}
@@ -2598,6 +2598,116 @@ func TestSweepAnchors(t *testing.T) {
 	)
 }
 
+// TestSweepLocalAnchor checks the sweep params used for the local anchor will
+// be updated optionally based on the pending remote commit.
+func TestSweepLocalAnchor(t *testing.T) {
+	// Create a testing channel arbitrator.
+	log := &mockArbitratorLog{
+		state:     StateDefault,
+		newStates: make(chan ArbitratorState, 5),
+	}
+	chanArbCtx, err := createTestChannelArbitrator(t, log)
+	require.NoError(t, err, "unable to create ChannelArbitrator")
+
+	// Attach a mock PreimageDB and Registry to channel arbitrator.
+	chanArb := chanArbCtx.chanArb
+	mockPreimageDB := newMockWitnessBeacon()
+	chanArb.cfg.PreimageDB = mockPreimageDB
+	chanArb.cfg.Registry = &mockRegistry{}
+
+	// Set current block height.
+	heightHint := uint32(1000)
+	chanArbCtx.chanArb.blocks <- int32(heightHint)
+
+	htlcIndex := uint64(99)
+	deadlineDelta := uint32(10)
+
+	htlcAmt := lnwire.MilliSatoshi(1_000_000)
+
+	// Create one testing HTLC.
+	deadlineSmallDelta := deadlineDelta + 4
+	htlcSmallExipry := channeldb.HTLC{
+		HtlcIndex:     htlcIndex,
+		RefundTimeout: heightHint + deadlineSmallDelta,
+		Amt:           htlcAmt,
+	}
+
+	// Setup our local HTLC set such that it doesn't have any HTLCs. We
+	// expect an anchor sweeping request to be made using the params
+	// created from sweeping the anchor from the pending remote commit.
+	chanArb.activeHTLCs[LocalHtlcSet] = htlcSet{}
+
+	// Setup our remote HTLC set such that no valid HTLCs can be used, thus
+	// the anchor sweeping is skipped.
+	chanArb.activeHTLCs[RemoteHtlcSet] = htlcSet{}
+
+	// Setup out pending remote HTLC set such that we will use the HTLC's
+	// CLTV from the outgoing HTLC set.
+	// Only half of the deadline is used since the anchor cpfp sweep. The
+	// other half of the deadline is used to sweep the HTLCs at stake.
+	expectedPendingDeadline := heightHint + deadlineSmallDelta/2
+	chanArb.activeHTLCs[RemotePendingHtlcSet] = htlcSet{
+		outgoingHTLCs: map[uint64]channeldb.HTLC{
+			htlcSmallExipry.HtlcIndex: htlcSmallExipry,
+		},
+	}
+
+	// Mock FindOutgoingHTLCDeadline so the pending remote's outgoing HTLC
+	// returns the small expiry value.
+	chanArb.cfg.FindOutgoingHTLCDeadline = func(
+		htlc channeldb.HTLC) fn.Option[int32] {
+
+		if htlc.RHash != htlcSmallExipry.RHash {
+			return fn.None[int32]()
+		}
+
+		return fn.Some(int32(htlcSmallExipry.RefundTimeout))
+	}
+
+	// Create AnchorResolutions.
+	anchors := &lnwallet.AnchorResolutions{
+		Local: &lnwallet.AnchorResolution{
+			AnchorSignDescriptor: input.SignDescriptor{
+				Output: &wire.TxOut{Value: 1},
+			},
+		},
+		Remote: &lnwallet.AnchorResolution{
+			AnchorSignDescriptor: input.SignDescriptor{
+				Output: &wire.TxOut{Value: 1},
+			},
+		},
+		RemotePending: &lnwallet.AnchorResolution{
+			AnchorSignDescriptor: input.SignDescriptor{
+				Output: &wire.TxOut{Value: 1},
+			},
+		},
+	}
+
+	// Sweep anchors and check there's no error.
+	err = chanArb.sweepAnchors(anchors, heightHint)
+	require.NoError(t, err)
+
+	// Verify deadlines are used as expected.
+	deadlines := chanArbCtx.sweeper.deadlines
+
+	// We should see two `SweepInput` calls - one for sweeping the local
+	// anchor, the other from the remote pending anchor.
+	require.Len(t, deadlines, 2)
+
+	// Both deadlines should be the same since the local anchor uses the
+	// parameters from the pending remote commitment.
+	require.EqualValues(
+		t, expectedPendingDeadline, deadlines[0],
+		"local deadline not matched, want %v, got %v",
+		expectedPendingDeadline, deadlines[0],
+	)
+	require.EqualValues(
+		t, expectedPendingDeadline, deadlines[1],
+		"pending remote deadline not matched, want %v, got %v",
+		expectedPendingDeadline, deadlines[1],
+	)
+}
+
 // TestChannelArbitratorAnchors asserts that the commitment tx anchor is swept.
 func TestChannelArbitratorAnchors(t *testing.T) {
 	log := &mockArbitratorLog{
@@ -2621,7 +2731,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 	mockPreimageDB := newMockWitnessBeacon()
 	mockPreimageDB.lookupPreimage[rHash] = rHash
 
-	// Attack a mock PreimageDB and Registry to channel arbitrator.
+	// Attach a mock PreimageDB and Registry to channel arbitrator.
 	chanArb := chanArbCtx.chanArb
 	chanArb.cfg.PreimageDB = mockPreimageDB
 	chanArb.cfg.Registry = &mockRegistry{}

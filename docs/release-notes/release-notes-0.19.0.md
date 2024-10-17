@@ -10,6 +10,7 @@
     - [lncli Updates](#lncli-updates)
     - [Breaking Changes](#breaking-changes)
     - [Performance Improvements](#performance-improvements)
+    - [Misc](#misc)
 - [Technical and Architectural Updates](#technical-and-architectural-updates)
     - [BOLT Spec Updates](#bolt-spec-updates)
     - [Testing](#testing)
@@ -75,6 +76,11 @@
 ## Performance Improvements
 
 * Log rotation can now use ZSTD 
+## Misc
+
+* [Add retry logic](https://github.com/lightningnetwork/lnd/pull/8381) for
+  watchtower block fetching with a max number of attempts and exponential
+  back-off.
 
 * [A new method](https://github.com/lightningnetwork/lnd/pull/9195)
   `AssertTxnsNotInMempool` has been added to `lntest` package to allow batch
@@ -107,6 +113,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Animesh Bilthare
 * Boris Nagaev
 * CharlieZKSmith
 * Elle Mouton

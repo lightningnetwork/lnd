@@ -2,6 +2,7 @@ package lnwallet
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -3996,10 +3997,10 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	// order as they appear on the commitment transaction after BIP 69
 	// sorting.
 	slices.SortFunc(sigBatch, func(i, j SignJob) int {
-		return int(i.OutputIndex - j.OutputIndex)
+		return cmp.Compare(i.OutputIndex, j.OutputIndex)
 	})
 	slices.SortFunc(auxSigBatch, func(i, j AuxSigJob) int {
-		return int(i.OutputIndex - j.OutputIndex)
+		return cmp.Compare(i.OutputIndex, j.OutputIndex)
 	})
 
 	lc.sigPool.SubmitSignBatch(sigBatch)

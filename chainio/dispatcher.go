@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -135,6 +136,10 @@ func (b *BlockbeatDispatcher) dispatchBlocks(
 
 				return
 			}
+
+			// Log a separator so it's easier to identify when a
+			// new block arrives for subsystems.
+			clog.Debugf("%v", lnutils.NewSeparatorClosure())
 
 			clog.Infof("Received new block %v at height %d, "+
 				"notifying consumers...", blockEpoch.Hash,

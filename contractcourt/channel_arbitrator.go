@@ -1256,16 +1256,25 @@ func (c *ChannelArbitrator) stateStep(
 				return StateError, closeTx, err
 			}
 
-			// If we can fail an HTLC immediately (an outgoing HTLC
-			// with no contract and it was not canceled before),
-			// then we'll assemble an HTLC fail packet to send.
+			// We can fail the upstream HTLC for an outgoing
+			// dangling and dust HTLC because we can be sure they
+			// will not be resolved onchain.
 			getIdx := func(htlc channeldb.HTLC) uint64 {
 				return htlc.HtlcIndex
 			}
 			remoteDangling := fn.NewSet(fn.Map(
-				getIdx, htlcActions[HtlcFailNowAction],
+				getIdx, htlcActions[HtlcFailDanglingAction],
 			)...)
 			err := c.abandonForwards(remoteDangling)
+			if err != nil {
+				return StateError, closeTx, err
+			}
+
+			dustHTLCs := fn.NewSet(fn.Map(
+				getIdx, htlcActions[HtlcFailDustAction],
+			)...)
+
+			err = c.abandonForwards(dustHTLCs)
 			if err != nil {
 				return StateError, closeTx, err
 			}
@@ -1716,10 +1725,11 @@ const (
 	// before its timeout period.
 	HtlcClaimAction = 2
 
-	// HtlcFailNowAction indicates that we should fail an outgoing HTLC
-	// immediately by cancelling it backwards as it has no corresponding
-	// output in our commitment transaction.
-	HtlcFailNowAction = 3
+	// HtlcFailDustAction indicates that we should fail the upstream HTLC
+	// for an outgoing dust HTLC immediately (even before the commitment
+	// transaction is confirmed) because it has no output on the commitment
+	// transaction. This also includes remote pending outgoing dust HTLCs.
+	HtlcFailDustAction = 3
 
 	// HtlcOutgoingWatchAction indicates that we can't yet timeout this
 	// HTLC, but we had to go to chain on order to resolve an existing
@@ -1738,6 +1748,13 @@ const (
 	// HtlcIncomingDustFinalAction indicates that we should mark an incoming
 	// dust htlc as final because it can't be claimed on-chain.
 	HtlcIncomingDustFinalAction = 6
+
+	// HtlcFailDanglingAction indicates that we should fail the upstream
+	// HTLC for an outgoing HTLC immediately after the commitment
+	// transaction has confirmed because it has no corresponding output on
+	// the commitment transaction. This category does NOT include any dust
+	// HTLCs which are mapped in the "HtlcFailDustAction" category.
+	HtlcFailDanglingAction = 7
 )
 
 // String returns a human readable string describing a chain action.
@@ -1752,8 +1769,8 @@ func (c ChainAction) String() string {
 	case HtlcClaimAction:
 		return "HtlcClaimAction"
 
-	case HtlcFailNowAction:
-		return "HtlcFailNowAction"
+	case HtlcFailDustAction:
+		return "HtlcFailDustAction"
 
 	case HtlcOutgoingWatchAction:
 		return "HtlcOutgoingWatchAction"
@@ -1763,6 +1780,9 @@ func (c ChainAction) String() string {
 
 	case HtlcIncomingDustFinalAction:
 		return "HtlcIncomingDustFinalAction"
+
+	case HtlcFailDanglingAction:
+		return "HtlcFailDanglingAction"
 
 	default:
 		return "<unknown action>"
@@ -1944,8 +1964,8 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 				"failing dust htlc=%x", c.cfg.ChanPoint,
 				htlc.RHash[:])
 
-			actionMap[HtlcFailNowAction] = append(
-				actionMap[HtlcFailNowAction], htlc,
+			actionMap[HtlcFailDustAction] = append(
+				actionMap[HtlcFailDustAction], htlc,
 			)
 
 		// If we don't need to immediately act on this HTLC, then we'll
@@ -2138,12 +2158,30 @@ func (c *ChannelArbitrator) checkRemoteDanglingActions(
 			continue
 		}
 
+		// Dust htlcs can be canceled back even before the commitment
+		// transaction confirms. Dust htlcs are not enforceable onchain.
+		// If another version of the commit tx would confirm we either
+		// gain or lose those dust amounts but there is no other way
+		// than cancelling the incoming back because we will never learn
+		// the preimage.
+		if htlc.OutputIndex < 0 {
+			log.Infof("ChannelArbitrator(%v): fail dangling dust "+
+				"htlc=%x from local/remote commitments diff",
+				c.cfg.ChanPoint, htlc.RHash[:])
+
+			actionMap[HtlcFailDustAction] = append(
+				actionMap[HtlcFailDustAction], htlc,
+			)
+
+			continue
+		}
+
 		log.Infof("ChannelArbitrator(%v): fail dangling htlc=%x from "+
 			"local/remote commitments diff",
 			c.cfg.ChanPoint, htlc.RHash[:])
 
-		actionMap[HtlcFailNowAction] = append(
-			actionMap[HtlcFailNowAction], htlc,
+		actionMap[HtlcFailDanglingAction] = append(
+			actionMap[HtlcFailDanglingAction], htlc,
 		)
 	}
 
@@ -2232,8 +2270,21 @@ func (c *ChannelArbitrator) checkRemoteDiffActions(
 			continue
 		}
 
-		actionMap[HtlcFailNowAction] = append(
-			actionMap[HtlcFailNowAction], htlc,
+		// Dust HTLCs on the remote commitment can be failed back.
+		if htlc.OutputIndex < 0 {
+			log.Infof("ChannelArbitrator(%v): fail dangling dust "+
+				"htlc=%x from remote commitments diff",
+				c.cfg.ChanPoint, htlc.RHash[:])
+
+			actionMap[HtlcFailDustAction] = append(
+				actionMap[HtlcFailDustAction], htlc,
+			)
+
+			continue
+		}
+
+		actionMap[HtlcFailDanglingAction] = append(
+			actionMap[HtlcFailDanglingAction], htlc,
 		)
 
 		log.Infof("ChannelArbitrator(%v): fail dangling htlc=%x from "+

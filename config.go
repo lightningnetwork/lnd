@@ -454,7 +454,7 @@ type Config struct {
 
 	GcCanceledInvoicesOnTheFly bool `long:"gc-canceled-invoices-on-the-fly" description:"If true, we'll delete newly canceled invoices on the fly."`
 
-	MaxFeeExposure uint64 `long:"dust-threshold" description:"Sets the max fee exposure in satoshis for a channel after which HTLC's will be failed."`
+	MaxFeeExposure uint64 `long:"dust-threshold" description:"DEPRECATED: This value will be neglected by LND, this setting is not configurable anymore instead a default will be used"`
 
 	Fee *lncfg.Fee `group:"fee" namespace:"fee"`
 

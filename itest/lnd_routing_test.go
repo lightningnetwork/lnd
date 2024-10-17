@@ -1525,8 +1525,9 @@ func testRouteFeeCutoff(ht *lntest.HarnessTest) {
 func testFeeLimitAfterQueryRoutes(ht *lntest.HarnessTest) {
 	// Create a three hop network: Alice -> Bob -> Carol.
 	chanAmt := btcutil.Amount(100000)
-	chanPoints, nodes := createSimpleNetwork(
-		ht, []string{}, 3, lntest.OpenChannelParams{Amt: chanAmt},
+	cfgs := [][]string{nil, nil, nil}
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		cfgs, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 	alice, bob, carol := nodes[0], nodes[1], nodes[2]
 	chanPointAliceBob, chanPointBobCarol := chanPoints[0], chanPoints[1]

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"math/rand"
 	"reflect"
@@ -3494,6 +3495,85 @@ func TestChanSyncOweCommitmentAuxSigner(t *testing.T) {
 
 	// The signature should have the CustomRecords field set.
 	require.NotEmpty(t, sigMsg.CustomRecords)
+}
+
+// TestAuxSignerShutdown tests that the channel state machine gracefully handles
+// a failure of the aux signer when signing a new commitment.
+func TestAuxSignerShutdown(t *testing.T) {
+	t.Parallel()
+
+	// We'll kick off the test by creating our channels which both are
+	// loaded with 5 BTC each.
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err, "unable to create test channels")
+
+	auxSignerShutdownErr := errors.New("aux signer shutdown")
+
+	// We know that aux sig jobs will be checked in SignNextCommitment() in
+	// ascending output index order. So we'll fail on the first job that is
+	// out of order, i.e. with an output index greater than its position in
+	// the submitted jobs slice. If the jobs are ordered, we'll fail on the
+	// job that is at the middle of the submitted job slice.
+	failAuxSigJob := func(jobs []AuxSigJob) {
+		for idx, sigJob := range jobs {
+			// Simulate a clean shutdown of the aux signer and send
+			// an error. Skip all remaining jobs.
+			isMiddleJob := idx == len(jobs)/2
+			if int(sigJob.OutputIndex) > idx || isMiddleJob {
+				sigJob.Resp <- AuxSigJobResp{
+					Err: auxSignerShutdownErr,
+				}
+
+				return
+			}
+
+			// If the job is 'in order', send a response with no
+			// error.
+			sigJob.Resp <- AuxSigJobResp{}
+		}
+	}
+
+	auxSigner := NewAuxSignerMock(failAuxSigJob)
+	aliceChannel.auxSigner = fn.Some[AuxSigner](auxSigner)
+
+	// Each HTLC amount is 0.01 BTC.
+	htlcAmt := lnwire.NewMSatFromSatoshis(0.01 * btcutil.SatoshiPerBitcoin)
+
+	// Create enough HTLCs to create multiple sig jobs (one job per HTLC).
+	const numHTLCs = 24
+
+	// Send the specified number of HTLCs.
+	for i := 0; i < numHTLCs; i++ {
+		htlc, _ := createHTLC(i, htlcAmt)
+		addAndReceiveHTLC(t, aliceChannel, bobChannel, htlc, nil)
+	}
+
+	// We'll set up the mock aux signer to expect calls to PackSigs and also
+	// SubmitSecondLevelSigBatch. The direct return values for this mock aux
+	// signer are nil. The expected error comes from the sig jobs being
+	// passed to failAuxSigJob above, which mimics a faulty aux signer.
+	var sigBlobBuf bytes.Buffer
+	sigBlob := testSigBlob{
+		BlobInt: tlv.NewPrimitiveRecord[tlv.TlvType65634, uint16](5),
+	}
+	tlvStream, err := tlv.NewStream(sigBlob.BlobInt.Record())
+	require.NoError(t, err, "unable to create tlv stream")
+	require.NoError(t, tlvStream.Encode(&sigBlobBuf))
+
+	auxSigner.On(
+		"SubmitSecondLevelSigBatch", mock.Anything, mock.Anything,
+		mock.Anything,
+	).Return(nil).Twice()
+	auxSigner.On(
+		"PackSigs", mock.Anything,
+	).Return(
+		fn.Some(sigBlobBuf.Bytes()), nil,
+	)
+
+	_, err = aliceChannel.SignNextCommitment()
+	require.ErrorIs(t, err, auxSignerShutdownErr)
 }
 
 func testChanSyncOweCommitmentPendingRemote(t *testing.T,

@@ -1871,6 +1871,7 @@ func testBumpForceCloseFee(ht *lntest.HarnessTest) {
 	if ht.IsNeutrinoBackend() {
 		ht.Skipf("skipping BumpForceCloseFee test for neutrino backend")
 	}
+
 	// fundAmt is the funding amount.
 	fundAmt := btcutil.Amount(1_000_000)
 
@@ -1896,6 +1897,7 @@ func testBumpForceCloseFee(ht *lntest.HarnessTest) {
 	// Unwrap the results.
 	chanPoint := chanPoints[0]
 	alice := nodes[0]
+	bob := nodes[1]
 
 	// We need to fund alice with 2 wallet inputs so that we can test to
 	// increase the fee rate of the anchor cpfp via two subsequent calls of
@@ -2007,6 +2009,10 @@ func testBumpForceCloseFee(ht *lntest.HarnessTest) {
 	// mempool.
 	txns = ht.GetNumTxsFromMempool(2)
 	ht.FindSweepingTxns(txns, 1, closingTx.TxHash())
+
+	// Shut down Bob, otherwise he will create a sweeping tx to collect the
+	// to_remote output once Alice's force closing tx is confirmed below.
+	ht.Shutdown(bob)
 
 	// Mine both transactions, the closing tx and the anchor cpfp tx.
 	// This is needed to clean up the mempool.

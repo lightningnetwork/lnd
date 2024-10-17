@@ -1,18 +1,20 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// ChannelEdgePolicy represents a *directed* edge within the channel graph. For
+// ChannelEdgePolicy1 represents a *directed* edge within the channel graph. For
 // each channel in the database, there are two distinct edges: one for each
 // possible direction of travel along the channel. The edges themselves hold
 // information concerning fees, and minimum time-lock information which is
 // utilized during path finding.
-type ChannelEdgePolicy struct {
+type ChannelEdgePolicy1 struct {
 	// SigBytes is the raw bytes of the signature of the channel edge
 	// policy. We'll only parse these if the caller needs to access the
 	// signature for validation purposes. Do not set SigBytes directly, but
@@ -78,7 +80,7 @@ type ChannelEdgePolicy struct {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the signature if absolutely necessary.
-func (c *ChannelEdgePolicy) Signature() (*ecdsa.Signature, error) {
+func (c *ChannelEdgePolicy1) Signature() (*ecdsa.Signature, error) {
 	if c.sig != nil {
 		return c.sig, nil
 	}
@@ -95,21 +97,158 @@ func (c *ChannelEdgePolicy) Signature() (*ecdsa.Signature, error) {
 
 // SetSigBytes updates the signature and invalidates the cached parsed
 // signature.
-func (c *ChannelEdgePolicy) SetSigBytes(sig []byte) {
+func (c *ChannelEdgePolicy1) SetSigBytes(sig []byte) {
 	c.SigBytes = sig
 	c.sig = nil
 }
 
 // IsDisabled determines whether the edge has the disabled bit set.
-func (c *ChannelEdgePolicy) IsDisabled() bool {
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy1) IsDisabled() bool {
 	return c.ChannelFlags.IsDisabled()
 }
 
 // ComputeFee computes the fee to forward an HTLC of `amt` milli-satoshis over
 // the passed active payment channel. This value is currently computed as
 // specified in BOLT07, but will likely change in the near future.
-func (c *ChannelEdgePolicy) ComputeFee(
+func (c *ChannelEdgePolicy1) ComputeFee(
 	amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
 	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
 }
+
+// SCID returns the short channel ID of the channel being referred to.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy1) SCID() lnwire.ShortChannelID {
+	return lnwire.NewShortChanIDFromInt(c.ChannelID)
+}
+
+// IsNode1 returns true if the update was constructed by node 1 of the
+// channel.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy1) IsNode1() bool {
+	return c.ChannelFlags&lnwire.ChanUpdateDirection == 0
+}
+
+// GetToNode returns the pub key of the node that did not produce the update.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy1) GetToNode() [33]byte {
+	return c.ToNode
+}
+
+// ForwardingPolicy return the various forwarding policy rules set by the
+// update.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy1) ForwardingPolicy() *lnwire.ForwardingPolicy {
+	return &lnwire.ForwardingPolicy{
+		TimeLockDelta: c.TimeLockDelta,
+		BaseFee:       c.FeeBaseMSat,
+		FeeRate:       c.FeeProportionalMillionths,
+		MinHTLC:       c.MinHTLC,
+		HasMaxHTLC:    c.MessageFlags.HasMaxHtlc(),
+		MaxHTLC:       c.MaxHTLC,
+	}
+}
+
+// Before compares this update against the passed update and returns true if
+// this update has a lower timestamp than the passed one.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy1) Before(policy ChannelEdgePolicy) (bool, error) {
+	other, ok := policy.(*ChannelEdgePolicy1)
+	if !ok {
+		return false, fmt.Errorf("can't compare type %T to type "+
+			"ChannelEdgePolicy1", policy)
+	}
+
+	return c.LastUpdate.Before(other.LastUpdate), nil
+}
+
+// AfterUpdateMsg compares this update against the passed
+// lnwire.ChannelUpdate message and returns true if this update is newer than
+// the passed one.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy1) AfterUpdateMsg(msg lnwire.ChannelUpdate) (bool,
+	error) {
+
+	upd, ok := msg.(*lnwire.ChannelUpdate1)
+	if !ok {
+		return false, fmt.Errorf("expected *lnwire.ChannelUpdate1 to "+
+			"be coupled with ChannelEdgePolicy1, got: %T", msg)
+	}
+
+	timestamp := time.Unix(int64(upd.Timestamp), 0)
+
+	return c.LastUpdate.After(timestamp), nil
+}
+
+// Sig returns the signature of the update message.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy1) Sig() (input.Signature, error) {
+	return c.Signature()
+}
+
+// A compile-time check to ensure that ChannelEdgePolicy1 implements the
+// ChannelEdgePolicy interface.
+var _ ChannelEdgePolicy = (*ChannelEdgePolicy1)(nil)
+
+type ChannelEdgePolicy2 struct {
+	lnwire.ChannelUpdate2
+
+	ToNode [33]byte
+}
+
+// Sig returns the signature of the update message.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy2) Sig() (input.Signature, error) {
+	return c.Signature.ToSignature()
+}
+
+// AfterUpdateMsg compares this update against the passed lnwire.ChannelUpdate
+// message and returns true if this update is newer than the passed one.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy2) AfterUpdateMsg(msg lnwire.ChannelUpdate) (bool,
+	error) {
+
+	upd, ok := msg.(*lnwire.ChannelUpdate2)
+	if !ok {
+		return false, fmt.Errorf("expected *lnwire.ChannelUpdate2 to "+
+			"be coupled with ChannelEdgePolicy2, got: %T", msg)
+	}
+
+	return c.BlockHeight.Val > upd.BlockHeight.Val, nil
+}
+
+// Before compares this update against the passed update and returns true if
+// this update has a lower timestamp than the passed one.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy2) Before(policy ChannelEdgePolicy) (bool, error) {
+	other, ok := policy.(*ChannelEdgePolicy2)
+	if !ok {
+		return false, fmt.Errorf("can't compare type %T to type "+
+			"ChannelEdgePolicy2", policy)
+	}
+
+	return c.BlockHeight.Val < other.BlockHeight.Val, nil
+}
+
+// GetToNode returns the pub key of the node that did not produce the update.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy2) GetToNode() [33]byte {
+	return c.ToNode
+}
+
+// A compile-time check to ensure that ChannelEdgePolicy2 implements the
+// ChannelEdgePolicy interface.
+var _ ChannelEdgePolicy = (*ChannelEdgePolicy2)(nil)

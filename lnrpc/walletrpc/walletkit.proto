@@ -1411,6 +1411,10 @@ message FundPsbtRequest {
 
     // The strategy to use for selecting coins during funding the PSBT.
     lnrpc.CoinSelectionStrategy coin_selection_strategy = 10;
+
+    // The max fee to total output amounts ratio that this psbt should adhere
+    // to.
+    double max_fee_ratio = 11;
 }
 message FundPsbtResponse {
     /*

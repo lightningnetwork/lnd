@@ -350,6 +350,10 @@ type server struct {
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
 
+	// blockbeatDispatcher is a block dispatcher that notifies subscribers
+	// of new blocks.
+	blockbeatDispatcher *chainio.BlockbeatDispatcher
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -613,6 +617,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
 
+		blockbeatDispatcher: chainio.NewBlockbeatDispatcher(
+			cc.ChainNotifier,
+		),
 		channelNotifier: channelnotifier.New(
 			dbs.ChanStateDB.ChannelStateDB(),
 		),
@@ -1799,6 +1806,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 	s.connMgr = cmgr
 
+	// Finally, register the subsystems in blockbeat.
+	s.registerBlockConsumers()
+
 	return s, nil
 }
 
@@ -1829,6 +1839,25 @@ func (s *server) UpdateRoutingConfig(cfg *routing.MissionControlConfig) {
 	}
 
 	routerCfg.MaxMcHistory = cfg.MaxMcHistory
+}
+
+// registerBlockConsumers registers the subsystems that consume block events.
+// By calling `RegisterQueue`, a list of subsystems are registered in the
+// blockbeat for block notifications. When a new block arrives, the subsystems
+// in the same queue are notified sequentially, and different queues are
+// notified concurrently.
+//
+// NOTE: To put a subsystem in a different queue, create a slice and pass it to
+// a new `RegisterQueue` call.
+func (s *server) registerBlockConsumers() {
+	// In this queue, when a new block arrives, it will be received and
+	// processed in this order: chainArb -> sweeper -> txPublisher.
+	consumers := []chainio.Consumer{
+		s.chainArb,
+		s.sweeper,
+		s.txPublisher,
+	}
+	s.blockbeatDispatcher.RegisterQueue(consumers)
 }
 
 // signAliasUpdate takes a ChannelUpdate and returns the signature. This is
@@ -2468,6 +2497,17 @@ func (s *server) Start() error {
 			srvrLog.Infof("Auto peer bootstrapping is disabled")
 		}
 
+		// Start the blockbeat after all other subsystems have been
+		// started so they are ready to receive new blocks.
+		cleanup = cleanup.add(func() error {
+			s.blockbeatDispatcher.Stop()
+			return nil
+		})
+		if err := s.blockbeatDispatcher.Start(); err != nil {
+			startErr = err
+			return
+		}
+
 		// Set the active flag now that we've completed the full
 		// startup.
 		atomic.StoreInt32(&s.active, 1)
@@ -2491,6 +2531,9 @@ func (s *server) Stop() error {
 
 		// Shutdown connMgr first to prevent conns during shutdown.
 		s.connMgr.Stop()
+
+		// Stop dispatching blocks to other systems immediately.
+		s.blockbeatDispatcher.Stop()
 
 		// Shutdown the wallet, funding manager, and the rpc server.
 		if err := s.chanStatusMgr.Stop(); err != nil {

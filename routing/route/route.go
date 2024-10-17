@@ -94,6 +94,30 @@ func (v Vertex) String() string {
 	return fmt.Sprintf("%x", v[:])
 }
 
+// Record returns a TLV record that can be used to encode/decode a Vertex
+// to/from a TLV stream.
+func (v *Vertex) Record() tlv.Record {
+	return tlv.MakeStaticRecord(0, v, 33, encodeVertex, decodeVertex)
+}
+
+func encodeVertex(w io.Writer, val interface{}, _ *[8]byte) error {
+	if b, ok := val.(*Vertex); ok {
+		_, err := w.Write(b[:])
+		return err
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "Vertex")
+}
+
+func decodeVertex(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
+	if b, ok := val.(*Vertex); ok {
+		_, err := io.ReadFull(r, b[:])
+		return err
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "Vertex", l, 33)
+}
+
 // Hop represents an intermediate or final node of the route. This naming
 // is in line with the definition given in BOLT #4: Onion Routing Protocol.
 // The struct houses the channel along which this hop can be reached and

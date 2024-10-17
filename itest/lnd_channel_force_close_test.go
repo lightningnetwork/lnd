@@ -634,7 +634,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 			// Recorf the HTLC outpoint, such that we can later
 			// check whether it gets swept
 			op := wire.OutPoint{
-				Hash:  *htlcTxID,
+				Hash:  htlcTxID,
 				Index: uint32(i),
 			}
 			htlcTxOutpointSet[op] = 0

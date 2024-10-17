@@ -76,6 +76,10 @@
 
 * Log rotation can now use ZSTD 
 
+* [A new method](https://github.com/lightningnetwork/lnd/pull/9195)
+  `AssertTxnsNotInMempool` has been added to `lntest` package to allow batch
+  exclusion check in itest.
+
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 

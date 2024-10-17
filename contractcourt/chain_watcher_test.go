@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"testing"
@@ -145,17 +146,15 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 
 	// With the HTLC added, we'll now manually initiate a state transition
 	// from Alice to Bob.
-	_, err = aliceChannel.SignNextCommitment()
-	if err != nil {
-		t.Fatal(err)
-	}
+	testQuit, testQuitFunc := context.WithCancel(context.Background())
+	t.Cleanup(testQuitFunc)
+	_, err = aliceChannel.SignNextCommitment(testQuit)
+	require.NoError(t, err)
 
 	// At this point, we'll now Bob broadcasting this new pending unrevoked
 	// commitment.
 	bobPendingCommit, err := aliceChannel.State().RemoteCommitChainTip()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// We'll craft a fake spend notification with Bob's actual commitment.
 	// The chain watcher should be able to detect that this is a pending

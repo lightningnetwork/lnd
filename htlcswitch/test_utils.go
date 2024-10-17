@@ -1195,12 +1195,14 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 	}
 
 	go func() {
-		for {
-			select {
-			case <-notifyUpdateChan:
-			case <-link.(*channelLink).quit:
-				close(doneChan)
-				return
+		if chanLink, ok := link.(*channelLink); ok {
+			for {
+				select {
+				case <-notifyUpdateChan:
+				case <-chanLink.Quit:
+					close(doneChan)
+					return
+				}
 			}
 		}
 	}()

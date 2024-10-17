@@ -479,7 +479,7 @@ func (c *ChannelArbitrator) Start(state *chanArbStartState,
 		}
 	}
 
-	log.Debugf("Starting ChannelArbitrator(%v), htlc_set=%v, state=%v",
+	log.Tracef("Starting ChannelArbitrator(%v), htlc_set=%v, state=%v",
 		c.cfg.ChanPoint, lnutils.SpewLogClosure(c.activeHTLCs),
 		state.currentState)
 
@@ -2618,14 +2618,14 @@ func (c *ChannelArbitrator) replaceResolver(oldResolver,
 func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 	defer c.wg.Done()
 
-	log.Debugf("ChannelArbitrator(%v): attempting to resolve %T",
+	log.Tracef("ChannelArbitrator(%v): attempting to resolve %T",
 		c.cfg.ChanPoint, currentContract)
 
 	// Until the contract is fully resolved, we'll continue to iteratively
 	// resolve the contract one step at a time.
 	for !currentContract.IsResolved() {
-		log.Debugf("ChannelArbitrator(%v): contract %T not yet resolved",
-			c.cfg.ChanPoint, currentContract)
+		log.Tracef("ChannelArbitrator(%v): contract %T not yet "+
+			"resolved", c.cfg.ChanPoint, currentContract)
 
 		select {
 

@@ -1632,7 +1632,7 @@ out:
 				defer s.wg.Done()
 
 				if err := s.FlushForwardingEvents(); err != nil {
-					log.Errorf("unable to flush "+
+					log.Errorf("Unable to flush "+
 						"forwarding events: %v", err)
 				}
 			}()

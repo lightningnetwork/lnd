@@ -461,19 +461,23 @@ func (h *htlcTimeoutResolver) Resolve(
 		return h.claimCleanUp(commitSpend)
 	}
 
-	log.Infof("%T(%v): resolving htlc with incoming fail msg, fully "+
-		"confirmed", h, h.htlcResolution.ClaimOutpoint)
-
 	// At this point, the second-level transaction is sufficiently
 	// confirmed, or a transaction directly spending the output is.
 	// Therefore, we can now send back our clean up message, failing the
 	// HTLC on the incoming link.
+	//
+	// NOTE: This can be called twice if the outgoing resolver restarts
+	// before the second-stage timeout transaction is confirmed.
+	log.Infof("%T(%v): resolving htlc with incoming fail msg, "+
+		"fully confirmed", h, h.htlcResolution.ClaimOutpoint)
+
 	failureMsg := &lnwire.FailPermanentChannelFailure{}
-	if err := h.DeliverResolutionMsg(ResolutionMsg{
+	err = h.DeliverResolutionMsg(ResolutionMsg{
 		SourceChan: h.ShortChanID,
 		HtlcIndex:  h.htlc.HtlcIndex,
 		Failure:    failureMsg,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 

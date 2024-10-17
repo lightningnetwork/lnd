@@ -655,6 +655,17 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		quit:       make(chan struct{}),
 	}
 
+	// Start the low-level services once they are initialized.
+	//
+	// TODO(yy): break the server startup into four steps,
+	// 1. init the low-level services.
+	// 2. start the low-level services.
+	// 3. init the high-level services.
+	// 4. start the high-level services.
+	if err := s.startLowLevelServices(); err != nil {
+		return nil, err
+	}
+
 	currentHash, currentHeight, err := s.cc.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
@@ -2042,6 +2053,29 @@ func (c cleaner) run() {
 	}
 }
 
+// startLowLevelServices starts the low-level services of the server. These
+// services must be started successfully before running the main server. The
+// services are,
+// 1. the chain notifier.
+//
+// TODO(yy): identify and add more low-level services here.
+func (s *server) startLowLevelServices() error {
+	var startErr error
+
+	cleanup := cleaner{}
+
+	cleanup = cleanup.add(s.cc.ChainNotifier.Stop)
+	if err := s.cc.ChainNotifier.Start(); err != nil {
+		startErr = err
+	}
+
+	if startErr != nil {
+		cleanup.run()
+	}
+
+	return startErr
+}
+
 // Start starts the main daemon server, all requested listeners, and any helper
 // goroutines.
 // NOTE: This function is safe for concurrent access.
@@ -2103,12 +2137,6 @@ func (s *server) Start() error {
 
 		cleanup = cleanup.add(s.readPool.Stop)
 		if err := s.readPool.Start(); err != nil {
-			startErr = err
-			return
-		}
-
-		cleanup = cleanup.add(s.cc.ChainNotifier.Stop)
-		if err := s.cc.ChainNotifier.Start(); err != nil {
 			startErr = err
 			return
 		}

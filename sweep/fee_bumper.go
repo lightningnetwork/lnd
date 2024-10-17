@@ -1588,7 +1588,10 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 
 		// Check if the lock time has reached
 		if lt > uint32(currentHeight) {
-			return 0, noChange, noLocktime, ErrLocktimeImmature
+			return 0, noChange, noLocktime,
+				fmt.Errorf("%w: current height is %v, "+
+					"locktime is %v", ErrLocktimeImmature,
+					currentHeight, lt)
 		}
 
 		// If another input commits to a different locktime, they

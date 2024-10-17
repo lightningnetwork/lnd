@@ -165,9 +165,8 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 			if newHeight >= expiry-1 {
 				h.log.Infof("HTLC about to expire "+
 					"(height=%v, expiry=%v), transforming "+
-					"into timeout resolver", h,
-					h.htlcResolution.ClaimOutpoint,
-					newHeight, h.htlcResolution.Expiry)
+					"into timeout resolver", newHeight,
+					h.htlcResolution.Expiry)
 
 				return h.htlcTimeoutResolver, nil
 			}

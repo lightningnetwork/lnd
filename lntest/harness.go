@@ -8,16 +8,19 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/lightningnetwork/lnd/lntest/node"
@@ -26,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,6 +53,9 @@ const (
 	// maxBlocksAllowed specifies the max allowed value to be used when
 	// mining blocks.
 	maxBlocksAllowed = 100
+
+	finalCltvDelta  = routing.MinCLTVDelta // 18.
+	thawHeightDelta = finalCltvDelta * 2   // 36.
 )
 
 // TestCase defines a test case that's been used in the integration test.
@@ -2308,11 +2315,39 @@ func (h *HarnessTest) openChannelsForNodes(nodes []*node.HarnessNode,
 	// Sanity check the params.
 	require.Greater(h, len(nodes), 1, "need at least 2 nodes")
 
+	// attachFundingShim is a helper closure that optionally attaches a
+	// funding shim to the open channel params and returns it.
+	attachFundingShim := func(
+		nodeA, nodeB *node.HarnessNode) OpenChannelParams {
+
+		// If this channel is not a script enforced lease channel,
+		// we'll do nothing and return the params.
+		leasedType := lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE
+		if p.CommitmentType != leasedType {
+			return p
+		}
+
+		// Otherwise derive the funding shim, attach it to the original
+		// open channel params and return it.
+		minerHeight := h.CurrentHeight()
+		thawHeight := minerHeight + thawHeightDelta
+		fundingShim, _ := h.deriveFundingShim(
+			nodeA, nodeB, p.Amt, thawHeight, true, leasedType,
+		)
+
+		p.FundingShim = fundingShim
+
+		return p
+	}
+
 	// Open channels in batch to save blocks mined.
 	reqs := make([]*OpenChannelRequest, 0, len(nodes)-1)
 	for i := 0; i < len(nodes)-1; i++ {
 		nodeA := nodes[i]
 		nodeB := nodes[i+1]
+
+		// Optionally attach a funding shim to the open channel params.
+		p = attachFundingShim(nodeA, nodeB)
 
 		req := &OpenChannelRequest{
 			Local:  nodeA,
@@ -2363,4 +2398,120 @@ func (h *HarnessTest) openZeroConfChannelsForNodes(nodes []*node.HarnessNode,
 	}
 
 	return resp
+}
+
+// deriveFundingShim creates a channel funding shim by deriving the necessary
+// keys on both sides.
+func (h *HarnessTest) deriveFundingShim(alice, bob *node.HarnessNode,
+	chanSize btcutil.Amount, thawHeight uint32, publish bool,
+	commitType lnrpc.CommitmentType) (*lnrpc.FundingShim,
+	*lnrpc.ChannelPoint) {
+
+	keyLoc := &signrpc.KeyLocator{KeyFamily: 9999}
+	carolFundingKey := alice.RPC.DeriveKey(keyLoc)
+	daveFundingKey := bob.RPC.DeriveKey(keyLoc)
+
+	// Now that we have the multi-sig keys for each party, we can manually
+	// construct the funding transaction. We'll instruct the backend to
+	// immediately create and broadcast a transaction paying out an exact
+	// amount. Normally this would reside in the mempool, but we just
+	// confirm it now for simplicity.
+	var (
+		fundingOutput *wire.TxOut
+		musig2        bool
+		err           error
+	)
+	if commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		var carolKey, daveKey *btcec.PublicKey
+		carolKey, err = btcec.ParsePubKey(carolFundingKey.RawKeyBytes)
+		require.NoError(h, err)
+		daveKey, err = btcec.ParsePubKey(daveFundingKey.RawKeyBytes)
+		require.NoError(h, err)
+
+		_, fundingOutput, err = input.GenTaprootFundingScript(
+			carolKey, daveKey, int64(chanSize),
+			fn.None[chainhash.Hash](),
+		)
+		require.NoError(h, err)
+
+		musig2 = true
+	} else {
+		_, fundingOutput, err = input.GenFundingPkScript(
+			carolFundingKey.RawKeyBytes, daveFundingKey.RawKeyBytes,
+			int64(chanSize),
+		)
+		require.NoError(h, err)
+	}
+
+	var txid *chainhash.Hash
+	targetOutputs := []*wire.TxOut{fundingOutput}
+	if publish {
+		txid = h.SendOutputsWithoutChange(targetOutputs, 5)
+	} else {
+		tx := h.CreateTransaction(targetOutputs, 5)
+
+		txHash := tx.TxHash()
+		txid = &txHash
+	}
+
+	// At this point, we can being our external channel funding workflow.
+	// We'll start by generating a pending channel ID externally that will
+	// be used to track this new funding type.
+	pendingChanID := h.Random32Bytes()
+
+	// Now that we have the pending channel ID, Dave (our responder) will
+	// register the intent to receive a new channel funding workflow using
+	// the pending channel ID.
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: txid[:],
+		},
+	}
+	chanPointShim := &lnrpc.ChanPointShim{
+		Amt:       int64(chanSize),
+		ChanPoint: chanPoint,
+		LocalKey: &lnrpc.KeyDescriptor{
+			RawKeyBytes: daveFundingKey.RawKeyBytes,
+			KeyLoc: &lnrpc.KeyLocator{
+				KeyFamily: daveFundingKey.KeyLoc.KeyFamily,
+				KeyIndex:  daveFundingKey.KeyLoc.KeyIndex,
+			},
+		},
+		RemoteKey:     carolFundingKey.RawKeyBytes,
+		PendingChanId: pendingChanID,
+		ThawHeight:    thawHeight,
+		Musig2:        musig2,
+	}
+	fundingShim := &lnrpc.FundingShim{
+		Shim: &lnrpc.FundingShim_ChanPointShim{
+			ChanPointShim: chanPointShim,
+		},
+	}
+	bob.RPC.FundingStateStep(&lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
+			ShimRegister: fundingShim,
+		},
+	})
+
+	// If we attempt to register the same shim (has the same pending chan
+	// ID), then we should get an error.
+	bob.RPC.FundingStateStepAssertErr(&lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
+			ShimRegister: fundingShim,
+		},
+	})
+
+	// We'll take the chan point shim we just registered for Dave (the
+	// responder), and swap the local/remote keys before we feed it in as
+	// Carol's funding shim as the initiator.
+	fundingShim.GetChanPointShim().LocalKey = &lnrpc.KeyDescriptor{
+		RawKeyBytes: carolFundingKey.RawKeyBytes,
+		KeyLoc: &lnrpc.KeyLocator{
+			KeyFamily: carolFundingKey.KeyLoc.KeyFamily,
+			KeyIndex:  carolFundingKey.KeyLoc.KeyIndex,
+		},
+	}
+	fundingShim.GetChanPointShim().RemoteKey = daveFundingKey.RawKeyBytes
+
+	return fundingShim, chanPoint
 }

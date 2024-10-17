@@ -597,7 +597,7 @@ func ForceStateTransition(chanA, chanB *LightningChannel) error {
 }
 
 func NewDefaultAuxSignerMock(t *testing.T) *MockAuxSigner {
-	auxSigner := &MockAuxSigner{}
+	auxSigner := NewAuxSignerMock(EmptyMockJobHandler)
 
 	type testSigBlob struct {
 		BlobInt tlv.RecordT[tlv.TlvType65634, uint16]

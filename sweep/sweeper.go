@@ -229,7 +229,7 @@ func (p *SweeperInput) isMature(currentHeight uint32) (bool, uint32) {
 	locktime, _ := p.RequiredLockTime()
 	if currentHeight < locktime {
 		log.Debugf("Input %v has locktime=%v, current height is %v",
-			p.OutPoint(), locktime, currentHeight)
+			p, locktime, currentHeight)
 
 		return false, locktime
 	}
@@ -243,8 +243,7 @@ func (p *SweeperInput) isMature(currentHeight uint32) (bool, uint32) {
 	locktime = p.BlocksToMaturity() + p.HeightHint()
 	if currentHeight+1 < locktime {
 		log.Debugf("Input %v has CSV expiry=%v, current height is %v, "+
-			"skipped sweeping", p.OutPoint(), locktime,
-			currentHeight)
+			"skipped sweeping", p, locktime, currentHeight)
 
 		return false, locktime
 	}
@@ -254,6 +253,22 @@ func (p *SweeperInput) isMature(currentHeight uint32) (bool, uint32) {
 
 // InputsMap is a type alias for a set of pending inputs.
 type InputsMap = map[wire.OutPoint]*SweeperInput
+
+// inputsMapToString returns a human readable interpretation of the pending
+// inputs.
+func inputsMapToString(inputs InputsMap) string {
+	inps := make([]input.Input, 0, len(inputs))
+	for _, in := range inputs {
+		inps = append(inps, in)
+	}
+
+	prefix := "\n"
+	if len(inps) == 0 {
+		prefix = ""
+	}
+
+	return prefix + inputTypeSummary(inps)
+}
 
 // pendingSweepsReq is an internal message we'll use to represent an external
 // caller's intent to retrieve all of the pending inputs the UtxoSweeper is
@@ -700,17 +715,10 @@ func (s *UtxoSweeper) collector() {
 			inputs := s.updateSweeperInputs()
 
 			log.Debugf("Received new block: height=%v, attempt "+
-				"sweeping %d inputs:\n%s",
-				s.currentHeight, len(inputs),
+				"sweeping %d inputs:%s", s.currentHeight,
+				len(inputs),
 				lnutils.NewLogClosure(func() string {
-					inps := make(
-						[]input.Input, 0, len(inputs),
-					)
-					for _, in := range inputs {
-						inps = append(inps, in)
-					}
-
-					return inputTypeSummary(inps)
+					return inputsMapToString(inputs)
 				}))
 
 			// Attempt to sweep any pending inputs.
@@ -1244,10 +1252,10 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 	log.Tracef("input %v, state=%v, added to inputs", outpoint, pi.state)
 
 	log.Infof("Registered sweep request at block %d: out_point=%v, "+
-		"witness_type=%v, amount=%v, deadline=%d, params=(%v)",
-		s.currentHeight, pi.OutPoint(), pi.WitnessType(),
+		"witness_type=%v, amount=%v, deadline=%d, state=%v, "+
+		"params=(%v)", s.currentHeight, pi.OutPoint(), pi.WitnessType(),
 		btcutil.Amount(pi.SignDesc().Output.Value), pi.DeadlineHeight,
-		pi.params)
+		pi.state, pi.params)
 
 	// Start watching for spend of this input, either by us or the remote
 	// party.
@@ -1523,12 +1531,8 @@ func (s *UtxoSweeper) updateSweeperInputs() InputsMap {
 
 		// If the input has a locktime that's not yet reached, we will
 		// skip this input and wait for the locktime to be reached.
-		mature, locktime := input.isMature(uint32(s.currentHeight))
+		mature, _ := input.isMature(uint32(s.currentHeight))
 		if !mature {
-			log.Debugf("Skipping input %v due to locktime=%v not "+
-				"reached, current height is %v", op, locktime,
-				s.currentHeight)
-
 			continue
 		}
 

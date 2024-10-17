@@ -479,7 +479,7 @@ func (c *ChannelArbitrator) Start(state *chanArbStartState,
 		}
 	}
 
-	log.Debugf("Starting ChannelArbitrator(%v), htlc_set=%v, state=%v",
+	log.Tracef("Starting ChannelArbitrator(%v), htlc_set=%v, state=%v",
 		c.id(), lnutils.SpewLogClosure(c.activeHTLCs),
 		state.currentState)
 
@@ -1094,8 +1094,7 @@ func (c *ChannelArbitrator) stateStep(
 			return StateFullyResolved, closeTx, nil
 		}
 
-		log.Infof("ChannelArbitrator(%v): force closing "+
-			"chan", c.id())
+		log.Infof("ChannelArbitrator(%v): force closing chan", c.id())
 
 		// Now that we have all the actions decided for the set of
 		// HTLC's, we'll broadcast the commitment transaction, and

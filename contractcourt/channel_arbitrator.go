@@ -932,21 +932,36 @@ func (c *ChannelArbitrator) stateStep(
 		// arbitrating for. If a commitment has confirmed, then we'll
 		// use the set snapshot from the chain, otherwise we'll use our
 		// current set.
-		var htlcs map[HtlcSetKey]htlcSet
-		if confCommitSet != nil {
-			htlcs = confCommitSet.toActiveHTLCSets()
-		} else {
+		var (
+			chainActions ChainActionMap
+			err          error
+		)
+
+		// Normally if we force close the channel locally we will have
+		// no confCommitSet. However when the remote commitment confirms
+		// without us ever broadcasting our local commitment we need to
+		// make sure we cancel all upstream HTLCs for outgoing dust
+		// HTLCs as well hence we need to fetch the chain actions here
+		// as well.
+		if confCommitSet == nil {
 			// Update the set of activeHTLCs so
 			// checkLocalChainActions has an up-to-date view of the
 			// commitments.
 			c.updateActiveHTLCs()
-			htlcs = c.activeHTLCs
-		}
-		chainActions, err := c.checkLocalChainActions(
-			triggerHeight, trigger, htlcs, false,
-		)
-		if err != nil {
-			return StateDefault, nil, err
+			htlcs := c.activeHTLCs
+			chainActions, err = c.checkLocalChainActions(
+				triggerHeight, trigger, htlcs, false,
+			)
+			if err != nil {
+				return StateDefault, nil, err
+			}
+		} else {
+			chainActions, err = c.constructChainActions(
+				confCommitSet, triggerHeight, trigger,
+			)
+			if err != nil {
+				return StateDefault, nil, err
+			}
 		}
 
 		// If there are no actions to be made, then we'll remain in the
@@ -963,6 +978,25 @@ func (c *ChannelArbitrator) stateStep(
 		// commitment transaction has already been broadcast.
 		log.Tracef("ChannelArbitrator(%v): logging chain_actions=%v",
 			c.cfg.ChanPoint, lnutils.SpewLogClosure(chainActions))
+
+		// Cancel upstream HTLCs for all outgoing dust HTLCs available
+		// either on the local or the remote/remote pending commitment
+		// transaction.
+		dustHTLCs := chainActions[HtlcFailDustAction]
+		if len(dustHTLCs) > 0 {
+			log.Debugf("ChannelArbitrator(%v): canceling %v dust "+
+				"HTLCs backwards", c.cfg.ChanPoint,
+				len(dustHTLCs))
+
+			getIdx := func(htlc channeldb.HTLC) uint64 {
+				return htlc.HtlcIndex
+			}
+			dustHTLCSet := fn.NewSet(fn.Map(getIdx, dustHTLCs)...)
+			err = c.abandonForwards(dustHTLCSet)
+			if err != nil {
+				return StateError, closeTx, err
+			}
+		}
 
 		// Depending on the type of trigger, we'll either "tunnel"
 		// through to a farther state, or just proceed linearly to the
@@ -1214,18 +1248,19 @@ func (c *ChannelArbitrator) stateStep(
 			return StateError, closeTx, err
 		}
 
-		// In case its a breach transaction we fail back all outgoing
-		// HTLCs on the remote commitment set.
+		// In case its a breach transaction we fail back all upstream
+		// HTLCs for their corresponding outgoing HTLCs on the remote
+		// commitment set (remote and remote pending set).
 		if contractResolutions.BreachResolution != nil {
 			// cancelBreachedHTLCs is a set which holds HTLCs whose
 			// corresponding incoming HTLCs will be failed back
 			// because the peer broadcasted an old state.
 			cancelBreachedHTLCs := fn.NewSet[uint64]()
 
-			// We'll use the CommitSet, we'll fail back all outgoing
-			// HTLC's that exist on either of the remote
-			// commitments. The map is used to deduplicate any
-			// shared HTLC's.
+			// We'll use the CommitSet, we'll fail back all
+			// upstream HTLCs for their corresponding outgoing
+			// HTLC that exist on either of the remote commitments.
+			// The map is used to deduplicate any shared HTLC's.
 			for htlcSetKey, htlcs := range confCommitSet.HtlcSets {
 				if !htlcSetKey.IsRemote {
 					continue
@@ -1256,9 +1291,11 @@ func (c *ChannelArbitrator) stateStep(
 				return StateError, closeTx, err
 			}
 
-			// We can fail the upstream HTLC for an outgoing
-			// dangling and dust HTLC because we can be sure they
-			// will not be resolved onchain.
+			// We fail the upstream HTLCs for all remote pending
+			// outgoing HTLCs as soon as the commitment is
+			// confirmed. The upstream HTLCs for outgoing dust
+			// HTLCs have already been resolved before we reach
+			// this point.
 			getIdx := func(htlc channeldb.HTLC) uint64 {
 				return htlc.HtlcIndex
 			}
@@ -1266,15 +1303,6 @@ func (c *ChannelArbitrator) stateStep(
 				getIdx, htlcActions[HtlcFailDanglingAction],
 			)...)
 			err := c.abandonForwards(remoteDangling)
-			if err != nil {
-				return StateError, closeTx, err
-			}
-
-			dustHTLCs := fn.NewSet(fn.Map(
-				getIdx, htlcActions[HtlcFailDustAction],
-			)...)
-
-			err = c.abandonForwards(dustHTLCs)
 			if err != nil {
 				return StateError, closeTx, err
 			}

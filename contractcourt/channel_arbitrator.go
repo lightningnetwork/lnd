@@ -682,7 +682,7 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 	// chain actions may exclude some information, but we cannot recover it
 	// for these older nodes at the moment.
 	var confirmedHTLCs []channeldb.HTLC
-	if commitSet != nil {
+	if commitSet != nil && commitSet.ConfCommitKey != nil {
 		confirmedHTLCs = commitSet.HtlcSets[*commitSet.ConfCommitKey]
 	} else {
 		chainActions, err := c.log.FetchChainActions()
@@ -2203,7 +2203,7 @@ func (c *ChannelArbitrator) constructChainActions(confCommitSet *CommitSet,
 	// then this is an older node that had a pending close channel before
 	// the CommitSet was introduced. In this case, we'll just return the
 	// existing ChainActionMap they had on disk.
-	if confCommitSet == nil {
+	if confCommitSet == nil || confCommitSet.ConfCommitKey == nil {
 		return c.log.FetchChainActions()
 	}
 

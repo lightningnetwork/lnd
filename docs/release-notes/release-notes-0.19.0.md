@@ -41,6 +41,12 @@
   cases.
 
 # New Features
+
+* [Support](https://github.com/lightningnetwork/lnd/pull/8390) for 
+  [experimental endorsement](https://github.com/lightning/blips/pull/27) 
+  signal relay was added. This signal has *no impact* on routing, and
+  is deployed experimentally to assist ongoing channel jamming research.
+
 ## Functional Enhancements
 ## RPC Additions
 
@@ -108,6 +114,7 @@
 # Contributors (Alphabetical Order)
 
 * Boris Nagaev
+* Carla Kirk-Cohen
 * CharlieZKSmith
 * Elle Mouton
 * Pins

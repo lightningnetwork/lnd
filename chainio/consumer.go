@@ -79,7 +79,7 @@ func (b *BeatConsumer) ProcessBlock(beat Blockbeat) error {
 	// `beat.NotifyBlockProcessed` to send the error back here.
 	select {
 	case err := <-b.errChan:
-		beat.logger().Debugf("[%s] processed beat: err=%v", b.name, err)
+		beat.logger().Tracef("[%s] processed beat: err=%v", b.name, err)
 
 		return err
 
@@ -99,11 +99,11 @@ func (b *BeatConsumer) ProcessBlock(beat Blockbeat) error {
 // processing the block.
 func (b *BeatConsumer) NotifyBlockProcessed(beat Blockbeat, err error) {
 	// Update the current height.
-	beat.logger().Debugf("[%s]: notifying beat processed", b.name)
+	beat.logger().Tracef("[%s]: notifying beat processed", b.name)
 
 	select {
 	case b.errChan <- err:
-		beat.logger().Debugf("[%s]: notified beat processed, err=%v",
+		beat.logger().Tracef("[%s]: notified beat processed, err=%v",
 			b.name, err)
 
 	case <-b.quit:

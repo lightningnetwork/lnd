@@ -154,10 +154,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testAddPeerConfig,
 	},
 	{
-		Name:     "multi hop htlc local timeout",
-		TestFunc: testMultiHopHtlcLocalTimeout,
-	},
-	{
 		Name:     "multi hop local force close on-chain htlc timeout",
 		TestFunc: testMultiHopLocalForceCloseOnChainHtlcTimeout,
 	},
@@ -706,4 +702,9 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "debuglevel show",
 		TestFunc: testDebuglevelShow,
 	},
+}
+
+func init() {
+	// Register subtests.
+	allTestCases = append(allTestCases, multiHopForceCloseTestCases...)
 }

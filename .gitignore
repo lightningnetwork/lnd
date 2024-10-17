@@ -66,6 +66,7 @@ profile.tmp
 .DS_Store
 
 .vscode
+*.code-workspace
 
 # Coverage test
 coverage.txt

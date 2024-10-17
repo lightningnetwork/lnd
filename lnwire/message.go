@@ -40,6 +40,7 @@ const (
 	MsgDynPropose                          = 111
 	MsgDynAck                              = 113
 	MsgDynReject                           = 115
+	MsgDynCommit                           = 117
 	MsgUpdateAddHTLC                       = 128
 	MsgUpdateFulfillHTLC                   = 130
 	MsgUpdateFailHTLC                      = 131
@@ -112,6 +113,8 @@ func (t MessageType) String() string {
 		return "DynAck"
 	case MsgDynReject:
 		return "DynReject"
+	case MsgDynCommit:
+		return "DynCommit"
 	case MsgKickoffSig:
 		return "KickoffSig"
 	case MsgUpdateAddHTLC:
@@ -247,6 +250,8 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &DynAck{}
 	case MsgDynReject:
 		msg = &DynReject{}
+	case MsgDynCommit:
+		msg = &DynCommit{}
 	case MsgKickoffSig:
 		msg = &KickoffSig{}
 	case MsgUpdateAddHTLC:

@@ -9,6 +9,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
@@ -196,6 +197,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 		root, blindedpath.Subsystem, interceptor, blindedpath.UseLogger,
 	)
 	AddV1SubLogger(root, graphdb.Subsystem, interceptor, graphdb.UseLogger)
+	AddSubLogger(root, chainio.Subsystem, interceptor, chainio.UseLogger)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

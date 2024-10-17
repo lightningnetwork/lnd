@@ -1676,10 +1676,13 @@ const (
 	// before its timeout period.
 	HtlcClaimAction = 2
 
-	// HtlcFailNowAction indicates that we should fail an outgoing HTLC
-	// immediately by cancelling it backwards as it has no corresponding
-	// output in our commitment transaction.
-	HtlcFailNowAction = 3
+	// HtlcFailDustAction indicates that we should fail an outgoing dust
+	// HTLC immediately (even before the commitment transaction is
+	// confirmed in case we (local) broadcast the commitment tx) by
+	// cancelling it backwards as it has no output on the commitment
+	// transaction. This also includes dangling outgoing dust htlcs as
+	// well.
+	HtlcFailDustAction = 3
 
 	// HtlcOutgoingWatchAction indicates that we can't yet timeout this
 	// HTLC, but we had to go to chain on order to resolve an existing
@@ -1698,6 +1701,13 @@ const (
 	// HtlcIncomingDustFinalAction indicates that we should mark an incoming
 	// dust htlc as final because it can't be claimed on-chain.
 	HtlcIncomingDustFinalAction = 6
+
+	// HtlcFailDanglingAction indicates that we should fail an outgoing HTLC
+	// immediately after the commitment transaction has confirmed by
+	// cancelling it backwards as it has no corresponding output on the
+	// commitment transaction. This category does NOT include any dust htlcs
+	// which are mapped in the "HtlcFailDustAction" category.
+	HtlcFailDanglingAction = 7
 )
 
 // String returns a human readable string describing a chain action.
@@ -1712,8 +1722,8 @@ func (c ChainAction) String() string {
 	case HtlcClaimAction:
 		return "HtlcClaimAction"
 
-	case HtlcFailNowAction:
-		return "HtlcFailNowAction"
+	case HtlcFailDustAction:
+		return "HtlcFailDustAction"
 
 	case HtlcOutgoingWatchAction:
 		return "HtlcOutgoingWatchAction"
@@ -1723,6 +1733,9 @@ func (c ChainAction) String() string {
 
 	case HtlcIncomingDustFinalAction:
 		return "HtlcIncomingDustFinalAction"
+
+	case HtlcFailDanglingAction:
+		return "HtlcFailDanglingAction"
 
 	default:
 		return "<unknown action>"
@@ -1904,8 +1917,8 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 				"failing dust htlc=%x", c.cfg.ChanPoint,
 				htlc.RHash[:])
 
-			actionMap[HtlcFailNowAction] = append(
-				actionMap[HtlcFailNowAction], htlc,
+			actionMap[HtlcFailDustAction] = append(
+				actionMap[HtlcFailDustAction], htlc,
 			)
 
 		// If we don't need to immediately act on this HTLC, then we'll
@@ -2098,12 +2111,30 @@ func (c *ChannelArbitrator) checkRemoteDanglingActions(
 			continue
 		}
 
+		// Dust htlcs can be canceled back even before the commitment
+		// transaction confirms. Dust htlcs are not enforceable onchain.
+		// If another version of the commit tx would confirm we either
+		// gain or lose those dust amounts but there is no other way
+		// than cancelling the incoming back because we will never learn
+		// the preimage.
+		if htlc.OutputIndex < 0 {
+			log.Infof("ChannelArbitrator(%v): fail dangling dust "+
+				"htlc=%x from local/remote commitments diff",
+				c.cfg.ChanPoint, htlc.RHash[:])
+
+			actionMap[HtlcFailDustAction] = append(
+				actionMap[HtlcFailDustAction], htlc,
+			)
+
+			continue
+		}
+
 		log.Infof("ChannelArbitrator(%v): fail dangling htlc=%x from "+
 			"local/remote commitments diff",
 			c.cfg.ChanPoint, htlc.RHash[:])
 
-		actionMap[HtlcFailNowAction] = append(
-			actionMap[HtlcFailNowAction], htlc,
+		actionMap[HtlcFailDanglingAction] = append(
+			actionMap[HtlcFailDanglingAction], htlc,
 		)
 	}
 
@@ -2192,8 +2223,21 @@ func (c *ChannelArbitrator) checkRemoteDiffActions(
 			continue
 		}
 
-		actionMap[HtlcFailNowAction] = append(
-			actionMap[HtlcFailNowAction], htlc,
+		// Dust HTLCs on the remote commitment can be failed back.
+		if htlc.OutputIndex < 0 {
+			log.Infof("ChannelArbitrator(%v): fail dangling dust "+
+				"htlc=%x from remote commitments diff",
+				c.cfg.ChanPoint, htlc.RHash[:])
+
+			actionMap[HtlcFailDustAction] = append(
+				actionMap[HtlcFailDustAction], htlc,
+			)
+
+			continue
+		}
+
+		actionMap[HtlcFailDanglingAction] = append(
+			actionMap[HtlcFailDanglingAction], htlc,
 		)
 
 		log.Infof("ChannelArbitrator(%v): fail dangling htlc=%x from "+
@@ -3132,7 +3176,7 @@ func (c *ChannelArbitrator) resolveHTLCsNow(htlcActions ChainActionMap) error {
 		// If we can fail an HTLC immediately (an outgoing HTLC with no
 		// contract and it was not canceled before), then we'll assemble
 		// an HTLC fail packet to send.
-		case HtlcFailNowAction:
+		case HtlcFailDanglingAction, HtlcFailDustAction:
 			for _, htlc := range htlcs {
 				cancelRemotePendingHTLCs.Add(htlc.HtlcIndex)
 			}

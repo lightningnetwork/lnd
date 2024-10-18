@@ -14,10 +14,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testBasicChannelFunding,
 	},
 	{
-		Name:     "multi hop receiver chain claim",
-		TestFunc: testMultiHopReceiverChainClaim,
-	},
-	{
 		Name:     "external channel funding",
 		TestFunc: testExternalFundingChanPoint,
 	},

@@ -193,7 +193,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	defer cancel()
 
 	// Enable http profiling server if requested.
-	if cfg.Profile != "" {
+	if cfg.Pprof.Profile != "" {
 		// Create the http handler.
 		pprofMux := http.NewServeMux()
 		pprofMux.HandleFunc("/debug/pprof/", pprof.Index)
@@ -202,11 +202,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		pprofMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 		pprofMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
-		if cfg.BlockingProfile != 0 {
-			runtime.SetBlockProfileRate(cfg.BlockingProfile)
+		if cfg.Pprof.BlockingProfile != 0 {
+			runtime.SetBlockProfileRate(cfg.Pprof.BlockingProfile)
 		}
-		if cfg.MutexProfile != 0 {
-			runtime.SetMutexProfileFraction(cfg.MutexProfile)
+		if cfg.Pprof.MutexProfile != 0 {
+			runtime.SetMutexProfileFraction(cfg.Pprof.MutexProfile)
 		}
 
 		// Redirect all requests to the pprof handler, thus visiting
@@ -216,11 +216,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			"/debug/pprof/", http.StatusSeeOther,
 		))
 
-		ltndLog.Infof("Pprof listening on %v", cfg.Profile)
+		ltndLog.Infof("Pprof listening on %v", cfg.Pprof.Profile)
 
 		// Create the pprof server.
 		pprofServer := &http.Server{
-			Addr:              cfg.Profile,
+			Addr:              cfg.Pprof.Profile,
 			Handler:           pprofMux,
 			ReadHeaderTimeout: cfg.HTTPHeaderTimeout,
 		}
@@ -245,8 +245,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	}
 
 	// Write cpu profile if requested.
-	if cfg.CPUProfile != "" {
-		f, err := os.Create(cfg.CPUProfile)
+	if cfg.Pprof.CPUProfile != "" {
+		f, err := os.Create(cfg.Pprof.CPUProfile)
 		if err != nil {
 			return mkErr("unable to create CPU profile: %v", err)
 		}

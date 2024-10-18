@@ -3357,6 +3357,12 @@ message Route {
     Custom channel data that might be populated in custom channels.
     */
     bytes custom_channel_data = 8;
+
+    /*
+    The source node from whose perspective the route was built. If empty,
+    self is assumed.
+    */
+    string source_pub_key = 9;
 }
 
 message NodeInfoRequest {

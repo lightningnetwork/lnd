@@ -753,6 +753,12 @@ message BuildRouteRequest {
     base64.
     */
     map<uint64, bytes> first_hop_custom_records = 6;
+
+    /*
+    An optional source node public key from whose perspective the route is to be
+    built. If empty, the router's identity key is assumed.
+    */
+    bytes source_pubkey = 7;
 }
 
 message BuildRouteResponse {

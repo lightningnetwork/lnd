@@ -1,6 +1,6 @@
 package signal
 
-import "github.com/btcsuite/btclog"
+import "github.com/btcsuite/btclog/v2"
 
 // log is a logger that is initialized with no output filters.  This
 // means the package will not perform any logging by default until the caller

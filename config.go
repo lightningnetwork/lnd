@@ -1406,13 +1406,6 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		return nil, mkErr("log writer missing in config")
 	}
 
-	// Special show command to list supported subsystems and exit.
-	if cfg.DebugLevel == "show" {
-		fmt.Println("Supported subsystems",
-			cfg.LogWriter.SupportedSubsystems())
-		os.Exit(0)
-	}
-
 	if !build.SuportedLogCompressor(cfg.LogCompressor) {
 		return nil, mkErr("invalid log compressor: %v",
 			cfg.LogCompressor)
@@ -1420,6 +1413,13 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 
 	// Initialize logging at the default logging level.
 	SetupLoggers(cfg.LogWriter, interceptor)
+
+	// Special show command to list supported subsystems and exit.
+	if cfg.DebugLevel == "show" {
+		fmt.Println("Supported subsystems",
+			cfg.LogWriter.SupportedSubsystems())
+		os.Exit(0)
+	}
 	err = cfg.LogWriter.InitLogRotator(
 		filepath.Join(cfg.LogDir, defaultLogFilename),
 		cfg.LogCompressor, cfg.MaxLogFileSize, cfg.MaxLogFiles,

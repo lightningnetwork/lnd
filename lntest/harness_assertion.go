@@ -738,15 +738,19 @@ func (h *HarnessTest) AssertStreamChannelForceClosed(hn *node.HarnessNode,
 		channeldb.ChanStatusLocalCloseInitiator.String(),
 		"channel not coop broadcasted")
 
+	// Get the closing txid.
+	closeTxid, err := chainhash.NewHashFromStr(resp.ClosingTxid)
+	require.NoError(h, err)
+
 	// We'll now, generate a single block, wait for the final close status
 	// update, then ensure that the closing transaction was included in the
 	// block.
-	block := h.MineBlocksAndAssertNumTxes(1, 1)[0]
+	closeTx := h.AssertTxInMempool(*closeTxid)
+	h.MineBlockWithTx(closeTx)
 
 	// Consume one close event and assert the closing txid can be found in
 	// the block.
 	closingTxid := h.WaitForChannelCloseEvent(stream)
-	h.AssertTxInBlock(block, closingTxid)
 
 	// We should see zero waiting close channels and 1 pending force close
 	// channels now.

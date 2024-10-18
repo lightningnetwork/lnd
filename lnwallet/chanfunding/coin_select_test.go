@@ -317,6 +317,7 @@ func TestCoinSelect(t *testing.T) {
 				feeRate, test.outputValue, dustLimit,
 				test.coins, wallet.CoinSelectionLargest,
 				fundingOutputEstimate, test.changeType,
+				DefaultMaxFeeRatio,
 			)
 
 			if test.expectErr {
@@ -356,6 +357,7 @@ func TestCalculateChangeAmount(t *testing.T) {
 		feeWithChange btcutil.Amount
 		dustLimit     btcutil.Amount
 		changeType    ChangeAddressType
+		maxFeeRatio   float64
 
 		expectErr       string
 		expectChangeAmt btcutil.Amount
@@ -369,6 +371,7 @@ func TestCalculateChangeAmount(t *testing.T) {
 		totalInputAmt: 500,
 		requiredAmt:   490,
 		feeNoChange:   12,
+		maxFeeRatio:   DefaultMaxFeeRatio,
 
 		expectNeedMore: 502,
 	}, {
@@ -383,6 +386,7 @@ func TestCalculateChangeAmount(t *testing.T) {
 		feeWithChange: 10,
 		dustLimit:     100,
 		changeType:    ExistingChangeAddress,
+		maxFeeRatio:   DefaultMaxFeeRatio,
 
 		expectChangeAmt: 90,
 	}, {
@@ -392,6 +396,7 @@ func TestCalculateChangeAmount(t *testing.T) {
 		feeNoChange:   40,
 		feeWithChange: 50,
 		dustLimit:     100,
+		maxFeeRatio:   DefaultMaxFeeRatio,
 
 		expectChangeAmt: 150,
 	}, {
@@ -401,6 +406,7 @@ func TestCalculateChangeAmount(t *testing.T) {
 		requiredAmt:   460,
 		feeNoChange:   40,
 		feeWithChange: 50,
+		maxFeeRatio:   DefaultMaxFeeRatio,
 
 		expectChangeAmt: 0,
 	}, {
@@ -410,14 +416,36 @@ func TestCalculateChangeAmount(t *testing.T) {
 		feeNoChange:   10,
 		feeWithChange: 45,
 		dustLimit:     5,
+		maxFeeRatio:   DefaultMaxFeeRatio,
 
 		expectErr: "fee 0.00000045 BTC on total output value " +
 			"0.00000055",
+	}, {
+		name:          "fee percent ok",
+		totalInputAmt: 100,
+		requiredAmt:   50,
+		feeNoChange:   10,
+		feeWithChange: 45,
+		dustLimit:     5,
+		maxFeeRatio:   0.95,
+
+		expectChangeAmt: 5,
+	}, {
+		name:          "invalid max fee ratio",
+		totalInputAmt: 100,
+		requiredAmt:   50,
+		feeNoChange:   10,
+		feeWithChange: 45,
+		dustLimit:     5,
+		maxFeeRatio:   3.14,
+
+		expectErr: "maxFeeRatio must be between 0.00 and 1.00",
 	}, {
 		name:          "invalid usage of function",
 		feeNoChange:   5,
 		feeWithChange: 10,
 		changeType:    ExistingChangeAddress,
+		maxFeeRatio:   DefaultMaxFeeRatio,
 
 		expectErr: "fees for with or without change must be the same",
 	}}
@@ -428,7 +456,7 @@ func TestCalculateChangeAmount(t *testing.T) {
 			changeAmt, needMore, err := CalculateChangeAmount(
 				tc.totalInputAmt, tc.requiredAmt,
 				tc.feeNoChange, tc.feeWithChange, tc.dustLimit,
-				tc.changeType,
+				tc.changeType, tc.maxFeeRatio,
 			)
 
 			if tc.expectErr != "" {
@@ -627,6 +655,7 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 				wallet.CoinSelectionLargest,
 				fundingOutputEstimate,
 				defaultChanFundingChangeType,
+				DefaultMaxFeeRatio,
 			)
 			if err != nil {
 				switch {
@@ -872,6 +901,7 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 				wallet.CoinSelectionLargest,
 				fundingOutputEstimate,
 				defaultChanFundingChangeType,
+				DefaultMaxFeeRatio,
 			)
 			if len(test.expectErr) == 0 && err != nil {
 				t.Fatal(err.Error())

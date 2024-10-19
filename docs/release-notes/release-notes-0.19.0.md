@@ -110,6 +110,11 @@
   these options have also been increased from max 3 log files to 10 and from 
   max 10 MB to 20 MB. 
  
+* [Deprecate `dust-threshold`
+config option](https://github.com/lightningnetwork/lnd/pull/9182) and introduce
+a new option `channel-max-fee-exposure` which is unambiguous in its description.
+The underlying functionality between those two options remain the same.
+
 ## Breaking Changes
 ## Performance Improvements
 

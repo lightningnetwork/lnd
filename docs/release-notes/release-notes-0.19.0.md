@@ -88,6 +88,11 @@
   Finally, the new `--logging.console.style` option can be used under the `dev` 
   build tag to add styling to console logging.
  
+* [Deprecate `dust-threshold`
+config option](https://github.com/lightningnetwork/lnd/pull/9182) and introduce
+a new option `channel-max-fee-exposure` which is unambiguous in its description.
+The underlying functionality between those two options remain the same.
+
 ## Breaking Changes
 ## Performance Improvements
 

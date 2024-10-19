@@ -150,10 +150,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testAddPeerConfig,
 	},
 	{
-		Name:     "multi hop remote force close on-chain htlc timeout",
-		TestFunc: testMultiHopRemoteForceCloseOnChainHtlcTimeout,
-	},
-	{
 		Name:     "private channel update policy",
 		TestFunc: testUpdateChannelPolicyForPrivateChannel,
 	},

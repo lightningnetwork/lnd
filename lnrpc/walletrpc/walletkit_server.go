@@ -1190,13 +1190,13 @@ func (w *WalletKit) BumpForceCloseFee(_ context.Context,
 	// bumping the fee.
 	commitSet := fn.NewSet[chainhash.Hash]()
 
-	if channel.LocalCommitment.CommitTx != nil {
-		localTxID := channel.LocalCommitment.CommitTx.TxHash()
+	if channel.Commitments.Local.CommitTx != nil {
+		localTxID := channel.Commitments.Local.CommitTx.TxHash()
 		commitSet.Add(localTxID)
 	}
 
-	if channel.RemoteCommitment.CommitTx != nil {
-		remoteTxID := channel.RemoteCommitment.CommitTx.TxHash()
+	if channel.Commitments.Remote.CommitTx != nil {
+		remoteTxID := channel.Commitments.Remote.CommitTx.TxHash()
 		commitSet.Add(remoteTxID)
 	}
 

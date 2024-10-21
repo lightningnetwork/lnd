@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -243,8 +244,10 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 	)
 
 	aliceChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            aliceCfg,
-		RemoteChanCfg:           bobCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  aliceCfg,
+			Remote: bobCfg,
+		},
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,
@@ -254,15 +257,19 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         aliceCommit,
-		RemoteCommitment:        aliceCommit,
-		Db:                      dbAlice.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
-		FundingTxn:              channels.TestFundingTx,
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  aliceCommit,
+			Remote: aliceCommit,
+		},
+		Db:         dbAlice.ChannelStateDB(),
+		Packager:   channeldb.NewChannelPackager(shortChanID),
+		FundingTxn: channels.TestFundingTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            bobCfg,
-		RemoteChanCfg:           aliceCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  bobCfg,
+			Remote: aliceCfg,
+		},
 		IdentityPub:             bobKeyPub,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunderTweaklessBit,
@@ -271,10 +278,12 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         bobCommit,
-		RemoteCommitment:        bobCommit,
-		Db:                      dbBob.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  bobCommit,
+			Remote: bobCommit,
+		},
+		Db:       dbBob.ChannelStateDB(),
+		Packager: channeldb.NewChannelPackager(shortChanID),
 	}
 
 	// Set custom values on the channel states.
@@ -472,6 +481,14 @@ func (m *mockUpdateHandler) OnCommitOnce(
 ) {
 
 	hook()
+}
+func (m *mockUpdateHandler) InitStfu() <-chan fn.Result[lntypes.ChannelParty] {
+	// TODO(proofofkeags): Implement
+	c := make(chan fn.Result[lntypes.ChannelParty], 1)
+
+	c <- fn.Errf[lntypes.ChannelParty]("InitStfu not yet implemented")
+
+	return c
 }
 
 func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {

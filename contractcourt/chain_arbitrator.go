@@ -466,8 +466,8 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 	// Finally, we'll need to construct a series of htlc Sets based on all
 	// currently known valid commitments.
 	htlcSets := make(map[HtlcSetKey]htlcSet)
-	htlcSets[LocalHtlcSet] = newHtlcSet(channel.LocalCommitment.Htlcs)
-	htlcSets[RemoteHtlcSet] = newHtlcSet(channel.RemoteCommitment.Htlcs)
+	htlcSets[LocalHtlcSet] = newHtlcSet(channel.Commitments.Local.Htlcs)
+	htlcSets[RemoteHtlcSet] = newHtlcSet(channel.Commitments.Remote.Htlcs)
 
 	pendingRemoteCommitment, err := channel.RemoteCommitChainTip()
 	if err != nil && err != channeldb.ErrNoPendingCommit {

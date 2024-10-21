@@ -51,6 +51,12 @@ const (
 	// circuit map. This is non-fatal and will resolve itself (usually
 	// within several minutes).
 	ErrCircuitError
+
+	// ErrStfuViolation indicates that the quiescence protocol has been
+	// violated, either because Stfu has been sent/received at an invalid
+	// time, or that an update has been sent/received while the channel is
+	// quiesced.
+	ErrStfuViolation
 )
 
 // LinkFailureAction is an enum-like type that describes the action that should

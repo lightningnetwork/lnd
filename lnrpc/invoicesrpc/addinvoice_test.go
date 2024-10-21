@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/mock"
@@ -588,8 +589,10 @@ var populateHopHintsTestCases = []struct {
 		remoteBalance := lnwire.MilliSatoshi(10_000_000)
 		allChannels := []*channeldb.OpenChannel{
 			{
-				LocalCommitment: channeldb.ChannelCommitment{
-					RemoteBalance: remoteBalance,
+				Commitments: lntypes.Dual[channeldb.ChannelCommitment]{ //nolint:lll
+					Local: channeldb.ChannelCommitment{
+						RemoteBalance: remoteBalance,
+					},
 				},
 				FundingOutpoint: fundingOutpoint,
 				ShortChannelID:  lnwire.NewShortChanIDFromInt(9),
@@ -642,8 +645,10 @@ var populateHopHintsTestCases = []struct {
 			// enough bandwidth we should never use this one.
 			{},
 			{
-				LocalCommitment: channeldb.ChannelCommitment{
-					RemoteBalance: remoteBalance,
+				Commitments: lntypes.Dual[channeldb.ChannelCommitment]{ //nolint:lll
+					Local: channeldb.ChannelCommitment{
+						RemoteBalance: remoteBalance,
+					},
 				},
 				FundingOutpoint: fundingOutpoint,
 				ShortChannelID:  lnwire.NewShortChanIDFromInt(9),
@@ -840,16 +845,20 @@ func setupMockTwoChannels(h *hopHintsConfigMock) (lnwire.ChannelID,
 		// After sorting we will first process chanID1 and then
 		// chanID2.
 		{
-			LocalCommitment: channeldb.ChannelCommitment{
-				RemoteBalance: remoteBalance2,
+			Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+				Local: channeldb.ChannelCommitment{
+					RemoteBalance: remoteBalance2,
+				},
 			},
 			FundingOutpoint: fundingOutpoint2,
 			ShortChannelID:  lnwire.NewShortChanIDFromInt(2),
 			IdentityPub:     getTestPubKey(),
 		},
 		{
-			LocalCommitment: channeldb.ChannelCommitment{
-				RemoteBalance: remoteBalance1,
+			Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+				Local: channeldb.ChannelCommitment{
+					RemoteBalance: remoteBalance1,
+				},
 			},
 			FundingOutpoint: fundingOutpoint1,
 			ShortChannelID:  lnwire.NewShortChanIDFromInt(9),

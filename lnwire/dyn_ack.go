@@ -2,9 +2,12 @@ package lnwire
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -23,6 +26,10 @@ type DynAck struct {
 	// ChanID is the ChannelID of the channel that is currently undergoing
 	// a dynamic commitment negotiation
 	ChanID ChannelID
+
+	// Sig is a signature that acknowledges and approves the parameters
+	// that were requested in the DynPropose
+	Sig Sig
 
 	// LocalNonce is an optional field that is transmitted when accepting
 	// a dynamic commitment upgrade to Taproot Channels. This nonce will be
@@ -47,6 +54,10 @@ var _ Message = (*DynAck)(nil)
 // This is a part of the lnwire.Message interface.
 func (da *DynAck) Encode(w *bytes.Buffer, _ uint32) error {
 	if err := WriteChannelID(w, da.ChanID); err != nil {
+		return err
+	}
+
+	if err := WriteSig(w, da.Sig); err != nil {
 		return err
 	}
 
@@ -84,7 +95,7 @@ func (da *DynAck) Encode(w *bytes.Buffer, _ uint32) error {
 // This is a part of the lnwire.Message interface.
 func (da *DynAck) Decode(r io.Reader, _ uint32) error {
 	// Parse out main message.
-	if err := ReadElements(r, &da.ChanID); err != nil {
+	if err := ReadElements(r, &da.ChanID, &da.Sig); err != nil {
 		return err
 	}
 
@@ -135,4 +146,44 @@ func (da *DynAck) Decode(r io.Reader, _ uint32) error {
 // This is part of the lnwire.Message interface.
 func (da *DynAck) MsgType() MessageType {
 	return MsgDynAck
+}
+
+// Validate does DynAck signature validation for a given prior DynPropose
+// message.
+func (da *DynAck) Validate(propose DynPropose, nextHeight uint64,
+	pubkey *secp256k1.PublicKey) error {
+
+	cSig, err := da.Sig.ToSignature()
+	if err != nil {
+		return err
+	}
+
+	var msg bytes.Buffer
+	err = WriteChannelID(&msg, da.ChanID)
+	if err != nil {
+		return err
+	}
+
+	err = WriteElement(&msg, nextHeight)
+	if err != nil {
+		return err
+	}
+
+	tlvData, err := propose.SerializeTlvData()
+	if err != nil {
+		return err
+	}
+
+	msg.Write(tlvData)
+
+	digest := chainhash.DoubleHashB(msg.Bytes())
+
+	if !cSig.Verify(digest, pubkey) {
+		return fmt.Errorf(
+			"invalid signature for dyn_ack: %v @ %v by %v",
+			propose, nextHeight, pubkey,
+		)
+	}
+
+	return nil
 }

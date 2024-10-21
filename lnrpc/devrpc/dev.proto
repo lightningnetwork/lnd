@@ -30,7 +30,22 @@ service Dev {
     used for development.
     */
     rpc ImportGraph (lnrpc.ChannelGraph) returns (ImportGraphResponse);
+
+    /*
+    Quiesce instructs a channel to initiate the quiescence (stfu) protocol. This
+    RPC is for testing purposes only. The commit that adds it will be removed
+    once interop is confirmed.
+    */
+    rpc Quiesce (QuiescenceRequest) returns (QuiescenceResponse);
 }
 
 message ImportGraphResponse {
+}
+
+message QuiescenceRequest {
+    lnrpc.ChannelPoint chan_id = 1;
+}
+
+message QuiescenceResponse {
+    bool initiator = 1;
 }

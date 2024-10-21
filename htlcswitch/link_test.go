@@ -7508,3 +7508,90 @@ func TestLinkFlushHooksCalled(t *testing.T) {
 	ctx.receiveRevAndAckAliceToBob()
 	assertHookCalled(true)
 }
+
+// TestLinkQuiescenceExitHopProcessingDeferred ensures that we do not send back
+// htlc resolution messages in the case where the link is quiescent AND we are
+// the exit hop. This is needed because we handle exit hop processing in the
+// link instead of the switch and we process htlc resolutions when we receive
+// a RevokeAndAck. Because of this we need to ensure that we hold off on
+// processing the remote adds when we are quiescent. Later, when the channel
+// update traffic is allowed to resume, we will need to verify that the actions
+// we didn't run during the initial RevokeAndAck are run.
+func TestLinkQuiescenceExitHopProcessingDeferred(t *testing.T) {
+	// Initialize two channel state machines for testing.
+	alice, bob, err := createMirroredChannel(
+		t, btcutil.SatoshiPerBitcoin, btcutil.SatoshiPerBitcoin,
+	)
+	require.NoError(t, err)
+
+	// Build a single edge network to test channel quiescence.
+	network := newTwoHopNetwork(
+		t, alice.channel, bob.channel, testStartingHeight,
+	)
+	aliceLink := network.aliceChannelLink
+	bobLink := network.bobChannelLink
+
+	// Generate an invoice for Bob so that Alice can pay him.
+	htlcID := uint64(0)
+	htlc, invoice := generateHtlcAndInvoice(t, htlcID)
+	err = network.bobServer.registry.AddInvoice(
+		nil, *invoice, htlc.PaymentHash,
+	)
+	require.NoError(t, err)
+
+	// Establish a payment circuit for Alice
+	circuit := &PaymentCircuit{
+		Incoming: CircuitKey{
+			HtlcID: htlcID,
+		},
+		PaymentHash: htlc.PaymentHash,
+	}
+	circuitMap := network.aliceServer.htlcSwitch.circuits
+	_, err = circuitMap.CommitCircuits(circuit)
+	require.NoError(t, err)
+
+	// Add a switch packet to Alice's switch so that she can initialize the
+	// payment attempt.
+	err = aliceLink.handleSwitchPacket(&htlcPacket{
+		incomingHTLCID: htlcID,
+		htlc:           htlc,
+		circuit:        circuit,
+	})
+	require.NoError(t, err)
+
+	// give alice enough time to fire the update_add
+	// TODO(proofofkeags): make this not depend on a flakey sleep.
+	<-time.After(time.Millisecond)
+
+	// bob initiates stfu which he can do immediately since he doesn't have
+	// local updates
+	<-bobLink.InitStfu()
+
+	// wait for other possible messages to play out
+	<-time.After(1 * time.Second)
+
+	ensureNoUpdateAfterStfu := func(t *testing.T, trace []lnwire.Message) {
+		stfuReceived := false
+		for _, msg := range trace {
+			if msg.MsgType() == lnwire.MsgStfu {
+				stfuReceived = true
+				continue
+			}
+
+			if stfuReceived && msg.MsgType().IsChannelUpdate() {
+				t.Fatalf("channel update after stfu: %v",
+					msg.MsgType())
+			}
+		}
+	}
+
+	network.aliceServer.protocolTraceMtx.Lock()
+	ensureNoUpdateAfterStfu(t, network.aliceServer.protocolTrace)
+	network.aliceServer.protocolTraceMtx.Unlock()
+
+	network.bobServer.protocolTraceMtx.Lock()
+	ensureNoUpdateAfterStfu(t, network.bobServer.protocolTrace)
+	network.bobServer.protocolTraceMtx.Unlock()
+
+	// TODO(proofofkeags): make sure these actions are run on resume.
+}

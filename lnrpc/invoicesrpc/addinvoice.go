@@ -729,7 +729,7 @@ func newHopHintInfo(c *channeldb.OpenChannel, isActive bool) *HopHintInfo {
 		IsActive:         isActive,
 		FundingOutpoint:  c.FundingOutpoint,
 		RemotePubkey:     c.IdentityPub,
-		RemoteBalance:    c.LocalCommitment.RemoteBalance,
+		RemoteBalance:    c.Commitments.Local.RemoteBalance,
 		ShortChannelID:   c.ShortChannelID.ToUint64(),
 		ConfirmedScidZC:  c.ZeroConfRealScid().ToUint64(),
 		ScidAliasFeature: c.ChanType.HasScidAliasFeature(),
@@ -844,8 +844,8 @@ func getPotentialHints(cfg *SelectHopHintsCfg) ([]*channeldb.OpenChannel,
 
 	// Sort the channels in descending remote balance.
 	compareRemoteBalance := func(i, j int) bool {
-		iBalance := privateChannels[i].LocalCommitment.RemoteBalance
-		jBalance := privateChannels[j].LocalCommitment.RemoteBalance
+		iBalance := privateChannels[i].Commitments.Local.RemoteBalance
+		jBalance := privateChannels[j].Commitments.Local.RemoteBalance
 		return iBalance > jBalance
 	}
 	sort.Slice(privateChannels, compareRemoteBalance)

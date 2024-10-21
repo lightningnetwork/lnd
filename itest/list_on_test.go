@@ -298,10 +298,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testRestAPI,
 	},
 	{
-		Name:     "multi hop htlc local chain claim",
-		TestFunc: testMultiHopHtlcLocalChainClaim,
-	},
-	{
 		Name:     "multi hop htlc remote chain claim",
 		TestFunc: testMultiHopHtlcRemoteChainClaim,
 	},

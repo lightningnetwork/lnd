@@ -1565,10 +1565,10 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	}
 
 	var scidFeatureVal bool
-	if hasFeatures(
+	if ok, _ := hasFeatures(
 		peer.LocalFeatures(), peer.RemoteFeatures(),
 		lnwire.ScidAliasOptional,
-	) {
+	); ok {
 
 		scidFeatureVal = true
 	}
@@ -4773,10 +4773,10 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	}
 
 	var scidFeatureVal bool
-	if hasFeatures(
+	if ok, _ := hasFeatures(
 		msg.Peer.LocalFeatures(), msg.Peer.RemoteFeatures(),
 		lnwire.ScidAliasOptional,
-	) {
+	); ok {
 
 		scidFeatureVal = true
 	}

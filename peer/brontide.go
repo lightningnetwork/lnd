@@ -1812,7 +1812,7 @@ func newChanMsgStream(p *Brontide, cid lnwire.ChannelID) *msgStream {
 			// If the link is still not active and the calling function
 			// errored out, just return.
 			if chanLink == nil {
-				p.log.Warnf("Link=%v is not active")
+				p.log.Warnf("Link=%v is not active", cid)
 				return
 			}
 		}

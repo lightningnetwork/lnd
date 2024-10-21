@@ -342,6 +342,7 @@ func (h *HarnessTest) SetupStandbyNodes() {
 	// above a good number of confirmations.
 	const totalTxes = 200
 	h.MineBlocksAndAssertNumTxes(numBlocksSendOutput, totalTxes)
+	h.MineBlocks(numBlocksSendOutput)
 
 	// Now we want to wait for the nodes to catch up.
 	h.WaitForBlockchainSync(h.Alice)
@@ -913,12 +914,12 @@ func (h *HarnessTest) validateNodeState(hn *node.HarnessNode) error {
 // GetChanPointFundingTxid takes a channel point and converts it into a chain
 // hash.
 func (h *HarnessTest) GetChanPointFundingTxid(
-	cp *lnrpc.ChannelPoint) *chainhash.Hash {
+	cp *lnrpc.ChannelPoint) chainhash.Hash {
 
 	txid, err := lnrpc.GetChanPointFundingTxid(cp)
 	require.NoError(h, err, "unable to get txid")
 
-	return txid
+	return *txid
 }
 
 // OutPointFromChannelPoint creates an outpoint from a given channel point.
@@ -927,7 +928,7 @@ func (h *HarnessTest) OutPointFromChannelPoint(
 
 	txid := h.GetChanPointFundingTxid(cp)
 	return wire.OutPoint{
-		Hash:  *txid,
+		Hash:  txid,
 		Index: cp.OutputIndex,
 	}
 }
@@ -1263,7 +1264,7 @@ func (h *HarnessTest) OpenChannelAssertErr(srcNode, destNode *node.HarnessNode,
 // mempool.
 func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 	cp *lnrpc.ChannelPoint,
-	force bool) (rpc.CloseChanClient, *chainhash.Hash) {
+	force bool) (rpc.CloseChanClient, chainhash.Hash) {
 
 	// Calls the rpc to close the channel.
 	closeReq := &lnrpc.CloseChannelRequest{
@@ -1306,9 +1307,9 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 		pendingClose.ClosePending.Txid)
 
 	// Assert the closing tx is in the mempool.
-	h.miner.AssertTxInMempool(closeTxid)
+	h.miner.AssertTxInMempool(*closeTxid)
 
-	return stream, closeTxid
+	return stream, *closeTxid
 }
 
 // CloseChannel attempts to coop close a non-anchored channel identified by the
@@ -1321,7 +1322,7 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 //  5. the node reports zero waiting close channels.
 //  6. the node receives a topology update regarding the channel close.
 func (h *HarnessTest) CloseChannel(hn *node.HarnessNode,
-	cp *lnrpc.ChannelPoint) *chainhash.Hash {
+	cp *lnrpc.ChannelPoint) chainhash.Hash {
 
 	stream, _ := h.CloseChannelAssertPending(hn, cp, false)
 
@@ -1340,7 +1341,7 @@ func (h *HarnessTest) CloseChannel(hn *node.HarnessNode,
 //  7. mine DefaultCSV-1 blocks.
 //  8. the node reports zero pending force close channels.
 func (h *HarnessTest) ForceCloseChannel(hn *node.HarnessNode,
-	cp *lnrpc.ChannelPoint) *chainhash.Hash {
+	cp *lnrpc.ChannelPoint) chainhash.Hash {
 
 	stream, _ := h.CloseChannelAssertPending(hn, cp, true)
 
@@ -1902,7 +1903,7 @@ func (h *HarnessTest) CalculateTxFee(tx *wire.MsgTx) btcutil.Amount {
 	var balance btcutil.Amount
 	for _, in := range tx.TxIn {
 		parentHash := in.PreviousOutPoint.Hash
-		rawTx := h.miner.GetRawTransaction(&parentHash)
+		rawTx := h.miner.GetRawTransaction(parentHash)
 		parent := rawTx.MsgTx()
 		value := parent.TxOut[in.PreviousOutPoint.Index].Value
 
@@ -2151,7 +2152,7 @@ func (h *HarnessTest) ReceiveChannelEvent(
 
 // GetOutputIndex returns the output index of the given address in the given
 // transaction.
-func (h *HarnessTest) GetOutputIndex(txid *chainhash.Hash, addr string) int {
+func (h *HarnessTest) GetOutputIndex(txid chainhash.Hash, addr string) int {
 	// We'll then extract the raw transaction from the mempool in order to
 	// determine the index of the p2tr output.
 	tx := h.miner.GetRawTransaction(txid)

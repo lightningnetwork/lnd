@@ -103,7 +103,10 @@ func (h *htlcIncomingContestResolver) Resolve(
 	//
 	// TODO(roasbeef): Implement resolving HTLCs with custom records
 	// (follow-up PR).
-	if len(h.htlc.CustomRecords) != 0 {
+	if len(h.htlc.CustomRecords) != 0 && h.isTapscriptRoot {
+		log.Warnf("Not resolving HTLC with: %v custom records",
+			len(h.htlc.CustomRecords))
+
 		select { //nolint:gosimple
 		case <-h.quit:
 			return nil, errResolverShuttingDown

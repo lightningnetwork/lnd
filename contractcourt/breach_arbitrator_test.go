@@ -22,6 +22,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/channels"
@@ -1198,6 +1199,8 @@ func TestBreachCreateJusticeTx(t *testing.T) {
 		input.HtlcSecondLevelRevoke,
 	}
 
+	rBlob := fn.Some([]byte{0x01})
+
 	breachedOutputs := make([]breachedOutput, len(outputTypes))
 	for i, wt := range outputTypes {
 		// Create a fake breached output for each type, ensuring they
@@ -1216,6 +1219,7 @@ func TestBreachCreateJusticeTx(t *testing.T) {
 			nil,
 			signDesc,
 			1,
+			rBlob,
 		)
 	}
 
@@ -1226,16 +1230,16 @@ func TestBreachCreateJusticeTx(t *testing.T) {
 
 	// The spendAll tx should be spending all the outputs. This is the
 	// "regular" justice transaction type.
-	require.Len(t, justiceTxs.spendAll.TxIn, len(breachedOutputs))
+	require.Len(t, justiceTxs.spendAll.justiceTx.TxIn, len(breachedOutputs))
 
 	// The spendCommitOuts tx should be spending the 4 types of commit outs
 	// (note that in practice there will be at most two commit outputs per
 	// commit, but we test all 4 types here).
-	require.Len(t, justiceTxs.spendCommitOuts.TxIn, 4)
+	require.Len(t, justiceTxs.spendCommitOuts.justiceTx.TxIn, 4)
 
 	// Check that the spendHTLCs tx is spending the two revoked commitment
 	// level HTLC output types.
-	require.Len(t, justiceTxs.spendHTLCs.TxIn, 2)
+	require.Len(t, justiceTxs.spendHTLCs.justiceTx.TxIn, 2)
 
 	// Finally, check that the spendSecondLevelHTLCs txs are spending the
 	// second level type.
@@ -1590,6 +1594,10 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	// Notify the breach arbiter about the breach.
 	retribution, err := lnwallet.NewBreachRetribution(
 		alice.State(), height, 1, forceCloseTx,
+		fn.Some[lnwallet.AuxLeafStore](&lnwallet.MockAuxLeafStore{}),
+		fn.Some[lnwallet.AuxContractResolver](
+			&lnwallet.MockAuxContractResolver{},
+		),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 
@@ -1799,6 +1807,10 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	// Notify the breach arbiter about the breach.
 	retribution, err := lnwallet.NewBreachRetribution(
 		alice.State(), height, uint32(blockHeight), forceCloseTx,
+		fn.Some[lnwallet.AuxLeafStore](&lnwallet.MockAuxLeafStore{}),
+		fn.Some[lnwallet.AuxContractResolver](
+			&lnwallet.MockAuxContractResolver{},
+		),
 	)
 	require.NoError(t, err, "unable to create breach retribution")
 
@@ -2126,15 +2138,19 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 	// Assemble our test arbiter.
 	notifier := mock.MakeMockSpendNotifier()
 	ba := NewBreachArbitrator(&BreachConfig{
-		CloseLink:          func(_ *wire.OutPoint, _ ChannelCloseType) {},
-		DB:                 db.ChannelStateDB(),
-		Estimator:          chainfee.NewStaticEstimator(12500, 0),
-		GenSweepScript:     func() ([]byte, error) { return nil, nil },
-		ContractBreaches:   contractBreaches,
-		Signer:             signer,
-		Notifier:           notifier,
-		PublishTransaction: func(_ *wire.MsgTx, _ string) error { return nil },
-		Store:              store,
+		CloseLink: func(_ *wire.OutPoint, _ ChannelCloseType) {},
+		DB:        db.ChannelStateDB(),
+		Estimator: chainfee.NewStaticEstimator(12500, 0),
+		GenSweepScript: func() fn.Result[lnwallet.AddrWithKey] {
+			return fn.Ok(lnwallet.AddrWithKey{})
+		},
+		ContractBreaches: contractBreaches,
+		Signer:           signer,
+		Notifier:         notifier,
+		PublishTransaction: func(_ *wire.MsgTx, _ string) error {
+			return nil
+		},
+		Store: store,
 	})
 
 	if err := ba.Start(); err != nil {
@@ -2357,9 +2373,12 @@ func createInitChannels(t *testing.T) (
 	)
 	bobSigner := input.NewMockSigner([]*btcec.PrivateKey{bobKeyPriv}, nil)
 
+	signerMock := lnwallet.NewDefaultAuxSignerMock(t)
 	alicePool := lnwallet.NewSigPool(1, aliceSigner)
 	channelAlice, err := lnwallet.NewLightningChannel(
 		aliceSigner, aliceChannelState, alicePool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(signerMock),
 	)
 	if err != nil {
 		return nil, nil, err
@@ -2372,6 +2391,8 @@ func createInitChannels(t *testing.T) (
 	bobPool := lnwallet.NewSigPool(1, bobSigner)
 	channelBob, err := lnwallet.NewLightningChannel(
 		bobSigner, bobChannelState, bobPool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(signerMock),
 	)
 	if err != nil {
 		return nil, nil, err

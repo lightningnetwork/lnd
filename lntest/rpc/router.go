@@ -208,6 +208,54 @@ func (h *HarnessRPC) HtlcInterceptor() (InterceptorClient, context.CancelFunc) {
 	return resp, cancel
 }
 
+// XAddLocalChanAliases adds a list of aliases to the node's alias map.
+func (h *HarnessRPC) XAddLocalChanAliases(req *routerrpc.AddAliasesRequest) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.Router.XAddLocalChanAliases(ctxt, req)
+	h.NoError(err, "XAddLocalChanAliases")
+}
+
+// XAddLocalChanAliasesErr adds a list of aliases to the node's alias map and
+// expects an error.
+func (h *HarnessRPC) XAddLocalChanAliasesErr(
+	req *routerrpc.AddAliasesRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.Router.XAddLocalChanAliases(ctxt, req)
+	require.Error(h, err)
+
+	return err
+}
+
+// XDeleteLocalChanAliases deleted a set of alias mappings.
+func (h *HarnessRPC) XDeleteLocalChanAliases(
+	req *routerrpc.DeleteAliasesRequest) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.Router.XDeleteLocalChanAliases(ctxt, req)
+	h.NoError(err, "XDeleteLocalChanAliases")
+}
+
+// XDeleteLocalChanAliasesErr deleted a set of alias mappings and expects an
+// error.
+func (h *HarnessRPC) XDeleteLocalChanAliasesErr(
+	req *routerrpc.DeleteAliasesRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.Router.XDeleteLocalChanAliases(ctxt, req)
+	require.Error(h, err)
+
+	return err
+}
+
 type TrackPaymentsClient routerrpc.Router_TrackPaymentsClient
 
 // TrackPayments makes a RPC call to the node's RouterClient and asserts.
@@ -218,4 +266,20 @@ func (h *HarnessRPC) TrackPayments(
 	h.NoError(err, "TrackPayments")
 
 	return resp
+}
+
+type TrackPaymentClient routerrpc.Router_TrackPaymentV2Client
+
+// TrackPaymentV2 creates a subscription client for given invoice and
+// asserts its creation.
+func (h *HarnessRPC) TrackPaymentV2(payHash []byte) TrackPaymentClient {
+	req := &routerrpc.TrackPaymentRequest{PaymentHash: payHash}
+
+	// TrackPaymentV2 needs to have the context alive for the entire test
+	// case as the returned client will be used for send and receive events
+	// stream. Thus we use runCtx here instead of a timeout context.
+	client, err := h.Router.TrackPaymentV2(h.runCtx, req)
+	h.NoError(err, "TrackPaymentV2")
+
+	return client
 }

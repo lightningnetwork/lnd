@@ -345,12 +345,18 @@ func (c *commitSweepResolver) Resolve(_ bool) (ContractResolver, error) {
 			&c.commitResolution.SelfOutputSignDesc,
 			c.broadcastHeight, c.commitResolution.MaturityDelay,
 			c.leaseExpiry,
+			input.WithResolutionBlob(
+				c.commitResolution.ResolutionBlob,
+			),
 		)
 	} else {
 		inp = input.NewCsvInput(
 			&c.commitResolution.SelfOutPoint, witnessType,
 			&c.commitResolution.SelfOutputSignDesc,
 			c.broadcastHeight, c.commitResolution.MaturityDelay,
+			input.WithResolutionBlob(
+				c.commitResolution.ResolutionBlob,
+			),
 		)
 	}
 

@@ -671,7 +671,7 @@ func (s *Switch) IsForwardedHTLC(chanID lnwire.ShortChannelID,
 // given to forward them through the router. The sending link's quit channel is
 // used to prevent deadlocks when the switch stops a link in the midst of
 // forwarding.
-func (s *Switch) ForwardPackets(linkQuit chan struct{},
+func (s *Switch) ForwardPackets(linkQuit <-chan struct{},
 	packets ...*htlcPacket) error {
 
 	var (
@@ -849,7 +849,7 @@ func (s *Switch) logFwdErrs(num *int, wg *sync.WaitGroup, fwdChan chan error) {
 // receive a shutdown requuest. This method does not wait for a response from
 // the htlcForwarder before returning.
 func (s *Switch) routeAsync(packet *htlcPacket, errChan chan error,
-	linkQuit chan struct{}) error {
+	linkQuit <-chan struct{}) error {
 
 	command := &plexPacket{
 		pkt: packet,
@@ -1911,18 +1911,8 @@ func (s *Switch) loadChannelFwdPkgs(source lnwire.ShortChannelID) ([]*channeldb.
 // NOTE: This should mimic the behavior processRemoteSettleFails.
 func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 	for _, fwdPkg := range fwdPkgs {
-		settleFails, err := lnwallet.PayDescsFromRemoteLogUpdates(
-			fwdPkg.Source, fwdPkg.Height, fwdPkg.SettleFails,
-		)
-		if err != nil {
-			log.Errorf("Unable to process remote log updates: %v",
-				err)
-			continue
-		}
-
-		switchPackets := make([]*htlcPacket, 0, len(settleFails))
-		for i, pd := range settleFails {
-
+		switchPackets := make([]*htlcPacket, 0, len(fwdPkg.SettleFails))
+		for i, update := range fwdPkg.SettleFails {
 			// Skip any settles or fails that have already been
 			// acknowledged by the incoming link that originated the
 			// forwarded Add.
@@ -1930,20 +1920,18 @@ func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 				continue
 			}
 
-			switch pd.EntryType {
-
+			switch msg := update.UpdateMsg.(type) {
 			// A settle for an HTLC we previously forwarded HTLC has
 			// been received. So we'll forward the HTLC to the
 			// switch which will handle propagating the settle to
 			// the prior hop.
-			case lnwallet.Settle:
+			case *lnwire.UpdateFulfillHTLC:
+				destRef := fwdPkg.DestRef(uint16(i))
 				settlePacket := &htlcPacket{
 					outgoingChanID: fwdPkg.Source,
-					outgoingHTLCID: pd.ParentIndex,
-					destRef:        pd.DestRef,
-					htlc: &lnwire.UpdateFulfillHTLC{
-						PaymentPreimage: pd.RPreimage,
-					},
+					outgoingHTLCID: msg.ID,
+					destRef:        &destRef,
+					htlc:           msg,
 				}
 
 				// Add the packet to the batch to be forwarded, and
@@ -1955,7 +1943,7 @@ func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 			// received. As a result a new slot will be freed up in our
 			// commitment state, so we'll forward this to the switch so the
 			// backwards undo can continue.
-			case lnwallet.Fail:
+			case *lnwire.UpdateFailHTLC:
 				// Fetch the reason the HTLC was canceled so
 				// we can continue to propagate it. This
 				// failure originated from another node, so
@@ -1964,11 +1952,13 @@ func (s *Switch) reforwardSettleFails(fwdPkgs []*channeldb.FwdPkg) {
 				// additional circuit information for us.
 				failPacket := &htlcPacket{
 					outgoingChanID: fwdPkg.Source,
-					outgoingHTLCID: pd.ParentIndex,
-					destRef:        pd.DestRef,
-					htlc: &lnwire.UpdateFailHTLC{
-						Reason: lnwire.OpaqueReason(pd.FailReason),
+					outgoingHTLCID: msg.ID,
+					destRef: &channeldb.SettleFailRef{
+						Source: fwdPkg.Source,
+						Height: fwdPkg.Height,
+						Index:  uint16(i),
 					},
+					htlc: msg,
 				}
 
 				// Add the packet to the batch to be forwarded, and
@@ -2090,6 +2080,26 @@ func (s *Switch) addLiveLink(link ChannelLink) {
 	}
 	s.interfaceIndex[peerPub][link.ChanID()] = link
 
+	s.updateLinkAliases(link)
+}
+
+// UpdateLinkAliases is the externally exposed wrapper for updating link
+// aliases. It acquires the indexMtx and calls the internal method.
+func (s *Switch) UpdateLinkAliases(link ChannelLink) {
+	s.indexMtx.Lock()
+	defer s.indexMtx.Unlock()
+
+	s.updateLinkAliases(link)
+}
+
+// updateLinkAliases updates the aliases for a given link. This will cause the
+// htlcswitch to consult the alias manager on the up to date values of its
+// alias maps.
+//
+// NOTE: this MUST be called with the indexMtx held.
+func (s *Switch) updateLinkAliases(link ChannelLink) {
+	linkScid := link.ShortChanID()
+
 	aliases := link.getAliases()
 	if link.isZeroConf() {
 		if link.zeroConfConfirmed() {
@@ -2114,6 +2124,21 @@ func (s *Switch) addLiveLink(link ChannelLink) {
 			s.baseIndex[alias] = linkScid
 		}
 	} else if link.negotiatedAliasFeature() {
+		// First, we flush any alias mappings for this link's scid
+		// before we populate the map again, in order to get rid of old
+		// values that no longer exist.
+		for alias, real := range s.aliasToReal {
+			if real == linkScid {
+				delete(s.aliasToReal, alias)
+			}
+		}
+
+		for alias, real := range s.baseIndex {
+			if real == linkScid {
+				delete(s.baseIndex, alias)
+			}
+		}
+
 		// The link's SCID is the confirmed SCID for non-zero-conf
 		// option-scid-alias feature bit channels.
 		for _, alias := range aliases {

@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -356,7 +357,7 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 
 	// Execute commit dance to arrive at the point where the local node has
 	// received the test commitment and the remote signature.
-	localNewCommit, err := localChannel.SignNextCommitment()
+	localNewCommit, err := localChannel.SignNextCommitment(ctxb)
 	require.NoError(t, err, "local unable to sign commitment")
 
 	err = remoteChannel.ReceiveNewCommitment(localNewCommit.CommitSigs)
@@ -365,10 +366,10 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	revMsg, _, _, err := remoteChannel.RevokeCurrentCommitment()
 	require.NoError(t, err)
 
-	_, _, _, _, err = localChannel.ReceiveRevocation(revMsg)
+	_, _, err = localChannel.ReceiveRevocation(revMsg)
 	require.NoError(t, err)
 
-	remoteNewCommit, err := remoteChannel.SignNextCommitment()
+	remoteNewCommit, err := remoteChannel.SignNextCommitment(ctxb)
 	require.NoError(t, err)
 
 	require.Equal(
@@ -631,6 +632,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	commitmentTx, err := CreateCommitTx(
 		channelType, *fakeFundingTxIn, keyRing, aliceChanCfg,
 		bobChanCfg, channelBalance, channelBalance, 0, true, 0,
+		fn.None[CommitAuxLeaves](),
 	)
 	if err != nil {
 		t.Fatalf("unable to create commitment transaction: %v", nil)
@@ -925,7 +927,7 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 
 	var anchorAmt btcutil.Amount
 	if chanType.HasAnchors() {
-		anchorAmt = 2 * anchorSize
+		anchorAmt = 2 * AnchorSize
 	}
 
 	remoteCommitTx, localCommitTx, err := CreateCommitmentTxns(
@@ -1016,9 +1018,12 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		tc.remotePaymentBasepointSecret, remoteDummy1, remoteDummy2,
 	}, nil)
 
+	auxSigner := NewDefaultAuxSignerMock(t)
 	remotePool := NewSigPool(1, remoteSigner)
 	channelRemote, err := NewLightningChannel(
 		remoteSigner, remoteChannelState, remotePool,
+		WithLeafStore(&MockAuxLeafStore{}),
+		WithAuxSigner(auxSigner),
 	)
 	require.NoError(t, err)
 	require.NoError(t, remotePool.Start())
@@ -1026,6 +1031,8 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 	localPool := NewSigPool(1, localSigner)
 	channelLocal, err := NewLightningChannel(
 		localSigner, localChannelState, localPool,
+		WithLeafStore(&MockAuxLeafStore{}),
+		WithAuxSigner(auxSigner),
 	)
 	require.NoError(t, err)
 	require.NoError(t, localPool.Start())

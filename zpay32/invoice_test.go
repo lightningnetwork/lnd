@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -104,12 +105,8 @@ var (
 	testMessageSigner = MessageSigner{
 		SignCompact: func(msg []byte) ([]byte, error) {
 			hash := chainhash.HashB(msg)
-			sig, err := ecdsa.SignCompact(testPrivKey, hash, true)
-			if err != nil {
-				return nil, fmt.Errorf("can't sign the "+
-					"message: %v", err)
-			}
-			return sig, nil
+
+			return ecdsa.SignCompact(testPrivKey, hash, true), nil
 		},
 	}
 
@@ -562,7 +559,7 @@ func TestDecodeEncode(t *testing.T) {
 					MilliSat:    &testMillisat25mBTC,
 					Timestamp:   time.Unix(1496314658, 0),
 					PaymentHash: &testPaymentHash,
-					PaymentAddr: &specPaymentAddr,
+					PaymentAddr: fn.Some(specPaymentAddr),
 					Description: &testCoffeeBeans,
 					Destination: testPubKey,
 					Features: lnwire.NewFeatureVector(
@@ -589,7 +586,7 @@ func TestDecodeEncode(t *testing.T) {
 					MilliSat:    &testMillisat25mBTC,
 					Timestamp:   time.Unix(1496314658, 0),
 					PaymentHash: &testPaymentHash,
-					PaymentAddr: &specPaymentAddr,
+					PaymentAddr: fn.Some(specPaymentAddr),
 					Description: &testCoffeeBeans,
 					Destination: testPubKey,
 					Features: lnwire.NewFeatureVector(
@@ -718,7 +715,7 @@ func TestDecodeEncode(t *testing.T) {
 					PaymentHash: &testPaymentHash,
 					Description: &testPaymentMetadata,
 					Destination: testPubKey,
-					PaymentAddr: &specPaymentAddr,
+					PaymentAddr: fn.Some(specPaymentAddr),
 					Features: lnwire.NewFeatureVector(
 						lnwire.NewRawFeatureVector(8, 14, 48),
 						lnwire.Features,
@@ -772,7 +769,7 @@ func TestDecodeEncode(t *testing.T) {
 					MilliSat:    &testMillisat25mBTC,
 					Timestamp:   time.Unix(1496314658, 0),
 					PaymentHash: &testPaymentHash,
-					PaymentAddr: &specPaymentAddr,
+					PaymentAddr: fn.Some(specPaymentAddr),
 					Description: &testCoffeeBeans,
 					Destination: testPubKey,
 					Features: lnwire.NewFeatureVector(
@@ -803,7 +800,7 @@ func TestDecodeEncode(t *testing.T) {
 					MilliSat:    &testMillisat25mBTC,
 					Timestamp:   time.Unix(1496314658, 0),
 					PaymentHash: &testPaymentHash,
-					PaymentAddr: &specPaymentAddr,
+					PaymentAddr: fn.Some(specPaymentAddr),
 					Description: &testCoffeeBeans,
 					Destination: testPubKey,
 					Features: lnwire.NewFeatureVector(
@@ -1042,7 +1039,7 @@ func TestInvoiceChecksumMalleability(t *testing.T) {
 	msgSigner := MessageSigner{
 		SignCompact: func(msg []byte) ([]byte, error) {
 			hash := chainhash.HashB(msg)
-			return ecdsa.SignCompact(privKey, hash, true)
+			return ecdsa.SignCompact(privKey, hash, true), nil
 		},
 	}
 	opts := []func(*Invoice){Description("test")}

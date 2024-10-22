@@ -214,7 +214,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	txns := ht.GetNumTxsFromMempool(2)
 
 	// Find the sweeping tx.
-	sweepTx := ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
+	sweepTx := ht.FindSweepingTxns(txns, 1, closeTxid)[0]
 
 	// Get the weight for Bob's anchor sweeping tx.
 	txWeight := ht.CalculateTxWeight(sweepTx)
@@ -281,7 +281,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 		txns = ht.GetNumTxsFromMempool(2)
 
 		// Find the sweeping tx.
-		sweepTx = ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
+		sweepTx = ht.FindSweepingTxns(txns, 1, closeTxid)[0]
 
 		// Calculate the fee rate of Bob's new sweeping tx.
 		feeRate = uint64(ht.CalculateTxFeeRate(sweepTx))
@@ -320,7 +320,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	txns = ht.GetNumTxsFromMempool(2)
 
 	// Find the sweeping tx.
-	sweepTx = ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
+	sweepTx = ht.FindSweepingTxns(txns, 1, closeTxid)[0]
 
 	// Calculate the fee of Bob's new sweeping tx.
 	fee = uint64(ht.CalculateTxFee(sweepTx))
@@ -341,7 +341,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	txns = ht.GetNumTxsFromMempool(2)
 
 	// Find the sweeping tx.
-	currentSweepTx := ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
+	currentSweepTx := ht.FindSweepingTxns(txns, 1, closeTxid)[0]
 
 	// Assert the anchor sweep tx stays unchanged.
 	require.Equal(ht, sweepTx.TxHash(), currentSweepTx.TxHash())
@@ -553,7 +553,7 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	txns := ht.GetNumTxsFromMempool(2)
 
 	// Find the sweeping tx.
-	sweepTx := ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
+	sweepTx := ht.FindSweepingTxns(txns, 1, closeTxid)[0]
 
 	// Get the weight for Bob's anchor sweeping tx.
 	txWeight := ht.CalculateTxWeight(sweepTx)
@@ -620,7 +620,7 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 		txns = ht.GetNumTxsFromMempool(2)
 
 		// Find the sweeping tx.
-		sweepTx = ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
+		sweepTx = ht.FindSweepingTxns(txns, 1, closeTxid)[0]
 
 		// Calculate the fee rate of Bob's new sweeping tx.
 		feeRate = uint64(ht.CalculateTxFeeRate(sweepTx))
@@ -659,7 +659,7 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	txns = ht.GetNumTxsFromMempool(2)
 
 	// Find the sweeping tx.
-	sweepTx = ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
+	sweepTx = ht.FindSweepingTxns(txns, 1, closeTxid)[0]
 
 	// Calculate the fee of Bob's new sweeping tx.
 	fee = uint64(ht.CalculateTxFee(sweepTx))
@@ -680,7 +680,7 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	txns = ht.GetNumTxsFromMempool(2)
 
 	// Find the sweeping tx.
-	currentSweepTx := ht.FindSweepingTxns(txns, 1, *closeTxid)[0]
+	currentSweepTx := ht.FindSweepingTxns(txns, 1, closeTxid)[0]
 
 	// Assert the anchor sweep tx stays unchanged.
 	require.Equal(ht, sweepTx.TxHash(), currentSweepTx.TxHash())

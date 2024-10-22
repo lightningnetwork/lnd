@@ -296,7 +296,7 @@ func testMppSend(t *testing.T, testCase *mppSendTestCase) {
 	case err == nil && testCase.expectedFailure:
 		t.Fatal("expected payment to fail")
 	case err != nil && !testCase.expectedFailure:
-		t.Fatal("expected payment to succeed")
+		t.Fatalf("expected payment to succeed, got %v", err)
 	}
 
 	if len(attempts) != testCase.expectedAttempts {

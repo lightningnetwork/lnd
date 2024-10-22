@@ -2,6 +2,7 @@ package itest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -315,7 +316,7 @@ func runUtxoSelectionTestCase(ht *lntest.HarnessTest, alice,
 	// If we don't expect the channel opening to be
 	// successful, simply check for an error.
 	if tc.chanOpenShouldFail {
-		expectedErr := fmt.Errorf(tc.expectedErrStr)
+		expectedErr := errors.New(tc.expectedErrStr)
 		ht.OpenChannelAssertErr(
 			alice, bob, chanParams, expectedErr,
 		)
@@ -334,7 +335,7 @@ func runUtxoSelectionTestCase(ht *lntest.HarnessTest, alice,
 			"locked by another subsystem: %s:%d",
 			selectedOutpoints[0].TxidStr,
 			selectedOutpoints[0].OutputIndex)
-		expectedErr := fmt.Errorf(expectedErrStr)
+		expectedErr := errors.New(expectedErrStr)
 		ht.OpenChannelAssertErr(
 			alice, bob, chanParams, expectedErr,
 		)

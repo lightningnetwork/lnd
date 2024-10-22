@@ -534,7 +534,7 @@ func (h *HarnessTest) AssertTopologyChannelClosed(hn *node.HarnessNode,
 // by consuming a message from the passed close channel stream. Returns the
 // closing txid if found.
 func (h HarnessTest) WaitForChannelCloseEvent(
-	stream rpc.CloseChanClient) *chainhash.Hash {
+	stream rpc.CloseChanClient) chainhash.Hash {
 
 	// Consume one event.
 	event, err := h.ReceiveCloseChannelUpdate(stream)
@@ -548,7 +548,7 @@ func (h HarnessTest) WaitForChannelCloseEvent(
 	require.NoErrorf(h, err, "wrong format found in closing txid: %v",
 		resp.ChanClose.ClosingTxid)
 
-	return txid
+	return *txid
 }
 
 // AssertNumWaitingClose checks that a PendingChannels response from the node
@@ -634,7 +634,7 @@ func (h *HarnessTest) AssertNumPendingForceClose(hn *node.HarnessNode,
 // - assert the node has seen the channel close update.
 func (h *HarnessTest) AssertStreamChannelCoopClosed(hn *node.HarnessNode,
 	cp *lnrpc.ChannelPoint, anchors bool,
-	stream rpc.CloseChanClient) *chainhash.Hash {
+	stream rpc.CloseChanClient) chainhash.Hash {
 
 	// Assert the channel is waiting close.
 	resp := h.AssertChannelWaitingClose(hn, cp)
@@ -682,7 +682,7 @@ func (h *HarnessTest) AssertStreamChannelCoopClosed(hn *node.HarnessNode,
 //     confirmed.
 func (h *HarnessTest) AssertStreamChannelForceClosed(hn *node.HarnessNode,
 	cp *lnrpc.ChannelPoint, anchorSweep bool,
-	stream rpc.CloseChanClient) *chainhash.Hash {
+	stream rpc.CloseChanClient) chainhash.Hash {
 
 	// Assert the channel is waiting close.
 	resp := h.AssertChannelWaitingClose(hn, cp)
@@ -964,6 +964,11 @@ func (h *HarnessTest) AssertChannelBalanceResp(hn *node.HarnessNode,
 	expected *lnrpc.ChannelBalanceResponse) {
 
 	resp := hn.RPC.ChannelBalance()
+
+	// Ignore custom channel data of both expected and actual responses.
+	expected.CustomChannelData = nil
+	resp.CustomChannelData = nil
+
 	require.True(h, proto.Equal(expected, resp), "balance is incorrect "+
 		"got: %v, want: %v", resp, expected)
 }
@@ -1600,13 +1605,16 @@ func (h *HarnessTest) findPayment(hn *node.HarnessNode,
 	return nil
 }
 
+// PaymentCheck is a function that checks a payment for a specific condition.
+type PaymentCheck func(*lnrpc.Payment) error
+
 // AssertPaymentStatus asserts that the given node list a payment with the
 // given preimage has the expected status. It also checks that the payment has
 // the expected preimage, which is empty when it's not settled and matches the
 // given preimage when it's succeeded.
 func (h *HarnessTest) AssertPaymentStatus(hn *node.HarnessNode,
-	preimage lntypes.Preimage,
-	status lnrpc.Payment_PaymentStatus) *lnrpc.Payment {
+	preimage lntypes.Preimage, status lnrpc.Payment_PaymentStatus,
+	checks ...PaymentCheck) *lnrpc.Payment {
 
 	var target *lnrpc.Payment
 	payHash := preimage.Hash()
@@ -1634,6 +1642,11 @@ func (h *HarnessTest) AssertPaymentStatus(hn *node.HarnessNode,
 	default:
 		require.Equal(h, (lntypes.Preimage{}).String(),
 			target.PaymentPreimage, "expected zero preimage")
+	}
+
+	// Perform any additional checks on the payment.
+	for _, check := range checks {
+		require.NoError(h, check(target))
 	}
 
 	return target

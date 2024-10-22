@@ -60,7 +60,7 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 	// channel on the original miner's chain, which should be considered
 	// open.
 	block := ht.MineBlocksAndAssertNumTxes(10, 1)[0]
-	ht.AssertTxInBlock(block, fundingTxID)
+	ht.AssertTxInBlock(block, *fundingTxID)
 	_, err = tempMiner.Client.Generate(15)
 	require.NoError(ht, err, "unable to generate blocks")
 
@@ -116,7 +116,7 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 
 	// Cleanup by mining the funding tx again, then closing the channel.
 	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-	ht.AssertTxInBlock(block, fundingTxID)
+	ht.AssertTxInBlock(block, *fundingTxID)
 
 	ht.CloseChannel(alice, chanPoint)
 }

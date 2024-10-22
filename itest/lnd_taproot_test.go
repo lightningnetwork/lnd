@@ -171,7 +171,7 @@ func testTaprootComputeInputScriptKeySpendBip86(ht *lntest.HarnessTest,
 	ht.AssertUTXOInWallet(alice, op, "")
 
 	p2trOutpoint := wire.OutPoint{
-		Hash:  *txid,
+		Hash:  txid,
 		Index: uint32(p2trOutputIndex),
 	}
 
@@ -1413,7 +1413,7 @@ func clearWalletImportedTapscriptBalance(ht *lntest.HarnessTest,
 	// Mine one block which should contain the sweep transaction.
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	sweepTxHash := sweepTx.TxHash()
-	ht.AssertTxInBlock(block, &sweepTxHash)
+	ht.AssertTxInBlock(block, sweepTxHash)
 }
 
 // testScriptHashLock returns a simple bitcoin script that locks the funds to
@@ -1484,7 +1484,7 @@ func sendToTaprootOutput(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	txid := ht.AssertNumTxsInMempool(1)[0]
 	p2trOutputIndex := ht.GetOutputIndex(txid, tapScriptAddr.String())
 	p2trOutpoint := wire.OutPoint{
-		Hash:  *txid,
+		Hash:  txid,
 		Index: uint32(p2trOutputIndex),
 	}
 
@@ -1849,7 +1849,7 @@ func testTaprootCoopClose(ht *lntest.HarnessTest) {
 
 	// assertTaprootDeliveryUsed returns true if a Taproot addr was used in
 	// the co-op close transaction.
-	assertTaprootDeliveryUsed := func(closingTxid *chainhash.Hash) bool {
+	assertTaprootDeliveryUsed := func(closingTxid chainhash.Hash) bool {
 		tx := ht.GetRawTransaction(closingTxid)
 		for _, txOut := range tx.MsgTx().TxOut {
 			if !txscript.IsPayToTaproot(txOut.PkScript) {

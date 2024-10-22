@@ -99,6 +99,17 @@ func (h *htlcIncomingContestResolver) Resolve(
 		return nil, nil
 	}
 
+	// If the HTLC has custom records, then for now we'll pause resolution.
+	//
+	// TODO(roasbeef): Implement resolving HTLCs with custom records
+	// (follow-up PR).
+	if len(h.htlc.CustomRecords) != 0 {
+		select { //nolint:gosimple
+		case <-h.quit:
+			return nil, errResolverShuttingDown
+		}
+	}
+
 	// First try to parse the payload. If that fails, we can stop resolution
 	// now.
 	payload, nextHopOnionBlob, err := h.decodePayload()
@@ -308,7 +319,7 @@ func (h *htlcIncomingContestResolver) Resolve(
 
 		resolution, err := h.Registry.NotifyExitHopHtlc(
 			h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, currentHeight,
-			circuitKey, hodlQueue.ChanIn(), payload,
+			circuitKey, hodlQueue.ChanIn(), nil, payload,
 		)
 		if err != nil {
 			return nil, err

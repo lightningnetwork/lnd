@@ -226,27 +226,108 @@ const (
 	// A tlv type definition used to serialize an outpoint's indexStatus
 	// for use in the outpoint index.
 	indexStatusType tlv.Type = 0
-
-	// A tlv type definition used to serialize and deserialize a KeyLocator
-	// from the database.
-	keyLocType tlv.Type = 1
-
-	// A tlv type used to serialize and deserialize the
-	// `InitialLocalBalance` field.
-	initialLocalBalanceType tlv.Type = 2
-
-	// A tlv type used to serialize and deserialize the
-	// `InitialRemoteBalance` field.
-	initialRemoteBalanceType tlv.Type = 3
-
-	// A tlv type definition used to serialize and deserialize the
-	// confirmed ShortChannelID for a zero-conf channel.
-	realScidType tlv.Type = 4
-
-	// A tlv type definition used to serialize and deserialize the
-	// Memo for the channel channel.
-	channelMemoType tlv.Type = 5
 )
+
+// openChannelTlvData houses the new data fields that are stored for each
+// channel in a TLV stream within the root bucket. This is stored as a TLV
+// stream appended to the existing hard-coded fields in the channel's root
+// bucket. New fields being added to the channel state should be added here.
+//
+// NOTE: This struct is used for serialization purposes only and its fields
+// should be accessed via the OpenChannel struct while in memory.
+type openChannelTlvData struct {
+	// revokeKeyLoc is the key locator for the revocation key.
+	revokeKeyLoc tlv.RecordT[tlv.TlvType1, keyLocRecord]
+
+	// initialLocalBalance is the initial local balance of the channel.
+	initialLocalBalance tlv.RecordT[tlv.TlvType2, uint64]
+
+	// initialRemoteBalance is the initial remote balance of the channel.
+	initialRemoteBalance tlv.RecordT[tlv.TlvType3, uint64]
+
+	// realScid is the real short channel ID of the channel corresponding to
+	// the on-chain outpoint.
+	realScid tlv.RecordT[tlv.TlvType4, lnwire.ShortChannelID]
+
+	// memo is an optional text field that gives context to the user about
+	// the channel.
+	memo tlv.OptionalRecordT[tlv.TlvType5, []byte]
+
+	// tapscriptRoot is the optional Tapscript root the channel funding
+	// output commits to.
+	tapscriptRoot tlv.OptionalRecordT[tlv.TlvType6, [32]byte]
+
+	// customBlob is an optional TLV encoded blob of data representing
+	// custom channel funding information.
+	customBlob tlv.OptionalRecordT[tlv.TlvType7, tlv.Blob]
+}
+
+// encode serializes the openChannelTlvData to the given io.Writer.
+func (c *openChannelTlvData) encode(w io.Writer) error {
+	tlvRecords := []tlv.Record{
+		c.revokeKeyLoc.Record(),
+		c.initialLocalBalance.Record(),
+		c.initialRemoteBalance.Record(),
+		c.realScid.Record(),
+	}
+	c.memo.WhenSome(func(memo tlv.RecordT[tlv.TlvType5, []byte]) {
+		tlvRecords = append(tlvRecords, memo.Record())
+	})
+	c.tapscriptRoot.WhenSome(
+		func(root tlv.RecordT[tlv.TlvType6, [32]byte]) {
+			tlvRecords = append(tlvRecords, root.Record())
+		},
+	)
+	c.customBlob.WhenSome(func(blob tlv.RecordT[tlv.TlvType7, tlv.Blob]) {
+		tlvRecords = append(tlvRecords, blob.Record())
+	})
+
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(tlvRecords...)
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Encode(w)
+}
+
+// decode deserializes the openChannelTlvData from the given io.Reader.
+func (c *openChannelTlvData) decode(r io.Reader) error {
+	memo := c.memo.Zero()
+	tapscriptRoot := c.tapscriptRoot.Zero()
+	blob := c.customBlob.Zero()
+
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(
+		c.revokeKeyLoc.Record(),
+		c.initialLocalBalance.Record(),
+		c.initialRemoteBalance.Record(),
+		c.realScid.Record(),
+		memo.Record(),
+		tapscriptRoot.Record(),
+		blob.Record(),
+	)
+	if err != nil {
+		return err
+	}
+
+	tlvs, err := tlvStream.DecodeWithParsedTypes(r)
+	if err != nil {
+		return err
+	}
+
+	if _, ok := tlvs[memo.TlvType()]; ok {
+		c.memo = tlv.SomeRecordT(memo)
+	}
+	if _, ok := tlvs[tapscriptRoot.TlvType()]; ok {
+		c.tapscriptRoot = tlv.SomeRecordT(tapscriptRoot)
+	}
+	if _, ok := tlvs[c.customBlob.TlvType()]; ok {
+		c.customBlob = tlv.SomeRecordT(blob)
+	}
+
+	return nil
+}
 
 // indexStatus is an enum-like type that describes what state the
 // outpoint is in. Currently only two possible values.
@@ -325,6 +406,11 @@ const (
 	// SimpleTaprootFeatureBit indicates that the simple-taproot-chans
 	// feature bit was negotiated during the lifetime of the channel.
 	SimpleTaprootFeatureBit ChannelType = 1 << 10
+
+	// TapscriptRootBit indicates that this is a MuSig2 channel with a top
+	// level tapscript commitment. This MUST be set along with the
+	// SimpleTaprootFeatureBit.
+	TapscriptRootBit ChannelType = 1 << 11
 )
 
 // IsSingleFunder returns true if the channel type if one of the known single
@@ -393,6 +479,12 @@ func (c ChannelType) HasScidAliasFeature() bool {
 // IsTaproot returns true if the channel is using taproot features.
 func (c ChannelType) IsTaproot() bool {
 	return c&SimpleTaprootFeatureBit == SimpleTaprootFeatureBit
+}
+
+// HasTapscriptRoot returns true if the channel is using a top level tapscript
+// root commitment.
+func (c ChannelType) HasTapscriptRoot() bool {
+	return c&TapscriptRootBit == TapscriptRootBit
 }
 
 // ChannelStateBounds are the parameters from OpenChannel and AcceptChannel
@@ -496,6 +588,53 @@ type ChannelConfig struct {
 	HtlcBasePoint keychain.KeyDescriptor
 }
 
+// commitTlvData stores all the optional data that may be stored as a TLV stream
+// at the _end_ of the normal serialized commit on disk.
+type commitTlvData struct {
+	// customBlob is a custom blob that may store extra data for custom
+	// channels.
+	customBlob tlv.OptionalRecordT[tlv.TlvType1, tlv.Blob]
+}
+
+// encode encodes the aux data into the passed io.Writer.
+func (c *commitTlvData) encode(w io.Writer) error {
+	var tlvRecords []tlv.Record
+	c.customBlob.WhenSome(func(blob tlv.RecordT[tlv.TlvType1, tlv.Blob]) {
+		tlvRecords = append(tlvRecords, blob.Record())
+	})
+
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(tlvRecords...)
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Encode(w)
+}
+
+// decode attempts to decode the aux data from the passed io.Reader.
+func (c *commitTlvData) decode(r io.Reader) error {
+	blob := c.customBlob.Zero()
+
+	tlvStream, err := tlv.NewStream(
+		blob.Record(),
+	)
+	if err != nil {
+		return err
+	}
+
+	tlvs, err := tlvStream.DecodeWithParsedTypes(r)
+	if err != nil {
+		return err
+	}
+
+	if _, ok := tlvs[c.customBlob.TlvType()]; ok {
+		c.customBlob = tlv.SomeRecordT(blob)
+	}
+
+	return nil
+}
+
 // ChannelCommitment is a snapshot of the commitment state at a particular
 // point in the commitment chain. With each state transition, a snapshot of the
 // current state along with all non-settled HTLCs are recorded. These snapshots
@@ -562,6 +701,11 @@ type ChannelCommitment struct {
 	// able by us.
 	CommitTx *wire.MsgTx
 
+	// CustomBlob is an optional blob that can be used to store information
+	// specific to a custom channel type. This may track some custom
+	// specific state for this given commitment.
+	CustomBlob fn.Option[tlv.Blob]
+
 	// CommitSig is one half of the signature required to fully complete
 	// the script for the commitment transaction above. This is the
 	// signature signed by the remote party for our version of the
@@ -571,9 +715,26 @@ type ChannelCommitment struct {
 	// Htlcs is the set of HTLC's that are pending at this particular
 	// commitment height.
 	Htlcs []HTLC
+}
 
-	// TODO(roasbeef): pending commit pointer?
-	//  * lets just walk through
+// amendTlvData updates the channel with the given auxiliary TLV data.
+func (c *ChannelCommitment) amendTlvData(auxData commitTlvData) {
+	auxData.customBlob.WhenSomeV(func(blob tlv.Blob) {
+		c.CustomBlob = fn.Some(blob)
+	})
+}
+
+// extractTlvData creates a new commitTlvData from the given commitment.
+func (c *ChannelCommitment) extractTlvData() commitTlvData {
+	var auxData commitTlvData
+
+	c.CustomBlob.WhenSome(func(blob tlv.Blob) {
+		auxData.customBlob = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType1](blob),
+		)
+	})
+
+	return auxData
 }
 
 // ChannelStatus is a bit vector used to indicate whether an OpenChannel is in
@@ -867,6 +1028,16 @@ type OpenChannel struct {
 	// channel that will be useful to our future selves.
 	Memo []byte
 
+	// TapscriptRoot is an optional tapscript root used to derive the MuSig2
+	// funding output.
+	TapscriptRoot fn.Option[chainhash.Hash]
+
+	// CustomBlob is an optional blob that can be used to store information
+	// specific to a custom channel type. This information is only created
+	// at channel funding time, and after wards is to be considered
+	// immutable.
+	CustomBlob fn.Option[tlv.Blob]
+
 	// TODO(roasbeef): eww
 	Db *ChannelStateDB
 
@@ -1023,6 +1194,64 @@ func (c *OpenChannel) SetBroadcastHeight(height uint32) {
 	defer c.Unlock()
 
 	c.FundingBroadcastHeight = height
+}
+
+// amendTlvData updates the channel with the given auxiliary TLV data.
+func (c *OpenChannel) amendTlvData(auxData openChannelTlvData) {
+	c.RevocationKeyLocator = auxData.revokeKeyLoc.Val.KeyLocator
+	c.InitialLocalBalance = lnwire.MilliSatoshi(
+		auxData.initialLocalBalance.Val,
+	)
+	c.InitialRemoteBalance = lnwire.MilliSatoshi(
+		auxData.initialRemoteBalance.Val,
+	)
+	c.confirmedScid = auxData.realScid.Val
+
+	auxData.memo.WhenSomeV(func(memo []byte) {
+		c.Memo = memo
+	})
+	auxData.tapscriptRoot.WhenSomeV(func(h [32]byte) {
+		c.TapscriptRoot = fn.Some[chainhash.Hash](h)
+	})
+	auxData.customBlob.WhenSomeV(func(blob tlv.Blob) {
+		c.CustomBlob = fn.Some(blob)
+	})
+}
+
+// extractTlvData creates a new openChannelTlvData from the given channel.
+func (c *OpenChannel) extractTlvData() openChannelTlvData {
+	auxData := openChannelTlvData{
+		revokeKeyLoc: tlv.NewRecordT[tlv.TlvType1](
+			keyLocRecord{c.RevocationKeyLocator},
+		),
+		initialLocalBalance: tlv.NewPrimitiveRecord[tlv.TlvType2](
+			uint64(c.InitialLocalBalance),
+		),
+		initialRemoteBalance: tlv.NewPrimitiveRecord[tlv.TlvType3](
+			uint64(c.InitialRemoteBalance),
+		),
+		realScid: tlv.NewRecordT[tlv.TlvType4](
+			c.confirmedScid,
+		),
+	}
+
+	if len(c.Memo) != 0 {
+		auxData.memo = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType5](c.Memo),
+		)
+	}
+	c.TapscriptRoot.WhenSome(func(h chainhash.Hash) {
+		auxData.tapscriptRoot = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType6, [32]byte](h),
+		)
+	})
+	c.CustomBlob.WhenSome(func(blob tlv.Blob) {
+		auxData.customBlob = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType7](blob),
+		)
+	})
+
+	return auxData
 }
 
 // Refresh updates the in-memory channel state using the latest state observed
@@ -2351,6 +2580,12 @@ type HTLC struct {
 	// HTLC. It is stored in the ExtraData field, which is used to store
 	// a TLV stream of additional information associated with the HTLC.
 	BlindingPoint lnwire.BlindingPointRecord
+
+	// CustomRecords is a set of custom TLV records that are associated with
+	// this HTLC. These records are used to store additional information
+	// about the HTLC that is not part of the standard HTLC fields. This
+	// field is encoded within the ExtraData field.
+	CustomRecords lnwire.CustomRecords
 }
 
 // serializeExtraData encodes a TLV stream of extra data to be stored with a
@@ -2368,6 +2603,11 @@ func (h *HTLC) serializeExtraData() error {
 
 		records = append(records, &b)
 	})
+
+	records, err := h.CustomRecords.ExtendRecordProducers(records)
+	if err != nil {
+		return err
+	}
 
 	return h.ExtraData.PackRecords(records...)
 }
@@ -2390,7 +2630,18 @@ func (h *HTLC) deserializeExtraData() error {
 
 	if val, ok := tlvMap[h.BlindingPoint.TlvType()]; ok && val == nil {
 		h.BlindingPoint = tlv.SomeRecordT(blindingPoint)
+
+		// Remove the entry from the TLV map. Anything left in the map
+		// will be included in the custom records field.
+		delete(tlvMap, h.BlindingPoint.TlvType())
 	}
+
+	// Set the custom records field to the remaining TLV records.
+	customRecords, err := lnwire.NewCustomRecords(tlvMap)
+	if err != nil {
+		return err
+	}
+	h.CustomRecords = customRecords
 
 	return nil
 }
@@ -2529,6 +2780,8 @@ func (h *HTLC) Copy() HTLC {
 	copy(clone.Signature[:], h.Signature)
 	copy(clone.RHash[:], h.RHash[:])
 	copy(clone.ExtraData, h.ExtraData)
+	clone.BlindingPoint = h.BlindingPoint
+	clone.CustomRecords = h.CustomRecords.Copy()
 
 	return clone
 }
@@ -2690,6 +2943,14 @@ func serializeCommitDiff(w io.Writer, diff *CommitDiff) error { // nolint: dupl
 		}
 	}
 
+	// We'll also encode the commit aux data stream here. We do this here
+	// rather than above (at the call to serializeChanCommit), to ensure
+	// backwards compat for reads to existing non-custom channels.
+	auxData := diff.Commitment.extractTlvData()
+	if err := auxData.encode(w); err != nil {
+		return fmt.Errorf("unable to write aux data: %w", err)
+	}
+
 	return nil
 }
 
@@ -2749,6 +3010,17 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 			return nil, err
 		}
 	}
+
+	// As a final step, we'll read out any aux commit data that we have at
+	// the end of this byte stream. We do this here to ensure backward
+	// compatibility, as otherwise we risk erroneously reading into the
+	// wrong field.
+	var auxData commitTlvData
+	if err := auxData.decode(r); err != nil {
+		return nil, fmt.Errorf("unable to decode aux data: %w", err)
+	}
+
+	d.Commitment.amendTlvData(auxData)
 
 	return &d, nil
 }
@@ -3728,6 +4000,13 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 		},
 	}
 
+	localCommit.CustomBlob.WhenSome(func(blob tlv.Blob) {
+		blobCopy := make([]byte, len(blob))
+		copy(blobCopy, blob)
+
+		snapshot.ChannelCommitment.CustomBlob = fn.Some(blobCopy)
+	})
+
 	// Copy over the current set of HTLCs to ensure the caller can't mutate
 	// our internal state.
 	snapshot.Htlcs = make([]HTLC, len(localCommit.Htlcs))
@@ -4030,32 +4309,9 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 		return err
 	}
 
-	// Convert balance fields into uint64.
-	localBalance := uint64(channel.InitialLocalBalance)
-	remoteBalance := uint64(channel.InitialRemoteBalance)
-
-	// Create the tlv stream.
-	tlvStream, err := tlv.NewStream(
-		// Write the RevocationKeyLocator as the first entry in a tlv
-		// stream.
-		MakeKeyLocRecord(
-			keyLocType, &channel.RevocationKeyLocator,
-		),
-		tlv.MakePrimitiveRecord(
-			initialLocalBalanceType, &localBalance,
-		),
-		tlv.MakePrimitiveRecord(
-			initialRemoteBalanceType, &remoteBalance,
-		),
-		MakeScidRecord(realScidType, &channel.confirmedScid),
-		tlv.MakePrimitiveRecord(channelMemoType, &channel.Memo),
-	)
-	if err != nil {
-		return err
-	}
-
-	if err := tlvStream.Encode(&w); err != nil {
-		return err
+	auxData := channel.extractTlvData()
+	if err := auxData.encode(&w); err != nil {
+		return fmt.Errorf("unable to encode aux data: %w", err)
 	}
 
 	if err := chanBucket.Put(chanInfoKey, w.Bytes()); err != nil {
@@ -4140,6 +4396,12 @@ func putChanCommitment(chanBucket kvdb.RwBucket, c *ChannelCommitment,
 	var b bytes.Buffer
 	if err := serializeChanCommit(&b, c); err != nil {
 		return err
+	}
+
+	// Before we write to disk, we'll also write our aux data as well.
+	auxData := c.extractTlvData()
+	if err := auxData.encode(&b); err != nil {
+		return fmt.Errorf("unable to write aux data: %w", err)
 	}
 
 	return chanBucket.Put(commitKey, b.Bytes())
@@ -4244,45 +4506,14 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 		}
 	}
 
-	// Create balance fields in uint64, and Memo field as byte slice.
-	var (
-		localBalance  uint64
-		remoteBalance uint64
-		memo          []byte
-	)
-
-	// Create the tlv stream.
-	tlvStream, err := tlv.NewStream(
-		// Write the RevocationKeyLocator as the first entry in a tlv
-		// stream.
-		MakeKeyLocRecord(
-			keyLocType, &channel.RevocationKeyLocator,
-		),
-		tlv.MakePrimitiveRecord(
-			initialLocalBalanceType, &localBalance,
-		),
-		tlv.MakePrimitiveRecord(
-			initialRemoteBalanceType, &remoteBalance,
-		),
-		MakeScidRecord(realScidType, &channel.confirmedScid),
-		tlv.MakePrimitiveRecord(channelMemoType, &memo),
-	)
-	if err != nil {
-		return err
+	var auxData openChannelTlvData
+	if err := auxData.decode(r); err != nil {
+		return fmt.Errorf("unable to decode aux data: %w", err)
 	}
 
-	if err := tlvStream.Decode(r); err != nil {
-		return err
-	}
-
-	// Attach the balance fields.
-	channel.InitialLocalBalance = lnwire.MilliSatoshi(localBalance)
-	channel.InitialRemoteBalance = lnwire.MilliSatoshi(remoteBalance)
-
-	// Attach the memo field if non-empty.
-	if len(memo) > 0 {
-		channel.Memo = memo
-	}
+	// Assign all the relevant fields from the aux data into the actual
+	// open channel.
+	channel.amendTlvData(auxData)
 
 	channel.Packager = NewChannelPackager(channel.ShortChannelID)
 
@@ -4318,7 +4549,9 @@ func deserializeChanCommit(r io.Reader) (ChannelCommitment, error) {
 	return c, nil
 }
 
-func fetchChanCommitment(chanBucket kvdb.RBucket, local bool) (ChannelCommitment, error) {
+func fetchChanCommitment(chanBucket kvdb.RBucket,
+	local bool) (ChannelCommitment, error) {
+
 	var commitKey []byte
 	if local {
 		commitKey = append(chanCommitmentKey, byte(0x00))
@@ -4332,7 +4565,23 @@ func fetchChanCommitment(chanBucket kvdb.RBucket, local bool) (ChannelCommitment
 	}
 
 	r := bytes.NewReader(commitBytes)
-	return deserializeChanCommit(r)
+	chanCommit, err := deserializeChanCommit(r)
+	if err != nil {
+		return ChannelCommitment{}, fmt.Errorf("unable to decode "+
+			"chan commit: %w", err)
+	}
+
+	// We'll also check to see if we have any aux data stored as the end of
+	// the stream.
+	var auxData commitTlvData
+	if err := auxData.decode(r); err != nil {
+		return ChannelCommitment{}, fmt.Errorf("unable to decode "+
+			"chan aux data: %w", err)
+	}
+
+	chanCommit.amendTlvData(auxData)
+
+	return chanCommit, nil
 }
 
 func fetchChanCommitments(chanBucket kvdb.RBucket, channel *OpenChannel) error {
@@ -4440,6 +4689,25 @@ func deleteThawHeight(chanBucket kvdb.RwBucket) error {
 	return chanBucket.Delete(frozenChanKey)
 }
 
+// keyLocRecord is a wrapper struct around keychain.KeyLocator to implement the
+// tlv.RecordProducer interface.
+type keyLocRecord struct {
+	keychain.KeyLocator
+}
+
+// Record creates a Record out of a KeyLocator using the passed Type and the
+// EKeyLocator and DKeyLocator functions. The size will always be 8 as
+// KeyFamily is uint32 and the Index is uint32.
+//
+// NOTE: This is part of the tlv.RecordProducer interface.
+func (k *keyLocRecord) Record() tlv.Record {
+	// Note that we set the type here as zero, as when used with a
+	// tlv.RecordT, the type param will be used as the type.
+	return tlv.MakeStaticRecord(
+		0, &k.KeyLocator, 8, EKeyLocator, DKeyLocator,
+	)
+}
+
 // EKeyLocator is an encoder for keychain.KeyLocator.
 func EKeyLocator(w io.Writer, val interface{}, buf *[8]byte) error {
 	if v, ok := val.(*keychain.KeyLocator); ok {
@@ -4466,22 +4734,6 @@ func DKeyLocator(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 		return tlv.DUint32(r, &v.Index, buf, 4)
 	}
 	return tlv.NewTypeForDecodingErr(val, "keychain.KeyLocator", l, 8)
-}
-
-// MakeKeyLocRecord creates a Record out of a KeyLocator using the passed
-// Type and the EKeyLocator and DKeyLocator functions. The size will always be
-// 8 as KeyFamily is uint32 and the Index is uint32.
-func MakeKeyLocRecord(typ tlv.Type, keyLoc *keychain.KeyLocator) tlv.Record {
-	return tlv.MakeStaticRecord(typ, keyLoc, 8, EKeyLocator, DKeyLocator)
-}
-
-// MakeScidRecord creates a Record out of a ShortChannelID using the passed
-// Type and the EShortChannelID and DShortChannelID functions. The size will
-// always be 8 for the ShortChannelID.
-func MakeScidRecord(typ tlv.Type, scid *lnwire.ShortChannelID) tlv.Record {
-	return tlv.MakeStaticRecord(
-		typ, scid, 8, lnwire.EShortChannelID, lnwire.DShortChannelID,
-	)
 }
 
 // ShutdownInfo contains various info about the shutdown initiation of a

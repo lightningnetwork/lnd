@@ -10,6 +10,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -1271,14 +1272,19 @@ func (f *FailInvalidBlinding) Encode(w *bytes.Buffer, _ uint32) error {
 }
 
 // NewInvalidBlinding creates new instance of FailInvalidBlinding.
-func NewInvalidBlinding(onion []byte) *FailInvalidBlinding {
+func NewInvalidBlinding(
+	onion fn.Option[[OnionPacketSize]byte]) *FailInvalidBlinding {
 	// The spec allows empty onion hashes for invalid blinding, so we only
 	// include our onion hash if it's provided.
-	if onion == nil {
+	if onion.IsNone() {
 		return &FailInvalidBlinding{}
 	}
 
-	return &FailInvalidBlinding{OnionSHA256: sha256.Sum256(onion)}
+	shaSum := fn.MapOptionZ(onion, func(o [OnionPacketSize]byte) [32]byte {
+		return sha256.Sum256(o[:])
+	})
+
+	return &FailInvalidBlinding{OnionSHA256: shaSum}
 }
 
 // DecodeFailure decodes, validates, and parses the lnwire onion failure, for

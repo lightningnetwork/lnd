@@ -318,7 +318,7 @@ func assertSignOutputRaw(ht *lntest.HarnessTest,
 	tx := wire.NewMsgTx(2)
 	tx.TxIn = []*wire.TxIn{{
 		PreviousOutPoint: wire.OutPoint{
-			Hash:  *txid,
+			Hash:  txid,
 			Index: uint32(targetOutputIndex),
 		},
 	}}

@@ -34,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -940,6 +941,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	fundingPoint := aliceChanReservation.FundingOutpoint()
 	_, err = bobChanReservation.CompleteReservationSingle(
 		fundingPoint, aliceCommitSig,
+		fn.None[lnwallet.AuxFundingDesc](),
 	)
 	require.NoError(t, err, "bob unable to consume single reservation")
 
@@ -1756,97 +1758,88 @@ func testPublishTransaction(r *rpctest.Harness,
 		tx3, tx3Spend *wire.MsgTx
 	)
 	t.Run("rbf_tests", func(t *testing.T) {
-		for _, rbf := range []bool{false, true} {
-			// Now we'll try to double spend an output with a
-			// different transaction. Create a new tx and publish
-			// it. This is the output we'll try to double spend.
-			tx3 = newTx(t, r, keyDesc.PubKey, alice, false)
-			err := alice.PublishTransaction(tx3, labels.External)
-			require.NoError(t, err)
+		// Starting with bitcoind v28.0 and later, mempool full RBF is
+		// turned on, so there's no way to _not_ signal RBF anymore.
+		const rbf = true
 
-			// Mine the transaction.
-			err = mineAndAssert(r, tx3)
-			require.NoError(t, err)
+		// Now we'll try to double spend an output with a
+		// different transaction. Create a new tx and publish
+		// it. This is the output we'll try to double spend.
+		tx3 = newTx(t, r, keyDesc.PubKey, alice, false)
+		err := alice.PublishTransaction(tx3, labels.External)
+		require.NoError(t, err)
 
-			// Now we create a transaction that spends the output
-			// from the tx just mined.
-			tx4, err := txFromOutput(
-				tx3, alice.Cfg.Signer, keyDesc.PubKey,
-				keyDesc.PubKey, txFee, rbf,
-			)
-			require.NoError(t, err)
+		// Mine the transaction.
+		err = mineAndAssert(r, tx3)
+		require.NoError(t, err)
 
-			// This should be accepted into the mempool.
-			err = alice.PublishTransaction(tx4, labels.External)
-			require.NoError(t, err)
+		// Now we create a transaction that spends the output
+		// from the tx just mined.
+		tx4, err := txFromOutput(
+			tx3, alice.Cfg.Signer, keyDesc.PubKey,
+			keyDesc.PubKey, txFee, rbf,
+		)
+		require.NoError(t, err)
 
-			// Keep track of the last successfully published tx to
-			// spend tx3.
-			tx3Spend = tx4
+		// This should be accepted into the mempool.
+		err = alice.PublishTransaction(tx4, labels.External)
+		require.NoError(t, err)
 
-			txid4 := tx4.TxHash()
-			err = waitForMempoolTx(r, &txid4)
-			require.NoError(t, err, "tx not relayed to miner")
+		// Keep track of the last successfully published tx to
+		// spend tx3.
+		tx3Spend = tx4
 
-			// Create a new key we'll pay to, to ensure we create a
-			// unique transaction.
-			keyDesc2, err := alice.DeriveNextKey(
-				keychain.KeyFamilyMultiSig,
-			)
-			require.NoError(t, err, "unable to obtain public key")
+		txid4 := tx4.TxHash()
+		err = waitForMempoolTx(r, &txid4)
+		require.NoError(t, err, "tx not relayed to miner")
 
-			// Create a new transaction that spends the output from
-			// tx3, and that pays to a different address.
-			tx5, err := txFromOutput(
-				tx3, alice.Cfg.Signer, keyDesc.PubKey,
-				keyDesc2.PubKey, txFee, rbf,
-			)
-			require.NoError(t, err)
+		// Create a new key we'll pay to, to ensure we create a
+		// unique transaction.
+		keyDesc2, err := alice.DeriveNextKey(
+			keychain.KeyFamilyMultiSig,
+		)
+		require.NoError(t, err, "unable to obtain public key")
 
-			err = alice.PublishTransaction(tx5, labels.External)
+		// Create a new transaction that spends the output from
+		// tx3, and that pays to a different address.
+		tx5, err := txFromOutput(
+			tx3, alice.Cfg.Signer, keyDesc.PubKey,
+			keyDesc2.PubKey, txFee, rbf,
+		)
+		require.NoError(t, err)
 
-			// If RBF is not enabled, we expect this to be rejected
-			// because it is a double spend.
-			expectedErr := lnwallet.ErrDoubleSpend
+		err = alice.PublishTransaction(tx5, labels.External)
 
-			// If RBF is enabled, we expect it to be rejected
-			// because it doesn't pay enough fees.
-			if rbf {
-				expectedErr = chain.ErrInsufficientFee
-			}
+		// We expect it to be rejected/ because it doesn't pay enough
+		// fees.
+		expectedErr := chain.ErrInsufficientFee
 
-			// Assert the expected error.
-			require.ErrorIsf(t, err, expectedErr, "has rbf=%v", rbf)
+		// Assert the expected error.
+		require.ErrorIsf(t, err, expectedErr, "has rbf=%v", rbf)
 
-			// Create another transaction that spends the same
-			// output, but has a higher fee. We expect also this tx
-			// to be rejected for non-RBF enabled transactions,
-			// while it should succeed otherwise.
-			pubKey3, err := alice.DeriveNextKey(
-				keychain.KeyFamilyMultiSig,
-			)
-			require.NoError(t, err, "unable to obtain public key")
+		// Create another transaction that spends the same
+		// output, but has a higher fee. We expect also this tx
+		// to be rejected for non-RBF enabled transactions,
+		// while it should succeed otherwise.
+		pubKey3, err := alice.DeriveNextKey(
+			keychain.KeyFamilyMultiSig,
+		)
+		require.NoError(t, err, "unable to obtain public key")
 
-			tx6, err := txFromOutput(
-				tx3, alice.Cfg.Signer, keyDesc.PubKey,
-				pubKey3.PubKey, 2*txFee, rbf,
-			)
-			require.NoError(t, err)
+		tx6, err := txFromOutput(
+			tx3, alice.Cfg.Signer, keyDesc.PubKey,
+			pubKey3.PubKey, 2*txFee, rbf,
+		)
+		require.NoError(t, err)
 
-			// Expect rejection in non-RBF case.
-			expErr := lnwallet.ErrDoubleSpend
-			if rbf {
-				// Expect success in rbf case.
-				expErr = nil
-				tx3Spend = tx6
-			}
-			err = alice.PublishTransaction(tx6, labels.External)
-			require.ErrorIs(t, err, expErr)
+		// Expect rejection in non-RBF case.
+		tx3Spend = tx6
+		err = alice.PublishTransaction(tx6, labels.External)
+		require.NoError(t, err)
 
-			// Mine the tx spending tx3.
-			err = mineAndAssert(r, tx3Spend)
-			require.NoError(t, err)
-		}
+		// Mine the tx spending tx3.
+		err = mineAndAssert(r, tx3Spend)
+		require.NoError(t, err)
 	})
 
 	t.Run("tx_double_spend", func(t *testing.T) {
@@ -3069,9 +3062,9 @@ func testSingleFunderExternalFundingTx(miner *rpctest.Harness,
 	)
 }
 
-// TestInterfaces tests all registered interfaces with a unified set of tests
-// which exercise each of the required methods found within the WalletController
-// interface.
+// TestLightningWallet tests all registered interfaces with a unified set of
+// tests which exercise each of the required methods found within the
+// WalletController interface.
 //
 // NOTE: In the future, when additional implementations of the WalletController
 // interface have been implemented, in order to ensure the new concrete

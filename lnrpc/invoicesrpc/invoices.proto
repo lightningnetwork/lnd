@@ -55,10 +55,19 @@ service Invoices {
     rpc SettleInvoice (SettleInvoiceMsg) returns (SettleInvoiceResp);
 
     /*
-    LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced
+    LookupInvoiceV2 attempts to look up at invoice. An invoice can be referenced
     using either its payment hash, payment address, or set ID.
     */
     rpc LookupInvoiceV2 (LookupInvoiceMsg) returns (lnrpc.Invoice);
+
+    /*
+    HtlcModifier is a bidirectional streaming RPC that allows a client to
+    intercept and modify the HTLCs that attempt to settle the given invoice. The
+    server will send HTLCs of invoices to the client and the client can modify
+    some aspects of the HTLC in order to pass the invoice acceptance tests.
+    */
+    rpc HtlcModifier (stream HtlcModifyResponse)
+        returns (stream HtlcModifyRequest);
 }
 
 message CancelInvoiceMsg {
@@ -191,4 +200,46 @@ message LookupInvoiceMsg {
     }
 
     LookupModifier lookup_modifier = 4;
+}
+
+// CircuitKey is a unique identifier for an HTLC.
+message CircuitKey {
+    // The id of the channel that the is part of this circuit.
+    uint64 chan_id = 1;
+
+    // The index of the incoming htlc in the incoming channel.
+    uint64 htlc_id = 2;
+}
+
+message HtlcModifyRequest {
+    // The invoice the intercepted HTLC is attempting to settle. The HTLCs in
+    // the invoice are only HTLCs that have already been accepted or settled,
+    // not including the current intercepted HTLC.
+    lnrpc.Invoice invoice = 1;
+
+    // The unique identifier of the HTLC of this intercepted HTLC.
+    CircuitKey exit_htlc_circuit_key = 2;
+
+    // The amount in milli-satoshi that the exit HTLC is attempting to pay.
+    uint64 exit_htlc_amt = 3;
+
+    // The absolute expiry height of the exit HTLC.
+    uint32 exit_htlc_expiry = 4;
+
+    // The current block height.
+    uint32 current_height = 5;
+
+    // The wire message custom records of the exit HTLC.
+    map<uint64, bytes> exit_htlc_wire_custom_records = 6;
+}
+
+message HtlcModifyResponse {
+    // The circuit key of the HTLC that the client wants to modify.
+    CircuitKey circuit_key = 1;
+
+    // The modified amount in milli-satoshi that the exit HTLC is paying. This
+    // value can be different from the actual on-chain HTLC amount, in case the
+    // HTLC carries other valuable items, as can be the case with custom channel
+    // types.
+    optional uint64 amt_paid = 2;
 }

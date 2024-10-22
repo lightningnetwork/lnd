@@ -5,7 +5,6 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 )
 
 // =====================
@@ -84,18 +83,19 @@ func (h *HarnessRPC) SubscribeSingleInvoice(rHash []byte) SingleInvoiceClient {
 	return client
 }
 
-type TrackPaymentClient routerrpc.Router_TrackPaymentV2Client
+type InvoiceHtlcModifierClient invoicesrpc.Invoices_HtlcModifierClient
 
-// TrackPaymentV2 creates a subscription client for given invoice and
-// asserts its creation.
-func (h *HarnessRPC) TrackPaymentV2(payHash []byte) TrackPaymentClient {
-	req := &routerrpc.TrackPaymentRequest{PaymentHash: payHash}
+// InvoiceHtlcModifier makes an RPC call to the node's RouterClient and asserts.
+func (h *HarnessRPC) InvoiceHtlcModifier() (InvoiceHtlcModifierClient,
+	context.CancelFunc) {
 
-	// TrackPaymentV2 needs to have the context alive for the entire test
-	// case as the returned client will be used for send and receive events
-	// stream. Thus we use runCtx here instead of a timeout context.
-	client, err := h.Router.TrackPaymentV2(h.runCtx, req)
-	h.NoError(err, "TrackPaymentV2")
+	// InvoiceHtlcModifier needs to have the context alive for the entire
+	// test case as the returned client will be used for send and receive
+	// events stream. Therefore, we use cancel context here instead of a
+	// timeout context.
+	ctxt, cancel := context.WithCancel(h.runCtx)
+	resp, err := h.Invoice.HtlcModifier(ctxt)
+	h.NoError(err, "InvoiceHtlcModifier")
 
-	return client
+	return resp, cancel
 }

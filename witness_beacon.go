@@ -101,10 +101,11 @@ func (p *preimageBeacon) SubscribeUpdates(
 			ChanID: chanID,
 			HtlcID: htlc.HtlcIndex,
 		},
-		OutgoingChanID: payload.FwdInfo.NextHop,
-		OutgoingExpiry: payload.FwdInfo.OutgoingCTLV,
-		OutgoingAmount: payload.FwdInfo.AmountToForward,
-		CustomRecords:  payload.CustomRecords(),
+		OutgoingChanID:       payload.FwdInfo.NextHop,
+		OutgoingExpiry:       payload.FwdInfo.OutgoingCTLV,
+		OutgoingAmount:       payload.FwdInfo.AmountToForward,
+		InOnionCustomRecords: payload.CustomRecords(),
+		InWireCustomRecords:  htlc.CustomRecords,
 	}
 	copy(packet.OnionBlob[:], nextHopOnionBlob)
 

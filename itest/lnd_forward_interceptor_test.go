@@ -1,18 +1,22 @@
 package itest
 
 import (
+	"bytes"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -22,6 +26,9 @@ import (
 var (
 	customTestKey   uint64 = 394829
 	customTestValue        = []byte{1, 3, 5}
+
+	actionResumeModify = routerrpc.ResolveHoldForwardAction_RESUME_MODIFIED
+	actionResume       = routerrpc.ResolveHoldForwardAction_RESUME
 )
 
 type interceptorTestCase struct {
@@ -344,17 +351,414 @@ func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 	ht.CloseChannel(bob, cpBC)
 }
 
+// testForwardInterceptorModifiedHtlc tests that the interceptor can modify the
+// amount and custom records of an intercepted HTLC and resume it.
+func testForwardInterceptorModifiedHtlc(ht *lntest.HarnessTest) {
+	// Initialize the test context with 3 connected nodes.
+	ts := newInterceptorTestScenario(ht)
+
+	alice, bob, carol := ts.alice, ts.bob, ts.carol
+
+	// Open and wait for channels.
+	const chanAmt = btcutil.Amount(300000)
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntest.OpenChannelRequest{
+		{Local: alice, Remote: bob, Param: p},
+		{Local: bob, Remote: carol, Param: p},
+	}
+	resp := ht.OpenMultiChannelsAsync(reqs)
+	cpAB, cpBC := resp[0], resp[1]
+
+	// Make sure Alice is aware of channel Bob=>Carol.
+	ht.AssertTopologyChannelOpen(alice, cpBC)
+
+	// Connect an interceptor to Bob's node.
+	bobInterceptor, cancelBobInterceptor := bob.RPC.HtlcInterceptor()
+
+	// We're going to modify the payment amount and want Carol to accept the
+	// payment, so we set up an invoice acceptor on Dave.
+	carolAcceptor, carolCancel := carol.RPC.InvoiceHtlcModifier()
+	defer carolCancel()
+
+	// Prepare the test cases.
+	invoiceValueAmtMsat := int64(20_000_000)
+	req := &lnrpc.Invoice{ValueMsat: invoiceValueAmtMsat}
+	addResponse := carol.RPC.AddInvoice(req)
+	invoice := carol.RPC.LookupInvoice(addResponse.RHash)
+	tc := &interceptorTestCase{
+		amountMsat: invoiceValueAmtMsat,
+		invoice:    invoice,
+		payAddr:    invoice.PaymentAddr,
+	}
+
+	// We initiate a payment from Alice.
+	done := make(chan struct{})
+	go func() {
+		// Signal that all the payments have been sent.
+		defer close(done)
+
+		ts.sendPaymentAndAssertAction(tc)
+	}()
+
+	// We start the htlc interceptor with a simple implementation that saves
+	// all intercepted packets. These packets are held to simulate a
+	// pending payment.
+	packet := ht.ReceiveHtlcInterceptor(bobInterceptor)
+
+	// Resume the intercepted HTLC with a modified amount and custom
+	// records.
+	customRecords := make(map[uint64][]byte)
+
+	// Add custom records entry.
+	crKey := uint64(65537)
+	crValue := []byte("custom-records-test-value")
+	customRecords[crKey] = crValue
+
+	// Modify the amount of the HTLC, so we send out less than the original
+	// amount.
+	const modifyAmount = 5_000_000
+	newOutAmountMsat := packet.OutgoingAmountMsat - modifyAmount
+	err := bobInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey:   packet.IncomingCircuitKey,
+		OutAmountMsat:        newOutAmountMsat,
+		OutWireCustomRecords: customRecords,
+		Action:               actionResumeModify,
+	})
+	require.NoError(ht, err, "failed to send request")
+
+	invoicePacket := ht.ReceiveInvoiceHtlcModification(carolAcceptor)
+	require.EqualValues(
+		ht, newOutAmountMsat, invoicePacket.ExitHtlcAmt,
+	)
+	amtPaid := newOutAmountMsat + modifyAmount
+	err = carolAcceptor.Send(&invoicesrpc.HtlcModifyResponse{
+		CircuitKey: invoicePacket.ExitHtlcCircuitKey,
+		AmtPaid:    &amtPaid,
+	})
+	require.NoError(ht, err, "carol acceptor response")
+
+	// Cancel the context, which will disconnect Bob's interceptor.
+	cancelBobInterceptor()
+
+	// Make sure all goroutines are finished.
+	select {
+	case <-done:
+	case <-time.After(defaultTimeout):
+		require.Fail(ht, "timeout waiting for sending payment")
+	}
+
+	// Assert that the payment was successful.
+	var preimage lntypes.Preimage
+	copy(preimage[:], invoice.RPreimage)
+	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
+
+	// Finally, close channels.
+	ht.CloseChannel(alice, cpAB)
+	ht.CloseChannel(bob, cpBC)
+}
+
+// testForwardInterceptorWireRecords tests that the interceptor can read any
+// wire custom records provided by the sender of a payment as part of the
+// update_add_htlc message.
+func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
+	// Initialize the test context with 3 connected nodes.
+	ts := newInterceptorTestScenario(ht)
+
+	alice, bob, carol, dave := ts.alice, ts.bob, ts.carol, ts.dave
+
+	// Open and wait for channels.
+	const chanAmt = btcutil.Amount(300000)
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntest.OpenChannelRequest{
+		{Local: alice, Remote: bob, Param: p},
+		{Local: bob, Remote: carol, Param: p},
+		{Local: carol, Remote: dave, Param: p},
+	}
+	resp := ht.OpenMultiChannelsAsync(reqs)
+	cpAB, cpBC, cpCD := resp[0], resp[1], resp[2]
+
+	// Make sure Alice is aware of channel Bob=>Carol.
+	ht.AssertTopologyChannelOpen(alice, cpBC)
+
+	// Connect an interceptor to Bob's node.
+	bobInterceptor, cancelBobInterceptor := bob.RPC.HtlcInterceptor()
+	defer cancelBobInterceptor()
+
+	// Also connect an interceptor on Carol's node to check whether we're
+	// relaying the TLVs send in update_add_htlc over Alice -> Bob on the
+	// Bob -> Carol link.
+	carolInterceptor, cancelCarolInterceptor := carol.RPC.HtlcInterceptor()
+	defer cancelCarolInterceptor()
+
+	// We're going to modify the payment amount and want Dave to accept the
+	// payment, so we set up an invoice acceptor on Dave.
+	daveAcceptor, daveCancel := dave.RPC.InvoiceHtlcModifier()
+	defer daveCancel()
+
+	req := &lnrpc.Invoice{ValueMsat: 20_000_000}
+	addResponse := dave.RPC.AddInvoice(req)
+	invoice := dave.RPC.LookupInvoice(addResponse.RHash)
+
+	customRecords := map[uint64][]byte{
+		65537: []byte("test"),
+	}
+	sendReq := &routerrpc.SendPaymentRequest{
+		PaymentRequest:        invoice.PaymentRequest,
+		TimeoutSeconds:        int32(wait.PaymentTimeout.Seconds()),
+		FeeLimitMsat:          noFeeLimitMsat,
+		FirstHopCustomRecords: customRecords,
+	}
+
+	_ = alice.RPC.SendPayment(sendReq)
+
+	// We start the htlc interceptor with a simple implementation that saves
+	// all intercepted packets. These packets are held to simulate a
+	// pending payment.
+	packet := ht.ReceiveHtlcInterceptor(bobInterceptor)
+
+	require.Len(ht, packet.InWireCustomRecords, 1)
+
+	val, ok := packet.InWireCustomRecords[65537]
+	require.True(ht, ok, "expected custom record")
+	require.Equal(ht, []byte("test"), val)
+
+	// Just resume the payment on Bob.
+	err := bobInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey: packet.IncomingCircuitKey,
+		Action:             actionResume,
+	})
+	require.NoError(ht, err, "failed to send request")
+
+	// Assert that the Alice -> Bob custom records in update_add_htlc are
+	// not propagated on the Bob -> Carol link.
+	packet = ht.ReceiveHtlcInterceptor(carolInterceptor)
+	require.Len(ht, packet.InWireCustomRecords, 0)
+
+	// We're going to tell Carol to forward 5k sats less to Dave. We need to
+	// set custom records on the HTLC as well, to make sure the HTLC isn't
+	// rejected outright and actually gets to the invoice acceptor.
+	const modifyAmount = 5_000_000
+	newOutAmountMsat := packet.OutgoingAmountMsat - modifyAmount
+	err = carolInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey:   packet.IncomingCircuitKey,
+		OutAmountMsat:        newOutAmountMsat,
+		OutWireCustomRecords: customRecords,
+		Action:               actionResumeModify,
+	})
+	require.NoError(ht, err, "carol interceptor response")
+
+	// The payment should get to Dave, and we should be able to intercept
+	// and modify it, telling Dave to accept it.
+	invoicePacket := ht.ReceiveInvoiceHtlcModification(daveAcceptor)
+	require.EqualValues(
+		ht, newOutAmountMsat, invoicePacket.ExitHtlcAmt,
+	)
+	amtPaid := newOutAmountMsat + modifyAmount
+	err = daveAcceptor.Send(&invoicesrpc.HtlcModifyResponse{
+		CircuitKey: invoicePacket.ExitHtlcCircuitKey,
+		AmtPaid:    &amtPaid,
+	})
+	require.NoError(ht, err, "dave acceptor response")
+
+	// Assert that the payment was successful.
+	var preimage lntypes.Preimage
+	copy(preimage[:], invoice.RPreimage)
+	ht.AssertPaymentStatus(
+		alice, preimage, lnrpc.Payment_SUCCEEDED,
+		func(p *lnrpc.Payment) error {
+			recordsEqual := reflect.DeepEqual(
+				p.FirstHopCustomRecords,
+				sendReq.FirstHopCustomRecords,
+			)
+			if !recordsEqual {
+				return fmt.Errorf("expected custom records to "+
+					"be equal, got %v expected %v",
+					p.FirstHopCustomRecords,
+					sendReq.FirstHopCustomRecords)
+			}
+
+			return nil
+		},
+	)
+
+	// Finally, close channels.
+	ht.CloseChannel(alice, cpAB)
+	ht.CloseChannel(bob, cpBC)
+	ht.CloseChannel(carol, cpCD)
+}
+
+// testForwardInterceptorRestart tests that the interceptor can read any wire
+// custom records provided by the sender of a payment as part of the
+// update_add_htlc message and that those records are persisted correctly and
+// re-sent on node restart.
+func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
+	// Initialize the test context with 3 connected nodes.
+	ts := newInterceptorTestScenario(ht)
+
+	alice, bob, carol, dave := ts.alice, ts.bob, ts.carol, ts.dave
+
+	// Open and wait for channels.
+	const chanAmt = btcutil.Amount(300000)
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntest.OpenChannelRequest{
+		{Local: alice, Remote: bob, Param: p},
+		{Local: bob, Remote: carol, Param: p},
+		{Local: carol, Remote: dave, Param: p},
+	}
+	resp := ht.OpenMultiChannelsAsync(reqs)
+	cpAB, cpBC, cpCD := resp[0], resp[1], resp[2]
+
+	// Make sure Alice is aware of channels Bob=>Carol and Carol=>Dave.
+	ht.AssertTopologyChannelOpen(alice, cpBC)
+	ht.AssertTopologyChannelOpen(alice, cpCD)
+
+	// Connect an interceptor to Bob's node.
+	bobInterceptor, cancelBobInterceptor := bob.RPC.HtlcInterceptor()
+
+	// Also connect an interceptor on Carol's node to check whether we're
+	// relaying the TLVs send in update_add_htlc over Alice -> Bob on the
+	// Bob -> Carol link.
+	carolInterceptor, cancelCarolInterceptor := carol.RPC.HtlcInterceptor()
+	defer cancelCarolInterceptor()
+
+	req := &lnrpc.Invoice{ValueMsat: 50_000_000}
+	addResponse := dave.RPC.AddInvoice(req)
+	invoice := dave.RPC.LookupInvoice(addResponse.RHash)
+
+	customRecords := map[uint64][]byte{
+		65537: []byte("test"),
+	}
+
+	sendReq := &routerrpc.SendPaymentRequest{
+		PaymentRequest:        invoice.PaymentRequest,
+		TimeoutSeconds:        int32(wait.PaymentTimeout.Seconds()),
+		FeeLimitMsat:          noFeeLimitMsat,
+		FirstHopCustomRecords: customRecords,
+	}
+
+	_ = alice.RPC.SendPayment(sendReq)
+
+	// We start the htlc interceptor with a simple implementation that saves
+	// all intercepted packets. These packets are held to simulate a
+	// pending payment.
+	packet := ht.ReceiveHtlcInterceptor(bobInterceptor)
+
+	require.Len(ht, packet.InWireCustomRecords, 1)
+	require.Equal(ht, customRecords, packet.InWireCustomRecords)
+
+	// We accept the payment at Bob and resume it, so it gets to Carol.
+	// This means the HTLC should now be fully locked in on Alice's side and
+	// any restart of the node should cause the payment to be resumed and
+	// the data to be persisted across restarts.
+	err := bobInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey: packet.IncomingCircuitKey,
+		Action:             actionResume,
+	})
+	require.NoError(ht, err, "failed to send request")
+
+	// We don't resume the payment on Carol, so it should be held there.
+
+	// The payment should now be in flight.
+	var preimage lntypes.Preimage
+	copy(preimage[:], invoice.RPreimage)
+	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_IN_FLIGHT)
+
+	// We don't resume the payment on Carol, so it should be held there.
+	// We now restart first Bob, then Alice, so we can make sure we've
+	// started the interceptor again on Bob before Alice resumes the
+	// payment.
+	cancelBobInterceptor()
+	restartBob := ht.SuspendNode(bob)
+	restartAlice := ht.SuspendNode(alice)
+
+	require.NoError(ht, restartBob(), "failed to restart bob")
+	bobInterceptor, cancelBobInterceptor = bob.RPC.HtlcInterceptor()
+	defer cancelBobInterceptor()
+
+	require.NoError(ht, restartAlice(), "failed to restart alice")
+
+	// We should get another notification about the held HTLC.
+	packet = ht.ReceiveHtlcInterceptor(bobInterceptor)
+
+	require.Len(ht, packet.InWireCustomRecords, 1)
+	require.Equal(ht, customRecords, packet.InWireCustomRecords)
+
+	err = carolInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey: packet.IncomingCircuitKey,
+		Action:             actionResume,
+	})
+	require.NoError(ht, err, "failed to send request")
+
+	// And now we forward the payment at Carol.
+	packet = ht.ReceiveHtlcInterceptor(carolInterceptor)
+	require.Len(ht, packet.InWireCustomRecords, 0)
+	err = carolInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey: packet.IncomingCircuitKey,
+		Action:             actionResume,
+	})
+	require.NoError(ht, err, "failed to send request")
+
+	// Assert that the payment was successful.
+	ht.AssertPaymentStatus(
+		alice, preimage, lnrpc.Payment_SUCCEEDED,
+		func(p *lnrpc.Payment) error {
+			recordsEqual := reflect.DeepEqual(
+				p.FirstHopCustomRecords,
+				sendReq.FirstHopCustomRecords,
+			)
+			if !recordsEqual {
+				return fmt.Errorf("expected custom records to "+
+					"be equal, got %v expected %v",
+					p.FirstHopCustomRecords,
+					sendReq.FirstHopCustomRecords)
+			}
+
+			if len(p.Htlcs) != 1 {
+				return fmt.Errorf("expected 1 htlc, got %d",
+					len(p.Htlcs))
+			}
+
+			htlc := p.Htlcs[0]
+			rt := htlc.Route
+			if rt.FirstHopAmountMsat != rt.TotalAmtMsat {
+				return fmt.Errorf("expected first hop amount "+
+					"to be %d, got %d", rt.TotalAmtMsat,
+					rt.FirstHopAmountMsat)
+			}
+
+			cr := lnwire.CustomRecords(p.FirstHopCustomRecords)
+			recordData, err := cr.Serialize()
+			if err != nil {
+				return err
+			}
+
+			if !bytes.Equal(rt.CustomChannelData, recordData) {
+				return fmt.Errorf("expected custom records to "+
+					"be equal, got %x expected %x",
+					rt.CustomChannelData, recordData)
+			}
+
+			return nil
+		},
+	)
+
+	// Finally, close channels.
+	ht.CloseChannel(alice, cpAB)
+	ht.CloseChannel(bob, cpBC)
+	ht.CloseChannel(carol, cpCD)
+}
+
 // interceptorTestScenario is a helper struct to hold the test context and
 // provide the needed functionality.
 type interceptorTestScenario struct {
-	ht                *lntest.HarnessTest
-	alice, bob, carol *node.HarnessNode
+	ht                      *lntest.HarnessTest
+	alice, bob, carol, dave *node.HarnessNode
 }
 
 // newInterceptorTestScenario initializes a new test scenario with three nodes
 // and connects them to have the following topology,
 //
-//	Alice --> Bob --> Carol
+//	Alice --> Bob --> Carol --> Dave
 //
 // Among them, Alice and Bob are standby nodes and Carol is a new node.
 func newInterceptorTestScenario(
@@ -362,15 +766,21 @@ func newInterceptorTestScenario(
 
 	alice, bob := ht.Alice, ht.Bob
 	carol := ht.NewNode("carol", nil)
+	dave := ht.NewNode("dave", nil)
 
 	ht.EnsureConnected(alice, bob)
 	ht.EnsureConnected(bob, carol)
+	ht.EnsureConnected(carol, dave)
+
+	// So that carol can open channels.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	return &interceptorTestScenario{
 		ht:    ht,
 		alice: alice,
 		bob:   bob,
 		carol: carol,
+		dave:  dave,
 	}
 }
 

@@ -23,6 +23,10 @@ type UpdateFulfillHTLC struct {
 	// HTLC.
 	PaymentPreimage [32]byte
 
+	// CustomRecords maps TLV types to byte slices, storing arbitrary data
+	// intended for inclusion in the ExtraData field.
+	CustomRecords CustomRecords
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -49,12 +53,31 @@ var _ Message = (*UpdateFulfillHTLC)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateFulfillHTLC) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r,
+	// msgExtraData is a temporary variable used to read the message extra
+	// data field from the reader.
+	var msgExtraData ExtraOpaqueData
+
+	if err := ReadElements(r,
 		&c.ChanID,
 		&c.ID,
 		c.PaymentPreimage[:],
-		&c.ExtraData,
+		&msgExtraData,
+	); err != nil {
+		return err
+	}
+
+	// Extract custom records from the extra data field.
+	customRecords, _, extraData, err := ParseAndExtractCustomRecords(
+		msgExtraData,
 	)
+	if err != nil {
+		return err
+	}
+
+	c.CustomRecords = customRecords
+	c.ExtraData = extraData
+
+	return nil
 }
 
 // Encode serializes the target UpdateFulfillHTLC into the passed io.Writer
@@ -74,7 +97,14 @@ func (c *UpdateFulfillHTLC) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	return WriteBytes(w, c.ExtraData)
+	// Combine the custom records and the extra data, then encode the
+	// result as a byte slice.
+	extraData, err := MergeAndEncode(nil, c.ExtraData, c.CustomRecords)
+	if err != nil {
+		return err
+	}
+
+	return WriteBytes(w, extraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

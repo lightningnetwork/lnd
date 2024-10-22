@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/stretchr/testify/require"
 )
@@ -137,7 +138,7 @@ func TestFetchChannelWriteBucket(t *testing.T) {
 		error) {
 
 		var chanPointBuf bytes.Buffer
-		err := writeOutpoint(&chanPointBuf, &testChanPoint1)
+		err := graphdb.WriteOutpoint(&chanPointBuf, &testChanPoint1)
 		require.NoError(t, err)
 
 		return chainHash.CreateBucketIfNotExists(chanPointBuf.Bytes())

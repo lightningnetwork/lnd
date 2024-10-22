@@ -273,7 +273,7 @@ func serializeLinkNode(w io.Writer, l *LinkNode) error {
 	}
 
 	for _, addr := range l.Addresses {
-		if err := serializeAddr(w, addr); err != nil {
+		if err := SerializeAddr(w, addr); err != nil {
 			return err
 		}
 	}
@@ -315,7 +315,7 @@ func deserializeLinkNode(r io.Reader) (*LinkNode, error) {
 
 	node.Addresses = make([]net.Addr, numAddrs)
 	for i := uint32(0); i < numAddrs; i++ {
-		addr, err := deserializeAddr(r)
+		addr, err := DeserializeAddr(r)
 		if err != nil {
 			return nil, err
 		}

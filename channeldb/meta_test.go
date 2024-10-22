@@ -25,10 +25,9 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 	// Create a test node that will be our source node.
 	testNode := createTestVertex(t)
 
-	graph := cdb.ChannelGraph()
-	if err := graph.SetSourceNode(testNode); err != nil {
-		t.Fatal(err)
-	}
+	graph, err := graphdb.MakeTestGraph(t)
+	require.NoError(t, err)
+	require.NoError(t, graph.SetSourceNode(testNode))
 
 	// beforeMigration usually used for populating the database
 	// with test data.
@@ -423,10 +422,7 @@ func TestMigrationReversion(t *testing.T) {
 	backend, cleanup, err := kvdb.GetTestBackend(tempDirName, "cdb")
 	require.NoError(t, err, "unable to get test db backend")
 
-	graphDB, err := graphdb.NewChannelGraph(backend)
-	require.NoError(t, err)
-
-	cdb, err := CreateWithBackend(backend, graphDB)
+	cdb, err := CreateWithBackend(backend)
 	if err != nil {
 		cleanup()
 		t.Fatalf("unable to open channeldb: %v", err)
@@ -452,10 +448,7 @@ func TestMigrationReversion(t *testing.T) {
 	require.NoError(t, err, "unable to get test db backend")
 	t.Cleanup(cleanup)
 
-	graphDB, err = graphdb.NewChannelGraph(backend)
-	require.NoError(t, err)
-
-	_, err = CreateWithBackend(backend, graphDB)
+	_, err = CreateWithBackend(backend)
 	if err != ErrDBReversion {
 		t.Fatalf("unexpected error when opening channeldb, "+
 			"want: %v, got: %v", ErrDBReversion, err)
@@ -683,11 +676,8 @@ func TestMarkerAndTombstone(t *testing.T) {
 	err = db.View(EnsureNoTombstone, func() {})
 	require.ErrorContains(t, err, string(tombstoneText))
 
-	graphDB, err := graphdb.NewChannelGraph(db.Backend)
-	require.NoError(t, err)
-
 	// Now that the DB has a tombstone, we should no longer be able to open
 	// it once we close it.
-	_, err = CreateWithBackend(db.Backend, graphDB)
+	_, err = CreateWithBackend(db.Backend)
 	require.ErrorContains(t, err, string(tombstoneText))
 }

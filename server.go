@@ -612,7 +612,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	s := &server{
 		cfg:            cfg,
 		implCfg:        implCfg,
-		graphDB:        dbs.GraphDB.ChannelGraph(),
+		graphDB:        dbs.GraphDB,
 		chanStateDB:    dbs.ChanStateDB.ChannelStateDB(),
 		addrSource:     addrSource,
 		miscDB:         dbs.ChanStateDB,
@@ -766,7 +766,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		IsChannelActive:          s.htlcSwitch.HasActiveLink,
 		ApplyChannelUpdate:       s.applyChannelUpdate,
 		DB:                       s.chanStateDB,
-		Graph:                    dbs.GraphDB.ChannelGraph(),
+		Graph:                    dbs.GraphDB,
 	}
 
 	chanStatusMgr, err := netann.NewChanStatusManager(chanStatusMgrCfg)
@@ -856,10 +856,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	selfAddrs := make([]net.Addr, 0, len(externalIPs))
 	selfAddrs = append(selfAddrs, externalIPs...)
 
-	// As the graph can be obtained at anytime from the network, we won't
-	// replicate it, and instead it'll only be stored locally.
-	chanGraph := dbs.GraphDB.ChannelGraph()
-
 	// We'll now reconstruct a node announcement based on our current
 	// configuration so we can send it out as a sort of heart beat within
 	// the network.
@@ -918,7 +914,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	// Finally, we'll update the representation on disk, and update our
 	// cached in-memory version as well.
-	if err := chanGraph.SetSourceNode(selfNode); err != nil {
+	if err := dbs.GraphDB.SetSourceNode(selfNode); err != nil {
 		return nil, fmt.Errorf("can't set self node: %w", err)
 	}
 	s.currentNodeAnn = nodeAnn
@@ -1018,13 +1014,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MinProbability: routingConfig.MinRouteProbability,
 	}
 
-	sourceNode, err := chanGraph.SourceNode()
+	sourceNode, err := dbs.GraphDB.SourceNode()
 	if err != nil {
 		return nil, fmt.Errorf("error getting source node: %w", err)
 	}
 	paymentSessionSource := &routing.SessionSource{
 		GraphSessionFactory: graphsession.NewGraphSessionFactory(
-			chanGraph,
+			dbs.GraphDB,
 		),
 		SourceNode:        sourceNode,
 		MissionControl:    s.defaultMC,
@@ -1041,7 +1037,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s.graphBuilder, err = graph.NewBuilder(&graph.Config{
 		SelfNode:            selfNode.PubKeyBytes,
-		Graph:               chanGraph,
+		Graph:               dbs.GraphDB,
 		Chain:               cc.ChainIO,
 		ChainView:           cc.ChainView,
 		Notifier:            cc.ChainNotifier,
@@ -1058,7 +1054,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s.chanRouter, err = routing.New(routing.Config{
 		SelfNode:           selfNode.PubKeyBytes,
-		RoutingGraph:       graphsession.NewRoutingGraph(chanGraph),
+		RoutingGraph:       graphsession.NewRoutingGraph(dbs.GraphDB),
 		Chain:              cc.ChainIO,
 		Payer:              s.htlcSwitch,
 		Control:            s.controlTower,

@@ -8,7 +8,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,17 +25,21 @@ type testGraph interface {
 }
 
 func newDiskChanGraph(t *testing.T) (testGraph, error) {
-	// Next, create channeldb for the first time.
-	cdb, err := channeldb.Open(t.TempDir())
-	if err != nil {
-		return nil, err
-	}
-	t.Cleanup(func() {
-		require.NoError(t, cdb.Close())
+	backend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
+		DBPath:            t.TempDir(),
+		DBFileName:        "graph.db",
+		NoFreelistSync:    true,
+		AutoCompact:       false,
+		AutoCompactMinAge: kvdb.DefaultBoltAutoCompactMinAge,
+		DBTimeout:         kvdb.DefaultDBTimeout,
 	})
+	require.NoError(t, err)
+
+	graphDB, err := graphdb.NewChannelGraph(backend)
+	require.NoError(t, err)
 
 	return &databaseChannelGraph{
-		db: cdb.ChannelGraph(),
+		db: graphDB,
 	}, nil
 }
 

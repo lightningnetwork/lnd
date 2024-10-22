@@ -335,7 +335,6 @@ type DB struct {
 	channelStateDB *ChannelStateDB
 
 	dbPath                    string
-	graph                     *graphdb.ChannelGraph
 	clock                     clock.Clock
 	dryRun                    bool
 	keepFailedPaymentAttempts bool
@@ -362,22 +361,18 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 		return nil, err
 	}
 
-	graphDB, err := graphdb.NewChannelGraph(backend)
-	if err != nil {
-		return nil, err
-	}
-
-	db, err := CreateWithBackend(backend, graphDB, modifiers...)
+	db, err := CreateWithBackend(backend, modifiers...)
 	if err == nil {
 		db.dbPath = dbPath
 	}
+
 	return db, err
 }
 
 // CreateWithBackend creates channeldb instance using the passed kvdb.Backend.
 // Any necessary schemas migrations due to updates will take place as necessary.
-func CreateWithBackend(backend kvdb.Backend, graph *graphdb.ChannelGraph,
-	modifiers ...OptionModifier) (*DB, error) {
+func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
+	error) {
 
 	opts := DefaultOptions()
 	for _, modifier := range modifiers {
@@ -403,7 +398,6 @@ func CreateWithBackend(backend kvdb.Backend, graph *graphdb.ChannelGraph,
 		keepFailedPaymentAttempts: opts.keepFailedPaymentAttempts,
 		storeFinalHtlcResolutions: opts.storeFinalHtlcResolutions,
 		noRevLogAmtData:           opts.NoRevLogAmtData,
-		graph:                     graph,
 	}
 
 	// Set the parent pointer (only used in tests).
@@ -1612,11 +1606,6 @@ func (d *DB) applyOptionalVersions(cfg OptionalMiragtionConfig) error {
 	return nil
 }
 
-// ChannelGraph returns the current instance of the directed channel graph.
-func (d *DB) ChannelGraph() *graphdb.ChannelGraph {
-	return d.graph
-}
-
 // ChannelStateDB returns the sub database that is concerned with the channel
 // state.
 func (d *DB) ChannelStateDB() *ChannelStateDB {
@@ -1832,13 +1821,7 @@ func MakeTestDB(t *testing.T, modifiers ...OptionModifier) (*DB, error) {
 		return nil, err
 	}
 
-	graphDB, err := graphdb.NewChannelGraph(backend)
-	if err != nil {
-		backendCleanup()
-		return nil, err
-	}
-
-	cdb, err := CreateWithBackend(backend, graphDB, modifiers...)
+	cdb, err := CreateWithBackend(backend, modifiers...)
 	if err != nil {
 		backendCleanup()
 		return nil, err

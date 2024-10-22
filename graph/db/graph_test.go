@@ -65,34 +65,6 @@ var (
 	}
 )
 
-// MakeTestGraph creates a new instance of the ChannelGraph for testing purposes.
-func MakeTestGraph(t testing.TB, modifiers ...OptionModifier) (*ChannelGraph, error) {
-	opts := DefaultOptions()
-	for _, modifier := range modifiers {
-		modifier(opts)
-	}
-
-	// Next, create channelgraph for the first time.
-	backend, backendCleanup, err := kvdb.GetTestBackend(t.TempDir(), "cgr")
-	if err != nil {
-		backendCleanup()
-		return nil, err
-	}
-
-	graph, err := NewChannelGraph(backend)
-	if err != nil {
-		backendCleanup()
-		return nil, err
-	}
-
-	t.Cleanup(func() {
-		_ = backend.Close()
-		backendCleanup()
-	})
-
-	return graph, nil
-}
-
 func createLightningNode(db kvdb.Backend, priv *btcec.PrivateKey) (*LightningNode, error) {
 	updateTime := prand.Int63()
 

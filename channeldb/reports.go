@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -164,7 +165,7 @@ func putReport(tx kvdb.RwTx, chainHash chainhash.Hash,
 
 	// Finally write our outpoint to be used as the key for this record.
 	var keyBuf bytes.Buffer
-	if err := writeOutpoint(&keyBuf, &report.OutPoint); err != nil {
+	if err := graphdb.WriteOutpoint(&keyBuf, &report.OutPoint); err != nil {
 		return err
 	}
 
@@ -317,7 +318,7 @@ func fetchReportWriteBucket(tx kvdb.RwTx, chainHash chainhash.Hash,
 	}
 
 	var chanPointBuf bytes.Buffer
-	if err := writeOutpoint(&chanPointBuf, outPoint); err != nil {
+	if err := graphdb.WriteOutpoint(&chanPointBuf, outPoint); err != nil {
 		return nil, err
 	}
 
@@ -341,7 +342,7 @@ func fetchReportReadBucket(tx kvdb.RTx, chainHash chainhash.Hash,
 	// With the bucket for the node and chain fetched, we can now go down
 	// another level, for the channel itself.
 	var chanPointBuf bytes.Buffer
-	if err := writeOutpoint(&chanPointBuf, outPoint); err != nil {
+	if err := graphdb.WriteOutpoint(&chanPointBuf, outPoint); err != nil {
 		return nil, err
 	}
 

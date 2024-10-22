@@ -17,7 +17,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -1100,11 +1099,8 @@ func makeTestGraph(t *testing.T, useCache bool) (*graphdb.ChannelGraph,
 
 	t.Cleanup(backendCleanup)
 
-	opts := channeldb.DefaultOptions()
 	graph, err := graphdb.NewChannelGraph(
-		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
-		opts.BatchCommitInterval, opts.PreAllocCacheNumNodes,
-		useCache, false,
+		backend, graphdb.WithUseGraphCache(useCache),
 	)
 	if err != nil {
 		return nil, nil, err

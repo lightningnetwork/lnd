@@ -35,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -1022,16 +1023,37 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			"instances")
 	}
 
+	graphDBOptions := []graphdb.OptionModifier{
+		graphdb.WithRejectCacheSize(cfg.Caches.RejectCacheSize),
+		graphdb.WithChannelCacheSize(cfg.Caches.ChannelCacheSize),
+		graphdb.WithBatchCommitInterval(cfg.DB.BatchCommitInterval),
+		graphdb.WithUseGraphCache(!cfg.DB.NoGraphCache),
+	}
+
+	// We want to pre-allocate the channel graph cache according to what we
+	// expect for mainnet to speed up memory allocation.
+	if cfg.ActiveNetParams.Name == chaincfg.MainNetParams.Name {
+		graphDBOptions = append(
+			graphDBOptions, graphdb.WithPreAllocCacheNumNodes(
+				graphdb.DefaultPreAllocCacheNumNodes,
+			),
+		)
+	}
+
+	graphDB, err := graphdb.NewChannelGraph(
+		databaseBackends.GraphDB, graphDBOptions...,
+	)
+	if err != nil {
+		cleanUp()
+
+		err := fmt.Errorf("unable to open graph DB: %w", err)
+		d.logger.Error(err)
+
+		return nil, nil, err
+	}
+
 	dbOptions := []channeldb.OptionModifier{
-		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
-		channeldb.OptionSetChannelCacheSize(
-			cfg.Caches.ChannelCacheSize,
-		),
-		channeldb.OptionSetBatchCommitInterval(
-			cfg.DB.BatchCommitInterval,
-		),
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
-		channeldb.OptionSetUseGraphCache(!cfg.DB.NoGraphCache),
 		channeldb.OptionKeepFailedPaymentAttempts(
 			cfg.KeepFailedPaymentAttempts,
 		),
@@ -1042,27 +1064,17 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		channeldb.OptionNoRevLogAmtData(cfg.DB.NoRevLogAmtData),
 	}
 
-	// We want to pre-allocate the channel graph cache according to what we
-	// expect for mainnet to speed up memory allocation.
-	if cfg.ActiveNetParams.Name == chaincfg.MainNetParams.Name {
-		dbOptions = append(
-			dbOptions, channeldb.OptionSetPreAllocCacheNumNodes(
-				channeldb.DefaultPreAllocCacheNumNodes,
-			),
-		)
-	}
-
 	// Otherwise, we'll open two instances, one for the state we only need
 	// locally, and the other for things we want to ensure are replicated.
 	dbs.GraphDB, err = channeldb.CreateWithBackend(
-		databaseBackends.GraphDB, dbOptions...,
+		databaseBackends.ChanStateDB, graphDB, dbOptions...,
 	)
 	switch {
 	// Give the DB a chance to dry run the migration. Since we know that
 	// both the channel state and graph DBs are still always behind the same
 	// backend, we know this would be applied to both of those DBs.
 	case err == channeldb.ErrDryRunMigrationOK:
-		d.logger.Infof("Graph DB dry run migration successful")
+		d.logger.Infof("Channel DB dry run migration successful")
 		return nil, nil, err
 
 	case err != nil:

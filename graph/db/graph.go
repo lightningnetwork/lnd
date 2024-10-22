@@ -198,11 +198,15 @@ type ChannelGraph struct {
 
 // NewChannelGraph allocates a new ChannelGraph backed by a DB instance. The
 // returned instance has its own unique reject cache and channel cache.
-func NewChannelGraph(db kvdb.Backend, rejectCacheSize, chanCacheSize int,
-	batchCommitInterval time.Duration, preAllocCacheNumNodes int,
-	useGraphCache, noMigrations bool) (*ChannelGraph, error) {
+func NewChannelGraph(db kvdb.Backend, options ...OptionModifier) (*ChannelGraph,
+	error) {
 
-	if !noMigrations {
+	opts := DefaultOptions()
+	for _, o := range options {
+		o(opts)
+	}
+
+	if !opts.NoMigration {
 		if err := initChannelGraph(db); err != nil {
 			return nil, err
 		}
@@ -210,20 +214,20 @@ func NewChannelGraph(db kvdb.Backend, rejectCacheSize, chanCacheSize int,
 
 	g := &ChannelGraph{
 		db:          db,
-		rejectCache: newRejectCache(rejectCacheSize),
-		chanCache:   newChannelCache(chanCacheSize),
+		rejectCache: newRejectCache(opts.RejectCacheSize),
+		chanCache:   newChannelCache(opts.ChannelCacheSize),
 	}
 	g.chanScheduler = batch.NewTimeScheduler(
-		db, &g.cacheMu, batchCommitInterval,
+		db, &g.cacheMu, opts.BatchCommitInterval,
 	)
 	g.nodeScheduler = batch.NewTimeScheduler(
-		db, nil, batchCommitInterval,
+		db, nil, opts.BatchCommitInterval,
 	)
 
 	// The graph cache can be turned off (e.g. for mobile users) for a
 	// speed/memory usage tradeoff.
-	if useGraphCache {
-		g.graphCache = NewGraphCache(preAllocCacheNumNodes)
+	if opts.UseGraphCache {
+		g.graphCache = NewGraphCache(opts.PreAllocCacheNumNodes)
 		startTime := time.Now()
 		log.Debugf("Populating in-memory channel graph, this might " +
 			"take a while...")

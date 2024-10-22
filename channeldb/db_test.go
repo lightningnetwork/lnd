@@ -51,7 +51,10 @@ func TestOpenWithCreate(t *testing.T) {
 	require.NoError(t, err, "unable to get test db backend")
 	t.Cleanup(cleanup)
 
-	cdb, err := CreateWithBackend(backend)
+	graphDB, err := graphdb.NewChannelGraph(backend)
+	require.NoError(t, err)
+
+	cdb, err := CreateWithBackend(backend, graphDB)
 	require.NoError(t, err, "unable to create channeldb")
 	if err := cdb.Close(); err != nil {
 		t.Fatalf("unable to close channeldb: %v", err)
@@ -87,7 +90,10 @@ func TestWipe(t *testing.T) {
 	require.NoError(t, err, "unable to get test db backend")
 	t.Cleanup(cleanup)
 
-	fullDB, err := CreateWithBackend(backend)
+	graphDB, err := graphdb.NewChannelGraph(backend)
+	require.NoError(t, err)
+
+	fullDB, err := CreateWithBackend(backend, graphDB)
 	require.NoError(t, err, "unable to create channeldb")
 	defer fullDB.Close()
 

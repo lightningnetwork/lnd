@@ -12,6 +12,7 @@ import (
 	"net"
 	"sort"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -26,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -4767,4 +4769,25 @@ func deserializeChanEdgePolicyRaw(r io.Reader) (*models2.ChannelEdgePolicy,
 	}
 
 	return edge, nil
+}
+
+// MakeTestGraph creates a new instance of the ChannelGraph for testing purposes.
+func MakeTestGraph(t *testing.T, modifiers ...OptionModifier) *ChannelGraph {
+	opts := DefaultOptions()
+	for _, modifier := range modifiers {
+		modifier(opts)
+	}
+
+	// Next, create channelgraph for the first time.
+	backend, backendCleanup, err := kvdb.GetTestBackend(t.TempDir(), "cgr")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = backend.Close()
+		backendCleanup()
+	})
+
+	graph, err := NewChannelGraph(backend)
+	require.NoError(t, err)
+
+	return graph
 }

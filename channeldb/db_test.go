@@ -51,10 +51,7 @@ func TestOpenWithCreate(t *testing.T) {
 	require.NoError(t, err, "unable to get test db backend")
 	t.Cleanup(cleanup)
 
-	graphDB, err := graphdb.NewChannelGraph(backend)
-	require.NoError(t, err)
-
-	cdb, err := CreateWithBackend(backend, graphDB)
+	cdb, err := CreateWithBackend(backend)
 	require.NoError(t, err, "unable to create channeldb")
 	if err := cdb.Close(); err != nil {
 		t.Fatalf("unable to close channeldb: %v", err)
@@ -90,10 +87,7 @@ func TestWipe(t *testing.T) {
 	require.NoError(t, err, "unable to get test db backend")
 	t.Cleanup(cleanup)
 
-	graphDB, err := graphdb.NewChannelGraph(backend)
-	require.NoError(t, err)
-
-	fullDB, err := CreateWithBackend(backend, graphDB)
+	fullDB, err := CreateWithBackend(backend)
 	require.NoError(t, err, "unable to create channeldb")
 	defer fullDB.Close()
 
@@ -194,7 +188,7 @@ func TestMultiSourceAddrsForNode(t *testing.T) {
 	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
 
-	graph := fullDB.ChannelGraph()
+	graph := graphdb.MakeTestGraph(t)
 
 	// We'll make a test vertex to insert into the database, as the source
 	// node, but this node will only have half the number of addresses it

@@ -901,18 +901,10 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 type DatabaseInstances struct {
 	// GraphDB is the database that stores the channel graph used for path
 	// finding.
-	//
-	// NOTE/TODO: This currently _needs_ to be the same instance as the
-	// ChanStateDB below until the separation of the two databases is fully
-	// complete!
-	GraphDB *channeldb.DB
+	GraphDB *graphdb.ChannelGraph
 
 	// ChanStateDB is the database that stores all of our node's channel
 	// state.
-	//
-	// NOTE/TODO: This currently _needs_ to be the same instance as the
-	// GraphDB above until the separation of the two databases is fully
-	// complete!
 	ChanStateDB *channeldb.DB
 
 	// HeightHintDB is the database that stores height hints for spends.
@@ -1040,7 +1032,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		)
 	}
 
-	graphDB, err := graphdb.NewChannelGraph(
+	dbs.GraphDB, err = graphdb.NewChannelGraph(
 		databaseBackends.GraphDB, graphDBOptions...,
 	)
 	if err != nil {
@@ -1054,9 +1046,8 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 	// Otherwise, we'll open two instances, one for the state we only need
 	// locally, and the other for things we want to ensure are replicated.
-	dbs.GraphDB, err = channeldb.CreateWithBackend(
+	dbs.ChanStateDB, err = channeldb.CreateWithBackend(
 		databaseBackends.ChanStateDB,
-		graphDB,
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
 		channeldb.OptionKeepFailedPaymentAttempts(
 			cfg.KeepFailedPaymentAttempts,
@@ -1083,27 +1074,14 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		return nil, nil, err
 	}
 
-	// For now, we don't _actually_ split the graph and channel state DBs on
-	// the code level. Since they both are based upon the *channeldb.DB
-	// struct it will require more refactoring to fully separate them. With
-	// the full remote mode we at least know for now that they both point to
-	// the same DB backend (and also namespace within that) so we only need
-	// to apply any migration once.
-	//
-	// TODO(guggero): Once the full separation of anything graph related
-	// from the channeldb.DB is complete, the decorated instance of the
-	// channel state DB should be created here individually instead of just
-	// using the same struct (and DB backend) instance.
-	dbs.ChanStateDB = dbs.GraphDB
-
 	// Instantiate a native SQL invoice store if the flag is set.
 	if d.cfg.DB.UseNativeSQL {
-		// KV invoice db resides in the same database as the graph and
-		// channel state DB. Let's query the database to see if we have
-		// any invoices there. If we do, we won't allow the user to
-		// start lnd with native SQL enabled, as we don't currently
-		// migrate the invoices to the new database schema.
-		invoiceSlice, err := dbs.GraphDB.QueryInvoices(
+		// KV invoice db resides in the same database as the channel
+		// state DB. Let's query the database to see if we have any
+		// invoices there. If we do, we won't allow the user to start
+		// lnd with native SQL enabled, as we don't currently migrate
+		// the invoices to the new database schema.
+		invoiceSlice, err := dbs.ChanStateDB.QueryInvoices(
 			ctx, invoices.InvoiceQuery{
 				NumMaxInvoices: 1,
 			},
@@ -1137,7 +1115,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			executor, clock.NewDefaultClock(),
 		)
 	} else {
-		dbs.InvoiceDB = dbs.GraphDB
+		dbs.InvoiceDB = dbs.ChanStateDB
 	}
 
 	// Wrap the watchtower client DB and make sure we clean up.

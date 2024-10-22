@@ -63,6 +63,13 @@ func DefaultOptions() *Options {
 // OptionModifier is a function signature for modifying the default Options.
 type OptionModifier func(*Options)
 
+// WithRejectCacheSize sets the RejectCacheSize to n.
+func WithRejectCacheSize(n int) OptionModifier {
+	return func(o *Options) {
+		o.RejectCacheSize = n
+	}
+}
+
 // WithChannelCacheSize sets the ChannelCacheSize to n.
 func WithChannelCacheSize(n int) OptionModifier {
 	return func(o *Options) {

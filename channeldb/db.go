@@ -351,24 +351,24 @@ type DB struct {
 // to updates will take place as necessary.
 // TODO(bhandras): deprecate this function.
 func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
-	opts := DefaultOptions()
-	for _, modifier := range modifiers {
-		modifier(&opts)
-	}
-
 	backend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
 		DBPath:            dbPath,
 		DBFileName:        dbName,
-		NoFreelistSync:    opts.NoFreelistSync,
-		AutoCompact:       opts.AutoCompact,
-		AutoCompactMinAge: opts.AutoCompactMinAge,
-		DBTimeout:         opts.DBTimeout,
+		NoFreelistSync:    true,
+		AutoCompact:       false,
+		AutoCompactMinAge: kvdb.DefaultBoltAutoCompactMinAge,
+		DBTimeout:         kvdb.DefaultDBTimeout,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	db, err := CreateWithBackend(backend, modifiers...)
+	graphDB, err := graphdb.NewChannelGraph(backend)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := CreateWithBackend(backend, graphDB, modifiers...)
 	if err == nil {
 		db.dbPath = dbPath
 	}
@@ -377,7 +377,7 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 
 // CreateWithBackend creates channeldb instance using the passed kvdb.Backend.
 // Any necessary schemas migrations due to updates will take place as necessary.
-func CreateWithBackend(backend kvdb.Backend,
+func CreateWithBackend(backend kvdb.Backend, graph *graphdb.ChannelGraph,
 	modifiers ...OptionModifier) (*DB, error) {
 
 	opts := DefaultOptions()
@@ -404,20 +404,11 @@ func CreateWithBackend(backend kvdb.Backend,
 		keepFailedPaymentAttempts: opts.keepFailedPaymentAttempts,
 		storeFinalHtlcResolutions: opts.storeFinalHtlcResolutions,
 		noRevLogAmtData:           opts.NoRevLogAmtData,
+		graph:                     graph,
 	}
 
 	// Set the parent pointer (only used in tests).
 	chanDB.channelStateDB.parent = chanDB
-
-	var err error
-	chanDB.graph, err = graphdb.NewChannelGraph(
-		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
-		opts.BatchCommitInterval, opts.PreAllocCacheNumNodes,
-		opts.UseGraphCache, opts.NoMigration,
-	)
-	if err != nil {
-		return nil, err
-	}
 
 	// Synchronize the version of database and apply migrations if needed.
 	if !opts.NoMigration {
@@ -1866,7 +1857,13 @@ func MakeTestDB(t *testing.T, modifiers ...OptionModifier) (*DB, error) {
 		return nil, err
 	}
 
-	cdb, err := CreateWithBackend(backend, modifiers...)
+	graphDB, err := graphdb.NewChannelGraph(backend)
+	if err != nil {
+		backendCleanup()
+		return nil, err
+	}
+
+	cdb, err := CreateWithBackend(backend, graphDB, modifiers...)
 	if err != nil {
 		backendCleanup()
 		return nil, err

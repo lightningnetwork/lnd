@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -4012,7 +4013,7 @@ func putLightningNode(nodeBucket kvdb.RwBucket, aliasBucket kvdb.RwBucket, // no
 	}
 
 	for _, address := range node.Addresses {
-		if err := SerializeAddr(&b, address); err != nil {
+		if err := graphdb.SerializeAddr(&b, address); err != nil {
 			return err
 		}
 	}
@@ -4205,7 +4206,7 @@ func deserializeLightningNode(r io.Reader) (LightningNode, error) {
 
 	var addresses []net.Addr
 	for i := 0; i < numAddresses; i++ {
-		address, err := DeserializeAddr(r)
+		address, err := graphdb.DeserializeAddr(r)
 		if err != nil {
 			return LightningNode{}, err
 		}

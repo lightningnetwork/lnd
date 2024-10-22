@@ -414,6 +414,29 @@ func (c *ChannelGraph) NewPathFindTx() (kvdb.RTx, error) {
 	return c.db.BeginReadTx()
 }
 
+// AddrsForNode returns all known addresses for the target node public key that
+// the graph DB is aware of.
+//
+// NOTE: this is part of the channeldb.AddrSource interface.
+func (c *ChannelGraph) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr,
+	error) {
+
+	pubKey, err := route.NewVertexFromBytes(nodePub.SerializeCompressed())
+	if err != nil {
+		return nil, err
+	}
+
+	graphNode, err := c.FetchLightningNode(pubKey)
+	if err != nil && err != ErrGraphNodeNotFound {
+		return nil, err
+	} else if err == ErrGraphNodeNotFound {
+		return []net.Addr{}, nil
+	}
+
+	return graphNode.Addresses, nil
+
+}
+
 // ForEachChannel iterates through all the channel edges stored within the
 // graph and invokes the passed callback for each edge. The callback takes two
 // edges as since this is a directed graph, both the in/out edges are visited.

@@ -34,7 +34,6 @@ import (
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 const (
@@ -1343,64 +1342,24 @@ func (c *ChannelStateDB) RestoreChannelShells(channelShells ...*ChannelShell) er
 	return nil
 }
 
-// AddrsForNode consults the graph and channel database for all addresses known
-// to the passed node public key.
+// AddrsForNode consults the channel database for all addresses known to the
+// passed node public key. The returned boolean indicates if the given node is
+// unknown to the channel DB or not.
+//
+// NOTE: this is part of the AddrSource interface.
 func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
-	var (
-		// addrs holds the collection of deduplicated addresses we know
-		// of for the node.
-		addrs = make(map[string]net.Addr)
-
-		// known keeps track of if any of the backing sources know of
-		// this node.
-		known bool
-	)
-
-	// First, query the channel DB for its known addresses.
 	linkNode, err := d.channelStateDB.linkNodeDB.FetchLinkNode(nodePub)
+	// Only if the error is something other than ErrNodeNotFound do we
+	// return it.
 	switch {
-	// If we get back a ErrNodeNotFound error, then this just means that the
-	// channel DB does not know of the error, but we don't error out here
-	// because we still want to check the graph db.
 	case err != nil && !errors.Is(err, ErrNodeNotFound):
 		return false, nil, err
 
-	// A nil error means the node is known.
-	case err == nil:
-		known = true
-		for _, addr := range linkNode.Addresses {
-			addrs[addr.String()] = addr
-		}
+	case errors.Is(err, ErrNodeNotFound):
+		return false, nil, nil
 	}
 
-	// We'll also query the graph for this peer to see if they have any
-	// addresses that we don't currently have stored within the link node
-	// database.
-	pubKey, err := route.NewVertexFromBytes(nodePub.SerializeCompressed())
-	if err != nil {
-		return false, nil, err
-	}
-	graphNode, err := d.graph.FetchLightningNode(pubKey)
-	switch {
-	// We don't consider it an error if the graph is unaware of the node.
-	case err != nil && !errors.Is(err, graphdb.ErrGraphNodeNotFound):
-		return false, nil, err
-
-	// If we do find the node, we add its addresses to our deduplicated set.
-	case err == nil:
-		known = true
-		for _, addr := range graphNode.Addresses {
-			addrs[addr.String()] = addr
-		}
-	}
-
-	// Convert the deduplicated set into a list.
-	dedupedAddrs := make([]net.Addr, 0, len(addrs))
-	for _, addr := range addrs {
-		dedupedAddrs = append(dedupedAddrs, addr)
-	}
-
-	return known, dedupedAddrs, nil
+	return true, linkNode.Addresses, nil
 }
 
 // AbandonChannel attempts to remove the target channel from the open channel

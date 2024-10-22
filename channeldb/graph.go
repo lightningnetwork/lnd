@@ -4016,7 +4016,7 @@ func putLightningNode(nodeBucket kvdb.RwBucket, aliasBucket kvdb.RwBucket, // no
 	}
 
 	for _, address := range node.Addresses {
-		if err := serializeAddr(&b, address); err != nil {
+		if err := SerializeAddr(&b, address); err != nil {
 			return err
 		}
 	}
@@ -4209,7 +4209,7 @@ func deserializeLightningNode(r io.Reader) (LightningNode, error) {
 
 	var addresses []net.Addr
 	for i := 0; i < numAddresses; i++ {
-		address, err := deserializeAddr(r)
+		address, err := DeserializeAddr(r)
 		if err != nil {
 			return LightningNode{}, err
 		}

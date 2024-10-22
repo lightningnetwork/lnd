@@ -218,7 +218,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 	case net.Addr:
-		if err := serializeAddr(w, e); err != nil {
+		if err := SerializeAddr(w, e); err != nil {
 			return err
 		}
 
@@ -228,7 +228,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 		for _, addr := range e {
-			if err := serializeAddr(w, addr); err != nil {
+			if err := SerializeAddr(w, addr); err != nil {
 				return err
 			}
 		}
@@ -451,7 +451,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 
 	case *net.Addr:
-		addr, err := deserializeAddr(r)
+		addr, err := DeserializeAddr(r)
 		if err != nil {
 			return err
 		}
@@ -465,7 +465,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 
 		*e = make([]net.Addr, numAddrs)
 		for i := uint32(0); i < numAddrs; i++ {
-			addr, err := deserializeAddr(r)
+			addr, err := DeserializeAddr(r)
 			if err != nil {
 				return err
 			}

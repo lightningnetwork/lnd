@@ -1,4 +1,4 @@
-package channeldb
+package graphdb
 
 import (
 	"encoding/binary"

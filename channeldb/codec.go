@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -218,7 +219,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 	case net.Addr:
-		if err := SerializeAddr(w, e); err != nil {
+		if err := graphdb.SerializeAddr(w, e); err != nil {
 			return err
 		}
 
@@ -228,7 +229,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 		for _, addr := range e {
-			if err := SerializeAddr(w, addr); err != nil {
+			if err := graphdb.SerializeAddr(w, addr); err != nil {
 				return err
 			}
 		}
@@ -451,7 +452,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 
 	case *net.Addr:
-		addr, err := DeserializeAddr(r)
+		addr, err := graphdb.DeserializeAddr(r)
 		if err != nil {
 			return err
 		}
@@ -465,7 +466,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 
 		*e = make([]net.Addr, numAddrs)
 		for i := uint32(0); i < numAddrs; i++ {
-			addr, err := DeserializeAddr(r)
+			addr, err := graphdb.DeserializeAddr(r)
 			if err != nil {
 				return err
 			}

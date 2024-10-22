@@ -20,7 +20,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -93,7 +93,7 @@ func TestIgnoreNodeAnnouncement(t *testing.T) {
 	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
 
 	pub := priv1.PubKey()
-	node := &channeldb.LightningNode{
+	node := &graphdb.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(123, 0),
 		Addresses:            testAddrs,
@@ -1038,7 +1038,7 @@ func TestIsStaleNode(t *testing.T) {
 
 	// With the node stub in the database, we'll add the fully node
 	// announcement to the database.
-	n1 := &channeldb.LightningNode{
+	n1 := &graphdb.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           updateTimeStamp,
 		Addresses:            testAddrs,
@@ -1453,7 +1453,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 	privKeyMap := make(map[string]*btcec.PrivateKey)
 	channelIDs := make(map[route.Vertex]map[route.Vertex]uint64)
 	links := make(map[lnwire.ShortChannelID]htlcswitch.ChannelLink)
-	var source *channeldb.LightningNode
+	var source *graphdb.LightningNode
 
 	// First we insert all the nodes within the graph as vertexes.
 	for _, node := range g.Nodes {
@@ -1462,7 +1462,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			return nil, err
 		}
 
-		dbNode := &channeldb.LightningNode{
+		dbNode := &graphdb.LightningNode{
 			HaveNodeAnnouncement: true,
 			AuthSigBytes:         testSig.Serialize(),
 			LastUpdate:           testTime,
@@ -1593,10 +1593,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 		}
 
 		err = graph.AddChannelEdge(&edgeInfo)
-		if err != nil && !errors.Is(
-			err, channeldb.ErrEdgeAlreadyExist,
-		) {
-
+		if err != nil && !errors.Is(err, graphdb.ErrEdgeAlreadyExist) {
 			return nil, err
 		}
 
@@ -1753,7 +1750,7 @@ func asymmetricTestChannel(alias1, alias2 string, capacity btcutil.Amount,
 
 // assertChannelsPruned ensures that only the given channels are pruned from the
 // graph out of the set of all channels.
-func assertChannelsPruned(t *testing.T, graph *channeldb.ChannelGraph,
+func assertChannelsPruned(t *testing.T, graph *graphdb.ChannelGraph,
 	channels []*testChannel, prunedChanIDs ...uint64) {
 
 	t.Helper()
@@ -1835,7 +1832,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 
 	nodeIndex := byte(0)
 	addNodeWithAlias := func(alias string, features *lnwire.FeatureVector) (
-		*channeldb.LightningNode, error) {
+		*graphdb.LightningNode, error) {
 
 		keyBytes := []byte{
 			0, 0, 0, 0, 0, 0, 0, 0,
@@ -1850,7 +1847,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			features = lnwire.EmptyFeatureVector()
 		}
 
-		dbNode := &channeldb.LightningNode{
+		dbNode := &graphdb.LightningNode{
 			HaveNodeAnnouncement: true,
 			AuthSigBytes:         testSig.Serialize(),
 			LastUpdate:           testTime,
@@ -1959,7 +1956,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 
 		err = graph.AddChannelEdge(&edgeInfo)
 		if err != nil &&
-			!errors.Is(err, channeldb.ErrEdgeAlreadyExist) {
+			!errors.Is(err, graphdb.ErrEdgeAlreadyExist) {
 
 			return nil, err
 		}

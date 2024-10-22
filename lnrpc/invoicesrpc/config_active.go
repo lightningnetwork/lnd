@@ -6,6 +6,7 @@ package invoicesrpc
 import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -53,7 +54,7 @@ type Config struct {
 
 	// GraphDB is a global database instance which is needed to access the
 	// channel graph.
-	GraphDB *channeldb.ChannelGraph
+	GraphDB *graphdb.ChannelGraph
 
 	// ChanStateDB is a possibly replicated db instance which contains the
 	// channel state

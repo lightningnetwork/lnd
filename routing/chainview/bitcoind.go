@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/blockcache"
-	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 )
 
 // BitcoindFilteredChainView is an implementation of the FilteredChainView
@@ -447,7 +447,7 @@ func (b *BitcoindFilteredChainView) chainFilterer() {
 // rewound to ensure all relevant notifications are dispatched.
 //
 // NOTE: This is part of the FilteredChainView interface.
-func (b *BitcoindFilteredChainView) UpdateFilter(ops []channeldb.EdgePoint,
+func (b *BitcoindFilteredChainView) UpdateFilter(ops []graphdb.EdgePoint,
 	updateHeight uint32) error {
 
 	newUtxos := make([]wire.OutPoint, len(ops))

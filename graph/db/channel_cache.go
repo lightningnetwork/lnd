@@ -1,4 +1,4 @@
-package channeldb
+package graphdb
 
 // channelCache is an in-memory cache used to improve the performance of
 // ChanUpdatesInHorizon. It caches the chan info and edge policies for a

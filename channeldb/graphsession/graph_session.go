@@ -3,7 +3,7 @@ package graphsession
 import (
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
@@ -84,7 +84,7 @@ func (g *session) close() error {
 //
 // NOTE: Part of the routing.Graph interface.
 func (g *session) ForEachNodeChannel(nodePub route.Vertex,
-	cb func(channel *channeldb.DirectedChannel) error) error {
+	cb func(channel *graphdb.DirectedChannel) error) error {
 
 	return g.graph.ForEachNodeDirectedChannel(g.tx, nodePub, cb)
 }
@@ -129,7 +129,7 @@ type graph interface {
 	// NOTE: if a nil tx is provided, then it is expected that the
 	// implementation create a read only tx.
 	ForEachNodeDirectedChannel(tx kvdb.RTx, node route.Vertex,
-		cb func(channel *channeldb.DirectedChannel) error) error
+		cb func(channel *graphdb.DirectedChannel) error) error
 
 	// FetchNodeFeatures returns the features of a given node. If no
 	// features are known for the node, an empty feature vector is returned.
@@ -138,4 +138,4 @@ type graph interface {
 
 // A compile-time check to ensure that *channeldb.ChannelGraph implements the
 // graph interface.
-var _ graph = (*channeldb.ChannelGraph)(nil)
+var _ graph = (*graphdb.ChannelGraph)(nil)

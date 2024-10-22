@@ -12,7 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/blockcache"
-	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lntypes"
 )
 
@@ -320,7 +320,7 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 // rewound to ensure all relevant notifications are dispatched.
 //
 // NOTE: This is part of the FilteredChainView interface.
-func (c *CfFilteredChainView) UpdateFilter(ops []channeldb.EdgePoint,
+func (c *CfFilteredChainView) UpdateFilter(ops []graphdb.EdgePoint,
 	updateHeight uint32) error {
 
 	log.Tracef("Updating chain filter with new UTXO's: %v", ops)

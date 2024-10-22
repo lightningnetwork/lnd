@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/graph"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -92,7 +93,7 @@ type mockGraphSource struct {
 	bestHeight uint32
 
 	mu             sync.Mutex
-	nodes          []channeldb.LightningNode
+	nodes          []graphdb.LightningNode
 	infos          map[uint64]models2.ChannelEdgeInfo
 	edges          map[uint64][]models2.ChannelEdgePolicy
 	zombies        map[uint64][][33]byte
@@ -112,7 +113,7 @@ func newMockRouter(height uint32) *mockGraphSource {
 
 var _ graph.ChannelGraphSource = (*mockGraphSource)(nil)
 
-func (r *mockGraphSource) AddNode(node *channeldb.LightningNode,
+func (r *mockGraphSource) AddNode(node *graphdb.LightningNode,
 	_ ...batch.SchedulerOption) error {
 
 	r.mu.Lock()
@@ -202,7 +203,7 @@ func (r *mockGraphSource) AddProof(chanID lnwire.ShortChannelID,
 	return nil
 }
 
-func (r *mockGraphSource) ForEachNode(func(node *channeldb.LightningNode) error) error {
+func (r *mockGraphSource) ForEachNode(func(node *graphdb.LightningNode) error) error {
 	return nil
 }
 
@@ -213,7 +214,7 @@ func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	chans := make(map[uint64]channeldb.ChannelEdge)
+	chans := make(map[uint64]graphdb.ChannelEdge)
 	for _, info := range r.infos {
 		info := info
 
@@ -279,7 +280,7 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 }
 
 func (r *mockGraphSource) FetchLightningNode(
-	nodePub route.Vertex) (*channeldb.LightningNode, error) {
+	nodePub route.Vertex) (*graphdb.LightningNode, error) {
 
 	for _, node := range r.nodes {
 		if bytes.Equal(nodePub[:], node.PubKeyBytes[:]) {

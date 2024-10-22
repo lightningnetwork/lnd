@@ -11,9 +11,9 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	sphinx "github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/fn"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -496,7 +496,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 	g Graph) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
 
 	var max, total lnwire.MilliSatoshi
-	cb := func(channel *channeldb.DirectedChannel) error {
+	cb := func(channel *graphdb.DirectedChannel) error {
 		if !channel.OutPolicySet {
 			return nil
 		}
@@ -1299,7 +1299,7 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 	// Now, iterate over the node's channels in search for paths to this
 	// node that can be used for blinded paths
 	err = g.ForEachNodeChannel(node,
-		func(channel *channeldb.DirectedChannel) error {
+		func(channel *graphdb.DirectedChannel) error {
 			// Keep track of how many incoming channels this node
 			// has. We only use a node as an introduction node if it
 			// has channels other than the one that lead us to it.

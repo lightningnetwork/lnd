@@ -1,4 +1,4 @@
-package channeldb
+package graphdb
 
 import (
 	"bytes"
@@ -21,7 +21,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/batch"
-	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -350,7 +349,7 @@ func (c *ChannelGraph) Wipe() error {
 	return initChannelGraph(c.db)
 }
 
-// createChannelDB creates and initializes a fresh version of channeldb. In
+// createChannelDB creates and initializes a fresh version of  In
 // the case that the target path has not yet been created or doesn't yet exist,
 // then the path is created. Additionally, all required top-level buckets used
 // within the database are created.
@@ -1125,7 +1124,7 @@ func (c *ChannelGraph) addChannelEdge(tx kvdb.RwTx,
 	// Finally we add it to the channel index which maps channel points
 	// (outpoints) to the shorter channel ID's.
 	var b bytes.Buffer
-	if err := graphdb.WriteOutpoint(&b, &edge.ChannelPoint); err != nil {
+	if err := WriteOutpoint(&b, &edge.ChannelPoint); err != nil {
 		return err
 	}
 	return chanIndex.Put(b.Bytes(), chanKey[:])
@@ -1332,7 +1331,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			// if NOT if filter
 
 			var opBytes bytes.Buffer
-			if err := graphdb.WriteOutpoint(&opBytes, chanPoint); err != nil {
+			if err := WriteOutpoint(&opBytes, chanPoint); err != nil {
 				return err
 			}
 
@@ -1804,7 +1803,7 @@ func (c *ChannelGraph) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 // getChanID returns the assigned channel ID for a given channel point.
 func getChanID(tx kvdb.RTx, chanPoint *wire.OutPoint) (uint64, error) {
 	var b bytes.Buffer
-	if err := graphdb.WriteOutpoint(&b, chanPoint); err != nil {
+	if err := WriteOutpoint(&b, chanPoint); err != nil {
 		return 0, err
 	}
 
@@ -2632,7 +2631,7 @@ func (c *ChannelGraph) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 		return err
 	}
 	var b bytes.Buffer
-	if err := graphdb.WriteOutpoint(&b, &edgeInfo.ChannelPoint); err != nil {
+	if err := WriteOutpoint(&b, &edgeInfo.ChannelPoint); err != nil {
 		return err
 	}
 	if err := chanIndex.Delete(b.Bytes()); err != nil {
@@ -3410,7 +3409,7 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 			return ErrGraphNoEdgesFound
 		}
 		var b bytes.Buffer
-		if err := graphdb.WriteOutpoint(&b, op); err != nil {
+		if err := WriteOutpoint(&b, op); err != nil {
 			return err
 		}
 		chanID := chanIndex.Get(b.Bytes())
@@ -3656,7 +3655,7 @@ func (c *ChannelGraph) ChannelView() ([]EdgePoint, error) {
 			chanPointReader := bytes.NewReader(chanPointBytes)
 
 			var chanPoint wire.OutPoint
-			err := graphdb.ReadOutpoint(chanPointReader, &chanPoint)
+			err := ReadOutpoint(chanPointReader, &chanPoint)
 			if err != nil {
 				return err
 			}
@@ -4013,7 +4012,7 @@ func putLightningNode(nodeBucket kvdb.RwBucket, aliasBucket kvdb.RwBucket, // no
 	}
 
 	for _, address := range node.Addresses {
-		if err := graphdb.SerializeAddr(&b, address); err != nil {
+		if err := SerializeAddr(&b, address); err != nil {
 			return err
 		}
 	}
@@ -4206,7 +4205,7 @@ func deserializeLightningNode(r io.Reader) (LightningNode, error) {
 
 	var addresses []net.Addr
 	for i := 0; i < numAddresses; i++ {
-		address, err := graphdb.DeserializeAddr(r)
+		address, err := DeserializeAddr(r)
 		if err != nil {
 			return LightningNode{}, err
 		}
@@ -4278,7 +4277,7 @@ func putChanEdgeInfo(edgeIndex kvdb.RwBucket,
 		return err
 	}
 
-	if err := graphdb.WriteOutpoint(&b, &edgeInfo.ChannelPoint); err != nil {
+	if err := WriteOutpoint(&b, &edgeInfo.ChannelPoint); err != nil {
 		return err
 	}
 	if err := binary.Write(&b, byteOrder, uint64(edgeInfo.Capacity)); err != nil {
@@ -4362,7 +4361,7 @@ func deserializeChanEdgeInfo(r io.Reader) (models2.ChannelEdgeInfo, error) {
 	}
 
 	edgeInfo.ChannelPoint = wire.OutPoint{}
-	if err := graphdb.ReadOutpoint(r, &edgeInfo.ChannelPoint); err != nil {
+	if err := ReadOutpoint(r, &edgeInfo.ChannelPoint); err != nil {
 		return models2.ChannelEdgeInfo{}, err
 	}
 	if err := binary.Read(r, byteOrder, &edgeInfo.Capacity); err != nil {

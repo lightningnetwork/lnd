@@ -11,7 +11,7 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/routing/chainview"
 )
@@ -94,7 +94,7 @@ func (n *NoChainBackend) DisconnectedBlocks() <-chan *chainview.FilteredBlock {
 	return make(chan *chainview.FilteredBlock)
 }
 
-func (n *NoChainBackend) UpdateFilter([]channeldb.EdgePoint, uint32) error {
+func (n *NoChainBackend) UpdateFilter([]graphdb.EdgePoint, uint32) error {
 	return nil
 }
 

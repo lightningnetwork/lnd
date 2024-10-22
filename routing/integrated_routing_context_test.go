@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -338,11 +338,11 @@ var _ GraphSessionFactory = (*mockGraphSessionFactory)(nil)
 var _ Graph = (*mockGraphSessionFactory)(nil)
 
 type mockGraphSessionFactoryChanDB struct {
-	graph *channeldb.ChannelGraph
+	graph *graphdb.ChannelGraph
 }
 
 func newMockGraphSessionFactoryFromChanDB(
-	graph *channeldb.ChannelGraph) *mockGraphSessionFactoryChanDB {
+	graph *graphdb.ChannelGraph) *mockGraphSessionFactoryChanDB {
 
 	return &mockGraphSessionFactoryChanDB{
 		graph: graph,
@@ -368,11 +368,11 @@ func (g *mockGraphSessionFactoryChanDB) NewGraphSession() (Graph, func() error,
 var _ GraphSessionFactory = (*mockGraphSessionFactoryChanDB)(nil)
 
 type mockGraphSessionChanDB struct {
-	graph *channeldb.ChannelGraph
+	graph *graphdb.ChannelGraph
 	tx    kvdb.RTx
 }
 
-func newMockGraphSessionChanDB(graph *channeldb.ChannelGraph) Graph {
+func newMockGraphSessionChanDB(graph *graphdb.ChannelGraph) Graph {
 	return &mockGraphSessionChanDB{
 		graph: graph,
 	}
@@ -392,7 +392,7 @@ func (g *mockGraphSessionChanDB) close() error {
 }
 
 func (g *mockGraphSessionChanDB) ForEachNodeChannel(nodePub route.Vertex,
-	cb func(channel *channeldb.DirectedChannel) error) error {
+	cb func(channel *graphdb.DirectedChannel) error) error {
 
 	return g.graph.ForEachNodeDirectedChannel(g.tx, nodePub, cb)
 }

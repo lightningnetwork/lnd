@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -42,7 +42,7 @@ type mockChannelGraphTimeSeries struct {
 	horizonReq  chan horizonQuery
 	horizonResp chan []lnwire.Message
 
-	filterReq  chan []channeldb.ChannelUpdateInfo
+	filterReq  chan []graphdb.ChannelUpdateInfo
 	filterResp chan []lnwire.ShortChannelID
 
 	filterRangeReqs chan filterRangeReq
@@ -64,7 +64,7 @@ func newMockChannelGraphTimeSeries(
 		horizonReq:  make(chan horizonQuery, 1),
 		horizonResp: make(chan []lnwire.Message, 1),
 
-		filterReq:  make(chan []channeldb.ChannelUpdateInfo, 1),
+		filterReq:  make(chan []graphdb.ChannelUpdateInfo, 1),
 		filterResp: make(chan []lnwire.ShortChannelID, 1),
 
 		filterRangeReqs: make(chan filterRangeReq, 1),
@@ -92,7 +92,7 @@ func (m *mockChannelGraphTimeSeries) UpdatesInHorizon(chain chainhash.Hash,
 }
 
 func (m *mockChannelGraphTimeSeries) FilterKnownChanIDs(chain chainhash.Hash,
-	superSet []channeldb.ChannelUpdateInfo,
+	superSet []graphdb.ChannelUpdateInfo,
 	isZombieChan func(time.Time, time.Time) bool) (
 	[]lnwire.ShortChannelID, error) {
 
@@ -102,16 +102,16 @@ func (m *mockChannelGraphTimeSeries) FilterKnownChanIDs(chain chainhash.Hash,
 }
 func (m *mockChannelGraphTimeSeries) FilterChannelRange(chain chainhash.Hash,
 	startHeight, endHeight uint32, withTimestamps bool) (
-	[]channeldb.BlockChannelRange, error) {
+	[]graphdb.BlockChannelRange, error) {
 
 	m.filterRangeReqs <- filterRangeReq{startHeight, endHeight}
 	reply := <-m.filterRangeResp
 
-	channelsPerBlock := make(map[uint32][]channeldb.ChannelUpdateInfo)
+	channelsPerBlock := make(map[uint32][]graphdb.ChannelUpdateInfo)
 	for _, cid := range reply {
 		channelsPerBlock[cid.BlockHeight] = append(
 			channelsPerBlock[cid.BlockHeight],
-			channeldb.ChannelUpdateInfo{
+			graphdb.ChannelUpdateInfo{
 				ShortChannelID: cid,
 			},
 		)
@@ -127,11 +127,11 @@ func (m *mockChannelGraphTimeSeries) FilterChannelRange(chain chainhash.Hash,
 	})
 
 	channelRanges := make(
-		[]channeldb.BlockChannelRange, 0, len(channelsPerBlock),
+		[]graphdb.BlockChannelRange, 0, len(channelsPerBlock),
 	)
 	for _, block := range blocks {
 		channelRanges = append(
-			channelRanges, channeldb.BlockChannelRange{
+			channelRanges, graphdb.BlockChannelRange{
 				Height:   block,
 				Channels: channelsPerBlock[block],
 			},

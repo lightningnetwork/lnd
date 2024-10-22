@@ -43,6 +43,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/graph"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -244,7 +245,7 @@ type server struct {
 
 	fundingMgr *funding.Manager
 
-	graphDB *channeldb.ChannelGraph
+	graphDB *graphdb.ChannelGraph
 
 	chanStateDB *channeldb.ChannelStateDB
 
@@ -862,7 +863,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	if err != nil {
 		return nil, err
 	}
-	selfNode := &channeldb.LightningNode{
+	selfNode := &graphdb.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Now(),
 		Addresses:            selfAddrs,
@@ -1354,7 +1355,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		info, e1, e2, err := s.graphDB.FetchChannelEdgesByID(
 			scid.ToUint64(),
 		)
-		if errors.Is(err, channeldb.ErrEdgeNotFound) {
+		if errors.Is(err, graphdb.ErrEdgeNotFound) {
 			// This is unlikely but there is a slim chance of this
 			// being hit if lnd was killed via SIGKILL and the
 			// funding manager was stepping through the delete
@@ -3147,7 +3148,7 @@ func (s *server) createNewHiddenService() error {
 
 	// Finally, we'll update the on-disk version of our announcement so it
 	// will eventually propagate to nodes in the network.
-	selfNode := &channeldb.LightningNode{
+	selfNode := &graphdb.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(int64(newNodeAnn.Timestamp), 0),
 		Addresses:            newNodeAnn.Addresses,
@@ -3410,7 +3411,7 @@ func (s *server) establishPersistentConnections() error {
 		nodeAddrsMap[pubStr] = n
 		return nil
 	})
-	if err != nil && err != channeldb.ErrGraphNoEdgesFound {
+	if err != nil && err != graphdb.ErrGraphNoEdgesFound {
 		return err
 	}
 

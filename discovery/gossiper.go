@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/graph"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -1686,7 +1687,7 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 
 		return nil
 	})
-	if err != nil && err != channeldb.ErrGraphNoEdgesFound {
+	if err != nil && err != graphdb.ErrGraphNoEdgesFound {
 		return fmt.Errorf("unable to retrieve outgoing channels: %w",
 			err)
 	}
@@ -1963,7 +1964,7 @@ func (d *AuthenticatedGossiper) addNode(msg *lnwire.NodeAnnouncement,
 
 	timestamp := time.Unix(int64(msg.Timestamp), 0)
 	features := lnwire.NewFeatureVector(msg.Features, lnwire.Features)
-	node := &channeldb.LightningNode{
+	node := &graphdb.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           timestamp,
 		Addresses:            msg.Addresses,
@@ -2121,7 +2122,7 @@ func (d *AuthenticatedGossiper) processZombieUpdate(
 	// come through again.
 	err = d.cfg.Graph.MarkEdgeLive(scid)
 	switch {
-	case errors.Is(err, channeldb.ErrZombieEdgeNotFound):
+	case errors.Is(err, graphdb.ErrZombieEdgeNotFound):
 		log.Errorf("edge with chan_id=%v was not found in the "+
 			"zombie index: %v", err)
 
@@ -2166,7 +2167,7 @@ func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 		// If the channel cannot be found, it is most likely a leftover
 		// message for a channel that was closed, so we can consider it
 		// stale.
-		if errors.Is(err, channeldb.ErrEdgeNotFound) {
+		if errors.Is(err, graphdb.ErrEdgeNotFound) {
 			return true
 		}
 		if err != nil {
@@ -2186,7 +2187,7 @@ func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 		// If the channel cannot be found, it is most likely a leftover
 		// message for a channel that was closed, so we can consider it
 		// stale.
-		if errors.Is(err, channeldb.ErrEdgeNotFound) {
+		if errors.Is(err, graphdb.ErrEdgeNotFound) {
 			return true
 		}
 		if err != nil {
@@ -2936,7 +2937,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 	case err == nil:
 		break
 
-	case errors.Is(err, channeldb.ErrZombieEdge):
+	case errors.Is(err, graphdb.ErrZombieEdge):
 		err = d.processZombieUpdate(chanInfo, graphScid, upd)
 		if err != nil {
 			log.Debug(err)
@@ -2949,11 +2950,11 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		// needed to ensure the edge exists in the graph before
 		// applying the update.
 		fallthrough
-	case errors.Is(err, channeldb.ErrGraphNotFound):
+	case errors.Is(err, graphdb.ErrGraphNotFound):
 		fallthrough
-	case errors.Is(err, channeldb.ErrGraphNoEdgesFound):
+	case errors.Is(err, graphdb.ErrGraphNoEdgesFound):
 		fallthrough
-	case errors.Is(err, channeldb.ErrEdgeNotFound):
+	case errors.Is(err, graphdb.ErrEdgeNotFound):
 		// If the edge corresponding to this ChannelUpdate was not
 		// found in the graph, this might be a channel in the process
 		// of being opened, and we haven't processed our own

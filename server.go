@@ -249,7 +249,7 @@ type server struct {
 
 	chanStateDB *channeldb.ChannelStateDB
 
-	addrSource chanbackup.AddressSource
+	addrSource channeldb.AddrSource
 
 	// miscDB is the DB that contains all "other" databases within the main
 	// channel DB that haven't been separated out yet.

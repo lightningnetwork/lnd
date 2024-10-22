@@ -1,7 +1,7 @@
 package htlcswitch
 
 import (
-	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 )

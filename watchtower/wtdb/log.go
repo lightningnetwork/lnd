@@ -1,7 +1,7 @@
 package wtdb
 
 import (
-	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration1"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration2"

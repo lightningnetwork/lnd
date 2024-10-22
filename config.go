@@ -21,6 +21,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btclog/v2"
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/autopilot"
@@ -494,9 +495,11 @@ type Config struct {
 
 	GRPC *GRPCConfig `group:"grpc" namespace:"grpc"`
 
-	// LogWriter is the root logger that all of the daemon's subloggers are
+	// SubLogMgr is the root logger that all the daemon's subloggers are
 	// hooked up to.
-	LogWriter *build.RotatingLogWriter
+	SubLogMgr  *build.SubLoggerManager
+	LogRotator *build.RotatingLogWriter
+	LogConfig  *build.LogConfig `group:"logging" namespace:"logging"`
 
 	// networkDir is the path to the directory of the currently active
 	// network. This path will hold the files related to each different
@@ -714,7 +717,7 @@ func DefaultConfig() Config {
 		MaxChannelFeeAllocation:   htlcswitch.DefaultMaxLinkFeeAllocation,
 		MaxCommitFeeRateAnchors:   lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte,
 		MaxFeeExposure:            uint64(htlcswitch.DefaultMaxFeeExposure.ToSatoshis()),
-		LogWriter:                 build.NewRotatingLogWriter(),
+		LogRotator:                build.NewRotatingLogWriter(),
 		DB:                        lncfg.DefaultDB(),
 		Cluster:                   lncfg.DefaultCluster(),
 		RPCMiddleware:             lncfg.DefaultRPCMiddleware(),
@@ -736,6 +739,7 @@ func DefaultConfig() Config {
 			ServerPingTimeout: defaultGrpcServerPingTimeout,
 			ClientPingMinWait: defaultGrpcClientPingMinWait,
 		},
+		LogConfig:         build.DefaultLogConfig(),
 		WtClient:          lncfg.DefaultWtClientCfg(),
 		HTTPHeaderTimeout: DefaultHTTPHeaderTimeout,
 	}
@@ -1400,10 +1404,24 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
-	// A log writer must be passed in, otherwise we can't function and would
-	// run into a panic later on.
-	if cfg.LogWriter == nil {
-		return nil, mkErr("log writer missing in config")
+	var (
+		logCfg                            = cfg.LogConfig
+		logHandlers                       []btclog.Handler
+		consoleLogHandler, logFileHandler = build.NewDefaultLogHandlers(
+			logCfg, cfg.LogRotator,
+		)
+	)
+	maybeAddLogger := func(cmdOptionDisable bool, handler btclog.Handler) {
+		if !cmdOptionDisable {
+			logHandlers = append(logHandlers, handler)
+		}
+	}
+	switch build.LoggingType {
+	case build.LogTypeStdOut:
+		maybeAddLogger(logCfg.Console.Disable, consoleLogHandler)
+	case build.LogTypeDefault:
+		maybeAddLogger(logCfg.Console.Disable, consoleLogHandler)
+		maybeAddLogger(logCfg.File.Disable, logFileHandler)
 	}
 
 	if !build.SuportedLogCompressor(cfg.LogCompressor) {
@@ -1411,16 +1429,18 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			cfg.LogCompressor)
 	}
 
+	cfg.SubLogMgr = build.NewSubLoggerManager(logHandlers...)
+
 	// Initialize logging at the default logging level.
-	SetupLoggers(cfg.LogWriter, interceptor)
+	SetupLoggers(cfg.SubLogMgr, interceptor)
 
 	// Special show command to list supported subsystems and exit.
 	if cfg.DebugLevel == "show" {
 		fmt.Println("Supported subsystems",
-			cfg.LogWriter.SupportedSubsystems())
+			cfg.SubLogMgr.SupportedSubsystems())
 		os.Exit(0)
 	}
-	err = cfg.LogWriter.InitLogRotator(
+	err = cfg.LogRotator.InitLogRotator(
 		filepath.Join(cfg.LogDir, defaultLogFilename),
 		cfg.LogCompressor, cfg.MaxLogFileSize, cfg.MaxLogFiles,
 	)
@@ -1430,7 +1450,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	}
 
 	// Parse, validate, and set debug log level(s).
-	err = build.ParseAndSetDebugLevels(cfg.DebugLevel, cfg.LogWriter)
+	err = build.ParseAndSetDebugLevels(cfg.DebugLevel, cfg.SubLogMgr)
 	if err != nil {
 		str := "error parsing debug level: %v"
 		return nil, &lncfg.UsageError{Err: mkErr(str, err)}

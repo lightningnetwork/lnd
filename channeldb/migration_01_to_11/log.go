@@ -1,7 +1,7 @@
 package migration_01_to_11
 
 import (
-	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btclog/v2"
 )
 
 // log is a logger that is initialized as disabled.  This means the package will

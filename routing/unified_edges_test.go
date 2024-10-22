@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -25,7 +25,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 	}
 
 	// Add two channels between the pair of nodes.
-	p1 := models.CachedEdgePolicy{
+	p1 := models2.CachedEdgePolicy{
 		ChannelID:                 100,
 		FeeProportionalMillionths: 100000,
 		FeeBaseMSat:               30,
@@ -34,7 +34,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		MaxHTLC:                   5000,
 		MinHTLC:                   100,
 	}
-	p2 := models.CachedEdgePolicy{
+	p2 := models2.CachedEdgePolicy{
 		ChannelID:                 101,
 		FeeProportionalMillionths: 190000,
 		FeeBaseMSat:               10,
@@ -46,12 +46,12 @@ func TestNodeEdgeUnifier(t *testing.T) {
 	c1 := btcutil.Amount(7)
 	c2 := btcutil.Amount(8)
 
-	inboundFee1 := models.InboundFee{
+	inboundFee1 := models2.InboundFee{
 		Base: 5,
 		Rate: 10000,
 	}
 
-	inboundFee2 := models.InboundFee{
+	inboundFee2 := models2.InboundFee{
 		Base: 10,
 		Rate: 10000,
 	}
@@ -75,7 +75,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 
 	unifierNoInfo := newNodeEdgeUnifier(source, toNode, false, nil)
 	unifierNoInfo.addPolicy(
-		fromNode, &models.CachedEdgePolicy{}, models.InboundFee{},
+		fromNode, &models2.CachedEdgePolicy{}, models2.InboundFee{},
 		0, defaultHopPayloadSize, nil,
 	)
 
@@ -92,8 +92,8 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		fromNode, &p1, inboundFee1, c1, defaultHopPayloadSize, nil,
 	)
 
-	inboundFeeZero := models.InboundFee{}
-	inboundFeeNegative := models.InboundFee{
+	inboundFeeZero := models2.InboundFee{}
+	inboundFeeNegative := models2.InboundFee{
 		Base: -150,
 	}
 	unifierNegInboundFee := newNodeEdgeUnifier(source, toNode, true, nil)
@@ -111,7 +111,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		amount             lnwire.MilliSatoshi
 		expectedFeeBase    lnwire.MilliSatoshi
 		expectedFeeRate    lnwire.MilliSatoshi
-		expectedInboundFee models.InboundFee
+		expectedInboundFee models2.InboundFee
 		expectedTimeLock   uint16
 		expectNoPolicy     bool
 		expectedCapacity   btcutil.Amount

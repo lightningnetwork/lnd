@@ -18,7 +18,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -69,7 +69,7 @@ var (
 	_           = testSScalar.SetByteSlice(testSBytes)
 	testSig     = ecdsa.NewSignature(testRScalar, testSScalar)
 
-	testAuthProof = models.ChannelAuthProof{
+	testAuthProof = models2.ChannelAuthProof{
 		NodeSig1Bytes:    testSig.Serialize(),
 		NodeSig2Bytes:    testSig.Serialize(),
 		BitcoinSig1Bytes: testSig.Serialize(),
@@ -99,9 +99,9 @@ func createTestNode(t *testing.T) *channeldb.LightningNode {
 }
 
 func randEdgePolicy(chanID *lnwire.ShortChannelID,
-	node *channeldb.LightningNode) (*models.ChannelEdgePolicy, error) {
+	node *channeldb.LightningNode) (*models2.ChannelEdgePolicy, error) {
 
-	InboundFee := models.InboundFee{
+	InboundFee := models2.InboundFee{
 		Base: prand.Int31() * -1,
 		Rate: prand.Int31() * -1,
 	}
@@ -112,7 +112,7 @@ func randEdgePolicy(chanID *lnwire.ShortChannelID,
 		return nil, err
 	}
 
-	return &models.ChannelEdgePolicy{
+	return &models2.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Unix(int64(prand.Int31()), 0),
@@ -466,11 +466,11 @@ func TestEdgeUpdateNotification(t *testing.T) {
 
 	// Finally, to conclude our test set up, we'll create a channel
 	// update to announce the created channel between the two nodes.
-	edge := &models.ChannelEdgeInfo{
+	edge := &models2.ChannelEdgeInfo{
 		ChannelID:     chanID.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
+		AuthProof: &models2.ChannelAuthProof{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
 			BitcoinSig1Bytes: testSig.Serialize(),
@@ -507,7 +507,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	}
 
 	assertEdgeCorrect := func(t *testing.T, edgeUpdate *ChannelEdgeUpdate,
-		edgeAnn *models.ChannelEdgePolicy) {
+		edgeAnn *models2.ChannelEdgePolicy) {
 
 		if edgeUpdate.ChanID != edgeAnn.ChannelID {
 			t.Fatalf("channel ID of edge doesn't match: "+
@@ -653,11 +653,11 @@ func TestNodeUpdateNotification(t *testing.T) {
 	testFeaturesBuf := new(bytes.Buffer)
 	require.NoError(t, testFeatures.Encode(testFeaturesBuf))
 
-	edge := &models.ChannelEdgeInfo{
+	edge := &models2.ChannelEdgeInfo{
 		ChannelID:     chanID.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
+		AuthProof: &models2.ChannelAuthProof{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
 			BitcoinSig1Bytes: testSig.Serialize(),
@@ -837,11 +837,11 @@ func TestNotificationCancellation(t *testing.T) {
 	// to the client.
 	ntfnClient.Cancel()
 
-	edge := &models.ChannelEdgeInfo{
+	edge := &models2.ChannelEdgeInfo{
 		ChannelID:     chanID.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
+		AuthProof: &models2.ChannelAuthProof{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
 			BitcoinSig1Bytes: testSig.Serialize(),
@@ -906,11 +906,11 @@ func TestChannelCloseNotification(t *testing.T) {
 
 	// Finally, to conclude our test set up, we'll create a channel
 	// announcement to announce the created channel between the two nodes.
-	edge := &models.ChannelEdgeInfo{
+	edge := &models2.ChannelEdgeInfo{
 		ChannelID:     chanID.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
+		AuthProof: &models2.ChannelAuthProof{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
 			BitcoinSig1Bytes: testSig.Serialize(),

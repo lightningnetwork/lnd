@@ -22,8 +22,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	switchhop "github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -98,7 +98,7 @@ var (
 	_             = testSScalar.SetByteSlice(testSBytes)
 	testSig       = ecdsa.NewSignature(testRScalar, testSScalar)
 
-	testAuthProof = models.ChannelAuthProof{
+	testAuthProof = models2.ChannelAuthProof{
 		NodeSig1Bytes:    testSig.Serialize(),
 		NodeSig2Bytes:    testSig.Serialize(),
 		BitcoinSig1Bytes: testSig.Serialize(),
@@ -337,7 +337,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 
 		// We first insert the existence of the edge between the two
 		// nodes.
-		edgeInfo := models.ChannelEdgeInfo{
+		edgeInfo := models2.ChannelEdgeInfo{
 			ChannelID:    edge.ChannelID,
 			AuthProof:    &testAuthProof,
 			ChannelPoint: fundingPoint,
@@ -368,7 +368,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			targetNode = edgeInfo.NodeKey2Bytes
 		}
 
-		edgePolicy := &models.ChannelEdgePolicy{
+		edgePolicy := &models2.ChannelEdgePolicy{
 			SigBytes:                  testSig.Serialize(),
 			MessageFlags:              lnwire.ChanUpdateMsgFlags(edge.MessageFlags),
 			ChannelFlags:              channelFlags,
@@ -652,7 +652,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 
 		// We first insert the existence of the edge between the two
 		// nodes.
-		edgeInfo := models.ChannelEdgeInfo{
+		edgeInfo := models2.ChannelEdgeInfo{
 			ChannelID:    channelID,
 			AuthProof:    &testAuthProof,
 			ChannelPoint: *fundingPoint,
@@ -692,7 +692,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				channelFlags |= lnwire.ChanUpdateDisabled
 			}
 
-			edgePolicy := &models.ChannelEdgePolicy{
+			edgePolicy := &models2.ChannelEdgePolicy{
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,
 				ChannelFlags:              channelFlags,
@@ -722,7 +722,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			}
 			channelFlags |= lnwire.ChanUpdateDirection
 
-			edgePolicy := &models.ChannelEdgePolicy{
+			edgePolicy := &models2.ChannelEdgePolicy{
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,
 				ChannelFlags:              channelFlags,
@@ -1218,7 +1218,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 
 	// Create the channel edge going from songoku to doge and include it in
 	// our map of additional edges.
-	songokuToDogePolicy := &models.CachedEdgePolicy{
+	songokuToDogePolicy := &models2.CachedEdgePolicy{
 		ToNodePubKey: func() route.Vertex {
 			return doge.PubKeyBytes
 		},
@@ -1292,7 +1292,7 @@ func runPathFindingWithRedundantAdditionalEdges(t *testing.T, useCache bool) {
 
 	// Create the channel edge going from alice to bob and include it in
 	// our map of additional edges.
-	aliceToBobPolicy := &models.CachedEdgePolicy{
+	aliceToBobPolicy := &models2.CachedEdgePolicy{
 		ToNodePubKey: func() route.Vertex {
 			return target
 		},
@@ -1338,9 +1338,9 @@ func TestNewRoute(t *testing.T) {
 	createHop := func(baseFee lnwire.MilliSatoshi,
 		feeRate lnwire.MilliSatoshi,
 		bandwidth lnwire.MilliSatoshi,
-		timeLockDelta uint16) *models.CachedEdgePolicy {
+		timeLockDelta uint16) *models2.CachedEdgePolicy {
 
-		return &models.CachedEdgePolicy{
+		return &models2.CachedEdgePolicy{
 			ToNodePubKey: func() route.Vertex {
 				return route.Vertex{}
 			},
@@ -1357,7 +1357,7 @@ func TestNewRoute(t *testing.T) {
 
 		// hops is the list of hops (the route) that gets passed into
 		// the call to newRoute.
-		hops []*models.CachedEdgePolicy
+		hops []*models2.CachedEdgePolicy
 
 		// paymentAmount is the amount that is send into the route
 		// indicated by hops.
@@ -1403,7 +1403,7 @@ func TestNewRoute(t *testing.T) {
 			// For a single hop payment, no fees are expected to be paid.
 			name:          "single hop",
 			paymentAmount: 100000,
-			hops: []*models.CachedEdgePolicy{
+			hops: []*models2.CachedEdgePolicy{
 				createHop(100, 1000, 1000000, 10),
 			},
 			metadata:              []byte{1, 2, 3},
@@ -1417,7 +1417,7 @@ func TestNewRoute(t *testing.T) {
 			// a fee to receive the payment.
 			name:          "two hop",
 			paymentAmount: 100000,
-			hops: []*models.CachedEdgePolicy{
+			hops: []*models2.CachedEdgePolicy{
 				createHop(0, 1000, 1000000, 10),
 				createHop(30, 1000, 1000000, 5),
 			},
@@ -1432,7 +1432,7 @@ func TestNewRoute(t *testing.T) {
 			name:          "two hop tlv onion feature",
 			destFeatures:  tlvFeatures,
 			paymentAmount: 100000,
-			hops: []*models.CachedEdgePolicy{
+			hops: []*models2.CachedEdgePolicy{
 				createHop(0, 1000, 1000000, 10),
 				createHop(30, 1000, 1000000, 5),
 			},
@@ -1448,7 +1448,7 @@ func TestNewRoute(t *testing.T) {
 			destFeatures:  tlvPayAddrFeatures,
 			paymentAddr:   fn.Some(testPaymentAddr),
 			paymentAmount: 100000,
-			hops: []*models.CachedEdgePolicy{
+			hops: []*models2.CachedEdgePolicy{
 				createHop(0, 1000, 1000000, 10),
 				createHop(30, 1000, 1000000, 5),
 			},
@@ -1467,7 +1467,7 @@ func TestNewRoute(t *testing.T) {
 			// gets rounded down to 1.
 			name:          "three hop",
 			paymentAmount: 100000,
-			hops: []*models.CachedEdgePolicy{
+			hops: []*models2.CachedEdgePolicy{
 				createHop(0, 10, 1000000, 10),
 				createHop(0, 10, 1000000, 5),
 				createHop(0, 10, 1000000, 3),
@@ -1482,7 +1482,7 @@ func TestNewRoute(t *testing.T) {
 			// because of the increase amount to forward.
 			name:          "three hop with fee carry over",
 			paymentAmount: 100000,
-			hops: []*models.CachedEdgePolicy{
+			hops: []*models2.CachedEdgePolicy{
 				createHop(0, 10000, 1000000, 10),
 				createHop(0, 10000, 1000000, 5),
 				createHop(0, 10000, 1000000, 3),
@@ -1497,7 +1497,7 @@ func TestNewRoute(t *testing.T) {
 			// effect.
 			name:          "three hop with minimal fees for carry over",
 			paymentAmount: 100000,
-			hops: []*models.CachedEdgePolicy{
+			hops: []*models2.CachedEdgePolicy{
 				createHop(0, 10000, 1000000, 10),
 
 				// First hop charges 0.1% so the second hop fee
@@ -3236,7 +3236,7 @@ func TestBlindedRouteConstruction(t *testing.T) {
 		// route. Proportional fees are omitted for easy test
 		// calculations, but non-zero base fees ensure our fee is
 		// still accounted for.
-		aliceBobEdge = &models.CachedEdgePolicy{
+		aliceBobEdge = &models2.CachedEdgePolicy{
 			ChannelID: 1,
 			// We won't actually use this timelock / fee (since
 			// it's the sender's outbound channel), but we include
@@ -3250,7 +3250,7 @@ func TestBlindedRouteConstruction(t *testing.T) {
 			ToNodeFeatures: tlvFeatures,
 		}
 
-		bobCarolEdge = &models.CachedEdgePolicy{
+		bobCarolEdge = &models2.CachedEdgePolicy{
 			ChannelID:     2,
 			TimeLockDelta: 15,
 			FeeBaseMSat:   20,

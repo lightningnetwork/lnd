@@ -22,10 +22,10 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/graph"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/labels"
@@ -150,7 +150,7 @@ type reservationWithCtx struct {
 	chanAmt btcutil.Amount
 
 	// forwardingPolicy is the policy provided by the initFundingMsg.
-	forwardingPolicy models.ForwardingPolicy
+	forwardingPolicy models2.ForwardingPolicy
 
 	// Constraints we require for the remote.
 	remoteCsvDelay    uint16
@@ -428,7 +428,7 @@ type Config struct {
 
 	// DefaultRoutingPolicy is the default routing policy used when
 	// initially announcing channels.
-	DefaultRoutingPolicy models.ForwardingPolicy
+	DefaultRoutingPolicy models2.ForwardingPolicy
 
 	// DefaultMinHtlcIn is the default minimum incoming htlc value that is
 	// set as a channel parameter.
@@ -533,7 +533,7 @@ type Config struct {
 	// DeleteAliasEdge allows the Manager to delete an alias channel edge
 	// from the graph. It also returns our local to-be-deleted policy.
 	DeleteAliasEdge func(scid lnwire.ShortChannelID) (
-		*models.ChannelEdgePolicy, error)
+		*models2.ChannelEdgePolicy, error)
 
 	// AliasManager is an implementation of the aliasHandler interface that
 	// abstracts away the handling of many alias functions.
@@ -3541,7 +3541,7 @@ func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
 func (f *Manager) addToGraph(completeChan *channeldb.OpenChannel,
 	shortChanID *lnwire.ShortChannelID,
 	peerAlias *lnwire.ShortChannelID,
-	ourPolicy *models.ChannelEdgePolicy) error {
+	ourPolicy *models2.ChannelEdgePolicy) error {
 
 	chanID := lnwire.NewChanIDFromOutPoint(completeChan.FundingOutpoint)
 
@@ -4308,7 +4308,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	remotePubKey *btcec.PublicKey, localFundingKey *keychain.KeyDescriptor,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
 	chanID lnwire.ChannelID, fwdMinHTLC, fwdMaxHTLC lnwire.MilliSatoshi,
-	ourPolicy *models.ChannelEdgePolicy,
+	ourPolicy *models2.ChannelEdgePolicy,
 	chanType channeldb.ChannelType) (*chanAnnouncement, error) {
 
 	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
@@ -5241,9 +5241,9 @@ func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 // defaultForwardingPolicy returns the default forwarding policy based on the
 // default routing policy and our local channel constraints.
 func (f *Manager) defaultForwardingPolicy(
-	bounds channeldb.ChannelStateBounds) *models.ForwardingPolicy {
+	bounds channeldb.ChannelStateBounds) *models2.ForwardingPolicy {
 
-	return &models.ForwardingPolicy{
+	return &models2.ForwardingPolicy{
 		MinHTLCOut:    bounds.MinHTLC,
 		MaxHTLC:       bounds.MaxPendingAmount,
 		BaseFee:       f.cfg.DefaultRoutingPolicy.BaseFee,
@@ -5255,7 +5255,7 @@ func (f *Manager) defaultForwardingPolicy(
 // saveInitialForwardingPolicy saves the forwarding policy for the provided
 // chanPoint in the channelOpeningStateBucket.
 func (f *Manager) saveInitialForwardingPolicy(chanID lnwire.ChannelID,
-	forwardingPolicy *models.ForwardingPolicy) error {
+	forwardingPolicy *models2.ForwardingPolicy) error {
 
 	return f.cfg.ChannelDB.SaveInitialForwardingPolicy(
 		chanID, forwardingPolicy,
@@ -5266,7 +5266,7 @@ func (f *Manager) saveInitialForwardingPolicy(chanID lnwire.ChannelID,
 // channel id from the database which will be applied during the channel
 // announcement phase.
 func (f *Manager) getInitialForwardingPolicy(
-	chanID lnwire.ChannelID) (*models.ForwardingPolicy, error) {
+	chanID lnwire.ChannelID) (*models2.ForwardingPolicy, error) {
 
 	return f.cfg.ChannelDB.GetInitialForwardingPolicy(chanID)
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -211,7 +211,7 @@ type ClosedChanSummary struct {
 // createCloseSummaries takes in a slice of channels closed at the target block
 // height and creates a slice of summaries which of each channel closure.
 func createCloseSummaries(blockHeight uint32,
-	closedChans ...*models.ChannelEdgeInfo) []*ClosedChanSummary {
+	closedChans ...*models2.ChannelEdgeInfo) []*ClosedChanSummary {
 
 	closeSummaries := make([]*ClosedChanSummary, len(closedChans))
 	for i, closedChan := range closedChans {
@@ -337,12 +337,12 @@ func addToTopologyChange(graph DB, update *TopologyChange,
 
 	// We ignore initial channel announcements as we'll only send out
 	// updates once the individual edges themselves have been updated.
-	case *models.ChannelEdgeInfo:
+	case *models2.ChannelEdgeInfo:
 		return nil
 
 	// Any new ChannelUpdateAnnouncements will generate a corresponding
 	// ChannelEdgeUpdate notification.
-	case *models.ChannelEdgePolicy:
+	case *models2.ChannelEdgePolicy:
 		// We'll need to fetch the edge's information from the database
 		// in order to get the information concerning which nodes are
 		// being connected.

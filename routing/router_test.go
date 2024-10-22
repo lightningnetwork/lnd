@@ -22,10 +22,10 @@ import (
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/graph"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -1795,7 +1795,7 @@ func TestReceiverAmtForwardPass(t *testing.T) {
 			amt:  1000,
 			unifiedEdges: []*unifiedEdge{
 				{
-					policy: &models.CachedEdgePolicy{
+					policy: &models2.CachedEdgePolicy{
 						MinHTLC: 1001,
 					},
 				},
@@ -1808,7 +1808,7 @@ func TestReceiverAmtForwardPass(t *testing.T) {
 			amt:  1000,
 			unifiedEdges: []*unifiedEdge{
 				{
-					policy: &models.CachedEdgePolicy{
+					policy: &models2.CachedEdgePolicy{
 						MinHTLC: 1000,
 					},
 				},
@@ -1822,14 +1822,14 @@ func TestReceiverAmtForwardPass(t *testing.T) {
 				{
 					// The first hop's outbound fee is
 					// irrelevant in fee calculation.
-					policy: &models.CachedEdgePolicy{
+					policy: &models2.CachedEdgePolicy{
 						FeeBaseMSat:               1234,
 						FeeProportionalMillionths: 1234,
 					},
 				},
 				{
 					// No rounding is done here.
-					policy: &models.CachedEdgePolicy{
+					policy: &models2.CachedEdgePolicy{
 						FeeBaseMSat:               1000,
 						FeeProportionalMillionths: 1000,
 					},
@@ -1851,7 +1851,7 @@ func TestReceiverAmtForwardPass(t *testing.T) {
 				{
 					// The first hop's outbound fee is
 					// irrelevant in fee calculation.
-					policy: &models.CachedEdgePolicy{
+					policy: &models2.CachedEdgePolicy{
 						FeeBaseMSat:               1234,
 						FeeProportionalMillionths: 1234,
 					},
@@ -1859,7 +1859,7 @@ func TestReceiverAmtForwardPass(t *testing.T) {
 				{
 					// This policy is chosen such that we
 					// round down.
-					policy: &models.CachedEdgePolicy{
+					policy: &models2.CachedEdgePolicy{
 						FeeBaseMSat:               1000,
 						FeeProportionalMillionths: 999,
 					},
@@ -1912,10 +1912,10 @@ func TestSenderAmtBackwardPass(t *testing.T) {
 				{
 					// This outbound fee doesn't have an
 					// effect (sender doesn't pay outbound).
-					policy: &models.CachedEdgePolicy{
+					policy: &models2.CachedEdgePolicy{
 						FeeBaseMSat: 112,
 					},
-					inboundFees: models.InboundFee{
+					inboundFees: models2.InboundFee{
 						Base: 111,
 					},
 					capacity: capacity,
@@ -1925,10 +1925,10 @@ func TestSenderAmtBackwardPass(t *testing.T) {
 		{
 			edges: []*unifiedEdge{
 				{
-					policy: &models.CachedEdgePolicy{
+					policy: &models2.CachedEdgePolicy{
 						FeeBaseMSat: 222,
 					},
-					inboundFees: models.InboundFee{
+					inboundFees: models2.InboundFee{
 						Base: 222,
 					},
 					capacity: capacity,
@@ -1938,7 +1938,7 @@ func TestSenderAmtBackwardPass(t *testing.T) {
 		{
 			edges: []*unifiedEdge{
 				{
-					policy: &models.CachedEdgePolicy{
+					policy: &models2.CachedEdgePolicy{
 						FeeBaseMSat: 333,
 						MinHTLC:     minHTLC,
 					},
@@ -1985,11 +1985,11 @@ func TestSenderAmtBackwardPass(t *testing.T) {
 	edgeUnifiers[1] = &edgeUnifier{
 		edges: []*unifiedEdge{
 			{
-				policy: &models.CachedEdgePolicy{
+				policy: &models2.CachedEdgePolicy{
 					FeeBaseMSat:               20,
 					FeeProportionalMillionths: 100,
 				},
-				inboundFees: models.InboundFee{
+				inboundFees: models2.InboundFee{
 					Base: -10,
 					Rate: -50,
 				},
@@ -2102,15 +2102,15 @@ func testInboundOutboundFee(t *testing.T, outgoingAmt uint64, inBase,
 	)
 
 	incomingEdge := &unifiedEdge{
-		policy: &models.CachedEdgePolicy{},
-		inboundFees: models.InboundFee{
+		policy: &models2.CachedEdgePolicy{},
+		inboundFees: models2.InboundFee{
 			Base: inBase,
 			Rate: inRate,
 		},
 	}
 
 	outgoingEdge := &unifiedEdge{
-		policy: &models.CachedEdgePolicy{
+		policy: &models2.CachedEdgePolicy{
 			FeeBaseMSat: lnwire.MilliSatoshi(
 				outBase,
 			),
@@ -2764,7 +2764,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create channel edge")
 
-	edge := &models.ChannelEdgeInfo{
+	edge := &models2.ChannelEdgeInfo{
 		ChannelID:        chanID.ToUint64(),
 		NodeKey1Bytes:    pub1,
 		NodeKey2Bytes:    pub2,
@@ -2776,7 +2776,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// We must add the edge policy to be able to use the edge for route
 	// finding.
-	edgePolicy := &models.ChannelEdgePolicy{
+	edgePolicy := &models2.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -2791,7 +2791,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
 
 	// Create edge in the other direction as well.
-	edgePolicy = &models.ChannelEdgePolicy{
+	edgePolicy = &models2.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -2843,7 +2843,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		10000, 510)
 	require.NoError(t, err, "unable to create channel edge")
 
-	edge = &models.ChannelEdgeInfo{
+	edge = &models2.ChannelEdgeInfo{
 		ChannelID: chanID.ToUint64(),
 		AuthProof: nil,
 	}
@@ -2854,7 +2854,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	require.NoError(t, ctx.graph.AddChannelEdge(edge))
 
-	edgePolicy = &models.ChannelEdgePolicy{
+	edgePolicy = &models2.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -2868,7 +2868,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
 
-	edgePolicy = &models.ChannelEdgePolicy{
+	edgePolicy = &models2.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -2965,12 +2965,12 @@ func createDummyLightningPayment(t *testing.T,
 
 type mockGraphBuilder struct {
 	rejectUpdate bool
-	updateEdge   func(update *models.ChannelEdgePolicy) error
+	updateEdge   func(update *models2.ChannelEdgePolicy) error
 }
 
 func newMockGraphBuilder(graph graph.DB) *mockGraphBuilder {
 	return &mockGraphBuilder{
-		updateEdge: func(update *models.ChannelEdgePolicy) error {
+		updateEdge: func(update *models2.ChannelEdgePolicy) error {
 			return graph.UpdateEdgePolicy(update)
 		},
 	}
@@ -2985,7 +2985,7 @@ func (m *mockGraphBuilder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 		return false
 	}
 
-	err := m.updateEdge(&models.ChannelEdgePolicy{
+	err := m.updateEdge(&models2.ChannelEdgePolicy{
 		SigBytes:                  msg.Signature.ToSignatureBytes(),
 		ChannelID:                 msg.ShortChannelID.ToUint64(),
 		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),

@@ -18,7 +18,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -624,7 +624,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 // chanCanBeHopHint returns true if the target channel is eligible to be a hop
 // hint.
 func chanCanBeHopHint(channel *HopHintInfo, cfg *SelectHopHintsCfg) (
-	*models.ChannelEdgePolicy, bool) {
+	*models2.ChannelEdgePolicy, bool) {
 
 	// Since we're only interested in our private channels, we'll skip
 	// public ones.
@@ -679,7 +679,7 @@ func chanCanBeHopHint(channel *HopHintInfo, cfg *SelectHopHintsCfg) (
 
 	// Now, we'll need to determine which is the correct policy for HTLCs
 	// being sent from the remote node.
-	var remotePolicy *models.ChannelEdgePolicy
+	var remotePolicy *models2.ChannelEdgePolicy
 	if bytes.Equal(remotePub[:], info.NodeKey1Bytes[:]) {
 		remotePolicy = p1
 	} else {
@@ -739,7 +739,7 @@ func newHopHintInfo(c *channeldb.OpenChannel, isActive bool) *HopHintInfo {
 // newHopHint returns a new hop hint using the relevant data from a hopHintInfo
 // and a ChannelEdgePolicy.
 func newHopHint(hopHintInfo *HopHintInfo,
-	chanPolicy *models.ChannelEdgePolicy) zpay32.HopHint {
+	chanPolicy *models2.ChannelEdgePolicy) zpay32.HopHint {
 
 	return zpay32.HopHint{
 		NodeID:      hopHintInfo.RemotePubkey,
@@ -762,8 +762,8 @@ type SelectHopHintsCfg struct {
 
 	// FetchChannelEdgesByID attempts to lookup the two directed edges for
 	// the channel identified by the channel ID.
-	FetchChannelEdgesByID func(chanID uint64) (*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy,
+	FetchChannelEdgesByID func(chanID uint64) (*models2.ChannelEdgeInfo,
+		*models2.ChannelEdgePolicy, *models2.ChannelEdgePolicy,
 		error)
 
 	// GetAlias allows the peer's alias SCID to be retrieved for private

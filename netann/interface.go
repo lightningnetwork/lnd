@@ -3,7 +3,7 @@ package netann
 import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 )
 
 // DB abstracts the required database functionality needed by the
@@ -19,6 +19,6 @@ type DB interface {
 type ChannelGraph interface {
 	// FetchChannelEdgesByOutpoint returns the channel edge info and most
 	// recent channel edge policies for a given outpoint.
-	FetchChannelEdgesByOutpoint(*wire.OutPoint) (*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error)
+	FetchChannelEdgesByOutpoint(*wire.OutPoint) (*models2.ChannelEdgeInfo,
+		*models2.ChannelEdgePolicy, *models2.ChannelEdgePolicy, error)
 }

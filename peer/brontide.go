@@ -23,13 +23,13 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -277,7 +277,7 @@ type Config struct {
 
 	// RoutingPolicy is used to set the forwarding policy for links created by
 	// the Brontide.
-	RoutingPolicy models.ForwardingPolicy
+	RoutingPolicy models2.ForwardingPolicy
 
 	// Sphinx is used when setting up ChannelLinks so they can decode sphinx
 	// onion blobs.
@@ -1102,7 +1102,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		//
 		// TODO(roasbeef): can add helper method to get policy for
 		// particular channel.
-		var selfPolicy *models.ChannelEdgePolicy
+		var selfPolicy *models2.ChannelEdgePolicy
 		if info != nil && bytes.Equal(info.NodeKey1Bytes[:],
 			p.cfg.ServerPubKey[:]) {
 
@@ -1114,7 +1114,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		// If we don't yet have an advertised routing policy, then
 		// we'll use the current default, otherwise we'll translate the
 		// routing policy into a forwarding policy.
-		var forwardingPolicy *models.ForwardingPolicy
+		var forwardingPolicy *models2.ForwardingPolicy
 		if selfPolicy != nil {
 			var inboundWireFee lnwire.Fee
 			_, err := selfPolicy.ExtraOpaqueData.ExtractRecords(
@@ -1124,11 +1124,11 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 				return nil, err
 			}
 
-			inboundFee := models.NewInboundFeeFromWire(
+			inboundFee := models2.NewInboundFeeFromWire(
 				inboundWireFee,
 			)
 
-			forwardingPolicy = &models.ForwardingPolicy{
+			forwardingPolicy = &models2.ForwardingPolicy{
 				MinHTLCOut:    selfPolicy.MinHTLC,
 				MaxHTLC:       selfPolicy.MaxHTLC,
 				BaseFee:       selfPolicy.FeeBaseMSat,
@@ -1245,7 +1245,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 // addLink creates and adds a new ChannelLink from the specified channel.
 func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 	lnChan *lnwallet.LightningChannel,
-	forwardingPolicy *models.ForwardingPolicy,
+	forwardingPolicy *models2.ForwardingPolicy,
 	chainEvents *contractcourt.ChainEventSubscription,
 	syncStates bool, shutdownMsg fn.Option[lnwire.Shutdown]) error {
 

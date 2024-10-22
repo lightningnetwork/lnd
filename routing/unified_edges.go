@@ -5,7 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -50,7 +50,7 @@ func newNodeEdgeUnifier(sourceNode, toNode route.Vertex, useInboundFees bool,
 // graceful shutdown if it is not provided as this indicates that edges are
 // incorrectly specified.
 func (u *nodeEdgeUnifier) addPolicy(fromNode route.Vertex,
-	edge *models.CachedEdgePolicy, inboundFee models.InboundFee,
+	edge *models2.CachedEdgePolicy, inboundFee models2.InboundFee,
 	capacity btcutil.Amount, hopPayloadSizeFn PayloadSizeFunc,
 	blindedPayment *BlindedPayment) {
 
@@ -84,7 +84,7 @@ func (u *nodeEdgeUnifier) addPolicy(fromNode route.Vertex,
 
 	// Zero inbound fee for exit hops.
 	if !u.useInboundFees {
-		inboundFee = models.InboundFee{}
+		inboundFee = models2.InboundFee{}
 	}
 
 	unifier.edges = append(unifier.edges, newUnifiedEdge(
@@ -107,7 +107,7 @@ func (u *nodeEdgeUnifier) addGraphPolicies(g Graph) error {
 		// to the clear hop payload size function because
 		// `addGraphPolicies` is only used for cleartext intermediate
 		// hops in a route.
-		inboundFee := models.NewInboundFeeFromWire(
+		inboundFee := models2.NewInboundFeeFromWire(
 			channel.InboundFee,
 		)
 
@@ -126,9 +126,9 @@ func (u *nodeEdgeUnifier) addGraphPolicies(g Graph) error {
 // unifiedEdge is the individual channel data that is kept inside an edgeUnifier
 // object.
 type unifiedEdge struct {
-	policy      *models.CachedEdgePolicy
+	policy      *models2.CachedEdgePolicy
 	capacity    btcutil.Amount
-	inboundFees models.InboundFee
+	inboundFees models2.InboundFee
 
 	// hopPayloadSize supplies an edge with the ability to calculate the
 	// exact payload size if this edge would be included in a route. This
@@ -142,8 +142,8 @@ type unifiedEdge struct {
 }
 
 // newUnifiedEdge constructs a new unifiedEdge.
-func newUnifiedEdge(policy *models.CachedEdgePolicy, capacity btcutil.Amount,
-	inboundFees models.InboundFee, hopPayloadSizeFn PayloadSizeFunc,
+func newUnifiedEdge(policy *models2.CachedEdgePolicy, capacity btcutil.Amount,
+	inboundFees models2.InboundFee, hopPayloadSizeFn PayloadSizeFunc,
 	blindedPayment *BlindedPayment) *unifiedEdge {
 
 	return &unifiedEdge{

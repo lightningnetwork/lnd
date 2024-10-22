@@ -42,7 +42,6 @@ import (
 	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/graphsession"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
@@ -50,6 +49,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/graph"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
@@ -6521,8 +6521,8 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// Next, for each active channel we know of within the graph, create a
 	// similar response which details both the edge information as well as
 	// the routing policies of th nodes connecting the two edges.
-	err = graph.ForEachChannel(func(edgeInfo *models.ChannelEdgeInfo,
-		c1, c2 *models.ChannelEdgePolicy) error {
+	err = graph.ForEachChannel(func(edgeInfo *models2.ChannelEdgeInfo,
+		c1, c2 *models2.ChannelEdgePolicy) error {
 
 		// Do not include unannounced channels unless specifically
 		// requested. Unannounced channels include both private channels as
@@ -6594,8 +6594,8 @@ func extractInboundFeeSafe(data lnwire.ExtraOpaqueData) lnwire.Fee {
 	return inboundFee
 }
 
-func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
-	c1, c2 *models.ChannelEdgePolicy) *lnrpc.ChannelEdge {
+func marshalDBEdge(edgeInfo *models2.ChannelEdgeInfo,
+	c1, c2 *models2.ChannelEdgePolicy) *lnrpc.ChannelEdge {
 
 	// Make sure the policies match the node they belong to. c1 should point
 	// to the policy for NodeKey1, and c2 for NodeKey2.
@@ -6638,7 +6638,7 @@ func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
 }
 
 func marshalDBRoutingPolicy(
-	policy *models.ChannelEdgePolicy) *lnrpc.RoutingPolicy {
+	policy *models2.ChannelEdgePolicy) *lnrpc.RoutingPolicy {
 
 	disabled := policy.ChannelFlags&lnwire.ChanUpdateDisabled != 0
 
@@ -6728,8 +6728,8 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 	graph := r.server.graphDB
 
 	var (
-		edgeInfo     *models.ChannelEdgeInfo
-		edge1, edge2 *models.ChannelEdgePolicy
+		edgeInfo     *models2.ChannelEdgeInfo
+		edge1, edge2 *models2.ChannelEdgePolicy
 		err          error
 	)
 
@@ -6798,8 +6798,8 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	)
 
 	err = graph.ForEachNodeChannel(node.PubKeyBytes,
-		func(_ kvdb.RTx, edge *models.ChannelEdgeInfo,
-			c1, c2 *models.ChannelEdgePolicy) error {
+		func(_ kvdb.RTx, edge *models2.ChannelEdgeInfo,
+			c1, c2 *models2.ChannelEdgePolicy) error {
 
 			numChannels++
 			totalCapacity += edge.Capacity
@@ -7454,8 +7454,8 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 
 	var feeReports []*lnrpc.ChannelFeeReport
 	err = channelGraph.ForEachNodeChannel(selfNode.PubKeyBytes,
-		func(_ kvdb.RTx, chanInfo *models.ChannelEdgeInfo,
-			edgePolicy, _ *models.ChannelEdgePolicy) error {
+		func(_ kvdb.RTx, chanInfo *models2.ChannelEdgeInfo,
+			edgePolicy, _ *models2.ChannelEdgePolicy) error {
 
 			// Self node should always have policies for its
 			// channels.
@@ -7692,9 +7692,9 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	// If no inbound fees have been specified, we indicate with an empty
 	// option that the previous inbound fee should be retained during the
 	// edge update.
-	inboundFee := fn.None[models.InboundFee]()
+	inboundFee := fn.None[models2.InboundFee]()
 	if req.InboundFee != nil {
-		inboundFee = fn.Some(models.InboundFee{
+		inboundFee = fn.Some(models2.InboundFee{
 			Base: req.InboundFee.BaseFeeMsat,
 			Rate: req.InboundFee.FeeRatePpm,
 		})

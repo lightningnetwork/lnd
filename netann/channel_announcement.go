@@ -9,7 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -33,9 +33,9 @@ const (
 // function is used to transform out database structs into the corresponding wire
 // structs for announcing new channels to other peers, or simply syncing up a
 // peer's initial routing table upon connect.
-func CreateChanAnnouncement(chanProof *models.ChannelAuthProof,
-	chanInfo *models.ChannelEdgeInfo,
-	e1, e2 *models.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement1,
+func CreateChanAnnouncement(chanProof *models2.ChannelAuthProof,
+	chanInfo *models2.ChannelEdgeInfo,
+	e1, e2 *models2.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement1,
 	*lnwire.ChannelUpdate1, *lnwire.ChannelUpdate1, error) {
 
 	// First, using the parameters of the channel, along with the channel

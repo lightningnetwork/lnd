@@ -6,8 +6,8 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -32,7 +32,7 @@ type InvoiceDatabase interface {
 	// for decoding purposes.
 	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
 		expiry uint32, currentHeight int32,
-		circuitKey models.CircuitKey, hodlChan chan<- interface{},
+		circuitKey models2.CircuitKey, hodlChan chan<- interface{},
 		wireCustomRecords lnwire.CustomRecords,
 		payload invoices.Payload) (invoices.HtlcResolution, error)
 
@@ -247,7 +247,7 @@ type ChannelLink interface {
 	// UpdateForwardingPolicy updates the forwarding policy for the target
 	// ChannelLink. Once updated, the link will use the new forwarding
 	// policy to govern if it an incoming HTLC should be forwarded or not.
-	UpdateForwardingPolicy(models.ForwardingPolicy)
+	UpdateForwardingPolicy(models2.ForwardingPolicy)
 
 	// CheckHtlcForward should return a nil error if the passed HTLC details
 	// satisfy the current forwarding policy fo the target link. Otherwise,
@@ -257,7 +257,7 @@ type ChannelLink interface {
 	CheckHtlcForward(payHash [32]byte, incomingAmt lnwire.MilliSatoshi,
 		amtToForward lnwire.MilliSatoshi,
 		incomingTimeout, outgoingTimeout uint32,
-		inboundFee models.InboundFee,
+		inboundFee models2.InboundFee,
 		heightNow uint32, scid lnwire.ShortChannelID) *LinkError
 
 	// CheckHtlcTransit should return a nil error if the passed HTLC details
@@ -347,7 +347,7 @@ type ForwardInterceptor func(InterceptedPacket) error
 type InterceptedPacket struct {
 	// IncomingCircuit contains the incoming channel and htlc id of the
 	// packet.
-	IncomingCircuit models.CircuitKey
+	IncomingCircuit models2.CircuitKey
 
 	// OutgoingChanID is the destination channel for this packet.
 	OutgoingChanID lnwire.ShortChannelID
@@ -446,6 +446,6 @@ type htlcNotifier interface {
 
 	// NotifyFinalHtlcEvent notifies the HtlcNotifier that the final outcome
 	// for an htlc has been determined.
-	NotifyFinalHtlcEvent(key models.CircuitKey,
+	NotifyFinalHtlcEvent(key models2.CircuitKey,
 		info channeldb.FinalHtlcInfo)
 }

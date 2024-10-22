@@ -16,9 +16,9 @@ import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
@@ -74,7 +74,7 @@ const (
 //
 // TODO(roasbeef): also add in current available channel bandwidth, inverse
 // func
-func ExpectedFee(f models.ForwardingPolicy,
+func ExpectedFee(f models2.ForwardingPolicy,
 	htlcAmt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
 	return f.BaseFee + (htlcAmt*f.FeeRate)/1000000
@@ -88,7 +88,7 @@ type ChannelLinkConfig struct {
 	// deciding whether to forwarding incoming HTLC's or not. This value
 	// can be updated with subsequent calls to UpdateForwardingPolicy
 	// targeted at a given ChannelLink concrete interface implementation.
-	FwrdingPolicy models.ForwardingPolicy
+	FwrdingPolicy models2.ForwardingPolicy
 
 	// Circuits provides restricted access to the switch's circuit map,
 	// allowing the link to open and close circuits.
@@ -362,7 +362,7 @@ type channelLink struct {
 
 	// hodlMap stores related htlc data for a circuit key. It allows
 	// resolving those htlcs when we receive a message on hodlQueue.
-	hodlMap map[models.CircuitKey]hodlHtlc
+	hodlMap map[models2.CircuitKey]hodlHtlc
 
 	// log is a link-specific logging instance.
 	log btclog.Logger
@@ -465,7 +465,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 	return &channelLink{
 		cfg:                 cfg,
 		channel:             channel,
-		hodlMap:             make(map[models.CircuitKey]hodlHtlc),
+		hodlMap:             make(map[models2.CircuitKey]hodlHtlc),
 		hodlQueue:           queue.NewConcurrentQueue(10),
 		log:                 build.NewPrefixLog(logPrefix, log),
 		flushHooks:          newHookMap(),
@@ -2277,7 +2277,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// locked in.
 		for id, settled := range finalHTLCs {
 			l.cfg.HtlcNotifier.NotifyFinalHtlcEvent(
-				models.CircuitKey{
+				models2.CircuitKey{
 					ChanID: l.ShortChanID(),
 					HtlcID: id,
 				},
@@ -3007,7 +3007,7 @@ func (l *channelLink) AttachMailBox(mailbox MailBox) {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) UpdateForwardingPolicy(
-	newPolicy models.ForwardingPolicy) {
+	newPolicy models2.ForwardingPolicy) {
 
 	l.Lock()
 	defer l.Unlock()
@@ -3025,7 +3025,7 @@ func (l *channelLink) UpdateForwardingPolicy(
 func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi,
 	incomingTimeout, outgoingTimeout uint32,
-	inboundFee models.InboundFee,
+	inboundFee models2.InboundFee,
 	heightNow uint32, originalScid lnwire.ShortChannelID) *LinkError {
 
 	l.RLock()
@@ -3128,7 +3128,7 @@ func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
 
 // canSendHtlc checks whether the given htlc parameters satisfy
 // the channel's amount and time lock constraints.
-func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
+func (l *channelLink) canSendHtlc(policy models2.ForwardingPolicy,
 	payHash [32]byte, amt lnwire.MilliSatoshi, timeout uint32,
 	heightNow uint32, originalScid lnwire.ShortChannelID) *LinkError {
 
@@ -3846,7 +3846,7 @@ func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
 	// receive back a resolution event.
 	invoiceHash := lntypes.Hash(add.PaymentHash)
 
-	circuitKey := models.CircuitKey{
+	circuitKey := models2.CircuitKey{
 		ChanID: l.ShortChanID(),
 		HtlcID: add.ID,
 	}
@@ -3911,7 +3911,7 @@ func (l *channelLink) settleHTLC(preimage lntypes.Preimage,
 	// Once we have successfully settled the htlc, notify a settle event.
 	l.cfg.HtlcNotifier.NotifySettleEvent(
 		HtlcKey{
-			IncomingCircuit: models.CircuitKey{
+			IncomingCircuit: models2.CircuitKey{
 				ChanID: l.ShortChanID(),
 				HtlcID: htlcIndex,
 			},
@@ -3985,7 +3985,7 @@ func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
 
 	l.cfg.HtlcNotifier.NotifyLinkFailEvent(
 		HtlcKey{
-			IncomingCircuit: models.CircuitKey{
+			IncomingCircuit: models2.CircuitKey{
 				ChanID: l.ShortChanID(),
 				HtlcID: add.ID,
 			},

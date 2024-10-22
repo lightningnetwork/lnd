@@ -21,7 +21,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -63,7 +63,7 @@ func TestAddProof(t *testing.T) {
 	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	// After utxo was recreated adding the edge without the proof.
-	edge := &models.ChannelEdgeInfo{
+	edge := &models2.ChannelEdgeInfo{
 		ChannelID:     chanID.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
@@ -146,7 +146,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 	}
 	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
-	edge := &models.ChannelEdgeInfo{
+	edge := &models2.ChannelEdgeInfo{
 		ChannelID:        chanID.ToUint64(),
 		NodeKey1Bytes:    pub1,
 		NodeKey2Bytes:    pub2,
@@ -154,7 +154,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 		BitcoinKey2Bytes: pub2,
 		AuthProof:        nil,
 	}
-	edgePolicy := &models.ChannelEdgePolicy{
+	edgePolicy := &models2.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -259,11 +259,11 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	node1 := createTestNode(t)
 	node2 := createTestNode(t)
 
-	edge1 := &models.ChannelEdgeInfo{
+	edge1 := &models2.ChannelEdgeInfo{
 		ChannelID:     chanID1,
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
+		AuthProof: &models2.ChannelAuthProof{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
 			BitcoinSig1Bytes: testSig.Serialize(),
@@ -277,11 +277,11 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
-	edge2 := &models.ChannelEdgeInfo{
+	edge2 := &models2.ChannelEdgeInfo{
 		ChannelID:     chanID2,
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
+		AuthProof: &models2.ChannelAuthProof{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
 			BitcoinSig1Bytes: testSig.Serialize(),
@@ -462,13 +462,13 @@ func TestDisconnectedBlocks(t *testing.T) {
 	node1 := createTestNode(t)
 	node2 := createTestNode(t)
 
-	edge1 := &models.ChannelEdgeInfo{
+	edge1 := &models2.ChannelEdgeInfo{
 		ChannelID:        chanID1,
 		NodeKey1Bytes:    node1.PubKeyBytes,
 		NodeKey2Bytes:    node2.PubKeyBytes,
 		BitcoinKey1Bytes: node1.PubKeyBytes,
 		BitcoinKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
+		AuthProof: &models2.ChannelAuthProof{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
 			BitcoinSig1Bytes: testSig.Serialize(),
@@ -482,13 +482,13 @@ func TestDisconnectedBlocks(t *testing.T) {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
-	edge2 := &models.ChannelEdgeInfo{
+	edge2 := &models2.ChannelEdgeInfo{
 		ChannelID:        chanID2,
 		NodeKey1Bytes:    node1.PubKeyBytes,
 		NodeKey2Bytes:    node2.PubKeyBytes,
 		BitcoinKey1Bytes: node1.PubKeyBytes,
 		BitcoinKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
+		AuthProof: &models2.ChannelAuthProof{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
 			BitcoinSig1Bytes: testSig.Serialize(),
@@ -612,11 +612,11 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 	node1 := createTestNode(t)
 	node2 := createTestNode(t)
 
-	edge1 := &models.ChannelEdgeInfo{
+	edge1 := &models2.ChannelEdgeInfo{
 		ChannelID:     chanID1.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
+		AuthProof: &models2.ChannelAuthProof{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
 			BitcoinSig1Bytes: testSig.Serialize(),
@@ -1017,7 +1017,7 @@ func TestIsStaleNode(t *testing.T) {
 	}
 	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
-	edge := &models.ChannelEdgeInfo{
+	edge := &models2.ChannelEdgeInfo{
 		ChannelID:        chanID.ToUint64(),
 		NodeKey1Bytes:    pub1,
 		NodeKey2Bytes:    pub2,
@@ -1093,7 +1093,7 @@ func TestIsKnownEdge(t *testing.T) {
 	}
 	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
-	edge := &models.ChannelEdgeInfo{
+	edge := &models2.ChannelEdgeInfo{
 		ChannelID:        chanID.ToUint64(),
 		NodeKey1Bytes:    pub1,
 		NodeKey2Bytes:    pub2,
@@ -1149,7 +1149,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 		t.Fatalf("router failed to detect fresh edge policy")
 	}
 
-	edge := &models.ChannelEdgeInfo{
+	edge := &models2.ChannelEdgeInfo{
 		ChannelID:        chanID.ToUint64(),
 		NodeKey1Bytes:    pub1,
 		NodeKey2Bytes:    pub2,
@@ -1162,7 +1162,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 	}
 
 	// We'll also add two edge policies, one for each direction.
-	edgePolicy := &models.ChannelEdgePolicy{
+	edgePolicy := &models2.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                updateTimeStamp,
@@ -1176,7 +1176,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 		t.Fatalf("unable to update edge policy: %v", err)
 	}
 
-	edgePolicy = &models.ChannelEdgePolicy{
+	edgePolicy = &models2.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                updateTimeStamp,
@@ -1231,7 +1231,7 @@ const (
 // newChannelEdgeInfo is a helper function used to create a new channel edge,
 // possibly skipping adding it to parts of the chain/state as well.
 func newChannelEdgeInfo(t *testing.T, ctx *testCtx, fundingHeight uint32,
-	ecm edgeCreationModifier) (*models.ChannelEdgeInfo, error) {
+	ecm edgeCreationModifier) (*models2.ChannelEdgeInfo, error) {
 
 	node1 := createTestNode(t)
 	node2 := createTestNode(t)
@@ -1244,7 +1244,7 @@ func newChannelEdgeInfo(t *testing.T, ctx *testCtx, fundingHeight uint32,
 		return nil, fmt.Errorf("unable to create edge: %w", err)
 	}
 
-	edge := &models.ChannelEdgeInfo{
+	edge := &models2.ChannelEdgeInfo{
 		ChannelID:     chanID.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
@@ -1275,7 +1275,7 @@ func newChannelEdgeInfo(t *testing.T, ctx *testCtx, fundingHeight uint32,
 }
 
 func assertChanChainRejection(t *testing.T, ctx *testCtx,
-	edge *models.ChannelEdgeInfo, failCode ErrorCode) {
+	edge *models2.ChannelEdgeInfo, failCode ErrorCode) {
 
 	t.Helper()
 
@@ -1573,7 +1573,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 
 		// We first insert the existence of the edge between the two
 		// nodes.
-		edgeInfo := models.ChannelEdgeInfo{
+		edgeInfo := models2.ChannelEdgeInfo{
 			ChannelID:    edge.ChannelID,
 			AuthProof:    &testAuthProof,
 			ChannelPoint: fundingPoint,
@@ -1607,7 +1607,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			targetNode = edgeInfo.NodeKey2Bytes
 		}
 
-		edgePolicy := &models.ChannelEdgePolicy{
+		edgePolicy := &models2.ChannelEdgePolicy{
 			SigBytes: testSig.Serialize(),
 			MessageFlags: lnwire.ChanUpdateMsgFlags(
 				edge.MessageFlags,
@@ -1945,7 +1945,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 
 		// We first insert the existence of the edge between the two
 		// nodes.
-		edgeInfo := models.ChannelEdgeInfo{
+		edgeInfo := models2.ChannelEdgeInfo{
 			ChannelID:    channelID,
 			AuthProof:    &testAuthProof,
 			ChannelPoint: *fundingPoint,
@@ -1987,7 +1987,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				channelFlags |= lnwire.ChanUpdateDisabled
 			}
 
-			edgePolicy := &models.ChannelEdgePolicy{
+			edgePolicy := &models2.ChannelEdgePolicy{
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,
 				ChannelFlags:              channelFlags,
@@ -2018,7 +2018,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			}
 			channelFlags |= lnwire.ChanUpdateDirection
 
-			edgePolicy := &models.ChannelEdgePolicy{
+			edgePolicy := &models2.ChannelEdgePolicy{
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,
 				ChannelFlags:              channelFlags,

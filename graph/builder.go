@@ -17,8 +17,8 @@ import (
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -485,7 +485,7 @@ func (b *Builder) syncGraphWithChain() error {
 // boolean is that of node 2, and the final boolean is true if the channel
 // is considered a zombie.
 func (b *Builder) isZombieChannel(e1,
-	e2 *models.ChannelEdgePolicy) (bool, bool, bool) {
+	e2 *models2.ChannelEdgePolicy) (bool, bool, bool) {
 
 	chanExpiry := b.cfg.ChannelPruneExpiry
 
@@ -541,15 +541,15 @@ func (b *Builder) pruneZombieChans() error {
 	log.Infof("Examining channel graph for zombie channels")
 
 	// A helper method to detect if the channel belongs to this node
-	isSelfChannelEdge := func(info *models.ChannelEdgeInfo) bool {
+	isSelfChannelEdge := func(info *models2.ChannelEdgeInfo) bool {
 		return info.NodeKey1Bytes == b.cfg.SelfNode ||
 			info.NodeKey2Bytes == b.cfg.SelfNode
 	}
 
 	// First, we'll collect all the channels which are eligible for garbage
 	// collection due to being zombies.
-	filterPruneChans := func(info *models.ChannelEdgeInfo,
-		e1, e2 *models.ChannelEdgePolicy) error {
+	filterPruneChans := func(info *models2.ChannelEdgeInfo,
+		e1, e2 *models2.ChannelEdgePolicy) error {
 
 		// Exit early in case this channel is already marked to be
 		// pruned
@@ -1182,7 +1182,7 @@ func (b *Builder) processUpdate(msg interface{},
 		log.Tracef("Updated vertex data for node=%x", msg.PubKeyBytes)
 		b.stats.incNumNodeUpdates()
 
-	case *models.ChannelEdgeInfo:
+	case *models2.ChannelEdgeInfo:
 		log.Debugf("Received ChannelEdgeInfo for channel %v",
 			msg.ChannelID)
 
@@ -1358,7 +1358,7 @@ func (b *Builder) processUpdate(msg interface{},
 				"view: %v", err)
 		}
 
-	case *models.ChannelEdgePolicy:
+	case *models2.ChannelEdgePolicy:
 		log.Debugf("Received ChannelEdgePolicy for channel %v",
 			msg.ChannelID)
 
@@ -1491,7 +1491,7 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 		return false
 	}
 
-	err = b.UpdateEdge(&models.ChannelEdgePolicy{
+	err = b.UpdateEdge(&models2.ChannelEdgePolicy{
 		SigBytes:                  msg.Signature.ToSignatureBytes(),
 		ChannelID:                 msg.ShortChannelID.ToUint64(),
 		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
@@ -1544,7 +1544,7 @@ func (b *Builder) AddNode(node *channeldb.LightningNode,
 // in construction of payment path.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) AddEdge(edge *models.ChannelEdgeInfo,
+func (b *Builder) AddEdge(edge *models2.ChannelEdgeInfo,
 	op ...batch.SchedulerOption) error {
 
 	rMsg := &routingMsg{
@@ -1570,7 +1570,7 @@ func (b *Builder) AddEdge(edge *models.ChannelEdgeInfo,
 // considered as not fully constructed.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) UpdateEdge(update *models.ChannelEdgePolicy,
+func (b *Builder) UpdateEdge(update *models2.ChannelEdgePolicy,
 	op ...batch.SchedulerOption) error {
 
 	rMsg := &routingMsg{
@@ -1611,9 +1611,9 @@ func (b *Builder) SyncedHeight() uint32 {
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) GetChannelByID(chanID lnwire.ShortChannelID) (
-	*models.ChannelEdgeInfo,
-	*models.ChannelEdgePolicy,
-	*models.ChannelEdgePolicy, error) {
+	*models2.ChannelEdgeInfo,
+	*models2.ChannelEdgePolicy,
+	*models2.ChannelEdgePolicy, error) {
 
 	return b.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
 }
@@ -1646,12 +1646,12 @@ func (b *Builder) ForEachNode(
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) ForAllOutgoingChannels(cb func(kvdb.RTx,
-	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy) error) error {
+	*models2.ChannelEdgeInfo, *models2.ChannelEdgePolicy) error) error {
 
 	return b.cfg.Graph.ForEachNodeChannel(b.cfg.SelfNode,
-		func(tx kvdb.RTx, c *models.ChannelEdgeInfo,
-			e *models.ChannelEdgePolicy,
-			_ *models.ChannelEdgePolicy) error {
+		func(tx kvdb.RTx, c *models2.ChannelEdgeInfo,
+			e *models2.ChannelEdgePolicy,
+			_ *models2.ChannelEdgePolicy) error {
 
 			if e == nil {
 				return fmt.Errorf("channel from self node " +
@@ -1668,7 +1668,7 @@ func (b *Builder) ForAllOutgoingChannels(cb func(kvdb.RTx,
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) AddProof(chanID lnwire.ShortChannelID,
-	proof *models.ChannelAuthProof) error {
+	proof *models2.ChannelAuthProof) error {
 
 	info, _, _, err := b.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
 	if err != nil {

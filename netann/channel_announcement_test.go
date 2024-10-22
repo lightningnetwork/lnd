@@ -10,7 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -44,13 +44,13 @@ func TestCreateChanAnnouncement(t *testing.T) {
 		ExtraOpaqueData: []byte{0x1},
 	}
 
-	chanProof := &models.ChannelAuthProof{
+	chanProof := &models2.ChannelAuthProof{
 		NodeSig1Bytes:    expChanAnn.NodeSig1.ToSignatureBytes(),
 		NodeSig2Bytes:    expChanAnn.NodeSig2.ToSignatureBytes(),
 		BitcoinSig1Bytes: expChanAnn.BitcoinSig1.ToSignatureBytes(),
 		BitcoinSig2Bytes: expChanAnn.BitcoinSig2.ToSignatureBytes(),
 	}
-	chanInfo := &models.ChannelEdgeInfo{
+	chanInfo := &models2.ChannelEdgeInfo{
 		ChainHash:        expChanAnn.ChainHash,
 		ChannelID:        expChanAnn.ShortChannelID.ToUint64(),
 		ChannelPoint:     wire.OutPoint{Index: 1},

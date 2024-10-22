@@ -7,9 +7,9 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/fn"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -22,7 +22,7 @@ type Manager struct {
 	// UpdateForwardingPolicies is used by the manager to update active
 	// links with a new policy.
 	UpdateForwardingPolicies func(
-		chanPolicies map[wire.OutPoint]models.ForwardingPolicy)
+		chanPolicies map[wire.OutPoint]models2.ForwardingPolicy)
 
 	// PropagateChanPolicyUpdate is called to persist a new policy to disk
 	// and broadcast it to the network.
@@ -32,8 +32,8 @@ type Manager struct {
 	// ForAllOutgoingChannels is required to iterate over all our local
 	// channels.
 	ForAllOutgoingChannels func(cb func(kvdb.RTx,
-		*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy) error) error
+		*models2.ChannelEdgeInfo,
+		*models2.ChannelEdgePolicy) error) error
 
 	// FetchChannel is used to query local channel parameters. Optionally an
 	// existing db tx can be supplied.
@@ -67,15 +67,15 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 
 	var failedUpdates []*lnrpc.FailedUpdate
 	var edgesToUpdate []discovery.EdgeWithInfo
-	policiesToUpdate := make(map[wire.OutPoint]models.ForwardingPolicy)
+	policiesToUpdate := make(map[wire.OutPoint]models2.ForwardingPolicy)
 
 	// Next, we'll loop over all the outgoing channels the router knows of.
 	// If we have a filter then we'll only collected those channels,
 	// otherwise we'll collect them all.
 	err := r.ForAllOutgoingChannels(func(
 		tx kvdb.RTx,
-		info *models.ChannelEdgeInfo,
-		edge *models.ChannelEdgePolicy) error {
+		info *models2.ChannelEdgeInfo,
+		edge *models2.ChannelEdgePolicy) error {
 
 		// If we have a channel filter, and this channel isn't a part
 		// of it, then we'll skip it.
@@ -112,10 +112,10 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		if err != nil {
 			return err
 		}
-		inboundFee := models.NewInboundFeeFromWire(inboundWireFee)
+		inboundFee := models2.NewInboundFeeFromWire(inboundWireFee)
 
 		// Add updated policy to list of policies to send to switch.
-		policiesToUpdate[info.ChannelPoint] = models.ForwardingPolicy{
+		policiesToUpdate[info.ChannelPoint] = models2.ForwardingPolicy{
 			BaseFee:       edge.FeeBaseMSat,
 			FeeRate:       edge.FeeProportionalMillionths,
 			TimeLockDelta: uint32(edge.TimeLockDelta),
@@ -182,7 +182,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 
 // updateEdge updates the given edge with the new schema.
 func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
-	edge *models.ChannelEdgePolicy,
+	edge *models2.ChannelEdgePolicy,
 	newSchema routing.ChannelPolicy) error {
 
 	// Update forwarding fee scheme and required time lock delta.
@@ -193,7 +193,7 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 
 	// If inbound fees are set, we update the edge with them.
 	err := fn.MapOptionZ(newSchema.InboundFee,
-		func(f models.InboundFee) error {
+		func(f models2.InboundFee) error {
 			inboundWireFee := f.ToWire()
 			return edge.ExtraOpaqueData.PackRecords(
 				&inboundWireFee,

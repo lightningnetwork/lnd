@@ -25,10 +25,10 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	acpt "github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/fn"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -498,7 +498,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 
 			return nil, fmt.Errorf("unable to find channel")
 		},
-		DefaultRoutingPolicy: models.ForwardingPolicy{
+		DefaultRoutingPolicy: models2.ForwardingPolicy{
 			MinHTLCOut:    5,
 			BaseFee:       100,
 			FeeRate:       1000,
@@ -554,7 +554,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		OpenChannelPredicate:          chainedAcceptor,
 		NotifyPendingOpenChannelEvent: evt.NotifyPendingOpenChannelEvent,
 		DeleteAliasEdge: func(scid lnwire.ShortChannelID) (
-			*models.ChannelEdgePolicy, error) {
+			*models2.ChannelEdgePolicy, error) {
 
 			return nil, nil
 		},
@@ -658,7 +658,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		},
 		TempChanIDSeed: oldCfg.TempChanIDSeed,
 		FindChannel:    oldCfg.FindChannel,
-		DefaultRoutingPolicy: models.ForwardingPolicy{
+		DefaultRoutingPolicy: models2.ForwardingPolicy{
 			MinHTLCOut:    5,
 			BaseFee:       100,
 			FeeRate:       1000,
@@ -3207,7 +3207,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 
 	// Helper method for checking baseFee and feeRate stored for a
 	// reservation.
-	assertFees := func(forwardingPolicy *models.ForwardingPolicy,
+	assertFees := func(forwardingPolicy *models2.ForwardingPolicy,
 		baseFee, feeRate lnwire.MilliSatoshi) error {
 
 		if forwardingPolicy.BaseFee != baseFee {
@@ -3391,7 +3391,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 				require.NoError(t, err)
 
 				return reflect.DeepEqual(
-					p, &models.ForwardingPolicy{
+					p, &models2.ForwardingPolicy{
 						MaxHTLC:       maxHtlcArr[0],
 						MinHTLCOut:    minHtlcArr[0],
 						BaseFee:       baseFees[0],

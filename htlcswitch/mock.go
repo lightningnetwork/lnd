@@ -23,10 +23,10 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -841,10 +841,10 @@ func (f *mockChannelLink) getCommitFee(remote bool) btcutil.Amount {
 func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 }
 
-func (f *mockChannelLink) UpdateForwardingPolicy(_ models.ForwardingPolicy) {
+func (f *mockChannelLink) UpdateForwardingPolicy(_ models2.ForwardingPolicy) {
 }
 func (f *mockChannelLink) CheckHtlcForward([32]byte, lnwire.MilliSatoshi,
-	lnwire.MilliSatoshi, uint32, uint32, models.InboundFee, uint32,
+	lnwire.MilliSatoshi, uint32, uint32, models2.InboundFee, uint32,
 	lnwire.ShortChannelID) *LinkError {
 
 	return f.checkHtlcForwardResult
@@ -1048,7 +1048,7 @@ func (i *mockInvoiceRegistry) SettleHodlInvoice(
 
 func (i *mockInvoiceRegistry) NotifyExitHopHtlc(rhash lntypes.Hash,
 	amt lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	circuitKey models.CircuitKey, hodlChan chan<- interface{},
+	circuitKey models2.CircuitKey, hodlChan chan<- interface{},
 	wireCustomRecords lnwire.CustomRecords,
 	payload invoices.Payload) (invoices.HtlcResolution, error) {
 
@@ -1184,7 +1184,7 @@ func (h *mockHTLCNotifier) NotifySettleEvent(key HtlcKey,
 
 }
 
-func (h *mockHTLCNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,
+func (h *mockHTLCNotifier) NotifyFinalHtlcEvent(key models2.CircuitKey,
 	info channeldb.FinalHtlcInfo) {
 
 }

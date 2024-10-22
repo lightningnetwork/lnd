@@ -11,7 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -580,7 +580,7 @@ func TestBuildBlindedPath(t *testing.T) {
 		},
 	}
 
-	realPolicies := map[uint64]*models.ChannelEdgePolicy{
+	realPolicies := map[uint64]*models2.ChannelEdgePolicy{
 		chanCB: {
 			ChannelID: chanCB,
 			ToNode:    bob,
@@ -598,8 +598,8 @@ func TestBuildBlindedPath(t *testing.T) {
 			return []*route.Route{realRoute}, nil
 		},
 		FetchChannelEdgesByID: func(chanID uint64) (
-			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-			*models.ChannelEdgePolicy, error) {
+			*models2.ChannelEdgeInfo, *models2.ChannelEdgePolicy,
+			*models2.ChannelEdgePolicy, error) {
 
 			return nil, realPolicies[chanID], nil, nil
 		},
@@ -748,7 +748,7 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 		},
 	}
 
-	realPolicies := map[uint64]*models.ChannelEdgePolicy{
+	realPolicies := map[uint64]*models2.ChannelEdgePolicy{
 		chanCB: {
 			ChannelID: chanCB,
 			ToNode:    bob,
@@ -766,8 +766,8 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 			return []*route.Route{realRoute}, nil
 		},
 		FetchChannelEdgesByID: func(chanID uint64) (
-			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-			*models.ChannelEdgePolicy, error) {
+			*models2.ChannelEdgeInfo, *models2.ChannelEdgePolicy,
+			*models2.ChannelEdgePolicy, error) {
 
 			policy, ok := realPolicies[chanID]
 			if !ok {
@@ -937,8 +937,8 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 				nil
 		},
 		FetchChannelEdgesByID: func(chanID uint64) (
-			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-			*models.ChannelEdgePolicy, error) {
+			*models2.ChannelEdgeInfo, *models2.ChannelEdgePolicy,
+			*models2.ChannelEdgePolicy, error) {
 
 			// Force the call to error for the first 2 channels.
 			if errCount < 2 {

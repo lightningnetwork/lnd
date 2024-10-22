@@ -11,7 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	models2 "github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -42,8 +42,8 @@ type BuildBlindedPathCfg struct {
 
 	// FetchChannelEdgesByID attempts to look up the two directed edges for
 	// the channel identified by the channel ID.
-	FetchChannelEdgesByID func(chanID uint64) (*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error)
+	FetchChannelEdgesByID func(chanID uint64) (*models2.ChannelEdgeInfo,
+		*models2.ChannelEdgePolicy, *models2.ChannelEdgePolicy, error)
 
 	// FetchOurOpenChannels fetches this node's set of open channels.
 	FetchOurOpenChannels func() ([]*channeldb.OpenChannel, error)
@@ -652,7 +652,7 @@ func getNodeChannelPolicy(cfg *BuildBlindedPathCfg, chanID uint64,
 	// node in question. We know the update is the correct one if the
 	// "ToNode" for the fetched policy is _not_ equal to the node ID in
 	// question.
-	var policy *models.ChannelEdgePolicy
+	var policy *models2.ChannelEdgePolicy
 	switch {
 	case update1 != nil && !bytes.Equal(update1.ToNode[:], nodeID[:]):
 		policy = update1

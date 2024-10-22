@@ -2,6 +2,7 @@ package lnwallet
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
@@ -103,6 +104,10 @@ var (
 	bobDustLimit   = btcutil.Amount(1300)
 
 	testChannelCapacity float64 = 10
+
+	// ctxb is a context that will never be cancelled, that is used in
+	// place of a real quit context.
+	ctxb = context.Background()
 )
 
 // CreateTestChannels creates to fully populated channels to be used within
@@ -557,7 +562,7 @@ func calcStaticFee(chanType channeldb.ChannelType, numHTLCs int) btcutil.Amount 
 // pending updates. This method is useful when testing interactions between two
 // live state machines.
 func ForceStateTransition(chanA, chanB *LightningChannel) error {
-	aliceNewCommit, err := chanA.SignNextCommitment()
+	aliceNewCommit, err := chanA.SignNextCommitment(ctxb)
 	if err != nil {
 		return err
 	}
@@ -570,7 +575,7 @@ func ForceStateTransition(chanA, chanB *LightningChannel) error {
 	if err != nil {
 		return err
 	}
-	bobNewCommit, err := chanB.SignNextCommitment()
+	bobNewCommit, err := chanB.SignNextCommitment(ctxb)
 	if err != nil {
 		return err
 	}
@@ -597,7 +602,7 @@ func ForceStateTransition(chanA, chanB *LightningChannel) error {
 }
 
 func NewDefaultAuxSignerMock(t *testing.T) *MockAuxSigner {
-	auxSigner := &MockAuxSigner{}
+	auxSigner := NewAuxSignerMock(EmptyMockJobHandler)
 
 	type testSigBlob struct {
 		BlobInt tlv.RecordT[tlv.TlvType65634, uint16]

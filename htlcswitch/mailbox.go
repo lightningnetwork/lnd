@@ -95,7 +95,7 @@ type mailBoxConfig struct {
 	// forwardPackets send a varidic number of htlcPackets to the switch to
 	// be routed. A quit channel should be provided so that the call can
 	// properly exit during shutdown.
-	forwardPackets func(chan struct{}, ...*htlcPacket) error
+	forwardPackets func(<-chan struct{}, ...*htlcPacket) error
 
 	// clock is a time source for the mailbox.
 	clock clock.Clock
@@ -804,7 +804,7 @@ type mailOrchConfig struct {
 	// forwardPackets send a varidic number of htlcPackets to the switch to
 	// be routed. A quit channel should be provided so that the call can
 	// properly exit during shutdown.
-	forwardPackets func(chan struct{}, ...*htlcPacket) error
+	forwardPackets func(<-chan struct{}, ...*htlcPacket) error
 
 	// clock is a time source for the generated mailboxes.
 	clock clock.Clock

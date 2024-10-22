@@ -435,9 +435,26 @@ func (*MockAuxLeafStore) ApplyHtlcView(
 	return fn.Ok(fn.None[tlv.Blob]())
 }
 
+// EmptyMockJobHandler is a mock job handler that just sends an empty response
+// to all jobs.
+func EmptyMockJobHandler(jobs []AuxSigJob) {
+	for _, sigJob := range jobs {
+		sigJob.Resp <- AuxSigJobResp{}
+	}
+}
+
 // MockAuxSigner is a mock implementation of the AuxSigner interface.
 type MockAuxSigner struct {
 	mock.Mock
+
+	jobHandlerFunc func([]AuxSigJob)
+}
+
+// NewAuxSignerMock creates a new mock aux signer with the given job handler.
+func NewAuxSignerMock(jobHandler func([]AuxSigJob)) *MockAuxSigner {
+	return &MockAuxSigner{
+		jobHandlerFunc: jobHandler,
+	}
 }
 
 // SubmitSecondLevelSigBatch takes a batch of aux sign jobs and
@@ -447,10 +464,8 @@ func (a *MockAuxSigner) SubmitSecondLevelSigBatch(chanState AuxChanState,
 
 	args := a.Called(chanState, tx, jobs)
 
-	// While we return, we'll also send back an instant response for the
-	// set of jobs.
-	for _, sigJob := range jobs {
-		sigJob.Resp <- AuxSigJobResp{}
+	if a.jobHandlerFunc != nil {
+		a.jobHandlerFunc(jobs)
 	}
 
 	return args.Error(0)

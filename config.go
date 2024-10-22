@@ -352,12 +352,12 @@ type Config struct {
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <global-level>,<subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
-	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
+	CPUProfile      string `long:"cpuprofile" description:"DEPRECATED: Use 'pprof.cpuprofile' option. Write CPU profile to the specified file" hidden:"true"`
+	Profile         string `long:"profile" description:"DEPRECATED: Use 'pprof.profile' option. Enable HTTP profiling on either a port or host:port" hidden:"true"`
+	BlockingProfile int    `long:"blockingprofile" description:"DEPRECATED: Use 'pprof.blockingprofile' option. Used to enable a blocking profile to be served on the profiling port. This takes a value from 0 to 1, with 1 including every blocking event, and 0 including no events." hidden:"true"`
+	MutexProfile    int    `long:"mutexprofile" description:"DEPRECATED: Use 'pprof.mutexprofile' option. Used to Enable a mutex profile to be served on the profiling port. This takes a value from 0 to 1, with 1 including every mutex event, and 0 including no events." hidden:"true"`
 
-	Profile string `long:"profile" description:"Enable HTTP profiling on either a port or host:port"`
-
-	BlockingProfile int `long:"blockingprofile" description:"Used to enable a blocking profile to be served on the profiling port. This takes a value from 0 to 1, with 1 including every blocking event, and 0 including no events."`
-	MutexProfile    int `long:"mutexprofile" description:"Used to Enable a mutex profile to be served on the profiling port. This takes a value from 0 to 1, with 1 including every mutex event, and 0 including no events."`
+	Pprof *lncfg.Pprof `group:"Pprof" namespace:"pprof"`
 
 	UnsafeDisconnect   bool   `long:"unsafe-disconnect" description:"DEPRECATED: Allows the rpcserver to intentionally disconnect from peers with open channels. THIS FLAG WILL BE REMOVED IN 0.10.0" hidden:"true"`
 	UnsafeReplay       bool   `long:"unsafe-replay" description:"Causes a link to replay the adds on its commitment txn after starting up, this enables testing of the sphinx replay logic."`
@@ -821,7 +821,8 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 	cleanCfg, err := ValidateConfig(
 		cfg, interceptor, fileParser, flagParser,
 	)
-	if usageErr, ok := err.(*usageError); ok {
+	var usageErr *lncfg.UsageError
+	if errors.As(err, &usageErr) {
 		// The logging system might not yet be initialized, so we also
 		// write to stderr to make sure the error appears somewhere.
 		_, _ = fmt.Fprintln(os.Stderr, usageMessage)
@@ -830,9 +831,9 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 		// The log subsystem might not yet be initialized. But we still
 		// try to log the error there since some packaging solutions
 		// might only look at the log and not stdout/stderr.
-		ltndLog.Warnf("Error validating config: %v", usageErr.err)
+		ltndLog.Warnf("Error validating config: %v", err)
 
-		return nil, usageErr.err
+		return nil, err
 	}
 	if err != nil {
 		// The log subsystem might not yet be initialized. But we still
@@ -854,18 +855,6 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 	logWarningsForDeprecation(*cleanCfg)
 
 	return cleanCfg, nil
-}
-
-// usageError is an error type that signals a problem with the supplied flags.
-type usageError struct {
-	err error
-}
-
-// Error returns the error string.
-//
-// NOTE: This is part of the error interface.
-func (u *usageError) Error() string {
-	return u.err.Error()
 }
 
 // ValidateConfig check the given configuration to be sane. This makes sure no
@@ -1347,31 +1336,6 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.Autopilot.MaxChannelSize = int64(MaxFundingAmount)
 	}
 
-	// Validate profile port or host:port.
-	if cfg.Profile != "" {
-		str := "%s: The profile port must be between 1024 and 65535"
-
-		// Try to parse Profile as a host:port.
-		_, hostPort, err := net.SplitHostPort(cfg.Profile)
-		if err == nil {
-			// Determine if the port is valid.
-			profilePort, err := strconv.Atoi(hostPort)
-			if err != nil || profilePort < 1024 || profilePort > 65535 {
-				return nil, &usageError{mkErr(str)}
-			}
-		} else {
-			// Try to parse Profile as a port.
-			profilePort, err := strconv.Atoi(cfg.Profile)
-			if err != nil || profilePort < 1024 || profilePort > 65535 {
-				return nil, &usageError{mkErr(str)}
-			}
-
-			// Since the user just set a port, we will serve debugging
-			// information over localhost.
-			cfg.Profile = net.JoinHostPort("127.0.0.1", cfg.Profile)
-		}
-	}
-
 	// We'll now construct the network directory which will be where we
 	// store all the data specific to this chain/network.
 	cfg.networkDir = filepath.Join(
@@ -1442,13 +1406,6 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		return nil, mkErr("log writer missing in config")
 	}
 
-	// Special show command to list supported subsystems and exit.
-	if cfg.DebugLevel == "show" {
-		fmt.Println("Supported subsystems",
-			cfg.LogWriter.SupportedSubsystems())
-		os.Exit(0)
-	}
-
 	if !build.SuportedLogCompressor(cfg.LogCompressor) {
 		return nil, mkErr("invalid log compressor: %v",
 			cfg.LogCompressor)
@@ -1456,6 +1413,13 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 
 	// Initialize logging at the default logging level.
 	SetupLoggers(cfg.LogWriter, interceptor)
+
+	// Special show command to list supported subsystems and exit.
+	if cfg.DebugLevel == "show" {
+		fmt.Println("Supported subsystems",
+			cfg.LogWriter.SupportedSubsystems())
+		os.Exit(0)
+	}
 	err = cfg.LogWriter.InitLogRotator(
 		filepath.Join(cfg.LogDir, defaultLogFilename),
 		cfg.LogCompressor, cfg.MaxLogFileSize, cfg.MaxLogFiles,
@@ -1469,7 +1433,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	err = build.ParseAndSetDebugLevels(cfg.DebugLevel, cfg.LogWriter)
 	if err != nil {
 		str := "error parsing debug level: %v"
-		return nil, &usageError{mkErr(str, err)}
+		return nil, &lncfg.UsageError{Err: mkErr(str, err)}
 	}
 
 	// At least one RPCListener is required. So listen on localhost per
@@ -1700,6 +1664,39 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		return nil, mkErr("custom-message: %v", err)
 	}
 
+	// Map old pprof flags to new pprof group flags.
+	//
+	// NOTE: This is a temporary measure to ensure compatibility with old
+	// flags.
+	if cfg.CPUProfile != "" {
+		if cfg.Pprof.CPUProfile != "" {
+			return nil, mkErr("cpuprofile and pprof.cpuprofile " +
+				"are mutually exclusive")
+		}
+		cfg.Pprof.CPUProfile = cfg.CPUProfile
+	}
+	if cfg.Profile != "" {
+		if cfg.Pprof.Profile != "" {
+			return nil, mkErr("profile and pprof.profile " +
+				"are mutually exclusive")
+		}
+		cfg.Pprof.Profile = cfg.Profile
+	}
+	if cfg.BlockingProfile != 0 {
+		if cfg.Pprof.BlockingProfile != 0 {
+			return nil, mkErr("blockingprofile and " +
+				"pprof.blockingprofile are mutually exclusive")
+		}
+		cfg.Pprof.BlockingProfile = cfg.BlockingProfile
+	}
+	if cfg.MutexProfile != 0 {
+		if cfg.Pprof.MutexProfile != 0 {
+			return nil, mkErr("mutexprofile and " +
+				"pprof.mutexprofile are mutually exclusive")
+		}
+		cfg.Pprof.MutexProfile = cfg.MutexProfile
+	}
+
 	// Validate the subconfigs for workers, caches, and the tower client.
 	err = lncfg.Validate(
 		cfg.Workers,
@@ -1714,6 +1711,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.Htlcswitch,
 		cfg.Invoices,
 		cfg.Routing,
+		cfg.Pprof,
 	)
 	if err != nil {
 		return nil, err

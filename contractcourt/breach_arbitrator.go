@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
@@ -1856,7 +1857,8 @@ func (rs *RetributionStore) Add(ret *retributionInfo) error {
 		}
 
 		var outBuf bytes.Buffer
-		if err := writeOutpoint(&outBuf, &ret.chanPoint); err != nil {
+		err = graphdb.WriteOutpoint(&outBuf, &ret.chanPoint)
+		if err != nil {
 			return err
 		}
 
@@ -1907,7 +1909,8 @@ func (rs *RetributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 		}
 
 		var chanBuf bytes.Buffer
-		if err := writeOutpoint(&chanBuf, chanPoint); err != nil {
+		err := graphdb.WriteOutpoint(&chanBuf, chanPoint)
+		if err != nil {
 			return err
 		}
 
@@ -1947,7 +1950,8 @@ func (rs *RetributionStore) Remove(chanPoint *wire.OutPoint) error {
 
 		// Serialize the channel point we are intending to remove.
 		var chanBuf bytes.Buffer
-		if err := writeOutpoint(&chanBuf, chanPoint); err != nil {
+		err = graphdb.WriteOutpoint(&chanBuf, chanPoint)
+		if err != nil {
 			return err
 		}
 		chanBytes := chanBuf.Bytes()
@@ -2017,7 +2021,7 @@ func (ret *retributionInfo) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := writeOutpoint(w, &ret.chanPoint); err != nil {
+	if err := graphdb.WriteOutpoint(w, &ret.chanPoint); err != nil {
 		return err
 	}
 
@@ -2057,7 +2061,7 @@ func (ret *retributionInfo) Decode(r io.Reader) error {
 	}
 	ret.commitHash = *hash
 
-	if err := readOutpoint(r, &ret.chanPoint); err != nil {
+	if err := graphdb.ReadOutpoint(r, &ret.chanPoint); err != nil {
 		return err
 	}
 
@@ -2100,7 +2104,7 @@ func (bo *breachedOutput) Encode(w io.Writer) error {
 		return err
 	}
 
-	if err := writeOutpoint(w, &bo.outpoint); err != nil {
+	if err := graphdb.WriteOutpoint(w, &bo.outpoint); err != nil {
 		return err
 	}
 
@@ -2131,7 +2135,7 @@ func (bo *breachedOutput) Decode(r io.Reader) error {
 	}
 	bo.amt = btcutil.Amount(binary.BigEndian.Uint64(scratch[:8]))
 
-	if err := readOutpoint(r, &bo.outpoint); err != nil {
+	if err := graphdb.ReadOutpoint(r, &bo.outpoint); err != nil {
 		return err
 	}
 

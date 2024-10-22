@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -1466,10 +1467,10 @@ func (k *kidOutput) Encode(w io.Writer) error {
 	}
 
 	op := k.OutPoint()
-	if err := writeOutpoint(w, &op); err != nil {
+	if err := graphdb.WriteOutpoint(w, &op); err != nil {
 		return err
 	}
-	if err := writeOutpoint(w, k.OriginChanPoint()); err != nil {
+	if err := graphdb.WriteOutpoint(w, k.OriginChanPoint()); err != nil {
 		return err
 	}
 
@@ -1521,11 +1522,12 @@ func (k *kidOutput) Decode(r io.Reader) error {
 	}
 	k.amt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
 
-	if err := readOutpoint(io.LimitReader(r, 40), &k.outpoint); err != nil {
+	err := graphdb.ReadOutpoint(io.LimitReader(r, 40), &k.outpoint)
+	if err != nil {
 		return err
 	}
 
-	err := readOutpoint(io.LimitReader(r, 40), &k.originChanPoint)
+	err = graphdb.ReadOutpoint(io.LimitReader(r, 40), &k.originChanPoint)
 	if err != nil {
 		return err
 	}
@@ -1573,40 +1575,6 @@ func (k *kidOutput) Decode(r io.Reader) error {
 	}
 
 	k.signDesc.ControlBlock = ctrlBlock
-
-	return nil
-}
-
-// TODO(bvu): copied from channeldb, remove repetition
-func writeOutpoint(w io.Writer, o *wire.OutPoint) error {
-	// TODO(roasbeef): make all scratch buffers on the stack
-	scratch := make([]byte, 4)
-
-	// TODO(roasbeef): write raw 32 bytes instead of wasting the extra
-	// byte.
-	if err := wire.WriteVarBytes(w, 0, o.Hash[:]); err != nil {
-		return err
-	}
-
-	byteOrder.PutUint32(scratch, o.Index)
-	_, err := w.Write(scratch)
-	return err
-}
-
-// TODO(bvu): copied from channeldb, remove repetition
-func readOutpoint(r io.Reader, o *wire.OutPoint) error {
-	scratch := make([]byte, 4)
-
-	txid, err := wire.ReadVarBytes(r, 0, 32, "prevout")
-	if err != nil {
-		return err
-	}
-	copy(o.Hash[:], txid)
-
-	if _, err := r.Read(scratch); err != nil {
-		return err
-	}
-	o.Index = byteOrder.Uint32(scratch)
 
 	return nil
 }

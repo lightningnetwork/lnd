@@ -361,6 +361,8 @@ func (h *HarnessTest) Stop() {
 		return
 	}
 
+	h.shutdownAllNodes()
+
 	close(h.lndErrorChan)
 
 	// Stop the fee service.

@@ -1,23 +1,36 @@
 package channeldb
 
 import (
+	"image/color"
 	"math"
 	"math/rand"
 	"net"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	testAddr = &net.TCPAddr{IP: (net.IP)([]byte{0xA, 0x0, 0x0, 0x1}),
+		Port: 9000}
+	anotherAddr, _ = net.ResolveTCPAddr("tcp",
+		"[2001:db8:85a3:0:0:8a2e:370:7334]:80")
+	testAddrs = []net.Addr{testAddr}
+
+	testFeatures = lnwire.NewFeatureVector(nil, lnwire.Features)
 )
 
 func TestOpenWithCreate(t *testing.T) {
@@ -179,7 +192,7 @@ func TestAddrsForNode(t *testing.T) {
 	// We'll make a test vertex to insert into the database, as the source
 	// node, but this node will only have half the number of addresses it
 	// usually does.
-	testNode, err := createTestVertex(fullDB)
+	testNode := createTestVertex(t)
 	require.NoError(t, err, "unable to create test node")
 	testNode.Addresses = []net.Addr{testAddr}
 	if err := graph.SetSourceNode(testNode); err != nil {
@@ -710,4 +723,29 @@ func TestFetchHistoricalChannel(t *testing.T) {
 	if err != ErrChannelNotFound {
 		t.Fatalf("expected chan not found, got: %v", err)
 	}
+}
+
+func createLightningNode(priv *btcec.PrivateKey) *graphdb.LightningNode {
+	updateTime := rand.Int63()
+
+	pub := priv.PubKey().SerializeCompressed()
+	n := &graphdb.LightningNode{
+		HaveNodeAnnouncement: true,
+		AuthSigBytes:         testSig.Serialize(),
+		LastUpdate:           time.Unix(updateTime, 0),
+		Color:                color.RGBA{1, 2, 3, 0},
+		Alias:                "kek" + string(pub[:]),
+		Features:             testFeatures,
+		Addresses:            testAddrs,
+	}
+	copy(n.PubKeyBytes[:], priv.PubKey().SerializeCompressed())
+
+	return n
+}
+
+func createTestVertex(t *testing.T) *graphdb.LightningNode {
+	priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	return createLightningNode(priv)
 }

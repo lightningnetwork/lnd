@@ -21,7 +21,7 @@ import (
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb" // Required to register the boltdb walletdb implementation.
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/blockcache"
-	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/unittest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -218,7 +218,7 @@ func testFilterBlockNotifications(node *rpctest.Harness,
 	require.NoError(t, err, "unable to get current height")
 
 	// Now we'll add both outpoints to the current filter.
-	filter := []channeldb.EdgePoint{
+	filter := []graphdb.EdgePoint{
 		{FundingPkScript: targetScript, OutPoint: *outPoint1},
 		{FundingPkScript: targetScript, OutPoint: *outPoint2},
 	}
@@ -328,7 +328,7 @@ func testUpdateFilterBackTrack(node *rpctest.Harness,
 
 	// After the block has been mined+notified we'll update the filter with
 	// a _prior_ height so a "rewind" occurs.
-	filter := []channeldb.EdgePoint{
+	filter := []graphdb.EdgePoint{
 		{FundingPkScript: testScript, OutPoint: *outPoint},
 	}
 	err = chainView.UpdateFilter(filter, uint32(currentHeight))
@@ -417,7 +417,7 @@ func testFilterSingleBlock(node *rpctest.Harness, chainView FilteredChainView,
 
 	// Now we'll manually trigger filtering the block generated above.
 	// First, we'll add the two outpoints to our filter.
-	filter := []channeldb.EdgePoint{
+	filter := []graphdb.EdgePoint{
 		{FundingPkScript: testScript, OutPoint: *outPoint1},
 		{FundingPkScript: testScript, OutPoint: *outPoint2},
 	}

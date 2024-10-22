@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/blockcache"
-	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 )
 
 // BtcdFilteredChainView is an implementation of the FilteredChainView
@@ -456,7 +456,7 @@ type filterUpdate struct {
 // rewound to ensure all relevant notifications are dispatched.
 //
 // NOTE: This is part of the FilteredChainView interface.
-func (b *BtcdFilteredChainView) UpdateFilter(ops []channeldb.EdgePoint,
+func (b *BtcdFilteredChainView) UpdateFilter(ops []graphdb.EdgePoint,
 	updateHeight uint32) error {
 
 	newUtxos := make([]wire.OutPoint, len(ops))

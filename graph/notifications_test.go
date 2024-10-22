@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
@@ -77,14 +78,14 @@ var (
 	}
 )
 
-func createTestNode(t *testing.T) *channeldb.LightningNode {
+func createTestNode(t *testing.T) *graphdb.LightningNode {
 	updateTime := prand.Int63()
 
 	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
 	pub := priv.PubKey().SerializeCompressed()
-	n := &channeldb.LightningNode{
+	n := &graphdb.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(updateTime, 0),
 		Addresses:            testAddrs,
@@ -99,7 +100,7 @@ func createTestNode(t *testing.T) *channeldb.LightningNode {
 }
 
 func randEdgePolicy(chanID *lnwire.ShortChannelID,
-	node *channeldb.LightningNode) (*models.ChannelEdgePolicy, error) {
+	node *graphdb.LightningNode) (*models.ChannelEdgePolicy, error) {
 
 	InboundFee := models.InboundFee{
 		Base: prand.Int31() * -1,
@@ -315,7 +316,7 @@ func (m *mockChainView) Reset() {
 	m.staleBlocks = make(chan *chainview.FilteredBlock, 10)
 }
 
-func (m *mockChainView) UpdateFilter(ops []channeldb.EdgePoint, updateHeight uint32) error {
+func (m *mockChainView) UpdateFilter(ops []graphdb.EdgePoint, updateHeight uint32) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -686,7 +687,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
-	assertNodeNtfnCorrect := func(t *testing.T, ann *channeldb.LightningNode,
+	assertNodeNtfnCorrect := func(t *testing.T, ann *graphdb.LightningNode,
 		nodeUpdate *NetworkNodeUpdate) {
 
 		nodeKey, _ := ann.PubKey()
@@ -1019,7 +1020,7 @@ func TestEncodeHexColor(t *testing.T) {
 type testCtx struct {
 	builder *Builder
 
-	graph *channeldb.ChannelGraph
+	graph *graphdb.ChannelGraph
 
 	aliases map[string]route.Vertex
 
@@ -1088,7 +1089,7 @@ func (c *testCtx) RestartBuilder(t *testing.T) {
 
 // makeTestGraph creates a new instance of a channeldb.ChannelGraph for testing
 // purposes.
-func makeTestGraph(t *testing.T, useCache bool) (*channeldb.ChannelGraph,
+func makeTestGraph(t *testing.T, useCache bool) (*graphdb.ChannelGraph,
 	kvdb.Backend, error) {
 
 	// Create channelgraph for the first time.
@@ -1100,7 +1101,7 @@ func makeTestGraph(t *testing.T, useCache bool) (*channeldb.ChannelGraph,
 	t.Cleanup(backendCleanup)
 
 	opts := channeldb.DefaultOptions()
-	graph, err := channeldb.NewChannelGraph(
+	graph, err := graphdb.NewChannelGraph(
 		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
 		opts.BatchCommitInterval, opts.PreAllocCacheNumNodes,
 		useCache, false,
@@ -1113,7 +1114,7 @@ func makeTestGraph(t *testing.T, useCache bool) (*channeldb.ChannelGraph,
 }
 
 type testGraphInstance struct {
-	graph        *channeldb.ChannelGraph
+	graph        *graphdb.ChannelGraph
 	graphBackend kvdb.Backend
 
 	// aliasMap is a map from a node's alias to its public key. This type is

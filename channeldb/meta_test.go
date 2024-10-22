@@ -22,10 +22,8 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 	cdb.dryRun = dryRun
 
 	// Create a test node that will be our source node.
-	testNode, err := createTestVertex(cdb)
-	if err != nil {
-		t.Fatal(err)
-	}
+	testNode := createTestVertex(t)
+
 	graph := cdb.ChannelGraph()
 	if err := graph.SetSourceNode(testNode); err != nil {
 		t.Fatal(err)

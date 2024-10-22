@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -36,7 +36,7 @@ type ChannelGraphTimeSeries interface {
 	// ID's represents the ID's that we don't know of which were in the
 	// passed superSet.
 	FilterKnownChanIDs(chain chainhash.Hash,
-		superSet []channeldb.ChannelUpdateInfo,
+		superSet []graphdb.ChannelUpdateInfo,
 		isZombieChan func(time.Time, time.Time) bool) (
 		[]lnwire.ShortChannelID, error)
 
@@ -45,7 +45,7 @@ type ChannelGraphTimeSeries interface {
 	// grouped by their common block height. We'll use this to to a remote
 	// peer's QueryChannelRange message.
 	FilterChannelRange(chain chainhash.Hash, startHeight, endHeight uint32,
-		withTimestamps bool) ([]channeldb.BlockChannelRange, error)
+		withTimestamps bool) ([]graphdb.BlockChannelRange, error)
 
 	// FetchChanAnns returns a full set of channel announcements as well as
 	// their updates that match the set of specified short channel ID's.
@@ -70,12 +70,12 @@ type ChannelGraphTimeSeries interface {
 // in-protocol channel range queries to quickly and efficiently synchronize our
 // channel state with all peers.
 type ChanSeries struct {
-	graph *channeldb.ChannelGraph
+	graph *graphdb.ChannelGraph
 }
 
 // NewChanSeries constructs a new ChanSeries backed by a channeldb.ChannelGraph.
 // The returned ChanSeries implements the ChannelGraphTimeSeries interface.
-func NewChanSeries(graph *channeldb.ChannelGraph) *ChanSeries {
+func NewChanSeries(graph *graphdb.ChannelGraph) *ChanSeries {
 	return &ChanSeries{
 		graph: graph,
 	}
@@ -200,7 +200,7 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 //
 // NOTE: This is part of the ChannelGraphTimeSeries interface.
 func (c *ChanSeries) FilterKnownChanIDs(_ chainhash.Hash,
-	superSet []channeldb.ChannelUpdateInfo,
+	superSet []graphdb.ChannelUpdateInfo,
 	isZombieChan func(time.Time, time.Time) bool) (
 	[]lnwire.ShortChannelID, error) {
 
@@ -226,7 +226,7 @@ func (c *ChanSeries) FilterKnownChanIDs(_ chainhash.Hash,
 //
 // NOTE: This is part of the ChannelGraphTimeSeries interface.
 func (c *ChanSeries) FilterChannelRange(_ chainhash.Hash, startHeight,
-	endHeight uint32, withTimestamps bool) ([]channeldb.BlockChannelRange,
+	endHeight uint32, withTimestamps bool) ([]graphdb.BlockChannelRange,
 	error) {
 
 	return c.graph.FilterChannelRange(

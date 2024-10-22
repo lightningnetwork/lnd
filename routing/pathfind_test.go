@@ -23,6 +23,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	switchhop "github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -155,7 +156,7 @@ type testChan struct {
 
 // makeTestGraph creates a new instance of a channeldb.ChannelGraph for testing
 // purposes.
-func makeTestGraph(t *testing.T, useCache bool) (*channeldb.ChannelGraph,
+func makeTestGraph(t *testing.T, useCache bool) (*graphdb.ChannelGraph,
 	kvdb.Backend, error) {
 
 	// Create channelgraph for the first time.
@@ -167,7 +168,7 @@ func makeTestGraph(t *testing.T, useCache bool) (*channeldb.ChannelGraph,
 	t.Cleanup(backendCleanup)
 
 	opts := channeldb.DefaultOptions()
-	graph, err := channeldb.NewChannelGraph(
+	graph, err := graphdb.NewChannelGraph(
 		backend, opts.RejectCacheSize, opts.ChannelCacheSize,
 		opts.BatchCommitInterval, opts.PreAllocCacheNumNodes,
 		useCache, false,
@@ -217,7 +218,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 	privKeyMap := make(map[string]*btcec.PrivateKey)
 	channelIDs := make(map[route.Vertex]map[route.Vertex]uint64)
 	links := make(map[lnwire.ShortChannelID]htlcswitch.ChannelLink)
-	var source *channeldb.LightningNode
+	var source *graphdb.LightningNode
 
 	// First we insert all the nodes within the graph as vertexes.
 	for _, node := range g.Nodes {
@@ -226,7 +227,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			return nil, err
 		}
 
-		dbNode := &channeldb.LightningNode{
+		dbNode := &graphdb.LightningNode{
 			HaveNodeAnnouncement: true,
 			AuthSigBytes:         testSig.Serialize(),
 			LastUpdate:           testTime,
@@ -357,7 +358,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 		}
 
 		err = graph.AddChannelEdge(&edgeInfo)
-		if err != nil && err != channeldb.ErrEdgeAlreadyExist {
+		if err != nil && err != graphdb.ErrEdgeAlreadyExist {
 			return nil, err
 		}
 
@@ -477,7 +478,7 @@ type testChannel struct {
 }
 
 type testGraphInstance struct {
-	graph        *channeldb.ChannelGraph
+	graph        *graphdb.ChannelGraph
 	graphBackend kvdb.Backend
 
 	// aliasMap is a map from a node's alias to its public key. This type is
@@ -539,7 +540,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 
 	nodeIndex := byte(0)
 	addNodeWithAlias := func(alias string, features *lnwire.FeatureVector) (
-		*channeldb.LightningNode, error) {
+		*graphdb.LightningNode, error) {
 
 		keyBytes := []byte{
 			0, 0, 0, 0, 0, 0, 0, 0,
@@ -554,7 +555,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			features = lnwire.EmptyFeatureVector()
 		}
 
-		dbNode := &channeldb.LightningNode{
+		dbNode := &graphdb.LightningNode{
 			HaveNodeAnnouncement: true,
 			AuthSigBytes:         testSig.Serialize(),
 			LastUpdate:           testTime,
@@ -665,7 +666,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 		}
 
 		err = graph.AddChannelEdge(&edgeInfo)
-		if err != nil && err != channeldb.ErrEdgeAlreadyExist {
+		if err != nil && err != graphdb.ErrEdgeAlreadyExist {
 			return nil, err
 		}
 
@@ -1210,7 +1211,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	dogePubKey, err := btcec.ParsePubKey(dogePubKeyBytes)
 	require.NoError(t, err, "unable to parse public key from bytes")
 
-	doge := &channeldb.LightningNode{}
+	doge := &graphdb.LightningNode{}
 	doge.AddPubKey(dogePubKey)
 	doge.Alias = "doge"
 	copy(doge.PubKeyBytes[:], dogePubKeyBytes)
@@ -3026,7 +3027,7 @@ func runInboundFees(t *testing.T, useCache bool) {
 
 type pathFindingTestContext struct {
 	t                 *testing.T
-	graph             *channeldb.ChannelGraph
+	graph             *graphdb.ChannelGraph
 	restrictParams    RestrictParams
 	bandwidthHints    bandwidthHints
 	pathFindingConfig PathFindingConfig
@@ -3108,7 +3109,7 @@ func (c *pathFindingTestContext) assertPath(path []*unifiedEdge,
 
 // dbFindPath calls findPath after getting a db transaction from the database
 // graph.
-func dbFindPath(graph *channeldb.ChannelGraph,
+func dbFindPath(graph *graphdb.ChannelGraph,
 	additionalEdges map[route.Vertex][]AdditionalEdge,
 	bandwidthHints bandwidthHints,
 	r *RestrictParams, cfg *PathFindingConfig,
@@ -3148,7 +3149,7 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 
 // dbFindBlindedPaths calls findBlindedPaths after getting a db transaction from
 // the database graph.
-func dbFindBlindedPaths(graph *channeldb.ChannelGraph,
+func dbFindBlindedPaths(graph *graphdb.ChannelGraph,
 	restrictions *blindedPathRestrictions) ([][]blindedHop, error) {
 
 	sourceNode, err := graph.SourceNode()

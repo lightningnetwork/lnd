@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -195,7 +196,7 @@ func (m *ChanStatusManager) start() error {
 		// have been pruned from the channel graph but not yet from our
 		// set of channels. We'll skip it as we can't determine its
 		// initial state.
-		case errors.Is(err, channeldb.ErrEdgeNotFound):
+		case errors.Is(err, graphdb.ErrEdgeNotFound):
 			log.Warnf("Unable to find channel policies for %v, "+
 				"skipping. This is typical if the channel is "+
 				"in the process of closing.", c.FundingOutpoint)
@@ -580,7 +581,7 @@ func (m *ChanStatusManager) disableInactiveChannels() {
 			// that the channel has been closed. Thus we remove the
 			// outpoint from the set of tracked outpoints to prevent
 			// further attempts.
-			if errors.Is(err, channeldb.ErrEdgeNotFound) {
+			if errors.Is(err, graphdb.ErrEdgeNotFound) {
 				log.Debugf("Removing channel(%v) from "+
 					"consideration for passive disabling",
 					outpoint)

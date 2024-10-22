@@ -6,7 +6,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/batch"
-	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -23,7 +23,7 @@ type ChannelGraphSource interface {
 	// AddNode is used to add information about a node to the router
 	// database. If the node with this pubkey is not present in an existing
 	// channel, it will be ignored.
-	AddNode(node *channeldb.LightningNode,
+	AddNode(node *graphdb.LightningNode,
 		op ...batch.SchedulerOption) error
 
 	// AddEdge is used to add edge/channel to the topology of the router,
@@ -85,10 +85,10 @@ type ChannelGraphSource interface {
 	// FetchLightningNode attempts to look up a target node by its identity
 	// public key. channeldb.ErrGraphNodeNotFound is returned if the node
 	// doesn't exist within the graph.
-	FetchLightningNode(route.Vertex) (*channeldb.LightningNode, error)
+	FetchLightningNode(route.Vertex) (*graphdb.LightningNode, error)
 
 	// ForEachNode is used to iterate over every node in the known graph.
-	ForEachNode(func(node *channeldb.LightningNode) error) error
+	ForEachNode(func(node *graphdb.LightningNode) error) error
 }
 
 // DB is an interface describing a persisted Lightning Network graph.
@@ -116,7 +116,7 @@ type DB interface {
 	// channel within the known channel graph. The set of UTXO's (along with
 	// their scripts) returned are the ones that need to be watched on
 	// chain to detect channel closes on the resident blockchain.
-	ChannelView() ([]channeldb.EdgePoint, error)
+	ChannelView() ([]graphdb.EdgePoint, error)
 
 	// PruneGraphNodes is a garbage collection method which attempts to
 	// prune out any nodes from the channel graph that are currently
@@ -129,7 +129,7 @@ type DB interface {
 	// treated as the center node within a star-graph. This method may be
 	// used to kick off a path finding algorithm in order to explore the
 	// reachability of another node based off the source node.
-	SourceNode() (*channeldb.LightningNode, error)
+	SourceNode() (*graphdb.LightningNode, error)
 
 	// DisabledChannelIDs returns the channel ids of disabled channels.
 	// A channel is disabled when two of the associated ChanelEdgePolicies
@@ -142,13 +142,13 @@ type DB interface {
 	// edges that exist at the time of the query. This can be used to
 	// respond to peer queries that are seeking to fill in gaps in their
 	// view of the channel graph.
-	FetchChanInfos(chanIDs []uint64) ([]channeldb.ChannelEdge, error)
+	FetchChanInfos(chanIDs []uint64) ([]graphdb.ChannelEdge, error)
 
 	// ChanUpdatesInHorizon returns all the known channel edges which have
 	// at least one edge that has an update timestamp within the specified
 	// horizon.
 	ChanUpdatesInHorizon(startTime, endTime time.Time) (
-		[]channeldb.ChannelEdge, error)
+		[]graphdb.ChannelEdge, error)
 
 	// DeleteChannelEdges removes edges with the given channel IDs from the
 	// database and marks them as zombies. This ensures that we're unable to
@@ -200,7 +200,7 @@ type DB interface {
 	// update that node's information. Note that this method is expected to
 	// only be called to update an already present node from a node
 	// announcement, or to insert a node found in a channel update.
-	AddLightningNode(node *channeldb.LightningNode,
+	AddLightningNode(node *graphdb.LightningNode,
 		op ...batch.SchedulerOption) error
 
 	// AddChannelEdge adds a new (undirected, blank) edge to the graph
@@ -239,14 +239,14 @@ type DB interface {
 	// FetchLightningNode attempts to look up a target node by its identity
 	// public key. If the node isn't found in the database, then
 	// ErrGraphNodeNotFound is returned.
-	FetchLightningNode(nodePub route.Vertex) (*channeldb.LightningNode,
+	FetchLightningNode(nodePub route.Vertex) (*graphdb.LightningNode,
 		error)
 
 	// ForEachNode iterates through all the stored vertices/nodes in the
 	// graph, executing the passed callback with each node encountered. If
 	// the callback returns an error, then the transaction is aborted and
 	// the iteration stops early.
-	ForEachNode(cb func(kvdb.RTx, *channeldb.LightningNode) error) error
+	ForEachNode(cb func(kvdb.RTx, *graphdb.LightningNode) error) error
 
 	// ForEachNodeChannel iterates through all channels of the given node,
 	// executing the passed callback with an edge info structure and the

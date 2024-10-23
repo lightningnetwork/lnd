@@ -1,9 +1,11 @@
 module github.com/lightningnetwork/lnd/healthcheck
 
-go 1.19
+go 1.21
+
+toolchain go1.22.2
 
 require (
-	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
+	github.com/btcsuite/btclog/v2 v2.0.0-20241017175713-3428138b75c7
 	github.com/lightningnetwork/lnd/ticker v1.1.0
 	github.com/lightningnetwork/lnd/tor v1.0.0
 	github.com/stretchr/testify v1.8.2
@@ -13,6 +15,7 @@ require (
 require (
 	github.com/btcsuite/btcd v0.23.2 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.1 // indirect
+	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/kr/pretty v0.3.0 // indirect
 	github.com/miekg/dns v1.1.43 // indirect

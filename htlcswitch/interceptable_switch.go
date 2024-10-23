@@ -194,7 +194,7 @@ func NewInterceptableSwitch(cfg *InterceptableSwitchConfig) (
 
 	return &InterceptableSwitch{
 		htlcSwitch:              cfg.Switch,
-		intercepted:             make(chan *interceptedPackets),
+		intercepted:             make(chan *interceptedPackets, 2*483),
 		onchainIntercepted:      make(chan InterceptedForward),
 		interceptorRegistration: make(chan ForwardInterceptor),
 		heldHtlcSet:             newHeldHtlcSet(),

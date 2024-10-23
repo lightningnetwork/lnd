@@ -39,6 +39,11 @@
 * [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9137) that prevented
   a graceful shutdown of LND during the main chain backend sync check in certain
   cases.
+  
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9068) where dust
+  htlcs although not being able to be resolved onchain were not canceled
+  back before the commitment tx was confirmed causing potentially force closes
+  of the incoming channel.
 
 # New Features
 ## Functional Enhancements

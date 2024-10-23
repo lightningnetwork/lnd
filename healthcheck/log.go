@@ -1,8 +1,6 @@
 package healthcheck
 
-import (
-	"github.com/btcsuite/btclog"
-)
+import "github.com/btcsuite/btclog/v2"
 
 // Subsystem defines the logging code for this subsystem.
 const Subsystem = "HLCK"

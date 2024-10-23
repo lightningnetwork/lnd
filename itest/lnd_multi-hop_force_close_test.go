@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
 )
@@ -100,6 +101,18 @@ var multiHopForceCloseTestCases = []*lntest.TestCase{
 	{
 		Name:     "multihop local preimage claim leased",
 		TestFunc: testLocalPreimageClaimLeased,
+	},
+	{
+		Name:     "multihop htlc aggregation anchor",
+		TestFunc: testHtlcAggregaitonAnchor,
+	},
+	{
+		Name:     "multihop htlc aggregation simple taproot",
+		TestFunc: testHtlcAggregaitonSimpleTaproot,
+	},
+	{
+		Name:     "multihop htlc aggregation leased",
+		TestFunc: testHtlcAggregaitonLeased,
 	},
 }
 
@@ -2701,4 +2714,411 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 	// Both nodes should consider the channel fully closed.
 	ht.AssertNumPendingForceClose(alice, 0)
 	ht.AssertNumPendingForceClose(bob, 0)
+}
+
+// testHtlcAggregaitonAnchor tests `runHtlcAggregation` with anchor channel.
+func testHtlcAggregaitonAnchor(ht *lntest.HarnessTest) {
+	success := ht.Run("no zero conf", func(t *testing.T) {
+		st := ht.Subtest(t)
+
+		// Create a three hop network: Alice -> Bob -> Carol, using
+		// anchor channels.
+		//
+		// Prepare params.
+		params := lntest.OpenChannelParams{Amt: chanAmt}
+
+		cfg := node.CfgAnchor
+		cfgs := [][]string{cfg, cfg, cfg}
+
+		runHtlcAggregation(st, cfgs, params)
+	})
+	if !success {
+		return
+	}
+
+	ht.Run("zero conf", func(t *testing.T) {
+		st := ht.Subtest(t)
+
+		// Create a three hop network: Alice -> Bob -> Carol, using
+		// zero-conf anchor channels.
+		//
+		// Prepare params.
+		params := lntest.OpenChannelParams{
+			Amt:            chanAmt,
+			ZeroConf:       true,
+			CommitmentType: lnrpc.CommitmentType_ANCHORS,
+		}
+
+		// Prepare Carol's node config to enable zero-conf and anchor.
+		cfg := node.CfgZeroConf
+		cfgs := [][]string{cfg, cfg, cfg}
+
+		runHtlcAggregation(st, cfgs, params)
+	})
+}
+
+// testHtlcAggregaitonSimpleTaproot tests `runHtlcAggregation` with simple
+// taproot channel.
+func testHtlcAggregaitonSimpleTaproot(ht *lntest.HarnessTest) {
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT
+
+	success := ht.Run("no zero conf", func(t *testing.T) {
+		st := ht.Subtest(t)
+
+		// Create a three hop network: Alice -> Bob -> Carol, using
+		// simple taproot channels.
+		//
+		// Prepare params.
+		params := lntest.OpenChannelParams{
+			Amt:            chanAmt,
+			CommitmentType: c,
+			Private:        true,
+		}
+
+		cfg := node.CfgSimpleTaproot
+		cfgs := [][]string{cfg, cfg, cfg}
+
+		runHtlcAggregation(st, cfgs, params)
+	})
+	if !success {
+		return
+	}
+
+	ht.Run("zero conf", func(t *testing.T) {
+		st := ht.Subtest(t)
+
+		// Create a three hop network: Alice -> Bob -> Carol, using
+		// zero-conf simple taproot channels.
+		//
+		// Prepare params.
+		params := lntest.OpenChannelParams{
+			Amt:            chanAmt,
+			ZeroConf:       true,
+			CommitmentType: c,
+			Private:        true,
+		}
+
+		// Prepare Carol's node config to enable zero-conf and leased
+		// channel.
+		cfg := node.CfgSimpleTaproot
+		cfg = append(cfg, node.CfgZeroConf...)
+		cfgs := [][]string{cfg, cfg, cfg}
+
+		runHtlcAggregation(st, cfgs, params)
+	})
+}
+
+// testHtlcAggregaitonLeased tests `runHtlcAggregation` with script enforced
+// lease channel.
+func testHtlcAggregaitonLeased(ht *lntest.HarnessTest) {
+	success := ht.Run("no zero conf", func(t *testing.T) {
+		st := ht.Subtest(t)
+
+		// Create a three hop network: Alice -> Bob -> Carol, using
+		// leased channels.
+		//
+		// Prepare params.
+		params := lntest.OpenChannelParams{
+			Amt:            chanAmt,
+			CommitmentType: leasedType,
+		}
+
+		cfg := node.CfgLeased
+		cfgs := [][]string{cfg, cfg, cfg}
+
+		runHtlcAggregation(st, cfgs, params)
+	})
+	if !success {
+		return
+	}
+
+	ht.Run("zero conf", func(t *testing.T) {
+		st := ht.Subtest(t)
+
+		// Create a three hop network: Alice -> Bob -> Carol, using
+		// zero-conf anchor channels.
+		//
+		// Prepare params.
+		params := lntest.OpenChannelParams{
+			Amt:            chanAmt,
+			ZeroConf:       true,
+			CommitmentType: leasedType,
+		}
+
+		// Prepare Carol's node config to enable zero-conf and leased
+		// channel.
+		cfg := node.CfgLeased
+		cfg = append(cfg, node.CfgZeroConf...)
+		cfgs := [][]string{cfg, cfg, cfg}
+
+		runHtlcAggregation(st, cfgs, params)
+	})
+}
+
+// runHtlcAggregation tests that in a multi-hop HTLC scenario, if we force
+// close a channel with both incoming and outgoing HTLCs, we can properly
+// resolve them using the second level timeout and success transactions. In
+// case of anchor channels, the second-level spends can also be aggregated and
+// properly feebumped, so we'll check that as well.
+func runHtlcAggregation(ht *lntest.HarnessTest,
+	cfgs [][]string, params lntest.OpenChannelParams) {
+
+	// Set the min relay feerate to be 10 sat/vbyte so the non-CPFP anchor
+	// is never swept.
+	//
+	// TODO(yy): delete this line once the normal anchor sweeping is
+	// removed.
+	ht.SetMinRelayFeerate(10_000)
+
+	// Create a three hop network: Alice -> Bob -> Carol.
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, params)
+	alice, bob, carol := nodes[0], nodes[1], nodes[2]
+	_, bobChanPoint := chanPoints[0], chanPoints[1]
+
+	// We need one additional UTXO to create the sweeping tx for the
+	// second-level success txes.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+
+	// Bob should have enough wallet UTXOs here to sweep the HTLC in the
+	// end of this test. However, due to a known issue, Bob's wallet may
+	// report there's no UTXO available. For details,
+	// - https://github.com/lightningnetwork/lnd/issues/8786
+	//
+	// TODO(yy): remove this step once the issue is resolved.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+
+	// If this is a taproot channel, then we'll need to make some manual
+	// route hints so Alice+Carol can actually find a route.
+	var (
+		carolRouteHints []*lnrpc.RouteHint
+		aliceRouteHints []*lnrpc.RouteHint
+	)
+
+	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		carolRouteHints = makeRouteHints(bob, carol, params.ZeroConf)
+		aliceRouteHints = makeRouteHints(bob, alice, params.ZeroConf)
+	}
+
+	// To ensure we have capacity in both directions of the route, we'll
+	// make a fairly large payment Alice->Carol and settle it.
+	const reBalanceAmt = 500_000
+	invoice := &lnrpc.Invoice{
+		Value:      reBalanceAmt,
+		RouteHints: carolRouteHints,
+	}
+	invResp := carol.RPC.AddInvoice(invoice)
+	ht.CompletePaymentRequests(alice, []string{invResp.PaymentRequest})
+
+	// Make sure Carol has settled the invoice.
+	ht.AssertInvoiceSettled(carol, invResp.PaymentAddr)
+
+	// With the network active, we'll now add a new hodl invoices at both
+	// Alice's and Carol's end. Make sure the cltv expiry delta is large
+	// enough, otherwise Bob won't send out the outgoing htlc.
+	const numInvoices = 5
+	const invoiceAmt = 50_000
+
+	var (
+		carolInvoices       []*invoicesrpc.AddHoldInvoiceResp
+		aliceInvoices       []*invoicesrpc.AddHoldInvoiceResp
+		alicePreimages      []lntypes.Preimage
+		payHashes           [][]byte
+		invoiceStreamsCarol []rpc.SingleInvoiceClient
+		invoiceStreamsAlice []rpc.SingleInvoiceClient
+	)
+
+	// Add Carol invoices.
+	for i := 0; i < numInvoices; i++ {
+		preimage := ht.RandomPreimage()
+		payHash := preimage.Hash()
+
+		invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
+			Value:      invoiceAmt,
+			CltvExpiry: finalCltvDelta,
+			Hash:       payHash[:],
+			RouteHints: carolRouteHints,
+		}
+		carolInvoice := carol.RPC.AddHoldInvoice(invoiceReq)
+
+		carolInvoices = append(carolInvoices, carolInvoice)
+		payHashes = append(payHashes, payHash[:])
+
+		// Subscribe the invoice.
+		stream := carol.RPC.SubscribeSingleInvoice(payHash[:])
+		invoiceStreamsCarol = append(invoiceStreamsCarol, stream)
+	}
+
+	// We'll give Alice's invoices a longer CLTV expiry, to ensure the
+	// channel Bob<->Carol will be closed first.
+	for i := 0; i < numInvoices; i++ {
+		preimage := ht.RandomPreimage()
+		payHash := preimage.Hash()
+
+		invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
+			Value:      invoiceAmt,
+			CltvExpiry: thawHeightDelta - 4,
+			Hash:       payHash[:],
+			RouteHints: aliceRouteHints,
+		}
+		aliceInvoice := alice.RPC.AddHoldInvoice(invoiceReq)
+
+		aliceInvoices = append(aliceInvoices, aliceInvoice)
+		alicePreimages = append(alicePreimages, preimage)
+		payHashes = append(payHashes, payHash[:])
+
+		// Subscribe the invoice.
+		stream := alice.RPC.SubscribeSingleInvoice(payHash[:])
+		invoiceStreamsAlice = append(invoiceStreamsAlice, stream)
+	}
+
+	// Now that we've created the invoices, we'll pay them all from
+	// Alice<->Carol, going through Bob. We won't wait for the response
+	// however, as neither will immediately settle the payment.
+	//
+	// Alice will pay all of Carol's invoices.
+	for _, carolInvoice := range carolInvoices {
+		req := &routerrpc.SendPaymentRequest{
+			PaymentRequest: carolInvoice.PaymentRequest,
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
+		}
+		alice.RPC.SendPayment(req)
+	}
+
+	// And Carol will pay Alice's.
+	for _, aliceInvoice := range aliceInvoices {
+		req := &routerrpc.SendPaymentRequest{
+			PaymentRequest: aliceInvoice.PaymentRequest,
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
+		}
+		carol.RPC.SendPayment(req)
+	}
+
+	// At this point, all 3 nodes should now the HTLCs active on their
+	// channels.
+	ht.AssertActiveHtlcs(alice, payHashes...)
+	ht.AssertActiveHtlcs(bob, payHashes...)
+	ht.AssertActiveHtlcs(carol, payHashes...)
+
+	// Wait for Alice and Carol to mark the invoices as accepted. There is
+	// a small gap to bridge between adding the htlc to the channel and
+	// executing the exit hop logic.
+	for _, stream := range invoiceStreamsCarol {
+		ht.AssertInvoiceState(stream, lnrpc.Invoice_ACCEPTED)
+	}
+
+	for _, stream := range invoiceStreamsAlice {
+		ht.AssertInvoiceState(stream, lnrpc.Invoice_ACCEPTED)
+	}
+
+	// We want Carol's htlcs to expire off-chain to demonstrate bob's force
+	// close. However, Carol will cancel her invoices to prevent force
+	// closes, so we shut her down for now.
+	restartCarol := ht.SuspendNode(carol)
+
+	// We'll now mine enough blocks to trigger Bob's broadcast of his
+	// commitment transaction due to the fact that the Carol's HTLCs are
+	// about to timeout. With the default outgoing broadcast delta of zero,
+	// this will be the same height as the htlc expiry height.
+	numBlocks := padCLTV(
+		uint32(finalCltvDelta - lncfg.DefaultOutgoingBroadcastDelta),
+	)
+	ht.MineBlocks(int(numBlocks))
+
+	// Bob should have one anchor sweep request.
+	//
+	// For neutrino backend, there's no way to know the sweeping of the
+	// remote anchor is failed, so Bob still sees two pending sweeps.
+	if ht.IsNeutrinoBackend() {
+		ht.AssertNumPendingSweeps(bob, 2)
+	} else {
+		ht.AssertNumPendingSweeps(bob, 1)
+	}
+
+	// Bob's force close tx and anchor sweeping tx should now be found in
+	// the mempool.
+	ht.AssertNumTxsInMempool(2)
+
+	// Once bob has force closed, we can restart carol.
+	require.NoError(ht, restartCarol())
+
+	// Mine a block to confirm Bob's force close tx and anchor sweeping tx.
+	ht.MineBlocksAndAssertNumTxes(1, 2)
+
+	// Let Alice settle her invoices. When Bob now gets the preimages, he
+	// will broadcast his second-level txns to claim the htlcs.
+	for _, preimage := range alicePreimages {
+		alice.RPC.SettleInvoice(preimage[:])
+	}
+
+	// Bob should have `numInvoices` for both HTLC success and timeout
+	// txns.
+	ht.AssertNumPendingSweeps(bob, numInvoices*2)
+
+	// Mine a block to trigger the sweep. This is needed because the
+	// preimage extraction logic from the link is not managed by the
+	// blockbeat, which means the preimage may be sent to the contest
+	// resolver after it's launched.
+	//
+	// TODO(yy): Expose blockbeat to the link layer.
+	ht.MineEmptyBlocks(1)
+
+	// Carol should have commit and anchor outputs.
+	ht.AssertNumPendingSweeps(carol, 2)
+
+	// We expect to see three sweeping txns:
+	// 1. Bob's sweeping tx for all timeout HTLCs.
+	// 2. Bob's sweeping tx for all success HTLCs.
+	// 3. Carol's sweeping tx for her commit output.
+	// Mine a block to confirm them.
+	ht.MineBlocksAndAssertNumTxes(1, 3)
+
+	// For this channel, we also check the number of HTLCs and the stage
+	// are correct.
+	ht.AssertNumHTLCsAndStage(bob, bobChanPoint, numInvoices*2, 2)
+
+	// For non-leased channels, we can now mine one block so Bob will sweep
+	// his to_local output.
+	if params.CommitmentType != leasedType {
+		// Mine one block so Bob's to_local becomes mature.
+		ht.MineBlocks(1)
+
+		// Bob should offer the to_local output to his sweeper now.
+		ht.AssertNumPendingSweeps(bob, 1)
+
+		// Mine a block to confirm Bob's sweeping of his to_local
+		// output.
+		ht.MineBlocksAndAssertNumTxes(1, 1)
+	}
+
+	// Mine blocks till the CSV expires on Bob's HTLC output.
+	resp := ht.AssertNumPendingForceClose(bob, 1)[0]
+	require.Equal(ht, numInvoices*2, len(resp.PendingHtlcs))
+
+	ht.Logf("Bob's timelock to_local output=%v, timelock on second stage "+
+		"htlc=%v", resp.BlocksTilMaturity,
+		resp.PendingHtlcs[0].BlocksTilMaturity)
+
+	ht.MineBlocks(int(resp.PendingHtlcs[0].BlocksTilMaturity))
+
+	// With the above mined block, Bob's HTLCs should now all be offered to
+	// his sweeper since the CSV lock is now expired.
+	//
+	// For leased channel, due to the test setup, Bob's to_local output is
+	// now also mature and can be swept together with his HTLCs.
+	if params.CommitmentType == leasedType {
+		ht.AssertNumPendingSweeps(bob, numInvoices*2+1)
+	} else {
+		ht.AssertNumPendingSweeps(bob, numInvoices*2)
+	}
+
+	// When we mine one additional block, that will confirm Bob's second
+	// level sweep. Now Bob should have no pending channels anymore, as
+	// this just resolved it by the confirmation of the sweep tx.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+	ht.AssertNumPendingForceClose(bob, 0)
+
+	// Carol should have no channels left.
+	ht.AssertNumPendingForceClose(carol, 0)
 }

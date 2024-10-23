@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -478,31 +477,38 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 // testHtlcTimeoutResolverExtractPreimage tests that in the multi-hop setting,
 // Alice->Bob->Carol, when Bob's outgoing HTLC is swept by Carol using the
 // direct preimage spend, Bob's timeout resolver will extract the preimage from
-// the sweep tx found in mempool or blocks(for neutrino). The direct spend tx
-// is broadcast by Carol and spends the outpoint on Bob's commit tx.
+// the sweep tx found in mempool. The direct spend tx is broadcast by Carol and
+// spends the outpoint on Bob's commit tx.
 func testHtlcTimeoutResolverExtractPreimageLocal(ht *lntest.HarnessTest) {
-	runMultiHopHtlcClaimTest(ht, runExtraPreimageFromLocalCommit)
-}
+	// For neutrino backend there's no mempool source so we skip it. The
+	// test of extracting preimage from blocks has already been covered in
+	// other tests.
+	if ht.IsNeutrinoBackend() {
+		ht.Skip("skipping neutrino")
+	}
 
-// runExtraPreimageFromLocalCommit checks that Bob's htlc timeout resolver will
-// extract the preimage from the direct spend broadcast by Carol which spends
-// the htlc output on Bob's commitment tx.
-func runExtraPreimageFromLocalCommit(ht *lntest.HarnessTest,
-	alice, bob *node.HarnessNode, c lnrpc.CommitmentType, zeroConf bool) {
+	// Set the min relay feerate to be 10 sat/vbyte so the non-CPFP anchor
+	// is never swept.
+	//
+	// TODO(yy): delete this line once the normal anchor sweeping is
+	// removed.
+	ht.SetMinRelayFeerate(10_000)
+
+	// Create a three hop network: Alice -> Bob -> Carol, using
+	// anchor channels.
+	//
+	// Prepare params.
+	params := lntest.OpenChannelParams{Amt: chanAmt}
+	cfg := node.CfgAnchor
+	cfgs := [][]string{cfg, cfg, cfg}
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
-	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
-		ht, alice, bob, false, c, zeroConf,
-	)
-
-	// If this is a taproot channel, then we'll need to make some manual
-	// route hints so Alice can actually find a route.
-	var routeHints []*lnrpc.RouteHint
-	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
-		routeHints = makeRouteHints(bob, carol, zeroConf)
-	}
+	// Create a three hop network: Alice -> Bob -> Carol.
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, params)
+	alice, bob, carol := nodes[0], nodes[1], nodes[2]
+	aliceChanPoint, bobChanPoint := chanPoints[0], chanPoints[1]
 
 	// With the network active, we'll now add a new hodl invoice at Carol's
 	// end. Make sure the cltv expiry delta is large enough, otherwise Bob
@@ -513,9 +519,11 @@ func runExtraPreimageFromLocalCommit(ht *lntest.HarnessTest,
 		Value:      100_000,
 		CltvExpiry: finalCltvDelta,
 		Hash:       payHash[:],
-		RouteHints: routeHints,
 	}
 	carolInvoice := carol.RPC.AddHoldInvoice(invoiceReq)
+
+	// Record the height which the invoice will expire.
+	invoiceExpiry := ht.CurrentHeight() + uint32(invoiceReq.CltvExpiry)
 
 	// Subscribe the invoice.
 	stream := carol.RPC.SubscribeSingleInvoice(payHash[:])
@@ -536,7 +544,7 @@ func runExtraPreimageFromLocalCommit(ht *lntest.HarnessTest,
 	// Bob should have two HTLCs active. One incoming HTLC from Alice, and
 	// one outgoing to Carol.
 	ht.AssertIncomingHTLCActive(bob, aliceChanPoint, payHash[:])
-	htlc := ht.AssertOutgoingHTLCActive(bob, bobChanPoint, payHash[:])
+	ht.AssertOutgoingHTLCActive(bob, bobChanPoint, payHash[:])
 
 	// Carol should have one incoming HTLC from Bob.
 	ht.AssertIncomingHTLCActive(carol, bobChanPoint, payHash[:])
@@ -564,114 +572,69 @@ func runExtraPreimageFromLocalCommit(ht *lntest.HarnessTest,
 	// mempool.
 	ht.CloseChannelAssertPending(bob, bobChanPoint, true)
 
-	// Bob should now has offered his anchors to his sweeper - both local
-	// and remote versions.
+	// Mine Bob's force close tx.
+	ht.MineClosingTx(bobChanPoint)
+
+	// Once Bob's force closing tx is confirmed, he will re-offer the
+	// anchor output to his sweeper, which won't be swept due to it being
+	// uneconomical.
+	ht.AssertNumPendingSweeps(bob, 1)
+
+	// Mine 3 blocks so the output will be offered to the sweeper.
+	ht.MineBlocks(defaultCSV - 1)
+
+	// Bob should have two pending sweeps now,
+	// - the commit output.
+	// - the anchor output, uneconomical.
 	ht.AssertNumPendingSweeps(bob, 2)
 
-	// Mine Bob's force close tx.
-	closeTx := ht.MineClosingTx(bobChanPoint)
-
-	// Mine Bob's anchor sweeping tx.
+	// Mine a block to confirm Bob's sweeping tx.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
-	blocksMined := 1
+
+	ht.Logf("Invoice expire height: %d, current: %d", invoiceExpiry,
+		ht.CurrentHeight())
 
 	// We'll now mine enough blocks to trigger Carol's sweeping of the htlc
-	// via the direct spend. With the default incoming broadcast delta of
-	// 10, this will be the htlc expiry height minus 10.
-	//
-	// NOTE: we need to mine 1 fewer block as we've already mined one to
-	// confirm Bob's force close tx.
-	numBlocks := padCLTV(uint32(
-		invoiceReq.CltvExpiry - lncfg.DefaultIncomingBroadcastDelta - 1,
-	))
-
-	// If this is a nont script-enforced channel, Bob will be able to sweep
-	// his commit output after 4 blocks.
-	if c != lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-		// Mine 3 blocks so the output will be offered to the sweeper.
-		ht.MineEmptyBlocks(defaultCSV - blocksMined - 1)
-
-		// Assert the commit output has been offered to the sweeper.
-		ht.AssertNumPendingSweeps(bob, 1)
-
-		// Mine a block to trigger the sweep.
-		ht.MineEmptyBlocks(1)
-		blocksMined = defaultCSV
-	}
-
-	// Mine empty blocks so it's easier to check Bob's sweeping txes below.
-	ht.MineEmptyBlocks(int(numBlocks) - blocksMined)
-
-	// With the above blocks mined, we should expect Carol's to offer the
-	// htlc output on Bob's commitment to the sweeper.
-	//
-	// TODO(yy): it's not offered to the sweeper yet, instead, the utxo
-	// nursery is creating and broadcasting the sweep tx - we should unify
-	// this behavior and offer it to the sweeper.
-	// ht.AssertNumPendingSweeps(carol, 1)
-
-	// Increase the fee rate used by the sweeper so Carol's direct spend tx
-	// won't be replaced by Bob's timeout tx.
-	ht.SetFeeEstimate(30000)
+	// via the direct spend.
+	numBlocks := padCLTV(
+		invoiceExpiry - ht.CurrentHeight() - incomingBroadcastDelta,
+	)
+	ht.MineBlocks(int(numBlocks))
 
 	// Restart Carol to sweep the htlc output.
 	require.NoError(ht, restartCarol())
 
+	// With the above blocks mined, we should expect Carol's to offer the
+	// htlc output on Bob's commitment to the sweeper.
+	//
+	// Carol should two pending sweeps,
+	// - htlc output.
+	// - anchor output, uneconomical.
 	ht.AssertNumPendingSweeps(carol, 2)
-	ht.MineEmptyBlocks(1)
-
-	// Construct the htlc output on Bob's commitment tx, and decide its
-	// index based on the commit type below.
-	htlcOutpoint := wire.OutPoint{Hash: closeTx.TxHash()}
 
 	// Check the current mempool state and we should see,
-	// - Carol's direct spend tx.
-	// - Bob's local output sweep tx, if this is NOT script enforced lease.
+	// - Carol's direct spend tx, which contains the preimage.
 	// - Carol's anchor sweep tx cannot be broadcast as it's uneconomical.
-	switch c {
-	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
-		htlcOutpoint.Index = 2
-		ht.AssertNumTxsInMempool(2)
-
-	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
-		htlcOutpoint.Index = 2
-		ht.AssertNumTxsInMempool(1)
-	}
-
-	// Get the current height to compute number of blocks to mine to
-	// trigger the timeout resolver from Bob.
-	height := ht.CurrentHeight()
+	ht.AssertNumTxsInMempool(1)
 
 	// We'll now mine enough blocks to trigger Bob's htlc timeout resolver
 	// to act. Once his timeout resolver starts, it will extract the
 	// preimage from Carol's direct spend tx found in the mempool.
-	numBlocks = htlc.ExpirationHeight - height -
-		lncfg.DefaultOutgoingBroadcastDelta
+	resp := ht.AssertNumPendingForceClose(bob, 1)[0]
+	require.Equal(ht, 1, len(resp.PendingHtlcs))
 
-	// Decrease the fee rate used by the sweeper so Bob's timeout tx will
-	// not replace Carol's direct spend tx.
-	ht.SetFeeEstimate(1000)
+	ht.Logf("Bob's timelock to_local output=%v, timelock on second stage "+
+		"htlc=%v", resp.BlocksTilMaturity,
+		resp.PendingHtlcs[0].BlocksTilMaturity)
 
 	// Mine empty blocks so Carol's direct spend tx stays in mempool. Once
 	// the height is reached, Bob's timeout resolver will resolve the htlc
 	// by extracing the preimage from the mempool.
-	ht.MineEmptyBlocks(int(numBlocks))
-
-	// For neutrino backend, the timeout resolver needs to extract the
-	// preimage from the blocks.
-	if ht.IsNeutrinoBackend() {
-		// Make sure the direct spend tx is still in the mempool.
-		ht.AssertOutpointInMempool(htlcOutpoint)
-
-		// Mine a block to confirm two txns,
-		// - Carol's direct spend tx.
-		// - Bob's to_local output sweep tx.
-		if c != lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-			ht.MineBlocksAndAssertNumTxes(1, 2)
-		} else {
-			ht.MineBlocksAndAssertNumTxes(1, 1)
-		}
-	}
+	//
+	// TODO(yy): there's no need to wait till the HTLC's CLTV is reached,
+	// Bob's outgoing contest resolver can also monitor the mempool and
+	// resolve the payment even earlier.
+	ht.MineEmptyBlocks(int(resp.PendingHtlcs[0].BlocksTilMaturity))
 
 	// Finally, check that the Alice's payment is marked as succeeded as
 	// Bob has settled the htlc using the preimage extracted from Carol's

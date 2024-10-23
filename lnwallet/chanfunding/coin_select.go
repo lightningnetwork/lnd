@@ -58,6 +58,10 @@ const (
 	// must assert that the output value of the selected existing output
 	// already is above dust when using this change address type.
 	ExistingChangeAddress ChangeAddressType = 2
+
+	// DefaultMaxFeeRatio is the default fee to total amount of outputs
+	// ratio that is used to sanity check the fees of a transaction.
+	DefaultMaxFeeRatio float64 = 0.2
 )
 
 // selectInputs selects a slice of inputs necessary to meet the specified
@@ -143,16 +147,22 @@ func calculateFees(utxos []wallet.Coin, feeRate chainfee.SatPerKWeight,
 	return requiredFeeNoChange, requiredFeeWithChange, nil
 }
 
-// sanityCheckFee checks if the specified fee amounts to over 20% of the total
-// output amount and raises an error.
-func sanityCheckFee(totalOut, fee btcutil.Amount) error {
-	// Fail if more than 20% goes to fees.
-	// TODO(halseth): smarter fee limit. Make configurable or dynamic wrt
-	// total funding size?
-	if fee > totalOut/5 {
-		return fmt.Errorf("fee %v on total output value %v", fee,
-			totalOut)
+// sanityCheckFee checks if the specified fee amounts to what the provided ratio
+// allows.
+func sanityCheckFee(totalOut, fee btcutil.Amount, maxFeeRatio float64) error {
+	// Sanity check the maxFeeRatio itself.
+	if maxFeeRatio <= 0.00 || maxFeeRatio > 1.00 {
+		return fmt.Errorf("maxFeeRatio must be between 0.00 and 1.00 "+
+			"got %.2f", maxFeeRatio)
 	}
+
+	// Check that the fees do not exceed the max allowed value.
+	if float64(fee) > float64(totalOut)*maxFeeRatio {
+		return fmt.Errorf("fee %v on total output value %v with max "+
+			"fee ratio of %.2f", fee, totalOut, maxFeeRatio)
+	}
+
+	// All checks passed, we return nil to signal that the fees are valid.
 	return nil
 }
 
@@ -163,7 +173,8 @@ func sanityCheckFee(totalOut, fee btcutil.Amount) error {
 func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
 	coins []wallet.Coin, strategy wallet.CoinSelectionStrategy,
 	existingWeight input.TxWeightEstimator,
-	changeType ChangeAddressType) ([]wallet.Coin, btcutil.Amount, error) {
+	changeType ChangeAddressType, maxFeeRatio float64) ([]wallet.Coin,
+	btcutil.Amount, error) {
 
 	amtNeeded := amt
 	for {
@@ -188,6 +199,7 @@ func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
 		changeAmount, newAmtNeeded, err := CalculateChangeAmount(
 			totalSat, amt, requiredFeeNoChange,
 			requiredFeeWithChange, dustLimit, changeType,
+			maxFeeRatio,
 		)
 		if err != nil {
 			return nil, 0, err
@@ -216,7 +228,8 @@ func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
 // fees and that more coins need to be selected.
 func CalculateChangeAmount(totalInputAmt, requiredAmt, requiredFeeNoChange,
 	requiredFeeWithChange, dustLimit btcutil.Amount,
-	changeType ChangeAddressType) (btcutil.Amount, btcutil.Amount, error) {
+	changeType ChangeAddressType, maxFeeRatio float64) (btcutil.Amount,
+	btcutil.Amount, error) {
 
 	// This is just a sanity check to make sure the function is used
 	// correctly.
@@ -266,7 +279,10 @@ func CalculateChangeAmount(totalInputAmt, requiredAmt, requiredFeeNoChange,
 	// Sanity check the resulting output values to make sure we
 	// don't burn a great part to fees.
 	totalOut := requiredAmt + changeAmt
-	err := sanityCheckFee(totalOut, totalInputAmt-totalOut)
+
+	err := sanityCheckFee(
+		totalOut, totalInputAmt-totalOut, maxFeeRatio,
+	)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -281,7 +297,7 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 	dustLimit btcutil.Amount, coins []wallet.Coin,
 	strategy wallet.CoinSelectionStrategy,
 	existingWeight input.TxWeightEstimator,
-	changeType ChangeAddressType) ([]wallet.Coin, btcutil.Amount,
+	changeType ChangeAddressType, maxFeeRatio float64) ([]wallet.Coin, btcutil.Amount,
 	btcutil.Amount, error) {
 
 	// First perform an initial round of coin selection to estimate
@@ -331,7 +347,9 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 	// Sanity check the resulting output values to make sure we
 	// don't burn a great part to fees.
 	totalOut := outputAmt + changeAmt
-	err = sanityCheckFee(totalOut, totalSat-totalOut)
+	err = sanityCheckFee(
+		totalOut, totalSat-totalOut, maxFeeRatio,
+	)
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -347,8 +365,8 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	reserved, dustLimit btcutil.Amount, coins []wallet.Coin,
 	strategy wallet.CoinSelectionStrategy,
 	existingWeight input.TxWeightEstimator,
-	changeType ChangeAddressType) ([]wallet.Coin, btcutil.Amount,
-	btcutil.Amount, error) {
+	changeType ChangeAddressType, maxFeeRatio float64) ([]wallet.Coin,
+	btcutil.Amount, btcutil.Amount, error) {
 
 	var (
 		// selectSubtractFee is tracking if our coin selection was
@@ -369,7 +387,7 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	// maxAmount with or without a change output that covers the miner fee.
 	selected, changeAmt, err := CoinSelect(
 		feeRate, maxAmount, dustLimit, coins, strategy, existingWeight,
-		changeType,
+		changeType, maxFeeRatio,
 	)
 
 	var errInsufficientFunds *ErrInsufficientFunds
@@ -412,7 +430,7 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	if selectSubtractFee {
 		selected, outputAmount, changeAmt, err = CoinSelectSubtractFees(
 			feeRate, totalBalance-reserved, dustLimit, coins,
-			strategy, existingWeight, changeType,
+			strategy, existingWeight, changeType, maxFeeRatio,
 		)
 		if err != nil {
 			return nil, 0, 0, err
@@ -430,7 +448,9 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 
 		return sum
 	}
-	err = sanityCheckFee(totalOut, sum(selected)-totalOut)
+	err = sanityCheckFee(
+		totalOut, sum(selected)-totalOut, maxFeeRatio,
+	)
 	if err != nil {
 		return nil, 0, 0, err
 	}

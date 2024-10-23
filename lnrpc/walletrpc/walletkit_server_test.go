@@ -162,9 +162,17 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		// packet in bytes.
 		expectedFee btcutil.Amount
 
+		// maxFeeRatio is the maximum fee to total output amount ratio
+		// that we consider valid.
+		maxFeeRatio float64
+
 		// expectedErr is the expected concrete error. If not nil, then
 		// the error must match exactly.
 		expectedErr error
+
+		// expectedContainedErrStr is the expected string to be
+		// contained in the returned error.
+		expectedContainedErrStr string
 
 		// expectedErrType is the expected error type. If not nil, then
 		// the error must be of this type.
@@ -178,6 +186,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		}),
 		changeIndex:     -1,
 		feeRate:         chainfee.FeePerKwFloor,
+		maxFeeRatio:     chanfunding.DefaultMaxFeeRatio,
 		expectedErrType: &chanfunding.ErrInsufficientFunds{},
 	}, {
 		name: "1 p2wpkh utxo, add p2wkh change",
@@ -193,6 +202,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		}),
 		changeIndex:             -1,
 		feeRate:                 chainfee.FeePerKwFloor,
+		maxFeeRatio:             chanfunding.DefaultMaxFeeRatio,
 		expectedUtxoIndexes:     []int{0},
 		expectChangeOutputIndex: 1,
 		expectedFee:             calcFee(0, 1, 1, 1, 0),
@@ -210,6 +220,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		}),
 		changeIndex:             -1,
 		feeRate:                 chainfee.FeePerKwFloor,
+		maxFeeRatio:             chanfunding.DefaultMaxFeeRatio,
 		changeType:              chanfunding.P2TRChangeAddress,
 		expectedUtxoIndexes:     []int{0},
 		expectChangeOutputIndex: 1,
@@ -228,6 +239,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		}),
 		changeIndex:             -1,
 		feeRate:                 chainfee.FeePerKwFloor,
+		maxFeeRatio:             chanfunding.DefaultMaxFeeRatio,
 		expectedUtxoIndexes:     []int{0},
 		expectChangeOutputIndex: -1,
 		expectedFee:             calcFee(0, 1, 1, 0, 0),
@@ -247,6 +259,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		}),
 		changeIndex:             -1,
 		feeRate:                 chainfee.FeePerKwFloor,
+		maxFeeRatio:             chanfunding.DefaultMaxFeeRatio,
 		changeType:              chanfunding.P2WKHChangeAddress,
 		expectedUtxoIndexes:     []int{0},
 		expectChangeOutputIndex: -1,
@@ -267,6 +280,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		}),
 		changeIndex:             -1,
 		feeRate:                 chainfee.FeePerKwFloor,
+		maxFeeRatio:             chanfunding.DefaultMaxFeeRatio,
 		changeType:              chanfunding.P2TRChangeAddress,
 		expectedUtxoIndexes:     []int{0},
 		expectChangeOutputIndex: -1,
@@ -285,6 +299,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		}),
 		changeIndex:             0,
 		feeRate:                 chainfee.FeePerKwFloor,
+		maxFeeRatio:             chanfunding.DefaultMaxFeeRatio,
 		changeType:              chanfunding.ExistingChangeAddress,
 		expectedUtxoIndexes:     []int{0},
 		expectChangeOutputIndex: 0,
@@ -303,6 +318,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		}),
 		changeIndex:             0,
 		feeRate:                 chainfee.FeePerKwFloor,
+		maxFeeRatio:             chanfunding.DefaultMaxFeeRatio,
 		changeType:              chanfunding.ExistingChangeAddress,
 		expectedUtxoIndexes:     []int{0},
 		expectChangeOutputIndex: 0,
@@ -321,6 +337,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		}),
 		changeIndex:             0,
 		feeRate:                 chainfee.FeePerKwFloor,
+		maxFeeRatio:             chanfunding.DefaultMaxFeeRatio,
 		changeType:              chanfunding.ExistingChangeAddress,
 		expectedUtxoIndexes:     []int{0},
 		expectChangeOutputIndex: 0,
@@ -369,6 +386,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		}),
 		changeIndex:             0,
 		feeRate:                 chainfee.FeePerKwFloor,
+		maxFeeRatio:             chanfunding.DefaultMaxFeeRatio,
 		changeType:              chanfunding.ExistingChangeAddress,
 		expectedUtxoIndexes:     []int{0, 1},
 		expectChangeOutputIndex: 0,
@@ -417,6 +435,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		}),
 		changeIndex:             -1,
 		feeRate:                 chainfee.FeePerKwFloor,
+		maxFeeRatio:             chanfunding.DefaultMaxFeeRatio,
 		changeType:              chanfunding.P2TRChangeAddress,
 		expectedUtxoIndexes:     []int{0, 1},
 		expectChangeOutputIndex: 1,
@@ -456,6 +475,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		}),
 		changeIndex:             -1,
 		feeRate:                 chainfee.FeePerKwFloor,
+		maxFeeRatio:             chanfunding.DefaultMaxFeeRatio,
 		changeType:              chanfunding.P2WKHChangeAddress,
 		expectedUtxoIndexes:     []int{},
 		expectChangeOutputIndex: 1,
@@ -497,10 +517,51 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		}),
 		changeIndex:             -1,
 		feeRate:                 chainfee.FeePerKwFloor,
+		maxFeeRatio:             chanfunding.DefaultMaxFeeRatio,
 		changeType:              chanfunding.P2TRChangeAddress,
 		expectedUtxoIndexes:     []int{},
 		expectChangeOutputIndex: -1,
 		expectedFee:             calcFee(1, 0, 1, 0, 0),
+	}, {
+		name: "1 p2wpkh utxo, existing p2wkh change, invalid fee ratio",
+		utxos: []*lnwallet.Utxo{
+			{
+				Value:    250,
+				PkScript: p2wkhScript,
+			},
+		},
+		packet: makePacket(&wire.TxOut{
+			Value:    50,
+			PkScript: p2wkhScript,
+		}),
+		changeIndex:             0,
+		feeRate:                 chainfee.FeePerKwFloor,
+		maxFeeRatio:             chanfunding.DefaultMaxFeeRatio,
+		changeType:              chanfunding.ExistingChangeAddress,
+		expectedUtxoIndexes:     []int{0},
+		expectChangeOutputIndex: 0,
+		expectedFee:             calcFee(0, 1, 0, 1, 0),
+
+		expectedContainedErrStr: "with max fee ratio",
+	}, {
+		name: "1 p2wpkh utxo, existing p2wkh change, big fee ratio",
+		utxos: []*lnwallet.Utxo{
+			{
+				Value:    250,
+				PkScript: p2wkhScript,
+			},
+		},
+		packet: makePacket(&wire.TxOut{
+			Value:    50,
+			PkScript: p2wkhScript,
+		}),
+		changeIndex:             0,
+		feeRate:                 chainfee.FeePerKwFloor,
+		maxFeeRatio:             0.85,
+		changeType:              chanfunding.ExistingChangeAddress,
+		expectedUtxoIndexes:     []int{0},
+		expectChangeOutputIndex: 0,
+		expectedFee:             calcFee(0, 1, 0, 1, 0),
 	}, {
 		name: "large existing p2tr input, fee estimation existing " +
 			"change output",
@@ -536,6 +597,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 		}),
 		changeIndex:                0,
 		feeRate:                    chainfee.FeePerKwFloor,
+		maxFeeRatio:                chanfunding.DefaultMaxFeeRatio,
 		changeType:                 chanfunding.ExistingChangeAddress,
 		expectedUtxoIndexes:        []int{},
 		expectChangeOutputIndex:    0,
@@ -575,6 +637,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 				"", tc.changeIndex, copiedPacket, 0,
 				tc.changeType, tc.feeRate,
 				rpcServer.cfg.CoinSelectionStrategy,
+				tc.maxFeeRatio,
 			)
 
 			switch {
@@ -587,6 +650,12 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 			case tc.expectedErrType != nil:
 				require.Error(tt, err)
 				require.ErrorAs(tt, err, &tc.expectedErr)
+
+				return
+			case tc.expectedContainedErrStr != "":
+				require.ErrorContains(
+					tt, err, tc.expectedContainedErrStr,
+				)
 
 				return
 			}

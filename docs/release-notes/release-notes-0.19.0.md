@@ -67,6 +67,8 @@
 
 ## RPC Updates
 
+* [Allow arbitrary source public key for BuildRoute RPC](https://github.com/lightningnetwork/lnd/pull/9153) so that lnd's _*ChannelRouter*_ and _*routerrpc.Server*_ can build routes from the perspective of different nodes.
+
 ## lncli Updates
 
 ## Code Health
@@ -126,6 +128,7 @@
 
 * Boris Nagaev
 * CharlieZKSmith
+* Calvin Zachman
 * Elle Mouton
 * Pins
 * Viktor Tigerström

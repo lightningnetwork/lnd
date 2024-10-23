@@ -194,6 +194,20 @@ type paymentSession struct {
 
 	// log is a payment session-specific logger.
 	log btclog.Logger
+
+	// A transformation which will be applied to every route created for
+	// this payment session.
+	routeTransform RouteTransformFunc
+}
+
+// option is a functional option for configuring the payment session.
+type option func(*paymentSession)
+
+// withRouteTransform sets a route transformation function.
+func withRouteTransform(routeTransform RouteTransformFunc) option {
+	return func(ps *paymentSession) {
+		ps.routeTransform = routeTransform
+	}
 }
 
 // newPaymentSession instantiates a new payment session.
@@ -201,7 +215,8 @@ func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 	getBandwidthHints func(Graph) (bandwidthHints, error),
 	graphSessFactory GraphSessionFactory,
 	missionControl MissionControlQuerier,
-	pathFindingConfig PathFindingConfig) (*paymentSession, error) {
+	pathFindingConfig PathFindingConfig,
+	options ...option) (*paymentSession, error) {
 
 	edges, err := RouteHintsToEdges(p.RouteHints, p.Target)
 	if err != nil {
@@ -222,7 +237,7 @@ func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 
 	logPrefix := fmt.Sprintf("PaymentSession(%x):", p.Identifier())
 
-	return &paymentSession{
+	ps := &paymentSession{
 		selfNode:          selfNode,
 		additionalEdges:   edges,
 		getBandwidthHints: getBandwidthHints,
@@ -233,7 +248,13 @@ func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 		missionControl:    missionControl,
 		minShardAmt:       DefaultShardMinAmt,
 		log:               build.NewPrefixLog(logPrefix, log),
-	}, nil
+	}
+
+	for _, option := range options {
+		option(ps)
+	}
+
+	return ps, nil
 }
 
 // RequestRoute returns a route which is likely to be capable for successfully
@@ -427,6 +448,11 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		)
 		if err != nil {
 			return nil, err
+		}
+
+		// Apply the route transformation, if provided.
+		if p.routeTransform != nil {
+			route = p.routeTransform(route)
 		}
 
 		return route, err

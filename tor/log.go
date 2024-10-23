@@ -1,8 +1,6 @@
 package tor
 
-import (
-	"github.com/btcsuite/btclog"
-)
+import "github.com/btcsuite/btclog/v2"
 
 // Subsystem defines the logging code for this subsystem.
 const Subsystem = "TORC" // TORC as in Tor Controller.

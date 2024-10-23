@@ -420,8 +420,26 @@ func TestEmptyMessageUnknownType(t *testing.T) {
 
 // randCustomRecords generates a random set of custom records for testing.
 func randCustomRecords(t *testing.T, r *rand.Rand) CustomRecords {
+	customRecords := randTLVMap(t, r, MinCustomRecordsTlvType)
+
+	// Validate the custom records as a sanity check.
+	err := CustomRecords(customRecords).Validate()
+	require.NoError(t, err)
+
+	return customRecords
+}
+
+// randSignedRangeRecords generates a random set of signed records in the
+// second "signed" tlv range for pure TLV messages.
+func randSignedRangeRecords(t *testing.T, r *rand.Rand) CustomRecords {
+	return randTLVMap(t, r, pureTLVSignedSecondRangeStart)
+}
+
+func randTLVMap(t *testing.T, r *rand.Rand,
+	rangeStart uint64) map[uint64][]byte {
+
 	var (
-		customRecords = CustomRecords{}
+		m = make(map[uint64][]byte)
 
 		// We'll generate a random number of records, between 1 and 10.
 		numRecords = r.Intn(9) + 1
@@ -432,21 +450,17 @@ func randCustomRecords(t *testing.T, r *rand.Rand) CustomRecords {
 		// Keys must be equal to or greater than
 		// MinCustomRecordsTlvType.
 		keyOffset := uint64(r.Intn(100))
-		key := MinCustomRecordsTlvType + keyOffset
+		key := rangeStart + keyOffset
 
 		// Values are byte slices of any length.
 		value := make([]byte, r.Intn(10))
 		_, err := r.Read(value)
 		require.NoError(t, err)
 
-		customRecords[key] = value
+		m[key] = value
 	}
 
-	// Validate the custom records as a sanity check.
-	err := customRecords.Validate()
-	require.NoError(t, err)
-
-	return customRecords
+	return m
 }
 
 // TestLightningWireProtocol uses the testing/quick package to create a series
@@ -1505,37 +1519,29 @@ func TestLightningWireProtocol(t *testing.T) {
 		MsgAnnounceSignatures2: func(v []reflect.Value,
 			r *rand.Rand) {
 
-			req := AnnounceSignatures2{
-				ShortChannelID: NewShortChanIDFromInt(
-					uint64(r.Int63()),
-				),
-				ExtraOpaqueData: make([]byte, 0),
-			}
+			var req AnnounceSignatures2
 
-			_, err := r.Read(req.ChannelID[:])
+			req.ExtraFieldsInSignedRange = randSignedRangeRecords(
+				t, r,
+			)
+
+			_, err := r.Read(req.ChannelID.Val[:])
 			require.NoError(t, err)
 
 			partialSig, err := randPartialSig(r)
 			require.NoError(t, err)
 
-			req.PartialSignature = *partialSig
-
-			numExtraBytes := r.Int31n(1000)
-			if numExtraBytes > 0 {
-				req.ExtraOpaqueData = make(
-					[]byte, numExtraBytes,
-				)
-				_, err := r.Read(req.ExtraOpaqueData[:])
-				require.NoError(t, err)
-			}
+			req.PartialSignature.Val = *partialSig
 
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgChannelAnnouncement2: func(v []reflect.Value, r *rand.Rand) {
-			req := ChannelAnnouncement2{
-				Signature:       testSchnorrSig,
-				ExtraOpaqueData: make([]byte, 0),
-			}
+			var req ChannelAnnouncement2
+
+			req.Signature.Val = testSchnorrSig
+			req.ExtraFieldsInSignedRange = randSignedRangeRecords(
+				t, r,
+			)
 
 			req.ShortChannelID.Val = NewShortChanIDFromInt(
 				uint64(r.Int63()),
@@ -1584,23 +1590,16 @@ func TestLightningWireProtocol(t *testing.T) {
 				}
 			}
 
-			numExtraBytes := r.Int31n(1000)
-			if numExtraBytes > 0 {
-				req.ExtraOpaqueData = make(
-					[]byte, numExtraBytes,
-				)
-				_, err := r.Read(req.ExtraOpaqueData[:])
-				require.NoError(t, err)
-			}
-
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgChannelUpdate2: func(v []reflect.Value, r *rand.Rand) {
-			req := ChannelUpdate2{
-				Signature:       testSchnorrSig,
-				ExtraOpaqueData: make([]byte, 0),
-			}
+			var req ChannelUpdate2
 
+			req.ExtraFieldsInSignedRange = randSignedRangeRecords(
+				t, r,
+			)
+
+			req.Signature.Val = testSchnorrSig
 			req.ShortChannelID.Val = NewShortChanIDFromInt(
 				uint64(r.Int63()),
 			)
@@ -1659,15 +1658,6 @@ func TestLightningWireProtocol(t *testing.T) {
 			if r.Int31()%2 == 0 {
 				req.DisabledFlags.Val |=
 					ChanUpdateDisableOutgoing
-			}
-
-			numExtraBytes := r.Int31n(1000)
-			if numExtraBytes > 0 {
-				req.ExtraOpaqueData = make(
-					[]byte, numExtraBytes,
-				)
-				_, err := r.Read(req.ExtraOpaqueData[:])
-				require.NoError(t, err)
 			}
 
 			v[0] = reflect.ValueOf(req)

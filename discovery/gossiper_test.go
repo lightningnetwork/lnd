@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
@@ -766,7 +767,8 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 	}
 
 	gossiper := New(Config{
-		Notifier: notifier,
+		ChainParams: &chaincfg.MainNetParams,
+		Notifier:    notifier,
 		Broadcast: func(senders map[route.Vertex]struct{},
 			msgs ...lnwire.Message) error {
 
@@ -1480,6 +1482,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 
 	//nolint:lll
 	gossiper := New(Config{
+		ChainParams:            &chaincfg.MainNetParams,
 		Notifier:               ctx.gossiper.cfg.Notifier,
 		Broadcast:              ctx.gossiper.cfg.Broadcast,
 		NotifyWhenOnline:       ctx.gossiper.reliableSender.cfg.NotifyWhenOnline,

@@ -6025,6 +6025,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		NumHops:                  globalBlindCfg.NumHops,
 		MaxNumPaths:              globalBlindCfg.MaxNumPaths,
 		NodeOmissionSet:          fn.NewSet[route.Vertex](),
+		ChannelIncomeSet:         make([]uint64, 0),
 	}
 
 	if blindCfg != nil && !blind {
@@ -6053,6 +6054,12 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 			blindingRestrictions.NodeOmissionSet.Add(vertex)
 		}
+
+		blindingRestrictions.ChannelIncomeSet = append(
+			blindingRestrictions.ChannelIncomeSet,
+			blindCfg.ChannelIncomeList...,
+		)
+
 	}
 
 	if blindingRestrictions.MinDistanceFromIntroNode >

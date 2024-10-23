@@ -1165,6 +1165,10 @@ type blindedPathRestrictions struct {
 	// nodeOmissionSet holds a set of node IDs of nodes that we should
 	// ignore during blinded path selection.
 	nodeOmissionSet fn.Set[route.Vertex]
+
+	// channelIncomeSet holds a chained channels that we
+	// should use as income hops during blinded path selection.
+	channelIncomeSet []uint64
 }
 
 // blindedHop holds the information about a hop we have selected for a blinded
@@ -1300,6 +1304,16 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 	// node that can be used for blinded paths
 	err = g.ForEachNodeChannel(node,
 		func(channel *channeldb.DirectedChannel) error {
+			// If this channel was included  into the chained
+			// channel route.
+			chanInSet := restrictions.channelIncomeSet
+			chanIx := len(alreadyVisited)
+			if chanIx < len(chanInSet) {
+				if chanInSet[chanIx] != channel.ChannelID {
+					return nil
+				}
+			}
+
 			// Keep track of how many incoming channels this node
 			// has. We only use a node as an introduction node if it
 			// has channels other than the one that lead us to it.

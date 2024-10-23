@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/urfave/cli"
@@ -116,6 +117,11 @@ var AddInvoiceCommand = cli.Command{
 				"use on a blinded path. The flag may be " +
 				"specified multiple times.",
 		},
+		cli.StringSliceFlag{
+			Name: "blinded_path_income_channel",
+			Usage: "The chained channels ids to be used in a " +
+				"blinded path as the income hops.",
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -202,7 +208,8 @@ func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 		if ctx.IsSet("min_real_blinded_hops") ||
 			ctx.IsSet("num_blinded_hops") ||
 			ctx.IsSet("max_blinded_paths") ||
-			ctx.IsSet("blinded_path_omit_node") {
+			ctx.IsSet("blinded_path_omit_node") ||
+			ctx.IsSet("blinded_path_income_channel") {
 
 			return nil, fmt.Errorf("blinded path options are " +
 				"only used if the `--blind` options is set")
@@ -237,6 +244,20 @@ func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 		blindCfg.NodeOmissionList = append(
 			blindCfg.NodeOmissionList, pubKeyBytes,
 		)
+	}
+
+	if ctx.IsSet("blinded_path_income_channel") {
+		channels := strings.Split(
+			ctx.String("blinded_path_income_channel"), ",")
+		for _, chanID := range channels {
+			channelID, err := strconv.ParseUint(chanID, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			blindCfg.ChannelIncomeList = append(
+				blindCfg.ChannelIncomeList, channelID,
+			)
+		}
 	}
 
 	return &blindCfg, nil

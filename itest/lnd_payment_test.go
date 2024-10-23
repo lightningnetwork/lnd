@@ -335,9 +335,6 @@ func runTestPaymentHTLCTimeout(ht *lntest.HarnessTest, restartAlice bool) {
 	// sweep her outgoing HTLC in next block.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
-	// Cleanup the channel.
-	ht.CleanupForceClose(alice)
-
 	// We expect the non-dust payment to marked as failed in Alice's
 	// database and also from her stream.
 	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_FAILED)

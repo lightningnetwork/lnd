@@ -1,10 +1,6 @@
 package itest
 
 import (
-	"context"
-	"fmt"
-	"testing"
-
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -13,7 +9,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
-	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
 )
@@ -22,36 +17,6 @@ const (
 	finalCltvDelta  = routing.MinCLTVDelta // 18.
 	thawHeightDelta = finalCltvDelta * 2   // 36.
 )
-
-var commitWithZeroConf = []struct {
-	commitType lnrpc.CommitmentType
-	zeroConf   bool
-}{
-	{
-		commitType: lnrpc.CommitmentType_ANCHORS,
-		zeroConf:   false,
-	},
-	{
-		commitType: lnrpc.CommitmentType_ANCHORS,
-		zeroConf:   true,
-	},
-	{
-		commitType: lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
-		zeroConf:   false,
-	},
-	{
-		commitType: lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
-		zeroConf:   true,
-	},
-	{
-		commitType: lnrpc.CommitmentType_SIMPLE_TAPROOT,
-		zeroConf:   false,
-	},
-	{
-		commitType: lnrpc.CommitmentType_SIMPLE_TAPROOT,
-		zeroConf:   true,
-	},
-}
 
 // makeRouteHints creates a route hints that will allow Carol to be reached
 // using an unadvertised channel created by Bob (Bob -> Carol). If the zeroConf
@@ -106,232 +71,42 @@ func makeRouteHints(bob, carol *node.HarnessNode,
 	}
 }
 
-// caseRunner defines a single test case runner.
-type caseRunner func(ht *lntest.HarnessTest, alice, bob *node.HarnessNode,
-	c lnrpc.CommitmentType, zeroConf bool)
-
-// runMultiHopHtlcClaimTest is a helper method to build test cases based on
-// different commitment types and zero-conf config and run them.
-//
-// TODO(yy): flatten this test.
-func runMultiHopHtlcClaimTest(ht *lntest.HarnessTest, tester caseRunner) {
-	for _, typeAndConf := range commitWithZeroConf {
-		typeAndConf := typeAndConf
-		name := fmt.Sprintf("zeroconf=%v/committype=%v",
-			typeAndConf.zeroConf, typeAndConf.commitType.String())
-
-		// Create the nodes here so that separate logs will be created
-		// for Alice and Bob.
-		args := lntest.NodeArgsForCommitType(typeAndConf.commitType)
-		if typeAndConf.zeroConf {
-			args = append(
-				args, "--protocol.option-scid-alias",
-				"--protocol.zero-conf",
-			)
-		}
-
-		s := ht.Run(name, func(t1 *testing.T) {
-			st := ht.Subtest(t1)
-
-			alice := st.NewNode("Alice", args)
-			bob := st.NewNode("Bob", args)
-			st.ConnectNodes(alice, bob)
-
-			// Start each test with the default static fee estimate.
-			st.SetFeeEstimate(12500)
-
-			// Add test name to the logs.
-			alice.AddToLogf("Running test case: %s", name)
-			bob.AddToLogf("Running test case: %s", name)
-
-			tester(
-				st, alice, bob,
-				typeAndConf.commitType, typeAndConf.zeroConf,
-			)
-		})
-		if !s {
-			return
-		}
-	}
-}
-
-// createThreeHopNetwork creates a topology of `Alice -> Bob -> Carol`.
-func createThreeHopNetwork(ht *lntest.HarnessTest,
-	alice, bob *node.HarnessNode, carolHodl bool, c lnrpc.CommitmentType,
-	zeroConf bool) (*lnrpc.ChannelPoint,
-	*lnrpc.ChannelPoint, *node.HarnessNode) {
-
-	ht.EnsureConnected(alice, bob)
-
-	// We'll create a new node "carol" and have Bob connect to her.
-	// If the carolHodl flag is set, we'll make carol always hold onto the
-	// HTLC, this way it'll force Bob to go to chain to resolve the HTLC.
-	carolFlags := lntest.NodeArgsForCommitType(c)
-	if carolHodl {
-		carolFlags = append(carolFlags, "--hodl.exit-settle")
-	}
-
-	if zeroConf {
-		carolFlags = append(
-			carolFlags, "--protocol.option-scid-alias",
-			"--protocol.zero-conf",
-		)
-	}
-	carol := ht.NewNode("Carol", carolFlags)
-
-	ht.ConnectNodes(bob, carol)
-
-	// Make sure there are enough utxos for anchoring. Because the anchor
-	// by itself often doesn't meet the dust limit, a utxo from the wallet
-	// needs to be attached as an additional input. This can still lead to
-	// a positively-yielding transaction.
-	for i := 0; i < 2; i++ {
-		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, alice)
-		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, bob)
-		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, carol)
-
-		// Mine 1 block to get the above coins confirmed.
-		ht.MineBlocksAndAssertNumTxes(1, 3)
-	}
-
-	// We'll start the test by creating a channel between Alice and Bob,
-	// which will act as the first leg for out multi-hop HTLC.
-	const chanAmt = 1000000
-	var aliceFundingShim *lnrpc.FundingShim
-	var thawHeight uint32
-	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-		minerHeight := ht.CurrentHeight()
-		thawHeight = minerHeight + thawHeightDelta
-		aliceFundingShim, _ = deriveFundingShim(
-			ht, alice, bob, chanAmt, thawHeight, true, c,
-		)
-	}
-
-	var privateChan bool
-	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
-		privateChan = true
-	}
-
-	aliceParams := lntest.OpenChannelParams{
-		Private:        privateChan,
-		Amt:            chanAmt,
-		CommitmentType: c,
-		FundingShim:    aliceFundingShim,
-		ZeroConf:       zeroConf,
-	}
-
-	// If the channel type is taproot, then use an explicit channel type to
-	// open it.
-	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
-		aliceParams.CommitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT
-	}
-
-	// We'll create a channel from Bob to Carol. After this channel is
-	// open, our topology looks like:  A -> B -> C.
-	var bobFundingShim *lnrpc.FundingShim
-	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-		bobFundingShim, _ = deriveFundingShim(
-			ht, bob, carol, chanAmt, thawHeight, true, c,
-		)
-	}
-
-	// Prepare params for Bob.
-	bobParams := lntest.OpenChannelParams{
-		Amt:            chanAmt,
-		Private:        privateChan,
-		CommitmentType: c,
-		FundingShim:    bobFundingShim,
-		ZeroConf:       zeroConf,
-	}
-
-	// If the channel type is taproot, then use an explicit channel type to
-	// open it.
-	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
-		bobParams.CommitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT
-	}
-
-	var (
-		acceptStreamBob   rpc.AcceptorClient
-		acceptStreamCarol rpc.AcceptorClient
-		cancelBob         context.CancelFunc
-		cancelCarol       context.CancelFunc
-	)
-
-	// If a zero-conf channel is being opened, the nodes are signalling the
-	// zero-conf feature bit. Setup a ChannelAcceptor for the fundee.
-	if zeroConf {
-		acceptStreamBob, cancelBob = bob.RPC.ChannelAcceptor()
-		go acceptChannel(ht.T, true, acceptStreamBob)
-
-		acceptStreamCarol, cancelCarol = carol.RPC.ChannelAcceptor()
-		go acceptChannel(ht.T, true, acceptStreamCarol)
-	}
-
-	// Open channels in batch to save blocks mined.
-	reqs := []*lntest.OpenChannelRequest{
-		{Local: alice, Remote: bob, Param: aliceParams},
-		{Local: bob, Remote: carol, Param: bobParams},
-	}
-	resp := ht.OpenMultiChannelsAsync(reqs)
-	aliceChanPoint := resp[0]
-	bobChanPoint := resp[1]
-
-	// Make sure alice and carol know each other's channels.
-	//
-	// We'll only do this though if it wasn't a private channel we opened
-	// earlier.
-	if !privateChan {
-		ht.AssertChannelInGraph(alice, bobChanPoint)
-		ht.AssertChannelInGraph(carol, aliceChanPoint)
-	} else {
-		// Otherwise, we want to wait for all the channels to be shown
-		// as active before we proceed.
-		ht.AssertChannelExists(alice, aliceChanPoint)
-		ht.AssertChannelExists(carol, bobChanPoint)
-	}
-
-	// Remove the ChannelAcceptor for Bob and Carol.
-	if zeroConf {
-		cancelBob()
-		cancelCarol()
-	}
-
-	return aliceChanPoint, bobChanPoint, carol
-}
-
 // testHtlcTimeoutResolverExtractPreimageRemote tests that in the multi-hop
 // setting, Alice->Bob->Carol, when Bob's outgoing HTLC is swept by Carol using
 // the 2nd level success tx2nd level success tx, Bob's timeout resolver will
-// extract the preimage from the sweep tx found in mempool or blocks(for
-// neutrino). The 2nd level success tx is broadcast by Carol and spends the
-// outpoint on her commit tx.
+// extract the preimage from the sweep tx found in mempool.  The 2nd level
+// success tx is broadcast by Carol and spends the outpoint on her commit tx.
 func testHtlcTimeoutResolverExtractPreimageRemote(ht *lntest.HarnessTest) {
-	runMultiHopHtlcClaimTest(ht, runExtraPreimageFromRemoteCommit)
-}
+	// For neutrino backend there's no mempool source so we skip it. The
+	// test of extracting preimage from blocks has already been covered in
+	// other tests.
+	if ht.IsNeutrinoBackend() {
+		ht.Skip("skipping neutrino")
+	}
 
-// runExtraPreimageFromRemoteCommit checks that Bob's htlc timeout resolver
-// will extract the preimage from the 2nd level success tx broadcast by Carol
-// which spends the htlc output on her commitment tx.
-func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
-	alice, bob *node.HarnessNode, c lnrpc.CommitmentType, zeroConf bool) {
+	// Set the min relay feerate to be 10 sat/vbyte so the non-CPFP anchor
+	// is never swept.
+	//
+	// TODO(yy): delete this line once the normal anchor sweeping is
+	// removed.
+	ht.SetMinRelayFeerate(10_000)
+
+	// Create a three hop network: Alice -> Bob -> Carol, using
+	// anchor channels.
+	//
+	// Prepare params.
+	params := lntest.OpenChannelParams{Amt: chanAmt}
+	cfg := node.CfgAnchor
+	cfgs := [][]string{cfg, cfg, cfg}
 
 	// First, we'll create a three hop network: Alice -> Bob -> Carol, with
 	// Carol refusing to actually settle or directly cancel any HTLC's
 	// self.
-	aliceChanPoint, bobChanPoint, carol := createThreeHopNetwork(
-		ht, alice, bob, false, c, zeroConf,
-	)
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, params)
+	alice, bob, carol := nodes[0], nodes[1], nodes[2]
+	aliceChanPoint, bobChanPoint := chanPoints[0], chanPoints[1]
 
-	if ht.IsNeutrinoBackend() {
-		ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-	}
-
-	// If this is a taproot channel, then we'll need to make some manual
-	// route hints so Alice can actually find a route.
-	var routeHints []*lnrpc.RouteHint
-	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
-		routeHints = makeRouteHints(bob, carol, zeroConf)
-	}
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	// With the network active, we'll now add a new hodl invoice at Carol's
 	// end. Make sure the cltv expiry delta is large enough, otherwise Bob
@@ -342,7 +117,6 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 		Value:      100_000,
 		CltvExpiry: finalCltvDelta,
 		Hash:       payHash[:],
-		RouteHints: routeHints,
 	}
 	eveInvoice := carol.RPC.AddHoldInvoice(invoiceReq)
 
@@ -387,28 +161,21 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 	// timeout. With the default incoming broadcast delta of 10, this
 	// will be the htlc expiry height minus 10.
 	numBlocks := padCLTV(uint32(
-		invoiceReq.CltvExpiry - lncfg.DefaultIncomingBroadcastDelta,
+		invoiceReq.CltvExpiry - incomingBroadcastDelta,
 	))
-	ht.MineEmptyBlocks(int(numBlocks))
+	ht.MineBlocks(int(numBlocks))
 
-	// Carol's force close transaction should now be found in the mempool.
-	// If there are anchors, we also expect Carol's contractcourt to offer
-	// the anchors to her sweeper - one from the local commitment and the
-	// other from the remote.
-	ht.AssertNumPendingSweeps(carol, 2)
-
-	// We now mine a block to confirm Carol's closing transaction, which
-	// will trigger her sweeper to sweep her CPFP anchor sweeping.
-	ht.MineClosingTx(bobChanPoint)
+	// Mine the two txns made from Carol,
+	// - the force close tx.
+	// - the anchor sweeping tx.
+	ht.MineBlocksAndAssertNumTxes(1, 2)
 
 	// With the closing transaction confirmed, we should expect Carol's
-	// HTLC success transaction to be offered to the sweeper along with her
-	// anchor output.
-	ht.AssertNumPendingSweeps(carol, 2)
+	// HTLC success transaction to be offered to the sweeper. along with her
+	// anchor output. Note that the anchor output is uneconomical to sweep.
+	ht.AssertNumPendingSweeps(carol, 1)
 
-	// Mine a block to trigger the sweep, and clean up the anchor sweeping
-	// tx.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
+	// We should now have Carol's htlc success tx in the mempool.
 	ht.AssertNumTxsInMempool(1)
 
 	// Restart Bob. Once he finishes syncing the channel state, he should
@@ -423,18 +190,6 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 	numBlocks = htlc.ExpirationHeight - height -
 		lncfg.DefaultOutgoingBroadcastDelta
 
-	// We should now have Carol's htlc success tx in the mempool.
-	numTxesMempool := 1
-	ht.AssertNumTxsInMempool(numTxesMempool)
-
-	// For neutrino backend, the timeout resolver needs to extract the
-	// preimage from the blocks.
-	if ht.IsNeutrinoBackend() {
-		// Mine a block to confirm Carol's 2nd level success tx.
-		ht.MineBlocksAndAssertNumTxes(1, 1)
-		numBlocks--
-	}
-
 	// Mine empty blocks so Carol's htlc success tx stays in mempool. Once
 	// the height is reached, Bob's timeout resolver will resolve the htlc
 	// by extracing the preimage from the mempool.
@@ -445,29 +200,8 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 	// 2nd level success tx.
 	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
 
-	switch c {
-	// For anchor channel type, we should expect to see Bob's commit output
-	// and his anchor output be swept in a single tx in the mempool.
-	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
-		numTxesMempool++
-
-	// For script-enforced leased channel, Bob's anchor sweep tx won't
-	// happen as it's not used for CPFP, hence no wallet utxo is used so
-	// it'll be uneconomical.
-	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
-	}
-
-	// For neutrino backend, Carol's second-stage sweep should be offered
-	// to her sweeper.
-	if ht.IsNeutrinoBackend() {
-		ht.AssertNumPendingSweeps(carol, 1)
-
-		// Mine a block to trigger the sweep.
-		ht.MineEmptyBlocks(1)
-	}
-
 	// Mine a block to clean the mempool.
-	ht.MineBlocksAndAssertNumTxes(1, numTxesMempool)
+	ht.MineBlocksAndAssertNumTxes(1, 2)
 
 	// NOTE: for non-standby nodes there's no need to clean up the force
 	// close as long as the mempool is cleaned.

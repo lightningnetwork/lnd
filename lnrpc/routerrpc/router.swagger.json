@@ -1525,7 +1525,7 @@
             "type": "string",
             "format": "byte"
           },
-          "description": "Any custom records that should be set on the p2p wire message message of\nthe resumed HTLC. This field is ignored if the action is not\nRESUME_MODIFIED."
+          "description": "Any custom records that should be set on the p2p wire message message of\nthe resumed HTLC. This field is ignored if the action is not\nRESUME_MODIFIED.\n\nIf this map is populated, it will overwrite any of the wire custom\nrecords set by LND. It is the caller's responsibility to copy any desired\nrecords across. If the map is empty, no action will be taken and existing\ncustom records will be propagated.\n\nThe API does not currently support deleting custom records, unless they\nare overwritten by a new set."
         }
       },
       "description": "*\nForwardHtlcInterceptResponse enables the caller to resolve a previously hold\nforward. The caller can choose either to:\n- `Resume`: Execute the default behavior (usually forward).\n- `ResumeModified`: Execute the default behavior (usually forward) with HTLC\nfield modifications.\n- `Reject`: Fail the htlc backwards.\n- `Settle`: Settle this htlc with a given preimage."

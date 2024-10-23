@@ -39,7 +39,9 @@ type taprootBriefcase struct {
 	// used to sweep a remote party's breached output.
 	BreachedCommitBlob tlv.OptionalRecordT[tlv.TlvType3, tlv.Blob]
 
-	// TODO(roasbeef): htlc blobs
+	// HtlcBlobs is an optikonal record that contains the opaque blobs for
+	// the set of active HTLCs on the commitment transaction.
+	HtlcBlobs tlv.OptionalRecordT[tlv.TlvType4, htlcAuxBlobs]
 }
 
 // TODO(roasbeef): morph into new tlv record
@@ -70,6 +72,9 @@ func (t *taprootBriefcase) EncodeRecords() []tlv.Record {
 			records = append(records, r.Record())
 		},
 	)
+	t.HtlcBlobs.WhenSome(func(r tlv.RecordT[tlv.TlvType4, htlcAuxBlobs]) {
+		records = append(records, r.Record())
+	})
 
 	return records
 }
@@ -96,10 +101,11 @@ func (t *taprootBriefcase) Encode(w io.Writer) error {
 func (t *taprootBriefcase) Decode(r io.Reader) error {
 	settledCommitBlob := t.SettledCommitBlob.Zero()
 	breachedCommitBlob := t.BreachedCommitBlob.Zero()
+	htlcBlobs := t.HtlcBlobs.Zero()
+
 	records := append(
-		t.DecodeRecords(),
-		settledCommitBlob.Record(),
-		breachedCommitBlob.Record(),
+		t.DecodeRecords(), settledCommitBlob.Record(),
+		breachedCommitBlob.Record(), htlcBlobs.Record(),
 	)
 	stream, err := tlv.NewStream(records...)
 	if err != nil {
@@ -116,6 +122,9 @@ func (t *taprootBriefcase) Decode(r io.Reader) error {
 	}
 	if v, ok := typeMap[t.BreachedCommitBlob.TlvType()]; ok && v == nil {
 		t.BreachedCommitBlob = tlv.SomeRecordT(breachedCommitBlob)
+	}
+	if v, ok := typeMap[t.HtlcBlobs.TlvType()]; ok && v == nil {
+		t.HtlcBlobs = tlv.SomeRecordT(htlcBlobs)
 	}
 
 	return nil
@@ -685,4 +694,111 @@ func (t *tapTweaks) Decode(r io.Reader) error {
 	}
 
 	return stream.Decode(r)
+}
+
+// htlcAuxBlobs is a map of resolver IDs to their corresponding HTLC blobs.
+// This is used to store the resolution blobs for HTLCs that are not yet
+// resolved.
+type htlcAuxBlobs map[resolverID]tlv.Blob
+
+// newAuxHtlcBlobs returns a new instance of the htlcAuxBlobs struct.
+func newAuxHtlcBlobs() htlcAuxBlobs {
+	return make(htlcAuxBlobs)
+}
+
+// Encode encodes the set of HTLC blobs into the target writer.
+func (h *htlcAuxBlobs) Encode(w io.Writer) error {
+	var buf [8]byte
+
+	numBlobs := uint64(len(*h))
+	if err := tlv.WriteVarInt(w, numBlobs, &buf); err != nil {
+		return err
+	}
+
+	for id, blob := range *h {
+		if _, err := w.Write(id[:]); err != nil {
+			return err
+		}
+
+		if err := varBytesEncoder(w, &blob, &buf); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Decode decodes the set of HTLC blobs from the target reader.
+func (h *htlcAuxBlobs) Decode(r io.Reader) error {
+	var buf [8]byte
+
+	numBlobs, err := tlv.ReadVarInt(r, &buf)
+	if err != nil {
+		return err
+	}
+
+	for i := uint64(0); i < numBlobs; i++ {
+		var id resolverID
+		if _, err := io.ReadFull(r, id[:]); err != nil {
+			return err
+		}
+
+		var blob tlv.Blob
+		if err := varBytesDecoder(r, &blob, &buf, 0); err != nil {
+			return err
+		}
+
+		(*h)[id] = blob
+	}
+
+	return nil
+}
+
+// eHtlcAuxBlobsEncoder is a custom TLV encoder for the htlcAuxBlobs struct.
+func htlcAuxBlobsEncoder(w io.Writer, val any, _ *[8]byte) error {
+	if t, ok := val.(*htlcAuxBlobs); ok {
+		return (*t).Encode(w)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "htlcAuxBlobs")
+}
+
+// dHtlcAuxBlobsDecoder is a custom TLV decoder for the htlcAuxBlobs struct.
+func htlcAuxBlobsDecoder(r io.Reader, val any, _ *[8]byte,
+	l uint64) error {
+
+	if typ, ok := val.(*htlcAuxBlobs); ok {
+		blobReader := io.LimitReader(r, int64(l))
+
+		htlcBlobs := newAuxHtlcBlobs()
+		err := htlcBlobs.Decode(blobReader)
+		if err != nil {
+			return err
+		}
+
+		*typ = htlcBlobs
+
+		return nil
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "htlcAuxBlobs", l, l)
+}
+
+// Record returns a tlv.Record for the htlcAuxBlobs struct.
+func (h *htlcAuxBlobs) Record() tlv.Record {
+	recordSize := func() uint64 {
+		var (
+			b   bytes.Buffer
+			buf [8]byte
+		)
+		if err := htlcAuxBlobsEncoder(&b, h, &buf); err != nil {
+			panic(err)
+		}
+
+		return uint64(len(b.Bytes()))
+	}
+
+	return tlv.MakeDynamicRecord(
+		0, h, recordSize, htlcAuxBlobsEncoder, htlcAuxBlobsDecoder,
+	)
 }

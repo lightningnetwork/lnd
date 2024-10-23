@@ -3,6 +3,7 @@ package lnwallet
 import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -24,12 +25,28 @@ const (
 	Breach
 )
 
+// AuxSigDesc stores optional information related to 2nd level HTLCs for aux
+// channels.
+type AuxSigDesc struct {
+	// AuxSig is the second-level signature for the HTLC that we are trying
+	// to resolve. This is only present if this is a resolution request for
+	// an HTLC on our commitment transaction.
+	AuxSig []byte
+
+	// SignDetails is the sign details for the second-level HTLC. This may
+	// be used to generate the second signature needed for broadcast.
+	SignDetails input.SignDetails
+}
+
 // ResolutionReq is used to ask an outside sub-system for additional
 // information needed to resolve a contract.
 type ResolutionReq struct {
 	// ChanPoint is the channel point of the channel that we are trying to
 	// resolve.
 	ChanPoint wire.OutPoint
+
+	// ChanType is the type of the channel that we are trying to resolve.
+	ChanType channeldb.ChannelType
 
 	// ShortChanID is the short channel ID of the channel that we are
 	// trying to resolve.
@@ -43,6 +60,13 @@ type ResolutionReq struct {
 
 	// FundingBlob is an optional funding blob for the channel.
 	FundingBlob fn.Option[tlv.Blob]
+
+	// HtlcID is the ID of the HTLC that we are trying to resolve. This is
+	// only set if this is a resolution request for an HTLC.
+	HtlcID fn.Option[input.HtlcIndex]
+
+	// HtlcAmt is the amount of the HTLC that we are trying to resolve.
+	HtlcAmt btcutil.Amount
 
 	// Type is the type of the witness that we are trying to resolve.
 	Type input.WitnessType
@@ -69,14 +93,26 @@ type ResolutionReq struct {
 	// CsvDelay is the CSV delay for the local output for this commitment.
 	CsvDelay uint32
 
+	// CommitCsvDelay is the CSV delay for the remote output for this
+	// commitment.
+	CommitCsvDelay uint32
+
 	// BreachCsvDelay is the CSV delay for the remote output. This is only
 	// set when the CloseType is Breach. This indicates the CSV delay to
 	// use for the remote party's to_local delayed output, that is now
 	// rightfully ours in a breach situation.
 	BreachCsvDelay fn.Option[uint32]
 
-	// CltvDelay is the CLTV delay for the outpoint.
+	// CltvDelay is the CLTV delay for the outpoint/transaction.
 	CltvDelay fn.Option[uint32]
+
+	// PayHash is the payment hash for the HTLC that we are trying to
+	// resolve. This is optional as it only applies HTLC outputs.
+	PayHash fn.Option[[32]byte]
+
+	// AuxSigDesc is an optional field that contains additional information
+	// needed to sweep second level HTLCs.
+	AuxSigDesc fn.Option[AuxSigDesc]
 }
 
 // AuxContractResolver is an interface that is used to resolve contracts that

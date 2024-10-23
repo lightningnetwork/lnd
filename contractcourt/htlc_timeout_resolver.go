@@ -50,6 +50,12 @@ type htlcTimeoutResolver struct {
 	// htlc contains information on the htlc that we are resolving on-chain.
 	htlc channeldb.HTLC
 
+	// isTapscriptRoot indicates whether the htlc is on a TapscriptRoot
+	// channel type.
+	// TODO: remove this when incoming HTLCs with custom records can be
+	// resolved for this channel type
+	isTapscriptRoot bool
+
 	// currentReport stores the current state of the resolver for reporting
 	// over the rpc interface. This should only be reported in case we have
 	// a non-nil SignDetails on the htlcResolution, otherwise the nursery
@@ -430,7 +436,10 @@ func (h *htlcTimeoutResolver) Resolve(
 	//
 	// TODO(roasbeef): Implement resolving HTLCs with custom records
 	// (follow-up PR).
-	if len(h.htlc.CustomRecords) != 0 {
+	if len(h.htlc.CustomRecords) != 0 && h.isTapscriptRoot {
+		log.Warnf("Not resolving incoming htlc with %v custom records",
+			len(h.htlc.CustomRecords))
+
 		select { //nolint:gosimple
 		case <-h.quit:
 			return nil, errResolverShuttingDown
@@ -1093,6 +1102,15 @@ func (h *htlcTimeoutResolver) HtlcPoint() wire.OutPoint {
 // NOTE: Part of the htlcContractResolver interface.
 func (h *htlcTimeoutResolver) SupplementDeadline(d fn.Option[int32]) {
 	h.incomingHTLCExpiryHeight = d
+}
+
+// SupplementState allows the user of a ContractResolver to supplement it with
+// state required for the proper resolution of a contract.
+//
+// NOTE: Part of the ContractResolver interface.
+func (h *htlcTimeoutResolver) SupplementState(state *channeldb.OpenChannel) {
+	h.isTapscriptRoot = state.ChanType.HasTapscriptRoot()
+	h.htlcLeaseResolver.SupplementState(state)
 }
 
 // A compile time assertion to ensure htlcTimeoutResolver meets the

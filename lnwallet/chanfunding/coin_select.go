@@ -150,8 +150,8 @@ func sanityCheckFee(totalOut, fee btcutil.Amount) error {
 	// TODO(halseth): smarter fee limit. Make configurable or dynamic wrt
 	// total funding size?
 	if fee > totalOut/5 {
-		return fmt.Errorf("fee %v on total output value %v", fee,
-			totalOut)
+		return fmt.Errorf("fee (%v) exceeds 20%% of total output (%v)",
+			fee, totalOut)
 	}
 	return nil
 }

@@ -114,7 +114,7 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 			TimeoutSeconds: 60,
 			FeeLimitMsat:   noFeeLimitMsat,
 		}
-		alice.RPC.SendPayment(req)
+		ht.SendPaymentAssertInflight(alice, req)
 	}
 
 	// Once the HTLC has cleared, all the nodes n our mini network should

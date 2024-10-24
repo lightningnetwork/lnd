@@ -655,17 +655,12 @@ func generateBackups(ht *lntest.HarnessTest, srcNode,
 	)
 
 	send := func(node *node.HarnessNode, payReq string) {
-		stream := node.RPC.SendPayment(
-			&routerrpc.SendPaymentRequest{
-				PaymentRequest: payReq,
-				TimeoutSeconds: 60,
-				FeeLimitMsat:   noFeeLimitMsat,
-			},
-		)
-
-		ht.AssertPaymentStatusFromStream(
-			stream, lnrpc.Payment_SUCCEEDED,
-		)
+		req := &routerrpc.SendPaymentRequest{
+			PaymentRequest: payReq,
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
+		}
+		ht.SendPaymentAssertSettled(node, req)
 	}
 
 	// Pay each invoice.

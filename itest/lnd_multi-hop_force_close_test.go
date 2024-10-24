@@ -306,7 +306,7 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 		routeHints = makeRouteHints(bob, carol, params.ZeroConf)
 	}
 
-	alice.RPC.SendPayment(&routerrpc.SendPaymentRequest{
+	req := &routerrpc.SendPaymentRequest{
 		Dest:           carolPubKey,
 		Amt:            int64(dustHtlcAmt),
 		PaymentHash:    dustPayHash,
@@ -314,9 +314,10 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 		RouteHints:     routeHints,
-	})
+	}
+	ht.SendPaymentAssertInflight(alice, req)
 
-	alice.RPC.SendPayment(&routerrpc.SendPaymentRequest{
+	req = &routerrpc.SendPaymentRequest{
 		Dest:           carolPubKey,
 		Amt:            int64(htlcAmt),
 		PaymentHash:    payHash,
@@ -324,7 +325,8 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 		RouteHints:     routeHints,
-	})
+	}
+	ht.SendPaymentAssertInflight(alice, req)
 
 	// Verify that all nodes in the path now have two HTLC's with the
 	// proper parameters.
@@ -653,7 +655,7 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
-	alice.RPC.SendPayment(req)
+	ht.SendPaymentAssertInflight(alice, req)
 
 	// At this point, all 3 nodes should now have an active channel with
 	// the created HTLC pending on all of them.
@@ -1014,7 +1016,7 @@ func runLocalForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 		FeeLimitMsat:   noFeeLimitMsat,
 		RouteHints:     routeHints,
 	}
-	alice.RPC.SendPayment(req)
+	ht.SendPaymentAssertInflight(alice, req)
 
 	// Once the HTLC has cleared, all channels in our mini network should
 	// have the it locked in.
@@ -1343,7 +1345,7 @@ func runRemoteForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
-	alice.RPC.SendPayment(req)
+	ht.SendPaymentAssertInflight(alice, req)
 
 	// Once the HTLC has cleared, all the nodes in our mini network should
 	// show that the HTLC has been locked in.
@@ -1602,7 +1604,7 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
-	alice.RPC.SendPayment(req)
+	ht.SendPaymentAssertInflight(alice, req)
 
 	// At this point, all 3 nodes should now have an active channel with
 	// the created HTLC pending on all of them.
@@ -1913,7 +1915,7 @@ func runLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
-	alice.RPC.SendPayment(req)
+	ht.SendPaymentAssertInflight(alice, req)
 
 	// At this point, all 3 nodes should now have an active channel with
 	// the created HTLC pending on all of them.
@@ -2268,7 +2270,7 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
-	alice.RPC.SendPayment(req)
+	ht.SendPaymentAssertInflight(alice, req)
 
 	// At this point, all 3 nodes should now have an active channel with
 	// the created HTLC pending on all of them.
@@ -2551,7 +2553,7 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
-	alice.RPC.SendPayment(req)
+	ht.SendPaymentAssertInflight(alice, req)
 
 	// At this point, all 3 nodes should now have an active channel with
 	// the created HTLC pending on all of them.
@@ -2998,7 +3000,7 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 			TimeoutSeconds: 60,
 			FeeLimitMsat:   noFeeLimitMsat,
 		}
-		alice.RPC.SendPayment(req)
+		ht.SendPaymentAssertInflight(alice, req)
 	}
 
 	// And Carol will pay Alice's.
@@ -3008,7 +3010,7 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 			TimeoutSeconds: 60,
 			FeeLimitMsat:   noFeeLimitMsat,
 		}
-		carol.RPC.SendPayment(req)
+		ht.SendPaymentAssertInflight(carol, req)
 	}
 
 	// At this point, all 3 nodes should now the HTLCs active on their

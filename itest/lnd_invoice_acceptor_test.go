@@ -84,7 +84,7 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 			&routerrpc.ForwardHtlcInterceptResponse{
 				IncomingCircuitKey:   packet.IncomingCircuitKey,
 				OutAmountMsat:        packet.OutgoingAmountMsat,
-				OutWireCustomRecords: tc.lastHopCustomRecords,
+				OutWireCustomRecords: tc.recordsWithEndorsed(),
 				Action:               actionResumeModify,
 			},
 		)
@@ -103,7 +103,7 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 			ht, tc.sendAmountMsat, modifierRequest.ExitHtlcAmt,
 		)
 		require.Equal(
-			ht, tc.lastHopCustomRecords,
+			ht, tc.recordsWithEndorsed(),
 			modifierRequest.ExitHtlcWireCustomRecords,
 		)
 
@@ -140,7 +140,7 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 
 		require.Len(ht, updatedInvoice.Htlcs, 1)
 		require.Equal(
-			ht, tc.lastHopCustomRecords,
+			ht, tc.recordsWithEndorsed(),
 			updatedInvoice.Htlcs[0].CustomRecords,
 		)
 
@@ -231,6 +231,21 @@ type acceptorTestCase struct {
 
 	// invoice is the invoice that will be paid.
 	invoice *lnrpc.Invoice
+}
+
+// recordsWithEndorsed returns the custom records that we expect for this test
+// case, adding the experimental endorsement signal to the map.
+func (a *acceptorTestCase) recordsWithEndorsed() map[uint64][]byte {
+	endorsedType := uint64(lnwire.ExperimentalEndorsementType)
+	records := map[uint64][]byte{
+		endorsedType: {lnwire.ExperimentalUnendorsed},
+	}
+
+	for k, v := range a.lastHopCustomRecords {
+		records[k] = v
+	}
+
+	return records
 }
 
 // acceptorTestScenario is a helper struct to hold the test context and provides

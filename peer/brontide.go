@@ -424,6 +424,10 @@ type Config struct {
 	// used to modify the way the co-op close transaction is constructed.
 	AuxChanCloser fn.Option[chancloser.AuxChanCloser]
 
+	// ShouldFwdExpEndorsement is a closure that indicates whether
+	// experimental endorsement signals should be set.
+	ShouldFwdExpEndorsement func() bool
+
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
 }
@@ -1319,6 +1323,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		PreviouslySentShutdown:  shutdownMsg,
 		DisallowRouteBlinding:   p.cfg.DisallowRouteBlinding,
 		MaxFeeExposure:          p.cfg.MaxFeeExposure,
+		ShouldFwdExpEndorsement: p.cfg.ShouldFwdExpEndorsement,
 	}
 
 	// Before adding our new link, purge the switch of any pending or live

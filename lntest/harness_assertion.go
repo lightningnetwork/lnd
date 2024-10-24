@@ -2786,3 +2786,36 @@ func (h *HarnessTest) FindSweepingTxns(txns []*wire.MsgTx,
 
 	return sweepTxns
 }
+
+// AssertForceCloseAndAnchorTxnsInMempool asserts that the force close and
+// anchor sweep txns are found in the mempool and returns the force close tx
+// and the anchor sweep tx.
+func (h *HarnessTest) AssertForceCloseAndAnchorTxnsInMempool() (*wire.MsgTx,
+	*wire.MsgTx) {
+
+	// Assert there are two txns in the mempool.
+	txns := h.GetNumTxsFromMempool(2)
+
+	// Assume the first is the force close tx.
+	forceCloseTx, anchorSweepTx := txns[0], txns[1]
+
+	// Get the txid.
+	closeTxid := forceCloseTx.TxHash()
+
+	// We now check whether there is an anchor input used in the assumed
+	// anchorSweepTx by checking every input's previous outpoint against
+	// the assumed closingTxid. If we fail to find one, it means the first
+	// item from the above txns is the anchor sweeping tx.
+	for _, inp := range anchorSweepTx.TxIn {
+		if inp.PreviousOutPoint.Hash == closeTxid {
+			// Found a match, this is indeed the anchor sweeping tx
+			// so we return it here.
+			return forceCloseTx, anchorSweepTx
+		}
+	}
+
+	// The assumed order is incorrect so we swap and return.
+	forceCloseTx, anchorSweepTx = anchorSweepTx, forceCloseTx
+
+	return forceCloseTx, anchorSweepTx
+}

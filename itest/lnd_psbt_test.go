@@ -1696,9 +1696,6 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// Make sure Carol sees her to_remote output from the force close tx.
 	ht.AssertNumPendingSweeps(carol, 1)
 
-	// Mine one block to trigger the sweep transaction.
-	ht.MineEmptyBlocks(1)
-
 	// We wait for the to_remote sweep tx.
 	ht.AssertNumUTXOsUnconfirmed(carol, 1)
 
@@ -1820,9 +1817,6 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 
 	// Make sure Carol sees her to_remote output from the force close tx.
 	ht.AssertNumPendingSweeps(carol, 1)
-
-	// Mine one block to trigger the sweep transaction.
-	ht.MineEmptyBlocks(1)
 
 	// We wait for the to_remote sweep tx of channelPoint2.
 	utxos := ht.AssertNumUTXOsUnconfirmed(carol, 1)

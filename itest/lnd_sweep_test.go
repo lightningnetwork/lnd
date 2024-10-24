@@ -61,10 +61,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 
 	// Set up the fee estimator to return the testing fee rate when the
 	// conf target is the deadline.
-	//
-	// TODO(yy): switch to conf when `blockbeat` is in place.
-	// ht.SetFeeEstimateWithConf(startFeeRateAnchor, deadlineDeltaAnchor)
-	ht.SetFeeEstimate(startFeeRateAnchor)
+	ht.SetFeeEstimateWithConf(startFeeRateAnchor, deadlineDeltaAnchor)
 
 	// htlcValue is the outgoing HTLC's value.
 	htlcValue := invoiceAmt
@@ -171,52 +168,36 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	))
 	ht.MineEmptyBlocks(int(numBlocks))
 
-	// Assert Bob's force closing tx has been broadcast.
-	closeTxid := ht.AssertNumTxsInMempool(1)[0]
+	// Assert Bob's force closing tx has been broadcast. We should see two
+	// txns in the mempool:
+	// 1. Bob's force closing tx.
+	// 2. Bob's anchor sweeping tx CPFPing the force close tx.
+	_, sweepTx := ht.AssertForceCloseAndAnchorTxnsInMempool()
 
 	// Remember the force close height so we can calculate the deadline
 	// height.
 	forceCloseHeight := ht.CurrentHeight()
 
-	// Bob should have two pending sweeps,
-	// - anchor sweeping from his local commitment.
-	// - anchor sweeping from his remote commitment (invalid).
-	//
-	// TODO(yy): consider only sweeping the anchor from the local
-	// commitment. Previously we would sweep up to three versions of
-	// anchors because we don't know which one will be confirmed - if we
-	// only broadcast the local anchor sweeping, our peer can broadcast
-	// their commitment tx and replaces ours. With the new fee bumping, we
-	// should be safe to only sweep our local anchor since we RBF it on
-	// every new block, which destroys the remote's ability to pin us.
-	sweeps := ht.AssertNumPendingSweeps(bob, 2)
+	var anchorSweep *walletrpc.PendingSweep
 
-	// The two anchor sweeping should have the same deadline height.
+	// Bob should have one pending sweep,
+	// - anchor sweeping from his local commitment.
+	expectedNumSweeps := 1
+
+	// For neutrino backend, Bob would have two anchor sweeps - one from
+	// the local and the other from the remote.
+	if ht.IsNeutrinoBackend() {
+		expectedNumSweeps = 2
+	}
+
+	anchorSweep = ht.AssertNumPendingSweeps(bob, expectedNumSweeps)[0]
+
+	// The anchor sweeping should have the expected deadline height.
 	deadlineHeight := forceCloseHeight + deadlineDeltaAnchor
-	require.Equal(ht, deadlineHeight, sweeps[0].DeadlineHeight)
-	require.Equal(ht, deadlineHeight, sweeps[1].DeadlineHeight)
+	require.Equal(ht, deadlineHeight, anchorSweep.DeadlineHeight)
 
 	// Remember the deadline height for the CPFP anchor.
-	anchorDeadline := sweeps[0].DeadlineHeight
-
-	// Mine a block so Bob's force closing tx stays in the mempool, which
-	// also triggers the CPFP anchor sweep.
-	ht.MineEmptyBlocks(1)
-
-	// Bob should still have two pending sweeps,
-	// - anchor sweeping from his local commitment.
-	// - anchor sweeping from his remote commitment (invalid).
-	ht.AssertNumPendingSweeps(bob, 2)
-
-	// We now check the expected fee and fee rate are used for Bob's anchor
-	// sweeping tx.
-	//
-	// We should see Bob's anchor sweeping tx triggered by the above
-	// block, along with his force close tx.
-	txns := ht.GetNumTxsFromMempool(2)
-
-	// Find the sweeping tx.
-	sweepTx := ht.FindSweepingTxns(txns, 1, closeTxid)[0]
+	anchorDeadline := anchorSweep.DeadlineHeight
 
 	// Get the weight for Bob's anchor sweeping tx.
 	txWeight := ht.CalculateTxWeight(sweepTx)
@@ -228,11 +209,10 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	fee := uint64(ht.CalculateTxFee(sweepTx))
 	feeRate := uint64(ht.CalculateTxFeeRate(sweepTx))
 
-	// feeFuncWidth is the width of the fee function. By the time we got
-	// here, we've already mined one block, and the fee function maxes
-	// out one block before the deadline, so the width is the original
-	// deadline minus 2.
-	feeFuncWidth := deadlineDeltaAnchor - 2
+	// feeFuncWidth is the width of the fee function. The fee function
+	// maxes out one block before the deadline, so the width is the
+	// original deadline minus 1.
+	feeFuncWidth := deadlineDeltaAnchor - 1
 
 	// Calculate the expected delta increased per block.
 	feeDelta := (cpfpBudget - startFeeAnchor).MulF64(
@@ -258,19 +238,26 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 		// Bob's fee bumper should increase its fees.
 		ht.MineEmptyBlocks(1)
 
-		// Bob should still have two pending sweeps,
-		// - anchor sweeping from his local commitment.
-		// - anchor sweeping from his remote commitment (invalid).
-		ht.AssertNumPendingSweeps(bob, 2)
-
-		// Make sure Bob's old sweeping tx has been removed from the
-		// mempool.
-		ht.AssertTxNotInMempool(sweepTx.TxHash())
+		// Bob should still have the anchor sweeping from his local
+		// commitment. His anchor sweeping from his remote commitment
+		// is invalid and should be removed.
+		ht.AssertNumPendingSweeps(bob, expectedNumSweeps)
 
 		// We expect to see two txns in the mempool,
 		// - Bob's force close tx.
 		// - Bob's anchor sweep tx.
 		ht.AssertNumTxsInMempool(2)
+
+		// Make sure Bob's old sweeping tx has been removed from the
+		// mempool.
+		ht.AssertTxNotInMempool(sweepTx.TxHash())
+
+		// Assert the two txns are still in the mempool and grab the
+		// sweeping tx.
+		//
+		// NOTE: must call it again after `AssertTxNotInMempool` to
+		// make sure we get the replaced tx.
+		_, sweepTx = ht.AssertForceCloseAndAnchorTxnsInMempool()
 
 		// We expect the fees to increase by i*delta.
 		expectedFee := startFeeAnchor + feeDelta.MulF64(float64(i))
@@ -280,11 +267,6 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 
 		// We should see Bob's anchor sweeping tx being fee bumped
 		// since it's not confirmed, along with his force close tx.
-		txns = ht.GetNumTxsFromMempool(2)
-
-		// Find the sweeping tx.
-		sweepTx = ht.FindSweepingTxns(txns, 1, closeTxid)[0]
-
 		// Calculate the fee rate of Bob's new sweeping tx.
 		feeRate = uint64(ht.CalculateTxFeeRate(sweepTx))
 
@@ -292,9 +274,9 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 		fee = uint64(ht.CalculateTxFee(sweepTx))
 
 		ht.Logf("Bob(position=%v): txWeight=%v, expected: [fee=%d, "+
-			"feerate=%v], got: [fee=%v, feerate=%v]",
+			"feerate=%v], got: [fee=%v, feerate=%v] in tx %v",
 			feeFuncWidth-i, txWeight, expectedFee,
-			expectedFeeRate, fee, feeRate)
+			expectedFeeRate, fee, feeRate, sweepTx.TxHash())
 
 		// Assert Bob's tx has the expected fee and fee rate.
 		require.InEpsilonf(ht, uint64(expectedFee), fee, 0.01,
@@ -314,22 +296,23 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	// Mine one more block, we'd use up all the CPFP budget.
 	ht.MineEmptyBlocks(1)
 
+	// We expect to see two txns in the mempool,
+	// - Bob's force close tx.
+	// - Bob's anchor sweep tx.
+	ht.AssertNumTxsInMempool(2)
+
 	// Make sure Bob's old sweeping tx has been removed from the mempool.
 	ht.AssertTxNotInMempool(sweepTx.TxHash())
 
 	// Get the last sweeping tx - we should see two txns here, Bob's anchor
 	// sweeping tx and his force close tx.
-	txns = ht.GetNumTxsFromMempool(2)
+	//
+	// NOTE: must call it again after `AssertTxNotInMempool` to make sure
+	// we get the replaced tx.
+	_, sweepTx = ht.AssertForceCloseAndAnchorTxnsInMempool()
 
-	// Find the sweeping tx.
-	sweepTx = ht.FindSweepingTxns(txns, 1, closeTxid)[0]
-
-	// Calculate the fee of Bob's new sweeping tx.
-	fee = uint64(ht.CalculateTxFee(sweepTx))
-
-	// Assert the budget is now used up.
-	require.InEpsilonf(ht, uint64(cpfpBudget), fee, 0.01, "want %d, got %d",
-		cpfpBudget, fee)
+	// Bob should have the anchor sweeping from his local commitment.
+	ht.AssertNumPendingSweeps(bob, expectedNumSweeps)
 
 	// Mine one more block. Since Bob's budget has been used up, there
 	// won't be any more sweeping attempts. We now assert this by checking
@@ -340,10 +323,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	//
 	// We expect two txns here, one for the anchor sweeping, the other for
 	// the force close tx.
-	txns = ht.GetNumTxsFromMempool(2)
-
-	// Find the sweeping tx.
-	currentSweepTx := ht.FindSweepingTxns(txns, 1, closeTxid)[0]
+	_, currentSweepTx := ht.AssertForceCloseAndAnchorTxnsInMempool()
 
 	// Assert the anchor sweep tx stays unchanged.
 	require.Equal(ht, sweepTx.TxHash(), currentSweepTx.TxHash())
@@ -357,6 +337,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	// the HTLC sweeping behaviors so we just perform a simple check and
 	// exit the test.
 	ht.AssertNumPendingSweeps(bob, 1)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Finally, clean the mempool for the next test.
 	ht.CleanShutDown()

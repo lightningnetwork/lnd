@@ -240,9 +240,9 @@ func (h *HarnessTest) EnsureConnected(a, b *node.HarnessNode) {
 	h.AssertPeerConnected(b, a)
 }
 
-// AssertNumEdges checks that an expected number of edges can be found in the
-// node specified.
-func (h *HarnessTest) AssertNumEdges(hn *node.HarnessNode,
+// AssertNumActiveEdges checks that an expected number of active edges can be
+// found in the node specified.
+func (h *HarnessTest) AssertNumActiveEdges(hn *node.HarnessNode,
 	expected int, includeUnannounced bool) []*lnrpc.ChannelEdge {
 
 	var edges []*lnrpc.ChannelEdge
@@ -279,6 +279,45 @@ func (h *HarnessTest) AssertNumEdges(hn *node.HarnessNode,
 				// that the old edges are at the front of the
 				// slice.
 				edges = activeEdges[old:]
+			}
+
+			return nil
+		}
+
+		return errNumNotMatched(hn.Name(), "num of channel edges",
+			expected, total-old, total, old)
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout while checking for edges")
+
+	return edges
+}
+
+// AssertNumEdges checks that an expected number of edges can be found in the
+// node specified.
+func (h *HarnessTest) AssertNumEdges(hn *node.HarnessNode,
+	expected int, includeUnannounced bool) []*lnrpc.ChannelEdge {
+
+	var edges []*lnrpc.ChannelEdge
+
+	old := hn.State.Edge.Public
+	if includeUnannounced {
+		old = hn.State.Edge.Total
+	}
+
+	err := wait.NoError(func() error {
+		req := &lnrpc.ChannelGraphRequest{
+			IncludeUnannounced: includeUnannounced,
+		}
+		resp := hn.RPC.DescribeGraph(req)
+		total := len(resp.Edges)
+
+		if total-old == expected {
+			if expected != 0 {
+				// NOTE: assume edges come in ascending order
+				// that the old edges are at the front of the
+				// slice.
+				edges = resp.Edges[old:]
 			}
 
 			return nil

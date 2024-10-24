@@ -2,7 +2,6 @@ package fn
 
 import (
 	"fmt"
-	"testing"
 )
 
 // Result represents a value that can either be a success (T) or an error.
@@ -111,16 +110,20 @@ func (r Result[T]) UnwrapOrElse(f func() T) T {
 }
 
 // UnwrapOrFail returns the success value or fails the test if it's an error.
-func (r Result[T]) UnwrapOrFail(t *testing.T) T {
-	t.Helper()
-
-	if r.IsErr() {
-		t.Fatalf("Result[%T] contained error: %v", r.left, r.right)
+func (r Result[T]) UnwrapOrFail(t TestingT) T {
+	if helper, ok := t.(TestingHelper); ok {
+		helper.Helper()
 	}
 
-	var zero T
+	if r.IsErr() {
+		t.Errorf("Result[%T] contained error: %v", r.left, r.right)
 
-	return zero
+		if failer, ok := t.(TestingFailer); ok {
+			failer.FailNow()
+		}
+	}
+
+	return r.left
 }
 
 // FlatMap applies a function that returns a Result to the success value if it

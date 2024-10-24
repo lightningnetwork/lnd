@@ -16,7 +16,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
-	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
 )
@@ -873,8 +872,6 @@ func padCLTV(cltv uint32) uint32 {
 // in the case where a counterparty tries to settle an HTLC with the wrong
 // preimage.
 func testFailingChannel(ht *lntest.HarnessTest) {
-	const paymentAmt = 10000
-
 	chanAmt := lnd.MaxFundingAmount
 
 	// We'll introduce Carol, which will settle any incoming invoice with a
@@ -893,7 +890,7 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 	invoice := &lnrpc.Invoice{
 		Memo:      "testing",
 		RPreimage: preimage,
-		Value:     paymentAmt,
+		Value:     invoiceAmt,
 	}
 	resp := carol.RPC.AddInvoice(invoice)
 
@@ -926,12 +923,12 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 	// Carol will use the correct preimage to resolve the HTLC on-chain.
 	ht.AssertNumPendingSweeps(carol, 1)
 
-	// Bring down the fee rate estimation, otherwise the following sweep
-	// won't happen.
-	ht.SetFeeEstimate(chainfee.FeePerKwFloor)
-
-	// Mine a block to trigger Carol's sweeper to broadcast the sweeping
-	// tx.
+	// Mine a block to trigger the sweep. This is needed because the
+	// preimage extraction logic from the link is not managed by the
+	// blockbeat, which means the preimage may be sent to the contest
+	// resolver after it's launched.
+	//
+	// TODO(yy): Expose blockbeat to the link layer.
 	ht.MineEmptyBlocks(1)
 
 	// Carol should have broadcast her sweeping tx.
@@ -943,9 +940,6 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 
 	// Alice's should have one pending sweep request for her commit output.
 	ht.AssertNumPendingSweeps(alice, 1)
-
-	// Mine a block to trigger the sweep.
-	ht.MineEmptyBlocks(1)
 
 	// Mine Alice's sweeping tx.
 	ht.MineBlocksAndAssertNumTxes(1, 1)

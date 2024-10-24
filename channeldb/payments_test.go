@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	pmt "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -98,13 +99,13 @@ var (
 	}
 )
 
-func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
+func makeFakeInfo() (*pmt.PaymentCreationInfo, *pmt.HTLCAttemptInfo) {
 	var preimg lntypes.Preimage
 	copy(preimg[:], rev[:])
 
 	hash := preimg.Hash()
 
-	c := &PaymentCreationInfo{
+	c := &pmt.PaymentCreationInfo{
 		PaymentIdentifier: hash,
 		Value:             1000,
 		// Use single second precision to avoid false positive test
@@ -113,7 +114,7 @@ func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
 		PaymentRequest: []byte("test"),
 	}
 
-	a := NewHtlcAttempt(
+	a := pmt.NewHtlcAttempt(
 		44, priv, testRoute, time.Unix(100, 0), &hash,
 	)
 
@@ -181,7 +182,7 @@ func TestSentPaymentSerialization(t *testing.T) {
 
 	// Call session key method to set our cached session key so we can use
 	// DeepEqual, and assert that our key equals the original key.
-	require.Equal(t, s.cachedSessionKey, newWireInfo.SessionKey())
+	require.Equal(t, s.SessionKey(), newWireInfo.SessionKey())
 
 	require.Equal(t, s, newWireInfo)
 }

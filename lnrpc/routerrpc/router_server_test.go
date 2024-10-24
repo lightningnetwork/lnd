@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
+	pmt "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -127,13 +127,13 @@ func TestTrackPaymentsInflightUpdates(t *testing.T) {
 	}()
 
 	// Enqueue some payment updates on the mock.
-	towerMock.queue.ChanIn() <- &channeldb.MPPayment{
-		Info:   &channeldb.PaymentCreationInfo{},
-		Status: channeldb.StatusInFlight,
+	towerMock.queue.ChanIn() <- &pmt.MPPayment{
+		Info:   &pmt.PaymentCreationInfo{},
+		Status: pmt.StatusInFlight,
 	}
-	towerMock.queue.ChanIn() <- &channeldb.MPPayment{
-		Info:   &channeldb.PaymentCreationInfo{},
-		Status: channeldb.StatusSucceeded,
+	towerMock.queue.ChanIn() <- &pmt.MPPayment{
+		Info:   &pmt.PaymentCreationInfo{},
+		Status: pmt.StatusSucceeded,
 	}
 
 	// Wait until there's 2 updates or the deadline is exceeded.
@@ -189,13 +189,13 @@ func TestTrackPaymentsNoInflightUpdates(t *testing.T) {
 	}()
 
 	// Enqueue some payment updates on the mock.
-	towerMock.queue.ChanIn() <- &channeldb.MPPayment{
-		Info:   &channeldb.PaymentCreationInfo{},
-		Status: channeldb.StatusInFlight,
+	towerMock.queue.ChanIn() <- &pmt.MPPayment{
+		Info:   &pmt.PaymentCreationInfo{},
+		Status: pmt.StatusInFlight,
 	}
-	towerMock.queue.ChanIn() <- &channeldb.MPPayment{
-		Info:   &channeldb.PaymentCreationInfo{},
-		Status: channeldb.StatusSucceeded,
+	towerMock.queue.ChanIn() <- &pmt.MPPayment{
+		Info:   &pmt.PaymentCreationInfo{},
+		Status: pmt.StatusSucceeded,
 	}
 
 	// Wait until there's 1 update or the deadline is exceeded.

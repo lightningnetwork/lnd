@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	pmt "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -61,17 +62,17 @@ type duplicateHTLCAttemptInfo struct {
 
 // fetchDuplicatePaymentStatus fetches the payment status of the payment. If
 // the payment isn't found, it will return error `ErrPaymentNotInitiated`.
-func fetchDuplicatePaymentStatus(bucket kvdb.RBucket) (PaymentStatus, error) {
+func fetchDuplicatePaymentStatus(bucket kvdb.RBucket) (pmt.PaymentStatus, error) {
 	if bucket.Get(duplicatePaymentSettleInfoKey) != nil {
-		return StatusSucceeded, nil
+		return pmt.StatusSucceeded, nil
 	}
 
 	if bucket.Get(duplicatePaymentFailInfoKey) != nil {
-		return StatusFailed, nil
+		return pmt.StatusFailed, nil
 	}
 
 	if bucket.Get(duplicatePaymentCreationInfoKey) != nil {
-		return StatusInFlight, nil
+		return pmt.StatusInFlight, nil
 	}
 
 	return 0, ErrPaymentNotInitiated
@@ -93,11 +94,11 @@ func deserializeDuplicateHTLCAttemptInfo(r io.Reader) (
 }
 
 func deserializeDuplicatePaymentCreationInfo(r io.Reader) (
-	*PaymentCreationInfo, error) {
+	*pmt.PaymentCreationInfo, error) {
 
 	var scratch [8]byte
 
-	c := &PaymentCreationInfo{}
+	c := &pmt.PaymentCreationInfo{}
 
 	if _, err := io.ReadFull(r, c.PaymentIdentifier[:]); err != nil {
 		return nil, err
@@ -129,7 +130,7 @@ func deserializeDuplicatePaymentCreationInfo(r io.Reader) (
 	return c, nil
 }
 
-func fetchDuplicatePayment(bucket kvdb.RBucket) (*MPPayment, error) {
+func fetchDuplicatePayment(bucket kvdb.RBucket) (*pmt.MPPayment, error) {
 	seqBytes := bucket.Get(duplicatePaymentSequenceKey)
 	if seqBytes == nil {
 		return nil, fmt.Errorf("sequence number not found")
@@ -156,14 +157,14 @@ func fetchDuplicatePayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	}
 
 	// Get failure reason if available.
-	var failureReason *FailureReason
+	var failureReason *pmt.FailureReason
 	b = bucket.Get(duplicatePaymentFailInfoKey)
 	if b != nil {
-		reason := FailureReason(b[0])
+		reason := pmt.FailureReason(b[0])
 		failureReason = &reason
 	}
 
-	payment := &MPPayment{
+	payment := &pmt.MPPayment{
 		SequenceNum:   sequenceNum,
 		Info:          creationInfo,
 		FailureReason: failureReason,
@@ -179,13 +180,13 @@ func fetchDuplicatePayment(bucket kvdb.RBucket) (*MPPayment, error) {
 			return nil, err
 		}
 
-		htlc := HTLCAttempt{
-			HTLCAttemptInfo: HTLCAttemptInfo{
-				AttemptID:  attempt.attemptID,
-				Route:      attempt.route,
-				sessionKey: attempt.sessionKey,
+		htlc := pmt.HTLCAttempt{
+			HTLCAttemptInfo: pmt.HTLCAttemptInfo{
+				AttemptID: attempt.attemptID,
+				Route:     attempt.route,
 			},
 		}
+		htlc.SetSessionKey(attempt.sessionKey)
 
 		// Get the payment preimage. This is only found for
 		// successful payments.
@@ -194,27 +195,27 @@ func fetchDuplicatePayment(bucket kvdb.RBucket) (*MPPayment, error) {
 			var preimg lntypes.Preimage
 			copy(preimg[:], b)
 
-			htlc.Settle = &HTLCSettleInfo{
+			htlc.Settle = &pmt.HTLCSettleInfo{
 				Preimage:   preimg,
 				SettleTime: time.Time{},
 			}
 		} else {
 			// Otherwise the payment must have failed.
-			htlc.Failure = &HTLCFailInfo{
+			htlc.Failure = &pmt.HTLCFailInfo{
 				FailTime: time.Time{},
 			}
 		}
 
-		payment.HTLCs = []HTLCAttempt{htlc}
+		payment.HTLCs = []pmt.HTLCAttempt{htlc}
 	}
 
 	return payment, nil
 }
 
-func fetchDuplicatePayments(paymentHashBucket kvdb.RBucket) ([]*MPPayment,
+func fetchDuplicatePayments(paymentHashBucket kvdb.RBucket) ([]*pmt.MPPayment,
 	error) {
 
-	var payments []*MPPayment
+	var payments []*pmt.MPPayment
 
 	// For older versions of lnd, duplicate payments to a payment has was
 	// possible. These will be found in a sub-bucket indexed by their

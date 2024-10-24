@@ -3,15 +3,15 @@ package routing
 import (
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	pmt "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // Instantiate variables to allow taking a reference from the failure reason.
 var (
-	reasonError            = channeldb.FailureReasonError
-	reasonIncorrectDetails = channeldb.FailureReasonPaymentDetails
+	reasonError            = pmt.FailureReasonError
+	reasonIncorrectDetails = pmt.FailureReasonPaymentDetails
 )
 
 // pairResult contains the result of the interpretation of a payment attempt for
@@ -66,7 +66,7 @@ type interpretedResult struct {
 	// finalFailureReason is set to a non-nil value if it makes no more
 	// sense to start another payment attempt. It will contain the reason
 	// why.
-	finalFailureReason *channeldb.FailureReason
+	finalFailureReason *pmt.FailureReason
 
 	// policyFailure is set to a node pair if there is a policy failure on
 	// that connection. This is used to control the second chance logic for

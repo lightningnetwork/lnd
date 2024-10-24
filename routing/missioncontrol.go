@@ -10,11 +10,11 @@ import (
 	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/build"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	pmt "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -586,7 +586,7 @@ func (m *MissionControl) GetPairHistorySnapshot(
 // payment attempts need to be made.
 func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 	failureSourceIdx *int, failure lnwire.FailureMessage) (
-	*channeldb.FailureReason, error) {
+	*pmt.FailureReason, error) {
 
 	timestamp := m.cfg.clock.Now()
 
@@ -625,7 +625,7 @@ func (m *MissionControl) ReportPaymentSuccess(paymentID uint64,
 // processPaymentResult stores a payment result in the mission control store and
 // updates mission control's in-memory state.
 func (m *MissionControl) processPaymentResult(result *paymentResult) (
-	*channeldb.FailureReason, error) {
+	*pmt.FailureReason, error) {
 
 	// Store complete result in database.
 	m.store.AddResult(result)
@@ -643,7 +643,7 @@ func (m *MissionControl) processPaymentResult(result *paymentResult) (
 // estimates. It returns a bool indicating whether this error is a final error
 // and no further payment attempts need to be made.
 func (m *MissionControl) applyPaymentResult(
-	result *paymentResult) *channeldb.FailureReason {
+	result *paymentResult) *pmt.FailureReason {
 
 	// Interpret result.
 	i := interpretResult(

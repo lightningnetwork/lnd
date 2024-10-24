@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	pmt "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -874,7 +875,7 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 		return nil, err
 	}
 
-	var attempt *channeldb.HTLCAttempt
+	var attempt *pmt.HTLCAttempt
 
 	// Pass route to the router. This call returns the full htlc attempt
 	// information as it is stored in the database. It is possible that both
@@ -1391,17 +1392,17 @@ func (s *Server) trackPaymentStream(context context.Context,
 				// No more payment updates.
 				return nil
 			}
-			result := item.(*channeldb.MPPayment)
+			result := item.(*pmt.MPPayment)
 
 			log.Tracef("Payment %v updated to state %v",
 				result.Info.PaymentIdentifier, result.Status)
 
 			// Skip in-flight updates unless requested.
 			if noInflightUpdates {
-				if result.Status == channeldb.StatusInitiated {
+				if result.Status == pmt.StatusInitiated {
 					continue
 				}
-				if result.Status == channeldb.StatusInFlight {
+				if result.Status == pmt.StatusInFlight {
 					continue
 				}
 			}

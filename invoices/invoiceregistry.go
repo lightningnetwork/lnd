@@ -1049,6 +1049,8 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		return nil, nil, err
 	}
 
+	var cancelSet bool
+
 	// Provide the invoice to the settlement interceptor to allow
 	// the interceptor's client an opportunity to manipulate the
 	// settlement process.
@@ -1066,6 +1068,8 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		if resp.AmountPaid != 0 {
 			ctx.amtPaid = resp.AmountPaid
 		}
+
+		cancelSet = resp.CancelSet
 	})
 	if err != nil {
 		err := fmt.Errorf("error during invoice HTLC interception: %w",
@@ -1092,7 +1096,18 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 			updateDesc.State != nil
 
 		// Assign resolution to outer scope variable.
-		resolution = res
+		if cancelSet {
+			// If a cancel signal was set for the htlc set, we set
+			// the resolution as a failure with an underpayment
+			// indication. Something was wrong with this htlc, so
+			// we probably can't settle the invoice at all.
+			resolution = NewFailResolution(
+				ctx.circuitKey, ctx.currentHeight,
+				ResultAmountTooLow,
+			)
+		} else {
+			resolution = res
+		}
 
 		return updateDesc, nil
 	}

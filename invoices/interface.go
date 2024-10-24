@@ -247,6 +247,12 @@ type HtlcModifyResponse struct {
 	// HTLC was originally sent with, in case additional value is carried
 	// along with it (which might be the case in custom channels).
 	AmountPaid lnwire.MilliSatoshi
+
+	// CancelSet is a flag the interceptor client can set to force a
+	// cancellation of all HTLCs associated with the invoice that are
+	// currently accepted. Setting this field will ignore the AmountPaid
+	// field.
+	CancelSet bool
 }
 
 // HtlcModifyCallback is a function that is called when an invoice is

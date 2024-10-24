@@ -214,7 +214,7 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testChannelForceClosure,
 	},
 	{
-		Name:     "failing link",
+		Name:     "failing channel",
 		TestFunc: testFailingChannel,
 	},
 	{

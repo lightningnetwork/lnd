@@ -632,8 +632,10 @@ func testRejectHTLC(ht *lntest.HarnessTest) {
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
-	payStream := alice.RPC.SendPayment(paymentReq)
-	ht.AssertPaymentStatusFromStream(payStream, lnrpc.Payment_FAILED)
+	ht.SendPaymentAssertFail(
+		alice, paymentReq,
+		lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE,
+	)
 
 	ht.AssertLastHTLCError(alice, lnrpc.Failure_CHANNEL_DISABLED)
 

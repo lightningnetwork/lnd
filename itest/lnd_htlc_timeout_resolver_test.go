@@ -131,7 +131,7 @@ func testHtlcTimeoutResolverExtractPreimageRemote(ht *lntest.HarnessTest) {
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
-	alice.RPC.SendPayment(req)
+	ht.SendPaymentAssertInflight(alice, req)
 
 	// Once the payment sent, Alice should have one outgoing HTLC active.
 	ht.AssertOutgoingHTLCActive(alice, aliceChanPoint, payHash[:])
@@ -270,7 +270,7 @@ func testHtlcTimeoutResolverExtractPreimageLocal(ht *lntest.HarnessTest) {
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
-	alice.RPC.SendPayment(req)
+	ht.SendPaymentAssertInflight(alice, req)
 
 	// Once the payment sent, Alice should have one outgoing HTLC active.
 	ht.AssertOutgoingHTLCActive(alice, aliceChanPoint, payHash[:])

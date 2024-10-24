@@ -508,8 +508,7 @@ func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
 		FeeLimitMsat:          noFeeLimitMsat,
 		FirstHopCustomRecords: customRecords,
 	}
-
-	_ = alice.RPC.SendPayment(sendReq)
+	ht.SendPaymentAssertInflight(alice, sendReq)
 
 	// We start the htlc interceptor with a simple implementation that saves
 	// all intercepted packets. These packets are held to simulate a
@@ -635,8 +634,7 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 		FeeLimitMsat:          noFeeLimitMsat,
 		FirstHopCustomRecords: customRecords,
 	}
-
-	_ = alice.RPC.SendPayment(sendReq)
+	ht.SendPaymentAssertInflight(alice, sendReq)
 
 	// We start the htlc interceptor with a simple implementation that saves
 	// all intercepted packets. These packets are held to simulate a

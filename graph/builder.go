@@ -149,7 +149,7 @@ type Builder struct {
 	ntfnClientUpdates chan *topologyClientUpdate
 
 	// channelEdgeMtx is a mutex we use to make sure we process only one
-	// ChannelEdgePolicy at a time for a given channelID, to ensure
+	// ChannelEdgePolicy1 at a time for a given channelID, to ensure
 	// consistency between the various database accesses.
 	channelEdgeMtx *multimutex.Mutex[uint64]
 
@@ -485,7 +485,7 @@ func (b *Builder) syncGraphWithChain() error {
 // boolean is that of node 2, and the final boolean is true if the channel
 // is considered a zombie.
 func (b *Builder) isZombieChannel(e1,
-	e2 *models.ChannelEdgePolicy) (bool, bool, bool) {
+	e2 *models.ChannelEdgePolicy1) (bool, bool, bool) {
 
 	chanExpiry := b.cfg.ChannelPruneExpiry
 
@@ -541,15 +541,15 @@ func (b *Builder) pruneZombieChans() error {
 	log.Infof("Examining channel graph for zombie channels")
 
 	// A helper method to detect if the channel belongs to this node
-	isSelfChannelEdge := func(info *models.ChannelEdgeInfo) bool {
+	isSelfChannelEdge := func(info *models.ChannelEdgeInfo1) bool {
 		return info.NodeKey1Bytes == b.cfg.SelfNode ||
 			info.NodeKey2Bytes == b.cfg.SelfNode
 	}
 
 	// First, we'll collect all the channels which are eligible for garbage
 	// collection due to being zombies.
-	filterPruneChans := func(info *models.ChannelEdgeInfo,
-		e1, e2 *models.ChannelEdgePolicy) error {
+	filterPruneChans := func(info *models.ChannelEdgeInfo1,
+		e1, e2 *models.ChannelEdgePolicy1) error {
 
 		// Exit early in case this channel is already marked to be
 		// pruned
@@ -1182,8 +1182,8 @@ func (b *Builder) processUpdate(msg interface{},
 		log.Tracef("Updated vertex data for node=%x", msg.PubKeyBytes)
 		b.stats.incNumNodeUpdates()
 
-	case *models.ChannelEdgeInfo:
-		log.Debugf("Received ChannelEdgeInfo for channel %v",
+	case *models.ChannelEdgeInfo1:
+		log.Debugf("Received ChannelEdgeInfo1 for channel %v",
 			msg.ChannelID)
 
 		// Prior to processing the announcement we first check if we
@@ -1358,8 +1358,8 @@ func (b *Builder) processUpdate(msg interface{},
 				"view: %v", err)
 		}
 
-	case *models.ChannelEdgePolicy:
-		log.Debugf("Received ChannelEdgePolicy for channel %v",
+	case *models.ChannelEdgePolicy1:
+		log.Debugf("Received ChannelEdgePolicy1 for channel %v",
 			msg.ChannelID)
 
 		// We make sure to hold the mutex for this channel ID,
@@ -1491,7 +1491,7 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 		return false
 	}
 
-	err = b.UpdateEdge(&models.ChannelEdgePolicy{
+	err = b.UpdateEdge(&models.ChannelEdgePolicy1{
 		SigBytes:                  msg.Signature.ToSignatureBytes(),
 		ChannelID:                 msg.ShortChannelID.ToUint64(),
 		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
@@ -1544,7 +1544,7 @@ func (b *Builder) AddNode(node *channeldb.LightningNode,
 // in construction of payment path.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) AddEdge(edge *models.ChannelEdgeInfo,
+func (b *Builder) AddEdge(edge *models.ChannelEdgeInfo1,
 	op ...batch.SchedulerOption) error {
 
 	rMsg := &routingMsg{
@@ -1570,7 +1570,7 @@ func (b *Builder) AddEdge(edge *models.ChannelEdgeInfo,
 // considered as not fully constructed.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) UpdateEdge(update *models.ChannelEdgePolicy,
+func (b *Builder) UpdateEdge(update *models.ChannelEdgePolicy1,
 	op ...batch.SchedulerOption) error {
 
 	rMsg := &routingMsg{
@@ -1611,9 +1611,9 @@ func (b *Builder) SyncedHeight() uint32 {
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) GetChannelByID(chanID lnwire.ShortChannelID) (
-	*models.ChannelEdgeInfo,
-	*models.ChannelEdgePolicy,
-	*models.ChannelEdgePolicy, error) {
+	*models.ChannelEdgeInfo1,
+	*models.ChannelEdgePolicy1,
+	*models.ChannelEdgePolicy1, error) {
 
 	return b.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
 }
@@ -1646,12 +1646,12 @@ func (b *Builder) ForEachNode(
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) ForAllOutgoingChannels(cb func(kvdb.RTx,
-	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy) error) error {
+	*models.ChannelEdgeInfo1, *models.ChannelEdgePolicy1) error) error {
 
 	return b.cfg.Graph.ForEachNodeChannel(b.cfg.SelfNode,
-		func(tx kvdb.RTx, c *models.ChannelEdgeInfo,
-			e *models.ChannelEdgePolicy,
-			_ *models.ChannelEdgePolicy) error {
+		func(tx kvdb.RTx, c *models.ChannelEdgeInfo1,
+			e *models.ChannelEdgePolicy1,
+			_ *models.ChannelEdgePolicy1) error {
 
 			if e == nil {
 				return fmt.Errorf("channel from self node " +
@@ -1668,7 +1668,7 @@ func (b *Builder) ForAllOutgoingChannels(cb func(kvdb.RTx,
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) AddProof(chanID lnwire.ShortChannelID,
-	proof *models.ChannelAuthProof) error {
+	proof *models.ChannelAuthProof1) error {
 
 	info, _, _, err := b.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
 	if err != nil {

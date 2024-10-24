@@ -700,9 +700,9 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	cltvDelta := routing.MinCLTVDelta
 
 	// Start tracking the deadline delta of Bob's HTLCs. We need one block
-	// for the CSV lock, and another block to trigger the sweeper to sweep.
-	outgoingHTLCDeadline := int32(cltvDelta - 2)
-	incomingHTLCDeadline := int32(lncfg.DefaultIncomingBroadcastDelta - 2)
+	// to trigger the sweeper to sweep.
+	outgoingHTLCDeadline := int32(cltvDelta - 1)
+	incomingHTLCDeadline := int32(lncfg.DefaultIncomingBroadcastDelta - 1)
 
 	// startFeeRate1 and startFeeRate2 are returned by the fee estimator in
 	// sat/kw. They will be used as the starting fee rate for the linear
@@ -859,34 +859,35 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 
 	// Bob should now have two pending sweeps, one for the anchor on the
 	// local commitment, the other on the remote commitment.
-	ht.AssertNumPendingSweeps(bob, 2)
+	expectedNumSweeps := 1
 
-	// Assert Bob's force closing tx has been broadcast.
-	ht.AssertNumTxsInMempool(1)
+	// For neutrino backend, we expect the anchor output from his remote
+	// commitment to be present.
+	if ht.IsNeutrinoBackend() {
+		expectedNumSweeps = 2
+	}
 
-	// Mine the force close tx, which triggers Bob's contractcourt to offer
-	// his outgoing HTLC to his sweeper.
+	ht.AssertNumPendingSweeps(bob, expectedNumSweeps)
+
+	// We expect to see two txns in the mempool:
+	// 1. Bob's force closing tx.
+	// 2. Bob's anchor CPFP sweeping tx.
+	ht.AssertNumTxsInMempool(2)
+
+	// Mine the force close tx and CPFP sweeping tx, which triggers Bob's
+	// contractcourt to offer his outgoing HTLC to his sweeper.
 	//
 	// NOTE: HTLC outputs are only offered to sweeper when the force close
 	// tx is confirmed and the CSV has reached.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
+	ht.MineBlocksAndAssertNumTxes(1, 2)
 
 	// Update the blocks left till Bob force closes Alice->Bob.
 	blocksTillIncomingSweep--
 
-	// Bob should have two pending sweeps, one for the anchor sweeping, the
-	// other for the outgoing HTLC.
-	ht.AssertNumPendingSweeps(bob, 2)
-
-	// Mine one block to confirm Bob's anchor sweeping tx, which will
-	// trigger his sweeper to publish the HTLC sweeping tx.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
-
-	// Update the blocks left till Bob force closes Alice->Bob.
-	blocksTillIncomingSweep--
-
-	// Bob should now have one sweep and one sweeping tx in the mempool.
+	// Bob should have one pending sweep for the outgoing HTLC.
 	ht.AssertNumPendingSweeps(bob, 1)
+
+	// Bob should have one sweeping tx in the mempool.
 	outgoingSweep := ht.GetNumTxsFromMempool(1)[0]
 
 	// Check the shape of the sweeping tx - we expect it to be
@@ -910,8 +911,8 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// Assert the initial sweeping tx is using the start fee rate.
 	outgoingStartFeeRate := ht.CalculateTxFeeRate(outgoingSweep)
 	require.InEpsilonf(ht, uint64(startFeeRate1),
-		uint64(outgoingStartFeeRate), 0.01, "want %d, got %d",
-		startFeeRate1, outgoingStartFeeRate)
+		uint64(outgoingStartFeeRate), 0.01, "want %d, got %d in tx=%v",
+		startFeeRate1, outgoingStartFeeRate, outgoingSweep.TxHash())
 
 	// Now the start fee rate is checked, we can calculate the fee rate
 	// delta.
@@ -936,13 +937,12 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 		)
 
 		ht.Logf("Bob's %s HTLC (deadline=%v): txWeight=%v, want "+
-			"feerate=%v, got feerate=%v, delta=%v", desc,
+			"feerate=%v, got feerate=%v, delta=%v in tx %v", desc,
 			deadline-position, txSize, expectedFeeRate,
-			feeRate, delta)
+			feeRate, delta, sweepTx.TxHash())
 
 		require.InEpsilonf(ht, uint64(expectedFeeRate), uint64(feeRate),
-			0.01, "want %v, got %v in tx=%v", expectedFeeRate,
-			feeRate, sweepTx.TxHash())
+			0.01, "want %v, got %v", expectedFeeRate, feeRate)
 	}
 
 	// We now mine enough blocks to trigger Bob to force close channel
@@ -984,21 +984,32 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// Update Bob's fee function position.
 	outgoingFuncPosition++
 
-	// Bob should now have three pending sweeps:
+	// Bob should now have two pending sweeps:
 	// 1. the outgoing HTLC output.
 	// 2. the anchor output from his local commitment.
-	// 3. the anchor output from his remote commitment.
-	ht.AssertNumPendingSweeps(bob, 3)
+	expectedNumSweeps = 2
 
-	// We should see two txns in the mempool:
+	// For neutrino backend, we expect the anchor output from his remote
+	// commitment to be present.
+	if ht.IsNeutrinoBackend() {
+		expectedNumSweeps = 3
+	}
+
+	ht.AssertNumPendingSweeps(bob, expectedNumSweeps)
+
+	// We should see three txns in the mempool:
 	// 1. Bob's outgoing HTLC sweeping tx.
 	// 2. Bob's force close tx for Alice->Bob.
-	txns := ht.GetNumTxsFromMempool(2)
+	// 3. Bob's anchor CPFP sweeping tx for Alice->Bob.
+	txns := ht.GetNumTxsFromMempool(3)
 
 	// Find the force close tx - we expect it to have a single input.
 	closeTx := txns[0]
 	if len(closeTx.TxIn) != 1 {
 		closeTx = txns[1]
+	}
+	if len(closeTx.TxIn) != 1 {
+		closeTx = txns[2]
 	}
 
 	// We don't care the behavior of the anchor sweep in this test, so we
@@ -1014,13 +1025,6 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// 2. the incoming HTLC output on Alice->Bob.
 	// 3. the anchor sweeping on Alice-> Bob.
 	ht.AssertNumPendingSweeps(bob, 3)
-
-	// Mine one block, which will trigger his sweeper to publish his
-	// incoming HTLC sweeping tx.
-	ht.MineEmptyBlocks(1)
-
-	// Update the fee function's positions.
-	outgoingFuncPosition++
 
 	// We should see three txns in the mempool:
 	// 1. the outgoing HTLC sweeping tx.
@@ -1189,8 +1193,9 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 // Test:
 //  1. Alice's anchor sweeping is not attempted, instead, it should be swept
 //     together with her to_local output using the no deadline path.
-//  2. Bob would also sweep his anchor and to_local outputs in a single
-//     sweeping tx using the no deadline path.
+//  2. Bob would also sweep his anchor and to_local outputs separately due to
+//     they have different deadline heights, which means only the to_local
+//     sweeping tx will succeed as the anchor sweeping is not economical.
 //  3. Both Alice and Bob's RBF attempts are using the fee rates calculated
 //     from the deadline and budget.
 //  4. Wallet UTXOs requirements are met - neither Alice nor Bob needs wallet

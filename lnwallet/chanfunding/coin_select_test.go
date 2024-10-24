@@ -411,7 +411,7 @@ func TestCalculateChangeAmount(t *testing.T) {
 		feeWithChange: 45,
 		dustLimit:     5,
 
-                expectErr: "fee (0.00000045 BTC) exceeds 20% of total output "
+                expectErr: "fee (0.00000045 BTC) exceeds 20% of total output " +
                         "(0.00000055 BTC)",
 	}, {
 		name:          "invalid usage of function",

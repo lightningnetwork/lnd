@@ -1482,7 +1482,6 @@ func assertTimeLockSwept(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	expectedTxes := 1
 
 	// Mine a block to trigger the sweeps.
-	ht.MineBlocks(1)
 	ht.AssertNumTxsInMempool(expectedTxes)
 
 	// Carol should consider the channel pending force close (since she is
@@ -1512,7 +1511,7 @@ func assertTimeLockSwept(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	// The commit sweep resolver publishes the sweep tx at defaultCSV-1 and
 	// we already mined one block after the commitment was published, and
 	// one block to trigger Carol's sweeps, so take that into account.
-	ht.MineEmptyBlocks(1)
+	ht.MineBlocks(2)
 	ht.AssertNumPendingSweeps(dave, 2)
 
 	// Mine a block to trigger the sweeps.
@@ -1615,8 +1614,6 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 		// output and the other for her anchor.
 		ht.AssertNumPendingSweeps(carol, 2)
 
-		// Mine a block to trigger the sweep.
-		ht.MineEmptyBlocks(1)
 		ht.MineBlocksAndAssertNumTxes(1, 1)
 
 		// Now the channel should be fully closed also from Carol's POV.
@@ -1635,8 +1632,6 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 		// output and the other for his anchor.
 		ht.AssertNumPendingSweeps(dave, 2)
 
-		// Mine a block to trigger the sweep.
-		ht.MineEmptyBlocks(1)
 		ht.MineBlocksAndAssertNumTxes(1, 1)
 
 		// Now Dave should consider the channel fully closed.
@@ -1651,10 +1646,6 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 		} else {
 			ht.AssertNumPendingSweeps(dave, 1)
 		}
-
-		// Mine one block to trigger the sweeper to sweep.
-		ht.MineEmptyBlocks(1)
-		blocksMined++
 
 		// Expect one tx - the commitment sweep from Dave. For anchor
 		// channels, we expect the two anchor sweeping txns to be
@@ -1672,9 +1663,6 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 		// defaultCSV-1 and we already have blocks mined after the
 		// commitmment was published, so take that into account.
 		ht.MineEmptyBlocks(int(defaultCSV - blocksMined))
-
-		// Mine one block to trigger the sweeper to sweep.
-		ht.MineEmptyBlocks(1)
 
 		// Carol should have two pending sweeps:
 		// 1. her commit output.

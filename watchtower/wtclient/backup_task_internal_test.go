@@ -652,7 +652,7 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 	hint, encBlob, err := task.craftSessionPayload(test.signer)
 	require.NoError(t, err, "unable to craft session payload")
 
-	// Verify that the breach hint matches the breach txid's prefix.
+	// Verify that the breach hint matches the prefix of SHA256(txid).
 	breachTxID := test.breachInfo.BreachTxHash
 	expHint := blob.NewBreachHintFromHash(&breachTxID)
 	require.Equal(t, expHint, hint)

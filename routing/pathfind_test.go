@@ -354,7 +354,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 		}
 
 		err = graph.AddChannelEdge(&edgeInfo)
-		if err != nil && err != graphdb.ErrEdgeAlreadyExist {
+		if err != nil && !errors.Is(err, graphdb.ErrEdgeAlreadyExist) {
 			return nil, err
 		}
 
@@ -662,7 +662,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 		}
 
 		err = graph.AddChannelEdge(&edgeInfo)
-		if err != nil && err != graphdb.ErrEdgeAlreadyExist {
+		if err != nil && !errors.Is(err, graphdb.ErrEdgeAlreadyExist) {
 			return nil, err
 		}
 

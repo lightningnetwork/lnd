@@ -315,7 +315,7 @@ func (m *mockChainView) Reset() {
 	m.staleBlocks = make(chan *chainview.FilteredBlock, 10)
 }
 
-func (m *mockChainView) UpdateFilter(ops []graphdb.EdgePoint, updateHeight uint32) error {
+func (m *mockChainView) UpdateFilter(ops []graphdb.EdgePoint, _ uint32) error {
 	m.Lock()
 	defer m.Unlock()
 

@@ -202,7 +202,9 @@ func (r *mockGraphSource) AddProof(chanID lnwire.ShortChannelID,
 	return nil
 }
 
-func (r *mockGraphSource) ForEachNode(func(node *models.LightningNode) error) error {
+func (r *mockGraphSource) ForEachNode(
+	func(node *models.LightningNode) error) error {
+
 	return nil
 }
 
@@ -2318,9 +2320,7 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 
 	// At this point, the channel should still be considered a zombie.
 	_, _, _, err = ctx.router.GetChannelByID(chanID)
-	if err != graphdb.ErrZombieEdge {
-		t.Fatalf("channel should still be a zombie")
-	}
+	require.ErrorIs(t, err, graphdb.ErrZombieEdge)
 
 	// Attempting to process the current channel update should fail due to
 	// its edge being considered a zombie and its timestamp not being within
@@ -2441,7 +2441,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	// to the map of premature ChannelUpdates. Check that nothing
 	// was added to the graph.
 	chanInfo, e1, e2, err := ctx.router.GetChannelByID(batch.chanUpdAnn1.ShortChannelID)
-	if err != graphdb.ErrEdgeNotFound {
+	if !errors.Is(err, graphdb.ErrEdgeNotFound) {
 		t.Fatalf("Expected ErrEdgeNotFound, got: %v", err)
 	}
 	if chanInfo != nil {

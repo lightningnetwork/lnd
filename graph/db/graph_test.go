@@ -21,7 +21,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -37,13 +36,15 @@ var (
 		"[2001:db8:85a3:0:0:8a2e:370:7334]:80")
 	testAddrs = []net.Addr{testAddr, anotherAddr}
 
-	testRBytes, _ = hex.DecodeString("8ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa1bf0314f882d7")
-	testSBytes, _ = hex.DecodeString("299105481d63e0f4bc2a88121167221b6700d72a0ead154c03be696a292d24ae")
-	testRScalar   = new(btcec.ModNScalar)
-	testSScalar   = new(btcec.ModNScalar)
-	_             = testRScalar.SetByteSlice(testRBytes)
-	_             = testSScalar.SetByteSlice(testSBytes)
-	testSig       = ecdsa.NewSignature(testRScalar, testSScalar)
+	testRBytes, _ = hex.DecodeString("8ce2bc69281ce27da07e6683571319d18" +
+		"e949ddfa2965fb6caa1bf0314f882d7")
+	testSBytes, _ = hex.DecodeString("299105481d63e0f4bc2a88121167221b6" +
+		"700d72a0ead154c03be696a292d24ae")
+	testRScalar = new(btcec.ModNScalar)
+	testSScalar = new(btcec.ModNScalar)
+	_           = testRScalar.SetByteSlice(testRBytes)
+	_           = testSScalar.SetByteSlice(testSBytes)
+	testSig     = ecdsa.NewSignature(testRScalar, testSScalar)
 
 	testFeatures = lnwire.NewFeatureVector(
 		lnwire.NewRawFeatureVector(lnwire.GossipQueriesRequired),
@@ -65,7 +66,9 @@ var (
 	}
 )
 
-func createLightningNode(db kvdb.Backend, priv *btcec.PrivateKey) (*models.LightningNode, error) {
+func createLightningNode(_ kvdb.Backend, priv *btcec.PrivateKey) (
+	*models.LightningNode, error) {
+
 	updateTime := prand.Int63()
 
 	pub := priv.PubKey().SerializeCompressed()
@@ -124,7 +127,8 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	dbNode, err := graph.FetchLightningNode(testPub)
 	require.NoError(t, err, "unable to locate node")
 
-	if _, exists, err := graph.HasLightningNode(dbNode.PubKeyBytes); err != nil {
+	_, exists, err := graph.HasLightningNode(dbNode.PubKeyBytes)
+	if err != nil {
 		t.Fatalf("unable to query for node: %v", err)
 	} else if !exists {
 		t.Fatalf("node should be found but wasn't")
@@ -175,7 +179,8 @@ func TestPartialNode(t *testing.T) {
 	dbNode, err := graph.FetchLightningNode(testPub)
 	require.NoError(t, err, "unable to locate node")
 
-	if _, exists, err := graph.HasLightningNode(dbNode.PubKeyBytes); err != nil {
+	_, exists, err := graph.HasLightningNode(dbNode.PubKeyBytes)
+	if err != nil {
 		t.Fatalf("unable to query for node: %v", err)
 	} else if !exists {
 		t.Fatalf("node should be found but wasn't")
@@ -346,7 +351,8 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 
 	// Ensure that any query attempts to lookup the delete channel edge are
 	// properly deleted.
-	if _, _, _, err := graph.FetchChannelEdgesByOutpoint(&outpoint); err == nil {
+	_, _, _, err = graph.FetchChannelEdgesByOutpoint(&outpoint)
+	if err == nil {
 		t.Fatalf("channel edge not deleted")
 	}
 	if _, _, _, err := graph.FetchChannelEdgesByID(chanID); err == nil {
@@ -528,12 +534,8 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	// at height 155.
 	hash, h, err := graph.PruneTip()
 	require.NoError(t, err, "unable to get prune tip")
-	if !blockHash.IsEqual(hash) {
-		t.Fatalf("expected best block to be %x, was %x", blockHash, hash)
-	}
-	if h != height-1 {
-		t.Fatalf("expected best block height to be %d, was %d", height-1, h)
-	}
+	require.True(t, blockHash.IsEqual(hash))
+	require.Equal(t, h, height-1)
 }
 
 func assertEdgeInfoEqual(t *testing.T, e1 *models.ChannelEdgeInfo,
@@ -567,20 +569,19 @@ func assertEdgeInfoEqual(t *testing.T, e1 *models.ChannelEdgeInfo,
 			e2.Features)
 	}
 
-	if !bytes.Equal(e1.AuthProof.NodeSig1Bytes, e2.AuthProof.NodeSig1Bytes) {
-		t.Fatalf("nodesig1 doesn't match: %v vs %v",
-			spew.Sdump(e1.AuthProof.NodeSig1Bytes),
-			spew.Sdump(e2.AuthProof.NodeSig1Bytes))
-	}
-	if !bytes.Equal(e1.AuthProof.NodeSig2Bytes, e2.AuthProof.NodeSig2Bytes) {
-		t.Fatalf("nodesig2 doesn't match")
-	}
-	if !bytes.Equal(e1.AuthProof.BitcoinSig1Bytes, e2.AuthProof.BitcoinSig1Bytes) {
-		t.Fatalf("bitcoinsig1 doesn't match")
-	}
-	if !bytes.Equal(e1.AuthProof.BitcoinSig2Bytes, e2.AuthProof.BitcoinSig2Bytes) {
-		t.Fatalf("bitcoinsig2 doesn't match")
-	}
+	require.True(t, bytes.Equal(
+		e1.AuthProof.NodeSig1Bytes, e2.AuthProof.NodeSig1Bytes,
+	))
+	require.True(t, bytes.Equal(
+		e1.AuthProof.NodeSig2Bytes, e2.AuthProof.NodeSig2Bytes,
+	))
+	require.True(t, bytes.Equal(
+		e1.AuthProof.BitcoinSig1Bytes,
+		e2.AuthProof.BitcoinSig1Bytes,
+	))
+	require.True(t, bytes.Equal(
+		e1.AuthProof.BitcoinSig2Bytes, e2.AuthProof.BitcoinSig2Bytes,
+	))
 
 	if e1.ChannelPoint != e2.ChannelPoint {
 		t.Fatalf("channel point match: %v vs %v", e1.ChannelPoint,
@@ -759,7 +760,9 @@ func TestEdgeInfoUpdates(t *testing.T) {
 
 	// Next, attempt to query the channel edges according to the outpoint
 	// of the channel.
-	dbEdgeInfo, dbEdge1, dbEdge2, err = graph.FetchChannelEdgesByOutpoint(&outpoint)
+	dbEdgeInfo, dbEdge1, dbEdge2, err = graph.FetchChannelEdgesByOutpoint(
+		&outpoint,
+	)
 	require.NoError(t, err, "unable to fetch channel by ID")
 	if err := compareEdgePolicies(dbEdge1, edge1); err != nil {
 		t.Fatalf("edge doesn't match: %v", err)
@@ -1089,11 +1092,13 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	// Create a map of all nodes with the iteration we know works (because
 	// it is tested in another test).
 	nodeMap := make(map[route.Vertex]struct{})
-	err = graph.ForEachNode(func(tx kvdb.RTx, n *models.LightningNode) error {
-		nodeMap[n.PubKeyBytes] = struct{}{}
+	err = graph.ForEachNode(
+		func(tx kvdb.RTx, n *models.LightningNode) error {
+			nodeMap[n.PubKeyBytes] = struct{}{}
 
-		return nil
-	})
+			return nil
+		},
+	)
 	require.NoError(t, err)
 	require.Len(t, nodeMap, numNodes)
 
@@ -1162,8 +1167,8 @@ func TestGraphCacheTraversal(t *testing.T) {
 				delete(chanIndex, d.ChannelID)
 
 				if !d.OutPolicySet || d.InPolicy == nil {
-					return fmt.Errorf("channel policy not " +
-						"present")
+					return fmt.Errorf("channel policy " +
+						"not present")
 				}
 
 				// The incoming edge should also indicate that
@@ -1212,10 +1217,12 @@ func fillTestGraph(t require.TestingT, graph *ChannelGraph, numNodes,
 
 	// Iterate over each node as returned by the graph, if all nodes are
 	// reached, then the map created above should be empty.
-	err := graph.ForEachNode(func(_ kvdb.RTx, node *models.LightningNode) error {
-		delete(nodeIndex, node.Alias)
-		return nil
-	})
+	err := graph.ForEachNode(
+		func(_ kvdb.RTx, node *models.LightningNode) error {
+			delete(nodeIndex, node.Alias)
+			return nil
+		},
+	)
 	require.NoError(t, err)
 	require.Len(t, nodeIndex, 0)
 
@@ -1225,7 +1232,9 @@ func fillTestGraph(t require.TestingT, graph *ChannelGraph, numNodes,
 	for n := 0; n < numNodes-1; n++ {
 		node1 := nodes[n]
 		node2 := nodes[n+1]
-		if bytes.Compare(node1.PubKeyBytes[:], node2.PubKeyBytes[:]) == -1 {
+		if bytes.Compare(
+			node1.PubKeyBytes[:], node2.PubKeyBytes[:],
+		) == -1 {
 			node1, node2 = node2, node1
 		}
 
@@ -1279,8 +1288,8 @@ func fillTestGraph(t require.TestingT, graph *ChannelGraph, numNodes,
 	return chanIndex, nodes
 }
 
-func assertPruneTip(t *testing.T, graph *ChannelGraph, blockHash *chainhash.Hash,
-	blockHeight uint32) {
+func assertPruneTip(t *testing.T, graph *ChannelGraph,
+	blockHash *chainhash.Hash, blockHeight uint32) {
 
 	pruneHash, pruneHeight, err := graph.PruneTip()
 	if err != nil {
@@ -1320,10 +1329,12 @@ func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 
 func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
 	numNodes := 0
-	err := graph.ForEachNode(func(_ kvdb.RTx, _ *models.LightningNode) error {
-		numNodes++
-		return nil
-	})
+	err := graph.ForEachNode(
+		func(_ kvdb.RTx, _ *models.LightningNode) error {
+			numNodes++
+			return nil
+		},
+	)
 	if err != nil {
 		_, _, line, _ := runtime.Caller(1)
 		t.Fatalf("line %v: unable to scan nodes: %v", line, err)
@@ -1331,7 +1342,8 @@ func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
 
 	if numNodes != n {
 		_, _, line, _ := runtime.Caller(1)
-		t.Fatalf("line %v: expected %v nodes, got %v", line, n, numNodes)
+		t.Fatalf("line %v: expected %v nodes, got %v", line, n,
+			numNodes)
 	}
 }
 
@@ -1355,7 +1367,9 @@ func assertChanViewEqual(t *testing.T, a []EdgePoint, b []EdgePoint) {
 	}
 }
 
-func assertChanViewEqualChanPoints(t *testing.T, a []EdgePoint, b []*wire.OutPoint) {
+func assertChanViewEqualChanPoints(t *testing.T, a []EdgePoint,
+	b []*wire.OutPoint) {
+
 	if len(a) != len(b) {
 		_, _, line, _ := runtime.Caller(1)
 		t.Fatalf("line %v: chan views don't match", line)
@@ -1434,13 +1448,17 @@ func TestGraphPruning(t *testing.T) {
 		copy(edgeInfo.NodeKey1Bytes[:], graphNodes[i].PubKeyBytes[:])
 		copy(edgeInfo.NodeKey2Bytes[:], graphNodes[i+1].PubKeyBytes[:])
 		copy(edgeInfo.BitcoinKey1Bytes[:], graphNodes[i].PubKeyBytes[:])
-		copy(edgeInfo.BitcoinKey2Bytes[:], graphNodes[i+1].PubKeyBytes[:])
+		copy(
+			edgeInfo.BitcoinKey2Bytes[:],
+			graphNodes[i+1].PubKeyBytes[:],
+		)
 		if err := graph.AddChannelEdge(&edgeInfo); err != nil {
 			t.Fatalf("unable to add node: %v", err)
 		}
 
 		pkScript, err := genMultiSigP2WSH(
-			edgeInfo.BitcoinKey1Bytes[:], edgeInfo.BitcoinKey2Bytes[:],
+			edgeInfo.BitcoinKey1Bytes[:],
+			edgeInfo.BitcoinKey2Bytes[:],
 		)
 		if err != nil {
 			t.Fatalf("unable to gen multi-sig p2wsh: %v", err)
@@ -1772,7 +1790,9 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 
 			assertEdgeInfoEqual(t, chanExp.Info, chanRet.Info)
 
-			err := compareEdgePolicies(chanExp.Policy1, chanRet.Policy1)
+			err := compareEdgePolicies(
+				chanExp.Policy1, chanRet.Policy1,
+			)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1879,7 +1899,9 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 		},
 	}
 	for _, queryCase := range queryCases {
-		resp, err := graph.NodeUpdatesInHorizon(queryCase.start, queryCase.end)
+		resp, err := graph.NodeUpdatesInHorizon(
+			queryCase.start, queryCase.end,
+		)
 		if err != nil {
 			t.Fatalf("unable to query for nodes: %v", err)
 		}
@@ -2725,7 +2747,9 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 	}
 
 	// Ensure that channel is reported with unknown policies.
-	checkPolicies := func(node *models.LightningNode, expectedIn, expectedOut bool) {
+	checkPolicies := func(node *models.LightningNode, expectedIn,
+		expectedOut bool) {
+
 		calls := 0
 		err := graph.ForEachNodeChannel(node.PubKeyBytes,
 			func(_ kvdb.RTx, _ *models.ChannelEdgeInfo, outEdge,
@@ -3046,9 +3070,7 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 
 	node2, err = graph.FetchLightningNode(node2.PubKeyBytes)
 	require.NoError(t, err, "unable to fetch node2")
-	if node2.HaveNodeAnnouncement {
-		t.Fatalf("should have shell announcement for node2, but is full")
-	}
+	require.False(t, node2.HaveNodeAnnouncement)
 }
 
 // TestNodePruningUpdateIndexDeletion tests that once a node has been removed
@@ -3163,17 +3185,19 @@ func TestNodeIsPublic(t *testing.T) {
 
 	// checkNodes is a helper closure that will be used to assert that the
 	// given nodes are seen as public/private within the given graphs.
-	checkNodes := func(nodes []*models.LightningNode, graphs []*ChannelGraph,
-		public bool) {
+	checkNodes := func(nodes []*models.LightningNode,
+		graphs []*ChannelGraph, public bool) {
 
 		t.Helper()
 
 		for _, node := range nodes {
 			for _, graph := range graphs {
-				isPublic, err := graph.IsPublicNode(node.PubKeyBytes)
+				isPublic, err := graph.IsPublicNode(
+					node.PubKeyBytes,
+				)
 				if err != nil {
-					t.Fatalf("unable to determine if pivot "+
-						"is public: %v", err)
+					t.Fatalf("unable to determine if "+
+						"pivot is public: %v", err)
 				}
 
 				switch {
@@ -3278,8 +3302,8 @@ func TestDisabledChannelIDs(t *testing.T) {
 	disabledChanIds, err := graph.DisabledChannelIDs()
 	require.NoError(t, err, "unable to get disabled channel ids")
 	if len(disabledChanIds) > 0 {
-		t.Fatalf("expected empty disabled channels, got %v disabled channels",
-			len(disabledChanIds))
+		t.Fatalf("expected empty disabled channels, got %v disabled "+
+			"channels", len(disabledChanIds))
 	}
 
 	// Add one disabled policy and ensure the channel is still not in the
@@ -3291,8 +3315,8 @@ func TestDisabledChannelIDs(t *testing.T) {
 	disabledChanIds, err = graph.DisabledChannelIDs()
 	require.NoError(t, err, "unable to get disabled channel ids")
 	if len(disabledChanIds) > 0 {
-		t.Fatalf("expected empty disabled channels, got %v disabled channels",
-			len(disabledChanIds))
+		t.Fatalf("expected empty disabled channels, got %v disabled "+
+			"channels", len(disabledChanIds))
 	}
 
 	// Add second disabled policy and ensure the channel is now in the
@@ -3303,12 +3327,15 @@ func TestDisabledChannelIDs(t *testing.T) {
 	}
 	disabledChanIds, err = graph.DisabledChannelIDs()
 	require.NoError(t, err, "unable to get disabled channel ids")
-	if len(disabledChanIds) != 1 || disabledChanIds[0] != edgeInfo.ChannelID {
+	if len(disabledChanIds) != 1 ||
+		disabledChanIds[0] != edgeInfo.ChannelID {
+
 		t.Fatalf("expected disabled channel with id %v, "+
 			"got %v", edgeInfo.ChannelID, disabledChanIds)
 	}
 
-	// Delete the channel edge and ensure it is removed from the disabled list.
+	// Delete the channel edge and ensure it is removed from the disabled
+	// list.
 	if err = graph.DeleteChannelEdges(
 		false, true, edgeInfo.ChannelID,
 	); err != nil {
@@ -3317,8 +3344,8 @@ func TestDisabledChannelIDs(t *testing.T) {
 	disabledChanIds, err = graph.DisabledChannelIDs()
 	require.NoError(t, err, "unable to get disabled channel ids")
 	if len(disabledChanIds) > 0 {
-		t.Fatalf("expected empty disabled channels, got %v disabled channels",
-			len(disabledChanIds))
+		t.Fatalf("expected empty disabled channels, got %v disabled "+
+			"channels", len(disabledChanIds))
 	}
 }
 
@@ -3421,7 +3448,9 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 		copy(indexKey[:], scratch[:])
 		byteOrder.PutUint64(indexKey[8:], edge1.ChannelID)
 
-		updateIndex, err := edges.CreateBucketIfNotExists(edgeUpdateIndexBucket)
+		updateIndex, err := edges.CreateBucketIfNotExists(
+			edgeUpdateIndexBucket,
+		)
 		if err != nil {
 			return err
 		}
@@ -3556,8 +3585,8 @@ func TestGraphZombieIndex(t *testing.T) {
 // the featuresMap have not been defined.
 func compareNodes(a, b *models.LightningNode) error {
 	if a.LastUpdate != b.LastUpdate {
-		return fmt.Errorf("node LastUpdate doesn't match: expected %v, \n"+
-			"got %v", a.LastUpdate, b.LastUpdate)
+		return fmt.Errorf("node LastUpdate doesn't match: expected "+
+			"%v, got %v", a.LastUpdate, b.LastUpdate)
 	}
 	if !reflect.DeepEqual(a.Addresses, b.Addresses) {
 		return fmt.Errorf("Addresses doesn't match: expected %#v, \n "+
@@ -3576,8 +3605,9 @@ func compareNodes(a, b *models.LightningNode) error {
 			"got %#v", a.Alias, b.Alias)
 	}
 	if !reflect.DeepEqual(a.HaveNodeAnnouncement, b.HaveNodeAnnouncement) {
-		return fmt.Errorf("HaveNodeAnnouncement doesn't match: expected %#v, \n "+
-			"got %#v", a.HaveNodeAnnouncement, b.HaveNodeAnnouncement)
+		return fmt.Errorf("HaveNodeAnnouncement doesn't match: "+
+			"expected %#v, got %#v", a.HaveNodeAnnouncement,
+			b.HaveNodeAnnouncement)
 	}
 	if !bytes.Equal(a.ExtraOpaqueData, b.ExtraOpaqueData) {
 		return fmt.Errorf("extra data doesn't match: %v vs %v",
@@ -3595,8 +3625,8 @@ func compareEdgePolicies(a, b *models.ChannelEdgePolicy) error {
 			"got %v", a.ChannelID, b.ChannelID)
 	}
 	if !reflect.DeepEqual(a.LastUpdate, b.LastUpdate) {
-		return fmt.Errorf("edge LastUpdate doesn't match: expected %#v, \n "+
-			"got %#v", a.LastUpdate, b.LastUpdate)
+		return fmt.Errorf("edge LastUpdate doesn't match: "+
+			"expected %#v, got %#v", a.LastUpdate, b.LastUpdate)
 	}
 	if a.MessageFlags != b.MessageFlags {
 		return fmt.Errorf("MessageFlags doesn't match: expected %v, "+

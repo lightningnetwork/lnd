@@ -3447,7 +3447,7 @@ func (s *server) establishPersistentConnections() error {
 		nodeAddrsMap[pubStr] = n
 		return nil
 	})
-	if err != nil && err != graphdb.ErrGraphNoEdgesFound {
+	if err != nil && !errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
 		return err
 	}
 

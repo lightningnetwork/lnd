@@ -748,7 +748,9 @@ var stateMachineTests = []stateMachineTest{
 
 			// Check that trying to enable the channel with unknown
 			// edges results in a failure.
-			h.assertEnables(newChans, graphdb.ErrEdgeNotFound, false)
+			h.assertEnables(
+				newChans, graphdb.ErrEdgeNotFound, false,
+			)
 
 			// Now, insert edge policies for the channel into the
 			// graph, starting with the channel enabled, and mark

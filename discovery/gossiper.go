@@ -1685,7 +1685,7 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 
 		return nil
 	})
-	if err != nil && err != graphdb.ErrGraphNoEdgesFound {
+	if err != nil && !errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
 		return fmt.Errorf("unable to retrieve outgoing channels: %w",
 			err)
 	}

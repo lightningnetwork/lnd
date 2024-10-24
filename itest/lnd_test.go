@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/rand"
 	"google.golang.org/grpc/grpclog"
 )
 
@@ -59,6 +60,13 @@ var (
 		"splittranches", defaultSplitTranches, "split the test cases "+
 			"in this many tranches and run the tranche at "+
 			"0-based index specified by the -runtranche flag",
+	)
+
+	// shuffleSeedFlag is the source of randomness used to shuffle the test
+	// cases. If not specified, the test cases won't be shuffled.
+	shuffleSeedFlag = flag.Uint64(
+		"shuffleseed", 0, "if set, shuffles the test cases using this "+
+			"as the source of randomness",
 	)
 
 	// testCasesRunTranche is the 0-based index of the split test cases
@@ -160,6 +168,32 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		harnessTest.CurrentHeight()-height)
 }
 
+// maybeShuffleTestCases shuffles the test cases if the flag `shuffleseed` is
+// set and not 0. In parallel tests we want to shuffle the test cases so they
+// are executed in a random order. This is done to even out the blocks mined in
+// each test tranche so they can run faster.
+//
+// NOTE: Because the parallel tests are initialized with the same seed (job
+// ID), they will always have the same order.
+func maybeShuffleTestCases() {
+	// Exit if not set.
+	if shuffleSeedFlag == nil {
+		return
+	}
+
+	// Exit if set to 0.
+	if *shuffleSeedFlag == 0 {
+		return
+	}
+
+	// Init the seed and shuffle the test cases.
+	rand.Seed(*shuffleSeedFlag)
+	rand.Shuffle(len(allTestCases), func(i, j int) {
+		allTestCases[i], allTestCases[j] =
+			allTestCases[j], allTestCases[i]
+	})
+}
+
 // getTestCaseSplitTranche returns the sub slice of the test cases that should
 // be run as the current split tranche as well as the index and slice offset of
 // the tranche.
@@ -181,6 +215,9 @@ func getTestCaseSplitTranche() ([]*lntest.TestCase, uint, uint) {
 	if numTranches == 1 {
 		runTranche = 0
 	}
+
+	// Shuffle the test cases if the `shuffleseed` flag is set.
+	maybeShuffleTestCases()
 
 	numCases := uint(len(allTestCases))
 	testsPerTranche := numCases / numTranches

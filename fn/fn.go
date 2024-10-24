@@ -23,7 +23,7 @@ func Iden[A any](a A) A {
 // Const is a function that accepts an argument and returns a function that
 // always returns that value irrespective of the returned function's argument.
 // This is also quite useful in conjunction with higher order functions.
-func Const[A, B any](a A) func(B) A {
+func Const[B, A any](a A) func(B) A {
 	return func(_ B) A {
 		return a
 	}

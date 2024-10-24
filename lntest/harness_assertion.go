@@ -2786,3 +2786,48 @@ func (h *HarnessTest) FindSweepingTxns(txns []*wire.MsgTx,
 
 	return sweepTxns
 }
+
+// AssertForceCloseAndAnchorTxnsInMempool asserts that the force close and
+// anchor sweep txns are found in the mempool and returns the force close tx
+// and the anchor sweep tx.
+func (h *HarnessTest) AssertForceCloseAndAnchorTxnsInMempool() (*wire.MsgTx,
+	*wire.MsgTx) {
+
+	// Assert there are two txns in the mempool.
+	txns := h.GetNumTxsFromMempool(2)
+
+	// isParentAndChild checks whether there is an input used in the
+	// assumed child tx by checking every input's previous outpoint against
+	// the assumed parentTxid.
+	isParentAndChild := func(parent, child *wire.MsgTx) bool {
+		parentTxid := parent.TxHash()
+
+		for _, inp := range child.TxIn {
+			if inp.PreviousOutPoint.Hash == parentTxid {
+				// Found a match, this is indeed the anchor
+				// sweeping tx so we return it here.
+				return true
+			}
+		}
+
+		return false
+	}
+
+	switch {
+	// Assume the first one is the closing tx and the second one is the
+	// anchor sweeping tx.
+	case isParentAndChild(txns[0], txns[1]):
+		return txns[0], txns[1]
+
+	// Assume the first one is the anchor sweeping tx and the second one is
+	// the closing tx.
+	case isParentAndChild(txns[1], txns[0]):
+		return txns[1], txns[0]
+
+	// Unrelated txns found, fail the test.
+	default:
+		h.Fatalf("the two txns not related: %v", txns)
+
+		return nil, nil
+	}
+}

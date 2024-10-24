@@ -46,6 +46,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/msgmux"
+	"github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
@@ -920,6 +921,9 @@ type DatabaseInstances struct {
 	// InvoiceDB is the database that stores information about invoices.
 	InvoiceDB invoices.InvoiceDB
 
+	// PaymentDB is the database that stores information about payments.
+	PaymentDB payments.PaymentDB
+
 	// MacaroonDB is the database that stores macaroon root keys.
 	MacaroonDB kvdb.Backend
 
@@ -1129,6 +1133,11 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	} else {
 		dbs.InvoiceDB = dbs.GraphDB
 	}
+
+	// For now just use the graph db as the payment db.
+	paymentDB := channeldb.NewPaymentControl(dbs.ChanStateDB)
+
+	dbs.PaymentDB = paymentDB
 
 	// Wrap the watchtower client DB and make sure we clean up.
 	if cfg.WtClient.Active {

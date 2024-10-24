@@ -1,5 +1,37 @@
 package payments
 
+import "github.com/lightningnetwork/lnd/lntypes"
+
+// PaymentDB is the database that stores the information about payments.
+type PaymentDB interface {
+	InitPayment(paymentHash lntypes.Hash,
+		info *PaymentCreationInfo) error
+
+	DeleteFailedAttempts(hash lntypes.Hash) error
+
+	RegisterAttempt(paymentHash lntypes.Hash,
+		attempt *HTLCAttemptInfo) (*MPPayment, error)
+
+	SettleAttempt(hash lntypes.Hash,
+		attemptID uint64, settleInfo *HTLCSettleInfo) (*MPPayment, error)
+
+	FailAttempt(hash lntypes.Hash,
+		attemptID uint64, failInfo *HTLCFailInfo) (*MPPayment, error)
+
+	FetchPayment(paymentHash lntypes.Hash) (
+		*MPPayment, error)
+
+	FetchInFlightPayments() ([]*MPPayment, error)
+
+	Fail(paymentHash lntypes.Hash,
+		reason FailureReason) (*MPPayment, error)
+
+	// DeletePayment(paymentHash lntypes.Hash,
+	//      failedHtlcsOnly bool) error
+
+	// DeletePayments(failedOnly, failedHtlcsOnly bool) error
+}
+
 // DBMPPayment is an interface derived from channeldb.MPPayment that is used by
 // the payment lifecycle.
 type dBMPPayment interface {

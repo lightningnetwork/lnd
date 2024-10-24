@@ -63,6 +63,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/pool"
@@ -255,6 +256,8 @@ type server struct {
 	miscDB *channeldb.DB
 
 	invoicesDB invoices.InvoiceDB
+
+	paymentDB payments.PaymentDB
 
 	aliasMgr *aliasmgr.Manager
 
@@ -1013,9 +1016,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PathFindingConfig: pathFindingConfig,
 	}
 
-	paymentControl := channeldb.NewPaymentControl(dbs.ChanStateDB)
+	// paymentControl := channeldb.NewPaymentControl(dbs.ChanStateDB)
 
-	s.controlTower = routing.NewControlTower(paymentControl)
+	// This needs to be different for sql vs kvdb backends.
+	s.controlTower = routing.NewControlTower(s.paymentDB)
 
 	strictPruning := cfg.Bitcoin.Node == "neutrino" ||
 		cfg.Routing.StrictZombiePruning

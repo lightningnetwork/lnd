@@ -159,6 +159,7 @@ func (f *FeeService) SetMinRelayFeerate(fee chainfee.SatPerKVByte) {
 func (f *FeeService) Reset() {
 	f.lock.Lock()
 	f.feeRateMap = make(map[uint32]uint32)
+	f.minRelayFeerate = chainfee.FeePerKwFloor.FeePerKVByte()
 	f.lock.Unlock()
 
 	// Initialize default fee estimate.

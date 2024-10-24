@@ -3,9 +3,10 @@
 # Get all the variables.
 PROCESSES=$1
 TRANCHES=$2
+SHUFFLE_SEED=$3
 
-# Here we also shift 2 times and get the rest of our flags to pass on in $@.
-shift 2
+# Here we also shift 3 times and get the rest of our flags to pass on in $@.
+shift 3
 
 # Create a variable to hold the final exit code.
 exit_code=0
@@ -13,7 +14,7 @@ exit_code=0
 # Run commands using xargs in parallel and capture their PIDs
 pids=()
 for ((i=0; i<PROCESSES; i++)); do 
-    scripts/itest_part.sh $i $TRANCHES $@ &
+    scripts/itest_part.sh $i $TRANCHES $SHUFFLE_SEED $@ &
     pids+=($!)
 done
 

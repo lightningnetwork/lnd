@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -251,19 +252,33 @@ func (h *HarnessTest) AssertNumEdges(hn *node.HarnessNode,
 		old = hn.State.Edge.Total
 	}
 
+	// filterDisabled is a helper closure that filters out disabled
+	// channels.
+	filterDisabled := func(edge *lnrpc.ChannelEdge) bool {
+		if edge.Node1Policy.Disabled {
+			return false
+		}
+		if edge.Node2Policy.Disabled {
+			return false
+		}
+
+		return true
+	}
+
 	err := wait.NoError(func() error {
 		req := &lnrpc.ChannelGraphRequest{
 			IncludeUnannounced: includeUnannounced,
 		}
-		chanGraph := hn.RPC.DescribeGraph(req)
-		total := len(chanGraph.Edges)
+		resp := hn.RPC.DescribeGraph(req)
+		activeEdges := fn.Filter(filterDisabled, resp.Edges)
+		total := len(activeEdges)
 
 		if total-old == expected {
 			if expected != 0 {
 				// NOTE: assume edges come in ascending order
 				// that the old edges are at the front of the
 				// slice.
-				edges = chanGraph.Edges[old:]
+				edges = activeEdges[old:]
 			}
 
 			return nil

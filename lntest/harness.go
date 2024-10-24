@@ -909,6 +909,18 @@ func (h *HarnessTest) validateNodeState(hn *node.HarnessNode) error {
 			"delete all of them properly", hn.Name())
 	}
 
+	// The number of public edges should be zero.
+	if hn.State.Edge.Public != 0 {
+		return fmt.Errorf("%s: found active public egdes, please "+
+			"clean them properly", hn.Name())
+	}
+
+	// The number of edges should be zero.
+	if hn.State.Edge.Total != 0 {
+		return fmt.Errorf("%s: found active edges, please "+
+			"clean them properly", hn.Name())
+	}
+
 	return nil
 }
 

@@ -135,21 +135,31 @@ func testPaymentSucceededHTLCRemoteSwept(ht *lntest.HarnessTest) {
 	// direct preimage spend.
 	ht.AssertNumPendingSweeps(bob, 1)
 
-	// Mine a block to trigger the sweep.
-	//
-	// TODO(yy): remove it once `blockbeat` is implemented.
-	ht.MineEmptyBlocks(1)
-
-	// Mine Bob's sweeping tx.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
-
 	// Let Alice come back up. Since the channel is now closed, we expect
 	// different behaviors based on whether the HTLC is a dust.
 	// - For dust payment, it should be failed now as the HTLC won't go
 	//   onchain.
 	// - For non-dust payment, it should be marked as succeeded since her
 	//   outgoing htlc is swept by Bob.
+	//
+	// TODO(yy): move the restart after Bob's sweeping tx being confirmed
+	// once the blockbeat starts remembering its last processed block and
+	// can handle looking for spends in the past blocks.
 	require.NoError(ht, restartAlice())
+
+	// Alice should have a pending force close channel.
+	ht.AssertNumPendingForceClose(alice, 1)
+
+	// Mine a block to trigger the sweep. This is needed because the
+	// preimage extraction logic from the link is not managed by the
+	// blockbeat, which means the preimage may be sent to the contest
+	// resolver after it's launched.
+	//
+	// TODO(yy): Expose blockbeat to the link layer.
+	ht.MineEmptyBlocks(1)
+
+	// Mine Bob's sweeping tx.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Since Alice is restarted, we need to track the payments again.
 	payStream := alice.RPC.TrackPaymentV2(payHash[:])

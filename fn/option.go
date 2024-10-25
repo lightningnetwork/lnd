@@ -2,8 +2,8 @@ package fn
 
 import "testing"
 
-// Option[A] represents a value which may or may not be there. This is very
-// often preferable to nil-able pointers.
+// Option represents a value which may or may not be there. This is very often
+// preferable to nil-able pointers.
 type Option[A any] struct {
 	isSome bool
 	some   A

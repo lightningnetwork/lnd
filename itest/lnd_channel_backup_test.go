@@ -1320,11 +1320,19 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 	// information Dave needs to sweep his funds.
 	require.NoError(ht, restartDave(), "unable to restart Eve")
 
+	// Mine a block to trigger Dave's chain watcher to process Carol's sweep
+	// tx.
+	//
+	// TODO(yy): remove this block once the blockbeat starts remembering
+	// its last processed block and can handle looking for spends in the
+	// past blocks.
+	ht.MineEmptyBlocks(1)
+
+	// Make sure Dave still has the pending force close channel.
+	ht.AssertNumPendingForceClose(dave, 1)
+
 	// Dave should have a pending sweep.
 	ht.AssertNumPendingSweeps(dave, 1)
-
-	// Mine a block to trigger the sweep.
-	ht.MineBlocks(1)
 
 	// Dave should sweep his funds.
 	ht.AssertNumTxsInMempool(1)

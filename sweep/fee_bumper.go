@@ -916,11 +916,9 @@ func (t *TxPublisher) processRecords() {
 	// For records that are confirmed, we'll notify the caller about this
 	// result.
 	for requestID, r := range confirmedRecords {
-		rec := r
-
 		log.Debugf("Tx=%v is confirmed", r.tx.TxHash())
 		t.wg.Add(1)
-		go t.handleTxConfirmed(rec, requestID)
+		go t.handleTxConfirmed(r, requestID)
 	}
 
 	// Get the current height to be used in the following goroutines.
@@ -928,22 +926,18 @@ func (t *TxPublisher) processRecords() {
 
 	// For records that are not confirmed, we perform a fee bump if needed.
 	for requestID, r := range feeBumpRecords {
-		rec := r
-
 		log.Debugf("Attempting to fee bump Tx=%v", r.tx.TxHash())
 		t.wg.Add(1)
-		go t.handleFeeBumpTx(requestID, rec, currentHeight)
+		go t.handleFeeBumpTx(requestID, r, currentHeight)
 	}
 
 	// For records that are failed, we'll notify the caller about this
 	// result.
 	for requestID, r := range failedRecords {
-		rec := r
-
 		log.Debugf("Tx=%v has inputs been spent by a third party, "+
 			"failing it now", r.tx.TxHash())
 		t.wg.Add(1)
-		go t.handleThirdPartySpent(rec, requestID)
+		go t.handleThirdPartySpent(r, requestID)
 	}
 }
 

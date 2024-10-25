@@ -423,6 +423,10 @@
           "type": "string",
           "format": "uint64",
           "description": "The modified amount in milli-satoshi that the exit HTLC is paying. This\nvalue can be different from the actual on-chain HTLC amount, in case the\nHTLC carries other valuable items, as can be the case with custom channel\ntypes."
+        },
+        "cancel_set": {
+          "type": "boolean",
+          "description": "This flag indicates whether the HTLCs associated with the invoices should\nbe cancelled. The interceptor client may set this field if some\nunexpected behavior is encountered. Setting this will ignore the amt_paid\nfield."
         }
       }
     },

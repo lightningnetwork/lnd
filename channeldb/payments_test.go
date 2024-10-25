@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"math"
 	"reflect"
@@ -256,7 +257,7 @@ func TestQueryPayments(t *testing.T) {
 	// of legacy payments.
 	tests := []struct {
 		name       string
-		query      PaymentsQuery
+		query      pmt.PaymentsQuery
 		firstIndex uint64
 		lastIndex  uint64
 
@@ -266,7 +267,7 @@ func TestQueryPayments(t *testing.T) {
 	}{
 		{
 			name: "IndexOffset at the end of the payments range",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       7,
 				MaxPayments:       7,
 				Reversed:          false,
@@ -278,7 +279,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query in forwards order, start at beginning",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       0,
 				MaxPayments:       2,
 				Reversed:          false,
@@ -290,7 +291,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query in forwards order, start at end, overflow",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       6,
 				MaxPayments:       2,
 				Reversed:          false,
@@ -302,7 +303,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "start at offset index outside of payments",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       20,
 				MaxPayments:       2,
 				Reversed:          false,
@@ -314,7 +315,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "overflow in forwards order",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       4,
 				MaxPayments:       math.MaxUint64,
 				Reversed:          false,
@@ -327,7 +328,7 @@ func TestQueryPayments(t *testing.T) {
 		{
 			name: "start at offset index outside of payments, " +
 				"reversed order",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       9,
 				MaxPayments:       2,
 				Reversed:          true,
@@ -339,7 +340,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query in reverse order, start at end",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       0,
 				MaxPayments:       2,
 				Reversed:          true,
@@ -351,7 +352,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query in reverse order, starting in middle",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       4,
 				MaxPayments:       2,
 				Reversed:          true,
@@ -364,7 +365,7 @@ func TestQueryPayments(t *testing.T) {
 		{
 			name: "query in reverse order, starting in middle, " +
 				"with underflow",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       4,
 				MaxPayments:       5,
 				Reversed:          true,
@@ -376,7 +377,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "all payments in reverse, order maintained",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       0,
 				MaxPayments:       7,
 				Reversed:          true,
@@ -388,7 +389,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "exclude incomplete payments",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       0,
 				MaxPayments:       7,
 				Reversed:          false,
@@ -400,7 +401,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query payments at index gap",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       1,
 				MaxPayments:       7,
 				Reversed:          false,
@@ -412,7 +413,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query payments reverse before index gap",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       3,
 				MaxPayments:       7,
 				Reversed:          true,
@@ -424,7 +425,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query payments reverse on index gap",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       2,
 				MaxPayments:       7,
 				Reversed:          true,
@@ -436,7 +437,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query payments forward on index gap",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       2,
 				MaxPayments:       2,
 				Reversed:          false,
@@ -449,7 +450,7 @@ func TestQueryPayments(t *testing.T) {
 		{
 			name: "query in forwards order, with start creation " +
 				"time",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       0,
 				MaxPayments:       2,
 				Reversed:          false,
@@ -463,7 +464,7 @@ func TestQueryPayments(t *testing.T) {
 		{
 			name: "query in forwards order, with start creation " +
 				"time at end, overflow",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       0,
 				MaxPayments:       2,
 				Reversed:          false,
@@ -476,7 +477,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query with start and end creation time",
-			query: PaymentsQuery{
+			query: pmt.PaymentsQuery{
 				IndexOffset:       9,
 				MaxPayments:       math.MaxUint64,
 				Reversed:          true,
@@ -502,7 +503,9 @@ func TestQueryPayments(t *testing.T) {
 
 			// Make a preliminary query to make sure it's ok to
 			// query when we have no payments.
-			resp, err := db.QueryPayments(tt.query)
+			resp, err := db.QueryPayments(
+				context.Background(), tt.query,
+			)
 			require.NoError(t, err)
 			require.Len(t, resp.Payments, 0)
 
@@ -577,7 +580,9 @@ func TestQueryPayments(t *testing.T) {
 					len(allPayments), 6)
 			}
 
-			querySlice, err := db.QueryPayments(tt.query)
+			querySlice, err := db.QueryPayments(
+				context.Background(), tt.query,
+			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

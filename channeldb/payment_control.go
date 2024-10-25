@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -810,4 +811,26 @@ func (p *PaymentControl) FetchInFlightPayments() ([]*pmt.MPPayment, error) {
 	}
 
 	return inFlights, nil
+}
+
+// QueryPayments ...
+func (p *PaymentControl) QueryPayments(ctx context.Context,
+	query pmt.PaymentsQuery) (pmt.PaymentsSlice, error) {
+
+	// Assuming p.db is the *channeldb.DB instance
+	return p.db.QueryPayments(ctx, query)
+}
+
+// DeletePayment ...
+func (p *PaymentControl) DeletePayment(paymentHash lntypes.Hash,
+	failedHtlcsOnly bool) error {
+
+	return p.db.DeletePayment(paymentHash, failedHtlcsOnly)
+}
+
+// DeletePayments ...
+func (p *PaymentControl) DeletePayments(
+	failedOnly, failedHtlcsOnly bool) error {
+
+	return p.db.DeletePayments(failedOnly, failedHtlcsOnly)
 }

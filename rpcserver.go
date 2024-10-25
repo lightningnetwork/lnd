@@ -7218,7 +7218,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		}
 	}
 
-	query := channeldb.PaymentsQuery{
+	query := pmt.PaymentsQuery{
 		IndexOffset:       req.IndexOffset,
 		MaxPayments:       req.MaxPayments,
 		Reversed:          req.Reversed,
@@ -7234,7 +7234,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		query.MaxPayments = math.MaxUint64
 	}
 
-	paymentsQuerySlice, err := r.server.miscDB.QueryPayments(query)
+	paymentsQuerySlice, err := r.server.miscDB.QueryPayments(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -7276,7 +7276,7 @@ func (r *rpcServer) DeletePayment(ctx context.Context,
 	rpcsLog.Infof("[DeletePayment] payment_identifier=%v, "+
 		"failed_htlcs_only=%v", hash, req.FailedHtlcsOnly)
 
-	err = r.server.miscDB.DeletePayment(hash, req.FailedHtlcsOnly)
+	err = r.server.paymentDB.DeletePayment(hash, req.FailedHtlcsOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -7314,7 +7314,7 @@ func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 		"failed_htlcs_only=%v", req.FailedPaymentsOnly,
 		req.FailedHtlcsOnly)
 
-	err := r.server.miscDB.DeletePayments(
+	err := r.server.paymentDB.DeletePayments(
 		req.FailedPaymentsOnly, req.FailedHtlcsOnly,
 	)
 	if err != nil {

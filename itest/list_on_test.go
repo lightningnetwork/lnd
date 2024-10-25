@@ -551,10 +551,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testLookupHtlcResolution,
 	},
 	{
-		Name:     "watchtower",
-		TestFunc: testWatchtower,
-	},
-	{
 		Name:     "channel fundmax",
 		TestFunc: testChannelFundMax,
 	},
@@ -695,4 +691,5 @@ var allTestCases = []*lntest.TestCase{
 func init() {
 	// Register subtests.
 	allTestCases = append(allTestCases, multiHopForceCloseTestCases...)
+	allTestCases = append(allTestCases, watchtowerTestCases...)
 }

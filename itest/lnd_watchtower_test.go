@@ -19,22 +19,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testWatchtower tests the behaviour of the watchtower client and server.
-func testWatchtower(ht *lntest.HarnessTest) {
-	ht.Run("revocation", func(t *testing.T) {
-		tt := ht.Subtest(t)
-		testRevokedCloseRetributionAltruistWatchtower(tt)
-	})
-
-	ht.Run("session deletion", func(t *testing.T) {
-		tt := ht.Subtest(t)
-		testTowerClientSessionDeletion(tt)
-	})
-
-	ht.Run("tower and session activation", func(t *testing.T) {
-		tt := ht.Subtest(t)
-		testTowerClientTowerAndSessionManagement(tt)
-	})
+// watchtowerTestCases defines a set of tests to check the behaviour of the
+// watchtower client and server.
+var watchtowerTestCases = []*lntest.TestCase{
+	{
+		Name:     "watchtower revoked close retribution altruist",
+		TestFunc: testRevokedCloseRetributionAltruistWatchtower,
+	},
+	{
+		Name:     "watchtower client session deletion",
+		TestFunc: testTowerClientSessionDeletion,
+	},
+	{
+		Name:     "watchtower client tower and session management",
+		TestFunc: testTowerClientTowerAndSessionManagement,
+	},
 }
 
 // testTowerClientTowerAndSessionManagement tests the various control commands
@@ -565,6 +564,15 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 	// then been swept to his wallet by Willy.
 	require.NoError(ht, restart(), "unable to restart dave")
 
+	// For neutrino backend, we may need to mine one more block to trigger
+	// the chain watcher to act.
+	//
+	// TODO(yy): remove it once the blockbeat remembers the last block
+	// processed.
+	if ht.IsNeutrinoBackend() {
+		ht.MineEmptyBlocks(1)
+	}
+
 	err = wait.NoError(func() error {
 		daveBalResp := dave.RPC.ChannelBalance()
 		if daveBalResp.LocalBalance.Sat != 0 {
@@ -578,16 +586,6 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 	require.NoError(ht, err, "timeout checking dave's channel balance")
 
 	ht.AssertNumPendingForceClose(dave, 0)
-
-	// If this is an anchor channel, Dave would offer his sweeper the
-	// anchor. However, due to no time-sensitive outputs involved, the
-	// anchor sweeping won't happen as it's uneconomical.
-	if lntest.CommitTypeHasAnchors(commitType) {
-		ht.AssertNumPendingSweeps(dave, 1)
-
-		// Mine a block to trigger the sweep.
-		ht.MineEmptyBlocks(1)
-	}
 
 	// Check that Dave's wallet balance is increased.
 	err = wait.NoError(func() error {

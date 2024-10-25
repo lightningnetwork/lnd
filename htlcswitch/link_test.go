@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
@@ -864,7 +865,7 @@ func TestChannelLinkCancelFullCommitment(t *testing.T) {
 	)
 
 	// Fill up the commitment from Alice's side with 20 sat payments.
-	count := (input.MaxHTLCNumber / 2)
+	count := int(maxInflightHtlcs)
 	amt := lnwire.NewMSatFromSatoshis(20000)
 
 	htlcAmt, totalTimelock, hopsForwards := generateHops(amt,
@@ -902,17 +903,17 @@ func TestChannelLinkCancelFullCommitment(t *testing.T) {
 
 	// Now make an additional payment from Alice to Bob, this should be
 	// canceled because the commitment in this direction is full.
-	err = <-makePayment(
+	resp := makePayment(
 		n.aliceServer, n.bobServer, firstHop, hopsForwards, amt,
 		htlcAmt, totalTimelock,
-	).err
-	if err == nil {
-		t.Fatalf("overflow payment should have failed")
-	}
-	lerr, ok := err.(*LinkError)
-	if !ok {
-		t.Fatalf("expected LinkError, got: %T", err)
-	}
+	)
+
+	paymentErr, timeoutErr := fn.RecvOrTimeout(resp.err, 30*time.Second)
+	require.NoError(t, timeoutErr, "timeout receiving payment resp")
+	require.Error(t, paymentErr, "overflow payment should have failed")
+
+	var lerr *LinkError
+	require.ErrorAs(t, paymentErr, &lerr)
 
 	msg := lerr.WireMessage()
 	if _, ok := msg.(*lnwire.FailTemporaryChannelFailure); !ok {
@@ -938,10 +939,9 @@ func TestChannelLinkCancelFullCommitment(t *testing.T) {
 
 	// Ensure that all of the payments sent by alice eventually succeed.
 	for errChan := range aliceErrChan {
-		err := <-errChan
-		if err != nil {
-			t.Fatalf("alice payment failed: %v", err)
-		}
+		receivedErr, err := fn.RecvOrTimeout(errChan, 30*time.Second)
+		require.NoError(t, err, "payment timeout")
+		require.NoError(t, receivedErr, "alice payment failed")
 	}
 }
 

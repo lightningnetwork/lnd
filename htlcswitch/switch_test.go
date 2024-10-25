@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -4289,16 +4290,15 @@ func TestSwitchDustForwarding(t *testing.T) {
 
 	// We'll test that once the default threshold is exceeded on the
 	// Alice -> Bob channel, either side's calls to SendHTLC will fail.
-	//
-	// Alice will send 354 HTLC's of 700sats. Bob will also send 354 HTLC's
-	// of 700sats.
-	numHTLCs := 354
+	numHTLCs := maxInflightHtlcs
 	aliceAttemptID, bobAttemptID := numHTLCs, numHTLCs
 	amt := lnwire.NewMSatFromSatoshis(700)
 	aliceBobFirstHop := n.aliceChannelLink.ShortChanID()
 
-	sendDustHtlcs(t, n, true, amt, aliceBobFirstHop, numHTLCs)
-	sendDustHtlcs(t, n, false, amt, aliceBobFirstHop, numHTLCs)
+	// Alice will send 51 HTLC's of 700sats. Bob will also send 51 HTLC's
+	// of 700sats.
+	sendDustHtlcs(t, n, true, amt, aliceBobFirstHop, numHTLCs+1)
+	sendDustHtlcs(t, n, false, amt, aliceBobFirstHop, numHTLCs+1)
 
 	// Generate the parameters needed for Bob to send another dust HTLC.
 	_, timelock, hops := generateHops(
@@ -4318,22 +4318,12 @@ func TestSwitchDustForwarding(t *testing.T) {
 		OnionBlob:   blob,
 	}
 
-	checkAlmostDust := func(link *channelLink, mbox MailBox,
-		whoseCommit lntypes.ChannelParty) bool {
+	expectedDust := maxInflightHtlcs * 2 * amt
 
-		timeout := time.After(15 * time.Second)
-		pollInterval := 300 * time.Millisecond
-		expectedDust := 354 * 2 * amt
+	assertAlmostDust := func(link *channelLink, mbox MailBox,
+		whoseCommit lntypes.ChannelParty) {
 
-		for {
-			<-time.After(pollInterval)
-
-			select {
-			case <-timeout:
-				return false
-			default:
-			}
-
+		err := wait.NoError(func() error {
 			linkDust := link.getDustSum(
 				whoseCommit, fn.None[chainfee.SatPerKWeight](),
 			)
@@ -4347,11 +4337,13 @@ func TestSwitchDustForwarding(t *testing.T) {
 			}
 
 			if totalDust == expectedDust {
-				break
+				return nil
 			}
-		}
 
-		return true
+			return fmt.Errorf("got totalDust=%v, expectedDust=%v",
+				totalDust, expectedDust)
+		}, 15*time.Second)
+		require.NoError(t, err, "timeout checking dust")
 	}
 
 	// Wait until Bob is almost at the fee threshold.
@@ -4359,11 +4351,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 		n.firstBobChannelLink.ChanID(),
 		n.firstBobChannelLink.ShortChanID(),
 	)
-	require.True(
-		t, checkAlmostDust(
-			n.firstBobChannelLink, bobMbox, lntypes.Local,
-		),
-	)
+	assertAlmostDust(n.firstBobChannelLink, bobMbox, lntypes.Local)
 
 	// Sending one more HTLC should fail. SendHTLC won't error, but the
 	// HTLC should be failed backwards.
@@ -4412,9 +4400,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 		aliceBobFirstHop, uint64(bobAttemptID), nondustHtlc,
 	)
 	require.NoError(t, err)
-	require.True(t, checkAlmostDust(
-		n.firstBobChannelLink, bobMbox, lntypes.Local,
-	))
+	assertAlmostDust(n.firstBobChannelLink, bobMbox, lntypes.Local)
 
 	// Check that the HTLC failed.
 	bobResultChan, err = n.bobServer.htlcSwitch.GetAttemptResult(
@@ -4492,11 +4478,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	aliceMbox := aliceOrch.GetOrCreateMailBox(
 		n.aliceChannelLink.ChanID(), n.aliceChannelLink.ShortChanID(),
 	)
-	require.True(
-		t, checkAlmostDust(
-			n.aliceChannelLink, aliceMbox, lntypes.Remote,
-		),
-	)
+	assertAlmostDust(n.aliceChannelLink, aliceMbox, lntypes.Remote)
 
 	err = n.aliceServer.htlcSwitch.SendHTLC(
 		n.aliceChannelLink.ShortChanID(), uint64(aliceAttemptID),

@@ -106,6 +106,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// among all the test cases.
 	harnessTest.SetupStandbyNodes()
 
+	// Get the current block height.
+	height := harnessTest.CurrentHeight()
+
 	// Run the subset of the test cases selected in this tranche.
 	for idx, testCase := range testCases {
 		testCase := testCase
@@ -151,9 +154,10 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		}
 	}
 
-	height := harnessTest.CurrentHeight()
-	t.Logf("=========> tests finished for tranche: %v, tested %d "+
-		"cases, end height: %d\n", trancheIndex, len(testCases), height)
+	//nolint:forbidigo
+	fmt.Printf("=========> tranche %v finished, tested %d cases, mined "+
+		"blocks: %d\n", trancheIndex, len(testCases),
+		harnessTest.CurrentHeight()-height)
 }
 
 // getTestCaseSplitTranche returns the sub slice of the test cases that should

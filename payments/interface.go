@@ -30,8 +30,6 @@ type PaymentDB interface {
 	Fail(paymentHash lntypes.Hash,
 		reason FailureReason) (*MPPayment, error)
 
-	// QueryInvoices allows a caller to query the invoice database for
-	// invoices within the specified add index range.
 	QueryPayments(ctx context.Context,
 		q PaymentsQuery) (PaymentsSlice, error)
 

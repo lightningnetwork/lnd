@@ -143,6 +143,10 @@ type BumpRequest struct {
 	// ExtraTxOut tracks if this bump request has an optional set of extra
 	// outputs to add to the transaction.
 	ExtraTxOut fn.Option[SweepOutput]
+
+	// Immediate is used to specify that the tx should be broadcast
+	// immediately.
+	Immediate bool
 }
 
 // MaxFeeRateAllowed returns the maximum fee rate allowed for the given

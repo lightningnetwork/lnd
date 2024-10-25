@@ -26,6 +26,17 @@ func None[A any]() Option[A] {
 	return Option[A]{}
 }
 
+// OptionFromPtr constructs an option from a pointer.
+//
+// OptionFromPtr : *A -> Option[A].
+func OptionFromPtr[A any](a *A) Option[A] {
+	if a == nil {
+		return None[A]()
+	}
+
+	return Some[A](*a)
+}
+
 // ElimOption is the universal Option eliminator. It can be used to safely
 // handle all possible values inside the Option by supplying two continuations.
 //

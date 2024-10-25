@@ -82,5 +82,6 @@ func (r *htlcModifier) onIntercept(
 
 	return &invoices.HtlcModifyResponse{
 		AmountPaid: amtPaid,
+		CancelSet:  resp.CancelSet,
 	}, nil
 }

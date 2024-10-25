@@ -339,7 +339,8 @@ func (t *backupTask) craftSessionPayload(
 
 	breachTxID := t.breachInfo.BreachTxHash
 
-	// Compute the breach key as SHA256(txid).
+	// Compute the breach hint as SHA256(txid)[:16] and breach key as
+	// SHA256(txid || txid).
 	hint, key := blob.NewBreachHintAndKeyFromHash(&breachTxID)
 
 	// Then, we'll encrypt the computed justice kit using the full breach

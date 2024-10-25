@@ -203,7 +203,7 @@ func (l *Lookout) processEpoch(epoch *chainntnfs.BlockEpoch,
 		// The decryption key for the state update should be the full
 		// txid of the breaching commitment transaction.
 		// The decryption key for the state update should be computed as
-		//   key = SHA256(txid).
+		//   key = SHA256(txid || txid).
 		breachTxID := commitTx.TxHash()
 		breachKey := blob.NewBreachKeyFromHash(&breachTxID)
 

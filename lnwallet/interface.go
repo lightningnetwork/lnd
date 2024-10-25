@@ -636,6 +636,19 @@ func InternalKeyForAddr(wallet WalletController, netParams *chaincfg.Params,
 
 	walletAddr, err := wallet.AddressInfo(addr)
 	if err != nil {
+		// If the error is that the address can't be found, it is not
+		// an error. This happens when any channel which is not a custom
+		// taproot channel is cooperatively closed to an external P2TR
+		// address. In this case there is no internal key associated
+		// with the address. Callers can use the .Option() method to get
+		// an option value.
+		var managerErr waddrmgr.ManagerError
+		if errors.As(err, &managerErr) &&
+			managerErr.ErrorCode == waddrmgr.ErrAddressNotFound {
+
+			return none, nil
+		}
+
 		return none, err
 	}
 

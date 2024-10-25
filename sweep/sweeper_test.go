@@ -1,6 +1,7 @@
 package sweep
 
 import (
+	"crypto/rand"
 	"errors"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/mock"
@@ -33,6 +35,41 @@ var (
 	})
 )
 
+// createMockInput creates a mock input and saves it to the sweeper's inputs
+// map. The created input has the specified state and a random outpoint. It
+// will assert the method `OutPoint` is called at least once.
+func createMockInput(t *testing.T, s *UtxoSweeper,
+	state SweepState) *input.MockInput {
+
+	inp := &input.MockInput{}
+	t.Cleanup(func() {
+		inp.AssertExpectations(t)
+	})
+
+	randBuf := make([]byte, lntypes.HashSize)
+	_, err := rand.Read(randBuf)
+	require.NoError(t, err, "internal error, cannot generate random bytes")
+
+	randHash, err := chainhash.NewHash(randBuf)
+	require.NoError(t, err)
+
+	inp.On("OutPoint").Return(wire.OutPoint{
+		Hash:  *randHash,
+		Index: 0,
+	})
+
+	// We don't do branch switches based on the witness type here so we
+	// just mock it.
+	inp.On("WitnessType").Return(input.CommitmentTimeLock).Maybe()
+
+	s.inputs[inp.OutPoint()] = &SweeperInput{
+		Input: inp,
+		state: state,
+	}
+
+	return inp
+}
+
 // TestMarkInputsPendingPublish checks that given a list of inputs with
 // different states, only the non-terminal state will be marked as `Published`.
 func TestMarkInputsPendingPublish(t *testing.T) {
@@ -47,50 +84,21 @@ func TestMarkInputsPendingPublish(t *testing.T) {
 	set := &MockInputSet{}
 	defer set.AssertExpectations(t)
 
-	// Create three testing inputs.
-	//
-	// inputNotExist specifies an input that's not found in the sweeper's
-	// `pendingInputs` map.
-	inputNotExist := &input.MockInput{}
-	defer inputNotExist.AssertExpectations(t)
-
-	inputNotExist.On("OutPoint").Return(wire.OutPoint{Index: 0})
-
-	// inputInit specifies a newly created input.
-	inputInit := &input.MockInput{}
-	defer inputInit.AssertExpectations(t)
-
-	inputInit.On("OutPoint").Return(wire.OutPoint{Index: 1})
-
-	s.inputs[inputInit.OutPoint()] = &SweeperInput{
-		state: Init,
-	}
-
-	// inputPendingPublish specifies an input that's about to be published.
-	inputPendingPublish := &input.MockInput{}
-	defer inputPendingPublish.AssertExpectations(t)
-
-	inputPendingPublish.On("OutPoint").Return(wire.OutPoint{Index: 2})
-
-	s.inputs[inputPendingPublish.OutPoint()] = &SweeperInput{
-		state: PendingPublish,
-	}
-
-	// inputTerminated specifies an input that's terminated.
-	inputTerminated := &input.MockInput{}
-	defer inputTerminated.AssertExpectations(t)
-
-	inputTerminated.On("OutPoint").Return(wire.OutPoint{Index: 3})
-
-	s.inputs[inputTerminated.OutPoint()] = &SweeperInput{
-		state: Excluded,
-	}
+	// Create three inputs with different states.
+	// - inputInit specifies a newly created input.
+	// - inputPendingPublish specifies an input about to be published.
+	// - inputTerminated specifies an input that's terminated.
+	var (
+		inputInit           = createMockInput(t, s, Init)
+		inputPendingPublish = createMockInput(t, s, PendingPublish)
+		inputTerminated     = createMockInput(t, s, Excluded)
+	)
 
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputTerminated to be skipped, and the rest to be marked as pending
 	// publish.
 	set.On("Inputs").Return([]input.Input{
-		inputNotExist, inputInit, inputPendingPublish, inputTerminated,
+		inputInit, inputPendingPublish, inputTerminated,
 	})
 	s.markInputsPendingPublish(set)
 
@@ -122,36 +130,22 @@ func TestMarkInputsPublished(t *testing.T) {
 	dummyTR := &TxRecord{}
 	dummyErr := errors.New("dummy error")
 
+	// Create a mock input set.
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{
 		Store: mockStore,
 	})
 
-	// Create three testing inputs.
-	//
-	// inputNotExist specifies an input that's not found in the sweeper's
-	// `inputs` map.
-	inputNotExist := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 1},
-	}
-
-	// inputInit specifies a newly created input. When marking this as
-	// published, we should see an error log as this input hasn't been
-	// published yet.
-	inputInit := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 2},
-	}
-	s.inputs[inputInit.PreviousOutPoint] = &SweeperInput{
-		state: Init,
-	}
-
-	// inputPendingPublish specifies an input that's about to be published.
-	inputPendingPublish := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 3},
-	}
-	s.inputs[inputPendingPublish.PreviousOutPoint] = &SweeperInput{
-		state: PendingPublish,
-	}
+	// Create two inputs with different states.
+	// - inputInit specifies a newly created input.
+	// - inputPendingPublish specifies an input about to be published.
+	var (
+		inputInit           = createMockInput(t, s, Init)
+		inputPendingPublish = createMockInput(t, s, PendingPublish)
+	)
 
 	// First, check that when an error is returned from db, it's properly
 	// returned here.
@@ -171,9 +165,9 @@ func TestMarkInputsPublished(t *testing.T) {
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputInit to be skipped, and the final input to be marked as
 	// published.
-	err = s.markInputsPublished(dummyTR, []*wire.TxIn{
-		inputNotExist, inputInit, inputPendingPublish,
-	})
+	set.On("Inputs").Return([]input.Input{inputInit, inputPendingPublish})
+
+	err = s.markInputsPublished(dummyTR, set)
 	require.NoError(err)
 
 	// We expect unchanged number of pending inputs.
@@ -181,11 +175,11 @@ func TestMarkInputsPublished(t *testing.T) {
 
 	// We expect the init input's state to stay unchanged.
 	require.Equal(Init,
-		s.inputs[inputInit.PreviousOutPoint].state)
+		s.inputs[inputInit.OutPoint()].state)
 
 	// We expect the pending-publish input's is now marked as published.
 	require.Equal(Published,
-		s.inputs[inputPendingPublish.PreviousOutPoint].state)
+		s.inputs[inputPendingPublish.OutPoint()].state)
 
 	// Assert mocked statements are executed as expected.
 	mockStore.AssertExpectations(t)
@@ -202,117 +196,75 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	// Create a mock sweeper store.
 	mockStore := NewMockSweeperStore()
 
+	// Create a mock input set.
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{
 		Store: mockStore,
 	})
 
-	// Create testing inputs for each state.
-	//
-	// inputNotExist specifies an input that's not found in the sweeper's
-	// `inputs` map.
-	inputNotExist := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 1},
-	}
+	// Create inputs with different states.
+	// - inputInit specifies a newly created input. When marking this as
+	//   published, we should see an error log as this input hasn't been
+	//   published yet.
+	// - inputPendingPublish specifies an input about to be published.
+	// - inputPublished specifies an input that's published.
+	// - inputPublishFailed specifies an input that's failed to be
+	//   published.
+	// - inputSwept specifies an input that's swept.
+	// - inputExcluded specifies an input that's excluded.
+	// - inputFailed specifies an input that's failed.
+	var (
+		inputInit           = createMockInput(t, s, Init)
+		inputPendingPublish = createMockInput(t, s, PendingPublish)
+		inputPublished      = createMockInput(t, s, Published)
+		inputPublishFailed  = createMockInput(t, s, PublishFailed)
+		inputSwept          = createMockInput(t, s, Swept)
+		inputExcluded       = createMockInput(t, s, Excluded)
+		inputFailed         = createMockInput(t, s, Failed)
+	)
 
-	// inputInit specifies a newly created input. When marking this as
-	// published, we should see an error log as this input hasn't been
-	// published yet.
-	inputInit := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 2},
-	}
-	s.inputs[inputInit.PreviousOutPoint] = &SweeperInput{
-		state: Init,
-	}
-
-	// inputPendingPublish specifies an input that's about to be published.
-	inputPendingPublish := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 3},
-	}
-	s.inputs[inputPendingPublish.PreviousOutPoint] = &SweeperInput{
-		state: PendingPublish,
-	}
-
-	// inputPublished specifies an input that's published.
-	inputPublished := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 4},
-	}
-	s.inputs[inputPublished.PreviousOutPoint] = &SweeperInput{
-		state: Published,
-	}
-
-	// inputPublishFailed specifies an input that's failed to be published.
-	inputPublishFailed := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 5},
-	}
-	s.inputs[inputPublishFailed.PreviousOutPoint] = &SweeperInput{
-		state: PublishFailed,
-	}
-
-	// inputSwept specifies an input that's swept.
-	inputSwept := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 6},
-	}
-	s.inputs[inputSwept.PreviousOutPoint] = &SweeperInput{
-		state: Swept,
-	}
-
-	// inputExcluded specifies an input that's excluded.
-	inputExcluded := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 7},
-	}
-	s.inputs[inputExcluded.PreviousOutPoint] = &SweeperInput{
-		state: Excluded,
-	}
-
-	// inputFailed specifies an input that's failed.
-	inputFailed := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 8},
-	}
-	s.inputs[inputFailed.PreviousOutPoint] = &SweeperInput{
-		state: Failed,
-	}
-
-	// Gather all inputs' outpoints.
-	pendingOps := make([]wire.OutPoint, 0, len(s.inputs)+1)
-	for op := range s.inputs {
-		pendingOps = append(pendingOps, op)
-	}
-	pendingOps = append(pendingOps, inputNotExist.PreviousOutPoint)
+	// Gather all inputs.
+	set.On("Inputs").Return([]input.Input{
+		inputInit, inputPendingPublish, inputPublished,
+		inputPublishFailed, inputSwept, inputExcluded, inputFailed,
+	})
 
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputInit to be skipped, and the final input to be marked as
 	// published.
-	s.markInputsPublishFailed(pendingOps)
+	s.markInputsPublishFailed(set)
 
 	// We expect unchanged number of pending inputs.
 	require.Len(s.inputs, 7)
 
 	// We expect the init input's state to stay unchanged.
 	require.Equal(Init,
-		s.inputs[inputInit.PreviousOutPoint].state)
+		s.inputs[inputInit.OutPoint()].state)
 
 	// We expect the pending-publish input's is now marked as publish
 	// failed.
 	require.Equal(PublishFailed,
-		s.inputs[inputPendingPublish.PreviousOutPoint].state)
+		s.inputs[inputPendingPublish.OutPoint()].state)
 
 	// We expect the published input's is now marked as publish failed.
 	require.Equal(PublishFailed,
-		s.inputs[inputPublished.PreviousOutPoint].state)
+		s.inputs[inputPublished.OutPoint()].state)
 
 	// We expect the publish failed input to stay unchanged.
 	require.Equal(PublishFailed,
-		s.inputs[inputPublishFailed.PreviousOutPoint].state)
+		s.inputs[inputPublishFailed.OutPoint()].state)
 
 	// We expect the swept input to stay unchanged.
-	require.Equal(Swept, s.inputs[inputSwept.PreviousOutPoint].state)
+	require.Equal(Swept, s.inputs[inputSwept.OutPoint()].state)
 
 	// We expect the excluded input to stay unchanged.
-	require.Equal(Excluded, s.inputs[inputExcluded.PreviousOutPoint].state)
+	require.Equal(Excluded, s.inputs[inputExcluded.OutPoint()].state)
 
 	// We expect the failed input to stay unchanged.
-	require.Equal(Failed, s.inputs[inputFailed.PreviousOutPoint].state)
+	require.Equal(Failed, s.inputs[inputFailed.OutPoint()].state)
 
 	// Assert mocked statements are executed as expected.
 	mockStore.AssertExpectations(t)
@@ -738,33 +690,33 @@ func TestSweepPendingInputs(t *testing.T) {
 func TestHandleBumpEventTxFailed(t *testing.T) {
 	t.Parallel()
 
+	// Create a mock input set.
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{})
 
-	var (
-		// Create four testing outpoints.
-		op1        = wire.OutPoint{Hash: chainhash.Hash{1}}
-		op2        = wire.OutPoint{Hash: chainhash.Hash{2}}
-		op3        = wire.OutPoint{Hash: chainhash.Hash{3}}
-		opNotExist = wire.OutPoint{Hash: chainhash.Hash{4}}
-	)
+	// inputNotExist specifies an input that's not found in the sweeper's
+	// `pendingInputs` map.
+	inputNotExist := &input.MockInput{}
+	defer inputNotExist.AssertExpectations(t)
+	inputNotExist.On("OutPoint").Return(wire.OutPoint{Index: 0})
+	opNotExist := inputNotExist.OutPoint()
 
 	// Create three mock inputs.
-	input1 := &input.MockInput{}
-	defer input1.AssertExpectations(t)
+	var (
+		input1 = createMockInput(t, s, PendingPublish)
+		input2 = createMockInput(t, s, PendingPublish)
+		input3 = createMockInput(t, s, PendingPublish)
+	)
 
-	input2 := &input.MockInput{}
-	defer input2.AssertExpectations(t)
-
-	input3 := &input.MockInput{}
-	defer input3.AssertExpectations(t)
+	op1 := input1.OutPoint()
+	op2 := input2.OutPoint()
+	op3 := input3.OutPoint()
 
 	// Construct the initial state for the sweeper.
-	s.inputs = InputsMap{
-		op1: &SweeperInput{Input: input1, state: PendingPublish},
-		op2: &SweeperInput{Input: input2, state: PendingPublish},
-		op3: &SweeperInput{Input: input3, state: PendingPublish},
-	}
+	set.On("Inputs").Return([]input.Input{input1, input2, input3})
 
 	// Create a testing tx that spends the first two inputs.
 	tx := &wire.MsgTx{
@@ -782,16 +734,26 @@ func TestHandleBumpEventTxFailed(t *testing.T) {
 		Err:   errDummy,
 	}
 
+	// Create a testing bump response.
+	resp := &bumpResp{
+		result: br,
+		set:    set,
+	}
+
 	// Call the method under test.
-	err := s.handleBumpEvent(br)
+	err := s.handleBumpEvent(resp)
 	require.ErrorIs(t, err, errDummy)
 
 	// Assert the states of the first two inputs are updated.
 	require.Equal(t, PublishFailed, s.inputs[op1].state)
 	require.Equal(t, PublishFailed, s.inputs[op2].state)
 
-	// Assert the state of the third input is not updated.
-	require.Equal(t, PendingPublish, s.inputs[op3].state)
+	// Assert the state of the third input.
+	//
+	// NOTE: Although the tx doesn't spend it, we still mark this input as
+	// failed as we are treating the input set as the single source of
+	// truth.
+	require.Equal(t, PublishFailed, s.inputs[op3].state)
 
 	// Assert the non-existing input is not added to the pending inputs.
 	require.NotContains(t, s.inputs, opNotExist)
@@ -810,23 +772,21 @@ func TestHandleBumpEventTxReplaced(t *testing.T) {
 	wallet := &MockWallet{}
 	defer wallet.AssertExpectations(t)
 
+	// Create a mock input set.
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{
 		Store:  store,
 		Wallet: wallet,
 	})
 
-	// Create a testing outpoint.
-	op := wire.OutPoint{Hash: chainhash.Hash{1}}
-
 	// Create a mock input.
-	inp := &input.MockInput{}
-	defer inp.AssertExpectations(t)
+	inp := createMockInput(t, s, PendingPublish)
+	set.On("Inputs").Return([]input.Input{inp})
 
-	// Construct the initial state for the sweeper.
-	s.inputs = InputsMap{
-		op: &SweeperInput{Input: inp, state: PendingPublish},
-	}
+	op := inp.OutPoint()
 
 	// Create a testing tx that spends the input.
 	tx := &wire.MsgTx{
@@ -851,12 +811,18 @@ func TestHandleBumpEventTxReplaced(t *testing.T) {
 		Event:      TxReplaced,
 	}
 
+	// Create a testing bump response.
+	resp := &bumpResp{
+		result: br,
+		set:    set,
+	}
+
 	// Mock the store to return an error.
 	dummyErr := errors.New("dummy error")
 	store.On("GetTx", tx.TxHash()).Return(nil, dummyErr).Once()
 
 	// Call the method under test and assert the error is returned.
-	err := s.handleBumpEventTxReplaced(br)
+	err := s.handleBumpEventTxReplaced(resp)
 	require.ErrorIs(t, err, dummyErr)
 
 	// Mock the store to return the old tx record.
@@ -871,7 +837,7 @@ func TestHandleBumpEventTxReplaced(t *testing.T) {
 	store.On("DeleteTx", tx.TxHash()).Return(dummyErr).Once()
 
 	// Call the method under test and assert the error is returned.
-	err = s.handleBumpEventTxReplaced(br)
+	err = s.handleBumpEventTxReplaced(resp)
 	require.ErrorIs(t, err, dummyErr)
 
 	// Mock the store to return the old tx record and delete it without
@@ -891,7 +857,7 @@ func TestHandleBumpEventTxReplaced(t *testing.T) {
 	wallet.On("CancelRebroadcast", tx.TxHash()).Once()
 
 	// Call the method under test.
-	err = s.handleBumpEventTxReplaced(br)
+	err = s.handleBumpEventTxReplaced(resp)
 	require.NoError(t, err)
 
 	// Assert the state of the input is updated.
@@ -907,22 +873,20 @@ func TestHandleBumpEventTxPublished(t *testing.T) {
 	store := &MockSweeperStore{}
 	defer store.AssertExpectations(t)
 
+	// Create a mock input set.
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{
 		Store: store,
 	})
 
-	// Create a testing outpoint.
-	op := wire.OutPoint{Hash: chainhash.Hash{1}}
-
 	// Create a mock input.
-	inp := &input.MockInput{}
-	defer inp.AssertExpectations(t)
+	inp := createMockInput(t, s, PendingPublish)
+	set.On("Inputs").Return([]input.Input{inp})
 
-	// Construct the initial state for the sweeper.
-	s.inputs = InputsMap{
-		op: &SweeperInput{Input: inp, state: PendingPublish},
-	}
+	op := inp.OutPoint()
 
 	// Create a testing tx that spends the input.
 	tx := &wire.MsgTx{
@@ -938,6 +902,12 @@ func TestHandleBumpEventTxPublished(t *testing.T) {
 		Event: TxPublished,
 	}
 
+	// Create a testing bump response.
+	resp := &bumpResp{
+		result: br,
+		set:    set,
+	}
+
 	// Mock the store to save the new tx record.
 	store.On("StoreTx", &TxRecord{
 		Txid:      tx.TxHash(),
@@ -945,7 +915,7 @@ func TestHandleBumpEventTxPublished(t *testing.T) {
 	}).Return(nil).Once()
 
 	// Call the method under test.
-	err := s.handleBumpEventTxPublished(br)
+	err := s.handleBumpEventTxPublished(resp)
 	require.NoError(t, err)
 
 	// Assert the state of the input is updated.
@@ -963,25 +933,21 @@ func TestMonitorFeeBumpResult(t *testing.T) {
 	wallet := &MockWallet{}
 	defer wallet.AssertExpectations(t)
 
+	// Create a mock input set.
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{
 		Store:  store,
 		Wallet: wallet,
 	})
 
-	// Create a testing outpoint.
-	op := wire.OutPoint{Hash: chainhash.Hash{1}}
-
 	// Create a mock input.
-	inp := &input.MockInput{}
-	defer inp.AssertExpectations(t)
-
-	// Construct the initial state for the sweeper.
-	s.inputs = InputsMap{
-		op: &SweeperInput{Input: inp, state: PendingPublish},
-	}
+	inp := createMockInput(t, s, PendingPublish)
 
 	// Create a testing tx that spends the input.
+	op := inp.OutPoint()
 	tx := &wire.MsgTx{
 		LockTime: 1,
 		TxIn: []*wire.TxIn{
@@ -1060,7 +1026,8 @@ func TestMonitorFeeBumpResult(t *testing.T) {
 				return resultChan
 			},
 			shouldExit: false,
-		}, {
+		},
+		{
 			// When the sweeper is shutting down, the monitor loop
 			// should exit.
 			name: "exit on sweeper shutdown",
@@ -1087,7 +1054,7 @@ func TestMonitorFeeBumpResult(t *testing.T) {
 
 			s.wg.Add(1)
 			go func() {
-				s.monitorFeeBumpResult(resultChan)
+				s.monitorFeeBumpResult(set, resultChan)
 				close(done)
 			}()
 

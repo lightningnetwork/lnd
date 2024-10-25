@@ -268,6 +268,13 @@ func (m *MockInputSet) StartingFeeRate() fn.Option[chainfee.SatPerKWeight] {
 	return args.Get(0).(fn.Option[chainfee.SatPerKWeight])
 }
 
+// Immediate returns whether the inputs should be swept immediately.
+func (m *MockInputSet) Immediate() bool {
+	args := m.Called()
+
+	return args.Bool(0)
+}
+
 // MockBumper is a mock implementation of the interface Bumper.
 type MockBumper struct {
 	mock.Mock

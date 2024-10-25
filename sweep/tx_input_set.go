@@ -64,6 +64,13 @@ type InputSet interface {
 	// StartingFeeRate returns the max starting fee rate found in the
 	// inputs.
 	StartingFeeRate() fn.Option[chainfee.SatPerKWeight]
+
+	// Immediate returns a boolean to indicate whether the tx made from
+	// this input set should be published immediately.
+	//
+	// TODO(yy): create a new method `Params` to combine the informational
+	// methods DeadlineHeight, Budget, StartingFeeRate and Immediate.
+	Immediate() bool
 }
 
 // createWalletTxInput converts a wallet utxo into an object that can be added
@@ -413,4 +420,19 @@ func (b *BudgetInputSet) StartingFeeRate() fn.Option[chainfee.SatPerKWeight] {
 	}
 
 	return startingFeeRate
+}
+
+// Immediate returns whether the inputs should be swept immediately.
+//
+// NOTE: part of the InputSet interface.
+func (b *BudgetInputSet) Immediate() bool {
+	for _, inp := range b.inputs {
+		// As long as one of the inputs is immediate, the whole set is
+		// immediate.
+		if inp.params.Immediate {
+			return true
+		}
+	}
+
+	return false
 }

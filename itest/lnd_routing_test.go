@@ -750,6 +750,8 @@ func testInvoiceRoutingHints(ht *lntest.HarnessTest) {
 // testScidAliasRoutingHints tests that dynamically created aliases via the RPC
 // are properly used when routing.
 func testScidAliasRoutingHints(ht *lntest.HarnessTest) {
+	bob := ht.Bob
+
 	const chanAmt = btcutil.Amount(800000)
 
 	// Option-scid-alias is opt-in, as is anchors.
@@ -866,8 +868,8 @@ func testScidAliasRoutingHints(ht *lntest.HarnessTest) {
 	})
 
 	// Connect the existing Bob node with Carol via a public channel.
-	ht.ConnectNodes(ht.Bob, carol)
-	chanPointBC := ht.OpenChannel(ht.Bob, carol, lntest.OpenChannelParams{
+	ht.ConnectNodes(bob, carol)
+	chanPointBC := ht.OpenChannel(bob, carol, lntest.OpenChannelParams{
 		Amt:     chanAmt,
 		PushAmt: chanAmt / 2,
 	})
@@ -902,7 +904,7 @@ func testScidAliasRoutingHints(ht *lntest.HarnessTest) {
 
 	// Now Alice will try to pay to that payment request.
 	timeout := time.Second * 15
-	stream := ht.Bob.RPC.SendPayment(&routerrpc.SendPaymentRequest{
+	stream := bob.RPC.SendPayment(&routerrpc.SendPaymentRequest{
 		PaymentRequest: payReq,
 		TimeoutSeconds: int32(timeout.Seconds()),
 		FeeLimitSat:    math.MaxInt64,
@@ -924,7 +926,7 @@ func testScidAliasRoutingHints(ht *lntest.HarnessTest) {
 		AliasMaps: ephemeralAliasMap,
 	})
 	payReq2 := dave.RPC.AddInvoice(invoice).PaymentRequest
-	stream2 := ht.Bob.RPC.SendPayment(&routerrpc.SendPaymentRequest{
+	stream2 := bob.RPC.SendPayment(&routerrpc.SendPaymentRequest{
 		PaymentRequest: payReq2,
 		TimeoutSeconds: int32(timeout.Seconds()),
 		FeeLimitSat:    math.MaxInt64,
@@ -932,7 +934,7 @@ func testScidAliasRoutingHints(ht *lntest.HarnessTest) {
 	ht.AssertPaymentStatusFromStream(stream2, lnrpc.Payment_FAILED)
 
 	ht.CloseChannel(carol, chanPointCD)
-	ht.CloseChannel(ht.Bob, chanPointBC)
+	ht.CloseChannel(bob, chanPointBC)
 }
 
 // testMultiHopOverPrivateChannels tests that private channels can be used as

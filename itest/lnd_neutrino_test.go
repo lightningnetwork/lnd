@@ -13,8 +13,10 @@ func testNeutrino(ht *lntest.HarnessTest) {
 		ht.Skipf("skipping test for non neutrino backends")
 	}
 
+	alice := ht.Alice
+
 	// Check if the neutrino sub server is running.
-	statusRes := ht.Alice.RPC.Status(nil)
+	statusRes := alice.RPC.Status(nil)
 	require.True(ht, statusRes.Active)
 	require.Len(ht, statusRes.Peers, 1, "unable to find a peer")
 
@@ -22,11 +24,11 @@ func testNeutrino(ht *lntest.HarnessTest) {
 	cFilterReq := &neutrinorpc.GetCFilterRequest{
 		Hash: statusRes.GetBlockHash(),
 	}
-	ht.Alice.RPC.GetCFilter(cFilterReq)
+	alice.RPC.GetCFilter(cFilterReq)
 
 	// Try to reconnect to a connected peer.
 	addPeerReq := &neutrinorpc.AddPeerRequest{
 		PeerAddrs: statusRes.Peers[0],
 	}
-	ht.Alice.RPC.AddPeer(addPeerReq)
+	alice.RPC.AddPeer(addPeerReq)
 }

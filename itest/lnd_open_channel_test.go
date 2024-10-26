@@ -315,7 +315,9 @@ func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 // closing, and ensures that if a node is subscribed to channel updates they
 // will be received correctly for both cooperative and force closed channels.
 func testBasicChannelCreationAndUpdates(ht *lntest.HarnessTest) {
-	runBasicChannelCreationAndUpdates(ht, ht.Alice, ht.Bob)
+	alice, bob := ht.Alice, ht.Bob
+
+	runBasicChannelCreationAndUpdates(ht, alice, bob)
 }
 
 // runBasicChannelCreationAndUpdates tests multiple channel opening and closing,

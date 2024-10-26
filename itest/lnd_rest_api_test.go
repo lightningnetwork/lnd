@@ -237,6 +237,8 @@ func testRestAPI(ht *lntest.HarnessTest) {
 }
 
 func wsTestCaseSubscription(ht *lntest.HarnessTest) {
+	alice := ht.Alice
+
 	// Find out the current best block so we can subscribe to the next one.
 	hash, height := ht.GetBestBlock()
 
@@ -246,7 +248,7 @@ func wsTestCaseSubscription(ht *lntest.HarnessTest) {
 		Height: uint32(height),
 	}
 	url := "/v2/chainnotifier/register/blocks"
-	c, err := openWebSocket(ht.Alice, url, "POST", req, nil)
+	c, err := openWebSocket(alice, url, "POST", req, nil)
 	require.NoError(ht, err, "websocket")
 	defer func() {
 		err := c.WriteMessage(websocket.CloseMessage, closeMsg)

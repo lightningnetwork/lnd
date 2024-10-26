@@ -763,6 +763,8 @@ func testAbandonChannel(ht *lntest.HarnessTest) {
 // testSendAllCoins tests that we're able to properly sweep all coins from the
 // wallet into a single target address at the specified fee rate.
 func testSendAllCoins(ht *lntest.HarnessTest) {
+	alice := ht.Alice
+
 	// First, we'll make a new node, Ainz who'll we'll use to test wallet
 	// sweeping.
 	//
@@ -789,7 +791,7 @@ func testSendAllCoins(ht *lntest.HarnessTest) {
 
 	// Ensure that we can't send coins to another user's Pubkey.
 	err = ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
-		Addr:       ht.Alice.RPC.GetInfo().IdentityPubkey,
+		Addr:       alice.RPC.GetInfo().IdentityPubkey,
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,

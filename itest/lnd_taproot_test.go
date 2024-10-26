@@ -49,34 +49,36 @@ var (
 // testTaproot ensures that the daemon can send to and spend from taproot (p2tr)
 // outputs.
 func testTaproot(ht *lntest.HarnessTest) {
-	testTaprootSendCoinsKeySpendBip86(ht, ht.Alice)
-	testTaprootComputeInputScriptKeySpendBip86(ht, ht.Alice)
-	testTaprootSignOutputRawScriptSpend(ht, ht.Alice)
+	alice := ht.Alice
+
+	testTaprootSendCoinsKeySpendBip86(ht, alice)
+	testTaprootComputeInputScriptKeySpendBip86(ht, alice)
+	testTaprootSignOutputRawScriptSpend(ht, alice)
 	testTaprootSignOutputRawScriptSpend(
-		ht, ht.Alice, txscript.SigHashSingle,
+		ht, alice, txscript.SigHashSingle,
 	)
-	testTaprootSignOutputRawKeySpendBip86(ht, ht.Alice)
+	testTaprootSignOutputRawKeySpendBip86(ht, alice)
 	testTaprootSignOutputRawKeySpendBip86(
-		ht, ht.Alice, txscript.SigHashSingle,
+		ht, alice, txscript.SigHashSingle,
 	)
-	testTaprootSignOutputRawKeySpendRootHash(ht, ht.Alice)
+	testTaprootSignOutputRawKeySpendRootHash(ht, alice)
 
 	muSig2Versions := []signrpc.MuSig2Version{
 		signrpc.MuSig2Version_MUSIG2_VERSION_V040,
 		signrpc.MuSig2Version_MUSIG2_VERSION_V100RC2,
 	}
 	for _, version := range muSig2Versions {
-		testTaprootMuSig2KeySpendBip86(ht, ht.Alice, version)
-		testTaprootMuSig2KeySpendRootHash(ht, ht.Alice, version)
-		testTaprootMuSig2ScriptSpend(ht, ht.Alice, version)
-		testTaprootMuSig2CombinedLeafKeySpend(ht, ht.Alice, version)
-		testMuSig2CombineKey(ht, ht.Alice, version)
+		testTaprootMuSig2KeySpendBip86(ht, alice, version)
+		testTaprootMuSig2KeySpendRootHash(ht, alice, version)
+		testTaprootMuSig2ScriptSpend(ht, alice, version)
+		testTaprootMuSig2CombinedLeafKeySpend(ht, alice, version)
+		testMuSig2CombineKey(ht, alice, version)
 	}
 
-	testTaprootImportTapscriptFullTree(ht, ht.Alice)
-	testTaprootImportTapscriptPartialReveal(ht, ht.Alice)
-	testTaprootImportTapscriptRootHashOnly(ht, ht.Alice)
-	testTaprootImportTapscriptFullKey(ht, ht.Alice)
+	testTaprootImportTapscriptFullTree(ht, alice)
+	testTaprootImportTapscriptPartialReveal(ht, alice)
+	testTaprootImportTapscriptRootHashOnly(ht, alice)
+	testTaprootImportTapscriptFullKey(ht, alice)
 }
 
 // testTaprootSendCoinsKeySpendBip86 tests sending to and spending from

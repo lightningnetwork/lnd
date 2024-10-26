@@ -556,22 +556,24 @@ func (b *blindedForwardTest) drainCarolLiquidity(incoming bool) {
 func setupFourHopNetwork(ht *lntest.HarnessTest,
 	carol, dave *node.HarnessNode) []*lnrpc.ChannelPoint {
 
+	alice, bob := ht.Alice, ht.Bob
+
 	const chanAmt = btcutil.Amount(100000)
 	var networkChans []*lnrpc.ChannelPoint
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	chanPointAlice := ht.OpenChannel(
-		ht.Alice, ht.Bob, lntest.OpenChannelParams{
+		alice, bob, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
 	networkChans = append(networkChans, chanPointAlice)
 
 	// Create a channel between bob and carol.
-	ht.EnsureConnected(ht.Bob, carol)
+	ht.EnsureConnected(bob, carol)
 	chanPointBob := ht.OpenChannel(
-		ht.Bob, carol, lntest.OpenChannelParams{
+		bob, carol, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
@@ -590,7 +592,7 @@ func setupFourHopNetwork(ht *lntest.HarnessTest,
 	networkChans = append(networkChans, chanPointCarol)
 
 	// Wait for all nodes to have seen all channels.
-	nodes := []*node.HarnessNode{ht.Alice, ht.Bob, carol, dave}
+	nodes := []*node.HarnessNode{alice, bob, carol, dave}
 	for _, chanPoint := range networkChans {
 		for _, node := range nodes {
 			ht.AssertChannelInGraph(node, chanPoint)
@@ -609,6 +611,8 @@ func setupFourHopNetwork(ht *lntest.HarnessTest,
 // path and forward payments in a blinded route and finally, receiving the
 // payment.
 func testBlindedRouteInvoices(ht *lntest.HarnessTest) {
+	alice := ht.Alice
+
 	ctx, testCase := newBlindedForwardTest(ht)
 	defer testCase.cleanup()
 
@@ -634,7 +638,7 @@ func testBlindedRouteInvoices(ht *lntest.HarnessTest) {
 	})
 
 	// Now let Alice pay the invoice.
-	ht.CompletePaymentRequests(ht.Alice, []string{invoice.PaymentRequest})
+	ht.CompletePaymentRequests(alice, []string{invoice.PaymentRequest})
 
 	// Let Dave add a blinded invoice.
 	// Once again let Dave create a blinded invoice.
@@ -661,7 +665,7 @@ func testBlindedRouteInvoices(ht *lntest.HarnessTest) {
 	require.EqualValues(ht, path.IntroductionNode, testCase.dave.PubKey[:])
 
 	// Now let Alice pay the invoice.
-	ht.CompletePaymentRequests(ht.Alice, []string{invoice.PaymentRequest})
+	ht.CompletePaymentRequests(alice, []string{invoice.PaymentRequest})
 }
 
 // testReceiverBlindedError tests handling of errors from the receiving node in
@@ -733,6 +737,8 @@ func testRelayingBlindedError(ht *lntest.HarnessTest) {
 // over Alice -- Bob -- Carol -- Dave, where Bob is the introduction node and
 // has insufficient outgoing liquidity to forward on to carol.
 func testIntroductionNodeError(ht *lntest.HarnessTest) {
+	bob := ht.Bob
+
 	ctx, testCase := newBlindedForwardTest(ht)
 	defer testCase.cleanup()
 	testCase.setupNetwork(ctx, false)
@@ -746,7 +752,7 @@ func testIntroductionNodeError(ht *lntest.HarnessTest) {
 
 	// Subscribe to Bob's HTLC events so that we can observe the payment
 	// coming in.
-	bobEvents := ht.Bob.RPC.SubscribeHtlcEvents()
+	bobEvents := bob.RPC.SubscribeHtlcEvents()
 
 	// Once subscribed, the first event will be UNKNOWN.
 	ht.AssertHtlcEventType(bobEvents, routerrpc.HtlcEvent_UNKNOWN)
@@ -764,6 +770,8 @@ func testIntroductionNodeError(ht *lntest.HarnessTest) {
 // testDisableIntroductionNode tests disabling of blinded forwards for the
 // introduction node.
 func testDisableIntroductionNode(ht *lntest.HarnessTest) {
+	alice, bob := ht.Alice, ht.Bob
+
 	// First construct a blinded route while Bob is still advertising the
 	// route blinding feature bit to ensure that Bob is included in the
 	// blinded path that Dave selects.
@@ -774,10 +782,10 @@ func testDisableIntroductionNode(ht *lntest.HarnessTest) {
 	route := testCase.createRouteToBlinded(10_000_000, blindedPaymentPath)
 
 	// Now, disable route blinding for Bob, then re-connect to Alice.
-	ht.RestartNodeWithExtraArgs(ht.Bob, []string{
+	ht.RestartNodeWithExtraArgs(bob, []string{
 		"--protocol.no-route-blinding",
 	})
-	ht.EnsureConnected(ht.Alice, ht.Bob)
+	ht.EnsureConnected(alice, bob)
 
 	// Assert that this fails.
 	testCase.sendToRoute(route, false)
@@ -788,6 +796,8 @@ func testDisableIntroductionNode(ht *lntest.HarnessTest) {
 // to resolve blinded HTLCs on chain between restarts, as we've got all the
 // infrastructure in place already for error testing.
 func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
+	alice, bob := ht.Alice, ht.Bob
+
 	// Setup a test case, note that we don't use its built in clean up
 	// because we're going to close a channel, so we'll close out the
 	// rest manually.
@@ -807,8 +817,8 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 
 	// Wait for the HTLC to be active on Alice and Bob's channels.
 	hash := sha256.Sum256(testCase.preimage[:])
-	ht.AssertOutgoingHTLCActive(ht.Alice, testCase.channels[0], hash[:])
-	ht.AssertOutgoingHTLCActive(ht.Bob, testCase.channels[1], hash[:])
+	ht.AssertOutgoingHTLCActive(alice, testCase.channels[0], hash[:])
+	ht.AssertOutgoingHTLCActive(bob, testCase.channels[1], hash[:])
 
 	// Intercept the forward on Carol's link, but do not take any action
 	// so that we have the chance to force close with this HTLC in flight.
@@ -817,11 +827,11 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 
 	// Force close Bob <-> Carol.
 	closeStream, _ := ht.CloseChannelAssertPending(
-		ht.Bob, testCase.channels[1], true,
+		bob, testCase.channels[1], true,
 	)
 
 	ht.AssertStreamChannelForceClosed(
-		ht.Bob, testCase.channels[1], false, closeStream,
+		bob, testCase.channels[1], false, closeStream,
 	)
 
 	// SuspendCarol so that she can't interfere with the resolution of the
@@ -831,32 +841,32 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	// Mine blocks so that Bob will claim his CSV delayed local commitment,
 	// we've already mined 1 block so we need one less than our CSV.
 	ht.MineBlocks(node.DefaultCSV - 1)
-	ht.AssertNumPendingSweeps(ht.Bob, 1)
+	ht.AssertNumPendingSweeps(bob, 1)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Restart bob so that we can test that he's able to recover everything
 	// he needs to claim a blinded HTLC.
-	ht.RestartNode(ht.Bob)
+	ht.RestartNode(bob)
 
 	// Mine enough blocks for Bob to trigger timeout of his outgoing HTLC.
 	// Carol's incoming expiry height is Bob's outgoing so we can use this
 	// value.
-	info := ht.Bob.RPC.GetInfo()
+	info := bob.RPC.GetInfo()
 	target := carolHTLC.IncomingExpiry - info.BlockHeight
 	ht.MineBlocks(int(target))
 
 	// Wait for Bob's timeout transaction in the mempool, since we've
 	// suspended Carol we don't need to account for her commitment output
 	// claim.
-	ht.AssertNumPendingSweeps(ht.Bob, 0)
+	ht.AssertNumPendingSweeps(bob, 0)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Assert that the HTLC has cleared.
-	ht.AssertHTLCNotActive(ht.Bob, testCase.channels[0], hash[:])
-	ht.AssertHTLCNotActive(ht.Alice, testCase.channels[0], hash[:])
+	ht.AssertHTLCNotActive(bob, testCase.channels[0], hash[:])
+	ht.AssertHTLCNotActive(alice, testCase.channels[0], hash[:])
 
 	// Wait for the HTLC to reflect as failed for Alice.
-	paymentStream := ht.Alice.RPC.TrackPaymentV2(hash[:])
+	paymentStream := alice.RPC.TrackPaymentV2(hash[:])
 	htlcs := ht.ReceiveTrackPayment(paymentStream).Htlcs
 	require.Len(ht, htlcs, 1)
 	require.NotNil(ht, htlcs[0].Failure)
@@ -868,7 +878,7 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	// Clean up the rest of our force close: mine blocks so that Bob's CSV
 	// expires to trigger his sweep and then mine it.
 	ht.MineBlocks(node.DefaultCSV)
-	ht.AssertNumPendingSweeps(ht.Bob, 1)
+	ht.AssertNumPendingSweeps(bob, 1)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Bring carol back up so that we can close out the rest of our
@@ -885,7 +895,7 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	// Manually close out the rest of our channels and cancel (don't use
 	// built in cleanup which will try close the already-force-closed
 	// channel).
-	ht.CloseChannel(ht.Alice, testCase.channels[0])
+	ht.CloseChannel(alice, testCase.channels[0])
 	ht.CloseChannel(testCase.carol, testCase.channels[2])
 	testCase.cancel()
 }
@@ -1191,7 +1201,7 @@ func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
 
 	// Now let Alice pay the invoice.
 	ht.CompletePaymentRequests(
-		ht.Alice, []string{invoiceResp.PaymentRequest},
+		alice, []string{invoiceResp.PaymentRequest},
 	)
 
 	// Make sure Dave show the invoice as settled.
@@ -1233,7 +1243,7 @@ func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
 
 	// Now let Alice pay the invoice.
 	ht.CompletePaymentRequests(
-		ht.Alice, []string{invoiceResp.PaymentRequest},
+		alice, []string{invoiceResp.PaymentRequest},
 	)
 
 	// Make sure Dave show the invoice as settled.
@@ -1430,6 +1440,8 @@ func testMPPToMultipleBlindedPaths(ht *lntest.HarnessTest) {
 // UpdateAddHTLC which we need to ensure gets included in the message on
 // restart.
 func testBlindedPaymentHTLCReForward(ht *lntest.HarnessTest) {
+	alice, bob := ht.Alice, ht.Bob
+
 	// Setup a test case.
 	ctx, testCase := newBlindedForwardTest(ht)
 	defer testCase.cleanup()
@@ -1464,8 +1476,8 @@ func testBlindedPaymentHTLCReForward(ht *lntest.HarnessTest) {
 	}()
 
 	// Wait for the HTLC to be active on Alice and Bob's channels.
-	ht.AssertOutgoingHTLCActive(ht.Alice, testCase.channels[0], hash[:])
-	ht.AssertOutgoingHTLCActive(ht.Bob, testCase.channels[1], hash[:])
+	ht.AssertOutgoingHTLCActive(alice, testCase.channels[0], hash[:])
+	ht.AssertOutgoingHTLCActive(bob, testCase.channels[1], hash[:])
 
 	// Intercept the forward on Carol's link. At this point, we know she
 	// has received the HTLC and so will persist this packet.
@@ -1493,7 +1505,7 @@ func testBlindedPaymentHTLCReForward(ht *lntest.HarnessTest) {
 
 	// Nodes need to be connected otherwise the forwarding of the
 	// intercepted htlc will fail.
-	ht.EnsureConnected(ht.Bob, testCase.carol)
+	ht.EnsureConnected(bob, testCase.carol)
 	ht.EnsureConnected(testCase.carol, testCase.dave)
 
 	// Now that carol and dave are connected signal the forwarding of the

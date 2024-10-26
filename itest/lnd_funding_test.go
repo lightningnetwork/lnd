@@ -407,14 +407,16 @@ func testUnconfirmedChannelFunding(ht *lntest.HarnessTest) {
 // testChannelFundingInputTypes tests that any type of supported input type can
 // be used to fund channels.
 func testChannelFundingInputTypes(ht *lntest.HarnessTest) {
+	alice := ht.Alice
+
 	// We'll start off by creating a node for Carol.
 	carol := ht.NewNode("Carol", nil)
 
 	// Now, we'll connect her to Alice so that they can open a
 	// channel together.
-	ht.ConnectNodes(carol, ht.Alice)
+	ht.ConnectNodes(carol, alice)
 
-	runChannelFundingInputTypes(ht, ht.Alice, carol)
+	runChannelFundingInputTypes(ht, alice, carol)
 }
 
 // runChannelFundingInputTypes tests that any type of supported input type can

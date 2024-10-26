@@ -30,7 +30,7 @@ func testQuiescence(ht *lntest.HarnessTest) {
 	require.True(ht, res.Initiator)
 
 	req := &routerrpc.SendPaymentRequest{
-		Dest:           ht.Alice.PubKey[:],
+		Dest:           alice.PubKey[:],
 		Amt:            100,
 		PaymentHash:    ht.Random32Bytes(),
 		FinalCltvDelta: finalCltvDelta,
@@ -39,7 +39,7 @@ func testQuiescence(ht *lntest.HarnessTest) {
 	}
 
 	ht.SendPaymentAssertFail(
-		ht.Bob, req,
+		bob, req,
 		// This fails with insufficient balance because the bandwidth
 		// manager reports 0 bandwidth if a link is not eligible for
 		// forwarding, which is the case during quiescence.

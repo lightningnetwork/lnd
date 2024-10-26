@@ -1548,7 +1548,9 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 // CPFP, then RBF. Along the way, we check the `BumpFee` can properly update
 // the fee function used by supplying new params.
 func testBumpFee(ht *lntest.HarnessTest) {
-	runBumpFee(ht, ht.Alice)
+	alice := ht.Alice
+
+	runBumpFee(ht, alice)
 }
 
 // runBumpFee checks the `BumpFee` RPC can properly bump the fee of a given

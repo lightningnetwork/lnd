@@ -21,7 +21,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btclog/v2"
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/neutrino"
 	"github.com/lightningnetwork/lnd/autopilot"
@@ -1404,32 +1403,14 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
-	var (
-		logCfg                            = cfg.LogConfig
-		logHandlers                       []btclog.Handler
-		consoleLogHandler, logFileHandler = build.NewDefaultLogHandlers(
-			logCfg, cfg.LogRotator,
-		)
-	)
-	maybeAddLogger := func(cmdOptionDisable bool, handler btclog.Handler) {
-		if !cmdOptionDisable {
-			logHandlers = append(logHandlers, handler)
-		}
-	}
-	switch build.LoggingType {
-	case build.LogTypeStdOut:
-		maybeAddLogger(logCfg.Console.Disable, consoleLogHandler)
-	case build.LogTypeDefault:
-		maybeAddLogger(logCfg.Console.Disable, consoleLogHandler)
-		maybeAddLogger(logCfg.File.Disable, logFileHandler)
-	}
-
 	if !build.SuportedLogCompressor(cfg.LogCompressor) {
 		return nil, mkErr("invalid log compressor: %v",
 			cfg.LogCompressor)
 	}
 
-	cfg.SubLogMgr = build.NewSubLoggerManager(logHandlers...)
+	cfg.SubLogMgr = build.NewSubLoggerManager(build.NewDefaultLogHandlers(
+		cfg.LogConfig, cfg.LogRotator,
+	)...)
 
 	// Initialize logging at the default logging level.
 	SetupLoggers(cfg.SubLogMgr, interceptor)

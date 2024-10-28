@@ -210,3 +210,5 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 go 1.22.6
 
 retract v0.0.2
+
+replace github.com/lightningnetwork/lnd/sqldb v1.0.4 => /Users/ziggie-pro/working_freetime/lnd/sqldb

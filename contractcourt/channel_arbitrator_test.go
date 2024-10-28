@@ -590,7 +590,7 @@ func TestChannelArbitratorRemoteForceClose(t *testing.T) {
 	chanArb.cfg.ChainEvents.RemoteUnilateralClosure <- &RemoteUnilateralCloseInfo{
 		UnilateralCloseSummary: uniClose,
 		CommitSet: CommitSet{
-			ConfCommitKey: &RemoteHtlcSet,
+			ConfCommitKey: fn.Some(RemoteHtlcSet),
 			HtlcSets:      make(map[HtlcSetKey][]channeldb.HTLC),
 		},
 	}
@@ -777,7 +777,7 @@ func TestChannelArbitratorBreachClose(t *testing.T) {
 		},
 		AnchorResolution: anchorRes,
 		CommitSet: CommitSet{
-			ConfCommitKey: &RemoteHtlcSet,
+			ConfCommitKey: fn.Some(RemoteHtlcSet),
 			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
 				RemoteHtlcSet: {htlc1, htlc2},
 			},
@@ -999,7 +999,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		},
 		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
 		CommitSet: CommitSet{
-			ConfCommitKey: &LocalHtlcSet,
+			ConfCommitKey: fn.Some(LocalHtlcSet),
 			HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
 				LocalHtlcSet: htlcSet,
 			},
@@ -1527,7 +1527,7 @@ func TestChannelArbitratorForceCloseBreachedChannel(t *testing.T) {
 		},
 	}
 	log.commitSet = &CommitSet{
-		ConfCommitKey: &RemoteHtlcSet,
+		ConfCommitKey: fn.Some(RemoteHtlcSet),
 		HtlcSets: map[HtlcSetKey][]channeldb.HTLC{
 			RemoteHtlcSet: {},
 		},
@@ -1954,8 +1954,12 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 				},
 				ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
 				CommitSet: CommitSet{
-					ConfCommitKey: &testCase.confCommit,
-					HtlcSets:      make(map[HtlcSetKey][]channeldb.HTLC),
+					ConfCommitKey: fn.Some(
+						testCase.confCommit,
+					),
+					HtlcSets: make(
+						map[HtlcSetKey][]channeldb.HTLC,
+					),
 				},
 			}
 
@@ -2875,7 +2879,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		},
 		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
 		CommitSet: CommitSet{
-			ConfCommitKey: &LocalHtlcSet,
+			ConfCommitKey: fn.Some(LocalHtlcSet),
 			HtlcSets:      map[HtlcSetKey][]channeldb.HTLC{},
 		},
 	}

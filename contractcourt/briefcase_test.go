@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnmock"
@@ -753,7 +754,7 @@ func TestCommitSetStorage(t *testing.T) {
 	for _, pendingRemote := range []bool{true, false} {
 		for _, confType := range confTypes {
 			commitSet := &CommitSet{
-				ConfCommitKey: &confType,
+				ConfCommitKey: fn.Some(confType),
 				HtlcSets:      make(map[HtlcSetKey][]channeldb.HTLC),
 			}
 			commitSet.HtlcSets[LocalHtlcSet] = activeHTLCs

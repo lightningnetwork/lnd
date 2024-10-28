@@ -682,8 +682,14 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 	// chain actions may exclude some information, but we cannot recover it
 	// for these older nodes at the moment.
 	var confirmedHTLCs []channeldb.HTLC
-	if commitSet != nil && commitSet.ConfCommitKey != nil {
-		confirmedHTLCs = commitSet.HtlcSets[*commitSet.ConfCommitKey]
+	if commitSet != nil && commitSet.ConfCommitKey.IsSome() {
+		confCommitKey, err := commitSet.ConfCommitKey.UnwrapOrErr(
+			fmt.Errorf("no commitKey available"),
+		)
+		if err != nil {
+			return err
+		}
+		confirmedHTLCs = commitSet.HtlcSets[confCommitKey]
 	} else {
 		chainActions, err := c.log.FetchChainActions()
 		if err != nil {
@@ -2223,15 +2229,21 @@ func (c *ChannelArbitrator) constructChainActions(confCommitSet *CommitSet,
 	// then this is an older node that had a pending close channel before
 	// the CommitSet was introduced. In this case, we'll just return the
 	// existing ChainActionMap they had on disk.
-	if confCommitSet == nil || confCommitSet.ConfCommitKey == nil {
+	if confCommitSet == nil || confCommitSet.ConfCommitKey.IsNone() {
 		return c.log.FetchChainActions()
 	}
 
 	// Otherwise, we have the full commitment set written to disk, and can
 	// proceed as normal.
 	htlcSets := confCommitSet.toActiveHTLCSets()
-	switch *confCommitSet.ConfCommitKey {
+	confCommitKey, err := confCommitSet.ConfCommitKey.UnwrapOrErr(
+		fmt.Errorf("no commitKey available"),
+	)
+	if err != nil {
+		return nil, err
+	}
 
+	switch confCommitKey {
 	// If the local commitment transaction confirmed, then we'll examine
 	// that as well as their commitments to the set of chain actions.
 	case LocalHtlcSet:

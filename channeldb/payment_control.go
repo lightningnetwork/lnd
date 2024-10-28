@@ -192,11 +192,6 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		// we'll return the error.
 		case !errors.Is(err, ErrPaymentNotInitiated):
 			return err
-
-		// In case the payment is new we can return early because there
-		// will be no entry in the
-		default:
-			return nil
 		}
 
 		// Before we set our new sequence number, we check whether this

@@ -9,11 +9,6 @@ import (
 	"time"
 )
 
-type AmpPayment struct {
-	PaymentID   int32
-	AmpRecordID sql.NullInt32
-}
-
 type AmpRecord struct {
 	HopID      int32
 	RootShare  []byte
@@ -48,13 +43,13 @@ type BlindedDatum struct {
 }
 
 type CustomRecord struct {
-	TlvRecordID int32
-	HopID       sql.NullInt32
+	TlvRecordID int64
+	HopID       int32
 }
 
 type FirstHopCustomRecord struct {
-	TlvRecordID int32
-	PaymentID   sql.NullInt32
+	TlvRecordID int64
+	PaymentID   int64
 }
 
 type Hop struct {
@@ -155,16 +150,6 @@ type InvoiceSequence struct {
 	CurrentValue int64
 }
 
-type LegacyPayment struct {
-	PaymentID   int32
-	PaymentHash []byte
-}
-
-type MppPayment struct {
-	PaymentID   int32
-	MppRecordID sql.NullInt32
-}
-
 type MppRecord struct {
 	HopID       int32
 	PaymentAddr []byte
@@ -172,12 +157,20 @@ type MppRecord struct {
 }
 
 type Payment struct {
-	ID             int64
-	PaymentStatus  int32
-	PaymentType    int32
-	AmountMsat     int64
+	ID                int64
+	AmountMsat        int64
+	PaymentIdentifier []byte
+	CreatedAt         time.Time
+}
+
+type PaymentInfo struct {
+	PaymentID     int64
+	PaymentStatus int32
+}
+
+type PaymentRequest struct {
+	PaymentID      int64
 	PaymentRequest []byte
-	CreatedAt      time.Time
 }
 
 type PaymentState struct {
@@ -194,11 +187,6 @@ type PaymentStatusType struct {
 	Description string
 }
 
-type PaymentType struct {
-	ID          int32
-	Description string
-}
-
 type Route struct {
 	HtlcAttemptID  int32
 	TotalTimelock  sql.NullInt32
@@ -208,7 +196,7 @@ type Route struct {
 }
 
 type TlvRecord struct {
-	ID    int32
+	ID    int64
 	Key   int64
 	Value []byte
 }

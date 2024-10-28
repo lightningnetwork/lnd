@@ -42,22 +42,6 @@ DROP TABLE IF EXISTS first_hop_custom_records;
 DROP INDEX IF EXISTS mpp_state_payment_id_idx;
 DROP TABLE IF EXISTS mpp_state;
 
--- Drop mpp_payments index and table.
-DROP INDEX IF EXISTS mpp_payments_payment_id_idx;
-DROP TABLE IF EXISTS mpp_payments;
-
--- Drop amp_payments index and table.
-DROP INDEX IF EXISTS amp_payments_payment_id_idx;
-DROP TABLE IF EXISTS amp_payments;
-
--- Drop legacy_payments index and table.
-DROP INDEX IF EXISTS legacy_payments_payment_hash_idx;
-DROP TABLE IF EXISTS legacy_payments;
-
--- Drop payment_types index and table.
-DROP INDEX IF EXISTS payment_types_name_idx;
-DROP TABLE IF EXISTS payment_types;
-
 -- Drop payment_status_types index and table.
 DROP INDEX IF EXISTS payment_status_types_name_idx;
 DROP TABLE IF EXISTS payment_status_types;

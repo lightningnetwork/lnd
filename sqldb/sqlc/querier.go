@@ -11,6 +11,7 @@ import (
 
 type Querier interface {
 	DeleteCanceledInvoices(ctx context.Context) (sql.Result, error)
+	DeleteHTLCAttempts(ctx context.Context, paymentID sql.NullInt32) error
 	DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) (sql.Result, error)
 	FetchAMPSubInvoiceHTLCs(ctx context.Context, arg FetchAMPSubInvoiceHTLCsParams) ([]FetchAMPSubInvoiceHTLCsRow, error)
 	FetchAMPSubInvoices(ctx context.Context, arg FetchAMPSubInvoicesParams) ([]AmpSubInvoice, error)
@@ -25,11 +26,17 @@ type Querier interface {
 	GetInvoiceFeatures(ctx context.Context, invoiceID int64) ([]InvoiceFeature, error)
 	GetInvoiceHTLCCustomRecords(ctx context.Context, invoiceID int64) ([]GetInvoiceHTLCCustomRecordsRow, error)
 	GetInvoiceHTLCs(ctx context.Context, invoiceID int64) ([]InvoiceHtlc, error)
+	GetPaymentCreation(ctx context.Context, paymentIdentifier []byte) (Payment, error)
+	GetPaymentInfo(ctx context.Context, paymentID int64) (PaymentInfo, error)
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error
+	InsertFirstHopCustomRecord(ctx context.Context, arg InsertFirstHopCustomRecordParams) error
 	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)
 	InsertInvoiceFeature(ctx context.Context, arg InsertInvoiceFeatureParams) error
 	InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCParams) (int64, error)
 	InsertInvoiceHTLCCustomRecord(ctx context.Context, arg InsertInvoiceHTLCCustomRecordParams) error
+	InsertPayment(ctx context.Context, arg InsertPaymentParams) (int64, error)
+	InsertPaymentRequest(ctx context.Context, arg InsertPaymentRequestParams) error
+	InsertTLVRecord(ctx context.Context, arg InsertTLVRecordParams) (int64, error)
 	NextInvoiceSettleIndex(ctx context.Context) (int64, error)
 	OnAMPSubInvoiceCanceled(ctx context.Context, arg OnAMPSubInvoiceCanceledParams) error
 	OnAMPSubInvoiceCreated(ctx context.Context, arg OnAMPSubInvoiceCreatedParams) error

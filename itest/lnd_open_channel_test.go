@@ -238,18 +238,21 @@ func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 		MaxHtlcMsat:      defaultMaxHtlc,
 	}
 
-	// In this basic test, we'll need a third node, Carol, so we can forward
-	// a payment through the channel we'll open with the different fee
-	// policies.
-	alice := ht.NewNodeWithCoins("Alice", nil)
-	bob := ht.NewNode("Bob", nil)
-	carol := ht.NewNode("Carol", nil)
-
-	nodes := []*node.HarnessNode{alice, bob, carol}
-
 	runTestCase := func(ht *lntest.HarnessTest,
 		chanParams lntest.OpenChannelParams,
 		alicePolicy, bobPolicy *lnrpc.RoutingPolicy) {
+
+		// In this basic test, we'll need a third node, Carol, so we
+		// can forward a payment through the channel we'll open with
+		// the different fee policies.
+		alice := ht.NewNodeWithCoins("Alice", nil)
+		bob := ht.NewNode("Bob", nil)
+		carol := ht.NewNodeWithCoins("Carol", nil)
+
+		ht.EnsureConnected(alice, bob)
+		ht.EnsureConnected(alice, carol)
+
+		nodes := []*node.HarnessNode{alice, bob, carol}
 
 		// Create a channel Alice->Bob.
 		chanPoint := ht.OpenChannel(alice, bob, chanParams)
@@ -287,19 +290,6 @@ func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 	for i, feeScenario := range feeScenarios {
 		ht.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			st := ht.Subtest(t)
-			st.EnsureConnected(alice, bob)
-
-			st.RestartNode(carol)
-
-			// Because we're using ht.Subtest(), we need to restart
-			// any node we have to refresh its runtime context.
-			// Otherwise, we'll get a "context canceled" error on
-			// RPC calls.
-			st.EnsureConnected(alice, carol)
-
-			// Send Carol enough coins to be able to open a channel
-			// to Alice.
-			st.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 			runTestCase(
 				st, feeScenario,

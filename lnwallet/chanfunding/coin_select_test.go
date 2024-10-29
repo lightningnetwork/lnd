@@ -411,8 +411,8 @@ func TestCalculateChangeAmount(t *testing.T) {
 		feeWithChange: 45,
 		dustLimit:     5,
 
-		expectErr: "fee 0.00000045 BTC on total output value " +
-			"0.00000055",
+		expectErr: "fee (0.00000045 BTC) exceeds 20% of total output " +
+			"(0.00000055 BTC)",
 	}, {
 		name:          "invalid usage of function",
 		feeNoChange:   5,
@@ -606,7 +606,8 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			},
 			spendValue: 5 * fundingFee(highFeeRate, 1, false),
 
-			expectErr: "fee <amt> BTC on total output value <amt> BTC",
+			expectErr: "fee (<amt> BTC) exceeds <amt>% of total " +
+				"output (<amt> BTC)",
 		},
 	}
 
@@ -812,8 +813,8 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 		minValue: minValue,
 		maxValue: 16 * fundingFee(feeRate, 1, false),
 
-		expectErr: "fee 0.00000192 BTC on total output value " +
-			"0.00000768 BTC",
+		expectErr: "fee (0.00000192 BTC) exceeds 20% of total output " +
+			"(0.00000768 BTC)",
 	}, {
 		// This test makes sure that the implementation detail of using
 		// CoinSelect and CoinSelectSubtractFees is done correctly.

@@ -90,6 +90,12 @@
   Finally, the new `--logging.console.style` option can be used under the `dev` 
   build tag to add styling to console logging.
  
+* [Add max files and max file size](https://github.com/lightningnetwork/lnd/pull/9233) 
+  options to the `logging` config namespace under new `--logging.file.max-files` 
+  and `--logging.files.max-file-size` options. The old options (`--maxlogfiles` 
+  and `--maxlogfilesize`) will still work but deprecation notices have been 
+  added and they will be removed in a future release.
+ 
 ## Breaking Changes
 ## Performance Improvements
 

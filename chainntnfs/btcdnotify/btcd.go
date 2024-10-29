@@ -129,11 +129,6 @@ func New(config *rpcclient.ConnConfig, chainParams *chaincfg.Params,
 		quit: make(chan struct{}),
 	}
 
-	// Disable connecting to btcd within the rpcclient.New method. We
-	// defer establishing the connection to our .Start() method.
-	config.DisableConnectOnNew = true
-	config.DisableAutoReconnect = false
-
 	ntfnCallbacks := &rpcclient.NotificationHandlers{
 		OnBlockConnected:    notifier.onBlockConnected,
 		OnBlockDisconnected: notifier.onBlockDisconnected,

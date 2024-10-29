@@ -29,13 +29,16 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 		ht.Skipf("skipping reorg test for neutrino backend")
 	}
 
-	// Create a temp miner.
-	tempMiner := ht.SpawnTempMiner()
-
 	miner := ht.Miner()
 	alice := ht.NewNodeWithCoins("Alice", nil)
 	bob := ht.NewNode("Bob", nil)
 	ht.EnsureConnected(alice, bob)
+
+	// Create a temp miner after the creation of Alice.
+	//
+	// NOTE: this is needed since NewNodeWithCoins will mine a block and
+	// the temp miner needs to sync up.
+	tempMiner := ht.SpawnTempMiner()
 
 	// Create a new channel that requires 1 confs before it's considered
 	// open, then broadcast the funding transaction

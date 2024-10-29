@@ -33,9 +33,9 @@ const (
 // function is used to transform out database structs into the corresponding wire
 // structs for announcing new channels to other peers, or simply syncing up a
 // peer's initial routing table upon connect.
-func CreateChanAnnouncement(chanProof *models.ChannelAuthProof,
-	chanInfo *models.ChannelEdgeInfo,
-	e1, e2 *models.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement1,
+func CreateChanAnnouncement(chanProof *models.ChannelAuthProof1,
+	chanInfo *models.ChannelEdgeInfo1,
+	e1, e2 *models.ChannelEdgePolicy1) (*lnwire.ChannelAnnouncement1,
 	*lnwire.ChannelUpdate1, *lnwire.ChannelUpdate1, error) {
 
 	// First, using the parameters of the channel, along with the channel

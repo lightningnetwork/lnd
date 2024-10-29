@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -244,6 +245,10 @@ type ChainArbitrator struct {
 	started int32 // To be used atomically.
 	stopped int32 // To be used atomically.
 
+	// Embed the blockbeat consumer struct to get access to the method
+	// `NotifyBlockProcessed` and the `BlockbeatChan`.
+	chainio.BeatConsumer
+
 	sync.Mutex
 
 	// activeChannels is a map of all the active contracts that are still
@@ -272,14 +277,22 @@ type ChainArbitrator struct {
 func NewChainArbitrator(cfg ChainArbitratorConfig,
 	db *channeldb.DB) *ChainArbitrator {
 
-	return &ChainArbitrator{
+	c := &ChainArbitrator{
 		cfg:            cfg,
 		activeChannels: make(map[wire.OutPoint]*ChannelArbitrator),
 		activeWatchers: make(map[wire.OutPoint]*chainWatcher),
 		chanSource:     db,
 		quit:           make(chan struct{}),
 	}
+
+	// Mount the block consumer.
+	c.BeatConsumer = chainio.NewBeatConsumer(c.quit, c.Name())
+
+	return c
 }
+
+// Compile-time check for the chainio.Consumer interface.
+var _ chainio.Consumer = (*ChainArbitrator)(nil)
 
 // arbChannel is a wrapper around an open channel that channel arbitrators
 // interact with.
@@ -1365,3 +1378,8 @@ func (c *ChainArbitrator) FindOutgoingHTLCDeadline(scid lnwire.ShortChannelID,
 
 // TODO(roasbeef): arbitration reports
 //  * types: contested, waiting for success conf, etc
+
+// NOTE: part of the `chainio.Consumer` interface.
+func (c *ChainArbitrator) Name() string {
+	return "ChainArbitrator"
+}

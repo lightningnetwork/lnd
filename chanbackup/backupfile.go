@@ -2,10 +2,13 @@ package chanbackup
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
 const (
@@ -17,6 +20,10 @@ const (
 	// file that we'll use to atomically update the primary back up file
 	// when new channel are detected.
 	DefaultTempBackupFileName = "temp-dont-use.backup"
+
+	// DefaultChanBackupArchiveDirName is the default name of the directory
+	// that we'll use to store old channel backups.
+	DefaultChanBackupArchiveDirName = "chan-backup-archives"
 )
 
 var (
@@ -44,6 +51,9 @@ type MultiFile struct {
 
 	// tempFile is an open handle to the temp back up file.
 	tempFile *os.File
+
+	// archiveDir is the directory where we'll store old channel backups.
+	archiveDir string
 }
 
 // NewMultiFile create a new multi-file instance at the target location on the
@@ -56,10 +66,14 @@ func NewMultiFile(fileName string) *MultiFile {
 	tempFileName := filepath.Join(
 		backupFileDir, DefaultTempBackupFileName,
 	)
+	archiveDir := filepath.Join(
+		backupFileDir, DefaultChanBackupArchiveDirName,
+	)
 
 	return &MultiFile{
 		fileName:     fileName,
 		tempFileName: tempFileName,
+		archiveDir:   archiveDir,
 	}
 }
 
@@ -117,6 +131,12 @@ func (b *MultiFile) UpdateAndSwap(newBackup PackedMulti) error {
 		return fmt.Errorf("unable to close file: %w", err)
 	}
 
+	// Archive the old channel backup file before replacing.
+	if err := b.createArchiveFile(); err != nil {
+		return fmt.Errorf("unable to archive old channel "+
+			"backup file: %w", err)
+	}
+
 	// Finally, we'll attempt to atomically rename the temporary file to
 	// the main back up file. If this succeeds, then we'll only have a
 	// single file on disk once this method exits.
@@ -146,4 +166,69 @@ func (b *MultiFile) ExtractMulti(keyChain keychain.KeyRing) (*Multi, error) {
 	// version to the caller.
 	packedMulti := PackedMulti(multiBytes)
 	return packedMulti.Unpack(keyChain)
+}
+
+// createArchiveFile creates an archive file with a timestamped name in the
+// specified archive directory, and copies the contents of the main backup file
+// to the new archive file.
+func (b *MultiFile) createArchiveFile() error {
+	// We check for old channel backup file first.
+	oldFileExists := lnrpc.FileExists(b.fileName)
+	if !oldFileExists {
+		log.Debug("No old channel backup file to archive")
+		return nil
+	}
+
+	log.Infof("Archiving old channel backup to %v", b.archiveDir)
+
+	// Generate archive file path with timestamped name.
+	baseFileName := filepath.Base(b.fileName)
+	timestamp := time.Now().Format("2006-01-02-15-04-05")
+
+	archiveFileName := fmt.Sprintf("%s-%s", baseFileName, timestamp)
+	archiveFilePath := filepath.Join(b.archiveDir, archiveFileName)
+
+	oldBackupFile, err := os.Open(b.fileName)
+	if err != nil {
+		return fmt.Errorf("unable to open old channel backup file: "+
+			"%w", err)
+	}
+	defer func() {
+		err := oldBackupFile.Close()
+		if err != nil {
+			log.Errorf("unable to close old channel backup file: "+
+				"%v", err)
+		}
+	}()
+
+	// Ensure the archive directory exists. If it doesn't we create it.
+	const archiveDirPermissions = 0o700
+	err = os.MkdirAll(b.archiveDir, archiveDirPermissions)
+	if err != nil {
+		return fmt.Errorf("unable to create archive directory: %w", err)
+	}
+
+	// Create new archive file.
+	archiveFile, err := os.Create(archiveFilePath)
+	if err != nil {
+		return fmt.Errorf("unable to create archive file: %w", err)
+	}
+	defer func() {
+		err := archiveFile.Close()
+		if err != nil {
+			log.Errorf("unable to close archive file: %v", err)
+		}
+	}()
+
+	// Copy contents of old backup to the newly created archive files.
+	_, err = io.Copy(archiveFile, oldBackupFile)
+	if err != nil {
+		return fmt.Errorf("unable to copy to archive file: %w", err)
+	}
+	err = archiveFile.Sync()
+	if err != nil {
+		return fmt.Errorf("unable to sync archive file: %w", err)
+	}
+
+	return nil
 }

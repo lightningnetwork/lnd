@@ -274,3 +274,70 @@ func TestExtractMulti(t *testing.T) {
 		assertMultiEqual(t, &unpackedMulti, freshUnpackedMulti)
 	}
 }
+
+// TestCreateArchiveFile tests that we're able to create an archive file
+// with a timestamped name in the specified archive directory, and copy the
+// contents of the main backup file to the new archive file.
+func TestCreateArchiveFile(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create a temporary directory for our test files.
+	tempDir := t.TempDir()
+	archiveDir := filepath.Join(tempDir, DefaultChanBackupArchiveDirName)
+
+	// Next, we'll create a test backup file and write some content to it.
+	backupFile := filepath.Join(tempDir, DefaultBackupFileName)
+	testContent := []byte("test backup content")
+	err := os.WriteFile(backupFile, testContent, 0644)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name      string
+		setup     func()
+		wantError bool
+	}{
+		{
+			name: "successful archive",
+		},
+		{
+			name: "invalid archive directory permissions",
+			setup: func() {
+				// Create dir with no write permissions.
+				err := os.MkdirAll(archiveDir, 0500)
+				require.NoError(t, err)
+			},
+			wantError: true,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			defer os.RemoveAll(archiveDir)
+			if tc.setup != nil {
+				tc.setup()
+			}
+
+			multiFile := NewMultiFile(backupFile)
+
+			err := multiFile.createArchiveFile()
+			if tc.wantError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+
+			// Verify archive exists and content matches.
+			files, err := os.ReadDir(archiveDir)
+			require.NoError(t, err)
+			require.Len(t, files, 1)
+
+			archivedContent, err := os.ReadFile(
+				filepath.Join(archiveDir, files[0].Name()),
+			)
+			require.NoError(t, err)
+			assertBackupMatches(t, backupFile, archivedContent)
+		})
+	}
+}

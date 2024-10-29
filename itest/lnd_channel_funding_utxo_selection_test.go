@@ -64,10 +64,7 @@ func testChannelUtxoSelection(ht *lntest.HarnessTest) {
 	// tests.
 	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
 	alice := ht.NewNode("Alice", args)
-	defer ht.Shutdown(alice)
-
 	bob := ht.NewNode("Bob", args)
-	defer ht.Shutdown(bob)
 
 	// Ensure both sides are connected so the funding flow can be properly
 	// executed.

@@ -137,6 +137,4 @@ func testSingleHopInvoice(ht *lntest.HarnessTest) {
 	require.EqualValues(ht, 1, hopHint.FeeBaseMsat, "wrong FeeBaseMsat")
 	require.EqualValues(ht, 20, hopHint.CltvExpiryDelta,
 		"wrong CltvExpiryDelta")
-
-	ht.CloseChannel(alice, cp)
 }

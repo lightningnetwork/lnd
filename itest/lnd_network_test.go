@@ -133,9 +133,7 @@ func testReconnectAfterIPChange(ht *lntest.HarnessTest) {
 	// We'll then go ahead and open a channel between Alice and Dave. This
 	// ensures that Charlie receives the node announcement from Alice as
 	// part of the announcement broadcast.
-	chanPoint := ht.OpenChannel(
-		alice, dave, lntest.OpenChannelParams{Amt: 1000000},
-	)
+	ht.OpenChannel(alice, dave, lntest.OpenChannelParams{Amt: 1000000})
 
 	// waitForNodeAnnouncement is a closure used to wait on the given graph
 	// subscription for a node announcement from a node with the given
@@ -210,9 +208,6 @@ func testReconnectAfterIPChange(ht *lntest.HarnessTest) {
 	// address to one not listed in Dave's original advertised list of
 	// addresses.
 	ht.AssertConnected(dave, charlie)
-
-	// Finally, close the channel.
-	ht.CloseChannel(alice, chanPoint)
 }
 
 // testAddPeerConfig tests that the "--addpeer" config flag successfully adds

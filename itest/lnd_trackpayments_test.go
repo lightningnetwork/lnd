@@ -2,7 +2,6 @@ package itest
 
 import (
 	"encoding/hex"
-	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -20,12 +19,11 @@ func testTrackPayments(ht *lntest.HarnessTest) {
 	cfgs := [][]string{cfgAlice, nil}
 
 	// Create a channel Alice->Bob.
-	chanPoints, nodes := ht.CreateSimpleNetwork(
+	_, nodes := ht.CreateSimpleNetwork(
 		cfgs, lntest.OpenChannelParams{
 			Amt: btcutil.Amount(300000),
 		},
 	)
-	channel := chanPoints[0]
 	alice, bob := nodes[0], nodes[1]
 
 	// Call the TrackPayments api to listen for payment updates.
@@ -86,28 +84,17 @@ func testTrackPayments(ht *lntest.HarnessTest) {
 	require.Equal(ht, amountMsat, update3.ValueMsat)
 	require.Equal(ht, hex.EncodeToString(invoice.RPreimage),
 		update3.PaymentPreimage)
-
-	// TODO(yy): remove the sleep once the following bug is fixed.
-	// When the invoice is reported settled, the commitment dance is not
-	// yet finished, which can cause an error when closing the channel,
-	// saying there's active HTLCs. We need to investigate this issue and
-	// reverse the order to, first finish the commitment dance, then report
-	// the invoice as settled.
-	time.Sleep(2 * time.Second)
-
-	ht.CloseChannel(alice, channel)
 }
 
 // testTrackPaymentsCompatible checks that when `routerrpc.usestatusinitiated`
 // is not set, the new Payment_INITIATED is replaced with Payment_IN_FLIGHT.
 func testTrackPaymentsCompatible(ht *lntest.HarnessTest) {
 	// Open a channel between alice and bob.
-	chanPoints, nodes := ht.CreateSimpleNetwork(
+	_, nodes := ht.CreateSimpleNetwork(
 		[][]string{nil, nil}, lntest.OpenChannelParams{
 			Amt: btcutil.Amount(300000),
 		},
 	)
-	channel := chanPoints[0]
 	alice, bob := nodes[0], nodes[1]
 
 	// Call the TrackPayments api to listen for payment updates.
@@ -162,14 +149,4 @@ func testTrackPaymentsCompatible(ht *lntest.HarnessTest) {
 	payment3, err := paymentClient.Recv()
 	require.NoError(ht, err, "unable to get payment update")
 	require.Equal(ht, lnrpc.Payment_SUCCEEDED, payment3.Status)
-
-	// TODO(yy): remove the sleep once the following bug is fixed.
-	// When the invoice is reported settled, the commitment dance is not
-	// yet finished, which can cause an error when closing the channel,
-	// saying there's active HTLCs. We need to investigate this issue and
-	// reverse the order to, first finish the commitment dance, then report
-	// the invoice as settled.
-	time.Sleep(2 * time.Second)
-
-	ht.CloseChannel(alice, channel)
 }

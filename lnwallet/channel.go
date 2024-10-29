@@ -5403,7 +5403,7 @@ func (lc *LightningChannel) IsChannelClean() bool {
 
 	// We call ActiveHtlcs to ensure there are no HTLCs on either
 	// commitment.
-	if len(lc.channelState.ActiveHtlcs()) != 0 {
+	if len(lc.channelState.LocalAndRemoteHtlcs()) != 0 {
 		return false
 	}
 

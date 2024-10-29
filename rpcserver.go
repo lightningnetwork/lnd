@@ -2811,7 +2811,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// If the user hasn't specified NoWait, then before we attempt
 		// to close the channel we ensure there are no active HTLCs on
 		// the link.
-		if !in.NoWait && len(channel.ActiveHtlcs()) != 0 {
+		if !in.NoWait && len(channel.LocalAndRemoteHtlcs()) != 0 {
 			return fmt.Errorf("cannot co-op close channel " +
 				"with active htlcs")
 		}

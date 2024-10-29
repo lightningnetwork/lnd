@@ -48,7 +48,7 @@ func (r *RotatingLogWriter) InitLogRotator(logFile, logCompressor string,
 	}
 
 	// Reject unknown compressors.
-	if !SuportedLogCompressor(logCompressor) {
+	if !SupportedLogCompressor(logCompressor) {
 		return fmt.Errorf("unknown log compressor: %v", logCompressor)
 	}
 

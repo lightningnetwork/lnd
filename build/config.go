@@ -1,11 +1,17 @@
 package build
 
-import "github.com/btcsuite/btclog/v2"
+import (
+	"fmt"
+
+	"github.com/btcsuite/btclog/v2"
+)
 
 const (
 	callSiteOff   = "off"
 	callSiteShort = "short"
 	callSiteLong  = "long"
+
+	defaultLogCompressor = Gzip
 )
 
 // LogConfig holds logging configuration options.
@@ -14,6 +20,16 @@ const (
 type LogConfig struct {
 	Console *consoleLoggerCfg `group:"console" namespace:"console" description:"The logger writing to stdout and stderr."`
 	File    *FileLoggerConfig `group:"file" namespace:"file" description:"The logger writing to LND's standard log file."`
+}
+
+// Validate validates the LogConfig struct values.
+func (c *LogConfig) Validate() error {
+	if !SupportedLogCompressor(c.File.Compressor) {
+		return fmt.Errorf("invalid log compressor: %v",
+			c.File.Compressor)
+	}
+
+	return nil
 }
 
 // LoggerConfig holds options for a particular logger.
@@ -30,6 +46,7 @@ func DefaultLogConfig() *LogConfig {
 	return &LogConfig{
 		Console: defaultConsoleLoggerCfg(),
 		File: &FileLoggerConfig{
+			Compressor: defaultLogCompressor,
 			LoggerConfig: LoggerConfig{
 				CallSite: callSiteOff,
 			},
@@ -63,6 +80,9 @@ func (cfg *LoggerConfig) HandlerOptions() []btclog.HandlerOption {
 }
 
 // FileLoggerConfig extends LoggerConfig with specific log file options.
+//
+//nolint:lll
 type FileLoggerConfig struct {
 	LoggerConfig
+	Compressor string `long:"compressor" description:"Compression algorithm to use when rotating logs." choice:"gzip" choice:"zstd"`
 }

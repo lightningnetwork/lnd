@@ -57,7 +57,9 @@
 # Improvements
 ## Functional Updates
 
-* [Allow](https://github.com/lightningnetwork/lnd/pull/9017) the compression of logs during rotation with ZSTD via the `logcompressor` startup argument.
+* [Allow](https://github.com/lightningnetwork/lnd/pull/9017) the compression of 
+  logs during rotation with ZSTD via the `logging.file.compressor` startup 
+  argument.
 
 * The SCB file now [contains more data][https://github.com/lightningnetwork/lnd/pull/8183]
   that enable a last resort rescue for certain cases where the peer is no longer

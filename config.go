@@ -59,7 +59,6 @@ const (
 	defaultLogLevel           = "info"
 	defaultLogDirname         = "logs"
 	defaultLogFilename        = "lnd.log"
-	defaultLogCompressor      = build.Gzip
 	defaultRPCPort            = 10009
 	defaultRESTPort           = 8080
 	defaultPeerPort           = 9735
@@ -316,7 +315,6 @@ type Config struct {
 	ReadMacPath     string        `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
 	InvoiceMacPath  string        `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
 	LogDir          string        `long:"logdir" description:"Directory to log output."`
-	LogCompressor   string        `long:"logcompressor" description:"Compression algorithm to use when rotating logs." choice:"gzip" choice:"zstd"`
 	MaxLogFiles     int           `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
 	MaxLogFileSize  int           `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
 	AcceptorTimeout time.Duration `long:"acceptortimeout" description:"Time after which an RPCAcceptor will time out and return false if it hasn't yet received a response"`
@@ -564,7 +562,6 @@ func DefaultConfig() Config {
 		LetsEncryptDir:    defaultLetsEncryptDir,
 		LetsEncryptListen: defaultLetsEncryptListen,
 		LogDir:            defaultLogDir,
-		LogCompressor:     defaultLogCompressor,
 		MaxLogFiles:       defaultMaxLogFiles,
 		MaxLogFileSize:    defaultMaxLogFileSize,
 		AcceptorTimeout:   defaultAcceptorTimeout,
@@ -1403,9 +1400,8 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
-	if !build.SuportedLogCompressor(cfg.LogCompressor) {
-		return nil, mkErr("invalid log compressor: %v",
-			cfg.LogCompressor)
+	if err := cfg.LogConfig.Validate(); err != nil {
+		return nil, mkErr("error validating logging config: %w", err)
 	}
 
 	cfg.SubLogMgr = build.NewSubLoggerManager(build.NewDefaultLogHandlers(
@@ -1423,7 +1419,8 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	}
 	err = cfg.LogRotator.InitLogRotator(
 		filepath.Join(cfg.LogDir, defaultLogFilename),
-		cfg.LogCompressor, cfg.MaxLogFileSize, cfg.MaxLogFiles,
+		cfg.LogConfig.File.Compressor, cfg.MaxLogFileSize,
+		cfg.MaxLogFiles,
 	)
 	if err != nil {
 		str := "log rotation setup failed: %v"

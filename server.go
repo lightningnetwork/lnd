@@ -1130,17 +1130,17 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	s.localChanMgr = &localchans.Manager{
 		SelfPub:              nodeKeyDesc.PubKey,
 		DefaultRoutingPolicy: cc.RoutingPolicy,
-		ForAllOutgoingChannels: func(cb func(kvdb.RTx,
-			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy) error) error {
+		ForAllOutgoingChannels: func(cb func(*models.ChannelEdgeInfo,
+			*models.ChannelEdgePolicy) error) error {
 
 			return s.graphDB.ForEachNodeChannel(selfVertex,
-				func(tx kvdb.RTx, c *models.ChannelEdgeInfo,
+				func(_ kvdb.RTx, c *models.ChannelEdgeInfo,
 					e *models.ChannelEdgePolicy,
 					_ *models.ChannelEdgePolicy) error {
 
 					// NOTE: The invoked callback here may
 					// receive a nil channel policy.
-					return cb(tx, c, e)
+					return cb(c, e)
 				},
 			)
 		},

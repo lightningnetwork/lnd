@@ -13,7 +13,6 @@ import (
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/graph/db/models"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
@@ -40,14 +39,13 @@ type Manager struct {
 
 	// ForAllOutgoingChannels is required to iterate over all our local
 	// channels. The ChannelEdgePolicy parameter may be nil.
-	ForAllOutgoingChannels func(cb func(kvdb.RTx,
-		*models.ChannelEdgeInfo,
+	ForAllOutgoingChannels func(cb func(*models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy) error) error
 
 	// FetchChannel is used to query local channel parameters. Optionally an
 	// existing db tx can be supplied.
-	FetchChannel func(tx kvdb.RTx, chanPoint wire.OutPoint) (
-		*channeldb.OpenChannel, error)
+	FetchChannel func(chanPoint wire.OutPoint) (*channeldb.OpenChannel,
+		error)
 
 	// AddEdge is used to add edge/channel to the topology of the router.
 	AddEdge func(edge *models.ChannelEdgeInfo) error
@@ -83,9 +81,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 	policiesToUpdate := make(map[wire.OutPoint]models.ForwardingPolicy)
 
 	// NOTE: edge may be nil when this function is called.
-	processChan := func(
-		tx kvdb.RTx,
-		info *models.ChannelEdgeInfo,
+	processChan := func(info *models.ChannelEdgeInfo,
 		edge *models.ChannelEdgePolicy) error {
 
 		// If we have a channel filter, and this channel isn't a part
@@ -114,9 +110,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		}
 
 		// Apply the new policy to the edge.
-		err := r.updateEdge(
-			tx, info.ChannelPoint, edge, newSchema,
-		)
+		err := r.updateEdge(info.ChannelPoint, edge, newSchema)
 		if err != nil {
 			failedUpdates = append(failedUpdates,
 				makeFailureItem(info.ChannelPoint,
@@ -164,7 +158,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 
 	// Construct a list of failed policy updates.
 	for chanPoint := range unprocessedChans {
-		channel, err := r.FetchChannel(nil, chanPoint)
+		channel, err := r.FetchChannel(chanPoint)
 		switch {
 		case errors.Is(err, channeldb.ErrChannelNotFound):
 			failedUpdates = append(failedUpdates,
@@ -203,7 +197,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 				channel, newSchema,
 			)
 			if failedUpdate == nil {
-				err = processChan(nil, info, edge)
+				err = processChan(info, edge)
 				if err != nil {
 					return nil, err
 				}
@@ -261,7 +255,7 @@ func (r *Manager) createMissingEdge(channel *channeldb.OpenChannel,
 
 	// Validate the newly created edge policy with the user defined new
 	// schema before adding the edge to the database.
-	err = r.updateEdge(nil, channel.FundingOutpoint, edge, newSchema)
+	err = r.updateEdge(channel.FundingOutpoint, edge, newSchema)
 	if err != nil {
 		return nil, nil, makeFailureItem(
 			info.ChannelPoint,
@@ -351,11 +345,11 @@ func (r *Manager) createEdge(channel *channeldb.OpenChannel,
 }
 
 // updateEdge updates the given edge with the new schema.
-func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
+func (r *Manager) updateEdge(chanPoint wire.OutPoint,
 	edge *models.ChannelEdgePolicy,
 	newSchema routing.ChannelPolicy) error {
 
-	channel, err := r.FetchChannel(tx, chanPoint)
+	channel, err := r.FetchChannel(chanPoint)
 	if err != nil {
 		return err
 	}

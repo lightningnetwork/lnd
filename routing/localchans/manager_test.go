@@ -14,7 +14,6 @@ import (
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
@@ -123,20 +122,19 @@ func TestManager(t *testing.T) {
 		return nil
 	}
 
-	forAllOutgoingChannels := func(cb func(kvdb.RTx,
-		*models.ChannelEdgeInfo,
+	forAllOutgoingChannels := func(cb func(*models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy) error) error {
 
 		for _, c := range channelSet {
-			if err := cb(nil, c.edgeInfo, &currentPolicy); err != nil {
+			if err := cb(c.edgeInfo, &currentPolicy); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
 
-	fetchChannel := func(tx kvdb.RTx, chanPoint wire.OutPoint) (
-		*channeldb.OpenChannel, error) {
+	fetchChannel := func(chanPoint wire.OutPoint) (*channeldb.OpenChannel,
+		error) {
 
 		if chanPoint == chanPointMissing {
 			return &channeldb.OpenChannel{}, channeldb.ErrChannelNotFound

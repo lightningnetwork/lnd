@@ -304,9 +304,7 @@ func (a *arbChannel) NewAnchorResolutions() (*lnwallet.AnchorResolutions,
 	// same instance that is used by the link.
 	chanPoint := a.channel.FundingOutpoint
 
-	channel, err := a.c.chanSource.ChannelStateDB().FetchChannel(
-		nil, chanPoint,
-	)
+	channel, err := a.c.chanSource.ChannelStateDB().FetchChannel(chanPoint)
 	if err != nil {
 		return nil, err
 	}
@@ -359,9 +357,7 @@ func (a *arbChannel) ForceCloseChan() (*wire.MsgTx, error) {
 	// Now that we know the link can't mutate the channel
 	// state, we'll read the channel from disk the target
 	// channel according to its channel point.
-	channel, err := a.c.chanSource.ChannelStateDB().FetchChannel(
-		nil, chanPoint,
-	)
+	channel, err := a.c.chanSource.ChannelStateDB().FetchChannel(chanPoint)
 	if err != nil {
 		return nil, err
 	}

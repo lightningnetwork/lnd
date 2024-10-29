@@ -246,7 +246,7 @@ func TestFetchChannel(t *testing.T) {
 	channelState := createTestChannel(t, cdb, openChannelOption())
 
 	// Next, attempt to fetch the channel by its chan point.
-	dbChannel, err := cdb.FetchChannel(nil, channelState.FundingOutpoint)
+	dbChannel, err := cdb.FetchChannel(channelState.FundingOutpoint)
 	require.NoError(t, err, "unable to fetch channel")
 
 	// The decoded channel state should be identical to what we stored
@@ -270,7 +270,7 @@ func TestFetchChannel(t *testing.T) {
 	uniqueOutputIndex.Add(1)
 	channelState2.FundingOutpoint.Index = uniqueOutputIndex.Load()
 
-	_, err = cdb.FetchChannel(nil, channelState2.FundingOutpoint)
+	_, err = cdb.FetchChannel(channelState2.FundingOutpoint)
 	require.ErrorIs(t, err, ErrChannelNotFound)
 
 	chanID2 := lnwire.NewChanIDFromOutPoint(channelState2.FundingOutpoint)
@@ -410,7 +410,7 @@ func TestRestoreChannelShells(t *testing.T) {
 
 	// We should also be able to find the channel if we query for it
 	// directly.
-	_, err = cdb.FetchChannel(nil, channelShell.Chan.FundingOutpoint)
+	_, err = cdb.FetchChannel(channelShell.Chan.FundingOutpoint)
 	require.NoError(t, err, "unable to fetch channel")
 
 	// We should also be able to find the link node that was inserted by
@@ -459,7 +459,7 @@ func TestAbandonChannel(t *testing.T) {
 
 	// At this point, the channel should no longer be found in the set of
 	// open channels.
-	_, err = cdb.FetchChannel(nil, chanState.FundingOutpoint)
+	_, err = cdb.FetchChannel(chanState.FundingOutpoint)
 	if err != ErrChannelNotFound {
 		t.Fatalf("channel should not have been found: %v", err)
 	}

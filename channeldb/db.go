@@ -657,9 +657,8 @@ func (c *ChannelStateDB) fetchNodeChannels(chainBucket kvdb.RBucket) (
 
 // FetchChannel attempts to locate a channel specified by the passed channel
 // point. If the channel cannot be found, then an error will be returned.
-// Optionally an existing db tx can be supplied.
-func (c *ChannelStateDB) FetchChannel(tx kvdb.RTx, chanPoint wire.OutPoint) (
-	*OpenChannel, error) {
+func (c *ChannelStateDB) FetchChannel(chanPoint wire.OutPoint) (*OpenChannel,
+	error) {
 
 	var targetChanPoint bytes.Buffer
 	err := graphdb.WriteOutpoint(&targetChanPoint, &chanPoint)
@@ -674,7 +673,7 @@ func (c *ChannelStateDB) FetchChannel(tx kvdb.RTx, chanPoint wire.OutPoint) (
 		return targetChanPointBytes, &chanPoint, nil
 	}
 
-	return c.channelScanner(tx, selector)
+	return c.channelScanner(nil, selector)
 }
 
 // FetchChannelByID attempts to locate a channel specified by the passed channel
@@ -1366,7 +1365,7 @@ func (c *ChannelStateDB) AbandonChannel(chanPoint *wire.OutPoint,
 	// With the chanPoint constructed, we'll attempt to find the target
 	// channel in the database. If we can't find the channel, then we'll
 	// return the error back to the caller.
-	dbChan, err := c.FetchChannel(nil, *chanPoint)
+	dbChan, err := c.FetchChannel(*chanPoint)
 	switch {
 	// If the channel wasn't found, then it's possible that it was already
 	// abandoned from the database.

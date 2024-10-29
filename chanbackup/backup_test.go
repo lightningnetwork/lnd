@@ -8,7 +8,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,7 +39,7 @@ func (m *mockChannelSource) FetchAllChannels() ([]*channeldb.OpenChannel, error)
 	return chans, nil
 }
 
-func (m *mockChannelSource) FetchChannel(_ kvdb.RTx, chanPoint wire.OutPoint) (
+func (m *mockChannelSource) FetchChannel(chanPoint wire.OutPoint) (
 	*channeldb.OpenChannel, error) {
 
 	if m.failQuery {

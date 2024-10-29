@@ -1645,11 +1645,11 @@ func (b *Builder) ForEachNode(
 // the router.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) ForAllOutgoingChannels(cb func(kvdb.RTx,
-	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy) error) error {
+func (b *Builder) ForAllOutgoingChannels(cb func(*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy) error) error {
 
 	return b.cfg.Graph.ForEachNodeChannel(b.cfg.SelfNode,
-		func(tx kvdb.RTx, c *models.ChannelEdgeInfo,
+		func(_ kvdb.RTx, c *models.ChannelEdgeInfo,
 			e *models.ChannelEdgePolicy,
 			_ *models.ChannelEdgePolicy) error {
 
@@ -1658,7 +1658,7 @@ func (b *Builder) ForAllOutgoingChannels(cb func(kvdb.RTx,
 					"has no policy")
 			}
 
-			return cb(tx, c, e)
+			return cb(c, e)
 		},
 	)
 }

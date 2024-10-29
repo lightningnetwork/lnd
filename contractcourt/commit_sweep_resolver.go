@@ -165,6 +165,10 @@ func (c *commitSweepResolver) getCommitTxConfHeight() (uint32, error) {
 // returned.
 //
 // NOTE: This function MUST be run as a goroutine.
+
+// TODO(yy): fix the funlen in the next PR.
+//
+//nolint:funlen
 func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// If we're already resolved, then we can exit early.
 	if c.resolved {

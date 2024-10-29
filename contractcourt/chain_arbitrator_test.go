@@ -90,7 +90,8 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 		chainArbCfg, db,
 	)
 
-	if err := chainArb.Start(); err != nil {
+	beat := newBeatFromHeight(0)
+	if err := chainArb.Start(beat); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -173,7 +174,8 @@ func TestResolveContract(t *testing.T) {
 	chainArb := NewChainArbitrator(
 		chainArbCfg, db,
 	)
-	if err := chainArb.Start(); err != nil {
+	beat := newBeatFromHeight(0)
+	if err := chainArb.Start(beat); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {

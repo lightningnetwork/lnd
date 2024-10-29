@@ -795,12 +795,15 @@ type monitorRecord struct {
 
 // Start starts the publisher by subscribing to block epoch updates and kicking
 // off the monitor loop.
-func (t *TxPublisher) Start() error {
+func (t *TxPublisher) Start(beat chainio.Blockbeat) error {
 	log.Info("TxPublisher starting...")
 
 	if t.started.Swap(true) {
 		return fmt.Errorf("TxPublisher started more than once")
 	}
+
+	// Set the current height.
+	t.currentHeight.Store(beat.Height())
 
 	t.wg.Add(1)
 	go t.monitor()

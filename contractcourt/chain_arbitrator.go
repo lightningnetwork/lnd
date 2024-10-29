@@ -570,13 +570,16 @@ func (c *ChainArbitrator) ResolveContract(chanPoint wire.OutPoint) error {
 }
 
 // Start launches all goroutines that the ChainArbitrator needs to operate.
-func (c *ChainArbitrator) Start() error {
+func (c *ChainArbitrator) Start(beat chainio.Blockbeat) error {
 	if !atomic.CompareAndSwapInt32(&c.started, 0, 1) {
 		return nil
 	}
 
-	log.Infof("ChainArbitrator starting with config: budget=[%v]",
-		&c.cfg.Budget)
+	// Set the current beat.
+	c.beat = beat
+
+	log.Infof("ChainArbitrator starting at height %d with budget=[%v]",
+		&c.cfg.Budget, c.beat.Height())
 
 	// First, we'll fetch all the channels that are still open, in order to
 	// collect them within our set of active contracts.

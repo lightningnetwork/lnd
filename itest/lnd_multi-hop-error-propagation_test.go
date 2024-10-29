@@ -365,12 +365,4 @@ func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 	ht.AssertHtlcEventTypes(
 		bobEvents, routerrpc.HtlcEvent_UNKNOWN, lntest.HtlcEventFinal,
 	)
-
-	// Finally, immediately close the channel. This function will also
-	// block until the channel is closed and will additionally assert the
-	// relevant channel closing post conditions.
-	ht.CloseChannel(alice, chanPointAlice)
-
-	// Force close Bob's final channel.
-	ht.ForceCloseChannel(bob, chanPointBob)
 }

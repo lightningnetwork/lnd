@@ -91,7 +91,7 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 			return
 		}
 
-		carolChan, daveChan, closeChan := basicChannelFundingTest(
+		carolChan, daveChan := basicChannelFundingTest(
 			ht, carol, dave, nil, privateChan, &carolCommitType,
 		)
 
@@ -157,10 +157,6 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 				"commit type %v, instead got "+
 				"%v", expType, chansCommitType)
 		}
-
-		// As we've concluded this sub-test case we'll now close out
-		// the channel for both sides.
-		closeChan()
 	}
 
 test:
@@ -195,7 +191,7 @@ test:
 func basicChannelFundingTest(ht *lntest.HarnessTest,
 	alice, bob *node.HarnessNode, fundingShim *lnrpc.FundingShim,
 	privateChan bool, commitType *lnrpc.CommitmentType) (*lnrpc.Channel,
-	*lnrpc.Channel, func()) {
+	*lnrpc.Channel) {
 
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
@@ -267,14 +263,7 @@ func basicChannelFundingTest(ht *lntest.HarnessTest,
 	aliceChannel := ht.GetChannelByChanPoint(alice, chanPoint)
 	bobChannel := ht.GetChannelByChanPoint(bob, chanPoint)
 
-	closeChan := func() {
-		// Finally, immediately close the channel. This function will
-		// also block until the channel is closed and will additionally
-		// assert the relevant channel closing post conditions.
-		ht.CloseChannel(alice, chanPoint)
-	}
-
-	return aliceChannel, bobChannel, closeChan
+	return aliceChannel, bobChannel
 }
 
 // testUnconfirmedChannelFunding tests that our unconfirmed change outputs can
@@ -382,25 +371,12 @@ func testUnconfirmedChannelFunding(ht *lntest.HarnessTest) {
 	// spend and the funding tx.
 	ht.MineBlocksAndAssertNumTxes(6, 2)
 
-	chanPoint := ht.WaitForChannelOpenEvent(chanOpenUpdate)
+	ht.WaitForChannelOpenEvent(chanOpenUpdate)
 
 	// With the channel open, we'll check the balances on each side of the
 	// channel as a sanity check to ensure things worked out as intended.
 	checkChannelBalance(carol, carolLocalBalance, pushAmt, 0, 0)
 	checkChannelBalance(alice, pushAmt, carolLocalBalance, 0, 0)
-
-	// TODO(yy): remove the sleep once the following bug is fixed.
-	//
-	// We may get the error `unable to gracefully close channel while peer
-	// is offline (try force closing it instead): channel link not found`.
-	// This happens because the channel link hasn't been added yet but we
-	// now proceed to closing the channel. We may need to revisit how the
-	// channel open event is created and make sure the event is only sent
-	// after all relevant states have been updated.
-	time.Sleep(2 * time.Second)
-
-	// Now that we're done with the test, the channel can be closed.
-	ht.CloseChannel(carol, chanPoint)
 }
 
 // testChannelFundingInputTypes tests that any type of supported input type can
@@ -607,7 +583,7 @@ func runExternalFundingScriptEnforced(ht *lntest.HarnessTest) {
 	// At this point, we'll now carry out the normal basic channel funding
 	// test as everything should now proceed as normal (a regular channel
 	// funding flow).
-	carolChan, daveChan, _ := basicChannelFundingTest(
+	carolChan, daveChan := basicChannelFundingTest(
 		ht, carol, dave, fundingShim2, false, nil,
 	)
 
@@ -723,7 +699,7 @@ func runExternalFundingTaproot(ht *lntest.HarnessTest) {
 	// At this point, we'll now carry out the normal basic channel funding
 	// test as everything should now proceed as normal (a regular channel
 	// funding flow).
-	carolChan, daveChan, _ := basicChannelFundingTest(
+	carolChan, daveChan := basicChannelFundingTest(
 		ht, carol, dave, fundingShim2, true, &commitmentType,
 	)
 
@@ -936,11 +912,6 @@ func testChannelFundingPersistence(ht *lntest.HarnessTest) {
 	shortChanID := lnwire.NewShortChanIDFromInt(chanAlice.ChanId)
 	label = labels.MakeLabel(labels.LabelTypeChannelOpen, &shortChanID)
 	require.Equal(ht, label, tx.Label, "open channel label not updated")
-
-	// Finally, immediately close the channel. This function will also
-	// block until the channel is closed and will additionally assert the
-	// relevant channel closing post conditions.
-	ht.CloseChannel(alice, chanPoint)
 }
 
 // testBatchChanFunding makes sure multiple channels can be opened in one batch
@@ -1133,15 +1104,6 @@ func testBatchChanFunding(ht *lntest.HarnessTest) {
 		chainreg.DefaultBitcoinBaseFeeMSat,
 		chainreg.DefaultBitcoinFeeRate,
 	)
-
-	// To conclude, we'll close the newly created channel between Carol and
-	// Dave. This function will also block until the channel is closed and
-	// will additionally assert the relevant channel closing post
-	// conditions.
-	ht.CloseChannel(alice, chanPoint1)
-	ht.CloseChannel(alice, chanPoint2)
-	ht.CloseChannel(alice, chanPoint3)
-	ht.CloseChannel(alice, chanPoint4)
 }
 
 // ensurePolicy ensures that the peer sees alice's channel fee settings.
@@ -1331,13 +1293,12 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// Open a channel to dave with an unconfirmed utxo. Although this utxo
 	// is unconfirmed it can be used to open a channel because it did not
 	// originated from the sweeper subsystem.
-	update := ht.OpenChannelAssertPending(carol, dave,
+	ht.OpenChannelAssertPending(carol, dave,
 		lntest.OpenChannelParams{
 			Amt:              chanSize,
 			SpendUnconfirmed: true,
 			CommitmentType:   cType,
 		})
-	chanPoint1 := lntest.ChanPointFromPendingUpdate(update)
 
 	// Verify that both nodes know about the channel.
 	ht.AssertNumPendingOpenChannels(carol, 1)
@@ -1349,7 +1310,7 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// so unconfirmed utxos originated from prior channel opening are safe
 	// to use because channel opening should not be RBFed, at least not for
 	// now.
-	update = ht.OpenChannelAssertPending(carol, dave,
+	update := ht.OpenChannelAssertPending(carol, dave,
 		lntest.OpenChannelParams{
 			Amt:              chanSize,
 			SpendUnconfirmed: true,
@@ -1468,20 +1429,16 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 
 	// Now after the sweep utxo is confirmed it is stable and can be used
 	// for channel openings again.
-	update = ht.OpenChannelAssertPending(carol, dave,
+	ht.OpenChannelAssertPending(carol, dave,
 		lntest.OpenChannelParams{
 			Amt:              chanSize,
 			SpendUnconfirmed: true,
 			CommitmentType:   cType,
 		})
-	chanPoint4 := lntest.ChanPointFromPendingUpdate(update)
 
 	// Verify that both nodes know about the channel.
 	ht.AssertNumPendingOpenChannels(carol, 1)
 	ht.AssertNumPendingOpenChannels(dave, 1)
 
 	ht.MineBlocksAndAssertNumTxes(1, 1)
-
-	ht.CloseChannel(carol, chanPoint1)
-	ht.CloseChannel(carol, chanPoint4)
 }

@@ -794,7 +794,7 @@ func (c *ChainArbitrator) Start() error {
 				arbitrator.cfg.ChanPoint)
 		}
 
-		if err := arbitrator.Start(startState); err != nil {
+		if err := arbitrator.Start(startState, c.beat); err != nil {
 			stopAndLog()
 			return err
 		}
@@ -1211,7 +1211,7 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	// arbitrators, then launch it.
 	c.activeChannels[chanPoint] = channelArb
 
-	if err := channelArb.Start(nil); err != nil {
+	if err := channelArb.Start(nil, c.beat); err != nil {
 		return err
 	}
 

@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
@@ -344,6 +345,10 @@ type TxPublisher struct {
 	started atomic.Bool
 	stopped atomic.Bool
 
+	// Embed the blockbeat consumer struct to get access to the method
+	// `NotifyBlockProcessed` and the `BlockbeatChan`.
+	chainio.BeatConsumer
+
 	wg sync.WaitGroup
 
 	// cfg specifies the configuration of the TxPublisher.
@@ -371,14 +376,22 @@ type TxPublisher struct {
 // Compile-time constraint to ensure TxPublisher implements Bumper.
 var _ Bumper = (*TxPublisher)(nil)
 
+// Compile-time check for the chainio.Consumer interface.
+var _ chainio.Consumer = (*TxPublisher)(nil)
+
 // NewTxPublisher creates a new TxPublisher.
 func NewTxPublisher(cfg TxPublisherConfig) *TxPublisher {
-	return &TxPublisher{
+	tp := &TxPublisher{
 		cfg:             &cfg,
 		records:         lnutils.SyncMap[uint64, *monitorRecord]{},
 		subscriberChans: lnutils.SyncMap[uint64, chan *BumpResult]{},
 		quit:            make(chan struct{}),
 	}
+
+	// Mount the block consumer.
+	tp.BeatConsumer = chainio.NewBeatConsumer(tp.quit, tp.Name())
+
+	return tp
 }
 
 // isNeutrinoBackend checks if the wallet backend is neutrino.
@@ -425,6 +438,11 @@ func (t *TxPublisher) storeInitialRecord(req *BumpRequest) (
 	t.records.Store(requestID, record)
 
 	return requestID, record
+}
+
+// NOTE: part of the `chainio.Consumer` interface.
+func (t *TxPublisher) Name() string {
+	return "TxPublisher"
 }
 
 // initializeTx initializes a fee function and creates an RBF-compliant tx. If

@@ -63,10 +63,6 @@ func testChannelBalance(ht *lntest.HarnessTest) {
 
 	// Ensure Bob currently has no available balance within the channel.
 	checkChannelBalance(bob, 0, amount-lntest.CalcStaticFee(cType, 0))
-
-	// Finally close the channel between Alice and Bob, asserting that the
-	// channel has been properly closed on-chain.
-	ht.CloseChannel(alice, chanPoint)
 }
 
 // testChannelUnsettledBalance will test that the UnsettledBalance field
@@ -208,7 +204,4 @@ func testChannelUnsettledBalance(ht *lntest.HarnessTest) {
 	// balance that equals to the amount of invoices * payAmt. The local
 	// balance remains zero.
 	checkChannelBalance(carol, 0, aliceLocal, numInvoices*payAmt, 0)
-
-	// Force and assert the channel closure.
-	ht.ForceCloseChannel(alice, chanPointAlice)
 }

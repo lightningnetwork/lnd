@@ -65,11 +65,11 @@ var (
 	}
 )
 
-func createLightningNode(db kvdb.Backend, priv *btcec.PrivateKey) (*LightningNode, error) {
+func createLightningNode(db kvdb.Backend, priv *btcec.PrivateKey) (*models.LightningNode, error) {
 	updateTime := prand.Int63()
 
 	pub := priv.PubKey().SerializeCompressed()
-	n := &LightningNode{
+	n := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		AuthSigBytes:         testSig.Serialize(),
 		LastUpdate:           time.Unix(updateTime, 0),
@@ -83,7 +83,7 @@ func createLightningNode(db kvdb.Backend, priv *btcec.PrivateKey) (*LightningNod
 	return n, nil
 }
 
-func createTestVertex(db kvdb.Backend) (*LightningNode, error) {
+func createTestVertex(db kvdb.Backend) (*models.LightningNode, error) {
 	priv, err := btcec.NewPrivateKey()
 	if err != nil {
 		return nil, err
@@ -100,7 +100,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// We'd like to test basic insertion/deletion for vertexes from the
 	// graph, so we'll create a test vertex to start with.
-	node := &LightningNode{
+	node := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		AuthSigBytes:         testSig.Serialize(),
 		LastUpdate:           time.Unix(1232342, 0),
@@ -160,7 +160,7 @@ func TestPartialNode(t *testing.T) {
 
 	// We want to be able to insert nodes into the graph that only has the
 	// PubKey set.
-	node := &LightningNode{
+	node := &models.LightningNode{
 		HaveNodeAnnouncement: false,
 		PubKeyBytes:          testPub,
 	}
@@ -183,7 +183,7 @@ func TestPartialNode(t *testing.T) {
 
 	// The two nodes should match exactly! (with default values for
 	// LastUpdate and db set to satisfy compareNodes())
-	node = &LightningNode{
+	node = &models.LightningNode{
 		HaveNodeAnnouncement: false,
 		LastUpdate:           time.Unix(0, 0),
 		PubKeyBytes:          testPub,
@@ -366,7 +366,7 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 }
 
 func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
-	node1, node2 *LightningNode) (models.ChannelEdgeInfo,
+	node1, node2 *models.LightningNode) (models.ChannelEdgeInfo,
 	lnwire.ShortChannelID) {
 
 	shortChanID := lnwire.ShortChannelID{
@@ -598,7 +598,7 @@ func assertEdgeInfoEqual(t *testing.T, e1 *models.ChannelEdgeInfo,
 	}
 }
 
-func createChannelEdge(db kvdb.Backend, node1, node2 *LightningNode) (
+func createChannelEdge(db kvdb.Backend, node1, node2 *models.LightningNode) (
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy) {
 
@@ -770,7 +770,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
 }
 
-func assertNodeInCache(t *testing.T, g *ChannelGraph, n *LightningNode,
+func assertNodeInCache(t *testing.T, g *ChannelGraph, n *models.LightningNode,
 	expectedFeatures *lnwire.FeatureVector) {
 
 	// Let's check the internal view first.
@@ -1089,7 +1089,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	// Create a map of all nodes with the iteration we know works (because
 	// it is tested in another test).
 	nodeMap := make(map[route.Vertex]struct{})
-	err = graph.ForEachNode(func(tx kvdb.RTx, n *LightningNode) error {
+	err = graph.ForEachNode(func(tx kvdb.RTx, n *models.LightningNode) error {
 		nodeMap[n.PubKeyBytes] = struct{}{}
 
 		return nil
@@ -1192,9 +1192,9 @@ func TestGraphCacheTraversal(t *testing.T) {
 }
 
 func fillTestGraph(t require.TestingT, graph *ChannelGraph, numNodes,
-	numChannels int) (map[uint64]struct{}, []*LightningNode) {
+	numChannels int) (map[uint64]struct{}, []*models.LightningNode) {
 
-	nodes := make([]*LightningNode, numNodes)
+	nodes := make([]*models.LightningNode, numNodes)
 	nodeIndex := map[string]struct{}{}
 	for i := 0; i < numNodes; i++ {
 		node, err := createTestVertex(graph.db)
@@ -1212,7 +1212,7 @@ func fillTestGraph(t require.TestingT, graph *ChannelGraph, numNodes,
 
 	// Iterate over each node as returned by the graph, if all nodes are
 	// reached, then the map created above should be empty.
-	err := graph.ForEachNode(func(_ kvdb.RTx, node *LightningNode) error {
+	err := graph.ForEachNode(func(_ kvdb.RTx, node *models.LightningNode) error {
 		delete(nodeIndex, node.Alias)
 		return nil
 	})
@@ -1320,7 +1320,7 @@ func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 
 func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
 	numNodes := 0
-	err := graph.ForEachNode(func(_ kvdb.RTx, _ *LightningNode) error {
+	err := graph.ForEachNode(func(_ kvdb.RTx, _ *models.LightningNode) error {
 		numNodes++
 		return nil
 	})
@@ -1391,7 +1391,7 @@ func TestGraphPruning(t *testing.T) {
 	// and enough edges to create a fully connected graph. The graph will
 	// be rather simple, representing a straight line.
 	const numNodes = 5
-	graphNodes := make([]*LightningNode, numNodes)
+	graphNodes := make([]*models.LightningNode, numNodes)
 	for i := 0; i < numNodes; i++ {
 		node, err := createTestVertex(graph.db)
 		if err != nil {
@@ -1809,7 +1809,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 	// We'll create 10 node announcements, each with an update timestamp 10
 	// seconds after the other.
 	const numNodes = 10
-	nodeAnns := make([]LightningNode, 0, numNodes)
+	nodeAnns := make([]models.LightningNode, 0, numNodes)
 	for i := 0; i < numNodes; i++ {
 		nodeAnn, err := createTestVertex(graph.db)
 		if err != nil {
@@ -1835,7 +1835,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 		start time.Time
 		end   time.Time
 
-		resp []LightningNode
+		resp []models.LightningNode
 	}{
 		// If we query for a time range that's strictly below our set
 		// of updates, then we'll get an empty result back.
@@ -2408,7 +2408,7 @@ func TestFilterChannelRange(t *testing.T) {
 	)
 
 	updateTimeSeed := time.Now().Unix()
-	maybeAddPolicy := func(chanID uint64, node *LightningNode,
+	maybeAddPolicy := func(chanID uint64, node *models.LightningNode,
 		node2 bool) time.Time {
 
 		var chanFlags lnwire.ChanUpdateChanFlags
@@ -2725,7 +2725,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 	}
 
 	// Ensure that channel is reported with unknown policies.
-	checkPolicies := func(node *LightningNode, expectedIn, expectedOut bool) {
+	checkPolicies := func(node *models.LightningNode, expectedIn, expectedOut bool) {
 		calls := 0
 		err := graph.ForEachNodeChannel(node.PubKeyBytes,
 			func(_ kvdb.RTx, _ *models.ChannelEdgeInfo, outEdge,
@@ -3145,7 +3145,7 @@ func TestNodeIsPublic(t *testing.T) {
 
 	// After creating all of our nodes and edges, we'll add them to each
 	// participant's graph.
-	nodes := []*LightningNode{aliceNode, bobNode, carolNode}
+	nodes := []*models.LightningNode{aliceNode, bobNode, carolNode}
 	edges := []*models.ChannelEdgeInfo{&aliceBobEdge, &bobCarolEdge}
 	graphs := []*ChannelGraph{aliceGraph, bobGraph, carolGraph}
 	for _, graph := range graphs {
@@ -3163,7 +3163,7 @@ func TestNodeIsPublic(t *testing.T) {
 
 	// checkNodes is a helper closure that will be used to assert that the
 	// given nodes are seen as public/private within the given graphs.
-	checkNodes := func(nodes []*LightningNode, graphs []*ChannelGraph,
+	checkNodes := func(nodes []*models.LightningNode, graphs []*ChannelGraph,
 		public bool) {
 
 		t.Helper()
@@ -3204,7 +3204,7 @@ func TestNodeIsPublic(t *testing.T) {
 		}
 	}
 	checkNodes(
-		[]*LightningNode{aliceNode},
+		[]*models.LightningNode{aliceNode},
 		[]*ChannelGraph{bobGraph, carolGraph},
 		false,
 	)
@@ -3235,7 +3235,7 @@ func TestNodeIsPublic(t *testing.T) {
 	// With the modifications above, Bob should now be seen as a private
 	// node from both Alice's and Carol's perspective.
 	checkNodes(
-		[]*LightningNode{bobNode},
+		[]*models.LightningNode{bobNode},
 		[]*ChannelGraph{aliceGraph, carolGraph},
 		false,
 	)
@@ -3554,7 +3554,7 @@ func TestGraphZombieIndex(t *testing.T) {
 // compareNodes is used to compare two LightningNodes while excluding the
 // Features struct, which cannot be compared as the semantics for reserializing
 // the featuresMap have not been defined.
-func compareNodes(a, b *LightningNode) error {
+func compareNodes(a, b *models.LightningNode) error {
 	if a.LastUpdate != b.LastUpdate {
 		return fmt.Errorf("node LastUpdate doesn't match: expected %v, \n"+
 			"got %v", a.LastUpdate, b.LastUpdate)

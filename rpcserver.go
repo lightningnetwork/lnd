@@ -6533,7 +6533,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// First iterate through all the known nodes (connected or unconnected
 	// within the graph), collating their current state into the RPC
 	// response.
-	err := graph.ForEachNode(func(_ kvdb.RTx, node *graphdb.LightningNode) error {
+	err := graph.ForEachNode(func(_ kvdb.RTx, node *models.LightningNode) error {
 		lnNode := marshalNode(node)
 
 		resp.Nodes = append(resp.Nodes, lnNode)
@@ -6861,7 +6861,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	}, nil
 }
 
-func marshalNode(node *graphdb.LightningNode) *lnrpc.LightningNode {
+func marshalNode(node *models.LightningNode) *lnrpc.LightningNode {
 	nodeAddrs := make([]*lnrpc.NodeAddress, len(node.Addresses))
 	for i, addr := range node.Addresses {
 		nodeAddr := &lnrpc.NodeAddress{

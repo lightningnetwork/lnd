@@ -192,7 +192,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	return ctx
 }
 
-func createTestNode() (*graphdb.LightningNode, error) {
+func createTestNode() (*models.LightningNode, error) {
 	updateTime := rand.Int63()
 
 	priv, err := btcec.NewPrivateKey()
@@ -201,7 +201,7 @@ func createTestNode() (*graphdb.LightningNode, error) {
 	}
 
 	pub := priv.PubKey().SerializeCompressed()
-	n := &graphdb.LightningNode{
+	n := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(updateTime, 0),
 		Addresses:            testAddrs,
@@ -2899,7 +2899,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// Now check that we can update the node info for the partial node
 	// without messing up the channel graph.
-	n1 := &graphdb.LightningNode{
+	n1 := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(123, 0),
 		Addresses:            testAddrs,
@@ -2912,7 +2912,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	require.NoError(t, ctx.graph.AddLightningNode(n1))
 
-	n2 := &graphdb.LightningNode{
+	n2 := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(123, 0),
 		Addresses:            testAddrs,

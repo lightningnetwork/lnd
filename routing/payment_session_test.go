@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -89,7 +88,7 @@ func TestUpdateAdditionalEdge(t *testing.T) {
 
 	// Create a minimal test node using the private key priv1.
 	pub := priv1.PubKey().SerializeCompressed()
-	testNode := &graphdb.LightningNode{}
+	testNode := &models.LightningNode{}
 	copy(testNode.PubKeyBytes[:], pub)
 
 	nodeID, err := testNode.PubKey()

@@ -93,7 +93,7 @@ func TestIgnoreNodeAnnouncement(t *testing.T) {
 	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
 
 	pub := priv1.PubKey()
-	node := &graphdb.LightningNode{
+	node := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(123, 0),
 		Addresses:            testAddrs,
@@ -1038,7 +1038,7 @@ func TestIsStaleNode(t *testing.T) {
 
 	// With the node stub in the database, we'll add the fully node
 	// announcement to the database.
-	n1 := &graphdb.LightningNode{
+	n1 := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           updateTimeStamp,
 		Addresses:            testAddrs,
@@ -1453,7 +1453,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 	privKeyMap := make(map[string]*btcec.PrivateKey)
 	channelIDs := make(map[route.Vertex]map[route.Vertex]uint64)
 	links := make(map[lnwire.ShortChannelID]htlcswitch.ChannelLink)
-	var source *graphdb.LightningNode
+	var source *models.LightningNode
 
 	// First we insert all the nodes within the graph as vertexes.
 	for _, node := range g.Nodes {
@@ -1462,7 +1462,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			return nil, err
 		}
 
-		dbNode := &graphdb.LightningNode{
+		dbNode := &models.LightningNode{
 			HaveNodeAnnouncement: true,
 			AuthSigBytes:         testSig.Serialize(),
 			LastUpdate:           testTime,
@@ -1832,7 +1832,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 
 	nodeIndex := byte(0)
 	addNodeWithAlias := func(alias string, features *lnwire.FeatureVector) (
-		*graphdb.LightningNode, error) {
+		*models.LightningNode, error) {
 
 		keyBytes := []byte{
 			0, 0, 0, 0, 0, 0, 0, 0,
@@ -1847,7 +1847,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			features = lnwire.EmptyFeatureVector()
 		}
 
-		dbNode := &graphdb.LightningNode{
+		dbNode := &models.LightningNode{
 			HaveNodeAnnouncement: true,
 			AuthSigBytes:         testSig.Serialize(),
 			LastUpdate:           testTime,

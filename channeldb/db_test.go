@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -724,11 +725,11 @@ func TestFetchHistoricalChannel(t *testing.T) {
 	}
 }
 
-func createLightningNode(priv *btcec.PrivateKey) *graphdb.LightningNode {
+func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
 	updateTime := rand.Int63()
 
 	pub := priv.PubKey().SerializeCompressed()
-	n := &graphdb.LightningNode{
+	n := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		AuthSigBytes:         testSig.Serialize(),
 		LastUpdate:           time.Unix(updateTime, 0),
@@ -742,7 +743,7 @@ func createLightningNode(priv *btcec.PrivateKey) *graphdb.LightningNode {
 	return n
 }
 
-func createTestVertex(t *testing.T) *graphdb.LightningNode {
+func createTestVertex(t *testing.T) *models.LightningNode {
 	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 

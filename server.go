@@ -877,7 +877,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	if err != nil {
 		return nil, err
 	}
-	selfNode := &graphdb.LightningNode{
+	selfNode := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Now(),
 		Addresses:            selfAddrs,
@@ -3184,7 +3184,7 @@ func (s *server) createNewHiddenService() error {
 
 	// Finally, we'll update the on-disk version of our announcement so it
 	// will eventually propagate to nodes in the network.
-	selfNode := &graphdb.LightningNode{
+	selfNode := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(int64(newNodeAnn.Timestamp), 0),
 		Addresses:            newNodeAnn.Addresses,

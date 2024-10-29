@@ -23,7 +23,7 @@ type ChannelGraphSource interface {
 	// AddNode is used to add information about a node to the router
 	// database. If the node with this pubkey is not present in an existing
 	// channel, it will be ignored.
-	AddNode(node *graphdb.LightningNode,
+	AddNode(node *models.LightningNode,
 		op ...batch.SchedulerOption) error
 
 	// AddEdge is used to add edge/channel to the topology of the router,
@@ -85,10 +85,10 @@ type ChannelGraphSource interface {
 	// FetchLightningNode attempts to look up a target node by its identity
 	// public key. channeldb.ErrGraphNodeNotFound is returned if the node
 	// doesn't exist within the graph.
-	FetchLightningNode(route.Vertex) (*graphdb.LightningNode, error)
+	FetchLightningNode(route.Vertex) (*models.LightningNode, error)
 
 	// ForEachNode is used to iterate over every node in the known graph.
-	ForEachNode(func(node *graphdb.LightningNode) error) error
+	ForEachNode(func(node *models.LightningNode) error) error
 }
 
 // DB is an interface describing a persisted Lightning Network graph.
@@ -129,7 +129,7 @@ type DB interface {
 	// treated as the center node within a star-graph. This method may be
 	// used to kick off a path finding algorithm in order to explore the
 	// reachability of another node based off the source node.
-	SourceNode() (*graphdb.LightningNode, error)
+	SourceNode() (*models.LightningNode, error)
 
 	// DisabledChannelIDs returns the channel ids of disabled channels.
 	// A channel is disabled when two of the associated ChanelEdgePolicies
@@ -200,7 +200,7 @@ type DB interface {
 	// update that node's information. Note that this method is expected to
 	// only be called to update an already present node from a node
 	// announcement, or to insert a node found in a channel update.
-	AddLightningNode(node *graphdb.LightningNode,
+	AddLightningNode(node *models.LightningNode,
 		op ...batch.SchedulerOption) error
 
 	// AddChannelEdge adds a new (undirected, blank) edge to the graph
@@ -239,14 +239,14 @@ type DB interface {
 	// FetchLightningNode attempts to look up a target node by its identity
 	// public key. If the node isn't found in the database, then
 	// ErrGraphNodeNotFound is returned.
-	FetchLightningNode(nodePub route.Vertex) (*graphdb.LightningNode,
+	FetchLightningNode(nodePub route.Vertex) (*models.LightningNode,
 		error)
 
 	// ForEachNode iterates through all the stored vertices/nodes in the
 	// graph, executing the passed callback with each node encountered. If
 	// the callback returns an error, then the transaction is aborted and
 	// the iteration stops early.
-	ForEachNode(cb func(kvdb.RTx, *graphdb.LightningNode) error) error
+	ForEachNode(cb func(kvdb.RTx, *models.LightningNode) error) error
 
 	// ForEachNodeChannel iterates through all channels of the given node,
 	// executing the passed callback with an edge info structure and the

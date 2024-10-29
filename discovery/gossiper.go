@@ -1964,7 +1964,7 @@ func (d *AuthenticatedGossiper) addNode(msg *lnwire.NodeAnnouncement,
 
 	timestamp := time.Unix(int64(msg.Timestamp), 0)
 	features := lnwire.NewFeatureVector(msg.Features, lnwire.Features)
-	node := &graphdb.LightningNode{
+	node := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           timestamp,
 		Addresses:            msg.Addresses,

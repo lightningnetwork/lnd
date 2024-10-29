@@ -77,14 +77,14 @@ var (
 	}
 )
 
-func createTestNode(t *testing.T) *graphdb.LightningNode {
+func createTestNode(t *testing.T) *models.LightningNode {
 	updateTime := prand.Int63()
 
 	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
 	pub := priv.PubKey().SerializeCompressed()
-	n := &graphdb.LightningNode{
+	n := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(updateTime, 0),
 		Addresses:            testAddrs,
@@ -99,7 +99,7 @@ func createTestNode(t *testing.T) *graphdb.LightningNode {
 }
 
 func randEdgePolicy(chanID *lnwire.ShortChannelID,
-	node *graphdb.LightningNode) (*models.ChannelEdgePolicy, error) {
+	node *models.LightningNode) (*models.ChannelEdgePolicy, error) {
 
 	InboundFee := models.InboundFee{
 		Base: prand.Int31() * -1,
@@ -686,7 +686,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
-	assertNodeNtfnCorrect := func(t *testing.T, ann *graphdb.LightningNode,
+	assertNodeNtfnCorrect := func(t *testing.T, ann *models.LightningNode,
 		nodeUpdate *NetworkNodeUpdate) {
 
 		nodeKey, _ := ann.PubKey()

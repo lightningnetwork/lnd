@@ -93,7 +93,7 @@ type mockGraphSource struct {
 	bestHeight uint32
 
 	mu             sync.Mutex
-	nodes          []graphdb.LightningNode
+	nodes          []models.LightningNode
 	infos          map[uint64]models.ChannelEdgeInfo
 	edges          map[uint64][]models.ChannelEdgePolicy
 	zombies        map[uint64][][33]byte
@@ -113,7 +113,7 @@ func newMockRouter(height uint32) *mockGraphSource {
 
 var _ graph.ChannelGraphSource = (*mockGraphSource)(nil)
 
-func (r *mockGraphSource) AddNode(node *graphdb.LightningNode,
+func (r *mockGraphSource) AddNode(node *models.LightningNode,
 	_ ...batch.SchedulerOption) error {
 
 	r.mu.Lock()
@@ -203,7 +203,7 @@ func (r *mockGraphSource) AddProof(chanID lnwire.ShortChannelID,
 	return nil
 }
 
-func (r *mockGraphSource) ForEachNode(func(node *graphdb.LightningNode) error) error {
+func (r *mockGraphSource) ForEachNode(func(node *models.LightningNode) error) error {
 	return nil
 }
 
@@ -280,7 +280,7 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 }
 
 func (r *mockGraphSource) FetchLightningNode(
-	nodePub route.Vertex) (*graphdb.LightningNode, error) {
+	nodePub route.Vertex) (*models.LightningNode, error) {
 
 	for _, node := range r.nodes {
 		if bytes.Equal(nodePub[:], node.PubKeyBytes[:]) {

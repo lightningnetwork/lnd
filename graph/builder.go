@@ -1165,7 +1165,7 @@ func (b *Builder) processUpdate(msg interface{},
 	op ...batch.SchedulerOption) error {
 
 	switch msg := msg.(type) {
-	case *graphdb.LightningNode:
+	case *models.LightningNode:
 		// Before we add the node to the database, we'll check to see
 		// if the announcement is "fresh" or not. If it isn't, then
 		// we'll return an error.
@@ -1517,7 +1517,7 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 // be ignored.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) AddNode(node *graphdb.LightningNode,
+func (b *Builder) AddNode(node *models.LightningNode,
 	op ...batch.SchedulerOption) error {
 
 	rMsg := &routingMsg{
@@ -1624,7 +1624,7 @@ func (b *Builder) GetChannelByID(chanID lnwire.ShortChannelID) (
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) FetchLightningNode(
-	node route.Vertex) (*graphdb.LightningNode, error) {
+	node route.Vertex) (*models.LightningNode, error) {
 
 	return b.cfg.Graph.FetchLightningNode(node)
 }
@@ -1633,10 +1633,10 @@ func (b *Builder) FetchLightningNode(
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) ForEachNode(
-	cb func(*graphdb.LightningNode) error) error {
+	cb func(*models.LightningNode) error) error {
 
 	return b.cfg.Graph.ForEachNode(
-		func(_ kvdb.RTx, n *graphdb.LightningNode) error {
+		func(_ kvdb.RTx, n *models.LightningNode) error {
 			return cb(n)
 		})
 }

@@ -420,11 +420,6 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	ht.AssertChannelPolicy(
 		carol, alice.PubKeyStr, expectedPolicy, chanPoint3,
 	)
-
-	// Close all channels.
-	ht.CloseChannel(alice, chanPoint)
-	ht.CloseChannel(bob, chanPoint2)
-	ht.CloseChannel(alice, chanPoint3)
 }
 
 // testSendUpdateDisableChannel ensures that a channel update with the disable
@@ -773,10 +768,6 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntest.HarnessTest) {
 	// Alice should have sent 20k satoshis + fee to Bob.
 	ht.AssertAmountPaid("Alice(local) => Bob(remote)",
 		alice, chanPointAliceBob, amtExpected, 0)
-
-	// Finally, close the channels.
-	ht.CloseChannel(alice, chanPointAliceBob)
-	ht.CloseChannel(bob, chanPointBobCarol)
 }
 
 // testUpdateChannelPolicyFeeRateAccuracy tests that updating the channel policy
@@ -845,8 +836,6 @@ func testUpdateChannelPolicyFeeRateAccuracy(ht *lntest.HarnessTest) {
 
 	// Make sure that both Alice and Bob sees the same policy after update.
 	assertNodesPolicyUpdate(ht, nodes, alice, expectedPolicy, chanPoint)
-
-	ht.CloseChannel(alice, chanPoint)
 }
 
 // assertNodesPolicyUpdate checks that a given policy update has been received

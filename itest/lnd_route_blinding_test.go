@@ -309,9 +309,6 @@ func testQueryBlindedRoutes(ht *lntest.HarnessTest) {
 	require.Len(ht, resp.Routes, 1)
 	require.Len(ht, resp.Routes[0].Hops, 2)
 	require.Equal(ht, resp.Routes[0].TotalTimeLock, sendToIntroTimelock)
-
-	ht.CloseChannel(alice, chanPointAliceBob)
-	ht.CloseChannel(bob, chanPointBobCarol)
 }
 
 type blindedForwardTest struct {
@@ -412,10 +409,6 @@ func (b *blindedForwardTest) buildBlindedPath() *lnrpc.BlindedPaymentPath {
 // cleanup tears down all channels created by the test and cancels the top
 // level context used in the test.
 func (b *blindedForwardTest) cleanup() {
-	b.ht.CloseChannel(b.alice, b.channels[0])
-	b.ht.CloseChannel(b.bob, b.channels[1])
-	b.ht.CloseChannel(b.carol, b.channels[2])
-
 	b.cancel()
 }
 
@@ -846,8 +839,6 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	// Manually close out the rest of our channels and cancel (don't use
 	// built in cleanup which will try close the already-force-closed
 	// channel).
-	ht.CloseChannel(alice, testCase.channels[0])
-	ht.CloseChannel(testCase.carol, testCase.channels[2])
 	testCase.cancel()
 }
 

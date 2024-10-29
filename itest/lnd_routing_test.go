@@ -101,7 +101,6 @@ func testSingleHopSendToRouteCase(ht *lntest.HarnessTest,
 	chanPointCarol := ht.OpenChannel(
 		carol, dave, lntest.OpenChannelParams{Amt: chanAmt},
 	)
-	defer ht.CloseChannel(carol, chanPointCarol)
 
 	// Create invoices for Dave, which expect a payment from Carol.
 	payReqs, rHashes, _ := ht.CreatePayReqs(
@@ -328,7 +327,6 @@ func runMultiHopSendToRoute(ht *lntest.HarnessTest, useGraphCache bool) {
 	chanPointAlice := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
-	defer ht.CloseChannel(alice, chanPointAlice)
 
 	// Create Carol and establish a channel from Bob. Bob is the sole
 	// funder of the channel with 100k satoshis. The network topology
@@ -340,7 +338,6 @@ func runMultiHopSendToRoute(ht *lntest.HarnessTest, useGraphCache bool) {
 	chanPointBob := ht.OpenChannel(
 		bob, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)
-	defer ht.CloseChannel(carol, chanPointBob)
 
 	// Make sure Alice knows the channel between Bob and Carol.
 	ht.AssertChannelInGraph(alice, chanPointBob)
@@ -420,9 +417,7 @@ func testSendToRouteErrorPropagation(ht *lntest.HarnessTest) {
 	bob := ht.NewNode("Bob", nil)
 	ht.EnsureConnected(alice, bob)
 
-	chanPointAlice := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
-	)
+	ht.OpenChannel(alice, bob, lntest.OpenChannelParams{Amt: chanAmt})
 
 	// Create a new nodes (Carol and Charlie), load her with some funds,
 	// then establish a connection between Carol and Charlie with a channel
@@ -476,8 +471,6 @@ func testSendToRouteErrorPropagation(ht *lntest.HarnessTest) {
 	require.NoError(ht, err, "payment stream has been closed but fake "+
 		"route has consumed")
 	require.Contains(ht, event.PaymentError, "UnknownNextPeer")
-
-	ht.CloseChannel(alice, chanPointAlice)
 }
 
 // testPrivateChannels tests that a private channel can be used for
@@ -602,12 +595,6 @@ func testPrivateChannels(ht *lntest.HarnessTest) {
 	ht.AssertNumActiveEdges(carol, 4, true)
 	ht.AssertNumActiveEdges(carol, 3, false)
 	ht.AssertNumActiveEdges(dave, 3, true)
-
-	// Close all channels.
-	ht.CloseChannel(alice, chanPointAlice)
-	ht.CloseChannel(dave, chanPointDave)
-	ht.CloseChannel(carol, chanPointCarol)
-	ht.CloseChannel(carol, chanPointPrivate)
 }
 
 // testInvoiceRoutingHints tests that the routing hints for an invoice are
@@ -641,7 +628,7 @@ func testInvoiceRoutingHints(ht *lntest.HarnessTest) {
 	carol := ht.NewNode("Carol", nil)
 
 	ht.ConnectNodes(alice, carol)
-	chanPointCarol := ht.OpenChannel(
+	ht.OpenChannel(
 		alice, carol, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: chanAmt / 2,
@@ -654,7 +641,7 @@ func testInvoiceRoutingHints(ht *lntest.HarnessTest) {
 	// advertised, otherwise we'd end up leaking information about nodes
 	// that wish to stay unadvertised.
 	ht.ConnectNodes(bob, carol)
-	chanPointBobCarol := ht.OpenChannel(
+	ht.OpenChannel(
 		bob, carol, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: chanAmt / 2,
@@ -668,7 +655,7 @@ func testInvoiceRoutingHints(ht *lntest.HarnessTest) {
 	dave := ht.NewNode("Dave", nil)
 
 	ht.ConnectNodes(alice, dave)
-	chanPointDave := ht.OpenChannel(
+	ht.OpenChannel(
 		alice, dave, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			Private: true,
@@ -681,7 +668,7 @@ func testInvoiceRoutingHints(ht *lntest.HarnessTest) {
 	// inactive channels.
 	eve := ht.NewNode("Eve", nil)
 	ht.ConnectNodes(alice, eve)
-	chanPointEve := ht.OpenChannel(
+	ht.OpenChannel(
 		alice, eve, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: chanAmt / 2,
@@ -742,17 +729,6 @@ func testInvoiceRoutingHints(ht *lntest.HarnessTest) {
 		Private: true,
 	}
 	checkInvoiceHints(invoice)
-
-	// Now that we've confirmed the routing hints were added correctly, we
-	// can close all the channels and shut down all the nodes created.
-	ht.CloseChannel(alice, chanPointBob)
-	ht.CloseChannel(alice, chanPointCarol)
-	ht.CloseChannel(bob, chanPointBobCarol)
-	ht.CloseChannel(alice, chanPointDave)
-
-	// The channel between Alice and Eve should be force closed since Eve
-	// is offline.
-	ht.ForceCloseChannel(alice, chanPointEve)
 }
 
 // testScidAliasRoutingHints tests that dynamically created aliases via the RPC
@@ -877,7 +853,7 @@ func testScidAliasRoutingHints(ht *lntest.HarnessTest) {
 
 	// Connect the existing Bob node with Carol via a public channel.
 	ht.ConnectNodes(bob, carol)
-	chanPointBC := ht.OpenChannel(bob, carol, lntest.OpenChannelParams{
+	ht.OpenChannel(bob, carol, lntest.OpenChannelParams{
 		Amt:     chanAmt,
 		PushAmt: chanAmt / 2,
 	})
@@ -940,9 +916,6 @@ func testScidAliasRoutingHints(ht *lntest.HarnessTest) {
 		FeeLimitSat:    math.MaxInt64,
 	})
 	ht.AssertPaymentStatusFromStream(stream2, lnrpc.Payment_FAILED)
-
-	ht.CloseChannel(carol, chanPointCD)
-	ht.CloseChannel(bob, chanPointBC)
 }
 
 // testMultiHopOverPrivateChannels tests that private channels can be used as
@@ -1042,12 +1015,6 @@ func testMultiHopOverPrivateChannels(ht *lntest.HarnessTest) {
 	// Alice should have sent 20k satoshis + fee for two hops to Bob.
 	ht.AssertAmountPaid("Alice(local) [private=>] Bob(remote)", alice,
 		chanPointAlice, paymentAmt+baseFee*2, 0)
-
-	// At this point, the payment was successful. We can now close all the
-	// channels and shutdown the nodes created throughout this test.
-	ht.CloseChannel(alice, chanPointAlice)
-	ht.CloseChannel(bob, chanPointBob)
-	ht.CloseChannel(carol, chanPointCarol)
 }
 
 // testQueryRoutes checks the response of queryroutes.
@@ -1085,7 +1052,6 @@ func testQueryRoutes(ht *lntest.HarnessTest) {
 	resp := ht.OpenMultiChannelsAsync(reqs)
 
 	// Extract channel points from the response.
-	chanPointAlice := resp[0]
 	chanPointBob := resp[1]
 	chanPointCarol := resp[2]
 
@@ -1196,12 +1162,6 @@ func testQueryRoutes(ht *lntest.HarnessTest) {
 	// control import function updates appropriately.
 	testMissionControlCfg(ht.T, alice)
 	testMissionControlImport(ht, alice, bob.PubKey[:], carol.PubKey[:])
-
-	// We clean up the test case by closing channels that were created for
-	// the duration of the tests.
-	ht.CloseChannel(alice, chanPointAlice)
-	ht.CloseChannel(bob, chanPointBob)
-	ht.CloseChannel(carol, chanPointCarol)
 }
 
 // testMissionControlCfg tests getting and setting of a node's mission control
@@ -1528,13 +1488,6 @@ func testRouteFeeCutoff(ht *lntest.HarnessTest) {
 		},
 	}
 	testFeeCutoff(feeLimitFixed)
-
-	// Once we're done, close the channels and shut down the nodes created
-	// throughout this test.
-	ht.CloseChannel(alice, chanPointAliceBob)
-	ht.CloseChannel(alice, chanPointAliceCarol)
-	ht.CloseChannel(bob, chanPointBobDave)
-	ht.CloseChannel(carol, chanPointCarolDave)
 }
 
 // testFeeLimitAfterQueryRoutes tests that a payment's fee limit is consistent
@@ -1547,7 +1500,7 @@ func testFeeLimitAfterQueryRoutes(ht *lntest.HarnessTest) {
 		cfgs, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 	alice, bob, carol := nodes[0], nodes[1], nodes[2]
-	chanPointAliceBob, chanPointBobCarol := chanPoints[0], chanPoints[1]
+	chanPointAliceBob := chanPoints[0]
 
 	// We set an inbound fee discount on Bob's channel to Alice to
 	// effectively set the outbound fees charged to Carol to zero.
@@ -1606,10 +1559,6 @@ func testFeeLimitAfterQueryRoutes(ht *lntest.HarnessTest) {
 
 	// We assert that a route compatible with the fee limit is available.
 	ht.SendPaymentAssertSettled(alice, sendReq)
-
-	// Once we're done, close the channels.
-	ht.CloseChannel(alice, chanPointAliceBob)
-	ht.CloseChannel(bob, chanPointBobCarol)
 }
 
 // computeFee calculates the payment fee as specified in BOLT07.

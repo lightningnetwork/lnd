@@ -324,13 +324,6 @@ func runPsbtChanFunding(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	}
 	resp := dave.RPC.AddInvoice(invoice)
 	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest})
-
-	// To conclude, we'll close the newly created channel between Carol and
-	// Dave. This function will also block until the channel is closed and
-	// will additionally assert the relevant channel closing post
-	// conditions.
-	ht.CloseChannel(carol, chanPoint)
-	ht.CloseChannel(carol, chanPoint2)
 }
 
 // runPsbtChanFundingExternal makes sure a channel can be opened between carol
@@ -499,13 +492,6 @@ func runPsbtChanFundingExternal(ht *lntest.HarnessTest, carol,
 	}
 	resp := dave.RPC.AddInvoice(invoice)
 	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest})
-
-	// To conclude, we'll close the newly created channel between Carol and
-	// Dave. This function will also block until the channels are closed and
-	// will additionally assert the relevant channel closing post
-	// conditions.
-	ht.CloseChannel(carol, chanPoint)
-	ht.CloseChannel(carol, chanPoint2)
 }
 
 // runPsbtChanFundingSingleStep checks whether PSBT funding works also when
@@ -649,12 +635,6 @@ func runPsbtChanFundingSingleStep(ht *lntest.HarnessTest, carol,
 	}
 	resp := dave.RPC.AddInvoice(invoice)
 	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest})
-
-	// To conclude, we'll close the newly created channel between Carol and
-	// Dave. This function will also block until the channel is closed and
-	// will additionally assert the relevant channel closing post
-	// conditions.
-	ht.CloseChannel(carol, chanPoint)
 }
 
 // testSignPsbt tests that the SignPsbt RPC works correctly.

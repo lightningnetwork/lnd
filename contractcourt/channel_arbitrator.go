@@ -462,7 +462,9 @@ func (c *ChannelArbitrator) getStartState(tx kvdb.RTx) (*chanArbStartState,
 // Start starts all the goroutines that the ChannelArbitrator needs to operate.
 // If takes a start state, which will be looked up on disk if it is not
 // provided.
-func (c *ChannelArbitrator) Start(state *chanArbStartState) error {
+func (c *ChannelArbitrator) Start(state *chanArbStartState,
+	beat chainio.Blockbeat) error {
+
 	if !atomic.CompareAndSwapInt32(&c.started, 0, 1) {
 		return nil
 	}
@@ -484,10 +486,8 @@ func (c *ChannelArbitrator) Start(state *chanArbStartState) error {
 	// Set our state from our starting state.
 	c.state = state.currentState
 
-	_, bestHeight, err := c.cfg.ChainIO.GetBestBlock()
-	if err != nil {
-		return err
-	}
+	// Get the starting height.
+	bestHeight := beat.Height()
 
 	c.wg.Add(1)
 	go c.channelAttendant(bestHeight, state.commitSet)

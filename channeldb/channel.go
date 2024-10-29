@@ -2472,15 +2472,18 @@ func (c *OpenChannel) ActiveHtlcs() []HTLC {
 
 	// We'll only return HTLC's that are locked into *both* commitment
 	// transactions. So we'll iterate through their set of HTLC's to note
-	// which ones are present on their commitment.
-	remoteHtlcs := make(map[[32]byte]struct{})
+	// which ones are present on their commitment. We combine the RHash and
+	// the HTLC index to create a unique key.
+	remoteHtlcs := make(map[[32 + 8]byte]struct{})
+	var htlcKey [32 + 8]byte
 	for _, htlc := range c.RemoteCommitment.Htlcs {
 		log.Tracef("RemoteCommitment has htlc: id=%v, update=%v "+
 			"incoming=%v", htlc.HtlcIndex, htlc.LogIndex,
 			htlc.Incoming)
 
-		onionHash := sha256.Sum256(htlc.OnionBlob[:])
-		remoteHtlcs[onionHash] = struct{}{}
+		copy(htlcKey[:32], htlc.RHash[:])
+		binary.BigEndian.PutUint64(htlcKey[32:], htlc.HtlcIndex)
+		remoteHtlcs[htlcKey] = struct{}{}
 	}
 
 	// Now that we know which HTLC's they have, we'll only mark the HTLC's
@@ -2491,9 +2494,10 @@ func (c *OpenChannel) ActiveHtlcs() []HTLC {
 			"incoming=%v", htlc.HtlcIndex, htlc.LogIndex,
 			htlc.Incoming)
 
-		onionHash := sha256.Sum256(htlc.OnionBlob[:])
-		if _, ok := remoteHtlcs[onionHash]; !ok {
-			log.Tracef("Skipped htlc due to onion mismatched: "+
+		copy(htlcKey[:32], htlc.RHash[:])
+		binary.BigEndian.PutUint64(htlcKey[32:], htlc.HtlcIndex)
+		if _, ok := remoteHtlcs[htlcKey]; !ok {
+			log.Tracef("Skipped htlc due to htlcKey mismatch: "+
 				"id=%v, update=%v incoming=%v",
 				htlc.HtlcIndex, htlc.LogIndex, htlc.Incoming)
 

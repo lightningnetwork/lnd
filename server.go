@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
@@ -2073,6 +2074,12 @@ func (c cleaner) run() {
 //
 //nolint:funlen
 func (s *server) Start() error {
+	// Get the current blockbeat.
+	beat, err := s.getStartingBeat()
+	if err != nil {
+		return err
+	}
+
 	var startErr error
 
 	// If one sub system fails to start, the following code ensures that the
@@ -2167,13 +2174,13 @@ func (s *server) Start() error {
 		}
 
 		cleanup = cleanup.add(s.txPublisher.Stop)
-		if err := s.txPublisher.Start(); err != nil {
+		if err := s.txPublisher.Start(beat); err != nil {
 			startErr = err
 			return
 		}
 
 		cleanup = cleanup.add(s.sweeper.Stop)
-		if err := s.sweeper.Start(); err != nil {
+		if err := s.sweeper.Start(beat); err != nil {
 			startErr = err
 			return
 		}
@@ -2218,7 +2225,7 @@ func (s *server) Start() error {
 		}
 
 		cleanup = cleanup.add(s.chainArb.Stop)
-		if err := s.chainArb.Start(); err != nil {
+		if err := s.chainArb.Start(beat); err != nil {
 			startErr = err
 			return
 		}
@@ -5151,4 +5158,36 @@ func (s *server) fetchClosedChannelSCIDs() map[lnwire.ShortChannelID]struct{} {
 	}
 
 	return closedSCIDs
+}
+
+// getStartingBeat returns the current beat. This is used during the startup to
+// initialize blockbeat consumers.
+func (s *server) getStartingBeat() (*chainio.Beat, error) {
+	// beat is the current blockbeat.
+	var beat *chainio.Beat
+
+	// We should get a notification with the current best block immediately
+	// by passing a nil block.
+	blockEpochs, err := s.cc.ChainNotifier.RegisterBlockEpochNtfn(nil)
+	if err != nil {
+		return beat, fmt.Errorf("register block epoch ntfn: %w", err)
+	}
+	defer blockEpochs.Cancel()
+
+	// We registered for the block epochs with a nil request. The notifier
+	// should send us the current best block immediately. So we need to
+	// wait for it here because we need to know the current best height.
+	select {
+	case bestBlock := <-blockEpochs.Epochs:
+		srvrLog.Infof("Received initial block %v at height %d",
+			bestBlock.Hash, bestBlock.Height)
+
+		// Update the current blockbeat.
+		beat = chainio.NewBeat(*bestBlock)
+
+	case <-s.quit:
+		srvrLog.Debug("LND shutting down")
+	}
+
+	return beat, nil
 }

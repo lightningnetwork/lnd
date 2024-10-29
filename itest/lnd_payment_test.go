@@ -1113,12 +1113,16 @@ func testPaymentFailureReasonCanceled(ht *lntest.HarnessTest) {
 	// Make sure Alice is aware of channel Bob=>Carol.
 	ht.AssertTopologyChannelOpen(alice, cpBC)
 
+	// Connect the interceptor.
+	interceptor, cancelInterceptor := bob.RPC.HtlcInterceptor()
+	defer cancelInterceptor()
+
 	// First we check that the payment is successful when bob resumes the
 	// htlc even though the payment context was canceled before invoice
 	// settlement.
 	sendPaymentInterceptAndCancel(
 		ht, ts, cpAB, routerrpc.ResolveHoldForwardAction_RESUME,
-		lnrpc.Payment_SUCCEEDED,
+		lnrpc.Payment_SUCCEEDED, interceptor,
 	)
 
 	// Next we check that the context cancellation results in the expected
@@ -1128,7 +1132,7 @@ func testPaymentFailureReasonCanceled(ht *lntest.HarnessTest) {
 	// htlc fail case before the htlc resume case.
 	sendPaymentInterceptAndCancel(
 		ht, ts, cpAB, routerrpc.ResolveHoldForwardAction_FAIL,
-		lnrpc.Payment_FAILED,
+		lnrpc.Payment_FAILED, interceptor,
 	)
 
 	// Finally, close channels.
@@ -1139,13 +1143,11 @@ func testPaymentFailureReasonCanceled(ht *lntest.HarnessTest) {
 func sendPaymentInterceptAndCancel(ht *lntest.HarnessTest,
 	ts *interceptorTestScenario, cpAB *lnrpc.ChannelPoint,
 	interceptorAction routerrpc.ResolveHoldForwardAction,
-	expectedPaymentStatus lnrpc.Payment_PaymentStatus) {
+	expectedPaymentStatus lnrpc.Payment_PaymentStatus,
+	interceptor rpc.InterceptorClient) {
 
 	// Prepare the test cases.
 	alice, bob, carol := ts.alice, ts.bob, ts.carol
-
-	// Connect the interceptor.
-	interceptor, cancelInterceptor := bob.RPC.HtlcInterceptor()
 
 	// Prepare the test cases.
 	addResponse := carol.RPC.AddInvoice(&lnrpc.Invoice{
@@ -1208,9 +1210,6 @@ func sendPaymentInterceptAndCancel(ht *lntest.HarnessTest,
 	// should've been made, and we observe FAILURE_REASON_CANCELED.
 	expectedReason := lnrpc.PaymentFailureReason_FAILURE_REASON_CANCELED
 	ht.AssertPaymentFailureReason(alice, preimage, expectedReason)
-
-	// Cancel the context, which will disconnect the above interceptor.
-	cancelInterceptor()
 }
 
 // testSendToRouteFailHTLCTimeout is similar to

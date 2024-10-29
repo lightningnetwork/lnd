@@ -31,8 +31,8 @@ func NewRotatingLogWriter() *RotatingLogWriter {
 // InitLogRotator initializes the log file rotator to write logs to logFile and
 // create roll files in the same directory. It should be called as early on
 // startup and possible and must be closed on shutdown by calling `Close`.
-func (r *RotatingLogWriter) InitLogRotator(logFile, logCompressor string,
-	maxLogFileSize int, maxLogFiles int) error {
+func (r *RotatingLogWriter) InitLogRotator(cfg *FileLoggerConfig,
+	logFile string) error {
 
 	logDir, _ := filepath.Split(logFile)
 	err := os.MkdirAll(logDir, 0700)
@@ -41,19 +41,19 @@ func (r *RotatingLogWriter) InitLogRotator(logFile, logCompressor string,
 	}
 
 	r.rotator, err = rotator.New(
-		logFile, int64(maxLogFileSize*1024), false, maxLogFiles,
+		logFile, int64(cfg.MaxLogFileSize*1024), false, cfg.MaxLogFiles,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create file rotator: %w", err)
 	}
 
 	// Reject unknown compressors.
-	if !SupportedLogCompressor(logCompressor) {
-		return fmt.Errorf("unknown log compressor: %v", logCompressor)
+	if !SupportedLogCompressor(cfg.Compressor) {
+		return fmt.Errorf("unknown log compressor: %v", cfg.Compressor)
 	}
 
 	var c rotator.Compressor
-	switch logCompressor {
+	switch cfg.Compressor {
 	case Gzip:
 		c = gzip.NewWriter(nil)
 
@@ -66,7 +66,7 @@ func (r *RotatingLogWriter) InitLogRotator(logFile, logCompressor string,
 	}
 
 	// Apply the compressor and its file suffix to the log rotator.
-	r.rotator.SetCompressor(c, logCompressors[logCompressor])
+	r.rotator.SetCompressor(c, logCompressors[cfg.Compressor])
 
 	// Run rotator as a goroutine now but make sure we catch any errors
 	// that happen in case something with the rotation goes wrong during

@@ -71,8 +71,6 @@ const (
 	defaultChanEnableTimeout             = 19 * time.Minute
 	defaultChanDisableTimeout            = 20 * time.Minute
 	defaultHeightHintCacheQueryDisable   = false
-	defaultMaxLogFiles                   = 3
-	defaultMaxLogFileSize                = 10
 	defaultMinBackoff                    = time.Second
 	defaultMaxBackoff                    = time.Hour
 	defaultLetsEncryptDirname            = "letsencrypt"
@@ -315,8 +313,8 @@ type Config struct {
 	ReadMacPath     string        `long:"readonlymacaroonpath" description:"Path to write the read-only macaroon for lnd's RPC and REST services if it doesn't exist"`
 	InvoiceMacPath  string        `long:"invoicemacaroonpath" description:"Path to the invoice-only macaroon for lnd's RPC and REST services if it doesn't exist"`
 	LogDir          string        `long:"logdir" description:"Directory to log output."`
-	MaxLogFiles     int           `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
-	MaxLogFileSize  int           `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
+	MaxLogFiles     int           `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation). DEPRECATED: use --logging.file.max-files instead" hidden:"true"`
+	MaxLogFileSize  int           `long:"maxlogfilesize" description:"Maximum logfile size in MB. DEPRECATED: use --logging.file.max-file-size instead" hidden:"true"`
 	AcceptorTimeout time.Duration `long:"acceptortimeout" description:"Time after which an RPCAcceptor will time out and return false if it hasn't yet received a response"`
 
 	LetsEncryptDir    string `long:"letsencryptdir" description:"The directory to store Let's Encrypt certificates within"`
@@ -562,8 +560,8 @@ func DefaultConfig() Config {
 		LetsEncryptDir:    defaultLetsEncryptDir,
 		LetsEncryptListen: defaultLetsEncryptListen,
 		LogDir:            defaultLogDir,
-		MaxLogFiles:       defaultMaxLogFiles,
-		MaxLogFileSize:    defaultMaxLogFileSize,
+		MaxLogFiles:       build.DefaultMaxLogFiles,
+		MaxLogFileSize:    build.DefaultMaxLogFileSize,
 		AcceptorTimeout:   defaultAcceptorTimeout,
 		WSPingInterval:    lnrpc.DefaultPingInterval,
 		WSPongWait:        lnrpc.DefaultPongWait,
@@ -1417,10 +1415,31 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			cfg.SubLogMgr.SupportedSubsystems())
 		os.Exit(0)
 	}
+
+	if cfg.MaxLogFiles != build.DefaultMaxLogFiles {
+		if cfg.LogConfig.File.MaxLogFiles !=
+			build.DefaultMaxLogFiles {
+
+			return nil, mkErr("cannot set both maxlogfiles and "+
+				"logging.file.max-files", err)
+		}
+
+		cfg.LogConfig.File.MaxLogFiles = cfg.MaxLogFiles
+	}
+	if cfg.MaxLogFileSize != build.DefaultMaxLogFileSize {
+		if cfg.LogConfig.File.MaxLogFileSize !=
+			build.DefaultMaxLogFileSize {
+
+			return nil, mkErr("cannot set both maxlogfilesize and "+
+				"logging.file.max-file-size", err)
+		}
+
+		cfg.LogConfig.File.MaxLogFileSize = cfg.MaxLogFileSize
+	}
+
 	err = cfg.LogRotator.InitLogRotator(
+		cfg.LogConfig.File,
 		filepath.Join(cfg.LogDir, defaultLogFilename),
-		cfg.LogConfig.File.Compressor, cfg.MaxLogFileSize,
-		cfg.MaxLogFiles,
 	)
 	if err != nil {
 		str := "log rotation setup failed: %v"

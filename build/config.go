@@ -13,7 +13,7 @@ const (
 //nolint:lll
 type LogConfig struct {
 	Console *consoleLoggerCfg `group:"console" namespace:"console" description:"The logger writing to stdout and stderr."`
-	File    *LoggerConfig     `group:"file" namespace:"file" description:"The logger writing to LND's standard log file."`
+	File    *FileLoggerConfig `group:"file" namespace:"file" description:"The logger writing to LND's standard log file."`
 }
 
 // LoggerConfig holds options for a particular logger.
@@ -29,8 +29,10 @@ type LoggerConfig struct {
 func DefaultLogConfig() *LogConfig {
 	return &LogConfig{
 		Console: defaultConsoleLoggerCfg(),
-		File: &LoggerConfig{
-			CallSite: callSiteOff,
+		File: &FileLoggerConfig{
+			LoggerConfig: LoggerConfig{
+				CallSite: callSiteOff,
+			},
 		},
 	}
 }
@@ -58,4 +60,9 @@ func (cfg *LoggerConfig) HandlerOptions() []btclog.HandlerOption {
 	}
 
 	return opts
+}
+
+// FileLoggerConfig extends LoggerConfig with specific log file options.
+type FileLoggerConfig struct {
+	LoggerConfig
 }

@@ -94,6 +94,4 @@ func testResHandoff(ht *lntest.HarnessTest) {
 
 	// Assert that Alice's payment failed.
 	ht.AssertFirstHTLCError(alice, lnrpc.Failure_PERMANENT_CHANNEL_FAILURE)
-
-	ht.CloseChannel(alice, chanPointAlice)
 }

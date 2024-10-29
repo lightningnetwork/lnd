@@ -854,9 +854,6 @@ func testOptionScidUpgrade(ht *lntest.HarnessTest) {
 
 	daveInvoice2 := dave.RPC.AddInvoice(daveParams)
 	ht.CompletePaymentRequests(bob, []string{daveInvoice2.PaymentRequest})
-
-	// Close standby node's channels.
-	ht.CloseChannel(bob, fundingPoint2)
 }
 
 // acceptChannel is used to accept a single channel that comes across. This

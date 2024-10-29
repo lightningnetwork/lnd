@@ -24,7 +24,6 @@ func testLookupHtlcResolution(ht *lntest.HarnessTest) {
 	cp := ht.OpenChannel(
 		alice, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)
-	defer ht.CloseChannel(alice, cp)
 
 	// Channel should be ready for payments.
 	const payAmt = 100

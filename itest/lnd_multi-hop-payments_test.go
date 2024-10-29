@@ -235,11 +235,6 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 	ht.AssertHtlcEvents(
 		bobEvents, 0, 0, numPayments, 0, routerrpc.HtlcEvent_RECEIVE,
 	)
-
-	// Finally, close all channels.
-	ht.CloseChannel(alice, chanPointAlice)
-	ht.CloseChannel(dave, chanPointDave)
-	ht.CloseChannel(carol, chanPointCarol)
 }
 
 // updateChannelPolicy updates the channel policy of node to the given fees and

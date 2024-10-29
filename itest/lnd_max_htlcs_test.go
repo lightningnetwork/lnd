@@ -25,14 +25,13 @@ func testMaxHtlcPathfind(ht *lntest.HarnessTest) {
 	cfgs := [][]string{cfg, cfg}
 
 	// Create a channel Alice->Bob.
-	chanPoints, nodes := ht.CreateSimpleNetwork(
+	_, nodes := ht.CreateSimpleNetwork(
 		cfgs, lntest.OpenChannelParams{
 			Amt:            1000000,
 			PushAmt:        800000,
 			RemoteMaxHtlcs: uint16(maxHtlcs),
 		},
 	)
-	chanPoint := chanPoints[0]
 	alice, bob := nodes[0], nodes[1]
 
 	// Alice and bob should have one channel open with each other now.
@@ -78,8 +77,6 @@ func testMaxHtlcPathfind(ht *lntest.HarnessTest) {
 
 	ht.AssertNumActiveHtlcs(alice, 0)
 	ht.AssertNumActiveHtlcs(bob, 0)
-
-	ht.CloseChannel(alice, chanPoint)
 }
 
 type holdSubscription struct {

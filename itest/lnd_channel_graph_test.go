@@ -234,7 +234,7 @@ func testUnannouncedChannels(ht *lntest.HarnessTest) {
 
 	// One block is enough to make the channel ready for use, since the
 	// nodes have defaultNumConfs=1 set.
-	fundingChanPoint := ht.WaitForChannelOpenEvent(chanOpenUpdate)
+	ht.WaitForChannelOpenEvent(chanOpenUpdate)
 
 	// Alice should have 1 edge in her graph.
 	ht.AssertNumActiveEdges(alice, 1, true)
@@ -248,9 +248,6 @@ func testUnannouncedChannels(ht *lntest.HarnessTest) {
 
 	// Give the network a chance to learn that auth proof is confirmed.
 	ht.AssertNumActiveEdges(alice, 1, false)
-
-	// Close the channel used during the test.
-	ht.CloseChannel(alice, fundingChanPoint)
 }
 
 func testGraphTopologyNotifications(ht *lntest.HarnessTest) {
@@ -367,9 +364,6 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 	// Bob's new node announcement, and the channel between Bob and Carol.
 	ht.AssertNumChannelUpdates(alice, chanPoint, 2)
 	ht.AssertNumNodeAnns(alice, bob.PubKeyStr, 1)
-
-	// Close the channel between Bob and Carol.
-	ht.CloseChannel(bob, chanPoint)
 }
 
 // testNodeAnnouncement ensures that when a node is started with one or more
@@ -402,7 +396,7 @@ func testNodeAnnouncement(ht *lntest.HarnessTest) {
 	// We'll then go ahead and open a channel between Bob and Dave. This
 	// ensures that Alice receives the node announcement from Bob as part of
 	// the announcement broadcast.
-	chanPoint := ht.OpenChannel(
+	ht.OpenChannel(
 		bob, dave, lntest.OpenChannelParams{Amt: 1000000},
 	)
 
@@ -424,9 +418,6 @@ func testNodeAnnouncement(ht *lntest.HarnessTest) {
 	allUpdates := ht.AssertNumNodeAnns(alice, dave.PubKeyStr, 1)
 	nodeUpdate := allUpdates[len(allUpdates)-1]
 	assertAddrs(nodeUpdate.Addresses, advertisedAddrs...)
-
-	// Close the channel between Bob and Dave.
-	ht.CloseChannel(bob, chanPoint)
 }
 
 // testUpdateNodeAnnouncement ensures that the RPC endpoint validates
@@ -531,7 +522,7 @@ func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 	// Go ahead and open a channel between Bob and Dave. This
 	// ensures that Alice receives the node announcement from Bob as part of
 	// the announcement broadcast.
-	chanPoint := ht.OpenChannel(
+	ht.OpenChannel(
 		bob, dave, lntest.OpenChannelParams{
 			Amt: 1000000,
 		},
@@ -661,9 +652,6 @@ func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 		FeatureUpdates: updateFeatureActions,
 	}
 	dave.RPC.UpdateNodeAnnouncementErr(nodeAnnReq)
-
-	// Close the channel between Bob and Dave.
-	ht.CloseChannel(bob, chanPoint)
 }
 
 // assertSyncType asserts that the peer has an expected syncType.

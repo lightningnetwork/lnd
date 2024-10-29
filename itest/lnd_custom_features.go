@@ -29,11 +29,10 @@ func testCustomFeatures(ht *lntest.HarnessTest) {
 	}
 	cfgs := [][]string{extraArgs, nil}
 
-	chanPoints, nodes := ht.CreateSimpleNetwork(
+	_, nodes := ht.CreateSimpleNetwork(
 		cfgs, lntest.OpenChannelParams{Amt: 1000000},
 	)
 	alice, bob := nodes[0], nodes[1]
-	chanPoint := chanPoints[0]
 
 	// Check that Alice's custom feature bit was sent to Bob in her init
 	// message.
@@ -79,8 +78,6 @@ func testCustomFeatures(ht *lntest.HarnessTest) {
 		},
 	}
 	alice.RPC.UpdateNodeAnnouncementErr(nodeAnnReq)
-
-	ht.CloseChannel(alice, chanPoint)
 }
 
 // assertFeatureNotInSet checks that the features provided aren't contained in

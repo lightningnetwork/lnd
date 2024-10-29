@@ -274,3 +274,80 @@ func TestExtractMulti(t *testing.T) {
 		assertMultiEqual(t, &unpackedMulti, freshUnpackedMulti)
 	}
 }
+
+// TestCreateArchiveFile tests that we're able to create an archive file
+// with a timestamped name in the specified archive directory, and copy the
+// contents of the main backup file to the new archive file.
+func TestCreateArchiveFile(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create a temporary directory for our test files.
+	tempDir := t.TempDir()
+	archiveDir := filepath.Join(tempDir, DefaultChanBackupArchiveDirName)
+
+	// Next, we'll create a test backup file and write some content to it.
+	backupFile := filepath.Join(tempDir, DefaultBackupFileName)
+	testContent := []byte("test backup content")
+	err := os.WriteFile(backupFile, testContent, 0644)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name       string
+		setup      func()
+		archiveDir string
+		fileName   string
+		wantError  bool
+	}{
+		{
+			name:       "successful archive",
+			archiveDir: archiveDir,
+			fileName:   backupFile,
+		},
+		{
+			name:       "non-existent source file",
+			archiveDir: archiveDir,
+			fileName:   "nonexistent.backup",
+			wantError:  true,
+		},
+		{
+			name: "invalid archive directory permissions",
+			setup: func() {
+				// Create dir with no write permissions
+				err := os.MkdirAll(archiveDir, 0500)
+				require.NoError(t, err)
+			},
+			archiveDir: archiveDir,
+			fileName:   backupFile,
+			wantError:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			defer os.RemoveAll(archiveDir)
+			if tc.setup != nil {
+				tc.setup()
+			}
+
+			err := createArchiveFile(tc.archiveDir, tc.fileName)
+			if tc.wantError {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+
+			// Verify archive exists and content matches
+			files, err := os.ReadDir(tc.archiveDir)
+			require.NoError(t, err)
+			require.Len(t, files, 1)
+
+			archivedContent, err := os.ReadFile(
+				filepath.Join(tc.archiveDir, files[0].Name()),
+			)
+			require.NoError(t, err)
+			require.Equal(t, testContent, archivedContent)
+		})
+	}
+}

@@ -22,7 +22,6 @@ func testQuiescence(ht *lntest.HarnessTest) {
 	chanPoint := ht.OpenChannel(bob, alice, lntest.OpenChannelParams{
 		Amt: btcutil.Amount(1000000),
 	})
-	defer ht.CloseChannel(bob, chanPoint)
 
 	res := alice.RPC.Quiesce(&devrpc.QuiescenceRequest{
 		ChanId: chanPoint,

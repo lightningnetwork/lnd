@@ -56,9 +56,7 @@ func testMaxChannelSize(ht *lntest.HarnessTest) {
 
 	// Creating a wumbo channel between these two nodes should succeed.
 	ht.EnsureConnected(wumboNode, wumboNode3)
-	chanPoint := ht.OpenChannel(
+	ht.OpenChannel(
 		wumboNode, wumboNode3, lntest.OpenChannelParams{Amt: chanAmt},
 	)
-
-	ht.CloseChannel(wumboNode, chanPoint)
 }

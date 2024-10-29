@@ -177,10 +177,6 @@ func testForwardInterceptorDedupHtlc(ht *lntest.HarnessTest) {
 	case <-time.After(defaultTimeout):
 		require.Fail(ht, "timeout waiting for interceptor error")
 	}
-
-	// Finally, close channels.
-	ht.CloseChannel(alice, cpAB)
-	ht.CloseChannel(bob, cpBC)
 }
 
 // testForwardInterceptorBasic tests the forward interceptor RPC layer.
@@ -345,10 +341,6 @@ func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 	case <-time.After(defaultTimeout):
 		require.Fail(ht, "timeout waiting for interceptor error")
 	}
-
-	// Finally, close channels.
-	ht.CloseChannel(alice, cpAB)
-	ht.CloseChannel(bob, cpBC)
 }
 
 // testForwardInterceptorModifiedHtlc tests that the interceptor can modify the
@@ -367,7 +359,7 @@ func testForwardInterceptorModifiedHtlc(ht *lntest.HarnessTest) {
 		{Local: bob, Remote: carol, Param: p},
 	}
 	resp := ht.OpenMultiChannelsAsync(reqs)
-	cpAB, cpBC := resp[0], resp[1]
+	cpBC := resp[1]
 
 	// Make sure Alice is aware of channel Bob=>Carol.
 	ht.AssertChannelInGraph(alice, cpBC)
@@ -451,10 +443,6 @@ func testForwardInterceptorModifiedHtlc(ht *lntest.HarnessTest) {
 	var preimage lntypes.Preimage
 	copy(preimage[:], invoice.RPreimage)
 	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
-
-	// Finally, close channels.
-	ht.CloseChannel(alice, cpAB)
-	ht.CloseChannel(bob, cpBC)
 }
 
 // testForwardInterceptorWireRecords tests that the interceptor can read any
@@ -475,7 +463,7 @@ func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
 		{Local: carol, Remote: dave, Param: p},
 	}
 	resp := ht.OpenMultiChannelsAsync(reqs)
-	cpAB, cpBC, cpCD := resp[0], resp[1], resp[2]
+	cpBC := resp[1]
 
 	// Make sure Alice is aware of channel Bob=>Carol.
 	ht.AssertChannelInGraph(alice, cpBC)
@@ -579,11 +567,6 @@ func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
 			return nil
 		},
 	)
-
-	// Finally, close channels.
-	ht.CloseChannel(alice, cpAB)
-	ht.CloseChannel(bob, cpBC)
-	ht.CloseChannel(carol, cpCD)
 }
 
 // testForwardInterceptorRestart tests that the interceptor can read any wire
@@ -605,7 +588,7 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 		{Local: carol, Remote: dave, Param: p},
 	}
 	resp := ht.OpenMultiChannelsAsync(reqs)
-	cpAB, cpBC, cpCD := resp[0], resp[1], resp[2]
+	cpBC, cpCD := resp[1], resp[2]
 
 	// Make sure Alice is aware of channels Bob=>Carol and Carol=>Dave.
 	ht.AssertChannelInGraph(alice, cpBC)
@@ -742,11 +725,6 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 			return nil
 		},
 	)
-
-	// Finally, close channels.
-	ht.CloseChannel(alice, cpAB)
-	ht.CloseChannel(bob, cpBC)
-	ht.CloseChannel(carol, cpCD)
 }
 
 // interceptorTestScenario is a helper struct to hold the test context and

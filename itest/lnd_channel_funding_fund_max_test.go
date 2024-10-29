@@ -57,10 +57,7 @@ func testChannelFundMax(ht *lntest.HarnessTest) {
 	// tests.
 	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
 	alice := ht.NewNode("Alice", args)
-	defer ht.Shutdown(alice)
-
 	bob := ht.NewNode("Bob", args)
-	defer ht.Shutdown(bob)
 
 	// Ensure both sides are connected so the funding flow can be properly
 	// executed.
@@ -229,12 +226,11 @@ func runFundMaxTestCase(ht *lntest.HarnessTest, alice, bob *node.HarnessNode,
 
 	// Otherwise, if we expect to open a channel use the helper function.
 	chanPoint := ht.OpenChannel(alice, bob, chanParams)
+	cType := ht.GetChannelCommitType(alice, chanPoint)
 
 	// Close the channel between Alice and Bob, asserting
 	// that the channel has been properly closed on-chain.
 	defer ht.CloseChannel(alice, chanPoint)
-
-	cType := ht.GetChannelCommitType(alice, chanPoint)
 
 	// Alice's balance should be her amount subtracted by the commitment
 	// transaction fee.

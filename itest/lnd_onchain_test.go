@@ -153,7 +153,7 @@ func testChainKitSendOutputsAnchorReserve(ht *lntest.HarnessTest) {
 	// Charlie opens an anchor channel and keeps twice the amount of the
 	// anchor reserve in her wallet.
 	chanAmt := fundingAmount - 2*btcutil.Amount(reserve.RequiredReserve)
-	outpoint := ht.OpenChannel(charlie, bob, lntest.OpenChannelParams{
+	ht.OpenChannel(charlie, bob, lntest.OpenChannelParams{
 		Amt:            chanAmt,
 		CommitmentType: lnrpc.CommitmentType_ANCHORS,
 		SatPerVByte:    1,
@@ -207,11 +207,7 @@ func testChainKitSendOutputsAnchorReserve(ht *lntest.HarnessTest) {
 
 	// This second transaction should be published correctly.
 	charlie.RPC.SendOutputs(req)
-
 	ht.MineBlocksAndAssertNumTxes(1, 1)
-
-	// Clean up our test setup.
-	ht.CloseChannel(charlie, outpoint)
 }
 
 // testAnchorReservedValue tests that we won't allow sending transactions when

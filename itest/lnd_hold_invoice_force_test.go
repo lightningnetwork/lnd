@@ -140,7 +140,4 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	// outgoing HTLCs in her channel as the only HTLC has already been
 	// canceled.
 	ht.AssertNumPendingForceClose(alice, 0)
-
-	// Clean up the channel.
-	ht.CloseChannel(alice, chanPoint)
 }

@@ -548,7 +548,9 @@ func (l *channelLink) Start() error {
 		}()
 	}
 
-	l.updateFeeTimer = time.NewTimer(l.randomFeeUpdateTimeout())
+	// this timer will fire in one minute after the channel is ready
+	// and it will reset to a random interval after that
+	l.updateFeeTimer = time.NewTimer(time.Minute)
 
 	l.Wg.Add(1)
 	go l.htlcManager()

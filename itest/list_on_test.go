@@ -284,10 +284,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testOpenChannelAfterReorg,
 	},
 	{
-		Name:     "psbt channel funding",
-		TestFunc: testPsbtChanFunding,
-	},
-	{
 		Name:     "sign psbt",
 		TestFunc: testSignPsbt,
 	},
@@ -694,4 +690,5 @@ func init() {
 	// Register subtests.
 	allTestCases = append(allTestCases, multiHopForceCloseTestCases...)
 	allTestCases = append(allTestCases, watchtowerTestCases...)
+	allTestCases = append(allTestCases, psbtFundingTestCases...)
 }

@@ -28,7 +28,6 @@ func newPostgresBackend(ctx context.Context, config *Config, prefix string) (
 		Schema:                "public",
 		TableNamePrefix:       prefix,
 		SQLiteCmdReplacements: sqliteCmdReplacements,
-		WithTxLevelLock:       true,
 	}
 
 	return sqlbase.NewSqlBackend(ctx, cfg)

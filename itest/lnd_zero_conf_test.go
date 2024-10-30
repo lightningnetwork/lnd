@@ -75,8 +75,8 @@ func testZeroConfChannelOpen(ht *lntest.HarnessTest) {
 	// having to mine any blocks.
 	fundingPoint2 := ht.WaitForChannelOpenEvent(stream)
 
-	ht.AssertTopologyChannelOpen(carol, fundingPoint2)
-	ht.AssertTopologyChannelOpen(dave, fundingPoint2)
+	ht.AssertChannelInGraph(carol, fundingPoint2)
+	ht.AssertChannelInGraph(dave, fundingPoint2)
 
 	// Attempt to send a 10K satoshi payment from Carol to Dave.
 	daveInvoiceParams := &lnrpc.Invoice{
@@ -144,8 +144,8 @@ func testZeroConfChannelOpen(ht *lntest.HarnessTest) {
 	// Wait to receive the OpenStatusUpdate_ChanOpen update.
 	fundingPoint3 := ht.WaitForChannelOpenEvent(stream)
 
-	ht.AssertTopologyChannelOpen(eve, fundingPoint3)
-	ht.AssertTopologyChannelOpen(carol, fundingPoint3)
+	ht.AssertChannelInGraph(eve, fundingPoint3)
+	ht.AssertChannelInGraph(carol, fundingPoint3)
 
 	// Attempt to send a 20K satoshi payment from Eve to Dave.
 	daveInvoiceParams.Value = int64(20_000)
@@ -182,7 +182,7 @@ func testZeroConfChannelOpen(ht *lntest.HarnessTest) {
 	require.Len(ht, payReq.RouteHints, 0)
 
 	// Make sure Dave is aware of this channel and send the payment.
-	ht.AssertTopologyChannelOpen(dave, fundingPoint3)
+	ht.AssertChannelInGraph(dave, fundingPoint3)
 	ht.CompletePaymentRequests(
 		dave, []string{eveInvoiceResp.PaymentRequest},
 	)
@@ -269,7 +269,7 @@ func optionScidAliasScenario(ht *lntest.HarnessTest, chantype, private bool) {
 
 	// Make sure Bob knows this channel if it's public.
 	if !private {
-		ht.AssertTopologyChannelOpen(bob, fundingPoint)
+		ht.AssertChannelInGraph(bob, fundingPoint)
 	}
 
 	// Assert that a payment from Carol to Dave works as expected.
@@ -291,7 +291,7 @@ func optionScidAliasScenario(ht *lntest.HarnessTest, chantype, private bool) {
 	fundingPoint2 := ht.OpenChannel(bob, carol, p)
 
 	// Wait until Dave receives the Bob<->Carol channel.
-	ht.AssertTopologyChannelOpen(dave, fundingPoint2)
+	ht.AssertChannelInGraph(dave, fundingPoint2)
 
 	daveInvoiceResp2 := dave.RPC.AddInvoice(daveInvoiceParams)
 	decodedReq := dave.RPC.DecodePayReq(daveInvoiceResp2.PaymentRequest)
@@ -490,7 +490,7 @@ func testPrivateUpdateAlias(ht *lntest.HarnessTest,
 	fundingPoint := ht.OpenChannel(eve, carol, p)
 
 	// Make sure Dave has seen this public channel.
-	ht.AssertTopologyChannelOpen(dave, fundingPoint)
+	ht.AssertChannelInGraph(dave, fundingPoint)
 
 	// Setup a ChannelAcceptor for Dave.
 	acceptStream, cancel := dave.RPC.ChannelAcceptor()
@@ -792,7 +792,7 @@ func testOptionScidUpgrade(ht *lntest.HarnessTest) {
 	fundingPoint2 := ht.OpenChannel(bob, carol, p)
 
 	// Make sure Dave knows this channel.
-	ht.AssertTopologyChannelOpen(dave, fundingPoint2)
+	ht.AssertChannelInGraph(dave, fundingPoint2)
 
 	// Carol will now set the option-scid-alias feature bit and restart.
 	carolArgs = append(carolArgs, "--protocol.option-scid-alias")

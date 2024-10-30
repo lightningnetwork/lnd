@@ -63,7 +63,7 @@ func testQueryBlindedRoutes(ht *lntest.HarnessTest) {
 
 	// Wait for Alice to see Bob/Carol's channel because she'll need it for
 	// pathfinding.
-	ht.AssertTopologyChannelOpen(alice, chanPointBobCarol)
+	ht.AssertChannelInGraph(alice, chanPointBobCarol)
 
 	// Lookup full channel info so that we have channel ids for our route.
 	aliceBobChan := ht.GetChannelByChanPoint(alice, chanPointAliceBob)
@@ -593,7 +593,7 @@ func setupFourHopNetwork(ht *lntest.HarnessTest,
 	nodes := []*node.HarnessNode{ht.Alice, ht.Bob, carol, dave}
 	for _, chanPoint := range networkChans {
 		for _, node := range nodes {
-			ht.AssertTopologyChannelOpen(node, chanPoint)
+			ht.AssertChannelInGraph(node, chanPoint)
 		}
 	}
 
@@ -981,7 +981,7 @@ func testMPPToSingleBlindedPath(ht *lntest.HarnessTest) {
 			}
 
 			numPublic++
-			ht.AssertTopologyChannelOpen(hn, cp)
+			ht.AssertChannelInGraph(hn, cp)
 		}
 
 		// Each node should have exactly numPublic edges.
@@ -1152,7 +1152,7 @@ func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
 	// Make sure every node has heard about every channel.
 	for _, hn := range nodes {
 		for _, cp := range channelPoints {
-			ht.AssertTopologyChannelOpen(hn, cp)
+			ht.AssertChannelInGraph(hn, cp)
 		}
 
 		// Each node should have exactly 5 edges.
@@ -1321,7 +1321,7 @@ func testMPPToMultipleBlindedPaths(ht *lntest.HarnessTest) {
 	// Make sure every node has heard every channel.
 	for _, hn := range nodes {
 		for _, cp := range channelPoints {
-			ht.AssertTopologyChannelOpen(hn, cp)
+			ht.AssertChannelInGraph(hn, cp)
 		}
 
 		// Each node should have exactly 5 edges.

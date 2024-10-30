@@ -1223,8 +1223,8 @@ func (h *HarnessTest) openChannel(alice, bob *node.HarnessNode,
 
 	// Check that both alice and bob have seen the channel from their
 	// network topology.
-	h.AssertTopologyChannelOpen(alice, fundingChanPoint)
-	h.AssertTopologyChannelOpen(bob, fundingChanPoint)
+	h.AssertChannelInGraph(alice, fundingChanPoint)
+	h.AssertChannelInGraph(bob, fundingChanPoint)
 
 	// Check that the channel can be seen in their ListChannels.
 	h.AssertChannelExists(alice, fundingChanPoint)
@@ -1245,8 +1245,8 @@ func (h *HarnessTest) openChannelZeroConf(alice, bob *node.HarnessNode,
 
 	// Check that both alice and bob have seen the channel from their
 	// network topology.
-	h.AssertTopologyChannelOpen(alice, fundingChanPoint)
-	h.AssertTopologyChannelOpen(bob, fundingChanPoint)
+	h.AssertChannelInGraph(alice, fundingChanPoint)
+	h.AssertChannelInGraph(bob, fundingChanPoint)
 
 	// Finally, check that the channel can be seen in their ListChannels.
 	h.AssertChannelExists(alice, fundingChanPoint)
@@ -1830,8 +1830,8 @@ func (h *HarnessTest) OpenMultiChannelsAsync(
 		if !req.Param.Private {
 			// Check that both alice and bob have seen the channel
 			// from their channel watch request.
-			h.AssertTopologyChannelOpen(req.Local, cp)
-			h.AssertTopologyChannelOpen(req.Remote, cp)
+			h.AssertChannelInGraph(req.Local, cp)
+			h.AssertChannelInGraph(req.Remote, cp)
 		}
 
 		// Finally, check that the channel can be seen in their
@@ -2327,7 +2327,7 @@ func (h *HarnessTest) openChannelsForNodes(nodes []*node.HarnessNode,
 	if !p.Private {
 		for _, node := range nodes {
 			for _, chanPoint := range resp {
-				h.AssertTopologyChannelOpen(node, chanPoint)
+				h.AssertChannelInGraph(node, chanPoint)
 			}
 		}
 	}

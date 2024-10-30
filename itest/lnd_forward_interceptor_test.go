@@ -58,7 +58,7 @@ func testForwardInterceptorDedupHtlc(ht *lntest.HarnessTest) {
 	cpAB, cpBC := resp[0], resp[1]
 
 	// Make sure Alice is aware of channel Bob=>Carol.
-	ht.AssertTopologyChannelOpen(alice, cpBC)
+	ht.AssertChannelInGraph(alice, cpBC)
 
 	// Connect the interceptor.
 	interceptor, cancelInterceptor := bob.RPC.HtlcInterceptor()
@@ -209,7 +209,7 @@ func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 	cpAB, cpBC := resp[0], resp[1]
 
 	// Make sure Alice is aware of channel Bob=>Carol.
-	ht.AssertTopologyChannelOpen(alice, cpBC)
+	ht.AssertChannelInGraph(alice, cpBC)
 
 	// Connect the interceptor.
 	interceptor, cancelInterceptor := bob.RPC.HtlcInterceptor()
@@ -370,7 +370,7 @@ func testForwardInterceptorModifiedHtlc(ht *lntest.HarnessTest) {
 	cpAB, cpBC := resp[0], resp[1]
 
 	// Make sure Alice is aware of channel Bob=>Carol.
-	ht.AssertTopologyChannelOpen(alice, cpBC)
+	ht.AssertChannelInGraph(alice, cpBC)
 
 	// Connect an interceptor to Bob's node.
 	bobInterceptor, cancelBobInterceptor := bob.RPC.HtlcInterceptor()
@@ -478,7 +478,7 @@ func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
 	cpAB, cpBC, cpCD := resp[0], resp[1], resp[2]
 
 	// Make sure Alice is aware of channel Bob=>Carol.
-	ht.AssertTopologyChannelOpen(alice, cpBC)
+	ht.AssertChannelInGraph(alice, cpBC)
 
 	// Connect an interceptor to Bob's node.
 	bobInterceptor, cancelBobInterceptor := bob.RPC.HtlcInterceptor()
@@ -609,8 +609,8 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	cpAB, cpBC, cpCD := resp[0], resp[1], resp[2]
 
 	// Make sure Alice is aware of channels Bob=>Carol and Carol=>Dave.
-	ht.AssertTopologyChannelOpen(alice, cpBC)
-	ht.AssertTopologyChannelOpen(alice, cpCD)
+	ht.AssertChannelInGraph(alice, cpBC)
+	ht.AssertChannelInGraph(alice, cpCD)
 
 	// Connect an interceptor to Bob's node.
 	bobInterceptor, cancelBobInterceptor := bob.RPC.HtlcInterceptor()

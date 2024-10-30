@@ -415,7 +415,7 @@ func setupScenarioFourNodes(ht *lntest.HarnessTest) *scenarioFourNodes {
 	nodes := []*node.HarnessNode{alice, bob, carol, dave}
 	for _, chanPoint := range resp {
 		for _, node := range nodes {
-			ht.AssertTopologyChannelOpen(node, chanPoint)
+			ht.AssertChannelInGraph(node, chanPoint)
 		}
 	}
 

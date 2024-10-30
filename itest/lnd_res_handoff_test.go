@@ -37,7 +37,7 @@ func testResHandoff(ht *lntest.HarnessTest) {
 	chanPointCarol := ht.OpenChannel(bob, carol, params)
 
 	// Wait for Alice to see the channel edge in the graph.
-	ht.AssertTopologyChannelOpen(alice, chanPointCarol)
+	ht.AssertChannelInGraph(alice, chanPointCarol)
 
 	// We'll create an invoice for Carol that Alice will attempt to pay.
 	// Since Carol is in hodl.commit mode, she won't send back any commit

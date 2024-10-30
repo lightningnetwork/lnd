@@ -295,7 +295,7 @@ func (m *mppTestScenario) openChannels(r *mppOpenChannelRequest) {
 	// Make sure every node has heard every channel.
 	for _, hn := range m.nodes {
 		for _, cp := range m.channelPoints {
-			m.ht.AssertTopologyChannelOpen(hn, cp)
+			m.ht.AssertChannelInGraph(hn, cp)
 		}
 
 		// Each node should have exactly 6 edges.

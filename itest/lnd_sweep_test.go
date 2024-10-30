@@ -113,6 +113,14 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 		ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
 	}
 
+	// Bob should have enough wallet UTXOs here to sweep the HTLC in the
+	// end of this test. However, due to a known issue, Bob's wallet may
+	// report there's no UTXO available. For details,
+	// - https://github.com/lightningnetwork/lnd/issues/8786
+	//
+	// TODO(yy): remove this step once the issue is resolved.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+
 	// Subscribe the invoice.
 	streamCarol := carol.RPC.SubscribeSingleInvoice(payHash[:])
 
@@ -423,6 +431,14 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	if ht.IsNeutrinoBackend() {
 		ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
 	}
+
+	// Bob should have enough wallet UTXOs here to sweep the HTLC in the
+	// end of this test. However, due to a known issue, Bob's wallet may
+	// report there's no UTXO available. For details,
+	// - https://github.com/lightningnetwork/lnd/issues/8786
+	//
+	// TODO(yy): remove this step once the issue is resolved.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
 
 	// Subscribe the invoice.
 	streamCarol := carol.RPC.SubscribeSingleInvoice(payHash[:])
@@ -756,6 +772,14 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// - when sweeping anchors, he needs one utxo for each sweep.
 	// - when sweeping HTLCs, he needs one utxo for each sweep.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+
+	// Bob should have enough wallet UTXOs here to sweep the HTLC in the
+	// end of this test. However, due to a known issue, Bob's wallet may
+	// report there's no UTXO available. For details,
+	// - https://github.com/lightningnetwork/lnd/issues/8786
+	//
+	// TODO(yy): remove this step once the issue is resolved.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
 
 	// For neutrino backend, we need two more UTXOs for Bob to create his

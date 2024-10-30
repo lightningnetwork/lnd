@@ -3254,13 +3254,9 @@ type ForwardHtlcInterceptResponse struct {
 	// the resumed HTLC. This field is ignored if the action is not
 	// RESUME_MODIFIED.
 	//
-	// If this map is populated, it will overwrite any of the wire custom
-	// records set by LND. It is the caller's responsibility to copy any desired
-	// records across. If the map is empty, no action will be taken and existing
-	// custom records will be propagated.
-	//
-	// The API does not currently support deleting custom records, unless they
-	// are overwritten by a new set.
+	// This map will merge with the existing set of custom records (if any),
+	// replacing any conflicting types. Note that there currently is no support
+	// for deleting existing custom records (they can only be replaced).
 	OutWireCustomRecords map[uint64][]byte `protobuf:"bytes,8,rep,name=out_wire_custom_records,json=outWireCustomRecords,proto3" json:"out_wire_custom_records,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 }
 

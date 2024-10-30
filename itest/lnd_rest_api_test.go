@@ -440,7 +440,6 @@ func wsTestCaseBiDirectionalSubscription(ht *lntest.HarnessTest) {
 	msgChan := make(chan *lnrpc.ChannelAcceptResponse, 1)
 	errChan := make(chan error)
 	done := make(chan struct{})
-	timeout := time.After(defaultTimeout)
 
 	// We want to read messages over and over again. We just accept any
 	// channels that are opened.
@@ -506,6 +505,7 @@ func wsTestCaseBiDirectionalSubscription(ht *lntest.HarnessTest) {
 				}
 				return
 			}
+			ht.Log("Finish writing message")
 
 			// Also send the message on our message channel to make
 			// sure we count it as successful.
@@ -525,23 +525,27 @@ func wsTestCaseBiDirectionalSubscription(ht *lntest.HarnessTest) {
 	bob := ht.NewNodeWithCoins("Bob", nil)
 	ht.EnsureConnected(alice, bob)
 
-	// Open 3 channels to make sure multiple requests and responses can be
-	// sent over the web socket.
-	const numChannels = 3
-	for i := 0; i < numChannels; i++ {
-		ht.OpenChannel(
-			bob, alice, lntest.OpenChannelParams{Amt: 500000},
-		)
-
+	assertMsgReceived := func() {
 		select {
 		case <-msgChan:
 		case err := <-errChan:
 			ht.Fatalf("Received error from WS: %v", err)
 
-		case <-timeout:
+		case <-time.After(defaultTimeout):
 			ht.Fatalf("Timeout before message was received")
 		}
 	}
+
+	// Open 3 channels to make sure multiple requests and responses can be
+	// sent over the web socket.
+	ht.OpenChannel(bob, alice, lntest.OpenChannelParams{Amt: 500000})
+	assertMsgReceived()
+
+	ht.OpenChannel(bob, alice, lntest.OpenChannelParams{Amt: 500000})
+	assertMsgReceived()
+
+	ht.OpenChannel(bob, alice, lntest.OpenChannelParams{Amt: 500000})
+	assertMsgReceived()
 }
 
 func wsTestPingPongTimeout(ht *lntest.HarnessTest) {

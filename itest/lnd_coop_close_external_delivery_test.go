@@ -10,13 +10,44 @@ import (
 )
 
 func testCoopCloseWithExternalDelivery(ht *lntest.HarnessTest) {
-	ht.Run("set delivery address at open", func(t *testing.T) {
+	ok := ht.Run("set P2WPKH delivery address at open", func(t *testing.T) {
 		tt := ht.Subtest(t)
-		testCoopCloseWithExternalDeliveryImpl(tt, true)
+		testCoopCloseWithExternalDeliveryImpl(
+			tt, true, lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH,
+		)
 	})
-	ht.Run("set delivery address at close", func(t *testing.T) {
+	// Abort the test if failed.
+	if !ok {
+		return
+	}
+
+	ok = ht.Run("set P2WPKH delivery address at close", func(t *testing.T) {
 		tt := ht.Subtest(t)
-		testCoopCloseWithExternalDeliveryImpl(tt, false)
+		testCoopCloseWithExternalDeliveryImpl(
+			tt, false, lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH,
+		)
+	})
+	// Abort the test if failed.
+	if !ok {
+		return
+	}
+
+	ok = ht.Run("set P2TR delivery address at open", func(t *testing.T) {
+		tt := ht.Subtest(t)
+		testCoopCloseWithExternalDeliveryImpl(
+			tt, true, lnrpc.AddressType_UNUSED_TAPROOT_PUBKEY,
+		)
+	})
+	// Abort the test if failed.
+	if !ok {
+		return
+	}
+
+	ht.Run("set P2TR delivery address at close", func(t *testing.T) {
+		tt := ht.Subtest(t)
+		testCoopCloseWithExternalDeliveryImpl(
+			tt, false, lnrpc.AddressType_UNUSED_TAPROOT_PUBKEY,
+		)
 	})
 }
 
@@ -25,7 +56,7 @@ func testCoopCloseWithExternalDelivery(ht *lntest.HarnessTest) {
 // not. Some users set this value to be an address in a different wallet and
 // this should not affect our ability to accurately report the settled balance.
 func testCoopCloseWithExternalDeliveryImpl(ht *lntest.HarnessTest,
-	upfrontShutdown bool) {
+	upfrontShutdown bool, deliveryAddressType lnrpc.AddressType) {
 
 	alice, bob := ht.Alice, ht.Bob
 	ht.ConnectNodes(alice, bob)
@@ -35,7 +66,7 @@ func testCoopCloseWithExternalDeliveryImpl(ht *lntest.HarnessTest,
 	// wallet. We already correctly track settled balances when the address
 	// is in the LND wallet.
 	addr := bob.RPC.NewAddress(&lnrpc.NewAddressRequest{
-		Type: lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH,
+		Type: deliveryAddressType,
 	})
 
 	// Prepare for channel open.

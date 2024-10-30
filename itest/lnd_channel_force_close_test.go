@@ -340,6 +340,22 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 			"sweep transaction not spending from commit")
 	}
 
+	// For neutrino backend, due to it has no mempool, we need to check the
+	// sweep tx has already been saved to db before restarting. This is due
+	// to the possible race,
+	// - the fee bumper returns a TxPublished event, which is received by
+	//   the sweeper and the sweep tx is saved to db.
+	// - the sweeper receives a shutdown signal before it receives the
+	//   above event.
+	//
+	// TODO(yy): fix the above race.
+	if ht.IsNeutrinoBackend() {
+		// Check that we can find the commitment sweep in our set of
+		// known sweeps, using the simple transaction id ListSweeps
+		// output.
+		ht.AssertSweepFound(alice, sweepingTXID.String(), false, 0)
+	}
+
 	// Restart Alice to ensure that she resumes watching the finalized
 	// commitment sweep txid.
 	ht.RestartNode(alice)

@@ -2,8 +2,8 @@ package fn
 
 import "testing"
 
-// Option[A] represents a value which may or may not be there. This is very
-// often preferable to nil-able pointers.
+// Option represents a value which may or may not be there. This is very often
+// preferable to nil-able pointers.
 type Option[A any] struct {
 	isSome bool
 	some   A
@@ -24,6 +24,17 @@ func Some[A any](a A) Option[A] {
 // None : Option[A].
 func None[A any]() Option[A] {
 	return Option[A]{}
+}
+
+// OptionFromPtr constructs an option from a pointer.
+//
+// OptionFromPtr : *A -> Option[A].
+func OptionFromPtr[A any](a *A) Option[A] {
+	if a == nil {
+		return None[A]()
+	}
+
+	return Some[A](*a)
 }
 
 // ElimOption is the universal Option eliminator. It can be used to safely

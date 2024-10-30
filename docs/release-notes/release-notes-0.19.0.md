@@ -57,7 +57,9 @@
 # Improvements
 ## Functional Updates
 
-* [Allow](https://github.com/lightningnetwork/lnd/pull/9017) the compression of logs during rotation with ZSTD via the `logcompressor` startup argument.
+* [Allow](https://github.com/lightningnetwork/lnd/pull/9017) the compression of 
+  logs during rotation with ZSTD via the `logging.file.compressor` startup 
+  argument.
 
 * The SCB file now [contains more data][https://github.com/lightningnetwork/lnd/pull/8183]
   that enable a last resort rescue for certain cases where the peer is no longer
@@ -87,6 +89,14 @@
   name and line number) and "long" (full path to source file and line number). 
   Finally, the new `--logging.console.style` option can be used under the `dev` 
   build tag to add styling to console logging.
+ 
+* [Add max files and max file size](https://github.com/lightningnetwork/lnd/pull/9233) 
+  options to the `logging` config namespace under new `--logging.file.max-files` 
+  and `--logging.files.max-file-size` options. The old options (`--maxlogfiles` 
+  and `--maxlogfilesize`) will still work but deprecation notices have been 
+  added and they will be removed in a future release. The defaults values for 
+  these options have also been increased from max 3 log files to 10 and from 
+  max 10 MB to 20 MB. 
  
 ## Breaking Changes
 ## Performance Improvements

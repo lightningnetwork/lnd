@@ -52,9 +52,9 @@ var logCompressors = map[string]string{
 	Zstd: "zst",
 }
 
-// SuportedLogCompressor returns whether or not logCompressor is a supported
+// SupportedLogCompressor returns whether or not logCompressor is a supported
 // compression algorithm for log files.
-func SuportedLogCompressor(logCompressor string) bool {
+func SupportedLogCompressor(logCompressor string) bool {
 	_, ok := logCompressors[logCompressor]
 
 	return ok

@@ -94,7 +94,9 @@
   options to the `logging` config namespace under new `--logging.file.max-files` 
   and `--logging.files.max-file-size` options. The old options (`--maxlogfiles` 
   and `--maxlogfilesize`) will still work but deprecation notices have been 
-  added and they will be removed in a future release.
+  added and they will be removed in a future release. The defaults values for 
+  these options have also been increased from max 3 log files to 10 and from 
+  max 10 MB to 20 MB. 
  
 ## Breaking Changes
 ## Performance Improvements

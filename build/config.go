@@ -15,10 +15,10 @@ const (
 
 	// DefaultMaxLogFiles is the default maximum number of log files to
 	// keep.
-	DefaultMaxLogFiles = 3
+	DefaultMaxLogFiles = 10
 
 	// DefaultMaxLogFileSize is the default maximum log file size in MB.
-	DefaultMaxLogFileSize = 10
+	DefaultMaxLogFileSize = 20
 )
 
 // LogConfig holds logging configuration options.

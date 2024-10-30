@@ -123,7 +123,7 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 		name:       "psbt",
 		randomSeed: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
-			runPsbtChanFunding(
+			runPsbtChanFundingWithNodes(
 				tt, carol, wo, false,
 				lnrpc.CommitmentType_LEGACY,
 			)

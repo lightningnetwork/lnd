@@ -4295,10 +4295,16 @@ func TestSwitchDustForwarding(t *testing.T) {
 	amt := lnwire.NewMSatFromSatoshis(700)
 	aliceBobFirstHop := n.aliceChannelLink.ShortChanID()
 
-	// Alice will send 51 HTLC's of 700sats. Bob will also send 51 HTLC's
+	// We decreased the max number of inflight HTLCs therefore we also need
+	// do decrease the max fee exposure.
+	maxFeeExposure := lnwire.NewMSatFromSatoshis(74500)
+	n.aliceChannelLink.cfg.MaxFeeExposure = maxFeeExposure
+	n.firstBobChannelLink.cfg.MaxFeeExposure = maxFeeExposure
+
+	// Alice will send 50 HTLC's of 700sats. Bob will also send 50 HTLC's
 	// of 700sats.
-	sendDustHtlcs(t, n, true, amt, aliceBobFirstHop, numHTLCs+1)
-	sendDustHtlcs(t, n, false, amt, aliceBobFirstHop, numHTLCs+1)
+	sendDustHtlcs(t, n, true, amt, aliceBobFirstHop, numHTLCs)
+	sendDustHtlcs(t, n, false, amt, aliceBobFirstHop, numHTLCs)
 
 	// Generate the parameters needed for Bob to send another dust HTLC.
 	_, timelock, hops := generateHops(
@@ -4318,6 +4324,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 		OnionBlob:   blob,
 	}
 
+	// This is the expected dust without taking the commitfee into account.
 	expectedDust := maxInflightHtlcs * 2 * amt
 
 	assertAlmostDust := func(link *channelLink, mbox MailBox,
@@ -4354,7 +4361,12 @@ func TestSwitchDustForwarding(t *testing.T) {
 	assertAlmostDust(n.firstBobChannelLink, bobMbox, lntypes.Local)
 
 	// Sending one more HTLC should fail. SendHTLC won't error, but the
-	// HTLC should be failed backwards.
+	// HTLC should be failed backwards. When sending we only check for the
+	// dust amount without the commitment fee. When the HTLC is added to the
+	// commitment state (link) we also take into account the commitment fee
+	// and with a fee of 6000 sat/kw and a commitment size of 724 (non
+	// anchor channel) we are overexposed in fees (maxFeeExposure) that's
+	// why the HTLC is failed back.
 	err = n.bobServer.htlcSwitch.SendHTLC(
 		aliceBobFirstHop, uint64(bobAttemptID), failingHtlc,
 	)

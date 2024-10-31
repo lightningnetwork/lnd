@@ -93,6 +93,10 @@
   specify a list of inputs to use as transaction inputs via the new
   `inputs` field in `EstimateFeeRequest`.
 
+* [SignCoordinatorStreams](https://github.com/lightningnetwork/lnd/pull/8754)
+  allows a remote signer to connect to the lnd node, if the
+  `remotesigner.allowinboundconnection` cfg value has been set to `true`.
+
 ## lncli Additions
 
 * The `estimatefee` command now supports the `--utxos` flag to specify explicit
@@ -107,9 +111,16 @@
   This applies to both funders and fundees, with the ability to override the
   value during channel opening or acceptance.
 
+<<<<<<< HEAD
 * Rename [experimental endorsement signal](https://github.com/lightning/blips/blob/a833e7b49f224e1240b5d669e78fa950160f5a06/blip-0004.md)
   to [accountable](https://github.com/lightningnetwork/lnd/pull/10367) to match
   the latest [proposal](https://github.com/lightning/blips/pull/67).
+=======
+* [Added](https://github.com/lightningnetwork/lnd/pull/8754) support for a new
+  remote signer type `outbound`, which makes an outbound connection to the
+  watch-only node, instead of requiring on an inbound connection from the
+  watch-only node.
+>>>>>>> 39f496b44 (docs: update release notes)
 
 ## RPC Updates
 

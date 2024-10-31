@@ -73,6 +73,10 @@
 
 ## Code Health
 
+* [Add retry logic](https://github.com/lightningnetwork/lnd/pull/8381) for
+  watchtower block fetching with a max number of attempts and exponential
+  back-off.
+
 * [Moved](https://github.com/lightningnetwork/lnd/pull/9138) profile related
   config settings to its own dedicated group. The old ones still work but will
   be removed in a future release.
@@ -134,6 +138,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Animesh Bilthare
 * Boris Nagaev
 * CharlieZKSmith
 * Elle Mouton

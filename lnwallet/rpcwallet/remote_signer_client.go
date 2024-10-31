@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
@@ -284,11 +285,8 @@ type OutboundClient struct {
 
 	quit chan struct{}
 
-	wg sync.WaitGroup
-
-	// wgMu ensures that we can't spawn a new Run goroutine after we've
-	// stopped the remote signer client.
-	wgMu sync.Mutex
+	gManager    *fn.GoroutineManager
+	gmCtxCancel context.CancelFunc
 }
 
 // NewOutboundClient creates a new instance of the remote signer client.
@@ -310,6 +308,8 @@ func NewOutboundClient(walletServer walletrpc.WalletKitServer,
 		return nil, errors.New("streamFeeder cannot be nil")
 	}
 
+	ctxc, cancel := context.WithCancel(context.Background())
+
 	return &OutboundClient{
 		walletServer:    walletServer,
 		signerServer:    signerServer,
@@ -318,6 +318,8 @@ func NewOutboundClient(walletServer walletrpc.WalletKitServer,
 		quit:            make(chan struct{}),
 		retryTimeout:    defaultRetryTimeout,
 		maxRetryTimeout: defaultMaxRetryTimeout,
+		gManager:        fn.NewGoroutineManager(ctxc),
+		gmCtxCancel:     cancel,
 	}, nil
 }
 
@@ -325,14 +327,10 @@ func NewOutboundClient(walletServer walletrpc.WalletKitServer,
 // set up a connection to the configured watch-only node, and retry to connect
 // if the connection fails until we Stop the remote signer client.
 func (r *OutboundClient) Start() error {
-	r.wg.Add(1)
-
 	// We'll continuously try set up a connection to the watch-only node,
 	// and retry to connect if the connection fails until we Stop the remote
 	// signer client.
-	go func() {
-		defer r.wg.Done()
-
+	success := r.gManager.Go(func(_ context.Context) {
 		for {
 			err := r.run(context.Background())
 			if err != nil {
@@ -368,7 +366,10 @@ func (r *OutboundClient) Start() error {
 				r.retryTimeout = r.maxRetryTimeout
 			}
 		}
-	}()
+	})
+	if !success {
+		return errors.New("failed to start remote signer client")
+	}
 
 	return nil
 }
@@ -381,19 +382,15 @@ func (r *OutboundClient) Stop() error {
 
 	log.Info("Remote signer client shutting down")
 
-	// Ensure that no new Run goroutines can start when we've initiated
-	// the stopping of the remote signer client.
-	r.wgMu.Lock()
+	close(r.quit)
 
 	if r.streamFeeder != nil {
 		r.streamFeeder.Stop()
 	}
 
-	close(r.quit)
+	r.gManager.Stop()
 
-	r.wgMu.Unlock()
-
-	r.wg.Wait()
+	r.gmCtxCancel()
 
 	log.Debugf("Remote signer client shut down")
 
@@ -405,16 +402,11 @@ func (r *OutboundClient) Stop() error {
 // will continuously run until the remote signer client is either stopped or
 // the stream errors.
 func (r *OutboundClient) run(ctx context.Context) error {
-	r.wgMu.Lock()
-
 	select {
 	case <-r.quit:
-		r.wgMu.Unlock()
 		return ErrShuttingDown
 	default:
 	}
-
-	r.wgMu.Unlock()
 
 	ctxc, cancel := CancelOrQuit(ctx, r.quit)
 
@@ -496,10 +488,7 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 	}
 
 	// Send the registration message to the watch-only node.
-	r.wg.Add(1)
-	go func() {
-		defer r.wg.Done()
-
+	success := r.gManager.Go(func(_ context.Context) {
 		err := stream.Send(registrationMsg)
 		if err != nil {
 			select {
@@ -511,12 +500,16 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 		}
 
 		close(regSentChan)
-	}()
+	})
+	if !success {
+		return errors.New("error starting registration message " +
+			"sending function")
+	}
 
 	select {
 	case err := <-errChan:
-		return fmt.Errorf("error sending registration complete "+
-			"message to remote signer: %w", err)
+		return fmt.Errorf("error sending registration message to "+
+			"watch-only node: %w", err)
 
 	case <-ctxt.Done():
 		return ctxt.Err()
@@ -527,10 +520,7 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 	// After the registration message has been sent, the signer node will
 	// respond with a message indicating that it has accepted the signer
 	// registration request if the registration was successful.
-	r.wg.Add(1)
-	go func() {
-		defer r.wg.Done()
-
+	success = r.gManager.Go(func(_ context.Context) {
 		msg, err := stream.Recv()
 		if err != nil {
 			select {
@@ -593,7 +583,11 @@ func (r *OutboundClient) handshake(ctx context.Context, stream *Stream) error {
 
 			return
 		}
-	}()
+	})
+	if !success {
+		return errors.New("error starting registration completion " +
+			"checking function")
+	}
 
 	// Wait for the watch-only node to respond that it has accepted the
 	// signer has registered.
@@ -633,10 +627,7 @@ func (r *OutboundClient) processSignRequests(ctx context.Context,
 	// closed). Closing the quit channel will make the processSignRequests
 	// function return, which will cancel the stream context, which in turn
 	// will stop the receive goroutine.
-	r.wg.Add(1)
-	go func() {
-		defer r.wg.Done()
-
+	success := r.gManager.Go(func(_ context.Context) {
 		for {
 			req, err := stream.Recv()
 			if err != nil {
@@ -660,7 +651,10 @@ func (r *OutboundClient) processSignRequests(ctx context.Context,
 			case reqChan <- req:
 			}
 		}
-	}()
+	})
+	if !success {
+		return errors.New("error starting receiving loop")
+	}
 
 	for {
 		log.Tracef("Waiting for a request from the watch-only node")
@@ -908,10 +902,7 @@ func (r *OutboundClient) sendResponse(ctx context.Context, resp *signerResponse,
 	)
 	defer close(returnedChan)
 
-	r.wg.Add(1)
-	go func() {
-		defer r.wg.Done()
-
+	success := r.gManager.Go(func(_ context.Context) {
 		err := stream.Send(resp)
 		if err != nil {
 			select {
@@ -923,7 +914,10 @@ func (r *OutboundClient) sendResponse(ctx context.Context, resp *signerResponse,
 		}
 
 		close(sendDone)
-	}()
+	})
+	if !success {
+		return fmt.Errorf("error starting send function")
+	}
 
 	select {
 	case err := <-errChan:

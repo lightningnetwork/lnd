@@ -800,6 +800,30 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 	return route, nil
 }
 
+// maybeValidateMPPParams validates that the MPP parameters are compatible with the
+// payment amount. It returns an error if the parameters don't allow the full
+// payment amount to be sent.
+// maybeValidateMPPParams could be enhanced with additional checks
+func maybeValidateMPPParams(amt lnwire.MilliSatoshi, maxParts uint32,
+	maxShardSize lnwire.MilliSatoshi) error {
+
+	// Early return if MPP is not being used
+	if maxShardSize == 0 {
+		return nil
+	}
+
+	// Calculate maximum possible amount
+	maxPossibleAmount := lnwire.MilliSatoshi(maxParts) * maxShardSize
+
+	if amt > maxPossibleAmount {
+		return fmt.Errorf("payment amount %v exceeds maximum possible "+
+			"amount %v with max_parts=%v and max_shard_size_msat=%v",
+			amt, maxPossibleAmount, maxParts, maxShardSize)
+	}
+
+	return nil
+}
+
 // extractIntentFromSendRequest attempts to parse the SendRequest details
 // required to dispatch a client from the information presented by an RPC
 // client.
@@ -1174,7 +1198,11 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 
 		payIntent.DestFeatures = features
 	}
-
+	err = maybeValidateMPPParams(
+		payIntent.Amount, maxParts, lnwire.MilliSatoshi(rpcPayReq.MaxShardSizeMsat))
+	if err != nil {
+		return nil, fmt.Errorf("invalid MPP parameters: %v", err)
+	}
 	// Do bounds checking with the block padding so the router isn't
 	// left with a zombie payment in case the user messes up.
 	err = routing.ValidateCLTVLimit(

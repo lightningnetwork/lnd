@@ -1110,11 +1110,23 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		ScidCloser:              scidCloserMan,
 	}, nodeKeyDesc)
 
+	selfVertex := route.Vertex(nodeKeyDesc.PubKey.SerializeCompressed())
 	//nolint:lll
 	s.localChanMgr = &localchans.Manager{
-		SelfPub:                   nodeKeyDesc.PubKey,
-		DefaultRoutingPolicy:      cc.RoutingPolicy,
-		ForAllOutgoingChannels:    s.graphBuilder.ForAllOutgoingChannels,
+		SelfPub:              nodeKeyDesc.PubKey,
+		DefaultRoutingPolicy: cc.RoutingPolicy,
+		ForAllOutgoingChannels: func(cb func(kvdb.RTx,
+			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy) error) error {
+
+			return s.graphDB.ForEachNodeChannel(selfVertex,
+				func(tx kvdb.RTx, c *models.ChannelEdgeInfo,
+					e *models.ChannelEdgePolicy,
+					_ *models.ChannelEdgePolicy) error {
+
+					return cb(tx, c, e)
+				},
+			)
+		},
 		PropagateChanPolicyUpdate: s.authGossiper.PropagateChanPolicyUpdate,
 		UpdateForwardingPolicies:  s.htlcSwitch.UpdateForwardingPolicies,
 		FetchChannel:              s.chanStateDB.FetchChannel,

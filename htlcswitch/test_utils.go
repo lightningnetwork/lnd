@@ -43,6 +43,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// maxInflightHtlcs specifies the max number of inflight HTLCs. This number is
+// chosen to be smaller than the default 483 so the test can run faster.
+const maxInflightHtlcs = 50
+
 var (
 	alicePrivKey = []byte("alice priv key")
 	bobPrivKey   = []byte("bob priv key")
@@ -145,7 +149,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 			channelCapacity),
 		ChanReserve:      aliceReserve,
 		MinHTLC:          0,
-		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
+		MaxAcceptedHtlcs: maxInflightHtlcs,
 	}
 	aliceCommitParams := channeldb.CommitmentParams{
 		DustLimit: btcutil.Amount(200),
@@ -157,7 +161,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 			channelCapacity),
 		ChanReserve:      bobReserve,
 		MinHTLC:          0,
-		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
+		MaxAcceptedHtlcs: maxInflightHtlcs,
 	}
 	bobCommitParams := channeldb.CommitmentParams{
 		DustLimit: btcutil.Amount(800),

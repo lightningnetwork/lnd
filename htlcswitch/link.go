@@ -3793,7 +3793,8 @@ func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
 	// ADD, nor will we settle the corresponding invoice or respond with the
 	// preimage.
 	if l.cfg.HodlMask.Active(hodl.ExitSettle) {
-		l.log.Warnf(hodl.ExitSettle.Warning())
+		l.log.Warnf("%s for htlc(rhash=%x,htlcIndex=%v)",
+			hodl.ExitSettle.Warning(), add.PaymentHash, add.ID)
 
 		return nil
 	}

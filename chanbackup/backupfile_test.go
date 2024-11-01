@@ -48,7 +48,9 @@ func assertFileDeleted(t *testing.T, filePath string) {
 // TestUpdateAndSwap test that we're able to properly swap out old backups on
 // disk with new ones. Additionally, after a swap operation succeeds, then each
 // time we should only have the main backup file on disk, as the temporary file
-// has been removed.
+// has been removed. Finally, we check for deleteOldBackup to ensure that the
+// archive file is created when it's set to false, and not created when it's
+// set to true.
 func TestUpdateAndSwap(t *testing.T) {
 	t.Parallel()
 
@@ -58,7 +60,8 @@ func TestUpdateAndSwap(t *testing.T) {
 		fileName     string
 		tempFileName string
 
-		oldTempExists bool
+		oldTempExists   bool
+		deleteOldBackup bool
 
 		valid bool
 	}{
@@ -92,9 +95,37 @@ func TestUpdateAndSwap(t *testing.T) {
 			),
 			valid: true,
 		},
+
+		// Test with deleteOldBackup set to true - should not create
+		// archive.
+		{
+			fileName: filepath.Join(
+				tempTestDir, DefaultBackupFileName,
+			),
+			tempFileName: filepath.Join(
+				tempTestDir, DefaultTempBackupFileName,
+			),
+			deleteOldBackup: true,
+			valid:           true,
+		},
+
+		// Test with deleteOldBackup set to false - should create
+		// archive.
+		{
+			fileName: filepath.Join(
+				tempTestDir, DefaultBackupFileName,
+			),
+			tempFileName: filepath.Join(
+				tempTestDir, DefaultTempBackupFileName,
+			),
+			deleteOldBackup: false,
+			valid:           true,
+		},
 	}
 	for i, testCase := range testCases {
-		backupFile := NewMultiFile(testCase.fileName)
+		backupFile := NewMultiFile(
+			testCase.fileName, testCase.deleteOldBackup,
+		)
 
 		// To start with, we'll make a random byte slice that'll pose
 		// as our packed multi backup.
@@ -160,6 +191,43 @@ func TestUpdateAndSwap(t *testing.T) {
 		// Additionally, we shouldn't be able to find the temp backup
 		// file on disk, as it should be deleted each time.
 		assertFileDeleted(t, testCase.tempFileName)
+
+		// Now check if archive was created when deleteOldBackup is
+		// false.
+		archiveDir := filepath.Join(
+			filepath.Dir(testCase.fileName),
+			DefaultChanBackupArchiveDirName,
+		)
+		if !testCase.deleteOldBackup {
+			files, err := os.ReadDir(archiveDir)
+			require.NoError(t, err)
+			require.Len(t, files, 1)
+
+			// Verify the archive contents match the previous
+			// backup.
+			archiveFile := filepath.Join(
+				archiveDir, files[0].Name(),
+			)
+			// The archived content should match the previous
+			// backup (newPackedMulti) that was just swapped out.
+			assertBackupMatches(t, archiveFile, newPackedMulti)
+		} else {
+			// When deleteOldBackup is true, no new archive file
+			// should be created. Note: In a real environment, the
+			// archive directory might exist with older backups
+			// before the feature is disabled, but for test
+			// simplicity (since we clean up between test cases),
+			// we verify the directory doesn't exist at all.
+			_, err := os.Stat(archiveDir)
+			require.Error(
+				t, err, "archive directory should not exist",
+			)
+		}
+
+		// Clean up the archive directory between test cases.
+		if !testCase.deleteOldBackup {
+			os.RemoveAll(archiveDir)
+		}
 	}
 }
 
@@ -238,7 +306,7 @@ func TestExtractMulti(t *testing.T) {
 	}
 	for i, testCase := range testCases {
 		// First, we'll make our backup file with the specified name.
-		backupFile := NewMultiFile(testCase.fileName)
+		backupFile := NewMultiFile(testCase.fileName, false)
 
 		// With our file made, we'll now attempt to read out the
 		// multi-file.

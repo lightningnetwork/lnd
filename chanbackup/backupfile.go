@@ -53,12 +53,15 @@ type MultiFile struct {
 
 	// archiveDir is the directory where we'll store old channel backups.
 	archiveDir string
+
+	// deleteOldBackup indicates whether old backups should be deleted
+	// rather than archived.
+	deleteOldBackup bool
 }
 
 // NewMultiFile create a new multi-file instance at the target location on the
 // file system.
-func NewMultiFile(fileName string) *MultiFile {
-
+func NewMultiFile(fileName string, deleteOldBackup bool) *MultiFile {
 	// We'll our temporary backup file in the very same directory as the
 	// main backup file.
 	backupFileDir := filepath.Dir(fileName)
@@ -70,15 +73,17 @@ func NewMultiFile(fileName string) *MultiFile {
 	)
 
 	return &MultiFile{
-		fileName:     fileName,
-		tempFileName: tempFileName,
-		archiveDir:   archiveDir,
+		fileName:        fileName,
+		tempFileName:    tempFileName,
+		archiveDir:      archiveDir,
+		deleteOldBackup: deleteOldBackup,
 	}
 }
 
 // UpdateAndSwap will attempt write a new temporary backup file to disk with
 // the newBackup encoded, then atomically swap (via rename) the old file for
-// the new file by updating the name of the new file to the old.
+// the new file by updating the name of the new file to the old. It also checks
+// if the old file should be archived first before swapping it.
 func (b *MultiFile) UpdateAndSwap(newBackup PackedMulti) error {
 	// If the main backup file isn't set, then we can't proceed.
 	if b.fileName == "" {
@@ -130,21 +135,23 @@ func (b *MultiFile) UpdateAndSwap(newBackup PackedMulti) error {
 		return fmt.Errorf("unable to close file: %w", err)
 	}
 
-	// Archive the existing main backup file before creating a new one.
-	// Note that if no backup file exists yet (e.g. on the first startup
-	// of the node), os.Stat will return an error, which we just log
-	// and not error out.
-	_, err = os.Stat(b.fileName)
-	if err != nil {
-		log.Debugf("Unable to get backup file info: %v", err)
-	} else {
-		log.Infof("Archiving old backup file at %v", b.fileName)
+	if !b.deleteOldBackup {
+		// We check if the main backup file exists before proceeding
+		// with the archive. If no backup file exists yet (e.g. on the
+		// first startup of the node), os.Stat will return an error,
+		// which we just log and not error out.
+		_, err = os.Stat(b.fileName)
+		if err != nil {
+			log.Debugf("Unable to get backup file info: %v", err)
+		} else {
+			log.Infof("Archiving old backup file at %v", b.fileName)
 
-		if err := createArchiveFile(
-			b.archiveDir, b.fileName,
-		); err != nil {
-			return fmt.Errorf("unable to archive old backup file:"+
-				" %w", err)
+			if err := createArchiveFile(
+				b.archiveDir, b.fileName,
+			); err != nil {
+				return fmt.Errorf("unable to archive old "+
+					"backup file: %w", err)
+			}
 		}
 	}
 

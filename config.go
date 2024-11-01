@@ -244,6 +244,12 @@ const (
 	bitcoindBackendName = "bitcoind"
 	btcdBackendName     = "btcd"
 	neutrinoBackendName = "neutrino"
+
+	// defaultDisableBackupArchive indicates whether to disable archiving of
+	// channel backups. When false (default), old backups are archived to a
+	// designated location. When true, old backups are simply deleted or
+	// replaced.
+	defaultDisableBackupArchive = false
 )
 
 var (
@@ -359,6 +365,8 @@ type Config struct {
 	UnsafeReplay       bool   `long:"unsafe-replay" description:"Causes a link to replay the adds on its commitment txn after starting up, this enables testing of the sphinx replay logic."`
 	MaxPendingChannels int    `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 	BackupFilePath     string `long:"backupfilepath" description:"The target location of the channel backup file"`
+
+	DisableBackupArchive bool `long:"disable-backup-archive" description:"If set to true, channel backups will be deleted or replaced rather than being archived to a separate location."`
 
 	FeeURL string `long:"feeurl" description:"DEPRECATED: Use 'fee.url' option. Optional URL for external fee estimation. If no URL is specified, the method for fee estimation will depend on the chosen backend and network. Must be set for neutrino on mainnet." hidden:"true"`
 
@@ -732,9 +740,10 @@ func DefaultConfig() Config {
 			ServerPingTimeout: defaultGrpcServerPingTimeout,
 			ClientPingMinWait: defaultGrpcClientPingMinWait,
 		},
-		LogConfig:         build.DefaultLogConfig(),
-		WtClient:          lncfg.DefaultWtClientCfg(),
-		HTTPHeaderTimeout: DefaultHTTPHeaderTimeout,
+		LogConfig:            build.DefaultLogConfig(),
+		WtClient:             lncfg.DefaultWtClientCfg(),
+		HTTPHeaderTimeout:    DefaultHTTPHeaderTimeout,
+		DisableBackupArchive: defaultDisableBackupArchive,
 	}
 }
 

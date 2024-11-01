@@ -29,6 +29,32 @@ const VertexSize = 33
 // public key.
 type Vertex [VertexSize]byte
 
+// Record returns a TLV record that can be used to encode/decode a Vertex
+// to/from a TLV stream.
+func (v *Vertex) Record() tlv.Record {
+	return tlv.MakeStaticRecord(
+		0, v, VertexSize, encodeVertex, decodeVertex,
+	)
+}
+
+func encodeVertex(w io.Writer, val interface{}, _ *[8]byte) error {
+	if b, ok := val.(*Vertex); ok {
+		_, err := w.Write(b[:])
+		return err
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "Vertex")
+}
+
+func decodeVertex(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
+	if b, ok := val.(*Vertex); ok {
+		_, err := io.ReadFull(r, b[:])
+		return err
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "Vertex", l, VertexSize)
+}
+
 // Route represents a path through the channel graph which runs over one or
 // more channels in succession. This struct carries all the information
 // required to craft the Sphinx onion packet, and send the payment along the

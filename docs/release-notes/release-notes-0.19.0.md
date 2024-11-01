@@ -122,7 +122,8 @@
 
 * [Migrate the mission control 
   store](https://github.com/lightningnetwork/lnd/pull/8911) to use a more 
-  minimal encoding for payment attempt routes.
+  minimal encoding for payment attempt routes as well as use [pure TLV 
+  encoding](https://github.com/lightningnetwork/lnd/pull/9167).
 
 * [Migrate the mission control 
   store](https://github.com/lightningnetwork/lnd/pull/9001) so that results are 

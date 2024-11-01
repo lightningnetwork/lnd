@@ -664,8 +664,8 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 		// already been found, we'll attempt to deliver them immediately
 		// to this client.
 		Log.Debugf("Attempting to dispatch confirmation for %v on "+
-			"registration since rescan has finished",
-			ntfn.ConfRequest)
+			"registration since rescan has finished, conf_id=%v",
+			ntfn.ConfRequest, ntfn.ConfID)
 
 		// The default notification we assigned above includes the
 		// block along with the rest of the details. However not all
@@ -679,9 +679,13 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 			confDetails = &confDetailsCopy
 		}
 
-		err := n.dispatchConfDetails(ntfn, confDetails)
-		if err != nil {
-			return nil, err
+		// Deliver the details to the whole conf set where this ntfn
+		// lives in.
+		for _, subscriber := range confSet.ntfns {
+			err := n.dispatchConfDetails(subscriber, confDetails)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		return &ConfRegistration{
@@ -912,10 +916,16 @@ func (n *TxNotifier) dispatchConfDetails(
 	// If there are no conf details to dispatch or if the notification has
 	// already been dispatched, then we can skip dispatching to this
 	// client.
-	if details == nil || ntfn.dispatched {
-		Log.Debugf("Skipping dispatch of conf details(%v) for "+
-			"request %v, dispatched=%v", details, ntfn.ConfRequest,
-			ntfn.dispatched)
+	if details == nil {
+		Log.Debugf("Skipped dispatching nil conf details for request "+
+			"%v, conf_id=%v", ntfn.ConfRequest, ntfn.ConfID)
+
+		return nil
+	}
+
+	if ntfn.dispatched {
+		Log.Debugf("Skipped dispatched conf details for request %v "+
+			"conf_id=%v", ntfn.ConfRequest, ntfn.ConfID)
 
 		return nil
 	}
@@ -925,8 +935,9 @@ func (n *TxNotifier) dispatchConfDetails(
 	// we'll dispatch a confirmation notification to the caller.
 	confHeight := details.BlockHeight + ntfn.NumConfirmations - 1
 	if confHeight <= n.currentHeight {
-		Log.Debugf("Dispatching %v confirmation notification for %v",
-			ntfn.NumConfirmations, ntfn.ConfRequest)
+		Log.Debugf("Dispatching %v confirmation notification for "+
+			"conf_id=%v, %v", ntfn.NumConfirmations, ntfn.ConfID,
+			ntfn.ConfRequest)
 
 		// We'll send a 0 value to the Updates channel,
 		// indicating that the transaction/output script has already
@@ -944,8 +955,8 @@ func (n *TxNotifier) dispatchConfDetails(
 			return ErrTxNotifierExiting
 		}
 	} else {
-		Log.Debugf("Queueing %v confirmation notification for %v at tip ",
-			ntfn.NumConfirmations, ntfn.ConfRequest)
+		Log.Debugf("Queueing %v confirmation notification for %v at "+
+			"tip", ntfn.NumConfirmations, ntfn.ConfRequest)
 
 		// Otherwise, we'll keep track of the notification
 		// request by the height at which we should dispatch the
@@ -1743,8 +1754,9 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 	for ntfn := range n.ntfnsByConfirmHeight[height] {
 		confSet := n.confNotifications[ntfn.ConfRequest]
 
-		Log.Debugf("Dispatching %v confirmation notification for %v",
-			ntfn.NumConfirmations, ntfn.ConfRequest)
+		Log.Debugf("Dispatching %v confirmation notification for "+
+			"conf_id=%v, %v", ntfn.NumConfirmations, ntfn.ConfID,
+			ntfn.ConfRequest)
 
 		// The default notification we assigned above includes the
 		// block along with the rest of the details. However not all

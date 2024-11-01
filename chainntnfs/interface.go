@@ -258,6 +258,9 @@ type ConfirmationEvent struct {
 // channels.
 func NewConfirmationEvent(numConfs uint32, cancel func()) *ConfirmationEvent {
 	return &ConfirmationEvent{
+		// We cannot rely on the subscriber to immediately read from
+		// the channel so we need to create a larger buffer to avoid
+		// blocking the notifier.
 		Confirmed:    make(chan *TxConfirmation, 1),
 		Updates:      make(chan uint32, numConfs),
 		NegativeConf: make(chan int32, 1),

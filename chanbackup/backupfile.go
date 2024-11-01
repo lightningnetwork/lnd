@@ -54,12 +54,15 @@ type MultiFile struct {
 
 	// archiveDir is the directory where we'll store old channel backups.
 	archiveDir string
+
+	// noBackupArchive indicates whether old backups should be deleted
+	// rather than archived.
+	noBackupArchive bool
 }
 
 // NewMultiFile create a new multi-file instance at the target location on the
 // file system.
-func NewMultiFile(fileName string) *MultiFile {
-
+func NewMultiFile(fileName string, noBackupArchive bool) *MultiFile {
 	// We'll our temporary backup file in the very same directory as the
 	// main backup file.
 	backupFileDir := filepath.Dir(fileName)
@@ -71,15 +74,17 @@ func NewMultiFile(fileName string) *MultiFile {
 	)
 
 	return &MultiFile{
-		fileName:     fileName,
-		tempFileName: tempFileName,
-		archiveDir:   archiveDir,
+		fileName:        fileName,
+		tempFileName:    tempFileName,
+		archiveDir:      archiveDir,
+		noBackupArchive: noBackupArchive,
 	}
 }
 
 // UpdateAndSwap will attempt write a new temporary backup file to disk with
 // the newBackup encoded, then atomically swap (via rename) the old file for
-// the new file by updating the name of the new file to the old.
+// the new file by updating the name of the new file to the old. It also checks
+// if the old file should be archived first before swapping it.
 func (b *MultiFile) UpdateAndSwap(newBackup PackedMulti) error {
 	// If the main backup file isn't set, then we can't proceed.
 	if b.fileName == "" {
@@ -172,7 +177,13 @@ func (b *MultiFile) ExtractMulti(keyChain keychain.KeyRing) (*Multi, error) {
 // specified archive directory, and copies the contents of the main backup file
 // to the new archive file.
 func (b *MultiFile) createArchiveFile() error {
-	// We check for old channel backup file first.
+	// User can skip archiving of old backup files to save disk space.
+	if b.noBackupArchive {
+		log.Debug("Skipping archive of old backup file as configured")
+		return nil
+	}
+
+	// Check for old channel backup file.
 	oldFileExists := lnrpc.FileExists(b.fileName)
 	if !oldFileExists {
 		log.Debug("No old channel backup file to archive")

@@ -94,7 +94,7 @@ func TestUpdateAndSwap(t *testing.T) {
 		},
 	}
 	for i, testCase := range testCases {
-		backupFile := NewMultiFile(testCase.fileName)
+		backupFile := NewMultiFile(testCase.fileName, false)
 
 		// To start with, we'll make a random byte slice that'll pose
 		// as our packed multi backup.
@@ -238,7 +238,7 @@ func TestExtractMulti(t *testing.T) {
 	}
 	for i, testCase := range testCases {
 		// First, we'll make our backup file with the specified name.
-		backupFile := NewMultiFile(testCase.fileName)
+		backupFile := NewMultiFile(testCase.fileName, false)
 
 		// With our file made, we'll now attempt to read out the
 		// multi-file.

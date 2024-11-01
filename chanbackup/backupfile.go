@@ -53,12 +53,15 @@ type MultiFile struct {
 
 	// archiveDir is the directory where we'll store old channel backups.
 	archiveDir string
+
+	// deleteOldBackup indicates whether old backups should be deleted
+	// rather than archived.
+	deleteOldBackup bool
 }
 
 // NewMultiFile create a new multi-file instance at the target location on the
 // file system.
-func NewMultiFile(fileName string) *MultiFile {
-
+func NewMultiFile(fileName string, deleteOldBackup bool) *MultiFile {
 	// We'll our temporary backup file in the very same directory as the
 	// main backup file.
 	backupFileDir := filepath.Dir(fileName)
@@ -70,9 +73,10 @@ func NewMultiFile(fileName string) *MultiFile {
 	)
 
 	return &MultiFile{
-		fileName:     fileName,
-		tempFileName: tempFileName,
-		archiveDir:   archiveDir,
+		fileName:        fileName,
+		tempFileName:    tempFileName,
+		archiveDir:      archiveDir,
+		deleteOldBackup: deleteOldBackup,
 	}
 }
 
@@ -130,16 +134,18 @@ func (b *MultiFile) UpdateAndSwap(newBackup PackedMulti) error {
 		return fmt.Errorf("unable to close file: %w", err)
 	}
 
-	// We check if the main backup file exists, if it does we archive it
-	// before replacing it with the new backup.
-	if _, err := os.Stat(b.fileName); err == nil {
-		log.Infof("Archiving old backup file at %v", b.fileName)
+	if !b.deleteOldBackup {
+		// We check if the main backup file exists, if it does we
+		// archive it before replacing it with the new backup.
+		if _, err := os.Stat(b.fileName); err == nil {
+			log.Infof("Archiving old backup file at %v", b.fileName)
 
-		if err := createArchiveFile(
-			b.archiveDir, b.fileName,
-		); err != nil {
-			return fmt.Errorf("unable to archive old backup file:"+
-				" %w", err)
+			if err := createArchiveFile(
+				b.archiveDir, b.fileName,
+			); err != nil {
+				return fmt.Errorf("unable to archive old "+
+					"backup file: %w", err)
+			}
 		}
 	}
 

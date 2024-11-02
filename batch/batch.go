@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/sqldb"
 )
 
 // errSolo is a sentinel error indicating that the requester should re-run the
@@ -55,7 +56,19 @@ func (b *batch) run() {
 			for i, req := range b.reqs {
 				err := req.Update(tx)
 				if err != nil {
-					failIdx = i
+					// If we get a serialization error, we
+					// want the underlying SQL retry
+					// mechanism to retry the entire batch.
+					// Otherwise, we can succeed in an
+					// sqldb retry and still re-execute the
+					// failing request individually.
+					dbErr := sqldb.MapSQLError(err)
+					if !sqldb.IsSerializationError(dbErr) {
+						failIdx = i
+
+						return dbErr
+					}
+
 					return err
 				}
 			}

@@ -983,6 +983,67 @@ func finalizeLogfile(hn *HarnessNode) {
 		getFinalizedLogFilePrefix(hn),
 	)
 	renameFile(hn.filename, newFileName)
+
+	// Assert the node has shut down from the log file.
+	err := assertNodeShutdown(newFileName)
+	if err != nil {
+		err := fmt.Errorf("[%s]: assert shutdown failed in log[%s]: %w",
+			hn.Name(), newFileName, err)
+		panic(err)
+	}
+}
+
+// assertNodeShutdown asserts that the node has shut down properly by checking
+// the last lines of the log file for the shutdown message "Shutdown complete".
+func assertNodeShutdown(filename string) error {
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Read more than one line to make sure we get the last line.
+	// const linesSize = 200
+	//
+	// NOTE: Reading 200 bytes of lines should be more than enough to find
+	// the `Shutdown complete` message. However, this is only true if the
+	// message is printed the last, which means `lnd` will properly wait
+	// for all its subsystems to shut down before exiting. Unfortunately
+	// there is at least one bug in the shutdown process where we don't
+	// wait for the chain backend to fully quit first, which can be easily
+	// reproduced by turning on `RPCC=trace` and use a linesSize of 200.
+	//
+	// TODO(yy): fix the shutdown process and remove this workaround by
+	// refactoring the lnd to use only one rpcclient, which requires quite
+	// some work on the btcwallet front.
+	const linesSize = 1000
+
+	buf := make([]byte, linesSize)
+	stat, statErr := file.Stat()
+	if statErr != nil {
+		return err
+	}
+
+	start := stat.Size() - linesSize
+	_, err = file.ReadAt(buf, start)
+	if err != nil {
+		return err
+	}
+
+	// Exit early if the shutdown line is found.
+	if bytes.Contains(buf, []byte("Shutdown complete")) {
+		return nil
+	}
+
+	// For etcd tests, we need to check for the line where the node is
+	// blocked at wallet unlock since we are testing how such a behavior is
+	// handled by etcd.
+	if bytes.Contains(buf, []byte("wallet and unlock")) {
+		return nil
+	}
+
+	return fmt.Errorf("node did not shut down properly: found log "+
+		"lines: %s", buf)
 }
 
 // finalizeEtcdLog saves the etcd log files when test ends.

@@ -50,6 +50,9 @@ type missionControlStore struct {
 	wg   sync.WaitGroup
 	db   missionControlDB
 
+	// TODO(yy): Remove the usage of sync.Cond - we are better off using
+	// channes than a Cond as suggested in the official godoc.
+	//
 	// queueCond is signalled when items are put into the queue.
 	queueCond *sync.Cond
 
@@ -347,8 +350,14 @@ func (b *missionControlStore) run() {
 			// Wait for the queue to not be empty.
 			b.queueCond.L.Lock()
 			for b.queue.Front() == nil {
-				b.queueCond.Wait()
-
+				// To make sure we can properly stop, we must
+				// read the `done` channel first before
+				// attempting to call `Wait()`. This is due to
+				// the fact when `Signal` is called before the
+				// `Wait` call, the `Wait` call will block
+				// indefinitely.
+				//
+				// TODO(yy): replace this with channels.
 				select {
 				case <-b.done:
 					b.queueCond.L.Unlock()
@@ -356,6 +365,8 @@ func (b *missionControlStore) run() {
 					return
 				default:
 				}
+
+				b.queueCond.Wait()
 			}
 			b.queueCond.L.Unlock()
 

@@ -612,7 +612,7 @@ func revokedCloseRetributionRemoteHodlCase(ht *lntest.HarnessTest,
 		// transactions will be in the mempool at this point, we pass 0
 		// as the last argument, indicating we don't care what's in the
 		// mempool.
-		ht.MineBlocks(1)
+		ht.MineEmptyBlocks(1)
 		err = wait.NoError(func() error {
 			txid, err := findJusticeTx()
 			if err != nil {

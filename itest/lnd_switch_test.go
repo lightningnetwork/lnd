@@ -103,7 +103,7 @@ func testSwitchOfflineDelivery(ht *lntest.HarnessTest) {
 	ht.DisconnectNodes(s.dave, s.alice)
 
 	// Then, reconnect them to ensure Dave doesn't just fail back the htlc.
-	ht.ConnectNodes(s.dave, s.alice)
+	ht.EnsureConnected(s.dave, s.alice)
 
 	// Wait to ensure that the payment remain are not failed back after
 	// reconnecting. All node should report the number payments initiated

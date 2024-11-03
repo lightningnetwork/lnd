@@ -219,7 +219,7 @@ func TestAddrsForNode(t *testing.T) {
 
 	// Now that we've created a link node, as well as a vertex for the
 	// node, we'll query for all its addresses.
-	nodeAddrs, err := fullDB.AddrsForNode(nodePub)
+	_, nodeAddrs, err := fullDB.AddrsForNode(nodePub)
 	require.NoError(t, err, "unable to obtain node addrs")
 
 	expectedAddrs := make(map[string]struct{})

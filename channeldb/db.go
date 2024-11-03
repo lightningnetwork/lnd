@@ -1345,12 +1345,32 @@ func (c *ChannelStateDB) RestoreChannelShells(channelShells ...*ChannelShell) er
 
 // AddrsForNode consults the graph and channel database for all addresses known
 // to the passed node public key.
-func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr,
-	error) {
+func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
+	var (
+		// addrs holds the collection of deduplicated addresses we know
+		// of for the node.
+		addrs = make(map[string]net.Addr)
 
+		// known keeps track of if any of the backing sources know of
+		// this node.
+		known bool
+	)
+
+	// First, query the channel DB for its known addresses.
 	linkNode, err := d.channelStateDB.linkNodeDB.FetchLinkNode(nodePub)
-	if err != nil {
-		return nil, err
+	switch {
+	// If we get back a ErrNodeNotFound error, then this just means that the
+	// channel DB does not know of the error, but we don't error out here
+	// because we still want to check the graph db.
+	case err != nil && !errors.Is(err, ErrNodeNotFound):
+		return false, nil, err
+
+	// A nil error means the node is known.
+	case err == nil:
+		known = true
+		for _, addr := range linkNode.Addresses {
+			addrs[addr.String()] = addr
+		}
 	}
 
 	// We'll also query the graph for this peer to see if they have any
@@ -1358,33 +1378,29 @@ func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr,
 	// database.
 	pubKey, err := route.NewVertexFromBytes(nodePub.SerializeCompressed())
 	if err != nil {
-		return nil, err
+		return false, nil, err
 	}
 	graphNode, err := d.graph.FetchLightningNode(pubKey)
-	if err != nil && err != graphdb.ErrGraphNodeNotFound {
-		return nil, err
-	} else if err == graphdb.ErrGraphNodeNotFound {
-		// If the node isn't found, then that's OK, as we still have the
-		// link node data. But any other error needs to be returned.
-		graphNode = &graphdb.LightningNode{}
+	switch {
+	// We don't consider it an error if the graph is unaware of the node.
+	case err != nil && !errors.Is(err, graphdb.ErrGraphNodeNotFound):
+		return false, nil, err
+
+	// If we do find the node, we add its addresses to our deduplicated set.
+	case err == nil:
+		known = true
+		for _, addr := range graphNode.Addresses {
+			addrs[addr.String()] = addr
+		}
 	}
 
-	// Now that we have both sources of addrs for this node, we'll use a
-	// map to de-duplicate any addresses between the two sources, and
-	// produce a final list of the combined addrs.
-	addrs := make(map[string]net.Addr)
-	for _, addr := range linkNode.Addresses {
-		addrs[addr.String()] = addr
-	}
-	for _, addr := range graphNode.Addresses {
-		addrs[addr.String()] = addr
-	}
+	// Convert the deduplicated set into a list.
 	dedupedAddrs := make([]net.Addr, 0, len(addrs))
 	for _, addr := range addrs {
 		dedupedAddrs = append(dedupedAddrs, addr)
 	}
 
-	return dedupedAddrs, nil
+	return known, dedupedAddrs, nil
 }
 
 // AbandonChannel attempts to remove the target channel from the open channel

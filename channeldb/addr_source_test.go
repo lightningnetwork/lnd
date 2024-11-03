@@ -36,11 +36,12 @@ func TestMultiAddrSource(t *testing.T) {
 
 		// Let source 1 know of 2 addresses (addr 1 and 2) for node 1.
 		src1.On("AddrsForNode", pk1).Return(
-			[]net.Addr{addr1, addr2}, nil,
+			true, []net.Addr{addr1, addr2}, nil,
 		).Once()
 
 		// Let source 2 know of 2 addresses (addr 2 and 3) for node 1.
 		src2.On("AddrsForNode", pk1).Return(
+			true, []net.Addr{addr2, addr3}, nil,
 			[]net.Addr{addr2, addr3}, nil,
 		).Once()
 
@@ -50,8 +51,9 @@ func TestMultiAddrSource(t *testing.T) {
 
 		// Query it for the addresses known for node 1. The results
 		// should contain addr 1, 2 and 3.
-		addrs, err := multiSrc.AddrsForNode(pk1)
+		known, addrs, err := multiSrc.AddrsForNode(pk1)
 		require.NoError(t, err)
+		require.True(t, known)
 		require.ElementsMatch(t, addrs, []net.Addr{addr1, addr2, addr3})
 	})
 
@@ -69,9 +71,9 @@ func TestMultiAddrSource(t *testing.T) {
 
 		// Let source 1 know of address 1 for node 1.
 		src1.On("AddrsForNode", pk1).Return(
-			[]net.Addr{addr1}, nil,
+			true, []net.Addr{addr1}, nil,
 		).Once()
-		src2.On("AddrsForNode", pk1).Return(nil, nil).Once()
+		src2.On("AddrsForNode", pk1).Return(false, nil, nil).Once()
 
 		// Create a multi-addr source that consists of both source 1
 		// and 2.
@@ -79,11 +81,39 @@ func TestMultiAddrSource(t *testing.T) {
 
 		// Query it for the addresses known for node 1. The results
 		// should contain addr 1.
-		addrs, err := multiSrc.AddrsForNode(pk1)
+		known, addrs, err := multiSrc.AddrsForNode(pk1)
 		require.NoError(t, err)
+		require.True(t, known)
 		require.ElementsMatch(t, addrs, []net.Addr{addr1})
 	})
 
+	t.Run("unknown address", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			src1 = newMockAddrSource(t)
+			src2 = newMockAddrSource(t)
+		)
+		t.Cleanup(func() {
+			src1.AssertExpectations(t)
+			src2.AssertExpectations(t)
+		})
+
+		// Create a multi-addr source that consists of both source 1
+		// and 2. Neither source known of node 1.
+		multiSrc := NewMultiAddrSource(src1, src2)
+
+		src1.On("AddrsForNode", pk1).Return(false, nil, nil).Once()
+		src2.On("AddrsForNode", pk1).Return(false, nil, nil).Once()
+
+		// Query it for the addresses known for node 1. It should return
+		// false to indicate that the node is unknown to all backing
+		// sources.
+		known, addrs, err := multiSrc.AddrsForNode(pk1)
+		require.NoError(t, err)
+		require.False(t, known)
+		require.Empty(t, addrs)
+	})
 }
 
 type mockAddrSource struct {
@@ -97,18 +127,18 @@ func newMockAddrSource(t *testing.T) *mockAddrSource {
 	return &mockAddrSource{t: t}
 }
 
-func (m *mockAddrSource) AddrsForNode(pub *btcec.PublicKey) ([]net.Addr,
+func (m *mockAddrSource) AddrsForNode(pub *btcec.PublicKey) (bool, []net.Addr,
 	error) {
 
 	args := m.Called(pub)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
+	if args.Get(1) == nil {
+		return args.Bool(0), nil, args.Error(2)
 	}
 
-	addrs, ok := args.Get(0).([]net.Addr)
+	addrs, ok := args.Get(1).([]net.Addr)
 	require.True(m.t, ok)
 
-	return addrs, args.Error(1)
+	return args.Bool(0), addrs, args.Error(2)
 }
 
 func newTestPubKey(t *testing.T) *btcec.PublicKey {

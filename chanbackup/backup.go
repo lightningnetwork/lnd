@@ -34,9 +34,12 @@ func assembleChanBackup(addrSource channeldb.AddrSource,
 
 	// First, we'll query the channel source to obtain all the addresses
 	// that are associated with the peer for this channel.
-	nodeAddrs, err := addrSource.AddrsForNode(openChan.IdentityPub)
+	known, nodeAddrs, err := addrSource.AddrsForNode(openChan.IdentityPub)
 	if err != nil {
 		return nil, err
+	}
+	if !known {
+		return nil, fmt.Errorf("node unknown by address source")
 	}
 
 	single := NewSingle(openChan, nodeAddrs)

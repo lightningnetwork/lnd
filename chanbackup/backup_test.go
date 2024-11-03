@@ -62,20 +62,19 @@ func (m *mockChannelSource) addAddrsForNode(nodePub *btcec.PublicKey, addrs []ne
 	m.addrs[nodeKey] = addrs
 }
 
-func (m *mockChannelSource) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr, error) {
+func (m *mockChannelSource) AddrsForNode(nodePub *btcec.PublicKey) (bool,
+	[]net.Addr, error) {
+
 	if m.failQuery {
-		return nil, fmt.Errorf("fail")
+		return false, nil, fmt.Errorf("fail")
 	}
 
 	var nodeKey [33]byte
 	copy(nodeKey[:], nodePub.SerializeCompressed())
 
 	addrs, ok := m.addrs[nodeKey]
-	if !ok {
-		return nil, fmt.Errorf("can't find addr")
-	}
 
-	return addrs, nil
+	return ok, addrs, nil
 }
 
 // TestFetchBackupForChan tests that we're able to construct a single channel

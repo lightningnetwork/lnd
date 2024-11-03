@@ -45,7 +45,7 @@ func (c *channelNotifier) SubscribeChans(startingChans map[wire.OutPoint]struct{
 	// chanUpdates channel to inform subscribers about new pending or
 	// confirmed channels.
 	sendChanOpenUpdate := func(newOrPendingChan *channeldb.OpenChannel) {
-		nodeAddrs, err := c.addrs.AddrsForNode(
+		_, nodeAddrs, err := c.addrs.AddrsForNode(
 			newOrPendingChan.IdentityPub,
 		)
 		if err != nil {

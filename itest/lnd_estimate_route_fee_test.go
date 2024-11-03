@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
 )
@@ -376,7 +377,7 @@ func runFeeEstimationTestCase(ht *lntest.HarnessTest,
 		)
 		feeReq = &routerrpc.RouteFeeRequest{
 			PaymentRequest: payReqs[0],
-			Timeout:        10,
+			Timeout:        uint32(wait.PaymentTimeout.Seconds()),
 		}
 	} else {
 		feeReq = &routerrpc.RouteFeeRequest{

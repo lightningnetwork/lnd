@@ -42,23 +42,24 @@ type interceptorTestCase struct {
 // testForwardInterceptorDedupHtlc tests that upon reconnection, duplicate
 // HTLCs aren't re-notified using the HTLC interceptor API.
 func testForwardInterceptorDedupHtlc(ht *lntest.HarnessTest) {
-	// Initialize the test context with 3 connected nodes.
-	ts := newInterceptorTestScenario(ht)
-
-	alice, bob, carol := ts.alice, ts.bob, ts.carol
-
-	// Open and wait for channels.
 	const chanAmt = btcutil.Amount(300000)
 	p := lntest.OpenChannelParams{Amt: chanAmt}
-	reqs := []*lntest.OpenChannelRequest{
-		{Local: alice, Remote: bob, Param: p},
-		{Local: bob, Remote: carol, Param: p},
-	}
-	resp := ht.OpenMultiChannelsAsync(reqs)
-	cpAB, cpBC := resp[0], resp[1]
 
-	// Make sure Alice is aware of channel Bob=>Carol.
-	ht.AssertChannelInGraph(alice, cpBC)
+	// Initialize the test context with 3 connected nodes.
+	cfgs := [][]string{nil, nil, nil}
+
+	// Open and wait for channels.
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, p)
+	alice, bob, carol := nodes[0], nodes[1], nodes[2]
+	cpAB := chanPoints[0]
+
+	// Init the scenario.
+	ts := &interceptorTestScenario{
+		ht:    ht,
+		alice: alice,
+		bob:   bob,
+		carol: carol,
+	}
 
 	// Connect the interceptor.
 	interceptor, cancelInterceptor := bob.RPC.HtlcInterceptor()
@@ -190,22 +191,24 @@ func testForwardInterceptorDedupHtlc(ht *lntest.HarnessTest) {
 //  4. When Interceptor disconnects it resumes all held htlcs, which result in
 //     valid payment (invoice is settled).
 func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
-	ts := newInterceptorTestScenario(ht)
-
-	alice, bob, carol := ts.alice, ts.bob, ts.carol
-
-	// Open and wait for channels.
 	const chanAmt = btcutil.Amount(300000)
 	p := lntest.OpenChannelParams{Amt: chanAmt}
-	reqs := []*lntest.OpenChannelRequest{
-		{Local: alice, Remote: bob, Param: p},
-		{Local: bob, Remote: carol, Param: p},
-	}
-	resp := ht.OpenMultiChannelsAsync(reqs)
-	cpAB, cpBC := resp[0], resp[1]
 
-	// Make sure Alice is aware of channel Bob=>Carol.
-	ht.AssertChannelInGraph(alice, cpBC)
+	// Initialize the test context with 3 connected nodes.
+	cfgs := [][]string{nil, nil, nil}
+
+	// Open and wait for channels.
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, p)
+	alice, bob, carol := nodes[0], nodes[1], nodes[2]
+	cpAB := chanPoints[0]
+
+	// Init the scenario.
+	ts := &interceptorTestScenario{
+		ht:    ht,
+		alice: alice,
+		bob:   bob,
+		carol: carol,
+	}
 
 	// Connect the interceptor.
 	interceptor, cancelInterceptor := bob.RPC.HtlcInterceptor()
@@ -346,23 +349,23 @@ func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 // testForwardInterceptorModifiedHtlc tests that the interceptor can modify the
 // amount and custom records of an intercepted HTLC and resume it.
 func testForwardInterceptorModifiedHtlc(ht *lntest.HarnessTest) {
-	// Initialize the test context with 3 connected nodes.
-	ts := newInterceptorTestScenario(ht)
-
-	alice, bob, carol := ts.alice, ts.bob, ts.carol
-
-	// Open and wait for channels.
 	const chanAmt = btcutil.Amount(300000)
 	p := lntest.OpenChannelParams{Amt: chanAmt}
-	reqs := []*lntest.OpenChannelRequest{
-		{Local: alice, Remote: bob, Param: p},
-		{Local: bob, Remote: carol, Param: p},
-	}
-	resp := ht.OpenMultiChannelsAsync(reqs)
-	cpBC := resp[1]
 
-	// Make sure Alice is aware of channel Bob=>Carol.
-	ht.AssertChannelInGraph(alice, cpBC)
+	// Initialize the test context with 3 connected nodes.
+	cfgs := [][]string{nil, nil, nil}
+
+	// Open and wait for channels.
+	_, nodes := ht.CreateSimpleNetwork(cfgs, p)
+	alice, bob, carol := nodes[0], nodes[1], nodes[2]
+
+	// Init the scenario.
+	ts := &interceptorTestScenario{
+		ht:    ht,
+		alice: alice,
+		bob:   bob,
+		carol: carol,
+	}
 
 	// Connect an interceptor to Bob's node.
 	bobInterceptor, cancelBobInterceptor := bob.RPC.HtlcInterceptor()
@@ -449,24 +452,15 @@ func testForwardInterceptorModifiedHtlc(ht *lntest.HarnessTest) {
 // wire custom records provided by the sender of a payment as part of the
 // update_add_htlc message.
 func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
-	// Initialize the test context with 3 connected nodes.
-	ts := newInterceptorTestScenario(ht)
-
-	alice, bob, carol, dave := ts.alice, ts.bob, ts.carol, ts.dave
-
-	// Open and wait for channels.
 	const chanAmt = btcutil.Amount(300000)
 	p := lntest.OpenChannelParams{Amt: chanAmt}
-	reqs := []*lntest.OpenChannelRequest{
-		{Local: alice, Remote: bob, Param: p},
-		{Local: bob, Remote: carol, Param: p},
-		{Local: carol, Remote: dave, Param: p},
-	}
-	resp := ht.OpenMultiChannelsAsync(reqs)
-	cpBC := resp[1]
 
-	// Make sure Alice is aware of channel Bob=>Carol.
-	ht.AssertChannelInGraph(alice, cpBC)
+	// Initialize the test context with 4 connected nodes.
+	cfgs := [][]string{nil, nil, nil, nil}
+
+	// Open and wait for channels.
+	_, nodes := ht.CreateSimpleNetwork(cfgs, p)
+	alice, bob, carol, dave := nodes[0], nodes[1], nodes[2], nodes[3]
 
 	// Connect an interceptor to Bob's node.
 	bobInterceptor, cancelBobInterceptor := bob.RPC.HtlcInterceptor()
@@ -574,25 +568,15 @@ func testForwardInterceptorWireRecords(ht *lntest.HarnessTest) {
 // update_add_htlc message and that those records are persisted correctly and
 // re-sent on node restart.
 func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
-	// Initialize the test context with 3 connected nodes.
-	ts := newInterceptorTestScenario(ht)
-
-	alice, bob, carol, dave := ts.alice, ts.bob, ts.carol, ts.dave
-
-	// Open and wait for channels.
 	const chanAmt = btcutil.Amount(300000)
 	p := lntest.OpenChannelParams{Amt: chanAmt}
-	reqs := []*lntest.OpenChannelRequest{
-		{Local: alice, Remote: bob, Param: p},
-		{Local: bob, Remote: carol, Param: p},
-		{Local: carol, Remote: dave, Param: p},
-	}
-	resp := ht.OpenMultiChannelsAsync(reqs)
-	cpBC, cpCD := resp[1], resp[2]
 
-	// Make sure Alice is aware of channels Bob=>Carol and Carol=>Dave.
-	ht.AssertChannelInGraph(alice, cpBC)
-	ht.AssertChannelInGraph(alice, cpCD)
+	// Initialize the test context with 4 connected nodes.
+	cfgs := [][]string{nil, nil, nil, nil}
+
+	// Open and wait for channels.
+	_, nodes := ht.CreateSimpleNetwork(cfgs, p)
+	alice, bob, carol, dave := nodes[0], nodes[1], nodes[2], nodes[3]
 
 	// Connect an interceptor to Bob's node.
 	bobInterceptor, cancelBobInterceptor := bob.RPC.HtlcInterceptor()
@@ -730,39 +714,8 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 // interceptorTestScenario is a helper struct to hold the test context and
 // provide the needed functionality.
 type interceptorTestScenario struct {
-	ht                      *lntest.HarnessTest
-	alice, bob, carol, dave *node.HarnessNode
-}
-
-// newInterceptorTestScenario initializes a new test scenario with three nodes
-// and connects them to have the following topology,
-//
-//	Alice --> Bob --> Carol --> Dave
-//
-// Among them, Alice and Bob are standby nodes and Carol is a new node.
-func newInterceptorTestScenario(
-	ht *lntest.HarnessTest) *interceptorTestScenario {
-
-	alice := ht.NewNodeWithCoins("Alice", nil)
-	bob := ht.NewNodeWithCoins("bob", nil)
-
-	carol := ht.NewNode("carol", nil)
-	dave := ht.NewNode("dave", nil)
-
-	ht.EnsureConnected(alice, bob)
-	ht.EnsureConnected(bob, carol)
-	ht.EnsureConnected(carol, dave)
-
-	// So that carol can open channels.
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-
-	return &interceptorTestScenario{
-		ht:    ht,
-		alice: alice,
-		bob:   bob,
-		carol: carol,
-		dave:  dave,
-	}
+	ht                *lntest.HarnessTest
+	alice, bob, carol *node.HarnessNode
 }
 
 // prepareTestCases prepares 4 tests:

@@ -1344,7 +1344,10 @@ func (s *Server) trackPayment(subscription routing.ControlTowerSubscriber,
 
 	// Otherwise, we will log and return the error as the stream has
 	// received an error from the payment lifecycle.
-	log.Errorf("TrackPayment got error for payment %v: %v", identifier, err)
+	if err != nil {
+		log.Errorf("TrackPayment got error for payment %v: %v",
+			identifier, err)
+	}
 
 	return err
 }

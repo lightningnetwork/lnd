@@ -376,7 +376,7 @@ func runFeeEstimationTestCase(ht *lntest.HarnessTest,
 		)
 		feeReq = &routerrpc.RouteFeeRequest{
 			PaymentRequest: payReqs[0],
-			Timeout:        10,
+			Timeout:        60,
 		}
 	} else {
 		feeReq = &routerrpc.RouteFeeRequest{

@@ -136,6 +136,7 @@ func (b *BitcoindFilteredChainView) Stop() error {
 	// Shutdown the rpc client, this gracefully disconnects from bitcoind's
 	// zmq socket, and cleans up all related resources.
 	b.chainClient.Stop()
+	b.chainClient.WaitForShutdown()
 
 	b.blockQueue.Stop()
 

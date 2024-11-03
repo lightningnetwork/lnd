@@ -180,7 +180,7 @@ func (b *BtcdNotifier) Stop() error {
 
 	// Shutdown the rpc client, this gracefully disconnects from btcd, and
 	// cleans up all related resources.
-	b.chainConn.Shutdown()
+	b.chainConn.Stop()
 
 	close(b.quit)
 	b.wg.Wait()

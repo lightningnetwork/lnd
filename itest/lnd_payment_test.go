@@ -1070,23 +1070,16 @@ func assertChannelState(ht *lntest.HarnessTest, hn *node.HarnessNode,
 // 5.) Alice observes a failed OR succeeded payment with failure reason
 // FAILURE_REASON_CANCELED which suppresses further payment attempts.
 func testPaymentFailureReasonCanceled(ht *lntest.HarnessTest) {
-	// Initialize the test context with 3 connected nodes.
-	ts := newInterceptorTestScenario(ht)
-
-	alice, bob, carol := ts.alice, ts.bob, ts.carol
-
-	// Open and wait for channels.
 	const chanAmt = btcutil.Amount(300000)
 	p := lntest.OpenChannelParams{Amt: chanAmt}
-	reqs := []*lntest.OpenChannelRequest{
-		{Local: alice, Remote: bob, Param: p},
-		{Local: bob, Remote: carol, Param: p},
-	}
-	resp := ht.OpenMultiChannelsAsync(reqs)
-	cpAB, cpBC := resp[0], resp[1]
 
-	// Make sure Alice is aware of channel Bob=>Carol.
-	ht.AssertChannelInGraph(alice, cpBC)
+	// Initialize the test context with 3 connected nodes.
+	cfgs := [][]string{nil, nil, nil}
+
+	// Open and wait for channels.
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, p)
+	alice, bob, carol := nodes[0], nodes[1], nodes[2]
+	cpAB := chanPoints[0]
 
 	// Connect the interceptor.
 	interceptor, cancelInterceptor := bob.RPC.HtlcInterceptor()
@@ -1096,7 +1089,8 @@ func testPaymentFailureReasonCanceled(ht *lntest.HarnessTest) {
 	// htlc even though the payment context was canceled before invoice
 	// settlement.
 	sendPaymentInterceptAndCancel(
-		ht, ts, cpAB, routerrpc.ResolveHoldForwardAction_RESUME,
+		ht, alice, bob, carol, cpAB,
+		routerrpc.ResolveHoldForwardAction_RESUME,
 		lnrpc.Payment_SUCCEEDED, interceptor,
 	)
 
@@ -1106,19 +1100,17 @@ func testPaymentFailureReasonCanceled(ht *lntest.HarnessTest) {
 	// Note that we'd have to reset Alice's mission control if we tested the
 	// htlc fail case before the htlc resume case.
 	sendPaymentInterceptAndCancel(
-		ht, ts, cpAB, routerrpc.ResolveHoldForwardAction_FAIL,
+		ht, alice, bob, carol, cpAB,
+		routerrpc.ResolveHoldForwardAction_FAIL,
 		lnrpc.Payment_FAILED, interceptor,
 	)
 }
 
 func sendPaymentInterceptAndCancel(ht *lntest.HarnessTest,
-	ts *interceptorTestScenario, cpAB *lnrpc.ChannelPoint,
+	alice, bob, carol *node.HarnessNode, cpAB *lnrpc.ChannelPoint,
 	interceptorAction routerrpc.ResolveHoldForwardAction,
 	expectedPaymentStatus lnrpc.Payment_PaymentStatus,
 	interceptor rpc.InterceptorClient) {
-
-	// Prepare the test cases.
-	alice, bob, carol := ts.alice, ts.bob, ts.carol
 
 	// Prepare the test cases.
 	addResponse := carol.RPC.AddInvoice(&lnrpc.Invoice{

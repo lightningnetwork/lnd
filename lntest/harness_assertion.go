@@ -1640,23 +1640,18 @@ func (h *HarnessTest) AssertNumHTLCsAndStage(hn *node.HarnessNode,
 // findPayment queries the payment from the node's ListPayments which matches
 // the specified preimage hash.
 func (h *HarnessTest) findPayment(hn *node.HarnessNode,
-	paymentHash string) *lnrpc.Payment {
+	paymentHash string) (*lnrpc.Payment, error) {
 
 	req := &lnrpc.ListPaymentsRequest{IncludeIncomplete: true}
 	paymentsResp := hn.RPC.ListPayments(req)
 
 	for _, p := range paymentsResp.Payments {
-		if p.PaymentHash != paymentHash {
-			continue
+		if p.PaymentHash == paymentHash {
+			return p, nil
 		}
-
-		return p
 	}
 
-	require.Failf(h, "payment not found", "payment %v cannot be found",
-		paymentHash)
-
-	return nil
+	return nil, fmt.Errorf("payment %v cannot be found", paymentHash)
 }
 
 // PaymentCheck is a function that checks a payment for a specific condition.
@@ -1674,7 +1669,11 @@ func (h *HarnessTest) AssertPaymentStatus(hn *node.HarnessNode,
 	payHash := preimage.Hash()
 
 	err := wait.NoError(func() error {
-		p := h.findPayment(hn, payHash.String())
+		p, err := h.findPayment(hn, payHash.String())
+		if err != nil {
+			return err
+		}
+
 		if status == p.Status {
 			target = p
 			return nil
@@ -1713,7 +1712,11 @@ func (h *HarnessTest) AssertPaymentFailureReason(hn *node.HarnessNode,
 
 	payHash := preimage.Hash()
 	err := wait.NoError(func() error {
-		p := h.findPayment(hn, payHash.String())
+		p, err := h.findPayment(hn, payHash.String())
+		if err != nil {
+			return err
+		}
+
 		if reason == p.FailureReason {
 			return nil
 		}

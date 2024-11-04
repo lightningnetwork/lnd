@@ -115,6 +115,10 @@ var (
 	// amount exceed the total amount.
 	ErrSentExceedsTotal = errors.New("total sent exceeds total amount")
 
+	// ErrRegisterAttempt is returned when a new htlc attempt cannot be
+	// registered.
+	ErrRegisterAttempt = errors.New("cannot register htlc attempt")
+
 	// errNoAttemptInfo is returned when no attempt info is stored yet.
 	errNoAttemptInfo = errors.New("unable to find attempt info for " +
 		"inflight payment")
@@ -342,7 +346,8 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 
 		// Check if registering a new attempt is allowed.
 		if err := payment.Registrable(); err != nil {
-			return err
+			return fmt.Errorf("%w: %v", ErrRegisterAttempt,
+				err.Error())
 		}
 
 		// If the final hop has encrypted data, then we know this is a

@@ -262,6 +262,16 @@ lifecycle:
 		// We found a route to try, create a new HTLC attempt to try.
 		attempt, err := p.registerAttempt(rt, ps.RemainingAmt)
 		if err != nil {
+			// If the error is due to we cannot register another
+			// HTLC, we will skip this iteration and continue to
+			// the next one in case there are inflight HTLCs.
+			//
+			// TODO(yy): remove this check once we have a finer
+			// control over errors returned from the switch.
+			if errors.Is(err, channeldb.ErrRegisterAttempt) {
+				continue lifecycle
+			}
+
 			return exitWithErr(err)
 		}
 

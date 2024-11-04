@@ -1252,6 +1252,12 @@ var fundPsbtCommand = cli.Command{
 			Value: defaultUtxoMinConf,
 		},
 		coinSelectionStrategyFlag,
+		cli.Float64Flag{
+			Name: "max_fee_ratio",
+			Usage: "the maximum fee to total output amount ratio " +
+				"that this psbt should adhere to",
+			Value: chanfunding.DefaultMaxFeeRatio,
+		},
 	},
 	Action: actionDecorator(fundPsbt),
 }
@@ -1389,6 +1395,8 @@ func fundPsbt(ctx *cli.Context) error {
 				addressType)
 		}
 	}
+
+	req.MaxFeeRatio = ctx.Float64("max_fee_ratio")
 
 	walletClient, cleanUp := getWalletClient(ctx)
 	defer cleanUp()

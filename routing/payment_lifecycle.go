@@ -243,7 +243,13 @@ lifecycle:
 		// Now request a route to be used to create our HTLC attempt.
 		rt, err := p.requestRoute(ps)
 		if err != nil {
-			return exitWithErr(err)
+			log.Errorf("Failed to find a route for payment %v: %v",
+				p.identifier, err)
+
+			// The payment is now marked as failed, we'll continue
+			// the lifecycle to wait for the results from other
+			// inflight HTLC attempts, if any.
+			continue lifecycle
 		}
 
 		// We may not be able to find a route for current attempt. In

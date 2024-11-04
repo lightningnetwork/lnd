@@ -100,6 +100,10 @@
     * `lncli abandonchannel` (`Lightning.AbandonChannel` RPC)
     * `lncli restorechanbackup` (`Lightning.RestoreChannelBackups` RPC)
     * `lncli verifychanbackup` (`Lightning.VerifyChanBackup` RPC)
+* The `ForwardInterceptor`'s `MODIFY` option will
+  [merge](https://github.com/lightningnetwork/lnd/pull/9240) any custom
+  range TLVs provided with the existing set of records on the HTLC,
+  overwriting any conflicting values with those supplied by the API.
 
 ## lncli Updates
 

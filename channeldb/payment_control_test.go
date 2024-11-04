@@ -841,9 +841,9 @@ func TestPaymentControlMultiShard(t *testing.T) {
 		b.AttemptID = 3
 		_, err = pControl.RegisterAttempt(info.PaymentIdentifier, &b)
 		if test.settleFirst {
-			require.ErrorIs(t, err, ErrPaymentPendingSettled)
+			require.ErrorIs(t, err, ErrRegisterAttempt)
 		} else {
-			require.ErrorIs(t, err, ErrPaymentPendingFailed)
+			require.ErrorIs(t, err, ErrRegisterAttempt)
 		}
 
 		assertPaymentStatus(t, pControl, info.PaymentIdentifier, StatusInFlight)
@@ -897,10 +897,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 			require.NoError(t, err, "unable to fail")
 		}
 
-		var (
-			finalStatus PaymentStatus
-			registerErr error
-		)
+		var finalStatus PaymentStatus
 
 		switch {
 		// If one of the attempts settled but the other failed with
@@ -908,21 +905,17 @@ func TestPaymentControlMultiShard(t *testing.T) {
 		// settled.
 		case test.settleFirst && !test.settleLast:
 			finalStatus = StatusSucceeded
-			registerErr = ErrPaymentAlreadySucceeded
 
 		case !test.settleFirst && test.settleLast:
 			finalStatus = StatusSucceeded
-			registerErr = ErrPaymentAlreadySucceeded
 
 		// If both failed, we end up in a failed status.
 		case !test.settleFirst && !test.settleLast:
 			finalStatus = StatusFailed
-			registerErr = ErrPaymentAlreadyFailed
 
 		// Otherwise, the payment has a succeed status.
 		case test.settleFirst && test.settleLast:
 			finalStatus = StatusSucceeded
-			registerErr = ErrPaymentAlreadySucceeded
 		}
 
 		assertPaymentStatus(
@@ -931,7 +924,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 
 		// Finally assert we cannot register more attempts.
 		_, err = pControl.RegisterAttempt(info.PaymentIdentifier, &b)
-		require.Equal(t, registerErr, err)
+		require.ErrorIs(t, err, ErrRegisterAttempt)
 	}
 
 	for _, test := range tests {

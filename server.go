@@ -595,6 +595,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		NoRouteBlinding:           cfg.ProtocolOptions.NoRouteBlinding(),
 		NoExperimentalEndorsement: cfg.ProtocolOptions.NoExperimentalEndorsement(),
 		NoQuiescence:              cfg.ProtocolOptions.NoQuiescence(),
+		NoGossipQueries:           cfg.Gossip.NoSync,
 	})
 	if err != nil {
 		return nil, err
@@ -4248,6 +4249,7 @@ func (s *server) peerConnected(ctx context.Context, conn net.Conn,
 				EndorsementExperimentEnd,
 			)
 		},
+		NoGossipSync: s.cfg.Gossip.NoSync,
 	}
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())

@@ -18,6 +18,8 @@ type Gossip struct {
 	ChannelUpdateInterval time.Duration `long:"channel-update-interval" description:"The interval used to determine how often lnd should allow a burst of new updates for a specific channel and direction."`
 
 	SubBatchDelay time.Duration `long:"sub-batch-delay" description:"The duration to wait before sending the next announcement batch if there are multiple. Use a small value if there are a lot announcements and they need to be broadcast quickly."`
+
+	NoSync bool `long:"no-sync" description:"If set, lnd will not request graph updates from its peers and wont advertise the gossip queries feature bit. This is useful if LND has been provided with an external graph source that it may use for pathfinding."`
 }
 
 // Parse the pubkeys for the pinned syncers.

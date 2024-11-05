@@ -328,11 +328,18 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 	}
 	ht.SendPaymentAssertInflight(alice, req)
 
-	// Verify that all nodes in the path now have two HTLC's with the
-	// proper parameters.
-	ht.AssertActiveHtlcs(alice, dustPayHash, payHash)
-	ht.AssertActiveHtlcs(bob, dustPayHash, payHash)
-	ht.AssertActiveHtlcs(carol, dustPayHash, payHash)
+	// At this point, all 3 nodes should now have an active channel with
+	// the created HTLC pending on all of them.
+	//
+	// Alice should have two outgoing HTLCs on channel Alice -> Bob.
+	ht.AssertNumActiveHtlcs(alice, 2)
+
+	// Bob should have two incoming HTLCs on channel Alice -> Bob, and two
+	// outgoing HTLCs on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(bob, 4)
+
+	// Carol should have two incoming HTLCs on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(carol, 2)
 
 	// We'll now mine enough blocks to trigger Bob's force close the
 	// channel Bob=>Carol due to the fact that the HTLC is about to
@@ -372,7 +379,7 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 	// At this point, Bob should have canceled backwards the dust HTLC that
 	// we sent earlier. This means Alice should now only have a single HTLC
 	// on her channel.
-	ht.AssertActiveHtlcs(alice, payHash)
+	ht.AssertNumActiveHtlcs(alice, 1)
 
 	// With the closing transaction confirmed, we should expect Bob's HTLC
 	// timeout transaction to be offered to the sweeper due to the expiry
@@ -659,9 +666,18 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 
 	// At this point, all 3 nodes should now have an active channel with
 	// the created HTLC pending on all of them.
-	ht.AssertActiveHtlcs(alice, payHash[:])
-	ht.AssertActiveHtlcs(bob, payHash[:])
-	ht.AssertActiveHtlcs(carol, payHash[:])
+	// At this point, all 3 nodes should now have an active channel with
+	// the created HTLCs pending on all of them.
+	//
+	// Alice should have one outgoing HTLCs on channel Alice -> Bob.
+	ht.AssertNumActiveHtlcs(alice, 1)
+
+	// Bob should have one incoming HTLC on channel Alice -> Bob, and one
+	// outgoing HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(bob, 2)
+
+	// Carol should have one incoming HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(carol, 1)
 
 	// Wait for Carol to mark invoice as accepted. There is a small gap to
 	// bridge between adding the htlc to the channel and executing the exit
@@ -1018,11 +1034,20 @@ func runLocalForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 	}
 	ht.SendPaymentAssertInflight(alice, req)
 
-	// Once the HTLC has cleared, all channels in our mini network should
-	// have the it locked in.
-	ht.AssertActiveHtlcs(alice, payHash)
-	ht.AssertActiveHtlcs(bob, payHash)
-	ht.AssertActiveHtlcs(carol, payHash)
+	// At this point, all 3 nodes should now have an active channel with
+	// the created HTLC pending on all of them.
+	// At this point, all 3 nodes should now have an active channel with
+	// the created HTLCs pending on all of them.
+	//
+	// Alice should have one outgoing HTLC on channel Alice -> Bob.
+	ht.AssertNumActiveHtlcs(alice, 1)
+
+	// Bob should have one incoming HTLC on channel Alice -> Bob, and one
+	// outgoing HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(bob, 2)
+
+	// Carol should have one incoming HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(carol, 1)
 
 	// Now that all parties have the HTLC locked in, we'll immediately
 	// force close the Bob -> Carol channel. This should trigger contract
@@ -1347,11 +1372,18 @@ func runRemoteForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 	}
 	ht.SendPaymentAssertInflight(alice, req)
 
-	// Once the HTLC has cleared, all the nodes in our mini network should
-	// show that the HTLC has been locked in.
-	ht.AssertActiveHtlcs(alice, payHash[:])
-	ht.AssertActiveHtlcs(bob, payHash[:])
-	ht.AssertActiveHtlcs(carol, payHash[:])
+	// At this point, all 3 nodes should now have an active channel with
+	// the created HTLCs pending on all of them.
+	//
+	// Alice should have one outgoing HTLC on channel Alice -> Bob.
+	ht.AssertNumActiveHtlcs(alice, 1)
+
+	// Bob should have one incoming HTLC on channel Alice -> Bob, and one
+	// outgoing HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(bob, 2)
+
+	// Carol should have one incoming HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(carol, 1)
 
 	// At this point, we'll now instruct Carol to force close the tx. This
 	// will let us exercise that Bob is able to sweep the expired HTLC on
@@ -1608,9 +1640,18 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 
 	// At this point, all 3 nodes should now have an active channel with
 	// the created HTLC pending on all of them.
-	ht.AssertActiveHtlcs(alice, payHash[:])
-	ht.AssertActiveHtlcs(bob, payHash[:])
-	ht.AssertActiveHtlcs(carol, payHash[:])
+	// At this point, all 3 nodes should now have an active channel with
+	// the created HTLCs pending on all of them.
+	//
+	// Alice should have one outgoing HTLC on channel Alice -> Bob.
+	ht.AssertNumActiveHtlcs(alice, 1)
+
+	// Bob should have one incoming HTLC on channel Alice -> Bob, and one
+	// outgoing HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(bob, 2)
+
+	// Carol should have one incoming HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(carol, 1)
 
 	// Wait for carol to mark invoice as accepted. There is a small gap to
 	// bridge between adding the htlc to the channel and executing the exit
@@ -1919,9 +1960,18 @@ func runLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest,
 
 	// At this point, all 3 nodes should now have an active channel with
 	// the created HTLC pending on all of them.
-	ht.AssertActiveHtlcs(alice, payHash[:])
-	ht.AssertActiveHtlcs(bob, payHash[:])
-	ht.AssertActiveHtlcs(carol, payHash[:])
+	// At this point, all 3 nodes should now have an active channel with
+	// the created HTLCs pending on all of them.
+	//
+	// Alice should have one outgoing HTLC on channel Alice -> Bob.
+	ht.AssertNumActiveHtlcs(alice, 1)
+
+	// Bob should have one incoming HTLC on channel Alice -> Bob, and one
+	// outgoing HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(bob, 2)
+
+	// Carol should have one incoming HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(carol, 1)
 
 	// Wait for carol to mark invoice as accepted. There is a small gap to
 	// bridge between adding the htlc to the channel and executing the exit
@@ -2273,10 +2323,17 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 	ht.SendPaymentAssertInflight(alice, req)
 
 	// At this point, all 3 nodes should now have an active channel with
-	// the created HTLC pending on all of them.
-	ht.AssertActiveHtlcs(alice, payHash[:])
-	ht.AssertActiveHtlcs(bob, payHash[:])
-	ht.AssertActiveHtlcs(carol, payHash[:])
+	// the created HTLCs pending on all of them.
+	//
+	// Alice should have one outgoing HTLC on channel Alice -> Bob.
+	ht.AssertNumActiveHtlcs(alice, 1)
+
+	// Bob should have one incoming HTLC on channel Alice -> Bob, and one
+	// outgoing HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(bob, 2)
+
+	// Carol should have one incoming HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(carol, 1)
 
 	// Wait for carol to mark invoice as accepted. There is a small gap to
 	// bridge between adding the htlc to the channel and executing the exit
@@ -2556,10 +2613,17 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 	ht.SendPaymentAssertInflight(alice, req)
 
 	// At this point, all 3 nodes should now have an active channel with
-	// the created HTLC pending on all of them.
-	ht.AssertActiveHtlcs(alice, payHash[:])
-	ht.AssertActiveHtlcs(bob, payHash[:])
-	ht.AssertActiveHtlcs(carol, payHash[:])
+	// the created HTLCs pending on all of them.
+	//
+	// Alice should have one outgoing HTLC on channel Alice -> Bob.
+	ht.AssertNumActiveHtlcs(alice, 1)
+
+	// Bob should have one incoming HTLC on channel Alice -> Bob, and one
+	// outgoing HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(bob, 2)
+
+	// Carol should have one incoming HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(carol, 1)
 
 	// Wait for carol to mark invoice as accepted. There is a small gap to
 	// bridge between adding the htlc to the channel and executing the exit
@@ -3013,11 +3077,20 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 		ht.SendPaymentAssertInflight(carol, req)
 	}
 
-	// At this point, all 3 nodes should now the HTLCs active on their
-	// channels.
-	ht.AssertActiveHtlcs(alice, payHashes...)
-	ht.AssertActiveHtlcs(bob, payHashes...)
-	ht.AssertActiveHtlcs(carol, payHashes...)
+	// At this point, all 3 nodes should now have an active channel with
+	// the created HTLCs pending on all of them.
+	//
+	// Alice sent numInvoices and received numInvoices payments, she should
+	// have numInvoices*2 HTLCs.
+	ht.AssertNumActiveHtlcs(alice, numInvoices*2)
+
+	// Bob should have 2*numInvoices HTLCs on channel Alice -> Bob, and
+	// numInvoices*2 HTLCs on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(bob, numInvoices*4)
+
+	// Carol sent numInvoices and received numInvoices payments, she should
+	// have numInvoices*2 HTLCs.
+	ht.AssertNumActiveHtlcs(carol, numInvoices*2)
 
 	// Wait for Alice and Carol to mark the invoices as accepted. There is
 	// a small gap to bridge between adding the htlc to the channel and

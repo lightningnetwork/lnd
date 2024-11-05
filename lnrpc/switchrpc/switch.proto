@@ -18,10 +18,25 @@ message FetchAttemptResultsResponse {
     repeated AttemptResult attempt_results = 1;
 }
 
+message DeleteAttemptResultRequest {
+    uint64 attempt_id = 1;
+}
+
+message DeleteAttemptResultResponse {
+    bool success = 1;
+}
+
 // Switch is a service that offers advanced interaction with the HTLC switch
 // subsystem of the daemon.
 service Switch {
     // Fetches all attempt results stored in the Switch.
     rpc FetchAttemptResults (FetchAttemptResultsRequest)
         returns (FetchAttemptResultsResponse);
+
+    /*
+    Deletes a specific attempt result from the result store tracking local
+    payment attempts.
+    */
+    rpc DeleteAttemptResult (DeleteAttemptResultRequest)
+        returns (DeleteAttemptResultResponse);
 }

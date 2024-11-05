@@ -20,6 +20,9 @@ const _ = grpc.SupportPackageIsVersion7
 type SwitchClient interface {
 	// Fetches all attempt results stored in the Switch.
 	FetchAttemptResults(ctx context.Context, in *FetchAttemptResultsRequest, opts ...grpc.CallOption) (*FetchAttemptResultsResponse, error)
+	// Deletes a specific attempt result from the result store tracking local
+	// payment attempts.
+	DeleteAttemptResult(ctx context.Context, in *DeleteAttemptResultRequest, opts ...grpc.CallOption) (*DeleteAttemptResultResponse, error)
 }
 
 type switchClient struct {
@@ -39,12 +42,24 @@ func (c *switchClient) FetchAttemptResults(ctx context.Context, in *FetchAttempt
 	return out, nil
 }
 
+func (c *switchClient) DeleteAttemptResult(ctx context.Context, in *DeleteAttemptResultRequest, opts ...grpc.CallOption) (*DeleteAttemptResultResponse, error) {
+	out := new(DeleteAttemptResultResponse)
+	err := c.cc.Invoke(ctx, "/switchrpc.Switch/DeleteAttemptResult", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SwitchServer is the server API for Switch service.
 // All implementations must embed UnimplementedSwitchServer
 // for forward compatibility
 type SwitchServer interface {
 	// Fetches all attempt results stored in the Switch.
 	FetchAttemptResults(context.Context, *FetchAttemptResultsRequest) (*FetchAttemptResultsResponse, error)
+	// Deletes a specific attempt result from the result store tracking local
+	// payment attempts.
+	DeleteAttemptResult(context.Context, *DeleteAttemptResultRequest) (*DeleteAttemptResultResponse, error)
 	mustEmbedUnimplementedSwitchServer()
 }
 
@@ -54,6 +69,9 @@ type UnimplementedSwitchServer struct {
 
 func (UnimplementedSwitchServer) FetchAttemptResults(context.Context, *FetchAttemptResultsRequest) (*FetchAttemptResultsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FetchAttemptResults not implemented")
+}
+func (UnimplementedSwitchServer) DeleteAttemptResult(context.Context, *DeleteAttemptResultRequest) (*DeleteAttemptResultResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteAttemptResult not implemented")
 }
 func (UnimplementedSwitchServer) mustEmbedUnimplementedSwitchServer() {}
 
@@ -86,6 +104,24 @@ func _Switch_FetchAttemptResults_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Switch_DeleteAttemptResult_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteAttemptResultRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SwitchServer).DeleteAttemptResult(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/switchrpc.Switch/DeleteAttemptResult",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SwitchServer).DeleteAttemptResult(ctx, req.(*DeleteAttemptResultRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Switch_ServiceDesc is the grpc.ServiceDesc for Switch service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -96,6 +132,10 @@ var Switch_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FetchAttemptResults",
 			Handler:    _Switch_FetchAttemptResults_Handler,
+		},
+		{
+			MethodName: "DeleteAttemptResult",
+			Handler:    _Switch_DeleteAttemptResult_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

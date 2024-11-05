@@ -13,6 +13,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -36,7 +38,12 @@ var (
 	}
 
 	// macPermissions maps RPC calls to the permissions they require.
-	macPermissions = map[string][]bakery.Op{}
+	macPermissions = map[string][]bakery.Op{
+		"/switchrpc.Switch/DeleteAttemptResult": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+	}
 
 	// DefaultSwitchMacFilename is the default name of the switch macaroon
 	// that we expect to find via a file handle within the main
@@ -195,4 +202,18 @@ func (r *ServerShell) CreateSubServer(
 	r.SwitchServer = subServer
 
 	return subServer, macPermissions, nil
+}
+
+// DeleteAttemptResult deletes the result for the specified attempt ID.
+func (s *Server) DeleteAttemptResult(ctx context.Context,
+	req *DeleteAttemptResultRequest) (*DeleteAttemptResultResponse, error) {
+
+	// Attempt to delete the result from the Switch's network result store.
+	err := s.cfg.Switch.DeleteAttemptResult(req.AttemptId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"unable to delete attempt result: %v", err)
+	}
+
+	return &DeleteAttemptResultResponse{Success: true}, nil
 }

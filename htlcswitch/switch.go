@@ -548,6 +548,14 @@ func (s *Switch) CleanStore(keepPids map[uint64]struct{}) error {
 	return s.networkResults.cleanStore(keepPids)
 }
 
+// DeleteAttemptResult removes the given payment attempt result from the store
+// of local payment attempt results. This allows for synchronization of state
+// deletion between the creator of the attempt (router) and HTLC forwarder to
+// prevent state from being cleaned up prematurely.
+func (s *Switch) DeleteAttemptResult(attemptID uint64) error {
+	return s.networkResults.deleteAttemptResult(attemptID)
+}
+
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
 // package in order to send the htlc update. The attemptID used MUST be unique
 // for this HTLC, and MUST be used only once, otherwise the switch might reject

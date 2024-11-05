@@ -52,6 +52,9 @@
   `sat_per_kw` which allows for more precise
   fees](https://github.com/lightningnetwork/lnd/pull/9013).
 
+* [The `walletrpc.FundPsbt` method now has a new option to specify the maximum
+  fee to output amounts ratio.](https://github.com/lightningnetwork/lnd/pull/8600)
+
 ## lncli Additions
 
 * [A pre-generated macaroon root key can now be specified in `lncli create` and
@@ -61,6 +64,9 @@
 * [The `lncli wallet fundpsbt` sub command now has a `--sat_per_kw` flag to
   specify more precise fee
   rates](https://github.com/lightningnetwork/lnd/pull/9013).
+
+* The `lncli wallet fundpsbt` command now has a [`--max_fee_ratio` argument to
+  specify the max fees to output amounts ratio.](https://github.com/lightningnetwork/lnd/pull/8600)
 
 # Improvements
 ## Functional Updates
@@ -151,6 +157,7 @@
 * Boris Nagaev
 * CharlieZKSmith
 * Elle Mouton
+* George Tsagkarelis
 * Pins
 * Viktor Tigerström
 * Ziggie

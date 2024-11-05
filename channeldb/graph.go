@@ -1083,7 +1083,7 @@ func (c *ChannelGraph) addChannelEdge(tx kvdb.RwTx,
 		err := addLightningNode(tx, &node1Shell)
 		if err != nil {
 			return fmt.Errorf("unable to create shell node "+
-				"for: %x", edge.NodeKey1Bytes)
+				"for: %x: %w", edge.NodeKey1Bytes, err)
 		}
 	case node1Err != nil:
 		return err
@@ -1099,7 +1099,7 @@ func (c *ChannelGraph) addChannelEdge(tx kvdb.RwTx,
 		err := addLightningNode(tx, &node2Shell)
 		if err != nil {
 			return fmt.Errorf("unable to create shell node "+
-				"for: %x", edge.NodeKey2Bytes)
+				"for: %x: %w", edge.NodeKey2Bytes, err)
 		}
 	case node2Err != nil:
 		return err
@@ -2626,8 +2626,14 @@ func (c *ChannelGraph) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 
 	// As part of deleting the edge we also remove all disabled entries
 	// from the edgePolicyDisabledIndex bucket. We do that for both directions.
-	updateEdgePolicyDisabledIndex(edges, cid, false, false)
-	updateEdgePolicyDisabledIndex(edges, cid, true, false)
+	err = updateEdgePolicyDisabledIndex(edges, cid, false, false)
+	if err != nil {
+		return err
+	}
+	err = updateEdgePolicyDisabledIndex(edges, cid, true, false)
+	if err != nil {
+		return err
+	}
 
 	// With the edge data deleted, we can purge the information from the two
 	// edge indexes.
@@ -4456,11 +4462,14 @@ func putChanEdgePolicy(edges kvdb.RwBucket, edge *models.ChannelEdgePolicy,
 		return err
 	}
 
-	updateEdgePolicyDisabledIndex(
+	err = updateEdgePolicyDisabledIndex(
 		edges, edge.ChannelID,
 		edge.ChannelFlags&lnwire.ChanUpdateDirection > 0,
 		edge.IsDisabled(),
 	)
+	if err != nil {
+		return err
+	}
 
 	return edges.Put(edgeKey[:], b.Bytes()[:])
 }

@@ -50,8 +50,12 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 
 	// Once the HTLC has cleared, alice and bob should both have a single
 	// htlc locked in.
-	ht.AssertActiveHtlcs(alice, payHash[:])
-	ht.AssertActiveHtlcs(bob, payHash[:])
+	//
+	// Alice should have one outgoing HTLCs on channel Alice -> Bob.
+	ht.AssertOutgoingHTLCActive(alice, chanPoint, payHash[:])
+
+	// Bob should have one incoming HTLC on channel Alice -> Bob.
+	ht.AssertIncomingHTLCActive(bob, chanPoint, payHash[:])
 
 	// Get our htlc expiry height and current block height so that we
 	// can mine the exact number of blocks required to expire the htlc.

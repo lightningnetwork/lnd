@@ -1314,58 +1314,6 @@ func (h *HarnessTest) AssertNumActiveHtlcs(hn *node.HarnessNode, num int) {
 		hn.Name())
 }
 
-// AssertActiveHtlcs makes sure the node has the _exact_ HTLCs matching
-// payHashes on _all_ their channels.
-func (h *HarnessTest) AssertActiveHtlcs(hn *node.HarnessNode,
-	payHashes ...[]byte) {
-
-	err := wait.NoError(func() error {
-		// We require the RPC call to be succeeded and won't wait for
-		// it as it's an unexpected behavior.
-		req := &lnrpc.ListChannelsRequest{}
-		nodeChans := hn.RPC.ListChannels(req)
-
-		for _, ch := range nodeChans.Channels {
-			// Record all payment hashes active for this channel.
-			htlcHashes := make(map[string]struct{})
-
-			for _, htlc := range ch.PendingHtlcs {
-				h := hex.EncodeToString(htlc.HashLock)
-				_, ok := htlcHashes[h]
-				if ok {
-					return fmt.Errorf("duplicate HashLock "+
-						"in PendingHtlcs: %v",
-						ch.PendingHtlcs)
-				}
-				htlcHashes[h] = struct{}{}
-			}
-
-			// Channel should have exactly the payHashes active.
-			if len(payHashes) != len(htlcHashes) {
-				return fmt.Errorf("node [%s:%x] had %v "+
-					"htlcs active, expected %v",
-					hn.Name(), hn.PubKey[:],
-					len(htlcHashes), len(payHashes))
-			}
-
-			// Make sure all the payHashes are active.
-			for _, payHash := range payHashes {
-				h := hex.EncodeToString(payHash)
-				if _, ok := htlcHashes[h]; ok {
-					continue
-				}
-
-				return fmt.Errorf("node [%s:%x] didn't have: "+
-					"the payHash %v active", hn.Name(),
-					hn.PubKey[:], h)
-			}
-		}
-
-		return nil
-	}, DefaultTimeout)
-	require.NoError(h, err, "timeout checking active HTLCs")
-}
-
 // AssertIncomingHTLCActive asserts the node has a pending incoming HTLC in the
 // given channel. Returns the HTLC if found and active.
 func (h *HarnessTest) AssertIncomingHTLCActive(hn *node.HarnessNode,

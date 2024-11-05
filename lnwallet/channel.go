@@ -1711,7 +1711,7 @@ func (lc *LightningChannel) restorePendingRemoteUpdates(
 	localCommitmentHeight uint64,
 	pendingRemoteCommit *commitment) error {
 
-	lc.log.Debugf("Restoring %v dangling remote updates",
+	lc.log.Debugf("Restoring %v dangling remote updates pending our sig",
 		len(unsignedAckedUpdates))
 
 	for _, logUpdate := range unsignedAckedUpdates {
@@ -1829,6 +1829,9 @@ func (lc *LightningChannel) restorePendingLocalUpdates(
 
 	pendingCommit := pendingRemoteCommitDiff.Commitment
 	pendingHeight := pendingCommit.CommitHeight
+
+	lc.log.Debugf("Restoring pending remote commitment %v at commit "+
+		"height %v", pendingCommit.CommitTx.TxHash(), pendingHeight)
 
 	auxResult, err := fn.MapOptionZ(
 		lc.leafStore,

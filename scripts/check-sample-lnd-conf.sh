@@ -54,11 +54,12 @@ OPTIONS_NO_CONF="help lnddir configfile version end"
 # OPTIONS_NO_LND_DEFAULT_VALUE_CHECK is a list of options with default values
 # set, but there aren't any returned defaults by lnd --help. Defaults have to be
 # included in sample-lnd.conf but no further checks are performed.
-OPTIONS_NO_LND_DEFAULT_VALUE_CHECK="adminmacaroonpath readonlymacaroonpath \
-    invoicemacaroonpath rpclisten restlisten listen backupfilepath maxchansize \
-    bitcoin.chaindir bitcoin.defaultchanconfs bitcoin.defaultremotedelay \
-    bitcoin.dnsseed signrpc.signermacaroonpath walletrpc.walletkitmacaroonpath \
-    chainrpc.notifiermacaroonpath routerrpc.routermacaroonpath" 
+OPTIONS_NO_LND_DEFAULT_VALUE_CHECK="channel-max-fee-exposure adminmacaroonpath \
+    readonlymacaroonpath invoicemacaroonpath rpclisten restlisten listen \
+    backupfilepath maxchansize bitcoin.chaindir bitcoin.defaultchanconfs \
+    bitcoin.defaultremotedelay bitcoin.dnsseed signrpc.signermacaroonpath \
+    walletrpc.walletkitmacaroonpath chainrpc.notifiermacaroonpath \
+    routerrpc.routermacaroonpath" 
 
 
 # EXITCODE is returned at the end after all checks are performed and set to 1 

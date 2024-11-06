@@ -1806,18 +1806,15 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 	// request.
 	if in.Timeout != 0 {
 		timeout = time.Duration(in.Timeout) * time.Second
-		rpcsLog.Debugf(
-			"[connectpeer] connection timeout is set to %v",
-			timeout,
-		)
+		rpcsLog.Debugf("[connectpeer] connection timeout is set to %v",
+			timeout)
 	}
 
 	if err := r.server.ConnectToPeer(
 		peerAddr, in.Perm, timeout,
 	); err != nil {
-		rpcsLog.Errorf(
-			"[connectpeer]: error connecting to peer: %v", err,
-		)
+		rpcsLog.Errorf("[connectpeer]: error connecting to peer: %v",
+			err)
 		return nil, err
 	}
 
@@ -8821,8 +8818,9 @@ func (r *rpcServer) RegisterRPCMiddleware(
 }
 
 // SendCustomMessage sends a custom peer message.
-func (r *rpcServer) SendCustomMessage(ctx context.Context, req *lnrpc.SendCustomMessageRequest) (
-	*lnrpc.SendCustomMessageResponse, error) {
+func (r *rpcServer) SendCustomMessage(_ context.Context,
+	req *lnrpc.SendCustomMessageRequest) (*lnrpc.SendCustomMessageResponse,
+	error) {
 
 	peer, err := route.NewVertexFromBytes(req.Peer)
 	if err != nil {
@@ -8833,7 +8831,7 @@ func (r *rpcServer) SendCustomMessage(ctx context.Context, req *lnrpc.SendCustom
 		peer, lnwire.MessageType(req.Type), req.Data,
 	)
 	switch {
-	case err == ErrPeerNotConnected:
+	case errors.Is(err, ErrPeerNotConnected):
 		return nil, status.Error(codes.NotFound, err.Error())
 	case err != nil:
 		return nil, err
@@ -8846,7 +8844,8 @@ func (r *rpcServer) SendCustomMessage(ctx context.Context, req *lnrpc.SendCustom
 
 // SubscribeCustomMessages subscribes to a stream of incoming custom peer
 // messages.
-func (r *rpcServer) SubscribeCustomMessages(req *lnrpc.SubscribeCustomMessagesRequest,
+func (r *rpcServer) SubscribeCustomMessages(
+	_ *lnrpc.SubscribeCustomMessagesRequest,
 	server lnrpc.Lightning_SubscribeCustomMessagesServer) error {
 
 	client, err := r.server.SubscribeCustomMessages()
@@ -8879,17 +8878,17 @@ func (r *rpcServer) SubscribeCustomMessages(req *lnrpc.SubscribeCustomMessagesRe
 }
 
 // ListAliases returns the set of all aliases we have ever allocated along with
-// their base SCID's and possibly a separate confirmed SCID in the case of
+// their base SCIDs and possibly a separate confirmed SCID in the case of
 // zero-conf.
-func (r *rpcServer) ListAliases(ctx context.Context,
-	in *lnrpc.ListAliasesRequest) (*lnrpc.ListAliasesResponse, error) {
+func (r *rpcServer) ListAliases(_ context.Context,
+	_ *lnrpc.ListAliasesRequest) (*lnrpc.ListAliasesResponse, error) {
 
 	// Fetch the map of all aliases.
 	mapAliases := r.server.aliasMgr.ListAliases()
 
 	// Fill out the response. This does not include the zero-conf confirmed
-	// SCID. Doing so would require more database lookups and it can be
-	// cross-referenced with the output of listchannels/closedchannels.
+	// SCID. Doing so would require more database lookups, and it can be
+	// cross-referenced with the output of ListChannels/ClosedChannels.
 	resp := &lnrpc.ListAliasesResponse{
 		AliasMaps: make([]*lnrpc.AliasMap, 0),
 	}

@@ -195,9 +195,11 @@ ifeq ($(dbbackend),postgres)
 	docker rm lnd-postgres --force || echo "Starting new postgres container"
 
 	# Start a fresh postgres instance. Allow a maximum of 500 connections so
-	# that multiple lnd instances with a maximum number of connections of 50
-	# each can run concurrently.
-	docker run --name lnd-postgres -e POSTGRES_PASSWORD=postgres -p 6432:5432 -d postgres:13-alpine -N 500
+	# that multiple lnd instances with a maximum number of connections of 20
+	# each can run concurrently. Note that many of the settings here are
+	# specifically for integration testing and are not fit for running
+	# production nodes.
+	docker run --name lnd-postgres -e POSTGRES_PASSWORD=postgres -p 6432:5432 -d postgres:13-alpine -N 1500 -c max_pred_locks_per_transaction=1024 -c max_locks_per_transaction=128 -c jit=off -c work_mem=8MB -c checkpoint_timeout=10min -c enable_seqscan=off
 	docker logs -f lnd-postgres &
 
 	# Wait for the instance to be started.

@@ -206,6 +206,9 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 // Use local kvdb package until new version is tagged.
 replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
 
+// Use local sqldb package until new version is tagged.
+replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
+
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display

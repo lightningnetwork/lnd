@@ -536,7 +536,9 @@ func (w *WalletKit) ReleaseOutput(ctx context.Context,
 		return nil, err
 	}
 
-	return &ReleaseOutputResponse{}, nil
+	return &ReleaseOutputResponse{
+		Status: fmt.Sprintf("output %v released", op.String()),
+	}, nil
 }
 
 // ListLeases returns a list of all currently locked utxos.
@@ -1443,7 +1445,10 @@ func (w *WalletKit) LabelTransaction(ctx context.Context,
 	}
 
 	err = w.cfg.Wallet.LabelTransaction(*hash, req.Label, req.Overwrite)
-	return &LabelTransactionResponse{}, err
+
+	return &LabelTransactionResponse{
+		Status: fmt.Sprintf("transaction label '%s' added", req.Label),
+	}, err
 }
 
 // FundPsbt creates a fully populated PSBT that contains enough inputs to fund
@@ -2896,7 +2901,10 @@ func (w *WalletKit) ImportPublicKey(_ context.Context,
 		return nil, err
 	}
 
-	return &ImportPublicKeyResponse{}, nil
+	return &ImportPublicKeyResponse{
+		Status: fmt.Sprintf("public key %x imported",
+			pubKey.SerializeCompressed()),
+	}, nil
 }
 
 // ImportTapscript imports a Taproot script and internal key and adds the

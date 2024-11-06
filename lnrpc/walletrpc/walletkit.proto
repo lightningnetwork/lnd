@@ -414,6 +414,8 @@ message ReleaseOutputRequest {
 }
 
 message ReleaseOutputResponse {
+    // The status of the release operation.
+    string status = 1;
 }
 
 message KeyReq {
@@ -699,6 +701,8 @@ message ImportPublicKeyRequest {
     AddressType address_type = 2;
 }
 message ImportPublicKeyResponse {
+    // The status of the import operation.
+    string status = 1;
 }
 
 message ImportTapscriptRequest {
@@ -1318,6 +1322,8 @@ message LabelTransactionRequest {
 }
 
 message LabelTransactionResponse {
+    // The status of the label operation.
+    string status = 1;
 }
 
 // The possible change address types for default accounts and single imported

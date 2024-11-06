@@ -1692,7 +1692,13 @@
       }
     },
     "walletrpcImportPublicKeyResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the import operation."
+        }
+      }
     },
     "walletrpcImportTapscriptRequest": {
       "type": "object",
@@ -1764,7 +1770,13 @@
       }
     },
     "walletrpcLabelTransactionResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the label operation."
+        }
+      }
     },
     "walletrpcLeaseOutputRequest": {
       "type": "object",
@@ -2002,7 +2014,13 @@
       }
     },
     "walletrpcReleaseOutputResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the release operation."
+        }
+      }
     },
     "walletrpcRemoveTransactionResponse": {
       "type": "object",

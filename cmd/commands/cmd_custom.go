@@ -41,14 +41,15 @@ func sendCustom(ctx *cli.Context) error {
 		return err
 	}
 
-	_, err = client.SendCustomMessage(
-		ctxc,
-		&lnrpc.SendCustomMessageRequest{
+	resp, err := client.SendCustomMessage(
+		ctxc, &lnrpc.SendCustomMessageRequest{
 			Peer: peer,
 			Type: uint32(msgType),
 			Data: data,
 		},
 	)
+
+	printRespJSON(resp)
 
 	return err
 }

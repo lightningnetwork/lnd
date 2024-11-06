@@ -8159,7 +8159,7 @@ func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
 		// write the new backups to disk, and then attempt to connect
 		// out to any peers that we know of which were our prior
 		// channel peers.
-		err := chanbackup.UnpackAndRecoverSingles(
+		_, err := chanbackup.UnpackAndRecoverSingles(
 			chanbackup.PackedSingles(packedBackups),
 			r.server.cc.KeyRing, chanRestorer, r.server,
 		)
@@ -8176,7 +8176,7 @@ func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
 		// out to any peers that we know of which were our prior
 		// channel peers.
 		packedMulti := chanbackup.PackedMulti(packedMultiBackup)
-		err := chanbackup.UnpackAndRecoverMulti(
+		_, err := chanbackup.UnpackAndRecoverMulti(
 			packedMulti, r.server.cc.KeyRing, chanRestorer,
 			r.server,
 		)

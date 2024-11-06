@@ -195,9 +195,18 @@ ifeq ($(dbbackend),postgres)
 	docker rm lnd-postgres --force || echo "Starting new postgres container"
 
 	# Start a fresh postgres instance. Allow a maximum of 500 connections so
-	# that multiple lnd instances with a maximum number of connections of 50
-	# each can run concurrently.
-	docker run --name lnd-postgres -e POSTGRES_PASSWORD=postgres -p 6432:5432 -d postgres:13-alpine -N 500
+	# that multiple lnd instances with a maximum number of connections of 20
+	# each can run concurrently. Note that many of the settings here are
+	# specifically for integration testing and are not fit for running
+	# production nodes. The increase in max connections ensures that there
+	# are enough entries allocated for the RWConflictPool to allow multiple
+	# conflicting transactions to track serialization conflicts. The
+	# increase in predicate locks and locks per transaction is to allow the
+	# queries to lock individual rows instead of entire tables, helping
+	# reduce serialization conflicts. Disabling sequential scan for small
+	# tables also helps prevent serialization conflicts by ensuring lookups
+	# lock only relevant rows in the index rather than the entire table.
+	docker run --name lnd-postgres -e POSTGRES_PASSWORD=postgres -p 6432:5432 -d postgres:13-alpine -N 1500 -c max_pred_locks_per_transaction=1024 -c max_locks_per_transaction=128 -c enable_seqscan=off
 	docker logs -f lnd-postgres &
 
 	# Wait for the instance to be started.

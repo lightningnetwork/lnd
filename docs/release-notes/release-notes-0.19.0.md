@@ -220,6 +220,9 @@
   added and they will be removed in a future release. The defaults values for 
   these options have also been increased from max 3 log files to 10 and from 
   max 10 MB to 20 MB. 
+
+* Refactored the `ValidationBarrier` to use
+  [set-based dependency tracking](https://github.com/lightningnetwork/lnd/pull/9241).
  
 * [Deprecate `dust-threshold`
 config option](https://github.com/lightningnetwork/lnd/pull/9182) and introduce

@@ -212,6 +212,26 @@ func TestSuccessProbability(t *testing.T) {
 			amount:              largeAmount,
 			expectedProbability: 0.5,
 		},
+		// Larger success and larger failure than the old capacity are
+		// rescaled to still give a very high success rate.
+		{
+			name:                "smaller cap, large success/fail",
+			capacity:            capacity,
+			failAmount:          2*capacity + 1,
+			successAmount:       2 * capacity,
+			amount:              largeAmount,
+			expectedProbability: 1.0,
+		},
+		// A lower success amount is not rescaled.
+		{
+			name:          "smaller cap, large fail",
+			capacity:      capacity,
+			successAmount: smallAmount / 2,
+			failAmount:    2 * capacity,
+			amount:        smallAmount,
+			// See "previous success, larger amount".
+			expectedProbability: 0.851,
+		},
 	}
 
 	estimator := BimodalEstimator{

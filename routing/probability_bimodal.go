@@ -500,24 +500,36 @@ func (p *BimodalEstimator) probabilityFormula(capacityMsat, successAmountMsat,
 		failAmount = capacity
 	}
 
-	// Mission control may have some outdated values, we correct them here.
-	// TODO(bitromortac): there may be better decisions to make in these
-	//  cases, e.g., resetting failAmount=cap and successAmount=0.
+	// Mission control may have some outdated values with regard to the
+	// current channel capacity between a node pair. This can happen in case
+	// a large parallel channel was closed or if a channel was downscaled
+	// and can lead to success and/or failure amounts to be out of the range
+	// [0, capacity]. We assume that the liquidity situation of the channel
+	// is similar as before due to flow bias.
 
-	// failAmount should be capacity at max.
-	if failAmount > capacity {
-		log.Debugf("Correcting failAmount %v to capacity %v",
-			failAmount, capacity)
+	// In case we have a large success we need to correct it to be in the
+	// valid range. We set the success amount close to the capacity, because
+	// we assume to still be able to send. Any possible failure (that must
+	// in this case be larger than the capacity) is corrected as well.
+	if successAmount >= capacity {
+		log.Debugf("Correcting success amount %s and failure amount "+
+			"%s to capacity %s", successAmountMsat,
+			failAmount, capacityMsat)
 
+		// We choose the success amount to be one less than the
+		// capacity, to both fit success and failure amounts into the
+		// capacity range in a consistent manner.
+		successAmount = capacity - 1
 		failAmount = capacity
 	}
 
-	// successAmount should be capacity at max.
-	if successAmount > capacity {
-		log.Debugf("Correcting successAmount %v to capacity %v",
-			successAmount, capacity)
+	// Having no or only a small success, but a large failure only needs
+	// adjustment of the failure amount.
+	if failAmount > capacity {
+		log.Debugf("Correcting failure amount %s to capacity %s",
+			failAmountMsat, capacityMsat)
 
-		successAmount = capacity
+		failAmount = capacity
 	}
 
 	// We cannot send more than the fail amount.

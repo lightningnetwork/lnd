@@ -40,6 +40,9 @@
   a graceful shutdown of LND during the main chain backend sync check in certain
   cases.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9249) found in the
+  mission control store that can block the shutdown process of LND.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

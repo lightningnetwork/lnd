@@ -233,6 +233,11 @@ func getLndBinary(t *testing.T) string {
 	return binary
 }
 
+// isWindowsOS returns true if the test is running on a Windows OS.
+func isWindowsOS() bool {
+	return runtime.GOOS == "windows"
+}
+
 func init() {
 	// Before we start any node, we need to make sure that any btcd node
 	// that is started through the RPC harness uses a unique port as well

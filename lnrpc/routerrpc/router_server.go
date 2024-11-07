@@ -1488,10 +1488,23 @@ func (s *Server) BuildRoute(_ context.Context,
 		firstHopBlob = fn.Some(firstHopData)
 	}
 
+	// Set the source node based on the request, using the router's
+	// self-node as the default if no source_pubkey is provided.
+	var sourceNode route.Vertex
+	var err error
+	if len(req.SourcePubkey) != 0 {
+		sourceNode, err = route.NewVertexFromBytes(req.SourcePubkey)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		sourceNode = s.cfg.Router.GetSelfNode()
+	}
+
 	// Build the route and return it to the caller.
 	route, err := s.cfg.Router.BuildRoute(
-		amt, hops, outgoingChan, req.FinalCltvDelta, payAddr,
-		firstHopBlob,
+		sourceNode, amt, hops, outgoingChan, req.FinalCltvDelta,
+		payAddr, firstHopBlob,
 	)
 	if err != nil {
 		return nil, err

@@ -690,6 +690,21 @@ func FuzzProbability(f *testing.F) {
 		BimodalConfig: BimodalConfig{BimodalScaleMsat: 400_000},
 	}
 
+	// Predefined seed reported in
+	// https://github.com/lightningnetwork/lnd/issues/9085. This test found
+	// a case where we could not compute a normalization factor because we
+	// learned that the balance lies somewhere in the middle of the channel,
+	// a surprising result for the bimodal model, which predicts two
+	// distinct modes at the edges and therefore has numerical issues in the
+	// middle. Additionally, the scale is small with respect to the values
+	// used here.
+	f.Add(
+		uint64(1_000_000_000),
+		uint64(300_000_000),
+		uint64(400_000_000),
+		uint64(300_000_000),
+	)
+
 	f.Fuzz(func(t *testing.T, capacity, successAmt, failAmt, amt uint64) {
 		if capacity == 0 {
 			return

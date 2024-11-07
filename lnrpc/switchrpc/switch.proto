@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package switchrpc;
+
+// import "lightning.proto";
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/switchrpc";
+
+message FetchAttemptResultsRequest {
+}
+
+message FetchAttemptResultsResponse {
+    message AttemptResult {
+        uint64 attempt_id = 1;
+        string result_details = 2;
+    }
+
+    repeated AttemptResult attempt_results = 1;
+}
+
+// Switch is a service that offers advanced interaction with the HTLC switch
+// subsystem of the daemon.
+service Switch {
+    // Fetches all attempt results stored in the Switch.
+    rpc FetchAttemptResults (FetchAttemptResultsRequest)
+        returns (FetchAttemptResultsResponse);
+}

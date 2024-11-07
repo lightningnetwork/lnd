@@ -1806,23 +1806,24 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 	// request.
 	if in.Timeout != 0 {
 		timeout = time.Duration(in.Timeout) * time.Second
-		rpcsLog.Debugf(
-			"[connectpeer] connection timeout is set to %v",
-			timeout,
-		)
+		rpcsLog.Debugf("[connectpeer] connection timeout is set to %v",
+			timeout)
 	}
 
 	if err := r.server.ConnectToPeer(
 		peerAddr, in.Perm, timeout,
 	); err != nil {
-		rpcsLog.Errorf(
-			"[connectpeer]: error connecting to peer: %v", err,
-		)
+		rpcsLog.Errorf("[connectpeer]: error connecting to peer: %v",
+			err)
 		return nil, err
 	}
 
 	rpcsLog.Debugf("Connected to peer: %v", peerAddr.String())
-	return &lnrpc.ConnectPeerResponse{}, nil
+
+	return &lnrpc.ConnectPeerResponse{
+		Status: fmt.Sprintf("connection to %v initiated",
+			peerAddr.String()),
+	}, nil
 }
 
 // DisconnectPeer attempts to disconnect one peer from another identified by a
@@ -1884,7 +1885,9 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 		return nil, fmt.Errorf("unable to disconnect peer: %w", err)
 	}
 
-	return &lnrpc.DisconnectPeerResponse{}, nil
+	return &lnrpc.DisconnectPeerResponse{
+		Status: "disconnect initiated",
+	}, nil
 }
 
 // newFundingShimAssembler returns a new fully populated
@@ -3165,7 +3168,9 @@ func (r *rpcServer) AbandonChannel(_ context.Context,
 		return nil, err
 	}
 
-	return &lnrpc.AbandonChannelResponse{}, nil
+	return &lnrpc.AbandonChannelResponse{
+		Status: fmt.Sprintf("channel %v abandoned", chanPoint.String()),
+	}, nil
 }
 
 // GetInfo returns general information concerning the lightning node including
@@ -7035,7 +7040,10 @@ func (r *rpcServer) StopDaemon(_ context.Context,
 	}
 
 	r.interceptor.RequestShutdown()
-	return &lnrpc.StopResponse{}, nil
+
+	return &lnrpc.StopResponse{
+		Status: "shutdown initiated, check logs for progress",
+	}, nil
 }
 
 // SubscribeChannelGraph launches a streaming RPC that allows the caller to
@@ -7286,7 +7294,9 @@ func (r *rpcServer) DeletePayment(ctx context.Context,
 		return nil, err
 	}
 
-	return &lnrpc.DeletePaymentResponse{}, nil
+	return &lnrpc.DeletePaymentResponse{
+		Status: "payment deleted",
+	}, nil
 }
 
 // DeleteAllPayments deletes all outgoing payments from DB.
@@ -7319,14 +7329,17 @@ func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 		"failed_htlcs_only=%v", req.FailedPaymentsOnly,
 		req.FailedHtlcsOnly)
 
-	err := r.server.miscDB.DeletePayments(
+	numDeletedPayments, err := r.server.miscDB.DeletePayments(
 		req.FailedPaymentsOnly, req.FailedHtlcsOnly,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &lnrpc.DeleteAllPaymentsResponse{}, nil
+	return &lnrpc.DeleteAllPaymentsResponse{
+		Status: fmt.Sprintf("%v payments deleted, failed_htlcs_only=%v",
+			numDeletedPayments, req.FailedHtlcsOnly),
+	}, nil
 }
 
 // DebugLevel allows a caller to programmatically set the logging verbosity of
@@ -7974,6 +7987,10 @@ func (r *rpcServer) ExportChannelBackup(ctx context.Context,
 func (r *rpcServer) VerifyChanBackup(ctx context.Context,
 	in *lnrpc.ChanBackupSnapshot) (*lnrpc.VerifyChanBackupResponse, error) {
 
+	var (
+		channels []chanbackup.Single
+		err      error
+	)
 	switch {
 	// If neither a Single or Multi has been specified, then we have nothing
 	// to verify.
@@ -8004,7 +8021,7 @@ func (r *rpcServer) VerifyChanBackup(ctx context.Context,
 		// With our PackedSingles created, we'll attempt to unpack the
 		// backup. If this fails, then we know the backup is invalid for
 		// some reason.
-		_, err := chanBackup.Unpack(r.server.cc.KeyRing)
+		channels, err = chanBackup.Unpack(r.server.cc.KeyRing)
 		if err != nil {
 			return nil, fmt.Errorf("invalid single channel "+
 				"backup: %v", err)
@@ -8018,14 +8035,20 @@ func (r *rpcServer) VerifyChanBackup(ctx context.Context,
 
 		// We'll now attempt to unpack the Multi. If this fails, then we
 		// know it's invalid.
-		_, err := packedMulti.Unpack(r.server.cc.KeyRing)
+		multi, err := packedMulti.Unpack(r.server.cc.KeyRing)
 		if err != nil {
 			return nil, fmt.Errorf("invalid multi channel backup: "+
 				"%v", err)
 		}
+
+		channels = multi.StaticBackups
 	}
 
-	return &lnrpc.VerifyChanBackupResponse{}, nil
+	return &lnrpc.VerifyChanBackupResponse{
+		ChanPoints: fn.Map(func(c chanbackup.Single) string {
+			return c.FundingOutpoint.String()
+		}, channels),
+	}, nil
 }
 
 // createBackupSnapshot converts the passed Single backup into a snapshot which
@@ -8142,6 +8165,10 @@ func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
 
 	// We'll accept either a list of Single backups, or a single Multi
 	// backup which contains several single backups.
+	var (
+		numRestored int
+		err         error
+	)
 	switch {
 	case in.GetChanBackups() != nil:
 		chanBackupsProtos := in.GetChanBackups()
@@ -8159,7 +8186,7 @@ func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
 		// write the new backups to disk, and then attempt to connect
 		// out to any peers that we know of which were our prior
 		// channel peers.
-		err := chanbackup.UnpackAndRecoverSingles(
+		numRestored, err = chanbackup.UnpackAndRecoverSingles(
 			chanbackup.PackedSingles(packedBackups),
 			r.server.cc.KeyRing, chanRestorer, r.server,
 		)
@@ -8176,7 +8203,7 @@ func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
 		// out to any peers that we know of which were our prior
 		// channel peers.
 		packedMulti := chanbackup.PackedMulti(packedMultiBackup)
-		err := chanbackup.UnpackAndRecoverMulti(
+		numRestored, err = chanbackup.UnpackAndRecoverMulti(
 			packedMulti, r.server.cc.KeyRing, chanRestorer,
 			r.server,
 		)
@@ -8186,7 +8213,9 @@ func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
 		}
 	}
 
-	return &lnrpc.RestoreBackupResponse{}, nil
+	return &lnrpc.RestoreBackupResponse{
+		NumRestored: uint32(numRestored),
+	}, nil
 }
 
 // SubscribeChannelBackups allows a client to sub-subscribe to the most up to
@@ -8789,8 +8818,9 @@ func (r *rpcServer) RegisterRPCMiddleware(
 }
 
 // SendCustomMessage sends a custom peer message.
-func (r *rpcServer) SendCustomMessage(ctx context.Context, req *lnrpc.SendCustomMessageRequest) (
-	*lnrpc.SendCustomMessageResponse, error) {
+func (r *rpcServer) SendCustomMessage(_ context.Context,
+	req *lnrpc.SendCustomMessageRequest) (*lnrpc.SendCustomMessageResponse,
+	error) {
 
 	peer, err := route.NewVertexFromBytes(req.Peer)
 	if err != nil {
@@ -8801,18 +8831,21 @@ func (r *rpcServer) SendCustomMessage(ctx context.Context, req *lnrpc.SendCustom
 		peer, lnwire.MessageType(req.Type), req.Data,
 	)
 	switch {
-	case err == ErrPeerNotConnected:
+	case errors.Is(err, ErrPeerNotConnected):
 		return nil, status.Error(codes.NotFound, err.Error())
 	case err != nil:
 		return nil, err
 	}
 
-	return &lnrpc.SendCustomMessageResponse{}, nil
+	return &lnrpc.SendCustomMessageResponse{
+		Status: "message sent successfully",
+	}, nil
 }
 
 // SubscribeCustomMessages subscribes to a stream of incoming custom peer
 // messages.
-func (r *rpcServer) SubscribeCustomMessages(req *lnrpc.SubscribeCustomMessagesRequest,
+func (r *rpcServer) SubscribeCustomMessages(
+	_ *lnrpc.SubscribeCustomMessagesRequest,
 	server lnrpc.Lightning_SubscribeCustomMessagesServer) error {
 
 	client, err := r.server.SubscribeCustomMessages()
@@ -8845,17 +8878,17 @@ func (r *rpcServer) SubscribeCustomMessages(req *lnrpc.SubscribeCustomMessagesRe
 }
 
 // ListAliases returns the set of all aliases we have ever allocated along with
-// their base SCID's and possibly a separate confirmed SCID in the case of
+// their base SCIDs and possibly a separate confirmed SCID in the case of
 // zero-conf.
-func (r *rpcServer) ListAliases(ctx context.Context,
-	in *lnrpc.ListAliasesRequest) (*lnrpc.ListAliasesResponse, error) {
+func (r *rpcServer) ListAliases(_ context.Context,
+	_ *lnrpc.ListAliasesRequest) (*lnrpc.ListAliasesResponse, error) {
 
 	// Fetch the map of all aliases.
 	mapAliases := r.server.aliasMgr.ListAliases()
 
 	// Fill out the response. This does not include the zero-conf confirmed
-	// SCID. Doing so would require more database lookups and it can be
-	// cross-referenced with the output of listchannels/closedchannels.
+	// SCID. Doing so would require more database lookups, and it can be
+	// cross-referenced with the output of ListChannels/ClosedChannels.
 	resp := &lnrpc.ListAliasesResponse{
 		AliasMaps: make([]*lnrpc.AliasMap, 0),
 	}

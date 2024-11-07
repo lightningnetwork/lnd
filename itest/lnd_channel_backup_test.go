@@ -396,12 +396,22 @@ func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
 					req := &lnrpc.RestoreChanBackupRequest{
 						Backup: backup,
 					}
-					newNode.RPC.RestoreChanBackups(req)
+					res := newNode.RPC.RestoreChanBackups(
+						req,
+					)
+					require.EqualValues(
+						st, 1, res.NumRestored,
+					)
 
 					req = &lnrpc.RestoreChanBackupRequest{
 						Backup: backup,
 					}
-					newNode.RPC.RestoreChanBackups(req)
+					res = newNode.RPC.RestoreChanBackups(
+						req,
+					)
+					require.EqualValues(
+						st, 0, res.NumRestored,
+					)
 
 					return newNode
 				}
@@ -916,9 +926,27 @@ func testChannelBackupUpdates(ht *lntest.HarnessTest) {
 		}
 	}
 
+	containsChan := func(b *lnrpc.VerifyChanBackupResponse,
+		chanPoint *lnrpc.ChannelPoint) bool {
+
+		hash, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+		require.NoError(ht, err)
+
+		chanPointStr := fmt.Sprintf("%s:%d", hash.String(),
+			chanPoint.OutputIndex)
+
+		for idx := range b.ChanPoints {
+			if b.ChanPoints[idx] == chanPointStr {
+				return true
+			}
+		}
+
+		return false
+	}
+
 	// assertBackupFileState is a helper function that we'll use to compare
 	// the on disk back up file to our currentBackup pointer above.
-	assertBackupFileState := func() {
+	assertBackupFileState := func(expectAllChannels bool) {
 		err := wait.NoError(func() error {
 			packedBackup, err := os.ReadFile(backupFilePath)
 			if err != nil {
@@ -946,7 +974,20 @@ func testChannelBackupUpdates(ht *lntest.HarnessTest) {
 					},
 				}
 
-				carol.RPC.VerifyChanBackup(snapshot)
+				res := carol.RPC.VerifyChanBackup(snapshot)
+
+				if !expectAllChannels {
+					continue
+				}
+				for idx := range chanPoints {
+					if containsChan(res, chanPoints[idx]) {
+						continue
+					}
+
+					return fmt.Errorf("backup %v doesn't "+
+						"contain chan_point: %v",
+						res.ChanPoints, chanPoints[idx])
+				}
 			}
 
 			return nil
@@ -961,7 +1002,7 @@ func testChannelBackupUpdates(ht *lntest.HarnessTest) {
 
 	// The on disk file should also exactly match the latest backup that we
 	// have.
-	assertBackupFileState()
+	assertBackupFileState(true)
 
 	// Next, we'll close the channels one by one. After each channel
 	// closure, we should get a notification, and the on-disk state should
@@ -988,14 +1029,14 @@ func testChannelBackupUpdates(ht *lntest.HarnessTest) {
 			// Now that the channel's been fully resolved, we
 			// expect another notification.
 			assertBackupNtfns(1)
-			assertBackupFileState()
+			assertBackupFileState(false)
 		} else {
 			ht.CloseChannel(alice, chanPoint)
 			// We should get a single notification after closing,
 			// and the on-disk state should match this latest
 			// notifications.
 			assertBackupNtfns(1)
-			assertBackupFileState()
+			assertBackupFileState(false)
 		}
 	}
 }
@@ -1414,7 +1455,8 @@ func chanRestoreViaRPC(ht *lntest.HarnessTest, password []byte,
 			nil,
 		)
 		req := &lnrpc.RestoreChanBackupRequest{Backup: backup}
-		newNode.RPC.RestoreChanBackups(req)
+		res := newNode.RPC.RestoreChanBackups(req)
+		require.Greater(ht, res.NumRestored, uint32(0))
 
 		return newNode
 	}

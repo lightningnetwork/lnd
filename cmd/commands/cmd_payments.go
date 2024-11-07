@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/urfave/cli"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -1781,11 +1782,7 @@ func deletePayments(ctx *cli.Context) error {
 		failedHTLCsOnly  = ctx.Bool("failed_htlcs_only")
 		includeNonFailed = ctx.Bool("include_non_failed")
 		err              error
-		okMsg            = struct {
-			OK bool `json:"ok"`
-		}{
-			OK: true,
-		}
+		resp             proto.Message
 	)
 
 	// We pack two RPCs into the same CLI so there are a few non-valid
@@ -1812,10 +1809,12 @@ func deletePayments(ctx *cli.Context) error {
 				err)
 		}
 
-		_, err = client.DeletePayment(ctxc, &lnrpc.DeletePaymentRequest{
-			PaymentHash:     paymentHash,
-			FailedHtlcsOnly: failedHTLCsOnly,
-		})
+		resp, err = client.DeletePayment(
+			ctxc, &lnrpc.DeletePaymentRequest{
+				PaymentHash:     paymentHash,
+				FailedHtlcsOnly: failedHTLCsOnly,
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("error deleting single payment: %w",
 				err)
@@ -1832,7 +1831,7 @@ func deletePayments(ctx *cli.Context) error {
 
 		fmt.Printf("Removing %s payments, this might take a while...\n",
 			what)
-		_, err = client.DeleteAllPayments(
+		resp, err = client.DeleteAllPayments(
 			ctxc, &lnrpc.DeleteAllPaymentsRequest{
 				AllPayments:        includeNonFailed,
 				FailedPaymentsOnly: !includeNonFailed,
@@ -1844,9 +1843,7 @@ func deletePayments(ctx *cli.Context) error {
 		}
 	}
 
-	// Users are confused by empty JSON outputs so let's return a simple OK
-	// instead of just printing the empty response RPC message.
-	printJSON(okMsg)
+	printJSON(resp)
 
 	return nil
 }

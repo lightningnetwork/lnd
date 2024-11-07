@@ -83,6 +83,24 @@
 
 ## RPC Updates
 
+* Some RPCs that previously just returned an empty response message now at least
+  return [a short status
+  message](https://github.com/lightningnetwork/lnd/pull/7762) to help command
+  line users to better understand that the command was executed successfully and
+  something was executed or initiated to run in the background. The following
+  CLI commands now don't just return an empty response (`{}`) anymore:
+    * `lncli wallet releaseoutput` (`WalletKit.ReleaseOutput` RPC)
+    * `lncli wallet accounts import-pubkey` (`WalletKit.ImportPublicKey` RPC)
+    * `lncli wallet labeltx` (`WalletKit.LabelTransaction` RPC)
+    * `lncli sendcustom` (`Lightning.SendCustomMessage` RPC)
+    * `lncli connect` (`Lightning.ConnectPeer` RPC)
+    * `lncli disconnect` (`Lightning.DisconnectPeer` RPC)
+    * `lncli stop` (`Lightning.Stop` RPC)
+    * `lncli deletepayments` (`Lightning.DeleteAllPaymentsResponse` RPC)
+    * `lncli abandonchannel` (`Lightning.AbandonChannel` RPC)
+    * `lncli restorechanbackup` (`Lightning.RestoreChannelBackups` RPC)
+    * `lncli verifychanbackup` (`Lightning.VerifyChanBackup` RPC)
+
 ## lncli Updates
 
 ## Code Health
@@ -158,6 +176,7 @@
 * CharlieZKSmith
 * Elle Mouton
 * George Tsagkarelis
+* Oliver Gugger
 * Pins
 * Viktor Tigerström
 * Ziggie

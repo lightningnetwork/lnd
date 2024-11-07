@@ -9,7 +9,9 @@ import (
 )
 
 var sendCustomCommand = cli.Command{
-	Name: "sendcustom",
+	Name:     "sendcustom",
+	Category: "Peers",
+	Usage:    "Send a custom p2p wire message to a peer",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "peer",
@@ -41,20 +43,24 @@ func sendCustom(ctx *cli.Context) error {
 		return err
 	}
 
-	_, err = client.SendCustomMessage(
-		ctxc,
-		&lnrpc.SendCustomMessageRequest{
+	resp, err := client.SendCustomMessage(
+		ctxc, &lnrpc.SendCustomMessageRequest{
 			Peer: peer,
 			Type: uint32(msgType),
 			Data: data,
 		},
 	)
 
+	printRespJSON(resp)
+
 	return err
 }
 
 var subscribeCustomCommand = cli.Command{
-	Name:   "subscribecustom",
+	Name:     "subscribecustom",
+	Category: "Peers",
+	Usage: "Subscribe to incoming custom p2p wire messages from all " +
+		"peers",
 	Action: actionDecorator(subscribeCustom),
 }
 
@@ -64,8 +70,7 @@ func subscribeCustom(ctx *cli.Context) error {
 	defer cleanUp()
 
 	stream, err := client.SubscribeCustomMessages(
-		ctxc,
-		&lnrpc.SubscribeCustomMessagesRequest{},
+		ctxc, &lnrpc.SubscribeCustomMessagesRequest{},
 	)
 	if err != nil {
 		return err

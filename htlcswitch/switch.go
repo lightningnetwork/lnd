@@ -548,6 +548,11 @@ func (s *Switch) CleanStore(keepPids map[uint64]struct{}) error {
 	return s.networkResults.cleanStore(keepPids)
 }
 
+// FetchAttemptResults retrieves all results from the network result store.
+func (s *Switch) FetchAttemptResults() (map[uint64]*networkResult, error) {
+	return s.networkResults.fetchAttemptResults()
+}
+
 // DeleteAttemptResult removes the given payment attempt result from the store
 // of local payment attempt results. This allows for synchronization of state
 // deletion between the creator of the attempt (router) and HTLC forwarder to

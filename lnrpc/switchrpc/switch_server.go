@@ -39,6 +39,10 @@ var (
 
 	// macPermissions maps RPC calls to the permissions they require.
 	macPermissions = map[string][]bakery.Op{
+		"/switchrpc.Switch/FetchAttemptResults": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 		"/switchrpc.Switch/DeleteAttemptResult": {{
 			Entity: "offchain",
 			Action: "write",
@@ -202,6 +206,30 @@ func (r *ServerShell) CreateSubServer(
 	r.SwitchServer = subServer
 
 	return subServer, macPermissions, nil
+}
+
+// FetchAttemptResults retrieves all results in the network result store.
+func (s *Server) FetchAttemptResults(ctx context.Context,
+	req *FetchAttemptResultsRequest) (*FetchAttemptResultsResponse, error) {
+
+	results, err := s.cfg.Switch.FetchAttemptResults()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"unable to fetch attempt results: %v", err)
+	}
+
+	response := &FetchAttemptResultsResponse{}
+	for attemptID := range results {
+		attemptResult := &FetchAttemptResultsResponse_AttemptResult{
+			AttemptId: attemptID,
+		}
+		response.AttemptResults = append(
+			response.AttemptResults,
+			attemptResult,
+		)
+	}
+
+	return response, nil
 }
 
 // DeleteAttemptResult deletes the result for the specified attempt ID.

@@ -841,9 +841,10 @@ func (h *HarnessTest) NewNodeRemoteSigner(name string, extraArgs []string,
 	return hn
 }
 
-// KillNode kills the node (but won't wait for the node process to stop).
+// KillNode kills the node and waits for the node process to stop.
 func (h *HarnessTest) KillNode(hn *node.HarnessNode) {
-	require.NoErrorf(h, hn.Kill(), "%s: kill got error", hn.Name())
+	h.Logf("Manually killing the node %s", hn.Name())
+	require.NoErrorf(h, hn.KillAndWait(), "%s: kill got error", hn.Name())
 	delete(h.manager.activeNodes, hn.Cfg.NodeID)
 }
 

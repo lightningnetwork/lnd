@@ -309,6 +309,20 @@ func TestIntegral(t *testing.T) {
 	}
 }
 
+// TestSpecialCase tests a value combination found by fuzz tests.
+func TestSpecialCase(t *testing.T) {
+	estimator := BimodalEstimator{
+		BimodalConfig: BimodalConfig{
+			BimodalScaleMsat: lnwire.MilliSatoshi(400_000),
+		},
+	}
+
+	_, err := estimator.probabilityFormula(
+		1_000_000_000, 300_000_000, 400_000_000, 300_000_000,
+	)
+	require.Error(t, err)
+}
+
 // TestCanSend tests that the success amount drops to zero over time.
 func TestCanSend(t *testing.T) {
 	t.Parallel()

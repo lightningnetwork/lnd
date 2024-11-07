@@ -1669,6 +1669,14 @@ func (s *UtxoSweeper) monitorFeeBumpResult(set InputSet,
 			// in sweeper and rely solely on this event to mark
 			// inputs as Swept?
 			if r.Event == TxConfirmed || r.Event == TxFailed {
+				// Exit if the tx is failed to be created.
+				if r.Tx == nil {
+					log.Debugf("Received %v for nil tx, "+
+						"exit monitor", r.Event)
+
+					return
+				}
+
 				log.Debugf("Received %v for sweep tx %v, exit "+
 					"fee bump monitor", r.Event,
 					r.Tx.TxHash())
@@ -1694,7 +1702,10 @@ func (s *UtxoSweeper) handleBumpEventTxFailed(resp *bumpResp) {
 	r := resp.result
 	tx, err := r.Tx, r.Err
 
-	log.Warnf("Fee bump attempt failed for tx=%v: %v", tx.TxHash(), err)
+	if tx != nil {
+		log.Warnf("Fee bump attempt failed for tx=%v: %v", tx.TxHash(),
+			err)
+	}
 
 	// NOTE: When marking the inputs as failed, we are using the input set
 	// instead of the inputs found in the tx. This is fine for current

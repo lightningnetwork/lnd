@@ -695,4 +695,19 @@ func init() {
 	allTestCases = append(allTestCases, walletImportAccountTestCases...)
 	allTestCases = append(allTestCases, basicFundingTestCases...)
 	allTestCases = append(allTestCases, sendToRouteTestCases...)
+
+	// Prepare the test cases for windows to exclude some of the flaky
+	// ones.
+	//
+	// NOTE: We need to run this before the isWindowsOS check to make sure
+	// the excluded tests are found in allTestCases. Otherwise, if a
+	// non-existing test is included in excludedTestsWindows, we won't be
+	// able to find it until it's pushed to the CI, which creates a much
+	// longer feedback loop.
+	windowsTestCases := filterWindowsFlakyTests()
+
+	// If this is Windows, we'll skip running some of the flaky tests.
+	if isWindowsOS() {
+		allTestCases = windowsTestCases
+	}
 }

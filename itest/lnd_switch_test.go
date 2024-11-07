@@ -3,8 +3,11 @@ package itest
 import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/switchrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -487,4 +490,80 @@ func (s *scenarioFourNodes) assertAmoutPaid(ht *lntest.HarnessTest,
 		s.chanPointAliceBob,
 		amt+(baseFee*num)*2, int64(0),
 	)
+}
+
+func testFetchAttemptResults(ht *lntest.HarnessTest) {
+	// Create a simple two-node context consisting of Alice and Bob.
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("bob", nil)
+
+	// Connect nodes to ensure propagation of channels.
+	ht.EnsureConnected(alice, bob)
+
+	const chanAmt = btcutil.Amount(1000000)
+
+	// Now, open a channel with 100k satoshis between Alice and Bob with
+	// Alice being the sole funder of the channel. This will provide Alice
+	// with outbound liquidity she can use to complete payments.
+	chanPointAliceBob := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
+	)
+	defer ht.CloseChannel(alice, chanPointAliceBob)
+
+	const (
+		numPayments = 3
+		paymentAmt  = 10000
+	)
+
+	// Request an invoice from Bob so he is expecting payment.
+	payReqs, rHashes, _ := ht.CreatePayReqs(bob, paymentAmt, numPayments)
+
+	// Send a few payments using Alice's node to populate her Switch's
+	// local payment attempt result store with entries.
+	for i := range numPayments {
+		payClient := alice.RPC.SendPayment(
+			&routerrpc.SendPaymentRequest{
+				PaymentRequest: payReqs[i],
+				FeeLimitMsat:   noFeeLimitMsat,
+				TimeoutSeconds: 60,
+			},
+		)
+
+		ht.AssertPaymentSucceedWithTimeout(payClient,
+			wait.DefaultTimeout)
+	}
+
+	// NOTE(calvin): We need to block until the payments have settled so
+	// that the results are available when queried below.
+	for i := range rHashes {
+		trackClient := alice.RPC.TrackPaymentV2(rHashes[i])
+		ht.AssertPaymentStatusFromStream(
+			trackClient, lnrpc.Payment_SUCCEEDED,
+		)
+	}
+
+	// We expect there to be a result for each payment!
+	req := &switchrpc.FetchAttemptResultsRequest{}
+	resp := alice.RPC.FetchAttemptResults(req)
+	require.Lenf(ht.T, resp.AttemptResults, numPayments, "expected %d "+
+		"results, instead got %d", numPayments,
+		len(resp.AttemptResults))
+
+	// Delete the attempt results from the switch store.
+	deleteReq := &switchrpc.DeleteAttemptResultRequest{
+		AttemptId: 1,
+	}
+	alice.RPC.DeleteAttemptResult(deleteReq)
+
+	// Fetch the results again, and confirm that the correct results have
+	// been removed.
+	req = &switchrpc.FetchAttemptResultsRequest{}
+	resp = alice.RPC.FetchAttemptResults(req)
+	require.Lenf(ht.T, resp.AttemptResults, numPayments-1, "expected %d "+
+		"results, instead got %d", numPayments,
+		len(resp.AttemptResults))
+	require.Equal(ht.T, uint64(2), resp.AttemptResults[0].AttemptId,
+		"unexpected attempt ID")
+	require.Equal(ht.T, uint64(3), resp.AttemptResults[1].AttemptId,
+		"unexpected attempt ID")
 }

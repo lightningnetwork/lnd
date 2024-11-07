@@ -1,6 +1,11 @@
 package fn
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 // Option represents a value which may or may not be there. This is very often
 // preferable to nil-able pointers.
@@ -72,14 +77,9 @@ func (o Option[A]) UnwrapOrFunc(f func() A) A {
 func (o Option[A]) UnwrapOrFail(t *testing.T) A {
 	t.Helper()
 
-	if o.isSome {
-		return o.some
-	}
+	require.True(t, o.isSome, "Option[%T] was None()", o.some)
 
-	t.Fatalf("Option[%T] was None()", o.some)
-
-	var zero A
-	return zero
+	return o.some
 }
 
 // UnwrapOrErr is used to extract a value from an option, if the option is
@@ -144,11 +144,11 @@ func FlattenOption[A any](oo Option[Option[A]]) Option[A] {
 	return oo.some
 }
 
-// ChainOption transforms a function A -> Option[B] into one that accepts an
+// FlatMapOption transforms a function A -> Option[B] into one that accepts an
 // Option[A] as an argument.
 //
-// ChainOption : (A -> Option[B]) -> Option[A] -> Option[B].
-func ChainOption[A, B any](f func(A) Option[B]) func(Option[A]) Option[B] {
+// FlatMapOption : (A -> Option[B]) -> Option[A] -> Option[B].
+func FlatMapOption[A, B any](f func(A) Option[B]) func(Option[A]) Option[B] {
 	return func(o Option[A]) Option[B] {
 		if o.isSome {
 			return f(o.some)
@@ -225,9 +225,9 @@ func (o Option[A]) UnsafeFromSome() A {
 	panic("Option was None()")
 }
 
-// OptionToLeft can be used to convert an Option value into an Either, by
+// SomeToLeft can be used to convert an Option value into an Either, by
 // providing the Right value that should be used if the Option value is None.
-func OptionToLeft[O, L, R any](o Option[O], r R) Either[O, R] {
+func SomeToLeft[O, R any](o Option[O], r R) Either[O, R] {
 	if o.IsSome() {
 		return NewLeft[O, R](o.some)
 	}
@@ -235,12 +235,42 @@ func OptionToLeft[O, L, R any](o Option[O], r R) Either[O, R] {
 	return NewRight[O, R](r)
 }
 
-// OptionToRight can be used to convert an Option value into an Either, by
+// SomeToRight can be used to convert an Option value into an Either, by
 // providing the Left value that should be used if the Option value is None.
-func OptionToRight[O, L, R any](o Option[O], l L) Either[L, O] {
+func SomeToRight[O, L any](o Option[O], l L) Either[L, O] {
 	if o.IsSome() {
 		return NewRight[L, O](o.some)
 	}
 
 	return NewLeft[L, O](l)
+}
+
+// SomeToOk allows you to convert an Option value to a Result with your own
+// error. If the Option contained a Some, then the supplied error is ignored
+// and Some is converted to Ok.
+func (o Option[A]) SomeToOk(err error) Result[A] {
+	return Result[A]{
+		SomeToLeft(o, err),
+	}
+}
+
+// SomeToOkf allows you to convert an Option value to a Result with your own
+// error message. If the Option contains a Some, then the supplied message is
+// ignored and Some is converted to Ok.
+func (o Option[A]) SomeToOkf(errString string, args ...interface{}) Result[A] {
+	return Result[A]{
+		SomeToLeft(o, fmt.Errorf(errString, args...)),
+	}
+}
+
+// TransposeOptRes transposes the Option[Result[A]] into a Result[Option[A]].
+// This has the effect of leaving an A value alone while inverting the Option
+// and Result layers. If there is no internal A value, it will convert the
+// non-success value to the proper one in the transposition.
+func TransposeOptRes[A any](o Option[Result[A]]) Result[Option[A]] {
+	if o.IsNone() {
+		return Ok(None[A]())
+	}
+
+	return Result[Option[A]]{MapLeft[A, error](Some[A])(o.some.Either)}
 }

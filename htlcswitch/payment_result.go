@@ -298,7 +298,44 @@ func (store *networkResultStore) cleanStore(keep map[uint64]struct{}) error {
 	}, func() {})
 }
 
-// deleteAttemptResult deletes the result associated with the specified attempt ID.
+// fetchAttemptResults retrieves all results stored in the network result store,
+// returning each result along with its associated attempt ID.
+func (store *networkResultStore) fetchAttemptResults() (
+	map[uint64]*networkResult, error) {
+
+	results := make(map[uint64]*networkResult)
+
+	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
+		networkResults := tx.ReadBucket(networkResultStoreBucketKey)
+		if networkResults == nil {
+			return ErrPaymentIDNotFound
+		}
+
+		return networkResults.ForEach(func(k, v []byte) error {
+			// Convert the key (attemptID) back to uint64.
+			attemptID := binary.BigEndian.Uint64(k)
+
+			// Deserialize the result stored in the value.
+			r := bytes.NewReader(v)
+			result, err := deserializeNetworkResult(r)
+			if err != nil {
+				return err
+			}
+
+			// Store the result with its associated attempt ID.
+			results[attemptID] = result
+
+			return nil
+		})
+	}, func() {})
+	if err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
+// deleteAttemptResult deletes the result given by the specified attempt ID.
 func (store *networkResultStore) deleteAttemptResult(attemptID uint64) error {
 	// Acquire the mutex for this attempt ID.
 	store.attemptIDMtx.Lock(attemptID)
@@ -307,7 +344,9 @@ func (store *networkResultStore) deleteAttemptResult(attemptID uint64) error {
 	log.Debugf("Deleting result for attemptID=%v", attemptID)
 
 	return kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
-		networkResults := tx.ReadWriteBucket(networkResultStoreBucketKey)
+		networkResults := tx.ReadWriteBucket(
+			networkResultStoreBucketKey,
+		)
 		if networkResults == nil {
 			return ErrPaymentIDNotFound
 		}

@@ -193,6 +193,9 @@ func (h *HarnessTest) Start(chain node.BackendConfig,
 
 	// Assemble the miner.
 	h.miner = miner
+
+	// Update block height.
+	h.updateCurrentHeight()
 }
 
 // ChainBackendName returns the chain backend name used in the test.

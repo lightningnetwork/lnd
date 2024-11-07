@@ -75,7 +75,17 @@ const (
 	// TxPublished is sent when the broadcast attempt is finished.
 	TxPublished BumpEvent = iota
 
-	// TxFailed is sent when the broadcast attempt fails.
+	// TxFailed is sent when the tx has encountered a fee-related error
+	// during its creation or broadcast, or an internal error from the fee
+	// bumper. In either case the inputs in this tx should be retried with
+	// either a different grouping strategy or an increased budget.
+	//
+	// NOTE: We also send this event when there's a third party spend
+	// event, and the sweeper will handle cleaning this up once it's
+	// confirmed.
+	//
+	// TODO(yy): Remove the above usage once we remove sweeping non-CPFP
+	// anchors.
 	TxFailed
 
 	// TxReplaced is sent when the original tx is replaced by a new one.
@@ -269,8 +279,10 @@ func (b *BumpResult) String() string {
 
 // Validate validates the BumpResult so it's safe to use.
 func (b *BumpResult) Validate() error {
+	isFailureEvent := b.Event == TxFailed || b.Event == TxFatal
+
 	// Every result must have a tx except the fatal or failed case.
-	if b.Tx == nil && b.Event != TxFatal {
+	if b.Tx == nil && !isFailureEvent {
 		return fmt.Errorf("%w: nil tx", ErrInvalidBumpResult)
 	}
 
@@ -285,10 +297,8 @@ func (b *BumpResult) Validate() error {
 	}
 
 	// If it's a failed or fatal event, it must have an error.
-	if b.Event == TxFatal || b.Event == TxFailed {
-		if b.Err == nil {
-			return fmt.Errorf("%w: nil error", ErrInvalidBumpResult)
-		}
+	if isFailureEvent && b.Err == nil {
+		return fmt.Errorf("%w: nil error", ErrInvalidBumpResult)
 	}
 
 	// If it's a confirmed event, it must have a fee rate and fee.

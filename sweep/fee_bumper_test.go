@@ -91,13 +91,6 @@ func TestBumpResultValidate(t *testing.T) {
 	}
 	require.ErrorIs(t, b.Validate(), ErrInvalidBumpResult)
 
-	// A failed event without a tx will give an error.
-	b = BumpResult{
-		Event: TxFailed,
-		Err:   errDummy,
-	}
-	require.ErrorIs(t, b.Validate(), ErrInvalidBumpResult)
-
 	// A fatal event without a failure reason will give an error.
 	b = BumpResult{
 		Event: TxFailed,
@@ -115,6 +108,13 @@ func TestBumpResultValidate(t *testing.T) {
 	b = BumpResult{
 		Tx:    &wire.MsgTx{},
 		Event: TxPublished,
+	}
+	require.NoError(t, b.Validate())
+
+	// Tx is allowed to be nil in a TxFailed event.
+	b = BumpResult{
+		Event: TxFailed,
+		Err:   errDummy,
 	}
 	require.NoError(t, b.Validate())
 

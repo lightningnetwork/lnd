@@ -311,6 +311,25 @@ func TestIntegral(t *testing.T) {
 	}
 }
 
+// TestBimodalFuzz9085 tests a value combination found by fuzz tests reported in
+// https://github.com/lightningnetwork/lnd/issues/9085. This test found a case
+// where we could not compute a normalization factor because we learned that the
+// balance lies somewhere in the middle of the channel, a surprising result for
+// the bimodal model, which predicts two distinct modes at the edges and
+// therefore has numerical issues in the middle.
+func TestBimodalFuzz9085(t *testing.T) {
+	estimator := BimodalEstimator{
+		BimodalConfig: BimodalConfig{
+			BimodalScaleMsat: lnwire.MilliSatoshi(400_000),
+		},
+	}
+
+	_, err := estimator.probabilityFormula(
+		1_000_000_000, 300_000_000, 400_000_000, 300_000_000,
+	)
+	require.Error(t, err)
+}
+
 // TestCanSend tests that the success amount drops to zero over time.
 func TestCanSend(t *testing.T) {
 	t.Parallel()

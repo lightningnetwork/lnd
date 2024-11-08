@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
-	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -505,12 +504,6 @@ func testGarbageCollectLinkNodes(ht *lntest.HarnessTest) {
 	// We'll do the same with Alice and Carol, but this time we'll force
 	// close the channel instead.
 	ht.ForceCloseChannel(alice, forceCloseChanPoint)
-
-	// We'll need to mine some blocks in order to mark the channel fully
-	// closed.
-	ht.MineBlocks(
-		chainreg.DefaultBitcoinTimeLockDelta - defaultCSV,
-	)
 
 	// Before we test reconnection, we'll ensure that the channel has been
 	// fully cleaned up for both Carol and Alice.

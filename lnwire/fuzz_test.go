@@ -995,6 +995,12 @@ func FuzzInvalidOnionPayload(f *testing.F) {
 	})
 }
 
+func FuzzFailInvalidBlinding(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeInvalidBlinding)
+	})
+}
+
 func FuzzClosingSig(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with ClosingSig.

@@ -23,6 +23,70 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// channelRestoreTestCases contains the test cases for the channel restore
+// scenario.
+var channelRestoreTestCases = []*lntest.TestCase{
+	{
+		// Restore the backup from the on-disk file, using the RPC
+		// interface, for anchor commitment channels.
+		Name: "channel backup restore anchor",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runChanRestoreScenarioCommitTypes(
+				ht, lnrpc.CommitmentType_ANCHORS, false,
+			)
+		},
+	},
+	{
+		// Restore the backup from the on-disk file, using the RPC
+		// interface, for script-enforced leased channels.
+		Name: "channel backup restore leased",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runChanRestoreScenarioCommitTypes(
+				ht, leasedType, false,
+			)
+		},
+	},
+	{
+		// Restore the backup from the on-disk file, using the RPC
+		// interface, for zero-conf anchor channels.
+		Name: "channel backup restore anchor zero conf",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runChanRestoreScenarioCommitTypes(
+				ht, lnrpc.CommitmentType_ANCHORS, true,
+			)
+		},
+	},
+	{
+		// Restore the backup from the on-disk file, using the RPC
+		// interface for a zero-conf script-enforced leased channel.
+		Name: "channel backup restore leased zero conf",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runChanRestoreScenarioCommitTypes(
+				ht, leasedType, true,
+			)
+		},
+	},
+	{
+		// Restore a channel back up of a taproot channel that was
+		// confirmed.
+		Name: "channel backup restore simple taproot",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runChanRestoreScenarioCommitTypes(
+				ht, lnrpc.CommitmentType_SIMPLE_TAPROOT, false,
+			)
+		},
+	},
+	{
+		// Restore a channel back up of an unconfirmed taproot channel.
+		Name: "channel backup restore simple taproot zero conf",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runChanRestoreScenarioCommitTypes(
+				ht, lnrpc.CommitmentType_SIMPLE_TAPROOT, true,
+			)
+		},
+	},
+}
+
 type (
 	// nodeRestorer is a function closure that allows each test case to
 	// control exactly *how* the prior node is restored. This might be
@@ -538,79 +602,6 @@ func runChanRestoreScenarioUnConfirmed(ht *lntest.HarnessTest, useFile bool) {
 
 	// Test the scenario.
 	crs.testScenario(ht, restoredNodeFunc)
-}
-
-// testChannelBackupRestoreCommitTypes tests that we're able to recover from,
-// and initiate the DLP protocol for different channel commitment types and
-// zero-conf channel.
-func testChannelBackupRestoreCommitTypes(ht *lntest.HarnessTest) {
-	var testCases = []struct {
-		name     string
-		ct       lnrpc.CommitmentType
-		zeroConf bool
-	}{
-		// Restore the backup from the on-disk file, using the RPC
-		// interface, for anchor commitment channels.
-		{
-			name: "restore from backup file anchors",
-			ct:   lnrpc.CommitmentType_ANCHORS,
-		},
-
-		// Restore the backup from the on-disk file, using the RPC
-		// interface, for script-enforced leased channels.
-		{
-			name: "restore from backup file script " +
-				"enforced lease",
-			ct: lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
-		},
-
-		// Restore the backup from the on-disk file, using the RPC
-		// interface, for zero-conf anchor channels.
-		{
-			name: "restore from backup file for zero-conf " +
-				"anchors channel",
-			ct:       lnrpc.CommitmentType_ANCHORS,
-			zeroConf: true,
-		},
-
-		// Restore the backup from the on-disk file, using the RPC
-		// interface for a zero-conf script-enforced leased channel.
-		{
-			name: "restore from backup file zero-conf " +
-				"script-enforced leased channel",
-			ct:       lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
-			zeroConf: true,
-		},
-
-		// Restore a channel back up of a taproot channel that was
-		// confirmed.
-		{
-			name:     "restore from backup taproot",
-			ct:       lnrpc.CommitmentType_SIMPLE_TAPROOT,
-			zeroConf: false,
-		},
-
-		// Restore a channel back up of an unconfirmed taproot channel.
-		{
-			name:     "restore from backup taproot zero conf",
-			ct:       lnrpc.CommitmentType_SIMPLE_TAPROOT,
-			zeroConf: true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		tc := testCase
-		success := ht.Run(tc.name, func(t *testing.T) {
-			h := ht.Subtest(t)
-
-			runChanRestoreScenarioCommitTypes(
-				h, tc.ct, tc.zeroConf,
-			)
-		})
-		if !success {
-			break
-		}
-	}
 }
 
 // runChanRestoreScenarioCommitTypes tests that the DLP is applied for

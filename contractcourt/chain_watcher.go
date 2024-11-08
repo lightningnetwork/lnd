@@ -436,6 +436,7 @@ func (c *chainWatcher) handleUnknownLocalState(
 			return s.FetchLeavesFromCommit(
 				lnwallet.NewAuxChanState(c.cfg.chanState),
 				c.cfg.chanState.LocalCommitment, *commitKeyRing,
+				lntypes.Local,
 			)
 		},
 	).Unpack()

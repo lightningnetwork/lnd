@@ -28,10 +28,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testChannelBackupRestoreUnconfirmed,
 	},
 	{
-		Name:     "channel backup restore commit types",
-		TestFunc: testChannelBackupRestoreCommitTypes,
-	},
-	{
 		Name:     "channel backup restore force close",
 		TestFunc: testChannelBackupRestoreForceClose,
 	},
@@ -684,4 +680,5 @@ func init() {
 	allTestCases = append(allTestCases, watchtowerTestCases...)
 	allTestCases = append(allTestCases, psbtFundingTestCases...)
 	allTestCases = append(allTestCases, remoteSignerTestCases...)
+	allTestCases = append(allTestCases, channelRestoreTestCases...)
 }

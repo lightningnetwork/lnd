@@ -16,6 +16,59 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// remoteSignerTestCases defines a set of test cases to run against the remote
+// signer.
+var remoteSignerTestCases = []*lntest.TestCase{
+	{
+		Name:     "remote signer random seed",
+		TestFunc: testRemoteSignerRadomSeed,
+	},
+	{
+		Name:     "remote signer account import",
+		TestFunc: testRemoteSignerAccountImport,
+	},
+	{
+		Name:     "remote signer channel open",
+		TestFunc: testRemoteSignerChannelOpen,
+	},
+	{
+		Name:     "remote signer funding input types",
+		TestFunc: testRemoteSignerChannelFundingInputTypes,
+	},
+	{
+		Name:     "remote signer funding async payments",
+		TestFunc: testRemoteSignerAsyncPayments,
+	},
+	{
+		Name:     "remote signer funding async payments taproot",
+		TestFunc: testRemoteSignerAsyncPaymentsTaproot,
+	},
+	{
+		Name:     "remote signer shared key",
+		TestFunc: testRemoteSignerSharedKey,
+	},
+	{
+		Name:     "remote signer bump fee",
+		TestFunc: testRemoteSignerBumpFee,
+	},
+	{
+		Name:     "remote signer psbt",
+		TestFunc: testRemoteSignerPSBT,
+	},
+	{
+		Name:     "remote signer sign output raw",
+		TestFunc: testRemoteSignerSignOutputRaw,
+	},
+	{
+		Name:     "remote signer verify msg",
+		TestFunc: testRemoteSignerSignVerifyMsg,
+	},
+	{
+		Name:     "remote signer taproot",
+		TestFunc: testRemoteSignerTaproot,
+	},
+}
+
 var (
 	rootKey = "tprv8ZgxMBicQKsPe6jS4vDm2n7s42Q6MpvghUQqMmSKG7bTZvGKtjrcU3" +
 		"PGzMNG37yzxywrcdvgkwrr8eYXJmbwdvUNVT4Ucv7ris4jvA7BUmg"
@@ -53,25 +106,115 @@ var (
 	}}
 )
 
-// testRemoteSigner tests that a watch-only wallet can use a remote signing
-// wallet to perform any signing or ECDH operations.
-func testRemoteSigner(ht *lntest.HarnessTest) {
-	type testCase struct {
-		name       string
-		randomSeed bool
-		sendCoins  bool
-		commitType lnrpc.CommitmentType
-		fn         func(tt *lntest.HarnessTest,
-			wo, carol *node.HarnessNode)
+// remoteSignerTestCase defines a test case for the remote signer test suite.
+type remoteSignerTestCase struct {
+	name       string
+	randomSeed bool
+	sendCoins  bool
+	commitType lnrpc.CommitmentType
+	fn         func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode)
+}
+
+// prepareRemoteSignerTest prepares a test case for the remote signer test
+// suite by creating three nodes.
+func prepareRemoteSignerTest(ht *lntest.HarnessTest, tc remoteSignerTestCase) (
+	*node.HarnessNode, *node.HarnessNode, *node.HarnessNode) {
+
+	// Signer is our signing node and has the wallet with the full master
+	// private key. We test that we can create the watch-only wallet from
+	// the exported accounts but also from a static key to make sure the
+	// derivation of the account public keys is correct in both cases.
+	password := []byte("itestpassword")
+	var (
+		signerNodePubKey  = nodePubKey
+		watchOnlyAccounts = deriveCustomScopeAccounts(ht.T)
+		signer            *node.HarnessNode
+		err               error
+	)
+	if !tc.randomSeed {
+		signer = ht.RestoreNodeWithSeed(
+			"Signer", nil, password, nil, rootKey, 0, nil,
+		)
+	} else {
+		signer = ht.NewNode("Signer", nil)
+		signerNodePubKey = signer.PubKeyStr
+
+		rpcAccts := signer.RPC.ListAccounts(
+			&walletrpc.ListAccountsRequest{},
+		)
+
+		watchOnlyAccounts, err = walletrpc.AccountsToWatchOnly(
+			rpcAccts.Accounts,
+		)
+		require.NoError(ht, err)
 	}
 
-	subTests := []testCase{{
+	var commitArgs []string
+	if tc.commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		commitArgs = lntest.NodeArgsForCommitType(
+			tc.commitType,
+		)
+	}
+
+	// WatchOnly is the node that has a watch-only wallet and uses the
+	// Signer node for any operation that requires access to private keys.
+	watchOnly := ht.NewNodeRemoteSigner(
+		"WatchOnly", append([]string{
+			"--remotesigner.enable",
+			fmt.Sprintf(
+				"--remotesigner.rpchost=localhost:%d",
+				signer.Cfg.RPCPort,
+			),
+			fmt.Sprintf(
+				"--remotesigner.tlscertpath=%s",
+				signer.Cfg.TLSCertPath,
+			),
+			fmt.Sprintf(
+				"--remotesigner.macaroonpath=%s",
+				signer.Cfg.AdminMacPath,
+			),
+		}, commitArgs...),
+		password, &lnrpc.WatchOnly{
+			MasterKeyBirthdayTimestamp: 0,
+			MasterKeyFingerprint:       nil,
+			Accounts:                   watchOnlyAccounts,
+		},
+	)
+
+	resp := watchOnly.RPC.GetInfo()
+	require.Equal(ht, signerNodePubKey, resp.IdentityPubkey)
+
+	if tc.sendCoins {
+		ht.FundCoins(btcutil.SatoshiPerBitcoin, watchOnly)
+		ht.AssertWalletAccountBalance(
+			watchOnly, "default",
+			btcutil.SatoshiPerBitcoin, 0,
+		)
+	}
+
+	carol := ht.NewNode("carol", commitArgs)
+	ht.EnsureConnected(watchOnly, carol)
+
+	return signer, watchOnly, carol
+}
+
+// testRemoteSignerRadomSeed tests that a watch-only wallet can use a remote
+// signing wallet to perform any signing or ECDH operations.
+func testRemoteSignerRadomSeed(ht *lntest.HarnessTest) {
+	tc := remoteSignerTestCase{
 		name:       "random seed",
 		randomSeed: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			// Nothing more to test here.
 		},
-	}, {
+	}
+
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+	tc.fn(ht, watchOnly, carol)
+}
+
+func testRemoteSignerAccountImport(ht *lntest.HarnessTest) {
+	tc := remoteSignerTestCase{
 		name: "account import",
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runWalletImportAccountScenario(
@@ -79,25 +222,53 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 				carol, wo,
 			)
 		},
-	}, {
+	}
+
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+	tc.fn(ht, watchOnly, carol)
+}
+
+func testRemoteSignerChannelOpen(ht *lntest.HarnessTest) {
+	tc := remoteSignerTestCase{
 		name:      "basic channel open close",
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runBasicChannelCreationAndUpdates(tt, wo, carol)
 		},
-	}, {
+	}
+
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+	tc.fn(ht, watchOnly, carol)
+}
+
+func testRemoteSignerChannelFundingInputTypes(ht *lntest.HarnessTest) {
+	tc := remoteSignerTestCase{
 		name:      "channel funding input types",
 		sendCoins: false,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runChannelFundingInputTypes(tt, carol, wo)
 		},
-	}, {
+	}
+
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+	tc.fn(ht, watchOnly, carol)
+}
+
+func testRemoteSignerAsyncPayments(ht *lntest.HarnessTest) {
+	tc := remoteSignerTestCase{
 		name:      "async payments",
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runAsyncPayments(tt, wo, carol, nil)
 		},
-	}, {
+	}
+
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+	tc.fn(ht, watchOnly, carol)
+}
+
+func testRemoteSignerAsyncPaymentsTaproot(ht *lntest.HarnessTest) {
+	tc := remoteSignerTestCase{
 		name:      "async payments taproot",
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
@@ -108,18 +279,39 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 			)
 		},
 		commitType: lnrpc.CommitmentType_SIMPLE_TAPROOT,
-	}, {
+	}
+
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+	tc.fn(ht, watchOnly, carol)
+}
+
+func testRemoteSignerSharedKey(ht *lntest.HarnessTest) {
+	tc := remoteSignerTestCase{
 		name: "shared key",
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runDeriveSharedKey(tt, wo)
 		},
-	}, {
+	}
+
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+	tc.fn(ht, watchOnly, carol)
+}
+
+func testRemoteSignerBumpFee(ht *lntest.HarnessTest) {
+	tc := remoteSignerTestCase{
 		name:      "bumpfee",
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runBumpFee(tt, wo)
 		},
-	}, {
+	}
+
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+	tc.fn(ht, watchOnly, carol)
+}
+
+func testRemoteSignerPSBT(ht *lntest.HarnessTest) {
+	tc := remoteSignerTestCase{
 		name:       "psbt",
 		randomSeed: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
@@ -137,19 +329,40 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 			// sure we can fund and then sign PSBTs from our wallet.
 			runFundAndSignPsbt(ht, wo)
 		},
-	}, {
+	}
+
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+	tc.fn(ht, watchOnly, carol)
+}
+
+func testRemoteSignerSignOutputRaw(ht *lntest.HarnessTest) {
+	tc := remoteSignerTestCase{
 		name:      "sign output raw",
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runSignOutputRaw(tt, wo)
 		},
-	}, {
+	}
+
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+	tc.fn(ht, watchOnly, carol)
+}
+
+func testRemoteSignerSignVerifyMsg(ht *lntest.HarnessTest) {
+	tc := remoteSignerTestCase{
 		name:      "sign verify msg",
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
 			runSignVerifyMessage(tt, wo)
 		},
-	}, {
+	}
+
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+	tc.fn(ht, watchOnly, carol)
+}
+
+func testRemoteSignerTaproot(ht *lntest.HarnessTest) {
+	tc := remoteSignerTestCase{
 		name:       "taproot",
 		sendCoins:  true,
 		randomSeed: true,
@@ -175,107 +388,10 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 				)
 			}
 		},
-	}}
-
-	prepareTest := func(st *lntest.HarnessTest,
-		subTest testCase) (*node.HarnessNode,
-		*node.HarnessNode, *node.HarnessNode) {
-
-		// Signer is our signing node and has the wallet with the full
-		// master private key. We test that we can create the watch-only
-		// wallet from the exported accounts but also from a static key
-		// to make sure the derivation of the account public keys is
-		// correct in both cases.
-		password := []byte("itestpassword")
-		var (
-			signerNodePubKey  = nodePubKey
-			watchOnlyAccounts = deriveCustomScopeAccounts(ht.T)
-			signer            *node.HarnessNode
-			err               error
-		)
-		if !subTest.randomSeed {
-			signer = st.RestoreNodeWithSeed(
-				"Signer", nil, password, nil, rootKey, 0, nil,
-			)
-		} else {
-			signer = st.NewNode("Signer", nil)
-			signerNodePubKey = signer.PubKeyStr
-
-			rpcAccts := signer.RPC.ListAccounts(
-				&walletrpc.ListAccountsRequest{},
-			)
-
-			watchOnlyAccounts, err = walletrpc.AccountsToWatchOnly(
-				rpcAccts.Accounts,
-			)
-			require.NoError(st, err)
-		}
-
-		var commitArgs []string
-		if subTest.commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
-			commitArgs = lntest.NodeArgsForCommitType(
-				subTest.commitType,
-			)
-		}
-
-		// WatchOnly is the node that has a watch-only wallet and uses
-		// the Signer node for any operation that requires access to
-		// private keys.
-		watchOnly := st.NewNodeRemoteSigner(
-			"WatchOnly", append([]string{
-				"--remotesigner.enable",
-				fmt.Sprintf(
-					"--remotesigner.rpchost=localhost:%d",
-					signer.Cfg.RPCPort,
-				),
-				fmt.Sprintf(
-					"--remotesigner.tlscertpath=%s",
-					signer.Cfg.TLSCertPath,
-				),
-				fmt.Sprintf(
-					"--remotesigner.macaroonpath=%s",
-					signer.Cfg.AdminMacPath,
-				),
-			}, commitArgs...),
-			password, &lnrpc.WatchOnly{
-				MasterKeyBirthdayTimestamp: 0,
-				MasterKeyFingerprint:       nil,
-				Accounts:                   watchOnlyAccounts,
-			},
-		)
-
-		resp := watchOnly.RPC.GetInfo()
-		require.Equal(st, signerNodePubKey, resp.IdentityPubkey)
-
-		if subTest.sendCoins {
-			st.FundCoins(btcutil.SatoshiPerBitcoin, watchOnly)
-			ht.AssertWalletAccountBalance(
-				watchOnly, "default",
-				btcutil.SatoshiPerBitcoin, 0,
-			)
-		}
-
-		carol := st.NewNode("carol", commitArgs)
-		st.EnsureConnected(watchOnly, carol)
-
-		return signer, watchOnly, carol
 	}
 
-	for _, testCase := range subTests {
-		subTest := testCase
-
-		success := ht.Run(subTest.name, func(tt *testing.T) {
-			// Skip the cleanup here as no standby node is used.
-			st := ht.Subtest(tt)
-
-			_, watchOnly, carol := prepareTest(st, subTest)
-			subTest.fn(st, watchOnly, carol)
-		})
-
-		if !success {
-			return
-		}
-	}
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+	tc.fn(ht, watchOnly, carol)
 }
 
 // deriveCustomScopeAccounts derives the first 255 default accounts of the custom lnd

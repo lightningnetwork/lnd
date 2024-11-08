@@ -715,9 +715,12 @@ func (f *interceptedForward) ResumeModified(
 			htlc.Amount = amount
 		})
 
-		if len(validatedRecords) > 0 {
-			htlc.CustomRecords = validatedRecords
-		}
+		// Merge custom records with any validated records that were
+		// added in the modify request, overwriting any existing values
+		// with those supplied in the modifier API.
+		htlc.CustomRecords = htlc.CustomRecords.MergedCopy(
+			validatedRecords,
+		)
 
 	case *lnwire.UpdateFulfillHTLC:
 		if len(validatedRecords) > 0 {

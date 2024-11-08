@@ -45,6 +45,9 @@
   back before the commitment tx was confirmed causing potentially force closes
   of the incoming channel.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9249) found in the
+  mission control store that can block the shutdown process of LND.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

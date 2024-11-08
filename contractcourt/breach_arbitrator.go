@@ -752,7 +752,7 @@ justiceTxBroadcast:
 		}
 
 		return aux.NotifyBroadcast(
-			&bumpReq, finalTx.justiceTx, finalTx.fee,
+			&bumpReq, finalTx.justiceTx, finalTx.fee, nil,
 		)
 	})
 	if err != nil {

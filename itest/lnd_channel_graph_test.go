@@ -237,17 +237,17 @@ func testUnannouncedChannels(ht *lntest.HarnessTest) {
 	ht.WaitForChannelOpenEvent(chanOpenUpdate)
 
 	// Alice should have 1 edge in her graph.
-	ht.AssertNumActiveEdges(alice, 1, true)
+	ht.AssertNumEdges(alice, 1, true)
 
 	// Channels should not be announced yet, hence Alice should have no
 	// announced edges in her graph.
-	ht.AssertNumActiveEdges(alice, 0, false)
+	ht.AssertNumEdges(alice, 0, false)
 
 	// Mine 4 more blocks, and check that the channel is now announced.
 	ht.MineBlocks(4)
 
 	// Give the network a chance to learn that auth proof is confirmed.
-	ht.AssertNumActiveEdges(alice, 1, false)
+	ht.AssertNumEdges(alice, 1, false)
 }
 
 func testGraphTopologyNotifications(ht *lntest.HarnessTest) {

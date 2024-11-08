@@ -940,7 +940,7 @@ func testMPPToSingleBlindedPath(ht *lntest.HarnessTest) {
 		}
 
 		// Each node should have exactly numPublic edges.
-		ht.AssertNumActiveEdges(hn, numPublic, false)
+		ht.AssertNumEdges(hn, numPublic, false)
 	}
 
 	// Make Dave create an invoice with a blinded path for Alice to pay.
@@ -1111,7 +1111,7 @@ func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
 		}
 
 		// Each node should have exactly 5 edges.
-		ht.AssertNumActiveEdges(hn, len(channelPoints), false)
+		ht.AssertNumEdges(hn, len(channelPoints), false)
 	}
 
 	// Make Dave create an invoice with a blinded path for Alice to pay.
@@ -1281,7 +1281,7 @@ func testMPPToMultipleBlindedPaths(ht *lntest.HarnessTest) {
 		}
 
 		// Each node should have exactly 5 edges.
-		ht.AssertNumActiveEdges(hn, len(channelPoints), false)
+		ht.AssertNumEdges(hn, len(channelPoints), false)
 	}
 
 	// Ok now make a payment that must be split to succeed.

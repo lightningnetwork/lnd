@@ -404,7 +404,7 @@ func (m *mppTestScenario) openChannels(r *mppOpenChannelRequest) {
 		}
 
 		// Each node should have exactly 6 edges.
-		m.ht.AssertNumActiveEdges(hn, len(m.channelPoints), false)
+		m.ht.AssertNumEdges(hn, len(m.channelPoints), false)
 	}
 }
 

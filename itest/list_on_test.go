@@ -509,10 +509,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testAsyncPayments,
 	},
 	{
-		Name:     "remote signer",
-		TestFunc: testRemoteSigner,
-	},
-	{
 		Name:     "taproot coop close",
 		TestFunc: testTaprootCoopClose,
 	},
@@ -695,4 +691,5 @@ func init() {
 	allTestCases = append(allTestCases, multiHopForceCloseTestCases...)
 	allTestCases = append(allTestCases, watchtowerTestCases...)
 	allTestCases = append(allTestCases, psbtFundingTestCases...)
+	allTestCases = append(allTestCases, remoteSignerTestCases...)
 }

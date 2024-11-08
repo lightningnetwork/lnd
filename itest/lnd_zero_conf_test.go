@@ -19,6 +19,67 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// zeroConfPolicyTestCases checks that option-scid-alias, zero-conf
+// channel-types, and option-scid-alias feature-bit-only channels have the
+// expected graph and that payments work when updating the channel policy.
+var zeroConfPolicyTestCases = []*lntest.TestCase{
+	{
+		Name: "channel policy update private",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			// zeroConf: false
+			// scidAlias: false
+			// private: true
+			testPrivateUpdateAlias(
+				ht, false, false, true,
+			)
+		},
+	},
+	{
+		Name: "channel policy update private scid alias",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			// zeroConf: false
+			// scidAlias: true
+			// private: true
+			testPrivateUpdateAlias(
+				ht, false, true, true,
+			)
+		},
+	},
+	{
+		Name: "channel policy update private zero conf",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			// zeroConf: true
+			// scidAlias: false
+			// private: true
+			testPrivateUpdateAlias(
+				ht, true, false, true,
+			)
+		},
+	},
+	{
+		Name: "channel policy update public zero conf",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			// zeroConf: true
+			// scidAlias: false
+			// private: false
+			testPrivateUpdateAlias(
+				ht, true, false, false,
+			)
+		},
+	},
+	{
+		Name: "channel policy update public",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			// zeroConf: false
+			// scidAlias: false
+			// private: false
+			testPrivateUpdateAlias(
+				ht, false, false, false,
+			)
+		},
+	},
+}
+
 // testZeroConfChannelOpen tests that opening a zero-conf channel works and
 // sending payments also works.
 func testZeroConfChannelOpen(ht *lntest.HarnessTest) {
@@ -393,61 +454,6 @@ func waitForZeroConfGraphChange(hn *node.HarnessNode,
 			"failed to find non-zero-conf channel in graph",
 		)
 	}, defaultTimeout)
-}
-
-// testUpdateChannelPolicyScidAlias checks that option-scid-alias, zero-conf
-// channel-types, and option-scid-alias feature-bit-only channels have the
-// expected graph and that payments work when updating the channel policy.
-func testUpdateChannelPolicyScidAlias(ht *lntest.HarnessTest) {
-	tests := []struct {
-		name string
-
-		// The option-scid-alias channel type.
-		scidAliasType bool
-
-		// The zero-conf channel type.
-		zeroConf bool
-
-		private bool
-	}{
-		{
-			name:          "private scid-alias chantype update",
-			scidAliasType: true,
-			private:       true,
-		},
-		{
-			name:     "private zero-conf update",
-			zeroConf: true,
-			private:  true,
-		},
-		{
-			name:     "public zero-conf update",
-			zeroConf: true,
-		},
-		{
-			name: "public no-chan-type update",
-		},
-		{
-			name:    "private no-chan-type update",
-			private: true,
-		},
-	}
-
-	for _, test := range tests {
-		test := test
-
-		success := ht.Run(test.name, func(t *testing.T) {
-			st := ht.Subtest(t)
-
-			testPrivateUpdateAlias(
-				st, test.zeroConf, test.scidAliasType,
-				test.private,
-			)
-		})
-		if !success {
-			return
-		}
-	}
 }
 
 func testPrivateUpdateAlias(ht *lntest.HarnessTest,

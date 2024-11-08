@@ -449,10 +449,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testOptionScidAlias,
 	},
 	{
-		Name:     "scid alias channel update",
-		TestFunc: testUpdateChannelPolicyScidAlias,
-	},
-	{
 		Name:     "scid alias upgrade",
 		TestFunc: testOptionScidUpgrade,
 	},
@@ -686,4 +682,5 @@ func init() {
 	allTestCases = append(allTestCases, remoteSignerTestCases...)
 	allTestCases = append(allTestCases, channelRestoreTestCases...)
 	allTestCases = append(allTestCases, fundUtxoSelectionTestCases...)
+	allTestCases = append(allTestCases, zeroConfPolicyTestCases...)
 }

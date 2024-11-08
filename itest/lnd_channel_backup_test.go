@@ -85,6 +85,26 @@ var channelRestoreTestCases = []*lntest.TestCase{
 			)
 		},
 	},
+	{
+		Name:     "channel backup restore from rpc",
+		TestFunc: testChannelBackupRestoreFromRPC,
+	},
+	{
+		Name:     "channel backup restore from file",
+		TestFunc: testChannelBackupRestoreFromFile,
+	},
+	{
+		Name:     "channel backup restore during creation",
+		TestFunc: testChannelBackupRestoreDuringCreation,
+	},
+	{
+		Name:     "channel backup restore during unlock",
+		TestFunc: testChannelBackupRestoreDuringUnlock,
+	},
+	{
+		Name:     "channel backup restore twice",
+		TestFunc: testChannelBackupRestoreTwice,
+	},
 }
 
 type (
@@ -298,202 +318,167 @@ func (c *chanRestoreScenario) testScenario(ht *lntest.HarnessTest,
 	)
 }
 
-// testChannelBackupRestore tests that we're able to recover from, and initiate
-// the DLP protocol via: the RPC restore command, restoring on unlock, and
-// restoring from initial wallet creation. We'll also alternate between
-// restoring form the on disk file, and restoring from the exported RPC command
-// as well.
-func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
-	var testCases = []struct {
-		name          string
-		restoreMethod restoreMethodType
-	}{
-		// Restore from backups obtained via the RPC interface. Dave
-		// was the initiator, of the non-advertised channel.
-		{
-			name: "restore from RPC backup",
-			restoreMethod: func(st *lntest.HarnessTest,
-				oldNode *node.HarnessNode,
-				backupFilePath string,
-				password []byte,
-				mnemonic []string) nodeRestorer {
+// testChannelBackupRestoreFromRPC tests that we're able to recover from, and
+// initiate the DLP protocol via the RPC restore command.
+func testChannelBackupRestoreFromRPC(ht *lntest.HarnessTest) {
+	// Restore from backups obtained via the RPC interface. Dave was the
+	// initiator, of the non-advertised channel.
+	restoreMethod := func(st *lntest.HarnessTest, oldNode *node.HarnessNode,
+		backupFilePath string, password []byte,
+		mnemonic []string) nodeRestorer {
 
-				// For this restoration method, we'll grab the
-				// current multi-channel backup from the old
-				// node, and use it to restore a new node
-				// within the closure.
-				chanBackup := oldNode.RPC.ExportAllChanBackups()
+		// For this restoration method, we'll grab the current
+		// multi-channel backup from the old node, and use it to
+		// restore a new node within the closure.
+		chanBackup := oldNode.RPC.ExportAllChanBackups()
 
-				multi := chanBackup.MultiChanBackup.
-					MultiChanBackup
+		multi := chanBackup.MultiChanBackup.
+			MultiChanBackup
 
-				// In our nodeRestorer function, we'll restore
-				// the node from seed, then manually recover
-				// the channel backup.
-				return chanRestoreViaRPC(
-					st, password, mnemonic, multi,
-				)
-			},
-		},
-
-		// Restore the backup from the on-disk file, using the RPC
-		// interface.
-		{
-			name: "restore from backup file",
-			restoreMethod: func(st *lntest.HarnessTest,
-				oldNode *node.HarnessNode,
-				backupFilePath string,
-				password []byte,
-				mnemonic []string) nodeRestorer {
-
-				// Read the entire Multi backup stored within
-				// this node's channel.backup file.
-				multi, err := os.ReadFile(backupFilePath)
-				require.NoError(st, err)
-
-				// Now that we have Dave's backup file, we'll
-				// create a new nodeRestorer that will restore
-				// using the on-disk channel.backup.
-				return chanRestoreViaRPC(
-					st, password, mnemonic, multi,
-				)
-			},
-		},
-
-		// Restore the backup as part of node initialization with the
-		// prior mnemonic and new backup seed.
-		{
-			name: "restore during creation",
-			restoreMethod: func(st *lntest.HarnessTest,
-				oldNode *node.HarnessNode,
-				backupFilePath string,
-				password []byte,
-				mnemonic []string) nodeRestorer {
-
-				// First, fetch the current backup state as is,
-				// to obtain our latest Multi.
-				chanBackup := oldNode.RPC.ExportAllChanBackups()
-				backupSnapshot := &lnrpc.ChanBackupSnapshot{
-					MultiChanBackup: chanBackup.
-						MultiChanBackup,
-				}
-
-				// Create a new nodeRestorer that will restore
-				// the node using the Multi backup we just
-				// obtained above.
-				return func() *node.HarnessNode {
-					return st.RestoreNodeWithSeed(
-						"dave", nil, password, mnemonic,
-						"", revocationWindow,
-						backupSnapshot,
-					)
-				}
-			},
-		},
-
-		// Restore the backup once the node has already been
-		// re-created, using the Unlock call.
-		{
-			name: "restore during unlock",
-			restoreMethod: func(st *lntest.HarnessTest,
-				oldNode *node.HarnessNode,
-				backupFilePath string,
-				password []byte,
-				mnemonic []string) nodeRestorer {
-
-				// First, fetch the current backup state as is,
-				// to obtain our latest Multi.
-				chanBackup := oldNode.RPC.ExportAllChanBackups()
-				backupSnapshot := &lnrpc.ChanBackupSnapshot{
-					MultiChanBackup: chanBackup.
-						MultiChanBackup,
-				}
-
-				// Create a new nodeRestorer that will restore
-				// the node with its seed, but no channel
-				// backup, shutdown this initialized node, then
-				// restart it again using Unlock.
-				return func() *node.HarnessNode {
-					newNode := st.RestoreNodeWithSeed(
-						"dave", nil, password, mnemonic,
-						"", revocationWindow, nil,
-					)
-					st.RestartNodeWithChanBackups(
-						newNode, backupSnapshot,
-					)
-
-					return newNode
-				}
-			},
-		},
-
-		// Restore the backup from the on-disk file a second time to
-		// make sure imports can be canceled and later resumed.
-		{
-			name: "restore from backup file twice",
-			restoreMethod: func(st *lntest.HarnessTest,
-				oldNode *node.HarnessNode,
-				backupFilePath string,
-				password []byte,
-				mnemonic []string) nodeRestorer {
-
-				// Read the entire Multi backup stored within
-				// this node's channel.backup file.
-				multi, err := os.ReadFile(backupFilePath)
-				require.NoError(st, err)
-
-				// Now that we have Dave's backup file, we'll
-				// create a new nodeRestorer that will restore
-				// using the on-disk channel.backup.
-				//
-				//nolint:ll
-				backup := &lnrpc.RestoreChanBackupRequest_MultiChanBackup{
-					MultiChanBackup: multi,
-				}
-
-				return func() *node.HarnessNode {
-					newNode := st.RestoreNodeWithSeed(
-						"dave", nil, password, mnemonic,
-						"", revocationWindow, nil,
-					)
-
-					req := &lnrpc.RestoreChanBackupRequest{
-						Backup: backup,
-					}
-					res := newNode.RPC.RestoreChanBackups(
-						req,
-					)
-					require.EqualValues(
-						st, 1, res.NumRestored,
-					)
-
-					req = &lnrpc.RestoreChanBackupRequest{
-						Backup: backup,
-					}
-					res = newNode.RPC.RestoreChanBackups(
-						req,
-					)
-					require.EqualValues(
-						st, 0, res.NumRestored,
-					)
-
-					return newNode
-				}
-			},
-		},
+		// In our nodeRestorer function, we'll restore the node from
+		// seed, then manually recover the channel backup.
+		return chanRestoreViaRPC(
+			st, password, mnemonic, multi,
+		)
 	}
 
-	for _, testCase := range testCases {
-		tc := testCase
-		success := ht.Run(tc.name, func(t *testing.T) {
-			h := ht.Subtest(t)
+	runChanRestoreScenarioBasic(ht, restoreMethod)
+}
 
-			runChanRestoreScenarioBasic(h, tc.restoreMethod)
-		})
-		if !success {
-			break
+// testChannelBackupRestoreFromFile tests that we're able to recover from, and
+// initiate the DLP protocol via the backup file.
+func testChannelBackupRestoreFromFile(ht *lntest.HarnessTest) {
+	// Restore the backup from the on-disk file, using the RPC interface.
+	restoreMethod := func(st *lntest.HarnessTest, oldNode *node.HarnessNode,
+		backupFilePath string, password []byte,
+		mnemonic []string) nodeRestorer {
+
+		// Read the entire Multi backup stored within this node's
+		// channel.backup file.
+		multi, err := os.ReadFile(backupFilePath)
+		require.NoError(st, err)
+
+		// Now that we have Dave's backup file, we'll create a new
+		// nodeRestorer that will restore using the on-disk
+		// channel.backup.
+		return chanRestoreViaRPC(
+			st, password, mnemonic, multi,
+		)
+	}
+
+	runChanRestoreScenarioBasic(ht, restoreMethod)
+}
+
+// testChannelBackupRestoreFromFile tests that we're able to recover from, and
+// initiate the DLP protocol via restoring from initial wallet creation.
+func testChannelBackupRestoreDuringCreation(ht *lntest.HarnessTest) {
+	// Restore the backup as part of node initialization with the prior
+	// mnemonic and new backup seed.
+	restoreMethod := func(st *lntest.HarnessTest, oldNode *node.HarnessNode,
+		backupFilePath string, password []byte,
+		mnemonic []string) nodeRestorer {
+
+		// First, fetch the current backup state as is, to obtain our
+		// latest Multi.
+		chanBackup := oldNode.RPC.ExportAllChanBackups()
+		backupSnapshot := &lnrpc.ChanBackupSnapshot{
+			MultiChanBackup: chanBackup.
+				MultiChanBackup,
+		}
+
+		// Create a new nodeRestorer that will restore the node using
+		// the Multi backup we just obtained above.
+		return func() *node.HarnessNode {
+			return st.RestoreNodeWithSeed(
+				"dave", nil, password, mnemonic,
+				"", revocationWindow,
+				backupSnapshot,
+			)
 		}
 	}
+
+	runChanRestoreScenarioBasic(ht, restoreMethod)
+}
+
+// testChannelBackupRestoreFromFile tests that we're able to recover from, and
+// initiate the DLP protocol via restoring on unlock.
+func testChannelBackupRestoreDuringUnlock(ht *lntest.HarnessTest) {
+	// Restore the backup once the node has already been re-created, using
+	// the Unlock call.
+	restoreMethod := func(st *lntest.HarnessTest, oldNode *node.HarnessNode,
+		backupFilePath string, password []byte,
+		mnemonic []string) nodeRestorer {
+
+		// First, fetch the current backup state as is, to obtain our
+		// latest Multi.
+		chanBackup := oldNode.RPC.ExportAllChanBackups()
+		backupSnapshot := &lnrpc.ChanBackupSnapshot{
+			MultiChanBackup: chanBackup.
+				MultiChanBackup,
+		}
+
+		// Create a new nodeRestorer that will restore the node with
+		// its seed, but no channel backup, shutdown this initialized
+		// node, then restart it again using Unlock.
+		return func() *node.HarnessNode {
+			newNode := st.RestoreNodeWithSeed(
+				"dave", nil, password, mnemonic,
+				"", revocationWindow, nil,
+			)
+			st.RestartNodeWithChanBackups(
+				newNode, backupSnapshot,
+			)
+
+			return newNode
+		}
+	}
+
+	runChanRestoreScenarioBasic(ht, restoreMethod)
+}
+
+// testChannelBackupRestoreTwice tests that we're able to recover from, and
+// initiate the DLP protocol twice by alternating between restoring form the on
+// disk file, and restoring from the exported RPC command.
+func testChannelBackupRestoreTwice(ht *lntest.HarnessTest) {
+	// Restore the backup from the on-disk file a second time to make sure
+	// imports can be canceled and later resumed.
+	restoreMethod := func(st *lntest.HarnessTest, oldNode *node.HarnessNode,
+		backupFilePath string, password []byte,
+		mnemonic []string) nodeRestorer {
+
+		// Read the entire Multi backup stored within this node's
+		// channel.backup file.
+		multi, err := os.ReadFile(backupFilePath)
+		require.NoError(st, err)
+
+		// Now that we have Dave's backup file, we'll create a new
+		// nodeRestorer that will restore using the on-disk
+		// channel.backup.
+		backup := &lnrpc.RestoreChanBackupRequest_MultiChanBackup{
+			MultiChanBackup: multi,
+		}
+
+		return func() *node.HarnessNode {
+			newNode := st.RestoreNodeWithSeed(
+				"dave", nil, password, mnemonic,
+				"", revocationWindow, nil,
+			)
+
+			req := &lnrpc.RestoreChanBackupRequest{
+				Backup: backup,
+			}
+			newNode.RPC.RestoreChanBackups(req)
+
+			req = &lnrpc.RestoreChanBackupRequest{
+				Backup: backup,
+			}
+			newNode.RPC.RestoreChanBackups(req)
+
+			return newNode
+		}
+	}
+
+	runChanRestoreScenarioBasic(ht, restoreMethod)
 }
 
 // runChanRestoreScenarioBasic executes a given test case from end to end,

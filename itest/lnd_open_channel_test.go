@@ -3,7 +3,6 @@ package itest
 import (
 	"fmt"
 	"strings"
-	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -17,6 +16,31 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
+
+// channelFeePolicyTestCases defines a set of tests to check the update channel
+// policy fee behavior.
+var channelFeePolicyTestCases = []*lntest.TestCase{
+	{
+		Name:     "channel fee policy default",
+		TestFunc: testChannelFeePolicyDefault,
+	},
+	{
+		Name:     "channel fee policy base fee",
+		TestFunc: testChannelFeePolicyBaseFee,
+	},
+	{
+		Name:     "channel fee policy fee rate",
+		TestFunc: testChannelFeePolicyFeeRate,
+	},
+	{
+		Name:     "channel fee policy base fee and fee rate",
+		TestFunc: testChannelFeePolicyBaseFeeAndFeeRate,
+	},
+	{
+		Name:     "channel fee policy low base fee and fee rate",
+		TestFunc: testChannelFeePolicyLowBaseFeeAndFeeRate,
+	},
+}
 
 // testOpenChannelAfterReorg tests that in the case where we have an open
 // channel where the funding tx gets reorged out, the channel will no
@@ -123,32 +147,14 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 	ht.AssertTxInBlock(block, *fundingTxID)
 }
 
-// testOpenChannelFeePolicy checks if different channel fee scenarios are
-// correctly handled when the optional channel fee parameters baseFee and
-// feeRate are provided. If the OpenChannelRequest is not provided with a value
-// for baseFee/feeRate the expectation is that the default baseFee/feeRate is
-// applied.
-//
-//  1. No params provided to OpenChannelRequest:
-//     ChannelUpdate --> defaultBaseFee, defaultFeeRate
-//  2. Only baseFee provided to OpenChannelRequest:
-//     ChannelUpdate --> provided baseFee, defaultFeeRate
-//  3. Only feeRate provided to OpenChannelRequest:
-//     ChannelUpdate --> defaultBaseFee, provided FeeRate
-//  4. baseFee and feeRate provided to OpenChannelRequest:
-//     ChannelUpdate --> provided baseFee, provided feeRate
-//  5. Both baseFee and feeRate are set to a value lower than the default:
-//     ChannelUpdate --> provided baseFee, provided feeRate
-func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
+// testChannelFeePolicyDefault check when no params provided to
+// OpenChannelRequest: ChannelUpdate --> defaultBaseFee, defaultFeeRate.
+func testChannelFeePolicyDefault(ht *lntest.HarnessTest) {
 	const (
 		defaultBaseFee       = 1000
 		defaultFeeRate       = 1
 		defaultTimeLockDelta = chainreg.DefaultBitcoinTimeLockDelta
 		defaultMinHtlc       = 1000
-		optionalBaseFee      = 1337
-		optionalFeeRate      = 1337
-		lowBaseFee           = 0
-		lowFeeRate           = 900
 	)
 
 	defaultMaxHtlc := lntest.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
@@ -156,81 +162,19 @@ func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := chanAmt / 2
 
-	feeScenarios := []lntest.OpenChannelParams{
-		{
-			Amt:        chanAmt,
-			PushAmt:    pushAmt,
-			UseBaseFee: false,
-			UseFeeRate: false,
-		},
-		{
-			Amt:        chanAmt,
-			PushAmt:    pushAmt,
-			BaseFee:    optionalBaseFee,
-			UseBaseFee: true,
-			UseFeeRate: false,
-		},
-		{
-			Amt:        chanAmt,
-			PushAmt:    pushAmt,
-			FeeRate:    optionalFeeRate,
-			UseBaseFee: false,
-			UseFeeRate: true,
-		},
-		{
-			Amt:        chanAmt,
-			PushAmt:    pushAmt,
-			BaseFee:    optionalBaseFee,
-			FeeRate:    optionalFeeRate,
-			UseBaseFee: true,
-			UseFeeRate: true,
-		},
-		{
-			Amt:        chanAmt,
-			PushAmt:    pushAmt,
-			BaseFee:    lowBaseFee,
-			FeeRate:    lowFeeRate,
-			UseBaseFee: true,
-			UseFeeRate: true,
-		},
+	feeScenario := lntest.OpenChannelParams{
+		Amt:        chanAmt,
+		PushAmt:    pushAmt,
+		UseBaseFee: false,
+		UseFeeRate: false,
 	}
 
-	expectedPolicies := []lnrpc.RoutingPolicy{
-		{
-			FeeBaseMsat:      defaultBaseFee,
-			FeeRateMilliMsat: defaultFeeRate,
-			TimeLockDelta:    defaultTimeLockDelta,
-			MinHtlc:          defaultMinHtlc,
-			MaxHtlcMsat:      defaultMaxHtlc,
-		},
-		{
-			FeeBaseMsat:      optionalBaseFee,
-			FeeRateMilliMsat: defaultFeeRate,
-			TimeLockDelta:    defaultTimeLockDelta,
-			MinHtlc:          defaultMinHtlc,
-			MaxHtlcMsat:      defaultMaxHtlc,
-		},
-		{
-			FeeBaseMsat:      defaultBaseFee,
-			FeeRateMilliMsat: optionalFeeRate,
-			TimeLockDelta:    defaultTimeLockDelta,
-			MinHtlc:          defaultMinHtlc,
-			MaxHtlcMsat:      defaultMaxHtlc,
-		},
-		{
-			FeeBaseMsat:      optionalBaseFee,
-			FeeRateMilliMsat: optionalFeeRate,
-			TimeLockDelta:    defaultTimeLockDelta,
-			MinHtlc:          defaultMinHtlc,
-			MaxHtlcMsat:      defaultMaxHtlc,
-		},
-		{
-			FeeBaseMsat:      lowBaseFee,
-			FeeRateMilliMsat: lowFeeRate,
-			TimeLockDelta:    defaultTimeLockDelta,
-			MinHtlc:          defaultMinHtlc,
-			MaxHtlcMsat:      defaultMaxHtlc,
-		},
+	expectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultBaseFee,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
 	}
 
 	bobExpectedPolicy := lnrpc.RoutingPolicy{
@@ -241,65 +185,248 @@ func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 		MaxHtlcMsat:      defaultMaxHtlc,
 	}
 
-	runTestCase := func(ht *lntest.HarnessTest,
-		chanParams lntest.OpenChannelParams,
-		alicePolicy, bobPolicy *lnrpc.RoutingPolicy) {
+	runChannelFeePolicyTest(
+		ht, feeScenario, &expectedPolicy, &bobExpectedPolicy,
+	)
+}
 
-		// In this basic test, we'll need a third node, Carol, so we
-		// can forward a payment through the channel we'll open with
-		// the different fee policies.
-		alice := ht.NewNodeWithCoins("Alice", nil)
-		bob := ht.NewNode("Bob", nil)
-		carol := ht.NewNodeWithCoins("Carol", nil)
+// testChannelFeePolicyBaseFee checks only baseFee provided to
+// OpenChannelRequest: ChannelUpdate --> provided baseFee, defaultFeeRate.
+func testChannelFeePolicyBaseFee(ht *lntest.HarnessTest) {
+	const (
+		defaultBaseFee       = 1000
+		defaultFeeRate       = 1
+		defaultTimeLockDelta = chainreg.DefaultBitcoinTimeLockDelta
+		defaultMinHtlc       = 1000
+		optionalBaseFee      = 1337
+	)
 
-		ht.EnsureConnected(alice, bob)
-		ht.EnsureConnected(alice, carol)
+	defaultMaxHtlc := lntest.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
 
-		nodes := []*node.HarnessNode{alice, bob, carol}
+	chanAmt := funding.MaxBtcFundingAmount
+	pushAmt := chanAmt / 2
 
-		// Create a channel Alice->Bob.
-		chanPoint := ht.OpenChannel(alice, bob, chanParams)
-
-		// Create a channel Carol->Alice.
-		ht.OpenChannel(
-			carol, alice, lntest.OpenChannelParams{
-				Amt: 500000,
-			},
-		)
-
-		// Alice and Bob should see each other's ChannelUpdates,
-		// advertising the preferred routing policies.
-		assertNodesPolicyUpdate(
-			ht, nodes, alice, alicePolicy, chanPoint,
-		)
-		assertNodesPolicyUpdate(ht, nodes, bob, bobPolicy, chanPoint)
-
-		// They should now know about the default policies.
-		for _, n := range nodes {
-			ht.AssertChannelPolicy(
-				n, alice.PubKeyStr, alicePolicy, chanPoint,
-			)
-			ht.AssertChannelPolicy(
-				n, bob.PubKeyStr, bobPolicy, chanPoint,
-			)
-		}
-
-		// We should be able to forward a payment from Carol to Bob
-		// through the new channel we opened.
-		payReqs, _, _ := ht.CreatePayReqs(bob, paymentAmt, 1)
-		ht.CompletePaymentRequests(carol, payReqs)
+	feeScenario := lntest.OpenChannelParams{
+		Amt:        chanAmt,
+		PushAmt:    pushAmt,
+		BaseFee:    optionalBaseFee,
+		UseBaseFee: true,
+		UseFeeRate: false,
 	}
 
-	for i, feeScenario := range feeScenarios {
-		ht.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
-			st := ht.Subtest(t)
-
-			runTestCase(
-				st, feeScenario,
-				&expectedPolicies[i], &bobExpectedPolicy,
-			)
-		})
+	expectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      optionalBaseFee,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
 	}
+
+	bobExpectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultBaseFee,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	runChannelFeePolicyTest(
+		ht, feeScenario, &expectedPolicy, &bobExpectedPolicy,
+	)
+}
+
+// testChannelFeePolicyFeeRate checks if only feeRate provided to
+// OpenChannelRequest: ChannelUpdate --> defaultBaseFee, provided FeeRate.
+func testChannelFeePolicyFeeRate(ht *lntest.HarnessTest) {
+	const (
+		defaultBaseFee       = 1000
+		defaultFeeRate       = 1
+		defaultTimeLockDelta = chainreg.DefaultBitcoinTimeLockDelta
+		defaultMinHtlc       = 1000
+		optionalFeeRate      = 1337
+	)
+
+	defaultMaxHtlc := lntest.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
+
+	chanAmt := funding.MaxBtcFundingAmount
+	pushAmt := chanAmt / 2
+
+	feeScenario := lntest.OpenChannelParams{
+		Amt:        chanAmt,
+		PushAmt:    pushAmt,
+		FeeRate:    optionalFeeRate,
+		UseBaseFee: false,
+		UseFeeRate: true,
+	}
+
+	expectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultBaseFee,
+		FeeRateMilliMsat: optionalFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	bobExpectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultBaseFee,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	runChannelFeePolicyTest(
+		ht, feeScenario, &expectedPolicy, &bobExpectedPolicy,
+	)
+}
+
+// testChannelFeePolicyBaseFeeAndFeeRate checks if baseFee and feeRate provided
+// to OpenChannelRequest: ChannelUpdate --> provided baseFee, provided feeRate.
+func testChannelFeePolicyBaseFeeAndFeeRate(ht *lntest.HarnessTest) {
+	const (
+		defaultBaseFee       = 1000
+		defaultFeeRate       = 1
+		defaultTimeLockDelta = chainreg.DefaultBitcoinTimeLockDelta
+		defaultMinHtlc       = 1000
+		optionalBaseFee      = 1337
+		optionalFeeRate      = 1337
+	)
+
+	defaultMaxHtlc := lntest.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
+
+	chanAmt := funding.MaxBtcFundingAmount
+	pushAmt := chanAmt / 2
+
+	feeScenario := lntest.OpenChannelParams{
+		Amt:        chanAmt,
+		PushAmt:    pushAmt,
+		BaseFee:    optionalBaseFee,
+		FeeRate:    optionalFeeRate,
+		UseBaseFee: true,
+		UseFeeRate: true,
+	}
+
+	expectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      optionalBaseFee,
+		FeeRateMilliMsat: optionalFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	bobExpectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultBaseFee,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	runChannelFeePolicyTest(
+		ht, feeScenario, &expectedPolicy, &bobExpectedPolicy,
+	)
+}
+
+// testChannelFeePolicyLowBaseFeeAndFeeRate checks if both baseFee and feeRate
+// are set to a value lower than the default: ChannelUpdate --> provided
+// baseFee, provided feeRate.
+func testChannelFeePolicyLowBaseFeeAndFeeRate(ht *lntest.HarnessTest) {
+	const (
+		defaultBaseFee       = 1000
+		defaultFeeRate       = 1
+		defaultTimeLockDelta = chainreg.DefaultBitcoinTimeLockDelta
+		defaultMinHtlc       = 1000
+		lowBaseFee           = 0
+		lowFeeRate           = 900
+	)
+
+	defaultMaxHtlc := lntest.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
+
+	chanAmt := funding.MaxBtcFundingAmount
+	pushAmt := chanAmt / 2
+
+	feeScenario := lntest.OpenChannelParams{
+		Amt:        chanAmt,
+		PushAmt:    pushAmt,
+		BaseFee:    lowBaseFee,
+		FeeRate:    lowFeeRate,
+		UseBaseFee: true,
+		UseFeeRate: true,
+	}
+
+	expectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      lowBaseFee,
+		FeeRateMilliMsat: lowFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	bobExpectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultBaseFee,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	runChannelFeePolicyTest(
+		ht, feeScenario, &expectedPolicy, &bobExpectedPolicy,
+	)
+}
+
+// runChannelFeePolicyTest checks if different channel fee scenarios are
+// correctly handled when the optional channel fee parameters baseFee and
+// feeRate are provided. If the OpenChannelRequest is not provided with a value
+// for baseFee/feeRate the expectation is that the default baseFee/feeRate is
+// applied.
+func runChannelFeePolicyTest(ht *lntest.HarnessTest,
+	chanParams lntest.OpenChannelParams,
+	alicePolicy, bobPolicy *lnrpc.RoutingPolicy) {
+
+	// In this basic test, we'll need a third node, Carol, so we can
+	// forward a payment through the channel we'll open with the different
+	// fee policies.
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	carol := ht.NewNodeWithCoins("Carol", nil)
+
+	ht.EnsureConnected(alice, bob)
+	ht.EnsureConnected(alice, carol)
+
+	nodes := []*node.HarnessNode{alice, bob, carol}
+
+	// Create a channel Alice->Bob.
+	chanPoint := ht.OpenChannel(alice, bob, chanParams)
+
+	// Create a channel Carol->Alice.
+	ht.OpenChannel(
+		carol, alice, lntest.OpenChannelParams{
+			Amt: 500000,
+		},
+	)
+
+	// Alice and Bob should see each other's ChannelUpdates, advertising
+	// the preferred routing policies.
+	assertNodesPolicyUpdate(
+		ht, nodes, alice, alicePolicy, chanPoint,
+	)
+	assertNodesPolicyUpdate(ht, nodes, bob, bobPolicy, chanPoint)
+
+	// They should now know about the default policies.
+	for _, n := range nodes {
+		ht.AssertChannelPolicy(
+			n, alice.PubKeyStr, alicePolicy, chanPoint,
+		)
+		ht.AssertChannelPolicy(
+			n, bob.PubKeyStr, bobPolicy, chanPoint,
+		)
+	}
+
+	// We should be able to forward a payment from Carol to Bob
+	// through the new channel we opened.
+	payReqs, _, _ := ht.CreatePayReqs(bob, paymentAmt, 1)
+	ht.CompletePaymentRequests(carol, payReqs)
 }
 
 // testBasicChannelCreationAndUpdates tests multiple channel opening and

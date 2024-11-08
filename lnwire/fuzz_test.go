@@ -1053,3 +1053,30 @@ func FuzzClosingComplete(f *testing.F) {
 		harness(t, data)
 	})
 }
+
+// FuzzFee tests that decoding and re-encoding a Fee TLV does not mutate it.
+func FuzzFee(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 8 {
+			return
+		}
+
+		var fee Fee
+		var buf [8]byte
+		r := bytes.NewReader(data)
+
+		if err := feeDecoder(r, &fee, &buf, 8); err != nil {
+			return
+		}
+
+		var b bytes.Buffer
+		require.NoError(t, feeEncoder(&b, &fee, &buf))
+
+		// Use bytes.Equal instead of require.Equal so that nil and
+		// empty slices are considered equal.
+		require.True(
+			t, bytes.Equal(data, b.Bytes()), "%v != %v", data,
+			b.Bytes(),
+		)
+	})
+}

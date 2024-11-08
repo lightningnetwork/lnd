@@ -373,7 +373,9 @@ func (b *BudgetInputSet) Budget() btcutil.Amount {
 		budget += input.params.Budget
 	}
 
-	return budget
+	// We'll also tack on the extra budget which will eventually be
+	// accounted for by the wallet txns when we're broadcasting.
+	return budget + b.extraBudget
 }
 
 // DeadlineHeight returns the deadline height of the set.

@@ -666,6 +666,7 @@ func (lc *LightningChannel) diskCommitToMemCommit(
 			return s.FetchLeavesFromCommit(
 				NewAuxChanState(lc.channelState), *diskCommit,
 				*commitKeys.GetForParty(whoseCommit),
+				whoseCommit,
 			)
 		},
 	).Unpack()
@@ -1798,7 +1799,7 @@ func (lc *LightningChannel) restorePendingLocalUpdates(
 		func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
 			return s.FetchLeavesFromCommit(
 				NewAuxChanState(lc.channelState), pendingCommit,
-				*pendingRemoteKeys,
+				*pendingRemoteKeys, lntypes.Remote,
 			)
 		},
 	).Unpack()
@@ -3219,7 +3220,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		leafStore, func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
 			return s.FetchLeavesFromCommit(
 				NewAuxChanState(chanState), *diskCommit,
-				*keyRing,
+				*keyRing, lntypes.Remote,
 			)
 		},
 	).Unpack()
@@ -4762,7 +4763,7 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 		leafStore, func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
 			return s.FetchLeavesFromCommit(
 				NewAuxChanState(chanState), *diskCommit,
-				*keyRing,
+				*keyRing, lntypes.Local,
 			)
 		},
 	).Unpack()
@@ -6666,7 +6667,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel,
 		leafStore, func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
 			return s.FetchLeavesFromCommit(
 				NewAuxChanState(chanState), remoteCommit,
-				*keyRing,
+				*keyRing, lntypes.Remote,
 			)
 		},
 	).Unpack()
@@ -7882,6 +7883,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 			return s.FetchLeavesFromCommit(
 				NewAuxChanState(chanState),
 				chanState.LocalCommitment, *keyRing,
+				lntypes.Local,
 			)
 		},
 	).Unpack()

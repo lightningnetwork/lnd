@@ -649,12 +649,20 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testPaymentFailedHTLCLocalSwept,
 	},
 	{
+		Name:     "payment failed htlc local swept resumed",
+		TestFunc: testPaymentFailedHTLCLocalSweptResumed,
+	},
+	{
 		Name:     "payment succeeded htlc remote swept",
 		TestFunc: testPaymentSucceededHTLCRemoteSwept,
 	},
 	{
 		Name:     "send to route failed htlc timeout",
 		TestFunc: testSendToRouteFailHTLCTimeout,
+	},
+	{
+		Name:     "send to route failed htlc timeout resumed",
+		TestFunc: testSendToRouteFailHTLCTimeoutResumed,
 	},
 	{
 		Name:     "debuglevel show",

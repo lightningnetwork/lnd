@@ -179,21 +179,19 @@ func testPaymentSucceededHTLCRemoteSwept(ht *lntest.HarnessTest) {
 // out and claimed onchain via the timeout path, the payment will be marked as
 // failed. This test creates a topology from Alice -> Bob, and let Alice send
 // payments to Bob. Bob then goes offline, such that Alice's outgoing HTLC will
-// time out. Alice will also be restarted to make sure resumed payments are
-// also marked as failed.
+// time out.
 func testPaymentFailedHTLCLocalSwept(ht *lntest.HarnessTest) {
-	success := ht.Run("fail payment", func(t *testing.T) {
-		st := ht.Subtest(t)
-		runTestPaymentHTLCTimeout(st, false)
-	})
-	if !success {
-		return
-	}
+	runTestPaymentHTLCTimeout(ht, false)
+}
 
-	ht.Run("fail resumed payment", func(t *testing.T) {
-		st := ht.Subtest(t)
-		runTestPaymentHTLCTimeout(st, true)
-	})
+// testPaymentFailedHTLCLocalSweptResumed checks that when an outgoing HTLC is
+// timed out and claimed onchain via the timeout path, the payment will be
+// marked as failed. This test creates a topology from Alice -> Bob, and let
+// Alice send payments to Bob. Bob then goes offline, such that Alice's
+// outgoing HTLC will time out. Alice will be restarted to make sure resumed
+// payments are also marked as failed.
+func testPaymentFailedHTLCLocalSweptResumed(ht *lntest.HarnessTest) {
+	runTestPaymentHTLCTimeout(ht, true)
 }
 
 // runTestPaymentHTLCTimeout is the helper function that actually runs the
@@ -1181,21 +1179,21 @@ func sendPaymentInterceptAndCancel(ht *lntest.HarnessTest,
 // out and claimed onchain via the timeout path, the payment will be marked as
 // failed. This test creates a topology from Alice -> Bob, and let Alice send
 // payments to Bob. Bob then goes offline, such that Alice's outgoing HTLC will
-// time out. Alice will also be restarted to make sure resumed payments are
-// also marked as failed.
+// time out.
 func testSendToRouteFailHTLCTimeout(ht *lntest.HarnessTest) {
-	success := ht.Run("fail payment", func(t *testing.T) {
-		st := ht.Subtest(t)
-		runSendToRouteFailHTLCTimeout(st, false)
-	})
-	if !success {
-		return
-	}
+	runSendToRouteFailHTLCTimeout(ht, false)
+}
 
-	ht.Run("fail resumed payment", func(t *testing.T) {
-		st := ht.Subtest(t)
-		runTestPaymentHTLCTimeout(st, true)
-	})
+// testSendToRouteFailHTLCTimeout is similar to
+// testPaymentFailedHTLCLocalSwept. The only difference is the `SendPayment` is
+// replaced with `SendToRouteV2`. It checks that when an outgoing HTLC is timed
+// out and claimed onchain via the timeout path, the payment will be marked as
+// failed. This test creates a topology from Alice -> Bob, and let Alice send
+// payments to Bob. Bob then goes offline, such that Alice's outgoing HTLC will
+// time out. Alice will be restarted to make sure resumed payments are also
+// marked as failed.
+func testSendToRouteFailHTLCTimeoutResumed(ht *lntest.HarnessTest) {
+	runTestPaymentHTLCTimeout(ht, true)
 }
 
 // runSendToRouteFailHTLCTimeout is the helper function that actually runs the

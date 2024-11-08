@@ -603,7 +603,9 @@ func (t *TxPublisher) broadcast(requestID uint64) (*BumpResult, error) {
 	// Before we go to broadcast, we'll notify the aux sweeper, if it's
 	// present of this new broadcast attempt.
 	err := fn.MapOptionZ(t.cfg.AuxSweeper, func(aux AuxSweeper) error {
-		return aux.NotifyBroadcast(record.req, tx, record.fee)
+		return aux.NotifyBroadcast(
+			record.req, tx, record.fee, record.outpointToTxIndex,
+		)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to notify aux sweeper: %w", err)
@@ -725,6 +727,9 @@ type monitorRecord struct {
 
 	// fee is the fee paid by the tx.
 	fee btcutil.Amount
+
+	// outpointToTxIndex is a map of outpoint to tx index.
+	outpointToTxIndex map[wire.OutPoint]int
 }
 
 // Start starts the publisher by subscribing to block epoch updates and kicking
@@ -1042,10 +1047,11 @@ func (t *TxPublisher) createAndPublishTx(requestID uint64,
 	// The tx has been created without any errors, we now register a new
 	// record by overwriting the same requestID.
 	t.records.Store(requestID, &monitorRecord{
-		tx:          sweepCtx.tx,
-		req:         r.req,
-		feeFunction: r.feeFunction,
-		fee:         sweepCtx.fee,
+		tx:                sweepCtx.tx,
+		req:               r.req,
+		feeFunction:       r.feeFunction,
+		fee:               sweepCtx.fee,
+		outpointToTxIndex: sweepCtx.outpointToTxIndex,
 	})
 
 	// Attempt to broadcast this new tx.
@@ -1199,6 +1205,10 @@ type sweepTxCtx struct {
 	fee btcutil.Amount
 
 	extraTxOut fn.Option[SweepOutput]
+
+	// outpointToTxIndex maps the outpoint of the inputs to their index in
+	// the sweep transaction.
+	outpointToTxIndex map[wire.OutPoint]int
 }
 
 // createSweepTx creates a sweeping tx based on the given inputs, change
@@ -1229,6 +1239,7 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input,
 	// We start by adding all inputs that commit to an output. We do this
 	// since the input and output index must stay the same for the
 	// signatures to be valid.
+	outpointToTxIndex := make(map[wire.OutPoint]int)
 	for _, o := range inputs {
 		if o.RequiredTxOut() == nil {
 			continue
@@ -1240,6 +1251,8 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input,
 			Sequence:         o.BlocksToMaturity(),
 		})
 		sweepTx.AddTxOut(o.RequiredTxOut())
+
+		outpointToTxIndex[o.OutPoint()] = len(sweepTx.TxOut) - 1
 	}
 
 	// Sum up the value contained in the remaining inputs, and add them to
@@ -1331,9 +1344,10 @@ func (t *TxPublisher) createSweepTx(inputs []input.Input,
 	)(changeOutputsOpt)
 
 	return &sweepTxCtx{
-		tx:         sweepTx,
-		fee:        txFee,
-		extraTxOut: fn.FlattenOption(extraTxOut),
+		tx:                sweepTx,
+		fee:               txFee,
+		extraTxOut:        fn.FlattenOption(extraTxOut),
+		outpointToTxIndex: outpointToTxIndex,
 	}, nil
 }
 

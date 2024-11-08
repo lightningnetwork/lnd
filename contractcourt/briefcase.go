@@ -1475,16 +1475,23 @@ func decodeBreachResolution(r io.Reader, b *BreachResolution) error {
 	return binary.Read(r, endian, &b.FundingOutPoint.Index)
 }
 
-func encodeHtlcSetKey(w io.Writer, h *HtlcSetKey) error {
-	err := binary.Write(w, endian, h.IsRemote)
+func encodeHtlcSetKey(w io.Writer, htlcSetKey HtlcSetKey) error {
+	err := binary.Write(w, endian, htlcSetKey.IsRemote)
 	if err != nil {
 		return err
 	}
-	return binary.Write(w, endian, h.IsPending)
+
+	return binary.Write(w, endian, htlcSetKey.IsPending)
 }
 
 func encodeCommitSet(w io.Writer, c *CommitSet) error {
-	if err := encodeHtlcSetKey(w, c.ConfCommitKey); err != nil {
+	confCommitKey, err := c.ConfCommitKey.UnwrapOrErr(
+		fmt.Errorf("HtlcSetKey is not set"),
+	)
+	if err != nil {
+		return err
+	}
+	if err := encodeHtlcSetKey(w, confCommitKey); err != nil {
 		return err
 	}
 
@@ -1494,8 +1501,7 @@ func encodeCommitSet(w io.Writer, c *CommitSet) error {
 	}
 
 	for htlcSetKey, htlcs := range c.HtlcSets {
-		htlcSetKey := htlcSetKey
-		if err := encodeHtlcSetKey(w, &htlcSetKey); err != nil {
+		if err := encodeHtlcSetKey(w, htlcSetKey); err != nil {
 			return err
 		}
 
@@ -1517,13 +1523,14 @@ func decodeHtlcSetKey(r io.Reader, h *HtlcSetKey) error {
 }
 
 func decodeCommitSet(r io.Reader) (*CommitSet, error) {
-	c := &CommitSet{
-		ConfCommitKey: &HtlcSetKey{},
-		HtlcSets:      make(map[HtlcSetKey][]channeldb.HTLC),
+	confCommitKey := HtlcSetKey{}
+	if err := decodeHtlcSetKey(r, &confCommitKey); err != nil {
+		return nil, err
 	}
 
-	if err := decodeHtlcSetKey(r, c.ConfCommitKey); err != nil {
-		return nil, err
+	c := &CommitSet{
+		ConfCommitKey: fn.Some(confCommitKey),
+		HtlcSets:      make(map[HtlcSetKey][]channeldb.HTLC),
 	}
 
 	var numSets uint8

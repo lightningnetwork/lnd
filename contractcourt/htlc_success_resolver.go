@@ -247,6 +247,9 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx(immediate bool) (
 				h.htlcResolution.SignedSuccessTx,
 				h.htlcResolution.SignDetails, h.htlcResolution.Preimage,
 				h.broadcastHeight,
+				input.WithResolutionBlob(
+					h.htlcResolution.ResolutionBlob,
+				),
 			)
 		} else {
 			//nolint:lll

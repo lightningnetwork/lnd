@@ -513,10 +513,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testTrackPaymentsCompatible,
 	},
 	{
-		Name:     "open channel fee policy",
-		TestFunc: testOpenChannelUpdateFeePolicy,
-	},
-	{
 		Name:     "custom message",
 		TestFunc: testCustomMessage,
 	},
@@ -683,4 +679,5 @@ func init() {
 	allTestCases = append(allTestCases, channelRestoreTestCases...)
 	allTestCases = append(allTestCases, fundUtxoSelectionTestCases...)
 	allTestCases = append(allTestCases, zeroConfPolicyTestCases...)
+	allTestCases = append(allTestCases, channelFeePolicyTestCases...)
 }

@@ -400,5 +400,5 @@ func (g *mockGraphSessionChanDB) ForEachNodeChannel(nodePub route.Vertex,
 func (g *mockGraphSessionChanDB) FetchNodeFeatures(nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
-	return g.graph.FetchNodeFeatures(nodePub)
+	return g.graph.FetchNodeFeatures(g.tx, nodePub)
 }

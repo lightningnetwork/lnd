@@ -503,9 +503,12 @@ func (c *ChannelGraph) ForEachChannel(cb func(*models.ChannelEdgeInfo,
 // ForEachNodeDirectedChannel iterates through all channels of a given node,
 // executing the passed callback on the directed edge representing the channel
 // and its incoming policy. If the callback returns an error, then the iteration
-// is halted with the error propagated back up to the caller.
+// is halted with the error propagated back up to the caller. An optional read
+// transaction may be provided. If none is provided, a new one will be created.
 //
 // Unknown policies are passed into the callback as nil values.
+//
+// NOTE: this is part of the graphsession.graph interface.
 func (c *ChannelGraph) ForEachNodeDirectedChannel(tx kvdb.RTx,
 	node route.Vertex, cb func(channel *DirectedChannel) error) error {
 
@@ -517,7 +520,7 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(tx kvdb.RTx,
 	toNodeCallback := func() route.Vertex {
 		return node
 	}
-	toNodeFeatures, err := c.FetchNodeFeatures(node)
+	toNodeFeatures, err := c.FetchNodeFeatures(tx, node)
 	if err != nil {
 		return err
 	}
@@ -562,8 +565,11 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(tx kvdb.RTx,
 }
 
 // FetchNodeFeatures returns the features of a given node. If no features are
-// known for the node, an empty feature vector is returned.
-func (c *ChannelGraph) FetchNodeFeatures(
+// known for the node, an empty feature vector is returned. An optional read
+// transaction may be provided. If none is provided, a new one will be created.
+//
+// NOTE: this is part of the graphsession.graph interface.
+func (c *ChannelGraph) FetchNodeFeatures(tx kvdb.RTx,
 	node route.Vertex) (*lnwire.FeatureVector, error) {
 
 	if c.graphCache != nil {
@@ -571,7 +577,7 @@ func (c *ChannelGraph) FetchNodeFeatures(
 	}
 
 	// Fallback that uses the database.
-	targetNode, err := c.FetchLightningNode(node)
+	targetNode, err := c.FetchLightningNodeTx(tx, node)
 	switch err {
 	// If the node exists and has features, return them directly.
 	case nil:
@@ -618,7 +624,7 @@ func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
 					return node.PubKeyBytes
 				}
 				toNodeFeatures, err := c.FetchNodeFeatures(
-					node.PubKeyBytes,
+					tx, node.PubKeyBytes,
 				)
 				if err != nil {
 					return err

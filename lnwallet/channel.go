@@ -7272,10 +7272,10 @@ func newOutgoingHtlcResolution(signer input.Signer,
 				ChanType:       chanType,
 				ShortChanID:    chanState.ShortChanID(),
 				Initiator:      chanState.IsInitiator,
-				CommitBlob:     chanState.RemoteCommitment.CustomBlob, //nolint:lll
+				CommitBlob:     chanState.LocalCommitment.CustomBlob, //nolint:lll
 				FundingBlob:    chanState.CustomBlob,
 				Type:           input.TaprootHtlcLocalOfferedTimeout, //nolint:lll
-				CloseType:      RemoteForceClose,
+				CloseType:      LocalForceClose,
 				CommitTx:       commitTx,
 				ContractPoint:  op,
 				SignDesc:       sweepSignDesc,
@@ -7284,7 +7284,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 				CommitCsvDelay: csvDelay,
 				HtlcAmt:        btcutil.Amount(txOut.Value),
 				CltvDelay:      fn.Some(htlc.RefundTimeout),
-				CommitFee:      chanState.RemoteCommitment.CommitFee, //nolint:lll
+				CommitFee:      chanState.LocalCommitment.CommitFee, //nolint:lll
 				HtlcID:         fn.Some(htlc.HtlcIndex),
 				PayHash:        fn.Some(htlc.RHash),
 				AuxSigDesc: fn.Some(AuxSigDesc{

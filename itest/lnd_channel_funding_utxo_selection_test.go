@@ -15,6 +15,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var fundUtxoSelectionTestCases = []*lntest.TestCase{
+	{
+		Name:     "utxo selection funding error",
+		TestFunc: testChannelUtxoSelectionError,
+	},
+	{
+		Name:     "utxo selection selected valid chan size",
+		TestFunc: testUtxoSelectionSelectedValidChanSize,
+	},
+	{
+		Name:     "utxo selection selected valid chan reserve",
+		TestFunc: testUtxoSelectionSelectedValidChanReserve,
+	},
+	{
+		Name:     "utxo selection selected reserve from selected",
+		TestFunc: testUtxoSelectionReserveFromSelected,
+	},
+	{
+		Name:     "utxo selection fundmax",
+		TestFunc: testUtxoSelectionFundmax,
+	},
+	{
+		Name:     "utxo selection fundmax reserve",
+		TestFunc: testUtxoSelectionFundmaxReserve,
+	},
+	{
+		Name:     "utxo selection reused utxo",
+		TestFunc: testUtxoSelectionReuseUTXO,
+	},
+}
+
 type chanFundUtxoSelectionTestCase struct {
 	// name is the name of the target test case.
 	name string
@@ -57,9 +88,10 @@ type chanFundUtxoSelectionTestCase struct {
 	reuseUtxo bool
 }
 
-// testChannelUtxoSelection checks various channel funding scenarios where the
-// user instructed the wallet to use a selection funds available in the wallet.
-func testChannelUtxoSelection(ht *lntest.HarnessTest) {
+// testChannelUtxoSelectionError checks various channel funding error scenarios
+// where the user instructed the wallet to use a selection funds available in
+// the wallet.
+func testChannelUtxoSelectionError(ht *lntest.HarnessTest) {
 	// Create two new nodes that open a channel between each other for these
 	// tests.
 	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
@@ -115,73 +147,6 @@ func testChannelUtxoSelection(ht *lntest.HarnessTest) {
 				"create funding transaction, need 0.00210337 " +
 				"BTC only have 0.00100000 BTC available",
 		},
-		// We are spending two selected coins partially out of three
-		// available in the wallet and expect a change output and the
-		// unselected coin as remaining wallet balance.
-		{
-			name: "selected, local amount > " +
-				"min chan size",
-			initialCoins: []btcutil.Amount{
-				200_000, 50_000, 100_000,
-			},
-			selectedCoins: []btcutil.Amount{
-				200_000, 100_000,
-			},
-			localAmt:        btcutil.Amount(250_000),
-			expectedBalance: btcutil.Amount(250_000),
-			remainingWalletBalance: btcutil.Amount(350_000) -
-				btcutil.Amount(250_000) - fundingFee(2, true),
-		},
-		// We are spending the entirety of two selected coins out of
-		// three available in the wallet and expect no change output and
-		// the unselected coin as remaining wallet balance.
-		{
-			name: "fundmax, local amount > min " +
-				"chan size",
-			initialCoins: []btcutil.Amount{
-				200_000, 100_000, 50_000,
-			},
-			selectedCoins: []btcutil.Amount{
-				200_000, 50_000,
-			},
-			expectedBalance: btcutil.Amount(200_000) +
-				btcutil.Amount(50_000) - fundingFee(2, false),
-			remainingWalletBalance: btcutil.Amount(100_000),
-		},
-		// Select all coins in wallet and use the maximum available
-		// local amount to fund an anchor channel.
-		{
-			name: "selected, local amount leaves sufficient " +
-				"reserve",
-			initialCoins: []btcutil.Amount{
-				200_000, 100_000,
-			},
-			selectedCoins:  []btcutil.Amount{200_000, 100_000},
-			commitmentType: lnrpc.CommitmentType_ANCHORS,
-			localAmt: btcutil.Amount(300_000) -
-				reserveAmount - fundingFee(2, true),
-			expectedBalance: btcutil.Amount(300_000) -
-				reserveAmount - fundingFee(2, true),
-			remainingWalletBalance: reserveAmount,
-		},
-		// Select all coins in wallet towards local amount except for an
-		// anchor reserve portion. Because the UTXOs are sorted by size
-		// by default, the reserve amount is just left in the wallet.
-		{
-			name: "selected, reserve from selected",
-			initialCoins: []btcutil.Amount{
-				200_000, reserveAmount, 100_000,
-			},
-			selectedCoins: []btcutil.Amount{
-				200_000, reserveAmount, 100_000,
-			},
-			commitmentType: lnrpc.CommitmentType_ANCHORS,
-			localAmt: btcutil.Amount(300_000) -
-				fundingFee(2, true),
-			expectedBalance: btcutil.Amount(300_000) -
-				fundingFee(2, true),
-			remainingWalletBalance: reserveAmount,
-		},
 		// Select all coins in wallet and use more than the maximum
 		// available local amount to fund an anchor channel.
 		{
@@ -199,43 +164,6 @@ func testChannelUtxoSelection(ht *lntest.HarnessTest) {
 				"invalidated: transaction would leave " +
 				"insufficient funds for fee bumping anchor " +
 				"channel closings",
-		},
-		// We fund an anchor channel with a single coin and just keep
-		// enough funds in the wallet to cover for the anchor reserve.
-		{
-			name: "fundmax, sufficient reserve",
-			initialCoins: []btcutil.Amount{
-				200_000, reserveAmount,
-			},
-			selectedCoins:  []btcutil.Amount{200_000},
-			commitmentType: lnrpc.CommitmentType_ANCHORS,
-			expectedBalance: btcutil.Amount(200_000) -
-				fundingFee(1, false),
-			remainingWalletBalance: reserveAmount,
-		},
-		// We fund an anchor channel with a single coin and expect the
-		// reserve amount left in the wallet.
-		{
-			name: "fundmax, sufficient reserve from channel " +
-				"balance carve out",
-			initialCoins: []btcutil.Amount{
-				200_000,
-			},
-			selectedCoins:  []btcutil.Amount{200_000},
-			commitmentType: lnrpc.CommitmentType_ANCHORS,
-			expectedBalance: btcutil.Amount(200_000) -
-				reserveAmount - fundingFee(1, true),
-			remainingWalletBalance: reserveAmount,
-		},
-		// Confirm that already spent outputs can't be reused to fund
-		// another channel.
-		{
-			name: "output already spent",
-			initialCoins: []btcutil.Amount{
-				200_000,
-			},
-			selectedCoins: []btcutil.Amount{200_000},
-			reuseUtxo:     true,
 		},
 	}
 
@@ -255,24 +183,258 @@ func testChannelUtxoSelection(ht *lntest.HarnessTest) {
 	}
 }
 
+// testChannelUtxoSelection checks various channel funding scenarios where the
+// user instructed the wallet to use a selection funds available in the wallet.
+func testUtxoSelectionSelectedValidChanSize(ht *lntest.HarnessTest) {
+	// Create two new nodes that open a channel between each other for these
+	// tests.
+	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	alice := ht.NewNode("Alice", args)
+	bob := ht.NewNode("Bob", args)
+
+	// Ensure both sides are connected so the funding flow can be properly
+	// executed.
+	ht.EnsureConnected(alice, bob)
+
+	// Calculate reserve amount for one channel.
+	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
+		context.Background(), &walletrpc.RequiredReserveRequest{
+			AdditionalPublicChannels: 1,
+		},
+	)
+
+	reserveAmount := btcutil.Amount(reserveResp.RequiredReserve)
+
+	// We are spending two selected coins partially out of three available
+	// in the wallet and expect a change output and the unselected coin as
+	// remaining wallet balance.
+	tc := &chanFundUtxoSelectionTestCase{
+		name: "selected, local amount > min chan size",
+		initialCoins: []btcutil.Amount{
+			200_000, 50_000, 100_000,
+		},
+		selectedCoins: []btcutil.Amount{
+			200_000, 100_000,
+		},
+		localAmt:        btcutil.Amount(250_000),
+		expectedBalance: btcutil.Amount(250_000),
+		remainingWalletBalance: btcutil.Amount(350_000) -
+			btcutil.Amount(250_000) - fundingFee(2, true),
+	}
+
+	runUtxoSelectionTestCase(ht, alice, bob, tc, reserveAmount)
+}
+
+// testChannelUtxoSelection checks various channel funding scenarios where the
+// user instructed the wallet to use a selection funds available in the wallet.
+func testUtxoSelectionSelectedValidChanReserve(ht *lntest.HarnessTest) {
+	// Create two new nodes that open a channel between each other for these
+	// tests.
+	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	alice := ht.NewNode("Alice", args)
+	bob := ht.NewNode("Bob", args)
+
+	// Ensure both sides are connected so the funding flow can be properly
+	// executed.
+	ht.EnsureConnected(alice, bob)
+
+	// Calculate reserve amount for one channel.
+	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
+		context.Background(), &walletrpc.RequiredReserveRequest{
+			AdditionalPublicChannels: 1,
+		},
+	)
+
+	reserveAmount := btcutil.Amount(reserveResp.RequiredReserve)
+
+	// Select all coins in wallet and use the maximum available
+	// local amount to fund an anchor channel.
+	tc := &chanFundUtxoSelectionTestCase{
+		name: "selected, local amount leaves sufficient reserve",
+		initialCoins: []btcutil.Amount{
+			200_000, 100_000,
+		},
+		selectedCoins:  []btcutil.Amount{200_000, 100_000},
+		commitmentType: lnrpc.CommitmentType_ANCHORS,
+		localAmt: btcutil.Amount(300_000) -
+			reserveAmount - fundingFee(2, true),
+		expectedBalance: btcutil.Amount(300_000) -
+			reserveAmount - fundingFee(2, true),
+		remainingWalletBalance: reserveAmount,
+	}
+
+	runUtxoSelectionTestCase(ht, alice, bob, tc, reserveAmount)
+}
+
+// testChannelUtxoSelection checks various channel funding scenarios where the
+// user instructed the wallet to use a selection funds available in the wallet.
+func testUtxoSelectionReserveFromSelected(ht *lntest.HarnessTest) {
+	// Create two new nodes that open a channel between each other for these
+	// tests.
+	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	alice := ht.NewNode("Alice", args)
+	bob := ht.NewNode("Bob", args)
+
+	// Ensure both sides are connected so the funding flow can be properly
+	// executed.
+	ht.EnsureConnected(alice, bob)
+
+	// Calculate reserve amount for one channel.
+	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
+		context.Background(), &walletrpc.RequiredReserveRequest{
+			AdditionalPublicChannels: 1,
+		},
+	)
+
+	reserveAmount := btcutil.Amount(reserveResp.RequiredReserve)
+
+	// Select all coins in wallet towards local amount except for an anchor
+	// reserve portion. Because the UTXOs are sorted by size by default,
+	// the reserve amount is just left in the wallet.
+	tc := &chanFundUtxoSelectionTestCase{
+		name: "selected, reserve from selected",
+		initialCoins: []btcutil.Amount{
+			200_000, reserveAmount, 100_000,
+		},
+		selectedCoins: []btcutil.Amount{
+			200_000, reserveAmount, 100_000,
+		},
+		commitmentType: lnrpc.CommitmentType_ANCHORS,
+		localAmt: btcutil.Amount(300_000) -
+			fundingFee(2, true),
+		expectedBalance: btcutil.Amount(300_000) -
+			fundingFee(2, true),
+		remainingWalletBalance: reserveAmount,
+	}
+
+	runUtxoSelectionTestCase(ht, alice, bob, tc, reserveAmount)
+}
+
+// testChannelUtxoSelection checks various channel funding scenarios where the
+// user instructed the wallet to use a selection funds available in the wallet.
+func testUtxoSelectionFundmax(ht *lntest.HarnessTest) {
+	// Create two new nodes that open a channel between each other for these
+	// tests.
+	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	alice := ht.NewNode("Alice", args)
+	bob := ht.NewNode("Bob", args)
+
+	// Ensure both sides are connected so the funding flow can be properly
+	// executed.
+	ht.EnsureConnected(alice, bob)
+
+	// Calculate reserve amount for one channel.
+	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
+		context.Background(), &walletrpc.RequiredReserveRequest{
+			AdditionalPublicChannels: 1,
+		},
+	)
+
+	reserveAmount := btcutil.Amount(reserveResp.RequiredReserve)
+
+	// We fund an anchor channel with a single coin and just keep enough
+	// funds in the wallet to cover for the anchor reserve.
+	tc := &chanFundUtxoSelectionTestCase{
+		name: "fundmax, sufficient reserve",
+		initialCoins: []btcutil.Amount{
+			200_000, reserveAmount,
+		},
+		selectedCoins:  []btcutil.Amount{200_000},
+		commitmentType: lnrpc.CommitmentType_ANCHORS,
+		expectedBalance: btcutil.Amount(200_000) -
+			fundingFee(1, false),
+		remainingWalletBalance: reserveAmount,
+	}
+
+	runUtxoSelectionTestCase(ht, alice, bob, tc, reserveAmount)
+}
+
+// testChannelUtxoSelection checks various channel funding scenarios where the
+// user instructed the wallet to use a selection funds available in the wallet.
+func testUtxoSelectionFundmaxReserve(ht *lntest.HarnessTest) {
+	// Create two new nodes that open a channel between each other for these
+	// tests.
+	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	alice := ht.NewNode("Alice", args)
+	bob := ht.NewNode("Bob", args)
+
+	// Ensure both sides are connected so the funding flow can be properly
+	// executed.
+	ht.EnsureConnected(alice, bob)
+
+	// Calculate reserve amount for one channel.
+	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
+		context.Background(), &walletrpc.RequiredReserveRequest{
+			AdditionalPublicChannels: 1,
+		},
+	)
+
+	reserveAmount := btcutil.Amount(reserveResp.RequiredReserve)
+
+	// We fund an anchor channel with a single coin and expect the reserve
+	// amount left in the wallet.
+	tc := &chanFundUtxoSelectionTestCase{
+		name: "fundmax, sufficient reserve from channel " +
+			"balance carve out",
+		initialCoins: []btcutil.Amount{
+			200_000,
+		},
+		selectedCoins:  []btcutil.Amount{200_000},
+		commitmentType: lnrpc.CommitmentType_ANCHORS,
+		expectedBalance: btcutil.Amount(200_000) -
+			reserveAmount - fundingFee(1, true),
+		remainingWalletBalance: reserveAmount,
+	}
+
+	runUtxoSelectionTestCase(ht, alice, bob, tc, reserveAmount)
+}
+
+// testChannelUtxoSelection checks various channel funding scenarios where the
+// user instructed the wallet to use a selection funds available in the wallet.
+func testUtxoSelectionReuseUTXO(ht *lntest.HarnessTest) {
+	// Create two new nodes that open a channel between each other for these
+	// tests.
+	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	alice := ht.NewNode("Alice", args)
+	bob := ht.NewNode("Bob", args)
+
+	// Ensure both sides are connected so the funding flow can be properly
+	// executed.
+	ht.EnsureConnected(alice, bob)
+
+	// Calculate reserve amount for one channel.
+	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
+		context.Background(), &walletrpc.RequiredReserveRequest{
+			AdditionalPublicChannels: 1,
+		},
+	)
+
+	reserveAmount := btcutil.Amount(reserveResp.RequiredReserve)
+
+	// Confirm that already spent outputs can't be reused to fund another
+	// channel.
+	tc := &chanFundUtxoSelectionTestCase{
+		name: "output already spent",
+		initialCoins: []btcutil.Amount{
+			200_000,
+		},
+		selectedCoins: []btcutil.Amount{200_000},
+		reuseUtxo:     true,
+	}
+
+	runUtxoSelectionTestCase(ht, alice, bob, tc, reserveAmount)
+}
+
 // runUtxoSelectionTestCase runs a single test case asserting that test
 // conditions are met.
 func runUtxoSelectionTestCase(ht *lntest.HarnessTest, alice,
 	bob *node.HarnessNode, tc *chanFundUtxoSelectionTestCase,
 	reserveAmount btcutil.Amount) {
 
-	// fund initial coins
+	// Fund initial coins.
 	for _, initialCoin := range tc.initialCoins {
 		ht.FundCoins(initialCoin, alice)
 	}
-	defer func() {
-		// Fund additional coins to sweep in case the wallet contains
-		// dust.
-		ht.FundCoins(100_000, alice)
-
-		// Remove all funds from Alice.
-		sweepNodeWalletAndAssert(ht, alice)
-	}()
 
 	// Create an outpoint lookup for each unique amount.
 	lookup := make(map[int64]*lnrpc.OutPoint)
@@ -314,9 +476,14 @@ func runUtxoSelectionTestCase(ht *lntest.HarnessTest, alice,
 	// successful, simply check for an error.
 	if tc.chanOpenShouldFail {
 		expectedErr := errors.New(tc.expectedErrStr)
-		ht.OpenChannelAssertErr(
-			alice, bob, chanParams, expectedErr,
-		)
+		ht.OpenChannelAssertErr(alice, bob, chanParams, expectedErr)
+
+		// Fund additional coins to sweep in case the wallet contains
+		// dust.
+		ht.FundCoins(100_000, alice)
+
+		// Remove all funds from Alice.
+		sweepNodeWalletAndAssert(ht, alice)
 
 		return
 	}

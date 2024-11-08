@@ -1699,11 +1699,12 @@ func decodeTapRootAuxData(r io.Reader, c *ContractResolutions) error {
 			htlc.SweepSignDesc.ControlBlock = ctrlBlock
 		}
 
-		c.HtlcResolutions.IncomingHTLCs[i] = htlc
-
 		if htlcBlob, ok := htlcBlobs[resID]; ok {
 			htlc.ResolutionBlob = fn.Some(htlcBlob)
 		}
+
+		c.HtlcResolutions.IncomingHTLCs[i] = htlc
+
 	}
 	for i := range c.HtlcResolutions.OutgoingHTLCs {
 		htlc := c.HtlcResolutions.OutgoingHTLCs[i]
@@ -1731,11 +1732,11 @@ func decodeTapRootAuxData(r io.Reader, c *ContractResolutions) error {
 			htlc.SweepSignDesc.ControlBlock = ctrlBlock
 		}
 
-		c.HtlcResolutions.OutgoingHTLCs[i] = htlc
-
 		if htlcBlob, ok := htlcBlobs[resID]; ok {
 			htlc.ResolutionBlob = fn.Some(htlcBlob)
 		}
+
+		c.HtlcResolutions.OutgoingHTLCs[i] = htlc
 	}
 
 	if c.AnchorResolution != nil {

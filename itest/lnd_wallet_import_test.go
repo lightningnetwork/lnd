@@ -23,6 +23,55 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// walletImportAccountTestCases tests that an imported account can fund
+// transactions and channels through PSBTs, by having one node (the one with
+// the imported account) craft the transactions and another node act as the
+// signer.
+//
+//nolint:ll
+var walletImportAccountTestCases = []*lntest.TestCase{
+	{
+		Name: "wallet import account standard BIP-0044",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			testWalletImportAccountScenario(
+				ht, walletrpc.AddressType_WITNESS_PUBKEY_HASH,
+			)
+		},
+	},
+	{
+		Name: "wallet import account standard BIP-0049",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			testWalletImportAccountScenario(
+				ht, walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH,
+			)
+		},
+	},
+	{
+		Name: "wallet import account lnd BIP-0049 variant",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			testWalletImportAccountScenario(
+				ht, walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH,
+			)
+		},
+	},
+	{
+		Name: "wallet import account standard BIP-0084",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			testWalletImportAccountScenario(
+				ht, walletrpc.AddressType_WITNESS_PUBKEY_HASH,
+			)
+		},
+	},
+	{
+		Name: "wallet import account standard BIP-0086",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			testWalletImportAccountScenario(
+				ht, walletrpc.AddressType_TAPROOT_PUBKEY,
+			)
+		},
+	},
+}
+
 const (
 	defaultAccount         = lnwallet.DefaultAccountName
 	defaultImportedAccount = waddrmgr.ImportedAddrAccountName
@@ -449,65 +498,6 @@ func fundChanAndCloseFromImportedAccount(ht *lntest.HarnessTest, srcNode,
 		ht.AssertWalletAccountBalance(
 			srcNode, defaultAccount, balanceFromClosedChan, 0,
 		)
-	}
-}
-
-// testWalletImportAccount tests that an imported account can fund transactions
-// and channels through PSBTs, by having one node (the one with the imported
-// account) craft the transactions and another node act as the signer.
-func testWalletImportAccount(ht *lntest.HarnessTest) {
-	testCases := []struct {
-		name     string
-		addrType walletrpc.AddressType
-	}{
-		{
-			name:     "standard BIP-0044",
-			addrType: walletrpc.AddressType_WITNESS_PUBKEY_HASH,
-		},
-		{
-			name: "standard BIP-0049",
-			addrType: walletrpc.
-				AddressType_NESTED_WITNESS_PUBKEY_HASH,
-		},
-		{
-			name: "lnd BIP-0049 variant",
-			addrType: walletrpc.
-				AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH,
-		},
-		{
-			name:     "standard BIP-0084",
-			addrType: walletrpc.AddressType_WITNESS_PUBKEY_HASH,
-		},
-		{
-			name:     "standard BIP-0086",
-			addrType: walletrpc.AddressType_TAPROOT_PUBKEY,
-		},
-	}
-
-	for _, tc := range testCases {
-		tc := tc
-		success := ht.Run(tc.name, func(tt *testing.T) {
-			testFunc := func(ht *lntest.HarnessTest) {
-				testWalletImportAccountScenario(
-					ht, tc.addrType,
-				)
-			}
-
-			st := ht.Subtest(tt)
-
-			st.RunTestCase(&lntest.TestCase{
-				Name:     tc.name,
-				TestFunc: testFunc,
-			})
-		})
-		if !success {
-			// Log failure time to help relate the lnd logs to the
-			// failure.
-			ht.Logf("Failure time: %v", time.Now().Format(
-				"2006-01-02 15:04:05.000",
-			))
-			break
-		}
 	}
 }
 

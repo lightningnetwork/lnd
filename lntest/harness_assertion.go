@@ -19,7 +19,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -239,59 +238,6 @@ func (h *HarnessTest) EnsureConnected(a, b *node.HarnessNode) {
 	// peers lists to reflect the connection.
 	h.AssertPeerConnected(a, b)
 	h.AssertPeerConnected(b, a)
-}
-
-// AssertNumActiveEdges checks that an expected number of active edges can be
-// found in the node specified.
-func (h *HarnessTest) AssertNumActiveEdges(hn *node.HarnessNode,
-	expected int, includeUnannounced bool) []*lnrpc.ChannelEdge {
-
-	var edges []*lnrpc.ChannelEdge
-
-	old := hn.State.Edge.Public
-	if includeUnannounced {
-		old = hn.State.Edge.Total
-	}
-
-	// filterDisabled is a helper closure that filters out disabled
-	// channels.
-	filterDisabled := func(edge *lnrpc.ChannelEdge) bool {
-		if edge.Node1Policy != nil && edge.Node1Policy.Disabled {
-			return false
-		}
-		if edge.Node2Policy != nil && edge.Node2Policy.Disabled {
-			return false
-		}
-
-		return true
-	}
-
-	err := wait.NoError(func() error {
-		req := &lnrpc.ChannelGraphRequest{
-			IncludeUnannounced: includeUnannounced,
-		}
-		resp := hn.RPC.DescribeGraph(req)
-		activeEdges := fn.Filter(resp.Edges, filterDisabled)
-		total := len(activeEdges)
-
-		if total-old == expected {
-			if expected != 0 {
-				// NOTE: assume edges come in ascending order
-				// that the old edges are at the front of the
-				// slice.
-				edges = activeEdges[old:]
-			}
-
-			return nil
-		}
-
-		return errNumNotMatched(hn.Name(), "num of channel edges",
-			expected, total-old, total, old)
-	}, DefaultTimeout)
-
-	require.NoError(h, err, "timeout while checking for edges")
-
-	return edges
 }
 
 // AssertNumEdges checks that an expected number of edges can be found in the

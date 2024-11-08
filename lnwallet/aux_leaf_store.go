@@ -178,7 +178,8 @@ type AuxLeafStore interface {
 	// commitment.
 	FetchLeavesFromCommit(chanState AuxChanState,
 		commit channeldb.ChannelCommitment,
-		keyRing CommitmentKeyRing) fn.Result[CommitDiffAuxResult]
+		keyRing CommitmentKeyRing, whoseCommit lntypes.ChannelParty,
+	) fn.Result[CommitDiffAuxResult]
 
 	// FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
 	// from a channel revocation that stores balance + blob information.

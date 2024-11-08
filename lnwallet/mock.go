@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/mock"
@@ -413,7 +414,7 @@ func (*MockAuxLeafStore) FetchLeavesFromView(
 // commitment.
 func (*MockAuxLeafStore) FetchLeavesFromCommit(_ AuxChanState,
 	_ channeldb.ChannelCommitment,
-	_ CommitmentKeyRing) fn.Result[CommitDiffAuxResult] {
+	_ CommitmentKeyRing, _ lntypes.ChannelParty) fn.Result[CommitDiffAuxResult] {
 
 	return fn.Ok(CommitDiffAuxResult{})
 }

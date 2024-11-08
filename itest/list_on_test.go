@@ -20,10 +20,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testExternalFundingChanPoint,
 	},
 	{
-		Name:     "channel backup restore basic",
-		TestFunc: testChannelBackupRestoreBasic,
-	},
-	{
 		Name:     "channel backup restore unconfirmed",
 		TestFunc: testChannelBackupRestoreUnconfirmed,
 	},

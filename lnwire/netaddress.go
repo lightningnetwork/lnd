@@ -5,7 +5,6 @@ import (
 	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/wire"
 )
 
 // NetAddress represents information pertaining to the identity and network
@@ -25,10 +24,6 @@ type NetAddress struct {
 	// Address is the IP address and port of the node. This is left
 	// general so that multiple implementations can be used.
 	Address net.Addr
-
-	// ChainNet is the Bitcoin network this node is associated with.
-	// TODO(roasbeef): make a slice in the future for multi-chain
-	ChainNet wire.BitcoinNet
 }
 
 // A compile time assertion to ensure that NetAddress meets the net.Addr

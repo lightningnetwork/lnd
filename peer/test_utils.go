@@ -584,7 +584,6 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 	cfgAddr := &lnwire.NetAddress{
 		IdentityKey: aliceKeyPub,
 		Address:     aliceAddr,
-		ChainNet:    wire.SimNet,
 	}
 
 	errBuffer, err := queue.NewCircularBuffer(ErrorBufferSize)

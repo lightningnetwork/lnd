@@ -797,6 +797,37 @@ func FuzzConvertFixedSignature(f *testing.F) {
 	})
 }
 
+// FuzzConvertFixedSchnorrSignature tests that conversion of fixed 64-byte
+// Schnorr signatures to and from the btcec format does not panic or mutate the
+// signatures.
+func FuzzConvertFixedSchnorrSignature(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var sig Sig
+		if len(data) > len(sig.bytes[:]) {
+			return
+		}
+		copy(sig.bytes[:], data)
+		sig.ForceSchnorr()
+
+		btcecSig, err := sig.ToSignature()
+		if err != nil {
+			return
+		}
+
+		sig2, err := NewSigFromSignature(btcecSig)
+		require.NoError(t, err, "failed to parse signature")
+
+		btcecSig2, err := sig2.ToSignature()
+		require.NoError(
+			t, err, "failed to reconvert signature to btcec format",
+		)
+
+		btcecBytes := btcecSig.Serialize()
+		btcecBytes2 := btcecSig2.Serialize()
+		require.Equal(t, btcecBytes, btcecBytes2, "signature mismatch")
+	})
+}
+
 // prefixWithFailCode adds a failure code prefix to data.
 func prefixWithFailCode(data []byte, code FailCode) []byte {
 	var codeBytes [2]byte

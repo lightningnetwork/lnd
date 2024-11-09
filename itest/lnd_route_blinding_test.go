@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -18,6 +19,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// toLocalCSV is the CSV delay for the node's to_local output. We use a small
+// value to save us from mining blocks.
+var toLocalCSV = 2
 
 // testQueryBlindedRoutes tests querying routes to blinded routes. To do this,
 // it sets up a nework of Alice - Bob - Carol and creates a mock blinded route
@@ -346,14 +351,18 @@ func newBlindedForwardTest(ht *lntest.HarnessTest) (context.Context,
 func (b *blindedForwardTest) setupNetwork(ctx context.Context,
 	withInterceptor bool) {
 
-	const chanAmt = btcutil.Amount(100000)
-
-	carolArgs := []string{"--bitcoin.timelockdelta=18"}
+	carolArgs := []string{
+		"--bitcoin.timelockdelta=18",
+		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", toLocalCSV),
+	}
 	if withInterceptor {
 		carolArgs = append(carolArgs, "--requireinterceptor")
 	}
 
-	daveArgs := []string{"--bitcoin.timelockdelta=18"}
+	daveArgs := []string{
+		"--bitcoin.timelockdelta=18",
+		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", toLocalCSV),
+	}
 	cfgs := [][]string{nil, nil, carolArgs, daveArgs}
 	param := lntest.OpenChannelParams{
 		Amt: chanAmt,
@@ -780,11 +789,11 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 
 	// SuspendCarol so that she can't interfere with the resolution of the
 	// HTLC from now on.
-	restartCarol := ht.SuspendNode(testCase.carol)
+	ht.SuspendNode(testCase.carol)
 
 	// Mine blocks so that Bob will claim his CSV delayed local commitment,
 	// we've already mined 1 block so we need one less than our CSV.
-	ht.MineBlocks(node.DefaultCSV - 1)
+	ht.MineBlocks(toLocalCSV - 1)
 	ht.AssertNumPendingSweeps(bob, 1)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
@@ -797,6 +806,7 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	// value.
 	info := bob.RPC.GetInfo()
 	target := carolHTLC.IncomingExpiry - info.BlockHeight
+	ht.Log(carolHTLC.IncomingExpiry, info.BlockHeight, target)
 	ht.MineBlocks(int(target))
 
 	// Wait for Bob's timeout transaction in the mempool, since we've
@@ -818,23 +828,6 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 		ht, htlcs[0].Failure.Code,
 		lnrpc.Failure_INVALID_ONION_BLINDING,
 	)
-
-	// Clean up the rest of our force close: mine blocks so that Bob's CSV
-	// expires to trigger his sweep and then mine it.
-	ht.MineBlocks(node.DefaultCSV)
-	ht.AssertNumPendingSweeps(bob, 1)
-	ht.MineBlocksAndAssertNumTxes(1, 1)
-
-	// Bring carol back up so that we can close out the rest of our
-	// channels cooperatively. She requires an interceptor to start up
-	// so we just re-register our interceptor.
-	require.NoError(ht, restartCarol())
-	_, err = testCase.carol.RPC.Router.HtlcInterceptor(ctx)
-	require.NoError(ht, err, "interceptor")
-
-	// Assert that Carol has started up and reconnected to dave so that
-	// we can close out channels cooperatively.
-	ht.EnsureConnected(testCase.carol, testCase.dave)
 
 	// Manually close out the rest of our channels and cancel (don't use
 	// built in cleanup which will try close the already-force-closed

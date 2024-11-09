@@ -93,21 +93,17 @@ func testEstimateRouteFee(ht *lntest.HarnessTest) {
 	// added to the invoice always have enough liquidity, but here we check
 	// that the prober uses the more expensive route.
 	ht.EnsureConnected(mts.bob, paula)
-	channelPointBobPaula := ht.OpenChannel(
-		mts.bob, paula, lntest.OpenChannelParams{
-			Private: true,
-			Amt:     90_000,
-			PushAmt: 69_000,
-		},
-	)
+	ht.OpenChannel(mts.bob, paula, lntest.OpenChannelParams{
+		Private: true,
+		Amt:     90_000,
+		PushAmt: 69_000,
+	})
 
 	ht.EnsureConnected(mts.eve, paula)
-	channelPointEvePaula := ht.OpenChannel(
-		mts.eve, paula, lntest.OpenChannelParams{
-			Private: true,
-			Amt:     1_000_000,
-		},
-	)
+	ht.OpenChannel(mts.eve, paula, lntest.OpenChannelParams{
+		Private: true,
+		Amt:     1_000_000,
+	})
 
 	bobsPrivChannels := mts.bob.RPC.ListChannels(&lnrpc.ListChannelsRequest{
 		PrivateOnly: true,
@@ -242,6 +238,8 @@ func testEstimateRouteFee(ht *lntest.HarnessTest) {
 	locktime := initialBlockHeight + defaultTimelock +
 		int64(routing.BlockPadding)
 
+	noChanNode := ht.NewNode("ImWithoutChannels", nil)
+
 	var testCases = []*estimateRouteFeeTestCase{
 		// Single hop payment is free.
 		{
@@ -303,10 +301,8 @@ func testEstimateRouteFee(ht *lntest.HarnessTest) {
 		{
 			name: "single hop hint, destination " +
 				"without channels",
-			probing: true,
-			destination: ht.NewNode(
-				"ImWithoutChannels", nil,
-			),
+			probing:                 true,
+			destination:             noChanNode,
 			routeHints:              singleRouteHint,
 			expectedRoutingFeesMsat: feeACBP,
 			expectedCltvDelta:       locktime + deltaACBP,
@@ -356,12 +352,6 @@ func testEstimateRouteFee(ht *lntest.HarnessTest) {
 			break
 		}
 	}
-
-	mts.ht.CloseChannelAssertPending(mts.bob, channelPointBobPaula, false)
-	mts.ht.CloseChannelAssertPending(mts.eve, channelPointEvePaula, false)
-	ht.MineBlocksAndAssertNumTxes(1, 2)
-
-	mts.closeChannels()
 }
 
 // runTestCase runs a single test case asserting that test conditions are met.

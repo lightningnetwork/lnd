@@ -1499,7 +1499,6 @@ func assertTimeLockSwept(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	ht.AssertNumPendingSweeps(dave, 2)
 
 	// Mine a block to trigger the sweeps.
-	ht.MineEmptyBlocks(1)
 	daveSweep := ht.AssertNumTxsInMempool(1)[0]
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	ht.AssertTxInBlock(block, daveSweep)

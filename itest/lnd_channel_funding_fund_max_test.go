@@ -50,9 +50,9 @@ type chanFundMaxTestCase struct {
 	private bool
 }
 
-// testChannelFundMax checks various channel funding scenarios where the user
-// instructed the wallet to use all remaining funds.
-func testChannelFundMax(ht *lntest.HarnessTest) {
+// testChannelFundMaxError checks various error channel funding scenarios where
+// the user instructed the wallet to use all remaining funds.
+func testChannelFundMaxError(ht *lntest.HarnessTest) {
 	// Create two new nodes that open a channel between each other for these
 	// tests.
 	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
@@ -92,22 +92,6 @@ func testChannelFundMax(ht *lntest.HarnessTest) {
 			expectedErrStr: "available funds(0.00017877 BTC) " +
 				"below the minimum amount(0.00020000 BTC)",
 		},
-		{
-			name: "wallet amount > min chan " +
-				"size (37000sat)",
-			initialWalletBalance: 37_000,
-			// The transaction fee to open the channel must be
-			// subtracted from Alice's balance.
-			// (since wallet balance < max-chan-size)
-			expectedBalanceAlice: btcutil.Amount(37_000) -
-				fundingFee(1, false),
-		},
-		{
-			name: "wallet amount > max chan size " +
-				"(20000000sat)",
-			initialWalletBalance: 20_000_000,
-			expectedBalanceAlice: lnd.MaxFundingAmount,
-		},
 		// Expects, that if the maximum funding amount for a channel is
 		// pushed to the remote side, then the funding flow is failing
 		// because the push amount has to be less than the local channel
@@ -137,6 +121,63 @@ func testChannelFundMax(ht *lntest.HarnessTest) {
 			expectedErrStr: "funder balance too small (-8050000) " +
 				"with fee=9050 sat, minimum=708 sat required",
 		},
+	}
+
+	for _, testCase := range testCases {
+		success := ht.Run(
+			testCase.name, func(tt *testing.T) {
+				runFundMaxTestCase(
+					ht, alice, bob, testCase, reserveAmount,
+				)
+			},
+		)
+
+		// Stop at the first failure. Mimic behavior of original test
+		// framework.
+		if !success {
+			break
+		}
+	}
+}
+
+// testChannelFundMaxWalletAmount checks various channel funding scenarios
+// where the user instructed the wallet to use all remaining funds and succeed.
+func testChannelFundMaxWalletAmount(ht *lntest.HarnessTest) {
+	// Create two new nodes that open a channel between each other for these
+	// tests.
+	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	alice := ht.NewNode("Alice", args)
+	bob := ht.NewNode("Bob", args)
+
+	// Ensure both sides are connected so the funding flow can be properly
+	// executed.
+	ht.EnsureConnected(alice, bob)
+
+	// Calculate reserve amount for one channel.
+	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
+		context.Background(), &walletrpc.RequiredReserveRequest{
+			AdditionalPublicChannels: 1,
+		},
+	)
+	reserveAmount := btcutil.Amount(reserveResp.RequiredReserve)
+
+	var testCases = []*chanFundMaxTestCase{
+		{
+			name: "wallet amount > min chan " +
+				"size (37000sat)",
+			initialWalletBalance: 37_000,
+			// The transaction fee to open the channel must be
+			// subtracted from Alice's balance.
+			// (since wallet balance < max-chan-size)
+			expectedBalanceAlice: btcutil.Amount(37_000) -
+				fundingFee(1, false),
+		},
+		{
+			name: "wallet amount > max chan size " +
+				"(20000000sat)",
+			initialWalletBalance: 20_000_000,
+			expectedBalanceAlice: lnd.MaxFundingAmount,
+		},
 		{
 			name: "wallet amount > max chan size, " +
 				"push amount 16766000",
@@ -144,7 +185,48 @@ func testChannelFundMax(ht *lntest.HarnessTest) {
 			pushAmt:              16_766_000,
 			expectedBalanceAlice: lnd.MaxFundingAmount - 16_766_000,
 		},
+	}
 
+	for _, testCase := range testCases {
+		success := ht.Run(
+			testCase.name, func(tt *testing.T) {
+				runFundMaxTestCase(
+					ht, alice, bob, testCase, reserveAmount,
+				)
+			},
+		)
+
+		// Stop at the first failure. Mimic behavior of original test
+		// framework.
+		if !success {
+			break
+		}
+	}
+}
+
+// testChannelFundMaxAnchorReserve checks various channel funding scenarios
+// where the user instructed the wallet to use all remaining funds and its
+// impact on anchor reserve.
+func testChannelFundMaxAnchorReserve(ht *lntest.HarnessTest) {
+	// Create two new nodes that open a channel between each other for these
+	// tests.
+	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	alice := ht.NewNode("Alice", args)
+	bob := ht.NewNode("Bob", args)
+
+	// Ensure both sides are connected so the funding flow can be properly
+	// executed.
+	ht.EnsureConnected(alice, bob)
+
+	// Calculate reserve amount for one channel.
+	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
+		context.Background(), &walletrpc.RequiredReserveRequest{
+			AdditionalPublicChannels: 1,
+		},
+	)
+	reserveAmount := btcutil.Amount(reserveResp.RequiredReserve)
+
+	var testCases = []*chanFundMaxTestCase{
 		{
 			name:                 "anchor reserved value",
 			initialWalletBalance: 100_000,

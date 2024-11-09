@@ -12,10 +12,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testUpdateChanStatus,
 	},
 	{
-		Name:     "basic funding flow",
-		TestFunc: testBasicChannelFunding,
-	},
-	{
 		Name:     "external channel funding",
 		TestFunc: testExternalFundingChanPoint,
 	},
@@ -681,4 +677,5 @@ func init() {
 	allTestCases = append(allTestCases, zeroConfPolicyTestCases...)
 	allTestCases = append(allTestCases, channelFeePolicyTestCases...)
 	allTestCases = append(allTestCases, walletImportAccountTestCases...)
+	allTestCases = append(allTestCases, basicFundingTestCases...)
 }

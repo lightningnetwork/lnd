@@ -525,8 +525,16 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testLookupHtlcResolution,
 	},
 	{
-		Name:     "channel fundmax",
-		TestFunc: testChannelFundMax,
+		Name:     "channel fundmax error",
+		TestFunc: testChannelFundMaxError,
+	},
+	{
+		Name:     "channel fundmax wallet amount",
+		TestFunc: testChannelFundMaxWalletAmount,
+	},
+	{
+		Name:     "channel fundmax anchor reserve",
+		TestFunc: testChannelFundMaxAnchorReserve,
 	},
 	{
 		Name:     "htlc timeout resolver extract preimage remote",

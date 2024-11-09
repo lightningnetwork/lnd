@@ -301,10 +301,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testRevokedCloseRetributionRemoteHodl,
 	},
 	{
-		Name:     "single-hop send to route",
-		TestFunc: testSingleHopSendToRoute,
-	},
-	{
 		Name:     "multi-hop send to route",
 		TestFunc: testMultiHopSendToRoute,
 	},
@@ -670,4 +666,5 @@ func init() {
 	allTestCases = append(allTestCases, channelFeePolicyTestCases...)
 	allTestCases = append(allTestCases, walletImportAccountTestCases...)
 	allTestCases = append(allTestCases, basicFundingTestCases...)
+	allTestCases = append(allTestCases, sendToRouteTestCases...)
 }

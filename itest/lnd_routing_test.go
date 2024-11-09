@@ -20,46 +20,33 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type singleHopSendToRouteCase struct {
-	name string
-
-	// streaming tests streaming SendToRoute if true, otherwise tests
-	// synchronous SenToRoute.
-	streaming bool
-
-	// routerrpc submits the request to the routerrpc subserver if true,
-	// otherwise submits to the main rpc server.
-	routerrpc bool
-}
-
-var singleHopSendToRouteCases = []singleHopSendToRouteCase{
+var sendToRouteTestCases = []*lntest.TestCase{
 	{
-		name: "regular main sync",
+		Name: "single hop send to route sync",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			// useStream: false, routerrpc: false.
+			testSingleHopSendToRouteCase(ht, false, false)
+		},
 	},
 	{
-		name:      "regular main stream",
-		streaming: true,
+		Name: "single hop send to route stream",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			// useStream: true, routerrpc: false.
+			testSingleHopSendToRouteCase(ht, true, false)
+		},
 	},
 	{
-		name:      "regular routerrpc sync",
-		routerrpc: true,
-	},
-	{
-		name: "mpp main sync",
-	},
-	{
-		name:      "mpp main stream",
-		streaming: true,
-	},
-	{
-		name:      "mpp routerrpc sync",
-		routerrpc: true,
+		Name: "single hop send to route v2",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			// useStream: false, routerrpc: true.
+			testSingleHopSendToRouteCase(ht, false, true)
+		},
 	},
 }
 
-// testSingleHopSendToRoute tests that payments are properly processed through a
-// provided route with a single hop. We'll create the following network
-// topology:
+// testSingleHopSendToRouteCase tests that payments are properly processed
+// through a provided route with a single hop. We'll create the following
+// network topology:
 //
 //	Carol --100k--> Dave
 //
@@ -67,19 +54,8 @@ var singleHopSendToRouteCases = []singleHopSendToRouteCase{
 // by feeding the route back into the various SendToRoute RPC methods. Here we
 // test all three SendToRoute endpoints, forcing each to perform both a regular
 // payment and an MPP payment.
-func testSingleHopSendToRoute(ht *lntest.HarnessTest) {
-	for _, test := range singleHopSendToRouteCases {
-		test := test
-
-		ht.Run(test.name, func(t1 *testing.T) {
-			st := ht.Subtest(t1)
-			testSingleHopSendToRouteCase(st, test)
-		})
-	}
-}
-
 func testSingleHopSendToRouteCase(ht *lntest.HarnessTest,
-	test singleHopSendToRouteCase) {
+	useStream, useRPC bool) {
 
 	const chanAmt = btcutil.Amount(100000)
 	const paymentAmtSat = 1000
@@ -199,11 +175,11 @@ func testSingleHopSendToRouteCase(ht *lntest.HarnessTest,
 	// synchronously via the routerrpc's SendToRoute, or via the main RPC
 	// server's SendToRoute streaming or sync calls.
 	switch {
-	case !test.routerrpc && test.streaming:
+	case !useRPC && useStream:
 		sendToRouteStream()
-	case !test.routerrpc && !test.streaming:
+	case !useRPC && !useStream:
 		sendToRouteSync()
-	case test.routerrpc && !test.streaming:
+	case useRPC && !useStream:
 		sendToRouteRouterRPC()
 	default:
 		require.Fail(ht, "routerrpc does not support "+

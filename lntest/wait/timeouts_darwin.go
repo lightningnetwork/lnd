@@ -29,7 +29,21 @@ const (
 
 	// NodeStartTimeout is the timeout value when waiting for a node to
 	// become fully started.
-	NodeStartTimeout = time.Minute * 2
+	//
+	// TODO(yy): There is an optimization we can do to increase the time it
+	// takes to finish the initial wallet sync. Instead of finding the
+	// block birthday using binary search in btcwallet, we can instead
+	// search optimistically by looking at the chain tip minus X blocks to
+	// get the birthday block. This way in the test the node won't attempt
+	// to sync from the beginning of the chain, which is always the case
+	// due to how regtest blocks are mined.
+	// The other direction of optimization is to change the precision of
+	// the regtest block's median time. By consensus, we need to increase
+	// at least one second(?), this means in regtest when large amount of
+	// blocks are mined in a short time, the block time is actually in the
+	// future. We could instead allow the median time to increase by
+	// microseconds for itests.
+	NodeStartTimeout = time.Minute * 3
 
 	// SqliteBusyTimeout is the maximum time that a call to the sqlite db
 	// will wait for the connection to become available.

@@ -469,8 +469,16 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testBumpForceCloseFee,
 	},
 	{
-		Name:     "taproot",
-		TestFunc: testTaproot,
+		Name:     "taproot spend",
+		TestFunc: testTaprootSpend,
+	},
+	{
+		Name:     "taproot musig2",
+		TestFunc: testTaprootMuSig2,
+	},
+	{
+		Name:     "taproot import scripts",
+		TestFunc: testTaprootImportScripts,
 	},
 	{
 		Name:     "simple taproot channel activation",

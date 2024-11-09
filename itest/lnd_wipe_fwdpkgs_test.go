@@ -106,7 +106,4 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 
 	// Mine 1 block to get Alice's sweeping tx confirmed.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
-
-	// Clean up the force closed channel.
-	ht.CleanupForceClose(bob)
 }

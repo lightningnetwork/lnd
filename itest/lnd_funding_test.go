@@ -25,162 +25,230 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testBasicChannelFunding performs a test exercising expected behavior from a
-// basic funding workflow. The test creates a new channel between Alice and
-// Bob, then immediately closes the channel after asserting some expected post
-// conditions. Finally, the chain itself is checked to ensure the closing
-// transaction was mined.
-func testBasicChannelFunding(ht *lntest.HarnessTest) {
-	// Run through the test with combinations of all the different
-	// commitment types.
-	allTypes := []lnrpc.CommitmentType{
-		lnrpc.CommitmentType_STATIC_REMOTE_KEY,
-		lnrpc.CommitmentType_ANCHORS,
-		lnrpc.CommitmentType_SIMPLE_TAPROOT,
-	}
+// basicFundingTestCases defines the test cases for the basic funding test.
+var basicFundingTestCases = []*lntest.TestCase{
+	{
+		Name:     "basic funding flow static key remote",
+		TestFunc: testBasicChannelFundingStaticRemote,
+	},
+	{
+		Name:     "basic funding flow anchor",
+		TestFunc: testBasicChannelFundingAnchor,
+	},
+	{
+		Name:     "basic funding flow simple taproot",
+		TestFunc: testBasicChannelFundingSimpleTaproot,
+	},
+}
 
-	// testFunding is a function closure that takes Carol and Dave's
-	// commitment types and test the funding flow.
-	testFunding := func(ht *lntest.HarnessTest, carolCommitType,
-		daveCommitType lnrpc.CommitmentType) {
+// allFundingTypes defines the channel types to test for the basic funding
+// test.
+var allFundingTypes = []lnrpc.CommitmentType{
+	lnrpc.CommitmentType_STATIC_REMOTE_KEY,
+	lnrpc.CommitmentType_ANCHORS,
+	lnrpc.CommitmentType_SIMPLE_TAPROOT,
+}
 
-		// Based on the current tweak variable for Carol, we'll
-		// preferentially signal the legacy commitment format.  We do
-		// the same for Dave shortly below.
-		carolArgs := lntest.NodeArgsForCommitType(carolCommitType)
-		carol := ht.NewNode("Carol", carolArgs)
+// testBasicChannelFundingStaticRemote performs a test exercising expected
+// behavior from a basic funding workflow. The test creates a new channel
+// between Carol and Dave, with Carol using the static remote key commitment
+// type, and Dave using allFundingTypes.
+func testBasicChannelFundingStaticRemote(ht *lntest.HarnessTest) {
+	carolCommitType := lnrpc.CommitmentType_STATIC_REMOTE_KEY
 
-		// Each time, we'll send Carol a new set of coins in order to
-		// fund the channel.
-		ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-
-		daveArgs := lntest.NodeArgsForCommitType(daveCommitType)
-		dave := ht.NewNode("Dave", daveArgs)
-
-		// Before we start the test, we'll ensure both sides are
-		// connected to the funding flow can properly be executed.
-		ht.EnsureConnected(carol, dave)
-
-		var privateChan bool
-
-		// If this is to be a taproot channel type, then it needs to be
-		// private, otherwise it'll be rejected by Dave.
-		//
-		// TODO(roasbeef): lift after gossip 1.75
-		if carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
-			privateChan = true
-		}
-
-		// If carol wants taproot, but dave wants something
-		// else, then we'll assert that the channel negotiation
-		// attempt fails.
-		if carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT &&
-			daveCommitType != lnrpc.CommitmentType_SIMPLE_TAPROOT {
-
-			expectedErr := fmt.Errorf("requested channel type " +
-				"not supported")
-			amt := funding.MaxBtcFundingAmount
-			ht.OpenChannelAssertErr(
-				carol, dave, lntest.OpenChannelParams{
-					Private:        privateChan,
-					Amt:            amt,
-					CommitmentType: carolCommitType,
-				}, expectedErr,
-			)
-
-			return
-		}
-
-		carolChan, daveChan := basicChannelFundingTest(
-			ht, carol, dave, nil, privateChan, &carolCommitType,
-		)
-
-		// Both nodes should report the same commitment
-		// type.
-		chansCommitType := carolChan.CommitmentType
-		require.Equal(ht, chansCommitType, daveChan.CommitmentType,
-			"commit types don't match")
-
-		// Now check that the commitment type reported by both nodes is
-		// what we expect. It will be the minimum of the two nodes'
-		// preference, in the order Legacy, Tweakless, Anchors.
-		expType := carolCommitType
-
-		switch daveCommitType {
-		// Dave supports taproot, type will be what Carol supports.
-		case lnrpc.CommitmentType_SIMPLE_TAPROOT:
-
-		// Dave supports anchors, type will be what Carol supports.
-		case lnrpc.CommitmentType_ANCHORS:
-			// However if Alice wants taproot chans, then we
-			// downgrade to anchors as this is still using implicit
-			// negotiation.
-			if expType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
-				expType = lnrpc.CommitmentType_ANCHORS
-			}
-
-		// Dave only supports tweakless, channel will be downgraded to
-		// this type if Carol supports anchors.
-		case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
-			switch expType {
-			case lnrpc.CommitmentType_ANCHORS:
-				expType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
-			case lnrpc.CommitmentType_SIMPLE_TAPROOT:
-				expType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
-			}
-
-		// Dave only supports legacy type, channel will be downgraded
-		// to this type.
-		case lnrpc.CommitmentType_LEGACY:
-			expType = lnrpc.CommitmentType_LEGACY
-
-		default:
-			ht.Fatalf("invalid commit type %v", daveCommitType)
-		}
-
-		// Check that the signalled type matches what we expect.
-		switch {
-		case expType == lnrpc.CommitmentType_ANCHORS &&
-			chansCommitType == lnrpc.CommitmentType_ANCHORS:
-
-		case expType == lnrpc.CommitmentType_STATIC_REMOTE_KEY &&
-			chansCommitType == lnrpc.CommitmentType_STATIC_REMOTE_KEY: //nolint:ll
-
-		case expType == lnrpc.CommitmentType_LEGACY &&
-			chansCommitType == lnrpc.CommitmentType_LEGACY:
-
-		case expType == lnrpc.CommitmentType_SIMPLE_TAPROOT &&
-			chansCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT:
-
-		default:
-			ht.Fatalf("expected nodes to signal "+
-				"commit type %v, instead got "+
-				"%v", expType, chansCommitType)
-		}
-	}
-
-test:
 	// We'll test all possible combinations of the feature bit presence
 	// that both nodes can signal for this new channel type. We'll make a
 	// new Carol+Dave for each test instance as well.
-	for _, carolCommitType := range allTypes {
-		for _, daveCommitType := range allTypes {
-			cc := carolCommitType
-			dc := daveCommitType
+	for _, daveCommitType := range allFundingTypes {
+		cc := carolCommitType
+		dc := daveCommitType
 
-			testName := fmt.Sprintf(
-				"carol_commit=%v,dave_commit=%v", cc, dc,
-			)
+		testName := fmt.Sprintf(
+			"carol_commit=%v,dave_commit=%v", cc, dc,
+		)
 
-			success := ht.Run(testName, func(t *testing.T) {
-				st := ht.Subtest(t)
-				testFunding(st, cc, dc)
-			})
+		success := ht.Run(testName, func(t *testing.T) {
+			st := ht.Subtest(t)
+			runBasicFundingTest(st, cc, dc)
+		})
 
-			if !success {
-				break test
-			}
+		if !success {
+			break
 		}
+	}
+}
+
+// testBasicChannelFundingAnchor performs a test exercising expected behavior
+// from a basic funding workflow. The test creates a new channel between Carol
+// and Dave, with Carol using the anchor commitment type, and Dave using
+// allFundingTypes.
+func testBasicChannelFundingAnchor(ht *lntest.HarnessTest) {
+	carolCommitType := lnrpc.CommitmentType_ANCHORS
+
+	// We'll test all possible combinations of the feature bit presence
+	// that both nodes can signal for this new channel type. We'll make a
+	// new Carol+Dave for each test instance as well.
+	for _, daveCommitType := range allFundingTypes {
+		cc := carolCommitType
+		dc := daveCommitType
+
+		testName := fmt.Sprintf(
+			"carol_commit=%v,dave_commit=%v", cc, dc,
+		)
+
+		success := ht.Run(testName, func(t *testing.T) {
+			st := ht.Subtest(t)
+			runBasicFundingTest(st, cc, dc)
+		})
+
+		if !success {
+			break
+		}
+	}
+}
+
+// testBasicChannelFundingSimpleTaproot performs a test exercising expected
+// behavior from a basic funding workflow. The test creates a new channel
+// between Carol and Dave, with Carol using the simple taproot commitment type,
+// and Dave using allFundingTypes.
+func testBasicChannelFundingSimpleTaproot(ht *lntest.HarnessTest) {
+	carolCommitType := lnrpc.CommitmentType_SIMPLE_TAPROOT
+
+	// We'll test all possible combinations of the feature bit presence
+	// that both nodes can signal for this new channel type. We'll make a
+	// new Carol+Dave for each test instance as well.
+	for _, daveCommitType := range allFundingTypes {
+		cc := carolCommitType
+		dc := daveCommitType
+
+		testName := fmt.Sprintf(
+			"carol_commit=%v,dave_commit=%v", cc, dc,
+		)
+
+		success := ht.Run(testName, func(t *testing.T) {
+			st := ht.Subtest(t)
+			runBasicFundingTest(st, cc, dc)
+		})
+
+		if !success {
+			break
+		}
+	}
+}
+
+// runBasicFundingTest is a helper function that takes Carol and Dave's
+// commitment types and test the funding flow.
+func runBasicFundingTest(ht *lntest.HarnessTest, carolCommitType,
+	daveCommitType lnrpc.CommitmentType) {
+
+	// Based on the current tweak variable for Carol, we'll preferentially
+	// signal the legacy commitment format.  We do the same for Dave
+	// shortly below.
+	carolArgs := lntest.NodeArgsForCommitType(carolCommitType)
+	carol := ht.NewNode("Carol", carolArgs)
+
+	// Each time, we'll send Carol a new set of coins in order to fund the
+	// channel.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+
+	daveArgs := lntest.NodeArgsForCommitType(daveCommitType)
+	dave := ht.NewNode("Dave", daveArgs)
+
+	// Before we start the test, we'll ensure both sides are connected to
+	// the funding flow can properly be executed.
+	ht.EnsureConnected(carol, dave)
+
+	var privateChan bool
+
+	// If this is to be a taproot channel type, then it needs to be
+	// private, otherwise it'll be rejected by Dave.
+	//
+	// TODO(roasbeef): lift after gossip 1.75
+	if carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		privateChan = true
+	}
+
+	// If carol wants taproot, but dave wants something else, then we'll
+	// assert that the channel negotiation attempt fails.
+	if carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT &&
+		daveCommitType != lnrpc.CommitmentType_SIMPLE_TAPROOT {
+
+		expectedErr := fmt.Errorf("requested channel type " +
+			"not supported")
+		amt := funding.MaxBtcFundingAmount
+		ht.OpenChannelAssertErr(
+			carol, dave, lntest.OpenChannelParams{
+				Private:        privateChan,
+				Amt:            amt,
+				CommitmentType: carolCommitType,
+			}, expectedErr,
+		)
+
+		return
+	}
+
+	carolChan, daveChan := basicChannelFundingTest(
+		ht, carol, dave, nil, privateChan, &carolCommitType,
+	)
+
+	// Both nodes should report the same commitment type.
+	chansCommitType := carolChan.CommitmentType
+	require.Equal(ht, chansCommitType, daveChan.CommitmentType,
+		"commit types don't match")
+
+	// Now check that the commitment type reported by both nodes is what we
+	// expect. It will be the minimum of the two nodes' preference, in the
+	// order Legacy, Tweakless, Anchors.
+	expType := carolCommitType
+
+	switch daveCommitType {
+	// Dave supports taproot, type will be what Carol supports.
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT:
+
+	// Dave supports anchors, type will be what Carol supports.
+	case lnrpc.CommitmentType_ANCHORS:
+		// However if Alice wants taproot chans, then we downgrade to
+		// anchors as this is still using implicit negotiation.
+		if expType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+			expType = lnrpc.CommitmentType_ANCHORS
+		}
+
+	// Dave only supports tweakless, channel will be downgraded to this
+	// type if Carol supports anchors.
+	case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
+		switch expType {
+		case lnrpc.CommitmentType_ANCHORS:
+			expType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
+		case lnrpc.CommitmentType_SIMPLE_TAPROOT:
+			expType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
+		}
+
+	// Dave only supports legacy type, channel will be downgraded to this
+	// type.
+	case lnrpc.CommitmentType_LEGACY:
+		expType = lnrpc.CommitmentType_LEGACY
+
+	default:
+		ht.Fatalf("invalid commit type %v", daveCommitType)
+	}
+
+	// Check that the signalled type matches what we expect.
+	switch {
+	case expType == lnrpc.CommitmentType_ANCHORS &&
+		chansCommitType == lnrpc.CommitmentType_ANCHORS:
+
+	case expType == lnrpc.CommitmentType_STATIC_REMOTE_KEY &&
+		chansCommitType == lnrpc.CommitmentType_STATIC_REMOTE_KEY:
+
+	case expType == lnrpc.CommitmentType_LEGACY &&
+		chansCommitType == lnrpc.CommitmentType_LEGACY:
+
+	case expType == lnrpc.CommitmentType_SIMPLE_TAPROOT &&
+		chansCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT:
+
+	default:
+		ht.Fatalf("expected nodes to signal commit type %v, instead "+
+			"got %v", expType, chansCommitType)
 	}
 }
 

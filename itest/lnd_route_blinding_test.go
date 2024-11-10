@@ -1458,3 +1458,130 @@ func testBlindedPaymentHTLCReForward(ht *lntest.HarnessTest) {
 		require.Fail(ht, "timeout waiting for sending payment")
 	}
 }
+
+// testPartiallySpecifiedBlindedPath tests lnd's ability to:
+//   - Assert the error when attempting to create a blinded payment with an
+//     invalid user88 partially specified path.
+//   - Create a blinded payment path when the blinded path is partially
+//     pre-specified.
+func testPartiallySpecifiedBlindedPath(ht *lntest.HarnessTest) {
+	// Create a five hop network:
+	// Alice -> Bob -> Carol -> Dave -> Eve -> Frank.
+	chanAmt := btcutil.Amount(100000)
+	cfgs := [][]string{nil, nil, nil, nil, nil, nil}
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		cfgs, lntest.OpenChannelParams{Amt: chanAmt},
+	)
+
+	alice, bob, carol, dave, eve := nodes[0], nodes[1], nodes[2], nodes[3],
+		nodes[4]
+	chanPointAliceBob, chanPointBobCarol, chanPointCarolDave :=
+		chanPoints[0], chanPoints[1], chanPoints[2]
+
+	// Lookup full channel info so that we have channel ids for our route.
+	aliceBobChan := ht.GetChannelByChanPoint(alice, chanPointAliceBob)
+	bobCarolChan := ht.GetChannelByChanPoint(bob, chanPointBobCarol)
+	carolDaveChan := ht.GetChannelByChanPoint(carol, chanPointCarolDave)
+
+	// 1) Let carol set no incoming channel restrictions.
+	var (
+		minNumRealHops uint32 = 1
+		numHops        uint32 = 1
+	)
+	invoice := carol.RPC.AddInvoice(&lnrpc.Invoice{
+		Memo:      "test",
+		ValueMsat: 10_000_000,
+		IsBlinded: true,
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			MinNumRealHops: &minNumRealHops,
+			NumHops:        &numHops,
+		},
+	})
+
+	introNodesFound := make([][]byte, 0)
+	introNodesExpected := [][]byte{bob.PubKey[:], dave.PubKey[:]}
+
+	// Assert that it contains two blinded path with only 2 hops each one.
+	payReq := carol.RPC.DecodePayReq(invoice.PaymentRequest)
+	require.Len(ht, payReq.BlindedPaths, 2)
+	path := payReq.BlindedPaths[0].BlindedPath
+	require.Len(ht, path.BlindedHops, 2)
+	introNodesFound = append(introNodesFound, path.IntroductionNode)
+	path = payReq.BlindedPaths[1].BlindedPath
+	require.Len(ht, path.BlindedHops, 2)
+	introNodesFound = append(introNodesFound, path.IntroductionNode)
+	// Assert the introduction nodes without caring about the routes order.
+	require.ElementsMatch(ht, introNodesExpected, introNodesFound)
+
+	// 2) Let carol choose the wrong incoming channel.
+	var (
+		incomingChannelList = []uint64{aliceBobChan.ChanId}
+	)
+
+	err := fmt.Sprintf("specified path %v not found", incomingChannelList)
+
+	carol.RPC.AddInvoiceAssertErr(
+		&lnrpc.Invoice{
+			Memo:      "test",
+			ValueMsat: 10_000_000,
+			IsBlinded: true,
+			BlindedPathConfig: &lnrpc.BlindedPathConfig{
+				MinNumRealHops:      &minNumRealHops,
+				NumHops:             &numHops,
+				IncomingChannelList: incomingChannelList,
+			},
+		},
+		err,
+	)
+
+	// 3) Let carol restrict bob as incoming channel.
+	incomingChannelList = []uint64{bobCarolChan.ChanId}
+
+	invoice = carol.RPC.AddInvoice(&lnrpc.Invoice{
+		Memo:      "test",
+		ValueMsat: 10_000_000,
+		IsBlinded: true,
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			MinNumRealHops:      &minNumRealHops,
+			NumHops:             &numHops,
+			IncomingChannelList: incomingChannelList,
+		},
+	})
+
+	// Assert that it contains a single blinded path with only
+	// 2 hops, with bob as the introduction node.
+	payReq = carol.RPC.DecodePayReq(invoice.PaymentRequest)
+	require.Len(ht, payReq.BlindedPaths, 1)
+	path = payReq.BlindedPaths[0].BlindedPath
+	require.Len(ht, path.BlindedHops, 2)
+	require.EqualValues(ht, path.IntroductionNode, bob.PubKey[:])
+
+	// Now let alice pay the invoice.
+	ht.CompletePaymentRequests(alice, []string{invoice.PaymentRequest})
+
+	// 4) Let carol restrict dave as incoming channel and max Hops as 2
+	numHops = 2
+	incomingChannelList = []uint64{carolDaveChan.ChanId}
+
+	invoice = carol.RPC.AddInvoice(&lnrpc.Invoice{
+		Memo:      "test",
+		ValueMsat: 10_000_000,
+		IsBlinded: true,
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			MinNumRealHops:      &minNumRealHops,
+			NumHops:             &numHops,
+			IncomingChannelList: incomingChannelList,
+		},
+	})
+
+	// Assert that it contains two paths with 3 hops, both with dave as the
+	// introduction node.
+	payReq = carol.RPC.DecodePayReq(invoice.PaymentRequest)
+	require.Len(ht, payReq.BlindedPaths, 2)
+	path = payReq.BlindedPaths[0].BlindedPath
+	require.Len(ht, path.BlindedHops, 3)
+	require.EqualValues(ht, path.IntroductionNode, dave.PubKey[:])
+	path = payReq.BlindedPaths[1].BlindedPath
+	require.Len(ht, path.BlindedHops, 3)
+	require.EqualValues(ht, path.IntroductionNode, eve.PubKey[:])
+}

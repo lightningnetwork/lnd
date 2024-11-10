@@ -2994,6 +2994,15 @@ func (s *Switch) handlePacketSettle(packet *htlcPacket) error {
 	// If the source of this packet has not been set, use the circuit map
 	// to lookup the origin.
 	circuit, err := s.closeCircuit(packet)
+
+	// If the circuit is in the process of closing, we will return a nil as
+	// there's another packet handling undergoing.
+	if errors.Is(err, ErrCircuitClosing) {
+		log.Debugf("Circuit is closing for packet=%v", packet)
+		return nil
+	}
+
+	// Exit early if there's another error.
 	if err != nil {
 		return err
 	}
@@ -3005,7 +3014,7 @@ func (s *Switch) handlePacketSettle(packet *htlcPacket) error {
 	// and when `UpdateFulfillHTLC` is received. After which `RevokeAndAck`
 	// is received, which invokes `processRemoteSettleFails` in its link.
 	if circuit == nil {
-		log.Debugf("Found nil circuit: packet=%v", spew.Sdump(packet))
+		log.Debugf("Circuit already closed for packet=%v", packet)
 		return nil
 	}
 

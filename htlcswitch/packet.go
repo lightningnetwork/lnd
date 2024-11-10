@@ -1,6 +1,8 @@
 package htlcswitch
 
 import (
+	"fmt"
+
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -135,4 +137,13 @@ func (p *htlcPacket) keystone() Keystone {
 		InKey:  p.inKey(),
 		OutKey: p.outKey(),
 	}
+}
+
+// String returns a human-readable description of the packet.
+func (p *htlcPacket) String() string {
+	return fmt.Sprintf("keystone=%v, sourceRef=%v, destRef=%v, "+
+		"incomingAmount=%v, amount=%v, localFailure=%v, hasSource=%v "+
+		"isResolution=%v", p.keystone(), p.sourceRef, p.destRef,
+		p.incomingAmount, p.amount, p.localFailure, p.hasSource,
+		p.isResolution)
 }

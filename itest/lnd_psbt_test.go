@@ -269,6 +269,9 @@ func runPsbtChanFundingWithNodes(ht *lntest.HarnessTest, carol,
 	txHash := finalTx.TxHash()
 	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
 	ht.AssertTxInBlock(block, txHash)
+
+	ht.AssertChannelActive(carol, chanPoint)
+	ht.AssertChannelActive(carol, chanPoint2)
 	ht.AssertChannelInGraph(carol, chanPoint)
 	ht.AssertChannelInGraph(carol, chanPoint2)
 

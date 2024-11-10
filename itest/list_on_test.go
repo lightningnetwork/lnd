@@ -678,6 +678,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "access perm",
 		TestFunc: testAccessPerm,
 	},
+	{
+		Name:     "partially specified route blinded invoice",
+		TestFunc: testPartiallySpecifiedBlindedPath,
+	},
 }
 
 // appendPrefixed is used to add a prefix to each test name in the subtests

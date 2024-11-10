@@ -689,10 +689,16 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 	n.bestBlock.Height = int32(newBlock.height)
 	n.bestBlock.BlockHeader = newBlock.header
 
+	err = n.txNotifier.NotifyHeight(newBlock.height)
+	if err != nil {
+		return fmt.Errorf("unable to notify height: %w", err)
+	}
+
 	n.notifyBlockEpochs(
 		int32(newBlock.height), &newBlock.hash, newBlock.header,
 	)
-	return n.txNotifier.NotifyHeight(newBlock.height)
+
+	return nil
 }
 
 // getFilteredBlock is a utility to retrieve the full filtered block from a block epoch.

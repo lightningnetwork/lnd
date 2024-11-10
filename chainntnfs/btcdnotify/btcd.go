@@ -725,11 +725,16 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 	// satisfy any client requests based upon the new block.
 	b.bestBlock = epoch
 
+	err = b.txNotifier.NotifyHeight(uint32(epoch.Height))
+	if err != nil {
+		return fmt.Errorf("unable to notify height: %w", err)
+	}
+
 	b.notifyBlockEpochs(
 		epoch.Height, epoch.Hash, epoch.BlockHeader,
 	)
 
-	return b.txNotifier.NotifyHeight(uint32(epoch.Height))
+	return nil
 }
 
 // notifyBlockEpochs notifies all registered block epoch clients of the newly

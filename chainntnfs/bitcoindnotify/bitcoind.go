@@ -665,8 +665,14 @@ func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) err
 	// satisfy any client requests based upon the new block.
 	b.bestBlock = block
 
+	err = b.txNotifier.NotifyHeight(uint32(block.Height))
+	if err != nil {
+		return fmt.Errorf("unable to notify height: %w", err)
+	}
+
 	b.notifyBlockEpochs(block.Height, block.Hash, block.BlockHeader)
-	return b.txNotifier.NotifyHeight(uint32(block.Height))
+
+	return nil
 }
 
 // notifyBlockEpochs notifies all registered block epoch clients of the newly

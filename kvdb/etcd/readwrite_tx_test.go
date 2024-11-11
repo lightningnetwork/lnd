@@ -16,7 +16,7 @@ func TestChangeDuringManualTx(t *testing.T) {
 
 	f := NewEtcdTestFixture(t)
 
-	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
+	db, err := newEtcdBackend(context.Background(), f.BackendConfig())
 	require.NoError(t, err)
 
 	tx, err := db.BeginReadWriteTx()
@@ -44,7 +44,7 @@ func TestChangeDuringUpdate(t *testing.T) {
 
 	f := NewEtcdTestFixture(t)
 
-	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
+	db, err := newEtcdBackend(context.Background(), f.BackendConfig())
 	require.NoError(t, err)
 
 	count := 0

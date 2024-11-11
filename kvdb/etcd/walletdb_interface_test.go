@@ -15,5 +15,5 @@ import (
 func TestWalletDBInterface(t *testing.T) {
 	f := NewEtcdTestFixture(t)
 	cfg := f.BackendConfig()
-	walletdbtest.TestInterface(t, dbType, context.TODO(), &cfg)
+	walletdbtest.TestInterface(t, dbType, context.Background(), &cfg)
 }

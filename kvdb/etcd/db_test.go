@@ -19,7 +19,7 @@ func TestDump(t *testing.T) {
 
 	f := NewEtcdTestFixture(t)
 
-	db, err := newEtcdBackend(context.TODO(), f.BackendConfig())
+	db, err := newEtcdBackend(context.Background(), f.BackendConfig())
 	require.NoError(t, err)
 
 	err = db.Update(func(tx walletdb.ReadWriteTx) error {

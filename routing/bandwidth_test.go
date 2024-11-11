@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"context"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -116,7 +117,8 @@ func TestBandwidthManager(t *testing.T) {
 			)
 
 			m, err := newBandwidthManager(
-				g, sourceNode.pubkey, testCase.linkQuery,
+				context.Background(), g, sourceNode.pubkey,
+				testCase.linkQuery,
 				fn.None[[]byte](),
 				fn.Some[TlvTrafficShaper](&mockTrafficShaper{}),
 			)

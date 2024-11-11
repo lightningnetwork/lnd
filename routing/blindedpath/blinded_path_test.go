@@ -595,8 +595,8 @@ func TestBuildBlindedPath(t *testing.T) {
 	}
 
 	paths, err := BuildBlindedPaymentPaths(ctx, &BuildBlindedPathCfg{
-		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
-			error) {
+		FindRoutes: func(_ context.Context, _ lnwire.MilliSatoshi) (
+			[]*route.Route, error) {
 
 			return []*route.Route{realRoute}, nil
 		},
@@ -765,8 +765,8 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 	}
 
 	paths, err := BuildBlindedPaymentPaths(ctx, &BuildBlindedPathCfg{
-		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
-			error) {
+		FindRoutes: func(_ context.Context, _ lnwire.MilliSatoshi) (
+			[]*route.Route, error) {
 
 			return []*route.Route{realRoute}, nil
 		},
@@ -935,8 +935,8 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 	// still get 1 valid path.
 	var errCount int
 	paths, err = BuildBlindedPaymentPaths(ctx, &BuildBlindedPathCfg{
-		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
-			error) {
+		FindRoutes: func(_ context.Context, _ lnwire.MilliSatoshi) (
+			[]*route.Route, error) {
 
 			return []*route.Route{realRoute, realRoute, realRoute},
 				nil
@@ -1016,8 +1016,8 @@ func TestSingleHopBlindedPath(t *testing.T) {
 	}
 
 	paths, err := BuildBlindedPaymentPaths(ctx, &BuildBlindedPathCfg{
-		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
-			error) {
+		FindRoutes: func(_ context.Context, _ lnwire.MilliSatoshi) (
+			[]*route.Route, error) {
 
 			return []*route.Route{realRoute}, nil
 		},

@@ -426,7 +426,7 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 			return nil, errors.New("amount must be greater than 0")
 
 		default:
-			return s.probeDestination(req.Dest, req.AmtSat)
+			return s.probeDestination(ctx, req.Dest, req.AmtSat)
 		}
 
 	case isProbeInvoice:
@@ -440,8 +440,8 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 
 // probeDestination estimates fees along a route to a destination based on the
 // contents of the local graph.
-func (s *Server) probeDestination(dest []byte, amtSat int64) (*RouteFeeResponse,
-	error) {
+func (s *Server) probeDestination(ctx context.Context, dest []byte,
+	amtSat int64) (*RouteFeeResponse, error) {
 
 	destNode, err := route.NewVertexFromBytes(dest)
 	if err != nil {
@@ -469,7 +469,7 @@ func (s *Server) probeDestination(dest []byte, amtSat int64) (*RouteFeeResponse,
 		return nil, err
 	}
 
-	route, _, err := s.cfg.Router.FindRoute(routeReq)
+	route, _, err := s.cfg.Router.FindRoute(ctx, routeReq)
 	if err != nil {
 		return nil, err
 	}
@@ -1429,7 +1429,7 @@ func (s *Server) trackPaymentStream(context context.Context,
 }
 
 // BuildRoute builds a route from a list of hop addresses.
-func (s *Server) BuildRoute(_ context.Context,
+func (s *Server) BuildRoute(ctx context.Context,
 	req *BuildRouteRequest) (*BuildRouteResponse, error) {
 
 	if len(req.HopPubkeys) == 0 {
@@ -1490,7 +1490,7 @@ func (s *Server) BuildRoute(_ context.Context,
 
 	// Build the route and return it to the caller.
 	route, err := s.cfg.Router.BuildRoute(
-		amt, hops, outgoingChan, req.FinalCltvDelta, payAddr,
+		ctx, amt, hops, outgoingChan, req.FinalCltvDelta, payAddr,
 		firstHopBlob,
 	)
 	if err != nil {

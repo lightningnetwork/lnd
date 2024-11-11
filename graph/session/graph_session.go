@@ -30,8 +30,10 @@ func NewGraphSessionFactory(graph ReadOnlyGraph) routing.GraphSessionFactory {
 // was created at Graph construction time.
 //
 // NOTE: This is part of the routing.GraphSessionFactory interface.
-func (g *Factory) NewGraphSession() (routing.Graph, func() error, error) {
-	tx, err := g.graph.NewPathFindTx(context.TODO())
+func (g *Factory) NewGraphSession(ctx context.Context) (routing.Graph,
+	func() error, error) {
+
+	tx, err := g.graph.NewPathFindTx(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -83,22 +85,20 @@ func (g *session) close() error {
 // ForEachNodeChannel calls the callback for every channel of the given node.
 //
 // NOTE: Part of the routing.Graph interface.
-func (g *session) ForEachNodeChannel(nodePub route.Vertex,
+func (g *session) ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 	cb func(channel *graphdb.DirectedChannel) error) error {
 
-	return g.graph.ForEachNodeDirectedChannel(
-		context.TODO(), g.tx, nodePub, cb,
-	)
+	return g.graph.ForEachNodeDirectedChannel(ctx, g.tx, nodePub, cb)
 }
 
 // FetchNodeFeatures returns the features of the given node. If the node is
 // unknown, assume no additional features are supported.
 //
 // NOTE: Part of the routing.Graph interface.
-func (g *session) FetchNodeFeatures(nodePub route.Vertex) (
-	*lnwire.FeatureVector, error) {
+func (g *session) FetchNodeFeatures(ctx context.Context,
+	nodePub route.Vertex) (*lnwire.FeatureVector, error) {
 
-	return g.graph.FetchNodeFeatures(context.TODO(), g.tx, nodePub)
+	return g.graph.FetchNodeFeatures(ctx, g.tx, nodePub)
 }
 
 // A compile-time check to ensure that *session implements the

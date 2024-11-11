@@ -50,7 +50,8 @@ type RouterBackend struct {
 
 	// FetchAmountPairCapacity determines the maximal channel capacity
 	// between two nodes given a certain amount.
-	FetchAmountPairCapacity func(nodeFrom, nodeTo route.Vertex,
+	FetchAmountPairCapacity func(ctx context.Context, nodeFrom,
+		nodeTo route.Vertex,
 		amount lnwire.MilliSatoshi) (btcutil.Amount, error)
 
 	// FetchChannelEndpoints returns the pubkeys of both endpoints of the
@@ -60,7 +61,8 @@ type RouterBackend struct {
 
 	// FindRoute is a closure that abstracts away how we locate/query for
 	// routes.
-	FindRoute func(*routing.RouteRequest) (*route.Route, float64, error)
+	FindRoute func(context.Context, *routing.RouteRequest) (*route.Route,
+		float64, error)
 
 	MissionControl MissionControl
 
@@ -169,7 +171,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route
-	route, successProb, err := r.FindRoute(routeReq)
+	route, successProb, err := r.FindRoute(ctx, routeReq)
 	if err != nil {
 		return nil, err
 	}

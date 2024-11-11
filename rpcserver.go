@@ -707,11 +707,12 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 			}
 			return info.Capacity, nil
 		},
-		FetchAmountPairCapacity: func(nodeFrom, nodeTo route.Vertex,
+		FetchAmountPairCapacity: func(ctx context.Context, nodeFrom,
+			nodeTo route.Vertex,
 			amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
 
 			return routing.FetchAmountPairCapacity(
-				graphsession.NewRoutingGraph(graphSource),
+				ctx, graphsession.NewRoutingGraph(graphSource),
 				selfNode.PubKeyBytes, nodeFrom, nodeTo, amount,
 			)
 		},
@@ -6125,11 +6126,11 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		},
 		GetAlias:   r.server.aliasMgr.GetPeerAlias,
 		BestHeight: r.server.cc.BestBlockTracker.BestHeight,
-		QueryBlindedRoutes: func(amt lnwire.MilliSatoshi) (
-			[]*route.Route, error) {
+		QueryBlindedRoutes: func(ctx context.Context,
+			amt lnwire.MilliSatoshi) ([]*route.Route, error) {
 
 			return r.server.chanRouter.FindBlindedPaths(
-				r.selfNode, amt,
+				ctx, r.selfNode, amt,
 				r.server.defaultMC.GetProbability,
 				blindingRestrictions,
 			)

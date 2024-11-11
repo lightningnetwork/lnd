@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/graph/session"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -80,6 +81,28 @@ func (s *DBSource) FetchNodeFeatures(_ context.Context, tx session.RTx,
 	}
 
 	return s.db.FetchNodeFeatures(kvdbTx, node)
+}
+
+// FetchChannelEdgesByID attempts to look up the two directed edges for the
+// channel identified by the channel ID. If the channel can't be found, then
+// graphdb.ErrEdgeNotFound is returned.
+//
+// NOTE: this is part of the invoicesrpc.GraphSource interface.
+func (s *DBSource) FetchChannelEdgesByID(_ context.Context,
+	chanID uint64) (*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	return s.db.FetchChannelEdgesByID(chanID)
+}
+
+// IsPublicNode determines whether the node with the given public key is seen as
+// a public node in the graph from the graph's source node's point of view.
+//
+// NOTE: this is part of the invoicesrpc.GraphSource interface.
+func (s *DBSource) IsPublicNode(_ context.Context,
+	pubKey [33]byte) (bool, error) {
+
+	return s.db.IsPublicNode(pubKey)
 }
 
 // kvdbRTx is an implementation of graphdb.RTx backed by a KVDB database read

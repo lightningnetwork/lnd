@@ -1,6 +1,7 @@
 package invoicesrpc
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"testing"
@@ -35,8 +36,10 @@ func newHopHintsConfigMock(t *testing.T) *hopHintsConfigMock {
 }
 
 // IsPublicNode mocks node public state lookup.
-func (h *hopHintsConfigMock) IsPublicNode(pubKey [33]byte) (bool, error) {
-	args := h.Mock.Called(pubKey)
+func (h *hopHintsConfigMock) IsPublicNode(ctx context.Context,
+	pubKey [33]byte) (bool, error) {
+
+	args := h.Mock.Called(ctx, pubKey)
 	return args.Bool(0), args.Error(1)
 }
 
@@ -66,11 +69,11 @@ func (h *hopHintsConfigMock) FetchAllChannels() ([]*channeldb.OpenChannel,
 
 // FetchChannelEdgesByID attempts to lookup the two directed edges for
 // the channel identified by the channel ID.
-func (h *hopHintsConfigMock) FetchChannelEdgesByID(chanID uint64) (
-	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+func (h *hopHintsConfigMock) FetchChannelEdgesByID(ctx context.Context,
+	chanID uint64) (*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
-	args := h.Mock.Called(chanID)
+	args := h.Mock.Called(ctx, chanID)
 
 	// If our error is non-nil, we expect nil responses otherwise. Our
 	// casts below will fail with nil values, so we check our error and
@@ -161,7 +164,7 @@ var shouldIncludeChannelTestCases = []struct {
 		).Once().Return(true)
 
 		h.Mock.On(
-			"IsPublicNode", mock.Anything,
+			"IsPublicNode", mock.Anything, mock.Anything,
 		).Once().Return(false, nil)
 	},
 	channel: &channeldb.OpenChannel{
@@ -185,18 +188,18 @@ var shouldIncludeChannelTestCases = []struct {
 		).Once().Return(true)
 
 		h.Mock.On(
-			"IsPublicNode", mock.Anything,
+			"IsPublicNode", mock.Anything, mock.Anything,
 		).Once().Return(true, nil)
 
 		h.Mock.On(
-			"FetchChannelEdgesByID", mock.Anything,
+			"FetchChannelEdgesByID", mock.Anything, mock.Anything,
 		).Once().Return(nil, nil, nil, fmt.Errorf("no edge"))
 
 		// TODO(positiveblue): check that the func is called with the
 		// right scid when we have access to the `confirmedscid` form
 		// here.
 		h.Mock.On(
-			"FetchChannelEdgesByID", mock.Anything,
+			"FetchChannelEdgesByID", mock.Anything, mock.Anything,
 		).Once().Return(nil, nil, nil, fmt.Errorf("no edge"))
 	},
 	channel: &channeldb.OpenChannel{
@@ -220,11 +223,11 @@ var shouldIncludeChannelTestCases = []struct {
 		).Once().Return(true)
 
 		h.Mock.On(
-			"IsPublicNode", mock.Anything,
+			"IsPublicNode", mock.Anything, mock.Anything,
 		).Once().Return(true, nil)
 
 		h.Mock.On(
-			"FetchChannelEdgesByID", mock.Anything,
+			"FetchChannelEdgesByID", mock.Anything, mock.Anything,
 		).Once().Return(
 			&models.ChannelEdgeInfo{},
 			&models.ChannelEdgePolicy{},
@@ -258,11 +261,11 @@ var shouldIncludeChannelTestCases = []struct {
 		).Once().Return(true)
 
 		h.Mock.On(
-			"IsPublicNode", mock.Anything,
+			"IsPublicNode", mock.Anything, mock.Anything,
 		).Once().Return(true, nil)
 
 		h.Mock.On(
-			"FetchChannelEdgesByID", mock.Anything,
+			"FetchChannelEdgesByID", mock.Anything, mock.Anything,
 		).Once().Return(
 			&models.ChannelEdgeInfo{},
 			&models.ChannelEdgePolicy{},
@@ -296,14 +299,14 @@ var shouldIncludeChannelTestCases = []struct {
 		).Once().Return(true)
 
 		h.Mock.On(
-			"IsPublicNode", mock.Anything,
+			"IsPublicNode", mock.Anything, mock.Anything,
 		).Once().Return(true, nil)
 
 		var selectedPolicy [33]byte
 		copy(selectedPolicy[:], getTestPubKey().SerializeCompressed())
 
 		h.Mock.On(
-			"FetchChannelEdgesByID", mock.Anything,
+			"FetchChannelEdgesByID", mock.Anything, mock.Anything,
 		).Once().Return(
 			&models.ChannelEdgeInfo{
 				NodeKey1Bytes: selectedPolicy,
@@ -347,11 +350,11 @@ var shouldIncludeChannelTestCases = []struct {
 		).Once().Return(true)
 
 		h.Mock.On(
-			"IsPublicNode", mock.Anything,
+			"IsPublicNode", mock.Anything, mock.Anything,
 		).Once().Return(true, nil)
 
 		h.Mock.On(
-			"FetchChannelEdgesByID", mock.Anything,
+			"FetchChannelEdgesByID", mock.Anything, mock.Anything,
 		).Once().Return(
 			&models.ChannelEdgeInfo{},
 			&models.ChannelEdgePolicy{},
@@ -392,11 +395,11 @@ var shouldIncludeChannelTestCases = []struct {
 		).Once().Return(true)
 
 		h.Mock.On(
-			"IsPublicNode", mock.Anything,
+			"IsPublicNode", mock.Anything, mock.Anything,
 		).Once().Return(true, nil)
 
 		h.Mock.On(
-			"FetchChannelEdgesByID", mock.Anything,
+			"FetchChannelEdgesByID", mock.Anything, mock.Anything,
 		).Once().Return(
 			&models.ChannelEdgeInfo{},
 			&models.ChannelEdgePolicy{},
@@ -559,11 +562,11 @@ var populateHopHintsTestCases = []struct {
 		).Once().Return(true)
 
 		h.Mock.On(
-			"IsPublicNode", mock.Anything,
+			"IsPublicNode", mock.Anything, mock.Anything,
 		).Once().Return(true, nil)
 
 		h.Mock.On(
-			"FetchChannelEdgesByID", mock.Anything,
+			"FetchChannelEdgesByID", mock.Anything, mock.Anything,
 		).Once().Return(
 			&models.ChannelEdgeInfo{},
 			&models.ChannelEdgePolicy{},
@@ -609,11 +612,11 @@ var populateHopHintsTestCases = []struct {
 		).Once().Return(true)
 
 		h.Mock.On(
-			"IsPublicNode", mock.Anything,
+			"IsPublicNode", mock.Anything, mock.Anything,
 		).Once().Return(true, nil)
 
 		h.Mock.On(
-			"FetchChannelEdgesByID", mock.Anything,
+			"FetchChannelEdgesByID", mock.Anything, mock.Anything,
 		).Once().Return(
 			&models.ChannelEdgeInfo{},
 			&models.ChannelEdgePolicy{},
@@ -660,11 +663,11 @@ var populateHopHintsTestCases = []struct {
 		).Once().Return(true)
 
 		h.Mock.On(
-			"IsPublicNode", mock.Anything,
+			"IsPublicNode", mock.Anything, mock.Anything,
 		).Once().Return(true, nil)
 
 		h.Mock.On(
-			"FetchChannelEdgesByID", mock.Anything,
+			"FetchChannelEdgesByID", mock.Anything, mock.Anything,
 		).Once().Return(
 			&models.ChannelEdgeInfo{},
 			&models.ChannelEdgePolicy{},
@@ -693,11 +696,11 @@ var populateHopHintsTestCases = []struct {
 		).Once().Return(true)
 
 		h.Mock.On(
-			"IsPublicNode", mock.Anything,
+			"IsPublicNode", mock.Anything, mock.Anything,
 		).Once().Return(true, nil)
 
 		h.Mock.On(
-			"FetchChannelEdgesByID", mock.Anything,
+			"FetchChannelEdgesByID", mock.Anything, mock.Anything,
 		).Once().Return(
 			&models.ChannelEdgeInfo{},
 			&models.ChannelEdgePolicy{},
@@ -710,11 +713,11 @@ var populateHopHintsTestCases = []struct {
 		).Once().Return(true)
 
 		h.Mock.On(
-			"IsPublicNode", mock.Anything,
+			"IsPublicNode", mock.Anything, mock.Anything,
 		).Once().Return(true, nil)
 
 		h.Mock.On(
-			"FetchChannelEdgesByID", mock.Anything,
+			"FetchChannelEdgesByID", mock.Anything, mock.Anything,
 		).Once().Return(
 			&models.ChannelEdgeInfo{},
 			&models.ChannelEdgePolicy{},
@@ -747,11 +750,11 @@ var populateHopHintsTestCases = []struct {
 		).Once().Return(true)
 
 		h.Mock.On(
-			"IsPublicNode", mock.Anything,
+			"IsPublicNode", mock.Anything, mock.Anything,
 		).Once().Return(true, nil)
 
 		h.Mock.On(
-			"FetchChannelEdgesByID", mock.Anything,
+			"FetchChannelEdgesByID", mock.Anything, mock.Anything,
 		).Once().Return(
 			&models.ChannelEdgeInfo{},
 			&models.ChannelEdgePolicy{},
@@ -764,11 +767,11 @@ var populateHopHintsTestCases = []struct {
 		).Once().Return(true)
 
 		h.Mock.On(
-			"IsPublicNode", mock.Anything,
+			"IsPublicNode", mock.Anything, mock.Anything,
 		).Once().Return(true, nil)
 
 		h.Mock.On(
-			"FetchChannelEdgesByID", mock.Anything,
+			"FetchChannelEdgesByID", mock.Anything, mock.Anything,
 		).Once().Return(
 			&models.ChannelEdgeInfo{},
 			&models.ChannelEdgePolicy{},
@@ -802,11 +805,11 @@ var populateHopHintsTestCases = []struct {
 		).Once().Return(true)
 
 		h.Mock.On(
-			"IsPublicNode", mock.Anything,
+			"IsPublicNode", mock.Anything, mock.Anything,
 		).Once().Return(true, nil)
 
 		h.Mock.On(
-			"FetchChannelEdgesByID", mock.Anything,
+			"FetchChannelEdgesByID", mock.Anything, mock.Anything,
 		).Once().Return(
 			&models.ChannelEdgeInfo{},
 			&models.ChannelEdgePolicy{},

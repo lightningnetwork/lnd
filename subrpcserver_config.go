@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	graphsources "github.com/lightningnetwork/lnd/graph/sources"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -114,6 +115,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	routerBackend *routerrpc.RouterBackend,
 	nodeSigner *netann.NodeSigner,
 	graphDB *graphdb.ChannelGraph,
+	graphSource graphsources.GraphSource,
 	chanStateDB *channeldb.ChannelStateDB,
 	sweeper *sweep.UtxoSweeper,
 	tower *watchtower.Standalone,
@@ -262,8 +264,8 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			subCfgValue.FieldByName("DefaultCLTVExpiry").Set(
 				reflect.ValueOf(defaultDelta),
 			)
-			subCfgValue.FieldByName("GraphDB").Set(
-				reflect.ValueOf(graphDB),
+			subCfgValue.FieldByName("Graph").Set(
+				reflect.ValueOf(graphSource),
 			)
 			subCfgValue.FieldByName("ChanStateDB").Set(
 				reflect.ValueOf(chanStateDB),

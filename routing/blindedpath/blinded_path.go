@@ -2,6 +2,7 @@ package blindedpath
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -42,7 +43,8 @@ type BuildBlindedPathCfg struct {
 
 	// FetchChannelEdgesByID attempts to look up the two directed edges for
 	// the channel identified by the channel ID.
-	FetchChannelEdgesByID func(chanID uint64) (*models.ChannelEdgeInfo,
+	FetchChannelEdgesByID func(ctx context.Context,
+		chanID uint64) (*models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error)
 
 	// FetchOurOpenChannels fetches this node's set of open channels.
@@ -643,7 +645,9 @@ func getNodeChannelPolicy(cfg *BuildBlindedPathCfg, chanID uint64,
 
 	// Attempt to fetch channel updates for the given channel. We will have
 	// at most two updates for a given channel.
-	_, update1, update2, err := cfg.FetchChannelEdgesByID(chanID)
+	_, update1, update2, err := cfg.FetchChannelEdgesByID(
+		context.TODO(), chanID,
+	)
 	if err != nil {
 		return nil, err
 	}

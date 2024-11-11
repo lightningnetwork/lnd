@@ -18,7 +18,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
-	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -75,8 +74,9 @@ type AddInvoiceConfig struct {
 	// channel graph.
 	ChanDB *channeldb.ChannelStateDB
 
-	// Graph holds a reference to the ChannelGraph database.
-	Graph *graphdb.ChannelGraph
+	// Graph holds a reference to a GraphSource that can be queried for
+	// graph related data.
+	Graph GraphSource
 
 	// GenInvoiceFeatures returns a feature containing feature bits that
 	// should be advertised on freshly generated invoices.
@@ -627,6 +627,8 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 func chanCanBeHopHint(channel *HopHintInfo, cfg *SelectHopHintsCfg) (
 	*models.ChannelEdgePolicy, bool) {
 
+	ctx := context.TODO()
+
 	// Since we're only interested in our private channels, we'll skip
 	// public ones.
 	if channel.IsPublic {
@@ -648,7 +650,7 @@ func chanCanBeHopHint(channel *HopHintInfo, cfg *SelectHopHintsCfg) (
 	// channels.
 	var remotePub [33]byte
 	copy(remotePub[:], channel.RemotePubkey.SerializeCompressed())
-	isRemoteNodePublic, err := cfg.IsPublicNode(remotePub)
+	isRemoteNodePublic, err := cfg.IsPublicNode(ctx, remotePub)
 	if err != nil {
 		log.Errorf("Unable to determine if node %x "+
 			"is advertised: %v", remotePub, err)
@@ -663,13 +665,17 @@ func chanCanBeHopHint(channel *HopHintInfo, cfg *SelectHopHintsCfg) (
 	}
 
 	// Fetch the policies for each end of the channel.
-	info, p1, p2, err := cfg.FetchChannelEdgesByID(channel.ShortChannelID)
+	info, p1, p2, err := cfg.FetchChannelEdgesByID(
+		ctx, channel.ShortChannelID,
+	)
 	if err != nil {
 		// In the case of zero-conf channels, it may be the case that
 		// the alias SCID was deleted from the graph, and replaced by
 		// the confirmed SCID. Check the Graph for the confirmed SCID.
 		confirmedScid := channel.ConfirmedScidZC
-		info, p1, p2, err = cfg.FetchChannelEdgesByID(confirmedScid)
+		info, p1, p2, err = cfg.FetchChannelEdgesByID(
+			ctx, confirmedScid,
+		)
 		if err != nil {
 			log.Errorf("Unable to fetch the routing policies for "+
 				"the edges of the channel %v: %v",
@@ -759,13 +765,13 @@ type SelectHopHintsCfg struct {
 	// IsPublicNode is returns a bool indicating whether the node with the
 	// given public key is seen as a public node in the graph from the
 	// graph's source node's point of view.
-	IsPublicNode func(pubKey [33]byte) (bool, error)
+	IsPublicNode func(ctx context.Context, pubKey [33]byte) (bool, error)
 
 	// FetchChannelEdgesByID attempts to lookup the two directed edges for
 	// the channel identified by the channel ID.
-	FetchChannelEdgesByID func(chanID uint64) (*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy,
-		error)
+	FetchChannelEdgesByID func(ctx context.Context,
+		chanID uint64) (*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error)
 
 	// GetAlias allows the peer's alias SCID to be retrieved for private
 	// option_scid_alias channels.

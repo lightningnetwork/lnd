@@ -2,6 +2,7 @@ package blindedpath
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"fmt"
 	"math/rand"
@@ -597,7 +598,7 @@ func TestBuildBlindedPath(t *testing.T) {
 
 			return []*route.Route{realRoute}, nil
 		},
-		FetchChannelEdgesByID: func(chanID uint64) (
+		FetchChannelEdgesByID: func(_ context.Context, chanID uint64) (
 			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 			*models.ChannelEdgePolicy, error) {
 
@@ -765,7 +766,7 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 
 			return []*route.Route{realRoute}, nil
 		},
-		FetchChannelEdgesByID: func(chanID uint64) (
+		FetchChannelEdgesByID: func(_ context.Context, chanID uint64) (
 			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 			*models.ChannelEdgePolicy, error) {
 
@@ -936,7 +937,7 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 			return []*route.Route{realRoute, realRoute, realRoute},
 				nil
 		},
-		FetchChannelEdgesByID: func(chanID uint64) (
+		FetchChannelEdgesByID: func(_ context.Context, chanID uint64) (
 			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 			*models.ChannelEdgePolicy, error) {
 

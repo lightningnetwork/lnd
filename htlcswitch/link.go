@@ -490,6 +490,10 @@ func NewChannelLink(cfg ChannelLinkConfig,
 			sendMsg: func(s lnwire.Stfu) error {
 				return cfg.Peer.SendMessage(false, &s)
 			},
+			timeoutDuration: defaultQuiescenceTimeout,
+			onTimeout: func() {
+				cfg.Peer.Disconnect(ErrQuiescenceTimeout)
+			},
 		})
 	} else {
 		qsm = &quiescerNoop{}

@@ -3,6 +3,7 @@ package htlcswitch
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -416,4 +417,59 @@ func TestQuiescerResume(t *testing.T) {
 	harness.quiescer.Resume()
 	require.True(t, resumeHooksCalled)
 	require.False(t, harness.quiescer.IsQuiescent())
+}
+
+func TestQuiescerTimeoutTriggers(t *testing.T) {
+	t.Parallel()
+
+	harness := initQuiescerTestHarness(lntypes.Local)
+
+	msg := lnwire.Stfu{
+		ChanID:    cid,
+		Initiator: true,
+	}
+
+	timeoutGate := make(chan struct{})
+
+	harness.quiescer.cfg.timeoutDuration = time.Second
+	harness.quiescer.cfg.onTimeout = func() { close(timeoutGate) }
+
+	err := harness.quiescer.RecvStfu(msg, harness.pendingUpdates.Remote)
+	require.NoError(t, err)
+	err = harness.quiescer.SendOwedStfu(harness.pendingUpdates.Local)
+	require.NoError(t, err)
+
+	select {
+	case <-timeoutGate:
+	case <-time.After(2 * harness.quiescer.cfg.timeoutDuration):
+		t.Fatal("quiescence timeout did not trigger")
+	}
+}
+
+func TestQuiescerTimeoutAborts(t *testing.T) {
+	t.Parallel()
+
+	harness := initQuiescerTestHarness(lntypes.Local)
+
+	msg := lnwire.Stfu{
+		ChanID:    cid,
+		Initiator: true,
+	}
+
+	timeoutGate := make(chan struct{})
+
+	harness.quiescer.cfg.timeoutDuration = time.Second
+	harness.quiescer.cfg.onTimeout = func() { close(timeoutGate) }
+
+	err := harness.quiescer.RecvStfu(msg, harness.pendingUpdates.Remote)
+	require.NoError(t, err)
+	err = harness.quiescer.SendOwedStfu(harness.pendingUpdates.Local)
+	require.NoError(t, err)
+	harness.quiescer.Resume()
+
+	select {
+	case <-timeoutGate:
+		t.Fatal("quiescence timeout triggered despite being resumed")
+	case <-time.After(2 * harness.quiescer.cfg.timeoutDuration):
+	}
 }

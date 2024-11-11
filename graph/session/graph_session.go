@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -30,7 +31,7 @@ func NewGraphSessionFactory(graph ReadOnlyGraph) routing.GraphSessionFactory {
 //
 // NOTE: This is part of the routing.GraphSessionFactory interface.
 func (g *Factory) NewGraphSession() (routing.Graph, func() error, error) {
-	tx, err := g.graph.NewPathFindTx()
+	tx, err := g.graph.NewPathFindTx(context.TODO())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -85,7 +86,9 @@ func (g *session) close() error {
 func (g *session) ForEachNodeChannel(nodePub route.Vertex,
 	cb func(channel *graphdb.DirectedChannel) error) error {
 
-	return g.graph.ForEachNodeDirectedChannel(g.tx, nodePub, cb)
+	return g.graph.ForEachNodeDirectedChannel(
+		context.TODO(), g.tx, nodePub, cb,
+	)
 }
 
 // FetchNodeFeatures returns the features of the given node. If the node is
@@ -95,7 +98,7 @@ func (g *session) ForEachNodeChannel(nodePub route.Vertex,
 func (g *session) FetchNodeFeatures(nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
-	return g.graph.FetchNodeFeatures(g.tx, nodePub)
+	return g.graph.FetchNodeFeatures(context.TODO(), g.tx, nodePub)
 }
 
 // A compile-time check to ensure that *session implements the
@@ -108,7 +111,7 @@ type ReadOnlyGraph interface {
 	// NewPathFindTx returns a new read transaction that can be used for a
 	// single path finding session. Will return nil if the graph cache is
 	// enabled.
-	NewPathFindTx() (RTx, error)
+	NewPathFindTx(ctx context.Context) (RTx, error)
 
 	graph
 }
@@ -127,7 +130,8 @@ type graph interface {
 	//
 	// NOTE: if a nil tx is provided, then it is expected that the
 	// implementation create a read only tx.
-	ForEachNodeDirectedChannel(tx RTx, node route.Vertex,
+	ForEachNodeDirectedChannel(ctx context.Context, tx RTx,
+		node route.Vertex,
 		cb func(channel *graphdb.DirectedChannel) error) error
 
 	// FetchNodeFeatures returns the features of a given node. If no
@@ -135,6 +139,6 @@ type graph interface {
 	//
 	// NOTE: if a nil tx is provided, then it is expected that the
 	// implementation create a read only tx.
-	FetchNodeFeatures(tx RTx, node route.Vertex) (*lnwire.FeatureVector,
-		error)
+	FetchNodeFeatures(ctx context.Context, tx RTx, node route.Vertex) (
+		*lnwire.FeatureVector, error)
 }

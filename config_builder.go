@@ -3,6 +3,7 @@ package lnd
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -42,6 +43,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/graphrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
@@ -49,6 +51,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sqldb"
@@ -58,7 +61,9 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"gopkg.in/macaroon-bakery.v2/bakery"
+	"gopkg.in/macaroon.v2"
 )
 
 // GrpcRegistrar is an interface that must be satisfied by an external subserver
@@ -270,7 +275,86 @@ func (d *DefaultWalletImpl) RegisterGrpcSubserver(s *grpc.Server) error {
 func (d *DefaultWalletImpl) Graph(_ context.Context,
 	dbs *DatabaseInstances) (sources.GraphSource, error) {
 
-	return sources.NewDBGSource(dbs.GraphDB), nil
+	localSource := sources.NewDBGSource(dbs.GraphDB)
+
+	if d.cfg.RemoteGraph == nil || !d.cfg.RemoteGraph.Enable {
+		return localSource, nil
+	}
+
+	cfg := d.cfg.RemoteGraph
+	conn, err := connectRPC(
+		cfg.RPCHost, cfg.TLSCertPath, cfg.MacaroonPath, cfg.Timeout,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	remoteSourceClient := graphrpc.NewRemoteClient(
+		conn, d.cfg.net.ResolveTCPAddr,
+	)
+
+	getLocalPub := func() (route.Vertex, error) {
+		node, err := dbs.GraphDB.SourceNode()
+		if err != nil {
+			return route.Vertex{}, err
+		}
+
+		return route.NewVertexFromBytes(node.PubKeyBytes[:])
+	}
+
+	return sources.NewMux(
+		localSource, remoteSourceClient, getLocalPub,
+	), nil
+}
+
+// connectRPC tries to establish an RPC connection to the given host:port with
+// the supplied certificate and macaroon.
+func connectRPC(hostPort, tlsCertPath, macaroonPath string,
+	timeout time.Duration) (*grpc.ClientConn, error) {
+
+	certBytes, err := os.ReadFile(tlsCertPath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading TLS cert file %v: %w",
+			tlsCertPath, err)
+	}
+
+	cp := x509.NewCertPool()
+	if !cp.AppendCertsFromPEM(certBytes) {
+		return nil, fmt.Errorf("credentials: failed to append " +
+			"certificate")
+	}
+
+	macBytes, err := os.ReadFile(macaroonPath)
+	if err != nil {
+		return nil, fmt.Errorf("error reading macaroon file %v: %w",
+			macaroonPath, err)
+	}
+	mac := &macaroon.Macaroon{}
+	if err := mac.UnmarshalBinary(macBytes); err != nil {
+		return nil, fmt.Errorf("error decoding macaroon: %w", err)
+	}
+
+	macCred, err := macaroons.NewMacaroonCredential(mac)
+	if err != nil {
+		return nil, fmt.Errorf("error creating creds: %w", err)
+	}
+
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(
+			cp, "",
+		)),
+		grpc.WithPerRPCCredentials(macCred),
+		grpc.WithBlock(),
+	}
+	ctxt, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	conn, err := grpc.DialContext(ctxt, hostPort, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("unable to connect to RPC server: %w",
+			err)
+	}
+
+	return conn, nil
 }
 
 // ValidateMacaroon extracts the macaroon from the context's gRPC metadata,

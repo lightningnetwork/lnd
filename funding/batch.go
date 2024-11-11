@@ -572,10 +572,9 @@ func (b *Batcher) cleanup(ctx context.Context) {
 	// And finally clean up the funding shim for each channel that didn't
 	// make it into a pending state.
 	for _, channel := range b.channels {
-		if channel.isPending {
-			continue
-		}
-
+		// We need to cancel all funding intents that we created even
+		// though the channel might not be in the pending state. The
+		// peer might still be waiting for us to send an error msg.
 		err := b.cfg.Wallet.CancelFundingIntent(channel.pendingChanID)
 		if err != nil {
 			log.Debugf(errMsgTpl, "cancel funding shim", err)

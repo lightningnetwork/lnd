@@ -1,6 +1,7 @@
 package netann
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -653,8 +654,12 @@ func (m *ChanStatusManager) signAndSendNextUpdate(outpoint wire.OutPoint,
 func (m *ChanStatusManager) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (
 	*lnwire.ChannelUpdate1, bool, error) {
 
+	ctx := context.TODO()
+
 	// Get the edge info and policies for this channel from the graph.
-	info, edge1, edge2, err := m.cfg.Graph.FetchChannelEdgesByOutpoint(&op)
+	info, edge1, edge2, err := m.cfg.Graph.FetchChannelEdgesByOutpoint(
+		ctx, &op,
+	)
 	if err != nil {
 		return nil, false, err
 	}

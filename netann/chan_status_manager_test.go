@@ -2,6 +2,7 @@ package netann_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
@@ -160,7 +161,7 @@ func (g *mockGraph) FetchAllOpenChannels() ([]*channeldb.OpenChannel, error) {
 	return g.chans(), nil
 }
 
-func (g *mockGraph) FetchChannelEdgesByOutpoint(
+func (g *mockGraph) FetchChannelEdgesByOutpoint(ctx context.Context,
 	op *wire.OutPoint) (*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error) {
 

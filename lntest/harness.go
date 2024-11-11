@@ -2302,7 +2302,6 @@ func (h *HarnessTest) openChannelsForNodes(nodes []*node.HarnessNode,
 	p OpenChannelParams) []*lnrpc.ChannelPoint {
 
 	// Sanity check the params.
-	require.False(h, p.ZeroConf, "zero-conf channels must be disabled")
 	require.Greater(h, len(nodes), 1, "need at least 2 nodes")
 
 	// Open channels in batch to save blocks mined.

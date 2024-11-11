@@ -695,6 +695,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		return err
 	}
 	graph := s.graphDB
+	graphSource := s.graphSource
 
 	routerBackend := &routerrpc.RouterBackend{
 		SelfNode: selfNode.PubKeyBytes,
@@ -711,7 +712,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 			amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
 
 			return routing.FetchAmountPairCapacity(
-				graphsession.NewRoutingGraph(graph),
+				graphsession.NewRoutingGraph(graphSource),
 				selfNode.PubKeyBytes, nodeFrom, nodeTo, amount,
 			)
 		},

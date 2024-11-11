@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -53,7 +52,7 @@ var _ routing.GraphSessionFactory = (*Factory)(nil)
 // access the backing channel graph.
 type session struct {
 	graph graph
-	tx    kvdb.RTx
+	tx    RTx
 }
 
 // NewRoutingGraph constructs a session that which does not first start a
@@ -72,7 +71,7 @@ func (g *session) close() error {
 		return nil
 	}
 
-	err := g.tx.Rollback()
+	err := g.tx.Close()
 	if err != nil {
 		return fmt.Errorf("error closing db tx: %w", err)
 	}
@@ -109,7 +108,7 @@ type ReadOnlyGraph interface {
 	// NewPathFindTx returns a new read transaction that can be used for a
 	// single path finding session. Will return nil if the graph cache is
 	// enabled.
-	NewPathFindTx() (kvdb.RTx, error)
+	NewPathFindTx() (RTx, error)
 
 	graph
 }
@@ -128,7 +127,7 @@ type graph interface {
 	//
 	// NOTE: if a nil tx is provided, then it is expected that the
 	// implementation create a read only tx.
-	ForEachNodeDirectedChannel(tx kvdb.RTx, node route.Vertex,
+	ForEachNodeDirectedChannel(tx RTx, node route.Vertex,
 		cb func(channel *graphdb.DirectedChannel) error) error
 
 	// FetchNodeFeatures returns the features of a given node. If no
@@ -136,10 +135,6 @@ type graph interface {
 	//
 	// NOTE: if a nil tx is provided, then it is expected that the
 	// implementation create a read only tx.
-	FetchNodeFeatures(tx kvdb.RTx, node route.Vertex) (
-		*lnwire.FeatureVector, error)
+	FetchNodeFeatures(tx RTx, node route.Vertex) (*lnwire.FeatureVector,
+		error)
 }
-
-// A compile-time check to ensure that *channeldb.ChannelGraph implements the
-// graph interface.
-var _ graph = (*graphdb.ChannelGraph)(nil)

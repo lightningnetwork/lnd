@@ -1026,7 +1026,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 	paymentSessionSource := &routing.SessionSource{
 		GraphSessionFactory: graphsession.NewGraphSessionFactory(
-			dbs.GraphDB,
+			graphSource,
 		),
 		SourceNode:        sourceNode,
 		MissionControl:    s.defaultMC,
@@ -1060,7 +1060,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	s.chanRouter, err = routing.New(routing.Config{
 		SelfNode:           selfNode.PubKeyBytes,
-		RoutingGraph:       graphsession.NewRoutingGraph(dbs.GraphDB),
+		RoutingGraph:       graphsession.NewRoutingGraph(graphSource),
 		Chain:              cc.ChainIO,
 		Payer:              s.htlcSwitch,
 		Control:            s.controlTower,

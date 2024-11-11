@@ -42,25 +42,23 @@ import (
 // thus a following operation will fail if it relies on the channel being
 // enabled.
 func testUpdateChanStatus(ht *lntest.HarnessTest) {
-	// Create two fresh nodes and open a channel between them.
-	alice, bob := ht.Alice, ht.Bob
-	args := []string{
+	// Prepare params.
+	chanAmt := btcutil.Amount(100_000)
+	openChannelParams := lntest.OpenChannelParams{
+		Amt: chanAmt,
+	}
+	cfg := []string{
 		"--minbackoff=60s",
 		"--chan-enable-timeout=3s",
 		"--chan-disable-timeout=6s",
 		"--chan-status-sample-interval=0.5s",
 	}
-	ht.RestartNodeWithExtraArgs(alice, args)
-	ht.RestartNodeWithExtraArgs(bob, args)
-	ht.EnsureConnected(alice, bob)
+	cfgs := [][]string{cfg, cfg}
 
-	// Open a channel with 100k satoshis between Alice and Bob with Alice
-	// being the sole funder of the channel.
-	chanAmt := btcutil.Amount(100000)
-	chanPoint := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
-	)
-	defer ht.CloseChannel(alice, chanPoint)
+	// Create two fresh nodes and open a channel between them.
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, openChannelParams)
+	chanPoint := chanPoints[0]
+	alice, bob := nodes[0], nodes[1]
 
 	// assertEdgeDisabled ensures that Alice has the correct Disabled state
 	// for given channel from her DescribeGraph.
@@ -237,17 +235,17 @@ func testUnannouncedChannels(ht *lntest.HarnessTest) {
 	fundingChanPoint := ht.WaitForChannelOpenEvent(chanOpenUpdate)
 
 	// Alice should have 1 edge in her graph.
-	ht.AssertNumEdges(alice, 1, true)
+	ht.AssertNumActiveEdges(alice, 1, true)
 
 	// Channels should not be announced yet, hence Alice should have no
 	// announced edges in her graph.
-	ht.AssertNumEdges(alice, 0, false)
+	ht.AssertNumActiveEdges(alice, 0, false)
 
 	// Mine 4 more blocks, and check that the channel is now announced.
 	ht.MineBlocks(4)
 
 	// Give the network a chance to learn that auth proof is confirmed.
-	ht.AssertNumEdges(alice, 1, false)
+	ht.AssertNumActiveEdges(alice, 1, false)
 
 	// Close the channel used during the test.
 	ht.CloseChannel(alice, fundingChanPoint)

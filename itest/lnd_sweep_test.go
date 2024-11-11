@@ -98,12 +98,14 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 		// swept so we can focus on testing HTLCs.
 		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", cltvDelta*10),
 	}
+	cfgs := [][]string{cfg, cfg, cfg}
+
 	openChannelParams := lntest.OpenChannelParams{
 		Amt: invoiceAmt * 10,
 	}
 
 	// Create a three hop network: Alice -> Bob -> Carol.
-	chanPoints, nodes := createSimpleNetwork(ht, cfg, 3, openChannelParams)
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, openChannelParams)
 
 	// Unwrap the results.
 	abChanPoint, bcChanPoint := chanPoints[0], chanPoints[1]
@@ -426,12 +428,14 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 		// swept so we can focus on testing HTLCs.
 		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", cltvDelta*10),
 	}
+	cfgs := [][]string{cfg, cfg, cfg}
+
 	openChannelParams := lntest.OpenChannelParams{
 		Amt: invoiceAmt * 10,
 	}
 
 	// Create a three hop network: Alice -> Bob -> Carol.
-	chanPoints, nodes := createSimpleNetwork(ht, cfg, 3, openChannelParams)
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, openChannelParams)
 
 	// Unwrap the results.
 	abChanPoint, bcChanPoint := chanPoints[0], chanPoints[1]
@@ -771,12 +775,14 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 		// swept so we can focus on testing HTLCs.
 		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", cltvDelta*10),
 	}
+	cfgs := [][]string{cfg, cfg, cfg}
+
 	openChannelParams := lntest.OpenChannelParams{
 		Amt: invoiceAmt * 10,
 	}
 
 	// Create a three hop network: Alice -> Bob -> Carol.
-	chanPoints, nodes := createSimpleNetwork(ht, cfg, 3, openChannelParams)
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, openChannelParams)
 
 	// Unwrap the results.
 	abChanPoint, bcChanPoint := chanPoints[0], chanPoints[1]
@@ -1298,13 +1304,15 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 		fmt.Sprintf("--sweeper.nodeadlineconftarget=%v", deadline),
 		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", toLocalCSV),
 	}
+	cfgs := [][]string{cfg, cfg}
+
 	openChannelParams := lntest.OpenChannelParams{
 		Amt:     fundAmt,
 		PushAmt: bobBalance,
 	}
 
 	// Create a two hop network: Alice -> Bob.
-	chanPoints, nodes := createSimpleNetwork(ht, cfg, 2, openChannelParams)
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, openChannelParams)
 
 	// Unwrap the results.
 	chanPoint := chanPoints[0]
@@ -1780,67 +1788,6 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	ht.MineBlocksAndAssertNumTxes(1, 2)
 }
 
-// createSimpleNetwork creates the specified number of nodes and makes a
-// topology of `node1 -> node2 -> node3...`. Each node is created using the
-// specified config, the neighbors are connected, and the channels are opened.
-// Each node will be funded with a single UTXO of 1 BTC except the last one.
-func createSimpleNetwork(ht *lntest.HarnessTest, nodeCfg []string,
-	numNodes int, p lntest.OpenChannelParams) ([]*lnrpc.ChannelPoint,
-	[]*node.HarnessNode) {
-
-	// Make a slice of nodes.
-	nodes := make([]*node.HarnessNode, numNodes)
-
-	// Create new nodes.
-	for i := range nodes {
-		nodeName := fmt.Sprintf("Node%q", string(rune('A'+i)))
-		n := ht.NewNode(nodeName, nodeCfg)
-		nodes[i] = n
-	}
-
-	// Connect the nodes in a chain.
-	for i := 1; i < len(nodes); i++ {
-		nodeA := nodes[i-1]
-		nodeB := nodes[i]
-		ht.EnsureConnected(nodeA, nodeB)
-	}
-
-	// Fund all the nodes expect the last one.
-	for i := 0; i < len(nodes)-1; i++ {
-		node := nodes[i]
-		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, node)
-	}
-
-	// Mine 1 block to get the above coins confirmed.
-	ht.MineBlocksAndAssertNumTxes(1, numNodes-1)
-
-	// Open channels in batch to save blocks mined.
-	reqs := make([]*lntest.OpenChannelRequest, 0, len(nodes)-1)
-	for i := 0; i < len(nodes)-1; i++ {
-		nodeA := nodes[i]
-		nodeB := nodes[i+1]
-
-		req := &lntest.OpenChannelRequest{
-			Local:  nodeA,
-			Remote: nodeB,
-			Param:  p,
-		}
-		reqs = append(reqs, req)
-	}
-	resp := ht.OpenMultiChannelsAsync(reqs)
-
-	// Make sure the nodes know each other's channels if they are public.
-	if !p.Private {
-		for _, node := range nodes {
-			for _, chanPoint := range resp {
-				ht.AssertTopologyChannelOpen(node, chanPoint)
-			}
-		}
-	}
-
-	return resp, nodes
-}
-
 // testBumpFee checks that when a new input is requested, it's first bumped via
 // CPFP, then RBF. Along the way, we check the `BumpFee` can properly update
 // the fee function used by supplying new params.
@@ -2185,9 +2132,10 @@ func testBumpForceCloseFee(ht *lntest.HarnessTest) {
 	cfg := []string{
 		"--protocol.anchors",
 	}
+	cfgs := [][]string{cfg, cfg}
 
 	// Create a two hop network: Alice -> Bob.
-	chanPoints, nodes := createSimpleNetwork(ht, cfg, 2, openChannelParams)
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, openChannelParams)
 
 	// Unwrap the results.
 	chanPoint := chanPoints[0]

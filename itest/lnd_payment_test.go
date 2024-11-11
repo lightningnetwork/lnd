@@ -41,9 +41,10 @@ func testPaymentSucceededHTLCRemoteSwept(ht *lntest.HarnessTest) {
 	openChannelParams := lntest.OpenChannelParams{
 		Amt: chanAmt,
 	}
+	cfgs := [][]string{nil, nil}
 
 	// Create a two hop network: Alice -> Bob.
-	chanPoints, nodes := createSimpleNetwork(ht, nil, 2, openChannelParams)
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, openChannelParams)
 	chanPoint := chanPoints[0]
 	alice, bob := nodes[0], nodes[1]
 
@@ -197,9 +198,10 @@ func runTestPaymentHTLCTimeout(ht *lntest.HarnessTest, restartAlice bool) {
 	openChannelParams := lntest.OpenChannelParams{
 		Amt: chanAmt,
 	}
+	cfgs := [][]string{nil, nil}
 
 	// Create a two hop network: Alice -> Bob.
-	chanPoints, nodes := createSimpleNetwork(ht, nil, 2, openChannelParams)
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, openChannelParams)
 	chanPoint := chanPoints[0]
 	alice, bob := nodes[0], nodes[1]
 
@@ -1247,9 +1249,10 @@ func runSendToRouteFailHTLCTimeout(ht *lntest.HarnessTest, restartAlice bool) {
 	openChannelParams := lntest.OpenChannelParams{
 		Amt: chanAmt,
 	}
+	cfgs := [][]string{nil, nil}
 
 	// Create a two hop network: Alice -> Bob.
-	chanPoints, nodes := createSimpleNetwork(ht, nil, 2, openChannelParams)
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, openChannelParams)
 	chanPoint := chanPoints[0]
 	alice, bob := nodes[0], nodes[1]
 

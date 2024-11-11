@@ -591,12 +591,12 @@ func testPrivateChannels(ht *lntest.HarnessTest) {
 
 	// Carol and Alice should know about 4, while Bob and Dave should only
 	// know about 3, since one channel is private.
-	ht.AssertNumEdges(alice, 4, true)
-	ht.AssertNumEdges(alice, 3, false)
-	ht.AssertNumEdges(bob, 3, true)
-	ht.AssertNumEdges(carol, 4, true)
-	ht.AssertNumEdges(carol, 3, false)
-	ht.AssertNumEdges(dave, 3, true)
+	ht.AssertNumActiveEdges(alice, 4, true)
+	ht.AssertNumActiveEdges(alice, 3, false)
+	ht.AssertNumActiveEdges(bob, 3, true)
+	ht.AssertNumActiveEdges(carol, 4, true)
+	ht.AssertNumActiveEdges(carol, 3, false)
+	ht.AssertNumActiveEdges(dave, 3, true)
 
 	// Close all channels.
 	ht.CloseChannel(alice, chanPointAlice)
@@ -1525,8 +1525,9 @@ func testRouteFeeCutoff(ht *lntest.HarnessTest) {
 func testFeeLimitAfterQueryRoutes(ht *lntest.HarnessTest) {
 	// Create a three hop network: Alice -> Bob -> Carol.
 	chanAmt := btcutil.Amount(100000)
-	chanPoints, nodes := createSimpleNetwork(
-		ht, []string{}, 3, lntest.OpenChannelParams{Amt: chanAmt},
+	cfgs := [][]string{nil, nil, nil}
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		cfgs, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 	alice, bob, carol := nodes[0], nodes[1], nodes[2]
 	chanPointAliceBob, chanPointBobCarol := chanPoints[0], chanPoints[1]

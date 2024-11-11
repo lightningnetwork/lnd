@@ -31,7 +31,11 @@ func testZeroConfChannelOpen(ht *lntest.HarnessTest) {
 		"--protocol.anchors",
 	}
 
-	bob := ht.Bob
+	bob := ht.NewNode("Bob", nil)
+
+	// We'll give Bob some coins in order to fund the channel.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+
 	carol := ht.NewNode("Carol", scidAliasArgs)
 	ht.EnsureConnected(bob, carol)
 
@@ -40,7 +44,7 @@ func testZeroConfChannelOpen(ht *lntest.HarnessTest) {
 	p := lntest.OpenChannelParams{
 		Amt: chanAmt,
 	}
-	chanPoint := ht.OpenChannel(bob, carol, p)
+	ht.OpenChannel(bob, carol, p)
 
 	// Spin-up Dave so Carol can open a zero-conf channel to him.
 	dave := ht.NewNode("Dave", scidAliasArgs)
@@ -182,9 +186,6 @@ func testZeroConfChannelOpen(ht *lntest.HarnessTest) {
 	ht.CompletePaymentRequests(
 		dave, []string{eveInvoiceResp.PaymentRequest},
 	)
-
-	// Close standby node's channels.
-	ht.CloseChannel(bob, chanPoint)
 }
 
 // testOptionScidAlias checks that opening an option_scid_alias channel-type
@@ -239,7 +240,11 @@ func optionScidAliasScenario(ht *lntest.HarnessTest, chantype, private bool) {
 		"--protocol.anchors",
 	}
 
-	bob := ht.Bob
+	bob := ht.NewNode("Bob", nil)
+
+	// We'll give Bob some coins in order to fund the channel.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+
 	carol := ht.NewNode("Carol", scidAliasArgs)
 	dave := ht.NewNode("Dave", scidAliasArgs)
 
@@ -284,21 +289,6 @@ func optionScidAliasScenario(ht *lntest.HarnessTest, chantype, private bool) {
 		Amt: chanAmt,
 	}
 	fundingPoint2 := ht.OpenChannel(bob, carol, p)
-
-	defer func() {
-		// TODO(yy): remove the sleep once the following bug is fixed.
-		// When the payment is reported as settled by Bob, it's
-		// expected the commitment dance is finished and all subsequent
-		// states have been updated. Yet we'd receive the error `cannot
-		// co-op close channel with active htlcs` or `link failed to
-		// shutdown` if we close the channel. We need to investigate
-		// the order of settling the payments and updating commitments
-		// to understand and fix.
-		time.Sleep(2 * time.Second)
-
-		// Close standby node's channels.
-		ht.CloseChannel(bob, fundingPoint2)
-	}()
 
 	// Wait until Dave receives the Bob<->Carol channel.
 	ht.AssertTopologyChannelOpen(dave, fundingPoint2)

@@ -6805,6 +6805,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		numChannels   uint32
 		totalCapacity btcutil.Amount
 		channels      []*lnrpc.ChannelEdge
+		isPublicNode  bool
 	)
 
 	err = graph.ForEachNodeChannel(ctx, node.PubKeyBytes,
@@ -6813,6 +6814,12 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 
 			numChannels++
 			totalCapacity += edge.Capacity
+
+			// If the edge has an authentication proof, then this
+			// is a public channel and so the node is public.
+			if edge.AuthProof != nil {
+				isPublicNode = true
+			}
 
 			// Only populate the node's channels if the user
 			// requested them.
@@ -6842,6 +6849,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		NumChannels:   numChannels,
 		TotalCapacity: int64(totalCapacity),
 		Channels:      channels,
+		IsPublic:      isPublicNode,
 	}, nil
 }
 

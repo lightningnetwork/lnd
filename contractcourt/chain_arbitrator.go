@@ -1,6 +1,7 @@
 package contractcourt
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -22,10 +23,17 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"golang.org/x/sync/errgroup"
 )
 
 // ErrChainArbExiting signals that the chain arbitrator is shutting down.
 var ErrChainArbExiting = errors.New("ChainArbitrator exiting")
+
+const (
+	// chainArbTimeout is the timeout for the chain arbitrator to start
+	// the channel arbitrators for each channel.
+	chainArbTimeout = 5 * time.Minute
+)
 
 // ResolutionMsg is a message sent by resolvers to outside sub-systems once an
 // outgoing contract has been fully resolved. For multi-hop contracts, if we
@@ -767,19 +775,66 @@ func (c *ChainArbitrator) Start() error {
 
 	// Launch all the goroutines for each arbitrator so they can carry out
 	// their duties.
+	// Set a timeout for the group so we don't wait indefinitely if one
+	// startup function blocks.
+	ctx, cancel := context.WithTimeout(
+		context.Background(), chainArbTimeout,
+	)
+
+	eg, egCtx := errgroup.WithContext(ctx)
+
 	for _, arbitrator := range c.activeChannels {
 		startState, ok := startStates[arbitrator.cfg.ChanPoint]
 		if !ok {
 			stopAndLog()
+
+			// In case we encounter an error we need to cancel the
+			// context to ensure all goroutines are cleaned up.
+			cancel()
 			return fmt.Errorf("arbitrator: %v has no start state",
 				arbitrator.cfg.ChanPoint)
 		}
 
-		if err := arbitrator.Start(startState); err != nil {
-			stopAndLog()
-			return err
-		}
+		arb := arbitrator // Create new variable for closure
+		eg.Go(func() error {
+			// Create a non-blocking goroutine for the actual Start
+			// call
+			startErrChan := make(chan error, 1)
+			go func() {
+				startErrChan <- arb.Start(startState)
+			}()
+
+			select {
+			case startErr := <-startErrChan:
+				if startErr != nil {
+					cancel()
+				}
+
+				return startErr
+
+			case <-egCtx.Done():
+				return egCtx.Err()
+
+			case <-c.quit:
+
+				return ErrChainArbExiting
+			}
+		})
 	}
+
+	// Wait for the error group to finish and if an error occurred we
+	// trigger a graceful shutdown of LND.
+	//
+	// NOTE: We do not add this collector to the waitGroup because we want
+	// to stop the chain arbitrator if there occurs an error.
+	go func() {
+		defer cancel()
+
+		if err := eg.Wait(); err != nil {
+			log.Criticalf("ChainArbitrator failed to start all "+
+				"channel arbitrators: %v", err)
+		}
+	}()
 
 	// Subscribe to a single stream of block epoch notifications that we
 	// will dispatch to all active arbitrators.

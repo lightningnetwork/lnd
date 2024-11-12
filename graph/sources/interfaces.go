@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -16,6 +17,8 @@ import (
 
 // GraphSource defines the read-only graph interface required by LND for graph
 // related queries.
+//
+//nolint:interfacebloat
 type GraphSource interface {
 	session.ReadOnlyGraph
 	invoicesrpc.GraphSource
@@ -78,4 +81,9 @@ type GraphSource interface {
 	// NetworkStats returns statistics concerning the current state of the
 	// known channel graph within the network.
 	NetworkStats(ctx context.Context) (*models.NetworkStats, error)
+
+	// BetweennessCentrality computes the normalised and non-normalised
+	// betweenness centrality for each node in the graph.
+	BetweennessCentrality(ctx context.Context) (
+		map[autopilot.NodeID]*models.BetweennessCentrality, error)
 }

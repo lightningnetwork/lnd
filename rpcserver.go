@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -6701,43 +6700,27 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 		return nil, nil
 	}
 
-	resp := &lnrpc.NodeMetricsResponse{
-		BetweennessCentrality: make(map[string]*lnrpc.FloatMetric),
-	}
+	graph := r.server.graphSource
 
-	// Obtain the pointer to the global singleton channel graph, this will
-	// provide a consistent view of the graph due to bolt db's
-	// transactional model.
-	graph := r.server.graphDB
-
-	// Calculate betweenness centrality if requested. Note that depending on the
-	// graph size, this may take up to a few minutes.
-	channelGraph := autopilot.ChannelGraphFromDatabase(graph)
-	centralityMetric, err := autopilot.NewBetweennessCentralityMetric(
-		runtime.NumCPU(),
-	)
+	// Calculate betweenness centrality if requested. Note that depending on
+	// the graph size, this may take up to a few minutes.
+	centrality, err := graph.BetweennessCentrality(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := centralityMetric.Refresh(channelGraph); err != nil {
-		return nil, err
+
+	result := make(map[string]*lnrpc.FloatMetric)
+	for nodeID, betweenness := range centrality {
+		id := hex.EncodeToString(nodeID[:])
+		result[id] = &lnrpc.FloatMetric{
+			Value:           betweenness.NonNormalized,
+			NormalizedValue: betweenness.Normalized,
+		}
 	}
 
-	// Fill normalized and non normalized centrality.
-	centrality := centralityMetric.GetMetric(true)
-	for nodeID, val := range centrality {
-		resp.BetweennessCentrality[hex.EncodeToString(nodeID[:])] =
-			&lnrpc.FloatMetric{
-				NormalizedValue: val,
-			}
-	}
-
-	centrality = centralityMetric.GetMetric(false)
-	for nodeID, val := range centrality {
-		resp.BetweennessCentrality[hex.EncodeToString(nodeID[:])].Value = val
-	}
-
-	return resp, nil
+	return &lnrpc.NodeMetricsResponse{
+		BetweennessCentrality: result,
+	}, nil
 }
 
 // GetChanInfo returns the latest authenticated network announcement for the

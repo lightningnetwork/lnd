@@ -20,12 +20,16 @@ func prefixWithMsgType(data []byte, prefix MessageType) []byte {
 	return data
 }
 
-// wireMsgHarness performs the actual fuzz testing of the appropriate wire
+// assertEqualFunc is a function used to assert that two deserialized messages
+// are equivalent.
+type assertEqualFunc func(t *testing.T, x, y any)
+
+// wireMsgHarnessCustom performs the actual fuzz testing of the appropriate wire
 // message. This function will check that the passed-in message passes wire
 // length checks, is a valid message once deserialized, and passes a sequence of
 // serialization and deserialization checks.
-func wireMsgHarness(t *testing.T, data []byte, msgType MessageType) {
-	t.Helper()
+func wireMsgHarnessCustom(t *testing.T, data []byte, msgType MessageType,
+	assertEqual assertEqualFunc) {
 
 	data = prefixWithMsgType(data, msgType)
 
@@ -53,55 +57,41 @@ func wireMsgHarness(t *testing.T, data []byte, msgType MessageType) {
 	// message.
 	newMsg, err := ReadMessage(&b, 0)
 	require.NoError(t, err)
-	require.Equal(t, msg, newMsg)
+
+	assertEqual(t, msg, newMsg)
+}
+
+func wireMsgHarness(t *testing.T, data []byte, msgType MessageType) {
+	t.Helper()
+	assertEq := func(t *testing.T, x, y any) {
+		require.Equal(t, x, y)
+	}
+	wireMsgHarnessCustom(t, data, msgType, assertEq)
 }
 
 func FuzzAcceptChannel(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgAcceptChannel)
-		// Create a reader with the byte array.
-		r := bytes.NewReader(data)
-
-		// Make sure byte array length (excluding 2 bytes for message
-		// type) is less than max payload size for the wire message.
-		payloadLen := uint32(len(data)) - 2
-		if payloadLen > MaxMsgBody {
-			return
-		}
-
-		msg, err := ReadMessage(r, 0)
-		if err != nil {
-			return
-		}
-
-		// We will serialize the message into a new bytes buffer.
-		var b bytes.Buffer
-		_, err = WriteMessage(&b, msg, 0)
-		require.NoError(t, err)
-
-		// Deserialize the message from the serialized bytes buffer, and
-		// then assert that the original message is equal to the newly
-		// deserialized message.
-		newMsg, err := ReadMessage(&b, 0)
-		require.NoError(t, err)
-
-		require.IsType(t, &AcceptChannel{}, msg)
-		first, _ := msg.(*AcceptChannel)
-		require.IsType(t, &AcceptChannel{}, newMsg)
-		second, _ := newMsg.(*AcceptChannel)
-
 		// We can't use require.Equal for UpfrontShutdownScript, since
 		// we consider the empty slice and nil to be equivalent.
-		require.True(
-			t, bytes.Equal(
-				first.UpfrontShutdownScript,
-				second.UpfrontShutdownScript,
-			),
-		)
-		first.UpfrontShutdownScript = nil
-		second.UpfrontShutdownScript = nil
+		assertEq := func(t *testing.T, x, y any) {
+			require.IsType(t, &AcceptChannel{}, x)
+			first, _ := x.(*AcceptChannel)
+			require.IsType(t, &AcceptChannel{}, y)
+			second, _ := y.(*AcceptChannel)
 
-		require.Equal(t, first, second)
+			require.True(
+				t, bytes.Equal(
+					first.UpfrontShutdownScript,
+					second.UpfrontShutdownScript,
+				),
+			)
+			first.UpfrontShutdownScript = nil
+			second.UpfrontShutdownScript = nil
+
+			require.Equal(t, first, second)
+		}
+
+		wireMsgHarnessCustom(t, data, MsgAcceptChannel, assertEq)
 	})
 }
 
@@ -125,45 +115,25 @@ func FuzzChannelAnnouncement(f *testing.F) {
 
 func FuzzChannelAnnouncement2(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgChannelAnnouncement2)
-
-		// Because require.Equal considers nil maps and empty maps
-		// to be non-equal, we must manually compare Features field
-		// rather than using the harness.
-
-		if len(data) > MaxSliceLength {
-			return
-		}
-
-		r := bytes.NewReader(data)
-		msg, err := ReadMessage(r, 0)
-		if err != nil {
-			return
-		}
-
-		// We will serialize the message into a new bytes buffer.
-		var b bytes.Buffer
-		_, err = WriteMessage(&b, msg, 0)
-		require.NoError(t, err)
-
-		// Deserialize the message from the serialized bytes buffer, and
-		// then assert that the original message is equal to the newly
-		// deserialized message.
-		newMsg, err := ReadMessage(&b, 0)
-		require.NoError(t, err)
-
-		require.IsType(t, &ChannelAnnouncement2{}, msg)
-		first, _ := msg.(*ChannelAnnouncement2)
-		require.IsType(t, &ChannelAnnouncement2{}, newMsg)
-		second, _ := newMsg.(*ChannelAnnouncement2)
-
 		// We can't use require.Equal for Features, since we consider
 		// the empty map and nil to be equivalent.
-		require.True(t, first.Features.Val.Equals(&second.Features.Val))
-		first.Features.Val = *NewRawFeatureVector()
-		second.Features.Val = *NewRawFeatureVector()
+		assertEq := func(t *testing.T, x, y any) {
+			require.IsType(t, &ChannelAnnouncement2{}, x)
+			first, _ := x.(*ChannelAnnouncement2)
+			require.IsType(t, &ChannelAnnouncement2{}, y)
+			second, _ := y.(*ChannelAnnouncement2)
 
-		require.Equal(t, first, second)
+			require.True(
+				t,
+				first.Features.Val.Equals(&second.Features.Val),
+			)
+			first.Features.Val = *NewRawFeatureVector()
+			second.Features.Val = *NewRawFeatureVector()
+
+			require.Equal(t, first, second)
+		}
+
+		wireMsgHarnessCustom(t, data, MsgChannelAnnouncement2, assertEq)
 	})
 }
 
@@ -247,113 +217,57 @@ func FuzzInit(f *testing.F) {
 
 func FuzzNodeAnnouncement(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgNodeAnnouncement)
-
-		// We have to do this here instead of in harness so that
-		// reflect.DeepEqual isn't called. Address (de)serialization
-		// messes up the fuzzing assertions.
-
-		// Create a reader with the byte array.
-		r := bytes.NewReader(data)
-
-		// Make sure byte array length (excluding 2 bytes for message
-		// type) is less than max payload size for the wire message.
-		payloadLen := uint32(len(data)) - 2
-		if payloadLen > MaxMsgBody {
-			return
-		}
-
-		msg, err := ReadMessage(r, 0)
-		if err != nil {
-			return
-		}
-
-		// We will serialize the message into a new bytes buffer.
-		var b bytes.Buffer
-		_, err = WriteMessage(&b, msg, 0)
-		require.NoError(t, err)
-
-		// Deserialize the message from the serialized bytes buffer, and
-		// then assert that the original message is equal to the newly
-		// deserialized message.
-		newMsg, err := ReadMessage(&b, 0)
-		require.NoError(t, err)
-
-		require.IsType(t, &NodeAnnouncement{}, msg)
-		first, _ := msg.(*NodeAnnouncement)
-		require.IsType(t, &NodeAnnouncement{}, newMsg)
-		second, _ := newMsg.(*NodeAnnouncement)
-
 		// We can't use require.Equal for Addresses, since the same IP
 		// can be represented by different underlying bytes. Instead, we
 		// compare the normalized string representation of each address.
-		require.Equal(t, len(first.Addresses), len(second.Addresses))
-		for i := range first.Addresses {
-			require.Equal(
-				t, first.Addresses[i].String(),
-				second.Addresses[i].String(),
-			)
-		}
-		first.Addresses = nil
-		second.Addresses = nil
+		assertEq := func(t *testing.T, x, y any) {
+			require.IsType(t, &NodeAnnouncement{}, x)
+			first, _ := x.(*NodeAnnouncement)
+			require.IsType(t, &NodeAnnouncement{}, y)
+			second, _ := y.(*NodeAnnouncement)
 
-		require.Equal(t, first, second)
+			require.Equal(
+				t, len(first.Addresses), len(second.Addresses),
+			)
+			for i := range first.Addresses {
+				require.Equal(
+					t, first.Addresses[i].String(),
+					second.Addresses[i].String(),
+				)
+			}
+			first.Addresses = nil
+			second.Addresses = nil
+
+			require.Equal(t, first, second)
+		}
+
+		wireMsgHarnessCustom(t, data, MsgNodeAnnouncement, assertEq)
 	})
 }
 
 func FuzzOpenChannel(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgOpenChannel)
-
-		// We have to do this here instead of in harness so that
-		// reflect.DeepEqual isn't called. Because of the
-		// UpfrontShutdownScript encoding, the first message and second
-		// message aren't deeply equal since the first has a nil slice
-		// and the other has an empty slice.
-
-		// Create a reader with the byte array.
-		r := bytes.NewReader(data)
-
-		// Make sure byte array length (excluding 2 bytes for message
-		// type) is less than max payload size for the wire message.
-		payloadLen := uint32(len(data)) - 2
-		if payloadLen > MaxMsgBody {
-			return
-		}
-
-		msg, err := ReadMessage(r, 0)
-		if err != nil {
-			return
-		}
-
-		// We will serialize the message into a new bytes buffer.
-		var b bytes.Buffer
-		_, err = WriteMessage(&b, msg, 0)
-		require.NoError(t, err)
-
-		// Deserialize the message from the serialized bytes buffer, and
-		// then assert that the original message is equal to the newly
-		// deserialized message.
-		newMsg, err := ReadMessage(&b, 0)
-		require.NoError(t, err)
-
-		require.IsType(t, &OpenChannel{}, msg)
-		first, _ := msg.(*OpenChannel)
-		require.IsType(t, &OpenChannel{}, newMsg)
-		second, _ := newMsg.(*OpenChannel)
-
 		// We can't use require.Equal for UpfrontShutdownScript, since
 		// we consider the empty slice and nil to be equivalent.
-		require.True(
-			t, bytes.Equal(
-				first.UpfrontShutdownScript,
-				second.UpfrontShutdownScript,
-			),
-		)
-		first.UpfrontShutdownScript = nil
-		second.UpfrontShutdownScript = nil
+		assertEq := func(t *testing.T, x, y any) {
+			require.IsType(t, &OpenChannel{}, x)
+			first, _ := x.(*OpenChannel)
+			require.IsType(t, &OpenChannel{}, y)
+			second, _ := y.(*OpenChannel)
 
-		require.Equal(t, first, second)
+			require.True(
+				t, bytes.Equal(
+					first.UpfrontShutdownScript,
+					second.UpfrontShutdownScript,
+				),
+			)
+			first.UpfrontShutdownScript = nil
+			second.UpfrontShutdownScript = nil
+
+			require.Equal(t, first, second)
+		}
+
+		wireMsgHarnessCustom(t, data, MsgOpenChannel, assertEq)
 	})
 }
 
@@ -447,49 +361,29 @@ func FuzzZlibReplyChannelRange(f *testing.F) {
 
 func FuzzReplyChannelRange(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgReplyChannelRange)
-
-		// Because require.Equal considers nil slices and empty slices
-		// to be non-equal, we must manually compare the Timestamps
-		// field rather than using the harness.
-
-		if len(data) > MaxSliceLength {
-			return
-		}
-
-		r := bytes.NewReader(data)
-		msg, err := ReadMessage(r, 0)
-		if err != nil {
-			return
-		}
-
-		// We will serialize the message into a new bytes buffer.
-		var b bytes.Buffer
-		_, err = WriteMessage(&b, msg, 0)
-		require.NoError(t, err)
-
-		// Deserialize the message from the serialized bytes buffer, and
-		// then assert that the original message is equal to the newly
-		// deserialized message.
-		newMsg, err := ReadMessage(&b, 0)
-		require.NoError(t, err)
-
-		require.IsType(t, &ReplyChannelRange{}, msg)
-		first, _ := msg.(*ReplyChannelRange)
-		require.IsType(t, &ReplyChannelRange{}, newMsg)
-		second, _ := newMsg.(*ReplyChannelRange)
-
 		// We can't use require.Equal for Timestamps, since we consider
 		// the empty slice and nil to be equivalent.
-		require.Equal(t, len(first.Timestamps), len(second.Timestamps))
-		for i, ts1 := range first.Timestamps {
-			ts2 := second.Timestamps[i]
-			require.Equal(t, ts1, ts2)
-		}
-		first.Timestamps = nil
-		second.Timestamps = nil
+		assertEq := func(t *testing.T, x, y any) {
+			require.IsType(t, &ReplyChannelRange{}, x)
+			first, _ := x.(*ReplyChannelRange)
+			require.IsType(t, &ReplyChannelRange{}, y)
+			second, _ := y.(*ReplyChannelRange)
 
-		require.Equal(t, first, second)
+			require.Equal(
+				t, len(first.Timestamps),
+				len(second.Timestamps),
+			)
+			for i, ts1 := range first.Timestamps {
+				ts2 := second.Timestamps[i]
+				require.Equal(t, ts1, ts2)
+			}
+			first.Timestamps = nil
+			second.Timestamps = nil
+
+			require.Equal(t, first, second)
+		}
+
+		wireMsgHarnessCustom(t, data, MsgReplyChannelRange, assertEq)
 	})
 }
 

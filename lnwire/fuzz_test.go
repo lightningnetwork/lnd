@@ -20,11 +20,11 @@ func prefixWithMsgType(data []byte, prefix MessageType) []byte {
 	return data
 }
 
-// harness performs the actual fuzz testing of the appropriate wire message.
-// This function will check that the passed-in message passes wire length
-// checks, is a valid message once deserialized, and passes a sequence of
+// wireMsgHarness performs the actual fuzz testing of the appropriate wire
+// message. This function will check that the passed-in message passes wire
+// length checks, is a valid message once deserialized, and passes a sequence of
 // serialization and deserialization checks.
-func harness(t *testing.T, data []byte) {
+func wireMsgHarness(t *testing.T, data []byte) {
 	t.Helper()
 
 	// Create a reader with the byte array.
@@ -106,30 +106,21 @@ func FuzzAcceptChannel(f *testing.F) {
 func FuzzAnnounceSignatures(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgAnnounceSignatures)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzAnnounceSignatures2(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgAnnounceSignatures2)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzChannelAnnouncement(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgChannelAnnouncement)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
@@ -180,130 +171,91 @@ func FuzzChannelAnnouncement2(f *testing.F) {
 func FuzzChannelReestablish(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgChannelReestablish)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzChannelUpdate(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgChannelUpdate)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzChannelUpdate2(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgChannelUpdate2)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzClosingSigned(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgClosingSigned)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzCommitSig(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgCommitSig)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzError(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgError)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzWarning(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgWarning)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzStfu(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgStfu)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages.
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzFundingCreated(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgFundingCreated)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzChannelReady(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgChannelReady)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzFundingSigned(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgFundingSigned)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzGossipTimestampRange(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgGossipTimestampRange)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzInit(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgInit)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
@@ -422,30 +374,21 @@ func FuzzOpenChannel(f *testing.F) {
 func FuzzPing(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgPing)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzPong(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgPong)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzQueryChannelRange(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgQueryChannelRange)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
@@ -474,20 +417,14 @@ func FuzzZlibQueryShortChanIDs(f *testing.F) {
 		payload = append(payload, compressedPayload...)
 
 		payload = prefixWithMsgType(payload, MsgQueryShortChanIDs)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, payload)
+		wireMsgHarness(t, payload)
 	})
 }
 
 func FuzzQueryShortChanIDs(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgQueryShortChanIDs)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
@@ -524,10 +461,7 @@ func FuzzZlibReplyChannelRange(f *testing.F) {
 		payload = append(payload, compressedPayload...)
 
 		payload = prefixWithMsgType(payload, MsgReplyChannelRange)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, payload)
+		wireMsgHarness(t, payload)
 	})
 }
 
@@ -582,120 +516,84 @@ func FuzzReplyChannelRange(f *testing.F) {
 func FuzzReplyShortChanIDsEnd(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgReplyShortChanIDsEnd)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzRevokeAndAck(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgRevokeAndAck)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzShutdown(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgShutdown)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzUpdateAddHTLC(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgUpdateAddHTLC)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzUpdateFailHTLC(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgUpdateFailHTLC)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzUpdateFailMalformedHTLC(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgUpdateFailMalformedHTLC)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzUpdateFee(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgUpdateFee)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzUpdateFulfillHTLC(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgUpdateFulfillHTLC)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzDynPropose(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgDynPropose)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzDynReject(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgDynReject)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzDynAck(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgDynAck)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzKickoffSig(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgKickoffSig)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
@@ -706,10 +604,7 @@ func FuzzCustomMessage(f *testing.F) {
 		}
 
 		data = prefixWithMsgType(data, MessageType(customMessageType))
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
@@ -996,20 +891,14 @@ func FuzzFailInvalidBlinding(f *testing.F) {
 func FuzzClosingSig(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgClosingSig)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 
 func FuzzClosingComplete(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgClosingComplete)
-
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data)
+		wireMsgHarness(t, data)
 	})
 }
 

@@ -4962,12 +4962,14 @@ var errNoAdvertisedAddr = errors.New("no advertised address found")
 
 // fetchNodeAdvertisedAddrs attempts to fetch the advertised addresses of a node.
 func (s *server) fetchNodeAdvertisedAddrs(pub *btcec.PublicKey) ([]net.Addr, error) {
+	ctx := context.TODO()
+
 	vertex, err := route.NewVertexFromBytes(pub.SerializeCompressed())
 	if err != nil {
 		return nil, err
 	}
 
-	node, err := s.graphDB.FetchLightningNode(vertex)
+	node, err := s.graphSource.FetchLightningNode(ctx, vertex)
 	if err != nil {
 		return nil, err
 	}

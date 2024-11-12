@@ -1529,17 +1529,15 @@ func (l *channelLink) htlcManager() {
 		case qReq := <-l.quiescenceReqs:
 			l.quiescer.InitStfu(qReq)
 
-			pendingOnLocal := l.channel.NumPendingUpdates(
-				lntypes.Local, lntypes.Local,
-			)
-			pendingOnRemote := l.channel.NumPendingUpdates(
-				lntypes.Local, lntypes.Remote,
-			)
-			if err := l.quiescer.SendOwedStfu(
-				pendingOnLocal + pendingOnRemote,
-			); err != nil {
-				l.stfuFailf("%s", err.Error())
-				qReq.Resolve(fn.Err[lntypes.ChannelParty](err))
+			if l.noDanglingUpdates(lntypes.Local) {
+				err := l.quiescer.SendOwedStfu()
+				if err != nil {
+					l.stfuFailf(
+						"SendOwedStfu: %s", err.Error(),
+					)
+					res := fn.Err[lntypes.ChannelParty](err)
+					qReq.Resolve(res)
+				}
 			}
 
 		case <-l.Quit:
@@ -2436,15 +2434,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 
 		// If we need to send out an Stfu, this would be the time to do
 		// so.
-		pendingOnLocal := l.channel.NumPendingUpdates(
-			lntypes.Local, lntypes.Local,
-		)
-		pendingOnRemote := l.channel.NumPendingUpdates(
-			lntypes.Local, lntypes.Remote,
-		)
-		err = l.quiescer.SendOwedStfu(pendingOnLocal + pendingOnRemote)
-		if err != nil {
-			l.stfuFailf("sendOwedStfu: %v", err.Error())
+		if l.noDanglingUpdates(lntypes.Local) {
+			err = l.quiescer.SendOwedStfu()
+			if err != nil {
+				l.stfuFailf("sendOwedStfu: %v", err.Error())
+			}
 		}
 
 		// Now that we have finished processing the incoming CommitSig
@@ -2635,26 +2629,20 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 // handleStfu implements the top-level logic for handling the Stfu message from
 // our peer.
 func (l *channelLink) handleStfu(stfu *lnwire.Stfu) error {
-	pendingOnLocal := l.channel.NumPendingUpdates(
-		lntypes.Remote, lntypes.Local,
-	)
-	pendingOnRemote := l.channel.NumPendingUpdates(
-		lntypes.Remote, lntypes.Remote,
-	)
-	err := l.quiescer.RecvStfu(*stfu, pendingOnLocal+pendingOnRemote)
+	if !l.noDanglingUpdates(lntypes.Remote) {
+		return ErrPendingRemoteUpdates
+	}
+	err := l.quiescer.RecvStfu(*stfu)
 	if err != nil {
 		return err
 	}
 
 	// If we can immediately send an Stfu response back, we will.
-	pendingOnLocal = l.channel.NumPendingUpdates(
-		lntypes.Local, lntypes.Local,
-	)
-	pendingOnRemote = l.channel.NumPendingUpdates(
-		lntypes.Local, lntypes.Remote,
-	)
+	if l.noDanglingUpdates(lntypes.Local) {
+		return l.quiescer.SendOwedStfu()
+	}
 
-	return l.quiescer.SendOwedStfu(pendingOnLocal + pendingOnRemote)
+	return nil
 }
 
 // stfuFailf fails the link in the case where the requirements of the quiescence
@@ -2667,6 +2655,19 @@ func (l *channelLink) stfuFailf(format string, args ...interface{}) {
 		PermanentFailure: false,
 		Warning:          true,
 	}, format, args...)
+}
+
+// noDanglingUpdates returns true when there are 0 updates that were originally
+// issued by whose on either the Local or Remote commitment transaction.
+func (l *channelLink) noDanglingUpdates(whose lntypes.ChannelParty) bool {
+	pendingOnLocal := l.channel.NumPendingUpdates(
+		whose, lntypes.Local,
+	)
+	pendingOnRemote := l.channel.NumPendingUpdates(
+		whose, lntypes.Remote,
+	)
+
+	return pendingOnLocal == 0 && pendingOnRemote == 0
 }
 
 // ackDownStreamPackets is responsible for removing htlcs from a link's mailbox

@@ -14,9 +14,8 @@ import (
 var cid = lnwire.ChannelID(bytes.Repeat([]byte{0x00}, 32))
 
 type quiescerTestHarness struct {
-	pendingUpdates lntypes.Dual[uint64]
-	quiescer       *QuiescerLive
-	conn           <-chan lnwire.Stfu
+	quiescer *QuiescerLive
+	conn     <-chan lnwire.Stfu
 }
 
 func initQuiescerTestHarness(
@@ -24,8 +23,7 @@ func initQuiescerTestHarness(
 
 	conn := make(chan lnwire.Stfu, 1)
 	harness := &quiescerTestHarness{
-		pendingUpdates: lntypes.Dual[uint64]{},
-		conn:           conn,
+		conn: conn,
 	}
 
 	quiescer, _ := NewQuiescer(QuiescerCfg{
@@ -54,28 +52,10 @@ func TestQuiescerDoubleRecvInvalid(t *testing.T) {
 		Initiator: true,
 	}
 
-	err := harness.quiescer.RecvStfu(msg, harness.pendingUpdates.Remote)
+	err := harness.quiescer.RecvStfu(msg)
 	require.NoError(t, err)
-	err = harness.quiescer.RecvStfu(msg, harness.pendingUpdates.Remote)
+	err = harness.quiescer.RecvStfu(msg)
 	require.Error(t, err, ErrStfuAlreadyRcvd)
-}
-
-// TestQuiescerPendingUpdatesRecvInvalid ensures that we get an error if we
-// receive the Stfu message while the Remote party has panding updates on the
-// channel.
-func TestQuiescerPendingUpdatesRecvInvalid(t *testing.T) {
-	t.Parallel()
-
-	harness := initQuiescerTestHarness(lntypes.Local)
-
-	msg := lnwire.Stfu{
-		ChanID:    cid,
-		Initiator: true,
-	}
-
-	harness.pendingUpdates.SetForParty(lntypes.Remote, 1)
-	err := harness.quiescer.RecvStfu(msg, harness.pendingUpdates.Remote)
-	require.ErrorIs(t, err, ErrPendingRemoteUpdates)
 }
 
 // TestQuiescenceRemoteInit ensures that we can successfully traverse the state
@@ -90,22 +70,10 @@ func TestQuiescenceRemoteInit(t *testing.T) {
 		Initiator: true,
 	}
 
-	harness.pendingUpdates.SetForParty(lntypes.Local, 1)
-
-	err := harness.quiescer.RecvStfu(msg, harness.pendingUpdates.Remote)
+	err := harness.quiescer.RecvStfu(msg)
 	require.NoError(t, err)
 
-	err = harness.quiescer.SendOwedStfu(harness.pendingUpdates.Local)
-	require.NoError(t, err)
-
-	select {
-	case <-harness.conn:
-		t.Fatalf("stfu sent when not expected")
-	default:
-	}
-
-	harness.pendingUpdates.SetForParty(lntypes.Local, 0)
-	err = harness.quiescer.SendOwedStfu(harness.pendingUpdates.Local)
+	err = harness.quiescer.SendOwedStfu()
 	require.NoError(t, err)
 
 	select {
@@ -125,25 +93,13 @@ func TestQuiescenceLocalInit(t *testing.T) {
 		ChanID:    cid,
 		Initiator: true,
 	}
-	harness.pendingUpdates.SetForParty(lntypes.Local, 1)
 
 	stfuReq, stfuRes := fn.NewReq[fn.Unit, fn.Result[lntypes.ChannelParty]](
 		fn.Unit{},
 	)
 	harness.quiescer.InitStfu(stfuReq)
 
-	harness.pendingUpdates.SetForParty(lntypes.Local, 1)
-	err := harness.quiescer.SendOwedStfu(harness.pendingUpdates.Local)
-	require.NoError(t, err)
-
-	select {
-	case <-harness.conn:
-		t.Fatalf("stfu sent when not expected")
-	default:
-	}
-
-	harness.pendingUpdates.SetForParty(lntypes.Local, 0)
-	err = harness.quiescer.SendOwedStfu(harness.pendingUpdates.Local)
+	err := harness.quiescer.SendOwedStfu()
 	require.NoError(t, err)
 
 	select {
@@ -153,7 +109,7 @@ func TestQuiescenceLocalInit(t *testing.T) {
 		t.Fatalf("stfu not sent when expected")
 	}
 
-	err = harness.quiescer.RecvStfu(msg, harness.pendingUpdates.Remote)
+	err = harness.quiescer.RecvStfu(msg)
 	require.NoError(t, err)
 
 	select {
@@ -178,17 +134,11 @@ func TestQuiescenceInitiator(t *testing.T) {
 		ChanID:    cid,
 		Initiator: true,
 	}
-	require.NoError(
-		t, harness.quiescer.RecvStfu(
-			msg, harness.pendingUpdates.Remote,
-		),
-	)
+	require.NoError(t, harness.quiescer.RecvStfu(msg))
 	require.True(t, harness.quiescer.QuiescenceInitiator().IsErr())
 
 	// Send
-	require.NoError(
-		t, harness.quiescer.SendOwedStfu(harness.pendingUpdates.Local),
-	)
+	require.NoError(t, harness.quiescer.SendOwedStfu())
 	require.Equal(
 		t, harness.quiescer.QuiescenceInitiator(),
 		fn.Ok(lntypes.Remote),
@@ -214,7 +164,7 @@ func TestQuiescenceInitiator(t *testing.T) {
 	}
 
 	require.NoError(
-		t, harness.quiescer.sendOwedStfu(harness.pendingUpdates.Local),
+		t, harness.quiescer.sendOwedStfu(),
 	)
 	require.True(t, harness.quiescer.quiescenceInitiator().IsErr())
 
@@ -222,11 +172,7 @@ func TestQuiescenceInitiator(t *testing.T) {
 		ChanID:    cid,
 		Initiator: false,
 	}
-	require.NoError(
-		t, harness.quiescer.recvStfu(
-			msg, harness.pendingUpdates.Remote,
-		),
-	)
+	require.NoError(t, harness.quiescer.recvStfu(msg))
 	require.True(t, harness.quiescer.quiescenceInitiator().IsOk())
 
 	select {
@@ -249,11 +195,7 @@ func TestQuiescenceCantReceiveUpdatesAfterStfu(t *testing.T) {
 		ChanID:    cid,
 		Initiator: true,
 	}
-	require.NoError(
-		t, harness.quiescer.RecvStfu(
-			msg, harness.pendingUpdates.Remote,
-		),
-	)
+	require.NoError(t, harness.quiescer.RecvStfu(msg))
 	require.False(t, harness.quiescer.CanRecvUpdates())
 }
 
@@ -270,10 +212,10 @@ func TestQuiescenceCantSendUpdatesAfterStfu(t *testing.T) {
 		Initiator: true,
 	}
 
-	err := harness.quiescer.RecvStfu(msg, harness.pendingUpdates.Remote)
+	err := harness.quiescer.RecvStfu(msg)
 	require.NoError(t, err)
 
-	err = harness.quiescer.SendOwedStfu(harness.pendingUpdates.Local)
+	err = harness.quiescer.SendOwedStfu()
 	require.NoError(t, err)
 
 	require.False(t, harness.quiescer.CanSendUpdates())
@@ -293,11 +235,7 @@ func TestQuiescenceStfuNotNeededAfterRecv(t *testing.T) {
 	}
 	require.False(t, harness.quiescer.NeedStfu())
 
-	require.NoError(
-		t, harness.quiescer.RecvStfu(
-			msg, harness.pendingUpdates.Remote,
-		),
-	)
+	require.NoError(t, harness.quiescer.RecvStfu(msg))
 
 	require.False(t, harness.quiescer.NeedStfu())
 }
@@ -309,38 +247,15 @@ func TestQuiescenceInappropriateMakeStfuReturnsErr(t *testing.T) {
 
 	harness := initQuiescerTestHarness(lntypes.Local)
 
-	harness.pendingUpdates.SetForParty(lntypes.Local, 1)
-
-	require.True(
-		t, harness.quiescer.MakeStfu(
-			harness.pendingUpdates.Local,
-		).IsErr(),
-	)
-
-	harness.pendingUpdates.SetForParty(lntypes.Local, 0)
 	msg := lnwire.Stfu{
 		ChanID:    cid,
 		Initiator: true,
 	}
-	require.NoError(
-		t, harness.quiescer.RecvStfu(
-			msg, harness.pendingUpdates.Remote,
-		),
-	)
-	require.True(
-		t, harness.quiescer.MakeStfu(
-			harness.pendingUpdates.Local,
-		).IsOk(),
-	)
+	require.NoError(t, harness.quiescer.RecvStfu(msg))
+	require.True(t, harness.quiescer.MakeStfu().IsOk())
 
-	require.NoError(
-		t, harness.quiescer.SendOwedStfu(harness.pendingUpdates.Local),
-	)
-	require.True(
-		t, harness.quiescer.MakeStfu(
-			harness.pendingUpdates.Local,
-		).IsErr(),
-	)
+	require.NoError(t, harness.quiescer.SendOwedStfu())
+	require.True(t, harness.quiescer.MakeStfu().IsErr())
 }
 
 // TestQuiescerTieBreaker ensures that if both parties attempt to claim the
@@ -364,16 +279,8 @@ func TestQuiescerTieBreaker(t *testing.T) {
 		)
 
 		harness.quiescer.InitStfu(req)
-		require.NoError(
-			t, harness.quiescer.RecvStfu(
-				msg, harness.pendingUpdates.Remote,
-			),
-		)
-		require.NoError(
-			t, harness.quiescer.SendOwedStfu(
-				harness.pendingUpdates.Local,
-			),
-		)
+		require.NoError(t, harness.quiescer.RecvStfu(msg))
+		require.NoError(t, harness.quiescer.SendOwedStfu())
 
 		select {
 		case party := <-res:
@@ -396,16 +303,8 @@ func TestQuiescerResume(t *testing.T) {
 		Initiator: true,
 	}
 
-	require.NoError(
-		t, harness.quiescer.RecvStfu(
-			msg, harness.pendingUpdates.Remote,
-		),
-	)
-	require.NoError(
-		t, harness.quiescer.SendOwedStfu(
-			harness.pendingUpdates.Local,
-		),
-	)
+	require.NoError(t, harness.quiescer.RecvStfu(msg))
+	require.NoError(t, harness.quiescer.SendOwedStfu())
 
 	require.True(t, harness.quiescer.IsQuiescent())
 	var resumeHooksCalled = false
@@ -434,9 +333,9 @@ func TestQuiescerTimeoutTriggers(t *testing.T) {
 	harness.quiescer.cfg.timeoutDuration = time.Second
 	harness.quiescer.cfg.onTimeout = func() { close(timeoutGate) }
 
-	err := harness.quiescer.RecvStfu(msg, harness.pendingUpdates.Remote)
+	err := harness.quiescer.RecvStfu(msg)
 	require.NoError(t, err)
-	err = harness.quiescer.SendOwedStfu(harness.pendingUpdates.Local)
+	err = harness.quiescer.SendOwedStfu()
 	require.NoError(t, err)
 
 	select {
@@ -461,9 +360,9 @@ func TestQuiescerTimeoutAborts(t *testing.T) {
 	harness.quiescer.cfg.timeoutDuration = time.Second
 	harness.quiescer.cfg.onTimeout = func() { close(timeoutGate) }
 
-	err := harness.quiescer.RecvStfu(msg, harness.pendingUpdates.Remote)
+	err := harness.quiescer.RecvStfu(msg)
 	require.NoError(t, err)
-	err = harness.quiescer.SendOwedStfu(harness.pendingUpdates.Local)
+	err = harness.quiescer.SendOwedStfu()
 	require.NoError(t, err)
 	harness.quiescer.Resume()
 

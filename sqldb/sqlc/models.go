@@ -91,3 +91,8 @@ type InvoiceSequence struct {
 	Name         string
 	CurrentValue int64
 }
+
+type MigrationTracker struct {
+	Version       sql.NullInt32
+	MigrationTime sql.NullTime
+}

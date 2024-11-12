@@ -1,6 +1,7 @@
 package contractcourt
 
 import (
+	"fmt"
 	"net"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
@@ -192,7 +194,9 @@ func TestResolveContract(t *testing.T) {
 		require.NoError(t, chainArb.Stop())
 	})
 
+	chainArb.RLock()
 	channelArb := chainArb.activeChannels[channel.FundingOutpoint]
+	chainArb.RUnlock()
 
 	// While the resolver are active, we'll now remove the channel from the
 	// database (mark is as closed).
@@ -207,14 +211,22 @@ func TestResolveContract(t *testing.T) {
 
 	// The shouldn't be an active chain watcher or channel arb for this
 	// channel.
-	if len(chainArb.activeChannels) != 0 {
-		t.Fatalf("expected zero active channels, instead have %v",
-			len(chainArb.activeChannels))
-	}
-	if len(chainArb.activeWatchers) != 0 {
-		t.Fatalf("expected zero active watchers, instead have %v",
-			len(chainArb.activeWatchers))
-	}
+	waitErr := wait.NoError(func() error {
+		chainArb.RLock()
+		defer chainArb.RUnlock()
+
+		if len(chainArb.activeChannels) != 0 {
+			return fmt.Errorf("expected zero active channels, "+
+				"instead have %v", len(chainArb.activeChannels))
+		}
+		if len(chainArb.activeWatchers) != 0 {
+			return fmt.Errorf("expected zero active watchers, "+
+				"instead have %v", len(chainArb.activeWatchers))
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t, waitErr, "timeout waiting for result")
 
 	// At this point, the channel's arbitrator log should also be empty as
 	// well.

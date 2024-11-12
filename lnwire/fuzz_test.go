@@ -24,8 +24,10 @@ func prefixWithMsgType(data []byte, prefix MessageType) []byte {
 // message. This function will check that the passed-in message passes wire
 // length checks, is a valid message once deserialized, and passes a sequence of
 // serialization and deserialization checks.
-func wireMsgHarness(t *testing.T, data []byte) {
+func wireMsgHarness(t *testing.T, data []byte, msgType MessageType) {
 	t.Helper()
+
+	data = prefixWithMsgType(data, msgType)
 
 	// Create a reader with the byte array.
 	r := bytes.NewReader(data)
@@ -105,22 +107,19 @@ func FuzzAcceptChannel(f *testing.F) {
 
 func FuzzAnnounceSignatures(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgAnnounceSignatures)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgAnnounceSignatures)
 	})
 }
 
 func FuzzAnnounceSignatures2(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgAnnounceSignatures2)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgAnnounceSignatures2)
 	})
 }
 
 func FuzzChannelAnnouncement(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgChannelAnnouncement)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgChannelAnnouncement)
 	})
 }
 
@@ -170,92 +169,79 @@ func FuzzChannelAnnouncement2(f *testing.F) {
 
 func FuzzChannelReestablish(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgChannelReestablish)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgChannelReestablish)
 	})
 }
 
 func FuzzChannelUpdate(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgChannelUpdate)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgChannelUpdate)
 	})
 }
 
 func FuzzChannelUpdate2(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgChannelUpdate2)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgChannelUpdate2)
 	})
 }
 
 func FuzzClosingSigned(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgClosingSigned)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgClosingSigned)
 	})
 }
 
 func FuzzCommitSig(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgCommitSig)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgCommitSig)
 	})
 }
 
 func FuzzError(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgError)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgError)
 	})
 }
 
 func FuzzWarning(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgWarning)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgWarning)
 	})
 }
 
 func FuzzStfu(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgStfu)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgStfu)
 	})
 }
 
 func FuzzFundingCreated(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgFundingCreated)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgFundingCreated)
 	})
 }
 
 func FuzzChannelReady(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgChannelReady)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgChannelReady)
 	})
 }
 
 func FuzzFundingSigned(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgFundingSigned)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgFundingSigned)
 	})
 }
 
 func FuzzGossipTimestampRange(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgGossipTimestampRange)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgGossipTimestampRange)
 	})
 }
 
 func FuzzInit(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgInit)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgInit)
 	})
 }
 
@@ -373,22 +359,19 @@ func FuzzOpenChannel(f *testing.F) {
 
 func FuzzPing(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgPing)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgPing)
 	})
 }
 
 func FuzzPong(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgPong)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgPong)
 	})
 }
 
 func FuzzQueryChannelRange(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgQueryChannelRange)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgQueryChannelRange)
 	})
 }
 
@@ -416,15 +399,13 @@ func FuzzZlibQueryShortChanIDs(f *testing.F) {
 		payload = append(payload, zlibByte...)
 		payload = append(payload, compressedPayload...)
 
-		payload = prefixWithMsgType(payload, MsgQueryShortChanIDs)
-		wireMsgHarness(t, payload)
+		wireMsgHarness(t, payload, MsgQueryShortChanIDs)
 	})
 }
 
 func FuzzQueryShortChanIDs(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgQueryShortChanIDs)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgQueryShortChanIDs)
 	})
 }
 
@@ -460,8 +441,7 @@ func FuzzZlibReplyChannelRange(f *testing.F) {
 		payload = append(payload, zlibByte...)
 		payload = append(payload, compressedPayload...)
 
-		payload = prefixWithMsgType(payload, MsgReplyChannelRange)
-		wireMsgHarness(t, payload)
+		wireMsgHarness(t, payload, MsgReplyChannelRange)
 	})
 }
 
@@ -515,85 +495,73 @@ func FuzzReplyChannelRange(f *testing.F) {
 
 func FuzzReplyShortChanIDsEnd(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgReplyShortChanIDsEnd)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgReplyShortChanIDsEnd)
 	})
 }
 
 func FuzzRevokeAndAck(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgRevokeAndAck)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgRevokeAndAck)
 	})
 }
 
 func FuzzShutdown(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgShutdown)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgShutdown)
 	})
 }
 
 func FuzzUpdateAddHTLC(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgUpdateAddHTLC)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgUpdateAddHTLC)
 	})
 }
 
 func FuzzUpdateFailHTLC(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgUpdateFailHTLC)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgUpdateFailHTLC)
 	})
 }
 
 func FuzzUpdateFailMalformedHTLC(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgUpdateFailMalformedHTLC)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgUpdateFailMalformedHTLC)
 	})
 }
 
 func FuzzUpdateFee(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgUpdateFee)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgUpdateFee)
 	})
 }
 
 func FuzzUpdateFulfillHTLC(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgUpdateFulfillHTLC)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgUpdateFulfillHTLC)
 	})
 }
 
 func FuzzDynPropose(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgDynPropose)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgDynPropose)
 	})
 }
 
 func FuzzDynReject(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgDynReject)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgDynReject)
 	})
 }
 
 func FuzzDynAck(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgDynAck)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgDynAck)
 	})
 }
 
 func FuzzKickoffSig(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgKickoffSig)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgKickoffSig)
 	})
 }
 
@@ -603,8 +571,7 @@ func FuzzCustomMessage(f *testing.F) {
 			customMessageType += uint16(CustomTypeStart)
 		}
 
-		data = prefixWithMsgType(data, MessageType(customMessageType))
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MessageType(customMessageType))
 	})
 }
 
@@ -890,15 +857,13 @@ func FuzzFailInvalidBlinding(f *testing.F) {
 
 func FuzzClosingSig(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgClosingSig)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgClosingSig)
 	})
 }
 
 func FuzzClosingComplete(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		data = prefixWithMsgType(data, MsgClosingComplete)
-		wireMsgHarness(t, data)
+		wireMsgHarness(t, data, MsgClosingComplete)
 	})
 }
 

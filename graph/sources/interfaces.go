@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/graph/session"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -68,4 +69,9 @@ type GraphSource interface {
 	// graphdb.ErrGraphNodeNotFound is returned.
 	FetchLightningNode(ctx context.Context, nodePub route.Vertex) (
 		*models.LightningNode, error)
+
+	// GraphBootstrapper returns a network peer bootstrapper that can be
+	// used to discover new peers to connect to.
+	GraphBootstrapper(ctx context.Context) (
+		discovery.NetworkPeerBootstrapper, error)
 }

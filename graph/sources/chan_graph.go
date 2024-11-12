@@ -8,6 +8,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/autopilot"
+	"github.com/lightningnetwork/lnd/discovery"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/graph/session"
@@ -215,6 +217,18 @@ func (s *DBSource) FetchLightningNode(_ context.Context,
 	nodePub route.Vertex) (*models.LightningNode, error) {
 
 	return s.db.FetchLightningNode(nodePub)
+}
+
+// GraphBootstrapper returns a NetworkPeerBootstrapper instance backed by the
+// ChannelGraph instance.
+//
+// NOTE: this is part of the GraphSource interface.
+func (s *DBSource) GraphBootstrapper(_ context.Context) (
+	discovery.NetworkPeerBootstrapper, error) {
+
+	chanGraph := autopilot.ChannelGraphFromDatabase(s.db)
+
+	return discovery.NewGraphBootstrapper(chanGraph)
 }
 
 // kvdbRTx is an implementation of graphdb.RTx backed by a KVDB database read

@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btclog/v2"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -135,6 +137,9 @@ type QuiescerCfg struct {
 type QuiescerLive struct {
 	cfg QuiescerCfg
 
+	// log is a quiescer-scoped logging instance.
+	log btclog.Logger
+
 	// localInit indicates whether our path through this state machine was
 	// initiated by our node. This can be true or false independently of
 	// remoteInit.
@@ -169,8 +174,11 @@ type QuiescerLive struct {
 
 // NewQuiescer creates a new quiescer for the given channel.
 func NewQuiescer(cfg QuiescerCfg) Quiescer {
+	logPrefix := fmt.Sprintf("Quiescer(%v):", cfg.chanID)
+
 	return &QuiescerLive{
 		cfg: cfg,
+		log: build.NewPrefixLog(logPrefix, log),
 	}
 }
 
@@ -504,6 +512,8 @@ func (q *QuiescerLive) Resume() {
 // channel has been quiescent and then resets the quiescer state to its initial
 // state.
 func (q *QuiescerLive) resume() {
+	q.log.Debug("quiescence terminated, resuming htlc traffic")
+
 	// since we are resuming we want to cancel the quiescence timeout
 	// action.
 	q.cancelTimeout()

@@ -406,6 +406,8 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 		hex.EncodeToString(txBytes.Bytes()),
 	)
 
+	resolutions := forceCloseSum.ContractResolutions.UnwrapOrFail(t)
+
 	// Obtain the second level transactions that the local node's channel
 	// state machine has produced. Store them in a map indexed by commit tx
 	// output index. Also complete the second level transaction with the
@@ -419,7 +421,8 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 		secondLevelTxes[index] = tx
 	}
 
-	for _, r := range forceCloseSum.HtlcResolutions.IncomingHTLCs {
+	htlcResolutions := resolutions.HtlcResolutions
+	for _, r := range htlcResolutions.IncomingHTLCs {
 		successTx := r.SignedSuccessTx
 		witnessScript := successTx.TxIn[0].Witness[4]
 		var hash160 [20]byte
@@ -428,7 +431,7 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 		successTx.TxIn[0].Witness[3] = preimage[:]
 		storeTx(r.HtlcPoint().Index, successTx)
 	}
-	for _, r := range forceCloseSum.HtlcResolutions.OutgoingHTLCs {
+	for _, r := range htlcResolutions.OutgoingHTLCs {
 		storeTx(r.HtlcPoint().Index, r.SignedTimeoutTx)
 	}
 

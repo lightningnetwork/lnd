@@ -959,24 +959,26 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	closeSummary, err := aliceChannel.ForceClose()
 	require.NoError(t, err, "unable to force close channel")
 
+	resolutionsAlice := closeSummary.ContractResolutions.UnwrapOrFail(t)
+
 	// Alice should detect that she can sweep the outgoing HTLC after a
 	// timeout, but also that she's able to sweep in incoming HTLC Bob sent
 	// her.
-	if len(closeSummary.HtlcResolutions.OutgoingHTLCs) != 1 {
+	if len(resolutionsAlice.HtlcResolutions.OutgoingHTLCs) != 1 {
 		t.Fatalf("alice out htlc resolutions not populated: expected %v "+
 			"htlcs, got %v htlcs",
-			1, len(closeSummary.HtlcResolutions.OutgoingHTLCs))
+			1, len(resolutionsAlice.HtlcResolutions.OutgoingHTLCs))
 	}
-	if len(closeSummary.HtlcResolutions.IncomingHTLCs) != 1 {
+	if len(resolutionsAlice.HtlcResolutions.IncomingHTLCs) != 1 {
 		t.Fatalf("alice in htlc resolutions not populated: expected %v "+
 			"htlcs, got %v htlcs",
-			1, len(closeSummary.HtlcResolutions.IncomingHTLCs))
+			1, len(resolutionsAlice.HtlcResolutions.IncomingHTLCs))
 	}
 
 	// Verify the anchor resolutions for the anchor commitment format.
 	if testCase.chanType.HasAnchors() {
 		// Check the close summary resolution.
-		anchorRes := closeSummary.AnchorResolution
+		anchorRes := resolutionsAlice.AnchorResolution
 		if anchorRes == nil {
 			t.Fatal("expected anchor resolution")
 		}
@@ -1010,7 +1012,7 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 
 	// The SelfOutputSignDesc should be non-nil since the output to-self is
 	// non-dust.
-	aliceCommitResolution := closeSummary.CommitResolution
+	aliceCommitResolution := resolutionsAlice.CommitResolution
 	if aliceCommitResolution == nil {
 		t.Fatalf("alice fails to include to-self output in " +
 			"ForceCloseSummary")
@@ -1056,7 +1058,7 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	// Next, we'll ensure that the second level HTLC transaction it itself
 	// spendable, and also that the delivery output (with delay) itself has
 	// a valid sign descriptor.
-	htlcResolution := closeSummary.HtlcResolutions.OutgoingHTLCs[0]
+	htlcResolution := resolutionsAlice.HtlcResolutions.OutgoingHTLCs[0]
 	outHtlcIndex := htlcResolution.SignedTimeoutTx.TxIn[0].PreviousOutPoint.Index
 	senderHtlcPkScript := closeSummary.CloseTx.TxOut[outHtlcIndex].PkScript
 
@@ -1140,7 +1142,7 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	// We'll now perform similar set of checks to ensure that Alice is able
 	// to sweep the output that Bob sent to her on-chain with knowledge of
 	// the preimage.
-	inHtlcResolution := closeSummary.HtlcResolutions.IncomingHTLCs[0]
+	inHtlcResolution := resolutionsAlice.HtlcResolutions.IncomingHTLCs[0]
 	inHtlcIndex := inHtlcResolution.SignedSuccessTx.TxIn[0].PreviousOutPoint.Index
 	receiverHtlcScript := closeSummary.CloseTx.TxOut[inHtlcIndex].PkScript
 
@@ -1221,7 +1223,8 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	// Check the same for Bob's ForceCloseSummary.
 	closeSummary, err = bobChannel.ForceClose()
 	require.NoError(t, err, "unable to force close channel")
-	bobCommitResolution := closeSummary.CommitResolution
+	resolutionsBob := closeSummary.ContractResolutions.UnwrapOrFail(t)
+	bobCommitResolution := resolutionsBob.CommitResolution
 	if bobCommitResolution == nil {
 		t.Fatalf("bob fails to include to-self output in ForceCloseSummary")
 	}
@@ -1255,19 +1258,19 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	// As we didn't add the preimage of Alice's HTLC to bob's preimage
 	// cache, he should only detect that he can sweep only his outgoing
 	// HTLC upon force close.
-	if len(closeSummary.HtlcResolutions.OutgoingHTLCs) != 1 {
+	if len(resolutionsBob.HtlcResolutions.OutgoingHTLCs) != 1 {
 		t.Fatalf("alice out htlc resolutions not populated: expected %v "+
 			"htlcs, got %v htlcs",
-			1, len(closeSummary.HtlcResolutions.OutgoingHTLCs))
+			1, len(resolutionsBob.HtlcResolutions.OutgoingHTLCs))
 	}
 
 	// Bob should recognize that the incoming HTLC is there, but the
 	// preimage should be empty as he doesn't have the knowledge required
 	// to sweep it.
-	if len(closeSummary.HtlcResolutions.IncomingHTLCs) != 1 {
+	if len(resolutionsBob.HtlcResolutions.IncomingHTLCs) != 1 {
 		t.Fatalf("bob in htlc resolutions not populated: expected %v "+
 			"htlcs, got %v htlcs",
-			1, len(closeSummary.HtlcResolutions.IncomingHTLCs))
+			1, len(resolutionsBob.HtlcResolutions.IncomingHTLCs))
 	}
 }
 
@@ -1326,9 +1329,11 @@ func TestForceCloseDustOutput(t *testing.T) {
 	closeSummary, err := aliceChannel.ForceClose()
 	require.NoError(t, err, "unable to force close channel")
 
+	resolutionsAlice := closeSummary.ContractResolutions.UnwrapOrFail(t)
+
 	// Alice's to-self output should still be in the commitment
 	// transaction.
-	commitResolution := closeSummary.CommitResolution
+	commitResolution := resolutionsAlice.CommitResolution
 	if commitResolution == nil {
 		t.Fatalf("alice fails to include to-self output in " +
 			"ForceCloseSummary")
@@ -1362,10 +1367,11 @@ func TestForceCloseDustOutput(t *testing.T) {
 
 	closeSummary, err = bobChannel.ForceClose()
 	require.NoError(t, err, "unable to force close channel")
+	resolutionsBob := closeSummary.ContractResolutions.UnwrapOrFail(t)
 
 	// Bob's to-self output is below Bob's dust value and should be
 	// reflected in the ForceCloseSummary.
-	commitResolution = closeSummary.CommitResolution
+	commitResolution = resolutionsBob.CommitResolution
 	if commitResolution != nil {
 		t.Fatalf("bob incorrectly includes to-self output in " +
 			"ForceCloseSummary")

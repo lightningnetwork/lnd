@@ -7793,6 +7793,18 @@ type LocalForceCloseSummary struct {
 	// commitment state.
 	CloseTx *wire.MsgTx
 
+	// ChanSnapshot is a snapshot of the final state of the channel at the
+	// time the summary was created.
+	ChanSnapshot channeldb.ChannelSnapshot
+
+	// ContractResolutions contains all the data required for resolving the
+	// different output types of a commitment transaction.
+	ContractResolutions fn.Option[ContractResolutions]
+}
+
+// ContractResolutions contains all the data required for resolving the
+// different output types of a commitment transaction.
+type ContractResolutions struct {
 	// CommitResolution contains all the data required to sweep the output
 	// to ourselves. Since this is our commitment transaction, we'll need
 	// to wait a time delay before we can sweep the output.
@@ -7801,19 +7813,38 @@ type LocalForceCloseSummary struct {
 	// then this will be nil.
 	CommitResolution *CommitOutputResolution
 
-	// HtlcResolutions contains all the data required to sweep any outgoing
-	// HTLC's and incoming HTLc's we know the preimage to. For each of these
-	// HTLC's, we'll need to go to the second level to sweep them fully.
-	HtlcResolutions *HtlcResolutions
-
-	// ChanSnapshot is a snapshot of the final state of the channel at the
-	// time the summary was created.
-	ChanSnapshot channeldb.ChannelSnapshot
-
 	// AnchorResolution contains the data required to sweep the anchor
 	// output. If the channel type doesn't include anchors, the value of
 	// this field will be nil.
 	AnchorResolution *AnchorResolution
+
+	// HtlcResolutions contains all the data required to sweep any outgoing
+	// HTLC's and incoming HTLc's we know the preimage to. For each of these
+	// HTLC's, we'll need to go to the second level to sweep them fully.
+	HtlcResolutions *HtlcResolutions
+}
+
+// ForceCloseOpt is a functional option argument for the ForceClose method.
+type ForceCloseOpt func(*forceCloseConfig)
+
+// forceCloseConfig holds the configuration options for force closing a channel.
+type forceCloseConfig struct {
+	// skipResolution if true will skip creating the contract resolutions
+	// when generating the force close summary.
+	skipResolution bool
+}
+
+// defaultForceCloseConfig returns the default force close configuration.
+func defaultForceCloseConfig() *forceCloseConfig {
+	return &forceCloseConfig{}
+}
+
+// WithSkipContractResolutions creates an option to skip the contract
+// resolutions from the returned summary.
+func WithSkipContractResolutions() ForceCloseOpt {
+	return func(cfg *forceCloseConfig) {
+		cfg.skipResolution = true
+	}
 }
 
 // ForceClose executes a unilateral closure of the transaction at the current
@@ -7824,9 +7855,16 @@ type LocalForceCloseSummary struct {
 // outputs within the commitment transaction.
 //
 // TODO(roasbeef): all methods need to abort if in dispute state
-func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
+func (lc *LightningChannel) ForceClose(opts ...ForceCloseOpt) (
+	*LocalForceCloseSummary, error) {
+
 	lc.Lock()
 	defer lc.Unlock()
+
+	cfg := defaultForceCloseConfig()
+	for _, opt := range opts {
+		opt(cfg)
+	}
 
 	// If we've detected local data loss for this channel, then we won't
 	// allow a force close, as it may be the case that we have a dated
@@ -7840,6 +7878,14 @@ func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
 	commitTx, err := lc.getSignedCommitTx()
 	if err != nil {
 		return nil, err
+	}
+
+	if cfg.skipResolution {
+		return &LocalForceCloseSummary{
+			ChanPoint:    lc.channelState.FundingOutpoint,
+			ChanSnapshot: *lc.channelState.Snapshot(),
+			CloseTx:      commitTx,
+		}, nil
 	}
 
 	localCommitment := lc.channelState.LocalCommitment
@@ -8048,12 +8094,14 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	}
 
 	return &LocalForceCloseSummary{
-		ChanPoint:        chanState.FundingOutpoint,
-		CloseTx:          commitTx,
-		CommitResolution: commitResolution,
-		HtlcResolutions:  htlcResolutions,
-		ChanSnapshot:     *chanState.Snapshot(),
-		AnchorResolution: anchorResolution,
+		ChanPoint:    chanState.FundingOutpoint,
+		CloseTx:      commitTx,
+		ChanSnapshot: *chanState.Snapshot(),
+		ContractResolutions: fn.Some(ContractResolutions{
+			CommitResolution: commitResolution,
+			HtlcResolutions:  htlcResolutions,
+			AnchorResolution: anchorResolution,
+		}),
 	}, nil
 }
 

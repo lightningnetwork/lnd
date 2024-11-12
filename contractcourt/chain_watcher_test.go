@@ -504,14 +504,24 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 		// outputs.
 		select {
 		case summary := <-chanEvents.LocalUnilateralClosure:
+			resOpt := summary.LocalForceCloseSummary.
+				ContractResolutions
+
+			resolutions, err := resOpt.UnwrapOrErr(
+				fmt.Errorf("resolutions not found"),
+			)
+			if err != nil {
+				t.Fatalf("unable to get resolutions: %v", err)
+			}
+
 			// Make sure we correctly extracted the commit
 			// resolution if we had a local output.
 			if remoteOutputOnly {
-				if summary.CommitResolution != nil {
+				if resolutions.CommitResolution != nil {
 					t.Fatalf("expected no commit resolution")
 				}
 			} else {
-				if summary.CommitResolution == nil {
+				if resolutions.CommitResolution == nil {
 					t.Fatalf("expected commit resolution")
 				}
 			}

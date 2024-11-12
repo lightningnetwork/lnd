@@ -1,6 +1,7 @@
 package chanbackup
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"testing"
@@ -61,8 +62,8 @@ func (m *mockChannelSource) addAddrsForNode(nodePub *btcec.PublicKey, addrs []ne
 	m.addrs[nodeKey] = addrs
 }
 
-func (m *mockChannelSource) AddrsForNode(nodePub *btcec.PublicKey) (bool,
-	[]net.Addr, error) {
+func (m *mockChannelSource) AddrsForNode(_ context.Context,
+	nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
 
 	if m.failQuery {
 		return false, nil, fmt.Errorf("fail")

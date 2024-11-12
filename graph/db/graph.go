@@ -2,6 +2,7 @@ package graphdb
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -418,8 +419,8 @@ func (c *ChannelGraph) NewPathFindTx() (kvdb.RTx, error) {
 // unknown to the graph DB or not.
 //
 // NOTE: this is part of the channeldb.AddrSource interface.
-func (c *ChannelGraph) AddrsForNode(nodePub *btcec.PublicKey) (bool, []net.Addr,
-	error) {
+func (c *ChannelGraph) AddrsForNode(_ context.Context,
+	nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
 
 	pubKey, err := route.NewVertexFromBytes(nodePub.SerializeCompressed())
 	if err != nil {

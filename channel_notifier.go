@@ -1,6 +1,7 @@
 package lnd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/btcsuite/btcd/wire"
@@ -34,6 +35,8 @@ type channelNotifier struct {
 func (c *channelNotifier) SubscribeChans(startingChans map[wire.OutPoint]struct{}) (
 	*chanbackup.ChannelSubscription, error) {
 
+	ctx := context.TODO()
+
 	ltndLog.Infof("Channel backup proxy channel notifier starting")
 
 	// TODO(roasbeef): read existing set of chans and diff
@@ -46,7 +49,7 @@ func (c *channelNotifier) SubscribeChans(startingChans map[wire.OutPoint]struct{
 	// confirmed channels.
 	sendChanOpenUpdate := func(newOrPendingChan *channeldb.OpenChannel) {
 		_, nodeAddrs, err := c.addrs.AddrsForNode(
-			newOrPendingChan.IdentityPub,
+			ctx, newOrPendingChan.IdentityPub,
 		)
 		if err != nil {
 			pub := newOrPendingChan.IdentityPub

@@ -3,7 +3,9 @@ package sources
 import (
 	"context"
 	"fmt"
+	"net"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -115,6 +117,17 @@ func (s *DBSource) FetchChannelEdgesByOutpoint(_ context.Context,
 	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error) {
 
 	return s.db.FetchChannelEdgesByOutpoint(point)
+}
+
+// AddrsForNode returns all known addresses for the target node public key. The
+// returned boolean indicatex if the given node is unknown to the backing
+// source.
+//
+// NOTE: this is part of the channeldb.AddrSource interface.
+func (s *DBSource) AddrsForNode(ctx context.Context,
+	nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
+
+	return s.db.AddrsForNode(ctx, nodePub)
 }
 
 // kvdbRTx is an implementation of graphdb.RTx backed by a KVDB database read

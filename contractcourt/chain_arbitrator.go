@@ -1,6 +1,7 @@
 package contractcourt
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -26,6 +27,12 @@ import (
 
 // ErrChainArbExiting signals that the chain arbitrator is shutting down.
 var ErrChainArbExiting = errors.New("ChainArbitrator exiting")
+
+const (
+	// chainArbTimeout is the timeout for the chain arbitrator to start
+	// the channel arbitrators for each channel.
+	chainArbTimeout = 5 * time.Minute
+)
 
 // ResolutionMsg is a message sent by resolvers to outside sub-systems once an
 // outgoing contract has been fully resolved. For multi-hop contracts, if we
@@ -767,19 +774,65 @@ func (c *ChainArbitrator) Start() error {
 
 	// Launch all the goroutines for each arbitrator so they can carry out
 	// their duties.
+	// Set a timeout for the group of goroutines.
+	ctx, cancel := context.WithTimeout(
+		context.Background(), chainArbTimeout,
+	)
+
+	channelArbErrs := make(chan error, len(c.activeChannels))
+	var wgChannelArb sync.WaitGroup
+
 	for _, arbitrator := range c.activeChannels {
 		startState, ok := startStates[arbitrator.cfg.ChanPoint]
 		if !ok {
 			stopAndLog()
+
+			// In case we encounter an error we need to cancel the
+			// context to ensure all goroutines are cleaned up.
+			cancel()
 			return fmt.Errorf("arbitrator: %v has no start state",
 				arbitrator.cfg.ChanPoint)
 		}
 
-		if err := arbitrator.Start(startState); err != nil {
-			stopAndLog()
-			return err
-		}
+		wgChannelArb.Add(1)
+		go func(arb *ChannelArbitrator) {
+			defer wgChannelArb.Done()
+
+			select {
+			case channelArbErrs <- arb.Start(startState):
+
+			case <-ctx.Done():
+				channelArbErrs <- ctx.Err()
+
+			case <-c.quit:
+				channelArbErrs <- ErrChainArbExiting
+			}
+		}(arbitrator)
 	}
+
+	// Wait for all arbitrators to start in a separate goroutine. We don't
+	// have to wait here for the chain arbitrator to start, because there
+	// might be situations where other subsystems will block the start up
+	// while fetching resolve information (e.g. custom channels.)
+	//
+	// NOTE: We do not add this collector to the waitGroup because we want
+	// to stop the chain arbitrator if there occurs an error.
+	go func() {
+		defer cancel()
+
+		wgChannelArb.Wait()
+		close(channelArbErrs)
+
+		for err := range channelArbErrs {
+			if err != nil {
+				log.Criticalf("ChainArbitrator failed to "+
+					"all channel arbitrators with: %v", err)
+
+				// We initiated a shutdown so we exit early.
+				return
+			}
+		}
+	}()
 
 	// Subscribe to a single stream of block epoch notifications that we
 	// will dispatch to all active arbitrators.

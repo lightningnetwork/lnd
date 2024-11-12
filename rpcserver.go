@@ -6903,134 +6903,34 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	_ *lnrpc.NetworkInfoRequest) (*lnrpc.NetworkInfo, error) {
 
-	graph := r.server.graphDB
+	graph := r.server.graphSource
 
-	var (
-		numNodes             uint32
-		numChannels          uint32
-		maxChanOut           uint32
-		totalNetworkCapacity btcutil.Amount
-		minChannelSize       btcutil.Amount = math.MaxInt64
-		maxChannelSize       btcutil.Amount
-		medianChanSize       btcutil.Amount
-	)
-
-	// We'll use this map to de-duplicate channels during our traversal.
-	// This is needed since channels are directional, so there will be two
-	// edges for each channel within the graph.
-	seenChans := make(map[uint64]struct{})
-
-	// We also keep a list of all encountered capacities, in order to
-	// calculate the median channel size.
-	var allChans []btcutil.Amount
-
-	// We'll run through all the known nodes in the within our view of the
-	// network, tallying up the total number of nodes, and also gathering
-	// each node so we can measure the graph diameter and degree stats
-	// below.
-	err := graph.ForEachNodeCached(func(node route.Vertex,
-		edges map[uint64]*graphdb.DirectedChannel) error {
-
-		// Increment the total number of nodes with each iteration.
-		numNodes++
-
-		// For each channel we'll compute the out degree of each node,
-		// and also update our running tallies of the min/max channel
-		// capacity, as well as the total channel capacity. We pass
-		// through the db transaction from the outer view so we can
-		// re-use it within this inner view.
-		var outDegree uint32
-		for _, edge := range edges {
-			// Bump up the out degree for this node for each
-			// channel encountered.
-			outDegree++
-
-			// If we've already seen this channel, then we'll
-			// return early to ensure that we don't double-count
-			// stats.
-			if _, ok := seenChans[edge.ChannelID]; ok {
-				return nil
-			}
-
-			// Compare the capacity of this channel against the
-			// running min/max to see if we should update the
-			// extrema.
-			chanCapacity := edge.Capacity
-			if chanCapacity < minChannelSize {
-				minChannelSize = chanCapacity
-			}
-			if chanCapacity > maxChannelSize {
-				maxChannelSize = chanCapacity
-			}
-
-			// Accumulate the total capacity of this channel to the
-			// network wide-capacity.
-			totalNetworkCapacity += chanCapacity
-
-			numChannels++
-
-			seenChans[edge.ChannelID] = struct{}{}
-			allChans = append(allChans, edge.Capacity)
-		}
-
-		// Finally, if the out degree of this node is greater than what
-		// we've seen so far, update the maxChanOut variable.
-		if outDegree > maxChanOut {
-			maxChanOut = outDegree
-		}
-
-		return nil
-	})
+	stats, err := graph.NetworkStats(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	// Query the graph for the current number of zombie channels.
-	numZombies, err := graph.NumZombies()
-	if err != nil {
-		return nil, err
-	}
-
-	// Find the median.
-	medianChanSize = autopilot.Median(allChans)
-
-	// If we don't have any channels, then reset the minChannelSize to zero
-	// to avoid outputting NaN in encoded JSON.
-	if numChannels == 0 {
-		minChannelSize = 0
-	}
-
-	// Graph diameter.
-	channelGraph := autopilot.ChannelGraphFromCachedDatabase(graph)
-	simpleGraph, err := autopilot.NewSimpleGraph(channelGraph)
-	if err != nil {
-		return nil, err
-	}
-	start := time.Now()
-	diameter := simpleGraph.DiameterRadialCutoff()
-	rpcsLog.Infof("elapsed time for diameter (%d) calculation: %v", diameter,
-		time.Since(start))
 
 	// TODO(roasbeef): also add oldest channel?
 	netInfo := &lnrpc.NetworkInfo{
-		GraphDiameter:        diameter,
-		MaxOutDegree:         maxChanOut,
-		AvgOutDegree:         float64(2*numChannels) / float64(numNodes),
-		NumNodes:             numNodes,
-		NumChannels:          numChannels,
-		TotalNetworkCapacity: int64(totalNetworkCapacity),
-		AvgChannelSize:       float64(totalNetworkCapacity) / float64(numChannels),
-
-		MinChannelSize:       int64(minChannelSize),
-		MaxChannelSize:       int64(maxChannelSize),
-		MedianChannelSizeSat: int64(medianChanSize),
-		NumZombieChans:       numZombies,
+		GraphDiameter: stats.Diameter,
+		MaxOutDegree:  stats.MaxChanOut,
+		AvgOutDegree: float64(2*stats.NumChannels) /
+			float64(stats.NumNodes),
+		NumNodes:             stats.NumNodes,
+		NumChannels:          stats.NumChannels,
+		TotalNetworkCapacity: int64(stats.TotalNetworkCapacity),
+		AvgChannelSize: float64(stats.TotalNetworkCapacity) /
+			float64(stats.NumChannels),
+		MinChannelSize:       int64(stats.MinChanSize),
+		MaxChannelSize:       int64(stats.MaxChanSize),
+		MedianChannelSizeSat: int64(stats.MedianChanSize),
+		NumZombieChans:       stats.NumZombies,
 	}
 
 	// Similarly, if we don't have any channels, then we'll also set the
 	// average channel size to zero in order to avoid weird JSON encoding
 	// outputs.
-	if numChannels == 0 {
+	if stats.NumChannels == 0 {
 		netInfo.AvgChannelSize = 0
 	}
 

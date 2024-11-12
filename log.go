@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/sources"
 	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -196,6 +197,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 		root, blindedpath.Subsystem, interceptor, blindedpath.UseLogger,
 	)
 	AddV1SubLogger(root, graphdb.Subsystem, interceptor, graphdb.UseLogger)
+	AddSubLogger(root, sources.Subsystem, interceptor, sources.UseLogger)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

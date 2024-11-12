@@ -74,4 +74,8 @@ type GraphSource interface {
 	// used to discover new peers to connect to.
 	GraphBootstrapper(ctx context.Context) (
 		discovery.NetworkPeerBootstrapper, error)
+
+	// NetworkStats returns statistics concerning the current state of the
+	// known channel graph within the network.
+	NetworkStats(ctx context.Context) (*models.NetworkStats, error)
 }

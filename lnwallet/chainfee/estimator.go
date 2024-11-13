@@ -238,6 +238,7 @@ func (b *BtcdEstimator) Stop() error {
 	b.filterManager.Stop()
 
 	b.btcdConn.Shutdown()
+	b.btcdConn.WaitForShutdown()
 
 	return nil
 }

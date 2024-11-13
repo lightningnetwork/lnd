@@ -50,6 +50,12 @@ type FlapCount struct {
 // bucket for the peer's pubkey if necessary. Note that this function overwrites
 // the current value.
 func (d *DB) WriteFlapCounts(flapCounts map[route.Vertex]*FlapCount) error {
+	// Exit early if there are no updates.
+	if len(flapCounts) == 0 {
+		log.Debugf("No flap counts to write, skipped db update")
+		return nil
+	}
+
 	return kvdb.Update(d, func(tx kvdb.RwTx) error {
 		// Run through our set of flap counts and record them for
 		// each peer, creating a bucket for the peer pubkey if required.

@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -405,6 +406,8 @@ type Config struct {
 
 	ChannelCommitBatchSize uint32 `long:"channel-commit-batch-size" description:"The maximum number of channel state updates that is accumulated before signing a new commitment."`
 
+	ChannelArbStartTimeout time.Duration `long:"channel-arb-start-timeout" hidden:"true" description:"The maximum time that is allowed to pass while the chain arbitrator starts the individual channel arbitrators. This value might need to be increased if lnd is running with aux components that depend on all subsystems to be fully started."`
+
 	KeepFailedPaymentAttempts bool `long:"keep-failed-payment-attempts" description:"Keeps persistent record of all failed payment attempts for successfully settled payments."`
 
 	StoreFinalHtlcResolutions bool `long:"store-final-htlc-resolutions" description:"Persistently store the final resolution of incoming htlcs."`
@@ -720,6 +723,7 @@ func DefaultConfig() Config {
 		ChannelCommitInterval:     defaultChannelCommitInterval,
 		PendingCommitInterval:     defaultPendingCommitInterval,
 		ChannelCommitBatchSize:    defaultChannelCommitBatchSize,
+		ChannelArbStartTimeout:    contractcourt.DefaultChainArbTimeout,
 		CoinSelectionStrategy:     defaultCoinSelectionStrategy,
 		KeepFailedPaymentAttempts: defaultKeepFailedPaymentAttempts,
 		RemoteSigner: &lncfg.RemoteSigner{
@@ -1666,6 +1670,14 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		return nil, mkErr("pending-commit-interval (%v) must be less "+
 			"than %v", cfg.PendingCommitInterval,
 			maxPendingCommitInterval)
+	}
+
+	// Limit the chain arbitrator startup timeout to a reasonable minimum
+	// value. Too short might run into restart loops.
+	if cfg.ChannelArbStartTimeout < contractcourt.DefaultChainArbTimeout {
+		return nil, mkErr("channel-arb-start-timeout (%v) must be at "+
+			"least %v", cfg.ChannelArbStartTimeout,
+			contractcourt.DefaultChainArbTimeout)
 	}
 
 	if err := cfg.Gossip.Parse(); err != nil {

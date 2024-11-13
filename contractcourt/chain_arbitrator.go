@@ -30,9 +30,12 @@ import (
 var ErrChainArbExiting = errors.New("ChainArbitrator exiting")
 
 const (
-	// chainArbTimeout is the timeout for the chain arbitrator to start
-	// the channel arbitrators for each channel.
-	chainArbTimeout = 5 * time.Minute
+	// DefaultChainArbTimeout is the default timeout for the chain
+	// arbitrator to start the channel arbitrators for each channel. This
+	// value must be long enough because starting arbitrators might depend
+	// on external components (e.g. aux components, hooks), which might
+	// require other lnd subsystems to be fully started.
+	DefaultChainArbTimeout = 5 * time.Minute
 )
 
 // ResolutionMsg is a message sent by resolvers to outside sub-systems once an
@@ -226,6 +229,10 @@ type ChainArbitratorConfig struct {
 	// lower package.
 	QueryIncomingCircuit func(circuit models.CircuitKey) *models.CircuitKey
 
+	// StartupTimeout is the maximum time the arbitrator will wait when
+	// starting the individual channel arbitrators.
+	StartupTimeout time.Duration
+
 	// AuxLeafStore is an optional store that can be used to store auxiliary
 	// leaves for certain custom channel types.
 	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
@@ -279,6 +286,12 @@ type ChainArbitrator struct {
 // passed config struct, and backing persistent database.
 func NewChainArbitrator(cfg ChainArbitratorConfig,
 	db *channeldb.DB) *ChainArbitrator {
+
+	// Let's use the default timeout for tests. For normal operation, the
+	// value is validated when parsing the configuration.
+	if cfg.StartupTimeout == 0 {
+		cfg.StartupTimeout = DefaultChainArbTimeout
+	}
 
 	return &ChainArbitrator{
 		cfg:            cfg,
@@ -778,7 +791,7 @@ func (c *ChainArbitrator) Start() error {
 	// Set a timeout for the group so we don't wait indefinitely if one
 	// startup function blocks.
 	ctx, cancel := context.WithTimeout(
-		context.Background(), chainArbTimeout,
+		context.Background(), c.cfg.StartupTimeout,
 	)
 
 	eg, egCtx := errgroup.WithContext(ctx)

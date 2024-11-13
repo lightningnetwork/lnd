@@ -193,6 +193,9 @@ func (h *HarnessTest) Start(chain node.BackendConfig,
 
 	// Assemble the miner.
 	h.miner = miner
+
+	// Update block height.
+	h.updateCurrentHeight()
 }
 
 // ChainBackendName returns the chain backend name used in the test.
@@ -841,9 +844,10 @@ func (h *HarnessTest) NewNodeRemoteSigner(name string, extraArgs []string,
 	return hn
 }
 
-// KillNode kills the node (but won't wait for the node process to stop).
+// KillNode kills the node and waits for the node process to stop.
 func (h *HarnessTest) KillNode(hn *node.HarnessNode) {
-	require.NoErrorf(h, hn.Kill(), "%s: kill got error", hn.Name())
+	h.Logf("Manually killing the node %s", hn.Name())
+	require.NoErrorf(h, hn.KillAndWait(), "%s: kill got error", hn.Name())
 	delete(h.manager.activeNodes, hn.Cfg.NodeID)
 }
 
@@ -1219,8 +1223,8 @@ func (h *HarnessTest) openChannel(alice, bob *node.HarnessNode,
 
 	// Check that both alice and bob have seen the channel from their
 	// network topology.
-	h.AssertTopologyChannelOpen(alice, fundingChanPoint)
-	h.AssertTopologyChannelOpen(bob, fundingChanPoint)
+	h.AssertChannelInGraph(alice, fundingChanPoint)
+	h.AssertChannelInGraph(bob, fundingChanPoint)
 
 	// Check that the channel can be seen in their ListChannels.
 	h.AssertChannelExists(alice, fundingChanPoint)
@@ -1241,8 +1245,8 @@ func (h *HarnessTest) openChannelZeroConf(alice, bob *node.HarnessNode,
 
 	// Check that both alice and bob have seen the channel from their
 	// network topology.
-	h.AssertTopologyChannelOpen(alice, fundingChanPoint)
-	h.AssertTopologyChannelOpen(bob, fundingChanPoint)
+	h.AssertChannelInGraph(alice, fundingChanPoint)
+	h.AssertChannelInGraph(bob, fundingChanPoint)
 
 	// Finally, check that the channel can be seen in their ListChannels.
 	h.AssertChannelExists(alice, fundingChanPoint)
@@ -1826,8 +1830,8 @@ func (h *HarnessTest) OpenMultiChannelsAsync(
 		if !req.Param.Private {
 			// Check that both alice and bob have seen the channel
 			// from their channel watch request.
-			h.AssertTopologyChannelOpen(req.Local, cp)
-			h.AssertTopologyChannelOpen(req.Remote, cp)
+			h.AssertChannelInGraph(req.Local, cp)
+			h.AssertChannelInGraph(req.Remote, cp)
 		}
 
 		// Finally, check that the channel can be seen in their
@@ -2302,7 +2306,6 @@ func (h *HarnessTest) openChannelsForNodes(nodes []*node.HarnessNode,
 	p OpenChannelParams) []*lnrpc.ChannelPoint {
 
 	// Sanity check the params.
-	require.False(h, p.ZeroConf, "zero-conf channels must be disabled")
 	require.Greater(h, len(nodes), 1, "need at least 2 nodes")
 
 	// Open channels in batch to save blocks mined.
@@ -2324,7 +2327,7 @@ func (h *HarnessTest) openChannelsForNodes(nodes []*node.HarnessNode,
 	if !p.Private {
 		for _, node := range nodes {
 			for _, chanPoint := range resp {
-				h.AssertTopologyChannelOpen(node, chanPoint)
+				h.AssertChannelInGraph(node, chanPoint)
 			}
 		}
 	}

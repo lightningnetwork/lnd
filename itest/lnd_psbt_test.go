@@ -307,8 +307,8 @@ func runPsbtChanFunding(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	txHash := finalTx.TxHash()
 	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
 	ht.AssertTxInBlock(block, txHash)
-	ht.AssertTopologyChannelOpen(carol, chanPoint)
-	ht.AssertTopologyChannelOpen(carol, chanPoint2)
+	ht.AssertChannelInGraph(carol, chanPoint)
+	ht.AssertChannelInGraph(carol, chanPoint2)
 
 	// With the channel open, ensure that it is counted towards Carol's
 	// total channel balance.
@@ -482,8 +482,8 @@ func runPsbtChanFundingExternal(ht *lntest.HarnessTest, carol,
 	// for the new channel to be propagated through the network.
 	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
 	ht.AssertTxInBlock(block, txHash)
-	ht.AssertTopologyChannelOpen(carol, chanPoint)
-	ht.AssertTopologyChannelOpen(carol, chanPoint2)
+	ht.AssertChannelInGraph(carol, chanPoint)
+	ht.AssertChannelInGraph(carol, chanPoint2)
 
 	// With the channel open, ensure that it is counted towards Carol's
 	// total channel balance.
@@ -639,7 +639,7 @@ func runPsbtChanFundingSingleStep(ht *lntest.HarnessTest, carol,
 	txHash := finalTx.TxHash()
 	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
 	ht.AssertTxInBlock(block, txHash)
-	ht.AssertTopologyChannelOpen(carol, chanPoint)
+	ht.AssertChannelInGraph(carol, chanPoint)
 
 	// Next, to make sure the channel functions as normal, we'll make some
 	// payments within the channel.

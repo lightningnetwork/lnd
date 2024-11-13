@@ -51,7 +51,7 @@ func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 	)
 
 	// Wait for Carol to see the open channel Alice-Bob.
-	ht.AssertTopologyChannelOpen(carol, chanPointBob)
+	ht.AssertChannelInGraph(carol, chanPointBob)
 
 	// Create preimages for all payments we are going to initiate.
 	var preimages []lntypes.Preimage

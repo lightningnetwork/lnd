@@ -153,9 +153,13 @@ func testRPCMiddlewareInterceptor(ht *lntest.HarnessTest) {
 	// And finally make sure mandatory middleware is always checked for any
 	// RPC request.
 	ht.Run("mandatory middleware", func(tt *testing.T) {
-		st := ht.Subtest(tt)
-		middlewareMandatoryTest(st, alice)
+		middlewareMandatoryTest(ht, alice)
 	})
+
+	// We now shut down the node manually to prevent the test from failing
+	// because we can't call the stop RPC if we unregister the middleware
+	// in the defer statement above.
+	ht.KillNode(alice)
 }
 
 // middlewareRegistrationRestrictionTests tests all restrictions that apply to
@@ -593,11 +597,6 @@ func middlewareMandatoryTest(ht *lntest.HarnessTest, node *node.HarnessNode) {
 	time.Sleep(500 * time.Millisecond)
 	node.RPC.ListChannels(&lnrpc.ListChannelsRequest{})
 	node.RPC.SubscribeInvoices(&lnrpc.InvoiceSubscription{})
-
-	// We now shut down the node manually to prevent the test from failing
-	// because we can't call the stop RPC if we unregister the middleware
-	// in the defer statement above.
-	ht.KillNode(node)
 }
 
 // assertInterceptedType makes sure that the intercept message sent by the RPC

@@ -927,8 +927,8 @@ func testChannelFundingPersistence(ht *lntest.HarnessTest) {
 
 	// Make sure Alice and Carol have seen the channel in their network
 	// topology.
-	ht.AssertTopologyChannelOpen(alice, chanPoint)
-	ht.AssertTopologyChannelOpen(carol, chanPoint)
+	ht.AssertChannelInGraph(alice, chanPoint)
+	ht.AssertChannelInGraph(carol, chanPoint)
 
 	// Create an additional check for our channel assertion that will
 	// check that our label is as expected.
@@ -1055,7 +1055,7 @@ func testBatchChanFunding(ht *lntest.HarnessTest) {
 
 	// Ensure that Alice can send funds to Eve via the zero-conf channel
 	// before the batch transaction was mined.
-	ht.AssertTopologyChannelOpen(alice, chanPoint4)
+	ht.AssertChannelInGraph(alice, chanPoint4)
 	eveInvoiceParams := &lnrpc.Invoice{
 		Value:   int64(10_000),
 		Private: true,
@@ -1068,9 +1068,9 @@ func testBatchChanFunding(ht *lntest.HarnessTest) {
 	// Mine the batch transaction and check the network topology.
 	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
 	ht.AssertTxInBlock(block, *txHash)
-	ht.AssertTopologyChannelOpen(alice, chanPoint1)
-	ht.AssertTopologyChannelOpen(alice, chanPoint2)
-	ht.AssertTopologyChannelOpen(alice, chanPoint3)
+	ht.AssertChannelInGraph(alice, chanPoint1)
+	ht.AssertChannelInGraph(alice, chanPoint2)
+	ht.AssertChannelInGraph(alice, chanPoint3)
 
 	// Check if the change type from the batch_open_channel funding is P2TR.
 	rawTx := ht.GetRawTransaction(*txHash)

@@ -2295,8 +2295,8 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 	// We'll only do this though if it wasn't a private channel we opened
 	// earlier.
 	if !privateChan {
-		ht.AssertTopologyChannelOpen(alice, bobChanPoint)
-		ht.AssertTopologyChannelOpen(carol, aliceChanPoint)
+		ht.AssertChannelInGraph(alice, bobChanPoint)
+		ht.AssertChannelInGraph(carol, aliceChanPoint)
 	} else {
 		// Otherwise, we want to wait for all the channels to be shown
 		// as active before we proceed.

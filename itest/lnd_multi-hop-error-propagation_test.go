@@ -49,7 +49,7 @@ func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 	)
 
 	// Ensure that Alice has Carol in her routing table before proceeding.
-	ht.AssertTopologyChannelOpen(alice, chanPointBob)
+	ht.AssertChannelInGraph(alice, chanPointBob)
 
 	cType := ht.GetChannelCommitType(alice, chanPointAlice)
 	commitFee := lntest.CalcStaticFee(cType, 0)

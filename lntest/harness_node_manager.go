@@ -46,7 +46,7 @@ type nodeManager struct {
 
 	// nodeCounter is a monotonically increasing counter that's used as the
 	// node's unique ID.
-	nodeCounter uint32
+	nodeCounter atomic.Uint32
 
 	// feeServiceURL is the url of the fee service.
 	feeServiceURL string
@@ -67,8 +67,8 @@ func newNodeManager(lndBinary string, dbBackend node.DatabaseBackend,
 
 // nextNodeID generates a unique sequence to be used as the node's ID.
 func (nm *nodeManager) nextNodeID() uint32 {
-	nodeID := atomic.AddUint32(&nm.nodeCounter, 1)
-	return nodeID - 1
+	nodeID := nm.nodeCounter.Add(1)
+	return nodeID
 }
 
 // newNode initializes a new HarnessNode, supporting the ability to initialize

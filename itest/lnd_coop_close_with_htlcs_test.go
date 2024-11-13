@@ -47,7 +47,7 @@ func coopCloseWithHTLCs(ht *lntest.HarnessTest) {
 	})
 
 	// Wait for Bob to understand that the channel is ready to use.
-	ht.AssertTopologyChannelOpen(bob, chanPoint)
+	ht.AssertChannelInGraph(bob, chanPoint)
 
 	// Here we set things up so that Alice generates a HODL invoice so we
 	// can test whether the shutdown is deferred until the settlement of
@@ -141,7 +141,7 @@ func coopCloseWithHTLCsWithRestart(ht *lntest.HarnessTest) {
 	})
 
 	// Wait for Bob to understand that the channel is ready to use.
-	ht.AssertTopologyChannelOpen(bob, chanPoint)
+	ht.AssertChannelInGraph(bob, chanPoint)
 
 	// Set up a HODL invoice so that we can be sure that an HTLC is pending
 	// on the channel at the time that shutdown is requested.

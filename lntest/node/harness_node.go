@@ -796,6 +796,18 @@ func (hn *HarnessNode) Kill() error {
 	return hn.cmd.Process.Kill()
 }
 
+// KillAndWait kills the lnd process and waits for it to finish.
+func (hn *HarnessNode) KillAndWait() error {
+	err := hn.cmd.Process.Kill()
+	if err != nil {
+		return err
+	}
+
+	_, err = hn.cmd.Process.Wait()
+
+	return err
+}
+
 // printErrf prints an error to the console.
 func (hn *HarnessNode) printErrf(format string, a ...interface{}) {
 	fmt.Printf("itest error from [%s:%s]: %s\n", //nolint:forbidigo

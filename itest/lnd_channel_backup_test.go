@@ -1435,8 +1435,8 @@ func createLegacyRevocationChannel(ht *lntest.HarnessTest,
 	}
 
 	ht.MineBlocksAndAssertNumTxes(6, 1)
-	ht.AssertTopologyChannelOpen(from, chanPoint)
-	ht.AssertTopologyChannelOpen(to, chanPoint)
+	ht.AssertChannelInGraph(from, chanPoint)
+	ht.AssertChannelInGraph(to, chanPoint)
 }
 
 // chanRestoreViaRPC is a helper test method that returns a nodeRestorer

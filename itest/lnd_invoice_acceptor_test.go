@@ -35,7 +35,7 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 	cpAB, cpBC := resp[0], resp[1]
 
 	// Make sure Alice is aware of channel Bob=>Carol.
-	ht.AssertTopologyChannelOpen(alice, cpBC)
+	ht.AssertChannelInGraph(alice, cpBC)
 
 	// Initiate Carol's invoice HTLC modifier.
 	invoiceModifier, cancelModifier := carol.RPC.InvoiceHtlcModifier()

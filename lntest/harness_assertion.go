@@ -403,15 +403,6 @@ func (h HarnessTest) WaitForChannelOpenEvent(
 	return resp.ChanOpen.ChannelPoint
 }
 
-// AssertTopologyChannelOpen asserts that a given channel outpoint is seen by
-// the passed node's network topology.
-func (h *HarnessTest) AssertTopologyChannelOpen(hn *node.HarnessNode,
-	chanPoint *lnrpc.ChannelPoint) {
-
-	err := hn.Watcher.WaitForChannelOpen(chanPoint)
-	require.NoErrorf(h, err, "%s didn't report channel", hn.Name())
-}
-
 // AssertChannelExists asserts that an active channel identified by the
 // specified channel point exists from the point-of-view of the node.
 func (h *HarnessTest) AssertChannelExists(hn *node.HarnessNode,
@@ -506,7 +497,8 @@ func (h *HarnessTest) findChannel(hn *node.HarnessNode,
 		}
 	}
 
-	return nil, fmt.Errorf("channel not found using %s", chanPoint)
+	return nil, fmt.Errorf("%s: channel not found using %s", hn.Name(),
+		fp.String())
 }
 
 // ReceiveCloseChannelUpdate waits until a message or an error is received on
@@ -1640,23 +1632,18 @@ func (h *HarnessTest) AssertNumHTLCsAndStage(hn *node.HarnessNode,
 // findPayment queries the payment from the node's ListPayments which matches
 // the specified preimage hash.
 func (h *HarnessTest) findPayment(hn *node.HarnessNode,
-	paymentHash string) *lnrpc.Payment {
+	paymentHash string) (*lnrpc.Payment, error) {
 
 	req := &lnrpc.ListPaymentsRequest{IncludeIncomplete: true}
 	paymentsResp := hn.RPC.ListPayments(req)
 
 	for _, p := range paymentsResp.Payments {
-		if p.PaymentHash != paymentHash {
-			continue
+		if p.PaymentHash == paymentHash {
+			return p, nil
 		}
-
-		return p
 	}
 
-	require.Failf(h, "payment not found", "payment %v cannot be found",
-		paymentHash)
-
-	return nil
+	return nil, fmt.Errorf("payment %v cannot be found", paymentHash)
 }
 
 // PaymentCheck is a function that checks a payment for a specific condition.
@@ -1674,7 +1661,11 @@ func (h *HarnessTest) AssertPaymentStatus(hn *node.HarnessNode,
 	payHash := preimage.Hash()
 
 	err := wait.NoError(func() error {
-		p := h.findPayment(hn, payHash.String())
+		p, err := h.findPayment(hn, payHash.String())
+		if err != nil {
+			return err
+		}
+
 		if status == p.Status {
 			target = p
 			return nil
@@ -1713,7 +1704,11 @@ func (h *HarnessTest) AssertPaymentFailureReason(hn *node.HarnessNode,
 
 	payHash := preimage.Hash()
 	err := wait.NoError(func() error {
-		p := h.findPayment(hn, payHash.String())
+		p, err := h.findPayment(hn, payHash.String())
+		if err != nil {
+			return err
+		}
+
 		if reason == p.FailureReason {
 			return nil
 		}
@@ -1940,6 +1935,37 @@ func (h *HarnessTest) AssertNotInGraph(hn *node.HarnessNode, chanID uint64) {
 	}, DefaultTimeout)
 	require.NoError(h, err, "timeout while checking that channel is not "+
 		"found in graph")
+}
+
+// AssertChannelInGraph asserts that a given channel is found in the graph.
+func (h *HarnessTest) AssertChannelInGraph(hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) *lnrpc.ChannelEdge {
+
+	ctxt, cancel := context.WithCancel(h.runCtx)
+	defer cancel()
+
+	var edge *lnrpc.ChannelEdge
+
+	op := h.OutPointFromChannelPoint(chanPoint)
+	err := wait.NoError(func() error {
+		resp, err := hn.RPC.LN.GetChanInfo(
+			ctxt, &lnrpc.ChanInfoRequest{
+				ChanPoint: op.String(),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("channel %s not found in graph: %w",
+				op, err)
+		}
+
+		edge = resp
+
+		return nil
+	}, DefaultTimeout)
+	require.NoError(h, err, "%s: timeout finding channel in graph",
+		hn.Name())
+
+	return edge
 }
 
 // AssertTxAtHeight gets all of the transactions that a node's wallet has a

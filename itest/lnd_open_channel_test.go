@@ -80,8 +80,8 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 
 	// Wait for Alice and Bob to recognize and advertise the new channel
 	// generated above.
-	ht.AssertTopologyChannelOpen(alice, chanPoint)
-	ht.AssertTopologyChannelOpen(bob, chanPoint)
+	ht.AssertChannelInGraph(alice, chanPoint)
+	ht.AssertChannelInGraph(bob, chanPoint)
 
 	// Alice should now have 1 edge in her graph.
 	ht.AssertNumActiveEdges(alice, 1, true)

@@ -127,8 +127,8 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	}
 
 	// Make sure Alice and Carol have seen each other's channels.
-	ht.AssertTopologyChannelOpen(alice, chanPoint2)
-	ht.AssertTopologyChannelOpen(carol, chanPoint)
+	ht.AssertChannelInGraph(alice, chanPoint2)
+	ht.AssertChannelInGraph(carol, chanPoint)
 
 	// First we'll try to send a payment from Alice to Carol with an amount
 	// less than the min_htlc value required by Carol. This payment should
@@ -292,7 +292,7 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	)
 
 	// Make sure Bob knows this channel.
-	ht.AssertTopologyChannelOpen(bob, chanPoint3)
+	ht.AssertChannelInGraph(bob, chanPoint3)
 
 	// Make a global update, and check that both channels' new policies get
 	// propagated.
@@ -515,9 +515,9 @@ func testSendUpdateDisableChannel(ht *lntest.HarnessTest) {
 	ht.RestartNodeWithExtraArgs(eve, nodeCfg)
 
 	// Dave should know all the channels.
-	ht.AssertTopologyChannelOpen(dave, chanPointAliceBob)
-	ht.AssertTopologyChannelOpen(dave, chanPointAliceCarol)
-	ht.AssertTopologyChannelOpen(dave, chanPointEveCarol)
+	ht.AssertChannelInGraph(dave, chanPointAliceBob)
+	ht.AssertChannelInGraph(dave, chanPointAliceCarol)
+	ht.AssertChannelInGraph(dave, chanPointEveCarol)
 
 	// We should expect to see a channel update with the default routing
 	// policy, except that it should indicate the channel is disabled.
@@ -701,7 +701,7 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntest.HarnessTest) {
 	)
 
 	// Carol should be aware of the channel between Alice and Bob.
-	ht.AssertTopologyChannelOpen(carol, chanPointAliceBob)
+	ht.AssertChannelInGraph(carol, chanPointAliceBob)
 
 	// We should have the following topology now,
 	// Alice <--public:100k--> Bob <--private:100k--> Carol

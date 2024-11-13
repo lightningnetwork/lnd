@@ -49,7 +49,7 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 
 	// Before we continue, make sure Alice has seen the channel between Bob
 	// and Carol.
-	ht.AssertTopologyChannelOpen(alice, chanPointBC)
+	ht.AssertChannelInGraph(alice, chanPointBC)
 
 	// Alice sends several payments to Carol through Bob, which triggers
 	// Bob to create forwarding packages.

@@ -25,10 +25,8 @@ type LiveChannelSource interface {
 // passed open channel. The backup includes all information required to restore
 // the channel, as well as addressing information so we can find the peer and
 // reconnect to them to initiate the protocol.
-func assembleChanBackup(addrSource channeldb.AddrSource,
+func assembleChanBackup(ctx context.Context, addrSource channeldb.AddrSource,
 	openChan *channeldb.OpenChannel) (*Single, error) {
-
-	ctx := context.TODO()
 
 	log.Debugf("Crafting backup for ChannelPoint(%v)",
 		openChan.FundingOutpoint)
@@ -95,7 +93,8 @@ func buildCloseTxInputs(
 // FetchBackupForChan attempts to create a plaintext static channel backup for
 // the target channel identified by its channel point. If we're unable to find
 // the target channel, then an error will be returned.
-func FetchBackupForChan(chanPoint wire.OutPoint, chanSource LiveChannelSource,
+func FetchBackupForChan(ctx context.Context, chanPoint wire.OutPoint,
+	chanSource LiveChannelSource,
 	addrSource channeldb.AddrSource) (*Single, error) {
 
 	// First, we'll query the channel source to see if the channel is known
@@ -109,7 +108,7 @@ func FetchBackupForChan(chanPoint wire.OutPoint, chanSource LiveChannelSource,
 
 	// Once we have the target channel, we can assemble the backup using
 	// the source to obtain any extra information that we may need.
-	staticChanBackup, err := assembleChanBackup(addrSource, targetChan)
+	staticChanBackup, err := assembleChanBackup(ctx, addrSource, targetChan)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create chan backup: %w", err)
 	}
@@ -119,7 +118,7 @@ func FetchBackupForChan(chanPoint wire.OutPoint, chanSource LiveChannelSource,
 
 // FetchStaticChanBackups will return a plaintext static channel back up for
 // all known active/open channels within the passed channel source.
-func FetchStaticChanBackups(chanSource LiveChannelSource,
+func FetchStaticChanBackups(ctx context.Context, chanSource LiveChannelSource,
 	addrSource channeldb.AddrSource) ([]Single, error) {
 
 	// First, we'll query the backup source for information concerning all
@@ -134,7 +133,7 @@ func FetchStaticChanBackups(chanSource LiveChannelSource,
 	// channel.
 	staticChanBackups := make([]Single, 0, len(openChans))
 	for _, openChan := range openChans {
-		chanBackup, err := assembleChanBackup(addrSource, openChan)
+		chanBackup, err := assembleChanBackup(ctx, addrSource, openChan)
 		if err != nil {
 			return nil, err
 		}

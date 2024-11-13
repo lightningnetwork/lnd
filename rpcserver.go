@@ -1822,9 +1822,8 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 			timeout)
 	}
 
-	if err := r.server.ConnectToPeer(
-		peerAddr, in.Perm, timeout,
-	); err != nil {
+	err = r.server.ConnectToPeer(ctx, peerAddr, in.Perm, timeout)
+	if err != nil {
 		rpcsLog.Errorf("[connectpeer]: error connecting to peer: %v",
 			err)
 		return nil, err
@@ -4539,7 +4538,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		// our list depending on the type of channels requested to us.
 		isActive := peerOnline && linkActive
 		channel, err := createRPCOpenChannel(
-			r, dbChannel, isActive, in.PeerAliasLookup,
+			ctx, r, dbChannel, isActive, in.PeerAliasLookup,
 		)
 		if err != nil {
 			return nil, err
@@ -4655,10 +4654,10 @@ func encodeCustomChanData(lnChan *channeldb.OpenChannel) ([]byte, error) {
 }
 
 // createRPCOpenChannel creates an *lnrpc.Channel from the *channeldb.Channel.
-func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
-	isActive, peerAliasLookup bool) (*lnrpc.Channel, error) {
+func createRPCOpenChannel(ctx context.Context, r *rpcServer,
+	dbChannel *channeldb.OpenChannel, isActive, peerAliasLookup bool) (
+	*lnrpc.Channel, error) {
 
-	ctx := context.TODO()
 	nodePub := dbChannel.IdentityPub
 	nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
 	chanPoint := dbChannel.FundingOutpoint
@@ -5174,7 +5173,8 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 				}
 			case channelnotifier.OpenChannelEvent:
 				channel, err := createRPCOpenChannel(
-					r, event.Channel, true, false,
+					updateStream.Context(), r,
+					event.Channel, true, false,
 				)
 				if err != nil {
 					return err
@@ -7852,7 +7852,7 @@ func (r *rpcServer) ExportChannelBackup(ctx context.Context,
 	// the database. If this channel has been closed, or the outpoint is
 	// unknown, then we'll return an error
 	unpackedBackup, err := chanbackup.FetchBackupForChan(
-		chanPoint, r.server.chanStateDB, r.server.addrSource,
+		ctx, chanPoint, r.server.chanStateDB, r.server.addrSource,
 	)
 	if err != nil {
 		return nil, err
@@ -8032,7 +8032,7 @@ func (r *rpcServer) ExportAllChannelBackups(ctx context.Context,
 	// First, we'll attempt to read back ups for ALL currently opened
 	// channels from disk.
 	allUnpackedBackups, err := chanbackup.FetchStaticChanBackups(
-		r.server.chanStateDB, r.server.addrSource,
+		ctx, r.server.chanStateDB, r.server.addrSource,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch all static chan "+
@@ -8090,7 +8090,7 @@ func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
 		// out to any peers that we know of which were our prior
 		// channel peers.
 		numRestored, err = chanbackup.UnpackAndRecoverSingles(
-			chanbackup.PackedSingles(packedBackups),
+			ctx, chanbackup.PackedSingles(packedBackups),
 			r.server.cc.KeyRing, chanRestorer, r.server,
 		)
 		if err != nil {
@@ -8107,7 +8107,7 @@ func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
 		// channel peers.
 		packedMulti := chanbackup.PackedMulti(packedMultiBackup)
 		numRestored, err = chanbackup.UnpackAndRecoverMulti(
-			packedMulti, r.server.cc.KeyRing, chanRestorer,
+			ctx, packedMulti, r.server.cc.KeyRing, chanRestorer,
 			r.server,
 		)
 		if err != nil {
@@ -8167,7 +8167,8 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 			// we'll obtains the current set of single channel
 			// backups from disk.
 			chanBackups, err := chanbackup.FetchStaticChanBackups(
-				r.server.chanStateDB, r.server.addrSource,
+				updateStream.Context(), r.server.chanStateDB,
+				r.server.addrSource,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to fetch all "+

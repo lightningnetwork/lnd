@@ -32,10 +32,9 @@ type channelNotifier struct {
 // the channel subscription.
 //
 // NOTE: This is part of the chanbackup.ChannelNotifier interface.
-func (c *channelNotifier) SubscribeChans(startingChans map[wire.OutPoint]struct{}) (
+func (c *channelNotifier) SubscribeChans(ctx context.Context,
+	startingChans map[wire.OutPoint]struct{}) (
 	*chanbackup.ChannelSubscription, error) {
-
-	ctx := context.TODO()
 
 	ltndLog.Infof("Channel backup proxy channel notifier starting")
 

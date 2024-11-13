@@ -1,6 +1,7 @@
 package lnd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -136,7 +137,7 @@ var _ autopilot.ChannelController = (*chanController)(nil)
 // Agent instance based on the passed configuration structs. The agent and all
 // interfaces needed to drive it won't be launched before the Manager's
 // StartAgent method is called.
-func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
+func initAutoPilot(ctx context.Context, svr *server, cfg *lncfg.AutoPilot,
 	minHTLCIn lnwire.MilliSatoshi, netParams chainreg.BitcoinNetParams) (
 	*autopilot.ManagerCfg, error) {
 
@@ -224,7 +225,8 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 				}
 
 				err := svr.ConnectToPeer(
-					lnAddr, false, svr.cfg.ConnectionTimeout,
+					ctx, lnAddr, false,
+					svr.cfg.ConnectionTimeout,
 				)
 				if err != nil {
 					// If we weren't able to connect to the

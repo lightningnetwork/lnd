@@ -2,6 +2,7 @@ package chanbackup
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net"
 	"testing"
@@ -39,7 +40,7 @@ type mockPeerConnector struct {
 	callCount int
 }
 
-func (m *mockPeerConnector) ConnectPeer(_ *btcec.PublicKey,
+func (m *mockPeerConnector) ConnectPeer(_ context.Context, _ *btcec.PublicKey,
 	_ []net.Addr) error {
 
 	if m.fail {
@@ -55,6 +56,7 @@ func (m *mockPeerConnector) ConnectPeer(_ *btcec.PublicKey,
 // recover a set of packed singles.
 func TestUnpackAndRecoverSingles(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	keyRing := &lnencrypt.MockKeyRing{}
 
@@ -87,7 +89,7 @@ func TestUnpackAndRecoverSingles(t *testing.T) {
 	// as well
 	chanRestorer.fail = true
 	_, err := UnpackAndRecoverSingles(
-		packedBackups, keyRing, &chanRestorer, &peerConnector,
+		ctx, packedBackups, keyRing, &chanRestorer, &peerConnector,
 	)
 	require.ErrorIs(t, err, errRestoreFail)
 
@@ -97,7 +99,7 @@ func TestUnpackAndRecoverSingles(t *testing.T) {
 	// well
 	peerConnector.fail = true
 	_, err = UnpackAndRecoverSingles(
-		packedBackups, keyRing, &chanRestorer, &peerConnector,
+		ctx, packedBackups, keyRing, &chanRestorer, &peerConnector,
 	)
 	require.ErrorIs(t, err, errConnectFail)
 
@@ -107,7 +109,7 @@ func TestUnpackAndRecoverSingles(t *testing.T) {
 	// Next, we'll ensure that if all the interfaces function as expected,
 	// then the channels will properly be unpacked and restored.
 	numRestored, err := UnpackAndRecoverSingles(
-		packedBackups, keyRing, &chanRestorer, &peerConnector,
+		ctx, packedBackups, keyRing, &chanRestorer, &peerConnector,
 	)
 	require.NoError(t, err)
 	require.EqualValues(t, numSingles, numRestored)
@@ -124,7 +126,7 @@ func TestUnpackAndRecoverSingles(t *testing.T) {
 	// If we modify the keyRing, then unpacking should fail.
 	keyRing.Fail = true
 	_, err = UnpackAndRecoverSingles(
-		packedBackups, keyRing, &chanRestorer, &peerConnector,
+		ctx, packedBackups, keyRing, &chanRestorer, &peerConnector,
 	)
 	require.ErrorContains(t, err, "fail")
 
@@ -135,7 +137,7 @@ func TestUnpackAndRecoverSingles(t *testing.T) {
 // recover a packed multi.
 func TestUnpackAndRecoverMulti(t *testing.T) {
 	t.Parallel()
-
+	ctx := context.Background()
 	keyRing := &lnencrypt.MockKeyRing{}
 
 	// First, we'll create a number of single chan backups that we'll
@@ -171,7 +173,7 @@ func TestUnpackAndRecoverMulti(t *testing.T) {
 	// as well
 	chanRestorer.fail = true
 	_, err = UnpackAndRecoverMulti(
-		packedMulti, keyRing, &chanRestorer, &peerConnector,
+		ctx, packedMulti, keyRing, &chanRestorer, &peerConnector,
 	)
 	require.ErrorIs(t, err, errRestoreFail)
 
@@ -181,7 +183,7 @@ func TestUnpackAndRecoverMulti(t *testing.T) {
 	// well
 	peerConnector.fail = true
 	_, err = UnpackAndRecoverMulti(
-		packedMulti, keyRing, &chanRestorer, &peerConnector,
+		ctx, packedMulti, keyRing, &chanRestorer, &peerConnector,
 	)
 	require.ErrorIs(t, err, errConnectFail)
 
@@ -191,7 +193,7 @@ func TestUnpackAndRecoverMulti(t *testing.T) {
 	// Next, we'll ensure that if all the interfaces function as expected,
 	// then the channels will properly be unpacked and restored.
 	numRestored, err := UnpackAndRecoverMulti(
-		packedMulti, keyRing, &chanRestorer, &peerConnector,
+		ctx, packedMulti, keyRing, &chanRestorer, &peerConnector,
 	)
 	require.NoError(t, err)
 	require.EqualValues(t, numSingles, numRestored)
@@ -208,7 +210,7 @@ func TestUnpackAndRecoverMulti(t *testing.T) {
 	// If we modify the keyRing, then unpacking should fail.
 	keyRing.Fail = true
 	_, err = UnpackAndRecoverMulti(
-		packedMulti, keyRing, &chanRestorer, &peerConnector,
+		ctx, packedMulti, keyRing, &chanRestorer, &peerConnector,
 	)
 	require.ErrorContains(t, err, "fail")
 

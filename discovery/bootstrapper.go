@@ -52,10 +52,9 @@ type NetworkPeerBootstrapper interface {
 // bootstrapper will be queried successively until the target amount is met. If
 // the ignore map is populated, then the bootstrappers will be instructed to
 // skip those nodes.
-func MultiSourceBootstrap(ignore map[autopilot.NodeID]struct{}, numAddrs uint32,
+func MultiSourceBootstrap(ctx context.Context,
+	ignore map[autopilot.NodeID]struct{}, numAddrs uint32,
 	bootstrappers ...NetworkPeerBootstrapper) ([]*lnwire.NetAddress, error) {
-
-	ctx := context.TODO()
 
 	// We'll randomly shuffle our bootstrappers before querying them in
 	// order to avoid from querying the same bootstrapper method over and

@@ -114,6 +114,17 @@ func FuzzAnnounceSignatures(f *testing.F) {
 	})
 }
 
+func FuzzAnnounceSignatures2(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Prefix with MsgAnnounceSignatures2.
+		data = prefixWithMsgType(data, MsgAnnounceSignatures2)
+
+		// Pass the message into our general fuzz harness for wire
+		// messages!
+		harness(t, data)
+	})
+}
+
 func FuzzChannelAnnouncement(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgChannelAnnouncement.
@@ -122,6 +133,51 @@ func FuzzChannelAnnouncement(f *testing.F) {
 		// Pass the message into our general fuzz harness for wire
 		// messages!
 		harness(t, data)
+	})
+}
+
+func FuzzChannelAnnouncement2(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Prefix with MsgChannelAnnouncement2.
+		data = prefixWithMsgType(data, MsgChannelAnnouncement2)
+
+		// Because require.Equal considers nil maps and empty maps
+		// to be non-equal, we must manually compare Features field
+		// rather than using the harness.
+
+		if len(data) > MaxSliceLength {
+			return
+		}
+
+		r := bytes.NewReader(data)
+		msg, err := ReadMessage(r, 0)
+		if err != nil {
+			return
+		}
+
+		// We will serialize the message into a new bytes buffer.
+		var b bytes.Buffer
+		_, err = WriteMessage(&b, msg, 0)
+		require.NoError(t, err)
+
+		// Deserialize the message from the serialized bytes buffer, and
+		// then assert that the original message is equal to the newly
+		// deserialized message.
+		newMsg, err := ReadMessage(&b, 0)
+		require.NoError(t, err)
+
+		require.IsType(t, &ChannelAnnouncement2{}, msg)
+		first, _ := msg.(*ChannelAnnouncement2)
+		require.IsType(t, &ChannelAnnouncement2{}, newMsg)
+		second, _ := newMsg.(*ChannelAnnouncement2)
+
+		// We can't use require.Equal for Features, since we consider
+		// the empty map and nil to be equivalent.
+		require.True(t, first.Features.Val.Equals(&second.Features.Val))
+		first.Features.Val = *NewRawFeatureVector()
+		second.Features.Val = *NewRawFeatureVector()
+
+		require.Equal(t, first, second)
 	})
 }
 
@@ -140,6 +196,17 @@ func FuzzChannelUpdate(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgChannelUpdate.
 		data = prefixWithMsgType(data, MsgChannelUpdate)
+
+		// Pass the message into our general fuzz harness for wire
+		// messages!
+		harness(t, data)
+	})
+}
+
+func FuzzChannelUpdate2(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Prefix with MsgChannelUpdate2.
+		data = prefixWithMsgType(data, MsgChannelUpdate2)
 
 		// Pass the message into our general fuzz harness for wire
 		// messages!
@@ -730,6 +797,37 @@ func FuzzConvertFixedSignature(f *testing.F) {
 	})
 }
 
+// FuzzConvertFixedSchnorrSignature tests that conversion of fixed 64-byte
+// Schnorr signatures to and from the btcec format does not panic or mutate the
+// signatures.
+func FuzzConvertFixedSchnorrSignature(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var sig Sig
+		if len(data) > len(sig.bytes[:]) {
+			return
+		}
+		copy(sig.bytes[:], data)
+		sig.ForceSchnorr()
+
+		btcecSig, err := sig.ToSignature()
+		if err != nil {
+			return
+		}
+
+		sig2, err := NewSigFromSignature(btcecSig)
+		require.NoError(t, err, "failed to parse signature")
+
+		btcecSig2, err := sig2.ToSignature()
+		require.NoError(
+			t, err, "failed to reconvert signature to btcec format",
+		)
+
+		btcecBytes := btcecSig.Serialize()
+		btcecBytes2 := btcecSig2.Serialize()
+		require.Equal(t, btcecBytes, btcecBytes2, "signature mismatch")
+	})
+}
+
 // prefixWithFailCode adds a failure code prefix to data.
 func prefixWithFailCode(data []byte, code FailCode) []byte {
 	var codeBytes [2]byte
@@ -928,6 +1026,12 @@ func FuzzInvalidOnionPayload(f *testing.F) {
 	})
 }
 
+func FuzzFailInvalidBlinding(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeInvalidBlinding)
+	})
+}
+
 func FuzzClosingSig(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with ClosingSig.
@@ -947,5 +1051,32 @@ func FuzzClosingComplete(f *testing.F) {
 		// Pass the message into our general fuzz harness for wire
 		// messages!
 		harness(t, data)
+	})
+}
+
+// FuzzFee tests that decoding and re-encoding a Fee TLV does not mutate it.
+func FuzzFee(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 8 {
+			return
+		}
+
+		var fee Fee
+		var buf [8]byte
+		r := bytes.NewReader(data)
+
+		if err := feeDecoder(r, &fee, &buf, 8); err != nil {
+			return
+		}
+
+		var b bytes.Buffer
+		require.NoError(t, feeEncoder(&b, &fee, &buf))
+
+		// Use bytes.Equal instead of require.Equal so that nil and
+		// empty slices are considered equal.
+		require.True(
+			t, bytes.Equal(data, b.Bytes()), "%v != %v", data,
+			b.Bytes(),
+		)
 	})
 }

@@ -2992,6 +2992,10 @@ func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Blockbeat) error {
 	// Notify we've processed the block.
 	defer c.NotifyBlockProcessed(beat, nil)
 
+	// Perform a non-blocking read on the close events in case the channel
+	// is closed in this blockbeat.
+	c.receiveAndProcessCloseEvent()
+
 	// Try to advance the state if we are in StateDefault.
 	if c.state == StateDefault {
 		// Now that a new block has arrived, we'll attempt to advance
@@ -3008,6 +3012,60 @@ func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Blockbeat) error {
 	c.launchResolvers()
 
 	return nil
+}
+
+// receiveAndProcessCloseEvent does a non-blocking read on all the channel
+// close event channels. If an event is received, it will be further processed.
+func (c *ChannelArbitrator) receiveAndProcessCloseEvent() {
+	select {
+	// Received a coop close event, we now mark the channel as resolved and
+	// exit.
+	case closeInfo := <-c.cfg.ChainEvents.CooperativeClosure:
+		err := c.handleCoopCloseEvent(closeInfo)
+		if err != nil {
+			log.Errorf("Failed to handle coop close: %v", err)
+			return
+		}
+
+	// We have broadcast our commitment, and it is now confirmed onchain.
+	case closeInfo := <-c.cfg.ChainEvents.LocalUnilateralClosure:
+		if c.state != StateCommitmentBroadcasted {
+			log.Errorf("ChannelArbitrator(%v): unexpected "+
+				"local on-chain channel close", c.cfg.ChanPoint)
+		}
+
+		err := c.handleLocalForceCloseEvent(closeInfo)
+		if err != nil {
+			log.Errorf("Failed to handle local force close: %v",
+				err)
+
+			return
+		}
+
+	// The remote party has broadcast the commitment. We'll examine our
+	// state to determine if we need to act at all.
+	case uniClosure := <-c.cfg.ChainEvents.RemoteUnilateralClosure:
+		err := c.handleRemoteForceCloseEvent(uniClosure)
+		if err != nil {
+			log.Errorf("Failed to handle remote force close: %v",
+				err)
+
+			return
+		}
+
+	// The remote has breached the channel! We now launch the breach
+	// contract resolvers.
+	case breachInfo := <-c.cfg.ChainEvents.ContractBreach:
+		err := c.handleContractBreach(breachInfo)
+		if err != nil {
+			log.Errorf("Failed to handle contract breach: %v", err)
+			return
+		}
+
+	default:
+		log.Infof("ChannelArbitrator(%v) no close event",
+			c.cfg.ChanPoint)
+	}
 }
 
 // Name returns a human-readable string for this subsystem.

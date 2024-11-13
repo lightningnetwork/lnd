@@ -1371,3 +1371,42 @@ func (c *ChainArbitrator) loadPendingCloseChannels() error {
 
 	return nil
 }
+
+// RedispatchBlockbeat resends the current blockbeat to the channels specified
+// by the chanPoints. It is used when a channel is added to the chain
+// arbitrator after it has been started, e.g., during the channel restore
+// process.
+func (c *ChainArbitrator) RedispatchBlockbeat(chanPoints []wire.OutPoint) {
+	// Get the current blockbeat.
+	beat := c.beat
+
+	// Prepare two sets of consumers.
+	channels := make([]chainio.Consumer, 0, len(chanPoints))
+	watchers := make([]chainio.Consumer, 0, len(chanPoints))
+
+	// Read the active channels in a lock.
+	c.Lock()
+	for _, op := range chanPoints {
+		if channel, ok := c.activeChannels[op]; ok {
+			channels = append(channels, channel)
+		}
+
+		if watcher, ok := c.activeWatchers[op]; ok {
+			watchers = append(watchers, watcher)
+		}
+	}
+	c.Unlock()
+
+	// Iterate all the copied watchers and send the blockbeat to them.
+	err := chainio.DispatchConcurrent(beat, watchers)
+	if err != nil {
+		log.Errorf("Notify blockbeat failed: %v", err)
+	}
+
+	// Iterate all the copied channels and send the blockbeat to them.
+	err = chainio.DispatchConcurrent(beat, channels)
+	if err != nil {
+		// Shutdown lnd if there's an error processing the block.
+		log.Errorf("Notify blockbeat failed: %v", err)
+	}
+}

@@ -127,7 +127,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 
 	// If we don't have a success transaction, then this means that this is
 	// an output on the remote party's commitment transaction.
-	if h.htlcResolution.SignedSuccessTx == nil {
+	if h.isRemoteCommitOutput() {
 		return h.resolveRemoteCommitOutput()
 	}
 
@@ -176,7 +176,7 @@ func (h *htlcSuccessResolver) broadcastSuccessTx() (
 	// and attach fees at will. We let the sweeper handle this job.  We use
 	// the checkpointed outputIncubating field to determine if we already
 	// swept the HTLC output into the second level transaction.
-	if h.htlcResolution.SignDetails != nil {
+	if h.isZeroFeeOutput() {
 		return h.broadcastReSignedSuccessTx()
 	}
 
@@ -236,12 +236,9 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (*wire.OutPoint,
 
 	// We will have to let the sweeper re-sign the success tx and wait for
 	// it to confirm, if we haven't already.
-	isTaproot := txscript.IsPayToTaproot(
-		h.htlcResolution.SweepSignDesc.Output.PkScript,
-	)
 	if !h.outputIncubating {
 		var secondLevelInput input.HtlcSecondLevelAnchorInput
-		if isTaproot {
+		if h.isTaproot() {
 			//nolint:ll
 			secondLevelInput = input.MakeHtlcSecondLevelSuccessTaprootInput(
 				h.htlcResolution.SignedSuccessTx,
@@ -371,7 +368,7 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (*wire.OutPoint,
 	// Let the sweeper sweep the second-level output now that the
 	// CSV/CLTV locks have expired.
 	var witType input.StandardWitnessType
-	if isTaproot {
+	if h.isTaproot() {
 		witType = input.TaprootHtlcAcceptedSuccessSecondLevel
 	} else {
 		witType = input.HtlcAcceptedSuccessSecondLevel
@@ -421,16 +418,12 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (*wire.OutPoint,
 func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
 	ContractResolver, error) {
 
-	isTaproot := txscript.IsPayToTaproot(
-		h.htlcResolution.SweepSignDesc.Output.PkScript,
-	)
-
 	// Before we can craft out sweeping transaction, we need to
 	// create an input which contains all the items required to add
 	// this input to a sweeping transaction, and generate a
 	// witness.
 	var inp input.Input
-	if isTaproot {
+	if h.isTaproot() {
 		inp = lnutils.Ptr(input.MakeTaprootHtlcSucceedInput(
 			&h.htlcResolution.ClaimOutpoint,
 			&h.htlcResolution.SweepSignDesc,
@@ -712,3 +705,29 @@ func (h *htlcSuccessResolver) SupplementDeadline(_ fn.Option[int32]) {
 // A compile time assertion to ensure htlcSuccessResolver meets the
 // ContractResolver interface.
 var _ htlcContractResolver = (*htlcSuccessResolver)(nil)
+
+// isRemoteCommitOutput returns a bool to indicate whether the htlc output is
+// on the remote commitment.
+func (h *htlcSuccessResolver) isRemoteCommitOutput() bool {
+	// If we don't have a success transaction, then this means that this is
+	// an output on the remote party's commitment transaction.
+	return h.htlcResolution.SignedSuccessTx == nil
+}
+
+// isZeroFeeOutput returns a boolean indicating whether the htlc output is from
+// a anchor-enabled channel, which uses the sighash SINGLE|ANYONECANPAY.
+func (h *htlcSuccessResolver) isZeroFeeOutput() bool {
+	// If we have non-nil SignDetails, this means it has a 2nd level HTLC
+	// transaction that is signed using sighash SINGLE|ANYONECANPAY (the
+	// case for anchor type channels). In this case we can re-sign it and
+	// attach fees at will.
+	return h.htlcResolution.SignedSuccessTx != nil &&
+		h.htlcResolution.SignDetails != nil
+}
+
+// isTaproot returns true if the resolver is for a taproot output.
+func (h *htlcSuccessResolver) isTaproot() bool {
+	return txscript.IsPayToTaproot(
+		h.htlcResolution.SweepSignDesc.Output.PkScript,
+	)
+}

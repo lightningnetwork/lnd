@@ -1,4 +1,4 @@
-package graphsession
+package session
 
 import (
 	"fmt"

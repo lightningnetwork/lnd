@@ -249,6 +249,15 @@ func (a ArbitratorState) String() string {
 	}
 }
 
+// IsContractClosed returns a bool to indicate whether the closing/breaching tx
+// has been confirmed onchain. If the state is StateContractClosed,
+// StateWaitingFullResolution, or StateFullyResolved, it means the contract has
+// been closed and all related contracts have been launched.
+func (a ArbitratorState) IsContractClosed() bool {
+	return a == StateContractClosed || a == StateWaitingFullResolution ||
+		a == StateFullyResolved
+}
+
 // resolverType is an enum that enumerates the various types of resolvers. When
 // writing resolvers to disk, we prepend this to the raw bytes stored. This
 // allows us to properly decode the resolver into the proper type.

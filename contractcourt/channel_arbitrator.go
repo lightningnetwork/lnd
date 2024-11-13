@@ -382,7 +382,7 @@ type ChannelArbitrator struct {
 	// upon start up to decide which actions to take.
 	state ArbitratorState
 
-	wg   sync.WaitGroup
+	wg   *fn.GoroutineManager
 	quit chan struct{}
 }
 
@@ -413,6 +413,7 @@ func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 		activeHTLCs:      htlcSets,
 		unmergedSet:      unmerged,
 		cfg:              cfg,
+		wg:               fn.NewGoroutineManager(context.Background()),
 		quit:             make(chan struct{}),
 	}
 }
@@ -570,9 +571,9 @@ func (c *ChannelArbitrator) Start(state *chanArbStartState) error {
 		}
 	}
 
-	c.wg.Add(1)
-	go c.channelAttendant(bestHeight)
-	return nil
+	return c.wg.Go(func(ctx context.Context) {
+		c.channelAttendant(bestHeight)
+	})
 }
 
 // maybeAugmentTaprootResolvers will update the contract resolution information
@@ -844,7 +845,7 @@ func (c *ChannelArbitrator) Stop() error {
 	c.activeResolversLock.RUnlock()
 
 	close(c.quit)
-	c.wg.Wait()
+	c.wg.Stop()
 
 	return nil
 }
@@ -1568,8 +1569,13 @@ func (c *ChannelArbitrator) launchResolvers(resolvers []ContractResolver,
 
 	c.activeResolvers = resolvers
 	for _, contract := range resolvers {
-		c.wg.Add(1)
-		go c.resolveContract(contract, immediate)
+		err := c.wg.Go(func(ctx context.Context) {
+			c.resolveContract(contract, immediate)
+		})
+		if err != nil {
+			log.Criticalf("ChannelArbitrator(%v): unable to "+
+				"launch resolver: %v", c.cfg.ChanPoint, err)
+		}
 	}
 }
 

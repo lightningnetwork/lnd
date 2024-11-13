@@ -506,6 +506,8 @@ func noiseDial(idKey keychain.SingleKeyECDH,
 
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
+//
+//nolint:funlen
 func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	dbs *DatabaseInstances, cc *chainreg.ChainControl,
 	nodeKeyDesc *keychain.KeyDescriptor,

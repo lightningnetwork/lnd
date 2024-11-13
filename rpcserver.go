@@ -4655,6 +4655,8 @@ func encodeCustomChanData(lnChan *channeldb.OpenChannel) ([]byte, error) {
 }
 
 // createRPCOpenChannel creates an *lnrpc.Channel from the *channeldb.Channel.
+//
+//nolint:funlen
 func createRPCOpenChannel(ctx context.Context, r *rpcServer,
 	dbChannel *channeldb.OpenChannel, isActive, peerAliasLookup bool) (
 	*lnrpc.Channel, error) {

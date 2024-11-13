@@ -18,12 +18,12 @@ func prefixWithMsgType(data []byte, prefix MessageType) []byte {
 	return data
 }
 
-// harness performs the actual fuzz testing of the appropriate wire message.
-// This function will check that the passed-in message passes wire length
-// checks, is a valid message once deserialized, and passes a sequence of
+// wireMsgHarness performs the actual fuzz testing of the appropriate wire
+// message. This function will check that the passed-in message passes wire
+// length checks, is a valid message once deserialized, and passes a sequence of
 // serialization and deserialization checks. Returns an int that determines
 // whether the input is unique or not.
-func harness(t *testing.T, data []byte, emptyMsg Message) {
+func wireMsgHarness(t *testing.T, data []byte, emptyMsg Message) {
 	t.Helper()
 
 	// Create a reader with the byte array.
@@ -64,9 +64,7 @@ func FuzzCreateSessionReply(f *testing.F) {
 		// check if the max payload constraint is violated.
 		emptyMsg := CreateSessionReply{}
 
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data, &emptyMsg)
+		wireMsgHarness(t, data, &emptyMsg)
 	})
 }
 
@@ -79,9 +77,7 @@ func FuzzCreateSession(f *testing.F) {
 		// check if the max payload constraint is violated.
 		emptyMsg := CreateSession{}
 
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data, &emptyMsg)
+		wireMsgHarness(t, data, &emptyMsg)
 	})
 }
 
@@ -94,9 +90,7 @@ func FuzzDeleteSessionReply(f *testing.F) {
 		// check if the max payload constraint is violated.
 		emptyMsg := DeleteSessionReply{}
 
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data, &emptyMsg)
+		wireMsgHarness(t, data, &emptyMsg)
 	})
 }
 
@@ -109,9 +103,7 @@ func FuzzDeleteSession(f *testing.F) {
 		// check if the max payload constraint is violated.
 		emptyMsg := DeleteSession{}
 
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data, &emptyMsg)
+		wireMsgHarness(t, data, &emptyMsg)
 	})
 }
 
@@ -124,9 +116,7 @@ func FuzzError(f *testing.F) {
 		// check if the max payload constraint is violated.
 		emptyMsg := Error{}
 
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data, &emptyMsg)
+		wireMsgHarness(t, data, &emptyMsg)
 	})
 }
 
@@ -139,9 +129,7 @@ func FuzzInit(f *testing.F) {
 		// check if the max payload constraint is violated.
 		emptyMsg := Init{}
 
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data, &emptyMsg)
+		wireMsgHarness(t, data, &emptyMsg)
 	})
 }
 
@@ -154,9 +142,7 @@ func FuzzStateUpdateReply(f *testing.F) {
 		// check if the max payload constraint is violated.
 		emptyMsg := StateUpdateReply{}
 
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data, &emptyMsg)
+		wireMsgHarness(t, data, &emptyMsg)
 	})
 }
 
@@ -169,8 +155,6 @@ func FuzzStateUpdate(f *testing.F) {
 		// check if the max payload constraint is violated.
 		emptyMsg := StateUpdate{}
 
-		// Pass the message into our general fuzz harness for wire
-		// messages!
-		harness(t, data, &emptyMsg)
+		wireMsgHarness(t, data, &emptyMsg)
 	})
 }

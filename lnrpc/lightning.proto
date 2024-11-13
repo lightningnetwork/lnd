@@ -3489,6 +3489,9 @@ message ChannelEdge {
 
     // Custom channel announcement tlv records.
     map<uint64, bytes> custom_records = 9;
+
+    // Whether the channel is an advertised channel.
+    bool announced = 10;
 }
 
 message ChannelGraphRequest {

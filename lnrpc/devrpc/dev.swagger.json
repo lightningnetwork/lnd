@@ -143,6 +143,10 @@
             "format": "byte"
           },
           "description": "Custom channel announcement tlv records."
+        },
+        "announced": {
+          "type": "boolean",
+          "description": "Whether the channel is an advertised channel."
         }
       },
       "description": "A fully authenticated channel along with all its unique attributes.\nOnce an authenticated channel announcement has been processed on the network,\nthen an instance of ChannelEdgeInfo encapsulating the channels attributes is\nstored. The other portions relevant to routing policy of a channel are stored\nwithin a ChannelEdgePolicy for each direction of the channel."

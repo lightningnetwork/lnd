@@ -578,9 +578,6 @@ func (c *ChainArbitrator) Start(beat chainio.Blockbeat) error {
 	// Set the current beat.
 	c.beat = beat
 
-	log.Infof("ChainArbitrator starting at height %d with budget=[%v]",
-		&c.cfg.Budget, c.beat.Height())
-
 	// First, we'll fetch all the channels that are still open, in order to
 	// collect them within our set of active contracts.
 	if err := c.loadOpenChannels(); err != nil {
@@ -689,6 +686,11 @@ func (c *ChainArbitrator) Start(beat chainio.Blockbeat) error {
 		defer c.wg.Done()
 		c.dispatchBlocks()
 	}()
+
+	log.Infof("ChainArbitrator starting at height %d with %d chain "+
+		"watchers, %d channel arbitrators, and budget config=[%v]",
+		c.beat.Height(), len(c.activeWatchers), len(c.activeChannels),
+		&c.cfg.Budget)
 
 	// TODO(roasbeef): eventually move all breach watching here
 
@@ -1061,8 +1063,8 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 
 	chanPoint := newChan.FundingOutpoint
 
-	log.Infof("Creating new ChannelArbitrator for ChannelPoint(%v)",
-		chanPoint)
+	log.Infof("Creating new chainWatcher and ChannelArbitrator for "+
+		"ChannelPoint(%v)", chanPoint)
 
 	// If we're already watching this channel, then we'll ignore this
 	// request.

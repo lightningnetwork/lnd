@@ -54,6 +54,11 @@
 
 * Make sure the RPC clients used to access the chain backend are [properly
   shutdown](https://github.com/lightningnetwork/lnd/pull/9261).
+  
+* [Start channel arbitrators concurrently](
+  https://github.com/lightningnetwork/lnd/pull/9262) to prevent potential
+  deadlocks when lnd depends on external components (e.g. aux components, hooks)
+  which might require other lnd subsystems to be fully started.
 
 # New Features
 ## Functional Enhancements

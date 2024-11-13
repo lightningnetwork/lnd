@@ -1320,6 +1320,107 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	}
 }
 
+func testListTransactionDetailsOffset(miner *rpctest.Harness,
+	alice, _ *lnwallet.LightningWallet, t *testing.T) {
+
+	// Create 5 new outputs spendable by the wallet.
+	const numTxns = 5
+	const outputAmt = btcutil.SatoshiPerBitcoin
+	isOurAddress := make(map[string]bool)
+	txids := make(map[chainhash.Hash]struct{})
+	for i := 0; i < numTxns; i++ {
+		addr, err := alice.NewAddress(
+			lnwallet.WitnessPubKey, false,
+			lnwallet.DefaultAccountName,
+		)
+		require.NoError(t, err)
+
+		isOurAddress[addr.EncodeAddress()] = true
+		script, err := txscript.PayToAddrScript(addr)
+		require.NoError(t, err)
+
+		output := &wire.TxOut{
+			Value:    outputAmt,
+			PkScript: script,
+		}
+		txid, err := miner.SendOutputs([]*wire.TxOut{output}, 2500)
+		require.NoError(t, err)
+		txids[*txid] = struct{}{}
+	}
+
+	// Get the miner's current best block height before we mine blocks.
+	_, startHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err, "cannot get best block")
+
+	// Generate 10 blocks to mine all the transactions created above.
+	const numBlocksMined = 10
+	_, err = miner.Client.Generate(numBlocksMined)
+	require.NoError(t, err, "unable to mine blocks")
+
+	// Our new best block height should be our start height + the number of
+	// blocks we just mined.
+	chainTip := startHeight + numBlocksMined
+
+	err = waitForWalletSync(miner, alice)
+	require.NoError(t, err, "Couldn't sync Alice's wallet")
+
+	// Query for transactions, setting max_transactions to 5. We expect 5
+	// transactions to be returned.
+	txDetails, firstIdx, lastIdx, err := alice.ListTransactionDetails(
+		startHeight, chainTip, "", 0, 5,
+	)
+	require.NoError(t, err)
+	require.Len(t, txDetails, 5)
+	require.EqualValues(t, 0, firstIdx)
+	require.EqualValues(t, 4, lastIdx)
+
+	// Query for transactions, setting max_transactions to less than the
+	// number of transactions we have (5).
+	txDetails, _, _, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", 0, 1,
+	)
+	require.NoError(t, err)
+	require.Len(t, txDetails, 1)
+
+	// Query for transactions, setting indexOffset to 5 (equal to number
+	// of transactions we have) and max_transactions to 0.
+	txDetails, _, _, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", 5, 0,
+	)
+	require.NoError(t, err)
+	require.Len(t, txDetails, 0)
+
+	// Query for transactions, setting indexOffset to 4 (edge offset) and
+	// max_transactions to 0.
+	txDetails, _, _, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", 4, 0,
+	)
+	require.NoError(t, err)
+	require.Len(t, txDetails, 1)
+
+	// Query for transactions, setting max_transactions to 0.
+	txDetails, _, _, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", 0, 0,
+	)
+	require.NoError(t, err)
+	require.Len(t, txDetails, 5)
+
+	// Query for transactions, more than we have in the wallet (5).
+	txDetails, _, _, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", 0, 10,
+	)
+	require.NoError(t, err)
+	require.Len(t, txDetails, 5)
+
+	// Query for transactions where the offset is greater than the number
+	// of transactions available.
+	txDetails, _, _, err = alice.ListTransactionDetails(
+		startHeight, chainTip, "", 10, 100,
+	)
+	require.NoError(t, err)
+	require.Len(t, txDetails, 0)
+}
+
 func testTransactionSubscriptions(miner *rpctest.Harness,
 	alice, _ *lnwallet.LightningWallet, t *testing.T) {
 
@@ -2817,6 +2918,10 @@ var walletTests = []walletTestCase{
 	{
 		name: "transaction details",
 		test: testListTransactionDetails,
+	},
+	{
+		name: "transaction details offset",
+		test: testListTransactionDetailsOffset,
 	},
 	{
 		name: "get transaction details",

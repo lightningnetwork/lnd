@@ -209,6 +209,16 @@ The underlying functionality between those two options remain the same.
   it with an external graph source rather than requiring it to first sync its 
   own graph. 
 
+* [Add an RPC implementation of the `GraphSource` 
+  interface](https://github.com/lightningnetwork/lnd/pull/9265). With this PR, 
+  users can now provide an external graph source to LND using the new 
+  `--remotegraph` config options. These can be combined with the new
+  `--gossip.no-sync` option to run a node that does not sync gossip and uses a 
+  remote LND node to provide it with network gossip data. If this configuration 
+  is being used, it is recommended to set the 
+  `--caches.rpc-graph-cache-duration` to a non-zero duration (zero is the 
+  default) so that certain calls to the remote node are cached for some time.
+
 ## Tooling and Documentation
 
 * [Improved `lncli create` command help text](https://github.com/lightningnetwork/lnd/pull/9077)

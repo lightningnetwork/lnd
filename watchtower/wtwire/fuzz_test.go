@@ -21,8 +21,7 @@ func prefixWithMsgType(data []byte, prefix MessageType) []byte {
 // wireMsgHarness performs the actual fuzz testing of the appropriate wire
 // message. This function will check that the passed-in message passes wire
 // length checks, is a valid message once deserialized, and passes a sequence of
-// serialization and deserialization checks. Returns an int that determines
-// whether the input is unique or not.
+// serialization and deserialization checks.
 func wireMsgHarness(t *testing.T, data []byte, emptyMsg Message) {
 	t.Helper()
 

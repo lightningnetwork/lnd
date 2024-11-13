@@ -435,6 +435,7 @@ var shouldIncludeChannelTestCases = []struct {
 }}
 
 func TestShouldIncludeChannel(t *testing.T) {
+	ctx := context.Background()
 	for _, tc := range shouldIncludeChannelTestCases {
 		tc := tc
 
@@ -456,7 +457,7 @@ func TestShouldIncludeChannel(t *testing.T) {
 			}
 
 			hopHint, remoteBalance, include := shouldIncludeChannel(
-				cfg, tc.channel, tc.alreadyIncluded,
+				ctx, cfg, tc.channel, tc.alreadyIncluded,
 			)
 
 			require.Equal(t, tc.include, include)
@@ -868,6 +869,7 @@ func setupMockTwoChannels(h *hopHintsConfigMock) (lnwire.ChannelID,
 }
 
 func TestPopulateHopHints(t *testing.T) {
+	ctx := context.Background()
 	for _, tc := range populateHopHintsTestCases {
 		tc := tc
 
@@ -890,7 +892,7 @@ func TestPopulateHopHints(t *testing.T) {
 				MaxHopHints:           tc.maxHopHints,
 			}
 			hopHints, err := PopulateHopHints(
-				cfg, tc.amount, tc.forcedHints,
+				ctx, cfg, tc.amount, tc.forcedHints,
 			)
 			require.NoError(t, err)
 			// We shuffle the elements in the hop hint list so we

@@ -521,7 +521,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 		//nolint:lll
 		paths, err := blindedpath.BuildBlindedPaymentPaths(
-			&blindedpath.BuildBlindedPathCfg{
+			ctx, &blindedpath.BuildBlindedPathCfg{
 				FindRoutes:              cfg.QueryBlindedRoutes,
 				FetchChannelEdgesByID:   cfg.Graph.FetchChannelEdgesByID,
 				FetchOurOpenChannels:    cfg.ChanDB.FetchAllOpenChannels,

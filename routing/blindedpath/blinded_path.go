@@ -113,7 +113,7 @@ type BuildBlindedPathCfg struct {
 
 // BuildBlindedPaymentPaths uses the passed config to construct a set of blinded
 // payment paths that can be added to the invoice.
-func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) (
+func BuildBlindedPaymentPaths(ctx context.Context, cfg *BuildBlindedPathCfg) (
 	[]*zpay32.BlindedPaymentPath, error) {
 
 	// Find some appropriate routes for the value to be routed. This will
@@ -143,7 +143,7 @@ func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) (
 		// of hops is met.
 		candidatePath.padWithDummyHops(cfg.MinNumHops)
 
-		path, err := buildBlindedPaymentPath(cfg, candidatePath)
+		path, err := buildBlindedPaymentPath(ctx, cfg, candidatePath)
 		if errors.Is(err, errInvalidBlindedPath) {
 			log.Debugf("Not using route (%s) as a blinded path "+
 				"since it resulted in an invalid blinded path",
@@ -171,10 +171,10 @@ func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) (
 
 // buildBlindedPaymentPath takes a route from an introduction node to this node
 // and uses the given config to convert it into a blinded payment path.
-func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
-	*zpay32.BlindedPaymentPath, error) {
+func buildBlindedPaymentPath(ctx context.Context, cfg *BuildBlindedPathCfg,
+	path *candidatePath) (*zpay32.BlindedPaymentPath, error) {
 
-	hops, minHTLC, maxHTLC, err := collectRelayInfo(cfg, path)
+	hops, minHTLC, maxHTLC, err := collectRelayInfo(ctx, cfg, path)
 	if err != nil {
 		return nil, fmt.Errorf("could not collect blinded path relay "+
 			"info: %w", err)
@@ -355,8 +355,9 @@ type hopRelayInfo struct {
 // policy values. If there are no real hops (in other words we are the
 // introduction node), then we use some default routing values and we use the
 // average of our channel capacities for the MaxHTLC value.
-func collectRelayInfo(cfg *BuildBlindedPathCfg, path *candidatePath) (
-	[]*hopRelayInfo, lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
+func collectRelayInfo(ctx context.Context, cfg *BuildBlindedPathCfg,
+	path *candidatePath) ([]*hopRelayInfo, lnwire.MilliSatoshi,
+	lnwire.MilliSatoshi, error) {
 
 	var (
 		// The first pub key is that of the introduction node.
@@ -383,7 +384,7 @@ func collectRelayInfo(cfg *BuildBlindedPathCfg, path *candidatePath) (
 		// channel ID in the direction pointing away from the hopSource
 		// node.
 		policy, err := getNodeChannelPolicy(
-			cfg, hop.channelID, hopSource,
+			ctx, cfg, hop.channelID, hopSource,
 		)
 		if err != nil {
 			return nil, 0, 0, err
@@ -640,14 +641,12 @@ func buildFinalHopRouteData(node route.Vertex, pathID []byte,
 
 // getNodeChanPolicy fetches the routing policy info for the given channel and
 // node pair.
-func getNodeChannelPolicy(cfg *BuildBlindedPathCfg, chanID uint64,
-	nodeID route.Vertex) (*BlindedHopPolicy, error) {
+func getNodeChannelPolicy(ctx context.Context, cfg *BuildBlindedPathCfg,
+	chanID uint64, nodeID route.Vertex) (*BlindedHopPolicy, error) {
 
 	// Attempt to fetch channel updates for the given channel. We will have
 	// at most two updates for a given channel.
-	_, update1, update2, err := cfg.FetchChannelEdgesByID(
-		context.TODO(), chanID,
-	)
+	_, update1, update2, err := cfg.FetchChannelEdgesByID(ctx, chanID)
 	if err != nil {
 		return nil, err
 	}

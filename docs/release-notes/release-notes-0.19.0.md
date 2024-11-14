@@ -28,9 +28,13 @@
   does not contain a payment address.
   
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9033) where we
-  would not signal an error when trying to bump an non-anchor channel but
+  would not signal an error when trying to bump a non-anchor channel but
   instead report a successful cpfp registration although no fee bumping is
   possible for non-anchor channels anyways.
+
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9269) where a
+  negative fee limit for `SendPaymentV2` would lead to omitting the fee limit
+  check.
 
 * [Use the required route blinding 
   feature-bit](https://github.com/lightningnetwork/lnd/pull/9143) for invoices 
@@ -196,6 +200,7 @@ The underlying functionality between those two options remain the same.
 * CharlieZKSmith
 * Elle Mouton
 * George Tsagkarelis
+* hieblmi
 * Oliver Gugger
 * Pins
 * Viktor Tigerström

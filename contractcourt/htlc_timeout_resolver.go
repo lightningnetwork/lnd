@@ -548,9 +548,9 @@ func (h *htlcTimeoutResolver) sweepSecondLevelTx() error {
 	return err
 }
 
-// sendSecondLevelTxLegacy sends a second level timeout transaction to the utxo
-// nursery. This transaction uses the legacy SIGHASH_ALL flag.
-func (h *htlcTimeoutResolver) sendSecondLevelTxLegacy() error {
+// resolveSecondLevelTxLegacy sends a second level timeout transaction to the
+// utxo nursery. This transaction uses the legacy SIGHASH_ALL flag.
+func (h *htlcTimeoutResolver) resolveSecondLevelTxLegacy() error {
 	log.Debugf("%T(%v): incubating htlc output", h,
 		h.htlcResolution.ClaimOutpoint)
 
@@ -654,7 +654,7 @@ func (h *htlcTimeoutResolver) spendHtlcOutput() (
 	// commitment for a non-anchor channel, so we'll send it to the utxo
 	// nursery.
 	case h.isLegacyOutput() && !h.outputIncubating:
-		if err := h.sendSecondLevelTxLegacy(); err != nil {
+		if err := h.resolveSecondLevelTxLegacy(); err != nil {
 			log.Errorf("Sending timeout tx to nursery: %v", err)
 
 			return nil, err

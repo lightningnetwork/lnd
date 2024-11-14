@@ -160,7 +160,7 @@ const (
 // by the remote party. It'll extract the preimage, add it to the global cache,
 // and finally send the appropriate clean up message.
 func (h *htlcTimeoutResolver) claimCleanUp(
-	commitSpend *chainntnfs.SpendDetail) (ContractResolver, error) {
+	commitSpend *chainntnfs.SpendDetail) error {
 
 	// Depending on if this is our commitment or not, then we'll be looking
 	// for a different witness pattern.
@@ -195,7 +195,7 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 	// element, then we're actually on the losing side of a breach
 	// attempt...
 	case h.isTaproot() && len(spendingInput.Witness) == 1:
-		return nil, fmt.Errorf("breach attempt failed")
+		return fmt.Errorf("breach attempt failed")
 
 	// Otherwise, they'll be spending directly from our commitment output.
 	// In which case the witness stack looks like:
@@ -212,8 +212,8 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 
 	preimage, err := lntypes.MakePreimage(preimageBytes)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create pre-image from "+
-			"witness: %v", err)
+		return fmt.Errorf("unable to create pre-image from witness: %w",
+			err)
 	}
 
 	log.Infof("%T(%v): extracting preimage=%v from on-chain "+
@@ -235,7 +235,7 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 		HtlcIndex:  h.htlc.HtlcIndex,
 		PreImage:   &pre,
 	}); err != nil {
-		return nil, err
+		return err
 	}
 	h.resolved = true
 
@@ -250,7 +250,7 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 		SpendTxID:       commitSpend.SpenderTxHash,
 	}
 
-	return nil, h.Checkpoint(h, report)
+	return h.Checkpoint(h, report)
 }
 
 // chainDetailsToWatch returns the output and script which we use to watch for
@@ -448,7 +448,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 			"witness cache", h, h.htlc.RHash[:],
 			h.htlcResolution.ClaimOutpoint)
 
-		return h.claimCleanUp(commitSpend)
+		return nil, h.claimCleanUp(commitSpend)
 	}
 
 	// At this point, the second-level transaction is sufficiently

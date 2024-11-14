@@ -2,6 +2,7 @@ package fn
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -118,4 +119,39 @@ func TestGoroutineManagerStress(t *testing.T) {
 
 	// Wait for Stop to complete.
 	<-stopChan
+}
+
+// TestGoroutineManagerStopsStress launches many Stop() calls in parallel with a
+// task exiting. It attempts to catch a race condition between wg.Done() and
+// wg.Wait() calls. According to documentation of wg.Wait() this is acceptable,
+// therefore this test passes even with -race.
+func TestGoroutineManagerStopsStress(t *testing.T) {
+	t.Parallel()
+
+	m := NewGoroutineManager(context.Background())
+
+	// jobChan is used to make the task to finish.
+	jobChan := make(chan struct{})
+
+	// Start a task and wait inside it until we start calling Stop() method.
+	err := m.Go(func(ctx context.Context) {
+		<-jobChan
+	})
+	require.NoError(t, err)
+
+	// Now launch many gorotines calling Stop() method in parallel.
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.Stop()
+		}()
+	}
+
+	// Exit the task in parallel with Stop() calls.
+	close(jobChan)
+
+	// Wait until all the Stop() calls complete.
+	wg.Wait()
 }

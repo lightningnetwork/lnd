@@ -23,6 +23,9 @@ var (
 	ErrSatMsatMutualExclusive = errors.New(
 		"sat and msat arguments are mutually exclusive",
 	)
+
+	// ErrNegativeAmt is returned when a negative amount is specified.
+	ErrNegativeAmt = errors.New("amount cannot be negative")
 )
 
 // CalculateFeeLimit returns the fee limit in millisatoshis. If a percentage
@@ -54,6 +57,10 @@ func CalculateFeeLimit(feeLimit *FeeLimit,
 func UnmarshallAmt(amtSat, amtMsat int64) (lnwire.MilliSatoshi, error) {
 	if amtSat != 0 && amtMsat != 0 {
 		return 0, ErrSatMsatMutualExclusive
+	}
+
+	if amtSat < 0 || amtMsat < 0 {
+		return 0, ErrNegativeAmt
 	}
 
 	if amtSat != 0 {

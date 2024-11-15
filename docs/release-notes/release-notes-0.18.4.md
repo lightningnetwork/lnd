@@ -26,8 +26,15 @@
 # New Features
 
 The main channel state machine and database now allow for processing and storing
-custom Taproot script leaves, [allowing the implementation of custom channel
-types](https://github.com/lightningnetwork/lnd/pull/8960).
+custom Taproot script leaves, allowing the implementation of custom channel
+types in a series of changes:
+  * https://github.com/lightningnetwork/lnd/pull/9025
+  * https://github.com/lightningnetwork/lnd/pull/9030
+  * https://github.com/lightningnetwork/lnd/pull/9049
+  * https://github.com/lightningnetwork/lnd/pull/9072
+  * https://github.com/lightningnetwork/lnd/pull/9095
+  * https://github.com/lightningnetwork/lnd/pull/8960
+  * https://github.com/lightningnetwork/lnd/pull/9194
 
 ## Functional Enhancements
 
@@ -88,6 +95,10 @@ types](https://github.com/lightningnetwork/lnd/pull/8960).
 
 ## Breaking Changes
 ## Performance Improvements
+
+* [A new method](https://github.com/lightningnetwork/lnd/pull/9195)
+  `AssertTxnsNotInMempool` has been added to `lntest` package to allow batch
+  exclusion check in itest.
 
 # Technical and Architectural Updates
 ## BOLT Spec Updates

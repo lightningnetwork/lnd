@@ -752,7 +752,7 @@ justiceTxBroadcast:
 		}
 
 		return aux.NotifyBroadcast(
-			&bumpReq, finalTx.justiceTx, finalTx.fee,
+			&bumpReq, finalTx.justiceTx, finalTx.fee, nil,
 		)
 	})
 	if err != nil {
@@ -1158,6 +1158,11 @@ func (bo *breachedOutput) WitnessType() input.WitnessType {
 // signing to compute the witness.
 func (bo *breachedOutput) SignDesc() *input.SignDescriptor {
 	return &bo.signDesc
+}
+
+// Preimage returns the preimage that was used to create the breached output.
+func (bo *breachedOutput) Preimage() fn.Option[lntypes.Preimage] {
+	return fn.None[lntypes.Preimage]()
 }
 
 // CraftInputScript computes a valid witness that allows us to spend from the

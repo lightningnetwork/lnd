@@ -22,10 +22,6 @@
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/8857) to correctly 
   propagate mission control and debug level config values to the main LND config
   struct so that the GetDebugInfo response is accurate.
-
-* [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9134) that would 
-  cause a nil pointer dereference during the probing of a payment request that 
-  does not contain a payment address.
   
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9033) where we
   would not signal an error when trying to bump an non-anchor channel but
@@ -157,11 +153,7 @@ The underlying functionality between those two options remain the same.
 ## Breaking Changes
 ## Performance Improvements
 
-* Log rotation can now use ZSTD 
-
-* [A new method](https://github.com/lightningnetwork/lnd/pull/9195)
-  `AssertTxnsNotInMempool` has been added to `lntest` package to allow batch
-  exclusion check in itest.
+* Log rotation can now use ZSTD
 
 # Technical and Architectural Updates
 ## BOLT Spec Updates

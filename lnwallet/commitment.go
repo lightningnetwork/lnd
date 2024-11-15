@@ -1307,7 +1307,7 @@ func findOutputIndexesFromRemote(revocationPreimage *chainhash.Hash,
 		leafStore, func(a AuxLeafStore) fn.Result[CommitDiffAuxResult] {
 			return a.FetchLeavesFromCommit(
 				NewAuxChanState(chanState), chanCommit,
-				*keyRing,
+				*keyRing, lntypes.Remote,
 			)
 		},
 	).Unpack()

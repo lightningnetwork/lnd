@@ -207,16 +207,19 @@ ifeq ($(dbbackend),postgres)
 	# tables also helps prevent serialization conflicts by ensuring lookups
 	# lock only relevant rows in the index rather than the entire table.
 	docker run --name lnd-postgres -e POSTGRES_PASSWORD=postgres -p 6432:5432 -d postgres:13-alpine -N 1500 -c max_pred_locks_per_transaction=1024 -c max_locks_per_transaction=128 -c enable_seqscan=off
-	docker logs -f lnd-postgres &
+	docker logs -f lnd-postgres >itest/postgres.log 2>&1 &
 
 	# Wait for the instance to be started.
 	sleep $(POSTGRES_START_DELAY)
 endif
 
+clean-itest-logs:
+	rm -rf itest/*.log itest/.logs-*
+
 #? itest-only: Only run integration tests without re-building binaries
-itest-only: db-instance
+itest-only: clean-itest-logs db-instance
 	@$(call print, "Running integration tests with ${backend} backend.")
-	rm -rf itest/*.log itest/.logs-*; date
+	date
 	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_part.sh 0 1 $(SHUFFLE_SEED) $(TEST_FLAGS) $(ITEST_FLAGS) -test.v
 	$(COLLECT_ITEST_COVERAGE)
 
@@ -227,9 +230,9 @@ itest: build-itest itest-only
 itest-race: build-itest-race itest-only
 
 #? itest-parallel: Build and run integration tests in parallel mode, running up to ITEST_PARALLELISM test tranches in parallel (default 4)
-itest-parallel: build-itest db-instance
+itest-parallel: clean-itest-logs build-itest db-instance
 	@$(call print, "Running tests")
-	rm -rf itest/*.log itest/.logs-*; date
+	date
 	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_parallel.sh $(ITEST_PARALLELISM) $(NUM_ITEST_TRANCHES) $(SHUFFLE_SEED) $(TEST_FLAGS) $(ITEST_FLAGS)
 	$(COLLECT_ITEST_COVERAGE)
 

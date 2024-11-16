@@ -455,6 +455,7 @@ func (t *TxPublisher) createRBFCompliantTx(req *BumpRequest,
 			// The tx is valid, return the request ID.
 			requestID := t.storeRecord(
 				sweepCtx.tx, req, f, sweepCtx.fee,
+				sweepCtx.outpointToTxIndex,
 			)
 
 			log.Infof("Created tx %v for %v inputs: feerate=%v, "+
@@ -510,7 +511,8 @@ func (t *TxPublisher) createRBFCompliantTx(req *BumpRequest,
 
 // storeRecord stores the given record in the records map.
 func (t *TxPublisher) storeRecord(tx *wire.MsgTx, req *BumpRequest,
-	f FeeFunction, fee btcutil.Amount) uint64 {
+	f FeeFunction, fee btcutil.Amount,
+	outpointToTxIndex map[wire.OutPoint]int) uint64 {
 
 	// Increase the request counter.
 	//
@@ -520,10 +522,11 @@ func (t *TxPublisher) storeRecord(tx *wire.MsgTx, req *BumpRequest,
 
 	// Register the record.
 	t.records.Store(requestID, &monitorRecord{
-		tx:          tx,
-		req:         req,
-		feeFunction: f,
-		fee:         fee,
+		tx:                tx,
+		req:               req,
+		feeFunction:       f,
+		fee:               fee,
+		outpointToTxIndex: outpointToTxIndex,
 	})
 
 	return requestID

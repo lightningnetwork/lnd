@@ -727,19 +727,34 @@ func (c *ChainArbitrator) handleBlockbeat(beat chainio.Blockbeat) {
 
 	// Create a slice to record active channel arbitrator.
 	channels := make([]chainio.Consumer, 0, len(c.activeChannels))
+	watchers := make([]chainio.Consumer, 0, len(c.activeWatchers))
 
 	// Copy the active channels to the slice.
 	for _, channel := range c.activeChannels {
 		channels = append(channels, channel)
 	}
 
+	for _, watcher := range c.activeWatchers {
+		watchers = append(watchers, watcher)
+	}
+
 	c.Unlock()
+
+	// Iterate all the copied watchers and send the blockbeat to them.
+	err := chainio.DispatchConcurrent(beat, watchers)
+	if err != nil {
+		log.Errorf("Notify blockbeat for chainWatcher failed: %v", err)
+	}
 
 	// Iterate all the copied channels and send the blockbeat to them.
 	//
 	// NOTE: This method will timeout if the processing of blocks of the
 	// subsystems is too long (60s).
-	err := chainio.DispatchConcurrent(beat, channels)
+	err = chainio.DispatchConcurrent(beat, channels)
+	if err != nil {
+		log.Errorf("Notify blockbeat for ChannelArbitrator failed: %v",
+			err)
+	}
 
 	// Notify the chain arbitrator has processed the block.
 	c.NotifyBlockProcessed(beat, err)

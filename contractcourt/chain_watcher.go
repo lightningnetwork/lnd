@@ -536,7 +536,7 @@ func newChainSet(chanState *channeldb.OpenChannel) (*chainSet, error) {
 	localCommit, remoteCommit, err := chanState.LatestCommitments()
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch channel state for "+
-			"chan_point=%v", chanState.FundingOutpoint)
+			"chan_point=%v: %v", chanState.FundingOutpoint, err)
 	}
 
 	log.Tracef("ChannelPoint(%v): local_commit_type=%v, local_commit=%v",
@@ -610,56 +610,37 @@ func (c *chainWatcher) closeObserver() {
 	log.Infof("Close observer for ChannelPoint(%v) active",
 		c.cfg.chanState.FundingOutpoint)
 
-	// If this is a taproot channel, before we proceed, we want to ensure
-	// that the expected funding output has confirmed on chain.
-	if c.cfg.chanState.ChanType.IsTaproot() {
-		fundingPoint := c.cfg.chanState.FundingOutpoint
-
-		confNtfn, err := c.cfg.notifier.RegisterConfirmationsNtfn(
-			&fundingPoint.Hash, c.fundingPkScript, 1, c.heightHint,
-		)
-		if err != nil {
-			log.Warnf("unable to register for conf: %v", err)
-		}
-
-		log.Infof("Waiting for taproot ChannelPoint(%v) to confirm...",
-			c.cfg.chanState.FundingOutpoint)
-
+	for {
 		select {
-		case _, ok := <-confNtfn.Confirmed:
+		// A new block is received, we will check whether this block
+		// contains a spending tx that we are interested in.
+		case beat := <-c.BlockbeatChan:
+			log.Debugf("ChainWatcher(%v) received blockbeat %v",
+				c.cfg.chanState.FundingOutpoint, beat.Height())
+
+			// Process the block.
+			c.handleBlockbeat(beat)
+
+		// If the funding outpoint is spent, we now go ahead and handle
+		// it.
+		case spend, ok := <-c.fundingSpendNtfn.Spend:
 			// If the channel was closed, then this means that the
 			// notifier exited, so we will as well.
 			if !ok {
 				return
 			}
+
+			err := c.handleCommitSpend(spend)
+			if err != nil {
+				log.Errorf("Failed to handle commit spend: %v",
+					err)
+			}
+
+		// The chainWatcher has been signalled to exit, so we'll do so
+		// now.
 		case <-c.quit:
 			return
 		}
-	}
-
-	select {
-	// We've detected a spend of the channel onchain! Depending on the type
-	// of spend, we'll act accordingly, so we'll examine the spending
-	// transaction to determine what we should do.
-	//
-	// TODO(Roasbeef): need to be able to ensure this only triggers
-	// on confirmation, to ensure if multiple txns are broadcast, we
-	// act on the one that's timestamped
-	case commitSpend, ok := <-c.fundingSpendNtfn.Spend:
-		// If the channel was closed, then this means that the notifier
-		// exited, so we will as well.
-		if !ok {
-			return
-		}
-
-		err := c.handleCommitSpend(commitSpend)
-		if err != nil {
-			log.Errorf("Failed to handle commit spend: %v", err)
-		}
-
-	// The chainWatcher has been signalled to exit, so we'll do so now.
-	case <-c.quit:
-		return
 	}
 }
 
@@ -1451,4 +1432,102 @@ func (c *chainWatcher) handleCommitSpend(
 		commitTxBroadcast.TxHash(), c.cfg.chanState.FundingOutpoint)
 
 	return nil
+}
+
+// checkFundingSpend performs a non-blocking read on the spendNtfn channel to
+// check whether there's a commit spend already. Returns the spend details if
+// found.
+func (c *chainWatcher) checkFundingSpend() *chainntnfs.SpendDetail {
+	select {
+	// We've detected a spend of the channel onchain! Depending on the type
+	// of spend, we'll act accordingly, so we'll examine the spending
+	// transaction to determine what we should do.
+	//
+	// TODO(Roasbeef): need to be able to ensure this only triggers
+	// on confirmation, to ensure if multiple txns are broadcast, we
+	// act on the one that's timestamped
+	case spend, ok := <-c.fundingSpendNtfn.Spend:
+		// If the channel was closed, then this means that the notifier
+		// exited, so we will as well.
+		if !ok {
+			return nil
+		}
+
+		log.Debugf("Found spend details for funding output: %v",
+			spend.SpenderTxHash)
+
+		return spend
+
+	default:
+	}
+
+	return nil
+}
+
+// chanPointConfirmed checks whether the given channel point has confirmed.
+// This is used to ensure that the funding output has confirmed on chain before
+// we proceed with the rest of the close observer logic for taproot channels.
+func (c *chainWatcher) chanPointConfirmed() bool {
+	op := c.cfg.chanState.FundingOutpoint
+	confNtfn, err := c.cfg.notifier.RegisterConfirmationsNtfn(
+		&op.Hash, c.fundingPkScript, 1, c.heightHint,
+	)
+	if err != nil {
+		log.Errorf("Unable to register for conf: %v", err)
+
+		return false
+	}
+
+	select {
+	case _, ok := <-confNtfn.Confirmed:
+		// If the channel was closed, then this means that the notifier
+		// exited, so we will as well.
+		if !ok {
+			return false
+		}
+
+		log.Debugf("Taproot ChannelPoint(%v) confirmed", op)
+
+		return true
+
+	default:
+		log.Infof("Taproot ChannelPoint(%v) not confirmed yet", op)
+
+		return false
+	}
+}
+
+// handleBlockbeat takes a blockbeat and queries for a spending tx for the
+// funding output. If the spending tx is found, it will be handled based on the
+// closure type.
+func (c *chainWatcher) handleBlockbeat(beat chainio.Blockbeat) {
+	// Notify the chain watcher has processed the block.
+	defer c.NotifyBlockProcessed(beat, nil)
+
+	// If this is a taproot channel, before we proceed, we want to ensure
+	// that the expected funding output has confirmed on chain.
+	if c.cfg.chanState.IsPending && c.cfg.chanState.ChanType.IsTaproot() {
+		// If the funding output hasn't confirmed in this block, we
+		// will check it again in the next block.
+		if !c.chanPointConfirmed() {
+			return
+		}
+	}
+
+	// Perform a non-blocking read to check whether the funding output was
+	// spent.
+	spend := c.checkFundingSpend()
+	if spend == nil {
+		log.Tracef("No spend found for ChannelPoint(%v) in block %v",
+			c.cfg.chanState.FundingOutpoint, beat.Height())
+
+		return
+	}
+
+	// The funding output was spent, we now handle it by sending a close
+	// event to the channel arbitrator.
+	err := c.handleCommitSpend(spend)
+	if err != nil {
+		log.Errorf("Failed to handle commit spend: %v", err)
+	}
 }

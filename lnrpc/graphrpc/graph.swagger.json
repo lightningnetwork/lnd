@@ -1,0 +1,218 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "graphrpc/graph.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "Graph"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v2/graph/betweennesscentrality": {
+      "get": {
+        "summary": "BetweennessCentrality computes the normalised and non-normalised betweenness\ncentrality for each node in the graph.",
+        "operationId": "Graph_BetweennessCentrality",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/graphrpcBetweennessCentralityResp"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Graph"
+        ]
+      }
+    },
+    "/v2/graph/bootstrapaddrs": {
+      "get": {
+        "summary": "BootstrapAddrs uniformly samples a set of specified address from backing\nbootstrapper source. NumAddrs can be used to denote how many valid peer\naddresses to return. IgnoreNodes can be used to specify a set of nodes to\nexclude from the result list.",
+        "operationId": "Graph_BootstrapAddrs",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/graphrpcBootstrapAddrsResp"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "num_addrs",
+            "description": "The number of addresses to return.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "ignore_nodes",
+            "description": "A set of nodes to ignore when returning addresses.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "byte"
+            },
+            "collectionFormat": "multi"
+          }
+        ],
+        "tags": [
+          "Graph"
+        ]
+      }
+    },
+    "/v2/graph/bootstrappername": {
+      "get": {
+        "summary": "BootstrapperName returns the name of the bootstrapper implementation being\nused by the service.",
+        "operationId": "Graph_BootstrapperName",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/graphrpcBoostrapperNameResp"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Graph"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "graphrpcAddresses": {
+      "type": "object",
+      "properties": {
+        "addresses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcNodeAddress"
+          },
+          "description": "A set of addresses that can be used to connect to a node."
+        }
+      }
+    },
+    "graphrpcBetweennessCentrality": {
+      "type": "object",
+      "properties": {
+        "node": {
+          "type": "string",
+          "format": "byte",
+          "description": "The public key of the node in question."
+        },
+        "normalized": {
+          "type": "number",
+          "format": "double",
+          "description": "The normalized betweenness centrality of the node."
+        },
+        "non_normalized": {
+          "type": "number",
+          "format": "double",
+          "description": "The non-normalized betweenness centrality of the node."
+        }
+      }
+    },
+    "graphrpcBetweennessCentralityResp": {
+      "type": "object",
+      "properties": {
+        "node_betweenness": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/graphrpcBetweennessCentrality"
+          }
+        }
+      }
+    },
+    "graphrpcBoostrapperNameResp": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the network bootstrapper implementation being used."
+        }
+      }
+    },
+    "graphrpcBootstrapAddrsResp": {
+      "type": "object",
+      "properties": {
+        "addresses": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/graphrpcAddresses"
+          },
+          "description": "A map from node public key to a set of addresses that\ncan be used to connect to the node."
+        }
+      }
+    },
+    "lnrpcNodeAddress": {
+      "type": "object",
+      "properties": {
+        "network": {
+          "type": "string"
+        },
+        "addr": {
+          "type": "string"
+        }
+      }
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

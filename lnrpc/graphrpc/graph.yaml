@@ -1,0 +1,11 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: graphrpc.Graph.BootstrapAddrs
+      get: "/v2/graph/bootstrapaddrs"
+    - selector: graphrpc.Graph.BootstrapperName
+      get: "/v2/graph/bootstrappername"
+    - selector: graphrpc.Graph.BetweennessCentrality
+      get: "/v2/graph/betweennesscentrality"

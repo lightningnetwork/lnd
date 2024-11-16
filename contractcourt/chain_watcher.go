@@ -241,6 +241,10 @@ type chainWatcher struct {
 	// clientSubscriptions is a map that keeps track of all the active
 	// client subscriptions for events related to this channel.
 	clientSubscriptions map[uint64]*ChainEventSubscription
+
+	// fundingSpendNtfn is the spending notification subscription for the
+	// funding outpoint.
+	fundingSpendNtfn *chainntnfs.SpendEvent
 }
 
 // newChainWatcher returns a new instance of a chainWatcher for a channel given
@@ -265,11 +269,32 @@ func newChainWatcher(cfg chainWatcherConfig) (*chainWatcher, error) {
 		)
 	}
 
+	// Get the witness script for the funding output.
+	fundingPkScript, err := deriveFundingPkScript(chanState)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the channel opening block height.
+	heightHint := deriveHeightHint(chanState)
+
+	// We'll register for a notification to be dispatched if the funding
+	// output is spent.
+	spendNtfn, err := cfg.notifier.RegisterSpendNtfn(
+		&chanState.FundingOutpoint, fundingPkScript, heightHint,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	c := &chainWatcher{
 		cfg:                 cfg,
 		stateHintObfuscator: stateHint,
 		quit:                make(chan struct{}),
 		clientSubscriptions: make(map[uint64]*ChainEventSubscription),
+		fundingPkScript:     fundingPkScript,
+		heightHint:          heightHint,
+		fundingSpendNtfn:    spendNtfn,
 	}
 
 	// Mount the block consumer.
@@ -295,75 +320,11 @@ func (c *chainWatcher) Start() error {
 		return nil
 	}
 
-	chanState := c.cfg.chanState
 	log.Debugf("Starting chain watcher for ChannelPoint(%v)",
-		chanState.FundingOutpoint)
+		c.cfg.chanState.FundingOutpoint)
 
-	// First, we'll register for a notification to be dispatched if the
-	// funding output is spent.
-	fundingOut := &chanState.FundingOutpoint
-
-	// As a height hint, we'll try to use the opening height, but if the
-	// channel isn't yet open, then we'll use the height it was broadcast
-	// at. This may be an unconfirmed zero-conf channel.
-	c.heightHint = c.cfg.chanState.ShortChanID().BlockHeight
-	if c.heightHint == 0 {
-		c.heightHint = chanState.BroadcastHeight()
-	}
-
-	// Since no zero-conf state is stored in a channel backup, the below
-	// logic will not be triggered for restored, zero-conf channels. Set
-	// the height hint for zero-conf channels.
-	if chanState.IsZeroConf() {
-		if chanState.ZeroConfConfirmed() {
-			// If the zero-conf channel is confirmed, we'll use the
-			// confirmed SCID's block height.
-			c.heightHint = chanState.ZeroConfRealScid().BlockHeight
-		} else {
-			// The zero-conf channel is unconfirmed. We'll need to
-			// use the FundingBroadcastHeight.
-			c.heightHint = chanState.BroadcastHeight()
-		}
-	}
-
-	localKey := chanState.LocalChanCfg.MultiSigKey.PubKey
-	remoteKey := chanState.RemoteChanCfg.MultiSigKey.PubKey
-
-	var (
-		err error
-	)
-	if chanState.ChanType.IsTaproot() {
-		c.fundingPkScript, _, err = input.GenTaprootFundingScript(
-			localKey, remoteKey, 0, chanState.TapscriptRoot,
-		)
-		if err != nil {
-			return err
-		}
-	} else {
-		multiSigScript, err := input.GenMultiSigScript(
-			localKey.SerializeCompressed(),
-			remoteKey.SerializeCompressed(),
-		)
-		if err != nil {
-			return err
-		}
-		c.fundingPkScript, err = input.WitnessScriptHash(multiSigScript)
-		if err != nil {
-			return err
-		}
-	}
-
-	spendNtfn, err := c.cfg.notifier.RegisterSpendNtfn(
-		fundingOut, c.fundingPkScript, c.heightHint,
-	)
-	if err != nil {
-		return err
-	}
-
-	// With the spend notification obtained, we'll now dispatch the
-	// closeObserver which will properly react to any changes.
 	c.wg.Add(1)
-	go c.closeObserver(spendNtfn)
+	go c.closeObserver()
 
 	return nil
 }
@@ -642,8 +603,9 @@ func newChainSet(chanState *channeldb.OpenChannel) (*chainSet, error) {
 // close observer will assembled the proper materials required to claim the
 // funds of the channel on-chain (if required), then dispatch these as
 // notifications to all subscribers.
-func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
+func (c *chainWatcher) closeObserver() {
 	defer c.wg.Done()
+	defer c.fundingSpendNtfn.Cancel()
 
 	log.Infof("Close observer for ChannelPoint(%v) active",
 		c.cfg.chanState.FundingOutpoint)
@@ -683,7 +645,7 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 	// TODO(Roasbeef): need to be able to ensure this only triggers
 	// on confirmation, to ensure if multiple txns are broadcast, we
 	// act on the one that's timestamped
-	case commitSpend, ok := <-spendNtfn.Spend:
+	case commitSpend, ok := <-c.fundingSpendNtfn.Spend:
 		// If the channel was closed, then this means that the notifier
 		// exited, so we will as well.
 		if !ok {
@@ -1431,4 +1393,66 @@ func (c *chainWatcher) waitForCommitmentPoint() *btcec.PublicKey {
 			return nil
 		}
 	}
+}
+
+// deriveFundingPkScript derives the script used in the funding output.
+func deriveFundingPkScript(chanState *channeldb.OpenChannel) ([]byte, error) {
+	localKey := chanState.LocalChanCfg.MultiSigKey.PubKey
+	remoteKey := chanState.RemoteChanCfg.MultiSigKey.PubKey
+
+	var (
+		err             error
+		fundingPkScript []byte
+	)
+
+	if chanState.ChanType.IsTaproot() {
+		fundingPkScript, _, err = input.GenTaprootFundingScript(
+			localKey, remoteKey, 0, chanState.TapscriptRoot,
+		)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		multiSigScript, err := input.GenMultiSigScript(
+			localKey.SerializeCompressed(),
+			remoteKey.SerializeCompressed(),
+		)
+		if err != nil {
+			return nil, err
+		}
+		fundingPkScript, err = input.WitnessScriptHash(multiSigScript)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return fundingPkScript, nil
+}
+
+// deriveHeightHint derives the block height for the channel opening.
+func deriveHeightHint(chanState *channeldb.OpenChannel) uint32 {
+	// As a height hint, we'll try to use the opening height, but if the
+	// channel isn't yet open, then we'll use the height it was broadcast
+	// at. This may be an unconfirmed zero-conf channel.
+	heightHint := chanState.ShortChanID().BlockHeight
+	if heightHint == 0 {
+		heightHint = chanState.BroadcastHeight()
+	}
+
+	// Since no zero-conf state is stored in a channel backup, the below
+	// logic will not be triggered for restored, zero-conf channels. Set
+	// the height hint for zero-conf channels.
+	if chanState.IsZeroConf() {
+		if chanState.ZeroConfConfirmed() {
+			// If the zero-conf channel is confirmed, we'll use the
+			// confirmed SCID's block height.
+			heightHint = chanState.ZeroConfRealScid().BlockHeight
+		} else {
+			// The zero-conf channel is unconfirmed. We'll need to
+			// use the FundingBroadcastHeight.
+			heightHint = chanState.BroadcastHeight()
+		}
+	}
+
+	return heightHint
 }

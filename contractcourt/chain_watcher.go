@@ -652,115 +652,10 @@ func (c *chainWatcher) closeObserver() {
 			return
 		}
 
-		// Otherwise, the remote party might have broadcast a prior
-		// revoked state...!!!
-		commitTxBroadcast := commitSpend.SpendingTx
-
-		// First, we'll construct the chainset which includes all the
-		// data we need to dispatch an event to our subscribers about
-		// this possible channel close event.
-		chainSet, err := newChainSet(c.cfg.chanState)
+		err := c.handleCommitSpend(commitSpend)
 		if err != nil {
-			log.Errorf("unable to create commit set: %v", err)
-			return
+			log.Errorf("Failed to handle commit spend: %v", err)
 		}
-
-		// Decode the state hint encoded within the commitment
-		// transaction to determine if this is a revoked state or not.
-		obfuscator := c.stateHintObfuscator
-		broadcastStateNum := c.cfg.extractStateNumHint(
-			commitTxBroadcast, obfuscator,
-		)
-
-		// We'll go on to check whether it could be our own commitment
-		// that was published and know is confirmed.
-		ok, err = c.handleKnownLocalState(
-			commitSpend, broadcastStateNum, chainSet,
-		)
-		if err != nil {
-			log.Errorf("Unable to handle known local state: %v",
-				err)
-			return
-		}
-
-		if ok {
-			return
-		}
-
-		// Now that we know it is neither a non-cooperative closure nor
-		// a local close with the latest state, we check if it is the
-		// remote that closed with any prior or current state.
-		ok, err = c.handleKnownRemoteState(
-			commitSpend, broadcastStateNum, chainSet,
-		)
-		if err != nil {
-			log.Errorf("Unable to handle known remote state: %v",
-				err)
-			return
-		}
-
-		if ok {
-			return
-		}
-
-		// Next, we'll check to see if this is a cooperative channel
-		// closure or not. This is characterized by having an input
-		// sequence number that's finalized. This won't happen with
-		// regular commitment transactions due to the state hint
-		// encoding scheme.
-		switch commitTxBroadcast.TxIn[0].Sequence {
-		case wire.MaxTxInSequenceNum:
-			fallthrough
-		case mempool.MaxRBFSequence:
-			// TODO(roasbeef): rare but possible, need itest case
-			// for
-			err := c.dispatchCooperativeClose(commitSpend)
-			if err != nil {
-				log.Errorf("unable to handle co op close: %v", err)
-			}
-			return
-		}
-
-		log.Warnf("Unknown commitment broadcast for "+
-			"ChannelPoint(%v) ", c.cfg.chanState.FundingOutpoint)
-
-		// We'll try to recover as best as possible from losing state.
-		// We first check if this was a local unknown state. This could
-		// happen if we force close, then lose state or attempt
-		// recovery before the commitment confirms.
-		ok, err = c.handleUnknownLocalState(
-			commitSpend, broadcastStateNum, chainSet,
-		)
-		if err != nil {
-			log.Errorf("Unable to handle known local state: %v",
-				err)
-			return
-		}
-
-		if ok {
-			return
-		}
-
-		// Since it was neither a known remote state, nor a local state
-		// that was published, it most likely mean we lost state and
-		// the remote node closed. In this case we must start the DLP
-		// protocol in hope of getting our money back.
-		ok, err = c.handleUnknownRemoteState(
-			commitSpend, broadcastStateNum, chainSet,
-		)
-		if err != nil {
-			log.Errorf("Unable to handle unknown remote state: %v",
-				err)
-			return
-		}
-
-		if ok {
-			return
-		}
-
-		log.Warnf("Unable to handle spending tx %v of channel point %v",
-			commitTxBroadcast.TxHash(), c.cfg.chanState.FundingOutpoint)
-		return
 
 	// The chainWatcher has been signalled to exit, so we'll do so now.
 	case <-c.quit:
@@ -1455,4 +1350,105 @@ func deriveHeightHint(chanState *channeldb.OpenChannel) uint32 {
 	}
 
 	return heightHint
+}
+
+// handleCommitSpend takes a spending tx of the funding output and handles the
+// channel close based on the closure type.
+func (c *chainWatcher) handleCommitSpend(
+	commitSpend *chainntnfs.SpendDetail) error {
+
+	commitTxBroadcast := commitSpend.SpendingTx
+
+	// First, we'll construct the chainset which includes all the data we
+	// need to dispatch an event to our subscribers about this possible
+	// channel close event.
+	chainSet, err := newChainSet(c.cfg.chanState)
+	if err != nil {
+		return fmt.Errorf("create commit set: %w", err)
+	}
+
+	// Decode the state hint encoded within the commitment transaction to
+	// determine if this is a revoked state or not.
+	obfuscator := c.stateHintObfuscator
+	broadcastStateNum := c.cfg.extractStateNumHint(
+		commitTxBroadcast, obfuscator,
+	)
+
+	// We'll go on to check whether it could be our own commitment that was
+	// published and know is confirmed.
+	ok, err := c.handleKnownLocalState(
+		commitSpend, broadcastStateNum, chainSet,
+	)
+	if err != nil {
+		return fmt.Errorf("handle known local state: %w", err)
+	}
+	if ok {
+		return nil
+	}
+
+	// Now that we know it is neither a non-cooperative closure nor a local
+	// close with the latest state, we check if it is the remote that
+	// closed with any prior or current state.
+	ok, err = c.handleKnownRemoteState(
+		commitSpend, broadcastStateNum, chainSet,
+	)
+	if err != nil {
+		return fmt.Errorf("handle known remote state: %w", err)
+	}
+	if ok {
+		return nil
+	}
+
+	// Next, we'll check to see if this is a cooperative channel closure or
+	// not. This is characterized by having an input sequence number that's
+	// finalized. This won't happen with regular commitment transactions
+	// due to the state hint encoding scheme.
+	switch commitTxBroadcast.TxIn[0].Sequence {
+	case wire.MaxTxInSequenceNum:
+		fallthrough
+	case mempool.MaxRBFSequence:
+		// TODO(roasbeef): rare but possible, need itest case for
+		err := c.dispatchCooperativeClose(commitSpend)
+		if err != nil {
+			return fmt.Errorf("handle coop close: %w", err)
+		}
+
+		return nil
+	}
+
+	log.Warnf("Unknown commitment broadcast for ChannelPoint(%v) ",
+		c.cfg.chanState.FundingOutpoint)
+
+	// We'll try to recover as best as possible from losing state.  We
+	// first check if this was a local unknown state. This could happen if
+	// we force close, then lose state or attempt recovery before the
+	// commitment confirms.
+	ok, err = c.handleUnknownLocalState(
+		commitSpend, broadcastStateNum, chainSet,
+	)
+	if err != nil {
+		return fmt.Errorf("handle known local state: %w", err)
+	}
+	if ok {
+		return nil
+	}
+
+	// Since it was neither a known remote state, nor a local state that
+	// was published, it most likely mean we lost state and the remote node
+	// closed. In this case we must start the DLP protocol in hope of
+	// getting our money back.
+	ok, err = c.handleUnknownRemoteState(
+		commitSpend, broadcastStateNum, chainSet,
+	)
+	if err != nil {
+		return fmt.Errorf("handle unknown remote state: %w", err)
+	}
+	if ok {
+		return nil
+	}
+
+	log.Errorf("Unable to handle spending tx %v of channel point %v",
+		commitTxBroadcast.TxHash(), c.cfg.chanState.FundingOutpoint)
+
+	return nil
 }

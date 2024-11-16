@@ -486,27 +486,6 @@ func runBasicChannelCreationAndUpdates(ht *lntest.HarnessTest,
 	)
 }
 
-// testUpdateOnPendingOpenChannels checks that `update_add_htlc` followed by
-// `channel_ready` is properly handled. In specific, when a node is in a state
-// that it's still processing a remote `channel_ready` message, meanwhile an
-// `update_add_htlc` is received, this HTLC message is cached and settled once
-// processing `channel_ready` is complete.
-func testUpdateOnPendingOpenChannels(ht *lntest.HarnessTest) {
-	// Test funder's behavior. Funder sees the channel pending, but fundee
-	// sees it active and sends an HTLC.
-	ht.Run("pending on funder side", func(t *testing.T) {
-		st := ht.Subtest(t)
-		testUpdateOnFunderPendingOpenChannels(st)
-	})
-
-	// Test fundee's behavior. Fundee sees the channel pending, but funder
-	// sees it active and sends an HTLC.
-	ht.Run("pending on fundee side", func(t *testing.T) {
-		st := ht.Subtest(t)
-		testUpdateOnFundeePendingOpenChannels(st)
-	})
-}
-
 // testUpdateOnFunderPendingOpenChannels checks that when the fundee sends an
 // `update_add_htlc` followed by `channel_ready` while the funder is still
 // processing the fundee's `channel_ready`, the HTLC will be cached and
@@ -530,7 +509,8 @@ func testUpdateOnFunderPendingOpenChannels(ht *lntest.HarnessTest) {
 		Amt:     funding.MaxBtcFundingAmount,
 		PushAmt: funding.MaxBtcFundingAmount / 2,
 	}
-	ht.OpenChannelAssertPending(alice, bob, params)
+	pending := ht.OpenChannelAssertPending(alice, bob, params)
+	chanPoint := lntest.ChanPointFromPendingUpdate(pending)
 
 	// Alice and Bob should both consider the channel pending open.
 	ht.AssertNumPendingOpenChannels(alice, 1)
@@ -548,6 +528,7 @@ func testUpdateOnFunderPendingOpenChannels(ht *lntest.HarnessTest) {
 	// Bob will consider the channel open as there's no wait time to send
 	// and receive Alice's channel_ready message.
 	ht.AssertNumPendingOpenChannels(bob, 0)
+	ht.AssertChannelInGraph(bob, chanPoint)
 
 	// Alice and Bob now have different view of the channel. For Bob,
 	// since the channel_ready messages are processed, he will have a
@@ -604,7 +585,8 @@ func testUpdateOnFundeePendingOpenChannels(ht *lntest.HarnessTest) {
 	params := lntest.OpenChannelParams{
 		Amt: funding.MaxBtcFundingAmount,
 	}
-	ht.OpenChannelAssertPending(alice, bob, params)
+	pending := ht.OpenChannelAssertPending(alice, bob, params)
+	chanPoint := lntest.ChanPointFromPendingUpdate(pending)
 
 	// Alice and Bob should both consider the channel pending open.
 	ht.AssertNumPendingOpenChannels(alice, 1)
@@ -616,6 +598,7 @@ func testUpdateOnFundeePendingOpenChannels(ht *lntest.HarnessTest) {
 	// Alice will consider the channel open as there's no wait time to send
 	// and receive Bob's channel_ready message.
 	ht.AssertNumPendingOpenChannels(alice, 0)
+	ht.AssertChannelInGraph(alice, chanPoint)
 
 	// TODO(yy): we've prematurely marked the channel as open before
 	// processing channel ready messages. We need to mark it as open after

@@ -2795,8 +2795,6 @@ func (c *ChannelArbitrator) updateActiveHTLCs() {
 // Nursery for incubation, and ultimate sweeping.
 //
 // NOTE: This MUST be run as a goroutine.
-//
-//nolint:funlen
 func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 	commitSet *CommitSet) {
 
@@ -2860,27 +2858,11 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 		// We've cooperatively closed the channel, so we're no longer
 		// needed. We'll mark the channel as resolved and exit.
 		case closeInfo := <-c.cfg.ChainEvents.CooperativeClosure:
-			log.Infof("ChannelArbitrator(%v) marking channel "+
-				"cooperatively closed at height %v",
-				c.cfg.ChanPoint, closeInfo.CloseHeight)
-
-			err := c.cfg.MarkChannelClosed(
-				closeInfo.ChannelCloseSummary,
-				channeldb.ChanStatusCoopBroadcasted,
-			)
+			err := c.handleCoopCloseEvent(closeInfo)
 			if err != nil {
-				log.Errorf("Unable to mark channel closed: "+
-					"%v", err)
-				return
-			}
+				log.Errorf("Failed to handle coop close: %v",
+					err)
 
-			// We'll now advance our state machine until it reaches
-			// a terminal state, and the channel is marked resolved.
-			_, _, err = c.advanceState(
-				closeInfo.CloseHeight, coopCloseTrigger, nil,
-			)
-			if err != nil {
-				log.Errorf("Unable to advance state: %v", err)
 				return
 			}
 
@@ -2893,163 +2875,24 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 					c.cfg.ChanPoint)
 			}
 
-			closeTx := closeInfo.CloseTx
-
-			resolutions, err := closeInfo.ContractResolutions.
-				UnwrapOrErr(
-					fmt.Errorf("resolutions not found"),
-				)
+			err := c.handleLocalForceCloseEvent(closeInfo)
 			if err != nil {
-				log.Errorf("ChannelArbitrator(%v): unable to "+
-					"get resolutions: %v", c.cfg.ChanPoint,
-					err)
+				log.Errorf("Failed to handle local force "+
+					"close: %v", err)
 
 				return
-			}
-
-			// We make sure that the htlc resolutions are present
-			// otherwise we would panic dereferencing the pointer.
-			//
-			// TODO(ziggie): Refactor ContractResolutions to use
-			// options.
-			if resolutions.HtlcResolutions == nil {
-				log.Errorf("ChannelArbitrator(%v): htlc "+
-					"resolutions not found",
-					c.cfg.ChanPoint)
-
-				return
-			}
-
-			log.Infof("ChannelArbitrator(%v): local force close "+
-				"tx=%v confirmed", c.cfg.ChanPoint,
-				closeTx.TxHash())
-
-			contractRes := &ContractResolutions{
-				CommitHash:       closeTx.TxHash(),
-				CommitResolution: resolutions.CommitResolution,
-				HtlcResolutions:  *resolutions.HtlcResolutions,
-				AnchorResolution: resolutions.AnchorResolution,
-			}
-
-			// When processing a unilateral close event, we'll
-			// transition to the ContractClosed state. We'll log
-			// out the set of resolutions such that they are
-			// available to fetch in that state, we'll also write
-			// the commit set so we can reconstruct our chain
-			// actions on restart.
-			err = c.log.LogContractResolutions(contractRes)
-			if err != nil {
-				log.Errorf("Unable to write resolutions: %v",
-					err)
-				return
-			}
-			err = c.log.InsertConfirmedCommitSet(
-				&closeInfo.CommitSet,
-			)
-			if err != nil {
-				log.Errorf("Unable to write commit set: %v",
-					err)
-				return
-			}
-
-			// After the set of resolutions are successfully
-			// logged, we can safely close the channel. After this
-			// succeeds we won't be getting chain events anymore,
-			// so we must make sure we can recover on restart after
-			// it is marked closed. If the next state transition
-			// fails, we'll start up in the prior state again, and
-			// we won't be longer getting chain events. In this
-			// case we must manually re-trigger the state
-			// transition into StateContractClosed based on the
-			// close status of the channel.
-			err = c.cfg.MarkChannelClosed(
-				closeInfo.ChannelCloseSummary,
-				channeldb.ChanStatusLocalCloseInitiator,
-			)
-			if err != nil {
-				log.Errorf("Unable to mark "+
-					"channel closed: %v", err)
-				return
-			}
-
-			// We'll now advance our state machine until it reaches
-			// a terminal state.
-			_, _, err = c.advanceState(
-				uint32(closeInfo.SpendingHeight),
-				localCloseTrigger, &closeInfo.CommitSet,
-			)
-			if err != nil {
-				log.Errorf("Unable to advance state: %v", err)
 			}
 
 		// The remote party has broadcast the commitment on-chain.
 		// We'll examine our state to determine if we need to act at
 		// all.
 		case uniClosure := <-c.cfg.ChainEvents.RemoteUnilateralClosure:
-			log.Infof("ChannelArbitrator(%v): remote party has "+
-				"force closed channel at height %v",
-				c.cfg.ChanPoint, uniClosure.SpendingHeight)
-
-			// If we don't have a self output, and there are no
-			// active HTLC's, then we can immediately mark the
-			// contract as fully resolved and exit.
-			contractRes := &ContractResolutions{
-				CommitHash:       *uniClosure.SpenderTxHash,
-				CommitResolution: uniClosure.CommitResolution,
-				HtlcResolutions:  *uniClosure.HtlcResolutions,
-				AnchorResolution: uniClosure.AnchorResolution,
-			}
-
-			// When processing a unilateral close event, we'll
-			// transition to the ContractClosed state. We'll log
-			// out the set of resolutions such that they are
-			// available to fetch in that state, we'll also write
-			// the commit set so we can reconstruct our chain
-			// actions on restart.
-			err := c.log.LogContractResolutions(contractRes)
+			err := c.handleRemoteForceCloseEvent(uniClosure)
 			if err != nil {
-				log.Errorf("Unable to write resolutions: %v",
-					err)
+				log.Errorf("Failed to handle remote force "+
+					"close: %v", err)
+
 				return
-			}
-			err = c.log.InsertConfirmedCommitSet(
-				&uniClosure.CommitSet,
-			)
-			if err != nil {
-				log.Errorf("Unable to write commit set: %v",
-					err)
-				return
-			}
-
-			// After the set of resolutions are successfully
-			// logged, we can safely close the channel. After this
-			// succeeds we won't be getting chain events anymore,
-			// so we must make sure we can recover on restart after
-			// it is marked closed. If the next state transition
-			// fails, we'll start up in the prior state again, and
-			// we won't be longer getting chain events. In this
-			// case we must manually re-trigger the state
-			// transition into StateContractClosed based on the
-			// close status of the channel.
-			closeSummary := &uniClosure.ChannelCloseSummary
-			err = c.cfg.MarkChannelClosed(
-				closeSummary,
-				channeldb.ChanStatusRemoteCloseInitiator,
-			)
-			if err != nil {
-				log.Errorf("Unable to mark channel closed: %v",
-					err)
-				return
-			}
-
-			// We'll now advance our state machine until it reaches
-			// a terminal state.
-			_, _, err = c.advanceState(
-				uint32(uniClosure.SpendingHeight),
-				remoteCloseTrigger, &uniClosure.CommitSet,
-			)
-			if err != nil {
-				log.Errorf("Unable to advance state: %v", err)
 			}
 
 		// The remote has breached the channel. As this is handled by
@@ -3057,63 +2900,12 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 		// anything in particular, so just advance our state and
 		// gracefully exit.
 		case breachInfo := <-c.cfg.ChainEvents.ContractBreach:
-			closeSummary := &breachInfo.CloseSummary
-
-			log.Infof("ChannelArbitrator(%v): remote party has "+
-				"breached channel at height %v!",
-				c.cfg.ChanPoint, closeSummary.CloseHeight)
-
-			// In the breach case, we'll only have anchor and
-			// breach resolutions.
-			contractRes := &ContractResolutions{
-				CommitHash:       breachInfo.CommitHash,
-				BreachResolution: breachInfo.BreachResolution,
-				AnchorResolution: breachInfo.AnchorResolution,
-			}
-
-			// We'll transition to the ContractClosed state and log
-			// the set of resolutions such that they can be turned
-			// into resolvers later on. We'll also insert the
-			// CommitSet of the latest set of commitments.
-			err := c.log.LogContractResolutions(contractRes)
+			err := c.handleContractBreach(breachInfo)
 			if err != nil {
-				log.Errorf("Unable to write resolutions: %v",
-					err)
+				log.Errorf("Failed to handle contract breach: "+
+					"%v", err)
+
 				return
-			}
-			err = c.log.InsertConfirmedCommitSet(
-				&breachInfo.CommitSet,
-			)
-			if err != nil {
-				log.Errorf("Unable to write commit set: %v",
-					err)
-				return
-			}
-
-			// The channel is finally marked pending closed here as
-			// the BreachArbitrator and channel arbitrator have
-			// persisted the relevant states.
-			err = c.cfg.MarkChannelClosed(
-				closeSummary,
-				channeldb.ChanStatusRemoteCloseInitiator,
-			)
-			if err != nil {
-				log.Errorf("Unable to mark channel closed: %v",
-					err)
-				return
-			}
-
-			log.Infof("Breached channel=%v marked pending-closed",
-				breachInfo.BreachResolution.FundingOutPoint)
-
-			// We'll advance our state machine until it reaches a
-			// terminal state.
-			_, _, err = c.advanceState(
-				closeSummary.CloseHeight,
-				breachCloseTrigger, &breachInfo.CommitSet,
-			)
-			if err != nil {
-				log.Errorf("Unable to advance state: %v", err)
 			}
 
 		// A new contract has just been resolved, we'll now check our
@@ -3506,6 +3298,229 @@ func (c *ChannelArbitrator) abandonForwards(htlcs fn.Set[uint64]) error {
 	if err != nil {
 		log.Errorf("Unable to send resolution msges to switch: %v", err)
 		return err
+	}
+
+	return nil
+}
+
+// handleCoopCloseEvent takes a coop close event from ChainEvents, marks the
+// channel as closed and advances the state.
+func (c *ChannelArbitrator) handleCoopCloseEvent(
+	closeInfo *CooperativeCloseInfo) error {
+
+	log.Infof("ChannelArbitrator(%v) marking channel cooperatively closed "+
+		"at height %v", c.cfg.ChanPoint, closeInfo.CloseHeight)
+
+	err := c.cfg.MarkChannelClosed(
+		closeInfo.ChannelCloseSummary,
+		channeldb.ChanStatusCoopBroadcasted,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to mark channel closed: %w", err)
+	}
+
+	// We'll now advance our state machine until it reaches a terminal
+	// state, and the channel is marked resolved.
+	_, _, err = c.advanceState(closeInfo.CloseHeight, coopCloseTrigger, nil)
+	if err != nil {
+		log.Errorf("Unable to advance state: %v", err)
+	}
+
+	return nil
+}
+
+// handleLocalForceCloseEvent takes a local force close event from ChainEvents,
+// saves the contract resolutions to disk, mark the channel as closed and
+// advance the state.
+func (c *ChannelArbitrator) handleLocalForceCloseEvent(
+	closeInfo *LocalUnilateralCloseInfo) error {
+
+	closeTx := closeInfo.CloseTx
+
+	resolutions, err := closeInfo.ContractResolutions.
+		UnwrapOrErr(
+			fmt.Errorf("resolutions not found"),
+		)
+	if err != nil {
+		return fmt.Errorf("unable to get resolutions: %w", err)
+	}
+
+	// We make sure that the htlc resolutions are present
+	// otherwise we would panic dereferencing the pointer.
+	//
+	// TODO(ziggie): Refactor ContractResolutions to use
+	// options.
+	if resolutions.HtlcResolutions == nil {
+		return fmt.Errorf("htlc resolutions is nil")
+	}
+
+	log.Infof("ChannelArbitrator(%v): local force close tx=%v confirmed",
+		c.cfg.ChanPoint, closeTx.TxHash())
+
+	contractRes := &ContractResolutions{
+		CommitHash:       closeTx.TxHash(),
+		CommitResolution: resolutions.CommitResolution,
+		HtlcResolutions:  *resolutions.HtlcResolutions,
+		AnchorResolution: resolutions.AnchorResolution,
+	}
+
+	// When processing a unilateral close event, we'll transition to the
+	// ContractClosed state. We'll log out the set of resolutions such that
+	// they are available to fetch in that state, we'll also write the
+	// commit set so we can reconstruct our chain actions on restart.
+	err = c.log.LogContractResolutions(contractRes)
+	if err != nil {
+		return fmt.Errorf("unable to write resolutions: %w", err)
+	}
+
+	err = c.log.InsertConfirmedCommitSet(&closeInfo.CommitSet)
+	if err != nil {
+		return fmt.Errorf("unable to write commit set: %w", err)
+	}
+
+	// After the set of resolutions are successfully logged, we can safely
+	// close the channel. After this succeeds we won't be getting chain
+	// events anymore, so we must make sure we can recover on restart after
+	// it is marked closed. If the next state transition fails, we'll start
+	// up in the prior state again, and we won't be longer getting chain
+	// events. In this case we must manually re-trigger the state
+	// transition into StateContractClosed based on the close status of the
+	// channel.
+	err = c.cfg.MarkChannelClosed(
+		closeInfo.ChannelCloseSummary,
+		channeldb.ChanStatusLocalCloseInitiator,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to mark channel closed: %w", err)
+	}
+
+	// We'll now advance our state machine until it reaches a terminal
+	// state.
+	_, _, err = c.advanceState(
+		uint32(closeInfo.SpendingHeight),
+		localCloseTrigger, &closeInfo.CommitSet,
+	)
+	if err != nil {
+		log.Errorf("Unable to advance state: %v", err)
+	}
+
+	return nil
+}
+
+// handleRemoteForceCloseEvent takes a remote force close event from
+// ChainEvents, saves the contract resolutions to disk, mark the channel as
+// closed and advance the state.
+func (c *ChannelArbitrator) handleRemoteForceCloseEvent(
+	closeInfo *RemoteUnilateralCloseInfo) error {
+
+	log.Infof("ChannelArbitrator(%v): remote party has force closed "+
+		"channel at height %v", c.cfg.ChanPoint,
+		closeInfo.SpendingHeight)
+
+	// If we don't have a self output, and there are no active HTLC's, then
+	// we can immediately mark the contract as fully resolved and exit.
+	contractRes := &ContractResolutions{
+		CommitHash:       *closeInfo.SpenderTxHash,
+		CommitResolution: closeInfo.CommitResolution,
+		HtlcResolutions:  *closeInfo.HtlcResolutions,
+		AnchorResolution: closeInfo.AnchorResolution,
+	}
+
+	// When processing a unilateral close event, we'll transition to the
+	// ContractClosed state. We'll log out the set of resolutions such that
+	// they are available to fetch in that state, we'll also write the
+	// commit set so we can reconstruct our chain actions on restart.
+	err := c.log.LogContractResolutions(contractRes)
+	if err != nil {
+		return fmt.Errorf("unable to write resolutions: %w", err)
+	}
+
+	err = c.log.InsertConfirmedCommitSet(&closeInfo.CommitSet)
+	if err != nil {
+		return fmt.Errorf("unable to write commit set: %w", err)
+	}
+
+	// After the set of resolutions are successfully logged, we can safely
+	// close the channel. After this succeeds we won't be getting chain
+	// events anymore, so we must make sure we can recover on restart after
+	// it is marked closed. If the next state transition fails, we'll start
+	// up in the prior state again, and we won't be longer getting chain
+	// events. In this case we must manually re-trigger the state
+	// transition into StateContractClosed based on the close status of the
+	// channel.
+	closeSummary := &closeInfo.ChannelCloseSummary
+	err = c.cfg.MarkChannelClosed(
+		closeSummary,
+		channeldb.ChanStatusRemoteCloseInitiator,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to mark channel closed: %w", err)
+	}
+
+	// We'll now advance our state machine until it reaches a terminal
+	// state.
+	_, _, err = c.advanceState(
+		uint32(closeInfo.SpendingHeight),
+		remoteCloseTrigger, &closeInfo.CommitSet,
+	)
+	if err != nil {
+		log.Errorf("Unable to advance state: %v", err)
+	}
+
+	return nil
+}
+
+// handleContractBreach takes a breach close event from ChainEvents, saves the
+// contract resolutions to disk, mark the channel as closed and advance the
+// state.
+func (c *ChannelArbitrator) handleContractBreach(
+	breachInfo *BreachCloseInfo) error {
+
+	closeSummary := &breachInfo.CloseSummary
+
+	log.Infof("ChannelArbitrator(%v): remote party has breached channel "+
+		"at height %v!", c.cfg.ChanPoint, closeSummary.CloseHeight)
+
+	// In the breach case, we'll only have anchor and breach resolutions.
+	contractRes := &ContractResolutions{
+		CommitHash:       breachInfo.CommitHash,
+		BreachResolution: breachInfo.BreachResolution,
+		AnchorResolution: breachInfo.AnchorResolution,
+	}
+
+	// We'll transition to the ContractClosed state and log the set of
+	// resolutions such that they can be turned into resolvers later on.
+	// We'll also insert the CommitSet of the latest set of commitments.
+	err := c.log.LogContractResolutions(contractRes)
+	if err != nil {
+		return fmt.Errorf("unable to write resolutions: %w", err)
+	}
+
+	err = c.log.InsertConfirmedCommitSet(&breachInfo.CommitSet)
+	if err != nil {
+		return fmt.Errorf("unable to write commit set: %w", err)
+	}
+
+	// The channel is finally marked pending closed here as the
+	// BreachArbitrator and channel arbitrator have persisted the relevant
+	// states.
+	err = c.cfg.MarkChannelClosed(
+		closeSummary, channeldb.ChanStatusRemoteCloseInitiator,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to mark channel closed: %w", err)
+	}
+
+	log.Infof("Breached channel=%v marked pending-closed",
+		breachInfo.BreachResolution.FundingOutPoint)
+
+	// We'll advance our state machine until it reaches a terminal state.
+	_, _, err = c.advanceState(
+		closeSummary.CloseHeight, breachCloseTrigger,
+		&breachInfo.CommitSet,
+	)
+	if err != nil {
+		log.Errorf("Unable to advance state: %v", err)
 	}
 
 	return nil

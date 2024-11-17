@@ -135,6 +135,10 @@
   block. Check
   [here](https://github.com/lightningnetwork/lnd/blob/master/chainio/README.md)
   to learn more.
+  
+* [The sweeper](https://github.com/lightningnetwork/lnd/pull/9274) does now also
+ use the configured budget values for HTLCs (first level sweep) in parcticular
+ `--sweeper.budget.deadlinehtlcratio` and `--sweeper.budget.deadlinehtlc`.
 
 ## RPC Updates
 

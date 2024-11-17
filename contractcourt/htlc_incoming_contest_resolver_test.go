@@ -5,11 +5,13 @@ import (
 	"io"
 	"testing"
 
+	"github.com/btcsuite/btcd/wire"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnmock"
@@ -356,6 +358,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 
 				return nil
 			},
+			Sweeper: newMockSweeper(),
 		},
 		PutResolverReport: func(_ kvdb.RwTx,
 			_ *channeldb.ResolverReport) error {
@@ -374,10 +377,16 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		},
 	}
 
+	res := lnwallet.IncomingHtlcResolution{
+		SweepSignDesc: input.SignDescriptor{
+			Output: &wire.TxOut{},
+		},
+	}
+
 	c.resolver = &htlcIncomingContestResolver{
 		htlcSuccessResolver: &htlcSuccessResolver{
 			contractResolverKit: *newContractResolverKit(cfg),
-			htlcResolution:      lnwallet.IncomingHtlcResolution{},
+			htlcResolution:      res,
 			htlc: channeldb.HTLC{
 				Amt:       lnwire.MilliSatoshi(testHtlcAmount),
 				RHash:     testResHash,
@@ -386,6 +395,7 @@ func newIncomingResolverTestContext(t *testing.T, isExit bool) *incomingResolver
 		},
 		htlcExpiry: testHtlcExpiry,
 	}
+	c.resolver.initLogger("htlcIncomingContestResolver")
 
 	return c
 }
@@ -395,6 +405,10 @@ func (i *incomingResolverTestContext) resolve() {
 	i.resolveErr = make(chan error, 1)
 	go func() {
 		var err error
+
+		err = i.resolver.Launch()
+		require.NoError(i.t, err)
+
 		i.nextResolver, err = i.resolver.Resolve()
 		i.resolveErr <- err
 	}()

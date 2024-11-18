@@ -312,10 +312,10 @@ func (s *State) updateEdgeStats() {
 	// filterDisabled is a helper closure that filters out disabled
 	// channels.
 	filterDisabled := func(edge *lnrpc.ChannelEdge) bool {
-		if edge.Node1Policy.Disabled {
+		if edge.Node1Policy != nil && edge.Node1Policy.Disabled {
 			return false
 		}
-		if edge.Node2Policy.Disabled {
+		if edge.Node2Policy != nil && edge.Node2Policy.Disabled {
 			return false
 		}
 

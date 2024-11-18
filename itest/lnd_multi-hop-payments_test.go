@@ -223,11 +223,11 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 	// Dave and Alice should both have forwards and settles for
 	// their role as forwarding nodes.
 	ht.AssertHtlcEvents(
-		daveEvents, numPayments, 0, numPayments, 0,
+		daveEvents, numPayments, 0, numPayments*2, 0,
 		routerrpc.HtlcEvent_FORWARD,
 	)
 	ht.AssertHtlcEvents(
-		aliceEvents, numPayments, 0, numPayments, 0,
+		aliceEvents, numPayments, 0, numPayments*2, 0,
 		routerrpc.HtlcEvent_FORWARD,
 	)
 

@@ -723,7 +723,7 @@ func (c *ChannelGraph) DisabledChannelIDs() ([]uint64, error) {
 // ForEachNode iterates through all the stored vertices/nodes in the graph,
 // executing the passed callback with each node encountered. If the callback
 // returns an error, then the transaction is aborted and the iteration stops
-// early.
+// early. No error is returned if no nodes are found.
 //
 // TODO(roasbeef): add iterator interface to allow for memory efficient graph
 // traversal when graph gets mega
@@ -936,6 +936,7 @@ func addLightningNode(tx kvdb.RwTx, node *models.LightningNode) error {
 }
 
 // LookupAlias attempts to return the alias as advertised by the target node.
+// ErrNodeAliasNotFound is returned if no alias is found.
 // TODO(roasbeef): currently assumes that aliases are unique...
 func (c *ChannelGraph) LookupAlias(pub *btcec.PublicKey) (string, error) {
 	var alias string
@@ -3090,7 +3091,7 @@ var _ GraphCacheNode = (*graphCacheNode)(nil)
 // target node identity public key. If the node exists in the database, a
 // timestamp of when the data for the node was lasted updated is returned along
 // with a true boolean. Otherwise, an empty time.Time is returned with a false
-// boolean.
+// boolean and a nil error.
 func (c *ChannelGraph) HasLightningNode(nodePub [33]byte) (time.Time, bool,
 	error) {
 
@@ -3226,7 +3227,8 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 // of each end of the channel. The first edge policy is the outgoing edge *to*
 // the connecting node, while the second is the incoming edge *from* the
 // connecting node. If the callback returns an error, then the iteration is
-// halted with the error propagated back up to the caller.
+// halted with the error propagated back up to the caller. No error is returned
+// if the node is not found.
 //
 // Unknown policies are passed into the callback as nil values.
 func (c *ChannelGraph) ForEachNodeChannel(nodePub route.Vertex,
@@ -3414,7 +3416,7 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 // for the channel itself is returned as well as two structs that contain the
 // routing policies for the channel in either direction.
 //
-// ErrZombieEdge an be returned if the edge is currently marked as a zombie
+// ErrZombieEdge can be returned if the edge is currently marked as a zombie
 // within the database. In this case, the ChannelEdgePolicy's will be nil, and
 // the ChannelEdgeInfo will only include the public keys of each node.
 func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (
@@ -3518,7 +3520,8 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (
 
 // IsPublicNode is a helper method that determines whether the node with the
 // given public key is seen as a public node in the graph from the graph's
-// source node's point of view.
+// source node's point of view. If this node is unknown, then
+// ErrGraphNodeNotFound is returned.
 func (c *ChannelGraph) IsPublicNode(pubKey [33]byte) (bool, error) {
 	var nodeIsPublic bool
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {

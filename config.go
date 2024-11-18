@@ -562,8 +562,6 @@ func DefaultConfig() Config {
 		LetsEncryptDir:    defaultLetsEncryptDir,
 		LetsEncryptListen: defaultLetsEncryptListen,
 		LogDir:            defaultLogDir,
-		MaxLogFiles:       build.DefaultMaxLogFiles,
-		MaxLogFileSize:    build.DefaultMaxLogFileSize,
 		AcceptorTimeout:   defaultAcceptorTimeout,
 		WSPingInterval:    lnrpc.DefaultPingInterval,
 		WSPongWait:        lnrpc.DefaultPongWait,
@@ -1417,7 +1415,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		os.Exit(0)
 	}
 
-	if cfg.MaxLogFiles != build.DefaultMaxLogFiles {
+	if cfg.MaxLogFiles != 0 {
 		if cfg.LogConfig.File.MaxLogFiles !=
 			build.DefaultMaxLogFiles {
 
@@ -1427,7 +1425,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 
 		cfg.LogConfig.File.MaxLogFiles = cfg.MaxLogFiles
 	}
-	if cfg.MaxLogFileSize != build.DefaultMaxLogFileSize {
+	if cfg.MaxLogFileSize != 0 {
 		if cfg.LogConfig.File.MaxLogFileSize !=
 			build.DefaultMaxLogFileSize {
 

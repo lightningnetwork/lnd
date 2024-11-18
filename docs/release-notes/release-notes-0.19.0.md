@@ -67,6 +67,10 @@
   signal relay was added. This signal has *no impact* on routing, and
   is deployed experimentally to assist ongoing channel jamming research.
 
+* Add initial support for [quiescence](https://github.com/lightningnetwork/lnd/pull/8270).
+  This is a protocol gadget required for Dynamic Commitments and Splicing that
+  will be added later.
+
 ## Functional Enhancements
 * [Add ability](https://github.com/lightningnetwork/lnd/pull/8998) to paginate 
  wallet transactions.
@@ -216,6 +220,7 @@ The underlying functionality between those two options remain the same.
 * Elle Mouton
 * George Tsagkarelis
 * hieblmi
+* Keagan McClelland
 * Oliver Gugger
 * Pins
 * Viktor Tigerström

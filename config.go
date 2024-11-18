@@ -1261,7 +1261,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// The target network must be provided, otherwise, we won't
 	// know how to initialize the daemon.
 	if numNets == 0 {
-		str := "either --bitcoin.mainnet, or bitcoin.testnet," +
+		str := "either --bitcoin.mainnet, or bitcoin.testnet, " +
 			"bitcoin.simnet, bitcoin.regtest or bitcoin.signet " +
 			"must be specified"
 

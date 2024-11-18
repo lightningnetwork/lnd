@@ -399,6 +399,9 @@ func (hn *HarnessNode) StartLndCmd(ctxb context.Context) error {
 		return err
 	}
 
+	pid := hn.cmd.Process.Pid
+	hn.T.Logf("Starting node (name=%v) with PID=%v", hn.Cfg.Name, pid)
+
 	return nil
 }
 

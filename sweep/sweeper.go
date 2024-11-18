@@ -454,38 +454,7 @@ func (s *UtxoSweeper) Start() error {
 
 	// Start sweeper main loop.
 	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-
-		s.collector()
-
-		// The collector exited and won't longer handle incoming
-		// requests. This can happen on shutdown, when the block
-		// notifier shuts down before the sweeper and its clients. In
-		// order to not deadlock the clients waiting for their requests
-		// being handled, we handle them here and immediately return an
-		// error. When the sweeper finally is shut down we can exit as
-		// the clients will be notified.
-		for {
-			select {
-			case inp := <-s.newInputs:
-				inp.resultChan <- Result{
-					Err: ErrSweeperShuttingDown,
-				}
-
-			case req := <-s.pendingSweepsReqs:
-				req.errChan <- ErrSweeperShuttingDown
-
-			case req := <-s.updateReqs:
-				req.responseChan <- &updateResp{
-					err: ErrSweeperShuttingDown,
-				}
-
-			case <-s.quit:
-				return
-			}
-		}
-	}()
+	go s.collector()
 
 	return nil
 }

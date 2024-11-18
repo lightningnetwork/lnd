@@ -14,6 +14,9 @@ import (
 	"github.com/lightningnetwork/lnd/tor"
 )
 
+// DefaultPeerPort is the default port that peers will use for P2P connections.
+const DefaultPeerPort = 9735
+
 // TCPResolver is a function signature that resolves an address on a given
 // network.
 type TCPResolver = func(network, addr string) (*net.TCPAddr, error)

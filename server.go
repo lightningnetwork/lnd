@@ -469,7 +469,7 @@ func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 		// If a port wasn't specified, we'll assume the address only
 		// contains the host so we'll use the default port.
 		host = address
-		port = defaultPeerPort
+		port = lncfg.DefaultPeerPort
 	} else {
 		// Otherwise, we'll note both the host and ports.
 		host = h
@@ -853,7 +853,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	// If external IP addresses have been specified, add those to the list
 	// of this server's addresses.
 	externalIPs, err := lncfg.NormalizeAddresses(
-		externalIPStrings, strconv.Itoa(defaultPeerPort),
+		externalIPStrings, strconv.Itoa(lncfg.DefaultPeerPort),
 		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
@@ -1783,7 +1783,9 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			RefreshTicker: ticker.New(defaultHostSampleInterval),
 			LookupHost: func(host string) (net.Addr, error) {
 				return lncfg.ParseAddressString(
-					host, strconv.Itoa(defaultPeerPort),
+					host, strconv.Itoa(
+						lncfg.DefaultPeerPort,
+					),
 					cfg.net.ResolveTCPAddr,
 				)
 			},
@@ -3164,7 +3166,7 @@ func (s *server) createNewHiddenService() error {
 	// create our onion service. The service's private key will be saved to
 	// disk in order to regain access to this service when restarting `lnd`.
 	onionCfg := tor.AddOnionConfig{
-		VirtualPort: defaultPeerPort,
+		VirtualPort: lncfg.DefaultPeerPort,
 		TargetPorts: listenPorts,
 		Store: tor.NewOnionFile(
 			s.cfg.Tor.PrivateKeyPath, 0600, s.cfg.Tor.EncryptKey,

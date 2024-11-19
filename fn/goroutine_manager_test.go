@@ -2,6 +2,7 @@ package fn
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ func TestGoroutineManager(t *testing.T) {
 
 	taskChan := make(chan struct{})
 
-	require.NoError(t, m.Go(func(ctx context.Context) {
+	require.True(t, m.Go(func(ctx context.Context) {
 		<-taskChan
 	}))
 
@@ -37,7 +38,7 @@ func TestGoroutineManager(t *testing.T) {
 	require.Greater(t, stopDelay, time.Second)
 
 	// Make sure new goroutines do not start after Stop.
-	require.ErrorIs(t, m.Go(func(ctx context.Context) {}), ErrStopping)
+	require.False(t, m.Go(func(ctx context.Context) {}))
 
 	// When Stop() is called, the internal context expires and m.Done() is
 	// closed. Test this.
@@ -56,7 +57,7 @@ func TestGoroutineManagerContextExpires(t *testing.T) {
 
 	m := NewGoroutineManager(ctx)
 
-	require.NoError(t, m.Go(func(ctx context.Context) {
+	require.True(t, m.Go(func(ctx context.Context) {
 		<-ctx.Done()
 	}))
 
@@ -79,7 +80,7 @@ func TestGoroutineManagerContextExpires(t *testing.T) {
 	}
 
 	// Make sure new goroutines do not start after context expiry.
-	require.ErrorIs(t, m.Go(func(ctx context.Context) {}), ErrStopping)
+	require.False(t, m.Go(func(ctx context.Context) {}))
 
 	// Stop will wait for all goroutines to stop.
 	m.Stop()
@@ -107,15 +108,50 @@ func TestGoroutineManagerStress(t *testing.T) {
 	// implementation, this test crashes under `-race`.
 	for i := 0; i < 100; i++ {
 		taskChan := make(chan struct{})
-		err := m.Go(func(ctx context.Context) {
+		ok := m.Go(func(ctx context.Context) {
 			close(taskChan)
 		})
 		// If goroutine was started, wait for its completion.
-		if err == nil {
+		if ok {
 			<-taskChan
 		}
 	}
 
 	// Wait for Stop to complete.
 	<-stopChan
+}
+
+// TestGoroutineManagerStopsStress launches many Stop() calls in parallel with a
+// task exiting. It attempts to catch a race condition between wg.Done() and
+// wg.Wait() calls. According to documentation of wg.Wait() this is acceptable,
+// therefore this test passes even with -race.
+func TestGoroutineManagerStopsStress(t *testing.T) {
+	t.Parallel()
+
+	m := NewGoroutineManager(context.Background())
+
+	// jobChan is used to make the task to finish.
+	jobChan := make(chan struct{})
+
+	// Start a task and wait inside it until we start calling Stop() method.
+	ok := m.Go(func(ctx context.Context) {
+		<-jobChan
+	})
+	require.True(t, ok)
+
+	// Now launch many gorotines calling Stop() method in parallel.
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.Stop()
+		}()
+	}
+
+	// Exit the task in parallel with Stop() calls.
+	close(jobChan)
+
+	// Wait until all the Stop() calls complete.
+	wg.Wait()
 }

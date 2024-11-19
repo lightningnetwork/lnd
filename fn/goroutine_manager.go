@@ -2,12 +2,8 @@ package fn
 
 import (
 	"context"
-	"errors"
 	"sync"
 )
-
-// ErrStopping is returned when trying to add a new goroutine while stopping.
-var ErrStopping = errors.New("can not add goroutine, stopping")
 
 // GoroutineManager is used to launch goroutines until context expires or the
 // manager is stopped. The Stop method blocks until all started goroutines stop.
@@ -29,8 +25,10 @@ func NewGoroutineManager(ctx context.Context) *GoroutineManager {
 	}
 }
 
-// Go starts a new goroutine if the manager is not stopping.
-func (g *GoroutineManager) Go(f func(ctx context.Context)) error {
+// Go tries to start a new goroutine and returns a boolean indicating its
+// success. It fails iff the goroutine manager is stopping or its context passed
+// to NewGoroutineManager has expired.
+func (g *GoroutineManager) Go(f func(ctx context.Context)) bool {
 	// Calling wg.Add(1) and wg.Wait() when wg's counter is 0 is a race
 	// condition, since it is not clear should Wait() block or not. This
 	// kind of race condition is detected by Go runtime and results in a
@@ -43,7 +41,7 @@ func (g *GoroutineManager) Go(f func(ctx context.Context)) error {
 	defer g.mu.Unlock()
 
 	if g.ctx.Err() != nil {
-		return ErrStopping
+		return false
 	}
 
 	g.wg.Add(1)
@@ -52,7 +50,7 @@ func (g *GoroutineManager) Go(f func(ctx context.Context)) error {
 		f(g.ctx)
 	}()
 
-	return nil
+	return true
 }
 
 // Stop prevents new goroutines from being added and waits for all running
@@ -66,7 +64,7 @@ func (g *GoroutineManager) Stop() {
 	// safe, since it can't run in parallel with wg.Add(1) call in Go, since
 	// we just cancelled the context and even if Go call starts running here
 	// after acquiring the mutex, it would see that the context has expired
-	// and return ErrStopping instead of calling wg.Add(1).
+	// and return false instead of calling wg.Add(1).
 	g.wg.Wait()
 }
 

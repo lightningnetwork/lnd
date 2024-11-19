@@ -1467,10 +1467,18 @@ func (p *Brontide) Disconnect(reason error) {
 
 	// Make sure initialization has completed before we try to tear things
 	// down.
-	select {
-	case <-p.startReady:
-	case <-p.quit:
-		return
+	//
+	// NOTE: We only read the `startReady` chan if the peer has been
+	// started, otherwise we will skip reading it as this chan won't be
+	// closed, hence blocks forever.
+	if atomic.LoadInt32(&p.started) == 1 {
+		p.log.Debugf("Started, waiting on startReady signal")
+
+		select {
+		case <-p.startReady:
+		case <-p.quit:
+			return
+		}
 	}
 
 	err := fmt.Errorf("disconnecting %s, reason: %v", p, reason)

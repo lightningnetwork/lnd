@@ -51,6 +51,9 @@
 * Make sure the RPC clients used to access the chain backend are [properly
   shutdown](https://github.com/lightningnetwork/lnd/pull/9261).
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9275) where the
+  peer may block the shutdown process of lnd.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions
@@ -196,5 +199,6 @@ The underlying functionality between those two options remain the same.
 * Oliver Gugger
 * Pins
 * Viktor Tigerström
+* Yong Yu
 * Ziggie
 

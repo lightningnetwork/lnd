@@ -202,10 +202,5 @@ The underlying functionality between those two options remain the same.
 * Oliver Gugger
 * Pins
 * Viktor Tigerström
-<<<<<<< HEAD
 * Yong Yu
 * Ziggie
-
-=======
-* Ziggie
->>>>>>> 5a6264b6a (docs: update release notes)

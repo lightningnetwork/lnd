@@ -44,7 +44,6 @@ Commands
 - [`list`](#list)
 - [`rpc`](#rpc)
 - [`scratch`](#scratch)
-- [`travis`](#travis)
 - [`unit`](#unit)
 - [`unit-cover`](#unit-cover)
 - [`unit-race`](#unit-race)

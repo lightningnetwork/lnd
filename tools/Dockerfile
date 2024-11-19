@@ -1,4 +1,4 @@
-FROM golang:1.22.6
+FROM golang:1.22.6@sha256:4594271250150c1a322ed749abfd218e1a8c6eb1ade90872e325a664412e2037
 
 RUN apt-get update && apt-get install -y git
 ENV GOCACHE=/tmp/build/.cache

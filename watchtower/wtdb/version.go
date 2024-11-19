@@ -78,6 +78,12 @@ func getLatestDBVersion(versions []version) uint32 {
 	return uint32(len(versions))
 }
 
+// LatestDBMigrationVersion returns the number of the latest existing database
+// migration version available.
+func LatestDBMigrationVersion() uint32 {
+	return getLatestDBVersion(clientDBVersions)
+}
+
 // getMigrations returns a slice of all updates with a greater number that
 // curVersion that need to be applied to sync up with the latest version.
 func getMigrations(versions []version, curVersion uint32) []version {
@@ -89,6 +95,27 @@ func getMigrations(versions []version, curVersion uint32) []version {
 	}
 
 	return updates
+}
+
+// CurrentDatabaseVersion reads the current database version from the database
+// and returns it.
+func CurrentDatabaseVersion(db kvdb.Backend) (uint32, error) {
+	var (
+		version uint32
+		err     error
+	)
+
+	err = kvdb.View(db, func(tx kvdb.RTx) error {
+		version, err = getDBVersion(tx)
+		return err
+	}, func() {
+		version = 0
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return version, nil
 }
 
 // getDBVersion retrieves the current database version from the metadata bucket

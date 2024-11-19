@@ -942,10 +942,9 @@ func (n *TxNotifier) dispatchConfDetails(
 		// We'll send a 0 value to the Updates channel,
 		// indicating that the transaction/output script has already
 		// been confirmed.
-		select {
-		case ntfn.Event.Updates <- 0:
-		case <-n.quit:
-			return ErrTxNotifierExiting
+		err := n.notifyNumConfsLeft(ntfn, 0)
+		if err != nil {
+			return err
 		}
 
 		select {
@@ -972,10 +971,9 @@ func (n *TxNotifier) dispatchConfDetails(
 		// confirmations are left for the transaction/output script to
 		// be confirmed.
 		numConfsLeft := confHeight - n.currentHeight
-		select {
-		case ntfn.Event.Updates <- numConfsLeft:
-		case <-n.quit:
-			return ErrTxNotifierExiting
+		err := n.notifyNumConfsLeft(ntfn, numConfsLeft)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -1740,10 +1738,9 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 					continue
 				}
 
-				select {
-				case ntfn.Event.Updates <- numConfsLeft:
-				case <-n.quit:
-					return ErrTxNotifierExiting
+				err := n.notifyNumConfsLeft(ntfn, numConfsLeft)
+				if err != nil {
+					return err
 				}
 			}
 		}
@@ -2080,4 +2077,16 @@ func (n *TxNotifier) TearDown() {
 			delete(spendSet.ntfns, spendID)
 		}
 	}
+}
+
+// notifyNumConfsLeft sends the number of confirmations left to the
+// notification subscriber through the Event.Updates channel.
+func (n *TxNotifier) notifyNumConfsLeft(ntfn *ConfNtfn, num uint32) error {
+	select {
+	case ntfn.Event.Updates <- num:
+	case <-n.quit:
+		return ErrTxNotifierExiting
+	}
+
+	return nil
 }

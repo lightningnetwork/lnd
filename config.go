@@ -860,6 +860,18 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	flagParser *flags.Parser) (*Config, error) {
 
+	// Special show command to list supported subsystems and exit.
+	if cfg.DebugLevel == "show" {
+		subLogMgr := build.NewSubLoggerManager()
+
+		// Initialize logging at the default logging level.
+		SetupLoggers(subLogMgr, interceptor)
+
+		fmt.Println("Supported subsystems",
+			subLogMgr.SupportedSubsystems())
+		os.Exit(0)
+	}
+
 	// If the provided lnd directory is not the default, we'll modify the
 	// path to all of the files and directories that will live within it.
 	lndDir := CleanAndExpandPath(cfg.LndDir)
@@ -1249,7 +1261,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// The target network must be provided, otherwise, we won't
 	// know how to initialize the daemon.
 	if numNets == 0 {
-		str := "either --bitcoin.mainnet, or bitcoin.testnet," +
+		str := "either --bitcoin.mainnet, or bitcoin.testnet, " +
 			"bitcoin.simnet, bitcoin.regtest or bitcoin.signet " +
 			"must be specified"
 
@@ -1407,13 +1419,6 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 
 	// Initialize logging at the default logging level.
 	SetupLoggers(cfg.SubLogMgr, interceptor)
-
-	// Special show command to list supported subsystems and exit.
-	if cfg.DebugLevel == "show" {
-		fmt.Println("Supported subsystems",
-			cfg.SubLogMgr.SupportedSubsystems())
-		os.Exit(0)
-	}
 
 	if cfg.MaxLogFiles != 0 {
 		if cfg.LogConfig.File.MaxLogFiles !=

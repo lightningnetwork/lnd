@@ -244,20 +244,25 @@ type ConfNtfn struct {
 	// notification is to be sent.
 	NumConfirmations uint32
 
-	// Event contains references to the channels that the notifications are to
-	// be sent over.
+	// Event contains references to the channels that the notifications are
+	// to be sent over.
 	Event *ConfirmationEvent
 
 	// HeightHint is the minimum height in the chain that we expect to find
 	// this txid.
 	HeightHint uint32
 
-	// dispatched is false if the confirmed notification has not been sent yet.
+	// dispatched is false if the confirmed notification has not been sent
+	// yet.
 	dispatched bool
 
 	// includeBlock is true if the dispatched notification should also have
 	// the block included with it.
 	includeBlock bool
+
+	// numConfsLeft is the number of confirmations left to be sent to the
+	// subscriber.
+	numConfsLeft uint32
 }
 
 // HistoricalConfDispatch parametrizes a manual rescan for a particular
@@ -589,6 +594,7 @@ func (n *TxNotifier) newConfNtfn(txid *chainhash.Hash,
 		}),
 		HeightHint:   heightHint,
 		includeBlock: opts.includeBlock,
+		numConfsLeft: numConfs,
 	}, nil
 }
 
@@ -1842,6 +1848,9 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 				default:
 				}
 
+				// We also reset the num of confs update.
+				ntfn.numConfsLeft = ntfn.NumConfirmations
+
 				// Then, we'll check if the current
 				// transaction/output script was included in the
 				// block currently being disconnected. If it
@@ -2081,7 +2090,22 @@ func (n *TxNotifier) TearDown() {
 
 // notifyNumConfsLeft sends the number of confirmations left to the
 // notification subscriber through the Event.Updates channel.
+//
+// NOTE: must be used with the TxNotifier's lock held.
 func (n *TxNotifier) notifyNumConfsLeft(ntfn *ConfNtfn, num uint32) error {
+	// If the number left is no less than the recorded value, we can skip
+	// sending it as it means this same value has already been sent before.
+	if num >= ntfn.numConfsLeft {
+		Log.Debugf("Skipped dispatched update (numConfsLeft=%v) for "+
+			"request %v conf_id=%v", num, ntfn.ConfRequest,
+			ntfn.ConfID)
+
+		return nil
+	}
+
+	// Update the number of confirmations left to the notification.
+	ntfn.numConfsLeft = num
+
 	select {
 	case ntfn.Event.Updates <- num:
 	case <-n.quit:

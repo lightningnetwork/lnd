@@ -33,7 +33,7 @@ func testChainKit(ht *lntest.HarnessTest) {
 // testChainKitGetBlock ensures that given a block hash, the RPC endpoint
 // returns the correct target block.
 func testChainKitGetBlock(ht *lntest.HarnessTest) {
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 
 	// Get best block hash.
 	bestBlockRes := alice.RPC.GetBestBlock(nil)
@@ -63,7 +63,7 @@ func testChainKitGetBlock(ht *lntest.HarnessTest) {
 // testChainKitGetBlockHeader ensures that given a block hash, the RPC endpoint
 // returns the correct target block header.
 func testChainKitGetBlockHeader(ht *lntest.HarnessTest) {
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 
 	// Get best block hash.
 	bestBlockRes := alice.RPC.GetBestBlock(nil)
@@ -108,7 +108,7 @@ func testChainKitGetBlockHeader(ht *lntest.HarnessTest) {
 // testChainKitGetBlockHash ensures that given a block height, the RPC endpoint
 // returns the correct target block hash.
 func testChainKitGetBlockHash(ht *lntest.HarnessTest) {
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 
 	// Get best block hash.
 	bestBlockRes := alice.RPC.GetBestBlock(nil)
@@ -134,8 +134,7 @@ func testChainKitSendOutputsAnchorReserve(ht *lntest.HarnessTest) {
 	// NOTE: we cannot reuse the standby node here as the test requires the
 	// node to start with no UTXOs.
 	charlie := ht.NewNode("Charlie", args)
-	bob := ht.Bob
-	ht.RestartNodeWithExtraArgs(bob, args)
+	bob := ht.NewNode("Bob", args)
 
 	// We'll start the test by sending Charlie some coins.
 	fundingAmount := btcutil.Amount(100_000)
@@ -222,12 +221,8 @@ func testAnchorReservedValue(ht *lntest.HarnessTest) {
 	// Start two nodes supporting anchor channels.
 	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
 
-	// NOTE: we cannot reuse the standby node here as the test requires the
-	// node to start with no UTXOs.
 	alice := ht.NewNode("Alice", args)
-	bob := ht.Bob
-	ht.RestartNodeWithExtraArgs(bob, args)
-
+	bob := ht.NewNode("Bob", args)
 	ht.ConnectNodes(alice, bob)
 
 	// Send just enough coins for Alice to open a channel without a change

@@ -14,21 +14,19 @@ import (
 // testTrackPayments tests whether a client that calls the TrackPayments api
 // receives payment updates.
 func testTrackPayments(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
-
-	// Restart Alice with the new flag so she understands the new payment
+	// Create Alice with the new flag so she understands the new payment
 	// status.
-	ht.RestartNodeWithExtraArgs(alice, []string{
-		"--routerrpc.usestatusinitiated",
-	})
+	cfgAlice := []string{"--routerrpc.usestatusinitiated"}
+	cfgs := [][]string{cfgAlice, nil}
 
-	// Open a channel between alice and bob.
-	ht.EnsureConnected(alice, bob)
-	channel := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{
+	// Create a channel Alice->Bob.
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		cfgs, lntest.OpenChannelParams{
 			Amt: btcutil.Amount(300000),
 		},
 	)
+	channel := chanPoints[0]
+	alice, bob := nodes[0], nodes[1]
 
 	// Call the TrackPayments api to listen for payment updates.
 	req := &routerrpc.TrackPaymentsRequest{
@@ -104,12 +102,13 @@ func testTrackPayments(ht *lntest.HarnessTest) {
 // is not set, the new Payment_INITIATED is replaced with Payment_IN_FLIGHT.
 func testTrackPaymentsCompatible(ht *lntest.HarnessTest) {
 	// Open a channel between alice and bob.
-	alice, bob := ht.Alice, ht.Bob
-	channel := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		[][]string{nil, nil}, lntest.OpenChannelParams{
 			Amt: btcutil.Amount(300000),
 		},
 	)
+	channel := chanPoints[0]
+	alice, bob := nodes[0], nodes[1]
 
 	// Call the TrackPayments api to listen for payment updates.
 	req := &routerrpc.TrackPaymentsRequest{

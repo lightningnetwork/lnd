@@ -62,6 +62,8 @@
 
 # New Features
 ## Functional Enhancements
+* [Add ability](https://github.com/lightningnetwork/lnd/pull/8998) to paginate 
+ wallet transactions.
 ## RPC Additions
 
 * [Add a new rpc endpoint](https://github.com/lightningnetwork/lnd/pull/8843)
@@ -196,6 +198,7 @@ The underlying functionality between those two options remain the same.
 
 # Contributors (Alphabetical Order)
 
+* Abdullahi Yunus
 * Animesh Bilthare
 * Boris Nagaev
 * CharlieZKSmith

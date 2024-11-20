@@ -3595,11 +3595,13 @@ func (b BufferType) String() string {
 
 // applyCommitFee applies the commitFee including a buffer to the balance amount
 // and verifies that it does not become negative. This function returns the new
-// balance and the exact buffer amount (excluding the commitment fee).
+// balance, the exact buffer amount (excluding the commitment fee) and the
+// commitment fee.
 func (lc *LightningChannel) applyCommitFee(
 	balance lnwire.MilliSatoshi, commitWeight lntypes.WeightUnit,
 	feePerKw chainfee.SatPerKWeight,
-	buffer BufferType) (lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
+	buffer BufferType) (lnwire.MilliSatoshi, lnwire.MilliSatoshi,
+	lnwire.MilliSatoshi, error) {
 
 	commitFee := feePerKw.FeeForWeight(commitWeight)
 	commitFeeMsat := lnwire.NewMSatFromSatoshis(commitFee)
@@ -3614,14 +3616,16 @@ func (lc *LightningChannel) applyCommitFee(
 		// Make sure that we are the initiator of the channel before we
 		// apply the FeeBuffer.
 		if !lc.channelState.IsInitiator {
-			return 0, 0, ErrFeeBufferNotInitiator
+			return 0, 0, 0, ErrFeeBufferNotInitiator
 		}
 
 		// The FeeBuffer already includes the commitFee.
 		bufferAmt = CalcFeeBuffer(feePerKw, commitWeight)
 		if bufferAmt < balance {
 			newBalance := balance - bufferAmt
-			return newBalance, bufferAmt - commitFeeMsat, nil
+
+			return newBalance, bufferAmt - commitFeeMsat,
+				commitFeeMsat, nil
 		}
 
 	// The AdditionalHtlc buffer type does NOT keep a FeeBuffer but solely
@@ -3635,7 +3639,7 @@ func (lc *LightningChannel) applyCommitFee(
 		bufferAmt = commitFeeMsat + additionalHtlcFee
 		newBalance := balance - bufferAmt
 		if bufferAmt < balance {
-			return newBalance, additionalHtlcFee, nil
+			return newBalance, additionalHtlcFee, commitFeeMsat, nil
 		}
 
 	// The default case does not account for any buffer on the local balance
@@ -3643,13 +3647,13 @@ func (lc *LightningChannel) applyCommitFee(
 	default:
 		if commitFeeMsat < balance {
 			newBalance := balance - commitFeeMsat
-			return newBalance, 0, nil
+			return newBalance, 0, commitFeeMsat, nil
 		}
 	}
 
 	// We still return the amount and bufferAmt here to log them at a later
 	// stage.
-	return balance, bufferAmt, ErrBelowChanReserve
+	return balance, bufferAmt, commitFeeMsat, ErrBelowChanReserve
 }
 
 // validateCommitmentSanity is used to validate the current state of the
@@ -3707,17 +3711,21 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	// includes also a buffer type. Depending on whether we are the opener
 	// of the channel we either want to enforce a buffer on the local
 	// amount.
-	var bufferAmt lnwire.MilliSatoshi
+	var (
+		bufferAmt lnwire.MilliSatoshi
+		commitFee lnwire.MilliSatoshi
+	)
+
 	if lc.channelState.IsInitiator {
-		ourBalance, bufferAmt, err = lc.applyCommitFee(
-			ourBalance, commitWeight, feePerKw, buffer)
+		ourBalance, bufferAmt, commitFee, err = lc.applyCommitFee(
+			ourBalance, commitWeight, feePerKw, buffer,
+		)
 		if err != nil {
-			commitFee := feePerKw.FeeForWeight(commitWeight)
 			lc.log.Errorf("Cannot pay for the CommitmentFee of "+
 				"the ChannelState: ourBalance is negative "+
 				"after applying the fee: ourBalance=%v, "+
 				"commitFee=%v, feeBuffer=%v (type=%v) "+
-				"local_chan_initiator", int64(ourBalance),
+				"local_chan_initiator", ourBalance,
 				commitFee, bufferAmt, buffer)
 
 			return err
@@ -3730,17 +3738,16 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 		// stuck because locally we will never put another outgoing HTLC
 		// on the channel state. The FeeBuffer should ONLY be enforced
 		// if we locally pay for the commitment transaction.
-		theirBalance, bufferAmt, err = lc.applyCommitFee(
-			theirBalance, commitWeight, feePerKw, NoBuffer)
+		theirBalance, bufferAmt, commitFee, err = lc.applyCommitFee(
+			theirBalance, commitWeight, feePerKw, NoBuffer,
+		)
 		if err != nil {
-			commitFee := feePerKw.FeeForWeight(commitWeight)
 			lc.log.Errorf("Cannot pay for the CommitmentFee "+
 				"of the ChannelState: theirBalance is "+
 				"negative after applying the fee: "+
-				"theiBalance=%v, commitFee=%v, feeBuffer=%v "+
+				"theirBalance=%v, commitFee=%v, feeBuffer=%v "+
 				"(type=%v) remote_chan_initiator",
-				int64(theirBalance), commitFee, bufferAmt,
-				buffer)
+				theirBalance, commitFee, bufferAmt, buffer)
 
 			return err
 		}
@@ -3757,10 +3764,6 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 		lc.channelState.RemoteChanCfg.ChanReserve,
 	)
 
-	// Calculate the commitment fee to log the information if needed.
-	commitFee := feePerKw.FeeForWeight(commitWeight)
-	commitFeeMsat := lnwire.NewMSatFromSatoshis(commitFee)
-
 	switch {
 	// TODO(ziggie): Allow the peer dip us below the channel reserve when
 	// our local balance would increase during this commitment dance or
@@ -3774,7 +3777,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 		lc.log.Debugf("Funds below chan reserve: ourBalance=%v, "+
 			"ourReserve=%v, commitFee=%v, feeBuffer=%v "+
 			"chan_initiator=%v", ourBalance, ourReserve,
-			commitFeeMsat, bufferAmt, lc.channelState.IsInitiator)
+			commitFee, bufferAmt, lc.channelState.IsInitiator)
 
 		return fmt.Errorf("%w: our balance below chan reserve",
 			ErrBelowChanReserve)
@@ -8796,7 +8799,7 @@ func (lc *LightningChannel) availableCommitmentBalance(view *HtlcView,
 		// Make sure we do not overwrite `ourBalance` that's why we
 		// declare bufferAmt beforehand.
 		var bufferAmt lnwire.MilliSatoshi
-		ourBalance, bufferAmt, err = lc.applyCommitFee(
+		ourBalance, bufferAmt, commitFee, err = lc.applyCommitFee(
 			ourBalance, futureCommitWeight, feePerKw, buffer,
 		)
 		if err != nil {
@@ -8806,8 +8809,7 @@ func (lc *LightningChannel) availableCommitmentBalance(view *HtlcView,
 				"after applying the fee: ourBalance=%v, "+
 				"current commitFee(w/o additional htlc)=%v, "+
 				"feeBuffer=%v (type=%v) local_chan_initiator",
-				int64(ourBalance), commitFee,
-				bufferAmt, buffer)
+				ourBalance, commitFee, bufferAmt, buffer)
 
 			return 0, commitWeight
 		}

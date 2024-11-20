@@ -10299,6 +10299,7 @@ func TestApplyCommitmentFee(t *testing.T) {
 		balance           lnwire.MilliSatoshi
 		expectedBalance   lnwire.MilliSatoshi
 		expectedBufferAmt lnwire.MilliSatoshi
+		expectedCommitFee lnwire.MilliSatoshi
 		bufferAmt         lnwire.MilliSatoshi
 		expectedErr       error
 	}{
@@ -10309,6 +10310,7 @@ func TestApplyCommitmentFee(t *testing.T) {
 			balance:           balance,
 			expectedBalance:   balance - feeBuffer,
 			expectedBufferAmt: feeBuffer - commitFee,
+			expectedCommitFee: commitFee,
 		},
 		{
 			name:        "apply feebuffer remote initiator",
@@ -10324,6 +10326,7 @@ func TestApplyCommitmentFee(t *testing.T) {
 			balance:           balance,
 			expectedBalance:   balance - commitFee - additionalHtlc,
 			expectedBufferAmt: additionalHtlc,
+			expectedCommitFee: commitFee,
 		},
 		{
 			name:              "apply NoBuffer",
@@ -10332,6 +10335,7 @@ func TestApplyCommitmentFee(t *testing.T) {
 			balance:           balance,
 			expectedBalance:   balance - commitFee,
 			expectedBufferAmt: 0,
+			expectedCommitFee: commitFee,
 		},
 		{
 			name:              "apply FeeBuffer balance negative",
@@ -10341,18 +10345,22 @@ func TestApplyCommitmentFee(t *testing.T) {
 			expectedBalance:   balanceBelowReserve,
 			expectedErr:       ErrBelowChanReserve,
 			expectedBufferAmt: feeBuffer,
+			expectedCommitFee: commitFee,
 		},
 	}
 
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			balance, bufferAmt, err := tc.channel.applyCommitFee(
-				tc.balance, commitWeight, feePerKw, tc.buffer)
+			//nolint:lll
+			balance, bufferAmt, commitFee, err := tc.channel.applyCommitFee(
+				tc.balance, commitWeight, feePerKw, tc.buffer,
+			)
 
 			require.ErrorIs(t, err, tc.expectedErr)
 			require.Equal(t, tc.expectedBalance, balance)
 			require.Equal(t, tc.expectedBufferAmt, bufferAmt)
+			require.Equal(t, tc.expectedCommitFee, commitFee)
 		})
 	}
 }

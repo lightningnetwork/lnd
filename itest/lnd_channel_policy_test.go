@@ -30,19 +30,16 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := chanAmt / 2
 
-	alice, bob := ht.Alice, ht.Bob
-
 	// Create a channel Alice->Bob.
-	chanPoint := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		[][]string{nil, nil}, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
 		},
 	)
 
-	// We add all the nodes' update channels to a slice, such that we can
-	// make sure they all receive the expected updates.
-	nodes := []*node.HarnessNode{alice, bob}
+	alice, bob := nodes[0], nodes[1]
+	chanPoint := chanPoints[0]
 
 	// Alice and Bob should see each other's ChannelUpdates, advertising the
 	// default routing policies. We do not currently set any inbound fees.
@@ -441,7 +438,8 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 func testSendUpdateDisableChannel(ht *lntest.HarnessTest) {
 	const chanAmt = 100000
 
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
 
 	// Create a new node Eve, which will be restarted later with a config
 	// that has an inactive channel timeout of just 6 seconds (down from
@@ -678,7 +676,9 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntest.HarnessTest) {
 
 	// We'll create the following topology first,
 	// Alice <--public:100k--> Bob <--private:100k--> Carol
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 
 	// Open a channel with 100k satoshis between Alice and Bob.
 	chanPointAliceBob := ht.OpenChannel(
@@ -787,16 +787,14 @@ func testUpdateChannelPolicyFeeRateAccuracy(ht *lntest.HarnessTest) {
 	pushAmt := chanAmt / 2
 
 	// Create a channel Alice -> Bob.
-	alice, bob := ht.Alice, ht.Bob
-	chanPoint := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		[][]string{nil, nil}, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
 		},
 	)
-
-	// Nodes that we need to make sure receive the channel updates.
-	nodes := []*node.HarnessNode{alice, bob}
+	alice := nodes[0]
+	chanPoint := chanPoints[0]
 
 	baseFee := int64(1500)
 	timeLockDelta := uint32(66)

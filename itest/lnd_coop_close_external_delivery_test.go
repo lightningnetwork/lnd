@@ -58,7 +58,8 @@ func testCoopCloseWithExternalDelivery(ht *lntest.HarnessTest) {
 func testCoopCloseWithExternalDeliveryImpl(ht *lntest.HarnessTest,
 	upfrontShutdown bool, deliveryAddressType lnrpc.AddressType) {
 
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("bob", nil)
 	ht.ConnectNodes(alice, bob)
 
 	// Here we generate a final delivery address in bob's wallet but set by

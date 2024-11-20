@@ -56,6 +56,9 @@
 
 * [Fixed a case](https://github.com/lightningnetwork/lnd/pull/9258) where the
   confirmation notification may be missed.
+  
+* [Make the contract resolutions for the channel arbitrator optional](
+  https://github.com/lightningnetwork/lnd/pull/9253)
 
 # New Features
 ## Functional Enhancements

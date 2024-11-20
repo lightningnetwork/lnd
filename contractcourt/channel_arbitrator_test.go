@@ -693,11 +693,15 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 	chanArbCtx.AssertState(StateCommitmentBroadcasted)
 
 	// Now notify about the local force close getting confirmed.
+	//
+	//nolint:lll
 	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
 		SpendDetail: &chainntnfs.SpendDetail{},
 		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
-			CloseTx:         &wire.MsgTx{},
-			HtlcResolutions: &lnwallet.HtlcResolutions{},
+			CloseTx: &wire.MsgTx{},
+			ContractResolutions: fn.Some(lnwallet.ContractResolutions{
+				HtlcResolutions: &lnwallet.HtlcResolutions{},
+			}),
 		},
 		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
 	}
@@ -987,15 +991,18 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		},
 	}
 
+	//nolint:lll
 	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
 		SpendDetail: &chainntnfs.SpendDetail{},
 		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
 			CloseTx: closeTx,
-			HtlcResolutions: &lnwallet.HtlcResolutions{
-				OutgoingHTLCs: []lnwallet.OutgoingHtlcResolution{
-					outgoingRes,
+			ContractResolutions: fn.Some(lnwallet.ContractResolutions{
+				HtlcResolutions: &lnwallet.HtlcResolutions{
+					OutgoingHTLCs: []lnwallet.OutgoingHtlcResolution{
+						outgoingRes,
+					},
 				},
-			},
+			}),
 		},
 		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
 		CommitSet: CommitSet{
@@ -1613,12 +1620,15 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 		},
 		{
 			closeType: channeldb.LocalForceClose,
+			//nolint:lll
 			sendEvent: func(chanArb *ChannelArbitrator) {
 				chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
 					SpendDetail: &chainntnfs.SpendDetail{},
 					LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
-						CloseTx:         &wire.MsgTx{},
-						HtlcResolutions: &lnwallet.HtlcResolutions{},
+						CloseTx: &wire.MsgTx{},
+						ContractResolutions: fn.Some(lnwallet.ContractResolutions{
+							HtlcResolutions: &lnwallet.HtlcResolutions{},
+						}),
 					},
 					ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
 				}
@@ -1946,11 +1956,15 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 			// being canalled back. Also note that there're no HTLC
 			// resolutions sent since we have none on our
 			// commitment transaction.
+			//
+			//nolint:lll
 			uniCloseInfo := &LocalUnilateralCloseInfo{
 				SpendDetail: &chainntnfs.SpendDetail{},
 				LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
-					CloseTx:         closeTx,
-					HtlcResolutions: &lnwallet.HtlcResolutions{},
+					CloseTx: closeTx,
+					ContractResolutions: fn.Some(lnwallet.ContractResolutions{
+						HtlcResolutions: &lnwallet.HtlcResolutions{},
+					}),
 				},
 				ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
 				CommitSet: CommitSet{
@@ -2870,12 +2884,15 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		},
 	}
 
+	//nolint:lll
 	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
 		SpendDetail: &chainntnfs.SpendDetail{},
 		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
-			CloseTx:          closeTx,
-			HtlcResolutions:  &lnwallet.HtlcResolutions{},
-			AnchorResolution: anchorResolution,
+			CloseTx: closeTx,
+			ContractResolutions: fn.Some(lnwallet.ContractResolutions{
+				HtlcResolutions:  &lnwallet.HtlcResolutions{},
+				AnchorResolution: anchorResolution,
+			}),
 		},
 		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
 		CommitSet: CommitSet{
@@ -3109,14 +3126,10 @@ func (m *mockChannel) NewAnchorResolutions() (*lnwallet.AnchorResolutions,
 	return &lnwallet.AnchorResolutions{}, nil
 }
 
-func (m *mockChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) {
+func (m *mockChannel) ForceCloseChan() (*wire.MsgTx, error) {
 	if m.forceCloseErr != nil {
 		return nil, m.forceCloseErr
 	}
 
-	summary := &lnwallet.LocalForceCloseSummary{
-		CloseTx:         &wire.MsgTx{},
-		HtlcResolutions: &lnwallet.HtlcResolutions{},
-	}
-	return summary, nil
+	return &wire.MsgTx{}, nil
 }

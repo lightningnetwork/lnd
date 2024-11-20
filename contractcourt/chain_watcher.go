@@ -1175,16 +1175,29 @@ func (c *chainWatcher) dispatchLocalForceClose(
 		LocalChanConfig:         c.cfg.chanState.LocalChanCfg,
 	}
 
+	resolutions, err := forceClose.ContractResolutions.UnwrapOrErr(
+		fmt.Errorf("resolutions not found"),
+	)
+	if err != nil {
+		return err
+	}
+
 	// If our commitment output isn't dust or we have active HTLC's on the
 	// commitment transaction, then we'll populate the balances on the
 	// close channel summary.
-	if forceClose.CommitResolution != nil {
-		closeSummary.SettledBalance = chanSnapshot.LocalBalance.ToSatoshis()
-		closeSummary.TimeLockedBalance = chanSnapshot.LocalBalance.ToSatoshis()
+	if resolutions.CommitResolution != nil {
+		localBalance := chanSnapshot.LocalBalance.ToSatoshis()
+		closeSummary.SettledBalance = localBalance
+		closeSummary.TimeLockedBalance = localBalance
 	}
-	for _, htlc := range forceClose.HtlcResolutions.OutgoingHTLCs {
-		htlcValue := btcutil.Amount(htlc.SweepSignDesc.Output.Value)
-		closeSummary.TimeLockedBalance += htlcValue
+
+	if resolutions.HtlcResolutions != nil {
+		for _, htlc := range resolutions.HtlcResolutions.OutgoingHTLCs {
+			htlcValue := btcutil.Amount(
+				htlc.SweepSignDesc.Output.Value,
+			)
+			closeSummary.TimeLockedBalance += htlcValue
+		}
 	}
 
 	// Attempt to add a channel sync message to the close summary.

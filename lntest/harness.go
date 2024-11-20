@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,23 +68,11 @@ type TestCase struct {
 	TestFunc func(t *HarnessTest)
 }
 
-// standbyNodes are a list of nodes which are created during the initialization
-// of the test and used across all test cases.
-type standbyNodes struct {
-	// Alice and Bob are the initial seeder nodes that are automatically
-	// created to be the initial participants of the test network.
-	Alice *node.HarnessNode
-	Bob   *node.HarnessNode
-}
-
 // HarnessTest builds on top of a testing.T with enhanced error detection. It
 // is responsible for managing the interactions among different nodes, and
 // providing easy-to-use assertions.
 type HarnessTest struct {
 	*testing.T
-
-	// Embed the standbyNodes so we can easily access them via `ht.Alice`.
-	standbyNodes
 
 	// miner is a reference to a running full node that can be used to
 	// create new blocks on the network.
@@ -271,97 +260,6 @@ func (h *HarnessTest) createAndSendOutput(target *node.HarnessNode,
 	h.miner.SendOutput(output, defaultMinerFeeRate)
 }
 
-// SetupRemoteSigningStandbyNodes starts the initial seeder nodes within the
-// test harness in a remote signing configuration. The initial node's wallets
-// will be funded wallets with 100x1 BTC outputs each.
-func (h *HarnessTest) SetupRemoteSigningStandbyNodes() {
-	h.Log("Setting up standby nodes Alice and Bob with remote " +
-		"signing configurations...")
-	defer h.Log("Finished the setup, now running tests...")
-
-	password := []byte("itestpassword")
-
-	// Setup remote signing nodes for Alice and Bob.
-	signerAlice := h.NewNode("SignerAlice", nil)
-	signerBob := h.NewNode("SignerBob", nil)
-
-	// Setup watch-only nodes for Alice and Bob, each configured with their
-	// own remote signing instance.
-	h.Alice = h.setupWatchOnlyNode("Alice", signerAlice, password)
-	h.Bob = h.setupWatchOnlyNode("Bob", signerBob, password)
-
-	// Fund each node with 100 BTC (using 100 separate transactions).
-	const fundAmount = 1 * btcutil.SatoshiPerBitcoin
-	const numOutputs = 100
-	const totalAmount = fundAmount * numOutputs
-	for _, node := range []*node.HarnessNode{h.Alice, h.Bob} {
-		h.manager.standbyNodes[node.Cfg.NodeID] = node
-		for i := 0; i < numOutputs; i++ {
-			h.createAndSendOutput(
-				node, fundAmount,
-				lnrpc.AddressType_WITNESS_PUBKEY_HASH,
-			)
-		}
-	}
-
-	// We generate several blocks in order to give the outputs created
-	// above a good number of confirmations.
-	const totalTxes = 200
-	h.MineBlocksAndAssertNumTxes(numBlocksSendOutput, totalTxes)
-
-	// Now we want to wait for the nodes to catch up.
-	h.WaitForBlockchainSync(h.Alice)
-	h.WaitForBlockchainSync(h.Bob)
-
-	// Now block until both wallets have fully synced up.
-	h.WaitForBalanceConfirmed(h.Alice, totalAmount)
-	h.WaitForBalanceConfirmed(h.Bob, totalAmount)
-}
-
-// SetUp starts the initial seeder nodes within the test harness. The initial
-// node's wallets will be funded wallets with 10x10 BTC outputs each.
-func (h *HarnessTest) SetupStandbyNodes() {
-	h.Log("Setting up standby nodes Alice and Bob...")
-	defer h.Log("Finished the setup, now running tests...")
-
-	lndArgs := []string{
-		"--default-remote-max-htlcs=483",
-		"--channel-max-fee-exposure=5000000",
-	}
-
-	// Start the initial seeder nodes within the test network.
-	h.Alice = h.NewNode("Alice", lndArgs)
-	h.Bob = h.NewNode("Bob", lndArgs)
-
-	// Load up the wallets of the seeder nodes with 100 outputs of 1 BTC
-	// each.
-	const fundAmount = 1 * btcutil.SatoshiPerBitcoin
-	const numOutputs = 100
-	const totalAmount = fundAmount * numOutputs
-	for _, node := range []*node.HarnessNode{h.Alice, h.Bob} {
-		h.manager.standbyNodes[node.Cfg.NodeID] = node
-		for i := 0; i < numOutputs; i++ {
-			h.createAndSendOutput(
-				node, fundAmount,
-				lnrpc.AddressType_WITNESS_PUBKEY_HASH,
-			)
-		}
-	}
-
-	// We generate several blocks in order to give the outputs created
-	// above a good number of confirmations.
-	const totalTxes = 200
-	h.MineBlocksAndAssertNumTxes(numBlocksSendOutput, totalTxes)
-
-	// Now we want to wait for the nodes to catch up.
-	h.WaitForBlockchainSync(h.Alice)
-	h.WaitForBlockchainSync(h.Bob)
-
-	// Now block until both wallets have fully synced up.
-	h.WaitForBalanceConfirmed(h.Alice, totalAmount)
-	h.WaitForBalanceConfirmed(h.Bob, totalAmount)
-}
-
 // Stop stops the test harness.
 func (h *HarnessTest) Stop() {
 	// Do nothing if it's not started.
@@ -399,24 +297,6 @@ func (h *HarnessTest) RunTestCase(testCase *TestCase) {
 	testCase.TestFunc(h)
 }
 
-// resetStandbyNodes resets all standby nodes by attaching the new testing.T
-// and restarting them with the original config.
-func (h *HarnessTest) resetStandbyNodes(t *testing.T) {
-	t.Helper()
-
-	for _, hn := range h.manager.standbyNodes {
-		// Inherit the testing.T.
-		h.T = t
-
-		// Reset the config so the node will be using the default
-		// config for the coming test. This will also inherit the
-		// test's running context.
-		h.RestartNodeWithExtraArgs(hn, hn.Cfg.OriginalExtraArgs)
-
-		hn.AddToLogf("Finished test case %v", h.manager.currentTestCase)
-	}
-}
-
 // Subtest creates a child HarnessTest, which inherits the harness net and
 // stand by nodes created by the parent test. It will return a cleanup function
 // which resets  all the standby nodes' configs back to its original state and
@@ -428,7 +308,6 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 		T:            t,
 		manager:      h.manager,
 		miner:        h.miner,
-		standbyNodes: h.standbyNodes,
 		feeService:   h.feeService,
 		lndErrorChan: make(chan error, lndErrorChanSize),
 	}
@@ -438,9 +317,6 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 
 	// Inherit the subtest for the miner.
 	st.miner.T = st.T
-
-	// Reset the standby nodes.
-	st.resetStandbyNodes(t)
 
 	// Reset fee estimator.
 	st.feeService.Reset()
@@ -471,14 +347,8 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 			return
 		}
 
-		// When we finish the test, reset the nodes' configs and take a
-		// snapshot of each of the nodes' internal states.
-		for _, node := range st.manager.standbyNodes {
-			st.cleanupStandbyNode(node)
-		}
-
 		// If found running nodes, shut them down.
-		st.shutdownNonStandbyNodes()
+		st.shutdownAllNodes()
 
 		// We require the mempool to be cleaned from the test.
 		require.Empty(st, st.miner.GetRawMempool(), "mempool not "+
@@ -498,26 +368,9 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	return st
 }
 
-// shutdownNonStandbyNodes will shutdown any non-standby nodes.
-func (h *HarnessTest) shutdownNonStandbyNodes() {
-	h.shutdownNodes(true)
-}
-
 // shutdownAllNodes will shutdown all running nodes.
 func (h *HarnessTest) shutdownAllNodes() {
-	h.shutdownNodes(false)
-}
-
-// shutdownNodes will shutdown any non-standby nodes. If skipStandby is false,
-// all the standby nodes will be shutdown too.
-func (h *HarnessTest) shutdownNodes(skipStandby bool) {
-	for nid, node := range h.manager.activeNodes {
-		// If it's a standby node, skip.
-		_, ok := h.manager.standbyNodes[nid]
-		if ok && skipStandby {
-			continue
-		}
-
+	for _, node := range h.manager.activeNodes {
 		// The process may not be in a state to always shutdown
 		// immediately, so we'll retry up to a hard limit to ensure we
 		// eventually shutdown.
@@ -566,26 +419,14 @@ func (h *HarnessTest) cleanupStandbyNode(hn *node.HarnessNode) {
 func (h *HarnessTest) removeConnectionns(hn *node.HarnessNode) {
 	resp := hn.RPC.ListPeers()
 	for _, peer := range resp.Peers {
-		// Skip disconnecting Alice and Bob.
-		switch peer.PubKey {
-		case h.Alice.PubKeyStr:
-			continue
-		case h.Bob.PubKeyStr:
-			continue
-		}
-
 		hn.RPC.DisconnectPeer(peer.PubKey)
 	}
 }
 
 // SetTestName set the test case name.
 func (h *HarnessTest) SetTestName(name string) {
-	h.manager.currentTestCase = name
-
-	// Overwrite the old log filename so we can create new log files.
-	for _, node := range h.manager.standbyNodes {
-		node.Cfg.LogFilenamePrefix = name
-	}
+	cleanTestCaseName := strings.ReplaceAll(name, " ", "_")
+	h.manager.currentTestCase = cleanTestCaseName
 }
 
 // NewNode creates a new node and asserts its creation. The node is guaranteed
@@ -1507,7 +1348,7 @@ func (h *HarnessTest) fundCoins(amt btcutil.Amount, target *node.HarnessNode,
 }
 
 // FundCoins attempts to send amt satoshis from the internal mining node to the
-// targeted lightning node using a P2WKH address. 2 blocks are mined after in
+// targeted lightning node using a P2WKH address. 1 blocks are mined after in
 // order to confirm the transaction.
 func (h *HarnessTest) FundCoins(amt btcutil.Amount, hn *node.HarnessNode) {
 	h.fundCoins(amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, true)
@@ -1783,9 +1624,9 @@ func (h *HarnessTest) RestartNodeAndRestoreDB(hn *node.HarnessNode) {
 // closures as the caller doesn't need to mine all the blocks to make sure the
 // mempool is empty.
 func (h *HarnessTest) CleanShutDown() {
-	// First, shutdown all non-standby nodes to prevent new transactions
-	// being created and fed into the mempool.
-	h.shutdownNonStandbyNodes()
+	// First, shutdown all nodes to prevent new transactions being created
+	// and fed into the mempool.
+	h.shutdownAllNodes()
 
 	// Now mine blocks till the mempool is empty.
 	h.cleanMempool()

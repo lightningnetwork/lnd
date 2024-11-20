@@ -2165,6 +2165,13 @@ func acceptChannel(t *testing.T, zeroConf bool, stream rpc.AcceptorClient) {
 	require.NoError(t, err)
 }
 
+// nodeNames defines a slice of human-reable names for the nodes created in the
+// `createNodes` method. 8 nodes are defined here as by default we can only
+// create this many nodes in one test.
+var nodeNames = []string{
+	"Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Grace", "Heidi",
+}
+
 // createNodes creates the number of nodes specified by the number of configs.
 // Each node is created using the specified config, the neighbors are
 // connected.
@@ -2172,12 +2179,15 @@ func (h *HarnessTest) createNodes(nodeCfgs [][]string) []*node.HarnessNode {
 	// Get the number of nodes.
 	numNodes := len(nodeCfgs)
 
+	// Make sure we are creating a reasonable number of nodes.
+	require.LessOrEqual(h, numNodes, len(nodeNames), "too many nodes")
+
 	// Make a slice of nodes.
 	nodes := make([]*node.HarnessNode, numNodes)
 
 	// Create new nodes.
 	for i, nodeCfg := range nodeCfgs {
-		nodeName := fmt.Sprintf("Node%q", string(rune('A'+i)))
+		nodeName := nodeNames[i]
 		n := h.NewNode(nodeName, nodeCfg)
 		nodes[i] = n
 	}

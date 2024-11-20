@@ -218,7 +218,9 @@ func testUpdateChanStatus(ht *lntest.HarnessTest) {
 // describeGraph RPC request unless explicitly asked for.
 func testUnannouncedChannels(ht *lntest.HarnessTest) {
 	amount := funding.MaxBtcFundingAmount
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 
 	// Open a channel between Alice and Bob, ensuring the
 	// channel has been opened properly.
@@ -267,13 +269,9 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 
 	// Spin up Bob first, since we will need to grab his pubkey when
 	// starting Alice to test pinned syncing.
-	bob := ht.Bob
+	bob := ht.NewNodeWithCoins("Bob", nil)
 	bobInfo := bob.RPC.GetInfo()
 	bobPubkey := bobInfo.IdentityPubkey
-
-	// Restart Bob as he may have leftover announcements from previous
-	// tests, causing the graph to be unsynced.
-	ht.RestartNodeWithExtraArgs(bob, nil)
 
 	// For unpinned syncing, start Alice as usual. Otherwise grab Bob's
 	// pubkey to include in his pinned syncer set.
@@ -285,8 +283,7 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 		}
 	}
 
-	alice := ht.Alice
-	ht.RestartNodeWithExtraArgs(alice, aliceArgs)
+	alice := ht.NewNodeWithCoins("Alice", aliceArgs)
 
 	// Connect Alice and Bob.
 	ht.EnsureConnected(alice, bob)
@@ -379,7 +376,9 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 // external IP addresses specified on the command line, that those addresses
 // announced to the network and reported in the network graph.
 func testNodeAnnouncement(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNode("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 
 	advertisedAddrs := []string{
 		"192.168.1.1:8333",
@@ -434,7 +433,9 @@ func testNodeAnnouncement(ht *lntest.HarnessTest) {
 // the requests correctly and that the new node announcement is brodcasted
 // with the right information after updating our node.
 func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNode("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 
 	var lndArgs []string
 

@@ -769,7 +769,7 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 	// totally unrelated preimage.
 	carol := ht.NewNode("Carol", []string{"--hodl.bogus-settle"})
 
-	alice := ht.Alice
+	alice := ht.NewNodeWithCoins("Alice", nil)
 	ht.ConnectNodes(alice, carol)
 
 	// Let Alice connect and open a channel to Carol,

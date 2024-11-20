@@ -34,7 +34,9 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 	tempMiner := ht.SpawnTempMiner()
 
 	miner := ht.Miner()
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 
 	// Create a new channel that requires 1 confs before it's considered
 	// open, then broadcast the funding transaction
@@ -242,9 +244,10 @@ func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 	// In this basic test, we'll need a third node, Carol, so we can forward
 	// a payment through the channel we'll open with the different fee
 	// policies.
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
 	carol := ht.NewNode("Carol", nil)
 
-	alice, bob := ht.Alice, ht.Bob
 	nodes := []*node.HarnessNode{alice, bob, carol}
 
 	runTestCase := func(ht *lntest.HarnessTest,
@@ -301,7 +304,7 @@ func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 
 			// Send Carol enough coins to be able to open a channel
 			// to Alice.
-			ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+			st.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 			runTestCase(
 				st, feeScenario,
@@ -315,7 +318,9 @@ func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 // closing, and ensures that if a node is subscribed to channel updates they
 // will be received correctly for both cooperative and force closed channels.
 func testBasicChannelCreationAndUpdates(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 
 	runBasicChannelCreationAndUpdates(ht, alice, bob)
 }
@@ -519,8 +524,8 @@ func testUpdateOnPendingOpenChannels(ht *lntest.HarnessTest) {
 // processing the fundee's `channel_ready`, the HTLC will be cached and
 // eventually settled.
 func testUpdateOnFunderPendingOpenChannels(ht *lntest.HarnessTest) {
-	// Grab the channel participants.
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
 
 	// Restart Alice with the config so she won't process Bob's
 	// channel_ready msg immediately.
@@ -603,8 +608,8 @@ func testUpdateOnFunderPendingOpenChannels(ht *lntest.HarnessTest) {
 // processing the funder's `channel_ready`, the HTLC will be cached and
 // eventually settled.
 func testUpdateOnFundeePendingOpenChannels(ht *lntest.HarnessTest) {
-	// Grab the channel participants.
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
 
 	// Restart Bob with the config so he won't process Alice's
 	// channel_ready msg immediately.
@@ -746,7 +751,10 @@ func verifyCloseUpdate(chanUpdate *lnrpc.ChannelEventUpdate,
 // before the funding transaction is confirmed, that the FundingExpiryBlocks
 // field of a PendingChannels decreases.
 func testFundingExpiryBlocksOnPending(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	ht.EnsureConnected(alice, bob)
+
 	param := lntest.OpenChannelParams{Amt: 100000}
 	update := ht.OpenChannelAssertPending(alice, bob, param)
 
@@ -844,7 +852,6 @@ func testSimpleTaprootChannelActivation(ht *lntest.HarnessTest) {
 // up as locked balance in the WalletBalance response.
 func testOpenChannelLockedBalance(ht *lntest.HarnessTest) {
 	var (
-		bob = ht.Bob
 		req *lnrpc.ChannelAcceptRequest
 		err error
 	)
@@ -852,6 +859,7 @@ func testOpenChannelLockedBalance(ht *lntest.HarnessTest) {
 	// Create a new node so we can assert exactly how much fund has been
 	// locked later.
 	alice := ht.NewNode("alice", nil)
+	bob := ht.NewNode("bob", nil)
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
 
 	// Connect the nodes.

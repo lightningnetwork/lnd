@@ -26,11 +26,9 @@ import (
 // expected. It also includes the edge case of a single-hop blinded route,
 // which indicates that the introduction node is the recipient.
 func testQueryBlindedRoutes(ht *lntest.HarnessTest) {
-	var (
-		// Convenience aliases.
-		alice = ht.Alice
-		bob   = ht.Bob
-	)
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 
 	// Setup a two hop channel network: Alice -- Bob -- Carol.
 	// We set our proportional fee for these channels to zero, so that
@@ -318,6 +316,8 @@ func testQueryBlindedRoutes(ht *lntest.HarnessTest) {
 
 type blindedForwardTest struct {
 	ht       *lntest.HarnessTest
+	alice    *node.HarnessNode
+	bob      *node.HarnessNode
 	carol    *node.HarnessNode
 	dave     *node.HarnessNode
 	channels []*lnrpc.ChannelPoint
@@ -353,7 +353,18 @@ func (b *blindedForwardTest) setupNetwork(ctx context.Context,
 	if withInterceptor {
 		carolArgs = append(carolArgs, "--requireinterceptor")
 	}
-	b.carol = b.ht.NewNode("Carol", carolArgs)
+
+	daveArgs := []string{"--bitcoin.timelockdelta=18"}
+	cfgs := [][]string{nil, nil, carolArgs, daveArgs}
+	param := lntest.OpenChannelParams{
+		Amt: chanAmt,
+	}
+
+	// Creates a network with the following topology and liquidity:
+	// Alice (100k)----- Bob (100k) ----- Carol (100k) ----- Dave
+	chanPoints, nodes := b.ht.CreateSimpleNetwork(cfgs, param)
+	b.channels = chanPoints
+	b.alice, b.bob, b.carol, b.dave = nodes[0], nodes[1], nodes[2], nodes[3]
 
 	if withInterceptor {
 		var err error
@@ -362,10 +373,6 @@ func (b *blindedForwardTest) setupNetwork(ctx context.Context,
 		)
 		require.NoError(b.ht, err, "interceptor")
 	}
-
-	b.dave = b.ht.NewNode("Dave", []string{"--bitcoin.timelockdelta=18"})
-
-	b.channels = setupFourHopNetwork(b.ht, b.carol, b.dave)
 }
 
 // buildBlindedPath returns a blinded route from Bob -> Carol -> Dave, with Bob
@@ -395,7 +402,7 @@ func (b *blindedForwardTest) buildBlindedPath() *lnrpc.BlindedPaymentPath {
 	require.Len(b.ht, payReq.BlindedPaths, 1)
 	path := payReq.BlindedPaths[0].BlindedPath
 	require.Len(b.ht, path.BlindedHops, 3)
-	require.EqualValues(b.ht, path.IntroductionNode, b.ht.Bob.PubKey[:])
+	require.EqualValues(b.ht, path.IntroductionNode, b.bob.PubKey[:])
 
 	return payReq.BlindedPaths[0]
 }
@@ -403,8 +410,8 @@ func (b *blindedForwardTest) buildBlindedPath() *lnrpc.BlindedPaymentPath {
 // cleanup tears down all channels created by the test and cancels the top
 // level context used in the test.
 func (b *blindedForwardTest) cleanup() {
-	b.ht.CloseChannel(b.ht.Alice, b.channels[0])
-	b.ht.CloseChannel(b.ht.Bob, b.channels[1])
+	b.ht.CloseChannel(b.alice, b.channels[0])
+	b.ht.CloseChannel(b.bob, b.channels[1])
 	b.ht.CloseChannel(b.carol, b.channels[2])
 
 	b.cancel()
@@ -431,7 +438,7 @@ func (b *blindedForwardTest) createRouteToBlinded(paymentAmt int64,
 		},
 	}
 
-	resp := b.ht.Alice.RPC.QueryRoutes(req)
+	resp := b.alice.RPC.QueryRoutes(req)
 	require.Greater(b.ht, len(resp.Routes), 0, "no routes")
 	require.Len(b.ht, resp.Routes[0].Hops, 3, "unexpected route length")
 
@@ -452,7 +459,7 @@ func (b *blindedForwardTest) sendBlindedPayment(ctx context.Context,
 
 	ctx, cancel := context.WithTimeout(ctx, time.Hour)
 	go func() {
-		_, err := b.ht.Alice.RPC.Router.SendToRouteV2(ctx, sendReq)
+		_, err := b.alice.RPC.Router.SendToRouteV2(ctx, sendReq)
 
 		// We may get a context canceled error when the test is
 		// finished.
@@ -481,7 +488,7 @@ func (b *blindedForwardTest) sendToRoute(route *lnrpc.Route,
 
 	// Let Alice send to the blinded payment path and assert that it
 	// succeeds/fails.
-	htlcAttempt := b.ht.Alice.RPC.SendToRouteV2(sendReq)
+	htlcAttempt := b.alice.RPC.SendToRouteV2(sendReq)
 	if assertSuccess {
 		require.Nil(b.ht, htlcAttempt.Failure)
 		require.Equal(b.ht, htlcAttempt.Status,
@@ -498,7 +505,7 @@ func (b *blindedForwardTest) sendToRoute(route *lnrpc.Route,
 	require.NoError(b.ht, err)
 
 	pmt := b.ht.AssertPaymentStatus(
-		b.ht.Alice, preimage, lnrpc.Payment_FAILED,
+		b.alice, preimage, lnrpc.Payment_FAILED,
 	)
 	require.Len(b.ht, pmt.Htlcs, 1)
 
@@ -520,7 +527,7 @@ func (b *blindedForwardTest) drainCarolLiquidity(incoming bool) {
 	receivingNode := b.dave
 
 	if incoming {
-		sendingNode = b.ht.Bob
+		sendingNode = b.bob
 		receivingNode = b.carol
 	}
 
@@ -611,14 +618,14 @@ func setupFourHopNetwork(ht *lntest.HarnessTest,
 // path and forward payments in a blinded route and finally, receiving the
 // payment.
 func testBlindedRouteInvoices(ht *lntest.HarnessTest) {
-	alice := ht.Alice
-
 	ctx, testCase := newBlindedForwardTest(ht)
 	defer testCase.cleanup()
 
 	// Set up the 4 hop network and let Dave create an invoice with a
 	// blinded path that uses Bob as an introduction node.
 	testCase.setupNetwork(ctx, false)
+
+	alice := testCase.alice
 
 	// Let Dave add a blinded invoice.
 	// Add restrictions so that he only ever creates a single blinded path
@@ -737,13 +744,13 @@ func testRelayingBlindedError(ht *lntest.HarnessTest) {
 // over Alice -- Bob -- Carol -- Dave, where Bob is the introduction node and
 // has insufficient outgoing liquidity to forward on to carol.
 func testIntroductionNodeError(ht *lntest.HarnessTest) {
-	bob := ht.Bob
-
 	ctx, testCase := newBlindedForwardTest(ht)
 	defer testCase.cleanup()
 	testCase.setupNetwork(ctx, false)
 	blindedPaymentPath := testCase.buildBlindedPath()
 	route := testCase.createRouteToBlinded(10_000_000, blindedPaymentPath)
+
+	bob := testCase.bob
 
 	// Before we send our payment, drain all of Carol's incoming liquidity
 	// so that she can't receive the forward from Bob, causing a failure
@@ -770,8 +777,6 @@ func testIntroductionNodeError(ht *lntest.HarnessTest) {
 // testDisableIntroductionNode tests disabling of blinded forwards for the
 // introduction node.
 func testDisableIntroductionNode(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
-
 	// First construct a blinded route while Bob is still advertising the
 	// route blinding feature bit to ensure that Bob is included in the
 	// blinded path that Dave selects.
@@ -780,6 +785,8 @@ func testDisableIntroductionNode(ht *lntest.HarnessTest) {
 	testCase.setupNetwork(ctx, false)
 	blindedPaymentPath := testCase.buildBlindedPath()
 	route := testCase.createRouteToBlinded(10_000_000, blindedPaymentPath)
+
+	alice, bob := testCase.alice, testCase.bob
 
 	// Now, disable route blinding for Bob, then re-connect to Alice.
 	ht.RestartNodeWithExtraArgs(bob, []string{
@@ -796,8 +803,6 @@ func testDisableIntroductionNode(ht *lntest.HarnessTest) {
 // to resolve blinded HTLCs on chain between restarts, as we've got all the
 // infrastructure in place already for error testing.
 func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
-
 	// Setup a test case, note that we don't use its built in clean up
 	// because we're going to close a channel, so we'll close out the
 	// rest manually.
@@ -810,6 +815,8 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	blindedRoute := testCase.createRouteToBlinded(
 		50_000_000, blindedPaymentPath,
 	)
+
+	alice, bob := testCase.alice, testCase.bob
 
 	// Once our interceptor is set up, we can send the blinded payment.
 	cancelPmt := testCase.sendBlindedPayment(ctx, blindedRoute)
@@ -917,8 +924,8 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 func testMPPToSingleBlindedPath(ht *lntest.HarnessTest) {
 	// Create a five-node context consisting of Alice, Bob and three new
 	// nodes.
-	alice, bob := ht.Alice, ht.Bob
-
+	alice := ht.NewNode("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
 	dave := ht.NewNode("dave", nil)
 	carol := ht.NewNode("carol", nil)
 	eve := ht.NewNode("eve", nil)
@@ -932,10 +939,12 @@ func testMPPToSingleBlindedPath(ht *lntest.HarnessTest) {
 
 	// Send coins to the nodes and mine 1 blocks to confirm them.
 	for i := 0; i < 2; i++ {
+		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, alice)
+		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, bob)
 		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, carol)
 		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, dave)
 		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, eve)
-		ht.MineBlocksAndAssertNumTxes(1, 3)
+		ht.MineBlocksAndAssertNumTxes(1, 5)
 	}
 
 	const paymentAmt = btcutil.Amount(300000)
@@ -1107,11 +1116,11 @@ func testMPPToSingleBlindedPath(ht *lntest.HarnessTest) {
 // between him and the introduction node. So we expect that Carol is chosen as
 // the intro node and that one dummy hops is appended.
 func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
 
 	// Disable route blinding for Bob so that he is never chosen as the
 	// introduction node.
-	ht.RestartNodeWithExtraArgs(bob, []string{
+	bob := ht.NewNodeWithCoins("Bob", []string{
 		"--protocol.no-route-blinding",
 	})
 
@@ -1278,7 +1287,8 @@ func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
 //		  \	       /
 //		   --- Carol ---
 func testMPPToMultipleBlindedPaths(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
 
 	// Create a four-node context consisting of Alice, Bob and three new
 	// nodes.
@@ -1440,14 +1450,14 @@ func testMPPToMultipleBlindedPaths(ht *lntest.HarnessTest) {
 // UpdateAddHTLC which we need to ensure gets included in the message on
 // restart.
 func testBlindedPaymentHTLCReForward(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
-
 	// Setup a test case.
 	ctx, testCase := newBlindedForwardTest(ht)
 	defer testCase.cleanup()
 
 	// Set up network with carol interceptor.
 	testCase.setupNetwork(ctx, true)
+
+	alice, bob := testCase.alice, testCase.bob
 
 	// Let dave create invoice.
 	blindedPaymentPath := testCase.buildBlindedPath()
@@ -1465,7 +1475,7 @@ func testBlindedPaymentHTLCReForward(ht *lntest.HarnessTest) {
 	go func() {
 		defer close(done)
 
-		htlcAttempt, err := testCase.ht.Alice.RPC.Router.SendToRouteV2(
+		htlcAttempt, err := testCase.alice.RPC.Router.SendToRouteV2(
 			ctx, sendReq,
 		)
 		require.NoError(testCase.ht, err)

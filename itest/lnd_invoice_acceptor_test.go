@@ -247,7 +247,8 @@ type acceptorTestScenario struct {
 //
 // Among them, Alice and Bob are standby nodes and Carol is a new node.
 func newAcceptorTestScenario(ht *lntest.HarnessTest) *acceptorTestScenario {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("bob", nil)
 	carol := ht.NewNode("carol", nil)
 
 	ht.EnsureConnected(alice, bob)

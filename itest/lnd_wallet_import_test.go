@@ -582,7 +582,7 @@ func runWalletImportAccountScenario(ht *lntest.HarnessTest,
 
 	// Send coins to Carol's address and confirm them, making sure the
 	// balance updates accordingly.
-	alice := ht.Alice
+	alice := ht.NewNodeWithCoins("Alice", nil)
 	req := &lnrpc.SendCoinsRequest{
 		Addr:       externalAddr,
 		Amount:     utxoAmt,
@@ -694,7 +694,7 @@ func testWalletImportPubKeyScenario(ht *lntest.HarnessTest,
 	addrType walletrpc.AddressType) {
 
 	const utxoAmt int64 = btcutil.SatoshiPerBitcoin
-	alice := ht.Alice
+	alice := ht.NewNodeWithCoins("Alice", nil)
 
 	// We'll start our test by having two nodes, Carol and Dave.
 	//

@@ -297,6 +297,19 @@ var (
 	bitcoindEstimateModes       = [2]string{"ECONOMICAL", defaultBitcoindEstimateMode}
 )
 
+// GeneralizedConfig is an interface that defines the functions a config struct
+// must support to be passable in the generalizedConfigLoader function.
+type GeneralizedConfig interface {
+	// GetShowVersion returns the current value for the ShowVersion field
+	GetShowVersion() bool
+
+	// GetLndDir returns the current value for the LndDir field
+	GetLndDir() string
+
+	// GetConfigFile returns the current value for the ConfigFile field
+	GetConfigFile() string
+}
+
 // Config defines the configuration options for lnd.
 //
 // See LoadConfig for further details regarding the configuration
@@ -543,6 +556,21 @@ type Config struct {
 	NumRestrictedSlots uint64 `long:"num-restricted-slots" description:"The number of restricted slots we'll allocate in the server."`
 }
 
+// GetShowVersion returns the current value for the ShowVersion field.
+func (c Config) GetShowVersion() bool {
+	return c.ShowVersion
+}
+
+// GetLndDir returns the current value for the LndDir field.
+func (c Config) GetLndDir() string {
+	return c.LndDir
+}
+
+// GetConfigFile returns the current value for the ConfigFile field.
+func (c Config) GetConfigFile() string {
+	return c.ConfigFile
+}
+
 // GRPCConfig holds the configuration options for the gRPC server.
 // See https://github.com/grpc/grpc-go/blob/v1.41.0/keepalive/keepalive.go#L50
 // for more details. Any value of 0 means we use the gRPC internal default
@@ -767,6 +795,10 @@ func DefaultConfig() Config {
 	}
 }
 
+// A compile time assertion to ensure Config meets the GeneralizedConfig
+// interface.
+var _ GeneralizedConfig = (*Config)(nil)
+
 // SignerConfig defines the configuration options for lndsigner.
 //
 // Note! Any new fields added to this struct MUST also be applied to the merged
@@ -810,6 +842,21 @@ type SignerConfig struct {
 	RequestTimeout         time.Duration `long:"requesttimeout" description:"The time we will wait when making requests to the watch-only node. Valid time units are {s, m, h}. This option should only be set if 'allowinboundconnection' is false"`
 }
 
+// GetShowVersion returns the current value for the ShowVersion field.
+func (s SignerConfig) GetShowVersion() bool {
+	return s.ShowVersion
+}
+
+// GetLndDir returns the current value for the LndDir field.
+func (s SignerConfig) GetLndDir() string {
+	return s.LndDir
+}
+
+// GetConfigFile returns the current value for the ConfigFile field.
+func (s SignerConfig) GetConfigFile() string {
+	return s.ConfigFile
+}
+
 // DefaultSignerConfig returns all default values for the SignerConfig struct.
 func DefaultSignerConfig() SignerConfig {
 	return SignerConfig{
@@ -832,6 +879,10 @@ func DefaultSignerConfig() SignerConfig {
 	}
 }
 
+// A compile time assertion to ensure SignerConfig meets the GeneralizedConfig
+// interface.
+var _ GeneralizedConfig = (*SignerConfig)(nil)
+
 // LoadConfig initializes and parses the config using a config file and command
 // line options.
 //
@@ -848,24 +899,12 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 		return cfg, nil
 	}
 
-	getShowVersion := func(cfg *Config) bool {
-		return cfg.ShowVersion
-	}
-
-	getLndDir := func(cfg *Config) string {
-		return cfg.LndDir
-	}
-
-	getConfigPath := func(cfg *Config) string {
-		return cfg.ConfigFile
-	}
-
 	preCfg := DefaultConfig()
 
 	// Load and validate the config.
 	cfg, err := generalizedConfigLoader(
-		interceptor, preCfg, mergeConf, getShowVersion, getLndDir,
-		getConfigPath, DefaultConfigFile, lncfg.DefaultConfigFilename,
+		interceptor, preCfg, mergeConf, DefaultConfigFile,
+		lncfg.DefaultConfigFilename,
 	)
 
 	return cfg, err
@@ -945,26 +984,13 @@ func LoadSignerConfig(interceptor signal.Interceptor) (*Config, error) {
 		return &cfg, nil
 	}
 
-	getShowVersion := func(signerCfg *SignerConfig) bool {
-		return signerCfg.ShowVersion
-	}
-
-	getLndDir := func(signerCfg *SignerConfig) string {
-		return signerCfg.LndDir
-	}
-
-	getConfigPath := func(signerCfg *SignerConfig) string {
-		return signerCfg.ConfigFile
-	}
-
 	// We use the SignerConfig, as the lndsigner should have more limited
 	// config options for an easier UX.
 	preCfg := DefaultSignerConfig()
 
 	// Load and validate the config.
 	cfg, err := generalizedConfigLoader(
-		interceptor, preCfg, mergeConf, getShowVersion, getLndDir,
-		getConfigPath, DefaultSignerConfigFile,
+		interceptor, preCfg, mergeConf, DefaultSignerConfigFile,
 		lncfg.DefaultSignerConfigFilename,
 	)
 	if err != nil {
@@ -984,10 +1010,9 @@ func LoadSignerConfig(interceptor signal.Interceptor) (*Config, error) {
 	return cfg, err
 }
 
-func generalizedConfigLoader[R interface{}](interceptor signal.Interceptor,
-	preCfg R, mergeConfig func(cfg *R) (*Config, error),
-	getShowVersion func(cfg *R) bool,
-	getLndDir, getConfigPath func(cfg *R) string, defaultConfigPath,
+func generalizedConfigLoader[R GeneralizedConfig](
+	interceptor signal.Interceptor, preCfg R,
+	mergeConfig func(cfg *R) (*Config, error), defaultConfigPath,
 	defaultConfigFileName string) (*Config, error) {
 
 	// Pre-parse the command line options to pick up an alternative config
@@ -1000,7 +1025,7 @@ func generalizedConfigLoader[R interface{}](interceptor signal.Interceptor,
 	appName := filepath.Base(os.Args[0])
 	appName = strings.TrimSuffix(appName, filepath.Ext(appName))
 	usageMessage := fmt.Sprintf("Use %s -h to show usage", appName)
-	if getShowVersion(&preCfg) {
+	if preCfg.GetShowVersion() {
 		fmt.Println(appName, "version", build.Version(),
 			"commit="+build.Commit)
 		os.Exit(0)
@@ -1010,8 +1035,8 @@ func generalizedConfigLoader[R interface{}](interceptor signal.Interceptor,
 	// use the default config file path. However, if the user has modified
 	// their lnddir, then we should assume they intend to use the config
 	// file within it.
-	configFileDir := CleanAndExpandPath(getLndDir(&preCfg))
-	configFilePath := CleanAndExpandPath(getConfigPath(&preCfg))
+	configFileDir := CleanAndExpandPath(preCfg.GetLndDir())
+	configFilePath := CleanAndExpandPath(preCfg.GetConfigFile())
 	switch {
 	// User specified --lnddir but no --configfile. Update the config file
 	// path to the lnd config directory, but don't require it to exist.

@@ -94,6 +94,14 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 		"--nobanning",
 		// Don't disconnect if a reply takes too long.
 		"--nostalldetect",
+
+		// The default max num of websockets is 25, but the closed
+		// connections are not cleaned up immediately so we double the
+		// size.
+		//
+		// TODO(yy): fix this in `btcd` to clean up the stale
+		// connections.
+		"--rpcmaxwebsockets=50",
 	}
 	chainBackend, err := rpctest.New(
 		netParams, nil, args, node.GetBtcdBinary(),

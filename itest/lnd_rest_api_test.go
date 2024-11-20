@@ -212,13 +212,13 @@ func testRestAPI(ht *lntest.HarnessTest) {
 	// Make sure Alice allows all CORS origins. Bob will keep the default.
 	// We also make sure the ping/pong messages are sent very often, so we
 	// can test them without waiting half a minute.
-	alice, bob := ht.Alice, ht.Bob
-	alice.Cfg.ExtraArgs = append(
-		alice.Cfg.ExtraArgs, "--restcors=\"*\"",
+	bob := ht.NewNode("Bob", nil)
+	args := []string{
+		"--restcors=\"*\"",
 		fmt.Sprintf("--ws-ping-interval=%s", pingInterval),
 		fmt.Sprintf("--ws-pong-wait=%s", pongWait),
-	)
-	ht.RestartNode(alice)
+	}
+	alice := ht.NewNodeWithCoins("Alice", args)
 
 	for _, tc := range testCases {
 		tc := tc
@@ -237,7 +237,7 @@ func testRestAPI(ht *lntest.HarnessTest) {
 }
 
 func wsTestCaseSubscription(ht *lntest.HarnessTest) {
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 
 	// Find out the current best block so we can subscribe to the next one.
 	hash, height := ht.GetBestBlock()
@@ -328,7 +328,7 @@ func wsTestCaseSubscriptionMacaroon(ht *lntest.HarnessTest) {
 	// This time we send the macaroon in the special header
 	// Sec-Websocket-Protocol which is the only header field available to
 	// browsers when opening a WebSocket.
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 	mac, err := alice.ReadMacaroon(
 		alice.Cfg.AdminMacPath, defaultTimeout,
 	)
@@ -413,7 +413,7 @@ func wsTestCaseBiDirectionalSubscription(ht *lntest.HarnessTest) {
 	// This time we send the macaroon in the special header
 	// Sec-Websocket-Protocol which is the only header field available to
 	// browsers when opening a WebSocket.
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 	mac, err := alice.ReadMacaroon(
 		alice.Cfg.AdminMacPath, defaultTimeout,
 	)
@@ -522,7 +522,7 @@ func wsTestCaseBiDirectionalSubscription(ht *lntest.HarnessTest) {
 
 	// Before we start opening channels, make sure the two nodes are
 	// connected.
-	bob := ht.Bob
+	bob := ht.NewNodeWithCoins("Bob", nil)
 	ht.EnsureConnected(alice, bob)
 
 	// Open 3 channels to make sure multiple requests and responses can be
@@ -554,7 +554,7 @@ func wsTestPingPongTimeout(ht *lntest.HarnessTest) {
 	// This time we send the macaroon in the special header
 	// Sec-Websocket-Protocol which is the only header field available to
 	// browsers when opening a WebSocket.
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 	mac, err := alice.ReadMacaroon(
 		alice.Cfg.AdminMacPath, defaultTimeout,
 	)

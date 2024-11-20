@@ -49,7 +49,7 @@ var (
 // testTaproot ensures that the daemon can send to and spend from taproot (p2tr)
 // outputs.
 func testTaproot(ht *lntest.HarnessTest) {
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 
 	testTaprootSendCoinsKeySpendBip86(ht, alice)
 	testTaprootComputeInputScriptKeySpendBip86(ht, alice)

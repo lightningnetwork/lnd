@@ -28,7 +28,9 @@ func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 	carol := ht.NewNode("Carol", nil)
 
 	// Connect Alice to Carol.
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 	ht.ConnectNodes(alice, carol)
 
 	// Open a channel between Alice and Carol which is private so that we

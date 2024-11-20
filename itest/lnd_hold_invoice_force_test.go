@@ -17,10 +17,11 @@ import (
 // would otherwise trigger force closes when they expire.
 func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	// Open a channel between alice and bob.
-	alice, bob := ht.Alice, ht.Bob
-	chanPoint := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{Amt: 300000},
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		[][]string{nil, nil}, lntest.OpenChannelParams{Amt: 300000},
 	)
+	alice, bob := nodes[0], nodes[1]
+	chanPoint := chanPoints[0]
 
 	// Create a non-dust hold invoice for bob.
 	var (

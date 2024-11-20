@@ -24,7 +24,8 @@ func testExperimentalEndorsement(ht *lntest.HarnessTest) {
 // testEndorsement sets up a 5 hop network and tests propagation of
 // experimental endorsement signals.
 func testEndorsement(ht *lntest.HarnessTest, aliceEndorse bool) {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
 	carol := ht.NewNode(
 		"carol", []string{"--protocol.no-experimental-endorsement"},
 	)

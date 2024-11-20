@@ -25,7 +25,7 @@ import (
 // the node's pubkey and a customized public key to check the validity of the
 // result.
 func testDeriveSharedKey(ht *lntest.HarnessTest) {
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 
 	runDeriveSharedKey(ht, alice)
 }
@@ -199,7 +199,7 @@ func runDeriveSharedKey(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 // testSignOutputRaw makes sure that the SignOutputRaw RPC can be used with all
 // custom ways of specifying the signing key in the key descriptor/locator.
 func testSignOutputRaw(ht *lntest.HarnessTest) {
-	alice := ht.Alice
+	alice := ht.NewNodeWithCoins("Alice", nil)
 
 	runSignOutputRaw(ht, alice)
 }
@@ -381,7 +381,7 @@ func assertSignOutputRaw(ht *lntest.HarnessTest,
 // all custom flags by verifying with VerifyMessage. Tests both ECDSA and
 // Schnorr signatures.
 func testSignVerifyMessage(ht *lntest.HarnessTest) {
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 
 	runSignVerifyMessage(ht, alice)
 }

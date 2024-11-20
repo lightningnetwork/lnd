@@ -16,7 +16,8 @@ import (
 // NOTE FOR REVIEW: this could be improved by blasting the channel with HTLC
 // traffic on both sides to increase the surface area of the change under test.
 func testQuiescence(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
 
 	chanPoint := ht.OpenChannel(bob, alice, lntest.OpenChannelParams{
 		Amt: btcutil.Amount(1000000),

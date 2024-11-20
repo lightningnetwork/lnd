@@ -282,8 +282,7 @@ func testUnconfirmedChannelFunding(ht *lntest.HarnessTest) {
 
 	// We'll start off by creating a node for Carol.
 	carol := ht.NewNode("Carol", nil)
-
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 
 	// We'll send her some unconfirmed funds.
 	ht.FundCoinsUnconfirmed(2*chanAmt, carol)
@@ -402,7 +401,7 @@ func testUnconfirmedChannelFunding(ht *lntest.HarnessTest) {
 // testChannelFundingInputTypes tests that any type of supported input type can
 // be used to fund channels.
 func testChannelFundingInputTypes(ht *lntest.HarnessTest) {
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 
 	// We'll start off by creating a node for Carol.
 	carol := ht.NewNode("Carol", nil)
@@ -841,7 +840,7 @@ func testChannelFundingPersistence(ht *lntest.HarnessTest) {
 	}
 	carol := ht.NewNode("Carol", carolArgs)
 
-	alice := ht.Alice
+	alice := ht.NewNodeWithCoins("Alice", nil)
 	ht.ConnectNodes(alice, carol)
 
 	// Create a new channel that requires 5 confs before it's considered
@@ -957,8 +956,8 @@ func testBatchChanFunding(ht *lntest.HarnessTest) {
 	}
 	eve := ht.NewNode("eve", scidAliasArgs)
 
-	alice, bob := ht.Alice, ht.Bob
-	ht.RestartNodeWithExtraArgs(alice, scidAliasArgs)
+	alice := ht.NewNodeWithCoins("Alice", scidAliasArgs)
+	bob := ht.NewNodeWithCoins("Bob", nil)
 
 	// Before we start the test, we'll ensure Alice is connected to Carol
 	// and Dave, so she can open channels to both of them (and Bob).

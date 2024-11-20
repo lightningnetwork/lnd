@@ -557,65 +557,6 @@ func (b *blindedForwardTest) drainCarolLiquidity(incoming bool) {
 	b.ht.AssertPaymentStatusFromStream(pmtClient, lnrpc.Payment_SUCCEEDED)
 }
 
-// setupFourHopNetwork creates a network with the following topology and
-// liquidity:
-// Alice (100k)----- Bob (100k) ----- Carol (100k) ----- Dave
-//
-// The funding outpoint for AB / BC / CD are returned in-order.
-func setupFourHopNetwork(ht *lntest.HarnessTest,
-	carol, dave *node.HarnessNode) []*lnrpc.ChannelPoint {
-
-	alice := ht.NewNodeWithCoins("Alice", nil)
-	bob := ht.NewNodeWithCoins("Bob", nil)
-
-	const chanAmt = btcutil.Amount(100000)
-	var networkChans []*lnrpc.ChannelPoint
-
-	// Open a channel with 100k satoshis between Alice and Bob with Alice
-	// being the sole funder of the channel.
-	chanPointAlice := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
-	)
-	networkChans = append(networkChans, chanPointAlice)
-
-	// Create a channel between bob and carol.
-	ht.EnsureConnected(bob, carol)
-	chanPointBob := ht.OpenChannel(
-		bob, carol, lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
-	)
-	networkChans = append(networkChans, chanPointBob)
-
-	// Fund carol and connect her and dave so that she can create a channel
-	// between them.
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-	ht.EnsureConnected(carol, dave)
-
-	chanPointCarol := ht.OpenChannel(
-		carol, dave, lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
-	)
-	networkChans = append(networkChans, chanPointCarol)
-
-	// Wait for all nodes to have seen all channels.
-	nodes := []*node.HarnessNode{alice, bob, carol, dave}
-	for _, chanPoint := range networkChans {
-		for _, node := range nodes {
-			ht.AssertChannelInGraph(node, chanPoint)
-		}
-	}
-
-	return []*lnrpc.ChannelPoint{
-		chanPointAlice,
-		chanPointBob,
-		chanPointCarol,
-	}
-}
-
 // testBlindedRouteInvoices tests lnd's ability to create a blinded payment path
 // which it then inserts into an invoice, sending to an invoice with a blinded
 // path and forward payments in a blinded route and finally, receiving the

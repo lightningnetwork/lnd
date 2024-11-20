@@ -27,25 +27,12 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 		numInvoices    = 3
 	)
 
-	// Grab Alice and Bob from HarnessTest.
-	alice, bob := ht.Alice, ht.Bob
-
-	// Create a new node Carol, which will create invoices that require
-	// Alice to pay.
-	carol := ht.NewNode("Carol", nil)
-
-	// Connect Bob to Carol.
-	ht.ConnectNodes(bob, carol)
-
-	// Open a channel between Alice and Bob.
-	chanPointAB := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		[][]string{nil, nil, nil},
+		lntest.OpenChannelParams{Amt: chanAmt},
 	)
-
-	// Open a channel between Bob and Carol.
-	chanPointBC := ht.OpenChannel(
-		bob, carol, lntest.OpenChannelParams{Amt: chanAmt},
-	)
+	chanPointAB, chanPointBC := chanPoints[0], chanPoints[1]
+	alice, bob, carol := nodes[0], nodes[1], nodes[2]
 
 	// Before we continue, make sure Alice has seen the channel between Bob
 	// and Carol.

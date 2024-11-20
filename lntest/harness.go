@@ -603,6 +603,42 @@ func (h *HarnessTest) NewNode(name string,
 	return node
 }
 
+// NewNodeWithCoins creates a new node and asserts its creation. The node is
+// guaranteed to have finished its initialization and all its subservers are
+// started. In addition, 5 UTXO of 1 BTC each are sent to the node.
+func (h *HarnessTest) NewNodeWithCoins(name string,
+	extraArgs []string) *node.HarnessNode {
+
+	node, err := h.manager.newNode(h.T, name, extraArgs, nil, false)
+	require.NoErrorf(h, err, "unable to create new node for %s", name)
+
+	// Start the node.
+	err = node.Start(h.runCtx)
+	require.NoError(h, err, "failed to start node %s", node.Name())
+
+	// Load up the wallets of the node with 5 outputs of 1 BTC each.
+	const (
+		numOutputs  = 5
+		fundAmount  = 1 * btcutil.SatoshiPerBitcoin
+		totalAmount = fundAmount * numOutputs
+	)
+
+	for i := 0; i < numOutputs; i++ {
+		h.createAndSendOutput(
+			node, fundAmount,
+			lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+		)
+	}
+
+	// Mine a block to confirm the transactions.
+	h.MineBlocksAndAssertNumTxes(1, numOutputs)
+
+	// Now block until the wallet have fully synced up.
+	h.WaitForBalanceConfirmed(node, totalAmount)
+
+	return node
+}
+
 // Shutdown shuts down the given node and asserts that no errors occur.
 func (h *HarnessTest) Shutdown(node *node.HarnessNode) {
 	// The process may not be in a state to always shutdown immediately, so

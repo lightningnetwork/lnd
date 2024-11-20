@@ -13,8 +13,6 @@ import (
 // sets. For completeness, it also asserts that features aren't set in places
 // where they aren't intended to be.
 func testCustomFeatures(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
-
 	var (
 		// Odd custom features so that we don't need to worry about
 		// issues connecting to peers.
@@ -29,14 +27,13 @@ func testCustomFeatures(ht *lntest.HarnessTest) {
 		fmt.Sprintf("--protocol.custom-nodeann=%v", customNodeAnn),
 		fmt.Sprintf("--protocol.custom-invoice=%v", customInvoice),
 	}
-	ht.RestartNodeWithExtraArgs(alice, extraArgs)
+	cfgs := [][]string{extraArgs, nil}
 
-	// Connect nodes and open a channel so that Alice will be included
-	// in Bob's graph.
-	ht.ConnectNodes(alice, bob)
-	chanPoint := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{Amt: 1000000},
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		cfgs, lntest.OpenChannelParams{Amt: 1000000},
 	)
+	alice, bob := nodes[0], nodes[1]
+	chanPoint := chanPoints[0]
 
 	// Check that Alice's custom feature bit was sent to Bob in her init
 	// message.

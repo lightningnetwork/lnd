@@ -15,7 +15,9 @@ func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 	// multi-hop payment.
 	const chanAmt = funding.MaxBtcFundingAmount
 
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 
 	// Since we'd like to test some multi-hop failure scenarios, we'll
 	// introduce another node into our test network: Carol.

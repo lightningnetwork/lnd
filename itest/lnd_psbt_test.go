@@ -146,7 +146,7 @@ func runPsbtChanFunding(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 
 	// Before we start the test, we'll ensure both sides are connected so
 	// the funding flow can be properly executed.
-	alice := ht.Alice
+	alice := ht.NewNodeWithCoins("Alice", nil)
 	ht.EnsureConnected(carol, dave)
 	ht.EnsureConnected(carol, alice)
 
@@ -344,7 +344,7 @@ func runPsbtChanFundingExternal(ht *lntest.HarnessTest, carol,
 
 	// Before we start the test, we'll ensure both sides are connected so
 	// the funding flow can be properly executed.
-	alice := ht.Alice
+	alice := ht.NewNodeWithCoins("Alice", nil)
 	ht.EnsureConnected(carol, dave)
 	ht.EnsureConnected(carol, alice)
 
@@ -517,8 +517,7 @@ func runPsbtChanFundingSingleStep(ht *lntest.HarnessTest, carol,
 
 	const chanSize = funding.MaxBtcFundingAmount
 
-	alice := ht.Alice
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+	alice := ht.NewNodeWithCoins("Alice", nil)
 
 	// Get new address for anchor reserve.
 	req := &lnrpc.NewAddressRequest{
@@ -697,7 +696,8 @@ func testSignPsbt(ht *lntest.HarnessTest) {
 	for _, tc := range psbtTestRunners {
 		succeed := ht.Run(tc.name, func(t *testing.T) {
 			st := ht.Subtest(t)
-			tc.runner(st, st.Alice)
+			alice := st.NewNodeWithCoins("Alice", nil)
+			tc.runner(st, alice)
 		})
 
 		// Abort the test if failed.
@@ -1088,7 +1088,8 @@ func runFundAndSignPsbt(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 // a PSBT that already specifies an input but where the user still wants the
 // wallet to perform coin selection.
 func testFundPsbt(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
 
 	// We test a pay-join between Alice and Bob. Bob wants to send Alice
 	// 5 million Satoshis in a non-obvious way. So Bob selects a UTXO that's
@@ -1598,8 +1599,8 @@ func sendAllCoinsToAddrType(ht *lntest.HarnessTest,
 // the channel opening. The psbt funding flow is used to simulate this behavior
 // because we can easily let the remote peer run into the timeout.
 func testPsbtChanFundingFailFlow(ht *lntest.HarnessTest) {
-	alice := ht.Alice
-	bob := ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
 
 	const chanSize = funding.MaxBtcFundingAmount
 

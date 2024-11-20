@@ -383,7 +383,9 @@ func setupScenarioFourNodes(ht *lntest.HarnessTest) *scenarioFourNodes {
 	}
 
 	// Grab the standby nodes.
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("bob", nil)
+	ht.ConnectNodes(alice, bob)
 
 	// As preliminary setup, we'll create two new nodes: Carol and Dave,
 	// such that we now have a 4 node, 3 channel topology. Dave will make

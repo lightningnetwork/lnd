@@ -18,10 +18,11 @@ func testSingleHopInvoice(ht *lntest.HarnessTest) {
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
-	alice, bob := ht.Alice, ht.Bob
-	cp := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		[][]string{nil, nil}, lntest.OpenChannelParams{Amt: chanAmt},
 	)
+	cp := chanPoints[0]
+	alice, bob := nodes[0], nodes[1]
 
 	// assertAmountPaid is a helper closure that asserts the amount paid by
 	// Alice and received by Bob are expected.

@@ -39,7 +39,7 @@ var watchtowerTestCases = []*lntest.TestCase{
 // testTowerClientTowerAndSessionManagement tests the various control commands
 // that a user has over the client's set of active towers and sessions.
 func testTowerClientTowerAndSessionManagement(ht *lntest.HarnessTest) {
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 
 	const (
 		chanAmt           = funding.MaxBtcFundingAmount
@@ -240,7 +240,7 @@ func testTowerClientTowerAndSessionManagement(ht *lntest.HarnessTest) {
 // testTowerClientSessionDeletion tests that sessions are correctly deleted
 // when they are deemed closable.
 func testTowerClientSessionDeletion(ht *lntest.HarnessTest) {
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 
 	const (
 		chanAmt           = funding.MaxBtcFundingAmount
@@ -395,7 +395,7 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 	// protection logic automatically.
 	daveArgs := lntest.NodeArgsForCommitType(commitType)
 	daveArgs = append(daveArgs, "--nolisten", "--wtclient.active")
-	dave := ht.NewNode("Dave", daveArgs)
+	dave := ht.NewNodeWithCoins("Dave", daveArgs)
 
 	addTowerReq := &wtclientrpc.AddTowerRequest{
 		Pubkey:  willyInfoPk,
@@ -406,10 +406,6 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 	// We must let Dave have an open channel before she can send a node
 	// announcement, so we open a channel with Carol,
 	ht.ConnectNodes(dave, carol)
-
-	// Before we make a channel, we'll load up Dave with some coins sent
-	// directly from the miner.
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
 
 	// Send one more UTXOs if this is a neutrino backend.
 	if ht.IsNeutrinoBackend() {

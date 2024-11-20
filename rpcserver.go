@@ -2736,6 +2736,14 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			return err
 		}
 
+		// Safety check which should never happen.
+		//
+		// TODO(ziggie): remove pointer as return value from
+		// ForceCloseContract.
+		if closingTx == nil {
+			return fmt.Errorf("force close transaction is nil")
+		}
+
 		closingTxid := closingTx.TxHash()
 
 		// With the transaction broadcast, we send our first update to

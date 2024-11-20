@@ -23,6 +23,9 @@
   cause a nil pointer dereference during the probing of a payment request that
   does not contain a payment address.
 
+* [Make the contract resolutions for the channel arbitrator optional](
+  https://github.com/lightningnetwork/lnd/pull/9253).
+
 # New Features
 
 The main channel state machine and database now allow for processing and storing

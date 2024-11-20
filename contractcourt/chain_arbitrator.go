@@ -335,11 +335,10 @@ func (a *arbChannel) NewAnchorResolutions() (*lnwallet.AnchorResolutions,
 // ForceCloseChan should force close the contract that this attendant is
 // watching over. We'll use this when we decide that we need to go to chain. It
 // should in addition tell the switch to remove the corresponding link, such
-// that we won't accept any new updates. The returned summary contains all items
-// needed to eventually resolve all outputs on chain.
+// that we won't accept any new updates.
 //
 // NOTE: Part of the ArbChannel interface.
-func (a *arbChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) {
+func (a *arbChannel) ForceCloseChan() (*wire.MsgTx, error) {
 	// First, we mark the channel as borked, this ensure
 	// that no new state transitions can happen, and also
 	// that the link won't be loaded into the switch.
@@ -386,7 +385,15 @@ func (a *arbChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) 
 	if err != nil {
 		return nil, err
 	}
-	return chanMachine.ForceClose()
+
+	closeSummary, err := chanMachine.ForceClose(
+		lnwallet.WithSkipContractResolutions(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return closeSummary.CloseTx, nil
 }
 
 // newActiveChannelArbitrator creates a new instance of an active channel

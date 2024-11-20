@@ -98,7 +98,7 @@ type ArbChannel interface {
 	// corresponding link, such that we won't accept any new updates. The
 	// returned summary contains all items needed to eventually resolve all
 	// outputs on chain.
-	ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error)
+	ForceCloseChan() (*wire.MsgTx, error)
 
 	// NewAnchorResolutions returns the anchor resolutions for currently
 	// valid commitment transactions.
@@ -1058,7 +1058,7 @@ func (c *ChannelArbitrator) stateStep(
 		// We'll tell the switch that it should remove the link for
 		// this channel, in addition to fetching the force close
 		// summary needed to close this channel on chain.
-		closeSummary, err := c.cfg.Channel.ForceCloseChan()
+		forceCloseTx, err := c.cfg.Channel.ForceCloseChan()
 		if err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to "+
 				"force close: %v", c.cfg.ChanPoint, err)
@@ -1078,7 +1078,7 @@ func (c *ChannelArbitrator) stateStep(
 
 			return StateError, closeTx, err
 		}
-		closeTx = closeSummary.CloseTx
+		closeTx = forceCloseTx
 
 		// Before publishing the transaction, we store it to the
 		// database, such that we can re-publish later in case it
@@ -2871,11 +2871,36 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			}
 			closeTx := closeInfo.CloseTx
 
+			resolutions, err := closeInfo.ContractResolutions.
+				UnwrapOrErr(
+					fmt.Errorf("resolutions not found"),
+				)
+			if err != nil {
+				log.Errorf("ChannelArbitrator(%v): unable to "+
+					"get resolutions: %v", c.cfg.ChanPoint,
+					err)
+
+				return
+			}
+
+			// We make sure that the htlc resolutions are present
+			// otherwise we would panic dereferencing the pointer.
+			//
+			// TODO(ziggie): Refactor ContractResolutions to use
+			// options.
+			if resolutions.HtlcResolutions == nil {
+				log.Errorf("ChannelArbitrator(%v): htlc "+
+					"resolutions not found",
+					c.cfg.ChanPoint)
+
+				return
+			}
+
 			contractRes := &ContractResolutions{
 				CommitHash:       closeTx.TxHash(),
-				CommitResolution: closeInfo.CommitResolution,
-				HtlcResolutions:  *closeInfo.HtlcResolutions,
-				AnchorResolution: closeInfo.AnchorResolution,
+				CommitResolution: resolutions.CommitResolution,
+				HtlcResolutions:  *resolutions.HtlcResolutions,
+				AnchorResolution: resolutions.AnchorResolution,
 			}
 
 			// When processing a unilateral close event, we'll
@@ -2884,7 +2909,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// available to fetch in that state, we'll also write
 			// the commit set so we can reconstruct our chain
 			// actions on restart.
-			err := c.log.LogContractResolutions(contractRes)
+			err = c.log.LogContractResolutions(contractRes)
 			if err != nil {
 				log.Errorf("Unable to write resolutions: %v",
 					err)

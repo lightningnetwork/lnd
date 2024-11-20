@@ -35,6 +35,7 @@ types in a series of changes:
   * https://github.com/lightningnetwork/lnd/pull/9095
   * https://github.com/lightningnetwork/lnd/pull/8960
   * https://github.com/lightningnetwork/lnd/pull/9194
+  * https://github.com/lightningnetwork/lnd/pull/9288
 
 ## Functional Enhancements
 

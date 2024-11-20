@@ -449,6 +449,12 @@ func testSendDirectPayment(ht *lntest.HarnessTest) {
 			// Make sure they are connected.
 			st.EnsureConnected(alice, bob)
 
+			// There's a bug that causes the funding to be failed
+			// due to the `ListCoins` cannot find the utxos.
+			//
+			// TODO(yy): remove this line to fix the ListCoins bug.
+			st.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+
 			// Open a channel with 100k satoshis between Alice and
 			// Bob with Alice being the sole funder of the channel.
 			params := lntest.OpenChannelParams{

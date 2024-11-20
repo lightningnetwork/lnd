@@ -13,7 +13,7 @@ func testNeutrino(ht *lntest.HarnessTest) {
 		ht.Skipf("skipping test for non neutrino backends")
 	}
 
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 
 	// Check if the neutrino sub server is running.
 	statusRes := alice.RPC.Status(nil)

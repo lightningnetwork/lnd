@@ -765,7 +765,9 @@ type interceptorTestScenario struct {
 func newInterceptorTestScenario(
 	ht *lntest.HarnessTest) *interceptorTestScenario {
 
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("bob", nil)
+
 	carol := ht.NewNode("carol", nil)
 	dave := ht.NewNode("dave", nil)
 

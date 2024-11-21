@@ -99,8 +99,22 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		// will be used to report invalid channels later on.
 		delete(unprocessedChans, info.ChannelPoint)
 
+		if edge == nil {
+			log.Errorf("Got nil channel edge policy when updating "+
+				"a channel. Channel point: %v",
+				info.ChannelPoint.String())
+
+			failedUpdates = append(failedUpdates, makeFailureItem(
+				info.ChannelPoint,
+				lnrpc.UpdateFailure_UPDATE_FAILURE_NOT_FOUND,
+				"edge policy not found",
+			))
+
+			return nil
+		}
+
 		// Apply the new policy to the edge.
-		edge, err := r.updateEdge(
+		err := r.updateEdge(
 			tx, info.ChannelPoint, edge, newSchema,
 		)
 		if err != nil {
@@ -173,49 +187,30 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 					"not yet confirmed",
 				))
 
+		// If the edge was not found, but the channel is found, that
+		// means the edge is missing in the graph database and should be
+		// recreated. The edge and policy are created in-memory. The
+		// edge is inserted in createEdge below and the policy will be
+		// added to the graph in the PropagateChanPolicyUpdate call
+		// below.
 		case createMissingEdge:
-			// If the edge was not found, but the channel is found,
-			// that means the edge is missing in the graph database
-			// and should be recreated. The edge and policy are
-			// created in-memory. The edge is inserted in createEdge
-			// below and the policy will be added to the graph in
-			// the PropagateChanPolicyUpdate call below.
 			log.Warnf("Missing edge for active channel (%s) "+
 				"during policy update. Recreating edge with "+
 				"default policy.",
 				channel.FundingOutpoint.String())
 
-			info, edge, err := r.createEdge(channel, time.Now())
-			if err != nil {
-				log.Errorf("Failed to recreate missing edge "+
-					"for channel (%s): %v",
-					channel.FundingOutpoint.String(), err)
-
-				f := lnrpc.UpdateFailure_UPDATE_FAILURE_UNKNOWN
-				failedUpdates = append(failedUpdates,
-					makeFailureItem(chanPoint, f,
-						"could not update policies",
-					))
-			}
-
-			// Insert the edge into the database to avoid `edge not
-			// found` errors during policy update propagation.
-			err = r.AddEdge(info)
-			if err != nil {
-				log.Warnf("Attempt to add missing edge for "+
-					"channel (%s) errored with: %v",
-					channel.FundingOutpoint.String(), err)
-
-				f := lnrpc.UpdateFailure_UPDATE_FAILURE_UNKNOWN
-				failedUpdates = append(failedUpdates,
-					makeFailureItem(chanPoint, f,
-						"could not add edge",
-					))
-			}
-
-			err = processChan(nil, info, edge)
-			if err != nil {
-				return nil, err
+			info, edge, failedUpdate := r.createMissingEdge(
+				channel, newSchema,
+			)
+			if failedUpdate == nil {
+				err = processChan(nil, info, edge)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				failedUpdates = append(
+					failedUpdates, failedUpdate,
+				)
 			}
 
 		default:
@@ -245,6 +240,52 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 	r.UpdateForwardingPolicies(policiesToUpdate)
 
 	return failedUpdates, nil
+}
+
+func (r *Manager) createMissingEdge(channel *channeldb.OpenChannel,
+	newSchema routing.ChannelPolicy) (*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy, *lnrpc.FailedUpdate) {
+
+	info, edge, err := r.createEdge(channel, time.Now())
+	if err != nil {
+		log.Errorf("Failed to recreate missing edge "+
+			"for channel (%s): %v",
+			channel.FundingOutpoint.String(), err)
+
+		return nil, nil, makeFailureItem(
+			channel.FundingOutpoint,
+			lnrpc.UpdateFailure_UPDATE_FAILURE_UNKNOWN,
+			"could not update policies",
+		)
+	}
+
+	// Validate the newly created edge policy with the user defined new
+	// schema before adding the edge to the database.
+	err = r.updateEdge(nil, channel.FundingOutpoint, edge, newSchema)
+	if err != nil {
+		return nil, nil, makeFailureItem(
+			info.ChannelPoint,
+			lnrpc.UpdateFailure_UPDATE_FAILURE_INVALID_PARAMETER,
+			err.Error(),
+		)
+	}
+
+	// Insert the edge into the database to avoid `edge not
+	// found` errors during policy update propagation.
+	err = r.AddEdge(info)
+	if err != nil {
+		log.Errorf("Attempt to add missing edge for "+
+			"channel (%s) errored with: %v",
+			channel.FundingOutpoint.String(), err)
+
+		return nil, nil, makeFailureItem(
+			channel.FundingOutpoint,
+			lnrpc.UpdateFailure_UPDATE_FAILURE_UNKNOWN,
+			"could not add edge",
+		)
+	}
+
+	return info, edge, nil
 }
 
 // createEdge recreates an edge and policy from an open channel in-memory.
@@ -309,25 +350,14 @@ func (r *Manager) createEdge(channel *channeldb.OpenChannel,
 	return info, edge, nil
 }
 
-// updateEdge updates the given edge with the new schema. The edge parameter may
-// be nil, in that case a new channel policy is returned. In other cases the
-// passed in channel policy is returned after modification.
+// updateEdge updates the given edge with the new schema.
 func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	edge *models.ChannelEdgePolicy,
-	newSchema routing.ChannelPolicy) (*models.ChannelEdgePolicy, error) {
+	newSchema routing.ChannelPolicy) error {
 
 	channel, err := r.FetchChannel(tx, chanPoint)
 	if err != nil {
-		return nil, err
-	}
-
-	// If due to some unforeseen circumstances the policy doesn't exist,
-	// recreate it here.
-	if edge == nil {
-		_, edge, err = r.createEdge(channel, time.Now())
-		if err != nil {
-			return nil, err
-		}
+		return err
 	}
 
 	// Update forwarding fee scheme and required time lock delta.
@@ -345,7 +375,7 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 			)
 		})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	edge.TimeLockDelta = uint16(newSchema.TimeLockDelta)
@@ -353,7 +383,7 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	// Retrieve negotiated channel htlc amt limits.
 	amtMin, amtMax, err := r.getHtlcAmtLimits(channel)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// We now update the edge max htlc value.
@@ -386,19 +416,19 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	// Validate htlc amount constraints.
 	switch {
 	case edge.MinHTLC < amtMin:
-		return nil, fmt.Errorf(
+		return fmt.Errorf(
 			"min htlc amount of %v is below min htlc parameter of %v",
 			edge.MinHTLC, amtMin,
 		)
 
 	case edge.MaxHTLC > amtMax:
-		return nil, fmt.Errorf(
+		return fmt.Errorf(
 			"max htlc size of %v is above max pending amount of %v",
 			edge.MaxHTLC, amtMax,
 		)
 
 	case edge.MinHTLC > edge.MaxHTLC:
-		return nil, fmt.Errorf(
+		return fmt.Errorf(
 			"min_htlc %v greater than max_htlc %v",
 			edge.MinHTLC, edge.MaxHTLC,
 		)
@@ -407,7 +437,7 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	// Clear signature to help prevent usage of the previous signature.
 	edge.SetSigBytes(nil)
 
-	return edge, nil
+	return nil
 }
 
 // getHtlcAmtLimits retrieves the negotiated channel min and max htlc amount

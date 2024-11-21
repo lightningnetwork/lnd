@@ -1513,13 +1513,14 @@ func (h *HarnessTest) AssertNumHTLCsAndStage(hn *node.HarnessNode,
 				lnutils.SpewLogClosure(target.PendingHtlcs)())
 		}
 
-		for i, htlc := range target.PendingHtlcs {
+		for _, htlc := range target.PendingHtlcs {
 			if htlc.Stage == stage {
 				continue
 			}
 
-			return fmt.Errorf("HTLC %d got stage: %v, "+
-				"want stage: %v", i, htlc.Stage, stage)
+			return fmt.Errorf("HTLC %s got stage: %v, "+
+				"want stage: %v", htlc.Outpoint, htlc.Stage,
+				stage)
 		}
 
 		return nil

@@ -15,7 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
@@ -1536,9 +1536,12 @@ func (b *BreachArbitrator) createSweepTx(
 	// outputs from the regular, BTC only outputs. So we only need one such
 	// output, which'll carry the custom channel "valuables" from both the
 	// breached commitment and HTLC outputs.
-	hasBlobs := fn.Any(func(i input.Input) bool {
-		return i.ResolutionBlob().IsSome()
-	}, inputs)
+	hasBlobs := fn.Any(
+		inputs,
+		func(i input.Input) bool {
+			return i.ResolutionBlob().IsSome()
+		},
+	)
 	if hasBlobs {
 		weightEstimate.AddP2TROutput()
 	}
@@ -1623,7 +1626,7 @@ func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight lntypes.WeightUnit,
 	// First, we'll add the extra sweep output if it exists, subtracting the
 	// amount from the sweep amt.
 	if b.cfg.AuxSweeper.IsSome() {
-		extraChangeOut.WhenResult(func(o sweep.SweepOutput) {
+		extraChangeOut.WhenOk(func(o sweep.SweepOutput) {
 			sweepAmt -= o.Value
 
 			txn.AddTxOut(&o.TxOut)
@@ -1696,7 +1699,7 @@ func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight lntypes.WeightUnit,
 	return &justiceTxCtx{
 		justiceTx:  txn,
 		sweepAddr:  pkScript,
-		extraTxOut: extraChangeOut.Option(),
+		extraTxOut: extraChangeOut.OkToSome(),
 		fee:        txFee,
 		inputs:     inputs,
 	}, nil

@@ -47,7 +47,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -8055,9 +8055,12 @@ func (r *rpcServer) VerifyChanBackup(ctx context.Context,
 	}
 
 	return &lnrpc.VerifyChanBackupResponse{
-		ChanPoints: fn.Map(func(c chanbackup.Single) string {
-			return c.FundingOutpoint.String()
-		}, channels),
+		ChanPoints: fn.Map(
+			channels,
+			func(c chanbackup.Single) string {
+				return c.FundingOutpoint.String()
+			},
+		),
 	}, nil
 }
 

@@ -36,7 +36,7 @@ require (
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
-	github.com/lightningnetwork/lnd/fn v1.2.3
+	github.com/lightningnetwork/lnd/fn/v2 v2.0.2
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6
 	github.com/lightningnetwork/lnd/kvdb v1.4.11
 	github.com/lightningnetwork/lnd/queue v1.1.1
@@ -202,6 +202,8 @@ replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11
 // This replace is for
 // https://deps.dev/advisory/OSV/GO-2021-0053?from=%2Fgo%2Fgithub.com%252Fgogo%252Fprotobuf%2Fv1.3.1
 replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
+
+replace github.com/lightningnetwork/lnd/tlv => ./tlv
 
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.

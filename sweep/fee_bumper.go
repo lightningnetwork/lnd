@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -145,13 +145,17 @@ type BumpRequest struct {
 func (r *BumpRequest) MaxFeeRateAllowed() (chainfee.SatPerKWeight, error) {
 	// We'll want to know if we have any blobs, as we need to factor this
 	// into the max fee rate for this bump request.
-	hasBlobs := fn.Any(func(i input.Input) bool {
-		return fn.MapOptionZ(
-			i.ResolutionBlob(), func(b tlv.Blob) bool {
-				return len(b) > 0
-			},
-		)
-	}, r.Inputs)
+	hasBlobs := fn.Any(
+		r.Inputs,
+		func(i input.Input) bool {
+			return fn.MapOptionZ(
+				i.ResolutionBlob(),
+				func(b tlv.Blob) bool {
+					return len(b) > 0
+				},
+			)
+		},
+	)
 
 	sweepAddrs := [][]byte{
 		r.DeliveryAddress.DeliveryAddress,
@@ -1382,7 +1386,7 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 				return err
 			}
 
-			extraChangeOut = extraOut.LeftToOption()
+			extraChangeOut = extraOut.LeftToSome()
 
 			return nil
 		},

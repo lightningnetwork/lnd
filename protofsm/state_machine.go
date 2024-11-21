@@ -10,7 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -322,6 +322,8 @@ func (s *StateMachine[Event, Env]) RemoveStateSub(sub StateSubscriber[
 // executeDaemonEvent executes a daemon event, which is a special type of event
 // that can be emitted as part of the state transition function of the state
 // machine. An error is returned if the type of event is unknown.
+//
+//nolint:funlen
 func (s *StateMachine[Event, Env]) executeDaemonEvent(
 	event DaemonEvent) error {
 
@@ -346,17 +348,31 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 
 			// If a post-send event was specified, then we'll funnel
 			// that back into the main state machine now as well.
-			return fn.MapOptionZ(daemonEvent.PostSendEvent, func(event Event) error { //nolint:lll
-				return s.wg.Go(func(ctx context.Context) {
-					log.Debugf("FSM(%v): sending "+
-						"post-send event: %v",
-						s.cfg.Env.Name(),
-						lnutils.SpewLogClosure(event),
-					)
+			ok := fn.ElimOption(
+				daemonEvent.PostSendEvent,
+				func() bool { return true },
+				func(event Event) bool {
+					log := func() {
+						//nolint:lll
+						log.Debugf("FSM(%v): sending "+
+							"post-send event: %v",
+							s.cfg.Env.Name(),
+							lnutils.SpewLogClosure(event))
+					}
 
-					s.SendEvent(event)
-				})
-			})
+					return s.wg.Go(
+						func(ctx context.Context) {
+							log()
+							s.SendEvent(event)
+						},
+					)
+				},
+			)
+			if !ok {
+				return fmt.Errorf("StateMachine is stopping.")
+			}
+
+			return nil
 		}
 
 		// If this doesn't have a SendWhen predicate, then we can just
@@ -368,7 +384,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 		// Otherwise, this has a SendWhen predicate, so we'll need
 		// launch a goroutine to poll the SendWhen, then send only once
 		// the predicate is true.
-		return s.wg.Go(func(ctx context.Context) {
+		ok := s.wg.Go(func(ctx context.Context) {
 			predicateTicker := time.NewTicker(
 				s.cfg.CustomPollInterval.UnwrapOr(pollInterval),
 			)
@@ -406,6 +422,11 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 				}
 			}
 		})
+		if !ok {
+			return fmt.Errorf("StateMachine is stopping")
+		}
+
+		return nil
 
 	// If this is a broadcast transaction event, then we'll broadcast with
 	// the label attached.
@@ -436,7 +457,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 			return fmt.Errorf("unable to register spend: %w", err)
 		}
 
-		return s.wg.Go(func(ctx context.Context) {
+		ok := s.wg.Go(func(ctx context.Context) {
 			for {
 				select {
 				case spend, ok := <-spendEvent.Spend:
@@ -460,6 +481,11 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 				}
 			}
 		})
+		if !ok {
+			return fmt.Errorf("StateMachine is stopping")
+		}
+
+		return nil
 
 	// The state machine has requested a new event to be sent once a
 	// specified txid+pkScript pair has confirmed.
@@ -476,7 +502,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 			return fmt.Errorf("unable to register conf: %w", err)
 		}
 
-		return s.wg.Go(func(ctx context.Context) {
+		ok := s.wg.Go(func(ctx context.Context) {
 			for {
 				select {
 				case <-confEvent.Confirmed:
@@ -498,6 +524,11 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 				}
 			}
 		})
+		if !ok {
+			return fmt.Errorf("StateMachine is stopping")
+		}
+
+		return nil
 	}
 
 	return fmt.Errorf("unknown daemon event: %T", event)

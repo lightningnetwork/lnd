@@ -16,7 +16,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -997,7 +997,7 @@ func (c *ChannelArbitrator) stateStep(
 			getIdx := func(htlc channeldb.HTLC) uint64 {
 				return htlc.HtlcIndex
 			}
-			dustHTLCSet := fn.NewSet(fn.Map(getIdx, dustHTLCs)...)
+			dustHTLCSet := fn.NewSet(fn.Map(dustHTLCs, getIdx)...)
 			err = c.abandonForwards(dustHTLCSet)
 			if err != nil {
 				return StateError, closeTx, err
@@ -1306,7 +1306,7 @@ func (c *ChannelArbitrator) stateStep(
 				return htlc.HtlcIndex
 			}
 			remoteDangling := fn.NewSet(fn.Map(
-				getIdx, htlcActions[HtlcFailDanglingAction],
+				htlcActions[HtlcFailDanglingAction], getIdx,
 			)...)
 			err := c.abandonForwards(remoteDangling)
 			if err != nil {

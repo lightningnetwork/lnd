@@ -96,11 +96,12 @@ $(GOIMPORTS_BIN):
 # INSTALLATION
 # ============
 
-#? build: Build lnd and lncli binaries, place them in project directory
+#? build: Build lnd, lncli and lndsigner binaries, place them in project directory
 build:
-	@$(call print, "Building debug lnd and lncli.")
+	@$(call print, "Building debug lnd/lndsigner and lncli.")
 	$(GOBUILD) -tags="$(DEV_TAGS)" -o lnd-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/lnd
 	$(GOBUILD) -tags="$(DEV_TAGS)" -o lncli-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/lncli
+	$(GOBUILD) -tags="$(LND_SIGNER_TAGS)" -o lndsigner-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/lndsigner
 
 #? build-itest: Build integration test binaries, place them in itest directory
 build-itest:
@@ -120,18 +121,19 @@ build-itest-race:
 	@$(call print, "Building itest binary for ${backend} backend.")
 	CGO_ENABLED=0 $(GOTEST) -v ./itest -tags="$(DEV_TAGS) $(RPC_TAGS) integration $(backend)" -c -o itest/itest.test$(EXEC_SUFFIX)
 
-#? install-binaries: Build and install lnd and lncli binaries, place them in $GOPATH/bin
+#? install-binaries: Build and install lnd, lncli and lndsigner binaries, place them in $GOPATH/bin
 install-binaries:
-	@$(call print, "Installing lnd and lncli.")
+	@$(call print, "Installing lnd/lndsigner and lncli.")
 	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/lnd
 	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/lncli
+	$(GOINSTALL) -tags="${LND_SIGNER_TAGS}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/lndsigner
 
 #? manpages: generate and install man pages
 manpages:
 	@$(call print, "Generating man pages lncli.1 and lnd.1.")
 	./scripts/gen_man_pages.sh $(DESTDIR) $(PREFIX)
 
-#? install: Build and install lnd and lncli binaries and place them in $GOPATH/bin.
+#? install: Build and install lnd, lncli and lndsigner binaries and place them in $GOPATH/bin.
 install: install-binaries
 
 #? install-all: Performs all the same tasks as the install command along with generating and
@@ -139,11 +141,12 @@ install: install-binaries
 # environment where a user has root access and so has write access to the man page directory.
 install-all: install manpages
 
-#? release-install: Build and install lnd and lncli release binaries, place them in $GOPATH/bin
+#? release-install: Build and install lnd, lncli and lndsigner binaries release binaries, place them in $GOPATH/bin
 release-install:
-	@$(call print, "Installing release lnd and lncli.")
+	@$(call print, "Installing release lnd/lndsigner and lncli.")
 	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lnd
 	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lncli
+	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(LND_SIGNER_TAGS)" $(PKG)/cmd/lndsigner
 
 #? release: Build the full set of reproducible release binaries for all supported platforms
 # Make sure the generated mobile RPC stubs don't influence our vendor package
@@ -433,7 +436,7 @@ mobile: ios android
 #? clean: Remove all generated files
 clean:
 	@$(call print, "Cleaning source.$(NC)")
-	$(RM) ./lnd-debug ./lncli-debug
+	$(RM) ./lnd-debug ./lndsigner-debug ./lncli-debug
 	$(RM) ./lnd-itest ./lncli-itest
 	$(RM) -r ./vendor .vendor-new
 

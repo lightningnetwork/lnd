@@ -876,6 +876,34 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 	return cleanCfg, nil
 }
 
+// LoadSignerConfig initializes and parses the config using a config file and
+// command line options.
+//
+// The configuration proceeds as follows:
+//  1. Start with a default config with sane settings
+//  2. Pre-parse the command line to check for an alternative config file
+//  3. Load configuration file overwriting defaults with any specified options
+//  4. Parse CLI options and overwrite/add any specified options
+//  5. Hardcode that the node should not bootstrap from the network, listen
+//     for incoming connections, or connect to a chain backend.
+func LoadSignerConfig(interceptor signal.Interceptor) (*Config, error) {
+	cfg, err := LoadConfig(interceptor)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg.NoNetBootstrap = true
+	cfg.DisableListen = true
+	cfg.Bitcoin.Node = "nochainbackend"
+
+	if !cfg.WatchOnlyNode.Enable {
+		return nil, errors.New("`watchonlynode.enable` must be set " +
+			"for lndsigner")
+	}
+
+	return cfg, nil
+}
+
 // ValidateConfig check the given configuration to be sane. This makes sure no
 // illegal values or combination of values are set. All file system paths are
 // normalized. The cleaned up config is returned on success.

@@ -30,6 +30,8 @@ windows-arm
 
 RELEASE_TAGS = autopilotrpc signrpc walletrpc chainrpc invoicesrpc watchtowerrpc neutrinorpc monitoring peersrpc kvdb_postgres kvdb_etcd kvdb_sqlite
 
+LND_SIGNER_TAGS = signrpc walletrpc monitoring kvdb_postgres kvdb_etcd kvdb_sqlite
+
 WASM_RELEASE_TAGS = autopilotrpc signrpc walletrpc chainrpc invoicesrpc watchtowerrpc neutrinorpc monitoring peersrpc
 
 # One can either specify a git tag as the version suffix or one is generated

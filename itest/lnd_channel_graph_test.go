@@ -431,7 +431,7 @@ func testNodeAnnouncement(ht *lntest.HarnessTest) {
 }
 
 // testUpdateNodeAnnouncement ensures that the RPC endpoint validates
-// the requests correctly and that the new node announcement is brodcasted
+// the requests correctly and that the new node announcement is broadcast
 // with the right information after updating our node.
 func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 	alice, bob := ht.Alice, ht.Bob
@@ -477,7 +477,7 @@ func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 	}
 
 	// Get dave default information so we can compare it lately with the
-	// brodcasted updates.
+	// broadcast updates.
 	resp := dave.RPC.GetInfo()
 	defaultAddrs := make([]*lnrpc.NodeAddress, 0, len(resp.Uris))
 	for _, uri := range resp.GetUris() {

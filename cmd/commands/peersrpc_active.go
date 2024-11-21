@@ -45,7 +45,7 @@ var updateNodeAnnouncementCommand = cli.Command{
 	Add or remove addresses where your node can be reached at, change the
 	alias/color of the node or enable/disable supported feature bits without
 	restarting the node. A node announcement with the new information will
-	be created and brodcasted to the network.`,
+	be created and broadcast to the network.`,
 	ArgsUsage: "[--address_add=] [--address_remove=] [--alias=] " +
 		"[--color=] [--feature_bit_add=] [--feature_bit_remove=]",
 	Flags: []cli.Flag{

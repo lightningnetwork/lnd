@@ -194,6 +194,10 @@ The underlying functionality between those two options remain the same.
   by replacing the word `argument` with `input` in the command description,
   clarifying that the command requires interactive inputs rather than arguments.
 
+- [Fixed a few misspellings](https://github.com/lightningnetwork/lnd/pull/9290)
+  of "broadcast" in the code base, specifically the `lncli peers updatenodeannouncement`
+  command documentation.
+
 # Contributors (Alphabetical Order)
 
 * Animesh Bilthare

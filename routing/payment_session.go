@@ -139,7 +139,9 @@ type PaymentSession interface {
 	// A noRouteError is returned if a non-critical error is encountered
 	// during path finding.
 	RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
-		activeShards, height uint32) (*route.Route, error)
+		activeShards, height uint32,
+		firstHopCustomRecords lnwire.CustomRecords) (*route.Route,
+		error)
 
 	// UpdateAdditionalEdge takes an additional channel edge policy
 	// (private channels) and applies the update from the message. Returns
@@ -243,7 +245,8 @@ func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 // NOTE: This function is safe for concurrent access.
 // NOTE: Part of the PaymentSession interface.
 func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
-	activeShards, height uint32) (*route.Route, error) {
+	activeShards, height uint32,
+	firstHopCustomRecords lnwire.CustomRecords) (*route.Route, error) {
 
 	if p.empty {
 		return nil, errEmptyPaySession
@@ -265,16 +268,17 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	// to our destination, respecting the recommendations from
 	// MissionControl.
 	restrictions := &RestrictParams{
-		ProbabilitySource:  p.missionControl.GetProbability,
-		FeeLimit:           feeLimit,
-		OutgoingChannelIDs: p.payment.OutgoingChannelIDs,
-		LastHop:            p.payment.LastHop,
-		CltvLimit:          cltvLimit,
-		DestCustomRecords:  p.payment.DestCustomRecords,
-		DestFeatures:       p.payment.DestFeatures,
-		PaymentAddr:        p.payment.PaymentAddr,
-		Amp:                p.payment.amp,
-		Metadata:           p.payment.Metadata,
+		ProbabilitySource:     p.missionControl.GetProbability,
+		FeeLimit:              feeLimit,
+		OutgoingChannelIDs:    p.payment.OutgoingChannelIDs,
+		LastHop:               p.payment.LastHop,
+		CltvLimit:             cltvLimit,
+		DestCustomRecords:     p.payment.DestCustomRecords,
+		DestFeatures:          p.payment.DestFeatures,
+		PaymentAddr:           p.payment.PaymentAddr,
+		Amp:                   p.payment.amp,
+		Metadata:              p.payment.Metadata,
+		FirstHopCustomRecords: firstHopCustomRecords,
 	}
 
 	finalHtlcExpiry := int32(height) + int32(finalCltvDelta)
@@ -284,9 +288,9 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	// client-side MTU that we'll attempt to respect at all times.
 	maxShardActive := p.payment.MaxShardAmt != nil
 	if maxShardActive && maxAmt > *p.payment.MaxShardAmt {
-		p.log.Debug("Clamping payment attempt from %v to %v due to "+
-			"max shard size of %v", maxAmt,
-			*p.payment.MaxShardAmt, maxAmt)
+		p.log.Debugf("Clamping payment attempt from %v to %v due to "+
+			"max shard size of %v", maxAmt, *p.payment.MaxShardAmt,
+			maxAmt)
 
 		maxAmt = *p.payment.MaxShardAmt
 	}
@@ -340,7 +344,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 			// record. If it has a blinded path though, then we
 			// can split. Split payments to blinded paths won't have
 			// MPP records.
-			if p.payment.PaymentAddr == nil &&
+			if p.payment.PaymentAddr.IsNone() &&
 				p.payment.BlindedPathSet == nil {
 
 				p.log.Debugf("not splitting because payment " +

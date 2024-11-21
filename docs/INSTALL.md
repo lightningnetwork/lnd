@@ -100,12 +100,12 @@ the following commands for your OS:
   <summary>Linux (x86-64)</summary>
   
   ```
-  wget https://dl.google.com/go/go1.22.5.linux-amd64.tar.gz
+  wget https://dl.google.com/go/go1.22.6.linux-amd64.tar.gz
   sha256sum go1.22.5.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
   ```
 
   The final output of the command above should be
-  `904b924d435eaea086515bc63235b192ea441bd8c9b198c507e85009e6e4c7f0`. If it
+  `999805bed7d9039ec3da1a53bfbcafc13e367da52aa823cb60b68ba22d44c616`. If it
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
@@ -123,7 +123,7 @@ the following commands for your OS:
   ```
 
   The final output of the command above should be
-  `8c4587cf3e63c9aefbcafa92818c4d9d51683af93ea687bf6c7508d6fa36f85e`. If it
+  `b566484fe89a54c525dd1a4cbfec903c1f6e8f0b7b3dbaf94c79bc9145391083`. If it
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```

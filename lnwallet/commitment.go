@@ -11,14 +11,15 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// anchorSize is the constant anchor output size.
-const anchorSize = btcutil.Amount(330)
+// AnchorSize is the constant anchor output size.
+const AnchorSize = btcutil.Amount(330)
 
 // DefaultAnchorsCommitMaxFeeRateSatPerVByte is the default max fee rate in
 // sat/vbyte the initiator will use for anchor channels. This should be enough
@@ -200,9 +201,9 @@ func (w *WitnessScriptDesc) PkScript() []byte {
 	return w.OutputScript
 }
 
-// WitnessScript returns the witness script that we'll use when signing for the
-// remote party, and also verifying signatures on our transactions. As an
-// example, when we create an outgoing HTLC for the remote party, we want to
+// WitnessScriptToSign returns the witness script that we'll use when signing
+// for the remote party, and also verifying signatures on our transactions. As
+// an example, when we create an outgoing HTLC for the remote party, we want to
 // sign their success path.
 func (w *WitnessScriptDesc) WitnessScriptToSign() []byte {
 	return w.WitnessScript
@@ -210,10 +211,10 @@ func (w *WitnessScriptDesc) WitnessScriptToSign() []byte {
 
 // WitnessScriptForPath returns the witness script for the given spending path.
 // An error is returned if the path is unknown. This is useful as when
-// constructing a contrl block for a given path, one also needs witness script
+// constructing a control block for a given path, one also needs witness script
 // being signed.
-func (w *WitnessScriptDesc) WitnessScriptForPath(_ input.ScriptPath,
-) ([]byte, error) {
+func (w *WitnessScriptDesc) WitnessScriptForPath(
+	_ input.ScriptPath) ([]byte, error) {
 
 	return w.WitnessScript, nil
 }
@@ -226,8 +227,7 @@ func (w *WitnessScriptDesc) WitnessScriptForPath(_ input.ScriptPath,
 // the settled funds in the channel, plus the unsettled funds.
 func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
 	selfKey, revokeKey *btcec.PublicKey, csvDelay, leaseExpiry uint32,
-) (
-	input.ScriptDescriptor, error) {
+	auxLeaf input.AuxTapLeaf) (input.ScriptDescriptor, error) {
 
 	switch {
 	// For taproot scripts, we'll need to make a slightly modified script
@@ -237,7 +237,7 @@ func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
 	// Our "redeem" script here is just the taproot witness program.
 	case chanType.IsTaproot():
 		return input.NewLocalCommitScriptTree(
-			csvDelay, selfKey, revokeKey,
+			csvDelay, selfKey, revokeKey, auxLeaf,
 		)
 
 	// If we are the initiator of a leased channel, then we have an
@@ -291,8 +291,8 @@ func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
 // script for. The second return value is the CSV delay of the output script,
 // what must be satisfied in order to spend the output.
 func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
-	remoteKey *btcec.PublicKey,
-	leaseExpiry uint32) (input.ScriptDescriptor, uint32, error) {
+	remoteKey *btcec.PublicKey, leaseExpiry uint32,
+	auxLeaf input.AuxTapLeaf) (input.ScriptDescriptor, uint32, error) {
 
 	switch {
 	// If we are not the initiator of a leased channel, then the remote
@@ -321,7 +321,7 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 	// with the sole tap leaf enforcing the 1 CSV delay.
 	case chanType.IsTaproot():
 		toRemoteScriptTree, err := input.NewRemoteCommitScriptTree(
-			remoteKey,
+			remoteKey, auxLeaf,
 		)
 		if err != nil {
 			return nil, 0, err
@@ -420,14 +420,14 @@ func sweepSigHash(chanType channeldb.ChannelType) txscript.SigHashType {
 // argument should correspond to the owner of the commitment transaction which
 // we are generating the to_local script for.
 func SecondLevelHtlcScript(chanType channeldb.ChannelType, initiator bool,
-	revocationKey, delayKey *btcec.PublicKey,
-	csvDelay, leaseExpiry uint32) (input.ScriptDescriptor, error) {
+	revocationKey, delayKey *btcec.PublicKey, csvDelay, leaseExpiry uint32,
+	auxLeaf input.AuxTapLeaf) (input.ScriptDescriptor, error) {
 
 	switch {
 	// For taproot channels, the pkScript is a segwit v1 p2tr output.
 	case chanType.IsTaproot():
 		return input.TaprootSecondLevelScriptTree(
-			revocationKey, delayKey, csvDelay,
+			revocationKey, delayKey, csvDelay, auxLeaf,
 		)
 
 	// If we are the initiator of a leased channel, then we have an
@@ -532,8 +532,8 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 	input.ScriptDescriptor, input.ScriptDescriptor, error) {
 
 	var (
-		anchorScript func(key *btcec.PublicKey) (
-			input.ScriptDescriptor, error)
+		anchorScript func(
+			key *btcec.PublicKey) (input.ScriptDescriptor, error)
 
 		keySelector func(*channeldb.ChannelConfig,
 			bool) *btcec.PublicKey
@@ -544,12 +544,10 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 	// level key is now the (relative) local delay and remote public key,
 	// since these are fully revealed once the commitment hits the chain.
 	case chanType.IsTaproot():
-		anchorScript = func(key *btcec.PublicKey,
-		) (input.ScriptDescriptor, error) {
+		anchorScript = func(
+			key *btcec.PublicKey) (input.ScriptDescriptor, error) {
 
-			return input.NewAnchorScriptTree(
-				key,
-			)
+			return input.NewAnchorScriptTree(key)
 		}
 
 		keySelector = func(cfg *channeldb.ChannelConfig,
@@ -567,8 +565,8 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 	default:
 		// For normal channels, we'll create a p2wsh script based on
 		// the target key.
-		anchorScript = func(key *btcec.PublicKey,
-		) (input.ScriptDescriptor, error) {
+		anchorScript = func(
+			key *btcec.PublicKey) (input.ScriptDescriptor, error) {
 
 			script, err := input.CommitScriptAnchor(key)
 			if err != nil {
@@ -615,7 +613,7 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 // with, and abstracts the various ways of constructing commitment
 // transactions.
 type CommitmentBuilder struct {
-	// chanState is the underlying channels's state struct, used to
+	// chanState is the underlying channel's state struct, used to
 	// determine the type of channel we are dealing with, and relevant
 	// parameters.
 	chanState *channeldb.OpenChannel
@@ -623,18 +621,25 @@ type CommitmentBuilder struct {
 	// obfuscator is a 48-bit state hint that's used to obfuscate the
 	// current state number on the commitment transactions.
 	obfuscator [StateHintSize]byte
+
+	// auxLeafStore is an interface that allows us to fetch auxiliary
+	// tapscript leaves for the commitment output.
+	auxLeafStore fn.Option[AuxLeafStore]
 }
 
 // NewCommitmentBuilder creates a new CommitmentBuilder from chanState.
-func NewCommitmentBuilder(chanState *channeldb.OpenChannel) *CommitmentBuilder {
+func NewCommitmentBuilder(chanState *channeldb.OpenChannel,
+	leafStore fn.Option[AuxLeafStore]) *CommitmentBuilder {
+
 	// The anchor channel type MUST be tweakless.
 	if chanState.ChanType.HasAnchors() && !chanState.ChanType.IsTweakless() {
 		panic("invalid channel type combination")
 	}
 
 	return &CommitmentBuilder{
-		chanState:  chanState,
-		obfuscator: createStateHintObfuscator(chanState),
+		chanState:    chanState,
+		obfuscator:   createStateHintObfuscator(chanState),
+		auxLeafStore: leafStore,
 	}
 }
 
@@ -687,9 +692,9 @@ type unsignedCommitmentTx struct {
 // fees, but after anchor outputs.
 func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	theirBalance lnwire.MilliSatoshi, whoseCommit lntypes.ChannelParty,
-	feePerKw chainfee.SatPerKWeight, height uint64,
-	filteredHTLCView *htlcView,
-	keyRing *CommitmentKeyRing) (*unsignedCommitmentTx, error) {
+	feePerKw chainfee.SatPerKWeight, height uint64, originalHtlcView,
+	filteredHTLCView *HtlcView, keyRing *CommitmentKeyRing,
+	prevCommit *commitment) (*unsignedCommitmentTx, error) {
 
 	dustLimit := cb.chanState.LocalChanCfg.DustLimit
 	if whoseCommit.IsRemote() {
@@ -697,7 +702,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	}
 
 	numHTLCs := int64(0)
-	for _, htlc := range filteredHTLCView.ourUpdates {
+	for _, htlc := range filteredHTLCView.OurUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
@@ -708,7 +713,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 
 		numHTLCs++
 	}
-	for _, htlc := range filteredHTLCView.theirUpdates {
+	for _, htlc := range filteredHTLCView.TheirUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
@@ -750,10 +755,24 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 		theirBalance -= commitFeeMSat
 	}
 
-	var (
-		commitTx *wire.MsgTx
-		err      error
-	)
+	var commitTx *wire.MsgTx
+
+	// Before we create the commitment transaction below, we'll try to see
+	// if there're any aux leaves that need to be a part of the tapscript
+	// tree. We'll only do this if we have a custom blob defined though.
+	auxResult, err := fn.MapOptionZ(
+		cb.auxLeafStore,
+		func(s AuxLeafStore) fn.Result[CommitDiffAuxResult] {
+			return auxLeavesFromView(
+				s, cb.chanState, prevCommit.customBlob,
+				originalHtlcView, whoseCommit, ourBalance,
+				theirBalance, *keyRing,
+			)
+		},
+	).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
 
 	// Depending on whether the transaction is ours or not, we call
 	// CreateCommitTx with parameters matching the perspective, to generate
@@ -769,6 +788,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			&cb.chanState.LocalChanCfg, &cb.chanState.RemoteChanCfg,
 			ourBalance.ToSatoshis(), theirBalance.ToSatoshis(),
 			numHTLCs, cb.chanState.IsInitiator, leaseExpiry,
+			auxResult.AuxLeaves,
 		)
 	} else {
 		commitTx, err = CreateCommitTx(
@@ -776,11 +796,25 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			&cb.chanState.RemoteChanCfg, &cb.chanState.LocalChanCfg,
 			theirBalance.ToSatoshis(), ourBalance.ToSatoshis(),
 			numHTLCs, !cb.chanState.IsInitiator, leaseExpiry,
+			auxResult.AuxLeaves,
 		)
 	}
 	if err != nil {
 		return nil, err
 	}
+
+	// Similarly, we'll now attempt to extract the set of aux leaves for
+	// the set of incoming and outgoing HTLCs.
+	incomingAuxLeaves := fn.MapOption(
+		func(leaves CommitAuxLeaves) input.HtlcAuxLeaves {
+			return leaves.IncomingHtlcLeaves
+		},
+	)(auxResult.AuxLeaves)
+	outgoingAuxLeaves := fn.MapOption(
+		func(leaves CommitAuxLeaves) input.HtlcAuxLeaves {
+			return leaves.OutgoingHtlcLeaves
+		},
+	)(auxResult.AuxLeaves)
 
 	// We'll now add all the HTLC outputs to the commitment transaction.
 	// Each output includes an off-chain 2-of-2 covenant clause, so we'll
@@ -792,7 +826,8 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	// commitment outputs and should correspond to zero values for the
 	// purposes of sorting.
 	cltvs := make([]uint32, len(commitTx.TxOut))
-	for _, htlc := range filteredHTLCView.ourUpdates {
+	htlcIndexes := make([]input.HtlcIndex, len(commitTx.TxOut))
+	for _, htlc := range filteredHTLCView.OurUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, false, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
@@ -801,16 +836,26 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			continue
 		}
 
+		auxLeaf := fn.ChainOption(
+			func(leaves input.HtlcAuxLeaves) input.AuxTapLeaf {
+				return leaves[htlc.HtlcIndex].AuxTapLeaf
+			},
+		)(outgoingAuxLeaves)
+
 		err := addHTLC(
 			commitTx, whoseCommit, false, htlc, keyRing,
-			cb.chanState.ChanType,
+			cb.chanState.ChanType, auxLeaf,
 		)
 		if err != nil {
 			return nil, err
 		}
-		cltvs = append(cltvs, htlc.Timeout) // nolint:makezero
+
+		// We want to add the CLTV and HTLC index to their respective
+		// slices, even if we already pre-allocated them.
+		cltvs = append(cltvs, htlc.Timeout)               //nolint
+		htlcIndexes = append(htlcIndexes, htlc.HtlcIndex) //nolint
 	}
-	for _, htlc := range filteredHTLCView.theirUpdates {
+	for _, htlc := range filteredHTLCView.TheirUpdates {
 		if HtlcIsDust(
 			cb.chanState.ChanType, true, whoseCommit, feePerKw,
 			htlc.Amount.ToSatoshis(), dustLimit,
@@ -819,14 +864,24 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			continue
 		}
 
+		auxLeaf := fn.ChainOption(
+			func(leaves input.HtlcAuxLeaves) input.AuxTapLeaf {
+				return leaves[htlc.HtlcIndex].AuxTapLeaf
+			},
+		)(incomingAuxLeaves)
+
 		err := addHTLC(
 			commitTx, whoseCommit, true, htlc, keyRing,
-			cb.chanState.ChanType,
+			cb.chanState.ChanType, auxLeaf,
 		)
 		if err != nil {
 			return nil, err
 		}
-		cltvs = append(cltvs, htlc.Timeout) // nolint:makezero
+
+		// We want to add the CLTV and HTLC index to their respective
+		// slices, even if we already pre-allocated them.
+		cltvs = append(cltvs, htlc.Timeout)               //nolint
+		htlcIndexes = append(htlcIndexes, htlc.HtlcIndex) //nolint
 	}
 
 	// Set the state hint of the commitment transaction to facilitate
@@ -838,9 +893,16 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 	}
 
 	// Sort the transactions according to the agreed upon canonical
-	// ordering. This lets us skip sending the entire transaction over,
-	// instead we'll just send signatures.
-	InPlaceCommitSort(commitTx, cltvs)
+	// ordering (which might be customized for custom channel types, but
+	// deterministic and both parties will arrive at the same result). This
+	// lets us skip sending the entire transaction over, instead we'll just
+	// send signatures.
+	commitSort := auxResult.CommitSortFunc.UnwrapOr(DefaultCommitSort)
+	err = commitSort(commitTx, cltvs, htlcIndexes)
+	if err != nil {
+		return nil, fmt.Errorf("unable to sort commitment "+
+			"transaction: %w", err)
+	}
 
 	// Next, we'll ensure that we don't accidentally create a commitment
 	// transaction which would be invalid by consensus.
@@ -882,24 +944,33 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	fundingOutput wire.TxIn, keyRing *CommitmentKeyRing,
 	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
 	amountToLocal, amountToRemote btcutil.Amount,
-	numHTLCs int64, initiator bool, leaseExpiry uint32) (*wire.MsgTx, error) {
+	numHTLCs int64, initiator bool, leaseExpiry uint32,
+	auxLeaves fn.Option[CommitAuxLeaves]) (*wire.MsgTx, error) {
 
 	// First, we create the script for the delayed "pay-to-self" output.
 	// This output has 2 main redemption clauses: either we can redeem the
 	// output after a relative block delay, or the remote node can claim
 	// the funds with the revocation key if we broadcast a revoked
 	// commitment transaction.
+	localAuxLeaf := fn.MapOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
+		return l.LocalAuxLeaf
+	})(auxLeaves)
 	toLocalScript, err := CommitScriptToSelf(
 		chanType, initiator, keyRing.ToLocalKey, keyRing.RevocationKey,
 		uint32(localChanCfg.CsvDelay), leaseExpiry,
+		fn.FlattenOption(localAuxLeaf),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	// Next, we create the script paying to the remote.
+	remoteAuxLeaf := fn.MapOption(func(l CommitAuxLeaves) input.AuxTapLeaf {
+		return l.RemoteAuxLeaf
+	})(auxLeaves)
 	toRemoteScript, _, err := CommitScriptToRemote(
 		chanType, initiator, keyRing.ToRemoteKey, leaseExpiry,
+		fn.FlattenOption(remoteAuxLeaf),
 	)
 	if err != nil {
 		return nil, err
@@ -942,7 +1013,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 		if localOutput || numHTLCs > 0 {
 			commitTx.AddTxOut(&wire.TxOut{
 				PkScript: localAnchor.PkScript(),
-				Value:    int64(anchorSize),
+				Value:    int64(AnchorSize),
 			})
 		}
 
@@ -951,7 +1022,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 		if remoteOutput || numHTLCs > 0 {
 			commitTx.AddTxOut(&wire.TxOut{
 				PkScript: remoteAnchor.PkScript(),
-				Value:    int64(anchorSize),
+				Value:    int64(AnchorSize),
 			})
 		}
 	}
@@ -962,21 +1033,17 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 // CoopCloseBalance returns the final balances that should be used to create
 // the cooperative close tx, given the channel type and transaction fee.
 func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
-	coopCloseFee btcutil.Amount, localCommit channeldb.ChannelCommitment) (
-	btcutil.Amount, btcutil.Amount, error) {
-
-	// Get both parties' balances from the latest commitment.
-	ourBalance := localCommit.LocalBalance.ToSatoshis()
-	theirBalance := localCommit.RemoteBalance.ToSatoshis()
+	coopCloseFee, ourBalance, theirBalance,
+	commitFee btcutil.Amount) (btcutil.Amount, btcutil.Amount, error) {
 
 	// We'll make sure we account for the complete balance by adding the
 	// current dangling commitment fee to the balance of the initiator.
-	initiatorDelta := localCommit.CommitFee
+	initiatorDelta := commitFee
 
 	// Since the initiator's balance also is stored after subtracting the
 	// anchor values, add that back in case this was an anchor commitment.
 	if chanType.HasAnchors() {
-		initiatorDelta += 2 * anchorSize
+		initiatorDelta += 2 * AnchorSize
 	}
 
 	// The initiator will pay the full coop close fee, subtract that value
@@ -1075,11 +1142,11 @@ func genSegwitV0HtlcScript(chanType channeldb.ChannelType,
 	}, nil
 }
 
-// genTaprootHtlcScript generates the HTLC scripts for a taproot+musig2
+// GenTaprootHtlcScript generates the HTLC scripts for a taproot+musig2
 // channel.
-func genTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
+func GenTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 	timeout uint32, rHash [32]byte, keyRing *CommitmentKeyRing,
-) (*input.HtlcScriptTree, error) {
+	auxLeaf input.AuxTapLeaf) (*input.HtlcScriptTree, error) {
 
 	var (
 		htlcScriptTree *input.HtlcScriptTree
@@ -1096,7 +1163,7 @@ func genTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 	case isIncoming && whoseCommit.IsLocal():
 		htlcScriptTree, err = input.ReceiverHTLCScriptTaproot(
 			timeout, keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
-			keyRing.RevocationKey, rHash[:], whoseCommit,
+			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf,
 		)
 
 	// We're being paid via an HTLC by the remote party, and the HTLC is
@@ -1105,7 +1172,7 @@ func genTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 	case isIncoming && whoseCommit.IsRemote():
 		htlcScriptTree, err = input.SenderHTLCScriptTaproot(
 			keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
-			keyRing.RevocationKey, rHash[:], whoseCommit,
+			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf,
 		)
 
 	// We're sending an HTLC which is being added to our commitment
@@ -1114,7 +1181,7 @@ func genTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 	case !isIncoming && whoseCommit.IsLocal():
 		htlcScriptTree, err = input.SenderHTLCScriptTaproot(
 			keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
-			keyRing.RevocationKey, rHash[:], whoseCommit,
+			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf,
 		)
 
 	// Finally, we're paying the remote party via an HTLC, which is being
@@ -1123,7 +1190,7 @@ func genTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 	case !isIncoming && whoseCommit.IsRemote():
 		htlcScriptTree, err = input.ReceiverHTLCScriptTaproot(
 			timeout, keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
-			keyRing.RevocationKey, rHash[:], whoseCommit,
+			keyRing.RevocationKey, rHash[:], whoseCommit, auxLeaf,
 		)
 	}
 
@@ -1139,7 +1206,7 @@ func genTaprootHtlcScript(isIncoming bool, whoseCommit lntypes.ChannelParty,
 func genHtlcScript(chanType channeldb.ChannelType, isIncoming bool,
 	whoseCommit lntypes.ChannelParty, timeout uint32, rHash [32]byte,
 	keyRing *CommitmentKeyRing,
-) (input.ScriptDescriptor, error) {
+	auxLeaf input.AuxTapLeaf) (input.ScriptDescriptor, error) {
 
 	if !chanType.IsTaproot() {
 		return genSegwitV0HtlcScript(
@@ -1148,8 +1215,8 @@ func genHtlcScript(chanType channeldb.ChannelType, isIncoming bool,
 		)
 	}
 
-	return genTaprootHtlcScript(
-		isIncoming, whoseCommit, timeout, rHash, keyRing,
+	return GenTaprootHtlcScript(
+		isIncoming, whoseCommit, timeout, rHash, keyRing, auxLeaf,
 	)
 }
 
@@ -1158,17 +1225,19 @@ func genHtlcScript(chanType channeldb.ChannelType, isIncoming bool,
 // is incoming and if it's being applied to our commitment transaction or that
 // of the remote node's. Additionally, in order to be able to efficiently
 // locate the added HTLC on the commitment transaction from the
-// PaymentDescriptor that generated it, the generated script is stored within
+// paymentDescriptor that generated it, the generated script is stored within
 // the descriptor itself.
 func addHTLC(commitTx *wire.MsgTx, whoseCommit lntypes.ChannelParty,
-	isIncoming bool, paymentDesc *PaymentDescriptor,
-	keyRing *CommitmentKeyRing, chanType channeldb.ChannelType) error {
+	isIncoming bool, paymentDesc *paymentDescriptor,
+	keyRing *CommitmentKeyRing, chanType channeldb.ChannelType,
+	auxLeaf input.AuxTapLeaf) error {
 
 	timeout := paymentDesc.Timeout
 	rHash := paymentDesc.RHash
 
 	scriptInfo, err := genHtlcScript(
 		chanType, isIncoming, whoseCommit, timeout, rHash, keyRing,
+		auxLeaf,
 	)
 	if err != nil {
 		return err
@@ -1180,7 +1249,7 @@ func addHTLC(commitTx *wire.MsgTx, whoseCommit lntypes.ChannelParty,
 	amountPending := int64(paymentDesc.Amount.ToSatoshis())
 	commitTx.AddTxOut(wire.NewTxOut(amountPending, pkScript))
 
-	// Store the pkScript of this particular PaymentDescriptor so we can
+	// Store the pkScript of this particular paymentDescriptor so we can
 	// quickly locate it within the commitment transaction later.
 	if whoseCommit.IsLocal() {
 		paymentDesc.ourPkScript = pkScript
@@ -1201,7 +1270,8 @@ func addHTLC(commitTx *wire.MsgTx, whoseCommit lntypes.ChannelParty,
 // output scripts and compares them against the outputs inside the commitment
 // to find the match.
 func findOutputIndexesFromRemote(revocationPreimage *chainhash.Hash,
-	chanState *channeldb.OpenChannel) (uint32, uint32, error) {
+	chanState *channeldb.OpenChannel,
+	leafStore fn.Option[AuxLeafStore]) (uint32, uint32, error) {
 
 	// Init the output indexes as empty.
 	ourIndex := uint32(channeldb.OutputIndexEmpty)
@@ -1231,26 +1301,51 @@ func findOutputIndexesFromRemote(revocationPreimage *chainhash.Hash,
 		leaseExpiry = chanState.ThawHeight
 	}
 
-	// Map the scripts from our PoV. When facing a local commitment, the to
-	// local output belongs to us and the to remote output belongs to them.
-	// When facing a remote commitment, the to local output belongs to them
-	// and the to remote output belongs to us.
+	// If we have a custom blob, then we'll attempt to fetch the aux leaves
+	// for this state.
+	auxResult, err := fn.MapOptionZ(
+		leafStore, func(a AuxLeafStore) fn.Result[CommitDiffAuxResult] {
+			return a.FetchLeavesFromCommit(
+				NewAuxChanState(chanState), chanCommit,
+				*keyRing, lntypes.Remote,
+			)
+		},
+	).Unpack()
+	if err != nil {
+		return ourIndex, theirIndex, fmt.Errorf("unable to fetch aux "+
+			"leaves: %w", err)
+	}
 
-	// Compute the to local script. From our PoV, when facing a remote
-	// commitment, the to local output belongs to them.
+	// Map the scripts from our PoV. When facing a local commitment, the
+	// to_local output belongs to us and the to_remote output belongs to
+	// them. When facing a remote commitment, the to_local output belongs to
+	// them and the to_remote output belongs to us.
+
+	// Compute the to_local script. From our PoV, when facing a remote
+	// commitment, the to_local output belongs to them.
+	localAuxLeaf := fn.ChainOption(
+		func(l CommitAuxLeaves) input.AuxTapLeaf {
+			return l.LocalAuxLeaf
+		},
+	)(auxResult.AuxLeaves)
 	theirScript, err := CommitScriptToSelf(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToLocalKey,
-		keyRing.RevocationKey, theirDelay, leaseExpiry,
+		keyRing.RevocationKey, theirDelay, leaseExpiry, localAuxLeaf,
 	)
 	if err != nil {
 		return ourIndex, theirIndex, err
 	}
 
-	// Compute the to remote script. From our PoV, when facing a remote
-	// commitment, the to remote output belongs to us.
+	// Compute the to_remote script. From our PoV, when facing a remote
+	// commitment, the to_remote output belongs to us.
+	remoteAuxLeaf := fn.ChainOption(
+		func(l CommitAuxLeaves) input.AuxTapLeaf {
+			return l.RemoteAuxLeaf
+		},
+	)(auxResult.AuxLeaves)
 	ourScript, _, err := CommitScriptToRemote(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
-		leaseExpiry,
+		leaseExpiry, remoteAuxLeaf,
 	)
 	if err != nil {
 		return ourIndex, theirIndex, err

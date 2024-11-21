@@ -193,6 +193,12 @@ type chainWatcherConfig struct {
 	// obfuscater. This is used by the chain watcher to identify which
 	// state was broadcast and confirmed on-chain.
 	extractStateNumHint func(*wire.MsgTx, [lnwallet.StateHintSize]byte) uint64
+
+	// auxLeafStore can be used to fetch information for custom channels.
+	auxLeafStore fn.Option[lnwallet.AuxLeafStore]
+
+	// auxResolver is used to supplement contract resolution.
+	auxResolver fn.Option[lnwallet.AuxContractResolver]
 }
 
 // chainWatcher is a system that's assigned to every active channel. The duty
@@ -308,7 +314,7 @@ func (c *chainWatcher) Start() error {
 	)
 	if chanState.ChanType.IsTaproot() {
 		c.fundingPkScript, _, err = input.GenTaprootFundingScript(
-			localKey, remoteKey, 0,
+			localKey, remoteKey, 0, chanState.TapscriptRoot,
 		)
 		if err != nil {
 			return err
@@ -423,15 +429,37 @@ func (c *chainWatcher) handleUnknownLocalState(
 		&c.cfg.chanState.LocalChanCfg, &c.cfg.chanState.RemoteChanCfg,
 	)
 
+	auxResult, err := fn.MapOptionZ(
+		c.cfg.auxLeafStore,
+		//nolint:lll
+		func(s lnwallet.AuxLeafStore) fn.Result[lnwallet.CommitDiffAuxResult] {
+			return s.FetchLeavesFromCommit(
+				lnwallet.NewAuxChanState(c.cfg.chanState),
+				c.cfg.chanState.LocalCommitment, *commitKeyRing,
+				lntypes.Local,
+			)
+		},
+	).Unpack()
+	if err != nil {
+		return false, fmt.Errorf("unable to fetch aux leaves: %w", err)
+	}
+
 	// With the keys derived, we'll construct the remote script that'll be
 	// present if they have a non-dust balance on the commitment.
 	var leaseExpiry uint32
 	if c.cfg.chanState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = c.cfg.chanState.ThawHeight
 	}
+
+	remoteAuxLeaf := fn.ChainOption(
+		func(l lnwallet.CommitAuxLeaves) input.AuxTapLeaf {
+			return l.RemoteAuxLeaf
+		},
+	)(auxResult.AuxLeaves)
 	remoteScript, _, err := lnwallet.CommitScriptToRemote(
 		c.cfg.chanState.ChanType, c.cfg.chanState.IsInitiator,
 		commitKeyRing.ToRemoteKey, leaseExpiry,
+		remoteAuxLeaf,
 	)
 	if err != nil {
 		return false, err
@@ -440,10 +468,16 @@ func (c *chainWatcher) handleUnknownLocalState(
 	// Next, we'll derive our script that includes the revocation base for
 	// the remote party allowing them to claim this output before the CSV
 	// delay if we breach.
+	localAuxLeaf := fn.ChainOption(
+		func(l lnwallet.CommitAuxLeaves) input.AuxTapLeaf {
+			return l.LocalAuxLeaf
+		},
+	)(auxResult.AuxLeaves)
 	localScript, err := lnwallet.CommitScriptToSelf(
 		c.cfg.chanState.ChanType, c.cfg.chanState.IsInitiator,
 		commitKeyRing.ToLocalKey, commitKeyRing.RevocationKey,
 		uint32(c.cfg.chanState.LocalChanCfg.CsvDelay), leaseExpiry,
+		localAuxLeaf,
 	)
 	if err != nil {
 		return false, err
@@ -866,7 +900,7 @@ func (c *chainWatcher) handlePossibleBreach(commitSpend *chainntnfs.SpendDetail,
 	spendHeight := uint32(commitSpend.SpendingHeight)
 	retribution, err := lnwallet.NewBreachRetribution(
 		c.cfg.chanState, broadcastStateNum, spendHeight,
-		commitSpend.SpendingTx,
+		commitSpend.SpendingTx, c.cfg.auxLeafStore, c.cfg.auxResolver,
 	)
 
 	switch {
@@ -1116,8 +1150,8 @@ func (c *chainWatcher) dispatchLocalForceClose(
 		"detected", c.cfg.chanState.FundingOutpoint)
 
 	forceClose, err := lnwallet.NewLocalForceCloseSummary(
-		c.cfg.chanState, c.cfg.signer,
-		commitSpend.SpendingTx, stateNum,
+		c.cfg.chanState, c.cfg.signer, commitSpend.SpendingTx, stateNum,
+		c.cfg.auxLeafStore, c.cfg.auxResolver,
 	)
 	if err != nil {
 		return err
@@ -1141,16 +1175,29 @@ func (c *chainWatcher) dispatchLocalForceClose(
 		LocalChanConfig:         c.cfg.chanState.LocalChanCfg,
 	}
 
+	resolutions, err := forceClose.ContractResolutions.UnwrapOrErr(
+		fmt.Errorf("resolutions not found"),
+	)
+	if err != nil {
+		return err
+	}
+
 	// If our commitment output isn't dust or we have active HTLC's on the
 	// commitment transaction, then we'll populate the balances on the
 	// close channel summary.
-	if forceClose.CommitResolution != nil {
-		closeSummary.SettledBalance = chanSnapshot.LocalBalance.ToSatoshis()
-		closeSummary.TimeLockedBalance = chanSnapshot.LocalBalance.ToSatoshis()
+	if resolutions.CommitResolution != nil {
+		localBalance := chanSnapshot.LocalBalance.ToSatoshis()
+		closeSummary.SettledBalance = localBalance
+		closeSummary.TimeLockedBalance = localBalance
 	}
-	for _, htlc := range forceClose.HtlcResolutions.OutgoingHTLCs {
-		htlcValue := btcutil.Amount(htlc.SweepSignDesc.Output.Value)
-		closeSummary.TimeLockedBalance += htlcValue
+
+	if resolutions.HtlcResolutions != nil {
+		for _, htlc := range resolutions.HtlcResolutions.OutgoingHTLCs {
+			htlcValue := btcutil.Amount(
+				htlc.SweepSignDesc.Output.Value,
+			)
+			closeSummary.TimeLockedBalance += htlcValue
+		}
 	}
 
 	// Attempt to add a channel sync message to the close summary.
@@ -1209,8 +1256,8 @@ func (c *chainWatcher) dispatchRemoteForceClose(
 	// materials required to let each subscriber sweep the funds in the
 	// channel on-chain.
 	uniClose, err := lnwallet.NewUnilateralCloseSummary(
-		c.cfg.chanState, c.cfg.signer, commitSpend,
-		remoteCommit, commitPoint,
+		c.cfg.chanState, c.cfg.signer, commitSpend, remoteCommit,
+		commitPoint, c.cfg.auxLeafStore, c.cfg.auxResolver,
 	)
 	if err != nil {
 		return err

@@ -16,6 +16,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -25,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/zpay32"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -104,6 +106,10 @@ type RouterBackend struct {
 	// TODO(yy): remove this config after the new status code is fully
 	// deployed to the network(v0.20.0).
 	UseStatusInitiated bool
+
+	// ParseCustomChannelData is a function that can be used to parse custom
+	// channel data from the first hop of a route.
+	ParseCustomChannelData func(message proto.Message) error
 }
 
 // MissionControl defines the mission control dependencies of routerrpc.
@@ -578,13 +584,34 @@ func (r *RouterBackend) rpcEdgeToPair(e *lnrpc.EdgeLocator) (
 // MarshallRoute marshalls an internal route to an rpc route struct.
 func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) {
 	resp := &lnrpc.Route{
-		TotalTimeLock: route.TotalTimeLock,
-		TotalFees:     int64(route.TotalFees().ToSatoshis()),
-		TotalFeesMsat: int64(route.TotalFees()),
-		TotalAmt:      int64(route.TotalAmount.ToSatoshis()),
-		TotalAmtMsat:  int64(route.TotalAmount),
-		Hops:          make([]*lnrpc.Hop, len(route.Hops)),
+		TotalTimeLock:      route.TotalTimeLock,
+		TotalFees:          int64(route.TotalFees().ToSatoshis()),
+		TotalFeesMsat:      int64(route.TotalFees()),
+		TotalAmt:           int64(route.TotalAmount.ToSatoshis()),
+		TotalAmtMsat:       int64(route.TotalAmount),
+		Hops:               make([]*lnrpc.Hop, len(route.Hops)),
+		FirstHopAmountMsat: int64(route.FirstHopAmount.Val.Int()),
 	}
+
+	// Encode the route's custom channel data (if available).
+	if len(route.FirstHopWireCustomRecords) > 0 {
+		customData, err := route.FirstHopWireCustomRecords.Serialize()
+		if err != nil {
+			return nil, err
+		}
+
+		resp.CustomChannelData = customData
+
+		// Allow the aux data parser to parse the custom records into
+		// a human-readable JSON (if available).
+		if r.ParseCustomChannelData != nil {
+			err := r.ParseCustomChannelData(resp)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	incomingAmt := route.TotalAmount
 	for i, hop := range route.Hops {
 		fee := route.HopFee(i)
@@ -858,6 +885,12 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	}
 	payIntent.DestCustomRecords = customRecords
 
+	firstHopRecords := lnwire.CustomRecords(rpcPayReq.FirstHopCustomRecords)
+	if err := firstHopRecords.Validate(); err != nil {
+		return nil, err
+	}
+	payIntent.FirstHopCustomRecords = firstHopRecords
+
 	payIntent.PayAttemptTimeout = time.Second *
 		time.Duration(rpcPayReq.TimeoutSeconds)
 
@@ -979,7 +1012,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			if len(rpcPayReq.PaymentAddr) > 0 {
 				var addr [32]byte
 				copy(addr[:], rpcPayReq.PaymentAddr)
-				payAddr = &addr
+				payAddr = fn.Some(addr)
 			}
 		} else {
 			err = payIntent.SetPaymentHash(*payReq.PaymentHash)
@@ -1096,7 +1129,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			} else {
 				copy(payAddr[:], rpcPayReq.PaymentAddr)
 			}
-			payIntent.PaymentAddr = &payAddr
+			payIntent.PaymentAddr = fn.Some(payAddr)
 
 			// Generate random SetID and root share.
 			var setID [32]byte
@@ -1135,7 +1168,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 				var payAddr [32]byte
 				copy(payAddr[:], rpcPayReq.PaymentAddr)
 
-				payIntent.PaymentAddr = &payAddr
+				payIntent.PaymentAddr = fn.Some(payAddr)
 			}
 		}
 
@@ -1676,21 +1709,22 @@ func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
 
 	return &lnrpc.Payment{
 		// TODO: set this to setID for AMP-payments?
-		PaymentHash:     hex.EncodeToString(paymentID[:]),
-		Value:           satValue,
-		ValueMsat:       msatValue,
-		ValueSat:        satValue,
-		CreationDate:    payment.Info.CreationTime.Unix(),
-		CreationTimeNs:  creationTimeNS,
-		Fee:             int64(fee.ToSatoshis()),
-		FeeSat:          int64(fee.ToSatoshis()),
-		FeeMsat:         int64(fee),
-		PaymentPreimage: hex.EncodeToString(preimage[:]),
-		PaymentRequest:  string(payment.Info.PaymentRequest),
-		Status:          status,
-		Htlcs:           htlcs,
-		PaymentIndex:    payment.SequenceNum,
-		FailureReason:   failureReason,
+		PaymentHash:           hex.EncodeToString(paymentID[:]),
+		Value:                 satValue,
+		ValueMsat:             msatValue,
+		ValueSat:              satValue,
+		CreationDate:          payment.Info.CreationTime.Unix(),
+		CreationTimeNs:        creationTimeNS,
+		Fee:                   int64(fee.ToSatoshis()),
+		FeeSat:                int64(fee.ToSatoshis()),
+		FeeMsat:               int64(fee),
+		PaymentPreimage:       hex.EncodeToString(preimage[:]),
+		PaymentRequest:        string(payment.Info.PaymentRequest),
+		Status:                status,
+		Htlcs:                 htlcs,
+		PaymentIndex:          payment.SequenceNum,
+		FailureReason:         failureReason,
+		FirstHopCustomRecords: payment.Info.FirstHopCustomRecords,
 	}, nil
 }
 

@@ -35,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -42,6 +43,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/queue"
@@ -142,6 +144,21 @@ type PendingUpdate struct {
 type ChannelCloseUpdate struct {
 	ClosingTxid []byte
 	Success     bool
+
+	// LocalCloseOutput is an optional, additional output on the closing
+	// transaction that the local party should be paid to. This will only be
+	// populated if the local balance isn't dust.
+	LocalCloseOutput fn.Option[chancloser.CloseOutput]
+
+	// RemoteCloseOutput is an optional, additional output on the closing
+	// transaction that the remote party should be paid to. This will only
+	// be populated if the remote balance isn't dust.
+	RemoteCloseOutput fn.Option[chancloser.CloseOutput]
+
+	// AuxOutputs is an optional set of additional outputs that might be
+	// included in the closing transaction. These are used for custom
+	// channel types.
+	AuxOutputs fn.Option[chancloser.AuxCloseOutputs]
 }
 
 // TimestampedError is a timestamped error that is used to store the most recent
@@ -369,7 +386,19 @@ type Config struct {
 
 	// AddLocalAlias persists an alias to an underlying alias store.
 	AddLocalAlias func(alias, base lnwire.ShortChannelID,
-		gossip bool) error
+		gossip, liveUpdate bool) error
+
+	// AuxLeafStore is an optional store that can be used to store auxiliary
+	// leaves for certain custom channel types.
+	AuxLeafStore fn.Option[lnwallet.AuxLeafStore]
+
+	// AuxSigner is an optional signer that can be used to sign auxiliary
+	// leaves for certain custom channel types.
+	AuxSigner fn.Option[lnwallet.AuxSigner]
+
+	// AuxResolver is an optional interface that can be used to modify the
+	// way contracts are resolved.
+	AuxResolver fn.Option[lnwallet.AuxContractResolver]
 
 	// PongBuf is a slice we'll reuse instead of allocating memory on the
 	// heap. Since only reads will occur and no writes, there is no need
@@ -385,6 +414,15 @@ type Config struct {
 	// MaxFeeExposure limits the number of outstanding fees in a channel.
 	// This value will be passed to created links.
 	MaxFeeExposure lnwire.MilliSatoshi
+
+	// MsgRouter is an optional instance of the main message router that
+	// the peer will use. If None, then a new default version will be used
+	// in place.
+	MsgRouter fn.Option[msgmux.Router]
+
+	// AuxChanCloser is an optional instance of an abstraction that can be
+	// used to modify the way the co-op close transaction is constructed.
+	AuxChanCloser fn.Option[chancloser.AuxChanCloser]
 
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
@@ -522,6 +560,15 @@ type Brontide struct {
 	// potentially holding lots of un-consumed events.
 	channelEventClient *subscribe.Client
 
+	// msgRouter is an instance of the msgmux.Router which is used to send
+	// off new wire messages for handing.
+	msgRouter fn.Option[msgmux.Router]
+
+	// globalMsgRouter is a flag that indicates whether we have a global
+	// msg router. If so, then we don't worry about stopping the msg router
+	// when a peer disconnects.
+	globalMsgRouter bool
+
 	startReady chan struct{}
 	quit       chan struct{}
 	wg         sync.WaitGroup
@@ -536,6 +583,17 @@ var _ lnpeer.Peer = (*Brontide)(nil)
 // NewBrontide creates a new Brontide from a peer.Config struct.
 func NewBrontide(cfg Config) *Brontide {
 	logPrefix := fmt.Sprintf("Peer(%x):", cfg.PubKeyBytes)
+
+	// We have a global message router if one was passed in via the config.
+	// In this case, we don't need to attempt to tear it down when the peer
+	// is stopped.
+	globalMsgRouter := cfg.MsgRouter.IsSome()
+
+	// We'll either use the msg router instance passed in, or create a new
+	// blank instance.
+	msgRouter := cfg.MsgRouter.Alt(fn.Some[msgmux.Router](
+		msgmux.NewMultiMsgRouter(),
+	))
 
 	p := &Brontide{
 		cfg:           cfg,
@@ -559,6 +617,8 @@ func NewBrontide(cfg Config) *Brontide {
 		startReady:         make(chan struct{}),
 		quit:               make(chan struct{}),
 		log:                build.NewPrefixLog(logPrefix, peerLog),
+		msgRouter:          msgRouter,
+		globalMsgRouter:    globalMsgRouter,
 	}
 
 	if cfg.Conn != nil && cfg.Conn.RemoteAddr() != nil {
@@ -738,6 +798,12 @@ func (p *Brontide) Start() error {
 		return err
 	}
 
+	// Register the message router now as we may need to register some
+	// endpoints while loading the channels below.
+	p.msgRouter.WhenSome(func(router msgmux.Router) {
+		router.Start()
+	})
+
 	msgs, err := p.loadActiveChannels(activeChans)
 	if err != nil {
 		return fmt.Errorf("unable to load channels: %w", err)
@@ -839,6 +905,33 @@ func (p *Brontide) QuitSignal() <-chan struct{} {
 	return p.quit
 }
 
+// addrWithInternalKey takes a delivery script, then attempts to supplement it
+// with information related to the internal key for the addr, but only if it's
+// a taproot addr.
+func (p *Brontide) addrWithInternalKey(
+	deliveryScript []byte) (*chancloser.DeliveryAddrWithKey, error) {
+
+	// Currently, custom channels cannot be created with external upfront
+	// shutdown addresses, so this shouldn't be an issue. We only require
+	// the internal key for taproot addresses to be able to provide a non
+	// inclusion proof of any scripts.
+	internalKeyDesc, err := lnwallet.InternalKeyForAddr(
+		p.cfg.Wallet, &p.cfg.Wallet.Cfg.NetParams, deliveryScript,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch internal key: %w", err)
+	}
+
+	return &chancloser.DeliveryAddrWithKey{
+		DeliveryAddress: deliveryScript,
+		InternalKey: fn.MapOption(
+			func(desc keychain.KeyDescriptor) btcec.PublicKey {
+				return *desc.PubKey
+			},
+		)(internalKeyDesc),
+	}, nil
+}
+
 // loadActiveChannels creates indexes within the peer for tracking all active
 // channels returned by the database. It returns a slice of channel reestablish
 // messages that should be sent to the peer immediately, in case we have borked
@@ -874,6 +967,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 
 				err = p.cfg.AddLocalAlias(
 					aliasScid, dbChan.ShortChanID(), false,
+					false,
 				)
 				if err != nil {
 					return nil, err
@@ -909,11 +1003,27 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			}
 		}
 
+		var chanOpts []lnwallet.ChannelOpt
+		p.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
+			chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
+		})
+		p.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
+			chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
+		})
+		p.cfg.AuxResolver.WhenSome(
+			func(s lnwallet.AuxContractResolver) {
+				chanOpts = append(
+					chanOpts, lnwallet.WithAuxResolver(s),
+				)
+			},
+		)
+
 		lnChan, err := lnwallet.NewLightningChannel(
-			p.cfg.Signer, dbChan, p.cfg.SigPool,
+			p.cfg.Signer, dbChan, p.cfg.SigPool, chanOpts...,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to create channel "+
+				"state machine: %w", err)
 		}
 
 		chanPoint := dbChan.FundingOutpoint
@@ -1070,9 +1180,16 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 				return
 			}
 
+			addr, err := p.addrWithInternalKey(
+				info.DeliveryScript.Val,
+			)
+			if err != nil {
+				shutdownInfoErr = fmt.Errorf("unable to make "+
+					"delivery addr: %w", err)
+				return
+			}
 			chanCloser, err := p.createChanCloser(
-				lnChan, info.DeliveryScript.Val, feePerKw, nil,
-				info.Closer(),
+				lnChan, addr, feePerKw, nil, info.Closer(),
 			)
 			if err != nil {
 				shutdownInfoErr = fmt.Errorf("unable to "+
@@ -1368,6 +1485,14 @@ func (p *Brontide) Disconnect(reason error) {
 	p.cfg.Conn.Close()
 
 	close(p.quit)
+
+	// If our msg router isn't global (local to this instance), then we'll
+	// stop it. Otherwise, we'll leave it running.
+	if !p.globalMsgRouter {
+		p.msgRouter.WhenSome(func(router msgmux.Router) {
+			router.Stop()
+		})
+	}
 }
 
 // String returns the string representation of this peer.
@@ -1809,6 +1934,22 @@ out:
 			}
 		}
 
+		// If a message router is active, then we'll try to have it
+		// handle this message. If it can, then we're able to skip the
+		// rest of the message handling logic.
+		err = fn.MapOptionZ(p.msgRouter, func(r msgmux.Router) error {
+			return r.RouteMsg(msgmux.PeerMsg{
+				PeerPub: *p.IdentityKey(),
+				Message: nextMsg,
+			})
+		})
+
+		// No error occurred, and the message was handled by the
+		// router.
+		if err == nil {
+			continue
+		}
+
 		var (
 			targetChan   lnwire.ChannelID
 			isLinkUpdate bool
@@ -2125,17 +2266,18 @@ func messageSummary(msg lnwire.Message) string {
 		)
 
 		return fmt.Sprintf("chan_id=%v, id=%v, amt=%v, expiry=%v, "+
-			"hash=%x, blinding_point=%x", msg.ChanID, msg.ID,
-			msg.Amount, msg.Expiry, msg.PaymentHash[:],
-			blindingPoint)
+			"hash=%x, blinding_point=%x, custom_records=%v",
+			msg.ChanID, msg.ID, msg.Amount, msg.Expiry,
+			msg.PaymentHash[:], blindingPoint, msg.CustomRecords)
 
 	case *lnwire.UpdateFailHTLC:
 		return fmt.Sprintf("chan_id=%v, id=%v, reason=%x", msg.ChanID,
 			msg.ID, msg.Reason)
 
 	case *lnwire.UpdateFulfillHTLC:
-		return fmt.Sprintf("chan_id=%v, id=%v, pre_image=%x",
-			msg.ChanID, msg.ID, msg.PaymentPreimage[:])
+		return fmt.Sprintf("chan_id=%v, id=%v, pre_image=%x, "+
+			"custom_records=%v", msg.ChanID, msg.ID,
+			msg.PaymentPreimage[:], msg.CustomRecords)
 
 	case *lnwire.CommitSig:
 		return fmt.Sprintf("chan_id=%v, num_htlcs=%v", msg.ChanID,
@@ -2806,8 +2948,12 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 		return nil, fmt.Errorf("unable to estimate fee")
 	}
 
+	addr, err := p.addrWithInternalKey(deliveryScript)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse addr: %w", err)
+	}
 	chanCloser, err = p.createChanCloser(
-		channel, deliveryScript, feePerKw, nil, lntypes.Remote,
+		channel, addr, feePerKw, nil, lntypes.Remote,
 	)
 	if err != nil {
 		p.log.Errorf("unable to create chan closer: %v", err)
@@ -3049,8 +3195,12 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 		closingParty = lntypes.Local
 	}
 
+	addr, err := p.addrWithInternalKey(deliveryScript)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse addr: %w", err)
+	}
 	chanCloser, err := p.createChanCloser(
-		lnChan, deliveryScript, feePerKw, nil, closingParty,
+		lnChan, addr, feePerKw, nil, closingParty,
 	)
 	if err != nil {
 		p.log.Errorf("unable to create chan closer: %v", err)
@@ -3077,8 +3227,8 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 // createChanCloser constructs a ChanCloser from the passed parameters and is
 // used to de-duplicate code.
 func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
-	deliveryScript lnwire.DeliveryAddress, fee chainfee.SatPerKWeight,
-	req *htlcswitch.ChanClose,
+	deliveryScript *chancloser.DeliveryAddrWithKey,
+	fee chainfee.SatPerKWeight, req *htlcswitch.ChanClose,
 	closer lntypes.ChannelParty) (*chancloser.ChanCloser, error) {
 
 	_, startingHeight, err := p.cfg.ChainIO.GetBestBlock()
@@ -3099,6 +3249,7 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 			MusigSession: NewMusigChanCloser(channel),
 			FeeEstimator: &chancloser.SimpleCoopFeeEstimator{},
 			BroadcastTx:  p.cfg.Wallet.PublishTransaction,
+			AuxCloser:    p.cfg.AuxChanCloser,
 			DisableChannel: func(op wire.OutPoint) error {
 				return p.cfg.ChanStatusMgr.RequestDisable(
 					op, false,
@@ -3111,7 +3262,7 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 			ChainParams: &p.cfg.Wallet.Cfg.NetParams,
 			Quit:        p.quit,
 		},
-		deliveryScript,
+		*deliveryScript,
 		fee,
 		uint32(startingHeight),
 		req,
@@ -3170,10 +3321,17 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 				return
 			}
 		}
+		addr, err := p.addrWithInternalKey(deliveryScript)
+		if err != nil {
+			err = fmt.Errorf("unable to parse addr for channel "+
+				"%v: %w", req.ChanPoint, err)
+			p.log.Errorf(err.Error())
+			req.Err <- err
 
+			return
+		}
 		chanCloser, err := p.createChanCloser(
-			channel, deliveryScript, req.TargetFeePerKw, req,
-			lntypes.Local,
+			channel, addr, req.TargetFeePerKw, req, lntypes.Local,
 		)
 		if err != nil {
 			p.log.Errorf(err.Error())
@@ -3395,17 +3553,25 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 		}
 	}
 
-	go WaitForChanToClose(chanCloser.NegotiationHeight(), notifier, errChan,
+	localOut := chanCloser.LocalCloseOutput()
+	remoteOut := chanCloser.RemoteCloseOutput()
+	auxOut := chanCloser.AuxOutputs()
+	go WaitForChanToClose(
+		chanCloser.NegotiationHeight(), notifier, errChan,
 		&chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, func() {
 			// Respond to the local subsystem which requested the
 			// channel closure.
 			if closeReq != nil {
 				closeReq.Updates <- &ChannelCloseUpdate{
-					ClosingTxid: closingTxid[:],
-					Success:     true,
+					ClosingTxid:       closingTxid[:],
+					Success:           true,
+					LocalCloseOutput:  localOut,
+					RemoteCloseOutput: remoteOut,
+					AuxOutputs:        auxOut,
 				}
 			}
-		})
+		},
+	)
 }
 
 // WaitForChanToClose uses the passed notifier to wait until the channel has
@@ -4091,6 +4257,16 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 		// by calling SkipNonceInit.
 		chanOpts = append(chanOpts, lnwallet.WithSkipNonceInit())
 	}
+
+	p.cfg.AuxLeafStore.WhenSome(func(s lnwallet.AuxLeafStore) {
+		chanOpts = append(chanOpts, lnwallet.WithLeafStore(s))
+	})
+	p.cfg.AuxSigner.WhenSome(func(s lnwallet.AuxSigner) {
+		chanOpts = append(chanOpts, lnwallet.WithAuxSigner(s))
+	})
+	p.cfg.AuxResolver.WhenSome(func(s lnwallet.AuxContractResolver) {
+		chanOpts = append(chanOpts, lnwallet.WithAuxResolver(s))
+	})
 
 	// If not already active, we'll add this channel to the set of active
 	// channels, so we can look it up later easily according to its channel

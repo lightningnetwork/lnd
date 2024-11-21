@@ -357,6 +357,30 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 					commitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT
 
 				case channelFeatures.OnlyContains(
+					lnwire.SimpleTaprootOverlayChansRequired,
+					lnwire.ZeroConfRequired,
+					lnwire.ScidAliasRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY
+
+				case channelFeatures.OnlyContains(
+					lnwire.SimpleTaprootOverlayChansRequired,
+					lnwire.ZeroConfRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY
+
+				case channelFeatures.OnlyContains(
+					lnwire.SimpleTaprootOverlayChansRequired,
+					lnwire.ScidAliasRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY
+
+				case channelFeatures.OnlyContains(
+					lnwire.SimpleTaprootOverlayChansRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY
+
+				case channelFeatures.OnlyContains(
 					lnwire.StaticRemoteKeyRequired,
 				):
 					commitmentType = lnrpc.CommitmentType_STATIC_REMOTE_KEY

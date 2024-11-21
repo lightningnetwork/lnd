@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -21,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 const (
@@ -592,6 +594,81 @@ type MessageSigner interface {
 	// the single or double SHA-256 of the passed message.
 	SignMessage(keyLoc keychain.KeyLocator, msg []byte,
 		doubleHash bool) (*ecdsa.Signature, error)
+}
+
+// AddrWithKey wraps a normal addr, but also includes the internal key for the
+// delivery addr if known.
+type AddrWithKey struct {
+	lnwire.DeliveryAddress
+
+	InternalKey fn.Option[keychain.KeyDescriptor]
+
+	// TODO(roasbeef): consolidate w/ instance in chan closer
+}
+
+// InternalKeyForAddr returns the internal key associated with a taproot
+// address.
+func InternalKeyForAddr(wallet WalletController, netParams *chaincfg.Params,
+	deliveryScript []byte) (fn.Option[keychain.KeyDescriptor], error) {
+
+	none := fn.None[keychain.KeyDescriptor]()
+
+	pkScript, err := txscript.ParsePkScript(deliveryScript)
+	if err != nil {
+		return none, err
+	}
+	addr, err := pkScript.Address(netParams)
+	if err != nil {
+		return none, err
+	}
+
+	// If it's not a taproot address, we don't require to know the internal
+	// key in the first place. So we don't return an error here, but also no
+	// internal key.
+	_, isTaproot := addr.(*btcutil.AddressTaproot)
+	if !isTaproot {
+		return none, nil
+	}
+
+	walletAddr, err := wallet.AddressInfo(addr)
+	if err != nil {
+		// If the error is that the address can't be found, it is not
+		// an error. This happens when any channel which is not a custom
+		// taproot channel is cooperatively closed to an external P2TR
+		// address. In this case there is no internal key associated
+		// with the address. Callers can use the .Option() method to get
+		// an option value.
+		var managerErr waddrmgr.ManagerError
+		if errors.As(err, &managerErr) &&
+			managerErr.ErrorCode == waddrmgr.ErrAddressNotFound {
+
+			return none, nil
+		}
+
+		return none, err
+	}
+
+	// No wallet addr. No error, but we'll return an nil error value here,
+	// as callers can use the .Option() method to get an option value.
+	if walletAddr == nil {
+		return none, nil
+	}
+
+	pubKeyAddr, ok := walletAddr.(waddrmgr.ManagedPubKeyAddress)
+	if !ok {
+		return none, fmt.Errorf("expected pubkey addr, got %T",
+			pubKeyAddr)
+	}
+
+	_, derivationPath, _ := pubKeyAddr.DerivationInfo()
+
+	return fn.Some[keychain.KeyDescriptor](keychain.KeyDescriptor{
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamily(derivationPath.Account),
+			Index:  derivationPath.Index,
+		},
+		PubKey: pubKeyAddr.PubKey(),
+	}), nil
 }
 
 // WalletDriver represents a "driver" for a particular concrete

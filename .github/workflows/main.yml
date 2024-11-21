@@ -21,7 +21,7 @@ defaults:
     shell: bash
 
 env:
-  BITCOIN_VERSION: "27"
+  BITCOIN_VERSION: "28"
   
   TRANCHES: 8
 
@@ -31,7 +31,7 @@ env:
   # /dev.Dockerfile
   # /make/builder.Dockerfile
   # /.github/workflows/release.yml
-  GO_VERSION: 1.22.5
+  GO_VERSION: 1.22.6
 
 jobs:
   ########################

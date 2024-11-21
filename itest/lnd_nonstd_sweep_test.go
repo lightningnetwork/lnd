@@ -111,7 +111,7 @@ func testNonStdSweepInner(ht *lntest.HarnessTest, address string) {
 	for _, inp := range msgTx.TxIn {
 		// Fetch the previous outpoint's value.
 		prevOut := inp.PreviousOutPoint
-		ptx := ht.GetRawTransaction(&prevOut.Hash)
+		ptx := ht.GetRawTransaction(prevOut.Hash)
 
 		pout := ptx.MsgTx().TxOut[prevOut.Index]
 		inputVal += int(pout.Value)

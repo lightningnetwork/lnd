@@ -7,9 +7,11 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btclog"
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -31,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/watchtower"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
+	"google.golang.org/protobuf/proto"
 )
 
 // subRPCServerConfigs is special sub-config in the main configuration that
@@ -121,8 +124,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	updateNodeAnnouncement func(features *lnwire.RawFeatureVector,
 		modifiers ...netann.NodeAnnModifier) error,
 	parseAddr func(addr string) (net.Addr, error),
-	rpcLogger btclog.Logger,
-	getAlias func(lnwire.ChannelID) (lnwire.ShortChannelID, error)) error {
+	rpcLogger btclog.Logger, aliasMgr *aliasmgr.Manager,
+	auxDataParser fn.Option[AuxDataParser],
+	invoiceHtlcModifier *invoices.HtlcModificationInterceptor) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
 	// that allows us to programmatically inspect its fields.
@@ -238,6 +242,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			subCfgValue.FieldByName("InvoiceRegistry").Set(
 				reflect.ValueOf(invoiceRegistry),
 			)
+			subCfgValue.FieldByName("HtlcModifier").Set(
+				reflect.ValueOf(invoiceHtlcModifier),
+			)
 			subCfgValue.FieldByName("IsChannelActive").Set(
 				reflect.ValueOf(htlcSwitch.HasActiveLink),
 			)
@@ -264,7 +271,21 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				reflect.ValueOf(genAmpInvoiceFeatures),
 			)
 			subCfgValue.FieldByName("GetAlias").Set(
-				reflect.ValueOf(getAlias),
+				reflect.ValueOf(aliasMgr.GetPeerAlias),
+			)
+
+			parseAuxData := func(m proto.Message) error {
+				return fn.MapOptionZ(
+					auxDataParser,
+					func(p AuxDataParser) error {
+						return p.InlineParseCustomData(
+							m,
+						)
+					},
+				)
+			}
+			subCfgValue.FieldByName("ParseAuxData").Set(
+				reflect.ValueOf(parseAuxData),
 			)
 
 		case *neutrinorpc.Config:
@@ -277,6 +298,11 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 		// RouterRPC isn't conditionally compiled and doesn't need to be
 		// populated using reflection.
 		case *routerrpc.Config:
+			subCfgValue := extractReflectValue(subCfg)
+
+			subCfgValue.FieldByName("AliasMgr").Set(
+				reflect.ValueOf(aliasMgr),
+			)
 
 		case *watchtowerrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)

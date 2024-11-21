@@ -38,6 +38,11 @@ type Shutdown struct {
 	// co-op sign offer.
 	ShutdownNonce ShutdownNonceTLV
 
+	// CustomRecords maps TLV types to byte slices, storing arbitrary data
+	// intended for inclusion in the ExtraData field of the Shutdown
+	// message.
+	CustomRecords CustomRecords
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -56,7 +61,7 @@ func NewShutdown(cid ChannelID, addr DeliveryAddress) *Shutdown {
 // interface.
 var _ Message = (*Shutdown)(nil)
 
-// Decode deserializes a serialized Shutdown stored in the passed io.Reader
+// Decode deserializes a serialized Shutdown from the passed io.Reader,
 // observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
@@ -71,20 +76,23 @@ func (s *Shutdown) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
+	// Extract TLV records from the extra data field.
 	musigNonce := s.ShutdownNonce.Zero()
-	typeMap, err := tlvRecords.ExtractRecords(&musigNonce)
+
+	customRecords, parsed, extraData, err := ParseAndExtractCustomRecords(
+		tlvRecords, &musigNonce,
+	)
 	if err != nil {
 		return err
 	}
 
-	// Set the corresponding TLV types if they were included in the stream.
-	if val, ok := typeMap[s.ShutdownNonce.TlvType()]; ok && val == nil {
+	// Assign the parsed records back to the message.
+	if _, ok := parsed[musigNonce.TlvType()]; ok {
 		s.ShutdownNonce = tlv.SomeRecordT(musigNonce)
 	}
 
-	if len(tlvRecords) != 0 {
-		s.ExtraData = tlvRecords
-	}
+	s.CustomRecords = customRecords
+	s.ExtraData = extraData
 
 	return nil
 }
@@ -94,17 +102,6 @@ func (s *Shutdown) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (s *Shutdown) Encode(w *bytes.Buffer, pver uint32) error {
-	recordProducers := make([]tlv.RecordProducer, 0, 1)
-	s.ShutdownNonce.WhenSome(
-		func(nonce tlv.RecordT[ShutdownNonceType, Musig2Nonce]) {
-			recordProducers = append(recordProducers, &nonce)
-		},
-	)
-	err := EncodeMessageExtraData(&s.ExtraData, recordProducers...)
-	if err != nil {
-		return err
-	}
-
 	if err := WriteChannelID(w, s.ChannelID); err != nil {
 		return err
 	}
@@ -113,7 +110,20 @@ func (s *Shutdown) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	return WriteBytes(w, s.ExtraData)
+	// Only include nonce in extra data if present.
+	var records []tlv.RecordProducer
+	s.ShutdownNonce.WhenSome(
+		func(nonce tlv.RecordT[ShutdownNonceType, Musig2Nonce]) {
+			records = append(records, &nonce)
+		},
+	)
+
+	extraData, err := MergeAndEncode(records, s.ExtraData, s.CustomRecords)
+	if err != nil {
+		return err
+	}
+
+	return WriteBytes(w, extraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

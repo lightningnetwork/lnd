@@ -456,7 +456,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	defer cleanUp()
 
 	partialChainControl, walletConfig, cleanUp, err := implCfg.BuildWalletConfig(
-		ctx, dbs, interceptorChain, grpcListeners,
+		ctx, dbs, &implCfg.AuxComponents, interceptorChain,
+		grpcListeners,
 	)
 	if err != nil {
 		return mkErr("error creating wallet config: %v", err)
@@ -600,6 +601,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
 		activeChainControl.Cfg.WalletUnlockParams.ChansToRestore,
 		multiAcceptor, torController, tlsManager, leaderElector,
+		implCfg,
 	)
 	if err != nil {
 		return mkErr("unable to create server: %v", err)
@@ -636,6 +638,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	err = rpcServer.addDeps(
 		server, interceptorChain.MacaroonService(), cfg.SubRPCServers,
 		atplManager, server.invoices, tower, multiAcceptor,
+		server.invoiceHtlcModifier,
 	)
 	if err != nil {
 		return mkErr("unable to add deps to RPC server: %v", err)

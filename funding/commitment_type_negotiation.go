@@ -307,6 +307,74 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 
 		return lnwallet.CommitmentTypeSimpleTaproot, nil
 
+	// Simple taproot channels overlay only.
+	case channelFeatures.OnlyContains(
+		lnwire.SimpleTaprootOverlayChansRequired,
+	):
+
+		if !hasFeatures(
+			local, remote,
+			lnwire.SimpleTaprootOverlayChansOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+
+		return lnwallet.CommitmentTypeSimpleTaprootOverlay, nil
+
+	// Simple taproot overlay channels with scid only.
+	case channelFeatures.OnlyContains(
+		lnwire.SimpleTaprootOverlayChansRequired,
+		lnwire.ScidAliasRequired,
+	):
+
+		if !hasFeatures(
+			local, remote,
+			lnwire.SimpleTaprootOverlayChansOptional,
+			lnwire.ScidAliasOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+
+		return lnwallet.CommitmentTypeSimpleTaprootOverlay, nil
+
+	// Simple taproot overlay channels with zero conf only.
+	case channelFeatures.OnlyContains(
+		lnwire.SimpleTaprootOverlayChansRequired,
+		lnwire.ZeroConfRequired,
+	):
+
+		if !hasFeatures(
+			local, remote,
+			lnwire.SimpleTaprootOverlayChansOptional,
+			lnwire.ZeroConfOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+
+		return lnwallet.CommitmentTypeSimpleTaprootOverlay, nil
+
+	// Simple taproot overlay channels with scid and zero conf.
+	case channelFeatures.OnlyContains(
+		lnwire.SimpleTaprootOverlayChansRequired,
+		lnwire.ZeroConfRequired,
+		lnwire.ScidAliasRequired,
+	):
+
+		if !hasFeatures(
+			local, remote,
+			lnwire.SimpleTaprootOverlayChansOptional,
+			lnwire.ZeroConfOptional,
+			lnwire.ScidAliasOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+
+		return lnwallet.CommitmentTypeSimpleTaprootOverlay, nil
+
 	// No features, use legacy commitment type.
 	case channelFeatures.IsEmpty():
 		return lnwallet.CommitmentTypeLegacy, nil

@@ -112,9 +112,7 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 	}
 
 	// Make sure the mempool has been updated.
-	for _, txid := range txids {
-		h.miner.AssertTxNotInMempool(*txid)
-	}
+	h.miner.AssertTxnsNotInMempool(txids)
 
 	// Finally, make sure all the active nodes are synced.
 	bestBlock := blocks[len(blocks)-1]
@@ -202,7 +200,7 @@ func (h *HarnessTest) mineTillForceCloseResolved(hn *node.HarnessNode) {
 }
 
 // AssertTxInMempool asserts a given transaction can be found in the mempool.
-func (h *HarnessTest) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
+func (h *HarnessTest) AssertTxInMempool(txid chainhash.Hash) *wire.MsgTx {
 	return h.miner.AssertTxInMempool(txid)
 }
 
@@ -212,14 +210,14 @@ func (h *HarnessTest) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
 // NOTE: this should be used after `AssertTxInMempool` to ensure the tx has
 // entered the mempool before. Otherwise it might give false positive and the
 // tx may enter the mempool after the check.
-func (h *HarnessTest) AssertTxNotInMempool(txid chainhash.Hash) *wire.MsgTx {
-	return h.miner.AssertTxNotInMempool(txid)
+func (h *HarnessTest) AssertTxNotInMempool(txid chainhash.Hash) {
+	h.miner.AssertTxNotInMempool(txid)
 }
 
 // AssertNumTxsInMempool polls until finding the desired number of transactions
 // in the provided miner's mempool. It will asserrt if this number is not met
 // after the given timeout.
-func (h *HarnessTest) AssertNumTxsInMempool(n int) []*chainhash.Hash {
+func (h *HarnessTest) AssertNumTxsInMempool(n int) []chainhash.Hash {
 	return h.miner.AssertNumTxsInMempool(n)
 }
 
@@ -230,7 +228,7 @@ func (h *HarnessTest) AssertOutpointInMempool(op wire.OutPoint) *wire.MsgTx {
 
 // AssertTxInBlock asserts that a given txid can be found in the passed block.
 func (h *HarnessTest) AssertTxInBlock(block *wire.MsgBlock,
-	txid *chainhash.Hash) {
+	txid chainhash.Hash) {
 
 	h.miner.AssertTxInBlock(block, txid)
 }
@@ -263,13 +261,13 @@ func (h *HarnessTest) DisconnectFromMiner(tempMiner *miner.HarnessMiner) {
 
 // GetRawMempool makes a RPC call to the miner's GetRawMempool and
 // asserts.
-func (h *HarnessTest) GetRawMempool() []*chainhash.Hash {
+func (h *HarnessTest) GetRawMempool() []chainhash.Hash {
 	return h.miner.GetRawMempool()
 }
 
 // GetRawTransaction makes a RPC call to the miner's GetRawTransaction and
 // asserts.
-func (h *HarnessTest) GetRawTransaction(txid *chainhash.Hash) *btcutil.Tx {
+func (h *HarnessTest) GetRawTransaction(txid chainhash.Hash) *btcutil.Tx {
 	return h.miner.GetRawTransaction(txid)
 }
 

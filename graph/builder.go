@@ -11,12 +11,14 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -1090,8 +1092,8 @@ func (b *Builder) addZombieEdge(chanID uint64) error {
 // segwit v1 (taproot) channels.
 //
 // TODO(roasbeef: export and use elsewhere?
-func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte,
-	chanFeatures []byte) ([]byte, error) {
+func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte, chanFeatures []byte,
+	tapscriptRoot fn.Option[chainhash.Hash]) ([]byte, error) {
 
 	legacyFundingScript := func() ([]byte, error) {
 		witnessScript, err := input.GenMultiSigScript(
@@ -1138,11 +1140,13 @@ func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte,
 		}
 
 		fundingScript, _, err := input.GenTaprootFundingScript(
-			pubKey1, pubKey2, 0,
+			pubKey1, pubKey2, 0, tapscriptRoot,
 		)
 		if err != nil {
 			return nil, err
 		}
+
+		// TODO(roasbeef): add tapscript root to gossip v1.5
 
 		return fundingScript, nil
 	}
@@ -1268,7 +1272,7 @@ func (b *Builder) processUpdate(msg interface{},
 		// reality.
 		fundingPkScript, err := makeFundingScript(
 			msg.BitcoinKey1Bytes[:], msg.BitcoinKey2Bytes[:],
-			msg.Features,
+			msg.Features, msg.TapscriptRoot,
 		)
 		if err != nil {
 			return err

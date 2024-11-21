@@ -3127,6 +3127,11 @@
         "memo": {
           "type": "string",
           "description": "An optional note-to-self to go along with the channel containing some\nuseful information. This is only ever stored locally and in no way\nimpacts the channel's operation."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Custom channel data that might be populated in custom channels."
         }
       }
     },
@@ -3849,6 +3854,11 @@
         "memo": {
           "type": "string",
           "description": "An optional note-to-self to go along with the channel containing some\nuseful information. This is only ever stored locally and in no way impacts\nthe channel's operation."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Custom channel data that might be populated in custom channels."
         }
       }
     },
@@ -4052,6 +4062,11 @@
         "pending_open_remote_balance": {
           "$ref": "#/definitions/lnrpcAmount",
           "description": "Sum of channels pending remote balances."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Custom channel data that might be populated if there are custom channels\npresent."
         }
       }
     },
@@ -4141,6 +4156,21 @@
         },
         "success": {
           "type": "boolean"
+        },
+        "local_close_output": {
+          "$ref": "#/definitions/lnrpcCloseOutput",
+          "description": "The local channel close output. If the local channel balance was dust to\nbegin with, this output will not be set."
+        },
+        "remote_close_output": {
+          "$ref": "#/definitions/lnrpcCloseOutput",
+          "description": "The remote channel close output. If the remote channel balance was dust\nto begin with, this output will not be set."
+        },
+        "additional_outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcCloseOutput"
+          },
+          "description": "Any additional outputs that might be added for custom channel types."
         }
       }
     },
@@ -4450,6 +4480,30 @@
         }
       }
     },
+    "lnrpcCloseOutput": {
+      "type": "object",
+      "properties": {
+        "amount_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The amount in satoshi of this close output. This amount is the final\ncommitment balance of the channel and the actual amount paid out on chain\nmight be smaller due to subtracted fees."
+        },
+        "pk_script": {
+          "type": "string",
+          "format": "byte",
+          "description": "The pkScript of the close output."
+        },
+        "is_local": {
+          "type": "boolean",
+          "description": "Whether this output is for the local or remote node."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "The TLV encoded custom channel data records for this output, which might\nbe set for custom channels."
+        }
+      }
+    },
     "lnrpcCloseStatusUpdate": {
       "type": "object",
       "properties": {
@@ -4514,10 +4568,11 @@
         "STATIC_REMOTE_KEY",
         "ANCHORS",
         "SCRIPT_ENFORCED_LEASE",
-        "SIMPLE_TAPROOT"
+        "SIMPLE_TAPROOT",
+        "SIMPLE_TAPROOT_OVERLAY"
       ],
       "default": "UNKNOWN_COMMITMENT_TYPE",
-      "title": "- UNKNOWN_COMMITMENT_TYPE: Returned when the commitment type isn't known or unavailable.\n - LEGACY: A channel using the legacy commitment format having tweaked to_remote\nkeys.\n - STATIC_REMOTE_KEY: A channel that uses the modern commitment format where the key in the\noutput of the remote party does not change each state. This makes back\nup and recovery easier as when the channel is closed, the funds go\ndirectly to that key.\n - ANCHORS: A channel that uses a commitment format that has anchor outputs on the\ncommitments, allowing fee bumping after a force close transaction has\nbeen broadcast.\n - SCRIPT_ENFORCED_LEASE: A channel that uses a commitment type that builds upon the anchors\ncommitment format, but in addition requires a CLTV clause to spend outputs\npaying to the channel initiator. This is intended for use on leased channels\nto guarantee that the channel initiator has no incentives to close a leased\nchannel before its maturity date.\n - SIMPLE_TAPROOT: TODO(roasbeef): need script enforce mirror type for the above as well?"
+      "description": " - UNKNOWN_COMMITMENT_TYPE: Returned when the commitment type isn't known or unavailable.\n - LEGACY: A channel using the legacy commitment format having tweaked to_remote\nkeys.\n - STATIC_REMOTE_KEY: A channel that uses the modern commitment format where the key in the\noutput of the remote party does not change each state. This makes back\nup and recovery easier as when the channel is closed, the funds go\ndirectly to that key.\n - ANCHORS: A channel that uses a commitment format that has anchor outputs on the\ncommitments, allowing fee bumping after a force close transaction has\nbeen broadcast.\n - SCRIPT_ENFORCED_LEASE: A channel that uses a commitment type that builds upon the anchors\ncommitment format, but in addition requires a CLTV clause to spend outputs\npaying to the channel initiator. This is intended for use on leased channels\nto guarantee that the channel initiator has no incentives to close a leased\nchannel before its maturity date.\n - SIMPLE_TAPROOT: A channel that uses musig2 for the funding output, and the new tapscript\nfeatures where relevant.\n - SIMPLE_TAPROOT_OVERLAY: Identical to the SIMPLE_TAPROOT channel type, but with extra functionality.\nThis channel type also commits to additional meta data in the tapscript\nleaves for the scripts in a channel."
     },
     "lnrpcConnectPeerRequest": {
       "type": "object",
@@ -5587,6 +5642,11 @@
         "amp": {
           "$ref": "#/definitions/lnrpcAMP",
           "description": "Details relevant to AMP HTLCs, only populated if this is an AMP HTLC."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Custom channel data that might be populated in custom channels."
         }
       },
       "title": "Details of an HTLC that paid to an invoice"
@@ -6417,6 +6477,14 @@
         },
         "failure_reason": {
           "$ref": "#/definitions/lnrpcPaymentFailureReason"
+        },
+        "first_hop_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The custom TLV records that were sent to the first hop as part of the HTLC\nwire message for this payment."
         }
       }
     },
@@ -6904,6 +6972,16 @@
           "type": "string",
           "format": "int64",
           "description": "The total amount in millisatoshis."
+        },
+        "first_hop_amount_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The actual on-chain amount that was sent out to the first hop. This value is\nonly different from the total_amt_msat field if this is a custom channel\npayment and the value transported in the HTLC is different from the BTC\namount in the HTLC. If this value is zero, then this is an old payment that\ndidn't have this value yet and can be ignored."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Custom channel data that might be populated in custom channels."
         }
       },
       "description": "A path through the channel graph which runs over one or more channels in\nsuccession. This struct carries all the information required to craft the\nSphinx onion packet, and send the payment along the first hop in the path. A\nroute is only selected as valid if all the channels have sufficient capacity to\ncarry the initial payment amount after fees are accounted for."

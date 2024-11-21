@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -21,12 +22,14 @@ import (
 
 var (
 	// Create  a taproot change script.
-	changePkScript = []byte{
-		0x51, 0x20,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	changePkScript = lnwallet.AddrWithKey{
+		DeliveryAddress: []byte{
+			0x51, 0x20,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		},
 	}
 
 	testInputCount atomic.Uint64
@@ -112,12 +115,16 @@ func TestCalcSweepTxWeight(t *testing.T) {
 	inp := createTestInput(100, input.WitnessKeyHash)
 
 	// Use a wrong change script to test the error case.
-	weight, err := calcSweepTxWeight([]input.Input{&inp}, []byte{0})
+	weight, err := calcSweepTxWeight(
+		[]input.Input{&inp}, [][]byte{{0x00}},
+	)
 	require.Error(t, err)
 	require.Zero(t, weight)
 
 	// Use a correct change script to test the success case.
-	weight, err = calcSweepTxWeight([]input.Input{&inp}, changePkScript)
+	weight, err = calcSweepTxWeight(
+		[]input.Input{&inp}, [][]byte{changePkScript.DeliveryAddress},
+	)
 	require.NoError(t, err)
 
 	// BaseTxSize 8 bytes
@@ -137,7 +144,9 @@ func TestBumpRequestMaxFeeRateAllowed(t *testing.T) {
 	inp := createTestInput(100, input.WitnessKeyHash)
 
 	// The weight is 487.
-	weight, err := calcSweepTxWeight([]input.Input{&inp}, changePkScript)
+	weight, err := calcSweepTxWeight(
+		[]input.Input{&inp}, [][]byte{changePkScript.DeliveryAddress},
+	)
 	require.NoError(t, err)
 
 	// Define a test budget and calculates its fee rate.
@@ -154,7 +163,9 @@ func TestBumpRequestMaxFeeRateAllowed(t *testing.T) {
 			// Use a wrong change script to test the error case.
 			name: "error calc weight",
 			req: &BumpRequest{
-				DeliveryAddress: []byte{1},
+				DeliveryAddress: lnwallet.AddrWithKey{
+					DeliveryAddress: []byte{1},
+				},
 			},
 			expectedMaxFeeRate: 0,
 			expectedErr:        true,
@@ -239,7 +250,8 @@ func TestInitializeFeeFunction(t *testing.T) {
 
 	// Create a publisher using the mocks.
 	tp := NewTxPublisher(TxPublisherConfig{
-		Estimator: estimator,
+		Estimator:  estimator,
+		AuxSweeper: fn.Some[AuxSweeper](&MockAuxSweeper{}),
 	})
 
 	// Create a test feerate.
@@ -304,13 +316,23 @@ func TestStoreRecord(t *testing.T) {
 	tx := &wire.MsgTx{}
 
 	// Create a publisher using the mocks.
-	tp := NewTxPublisher(TxPublisherConfig{})
+	tp := NewTxPublisher(TxPublisherConfig{
+		AuxSweeper: fn.Some[AuxSweeper](&MockAuxSweeper{}),
+	})
 
 	// Get the current counter and check it's increased later.
 	initialCounter := tp.requestCounter.Load()
 
+	op := wire.OutPoint{
+		Hash:  chainhash.Hash{1},
+		Index: 0,
+	}
+	utxoIndex := map[wire.OutPoint]int{
+		op: 0,
+	}
+
 	// Call the method under test.
-	requestID := tp.storeRecord(tx, req, feeFunc, fee)
+	requestID := tp.storeRecord(tx, req, feeFunc, fee, utxoIndex)
 
 	// Check the request ID is as expected.
 	require.Equal(t, initialCounter+1, requestID)
@@ -322,6 +344,7 @@ func TestStoreRecord(t *testing.T) {
 	require.Equal(t, feeFunc, record.feeFunction)
 	require.Equal(t, fee, record.fee)
 	require.Equal(t, req, record.req)
+	require.Equal(t, utxoIndex, record.outpointToTxIndex)
 }
 
 // mockers wraps a list of mocked interfaces used inside tx publisher.
@@ -369,10 +392,11 @@ func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
 
 	// Create a publisher using the mocks.
 	tp := NewTxPublisher(TxPublisherConfig{
-		Estimator: m.estimator,
-		Signer:    m.signer,
-		Wallet:    m.wallet,
-		Notifier:  m.notifier,
+		Estimator:  m.estimator,
+		Signer:     m.signer,
+		Wallet:     m.wallet,
+		Notifier:   m.notifier,
+		AuxSweeper: fn.Some[AuxSweeper](&MockAuxSweeper{}),
 	})
 
 	return tp, m
@@ -451,7 +475,7 @@ func TestCreateAndCheckTx(t *testing.T) {
 
 		t.Run(tc.name, func(t *testing.T) {
 			// Call the method under test.
-			_, _, err := tp.createAndCheckTx(tc.req, m.feeFunc)
+			_, err := tp.createAndCheckTx(tc.req, m.feeFunc)
 
 			// Check the result is as expected.
 			require.ErrorIs(t, err, tc.expectedErr)
@@ -650,9 +674,17 @@ func TestTxPublisherBroadcast(t *testing.T) {
 	feerate := chainfee.SatPerKWeight(1000)
 	m.feeFunc.On("FeeRate").Return(feerate)
 
+	op := wire.OutPoint{
+		Hash:  chainhash.Hash{1},
+		Index: 0,
+	}
+	utxoIndex := map[wire.OutPoint]int{
+		op: 0,
+	}
+
 	// Create a testing record and put it in the map.
 	fee := btcutil.Amount(1000)
-	requestID := tp.storeRecord(tx, req, m.feeFunc, fee)
+	requestID := tp.storeRecord(tx, req, m.feeFunc, fee, utxoIndex)
 
 	// Quickly check when the requestID cannot be found, an error is
 	// returned.
@@ -739,6 +771,14 @@ func TestRemoveResult(t *testing.T) {
 	// Create a testing record and put it in the map.
 	fee := btcutil.Amount(1000)
 
+	op := wire.OutPoint{
+		Hash:  chainhash.Hash{1},
+		Index: 0,
+	}
+	utxoIndex := map[wire.OutPoint]int{
+		op: 0,
+	}
+
 	testCases := []struct {
 		name        string
 		setupRecord func() uint64
@@ -750,7 +790,9 @@ func TestRemoveResult(t *testing.T) {
 			// removed.
 			name: "remove on TxConfirmed",
 			setupRecord: func() uint64 {
-				id := tp.storeRecord(tx, req, m.feeFunc, fee)
+				id := tp.storeRecord(
+					tx, req, m.feeFunc, fee, utxoIndex,
+				)
 				tp.subscriberChans.Store(id, nil)
 
 				return id
@@ -765,7 +807,9 @@ func TestRemoveResult(t *testing.T) {
 			// When the tx is failed, the records will be removed.
 			name: "remove on TxFailed",
 			setupRecord: func() uint64 {
-				id := tp.storeRecord(tx, req, m.feeFunc, fee)
+				id := tp.storeRecord(
+					tx, req, m.feeFunc, fee, utxoIndex,
+				)
 				tp.subscriberChans.Store(id, nil)
 
 				return id
@@ -781,7 +825,9 @@ func TestRemoveResult(t *testing.T) {
 			// Noop when the tx is neither confirmed or failed.
 			name: "noop when tx is not confirmed or failed",
 			setupRecord: func() uint64 {
-				id := tp.storeRecord(tx, req, m.feeFunc, fee)
+				id := tp.storeRecord(
+					tx, req, m.feeFunc, fee, utxoIndex,
+				)
 				tp.subscriberChans.Store(id, nil)
 
 				return id
@@ -829,9 +875,17 @@ func TestNotifyResult(t *testing.T) {
 	// Create a test tx.
 	tx := &wire.MsgTx{LockTime: 1}
 
+	op := wire.OutPoint{
+		Hash:  chainhash.Hash{1},
+		Index: 0,
+	}
+	utxoIndex := map[wire.OutPoint]int{
+		op: 0,
+	}
+
 	// Create a testing record and put it in the map.
 	fee := btcutil.Amount(1000)
-	requestID := tp.storeRecord(tx, req, m.feeFunc, fee)
+	requestID := tp.storeRecord(tx, req, m.feeFunc, fee, utxoIndex)
 
 	// Create a subscription to the event.
 	subscriber := make(chan *BumpResult, 1)
@@ -1186,9 +1240,17 @@ func TestHandleTxConfirmed(t *testing.T) {
 	// Create a test tx.
 	tx := &wire.MsgTx{LockTime: 1}
 
+	op := wire.OutPoint{
+		Hash:  chainhash.Hash{1},
+		Index: 0,
+	}
+	utxoIndex := map[wire.OutPoint]int{
+		op: 0,
+	}
+
 	// Create a testing record and put it in the map.
 	fee := btcutil.Amount(1000)
-	requestID := tp.storeRecord(tx, req, m.feeFunc, fee)
+	requestID := tp.storeRecord(tx, req, m.feeFunc, fee, utxoIndex)
 	record, ok := tp.records.Load(requestID)
 	require.True(t, ok)
 
@@ -1258,9 +1320,17 @@ func TestHandleFeeBumpTx(t *testing.T) {
 		tx:          tx,
 	}
 
+	op := wire.OutPoint{
+		Hash:  chainhash.Hash{1},
+		Index: 0,
+	}
+	utxoIndex := map[wire.OutPoint]int{
+		op: 0,
+	}
+
 	// Create a testing record and put it in the map.
 	fee := btcutil.Amount(1000)
-	requestID := tp.storeRecord(tx, req, m.feeFunc, fee)
+	requestID := tp.storeRecord(tx, req, m.feeFunc, fee, utxoIndex)
 
 	// Create a subscription to the event.
 	subscriber := make(chan *BumpResult, 1)

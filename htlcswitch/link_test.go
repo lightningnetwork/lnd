@@ -268,9 +268,12 @@ func TestChannelLinkRevThenSig(t *testing.T) {
 
 	// Restart Bob as well by calling NewLightningChannel.
 	bobSigner := harness.bobChannel.Signer
+	signerMock := lnwallet.NewDefaultAuxSignerMock(t)
 	bobPool := lnwallet.NewSigPool(runtime.NumCPU(), bobSigner)
 	bobChannel, err := lnwallet.NewLightningChannel(
 		bobSigner, harness.bobChannel.State(), bobPool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(signerMock),
 	)
 	require.NoError(t, err)
 	err = bobPool.Start()
@@ -403,9 +406,12 @@ func TestChannelLinkSigThenRev(t *testing.T) {
 
 	// Restart Bob as well by calling NewLightningChannel.
 	bobSigner := harness.bobChannel.Signer
+	signerMock := lnwallet.NewDefaultAuxSignerMock(t)
 	bobPool := lnwallet.NewSigPool(runtime.NumCPU(), bobSigner)
 	bobChannel, err := lnwallet.NewLightningChannel(
 		bobSigner, harness.bobChannel.State(), bobPool,
+		lnwallet.WithLeafStore(&lnwallet.MockAuxLeafStore{}),
+		lnwallet.WithAuxSigner(signerMock),
 	)
 	require.NoError(t, err)
 	err = bobPool.Start()
@@ -2191,17 +2197,21 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 		return nil
 	}
 
+	forwardPackets := func(linkQuit <-chan struct{}, _ bool,
+		packets ...*htlcPacket) error {
+
+		return aliceSwitch.ForwardPackets(linkQuit, packets...)
+	}
+
 	// Instantiate with a long interval, so that we can precisely control
 	// the firing via force feeding.
 	bticker := ticker.NewForce(time.Hour)
 	aliceCfg := ChannelLinkConfig{
-		FwrdingPolicy: globalPolicy,
-		Peer:          alicePeer,
-		BestHeight:    aliceSwitch.BestHeight,
-		Circuits:      aliceSwitch.CircuitModifier(),
-		ForwardPackets: func(linkQuit chan struct{}, _ bool, packets ...*htlcPacket) error {
-			return aliceSwitch.ForwardPackets(linkQuit, packets...)
-		},
+		FwrdingPolicy:      globalPolicy,
+		Peer:               alicePeer,
+		BestHeight:         aliceSwitch.BestHeight,
+		Circuits:           aliceSwitch.CircuitModifier(),
+		ForwardPackets:     forwardPackets,
 		DecodeHopIterators: decoder.DecodeHopIterators,
 		ExtractErrorEncrypter: func(*btcec.PublicKey) (
 			hop.ErrorEncrypter, lnwire.FailCode) {
@@ -2242,12 +2252,14 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 		return aliceSwitch.AddLink(aliceLink)
 	}
 	go func() {
-		for {
-			select {
-			case <-notifyUpdateChan:
-			case <-aliceLink.(*channelLink).quit:
-				close(doneChan)
-				return
+		if chanLink, ok := aliceLink.(*channelLink); ok {
+			for {
+				select {
+				case <-notifyUpdateChan:
+				case <-chanLink.Quit:
+					close(doneChan)
+					return
+				}
 			}
 		}
 	}()
@@ -2314,7 +2326,10 @@ func handleStateUpdate(link *channelLink,
 	}
 	link.HandleChannelUpdate(remoteRev)
 
-	remoteSigs, err := remoteChannel.SignNextCommitment()
+	ctx, done := link.WithCtxQuitNoTimeout()
+	defer done()
+
+	remoteSigs, err := remoteChannel.SignNextCommitment(ctx)
 	if err != nil {
 		return err
 	}
@@ -2335,7 +2350,7 @@ func handleStateUpdate(link *channelLink,
 	if !ok {
 		return fmt.Errorf("expected RevokeAndAck got %T", msg)
 	}
-	_, _, _, _, err = remoteChannel.ReceiveRevocation(revoke)
+	_, _, err = remoteChannel.ReceiveRevocation(revoke)
 	if err != nil {
 		return fmt.Errorf("unable to receive "+
 			"revocation: %v", err)
@@ -2357,7 +2372,7 @@ func updateState(batchTick chan time.Time, link *channelLink,
 		// Trigger update by ticking the batchTicker.
 		select {
 		case batchTick <- time.Now():
-		case <-link.quit:
+		case <-link.Quit:
 			return fmt.Errorf("link shutting down")
 		}
 		return handleStateUpdate(link, remoteChannel)
@@ -2365,7 +2380,10 @@ func updateState(batchTick chan time.Time, link *channelLink,
 
 	// The remote is triggering the state update, emulate this by
 	// signing and sending CommitSig to the link.
-	remoteSigs, err := remoteChannel.SignNextCommitment()
+	ctx, done := link.WithCtxQuitNoTimeout()
+	defer done()
+
+	remoteSigs, err := remoteChannel.SignNextCommitment(ctx)
 	if err != nil {
 		return err
 	}
@@ -2389,7 +2407,7 @@ func updateState(batchTick chan time.Time, link *channelLink,
 		return fmt.Errorf("expected RevokeAndAck got %T",
 			msg)
 	}
-	_, _, _, _, err = remoteChannel.ReceiveRevocation(revoke)
+	_, _, err = remoteChannel.ReceiveRevocation(revoke)
 	if err != nil {
 		return fmt.Errorf("unable to receive "+
 			"revocation: %v", err)
@@ -3643,7 +3661,7 @@ func TestChannelLinkTrimCircuitsRemoteCommit(t *testing.T) {
 	rev, _, _, err := harness.bobChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "unable to revoke current commitment")
 
-	_, _, _, _, err = alice.channel.ReceiveRevocation(rev)
+	_, _, err = alice.channel.ReceiveRevocation(rev)
 	require.NoError(t, err, "unable to receive revocation")
 
 	// Restart Alice's link, which simulates a disconnection with the remote
@@ -4861,17 +4879,21 @@ func (h *persistentLinkHarness) restartLink(
 		return nil
 	}
 
+	forwardPackets := func(linkQuit <-chan struct{}, _ bool,
+		packets ...*htlcPacket) error {
+
+		return h.hSwitch.ForwardPackets(linkQuit, packets...)
+	}
+
 	// Instantiate with a long interval, so that we can precisely control
 	// the firing via force feeding.
 	bticker := ticker.NewForce(time.Hour)
 	aliceCfg := ChannelLinkConfig{
-		FwrdingPolicy: globalPolicy,
-		Peer:          alicePeer,
-		BestHeight:    h.hSwitch.BestHeight,
-		Circuits:      h.hSwitch.CircuitModifier(),
-		ForwardPackets: func(linkQuit chan struct{}, _ bool, packets ...*htlcPacket) error {
-			return h.hSwitch.ForwardPackets(linkQuit, packets...)
-		},
+		FwrdingPolicy:      globalPolicy,
+		Peer:               alicePeer,
+		BestHeight:         h.hSwitch.BestHeight,
+		Circuits:           h.hSwitch.CircuitModifier(),
+		ForwardPackets:     forwardPackets,
 		DecodeHopIterators: decoder.DecodeHopIterators,
 		ExtractErrorEncrypter: func(*btcec.PublicKey) (
 			hop.ErrorEncrypter, lnwire.FailCode) {
@@ -4881,7 +4903,8 @@ func (h *persistentLinkHarness) restartLink(
 		FetchLastChannelUpdate: mockGetChanUpdateMessage,
 		PreimageCache:          pCache,
 		OnChannelFailure: func(lnwire.ChannelID,
-			lnwire.ShortChannelID, LinkFailureError) { // nolint:whitespace
+			lnwire.ShortChannelID, LinkFailureError) {
+
 		},
 		UpdateContractSignals: func(*contractcourt.ContractSignals) error {
 			return nil
@@ -4916,12 +4939,14 @@ func (h *persistentLinkHarness) restartLink(
 		return nil, nil, err
 	}
 	go func() {
-		for {
-			select {
-			case <-notifyUpdateChan:
-			case <-aliceLink.(*channelLink).quit:
-				close(doneChan)
-				return
+		if chanLink, ok := aliceLink.(*channelLink); ok {
+			for {
+				select {
+				case <-notifyUpdateChan:
+				case <-chanLink.Quit:
+					close(doneChan)
+					return
+				}
 			}
 		}
 	}()
@@ -5836,7 +5861,7 @@ func TestChannelLinkFail(t *testing.T) {
 				c.cfg.Peer.(*mockPeer).disconnected = true
 			},
 			func(*testing.T, *Switch, *channelLink,
-				*lnwallet.LightningChannel) { //nolint:whitespace,lll
+				*lnwallet.LightningChannel) {
 
 				// Should fail at startup.
 			},
@@ -5856,7 +5881,7 @@ func TestChannelLinkFail(t *testing.T) {
 				c.channel.State().Packager = pkg
 			},
 			func(*testing.T, *Switch, *channelLink,
-				*lnwallet.LightningChannel) { //nolint:whitespace,lll
+				*lnwallet.LightningChannel) {
 
 				// Should fail at startup.
 			},
@@ -5904,7 +5929,12 @@ func TestChannelLinkFail(t *testing.T) {
 
 				// Sign a commitment that will include
 				// signature for the HTLC just sent.
-				sigs, err := remoteChannel.SignNextCommitment()
+				quitCtx, done := c.WithCtxQuitNoTimeout()
+				defer done()
+
+				sigs, err := remoteChannel.SignNextCommitment(
+					quitCtx,
+				)
 				if err != nil {
 					t.Fatalf("error signing commitment: %v",
 						err)
@@ -5946,7 +5976,12 @@ func TestChannelLinkFail(t *testing.T) {
 
 				// Sign a commitment that will include
 				// signature for the HTLC just sent.
-				sigs, err := remoteChannel.SignNextCommitment()
+				quitCtx, done := c.WithCtxQuitNoTimeout()
+				defer done()
+
+				sigs, err := remoteChannel.SignNextCommitment(
+					quitCtx,
+				)
 				if err != nil {
 					t.Fatalf("error signing commitment: %v",
 						err)
@@ -7030,7 +7065,7 @@ func TestPipelineSettle(t *testing.T) {
 	// erroneously forwarded. If the forwardChan is closed before the last
 	// step, then the test will fail.
 	forwardChan := make(chan struct{})
-	fwdPkts := func(c chan struct{}, _ bool, hp ...*htlcPacket) error {
+	fwdPkts := func(c <-chan struct{}, _ bool, hp ...*htlcPacket) error {
 		close(forwardChan)
 		return nil
 	}
@@ -7216,7 +7251,7 @@ func TestChannelLinkShortFailureRelay(t *testing.T) {
 	aliceMsgs := mockPeer.sentMsgs
 	switchChan := make(chan *htlcPacket)
 
-	coreLink.cfg.ForwardPackets = func(linkQuit chan struct{}, _ bool,
+	coreLink.cfg.ForwardPackets = func(linkQuit <-chan struct{}, _ bool,
 		packets ...*htlcPacket) error {
 
 		for _, p := range packets {

@@ -92,7 +92,8 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
-	lnwire.Bolt11BlindedPathsOptional: {
-		SetInvoice: {}, // I
+	lnwire.SimpleTaprootOverlayChansOptional: {
+		SetInit:    {}, // I
+		SetNodeAnn: {}, // N
 	},
 }

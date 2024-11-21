@@ -20,8 +20,6 @@ import (
 func testSendMultiPathPayment(ht *lntest.HarnessTest) {
 	mts := newMppTestScenario(ht)
 
-	const paymentAmt = btcutil.Amount(300000)
-
 	// Set up a network with three different paths Alice <-> Bob. Channel
 	// capacities are set such that the payment can only succeed if (at
 	// least) three paths are used.
@@ -32,15 +30,8 @@ func testSendMultiPathPayment(ht *lntest.HarnessTest) {
 	//      \              /
 	//       \__ Dave ____/
 	//
-	req := &mppOpenChannelRequest{
-		amtAliceCarol: 285000,
-		amtAliceDave:  155000,
-		amtCarolBob:   200000,
-		amtCarolEve:   155000,
-		amtDaveBob:    155000,
-		amtEveBob:     155000,
-	}
-	mts.openChannels(req)
+	paymentAmt := mts.setupSendPaymentCase()
+
 	chanPointAliceDave := mts.channelPoints[1]
 
 	// Increase Dave's fee to make the test deterministic. Otherwise, it
@@ -127,11 +118,6 @@ func testSendToRouteMultiPath(ht *lntest.HarnessTest) {
 	// To ensure the payment goes through separate paths, we'll set a
 	// channel size that can only carry one shard at a time. We'll divide
 	// the payment into 3 shards.
-	const (
-		paymentAmt = btcutil.Amount(300000)
-		shardAmt   = paymentAmt / 3
-		chanAmt    = shardAmt * 3 / 2
-	)
 
 	// Set up a network with three different paths Alice <-> Bob.
 	//              _ Eve _
@@ -140,17 +126,7 @@ func testSendToRouteMultiPath(ht *lntest.HarnessTest) {
 	//      \              /
 	//       \__ Dave ____/
 	//
-	req := &mppOpenChannelRequest{
-		// Since the channel Alice-> Carol will have to carry two
-		// shards, we make it larger.
-		amtAliceCarol: chanAmt + shardAmt,
-		amtAliceDave:  chanAmt,
-		amtCarolBob:   chanAmt,
-		amtCarolEve:   chanAmt,
-		amtDaveBob:    chanAmt,
-		amtEveBob:     chanAmt,
-	}
-	mts.openChannels(req)
+	paymentAmt, shardAmt := mts.setupSendToRouteCase()
 
 	// Make Bob create an invoice for Alice to pay.
 	payReqs, rHashes, invoices := ht.CreatePayReqs(mts.bob, paymentAmt, 1)
@@ -284,6 +260,9 @@ type mppTestScenario struct {
 //	Alice -- Carol ---- Bob
 //	    \              /
 //	     \__ Dave ____/
+//
+// The scenario is setup in a way that when sending a payment from Alice to
+// Bob, (at least) three routes must be tried to succeed.
 func newMppTestScenario(ht *lntest.HarnessTest) *mppTestScenario {
 	alice := ht.NewNodeWithCoins("Alice", nil)
 	bob := ht.NewNodeWithCoins("Bob", []string{
@@ -349,6 +328,109 @@ type mppOpenChannelRequest struct {
 
 	// Channel Eve=>Bob.
 	amtEveBob btcutil.Amount
+}
+
+// setupSendPaymentCase opens channels between the nodes for testing the
+// `SendPaymentV2` case, where a payment amount of 300,000 sats is used and it
+// tests sending three attempts: the first has 150,000 sats, the rest two have
+// 75,000 sats. It returns the payment amt.
+func (c *mppTestScenario) setupSendPaymentCase() btcutil.Amount {
+	// To ensure the payment goes through separate paths, we'll set a
+	// channel size that can only carry one HTLC attempt at a time. We'll
+	// divide the payment into 3 attempts.
+	//
+	// Set the payment amount to be 300,000 sats. When a route cannot be
+	// found for a given payment amount, we will halven the amount and try
+	// the pathfinding again, which means we need to see the following
+	// three attempts to succeed:
+	// 1. 1st attempt: 150,000 sats.
+	// 2. 2nd attempt: 75,000 sats.
+	// 3. 3rd attempt: 75,000 sats.
+	paymentAmt := btcutil.Amount(300_000)
+
+	// Prepare to open channels between the nodes. Given our expected
+	// topology,
+	//
+	//		      _ Eve _
+	//		     /       \
+	//	 Alice -- Carol ---- Bob
+	//		\             /
+	//		 \__ Dave ___/
+	//
+	// There are three routes from Alice to Bob:
+	// 1. Alice -> Carol -> Bob
+	// 2. Alice -> Dave -> Bob
+	// 3. Alice -> Carol -> Eve -> Bob
+	// We now use hardcoded amounts so it's easier to reason about the
+	// test.
+	req := &mppOpenChannelRequest{
+		amtAliceCarol: 285_000,
+		amtAliceDave:  155_000,
+		amtCarolBob:   200_000,
+		amtCarolEve:   155_000,
+		amtDaveBob:    155_000,
+		amtEveBob:     155_000,
+	}
+
+	// Given the above setup, the only possible routes to send each of the
+	// attempts are:
+	// - 1st attempt(150,000 sats): Alice->Carol->Bob: 200,000 sats.
+	// - 2nd attempt(75,000 sats): Alice->Dave->Bob: 155,000 sats.
+	// - 3rd attempt(75,000 sats): Alice->Carol->Eve->Bob: 155,000 sats.
+	//
+	// Open the channels as described above.
+	c.openChannels(req)
+
+	return paymentAmt
+}
+
+// setupSendToRouteCase opens channels between the nodes for testing the
+// `SendToRouteV2` case, where a payment amount of 300,000 sats is used and it
+// tests sending three attempts each holding 100,000 sats. It returns the
+// payment amount and attempt amount.
+func (c *mppTestScenario) setupSendToRouteCase() (btcutil.Amount,
+	btcutil.Amount) {
+
+	// To ensure the payment goes through separate paths, we'll set a
+	// channel size that can only carry one HTLC attempt at a time. We'll
+	// divide the payment into 3 attempts, each holding 100,000 sats.
+	paymentAmt := btcutil.Amount(300_000)
+	attemptAmt := btcutil.Amount(100_000)
+
+	// Prepare to open channels between the nodes. Given our expected
+	// topology,
+	//
+	//		      _ Eve _
+	//		     /       \
+	//	 Alice -- Carol ---- Bob
+	//		\             /
+	//		 \__ Dave ___/
+	//
+	// There are three routes from Alice to Bob:
+	// 1. Alice -> Carol -> Bob
+	// 2. Alice -> Dave -> Bob
+	// 3. Alice -> Carol -> Eve -> Bob
+	// We now use hardcoded amounts so it's easier to reason about the
+	// test.
+	req := &mppOpenChannelRequest{
+		amtAliceCarol: 250_000,
+		amtAliceDave:  150_000,
+		amtCarolBob:   150_000,
+		amtCarolEve:   150_000,
+		amtDaveBob:    150_000,
+		amtEveBob:     150_000,
+	}
+
+	// Given the above setup, the only possible routes to send each of the
+	// attempts are:
+	// - 1st attempt(100,000 sats): Alice->Carol->Bob: 150,000 sats.
+	// - 2nd attempt(100,000 sats): Alice->Dave->Bob: 150,000 sats.
+	// - 3rd attempt(100,000 sats): Alice->Carol->Eve->Bob: 150,000 sats.
+	//
+	// Open the channels as described above.
+	c.openChannels(req)
+
+	return paymentAmt, attemptAmt
 }
 
 // openChannels is a helper to open channels that sets up a network topology

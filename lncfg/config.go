@@ -13,6 +13,10 @@ const (
 	// tries to load.
 	DefaultConfigFilename = "lnd.conf"
 
+	// DefaultSignerConfigFilename is the default configuration file name
+	// lndsigner tries to load.
+	DefaultSignerConfigFilename = "lndsigner.conf"
+
 	// DefaultMaxPendingChannels is the default maximum number of incoming
 	// pending channels permitted per peer.
 	DefaultMaxPendingChannels = 1

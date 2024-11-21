@@ -47,6 +47,14 @@ node permits a single inbound gRPC connection **from** the watch-only lnd node.
 Conversely, when configured as an "outbound" remote signer, it allows a single
 outbound gRPC connection **to** the watch-only lnd node.
 
+## Lndsigner
+
+Starting with `lnd` `v0.19.0-beta`, every `lnd` release includes an additional
+binary called `lndsigner`. This is a stripped-down version of `lnd` designed
+specifically for use as a "remote signer" in remote signing setups. It exposes
+only the features needed for remote signing and includes a streamlined
+configuration file to make setup easier for users.
+
 ## Example setups
 
 In the examples below, we demonstrate how to configure the "signer" node and the
@@ -63,7 +71,8 @@ and is not connected to the internet or LN P2P network at all. Ideally only a
 single RPC based connection (that can be firewalled off specifically) can be
 opened to this node from the host on which the node "watch-only" is running.
 
-Recommended entries in `lnd.conf`:
+Recommended entries in `lnd.conf` if using an `lnd` instance as the remote
+signer:
 
 ```text
 # Indicates that the node will function as an inbound remote signer
@@ -96,6 +105,17 @@ bitcoin.mainnet=true
 
 # But we aren't using a "real" chain backed but a mocked one.
 bitcoin.node=nochainbackend
+```
+
+If you instead use the `lndsigner` binary as the remote signer, it is
+recommended to include the following entries in `lndsigner.conf`:
+
+```text
+# Indicates that lndsigner will function as an inbound remote signer
+allowinboundconnection=true
+
+# Specifies the mainnet network (mainnet is the default value if not set).
+network=mainnet
 ```
 
 After successfully starting up "signer", the following command can be run to
@@ -177,7 +197,7 @@ steps remains in place.
 #### Step 1: export the `xpub`s of the outbound signer node's wallet
 
 When starting the signer node to export the `xpub`s of the wallet, these entries
-in `lnd.conf` are recommended:
+in `lnd.conf` are recommended if using an `lnd` instance as the remote signer:
 
 ```text
 # We apply some basic "hardening" parameters to make sure no connections to the
@@ -212,6 +232,25 @@ watchonlynode.rpchost=zane.example.internal:10019
 # A macaroon and TLS certificate for the watch-only node.
 watchonlynode.macaroonpath=/home/signer/example/watch-only.custom.macaroon
 watchonlynode.tlscertpath=/home/signer/example/watch-only.tls.cert
+```
+
+If you instead use the `lndsigner` binary as the remote signer, it is
+recommended to include the following entries in `lndsigner.conf`:
+
+```text
+# Indicates that lndsigner will function as an outbound remote signer. If this
+# config option isn't set, this value defaults to "signer-outbound" as well.
+allowinboundconnection=false
+
+# Specifies the mainnet network (mainnet is the default value if not set).
+network=mainnet
+
+# The watch-only node's RPC host.
+watchonlyrpchost=zane.example.internal:10019
+
+# A macaroon and TLS certificate for the watch-only node.
+watchonlymacaroonpath=/home/signer/example/watch-only.custom.macaroon
+watchonlytlscertpath=/home/signer/example/watch-only.tls.cert
 ```
 
 **Note:** The watch-only node’s `rpchost`, `macaroonpath`, and `tlscertpath`

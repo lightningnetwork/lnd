@@ -66,6 +66,10 @@ opened to this node from the host on which the node "watch-only" is running.
 Recommended entries in `lnd.conf`:
 
 ```text
+# Indicates that the node will function as an inbound remote signer
+watchonlynode.enable=true
+watchonlynode.allowinboundconnection=true
+
 # We apply some basic "hardening" parameters to make sure no connections to the
 # internet are opened.
 

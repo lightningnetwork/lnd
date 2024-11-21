@@ -2481,6 +2481,9 @@ func (s *server) Stop() error {
 		if err := s.chanRouter.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop chanRouter: %v", err)
 		}
+		if err := s.graphBuilder.Stop(); err != nil {
+			srvrLog.Warnf("failed to stop graphBuilder %v", err)
+		}
 		if err := s.chainArb.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop chainArb: %v", err)
 		}

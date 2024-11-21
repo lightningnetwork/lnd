@@ -11,7 +11,8 @@ set -e
 
 LND_VERSION_REGEX="lnd version (.+) commit"
 PKG="github.com/lightningnetwork/lnd"
-PACKAGE=lnd
+LND_PACKAGE=lnd
+SIGNER_PACKAGE=lndsigner
 
 # Needed for setting file timestamps to get reproducible archives.
 BUILD_DATE="2020-01-01 00:00:00"
@@ -127,15 +128,50 @@ function check_tag_correct() {
   fi
 }
 
+# build_package builds release binaries for the passed package and lncli, for
+# the passed environment.
+#   arguments: <package-name> <iteration-index> <tag> <os> <arch> <arm>
+#              <build-tags> <ldflags>
+function build_package() {
+  local package_name=$1
+  local index=$2
+  local tag=$3
+  local os=$4
+  local arch=$5
+  local arm=$6
+  local build_tags=$7
+  local ldflags=$8
+
+  dir="${package_name}-${index}-${tag}"
+  mkdir "${dir}"
+  pushd "${dir}"
+
+  green " - Building ${package_name}: ${os} ${arch} ${arm} with build tags '${build_tags}'"
+  env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${build_tags}" ${PKG}/cmd/${package_name}
+  env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${build_tags}" ${PKG}/cmd/lncli
+  popd
+
+  # Add the hashes for the individual binaries as well for easy verification
+  # of a single installed binary.
+  shasum -a 256 "${dir}/"* >> "manifest-$tag.txt"
+
+  if [[ $os == "windows" ]]; then
+    reproducible_zip "${dir}"
+  else
+    reproducible_tar_gzip "${dir}"
+  fi
+}
+
 # build_release builds the actual release binaries.
-#   arguments: <version-tag> <build-system(s)> <build-tags> <ldflags>
-#              <go-version>
+#   arguments: <version-tag> <build-system(s)> <lnd-build-tags>
+#              <lndsigner-build-tags> <ldflags> <go-version>
 function build_release() {
   local tag=$1
   local sys=$2
-  local buildtags=$3
-  local ldflags=$4
-  local goversion=$5
+  local lndbuildtags=$3
+  local signerbuildtags=$4
+  local ldflags=$5
+  local goversion=$6
 
   # Check if the active Go version matches the specified Go version.
   active_go_version=$(go version | awk '{print $3}' | sed 's/go//')
@@ -151,13 +187,13 @@ required Go version ($goversion)."
   go mod vendor
   reproducible_tar_gzip vendor
 
-  maindir=$PACKAGE-$tag
+  maindir=$LND_PACKAGE-$tag
   mkdir -p $maindir
   mv vendor.tar.gz "${maindir}/"
 
   # Don't use tag in source directory, otherwise our file names get too long and
   # tar starts to package them non-deterministically.
-  package_source="${PACKAGE}-source"
+  package_source="${LND_PACKAGE}-source"
 
   # The git archive command doesn't support setting timestamps and file
   # permissions. That's why we unpack the tar again, then use our reproducible
@@ -184,28 +220,15 @@ required Go version ($goversion)."
       arm=7
     fi
 
-    dir="${PACKAGE}-${i}-${tag}"
-    mkdir "${dir}"
-    pushd "${dir}"
+    # Build lnd package
+    build_package "${LND_PACKAGE}" "${i}" "${tag}" "${os}" "${arch}" "${arm}" "${lndbuildtags}" "${ldflags}"
 
-    green " - Building: ${os} ${arch} ${arm} with build tags '${buildtags}'"
-    env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/lnd
-    env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/lncli
-    popd
-
-    # Add the hashes for the individual binaries as well for easy verification
-    # of a single installed binary.
-    shasum -a 256 "${dir}/"* >> "manifest-$tag.txt" 
-
-    if [[ $os == "windows" ]]; then
-      reproducible_zip "${dir}"
-    else
-      reproducible_tar_gzip "${dir}"
-    fi
+    # Build lndsigner package
+    build_package "${SIGNER_PACKAGE}" "${i}" "${tag}" "${os}" "${arch}" "${arm}" "${signerbuildtags}" "${ldflags}"
   done
 
   # Add the hash of the packages too, then sort by the second column (name).
-  shasum -a 256 lnd-* vendor* >> "manifest-$tag.txt"
+  shasum -a 256 "${LND_PACKAGE}"-* "${SIGNER_PACKAGE}"-* vendor* >> "manifest-$tag.txt"
   LC_ALL=C sort -k2 -o "manifest-$tag.txt" "manifest-$tag.txt"
   cat "manifest-$tag.txt"
 }

@@ -152,9 +152,9 @@ release-install:
 # Make sure the generated mobile RPC stubs don't influence our vendor package
 # by removing them first in the clean-mobile target.
 release: clean-mobile
-	@$(call print, "Releasing lnd and lncli binaries.")
+	@$(call print, "Releasing lnd/lndsigner and lncli binaries.")
 	$(VERSION_CHECK)
-	./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)" "$(GO_VERSION)"
+	./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(LND_SIGNER_TAGS)" "$(RELEASE_LDFLAGS)" "$(GO_VERSION)"
 
 #? docker-release: Same as release but within a docker container to support reproducible builds on BSD/MacOS platforms
 docker-release:

@@ -110,17 +110,23 @@ type WatchOnlyNode struct {
 	// to a watch-only node.
 	Enable bool `long:"enable" description:"Signals that this node functions as a remote signer that will to connect with a watch-only node."`
 
+	// AllowInboundConnection is true if the watch-only node will connect
+	// to this node.
+	AllowInboundConnection bool `long:"allowinboundconnection" description:"Signals that we allow an inbound connection from a watch-only node to this node."`
+
 	// ConnectionCfg holds the connection configuration options that the
 	// remote signer node will use when setting up the connection to the
-	// watch-only node.
+	// watch-only node, when the `AllowInboundConnection` option is set to
+	// false.
 	ConnectionCfg
 }
 
 // DefaultWatchOnlyNodeCfg returns the default WatchOnlyNode config.
 func DefaultWatchOnlyNodeCfg() *WatchOnlyNode {
 	return &WatchOnlyNode{
-		Enable:        false,
-		ConnectionCfg: defaultConnectionCfg(),
+		Enable:                 false,
+		AllowInboundConnection: false,
+		ConnectionCfg:          defaultConnectionCfg(),
 	}
 }
 

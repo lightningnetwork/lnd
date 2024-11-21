@@ -266,6 +266,12 @@ var (
 	// file.
 	DefaultConfigFile = filepath.Join(DefaultLndDir, lncfg.DefaultConfigFilename)
 
+	// DefaultSignerConfigFile is the default full path of lndsigner's
+	// configuration file.
+	DefaultSignerConfigFile = filepath.Join(
+		DefaultLndDir, lncfg.DefaultSignerConfigFilename,
+	)
+
 	defaultDataDir = filepath.Join(DefaultLndDir, defaultDataDirname)
 	defaultLogDir  = filepath.Join(DefaultLndDir, defaultLogDirname)
 
@@ -757,6 +763,64 @@ func DefaultConfig() Config {
 		WtClient:           lncfg.DefaultWtClientCfg(),
 		HTTPHeaderTimeout:  DefaultHTTPHeaderTimeout,
 		NumRestrictedSlots: DefaultNumRestrictedSlots,
+	}
+}
+
+// SignerConfig defines the configuration options for lndsigner.
+//
+//nolint:lll
+type SignerConfig struct {
+	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
+
+	LndDir     string `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc. This option overwrites all other directory options."`
+	ConfigFile string `short:"C" long:"configfile" description:"Path to configuration file"`
+	DataDir    string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
+
+	LogDir    string           `long:"logdir" description:"Directory to log output."`
+	LogConfig *build.LogConfig `group:"logging" namespace:"logging"`
+
+	TLSCertPath string `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
+	TLSKeyPath  string `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
+
+	RawRPCListeners  []string `long:"rpclisten" description:"Add an interface/port/socket to listen for RPC connections"`
+	RawRESTListeners []string `long:"restlisten" description:"Add an interface/port/socket to listen for REST connections"`
+	RawListeners     []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
+
+	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <global-level>,<subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
+
+	Network string `long:"network" description:"The network the UI and all its components run on" choice:"regtest" choice:"testnet" choice:"testnet3" choice:"testnet4" choice:"mainnet" choice:"simnet" choice:"signet"`
+
+	Pprof *lncfg.Pprof `group:"Pprof" namespace:"pprof"`
+
+	RPCMiddleware *lncfg.RPCMiddleware `group:"rpcmiddleware" namespace:"rpcmiddleware"`
+
+	AllowInboundConnection bool          `long:"allowinboundconnection" description:"Signals that we allow an inbound connection from a watch-only node to this node."`
+	WatchOnlyRPCHost       string        `long:"watchonlyrpchost" description:"Sets the watch-only node's RPC host:port. This option should only be set if 'allowinboundconnection' is false"`
+	WatchOnlyMacaroonPath  string        `long:"watchonlymacaroonpath" description:"This param should be set to the watch-only node's macaroon path. This option should only be set if 'allowinboundconnection' is false"`
+	WatchOnlyTLSCertPath   string        `long:"watchonlytlscertpath" description:"This param should be set to the watch-only node's TLS certificate path. This option should only be set if 'allowinboundconnection' is false"`
+	Timeout                time.Duration `long:"timeout" description:"The timeout when setting up a connection with the watch-only node. Valid time units are {s, m, h}. This option should only be set if 'allowinboundconnection' is false"`
+	RequestTimeout         time.Duration `long:"requesttimeout" description:"The time we will wait when making requests to the watch-only node. Valid time units are {s, m, h}. This option should only be set if 'allowinboundconnection' is false"`
+}
+
+// DefaultSignerConfig returns all default values for the SignerConfig struct.
+func DefaultSignerConfig() SignerConfig {
+	return SignerConfig{
+		LndDir:        DefaultLndDir,
+		ConfigFile:    DefaultSignerConfigFile,
+		DataDir:       defaultDataDir,
+		DebugLevel:    defaultLogLevel,
+		TLSCertPath:   defaultTLSCertPath,
+		TLSKeyPath:    defaultTLSKeyPath,
+		LogDir:        defaultLogDir,
+		LogConfig:     build.DefaultLogConfig(),
+		RPCMiddleware: lncfg.DefaultRPCMiddleware(),
+
+		Network: chainreg.BitcoinMainNetParams.Params.Name,
+
+		AllowInboundConnection: false,
+
+		Timeout:        lncfg.DefaultRemoteSignerRPCTimeout,
+		RequestTimeout: lncfg.DefaultRequestTimeout,
 	}
 }
 

@@ -34,6 +34,9 @@ var (
 	sqliteSchemaReplacements = map[string]string{
 		"BIGINT PRIMARY KEY": "INTEGER PRIMARY KEY",
 	}
+
+	// Make sure SqliteStore implements the MigrationExecutor interface.
+	_ MigrationExecutor = (*SqliteStore)(nil)
 )
 
 // SqliteStore is a database store implementation that uses a sqlite backend.
@@ -45,7 +48,9 @@ type SqliteStore struct {
 
 // NewSqliteStore attempts to open a new sqlite database based on the passed
 // config.
-func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
+func NewSqliteStore(cfg *SqliteConfig, dbPath string,
+	migrations ...MigrationConfig) (*SqliteStore, error) {
+
 	// The set of pragma options are accepted using query options. For now
 	// we only want to ensure that foreign key constraints are properly
 	// enforced.
@@ -117,14 +122,32 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 
 	// Execute migrations unless configured to skip them.
 	if !cfg.SkipMigrations {
-		if err := s.ExecuteMigrations(TargetLatest); err != nil {
-			return nil, fmt.Errorf("error executing migrations: "+
-				"%w", err)
-
+		err := ApplyMigrations(s.BaseDB, s, migrations)
+		if err != nil {
+			return nil, err
 		}
 	}
 
 	return s, nil
+}
+
+// CurrentSchemaVersion returns the current schema version of the SQLite
+// database.
+func (s *SqliteStore) CurrentSchemaVersion() (int, error) {
+	driver, err := sqlite_migrate.WithInstance(
+		s.DB, &sqlite_migrate.Config{},
+	)
+	if err != nil {
+		return 0, fmt.Errorf("error creating SQLite migrator: %w",
+			err)
+	}
+
+	version, _, err := driver.Version()
+	if err != nil {
+		return 0, fmt.Errorf("error getting current version: %w", err)
+	}
+
+	return version, nil
 }
 
 // ExecuteMigrations runs migrations for the sqlite database, depending on the

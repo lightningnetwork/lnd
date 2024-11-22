@@ -3,9 +3,11 @@ package sqldb
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/btcsuite/btclog/v2"
@@ -14,9 +16,35 @@ import (
 	"github.com/golang-migrate/migrate/v4/source/httpfs"
 )
 
+// MigrationConfig is a configuration struct that is used to describe in-code
+// migration targets. Each such migration is applied at a specific schema
+// version.
+type MigrationConfig struct {
+	// Name is the name of the migration.
+	Name string
+
+	// Version is the schema version at which the migration is applied.
+	Version int
+
+	// MigrationFn is the migration function that is applied at the given
+	// version.
+	MigrationFn func(db *BaseDB) error
+}
+
 // MigrationTarget is a functional option that can be passed to applyMigrations
 // to specify a target version to migrate to.
 type MigrationTarget func(mig *migrate.Migrate) error
+
+// MigrationExecutor is an interface that abstracts the migration functionality.
+type MigrationExecutor interface {
+	// CurrentSchemaVersion returns the current schema version of the
+	// database.
+	CurrentSchemaVersion() (int, error)
+
+	// ExecuteMigrations runs migrations for the database, depending on the
+	// target given, either all migrations or up to a given version.
+	ExecuteMigrations(target MigrationTarget) error
+}
 
 var (
 	// TargetLatest is a MigrationTarget that migrates to the latest
@@ -214,5 +242,67 @@ func (t *replacerFile) Read(bytes []byte) (int, error) {
 func (t *replacerFile) Close() error {
 	// We already fully read and then closed the file when creating this
 	// instance, so there's nothing to do for us here.
+	return nil
+}
+
+// ApplyMigrations applies the provided migrations to the database in sequence.
+// It ensures migrations are executed in the correct order, applying both custom
+// migration functions and SQL migrations as needed. If no custom migrations are
+// specified, all SQL migrations are applied up to the latest version.
+func ApplyMigrations(db *BaseDB, migrator MigrationExecutor,
+	migrations []MigrationConfig) error {
+
+	// Sort migrations by version to ensure they are applied in order.
+	sort.SliceStable(migrations, func(i, j int) bool {
+		return migrations[i].Version < migrations[j].Version
+	})
+
+	currentVersion, err := migrator.CurrentSchemaVersion()
+	if err != nil {
+		return fmt.Errorf("error determining current schema "+
+			"version: %w", err)
+	}
+
+	for _, migration := range migrations {
+		if migration.Version < currentVersion {
+			log.Infof("Skipping migration '%v' as current schema "+
+				"version %v is higher than recommended"+
+				"version %v", migration.Name, currentVersion,
+				migration.Version)
+
+			continue
+		}
+
+		log.Infof("Migrating SQL DB to version %v",
+			migration.Version)
+
+		// Execute SQL migrations up to the target version.
+		err := migrator.ExecuteMigrations(
+			TargetVersion(uint(migration.Version)),
+		)
+		if err != nil {
+			return fmt.Errorf("error executing migrations to "+
+				"target version %v: %w", migration.Version, err)
+		}
+
+		log.Infof("Applying migration %v to target version %v",
+			migration.Name, migration.Version)
+
+		// Apply the migration function.
+		err = migration.MigrationFn(db)
+		if err != nil {
+			return fmt.Errorf("error applying migration %v to "+
+				"target version %v: %w", migration.Name,
+				migration.Version, err)
+		}
+	}
+
+	// Apply any remaining SQL migrations up to the latest version.
+	err = migrator.ExecuteMigrations(TargetLatest)
+	if err != nil {
+		return fmt.Errorf("error executing migrations to "+
+			"latest version: %w", err)
+	}
+
 	return nil
 }

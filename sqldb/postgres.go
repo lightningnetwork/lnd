@@ -32,6 +32,9 @@ var (
 		"BIGINT PRIMARY KEY":  "BIGSERIAL PRIMARY KEY",
 		"TIMESTAMP":           "TIMESTAMP WITHOUT TIME ZONE",
 	}
+
+	// Make sure PostgresStore implements the MigrationExecutor interface.
+	_ MigrationExecutor = (*PostgresStore)(nil)
 )
 
 // replacePasswordInDSN takes a DSN string and returns it with the password
@@ -85,7 +88,9 @@ type PostgresStore struct {
 
 // NewPostgresStore creates a new store that is backed by a Postgres database
 // backend.
-func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
+func NewPostgresStore(cfg *PostgresConfig, migrations ...MigrationConfig) (
+	*PostgresStore, error) {
+
 	sanitizedDSN, err := replacePasswordInDSN(cfg.Dsn)
 	if err != nil {
 		return nil, err
@@ -118,14 +123,30 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 
 	// Execute migrations unless configured to skip them.
 	if !cfg.SkipMigrations {
-		err := s.ExecuteMigrations(TargetLatest)
+		err := ApplyMigrations(s.BaseDB, s, migrations)
 		if err != nil {
-			return nil, fmt.Errorf("error executing migrations: %w",
-				err)
+			return nil, err
 		}
 	}
 
 	return s, nil
+}
+
+// CurrentSchemaVersion returns the current schema version of the Postgres
+// database.
+func (s *PostgresStore) CurrentSchemaVersion() (int, error) {
+	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
+	if err != nil {
+		return 0, fmt.Errorf("error creating postgres migrator: %w",
+			err)
+	}
+
+	version, _, err := driver.Version()
+	if err != nil {
+		return 0, fmt.Errorf("error getting current version: %w", err)
+	}
+
+	return version, nil
 }
 
 // ExecuteMigrations runs migrations for the Postgres database, depending on the

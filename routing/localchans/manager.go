@@ -1,10 +1,13 @@
 package localchans
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -19,6 +22,12 @@ import (
 // Manager manages the node's local channels. The only operation that is
 // currently implemented is updating forwarding policies.
 type Manager struct {
+	// SelfPub contains the public key of the local node.
+	SelfPub *btcec.PublicKey
+
+	// DefaultRoutingPolicy is the default routing policy.
+	DefaultRoutingPolicy models.ForwardingPolicy
+
 	// UpdateForwardingPolicies is used by the manager to update active
 	// links with a new policy.
 	UpdateForwardingPolicies func(
@@ -30,7 +39,7 @@ type Manager struct {
 		edgesToUpdate []discovery.EdgeWithInfo) error
 
 	// ForAllOutgoingChannels is required to iterate over all our local
-	// channels.
+	// channels. The ChannelEdgePolicy parameter may be nil.
 	ForAllOutgoingChannels func(cb func(kvdb.RTx,
 		*models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy) error) error
@@ -39,6 +48,9 @@ type Manager struct {
 	// existing db tx can be supplied.
 	FetchChannel func(tx kvdb.RTx, chanPoint wire.OutPoint) (
 		*channeldb.OpenChannel, error)
+
+	// AddEdge is used to add edge/channel to the topology of the router.
+	AddEdge func(edge *models.ChannelEdgeInfo) error
 
 	// policyUpdateLock ensures that the database and the link do not fall
 	// out of sync if there are concurrent fee update calls. Without it,
@@ -51,7 +63,8 @@ type Manager struct {
 // UpdatePolicy updates the policy for the specified channels on disk and in
 // the active links.
 func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
-	chanPoints ...wire.OutPoint) ([]*lnrpc.FailedUpdate, error) {
+	createMissingEdge bool, chanPoints ...wire.OutPoint) (
+	[]*lnrpc.FailedUpdate, error) {
 
 	r.policyUpdateLock.Lock()
 	defer r.policyUpdateLock.Unlock()
@@ -69,10 +82,8 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 	var edgesToUpdate []discovery.EdgeWithInfo
 	policiesToUpdate := make(map[wire.OutPoint]models.ForwardingPolicy)
 
-	// Next, we'll loop over all the outgoing channels the router knows of.
-	// If we have a filter then we'll only collected those channels,
-	// otherwise we'll collect them all.
-	err := r.ForAllOutgoingChannels(func(
+	// NOTE: edge may be nil when this function is called.
+	processChan := func(
 		tx kvdb.RTx,
 		info *models.ChannelEdgeInfo,
 		edge *models.ChannelEdgePolicy) error {
@@ -88,8 +99,24 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		// will be used to report invalid channels later on.
 		delete(unprocessedChans, info.ChannelPoint)
 
+		if edge == nil {
+			log.Errorf("Got nil channel edge policy when updating "+
+				"a channel. Channel point: %v",
+				info.ChannelPoint.String())
+
+			failedUpdates = append(failedUpdates, makeFailureItem(
+				info.ChannelPoint,
+				lnrpc.UpdateFailure_UPDATE_FAILURE_NOT_FOUND,
+				"edge policy not found",
+			))
+
+			return nil
+		}
+
 		// Apply the new policy to the edge.
-		err := r.updateEdge(tx, info.ChannelPoint, edge, newSchema)
+		err := r.updateEdge(
+			tx, info.ChannelPoint, edge, newSchema,
+		)
 		if err != nil {
 			failedUpdates = append(failedUpdates,
 				makeFailureItem(info.ChannelPoint,
@@ -125,7 +152,12 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		}
 
 		return nil
-	})
+	}
+
+	// Next, we'll loop over all the outgoing channels the router knows of.
+	// If we have a filter then we'll only collect those channels, otherwise
+	// we'll collect them all.
+	err := r.ForAllOutgoingChannels(processChan)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +187,37 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 					"not yet confirmed",
 				))
 
+		// If the edge was not found, but the channel is found, that
+		// means the edge is missing in the graph database and should be
+		// recreated. The edge and policy are created in-memory. The
+		// edge is inserted in createEdge below and the policy will be
+		// added to the graph in the PropagateChanPolicyUpdate call
+		// below.
+		case createMissingEdge:
+			log.Warnf("Missing edge for active channel (%s) "+
+				"during policy update. Recreating edge with "+
+				"default policy.",
+				channel.FundingOutpoint.String())
+
+			info, edge, failedUpdate := r.createMissingEdge(
+				channel, newSchema,
+			)
+			if failedUpdate == nil {
+				err = processChan(nil, info, edge)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				failedUpdates = append(
+					failedUpdates, failedUpdate,
+				)
+			}
+
 		default:
+			log.Warnf("Missing edge for active channel (%s) "+
+				"during policy update. Could not update "+
+				"policy.", channel.FundingOutpoint.String())
+
 			failedUpdates = append(failedUpdates,
 				makeFailureItem(chanPoint,
 					lnrpc.UpdateFailure_UPDATE_FAILURE_UNKNOWN,
@@ -180,10 +242,123 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 	return failedUpdates, nil
 }
 
+func (r *Manager) createMissingEdge(channel *channeldb.OpenChannel,
+	newSchema routing.ChannelPolicy) (*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy, *lnrpc.FailedUpdate) {
+
+	info, edge, err := r.createEdge(channel, time.Now())
+	if err != nil {
+		log.Errorf("Failed to recreate missing edge "+
+			"for channel (%s): %v",
+			channel.FundingOutpoint.String(), err)
+
+		return nil, nil, makeFailureItem(
+			channel.FundingOutpoint,
+			lnrpc.UpdateFailure_UPDATE_FAILURE_UNKNOWN,
+			"could not update policies",
+		)
+	}
+
+	// Validate the newly created edge policy with the user defined new
+	// schema before adding the edge to the database.
+	err = r.updateEdge(nil, channel.FundingOutpoint, edge, newSchema)
+	if err != nil {
+		return nil, nil, makeFailureItem(
+			info.ChannelPoint,
+			lnrpc.UpdateFailure_UPDATE_FAILURE_INVALID_PARAMETER,
+			err.Error(),
+		)
+	}
+
+	// Insert the edge into the database to avoid `edge not
+	// found` errors during policy update propagation.
+	err = r.AddEdge(info)
+	if err != nil {
+		log.Errorf("Attempt to add missing edge for "+
+			"channel (%s) errored with: %v",
+			channel.FundingOutpoint.String(), err)
+
+		return nil, nil, makeFailureItem(
+			channel.FundingOutpoint,
+			lnrpc.UpdateFailure_UPDATE_FAILURE_UNKNOWN,
+			"could not add edge",
+		)
+	}
+
+	return info, edge, nil
+}
+
+// createEdge recreates an edge and policy from an open channel in-memory.
+func (r *Manager) createEdge(channel *channeldb.OpenChannel,
+	timestamp time.Time) (*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy, error) {
+
+	nodeKey1Bytes := r.SelfPub.SerializeCompressed()
+	nodeKey2Bytes := channel.IdentityPub.SerializeCompressed()
+	bitcoinKey1Bytes := channel.LocalChanCfg.MultiSigKey.PubKey.
+		SerializeCompressed()
+	bitcoinKey2Bytes := channel.RemoteChanCfg.MultiSigKey.PubKey.
+		SerializeCompressed()
+	channelFlags := lnwire.ChanUpdateChanFlags(0)
+
+	// Make it such that node_id_1 is the lexicographically-lesser of the
+	// two compressed keys sorted in ascending lexicographic order.
+	if bytes.Compare(nodeKey2Bytes, nodeKey1Bytes) < 0 {
+		nodeKey1Bytes, nodeKey2Bytes = nodeKey2Bytes, nodeKey1Bytes
+		bitcoinKey1Bytes, bitcoinKey2Bytes = bitcoinKey2Bytes,
+			bitcoinKey1Bytes
+		channelFlags = 1
+	}
+
+	var featureBuf bytes.Buffer
+	err := lnwire.NewRawFeatureVector().Encode(&featureBuf)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to encode features: %w",
+			err)
+	}
+
+	info := &models.ChannelEdgeInfo{
+		ChannelID:    channel.ShortChanID().ToUint64(),
+		ChainHash:    channel.ChainHash,
+		Features:     featureBuf.Bytes(),
+		Capacity:     channel.Capacity,
+		ChannelPoint: channel.FundingOutpoint,
+	}
+
+	copy(info.NodeKey1Bytes[:], nodeKey1Bytes)
+	copy(info.NodeKey2Bytes[:], nodeKey2Bytes)
+	copy(info.BitcoinKey1Bytes[:], bitcoinKey1Bytes)
+	copy(info.BitcoinKey2Bytes[:], bitcoinKey2Bytes)
+
+	// Construct a dummy channel edge policy with default values that will
+	// be updated with the new values in the call to processChan below.
+	timeLockDelta := uint16(r.DefaultRoutingPolicy.TimeLockDelta)
+	edge := &models.ChannelEdgePolicy{
+		ChannelID:                 channel.ShortChanID().ToUint64(),
+		LastUpdate:                timestamp,
+		TimeLockDelta:             timeLockDelta,
+		ChannelFlags:              channelFlags,
+		MessageFlags:              lnwire.ChanUpdateRequiredMaxHtlc,
+		FeeBaseMSat:               r.DefaultRoutingPolicy.BaseFee,
+		FeeProportionalMillionths: r.DefaultRoutingPolicy.FeeRate,
+		MinHTLC:                   r.DefaultRoutingPolicy.MinHTLCOut,
+		MaxHTLC:                   r.DefaultRoutingPolicy.MaxHTLC,
+	}
+
+	copy(edge.ToNode[:], channel.IdentityPub.SerializeCompressed())
+
+	return info, edge, nil
+}
+
 // updateEdge updates the given edge with the new schema.
 func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	edge *models.ChannelEdgePolicy,
 	newSchema routing.ChannelPolicy) error {
+
+	channel, err := r.FetchChannel(tx, chanPoint)
+	if err != nil {
+		return err
+	}
 
 	// Update forwarding fee scheme and required time lock delta.
 	edge.FeeBaseMSat = newSchema.BaseFee
@@ -192,7 +367,7 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	)
 
 	// If inbound fees are set, we update the edge with them.
-	err := fn.MapOptionZ(newSchema.InboundFee,
+	err = fn.MapOptionZ(newSchema.InboundFee,
 		func(f models.InboundFee) error {
 			inboundWireFee := f.ToWire()
 			return edge.ExtraOpaqueData.PackRecords(
@@ -206,7 +381,7 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	edge.TimeLockDelta = uint16(newSchema.TimeLockDelta)
 
 	// Retrieve negotiated channel htlc amt limits.
-	amtMin, amtMax, err := r.getHtlcAmtLimits(tx, chanPoint)
+	amtMin, amtMax, err := r.getHtlcAmtLimits(channel)
 	if err != nil {
 		return err
 	}
@@ -267,13 +442,8 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 
 // getHtlcAmtLimits retrieves the negotiated channel min and max htlc amount
 // constraints.
-func (r *Manager) getHtlcAmtLimits(tx kvdb.RTx, chanPoint wire.OutPoint) (
+func (r *Manager) getHtlcAmtLimits(ch *channeldb.OpenChannel) (
 	lnwire.MilliSatoshi, lnwire.MilliSatoshi, error) {
-
-	ch, err := r.FetchChannel(tx, chanPoint)
-	if err != nil {
-		return 0, 0, err
-	}
 
 	// The max htlc policy field must be less than or equal to the channel
 	// capacity AND less than or equal to the max in-flight HTLC value.

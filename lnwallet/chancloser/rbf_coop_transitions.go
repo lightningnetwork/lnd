@@ -716,9 +716,7 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 			Msgs: []lnwire.Message{&lnwire.ClosingComplete{
 				ChannelID:   env.ChanID,
 				FeeSatoshis: absoluteFee,
-				// TODO(roasbeef): thread thru proper height
-				// value
-				LockTime:    mempool.MaxRBFSequence,
+				LockTime:    env.BlockHeight,
 				ClosingSigs: closingSigs,
 			}},
 		}}

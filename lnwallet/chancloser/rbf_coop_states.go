@@ -294,6 +294,9 @@ type Environment struct {
 	// ChanType is the type of channel we're attempting to close.
 	ChanType channeldb.ChannelType
 
+	// BlockHeight is the current block height.
+	BlockHeight uint32
+
 	// DefaultFeeRate is the fee we'll use for the closing transaction if
 	// the user didn't specify an ideal fee rate. This may happen if the
 	// remote party is the one that initiates the co-op close.

@@ -452,7 +452,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		var nativeSQLStore *sqldb.BaseDB
 		if db.UseNativeSQL {
 			nativePostgresStore, err := sqldb.NewPostgresStore(
-				db.Postgres,
+				db.Postgres, sqldb.GetMigrations(),
 			)
 			if err != nil {
 				return nil, fmt.Errorf("error opening "+
@@ -576,6 +576,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 			nativeSQLiteStore, err := sqldb.NewSqliteStore(
 				db.Sqlite,
 				path.Join(chanDBPath, SqliteNativeDBName),
+				sqldb.GetMigrations(),
 			)
 			if err != nil {
 				return nil, fmt.Errorf("error opening "+

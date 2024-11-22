@@ -1,6 +1,7 @@
 package sqldb
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -32,6 +33,9 @@ var (
 		"BIGINT PRIMARY KEY":  "BIGSERIAL PRIMARY KEY",
 		"TIMESTAMP":           "TIMESTAMP WITHOUT TIME ZONE",
 	}
+
+	// Make sure PostgresStore implements the MigrationExecutor interface.
+	_ MigrationExecutor = (*PostgresStore)(nil)
 )
 
 // replacePasswordInDSN takes a DSN string and returns it with the password
@@ -85,16 +89,34 @@ type PostgresStore struct {
 
 // NewPostgresStore creates a new store that is backed by a Postgres database
 // backend.
-func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
+func NewPostgresStore(cfg *PostgresConfig, migrations []MigrationConfig) (
+	*PostgresStore, error) {
+
 	sanitizedDSN, err := replacePasswordInDSN(cfg.Dsn)
 	if err != nil {
 		return nil, err
 	}
 	log.Infof("Using SQL database '%s'", sanitizedDSN)
 
-	rawDB, err := sql.Open("pgx", cfg.Dsn)
+	db, err := sql.Open("pgx", cfg.Dsn)
 	if err != nil {
 		return nil, err
+	}
+	// Create the migration tracker table before starting migrations to
+	// ensure it can be used to track migration progress. Note that a
+	// corresponding SQLC migration also creates this table, making this
+	// operation a no-op in that context. Its purpose is to ensure
+	// compatibility with SQLC query generation.
+	migrationTrackerSQL := `
+	CREATE TABLE IF NOT EXISTS migration_tracker (
+		version INTEGER UNIQUE,
+		migration_time TIMESTAMP
+	);`
+
+	_, err = db.Exec(migrationTrackerSQL)
+	if err != nil {
+		return nil, fmt.Errorf("error creating migration tracker: %w",
+			err)
 	}
 
 	maxConns := defaultMaxConns
@@ -102,30 +124,48 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 		maxConns = cfg.MaxConnections
 	}
 
-	rawDB.SetMaxOpenConns(maxConns)
-	rawDB.SetMaxIdleConns(maxConns)
-	rawDB.SetConnMaxLifetime(connIdleLifetime)
+	db.SetMaxOpenConns(maxConns)
+	db.SetMaxIdleConns(maxConns)
+	db.SetConnMaxLifetime(connIdleLifetime)
 
-	queries := sqlc.New(rawDB)
+	queries := sqlc.New(db)
 
 	s := &PostgresStore{
 		cfg: cfg,
 		BaseDB: &BaseDB{
-			DB:      rawDB,
+			DB:      db,
 			Queries: queries,
 		},
 	}
 
 	// Execute migrations unless configured to skip them.
 	if !cfg.SkipMigrations {
-		err := s.ExecuteMigrations(TargetLatest)
+		err := ApplyMigrations(
+			context.Background(), s.BaseDB, s, migrations,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("error executing migrations: %w",
-				err)
+			return nil, err
 		}
 	}
 
 	return s, nil
+}
+
+// CurrentSchemaVersion returns the current schema version of the Postgres
+// database.
+func (s *PostgresStore) CurrentSchemaVersion() (int, error) {
+	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
+	if err != nil {
+		return 0, fmt.Errorf("error creating postgres migrator: %w",
+			err)
+	}
+
+	version, _, err := driver.Version()
+	if err != nil {
+		return 0, fmt.Errorf("error getting current version: %w", err)
+	}
+
+	return version, nil
 }
 
 // ExecuteMigrations runs migrations for the Postgres database, depending on the

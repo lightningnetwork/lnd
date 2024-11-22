@@ -2074,6 +2074,20 @@ var listChainTxnsCommand = cli.Command{
 				"transactions until the chain tip, including " +
 				"unconfirmed, set this value to -1",
 		},
+		cli.UintFlag{
+			Name: "index_offset",
+			Usage: "the index of a transaction that will be " +
+				"used in a query to determine which " +
+				"transaction should be returned in the " +
+				"response",
+		},
+		cli.IntFlag{
+			Name: "max_transactions",
+			Usage: "(optional) the max number of transactions to " +
+				"return; leave at default of 0 to return " +
+				"all transactions",
+			Value: 0,
+		},
 	},
 	Description: `
 	List all transactions an address of the wallet was involved in.
@@ -2096,7 +2110,10 @@ func listChainTxns(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.GetTransactionsRequest{}
+	req := &lnrpc.GetTransactionsRequest{
+		IndexOffset:     uint32(ctx.Uint64("index_offset")),
+		MaxTransactions: uint32(ctx.Uint64("max_transactions")),
+	}
 
 	if ctx.IsSet("start_height") {
 		req.StartHeight = int32(ctx.Int64("start_height"))

@@ -3,6 +3,7 @@
 package sqldb
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -34,6 +35,9 @@ var (
 	sqliteSchemaReplacements = map[string]string{
 		"BIGINT PRIMARY KEY": "INTEGER PRIMARY KEY",
 	}
+
+	// Make sure SqliteStore implements the MigrationExecutor interface.
+	_ MigrationExecutor = (*SqliteStore)(nil)
 )
 
 // SqliteStore is a database store implementation that uses a sqlite backend.
@@ -45,7 +49,9 @@ type SqliteStore struct {
 
 // NewSqliteStore attempts to open a new sqlite database based on the passed
 // config.
-func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
+func NewSqliteStore(cfg *SqliteConfig, dbPath string,
+	migrations []MigrationConfig) (*SqliteStore, error) {
+
 	// The set of pragma options are accepted using query options. For now
 	// we only want to ensure that foreign key constraints are properly
 	// enforced.
@@ -102,6 +108,23 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 		return nil, err
 	}
 
+	// Create the migration tracker table before starting migrations to
+	// ensure it can be used to track migration progress. Note that a
+	// corresponding SQLC migration also creates this table, making this
+	// operation a no-op in that context. Its purpose is to ensure
+	// compatibility with SQLC query generation.
+	migrationTrackerSQL := `
+	CREATE TABLE IF NOT EXISTS migration_tracker (
+		version INTEGER UNIQUE NOT NULL,
+		migration_time TIMESTAMP NOT NULL
+	);`
+
+	_, err = db.Exec(migrationTrackerSQL)
+	if err != nil {
+		return nil, fmt.Errorf("error creating migration tracker: %w",
+			err)
+	}
+
 	db.SetMaxOpenConns(defaultMaxConns)
 	db.SetMaxIdleConns(defaultMaxConns)
 	db.SetConnMaxLifetime(connIdleLifetime)
@@ -117,10 +140,11 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 
 	// Execute migrations unless configured to skip them.
 	if !cfg.SkipMigrations {
-		if err := s.ExecuteMigrations(TargetLatest); err != nil {
-			return nil, fmt.Errorf("error executing migrations: "+
-				"%w", err)
-
+		err := ApplyMigrations(
+			context.Background(), s.BaseDB, s, migrations,
+		)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -157,7 +181,7 @@ func NewTestSqliteDB(t *testing.T) *SqliteStore {
 	dbFileName := filepath.Join(t.TempDir(), "tmp.db")
 	sqlDB, err := NewSqliteStore(&SqliteConfig{
 		SkipMigrations: false,
-	}, dbFileName)
+	}, dbFileName, GetMigrations())
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -180,7 +204,7 @@ func NewTestSqliteDBWithVersion(t *testing.T, version uint) *SqliteStore {
 	dbFileName := filepath.Join(t.TempDir(), "tmp.db")
 	sqlDB, err := NewSqliteStore(&SqliteConfig{
 		SkipMigrations: true,
-	}, dbFileName)
+	}, dbFileName, nil)
 	require.NoError(t, err)
 
 	err = sqlDB.ExecuteMigrations(TargetVersion(version))

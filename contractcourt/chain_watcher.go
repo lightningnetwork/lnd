@@ -224,13 +224,6 @@ type chainWatcher struct {
 	// the current state number on the commitment transactions.
 	stateHintObfuscator [lnwallet.StateHintSize]byte
 
-	// fundingPkScript is the pkScript of the funding output.
-	fundingPkScript []byte
-
-	// heightHint is the height hint used to checkpoint scans on chain for
-	// conf/spend events.
-	heightHint uint32
-
 	// All the fields below are protected by this mutex.
 	sync.Mutex
 
@@ -245,6 +238,18 @@ type chainWatcher struct {
 	// fundingSpendNtfn is the spending notification subscription for the
 	// funding outpoint.
 	fundingSpendNtfn *chainntnfs.SpendEvent
+
+	// fundingConfirmedNtfn is the confirmation notification subscription
+	// for the funding outpoint. This is only created if the channel is
+	// both taproot and pending confirmation.
+	//
+	// For taproot pkscripts, `RegisterSpendNtfn` will only notify on the
+	// outpoint being spent and not the outpoint+pkscript due to
+	// `ComputePkScript` being unable to compute the pkscript if a key
+	// spend is used. We need to add a `RegisterConfirmationsNtfn` here to
+	// ensure that the outpoint+pkscript pair is confirmed before calling
+	// `RegisterSpendNtfn`.
+	fundingConfirmedNtfn *chainntnfs.ConfirmationEvent
 }
 
 // newChainWatcher returns a new instance of a chainWatcher for a channel given
@@ -292,9 +297,22 @@ func newChainWatcher(cfg chainWatcherConfig) (*chainWatcher, error) {
 		stateHintObfuscator: stateHint,
 		quit:                make(chan struct{}),
 		clientSubscriptions: make(map[uint64]*ChainEventSubscription),
-		fundingPkScript:     fundingPkScript,
-		heightHint:          heightHint,
 		fundingSpendNtfn:    spendNtfn,
+	}
+
+	// If this is a pending taproot channel, we need to register for a
+	// confirmation notification of the funding tx. Check the docs in
+	// `fundingConfirmedNtfn` for details.
+	if c.cfg.chanState.IsPending && c.cfg.chanState.ChanType.IsTaproot() {
+		confNtfn, err := cfg.notifier.RegisterConfirmationsNtfn(
+			&chanState.FundingOutpoint.Hash, fundingPkScript, 1,
+			heightHint,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		c.fundingConfirmedNtfn = confNtfn
 	}
 
 	// Mount the block consumer.
@@ -1472,27 +1490,23 @@ func (c *chainWatcher) checkFundingSpend() *chainntnfs.SpendDetail {
 // chanPointConfirmed checks whether the given channel point has confirmed.
 // This is used to ensure that the funding output has confirmed on chain before
 // we proceed with the rest of the close observer logic for taproot channels.
+// Check the docs in `fundingConfirmedNtfn` for details.
 func (c *chainWatcher) chanPointConfirmed() bool {
 	op := c.cfg.chanState.FundingOutpoint
-	confNtfn, err := c.cfg.notifier.RegisterConfirmationsNtfn(
-		&op.Hash, c.fundingPkScript, 1, c.heightHint,
-	)
-	if err != nil {
-		log.Errorf("Unable to register for conf: %v", err)
-
-		return false
-	}
 
 	select {
-	case _, ok := <-confNtfn.Confirmed:
+	case _, ok := <-c.fundingConfirmedNtfn.Confirmed:
 		// If the channel was closed, then this means that the notifier
 		// exited, so we will as well.
 		if !ok {
-// Check the docs in `fundingConfirmedNtfn` for details.
 			return false
 		}
 
 		log.Debugf("Taproot ChannelPoint(%v) confirmed", op)
+
+		// The channel point has confirmed on chain. We now cancel the
+		// subscription.
+		c.fundingConfirmedNtfn.Cancel()
 
 		return true
 
@@ -1510,9 +1524,11 @@ func (c *chainWatcher) handleBlockbeat(beat chainio.Blockbeat) {
 	// Notify the chain watcher has processed the block.
 	defer c.NotifyBlockProcessed(beat, nil)
 
-	// If this is a taproot channel, before we proceed, we want to ensure
-	// that the expected funding output has confirmed on chain.
-	if c.cfg.chanState.IsPending && c.cfg.chanState.ChanType.IsTaproot() {
+	// If we have a fundingConfirmedNtfn, it means this is a taproot
+	// channel that is pending, before we proceed, we want to ensure that
+	// the expected funding output has confirmed on chain. Check the docs
+	// in `fundingConfirmedNtfn` for details.
+	if c.fundingConfirmedNtfn != nil {
 		// If the funding output hasn't confirmed in this block, we
 		// will check it again in the next block.
 		if !c.chanPointConfirmed() {

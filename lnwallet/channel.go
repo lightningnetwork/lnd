@@ -8280,6 +8280,7 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		lc.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
 		lc.channelState.LocalCommitment.RemoteBalance.ToSatoshis(),
 		lc.channelState.LocalCommitment.CommitFee,
+		fn.None[lntypes.ChannelParty](),
 	)
 	if err != nil {
 		return nil, nil, 0, err
@@ -8393,6 +8394,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 		lc.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
 		lc.channelState.LocalCommitment.RemoteBalance.ToSatoshis(),
 		lc.channelState.LocalCommitment.CommitFee,
+		fn.None[lntypes.ChannelParty](),
 	)
 	if err != nil {
 		return nil, 0, err

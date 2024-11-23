@@ -152,8 +152,9 @@ func (f FeeEstimateInfo) Estimate(estimator chainfee.Estimator,
 // UtxoSource is an interface that allows a caller to access a source of UTXOs
 // to use when crafting sweep transactions.
 type UtxoSource interface {
-	// ListUnspentWitness returns all UTXOs from the default wallet account
-	// that have between minConfs and maxConfs number of confirmations.
+	// ListUnspentWitnessFromDefaultAccount returns all UTXOs from the
+	// default wallet account that have between minConfs and maxConfs
+	// number of confirmations.
 	ListUnspentWitnessFromDefaultAccount(minConfs, maxConfs int32) (
 		[]*lnwallet.Utxo, error)
 }

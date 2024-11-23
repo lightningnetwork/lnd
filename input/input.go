@@ -19,7 +19,7 @@ var EmptyOutPoint wire.OutPoint
 // construct a valid input within a sweeping transaction to sweep this
 // lingering UTXO.
 type Input interface {
-	// Outpoint returns the reference to the output being spent, used to
+	// OutPoint returns the reference to the output being spent, used to
 	// construct the corresponding transaction input.
 	OutPoint() wire.OutPoint
 

@@ -1033,8 +1033,9 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 // CoopCloseBalance returns the final balances that should be used to create
 // the cooperative close tx, given the channel type and transaction fee.
 func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
-	coopCloseFee, ourBalance, theirBalance,
-	commitFee btcutil.Amount) (btcutil.Amount, btcutil.Amount, error) {
+	coopCloseFee, ourBalance, theirBalance, commitFee btcutil.Amount,
+	feePayer fn.Option[lntypes.ChannelParty],
+) (btcutil.Amount, btcutil.Amount, error) {
 
 	// We'll make sure we account for the complete balance by adding the
 	// current dangling commitment fee to the balance of the initiator.
@@ -1046,14 +1047,31 @@ func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
 		initiatorDelta += 2 * AnchorSize
 	}
 
-	// The initiator will pay the full coop close fee, subtract that value
-	// from their balance.
-	initiatorDelta -= coopCloseFee
-
+	// To start with, we'll add the anchor and/or commitment fee to the
+	// balance of the initiator.
 	if isInitiator {
 		ourBalance += initiatorDelta
 	} else {
 		theirBalance += initiatorDelta
+	}
+
+	// With the initiator's balance credited, we'll now subtract the closing
+	// fee from the closing party. By default, the initiator pays the full
+	// amount, but this can be overridden by the feePayer option.
+	defaultPayer := func() lntypes.ChannelParty {
+		if isInitiator {
+			return lntypes.Local
+		}
+		return lntypes.Remote
+	}()
+	payer := feePayer.UnwrapOr(defaultPayer)
+
+	// Based on the payer computed above, we'll subtract the closing fee.
+	switch payer {
+	case lntypes.Local:
+		ourBalance -= coopCloseFee
+	case lntypes.Remote:
+		theirBalance -= coopCloseFee
 	}
 
 	// During fee negotiation it should always be verified that the

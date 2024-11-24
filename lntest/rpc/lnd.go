@@ -293,6 +293,16 @@ func (h *HarnessRPC) AddInvoice(req *lnrpc.Invoice) *lnrpc.AddInvoiceResponse {
 	return invoice
 }
 
+// AddInvoiceAssertErr makes a RPC call to AddInvoice and asserts an error
+// has returned with a specific error message.
+func (h *HarnessRPC) AddInvoiceAssertErr(req *lnrpc.Invoice, errStr string) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.AddInvoice(ctxt, req)
+	require.ErrorContains(h, err, errStr)
+}
+
 // AbandonChannel makes a RPC call to AbandonChannel and asserts.
 func (h *HarnessRPC) AbandonChannel(
 	req *lnrpc.AbandonChannelRequest) *lnrpc.AbandonChannelResponse {

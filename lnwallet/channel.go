@@ -8203,6 +8203,8 @@ type chanCloseOpt struct {
 	customSequence fn.Option[uint32]
 
 	customLockTime fn.Option[uint32]
+
+	customPayer fn.Option[lntypes.ChannelParty]
 }
 
 // ChanCloseOpt is a closure type that cen be used to modify the set of default
@@ -8255,6 +8257,15 @@ func WithCustomLockTime(lockTime uint32) ChanCloseOpt {
 	}
 }
 
+// WithCustomPayer can be used to specify a custom payer for the closing
+// transaction. This overrides the default payer, which is the initiator of the
+// channel.
+func WithCustomPayer(payer lntypes.ChannelParty) ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.customPayer = fn.Some(payer)
+	}
+}
+
 // CreateCloseProposal is used by both parties in a cooperative channel close
 // workflow to generate proposed close transactions and signatures. This method
 // should only be executed once all pending HTLCs (if any) on the channel have
@@ -8270,14 +8281,15 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	lc.Lock()
 	defer lc.Unlock()
 
-	// If we're already closing the channel, then ignore this request.
-	if lc.isClosed {
-		return nil, nil, 0, ErrChanClosing
-	}
-
 	opts := defaultCloseOpts()
 	for _, optFunc := range closeOpts {
 		optFunc(opts)
+	}
+
+	// Unless there's a custom payer (sign of the RBF flow), if we're
+	// already closing the channel, then ignore this request.
+	if lc.isClosed && opts.customPayer.IsNone() {
+		return nil, nil, 0, ErrChanClosing
 	}
 
 	// Get the final balances after subtracting the proposed fee, taking
@@ -8289,7 +8301,7 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		lc.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
 		lc.channelState.LocalCommitment.RemoteBalance.ToSatoshis(),
 		lc.channelState.LocalCommitment.CommitFee,
-		fn.None[lntypes.ChannelParty](),
+		opts.customPayer,
 	)
 	if err != nil {
 		return nil, nil, 0, err
@@ -8385,15 +8397,15 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	lc.Lock()
 	defer lc.Unlock()
 
-	// If the channel is already closing, then ignore this request.
-	if lc.isClosed {
-		// TODO(roasbeef): check to ensure no pending payments
-		return nil, 0, ErrChanClosing
-	}
-
 	opts := defaultCloseOpts()
 	for _, optFunc := range closeOpts {
 		optFunc(opts)
+	}
+
+	// Unless there's a custom payer (sign of the RBF flow), if we're
+	// already closing the channel, then ignore this request.
+	if lc.isClosed && opts.customPayer.IsNone() {
+		return nil, 0, ErrChanClosing
 	}
 
 	// Get the final balances after subtracting the proposed fee.
@@ -8403,7 +8415,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 		lc.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
 		lc.channelState.LocalCommitment.RemoteBalance.ToSatoshis(),
 		lc.channelState.LocalCommitment.CommitFee,
-		fn.None[lntypes.ChannelParty](),
+		opts.customPayer,
 	)
 	if err != nil {
 		return nil, 0, err

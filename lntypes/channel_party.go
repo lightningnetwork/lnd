@@ -51,6 +51,15 @@ func (p ChannelParty) IsRemote() bool {
 	return p == Remote
 }
 
+// Opposite returns the opposite ChannelParty.
+func (p ChannelParty) Opposite() ChannelParty {
+	if p == Local {
+		return Remote
+	} else {
+		return Local
+	}
+}
+
 // Dual represents a structure when we are tracking the same parameter for both
 // the Local and Remote parties.
 type Dual[A any] struct {

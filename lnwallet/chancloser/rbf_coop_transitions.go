@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -662,6 +663,7 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		rawSig, closeTx, closeBalance, err := env.CloseSigner.CreateCloseProposal( //nolint:ll
 			absoluteFee, localScript, l.RemoteDeliveryScript,
 			lnwallet.WithCustomSequence(mempool.MaxRBFSequence),
+			lnwallet.WithCustomPayer(lntypes.Local),
 		)
 		if err != nil {
 			return nil, err
@@ -808,6 +810,7 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
 			localSig, remoteSig, l.LocalDeliveryScript,
 			l.RemoteDeliveryScript, l.ProposedFee,
 			lnwallet.WithCustomSequence(mempool.MaxRBFSequence),
+			lnwallet.WithCustomPayer(lntypes.Local),
 		)
 		if err != nil {
 			return nil, err
@@ -907,6 +910,7 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		chanOpts := []lnwallet.ChanCloseOpt{
 			lnwallet.WithCustomSequence(mempool.MaxRBFSequence),
 			lnwallet.WithCustomLockTime(msg.SigMsg.LockTime),
+			lnwallet.WithCustomPayer(lntypes.Remote),
 		}
 
 		chancloserLog.Infof("responding to close w/ local_addr=%x, "+

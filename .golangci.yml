@@ -12,6 +12,7 @@ run:
     - neutrinorpc
     - peersrpc
     - signrpc
+    - switchrpc
     - walletrpc
     - watchtowerrpc
     - kvdb_etcd

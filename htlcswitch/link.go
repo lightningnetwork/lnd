@@ -14,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
-	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -508,7 +507,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		channel:             channel,
 		hodlMap:             make(map[models.CircuitKey]hodlHtlc),
 		hodlQueue:           queue.NewConcurrentQueue(10),
-		log:                 build.NewPrefixLog(logPrefix, log),
+		log:                 log.WithPrefix(logPrefix),
 		flushHooks:          newHookMap(),
 		outgoingCommitHooks: newHookMap(),
 		incomingCommitHooks: newHookMap(),

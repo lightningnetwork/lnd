@@ -5,7 +5,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btclog/v2"
-	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -232,7 +231,7 @@ func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 		pathFindingConfig: pathFindingConfig,
 		missionControl:    missionControl,
 		minShardAmt:       DefaultShardMinAmt,
-		log:               build.NewPrefixLog(logPrefix, log),
+		log:               log.WithPrefix(logPrefix),
 	}, nil
 }
 

@@ -11,7 +11,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn"
@@ -411,13 +410,13 @@ func (m *MissionController) initMissionControl(namespace string) (
 	}
 
 	mc := &MissionControl{
-		cfg:       m.cfg,
-		state:     newMissionControlState(cfg.MinFailureRelaxInterval),
-		store:     store,
-		estimator: cfg.Estimator,
-		log: build.NewPrefixLog(
-			fmt.Sprintf("[%s]:", namespace), log,
+		cfg: m.cfg,
+		state: newMissionControlState(
+			cfg.MinFailureRelaxInterval,
 		),
+		store:          store,
+		estimator:      cfg.Estimator,
+		log:            log.WithPrefix(fmt.Sprintf("[%s]:", namespace)),
 		onConfigUpdate: cfg.OnConfigUpdate,
 	}
 

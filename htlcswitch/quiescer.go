@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btclog/v2"
-	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -178,7 +177,7 @@ func NewQuiescer(cfg QuiescerCfg) Quiescer {
 
 	return &QuiescerLive{
 		cfg: cfg,
-		log: build.NewPrefixLog(logPrefix, log),
+		log: log.WithPrefix(logPrefix),
 	}
 }
 

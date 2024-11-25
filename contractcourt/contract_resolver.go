@@ -8,7 +8,6 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
-	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
 )
@@ -123,7 +122,7 @@ func newContractResolverKit(cfg ResolverConfig) *contractResolverKit {
 // initLogger initializes the resolver-specific logger.
 func (r *contractResolverKit) initLogger(resolver ContractResolver) {
 	logPrefix := fmt.Sprintf("%T(%v):", resolver, r.ChanPoint)
-	r.log = build.NewPrefixLog(logPrefix, log)
+	r.log = log.WithPrefix(logPrefix)
 }
 
 var (

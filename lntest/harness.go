@@ -326,11 +326,8 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	startHeight := int32(h.CurrentHeight())
 
 	st.Cleanup(func() {
-		_, endHeight := h.GetBestBlock()
-
-		st.Logf("finished test: %s, start height=%d, end height=%d, "+
-			"mined blocks=%d", st.manager.currentTestCase,
-			startHeight, endHeight, endHeight-startHeight)
+		// Make sure the test is not consuming too many blocks.
+		st.checkAndLimitBlocksMined(startHeight)
 
 		// Don't bother run the cleanups if the test is failed.
 		if st.Failed() {
@@ -366,6 +363,43 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	})
 
 	return st
+}
+
+// checkAndLimitBlocksMined asserts that the blocks mined in a single test
+// doesn't exceed 50, which implicitly discourage table-drive tests, which are
+// hard to maintain and take a long time to run.
+func (h *HarnessTest) checkAndLimitBlocksMined(startHeight int32) {
+	_, endHeight := h.GetBestBlock()
+	blocksMined := endHeight - startHeight
+
+	h.Logf("finished test: %s, start height=%d, end height=%d, mined "+
+		"blocks=%d", h.manager.currentTestCase, startHeight, endHeight,
+		blocksMined)
+
+	// If the number of blocks is less than 40, we consider the test
+	// healthy.
+	if blocksMined < 40 {
+		return
+	}
+
+	// Otherwise log a warning if it's mining more than 40 blocks.
+	desc := "!============================================!\n"
+
+	desc += fmt.Sprintf("Too many blocks (%v) mined in one test! Tips:\n",
+		blocksMined)
+
+	desc += "1. break test into smaller individual tests, especially if " +
+		"this is a table-drive test.\n" +
+		"2. use smaller CSV via `--bitcoin.defaultremotedelay=1.`\n" +
+		"3. use smaller CLTV via `--bitcoin.timelockdelta=18.`\n" +
+		"4. remove unnecessary CloseChannel when test ends.\n" +
+		"5. use `CreateSimpleNetwork` for efficient channel creation.\n"
+	h.Log(desc)
+
+	// We enforce that the test should not mine more than 50 blocks, which
+	// is more than enough to test a multi hop force close scenario.
+	require.LessOrEqual(h, int(blocksMined), 50, "cannot mine more than "+
+		"50 blocks in one test")
 }
 
 // shutdownAllNodes will shutdown all running nodes.

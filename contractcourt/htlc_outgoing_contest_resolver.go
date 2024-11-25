@@ -155,7 +155,14 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 			// fail.
 			newHeight := uint32(newBlock.Height)
 			expiry := h.htlcResolution.Expiry
-			if newHeight >= expiry {
+
+			// Check if the expiry height is about to be reached.
+			// We offer this HTLC one block earlier to make sure
+			// when the next block arrives, the sweeper will pick
+			// up this input and sweep it immediately. The sweeper
+			// will handle the waiting for the one last block till
+			// expiry.
+			if newHeight >= expiry-1 {
 				h.log.Infof("HTLC about to expire "+
 					"(height=%v, expiry=%v), transforming "+
 					"into timeout resolver", h,

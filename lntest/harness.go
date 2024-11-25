@@ -1379,6 +1379,40 @@ func (h *HarnessTest) FundCoinsP2TR(amt btcutil.Amount,
 	h.fundCoins(amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true)
 }
 
+// FundNumCoins attempts to send the given number of UTXOs from the internal
+// mining node to the targeted lightning node using a P2WKH address. Each UTXO
+// has an amount of 1 BTC. 1 blocks are mined to confirm the tx.
+func (h *HarnessTest) FundNumCoins(hn *node.HarnessNode, num int) {
+	// Get the initial balance first.
+	resp := hn.RPC.WalletBalance()
+	initialBalance := btcutil.Amount(resp.ConfirmedBalance)
+
+	const fundAmount = 1 * btcutil.SatoshiPerBitcoin
+
+	// Send out the outputs from the miner.
+	for i := 0; i < num; i++ {
+		h.createAndSendOutput(
+			hn, fundAmount, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+		)
+	}
+
+	// Wait for ListUnspent to show the correct number of unconfirmed
+	// UTXOs.
+	//
+	// Since neutrino doesn't support unconfirmed outputs, skip this check.
+	if !h.IsNeutrinoBackend() {
+		h.AssertNumUTXOsUnconfirmed(hn, num)
+	}
+
+	// Mine a block to confirm the transactions.
+	h.MineBlocksAndAssertNumTxes(1, num)
+
+	// Now block until the wallet have fully synced up.
+	totalAmount := btcutil.Amount(fundAmount * num)
+	expectedBalance := initialBalance + totalAmount
+	h.WaitForBalanceConfirmed(hn, expectedBalance)
+}
+
 // completePaymentRequestsAssertStatus sends payments from a node to complete
 // all payment requests. This function does not return until all payments
 // have reached the specified status.

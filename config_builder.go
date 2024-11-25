@@ -932,10 +932,10 @@ type DatabaseInstances struct {
 	// the btcwallet's loader.
 	WalletDB btcwallet.LoaderOption
 
-	// NativeSQLStore is a pointer to a native SQL store that can be used
-	// for native SQL queries for tables that already support it. This may
-	// be nil if the use-native-sql flag was not set.
-	NativeSQLStore *sqldb.BaseDB
+	// NativeSQLStore holds a reference to the native SQL store that can
+	// be used for native SQL queries for tables that already support it.
+	// This may be nil if the use-native-sql flag was not set.
+	NativeSQLStore sqldb.DB
 }
 
 // DefaultDatabaseBuilder is a type that builds the default database backends
@@ -1079,6 +1079,19 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 	// Instantiate a native SQL invoice store if the flag is set.
 	if d.cfg.DB.UseNativeSQL {
+		// We need to apply all migrations to the native SQL store
+		// before we can use it.
+		err := dbs.NativeSQLStore.ApplyAllMigrations(
+			ctx, sqldb.GetMigrations(),
+		)
+		if err != nil {
+			cleanUp()
+			err := fmt.Errorf("unable to apply migrations: %w", err)
+			d.logger.Error(err)
+
+			return nil, nil, err
+		}
+
 		// KV invoice db resides in the same database as the channel
 		// state DB. Let's query the database to see if we have any
 		// invoices there. If we do, we won't allow the user to start
@@ -1107,10 +1120,11 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			return nil, nil, err
 		}
 
+		baseDB := dbs.NativeSQLStore.GetBaseDB()
 		executor := sqldb.NewTransactionExecutor(
-			dbs.NativeSQLStore,
+			baseDB,
 			func(tx *sql.Tx) invoices.SQLInvoiceQueries {
-				return dbs.NativeSQLStore.WithTx(tx)
+				return baseDB.WithTx(tx)
 			},
 		)
 

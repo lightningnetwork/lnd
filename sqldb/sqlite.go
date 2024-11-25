@@ -38,6 +38,9 @@ var (
 
 	// Make sure SqliteStore implements the MigrationExecutor interface.
 	_ MigrationExecutor = (*SqliteStore)(nil)
+
+	// Make sure SqliteStore implements the DB interface.
+	_ DB = (*SqliteStore)(nil)
 )
 
 // SqliteStore is a database store implementation that uses a sqlite backend.
@@ -49,9 +52,7 @@ type SqliteStore struct {
 
 // NewSqliteStore attempts to open a new sqlite database based on the passed
 // config.
-func NewSqliteStore(cfg *SqliteConfig, dbPath string,
-	migrations []MigrationConfig) (*SqliteStore, error) {
-
+func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 	// The set of pragma options are accepted using query options. For now
 	// we only want to ensure that foreign key constraints are properly
 	// enforced.
@@ -138,17 +139,26 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string,
 		},
 	}
 
+	return s, nil
+}
+
+// GetBaseDB returns the underlying BaseDB instance for the SQLite store.
+// It is a trivial helper method to comply with the sqldb.DB interface.
+func (s *SqliteStore) GetBaseDB() *BaseDB {
+	return s.BaseDB
+}
+
+// ApplyAllMigrations applies both the SQLC and custom in-code migrations to the
+// SQLite database.
+func (s *SqliteStore) ApplyAllMigrations(ctx context.Context,
+	migrations []MigrationConfig) error {
+
 	// Execute migrations unless configured to skip them.
-	if !cfg.SkipMigrations {
-		err := ApplyMigrations(
-			context.Background(), s.BaseDB, s, migrations,
-		)
-		if err != nil {
-			return nil, err
-		}
+	if s.cfg.SkipMigrations {
+		return nil
 	}
 
-	return s, nil
+	return ApplyMigrations(ctx, s.BaseDB, s, migrations)
 }
 
 // ExecuteMigrations runs migrations for the sqlite database, depending on the
@@ -181,8 +191,12 @@ func NewTestSqliteDB(t *testing.T) *SqliteStore {
 	dbFileName := filepath.Join(t.TempDir(), "tmp.db")
 	sqlDB, err := NewSqliteStore(&SqliteConfig{
 		SkipMigrations: false,
-	}, dbFileName, GetMigrations())
+	}, dbFileName)
 	require.NoError(t, err)
+
+	require.NoError(t, sqlDB.ApplyAllMigrations(
+		context.Background(), GetMigrations()),
+	)
 
 	t.Cleanup(func() {
 		require.NoError(t, sqlDB.DB.Close())
@@ -204,7 +218,7 @@ func NewTestSqliteDBWithVersion(t *testing.T, version uint) *SqliteStore {
 	dbFileName := filepath.Join(t.TempDir(), "tmp.db")
 	sqlDB, err := NewSqliteStore(&SqliteConfig{
 		SkipMigrations: true,
-	}, dbFileName, nil)
+	}, dbFileName)
 	require.NoError(t, err)
 
 	err = sqlDB.ExecuteMigrations(TargetVersion(version))

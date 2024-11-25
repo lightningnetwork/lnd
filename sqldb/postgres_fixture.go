@@ -148,8 +148,10 @@ func NewTestPostgresDB(t *testing.T, fixture *TestPgFixture) *PostgresStore {
 	require.NoError(t, err)
 
 	cfg := fixture.GetConfig(dbName)
-	store, err := NewPostgresStore(cfg, GetMigrations())
+	store, err := NewPostgresStore(cfg)
 	require.NoError(t, err)
+
+	require.NoError(t, store.ApplyAllMigrations(GetMigrations()))
 
 	return store
 }
@@ -172,7 +174,7 @@ func NewTestPostgresDBWithVersion(t *testing.T, fixture *TestPgFixture,
 
 	storeCfg := fixture.GetConfig(dbName)
 	storeCfg.SkipMigrations = true
-	store, err := NewPostgresStore(storeCfg, GetMigrations())
+	store, err := NewPostgresStore(storeCfg)
 	require.NoError(t, err)
 
 	err = store.ExecuteMigrations(TargetVersion(version))

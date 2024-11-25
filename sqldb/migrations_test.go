@@ -293,16 +293,17 @@ func TestCustomMigration(t *testing.T) {
 			for i := 0; i < 3; i++ {
 				db, err = NewSqliteStore(&SqliteConfig{
 					SkipMigrations: false,
-				}, dbFileName, test.migrations)
-				if db != nil {
-					dbToCleanup := db.DB
-					t.Cleanup(func() {
-						require.NoError(
-							t, dbToCleanup.Close(),
-						)
-					})
-				}
+				}, dbFileName)
+				require.NoError(t, err)
 
+				dbToCleanup := db.DB
+				t.Cleanup(func() {
+					require.NoError(
+						t, dbToCleanup.Close(),
+					)
+				})
+
+				err = db.ApplyAllMigrations(test.migrations)
 				if test.expectedSuccess {
 					require.NoError(t, err)
 				} else {
@@ -312,7 +313,7 @@ func TestCustomMigration(t *testing.T) {
 					// so we can read versions.
 					db, err = NewSqliteStore(&SqliteConfig{
 						SkipMigrations: true,
-					}, dbFileName, nil)
+					}, dbFileName)
 					require.NoError(t, err)
 				}
 
@@ -376,8 +377,10 @@ func TestCustomMigration(t *testing.T) {
 			// are idempotent.
 			for i := 0; i < 3; i++ {
 				cfg.SkipMigrations = false
-				db, err = NewPostgresStore(cfg, test.migrations)
+				db, err = NewPostgresStore(cfg)
+				require.NoError(t, err)
 
+				err = db.ApplyAllMigrations(test.migrations)
 				if test.expectedSuccess {
 					require.NoError(t, err)
 				} else {
@@ -386,7 +389,7 @@ func TestCustomMigration(t *testing.T) {
 					// Also repoen the DB without migrations
 					// so we can read versions.
 					cfg.SkipMigrations = true
-					db, err = NewPostgresStore(cfg, nil)
+					db, err = NewPostgresStore(cfg)
 					require.NoError(t, err)
 				}
 

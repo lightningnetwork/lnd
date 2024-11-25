@@ -24,7 +24,7 @@ type MockInput struct {
 // Compile time assertion that MockInput implements Input.
 var _ Input = (*MockInput)(nil)
 
-// Outpoint returns the reference to the output being spent, used to construct
+// OutPoint returns the reference to the output being spent, used to construct
 // the corresponding transaction input.
 func (m *MockInput) OutPoint() wire.OutPoint {
 	args := m.Called()

@@ -92,7 +92,7 @@ type Message interface {
 	// be encoded.
 	MsgType() MessageType
 
-	// MaxMessagePayload is the maximum serialized length that a particular
+	// MaxPayloadLength is the maximum serialized length that a particular
 	// message type can take.
 	MaxPayloadLength(uint32) uint32
 }

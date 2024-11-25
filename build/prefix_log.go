@@ -163,5 +163,18 @@ func (p *PrefixLog) SetLevel(level btclogv1.Level) {
 	p.log.SetLevel(level)
 }
 
+// SubSystem returns a copy of the logger but with the new subsystem tag. Any
+// previously set prefix will be overridden with an empty string.
+func (p *PrefixLog) SubSystem(tag string) btclog.Logger {
+	return p.log.SubSystem(tag)
+}
+
+// WithPrefix returns a copy of the logger but with the given string prefixed to
+// each log message. Note that the subsystem of the original logger is kept but
+// any existing prefix is overridden.
+func (p *PrefixLog) WithPrefix(prefix string) btclog.Logger {
+	return p.log.WithPrefix(prefix)
+}
+
 // Assert that PrefixLog fulfills the btclog.Logger interface.
 var _ btclog.Logger = &PrefixLog{}

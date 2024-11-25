@@ -787,7 +787,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		routerBackend, s.nodeSigner, s.graphDB, s.chanStateDB,
 		s.sweeper, tower, s.towerClientMgr, r.cfg.net.ResolveTCPAddr,
 		genInvoiceFeatures, genAmpInvoiceFeatures,
-		s.getNodeAnnouncement, s.updateAndBrodcastSelfNode, parseAddr,
+		s.getNodeAnnouncement, s.updateAndBroadcastSelfNode, parseAddr,
 		rpcsLog, s.aliasMgr, r.implCfg.AuxDataParser,
 		invoiceHtlcModifier,
 	)

@@ -3996,7 +3996,7 @@ func TestIgnoreOwnAnnouncement(t *testing.T) {
 	}
 
 	// Now do the local channelannouncement, node announcement, and channel
-	// update. No messages should be brodcasted yet, since we don't have
+	// update. No messages should be broadcast yet, since we don't have
 	// the announcement signatures.
 	select {
 	case err = <-ctx.gossiper.ProcessLocalAnnouncement(batch.chanAnn):

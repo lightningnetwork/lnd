@@ -3272,11 +3272,11 @@ func (s *server) genNodeAnnouncement(features *lnwire.RawFeatureVector,
 	return *s.currentNodeAnn, nil
 }
 
-// updateAndBrodcastSelfNode generates a new node announcement
+// updateAndBroadcastSelfNode generates a new node announcement
 // applying the giving modifiers and updating the time stamp
-// to ensure it propagates through the network. Then it brodcasts
+// to ensure it propagates through the network. Then it broadcasts
 // it to the network.
-func (s *server) updateAndBrodcastSelfNode(features *lnwire.RawFeatureVector,
+func (s *server) updateAndBroadcastSelfNode(features *lnwire.RawFeatureVector,
 	modifiers ...netann.NodeAnnModifier) error {
 
 	newNodeAnn, err := s.genNodeAnnouncement(features, modifiers...)

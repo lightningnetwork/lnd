@@ -37,6 +37,9 @@ var (
 
 	// Make sure SqliteStore implements the MigrationExecutor interface.
 	_ MigrationExecutor = (*SqliteStore)(nil)
+
+	// Make sure SqliteStore implements the DB interface.
+	_ DB = (*SqliteStore)(nil)
 )
 
 // SqliteStore is a database store implementation that uses a sqlite backend.
@@ -48,9 +51,7 @@ type SqliteStore struct {
 
 // NewSqliteStore attempts to open a new sqlite database based on the passed
 // config.
-func NewSqliteStore(cfg *SqliteConfig, dbPath string,
-	migrations ...MigrationConfig) (*SqliteStore, error) {
-
+func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 	// The set of pragma options are accepted using query options. For now
 	// we only want to ensure that foreign key constraints are properly
 	// enforced.
@@ -120,15 +121,26 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string,
 		},
 	}
 
+	return s, nil
+}
+
+// GetBaseDB returns the underlying BaseDB instance for the SQLite store.
+// It is a trivial helper method to comply with the sqldb.DB interface.
+func (s *SqliteStore) GetBaseDB() *BaseDB {
+	return s.BaseDB
+}
+
+// ApplyAllMigrations applices both the SQLC and custom in-code migrations to
+// the SQLite database.
+func (s *SqliteStore) ApplyAllMigrations(
+	customMigrations ...MigrationConfig) error {
+
 	// Execute migrations unless configured to skip them.
-	if !cfg.SkipMigrations {
-		err := ApplyMigrations(s.BaseDB, s, migrations)
-		if err != nil {
-			return nil, err
-		}
+	if s.cfg.SkipMigrations {
+		return nil
 	}
 
-	return s, nil
+	return ApplyMigrations(s.BaseDB, s, customMigrations)
 }
 
 // CurrentSchemaVersion returns the current schema version of the SQLite
@@ -182,6 +194,8 @@ func NewTestSqliteDB(t *testing.T) *SqliteStore {
 		SkipMigrations: false,
 	}, dbFileName)
 	require.NoError(t, err)
+
+	require.NoError(t, sqlDB.ApplyAllMigrations())
 
 	t.Cleanup(func() {
 		require.NoError(t, sqlDB.DB.Close())

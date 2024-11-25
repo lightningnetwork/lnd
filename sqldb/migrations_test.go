@@ -281,17 +281,16 @@ func TestCustomMigration(t *testing.T) {
 			t.Logf("Creating new SQLite DB for testing migrations")
 
 			dbFileName := filepath.Join(t.TempDir(), "tmp.db")
-			db, err := NewSqliteStore(&SqliteConfig{
-				SkipMigrations: false,
-			}, dbFileName, test.migrations...)
+			db, err := NewSqliteStore(&SqliteConfig{}, dbFileName)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				require.NoError(t, db.DB.Close())
+			})
 
-			if db != nil {
-				t.Cleanup(func() {
-					require.NoError(t, db.DB.Close())
-				})
-			}
-
+			err = db.ApplyAllMigrations(test.migrations...)
 			if test.expectedSuccess {
+				require.NoError(t, err)
+
 				// Create the migration executor to be able to
 				// query the current version.
 				driver, err := sqlite_migrate.WithInstance(
@@ -335,7 +334,10 @@ func TestCustomMigration(t *testing.T) {
 			require.NoError(t, err)
 
 			cfg := fixture.GetConfig(dbName)
-			db, err := NewPostgresStore(cfg, test.migrations...)
+			db, err := NewPostgresStore(cfg)
+			require.NoError(t, err)
+
+			err = db.ApplyAllMigrations(test.migrations...)
 
 			if test.expectedSuccess {
 				require.NoError(t, err)

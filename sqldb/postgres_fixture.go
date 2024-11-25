@@ -151,6 +151,8 @@ func NewTestPostgresDB(t *testing.T, fixture *TestPgFixture) *PostgresStore {
 	store, err := NewPostgresStore(cfg)
 	require.NoError(t, err)
 
+	require.NoError(t, store.ApplyAllMigrations())
+
 	return store
 }
 

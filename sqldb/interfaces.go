@@ -355,6 +355,17 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 	)
 }
 
+// DB is an interface that represents a generic SQL database. It provides
+// methods to apply migrations and access the underlying database connection.
+type DB interface {
+	// GetBaseDB returns the underlying BaseDB instance.
+	GetBaseDB() *BaseDB
+
+	// ApplyAllMigrations applies all migrations to the database including
+	// both sqlc and custom in-code migrations.
+	ApplyAllMigrations(customMigrations ...MigrationConfig) error
+}
+
 // BaseDB is the base database struct that each implementation can embed to
 // gain some common functionality.
 type BaseDB struct {

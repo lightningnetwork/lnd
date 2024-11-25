@@ -35,6 +35,9 @@ var (
 
 	// Make sure PostgresStore implements the MigrationExecutor interface.
 	_ MigrationExecutor = (*PostgresStore)(nil)
+
+	// Make sure PostgresStore implements the DB interface.
+	_ DB = (*PostgresStore)(nil)
 )
 
 // replacePasswordInDSN takes a DSN string and returns it with the password
@@ -88,9 +91,7 @@ type PostgresStore struct {
 
 // NewPostgresStore creates a new store that is backed by a Postgres database
 // backend.
-func NewPostgresStore(cfg *PostgresConfig, migrations ...MigrationConfig) (
-	*PostgresStore, error) {
-
+func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	sanitizedDSN, err := replacePasswordInDSN(cfg.Dsn)
 	if err != nil {
 		return nil, err
@@ -113,23 +114,32 @@ func NewPostgresStore(cfg *PostgresConfig, migrations ...MigrationConfig) (
 
 	queries := sqlc.New(rawDB)
 
-	s := &PostgresStore{
+	return &PostgresStore{
 		cfg: cfg,
 		BaseDB: &BaseDB{
 			DB:      rawDB,
 			Queries: queries,
 		},
-	}
+	}, nil
+}
+
+// GetBaseDB returns the underlying BaseDB instance for the Postgres store.
+// It is a trivial helper method to comply with the sqldb.DB interface.
+func (s *PostgresStore) GetBaseDB() *BaseDB {
+	return s.BaseDB
+}
+
+// ApplyAllMigrations applices both the SQLC and custom in-code migrations to
+// the Postgres database.
+func (s *PostgresStore) ApplyAllMigrations(
+	customMigrations ...MigrationConfig) error {
 
 	// Execute migrations unless configured to skip them.
-	if !cfg.SkipMigrations {
-		err := ApplyMigrations(s.BaseDB, s, migrations)
-		if err != nil {
-			return nil, err
-		}
+	if s.cfg.SkipMigrations {
+		return nil
 	}
 
-	return s, nil
+	return ApplyMigrations(s.BaseDB, s, customMigrations)
 }
 
 // CurrentSchemaVersion returns the current schema version of the Postgres

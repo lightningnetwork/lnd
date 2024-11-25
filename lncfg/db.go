@@ -231,10 +231,10 @@ type DatabaseBackends struct {
 	// the underlying wallet database from.
 	WalletDB btcwallet.LoaderOption
 
-	// NativeSQLStore is a pointer to a native SQL store that can be used
-	// for native SQL queries for tables that already support it. This may
-	// be nil if the use-native-sql flag was not set.
-	NativeSQLStore *sqldb.BaseDB
+	// NativeSQLStore holds a reference to the native SQL store that can
+	// be used for native SQL queries for tables that already support it.
+	// This may be nil if the use-native-sql flag was not set.
+	NativeSQLStore sqldb.DB
 
 	// Remote indicates whether the database backends are remote, possibly
 	// replicated instances or local bbolt or sqlite backed databases.
@@ -449,17 +449,17 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		}
 		closeFuncs[NSWalletDB] = postgresWalletBackend.Close
 
-		var nativeSQLStore *sqldb.BaseDB
+		var nativeSQLStore sqldb.DB
 		if db.UseNativeSQL {
 			nativePostgresStore, err := sqldb.NewPostgresStore(
-				db.Postgres, sqldb.GetMigrations(),
+				db.Postgres,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("error opening "+
 					"native postgres store: %v", err)
 			}
 
-			nativeSQLStore = nativePostgresStore.BaseDB
+			nativeSQLStore = nativePostgresStore
 			closeFuncs[PostgresBackend] = nativePostgresStore.Close
 		}
 
@@ -571,19 +571,18 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		}
 		closeFuncs[NSWalletDB] = sqliteWalletBackend.Close
 
-		var nativeSQLStore *sqldb.BaseDB
+		var nativeSQLStore sqldb.DB
 		if db.UseNativeSQL {
 			nativeSQLiteStore, err := sqldb.NewSqliteStore(
 				db.Sqlite,
 				path.Join(chanDBPath, SqliteNativeDBName),
-				sqldb.GetMigrations(),
 			)
 			if err != nil {
 				return nil, fmt.Errorf("error opening "+
 					"native SQLite store: %v", err)
 			}
 
-			nativeSQLStore = nativeSQLiteStore.BaseDB
+			nativeSQLStore = nativeSQLiteStore
 			closeFuncs[SqliteBackend] = nativeSQLiteStore.Close
 		}
 

@@ -73,21 +73,6 @@ var (
 	rebroadcastInterval = time.Hour * 1000000
 )
 
-// makeTestDB creates a new instance of the ChannelDB for testing purposes.
-func makeTestDB(t *testing.T) (*channeldb.DB, error) {
-	// Create channeldb for the first time.
-	cdb, err := channeldb.Open(t.TempDir())
-	if err != nil {
-		return nil, err
-	}
-
-	t.Cleanup(func() {
-		cdb.Close()
-	})
-
-	return cdb, nil
-}
-
 type mockGraphSource struct {
 	bestHeight uint32
 
@@ -734,10 +719,7 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 	notifier := newMockNotifier()
 	router := newMockRouter(startHeight)
 
-	db, err := makeTestDB(t)
-	if err != nil {
-		return nil, err
-	}
+	db := channeldb.OpenForTesting(t, t.TempDir())
 
 	waitingProofStore, err := channeldb.NewWaitingProofStore(db)
 	if err != nil {

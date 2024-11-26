@@ -203,13 +203,7 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		return nil, err
 	}
 
-	dbBob, err := channeldb.Open(t.TempDir())
-	if err != nil {
-		return nil, err
-	}
-	t.Cleanup(func() {
-		require.NoError(t, dbBob.Close())
-	})
+	dbBob := channeldb.OpenForTesting(t, t.TempDir())
 
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	if err != nil {
@@ -624,11 +618,7 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 	dbAliceGraph, err := graphdb.NewChannelGraph(graphBackend)
 	require.NoError(t, err)
 
-	dbAliceChannel, err := channeldb.Open(dbPath)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, dbAliceChannel.Close())
-	})
+	dbAliceChannel := channeldb.OpenForTesting(t, dbPath)
 
 	nodeSignerAlice := netann.NewNodeSigner(aliceKeySigner)
 

@@ -65,11 +65,7 @@ func TestOpenWithCreate(t *testing.T) {
 
 	// Now, reopen the same db in dry run migration mode. Since we have not
 	// applied any migrations, this should ignore the flag and not fail.
-	cdb, err = Open(dbPath, OptionDryRunMigration(true))
-	require.NoError(t, err, "unable to create channeldb")
-	if err := cdb.Close(); err != nil {
-		t.Fatalf("unable to close channeldb: %v", err)
-	}
+	OpenForTesting(t, dbPath, OptionDryRunMigration(true))
 }
 
 // TestWipe tests that the database wipe operation completes successfully

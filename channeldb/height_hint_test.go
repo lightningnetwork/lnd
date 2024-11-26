@@ -23,14 +23,10 @@ func initHintCache(t *testing.T) *HeightHintCache {
 func initHintCacheWithConfig(t *testing.T, cfg CacheConfig) *HeightHintCache {
 	t.Helper()
 
-	db, err := Open(t.TempDir())
-	require.NoError(t, err, "unable to create db")
+	db := OpenForTesting(t, t.TempDir())
+
 	hintCache, err := NewHeightHintCache(cfg, db.Backend)
 	require.NoError(t, err, "unable to create hint cache")
-
-	t.Cleanup(func() {
-		require.NoError(t, db.Close())
-	})
 
 	return hintCache
 }

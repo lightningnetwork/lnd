@@ -2169,7 +2169,7 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 			BaseFee:       lnwire.NewMSatFromSatoshis(1),
 			TimeLockDelta: 6,
 		}
-		invoiceRegistry = newMockRegistry(globalPolicy.TimeLockDelta)
+		invoiceRegistry = newMockRegistry(t)
 	)
 
 	pCache := newMockPreimageCache()
@@ -2267,7 +2267,6 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 
 	t.Cleanup(func() {
 		close(alicePeer.quit)
-		invoiceRegistry.cleanup()
 	})
 
 	harness := singleLinkTestHarness{

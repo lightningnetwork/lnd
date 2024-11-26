@@ -33,11 +33,7 @@ var (
 func initHintCache(t *testing.T) *channeldb.HeightHintCache {
 	t.Helper()
 
-	db, err := channeldb.Open(t.TempDir())
-	require.NoError(t, err, "unable to create db")
-	t.Cleanup(func() {
-		require.NoError(t, db.Close())
-	})
+	db := channeldb.OpenForTesting(t, t.TempDir())
 
 	testCfg := channeldb.CacheConfig{
 		QueryDisable: false,

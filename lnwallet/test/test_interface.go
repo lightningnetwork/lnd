@@ -311,16 +311,14 @@ func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,
 
 // createTestWallet creates a test LightningWallet will a total of 20BTC
 // available for funding channels.
-func createTestWallet(tempTestDir string, miningNode *rpctest.Harness,
-	netParams *chaincfg.Params, notifier chainntnfs.ChainNotifier,
-	wc lnwallet.WalletController, keyRing keychain.SecretKeyRing,
-	signer input.Signer, bio lnwallet.BlockChainIO) (*lnwallet.LightningWallet, error) {
+func createTestWallet(t *testing.T, tempTestDir string,
+	miningNode *rpctest.Harness, netParams *chaincfg.Params,
+	notifier chainntnfs.ChainNotifier, wc lnwallet.WalletController,
+	keyRing keychain.SecretKeyRing, signer input.Signer,
+	bio lnwallet.BlockChainIO) *lnwallet.LightningWallet {
 
 	dbDir := filepath.Join(tempTestDir, "cdb")
-	fullDB, err := channeldb.Open(dbDir)
-	if err != nil {
-		return nil, err
-	}
+	fullDB := channeldb.OpenForTesting(t, dbDir)
 
 	cfg := lnwallet.Config{
 		Database:              fullDB.ChannelStateDB(),
@@ -335,20 +333,18 @@ func createTestWallet(tempTestDir string, miningNode *rpctest.Harness,
 	}
 
 	wallet, err := lnwallet.NewLightningWallet(cfg)
-	if err != nil {
-		return nil, err
-	}
+	require.NoError(t, err)
 
-	if err := wallet.Startup(); err != nil {
-		return nil, err
-	}
+	require.NoError(t, wallet.Startup())
+
+	t.Cleanup(func() {
+		require.NoError(t, wallet.Shutdown())
+	})
 
 	// Load our test wallet with 20 outputs each holding 4BTC.
-	if err := loadTestCredits(miningNode, wallet, 20, 4); err != nil {
-		return nil, err
-	}
+	require.NoError(t, loadTestCredits(miningNode, wallet, 20, 4))
 
-	return wallet, nil
+	return wallet
 }
 
 func testGetRecoveryInfo(miner *rpctest.Harness,
@@ -3206,9 +3202,7 @@ func TestLightningWallet(t *testing.T, targetBackEnd string) {
 
 	rpcConfig := miningNode.RPCConfig()
 
-	tempDir := t.TempDir()
-	db, err := channeldb.Open(tempDir)
-	require.NoError(t, err, "unable to create db")
+	db := channeldb.OpenForTesting(t, t.TempDir())
 	testCfg := channeldb.CacheConfig{
 		QueryDisable: false,
 	}
@@ -3450,20 +3444,16 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 	}
 
 	// Funding via 20 outputs with 4BTC each.
-	alice, err := createTestWallet(
-		tempTestDirAlice, miningNode, netParams,
+	alice := createTestWallet(
+		t, tempTestDirAlice, miningNode, netParams,
 		chainNotifier, aliceWalletController, aliceKeyRing,
 		aliceSigner, bio,
 	)
-	require.NoError(t, err, "unable to create test ln wallet")
-	defer alice.Shutdown()
 
-	bob, err := createTestWallet(
-		tempTestDirBob, miningNode, netParams,
+	bob := createTestWallet(
+		t, tempTestDirBob, miningNode, netParams,
 		chainNotifier, bobWalletController, bobKeyRing, bobSigner, bio,
 	)
-	require.NoError(t, err, "unable to create test ln wallet")
-	defer bob.Shutdown()
 
 	// Both wallets should now have 80BTC available for
 	// spending.

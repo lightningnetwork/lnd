@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -216,11 +215,7 @@ func initSwitchWithTempDB(t testing.TB, startingHeight uint32) (*Switch,
 	error) {
 
 	tempPath := filepath.Join(t.TempDir(), "switchdb")
-	db, err := channeldb.Open(tempPath)
-	if err != nil {
-		return nil, err
-	}
-	t.Cleanup(func() { db.Close() })
+	db := channeldb.OpenForTesting(t, tempPath)
 
 	s, err := initSwitchWithDB(startingHeight, db)
 	if err != nil {
@@ -254,9 +249,7 @@ func newMockServer(t testing.TB, name string, startingHeight uint32,
 
 	t.Cleanup(func() { _ = htlcSwitch.Stop() })
 
-	registry := newMockRegistry(defaultDelta)
-
-	t.Cleanup(func() { registry.cleanup() })
+	registry := newMockRegistry(t)
 
 	return &mockServer{
 		t:                t,
@@ -977,37 +970,12 @@ func (f *mockChannelLink) CommitmentCustomBlob() fn.Option[tlv.Blob] {
 
 var _ ChannelLink = (*mockChannelLink)(nil)
 
-func newDB() (*channeldb.DB, func(), error) {
-	// First, create a temporary directory to be used for the duration of
-	// this test.
-	tempDirName, err := os.MkdirTemp("", "channeldb")
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Next, create channeldb for the first time.
-	cdb, err := channeldb.Open(tempDirName)
-	if err != nil {
-		os.RemoveAll(tempDirName)
-		return nil, nil, err
-	}
-
-	cleanUp := func() {
-		cdb.Close()
-		os.RemoveAll(tempDirName)
-	}
-
-	return cdb, cleanUp, nil
-}
-
 const testInvoiceCltvExpiry = 6
 
 type mockInvoiceRegistry struct {
 	settleChan chan lntypes.Hash
 
 	registry *invoices.InvoiceRegistry
-
-	cleanup func()
 }
 
 type mockChainNotifier struct {
@@ -1024,11 +992,8 @@ func (m *mockChainNotifier) RegisterBlockEpochNtfn(*chainntnfs.BlockEpoch) (
 	}, nil
 }
 
-func newMockRegistry(minDelta uint32) *mockInvoiceRegistry {
-	cdb, cleanup, err := newDB()
-	if err != nil {
-		panic(err)
-	}
+func newMockRegistry(t testing.TB) *mockInvoiceRegistry {
+	cdb := channeldb.OpenForTesting(t, t.TempDir())
 
 	modifierMock := &invoices.MockHtlcModifier{}
 	registry := invoices.NewRegistry(
@@ -1046,7 +1011,6 @@ func newMockRegistry(minDelta uint32) *mockInvoiceRegistry {
 
 	return &mockInvoiceRegistry{
 		registry: registry,
-		cleanup:  cleanup,
 	}
 }
 

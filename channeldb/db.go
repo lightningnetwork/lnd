@@ -34,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -345,10 +346,11 @@ type DB struct {
 	noRevLogAmtData bool
 }
 
-// Open opens or creates channeldb. Any necessary schemas migrations due
-// to updates will take place as necessary.
-// TODO(bhandras): deprecate this function.
-func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
+// OpenForTesting opens or creates a channeldb to be used for tests. Any
+// necessary schemas migrations due to updates will take place as necessary.
+func OpenForTesting(t testing.TB, dbPath string,
+	modifiers ...OptionModifier) *DB {
+
 	backend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
 		DBPath:            dbPath,
 		DBFileName:        dbName,
@@ -357,16 +359,18 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 		AutoCompactMinAge: kvdb.DefaultBoltAutoCompactMinAge,
 		DBTimeout:         kvdb.DefaultDBTimeout,
 	})
-	if err != nil {
-		return nil, err
-	}
+	require.NoError(t, err)
 
 	db, err := CreateWithBackend(backend, modifiers...)
-	if err == nil {
-		db.dbPath = dbPath
-	}
+	require.NoError(t, err)
 
-	return db, err
+	db.dbPath = dbPath
+
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	return db
 }
 
 // CreateWithBackend creates channeldb instance using the passed kvdb.Backend.

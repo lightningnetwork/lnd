@@ -251,21 +251,8 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		return nil, nil, err
 	}
 
-	dbAlice, err := channeldb.Open(t.TempDir())
-	if err != nil {
-		return nil, nil, err
-	}
-	t.Cleanup(func() {
-		require.NoError(t, dbAlice.Close())
-	})
-
-	dbBob, err := channeldb.Open(t.TempDir())
-	if err != nil {
-		return nil, nil, err
-	}
-	t.Cleanup(func() {
-		require.NoError(t, dbBob.Close())
-	})
+	dbAlice := channeldb.OpenForTesting(t, t.TempDir())
+	dbBob := channeldb.OpenForTesting(t, t.TempDir())
 
 	estimator := chainfee.NewStaticEstimator(6000, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
@@ -403,11 +390,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		switch err {
 		case nil:
 		case kvdb.ErrDatabaseNotOpen:
-			dbAlice, err = channeldb.Open(dbAlice.Path())
-			if err != nil {
-				return nil, errors.Errorf("unable to reopen alice "+
-					"db: %v", err)
-			}
+			dbAlice = channeldb.OpenForTesting(t, dbAlice.Path())
 
 			aliceStoredChannels, err = dbAlice.ChannelStateDB().
 				FetchOpenChannels(aliceKeyPub)
@@ -451,7 +434,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		switch err {
 		case nil:
 		case kvdb.ErrDatabaseNotOpen:
-			dbBob, err = channeldb.Open(dbBob.Path())
+			dbBob = channeldb.OpenForTesting(t, dbBob.Path())
 			if err != nil {
 				return nil, errors.Errorf("unable to reopen bob "+
 					"db: %v", err)

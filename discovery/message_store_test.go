@@ -17,19 +17,10 @@ import (
 func createTestMessageStore(t *testing.T) *MessageStore {
 	t.Helper()
 
-	db, err := channeldb.Open(t.TempDir())
-	if err != nil {
-		t.Fatalf("unable to open db: %v", err)
-	}
-
-	t.Cleanup(func() {
-		db.Close()
-	})
+	db := channeldb.OpenForTesting(t, t.TempDir())
 
 	store, err := NewMessageStore(db)
-	if err != nil {
-		t.Fatalf("unable to initialize message store: %v", err)
-	}
+	require.NoError(t, err)
 
 	return store
 }

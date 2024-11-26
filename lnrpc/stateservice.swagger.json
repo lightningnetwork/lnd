@@ -95,12 +95,13 @@
         "NON_EXISTING",
         "LOCKED",
         "UNLOCKED",
+        "ALLOW_REMOTE_SIGNER",
         "RPC_ACTIVE",
         "SERVER_ACTIVE",
         "WAITING_TO_START"
       ],
       "default": "NON_EXISTING",
-      "description": " - NON_EXISTING: NON_EXISTING means that the wallet has not yet been initialized.\n - LOCKED: LOCKED means that the wallet is locked and requires a password to unlock.\n - UNLOCKED: UNLOCKED means that the wallet was unlocked successfully, but RPC server\nisn't ready.\n - RPC_ACTIVE: RPC_ACTIVE means that the lnd server is active but not fully ready for\ncalls.\n - SERVER_ACTIVE: SERVER_ACTIVE means that the lnd server is ready to accept calls.\n - WAITING_TO_START: WAITING_TO_START means that node is waiting to become the leader in a\ncluster and is not started yet."
+      "description": " - NON_EXISTING: NON_EXISTING means that the wallet has not yet been initialized.\n - LOCKED: LOCKED means that the wallet is locked and requires a password to unlock.\n - UNLOCKED: UNLOCKED means that the wallet was unlocked successfully, but RPC server\nisn't ready.\n - ALLOW_REMOTE_SIGNER: ALLOW_REMOTE_SIGNER means that the lnd server in a state where it's only\nready to accept incoming connections from a remote signer.\n - RPC_ACTIVE: RPC_ACTIVE means that the lnd server is active but not fully ready for\ncalls.\n - SERVER_ACTIVE: SERVER_ACTIVE means that the lnd server is ready to accept calls.\n - WAITING_TO_START: WAITING_TO_START means that node is waiting to become the leader in a\ncluster and is not started yet."
     },
     "protobufAny": {
       "type": "object",

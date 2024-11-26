@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/netann"
@@ -100,8 +101,8 @@ type subRPCServerConfigs struct {
 // within this struct, and populate the items it requires based on the main
 // configuration file, and the chain control.
 //
-// NOTE: This MUST be called before any callers are permitted to execute the
-// FetchConfig method.
+// NOTE: When preparing all sub-servers to be ready to accept RPC calls, this
+// MUST be called before the FetchConfig method is executed.
 func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	cc *chainreg.ChainControl,
 	networkDir string, macService *macaroons.Service,
@@ -209,6 +210,10 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			subCfgValue.FieldByName("ChanStateDB").Set(
 				reflect.ValueOf(chanStateDB),
 			)
+
+			// The "RemoteSigner" field have already been added
+			// through the PopulateRemoteSignerCfgValues function,
+			// and we therefore don't need to overwrite them here.
 
 		case *autopilotrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)
@@ -372,6 +377,30 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	s.RouterRPC.MacService = macService
 	s.RouterRPC.Router = chanRouter
 	s.RouterRPC.RouterBackend = routerBackend
+
+	return nil
+}
+
+// PopulateRemoteSignerCfgValues populates the WalletKit sub-server config with
+// the remote signer items, given that the remote signer is enabled.
+func (s *subRPCServerConfigs) PopulateRemoteSignerCfgValues(cfg *Config,
+	cc *chainreg.ChainControl) error {
+
+	// Only populate the config values with the remote signer if it's
+	// enabled.
+	if cfg.RemoteSigner == nil || !cfg.RemoteSigner.Enable {
+		return nil
+	}
+
+	// Extract the WalletKit sub-server config, and populate the config with
+	// the remote signer values.
+	subCfgValue := extractReflectValue(s.WalletKitRPC)
+
+	if rpckKeyRing, ok := cc.Wc.(*rpcwallet.RPCKeyRing); ok {
+		subCfgValue.FieldByName("RemoteSigner").Set(
+			reflect.ValueOf(rpckKeyRing.RemoteSigner()),
+		)
+	}
 
 	return nil
 }

@@ -173,7 +173,7 @@ func TestTxNotifierRegistrationValidation(t *testing.T) {
 
 	for _, testCase := range testCases {
 		testCase := testCase
-		t.Run(testCase.name, func(t *testing.T) {
+		success := t.Run(testCase.name, func(t *testing.T) {
 			hintCache := newMockHintCache()
 			n := chainntnfs.NewTxNotifier(
 				10, chainntnfs.ReorgSafetyLimit, hintCache, hintCache,
@@ -201,6 +201,10 @@ func TestTxNotifierRegistrationValidation(t *testing.T) {
 					"\"%v\", got \"%v\"", testCase.err, err)
 			}
 		})
+
+		if !success {
+			return
+		}
 	}
 }
 

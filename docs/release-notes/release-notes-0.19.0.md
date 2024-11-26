@@ -61,6 +61,12 @@
   https://github.com/lightningnetwork/lnd/pull/9253)
 
 # New Features
+
+* [Support](https://github.com/lightningnetwork/lnd/pull/8390) for 
+  [experimental endorsement](https://github.com/lightning/blips/pull/27) 
+  signal relay was added. This signal has *no impact* on routing, and
+  is deployed experimentally to assist ongoing channel jamming research.
+
 ## Functional Enhancements
 * [Add ability](https://github.com/lightningnetwork/lnd/pull/8998) to paginate 
  wallet transactions.
@@ -205,6 +211,7 @@ The underlying functionality between those two options remain the same.
 * Abdullahi Yunus
 * Animesh Bilthare
 * Boris Nagaev
+* Carla Kirk-Cohen
 * CharlieZKSmith
 * Elle Mouton
 * George Tsagkarelis

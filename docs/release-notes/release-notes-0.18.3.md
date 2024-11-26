@@ -175,6 +175,10 @@ that validate `ChannelAnnouncement` messages.
   All units are `sats/kvB`. If the new field `min_relay_feerate` is not set,
   the default floor feerate (1012 sats/kvB) will be used.
 
+* [nodeannouncement](https://github.com/lightningnetwork/lnd/pull/8825)
+  previously configured is now resued when a node restarts, instead of going
+  back to the default.
+
 * Commitment fees are now taken into account when [calculating the fee
   exposure threshold](https://github.com/lightningnetwork/lnd/pull/8824).
 
@@ -287,6 +291,7 @@ that validate `ChannelAnnouncement` messages.
 
 # Contributors (Alphabetical Order)
 
+* Abdullahi Yunus
 * Alex Akselrod
 * Andras Banki-Horvath
 * bitromortac

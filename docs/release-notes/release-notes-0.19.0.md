@@ -111,6 +111,13 @@
   now update the channel policy if the edge was not found in the graph
   database if the `create_missing_edge` flag is set.
 
+* [The `lncli addinvoice --blind` command now has the option to include a chained
+  channels incoming list [ `--blinded_path_incoming_channel_list` ] which gives
+  users the control of specifying the channels they prefer to receive the 
+  payment on. With the option to specify multiple channels this control can be 
+  extended to multiple hops leading to the
+  node.](https://github.com/lightningnetwork/lnd/pull/9127)
+
 # Improvements
 ## Functional Updates
 

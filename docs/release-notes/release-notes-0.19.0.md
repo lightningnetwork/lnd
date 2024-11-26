@@ -189,6 +189,11 @@ The underlying functionality between those two options remain the same.
   for the Gossip 1.75 protocol.
 
 ## Testing
+
+* The integration tests CI have been optimized to run faster and all flakes are
+  now documented and
+  [fixedo](https://github.com/lightningnetwork/lnd/pull/9260).
+
 ## Database
 
 * [Migrate the mission control 
@@ -199,8 +204,6 @@ The underlying functionality between those two options remain the same.
 * [Migrate the mission control 
   store](https://github.com/lightningnetwork/lnd/pull/9001) so that results are 
   namespaced. All existing results are written to the "default" namespace.
-
-## Code Health
 
 ## Tooling and Documentation
 

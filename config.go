@@ -721,7 +721,10 @@ func DefaultConfig() Config {
 		CoinSelectionStrategy:     defaultCoinSelectionStrategy,
 		KeepFailedPaymentAttempts: defaultKeepFailedPaymentAttempts,
 		RemoteSigner: &lncfg.RemoteSigner{
-			Timeout: lncfg.DefaultRemoteSignerRPCTimeout,
+			SignerRole:     lncfg.DefaultInboundWatchOnlyRole,
+			Timeout:        lncfg.DefaultRemoteSignerRPCTimeout,
+			RequestTimeout: lncfg.DefaultRequestTimeout,
+			StartupTimeout: lncfg.DefaultStartupTimeout,
 		},
 		Sweeper: lncfg.DefaultSweeperConfig(),
 		Htlcswitch: &lncfg.Htlcswitch{

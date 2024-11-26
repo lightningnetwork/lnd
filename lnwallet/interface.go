@@ -539,6 +539,10 @@ type WalletController interface {
 	// starting up required goroutines etc.
 	Start() error
 
+	// RequireSignal returns a channel which is sent over with no error,
+	// once the wallet is ready to be used.
+	ReadySignal() chan error
+
 	// Stop signals the wallet for shutdown. Shutdown may entail closing
 	// any active sockets, database handles, stopping goroutines, etc.
 	Stop() error

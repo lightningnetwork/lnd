@@ -103,6 +103,10 @@
 * The `lncli wallet fundpsbt` command now has a [`--max_fee_ratio` argument to
   specify the max fees to output amounts ratio.](https://github.com/lightningnetwork/lnd/pull/8600)
 
+* The `lncli addinvoice --blind` command now has the option to include a chained
+  channels incoming list [`--blinded_path_incoming_channel_list]
+  (https://github.com/lightningnetwork/lnd/pull/9127)
+
 # Improvements
 ## Functional Updates
 

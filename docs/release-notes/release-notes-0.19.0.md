@@ -232,6 +232,11 @@ The underlying functionality between those two options remain the same.
   store](https://github.com/lightningnetwork/lnd/pull/9001) so that results are 
   namespaced. All existing results are written to the "default" namespace.
 
+* [Remove global application level lock for
+  Postgres](https://github.com/lightningnetwork/lnd/pull/9313) so multiple DB
+  transactions can run at once, increasing efficiency. Includes several bugfixes
+  to allow this to work properly.
+
 ## Code Health
 
 * A code refactor that [moves all the graph related DB code out of the 

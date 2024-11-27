@@ -26,6 +26,9 @@
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9324) to prevent
   potential deadlocks when LND depends on external components (e.g. aux
   components, hooks).
+  
+* [Make sure blinded payment failures are handled correctly in the mission
+controller](https://github.com/lightningnetwork/lnd/pull/9316).
 
 # New Features
 

@@ -149,7 +149,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	interceptor signal.Interceptor) error {
 
 	defer func() {
-		ltndLog.Info("Shutdown complete\n")
+		ltndLog.Info("Shutdown complete")
 		err := cfg.LogRotator.Close()
 		if err != nil {
 			ltndLog.Errorf("Could not close log rotator: %v", err)
@@ -183,9 +183,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	}
 
 	// Show version at startup.
-	ltndLog.Infof("Version: %s commit=%s, build=%s, logging=%s, "+
-		"debuglevel=%s", build.Version(), build.Commit,
-		build.Deployment, build.LoggingType, cfg.DebugLevel)
+	ltndLog.InfoS(ctx, "Version Info",
+		slog.String("version", build.Version()),
+		slog.String("commit", build.Commit),
+		slog.Any("debuglevel", build.Deployment),
+		slog.String("logging", cfg.DebugLevel))
 
 	var network string
 	switch {
@@ -205,9 +207,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		network = "signet"
 	}
 
-	ltndLog.Infof("Active chain: %v (network=%v)",
-		strings.Title(BitcoinChainName), network,
-	)
+	ltndLog.InfoS(ctx, "Network Info",
+		"active_chain", strings.Title(BitcoinChainName),
+		"network", network)
 
 	// Enable http profiling server if requested.
 	if cfg.Pprof.Profile != "" {
@@ -233,7 +235,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			"/debug/pprof/", http.StatusSeeOther,
 		))
 
-		ltndLog.Infof("Pprof listening on %v", cfg.Pprof.Profile)
+		ltndLog.InfoS(ctx, "Pprof listening", "addr", cfg.Pprof.Profile)
 
 		// Create the pprof server.
 		pprofServer := &http.Server{
@@ -244,11 +246,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 		// Shut the server down when lnd is shutting down.
 		defer func() {
-			ltndLog.Info("Stopping pprof server...")
+			ltndLog.InfoS(ctx, "Stopping pprof server...")
 			err := pprofServer.Shutdown(ctx)
 			if err != nil {
-				ltndLog.Errorf("Stop pprof server got err: %v",
-					err)
+				ltndLog.ErrorS(ctx, "Stop pprof server", err)
 			}
 		}()
 
@@ -256,7 +257,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		go func() {
 			err := pprofServer.ListenAndServe()
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				ltndLog.Errorf("Serving pprof got err: %v", err)
+				ltndLog.ErrorS(ctx, "Could not serve pprof "+
+					"server", err)
 			}
 		}()
 	}
@@ -420,8 +422,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			cancelElection()
 		}()
 
-		ltndLog.Infof("Using %v leader elector",
-			cfg.Cluster.LeaderElector)
+		ltndLog.InfoS(ctx, "Using leader elector",
+			"elector", cfg.Cluster.LeaderElector)
 
 		leaderElector, err = cfg.Cluster.MakeLeaderElector(
 			electionCtx, cfg.DB,
@@ -435,8 +437,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 				return
 			}
 
-			ltndLog.Infof("Attempting to resign from leader role "+
-				"(%v)", cfg.Cluster.ID)
+			ltndLog.InfoS(ctx, "Attempting to resign from "+
+				"leader role", "cluster_id", cfg.Cluster.ID)
 
 			// Ensure that we don't block the shutdown process if
 			// the leader resigning process takes too long. The
@@ -454,21 +456,23 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			}
 		}()
 
-		ltndLog.Infof("Starting leadership campaign (%v)",
-			cfg.Cluster.ID)
+		ltndLog.InfoS(ctx, "Starting leadership campaign",
+			"cluster_id", cfg.Cluster.ID)
 
 		if err := leaderElector.Campaign(electionCtx); err != nil {
 			return mkErr("leadership campaign failed", err)
 		}
 
 		elected = true
-		ltndLog.Infof("Elected as leader (%v)", cfg.Cluster.ID)
+		ltndLog.InfoS(ctx, "Elected as leader",
+			"cluster_id", cfg.Cluster.ID)
 	}
 
 	dbs, cleanUp, err := implCfg.DatabaseBuilder.BuildDatabase(ctx)
 	switch {
 	case err == channeldb.ErrDryRunMigrationOK:
-		ltndLog.Infof("%v, exiting", err)
+		ltndLog.InfoS(ctx, "Exiting due to BuildDatabase error",
+			slog.Any("err", err))
 		return nil
 	case err != nil:
 		return mkErr("unable to open databases", err)
@@ -512,14 +516,14 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	if cfg.Tor.Active {
 		if cfg.Tor.SkipProxyForClearNetTargets {
-			srvrLog.Info("Onion services are accessible via Tor! " +
-				"NOTE: Traffic to clearnet services is not " +
-				"routed via Tor.")
+			srvrLog.InfoS(ctx, "Onion services are accessible "+
+				"via Tor! NOTE: Traffic to clearnet services "+
+				"is not routed via Tor.")
 		} else {
-			srvrLog.Infof("Proxying all network traffic via Tor "+
-				"(stream_isolation=%v)! NOTE: Ensure the "+
-				"backend node is proxying over Tor as well",
-				cfg.Tor.StreamIsolation)
+			srvrLog.InfoS(ctx, "Proxying all network traffic "+
+				"via Tor! NOTE: Ensure the backend node is "+
+				"proxying over Tor as well",
+				"stream_isolation", cfg.Tor.StreamIsolation)
 		}
 	}
 
@@ -541,8 +545,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		}
 		defer func() {
 			if err := torController.Stop(); err != nil {
-				ltndLog.Errorf("error stopping tor "+
-					"controller: %v", err)
+				ltndLog.ErrorS(ctx, "Error stopping tor "+
+					"controller", err)
 			}
 		}()
 	}
@@ -684,8 +688,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		return mkErr("unable to determine chain tip", err)
 	}
 
-	ltndLog.Infof("Waiting for chain backend to finish sync, "+
-		"start_height=%v", bestHeight)
+	ltndLog.InfoS(ctx, "Waiting for chain backend to finish sync",
+		slog.Int64("start_height", int64(bestHeight)))
 
 	type syncResult struct {
 		synced        bool
@@ -715,9 +719,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 					"is synced", res.err)
 			}
 
-			ltndLog.Debugf("Syncing to block timestamp: %v, is "+
-				"synced=%v", time.Unix(res.bestBlockTime, 0),
-				res.synced)
+			ltndLog.DebugS(ctx, "Syncing to block chain",
+				"best_block_time", time.Unix(res.bestBlockTime, 0),
+				"is_synced", res.synced)
 
 			if res.synced {
 				break
@@ -742,8 +746,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		return mkErr("unable to determine chain tip", err)
 	}
 
-	ltndLog.Infof("Chain backend is fully synced (end_height=%v)!",
-		bestHeight)
+	ltndLog.InfoS(ctx, "Chain backend is fully synced!",
+		"end_height", bestHeight)
 
 	// With all the relevant chains initialized, we can finally start the
 	// server itself. We start the server in an asynchronous goroutine so
@@ -757,8 +761,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	defer func() {
 		err := server.Stop()
 		if err != nil {
-			ltndLog.Warnf("Stopping the server including all "+
-				"its subsystems failed with %v", err)
+			ltndLog.WarnS(ctx, "Stopping the server including all "+
+				"its subsystems failed with", err)
 		}
 	}()
 

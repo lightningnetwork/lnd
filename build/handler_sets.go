@@ -108,6 +108,19 @@ func (h *handlerSet) Level() btclogv1.Level {
 	return h.level
 }
 
+// WithPrefix returns a copy of the Handler but with the given string prefixed
+// to each log message.
+//
+// NOTE: this is part of the btclog.Handler interface.
+func (h *handlerSet) WithPrefix(prefix string) btclog.Handler {
+	newSet := &handlerSet{set: make([]btclog.Handler, len(h.set))}
+	for i, handler := range h.set {
+		newSet.set[i] = handler.WithPrefix(prefix)
+	}
+
+	return newSet
+}
+
 // A compile-time check to ensure that handlerSet implements btclog.Handler.
 var _ btclog.Handler = (*handlerSet)(nil)
 

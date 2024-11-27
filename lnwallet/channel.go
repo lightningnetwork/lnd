@@ -23,7 +23,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -955,7 +954,7 @@ func NewLightningChannel(signer input.Signer,
 		updateLogs:           updateLogs,
 		Capacity:             state.Capacity,
 		taprootNonceProducer: taprootNonceProducer,
-		log:                  build.NewPrefixLog(logPrefix, walletLog),
+		log:                  walletLog.WithPrefix(logPrefix),
 		opts:                 opts,
 	}
 

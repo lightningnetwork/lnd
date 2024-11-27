@@ -160,7 +160,13 @@
   a log line. The options for this include "off" (default), "short" (source file
   name and line number) and "long" (full path to source file and line number). 
   Finally, the new `--logging.console.style` option can be used under the `dev` 
-  build tag to add styling to console logging.
+  build tag to add styling to console logging. 
+
+* [Start adding a commit hash fingerprint to log lines by 
+  default](https://github.com/lightningnetwork/lnd/pull/9314). This can be 
+  disabled with the new `--logging.no-commit-hash"` option. Note that this extra
+  info will currently only appear in a few log lines, but more will be added in 
+  future as the structured logging change is propagated throughout LND.
  
 * [Add max files and max file size](https://github.com/lightningnetwork/lnd/pull/9233) 
   options to the `logging` config namespace under new `--logging.file.max-files` 

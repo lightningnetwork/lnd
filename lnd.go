@@ -155,6 +155,15 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		}
 	}()
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctx, err := build.WithBuildInfo(ctx, cfg.LogConfig)
+	if err != nil {
+		return fmt.Errorf("unable to add build info to context: %w",
+			err)
+	}
+
 	mkErr := func(format string, args ...interface{}) error {
 		ltndLog.Errorf("Shutting down because error in main "+
 			"method: "+format, args...)
@@ -187,10 +196,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	ltndLog.Infof("Active chain: %v (network=%v)",
 		strings.Title(BitcoinChainName), network,
 	)
-
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	// Enable http profiling server if requested.
 	if cfg.Pprof.Profile != "" {

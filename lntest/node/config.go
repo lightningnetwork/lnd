@@ -203,6 +203,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		"--bitcoin.defaultchanconfs=1",
 		"--accept-keysend",
 		"--keep-failed-payment-attempts",
+		"--logging.no-commit-hash",
 		fmt.Sprintf("--db.batch-commit-interval=%v", commitInterval),
 		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", DefaultCSV),
 		fmt.Sprintf("--rpclisten=%v", cfg.RPCAddr()),

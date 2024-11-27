@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -164,10 +165,21 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			err)
 	}
 
-	mkErr := func(format string, args ...interface{}) error {
-		ltndLog.Errorf("Shutting down because error in main "+
-			"method: "+format, args...)
-		return fmt.Errorf(format, args...)
+	mkErr := func(msg string, err error, attrs ...any) error {
+		ltndLog.ErrorS(ctx, "Shutting down due to error in main "+
+			"method", err, attrs...)
+
+		var (
+			params = []any{err}
+			fmtStr = msg + ": %w"
+		)
+		for _, attr := range attrs {
+			fmtStr += " %s"
+
+			params = append(params, attr)
+		}
+
+		return fmt.Errorf(fmtStr, params...)
 	}
 
 	// Show version at startup.
@@ -253,7 +265,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	if cfg.Pprof.CPUProfile != "" {
 		f, err := os.Create(cfg.Pprof.CPUProfile)
 		if err != nil {
-			return mkErr("unable to create CPU profile: %v", err)
+			return mkErr("unable to create CPU profile", err)
 		}
 		_ = runtimePprof.StartCPUProfile(f)
 		defer func() {
@@ -266,7 +278,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// needs to be done early and once during the startup process, before
 	// any DB access.
 	if err := cfg.DB.Init(ctx, cfg.graphDatabaseDir()); err != nil {
-		return mkErr("error initializing DBs: %v", err)
+		return mkErr("error initializing DBs", err)
 	}
 
 	tlsManagerCfg := &TLSManagerCfg{
@@ -291,7 +303,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	serverOpts, restDialOpts, restListen, cleanUp,
 		err := tlsManager.SetCertificateBeforeUnlock()
 	if err != nil {
-		return mkErr("error setting cert before unlock: %v", err)
+		return mkErr("error setting cert before unlock", err)
 	}
 	if cleanUp != nil {
 		defer cleanUp()
@@ -308,8 +320,12 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			// connections.
 			lis, err := lncfg.ListenOnAddress(grpcEndpoint)
 			if err != nil {
-				return mkErr("unable to listen on %s: %v",
-					grpcEndpoint, err)
+				return mkErr("unable to listen on grpc "+
+					"endpoint", err,
+					slog.String(
+						"endpoint",
+						grpcEndpoint.String(),
+					))
 			}
 			defer lis.Close()
 
@@ -328,7 +344,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		rpcsLog, cfg.NoMacaroons, cfg.RPCMiddleware.Mandatory,
 	)
 	if err := interceptorChain.Start(); err != nil {
-		return mkErr("error starting interceptor chain: %v", err)
+		return mkErr("error starting interceptor chain", err)
 	}
 	defer func() {
 		err := interceptorChain.Stop()
@@ -369,14 +385,14 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	rpcServer := newRPCServer(cfg, interceptorChain, implCfg, interceptor)
 	err = rpcServer.RegisterWithGrpcServer(grpcServer)
 	if err != nil {
-		return mkErr("error registering gRPC server: %v", err)
+		return mkErr("error registering gRPC server", err)
 	}
 
 	// Now that both the WalletUnlocker and LightningService have been
 	// registered with the GRPC server, we can start listening.
 	err = startGrpcListen(cfg, grpcServer, grpcListeners)
 	if err != nil {
-		return mkErr("error starting gRPC listener: %v", err)
+		return mkErr("error starting gRPC listener", err)
 	}
 
 	// Now start the REST proxy for our gRPC server above. We'll ensure
@@ -387,7 +403,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		ctx, cfg, rpcServer, restDialOpts, restListen,
 	)
 	if err != nil {
-		return mkErr("error starting REST proxy: %v", err)
+		return mkErr("error starting REST proxy", err)
 	}
 	defer stopProxy()
 
@@ -442,7 +458,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			cfg.Cluster.ID)
 
 		if err := leaderElector.Campaign(electionCtx); err != nil {
-			return mkErr("leadership campaign failed: %v", err)
+			return mkErr("leadership campaign failed", err)
 		}
 
 		elected = true
@@ -455,7 +471,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		ltndLog.Infof("%v, exiting", err)
 		return nil
 	case err != nil:
-		return mkErr("unable to open databases: %v", err)
+		return mkErr("unable to open databases", err)
 	}
 
 	defer cleanUp()
@@ -465,7 +481,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		grpcListeners,
 	)
 	if err != nil {
-		return mkErr("error creating wallet config: %v", err)
+		return mkErr("error creating wallet config", err)
 	}
 
 	defer cleanUp()
@@ -474,7 +490,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		partialChainControl, walletConfig,
 	)
 	if err != nil {
-		return mkErr("error loading chain control: %v", err)
+		return mkErr("error loading chain control", err)
 	}
 
 	defer cleanUp()
@@ -487,7 +503,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		},
 	)
 	if err != nil {
-		return mkErr("error deriving node key: %v", err)
+		return mkErr("error deriving node key", err)
 	}
 
 	if cfg.Tor.StreamIsolation && cfg.Tor.SkipProxyForClearNetTargets {
@@ -520,7 +536,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		// Start the tor controller before giving it to any other
 		// subsystems.
 		if err := torController.Start(); err != nil {
-			return mkErr("unable to initialize tor controller: %v",
+			return mkErr("unable to initialize tor controller",
 				err)
 		}
 		defer func() {
@@ -540,7 +556,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			},
 		)
 		if err != nil {
-			return mkErr("error deriving tower key: %v", err)
+			return mkErr("error deriving tower key", err)
 		}
 
 		wtCfg := &watchtower.Config{
@@ -581,12 +597,12 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			wtCfg, lncfg.NormalizeAddresses,
 		)
 		if err != nil {
-			return mkErr("unable to configure watchtower: %v", err)
+			return mkErr("unable to configure watchtower", err)
 		}
 
 		tower, err = watchtower.New(wtConfig)
 		if err != nil {
-			return mkErr("unable to create watchtower: %v", err)
+			return mkErr("unable to create watchtower", err)
 		}
 	}
 
@@ -609,7 +625,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		implCfg,
 	)
 	if err != nil {
-		return mkErr("unable to create server: %v", err)
+		return mkErr("unable to create server", err)
 	}
 
 	// Set up an autopilot manager from the current config. This will be
@@ -620,22 +636,21 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		cfg.ActiveNetParams,
 	)
 	if err != nil {
-		return mkErr("unable to initialize autopilot: %v", err)
+		return mkErr("unable to initialize autopilot", err)
 	}
 
 	atplManager, err := autopilot.NewManager(atplCfg)
 	if err != nil {
-		return mkErr("unable to create autopilot manager: %v", err)
+		return mkErr("unable to create autopilot manager", err)
 	}
 	if err := atplManager.Start(); err != nil {
-		return mkErr("unable to start autopilot manager: %v", err)
+		return mkErr("unable to start autopilot manager", err)
 	}
 	defer atplManager.Stop()
 
 	err = tlsManager.LoadPermanentCertificate(activeChainControl.KeyRing)
 	if err != nil {
-		return mkErr("unable to load permanent TLS certificate: %v",
-			err)
+		return mkErr("unable to load permanent TLS certificate", err)
 	}
 
 	// Now we have created all dependencies necessary to populate and
@@ -646,10 +661,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		server.invoiceHtlcModifier,
 	)
 	if err != nil {
-		return mkErr("unable to add deps to RPC server: %v", err)
+		return mkErr("unable to add deps to RPC server", err)
 	}
 	if err := rpcServer.Start(); err != nil {
-		return mkErr("unable to start RPC server: %v", err)
+		return mkErr("unable to start RPC server", err)
 	}
 	defer rpcServer.Stop()
 
@@ -657,7 +672,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	interceptorChain.SetRPCActive()
 
 	if err := interceptor.Notifier.NotifyReady(true); err != nil {
-		return mkErr("error notifying ready: %v", err)
+		return mkErr("error notifying ready", err)
 	}
 
 	// We'll wait until we're fully synced to continue the start up of the
@@ -666,7 +681,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// funds.
 	_, bestHeight, err := activeChainControl.ChainIO.GetBestBlock()
 	if err != nil {
-		return mkErr("unable to determine chain tip: %v", err)
+		return mkErr("unable to determine chain tip", err)
 	}
 
 	ltndLog.Infof("Waiting for chain backend to finish sync, "+
@@ -697,7 +712,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		case res := <-syncedResChan:
 			if res.err != nil {
 				return mkErr("unable to determine if wallet "+
-					"is synced: %v", res.err)
+					"is synced", res.err)
 			}
 
 			ltndLog.Debugf("Syncing to block timestamp: %v, is "+
@@ -724,7 +739,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	_, bestHeight, err = activeChainControl.ChainIO.GetBestBlock()
 	if err != nil {
-		return mkErr("unable to determine chain tip: %v", err)
+		return mkErr("unable to determine chain tip", err)
 	}
 
 	ltndLog.Infof("Chain backend is fully synced (end_height=%v)!",
@@ -753,7 +768,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			break
 		}
 
-		return mkErr("unable to start server: %v", err)
+		return mkErr("unable to start server", err)
 
 	case <-interceptor.ShutdownChannel():
 		return nil
@@ -767,13 +782,13 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// stopped together with the autopilot service.
 	if cfg.Autopilot.Active {
 		if err := atplManager.StartAgent(); err != nil {
-			return mkErr("unable to start autopilot agent: %v", err)
+			return mkErr("unable to start autopilot agent", err)
 		}
 	}
 
 	if cfg.Watchtower.Active {
 		if err := tower.Start(); err != nil {
-			return mkErr("unable to start watchtower: %v", err)
+			return mkErr("unable to start watchtower", err)
 		}
 		defer tower.Stop()
 	}

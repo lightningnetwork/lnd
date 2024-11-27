@@ -470,7 +470,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	dbs, cleanUp, err := implCfg.DatabaseBuilder.BuildDatabase(ctx)
 	switch {
-	case err == channeldb.ErrDryRunMigrationOK:
+	case errors.Is(err, channeldb.ErrDryRunMigrationOK):
 		ltndLog.InfoS(ctx, "Exiting due to BuildDatabase error",
 			slog.Any("err", err))
 		return nil

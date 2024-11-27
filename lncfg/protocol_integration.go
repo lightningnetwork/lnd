@@ -73,6 +73,9 @@ type ProtocolOptions struct {
 	// NoExperimentalEndorsementOption disables experimental endorsement.
 	NoExperimentalEndorsementOption bool `long:"no-experimental-endorsement" description:"do not forward experimental endorsement signals"`
 
+	// NoQuiescenceOption disables quiescence for all channels.
+	NoQuiescenceOption bool `long:"no-quiescence" description:"do not allow or advertise quiescence for any channel"`
+
 	// CustomMessage allows the custom message APIs to handle messages with
 	// the provided protocol numbers, which fall outside the custom message
 	// number range.
@@ -134,6 +137,11 @@ func (l *ProtocolOptions) NoRouteBlinding() bool {
 // be disabled.
 func (l *ProtocolOptions) NoExperimentalEndorsement() bool {
 	return l.NoExperimentalEndorsementOption
+}
+
+// NoQuiescence returns true if quiescence is disabled.
+func (l *ProtocolOptions) NoQuiescence() bool {
+	return l.NoQuiescenceOption
 }
 
 // CustomMessageOverrides returns the set of protocol messages that we override

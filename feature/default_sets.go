@@ -84,6 +84,10 @@ var defaultSetDesc = setDesc{
 		SetNodeAnn: {}, // N
 		SetInvoice: {}, // 9
 	},
+	lnwire.QuiescenceOptional: {
+		SetInit:    {}, // I
+		SetNodeAnn: {}, // N
+	},
 	lnwire.ShutdownAnySegwitOptional: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N

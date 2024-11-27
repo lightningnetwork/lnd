@@ -141,6 +141,11 @@ func (l *ProtocolOptions) NoExperimentalEndorsement() bool {
 	return l.NoExperimentalEndorsementOption
 }
 
+// NoQuiescence returns true if quiescence is disabled.
+func (l *ProtocolOptions) NoQuiescence() bool {
+	return true
+}
+
 // CustomMessageOverrides returns the set of protocol messages that we override
 // to allow custom handling.
 func (p ProtocolOptions) CustomMessageOverrides() []uint16 {

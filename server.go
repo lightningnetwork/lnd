@@ -587,6 +587,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoTaprootOverlay:          !cfg.ProtocolOptions.TaprootOverlayChans,
 		NoRouteBlinding:           cfg.ProtocolOptions.NoRouteBlinding(),
 		NoExperimentalEndorsement: cfg.ProtocolOptions.NoExperimentalEndorsement(),
+		NoQuiescence:              cfg.ProtocolOptions.NoQuiescence(),
 	})
 	if err != nil {
 		return nil, err
@@ -4214,6 +4215,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		RequestAlias:           s.aliasMgr.RequestAlias,
 		AddLocalAlias:          s.aliasMgr.AddLocalAlias,
 		DisallowRouteBlinding:  s.cfg.ProtocolOptions.NoRouteBlinding(),
+		DisallowQuiescence:     s.cfg.ProtocolOptions.NoQuiescence(),
 		MaxFeeExposure:         thresholdMSats,
 		Quit:                   s.quit,
 		AuxLeafStore:           s.implCfg.AuxLeafStore,

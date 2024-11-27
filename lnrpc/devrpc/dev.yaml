@@ -6,3 +6,6 @@ http:
     - selector: devrpc.Dev.ImportGraph
       post: "/v2/dev/importgraph"
       body: "*"
+    - selector: devrpc.Dev.Quiesce
+      post: "/v2/dev/quiesce"
+      body: "*"

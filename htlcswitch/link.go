@@ -283,6 +283,10 @@ type ChannelLinkConfig struct {
 	// invalid.
 	DisallowRouteBlinding bool
 
+	// DisallowQuiescence is a flag that can be used to disable the
+	// quiescence protocol.
+	DisallowQuiescence bool
+
 	// MaxFeeExposure is the threshold in milli-satoshis after which we'll
 	// restrict the flow of HTLCs and fee updates.
 	MaxFeeExposure lnwire.MilliSatoshi
@@ -392,6 +396,15 @@ type channelLink struct {
 	// our next CommitSig.
 	incomingCommitHooks hookMap
 
+	// quiescer is the state machine that tracks where this channel is with
+	// respect to the quiescence protocol.
+	quiescer Quiescer
+
+	// quiescenceReqs is a queue of requests to quiesce this link. The
+	// members of the queue are send-only channels we should call back with
+	// the result.
+	quiescenceReqs chan StfuReq
+
 	// ContextGuard is a helper that encapsulates a wait group and quit
 	// channel and allows contexts that either block or cancel on those
 	// depending on the use case.
@@ -467,6 +480,29 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		cfg.MaxFeeExposure = DefaultMaxFeeExposure
 	}
 
+	var qsm Quiescer
+	if !cfg.DisallowQuiescence {
+		qsm = NewQuiescer(QuiescerCfg{
+			chanID: lnwire.NewChanIDFromOutPoint(
+				channel.ChannelPoint(),
+			),
+			channelInitiator: channel.Initiator(),
+			sendMsg: func(s lnwire.Stfu) error {
+				return cfg.Peer.SendMessage(false, &s)
+			},
+			timeoutDuration: defaultQuiescenceTimeout,
+			onTimeout: func() {
+				cfg.Peer.Disconnect(ErrQuiescenceTimeout)
+			},
+		})
+	} else {
+		qsm = &quiescerNoop{}
+	}
+
+	quiescenceReqs := make(
+		chan fn.Req[fn.Unit, fn.Result[lntypes.ChannelParty]], 1,
+	)
+
 	return &channelLink{
 		cfg:                 cfg,
 		channel:             channel,
@@ -476,6 +512,8 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		flushHooks:          newHookMap(),
 		outgoingCommitHooks: newHookMap(),
 		incomingCommitHooks: newHookMap(),
+		quiescer:            qsm,
+		quiescenceReqs:      quiescenceReqs,
 		ContextGuard:        fn.NewContextGuard(),
 	}
 }
@@ -628,20 +666,37 @@ func (l *channelLink) WaitForShutdown() {
 // actively accept requests to forward HTLC's. We're able to forward HTLC's if
 // we are eligible to update AND the channel isn't currently flushing the
 // outgoing half of the channel.
+//
+// NOTE: MUST NOT be called from the main event loop.
 func (l *channelLink) EligibleToForward() bool {
-	return l.EligibleToUpdate() &&
-		!l.IsFlushing(Outgoing)
+	l.RLock()
+	defer l.RUnlock()
+
+	return l.eligibleToForward()
 }
 
-// EligibleToUpdate returns a bool indicating if the channel is able to update
+// eligibleToForward returns a bool indicating if the channel is able to
+// actively accept requests to forward HTLC's. We're able to forward HTLC's if
+// we are eligible to update AND the channel isn't currently flushing the
+// outgoing half of the channel.
+//
+// NOTE: MUST be called from the main event loop.
+func (l *channelLink) eligibleToForward() bool {
+	return l.eligibleToUpdate() && !l.IsFlushing(Outgoing)
+}
+
+// eligibleToUpdate returns a bool indicating if the channel is able to update
 // channel state. We're able to update channel state if we know the remote
 // party's next revocation point. Otherwise, we can't initiate new channel
 // state. We also require that the short channel ID not be the all-zero source
 // ID, meaning that the channel has had its ID finalized.
-func (l *channelLink) EligibleToUpdate() bool {
+//
+// NOTE: MUST be called from the main event loop.
+func (l *channelLink) eligibleToUpdate() bool {
 	return l.channel.RemoteNextRevocation() != nil &&
-		l.ShortChanID() != hop.Source &&
-		l.isReestablished()
+		l.channel.ShortChanID() != hop.Source &&
+		l.isReestablished() &&
+		l.quiescer.CanSendUpdates()
 }
 
 // EnableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
@@ -703,6 +758,27 @@ func (l *channelLink) OnCommitOnce(direction LinkDirection, hook func()) {
 	case queue <- hook:
 	case <-l.Quit:
 	}
+}
+
+// InitStfu allows us to initiate quiescence on this link. It returns a receive
+// only channel that will block until quiescence has been achieved, or
+// definitively fails.
+//
+// This operation has been added to allow channels to be quiesced via RPC. It
+// may be removed or reworked in the future as RPC initiated quiescence is a
+// holdover until we have downstream protocols that use it.
+func (l *channelLink) InitStfu() <-chan fn.Result[lntypes.ChannelParty] {
+	req, out := fn.NewReq[fn.Unit, fn.Result[lntypes.ChannelParty]](
+		fn.Unit{},
+	)
+
+	select {
+	case l.quiescenceReqs <- req:
+	case <-l.Quit:
+		req.Resolve(fn.Err[lntypes.ChannelParty](ErrLinkShuttingDown))
+	}
+
+	return out
 }
 
 // isReestablished returns true if the link has successfully completed the
@@ -1450,6 +1526,20 @@ func (l *channelLink) htlcManager() {
 				)
 			}
 
+		case qReq := <-l.quiescenceReqs:
+			l.quiescer.InitStfu(qReq)
+
+			if l.noDanglingUpdates(lntypes.Local) {
+				err := l.quiescer.SendOwedStfu()
+				if err != nil {
+					l.stfuFailf(
+						"SendOwedStfu: %s", err.Error(),
+					)
+					res := fn.Err[lntypes.ChannelParty](err)
+					qReq.Resolve(res)
+				}
+			}
+
 		case <-l.Quit:
 			return
 		}
@@ -1584,13 +1674,14 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 		return errors.New("not an UpdateAddHTLC packet")
 	}
 
-	// If we are flushing the link in the outgoing direction we can't add
-	// new htlcs to the link and we need to bounce it
-	if l.IsFlushing(Outgoing) {
+	// If we are flushing the link in the outgoing direction or we have
+	// already sent Stfu, then we can't add new htlcs to the link and we
+	// need to bounce it.
+	if l.IsFlushing(Outgoing) || !l.quiescer.CanSendUpdates() {
 		l.mailBox.FailAdd(pkt)
 
 		return NewDetailedLinkError(
-			&lnwire.FailPermanentChannelFailure{},
+			&lnwire.FailTemporaryChannelFailure{},
 			OutgoingFailureLinkNotEligible,
 		)
 	}
@@ -1693,6 +1784,15 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 //
 // TODO(roasbeef): add sync ntfn to ensure switch always has consistent view?
 func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
+	if pkt.htlc.MsgType().IsChannelUpdate() &&
+		!l.quiescer.CanSendUpdates() {
+
+		l.log.Warnf("unable to process channel update. "+
+			"ChannelID=%v is quiescent.", l.ChanID)
+
+		return
+	}
+
 	switch htlc := pkt.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
 		// Handle add message. The returned error can be ignored,
@@ -1937,6 +2037,13 @@ func (l *channelLink) cleanupSpuriousResponse(pkt *htlcPacket) {
 // updates from the upstream peer. The upstream peer is the peer whom we have a
 // direct channel with, updating our respective commitment chains.
 func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
+	// First check if the message is an update and we are capable of
+	// receiving updates right now.
+	if msg.MsgType().IsChannelUpdate() && !l.quiescer.CanRecvUpdates() {
+		l.stfuFailf("update received after stfu: %T", msg)
+		return
+	}
+
 	switch msg := msg.(type) {
 	case *lnwire.UpdateAddHTLC:
 		if l.IsFlushing(Incoming) {
@@ -2325,6 +2432,15 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			}
 		}
 
+		// If we need to send out an Stfu, this would be the time to do
+		// so.
+		if l.noDanglingUpdates(lntypes.Local) {
+			err = l.quiescer.SendOwedStfu()
+			if err != nil {
+				l.stfuFailf("sendOwedStfu: %v", err.Error())
+			}
+		}
+
 		// Now that we have finished processing the incoming CommitSig
 		// and sent out our RevokeAndAck, we invoke the flushHooks if
 		// the channel state is clean.
@@ -2391,8 +2507,22 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			}
 		}
 
+		// If we can send updates then we can process adds in case we
+		// are the exit hop and need to send back resolutions, or in
+		// case there are validity issues with the packets. Otherwise
+		// we defer the action until resume.
+		//
+		// We are free to process the settles and fails without this
+		// check since processing those can't result in further updates
+		// to this channel link.
+		if l.quiescer.CanSendUpdates() {
+			l.processRemoteAdds(fwdPkg)
+		} else {
+			l.quiescer.OnResume(func() {
+				l.processRemoteAdds(fwdPkg)
+			})
+		}
 		l.processRemoteSettleFails(fwdPkg)
-		l.processRemoteAdds(fwdPkg)
 
 		// If the link failed during processing the adds, we must
 		// return to ensure we won't attempted to update the state
@@ -2458,6 +2588,12 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// Update the mailbox's feerate as well.
 		l.mailBox.SetFeeRate(fee)
 
+	case *lnwire.Stfu:
+		err := l.handleStfu(msg)
+		if err != nil {
+			l.stfuFailf("handleStfu: %v", err.Error())
+		}
+
 	// In the case where we receive a warning message from our peer, just
 	// log it and move on. We choose not to disconnect from our peer,
 	// although we "MAY" do so according to the specification.
@@ -2488,6 +2624,50 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		l.log.Warnf("received unknown message of type %T", msg)
 	}
 
+}
+
+// handleStfu implements the top-level logic for handling the Stfu message from
+// our peer.
+func (l *channelLink) handleStfu(stfu *lnwire.Stfu) error {
+	if !l.noDanglingUpdates(lntypes.Remote) {
+		return ErrPendingRemoteUpdates
+	}
+	err := l.quiescer.RecvStfu(*stfu)
+	if err != nil {
+		return err
+	}
+
+	// If we can immediately send an Stfu response back, we will.
+	if l.noDanglingUpdates(lntypes.Local) {
+		return l.quiescer.SendOwedStfu()
+	}
+
+	return nil
+}
+
+// stfuFailf fails the link in the case where the requirements of the quiescence
+// protocol are violated. In all cases we opt to drop the connection as only
+// link state (as opposed to channel state) is affected.
+func (l *channelLink) stfuFailf(format string, args ...interface{}) {
+	l.failf(LinkFailureError{
+		code:             ErrStfuViolation,
+		FailureAction:    LinkFailureDisconnect,
+		PermanentFailure: false,
+		Warning:          true,
+	}, format, args...)
+}
+
+// noDanglingUpdates returns true when there are 0 updates that were originally
+// issued by whose on either the Local or Remote commitment transaction.
+func (l *channelLink) noDanglingUpdates(whose lntypes.ChannelParty) bool {
+	pendingOnLocal := l.channel.NumPendingUpdates(
+		whose, lntypes.Local,
+	)
+	pendingOnRemote := l.channel.NumPendingUpdates(
+		whose, lntypes.Remote,
+	)
+
+	return pendingOnLocal == 0 && pendingOnRemote == 0
 }
 
 // ackDownStreamPackets is responsible for removing htlcs from a link's mailbox
@@ -3293,7 +3473,7 @@ func (l *channelLink) updateChannelFee(feePerKw chainfee.SatPerKWeight) error {
 
 	// We skip sending the UpdateFee message if the channel is not
 	// currently eligible to forward messages.
-	if !l.EligibleToUpdate() {
+	if !l.eligibleToUpdate() {
 		l.log.Debugf("skipping fee update for inactive channel")
 		return nil
 	}

@@ -63,6 +63,9 @@ type Config struct {
 	// NoRouteBlinding unsets route blinding feature bits.
 	NoRouteBlinding bool
 
+	// NoQuiescence unsets quiescence feature bits.
+	NoQuiescence bool
+
 	// NoTaprootOverlay unsets the taproot overlay channel feature bits.
 	NoTaprootOverlay bool
 
@@ -198,6 +201,9 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.RouteBlindingRequired)
 			raw.Unset(lnwire.Bolt11BlindedPathsOptional)
 			raw.Unset(lnwire.Bolt11BlindedPathsRequired)
+		}
+		if cfg.NoQuiescence {
+			raw.Unset(lnwire.QuiescenceOptional)
 		}
 		if cfg.NoTaprootOverlay {
 			raw.Unset(lnwire.SimpleTaprootOverlayChansOptional)

@@ -2,6 +2,7 @@ package funding
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -28,7 +29,7 @@ func negotiateCommitmentType(desiredChanType *lnwire.ChannelType, local,
 
 	// BOLT#2 specifies we MUST use explicit negotiation if both peers
 	// signal for it.
-	explicitNegotiation := hasFeatures(
+	explicitNegotiation, _ := hasFeatures(
 		local, remote, lnwire.ExplicitChannelTypeOptional,
 	)
 
@@ -94,15 +95,16 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 		lnwire.AnchorsZeroFeeHtlcTxRequired,
 		lnwire.StaticRemoteKeyRequired,
 	):
-		if !hasFeatures(
+		ok, missing := hasFeatures(
 			local, remote,
 			lnwire.ZeroConfOptional,
 			lnwire.ScriptEnforcedLeaseOptional,
 			lnwire.AnchorsZeroFeeHtlcTxOptional,
 			lnwire.StaticRemoteKeyOptional,
-		) {
-
-			return 0, errUnsupportedChannelType
+		)
+		if !ok {
+			return 0, fmt.Errorf("%w: missing features: %v",
+				errUnsupportedChannelType, missing)
 		}
 		return lnwallet.CommitmentTypeScriptEnforcedLease, nil
 
@@ -114,14 +116,15 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 		lnwire.AnchorsZeroFeeHtlcTxRequired,
 		lnwire.StaticRemoteKeyRequired,
 	):
-		if !hasFeatures(
+		ok, missing := hasFeatures(
 			local, remote,
 			lnwire.ZeroConfOptional,
 			lnwire.AnchorsZeroFeeHtlcTxOptional,
 			lnwire.StaticRemoteKeyOptional,
-		) {
-
-			return 0, errUnsupportedChannelType
+		)
+		if !ok {
+			return 0, fmt.Errorf("%w: missing features: %v",
+				errUnsupportedChannelType, missing)
 		}
 		return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, nil
 
@@ -133,15 +136,16 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 		lnwire.AnchorsZeroFeeHtlcTxRequired,
 		lnwire.StaticRemoteKeyRequired,
 	):
-		if !hasFeatures(
+		ok, missing := hasFeatures(
 			local, remote,
 			lnwire.ZeroConfOptional,
 			lnwire.ScriptEnforcedLeaseOptional,
 			lnwire.AnchorsZeroFeeHtlcTxOptional,
 			lnwire.StaticRemoteKeyOptional,
-		) {
-
-			return 0, errUnsupportedChannelType
+		)
+		if !ok {
+			return 0, fmt.Errorf("%w: missing features: %v",
+				errUnsupportedChannelType, missing)
 		}
 		return lnwallet.CommitmentTypeScriptEnforcedLease, nil
 
@@ -151,14 +155,16 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 		lnwire.AnchorsZeroFeeHtlcTxRequired,
 		lnwire.StaticRemoteKeyRequired,
 	):
-		if !hasFeatures(
+		ok, missings := hasFeatures(
 			local, remote,
 			lnwire.ZeroConfOptional,
 			lnwire.AnchorsZeroFeeHtlcTxOptional,
 			lnwire.StaticRemoteKeyOptional,
-		) {
+		)
+		if !ok {
 
-			return 0, errUnsupportedChannelType
+			return 0, fmt.Errorf("%w: missing features: %v",
+				errUnsupportedChannelType, missings)
 		}
 		return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, nil
 
@@ -170,15 +176,17 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 		lnwire.AnchorsZeroFeeHtlcTxRequired,
 		lnwire.StaticRemoteKeyRequired,
 	):
-		if !hasFeatures(
+		ok, missing := hasFeatures(
 			local, remote,
 			lnwire.ScidAliasOptional,
 			lnwire.ScriptEnforcedLeaseOptional,
 			lnwire.AnchorsZeroFeeHtlcTxOptional,
 			lnwire.StaticRemoteKeyOptional,
-		) {
+		)
+		if !ok {
 
-			return 0, errUnsupportedChannelType
+			return 0, fmt.Errorf("%w: missing features: %v",
+				errUnsupportedChannelType, missing)
 		}
 		return lnwallet.CommitmentTypeScriptEnforcedLease, nil
 
@@ -189,14 +197,16 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 		lnwire.AnchorsZeroFeeHtlcTxRequired,
 		lnwire.StaticRemoteKeyRequired,
 	):
-		if !hasFeatures(
+		ok, missing := hasFeatures(
 			local, remote,
 			lnwire.ScidAliasOptional,
 			lnwire.AnchorsZeroFeeHtlcTxOptional,
 			lnwire.StaticRemoteKeyOptional,
-		) {
+		)
+		if !ok {
 
-			return 0, errUnsupportedChannelType
+			return 0, fmt.Errorf("%w: missing features: %v",
+				errUnsupportedChannelType, missing)
 		}
 		return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, nil
 
@@ -207,14 +217,16 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 		lnwire.AnchorsZeroFeeHtlcTxRequired,
 		lnwire.StaticRemoteKeyRequired,
 	):
-		if !hasFeatures(
+		ok, missing := hasFeatures(
 			local, remote,
 			lnwire.ScriptEnforcedLeaseOptional,
 			lnwire.AnchorsZeroFeeHtlcTxOptional,
 			lnwire.StaticRemoteKeyOptional,
-		) {
+		)
+		if !ok {
 
-			return 0, errUnsupportedChannelType
+			return 0, fmt.Errorf("%w: missing features: %v",
+				errUnsupportedChannelType, missing)
 		}
 		return lnwallet.CommitmentTypeScriptEnforcedLease, nil
 
@@ -223,20 +235,24 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 		lnwire.AnchorsZeroFeeHtlcTxRequired,
 		lnwire.StaticRemoteKeyRequired,
 	):
-		if !hasFeatures(
+		ok, missing := hasFeatures(
 			local, remote,
 			lnwire.AnchorsZeroFeeHtlcTxOptional,
 			lnwire.StaticRemoteKeyOptional,
-		) {
+		)
+		if !ok {
 
-			return 0, errUnsupportedChannelType
+			return 0, fmt.Errorf("%w: missing features: %v",
+				errUnsupportedChannelType, missing)
 		}
 		return lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx, nil
 
 	// Static remote key feature only.
 	case channelFeatures.OnlyContains(lnwire.StaticRemoteKeyRequired):
-		if !hasFeatures(local, remote, lnwire.StaticRemoteKeyOptional) {
-			return 0, errUnsupportedChannelType
+		ok, missings := hasFeatures(local, remote, lnwire.StaticRemoteKeyOptional)
+		if !ok {
+			return 0, fmt.Errorf("%w: missing features: %v",
+				errUnsupportedChannelType, missings)
 		}
 		return lnwallet.CommitmentTypeTweakless, nil
 
@@ -245,12 +261,14 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 		lnwire.SimpleTaprootChannelsRequiredStaging,
 	):
 
-		if !hasFeatures(
+		ok, missing := hasFeatures(
 			local, remote,
 			lnwire.SimpleTaprootChannelsOptionalStaging,
-		) {
+		)
+		if !ok {
 
-			return 0, errUnsupportedChannelType
+			return 0, fmt.Errorf("%w: missing features: %v",
+				errUnsupportedChannelType, missing)
 		}
 
 		return lnwallet.CommitmentTypeSimpleTaproot, nil
@@ -261,13 +279,15 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 		lnwire.ScidAliasRequired,
 	):
 
-		if !hasFeatures(
+		ok, missing := hasFeatures(
 			local, remote,
 			lnwire.SimpleTaprootChannelsOptionalStaging,
 			lnwire.ScidAliasOptional,
-		) {
+		)
+		if !ok {
 
-			return 0, errUnsupportedChannelType
+			return 0, fmt.Errorf("%w: missing features: %v",
+				errUnsupportedChannelType, missing)
 		}
 
 		return lnwallet.CommitmentTypeSimpleTaproot, nil
@@ -278,13 +298,15 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 		lnwire.ZeroConfRequired,
 	):
 
-		if !hasFeatures(
+		ok, missing := hasFeatures(
 			local, remote,
 			lnwire.SimpleTaprootChannelsOptionalStaging,
 			lnwire.ZeroConfOptional,
-		) {
+		)
+		if !ok {
 
-			return 0, errUnsupportedChannelType
+			return 0, fmt.Errorf("%w: missing features: %v",
+				errUnsupportedChannelType, missing)
 		}
 
 		return lnwallet.CommitmentTypeSimpleTaproot, nil
@@ -296,13 +318,15 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 		lnwire.ScidAliasRequired,
 	):
 
-		if !hasFeatures(
+		ok, missing := hasFeatures(
 			local, remote,
 			lnwire.SimpleTaprootChannelsOptionalStaging,
 			lnwire.ZeroConfOptional,
-		) {
+		)
+		if !ok {
 
-			return 0, errUnsupportedChannelType
+			return 0, fmt.Errorf("%w: missing features: %v",
+				errUnsupportedChannelType, missing)
 		}
 
 		return lnwallet.CommitmentTypeSimpleTaproot, nil
@@ -393,7 +417,8 @@ func implicitNegotiateCommitmentType(local,
 
 	// If both peers are signalling support for anchor commitments with
 	// zero-fee HTLC transactions, we'll use this type.
-	if hasFeatures(local, remote, lnwire.AnchorsZeroFeeHtlcTxOptional) {
+	ok, _ := hasFeatures(local, remote, lnwire.AnchorsZeroFeeHtlcTxOptional)
+	if ok {
 		chanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
 			lnwire.AnchorsZeroFeeHtlcTxRequired,
 			lnwire.StaticRemoteKeyRequired,
@@ -408,7 +433,8 @@ func implicitNegotiateCommitmentType(local,
 	//
 	// If both nodes are signaling the proper feature bit for tweakless
 	// commitments, we'll use that.
-	if hasFeatures(local, remote, lnwire.StaticRemoteKeyOptional) {
+	ok, _ = hasFeatures(local, remote, lnwire.StaticRemoteKeyOptional)
+	if ok {
 		chanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
 			lnwire.StaticRemoteKeyRequired,
 		))
@@ -421,15 +447,39 @@ func implicitNegotiateCommitmentType(local,
 	return &chanType, lnwallet.CommitmentTypeLegacy
 }
 
-// hasFeatures determines whether a set of features is supported by both the set
-// of local and remote features.
-func hasFeatures(local, remote *lnwire.FeatureVector,
-	features ...lnwire.FeatureBit) bool {
+// keeps track of the feature bit mismatches between the local and remote nodes.
+type FeaturesBitDiff struct {
+	local  []lnwire.FeatureBit
+	remote []lnwire.FeatureBit
+}
 
+// isEmpty returns true if the local and remote features are empty arrays.
+func (f *FeaturesBitDiff) isEmpty() bool {
+	return len(f.local) == 0 && len(f.remote) == 0
+}
+
+// String returns the string version of the struct FeaturesBitDiff.
+func (f FeaturesBitDiff) String() string {
+	return fmt.Sprintf("local %v - remote %v", f.local, f.remote)
+}
+
+// hasFeatures determines whether a set of features is supported by both the
+// local and remote features. A FeaturesBitDiff struct is returned with
+// the missing feature bits for each side.
+func hasFeatures(local, remote *lnwire.FeatureVector,
+	features ...lnwire.FeatureBit) (bool, FeaturesBitDiff) {
+
+	missing := FeaturesBitDiff{
+		local:  make([]lnwire.FeatureBit, 0),
+		remote: make([]lnwire.FeatureBit, 0),
+	}
 	for _, feature := range features {
-		if !local.HasFeature(feature) || !remote.HasFeature(feature) {
-			return false
+		if !local.HasFeature(feature) {
+			missing.local = append(missing.local, feature)
+		} else if !remote.HasFeature(feature) {
+			missing.remote = append(missing.remote, feature)
 		}
 	}
-	return true
+
+	return missing.isEmpty(), missing
 }

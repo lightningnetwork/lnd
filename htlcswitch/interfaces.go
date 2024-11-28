@@ -284,7 +284,7 @@ type ChannelLink interface {
 	// total sent/received milli-satoshis.
 	Stats() (uint64, lnwire.MilliSatoshi, lnwire.MilliSatoshi)
 
-	// Peer returns the serialized public key of remote peer with which we
+	// PeerPubKey returns the serialized public key of remote peer with which we
 	// have the channel link opened.
 	PeerPubKey() [33]byte
 
@@ -440,7 +440,7 @@ type htlcNotifier interface {
 	NotifyForwardingEvent(key HtlcKey, info HtlcInfo,
 		eventType HtlcEventType)
 
-	// NotifyIncomingLinkFailEvent notifies that a htlc has failed on our
+	// NotifyLinkFailEvent notifies that a htlc has failed on our
 	// incoming link. It takes an isReceive bool to differentiate between
 	// our node's receives and forwards.
 	NotifyLinkFailEvent(key HtlcKey, info HtlcInfo,

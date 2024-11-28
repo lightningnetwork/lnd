@@ -21,12 +21,6 @@ linux-amd64 \
 linux-armv6 \
 linux-armv7 \
 linux-arm64 \
-linux-ppc64 \
-linux-ppc64le \
-linux-mips \
-linux-mipsle \
-linux-mips64 \
-linux-s390x \
 netbsd-amd64 \
 openbsd-amd64 \
 windows-386 \

@@ -244,8 +244,10 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 	)
 
 	aliceChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            aliceCfg,
-		RemoteChanCfg:           bobCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  aliceCfg,
+			Remote: bobCfg,
+		},
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,
@@ -255,15 +257,19 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         aliceCommit,
-		RemoteCommitment:        aliceCommit,
-		Db:                      dbAlice.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
-		FundingTxn:              channels.TestFundingTx,
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  aliceCommit,
+			Remote: aliceCommit,
+		},
+		Db:         dbAlice.ChannelStateDB(),
+		Packager:   channeldb.NewChannelPackager(shortChanID),
+		FundingTxn: channels.TestFundingTx,
 	}
 	bobChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            bobCfg,
-		RemoteChanCfg:           aliceCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  bobCfg,
+			Remote: aliceCfg,
+		},
 		IdentityPub:             bobKeyPub,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunderTweaklessBit,
@@ -272,10 +278,12 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         bobCommit,
-		RemoteCommitment:        bobCommit,
-		Db:                      dbBob.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  bobCommit,
+			Remote: bobCommit,
+		},
+		Db:       dbBob.ChannelStateDB(),
+		Packager: channeldb.NewChannelPackager(shortChanID),
 	}
 
 	// Set custom values on the channel states.

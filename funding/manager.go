@@ -2542,7 +2542,8 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 	// we use this convenience method to delete the pending OpenChannel
 	// from the database.
 	deleteFromDatabase := func() {
-		localBalance := completeChan.LocalCommitment.LocalBalance.ToSatoshis()
+		localBalance := completeChan.Commitments.Local.
+			LocalBalance.ToSatoshis()
 		closeInfo := &channeldb.ChannelCloseSummary{
 			ChanPoint:               completeChan.FundingOutpoint,
 			ChainHash:               completeChan.ChainHash,
@@ -2552,7 +2553,7 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 			SettledBalance:          localBalance,
 			RemoteCurrentRevocation: completeChan.RemoteCurrentRevocation,
 			RemoteNextRevocation:    completeChan.RemoteNextRevocation,
-			LocalChanConfig:         completeChan.LocalChanCfg,
+			LocalChanConfig:         completeChan.ChanCfgs.Local,
 		}
 
 		// Close the channel with us as the initiator because we are
@@ -2907,7 +2908,7 @@ func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
 	// We'll get a timeout if the number of blocks mined since the channel
 	// was initiated reaches MaxWaitNumBlocksFundingConf and we are not the
 	// channel initiator.
-	localBalance := c.LocalCommitment.LocalBalance.ToSatoshis()
+	localBalance := c.Commitments.Local.LocalBalance.ToSatoshis()
 	closeInfo := &channeldb.ChannelCloseSummary{
 		ChainHash:               c.ChainHash,
 		ChanPoint:               c.FundingOutpoint,
@@ -2917,7 +2918,7 @@ func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
 		CloseType:               channeldb.FundingCanceled,
 		RemoteCurrentRevocation: c.RemoteCurrentRevocation,
 		RemoteNextRevocation:    c.RemoteNextRevocation,
-		LocalChanConfig:         c.LocalChanCfg,
+		LocalChanConfig:         c.ChanCfgs.Local,
 	}
 
 	// Close the channel with us as the initiator because we are timing the
@@ -3017,8 +3018,8 @@ func (f *Manager) waitForFundingWithTimeout(
 // makeFundingScript re-creates the funding script for the funding transaction
 // of the target channel.
 func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
-	localKey := channel.LocalChanCfg.MultiSigKey.PubKey
-	remoteKey := channel.RemoteChanCfg.MultiSigKey.PubKey
+	localKey := channel.ChanCfgs.Local.MultiSigKey.PubKey
+	remoteKey := channel.ChanCfgs.Remote.MultiSigKey.PubKey
 
 	if channel.ChanType.IsTaproot() {
 		pkScript, _, err := input.GenTaprootFundingScript(
@@ -3510,7 +3511,7 @@ func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
 	// we'll use this value within our ChannelUpdate. This constraint is
 	// originally set by the remote node, as it will be the one that will
 	// need to determine the smallest HTLC it deems economically relevant.
-	fwdMinHTLC := c.LocalChanCfg.MinHTLC
+	fwdMinHTLC := c.ChanCfgs.Local.MinHTLC
 
 	// We don't necessarily want to go as low as the remote party allows.
 	// Check it against our default forwarding policy.
@@ -3521,7 +3522,7 @@ func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
 	// We'll obtain the max HTLC value we can forward in our direction, as
 	// we'll use this value within our ChannelUpdate. This value must be <=
 	// channel capacity and <= the maximum in-flight msats set by the peer.
-	fwdMaxHTLC := c.LocalChanCfg.MaxPendingAmount
+	fwdMaxHTLC := c.ChanCfgs.Local.MaxPendingAmount
 	capacityMSat := lnwire.NewMSatFromSatoshis(c.Capacity)
 	if fwdMaxHTLC > capacityMSat {
 		fwdMaxHTLC = capacityMSat
@@ -3549,8 +3550,8 @@ func (f *Manager) addToGraph(completeChan *channeldb.OpenChannel,
 
 	ann, err := f.newChanAnnouncement(
 		f.cfg.IDKey, completeChan.IdentityPub,
-		&completeChan.LocalChanCfg.MultiSigKey,
-		completeChan.RemoteChanCfg.MultiSigKey.PubKey, *shortChanID,
+		&completeChan.ChanCfgs.Local.MultiSigKey,
+		completeChan.ChanCfgs.Remote.MultiSigKey.PubKey, *shortChanID,
 		chanID, fwdMinHTLC, fwdMaxHTLC, ourPolicy,
 		completeChan.ChanType,
 	)
@@ -3743,8 +3744,8 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		// public and usable for other nodes for routing.
 		err = f.announceChannel(
 			f.cfg.IDKey, completeChan.IdentityPub,
-			&completeChan.LocalChanCfg.MultiSigKey,
-			completeChan.RemoteChanCfg.MultiSigKey.PubKey,
+			&completeChan.ChanCfgs.Local.MultiSigKey,
+			completeChan.ChanCfgs.Remote.MultiSigKey.PubKey,
 			*shortChanID, chanID, completeChan.ChanType,
 		)
 		if err != nil {
@@ -3864,8 +3865,8 @@ func genFirstStateMusigNonce(channel *channeldb.OpenChannel,
 	// We use the _next_ commitment height here as we need to generate the
 	// nonce for the next state the remote party will sign for us.
 	verNonce, err := channeldb.NewMusigVerificationNonce(
-		channel.LocalChanCfg.MultiSigKey.PubKey,
-		channel.LocalCommitment.CommitHeight+1,
+		channel.ChanCfgs.Local.MultiSigKey.PubKey,
+		channel.Commitments.Local.CommitHeight+1,
 		musig2ShaChain,
 	)
 	if err != nil {
@@ -4257,7 +4258,7 @@ func (f *Manager) ensureInitialForwardingPolicy(chanID lnwire.ChannelID,
 			"falling back to default values: %v", err)
 
 		forwardingPolicy = f.defaultForwardingPolicy(
-			channel.LocalChanCfg.ChannelStateBounds,
+			channel.ChanCfgs.Local.ChannelStateBounds,
 		)
 		needDBUpdate = true
 	}
@@ -4267,11 +4268,12 @@ func (f *Manager) ensureInitialForwardingPolicy(chanID lnwire.ChannelID,
 	// still pending while updating to this version, we'll need to set the
 	// values to the default values.
 	if forwardingPolicy.MinHTLCOut == 0 {
-		forwardingPolicy.MinHTLCOut = channel.LocalChanCfg.MinHTLC
+		forwardingPolicy.MinHTLCOut = channel.ChanCfgs.Local.MinHTLC
 		needDBUpdate = true
 	}
 	if forwardingPolicy.MaxHTLC == 0 {
-		forwardingPolicy.MaxHTLC = channel.LocalChanCfg.MaxPendingAmount
+		forwardingPolicy.MaxHTLC =
+			channel.ChanCfgs.Local.MaxPendingAmount
 		needDBUpdate = true
 	}
 

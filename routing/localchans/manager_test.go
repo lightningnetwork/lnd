@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
@@ -150,16 +151,18 @@ func TestManager(t *testing.T) {
 		return &channeldb.OpenChannel{
 			FundingOutpoint: chanPointValid,
 			IdentityPub:     remotepub,
-			LocalChanCfg: channeldb.ChannelConfig{
-				ChannelStateBounds: bounds,
-				MultiSigKey: keychain.KeyDescriptor{
-					PubKey: localMultisigKey,
+			ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+				Local: channeldb.ChannelConfig{
+					ChannelStateBounds: bounds,
+					MultiSigKey: keychain.KeyDescriptor{
+						PubKey: localMultisigKey,
+					},
 				},
-			},
-			RemoteChanCfg: channeldb.ChannelConfig{
-				ChannelStateBounds: bounds,
-				MultiSigKey: keychain.KeyDescriptor{
-					PubKey: remoteMultisigKey,
+				Remote: channeldb.ChannelConfig{
+					ChannelStateBounds: bounds,
+					MultiSigKey: keychain.KeyDescriptor{
+						PubKey: remoteMultisigKey,
+					},
 				},
 			},
 		}, nil
@@ -365,16 +368,19 @@ func TestCreateEdgeLower(t *testing.T) {
 
 	channel := &channeldb.OpenChannel{
 		IdentityPub: remotepub,
-		LocalChanCfg: channeldb.ChannelConfig{
-			MultiSigKey: keychain.KeyDescriptor{
-				PubKey: localMultisigKey,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local: channeldb.ChannelConfig{
+				MultiSigKey: keychain.KeyDescriptor{
+					PubKey: localMultisigKey,
+				},
+			},
+			Remote: channeldb.ChannelConfig{
+				MultiSigKey: keychain.KeyDescriptor{
+					PubKey: remoteMultisigKey,
+				},
 			},
 		},
-		RemoteChanCfg: channeldb.ChannelConfig{
-			MultiSigKey: keychain.KeyDescriptor{
-				PubKey: remoteMultisigKey,
-			},
-		},
+
 		ShortChannelID: lnwire.NewShortChanIDFromInt(8),
 		ChainHash:      *chaincfg.RegressionNetParams.GenesisHash,
 		Capacity:       9,
@@ -453,14 +459,16 @@ func TestCreateEdgeHigher(t *testing.T) {
 
 	channel := &channeldb.OpenChannel{
 		IdentityPub: remotepub,
-		LocalChanCfg: channeldb.ChannelConfig{
-			MultiSigKey: keychain.KeyDescriptor{
-				PubKey: localMultisigKey,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local: channeldb.ChannelConfig{
+				MultiSigKey: keychain.KeyDescriptor{
+					PubKey: localMultisigKey,
+				},
 			},
-		},
-		RemoteChanCfg: channeldb.ChannelConfig{
-			MultiSigKey: keychain.KeyDescriptor{
-				PubKey: remoteMultisigKey,
+			Remote: channeldb.ChannelConfig{
+				MultiSigKey: keychain.KeyDescriptor{
+					PubKey: remoteMultisigKey,
+				},
 			},
 		},
 		ShortChannelID: lnwire.NewShortChanIDFromInt(8),

@@ -260,6 +260,10 @@ type openChannelTlvData struct {
 	// customBlob is an optional TLV encoded blob of data representing
 	// custom channel funding information.
 	customBlob tlv.OptionalRecordT[tlv.TlvType7, tlv.Blob]
+
+	// commitChainEpochHistory is the optional TLV encoded blob of data
+	// representing the commit chain epoch history for the channel.
+	commitChainEpochHistory tlv.OptionalRecordT[tlv.TlvType8, CommitChainEpochHistory] //nolint:lll
 }
 
 // encode serializes the openChannelTlvData to the given io.Writer.
@@ -281,6 +285,11 @@ func (c *openChannelTlvData) encode(w io.Writer) error {
 	c.customBlob.WhenSome(func(blob tlv.RecordT[tlv.TlvType7, tlv.Blob]) {
 		tlvRecords = append(tlvRecords, blob.Record())
 	})
+	c.commitChainEpochHistory.WhenSome(
+		func(hist tlv.RecordT[tlv.TlvType8, CommitChainEpochHistory]) {
+			tlvRecords = append(tlvRecords, hist.Record())
+		},
+	)
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(tlvRecords...)
@@ -296,6 +305,7 @@ func (c *openChannelTlvData) decode(r io.Reader) error {
 	memo := c.memo.Zero()
 	tapscriptRoot := c.tapscriptRoot.Zero()
 	blob := c.customBlob.Zero()
+	commitChainEpochHistory := c.commitChainEpochHistory.Zero()
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(
@@ -306,6 +316,7 @@ func (c *openChannelTlvData) decode(r io.Reader) error {
 		memo.Record(),
 		tapscriptRoot.Record(),
 		blob.Record(),
+		commitChainEpochHistory.Record(),
 	)
 	if err != nil {
 		return err
@@ -324,6 +335,10 @@ func (c *openChannelTlvData) decode(r io.Reader) error {
 	}
 	if _, ok := tlvs[c.customBlob.TlvType()]; ok {
 		c.customBlob = tlv.SomeRecordT(blob)
+	}
+	if _, ok := tlvs[c.commitChainEpochHistory.TlvType()]; ok {
+		c.commitChainEpochHistory =
+			tlv.SomeRecordT(commitChainEpochHistory)
 	}
 
 	return nil
@@ -938,23 +953,18 @@ type OpenChannel struct {
 	// opening.
 	InitialRemoteBalance lnwire.MilliSatoshi
 
-	// LocalChanCfg is the channel configuration for the local node.
-	LocalChanCfg ChannelConfig
+	// ChanCfgs is the channel configuration for the local and remote nodes.
+	ChanCfgs lntypes.Dual[ChannelConfig]
 
-	// RemoteChanCfg is the channel configuration for the remote node.
-	RemoteChanCfg ChannelConfig
+	// Commitments is the pair of ChannelCommitments for both the
+	// local and remote parties. They are stored distinctly as there are
+	// certain asymmetric parameters which affect the structure of each
+	// commitment.
+	Commitments lntypes.Dual[ChannelCommitment]
 
-	// LocalCommitment is the current local commitment state for the local
-	// party. This is stored distinct from the state of the remote party
-	// as there are certain asymmetric parameters which affect the
-	// structure of each commitment.
-	LocalCommitment ChannelCommitment
-
-	// RemoteCommitment is the current remote commitment state for the
-	// remote party. This is stored distinct from the state of the local
-	// party as there are certain asymmetric parameters which affect the
-	// structure of each commitment.
-	RemoteCommitment ChannelCommitment
+	// CommitChainEpochHistory is the history of the CommitmentParams for
+	// each side of the channel.
+	CommitChainEpochHistory CommitChainEpochHistory
 
 	// RemoteCurrentRevocation is the current revocation for their
 	// commitment transaction. However, since this the derived public key,
@@ -1051,13 +1061,13 @@ func (c *OpenChannel) String() string {
 	indexStr := "height=%v, local_htlc_index=%v, local_log_index=%v, " +
 		"remote_htlc_index=%v, remote_log_index=%v"
 
-	commit := c.LocalCommitment
+	commit := c.Commitments.Local
 	local := fmt.Sprintf(indexStr, commit.CommitHeight,
 		commit.LocalHtlcIndex, commit.LocalLogIndex,
 		commit.RemoteHtlcIndex, commit.RemoteLogIndex,
 	)
 
-	commit = c.RemoteCommitment
+	commit = c.Commitments.Remote
 	remote := fmt.Sprintf(indexStr, commit.CommitHeight,
 		commit.LocalHtlcIndex, commit.LocalLogIndex,
 		commit.RemoteHtlcIndex, commit.RemoteLogIndex,
@@ -1216,6 +1226,11 @@ func (c *OpenChannel) amendTlvData(auxData openChannelTlvData) {
 	auxData.customBlob.WhenSomeV(func(blob tlv.Blob) {
 		c.CustomBlob = fn.Some(blob)
 	})
+	auxData.commitChainEpochHistory.WhenSomeV(
+		func(history CommitChainEpochHistory) {
+			c.CommitChainEpochHistory = history
+		},
+	)
 }
 
 // extractTlvData creates a new openChannelTlvData from the given channel.
@@ -1232,6 +1247,11 @@ func (c *OpenChannel) extractTlvData() openChannelTlvData {
 		),
 		realScid: tlv.NewRecordT[tlv.TlvType4](
 			c.confirmedScid,
+		),
+		commitChainEpochHistory: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType8](
+				c.CommitChainEpochHistory,
+			),
 		),
 	}
 
@@ -1763,13 +1783,13 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 	// one. If the receiver thinks that our commitment height is actually
 	// *equal* to this value, then they'll re-send the last commitment that
 	// they sent but we never fully processed.
-	localHeight := c.LocalCommitment.CommitHeight
+	localHeight := c.Commitments.Local.CommitHeight
 	nextLocalCommitHeight := localHeight + 1
 
 	// The second value we'll send is the height of the remote commitment
 	// from our PoV. If the receiver thinks that their height is actually
 	// *one plus* this value, then they'll re-send their last revocation.
-	remoteChainTipHeight := c.RemoteCommitment.CommitHeight
+	remoteChainTipHeight := c.Commitments.Remote.CommitHeight
 
 	// If this channel has undergone a commitment update, then in order to
 	// prove to the remote party our knowledge of their prior commitment
@@ -1823,7 +1843,7 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 		}
 
 		nextNonce, err := NewMusigVerificationNonce(
-			c.LocalChanCfg.MultiSigKey.PubKey,
+			c.ChanCfgs.Local.MultiSigKey.PubKey,
 			nextLocalCommitHeight, taprootRevProducer,
 		)
 		if err != nil {
@@ -2413,7 +2433,7 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 		return nil, err
 	}
 
-	c.LocalCommitment = *newCommitment
+	c.Commitments.Local = *newCommitment
 
 	return finalHtlcs, nil
 }
@@ -2474,7 +2494,7 @@ func (c *OpenChannel) ActiveHtlcs() []HTLC {
 	// transactions. So we'll iterate through their set of HTLC's to note
 	// which ones are present on their commitment.
 	remoteHtlcs := make(map[[32]byte]struct{})
-	for _, htlc := range c.RemoteCommitment.Htlcs {
+	for _, htlc := range c.Commitments.Remote.Htlcs {
 		log.Tracef("RemoteCommitment has htlc: id=%v, update=%v "+
 			"incoming=%v", htlc.HtlcIndex, htlc.LogIndex,
 			htlc.Incoming)
@@ -2486,7 +2506,7 @@ func (c *OpenChannel) ActiveHtlcs() []HTLC {
 	// Now that we know which HTLC's they have, we'll only mark the HTLC's
 	// as active if *we* know them as well.
 	activeHtlcs := make([]HTLC, 0, len(remoteHtlcs))
-	for _, htlc := range c.LocalCommitment.Htlcs {
+	for _, htlc := range c.Commitments.Local.Htlcs {
 		log.Tracef("LocalCommitment has htlc: id=%v, update=%v "+
 			"incoming=%v", htlc.HtlcIndex, htlc.LogIndex,
 			htlc.Incoming)
@@ -3330,7 +3350,7 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 		// With the commitment pointer swapped, we can now add the
 		// revoked (prior) state to the revocation log.
 		err = putRevocationLog(
-			logBucket, &c.RemoteCommitment, ourOutputIndex,
+			logBucket, &c.Commitments.Remote, ourOutputIndex,
 			theirOutputIndex, c.Db.parent.noRevLogAmtData,
 		)
 		if err != nil {
@@ -3412,7 +3432,7 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 	// With the db transaction complete, we'll swap over the in-memory
 	// pointer of the new remote commitment, which was previously the tip
 	// of the commit chain.
-	c.RemoteCommitment = *newRemoteCommit
+	c.Commitments.Remote = *newRemoteCommit
 
 	return nil
 }
@@ -3467,7 +3487,7 @@ func (c *OpenChannel) NextLocalHtlcIndex() (uint64, error) {
 	}
 
 	// Otherwise, fallback to using the local htlc index of their commitment.
-	return c.RemoteCommitment.LocalHtlcIndex, nil
+	return c.Commitments.Remote.LocalHtlcIndex, nil
 }
 
 // LoadFwdPkgs scans the forwarding log for any packages that haven't been
@@ -3562,7 +3582,7 @@ func (c *OpenChannel) revocationLogTailCommitHeight() (uint64, error) {
 
 	// If we haven't created any state updates yet, then we'll exit early as
 	// there's nothing to be found on disk in the revocation bucket.
-	if c.RemoteCommitment.CommitHeight == 0 {
+	if c.Commitments.Remote.CommitHeight == 0 {
 		return height, nil
 	}
 
@@ -3984,7 +4004,7 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 	c.RLock()
 	defer c.RUnlock()
 
-	localCommit := c.LocalCommitment
+	localCommit := c.Commitments.Local
 	snapshot := &ChannelSnapshot{
 		RemoteIdentity:    *c.IdentityPub,
 		ChannelPoint:      c.FundingOutpoint,
@@ -4021,7 +4041,9 @@ func (c *OpenChannel) Snapshot() *ChannelSnapshot {
 // remote party. These commitments are read from disk to ensure that only the
 // latest fully committed state is returned. The first commitment returned is
 // the local commitment, and the second returned is the remote commitment.
-func (c *OpenChannel) LatestCommitments() (*ChannelCommitment, *ChannelCommitment, error) {
+//
+//nolint:lll
+func (c *OpenChannel) LatestCommitments() fn.Result[*lntypes.Dual[ChannelCommitment]] {
 	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
 		chanBucket, err := fetchChanBucket(
 			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
@@ -4033,10 +4055,10 @@ func (c *OpenChannel) LatestCommitments() (*ChannelCommitment, *ChannelCommitmen
 		return fetchChanCommitments(chanBucket, c)
 	}, func() {})
 	if err != nil {
-		return nil, nil, err
+		return fn.Err[*lntypes.Dual[ChannelCommitment]](err)
 	}
 
-	return &c.LocalCommitment, &c.RemoteCommitment, nil
+	return fn.Ok(&c.Commitments)
 }
 
 // RemoteRevocationStore returns the most up to date commitment version of the
@@ -4112,7 +4134,7 @@ func putChannelCloseSummary(tx kvdb.RwTx, chanID []byte,
 
 	summary.RemoteCurrentRevocation = lastChanState.RemoteCurrentRevocation
 	summary.RemoteNextRevocation = lastChanState.RemoteNextRevocation
-	summary.LocalChanConfig = lastChanState.LocalChanCfg
+	summary.LocalChanConfig = lastChanState.ChanCfgs.Local
 
 	var b bytes.Buffer
 	if err := serializeChannelCloseSummary(&b, summary); err != nil {
@@ -4302,10 +4324,10 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 		}
 	}
 
-	if err := writeChanConfig(&w, &channel.LocalChanCfg); err != nil {
+	if err := writeChanConfig(&w, &channel.ChanCfgs.Local); err != nil {
 		return err
 	}
-	if err := writeChanConfig(&w, &channel.RemoteChanCfg); err != nil {
+	if err := writeChanConfig(&w, &channel.ChanCfgs.Remote); err != nil {
 		return err
 	}
 
@@ -4415,14 +4437,14 @@ func putChanCommitments(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	}
 
 	err := putChanCommitment(
-		chanBucket, &channel.LocalCommitment, true,
+		chanBucket, &channel.Commitments.Local, true,
 	)
 	if err != nil {
 		return err
 	}
 
 	return putChanCommitment(
-		chanBucket, &channel.RemoteCommitment, false,
+		chanBucket, &channel.Commitments.Remote, false,
 	)
 }
 
@@ -4484,10 +4506,10 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 		}
 	}
 
-	if err := readChanConfig(r, &channel.LocalChanCfg); err != nil {
+	if err := readChanConfig(r, &channel.ChanCfgs.Local); err != nil {
 		return err
 	}
-	if err := readChanConfig(r, &channel.RemoteChanCfg); err != nil {
+	if err := readChanConfig(r, &channel.ChanCfgs.Remote); err != nil {
 		return err
 	}
 
@@ -4514,6 +4536,22 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	// Assign all the relevant fields from the aux data into the actual
 	// open channel.
 	channel.amendTlvData(auxData)
+
+	// Now that we've extracted the aux data, we can initialize the
+	// CommitChainEpochHistory. If we don't find it in the aux data,
+	// then we initialize it with the original CommitmentParams from
+	// the ChannelConfig.
+	histVal := auxData.commitChainEpochHistory.ValOpt()
+	channel.CommitChainEpochHistory = histVal.UnwrapOr(
+		BeginChainEpochHistory(
+			lntypes.MapDual(
+				channel.ChanCfgs,
+				func(cfg ChannelConfig) CommitmentParams {
+					return cfg.CommitmentParams
+				},
+			),
+		),
+	)
 
 	channel.Packager = NewChannelPackager(channel.ShortChannelID)
 
@@ -4593,11 +4631,11 @@ func fetchChanCommitments(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 		return nil
 	}
 
-	channel.LocalCommitment, err = fetchChanCommitment(chanBucket, true)
+	channel.Commitments.Local, err = fetchChanCommitment(chanBucket, true)
 	if err != nil {
 		return err
 	}
-	channel.RemoteCommitment, err = fetchChanCommitment(chanBucket, false)
+	channel.Commitments.Remote, err = fetchChanCommitment(chanBucket, false)
 	if err != nil {
 		return err
 	}

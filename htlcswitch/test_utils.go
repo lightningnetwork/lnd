@@ -305,8 +305,10 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	}
 
 	aliceChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            aliceCfg,
-		RemoteChanCfg:           bobCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  aliceCfg,
+			Remote: bobCfg,
+		},
 		IdentityPub:             aliceKeyPub,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunderTweaklessBit,
@@ -315,17 +317,21 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		RemoteCurrentRevocation: bobCommitPoint,
 		RevocationProducer:      alicePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         aliceCommit,
-		RemoteCommitment:        aliceCommit,
-		ShortChannelID:          chanID,
-		Db:                      dbAlice.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(chanID),
-		FundingTxn:              channels.TestFundingTx,
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  aliceCommit,
+			Remote: aliceCommit,
+		},
+		ShortChannelID: chanID,
+		Db:             dbAlice.ChannelStateDB(),
+		Packager:       channeldb.NewChannelPackager(chanID),
+		FundingTxn:     channels.TestFundingTx,
 	}
 
 	bobChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            bobCfg,
-		RemoteChanCfg:           aliceCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  bobCfg,
+			Remote: aliceCfg,
+		},
 		IdentityPub:             bobKeyPub,
 		FundingOutpoint:         *prevOut,
 		ChanType:                channeldb.SingleFunderTweaklessBit,
@@ -334,11 +340,13 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		RemoteCurrentRevocation: aliceCommitPoint,
 		RevocationProducer:      bobPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         bobCommit,
-		RemoteCommitment:        bobCommit,
-		ShortChannelID:          chanID,
-		Db:                      dbBob.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(chanID),
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  bobCommit,
+			Remote: bobCommit,
+		},
+		ShortChannelID: chanID,
+		Db:             dbBob.ChannelStateDB(),
+		Packager:       channeldb.NewChannelPackager(chanID),
 	}
 
 	if err := aliceChannelState.SyncPending(bobAddr, broadcastHeight); err != nil {

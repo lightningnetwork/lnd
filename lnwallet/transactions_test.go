@@ -974,8 +974,10 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 	)
 
 	remoteChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            remoteCfg,
-		RemoteChanCfg:           localCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  remoteCfg,
+			Remote: localCfg,
+		},
 		IdentityPub:             remoteDummy2.PubKey(),
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,
@@ -985,15 +987,19 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		RemoteCurrentRevocation: localCommitPoint,
 		RevocationProducer:      remotePreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         remoteCommit,
-		RemoteCommitment:        remoteCommit,
-		Db:                      dbRemote.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
-		FundingTxn:              tc.fundingTx.MsgTx(),
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  remoteCommit,
+			Remote: remoteCommit,
+		},
+		Db:         dbRemote.ChannelStateDB(),
+		Packager:   channeldb.NewChannelPackager(shortChanID),
+		FundingTxn: tc.fundingTx.MsgTx(),
 	}
 	localChannelState := &channeldb.OpenChannel{
-		LocalChanCfg:            localCfg,
-		RemoteChanCfg:           remoteCfg,
+		ChanCfgs: lntypes.Dual[channeldb.ChannelConfig]{
+			Local:  localCfg,
+			Remote: remoteCfg,
+		},
 		IdentityPub:             localDummy2.PubKey(),
 		FundingOutpoint:         *prevOut,
 		ShortChannelID:          shortChanID,
@@ -1003,11 +1009,13 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 		RemoteCurrentRevocation: remoteCommitPoint,
 		RevocationProducer:      localPreimageProducer,
 		RevocationStore:         shachain.NewRevocationStore(),
-		LocalCommitment:         localCommit,
-		RemoteCommitment:        localCommit,
-		Db:                      dbLocal.ChannelStateDB(),
-		Packager:                channeldb.NewChannelPackager(shortChanID),
-		FundingTxn:              tc.fundingTx.MsgTx(),
+		Commitments: lntypes.Dual[channeldb.ChannelCommitment]{
+			Local:  localCommit,
+			Remote: localCommit,
+		},
+		Db:         dbLocal.ChannelStateDB(),
+		Packager:   channeldb.NewChannelPackager(shortChanID),
+		FundingTxn: tc.fundingTx.MsgTx(),
 	}
 
 	// Create mock signers that can sign for the keys that are used.

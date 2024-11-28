@@ -119,7 +119,7 @@ func (p *preimageBeacon) SubscribeUpdates(
 	return sub, nil
 }
 
-// LookupPreImage attempts to lookup a preimage in the global cache.  True is
+// LookupPreimage attempts to lookup a preimage in the global cache.  True is
 // returned for the second argument if the preimage is found.
 func (p *preimageBeacon) LookupPreimage(
 	payHash lntypes.Hash) (lntypes.Preimage, bool) {

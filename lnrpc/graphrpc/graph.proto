@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package graphrpc;
+
+import "lightning.proto";
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/graphrpc";
+
+// Graph is a service that can be used to query information about the
+// Lightning Network channel graph.
+service Graph {
+    /*
+    BootstrapperName returns the name of the bootstrapper implementation being
+    used by the service.
+    */
+    rpc BootstrapperName (BoostrapperNameReq) returns (BoostrapperNameResp);
+
+    /*
+    BootstrapAddrs uniformly samples a set of specified address from backing
+    bootstrapper source. NumAddrs can be used to denote how many valid peer
+    addresses to return. IgnoreNodes can be used to specify a set of nodes to
+    exclude from the result list.
+    */
+    rpc BootstrapAddrs (BootstrapAddrsReq) returns (BootstrapAddrsResp);
+
+    /*
+    BetweennessCentrality computes the normalised and non-normalised betweenness
+    centrality for each node in the graph.
+    */
+    rpc BetweennessCentrality (BetweennessCentralityReq)
+        returns (BetweennessCentralityResp);
+}
+
+message BetweennessCentralityReq {
+}
+
+message BetweennessCentralityResp {
+    repeated BetweennessCentrality node_betweenness = 1;
+}
+
+message BetweennessCentrality {
+    // The public key of the node in question.
+    bytes node = 1;
+
+    // The normalized betweenness centrality of the node.
+    double normalized = 2;
+
+    // The non-normalized betweenness centrality of the node.
+    double non_normalized = 3;
+}
+
+message BootstrapAddrsReq {
+    // The number of addresses to return.
+    uint32 num_addrs = 1;
+
+    // A set of nodes to ignore when returning addresses.
+    repeated bytes ignore_nodes = 2;
+}
+
+message BootstrapAddrsResp {
+    // A map from node public key to a set of addresses that
+    // can be used to connect to the node.
+    map<string, Addresses> addresses = 1;
+}
+
+message Addresses {
+    // A set of addresses that can be used to connect to a node.
+    repeated lnrpc.NodeAddress addresses = 1;
+}
+
+message BoostrapperNameReq {
+}
+
+message BoostrapperNameResp {
+    // The name of the network bootstrapper implementation being used.
+    string name = 1;
+}

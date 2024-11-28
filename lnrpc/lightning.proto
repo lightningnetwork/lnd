@@ -3414,6 +3414,12 @@ message NodeInfo {
 
     // A list of all public channels for the node.
     repeated ChannelEdge channels = 4;
+
+    /*
+    Whether the node is a public node or not. A node is public if it has at
+    least one advertised channel.
+    */
+    bool is_public = 5;
 }
 
 /*
@@ -3483,6 +3489,9 @@ message ChannelEdge {
 
     // Custom channel announcement tlv records.
     map<uint64, bytes> custom_records = 9;
+
+    // Whether the channel is an advertised channel.
+    bool announced = 10;
 }
 
 message ChannelGraphRequest {

@@ -416,7 +416,6 @@ func (s *server) updatePersistentPeerAddrs() error {
 							&lnwire.NetAddress{
 								IdentityKey: update.IdentityKey,
 								Address:     addr,
-								ChainNet:    s.cfg.ActiveNetParams.Net,
 							},
 						)
 					}
@@ -470,7 +469,7 @@ func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 		// If a port wasn't specified, we'll assume the address only
 		// contains the host so we'll use the default port.
 		host = address
-		port = defaultPeerPort
+		port = lncfg.DefaultPeerPort
 	} else {
 		// Otherwise, we'll note both the host and ports.
 		host = h
@@ -506,6 +505,8 @@ func noiseDial(idKey keychain.SingleKeyECDH,
 
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
+//
+//nolint:funlen
 func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	dbs *DatabaseInstances, cc *chainreg.ChainControl,
 	nodeKeyDesc *keychain.KeyDescriptor,
@@ -594,6 +595,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		NoRouteBlinding:           cfg.ProtocolOptions.NoRouteBlinding(),
 		NoExperimentalEndorsement: cfg.ProtocolOptions.NoExperimentalEndorsement(),
 		NoQuiescence:              cfg.ProtocolOptions.NoQuiescence(),
+		NoGossipQueries:           cfg.Gossip.NoSync,
 	})
 	if err != nil {
 		return nil, err
@@ -852,7 +854,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	// If external IP addresses have been specified, add those to the list
 	// of this server's addresses.
 	externalIPs, err := lncfg.NormalizeAddresses(
-		externalIPStrings, strconv.Itoa(defaultPeerPort),
+		externalIPStrings, strconv.Itoa(lncfg.DefaultPeerPort),
 		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
@@ -1782,7 +1784,9 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			RefreshTicker: ticker.New(defaultHostSampleInterval),
 			LookupHost: func(host string) (net.Addr, error) {
 				return lncfg.ParseAddressString(
-					host, strconv.Itoa(defaultPeerPort),
+					host, strconv.Itoa(
+						lncfg.DefaultPeerPort,
+					),
 					cfg.net.ResolveTCPAddr,
 				)
 			},
@@ -2365,7 +2369,6 @@ func (s *server) Start(ctx context.Context) error {
 			peerAddr := &lnwire.NetAddress{
 				IdentityKey: parsedPubkey,
 				Address:     addr,
-				ChainNet:    s.cfg.ActiveNetParams.Net,
 			}
 
 			err = s.ConnectToPeer(
@@ -2455,7 +2458,7 @@ func (s *server) Start(ctx context.Context) error {
 		// configure the set of active bootstrappers, and launch a
 		// dedicated goroutine to maintain a set of persistent
 		// connections.
-		if shouldPeerBootstrap(s.cfg) {
+		if !s.cfg.NoNetBootstrap {
 			bootstrappers, err := initNetworkBootstrappers(ctx, s)
 			if err != nil {
 				startErr = err
@@ -3164,7 +3167,7 @@ func (s *server) createNewHiddenService() error {
 	// create our onion service. The service's private key will be saved to
 	// disk in order to regain access to this service when restarting `lnd`.
 	onionCfg := tor.AddOnionConfig{
-		VirtualPort: defaultPeerPort,
+		VirtualPort: lncfg.DefaultPeerPort,
 		TargetPorts: listenPorts,
 		Store: tor.NewOnionFile(
 			s.cfg.Tor.PrivateKeyPath, 0600, s.cfg.Tor.EncryptKey,
@@ -4126,7 +4129,6 @@ func (s *server) peerConnected(ctx context.Context, conn net.Conn,
 	peerAddr := &lnwire.NetAddress{
 		IdentityKey: pubKey,
 		Address:     addr,
-		ChainNet:    s.cfg.ActiveNetParams.Net,
 	}
 
 	// With the brontide connection established, we'll now craft the feature
@@ -4247,6 +4249,7 @@ func (s *server) peerConnected(ctx context.Context, conn net.Conn,
 				EndorsementExperimentEnd,
 			)
 		},
+		NoGossipSync: s.cfg.Gossip.NoSync,
 	}
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())
@@ -4540,7 +4543,6 @@ func (s *server) peerTerminationWatcher(ctx context.Context, p *peer.Brontide,
 			&lnwire.NetAddress{
 				IdentityKey: p.IdentityKey(),
 				Address:     addr,
-				ChainNet:    p.NetAddress().ChainNet,
 			},
 		)
 	}
@@ -5107,20 +5109,6 @@ func newSweepPkScriptGen(
 			InternalKey:     internalKeyDesc,
 		})
 	}
-}
-
-// shouldPeerBootstrap returns true if we should attempt to perform peer
-// bootstrapping to actively seek our peers using the set of active network
-// bootstrappers.
-func shouldPeerBootstrap(cfg *Config) bool {
-	isSimnet := cfg.Bitcoin.SimNet
-	isSignet := cfg.Bitcoin.SigNet
-	isRegtest := cfg.Bitcoin.RegTest
-	isDevNetwork := isSimnet || isSignet || isRegtest
-
-	// TODO(yy): remove the check on simnet/regtest such that the itest is
-	// covering the bootstrapping process.
-	return !cfg.NoNetBootstrap && !isDevNetwork
 }
 
 // fetchClosedChannelSCIDs returns a set of SCIDs that have their force closing

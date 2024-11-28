@@ -106,6 +106,7 @@ func (s *DBSource) FetchChannelEdgesByID(_ context.Context,
 
 // IsPublicNode determines whether the node with the given public key is seen as
 // a public node in the graph from the graph's source node's point of view.
+// If this node is unknown, then graphdb.ErrGraphNodeNotFound is returned.
 //
 // NOTE: this is part of the invoicesrpc.GraphSource interface.
 func (s *DBSource) IsPublicNode(_ context.Context,
@@ -115,7 +116,8 @@ func (s *DBSource) IsPublicNode(_ context.Context,
 }
 
 // FetchChannelEdgesByOutpoint returns the channel edge info and most recent
-// channel edge policies for a given outpoint.
+// channel edge policies for a given outpoint. If the channel can't be found,
+// then graphdb.ErrEdgeNotFound is returned.
 //
 // NOTE: this is part of the netann.ChannelGraph interface.
 func (s *DBSource) FetchChannelEdgesByOutpoint(_ context.Context,
@@ -140,7 +142,7 @@ func (s *DBSource) AddrsForNode(ctx context.Context,
 // and invokes the passed callback for each edge. If the callback returns an
 // error, then the transaction is aborted and the iteration stops early. An
 // edge's policy structs may be nil if the ChannelUpdate in question has not yet
-// been received for the channel.
+// been received for the channel. No error is returned if no channels are found.
 //
 // NOTE: this is part of the GraphSource interface.
 func (s *DBSource) ForEachChannel(_ context.Context,
@@ -153,7 +155,7 @@ func (s *DBSource) ForEachChannel(_ context.Context,
 // ForEachNode iterates through all the stored vertices/nodes in the graph,
 // executing the passed callback with each node encountered. If the callback
 // returns an error, then the transaction is aborted and the iteration stops
-// early.
+// early. No error is returned if no nodes are found.
 //
 // NOTE: this is part of the GraphSource interface.
 func (s *DBSource) ForEachNode(_ context.Context,
@@ -170,7 +172,7 @@ func (s *DBSource) ForEachNode(_ context.Context,
 // target node identity public key. If the node exists in the database, a
 // timestamp of when the data for the node was lasted updated is returned along
 // with a true boolean. Otherwise, an empty time.Time is returned with a false
-// boolean.
+// boolean and a nil error.
 //
 // NOTE: this is part of the GraphSource interface.
 func (s *DBSource) HasLightningNode(_ context.Context,
@@ -195,7 +197,7 @@ func (s *DBSource) LookupAlias(_ context.Context,
 // connecting node, while the second is the incoming edge *from* the connecting
 // node. If the callback returns an error, then the iteration is halted with the
 // error propagated back up to the caller. Unknown policies are passed into the
-// callback as nil values.
+// callback as nil values. No error is returned if the node is not found.
 //
 // NOTE: this is part of the GraphSource interface.
 func (s *DBSource) ForEachNodeChannel(_ context.Context,

@@ -1,18 +1,19 @@
-package graphdb
+package graphrpc
 
 import (
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/build"
 )
 
-// Subsystem defines the logging code for this subsystem.
-const Subsystem = "GRDB"
-
 // log is a logger that is initialized with no output filters.  This
 // means the package will not perform any logging by default until the caller
 // requests it.
 var log btclog.Logger
 
+// Subsystem defines the logging code for this subsystem.
+const Subsystem = "GRPC"
+
+// The default amount of logging is none.
 func init() {
 	UseLogger(build.NewSubLogger(Subsystem, nil))
 }

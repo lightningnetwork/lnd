@@ -61,7 +61,6 @@ const (
 	defaultLogFilename        = "lnd.log"
 	defaultRPCPort            = 10009
 	defaultRESTPort           = 8080
-	defaultPeerPort           = 9735
 	defaultRPCHost            = "localhost"
 
 	defaultNoSeedBackup                  = false
@@ -486,6 +485,8 @@ type Config struct {
 
 	RemoteSigner *lncfg.RemoteSigner `group:"remotesigner" namespace:"remotesigner"`
 
+	RemoteGraph *lncfg.RemoteGraph `group:"remotegraph" namespace:"remotegraph"`
+
 	Sweeper *lncfg.Sweeper `group:"sweeper" namespace:"sweeper"`
 
 	Htlcswitch *lncfg.Htlcswitch `group:"htlcswitch" namespace:"htlcswitch"`
@@ -722,6 +723,9 @@ func DefaultConfig() Config {
 		KeepFailedPaymentAttempts: defaultKeepFailedPaymentAttempts,
 		RemoteSigner: &lncfg.RemoteSigner{
 			Timeout: lncfg.DefaultRemoteSignerRPCTimeout,
+		},
+		RemoteGraph: &lncfg.RemoteGraph{
+			Timeout: lncfg.DefaultRemoteGraphRPCTimeout,
 		},
 		Sweeper: lncfg.DefaultSweeperConfig(),
 		Htlcswitch: &lncfg.Htlcswitch{
@@ -1476,9 +1480,11 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// default to only listening on localhost for hidden service
 	// connections.
 	if len(cfg.RawListeners) == 0 {
-		addr := fmt.Sprintf(":%d", defaultPeerPort)
+		addr := fmt.Sprintf(":%d", lncfg.DefaultPeerPort)
 		if cfg.Tor.Active && !cfg.Tor.SkipProxyForClearNetTargets {
-			addr = fmt.Sprintf("localhost:%d", defaultPeerPort)
+			addr = fmt.Sprintf(
+				"localhost:%d", lncfg.DefaultPeerPort,
+			)
 		}
 		cfg.RawListeners = append(cfg.RawListeners, addr)
 	}
@@ -1557,7 +1563,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		// Add default port to all listener addresses if needed and remove
 		// duplicate addresses.
 		cfg.Listeners, err = lncfg.NormalizeAddresses(
-			cfg.RawListeners, strconv.Itoa(defaultPeerPort),
+			cfg.RawListeners, strconv.Itoa(lncfg.DefaultPeerPort),
 			cfg.net.ResolveTCPAddr,
 		)
 		if err != nil {
@@ -1568,7 +1574,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		// Add default port to all external IP addresses if needed and remove
 		// duplicate addresses.
 		cfg.ExternalIPs, err = lncfg.NormalizeAddresses(
-			cfg.RawExternalIPs, strconv.Itoa(defaultPeerPort),
+			cfg.RawExternalIPs, strconv.Itoa(lncfg.DefaultPeerPort),
 			cfg.net.ResolveTCPAddr,
 		)
 		if err != nil {
@@ -1749,6 +1755,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.HealthChecks,
 		cfg.RPCMiddleware,
 		cfg.RemoteSigner,
+		cfg.RemoteGraph,
 		cfg.Sweeper,
 		cfg.Htlcswitch,
 		cfg.Invoices,

@@ -30,6 +30,7 @@ type GraphSource interface {
 	// callback returns an error, then the transaction is aborted and the
 	// iteration stops early. An edge's policy structs may be nil if the
 	// ChannelUpdate in question has not yet been received for the channel.
+	// No error is returned if no channels are found.
 	ForEachChannel(ctx context.Context, cb func(*models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error) error
@@ -37,7 +38,8 @@ type GraphSource interface {
 	// ForEachNode iterates through all the stored vertices/nodes in the
 	// graph, executing the passed callback with each node encountered. If
 	// the callback returns an error, then the transaction is aborted and
-	// the iteration stops early.
+	// the iteration stops early. No error is returned if no nodes are
+	// found.
 	ForEachNode(ctx context.Context,
 		cb func(*models.LightningNode) error) error
 
@@ -45,13 +47,13 @@ type GraphSource interface {
 	// the target node identity public key. If the node exists in the
 	// database, a timestamp of when the data for the node was lasted
 	// updated is returned along with a true boolean. Otherwise, an empty
-	// time.Time is returned with a false boolean.
+	// time.Time is returned with a false boolean and a nil error.
 	HasLightningNode(ctx context.Context, nodePub [33]byte) (time.Time,
 		bool, error)
 
 	// LookupAlias attempts to return the alias as advertised by the target
 	// node. graphdb.ErrNodeAliasNotFound is returned if the alias is not
-	// found.
+	// found. No error is returned if the node is not found.
 	LookupAlias(ctx context.Context, pub *btcec.PublicKey) (string, error)
 
 	// ForEachNodeChannel iterates through all channels of the given node,
@@ -61,7 +63,7 @@ type GraphSource interface {
 	// incoming edge *from* the connecting node. If the callback returns an
 	// error, then the iteration is halted with the error propagated back up
 	// to the caller. Unknown policies are passed into the callback as nil
-	// values.
+	// values. No error is returned if the node is not found.
 	ForEachNodeChannel(ctx context.Context,
 		nodePub route.Vertex, cb func(*models.ChannelEdgeInfo,
 			*models.ChannelEdgePolicy,

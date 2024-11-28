@@ -139,6 +139,10 @@ var (
 			Entity: "macaroon",
 			Action: "read",
 		},
+		{
+			Entity: "graph",
+			Action: "read",
+		},
 	}
 
 	// writePermissions is a slice of all entities that allow write
@@ -1806,7 +1810,6 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 	peerAddr := &lnwire.NetAddress{
 		IdentityKey: pubKey,
 		Address:     addr,
-		ChainNet:    r.cfg.ActiveNetParams.Net,
 	}
 
 	rpcsLog.Debugf("[connectpeer] requested connection to %x@%s",
@@ -4655,6 +4658,8 @@ func encodeCustomChanData(lnChan *channeldb.OpenChannel) ([]byte, error) {
 }
 
 // createRPCOpenChannel creates an *lnrpc.Channel from the *channeldb.Channel.
+//
+//nolint:funlen
 func createRPCOpenChannel(ctx context.Context, r *rpcServer,
 	dbChannel *channeldb.OpenChannel, isActive, peerAliasLookup bool) (
 	*lnrpc.Channel, error) {
@@ -6647,6 +6652,7 @@ func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
 		Node2Pub:      hex.EncodeToString(edgeInfo.NodeKey2Bytes[:]),
 		Capacity:      int64(edgeInfo.Capacity),
 		CustomRecords: customRecords,
+		Announced:     edgeInfo.AuthProof != nil,
 	}
 
 	if c1 != nil {
@@ -6759,10 +6765,12 @@ func (r *rpcServer) GetChanInfo(ctx context.Context,
 	default:
 		return nil, fmt.Errorf("specify either chan_id or chan_point")
 	}
-	if err != nil {
+	switch {
+	case errors.Is(err, graphdb.ErrEdgeNotFound):
+		return nil, status.Error(codes.NotFound, err.Error())
+	case err != nil:
 		return nil, err
 	}
-
 	// Convert the database's edge format into the network/RPC edge format
 	// which couples the edge itself along with the directional node
 	// routing policies of each node involved within the channel.
@@ -6802,6 +6810,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		numChannels   uint32
 		totalCapacity btcutil.Amount
 		channels      []*lnrpc.ChannelEdge
+		isPublicNode  bool
 	)
 
 	err = graph.ForEachNodeChannel(ctx, node.PubKeyBytes,
@@ -6810,6 +6819,12 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 
 			numChannels++
 			totalCapacity += edge.Capacity
+
+			// If the edge has an authentication proof, then this
+			// is a public channel and so the node is public.
+			if edge.AuthProof != nil {
+				isPublicNode = true
+			}
 
 			// Only populate the node's channels if the user
 			// requested them.
@@ -6839,6 +6854,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		NumChannels:   numChannels,
 		TotalCapacity: int64(totalCapacity),
 		Channels:      channels,
+		IsPublic:      isPublicNode,
 	}, nil
 }
 

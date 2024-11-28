@@ -124,7 +124,7 @@ type graph interface {
 	// node, executing the passed callback on the directed edge representing
 	// the channel and its incoming policy. If the callback returns an
 	// error, then the iteration is halted with the error propagated back
-	// up to the caller.
+	// up to the caller. No error is returned if the node is not found.
 	//
 	// Unknown policies are passed into the callback as nil values.
 	//
@@ -135,7 +135,8 @@ type graph interface {
 		cb func(channel *graphdb.DirectedChannel) error) error
 
 	// FetchNodeFeatures returns the features of a given node. If no
-	// features are known for the node, an empty feature vector is returned.
+	// features are known for the node or if the node itself is unknown,
+	// an empty feature vector is returned.
 	//
 	// NOTE: if a nil tx is provided, then it is expected that the
 	// implementation create a read only tx.

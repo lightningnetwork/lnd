@@ -559,6 +559,8 @@ func getOutgoingBalance(ctx context.Context, node route.Vertex,
 // source. This is to properly accumulate fees that need to be paid along the
 // path and accurately check the amount to forward at every node against the
 // available bandwidth.
+//
+//nolint:funlen
 func findPath(ctx context.Context, g *graphParams, r *RestrictParams,
 	cfg *PathFindingConfig, self, source, target route.Vertex,
 	amt lnwire.MilliSatoshi, timePref float64, finalHtlcExpiry int32) (

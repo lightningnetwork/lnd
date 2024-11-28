@@ -251,13 +251,13 @@ func TestStateMachineOnInitDaemonEvent(t *testing.T) {
 	// message adapter is called on start up.
 	adapters.On("SendMessages", *pub1, mock.Anything).Return(nil)
 
-	stateMachine.Start()
-	defer stateMachine.Stop()
-
 	// As we're triggering internal events, we'll also subscribe to the set
 	// of new states so we can assert as we go.
 	stateSub := stateMachine.RegisterStateEvents()
 	defer stateMachine.RemoveStateSub(stateSub)
+
+	stateMachine.Start()
+	defer stateMachine.Stop()
 
 	// Assert that we go from the starting state to the final state.  The
 	// state machine should now also be on the final terminal state.
@@ -292,13 +292,14 @@ func TestStateMachineInternalEvents(t *testing.T) {
 		InitEvent:    fn.None[DaemonEvent](),
 	}
 	stateMachine := NewStateMachine(cfg)
-	stateMachine.Start()
-	defer stateMachine.Stop()
 
 	// As we're triggering internal events, we'll also subscribe to the set
 	// of new states so we can assert as we go.
 	stateSub := stateMachine.RegisterStateEvents()
 	defer stateMachine.RemoveStateSub(stateSub)
+
+	stateMachine.Start()
+	defer stateMachine.Stop()
 
 	// For this transition, we'll send in the emitInternal event, which'll
 	// send us back to the starting event, but emit an internal event.
@@ -343,13 +344,14 @@ func TestStateMachineDaemonEvents(t *testing.T) {
 		InitEvent:    fn.None[DaemonEvent](),
 	}
 	stateMachine := NewStateMachine(cfg)
-	stateMachine.Start()
-	defer stateMachine.Stop()
 
 	// As we're triggering internal events, we'll also subscribe to the set
 	// of new states so we can assert as we go.
 	stateSub := stateMachine.RegisterStateEvents()
 	defer stateMachine.RemoveStateSub(stateSub)
+
+	stateMachine.Start()
+	defer stateMachine.Stop()
 
 	// As soon as we send in the daemon event, we expect the
 	// disable+broadcast events to be processed, as they are unconditional.
@@ -428,13 +430,16 @@ func TestStateMachineMsgMapper(t *testing.T) {
 		MsgMapper:    fn.Some[MsgMapper[dummyEvents]](dummyMapper),
 	}
 	stateMachine := NewStateMachine(cfg)
-	stateMachine.Start()
-	defer stateMachine.Stop()
 
 	// As we're triggering internal events, we'll also subscribe to the set
 	// of new states so we can assert as we go.
+	//
+	// We register before calling Start to ensure we don't miss any events.
 	stateSub := stateMachine.RegisterStateEvents()
 	defer stateMachine.RemoveStateSub(stateSub)
+
+	stateMachine.Start()
+	defer stateMachine.Stop()
 
 	// First, we'll verify that the CanHandle method works as expected.
 	require.True(t, stateMachine.CanHandle(wireError))

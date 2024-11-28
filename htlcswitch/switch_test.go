@@ -16,9 +16,9 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntest/mock"
@@ -1002,9 +1002,7 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
-	require.NoError(t, err, "unable to open channeldb")
-	t.Cleanup(func() { cdb.Close() })
+	cdb := channeldb.OpenForTesting(t, tempPath)
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err, "unable to init switch")
@@ -1096,9 +1094,7 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 
-	cdb2, err := channeldb.Open(tempPath)
-	require.NoError(t, err, "unable to reopen channeldb")
-	t.Cleanup(func() { cdb2.Close() })
+	cdb2 := channeldb.OpenForTesting(t, tempPath)
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	require.NoError(t, err, "unable reinit switch")
@@ -1192,9 +1188,7 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
-	require.NoError(t, err, "unable to open channeldb")
-	t.Cleanup(func() { cdb.Close() })
+	cdb := channeldb.OpenForTesting(t, tempPath)
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err, "unable to init switch")
@@ -1286,9 +1280,7 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 
-	cdb2, err := channeldb.Open(tempPath)
-	require.NoError(t, err, "unable to reopen channeldb")
-	t.Cleanup(func() { cdb2.Close() })
+	cdb2 := channeldb.OpenForTesting(t, tempPath)
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	require.NoError(t, err, "unable reinit switch")
@@ -1385,9 +1377,7 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
-	require.NoError(t, err, "unable to open channeldb")
-	t.Cleanup(func() { cdb.Close() })
+	cdb := channeldb.OpenForTesting(t, tempPath)
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err, "unable to init switch")
@@ -1471,9 +1461,7 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 
-	cdb2, err := channeldb.Open(tempPath)
-	require.NoError(t, err, "unable to reopen channeldb")
-	t.Cleanup(func() { cdb2.Close() })
+	cdb2 := channeldb.OpenForTesting(t, tempPath)
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	require.NoError(t, err, "unable reinit switch")
@@ -1541,9 +1529,7 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
-	require.NoError(t, err, "unable to open channeldb")
-	t.Cleanup(func() { cdb.Close() })
+	cdb := channeldb.OpenForTesting(t, tempPath)
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err, "unable to init switch")
@@ -1622,9 +1608,7 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 
-	cdb2, err := channeldb.Open(tempPath)
-	require.NoError(t, err, "unable to reopen channeldb")
-	t.Cleanup(func() { cdb2.Close() })
+	cdb2 := channeldb.OpenForTesting(t, tempPath)
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	require.NoError(t, err, "unable reinit switch")
@@ -1698,9 +1682,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
-	require.NoError(t, err, "unable to open channeldb")
-	t.Cleanup(func() { cdb.Close() })
+	cdb := channeldb.OpenForTesting(t, tempPath)
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err, "unable to init switch")
@@ -1778,9 +1760,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 
-	cdb2, err := channeldb.Open(tempPath)
-	require.NoError(t, err, "unable to reopen channeldb")
-	t.Cleanup(func() { cdb2.Close() })
+	cdb2 := channeldb.OpenForTesting(t, tempPath)
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	require.NoError(t, err, "unable reinit switch")
@@ -1870,9 +1850,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 
-	cdb3, err := channeldb.Open(tempPath)
-	require.NoError(t, err, "unable to reopen channeldb")
-	t.Cleanup(func() { cdb3.Close() })
+	cdb3 := channeldb.OpenForTesting(t, tempPath)
 
 	s3, err := initSwitchWithDB(testStartingHeight, cdb3)
 	require.NoError(t, err, "unable reinit switch")
@@ -3827,9 +3805,7 @@ func newInterceptableSwitchTestContext(
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
-	require.NoError(t, err, "unable to open channeldb")
-	t.Cleanup(func() { cdb.Close() })
+	cdb := channeldb.OpenForTesting(t, tempPath)
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err, "unable to init switch")
@@ -4914,9 +4890,7 @@ func testSwitchForwardFailAlias(t *testing.T, zeroConf bool) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { cdb.Close() })
+	cdb := channeldb.OpenForTesting(t, tempPath)
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err)
@@ -4990,9 +4964,7 @@ func testSwitchForwardFailAlias(t *testing.T, zeroConf bool) {
 	err = cdb.Close()
 	require.NoError(t, err)
 
-	cdb2, err := channeldb.Open(tempPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { cdb2.Close() })
+	cdb2 := channeldb.OpenForTesting(t, tempPath)
 
 	s2, err := initSwitchWithDB(testStartingHeight, cdb2)
 	require.NoError(t, err)
@@ -5130,9 +5102,7 @@ func testSwitchAliasFailAdd(t *testing.T, zeroConf, private, useAlias bool) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
-	require.NoError(t, err)
-	defer cdb.Close()
+	cdb := channeldb.OpenForTesting(t, tempPath)
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err)
@@ -5471,9 +5441,7 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 
 	tempPath := t.TempDir()
 
-	cdb, err := channeldb.Open(tempPath)
-	require.NoError(t, err)
-	t.Cleanup(func() { cdb.Close() })
+	cdb := channeldb.OpenForTesting(t, tempPath)
 
 	s, err := initSwitchWithDB(testStartingHeight, cdb)
 	require.NoError(t, err)

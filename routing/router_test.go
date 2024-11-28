@@ -22,10 +22,11 @@ import (
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/graph"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -68,7 +69,7 @@ type testCtx struct {
 
 	graphBuilder *mockGraphBuilder
 
-	graph *channeldb.ChannelGraph
+	graph *graphdb.ChannelGraph
 
 	aliases map[string]route.Vertex
 
@@ -191,7 +192,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	return ctx
 }
 
-func createTestNode() (*channeldb.LightningNode, error) {
+func createTestNode() (*models.LightningNode, error) {
 	updateTime := rand.Int63()
 
 	priv, err := btcec.NewPrivateKey()
@@ -200,7 +201,7 @@ func createTestNode() (*channeldb.LightningNode, error) {
 	}
 
 	pub := priv.PubKey().SerializeCompressed()
-	n := &channeldb.LightningNode{
+	n := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(updateTime, 0),
 		Addresses:            testAddrs,
@@ -2898,7 +2899,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// Now check that we can update the node info for the partial node
 	// without messing up the channel graph.
-	n1 := &channeldb.LightningNode{
+	n1 := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(123, 0),
 		Addresses:            testAddrs,
@@ -2911,7 +2912,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	require.NoError(t, ctx.graph.AddLightningNode(n1))
 
-	n2 := &channeldb.LightningNode{
+	n2 := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(123, 0),
 		Addresses:            testAddrs,

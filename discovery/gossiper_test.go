@@ -24,11 +24,11 @@ import (
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/graph"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -73,26 +73,11 @@ var (
 	rebroadcastInterval = time.Hour * 1000000
 )
 
-// makeTestDB creates a new instance of the ChannelDB for testing purposes.
-func makeTestDB(t *testing.T) (*channeldb.DB, error) {
-	// Create channeldb for the first time.
-	cdb, err := channeldb.Open(t.TempDir())
-	if err != nil {
-		return nil, err
-	}
-
-	t.Cleanup(func() {
-		cdb.Close()
-	})
-
-	return cdb, nil
-}
-
 type mockGraphSource struct {
 	bestHeight uint32
 
 	mu             sync.Mutex
-	nodes          []channeldb.LightningNode
+	nodes          []models.LightningNode
 	infos          map[uint64]models.ChannelEdgeInfo
 	edges          map[uint64][]models.ChannelEdgePolicy
 	zombies        map[uint64][][33]byte
@@ -112,7 +97,7 @@ func newMockRouter(height uint32) *mockGraphSource {
 
 var _ graph.ChannelGraphSource = (*mockGraphSource)(nil)
 
-func (r *mockGraphSource) AddNode(node *channeldb.LightningNode,
+func (r *mockGraphSource) AddNode(node *models.LightningNode,
 	_ ...batch.SchedulerOption) error {
 
 	r.mu.Lock()
@@ -202,18 +187,19 @@ func (r *mockGraphSource) AddProof(chanID lnwire.ShortChannelID,
 	return nil
 }
 
-func (r *mockGraphSource) ForEachNode(func(node *channeldb.LightningNode) error) error {
+func (r *mockGraphSource) ForEachNode(
+	func(node *models.LightningNode) error) error {
+
 	return nil
 }
 
-func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
-	i *models.ChannelEdgeInfo,
-	c *models.ChannelEdgePolicy) error) error {
+func (r *mockGraphSource) ForAllOutgoingChannels(cb func(
+	i *models.ChannelEdgeInfo, c *models.ChannelEdgePolicy) error) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	chans := make(map[uint64]channeldb.ChannelEdge)
+	chans := make(map[uint64]graphdb.ChannelEdge)
 	for _, info := range r.infos {
 		info := info
 
@@ -230,7 +216,7 @@ func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 	}
 
 	for _, channel := range chans {
-		if err := cb(nil, channel.Info, channel.Policy1); err != nil {
+		if err := cb(channel.Info, channel.Policy1); err != nil {
 			return err
 		}
 	}
@@ -251,13 +237,13 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 	if !ok {
 		pubKeys, isZombie := r.zombies[chanIDInt]
 		if !isZombie {
-			return nil, nil, nil, channeldb.ErrEdgeNotFound
+			return nil, nil, nil, graphdb.ErrEdgeNotFound
 		}
 
 		return &models.ChannelEdgeInfo{
 			NodeKey1Bytes: pubKeys[0],
 			NodeKey2Bytes: pubKeys[1],
-		}, nil, nil, channeldb.ErrZombieEdge
+		}, nil, nil, graphdb.ErrZombieEdge
 	}
 
 	edges := r.edges[chanID.ToUint64()]
@@ -279,7 +265,7 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 }
 
 func (r *mockGraphSource) FetchLightningNode(
-	nodePub route.Vertex) (*channeldb.LightningNode, error) {
+	nodePub route.Vertex) (*models.LightningNode, error) {
 
 	for _, node := range r.nodes {
 		if bytes.Equal(nodePub[:], node.PubKeyBytes[:]) {
@@ -287,7 +273,7 @@ func (r *mockGraphSource) FetchLightningNode(
 		}
 	}
 
-	return nil, channeldb.ErrGraphNodeNotFound
+	return nil, graphdb.ErrGraphNodeNotFound
 }
 
 // IsStaleNode returns true if the graph source has a node announcement for the
@@ -733,10 +719,7 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 	notifier := newMockNotifier()
 	router := newMockRouter(startHeight)
 
-	db, err := makeTestDB(t)
-	if err != nil {
-		return nil, err
-	}
+	db := channeldb.OpenForTesting(t, t.TempDir())
 
 	waitingProofStore, err := channeldb.NewWaitingProofStore(db)
 	if err != nil {
@@ -2319,9 +2302,7 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 
 	// At this point, the channel should still be considered a zombie.
 	_, _, _, err = ctx.router.GetChannelByID(chanID)
-	if err != channeldb.ErrZombieEdge {
-		t.Fatalf("channel should still be a zombie")
-	}
+	require.ErrorIs(t, err, graphdb.ErrZombieEdge)
 
 	// Attempting to process the current channel update should fail due to
 	// its edge being considered a zombie and its timestamp not being within
@@ -2442,7 +2423,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	// to the map of premature ChannelUpdates. Check that nothing
 	// was added to the graph.
 	chanInfo, e1, e2, err := ctx.router.GetChannelByID(batch.chanUpdAnn1.ShortChannelID)
-	if err != channeldb.ErrEdgeNotFound {
+	if !errors.Is(err, graphdb.ErrEdgeNotFound) {
 		t.Fatalf("Expected ErrEdgeNotFound, got: %v", err)
 	}
 	if chanInfo != nil {
@@ -3482,7 +3463,6 @@ out:
 	const newTimeLockDelta = 100
 	var edgesToUpdate []EdgeWithInfo
 	err = ctx.router.ForAllOutgoingChannels(func(
-		_ kvdb.RTx,
 		info *models.ChannelEdgeInfo,
 		edge *models.ChannelEdgePolicy) error {
 

@@ -914,11 +914,8 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 	)
 
 	// Create temporary databases.
-	dbRemote, err := channeldb.Open(t.TempDir())
-	require.NoError(t, err)
-
-	dbLocal, err := channeldb.Open(t.TempDir())
-	require.NoError(t, err)
+	dbRemote := channeldb.OpenForTesting(t, t.TempDir())
+	dbLocal := channeldb.OpenForTesting(t, t.TempDir())
 
 	// Create the initial commitment transactions for the channel.
 	feePerKw := chainfee.SatPerKWeight(feeRate)

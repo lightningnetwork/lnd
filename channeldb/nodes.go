@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 )
 
@@ -273,7 +274,7 @@ func serializeLinkNode(w io.Writer, l *LinkNode) error {
 	}
 
 	for _, addr := range l.Addresses {
-		if err := serializeAddr(w, addr); err != nil {
+		if err := graphdb.SerializeAddr(w, addr); err != nil {
 			return err
 		}
 	}
@@ -315,7 +316,7 @@ func deserializeLinkNode(r io.Reader) (*LinkNode, error) {
 
 	node.Addresses = make([]net.Addr, numAddrs)
 	for i := uint32(0); i < numAddrs; i++ {
-		addr, err := deserializeAddr(r)
+		addr, err := graphdb.DeserializeAddr(r)
 		if err != nil {
 			return nil, err
 		}

@@ -1,4 +1,4 @@
-package channeldb
+package graphdb
 
 import (
 	"encoding/binary"
@@ -121,10 +121,10 @@ func encodeOnionAddr(w io.Writer, addr *tor.OnionAddr) error {
 	return nil
 }
 
-// deserializeAddr reads the serialized raw representation of an address and
+// DeserializeAddr reads the serialized raw representation of an address and
 // deserializes it into the actual address. This allows us to avoid address
 // resolution within the channeldb package.
-func deserializeAddr(r io.Reader) (net.Addr, error) {
+func DeserializeAddr(r io.Reader) (net.Addr, error) {
 	var addrType [1]byte
 	if _, err := r.Read(addrType[:]); err != nil {
 		return nil, err
@@ -207,9 +207,9 @@ func deserializeAddr(r io.Reader) (net.Addr, error) {
 	return address, nil
 }
 
-// serializeAddr serializes an address into its raw bytes representation so that
+// SerializeAddr serializes an address into its raw bytes representation so that
 // it can be deserialized without requiring address resolution.
-func serializeAddr(w io.Writer, address net.Addr) error {
+func SerializeAddr(w io.Writer, address net.Addr) error {
 	switch addr := address.(type) {
 	case *net.TCPAddr:
 		return encodeTCPAddr(w, addr)

@@ -2,9 +2,8 @@ package routing
 
 import (
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -24,7 +23,7 @@ type SessionSource struct {
 	GraphSessionFactory GraphSessionFactory
 
 	// SourceNode is the graph's source node.
-	SourceNode *channeldb.LightningNode
+	SourceNode *models.LightningNode
 
 	// GetLink is a method that allows querying the lower link layer
 	// to determine the up to date available bandwidth at a prospective link
@@ -101,7 +100,7 @@ func RouteHintsToEdges(routeHints [][]zpay32.HopHint, target route.Vertex) (
 			// we'll need to look at the next hint's start node. If
 			// we've reached the end of the hints list, we can
 			// assume we've reached the destination.
-			endNode := &channeldb.LightningNode{}
+			endNode := &models.LightningNode{}
 			if i != len(routeHint)-1 {
 				endNode.AddPubKey(routeHint[i+1].NodeID)
 			} else {

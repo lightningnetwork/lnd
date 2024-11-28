@@ -7,8 +7,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -166,12 +166,12 @@ func (m *mockGraph) addChannel(id uint64, node1id, node2id byte,
 //
 // NOTE: Part of the Graph interface.
 func (m *mockGraph) ForEachNodeChannel(nodePub route.Vertex,
-	cb func(channel *channeldb.DirectedChannel) error) error {
+	cb func(channel *graphdb.DirectedChannel) error) error {
 
 	// Look up the mock node.
 	node, ok := m.nodes[nodePub]
 	if !ok {
-		return channeldb.ErrGraphNodeNotFound
+		return graphdb.ErrGraphNodeNotFound
 	}
 
 	// Iterate over all of its channels.
@@ -188,7 +188,7 @@ func (m *mockGraph) ForEachNodeChannel(nodePub route.Vertex,
 
 		// Call the per channel callback.
 		err := cb(
-			&channeldb.DirectedChannel{
+			&graphdb.DirectedChannel{
 				ChannelID:    channel.id,
 				IsNode1:      nodePub == node1,
 				OtherNode:    peer,

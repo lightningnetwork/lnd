@@ -3,6 +3,7 @@ package autopilot
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"net"
 	"sort"
 	"sync/atomic"
@@ -11,8 +12,8 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -35,7 +36,7 @@ var (
 //
 // TODO(roasbeef): move inmpl to main package?
 type databaseChannelGraph struct {
-	db *channeldb.ChannelGraph
+	db *graphdb.ChannelGraph
 }
 
 // A compile time assertion to ensure databaseChannelGraph meets the
@@ -44,7 +45,7 @@ var _ ChannelGraph = (*databaseChannelGraph)(nil)
 
 // ChannelGraphFromDatabase returns an instance of the autopilot.ChannelGraph
 // backed by a live, open channeldb instance.
-func ChannelGraphFromDatabase(db *channeldb.ChannelGraph) ChannelGraph {
+func ChannelGraphFromDatabase(db *graphdb.ChannelGraph) ChannelGraph {
 	return &databaseChannelGraph{
 		db: db,
 	}
@@ -54,11 +55,11 @@ func ChannelGraphFromDatabase(db *channeldb.ChannelGraph) ChannelGraph {
 // channeldb.LightningNode. The wrapper method implement the autopilot.Node
 // interface.
 type dbNode struct {
-	db *channeldb.ChannelGraph
+	db *graphdb.ChannelGraph
 
 	tx kvdb.RTx
 
-	node *channeldb.LightningNode
+	node *models.LightningNode
 }
 
 // A compile time assertion to ensure dbNode meets the autopilot.Node
@@ -134,7 +135,9 @@ func (d *dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 //
 // NOTE: Part of the autopilot.ChannelGraph interface.
 func (d *databaseChannelGraph) ForEachNode(cb func(Node) error) error {
-	return d.db.ForEachNode(func(tx kvdb.RTx, n *channeldb.LightningNode) error {
+	return d.db.ForEachNode(func(tx kvdb.RTx,
+		n *models.LightningNode) error {
+
 		// We'll skip over any node that doesn't have any advertised
 		// addresses. As we won't be able to reach them to actually
 		// open any channels.
@@ -157,7 +160,7 @@ func (d *databaseChannelGraph) ForEachNode(cb func(Node) error) error {
 func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	capacity btcutil.Amount) (*ChannelEdge, *ChannelEdge, error) {
 
-	fetchNode := func(pub *btcec.PublicKey) (*channeldb.LightningNode, error) {
+	fetchNode := func(pub *btcec.PublicKey) (*models.LightningNode, error) {
 		if pub != nil {
 			vertex, err := route.NewVertexFromBytes(
 				pub.SerializeCompressed(),
@@ -168,10 +171,10 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 
 			dbNode, err := d.db.FetchLightningNode(vertex)
 			switch {
-			case err == channeldb.ErrGraphNodeNotFound:
+			case errors.Is(err, graphdb.ErrGraphNodeNotFound):
 				fallthrough
-			case err == channeldb.ErrGraphNotFound:
-				graphNode := &channeldb.LightningNode{
+			case errors.Is(err, graphdb.ErrGraphNotFound):
+				graphNode := &models.LightningNode{
 					HaveNodeAnnouncement: true,
 					Addresses: []net.Addr{
 						&net.TCPAddr{
@@ -198,7 +201,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		if err != nil {
 			return nil, err
 		}
-		dbNode := &channeldb.LightningNode{
+		dbNode := &models.LightningNode{
 			HaveNodeAnnouncement: true,
 			Addresses: []net.Addr{
 				&net.TCPAddr{
@@ -302,7 +305,7 @@ func (d *databaseChannelGraph) addRandNode() (*btcec.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	dbNode := &channeldb.LightningNode{
+	dbNode := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		Addresses: []net.Addr{
 			&net.TCPAddr{
@@ -478,7 +481,7 @@ func (m *memChannelGraph) addRandNode() (*btcec.PublicKey, error) {
 // databaseChannelGraphCached wraps a channeldb.ChannelGraph instance with the
 // necessary API to properly implement the autopilot.ChannelGraph interface.
 type databaseChannelGraphCached struct {
-	db *channeldb.ChannelGraph
+	db *graphdb.ChannelGraph
 }
 
 // A compile time assertion to ensure databaseChannelGraphCached meets the
@@ -487,7 +490,7 @@ var _ ChannelGraph = (*databaseChannelGraphCached)(nil)
 
 // ChannelGraphFromCachedDatabase returns an instance of the
 // autopilot.ChannelGraph backed by a live, open channeldb instance.
-func ChannelGraphFromCachedDatabase(db *channeldb.ChannelGraph) ChannelGraph {
+func ChannelGraphFromCachedDatabase(db *graphdb.ChannelGraph) ChannelGraph {
 	return &databaseChannelGraphCached{
 		db: db,
 	}
@@ -498,7 +501,7 @@ func ChannelGraphFromCachedDatabase(db *channeldb.ChannelGraph) ChannelGraph {
 // interface.
 type dbNodeCached struct {
 	node     route.Vertex
-	channels map[uint64]*channeldb.DirectedChannel
+	channels map[uint64]*graphdb.DirectedChannel
 }
 
 // A compile time assertion to ensure dbNodeCached meets the autopilot.Node
@@ -552,7 +555,7 @@ func (nc dbNodeCached) ForEachChannel(cb func(ChannelEdge) error) error {
 // NOTE: Part of the autopilot.ChannelGraph interface.
 func (dc *databaseChannelGraphCached) ForEachNode(cb func(Node) error) error {
 	return dc.db.ForEachNodeCached(func(n route.Vertex,
-		channels map[uint64]*channeldb.DirectedChannel) error {
+		channels map[uint64]*graphdb.DirectedChannel) error {
 
 		if len(channels) > 0 {
 			node := dbNodeCached{

@@ -18,7 +18,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -75,7 +76,7 @@ type AddInvoiceConfig struct {
 	ChanDB *channeldb.ChannelStateDB
 
 	// Graph holds a reference to the ChannelGraph database.
-	Graph *channeldb.ChannelGraph
+	Graph *graphdb.ChannelGraph
 
 	// GenInvoiceFeatures returns a feature containing feature bits that
 	// should be advertised on freshly generated invoices.

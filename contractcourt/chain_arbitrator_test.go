@@ -8,8 +8,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -22,13 +22,7 @@ import (
 func TestChainArbitratorRepublishCloses(t *testing.T) {
 	t.Parallel()
 
-	db, err := channeldb.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		require.NoError(t, db.Close())
-	})
+	db := channeldb.OpenForTesting(t, t.TempDir())
 
 	// Create 10 test channels and sync them to the database.
 	const numChans = 10
@@ -139,11 +133,7 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 func TestResolveContract(t *testing.T) {
 	t.Parallel()
 
-	db, err := channeldb.Open(t.TempDir())
-	require.NoError(t, err, "unable to open db")
-	t.Cleanup(func() {
-		require.NoError(t, db.Close())
-	})
+	db := channeldb.OpenForTesting(t, t.TempDir())
 
 	// With the DB created, we'll make a new channel, and mark it as
 	// pending open within the database.

@@ -25,9 +25,9 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
@@ -2169,7 +2169,7 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 			BaseFee:       lnwire.NewMSatFromSatoshis(1),
 			TimeLockDelta: 6,
 		}
-		invoiceRegistry = newMockRegistry(globalPolicy.TimeLockDelta)
+		invoiceRegistry = newMockRegistry(t)
 	)
 
 	pCache := newMockPreimageCache()
@@ -2267,7 +2267,6 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 
 	t.Cleanup(func() {
 		close(alicePeer.quit)
-		invoiceRegistry.cleanup()
 	})
 
 	harness := singleLinkTestHarness{

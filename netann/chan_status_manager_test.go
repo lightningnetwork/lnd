@@ -14,7 +14,8 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
@@ -168,7 +169,7 @@ func (g *mockGraph) FetchChannelEdgesByOutpoint(
 
 	info, ok := g.chanInfos[*op]
 	if !ok {
-		return nil, nil, nil, channeldb.ErrEdgeNotFound
+		return nil, nil, nil, graphdb.ErrEdgeNotFound
 	}
 
 	pol1 := g.chanPols1[*op]
@@ -697,7 +698,7 @@ var stateMachineTests = []stateMachineTest{
 			// Request that they be enabled, which should return an
 			// error as the graph doesn't have an edge for them.
 			h.assertEnables(
-				unknownChans, channeldb.ErrEdgeNotFound, false,
+				unknownChans, graphdb.ErrEdgeNotFound, false,
 			)
 			// No updates should be sent as a result of the failure.
 			h.assertNoUpdates(h.safeDisableTimeout)
@@ -717,7 +718,7 @@ var stateMachineTests = []stateMachineTest{
 			// Request that they be disabled, which should return an
 			// error as the graph doesn't have an edge for them.
 			h.assertDisables(
-				unknownChans, channeldb.ErrEdgeNotFound, false,
+				unknownChans, graphdb.ErrEdgeNotFound, false,
 			)
 			// No updates should be sent as a result of the failure.
 			h.assertNoUpdates(h.safeDisableTimeout)
@@ -747,7 +748,9 @@ var stateMachineTests = []stateMachineTest{
 
 			// Check that trying to enable the channel with unknown
 			// edges results in a failure.
-			h.assertEnables(newChans, channeldb.ErrEdgeNotFound, false)
+			h.assertEnables(
+				newChans, graphdb.ErrEdgeNotFound, false,
+			)
 
 			// Now, insert edge policies for the channel into the
 			// graph, starting with the channel enabled, and mark
@@ -794,7 +797,9 @@ var stateMachineTests = []stateMachineTest{
 
 			// Check that trying to enable the channel with unknown
 			// edges results in a failure.
-			h.assertDisables(rmChans, channeldb.ErrEdgeNotFound, false)
+			h.assertDisables(
+				rmChans, graphdb.ErrEdgeNotFound, false,
+			)
 		},
 	},
 	{

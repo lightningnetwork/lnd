@@ -25,10 +25,10 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	acpt "github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -427,10 +427,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	}
 
 	dbDir := filepath.Join(tempTestDir, "cdb")
-	fullDB, err := channeldb.Open(dbDir)
-	if err != nil {
-		return nil, err
-	}
+	fullDB := channeldb.OpenForTesting(t, dbDir)
 
 	cdb := fullDB.ChannelStateDB()
 

@@ -2,23 +2,12 @@ package lnd
 
 import (
 	"fmt"
-	"net"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 )
-
-// addrSource is an interface that allow us to get the addresses for a target
-// node. We'll need this in order to be able to properly proxy the
-// notifications to create SCBs.
-type addrSource interface {
-	// AddrsForNode returns all known addresses for the target node public
-	// key.
-	AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr, error)
-}
 
 // channelNotifier is an implementation of the chanbackup.ChannelNotifier
 // interface using the existing channelnotifier.ChannelNotifier struct. This
@@ -32,7 +21,7 @@ type channelNotifier struct {
 	// addrs is an implementation of the addrSource interface that allows
 	// us to get the latest set of addresses for a given node. We'll need
 	// this to be able to create an SCB for new channels.
-	addrs addrSource
+	addrs channeldb.AddrSource
 }
 
 // SubscribeChans requests a new channel subscription relative to the initial
@@ -56,7 +45,7 @@ func (c *channelNotifier) SubscribeChans(startingChans map[wire.OutPoint]struct{
 	// chanUpdates channel to inform subscribers about new pending or
 	// confirmed channels.
 	sendChanOpenUpdate := func(newOrPendingChan *channeldb.OpenChannel) {
-		nodeAddrs, err := c.addrs.AddrsForNode(
+		_, nodeAddrs, err := c.addrs.AddrsForNode(
 			newOrPendingChan.IdentityPub,
 		)
 		if err != nil {

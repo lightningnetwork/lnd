@@ -1,4 +1,4 @@
-package channeldb
+package graphdb
 
 // rejectFlags is a compact representation of various metadata stored by the
 // reject cache about a particular channel.

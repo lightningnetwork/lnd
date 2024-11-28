@@ -11,37 +11,12 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/lightningnetwork/lnd/tlv"
 )
-
-// writeOutpoint writes an outpoint to the passed writer using the minimal
-// amount of bytes possible.
-func writeOutpoint(w io.Writer, o *wire.OutPoint) error {
-	if _, err := w.Write(o.Hash[:]); err != nil {
-		return err
-	}
-	if err := binary.Write(w, byteOrder, o.Index); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// readOutpoint reads an outpoint from the passed reader that was previously
-// written using the writeOutpoint struct.
-func readOutpoint(r io.Reader, o *wire.OutPoint) error {
-	if _, err := io.ReadFull(r, o.Hash[:]); err != nil {
-		return err
-	}
-	if err := binary.Read(r, byteOrder, &o.Index); err != nil {
-		return err
-	}
-
-	return nil
-}
 
 // UnknownElementType is an error returned when the codec is unable to encode or
 // decode a particular type.
@@ -98,7 +73,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 	case wire.OutPoint:
-		return writeOutpoint(w, &e)
+		return graphdb.WriteOutpoint(w, &e)
 
 	case lnwire.ShortChannelID:
 		if err := binary.Write(w, byteOrder, e.ToUint64()); err != nil {
@@ -218,7 +193,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 	case net.Addr:
-		if err := serializeAddr(w, e); err != nil {
+		if err := graphdb.SerializeAddr(w, e); err != nil {
 			return err
 		}
 
@@ -228,7 +203,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 		}
 
 		for _, addr := range e {
-			if err := serializeAddr(w, addr); err != nil {
+			if err := graphdb.SerializeAddr(w, addr); err != nil {
 				return err
 			}
 		}
@@ -288,7 +263,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 
 	case *wire.OutPoint:
-		return readOutpoint(r, e)
+		return graphdb.ReadOutpoint(r, e)
 
 	case *lnwire.ShortChannelID:
 		var a uint64
@@ -451,7 +426,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 
 	case *net.Addr:
-		addr, err := deserializeAddr(r)
+		addr, err := graphdb.DeserializeAddr(r)
 		if err != nil {
 			return err
 		}
@@ -465,7 +440,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 
 		*e = make([]net.Addr, numAddrs)
 		for i := uint32(0); i < numAddrs; i++ {
-			addr, err := deserializeAddr(r)
+			addr, err := graphdb.DeserializeAddr(r)
 			if err != nil {
 				return err
 			}

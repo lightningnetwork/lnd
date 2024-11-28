@@ -10,8 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
-	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -318,7 +317,7 @@ func addToTopologyChange(graph DB, update *TopologyChange,
 
 	// Any node announcement maps directly to a NetworkNodeUpdate struct.
 	// No further data munging or db queries are required.
-	case *channeldb.LightningNode:
+	case *models.LightningNode:
 		pubKey, err := m.PubKey()
 		if err != nil {
 			return err

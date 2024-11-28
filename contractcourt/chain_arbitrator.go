@@ -13,9 +13,9 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
@@ -304,9 +304,7 @@ func (a *arbChannel) NewAnchorResolutions() (*lnwallet.AnchorResolutions,
 	// same instance that is used by the link.
 	chanPoint := a.channel.FundingOutpoint
 
-	channel, err := a.c.chanSource.ChannelStateDB().FetchChannel(
-		nil, chanPoint,
-	)
+	channel, err := a.c.chanSource.ChannelStateDB().FetchChannel(chanPoint)
 	if err != nil {
 		return nil, err
 	}
@@ -359,9 +357,7 @@ func (a *arbChannel) ForceCloseChan() (*wire.MsgTx, error) {
 	// Now that we know the link can't mutate the channel
 	// state, we'll read the channel from disk the target
 	// channel according to its channel point.
-	channel, err := a.c.chanSource.ChannelStateDB().FetchChannel(
-		nil, chanPoint,
-	)
+	channel, err := a.c.chanSource.ChannelStateDB().FetchChannel(chanPoint)
 	if err != nil {
 		return nil, err
 	}

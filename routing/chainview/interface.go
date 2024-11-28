@@ -3,7 +3,7 @@ package chainview
 import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 )
 
 // FilteredChainView represents a subscription to a certain subset of the
@@ -43,7 +43,7 @@ type FilteredChainView interface {
 	// relevant notifications are dispatched, meaning blocks with a height
 	// lower than the best known height might be sent over the
 	// FilteredBlocks() channel.
-	UpdateFilter(ops []channeldb.EdgePoint, updateHeight uint32) error
+	UpdateFilter(ops []graphdb.EdgePoint, updateHeight uint32) error
 
 	// FilterBlock takes a block hash, and returns a FilteredBlocks which
 	// is the result of applying the current registered UTXO sub-set on the

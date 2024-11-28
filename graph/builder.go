@@ -16,9 +16,9 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -201,10 +201,10 @@ func (b *Builder) Start() error {
 	// then we don't treat this as an explicit error.
 	if _, _, err := b.cfg.Graph.PruneTip(); err != nil {
 		switch {
-		case errors.Is(err, channeldb.ErrGraphNeverPruned):
+		case errors.Is(err, graphdb.ErrGraphNeverPruned):
 			fallthrough
 
-		case errors.Is(err, channeldb.ErrGraphNotFound):
+		case errors.Is(err, graphdb.ErrGraphNotFound):
 			// If the graph has never been pruned, then we'll set
 			// the prune height to the current best height of the
 			// chain backend.
@@ -256,7 +256,7 @@ func (b *Builder) Start() error {
 		// been applied.
 		channelView, err := b.cfg.Graph.ChannelView()
 		if err != nil && !errors.Is(
-			err, channeldb.ErrGraphNoEdgesFound,
+			err, graphdb.ErrGraphNoEdgesFound,
 		) {
 
 			return err
@@ -294,7 +294,7 @@ func (b *Builder) Start() error {
 		// of "useful" nodes.
 		err = b.cfg.Graph.PruneGraphNodes()
 		if err != nil &&
-			!errors.Is(err, channeldb.ErrGraphNodesNotFound) {
+			!errors.Is(err, graphdb.ErrGraphNodesNotFound) {
 
 			return err
 		}
@@ -352,8 +352,8 @@ func (b *Builder) syncGraphWithChain() error {
 		switch {
 		// If the graph has never been pruned, or hasn't fully been
 		// created yet, then we don't treat this as an explicit error.
-		case errors.Is(err, channeldb.ErrGraphNeverPruned):
-		case errors.Is(err, channeldb.ErrGraphNotFound):
+		case errors.Is(err, graphdb.ErrGraphNeverPruned):
+		case errors.Is(err, graphdb.ErrGraphNotFound):
 		default:
 			return err
 		}
@@ -400,10 +400,10 @@ func (b *Builder) syncGraphWithChain() error {
 		// as this entails we are back to the point where it hasn't seen
 		// any block or created channels, alas there's nothing left to
 		// prune.
-		case errors.Is(err, channeldb.ErrGraphNeverPruned):
+		case errors.Is(err, graphdb.ErrGraphNeverPruned):
 			return nil
 
-		case errors.Is(err, channeldb.ErrGraphNotFound):
+		case errors.Is(err, graphdb.ErrGraphNotFound):
 			return nil
 
 		case err != nil:
@@ -658,7 +658,7 @@ func (b *Builder) pruneZombieChans() error {
 	// With the channels pruned, we'll also attempt to prune any nodes that
 	// were a part of them.
 	err = b.cfg.Graph.PruneGraphNodes()
-	if err != nil && !errors.Is(err, channeldb.ErrGraphNodesNotFound) {
+	if err != nil && !errors.Is(err, graphdb.ErrGraphNodesNotFound) {
 		return fmt.Errorf("unable to prune graph nodes: %w", err)
 	}
 
@@ -1165,7 +1165,7 @@ func (b *Builder) processUpdate(msg interface{},
 	op ...batch.SchedulerOption) error {
 
 	switch msg := msg.(type) {
-	case *channeldb.LightningNode:
+	case *models.LightningNode:
 		// Before we add the node to the database, we'll check to see
 		// if the announcement is "fresh" or not. If it isn't, then
 		// we'll return an error.
@@ -1192,7 +1192,7 @@ func (b *Builder) processUpdate(msg interface{},
 			msg.ChannelID,
 		)
 		if err != nil &&
-			!errors.Is(err, channeldb.ErrGraphNoEdgesFound) {
+			!errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
 
 			return errors.Errorf("unable to check for edge "+
 				"existence: %v", err)
@@ -1344,7 +1344,7 @@ func (b *Builder) processUpdate(msg interface{},
 		// update the current UTXO filter within our active
 		// FilteredChainView so we are notified if/when this channel is
 		// closed.
-		filterUpdate := []channeldb.EdgePoint{
+		filterUpdate := []graphdb.EdgePoint{
 			{
 				FundingPkScript: fundingPkScript,
 				OutPoint:        *fundingPoint,
@@ -1371,7 +1371,7 @@ func (b *Builder) processUpdate(msg interface{},
 		edge1Timestamp, edge2Timestamp, exists, isZombie, err :=
 			b.cfg.Graph.HasChannelEdge(msg.ChannelID)
 		if err != nil && !errors.Is(
-			err, channeldb.ErrGraphNoEdgesFound,
+			err, graphdb.ErrGraphNoEdgesFound,
 		) {
 
 			return errors.Errorf("unable to check for edge "+
@@ -1517,7 +1517,7 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 // be ignored.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) AddNode(node *channeldb.LightningNode,
+func (b *Builder) AddNode(node *models.LightningNode,
 	op ...batch.SchedulerOption) error {
 
 	rMsg := &routingMsg{
@@ -1619,12 +1619,12 @@ func (b *Builder) GetChannelByID(chanID lnwire.ShortChannelID) (
 }
 
 // FetchLightningNode attempts to look up a target node by its identity public
-// key. channeldb.ErrGraphNodeNotFound is returned if the node doesn't exist
+// key. graphdb.ErrGraphNodeNotFound is returned if the node doesn't exist
 // within the graph.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) FetchLightningNode(
-	node route.Vertex) (*channeldb.LightningNode, error) {
+	node route.Vertex) (*models.LightningNode, error) {
 
 	return b.cfg.Graph.FetchLightningNode(node)
 }
@@ -1633,10 +1633,10 @@ func (b *Builder) FetchLightningNode(
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) ForEachNode(
-	cb func(*channeldb.LightningNode) error) error {
+	cb func(*models.LightningNode) error) error {
 
 	return b.cfg.Graph.ForEachNode(
-		func(_ kvdb.RTx, n *channeldb.LightningNode) error {
+		func(_ kvdb.RTx, n *models.LightningNode) error {
 			return cb(n)
 		})
 }
@@ -1645,11 +1645,11 @@ func (b *Builder) ForEachNode(
 // the router.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) ForAllOutgoingChannels(cb func(kvdb.RTx,
-	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy) error) error {
+func (b *Builder) ForAllOutgoingChannels(cb func(*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy) error) error {
 
 	return b.cfg.Graph.ForEachNodeChannel(b.cfg.SelfNode,
-		func(tx kvdb.RTx, c *models.ChannelEdgeInfo,
+		func(_ kvdb.RTx, c *models.ChannelEdgeInfo,
 			e *models.ChannelEdgePolicy,
 			_ *models.ChannelEdgePolicy) error {
 
@@ -1658,7 +1658,7 @@ func (b *Builder) ForAllOutgoingChannels(cb func(kvdb.RTx,
 					"has no policy")
 			}
 
-			return cb(tx, c, e)
+			return cb(c, e)
 		},
 	)
 }

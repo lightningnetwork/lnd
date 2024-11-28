@@ -254,7 +254,8 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 			ChanPoint: chanPoint,
 		},
 	}
-	bob.RPC.UpdateChannelPolicy(req)
+	updateResp := bob.RPC.UpdateChannelPolicy(req)
+	require.Empty(ht, updateResp.FailedUpdates, 0)
 
 	// Wait for all nodes to have seen the policy update done by Bob.
 	assertNodesPolicyUpdate(ht, nodes, bob, expectedPolicy, chanPoint)

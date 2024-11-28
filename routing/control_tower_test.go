@@ -47,16 +47,13 @@ var (
 func TestControlTowerSubscribeUnknown(t *testing.T) {
 	t.Parallel()
 
-	db, err := initDB(t, false)
-	require.NoError(t, err, "unable to init db")
+	db := initDB(t, false)
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
 
 	// Subscription should fail when the payment is not known.
-	_, err = pControl.SubscribePayment(lntypes.Hash{1})
-	if err != channeldb.ErrPaymentNotInitiated {
-		t.Fatal("expected subscribe to fail for unknown payment")
-	}
+	_, err := pControl.SubscribePayment(lntypes.Hash{1})
+	require.ErrorIs(t, err, channeldb.ErrPaymentNotInitiated)
 }
 
 // TestControlTowerSubscribeSuccess tests that payment updates for a
@@ -64,8 +61,7 @@ func TestControlTowerSubscribeUnknown(t *testing.T) {
 func TestControlTowerSubscribeSuccess(t *testing.T) {
 	t.Parallel()
 
-	db, err := initDB(t, false)
-	require.NoError(t, err, "unable to init db")
+	db := initDB(t, false)
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
 
@@ -184,8 +180,7 @@ func TestPaymentControlSubscribeFail(t *testing.T) {
 func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 	t.Parallel()
 
-	db, err := initDB(t, true)
-	require.NoError(t, err, "unable to init db: %v")
+	db := initDB(t, true)
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
 
@@ -298,8 +293,7 @@ func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 func TestPaymentControlSubscribeAllImmediate(t *testing.T) {
 	t.Parallel()
 
-	db, err := initDB(t, true)
-	require.NoError(t, err, "unable to init db: %v")
+	db := initDB(t, true)
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
 
@@ -336,8 +330,7 @@ func TestPaymentControlSubscribeAllImmediate(t *testing.T) {
 func TestPaymentControlUnsubscribeSuccess(t *testing.T) {
 	t.Parallel()
 
-	db, err := initDB(t, true)
-	require.NoError(t, err, "unable to init db: %v")
+	db := initDB(t, true)
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
 
@@ -406,8 +399,7 @@ func TestPaymentControlUnsubscribeSuccess(t *testing.T) {
 func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 	keepFailedPaymentAttempts bool) {
 
-	db, err := initDB(t, keepFailedPaymentAttempts)
-	require.NoError(t, err, "unable to init db")
+	db := initDB(t, keepFailedPaymentAttempts)
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
 
@@ -525,17 +517,12 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 	}
 }
 
-func initDB(t *testing.T, keepFailedPaymentAttempts bool) (*channeldb.DB, error) {
-	db, err := channeldb.Open(
-		t.TempDir(), channeldb.OptionKeepFailedPaymentAttempts(
+func initDB(t *testing.T, keepFailedPaymentAttempts bool) *channeldb.DB {
+	return channeldb.OpenForTesting(
+		t, t.TempDir(), channeldb.OptionKeepFailedPaymentAttempts(
 			keepFailedPaymentAttempts,
 		),
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	return db, err
 }
 
 func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.HTLCAttemptInfo,

@@ -2,13 +2,10 @@ package chanbackup
 
 import (
 	"fmt"
-	"net"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn"
-	"github.com/lightningnetwork/lnd/kvdb"
 )
 
 // LiveChannelSource is an interface that allows us to query for the set of
@@ -20,23 +17,14 @@ type LiveChannelSource interface {
 
 	// FetchChannel attempts to locate a live channel identified by the
 	// passed chanPoint. Optionally an existing db tx can be supplied.
-	FetchChannel(tx kvdb.RTx, chanPoint wire.OutPoint) (
-		*channeldb.OpenChannel, error)
-}
-
-// AddressSource is an interface that allows us to query for the set of
-// addresses a node can be connected to.
-type AddressSource interface {
-	// AddrsForNode returns all known addresses for the target node public
-	// key.
-	AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr, error)
+	FetchChannel(chanPoint wire.OutPoint) (*channeldb.OpenChannel, error)
 }
 
 // assembleChanBackup attempts to assemble a static channel backup for the
 // passed open channel. The backup includes all information required to restore
 // the channel, as well as addressing information so we can find the peer and
 // reconnect to them to initiate the protocol.
-func assembleChanBackup(addrSource AddressSource,
+func assembleChanBackup(addrSource channeldb.AddrSource,
 	openChan *channeldb.OpenChannel) (*Single, error) {
 
 	log.Debugf("Crafting backup for ChannelPoint(%v)",
@@ -44,9 +32,12 @@ func assembleChanBackup(addrSource AddressSource,
 
 	// First, we'll query the channel source to obtain all the addresses
 	// that are associated with the peer for this channel.
-	nodeAddrs, err := addrSource.AddrsForNode(openChan.IdentityPub)
+	known, nodeAddrs, err := addrSource.AddrsForNode(openChan.IdentityPub)
 	if err != nil {
 		return nil, err
+	}
+	if !known {
+		return nil, fmt.Errorf("node unknown by address source")
 	}
 
 	single := NewSingle(openChan, nodeAddrs)
@@ -100,11 +91,11 @@ func buildCloseTxInputs(
 // the target channel identified by its channel point. If we're unable to find
 // the target channel, then an error will be returned.
 func FetchBackupForChan(chanPoint wire.OutPoint, chanSource LiveChannelSource,
-	addrSource AddressSource) (*Single, error) {
+	addrSource channeldb.AddrSource) (*Single, error) {
 
 	// First, we'll query the channel source to see if the channel is known
 	// and open within the database.
-	targetChan, err := chanSource.FetchChannel(nil, chanPoint)
+	targetChan, err := chanSource.FetchChannel(chanPoint)
 	if err != nil {
 		// If we can't find the channel, then we return with an error,
 		// as we have nothing to  backup.
@@ -124,7 +115,7 @@ func FetchBackupForChan(chanPoint wire.OutPoint, chanSource LiveChannelSource,
 // FetchStaticChanBackups will return a plaintext static channel back up for
 // all known active/open channels within the passed channel source.
 func FetchStaticChanBackups(chanSource LiveChannelSource,
-	addrSource AddressSource) ([]Single, error) {
+	addrSource channeldb.AddrSource) ([]Single, error) {
 
 	// First, we'll query the backup source for information concerning all
 	// currently open and available channels.

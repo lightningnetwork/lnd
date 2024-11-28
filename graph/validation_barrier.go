@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -151,7 +150,7 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
 	case *lnwire.NodeAnnouncement:
 		// TODO(roasbeef): node ann needs to wait on existing channel updates
 		return
-	case *channeldb.LightningNode:
+	case *models.LightningNode:
 		return
 	case *lnwire.AnnounceSignatures1:
 		// TODO(roasbeef): need to wait on chan ann?
@@ -195,7 +194,7 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 		jobDesc = fmt.Sprintf("job=lnwire.ChannelEdgePolicy, scid=%v",
 			msg.ChannelID)
 
-	case *channeldb.LightningNode:
+	case *models.LightningNode:
 		vertex := route.Vertex(msg.PubKeyBytes)
 		signals, ok = v.nodeAnnDependencies[vertex]
 
@@ -291,7 +290,7 @@ func (v *ValidationBarrier) SignalDependants(job interface{}, allow bool) {
 	// For all other job types, we'll delete the tracking entries from the
 	// map, as if we reach this point, then all dependants have already
 	// finished executing and we can proceed.
-	case *channeldb.LightningNode:
+	case *models.LightningNode:
 		delete(v.nodeAnnDependencies, route.Vertex(msg.PubKeyBytes))
 	case *lnwire.NodeAnnouncement:
 		delete(v.nodeAnnDependencies, route.Vertex(msg.NodeID))

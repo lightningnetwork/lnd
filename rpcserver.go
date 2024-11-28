@@ -41,8 +41,6 @@ import (
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/graphsession"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -51,6 +49,9 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/graph"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/graph/graphsession"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
@@ -2691,7 +2692,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 	// First, we'll fetch the channel as is, as we'll need to examine it
 	// regardless of if this is a force close or not.
-	channel, err := r.server.chanStateDB.FetchChannel(nil, *chanPoint)
+	channel, err := r.server.chanStateDB.FetchChannel(*chanPoint)
 	if err != nil {
 		return err
 	}
@@ -3037,7 +3038,7 @@ func createRPCCloseUpdate(
 // abandonChanFromGraph attempts to remove a channel from the channel graph. If
 // we can't find the chanID in the graph, then we assume it has already been
 // removed, and will return a nop.
-func abandonChanFromGraph(chanGraph *channeldb.ChannelGraph,
+func abandonChanFromGraph(chanGraph *graphdb.ChannelGraph,
 	chanPoint *wire.OutPoint) error {
 
 	// First, we'll obtain the channel ID. If we can't locate this, then
@@ -3045,7 +3046,7 @@ func abandonChanFromGraph(chanGraph *channeldb.ChannelGraph,
 	// the graph, so we'll return a nil error.
 	chanID, err := chanGraph.ChannelID(chanPoint)
 	switch {
-	case errors.Is(err, channeldb.ErrEdgeNotFound):
+	case errors.Is(err, graphdb.ErrEdgeNotFound):
 		return nil
 	case err != nil:
 		return err
@@ -3139,7 +3140,7 @@ func (r *rpcServer) AbandonChannel(_ context.Context,
 		return nil, err
 	}
 
-	dbChan, err := r.server.chanStateDB.FetchChannel(nil, *chanPoint)
+	dbChan, err := r.server.chanStateDB.FetchChannel(*chanPoint)
 	switch {
 	// If the channel isn't found in the set of open channels, then we can
 	// continue on as it can't be loaded into the link/peer.
@@ -6532,7 +6533,9 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// First iterate through all the known nodes (connected or unconnected
 	// within the graph), collating their current state into the RPC
 	// response.
-	err := graph.ForEachNode(func(_ kvdb.RTx, node *channeldb.LightningNode) error {
+	err := graph.ForEachNode(func(_ kvdb.RTx,
+		node *models.LightningNode) error {
+
 		lnNode := marshalNode(node)
 
 		resp.Nodes = append(resp.Nodes, lnNode)
@@ -6562,7 +6565,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 
 		return nil
 	})
-	if err != nil && err != channeldb.ErrGraphNoEdgesFound {
+	if err != nil && !errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
 		return nil, err
 	}
 
@@ -6808,7 +6811,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	// be returned.
 	node, err := graph.FetchLightningNode(pubKey)
 	switch {
-	case err == channeldb.ErrGraphNodeNotFound:
+	case errors.Is(err, graphdb.ErrGraphNodeNotFound):
 		return nil, status.Error(codes.NotFound, err.Error())
 	case err != nil:
 		return nil, err
@@ -6860,7 +6863,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	}, nil
 }
 
-func marshalNode(node *channeldb.LightningNode) *lnrpc.LightningNode {
+func marshalNode(node *models.LightningNode) *lnrpc.LightningNode {
 	nodeAddrs := make([]*lnrpc.NodeAddress, len(node.Addresses))
 	for i, addr := range node.Addresses {
 		nodeAddr := &lnrpc.NodeAddress{
@@ -6931,7 +6934,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	// each node so we can measure the graph diameter and degree stats
 	// below.
 	err := graph.ForEachNodeCached(func(node route.Vertex,
-		edges map[uint64]*channeldb.DirectedChannel) error {
+		edges map[uint64]*graphdb.DirectedChannel) error {
 
 		// Increment the total number of nodes with each iteration.
 		numNodes++

@@ -635,15 +635,6 @@ func TestMockRetributionStore(t *testing.T) {
 	}
 }
 
-func makeTestChannelDB(t *testing.T) (*channeldb.DB, error) {
-	db, err := channeldb.Open(t.TempDir())
-	if err != nil {
-		return nil, err
-	}
-
-	return db, nil
-}
-
 // TestChannelDBRetributionStore instantiates a retributionStore backed by a
 // channeldb.DB, and tests its behavior using the general RetributionStore test
 // suite.
@@ -654,25 +645,19 @@ func TestChannelDBRetributionStore(t *testing.T) {
 		t.Run(
 			"channeldbDBRetributionStore."+test.name,
 			func(tt *testing.T) {
-				db, err := makeTestChannelDB(t)
-				if err != nil {
-					t.Fatalf("unable to open channeldb: %v", err)
-				}
-				defer db.Close()
+				db := channeldb.OpenForTesting(t, t.TempDir())
 
 				restartDb := func() RetributionStorer {
 					// Close and reopen channeldb
-					if err = db.Close(); err != nil {
+					if err := db.Close(); err != nil {
 						t.Fatalf("unable to close "+
 							"channeldb during "+
 							"restart: %v",
 							err)
 					}
-					db, err = channeldb.Open(db.Path())
-					if err != nil {
-						t.Fatalf("unable to open "+
-							"channeldb: %v", err)
-					}
+					db = channeldb.OpenForTesting(
+						t, db.Path(),
+					)
 
 					return NewRetributionStore(db)
 				}
@@ -2279,21 +2264,8 @@ func createInitChannels(t *testing.T) (
 		return nil, nil, err
 	}
 
-	dbAlice, err := channeldb.Open(t.TempDir())
-	if err != nil {
-		return nil, nil, err
-	}
-	t.Cleanup(func() {
-		require.NoError(t, dbAlice.Close())
-	})
-
-	dbBob, err := channeldb.Open(t.TempDir())
-	if err != nil {
-		return nil, nil, err
-	}
-	t.Cleanup(func() {
-		require.NoError(t, dbBob.Close())
-	})
+	dbAlice := channeldb.OpenForTesting(t, t.TempDir())
+	dbBob := channeldb.OpenForTesting(t, t.TempDir())
 
 	estimator := chainfee.NewStaticEstimator(12500, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)

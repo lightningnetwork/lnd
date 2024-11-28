@@ -200,6 +200,10 @@ The underlying functionality between those two options remain the same.
 
 ## Code Health
 
+* A code refactor that [moves all the graph related DB code out of the 
+  `channeldb` package](https://github.com/lightningnetwork/lnd/pull/9236) and 
+  into the `graph/db` package.
+
 ## Tooling and Documentation
 
 * [Improved `lncli create` command help text](https://github.com/lightningnetwork/lnd/pull/9077)

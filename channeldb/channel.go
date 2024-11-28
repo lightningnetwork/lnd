@@ -19,8 +19,9 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -1330,7 +1331,7 @@ func fetchChanBucket(tx kvdb.RTx, nodeKey *btcec.PublicKey,
 	// With the bucket for the node and chain fetched, we can now go down
 	// another level, for this channel itself.
 	var chanPointBuf bytes.Buffer
-	if err := writeOutpoint(&chanPointBuf, outPoint); err != nil {
+	if err := graphdb.WriteOutpoint(&chanPointBuf, outPoint); err != nil {
 		return nil, err
 	}
 	chanBucket := chainBucket.NestedReadBucket(chanPointBuf.Bytes())
@@ -1377,7 +1378,7 @@ func fetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey,
 	// With the bucket for the node and chain fetched, we can now go down
 	// another level, for this channel itself.
 	var chanPointBuf bytes.Buffer
-	if err := writeOutpoint(&chanPointBuf, outPoint); err != nil {
+	if err := graphdb.WriteOutpoint(&chanPointBuf, outPoint); err != nil {
 		return nil, err
 	}
 	chanBucket := chainBucket.NestedReadWriteBucket(chanPointBuf.Bytes())
@@ -1422,7 +1423,8 @@ func (c *OpenChannel) fullSync(tx kvdb.RwTx) error {
 	}
 
 	var chanPointBuf bytes.Buffer
-	if err := writeOutpoint(&chanPointBuf, &c.FundingOutpoint); err != nil {
+	err := graphdb.WriteOutpoint(&chanPointBuf, &c.FundingOutpoint)
+	if err != nil {
 		return err
 	}
 
@@ -3822,7 +3824,7 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 		}
 
 		var chanPointBuf bytes.Buffer
-		err := writeOutpoint(&chanPointBuf, &c.FundingOutpoint)
+		err := graphdb.WriteOutpoint(&chanPointBuf, &c.FundingOutpoint)
 		if err != nil {
 			return err
 		}

@@ -8,91 +8,113 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"go/ast"
 	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
-	"github.com/golangci/golangci-lint/pkg/config"
-	"github.com/golangci/golangci-lint/pkg/goanalysis"
-	"github.com/golangci/golangci-lint/pkg/lint/linter"
-	"github.com/golangci/golangci-lint/pkg/result"
+	"github.com/golangci/plugin-module-register/register"
 	"golang.org/x/tools/go/analysis"
 )
 
 const (
-	linterName               = "lll"
+	linterName               = "ll"
 	goCommentDirectivePrefix = "//go:"
+
+	defaultMaxLineLen       = 80
+	defaultTabWidthInSpaces = 8
 )
 
-// New creates a new lll linter from the given settings. It satisfies the
-// signature required by the golangci-lint linter for plugins.
-func New(settings *config.LllSettings) *goanalysis.Linter {
-	var (
-		mu        sync.Mutex
-		resIssues []goanalysis.Issue
-	)
-
-	analyzer := &analysis.Analyzer{
-		Name: linterName,
-		Doc:  goanalysis.TheOnlyanalyzerDoc,
-		Run: func(pass *analysis.Pass) (any, error) {
-			issues, err := runLll(pass, settings)
-			if err != nil {
-				return nil, err
-			}
-
-			if len(issues) == 0 {
-				return nil, nil
-			}
-
-			mu.Lock()
-			resIssues = append(resIssues, issues...)
-			mu.Unlock()
-
-			return nil, nil
-		},
-	}
-
-	return goanalysis.NewLinter(
-		linterName, "Reports long lines",
-		[]*analysis.Analyzer{analyzer}, nil,
-	).WithIssuesReporter(func(*linter.Context) []goanalysis.Issue {
-		return resIssues
-	}).WithLoadMode(goanalysis.LoadModeSyntax)
+// LLConfig is the configuration for the ll linter.
+type LLConfig struct {
+	LineLength int `json:"line-length"`
+	TabWidth   int `json:"tab-width"`
 }
 
-func runLll(pass *analysis.Pass, settings *config.LllSettings) (
-	[]goanalysis.Issue, error) {
+// New creates a new LLPlugin from the given settings. It satisfies the
+// signature required by the golangci-lint linter for plugins.
+func New(settings any) (register.LinterPlugin, error) {
+	cfg, err := register.DecodeSettings[LLConfig](settings)
+	if err != nil {
+		return nil, err
+	}
 
-	var (
-		fileNames = getFileNames(pass)
-		spaces    = strings.Repeat(" ", settings.TabWidth)
-		issues    []goanalysis.Issue
-	)
+	// Fill in default config values if they are not set.
+	if cfg.LineLength == 0 {
+		cfg.LineLength = defaultMaxLineLen
+	}
+	if cfg.TabWidth == 0 {
+		cfg.TabWidth = defaultTabWidthInSpaces
+	}
 
-	for _, f := range fileNames {
-		lintIssues, err := getLLLIssuesForFile(
-			f, settings.LineLength, spaces,
+	return &LLPlugin{cfg: cfg}, nil
+}
+
+// LLPlugin is a golangci-linter plugin that can be used to check that code line
+// lengths do not exceed a certain limit.
+type LLPlugin struct {
+	cfg LLConfig
+}
+
+// BuildAnalyzers creates the analyzers for the ll linter.
+//
+// NOTE: This is part of the register.LinterPlugin interface.
+func (l *LLPlugin) BuildAnalyzers() ([]*analysis.Analyzer, error) {
+	return []*analysis.Analyzer{
+		{
+			Name: linterName,
+			Doc:  "Reports long lines",
+			Run:  l.run,
+		},
+	}, nil
+}
+
+// GetLoadMode returns the load mode for the ll linter.
+//
+// NOTE: This is part of the register.LinterPlugin interface.
+func (l *LLPlugin) GetLoadMode() string {
+	return register.LoadModeSyntax
+}
+
+func (l *LLPlugin) run(pass *analysis.Pass) (any, error) {
+	var spaces = strings.Repeat(" ", l.cfg.TabWidth)
+
+	for _, f := range pass.Files {
+		fileName := getFileName(pass, f)
+
+		issues, err := getLLLIssuesForFile(
+			fileName, l.cfg.LineLength, spaces,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		for i := range lintIssues {
-			issues = append(issues, goanalysis.NewIssue(
-				&lintIssues[i], pass,
-			))
+		file := pass.Fset.File(f.Pos())
+		for _, issue := range issues {
+			pos := file.LineStart(issue.pos.Line)
+
+			pass.Report(analysis.Diagnostic{
+				Pos:      pos,
+				End:      0,
+				Category: linterName,
+				Message:  issue.text,
+			})
 		}
+
 	}
 
-	return issues, nil
+	return nil, nil
+}
+
+type issue struct {
+	pos  token.Position
+	text string
 }
 
 func getLLLIssuesForFile(filename string, maxLineLen int,
-	tabSpaces string) ([]result.Issue, error) {
+	tabSpaces string) ([]*issue, error) {
 
 	f, err := os.Open(filename)
 	if err != nil {
@@ -101,7 +123,7 @@ func getLLLIssuesForFile(filename string, maxLineLen int,
 	defer f.Close()
 
 	var (
-		res                []result.Issue
+		res                []*issue
 		lineNumber         int
 		multiImportEnabled bool
 	)
@@ -149,16 +171,15 @@ func getLLLIssuesForFile(filename string, maxLineLen int,
 		// it exceeds the maximum line length.
 		lineLen := utf8.RuneCountInString(line)
 		if lineLen > maxLineLen {
-			res = append(res, result.Issue{
-				Pos: token.Position{
+			res = append(res, &issue{
+				pos: token.Position{
 					Filename: filename,
 					Line:     lineNumber,
 				},
-				Text: fmt.Sprintf("the line is %d "+
+				text: fmt.Sprintf("the line is %d "+
 					"characters long, which exceeds the "+
 					"maximum of %d characters.", lineLen,
 					maxLineLen),
-				FromLinter: linterName,
 			})
 		}
 	}
@@ -182,16 +203,15 @@ func getLLLIssuesForFile(filename string, maxLineLen int,
 			// discarded (fine), but all the subsequent errors for
 			// lll will be discarded for other files, and we'll miss
 			// legit error.
-			res = append(res, result.Issue{
-				Pos: token.Position{
+			res = append(res, &issue{
+				pos: token.Position{
 					Filename: filename,
 					Line:     lineNumber,
 					Column:   1,
 				},
-				Text: fmt.Sprintf("line is more than "+
+				text: fmt.Sprintf("line is more than "+
 					"%d characters",
 					bufio.MaxScanTokenSize),
-				FromLinter: linterName,
 			})
 		} else {
 			return nil, fmt.Errorf("can't scan file %s: %w",
@@ -202,18 +222,20 @@ func getLLLIssuesForFile(filename string, maxLineLen int,
 	return res, nil
 }
 
-func getFileNames(pass *analysis.Pass) []string {
-	var fileNames []string
-	for _, f := range pass.Files {
-		fileName := pass.Fset.PositionFor(f.Pos(), true).Filename
-		ext := filepath.Ext(fileName)
-		if ext != "" && ext != ".go" {
-			// The position has been adjusted to a non-go file,
-			// revert to original file.
-			position := pass.Fset.PositionFor(f.Pos(), false)
-			fileName = position.Filename
-		}
-		fileNames = append(fileNames, fileName)
+func getFileName(pass *analysis.Pass, file *ast.File) string {
+	fileName := pass.Fset.PositionFor(file.Pos(), true).Filename
+	ext := filepath.Ext(fileName)
+	if ext != "" && ext != ".go" {
+		// The position has been adjusted to a non-go file,
+		// revert to original file.
+		position := pass.Fset.PositionFor(file.Pos(), false)
+		fileName = position.Filename
 	}
-	return fileNames
+
+	return fileName
+}
+
+func init() {
+	// Register the linter with the plugin module register.
+	register.Plugin(linterName, New)
 }

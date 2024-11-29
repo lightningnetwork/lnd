@@ -90,7 +90,9 @@ func TestGetLLLIssuesForFile(t *testing.T) {
 			require.Len(t, issues, len(tc.expectedIssue))
 
 			for i, issue := range issues {
-				require.Equal(t, tc.expectedIssue[i], issue.Text)
+				require.Equal(
+					t, tc.expectedIssue[i], issue.text,
+				)
 			}
 		})
 	}

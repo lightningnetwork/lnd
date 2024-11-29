@@ -1920,9 +1920,7 @@ func estimateRouteFee(ctx *cli.Context) error {
 
 	case ctx.IsSet("pay_req"):
 		req.PaymentRequest = StripPrefix(ctx.String("pay_req"))
-		if ctx.IsSet("timeout") {
-			req.Timeout = uint32(ctx.Duration("timeout").Seconds())
-		}
+		req.Timeout = uint32(ctx.Duration("timeout").Seconds())
 
 	default:
 		return fmt.Errorf("fee estimation arguments missing")

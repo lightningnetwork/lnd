@@ -1,10 +1,10 @@
-package graphsession
+package session
 
 import (
+	"context"
 	"fmt"
 
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -30,8 +30,10 @@ func NewGraphSessionFactory(graph ReadOnlyGraph) routing.GraphSessionFactory {
 // was created at Graph construction time.
 //
 // NOTE: This is part of the routing.GraphSessionFactory interface.
-func (g *Factory) NewGraphSession() (routing.Graph, func() error, error) {
-	tx, err := g.graph.NewPathFindTx()
+func (g *Factory) NewGraphSession(ctx context.Context) (routing.Graph,
+	func() error, error) {
+
+	tx, err := g.graph.NewPathFindTx(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -53,7 +55,7 @@ var _ routing.GraphSessionFactory = (*Factory)(nil)
 // access the backing channel graph.
 type session struct {
 	graph graph
-	tx    kvdb.RTx
+	tx    RTx
 }
 
 // NewRoutingGraph constructs a session that which does not first start a
@@ -72,7 +74,7 @@ func (g *session) close() error {
 		return nil
 	}
 
-	err := g.tx.Rollback()
+	err := g.tx.Close()
 	if err != nil {
 		return fmt.Errorf("error closing db tx: %w", err)
 	}
@@ -83,20 +85,20 @@ func (g *session) close() error {
 // ForEachNodeChannel calls the callback for every channel of the given node.
 //
 // NOTE: Part of the routing.Graph interface.
-func (g *session) ForEachNodeChannel(nodePub route.Vertex,
+func (g *session) ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 	cb func(channel *graphdb.DirectedChannel) error) error {
 
-	return g.graph.ForEachNodeDirectedChannel(g.tx, nodePub, cb)
+	return g.graph.ForEachNodeDirectedChannel(ctx, g.tx, nodePub, cb)
 }
 
 // FetchNodeFeatures returns the features of the given node. If the node is
 // unknown, assume no additional features are supported.
 //
 // NOTE: Part of the routing.Graph interface.
-func (g *session) FetchNodeFeatures(nodePub route.Vertex) (
-	*lnwire.FeatureVector, error) {
+func (g *session) FetchNodeFeatures(ctx context.Context,
+	nodePub route.Vertex) (*lnwire.FeatureVector, error) {
 
-	return g.graph.FetchNodeFeatures(nodePub)
+	return g.graph.FetchNodeFeatures(ctx, g.tx, nodePub)
 }
 
 // A compile-time check to ensure that *session implements the
@@ -109,7 +111,7 @@ type ReadOnlyGraph interface {
 	// NewPathFindTx returns a new read transaction that can be used for a
 	// single path finding session. Will return nil if the graph cache is
 	// enabled.
-	NewPathFindTx() (kvdb.RTx, error)
+	NewPathFindTx(ctx context.Context) (RTx, error)
 
 	graph
 }
@@ -128,14 +130,15 @@ type graph interface {
 	//
 	// NOTE: if a nil tx is provided, then it is expected that the
 	// implementation create a read only tx.
-	ForEachNodeDirectedChannel(tx kvdb.RTx, node route.Vertex,
+	ForEachNodeDirectedChannel(ctx context.Context, tx RTx,
+		node route.Vertex,
 		cb func(channel *graphdb.DirectedChannel) error) error
 
 	// FetchNodeFeatures returns the features of a given node. If no
 	// features are known for the node, an empty feature vector is returned.
-	FetchNodeFeatures(node route.Vertex) (*lnwire.FeatureVector, error)
+	//
+	// NOTE: if a nil tx is provided, then it is expected that the
+	// implementation create a read only tx.
+	FetchNodeFeatures(ctx context.Context, tx RTx, node route.Vertex) (
+		*lnwire.FeatureVector, error)
 }
-
-// A compile-time check to ensure that *channeldb.ChannelGraph implements the
-// graph interface.
-var _ graph = (*graphdb.ChannelGraph)(nil)

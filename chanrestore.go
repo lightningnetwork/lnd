@@ -1,6 +1,7 @@
 package lnd
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"net"
@@ -309,7 +310,9 @@ var _ chanbackup.ChannelRestorer = (*chanDBRestorer)(nil)
 // as a persistent attempt.
 //
 // NOTE: Part of the chanbackup.PeerConnector interface.
-func (s *server) ConnectPeer(nodePub *btcec.PublicKey, addrs []net.Addr) error {
+func (s *server) ConnectPeer(ctx context.Context, nodePub *btcec.PublicKey,
+	addrs []net.Addr) error {
+
 	// Before we connect to the remote peer, we'll remove any connections
 	// to ensure the new connection is created after this new link/channel
 	// is known.
@@ -333,7 +336,9 @@ func (s *server) ConnectPeer(nodePub *btcec.PublicKey, addrs []net.Addr) error {
 		// Attempt to connect to the peer using this full address. If
 		// we're unable to connect to them, then we'll try the next
 		// address in place of it.
-		err := s.ConnectToPeer(netAddr, true, s.cfg.ConnectionTimeout)
+		err := s.ConnectToPeer(
+			ctx, netAddr, true, s.cfg.ConnectionTimeout,
+		)
 
 		// If we're already connected to this peer, then we don't
 		// consider this an error, so we'll exit here.

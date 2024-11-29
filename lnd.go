@@ -485,6 +485,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		return mkErr("error deriving node key: %v", err)
 	}
 
+	graphSource, err := implCfg.Graph(ctx, dbs)
+	if err != nil {
+		return mkErr("error obtaining graph source: %v", err)
+	}
+
 	if cfg.Tor.StreamIsolation && cfg.Tor.SkipProxyForClearNetTargets {
 		return errStreamIsolationWithProxySkip
 	}
@@ -598,10 +603,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	server, err := newServer(
-		cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
+		ctx, cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
 		activeChainControl.Cfg.WalletUnlockParams.ChansToRestore,
 		multiAcceptor, torController, tlsManager, leaderElector,
-		implCfg,
+		graphSource, implCfg,
 	)
 	if err != nil {
 		return mkErr("unable to create server: %v", err)
@@ -611,7 +616,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// used to manage the underlying autopilot agent, starting and stopping
 	// it at will.
 	atplCfg, err := initAutoPilot(
-		server, cfg.Autopilot, activeChainControl.MinHtlcIn,
+		ctx, server, cfg.Autopilot, activeChainControl.MinHtlcIn,
 		cfg.ActiveNetParams,
 	)
 	if err != nil {
@@ -731,7 +736,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// case the startup of the subservers do not behave as expected.
 	errChan := make(chan error)
 	go func() {
-		errChan <- server.Start()
+		errChan <- server.Start(ctx)
 	}()
 
 	defer func() {

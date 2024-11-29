@@ -18,7 +18,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
-	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -75,8 +74,9 @@ type AddInvoiceConfig struct {
 	// channel graph.
 	ChanDB *channeldb.ChannelStateDB
 
-	// Graph holds a reference to the ChannelGraph database.
-	Graph *graphdb.ChannelGraph
+	// Graph holds a reference to a GraphSource that can be queried for
+	// graph related data.
+	Graph GraphSource
 
 	// GenInvoiceFeatures returns a feature containing feature bits that
 	// should be advertised on freshly generated invoices.
@@ -96,7 +96,8 @@ type AddInvoiceConfig struct {
 
 	// QueryBlindedRoutes can be used to generate a few routes to this node
 	// that can then be used in the construction of a blinded payment path.
-	QueryBlindedRoutes func(lnwire.MilliSatoshi) ([]*route.Route, error)
+	QueryBlindedRoutes func(context.Context, lnwire.MilliSatoshi) (
+		[]*route.Route, error)
 }
 
 // AddInvoiceData contains the required data to create a new invoice.
@@ -462,7 +463,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 		hopHintsCfg := newSelectHopHintsCfg(cfg, totalHopHints)
 		hopHints, err := PopulateHopHints(
-			hopHintsCfg, amtMSat, invoice.RouteHints,
+			ctx, hopHintsCfg, amtMSat, invoice.RouteHints,
 		)
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable to populate hop "+
@@ -521,7 +522,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 		//nolint:lll
 		paths, err := blindedpath.BuildBlindedPaymentPaths(
-			&blindedpath.BuildBlindedPathCfg{
+			ctx, &blindedpath.BuildBlindedPathCfg{
 				FindRoutes:              cfg.QueryBlindedRoutes,
 				FetchChannelEdgesByID:   cfg.Graph.FetchChannelEdgesByID,
 				FetchOurOpenChannels:    cfg.ChanDB.FetchAllOpenChannels,
@@ -624,8 +625,8 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 // chanCanBeHopHint returns true if the target channel is eligible to be a hop
 // hint.
-func chanCanBeHopHint(channel *HopHintInfo, cfg *SelectHopHintsCfg) (
-	*models.ChannelEdgePolicy, bool) {
+func chanCanBeHopHint(ctx context.Context, channel *HopHintInfo,
+	cfg *SelectHopHintsCfg) (*models.ChannelEdgePolicy, bool) {
 
 	// Since we're only interested in our private channels, we'll skip
 	// public ones.
@@ -648,7 +649,7 @@ func chanCanBeHopHint(channel *HopHintInfo, cfg *SelectHopHintsCfg) (
 	// channels.
 	var remotePub [33]byte
 	copy(remotePub[:], channel.RemotePubkey.SerializeCompressed())
-	isRemoteNodePublic, err := cfg.IsPublicNode(remotePub)
+	isRemoteNodePublic, err := cfg.IsPublicNode(ctx, remotePub)
 	if err != nil {
 		log.Errorf("Unable to determine if node %x "+
 			"is advertised: %v", remotePub, err)
@@ -663,13 +664,17 @@ func chanCanBeHopHint(channel *HopHintInfo, cfg *SelectHopHintsCfg) (
 	}
 
 	// Fetch the policies for each end of the channel.
-	info, p1, p2, err := cfg.FetchChannelEdgesByID(channel.ShortChannelID)
+	info, p1, p2, err := cfg.FetchChannelEdgesByID(
+		ctx, channel.ShortChannelID,
+	)
 	if err != nil {
 		// In the case of zero-conf channels, it may be the case that
 		// the alias SCID was deleted from the graph, and replaced by
 		// the confirmed SCID. Check the Graph for the confirmed SCID.
 		confirmedScid := channel.ConfirmedScidZC
-		info, p1, p2, err = cfg.FetchChannelEdgesByID(confirmedScid)
+		info, p1, p2, err = cfg.FetchChannelEdgesByID(
+			ctx, confirmedScid,
+		)
 		if err != nil {
 			log.Errorf("Unable to fetch the routing policies for "+
 				"the edges of the channel %v: %v",
@@ -759,13 +764,13 @@ type SelectHopHintsCfg struct {
 	// IsPublicNode is returns a bool indicating whether the node with the
 	// given public key is seen as a public node in the graph from the
 	// graph's source node's point of view.
-	IsPublicNode func(pubKey [33]byte) (bool, error)
+	IsPublicNode func(ctx context.Context, pubKey [33]byte) (bool, error)
 
 	// FetchChannelEdgesByID attempts to lookup the two directed edges for
 	// the channel identified by the channel ID.
-	FetchChannelEdgesByID func(chanID uint64) (*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy,
-		error)
+	FetchChannelEdgesByID func(ctx context.Context,
+		chanID uint64) (*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error)
 
 	// GetAlias allows the peer's alias SCID to be retrieved for private
 	// option_scid_alias channels.
@@ -856,7 +861,7 @@ func getPotentialHints(cfg *SelectHopHintsCfg) ([]*channeldb.OpenChannel,
 
 // shouldIncludeChannel returns true if the channel passes all the checks to
 // be a hopHint in a given invoice.
-func shouldIncludeChannel(cfg *SelectHopHintsCfg,
+func shouldIncludeChannel(ctx context.Context, cfg *SelectHopHintsCfg,
 	channel *channeldb.OpenChannel,
 	alreadyIncluded map[uint64]bool) (zpay32.HopHint, lnwire.MilliSatoshi,
 	bool) {
@@ -872,7 +877,7 @@ func shouldIncludeChannel(cfg *SelectHopHintsCfg,
 	hopHintInfo := newHopHintInfo(channel, cfg.IsChannelActive(chanID))
 
 	// If this channel can't be a hop hint, then skip it.
-	edgePolicy, canBeHopHint := chanCanBeHopHint(hopHintInfo, cfg)
+	edgePolicy, canBeHopHint := chanCanBeHopHint(ctx, hopHintInfo, cfg)
 	if edgePolicy == nil || !canBeHopHint {
 		return zpay32.HopHint{}, 0, false
 	}
@@ -901,7 +906,7 @@ func shouldIncludeChannel(cfg *SelectHopHintsCfg,
 //
 // NOTE: selectHopHints expects potentialHints to be already sorted in
 // descending priority.
-func selectHopHints(cfg *SelectHopHintsCfg, nHintsLeft int,
+func selectHopHints(ctx context.Context, cfg *SelectHopHintsCfg, nHintsLeft int,
 	targetBandwidth lnwire.MilliSatoshi,
 	potentialHints []*channeldb.OpenChannel,
 	alreadyIncluded map[uint64]bool) [][]zpay32.HopHint {
@@ -917,7 +922,7 @@ func selectHopHints(cfg *SelectHopHintsCfg, nHintsLeft int,
 		}
 
 		hopHint, remoteBalance, include := shouldIncludeChannel(
-			cfg, channel, alreadyIncluded,
+			ctx, cfg, channel, alreadyIncluded,
 		)
 
 		if include {
@@ -945,8 +950,9 @@ func selectHopHints(cfg *SelectHopHintsCfg, nHintsLeft int,
 // options that'll append the route hint to the set of all route hints.
 //
 // TODO(roasbeef): do proper sub-set sum max hints usually << numChans.
-func PopulateHopHints(cfg *SelectHopHintsCfg, amtMSat lnwire.MilliSatoshi,
-	forcedHints [][]zpay32.HopHint) ([][]zpay32.HopHint, error) {
+func PopulateHopHints(ctx context.Context, cfg *SelectHopHintsCfg,
+	amtMSat lnwire.MilliSatoshi, forcedHints [][]zpay32.HopHint) (
+	[][]zpay32.HopHint, error) {
 
 	hopHints := forcedHints
 
@@ -968,7 +974,7 @@ func PopulateHopHints(cfg *SelectHopHintsCfg, amtMSat lnwire.MilliSatoshi,
 
 	targetBandwidth := amtMSat * hopHintFactor
 	selectedHints := selectHopHints(
-		cfg, nHintsLeft, targetBandwidth, potentialHints,
+		ctx, cfg, nHintsLeft, targetBandwidth, potentialHints,
 		alreadyIncluded,
 	)
 

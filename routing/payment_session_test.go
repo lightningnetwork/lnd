@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -115,7 +116,7 @@ func TestUpdateAdditionalEdge(t *testing.T) {
 	// Create the paymentsession.
 	session, err := newPaymentSession(
 		payment, route.Vertex{},
-		func(Graph) (bandwidthHints, error) {
+		func(context.Context, Graph) (bandwidthHints, error) {
 			return &mockBandwidthHints{}, nil
 		},
 		newMockGraphSessionFactory(&sessionGraph{}),
@@ -193,7 +194,7 @@ func TestRequestRoute(t *testing.T) {
 
 	session, err := newPaymentSession(
 		payment, route.Vertex{},
-		func(Graph) (bandwidthHints, error) {
+		func(context.Context, Graph) (bandwidthHints, error) {
 			return &mockBandwidthHints{}, nil
 		},
 		newMockGraphSessionFactory(&sessionGraph{}),
@@ -205,7 +206,8 @@ func TestRequestRoute(t *testing.T) {
 	}
 
 	// Override pathfinder with a mock.
-	session.pathFinder = func(_ *graphParams, r *RestrictParams,
+	session.pathFinder = func(_ context.Context, _ *graphParams,
+		r *RestrictParams,
 		_ *PathFindingConfig, _, _, _ route.Vertex,
 		_ lnwire.MilliSatoshi, _ float64, _ int32) ([]*unifiedEdge,
 		float64, error) {
@@ -233,8 +235,8 @@ func TestRequestRoute(t *testing.T) {
 	}
 
 	route, err := session.RequestRoute(
-		payment.Amount, payment.FeeLimit, 0, height,
-		lnwire.CustomRecords{
+		context.Background(), payment.Amount, payment.FeeLimit, 0,
+		height, lnwire.CustomRecords{
 			lnwire.MinCustomRecordsTlvType + 123: []byte{1, 2, 3},
 		},
 	)

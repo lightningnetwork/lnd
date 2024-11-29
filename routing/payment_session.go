@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -137,7 +138,7 @@ type PaymentSession interface {
 	//
 	// A noRouteError is returned if a non-critical error is encountered
 	// during path finding.
-	RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
+	RequestRoute(ctx context.Context, maxAmt, feeLimit lnwire.MilliSatoshi,
 		activeShards, height uint32,
 		firstHopCustomRecords lnwire.CustomRecords) (*route.Route,
 		error)
@@ -169,7 +170,7 @@ type paymentSession struct {
 
 	additionalEdges map[route.Vertex][]AdditionalEdge
 
-	getBandwidthHints func(Graph) (bandwidthHints, error)
+	getBandwidthHints func(context.Context, Graph) (bandwidthHints, error)
 
 	payment *LightningPayment
 
@@ -197,7 +198,7 @@ type paymentSession struct {
 
 // newPaymentSession instantiates a new payment session.
 func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
-	getBandwidthHints func(Graph) (bandwidthHints, error),
+	getBandwidthHints func(context.Context, Graph) (bandwidthHints, error),
 	graphSessFactory GraphSessionFactory,
 	missionControl MissionControlQuerier,
 	pathFindingConfig PathFindingConfig) (*paymentSession, error) {
@@ -244,8 +245,8 @@ func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 //
 // NOTE: This function is safe for concurrent access.
 // NOTE: Part of the PaymentSession interface.
-func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
-	activeShards, height uint32,
+func (p *paymentSession) RequestRoute(ctx context.Context, maxAmt,
+	feeLimit lnwire.MilliSatoshi, activeShards, height uint32,
 	firstHopCustomRecords lnwire.CustomRecords) (*route.Route, error) {
 
 	if p.empty {
@@ -297,7 +298,9 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 
 	for {
 		// Get a routing graph session.
-		graph, closeGraph, err := p.graphSessFactory.NewGraphSession()
+		graph, closeGraph, err := p.graphSessFactory.NewGraphSession(
+			ctx,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -308,7 +311,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		// don't have enough bandwidth to carry the payment. New
 		// bandwidth hints are queried for every new path finding
 		// attempt, because concurrent payments may change balances.
-		bandwidthHints, err := p.getBandwidthHints(graph)
+		bandwidthHints, err := p.getBandwidthHints(ctx, graph)
 		if err != nil {
 			// Close routing graph session.
 			if graphErr := closeGraph(); graphErr != nil {
@@ -323,7 +326,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 
 		// Find a route for the current amount.
 		path, _, err := p.pathFinder(
-			&graphParams{
+			ctx, &graphParams{
 				additionalEdges: p.additionalEdges,
 				bandwidthHints:  bandwidthHints,
 				graph:           graph,

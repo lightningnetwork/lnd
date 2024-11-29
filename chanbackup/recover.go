@@ -1,6 +1,7 @@
 package chanbackup
 
 import (
+	"context"
 	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -29,7 +30,8 @@ type PeerConnector interface {
 	// available addresses. Once this method returns with a non-nil error,
 	// the connector should attempt to persistently connect to the target
 	// peer in the background as a persistent attempt.
-	ConnectPeer(node *btcec.PublicKey, addrs []net.Addr) error
+	ConnectPeer(ctx context.Context, node *btcec.PublicKey,
+		addrs []net.Addr) error
 }
 
 // Recover attempts to recover the static channel state from a set of static
@@ -41,7 +43,7 @@ type PeerConnector interface {
 // well, in order to expose the addressing information required to locate to
 // and connect to each peer in order to initiate the recovery protocol.
 // The number of channels that were successfully restored is returned.
-func Recover(backups []Single, restorer ChannelRestorer,
+func Recover(ctx context.Context, backups []Single, restorer ChannelRestorer,
 	peerConnector PeerConnector) (int, error) {
 
 	var numRestored int
@@ -70,7 +72,7 @@ func Recover(backups []Single, restorer ChannelRestorer,
 			backup.FundingOutpoint)
 
 		err = peerConnector.ConnectPeer(
-			backup.RemoteNodePub, backup.Addresses,
+			ctx, backup.RemoteNodePub, backup.Addresses,
 		)
 		if err != nil {
 			return numRestored, err
@@ -95,7 +97,7 @@ func Recover(backups []Single, restorer ChannelRestorer,
 // established, then the PeerConnector will continue to attempt to re-establish
 // a persistent connection in the background. The number of channels that were
 // successfully restored is returned.
-func UnpackAndRecoverSingles(singles PackedSingles,
+func UnpackAndRecoverSingles(ctx context.Context, singles PackedSingles,
 	keyChain keychain.KeyRing, restorer ChannelRestorer,
 	peerConnector PeerConnector) (int, error) {
 
@@ -104,7 +106,7 @@ func UnpackAndRecoverSingles(singles PackedSingles,
 		return 0, err
 	}
 
-	return Recover(chanBackups, restorer, peerConnector)
+	return Recover(ctx, chanBackups, restorer, peerConnector)
 }
 
 // UnpackAndRecoverMulti is a one-shot method, that given a set of packed
@@ -114,7 +116,7 @@ func UnpackAndRecoverSingles(singles PackedSingles,
 // established, then the PeerConnector will continue to attempt to re-establish
 // a persistent connection in the background. The number of channels that were
 // successfully restored is returned.
-func UnpackAndRecoverMulti(packedMulti PackedMulti,
+func UnpackAndRecoverMulti(ctx context.Context, packedMulti PackedMulti,
 	keyChain keychain.KeyRing, restorer ChannelRestorer,
 	peerConnector PeerConnector) (int, error) {
 
@@ -123,5 +125,5 @@ func UnpackAndRecoverMulti(packedMulti PackedMulti,
 		return 0, err
 	}
 
-	return Recover(chanBackups.StaticBackups, restorer, peerConnector)
+	return Recover(ctx, chanBackups.StaticBackups, restorer, peerConnector)
 }

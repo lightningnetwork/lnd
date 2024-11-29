@@ -36,6 +36,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/sources"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -125,6 +126,14 @@ type ChainControlBuilder interface {
 		*btcwallet.Config) (*chainreg.ChainControl, func(), error)
 }
 
+// GraphProvider is an interface that must be satisfied by any external system
+// that wants to provide LND with graph information.
+type GraphProvider interface {
+	// Graph returns the GraphSource that LND will use for read-only graph
+	// related queries.
+	Graph(context.Context, *DatabaseInstances) (sources.GraphSource, error)
+}
+
 // ImplementationCfg is a struct that holds all configuration items for
 // components that can be implemented outside lnd itself.
 type ImplementationCfg struct {
@@ -155,6 +164,10 @@ type ImplementationCfg struct {
 	// AuxComponents is a set of auxiliary components that can be used by
 	// lnd for certain custom channel types.
 	AuxComponents
+
+	// GraphProvider is a type that can provide a custom GraphSource for LND
+	// to use for read-only graph calls.
+	GraphProvider
 }
 
 // AuxComponents is a set of auxiliary components that can be used by lnd for
@@ -247,6 +260,17 @@ func (d *DefaultWalletImpl) RegisterGrpcSubserver(s *grpc.Server) error {
 	lnrpc.RegisterWalletUnlockerServer(s, d.pwService)
 
 	return nil
+}
+
+// Graph returns the GraphSource that LND will use for read-only graph related
+// queries. By default, the GraphSource implementation is this LND node's
+// backing graphdb.ChannelGraph.
+//
+// NOTE: this is part of the GraphProvider interface.
+func (d *DefaultWalletImpl) Graph(_ context.Context,
+	dbs *DatabaseInstances) (sources.GraphSource, error) {
+
+	return sources.NewDBGSource(dbs.GraphDB), nil
 }
 
 // ValidateMacaroon extracts the macaroon from the context's gRPC metadata,

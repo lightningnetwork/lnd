@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/fn"
@@ -82,8 +83,9 @@ type bandwidthManager struct {
 // hints for the edges we directly have open ourselves. Obtaining these hints
 // allows us to reduce the number of extraneous attempts as we can skip channels
 // that are inactive, or just don't have enough bandwidth to carry the payment.
-func newBandwidthManager(graph Graph, sourceNode route.Vertex,
-	linkQuery getLinkQuery, firstHopBlob fn.Option[tlv.Blob],
+func newBandwidthManager(ctx context.Context, graph Graph,
+	sourceNode route.Vertex, linkQuery getLinkQuery,
+	firstHopBlob fn.Option[tlv.Blob],
 	trafficShaper fn.Option[TlvTrafficShaper]) (*bandwidthManager, error) {
 
 	manager := &bandwidthManager{
@@ -95,7 +97,7 @@ func newBandwidthManager(graph Graph, sourceNode route.Vertex,
 
 	// First, we'll collect the set of outbound edges from the target
 	// source node and add them to our bandwidth manager's map of channels.
-	err := graph.ForEachNodeChannel(sourceNode,
+	err := graph.ForEachNodeChannel(ctx, sourceNode,
 		func(channel *graphdb.DirectedChannel) error {
 			shortID := lnwire.NewShortChanIDFromInt(
 				channel.ChannelID,

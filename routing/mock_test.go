@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -168,9 +169,9 @@ type mockPaymentSessionOld struct {
 
 var _ PaymentSession = (*mockPaymentSessionOld)(nil)
 
-func (m *mockPaymentSessionOld) RequestRoute(_, _ lnwire.MilliSatoshi,
-	_, height uint32, _ lnwire.CustomRecords) (*route.Route,
-	error) {
+func (m *mockPaymentSessionOld) RequestRoute(_ context.Context, _,
+	_ lnwire.MilliSatoshi, _, height uint32,
+	_ lnwire.CustomRecords) (*route.Route, error) {
 
 	if m.release != nil {
 		m.release <- struct{}{}
@@ -694,12 +695,13 @@ type mockPaymentSession struct {
 
 var _ PaymentSession = (*mockPaymentSession)(nil)
 
-func (m *mockPaymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
-	activeShards, height uint32,
+func (m *mockPaymentSession) RequestRoute(ctx context.Context, maxAmt,
+	feeLimit lnwire.MilliSatoshi, activeShards, height uint32,
 	firstHopCustomRecords lnwire.CustomRecords) (*route.Route, error) {
 
 	args := m.Called(
-		maxAmt, feeLimit, activeShards, height, firstHopCustomRecords,
+		ctx, maxAmt, feeLimit, activeShards, height,
+		firstHopCustomRecords,
 	)
 
 	// Type assertion on nil will fail, so we check and return here.

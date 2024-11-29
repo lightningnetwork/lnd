@@ -2,6 +2,7 @@ package blindedpath
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"fmt"
 	"math/rand"
@@ -548,6 +549,8 @@ func genBlindedRouteData(rand *rand.Rand) *record.BlindedRouteData {
 // https://github.com/lightning/bolts/blob/master/proposals/route-blinding.md
 // This example does not use any dummy hops.
 func TestBuildBlindedPath(t *testing.T) {
+	ctx := context.Background()
+
 	// Alice chooses the following path to herself for blinded path
 	// construction:
 	//    	Carol -> Bob -> Alice.
@@ -591,13 +594,13 @@ func TestBuildBlindedPath(t *testing.T) {
 		},
 	}
 
-	paths, err := BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
-		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
-			error) {
+	paths, err := BuildBlindedPaymentPaths(ctx, &BuildBlindedPathCfg{
+		FindRoutes: func(_ context.Context, _ lnwire.MilliSatoshi) (
+			[]*route.Route, error) {
 
 			return []*route.Route{realRoute}, nil
 		},
-		FetchChannelEdgesByID: func(chanID uint64) (
+		FetchChannelEdgesByID: func(_ context.Context, chanID uint64) (
 			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 			*models.ChannelEdgePolicy, error) {
 
@@ -716,6 +719,8 @@ func TestBuildBlindedPath(t *testing.T) {
 // TestBuildBlindedPathWithDummyHops tests the construction of a blinded path
 // which includes dummy hops.
 func TestBuildBlindedPathWithDummyHops(t *testing.T) {
+	ctx := context.Background()
+
 	// Alice chooses the following path to herself for blinded path
 	// construction:
 	//    	Carol -> Bob -> Alice.
@@ -759,13 +764,13 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 		},
 	}
 
-	paths, err := BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
-		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
-			error) {
+	paths, err := BuildBlindedPaymentPaths(ctx, &BuildBlindedPathCfg{
+		FindRoutes: func(_ context.Context, _ lnwire.MilliSatoshi) (
+			[]*route.Route, error) {
 
 			return []*route.Route{realRoute}, nil
 		},
-		FetchChannelEdgesByID: func(chanID uint64) (
+		FetchChannelEdgesByID: func(_ context.Context, chanID uint64) (
 			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 			*models.ChannelEdgePolicy, error) {
 
@@ -929,14 +934,14 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 	// the first 2 calls. FindRoutes returns 3 routes and so by the end, we
 	// still get 1 valid path.
 	var errCount int
-	paths, err = BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
-		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
-			error) {
+	paths, err = BuildBlindedPaymentPaths(ctx, &BuildBlindedPathCfg{
+		FindRoutes: func(_ context.Context, _ lnwire.MilliSatoshi) (
+			[]*route.Route, error) {
 
 			return []*route.Route{realRoute, realRoute, realRoute},
 				nil
 		},
-		FetchChannelEdgesByID: func(chanID uint64) (
+		FetchChannelEdgesByID: func(_ context.Context, chanID uint64) (
 			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 			*models.ChannelEdgePolicy, error) {
 
@@ -998,6 +1003,7 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 // node.
 func TestSingleHopBlindedPath(t *testing.T) {
 	var (
+		ctx    = context.Background()
 		_, pkC = btcec.PrivKeyFromBytes([]byte{1})
 		carol  = route.NewVertex(pkC)
 	)
@@ -1009,9 +1015,9 @@ func TestSingleHopBlindedPath(t *testing.T) {
 		Hops: []*route.Hop{},
 	}
 
-	paths, err := BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
-		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
-			error) {
+	paths, err := BuildBlindedPaymentPaths(ctx, &BuildBlindedPathCfg{
+		FindRoutes: func(_ context.Context, _ lnwire.MilliSatoshi) (
+			[]*route.Route, error) {
 
 			return []*route.Route{realRoute}, nil
 		},

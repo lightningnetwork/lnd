@@ -380,10 +380,10 @@ func TestRequestRouteSucceed(t *testing.T) {
 	// Mock the paySession's `RequestRoute` method to return no error.
 	paySession.On("RequestRoute",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything,
 	).Return(dummyRoute, nil)
 
-	result, err := p.requestRoute(ps)
+	result, err := p.requestRoute(context.Background(), ps)
 	require.NoError(t, err, "expect no error")
 	require.Equal(t, dummyRoute, result, "returned route not matched")
 
@@ -417,10 +417,10 @@ func TestRequestRouteHandleCriticalErr(t *testing.T) {
 	// Mock the paySession's `RequestRoute` method to return an error.
 	paySession.On("RequestRoute",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything,
 	).Return(nil, errDummy)
 
-	result, err := p.requestRoute(ps)
+	result, err := p.requestRoute(context.Background(), ps)
 
 	// Expect an error is returned since it's critical.
 	require.ErrorIs(t, err, errDummy, "error not matched")
@@ -452,7 +452,7 @@ func TestRequestRouteHandleNoRouteErr(t *testing.T) {
 	// type.
 	m.paySession.On("RequestRoute",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything,
 	).Return(nil, errNoTlvPayload)
 
 	// The payment should be failed with reason no route.
@@ -460,7 +460,7 @@ func TestRequestRouteHandleNoRouteErr(t *testing.T) {
 		p.identifier, channeldb.FailureReasonNoRoute,
 	).Return(nil).Once()
 
-	result, err := p.requestRoute(ps)
+	result, err := p.requestRoute(context.Background(), ps)
 
 	// Expect no error is returned since it's not critical.
 	require.NoError(t, err, "expected no error")
@@ -500,10 +500,10 @@ func TestRequestRouteFailPaymentError(t *testing.T) {
 	// Mock the paySession's `RequestRoute` method to return an error.
 	paySession.On("RequestRoute",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-		mock.Anything,
+		mock.Anything, mock.Anything,
 	).Return(nil, errNoTlvPayload)
 
-	result, err := p.requestRoute(ps)
+	result, err := p.requestRoute(context.Background(), ps)
 
 	// Expect an error is returned.
 	require.ErrorIs(t, err, errDummy, "error not matched")
@@ -876,7 +876,8 @@ func TestResumePaymentFailOnRequestRouteErr(t *testing.T) {
 
 	// 4. mock requestRoute to return an error.
 	m.paySession.On("RequestRoute",
-		paymentAmt, p.feeLimit, uint32(ps.NumAttemptsInFlight),
+		mock.Anything, paymentAmt, p.feeLimit,
+		uint32(ps.NumAttemptsInFlight),
 		uint32(p.currentHeight), mock.Anything,
 	).Return(nil, errDummy).Once()
 
@@ -922,7 +923,8 @@ func TestResumePaymentFailOnRegisterAttemptErr(t *testing.T) {
 
 	// 4. mock requestRoute to return an route.
 	m.paySession.On("RequestRoute",
-		paymentAmt, p.feeLimit, uint32(ps.NumAttemptsInFlight),
+		mock.Anything, paymentAmt, p.feeLimit,
+		uint32(ps.NumAttemptsInFlight),
 		uint32(p.currentHeight), mock.Anything,
 	).Return(rt, nil).Once()
 
@@ -982,7 +984,8 @@ func TestResumePaymentFailOnSendAttemptErr(t *testing.T) {
 
 	// 4. mock requestRoute to return an route.
 	m.paySession.On("RequestRoute",
-		paymentAmt, p.feeLimit, uint32(ps.NumAttemptsInFlight),
+		mock.Anything, paymentAmt, p.feeLimit,
+		uint32(ps.NumAttemptsInFlight),
 		uint32(p.currentHeight), mock.Anything,
 	).Return(rt, nil).Once()
 
@@ -1074,7 +1077,8 @@ func TestResumePaymentSuccess(t *testing.T) {
 
 	// 1.4. mock requestRoute to return an route.
 	m.paySession.On("RequestRoute",
-		paymentAmt, p.feeLimit, uint32(ps.NumAttemptsInFlight),
+		mock.Anything, paymentAmt, p.feeLimit,
+		uint32(ps.NumAttemptsInFlight),
 		uint32(p.currentHeight), mock.Anything,
 	).Return(rt, nil).Once()
 
@@ -1175,7 +1179,8 @@ func TestResumePaymentSuccessWithTwoAttempts(t *testing.T) {
 
 	// 1.4. mock requestRoute to return an route.
 	m.paySession.On("RequestRoute",
-		paymentAmt, p.feeLimit, uint32(ps.NumAttemptsInFlight),
+		mock.Anything, paymentAmt, p.feeLimit,
+		uint32(ps.NumAttemptsInFlight),
 		uint32(p.currentHeight), mock.Anything,
 	).Return(rt, nil).Once()
 
@@ -1237,7 +1242,8 @@ func TestResumePaymentSuccessWithTwoAttempts(t *testing.T) {
 
 	// 2.4. mock requestRoute to return an route.
 	m.paySession.On("RequestRoute",
-		paymentAmt/2, p.feeLimit, uint32(ps.NumAttemptsInFlight),
+		mock.Anything, paymentAmt/2, p.feeLimit,
+		uint32(ps.NumAttemptsInFlight),
 		uint32(p.currentHeight), mock.Anything,
 	).Return(rt, nil).Once()
 

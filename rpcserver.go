@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -51,7 +50,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
-	"github.com/lightningnetwork/lnd/graph/graphsession"
+	graphsession "github.com/lightningnetwork/lnd/graph/session"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
@@ -695,6 +694,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		return err
 	}
 	graph := s.graphDB
+	graphSource := s.graphSource
 
 	routerBackend := &routerrpc.RouterBackend{
 		SelfNode: selfNode.PubKeyBytes,
@@ -707,11 +707,12 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 			}
 			return info.Capacity, nil
 		},
-		FetchAmountPairCapacity: func(nodeFrom, nodeTo route.Vertex,
+		FetchAmountPairCapacity: func(ctx context.Context, nodeFrom,
+			nodeTo route.Vertex,
 			amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
 
 			return routing.FetchAmountPairCapacity(
-				graphsession.NewRoutingGraph(graph),
+				ctx, graphsession.NewRoutingGraph(graphSource),
 				selfNode.PubKeyBytes, nodeFrom, nodeTo, amount,
 			)
 		},
@@ -795,7 +796,8 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 	err = subServerCgs.PopulateDependencies(
 		r.cfg, s.cc, r.cfg.networkDir, macService, atpl, invoiceRegistry,
 		s.htlcSwitch, r.cfg.ActiveNetParams.Params, s.chanRouter,
-		routerBackend, s.nodeSigner, s.graphDB, s.chanStateDB,
+		routerBackend, s.nodeSigner, s.graphDB, s.graphSource,
+		s.chanStateDB,
 		s.sweeper, tower, s.towerClientMgr, r.cfg.net.ResolveTCPAddr,
 		genInvoiceFeatures, genAmpInvoiceFeatures,
 		s.getNodeAnnouncement, s.updateAndBroadcastSelfNode, parseAddr,
@@ -1756,8 +1758,8 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 	// channels signed the message.
 	//
 	// TODO(phlip9): Require valid nodes to have capital in active channels.
-	graph := r.server.graphDB
-	_, active, err := graph.HasLightningNode(pub)
+	graph := r.server.graphSource
+	_, active, err := graph.HasLightningNode(ctx, pub)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query graph: %w", err)
 	}
@@ -1821,9 +1823,8 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 			timeout)
 	}
 
-	if err := r.server.ConnectToPeer(
-		peerAddr, in.Perm, timeout,
-	); err != nil {
+	err = r.server.ConnectToPeer(ctx, peerAddr, in.Perm, timeout)
+	if err != nil {
 		rpcsLog.Errorf("[connectpeer]: error connecting to peer: %v",
 			err)
 		return nil, err
@@ -4538,7 +4539,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		// our list depending on the type of channels requested to us.
 		isActive := peerOnline && linkActive
 		channel, err := createRPCOpenChannel(
-			r, dbChannel, isActive, in.PeerAliasLookup,
+			ctx, r, dbChannel, isActive, in.PeerAliasLookup,
 		)
 		if err != nil {
 			return nil, err
@@ -4654,8 +4655,9 @@ func encodeCustomChanData(lnChan *channeldb.OpenChannel) ([]byte, error) {
 }
 
 // createRPCOpenChannel creates an *lnrpc.Channel from the *channeldb.Channel.
-func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
-	isActive, peerAliasLookup bool) (*lnrpc.Channel, error) {
+func createRPCOpenChannel(ctx context.Context, r *rpcServer,
+	dbChannel *channeldb.OpenChannel, isActive, peerAliasLookup bool) (
+	*lnrpc.Channel, error) {
 
 	nodePub := dbChannel.IdentityPub
 	nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
@@ -4756,7 +4758,7 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 
 	// Look up our channel peer's node alias if the caller requests it.
 	if peerAliasLookup {
-		peerAlias, err := r.server.graphDB.LookupAlias(nodePub)
+		peerAlias, err := r.server.graphSource.LookupAlias(ctx, nodePub)
 		if err != nil {
 			peerAlias = fmt.Sprintf("unable to lookup "+
 				"peer alias: %v", err)
@@ -5172,7 +5174,8 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 				}
 			case channelnotifier.OpenChannelEvent:
 				channel, err := createRPCOpenChannel(
-					r, event.Channel, true, false,
+					updateStream.Context(), r,
+					event.Channel, true, false,
 				)
 				if err != nil {
 					return err
@@ -6095,7 +6098,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		NodeSigner:        r.server.nodeSigner,
 		DefaultCLTVExpiry: defaultDelta,
 		ChanDB:            r.server.chanStateDB,
-		Graph:             r.server.graphDB,
+		Graph:             r.server.graphSource,
 		GenInvoiceFeatures: func() *lnwire.FeatureVector {
 			v := r.server.featureMgr.Get(feature.SetInvoice)
 
@@ -6123,11 +6126,11 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		},
 		GetAlias:   r.server.aliasMgr.GetPeerAlias,
 		BestHeight: r.server.cc.BestBlockTracker.BestHeight,
-		QueryBlindedRoutes: func(amt lnwire.MilliSatoshi) (
-			[]*route.Route, error) {
+		QueryBlindedRoutes: func(ctx context.Context,
+			amt lnwire.MilliSatoshi) ([]*route.Route, error) {
 
 			return r.server.chanRouter.FindBlindedPaths(
-				r.selfNode, amt,
+				ctx, r.selfNode, amt,
 				r.server.defaultMC.GetProbability,
 				blindingRestrictions,
 			)
@@ -6525,20 +6528,13 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 		}
 	}
 
-	// Obtain the pointer to the global singleton channel graph, this will
-	// provide a consistent view of the graph due to bolt db's
-	// transactional model.
-	graph := r.server.graphDB
+	graph := r.server.graphSource
 
 	// First iterate through all the known nodes (connected or unconnected
 	// within the graph), collating their current state into the RPC
 	// response.
-	err := graph.ForEachNode(func(_ kvdb.RTx,
-		node *models.LightningNode) error {
-
-		lnNode := marshalNode(node)
-
-		resp.Nodes = append(resp.Nodes, lnNode)
+	err := graph.ForEachNode(ctx, func(node *models.LightningNode) error {
+		resp.Nodes = append(resp.Nodes, marshalNode(node))
 
 		return nil
 	})
@@ -6549,19 +6545,18 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// Next, for each active channel we know of within the graph, create a
 	// similar response which details both the edge information as well as
 	// the routing policies of th nodes connecting the two edges.
-	err = graph.ForEachChannel(func(edgeInfo *models.ChannelEdgeInfo,
+	err = graph.ForEachChannel(ctx, func(edgeInfo *models.ChannelEdgeInfo,
 		c1, c2 *models.ChannelEdgePolicy) error {
 
 		// Do not include unannounced channels unless specifically
-		// requested. Unannounced channels include both private channels as
-		// well as public channels whose authentication proof were not
-		// confirmed yet, hence were not announced.
+		// requested. Unannounced channels include both private channels
+		// as well as public channels whose authentication proof were
+		// not confirmed yet, hence were not announced.
 		if !includeUnannounced && edgeInfo.AuthProof == nil {
 			return nil
 		}
 
-		edge := marshalDBEdge(edgeInfo, c1, c2)
-		resp.Edges = append(resp.Edges, edge)
+		resp.Edges = append(resp.Edges, marshalDBEdge(edgeInfo, c1, c2))
 
 		return nil
 	})
@@ -6706,43 +6701,27 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 		return nil, nil
 	}
 
-	resp := &lnrpc.NodeMetricsResponse{
-		BetweennessCentrality: make(map[string]*lnrpc.FloatMetric),
-	}
+	graph := r.server.graphSource
 
-	// Obtain the pointer to the global singleton channel graph, this will
-	// provide a consistent view of the graph due to bolt db's
-	// transactional model.
-	graph := r.server.graphDB
-
-	// Calculate betweenness centrality if requested. Note that depending on the
-	// graph size, this may take up to a few minutes.
-	channelGraph := autopilot.ChannelGraphFromDatabase(graph)
-	centralityMetric, err := autopilot.NewBetweennessCentralityMetric(
-		runtime.NumCPU(),
-	)
+	// Calculate betweenness centrality if requested. Note that depending on
+	// the graph size, this may take up to a few minutes.
+	centrality, err := graph.BetweennessCentrality(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := centralityMetric.Refresh(channelGraph); err != nil {
-		return nil, err
+
+	result := make(map[string]*lnrpc.FloatMetric)
+	for nodeID, betweenness := range centrality {
+		id := hex.EncodeToString(nodeID[:])
+		result[id] = &lnrpc.FloatMetric{
+			Value:           betweenness.NonNormalized,
+			NormalizedValue: betweenness.Normalized,
+		}
 	}
 
-	// Fill normalized and non normalized centrality.
-	centrality := centralityMetric.GetMetric(true)
-	for nodeID, val := range centrality {
-		resp.BetweennessCentrality[hex.EncodeToString(nodeID[:])] =
-			&lnrpc.FloatMetric{
-				NormalizedValue: val,
-			}
-	}
-
-	centrality = centralityMetric.GetMetric(false)
-	for nodeID, val := range centrality {
-		resp.BetweennessCentrality[hex.EncodeToString(nodeID[:])].Value = val
-	}
-
-	return resp, nil
+	return &lnrpc.NodeMetricsResponse{
+		BetweennessCentrality: result,
+	}, nil
 }
 
 // GetChanInfo returns the latest authenticated network announcement for the
@@ -6750,10 +6729,10 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 // uniquely identify the location of transaction's funding output within the
 // blockchain. The former is an 8-byte integer, while the latter is a string
 // formatted as funding_txid:output_index.
-func (r *rpcServer) GetChanInfo(_ context.Context,
+func (r *rpcServer) GetChanInfo(ctx context.Context,
 	in *lnrpc.ChanInfoRequest) (*lnrpc.ChannelEdge, error) {
 
-	graph := r.server.graphDB
+	graph := r.server.graphSource
 
 	var (
 		edgeInfo     *models.ChannelEdgeInfo
@@ -6764,7 +6743,7 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 	switch {
 	case in.ChanId != 0:
 		edgeInfo, edge1, edge2, err = graph.FetchChannelEdgesByID(
-			in.ChanId,
+			ctx, in.ChanId,
 		)
 
 	case in.ChanPoint != "":
@@ -6774,7 +6753,7 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 			return nil, err
 		}
 		edgeInfo, edge1, edge2, err = graph.FetchChannelEdgesByOutpoint(
-			chanPoint,
+			ctx, chanPoint,
 		)
 
 	default:
@@ -6797,7 +6776,7 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	in *lnrpc.NodeInfoRequest) (*lnrpc.NodeInfo, error) {
 
-	graph := r.server.graphDB
+	graph := r.server.graphSource
 
 	// First, parse the hex-encoded public key into a full in-memory public
 	// key object we can work with for querying.
@@ -6809,7 +6788,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	// With the public key decoded, attempt to fetch the node corresponding
 	// to this public key. If the node cannot be found, then an error will
 	// be returned.
-	node, err := graph.FetchLightningNode(pubKey)
+	node, err := graph.FetchLightningNode(ctx, pubKey)
 	switch {
 	case errors.Is(err, graphdb.ErrGraphNodeNotFound):
 		return nil, status.Error(codes.NotFound, err.Error())
@@ -6825,9 +6804,9 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		channels      []*lnrpc.ChannelEdge
 	)
 
-	err = graph.ForEachNodeChannel(node.PubKeyBytes,
-		func(_ kvdb.RTx, edge *models.ChannelEdgeInfo,
-			c1, c2 *models.ChannelEdgePolicy) error {
+	err = graph.ForEachNodeChannel(ctx, node.PubKeyBytes,
+		func(edge *models.ChannelEdgeInfo, c1,
+			c2 *models.ChannelEdgePolicy) error {
 
 			numChannels++
 			totalCapacity += edge.Capacity
@@ -6908,134 +6887,34 @@ func (r *rpcServer) QueryRoutes(ctx context.Context,
 func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	_ *lnrpc.NetworkInfoRequest) (*lnrpc.NetworkInfo, error) {
 
-	graph := r.server.graphDB
+	graph := r.server.graphSource
 
-	var (
-		numNodes             uint32
-		numChannels          uint32
-		maxChanOut           uint32
-		totalNetworkCapacity btcutil.Amount
-		minChannelSize       btcutil.Amount = math.MaxInt64
-		maxChannelSize       btcutil.Amount
-		medianChanSize       btcutil.Amount
-	)
-
-	// We'll use this map to de-duplicate channels during our traversal.
-	// This is needed since channels are directional, so there will be two
-	// edges for each channel within the graph.
-	seenChans := make(map[uint64]struct{})
-
-	// We also keep a list of all encountered capacities, in order to
-	// calculate the median channel size.
-	var allChans []btcutil.Amount
-
-	// We'll run through all the known nodes in the within our view of the
-	// network, tallying up the total number of nodes, and also gathering
-	// each node so we can measure the graph diameter and degree stats
-	// below.
-	err := graph.ForEachNodeCached(func(node route.Vertex,
-		edges map[uint64]*graphdb.DirectedChannel) error {
-
-		// Increment the total number of nodes with each iteration.
-		numNodes++
-
-		// For each channel we'll compute the out degree of each node,
-		// and also update our running tallies of the min/max channel
-		// capacity, as well as the total channel capacity. We pass
-		// through the db transaction from the outer view so we can
-		// re-use it within this inner view.
-		var outDegree uint32
-		for _, edge := range edges {
-			// Bump up the out degree for this node for each
-			// channel encountered.
-			outDegree++
-
-			// If we've already seen this channel, then we'll
-			// return early to ensure that we don't double-count
-			// stats.
-			if _, ok := seenChans[edge.ChannelID]; ok {
-				return nil
-			}
-
-			// Compare the capacity of this channel against the
-			// running min/max to see if we should update the
-			// extrema.
-			chanCapacity := edge.Capacity
-			if chanCapacity < minChannelSize {
-				minChannelSize = chanCapacity
-			}
-			if chanCapacity > maxChannelSize {
-				maxChannelSize = chanCapacity
-			}
-
-			// Accumulate the total capacity of this channel to the
-			// network wide-capacity.
-			totalNetworkCapacity += chanCapacity
-
-			numChannels++
-
-			seenChans[edge.ChannelID] = struct{}{}
-			allChans = append(allChans, edge.Capacity)
-		}
-
-		// Finally, if the out degree of this node is greater than what
-		// we've seen so far, update the maxChanOut variable.
-		if outDegree > maxChanOut {
-			maxChanOut = outDegree
-		}
-
-		return nil
-	})
+	stats, err := graph.NetworkStats(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	// Query the graph for the current number of zombie channels.
-	numZombies, err := graph.NumZombies()
-	if err != nil {
-		return nil, err
-	}
-
-	// Find the median.
-	medianChanSize = autopilot.Median(allChans)
-
-	// If we don't have any channels, then reset the minChannelSize to zero
-	// to avoid outputting NaN in encoded JSON.
-	if numChannels == 0 {
-		minChannelSize = 0
-	}
-
-	// Graph diameter.
-	channelGraph := autopilot.ChannelGraphFromCachedDatabase(graph)
-	simpleGraph, err := autopilot.NewSimpleGraph(channelGraph)
-	if err != nil {
-		return nil, err
-	}
-	start := time.Now()
-	diameter := simpleGraph.DiameterRadialCutoff()
-	rpcsLog.Infof("elapsed time for diameter (%d) calculation: %v", diameter,
-		time.Since(start))
 
 	// TODO(roasbeef): also add oldest channel?
 	netInfo := &lnrpc.NetworkInfo{
-		GraphDiameter:        diameter,
-		MaxOutDegree:         maxChanOut,
-		AvgOutDegree:         float64(2*numChannels) / float64(numNodes),
-		NumNodes:             numNodes,
-		NumChannels:          numChannels,
-		TotalNetworkCapacity: int64(totalNetworkCapacity),
-		AvgChannelSize:       float64(totalNetworkCapacity) / float64(numChannels),
-
-		MinChannelSize:       int64(minChannelSize),
-		MaxChannelSize:       int64(maxChannelSize),
-		MedianChannelSizeSat: int64(medianChanSize),
-		NumZombieChans:       numZombies,
+		GraphDiameter: stats.Diameter,
+		MaxOutDegree:  stats.MaxChanOut,
+		AvgOutDegree: float64(2*stats.NumChannels) /
+			float64(stats.NumNodes),
+		NumNodes:             stats.NumNodes,
+		NumChannels:          stats.NumChannels,
+		TotalNetworkCapacity: int64(stats.TotalNetworkCapacity),
+		AvgChannelSize: float64(stats.TotalNetworkCapacity) /
+			float64(stats.NumChannels),
+		MinChannelSize:       int64(stats.MinChanSize),
+		MaxChannelSize:       int64(stats.MaxChanSize),
+		MedianChannelSizeSat: int64(stats.MedianChanSize),
+		NumZombieChans:       stats.NumZombies,
 	}
 
 	// Similarly, if we don't have any channels, then we'll also set the
 	// average channel size to zero in order to avoid weird JSON encoding
 	// outputs.
-	if numChannels == 0 {
+	if stats.NumChannels == 0 {
 		netInfo.AvgChannelSize = 0
 	}
 
@@ -7886,7 +7765,9 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 			return "", err
 		}
 
-		peer, err := r.server.graphDB.FetchLightningNode(vertex)
+		peer, err := r.server.graphSource.FetchLightningNode(
+			ctx, vertex,
+		)
 		if err != nil {
 			return "", err
 		}
@@ -7972,7 +7853,7 @@ func (r *rpcServer) ExportChannelBackup(ctx context.Context,
 	// the database. If this channel has been closed, or the outpoint is
 	// unknown, then we'll return an error
 	unpackedBackup, err := chanbackup.FetchBackupForChan(
-		chanPoint, r.server.chanStateDB, r.server.addrSource,
+		ctx, chanPoint, r.server.chanStateDB, r.server.addrSource,
 	)
 	if err != nil {
 		return nil, err
@@ -8152,7 +8033,7 @@ func (r *rpcServer) ExportAllChannelBackups(ctx context.Context,
 	// First, we'll attempt to read back ups for ALL currently opened
 	// channels from disk.
 	allUnpackedBackups, err := chanbackup.FetchStaticChanBackups(
-		r.server.chanStateDB, r.server.addrSource,
+		ctx, r.server.chanStateDB, r.server.addrSource,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch all static chan "+
@@ -8210,7 +8091,7 @@ func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
 		// out to any peers that we know of which were our prior
 		// channel peers.
 		numRestored, err = chanbackup.UnpackAndRecoverSingles(
-			chanbackup.PackedSingles(packedBackups),
+			ctx, chanbackup.PackedSingles(packedBackups),
 			r.server.cc.KeyRing, chanRestorer, r.server,
 		)
 		if err != nil {
@@ -8227,7 +8108,7 @@ func (r *rpcServer) RestoreChannelBackups(ctx context.Context,
 		// channel peers.
 		packedMulti := chanbackup.PackedMulti(packedMultiBackup)
 		numRestored, err = chanbackup.UnpackAndRecoverMulti(
-			packedMulti, r.server.cc.KeyRing, chanRestorer,
+			ctx, packedMulti, r.server.cc.KeyRing, chanRestorer,
 			r.server,
 		)
 		if err != nil {
@@ -8287,7 +8168,8 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 			// we'll obtains the current set of single channel
 			// backups from disk.
 			chanBackups, err := chanbackup.FetchStaticChanBackups(
-				r.server.chanStateDB, r.server.addrSource,
+				updateStream.Context(), r.server.chanStateDB,
+				r.server.addrSource,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to fetch all "+

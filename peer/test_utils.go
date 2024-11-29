@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/fn"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/sources"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -628,7 +629,7 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 		ChanEnableTimeout:        chanActiveTimeout,
 		ChanDisableTimeout:       2 * time.Minute,
 		DB:                       dbAliceChannel.ChannelStateDB(),
-		Graph:                    dbAliceGraph,
+		Graph:                    sources.NewDBGSource(dbAliceGraph),
 		MessageSigner:            nodeSignerAlice,
 		OurPubKey:                aliceKeyPub,
 		OurKeyLoc:                testKeyLoc,

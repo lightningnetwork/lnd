@@ -12,6 +12,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -25,12 +26,14 @@ const (
 
 	defaultMaxLineLen       = 80
 	defaultTabWidthInSpaces = 8
+	defaultLogRegex         = `^\s*.*(L|l)og\.`
 )
 
 // LLConfig is the configuration for the ll linter.
 type LLConfig struct {
-	LineLength int `json:"line-length"`
-	TabWidth   int `json:"tab-width"`
+	LineLength int    `json:"line-length"`
+	TabWidth   int    `json:"tab-width"`
+	LogRegex   string `json:"log-regex"`
 }
 
 // New creates a new LLPlugin from the given settings. It satisfies the
@@ -47,6 +50,9 @@ func New(settings any) (register.LinterPlugin, error) {
 	}
 	if cfg.TabWidth == 0 {
 		cfg.TabWidth = defaultTabWidthInSpaces
+	}
+	if cfg.LogRegex == "" {
+		cfg.LogRegex = defaultLogRegex
 	}
 
 	return &LLPlugin{cfg: cfg}, nil
@@ -79,13 +85,16 @@ func (l *LLPlugin) GetLoadMode() string {
 }
 
 func (l *LLPlugin) run(pass *analysis.Pass) (any, error) {
-	var spaces = strings.Repeat(" ", l.cfg.TabWidth)
+	var (
+		spaces   = strings.Repeat(" ", l.cfg.TabWidth)
+		logRegex = regexp.MustCompile(l.cfg.LogRegex)
+	)
 
 	for _, f := range pass.Files {
 		fileName := getFileName(pass, f)
 
 		issues, err := getLLLIssuesForFile(
-			fileName, l.cfg.LineLength, spaces,
+			fileName, l.cfg.LineLength, spaces, logRegex,
 		)
 		if err != nil {
 			return nil, err
@@ -114,7 +123,7 @@ type issue struct {
 }
 
 func getLLLIssuesForFile(filename string, maxLineLen int,
-	tabSpaces string) ([]*issue, error) {
+	tabSpaces string, logRegex *regexp.Regexp) ([]*issue, error) {
 
 	f, err := os.Open(filename)
 	if err != nil {
@@ -126,6 +135,7 @@ func getLLLIssuesForFile(filename string, maxLineLen int,
 		res                []*issue
 		lineNumber         int
 		multiImportEnabled bool
+		multiLinedLog      bool
 	)
 
 	// Scan over each line.
@@ -162,6 +172,21 @@ func getLLLIssuesForFile(filename string, maxLineLen int,
 		if multiImportEnabled {
 			if line == ")" {
 				multiImportEnabled = false
+			}
+
+			continue
+		}
+
+		// Check if the line matches the log pattern.
+		if logRegex.MatchString(line) {
+			multiLinedLog = !strings.HasSuffix(line, ")")
+			continue
+		}
+
+		if multiLinedLog {
+			// Check for the end of a multiline log call.
+			if strings.HasSuffix(line, ")") {
+				multiLinedLog = false
 			}
 
 			continue

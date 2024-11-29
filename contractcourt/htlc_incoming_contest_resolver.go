@@ -220,7 +220,7 @@ func (h *htlcIncomingContestResolver) Resolve(
 		//
 		// So we'll insert it at the 3rd index of the witness.
 		case isTaproot:
-			//nolint:lll
+			//nolint:ll
 			h.htlcResolution.SignedSuccessTx.TxIn[0].Witness[2] = preimage[:]
 
 		// Within the witness for the success transaction, the

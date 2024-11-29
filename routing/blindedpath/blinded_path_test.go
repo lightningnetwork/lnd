@@ -375,7 +375,7 @@ func TestPadBlindedHopInfo(t *testing.T) {
 				}
 
 				if test.existingPadding != nil {
-					//nolint:lll
+					//nolint:ll
 					padding := tlv.SomeRecordT(
 						tlv.NewPrimitiveRecord[tlv.TlvType1](
 							make([]byte, test.existingPadding[i]),

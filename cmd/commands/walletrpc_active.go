@@ -169,7 +169,7 @@ func estimateFeeRate(ctx *cli.Context) error {
 		SatPerKw            int64 `json:"sat_per_kw"`
 		SatPerVByte         int64 `json:"sat_per_vbyte"`
 		MinRelayFeeSatPerKw int64 `json:"min_relay_fee_sat_per_kw"`
-		//nolint:lll
+		//nolint:ll
 		MinRelayFeeSatPerVByte int64 `json:"min_relay_fee_sat_per_vbyte"`
 	}{
 		SatPerKw:               int64(rateKW),

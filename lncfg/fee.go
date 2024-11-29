@@ -12,7 +12,7 @@ const DefaultMaxUpdateTimeout = 20 * time.Minute
 
 // Fee holds the configuration options for fee estimation.
 //
-//nolint:lll
+//nolint:ll
 type Fee struct {
 	URL              string        `long:"url" description:"Optional URL for external fee estimation. If no URL is specified, the method for fee estimation will depend on the chosen backend and network. Must be set for neutrino on mainnet."`
 	MinUpdateTimeout time.Duration `long:"min-update-timeout" description:"The minimum interval in which fees will be updated from the specified fee URL."`

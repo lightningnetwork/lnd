@@ -249,7 +249,7 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 	acceptRequests := make(map[[32]byte]*chanAcceptInfo)
 
 	for {
-		//nolint:lll
+		//nolint:ll
 		select {
 		// Consume requests passed to us from our Accept() function and
 		// send them into our stream.

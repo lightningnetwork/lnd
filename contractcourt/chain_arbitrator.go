@@ -639,7 +639,7 @@ func (c *ChainArbitrator) Start() error {
 	// corresponding more restricted resolver, as we don't have to watch
 	// the chain any longer, only resolve the contracts on the confirmed
 	// commitment.
-	//nolint:lll
+	//nolint:ll
 	for _, closeChanInfo := range closingChannels {
 		// We can leave off the CloseContract and ForceCloseChan
 		// methods as the channel is already closed at this point.

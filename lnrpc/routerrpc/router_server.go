@@ -600,7 +600,7 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 
 	// If the payment probe failed we only return the failure reason and
 	// leave the probe result params unaltered.
-	if resp.FailureReason != lnrpc.PaymentFailureReason_FAILURE_REASON_NONE { //nolint:lll
+	if resp.FailureReason != lnrpc.PaymentFailureReason_FAILURE_REASON_NONE { //nolint:ll
 		return resp, nil
 	}
 
@@ -786,7 +786,7 @@ func (s *Server) sendProbePayment(ctx context.Context,
 			case lnrpc.Payment_FAILED:
 				// Incorrect payment details point to a
 				// successful probe.
-				//nolint:lll
+				//nolint:ll
 				if payment.FailureReason == lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS {
 					return paymentDetails(payment)
 				}
@@ -1031,7 +1031,7 @@ func (s *Server) SetMissionControlConfig(ctx context.Context,
 					req.Config.HopProbability,
 				),
 				AprioriWeight:    float64(req.Config.Weight),
-				CapacityFraction: routing.DefaultCapacityFraction, //nolint:lll
+				CapacityFraction: routing.DefaultCapacityFraction, //nolint:ll
 			}
 		}
 

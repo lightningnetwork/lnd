@@ -147,7 +147,7 @@ func (c *ChannelUpdate2) DecodeTLVRecords(r io.Reader) error {
 	// If the proportional fee was not encoded, then set it to the default
 	// value.
 	if _, ok := typeMap[c.FeeProportionalMillionths.TlvType()]; !ok {
-		c.FeeProportionalMillionths.Val = defaultFeeProportionalMillionths //nolint:lll
+		c.FeeProportionalMillionths.Val = defaultFeeProportionalMillionths //nolint:ll
 	}
 
 	if len(tlvRecords) != 0 {

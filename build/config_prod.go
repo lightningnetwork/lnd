@@ -6,7 +6,7 @@ package build
 // consoleLoggerCfg embeds the LoggerConfig struct along with any extensions
 // specific to a production deployment.
 //
-//nolint:lll
+//nolint:ll
 type consoleLoggerCfg struct {
 	LoggerConfig
 }

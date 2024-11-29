@@ -19,7 +19,7 @@ func IsDevBuild() bool {
 // DevConfig specifies configs used for integration tests. These configs can
 // only be used in tests and must NOT be exported for production usage.
 //
-//nolint:lll
+//nolint:ll
 type DevConfig struct {
 	ProcessChannelReadyWait time.Duration `long:"processchannelreadywait" description:"Time to sleep before processing remote node's channel_ready message."`
 	ReservationTimeout      time.Duration `long:"reservationtimeout" description:"The maximum time we keep a pending channel open flow in memory."`

@@ -228,7 +228,7 @@ func (h *HarnessRPC) GetTransaction(
 // RemoveTransaction makes an RPC call to the node's WalletKitClient and
 // asserts.
 //
-//nolint:lll
+//nolint:ll
 func (h *HarnessRPC) RemoveTransaction(
 	req *walletrpc.GetTransactionRequest) *walletrpc.RemoveTransactionResponse {
 
@@ -256,7 +256,7 @@ func (h *HarnessRPC) BumpFee(
 
 // BumpForceCloseFee makes a RPC call to the node's WalletKitClient and asserts.
 //
-//nolint:lll
+//nolint:ll
 func (h *HarnessRPC) BumpForceCloseFee(
 	req *walletrpc.BumpForceCloseFeeRequest) *walletrpc.BumpForceCloseFeeResponse {
 
@@ -311,7 +311,7 @@ func (h *HarnessRPC) ImportAccountAssertErr(
 
 // ImportPublicKey makes a RPC call to the node's WalletKitClient and asserts.
 //
-//nolint:lll
+//nolint:ll
 func (h *HarnessRPC) ImportPublicKey(
 	req *walletrpc.ImportPublicKeyRequest) *walletrpc.ImportPublicKeyResponse {
 
@@ -352,7 +352,7 @@ func (h *HarnessRPC) SignPsbtErr(req *walletrpc.SignPsbtRequest) error {
 
 // ImportTapscript makes a RPC call to the node's WalletKitClient and asserts.
 //
-//nolint:lll
+//nolint:ll
 func (h *HarnessRPC) ImportTapscript(
 	req *walletrpc.ImportTapscriptRequest) *walletrpc.ImportTapscriptResponse {
 
@@ -367,7 +367,7 @@ func (h *HarnessRPC) ImportTapscript(
 
 // RequiredReserve makes a RPC call to the node's WalletKitClient and asserts.
 //
-//nolint:lll
+//nolint:ll
 func (h *HarnessRPC) RequiredReserve(
 	req *walletrpc.RequiredReserveRequest) *walletrpc.RequiredReserveResponse {
 

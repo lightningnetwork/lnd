@@ -13,7 +13,7 @@ import (
 //
 // TODO(yy): delete this build flag to unify with `lncfg/protocol.go`.
 //
-//nolint:lll
+//nolint:ll
 type ProtocolOptions struct {
 	// LegacyProtocol is a sub-config that houses all the legacy protocol
 	// options.  These are mostly used for integration tests as most modern

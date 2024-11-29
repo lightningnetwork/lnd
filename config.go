@@ -290,7 +290,7 @@ var (
 // See LoadConfig for further details regarding the configuration
 // loading+parsing process.
 //
-//nolint:lll
+//nolint:ll
 type Config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
 
@@ -523,7 +523,7 @@ type Config struct {
 // for more details. Any value of 0 means we use the gRPC internal default
 // values.
 //
-//nolint:lll
+//nolint:ll
 type GRPCConfig struct {
 	// ServerPingTime is a duration for the amount of time of no activity
 	// after which the server pings the client to see if the transport is
@@ -549,7 +549,7 @@ type GRPCConfig struct {
 
 // DefaultConfig returns all default values for the Config struct.
 //
-//nolint:lll
+//nolint:ll
 func DefaultConfig() Config {
 	return Config{
 		LndDir:            DefaultLndDir,

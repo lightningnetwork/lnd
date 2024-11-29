@@ -3517,7 +3517,7 @@ func TestLastHopPayloadSize(t *testing.T) {
 				blindedPath := path.BlindedPath.BlindedHops
 				blindedPoint := path.BlindedPath.BlindingPoint
 
-				//nolint:lll
+				//nolint:ll
 				finalHop = route.Hop{
 					AmtToForward:     tc.amount,
 					OutgoingTimeLock: uint32(tc.finalHopExpiry),
@@ -3527,7 +3527,7 @@ func TestLastHopPayloadSize(t *testing.T) {
 					finalHop.BlindingPoint = blindedPoint
 				}
 			} else {
-				//nolint:lll
+				//nolint:ll
 				finalHop = route.Hop{
 					AmtToForward:     tc.amount,
 					OutgoingTimeLock: uint32(tc.finalHopExpiry),

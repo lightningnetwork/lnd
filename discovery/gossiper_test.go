@@ -1461,7 +1461,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		return lnwire.ShortChannelID{}, fmt.Errorf("no peer alias")
 	}
 
-	//nolint:lll
+	//nolint:ll
 	gossiper := New(Config{
 		Notifier:               ctx.gossiper.cfg.Notifier,
 		Broadcast:              ctx.gossiper.cfg.Broadcast,

@@ -7,7 +7,7 @@ import (
 
 // Pprof holds the configuration options for LND's built-in pprof server.
 //
-//nolint:lll
+//nolint:ll
 type Pprof struct {
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 

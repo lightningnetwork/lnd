@@ -154,7 +154,7 @@ func (r *forwardInterceptor) resolveFromClient(
 			outWireCustomRecords = fn.Some[lnwire.CustomRecords](cr)
 		}
 
-		//nolint:lll
+		//nolint:ll
 		return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
 			Key:                  circuitKey,
 			Action:               htlcswitch.FwdActionResumeModified,

@@ -4,7 +4,7 @@ import "time"
 
 // Config holds sqlite configuration data.
 //
-//nolint:lll
+//nolint:ll
 type Config struct {
 	Timeout        time.Duration `long:"timeout" description:"The time after which a database query should be timed out."`
 	BusyTimeout    time.Duration `long:"busytimeout" description:"The maximum amount of time to wait for a database connection to become available for a query."`

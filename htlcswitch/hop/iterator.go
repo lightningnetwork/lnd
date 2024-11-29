@@ -377,7 +377,7 @@ func peelBlindedPathDummyHop(r *sphinxHopIterator, cltvExpiryDelta uint32,
 		r.router, onionPkt, sphinxPacket, BlindingKit{
 			Processor: r.router,
 			UpdateAddBlinding: tlv.SomeRecordT(
-				tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType]( //nolint:lll
+				tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType]( //nolint:ll
 					nextEph.Val,
 				),
 			),
@@ -606,7 +606,7 @@ func (b *BlindingKit) getBlindingPoint(payloadBlinding *btcec.PublicKey) (
 //
 // ceil(a/b) = (a + b - 1)/(b).
 //
-//nolint:lll,dupword
+//nolint:ll,dupword
 func calculateForwardingAmount(incomingAmount, baseFee lnwire.MilliSatoshi,
 	proportionalFee uint32) (lnwire.MilliSatoshi, error) {
 

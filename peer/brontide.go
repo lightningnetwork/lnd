@@ -1285,7 +1285,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		return p.cfg.ChainArb.NotifyContractUpdate(*chanPoint, update)
 	}
 
-	//nolint:lll
+	//nolint:ll
 	linkCfg := htlcswitch.ChannelLinkConfig{
 		Peer:                   p,
 		DecodeHopIterators:     p.cfg.Sphinx.DecodeHopIterators,

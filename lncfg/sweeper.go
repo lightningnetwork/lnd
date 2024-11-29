@@ -19,7 +19,7 @@ const (
 	MaxAllowedFeeRate = 10_000
 )
 
-//nolint:lll
+//nolint:ll
 type Sweeper struct {
 	BatchWindowDuration time.Duration        `long:"batchwindowduration" description:"Duration of the sweep batch window. The sweep is held back during the batch window to allow more inputs to be added and thereby lower the fee per input." hidden:"true"`
 	MaxFeeRate          chainfee.SatPerVByte `long:"maxfeerate" description:"Maximum fee rate in sat/vb that the sweeper is allowed to use when sweeping funds, the fee rate derived from budgets are capped at this value. Setting this value too low can result in transactions not being confirmed in time, causing HTLCs to expire hence potentially losing funds."`

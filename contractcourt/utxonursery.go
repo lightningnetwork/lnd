@@ -555,7 +555,7 @@ func (u *UtxoNursery) NurseryReport(
 				// confirmation of the commitment transaction.
 				switch kid.WitnessType() {
 
-				//nolint:lll
+				//nolint:ll
 				case input.TaprootHtlcAcceptedSuccessSecondLevel:
 					fallthrough
 				case input.HtlcAcceptedSuccessSecondLevel:
@@ -590,7 +590,7 @@ func (u *UtxoNursery) NurseryReport(
 					// it.
 					report.AddLimboDirectHtlc(&kid)
 
-				//nolint:lll
+				//nolint:ll
 				case input.TaprootHtlcAcceptedSuccessSecondLevel:
 					fallthrough
 				case input.TaprootHtlcOfferedTimeoutSecondLevel:
@@ -611,7 +611,7 @@ func (u *UtxoNursery) NurseryReport(
 				// balance.
 				switch kid.WitnessType() {
 
-				//nolint:lll
+				//nolint:ll
 				case input.TaprootHtlcAcceptedSuccessSecondLevel:
 					fallthrough
 				case input.TaprootHtlcOfferedTimeoutSecondLevel:

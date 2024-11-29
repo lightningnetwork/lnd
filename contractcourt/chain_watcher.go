@@ -431,7 +431,7 @@ func (c *chainWatcher) handleUnknownLocalState(
 
 	auxResult, err := fn.MapOptionZ(
 		c.cfg.auxLeafStore,
-		//nolint:lll
+		//nolint:ll
 		func(s lnwallet.AuxLeafStore) fn.Result[lnwallet.CommitDiffAuxResult] {
 			return s.FetchLeavesFromCommit(
 				lnwallet.NewAuxChanState(c.cfg.chanState),

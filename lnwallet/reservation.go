@@ -895,7 +895,7 @@ func (r *ChannelReservation) ChanState() *channeldb.OpenChannel {
 // CommitmentKeyRings returns the local+remote key ring used for the very first
 // commitment transaction both parties.
 //
-//nolint:lll
+//nolint:ll
 func (r *ChannelReservation) CommitmentKeyRings() lntypes.Dual[CommitmentKeyRing] {
 	r.RLock()
 	defer r.RUnlock()

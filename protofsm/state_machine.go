@@ -187,7 +187,7 @@ type StateMachineCfg[Event any, Env Environment] struct {
 // an initial state, an environment, and an event to process as if emitted at
 // the onset of the state machine. Such an event can be used to set up tracking
 // state such as a txid confirmation event.
-func NewStateMachine[Event any, Env Environment](cfg StateMachineCfg[Event, Env], //nolint:lll
+func NewStateMachine[Event any, Env Environment](cfg StateMachineCfg[Event, Env], //nolint:ll
 ) StateMachine[Event, Env] {
 
 	return StateMachine[Event, Env]{
@@ -346,7 +346,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 
 			// If a post-send event was specified, then we'll funnel
 			// that back into the main state machine now as well.
-			return fn.MapOptionZ(daemonEvent.PostSendEvent, func(event Event) error { //nolint:lll
+			return fn.MapOptionZ(daemonEvent.PostSendEvent, func(event Event) error { //nolint:ll
 				return s.wg.Go(func(ctx context.Context) {
 					log.Debugf("FSM(%v): sending "+
 						"post-send event: %v",
@@ -394,7 +394,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 
 						err := sendAndCleanUp()
 						if err != nil {
-							//nolint:lll
+							//nolint:ll
 							log.Errorf("FSM(%v): unable to send message: %v", err)
 						}
 
@@ -448,7 +448,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 					// we'll send that into the current
 					// state now.
 					postSpend := daemonEvent.PostSpendEvent
-					postSpend.WhenSome(func(f SpendMapper[Event]) { //nolint:lll
+					postSpend.WhenSome(func(f SpendMapper[Event]) { //nolint:ll
 						customEvent := f(spend)
 						s.SendEvent(customEvent)
 					})
@@ -519,7 +519,7 @@ func (s *StateMachine[Event, Env]) applyEvents(currentState State[Event, Env],
 	// until we reach a terminal state, or we run out of internal events to
 	// process.
 	//
-	//nolint:lll
+	//nolint:ll
 	for nextEvent := eventQueue.Dequeue(); nextEvent.IsSome(); nextEvent = eventQueue.Dequeue() {
 		err := fn.MapOptionZ(nextEvent, func(event Event) error {
 			log.Debugf("FSM(%v): processing event: %v",
@@ -537,12 +537,12 @@ func (s *StateMachine[Event, Env]) applyEvents(currentState State[Event, Env],
 			}
 
 			newEvents := transition.NewEvents
-			err = fn.MapOptionZ(newEvents, func(events EmittedEvent[Event]) error { //nolint:lll
+			err = fn.MapOptionZ(newEvents, func(events EmittedEvent[Event]) error { //nolint:ll
 				// With the event processed, we'll process any
 				// new daemon events that were emitted as part
 				// of this new state transition.
 				//
-				//nolint:lll
+				//nolint:ll
 				err := fn.MapOptionZ(events.ExternalEvents, func(dEvents DaemonEventSet) error {
 					log.Debugf("FSM(%v): processing "+
 						"daemon %v daemon events",
@@ -566,7 +566,7 @@ func (s *StateMachine[Event, Env]) applyEvents(currentState State[Event, Env],
 				// Next, we'll add any new emitted events to
 				// our event queue.
 				//
-				//nolint:lll
+				//nolint:ll
 				events.InternalEvent.WhenSome(func(es []Event) {
 					for _, inEvent := range es {
 						log.Debugf("FSM(%v): adding "+
@@ -659,7 +659,7 @@ func (s *StateMachine[Event, Env]) driveMachine() {
 		// An outside caller is querying our state, so we'll return the
 		// latest state.
 		case stateQuery := <-s.stateQuery:
-			if !fn.SendOrQuit(stateQuery.CurrentState, currentState, s.quit) { //nolint:lll
+			if !fn.SendOrQuit(stateQuery.CurrentState, currentState, s.quit) { //nolint:ll
 				return
 			}
 

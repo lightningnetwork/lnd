@@ -8,7 +8,7 @@ import (
 
 // RoutingConfig contains the configurable parameters that control routing.
 //
-//nolint:lll
+//nolint:ll
 type RoutingConfig struct {
 	// ProbabilityEstimatorType sets the estimator to use.
 	ProbabilityEstimatorType string `long:"estimator" choice:"apriori" choice:"bimodal" description:"Probability estimator used for pathfinding." `
@@ -48,7 +48,7 @@ type RoutingConfig struct {
 
 // AprioriConfig defines parameters for the apriori probability.
 //
-//nolint:lll
+//nolint:ll
 type AprioriConfig struct {
 	// HopProbability is the assumed success probability of a hop in a route
 	// when no other information is available.
@@ -73,7 +73,7 @@ type AprioriConfig struct {
 
 // BimodalConfig defines parameters for the bimodal probability.
 //
-//nolint:lll
+//nolint:ll
 type BimodalConfig struct {
 	// Scale describes the scale over which channels still have some
 	// liquidity left on both channel ends. A value of 0 means that we

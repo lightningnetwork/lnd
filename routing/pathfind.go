@@ -1307,7 +1307,7 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 
 			// Process each channel peer to gather any paths that
 			// lead to the peer.
-			nextPaths, hasMoreChans, err := processNodeForBlindedPath( //nolint:lll
+			nextPaths, hasMoreChans, err := processNodeForBlindedPath( //nolint:ll
 				g, channel.OtherNode, supportsRouteBlinding,
 				visited, restrictions,
 			)

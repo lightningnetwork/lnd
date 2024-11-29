@@ -4,7 +4,7 @@ import "fmt"
 
 // Routing holds the configuration options for routing.
 //
-//nolint:lll
+//nolint:ll
 type Routing struct {
 	AssumeChannelValid bool `long:"assumechanvalid" description:"DEPRECATED: Skip checking channel spentness during graph validation. This speedup comes at the risk of using an unvalidated view of the network for routing. (default: false)" hidden:"true"`
 
@@ -15,7 +15,7 @@ type Routing struct {
 
 // BlindedPaths holds the configuration options for blinded path construction.
 //
-//nolint:lll
+//nolint:ll
 type BlindedPaths struct {
 	MinNumRealHops           uint8   `long:"min-num-real-hops" description:"The minimum number of real hops to include in a blinded path. This doesn't include our node, so if the minimum is 1, then the path will contain at minimum our node along with an introduction node hop. If it is zero then the shortest path will use our node as an introduction node."`
 	NumHops                  uint8   `long:"num-hops" description:"The number of hops to include in a blinded path. This doesn't include our node, so if it is 1, then the path will contain our node along with an introduction node or dummy node hop. If paths shorter than NumHops is found, then they will be padded using dummy hops."`

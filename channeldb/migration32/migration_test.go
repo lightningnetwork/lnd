@@ -118,7 +118,7 @@ var (
 		},
 	}
 
-	//nolint:lll
+	//nolint:ll
 	resultNew1Hop1 = &mcHop{
 		channelID:   tlv.NewPrimitiveRecord[tlv.TlvType0, uint64](100),
 		pubKeyBytes: tlv.NewRecordT[tlv.TlvType1](testPub),
@@ -128,14 +128,14 @@ var (
 		),
 	}
 
-	//nolint:lll
+	//nolint:ll
 	resultNew1Hop2 = &mcHop{
 		channelID:   tlv.NewPrimitiveRecord[tlv.TlvType0, uint64](800),
 		pubKeyBytes: tlv.NewRecordT[tlv.TlvType1](testPub),
 		amtToFwd:    tlv.NewPrimitiveRecord[tlv.TlvType2, lnwire.MilliSatoshi](4),
 	}
 
-	//nolint:lll
+	//nolint:ll
 	resultNew1Hop3 = &mcHop{
 		channelID:   tlv.NewPrimitiveRecord[tlv.TlvType0, uint64](800),
 		pubKeyBytes: tlv.NewRecordT[tlv.TlvType1](testPub),
@@ -145,7 +145,7 @@ var (
 		),
 	}
 
-	//nolint:lll
+	//nolint:ll
 	resultNew1Hop4 = &mcHop{
 		channelID:   tlv.NewPrimitiveRecord[tlv.TlvType0, uint64](800),
 		pubKeyBytes: tlv.NewRecordT[tlv.TlvType1](testPub),
@@ -158,7 +158,7 @@ var (
 		),
 	}
 
-	//nolint:lll
+	//nolint:ll
 	resultNew2Hop1 = &mcHop{
 		channelID:   tlv.NewPrimitiveRecord[tlv.TlvType0, uint64](800),
 		pubKeyBytes: tlv.NewRecordT[tlv.TlvType1](testPub),
@@ -171,7 +171,7 @@ var (
 		),
 	}
 
-	//nolint:lll
+	//nolint:ll
 	resultNew1 = paymentResultNew{
 		id: 0,
 		timeFwd: tlv.NewPrimitiveRecord[tlv.TlvType0](
@@ -200,7 +200,7 @@ var (
 		}),
 	}
 
-	//nolint:lll
+	//nolint:ll
 	resultNew2 = paymentResultNew{
 		id: 2,
 		timeFwd: tlv.NewPrimitiveRecord[tlv.TlvType0, uint64](

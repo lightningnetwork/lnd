@@ -8,7 +8,7 @@ import (
 
 // Chain holds the configuration options for the daemon's chain settings.
 //
-//nolint:lll
+//nolint:ll
 type Chain struct {
 	Active   bool   `long:"active" description:"DEPRECATED: If the chain should be active or not. This field is now ignored since only the Bitcoin chain is supported" hidden:"true"`
 	ChainDir string `long:"chaindir" description:"The directory to store the chain's data within."`

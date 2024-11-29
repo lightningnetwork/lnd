@@ -1658,7 +1658,7 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) (
 		var keys [][]byte
 		cursor := edgeIndex.ReadWriteCursor()
 
-		//nolint:lll
+		//nolint:ll
 		for k, v := cursor.Seek(chanIDStart[:]); k != nil &&
 			bytes.Compare(k, chanIDEnd[:]) < 0; k, v = cursor.Next() {
 			edgeInfoReader := bytes.NewReader(v)
@@ -1705,7 +1705,7 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) (
 		// the keys in a second loop.
 		var pruneKeys [][]byte
 		pruneCursor := pruneBucket.ReadWriteCursor()
-		//nolint:lll
+		//nolint:ll
 		for k, _ := pruneCursor.Seek(pruneKeyStart[:]); k != nil &&
 			bytes.Compare(k, pruneKeyEnd[:]) <= 0; k, _ = pruneCursor.Next() {
 			pruneKeys = append(pruneKeys, k)
@@ -2004,7 +2004,7 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime,
 		// the index collecting the info and policy of each update of
 		// each channel that has a last update within the time range.
 		//
-		//nolint:lll
+		//nolint:ll
 		for indexKey, _ := updateCursor.Seek(startTimeBytes[:]); indexKey != nil &&
 			bytes.Compare(indexKey, endTimeBytes[:]) <= 0; indexKey, _ = updateCursor.Next() {
 
@@ -2139,7 +2139,7 @@ func (c *ChannelGraph) NodeUpdatesInHorizon(startTime,
 		// the index collecting info for each node within the time
 		// range.
 		//
-		//nolint:lll
+		//nolint:ll
 		for indexKey, _ := updateCursor.Seek(startTimeBytes[:]); indexKey != nil &&
 			bytes.Compare(indexKey, endTimeBytes[:]) <= 0; indexKey, _ = updateCursor.Next() {
 
@@ -2377,7 +2377,7 @@ func (c *ChannelGraph) FilterChannelRange(startHeight,
 		// We'll now iterate through the database, and find each
 		// channel ID that resides within the specified range.
 		//
-		//nolint:lll
+		//nolint:ll
 		for k, v := cursor.Seek(chanIDStart[:]); k != nil &&
 			bytes.Compare(k, chanIDEnd[:]) <= 0; k, v = cursor.Next() {
 			// Don't send alias SCIDs during gossip sync.
@@ -3163,7 +3163,7 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 		// as its prefix. This indicates that we've stepped over into
 		// another node's edges, so we can terminate our scan.
 		edgeCursor := edges.ReadCursor()
-		for nodeEdge, _ := edgeCursor.Seek(nodeStart[:]); bytes.HasPrefix(nodeEdge, nodePub); nodeEdge, _ = edgeCursor.Next() { //nolint:lll
+		for nodeEdge, _ := edgeCursor.Seek(nodeStart[:]); bytes.HasPrefix(nodeEdge, nodePub); nodeEdge, _ = edgeCursor.Next() { //nolint:ll
 			// If the prefix still matches, the channel id is
 			// returned in nodeEdge. Channel id is used to lookup
 			// the node at the other end of the channel and both

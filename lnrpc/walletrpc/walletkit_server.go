@@ -199,7 +199,7 @@ var (
 	// and the native enum cannot be renumbered because it is stored in the
 	// watchtower and BreachArbitrator databases.
 	//
-	//nolint:lll
+	//nolint:ll
 	allWitnessTypes = map[input.WitnessType]WitnessType{
 		input.CommitmentTimeLock:                           WitnessType_COMMITMENT_TIME_LOCK,
 		input.CommitmentNoDelay:                            WitnessType_COMMITMENT_NO_DELAY,

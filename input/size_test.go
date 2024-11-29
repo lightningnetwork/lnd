@@ -861,11 +861,11 @@ var witnessSizeTests = []witnessSizeTest{
 				KeyDesc: keychain.KeyDescriptor{
 					PubKey: testKey.PubKey(),
 				},
-				//nolint:lll
+				//nolint:ll
 				WitnessScript: commitScriptTree.SettleLeaf.Script,
 				HashType:      txscript.SigHashAll,
 				InputIndex:    0,
-				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:lll
+				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:ll
 			}
 
 			witness, err := input.TaprootCommitSpendSuccess(
@@ -895,11 +895,11 @@ var witnessSizeTests = []witnessSizeTest{
 				KeyDesc: keychain.KeyDescriptor{
 					PubKey: testKey.PubKey(),
 				},
-				//nolint:lll
+				//nolint:ll
 				WitnessScript: commitScriptTree.RevocationLeaf.Script,
 				HashType:      txscript.SigHashAll,
 				InputIndex:    0,
-				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:lll
+				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:ll
 			}
 
 			witness, err := input.TaprootCommitSpendRevoke(
@@ -919,7 +919,7 @@ var witnessSizeTests = []witnessSizeTest{
 			require.NoError(t, err)
 
 			signer := &dummySigner{}
-			//nolint:lll
+			//nolint:ll
 			commitScriptTree, err := input.NewRemoteCommitScriptTree(
 				testKey.PubKey(), input.NoneTapLeaf(),
 			)
@@ -929,11 +929,11 @@ var witnessSizeTests = []witnessSizeTest{
 				KeyDesc: keychain.KeyDescriptor{
 					PubKey: testKey.PubKey(),
 				},
-				//nolint:lll
+				//nolint:ll
 				WitnessScript: commitScriptTree.SettleLeaf.Script,
 				HashType:      txscript.SigHashAll,
 				InputIndex:    0,
-				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:lll
+				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:ll
 			}
 
 			witness, err := input.TaprootCommitRemoteSpend(
@@ -1174,7 +1174,7 @@ var witnessSizeTests = []witnessSizeTest{
 				WitnessScript: timeoutLeaf.Script,
 				HashType:      txscript.SigHashAll,
 				InputIndex:    0,
-				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:lll
+				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:ll
 			}
 
 			witness, err := input.ReceiverHTLCScriptTaprootTimeout(
@@ -1222,7 +1222,7 @@ var witnessSizeTests = []witnessSizeTest{
 				WitnessScript: timeoutLeaf.Script,
 				HashType:      txscript.SigHashAll,
 				InputIndex:    0,
-				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:lll
+				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:ll
 			}
 			receiverSig, err := signer.SignOutputRaw(
 				testTx, receiverDesc,
@@ -1236,7 +1236,7 @@ var witnessSizeTests = []witnessSizeTest{
 				WitnessScript: timeoutLeaf.Script,
 				HashType:      txscript.SigHashAll,
 				InputIndex:    0,
-				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:lll
+				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:ll
 			}
 
 			witness, err := input.SenderHTLCScriptTaprootTimeout(
@@ -1283,7 +1283,7 @@ var witnessSizeTests = []witnessSizeTest{
 				WitnessScript: successLeaf.Script,
 				HashType:      txscript.SigHashAll,
 				InputIndex:    0,
-				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:lll
+				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:ll
 			}
 
 			witness, err := input.SenderHTLCScriptTaprootRedeem(
@@ -1329,7 +1329,7 @@ var witnessSizeTests = []witnessSizeTest{
 				WitnessScript: successsLeaf.Script,
 				HashType:      txscript.SigHashAll,
 				InputIndex:    0,
-				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:lll
+				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:ll
 			}
 			senderSig, err := signer.SignOutputRaw(
 				testTx, senderDesc,
@@ -1343,7 +1343,7 @@ var witnessSizeTests = []witnessSizeTest{
 				WitnessScript: successsLeaf.Script,
 				HashType:      txscript.SigHashAll,
 				InputIndex:    0,
-				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:lll
+				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:ll
 			}
 
 			witness, err := input.ReceiverHTLCScriptTaprootRedeem(

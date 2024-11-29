@@ -19,7 +19,7 @@ var (
 	probeAmt       = int64(probeAmount) * 1_000
 
 	failureReasonNone    = lnrpc.PaymentFailureReason_FAILURE_REASON_NONE
-	failureReasonNoRoute = lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE //nolint:lll
+	failureReasonNoRoute = lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE //nolint:ll
 )
 
 const (

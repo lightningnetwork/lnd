@@ -178,7 +178,7 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 	//   - <sender sig> <receiver sig> <preimage> <success_script>
 	//     <control_block>
 	case h.isTaproot() && h.htlcResolution.SignedTimeoutTx == nil:
-		//nolint:lll
+		//nolint:ll
 		preimageBytes = spendingInput.Witness[taprootRemotePreimageIndex]
 
 	// The witness stack when the remote party sweeps the output on a
@@ -269,7 +269,7 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 	// witness script (the last element of the witness stack) to
 	// re-construct the pkScript we need to watch.
 	//
-	//nolint:lll
+	//nolint:ll
 	outPointToWatch := h.htlcResolution.SignedTimeoutTx.TxIn[0].PreviousOutPoint
 	witness := h.htlcResolution.SignedTimeoutTx.TxIn[0].Witness
 
@@ -825,7 +825,7 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 
 		var csvWitnessType input.StandardWitnessType
 		if h.isTaproot() {
-			//nolint:lll
+			//nolint:ll
 			csvWitnessType = input.TaprootHtlcOfferedTimeoutSecondLevel
 		} else {
 			csvWitnessType = input.HtlcOfferedTimeoutSecondLevel

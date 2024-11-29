@@ -39,7 +39,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.StaticRemoteKeyOptional,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 			),
-			//nolint:lll
+			//nolint:ll
 			expectsCommitType: lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx,
 			expectsChanType:   nil,
 			expectsErr:        nil,

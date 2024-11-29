@@ -276,7 +276,7 @@ func TestIsLsp(t *testing.T) {
 	bobExpensiveCopy.FeeProportionalMillionths = 1_000_000
 	bobExpensiveCopy.CLTVExpiryDelta = bobHopHint.CLTVExpiryDelta - 1
 
-	//nolint:lll
+	//nolint:ll
 	lspTestCases := []struct {
 		name           string
 		routeHints     [][]zpay32.HopHint

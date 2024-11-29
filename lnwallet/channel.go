@@ -2181,7 +2181,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// spend (as our output on their revoked tx still needs the
 		// delay), and set the control block.
 		if scriptTree, ok := ourScript.(input.TapscriptDescriptor); ok {
-			//nolint:lll
+			//nolint:ll
 			br.LocalOutputSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
 
 			ctrlBlock, err := scriptTree.CtrlBlockForPath(
@@ -2191,7 +2191,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 				return nil, err
 			}
 
-			//nolint:lll
+			//nolint:ll
 			br.LocalOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
 			if err != nil {
 				return nil, err
@@ -2262,7 +2262,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// parties need to sweep anchors is revealed on chain.
 		scriptTree, ok := theirScript.(input.TapscriptDescriptor)
 		if ok {
-			//nolint:lll
+			//nolint:ll
 			br.RemoteOutputSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
 
 			ctrlBlock, err := scriptTree.CtrlBlockForPath(
@@ -2271,7 +2271,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			if err != nil {
 				return nil, err
 			}
-			//nolint:lll
+			//nolint:ll
 			br.RemoteOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
 			if err != nil {
 				return nil, err
@@ -3238,7 +3238,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		// If this is a taproot channel, then we'll need to set the
 		// method type to ensure we generate a valid signature.
 		if chanType.IsTaproot() {
-			//nolint:lll
+			//nolint:ll
 			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod
 		}
 
@@ -3320,7 +3320,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		// If this is a taproot channel, then we'll need to set the
 		// method type to ensure we generate a valid signature.
 		if chanType.IsTaproot() {
-			//nolint:lll
+			//nolint:ll
 			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod
 		}
 
@@ -4786,7 +4786,7 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 		// If this output index is found within the incoming HTLC
 		// index, then this means that we need to generate an HTLC
 		// success transaction in order to validate the signature.
-		//nolint:lll
+		//nolint:ll
 		case localCommitmentView.incomingHTLCIndex[outputIndex] != nil:
 			htlc = localCommitmentView.incomingHTLCIndex[outputIndex]
 
@@ -4825,7 +4825,7 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 				if chanType.IsTaproot() {
 					// TODO(roasbeef): add abstraction in
 					// front
-					prevFetcher := txscript.NewCannedPrevOutputFetcher( //nolint:lll
+					prevFetcher := txscript.NewCannedPrevOutputFetcher( //nolint:ll
 						htlc.ourPkScript, htlcAmt,
 					)
 					hashCache := txscript.NewTxSigHashes(
@@ -4835,7 +4835,7 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 						htlc.ourWitnessScript,
 					)
 
-					return txscript.CalcTapscriptSignaturehash( //nolint:lll
+					return txscript.CalcTapscriptSignaturehash( //nolint:ll
 						hashCache, sigHashType,
 						successTx, 0, prevFetcher,
 						tapLeaf,
@@ -4880,7 +4880,7 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 		// Otherwise, if this is an outgoing HTLC, then we'll need to
 		// generate a timeout transaction so we can verify the
 		// signature presented.
-		//nolint:lll
+		//nolint:ll
 		case localCommitmentView.outgoingHTLCIndex[outputIndex] != nil:
 			htlc = localCommitmentView.outgoingHTLCIndex[outputIndex]
 
@@ -4919,7 +4919,7 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 				if chanType.IsTaproot() {
 					// TODO(roasbeef): add abstraction in
 					// front
-					prevFetcher := txscript.NewCannedPrevOutputFetcher( //nolint:lll
+					prevFetcher := txscript.NewCannedPrevOutputFetcher( //nolint:ll
 						htlc.ourPkScript, htlcAmt,
 					)
 					hashCache := txscript.NewTxSigHashes(
@@ -4929,7 +4929,7 @@ func genHtlcSigValidationJobs(chanState *channeldb.OpenChannel,
 						htlc.ourWitnessScript,
 					)
 
-					return txscript.CalcTapscriptSignaturehash( //nolint:lll
+					return txscript.CalcTapscriptSignaturehash( //nolint:ll
 						hashCache, sigHashType,
 						timeoutTx, 0, prevFetcher,
 						tapLeaf,
@@ -5246,7 +5246,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 				_ = localCommitTx.Serialize(&txBytes)
 				return &InvalidPartialCommitSigError{
 					invalidPartialSigError: &sigErr,
-					InvalidCommitSigError: InvalidCommitSigError{ //nolint:lll
+					InvalidCommitSigError: InvalidCommitSigError{ //nolint:ll
 						commitHeight: nextHeight,
 						commitTx:     txBytes.Bytes(),
 					},
@@ -5302,7 +5302,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 
 			return &InvalidCommitSigError{
 				commitHeight: nextHeight,
-				commitSig:    commitSigs.CommitSig.ToSignatureBytes(), //nolint:lll
+				commitSig:    commitSigs.CommitSig.ToSignatureBytes(), //nolint:ll
 				sigHash:      sigHash,
 				commitTx:     txBytes.Bytes(),
 			}
@@ -5377,7 +5377,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 
 		localCommitmentView.sig = sigBytes[:]
 	} else {
-		localCommitmentView.sig = commitSigs.CommitSig.ToSignatureBytes() //nolint:lll
+		localCommitmentView.sig = commitSigs.CommitSig.ToSignatureBytes() //nolint:ll
 	}
 
 	lc.commitChains.Local.addCommitment(localCommitmentView)
@@ -6824,7 +6824,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, //nolint:funlen
 		// For taproot channels, we'll need to set some additional
 		// fields to ensure the output can be swept.
 		//
-		//nolint:lll
+		//nolint:ll
 		if scriptTree, ok := selfScript.(input.TapscriptDescriptor); ok {
 			commitResolution.SelfOutputSignDesc.SignMethod =
 				input.TaprootScriptSpendSignMethod
@@ -6835,7 +6835,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, //nolint:funlen
 			if err != nil {
 				return nil, err
 			}
-			//nolint:lll
+			//nolint:ll
 			commitResolution.SelfOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
 			if err != nil {
 				return nil, err
@@ -7269,7 +7269,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 			return nil, err
 		}
 	} else {
-		//nolint:lll
+		//nolint:ll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
 			secondLevelAuxLeaf,
@@ -7336,9 +7336,9 @@ func newOutgoingHtlcResolution(signer input.Signer,
 				ChanType:       chanType,
 				ShortChanID:    chanState.ShortChanID(),
 				Initiator:      chanState.IsInitiator,
-				CommitBlob:     chanState.LocalCommitment.CustomBlob, //nolint:lll
+				CommitBlob:     chanState.LocalCommitment.CustomBlob, //nolint:ll
 				FundingBlob:    chanState.CustomBlob,
-				Type:           input.TaprootHtlcLocalOfferedTimeout, //nolint:lll
+				Type:           input.TaprootHtlcLocalOfferedTimeout, //nolint:ll
 				CloseType:      LocalForceClose,
 				CommitTx:       commitTx,
 				ContractPoint:  op,
@@ -7348,14 +7348,14 @@ func newOutgoingHtlcResolution(signer input.Signer,
 				HtlcAmt:        btcutil.Amount(txOut.Value),
 				CommitCsvDelay: csvDelay,
 				CltvDelay:      fn.Some(htlc.RefundTimeout),
-				CommitFee:      chanState.LocalCommitment.CommitFee, //nolint:lll
+				CommitFee:      chanState.LocalCommitment.CommitFee, //nolint:ll
 				HtlcID:         fn.Some(htlc.HtlcIndex),
 				PayHash:        fn.Some(htlc.RHash),
 				AuxSigDesc: fn.Some(AuxSigDesc{
 					SignDetails: *txSignDetails,
 					AuxSig: func() []byte {
-						tlvType := htlcCustomSigType.TypeVal()     //nolint:lll
-						return htlc.CustomRecords[uint64(tlvType)] //nolint:lll
+						tlvType := htlcCustomSigType.TypeVal()     //nolint:ll
+						return htlc.CustomRecords[uint64(tlvType)] //nolint:ll
 					}(),
 				}),
 			}
@@ -7451,7 +7451,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 			PrevOutputFetcher: prevFetcher,
 		}
 
-		//nolint:lll
+		//nolint:ll
 		if scriptTree, ok := scriptInfo.(input.TapscriptDescriptor); ok {
 			signDesc.SignMethod = input.TaprootScriptSpendSignMethod
 			ctrlBlock, err := scriptTree.CtrlBlockForPath(
@@ -7612,7 +7612,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 			return nil, err
 		}
 	} else {
-		//nolint:lll
+		//nolint:ll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
 			secondLevelAuxLeaf,
@@ -7676,8 +7676,8 @@ func newIncomingHtlcResolution(signer input.Signer,
 				ChanType:      chanType,
 				ShortChanID:   chanState.ShortChanID(),
 				Initiator:     chanState.IsInitiator,
-				CommitBlob:    chanState.LocalCommitment.CustomBlob,  //nolint:lll
-				Type:          input.TaprootHtlcAcceptedLocalSuccess, //nolint:lll
+				CommitBlob:    chanState.LocalCommitment.CustomBlob,  //nolint:ll
+				Type:          input.TaprootHtlcAcceptedLocalSuccess, //nolint:ll
 				FundingBlob:   chanState.CustomBlob,
 				CloseType:     LocalForceClose,
 				CommitTx:      commitTx,
@@ -7686,13 +7686,13 @@ func newIncomingHtlcResolution(signer input.Signer,
 				KeyRing:       keyRing,
 				HtlcID:        fn.Some(htlc.HtlcIndex),
 				CsvDelay:      htlcCsvDelay,
-				CommitFee:     chanState.LocalCommitment.CommitFee, //nolint:lll
+				CommitFee:     chanState.LocalCommitment.CommitFee, //nolint:ll
 				PayHash:       fn.Some(htlc.RHash),
 				AuxSigDesc: fn.Some(AuxSigDesc{
 					SignDetails: *txSignDetails,
 					AuxSig: func() []byte {
-						tlvType := htlcCustomSigType.TypeVal()     //nolint:lll
-						return htlc.CustomRecords[uint64(tlvType)] //nolint:lll
+						tlvType := htlcCustomSigType.TypeVal()     //nolint:ll
+						return htlc.CustomRecords[uint64(tlvType)] //nolint:ll
 					}(),
 				}),
 				CommitCsvDelay: csvDelay,
@@ -8091,7 +8091,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 			if err != nil {
 				return nil, err
 			}
-			//nolint:lll
+			//nolint:ll
 			commitResolution.SelfOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
 			if err != nil {
 				return nil, err
@@ -8103,9 +8103,9 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 		resolveBlob := fn.MapOptionZ(
 			auxResolver,
 			func(a AuxContractResolver) fn.Result[tlv.Blob] {
-				//nolint:lll
+				//nolint:ll
 				return a.ResolveContract(ResolutionReq{
-					ChanPoint:     chanState.FundingOutpoint, //nolint:lll
+					ChanPoint:     chanState.FundingOutpoint, //nolint:ll
 					ChanType:      chanState.ChanType,
 					ShortChanID:   chanState.ShortChanID(),
 					Initiator:     chanState.IsInitiator,
@@ -8630,7 +8630,7 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 	if scriptTree, ok := localAnchor.(input.TapscriptDescriptor); ok {
 		signDesc.SignMethod = input.TaprootKeySpendSignMethod
 
-		//nolint:lll
+		//nolint:ll
 		signDesc.PrevOutputFetcher = txscript.NewCannedPrevOutputFetcher(
 			localAnchor.PkScript(), int64(AnchorSize),
 		)
@@ -8652,7 +8652,7 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 			// commitment, as this is a "tweakless" channel type,
 			// we don't need a tweak value at all.
 			//
-			//nolint:lll
+			//nolint:ll
 			signDesc.KeyDesc = chanState.LocalChanCfg.PaymentBasePoint
 		}
 
@@ -9072,7 +9072,7 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 	// If this is a taproot channel, then we also need to generate the
 	// verification nonce for this target state.
 	if lc.channelState.ChanType.IsTaproot() {
-		nextVerificationNonce, err := channeldb.NewMusigVerificationNonce( //nolint:lll
+		nextVerificationNonce, err := channeldb.NewMusigVerificationNonce( //nolint:ll
 			lc.channelState.LocalChanCfg.MultiSigKey.PubKey,
 			revHeight, lc.taprootNonceProducer,
 		)

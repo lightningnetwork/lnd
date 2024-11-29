@@ -694,7 +694,7 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 
 	// Now notify about the local force close getting confirmed.
 	//
-	//nolint:lll
+	//nolint:ll
 	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
 		SpendDetail: &chainntnfs.SpendDetail{},
 		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
@@ -991,7 +991,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 		},
 	}
 
-	//nolint:lll
+	//nolint:ll
 	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
 		SpendDetail: &chainntnfs.SpendDetail{},
 		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
@@ -1620,7 +1620,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 		},
 		{
 			closeType: channeldb.LocalForceClose,
-			//nolint:lll
+			//nolint:ll
 			sendEvent: func(chanArb *ChannelArbitrator) {
 				chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
 					SpendDetail: &chainntnfs.SpendDetail{},
@@ -1957,7 +1957,7 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 			// resolutions sent since we have none on our
 			// commitment transaction.
 			//
-			//nolint:lll
+			//nolint:ll
 			uniCloseInfo := &LocalUnilateralCloseInfo{
 				SpendDetail: &chainntnfs.SpendDetail{},
 				LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
@@ -2884,7 +2884,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		},
 	}
 
-	//nolint:lll
+	//nolint:ll
 	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
 		SpendDetail: &chainntnfs.SpendDetail{},
 		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{

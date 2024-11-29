@@ -39,7 +39,7 @@ type (
 
 	// BlindingPointRecord holds an optional blinding point on update add
 	// htlc.
-	//nolint:lll
+	//nolint:ll
 	BlindingPointRecord = tlv.OptionalRecordT[BlindingPointTlvType, *btcec.PublicKey]
 )
 

@@ -705,7 +705,7 @@ func (h *HarnessRPC) GetChanInfo(
 // LookupHtlcResolution makes a RPC call to the node's LookupHtlcResolution and
 // returns the response.
 //
-//nolint:lll
+//nolint:ll
 func (h *HarnessRPC) LookupHtlcResolution(
 	req *lnrpc.LookupHtlcResolutionRequest) *lnrpc.LookupHtlcResolutionResponse {
 

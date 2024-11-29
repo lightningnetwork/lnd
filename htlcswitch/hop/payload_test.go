@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	//nolint:lll
+	//nolint:ll
 	testPrivKeyBytes, _ = hex.DecodeString("e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734")
 	_, testPubKey       = btcec.PrivKeyFromBytes(testPrivKeyBytes)
 )

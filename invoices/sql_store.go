@@ -1054,7 +1054,7 @@ func (s *sqlInvoiceUpdater) AddHtlc(circuitKey models.CircuitKey,
 		)
 		if err != nil {
 			mappedSQLErr := sqldb.MapSQLError(err)
-			var uniqueConstraintErr *sqldb.ErrSQLUniqueConstraintViolation //nolint:lll
+			var uniqueConstraintErr *sqldb.ErrSQLUniqueConstraintViolation //nolint:ll
 			if errors.As(mappedSQLErr, &uniqueConstraintErr) {
 				return ErrDuplicateSetID{
 					SetID: setID,

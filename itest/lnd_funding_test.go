@@ -144,7 +144,7 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 			chansCommitType == lnrpc.CommitmentType_ANCHORS:
 
 		case expType == lnrpc.CommitmentType_STATIC_REMOTE_KEY &&
-			chansCommitType == lnrpc.CommitmentType_STATIC_REMOTE_KEY: //nolint:lll
+			chansCommitType == lnrpc.CommitmentType_STATIC_REMOTE_KEY: //nolint:ll
 
 		case expType == lnrpc.CommitmentType_LEGACY &&
 			chansCommitType == lnrpc.CommitmentType_LEGACY:

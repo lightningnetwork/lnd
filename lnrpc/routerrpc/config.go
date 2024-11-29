@@ -12,7 +12,7 @@ import (
 // options, while if able to be populated, the latter fields MUST also be
 // specified.
 //
-//nolint:lll
+//nolint:ll
 type Config struct {
 	RoutingConfig
 

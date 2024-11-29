@@ -242,7 +242,7 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx(immediate bool) (
 	if !h.outputIncubating {
 		var secondLevelInput input.HtlcSecondLevelAnchorInput
 		if isTaproot {
-			//nolint:lll
+			//nolint:ll
 			secondLevelInput = input.MakeHtlcSecondLevelSuccessTaprootInput(
 				h.htlcResolution.SignedSuccessTx,
 				h.htlcResolution.SignDetails, h.htlcResolution.Preimage,
@@ -252,7 +252,7 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx(immediate bool) (
 				),
 			)
 		} else {
-			//nolint:lll
+			//nolint:ll
 			secondLevelInput = input.MakeHtlcSecondLevelSuccessAnchorInput(
 				h.htlcResolution.SignedSuccessTx,
 				h.htlcResolution.SignDetails, h.htlcResolution.Preimage,

@@ -265,6 +265,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	}
 
 	tlsManagerCfg := &TLSManagerCfg{
+		CACertPath:         cfg.CACertPath,
+		CAKeyPath:          cfg.CAKeyPath,
 		TLSCertPath:        cfg.TLSCertPath,
 		TLSKeyPath:         cfg.TLSKeyPath,
 		TLSEncryptKey:      cfg.TLSEncryptKey,

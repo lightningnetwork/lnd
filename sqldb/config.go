@@ -21,7 +21,7 @@ const (
 // SqliteConfig holds all the config arguments needed to interact with our
 // sqlite DB.
 //
-//nolint:lll
+//nolint:ll
 type SqliteConfig struct {
 	Timeout        time.Duration `long:"timeout" description:"The time after which a database query should be timed out."`
 	BusyTimeout    time.Duration `long:"busytimeout" description:"The maximum amount of time to wait for a database connection to become available for a query."`
@@ -32,7 +32,7 @@ type SqliteConfig struct {
 
 // PostgresConfig holds the postgres database configuration.
 //
-//nolint:lll
+//nolint:ll
 type PostgresConfig struct {
 	Dsn            string        `long:"dsn" description:"Database connection string."`
 	Timeout        time.Duration `long:"timeout" description:"Database connection timeout. Set to zero to disable."`

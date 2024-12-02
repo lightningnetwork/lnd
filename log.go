@@ -120,7 +120,7 @@ func genSubLogger(root *build.SubLoggerManager,
 
 // SetupLoggers initializes all package-global logger variables.
 //
-//nolint:lll
+//nolint:ll
 func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) {
 	genLogger := genSubLogger(root, interceptor)
 

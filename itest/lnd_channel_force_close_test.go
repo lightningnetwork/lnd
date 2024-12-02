@@ -609,7 +609,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 			// We expect alice to have a timeout tx resolution with
 			// an amount equal to the payment amount.
-			//nolint:lll
+			//nolint:ll
 			aliceReports[outpoint.String()] = &lnrpc.Resolution{
 				ResolutionType: lnrpc.ResolutionType_OUTGOING_HTLC,
 				Outcome:        lnrpc.ResolutionOutcome_FIRST_STAGE,
@@ -622,7 +622,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 			// incoming htlc timeout which reflects the full amount
 			// of the htlc. It has no spend tx, because carol stops
 			// monitoring the htlc once it has timed out.
-			//nolint:lll
+			//nolint:ll
 			carolReports[outpoint.String()] = &lnrpc.Resolution{
 				ResolutionType: lnrpc.ResolutionType_INCOMING_HTLC,
 				Outcome:        lnrpc.ResolutionOutcome_TIMEOUT,

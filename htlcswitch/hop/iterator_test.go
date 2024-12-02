@@ -281,7 +281,7 @@ func TestParseAndValidateRecipientData(t *testing.T) {
 
 			if testCase.updateAddBlinding != nil {
 				kit.UpdateAddBlinding = tlv.SomeRecordT(
-					//nolint:lll
+					//nolint:ll
 					tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](testCase.updateAddBlinding),
 				)
 			}

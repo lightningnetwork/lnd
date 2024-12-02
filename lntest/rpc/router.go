@@ -15,7 +15,7 @@ import (
 // UpdateChanStatus makes a UpdateChanStatus RPC call to node's RouterClient
 // and asserts.
 //
-//nolint:lll
+//nolint:ll
 func (h *HarnessRPC) UpdateChanStatus(
 	req *routerrpc.UpdateChanStatusRequest) *routerrpc.UpdateChanStatusResponse {
 
@@ -76,7 +76,7 @@ func (h *HarnessRPC) SubscribeHtlcEvents() HtlcEventsClient {
 // GetMissionControlConfig makes a RPC call to the node's
 // GetMissionControlConfig and asserts.
 //
-//nolint:lll
+//nolint:ll
 func (h *HarnessRPC) GetMissionControlConfig() *routerrpc.GetMissionControlConfigResponse {
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
@@ -142,7 +142,7 @@ func (h *HarnessRPC) SendToRouteV2(
 // QueryProbability makes a RPC call to the node's QueryProbability and
 // asserts.
 //
-//nolint:lll
+//nolint:ll
 func (h *HarnessRPC) QueryProbability(
 	req *routerrpc.QueryProbabilityRequest) *routerrpc.QueryProbabilityResponse {
 

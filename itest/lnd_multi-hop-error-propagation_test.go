@@ -138,7 +138,7 @@ func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 	}
 	ht.SendPaymentAssertFail(
 		alice, sendReq,
-		lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS, //nolint:lll
+		lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS, //nolint:ll
 	)
 	ht.AssertLastHTLCError(
 		alice, lnrpc.Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS,
@@ -207,7 +207,7 @@ func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 	}
 	ht.SendPaymentAssertFail(
 		alice, sendReq,
-		lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS, //nolint:lll
+		lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS, //nolint:ll
 	)
 	ht.AssertLastHTLCError(
 		alice, lnrpc.Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS,

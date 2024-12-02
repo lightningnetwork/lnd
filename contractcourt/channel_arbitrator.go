@@ -593,11 +593,11 @@ func maybeAugmentTaprootResolvers(chanType channeldb.ChannelType,
 	switch r := resolver.(type) {
 	case *commitSweepResolver:
 		if contractResolutions.CommitResolution != nil {
-			//nolint:lll
+			//nolint:ll
 			r.commitResolution = *contractResolutions.CommitResolution
 		}
 	case *htlcOutgoingContestResolver:
-		//nolint:lll
+		//nolint:ll
 		htlcResolutions := contractResolutions.HtlcResolutions.OutgoingHTLCs
 		for _, htlcRes := range htlcResolutions {
 			htlcRes := htlcRes
@@ -610,7 +610,7 @@ func maybeAugmentTaprootResolvers(chanType channeldb.ChannelType,
 		}
 
 	case *htlcTimeoutResolver:
-		//nolint:lll
+		//nolint:ll
 		htlcResolutions := contractResolutions.HtlcResolutions.OutgoingHTLCs
 		for _, htlcRes := range htlcResolutions {
 			htlcRes := htlcRes
@@ -623,7 +623,7 @@ func maybeAugmentTaprootResolvers(chanType channeldb.ChannelType,
 		}
 
 	case *htlcIncomingContestResolver:
-		//nolint:lll
+		//nolint:ll
 		htlcResolutions := contractResolutions.HtlcResolutions.IncomingHTLCs
 		for _, htlcRes := range htlcResolutions {
 			htlcRes := htlcRes
@@ -635,7 +635,7 @@ func maybeAugmentTaprootResolvers(chanType channeldb.ChannelType,
 			}
 		}
 	case *htlcSuccessResolver:
-		//nolint:lll
+		//nolint:ll
 		htlcResolutions := contractResolutions.HtlcResolutions.IncomingHTLCs
 		for _, htlcRes := range htlcResolutions {
 			htlcRes := htlcRes

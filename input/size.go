@@ -699,14 +699,14 @@ const (
 	//      - number_of_witness_elements: 1 byte
 	//      - sig_len: 1 byte
 	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
-	//nolint:lll
+	//nolint:ll
 	TaprootSecondLevelRevokeWitnessSize = TaprootKeyPathCustomSighashWitnessSize
 
 	// TaprootAcceptedRevokeWitnessSize:
 	//      - number_of_witness_elements: 1 byte
 	//      - sig_len: 1 byte
 	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
-	//nolint:lll
+	//nolint:ll
 	TaprootAcceptedRevokeWitnessSize = TaprootKeyPathCustomSighashWitnessSize
 
 	// TaprootOfferedRevokeWitnessSize:

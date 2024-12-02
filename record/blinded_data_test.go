@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-//nolint:lll
+//nolint:ll
 const pubkeyStr = "02eec7245d6b7d2ccb30380bfbe2a3648cd7a942653f5aa340edcea1f283686619"
 
 func pubkey(t *testing.T) *btcec.PublicKey {
@@ -278,7 +278,7 @@ func TestBlindedRouteDataPadding(t *testing.T) {
 // TestBlindedRouteVectors tests encoding/decoding of the test vectors for
 // blinded route data provided in the specification.
 //
-//nolint:lll
+//nolint:ll
 func TestBlindingSpecTestVectors(t *testing.T) {
 	nextBlindingOverrideStr, err := hex.DecodeString("031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f")
 	require.NoError(t, err)

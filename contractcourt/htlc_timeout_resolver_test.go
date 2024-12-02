@@ -290,7 +290,7 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 	resolutionChan := make(chan ResolutionMsg, 1)
 	reportChan := make(chan *channeldb.ResolverReport)
 
-	//nolint:lll
+	//nolint:ll
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
 			Notifier:   notifier,
@@ -371,10 +371,10 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 		if testCase.timeout {
 			timeoutTxID := timeoutTx.TxHash()
 			report := &channeldb.ResolverReport{
-				OutPoint:        timeoutTx.TxIn[0].PreviousOutPoint, //nolint:lll
+				OutPoint:        timeoutTx.TxIn[0].PreviousOutPoint, //nolint:ll
 				Amount:          testHtlcAmt.ToSatoshis(),
-				ResolverType:    channeldb.ResolverTypeOutgoingHtlc,  //nolint:lll
-				ResolverOutcome: channeldb.ResolverOutcomeFirstStage, //nolint:lll
+				ResolverType:    channeldb.ResolverTypeOutgoingHtlc,  //nolint:ll
+				ResolverOutcome: channeldb.ResolverOutcomeFirstStage, //nolint:ll
 				SpendTxID:       &timeoutTxID,
 			}
 

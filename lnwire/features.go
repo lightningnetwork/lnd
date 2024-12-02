@@ -304,7 +304,7 @@ const (
 	//
 	// The base 32 encoded tagged fields in invoices are limited to 10 bits
 	// to express the length of the field's data.
-	//nolint:lll
+	//nolint:ll
 	// See: https://github.com/lightning/bolts/blob/master/11-payment-encoding.md#tagged-fields
 	//
 	// With a maximum length field of 1023 (2^10 -1) and 5 bit encoding,

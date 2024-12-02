@@ -1279,7 +1279,7 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	// btcwallet error.
 	err = b.chain.MapRPCErr(errors.New(result.RejectReason))
 
-	//nolint:lll
+	//nolint:ll
 	// These two errors are ignored inside `PublishTransaction`:
 	// https://github.com/btcsuite/btcwallet/blob/master/wallet/wallet.go#L3763
 	// To keep our current behavior, we need to ignore the same errors
@@ -1680,7 +1680,7 @@ out:
 
 			// Launch a goroutine to re-package and send
 			// notifications for any newly confirmed transactions.
-			//nolint:lll
+			//nolint:ll
 			go func(txNtfn *base.TransactionNotifications) {
 				for _, block := range txNtfn.AttachedBlocks {
 					details, err := minedTransactionsToDetails(

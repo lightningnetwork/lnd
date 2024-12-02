@@ -439,7 +439,7 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 				// potentially long rescans.
 				n.wg.Add(1)
 
-				//nolint:lll
+				//nolint:ll
 				go func(msg *chainntnfs.HistoricalConfDispatch) {
 					defer n.wg.Done()
 

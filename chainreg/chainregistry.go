@@ -222,7 +222,7 @@ type ChainControl struct {
 // the parts that can be purely constructed from the passed in global
 // configuration and doesn't need any wallet instance yet.
 //
-//nolint:lll
+//nolint:ll
 func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	cc := &PartialChainControl{
 		Cfg: cfg,

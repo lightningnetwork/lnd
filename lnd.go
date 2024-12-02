@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -148,23 +149,45 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	interceptor signal.Interceptor) error {
 
 	defer func() {
-		ltndLog.Info("Shutdown complete\n")
+		ltndLog.Info("Shutdown complete")
 		err := cfg.LogRotator.Close()
 		if err != nil {
 			ltndLog.Errorf("Could not close log rotator: %v", err)
 		}
 	}()
 
-	mkErr := func(format string, args ...interface{}) error {
-		ltndLog.Errorf("Shutting down because error in main "+
-			"method: "+format, args...)
-		return fmt.Errorf(format, args...)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctx, err := build.WithBuildInfo(ctx, cfg.LogConfig)
+	if err != nil {
+		return fmt.Errorf("unable to add build info to context: %w",
+			err)
+	}
+
+	mkErr := func(msg string, err error, attrs ...any) error {
+		ltndLog.ErrorS(ctx, "Shutting down due to error in main "+
+			"method", err, attrs...)
+
+		var (
+			params = []any{err}
+			fmtStr = msg + ": %w"
+		)
+		for _, attr := range attrs {
+			fmtStr += " %s"
+
+			params = append(params, attr)
+		}
+
+		return fmt.Errorf(fmtStr, params...)
 	}
 
 	// Show version at startup.
-	ltndLog.Infof("Version: %s commit=%s, build=%s, logging=%s, "+
-		"debuglevel=%s", build.Version(), build.Commit,
-		build.Deployment, build.LoggingType, cfg.DebugLevel)
+	ltndLog.InfoS(ctx, "Version Info",
+		slog.String("version", build.Version()),
+		slog.String("commit", build.Commit),
+		slog.Any("debuglevel", build.Deployment),
+		slog.String("logging", cfg.DebugLevel))
 
 	var network string
 	switch {
@@ -184,13 +207,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		network = "signet"
 	}
 
-	ltndLog.Infof("Active chain: %v (network=%v)",
-		strings.Title(BitcoinChainName), network,
-	)
-
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	ltndLog.InfoS(ctx, "Network Info",
+		"active_chain", strings.Title(BitcoinChainName),
+		"network", network)
 
 	// Enable http profiling server if requested.
 	if cfg.Pprof.Profile != "" {
@@ -216,7 +235,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			"/debug/pprof/", http.StatusSeeOther,
 		))
 
-		ltndLog.Infof("Pprof listening on %v", cfg.Pprof.Profile)
+		ltndLog.InfoS(ctx, "Pprof listening", "addr", cfg.Pprof.Profile)
 
 		// Create the pprof server.
 		pprofServer := &http.Server{
@@ -227,11 +246,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 		// Shut the server down when lnd is shutting down.
 		defer func() {
-			ltndLog.Info("Stopping pprof server...")
+			ltndLog.InfoS(ctx, "Stopping pprof server...")
 			err := pprofServer.Shutdown(ctx)
 			if err != nil {
-				ltndLog.Errorf("Stop pprof server got err: %v",
-					err)
+				ltndLog.ErrorS(ctx, "Stop pprof server", err)
 			}
 		}()
 
@@ -239,7 +257,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		go func() {
 			err := pprofServer.ListenAndServe()
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				ltndLog.Errorf("Serving pprof got err: %v", err)
+				ltndLog.ErrorS(ctx, "Could not serve pprof "+
+					"server", err)
 			}
 		}()
 	}
@@ -248,7 +267,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	if cfg.Pprof.CPUProfile != "" {
 		f, err := os.Create(cfg.Pprof.CPUProfile)
 		if err != nil {
-			return mkErr("unable to create CPU profile: %v", err)
+			return mkErr("unable to create CPU profile", err)
 		}
 		_ = runtimePprof.StartCPUProfile(f)
 		defer func() {
@@ -261,7 +280,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// needs to be done early and once during the startup process, before
 	// any DB access.
 	if err := cfg.DB.Init(ctx, cfg.graphDatabaseDir()); err != nil {
-		return mkErr("error initializing DBs: %v", err)
+		return mkErr("error initializing DBs", err)
 	}
 
 	tlsManagerCfg := &TLSManagerCfg{
@@ -286,7 +305,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	serverOpts, restDialOpts, restListen, cleanUp,
 		err := tlsManager.SetCertificateBeforeUnlock()
 	if err != nil {
-		return mkErr("error setting cert before unlock: %v", err)
+		return mkErr("error setting cert before unlock", err)
 	}
 	if cleanUp != nil {
 		defer cleanUp()
@@ -303,8 +322,12 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			// connections.
 			lis, err := lncfg.ListenOnAddress(grpcEndpoint)
 			if err != nil {
-				return mkErr("unable to listen on %s: %v",
-					grpcEndpoint, err)
+				return mkErr("unable to listen on grpc "+
+					"endpoint", err,
+					slog.String(
+						"endpoint",
+						grpcEndpoint.String(),
+					))
 			}
 			defer lis.Close()
 
@@ -323,7 +346,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		rpcsLog, cfg.NoMacaroons, cfg.RPCMiddleware.Mandatory,
 	)
 	if err := interceptorChain.Start(); err != nil {
-		return mkErr("error starting interceptor chain: %v", err)
+		return mkErr("error starting interceptor chain", err)
 	}
 	defer func() {
 		err := interceptorChain.Stop()
@@ -364,14 +387,14 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	rpcServer := newRPCServer(cfg, interceptorChain, implCfg, interceptor)
 	err = rpcServer.RegisterWithGrpcServer(grpcServer)
 	if err != nil {
-		return mkErr("error registering gRPC server: %v", err)
+		return mkErr("error registering gRPC server", err)
 	}
 
 	// Now that both the WalletUnlocker and LightningService have been
 	// registered with the GRPC server, we can start listening.
 	err = startGrpcListen(cfg, grpcServer, grpcListeners)
 	if err != nil {
-		return mkErr("error starting gRPC listener: %v", err)
+		return mkErr("error starting gRPC listener", err)
 	}
 
 	// Now start the REST proxy for our gRPC server above. We'll ensure
@@ -379,10 +402,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// wildcard to prevent certificate issues when accessing the proxy
 	// externally.
 	stopProxy, err := startRestProxy(
-		cfg, rpcServer, restDialOpts, restListen,
+		ctx, cfg, rpcServer, restDialOpts, restListen,
 	)
 	if err != nil {
-		return mkErr("error starting REST proxy: %v", err)
+		return mkErr("error starting REST proxy", err)
 	}
 	defer stopProxy()
 
@@ -399,8 +422,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			cancelElection()
 		}()
 
-		ltndLog.Infof("Using %v leader elector",
-			cfg.Cluster.LeaderElector)
+		ltndLog.InfoS(ctx, "Using leader elector",
+			"elector", cfg.Cluster.LeaderElector)
 
 		leaderElector, err = cfg.Cluster.MakeLeaderElector(
 			electionCtx, cfg.DB,
@@ -414,8 +437,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 				return
 			}
 
-			ltndLog.Infof("Attempting to resign from leader role "+
-				"(%v)", cfg.Cluster.ID)
+			ltndLog.InfoS(ctx, "Attempting to resign from "+
+				"leader role", "cluster_id", cfg.Cluster.ID)
 
 			// Ensure that we don't block the shutdown process if
 			// the leader resigning process takes too long. The
@@ -433,24 +456,26 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			}
 		}()
 
-		ltndLog.Infof("Starting leadership campaign (%v)",
-			cfg.Cluster.ID)
+		ltndLog.InfoS(ctx, "Starting leadership campaign",
+			"cluster_id", cfg.Cluster.ID)
 
 		if err := leaderElector.Campaign(electionCtx); err != nil {
-			return mkErr("leadership campaign failed: %v", err)
+			return mkErr("leadership campaign failed", err)
 		}
 
 		elected = true
-		ltndLog.Infof("Elected as leader (%v)", cfg.Cluster.ID)
+		ltndLog.InfoS(ctx, "Elected as leader",
+			"cluster_id", cfg.Cluster.ID)
 	}
 
 	dbs, cleanUp, err := implCfg.DatabaseBuilder.BuildDatabase(ctx)
 	switch {
-	case err == channeldb.ErrDryRunMigrationOK:
-		ltndLog.Infof("%v, exiting", err)
+	case errors.Is(err, channeldb.ErrDryRunMigrationOK):
+		ltndLog.InfoS(ctx, "Exiting due to BuildDatabase error",
+			slog.Any("err", err))
 		return nil
 	case err != nil:
-		return mkErr("unable to open databases: %v", err)
+		return mkErr("unable to open databases", err)
 	}
 
 	defer cleanUp()
@@ -460,7 +485,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		grpcListeners,
 	)
 	if err != nil {
-		return mkErr("error creating wallet config: %v", err)
+		return mkErr("error creating wallet config", err)
 	}
 
 	defer cleanUp()
@@ -469,7 +494,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		partialChainControl, walletConfig,
 	)
 	if err != nil {
-		return mkErr("error loading chain control: %v", err)
+		return mkErr("error loading chain control", err)
 	}
 
 	defer cleanUp()
@@ -482,7 +507,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		},
 	)
 	if err != nil {
-		return mkErr("error deriving node key: %v", err)
+		return mkErr("error deriving node key", err)
 	}
 
 	if cfg.Tor.StreamIsolation && cfg.Tor.SkipProxyForClearNetTargets {
@@ -491,14 +516,14 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	if cfg.Tor.Active {
 		if cfg.Tor.SkipProxyForClearNetTargets {
-			srvrLog.Info("Onion services are accessible via Tor! " +
-				"NOTE: Traffic to clearnet services is not " +
-				"routed via Tor.")
+			srvrLog.InfoS(ctx, "Onion services are accessible "+
+				"via Tor! NOTE: Traffic to clearnet services "+
+				"is not routed via Tor.")
 		} else {
-			srvrLog.Infof("Proxying all network traffic via Tor "+
-				"(stream_isolation=%v)! NOTE: Ensure the "+
-				"backend node is proxying over Tor as well",
-				cfg.Tor.StreamIsolation)
+			srvrLog.InfoS(ctx, "Proxying all network traffic "+
+				"via Tor! NOTE: Ensure the backend node is "+
+				"proxying over Tor as well",
+				"stream_isolation", cfg.Tor.StreamIsolation)
 		}
 	}
 
@@ -515,13 +540,13 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		// Start the tor controller before giving it to any other
 		// subsystems.
 		if err := torController.Start(); err != nil {
-			return mkErr("unable to initialize tor controller: %v",
+			return mkErr("unable to initialize tor controller",
 				err)
 		}
 		defer func() {
 			if err := torController.Stop(); err != nil {
-				ltndLog.Errorf("error stopping tor "+
-					"controller: %v", err)
+				ltndLog.ErrorS(ctx, "Error stopping tor "+
+					"controller", err)
 			}
 		}()
 	}
@@ -535,7 +560,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			},
 		)
 		if err != nil {
-			return mkErr("error deriving tower key: %v", err)
+			return mkErr("error deriving tower key", err)
 		}
 
 		wtCfg := &watchtower.Config{
@@ -576,12 +601,12 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			wtCfg, lncfg.NormalizeAddresses,
 		)
 		if err != nil {
-			return mkErr("unable to configure watchtower: %v", err)
+			return mkErr("unable to configure watchtower", err)
 		}
 
 		tower, err = watchtower.New(wtConfig)
 		if err != nil {
-			return mkErr("unable to create watchtower: %v", err)
+			return mkErr("unable to create watchtower", err)
 		}
 	}
 
@@ -604,7 +629,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		implCfg,
 	)
 	if err != nil {
-		return mkErr("unable to create server: %v", err)
+		return mkErr("unable to create server", err)
 	}
 
 	// Set up an autopilot manager from the current config. This will be
@@ -615,22 +640,21 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		cfg.ActiveNetParams,
 	)
 	if err != nil {
-		return mkErr("unable to initialize autopilot: %v", err)
+		return mkErr("unable to initialize autopilot", err)
 	}
 
 	atplManager, err := autopilot.NewManager(atplCfg)
 	if err != nil {
-		return mkErr("unable to create autopilot manager: %v", err)
+		return mkErr("unable to create autopilot manager", err)
 	}
 	if err := atplManager.Start(); err != nil {
-		return mkErr("unable to start autopilot manager: %v", err)
+		return mkErr("unable to start autopilot manager", err)
 	}
 	defer atplManager.Stop()
 
 	err = tlsManager.LoadPermanentCertificate(activeChainControl.KeyRing)
 	if err != nil {
-		return mkErr("unable to load permanent TLS certificate: %v",
-			err)
+		return mkErr("unable to load permanent TLS certificate", err)
 	}
 
 	// Now we have created all dependencies necessary to populate and
@@ -641,10 +665,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		server.invoiceHtlcModifier,
 	)
 	if err != nil {
-		return mkErr("unable to add deps to RPC server: %v", err)
+		return mkErr("unable to add deps to RPC server", err)
 	}
 	if err := rpcServer.Start(); err != nil {
-		return mkErr("unable to start RPC server: %v", err)
+		return mkErr("unable to start RPC server", err)
 	}
 	defer rpcServer.Stop()
 
@@ -652,7 +676,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	interceptorChain.SetRPCActive()
 
 	if err := interceptor.Notifier.NotifyReady(true); err != nil {
-		return mkErr("error notifying ready: %v", err)
+		return mkErr("error notifying ready", err)
 	}
 
 	// We'll wait until we're fully synced to continue the start up of the
@@ -661,11 +685,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// funds.
 	_, bestHeight, err := activeChainControl.ChainIO.GetBestBlock()
 	if err != nil {
-		return mkErr("unable to determine chain tip: %v", err)
+		return mkErr("unable to determine chain tip", err)
 	}
 
-	ltndLog.Infof("Waiting for chain backend to finish sync, "+
-		"start_height=%v", bestHeight)
+	ltndLog.InfoS(ctx, "Waiting for chain backend to finish sync",
+		slog.Int64("start_height", int64(bestHeight)))
 
 	type syncResult struct {
 		synced        bool
@@ -692,12 +716,12 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		case res := <-syncedResChan:
 			if res.err != nil {
 				return mkErr("unable to determine if wallet "+
-					"is synced: %v", res.err)
+					"is synced", res.err)
 			}
 
-			ltndLog.Debugf("Syncing to block timestamp: %v, is "+
-				"synced=%v", time.Unix(res.bestBlockTime, 0),
-				res.synced)
+			ltndLog.DebugS(ctx, "Syncing to block chain",
+				"best_block_time", time.Unix(res.bestBlockTime, 0),
+				"is_synced", res.synced)
 
 			if res.synced {
 				break
@@ -719,11 +743,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	_, bestHeight, err = activeChainControl.ChainIO.GetBestBlock()
 	if err != nil {
-		return mkErr("unable to determine chain tip: %v", err)
+		return mkErr("unable to determine chain tip", err)
 	}
 
-	ltndLog.Infof("Chain backend is fully synced (end_height=%v)!",
-		bestHeight)
+	ltndLog.InfoS(ctx, "Chain backend is fully synced!",
+		"end_height", bestHeight)
 
 	// With all the relevant chains initialized, we can finally start the
 	// server itself. We start the server in an asynchronous goroutine so
@@ -737,8 +761,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	defer func() {
 		err := server.Stop()
 		if err != nil {
-			ltndLog.Warnf("Stopping the server including all "+
-				"its subsystems failed with %v", err)
+			ltndLog.WarnS(ctx, "Stopping the server including all "+
+				"its subsystems failed with", err)
 		}
 	}()
 
@@ -748,7 +772,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			break
 		}
 
-		return mkErr("unable to start server: %v", err)
+		return mkErr("unable to start server", err)
 
 	case <-interceptor.ShutdownChannel():
 		return nil
@@ -762,13 +786,13 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// stopped together with the autopilot service.
 	if cfg.Autopilot.Active {
 		if err := atplManager.StartAgent(); err != nil {
-			return mkErr("unable to start autopilot agent: %v", err)
+			return mkErr("unable to start autopilot agent", err)
 		}
 	}
 
 	if cfg.Watchtower.Active {
 		if err := tower.Start(); err != nil {
-			return mkErr("unable to start watchtower: %v", err)
+			return mkErr("unable to start watchtower", err)
 		}
 		defer tower.Stop()
 	}
@@ -921,7 +945,8 @@ func startGrpcListen(cfg *Config, grpcServer *grpc.Server,
 
 // startRestProxy starts the given REST proxy on the listeners found in the
 // config.
-func startRestProxy(cfg *Config, rpcServer *rpcServer, restDialOpts []grpc.DialOption,
+func startRestProxy(ctx context.Context, cfg *Config, rpcServer *rpcServer,
+	restDialOpts []grpc.DialOption,
 	restListen func(net.Addr) (net.Listener, error)) (func(), error) {
 
 	// We use the first RPC listener as the destination for our REST proxy.
@@ -948,7 +973,6 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer, restDialOpts []grpc.DialO
 	}
 
 	// Start a REST proxy for our gRPC server.
-	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	shutdownFuncs = append(shutdownFuncs, cancel)
 

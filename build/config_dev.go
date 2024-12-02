@@ -22,7 +22,7 @@ const (
 // consoleLoggerCfg extends the LoggerConfig struct by adding a Color option
 // which is only available for a console logger.
 //
-//nolint:lll
+//nolint:ll
 type consoleLoggerCfg struct {
 	LoggerConfig
 	Style bool `long:"style" description:"If set, the output will be styled with color and fonts"`

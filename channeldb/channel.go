@@ -1691,7 +1691,7 @@ var (
 
 // DeriveMusig2Shachain derives a shachain producer for the taproot channel
 // from normal shachain revocation root.
-func DeriveMusig2Shachain(revRoot shachain.Producer) (shachain.Producer, error) { //nolint:lll
+func DeriveMusig2Shachain(revRoot shachain.Producer) (shachain.Producer, error) { //nolint:ll
 	// In order to obtain the revocation root hash to create the taproot
 	// revocation, we'll encode the producer into a buffer, then use that
 	// to derive the shachain root needed.

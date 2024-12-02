@@ -4889,7 +4889,7 @@ func (h *persistentLinkHarness) restartLink(
 	// the firing via force feeding.
 	bticker := ticker.NewForce(time.Hour)
 
-	//nolint:lll
+	//nolint:ll
 	aliceCfg := ChannelLinkConfig{
 		FwrdingPolicy:      globalPolicy,
 		Peer:               alicePeer,

@@ -28,7 +28,7 @@ const (
 // BudgetConfig is a struct that holds the configuration when offering outputs
 // to the sweeper.
 //
-//nolint:lll
+//nolint:ll
 type BudgetConfig struct {
 	ToLocal      btcutil.Amount `long:"tolocal" description:"The amount in satoshis to allocate as the budget to pay fees when sweeping the to_local output. If set, the budget calculated using the ratio (if set) will be capped at this value."`
 	ToLocalRatio float64        `long:"tolocalratio" description:"The ratio of the value in to_local output to allocate as the budget to pay fees when sweeping it."`

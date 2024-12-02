@@ -1874,7 +1874,7 @@ func outgoingFromIncoming(incomingAmt lnwire.MilliSatoshi,
 	PPM := big.NewInt(1_000_000)
 
 	// The following discussion was contributed by user feelancer21, see
-	//nolint:lll
+	//nolint:ll
 	// https://github.com/feelancer21/lnd/commit/f6f05fa930985aac0d27c3f6681aada1b599162a.
 
 	// The incoming amount Ai based on the outgoing amount Ao is computed by

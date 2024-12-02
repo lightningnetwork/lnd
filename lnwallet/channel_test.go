@@ -9829,7 +9829,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 		{
 			name: "fail due to our index too big",
 			revocationLog: &channeldb.RevocationLog{
-				//nolint:lll
+				//nolint:ll
 				OurOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType0](
 					uint16(htlcIndex + 1),
 				),
@@ -9839,7 +9839,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 		{
 			name: "fail due to their index too big",
 			revocationLog: &channeldb.RevocationLog{
-				//nolint:lll
+				//nolint:ll
 				TheirOutputIndex: tlv.NewPrimitiveRecord[tlv.TlvType1](
 					uint16(htlcIndex + 1),
 				),
@@ -10352,7 +10352,7 @@ func TestApplyCommitmentFee(t *testing.T) {
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			//nolint:lll
+			//nolint:ll
 			balance, bufferAmt, commitFee, err := tc.channel.applyCommitFee(
 				tc.balance, commitWeight, feePerKw, tc.buffer,
 			)
@@ -10832,7 +10832,7 @@ func TestBlindingPointPersistence(t *testing.T) {
 	// Send a HTLC from Alice to Bob that has a blinding point populated.
 	htlc, _ := createHTLC(0, 100_000_000)
 	blinding, err := pubkeyFromHex(
-		"0228f2af0abe322403480fb3ee172f7f1601e67d1da6cad40b54c4468d48236c39", //nolint:lll
+		"0228f2af0abe322403480fb3ee172f7f1601e67d1da6cad40b54c4468d48236c39", //nolint:ll
 	)
 	require.NoError(t, err)
 	htlc.BlindingPoint = tlv.SomeRecordT(

@@ -432,7 +432,7 @@ func TestEstimateInputWeight(t *testing.T) {
 				{},
 			},
 		},
-		//nolint:lll
+		//nolint:ll
 		expectedWitnessWeight: input.TaprootKeyPathCustomSighashWitnessSize,
 	}, {
 		name: "p2tr script spend",

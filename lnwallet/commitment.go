@@ -1258,7 +1258,7 @@ func addHTLC(commitTx *wire.MsgTx, whoseCommit lntypes.ChannelParty,
 	} else {
 		paymentDesc.theirPkScript = pkScript
 
-		//nolint:lll
+		//nolint:ll
 		paymentDesc.theirWitnessScript = scriptInfo.WitnessScriptToSign()
 	}
 

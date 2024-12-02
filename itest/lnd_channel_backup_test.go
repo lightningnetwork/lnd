@@ -382,7 +382,7 @@ func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
 				// create a new nodeRestorer that will restore
 				// using the on-disk channel.backup.
 				//
-				//nolint:lll
+				//nolint:ll
 				backup := &lnrpc.RestoreChanBackupRequest_MultiChanBackup{
 					MultiChanBackup: multi,
 				}

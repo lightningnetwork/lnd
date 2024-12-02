@@ -114,7 +114,7 @@ func (h *holdSubscription) cancel(ht *lntest.HarnessTest) {
 	)
 	require.Equal(ht, lnrpc.Payment_FAILED, payUpdate.Status,
 		"expected payment failed")
-	require.Equal(ht, lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS, //nolint:lll
+	require.Equal(ht, lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS, //nolint:ll
 		payUpdate.FailureReason, "expected unknown details")
 }
 

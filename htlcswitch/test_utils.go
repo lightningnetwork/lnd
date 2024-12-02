@@ -1137,7 +1137,7 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 		return server.htlcSwitch.ForwardPackets(linkQuit, packets...)
 	}
 
-	//nolint:lll
+	//nolint:ll
 	link := NewChannelLink(
 		ChannelLinkConfig{
 			BestHeight:         server.htlcSwitch.BestHeight,

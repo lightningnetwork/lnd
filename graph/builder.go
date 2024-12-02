@@ -428,7 +428,7 @@ func (b *Builder) syncGraphWithChain() error {
 	// pruning the channel graph with each new block that hasn't yet been
 	// consumed by the channel graph.
 	var spentOutputs []*wire.OutPoint
-	for nextHeight := pruneHeight + 1; nextHeight <= uint32(bestHeight); nextHeight++ { //nolint:lll
+	for nextHeight := pruneHeight + 1; nextHeight <= uint32(bestHeight); nextHeight++ { //nolint:ll
 		// Break out of the rescan early if a shutdown has been
 		// requested, otherwise long rescans will block the daemon from
 		// shutting down promptly.
@@ -1236,7 +1236,7 @@ func (b *Builder) processUpdate(msg interface{},
 			b.cfg.Chain, &channelID, b.quit,
 		)
 		if err != nil {
-			//nolint:lll
+			//nolint:ll
 			//
 			// In order to ensure we don't erroneously mark a
 			// channel as a zombie due to an RPC failure, we'll

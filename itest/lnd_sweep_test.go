@@ -1137,7 +1137,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 		return incoming, outgoing
 	}
 
-	//nolint:lll
+	//nolint:ll
 	// For neutrino backend, we need to give it more time to sync the
 	// blocks. There's a potential bug we need to fix:
 	// 2024-04-18 23:36:07.046 [ERR] NTFN: unable to get missed blocks: starting height 487 is greater than ending height 486

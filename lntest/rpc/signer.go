@@ -88,7 +88,7 @@ func (h *HarnessRPC) MuSig2CreateSessionErr(
 
 // MuSig2CombineKeys makes a RPC call to the node's SignerClient and asserts.
 //
-//nolint:lll
+//nolint:ll
 func (h *HarnessRPC) MuSig2CombineKeys(
 	req *signrpc.MuSig2CombineKeysRequest) *signrpc.MuSig2CombineKeysResponse {
 
@@ -117,7 +117,7 @@ func (h *HarnessRPC) MuSig2CombineKeysErr(
 
 // MuSig2RegisterNonces makes a RPC call to the node's SignerClient and asserts.
 //
-//nolint:lll
+//nolint:ll
 func (h *HarnessRPC) MuSig2RegisterNonces(
 	req *signrpc.MuSig2RegisterNoncesRequest) *signrpc.MuSig2RegisterNoncesResponse {
 

@@ -319,7 +319,7 @@ check-go-version: check-go-version-dockerfile check-go-version-yaml
 #? lint-source: Run static code analysis
 lint-source: docker-tools
 	@$(call print, "Linting source.")
-	$(DOCKER_TOOLS) golangci-lint run -v $(LINT_WORKERS)
+	$(DOCKER_TOOLS) custom-gcl run -v $(LINT_WORKERS)
 
 #? lint: Run static code analysis
 lint: check-go-version lint-source

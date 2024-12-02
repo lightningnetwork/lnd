@@ -519,7 +519,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		finalCLTVDelta := uint32(cltvExpiryDelta)
 		finalCLTVDelta += uint32(routing.BlockPadding)
 
-		//nolint:lll
+		//nolint:ll
 		paths, err := blindedpath.BuildBlindedPaymentPaths(
 			&blindedpath.BuildBlindedPathCfg{
 				FindRoutes:              cfg.QueryBlindedRoutes,
@@ -534,7 +534,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 					p *blindedpath.BlindedHopPolicy) (
 					*blindedpath.BlindedHopPolicy, error) {
 
-					//nolint:lll
+					//nolint:ll
 					return blindedpath.AddPolicyBuffer(
 						p, blindCfg.RoutePolicyIncrMultiplier,
 						blindCfg.RoutePolicyDecrMultiplier,

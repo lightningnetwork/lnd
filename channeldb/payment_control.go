@@ -380,7 +380,7 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 				if attempt.Route.FinalHop().TotalAmtMsat !=
 					h.Route.FinalHop().TotalAmtMsat {
 
-					//nolint:lll
+					//nolint:ll
 					return ErrBlindedPaymentTotalAmountMismatch
 				}
 

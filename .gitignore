@@ -44,6 +44,9 @@ cmd/cmd
 *.key
 *.hex
 
+# Ignore the custom linter binary if it is built.
+custom-gcl
+
 cmd/lncli/lncli
 
 # Files from mobile build.

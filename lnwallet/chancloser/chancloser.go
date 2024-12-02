@@ -917,7 +917,7 @@ func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
 		)
 		matchingSig := c.priorFeeOffers[remoteProposedFee]
 		if c.cfg.Channel.ChanType().IsTaproot() {
-			localWireSig, err := matchingSig.PartialSig.UnwrapOrErrV( //nolint:lll
+			localWireSig, err := matchingSig.PartialSig.UnwrapOrErrV( //nolint:ll
 				fmt.Errorf("none local sig"),
 			)
 			if err != nil {
@@ -931,7 +931,7 @@ func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
 			}
 
 			muSession := c.cfg.MusigSession
-			localSig, remoteSig, closeOpts, err = muSession.CombineClosingOpts( //nolint:lll
+			localSig, remoteSig, closeOpts, err = muSession.CombineClosingOpts( //nolint:ll
 				localWireSig, remoteWireSig,
 			)
 			if err != nil {
@@ -981,7 +981,7 @@ func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
 		err = fn.MapOptionZ(
 			c.cfg.AuxCloser, func(aux AuxChanCloser) error {
 				channel := c.cfg.Channel
-				//nolint:lll
+				//nolint:ll
 				req := AuxShutdownReq{
 					ChanPoint:   c.chanPoint,
 					ShortChanID: c.cfg.Channel.ShortChanID(),

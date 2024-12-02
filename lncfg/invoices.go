@@ -36,7 +36,7 @@ const (
 
 // Invoices holds the configuration options for invoices.
 //
-//nolint:lll
+//nolint:ll
 type Invoices struct {
 	HoldExpiryDelta uint32 `long:"holdexpirydelta" description:"The number of blocks before a hold invoice's htlc expires that the invoice should be canceled to prevent a force close. Force closes will not be prevented if this value is not greater than DefaultIncomingBroadcastDelta."`
 }

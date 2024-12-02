@@ -23,10 +23,11 @@ const (
 
 // LogConfig holds logging configuration options.
 //
-//nolint:lll
+//nolint:ll
 type LogConfig struct {
-	Console *consoleLoggerCfg `group:"console" namespace:"console" description:"The logger writing to stdout and stderr."`
-	File    *FileLoggerConfig `group:"file" namespace:"file" description:"The logger writing to LND's standard log file."`
+	Console      *consoleLoggerCfg `group:"console" namespace:"console" description:"The logger writing to stdout and stderr."`
+	File         *FileLoggerConfig `group:"file" namespace:"file" description:"The logger writing to LND's standard log file."`
+	NoCommitHash bool              `long:"no-commit-hash" description:"If set, the commit-hash of the current build will not be included in log lines by default."`
 }
 
 // Validate validates the LogConfig struct values.
@@ -41,7 +42,7 @@ func (c *LogConfig) Validate() error {
 
 // LoggerConfig holds options for a particular logger.
 //
-//nolint:lll
+//nolint:ll
 type LoggerConfig struct {
 	Disable      bool   `long:"disable" description:"Disable this logger."`
 	NoTimestamps bool   `long:"no-timestamps" description:"Omit timestamps from log lines."`
@@ -89,7 +90,7 @@ func (cfg *LoggerConfig) HandlerOptions() []btclog.HandlerOption {
 
 // FileLoggerConfig extends LoggerConfig with specific log file options.
 //
-//nolint:lll
+//nolint:ll
 type FileLoggerConfig struct {
 	LoggerConfig
 	Compressor     string `long:"compressor" description:"Compression algorithm to use when rotating logs." choice:"gzip" choice:"zstd"`

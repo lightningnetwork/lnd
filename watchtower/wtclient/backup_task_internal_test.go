@@ -166,7 +166,7 @@ func genTaskTest(
 					PkScript: pkScript,
 				},
 				WitnessScript: scriptTree.RevocationLeaf.Script,
-				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:lll
+				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:ll
 				HashType:      txscript.SigHashDefault,
 				ControlBlock:  ctrlBytes,
 			}
@@ -217,7 +217,7 @@ func genTaskTest(
 					PubKey:     toRemotePK,
 				},
 				WitnessScript: scriptTree.SettleLeaf.Script,
-				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:lll
+				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:ll
 				Output: &wire.TxOut{
 					Value:    toRemoteAmt,
 					PkScript: pkScript,

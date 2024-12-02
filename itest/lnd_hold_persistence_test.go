@@ -21,7 +21,7 @@ func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 	const (
 		chanAmt     = btcutil.Amount(1000000)
 		numPayments = 10
-		reason      = lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS //nolint:lll
+		reason      = lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS //nolint:ll
 	)
 
 	// Create carol, and clean up when the test finishes.

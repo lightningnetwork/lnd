@@ -942,7 +942,7 @@ func (l *channelLink) syncChanStates() error {
 			// very same nonce that we sent above, as they should
 			// take the latest verification nonce we send.
 			if chanState.ChanType.IsTaproot() {
-				//nolint:lll
+				//nolint:ll
 				channelReadyMsg.NextLocalNonce = localChanSyncMsg.LocalNonce
 			}
 
@@ -3724,7 +3724,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 			// parse the payload we have no way of knowing whether
 			// we were the introduction node or not.
 			//
-			//nolint:lll
+			//nolint:ll
 			obfuscator, failCode := chanIterator.ExtractErrorEncrypter(
 				l.cfg.ExtractErrorEncrypter,
 				// We need our route role here because we
@@ -3885,7 +3885,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 
 				inboundFee := l.cfg.FwrdingPolicy.InboundFee
 
-				//nolint:lll
+				//nolint:ll
 				updatePacket := &htlcPacket{
 					incomingChanID:       l.ShortChanID(),
 					incomingHTLCID:       add.ID,
@@ -3936,7 +3936,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 				l.log.Errorf("unable to encode the "+
 					"remaining route %v", err)
 
-				cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage { //nolint:lll
+				cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage { //nolint:ll
 					return lnwire.NewTemporaryChannelFailure(upd)
 				}
 
@@ -3962,7 +3962,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 			if fwdPkg.State == channeldb.FwdStateLockedIn {
 				inboundFee := l.cfg.FwrdingPolicy.InboundFee
 
-				//nolint:lll
+				//nolint:ll
 				updatePacket := &htlcPacket{
 					incomingChanID:       l.ShortChanID(),
 					incomingHTLCID:       add.ID,

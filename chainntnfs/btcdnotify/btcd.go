@@ -366,7 +366,7 @@ out:
 				// TODO(wilmer): add retry logic if rescan fails?
 				b.wg.Add(1)
 
-				//nolint:lll
+				//nolint:ll
 				go func(msg *chainntnfs.HistoricalConfDispatch) {
 					defer b.wg.Done()
 

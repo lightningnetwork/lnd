@@ -181,7 +181,7 @@ func NodeArgsForCommitType(commitType lnrpc.CommitmentType) []string {
 // function provides a simple way to allow test balance assertions to take fee
 // calculations into account.
 func CalcStaticFee(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
-	//nolint:lll
+	//nolint:ll
 	const (
 		htlcWeight         = input.HTLCWeight
 		anchorSize         = 330 * 2
@@ -238,7 +238,7 @@ func CalculateMaxHtlc(chanCap btcutil.Amount) uint64 {
 // CalcStaticFeeBuffer calculates appropriate fee buffer which must be taken
 // into account when sending htlcs.
 func CalcStaticFeeBuffer(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
-	//nolint:lll
+	//nolint:ll
 	const (
 		htlcWeight         = input.HTLCWeight
 		defaultSatPerVByte = lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte

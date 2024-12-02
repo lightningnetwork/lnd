@@ -55,7 +55,7 @@ type FailCode uint16
 // The currently defined onion failure types within this current version of the
 // Lightning protocol.
 //
-//nolint:lll
+//nolint:ll
 const (
 	CodeNone                             FailCode = 0
 	CodeInvalidRealm                              = FlagBadOnion | 1

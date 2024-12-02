@@ -81,7 +81,7 @@ const (
 	CodeExpiryTooFar                     FailCode = 21
 	CodeInvalidOnionPayload                       = FlagPerm | 22
 	CodeMPPTimeout                       FailCode = 23
-	CodeInvalidBlinding                           = FlagBadOnion | FlagPerm | 24 //nolint:lll
+	CodeInvalidBlinding                           = FlagBadOnion | FlagPerm | 24 //nolint:ll
 )
 
 // String returns the string representation of the failure code.

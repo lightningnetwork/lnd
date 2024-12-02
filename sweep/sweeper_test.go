@@ -669,7 +669,7 @@ func TestSweepPendingInputs(t *testing.T) {
 		Aggregator: aggregator,
 		Publisher:  publisher,
 		GenSweepScript: func() fn.Result[lnwallet.AddrWithKey] {
-			//nolint:lll
+			//nolint:ll
 			return fn.Ok(lnwallet.AddrWithKey{
 				DeliveryAddress: testPubKey.SerializeCompressed(),
 			})

@@ -2476,13 +2476,13 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		fundingTxOut         *wire.TxOut
 	)
 	if chanType.IsTaproot() {
-		//nolint:lll
+		//nolint:ll
 		fundingWitnessScript, fundingTxOut, err = input.GenTaprootFundingScript(
 			ourKey.PubKey, theirKey.PubKey, channelValue,
 			pendingReservation.partialState.TapscriptRoot,
 		)
 	} else {
-		//nolint:lll
+		//nolint:ll
 		fundingWitnessScript, fundingTxOut, err = input.GenFundingPkScript(
 			ourKey.PubKey.SerializeCompressed(),
 			theirKey.PubKey.SerializeCompressed(), channelValue,

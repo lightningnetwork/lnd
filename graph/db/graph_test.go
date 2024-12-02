@@ -1124,7 +1124,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 				tx, func(tx kvdb.RTx,
 					info *models.ChannelEdgeInfo,
 					policy *models.ChannelEdgePolicy,
-					policy2 *models.ChannelEdgePolicy) error { //nolint:lll
+					policy2 *models.ChannelEdgePolicy) error { //nolint:ll
 
 					delete(chanIndex, info.ChannelID)
 					return nil
@@ -2584,7 +2584,7 @@ func TestFilterChannelRange(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			expRes := channelRanges[test.expStartIndex:test.expEndIndex] //nolint:lll
+			expRes := channelRanges[test.expStartIndex:test.expEndIndex] //nolint:ll
 
 			if len(expRes) == 0 {
 				require.Nil(t, resp)
@@ -2598,7 +2598,7 @@ func TestFilterChannelRange(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			expRes = channelRangesWithTimestamps[test.expStartIndex:test.expEndIndex] //nolint:lll
+			expRes = channelRangesWithTimestamps[test.expStartIndex:test.expEndIndex] //nolint:ll
 
 			if len(expRes) == 0 {
 				require.Nil(t, resp)
@@ -3898,7 +3898,7 @@ func BenchmarkForEachChannel(b *testing.B) {
 				cb := func(tx kvdb.RTx,
 					info *models.ChannelEdgeInfo,
 					policy *models.ChannelEdgePolicy,
-					policy2 *models.ChannelEdgePolicy) error { //nolint:lll
+					policy2 *models.ChannelEdgePolicy) error { //nolint:ll
 
 					// We need to do something with
 					// the data here, otherwise the

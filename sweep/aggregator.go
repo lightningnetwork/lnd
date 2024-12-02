@@ -218,7 +218,7 @@ func (b *BudgetAggregator) filterInputs(inputs InputsMap) InputsMap {
 			continue
 		}
 
-		//nolint:lll
+		//nolint:ll
 		// Calculate the size if the input is included in the tx.
 		//
 		// NOTE: When including this input, we need to account the

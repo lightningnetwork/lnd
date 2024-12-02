@@ -4028,7 +4028,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 			channelReadyMsg.AliasScid = &alias
 
 			if firstVerNonce != nil {
-				channelReadyMsg.NextLocalNonce = lnwire.SomeMusig2Nonce( //nolint:lll
+				channelReadyMsg.NextLocalNonce = lnwire.SomeMusig2Nonce( //nolint:ll
 					firstVerNonce.PubNonce,
 				)
 			}

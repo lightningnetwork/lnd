@@ -20,6 +20,18 @@ run:
     - integration
 
 linters-settings:
+  custom:
+    ll:
+      type: "module"
+      description: "Custom lll linter with 'S' log line exclusion."
+      settings:
+        # Max line length, lines longer will be reported.
+        line-length: 80
+        # Tab width in spaces.
+        tab-width: 8
+        # The regex that we will use to detect the start of an `S` log line.
+        log-regex: "^\\s*.*(L|l)og\\.(Info|Debug|Trace|Warn|Error|Critical)S\\("
+
   errorlint:
     # Check for incorrect fmt.Errorf error wrapping.
     errorf: true
@@ -45,15 +57,10 @@ linters-settings:
     excludes:
       - G402 # Look for bad TLS connection settings.
       - G306 # Poor file permissions used when writing to a new file.
+      - G601 # Implicit memory aliasing in for loop.
 
   staticcheck:
     checks: ["-SA1019"]
-
-  lll:
-    # Max line length, lines longer will be reported.
-    line-length: 80
-    # Tab width in spaces.
-    tab-width: 8
 
   funlen:
     # Checks the number of lines in a function.
@@ -105,6 +112,10 @@ linters-settings:
 linters:
   enable-all: true
   disable:
+    # We instead use our own custom line length linter called `ll` since
+    # then we can ignore log lines.
+    - lll
+
     # Global variables are used in many places throughout the code base.
     - gochecknoglobals
 
@@ -170,7 +181,7 @@ linters:
     - wrapcheck
 
     # Allow dynamic errors.
-    - err113
+    - goerr113
 
     # We use ErrXXX instead.
     - errname
@@ -186,7 +197,6 @@ linters:
     # The linter is too aggressive and doesn't add much value since reviewers
     # will also catch magic numbers that make sense to extract.
     - gomnd
-    - mnd
 
     # Some of the tests cannot be parallelized. On the other hand, we don't
     # gain much performance with this check so we disable it for now until
@@ -204,6 +214,7 @@ linters:
     - depguard
     - gosmopolitan
     - intrange
+    - goconst
 
 
 issues:

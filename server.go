@@ -572,7 +572,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			"aux controllers")
 	}
 
-	//nolint:lll
+	//nolint:ll
 	featureMgr, err := feature.NewManager(feature.Config{
 		NoTLVOnion:                cfg.ProtocolOptions.LegacyOnion(),
 		NoStaticRemoteKey:         cfg.ProtocolOptions.NoStaticRemoteKey(),
@@ -1109,7 +1109,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		RotateTicker:            ticker.New(discovery.DefaultSyncerRotationInterval),
 		HistoricalSyncTicker:    ticker.New(cfg.HistoricalSyncInterval),
 		NumActiveSyncers:        cfg.NumGraphSyncPeers,
-		NoTimestampQueries:      cfg.ProtocolOptions.NoTimestampQueryOption, //nolint:lll
+		NoTimestampQueries:      cfg.ProtocolOptions.NoTimestampQueryOption, //nolint:ll
 		MinimumBatchSize:        10,
 		SubBatchDelay:           cfg.Gossip.SubBatchDelay,
 		IgnoreHistoricalFilters: cfg.IgnoreHistoricalGossipFilters,
@@ -1126,7 +1126,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}, nodeKeyDesc)
 
 	selfVertex := route.Vertex(nodeKeyDesc.PubKey.SerializeCompressed())
-	//nolint:lll
+	//nolint:ll
 	s.localChanMgr = &localchans.Manager{
 		SelfPub:              nodeKeyDesc.PubKey,
 		DefaultRoutingPolicy: cc.RoutingPolicy,
@@ -1245,7 +1245,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		},
 	)
 
-	//nolint:lll
+	//nolint:ll
 	s.chainArb = contractcourt.NewChainArbitrator(contractcourt.ChainArbitratorConfig{
 		ChainHash:              *s.cfg.ActiveNetParams.GenesisHash,
 		IncomingBroadcastDelta: lncfg.DefaultIncomingBroadcastDelta,
@@ -1442,7 +1442,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			devCfg, reservationTimeout, zombieSweeperInterval)
 	}
 
-	//nolint:lll
+	//nolint:ll
 	s.fundingMgr, err = funding.NewFundingManager(funding.Config{
 		Dev:                devCfg,
 		NoWumboChans:       !cfg.ProtocolOptions.Wumbo(),

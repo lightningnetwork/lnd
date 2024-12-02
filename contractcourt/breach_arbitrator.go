@@ -1372,7 +1372,7 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 
 		// For taproot outputs, we also need to hold onto the second
 		// level tap tweak as well.
-		//nolint:lll
+		//nolint:ll
 		htlcOutput.secondLevelTapTweak = breachedHtlc.SecondLevelTapTweak
 
 		breachedOutputs = append(breachedOutputs, htlcOutput)
@@ -1729,7 +1729,7 @@ func taprootBriefcaseFromRetInfo(retInfo *retributionInfo) *taprootBriefcase {
 		// For spending from our commitment output on the remote
 		// commitment, we'll need to stash the control block.
 		case input.TaprootRemoteCommitSpend:
-			//nolint:lll
+			//nolint:ll
 			tapCase.CtrlBlocks.Val.CommitSweepCtrlBlock = bo.signDesc.ControlBlock
 
 			bo.resolutionBlob.WhenSome(func(blob tlv.Blob) {
@@ -1743,7 +1743,7 @@ func taprootBriefcaseFromRetInfo(retInfo *retributionInfo) *taprootBriefcase {
 		// To spend the revoked output again, we'll store the same
 		// control block value as above, but in a different place.
 		case input.TaprootCommitmentRevoke:
-			//nolint:lll
+			//nolint:ll
 			tapCase.CtrlBlocks.Val.RevokeSweepCtrlBlock = bo.signDesc.ControlBlock
 
 			bo.resolutionBlob.WhenSome(func(blob tlv.Blob) {
@@ -1765,10 +1765,10 @@ func taprootBriefcaseFromRetInfo(retInfo *retributionInfo) *taprootBriefcase {
 			copy(firstLevelTweak[:], bo.signDesc.TapTweak)
 			secondLevelTweak := bo.secondLevelTapTweak
 
-			//nolint:lll
+			//nolint:ll
 			tapCase.TapTweaks.Val.BreachedHtlcTweaks[resID] = firstLevelTweak
 
-			//nolint:lll
+			//nolint:ll
 			tapCase.TapTweaks.Val.BreachedSecondLevelHltcTweaks[resID] = secondLevelTweak
 		}
 	}
@@ -1788,7 +1788,7 @@ func applyTaprootRetInfo(tapCase *taprootBriefcase,
 		// For spending from our commitment output on the remote
 		// commitment, we'll apply the control block.
 		case input.TaprootRemoteCommitSpend:
-			//nolint:lll
+			//nolint:ll
 			bo.signDesc.ControlBlock = tapCase.CtrlBlocks.Val.CommitSweepCtrlBlock
 
 			tapCase.SettledCommitBlob.WhenSomeV(
@@ -1800,7 +1800,7 @@ func applyTaprootRetInfo(tapCase *taprootBriefcase,
 		// To spend the revoked output again, we'll apply the same
 		// control block value as above, but to a different place.
 		case input.TaprootCommitmentRevoke:
-			//nolint:lll
+			//nolint:ll
 			bo.signDesc.ControlBlock = tapCase.CtrlBlocks.Val.RevokeSweepCtrlBlock
 
 			tapCase.BreachedCommitBlob.WhenSomeV(
@@ -1816,7 +1816,7 @@ func applyTaprootRetInfo(tapCase *taprootBriefcase,
 		case input.TaprootHtlcOfferedRevoke:
 			resID := newResolverID(bo.OutPoint())
 
-			//nolint:lll
+			//nolint:ll
 			tap1, ok := tapCase.TapTweaks.Val.BreachedHtlcTweaks[resID]
 			if !ok {
 				return fmt.Errorf("unable to find taproot "+
@@ -1824,7 +1824,7 @@ func applyTaprootRetInfo(tapCase *taprootBriefcase,
 			}
 			bo.signDesc.TapTweak = tap1[:]
 
-			//nolint:lll
+			//nolint:ll
 			tap2, ok := tapCase.TapTweaks.Val.BreachedSecondLevelHltcTweaks[resID]
 			if !ok {
 				return fmt.Errorf("unable to find taproot "+

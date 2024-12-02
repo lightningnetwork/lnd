@@ -255,6 +255,38 @@ func (q *Queries) GetInvoice(ctx context.Context, arg GetInvoiceParams) ([]Invoi
 	return items, nil
 }
 
+const getInvoiceByHash = `-- name: GetInvoiceByHash :one
+SELECT i.id, i.hash, i.preimage, i.settle_index, i.settled_at, i.memo, i.amount_msat, i.cltv_delta, i.expiry, i.payment_addr, i.payment_request, i.payment_request_hash, i.state, i.amount_paid_msat, i.is_amp, i.is_hodl, i.is_keysend, i.created_at
+FROM invoices i
+WHERE i.hash = $1
+`
+
+func (q *Queries) GetInvoiceByHash(ctx context.Context, hash []byte) (Invoice, error) {
+	row := q.db.QueryRowContext(ctx, getInvoiceByHash, hash)
+	var i Invoice
+	err := row.Scan(
+		&i.ID,
+		&i.Hash,
+		&i.Preimage,
+		&i.SettleIndex,
+		&i.SettledAt,
+		&i.Memo,
+		&i.AmountMsat,
+		&i.CltvDelta,
+		&i.Expiry,
+		&i.PaymentAddr,
+		&i.PaymentRequest,
+		&i.PaymentRequestHash,
+		&i.State,
+		&i.AmountPaidMsat,
+		&i.IsAmp,
+		&i.IsHodl,
+		&i.IsKeysend,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getInvoiceBySetID = `-- name: GetInvoiceBySetID :many
 SELECT i.id, i.hash, i.preimage, i.settle_index, i.settled_at, i.memo, i.amount_msat, i.cltv_delta, i.expiry, i.payment_addr, i.payment_request, i.payment_request_hash, i.state, i.amount_paid_msat, i.is_amp, i.is_hodl, i.is_keysend, i.created_at
 FROM invoices i

@@ -93,15 +93,16 @@ following build dependencies are required:
 
 ### Installing Go
 
-`lnd` is written in Go, with a minimum version of 1.19. To install, run one of
-the following commands for your OS:
+`lnd` is written in Go, with a minimum version of `1.22.6` (or, in case this
+document gets out of date, whatever the Go version in the main `go.mod` file
+requires). To install, run one of the following commands for your OS:
 
 <details>
   <summary>Linux (x86-64)</summary>
   
   ```
   wget https://dl.google.com/go/go1.22.6.linux-amd64.tar.gz
-  sha256sum go1.22.5.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
+  sha256sum go1.22.6.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
   ```
 
   The final output of the command above should be
@@ -109,7 +110,7 @@ the following commands for your OS:
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.22.5.linux-amd64.tar.gz
+  sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.22.6.linux-amd64.tar.gz
   export PATH=$PATH:/usr/local/go/bin
   ```
 </details>
@@ -118,8 +119,8 @@ the following commands for your OS:
   <summary>Linux (ARMv6)</summary>
   
   ```
-  wget https://dl.google.com/go/go1.22.5.linux-armv6l.tar.gz
-  sha256sum go1.22.5.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
+  wget https://dl.google.com/go/go1.22.6.linux-armv6l.tar.gz
+  sha256sum go1.22.6.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
   ```
 
   The final output of the command above should be
@@ -127,7 +128,7 @@ the following commands for your OS:
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  sudo rm -rf /usr/local/go && tar -C /usr/local -xzf go1.22.5.linux-armv6l.tar.gz
+  sudo rm -rf /usr/local/go && tar -C /usr/local -xzf go1.22.6.linux-armv6l.tar.gz
   export PATH=$PATH:/usr/local/go/bin
   ```  
   

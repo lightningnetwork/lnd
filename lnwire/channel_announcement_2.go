@@ -87,7 +87,7 @@ func (c *ChannelAnnouncement2) AllRecords() []tlv.Record {
 	return ProduceRecordsSorted(recordProducers...)
 }
 
-func (c *ChannelAnnouncement2) allNonSignatureRecordProducers() []tlv.RecordProducer {
+func (c *ChannelAnnouncement2) allNonSignatureRecordProducers() []tlv.RecordProducer { //nolint:ll
 	// The chain-hash record is only included if it is _not_ equal to the
 	// bitcoin mainnet genisis block hash.
 	var recordProducers []tlv.RecordProducer

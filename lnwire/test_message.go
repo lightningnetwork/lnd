@@ -203,6 +203,97 @@ func (a *ChannelAnnouncement1) RandTestMessage(t *rapid.T) Message {
 	}
 }
 
+// A compile time check to ensure NodeAnnouncement2 implements the
+// lnwire.TestMessage interface.
+var _ TestMessage = (*NodeAnnouncement2)(nil)
+
+// RandTestMessage populates the message with random data suitable for testing.
+// It uses the rapid testing framework to generate random values.
+//
+// This is part of the TestMessage interface.
+func (n *NodeAnnouncement2) RandTestMessage(t *rapid.T) Message {
+	/*
+
+	 */
+
+	features := RandFeatureVector(t)
+	blockHeight := uint32(rapid.IntRange(0, 1000000).Draw(t, "blockHeight"))
+
+	var nodeID [33]byte
+	copy(nodeID[:], RandPubKey(t).SerializeCompressed())
+
+	msg := &NodeAnnouncement2{
+		Features: tlv.NewRecordT[tlv.TlvType0, RawFeatureVector](
+			*features,
+		),
+		BlockHeight: tlv.NewPrimitiveRecord[tlv.TlvType2, uint32](
+			blockHeight,
+		),
+		Alias: tlv.OptionalRecordT[tlv.TlvType3, []byte]{},
+		NodeID: tlv.NewPrimitiveRecord[tlv.TlvType6, [33]byte](
+			nodeID,
+		),
+		IPV4Addrs:         tlv.OptionalRecordT[tlv.TlvType5, IPV4Addrs]{},
+		IPV6Addrs:         tlv.OptionalRecordT[tlv.TlvType7, IPV6Addrs]{},
+		TorV3Addrs:        tlv.OptionalRecordT[tlv.TlvType9, TorV3Addrs]{},
+		ExtraSignedFields: make(map[uint64][]byte),
+	}
+
+	msg.Signature.Val = RandSignature(t)
+	msg.Signature.Val.ForceSchnorr()
+
+	randRecs, _ := RandSignedRangeRecords(t)
+	if len(randRecs) > 0 {
+		msg.ExtraSignedFields = ExtraSignedFields(randRecs)
+	}
+
+	if rapid.Bool().Draw(t, "includeColour") {
+		color := tlv.ZeroRecordT[tlv.TlvType1, Color]()
+		color.Val = Color{
+			R: uint8(rapid.Uint16().Draw(t, "r")),
+			G: uint8(rapid.Uint16().Draw(t, "g")),
+			B: uint8(rapid.Uint16().Draw(t, "b")),
+		}
+		msg.Color = tlv.SomeRecordT(color)
+	}
+
+	if rapid.Bool().Draw(t, "includeIpv4Addrs") {
+		ipv4Addr := RandTCP4Addr(t)
+		ipv4AddrRecord := tlv.ZeroRecordT[
+			tlv.TlvType5, IPV4Addrs,
+		]()
+		ipv4AddrRecord.Val = IPV4Addrs{ipv4Addr}
+		msg.IPV4Addrs = tlv.SomeRecordT(ipv4AddrRecord)
+	}
+	if rapid.Bool().Draw(t, "includeIpv6Addrs") {
+		ipv6Addr := RandTCP6Addr(t)
+		ipv6AddrRecord := tlv.ZeroRecordT[
+			tlv.TlvType7, IPV6Addrs,
+		]()
+		ipv6AddrRecord.Val = IPV6Addrs{ipv6Addr}
+		msg.IPV6Addrs = tlv.SomeRecordT(ipv6AddrRecord)
+	}
+	if rapid.Bool().Draw(t, "includeTorV3Addrs") {
+		torAddr := RandV3OnionAddr(t)
+		torAddrRecord := tlv.ZeroRecordT[
+			tlv.TlvType9, TorV3Addrs,
+		]()
+		torAddrRecord.Val = TorV3Addrs{torAddr}
+		msg.TorV3Addrs = tlv.SomeRecordT(torAddrRecord)
+	}
+
+	if rapid.Bool().Draw(t, "includeAlias") {
+		alias := rapid.String().Draw(t, "alias")
+		aliasRec := tlv.ZeroRecordT[
+			tlv.TlvType3, []byte,
+		]()
+		aliasRec.Val = []byte(alias)
+		msg.Alias = tlv.SomeRecordT(aliasRec)
+	}
+
+	return msg
+}
+
 // A compile time check to ensure ChannelAnnouncement2 implements the
 // lnwire.TestMessage interface.
 var _ TestMessage = (*ChannelAnnouncement2)(nil)

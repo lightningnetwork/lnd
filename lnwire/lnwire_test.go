@@ -3,6 +3,7 @@ package lnwire
 import (
 	"bytes"
 	crand "crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -1662,6 +1663,83 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(req)
 		},
+		MsgNodeAnnouncement2: func(v []reflect.Value, r *rand.Rand) {
+			var req NodeAnnouncement2
+
+			req.ExtraSignedFields = ExtraSignedFields(
+				randSignedRangeRecords(t, r),
+			)
+			req.Signature.Val = testSchnorrSig
+
+			req.NodeID.Val = randRawKey(t)
+			req.BlockHeight.Val = r.Uint32()
+			req.Features.Val = *randRawFeatureVector(r)
+
+			// Sometimes set the colour field.
+			if r.Int31()%2 == 0 {
+				color := tlv.ZeroRecordT[tlv.TlvType1, Color]()
+				color.Val = Color{
+					R: uint8(r.Int31()),
+					G: uint8(r.Int31()),
+					B: uint8(r.Int31()),
+				}
+				req.Color = tlv.SomeRecordT(color)
+			}
+
+			n := r.Intn(33)
+			b := make([]byte, n)
+			_, err := rand.Read(b)
+			require.NoError(t, err)
+			if n > 0 {
+				alias := []byte(
+					base64.StdEncoding.EncodeToString(b),
+				)
+				if len(alias) > 32 {
+					alias = alias[:32]
+				}
+
+				aliasRec := tlv.ZeroRecordT[
+					tlv.TlvType3, []byte,
+				]()
+				aliasRec.Val = alias
+			}
+
+			// Sometimes add some ipv4 addrs.
+			if r.Int31()%2 == 0 {
+				ipv4Addr, err := randTCP4Addr(r)
+				require.NoError(t, err)
+
+				ipv4AddrRecord := tlv.ZeroRecordT[
+					tlv.TlvType5, IPV4Addrs,
+				]()
+				ipv4AddrRecord.Val = IPV4Addrs{ipv4Addr}
+				req.IPV4Addrs = tlv.SomeRecordT(ipv4AddrRecord)
+			}
+			// Sometimes add some ipv6 addrs.
+			if r.Int31()%2 == 0 {
+				ipv6Addr, err := randTCP6Addr(r)
+				require.NoError(t, err)
+
+				ipv6AddrRecord := tlv.ZeroRecordT[
+					tlv.TlvType7, IPV6Addrs,
+				]()
+				ipv6AddrRecord.Val = IPV6Addrs{ipv6Addr}
+				req.IPV6Addrs = tlv.SomeRecordT(ipv6AddrRecord)
+			}
+			// Sometimes add some torv3 addrs.
+			if r.Int31()%2 == 0 {
+				torAddr, err := randV3OnionAddr(r)
+				require.NoError(t, err)
+
+				torAddrRecord := tlv.ZeroRecordT[
+					tlv.TlvType9, TorV3Addrs,
+				]()
+				torAddrRecord.Val = TorV3Addrs{torAddr}
+				req.TorV3Addrs = tlv.SomeRecordT(torAddrRecord)
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
 	}
 
 	// With the above types defined, we'll now generate a slice of
@@ -1902,9 +1980,16 @@ func TestLightningWireProtocol(t *testing.T) {
 				return mainScenario(&m)
 			},
 		},
+
 		{
 			msgType: MsgChannelUpdate2,
 			scenario: func(m ChannelUpdate2) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgNodeAnnouncement2,
+			scenario: func(m NodeAnnouncement2) bool {
 				return mainScenario(&m)
 			},
 		},

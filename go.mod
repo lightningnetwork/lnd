@@ -207,8 +207,9 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display
 
-// If you change this please also update .github/pull_request_template.md,
-// docs/INSTALL.md and GO_IMAGE in lnrpc/gen_protos_docker.sh.
+// If you change this please also update docs/INSTALL.md and GO_VERSION in
+// Makefile (then run `make lint` to see where else it needs to be updated as
+// well).
 go 1.22.6
 
 retract v0.0.2

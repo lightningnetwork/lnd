@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
@@ -1231,6 +1233,10 @@ func (ks *KickoffSig) RandTestMessage(t *rapid.T) Message {
 // lnwire.TestMessage interface.
 var _ TestMessage = (*NodeAnnouncement1)(nil)
 
+// A compile time check to ensure NodeAnnouncement2 implements the
+// lnwire.TestMessage interface.
+var _ TestMessage = (*NodeAnnouncement2)(nil)
+
 // RandTestMessage populates the message with random data suitable for testing.
 // It uses the rapid testing framework to generate random values.
 //
@@ -1260,6 +1266,131 @@ func (a *NodeAnnouncement1) RandTestMessage(t *rapid.T) Message {
 		Addresses:       RandNetAddrs(t),
 		ExtraOpaqueData: RandExtraOpaqueData(t, nil),
 	}
+}
+
+// RandTestMessage populates the message with random data suitable for testing.
+// It uses the rapid testing framework to generate random values.
+//
+// This is part of the TestMessage interface.
+func (n *NodeAnnouncement2) RandTestMessage(t *rapid.T) Message {
+	features := RandFeatureVector(t)
+	blockHeight := uint32(rapid.IntRange(0, 1000000).Draw(t, "blockHeight"))
+
+	// Generate random compressed public key for node ID
+	pubKey := RandPubKey(t)
+	var nodeID [33]byte
+	copy(nodeID[:], pubKey.SerializeCompressed())
+
+	msg := &NodeAnnouncement2{
+		Features: tlv.NewRecordT[tlv.TlvType0](*features),
+		BlockHeight: tlv.NewPrimitiveRecord[tlv.TlvType2](
+			blockHeight,
+		),
+		NodeID:            tlv.NewPrimitiveRecord[tlv.TlvType4](nodeID),
+		ExtraSignedFields: make(map[uint64][]byte),
+	}
+
+	msg.Signature.Val = RandSignature(t)
+	msg.Signature.Val.ForceSchnorr()
+
+	// Test optional fields one by one
+	if rapid.Bool().Draw(t, "includeColor") {
+		rgbColor := Color{
+			R: uint8(rapid.IntRange(0, 255).Draw(t, "rgbR")),
+			G: uint8(rapid.IntRange(0, 255).Draw(t, "rgbG")),
+			B: uint8(rapid.IntRange(0, 255).Draw(t, "rgbB")),
+		}
+		colorRecord := tlv.ZeroRecordT[tlv.TlvType1, Color]()
+		colorRecord.Val = rgbColor
+		msg.Color = tlv.SomeRecordT(colorRecord)
+	}
+
+	if rapid.Bool().Draw(t, "includeAlias") {
+		aliasBytes := RandNodeAlias2(t)
+		aliasRecord := tlv.ZeroRecordT[tlv.TlvType3, NodeAlias2]()
+		aliasRecord.Val = aliasBytes
+		msg.Alias = tlv.SomeRecordT(aliasRecord)
+	}
+
+	if rapid.Bool().Draw(t, "includeIPV4Addrs") {
+		ipv4Addrs := make(IPV4Addrs, 1)
+		ip := make(net.IP, 4)
+		ip[0] = uint8(rapid.IntRange(1, 223).Draw(t, "ip4_0"))
+		ip[1] = uint8(rapid.IntRange(0, 255).Draw(t, "ip4_1"))
+		ip[2] = uint8(rapid.IntRange(0, 255).Draw(t, "ip4_2"))
+		ip[3] = uint8(rapid.IntRange(1, 254).Draw(t, "ip4_3"))
+
+		ipv4Addrs[0] = &net.TCPAddr{
+			IP:   ip,
+			Port: rapid.IntRange(1, 65535).Draw(t, "port4"),
+		}
+
+		ipv4Record := tlv.ZeroRecordT[tlv.TlvType5, IPV4Addrs]()
+		ipv4Record.Val = ipv4Addrs
+		msg.IPV4Addrs = tlv.SomeRecordT(ipv4Record)
+	}
+
+	if rapid.Bool().Draw(t, "includeIPV6Addrs") {
+		ipv6Addrs := make(IPV6Addrs, 1)
+		ip := make(net.IP, 16)
+		// Generate random IPv6 address.
+		for j := 0; j < 16; j++ {
+			ip[j] = uint8(rapid.IntRange(0, 255).Draw(
+				t, fmt.Sprintf("ip6_%d", j)),
+			)
+		}
+
+		ipv6Addrs[0] = &net.TCPAddr{
+			IP:   ip,
+			Port: rapid.IntRange(1, 65535).Draw(t, "port6"),
+		}
+
+		ipv6Record := tlv.ZeroRecordT[tlv.TlvType7, IPV6Addrs]()
+		ipv6Record.Val = ipv6Addrs
+		msg.IPV6Addrs = tlv.SomeRecordT(ipv6Record)
+	}
+
+	if rapid.Bool().Draw(t, "includeTorV3Addrs") {
+		torV3Addrs := make(TorV3Addrs, 1)
+		onionBytes := rapid.SliceOfN(rapid.Byte(), 35, 35).Draw(
+			t, "onion",
+		)
+		onionService := tor.Base32Encoding.EncodeToString(onionBytes) +
+			tor.OnionSuffix
+
+		torV3Addrs[0] = &tor.OnionAddr{
+			OnionService: onionService,
+			Port: rapid.IntRange(1, 65535).Draw(
+				t, "torPort",
+			),
+		}
+
+		torV3Record := tlv.ZeroRecordT[tlv.TlvType9, TorV3Addrs]()
+		torV3Record.Val = torV3Addrs
+		msg.TorV3Addrs = tlv.SomeRecordT(torV3Record)
+	}
+
+	if rapid.Bool().Draw(t, "includeDNSHostName") {
+		// Generate a valid DNS hostname.
+		hostname := genValidHostname(t)
+		port := rapid.Uint16Range(1, 65535).Draw(t, "dnsPort")
+
+		dnsAddr := DNSAddress{
+			Hostname: hostname,
+			Port:     port,
+		}
+
+		dnsRecord := tlv.ZeroRecordT[tlv.TlvType11, DNSAddress]()
+		dnsRecord.Val = dnsAddr
+		msg.DNSHostName = tlv.SomeRecordT(dnsRecord)
+	}
+
+	randRecs, _ := RandSignedRangeRecords(t)
+	if len(randRecs) > 0 {
+		msg.ExtraSignedFields = ExtraSignedFields(randRecs)
+	}
+
+	return msg
 }
 
 // A compile time check to ensure OpenChannel implements the TestMessage

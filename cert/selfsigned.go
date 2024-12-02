@@ -2,6 +2,7 @@ package cert
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -200,8 +201,8 @@ func IsOutdated(cert *x509.Certificate, tlsExtraIPs,
 // This function is adapted from https://github.com/btcsuite/btcd and
 // https://github.com/btcsuite/btcd/btcutil
 func GenCertPair(org string, tlsExtraIPs, tlsExtraDomains []string,
-	tlsDisableAutofill bool, certValidity time.Duration) (
-	[]byte, []byte, error) {
+	tlsDisableAutofill bool, certValidity time.Duration, caCertBytes []byte,
+	caKeyBytes []byte) ([]byte, []byte, error) {
 
 	now := time.Now()
 	validUntil := now.Add(certValidity)
@@ -232,6 +233,21 @@ func GenCertPair(org string, tlsExtraIPs, tlsExtraDomains []string,
 		return nil, nil, err
 	}
 
+	var caCert *x509.Certificate
+	isCa := true
+	var signerPriv crypto.PrivateKey = priv
+	if caKeyBytes != nil {
+		caCertData, parsedCaCert, err := LoadCertFromBytes(
+			caCertBytes, caKeyBytes,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+		isCa = false
+		signerPriv = caCertData.PrivateKey
+		caCert = parsedCaCert
+	}
+
 	// Construct the certificate template.
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
@@ -248,16 +264,20 @@ func GenCertPair(org string, tlsExtraIPs, tlsExtraDomains []string,
 		ExtKeyUsage: []x509.ExtKeyUsage{
 			x509.ExtKeyUsageServerAuth,
 		},
-		IsCA:                  true, // so can sign self.
+		IsCA:                  isCa,
 		BasicConstraintsValid: true,
 
 		DNSNames:    dnsNames,
 		IPAddresses: ipAddresses,
 	}
 
+	if isCa {
+		caCert = &template
+	}
+
 	derBytes, err := x509.CreateCertificate(
 		rand.Reader, &template,
-		&template, &priv.PublicKey, priv,
+		caCert, &priv.PublicKey, signerPriv,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create certificate: %w",

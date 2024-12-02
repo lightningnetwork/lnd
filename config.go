@@ -51,6 +51,8 @@ const (
 	defaultChainSubDirname    = "chain"
 	defaultGraphSubDirname    = "graph"
 	defaultTowerSubDirname    = "watchtower"
+	defaultCACertFilename     = "ca.cert"
+	defaultCAKeyFilename      = "ca.key"
 	defaultTLSCertFilename    = "tls.cert"
 	defaultTLSKeyFilename     = "tls.key"
 	defaultAdminMacFilename   = "admin.macaroon"
@@ -264,6 +266,8 @@ var (
 
 	defaultTowerDir = filepath.Join(defaultDataDir, defaultTowerSubDirname)
 
+	defaultCACertPath     = filepath.Join(DefaultLndDir, defaultCACertFilename)
+	defaultCAKeyPath      = filepath.Join(DefaultLndDir, defaultCAKeyFilename)
 	defaultTLSCertPath    = filepath.Join(DefaultLndDir, defaultTLSCertFilename)
 	defaultTLSKeyPath     = filepath.Join(DefaultLndDir, defaultTLSKeyFilename)
 	defaultLetsEncryptDir = filepath.Join(DefaultLndDir, defaultLetsEncryptDirname)
@@ -299,6 +303,8 @@ type Config struct {
 	DataDir      string `short:"b" long:"datadir" description:"The directory to store lnd's data within"`
 	SyncFreelist bool   `long:"sync-freelist" description:"Whether the databases used within lnd should sync their freelist to disk. This is disabled by default resulting in improved memory performance during operation, but with an increase in startup time."`
 
+	CACertPath         string        `long:"cacertpath" description:"Path to write the CA certificate for lnd's RPC and REST services"`
+	CAKeyPath          string        `long:"cakeypath" description:"Path to write the CA private key for lnd's RPC and REST services"`
 	TLSCertPath        string        `long:"tlscertpath" description:"Path to write the TLS certificate for lnd's RPC and REST services"`
 	TLSKeyPath         string        `long:"tlskeypath" description:"Path to write the TLS private key for lnd's RPC and REST services"`
 	TLSExtraIPs        []string      `long:"tlsextraip" description:"Adds an extra ip to the generated certificate"`
@@ -556,6 +562,8 @@ func DefaultConfig() Config {
 		ConfigFile:        DefaultConfigFile,
 		DataDir:           defaultDataDir,
 		DebugLevel:        defaultLogLevel,
+		CACertPath:        defaultCACertPath,
+		CAKeyPath:         defaultCAKeyPath,
 		TLSCertPath:       defaultTLSCertPath,
 		TLSKeyPath:        defaultTLSKeyPath,
 		TLSCertDuration:   defaultTLSCertDuration,
@@ -880,6 +888,8 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.LetsEncryptDir = filepath.Join(
 			lndDir, defaultLetsEncryptDirname,
 		)
+		cfg.CACertPath = filepath.Join(lndDir, defaultCACertFilename)
+		cfg.CAKeyPath = filepath.Join(lndDir, defaultCAKeyFilename)
 		cfg.TLSCertPath = filepath.Join(lndDir, defaultTLSCertFilename)
 		cfg.TLSKeyPath = filepath.Join(lndDir, defaultTLSKeyFilename)
 		cfg.LogDir = filepath.Join(lndDir, defaultLogDirname)
@@ -962,6 +972,8 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// to directories and files are cleaned and expanded before attempting
 	// to use them later on.
 	cfg.DataDir = CleanAndExpandPath(cfg.DataDir)
+	cfg.CACertPath = CleanAndExpandPath(cfg.CACertPath)
+	cfg.CAKeyPath = CleanAndExpandPath(cfg.CAKeyPath)
 	cfg.TLSCertPath = CleanAndExpandPath(cfg.TLSCertPath)
 	cfg.TLSKeyPath = CleanAndExpandPath(cfg.TLSKeyPath)
 	cfg.LetsEncryptDir = CleanAndExpandPath(cfg.LetsEncryptDir)
@@ -1382,6 +1394,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	dirs := []string{
 		lndDir, cfg.DataDir, cfg.networkDir,
 		cfg.LetsEncryptDir, towerDir, cfg.graphDatabaseDir(),
+		filepath.Dir(cfg.CACertPath), filepath.Dir(cfg.CAKeyPath),
 		filepath.Dir(cfg.TLSCertPath), filepath.Dir(cfg.TLSKeyPath),
 		filepath.Dir(cfg.AdminMacPath), filepath.Dir(cfg.ReadMacPath),
 		filepath.Dir(cfg.InvoiceMacPath),

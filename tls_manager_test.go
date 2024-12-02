@@ -114,7 +114,7 @@ func TestTLSManagerGenCert(t *testing.T) {
 		RootKey: privKey,
 	}
 
-	err = tlsManager.generateCertPair(keyRing)
+	err = tlsManager.generateCerts(keyRing)
 	require.NoError(t, err, "failed to generate new certificate")
 
 	_, keyBytes, err = cert.GetCertBytesFromPath(
@@ -160,7 +160,7 @@ func TestEnsureEncryption(t *testing.T) {
 
 	// ensureEncryption should detect that the TLS key is in plaintext,
 	// encrypt it, and rewrite the encrypted version to disk.
-	err = tlsManager.ensureEncryption(keyRing)
+	err = tlsManager.ensureEncryption(keyRing, certPath, keyPath)
 	require.NoError(t, err, "failed to generate new certificate")
 
 	// Grab the file from disk to check that the key is no longer
@@ -175,7 +175,7 @@ func TestEnsureEncryption(t *testing.T) {
 	// Now let's flip the cfg.TLSEncryptKey to false. Since the key on file
 	// is encrypted, ensureEncryption should error out.
 	tlsManager.cfg.TLSEncryptKey = false
-	err = tlsManager.ensureEncryption(keyRing)
+	err = tlsManager.ensureEncryption(keyRing, certPath, keyPath)
 	require.Error(t, err)
 }
 

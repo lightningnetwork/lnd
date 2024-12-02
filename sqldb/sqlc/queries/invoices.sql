@@ -54,6 +54,11 @@ WHERE (
 GROUP BY i.id
 LIMIT 2;
 
+-- name: GetInvoiceByHash :one
+SELECT i.*
+FROM invoices i
+WHERE i.hash = $1;
+
 -- name: GetInvoiceBySetID :many
 SELECT i.*
 FROM invoices i

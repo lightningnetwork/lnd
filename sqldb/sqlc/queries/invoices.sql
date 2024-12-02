@@ -48,9 +48,6 @@ WHERE (
     i.hash = sqlc.narg('hash') OR 
     sqlc.narg('hash') IS NULL
 ) AND (
-    i.preimage = sqlc.narg('preimage') OR 
-    sqlc.narg('preimage') IS NULL
-) AND (
     i.payment_addr = sqlc.narg('payment_addr') OR 
     sqlc.narg('payment_addr') IS NULL
 )

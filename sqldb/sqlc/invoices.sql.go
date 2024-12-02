@@ -191,11 +191,8 @@ WHERE (
     i.hash = $3 OR 
     $3 IS NULL
 ) AND (
-    i.preimage = $4 OR 
+    i.payment_addr = $4 OR 
     $4 IS NULL
-) AND (
-    i.payment_addr = $5 OR 
-    $5 IS NULL
 )
 GROUP BY i.id
 LIMIT 2
@@ -205,7 +202,6 @@ type GetInvoiceParams struct {
 	SetID       []byte
 	AddIndex    sql.NullInt64
 	Hash        []byte
-	Preimage    []byte
 	PaymentAddr []byte
 }
 
@@ -217,7 +213,6 @@ func (q *Queries) GetInvoice(ctx context.Context, arg GetInvoiceParams) ([]Invoi
 		arg.SetID,
 		arg.AddIndex,
 		arg.Hash,
-		arg.Preimage,
 		arg.PaymentAddr,
 	)
 	if err != nil {

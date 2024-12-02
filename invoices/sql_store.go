@@ -51,6 +51,9 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 	GetInvoice(ctx context.Context,
 		arg sqlc.GetInvoiceParams) ([]sqlc.Invoice, error)
 
+	GetInvoiceByHash(ctx context.Context, hash []byte) (sqlc.Invoice,
+		error)
+
 	GetInvoiceBySetID(ctx context.Context, setID []byte) ([]sqlc.Invoice,
 		error)
 
@@ -354,22 +357,31 @@ func (i *SQLStore) AddInvoice(ctx context.Context,
 	return newInvoice.AddIndex, nil
 }
 
-// fetchInvoice fetches the common invoice data and the AMP state for the
-// invoice with the given reference.
-func fetchInvoice(ctx context.Context, db SQLInvoiceQueries,
-	ref InvoiceRef) (*Invoice, error) {
+// getInvoiceByRef fetches the invoice with the given reference. The reference
+// may be a payment hash, a payment address, or a set ID for an AMP sub invoice.
+func getInvoiceByRef(ctx context.Context,
+	db SQLInvoiceQueries, ref InvoiceRef) (sqlc.Invoice, error) {
 
+	// If the reference is empty, we can't look up the invoice.
 	if ref.PayHash() == nil && ref.PayAddr() == nil && ref.SetID() == nil {
-		return nil, ErrInvoiceNotFound
+		return sqlc.Invoice{}, ErrInvoiceNotFound
 	}
 
-	var (
-		invoice *Invoice
-		params  sqlc.GetInvoiceParams
-	)
+	// If the reference is a hash only, we can look up the invoice directly
+	// by the payment hash which is faster.
+	if ref.IsHashOnly() {
+		invoice, err := db.GetInvoiceByHash(ctx, ref.PayHash()[:])
+		if errors.Is(err, sql.ErrNoRows) {
+			return sqlc.Invoice{}, ErrInvoiceNotFound
+		}
 
-	// Given all invoices are uniquely identified by their payment hash,
-	// we can use it to query a specific invoice.
+		return invoice, err
+	}
+
+	// Otherwise the reference may include more fields, so we'll need to
+	// assemble the query parameters based on the fields that are set.
+	var params sqlc.GetInvoiceParams
+
 	if ref.PayHash() != nil {
 		params.Hash = ref.PayHash()[:]
 	}
@@ -405,18 +417,34 @@ func fetchInvoice(ctx context.Context, db SQLInvoiceQueries,
 	} else {
 		rows, err = db.GetInvoice(ctx, params)
 	}
+
 	switch {
 	case len(rows) == 0:
-		return nil, ErrInvoiceNotFound
+		return sqlc.Invoice{}, ErrInvoiceNotFound
 
 	case len(rows) > 1:
 		// In case the reference is ambiguous, meaning it matches more
 		// than	one invoice, we'll return an error.
-		return nil, fmt.Errorf("ambiguous invoice ref: %s: %s",
-			ref.String(), spew.Sdump(rows))
+		return sqlc.Invoice{}, fmt.Errorf("ambiguous invoice ref: "+
+			"%s: %s", ref.String(), spew.Sdump(rows))
 
 	case err != nil:
-		return nil, fmt.Errorf("unable to fetch invoice: %w", err)
+		return sqlc.Invoice{}, fmt.Errorf("unable to fetch invoice: %w",
+			err)
+	}
+
+	return rows[0], nil
+}
+
+// fetchInvoice fetches the common invoice data and the AMP state for the
+// invoice with the given reference.
+func fetchInvoice(ctx context.Context, db SQLInvoiceQueries, ref InvoiceRef) (
+	*Invoice, error) {
+
+	// Fetch the invoice from the database.
+	sqlInvoice, err := getInvoiceByRef(ctx, db, ref)
+	if err != nil {
+		return nil, err
 	}
 
 	var (
@@ -433,8 +461,8 @@ func fetchInvoice(ctx context.Context, db SQLInvoiceQueries,
 		fetchAmpHtlcs = true
 
 	case HtlcSetOnlyModifier:
-		// In this case we'll fetch all AMP HTLCs for the
-		// specified set id.
+		// In this case we'll fetch all AMP HTLCs for the specified set
+		// id.
 		if ref.SetID() == nil {
 			return nil, fmt.Errorf("set ID is required to use " +
 				"the HTLC set only modifier")
@@ -454,8 +482,8 @@ func fetchInvoice(ctx context.Context, db SQLInvoiceQueries,
 	}
 
 	// Fetch the rest of the invoice data and fill the invoice struct.
-	_, invoice, err = fetchInvoiceData(
-		ctx, db, rows[0], setID, fetchAmpHtlcs,
+	_, invoice, err := fetchInvoiceData(
+		ctx, db, sqlInvoice, setID, fetchAmpHtlcs,
 	)
 	if err != nil {
 		return nil, err
@@ -658,7 +686,7 @@ func fetchAmpState(ctx context.Context, db SQLInvoiceQueries, invoiceID int64,
 
 				invoiceKeys[key] = struct{}{}
 
-				if htlc.State != HtlcStateCanceled { //nolint: ll
+				if htlc.State != HtlcStateCanceled {
 					amtPaid += htlc.Amt
 				}
 			}

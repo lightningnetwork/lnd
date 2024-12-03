@@ -3,6 +3,8 @@
 package itest
 
 import (
+	"fmt"
+
 	"github.com/lightningnetwork/lnd/lntest"
 )
 
@@ -682,19 +684,58 @@ var allTestCases = []*lntest.TestCase{
 	},
 }
 
+// appendPrefixed is used to add a prefix to each test name in the subtests
+// before appending them to the main test cases.
+func appendPrefixed(prefix string, testCases,
+	subtestCases []*lntest.TestCase) []*lntest.TestCase {
+
+	for _, tc := range subtestCases {
+		name := fmt.Sprintf("%s-%s", prefix, tc.Name)
+		testCases = append(testCases, &lntest.TestCase{
+			Name:     name,
+			TestFunc: tc.TestFunc,
+		})
+	}
+
+	return testCases
+}
+
 func init() {
 	// Register subtests.
-	allTestCases = append(allTestCases, multiHopForceCloseTestCases...)
-	allTestCases = append(allTestCases, watchtowerTestCases...)
-	allTestCases = append(allTestCases, psbtFundingTestCases...)
-	allTestCases = append(allTestCases, remoteSignerTestCases...)
-	allTestCases = append(allTestCases, channelRestoreTestCases...)
-	allTestCases = append(allTestCases, fundUtxoSelectionTestCases...)
-	allTestCases = append(allTestCases, zeroConfPolicyTestCases...)
-	allTestCases = append(allTestCases, channelFeePolicyTestCases...)
-	allTestCases = append(allTestCases, walletImportAccountTestCases...)
-	allTestCases = append(allTestCases, basicFundingTestCases...)
-	allTestCases = append(allTestCases, sendToRouteTestCases...)
+	allTestCases = appendPrefixed(
+		"multihop", allTestCases, multiHopForceCloseTestCases,
+	)
+	allTestCases = appendPrefixed(
+		"watchtower", allTestCases, watchtowerTestCases,
+	)
+	allTestCases = appendPrefixed(
+		"psbt", allTestCases, psbtFundingTestCases,
+	)
+	allTestCases = appendPrefixed(
+		"remote signer", allTestCases, remoteSignerTestCases,
+	)
+	allTestCases = appendPrefixed(
+		"channel backup", allTestCases, channelRestoreTestCases,
+	)
+	allTestCases = appendPrefixed(
+		"utxo selection", allTestCases, fundUtxoSelectionTestCases,
+	)
+	allTestCases = appendPrefixed(
+		"zero conf", allTestCases, zeroConfPolicyTestCases,
+	)
+	allTestCases = appendPrefixed(
+		"channel fee policy", allTestCases, channelFeePolicyTestCases,
+	)
+	allTestCases = appendPrefixed(
+		"wallet import account", allTestCases,
+		walletImportAccountTestCases,
+	)
+	allTestCases = appendPrefixed(
+		"funding", allTestCases, basicFundingTestCases,
+	)
+	allTestCases = appendPrefixed(
+		"send to route", allTestCases, sendToRouteTestCases,
+	)
 
 	// Prepare the test cases for windows to exclude some of the flaky
 	// ones.

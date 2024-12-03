@@ -28,15 +28,15 @@ import (
 // basicFundingTestCases defines the test cases for the basic funding test.
 var basicFundingTestCases = []*lntest.TestCase{
 	{
-		Name:     "basic funding flow static key remote",
+		Name:     "basic flow static key remote",
 		TestFunc: testBasicChannelFundingStaticRemote,
 	},
 	{
-		Name:     "basic funding flow anchor",
+		Name:     "basic flow anchor",
 		TestFunc: testBasicChannelFundingAnchor,
 	},
 	{
-		Name:     "basic funding flow simple taproot",
+		Name:     "basic flow simple taproot",
 		TestFunc: testBasicChannelFundingSimpleTaproot,
 	},
 }

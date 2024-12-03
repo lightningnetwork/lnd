@@ -23,15 +23,15 @@ import (
 // watchtower client and server.
 var watchtowerTestCases = []*lntest.TestCase{
 	{
-		Name:     "watchtower revoked close retribution altruist",
+		Name:     "revoked close retribution altruist",
 		TestFunc: testRevokedCloseRetributionAltruistWatchtower,
 	},
 	{
-		Name:     "watchtower client session deletion",
+		Name:     "client session deletion",
 		TestFunc: testTowerClientSessionDeletion,
 	},
 	{
-		Name:     "watchtower client tower and session management",
+		Name:     "client tower and session management",
 		TestFunc: testTowerClientTowerAndSessionManagement,
 	},
 }

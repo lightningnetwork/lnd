@@ -22,21 +22,21 @@ import (
 
 var sendToRouteTestCases = []*lntest.TestCase{
 	{
-		Name: "single hop send to route sync",
+		Name: "single hop with sync",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			// useStream: false, routerrpc: false.
 			testSingleHopSendToRouteCase(ht, false, false)
 		},
 	},
 	{
-		Name: "single hop send to route stream",
+		Name: "single hop with stream",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			// useStream: true, routerrpc: false.
 			testSingleHopSendToRouteCase(ht, true, false)
 		},
 	},
 	{
-		Name: "single hop send to route v2",
+		Name: "single hop with v2",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			// useStream: false, routerrpc: true.
 			testSingleHopSendToRouteCase(ht, false, true)

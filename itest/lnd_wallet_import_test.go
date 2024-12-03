@@ -31,15 +31,7 @@ import (
 //nolint:ll
 var walletImportAccountTestCases = []*lntest.TestCase{
 	{
-		Name: "wallet import account standard BIP-0044",
-		TestFunc: func(ht *lntest.HarnessTest) {
-			testWalletImportAccountScenario(
-				ht, walletrpc.AddressType_WITNESS_PUBKEY_HASH,
-			)
-		},
-	},
-	{
-		Name: "wallet import account standard BIP-0049",
+		Name: "standard BIP-0049",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			testWalletImportAccountScenario(
 				ht, walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH,
@@ -47,7 +39,7 @@ var walletImportAccountTestCases = []*lntest.TestCase{
 		},
 	},
 	{
-		Name: "wallet import account lnd BIP-0049 variant",
+		Name: "lnd BIP-0049 variant",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			testWalletImportAccountScenario(
 				ht, walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH,
@@ -55,7 +47,7 @@ var walletImportAccountTestCases = []*lntest.TestCase{
 		},
 	},
 	{
-		Name: "wallet import account standard BIP-0084",
+		Name: "standard BIP-0084",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			testWalletImportAccountScenario(
 				ht, walletrpc.AddressType_WITNESS_PUBKEY_HASH,
@@ -63,7 +55,7 @@ var walletImportAccountTestCases = []*lntest.TestCase{
 		},
 	},
 	{
-		Name: "wallet import account standard BIP-0086",
+		Name: "standard BIP-0086",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			testWalletImportAccountScenario(
 				ht, walletrpc.AddressType_TAPROOT_PUBKEY,

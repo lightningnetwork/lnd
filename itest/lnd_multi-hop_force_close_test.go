@@ -29,171 +29,171 @@ var leasedType = lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE
 //nolint:ll
 var multiHopForceCloseTestCases = []*lntest.TestCase{
 	{
-		Name:     "multihop local claim outgoing htlc anchor",
+		Name:     "local claim outgoing htlc anchor",
 		TestFunc: testLocalClaimOutgoingHTLCAnchor,
 	},
 	{
-		Name:     "multihop local claim outgoing htlc anchor zero conf",
+		Name:     "local claim outgoing htlc anchor zero conf",
 		TestFunc: testLocalClaimOutgoingHTLCAnchorZeroConf,
 	},
 	{
-		Name:     "multihop local claim outgoing htlc simple taproot",
+		Name:     "local claim outgoing htlc simple taproot",
 		TestFunc: testLocalClaimOutgoingHTLCSimpleTaproot,
 	},
 	{
-		Name:     "multihop local claim outgoing htlc simple taproot zero conf",
+		Name:     "local claim outgoing htlc simple taproot zero conf",
 		TestFunc: testLocalClaimOutgoingHTLCSimpleTaprootZeroConf,
 	},
 	{
-		Name:     "multihop local claim outgoing htlc leased",
+		Name:     "local claim outgoing htlc leased",
 		TestFunc: testLocalClaimOutgoingHTLCLeased,
 	},
 	{
-		Name:     "multihop local claim outgoing htlc leased zero conf",
+		Name:     "local claim outgoing htlc leased zero conf",
 		TestFunc: testLocalClaimOutgoingHTLCLeasedZeroConf,
 	},
 	{
-		Name:     "multihop receiver preimage claim anchor",
+		Name:     "receiver preimage claim anchor",
 		TestFunc: testMultiHopReceiverPreimageClaimAnchor,
 	},
 	{
-		Name:     "multihop receiver preimage claim anchor zero conf",
+		Name:     "receiver preimage claim anchor zero conf",
 		TestFunc: testMultiHopReceiverPreimageClaimAnchorZeroConf,
 	},
 	{
-		Name:     "multihop receiver preimage claim simple taproot",
+		Name:     "receiver preimage claim simple taproot",
 		TestFunc: testMultiHopReceiverPreimageClaimSimpleTaproot,
 	},
 	{
-		Name:     "multihop receiver preimage claim simple taproot zero conf",
+		Name:     "receiver preimage claim simple taproot zero conf",
 		TestFunc: testMultiHopReceiverPreimageClaimSimpleTaprootZeroConf,
 	},
 	{
-		Name:     "multihop receiver preimage claim leased",
+		Name:     "receiver preimage claim leased",
 		TestFunc: testMultiHopReceiverPreimageClaimLeased,
 	},
 	{
-		Name:     "multihop receiver preimage claim leased zero conf",
+		Name:     "receiver preimage claim leased zero conf",
 		TestFunc: testMultiHopReceiverPreimageClaimLeasedZeroConf,
 	},
 	{
-		Name:     "multihop local force close before timeout anchor",
+		Name:     "local force close before timeout anchor",
 		TestFunc: testLocalForceCloseBeforeTimeoutAnchor,
 	},
 	{
-		Name:     "multihop local force close before timeout anchor zero conf",
+		Name:     "local force close before timeout anchor zero conf",
 		TestFunc: testLocalForceCloseBeforeTimeoutAnchorZeroConf,
 	},
 	{
-		Name:     "multihop local force close before timeout simple taproot",
+		Name:     "local force close before timeout simple taproot",
 		TestFunc: testLocalForceCloseBeforeTimeoutSimpleTaproot,
 	},
 	{
-		Name:     "multihop local force close before timeout simple taproot zero conf",
+		Name:     "local force close before timeout simple taproot zero conf",
 		TestFunc: testLocalForceCloseBeforeTimeoutSimpleTaprootZeroConf,
 	},
 	{
-		Name:     "multihop local force close before timeout leased",
+		Name:     "local force close before timeout leased",
 		TestFunc: testLocalForceCloseBeforeTimeoutLeased,
 	},
 	{
-		Name:     "multihop local force close before timeout leased zero conf",
+		Name:     "local force close before timeout leased zero conf",
 		TestFunc: testLocalForceCloseBeforeTimeoutLeasedZeroConf,
 	},
 	{
-		Name:     "multihop remote force close before timeout anchor",
+		Name:     "remote force close before timeout anchor",
 		TestFunc: testRemoteForceCloseBeforeTimeoutAnchor,
 	},
 	{
-		Name:     "multihop remote force close before timeout anchor zero conf",
+		Name:     "remote force close before timeout anchor zero conf",
 		TestFunc: testRemoteForceCloseBeforeTimeoutAnchorZeroConf,
 	},
 	{
-		Name:     "multihop remote force close before timeout simple taproot",
+		Name:     "remote force close before timeout simple taproot",
 		TestFunc: testRemoteForceCloseBeforeTimeoutSimpleTaproot,
 	},
 	{
-		Name:     "multihop remote force close before timeout simple taproot zero conf",
+		Name:     "remote force close before timeout simple taproot zero conf",
 		TestFunc: testRemoteForceCloseBeforeTimeoutSimpleTaprootZeroConf,
 	},
 	{
-		Name:     "multihop remote force close before timeout leased",
+		Name:     "remote force close before timeout leased",
 		TestFunc: testRemoteForceCloseBeforeTimeoutLeased,
 	},
 	{
-		Name:     "multihop remote force close before timeout leased zero conf",
+		Name:     "remote force close before timeout leased zero conf",
 		TestFunc: testRemoteForceCloseBeforeTimeoutLeasedZeroConf,
 	},
 	{
-		Name:     "multihop local claim incoming htlc anchor",
+		Name:     "local claim incoming htlc anchor",
 		TestFunc: testLocalClaimIncomingHTLCAnchor,
 	},
 	{
-		Name:     "multihop local claim incoming htlc anchor zero conf",
+		Name:     "local claim incoming htlc anchor zero conf",
 		TestFunc: testLocalClaimIncomingHTLCAnchorZeroConf,
 	},
 	{
-		Name:     "multihop local claim incoming htlc simple taproot",
+		Name:     "local claim incoming htlc simple taproot",
 		TestFunc: testLocalClaimIncomingHTLCSimpleTaproot,
 	},
 	{
-		Name:     "multihop local claim incoming htlc simple taproot zero conf",
+		Name:     "local claim incoming htlc simple taproot zero conf",
 		TestFunc: testLocalClaimIncomingHTLCSimpleTaprootZeroConf,
 	},
 	{
-		Name:     "multihop local claim incoming htlc leased",
+		Name:     "local claim incoming htlc leased",
 		TestFunc: testLocalClaimIncomingHTLCLeased,
 	},
 	{
-		Name:     "multihop local claim incoming htlc leased zero conf",
+		Name:     "local claim incoming htlc leased zero conf",
 		TestFunc: testLocalClaimIncomingHTLCLeasedZeroConf,
 	},
 	{
-		Name:     "multihop local preimage claim anchor",
+		Name:     "local preimage claim anchor",
 		TestFunc: testLocalPreimageClaimAnchor,
 	},
 	{
-		Name:     "multihop local preimage claim anchor zero conf",
+		Name:     "local preimage claim anchor zero conf",
 		TestFunc: testLocalPreimageClaimAnchorZeroConf,
 	},
 	{
-		Name:     "multihop local preimage claim simple taproot",
+		Name:     "local preimage claim simple taproot",
 		TestFunc: testLocalPreimageClaimSimpleTaproot,
 	},
 	{
-		Name:     "multihop local preimage claim simple taproot zero conf",
+		Name:     "local preimage claim simple taproot zero conf",
 		TestFunc: testLocalPreimageClaimSimpleTaprootZeroConf,
 	},
 	{
-		Name:     "multihop local preimage claim leased",
+		Name:     "local preimage claim leased",
 		TestFunc: testLocalPreimageClaimLeased,
 	},
 	{
-		Name:     "multihop local preimage claim leased zero conf",
+		Name:     "local preimage claim leased zero conf",
 		TestFunc: testLocalPreimageClaimLeasedZeroConf,
 	},
 	{
-		Name:     "multihop htlc aggregation anchor",
+		Name:     "htlc aggregation anchor",
 		TestFunc: testHtlcAggregaitonAnchor,
 	},
 	{
-		Name:     "multihop htlc aggregation anchor zero conf",
+		Name:     "htlc aggregation anchor zero conf",
 		TestFunc: testHtlcAggregaitonAnchorZeroConf,
 	},
 	{
-		Name:     "multihop htlc aggregation simple taproot",
+		Name:     "htlc aggregation simple taproot",
 		TestFunc: testHtlcAggregaitonSimpleTaproot,
 	},
 	{
-		Name:     "multihop htlc aggregation simple taproot zero conf",
+		Name:     "htlc aggregation simple taproot zero conf",
 		TestFunc: testHtlcAggregaitonSimpleTaprootZeroConf,
 	},
 	{
-		Name:     "multihop htlc aggregation leased",
+		Name:     "htlc aggregation leased",
 		TestFunc: testHtlcAggregaitonLeased,
 	},
 	{
-		Name:     "multihop htlc aggregation leased zero conf",
+		Name:     "htlc aggregation leased zero conf",
 		TestFunc: testHtlcAggregaitonLeasedZeroConf,
 	},
 }

@@ -18,7 +18,9 @@ var excludedTestsWindows = []string{
 	"zero conf channel open",
 	"open channel with unstable utxos",
 	"funding flow persistence",
-	"channel policy update public zero conf",
+
+	// Gives "channel link not found" error.
+	"zero conf-channel policy update public zero conf",
 
 	"listsweeps",
 	"sweep htlcs",
@@ -30,12 +32,12 @@ var excludedTestsWindows = []string{
 	"async payments benchmark",
 	"async bidirectional payments",
 
-	"multihop htlc aggregation leased",
-	"multihop htlc aggregation leased zero conf",
-	"multihop htlc aggregation anchor",
-	"multihop htlc aggregation anchor zero conf",
-	"multihop htlc aggregation simple taproot",
-	"multihop htlc aggregation simple taproot zero conf",
+	"multihop-htlc aggregation leased",
+	"multihop-htlc aggregation leased zero conf",
+	"multihop-htlc aggregation anchor",
+	"multihop-htlc aggregation anchor zero conf",
+	"multihop-htlc aggregation simple taproot",
+	"multihop-htlc aggregation simple taproot zero conf",
 
 	"channel force closure anchor",
 	"channel force closure simple taproot",
@@ -50,18 +52,18 @@ var excludedTestsWindows = []string{
 	"invoice HTLC modifier basic",
 	"lookup htlc resolution",
 
-	"remote signer taproot",
-	"remote signer account import",
-	"remote signer bump fee",
-	"remote signer funding input types",
-	"remote signer funding async payments taproot",
-	"remote signer funding async payments",
-	"remote signer random seed",
-	"remote signer verify msg",
-	"remote signer channel open",
-	"remote signer shared key",
-	"remote signer psbt",
-	"remote signer sign output raw",
+	"remote signer-taproot",
+	"remote signer-account import",
+	"remote signer-bump fee",
+	"remote signer-funding input types",
+	"remote signer-funding async payments taproot",
+	"remote signer-funding async payments",
+	"remote signer-random seed",
+	"remote signer-verify msg",
+	"remote signer-channel open",
+	"remote signer-shared key",
+	"remote signer-psbt",
+	"remote signer-sign output raw",
 
 	"on chain to blinded",
 	"query blinded route",
@@ -101,7 +103,8 @@ func filterWindowsFlakyTests() []*lntest.TestCase {
 	errStr := "\nThe following tests are not found, please make sure the " +
 		"test names are correct in `excludedTestsWindows`.\n"
 	for _, name := range excludedSet.ToSlice() {
-		errStr += fmt.Sprintf("Test not found in test suite: %v", name)
+		errStr += fmt.Sprintf("Test not found in test suite: %v\n",
+			name)
 	}
 
 	panic(errStr)

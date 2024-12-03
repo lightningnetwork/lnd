@@ -959,6 +959,17 @@ func (f *mockChannelLink) CommitmentCustomBlob() fn.Option[tlv.Blob] {
 	return fn.None[tlv.Blob]()
 }
 
+// AuxBandwidth returns the bandwidth that can be used for a channel,
+// expressed in milli-satoshi. This might be different from the regular
+// BTC bandwidth for custom channels. This will always return fn.None()
+// for a regular (non-custom) channel.
+func (f *mockChannelLink) AuxBandwidth(lnwire.MilliSatoshi,
+	lnwire.ShortChannelID,
+	fn.Option[tlv.Blob], AuxTrafficShaper) fn.Result[OptionalBandwidth] {
+
+	return fn.Ok(fn.None[lnwire.MilliSatoshi]())
+}
+
 var _ ChannelLink = (*mockChannelLink)(nil)
 
 func newDB() (*channeldb.DB, func(), error) {

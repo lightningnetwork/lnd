@@ -5,6 +5,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -53,7 +54,8 @@ type SessionSource struct {
 // payment's destination.
 func (m *SessionSource) NewPaymentSession(p *LightningPayment,
 	firstHopBlob fn.Option[tlv.Blob],
-	trafficShaper fn.Option[TlvTrafficShaper]) (PaymentSession, error) {
+	trafficShaper fn.Option[htlcswitch.AuxTrafficShaper]) (PaymentSession,
+	error) {
 
 	getBandwidthHints := func(graph Graph) (bandwidthHints, error) {
 		return newBandwidthManager(

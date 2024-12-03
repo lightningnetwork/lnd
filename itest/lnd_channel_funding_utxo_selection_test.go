@@ -17,31 +17,31 @@ import (
 
 var fundUtxoSelectionTestCases = []*lntest.TestCase{
 	{
-		Name:     "utxo selection funding error",
+		Name:     "funding error",
 		TestFunc: testChannelUtxoSelectionError,
 	},
 	{
-		Name:     "utxo selection selected valid chan size",
+		Name:     "selected valid chan size",
 		TestFunc: testUtxoSelectionSelectedValidChanSize,
 	},
 	{
-		Name:     "utxo selection selected valid chan reserve",
+		Name:     "selected valid chan reserve",
 		TestFunc: testUtxoSelectionSelectedValidChanReserve,
 	},
 	{
-		Name:     "utxo selection selected reserve from selected",
+		Name:     "selected reserve from selected",
 		TestFunc: testUtxoSelectionReserveFromSelected,
 	},
 	{
-		Name:     "utxo selection fundmax",
+		Name:     "fundmax",
 		TestFunc: testUtxoSelectionFundmax,
 	},
 	{
-		Name:     "utxo selection fundmax reserve",
+		Name:     "fundmax reserve",
 		TestFunc: testUtxoSelectionFundmaxReserve,
 	},
 	{
-		Name:     "utxo selection reused utxo",
+		Name:     "reused utxo",
 		TestFunc: testUtxoSelectionReuseUTXO,
 	},
 }

@@ -20,51 +20,51 @@ import (
 // signer.
 var remoteSignerTestCases = []*lntest.TestCase{
 	{
-		Name:     "remote signer random seed",
+		Name:     "random seed",
 		TestFunc: testRemoteSignerRadomSeed,
 	},
 	{
-		Name:     "remote signer account import",
+		Name:     "account import",
 		TestFunc: testRemoteSignerAccountImport,
 	},
 	{
-		Name:     "remote signer channel open",
+		Name:     "channel open",
 		TestFunc: testRemoteSignerChannelOpen,
 	},
 	{
-		Name:     "remote signer funding input types",
+		Name:     "funding input types",
 		TestFunc: testRemoteSignerChannelFundingInputTypes,
 	},
 	{
-		Name:     "remote signer funding async payments",
+		Name:     "funding async payments",
 		TestFunc: testRemoteSignerAsyncPayments,
 	},
 	{
-		Name:     "remote signer funding async payments taproot",
+		Name:     "funding async payments taproot",
 		TestFunc: testRemoteSignerAsyncPaymentsTaproot,
 	},
 	{
-		Name:     "remote signer shared key",
+		Name:     "shared key",
 		TestFunc: testRemoteSignerSharedKey,
 	},
 	{
-		Name:     "remote signer bump fee",
+		Name:     "bump fee",
 		TestFunc: testRemoteSignerBumpFee,
 	},
 	{
-		Name:     "remote signer psbt",
+		Name:     "psbt",
 		TestFunc: testRemoteSignerPSBT,
 	},
 	{
-		Name:     "remote signer sign output raw",
+		Name:     "sign output raw",
 		TestFunc: testRemoteSignerSignOutputRaw,
 	},
 	{
-		Name:     "remote signer verify msg",
+		Name:     "verify msg",
 		TestFunc: testRemoteSignerSignVerifyMsg,
 	},
 	{
-		Name:     "remote signer taproot",
+		Name:     "taproot",
 		TestFunc: testRemoteSignerTaproot,
 	},
 }

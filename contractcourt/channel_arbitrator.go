@@ -2861,7 +2861,8 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 		// needed. We'll mark the channel as resolved and exit.
 		case closeInfo := <-c.cfg.ChainEvents.CooperativeClosure:
 			log.Infof("ChannelArbitrator(%v) marking channel "+
-				"cooperatively closed", c.cfg.ChanPoint)
+				"cooperatively closed at height %v",
+				c.cfg.ChanPoint, closeInfo.CloseHeight)
 
 			err := c.cfg.MarkChannelClosed(
 				closeInfo.ChannelCloseSummary,
@@ -2986,7 +2987,8 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 		// all.
 		case uniClosure := <-c.cfg.ChainEvents.RemoteUnilateralClosure:
 			log.Infof("ChannelArbitrator(%v): remote party has "+
-				"closed channel out on-chain", c.cfg.ChanPoint)
+				"force closed channel at height %v",
+				c.cfg.ChanPoint, uniClosure.SpendingHeight)
 
 			// If we don't have a self output, and there are no
 			// active HTLC's, then we can immediately mark the
@@ -3055,8 +3057,11 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 		// anything in particular, so just advance our state and
 		// gracefully exit.
 		case breachInfo := <-c.cfg.ChainEvents.ContractBreach:
+			closeSummary := &breachInfo.CloseSummary
+
 			log.Infof("ChannelArbitrator(%v): remote party has "+
-				"breached channel!", c.cfg.ChanPoint)
+				"breached channel at height %v!",
+				c.cfg.ChanPoint, closeSummary.CloseHeight)
 
 			// In the breach case, we'll only have anchor and
 			// breach resolutions.
@@ -3088,7 +3093,6 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 			// The channel is finally marked pending closed here as
 			// the BreachArbitrator and channel arbitrator have
 			// persisted the relevant states.
-			closeSummary := &breachInfo.CloseSummary
 			err = c.cfg.MarkChannelClosed(
 				closeSummary,
 				channeldb.ChanStatusRemoteCloseInitiator,
@@ -3105,8 +3109,8 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 			// We'll advance our state machine until it reaches a
 			// terminal state.
 			_, _, err = c.advanceState(
-				uint32(bestHeight), breachCloseTrigger,
-				&breachInfo.CommitSet,
+				closeSummary.CloseHeight,
+				breachCloseTrigger, &breachInfo.CommitSet,
 			)
 			if err != nil {
 				log.Errorf("Unable to advance state: %v", err)

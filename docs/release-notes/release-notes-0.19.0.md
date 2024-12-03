@@ -196,6 +196,11 @@ The underlying functionality between those two options remain the same.
   for the Gossip 1.75 protocol.
 
 ## Testing
+
+* LND [uses](https://github.com/lightningnetwork/lnd/pull/9257) the feerate
+  estimator provided by bitcoind or btcd in regtest and simnet modes instead of
+  static fee estimator if feeurl is not provided.
+
 ## Database
 
 * [Migrate the mission control 

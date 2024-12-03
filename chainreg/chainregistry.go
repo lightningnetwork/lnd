@@ -385,8 +385,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		)
 		cc.ChainSource = bitcoindConn.NewBitcoindClient()
 
-		// If we're not in regtest mode, then we'll attempt to use a
-		// proper fee estimator for testnet.
+		// Initialize config to connect to bitcoind RPC.
 		rpcConfig := &rpcclient.ConnConfig{
 			Host:                 bitcoindHost,
 			User:                 bitcoindMode.RPCUser,
@@ -396,7 +395,9 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			DisableTLS:           true,
 			HTTPPostMode:         true,
 		}
-		if !cfg.Bitcoin.RegTest {
+
+		// If feeurl is not provided, use bitcoind's fee estimator.
+		if cfg.Fee.URL == "" {
 			log.Infof("Initializing bitcoind backed fee estimator "+
 				"in %s mode", bitcoindMode.EstimateMode)
 
@@ -660,9 +661,8 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			return checkOutboundPeers(chainRPC.Client)
 		}
 
-		// If we're not in simnet or regtest mode, then we'll attempt
-		// to use a proper fee estimator for testnet.
-		if !cfg.Bitcoin.SimNet && !cfg.Bitcoin.RegTest {
+		// If feeurl is not provided, use btcd's fee estimator.
+		if cfg.Fee.URL == "" {
 			log.Info("Initializing btcd backed fee estimator")
 
 			// Finally, we'll re-initialize the fee estimator, as

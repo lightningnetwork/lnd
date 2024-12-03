@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 )
 
 var (

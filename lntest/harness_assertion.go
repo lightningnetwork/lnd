@@ -19,7 +19,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -270,7 +270,7 @@ func (h *HarnessTest) AssertNumActiveEdges(hn *node.HarnessNode,
 			IncludeUnannounced: includeUnannounced,
 		}
 		resp := hn.RPC.DescribeGraph(req)
-		activeEdges := fn.Filter(filterDisabled, resp.Edges)
+		activeEdges := fn.Filter(resp.Edges, filterDisabled)
 		total := len(activeEdges)
 
 		if total-old == expected {

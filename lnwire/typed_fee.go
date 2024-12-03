@@ -46,10 +46,10 @@ func feeDecoder(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 	}
 
 	var baseFee, feeRate uint32
-	if err := tlv.DUint32(r, &baseFee, buf, 4); err != nil { //nolint: gomnd,lll
+	if err := tlv.DUint32(r, &baseFee, buf, 4); err != nil {
 		return err
 	}
-	if err := tlv.DUint32(r, &feeRate, buf, 4); err != nil { //nolint: gomnd,lll
+	if err := tlv.DUint32(r, &feeRate, buf, 4); err != nil {
 		return err
 	}
 

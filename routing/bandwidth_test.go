@@ -118,7 +118,9 @@ func TestBandwidthManager(t *testing.T) {
 			m, err := newBandwidthManager(
 				g, sourceNode.pubkey, testCase.linkQuery,
 				fn.None[[]byte](),
-				fn.Some[TlvTrafficShaper](&mockTrafficShaper{}),
+				fn.Some[htlcswitch.AuxTrafficShaper](
+					&mockTrafficShaper{},
+				),
 			)
 			require.NoError(t, err)
 

@@ -3415,6 +3415,48 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 	return nil
 }
 
+// AuxBandwidth returns the bandwidth that can be used for a channel, expressed
+// in milli-satoshi. This might be different from the regular BTC bandwidth for
+// custom channels. This will always return fn.None() for a regular (non-custom)
+// channel.
+func (l *channelLink) AuxBandwidth(amount lnwire.MilliSatoshi,
+	cid lnwire.ShortChannelID, htlcBlob fn.Option[tlv.Blob],
+	ts AuxTrafficShaper) fn.Result[OptionalBandwidth] {
+
+	unknownBandwidth := fn.None[lnwire.MilliSatoshi]()
+
+	fundingBlob := l.FundingCustomBlob()
+	shouldHandle, err := ts.ShouldHandleTraffic(cid, fundingBlob)
+	if err != nil {
+		return fn.Err[OptionalBandwidth](fmt.Errorf("traffic shaper "+
+			"failed to decide whether to handle traffic: %w", err))
+	}
+
+	log.Debugf("ShortChannelID=%v: aux traffic shaper is handling "+
+		"traffic: %v", cid, shouldHandle)
+
+	// If this channel isn't handled by the aux traffic shaper, we'll return
+	// early.
+	if !shouldHandle {
+		return fn.Ok(unknownBandwidth)
+	}
+
+	// Ask for a specific bandwidth to be used for the channel.
+	commitmentBlob := l.CommitmentCustomBlob()
+	auxBandwidth, err := ts.PaymentBandwidth(
+		htlcBlob, commitmentBlob, l.Bandwidth(), amount,
+	)
+	if err != nil {
+		return fn.Err[OptionalBandwidth](fmt.Errorf("failed to get "+
+			"bandwidth from external traffic shaper: %w", err))
+	}
+
+	log.Debugf("ShortChannelID=%v: aux traffic shaper reported available "+
+		"bandwidth: %v", cid, auxBandwidth)
+
+	return fn.Ok(fn.Some(auxBandwidth))
+}
+
 // Stats returns the statistics of channel link.
 //
 // NOTE: Part of the ChannelLink interface.

@@ -673,7 +673,7 @@ func TestResumePaymentFailOnTimeout(t *testing.T) {
 	ps := &channeldb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
-	m.payment.On("GetState").Return(ps).Once()
+	m.payment.On("GetState").Return(ps).Twice()
 
 	// NOTE: GetStatus is only used to populate the logs which is not
 	// critical, so we loosen the checks on how many times it's been called.
@@ -730,7 +730,7 @@ func TestResumePaymentFailOnTimeoutErr(t *testing.T) {
 	ps := &channeldb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
-	m.payment.On("GetState").Return(ps).Once()
+	m.payment.On("GetState").Return(ps).Twice()
 
 	// NOTE: GetStatus is only used to populate the logs which is
 	// not critical so we loosen the checks on how many times it's
@@ -773,7 +773,7 @@ func TestResumePaymentFailContextCancel(t *testing.T) {
 	ps := &channeldb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
-	m.payment.On("GetState").Return(ps).Once()
+	m.payment.On("GetState").Return(ps).Twice()
 
 	// NOTE: GetStatus is only used to populate the logs which is not
 	// critical, so we loosen the checks on how many times it's been called.
@@ -826,7 +826,7 @@ func TestResumePaymentFailOnStepErr(t *testing.T) {
 	ps := &channeldb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
-	m.payment.On("GetState").Return(ps).Once()
+	m.payment.On("GetState").Return(ps).Twice()
 
 	// NOTE: GetStatus is only used to populate the logs which is
 	// not critical so we loosen the checks on how many times it's
@@ -864,7 +864,7 @@ func TestResumePaymentFailOnRequestRouteErr(t *testing.T) {
 	ps := &channeldb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
-	m.payment.On("GetState").Return(ps).Once()
+	m.payment.On("GetState").Return(ps).Twice()
 
 	// NOTE: GetStatus is only used to populate the logs which is
 	// not critical so we loosen the checks on how many times it's
@@ -910,7 +910,7 @@ func TestResumePaymentFailOnRegisterAttemptErr(t *testing.T) {
 	ps := &channeldb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
-	m.payment.On("GetState").Return(ps).Once()
+	m.payment.On("GetState").Return(ps).Twice()
 
 	// NOTE: GetStatus is only used to populate the logs which is
 	// not critical so we loosen the checks on how many times it's
@@ -970,7 +970,7 @@ func TestResumePaymentFailOnSendAttemptErr(t *testing.T) {
 	ps := &channeldb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
-	m.payment.On("GetState").Return(ps).Once()
+	m.payment.On("GetState").Return(ps).Twice()
 
 	// NOTE: GetStatus is only used to populate the logs which is
 	// not critical so we loosen the checks on how many times it's
@@ -1062,7 +1062,7 @@ func TestResumePaymentSuccess(t *testing.T) {
 	ps := &channeldb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
-	m.payment.On("GetState").Return(ps).Once()
+	m.payment.On("GetState").Return(ps).Twice()
 
 	// NOTE: GetStatus is only used to populate the logs which is
 	// not critical so we loosen the checks on how many times it's
@@ -1163,7 +1163,7 @@ func TestResumePaymentSuccessWithTwoAttempts(t *testing.T) {
 	ps := &channeldb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
-	m.payment.On("GetState").Return(ps).Once()
+	m.payment.On("GetState").Return(ps).Twice()
 
 	// NOTE: GetStatus is only used to populate the logs which is
 	// not critical so we loosen the checks on how many times it's

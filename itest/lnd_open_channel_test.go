@@ -21,23 +21,23 @@ import (
 // policy fee behavior.
 var channelFeePolicyTestCases = []*lntest.TestCase{
 	{
-		Name:     "channel fee policy default",
+		Name:     "default",
 		TestFunc: testChannelFeePolicyDefault,
 	},
 	{
-		Name:     "channel fee policy base fee",
+		Name:     "base fee",
 		TestFunc: testChannelFeePolicyBaseFee,
 	},
 	{
-		Name:     "channel fee policy fee rate",
+		Name:     "fee rate",
 		TestFunc: testChannelFeePolicyFeeRate,
 	},
 	{
-		Name:     "channel fee policy base fee and fee rate",
+		Name:     "base fee and fee rate",
 		TestFunc: testChannelFeePolicyBaseFeeAndFeeRate,
 	},
 	{
-		Name:     "channel fee policy low base fee and fee rate",
+		Name:     "low base fee and fee rate",
 		TestFunc: testChannelFeePolicyLowBaseFeeAndFeeRate,
 	},
 }

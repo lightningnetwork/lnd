@@ -29,7 +29,7 @@ var channelRestoreTestCases = []*lntest.TestCase{
 	{
 		// Restore the backup from the on-disk file, using the RPC
 		// interface, for anchor commitment channels.
-		Name: "channel backup restore anchor",
+		Name: "restore anchor",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			runChanRestoreScenarioCommitTypes(
 				ht, lnrpc.CommitmentType_ANCHORS, false,
@@ -39,7 +39,7 @@ var channelRestoreTestCases = []*lntest.TestCase{
 	{
 		// Restore the backup from the on-disk file, using the RPC
 		// interface, for script-enforced leased channels.
-		Name: "channel backup restore leased",
+		Name: "restore leased",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			runChanRestoreScenarioCommitTypes(
 				ht, leasedType, false,
@@ -49,7 +49,7 @@ var channelRestoreTestCases = []*lntest.TestCase{
 	{
 		// Restore the backup from the on-disk file, using the RPC
 		// interface, for zero-conf anchor channels.
-		Name: "channel backup restore anchor zero conf",
+		Name: "restore anchor zero conf",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			runChanRestoreScenarioCommitTypes(
 				ht, lnrpc.CommitmentType_ANCHORS, true,
@@ -59,7 +59,7 @@ var channelRestoreTestCases = []*lntest.TestCase{
 	{
 		// Restore the backup from the on-disk file, using the RPC
 		// interface for a zero-conf script-enforced leased channel.
-		Name: "channel backup restore leased zero conf",
+		Name: "restore leased zero conf",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			runChanRestoreScenarioCommitTypes(
 				ht, leasedType, true,
@@ -69,7 +69,7 @@ var channelRestoreTestCases = []*lntest.TestCase{
 	{
 		// Restore a channel back up of a taproot channel that was
 		// confirmed.
-		Name: "channel backup restore simple taproot",
+		Name: "restore simple taproot",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			runChanRestoreScenarioCommitTypes(
 				ht, lnrpc.CommitmentType_SIMPLE_TAPROOT, false,
@@ -78,7 +78,7 @@ var channelRestoreTestCases = []*lntest.TestCase{
 	},
 	{
 		// Restore a channel back up of an unconfirmed taproot channel.
-		Name: "channel backup restore simple taproot zero conf",
+		Name: "restore simple taproot zero conf",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			runChanRestoreScenarioCommitTypes(
 				ht, lnrpc.CommitmentType_SIMPLE_TAPROOT, true,
@@ -86,23 +86,23 @@ var channelRestoreTestCases = []*lntest.TestCase{
 		},
 	},
 	{
-		Name:     "channel backup restore from rpc",
+		Name:     "restore from rpc",
 		TestFunc: testChannelBackupRestoreFromRPC,
 	},
 	{
-		Name:     "channel backup restore from file",
+		Name:     "restore from file",
 		TestFunc: testChannelBackupRestoreFromFile,
 	},
 	{
-		Name:     "channel backup restore during creation",
+		Name:     "restore during creation",
 		TestFunc: testChannelBackupRestoreDuringCreation,
 	},
 	{
-		Name:     "channel backup restore during unlock",
+		Name:     "restore during unlock",
 		TestFunc: testChannelBackupRestoreDuringUnlock,
 	},
 	{
-		Name:     "channel backup restore twice",
+		Name:     "restore twice",
 		TestFunc: testChannelBackupRestoreTwice,
 	},
 }

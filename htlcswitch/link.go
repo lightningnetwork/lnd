@@ -3233,11 +3233,11 @@ func (l *channelLink) UpdateForwardingPolicy(
 // issue.
 //
 // NOTE: Part of the ChannelLink interface.
-func (l *channelLink) CheckHtlcForward(payHash [32]byte,
-	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi,
-	incomingTimeout, outgoingTimeout uint32,
-	inboundFee models.InboundFee,
-	heightNow uint32, originalScid lnwire.ShortChannelID) *LinkError {
+func (l *channelLink) CheckHtlcForward(payHash [32]byte, incomingHtlcAmt,
+	amtToForward lnwire.MilliSatoshi, incomingTimeout,
+	outgoingTimeout uint32, inboundFee models.InboundFee,
+	heightNow uint32, originalScid lnwire.ShortChannelID,
+	customRecords lnwire.CustomRecords) *LinkError {
 
 	l.RLock()
 	policy := l.cfg.FwrdingPolicy
@@ -3286,7 +3286,7 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 	// Check whether the outgoing htlc satisfies the channel policy.
 	err := l.canSendHtlc(
 		policy, payHash, amtToForward, outgoingTimeout, heightNow,
-		originalScid,
+		originalScid, customRecords,
 	)
 	if err != nil {
 		return err
@@ -3322,8 +3322,8 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 // the violation. This call is intended to be used for locally initiated
 // payments for which there is no corresponding incoming htlc.
 func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
-	amt lnwire.MilliSatoshi, timeout uint32,
-	heightNow uint32) *LinkError {
+	amt lnwire.MilliSatoshi, timeout uint32, heightNow uint32,
+	customRecords lnwire.CustomRecords) *LinkError {
 
 	l.RLock()
 	policy := l.cfg.FwrdingPolicy
@@ -3334,6 +3334,7 @@ func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
 	// to occur.
 	return l.canSendHtlc(
 		policy, payHash, amt, timeout, heightNow, hop.Source,
+		customRecords,
 	)
 }
 
@@ -3341,7 +3342,8 @@ func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
 // the channel's amount and time lock constraints.
 func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 	payHash [32]byte, amt lnwire.MilliSatoshi, timeout uint32,
-	heightNow uint32, originalScid lnwire.ShortChannelID) *LinkError {
+	heightNow uint32, originalScid lnwire.ShortChannelID,
+	customRecords lnwire.CustomRecords) *LinkError {
 
 	// As our first sanity check, we'll ensure that the passed HTLC isn't
 	// too small for the next hop. If so, then we'll cancel the HTLC

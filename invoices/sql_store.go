@@ -616,7 +616,7 @@ func fetchAmpState(ctx context.Context, db SQLInvoiceQueries, invoiceID int64,
 
 				invoiceKeys[key] = struct{}{}
 
-				if htlc.State != HtlcStateCanceled { //nolint: lll
+				if htlc.State != HtlcStateCanceled { //nolint: ll
 					amtPaid += htlc.Amt
 				}
 			}

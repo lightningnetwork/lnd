@@ -3,6 +3,7 @@ package lnwire
 import (
 	"bytes"
 	crand "crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -420,8 +421,26 @@ func TestEmptyMessageUnknownType(t *testing.T) {
 
 // randCustomRecords generates a random set of custom records for testing.
 func randCustomRecords(t *testing.T, r *rand.Rand) CustomRecords {
+	customRecords := randTLVMap(t, r, MinCustomRecordsTlvType)
+
+	// Validate the custom records as a sanity check.
+	err := CustomRecords(customRecords).Validate()
+	require.NoError(t, err)
+
+	return customRecords
+}
+
+// randSignedRangeRecords generates a random set of signed records in the
+// second "signed" tlv range for pure TLV messages.
+func randSignedRangeRecords(t *testing.T, r *rand.Rand) CustomRecords {
+	return randTLVMap(t, r, pureTLVSignedSecondRangeStart)
+}
+
+func randTLVMap(t *testing.T, r *rand.Rand,
+	rangeStart uint64) map[uint64][]byte {
+
 	var (
-		customRecords = CustomRecords{}
+		m = make(map[uint64][]byte)
 
 		// We'll generate a random number of records, between 1 and 10.
 		numRecords = r.Intn(9) + 1
@@ -432,21 +451,17 @@ func randCustomRecords(t *testing.T, r *rand.Rand) CustomRecords {
 		// Keys must be equal to or greater than
 		// MinCustomRecordsTlvType.
 		keyOffset := uint64(r.Intn(100))
-		key := MinCustomRecordsTlvType + keyOffset
+		key := rangeStart + keyOffset
 
 		// Values are byte slices of any length.
 		value := make([]byte, r.Intn(10))
 		_, err := r.Read(value)
 		require.NoError(t, err)
 
-		customRecords[key] = value
+		m[key] = value
 	}
 
-	// Validate the custom records as a sanity check.
-	err := customRecords.Validate()
-	require.NoError(t, err)
-
-	return customRecords
+	return m
 }
 
 // TestLightningWireProtocol uses the testing/quick package to create a series
@@ -1505,37 +1520,29 @@ func TestLightningWireProtocol(t *testing.T) {
 		MsgAnnounceSignatures2: func(v []reflect.Value,
 			r *rand.Rand) {
 
-			req := AnnounceSignatures2{
-				ShortChannelID: NewShortChanIDFromInt(
-					uint64(r.Int63()),
-				),
-				ExtraOpaqueData: make([]byte, 0),
-			}
+			var req AnnounceSignatures2
 
-			_, err := r.Read(req.ChannelID[:])
+			req.ExtraSignedFields = ExtraSignedFields(
+				randSignedRangeRecords(t, r),
+			)
+
+			_, err := r.Read(req.ChannelID.Val[:])
 			require.NoError(t, err)
 
 			partialSig, err := randPartialSig(r)
 			require.NoError(t, err)
 
-			req.PartialSignature = *partialSig
-
-			numExtraBytes := r.Int31n(1000)
-			if numExtraBytes > 0 {
-				req.ExtraOpaqueData = make(
-					[]byte, numExtraBytes,
-				)
-				_, err := r.Read(req.ExtraOpaqueData[:])
-				require.NoError(t, err)
-			}
+			req.PartialSignature.Val = *partialSig
 
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgChannelAnnouncement2: func(v []reflect.Value, r *rand.Rand) {
-			req := ChannelAnnouncement2{
-				Signature:       testSchnorrSig,
-				ExtraOpaqueData: make([]byte, 0),
-			}
+			var req ChannelAnnouncement2
+
+			req.Signature.Val = testSchnorrSig
+			req.ExtraSignedFields = ExtraSignedFields(
+				randSignedRangeRecords(t, r),
+			)
 
 			req.ShortChannelID.Val = NewShortChanIDFromInt(
 				uint64(r.Int63()),
@@ -1584,23 +1591,16 @@ func TestLightningWireProtocol(t *testing.T) {
 				}
 			}
 
-			numExtraBytes := r.Int31n(1000)
-			if numExtraBytes > 0 {
-				req.ExtraOpaqueData = make(
-					[]byte, numExtraBytes,
-				)
-				_, err := r.Read(req.ExtraOpaqueData[:])
-				require.NoError(t, err)
-			}
-
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgChannelUpdate2: func(v []reflect.Value, r *rand.Rand) {
-			req := ChannelUpdate2{
-				Signature:       testSchnorrSig,
-				ExtraOpaqueData: make([]byte, 0),
-			}
+			var req ChannelUpdate2
 
+			req.ExtraSignedFields = ExtraSignedFields(
+				randSignedRangeRecords(t, r),
+			)
+
+			req.Signature.Val = testSchnorrSig
 			req.ShortChannelID.Val = NewShortChanIDFromInt(
 				uint64(r.Int63()),
 			)
@@ -1661,13 +1661,81 @@ func TestLightningWireProtocol(t *testing.T) {
 					ChanUpdateDisableOutgoing
 			}
 
-			numExtraBytes := r.Int31n(1000)
-			if numExtraBytes > 0 {
-				req.ExtraOpaqueData = make(
-					[]byte, numExtraBytes,
+			v[0] = reflect.ValueOf(req)
+		},
+		MsgNodeAnnouncement2: func(v []reflect.Value, r *rand.Rand) {
+			var req NodeAnnouncement2
+
+			req.ExtraSignedFields = ExtraSignedFields(
+				randSignedRangeRecords(t, r),
+			)
+			req.Signature.Val = testSchnorrSig
+
+			req.NodeID.Val = randRawKey(t)
+			req.BlockHeight.Val = r.Uint32()
+			req.Features.Val = *randRawFeatureVector(r)
+
+			// Sometimes set the colour field.
+			if r.Int31()%2 == 0 {
+				color := tlv.ZeroRecordT[tlv.TlvType1, Color]()
+				color.Val = Color{
+					R: uint8(r.Int31()),
+					G: uint8(r.Int31()),
+					B: uint8(r.Int31()),
+				}
+				req.Color = tlv.SomeRecordT(color)
+			}
+
+			n := r.Intn(33)
+			b := make([]byte, n)
+			_, err := rand.Read(b)
+			require.NoError(t, err)
+			if n > 0 {
+				alias := []byte(
+					base64.StdEncoding.EncodeToString(b),
 				)
-				_, err := r.Read(req.ExtraOpaqueData[:])
+				if len(alias) > 32 {
+					alias = alias[:32]
+				}
+
+				aliasRec := tlv.ZeroRecordT[
+					tlv.TlvType3, []byte,
+				]()
+				aliasRec.Val = alias
+			}
+
+			// Sometimes add some ipv4 addrs.
+			if r.Int31()%2 == 0 {
+				ipv4Addr, err := randTCP4Addr(r)
 				require.NoError(t, err)
+
+				ipv4AddrRecord := tlv.ZeroRecordT[
+					tlv.TlvType5, IPV4Addrs,
+				]()
+				ipv4AddrRecord.Val = IPV4Addrs{ipv4Addr}
+				req.IPV4Addrs = tlv.SomeRecordT(ipv4AddrRecord)
+			}
+			// Sometimes add some ipv6 addrs.
+			if r.Int31()%2 == 0 {
+				ipv6Addr, err := randTCP6Addr(r)
+				require.NoError(t, err)
+
+				ipv6AddrRecord := tlv.ZeroRecordT[
+					tlv.TlvType7, IPV6Addrs,
+				]()
+				ipv6AddrRecord.Val = IPV6Addrs{ipv6Addr}
+				req.IPV6Addrs = tlv.SomeRecordT(ipv6AddrRecord)
+			}
+			// Sometimes add some torv3 addrs.
+			if r.Int31()%2 == 0 {
+				torAddr, err := randV3OnionAddr(r)
+				require.NoError(t, err)
+
+				torAddrRecord := tlv.ZeroRecordT[
+					tlv.TlvType9, TorV3Addrs,
+				]()
+				torAddrRecord.Val = TorV3Addrs{torAddr}
+				req.TorV3Addrs = tlv.SomeRecordT(torAddrRecord)
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -1912,9 +1980,16 @@ func TestLightningWireProtocol(t *testing.T) {
 				return mainScenario(&m)
 			},
 		},
+
 		{
 			msgType: MsgChannelUpdate2,
 			scenario: func(m ChannelUpdate2) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgNodeAnnouncement2,
+			scenario: func(m NodeAnnouncement2) bool {
 				return mainScenario(&m)
 			},
 		},

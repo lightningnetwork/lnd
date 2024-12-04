@@ -6240,9 +6240,9 @@ func TestCheckHtlcForward(t *testing.T) {
 	var hash [32]byte
 
 	t.Run("satisfied", func(t *testing.T) {
-		result := link.CheckHtlcForward(hash, 1500, 1000,
-			200, 150, models.InboundFee{}, 0,
-			lnwire.ShortChannelID{},
+		result := link.CheckHtlcForward(
+			hash, 1500, 1000, 200, 150, models.InboundFee{}, 0,
+			lnwire.ShortChannelID{}, nil,
 		)
 		if result != nil {
 			t.Fatalf("expected policy to be satisfied")
@@ -6250,9 +6250,9 @@ func TestCheckHtlcForward(t *testing.T) {
 	})
 
 	t.Run("below minhtlc", func(t *testing.T) {
-		result := link.CheckHtlcForward(hash, 100, 50,
-			200, 150, models.InboundFee{}, 0,
-			lnwire.ShortChannelID{},
+		result := link.CheckHtlcForward(
+			hash, 100, 50, 200, 150, models.InboundFee{}, 0,
+			lnwire.ShortChannelID{}, nil,
 		)
 		if _, ok := result.WireMessage().(*lnwire.FailAmountBelowMinimum); !ok {
 			t.Fatalf("expected FailAmountBelowMinimum failure code")
@@ -6260,9 +6260,9 @@ func TestCheckHtlcForward(t *testing.T) {
 	})
 
 	t.Run("above maxhtlc", func(t *testing.T) {
-		result := link.CheckHtlcForward(hash, 1500, 1200,
-			200, 150, models.InboundFee{}, 0,
-			lnwire.ShortChannelID{},
+		result := link.CheckHtlcForward(
+			hash, 1500, 1200, 200, 150, models.InboundFee{}, 0,
+			lnwire.ShortChannelID{}, nil,
 		)
 		if _, ok := result.WireMessage().(*lnwire.FailTemporaryChannelFailure); !ok {
 			t.Fatalf("expected FailTemporaryChannelFailure failure code")
@@ -6270,9 +6270,9 @@ func TestCheckHtlcForward(t *testing.T) {
 	})
 
 	t.Run("insufficient fee", func(t *testing.T) {
-		result := link.CheckHtlcForward(hash, 1005, 1000,
-			200, 150, models.InboundFee{}, 0,
-			lnwire.ShortChannelID{},
+		result := link.CheckHtlcForward(
+			hash, 1005, 1000, 200, 150, models.InboundFee{}, 0,
+			lnwire.ShortChannelID{}, nil,
 		)
 		if _, ok := result.WireMessage().(*lnwire.FailFeeInsufficient); !ok {
 			t.Fatalf("expected FailFeeInsufficient failure code")
@@ -6285,17 +6285,17 @@ func TestCheckHtlcForward(t *testing.T) {
 		t.Parallel()
 
 		result := link.CheckHtlcForward(
-			hash, 100005, 100000, 200,
-			150, models.InboundFee{}, 0, lnwire.ShortChannelID{},
+			hash, 100005, 100000, 200, 150, models.InboundFee{}, 0,
+			lnwire.ShortChannelID{}, nil,
 		)
 		_, ok := result.WireMessage().(*lnwire.FailFeeInsufficient)
 		require.True(t, ok, "expected FailFeeInsufficient failure code")
 	})
 
 	t.Run("expiry too soon", func(t *testing.T) {
-		result := link.CheckHtlcForward(hash, 1500, 1000,
-			200, 150, models.InboundFee{}, 190,
-			lnwire.ShortChannelID{},
+		result := link.CheckHtlcForward(
+			hash, 1500, 1000, 200, 150, models.InboundFee{}, 190,
+			lnwire.ShortChannelID{}, nil,
 		)
 		if _, ok := result.WireMessage().(*lnwire.FailExpiryTooSoon); !ok {
 			t.Fatalf("expected FailExpiryTooSoon failure code")
@@ -6303,9 +6303,9 @@ func TestCheckHtlcForward(t *testing.T) {
 	})
 
 	t.Run("incorrect cltv expiry", func(t *testing.T) {
-		result := link.CheckHtlcForward(hash, 1500, 1000,
-			200, 190, models.InboundFee{}, 0,
-			lnwire.ShortChannelID{},
+		result := link.CheckHtlcForward(
+			hash, 1500, 1000, 200, 190, models.InboundFee{}, 0,
+			lnwire.ShortChannelID{}, nil,
 		)
 		if _, ok := result.WireMessage().(*lnwire.FailIncorrectCltvExpiry); !ok {
 			t.Fatalf("expected FailIncorrectCltvExpiry failure code")
@@ -6315,9 +6315,9 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	t.Run("cltv expiry too far in the future", func(t *testing.T) {
 		// Check that expiry isn't too far in the future.
-		result := link.CheckHtlcForward(hash, 1500, 1000,
-			10200, 10100, models.InboundFee{}, 0,
-			lnwire.ShortChannelID{},
+		result := link.CheckHtlcForward(
+			hash, 1500, 1000, 10200, 10100, models.InboundFee{}, 0,
+			lnwire.ShortChannelID{}, nil,
 		)
 		if _, ok := result.WireMessage().(*lnwire.FailExpiryTooFar); !ok {
 			t.Fatalf("expected FailExpiryTooFar failure code")
@@ -6327,9 +6327,11 @@ func TestCheckHtlcForward(t *testing.T) {
 	t.Run("inbound fee satisfied", func(t *testing.T) {
 		t.Parallel()
 
-		result := link.CheckHtlcForward(hash, 1000+10-2-1, 1000,
-			200, 150, models.InboundFee{Base: -2, Rate: -1_000},
-			0, lnwire.ShortChannelID{})
+		result := link.CheckHtlcForward(
+			hash, 1000+10-2-1, 1000, 200, 150,
+			models.InboundFee{Base: -2, Rate: -1_000},
+			0, lnwire.ShortChannelID{}, nil,
+		)
 		if result != nil {
 			t.Fatalf("expected policy to be satisfied")
 		}
@@ -6338,9 +6340,11 @@ func TestCheckHtlcForward(t *testing.T) {
 	t.Run("inbound fee insufficient", func(t *testing.T) {
 		t.Parallel()
 
-		result := link.CheckHtlcForward(hash, 1000+10-10-101-1, 1000,
+		result := link.CheckHtlcForward(
+			hash, 1000+10-10-101-1, 1000,
 			200, 150, models.InboundFee{Base: -10, Rate: -100_000},
-			0, lnwire.ShortChannelID{})
+			0, lnwire.ShortChannelID{}, nil,
+		)
 
 		msg := result.WireMessage()
 		if _, ok := msg.(*lnwire.FailFeeInsufficient); !ok {

@@ -284,6 +284,10 @@ type ChannelLinkConfig struct {
 	// MaxFeeExposure is the threshold in milli-satoshis after which we'll
 	// restrict the flow of HTLCs and fee updates.
 	MaxFeeExposure lnwire.MilliSatoshi
+
+	// AuxTrafficShaper is an optional auxiliary traffic shaper that can be
+	// used to manage the bandwidth of the link.
+	AuxTrafficShaper fn.Option[AuxTrafficShaper]
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -3189,8 +3193,38 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 		return NewLinkError(&lnwire.FailExpiryTooFar{})
 	}
 
+	// We now check the available bandwidth to see if this HTLC can be
+	// forwarded.
+	availableBandwidth := l.Bandwidth()
+	auxBandwidth, err := fn.MapOptionZ(
+		l.cfg.AuxTrafficShaper,
+		func(ts AuxTrafficShaper) fn.Result[OptionalBandwidth] {
+			var htlcBlob fn.Option[tlv.Blob]
+			blob, err := customRecords.Serialize()
+			if err != nil {
+				return fn.Err[OptionalBandwidth](
+					fmt.Errorf("unable to serialize "+
+						"custom records: %w", err))
+			}
+
+			if len(blob) > 0 {
+				htlcBlob = fn.Some(blob)
+			}
+
+			return l.AuxBandwidth(amt, originalScid, htlcBlob, ts)
+		},
+	).Unpack()
+	if err != nil {
+		l.log.Errorf("Unable to determine aux bandwidth: %v", err)
+		return NewLinkError(&lnwire.FailTemporaryNodeFailure{})
+	}
+
+	auxBandwidth.WhenSome(func(bandwidth lnwire.MilliSatoshi) {
+		availableBandwidth = bandwidth
+	})
+
 	// Check to see if there is enough balance in this channel.
-	if amt > l.Bandwidth() {
+	if amt > availableBandwidth {
 		l.log.Warnf("insufficient bandwidth to route htlc: %v is "+
 			"larger than %v", amt, l.Bandwidth())
 		cb := func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {

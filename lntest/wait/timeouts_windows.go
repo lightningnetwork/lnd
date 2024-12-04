@@ -1,5 +1,5 @@
-//go:build !darwin && !windows && !kvdb_etcd && !kvdb_postgres
-// +build !darwin,!windows,!kvdb_etcd,!kvdb_postgres
+//go:build windows && !kvdb_etcd && !kvdb_postgres
+// +build windows,!kvdb_etcd,!kvdb_postgres
 
 package wait
 
@@ -20,20 +20,20 @@ const (
 
 	// DefaultTimeout is a timeout that will be used for various wait
 	// scenarios where no custom timeout value is defined.
-	DefaultTimeout = time.Second * 30
+	DefaultTimeout = time.Second * 60
 
 	// AsyncBenchmarkTimeout is the timeout used when running the async
 	// payments benchmark.
-	AsyncBenchmarkTimeout = time.Minute * 2
+	AsyncBenchmarkTimeout = time.Minute * 5
 
 	// NodeStartTimeout is the timeout value when waiting for a node to
 	// become fully started.
-	NodeStartTimeout = time.Minute * 2
+	NodeStartTimeout = time.Minute * 3
 
 	// SqliteBusyTimeout is the maximum time that a call to the sqlite db
 	// will wait for the connection to become available.
 	SqliteBusyTimeout = time.Second * 10
 
 	// PaymentTimeout is the timeout used when sending payments.
-	PaymentTimeout = time.Second * 60
+	PaymentTimeout = time.Second * 120
 )

@@ -115,12 +115,34 @@ func (b *BlindedEdge) EdgePolicy() *models.CachedEdgePolicy {
 	return b.policy
 }
 
+// isNUMSTarget returns true if the target public key of the edge is the NUMS
+// key used as a target for blinded path final hops.
+func (b *BlindedEdge) isNUMSTarget() bool {
+	// For some test cases the policy might not be set to compare different
+	// blinded hops and their corresponding size.
+	if b.policy == nil || b.policy.ToNodePubKey == nil {
+		return false
+	}
+
+	ToPubKey := b.policy.ToNodePubKey()
+
+	return IsBlindedRouteNUMSTargetKey(ToPubKey[:])
+}
+
 // IntermediatePayloadSize returns the sphinx payload size defined in BOLT04 if
 // this edge were to be included in a route.
 func (b *BlindedEdge) IntermediatePayloadSize(_ lnwire.MilliSatoshi, _ uint32,
 	_ uint64) uint64 {
 
 	blindedPath := b.blindedPayment.BlindedPath
+
+	// If the edge is the NUMS target, we don't need to include the payload
+	// size of the edge in the total size because the dummy target hop will
+	// be removed after the route is found and this hop is the final hop
+	// whose payload size is added separately.
+	if b.isNUMSTarget() {
+		return 0
+	}
 
 	hop := route.Hop{
 		BlindingPoint: blindedPath.BlindingPoint,

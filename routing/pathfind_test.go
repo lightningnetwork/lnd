@@ -3284,9 +3284,7 @@ func TestBlindedRouteConstruction(t *testing.T) {
 	// that make up the graph we'll give to route construction. The hints
 	// map is keyed by source node, so we can retrieve our blinded edges
 	// accordingly.
-	blindedEdges, err := blindedPayment.toRouteHints(
-		fn.None[*btcec.PublicKey](),
-	)
+	blindedEdges, err := blindedPayment.toRouteHints()
 	require.NoError(t, err)
 
 	carolDaveEdge := blindedEdges[carolVertex][0]
@@ -3415,9 +3413,12 @@ func TestLastHopPayloadSize(t *testing.T) {
 		customRecords = map[uint64][]byte{
 			record.CustomTypeStart: {1, 2, 3},
 		}
-		sizeEncryptedData = 100
-		encrypedData      = bytes.Repeat(
-			[]byte{1}, sizeEncryptedData,
+
+		encrypedDataSmall = bytes.Repeat(
+			[]byte{1}, 5,
+		)
+		encrypedDataLarge = bytes.Repeat(
+			[]byte{1}, 100,
 		)
 		_, blindedPoint       = btcec.PrivKeyFromBytes([]byte{5})
 		paymentAddr           = &[32]byte{1}
@@ -3428,7 +3429,7 @@ func TestLastHopPayloadSize(t *testing.T) {
 		oneHopPath = &sphinx.BlindedPath{
 			BlindedHops: []*sphinx.BlindedHopInfo{
 				{
-					CipherText: encrypedData,
+					CipherText: encrypedDataSmall,
 				},
 			},
 			BlindingPoint: blindedPoint,
@@ -3437,10 +3438,10 @@ func TestLastHopPayloadSize(t *testing.T) {
 		twoHopPath = &sphinx.BlindedPath{
 			BlindedHops: []*sphinx.BlindedHopInfo{
 				{
-					CipherText: encrypedData,
+					CipherText: encrypedDataSmall,
 				},
 				{
-					CipherText: encrypedData,
+					CipherText: encrypedDataLarge,
 				},
 			},
 			BlindingPoint: blindedPoint,
@@ -3458,10 +3459,11 @@ func TestLastHopPayloadSize(t *testing.T) {
 	require.NoError(t, err)
 
 	testCases := []struct {
-		name           string
-		restrictions   *RestrictParams
-		finalHopExpiry int32
-		amount         lnwire.MilliSatoshi
+		name                  string
+		restrictions          *RestrictParams
+		finalHopExpiry        int32
+		amount                lnwire.MilliSatoshi
+		expectedEncryptedData []byte
 	}{
 		{
 			name: "Non blinded final hop",
@@ -3479,16 +3481,18 @@ func TestLastHopPayloadSize(t *testing.T) {
 			restrictions: &RestrictParams{
 				BlindedPaymentPathSet: oneHopBlindedPayment,
 			},
-			amount:         amtToForward,
-			finalHopExpiry: finalHopExpiry,
+			amount:                amtToForward,
+			finalHopExpiry:        finalHopExpiry,
+			expectedEncryptedData: encrypedDataSmall,
 		},
 		{
 			name: "Blinded final hop of a two hop payment",
 			restrictions: &RestrictParams{
 				BlindedPaymentPathSet: twoHopBlindedPayment,
 			},
-			amount:         amtToForward,
-			finalHopExpiry: finalHopExpiry,
+			amount:                amtToForward,
+			finalHopExpiry:        finalHopExpiry,
+			expectedEncryptedData: encrypedDataLarge,
 		},
 	}
 
@@ -3512,8 +3516,16 @@ func TestLastHopPayloadSize(t *testing.T) {
 
 			var finalHop route.Hop
 			if tc.restrictions.BlindedPaymentPathSet != nil {
-				path := tc.restrictions.BlindedPaymentPathSet.
+				bPSet := tc.restrictions.BlindedPaymentPathSet
+				path, encryptedData, err := bPSet.
 					LargestLastHopPayloadPath()
+
+				require.NoError(t, err)
+				require.Equal(
+					t, tc.expectedEncryptedData,
+					encryptedData,
+				)
+
 				blindedPath := path.BlindedPath.BlindedHops
 				blindedPoint := path.BlindedPath.BlindingPoint
 
@@ -3521,7 +3533,7 @@ func TestLastHopPayloadSize(t *testing.T) {
 				finalHop = route.Hop{
 					AmtToForward:     tc.amount,
 					OutgoingTimeLock: uint32(tc.finalHopExpiry),
-					EncryptedData:    blindedPath[len(blindedPath)-1].CipherText,
+					EncryptedData:    encryptedData,
 				}
 				if len(blindedPath) == 1 {
 					finalHop.BlindingPoint = blindedPoint
@@ -3541,11 +3553,11 @@ func TestLastHopPayloadSize(t *testing.T) {
 			payLoad, err := createHopPayload(finalHop, 0, true)
 			require.NoErrorf(t, err, "failed to create hop payload")
 
-			expectedPayloadSize := lastHopPayloadSize(
+			expectedPayloadSize, err := lastHopPayloadSize(
 				tc.restrictions, tc.finalHopExpiry,
 				tc.amount,
 			)
-
+			require.NoError(t, err)
 			require.Equal(
 				t, expectedPayloadSize,
 				uint64(payLoad.NumBytes()),

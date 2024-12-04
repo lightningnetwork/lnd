@@ -360,6 +360,22 @@ func (b *BlindedPayment) Validate() error {
 			b.HtlcMaximum, b.HtlcMinimum)
 	}
 
+	for _, hop := range b.BlindedPath.BlindedHops {
+		// The first hop of the blinded path does not necessarily have
+		// blinded node pub key because it is the introduction point.
+		if hop.BlindedNodePub == nil {
+			continue
+		}
+
+		if IsBlindedRouteNUMSTargetKey(
+			hop.BlindedNodePub.SerializeCompressed(),
+		) {
+
+			return fmt.Errorf("blinded path cannot include NUMS "+
+				"key: %s", BlindedPathNUMSHex)
+		}
+	}
+
 	return nil
 }
 

@@ -517,10 +517,21 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(route *mcRoute,
 		if introIdx == len(route.hops.Val)-1 {
 			i.finalFailureReason = &reasonError
 		} else {
-			// If there are other hops between the recipient and
-			// introduction node, then we just penalize the last
-			// hop in the blinded route to minimize the storage of
-			// results for ephemeral keys.
+			// We penalize the final hop of the blinded route which
+			// is sufficient to not reuse this route again and is
+			// also more memory efficient because the other hops
+			// of the blinded path are ephemeral and will only be
+			// used in conjunction with the final hop. Moreover we
+			// don't want to punish the introduction node because
+			// the blinded failure does not necessarily mean that
+			// the introduction node was at fault.
+			//
+			// TODO(ziggie): Make sure we only keep mc data for
+			// blinded paths, in both the success and failure case,
+			// in memory during the time of the payment and remove
+			// it afterwards. Blinded paths and their blinded hop
+			// keys are always changing per blinded route so there
+			// is no point in persisting this data.
 			i.failPairBalance(route, len(route.hops.Val)-1)
 		}
 

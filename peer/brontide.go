@@ -400,6 +400,10 @@ type Config struct {
 	// way contracts are resolved.
 	AuxResolver fn.Option[lnwallet.AuxContractResolver]
 
+	// AuxTrafficShaper is an optional auxiliary traffic shaper that can be
+	// used to manage the bandwidth of peer links.
+	AuxTrafficShaper fn.Option[htlcswitch.AuxTrafficShaper]
+
 	// PongBuf is a slice we'll reuse instead of allocating memory on the
 	// heap. Since only reads will occur and no writes, there is no need
 	// for any synchronization primitives. As a result, it's safe to share
@@ -1330,6 +1334,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		ShouldFwdExpEndorsement: p.cfg.ShouldFwdExpEndorsement,
 		DisallowQuiescence: p.cfg.DisallowQuiescence ||
 			!p.remoteFeatures.HasFeature(lnwire.QuiescenceOptional),
+		AuxTrafficShaper: p.cfg.AuxTrafficShaper,
 	}
 
 	// Before adding our new link, purge the switch of any pending or live

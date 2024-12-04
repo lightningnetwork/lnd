@@ -174,6 +174,30 @@ func maybeShuffleTestCases() {
 	})
 }
 
+// createIndices divides the number of test cases into pairs of indices that
+// specify the start and end of a tranche.
+func createIndices(numCases, numTranches uint) [][2]uint {
+	// Calculate base value and remainder.
+	base := numCases / numTranches
+	remainder := numCases % numTranches
+
+	// Generate indices.
+	indices := make([][2]uint, numTranches)
+	start := uint(0)
+
+	for i := uint(0); i < numTranches; i++ {
+		end := start + base
+		if i < remainder {
+			// Add one for the remainder.
+			end++
+		}
+		indices[i] = [2]uint{start, end}
+		start = end
+	}
+
+	return indices
+}
+
 // getTestCaseSplitTranche returns the sub slice of the test cases that should
 // be run as the current split tranche as well as the index and slice offset of
 // the tranche.
@@ -200,12 +224,9 @@ func getTestCaseSplitTranche() ([]*lntest.TestCase, uint, uint) {
 	maybeShuffleTestCases()
 
 	numCases := uint(len(allTestCases))
-	testsPerTranche := numCases / numTranches
-	trancheOffset := runTranche * testsPerTranche
-	trancheEnd := trancheOffset + testsPerTranche
-	if trancheEnd > numCases || runTranche == numTranches-1 {
-		trancheEnd = numCases
-	}
+	indices := createIndices(numCases, numTranches)
+	index := indices[runTranche]
+	trancheOffset, trancheEnd := index[0], index[1]
 
 	return allTestCases[trancheOffset:trancheEnd], threadID,
 		trancheOffset

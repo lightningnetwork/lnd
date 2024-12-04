@@ -2,6 +2,7 @@ package itest
 
 import (
 	"encoding/hex"
+	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -10,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -558,7 +560,35 @@ func (m *mppTestScenario) buildRoute(amt btcutil.Amount,
 		FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
 		HopPubkeys:     rpcHops,
 	}
-	routeResp := sender.RPC.BuildRoute(req)
 
-	return routeResp.Route
+	// We should be able to call `sender.RPC.BuildRoute` directly, but
+	// sometimes we will get a RPC-level error saying we cannot find the
+	// node index:
+	// - no matching outgoing channel available for node index 1
+	// This happens because the `getEdgeUnifiers` cannot find a policy for
+	// one of the hops,
+	// - [ERR] CRTR router.go:1689: Cannot find policy for node ...
+	// However, by the time we get here, we have already checked that all
+	// nodes have heard all channels, so this indicates a bug in our
+	// pathfinding, specifically in the edge unifier.
+	//
+	// TODO(yy): Remove the following wait and use the direct call, then
+	// investigate the bug in the edge unifier.
+	var route *lnrpc.Route
+	err := wait.NoError(func() error {
+		routeResp, err := sender.RPC.Router.BuildRoute(
+			m.ht.Context(), req,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to build route for %v "+
+				"using hops=%v: %v", sender.Name(), hops, err)
+		}
+
+		route = routeResp.Route
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(m.ht, err, "build route timeout")
+
+	return route
 }

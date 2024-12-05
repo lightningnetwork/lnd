@@ -24,7 +24,8 @@ func testExperimentalEndorsement(ht *lntest.HarnessTest) {
 // testEndorsement sets up a 5 hop network and tests propagation of
 // experimental endorsement signals.
 func testEndorsement(ht *lntest.HarnessTest, aliceEndorse bool) {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
 	carol := ht.NewNode(
 		"carol", []string{"--protocol.no-experimental-endorsement"},
 	)
@@ -48,7 +49,7 @@ func testEndorsement(ht *lntest.HarnessTest, aliceEndorse bool) {
 		{Local: dave, Remote: eve, Param: p},
 	}
 	resp := ht.OpenMultiChannelsAsync(reqs)
-	cpAB, cpBC, cpCD, cpDE := resp[0], resp[1], resp[2], resp[3]
+	_, cpBC, cpCD, cpDE := resp[0], resp[1], resp[2], resp[3]
 
 	// Make sure Alice is aware of Bob=>Carol=>Dave=>Eve channels.
 	ht.AssertChannelInGraph(alice, cpBC)
@@ -94,11 +95,6 @@ func testEndorsement(ht *lntest.HarnessTest, aliceEndorse bool) {
 	var preimage lntypes.Preimage
 	copy(preimage[:], invoice.RPreimage)
 	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
-
-	ht.CloseChannel(alice, cpAB)
-	ht.CloseChannel(bob, cpBC)
-	ht.CloseChannel(carol, cpCD)
-	ht.CloseChannel(dave, cpDE)
 }
 
 func validateEndorsedAndResume(ht *lntest.HarnessTest,

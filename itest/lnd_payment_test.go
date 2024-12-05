@@ -346,7 +346,8 @@ func runTestPaymentHTLCTimeout(ht *lntest.HarnessTest, restartAlice bool) {
 // to return floor fee rate(1 sat/vb).
 func testSendDirectPayment(ht *lntest.HarnessTest) {
 	// Grab Alice and Bob's nodes for convenience.
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
 
 	// Create a list of commitment types we want to test.
 	commitmentTypes := []lnrpc.CommitmentType{
@@ -448,6 +449,12 @@ func testSendDirectPayment(ht *lntest.HarnessTest) {
 			// Make sure they are connected.
 			st.EnsureConnected(alice, bob)
 
+			// There's a bug that causes the funding to be failed
+			// due to the `ListCoins` cannot find the utxos.
+			//
+			// TODO(yy): remove this line to fix the ListCoins bug.
+			st.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+
 			// Open a channel with 100k satoshis between Alice and
 			// Bob with Alice being the sole funder of the channel.
 			params := lntest.OpenChannelParams{
@@ -466,7 +473,9 @@ func testSendDirectPayment(ht *lntest.HarnessTest) {
 }
 
 func testListPayments(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 
 	// Check that there are no payments before test.
 	ht.AssertNumPayments(alice, 0)
@@ -474,9 +483,7 @@ func testListPayments(ht *lntest.HarnessTest) {
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
 	chanAmt := btcutil.Amount(100000)
-	chanPoint := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
-	)
+	ht.OpenChannel(alice, bob, lntest.OpenChannelParams{Amt: chanAmt})
 
 	// Now that the channel is open, create an invoice for Bob which
 	// expects a payment of 1000 satoshis from Alice paid via a particular
@@ -635,17 +642,6 @@ func testListPayments(ht *lntest.HarnessTest) {
 
 	// Check that there are no payments after test.
 	ht.AssertNumPayments(alice, 0)
-
-	// TODO(yy): remove the sleep once the following bug is fixed.
-	// When the invoice is reported settled, the commitment dance is not
-	// yet finished, which can cause an error when closing the channel,
-	// saying there's active HTLCs. We need to investigate this issue and
-	// reverse the order to, first finish the commitment dance, then report
-	// the invoice as settled.
-	time.Sleep(2 * time.Second)
-
-	// Close the channel.
-	ht.CloseChannel(alice, chanPoint)
 }
 
 // testPaymentFollowingChannelOpen tests that the channel transition from
@@ -658,7 +654,10 @@ func testPaymentFollowingChannelOpen(ht *lntest.HarnessTest) {
 	channelCapacity := paymentAmt * 1000
 
 	// We first establish a channel between Alice and Bob.
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	ht.EnsureConnected(alice, bob)
+
 	p := lntest.OpenChannelParams{
 		Amt: channelCapacity,
 	}
@@ -692,19 +691,6 @@ func testPaymentFollowingChannelOpen(ht *lntest.HarnessTest) {
 	// Send payment to Bob so that a channel update to disk will be
 	// executed.
 	ht.CompletePaymentRequests(alice, []string{bobPayReqs[0]})
-
-	// TODO(yy): remove the sleep once the following bug is fixed.
-	// When the invoice is reported settled, the commitment dance is not
-	// yet finished, which can cause an error when closing the channel,
-	// saying there's active HTLCs. We need to investigate this issue and
-	// reverse the order to, first finish the commitment dance, then report
-	// the invoice as settled.
-	time.Sleep(2 * time.Second)
-
-	// Finally, immediately close the channel. This function will also
-	// block until the channel is closed and will additionally assert the
-	// relevant channel closing post conditions.
-	ht.CloseChannel(alice, chanPoint)
 }
 
 // testAsyncPayments tests the performance of the async payments.
@@ -812,11 +798,6 @@ func runAsyncPayments(ht *lntest.HarnessTest, alice, bob *node.HarnessNode,
 	ht.Log("\tBenchmark info: Elapsed time: ", timeTaken)
 	ht.Log("\tBenchmark info: TPS: ",
 		float64(numInvoices)/timeTaken.Seconds())
-
-	// Finally, immediately close the channel. This function will also
-	// block until the channel is closed and will additionally assert the
-	// relevant channel closing post conditions.
-	ht.CloseChannel(alice, chanPoint)
 }
 
 // testBidirectionalAsyncPayments tests that nodes are able to send the
@@ -924,17 +905,14 @@ func testBidirectionalAsyncPayments(ht *lntest.HarnessTest) {
 	// Next query for Bob's and Alice's channel states, in order to confirm
 	// that all payment have been successfully transmitted.
 	assertChannelState(ht, bob, chanPoint, bobAmt, aliceAmt)
-
-	// Finally, immediately close the channel. This function will also
-	// block until the channel is closed and will additionally assert the
-	// relevant channel closing post conditions.
-	ht.CloseChannel(alice, chanPoint)
 }
 
 func testInvoiceSubscriptions(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(500000)
 
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 
 	// Create a new invoice subscription client for Bob, the notification
 	// should be dispatched shortly below.
@@ -943,9 +921,7 @@ func testInvoiceSubscriptions(ht *lntest.HarnessTest) {
 
 	// Open a channel with 500k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel.
-	chanPoint := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
-	)
+	ht.OpenChannel(alice, bob, lntest.OpenChannelParams{Amt: chanAmt})
 
 	// Next create a new invoice for Bob requesting 1k satoshis.
 	const paymentAmt = 1000
@@ -1047,16 +1023,6 @@ func testInvoiceSubscriptions(ht *lntest.HarnessTest) {
 
 	// At this point, all the invoices should be fully settled.
 	require.Empty(ht, settledInvoices, "not all invoices settled")
-
-	// TODO(yy): remove the sleep once the following bug is fixed.
-	// When the invoice is reported settled, the commitment dance is not
-	// yet finished, which can cause an error when closing the channel,
-	// saying there's active HTLCs. We need to investigate this issue and
-	// reverse the order to, first finish the commitment dance, then report
-	// the invoice as settled.
-	time.Sleep(2 * time.Second)
-
-	ht.CloseChannel(alice, chanPoint)
 }
 
 // assertChannelState asserts the channel state by checking the values in
@@ -1143,10 +1109,6 @@ func testPaymentFailureReasonCanceled(ht *lntest.HarnessTest) {
 		ht, ts, cpAB, routerrpc.ResolveHoldForwardAction_FAIL,
 		lnrpc.Payment_FAILED, interceptor,
 	)
-
-	// Finally, close channels.
-	ht.CloseChannel(alice, cpAB)
-	ht.CloseChannel(bob, cpBC)
 }
 
 func sendPaymentInterceptAndCancel(ht *lntest.HarnessTest,

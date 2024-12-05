@@ -109,7 +109,7 @@ func testEstimateRouteFee(ht *lntest.HarnessTest) {
 		},
 	)
 
-	bobsPrivChannels := ht.Bob.RPC.ListChannels(&lnrpc.ListChannelsRequest{
+	bobsPrivChannels := mts.bob.RPC.ListChannels(&lnrpc.ListChannelsRequest{
 		PrivateOnly: true,
 	})
 	require.Len(ht, bobsPrivChannels.Channels, 1)

@@ -32,7 +32,7 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 		{Local: bob, Remote: carol, Param: p},
 	}
 	resp := ht.OpenMultiChannelsAsync(reqs)
-	cpAB, cpBC := resp[0], resp[1]
+	cpBC := resp[1]
 
 	// Make sure Alice is aware of channel Bob=>Carol.
 	ht.AssertChannelInGraph(alice, cpBC)
@@ -208,10 +208,6 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 	}
 
 	cancelModifier()
-
-	// Finally, close channels.
-	ht.CloseChannel(alice, cpAB)
-	ht.CloseChannel(bob, cpBC)
 }
 
 // acceptorTestCase is a helper struct to hold test case data.
@@ -251,7 +247,8 @@ type acceptorTestScenario struct {
 //
 // Among them, Alice and Bob are standby nodes and Carol is a new node.
 func newAcceptorTestScenario(ht *lntest.HarnessTest) *acceptorTestScenario {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("bob", nil)
 	carol := ht.NewNode("carol", nil)
 
 	ht.EnsureConnected(alice, bob)

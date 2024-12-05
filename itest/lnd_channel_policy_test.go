@@ -30,19 +30,16 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := chanAmt / 2
 
-	alice, bob := ht.Alice, ht.Bob
-
 	// Create a channel Alice->Bob.
-	chanPoint := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		[][]string{nil, nil}, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
 		},
 	)
 
-	// We add all the nodes' update channels to a slice, such that we can
-	// make sure they all receive the expected updates.
-	nodes := []*node.HarnessNode{alice, bob}
+	alice, bob := nodes[0], nodes[1]
+	chanPoint := chanPoints[0]
 
 	// Alice and Bob should see each other's ChannelUpdates, advertising the
 	// default routing policies. We do not currently set any inbound fees.
@@ -423,11 +420,6 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	ht.AssertChannelPolicy(
 		carol, alice.PubKeyStr, expectedPolicy, chanPoint3,
 	)
-
-	// Close all channels.
-	ht.CloseChannel(alice, chanPoint)
-	ht.CloseChannel(bob, chanPoint2)
-	ht.CloseChannel(alice, chanPoint3)
 }
 
 // testSendUpdateDisableChannel ensures that a channel update with the disable
@@ -441,7 +433,8 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 func testSendUpdateDisableChannel(ht *lntest.HarnessTest) {
 	const chanAmt = 100000
 
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
 
 	// Create a new node Eve, which will be restarted later with a config
 	// that has an inactive channel timeout of just 6 seconds (down from
@@ -678,7 +671,9 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntest.HarnessTest) {
 
 	// We'll create the following topology first,
 	// Alice <--public:100k--> Bob <--private:100k--> Carol
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 
 	// Open a channel with 100k satoshis between Alice and Bob.
 	chanPointAliceBob := ht.OpenChannel(
@@ -773,10 +768,6 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntest.HarnessTest) {
 	// Alice should have sent 20k satoshis + fee to Bob.
 	ht.AssertAmountPaid("Alice(local) => Bob(remote)",
 		alice, chanPointAliceBob, amtExpected, 0)
-
-	// Finally, close the channels.
-	ht.CloseChannel(alice, chanPointAliceBob)
-	ht.CloseChannel(bob, chanPointBobCarol)
 }
 
 // testUpdateChannelPolicyFeeRateAccuracy tests that updating the channel policy
@@ -787,16 +778,14 @@ func testUpdateChannelPolicyFeeRateAccuracy(ht *lntest.HarnessTest) {
 	pushAmt := chanAmt / 2
 
 	// Create a channel Alice -> Bob.
-	alice, bob := ht.Alice, ht.Bob
-	chanPoint := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		[][]string{nil, nil}, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
 		},
 	)
-
-	// Nodes that we need to make sure receive the channel updates.
-	nodes := []*node.HarnessNode{alice, bob}
+	alice := nodes[0]
+	chanPoint := chanPoints[0]
 
 	baseFee := int64(1500)
 	timeLockDelta := uint32(66)
@@ -847,8 +836,6 @@ func testUpdateChannelPolicyFeeRateAccuracy(ht *lntest.HarnessTest) {
 
 	// Make sure that both Alice and Bob sees the same policy after update.
 	assertNodesPolicyUpdate(ht, nodes, alice, expectedPolicy, chanPoint)
-
-	ht.CloseChannel(alice, chanPoint)
 }
 
 // assertNodesPolicyUpdate checks that a given policy update has been received

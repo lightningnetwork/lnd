@@ -293,6 +293,10 @@ type ChannelLinkConfig struct {
 	// ShouldFwdExpEndorsement is a closure that indicates whether the link
 	// should forward experimental endorsement signals.
 	ShouldFwdExpEndorsement func() bool
+
+	// AuxTrafficShaper is an optional auxiliary traffic shaper that can be
+	// used to manage the bandwidth of the link.
+	AuxTrafficShaper fn.Option[AuxTrafficShaper]
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -3233,11 +3237,11 @@ func (l *channelLink) UpdateForwardingPolicy(
 // issue.
 //
 // NOTE: Part of the ChannelLink interface.
-func (l *channelLink) CheckHtlcForward(payHash [32]byte,
-	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi,
-	incomingTimeout, outgoingTimeout uint32,
-	inboundFee models.InboundFee,
-	heightNow uint32, originalScid lnwire.ShortChannelID) *LinkError {
+func (l *channelLink) CheckHtlcForward(payHash [32]byte, incomingHtlcAmt,
+	amtToForward lnwire.MilliSatoshi, incomingTimeout,
+	outgoingTimeout uint32, inboundFee models.InboundFee,
+	heightNow uint32, originalScid lnwire.ShortChannelID,
+	customRecords lnwire.CustomRecords) *LinkError {
 
 	l.RLock()
 	policy := l.cfg.FwrdingPolicy
@@ -3286,7 +3290,7 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 	// Check whether the outgoing htlc satisfies the channel policy.
 	err := l.canSendHtlc(
 		policy, payHash, amtToForward, outgoingTimeout, heightNow,
-		originalScid,
+		originalScid, customRecords,
 	)
 	if err != nil {
 		return err
@@ -3322,8 +3326,8 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 // the violation. This call is intended to be used for locally initiated
 // payments for which there is no corresponding incoming htlc.
 func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
-	amt lnwire.MilliSatoshi, timeout uint32,
-	heightNow uint32) *LinkError {
+	amt lnwire.MilliSatoshi, timeout uint32, heightNow uint32,
+	customRecords lnwire.CustomRecords) *LinkError {
 
 	l.RLock()
 	policy := l.cfg.FwrdingPolicy
@@ -3334,6 +3338,7 @@ func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
 	// to occur.
 	return l.canSendHtlc(
 		policy, payHash, amt, timeout, heightNow, hop.Source,
+		customRecords,
 	)
 }
 
@@ -3341,7 +3346,8 @@ func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
 // the channel's amount and time lock constraints.
 func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 	payHash [32]byte, amt lnwire.MilliSatoshi, timeout uint32,
-	heightNow uint32, originalScid lnwire.ShortChannelID) *LinkError {
+	heightNow uint32, originalScid lnwire.ShortChannelID,
+	customRecords lnwire.CustomRecords) *LinkError {
 
 	// As our first sanity check, we'll ensure that the passed HTLC isn't
 	// too small for the next hop. If so, then we'll cancel the HTLC
@@ -3399,8 +3405,38 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 		return NewLinkError(&lnwire.FailExpiryTooFar{})
 	}
 
+	// We now check the available bandwidth to see if this HTLC can be
+	// forwarded.
+	availableBandwidth := l.Bandwidth()
+	auxBandwidth, err := fn.MapOptionZ(
+		l.cfg.AuxTrafficShaper,
+		func(ts AuxTrafficShaper) fn.Result[OptionalBandwidth] {
+			var htlcBlob fn.Option[tlv.Blob]
+			blob, err := customRecords.Serialize()
+			if err != nil {
+				return fn.Err[OptionalBandwidth](
+					fmt.Errorf("unable to serialize "+
+						"custom records: %w", err))
+			}
+
+			if len(blob) > 0 {
+				htlcBlob = fn.Some(blob)
+			}
+
+			return l.AuxBandwidth(amt, originalScid, htlcBlob, ts)
+		},
+	).Unpack()
+	if err != nil {
+		l.log.Errorf("Unable to determine aux bandwidth: %v", err)
+		return NewLinkError(&lnwire.FailTemporaryNodeFailure{})
+	}
+
+	auxBandwidth.WhenSome(func(bandwidth lnwire.MilliSatoshi) {
+		availableBandwidth = bandwidth
+	})
+
 	// Check to see if there is enough balance in this channel.
-	if amt > l.Bandwidth() {
+	if amt > availableBandwidth {
 		l.log.Warnf("insufficient bandwidth to route htlc: %v is "+
 			"larger than %v", amt, l.Bandwidth())
 		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
@@ -3413,6 +3449,48 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 	}
 
 	return nil
+}
+
+// AuxBandwidth returns the bandwidth that can be used for a channel, expressed
+// in milli-satoshi. This might be different from the regular BTC bandwidth for
+// custom channels. This will always return fn.None() for a regular (non-custom)
+// channel.
+func (l *channelLink) AuxBandwidth(amount lnwire.MilliSatoshi,
+	cid lnwire.ShortChannelID, htlcBlob fn.Option[tlv.Blob],
+	ts AuxTrafficShaper) fn.Result[OptionalBandwidth] {
+
+	unknownBandwidth := fn.None[lnwire.MilliSatoshi]()
+
+	fundingBlob := l.FundingCustomBlob()
+	shouldHandle, err := ts.ShouldHandleTraffic(cid, fundingBlob)
+	if err != nil {
+		return fn.Err[OptionalBandwidth](fmt.Errorf("traffic shaper "+
+			"failed to decide whether to handle traffic: %w", err))
+	}
+
+	log.Debugf("ShortChannelID=%v: aux traffic shaper is handling "+
+		"traffic: %v", cid, shouldHandle)
+
+	// If this channel isn't handled by the aux traffic shaper, we'll return
+	// early.
+	if !shouldHandle {
+		return fn.Ok(unknownBandwidth)
+	}
+
+	// Ask for a specific bandwidth to be used for the channel.
+	commitmentBlob := l.CommitmentCustomBlob()
+	auxBandwidth, err := ts.PaymentBandwidth(
+		htlcBlob, commitmentBlob, l.Bandwidth(), amount,
+	)
+	if err != nil {
+		return fn.Err[OptionalBandwidth](fmt.Errorf("failed to get "+
+			"bandwidth from external traffic shaper: %w", err))
+	}
+
+	log.Debugf("ShortChannelID=%v: aux traffic shaper reported available "+
+		"bandwidth: %v", cid, auxBandwidth)
+
+	return fn.Ok(fn.Some(auxBandwidth))
 }
 
 // Stats returns the statistics of channel link.

@@ -846,14 +846,14 @@ func (f *mockChannelLink) UpdateForwardingPolicy(_ models.ForwardingPolicy) {
 }
 func (f *mockChannelLink) CheckHtlcForward([32]byte, lnwire.MilliSatoshi,
 	lnwire.MilliSatoshi, uint32, uint32, models.InboundFee, uint32,
-	lnwire.ShortChannelID) *LinkError {
+	lnwire.ShortChannelID, lnwire.CustomRecords) *LinkError {
 
 	return f.checkHtlcForwardResult
 }
 
 func (f *mockChannelLink) CheckHtlcTransit(payHash [32]byte,
 	amt lnwire.MilliSatoshi, timeout uint32,
-	heightNow uint32) *LinkError {
+	heightNow uint32, _ lnwire.CustomRecords) *LinkError {
 
 	return f.checkHtlcTransitResult
 }
@@ -966,6 +966,17 @@ func (f *mockChannelLink) FundingCustomBlob() fn.Option[tlv.Blob] {
 
 func (f *mockChannelLink) CommitmentCustomBlob() fn.Option[tlv.Blob] {
 	return fn.None[tlv.Blob]()
+}
+
+// AuxBandwidth returns the bandwidth that can be used for a channel,
+// expressed in milli-satoshi. This might be different from the regular
+// BTC bandwidth for custom channels. This will always return fn.None()
+// for a regular (non-custom) channel.
+func (f *mockChannelLink) AuxBandwidth(lnwire.MilliSatoshi,
+	lnwire.ShortChannelID,
+	fn.Option[tlv.Blob], AuxTrafficShaper) fn.Result[OptionalBandwidth] {
+
+	return fn.Ok(fn.None[lnwire.MilliSatoshi]())
 }
 
 var _ ChannelLink = (*mockChannelLink)(nil)

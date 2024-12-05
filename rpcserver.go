@@ -6029,7 +6029,6 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	blindingRestrictions := &routing.BlindedPathRestrictions{
 		MinDistanceFromIntroNode: globalBlindCfg.MinNumRealHops,
 		NumHops:                  globalBlindCfg.NumHops,
-		MaxNumPaths:              globalBlindCfg.MaxNumPaths,
 		NodeOmissionSet:          fn.NewSet[route.Vertex](),
 	}
 
@@ -6045,10 +6044,6 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		}
 		if blindCfg.NumHops != nil {
 			blindingRestrictions.NumHops = uint8(*blindCfg.NumHops)
-		}
-		if blindCfg.MaxNumPaths != nil {
-			blindingRestrictions.MaxNumPaths =
-				uint8(*blindCfg.MaxNumPaths)
 		}
 
 		for _, nodeIDBytes := range blindCfg.NodeOmissionList {
@@ -6150,6 +6145,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 				MaxHTLCMsat: 0,
 			},
 			MinNumPathHops: blindingRestrictions.NumHops,
+			MaxNumPaths:    globalBlindCfg.MaxNumPaths,
 		}
 	}
 

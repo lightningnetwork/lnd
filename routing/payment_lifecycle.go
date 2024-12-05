@@ -340,7 +340,7 @@ func (p *paymentLifecycle) checkContext(ctx context.Context) error {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			reason = channeldb.FailureReasonTimeout
 			log.Warnf("Payment attempt not completed before "+
-				"timeout, id=%s", p.identifier.String())
+				"context timeout, id=%s", p.identifier.String())
 		} else {
 			reason = channeldb.FailureReasonCanceled
 			log.Warnf("Payment attempt context canceled, id=%s",

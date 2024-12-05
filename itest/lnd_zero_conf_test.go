@@ -621,6 +621,9 @@ func testPrivateUpdateAlias(ht *lntest.HarnessTest,
 		//
 		// TODO(yy): further investigate this sleep.
 		time.Sleep(time.Second * 5)
+
+		// Make sure Eve has heard about this public channel.
+		ht.AssertChannelInGraph(eve, fundingPoint2)
 	}
 
 	// Dave creates an invoice that Eve will pay.

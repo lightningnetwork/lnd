@@ -7,6 +7,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -24,37 +25,18 @@ func testExperimentalEndorsement(ht *lntest.HarnessTest) {
 // testEndorsement sets up a 5 hop network and tests propagation of
 // experimental endorsement signals.
 func testEndorsement(ht *lntest.HarnessTest, aliceEndorse bool) {
-	alice := ht.NewNodeWithCoins("Alice", nil)
-	bob := ht.NewNodeWithCoins("Bob", nil)
-	carol := ht.NewNode(
-		"carol", []string{"--protocol.no-experimental-endorsement"},
+	cfg := node.CfgAnchor
+	carolCfg := append(
+		[]string{"--protocol.no-experimental-endorsement"}, cfg...,
 	)
-	dave := ht.NewNode("dave", nil)
-	eve := ht.NewNode("eve", nil)
+	cfgs := [][]string{cfg, cfg, carolCfg, cfg, cfg}
 
-	ht.EnsureConnected(alice, bob)
-	ht.EnsureConnected(bob, carol)
-	ht.EnsureConnected(carol, dave)
-	ht.EnsureConnected(dave, eve)
-
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
-	// Open and wait for channels.
 	const chanAmt = btcutil.Amount(300000)
 	p := lntest.OpenChannelParams{Amt: chanAmt}
-	reqs := []*lntest.OpenChannelRequest{
-		{Local: alice, Remote: bob, Param: p},
-		{Local: bob, Remote: carol, Param: p},
-		{Local: carol, Remote: dave, Param: p},
-		{Local: dave, Remote: eve, Param: p},
-	}
-	resp := ht.OpenMultiChannelsAsync(reqs)
-	_, cpBC, cpCD, cpDE := resp[0], resp[1], resp[2], resp[3]
 
-	// Make sure Alice is aware of Bob=>Carol=>Dave=>Eve channels.
-	ht.AssertChannelInGraph(alice, cpBC)
-	ht.AssertChannelInGraph(alice, cpCD)
-	ht.AssertChannelInGraph(alice, cpDE)
+	_, nodes := ht.CreateSimpleNetwork(cfgs, p)
+	alice, bob, carol, dave, eve := nodes[0], nodes[1], nodes[2], nodes[3],
+		nodes[4]
 
 	bobIntercept, cancelBob := bob.RPC.HtlcInterceptor()
 	defer cancelBob()

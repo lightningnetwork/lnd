@@ -47,8 +47,6 @@ func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 	req := &lnrpc.InvoiceSubscription{}
 	bobInvoiceSubscription := mts.bob.RPC.SubscribeInvoices(req)
 
-	const paymentAmt = btcutil.Amount(300000)
-
 	// Set up a network with three different paths Alice <-> Bob. Channel
 	// capacities are set such that the payment can only succeed if (at
 	// least) three paths are used.
@@ -59,15 +57,8 @@ func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 	//      \              /
 	//       \__ Dave ____/
 	//
-	mppReq := &mppOpenChannelRequest{
-		amtAliceCarol: 285000,
-		amtAliceDave:  155000,
-		amtCarolBob:   200000,
-		amtCarolEve:   155000,
-		amtDaveBob:    155000,
-		amtEveBob:     155000,
-	}
-	mts.openChannels(mppReq)
+	paymentAmt := mts.setupSendPaymentCase()
+
 	chanPointAliceDave := mts.channelPoints[1]
 	chanPointDaveBob := mts.channelPoints[4]
 
@@ -373,7 +364,6 @@ func testSendPaymentAMPInvoiceRepeat(ht *lntest.HarnessTest) {
 // destination using SendPaymentV2.
 func testSendPaymentAMP(ht *lntest.HarnessTest) {
 	mts := newMppTestScenario(ht)
-	const paymentAmt = btcutil.Amount(300000)
 
 	// Set up a network with three different paths Alice <-> Bob. Channel
 	// capacities are set such that the payment can only succeed if (at
@@ -385,15 +375,8 @@ func testSendPaymentAMP(ht *lntest.HarnessTest) {
 	//      \              /
 	//       \__ Dave ____/
 	//
-	mppReq := &mppOpenChannelRequest{
-		amtAliceCarol: 285000,
-		amtAliceDave:  155000,
-		amtCarolBob:   200000,
-		amtCarolEve:   155000,
-		amtDaveBob:    155000,
-		amtEveBob:     155000,
-	}
-	mts.openChannels(mppReq)
+	paymentAmt := mts.setupSendPaymentCase()
+
 	chanPointAliceDave := mts.channelPoints[1]
 
 	// Increase Dave's fee to make the test deterministic. Otherwise, it
@@ -497,12 +480,6 @@ func testSendPaymentAMP(ht *lntest.HarnessTest) {
 
 func testSendToRouteAMP(ht *lntest.HarnessTest) {
 	mts := newMppTestScenario(ht)
-	const (
-		paymentAmt = btcutil.Amount(300000)
-		numShards  = 3
-		shardAmt   = paymentAmt / numShards
-		chanAmt    = shardAmt * 3 / 2
-	)
 
 	// Subscribe to bob's invoices.
 	req := &lnrpc.InvoiceSubscription{}
@@ -515,20 +492,10 @@ func testSendToRouteAMP(ht *lntest.HarnessTest) {
 	//      \              /
 	//       \__ Dave ____/
 	//
-	mppReq := &mppOpenChannelRequest{
-		// Since the channel Alice-> Carol will have to carry two
-		// shards, we make it larger.
-		amtAliceCarol: chanAmt + shardAmt,
-		amtAliceDave:  chanAmt,
-		amtCarolBob:   chanAmt,
-		amtCarolEve:   chanAmt,
-		amtDaveBob:    chanAmt,
-		amtEveBob:     chanAmt,
-	}
-	mts.openChannels(mppReq)
+	paymentAmt, shardAmt := mts.setupSendToRouteCase()
 
 	// We'll send shards along three routes from Alice.
-	sendRoutes := [numShards][]*node.HarnessNode{
+	sendRoutes := [][]*node.HarnessNode{
 		{mts.carol, mts.bob},
 		{mts.dave, mts.bob},
 		{mts.carol, mts.eve, mts.bob},
@@ -662,7 +629,7 @@ func testSendToRouteAMP(ht *lntest.HarnessTest) {
 
 	// Finally, assert that the proper set id is recorded for each htlc, and
 	// that the preimage hash pair is valid.
-	require.Equal(ht, numShards, len(rpcInvoice.Htlcs))
+	require.Equal(ht, 3, len(rpcInvoice.Htlcs))
 	for _, htlc := range rpcInvoice.Htlcs {
 		require.NotNil(ht, htlc.Amp)
 		require.Equal(ht, setID, htlc.Amp.SetId)

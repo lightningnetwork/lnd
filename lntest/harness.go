@@ -2262,12 +2262,27 @@ func (h *HarnessTest) openChannelsForNodes(nodes []*node.HarnessNode,
 	}
 	resp := h.OpenMultiChannelsAsync(reqs)
 
-	// Make sure the nodes know each other's channels if they are public.
-	if !p.Private {
+	// If the channels are private, make sure the channel participants know
+	// the relevant channel.
+	if p.Private {
+		for i, chanPoint := range resp {
+			// Get the channel participants - for n channels we
+			// would have n+1 nodes.
+			nodeA, nodeB := nodes[i], nodes[i+1]
+			h.AssertChannelInGraph(nodeA, chanPoint)
+			h.AssertChannelInGraph(nodeB, chanPoint)
+		}
+	} else {
+		// Make sure the all nodes know all the channels if they are
+		// public.
 		for _, node := range nodes {
 			for _, chanPoint := range resp {
 				h.AssertChannelInGraph(node, chanPoint)
 			}
+
+			// Make sure every node has updated its cached graph
+			// about the edges as indicated in `DescribeGraph`.
+			h.AssertNumEdges(node, len(resp), false)
 		}
 	}
 

@@ -284,10 +284,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testOpenChannelAfterReorg,
 	},
 	{
-		Name:     "psbt channel funding",
-		TestFunc: testPsbtChanFunding,
-	},
-	{
 		Name:     "sign psbt",
 		TestFunc: testSignPsbt,
 	},
@@ -573,8 +569,12 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testChannelUtxoSelection,
 	},
 	{
-		Name:     "update pending open channels",
-		TestFunc: testUpdateOnPendingOpenChannels,
+		Name:     "update pending open channels on funder side",
+		TestFunc: testUpdateOnFunderPendingOpenChannels,
+	},
+	{
+		Name:     "update pending open channels on fundee side",
+		TestFunc: testUpdateOnFundeePendingOpenChannels,
 	},
 	{
 		Name:     "blinded payment htlc re-forward",
@@ -694,4 +694,5 @@ func init() {
 	// Register subtests.
 	allTestCases = append(allTestCases, multiHopForceCloseTestCases...)
 	allTestCases = append(allTestCases, watchtowerTestCases...)
+	allTestCases = append(allTestCases, psbtFundingTestCases...)
 }

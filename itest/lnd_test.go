@@ -233,6 +233,11 @@ func getLndBinary(t *testing.T) string {
 	return binary
 }
 
+// isDarwin returns true if the test is running on a macOS.
+func isDarwin() bool {
+	return runtime.GOOS == "darwin"
+}
+
 func init() {
 	// Before we start any node, we need to make sure that any btcd node
 	// that is started through the RPC harness uses a unique port as well

@@ -157,7 +157,7 @@ type PaymentSessionSource interface {
 	// finding a path to the payment's destination.
 	NewPaymentSession(p *LightningPayment,
 		firstHopBlob fn.Option[tlv.Blob],
-		trafficShaper fn.Option[TlvTrafficShaper]) (PaymentSession,
+		ts fn.Option[htlcswitch.AuxTrafficShaper]) (PaymentSession,
 		error)
 
 	// NewPaymentSessionEmpty creates a new paymentSession instance that is
@@ -297,7 +297,7 @@ type Config struct {
 
 	// TrafficShaper is an optional traffic shaper that can be used to
 	// control the outgoing channel of a payment.
-	TrafficShaper fn.Option[TlvTrafficShaper]
+	TrafficShaper fn.Option[htlcswitch.AuxTrafficShaper]
 }
 
 // EdgeLocator is a struct used to identify a specific edge.

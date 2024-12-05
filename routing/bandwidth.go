@@ -29,39 +29,6 @@ type bandwidthHints interface {
 	firstHopCustomBlob() fn.Option[tlv.Blob]
 }
 
-// TlvTrafficShaper is an interface that allows the sender to determine if a
-// payment should be carried by a channel based on the TLV records that may be
-// present in the `update_add_htlc` message or the channel commitment itself.
-type TlvTrafficShaper interface {
-	AuxHtlcModifier
-
-	// ShouldHandleTraffic is called in order to check if the channel
-	// identified by the provided channel ID may have external mechanisms
-	// that would allow it to carry out the payment.
-	ShouldHandleTraffic(cid lnwire.ShortChannelID,
-		fundingBlob fn.Option[tlv.Blob]) (bool, error)
-
-	// PaymentBandwidth returns the available bandwidth for a custom channel
-	// decided by the given channel aux blob and HTLC blob. A return value
-	// of 0 means there is no bandwidth available. To find out if a channel
-	// is a custom channel that should be handled by the traffic shaper, the
-	// HandleTraffic method should be called first.
-	PaymentBandwidth(htlcBlob, commitmentBlob fn.Option[tlv.Blob],
-		linkBandwidth,
-		htlcAmt lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error)
-}
-
-// AuxHtlcModifier is an interface that allows the sender to modify the outgoing
-// HTLC of a payment by changing the amount or the wire message tlv records.
-type AuxHtlcModifier interface {
-	// ProduceHtlcExtraData is a function that, based on the previous extra
-	// data blob of an HTLC, may produce a different blob or modify the
-	// amount of bitcoin this htlc should carry.
-	ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
-		htlcCustomRecords lnwire.CustomRecords) (lnwire.MilliSatoshi,
-		lnwire.CustomRecords, error)
-}
-
 // getLinkQuery is the function signature used to lookup a link.
 type getLinkQuery func(lnwire.ShortChannelID) (
 	htlcswitch.ChannelLink, error)
@@ -73,7 +40,7 @@ type bandwidthManager struct {
 	getLink       getLinkQuery
 	localChans    map[lnwire.ShortChannelID]struct{}
 	firstHopBlob  fn.Option[tlv.Blob]
-	trafficShaper fn.Option[TlvTrafficShaper]
+	trafficShaper fn.Option[htlcswitch.AuxTrafficShaper]
 }
 
 // newBandwidthManager creates a bandwidth manager for the source node provided
@@ -84,13 +51,14 @@ type bandwidthManager struct {
 // that are inactive, or just don't have enough bandwidth to carry the payment.
 func newBandwidthManager(graph Graph, sourceNode route.Vertex,
 	linkQuery getLinkQuery, firstHopBlob fn.Option[tlv.Blob],
-	trafficShaper fn.Option[TlvTrafficShaper]) (*bandwidthManager, error) {
+	ts fn.Option[htlcswitch.AuxTrafficShaper]) (*bandwidthManager,
+	error) {
 
 	manager := &bandwidthManager{
 		getLink:       linkQuery,
 		localChans:    make(map[lnwire.ShortChannelID]struct{}),
 		firstHopBlob:  firstHopBlob,
-		trafficShaper: trafficShaper,
+		trafficShaper: ts,
 	}
 
 	// First, we'll collect the set of outbound edges from the target
@@ -166,43 +134,14 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 
 	result, err := fn.MapOptionZ(
 		b.trafficShaper,
-		func(ts TlvTrafficShaper) fn.Result[bandwidthResult] {
-			fundingBlob := link.FundingCustomBlob()
-			shouldHandle, err := ts.ShouldHandleTraffic(
-				cid, fundingBlob,
-			)
-			if err != nil {
-				return bandwidthErr(fmt.Errorf("traffic "+
-					"shaper failed to decide whether to "+
-					"handle traffic: %w", err))
-			}
-
-			log.Debugf("ShortChannelID=%v: external traffic "+
-				"shaper is handling traffic: %v", cid,
-				shouldHandle)
-
-			// If this channel isn't handled by the external traffic
-			// shaper, we'll return early.
-			if !shouldHandle {
-				return fn.Ok(bandwidthResult{})
-			}
-
-			// Ask for a specific bandwidth to be used for the
-			// channel.
-			commitmentBlob := link.CommitmentCustomBlob()
-			auxBandwidth, err := ts.PaymentBandwidth(
-				b.firstHopBlob, commitmentBlob, linkBandwidth,
-				amount,
-			)
+		func(s htlcswitch.AuxTrafficShaper) fn.Result[bandwidthResult] {
+			auxBandwidth, err := link.AuxBandwidth(
+				amount, cid, b.firstHopBlob, s,
+			).Unpack()
 			if err != nil {
 				return bandwidthErr(fmt.Errorf("failed to get "+
-					"bandwidth from external traffic "+
-					"shaper: %w", err))
+					"auxiliary bandwidth: %w", err))
 			}
-
-			log.Debugf("ShortChannelID=%v: external traffic "+
-				"shaper reported available bandwidth: %v", cid,
-				auxBandwidth)
 
 			// We don't know the actual HTLC amount that will be
 			// sent using the custom channel. But we'll still want
@@ -213,7 +152,7 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 			// the max number of HTLCs on the channel. A proper
 			// balance check is done elsewhere.
 			return fn.Ok(bandwidthResult{
-				bandwidth:  fn.Some(auxBandwidth),
+				bandwidth:  auxBandwidth,
 				htlcAmount: fn.Some[lnwire.MilliSatoshi](0),
 			})
 		},

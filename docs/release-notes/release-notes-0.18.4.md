@@ -26,6 +26,10 @@
 * [Make the contract resolutions for the channel arbitrator optional](
   https://github.com/lightningnetwork/lnd/pull/9253).
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9324) to prevent
+  potential deadlocks when LND depends on external components (e.g. aux
+  components, hooks).
+
 # New Features
 
 The main channel state machine and database now allow for processing and storing

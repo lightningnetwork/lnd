@@ -30,7 +30,7 @@ func createTestPaymentLifecycle() *paymentLifecycle {
 	quitChan := make(chan struct{})
 	rt := &ChannelRouter{
 		cfg: &Config{
-			TrafficShaper: fn.Some[TlvTrafficShaper](
+			TrafficShaper: fn.Some[htlcswitch.AuxTrafficShaper](
 				&mockTrafficShaper{},
 			),
 		},
@@ -83,7 +83,7 @@ func newTestPaymentLifecycle(t *testing.T) (*paymentLifecycle, *mockers) {
 			Payer:          mockPayer,
 			Clock:          mockClock,
 			MissionControl: mockMissionControl,
-			TrafficShaper: fn.Some[TlvTrafficShaper](
+			TrafficShaper: fn.Some[htlcswitch.AuxTrafficShaper](
 				&mockTrafficShaper{},
 			),
 		},

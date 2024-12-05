@@ -107,7 +107,7 @@ var _ PaymentSessionSource = (*mockPaymentSessionSourceOld)(nil)
 
 func (m *mockPaymentSessionSourceOld) NewPaymentSession(
 	_ *LightningPayment, _ fn.Option[tlv.Blob],
-	_ fn.Option[TlvTrafficShaper]) (PaymentSession, error) {
+	_ fn.Option[htlcswitch.AuxTrafficShaper]) (PaymentSession, error) {
 
 	return &mockPaymentSessionOld{
 		routes:  m.routes,
@@ -635,7 +635,8 @@ var _ PaymentSessionSource = (*mockPaymentSessionSource)(nil)
 
 func (m *mockPaymentSessionSource) NewPaymentSession(
 	payment *LightningPayment, firstHopBlob fn.Option[tlv.Blob],
-	tlvShaper fn.Option[TlvTrafficShaper]) (PaymentSession, error) {
+	tlvShaper fn.Option[htlcswitch.AuxTrafficShaper]) (PaymentSession,
+	error) {
 
 	args := m.Called(payment, firstHopBlob, tlvShaper)
 	return args.Get(0).(PaymentSession), args.Error(1)
@@ -893,6 +894,19 @@ type mockLink struct {
 // Bandwidth returns the bandwidth the mock was configured with.
 func (m *mockLink) Bandwidth() lnwire.MilliSatoshi {
 	return m.bandwidth
+}
+
+// AuxBandwidth returns the bandwidth that can be used for a channel,
+// expressed in milli-satoshi. This might be different from the regular
+// BTC bandwidth for custom channels. This will always return fn.None()
+// for a regular (non-custom) channel.
+func (m *mockLink) AuxBandwidth(lnwire.MilliSatoshi, lnwire.ShortChannelID,
+	fn.Option[tlv.Blob],
+	htlcswitch.AuxTrafficShaper) fn.Result[htlcswitch.OptionalBandwidth] {
+
+	return fn.Ok[htlcswitch.OptionalBandwidth](
+		fn.None[lnwire.MilliSatoshi](),
+	)
 }
 
 // EligibleToForward returns the mock's configured eligibility.

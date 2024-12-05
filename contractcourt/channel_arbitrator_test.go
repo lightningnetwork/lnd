@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1045,10 +1046,19 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 
 	// Post restart, it should be the case that our resolver was properly
 	// supplemented, and we only have a single resolver in the final set.
-	if len(chanArb.activeResolvers) != 1 {
-		t.Fatalf("expected single resolver, instead got: %v",
-			len(chanArb.activeResolvers))
-	}
+	// The resolvers are added concurrently so we need to wait here.
+	err = wait.NoError(func() error {
+		chanArb.activeResolversLock.Lock()
+		defer chanArb.activeResolversLock.Unlock()
+
+		if len(chanArb.activeResolvers) != 1 {
+			return fmt.Errorf("expected single resolver, instead "+
+				"got: %v", len(chanArb.activeResolvers))
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t, err)
 
 	// We'll now examine the in-memory state of the active resolvers to
 	// ensure t hey were populated properly.
@@ -3000,9 +3010,12 @@ func TestChannelArbitratorStartForceCloseFail(t *testing.T) {
 		{
 			name: "Commitment is rejected with an " +
 				"unmatched error",
-			broadcastErr:    fmt.Errorf("Reject Commitment Tx"),
-			expectedState:   StateBroadcastCommit,
-			expectedStartup: false,
+			broadcastErr:  fmt.Errorf("Reject Commitment Tx"),
+			expectedState: StateBroadcastCommit,
+			// We should still be able to start up since we other
+			// channels might be closing as well and we should
+			// resolve the contracts.
+			expectedStartup: true,
 		},
 
 		// We started after the DLP was triggered, and try to force

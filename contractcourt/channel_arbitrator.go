@@ -482,6 +482,20 @@ func (c *ChannelArbitrator) Start(state *chanArbStartState) error {
 		return err
 	}
 
+	c.wg.Add(1)
+	go c.channelAttendant(bestHeight, state.commitSet)
+
+	return nil
+}
+
+// progressStateMachineAfterRestart attempts to progress the state machine
+// after a restart. This makes sure that if the state transition failed, we
+// will try to progress the state machine again. Moreover it will relaunch
+// resolvers if the channel is still in the pending close state and has not
+// been fully resolved yet.
+func (c *ChannelArbitrator) progressStateMachineAfterRestart(bestHeight int32,
+	commitSet *CommitSet) error {
+
 	// If the channel has been marked pending close in the database, and we
 	// haven't transitioned the state machine to StateContractClosed (or a
 	// succeeding state), then a state transition most likely failed. We'll
@@ -527,7 +541,7 @@ func (c *ChannelArbitrator) Start(state *chanArbStartState) error {
 	// on-chain state, and our set of active contracts.
 	startingState := c.state
 	nextState, _, err := c.advanceState(
-		triggerHeight, trigger, state.commitSet,
+		triggerHeight, trigger, commitSet,
 	)
 	if err != nil {
 		switch err {
@@ -564,14 +578,12 @@ func (c *ChannelArbitrator) Start(state *chanArbStartState) error {
 		// receive a chain event from the chain watcher that the
 		// commitment has been confirmed on chain, and before we
 		// advance our state step, we call InsertConfirmedCommitSet.
-		err := c.relaunchResolvers(state.commitSet, triggerHeight)
+		err := c.relaunchResolvers(commitSet, triggerHeight)
 		if err != nil {
 			return err
 		}
 	}
 
-	c.wg.Add(1)
-	go c.channelAttendant(bestHeight)
 	return nil
 }
 
@@ -2716,12 +2728,27 @@ func (c *ChannelArbitrator) updateActiveHTLCs() {
 // Nursery for incubation, and ultimate sweeping.
 //
 // NOTE: This MUST be run as a goroutine.
-func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
+//
+//nolint:funlen
+func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
+	commitSet *CommitSet) {
 
 	// TODO(roasbeef): tell top chain arb we're done
 	defer func() {
 		c.wg.Done()
 	}()
+
+	err := c.progressStateMachineAfterRestart(bestHeight, commitSet)
+	if err != nil {
+		// In case of an error, we return early but we do not shutdown
+		// LND, because there might be other channels that still can be
+		// resolved and we don't want to interfere with that.
+		// We continue to run the channel attendant in case the channel
+		// closes via other means for example the remote pary force
+		// closes the channel. So we log the error and continue.
+		log.Errorf("Unable to progress state machine after "+
+			"restart: %v", err)
+	}
 
 	for {
 		select {

@@ -332,7 +332,7 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 		// Don't bother run the cleanups if the test is failed.
 		if st.Failed() {
 			st.Log("test failed, skipped cleanup")
-			st.shutdownAllNodes()
+			st.shutdownNodesNoAssert()
 			return
 		}
 
@@ -402,16 +402,20 @@ func (h *HarnessTest) checkAndLimitBlocksMined(startHeight int32) {
 		"50 blocks in one test")
 }
 
+// shutdownNodesNoAssert will shutdown all running nodes without assertions.
+// This is used when the test has already failed, we don't want to log more
+// errors but focusing on the original error.
+func (h *HarnessTest) shutdownNodesNoAssert() {
+	for _, node := range h.manager.activeNodes {
+		_ = h.manager.shutdownNode(node)
+	}
+}
+
 // shutdownAllNodes will shutdown all running nodes.
 func (h *HarnessTest) shutdownAllNodes() {
+	var err error
 	for _, node := range h.manager.activeNodes {
-		// The process may not be in a state to always shutdown
-		// immediately, so we'll retry up to a hard limit to ensure we
-		// eventually shutdown.
-		err := wait.NoError(func() error {
-			return h.manager.shutdownNode(node)
-		}, DefaultTimeout)
-
+		err = h.manager.shutdownNode(node)
 		if err == nil {
 			continue
 		}
@@ -421,6 +425,8 @@ func (h *HarnessTest) shutdownAllNodes() {
 		// processes.
 		h.Logf("unable to shutdown %s, got err: %v", node.Name(), err)
 	}
+
+	require.NoError(h, err, "failed to shutdown all nodes")
 }
 
 // cleanupStandbyNode is a function should be called with defer whenever a
@@ -516,12 +522,7 @@ func (h *HarnessTest) NewNodeWithCoins(name string,
 
 // Shutdown shuts down the given node and asserts that no errors occur.
 func (h *HarnessTest) Shutdown(node *node.HarnessNode) {
-	// The process may not be in a state to always shutdown immediately, so
-	// we'll retry up to a hard limit to ensure we eventually shutdown.
-	err := wait.NoError(func() error {
-		return h.manager.shutdownNode(node)
-	}, DefaultTimeout)
-
+	err := h.manager.shutdownNode(node)
 	require.NoErrorf(h, err, "unable to shutdown %v in %v", node.Name(),
 		h.manager.currentTestCase)
 }
@@ -764,9 +765,10 @@ func (h *HarnessTest) NewNodeRemoteSigner(name string, extraArgs []string,
 
 // KillNode kills the node and waits for the node process to stop.
 func (h *HarnessTest) KillNode(hn *node.HarnessNode) {
+	delete(h.manager.activeNodes, hn.Cfg.NodeID)
+
 	h.Logf("Manually killing the node %s", hn.Name())
 	require.NoErrorf(h, hn.KillAndWait(), "%s: kill got error", hn.Name())
-	delete(h.manager.activeNodes, hn.Cfg.NodeID)
 }
 
 // SetFeeEstimate sets a fee rate to be returned from fee estimator.

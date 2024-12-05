@@ -79,7 +79,7 @@ type WitnessBeacon interface {
 		payload *hop.Payload,
 		nextHopOnionBlob []byte) (*WitnessSubscription, error)
 
-	// LookupPreImage attempts to lookup a preimage in the global cache.
+	// LookupPreimage attempts to lookup a preimage in the global cache.
 	// True is returned for the second argument if the preimage is found.
 	LookupPreimage(payhash lntypes.Hash) (lntypes.Preimage, bool)
 

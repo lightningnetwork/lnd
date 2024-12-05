@@ -23,7 +23,14 @@ defaults:
 env:
   BITCOIN_VERSION: "28"
   
-  TRANCHES: 8
+  # TRANCHES defines the number of tranches used in the itests.
+  TRANCHES: 16
+
+  # SMALL_TRANCHES defines the number of tranches used in the less stable itest
+  # builds
+  #
+  # TODO(yy): remove this value and use TRANCHES.
+  SMALL_TRANCHES: 8
 
   # If you change this please also update GO_VERSION in Makefile (then run
   # `make lint` to see where else it needs to be updated as well).
@@ -229,10 +236,10 @@ jobs:
 
 
   ########################
-  # run ubuntu integration tests
+  # run integration tests with TRANCHES
   ########################
-  ubuntu-integration-test:
-    name: run ubuntu itests
+  basic-integration-test:
+    name: basic itests
     runs-on: ubuntu-latest
     if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     strategy:
@@ -246,18 +253,6 @@ jobs:
             args: backend=bitcoind cover=1
           - name: bitcoind-notxindex
             args: backend="bitcoind notxindex"
-          - name: bitcoind-rpcpolling
-            args: backend="bitcoind rpcpolling" cover=1
-          - name: bitcoind-etcd
-            args: backend=bitcoind dbbackend=etcd
-          - name: bitcoind-postgres
-            args: backend=bitcoind dbbackend=postgres
-          - name: bitcoind-sqlite
-            args: backend=bitcoind dbbackend=sqlite
-          - name: bitcoind-postgres-nativesql
-            args: backend=bitcoind dbbackend=postgres nativesql=true
-          - name: bitcoind-sqlite-nativesql
-            args: backend=bitcoind dbbackend=sqlite nativesql=true
           - name: neutrino
             args: backend=neutrino cover=1
     steps:
@@ -303,12 +298,79 @@ jobs:
           path: logs-itest-${{ matrix.name }}.zip
           retention-days: 5
 
+  ########################
+  # run integration tests with SMALL_TRANCHES
+  ########################
+  integration-test:
+    name: itests
+    runs-on: ubuntu-latest
+    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
+    strategy:
+      # Allow other tests in the matrix to continue if one fails.
+      fail-fast: false
+      matrix:
+        include:
+          - name: bitcoind-rpcpolling
+            args: backend="bitcoind rpcpolling"
+          - name: bitcoind-etcd
+            args: backend=bitcoind dbbackend=etcd
+          - name: bitcoind-sqlite
+            args: backend=bitcoind dbbackend=sqlite
+          - name: bitcoind-sqlite-nativesql
+            args: backend=bitcoind dbbackend=sqlite nativesql=true
+          - name: bitcoind-postgres
+            args: backend=bitcoind dbbackend=postgres
+          - name: bitcoind-postgres-nativesql
+            args: backend=bitcoind dbbackend=postgres nativesql=true
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: fetch and rebase on ${{ github.base_ref }}
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/rebase
+
+      - name: setup go ${{ env.GO_VERSION }}
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+          key-prefix: integration-test
+
+      - name: install bitcoind
+        run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
+
+      - name: run ${{ matrix.name }}
+        run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
+
+      - name: Send coverage
+        if: ${{ contains(matrix.args, 'cover=1') }}
+        uses: shogo82148/actions-goveralls@v1
+        with:
+          path-to-profile: coverage.txt
+          flag-name: 'itest-${{ matrix.name }}'
+          parallel: true
+
+      - name: Zip log files on failure
+        if: ${{ failure() }}
+        timeout-minutes: 5 # timeout after 5 minute
+        run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log
+
+      - name: Upload log files on failure
+        uses: actions/upload-artifact@v3
+        if: ${{ failure() }}
+        with:
+          name: logs-itest-${{ matrix.name }}
+          path: logs-itest-${{ matrix.name }}.zip
+          retention-days: 5
+
 
   ########################
   # run windows integration test
   ########################
   windows-integration-test:
-    name: run windows itest
+    name: windows itest
     runs-on: windows-latest
     if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     steps:
@@ -328,7 +390,7 @@ jobs:
           key-prefix: integration-test
 
       - name: run itest
-        run: make itest-parallel tranches=${{ env.TRANCHES }} windows=1 shuffleseed=${{ github.run_id }}
+        run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} windows=1 shuffleseed=${{ github.run_id }}
         
       - name: kill any remaining lnd processes
         if: ${{ failure() }}
@@ -352,7 +414,7 @@ jobs:
   # run macOS integration test
   ########################
   macos-integration-test:
-    name: run macOS itest
+    name: macOS itest
     runs-on: macos-14
     if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     steps:
@@ -372,7 +434,7 @@ jobs:
           key-prefix: integration-test
 
       - name: run itest
-        run: make itest-parallel tranches=${{ env.TRANCHES }} shuffleseed=${{ github.run_id }}
+        run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} shuffleseed=${{ github.run_id }}
 
       - name: Zip log files on failure
         if: ${{ failure() }}
@@ -425,7 +487,7 @@ jobs:
   # Notify about the completion of all coverage collecting jobs.
   finish:
     if: ${{ always() }}
-    needs: [unit-test, ubuntu-integration-test]
+    needs: [unit-test, basic-integration-test]
     runs-on: ubuntu-latest
     steps:
       - uses: shogo82148/actions-goveralls@v1

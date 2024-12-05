@@ -640,6 +640,8 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 		probability float64
 	}
 
+	totalRoutesFound := 0
+	totalRoutesDiscarded := 0
 	// Iterate over all the candidate paths and determine the success
 	// probability of each path given the data we have about forwards
 	// between any two nodes on a path.
@@ -678,9 +680,11 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 			prevNode = path[j].vertex
 		}
 
+		totalRoutesFound++
 		// Don't bother adding a route if its success probability less
 		// minimum that can be assigned to any single pair.
 		if totalRouteProbability <= DefaultMinRouteProbability {
+			totalRoutesDiscarded++
 			continue
 		}
 
@@ -698,18 +702,19 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 		return routes[i].probability > routes[j].probability
 	})
 
-	// Now just choose the best paths up until the maximum number of allowed
-	// paths.
-	bestRoutes := make([]*route.Route, 0, restrictions.MaxNumPaths)
+	log.Debugf("Found %v routes, discarded %v low probability routes",
+		totalRoutesFound, totalRoutesDiscarded)
+
+	// Return all routes, capped by the maxNumberOfRoutes.
+	allRoutes := make([]*route.Route, 0, len(routes))
 	for _, route := range routes {
-		if len(bestRoutes) >= int(restrictions.MaxNumPaths) {
+		if len(allRoutes) >= maxRoutes {
 			break
 		}
-
-		bestRoutes = append(bestRoutes, route.route)
+		allRoutes = append(allRoutes, route.route)
 	}
 
-	return bestRoutes, nil
+	return allRoutes, nil
 }
 
 // generateNewSessionKey generates a new ephemeral private key to be used for a

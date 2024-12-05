@@ -168,8 +168,12 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testListPayments,
 	},
 	{
-		Name:     "send direct payment",
-		TestFunc: testSendDirectPayment,
+		Name:     "send direct payment anchor",
+		TestFunc: testSendDirectPaymentAnchor,
+	},
+	{
+		Name:     "send direct payment simple taproot",
+		TestFunc: testSendDirectPaymentSimpleTaproot,
 	},
 	{
 		Name:     "immediate payment after channel opened",

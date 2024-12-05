@@ -339,135 +339,98 @@ func runTestPaymentHTLCTimeout(ht *lntest.HarnessTest, restartAlice bool) {
 	ht.AssertPaymentStatusFromStream(payStream, lnrpc.Payment_FAILED)
 }
 
-// testSendDirectPayment creates a topology Alice->Bob and then tests that
-// Alice can send a direct payment to Bob. This test modifies the fee estimator
-// to return floor fee rate(1 sat/vb).
-func testSendDirectPayment(ht *lntest.HarnessTest) {
-	// Grab Alice and Bob's nodes for convenience.
-	alice := ht.NewNodeWithCoins("Alice", nil)
-	bob := ht.NewNodeWithCoins("Bob", nil)
+// runSendDirectPayment opens a channel between Alice and Bob using the
+// specified params. It then sends a payment from Alice to Bob and asserts it
+// being successful.
+func runSendDirectPayment(ht *lntest.HarnessTest, cfgs [][]string,
+	params lntest.OpenChannelParams) {
 
-	// Create a list of commitment types we want to test.
-	commitmentTypes := []lnrpc.CommitmentType{
-		lnrpc.CommitmentType_ANCHORS,
-		lnrpc.CommitmentType_SIMPLE_TAPROOT,
+	// Set the fee estimate to 1sat/vbyte.
+	ht.SetFeeEstimate(250)
+
+	// Create a two-hop network: Alice -> Bob.
+	_, nodes := ht.CreateSimpleNetwork(cfgs, params)
+	alice, bob := nodes[0], nodes[1]
+
+	// Now that the channel is open, create an invoice for Bob
+	// which expects a payment of 1000 satoshis from Alice paid via
+	// a particular preimage.
+	const paymentAmt = 1000
+	preimage := ht.Random32Bytes()
+	invoice := &lnrpc.Invoice{
+		RPreimage: preimage,
+		Value:     paymentAmt,
+	}
+	invoiceResp := bob.RPC.AddInvoice(invoice)
+
+	// With the invoice for Bob added, send a payment towards Alice
+	// paying to the above generated invoice.
+	payReqs := []string{invoiceResp.PaymentRequest}
+	ht.CompletePaymentRequests(alice, payReqs)
+
+	p := ht.AssertNumPayments(alice, 1)[0]
+	path := p.Htlcs[len(p.Htlcs)-1].Route.Hops
+
+	// Ensure that the stored path shows a direct payment to Bob
+	// with no other nodes in-between.
+	require.Len(ht, path, 1, "wrong number of routes in path")
+	require.Equal(ht, bob.PubKeyStr, path[0].PubKey, "wrong pubkey")
+
+	// The payment amount should also match our previous payment
+	// directly.
+	require.EqualValues(ht, paymentAmt, p.ValueSat,
+		"incorrect sat amount")
+	require.EqualValues(ht, paymentAmt*1000, p.ValueMsat,
+		"incorrect msat amount")
+
+	// The payment hash (or r-hash) should have been stored
+	// correctly.
+	correctRHash := hex.EncodeToString(invoiceResp.RHash)
+	require.Equal(ht, correctRHash, p.PaymentHash, "incorrect hash")
+
+	// As we made a single-hop direct payment, there should have
+	// been no fee applied.
+	require.Zero(ht, p.FeeSat, "fee should be 0")
+	require.Zero(ht, p.FeeMsat, "fee should be 0")
+
+	// Now verify that the payment request returned by the rpc
+	// matches the invoice that we paid.
+	require.Equal(ht, invoiceResp.PaymentRequest, p.PaymentRequest,
+		"incorrect payreq")
+}
+
+// testSendDirectPaymentAnchor creates a topology Alice->Bob using anchor
+// channel and then tests that Alice can send a direct payment to Bob.
+func testSendDirectPaymentAnchor(ht *lntest.HarnessTest) {
+	// Create a two-hop network: Alice -> Bob using anchor channel.
+	//
+	// Prepare params.
+	params := lntest.OpenChannelParams{Amt: chanAmt}
+	cfg := node.CfgAnchor
+	cfgs := [][]string{cfg, cfg}
+
+	runSendDirectPayment(ht, cfgs, params)
+}
+
+// testSendDirectPaymentSimpleTaproot creates a topology Alice->Bob using
+// simple taproot channel and then tests that Alice can send a direct payment
+// to Bob.
+func testSendDirectPaymentSimpleTaproot(ht *lntest.HarnessTest) {
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT
+
+	// Create a two-hop network: Alice -> Bob using simple taproot channel.
+	//
+	// Prepare params.
+	params := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		CommitmentType: c,
+		Private:        true,
 	}
 
-	// testSendPayment opens a channel between Alice and Bob using the
-	// specified params. It then sends a payment from Alice to Bob and
-	// asserts it being successful.
-	testSendPayment := func(ht *lntest.HarnessTest,
-		params lntest.OpenChannelParams) {
+	cfg := node.CfgSimpleTaproot
+	cfgs := [][]string{cfg, cfg}
 
-		// Check that there are no payments before test.
-		chanPoint := ht.OpenChannel(alice, bob, params)
-
-		// Now that the channel is open, create an invoice for Bob
-		// which expects a payment of 1000 satoshis from Alice paid via
-		// a particular preimage.
-		const paymentAmt = 1000
-		preimage := ht.Random32Bytes()
-		invoice := &lnrpc.Invoice{
-			RPreimage: preimage,
-			Value:     paymentAmt,
-		}
-		invoiceResp := bob.RPC.AddInvoice(invoice)
-
-		// With the invoice for Bob added, send a payment towards Alice
-		// paying to the above generated invoice.
-		payReqs := []string{invoiceResp.PaymentRequest}
-		ht.CompletePaymentRequests(alice, payReqs)
-
-		p := ht.AssertNumPayments(alice, 1)[0]
-		path := p.Htlcs[len(p.Htlcs)-1].Route.Hops
-
-		// Ensure that the stored path shows a direct payment to Bob
-		// with no other nodes in-between.
-		require.Len(ht, path, 1, "wrong number of routes in path")
-		require.Equal(ht, bob.PubKeyStr, path[0].PubKey, "wrong pubkey")
-
-		// The payment amount should also match our previous payment
-		// directly.
-		require.EqualValues(ht, paymentAmt, p.ValueSat,
-			"incorrect sat amount")
-		require.EqualValues(ht, paymentAmt*1000, p.ValueMsat,
-			"incorrect msat amount")
-
-		// The payment hash (or r-hash) should have been stored
-		// correctly.
-		correctRHash := hex.EncodeToString(invoiceResp.RHash)
-		require.Equal(ht, correctRHash, p.PaymentHash, "incorrect hash")
-
-		// As we made a single-hop direct payment, there should have
-		// been no fee applied.
-		require.Zero(ht, p.FeeSat, "fee should be 0")
-		require.Zero(ht, p.FeeMsat, "fee should be 0")
-
-		// Now verify that the payment request returned by the rpc
-		// matches the invoice that we paid.
-		require.Equal(ht, invoiceResp.PaymentRequest, p.PaymentRequest,
-			"incorrect payreq")
-
-		// Delete all payments from Alice. DB should have no payments.
-		alice.RPC.DeleteAllPayments()
-		ht.AssertNumPayments(alice, 0)
-
-		// TODO(yy): remove the sleep once the following bug is fixed.
-		// When the invoice is reported settled, the commitment dance
-		// is not yet finished, which can cause an error when closing
-		// the channel, saying there's active HTLCs. We need to
-		// investigate this issue and reverse the order to, first
-		// finish the commitment dance, then report the invoice as
-		// settled.
-		time.Sleep(2 * time.Second)
-
-		// Close the channel.
-		//
-		// NOTE: This implicitly tests that the channel link is active
-		// before closing this channel. The above payment will trigger
-		// a commitment dance in both of the nodes. If the node fails
-		// to update the commitment state, we will fail to close the
-		// channel as the link won't be active.
-		ht.CloseChannel(alice, chanPoint)
-	}
-
-	// Run the test cases.
-	for _, ct := range commitmentTypes {
-		ht.Run(ct.String(), func(t *testing.T) {
-			st := ht.Subtest(t)
-
-			// Set the fee estimate to 1sat/vbyte.
-			st.SetFeeEstimate(250)
-
-			// Restart the nodes with the specified commitment type.
-			args := lntest.NodeArgsForCommitType(ct)
-			st.RestartNodeWithExtraArgs(alice, args)
-			st.RestartNodeWithExtraArgs(bob, args)
-
-			// Make sure they are connected.
-			st.EnsureConnected(alice, bob)
-
-			// There's a bug that causes the funding to be failed
-			// due to the `ListCoins` cannot find the utxos.
-			//
-			// TODO(yy): remove this line to fix the ListCoins bug.
-			st.FundCoins(btcutil.SatoshiPerBitcoin, alice)
-
-			// Open a channel with 100k satoshis between Alice and
-			// Bob with Alice being the sole funder of the channel.
-			params := lntest.OpenChannelParams{
-				Amt:            100_000,
-				CommitmentType: ct,
-			}
-
-			// Open private channel for taproot channels.
-			if ct == lnrpc.CommitmentType_SIMPLE_TAPROOT {
-				params.Private = true
-			}
-
-			testSendPayment(st, params)
-		})
-	}
+	runSendDirectPayment(ht, cfgs, params)
 }
 
 func testListPayments(ht *lntest.HarnessTest) {

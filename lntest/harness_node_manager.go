@@ -112,11 +112,14 @@ func (nm *nodeManager) registerNode(node *node.HarnessNode) {
 // ShutdownNode stops an active lnd process and returns when the process has
 // exited and any temporary directories have been cleaned up.
 func (nm *nodeManager) shutdownNode(node *node.HarnessNode) error {
+	// Remove the node from the active nodes map even if the shutdown
+	// fails as the shutdown cannot be retried in that case.
+	delete(nm.activeNodes, node.Cfg.NodeID)
+
 	if err := node.Shutdown(); err != nil {
 		return err
 	}
 
-	delete(nm.activeNodes, node.Cfg.NodeID)
 	return nil
 }
 

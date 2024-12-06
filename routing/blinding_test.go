@@ -6,7 +6,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -129,7 +128,7 @@ func TestBlindedPaymentToHints(t *testing.T) {
 		HtlcMaximum:         htlcMax,
 		Features:            features,
 	}
-	hints, err := blindedPayment.toRouteHints(fn.None[*btcec.PublicKey]())
+	hints, err := blindedPayment.toRouteHints()
 	require.NoError(t, err)
 	require.Nil(t, hints)
 
@@ -184,7 +183,7 @@ func TestBlindedPaymentToHints(t *testing.T) {
 		},
 	}
 
-	actual, err := blindedPayment.toRouteHints(fn.None[*btcec.PublicKey]())
+	actual, err := blindedPayment.toRouteHints()
 	require.NoError(t, err)
 
 	require.Equal(t, len(expected), len(actual))

@@ -60,7 +60,7 @@
 * [Make the contract resolutions for the channel arbitrator optional](
   https://github.com/lightningnetwork/lnd/pull/9253)
 
-  * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9322) that caused
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9322) that caused
     estimateroutefee to ignore the default payment timeout.
 
 # New Features

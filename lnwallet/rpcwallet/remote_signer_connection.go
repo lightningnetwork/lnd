@@ -255,3 +255,98 @@ func (r *OutboundConnection) connect(ctx context.Context,
 // A compile time assertion to ensure OutboundConnection meets the
 // RemoteSignerConnection interface.
 var _ RemoteSignerConnection = (*OutboundConnection)(nil)
+
+// InboundRemoteSignerConnection is an interface that abstracts the
+// communication with an outbound remote signer. It extends the
+// RemoteSignerConnection insterface.
+type InboundRemoteSignerConnection interface {
+	RemoteSignerConnection
+
+	// AddConnection feeds the inbound connection handler with the incoming
+	// stream set up by an outbound remote signer and then blocks until the
+	// stream is closed. Lnd can then send any requests to the remote signer
+	// through the stream.
+	AddConnection(stream StreamServer) error
+}
+
+// InboundConnection is an abstraction that manages the inbound connection that
+// is set up by an outbound remote signer that connects to the watch-only node.
+type InboundConnection struct {
+	*SignCoordinator
+
+	connectionTimeout time.Duration
+}
+
+// NewInboundConnection creates a new InboundConnection instance.
+func NewInboundConnection(requestTimeout time.Duration,
+	connectionTimeout time.Duration) *InboundConnection {
+
+	remoteSigner := &InboundConnection{
+		connectionTimeout: connectionTimeout,
+	}
+
+	remoteSigner.SignCoordinator = NewSignCoordinator(
+		requestTimeout, connectionTimeout,
+	)
+
+	return remoteSigner
+}
+
+// Timeout returns the set connection timeout for the remote signer.
+//
+// NOTE: This is part of the RemoteSignerConnection interface.
+func (r *InboundConnection) Timeout() time.Duration {
+	return r.connectionTimeout
+}
+
+// Ready returns a channel that nil gets sent over once the remote signer
+// connected and is ready to accept requests.
+//
+// NOTE: This is part of the RemoteSignerConnection interface.
+func (r *InboundConnection) Ready(ctx context.Context) chan error {
+	readyChan := make(chan error, 1)
+
+	// We wait for the remote signer to connect in a go func and signal
+	// over the channel once it's ready.
+	go func() {
+		log.Infof("Waiting for the remote signer to connect")
+
+		readyChan <- r.SignCoordinator.WaitUntilConnected(ctx)
+		close(readyChan)
+	}()
+
+	return readyChan
+}
+
+// Ping verifies that the remote signer is still responsive.
+//
+// NOTE: This is part of the RemoteSignerConnection interface.
+func (r *InboundConnection) Ping(ctx context.Context,
+	timeout time.Duration) error {
+
+	pong, err := r.SignCoordinator.Ping(ctx, timeout)
+	if err != nil {
+		return fmt.Errorf("ping request to remote signer "+
+			"errored: %w", err)
+	}
+
+	if !pong {
+		return errors.New("incorrect Pong response from remote signer")
+	}
+
+	return nil
+}
+
+// AddConnection feeds the inbound connection handler with the incoming stream
+// set up by an outbound remote signer and then blocks until the stream is
+// closed. Lnd can then send any requests to the remote signer through the
+// stream.
+//
+// NOTE: This is part of the InboundRemoteSignerConnection interface.
+func (r *InboundConnection) AddConnection(stream StreamServer) error {
+	return r.SignCoordinator.Run(stream)
+}
+
+// A compile time assertion to ensure InboundConnection meets the
+// RemoteSigner interface.
+var _ InboundRemoteSignerConnection = (*InboundConnection)(nil)

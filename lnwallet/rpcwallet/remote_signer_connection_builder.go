@@ -37,5 +37,14 @@ func (b *RemoteSignerConnectionBuilder) Build(
 			"config")
 	}
 
-	return NewOutboundConnection(ctx, b.cfg.ConnectionCfg)
+	// Create the remote signer based on the configuration.
+	if !b.cfg.AllowInboundConnection {
+		return NewOutboundConnection(ctx, b.cfg.ConnectionCfg)
+	}
+
+	inboundConnection := NewInboundConnection(
+		b.cfg.RequestTimeout, b.cfg.StartupTimeout,
+	)
+
+	return inboundConnection, nil
 }

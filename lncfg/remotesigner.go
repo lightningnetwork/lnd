@@ -64,19 +64,20 @@ func DefaultRemoteSignerCfg() *RemoteSigner {
 
 // Validate checks the values configured for our remote RPC signer.
 func (r *RemoteSigner) Validate() error {
-	if r.MigrateWatchOnly && !r.Enable {
-		return fmt.Errorf("remote signer: cannot turn on wallet " +
-			"migration to watch-only if remote signing is not " +
-			"enabled")
-	}
-
 	if !r.Enable {
-		return nil
-	}
+		if r.MigrateWatchOnly {
+			return fmt.Errorf("remote signer: cannot turn on " +
+				"wallet migration to watch-only if remote " +
+				"signing is not enabled")
+		}
 
-	if r.AllowInboundConnection {
-		return fmt.Errorf("remote signer: allowinboundconnection " +
-			"is not supported yet")
+		if r.AllowInboundConnection {
+			return fmt.Errorf("remote signer: cannot enable " +
+				"'allowinboundconnection' if remote signing " +
+				"is not enabled")
+		}
+
+		return nil
 	}
 
 	if r.AllowInboundConnection {

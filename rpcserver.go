@@ -7073,7 +7073,7 @@ func (r *rpcServer) StopDaemon(_ context.Context,
 			"shut down, please wait until rescan finishes")
 	}
 
-	rpcsLog.Infof("%s", stack())
+	rpcsLog.Infof("Shutting down: %s", stack())
 
 	r.interceptor.RequestShutdown()
 

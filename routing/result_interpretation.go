@@ -532,7 +532,7 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(route *mcRoute,
 			// it afterwards. Blinded paths and their blinded hop
 			// keys are always changing per blinded route so there
 			// is no point in persisting this data.
-			i.failPairBalance(route, len(route.hops.Val)-1)
+			i.failBlindedRoute(route)
 		}
 
 	// In all other cases, we penalize the reporting node. These are all
@@ -837,6 +837,24 @@ func (i *interpretedResult) successPairRange(rt *mcRoute, fromIdx, toIdx int) {
 
 		i.pairResults[pair] = successPairResult(amt)
 	}
+}
+
+// failBlindedRoute marks a blinded route as failed for the specific amount to
+// send by only punishing the last pair.
+func (i *interpretedResult) failBlindedRoute(rt *mcRoute) {
+	// We fail the last pair of the route, in order to fail the complete
+	// blinded route. This is because the combination of ephemeral pubkeys
+	// is unique to the route. We fail the last pair in order to not punish
+	// the introduction node, since we don't want to disincentivize them
+	// from providing that service.
+	pair, _ := getPair(rt, len(rt.hops.Val)-1)
+
+	// Since all the hops along a blinded path don't have any amount set, we
+	// extract the minimal amount to punish from the value that is tried to
+	// be sent to the receiver.
+	amt := rt.hops.Val[len(rt.hops.Val)-1].amtToFwd.Val
+
+	i.pairResults[pair] = failPairResult(amt)
 }
 
 // getPair returns a node pair from the route and the amount passed between that

@@ -116,6 +116,9 @@
 
 * LND updates channel.backup file at shutdown time.
 
+* [Decrease the budget for ougtoing HTLCs and
+ make it configurable](https://github.com/lightningnetwork/lnd/pull/9274)
+
 ## RPC Updates
 
 * Some RPCs that previously just returned an empty response message now at least

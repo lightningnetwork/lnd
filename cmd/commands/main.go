@@ -459,6 +459,7 @@ func Main() {
 		disconnectCommand,
 		openChannelCommand,
 		batchOpenChannelCommand,
+		cancelPsbtCommand,
 		closeChannelCommand,
 		closeAllChannelsCommand,
 		abandonChannelCommand,

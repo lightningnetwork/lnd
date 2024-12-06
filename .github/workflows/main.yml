@@ -288,7 +288,7 @@ jobs:
       - name: Zip log files on failure
         if: ${{ failure() }}
         timeout-minutes: 5 # timeout after 5 minute
-        run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log
+        run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log itest/postgres.log
 
       - name: Upload log files on failure
         uses: actions/upload-artifact@v3

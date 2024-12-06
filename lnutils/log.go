@@ -1,6 +1,10 @@
 package lnutils
 
-import "github.com/davecgh/go-spew/spew"
+import (
+	"strings"
+
+	"github.com/davecgh/go-spew/spew"
+)
 
 // LogClosure is used to provide a closure over expensive logging operations so
 // don't have to be performed when the logging level doesn't warrant it.
@@ -23,5 +27,12 @@ func NewLogClosure(c func() string) LogClosure {
 func SpewLogClosure(a any) LogClosure {
 	return func() string {
 		return spew.Sdump(a)
+	}
+}
+
+// NewSeparatorClosure return a new closure that logs a separator line.
+func NewSeparatorClosure() LogClosure {
+	return func() string {
+		return strings.Repeat("=", 80)
 	}
 }

@@ -832,7 +832,6 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	// we've already mined 1 block so we need one less than our CSV.
 	ht.MineBlocks(node.DefaultCSV - 1)
 	ht.AssertNumPendingSweeps(ht.Bob, 1)
-	ht.MineEmptyBlocks(1)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Restart bob so that we can test that he's able to recover everything
@@ -852,6 +851,7 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	ht.AssertNumPendingSweeps(ht.Bob, 0)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
+	// Assert that the HTLC has cleared.
 	ht.AssertHTLCNotActive(ht.Bob, testCase.channels[0], hash[:])
 	ht.AssertHTLCNotActive(ht.Alice, testCase.channels[0], hash[:])
 
@@ -866,8 +866,9 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	)
 
 	// Clean up the rest of our force close: mine blocks so that Bob's CSV
-	// expires plus one block to trigger his sweep and then mine it.
-	ht.MineBlocks(node.DefaultCSV + 1)
+	// expires to trigger his sweep and then mine it.
+	ht.MineBlocks(node.DefaultCSV)
+	ht.AssertNumPendingSweeps(ht.Bob, 1)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Bring carol back up so that we can close out the rest of our

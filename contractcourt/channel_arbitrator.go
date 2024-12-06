@@ -479,7 +479,7 @@ func (c *ChannelArbitrator) Start(state *chanArbStartState,
 		}
 	}
 
-	log.Debugf("Starting ChannelArbitrator(%v), htlc_set=%v, state=%v",
+	log.Tracef("Starting ChannelArbitrator(%v), htlc_set=%v, state=%v",
 		c.cfg.ChanPoint, lnutils.SpewLogClosure(c.activeHTLCs),
 		state.currentState)
 

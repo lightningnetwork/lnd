@@ -41,6 +41,40 @@ var (
 	btcdExecutable = flag.String(
 		"btcdexec", "", "full path to btcd binary",
 	)
+
+	// CfgLegacy specifies the config used to create a node that uses the
+	// legacy channel format.
+	CfgLegacy = []string{"--protocol.legacy.committweak"}
+
+	// CfgStaticRemoteKey specifies the config used to create a node that
+	// uses the static remote key feature.
+	CfgStaticRemoteKey = []string{}
+
+	// CfgAnchor specifies the config used to create a node that uses the
+	// anchor output feature.
+	CfgAnchor = []string{"--protocol.anchors"}
+
+	// CfgLeased specifies the config used to create a node that uses the
+	// leased channel feature.
+	CfgLeased = []string{
+		"--protocol.anchors",
+		"--protocol.script-enforced-lease",
+	}
+
+	// CfgSimpleTaproot specifies the config used to create a node that
+	// uses the simple taproot feature.
+	CfgSimpleTaproot = []string{
+		"--protocol.anchors",
+		"--protocol.simple-taproot-chans",
+	}
+
+	// CfgZeroConf specifies the config used to create a node that uses the
+	// zero-conf channel feature.
+	CfgZeroConf = []string{
+		"--protocol.anchors",
+		"--protocol.option-scid-alias",
+		"--protocol.zero-conf",
+	}
 )
 
 type DatabaseBackend int

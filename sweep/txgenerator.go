@@ -315,5 +315,6 @@ func inputTypeSummary(inputs []input.Input) string {
 		part := fmt.Sprintf("%v (%v)", i.OutPoint(), i.WitnessType())
 		parts = append(parts, part)
 	}
-	return strings.Join(parts, ", ")
+
+	return strings.Join(parts, "\n")
 }

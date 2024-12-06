@@ -2078,7 +2078,7 @@ func (n *TxNotifier) dispatchSpendReorg(ntfn *SpendNtfn) error {
 	select {
 	case ntfn.Event.Reorg <- struct{}{}:
 	case <-n.quit:
-		Log.Debugf("TxNotifier exiting when notifying for conf_id=%v,"+
+		Log.Debugf("TxNotifier exiting when notifying for spend_id=%v,"+
 			" %v", ntfn.SpendID, ntfn.SpendRequest)
 		return ErrTxNotifierExiting
 	}

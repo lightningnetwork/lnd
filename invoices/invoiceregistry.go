@@ -1275,7 +1275,11 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 			invoiceToExpire = makeInvoiceExpiry(ctx.hash, invoice)
 		}
 
-		i.hodlSubscribe(hodlChan, ctx.circuitKey)
+		// Subscribe to the resolution if the caller specified a
+		// notification channel.
+		if hodlChan != nil {
+			i.hodlSubscribe(hodlChan, ctx.circuitKey)
+		}
 
 	default:
 		panic("unknown action")

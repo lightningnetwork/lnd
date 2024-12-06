@@ -92,9 +92,14 @@ func DefaultWatchOnlyNodeCfg() *WatchOnlyNode {
 func (w *WatchOnlyNode) Validate() error {
 	if !w.Enable {
 		return nil
-	} else {
-		return fmt.Errorf("watchonlynode: enable not supported to yet")
 	}
+
+	err := w.ConnectionCfg.Validate()
+	if err != nil {
+		return fmt.Errorf("watchonlynode.%w", err)
+	}
+
+	return nil
 }
 
 // ConnectionCfg holds the configuration options required when setting up a

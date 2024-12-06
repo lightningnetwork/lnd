@@ -3,6 +3,7 @@ package lnwire
 import (
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -41,6 +42,44 @@ func NewShortChanIDFromInt(chanID uint64) ShortChannelID {
 		TxIndex:     uint32(chanID>>16) & 0xFFFFFF,
 		TxPosition:  uint16(chanID),
 	}
+}
+
+// NewShortChanIDFromStrings parse the string with the format of
+// <blockheight>x<txindex>x<txposition> and return the compact channel ID as
+// 3 bytes for the block height, 3 bytes for the transaction index, and 2 bytes
+// for the output index.
+func NewShortChanIDFromStrings(parts []string) (ShortChannelID, error) {
+	if len(parts) != 3 {
+		return ShortChannelID{}, fmt.Errorf("expected 3 parts, got %d",
+			len(parts))
+	}
+
+	// Parse block height (limited to 3 bytes = 24 bits)
+	bh, err := strconv.ParseUint(parts[0], 10, 24)
+	if err != nil {
+		return ShortChannelID{}, fmt.Errorf("invalid block height: %s",
+			parts[0])
+	}
+
+	// Parse transaction index (limited to 3 bytes = 24 bits)
+	ti, err := strconv.ParseUint(parts[1], 10, 24)
+	if err != nil {
+		return ShortChannelID{}, fmt.Errorf("invalid tx index: %s",
+			parts[1])
+	}
+
+	// Parse transaction position (limited to 2 bytes = 16 bits)
+	tp, err := strconv.ParseUint(parts[2], 10, 16)
+	if err != nil {
+		return ShortChannelID{}, fmt.Errorf("invalid tx position: %s",
+			parts[2])
+	}
+
+	return ShortChannelID{
+		BlockHeight: uint32(bh),
+		TxIndex:     uint32(ti),
+		TxPosition:  uint16(tp),
+	}, nil
 }
 
 // ToUint64 converts the ShortChannelID into a compact format encoded within a

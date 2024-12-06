@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -238,8 +239,8 @@ func (db *db) executeTransaction(f func(tx walletdb.ReadWriteTx) error,
 	}
 
 	onBackoff := func(retry int, delay time.Duration) {
-		log.Tracef("Retrying transaction due to tx serialization "+
-			"error, attempt_number=%v, delay=%v", retry, delay)
+		log.Debugf("Retrying transaction due to tx serialization "+
+			"error, attempt_number=%v, delay=%v: %s", retry, delay, debug.Stack())
 	}
 
 	rollbackTx := func(tx sqldb.Tx) error {

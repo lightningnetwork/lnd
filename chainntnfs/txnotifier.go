@@ -957,6 +957,9 @@ func (n *TxNotifier) dispatchConfDetails(
 		case ntfn.Event.Confirmed <- details:
 			ntfn.dispatched = true
 		case <-n.quit:
+			Log.Debugf("TxNotifier exiting when notifying for %v "+
+				"confs, conf_id=%v, %v", ntfn.NumConfirmations,
+				ntfn.ConfID, ntfn.ConfRequest)
 			return ErrTxNotifierExiting
 		}
 	} else {
@@ -1784,6 +1787,9 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 		case ntfn.Event.Confirmed <- &confDetails:
 			ntfn.dispatched = true
 		case <-n.quit:
+			Log.Debugf("TxNotifier exiting when notifying for %v "+
+				"confs, conf_id=%v, %v", ntfn.NumConfirmations,
+				ntfn.ConfID, ntfn.ConfRequest)
 			return ErrTxNotifierExiting
 		}
 	}
@@ -1854,6 +1860,11 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 				select {
 				case <-ntfn.Event.Updates:
 				case <-n.quit:
+					Log.Debugf("TxNotifier exiting when "+
+						"notifying for %v confs, "+
+						"conf_id=%v, %v",
+						ntfn.NumConfirmations,
+						ntfn.ConfID, ntfn.ConfRequest)
 					return ErrTxNotifierExiting
 				default:
 				}
@@ -2023,6 +2034,9 @@ func (n *TxNotifier) dispatchConfReorg(ntfn *ConfNtfn,
 	select {
 	case <-ntfn.Event.Confirmed:
 	case <-n.quit:
+		Log.Debugf("TxNotifier exiting when notifying for %v "+
+			"confs, conf_id=%v, %v", ntfn.NumConfirmations,
+			ntfn.ConfID, ntfn.ConfRequest)
 		return ErrTxNotifierExiting
 	default:
 	}
@@ -2034,6 +2048,9 @@ func (n *TxNotifier) dispatchConfReorg(ntfn *ConfNtfn,
 	select {
 	case ntfn.Event.NegativeConf <- int32(n.reorgDepth):
 	case <-n.quit:
+		Log.Debugf("TxNotifier exiting when notifying for %v "+
+			"confs, conf_id=%v, %v", ntfn.NumConfirmations,
+			ntfn.ConfID, ntfn.ConfRequest)
 		return ErrTxNotifierExiting
 	}
 
@@ -2061,6 +2078,8 @@ func (n *TxNotifier) dispatchSpendReorg(ntfn *SpendNtfn) error {
 	select {
 	case ntfn.Event.Reorg <- struct{}{}:
 	case <-n.quit:
+		Log.Debugf("TxNotifier exiting when notifying for conf_id=%v,"+
+			" %v", ntfn.SpendID, ntfn.SpendRequest)
 		return ErrTxNotifierExiting
 	}
 
@@ -2119,6 +2138,10 @@ func (n *TxNotifier) notifyNumConfsLeft(ntfn *ConfNtfn, num uint32) error {
 	select {
 	case ntfn.Event.Updates <- num:
 	case <-n.quit:
+		Log.Debugf("TxNotifier exiting when notifying for %v "+
+			"confs, conf_id=%v, %v", ntfn.NumConfirmations,
+			ntfn.ConfID, ntfn.ConfRequest)
+
 		return ErrTxNotifierExiting
 	}
 

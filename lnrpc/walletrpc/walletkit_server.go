@@ -31,7 +31,7 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/labels"
@@ -1145,9 +1145,9 @@ func (w *WalletKit) getWaitingCloseChannel(
 		return nil, err
 	}
 
-	channel := fn.Find(func(c *channeldb.OpenChannel) bool {
+	channel := fn.Find(chans, func(c *channeldb.OpenChannel) bool {
 		return c.FundingOutpoint == chanPoint
-	}, chans)
+	})
 
 	return channel.UnwrapOrErr(errors.New("channel not found"))
 }
@@ -1231,18 +1231,23 @@ func (w *WalletKit) BumpForceCloseFee(_ context.Context,
 	pendingSweeps := maps.Values(inputsMap)
 
 	// Discard everything except for the anchor sweeps.
-	anchors := fn.Filter(func(sweep *sweep.PendingInputResponse) bool {
-		// Only filter for anchor inputs because these are the only
-		// inputs which can be used to bump a closed unconfirmed
-		// commitment transaction.
-		if sweep.WitnessType != input.CommitmentAnchor &&
-			sweep.WitnessType != input.TaprootAnchorSweepSpend {
+	anchors := fn.Filter(
+		pendingSweeps,
+		func(sweep *sweep.PendingInputResponse) bool {
+			// Only filter for anchor inputs because these are the
+			// only inputs which can be used to bump a closed
+			// unconfirmed commitment transaction.
+			isCommitAnchor := sweep.WitnessType ==
+				input.CommitmentAnchor
+			isTaprootSweepSpend := sweep.WitnessType ==
+				input.TaprootAnchorSweepSpend
+			if !isCommitAnchor && !isTaprootSweepSpend {
+				return false
+			}
 
-			return false
-		}
-
-		return commitSet.Contains(sweep.OutPoint.Hash)
-	}, pendingSweeps)
+			return commitSet.Contains(sweep.OutPoint.Hash)
+		},
+	)
 
 	if len(anchors) == 0 {
 		return nil, fmt.Errorf("unable to find pending anchor outputs")
@@ -1754,7 +1759,7 @@ func (w *WalletKit) fundPsbtInternalWallet(account string,
 				return true
 			}
 
-			eligibleUtxos := fn.Filter(filterFn, utxos)
+			eligibleUtxos := fn.Filter(utxos, filterFn)
 
 			// Validate all inputs against our known list of UTXOs
 			// now.

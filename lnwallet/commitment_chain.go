@@ -1,7 +1,7 @@
 package lnwallet
 
 import (
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 )
 
 // commitmentChain represents a chain of unrevoked commitments. The tail of the

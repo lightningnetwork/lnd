@@ -11,7 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/aliasmgr"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"golang.org/x/exp/maps"
@@ -221,12 +221,18 @@ func UnmarshallCoinSelectionStrategy(strategy CoinSelectionStrategy,
 // MarshalAliasMap converts a ScidAliasMap to its proto counterpart. This is
 // used in various RPCs that handle scid alias mappings.
 func MarshalAliasMap(scidMap aliasmgr.ScidAliasMap) []*AliasMap {
-	return fn.Map(func(base lnwire.ShortChannelID) *AliasMap {
-		return &AliasMap{
-			BaseScid: base.ToUint64(),
-			Aliases: fn.Map(func(a lnwire.ShortChannelID) uint64 {
-				return a.ToUint64()
-			}, scidMap[base]),
-		}
-	}, maps.Keys(scidMap))
+	return fn.Map(
+		maps.Keys(scidMap),
+		func(base lnwire.ShortChannelID) *AliasMap {
+			return &AliasMap{
+				BaseScid: base.ToUint64(),
+				Aliases: fn.Map(
+					scidMap[base],
+					func(a lnwire.ShortChannelID) uint64 {
+						return a.ToUint64()
+					},
+				),
+			}
+		},
+	)
 }

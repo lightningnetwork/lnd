@@ -25,7 +25,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -730,9 +730,12 @@ func TestCommitHTLCSigCustomRecordSize(t *testing.T) {
 
 		// Replace the default PackSigs implementation to return a
 		// large custom records blob.
-		mockSigner.ExpectedCalls = fn.Filter(func(c *mock.Call) bool {
-			return c.Method != "PackSigs"
-		}, mockSigner.ExpectedCalls)
+		mockSigner.ExpectedCalls = fn.Filter(
+			mockSigner.ExpectedCalls,
+			func(c *mock.Call) bool {
+				return c.Method != "PackSigs"
+			},
+		)
 		mockSigner.On("PackSigs", mock.Anything).
 			Return(fn.Ok(fn.Some(largeBlob)))
 	})

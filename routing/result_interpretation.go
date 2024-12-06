@@ -6,7 +6,7 @@ import (
 	"io"
 
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -578,7 +578,7 @@ func extractMCRoute(r *route.Route) *mcRoute {
 // extractMCHops extracts the Hop fields that MC actually uses from a slice of
 // Hops.
 func extractMCHops(hops []*route.Hop) mcHops {
-	return fn.Map(extractMCHop, hops)
+	return fn.Map(hops, extractMCHop)
 }
 
 // extractMCHop extracts the Hop fields that MC actually uses from a Hop.

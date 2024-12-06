@@ -11,7 +11,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -836,7 +836,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			continue
 		}
 
-		auxLeaf := fn.ChainOption(
+		auxLeaf := fn.FlatMapOption(
 			func(leaves input.HtlcAuxLeaves) input.AuxTapLeaf {
 				return leaves[htlc.HtlcIndex].AuxTapLeaf
 			},
@@ -864,7 +864,7 @@ func (cb *CommitmentBuilder) createUnsignedCommitmentTx(ourBalance,
 			continue
 		}
 
-		auxLeaf := fn.ChainOption(
+		auxLeaf := fn.FlatMapOption(
 			func(leaves input.HtlcAuxLeaves) input.AuxTapLeaf {
 				return leaves[htlc.HtlcIndex].AuxTapLeaf
 			},
@@ -1323,7 +1323,7 @@ func findOutputIndexesFromRemote(revocationPreimage *chainhash.Hash,
 
 	// Compute the to_local script. From our PoV, when facing a remote
 	// commitment, the to_local output belongs to them.
-	localAuxLeaf := fn.ChainOption(
+	localAuxLeaf := fn.FlatMapOption(
 		func(l CommitAuxLeaves) input.AuxTapLeaf {
 			return l.LocalAuxLeaf
 		},
@@ -1338,7 +1338,7 @@ func findOutputIndexesFromRemote(revocationPreimage *chainhash.Hash,
 
 	// Compute the to_remote script. From our PoV, when facing a remote
 	// commitment, the to_remote output belongs to us.
-	remoteAuxLeaf := fn.ChainOption(
+	remoteAuxLeaf := fn.FlatMapOption(
 		func(l CommitAuxLeaves) input.AuxTapLeaf {
 			return l.RemoteAuxLeaf
 		},

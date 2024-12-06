@@ -6,7 +6,7 @@ import (
 	"io"
 	"sort"
 
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -163,9 +163,12 @@ func (c CustomRecords) SerializeTo(w io.Writer) error {
 // ProduceRecordsSorted converts a slice of record producers into a slice of
 // records and then sorts it by type.
 func ProduceRecordsSorted(recordProducers ...tlv.RecordProducer) []tlv.Record {
-	records := fn.Map(func(producer tlv.RecordProducer) tlv.Record {
-		return producer.Record()
-	}, recordProducers)
+	records := fn.Map(
+		recordProducers,
+		func(producer tlv.RecordProducer) tlv.Record {
+			return producer.Record()
+		},
+	)
 
 	// Ensure that the set of records are sorted before we attempt to
 	// decode from the stream, to ensure they're canonical.
@@ -196,9 +199,9 @@ func TlvMapToRecords(tlvMap tlv.TypeMap) []tlv.Record {
 // RecordsAsProducers converts a slice of records into a slice of record
 // producers.
 func RecordsAsProducers(records []tlv.Record) []tlv.RecordProducer {
-	return fn.Map(func(record tlv.Record) tlv.RecordProducer {
+	return fn.Map(records, func(record tlv.Record) tlv.RecordProducer {
 		return &record
-	}, records)
+	})
 }
 
 // EncodeRecords encodes the given records into a byte slice.

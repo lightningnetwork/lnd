@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
@@ -324,11 +324,11 @@ func (s *State) updateEdgeStats() {
 
 	req := &lnrpc.ChannelGraphRequest{IncludeUnannounced: true}
 	resp := s.rpc.DescribeGraph(req)
-	s.Edge.Total = len(fn.Filter(filterDisabled, resp.Edges))
+	s.Edge.Total = len(fn.Filter(resp.Edges, filterDisabled))
 
 	req = &lnrpc.ChannelGraphRequest{IncludeUnannounced: false}
 	resp = s.rpc.DescribeGraph(req)
-	s.Edge.Public = len(fn.Filter(filterDisabled, resp.Edges))
+	s.Edge.Public = len(fn.Filter(resp.Edges, filterDisabled))
 }
 
 // updateWalletBalance creates stats for the node's wallet balance.

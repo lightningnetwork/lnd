@@ -18,7 +18,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -451,7 +451,7 @@ func (c *chainWatcher) handleUnknownLocalState(
 		leaseExpiry = c.cfg.chanState.ThawHeight
 	}
 
-	remoteAuxLeaf := fn.ChainOption(
+	remoteAuxLeaf := fn.FlatMapOption(
 		func(l lnwallet.CommitAuxLeaves) input.AuxTapLeaf {
 			return l.RemoteAuxLeaf
 		},
@@ -468,7 +468,7 @@ func (c *chainWatcher) handleUnknownLocalState(
 	// Next, we'll derive our script that includes the revocation base for
 	// the remote party allowing them to claim this output before the CSV
 	// delay if we breach.
-	localAuxLeaf := fn.ChainOption(
+	localAuxLeaf := fn.FlatMapOption(
 		func(l lnwallet.CommitAuxLeaves) input.AuxTapLeaf {
 			return l.LocalAuxLeaf
 		},
@@ -1062,15 +1062,15 @@ func (c *chainWatcher) toSelfAmount(tx *wire.MsgTx) btcutil.Amount {
 			return false
 		}
 
-		return fn.Any(c.cfg.isOurAddr, addrs)
+		return fn.Any(addrs, c.cfg.isOurAddr)
 	}
 
 	// Grab all of the outputs that correspond with our delivery address
 	// or our wallet is aware of.
-	outs := fn.Filter(fn.PredOr(isDeliveryOutput, isWalletOutput), tx.TxOut)
+	outs := fn.Filter(tx.TxOut, fn.PredOr(isDeliveryOutput, isWalletOutput))
 
 	// Grab the values for those outputs.
-	vals := fn.Map(func(o *wire.TxOut) int64 { return o.Value }, outs)
+	vals := fn.Map(outs, func(o *wire.TxOut) int64 { return o.Value })
 
 	// Return the sum.
 	return btcutil.Amount(fn.Sum(vals))

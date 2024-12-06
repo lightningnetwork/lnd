@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -91,8 +91,8 @@ func sendQueryErr[Q any](sendChan chan fn.Req[Q, error], queryArg Q,
 	quitChan chan struct{}) error {
 
 	return fn.ElimEither(
-		fn.Iden, fn.Iden,
 		sendQuery(sendChan, queryArg, quitChan).Either,
+		fn.Iden, fn.Iden,
 	)
 }
 

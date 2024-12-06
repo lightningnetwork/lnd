@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -182,9 +182,12 @@ func TestCustomRecordsExtendRecordProducers(t *testing.T) {
 func serializeRecordProducers(t *testing.T,
 	producers []tlv.RecordProducer) []byte {
 
-	tlvRecords := fn.Map(func(p tlv.RecordProducer) tlv.Record {
-		return p.Record()
-	}, producers)
+	tlvRecords := fn.Map(
+		producers,
+		func(p tlv.RecordProducer) tlv.Record {
+			return p.Record()
+		},
+	)
 
 	stream, err := tlv.NewStream(tlvRecords...)
 	require.NoError(t, err)

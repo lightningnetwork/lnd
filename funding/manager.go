@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -784,22 +783,10 @@ func (f *Manager) Stop() error {
 		defer log.Debug("Funding manager shutdown complete")
 
 		close(f.quit)
-		log.Infof("%s", stack())
 		f.wg.Wait()
 	})
 
 	return nil
-}
-
-func stack() []byte {
-	buf := make([]byte, 1024)
-	for {
-		n := runtime.Stack(buf, true)
-		if n < len(buf) {
-			return buf[:n]
-		}
-		buf = make([]byte, 2*len(buf))
-	}
 }
 
 // rebroadcastFundingTx publishes the funding tx on startup for each

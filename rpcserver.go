@@ -7042,6 +7042,17 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	return netInfo, nil
 }
 
+func stack() []byte {
+	buf := make([]byte, 1024)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			return buf[:n]
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+}
+
 // StopDaemon will send a shutdown request to the interrupt handler, triggering
 // a graceful shutdown of the daemon.
 func (r *rpcServer) StopDaemon(_ context.Context,
@@ -7061,6 +7072,8 @@ func (r *rpcServer) StopDaemon(_ context.Context,
 		return nil, fmt.Errorf("wallet recovery in progress, cannot " +
 			"shut down, please wait until rescan finishes")
 	}
+
+	rpcsLog.Infof("%s", stack())
 
 	r.interceptor.RequestShutdown()
 

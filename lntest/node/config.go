@@ -97,7 +97,7 @@ type BackendConfig interface {
 	GenArgs() []string
 
 	// ConnectMiner is called to establish a connection to the test miner.
-	ConnectMiner() error
+	ConnectMiner(minerHeight int32) error
 
 	// DisconnectMiner is called to disconnect the miner.
 	DisconnectMiner() error

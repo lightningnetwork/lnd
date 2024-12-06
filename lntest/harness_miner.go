@@ -123,7 +123,11 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 
 // ConnectMiner connects the miner with the chain backend in the network.
 func (h *HarnessTest) ConnectMiner() {
-	err := h.manager.chainBackend.ConnectMiner()
+	//  Get the current best height.
+	_, height, err := h.miner.Client.GetBestBlock()
+	require.NoError(h, err, "miner GetBestBlock")
+
+	err = h.manager.chainBackend.ConnectMiner(height)
 	require.NoError(h, err, "failed to connect miner")
 }
 

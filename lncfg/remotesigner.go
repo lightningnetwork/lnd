@@ -75,11 +75,6 @@ func (r *RemoteSigner) Validate() error {
 	}
 
 	if r.AllowInboundConnection {
-		return fmt.Errorf("remote signer: allowinboundconnection " +
-			"is not supported yet")
-	}
-
-	if r.AllowInboundConnection {
 		if r.StartupTimeout < time.Second {
 			return fmt.Errorf("remotesigner.startuptimeout of "+
 				"%v is invalid, cannot be smaller than %v",

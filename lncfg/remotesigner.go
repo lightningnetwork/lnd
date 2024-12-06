@@ -10,6 +10,10 @@ const (
 	// that is used when connecting to the remote signer or watch-only node
 	// through RPC.
 	DefaultRemoteSignerRPCTimeout = 5 * time.Second
+
+	// DefaultRequestTimeout is the default timeout used for requests to and
+	// from the remote signer.
+	DefaultRequestTimeout = 5 * time.Second
 )
 
 // RemoteSigner holds the configuration options for how to connect to a remote
@@ -53,24 +57,56 @@ func (r *RemoteSigner) Validate() error {
 	return r.ConnectionCfg.Validate()
 }
 
+// WatchOnlyNode holds the configuration options for how to connect to a watch
+// only node. Only a signer node specifies this config.
+//
+//nolint:ll
+type WatchOnlyNode struct {
+	// Enable signals if this node a signer node and is expected to connect
+	// to a watch-only node.
+	Enable bool `long:"enable" description:"Signals that this node functions as a remote signer that will to connect with a watch-only node."`
+
+	// How to connect to the watch only node.
+	ConnectionCfg
+}
+
+// DefaultWatchOnlyNodeCfg returns the default WatchOnlyNode config.
+func DefaultWatchOnlyNodeCfg() *WatchOnlyNode {
+	return &WatchOnlyNode{
+		Enable:        false,
+		ConnectionCfg: defaultConnectionCfg("watchonlynode"),
+	}
+}
+
+// Validate checks the values set in the WatchOnlyNode config are valid.
+func (w *WatchOnlyNode) Validate() error {
+	if !w.Enable {
+		return nil
+	} else {
+		return fmt.Errorf("watchonlynode: enable not supported to yet")
+	}
+}
+
 // ConnectionCfg holds the configuration options required when setting up a
 // connection to either a remote signer or watch-only node, depending on which
 // side makes the outbound connection.
 //
 //nolint:ll
 type ConnectionCfg struct {
-	parentConfig string
-	RPCHost      string        `long:"rpchost" description:"The RPC host:port of the remote signer. For watch-only nodes, this should be set to the remote signer's RPC host:port."`
-	MacaroonPath string        `long:"macaroonpath" description:"The macaroon to use for authenticating with the remote signer. For watch-only nodes, this should be set to the remote signer's macaroon."`
-	TLSCertPath  string        `long:"tlscertpath" description:"The TLS certificate to use for establishing the remote signer's identity. For watch-only nodes, this should be set to the remote signer's TLS certificate."`
-	Timeout      time.Duration `long:"timeout" description:"The timeout for making the connection to the remote signer. Valid time units are {s, m, h}."`
+	parentConfig   string
+	RPCHost        string        `long:"rpchost" description:"The RPC host:port of the remote signer or watch-only node. For watch-only nodes, this should be set to the remote signer's RPC host:port. For remote signer nodes connecting to a watch-only node, this should be set to the watch-only node's RPC host:port."`
+	MacaroonPath   string        `long:"macaroonpath" description:"The macaroon to use for authenticating with the remote signer or the watch-only node. For watch-only nodes, this should be set to the remote signer's macaroon. For remote signer nodes connecting to a watch-only node, this should be set to the watch-only node's macaroon."`
+	TLSCertPath    string        `long:"tlscertpath" description:"The TLS certificate to use for establishing the remote signer's or watch-only node's identity. For watch-only nodes, this should be set to the remote signer's TLS certificate. For remote signer nodes connecting to a watch-only node, this should be set to the watch-only node's TLS certificate."`
+	Timeout        time.Duration `long:"timeout" description:"The timeout for making the connection to the remote signer or watch-only node, depending on whether the node acts as a watch-only node or a signer. Valid time units are {s, m, h}."`
+	RequestTimeout time.Duration `long:"requesttimeout" description:"The time we will wait when making requests to the remote signer or watch-only node, depending on whether the node acts as a watch-only node or a signer. Valid time units are {s, m, h}."`
 }
 
 // defaultConnectionCfg returns the default ConnectionCfg config.
 func defaultConnectionCfg(parentConfig string) ConnectionCfg {
 	return ConnectionCfg{
-		parentConfig: parentConfig,
-		Timeout:      DefaultRemoteSignerRPCTimeout,
+		parentConfig:   parentConfig,
+		Timeout:        DefaultRemoteSignerRPCTimeout,
+		RequestTimeout: DefaultRequestTimeout,
 	}
 }
 
@@ -80,6 +116,12 @@ func (c *ConnectionCfg) Validate() error {
 		return fmt.Errorf("%s.timeout of %v is invalid, cannot be "+
 			"smaller than %v", c.parentConfig, c.Timeout,
 			time.Millisecond)
+	}
+
+	if c.RequestTimeout < time.Second {
+		return fmt.Errorf("%s.requesttimeout of %v is invalid, cannot "+
+			"be smaller than %v", c.parentConfig, c.Timeout,
+			time.Second)
 	}
 
 	if c.RPCHost == "" {

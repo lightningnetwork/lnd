@@ -484,7 +484,12 @@ type Config struct {
 
 	RPCMiddleware *lncfg.RPCMiddleware `group:"rpcmiddleware" namespace:"rpcmiddleware"`
 
+	// Defines how to connect to a remote signer node.
 	RemoteSigner *lncfg.RemoteSigner `group:"remotesigner" namespace:"remotesigner"`
+
+	// Defines how to connect to a watch-only node. If this is enabled,
+	// the node acts as a remote signer.
+	WatchOnlyNode *lncfg.WatchOnlyNode `group:"watchonlynode" namespace:"watchonlynode"`
 
 	Sweeper *lncfg.Sweeper `group:"sweeper" namespace:"sweeper"`
 
@@ -721,6 +726,7 @@ func DefaultConfig() Config {
 		CoinSelectionStrategy:     defaultCoinSelectionStrategy,
 		KeepFailedPaymentAttempts: defaultKeepFailedPaymentAttempts,
 		RemoteSigner:              lncfg.DefaultRemoteSignerCfg(),
+		WatchOnlyNode:             lncfg.DefaultWatchOnlyNodeCfg(),
 		Sweeper:                   lncfg.DefaultSweeperConfig(),
 		Htlcswitch: &lncfg.Htlcswitch{
 			MailboxDeliveryTimeout: htlcswitch.DefaultMailboxDeliveryTimeout,
@@ -1737,6 +1743,13 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		)
 	}
 
+	// Validate that the node isn't configured as both a remote signer and a
+	// watch-only node.
+	if cfg.RemoteSigner.Enable && cfg.WatchOnlyNode.Enable {
+		return nil, fmt.Errorf("cannot enable both the remotesigner " +
+			"and watchonly mode simultaneously")
+	}
+
 	// Validate the subconfigs for workers, caches, and the tower client.
 	err = lncfg.Validate(
 		cfg.Workers,
@@ -1747,6 +1760,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.HealthChecks,
 		cfg.RPCMiddleware,
 		cfg.RemoteSigner,
+		cfg.WatchOnlyNode,
 		cfg.Sweeper,
 		cfg.Htlcswitch,
 		cfg.Invoices,

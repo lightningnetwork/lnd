@@ -692,6 +692,25 @@ var resultTestCases = []resultTestCase{
 			finalFailureReason: &reasonError,
 		},
 	},
+	// Test a multi-hop blinded route and that in a success case the amounts
+	// for the blinded route part are correctly set to the receiver amount.
+	{
+		name:    "blinded multi-hop success",
+		route:   blindedMultiToIntroduction,
+		success: true,
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): successPairResult(100),
+
+				// For the route blinded part of the route the
+				// success amount is determined by the receiver
+				// amount because the intermediate blinded hops
+				// set the forwarded amount to 0.
+				getTestPair(1, 2): successPairResult(58),
+				getTestPair(2, 3): successPairResult(58),
+			},
+		},
+	},
 }
 
 // TestResultInterpretation executes a list of test cases that test the result

@@ -100,8 +100,27 @@ func interpretResult(rt *mcRoute,
 
 // processSuccess processes a successful payment attempt.
 func (i *interpretedResult) processSuccess(route *mcRoute) {
-	// For successes, all nodes must have acted in the right way. Therefore
-	// we mark all of them with a success result.
+	// For successes, all nodes must have acted in the right way.
+	// Therefore we mark all of them with a success result. However we need
+	// to handle the blinded route part separately because for intermediate
+	// blinded nodes the amount field is set to zero so we use the receiver
+	// amount.
+	introIdx, isBlinded := introductionPointIndex(route)
+	if isBlinded {
+		// Report success for all the pairs until the introduction
+		// point.
+		i.successPairRange(route, 0, introIdx-1)
+
+		// Handle the blinded route part.
+		//
+		// NOTE: The introIdx index here does describe the node after
+		// the introduction point.
+		i.markBlindedRouteSuccess(route, introIdx)
+
+		return
+	}
+
+	// Mark nodes as successful in the non-blinded case of the payment.
 	i.successPairRange(route, 0, len(route.hops.Val)-1)
 }
 
@@ -855,6 +874,23 @@ func (i *interpretedResult) failBlindedRoute(rt *mcRoute) {
 	amt := rt.hops.Val[len(rt.hops.Val)-1].amtToFwd.Val
 
 	i.pairResults[pair] = failPairResult(amt)
+}
+
+// markBlindedRouteSuccess marks the hops of the blinded route AFTER the
+// introduction node as successful.
+//
+// NOTE: The introIdx must be the index of the first hop of the blinded route
+// AFTER the introduction node.
+func (i *interpretedResult) markBlindedRouteSuccess(rt *mcRoute, introIdx int) {
+	// For blinded hops we do not have the forwarding amount so we take the
+	// minimal amount which went through the route by looking at the last
+	// hop.
+	successAmt := rt.hops.Val[len(rt.hops.Val)-1].amtToFwd.Val
+	for idx := introIdx; idx < len(rt.hops.Val); idx++ {
+		pair, _ := getPair(rt, idx)
+
+		i.pairResults[pair] = successPairResult(successAmt)
+	}
 }
 
 // getPair returns a node pair from the route and the amount passed between that

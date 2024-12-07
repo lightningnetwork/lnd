@@ -481,6 +481,14 @@ func (h *HarnessTest) NewNode(name string,
 	err = node.Start(h.runCtx)
 	require.NoError(h, err, "failed to start node %s", node.Name())
 
+	// Get the miner's best block hash.
+	bestBlock, err := h.miner.Client.GetBestBlockHash()
+	require.NoError(h, err, "unable to get best block hash")
+
+	// Wait until the node's chain backend is synced to the miner's best
+	// block.
+	h.WaitForBlockchainSyncTo(node, *bestBlock)
+
 	return node
 }
 
@@ -490,12 +498,7 @@ func (h *HarnessTest) NewNode(name string,
 func (h *HarnessTest) NewNodeWithCoins(name string,
 	extraArgs []string) *node.HarnessNode {
 
-	node, err := h.manager.newNode(h.T, name, extraArgs, nil, false)
-	require.NoErrorf(h, err, "unable to create new node for %s", name)
-
-	// Start the node.
-	err = node.Start(h.runCtx)
-	require.NoError(h, err, "failed to start node %s", node.Name())
+	node := h.NewNode(name, extraArgs)
 
 	// Load up the wallets of the node with 5 outputs of 1 BTC each.
 	const (

@@ -90,6 +90,10 @@
 * [The `walletrpc.FundPsbt` method now has a new option to specify the maximum
   fee to output amounts ratio.](https://github.com/lightningnetwork/lnd/pull/8600)
 
+* When returning the response from list invoices RPC, the `lnrpc.Invoice.Htlcs`
+  are now [sorted](https://github.com/lightningnetwork/lnd/pull/9337) based on
+  the `InvoiceHTLC.HtlcIndex`.
+
 ## lncli Additions
 
 * [A pre-generated macaroon root key can now be specified in `lncli create` and

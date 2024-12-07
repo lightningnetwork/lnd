@@ -679,8 +679,6 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 	alice, bob, carol := nodes[0], nodes[1], nodes[2]
 	bobChanPoint := chanPoints[1]
 
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-
 	// For neutrino backend, we need to one more UTXO for Carol so she can
 	// sweep her outputs.
 	if ht.IsNeutrinoBackend() {
@@ -688,6 +686,14 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 	}
 
 	// Fund Carol one UTXO so she can sweep outputs.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+
+	// Carol should have enough wallet UTXOs here to sweep the HTLC in the
+	// end of this test. However, due to a known issue, Carol's wallet may
+	// report there's no UTXO available. For details,
+	// - https://github.com/lightningnetwork/lnd/issues/8786
+	//
+	// TODO(yy): remove this step once the issue is resolved.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	// If this is a taproot channel, then we'll need to make some manual
@@ -1632,6 +1638,22 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 
 	// Fund Carol one UTXO so she can sweep outputs.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+
+	// Carol should have enough wallet UTXOs here to sweep the HTLC in the
+	// end of this test. However, due to a known issue, Carol's wallet may
+	// report there's no UTXO available. For details,
+	// - https://github.com/lightningnetwork/lnd/issues/8786
+	//
+	// TODO(yy): remove this step once the issue is resolved.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+
+	// Bob should have enough wallet UTXOs here to sweep the HTLC in the
+	// end of this test. However, due to a known issue, Bob's wallet may
+	// report there's no UTXO available. For details,
+	// - https://github.com/lightningnetwork/lnd/issues/8786
+	//
+	// TODO(yy): remove this step once the issue is resolved.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
 
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
@@ -2601,6 +2623,14 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 	aliceChanPoint, bobChanPoint := chanPoints[0], chanPoints[1]
 
 	// Fund Carol one UTXO so she can sweep outputs.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+
+	// Carol should have enough wallet UTXOs here to sweep the HTLC in the
+	// end of this test. However, due to a known issue, Carol's wallet may
+	// report there's no UTXO available. For details,
+	// - https://github.com/lightningnetwork/lnd/issues/8786
+	//
+	// TODO(yy): remove this step once the issue is resolved.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	// With the network active, we'll now add a new hodl invoice at Carol's

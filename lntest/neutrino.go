@@ -34,7 +34,7 @@ func (b NeutrinoBackendConfig) GenArgs() []string {
 }
 
 // ConnectMiner is called to establish a connection to the test miner.
-func (b NeutrinoBackendConfig) ConnectMiner() error {
+func (b NeutrinoBackendConfig) ConnectMiner(_ int32) error {
 	return nil
 }
 

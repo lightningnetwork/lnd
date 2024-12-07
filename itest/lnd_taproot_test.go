@@ -46,9 +46,9 @@ var (
 	))
 )
 
-// testTaproot ensures that the daemon can send to and spend from taproot (p2tr)
-// outputs.
-func testTaproot(ht *lntest.HarnessTest) {
+// testTaprootSpend ensures that the daemon can send to and spend from taproot
+// (p2tr) outputs.
+func testTaprootSpend(ht *lntest.HarnessTest) {
 	alice := ht.NewNode("Alice", nil)
 
 	testTaprootSendCoinsKeySpendBip86(ht, alice)
@@ -62,6 +62,12 @@ func testTaproot(ht *lntest.HarnessTest) {
 		ht, alice, txscript.SigHashSingle,
 	)
 	testTaprootSignOutputRawKeySpendRootHash(ht, alice)
+}
+
+// testTaprootMuSig2 ensures that the daemon can send to and spend from taproot
+// (p2tr) outputs using musig2.
+func testTaprootMuSig2(ht *lntest.HarnessTest) {
+	alice := ht.NewNodeWithCoins("Alice", nil)
 
 	muSig2Versions := []signrpc.MuSig2Version{
 		signrpc.MuSig2Version_MUSIG2_VERSION_V040,
@@ -74,6 +80,11 @@ func testTaproot(ht *lntest.HarnessTest) {
 		testTaprootMuSig2CombinedLeafKeySpend(ht, alice, version)
 		testMuSig2CombineKey(ht, alice, version)
 	}
+}
+
+// testTaprootImportScripts ensures that the daemon can import taproot scripts.
+func testTaprootImportScripts(ht *lntest.HarnessTest) {
+	alice := ht.NewNodeWithCoins("Alice", nil)
 
 	testTaprootImportTapscriptFullTree(ht, alice)
 	testTaprootImportTapscriptPartialReveal(ht, alice)

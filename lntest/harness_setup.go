@@ -46,10 +46,14 @@ func SetupHarness(t *testing.T, binaryPath, dbBackendName string,
 	t.Logf("Connecting the miner at %v with the chain backend...",
 		miner.P2PAddress())
 
+	//  Get the current best height.
+	_, height, err := miner.Client.GetBestBlock()
+	require.NoError(t, err, "miner GetBestBlock")
+
 	// Give the chain backend some time to fully start up, re-trying if any
 	// errors in connecting to the miner are encountered.
-	err := wait.NoError(func() error {
-		return chainBackend.ConnectMiner()
+	err = wait.NoError(func() error {
+		return chainBackend.ConnectMiner(height)
 	}, DefaultTimeout)
 	require.NoError(t, err, "connect miner")
 

@@ -326,16 +326,13 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	startHeight := int32(h.CurrentHeight())
 
 	st.Cleanup(func() {
-		_, endHeight := h.GetBestBlock()
-
-		st.Logf("finished test: %s, start height=%d, end height=%d, "+
-			"mined blocks=%d", st.manager.currentTestCase,
-			startHeight, endHeight, endHeight-startHeight)
+		// Make sure the test is not consuming too many blocks.
+		st.checkAndLimitBlocksMined(startHeight)
 
 		// Don't bother run the cleanups if the test is failed.
 		if st.Failed() {
 			st.Log("test failed, skipped cleanup")
-			st.shutdownAllNodes()
+			st.shutdownNodesNoAssert()
 			return
 		}
 
@@ -368,16 +365,57 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 	return st
 }
 
+// checkAndLimitBlocksMined asserts that the blocks mined in a single test
+// doesn't exceed 50, which implicitly discourage table-drive tests, which are
+// hard to maintain and take a long time to run.
+func (h *HarnessTest) checkAndLimitBlocksMined(startHeight int32) {
+	_, endHeight := h.GetBestBlock()
+	blocksMined := endHeight - startHeight
+
+	h.Logf("finished test: %s, start height=%d, end height=%d, mined "+
+		"blocks=%d", h.manager.currentTestCase, startHeight, endHeight,
+		blocksMined)
+
+	// If the number of blocks is less than 40, we consider the test
+	// healthy.
+	if blocksMined < 40 {
+		return
+	}
+
+	// Otherwise log a warning if it's mining more than 40 blocks.
+	desc := "!============================================!\n"
+
+	desc += fmt.Sprintf("Too many blocks (%v) mined in one test! Tips:\n",
+		blocksMined)
+
+	desc += "1. break test into smaller individual tests, especially if " +
+		"this is a table-drive test.\n" +
+		"2. use smaller CSV via `--bitcoin.defaultremotedelay=1.`\n" +
+		"3. use smaller CLTV via `--bitcoin.timelockdelta=18.`\n" +
+		"4. remove unnecessary CloseChannel when test ends.\n" +
+		"5. use `CreateSimpleNetwork` for efficient channel creation.\n"
+	h.Log(desc)
+
+	// We enforce that the test should not mine more than 50 blocks, which
+	// is more than enough to test a multi hop force close scenario.
+	require.LessOrEqual(h, int(blocksMined), 50, "cannot mine more than "+
+		"50 blocks in one test")
+}
+
+// shutdownNodesNoAssert will shutdown all running nodes without assertions.
+// This is used when the test has already failed, we don't want to log more
+// errors but focusing on the original error.
+func (h *HarnessTest) shutdownNodesNoAssert() {
+	for _, node := range h.manager.activeNodes {
+		_ = h.manager.shutdownNode(node)
+	}
+}
+
 // shutdownAllNodes will shutdown all running nodes.
 func (h *HarnessTest) shutdownAllNodes() {
+	var err error
 	for _, node := range h.manager.activeNodes {
-		// The process may not be in a state to always shutdown
-		// immediately, so we'll retry up to a hard limit to ensure we
-		// eventually shutdown.
-		err := wait.NoError(func() error {
-			return h.manager.shutdownNode(node)
-		}, DefaultTimeout)
-
+		err = h.manager.shutdownNode(node)
 		if err == nil {
 			continue
 		}
@@ -387,6 +425,8 @@ func (h *HarnessTest) shutdownAllNodes() {
 		// processes.
 		h.Logf("unable to shutdown %s, got err: %v", node.Name(), err)
 	}
+
+	require.NoError(h, err, "failed to shutdown all nodes")
 }
 
 // cleanupStandbyNode is a function should be called with defer whenever a
@@ -482,12 +522,7 @@ func (h *HarnessTest) NewNodeWithCoins(name string,
 
 // Shutdown shuts down the given node and asserts that no errors occur.
 func (h *HarnessTest) Shutdown(node *node.HarnessNode) {
-	// The process may not be in a state to always shutdown immediately, so
-	// we'll retry up to a hard limit to ensure we eventually shutdown.
-	err := wait.NoError(func() error {
-		return h.manager.shutdownNode(node)
-	}, DefaultTimeout)
-
+	err := h.manager.shutdownNode(node)
 	require.NoErrorf(h, err, "unable to shutdown %v in %v", node.Name(),
 		h.manager.currentTestCase)
 }
@@ -730,9 +765,10 @@ func (h *HarnessTest) NewNodeRemoteSigner(name string, extraArgs []string,
 
 // KillNode kills the node and waits for the node process to stop.
 func (h *HarnessTest) KillNode(hn *node.HarnessNode) {
+	delete(h.manager.activeNodes, hn.Cfg.NodeID)
+
 	h.Logf("Manually killing the node %s", hn.Name())
 	require.NoErrorf(h, hn.KillAndWait(), "%s: kill got error", hn.Name())
-	delete(h.manager.activeNodes, hn.Cfg.NodeID)
 }
 
 // SetFeeEstimate sets a fee rate to be returned from fee estimator.
@@ -1377,6 +1413,40 @@ func (h *HarnessTest) FundCoinsP2TR(amt btcutil.Amount,
 	target *node.HarnessNode) {
 
 	h.fundCoins(amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true)
+}
+
+// FundNumCoins attempts to send the given number of UTXOs from the internal
+// mining node to the targeted lightning node using a P2WKH address. Each UTXO
+// has an amount of 1 BTC. 1 blocks are mined to confirm the tx.
+func (h *HarnessTest) FundNumCoins(hn *node.HarnessNode, num int) {
+	// Get the initial balance first.
+	resp := hn.RPC.WalletBalance()
+	initialBalance := btcutil.Amount(resp.ConfirmedBalance)
+
+	const fundAmount = 1 * btcutil.SatoshiPerBitcoin
+
+	// Send out the outputs from the miner.
+	for i := 0; i < num; i++ {
+		h.createAndSendOutput(
+			hn, fundAmount, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+		)
+	}
+
+	// Wait for ListUnspent to show the correct number of unconfirmed
+	// UTXOs.
+	//
+	// Since neutrino doesn't support unconfirmed outputs, skip this check.
+	if !h.IsNeutrinoBackend() {
+		h.AssertNumUTXOsUnconfirmed(hn, num)
+	}
+
+	// Mine a block to confirm the transactions.
+	h.MineBlocksAndAssertNumTxes(1, num)
+
+	// Now block until the wallet have fully synced up.
+	totalAmount := btcutil.Amount(fundAmount * num)
+	expectedBalance := initialBalance + totalAmount
+	h.WaitForBalanceConfirmed(hn, expectedBalance)
 }
 
 // completePaymentRequestsAssertStatus sends payments from a node to complete

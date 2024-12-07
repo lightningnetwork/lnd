@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/lightningnetwork/lnd/lntest/miner"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 )
 
 // logDirPattern is the pattern of the name of the temporary log directory.
@@ -53,8 +54,29 @@ func (b BtcdBackendConfig) GenArgs() []string {
 }
 
 // ConnectMiner is called to establish a connection to the test miner.
-func (b BtcdBackendConfig) ConnectMiner() error {
-	return b.harness.Client.Node(btcjson.NConnect, b.minerAddr, &miner.Temp)
+func (b BtcdBackendConfig) ConnectMiner(minerHeight int32) error {
+	err := b.harness.Client.Node(btcjson.NConnect, b.minerAddr, &miner.Temp)
+
+	if err != nil {
+		return err
+	}
+
+	// Once connected to the miner, we now wait until the node is synced.
+	err = wait.NoError(func() error {
+		resp, err := b.harness.Client.GetBlockChainInfo()
+		if err != nil {
+			return err
+		}
+
+		if resp.Blocks == minerHeight {
+			return nil
+		}
+
+		return fmt.Errorf("not synced to miner height=%v, blocks=%d, "+
+			"headers=%d", minerHeight, resp.Blocks, resp.Headers)
+	}, wait.DefaultTimeout)
+
+	return err
 }
 
 // DisconnectMiner is called to disconnect the miner.

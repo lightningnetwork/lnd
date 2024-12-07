@@ -3,6 +3,7 @@ package invoicesrpc
 import (
 	"encoding/hex"
 	"fmt"
+	"sort"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -159,6 +160,11 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 
 		rpcHtlcs = append(rpcHtlcs, &rpcHtlc)
 	}
+
+	// Perform an inplace sort of the HTLCs to ensure they are ordered.
+	sort.Slice(rpcHtlcs, func(i, j int) bool {
+		return rpcHtlcs[i].HtlcIndex < rpcHtlcs[j].HtlcIndex
+	})
 
 	rpcInvoice := &lnrpc.Invoice{
 		Memo:            string(invoice.Memo),

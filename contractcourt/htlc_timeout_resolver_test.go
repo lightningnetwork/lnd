@@ -390,7 +390,7 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 	go func() {
 		defer wg.Done()
 
-		_, err := resolver.Resolve(false)
+		_, err := resolver.Resolve()
 		if err != nil {
 			resolveErr <- err
 		}
@@ -1118,11 +1118,6 @@ func TestHtlcTimeoutSecondStageSweeper(t *testing.T) {
 					}
 				case <-time.After(time.Second * 1):
 					t.Fatalf("resolution not sent")
-				}
-
-				// Mimic CSV lock expiring.
-				ctx.notifier.EpochChan <- &chainntnfs.BlockEpoch{
-					Height: 13,
 				}
 
 				// The timeout tx output should now be given to

@@ -17,7 +17,7 @@ import (
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -296,10 +296,7 @@ func (h *HarnessMiner) AssertTxInMempool(txid chainhash.Hash) *wire.MsgTx {
 			return fmt.Errorf("empty mempool")
 		}
 
-		isEqual := func(memTx chainhash.Hash) bool {
-			return memTx == txid
-		}
-		result := fn.Find(isEqual, mempool)
+		result := fn.Find(mempool, fn.Eq(txid))
 
 		if result.IsNone() {
 			return fmt.Errorf("txid %v not found in "+

@@ -8,7 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/contractcourt"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -1119,9 +1119,9 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 		// The sweeping tx has two inputs, one from wallet, the other
 		// from the force close tx. We now check whether the first tx
 		// spends from the force close tx of Alice->Bob.
-		found := fn.Any(func(inp *wire.TxIn) bool {
+		found := fn.Any(txns[0].TxIn, func(inp *wire.TxIn) bool {
 			return inp.PreviousOutPoint.Hash == abCloseTxid
-		}, txns[0].TxIn)
+		})
 
 		// If the first tx spends an outpoint from the force close tx
 		// of Alice->Bob, then it must be the incoming HTLC sweeping

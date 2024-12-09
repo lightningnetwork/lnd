@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -432,9 +432,9 @@ func (m *Manager) DeleteLocalAlias(alias,
 	}
 
 	// We'll filter the alias set and remove the alias from it.
-	aliasSet = fn.Filter(func(a lnwire.ShortChannelID) bool {
+	aliasSet = fn.Filter(aliasSet, func(a lnwire.ShortChannelID) bool {
 		return a.ToUint64() != alias.ToUint64()
-	}, aliasSet)
+	})
 
 	// If the alias set is empty, we'll delete the base SCID from the
 	// baseToSet map.
@@ -514,11 +514,17 @@ func (m *Manager) RequestAlias() (lnwire.ShortChannelID, error) {
 	// haveAlias returns true if the passed alias is already assigned to a
 	// channel in the baseToSet map.
 	haveAlias := func(maybeNextAlias lnwire.ShortChannelID) bool {
-		return fn.Any(func(aliasList []lnwire.ShortChannelID) bool {
-			return fn.Any(func(alias lnwire.ShortChannelID) bool {
-				return alias == maybeNextAlias
-			}, aliasList)
-		}, maps.Values(m.baseToSet))
+		return fn.Any(
+			maps.Values(m.baseToSet),
+			func(aliasList []lnwire.ShortChannelID) bool {
+				return fn.Any(
+					aliasList,
+					func(alias lnwire.ShortChannelID) bool {
+						return alias == maybeNextAlias
+					},
+				)
+			},
+		)
 	}
 
 	err := kvdb.Update(m.backend, func(tx kvdb.RwTx) error {

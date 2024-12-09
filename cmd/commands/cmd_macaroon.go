@@ -10,7 +10,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -177,12 +177,15 @@ func bakeMacaroon(ctx *cli.Context) error {
 				"%w", err)
 		}
 
-		ops := fn.Map(func(p *lnrpc.MacaroonPermission) bakery.Op {
-			return bakery.Op{
-				Entity: p.Entity,
-				Action: p.Action,
-			}
-		}, parsedPermissions)
+		ops := fn.Map(
+			parsedPermissions,
+			func(p *lnrpc.MacaroonPermission) bakery.Op {
+				return bakery.Op{
+					Entity: p.Entity,
+					Action: p.Action,
+				}
+			},
+		)
 
 		rawMacaroon, err = macaroons.BakeFromRootKey(macRootKey, ops)
 		if err != nil {

@@ -8,7 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -141,7 +141,7 @@ func validateInputs(inputs []SweeperInput, deadlineHeight int32) error {
 	// dedupInputs is a set used to track unique outpoints of the inputs.
 	dedupInputs := fn.NewSet(
 		// Iterate all the inputs and map the function.
-		fn.Map(func(inp SweeperInput) wire.OutPoint {
+		fn.Map(inputs, func(inp SweeperInput) wire.OutPoint {
 			// If the input has a deadline height, we'll check if
 			// it's the same as the specified.
 			inp.params.DeadlineHeight.WhenSome(func(h int32) {
@@ -156,7 +156,7 @@ func validateInputs(inputs []SweeperInput, deadlineHeight int32) error {
 			})
 
 			return inp.OutPoint()
-		}, inputs)...,
+		})...,
 	)
 
 	// Make sure the inputs share the same deadline height when there is

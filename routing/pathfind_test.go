@@ -766,6 +766,9 @@ func TestPathFinding(t *testing.T) {
 		name: "path finding with additional edges",
 		fn:   runPathFindingWithAdditionalEdges,
 	}, {
+		name: "path finding with duplicate blinded hop",
+		fn:   runPathFindingWithBlindedPathDuplicateHop,
+	}, {
 		name: "path finding with redundant additional edges",
 		fn:   runPathFindingWithRedundantAdditionalEdges,
 	}, {
@@ -1263,6 +1266,107 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	path, err = find(&restrictions)
 	require.NoError(t, err, "path should have been found")
 	assertExpectedPath(t, graph.aliasMap, path, "songoku", "doge")
+}
+
+// runPathFindingWithBlindedPathDuplicateHop tests that in case a blinded path
+// has duplicate hops that the path finding algorithm does not fail or behave
+// incorrectly. This can happen because the creator of the blinded path can
+// specify the same hop multiple times and this will only be detected at the
+// forwarding nodes, so it is important that we can handle this case.
+func runPathFindingWithBlindedPathDuplicateHop(t *testing.T, useCache bool) {
+	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
+	require.NoError(t, err, "unable to create graph")
+
+	sourceNode, err := graph.graph.SourceNode()
+	require.NoError(t, err, "unable to fetch source node")
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+
+	songokuPubKeyBytes := graph.aliasMap["songoku"]
+	songokuPubKey, err := btcec.ParsePubKey(songokuPubKeyBytes[:])
+	require.NoError(t, err, "unable to parse public key from bytes")
+
+	_, pkb1 := btcec.PrivKeyFromBytes([]byte{2})
+	_, pkb2 := btcec.PrivKeyFromBytes([]byte{3})
+	_, blindedPoint := btcec.PrivKeyFromBytes([]byte{5})
+
+	sizeEncryptedData := 100
+	cipherText := bytes.Repeat(
+		[]byte{1}, sizeEncryptedData,
+	)
+
+	vb1 := route.NewVertex(pkb1)
+	vb2 := route.NewVertex(pkb2)
+
+	// Payments to blinded paths always pay to the NUMS target key.
+	dummyTarget := route.NewVertex(&BlindedPathNUMSKey)
+
+	graph.aliasMap["pkb1"] = vb1
+	graph.aliasMap["pkb2"] = vb2
+	graph.aliasMap["dummyTarget"] = dummyTarget
+
+	// Create a blinded payment with duplicate hops and make sure the
+	// path finding algorithm can cope with that. We add blinded hop 2
+	// 3 times. The path finding algorithm should create a path with a
+	// single hop to pkb2 (the first entry).
+	blindedPayment := &BlindedPayment{
+		BlindedPath: &sphinx.BlindedPath{
+			IntroductionPoint: songokuPubKey,
+			BlindingPoint:     blindedPoint,
+			BlindedHops: []*sphinx.BlindedHopInfo{
+				{
+					CipherText: cipherText,
+				},
+				{
+					BlindedNodePub: pkb2,
+					CipherText:     cipherText,
+				},
+				{
+					BlindedNodePub: pkb1,
+					CipherText:     cipherText,
+				},
+				{
+					BlindedNodePub: pkb2,
+					CipherText:     cipherText,
+				},
+				{
+					BlindedNodePub: &BlindedPathNUMSKey,
+					CipherText:     cipherText,
+				},
+				{
+					BlindedNodePub: pkb2,
+					CipherText:     cipherText,
+				},
+			},
+		},
+		HtlcMinimum:     1,
+		HtlcMaximum:     100_000_000,
+		CltvExpiryDelta: 140,
+	}
+
+	blindedPath, err := blindedPayment.toRouteHints()
+	require.NoError(t, err)
+
+	find := func(r *RestrictParams) (
+		[]*unifiedEdge, error) {
+
+		return dbFindPath(
+			graph.graph, blindedPath, &mockBandwidthHints{},
+			r, testPathFindingConfig,
+			sourceNode.PubKeyBytes, dummyTarget, paymentAmt,
+			0, 0,
+		)
+	}
+
+	// We should now be able to find a path however not the chained path
+	// of the blinded hops.
+	path, err := find(noRestrictions)
+	require.NoError(t, err, "unable to create route to blinded path")
+
+	// The path should represent the following hops:
+	//	source node -> songoku -> pkb2 -> dummyTarget
+	assertExpectedPath(t, graph.aliasMap, path, "songoku", "pkb2",
+		"dummyTarget")
 }
 
 // runPathFindingWithRedundantAdditionalEdges asserts that we are able to find

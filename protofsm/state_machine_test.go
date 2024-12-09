@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/context"
 )
 
 type dummyEvents interface {
@@ -225,6 +226,8 @@ func (d *dummyAdapters) RegisterSpendNtfn(outpoint *wire.OutPoint,
 // TestStateMachineOnInitDaemonEvent tests that the state machine will properly
 // execute any init-level daemon events passed into it.
 func TestStateMachineOnInitDaemonEvent(t *testing.T) {
+	ctx := context.Background()
+
 	// First, we'll create our state machine given the env, and our
 	// starting state.
 	env := &dummyEnv{}
@@ -256,7 +259,7 @@ func TestStateMachineOnInitDaemonEvent(t *testing.T) {
 	stateSub := stateMachine.RegisterStateEvents()
 	defer stateMachine.RemoveStateSub(stateSub)
 
-	stateMachine.Start()
+	stateMachine.Start(ctx)
 	defer stateMachine.Stop()
 
 	// Assert that we go from the starting state to the final state.  The
@@ -277,6 +280,7 @@ func TestStateMachineOnInitDaemonEvent(t *testing.T) {
 // transition.
 func TestStateMachineInternalEvents(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	// First, we'll create our state machine given the env, and our
 	// starting state.
@@ -298,7 +302,7 @@ func TestStateMachineInternalEvents(t *testing.T) {
 	stateSub := stateMachine.RegisterStateEvents()
 	defer stateMachine.RemoveStateSub(stateSub)
 
-	stateMachine.Start()
+	stateMachine.Start(ctx)
 	defer stateMachine.Stop()
 
 	// For this transition, we'll send in the emitInternal event, which'll
@@ -325,6 +329,7 @@ func TestStateMachineInternalEvents(t *testing.T) {
 // daemon emitted as part of the state transition process.
 func TestStateMachineDaemonEvents(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	// First, we'll create our state machine given the env, and our
 	// starting state.
@@ -350,7 +355,7 @@ func TestStateMachineDaemonEvents(t *testing.T) {
 	stateSub := stateMachine.RegisterStateEvents()
 	defer stateMachine.RemoveStateSub(stateSub)
 
-	stateMachine.Start()
+	stateMachine.Start(ctx)
 	defer stateMachine.Stop()
 
 	// As soon as we send in the daemon event, we expect the
@@ -404,6 +409,8 @@ func (d *dummyMsgMapper) MapMsg(wireMsg lnwire.Message) fn.Option[dummyEvents] {
 // TestStateMachineMsgMapper tests that given a message mapper, we can properly
 // send in wire messages get mapped to FSM events.
 func TestStateMachineMsgMapper(t *testing.T) {
+	ctx := context.Background()
+
 	// First, we'll create our state machine given the env, and our
 	// starting state.
 	env := &dummyEnv{}
@@ -438,7 +445,7 @@ func TestStateMachineMsgMapper(t *testing.T) {
 	stateSub := stateMachine.RegisterStateEvents()
 	defer stateMachine.RemoveStateSub(stateSub)
 
-	stateMachine.Start()
+	stateMachine.Start(ctx)
 	defer stateMachine.Stop()
 
 	// First, we'll verify that the CanHandle method works as expected.

@@ -1165,6 +1165,10 @@ type blindedPathRestrictions struct {
 	// nodeOmissionSet holds a set of node IDs of nodes that we should
 	// ignore during blinded path selection.
 	nodeOmissionSet fn.Set[route.Vertex]
+
+	// incomingChainedChannels holds a route of chained channels that we
+	// should use as incoming hops during blinded path selection.
+	incomingChainedChannels []uint64
 }
 
 // blindedHop holds the information about a hop we have selected for a blinded
@@ -1185,7 +1189,6 @@ type blindedHop struct {
 // left to the caller.
 func findBlindedPaths(g Graph, target route.Vertex,
 	restrictions *blindedPathRestrictions) ([][]blindedHop, error) {
-
 	// Sanity check the restrictions.
 	if restrictions.minNumHops > restrictions.maxNumHops {
 		return nil, fmt.Errorf("maximum number of blinded path hops "+
@@ -1256,6 +1259,14 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 	alreadyVisited map[route.Vertex]bool,
 	restrictions *blindedPathRestrictions) ([][]blindedHop, bool, error) {
 
+	// hopIndex describes the position of the current node in the path.
+	// It is allowed for a blinded route to be greater than the length of
+	// the chained channels but the route needs to be at least its size and
+	// use all the predefined channels if active.
+	hopIndex := len(alreadyVisited)
+	chainedChannels := restrictions.incomingChainedChannels
+	requireChannel := hopIndex < len(chainedChannels)
+
 	// If we have already visited the maximum number of hops, then this path
 	// is complete and we can exit now.
 	if len(alreadyVisited) > int(restrictions.maxNumHops) {
@@ -1300,6 +1311,14 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 	// node that can be used for blinded paths
 	err = g.ForEachNodeChannel(node,
 		func(channel *graphdb.DirectedChannel) error {
+			// In case we require a specific channel at this hop
+			// position we make sure this channel matches the
+			// required one.
+			if requireChannel &&
+				chainedChannels[hopIndex] != channel.ChannelID {
+
+				return nil
+			}
 			// Keep track of how many incoming channels this node
 			// has. We only use a node as an introduction node if it
 			// has channels other than the one that lead us to it.
@@ -1344,6 +1363,13 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 		},
 	)
 	if err != nil {
+		return nil, false, err
+	}
+
+	if requireChannel && chanCount == 0 {
+		err = fmt.Errorf("required channel %v at position %d not found",
+			chainedChannels[hopIndex], hopIndex+1)
+
 		return nil, false, err
 	}
 

@@ -158,6 +158,32 @@ func newRoute(sourceVertex route.Vertex,
 	)
 
 	pathLength := len(pathEdges)
+
+	// When paying to a blinded route we might have appended a dummy hop at
+	// the end to make MPP payments possible via all paths of the blinded
+	// route set. We always append a dummy hop when the internal pathfiner
+	// looks for a route to a blinded path which is at least one hop long
+	// (excluding the introduction point). We add this dummy hop so that
+	// we search for a universal target but also respect potential mc
+	// entries which might already be present for a particular blinded path.
+	// However when constructing the Sphinx packet we need to remove this
+	// dummy hop again which we do here.
+	//
+	// NOTE: The path length is always at least 1 because there must be one
+	// edge from the source to the destination. However we check for > 0
+	// just for robustness here.
+	if blindedPathSet != nil && pathLength > 0 {
+		finalBlindedPubKey := pathEdges[pathLength-1].policy.
+			ToNodePubKey()
+
+		if IsBlindedRouteNUMSTargetKey(finalBlindedPubKey[:]) {
+			// If the last hop is the NUMS key for blinded paths, we
+			// remove the dummy hop from the route.
+			pathEdges = pathEdges[:pathLength-1]
+			pathLength--
+		}
+	}
+
 	for i := pathLength - 1; i >= 0; i-- {
 		// Now we'll start to calculate the items within the per-hop
 		// payload for the hop this edge is leading to.
@@ -319,10 +345,6 @@ func newRoute(sourceVertex route.Vertex,
 			dataIndex      = 0
 
 			blindedPath = blindedPayment.BlindedPath
-			numHops     = len(blindedPath.BlindedHops)
-			realFinal   = blindedPath.BlindedHops[numHops-1].
-					BlindedNodePub
-
 			introVertex = route.NewVertex(
 				blindedPath.IntroductionPoint,
 			)
@@ -350,11 +372,6 @@ func newRoute(sourceVertex route.Vertex,
 			if i != len(hops)-1 {
 				hop.AmtToForward = 0
 				hop.OutgoingTimeLock = 0
-			} else {
-				// For the final hop, we swap out the pub key
-				// bytes to the original destination node pub
-				// key for that payment path.
-				hop.PubKeyBytes = route.NewVertex(realFinal)
 			}
 
 			dataIndex++
@@ -901,6 +918,13 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// included. If we are coming from the source hop, the payload
 		// size is zero, because the original htlc isn't in the onion
 		// blob.
+		//
+		// NOTE: For blinded paths with the NUMS key as the last hop,
+		// the payload size accounts for this dummy hop which is of
+		// the same size as the real last hop. So we account for a
+		// bigger size than the route is however we accept this
+		// little inaccuracy here because we are over estimating by
+		// 1 hop.
 		var payloadSize uint64
 		if fromVertex != source {
 			// In case the unifiedEdge does not have a payload size

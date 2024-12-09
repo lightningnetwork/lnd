@@ -2,12 +2,12 @@ package routing
 
 import (
 	"bytes"
+	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb/models"
-	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -129,7 +129,7 @@ func TestBlindedPaymentToHints(t *testing.T) {
 		HtlcMaximum:         htlcMax,
 		Features:            features,
 	}
-	hints, err := blindedPayment.toRouteHints(fn.None[*btcec.PublicKey]())
+	hints, err := blindedPayment.toRouteHints()
 	require.NoError(t, err)
 	require.Nil(t, hints)
 
@@ -184,7 +184,7 @@ func TestBlindedPaymentToHints(t *testing.T) {
 		},
 	}
 
-	actual, err := blindedPayment.toRouteHints(fn.None[*btcec.PublicKey]())
+	actual, err := blindedPayment.toRouteHints()
 	require.NoError(t, err)
 
 	require.Equal(t, len(expected), len(actual))
@@ -217,4 +217,64 @@ func TestBlindedPaymentToHints(t *testing.T) {
 
 		require.Equal(t, expectedHint[0], actualHint[0])
 	}
+}
+
+// TestBlindedPaymentDeepCopy tests the deep copy method of the BLindedPayment
+// struct.
+//
+// TODO(ziggie): Make this a property test instead.
+func TestBlindedPaymentDeepCopy(t *testing.T) {
+	_, pkBlind1 := btcec.PrivKeyFromBytes([]byte{1})
+	_, blindingPoint := btcec.PrivKeyFromBytes([]byte{2})
+	_, pkBlind2 := btcec.PrivKeyFromBytes([]byte{3})
+
+	// Create a test BlindedPayment with non-nil fields
+	original := &BlindedPayment{
+		BaseFee:             1000,
+		ProportionalFeeRate: 2000,
+		CltvExpiryDelta:     144,
+		HtlcMinimum:         1000,
+		HtlcMaximum:         1000000,
+		Features:            lnwire.NewFeatureVector(nil, nil),
+		BlindedPath: &sphinx.BlindedPath{
+			IntroductionPoint: pkBlind1,
+			BlindingPoint:     blindingPoint,
+			BlindedHops: []*sphinx.BlindedHopInfo{
+				{
+					BlindedNodePub: pkBlind2,
+					CipherText:     []byte("test cipher"),
+				},
+			},
+		},
+	}
+
+	// Make a deep copy
+	cpyPayment := original.deepCopy()
+
+	// Test 1: Verify the copy is not the same pointer
+	if cpyPayment == original {
+		t.Fatal("deepCopy returned same pointer")
+	}
+
+	// Verify all fields are equal
+	if !reflect.DeepEqual(original, cpyPayment) {
+		t.Fatal("copy is not equal to original")
+	}
+
+	// Modify the copy and verify it doesn't affect the original
+	cpyPayment.BaseFee = 2000
+	cpyPayment.BlindedPath.BlindedHops[0].CipherText = []byte("modified")
+
+	require.NotEqual(t, original.BaseFee, cpyPayment.BaseFee)
+
+	require.NotEqual(
+		t,
+		original.BlindedPath.BlindedHops[0].CipherText,
+		cpyPayment.BlindedPath.BlindedHops[0].CipherText,
+	)
+
+	// Verify nil handling.
+	var nilPayment *BlindedPayment
+	nilCopy := nilPayment.deepCopy()
+	require.Nil(t, nilCopy)
 }

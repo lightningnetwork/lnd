@@ -157,6 +157,9 @@ type ChannelArbitratorConfig struct {
 	// fully resolved once all active contracts have individually been
 	// fully resolved.
 	//
+	// NOTE: This function must be called without the chain arbitrator lock
+	// because it acquires the lock itself.
+	//
 	// TODO(roasbeef): need RPC's to combine for pendingchannels RPC
 	MarkChannelResolved func() error
 

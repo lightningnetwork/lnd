@@ -2701,7 +2701,11 @@ func TestNewRouteRequest(t *testing.T) {
 		testCase := testCase
 
 		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
+			// These tests are NOT run in parallel because
+			// `NewBlindedPaymentPathSet` modifies the
+			// blindedPayments struct which is used across
+			// multiple testcases here (for example
+			// `blindedMultiHop`).
 
 			var (
 				blindedPathInfo *BlindedPaymentPathSet

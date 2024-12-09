@@ -2,6 +2,7 @@ package chancloser
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -144,7 +145,9 @@ func assertUnknownEventFail(t *testing.T, startingState ProtocolState) {
 
 		closeHarness.expectFailure(ErrInvalidStateTransition)
 
-		closeHarness.chanCloser.SendEvent(&unknownEvent{})
+		closeHarness.chanCloser.SendEvent(
+			context.Background(), &unknownEvent{},
+		)
 
 		// There should be no further state transitions.
 		closeHarness.assertNoStateTransitions()
@@ -481,6 +484,7 @@ func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
 	dustExpect dustExpectation) {
 
+	ctx := context.Background()
 	numFeeCalls := 2
 
 	// If we're using the SendOfferEvent as a trigger, we only need to call
@@ -527,7 +531,7 @@ func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 	})
 	r.expectMsgSent(msgExpect)
 
-	r.chanCloser.SendEvent(initEvent)
+	r.chanCloser.SendEvent(ctx, initEvent)
 
 	// Based on the init event, we'll either just go to the closing
 	// negotiation state, or go through the channel flushing state first.
@@ -582,6 +586,8 @@ func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
 	dustExpect dustExpectation) {
 
+	ctx := context.Background()
+
 	// We'll now send in the send offer event, which should trigger 1/2 of
 	// the RBF loop, ending us in the LocalOfferSent state.
 	r.expectHalfSignerIteration(
@@ -607,7 +613,7 @@ func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 		balanceAfterClose, true,
 	)
 
-	r.chanCloser.SendEvent(localSigEvent)
+	r.chanCloser.SendEvent(ctx, localSigEvent)
 
 	// We should transition to the pending closing state now.
 	r.assertLocalClosePending()
@@ -616,6 +622,8 @@ func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
 	sequence uint32, iteration bool) {
+
+	ctx := context.Background()
 
 	// If this is an iteration, then we expect some intermediate states,
 	// before we enter the main RBF/sign loop.
@@ -635,7 +643,7 @@ func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 		absoluteFee, balanceAfterClose, false,
 	)
 
-	r.chanCloser.SendEvent(initEvent)
+	r.chanCloser.SendEvent(ctx, initEvent)
 
 	// Our outer state should transition to ClosingNegotiation state.
 	r.assertStateTransitions(&ClosingNegotiation{})
@@ -667,6 +675,8 @@ func assertStateT[T ProtocolState](h *rbfCloserTestHarness) T {
 // newRbfCloserTestHarness creates a new test harness for the RBF closer.
 func newRbfCloserTestHarness(t *testing.T,
 	cfg *harnessCfg) *rbfCloserTestHarness {
+
+	ctx := context.Background()
 
 	startingHeight := 200
 
@@ -747,7 +757,7 @@ func newRbfCloserTestHarness(t *testing.T,
 	).Return(nil)
 
 	chanCloser := protofsm.NewStateMachine(protoCfg)
-	chanCloser.Start()
+	chanCloser.Start(ctx)
 
 	harness.stateSub = chanCloser.RegisterStateEvents()
 
@@ -769,6 +779,7 @@ func newCloser(t *testing.T, cfg *harnessCfg) *rbfCloserTestHarness {
 // TestRbfChannelActiveTransitions tests the transitions of from the
 // ChannelActive state.
 func TestRbfChannelActiveTransitions(t *testing.T) {
+	ctx := context.Background()
 	localAddr := lnwire.DeliveryAddress(bytes.Repeat([]byte{0x01}, 20))
 	remoteAddr := lnwire.DeliveryAddress(bytes.Repeat([]byte{0x02}, 20))
 
@@ -782,7 +793,7 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 		})
 		defer closeHarness.stopAndAssert()
 
-		closeHarness.chanCloser.SendEvent(&SpendEvent{})
+		closeHarness.chanCloser.SendEvent(ctx, &SpendEvent{})
 
 		closeHarness.assertStateTransitions(&CloseFin{})
 	})
@@ -799,7 +810,7 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 		// We don't specify an upfront shutdown addr, and don't specify
 		// on here in the vent, so we should call new addr, but then
 		// fail.
-		closeHarness.chanCloser.SendEvent(&SendShutdown{})
+		closeHarness.chanCloser.SendEvent(ctx, &SendShutdown{})
 
 		// We shouldn't have transitioned to a new state.
 		closeHarness.assertNoStateTransitions()
@@ -824,9 +835,9 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 
 		// If we send the shutdown event, we should transition to the
 		// shutdown pending state.
-		closeHarness.chanCloser.SendEvent(&SendShutdown{
-			IdealFeeRate: feeRate,
-		})
+		closeHarness.chanCloser.SendEvent(
+			ctx, &SendShutdown{IdealFeeRate: feeRate},
+		)
 		closeHarness.assertStateTransitions(&ShutdownPending{})
 
 		// If we examine the internal state, it should be consistent
@@ -869,9 +880,9 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 
 		// Next, we'll emit the recv event, with the addr of the remote
 		// party.
-		closeHarness.chanCloser.SendEvent(&ShutdownReceived{
-			ShutdownScript: remoteAddr,
-		})
+		closeHarness.chanCloser.SendEvent(
+			ctx, &ShutdownReceived{ShutdownScript: remoteAddr},
+		)
 
 		// We should transition to the shutdown pending state.
 		closeHarness.assertStateTransitions(&ShutdownPending{})
@@ -899,6 +910,7 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 // shutdown ourselves.
 func TestRbfShutdownPendingTransitions(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	startingState := &ShutdownPending{}
 
@@ -913,7 +925,7 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 		})
 		defer closeHarness.stopAndAssert()
 
-		closeHarness.chanCloser.SendEvent(&SpendEvent{})
+		closeHarness.chanCloser.SendEvent(ctx, &SpendEvent{})
 
 		closeHarness.assertStateTransitions(&CloseFin{})
 	})
@@ -936,7 +948,7 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 		// We'll now send in a ShutdownReceived event, but with a
 		// different address provided in the shutdown message. This
 		// should result in an error.
-		closeHarness.chanCloser.SendEvent(&ShutdownReceived{
+		closeHarness.chanCloser.SendEvent(ctx, &ShutdownReceived{
 			ShutdownScript: localAddr,
 		})
 
@@ -972,9 +984,9 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 
 		// We'll send in a shutdown received event, with the expected
 		// co-op close addr.
-		closeHarness.chanCloser.SendEvent(&ShutdownReceived{
-			ShutdownScript: remoteAddr,
-		})
+		closeHarness.chanCloser.SendEvent(
+			ctx, &ShutdownReceived{ShutdownScript: remoteAddr},
+		)
 
 		// We should transition to the channel flushing state.
 		closeHarness.assertStateTransitions(&ChannelFlushing{})
@@ -1015,7 +1027,7 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 		closeHarness.expectFinalBalances(fn.None[ShutdownBalances]())
 
 		// We'll send in a shutdown received event.
-		closeHarness.chanCloser.SendEvent(&ShutdownComplete{})
+		closeHarness.chanCloser.SendEvent(ctx, &ShutdownComplete{})
 
 		// We should transition to the channel flushing state.
 		closeHarness.assertStateTransitions(&ChannelFlushing{})
@@ -1030,6 +1042,7 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 // transition to the negotiation state.
 func TestRbfChannelFlushingTransitions(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	localBalance := lnwire.NewMSatFromSatoshis(10_000)
 	remoteBalance := lnwire.NewMSatFromSatoshis(50_000)
@@ -1082,7 +1095,9 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 
 			// We'll now send in the event which should trigger
 			// this code path.
-			closeHarness.chanCloser.SendEvent(&chanFlushedEvent)
+			closeHarness.chanCloser.SendEvent(
+				ctx, &chanFlushedEvent,
+			)
 
 			// With the event sent, we should now transition
 			// straight to the ClosingNegotiation state, with no
@@ -1149,6 +1164,7 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 // rate.
 func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	localBalance := lnwire.NewMSatFromSatoshis(40_000)
 	remoteBalance := lnwire.NewMSatFromSatoshis(50_000)
@@ -1232,7 +1248,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 
 		// We should fail as the remote party sent us more than one
 		// signature.
-		closeHarness.chanCloser.SendEvent(localSigEvent)
+		closeHarness.chanCloser.SendEvent(ctx, localSigEvent)
 	})
 
 	// Next, we'll verify that if the balance of the remote party is dust,
@@ -1333,7 +1349,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 			singleMsgMatcher[*lnwire.Shutdown](nil),
 		)
 
-		closeHarness.chanCloser.SendEvent(sendShutdown)
+		closeHarness.chanCloser.SendEvent(ctx, sendShutdown)
 
 		// We should first transition to the Channel Active state
 		// momentarily, before transitioning to the shutdown pending
@@ -1367,6 +1383,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 // party.
 func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	localBalance := lnwire.NewMSatFromSatoshis(40_000)
 	remoteBalance := lnwire.NewMSatFromSatoshis(50_000)
@@ -1416,7 +1433,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				FeeSatoshis: absoluteFee * 10,
 			},
 		}
-		closeHarness.chanCloser.SendEvent(feeOffer)
+		closeHarness.chanCloser.SendEvent(ctx, feeOffer)
 
 		// We shouldn't have transitioned to a new state.
 		closeHarness.assertNoStateTransitions()
@@ -1460,7 +1477,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				},
 			},
 		}
-		closeHarness.chanCloser.SendEvent(feeOffer)
+		closeHarness.chanCloser.SendEvent(ctx, feeOffer)
 
 		// We shouldn't have transitioned to a new state.
 		closeHarness.assertNoStateTransitions()
@@ -1489,7 +1506,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				},
 			},
 		}
-		closeHarness.chanCloser.SendEvent(feeOffer)
+		closeHarness.chanCloser.SendEvent(ctx, feeOffer)
 
 		// We shouldn't have transitioned to a new state.
 		closeHarness.assertNoStateTransitions()
@@ -1561,9 +1578,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		// We'll now simulate the start of the RBF loop, by receiving a
 		// new Shutdown message from the remote party. This signals
 		// that they want to obtain a new commit sig.
-		closeHarness.chanCloser.SendEvent(&ShutdownReceived{
-			ShutdownScript: remoteAddr,
-		})
+		closeHarness.chanCloser.SendEvent(
+			ctx, &ShutdownReceived{ShutdownScript: remoteAddr},
+		)
 
 		// Next, we'll receive an offer from the remote party, and
 		// drive another RBF iteration. This time, we'll increase the

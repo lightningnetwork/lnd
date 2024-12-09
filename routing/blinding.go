@@ -235,21 +235,33 @@ func (s *BlindedPaymentPathSet) FinalCLTVDelta() uint16 {
 // LargestLastHopPayloadPath returns the BlindedPayment in the set that has the
 // largest last-hop payload. This is to be used for onion size estimation in
 // path finding.
-func (s *BlindedPaymentPathSet) LargestLastHopPayloadPath() *BlindedPayment {
+func (s *BlindedPaymentPathSet) LargestLastHopPayloadPath() (*BlindedPayment,
+	error) {
+
 	var (
 		largestPath *BlindedPayment
 		currentMax  int
 	)
+
+	if len(s.paths) == 0 {
+		return nil, fmt.Errorf("no blinded paths in the set")
+	}
+
+	// We set the largest path to make sure we always return a path even
+	// if the cipher text is empty.
+	largestPath = s.paths[0]
+
 	for _, path := range s.paths {
 		numHops := len(path.BlindedPath.BlindedHops)
 		lastHop := path.BlindedPath.BlindedHops[numHops-1]
 
 		if len(lastHop.CipherText) > currentMax {
 			largestPath = path
+			currentMax = len(lastHop.CipherText)
 		}
 	}
 
-	return largestPath
+	return largestPath, nil
 }
 
 // ToRouteHints converts the blinded path payment set into a RouteHints map so

@@ -12,10 +12,14 @@ import (
 // TestInterfaces executes the generic notifier test suite against a bitcoind
 // powered chain notifier.
 func TestInterfaces(t *testing.T) {
-	t.Run("bitcoind", func(st *testing.T) {
+	success := t.Run("bitcoind", func(st *testing.T) {
 		st.Parallel()
 		chainntnfstest.TestInterfaces(st, "bitcoind")
 	})
+
+	if !success {
+		return
+	}
 
 	t.Run("bitcoind rpc polling", func(st *testing.T) {
 		st.Parallel()

@@ -213,3 +213,5 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 go 1.22.6
 
 retract v0.0.2
+
+replace github.com/btcsuite/btcd => github.com/yyforyongyu/btcd v0.21.0-beta.0.20241203154416-814a1fc1981d

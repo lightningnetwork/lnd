@@ -452,6 +452,12 @@ func FuzzDynAck(f *testing.F) {
 	})
 }
 
+func FuzzDynCommit(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		wireMsgHarness(t, data, MsgDynCommit)
+	})
+}
+
 func FuzzKickoffSig(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		wireMsgHarness(t, data, MsgKickoffSig)

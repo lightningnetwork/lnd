@@ -454,8 +454,7 @@ func TestStateMachineMsgMapper(t *testing.T) {
 
 	// Next, we'll attempt to send the wire message into the state machine.
 	// We should transition to the final state.
-	require.True(t, stateMachine.SendMessage(ctx,
-		wireError))
+	require.True(t, stateMachine.SendMessage(ctx, wireError))
 
 	// We should transition to the final state.
 	expectedStates := []State[dummyEvents, *dummyEnv]{

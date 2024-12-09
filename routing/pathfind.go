@@ -700,7 +700,10 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// The payload size of the final hop differ from intermediate hops
 	// and depends on whether the destination is blinded or not.
-	lastHopPayloadSize := lastHopPayloadSize(r, finalHtlcExpiry, amt)
+	lastHopPayloadSize, err := lastHopPayloadSize(r, finalHtlcExpiry, amt)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	// We can't always assume that the end destination is publicly
 	// advertised to the network so we'll manually include the target node.
@@ -1433,11 +1436,15 @@ func getProbabilityBasedDist(weight int64, probability float64,
 // It depends on the tlv types which are present and also whether the hop is
 // part of a blinded route or not.
 func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
-	amount lnwire.MilliSatoshi) uint64 {
+	amount lnwire.MilliSatoshi) (uint64, error) {
 
 	if r.BlindedPaymentPathSet != nil {
-		paymentPath := r.BlindedPaymentPathSet.
+		paymentPath, err := r.BlindedPaymentPathSet.
 			LargestLastHopPayloadPath()
+		if err != nil {
+			return 0, err
+		}
+
 		blindedPath := paymentPath.BlindedPath.BlindedHops
 		blindedPoint := paymentPath.BlindedPath.BlindingPoint
 
@@ -1452,7 +1459,7 @@ func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
 		}
 
 		// The final hop does not have a short chanID set.
-		return finalHop.PayloadSize(0)
+		return finalHop.PayloadSize(0), nil
 	}
 
 	var mpp *record.MPP
@@ -1478,7 +1485,7 @@ func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
 	}
 
 	// The final hop does not have a short chanID set.
-	return finalHop.PayloadSize(0)
+	return finalHop.PayloadSize(0), nil
 }
 
 // overflowSafeAdd adds two MilliSatoshi values and returns the result. If an

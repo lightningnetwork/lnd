@@ -48,13 +48,6 @@ var (
 
 	testFeatures = lnwire.NewFeatureVector(nil, lnwire.Features)
 
-	testHash = [32]byte{
-		0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,
-		0x4d, 0x92, 0x73, 0xd1, 0x90, 0x63, 0x81, 0xb4,
-		0x4f, 0x2f, 0x6f, 0x25, 0x88, 0xa3, 0xef, 0xb9,
-		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
-	}
-
 	testTime = time.Date(2018, time.January, 9, 14, 00, 00, 0, time.UTC)
 
 	priv1, _    = btcec.NewPrivateKey()
@@ -1233,18 +1226,6 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	// directly to luoji.
 	require.Len(t, path, 1)
 	require.Equal(t, ctx.aliases["luoji"], path[0].policy.ToNodePubKey())
-}
-
-// TestEmptyRoutesGenerateSphinxPacket tests that the generateSphinxPacket
-// function is able to gracefully handle being passed a nil set of hops for the
-// route by the caller.
-func TestEmptyRoutesGenerateSphinxPacket(t *testing.T) {
-	t.Parallel()
-
-	sessionKey, _ := btcec.NewPrivateKey()
-	emptyRoute := &route.Route{}
-	_, _, err := generateSphinxPacket(emptyRoute, testHash[:], sessionKey)
-	require.ErrorIs(t, err, route.ErrNoRouteHopsProvided)
 }
 
 // TestUnknownErrorSource tests that if the source of an error is unknown, all

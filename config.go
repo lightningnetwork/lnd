@@ -735,10 +735,8 @@ func DefaultConfig() Config {
 		ChannelCommitBatchSize:    defaultChannelCommitBatchSize,
 		CoinSelectionStrategy:     defaultCoinSelectionStrategy,
 		KeepFailedPaymentAttempts: defaultKeepFailedPaymentAttempts,
-		RemoteSigner: &lncfg.RemoteSigner{
-			Timeout: lncfg.DefaultRemoteSignerRPCTimeout,
-		},
-		Sweeper: lncfg.DefaultSweeperConfig(),
+		RemoteSigner:              lncfg.DefaultRemoteSignerCfg(),
+		Sweeper:                   lncfg.DefaultSweeperConfig(),
 		Htlcswitch: &lncfg.Htlcswitch{
 			MailboxDeliveryTimeout: htlcswitch.DefaultMailboxDeliveryTimeout,
 		},

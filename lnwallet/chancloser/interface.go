@@ -3,7 +3,6 @@ package chancloser
 import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -100,7 +99,7 @@ type Channel interface { //nolint:interfacebloat
 		localDeliveryScript []byte, remoteDeliveryScript []byte,
 		closeOpt ...lnwallet.ChanCloseOpt,
 	) (
-		input.Signature, *chainhash.Hash, btcutil.Amount, error)
+		input.Signature, *wire.MsgTx, btcutil.Amount, error)
 
 	// CompleteCooperativeClose persistently "completes" the cooperative
 	// close by producing a fully signed co-op close transaction.

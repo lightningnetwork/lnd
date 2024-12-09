@@ -129,7 +129,7 @@ func TestMaybeMatchScript(t *testing.T) {
 			t.Parallel()
 
 			err := validateShutdownScript(
-				func() error { return nil }, test.upfrontScript,
+				test.upfrontScript,
 				test.shutdownScript, &chaincfg.SimNetParams,
 			)
 
@@ -189,7 +189,7 @@ func (m *mockChannel) RemoteUpfrontShutdownScript() lnwire.DeliveryAddress {
 
 func (m *mockChannel) CreateCloseProposal(fee btcutil.Amount,
 	localScript, remoteScript []byte,
-	_ ...lnwallet.ChanCloseOpt) (input.Signature, *chainhash.Hash,
+	_ ...lnwallet.ChanCloseOpt) (input.Signature, *wire.MsgTx,
 	btcutil.Amount, error) {
 
 	if m.chanType.IsTaproot() {

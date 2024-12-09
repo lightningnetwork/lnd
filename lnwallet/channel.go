@@ -8199,6 +8199,12 @@ type chanCloseOpt struct {
 	// transaction outputs. If this isn't set, then the default BIP-69
 	// sorting is used.
 	customSort CloseSortFunc
+
+	customSequence fn.Option[uint32]
+
+	customLockTime fn.Option[uint32]
+
+	customPayer fn.Option[lntypes.ChannelParty]
 }
 
 // ChanCloseOpt is a closure type that cen be used to modify the set of default
@@ -8235,6 +8241,31 @@ func WithCustomCoopSort(sorter CloseSortFunc) ChanCloseOpt {
 	}
 }
 
+// WithCustomSequence can be used to specify a custom sequence number for the
+// co-op close process. Otherwise, a default non-final sequence will be used.
+func WithCustomSequence(sequence uint32) ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.customSequence = fn.Some(sequence)
+	}
+}
+
+// WithCustomLockTime can be used to specify a custom lock time for the coop
+// close transaction.
+func WithCustomLockTime(lockTime uint32) ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.customLockTime = fn.Some(lockTime)
+	}
+}
+
+// WithCustomPayer can be used to specify a custom payer for the closing
+// transaction. This overrides the default payer, which is the initiator of the
+// channel.
+func WithCustomPayer(payer lntypes.ChannelParty) ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.customPayer = fn.Some(payer)
+	}
+}
+
 // CreateCloseProposal is used by both parties in a cooperative channel close
 // workflow to generate proposed close transactions and signatures. This method
 // should only be executed once all pending HTLCs (if any) on the channel have
@@ -8244,20 +8275,21 @@ func WithCustomCoopSort(sorter CloseSortFunc) ChanCloseOpt {
 // returned.
 func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	localDeliveryScript []byte, remoteDeliveryScript []byte,
-	closeOpts ...ChanCloseOpt) (input.Signature, *chainhash.Hash,
+	closeOpts ...ChanCloseOpt) (input.Signature, *wire.MsgTx,
 	btcutil.Amount, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
 
-	// If we're already closing the channel, then ignore this request.
-	if lc.isClosed {
-		return nil, nil, 0, ErrChanClosing
-	}
-
 	opts := defaultCloseOpts()
 	for _, optFunc := range closeOpts {
 		optFunc(opts)
+	}
+
+	// Unless there's a custom payer (sign of the RBF flow), if we're
+	// already closing the channel, then ignore this request.
+	if lc.isClosed && opts.customPayer.IsNone() {
+		return nil, nil, 0, ErrChanClosing
 	}
 
 	// Get the final balances after subtracting the proposed fee, taking
@@ -8269,6 +8301,7 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		lc.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
 		lc.channelState.LocalCommitment.RemoteBalance.ToSatoshis(),
 		lc.channelState.LocalCommitment.CommitFee,
+		opts.customPayer,
 	)
 	if err != nil {
 		return nil, nil, 0, err
@@ -8293,6 +8326,18 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 			closeTxOpts, WithCustomTxSort(opts.customSort),
 		)
 	}
+
+	opts.customSequence.WhenSome(func(sequence uint32) {
+		closeTxOpts = append(closeTxOpts, WithCustomTxInSequence(
+			sequence,
+		))
+	})
+
+	opts.customLockTime.WhenSome(func(lockTime uint32) {
+		closeTxOpts = append(closeTxOpts, WithCustomTxLockTime(
+			lockTime,
+		))
+	})
 
 	closeTx, err := CreateCooperativeCloseTx(
 		fundingTxIn(lc.channelState), lc.channelState.LocalChanCfg.DustLimit,
@@ -8332,8 +8377,8 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		}
 	}
 
-	closeTXID := closeTx.TxHash()
-	return sig, &closeTXID, ourBalance, nil
+	return sig, closeTx, ourBalance, nil
+
 }
 
 // CompleteCooperativeClose completes the cooperative closure of the target
@@ -8352,15 +8397,15 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	lc.Lock()
 	defer lc.Unlock()
 
-	// If the channel is already closing, then ignore this request.
-	if lc.isClosed {
-		// TODO(roasbeef): check to ensure no pending payments
-		return nil, 0, ErrChanClosing
-	}
-
 	opts := defaultCloseOpts()
 	for _, optFunc := range closeOpts {
 		optFunc(opts)
+	}
+
+	// Unless there's a custom payer (sign of the RBF flow), if we're
+	// already closing the channel, then ignore this request.
+	if lc.isClosed && opts.customPayer.IsNone() {
+		return nil, 0, ErrChanClosing
 	}
 
 	// Get the final balances after subtracting the proposed fee.
@@ -8370,6 +8415,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 		lc.channelState.LocalCommitment.LocalBalance.ToSatoshis(),
 		lc.channelState.LocalCommitment.RemoteBalance.ToSatoshis(),
 		lc.channelState.LocalCommitment.CommitFee,
+		opts.customPayer,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -8394,6 +8440,18 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 			closeTxOpts, WithCustomTxSort(opts.customSort),
 		)
 	}
+
+	opts.customSequence.WhenSome(func(sequence uint32) {
+		closeTxOpts = append(closeTxOpts, WithCustomTxInSequence(
+			sequence,
+		))
+	})
+
+	opts.customLockTime.WhenSome(func(lockTime uint32) {
+		closeTxOpts = append(closeTxOpts, WithCustomTxLockTime(
+			lockTime,
+		))
+	})
 
 	// Create the transaction used to return the current settled balance
 	// on this active channel back to both parties. In this current model,
@@ -9111,6 +9169,13 @@ type closeTxOpts struct {
 	// transaction outputs. If this isn't set, then the default BIP-69
 	// sorting is used.
 	customSort CloseSortFunc
+
+	// customSequence is an optional custom sequence to set on the co-op
+	// close transaction. This gives slightly more control compared to the
+	// enableRBF option.
+	customSequence fn.Option[uint32]
+
+	customLockTime fn.Option[uint32]
 }
 
 // defaultCloseTxOpts returns a closeTxOpts struct with default values.
@@ -9147,6 +9212,20 @@ func WithCustomTxSort(sorter CloseSortFunc) CloseTxOpt {
 	}
 }
 
+// WithCustomTxInSequence allows a caller to set a custom sequence on the sole
+// input of the co-op close tx.
+func WithCustomTxInSequence(sequence uint32) CloseTxOpt {
+	return func(o *closeTxOpts) {
+		o.customSequence = fn.Some(sequence)
+	}
+}
+
+func WithCustomTxLockTime(lockTime uint32) CloseTxOpt {
+	return func(o *closeTxOpts) {
+		o.customLockTime = fn.Some(lockTime)
+	}
+}
+
 // CreateCooperativeCloseTx creates a transaction which if signed by both
 // parties, then broadcast cooperatively closes an active channel. The creation
 // of the closure transaction is modified by a boolean indicating if the party
@@ -9169,12 +9248,23 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 		fundingTxIn.Sequence = mempool.MaxRBFSequence
 	}
 
+	// Otherwise, a custom sequence might be specified.
+	opts.customSequence.WhenSome(func(sequence uint32) {
+		fundingTxIn.Sequence = sequence
+	})
+
 	// Construct the transaction to perform a cooperative closure of the
 	// channel. In the event that one side doesn't have any settled funds
 	// within the channel then a refund output for that particular side can
 	// be omitted.
 	closeTx := wire.NewMsgTx(2)
 	closeTx.AddTxIn(&fundingTxIn)
+
+	opts.customLockTime.WhenSome(func(lockTime uint32) {
+		closeTx.LockTime = lockTime
+	})
+
+	// TODO(roasbeef): needs support for dropping inputs
 
 	// Create both cooperative closure outputs, properly respecting the
 	// dust limits of both parties.

@@ -80,9 +80,7 @@ func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 		return &StateTransition[dummyEvents, *dummyEnv]{
 			NextState: &dummyStateStart{},
 			NewEvents: fn.Some(EmittedEvent[dummyEvents]{
-				InternalEvent: fn.Some(
-					[]dummyEvents{&goToFin{}},
-				),
+				InternalEvent: []dummyEvents{&goToFin{}},
 			}),
 		}, nil
 
@@ -114,13 +112,13 @@ func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 				canSend: d.canSend,
 			},
 			NewEvents: fn.Some(EmittedEvent[dummyEvents]{
-				ExternalEvents: fn.Some(DaemonEventSet{
+				ExternalEvents: DaemonEventSet{
 					sendEvent, sendEvent2,
 					&BroadcastTxn{
 						Tx:    &wire.MsgTx{},
 						Label: "test",
 					},
-				}),
+				},
 			}),
 		}, nil
 	}

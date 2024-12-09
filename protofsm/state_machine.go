@@ -34,11 +34,11 @@ type EmittedEvent[Event any] struct {
 	// InternalEvent is an optional internal event that is to be routed
 	// back to the target state. This enables state to trigger one or many
 	// state transitions without a new external event.
-	InternalEvent fn.Option[[]Event]
+	InternalEvent []Event
 
 	// ExternalEvent is an optional external event that is to be sent to
 	// the daemon for dispatch. Usually, this is some form of I/O.
-	ExternalEvents fn.Option[DaemonEventSet]
+	ExternalEvents DaemonEventSet
 }
 
 // StateTransition is a state transition type. It denotes the next state to go
@@ -573,46 +573,31 @@ func (s *StateMachine[Event, Env]) applyEvents(currentState State[Event, Env],
 				// With the event processed, we'll process any
 				// new daemon events that were emitted as part
 				// of this new state transition.
-				//
-				//nolint:ll
-				err := fn.MapOptionZ(events.ExternalEvents, func(dEvents DaemonEventSet) error {
-					log.Debugf("FSM(%v): processing "+
-						"daemon %v daemon events",
-						s.cfg.Env.Name(), len(dEvents))
-
-					for _, dEvent := range dEvents {
-						err := s.executeDaemonEvent(
-							dEvent,
-						)
-						if err != nil {
-							return err
-						}
+				for _, dEvent := range events.ExternalEvents {
+					err := s.executeDaemonEvent(
+						dEvent,
+					)
+					if err != nil {
+						return err
 					}
-
-					return nil
-				})
-				if err != nil {
-					return err
 				}
 
-				// Next, we'll add any new emitted events to
-				// our event queue.
+				// Next, we'll add any new emitted events to our
+				// event queue.
 				//
 				//nolint:ll
-				events.InternalEvent.WhenSome(func(es []Event) {
-					for _, inEvent := range es {
-						log.Debugf("FSM(%v): adding "+
-							"new internal event "+
-							"to queue: %v",
-							s.cfg.Env.Name(),
-							lnutils.SpewLogClosure(
-								inEvent,
-							),
-						)
+				for _, inEvent := range events.InternalEvent {
+					log.Debugf("FSM(%v): adding "+
+						"new internal event "+
+						"to queue: %v",
+						s.cfg.Env.Name(),
+						lnutils.SpewLogClosure(
+							inEvent,
+						),
+					)
 
-						eventQueue.Enqueue(inEvent)
-					}
-				})
+					eventQueue.Enqueue(inEvent)
+				}
 
 				return nil
 			})

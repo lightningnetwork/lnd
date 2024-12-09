@@ -187,6 +187,11 @@ func (r InvoiceRef) Modifier() RefModifier {
 	return r.refModifier
 }
 
+// IsHashOnly returns true if the invoice ref only contains a payment hash.
+func (r InvoiceRef) IsHashOnly() bool {
+	return r.payHash != nil && r.payAddr == nil && r.setID == nil
+}
+
 // String returns a human-readable representation of an InvoiceRef.
 func (r InvoiceRef) String() string {
 	var ids []string

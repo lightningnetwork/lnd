@@ -1,10 +1,10 @@
 -- name: InsertInvoice :one
 INSERT INTO invoices (
-    hash, preimage, memo, amount_msat, cltv_delta, expiry, payment_addr, 
-    payment_request, payment_request_hash, state, amount_paid_msat, is_amp,
-    is_hodl, is_keysend, created_at
+    hash, preimage, settle_index, settled_at, memo, amount_msat, cltv_delta, 
+    expiry, payment_addr, payment_request, payment_request_hash, state, 
+    amount_paid_msat, is_amp, is_hodl, is_keysend, created_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
 ) RETURNING id;
 
 -- name: InsertInvoiceFeature :exec
@@ -38,14 +38,16 @@ WHERE (
     i.hash = sqlc.narg('hash') OR 
     sqlc.narg('hash') IS NULL
 ) AND (
-    i.preimage = sqlc.narg('preimage') OR 
-    sqlc.narg('preimage') IS NULL
-) AND (
     i.payment_addr = sqlc.narg('payment_addr') OR 
     sqlc.narg('payment_addr') IS NULL
 )
 GROUP BY i.id
 LIMIT 2;
+
+-- name: GetInvoiceByHash :one
+SELECT i.*
+FROM invoices i
+WHERE i.hash = $1;
 
 -- name: GetInvoiceBySetID :many
 SELECT i.*
@@ -169,3 +171,23 @@ INSERT INTO invoice_htlc_custom_records (
 SELECT ihcr.htlc_id, key, value
 FROM invoice_htlcs ih JOIN invoice_htlc_custom_records ihcr ON ih.id=ihcr.htlc_id 
 WHERE ih.invoice_id = $1;
+
+-- name: InsertInvoicePaymentHashAndKey :exec
+INSERT INTO invoice_payment_hashes (
+    hash, id
+) VALUES (
+    $1, $2
+);
+
+-- name: SetInvoicePaymentHashAddIndex :exec
+UPDATE invoice_payment_hashes
+SET add_index = $2
+WHERE id = $1;
+
+-- name: GetInvoicePaymentHashByAddIndex :one
+SELECT hash
+FROM invoice_payment_hashes
+WHERE add_index = $1;
+
+-- name: ClearInvoiceHashIndex :exec
+DELETE FROM invoice_payment_hashes;

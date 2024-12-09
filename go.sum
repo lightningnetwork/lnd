@@ -95,8 +95,8 @@ github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c/go.mod h1:w7xnGOhw
 github.com/btcsuite/btclog/v2 v2.0.0 h1:ZfOBItEeLWfU0voi88K72j8vtxP4/dHhxRFf2bxZkVo=
 github.com/btcsuite/btclog/v2 v2.0.0/go.mod h1:XItGUfVOxotJL8kkuk2Hj3EVow5KCugXl3wWfQ6K0AE=
 github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d/go.mod h1:+5NJ2+qvTyV9exUAL/rxXi3DcLg2Ts+ymUAY5y4NvMg=
-github.com/btcsuite/btcwallet v0.16.10-0.20241113134707-b4ff60753aaa h1:x7vYpwkPL5zeJEWPPaRunybH9ERRMGWeNf7x/0aU/38=
-github.com/btcsuite/btcwallet v0.16.10-0.20241113134707-b4ff60753aaa/go.mod h1:1HJXYbjJzgumlnxOC2+ViR1U+gnHWoOn7WeK5OfY1eU=
+github.com/btcsuite/btcwallet v0.16.10-0.20241127094224-93c858b2ad63 h1:YN+PekOLlLoGxE3P5RJaGgodZD5DDJSU8eXQZVwwCxM=
+github.com/btcsuite/btcwallet v0.16.10-0.20241127094224-93c858b2ad63/go.mod h1:1HJXYbjJzgumlnxOC2+ViR1U+gnHWoOn7WeK5OfY1eU=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5 h1:Rr0njWI3r341nhSPesKQ2JF+ugDSzdPoeckS75SeDZk=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5/go.mod h1:+tXJ3Ym0nlQc/iHSwW1qzjmPs3ev+UVWMbGgfV1OZqU=
 github.com/btcsuite/btcwallet/wallet/txrules v1.2.2 h1:YEO+Lx1ZJJAtdRrjuhXjWrYsmAk26wLTlNzxt2q0lhk=
@@ -460,12 +460,8 @@ github.com/lightningnetwork/lnd/fn/v2 v2.0.2 h1:M7o2lYrh/zCp+lntPB3WP/rWTu5U+4ss
 github.com/lightningnetwork/lnd/fn/v2 v2.0.2/go.mod h1:TOzwrhjB/Azw1V7aa8t21ufcQmdsQOQMDtxVOQWNl8s=
 github.com/lightningnetwork/lnd/healthcheck v1.2.6 h1:1sWhqr93GdkWy4+6U7JxBfcyZIE78MhIHTJZfPx7qqI=
 github.com/lightningnetwork/lnd/healthcheck v1.2.6/go.mod h1:Mu02um4CWY/zdTOvFje7WJgJcHyX2zq/FG3MhOAiGaQ=
-github.com/lightningnetwork/lnd/kvdb v1.4.11 h1:fk1HMVFrsVK3xqU7q+JWHRgBltw/a2qIg1E3zazMb/8=
-github.com/lightningnetwork/lnd/kvdb v1.4.11/go.mod h1:a5cMDKMjbJA8dD06ZqqnYkmSh5DhEbbG8C1YHM3NN+k=
 github.com/lightningnetwork/lnd/queue v1.1.1 h1:99ovBlpM9B0FRCGYJo6RSFDlt8/vOkQQZznVb18iNMI=
 github.com/lightningnetwork/lnd/queue v1.1.1/go.mod h1:7A6nC1Qrm32FHuhx/mi1cieAiBZo5O6l8IBIoQxvkz4=
-github.com/lightningnetwork/lnd/sqldb v1.0.5 h1:ax5vBPf44tN/uD6C5+hBPBjOJ7cRMrUL+sVOdzmLVt4=
-github.com/lightningnetwork/lnd/sqldb v1.0.5/go.mod h1:OG09zL/PHPaBJefp4HsPz2YLUJ+zIQHbpgCtLnOx8I4=
 github.com/lightningnetwork/lnd/ticker v1.1.1 h1:J/b6N2hibFtC7JLV77ULQp++QLtCwT6ijJlbdiZFbSM=
 github.com/lightningnetwork/lnd/ticker v1.1.1/go.mod h1:waPTRAAcwtu7Ji3+3k+u/xH5GHovTsCoSVpho0KDvdA=
 github.com/lightningnetwork/lnd/tlv v1.3.0 h1:exS/KCPEgpOgviIttfiXAPaUqw2rHQrnUOpP7HPBPiY=

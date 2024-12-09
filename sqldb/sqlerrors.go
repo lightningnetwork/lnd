@@ -17,6 +17,15 @@ var (
 	// ErrRetriesExceeded is returned when a transaction is retried more
 	// than the max allowed valued without a success.
 	ErrRetriesExceeded = errors.New("db tx retries exceeded")
+
+	// postgresErrMsgs are strings that signify retriable errors resulting
+	// from serialization failures.
+	postgresErrMsgs = []string{
+		"could not serialize access",
+		"current transaction is aborted",
+		"not enough elements in RWConflictPool",
+		"deadlock detected",
+	}
 )
 
 // MapSQLError attempts to interpret a given error as a database agnostic SQL
@@ -41,10 +50,11 @@ func MapSQLError(err error) error {
 	// Sometimes the error won't be properly wrapped, so we'll need to
 	// inspect raw error itself to detect something we can wrap properly.
 	// This handles a postgres variant of the error.
-	const postgresErrMsg = "could not serialize access"
-	if strings.Contains(err.Error(), postgresErrMsg) {
-		return &ErrSerializationError{
-			DBError: err,
+	for _, postgresErrMsg := range postgresErrMsgs {
+		if strings.Contains(err.Error(), postgresErrMsg) {
+			return &ErrSerializationError{
+				DBError: err,
+			}
 		}
 	}
 
@@ -101,6 +111,20 @@ func parsePostgresError(pqErr *pgconn.PgError) error {
 
 	// Unable to serialize the transaction, so we'll need to try again.
 	case pgerrcode.SerializationFailure:
+		return &ErrSerializationError{
+			DBError: pqErr,
+		}
+
+	// In failed SQL transaction because we didn't catch a previous
+	// serialization error, so return this one as a serialization error.
+	case pgerrcode.InFailedSQLTransaction:
+		return &ErrSerializationError{
+			DBError: pqErr,
+		}
+
+	// Deadlock detedted because of a serialization error, so return this
+	// one as a serialization error.
+	case pgerrcode.DeadlockDetected:
 		return &ErrSerializationError{
 			DBError: pqErr,
 		}

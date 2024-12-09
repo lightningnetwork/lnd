@@ -11,7 +11,7 @@ require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c
 	github.com/btcsuite/btclog/v2 v2.0.0
-	github.com/btcsuite/btcwallet v0.16.10-0.20241113134707-b4ff60753aaa
+	github.com/btcsuite/btcwallet v0.16.10-0.20241127094224-93c858b2ad63
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.2
 	github.com/btcsuite/btcwallet/walletdb v1.4.4
@@ -202,6 +202,12 @@ replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11
 // This replace is for
 // https://deps.dev/advisory/OSV/GO-2021-0053?from=%2Fgo%2Fgithub.com%252Fgogo%252Fprotobuf%2Fv1.3.1
 replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
+
+// Use local kvdb package until new version is tagged.
+replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
+
+// Use local sqldb package until new version is tagged.
+replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.

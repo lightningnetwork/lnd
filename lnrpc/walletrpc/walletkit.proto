@@ -357,6 +357,217 @@ service WalletKit {
     unlock/release any locked UTXOs in case of an error in this method.
     */
     rpc FinalizePsbt (FinalizePsbtRequest) returns (FinalizePsbtResponse);
+
+    /*
+    SignCoordinatorStreams dispatches a bi-directional streaming RPC that
+    allows a remote signer to connect to lnd and remotely provide the signatures
+    required for any on-chain related transactions or messages.
+    */
+    rpc SignCoordinatorStreams (stream SignCoordinatorResponse)
+        returns (stream SignCoordinatorRequest);
+}
+
+message SignCoordinatorRequest {
+    /*
+    A unique request ID of a SignCoordinator gRPC request. Useful for mapping
+    requests to responses.
+    */
+    uint64 request_id = 1;
+
+    /*
+    Messages between the watch-only node and the remote signer can only be of
+    certain types.
+    */
+    oneof sign_request_type {
+        /*
+        The Registration Response message is returned by the watch-only lnd as
+        a response to SignerRegistration message.
+        */
+        RegistrationResponse registration_response = 2;
+
+        /*
+        To ensure that the remote signer is still active and alive, the
+        watch-only lnd can send a Ping message to the remote signer, which
+        should then respond with the respective Pong message.
+        */
+        bool ping = 3;
+
+        /*
+        Requests a shared public key from the remote signer.
+        */
+        signrpc.SharedKeyRequest shared_key_request = 4;
+
+        /*
+        Requests that the remote signer signs the passed message.
+        */
+        signrpc.SignMessageReq sign_message_req = 5;
+
+        /*
+        Requests a MuSig2 Session of the remote signer.
+        */
+        signrpc.MuSig2SessionRequest mu_sig2_session_request = 6;
+
+        /*
+        Requests that the remote signer registers a nonce with the referenced
+        MuSig2 Session.
+        */
+        signrpc.MuSig2RegisterNoncesRequest mu_sig2_register_nonces_request = 7;
+
+        /*
+        Requests that the remote signer signs the passed message digest with
+        the referenced MuSig2 Session.
+        */
+        signrpc.MuSig2SignRequest mu_sig2_sign_request = 8;
+
+        /*
+        Requests that the remote signer combines and adds the passed partial
+        signatures for the referenced MuSig2 Session.
+        */
+        signrpc.MuSig2CombineSigRequest mu_sig2_combine_sig_request = 9;
+
+        /*
+        Requests that the remote signer removes/cleans up the referenced
+        MuSig2 session.
+        */
+        signrpc.MuSig2CleanupRequest mu_sig2_cleanup_request = 10;
+
+        /*
+        Requests that the remote signer signs the passed PSBT.
+        */
+        SignPsbtRequest sign_psbt_request = 11;
+    }
+}
+
+message SignCoordinatorResponse {
+    /*
+    The request ID this response refers to.
+    */
+    uint64 ref_request_id = 1;
+
+    /*
+    The remote signer responses can only be of certain types.
+    */
+    oneof sign_response_type {
+        /*
+        The Signer Registration message is sent by the remote signer when it
+        connects to the watch-only lnd node, to initialize a handshake between
+        the nodes.
+        */
+        SignerRegistration signer_registration = 2;
+
+        /*
+        To ensure that the remote signer is still active and alive, the
+        watch-only node can send a Ping message to remote signer. This Pong
+        message should then be sent by the remote signer to respond to the Ping
+        message.
+        */
+        bool pong = 3;
+
+        /*
+        The remote signer's corresponding response to a Shared Key request.
+        */
+        signrpc.SharedKeyResponse shared_key_response = 4;
+
+        /*
+        The remote signer's corresponding response to a Sign Message request.
+        */
+        signrpc.SignMessageResp sign_message_resp = 5;
+
+        /*
+        The remote signer's corresponding response to a Mu Sig2 Session
+        request.
+        */
+        signrpc.MuSig2SessionResponse mu_sig2_session_response = 6;
+
+        /*
+        The remote signer's corresponding response to a Mu Sig2 Register Nonces
+        request.
+        */
+        signrpc.MuSig2RegisterNoncesResponse mu_sig2_register_nonces_response =
+            7;
+
+        /*
+        The remote signer's corresponding response to a Mu Sig2 Sign request.
+        */
+        signrpc.MuSig2SignResponse mu_sig2_sign_response = 8;
+
+        /*
+        The remote signer's corresponding response to a Mu Sig2 Combine Sig
+        request.
+        */
+        signrpc.MuSig2CombineSigResponse mu_sig2_combine_sig_response = 9;
+
+        /*
+        The remote signer's corresponding response to a Mu Sig2 Cleanup
+        request.
+        */
+        signrpc.MuSig2CleanupResponse mu_sig2_cleanup_response = 10;
+
+        /*
+        The remote signer's corresponding response to a Sign Psbt request.
+        */
+        SignPsbtResponse sign_psbt_response = 11;
+
+        /*
+        If the remote signer encounters an error while processing a request, it
+        will respond with a SignerError message that details the error.
+        */
+        SignerError signer_error = 12;
+    }
+}
+
+message SignerError {
+    // Details an error which occurred on remote signer.
+    string error = 1;
+}
+
+message SignerRegistration {
+    /*
+    The registration challenge allows the remote signer to pass data that will
+    be signed by the watch-only lnd. The resulting signature will be returned in
+    the RegistrationResponse message.
+    */
+    string registration_challenge = 1;
+
+    /*
+    The registration info contains details about the remote signer that may be
+    useful for the watch-only lnd.
+    */
+    string registration_info = 2;
+}
+
+message RegistrationResponse {
+    /*
+    The registration response indicates either a successful registration or an
+    error.
+    */
+    oneof registration_response_type {
+        /*
+        Sent by the watch-only lnd when the remote signer registration is
+        successful.
+        */
+        RegistrationComplete registration_complete = 1;
+
+        /*
+        Contains details about any errors that occurred during remote signer
+        registration.
+        */
+        string registration_error = 2;
+    }
+}
+
+message RegistrationComplete {
+    /*
+    Holds the signature generated by the watch-only node when signing the
+    registration_challenge provided by the remote signer in SignerRegistration.
+    */
+    string signature = 1;
+
+    /*
+    Contains information about the watch-only lnd that may be useful for the
+    remote signer.
+    */
+    string registration_info = 2;
 }
 
 message ListUnspentRequest {

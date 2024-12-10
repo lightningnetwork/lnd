@@ -1,11 +1,13 @@
 package itest
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -114,11 +116,20 @@ func testCoopCloseWithExternalDeliveryImpl(ht *lntest.HarnessTest,
 	// assertion. We want to ensure that even though alice's delivery
 	// address is set to an address in bob's wallet, we should still show
 	// the balance as settled.
-	closed := alice.RPC.ClosedChannels(&lnrpc.ClosedChannelsRequest{
-		Cooperative: true,
-	})
+	err = wait.NoError(func() error {
+		closed := alice.RPC.ClosedChannels(&lnrpc.ClosedChannelsRequest{
+			Cooperative: true,
+		})
 
-	// The settled balance should never be zero at this point.
-	require.NotZero(ht, len(closed.Channels))
-	require.NotZero(ht, closed.Channels[0].SettledBalance)
+		if len(closed.Channels) == 0 {
+			return fmt.Errorf("expected closed channel not found")
+		}
+
+		if closed.Channels[0].SettledBalance == 0 {
+			return fmt.Errorf("expected settled balance to be zero")
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(ht, err, "timeout checking closed channels")
 }

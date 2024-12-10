@@ -30,7 +30,7 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	)
 	invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
 		Value:      30000,
-		CltvExpiry: 40,
+		CltvExpiry: finalCltvDelta,
 		Hash:       payHash[:],
 	}
 	bobInvoice := bob.RPC.AddHoldInvoice(invoiceReq)

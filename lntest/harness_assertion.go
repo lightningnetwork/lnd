@@ -61,9 +61,9 @@ func (h *HarnessTest) WaitForBlockchainSync(hn *node.HarnessNode) {
 
 // WaitForBlockchainSyncTo waits until the node is synced to bestBlock.
 func (h *HarnessTest) WaitForBlockchainSyncTo(hn *node.HarnessNode,
-	bestBlock *wire.MsgBlock) {
+	bestBlock chainhash.Hash) {
 
-	bestBlockHash := bestBlock.BlockHash().String()
+	bestBlockHash := bestBlock.String()
 	err := wait.NoError(func() error {
 		resp := hn.RPC.GetInfo()
 		if resp.SyncedToChain {
@@ -1629,7 +1629,7 @@ func (h *HarnessTest) AssertActiveNodesSynced() {
 
 // AssertActiveNodesSyncedTo asserts all active nodes have synced to the
 // provided bestBlock.
-func (h *HarnessTest) AssertActiveNodesSyncedTo(bestBlock *wire.MsgBlock) {
+func (h *HarnessTest) AssertActiveNodesSyncedTo(bestBlock chainhash.Hash) {
 	for _, node := range h.manager.activeNodes {
 		h.WaitForBlockchainSyncTo(node, bestBlock)
 	}
@@ -1856,6 +1856,18 @@ func (h *HarnessTest) AssertChannelInGraph(hn *node.HarnessNode,
 		)
 		if err != nil {
 			return fmt.Errorf("channel %s not found in graph: %w",
+				op, err)
+		}
+
+		// Make sure the policies are populated, otherwise this edge
+		// cannot be used for routing.
+		if resp.Node1Policy == nil {
+			return fmt.Errorf("channel %s has no policy1: %w",
+				op, err)
+		}
+
+		if resp.Node2Policy == nil {
+			return fmt.Errorf("channel %s has no policy2: %w",
 				op, err)
 		}
 

@@ -193,8 +193,8 @@ type StateMachineCfg[Event any, Env Environment] struct {
 // an initial state, an environment, and an event to process as if emitted at
 // the onset of the state machine. Such an event can be used to set up tracking
 // state such as a txid confirmation event.
-func NewStateMachine[Event any, Env Environment](cfg StateMachineCfg[Event, Env], //nolint:ll
-) StateMachine[Event, Env] {
+func NewStateMachine[Event any, Env Environment](
+	cfg StateMachineCfg[Event, Env]) StateMachine[Event, Env] {
 
 	return StateMachine[Event, Env]{
 		cfg:            cfg,
@@ -229,9 +229,13 @@ func (s *StateMachine[Event, Env]) Stop() {
 //
 // TODO(roasbeef): bool if processed?
 func (s *StateMachine[Event, Env]) SendEvent(event Event) {
+	s.sendEvent(event)
+}
+
+// sendEvent sends a new event to the state machine.
+func (s *StateMachine[Event, Env]) sendEvent(event Event) {
 	log.Debugf("FSM(%v): sending event: %v", s.cfg.Env.Name(),
-		lnutils.SpewLogClosure(event),
-	)
+		lnutils.SpewLogClosure(event))
 
 	select {
 	case s.events <- event:
@@ -259,6 +263,14 @@ func (s *StateMachine[Event, Env]) Name() string {
 // returned indicating that the message was processed. Otherwise, false is
 // returned.
 func (s *StateMachine[Event, Env]) SendMessage(msg lnwire.Message) bool {
+	return s.sendMessage(msg)
+}
+
+// sendMessage attempts to send a wire message to the state machine. If the
+// message can be mapped using the default message mapper, then true is
+// returned indicating that the message was processed. Otherwise, false is
+// returned.
+func (s *StateMachine[Event, Env]) sendMessage(msg lnwire.Message) bool {
 	// If we have no message mapper, then return false as we can't process
 	// this message.
 	if !s.cfg.MsgMapper.IsSome() {
@@ -277,7 +289,7 @@ func (s *StateMachine[Event, Env]) SendMessage(msg lnwire.Message) bool {
 		event := mapper.MapMsg(msg)
 
 		event.WhenSome(func(event Event) {
-			s.SendEvent(event)
+			s.sendEvent(event)
 
 			processed = true
 		})
@@ -362,7 +374,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 							s.cfg.Env.Name(),
 							lnutils.SpewLogClosure(event))
 
-						s.SendEvent(event)
+						s.sendEvent(event)
 					},
 				)
 
@@ -471,7 +483,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 					postSpend := daemonEvent.PostSpendEvent
 					postSpend.WhenSome(func(f SpendMapper[Event]) { //nolint:ll
 						customEvent := f(spend)
-						s.SendEvent(customEvent)
+						s.sendEvent(customEvent)
 					})
 
 					return
@@ -515,7 +527,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 					// dispatchAfterRecv w/ above
 					postConf := daemonEvent.PostConfEvent
 					postConf.WhenSome(func(e Event) {
-						s.SendEvent(e)
+						s.sendEvent(e)
 					})
 
 					return

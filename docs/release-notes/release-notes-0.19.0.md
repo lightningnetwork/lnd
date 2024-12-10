@@ -120,6 +120,18 @@
 
 * LND updates channel.backup file at shutdown time.
 
+* A new subsystem `chainio` is
+  [introduced](https://github.com/lightningnetwork/lnd/pull/9277) to make sure
+  the subsystems are in sync with their current best block. Previously, when
+  resolving a force close channel, the sweeping of HTLCs may be delayed for one
+  or two blocks due to block heights not in sync in the relevant subsystems
+  (`ChainArbitrator`, `UtxoSweeper` and `TxPublisher`), causing a slight
+  inaccuracy when deciding the sweeping feerate and urgency. With `chainio`,
+  this is now fixed as these subsystems now share the same view on the best
+  block. Check
+  [here](https://github.com/lightningnetwork/lnd/blob/master/chainio/README.md)
+  to learn more.
+
 ## RPC Updates
 
 * Some RPCs that previously just returned an empty response message now at least

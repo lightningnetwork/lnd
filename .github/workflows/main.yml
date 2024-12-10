@@ -280,7 +280,7 @@ jobs:
         run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
 
       - name: run ${{ matrix.name }}
-        run: make itest-parallel tranches=${{ env.TRANCHES }} ${{ matrix.args }}
+        run: make itest-parallel tranches=${{ env.TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
       - name: Send coverage
         if: ${{ contains(matrix.args, 'cover=1') }}
@@ -328,7 +328,7 @@ jobs:
           key-prefix: integration-test
 
       - name: run itest
-        run: make itest-parallel tranches=${{ env.TRANCHES }} windows=1
+        run: make itest-parallel tranches=${{ env.TRANCHES }} windows=1 shuffleseed=${{ github.run_id }}
         
       - name: kill any remaining lnd processes
         if: ${{ failure() }}
@@ -378,7 +378,7 @@ jobs:
           mv bitcoin-${BITCOIN_VERSION}.0 /tmp/bitcoin
 
       - name: run itest
-        run: PATH=$PATH:/tmp/bitcoin/bin make itest-parallel tranches=${{ env.TRANCHES }} backend=bitcoind
+        run: PATH=$PATH:/tmp/bitcoin/bin make itest-parallel tranches=${{ env.TRANCHES }} backend=bitcoind shuffleseed=${{ github.run_id }}
 
       - name: Zip log files on failure
         if: ${{ failure() }}

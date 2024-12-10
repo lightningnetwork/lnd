@@ -27,20 +27,18 @@ func testCustomFeatures(ht *lntest.HarnessTest) {
 		fmt.Sprintf("--protocol.custom-nodeann=%v", customNodeAnn),
 		fmt.Sprintf("--protocol.custom-invoice=%v", customInvoice),
 	}
-	ht.RestartNodeWithExtraArgs(ht.Alice, extraArgs)
+	cfgs := [][]string{extraArgs, nil}
 
-	// Connect nodes and open a channel so that Alice will be included
-	// in Bob's graph.
-	ht.ConnectNodes(ht.Alice, ht.Bob)
-	chanPoint := ht.OpenChannel(
-		ht.Alice, ht.Bob, lntest.OpenChannelParams{Amt: 1000000},
+	_, nodes := ht.CreateSimpleNetwork(
+		cfgs, lntest.OpenChannelParams{Amt: 1000000},
 	)
+	alice, bob := nodes[0], nodes[1]
 
 	// Check that Alice's custom feature bit was sent to Bob in her init
 	// message.
-	peers := ht.Bob.RPC.ListPeers()
+	peers := bob.RPC.ListPeers()
 	require.Len(ht, peers.Peers, 1)
-	require.Equal(ht, peers.Peers[0].PubKey, ht.Alice.PubKeyStr)
+	require.Equal(ht, peers.Peers[0].PubKey, alice.PubKeyStr)
 
 	_, customInitSet := peers.Peers[0].Features[customInit]
 	require.True(ht, customInitSet)
@@ -51,7 +49,7 @@ func testCustomFeatures(ht *lntest.HarnessTest) {
 
 	// Assert that Alice's custom feature bit is contained in the node
 	// announcement sent to Bob.
-	updates := ht.AssertNumNodeAnns(ht.Bob, ht.Alice.PubKeyStr, 1)
+	updates := ht.AssertNumNodeAnns(bob, alice.PubKeyStr, 1)
 	features := updates[len(updates)-1].Features
 	_, customFeature := features[customNodeAnn]
 	require.True(ht, customFeature)
@@ -60,8 +58,8 @@ func testCustomFeatures(ht *lntest.HarnessTest) {
 	)
 
 	// Assert that Alice's custom feature bit is included in invoices.
-	invoice := ht.Alice.RPC.AddInvoice(&lnrpc.Invoice{})
-	payReq := ht.Alice.RPC.DecodePayReq(invoice.PaymentRequest)
+	invoice := alice.RPC.AddInvoice(&lnrpc.Invoice{})
+	payReq := alice.RPC.DecodePayReq(invoice.PaymentRequest)
 	_, customInvoiceSet := payReq.Features[customInvoice]
 	require.True(ht, customInvoiceSet)
 	assertFeatureNotInSet(
@@ -79,9 +77,7 @@ func testCustomFeatures(ht *lntest.HarnessTest) {
 			},
 		},
 	}
-	ht.Alice.RPC.UpdateNodeAnnouncementErr(nodeAnnReq)
-
-	ht.CloseChannel(ht.Alice, chanPoint)
+	alice.RPC.UpdateNodeAnnouncementErr(nodeAnnReq)
 }
 
 // assertFeatureNotInSet checks that the features provided aren't contained in

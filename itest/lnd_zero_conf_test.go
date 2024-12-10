@@ -753,7 +753,7 @@ func testPrivateUpdateAlias(ht *lntest.HarnessTest,
 // testOptionScidUpgrade tests that toggling the option-scid-alias feature bit
 // correctly upgrades existing channels.
 func testOptionScidUpgrade(ht *lntest.HarnessTest) {
-	bob := ht.Bob
+	bob := ht.NewNodeWithCoins("Bob", nil)
 
 	// Start carol with anchors only.
 	carolArgs := []string{
@@ -854,9 +854,6 @@ func testOptionScidUpgrade(ht *lntest.HarnessTest) {
 
 	daveInvoice2 := dave.RPC.AddInvoice(daveParams)
 	ht.CompletePaymentRequests(bob, []string{daveInvoice2.PaymentRequest})
-
-	// Close standby node's channels.
-	ht.CloseChannel(bob, fundingPoint2)
 }
 
 // acceptChannel is used to accept a single channel that comes across. This

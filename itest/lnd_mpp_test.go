@@ -180,8 +180,8 @@ type mppTestScenario struct {
 //	    \              /
 //	     \__ Dave ____/
 func newMppTestScenario(ht *lntest.HarnessTest) *mppTestScenario {
-	alice, bob := ht.Alice, ht.Bob
-	ht.RestartNodeWithExtraArgs(bob, []string{
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", []string{
 		"--maxpendingchannels=2",
 		"--accept-amp",
 	})

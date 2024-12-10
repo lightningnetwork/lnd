@@ -122,11 +122,5 @@ func WithBuildInfo(ctx context.Context, cfg *LogConfig) (context.Context,
 		return nil, fmt.Errorf("unable to decode commit hash: %w", err)
 	}
 
-	// Include the first 3 bytes of the commit hash in the context as an
-	// slog attribute.
-	if len(commitHash) > 3 {
-		commitHash = commitHash[:3]
-	}
-
-	return btclog.WithCtx(ctx, btclog.Hex("rev", commitHash)), nil
+	return btclog.WithCtx(ctx, btclog.Hex3("rev", commitHash)), nil
 }

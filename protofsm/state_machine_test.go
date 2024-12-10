@@ -307,7 +307,7 @@ func TestStateMachineInternalEvents(t *testing.T) {
 
 	// For this transition, we'll send in the emitInternal event, which'll
 	// send us back to the starting event, but emit an internal event.
-	stateMachine.SendEvent(&emitInternal{})
+	stateMachine.SendEvent(ctx, &emitInternal{})
 
 	// We'll now also assert the path we took to get here to ensure the
 	// internal events were processed.
@@ -367,7 +367,7 @@ func TestStateMachineDaemonEvents(t *testing.T) {
 
 	// We'll start off by sending in the daemon event, which'll trigger the
 	// state machine to execute the series of daemon events.
-	stateMachine.SendEvent(&daemonEvents{})
+	stateMachine.SendEvent(ctx, &daemonEvents{})
 
 	// We should transition back to the starting state now, after we
 	// started from the very same state.
@@ -454,7 +454,8 @@ func TestStateMachineMsgMapper(t *testing.T) {
 
 	// Next, we'll attempt to send the wire message into the state machine.
 	// We should transition to the final state.
-	require.True(t, stateMachine.SendMessage(wireError))
+	require.True(t, stateMachine.SendMessage(ctx,
+		wireError))
 
 	// We should transition to the final state.
 	expectedStates := []State[dummyEvents, *dummyEnv]{

@@ -1297,6 +1297,7 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// First, we'll create two new nodes that we'll use to open channel
 	// between for this test.
 	carol := ht.NewNode("carol", nil)
+
 	// We'll attempt at max 2 pending channels, so Dave will need to accept
 	// two pending ones.
 	dave := ht.NewNode("dave", []string{
@@ -1375,9 +1376,6 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// Make sure Carol sees her to_remote output from the force close tx.
 	ht.AssertNumPendingSweeps(carol, 1)
 
-	// Mine one block to trigger the sweep transaction.
-	ht.MineEmptyBlocks(1)
-
 	// We need to wait for carol initiating the sweep of the to_remote
 	// output of chanPoint2.
 	utxo := ht.AssertNumUTXOsUnconfirmed(carol, 1)[0]
@@ -1434,9 +1432,6 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 
 	// Make sure Carol sees her to_remote output from the force close tx.
 	ht.AssertNumPendingSweeps(carol, 1)
-
-	// Mine one block to trigger the sweep transaction.
-	ht.MineEmptyBlocks(1)
 
 	// Wait for the to_remote sweep tx to show up in carol's wallet.
 	ht.AssertNumUTXOsUnconfirmed(carol, 1)

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/stretchr/testify/require"
 )
 

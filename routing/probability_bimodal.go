@@ -423,27 +423,31 @@ func cannotSend(failAmount, capacity lnwire.MilliSatoshi, now,
 // unbalanced channels, a very high scale assumes a random distribution. More
 // details can be found in
 // https://github.com/lightningnetwork/lnd/issues/5988#issuecomment-1131234858.
+// Additionally, we add a constant term 1/c to the distribution to avoid
+// normalization issues and to fall back to a uniform distribution should the
+// previous success and fail amounts contradict a bimodal distribution.
 func (p *BimodalEstimator) primitive(c, x float64) float64 {
 	s := float64(p.BimodalScaleMsat)
 
 	// The indefinite integral of P(x) is given by
-	// Int P(x) dx = H(x) = s * (-e(-x/s) + e((x-c)/s)),
+	// Int P(x) dx = H(x) = s * (-e(-x/s) + e((x-c)/s) + x/(c*s)),
 	// and its norm from 0 to c can be computed from it,
-	// norm = [H(x)]_0^c = s * (-e(-c/s) + 1 -(1 + e(-c/s))).
+	// norm = [H(x)]_0^c = s * (-e(-c/s) + 1 + 1/s -(1 + e(-c/s))) =
+	// = s * (-2*e(-c/s) + 2 + 1/s).
+	// The prefactors s are left out, as they cancel out in the end.
+	// norm can only become zero, if c is zero, which we sorted out before
+	// calling this method.
 	ecs := math.Exp(-c / s)
-	exs := math.Exp(-x / s)
+	norm := -2*ecs + 2 + 1/s
 
 	// It would be possible to split the next term and reuse the factors
 	// from before, but this can lead to numerical issues with large
 	// numbers.
 	excs := math.Exp((x - c) / s)
-
-	// norm can only become zero, if c is zero, which we sorted out before
-	// calling this method.
-	norm := -2*ecs + 2
+	exs := math.Exp(-x / s)
 
 	// We end up with the primitive function of the normalized P(x).
-	return (-exs + excs) / norm
+	return (-exs + excs + x/(c*s)) / norm
 }
 
 // integral computes the integral of our liquidity distribution from the lower
@@ -484,9 +488,9 @@ func (p *BimodalEstimator) probabilityFormula(capacityMsat, successAmountMsat,
 		return 0.0, nil
 	}
 
-	// Mission control may have some outdated values, we correct them here.
-	// TODO(bitromortac): there may be better decisions to make in these
-	//  cases, e.g., resetting failAmount=cap and successAmount=0.
+	// Mission control may have some outdated values with regard to the
+	// current channel capacity between a node pair, which is why we correct
+	// the values.
 
 	// failAmount should be capacity at max.
 	if failAmount > capacity {
@@ -504,21 +508,27 @@ func (p *BimodalEstimator) probabilityFormula(capacityMsat, successAmountMsat,
 		successAmount = capacity
 	}
 
-	// The next statement is a safety check against an illogical condition,
-	// otherwise the renormalization integral would become zero. This may
-	// happen if a large channel gets closed and smaller ones remain, but
-	// it should recover with the time decay.
+	// The next statement is a safety check against an illogical condition.
+	// We discard the knowledge for the channel in that case. Note that
+	// this condition should only happen due to the two corrections above,
+	// as mission control already enforces successAmount < failAmount.
 	if failAmount <= successAmount {
 		log.Tracef("fail amount (%v) is smaller than or equal the "+
 			"success amount (%v) for capacity (%v)",
 			failAmountMsat, successAmountMsat, capacityMsat)
 
-		return 0.0, nil
+		successAmount = 0
+		failAmount = capacity
 	}
 
 	// We cannot send more than the fail amount.
 	if amount >= failAmount {
 		return 0.0, nil
+	}
+
+	// We can send the amount if it is smaller than the success amount.
+	if amount <= successAmount {
+		return 1.0, nil
 	}
 
 	// The success probability for payment amount a is the integral over the

@@ -2268,7 +2268,7 @@ func (f *Manager) waitForPsbt(intent *chanfunding.PsbtIntent,
 	peerKey := resCtx.peer.IdentityKey()
 	failFlow := func(errMsg string, cause error) {
 		log.Errorf("Unable to handle funding accept message "+
-			"for peer_key=%x, pending_chan_id=%x: %s: %v",
+			"for peer_key=%x, pending_chan_id=%v: %s: %v",
 			peerKey.SerializeCompressed(), cid.tempChanID, errMsg,
 			cause)
 		f.failFundingFlow(resCtx.peer, cid, cause)
@@ -2344,7 +2344,7 @@ func (f *Manager) waitForPsbt(intent *chanfunding.PsbtIntent,
 	// survive a restart as it's in memory only.
 	case <-f.quit:
 		log.Errorf("Unable to handle funding accept message "+
-			"for peer_key=%x, pending_chan_id=%x: funding manager "+
+			"for peer_key=%x, pending_chan_id=%v: funding manager "+
 			"shutting down", peerKey.SerializeCompressed(),
 			cid.tempChanID)
 		return

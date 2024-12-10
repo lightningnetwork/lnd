@@ -918,6 +918,87 @@ func batchOpenChannel(ctx *cli.Context) error {
 	return nil
 }
 
+var cancelPsbtCommand = cli.Command{
+	Name:     "cancelPsbtFlow",
+	Category: "Channels",
+	Usage: "Cancels a specific PSBT funding flow identified by its " +
+		"pending channel ID",
+	Description: `
+When opening a channel with the PSBT funding flow, the user can cancel the
+funding flow at any time by sending an interrupt signal (Ctrl+C). This
+will lead to the funding intent lingering around for us and our peer. Moreover
+this prevents us from trying to open another channel because the peer has 
+likely a limit of pending channels in place.
+This command allows the user to cancel a specific PSBT funding flow. This will
+send also an error msg to the peer for this particular channel which will 
+trigger the peer to delete the pending channel intent.
+`,
+	ArgsUsage: "pending_chan_id",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "pending_chan_id",
+			Usage: "the corresponding pending channel ID of the " +
+				"PSBT funding flow to cancel",
+		},
+	},
+	Action: actionDecorator(cancelPsbtFlow),
+}
+
+// cancelPsbtFlow cancels a PSBT funding flow when aborted by the user.
+func cancelPsbtFlow(ctx *cli.Context) error {
+	ctxc := getContext()
+	args := ctx.Args()
+
+	var pendingChanID []byte
+	switch {
+	case ctx.IsSet("pending_chan_id"):
+		chanID, err := hex.DecodeString(ctx.String("pending_chan_id"))
+		if err != nil {
+			return fmt.Errorf("unable to decode pending chan id: "+
+				"%v", err)
+		}
+		pendingChanID = chanID
+
+	case args.Present():
+		chanID, err := hex.DecodeString(args.First())
+		if err != nil {
+			return fmt.Errorf("unable to decode pending chan id: "+
+				"%v", err)
+		}
+		args = args.Tail()
+		pendingChanID = chanID
+	default:
+		return fmt.Errorf("pending_chan_id argument missing")
+	}
+
+	if len(pendingChanID) != 32 {
+		return fmt.Errorf("invalid pending channel ID length: "+
+			"got %d, want 32", len(pendingChanID))
+	}
+
+	cancelMsg := &lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_ShimCancel{
+			ShimCancel: &lnrpc.FundingShimCancel{
+				PendingChanId: pendingChanID,
+			},
+		},
+	}
+
+	err := sendFundingState(ctxc, ctx, cancelMsg)
+	if err != nil {
+		return err
+	}
+
+	printJSON(struct {
+		Status string `json:"status"`
+	}{
+		Status: fmt.Sprintf("successfully canceled psbt opening: "+
+			"pendingChannelID(%x)", pendingChanID),
+	})
+
+	return nil
+}
+
 // printChanOpen prints the channel point of the channel open message.
 func printChanOpen(update *lnrpc.OpenStatusUpdate_ChanOpen) error {
 	channelPoint := update.ChanOpen.ChannelPoint

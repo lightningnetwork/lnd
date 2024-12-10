@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -60,6 +61,10 @@ type testHarness struct {
 	pendingTx     *wire.MsgTx
 
 	txPublished bool
+
+	// mu protects the harness state because we do the funding process
+	// concurrently.
+	mu sync.RWMutex
 }
 
 func newTestHarness(t *testing.T, failUpdate1, failUpdate2,
@@ -125,6 +130,9 @@ func (h *testHarness) parseRequest(
 func (h *testHarness) openChannel(
 	req *InitFundingMsg) (chan *lnrpc.OpenStatusUpdate, chan error) {
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	updateChan := make(chan *lnrpc.OpenStatusUpdate, 2)
 	errChan := make(chan error, 1)
 
@@ -164,6 +172,9 @@ func (h *testHarness) openChannel(
 }
 
 func (h *testHarness) abandonChannel(op *wire.OutPoint) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	h.abandonedChannels[*op] = struct{}{}
 
 	return nil
@@ -171,6 +182,9 @@ func (h *testHarness) abandonChannel(op *wire.OutPoint) error {
 
 func (h *testHarness) FundPsbt(context.Context,
 	*walletrpc.FundPsbtRequest) (*walletrpc.FundPsbtResponse, error) {
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
 	packet, err := psbt.NewFromUnsignedTx(h.pendingTx)
 	if err != nil {
@@ -199,6 +213,9 @@ func (h *testHarness) FinalizePsbt(context.Context,
 	*walletrpc.FinalizePsbtRequest) (*walletrpc.FinalizePsbtResponse,
 	error) {
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	var psbtBuf bytes.Buffer
 	if err := h.pendingPacket.Serialize(&psbtBuf); err != nil {
 		return nil, err
@@ -218,6 +235,9 @@ func (h *testHarness) FinalizePsbt(context.Context,
 func (h *testHarness) ReleaseOutput(_ context.Context,
 	r *walletrpc.ReleaseOutputRequest) (*walletrpc.ReleaseOutputResponse,
 	error) {
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
 	hash, err := chainhash.NewHash(r.Outpoint.TxidBytes)
 	if err != nil {
@@ -239,6 +259,9 @@ func (h *testHarness) PsbtFundingVerify([32]byte, *psbt.Packet, bool) error {
 
 func (h *testHarness) PsbtFundingFinalize(pid [32]byte, _ *psbt.Packet,
 	_ *wire.MsgTx) error {
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
 	// During the finalize phase we can now prepare the next update to send.
 	// For this we first need to find the intent that has the channels we
@@ -271,6 +294,9 @@ func (h *testHarness) PsbtFundingFinalize(pid [32]byte, _ *psbt.Packet,
 }
 
 func (h *testHarness) PublishTransaction(*wire.MsgTx, string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if h.failPublish {
 		return errFundingFailed
 	}
@@ -281,6 +307,9 @@ func (h *testHarness) PublishTransaction(*wire.MsgTx, string) error {
 }
 
 func (h *testHarness) CancelFundingIntent(pid [32]byte) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	h.intentsCanceled[pid] = struct{}{}
 
 	return nil
@@ -388,7 +417,7 @@ func TestBatchFund(t *testing.T) {
 				// If we fail on update 2 we do so on the second
 				// channel so one will be pending and one not
 				// yet.
-				require.Len(t, h.intentsCanceled, 1)
+				require.Len(t, h.intentsCanceled, 2)
 				require.Len(t, h.abandonedChannels, 1)
 				require.Contains(
 					t, h.abandonedChannels, wire.OutPoint{
@@ -402,7 +431,7 @@ func TestBatchFund(t *testing.T) {
 				require.Len(t, h.releasedUTXOs, 1)
 				require.Len(t, h.intentsCreated, 2)
 
-				require.Len(t, h.intentsCanceled, 0)
+				require.Len(t, h.intentsCanceled, 2)
 				require.Len(t, h.abandonedChannels, 2)
 				require.Contains(
 					t, h.abandonedChannels, wire.OutPoint{

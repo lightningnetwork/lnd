@@ -134,7 +134,7 @@ func (i *htlcResolverTestContext) resolve() {
 	// Start resolver.
 	i.resolverResultChan = make(chan resolveResult, 1)
 	go func() {
-		nextResolver, err := i.resolver.Resolve(false)
+		nextResolver, err := i.resolver.Resolve()
 		i.resolverResultChan <- resolveResult{
 			nextResolver: nextResolver,
 			err:          err,
@@ -435,10 +435,6 @@ func TestHtlcSuccessSecondStageResolutionSweeper(t *testing.T) {
 						SpenderInputIndex: 1,
 						SpendingHeight:    10,
 					}
-				}
-
-				ctx.notifier.EpochChan <- &chainntnfs.BlockEpoch{
-					Height: 13,
 				}
 
 				// We expect it to sweep the second-level

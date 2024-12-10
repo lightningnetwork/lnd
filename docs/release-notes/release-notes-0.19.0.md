@@ -60,7 +60,7 @@
 * [Make the contract resolutions for the channel arbitrator optional](
   https://github.com/lightningnetwork/lnd/pull/9253)
 
-  * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9322) that caused
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9322) that caused
     estimateroutefee to ignore the default payment timeout.
 
 # New Features
@@ -80,7 +80,7 @@
 ## RPC Additions
 
 * [Add a new rpc endpoint](https://github.com/lightningnetwork/lnd/pull/8843)
-  `BumpForceCloseFee` which moves the functionality soley available in the
+  `BumpForceCloseFee` which moves the functionality solely available in the
   `lncli` to LND hence making it more universal.
 
 * [The `walletrpc.FundPsbt` RPC method now has an option to specify the fee as

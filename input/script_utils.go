@@ -29,9 +29,9 @@ var (
 	SequenceLockTimeSeconds = uint32(1 << 22)
 )
 
-// mustParsePubKey parses a hex encoded public key string into a public key and
+// MustParsePubKey parses a hex encoded public key string into a public key and
 // panic if parsing fails.
-func mustParsePubKey(pubStr string) btcec.PublicKey {
+func MustParsePubKey(pubStr string) btcec.PublicKey {
 	pubBytes, err := hex.DecodeString(pubStr)
 	if err != nil {
 		panic(err)
@@ -55,7 +55,7 @@ var (
 	// https://github.com/lightninglabs/lightning-node-connect/tree/
 	// master/mailbox/numsgen, with the seed phrase "Lightning Simple
 	// Taproot".
-	TaprootNUMSKey = mustParsePubKey(TaprootNUMSHex)
+	TaprootNUMSKey = MustParsePubKey(TaprootNUMSHex)
 )
 
 // Signature is an interface for objects that can populate signatures during
